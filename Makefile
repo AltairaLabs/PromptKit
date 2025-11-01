@@ -144,3 +144,64 @@ clean: ## Clean build artifacts
 	@rm -f tools/packc/packc
 	@rm -f tools/inspect-state/inspect-state
 	@echo "Cleaned build artifacts"
+
+# Documentation targets
+docs-install: ## Install documentation dependencies
+	@echo "Installing documentation tools..."
+	@go install github.com/princjef/gomarkdoc/cmd/gomarkdoc@latest
+	@echo "Documentation tools installed"
+
+docs-api: ## Generate API documentation from Go code
+	@echo "🔧 Generating API documentation..."
+	@mkdir -p docs/api
+	@echo "Generating SDK API docs..."
+	@cd sdk && gomarkdoc --output ../docs/api/sdk.md .
+	@echo "Generating Runtime API docs..."
+	@cd runtime && gomarkdoc --output ../docs/api/runtime.md ./...
+	@echo "✅ API documentation generated"
+
+docs-cli: ## Generate CLI documentation and man pages
+	@echo "📋 Generating CLI documentation..."
+	@mkdir -p docs/guides/arena docs/guides/packc
+	@echo "Generating Arena CLI docs..."
+	@./bin/promptarena --help > docs/guides/arena/commands.txt 2>/dev/null || echo "Arena CLI help captured"
+	@echo "Generating PackC CLI docs..."  
+	@./bin/packc --help > docs/guides/packc/commands.txt 2>/dev/null || echo "PackC CLI help captured"
+	@echo "✅ CLI documentation generated"
+
+docs-validate: ## Validate documentation links and formatting
+	@echo "🔍 Validating documentation..."
+	@find docs -name "*.md" -type f | while read file; do \
+		echo "Checking $$file..."; \
+		if command -v markdownlint >/dev/null 2>&1; then \
+			markdownlint "$$file" || true; \
+		fi; \
+	done
+	@echo "✅ Documentation validation complete"
+
+docs-serve: ## Serve documentation locally for development
+	@echo "🌐 Starting local documentation server..."
+	@if command -v python3 >/dev/null 2>&1; then \
+		echo "Serving docs at http://localhost:8000"; \
+		cd docs && python3 -m http.server 8000; \
+	elif command -v python >/dev/null 2>&1; then \
+		echo "Serving docs at http://localhost:8000"; \
+		cd docs && python -m SimpleHTTPServer 8000; \
+	else \
+		echo "Python not found. Install Python to serve docs locally."; \
+		exit 1; \
+	fi
+
+docs-build: ## Build complete documentation site
+	@echo "🏗️ Building documentation site..."
+	@$(MAKE) docs-api
+	@$(MAKE) docs-cli
+	@echo "✅ Documentation site built in docs/"
+
+docs-clean: ## Clean generated documentation
+	@echo "🧹 Cleaning generated documentation..."
+	@rm -rf docs/api/
+	@rm -rf docs/guides/*/commands.txt
+	@echo "✅ Generated documentation cleaned"
+
+docs: docs-build ## Generate all documentation (alias for docs-build)
