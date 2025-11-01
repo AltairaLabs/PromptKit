@@ -1,0 +1,1160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f7fa;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .header .subtitle {
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        .summary {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        
+        .summary h2 {
+            color: #4a5568;
+            margin-bottom: 1.5rem;
+            font-size: 1.5rem;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+        }
+        
+        .stat-card {
+            text-align: center;
+            padding: 1.5rem;
+            border-radius: 8px;
+            background: #f8fafc;
+            border: 2px solid #e2e8f0;
+        }
+        
+        .stat-number {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #2d3748;
+            margin-bottom: 0.5rem;
+        }
+        
+        .stat-label {
+            color: #718096;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .matrix-section {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        
+        .matrix-section h2 {
+            color: #4a5568;
+            margin-bottom: 1.5rem;
+            font-size: 1.5rem;
+        }
+        
+        .scenario-group {
+            background: white;
+            border-radius: 12px;
+            padding: 0;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .scenario-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1.25rem 1.5rem;
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            transition: opacity 0.2s;
+        }
+        
+        .scenario-header:hover {
+            opacity: 0.9;
+        }
+        
+        .scenario-header .collapse-icon {
+            font-size: 1.2rem;
+            color: white;
+            transition: transform 0.2s;
+        }
+        
+        .scenario-group.collapsed .scenario-header .collapse-icon {
+            transform: rotate(-90deg);
+        }
+        
+        .scenario-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+        }
+        
+        .scenario-content {
+            padding: 1.5rem;
+            transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
+            overflow: hidden;
+        }
+        
+        .scenario-group.collapsed .scenario-content {
+            max-height: 0;
+            opacity: 0;
+            padding-top: 0;
+            padding-bottom: 0;
+        }
+        
+        .matrix-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+        
+        .matrix-table th,
+        .matrix-table td {
+            padding: 1rem;
+            text-align: center;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .matrix-table th {
+            background: #4a5568;
+            color: white;
+            font-weight: 600;
+        }
+        
+        .matrix-table th:first-child {
+            background: #2d3748;
+        }
+        
+        .matrix-cell {
+            min-height: 80px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 0.25rem;
+        }
+        
+        .matrix-cell.success {
+            background: linear-gradient(135deg, #48bb78, #38a169);
+            color: white;
+        }
+        
+        .matrix-cell.error {
+            background: linear-gradient(135deg, #f56565, #e53e3e);
+            color: white;
+        }
+        
+        .matrix-cell.empty {
+            background: #f7fafc;
+            color: #a0aec0;
+        }
+        
+        .scenario-count {
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+        
+        .success-rate {
+            font-size: 0.8rem;
+            opacity: 0.9;
+        }
+        
+        .cost-info {
+            font-size: 0.8rem;
+            opacity: 0.8;
+        }
+        
+        .results-section {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        
+        .results-section h2 {
+            color: #4a5568;
+            margin-bottom: 1.5rem;
+            font-size: 1.5rem;
+        }
+        
+        .result-card {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            overflow: hidden;
+        }
+        
+        .result-header {
+            padding: 1rem;
+            background: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+            transition: background-color 0.2s;
+        }
+        
+        .result-header:hover {
+            background: #f1f5f9;
+        }
+        
+        .result-header-left {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        
+        .collapse-icon {
+            font-size: 1.2rem;
+            color: #718096;
+            transition: transform 0.2s;
+        }
+        
+        .result-header.collapsed .collapse-icon {
+            transform: rotate(-90deg);
+        }
+        
+        .result-title {
+            font-weight: 600;
+            color: #2d3748;
+        }
+        
+        .result-content {
+            padding: 1rem;
+            transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
+            overflow: hidden;
+        }
+        
+        .result-card.collapsed .result-content {
+            max-height: 0;
+            opacity: 0;
+            padding-top: 0;
+            padding-bottom: 0;
+        }
+        
+        .matrix-cell {
+            min-height: 80px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 0.25rem;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        
+        .matrix-cell:hover {
+            opacity: 0.8;
+        }
+        
+        .result-status {
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        
+        .result-status.success {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+        
+        .result-status.error {
+            background: #fed7d7;
+            color: #742a2a;
+        }
+        
+        .result-content {
+            padding: 1rem;
+        }
+        
+        .conversation {
+            margin-bottom: 1rem;
+        }
+        
+        .turn {
+            margin-bottom: 1rem;
+            padding: 0.75rem;
+            border-radius: 6px;
+            position: relative;
+        }
+        
+        .turn.has-failures {
+            border: 2px solid #ef4444 !important;
+        }
+        
+        .turn.user {
+            background: #ebf8ff;
+            border-left: 4px solid #3182ce;
+        }
+        
+        .turn.assistant {
+            background: #f0fff4;
+            border-left: 4px solid #38a169;
+        }
+        
+        .turn.system {
+            background: #faf5ff;
+            border-left: 4px solid #805ad5;
+        }
+        
+        .turn.tool {
+            background: #fff5f0;
+            border-left: 4px solid #fd7f28;
+        }
+        
+        .turn-role {
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+            letter-spacing: 0.5px;
+        }
+        
+        .turn-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+        
+        .ai-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.75rem;
+            color: #6b7280;
+            font-weight: 500;
+        }
+        
+        .ai-icon {
+            font-size: 0.9rem;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .persona-name {
+            background: #f3f4f6;
+            padding: 0.125rem 0.5rem;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            color: #374151;
+        }
+        
+        .turn-content {
+            line-height: 1.5;
+        }
+        
+        .turn-content ol {
+            margin: 0.5rem 0;
+            padding-left: 1.5rem;
+        }
+        
+        .turn-content ul {
+            margin: 0.5rem 0;
+            padding-left: 1.5rem;
+        }
+        
+        .turn-content li {
+            margin: 0.25rem 0;
+        }
+        
+        .turn-content p {
+            margin: 0.5rem 0;
+        }
+        
+        .turn-content p:first-child {
+            margin-top: 0;
+        }
+        
+        .turn-content p:last-child {
+            margin-bottom: 0;
+        }
+        
+        .turn-content strong {
+            font-weight: 600;
+        }
+        
+        .turn-content em {
+            font-style: italic;
+        }
+        
+        .turn-content code {
+            background: #f1f5f9;
+            padding: 0.125rem 0.25rem;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        
+        .turn-content pre {
+            background: #f1f5f9;
+            padding: 0.75rem;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 0.5rem 0;
+        }
+        
+        .turn-content pre code {
+            background: none;
+            padding: 0;
+        }
+        
+        .tool-calls {
+            margin-top: 1rem;
+        }
+        
+        .tool-call {
+            background: #f7fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+        }
+        
+        .tool-call:last-child {
+            margin-bottom: 0;
+        }
+        
+        .tool-call-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.75rem;
+            font-size: 0.9rem;
+        }
+        
+        .tool-call-name {
+            background: #667eea;
+            color: white;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-weight: 600;
+            margin-right: 0.5rem;
+        }
+        
+        .tool-call-id {
+            color: #718096;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8rem;
+        }
+        
+        .tool-call-args {
+            background: #f1f5f9;
+            border: 1px solid #cbd5e0;
+            border-radius: 4px;
+            padding: 0.75rem;
+        }
+        
+        .tool-call-args-label {
+            font-size: 0.8rem;
+            color: #4a5568;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+        
+        .json-content {
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            white-space: pre-wrap;
+            color: #2d3748;
+            line-height: 1.4;
+        }
+        
+        .tool-response {
+            background: #f7fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            padding: 0.75rem;
+        }
+        
+        .tool-response-label {
+            font-size: 0.8rem;
+            color: #4a5568;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+        
+        .raw-request-content {
+            display: none;
+            margin-top: 0.75rem;
+        }
+        
+        .raw-request-content.expanded {
+            display: block;
+        }
+        
+        .turn-error {
+            background: #fed7d7;
+            border: 1px solid #fc8181;
+            border-radius: 6px;
+            padding: 0.75rem;
+            margin: 0.5rem 0;
+            display: flex;
+            align-items: flex-start;
+            gap: 0.5rem;
+        }
+        
+        .error-icon {
+            font-size: 1.2rem;
+            flex-shrink: 0;
+        }
+        
+        .error-details {
+            flex: 1;
+        }
+        
+        .error-type {
+            font-weight: 600;
+            color: #c53030;
+            font-size: 0.9rem;
+            margin-bottom: 0.25rem;
+        }
+        
+        .error-message {
+            color: #742a2a;
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+        
+        .metadata {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid #e2e8f0;
+        }
+        
+        .meta-item {
+            text-align: center;
+        }
+        
+        .meta-label {
+            font-size: 0.8rem;
+            color: #718096;
+            margin-bottom: 0.25rem;
+        }
+        
+        .meta-value {
+            font-weight: 600;
+            color: #2d3748;
+        }
+        
+        .error-message {
+            background: #fed7d7;
+            color: #742a2a;
+            padding: 1rem;
+            border-radius: 6px;
+            margin-top: 1rem;
+        }
+        
+        .validations-section {
+            display: none;
+            margin-top: 0.75rem;
+            padding: 0.75rem;
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+        }
+        
+        .validations-section.expanded {
+            display: block;
+        }
+        
+        .validations-header {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 0.5rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .validation-item {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .validation-item:last-child {
+            margin-bottom: 0;
+        }
+        
+        .validation-item.passed {
+            border-left: 4px solid #10b981;
+            background: #f0fdf4;
+        }
+        
+        .validation-item.failed {
+            border-left: 4px solid #ef4444;
+            background: #fef2f2;
+        }
+        
+        .validation-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+        }
+        
+        .validation-type {
+            font-weight: 600;
+            font-size: 0.85rem;
+            color: #374151;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .validation-status {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        
+        .validation-status.passed {
+            color: #059669;
+        }
+        
+        .validation-status.failed {
+            color: #dc2626;
+        }
+        
+        .validation-icon {
+            font-size: 1rem;
+        }
+        
+        .validation-details {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 4px;
+            padding: 0.5rem;
+            margin-top: 0.5rem;
+        }
+        
+        .validation-details-label {
+            font-size: 0.75rem;
+            color: #6b7280;
+            margin-bottom: 0.25rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .validation-details-content {
+            font-size: 0.8rem;
+            color: #374151;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+        }
+        
+        .turn-metrics-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            background: #e0e7ff;
+            border: 1px solid #a5b4fc;
+            border-radius: 4px;
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+            color: #3730a3;
+            font-weight: 500;
+        }
+        
+        .validation-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.15rem;
+            cursor: pointer;
+            padding: 0.15rem 0.35rem;
+            border-radius: 3px;
+            font-size: 0.7rem;
+            transition: background 0.2s;
+        }
+        
+        .validation-badge:hover {
+            opacity: 0.8;
+        }
+        
+        .validation-badge.passed {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        
+        .validation-badge.failed {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        
+        .badge-icon {
+            font-size: 0.85rem;
+        }
+        
+        .badge-label {
+            font-size: 0.65rem;
+            font-weight: 600;
+        }
+        
+        /* Validation UI Styles - Deprecated (kept for backwards compatibility) */
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>{{.Title}}</h1>
+        <div class="subtitle">Generated on {{.GeneratedAt.Format "January 2, 2006 at 3:04 PM"}}</div>
+    </div>
+    
+    <div class="container">
+        <div class="summary">
+            <h2>Summary</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-number">{{.Summary.TotalRuns}}</div>
+                    <div class="stat-label">Total Runs</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">{{formatPercent .Summary.SuccessfulRuns .Summary.TotalRuns}}</div>
+                    <div class="stat-label">Success Rate</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">{{formatCost .Summary.TotalCost}}</div>
+                    <div class="stat-label">Total Cost</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">{{.Summary.TotalTokens}}</div>
+                    <div class="stat-label">Total Tokens</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">{{.Summary.AvgLatency}}</div>
+                    <div class="stat-label">Avg Latency</div>
+                </div>
+            </div>
+        </div>
+        
+        {{range $scenarioIdx, $scenarioGroup := .ScenarioGroups}}
+        <div class="scenario-group" id="scenario-{{$scenarioGroup.ScenarioID}}">
+            <div class="scenario-header" onclick="toggleScenario('scenario-{{$scenarioGroup.ScenarioID}}')">
+                <span class="collapse-icon">▼</span>
+                <div class="scenario-title">{{$scenarioGroup.ScenarioID}}</div>
+            </div>
+            <div class="scenario-content">
+                <div class="matrix-section" style="box-shadow: none; margin-bottom: 1rem;">
+                    <h3 style="font-size: 1.1rem; margin-bottom: 1rem; color: #4a5568;">Provider × Region Matrix</h3>
+                    <table class="matrix-table">
+                        <thead>
+                            <tr>
+                                <th>Provider / Region</th>
+                                {{range $scenarioGroup.Regions}}
+                                <th>{{.}}</th>
+                                {{end}}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{range $i, $providerRow := $scenarioGroup.Matrix}}
+                            <tr>
+                                <th>{{index $scenarioGroup.Providers $i}}</th>
+                                {{range $providerRow}}
+                                <td>
+                                    <div class="matrix-cell {{statusClass .Successful .Errors}}" onclick="scrollToResult('{{.Provider}}', '{{.Region}}', '{{$scenarioGroup.ScenarioID}}')">
+                                        <div class="scenario-count">{{if gt .Scenarios 0}}✓{{else}}-{{end}}</div>
+                                        {{if gt .Scenarios 0}}
+                                        {{if gt .Errors 0}}
+                                        <div class="success-rate">Failed</div>
+                                        {{else}}
+                                        <div class="success-rate">Success</div>
+                                        {{end}}
+                                        <div class="cost-info">{{formatCost .Cost}}</div>
+                                        {{else}}
+                                        <div class="success-rate">No runs</div>
+                                        {{end}}
+                                    </div>
+                                </td>
+                                {{end}}
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="results-section" style="box-shadow: none; padding: 0;">
+                    <h3 style="font-size: 1.1rem; margin-bottom: 1rem; color: #4a5568;">Results</h3>
+                    {{range $resultIdx, $result := $scenarioGroup.Results}}
+                    <div class="result-card" id="result-{{$result.ProviderID}}-{{$result.Region}}-{{$result.ScenarioID}}">
+                        <div class="result-header" onclick="toggleResult('result-{{$result.ProviderID}}-{{$result.Region}}-{{$result.ScenarioID}}')">
+                            <div class="result-header-left">
+                                <span class="collapse-icon">▼</span>
+                                <div class="result-title">{{$result.ProviderID}} - {{$result.Region}}</div>
+                            </div>
+                            <div class="result-status {{if $result.Error}}error{{else}}success{{end}}">
+                                {{if $result.Error}}Error{{else}}Success{{end}}
+                            </div>
+                        </div>
+                        <div class="result-content">
+                            <div class="conversation">
+                                {{range $msgIdx, $msg := $result.Messages}}
+                                {{$assertions := getAssertions $msg.Meta}}
+                                {{$validators := getValidators $msg.Meta}}
+                                {{$hasAssertions := hasAssertions $msg.Meta}}
+                                {{$hasValidators := hasValidators $msg.Meta}}
+                                {{$hasRawRequest := false}}
+                                {{if $msg.Meta}}
+                                    {{$metaMap := $msg.Meta}}
+                                    {{if $metaMap}}
+                                        {{if index $metaMap "_llm_raw_request"}}
+                                            {{$hasRawRequest = true}}
+                                        {{end}}
+                                    {{end}}
+                                {{end}}
+                                {{$assertionsFailed := not (assertionsPassed $assertions)}}
+                                {{$validatorsFailed := not (validatorsPassed $validators)}}
+                                {{$hasFailed := or $assertionsFailed $validatorsFailed}}
+                                <div class="turn {{$msg.Role}}{{if $hasFailed}} has-failures{{end}}">
+                                    <div class="turn-header">
+                                        <div class="turn-role">{{$msg.Role}}</div>
+                                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                            {{if or $msg.LatencyMs $msg.CostInfo $hasRawRequest}}
+                                            <span class="turn-metrics-badge" title="Turn {{add $msgIdx 1}} metrics">
+                                                {{if $msg.LatencyMs}}⏱️ {{$msg.LatencyMs}}ms{{end}}
+                                                {{if $msg.CostInfo}}
+                                                {{if $msg.LatencyMs}} | {{end}}🎯 {{$msg.CostInfo.InputTokens}}→{{$msg.CostInfo.OutputTokens}} | 💰 {{formatCost $msg.CostInfo.TotalCost}}
+                                                {{end}}
+                                                {{if $hasRawRequest}}
+                                                {{if or $msg.LatencyMs $msg.CostInfo}} | {{end}}<span style="cursor: pointer;" onclick="toggleRawRequest('{{$result.RunID}}-{{$msgIdx}}')" title="Click to view raw LLM request">🐛</span>
+                                                {{end}}
+                                            </span>
+                                            {{end}}
+                                            {{if $hasAssertions}}
+                                            <span class="validation-badge {{if assertionsPassed $assertions}}passed{{else}}failed{{end}}" 
+                                                  onclick="toggleValidations('assertions-{{$result.RunID}}-{{$msgIdx}}')" 
+                                                  title="Click to {{if assertionsPassed $assertions}}view{{else}}review{{end}} assertions">
+                                                <span class="badge-icon">{{if assertionsPassed $assertions}}✓{{else}}✗{{end}}</span>
+                                                <span class="badge-label">A</span>
+                                            </span>
+                                            {{end}}
+                                            {{if $hasValidators}}
+                                            <span class="validation-badge {{if validatorsPassed $validators}}passed{{else}}failed{{end}}" 
+                                                  onclick="toggleValidations('validators-{{$result.RunID}}-{{$msgIdx}}')" 
+                                                  title="Click to {{if validatorsPassed $validators}}view{{else}}review{{end}} validators">
+                                                <span class="badge-icon">{{if validatorsPassed $validators}}✓{{else}}✗{{end}}</span>
+                                                <span class="badge-label">V</span>
+                                            </span>
+                                            {{end}}
+                                        </div>
+                                    </div>
+                                    
+                                    {{if $hasAssertions}}
+                                    <div class="validations-section" id="assertions-{{$result.RunID}}-{{$msgIdx}}">
+                                        <div class="validations-header">Assertions</div>
+                                        {{range $name, $assertion := $assertions}}
+                                        <div class="validation-item {{if getOK $assertion}}passed{{else}}failed{{end}}">
+                                            <div class="validation-header">
+                                                <div class="validation-type">{{$name}}</div>
+                                                <div class="validation-status {{if getOK $assertion}}passed{{else}}failed{{end}}">
+                                                    <span class="validation-icon">{{if getOK $assertion}}✓{{else}}✗{{end}}</span>
+                                                    {{if getOK $assertion}}Passed{{else}}Failed{{end}}
+                                                </div>
+                                            </div>
+                                            {{$details := getDetails $assertion}}
+                                            {{if $details}}
+                                            <div class="validation-details">
+                                                <div class="validation-details-label">Details</div>
+                                                <div class="validation-details-content">{{prettyJSON $details}}</div>
+                                            </div>
+                                            {{end}}
+                                        </div>
+                                        {{end}}
+                                    </div>
+                                    {{end}}
+                                    
+                                    {{if $hasValidators}}
+                                    <div class="validations-section" id="validators-{{$result.RunID}}-{{$msgIdx}}">
+                                        <div class="validations-header">Validators</div>
+                                        {{range $name, $validator := $validators}}
+                                        <div class="validation-item {{if getOK $validator}}passed{{else}}failed{{end}}">
+                                            <div class="validation-header">
+                                                <div class="validation-type">{{$name}}</div>
+                                                <div class="validation-status {{if getOK $validator}}passed{{else}}failed{{end}}">
+                                                    <span class="validation-icon">{{if getOK $validator}}✓{{else}}✗{{end}}</span>
+                                                    {{if getOK $validator}}Passed{{else}}Failed{{end}}
+                                                </div>
+                                            </div>
+                                            {{$details := getDetails $validator}}
+                                            {{if $details}}
+                                            <div class="validation-details">
+                                                <div class="validation-details-label">Details</div>
+                                                <div class="validation-details-content">{{prettyJSON $details}}</div>
+                                            </div>
+                                            {{end}}
+                                        </div>
+                                        {{end}}
+                                    </div>
+                                    {{end}}
+                                    
+                                    {{if ne $msg.Role "tool"}}
+                                    <div class="turn-content">{{if $msg.Content}}{{renderMarkdown $msg.Content}}{{end}}</div>
+                                    {{end}}
+                                    {{if $msg.ToolCalls}}
+                                    <div class="tool-calls">
+                                        {{range $msg.ToolCalls}}
+                                        <div class="tool-call">
+                                            <div class="tool-call-header">
+                                                <span class="tool-call-name">{{.Name}}</span>
+                                                <span class="tool-call-id">{{.ID}}</span>
+                                            </div>
+                                            {{if .Args}}
+                                            <div class="tool-call-args">
+                                                <div class="tool-call-args-label">Arguments:</div>
+                                                <div class="json-content">{{prettyJSON .Args}}</div>
+                                            </div>
+                                            {{end}}
+                                        </div>
+                                        {{end}}
+                                    </div>
+                                    {{end}}
+                                    {{if $hasRawRequest}}
+                                    <div class="raw-request-content" id="raw-{{$result.RunID}}-{{$msgIdx}}">
+                                        <div class="tool-call">
+                                            <div class="tool-call-header">
+                                                <span class="tool-call-name">Raw LLM Request</span>
+                                            </div>
+                                            <div class="tool-call-args">
+                                                <div class="tool-call-args-label">Request Data:</div>
+                                                <div class="json-content">{{prettyJSON (index $msg.Meta "_llm_raw_request")}}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {{end}}
+                                    {{if eq $msg.Role "tool"}}
+                                    <div class="tool-response">
+                                        <div class="tool-response-label">Response:</div>
+                                        <div class="json-content">{{prettyJSON $msg.Content}}</div>
+                                    </div>
+                                    {{if $msg.ToolResult}}
+                                    {{if $msg.ToolResult.Error}}
+                                    <div class="turn-error">
+                                        <div class="error-icon">⚠️</div>
+                                        <div class="error-details">
+                                            <div class="error-type">Tool Execution Failed</div>
+                                            <div class="error-message">{{$msg.ToolResult.Error}}</div>
+                                        </div>
+                                    </div>
+                                    {{end}}
+                                    {{end}}
+                                    {{end}}
+                                </div>
+                                {{end}}
+                            </div>
+                            
+                            <div class="metadata">
+                                <div class="meta-item">
+                                    <div class="meta-label">Provider</div>
+                                    <div class="meta-value">{{$result.ProviderID}}</div>
+                                </div>
+                                <div class="meta-item">
+                                    <div class="meta-label">Region</div>
+                                    <div class="meta-value">{{$result.Region}}</div>
+                                </div>
+                                <div class="meta-item">
+                                    <div class="meta-label">Duration</div>
+                                    <div class="meta-value">{{formatDuration $result.Duration}}</div>
+                                </div>
+                                <div class="meta-item">
+                                    <div class="meta-label">Total Cost</div>
+                                    <div class="meta-value">{{formatCost $result.Cost.TotalCost}}</div>
+                                </div>
+                                <div class="meta-item">
+                                    <div class="meta-label">Tokens</div>
+                                    <div class="meta-value">{{$result.Cost.InputTokens}}+{{$result.Cost.OutputTokens}}</div>
+                                </div>
+                            </div>
+                            
+                            {{if $result.Error}}
+                            <div class="error-message">
+                                <strong>Error:</strong> {{$result.Error}}
+                            </div>
+                            {{end}}
+                        </div>
+                    </div>
+                    {{end}}
+                </div>
+            </div>
+        </div>
+        {{end}}
+        
+        <!-- Legacy matrix (deprecated) -->
+        <div class="matrix-section" style="display: none;">
+            <h2>Provider × Region Matrix (Legacy)</h2>
+            <table class="matrix-table">
+                <thead>
+                    <tr>
+                        <th>Provider / Region</th>
+                        {{range .Regions}}
+                        <th>{{.}}</th>
+                        {{end}}
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range $i, $providerRow := .Matrix}}
+                    <tr>
+                        <th>{{index $.Providers $i}}</th>
+                        {{range $providerRow}}
+                        <td>
+                            <div class="matrix-cell {{statusClass .Successful .Errors}}">
+                                <div class="scenario-count">{{.Scenarios}}</div>
+                                {{if gt .Scenarios 0}}
+                                <div class="success-rate">{{formatPercent .Successful .Scenarios}} success</div>
+                                <div class="cost-info">{{formatCost .Cost}}</div>
+                                {{else}}
+                                <div class="success-rate">No runs</div>
+                                {{end}}
+                            </div>
+                        </td>
+                        {{end}}
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="results-section" style="display: none;">
+            <h2>Individual Results (Legacy)</h2>
+            <h2>Individual Results (Legacy)</h2>
+            {{range $resultIdx, $result := .Results}}
+            <div class="result-card" id="legacy-{{$result.ProviderID}}-{{$result.Region}}-{{$result.ScenarioID}}">
+                <div class="result-header" onclick="toggleResult('legacy-{{$result.ProviderID}}-{{$result.Region}}-{{$result.ScenarioID}}')">
+                    <div class="result-header-left">
+                        <span class="collapse-icon">▼</span>
+                        <div class="result-title">{{$result.RunID}}</div>
+                    </div>
+                    <div class="result-status {{if $result.Error}}error{{else}}success{{end}}">
+                        {{if $result.Error}}Error{{else}}Success{{end}}
+                    </div>
+                </div>
+            </div>
+            {{end}}
+        </div>
+    </div>
+
+    <script>
+        function toggleScenario(scenarioId) {
+            const group = document.getElementById(scenarioId);
+            group.classList.toggle('collapsed');
+        }
+        
+        function toggleResult(resultId) {
+            const card = document.getElementById(resultId);
+            const header = card.querySelector('.result-header');
+            
+            card.classList.toggle('collapsed');
+            header.classList.toggle('collapsed');
+        }
+
+        function toggleRawRequest(turnId) {
+            const content = document.getElementById('raw-' + turnId);
+            if (content) {
+                content.classList.toggle('expanded');
+            }
+        }
+
+        function toggleValidations(validationId) {
+            const section = document.getElementById(validationId);
+            if (section) {
+                section.classList.toggle('expanded');
+            }
+        }
+
+        function scrollToResult(provider, region, scenario) {
+            const resultId = 'result-' + provider + '-' + region + '-' + scenario;
+            const result = document.getElementById(resultId);
+            if (result) {
+                result.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                // Expand if collapsed
+                if (result.classList.contains('collapsed')) {
+                    toggleResult(resultId);
+                }
+                // Highlight briefly
+                result.style.boxShadow = '0 0 20px rgba(102, 126, 234, 0.5)';
+                setTimeout(() => {
+                    result.style.boxShadow = '';
+                }, 2000);
+            }
+        }
+
+        function scrollToProvider(provider, region) {
+            // Find the result that matches this provider and region
+            const results = document.querySelectorAll('.result-card');
+            for (const result of results) {
+                const id = result.id;
+                if (id.startsWith(provider + '-' + region + '-')) {
+                    result.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    // Expand if collapsed
+                    if (result.classList.contains('collapsed')) {
+                        toggleResult(id);
+                    }
+                    // Highlight briefly
+                    result.style.boxShadow = '0 0 20px rgba(102, 126, 234, 0.5)';
+                    setTimeout(() => {
+                        result.style.boxShadow = '';
+                    }, 2000);
+                    break;
+                }
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,88 @@
+package engine
+
+import (
+	"context"
+
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/config"
+)
+
+// ConversationExecutor orchestrates full conversation flows
+type ConversationExecutor interface {
+	// ExecuteConversation runs a complete conversation based on scenario
+	ExecuteConversation(ctx context.Context, req ConversationRequest) *ConversationResult
+
+	// ExecuteConversationStream runs a conversation with streaming
+	ExecuteConversationStream(ctx context.Context, req ConversationRequest) (<-chan ConversationStreamChunk, error)
+}
+
+// ConversationStreamChunk represents a streaming chunk during conversation execution
+type ConversationStreamChunk struct {
+	// Current turn number (0-indexed)
+	TurnIndex int
+
+	// Delta content from this specific chunk
+	Delta string
+
+	// Token count (accumulated for current turn)
+	TokenCount int
+
+	// Finish reason for current turn (only in last chunk of turn)
+	FinishReason *string
+
+	// Complete conversation result (accumulated, updated with each chunk)
+	Result *ConversationResult
+
+	// Error if streaming failed
+	Error error
+
+	// Metadata
+	Metadata map[string]interface{}
+}
+
+// ConversationRequest contains all data needed for conversation execution.
+// Using a request object makes the API extensible without breaking changes.
+type ConversationRequest struct {
+	// Required fields
+	Provider providers.Provider
+	Scenario *config.Scenario
+	Config   *config.Config
+	Region   string
+
+	// Optional overrides (for future use)
+	Temperature *float64 // Override scenario temperature
+	MaxTokens   *int     // Override scenario max tokens
+	Timeout     *int     // Timeout in seconds
+
+	// For distributed execution and tracing (v0.2.0+)
+	RunID    string            // Unique identifier for this run
+	Metadata map[string]string // Additional metadata for debugging/tracing
+
+	// State management
+	StateStoreConfig *StateStoreConfig // Optional state store configuration
+	ConversationID   string            // Conversation identifier for state persistence
+}
+
+// StateStoreConfig wraps the pipeline StateStore configuration for Arena
+type StateStoreConfig struct {
+	Store    interface{}            // State store implementation (statestore.Store)
+	UserID   string                 // User identifier (optional)
+	Metadata map[string]interface{} // Additional metadata to store (optional)
+}
+
+// ConversationResult contains the outcome of conversation execution
+type ConversationResult struct {
+	Messages   []types.Message         // Flat list of all messages in the conversation
+	Cost       types.CostInfo          // Total cost across all messages
+	ToolStats  *types.ToolStats        // Tool usage statistics
+	Violations []types.ValidationError // Validation errors
+
+	// Self-play metadata
+	SelfPlay  bool   `json:"self_play,omitempty"`
+	PersonaID string `json:"persona_id,omitempty"`
+
+	// Error handling
+	Error  string `json:"error,omitempty"`  // Error message if execution failed
+	Failed bool   `json:"failed,omitempty"` // Whether execution failed (but partial results may be available)
+}
