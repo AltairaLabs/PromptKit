@@ -1,6 +1,6 @@
 module github.com/AltairaLabs/PromptKit/runtime
 
-go 1.23
+go 1.24.0
 
 require (
 	github.com/Masterminds/semver/v3 v3.4.0

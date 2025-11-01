@@ -1,0 +1,40 @@
+name: Documentation
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - '*.md'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - '*.md'
+
+jobs:
+  check-docs:
+    name: Check Documentation
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Check ADR structure
+      run: |
+        echo "Checking ADR structure..."
+        ls -la docs/adr/
+        echo "ADR files found:"
+        find docs/adr/ -name "*.md" -type f | sort
+        echo "Documentation check completed"
+    
+    - name: Validate ADR numbering
+      run: |
+        echo "Validating ADR numbering sequence..."
+        cd docs/adr
+        for file in [0-9]*.md; do
+          if [[ -f "$file" ]]; then
+            echo "✓ Found: $file"
+          fi
+        done

@@ -1,6 +1,6 @@
 module github.com/AltairaLabs/PromptKit/examples/hitl-approval
 
-go 1.23
+go 1.24.0
 
 replace github.com/AltairaLabs/PromptKit/runtime => ../../runtime
 

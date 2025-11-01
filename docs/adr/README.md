@@ -4,10 +4,11 @@ This directory contains the Architecture Decision Records (ADRs) for the PromptK
 
 ## Active ADRs
 
-### ADR-001: Monorepo Structure
+### ADR-001: Monorepo Structure for Tools and SDK
+
 **Status**: Accepted  
-**Date**: Original repository  
-**Summary**: Decision to use monorepo structure for PromptKit development.
+**Date**: 2025-11-01  
+**Summary**: Decision to use monorepo with Go workspaces for optimal code sharing, independent builds, and manageable complexity.
 
 ### ADR-002: Repository Migration and Multi-Module Architecture  
 **Status**: Accepted  

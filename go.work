@@ -1,11 +1,11 @@
-go 1.23
+go 1.24.0
 
 use (
-        ./pkg
-        ./runtime
-        ./sdk
-        ./tools/inspect-state
-        ./tools/arena
-        ./tools/packc
-        ./examples/hitl-approval
+	./examples/hitl-approval
+	./pkg
+	./runtime
+	./sdk
+	./tools/arena
+	./tools/inspect-state
+	./tools/packc
 )
