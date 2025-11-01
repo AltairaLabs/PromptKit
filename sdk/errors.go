@@ -8,7 +8,7 @@ import (
 // Common error types for better error handling
 var (
 	ErrPackNotFound     = errors.New("pack not found")
-	ErrPromptNotFound   = errors.New("prompt not found") 
+	ErrPromptNotFound   = errors.New("prompt not found")
 	ErrInvalidConfig    = errors.New("invalid configuration")
 	ErrProviderFailed   = errors.New("provider request failed")
 	ErrValidationFailed = errors.New("validation failed")

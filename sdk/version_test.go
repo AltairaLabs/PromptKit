@@ -48,7 +48,7 @@ func TestValidateSemanticVersion(t *testing.T) {
 			version: "1.0.0-beta.1",
 			wantErr: false,
 		},
-		
+
 		// Invalid versions
 		{
 			name:    "invalid - incomplete version (two parts)",
