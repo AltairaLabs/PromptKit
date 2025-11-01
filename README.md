@@ -2,14 +2,14 @@
 
 <!-- Build & Quality Badges -->
 [![CI](https://github.com/AltairaLabs/PromptKit/workflows/CI/badge.svg)](https://github.com/AltairaLabs/PromptKit/actions/workflows/ci.yml)
-[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=AltairaLabs_promptkit-public&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=AltairaLabs_promptkit-public)
-[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=AltairaLabs_promptkit-public&metric=coverage)](https://sonarcloud.io/summary/new_code?id=AltairaLabs_promptkit-public)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=AltairaLabs_PromptKit&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=AltairaLabs_PromptKit)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=AltairaLabs_PromptKit&metric=coverage)](https://sonarcloud.io/summary/new_code?id=AltairaLabs_PromptKit)
 [![Go Report Card](https://goreportcard.com/badge/github.com/AltairaLabs/PromptKit)](https://goreportcard.com/report/github.com/AltairaLabs/PromptKit)
 
 <!-- Security & Compliance Badges -->
-[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=AltairaLabs_promptkit-public&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=AltairaLabs_promptkit-public)
-[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=AltairaLabs_promptkit-public&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=AltairaLabs_promptkit-public)
-[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=AltairaLabs_promptkit-public&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=AltairaLabs_promptkit-public)
+[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=AltairaLabs_PromptKit&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=AltairaLabs_PromptKit)
+[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=AltairaLabs_PromptKit&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=AltairaLabs_PromptKit)
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=AltairaLabs_PromptKit&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=AltairaLabs_PromptKit)
 
 
 <!-- Version & Distribution Badges -->
