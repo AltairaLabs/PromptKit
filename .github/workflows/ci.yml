@@ -51,6 +51,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Shallow clones should be disabled for better relevancy of analysis
     
     - name: Set up Go
       uses: actions/setup-go@v5
@@ -59,6 +61,14 @@ jobs:
     
     - name: Generate coverage
       run: make coverage
+    
+    - name: Verify coverage file
+      run: |
+        echo "Checking for coverage files..."
+        ls -la *.out 2>/dev/null || echo "No .out files in root"
+        ls -la coverage.out 2>/dev/null || echo "coverage.out not found"
+        echo "Coverage file size:"
+        wc -l coverage.out 2>/dev/null || echo "Cannot read coverage.out"
     
     - name: SonarCloud Scan
       uses: SonarSource/sonarqube-scan-action@0303d6b62e310685c0e34d0b9cde218036885c4d # v5.0.0

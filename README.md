@@ -2,15 +2,17 @@
 
 <!-- Build & Quality Badges -->
 [![CI](https://github.com/AltairaLabs/PromptKit/workflows/CI/badge.svg)](https://github.com/AltairaLabs/PromptKit/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/AltairaLabs/PromptKit/branch/main/graph/badge.svg)](https://codecov.io/gh/AltairaLabs/PromptKit)
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=AltairaLabs_promptkit-public&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=AltairaLabs_promptkit-public)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=AltairaLabs_promptkit-public&metric=coverage)](https://sonarcloud.io/summary/new_code?id=AltairaLabs_promptkit-public)
 [![Go Report Card](https://goreportcard.com/badge/github.com/AltairaLabs/PromptKit)](https://goreportcard.com/report/github.com/AltairaLabs/PromptKit)
 
 <!-- Security & Compliance Badges -->
-[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/AltairaLabs/PromptKit/badge)](https://api.securityscorecards.dev/projects/github.com/AltairaLabs/PromptKit)
+[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=AltairaLabs_promptkit-public&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=AltairaLabs_promptkit-public)
+[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=AltairaLabs_promptkit-public&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=AltairaLabs_promptkit-public)
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=AltairaLabs_promptkit-public&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=AltairaLabs_promptkit-public)
+
 
 <!-- Version & Distribution Badges -->
-[![Release](https://img.shields.io/github/release/AltairaLabs/PromptKit.svg)](https://github.com/AltairaLabs/PromptKit/releases)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/AltairaLabs/PromptKit)](https://golang.org/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/AltairaLabs/PromptKit.svg)](https://pkg.go.dev/github.com/AltairaLabs/PromptKit)
 
