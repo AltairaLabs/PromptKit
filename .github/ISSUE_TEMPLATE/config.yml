@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📋 GitHub Discussions
+    url: https://github.com/AltairaLabs/PromptKit/discussions
+    about: Ask questions and discuss ideas with the community
+  - name: 💬 General Questions
+    url: https://github.com/AltairaLabs/PromptKit/discussions/categories/q-a
+    about: Get help with using PromptKit
+  - name: 🚀 Feature Ideas
+    url: https://github.com/AltairaLabs/PromptKit/discussions/categories/ideas
+    about: Share ideas for new features (before creating feature requests)
+  - name: 🔒 Security Issues
+    url: mailto:security@altairalabs.ai
+    about: Report security vulnerabilities (please do not create public issues)

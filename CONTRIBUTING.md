@@ -1,10 +1,32 @@
 # Contributing to PromptKit
 
-Thank you for your interest in contributing to PromptKit! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to PromptKit! This document provides comprehensive guidelines and instructions for contributing to our open source project.
 
 ## Code of Conduct
 
-Be respectful, inclusive, and constructive in all interactions.
+This project adheres to the [Contributor Covenant Code of Conduct](./CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code. Please report unacceptable behavior to [conduct@altairalabs.ai](mailto:conduct@altairalabs.ai).
+
+## Developer Certificate of Origin (DCO)
+
+This project uses the Developer Certificate of Origin (DCO) to ensure that contributors have the right to submit their contributions. By making a contribution to this project, you certify that:
+
+1. The contribution was created in whole or in part by you and you have the right to submit it under the open source license indicated in the file; or
+2. The contribution is based upon previous work that, to the best of your knowledge, is covered under an appropriate open source license and you have the right under that license to submit that work with modifications, whether created in whole or in part by you, under the same open source license (unless you are permitted to submit under a different license), as indicated in the file; or
+3. The contribution was provided directly to you by some other person who certified (1), (2) or (3) and you have not modified it.
+
+### Signing Your Commits
+
+To sign off on your commits, add the `-s` flag to your git commit command:
+
+```bash
+git commit -s -m "Your commit message"
+```
+
+This adds a "Signed-off-by" line to your commit message:
+
+```
+Signed-off-by: Your Name <your.email@example.com>
+```
 
 ## How to Contribute
 
@@ -68,6 +90,99 @@ PromptKit/
 ├── sdk/              # PromptKit SDK
 ├── examples/         # Example configurations
 └── docs/             # Documentation
+```
+
+## Component-Specific Contribution Guidelines
+
+### Arena CLI (`tools/arena/`)
+
+**Focus**: Testing framework for LLM applications
+
+**Key Areas for Contribution:**
+- New test scenario types and assertions
+- Provider integrations (OpenAI, Anthropic, Google, etc.)
+- MCP (Model Context Protocol) tool integrations
+- Report generation and visualization improvements
+- Performance optimizations for large test suites
+
+**Testing Arena Changes:**
+```bash
+# Build Arena
+make build-arena
+
+# Run Arena tests
+cd tools/arena && go test ./...
+
+# Test with example scenarios
+./bin/promptarena run examples/customer-support/arena.yaml
+```
+
+### PackC CLI (`tools/packc/`)
+
+**Focus**: Prompt packaging and compilation tool
+
+**Key Areas for Contribution:**
+- Pack format enhancements and validation
+- New output formats and deployment targets
+- Template processing improvements
+- Schema validation and error reporting
+
+**Testing PackC Changes:**
+```bash
+# Build PackC
+make build-packc
+
+# Run PackC tests
+cd tools/packc && go test ./...
+
+# Test pack compilation
+./bin/packc build examples/customer-support/packs/
+```
+
+### SDK (`sdk/`)
+
+**Focus**: Production-ready library for deploying LLM applications
+
+**Key Areas for Contribution:**
+- High-level API improvements
+- New conversation patterns and middleware
+- Integration helpers and utilities
+- Performance optimizations
+- Example applications and tutorials
+
+**Testing SDK Changes:**
+```bash
+# Build and test SDK
+cd sdk && go test ./...
+
+# Run integration tests
+cd sdk && go test -tags=integration ./...
+
+# Test with examples
+cd examples/customer-support && go run main.go
+```
+
+### Runtime (`runtime/`)
+
+**Focus**: Core engine and shared components
+
+**Key Areas for Contribution:**
+- Provider implementations and optimizations
+- Tool execution framework
+- State management and persistence
+- Pipeline processing improvements
+- Security and error handling
+
+**Testing Runtime Changes:**
+```bash
+# Build and test runtime
+cd runtime && go test ./...
+
+# Run comprehensive tests
+make test
+
+# Check coverage
+make coverage
 ```
 
 ## Coding Guidelines
