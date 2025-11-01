@@ -62,6 +62,9 @@ jobs:
       uses: codecov/codecov-action@v4
       with:
         file: ./coverage.out
+        token: ${{ secrets.CODECOV_TOKEN }}
+        flags: unittests
+        name: codecov-umbrella
         fail_ci_if_error: false
   
   lint:

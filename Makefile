@@ -86,16 +86,17 @@ test-race: ## Run tests with race detector
 coverage: ## Generate test coverage report
 	@echo "Generating coverage for runtime..."
 	@cd runtime && go test -coverprofile=runtime-coverage.out ./...
+	@cd runtime && go tool cover -func=runtime-coverage.out | grep "^total:" || echo "No runtime coverage data"
 	@echo "Generating coverage for SDK..."
 	@cd sdk && go test -coverprofile=sdk-coverage.out ./...
+	@cd sdk && go tool cover -func=sdk-coverage.out | grep "^total:" || echo "No SDK coverage data"
 	@echo "Generating coverage for arena..."
 	@cd tools/arena && go test -coverprofile=arena-coverage.out ./... || echo "No arena test coverage"
-	@cp runtime/runtime-coverage.out ./runtime-coverage.out
-	@cp sdk/sdk-coverage.out ./sdk-coverage.out
-	@cp tools/arena/arena-coverage.out ./arena-coverage.out 2>/dev/null || echo "No arena coverage file"
-	@cd runtime && go tool cover -func=runtime-coverage.out | grep "^total:" || echo "No runtime coverage data"
-	@cd sdk && go tool cover -func=sdk-coverage.out | grep "^total:" || echo "No SDK coverage data"  
 	@cd tools/arena && go tool cover -func=arena-coverage.out | grep "^total:" 2>/dev/null || echo "No arena coverage data"
+	@echo "Merging coverage files..."
+	@echo "mode: set" > coverage.out
+	@grep -h -v "^mode:" runtime/runtime-coverage.out sdk/sdk-coverage.out tools/arena/arena-coverage.out >> coverage.out 2>/dev/null || true
+	@echo "Coverage report generated: coverage.out"
 
 lint: ## Run linters
 	@echo "Linting runtime..."

@@ -1,11 +1,10 @@
 # PromptKit
 
-![Build Status](https://github.com/AltairaLabs/PromptKit/workflows/CI/badge.svg)
-![Coverage](https://codecov.io/gh/AltairaLabs/PromptKit/branch/main/graph/badge.svg)
-![Go Report](https://goreportcard.com/badge/github.com/AltairaLabs/PromptKit)
-![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)
-![Release](https://img.shields.io/github/release/AltairaLabs/PromptKit.svg)
-
+[![CI](https://github.com/AltairaLabs/PromptKit/workflows/CI/badge.svg)](https://github.com/AltairaLabs/PromptKit/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/AltairaLabs/PromptKit/branch/main/graph/badge.svg)](https://codecov.io/gh/AltairaLabs/PromptKit)
+[![Go Report Card](https://goreportcard.com/badge/github.com/AltairaLabs/PromptKit)](https://goreportcard.com/report/github.com/AltairaLabs/PromptKit)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Release](https://img.shields.io/github/release/AltairaLabs/PromptKit.svg)](https://github.com/AltairaLabs/PromptKit/releases)
 > **Professional LLM Testing & Production Deployment Framework**
 
 PromptKit is an open-source framework for testing, optimizing, and deploying LLM-based applications with confidence.

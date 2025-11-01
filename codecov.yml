@@ -1,0 +1,51 @@
+codecov:
+  require_ci_to_pass: yes
+  notify:
+    wait_for_ci: yes
+
+coverage:
+  precision: 2
+  round: down
+  range: "70...100"
+  
+  status:
+    project:
+      default:
+        target: 70%
+        threshold: 1%
+        if_ci_failed: error
+    patch:
+      default:
+        target: 70%
+        threshold: 1%
+        if_ci_failed: error
+
+comment:
+  layout: "reach,diff,flags,tree"
+  behavior: default
+  require_changes: false
+
+flags:
+  runtime:
+    paths:
+      - runtime/
+  sdk:
+    paths:
+      - sdk/
+  arena:
+    paths:
+      - tools/arena/
+  packc:
+    paths:
+      - tools/packc/
+  inspect-state:
+    paths:
+      - tools/inspect-state/
+
+ignore:
+  - "**/*_test.go"
+  - "examples/"
+  - "docs/"
+  - "scripts/"
+  - ".github/"
+  - "*.md"
