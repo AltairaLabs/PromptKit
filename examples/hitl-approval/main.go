@@ -171,9 +171,9 @@ func printTurnResult(speaker string, result *pipeline.ExecutionResult, turnNum i
 		fmt.Printf("%s: %s\n", speaker, assistantMsg.Content)
 
 		if len(assistantMsg.ToolCalls) > 0 {
-			fmt.Printf("\n� Tool Calls (%d):\n", len(assistantMsg.ToolCalls))
+			fmt.Printf("\nTool Calls (%d):\n", len(assistantMsg.ToolCalls))
 			for _, tc := range assistantMsg.ToolCalls {
-				fmt.Printf("   • %s\n", tc.Name)
+				fmt.Printf("   - %s\n", tc.Name)
 				var args map[string]interface{}
 				json.Unmarshal(tc.Args, &args)
 				for k, v := range args {
