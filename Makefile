@@ -147,9 +147,14 @@ clean: ## Clean build artifacts
 
 # Documentation targets
 docs-install: ## Install documentation dependencies
-	@echo "Installing documentation tools..."
-	@go install github.com/princjef/gomarkdoc/cmd/gomarkdoc@latest
-	@echo "Documentation tools installed"
+	@echo "📦 Installing documentation dependencies..."
+	@command -v gomarkdoc >/dev/null 2>&1 || { \
+		echo "Installing gomarkdoc..."; \
+		go install github.com/princjef/gomarkdoc/cmd/gomarkdoc@latest; \
+	}
+	@echo "Installing Jekyll dependencies..."
+	@cd docs && gem install bundler && bundle install
+	@echo "✅ Documentation dependencies installed"
 
 docs-api: ## Generate API documentation from Go code
 	@echo "🔧 Generating API documentation..."
@@ -180,18 +185,14 @@ docs-validate: ## Validate documentation links and formatting
 	@echo "✅ Documentation validation complete"
 
 docs-serve: ## Serve documentation locally for development
-	@echo "🌐 Starting local documentation server..."
-	@if command -v python3 >/dev/null 2>&1; then \
-		echo "Serving docs at http://localhost:8000"; \
-		cd docs && python3 -m http.server 8000; \
-	elif command -v python >/dev/null 2>&1; then \
-		echo "Serving docs at http://localhost:8000"; \
-		cd docs && python -m SimpleHTTPServer 8000; \
+	@echo "🌐 Starting Jekyll development server..."
+	@if command -v bundle >/dev/null 2>&1; then \
+		echo "Serving docs at http://localhost:4000"; \
+		cd docs && bundle exec jekyll serve --host 0.0.0.0 --port 4000 --livereload; \
 	else \
-		echo "Python not found. Install Python to serve docs locally."; \
+		echo "❌ Bundle not found. Install Jekyll with: cd docs && gem install bundler && bundle install"; \
 		exit 1; \
 	fi
-
 docs-build: ## Build complete documentation site
 	@echo "🏗️ Building documentation site..."
 	@$(MAKE) docs-api

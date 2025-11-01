@@ -1,3 +1,9 @@
+---
+layout: page
+title: "Arena CLI User Guide"
+permalink: /docs/guides/arena-user-guide/
+nav_order: 2
+---
 # PromptKit Arena - CLI User Guide
 
 PromptKit Arena is a comprehensive testing framework for LLM applications. It enables you to run multi-turn conversation simulations across multiple providers, validate tool usage, and generate detailed performance reports.

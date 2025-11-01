@@ -1,0 +1,118 @@
+# Jekyll configuration for PromptKit Documentation
+title: "PromptKit Documentation"
+description: "Comprehensive framework for building, testing, and deploying LLM applications"
+baseurl: "/PromptKit"
+url: "https://altairaai.github.io"
+
+# Source directory (since we're in /docs)
+source: .
+
+# Repository information
+repository: "AltairaAI/PromptKit"
+github:
+  repository_url: "https://github.com/AltairaAI/PromptKit"
+  repository_name: "PromptKit"
+
+# Build settings
+markdown: kramdown
+highlighter: rouge
+theme: minima
+plugins:
+  - jekyll-feed
+  - jekyll-sitemap
+  - jekyll-seo-tag
+  - jekyll-github-metadata
+
+# Kramdown settings
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+  syntax_highlighter_opts:
+    block:
+      line_numbers: false
+
+# Collections
+collections:
+  guides:
+    output: true
+    permalink: /:collection/:name/
+  api:
+    output: true
+    permalink: /:collection/:name/
+
+# Navigation
+header_pages:
+  - docs/index.md
+  - docs/guides/sdk-quickstart.md
+  - docs/guides/arena-user-guide.md
+  - docs/guides/packc-user-guide.md
+  - docs/api/sdk.md
+  - docs/api/runtime.md
+
+# Exclude from processing
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - vendor/
+  - .bundle/
+  - ../bin/
+  - ../pkg/
+  - ../runtime/
+  - ../sdk/
+  - ../tools/
+  - ../scripts/
+  - ../examples/*/
+  - ../*.go
+  - ../go.mod
+  - ../go.sum
+  - ../go.work
+  - ../Makefile
+  - ../BUILD_SYSTEM_ENHANCEMENT_REPORT.md
+  - ../CODE_QUALITY_IMPROVEMENTS.md
+  - ../CODE_QUALITY_REPORT.md
+  - ../IMPLEMENTATION_PROPOSAL.md
+
+# Include in processing
+include:
+  - ../README.md
+  - ../CONTRIBUTING.md
+  - ../CODE_OF_CONDUCT.md
+  - ../GOVERNANCE.md
+  - ../SECURITY.md
+
+# Default layouts
+defaults:
+  - scope:
+      path: "docs"
+    values:
+      layout: "page"
+  - scope:
+      path: "docs/guides"
+    values:
+      layout: "page"
+      nav_order: 2
+  - scope:
+      path: "docs/api"
+    values:
+      layout: "page" 
+      nav_order: 3
+  - scope:
+      path: ""
+      type: "posts"
+    values:
+      layout: "post"
+
+# SEO settings
+lang: en
+author:
+  name: "AltairaAI"
+  email: "info@altairalabs.ai"
+
+# Social links
+social_links:
+  github: AltairaAI
+  twitter: AltairaAI
+
+# Enable Mermaid diagrams
+mermaid:
+  enable: true

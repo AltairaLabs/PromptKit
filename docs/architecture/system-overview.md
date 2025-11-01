@@ -1,3 +1,9 @@
+---
+layout: page
+title: "System Overview"
+permalink: /docs/architecture/system-overview/
+nav_order: 4
+---
 # PromptKit System Architecture
 
 This document provides visual representations of the PromptKit system architecture and component relationships.

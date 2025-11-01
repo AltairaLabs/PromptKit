@@ -1,3 +1,8 @@
+---
+layout: page
+title: "PromptKit Documentation"
+permalink: /docs/
+---
 # PromptKit Documentation
 
 Welcome to PromptKit - a comprehensive framework for building, testing, and deploying LLM applications with confidence.

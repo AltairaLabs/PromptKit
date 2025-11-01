@@ -1,3 +1,9 @@
+---
+layout: page
+title: "SDK Quickstart Tutorial"
+permalink: /docs/guides/sdk-quickstart/
+nav_order: 2
+---
 # PromptKit SDK - Quickstart Tutorial
 
 The PromptKit SDK enables developers to build robust LLM applications with conversation management, provider abstraction, and advanced pipeline features. This tutorial will guide you through building your first LLM application.

@@ -1,3 +1,9 @@
+---
+layout: page
+title: "PackC CLI User Guide"
+permalink: /docs/guides/packc-user-guide/
+nav_order: 2
+---
 # PromptKit PackC - CLI User Guide
 
 PackC is the PromptKit compiler that transforms source files into optimized prompt packs. It supports multiple input formats, advanced compilation features, and generates portable prompt packages for various deployment targets.
