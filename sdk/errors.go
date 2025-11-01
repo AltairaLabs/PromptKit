@@ -15,19 +15,23 @@ var (
 )
 
 // Error wrapping utilities for consistent error handling
+
+// WrapPackError wraps an error with pack context information.
 func WrapPackError(err error, packPath string) error {
 	return fmt.Errorf("pack error (%s): %w", packPath, err)
 }
 
+// WrapProviderError wraps an error with provider context information.
 func WrapProviderError(err error, provider string) error {
 	return fmt.Errorf("provider error (%s): %w", provider, err)
 }
 
+// WrapValidationError wraps an error with validation context information.
 func WrapValidationError(err error, validator string) error {
 	return fmt.Errorf("validation error (%s): %w", validator, err)
 }
 
-// IsTemporaryError checks if an error is temporary and should be retried
+// IsTemporaryError checks if an error is temporary and should be retried.
 func IsTemporaryError(err error) bool {
 	// Check for common temporary error patterns
 	if errors.Is(err, ErrProviderFailed) {
@@ -37,7 +41,7 @@ func IsTemporaryError(err error) bool {
 	return false
 }
 
-// IsRetryableError determines if an operation should be retried
+// IsRetryableError determines if an operation should be retried.
 func IsRetryableError(err error) bool {
 	return IsTemporaryError(err)
 }
