@@ -1,0 +1,557 @@
+package pipeline
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"golang.org/x/sync/semaphore"
+)
+
+// PipelineRuntimeConfig defines runtime configuration options for pipeline execution.
+// All fields have sensible defaults and are optional.
+type PipelineRuntimeConfig struct {
+	// MaxConcurrentExecutions limits the number of concurrent pipeline executions.
+	// Default: 100
+	MaxConcurrentExecutions int
+
+	// StreamBufferSize sets the buffer size for streaming output channels.
+	// Default: 100
+	StreamBufferSize int
+
+	// ExecutionTimeout sets the maximum duration for a single pipeline execution.
+	// Set to 0 to disable timeout.
+	// Default: 30 seconds
+	ExecutionTimeout time.Duration
+
+	// GracefulShutdownTimeout sets the maximum time to wait for in-flight executions during shutdown.
+	// Default: 10 seconds
+	GracefulShutdownTimeout time.Duration
+}
+
+// DefaultPipelineRuntimeConfig returns a PipelineRuntimeConfig with sensible default values.
+func DefaultPipelineRuntimeConfig() *PipelineRuntimeConfig {
+	return &PipelineRuntimeConfig{
+		MaxConcurrentExecutions: 100,
+		StreamBufferSize:        100,
+		ExecutionTimeout:        30 * time.Second,
+		GracefulShutdownTimeout: 10 * time.Second,
+	}
+}
+
+// Pipeline chains middleware together in sequence.
+type Pipeline struct {
+	middleware []Middleware
+	config     *PipelineRuntimeConfig
+	semaphore  *semaphore.Weighted
+	wg         sync.WaitGroup
+	shutdown   chan struct{}
+	shutdownMu sync.RWMutex
+	isShutdown bool
+}
+
+// NewPipeline creates a new pipeline with the given middleware.
+// Uses default runtime configuration.
+func NewPipeline(middleware ...Middleware) *Pipeline {
+	return NewPipelineWithConfig(nil, middleware...)
+}
+
+// NewPipelineWithConfig creates a new pipeline with the given configuration and middleware.
+// If config is nil, uses default configuration.
+func NewPipelineWithConfig(config *PipelineRuntimeConfig, middleware ...Middleware) *Pipeline {
+	if config == nil {
+		config = DefaultPipelineRuntimeConfig()
+	}
+
+	return &Pipeline{
+		middleware: middleware,
+		config:     config,
+		semaphore:  semaphore.NewWeighted(int64(config.MaxConcurrentExecutions)),
+		shutdown:   make(chan struct{}),
+	}
+}
+
+// Shutdown gracefully shuts down the pipeline, waiting for in-flight executions to complete.
+// Returns an error if shutdown times out according to GracefulShutdownTimeout.
+func (p *Pipeline) Shutdown(ctx context.Context) error {
+	p.shutdownMu.Lock()
+	if p.isShutdown {
+		p.shutdownMu.Unlock()
+		return nil // Already shut down
+	}
+	p.isShutdown = true
+	close(p.shutdown)
+	p.shutdownMu.Unlock()
+
+	// Wait for in-flight executions with timeout
+	done := make(chan struct{})
+	go func() {
+		p.wg.Wait()
+		close(done)
+	}()
+
+	shutdownCtx, cancel := context.WithTimeout(ctx, p.config.GracefulShutdownTimeout)
+	defer cancel()
+
+	select {
+	case <-done:
+		return nil
+	case <-shutdownCtx.Done():
+		return fmt.Errorf("shutdown timeout after %v", p.config.GracefulShutdownTimeout)
+	}
+}
+
+// isShuttingDown checks if the pipeline is shutting down
+func (p *Pipeline) isShuttingDown() bool {
+	p.shutdownMu.RLock()
+	defer p.shutdownMu.RUnlock()
+	return p.isShutdown
+}
+
+// Execute runs the pipeline with the given role and content, returning the execution result.
+// It creates a fresh internal ExecutionContext for each call, preventing state contamination.
+// The role and content parameters are used to create the initial user message.
+// If role is empty, no message is appended (useful for testing).
+// Returns the ExecutionResult containing messages, response, trace, and metadata.
+func (p *Pipeline) Execute(ctx context.Context, role string, content string) (*ExecutionResult, error) {
+	// Check if shutting down
+	if p.isShuttingDown() {
+		return nil, fmt.Errorf("pipeline is shutting down")
+	}
+
+	// Acquire semaphore for concurrency control
+	if err := p.semaphore.Acquire(ctx, 1); err != nil {
+		return nil, fmt.Errorf("failed to acquire execution slot: %w", err)
+	}
+	defer p.semaphore.Release(1)
+
+	// Track execution for graceful shutdown
+	p.wg.Add(1)
+	defer p.wg.Done()
+
+	// Apply execution timeout if configured
+	execCtx := ctx
+	var cancel context.CancelFunc
+	if p.config.ExecutionTimeout > 0 {
+		execCtx, cancel = context.WithTimeout(ctx, p.config.ExecutionTimeout)
+		defer cancel()
+	}
+
+	// Create fresh internal execution context
+	internalCtx := &ExecutionContext{
+		Context:  execCtx,
+		Messages: []types.Message{},
+		Metadata: make(map[string]interface{}),
+		Trace: ExecutionTrace{
+			LLMCalls:  []LLMCall{},
+			Events:    []TraceEvent{},
+			StartedAt: time.Now(),
+		},
+	}
+
+	// Append the new message to the conversation (if role is provided)
+	if role != "" {
+		internalCtx.Messages = append(internalCtx.Messages, types.Message{
+			Role:    role,
+			Content: content,
+		})
+	}
+
+	// Execute the middleware chain
+	err := p.executeChain(internalCtx, 0)
+
+	// Mark execution as complete
+	now := time.Now()
+	internalCtx.Trace.CompletedAt = &now
+
+	// Return the first error encountered (if any)
+	if internalCtx.Error != nil {
+		err = internalCtx.Error
+	}
+
+	// Return immutable result
+	return &ExecutionResult{
+		Messages: internalCtx.Messages,
+		Response: internalCtx.Response,
+		Trace:    internalCtx.Trace,
+		CostInfo: internalCtx.CostInfo,
+		Metadata: internalCtx.Metadata,
+	}, err
+}
+
+// ExecuteWithMessage runs the pipeline with a complete Message object, returning the execution result.
+// This method allows callers to provide a fully-populated message with all fields (Meta, Timestamp, etc.)
+// rather than just role and content. This is useful when you need to preserve metadata or other
+// message properties through the pipeline execution.
+//
+// The message is added to the execution context as-is, preserving all fields including:
+// - Meta (metadata, raw responses, validation info)
+// - Timestamp
+// - ToolCalls
+// - CostInfo
+// - Validations
+//
+// Middleware can still modify the message during execution if needed.
+// Returns the ExecutionResult containing messages, response, trace, and metadata.
+func (p *Pipeline) ExecuteWithMessage(ctx context.Context, message types.Message) (*ExecutionResult, error) {
+	// Check if shutting down
+	if p.isShuttingDown() {
+		return nil, fmt.Errorf("pipeline is shutting down")
+	}
+
+	// Acquire semaphore for concurrency control
+	if err := p.semaphore.Acquire(ctx, 1); err != nil {
+		return nil, fmt.Errorf("failed to acquire execution slot: %w", err)
+	}
+	defer p.semaphore.Release(1)
+
+	// Track execution for graceful shutdown
+	p.wg.Add(1)
+	defer p.wg.Done()
+
+	// Apply execution timeout if configured
+	execCtx := ctx
+	var cancel context.CancelFunc
+	if p.config.ExecutionTimeout > 0 {
+		execCtx, cancel = context.WithTimeout(ctx, p.config.ExecutionTimeout)
+		defer cancel()
+	}
+
+	// Create fresh internal execution context
+	internalCtx := &ExecutionContext{
+		Context:  execCtx,
+		Messages: []types.Message{},
+		Metadata: make(map[string]interface{}),
+		Trace: ExecutionTrace{
+			LLMCalls:  []LLMCall{},
+			Events:    []TraceEvent{},
+			StartedAt: time.Now(),
+		},
+	}
+
+	// Append the complete message to the conversation
+	internalCtx.Messages = append(internalCtx.Messages, message)
+
+	// Execute the middleware chain
+	err := p.executeChain(internalCtx, 0)
+
+	// Mark execution as complete
+	now := time.Now()
+	internalCtx.Trace.CompletedAt = &now
+
+	// Return the first error encountered (if any)
+	if internalCtx.Error != nil {
+		err = internalCtx.Error
+	}
+
+	// Return immutable result
+	return &ExecutionResult{
+		Messages: internalCtx.Messages,
+		Response: internalCtx.Response,
+		Trace:    internalCtx.Trace,
+		CostInfo: internalCtx.CostInfo,
+		Metadata: internalCtx.Metadata,
+	}, err
+}
+
+// ExecuteStream runs the pipeline in streaming mode, returning a channel of stream chunks.
+// It creates a fresh internal ExecutionContext for each call, preventing state contamination.
+// The role and content parameters are used to create the initial user message.
+// If role is empty, no message is appended (useful for testing).
+// The pipeline executes in the background and closes the channel when complete.
+// The final chunk will contain the ExecutionResult in the FinalResult field.
+func (p *Pipeline) ExecuteStream(ctx context.Context, role string, content string) (<-chan providers.StreamChunk, error) {
+	// Check if shutting down
+	if p.isShuttingDown() {
+		return nil, fmt.Errorf("pipeline is shutting down")
+	}
+
+	// Acquire semaphore for concurrency control
+	if err := p.semaphore.Acquire(ctx, 1); err != nil {
+		return nil, fmt.Errorf("failed to acquire execution slot: %w", err)
+	}
+
+	// Track execution for graceful shutdown
+	p.wg.Add(1)
+
+	// Apply execution timeout if configured
+	execCtx := ctx
+	var cancel context.CancelFunc
+	if p.config.ExecutionTimeout > 0 {
+		execCtx, cancel = context.WithTimeout(ctx, p.config.ExecutionTimeout)
+	}
+
+	// Create fresh internal execution context
+	internalCtx := &ExecutionContext{
+		Context:  execCtx,
+		Messages: []types.Message{},
+		Metadata: make(map[string]interface{}),
+		Trace: ExecutionTrace{
+			LLMCalls:  []LLMCall{},
+			Events:    []TraceEvent{},
+			StartedAt: time.Now(),
+		},
+		StreamMode: true,
+		Response:   &Response{}, // Initialize Response for accumulation during streaming
+	}
+
+	// Create output channel with configurable buffer size
+	streamChan := make(chan providers.StreamChunk, p.config.StreamBufferSize)
+	internalCtx.StreamOutput = streamChan
+
+	// Set up chunk processing handler - runs middleware StreamChunk() hooks for each chunk
+	internalCtx.streamChunkHandler = func(chunk *providers.StreamChunk) error {
+		// Run all middleware StreamChunk hooks
+		for _, m := range p.middleware {
+			if err := m.StreamChunk(internalCtx, chunk); err != nil {
+				return err
+			}
+			// Check if middleware interrupted the stream
+			if internalCtx.StreamInterrupted {
+				return nil
+			}
+		}
+		return nil
+	}
+
+	// Append the new message to the conversation (if role is provided)
+	if role != "" {
+		internalCtx.Messages = append(internalCtx.Messages, types.Message{
+			Role:    role,
+			Content: content,
+		})
+	}
+
+	// Execute pipeline in background
+	go func() {
+		defer func() {
+			close(streamChan)
+			p.semaphore.Release(1)
+			p.wg.Done()
+			if cancel != nil {
+				cancel()
+			}
+		}()
+
+		err := p.executeChain(internalCtx, 0)
+
+		// Mark execution as complete
+		now := time.Now()
+		internalCtx.Trace.CompletedAt = &now
+
+		// Use the first error encountered (if any)
+		if internalCtx.Error != nil {
+			err = internalCtx.Error
+		}
+
+		// Build final result
+		result := &ExecutionResult{
+			Messages: internalCtx.Messages,
+			Response: internalCtx.Response,
+			Trace:    internalCtx.Trace,
+			CostInfo: internalCtx.CostInfo,
+			Metadata: internalCtx.Metadata,
+		}
+
+		// Send final chunk with result
+		finalChunk := providers.StreamChunk{
+			FinishReason: strPtr("stop"),
+			FinalResult:  result,
+		}
+
+		if err != nil {
+			finalChunk.Error = err
+			finalChunk.FinishReason = strPtr("error")
+		} else if internalCtx.StreamInterrupted {
+			// Stream was interrupted by middleware
+			finalChunk.FinishReason = strPtr("interrupted")
+		}
+
+		streamChan <- finalChunk
+	}()
+
+	return streamChan, nil
+}
+
+// ExecuteStreamWithMessage runs the pipeline in streaming mode with a complete Message object.
+// This method allows callers to provide a fully-populated message with all fields (Meta, Timestamp, etc.)
+// rather than just role and content. The message is added to the execution context as-is,
+// preserving all fields including Meta, Timestamp, ToolCalls, CostInfo, and Validations.
+//
+// The pipeline executes in the background and closes the channel when complete.
+// The final chunk will contain the ExecutionResult in the FinalResult field.
+// Returns a channel of StreamChunk objects that will be closed when execution completes.
+func (p *Pipeline) ExecuteStreamWithMessage(ctx context.Context, message types.Message) (<-chan providers.StreamChunk, error) {
+	// Check if shutting down
+	if p.isShuttingDown() {
+		return nil, fmt.Errorf("pipeline is shutting down")
+	}
+
+	// Acquire semaphore for concurrency control
+	if err := p.semaphore.Acquire(ctx, 1); err != nil {
+		return nil, fmt.Errorf("failed to acquire execution slot: %w", err)
+	}
+
+	// Track execution for graceful shutdown
+	p.wg.Add(1)
+
+	// Apply execution timeout if configured
+	execCtx := ctx
+	var cancel context.CancelFunc
+	if p.config.ExecutionTimeout > 0 {
+		execCtx, cancel = context.WithTimeout(ctx, p.config.ExecutionTimeout)
+	}
+
+	// Create fresh internal execution context
+	internalCtx := &ExecutionContext{
+		Context:  execCtx,
+		Messages: []types.Message{},
+		Metadata: make(map[string]interface{}),
+		Trace: ExecutionTrace{
+			LLMCalls:  []LLMCall{},
+			Events:    []TraceEvent{},
+			StartedAt: time.Now(),
+		},
+		StreamMode: true,
+		Response:   &Response{}, // Initialize Response for accumulation during streaming
+	}
+
+	// Create output channel with configurable buffer size
+	streamChan := make(chan providers.StreamChunk, p.config.StreamBufferSize)
+	internalCtx.StreamOutput = streamChan
+
+	// Set up chunk processing handler - runs middleware StreamChunk() hooks for each chunk
+	internalCtx.streamChunkHandler = func(chunk *providers.StreamChunk) error {
+		// Run all middleware StreamChunk hooks
+		for _, m := range p.middleware {
+			if err := m.StreamChunk(internalCtx, chunk); err != nil {
+				return err
+			}
+			// Check if middleware interrupted the stream
+			if internalCtx.StreamInterrupted {
+				return nil
+			}
+		}
+		return nil
+	}
+
+	// Append the complete message to the conversation
+	internalCtx.Messages = append(internalCtx.Messages, message)
+
+	// Execute pipeline in background
+	go func() {
+		defer func() {
+			close(streamChan)
+			p.semaphore.Release(1)
+			p.wg.Done()
+			if cancel != nil {
+				cancel()
+			}
+		}()
+
+		err := p.executeChain(internalCtx, 0)
+
+		// Mark execution as complete
+		now := time.Now()
+		internalCtx.Trace.CompletedAt = &now
+
+		// Use the first error encountered (if any)
+		if internalCtx.Error != nil {
+			err = internalCtx.Error
+		}
+
+		// Build final result
+		result := &ExecutionResult{
+			Messages: internalCtx.Messages,
+			Response: internalCtx.Response,
+			Trace:    internalCtx.Trace,
+			CostInfo: internalCtx.CostInfo,
+			Metadata: internalCtx.Metadata,
+		}
+
+		// Send final chunk with result
+		finalChunk := providers.StreamChunk{
+			FinishReason: strPtr("stop"),
+			FinalResult:  result,
+		}
+
+		if err != nil {
+			finalChunk.Error = err
+			finalChunk.FinishReason = strPtr("error")
+		} else if internalCtx.StreamInterrupted {
+			// Stream was interrupted by middleware
+			finalChunk.FinishReason = strPtr("interrupted")
+		}
+
+		streamChan <- finalChunk
+	}()
+
+	return streamChan, nil
+}
+
+// executeChain executes the middleware chain using the Process(ctx, next) pattern.
+// Each middleware explicitly calls next() to continue the chain.
+func (p *Pipeline) executeChain(execCtx *ExecutionContext, index int) error {
+	if index >= len(p.middleware) {
+		return nil // End of chain
+	}
+
+	// Track if next() was called
+	nextCalled := false
+	nextCalledMultipleTimes := false
+
+	// Create monitored next function for this middleware
+	next := func() error {
+		if nextCalled {
+			nextCalledMultipleTimes = true
+		}
+		nextCalled = true
+		return p.executeChain(execCtx, index+1)
+	}
+
+	// Call Process() for this middleware
+	err := p.middleware[index].Process(execCtx, next)
+
+	// Check for common middleware mistakes and log warnings
+	middlewareName := fmt.Sprintf("%T", p.middleware[index])
+
+	if !nextCalled && err == nil && index < len(p.middleware)-1 {
+		// Middleware didn't call next() and didn't return an error
+		// This breaks the chain and prevents subsequent middleware from running
+		logger.Warn("Middleware did not call next() - chain is broken",
+			"middleware", middlewareName,
+			"position", index)
+	}
+
+	if nextCalledMultipleTimes {
+		// Middleware called next() multiple times
+		logger.Warn("Middleware called next() multiple times",
+			"middleware", middlewareName,
+			"position", index)
+	}
+
+	// Capture first error
+	if err != nil && execCtx.Error == nil {
+		execCtx.Error = err
+	}
+
+	return err
+}
+
+// ValidationError represents a validation failure.
+type ValidationError struct {
+	Type    string
+	Details string
+}
+
+func (e *ValidationError) Error() string {
+	return fmt.Sprintf("validation failed (%s): %s", e.Type, e.Details)
+}
+
+func strPtr(s string) *string {
+	return &s
+}
