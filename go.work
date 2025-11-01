@@ -1,0 +1,10 @@
+go 1.25.1
+
+use (
+	./examples/hitl-approval
+	./runtime
+	./sdk
+	./sdk/examples/hitl-approval
+	./tools/arena
+	./tools/packc
+)
