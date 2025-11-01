@@ -1,10 +1,6 @@
 go 1.25.1
 
 use (
-	./examples/hitl-approval
+	./pkg
 	./runtime
-	./sdk
-	./sdk/examples/hitl-approval
-	./tools/arena
-	./tools/packc
 )
