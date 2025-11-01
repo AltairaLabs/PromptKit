@@ -72,7 +72,6 @@ jobs:
       with:
         version: latest
         args: --timeout=5m
-        working-directory: runtime
   
   build:
     name: Build
