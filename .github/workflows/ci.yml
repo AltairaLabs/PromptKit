@@ -8,8 +8,7 @@ on:
       - '*.md'
       - 'LICENSE'
       - '.gitignore'
-      - '_config.yml'
-      - 'Gemfile*'
+      - '.github/workflows/docs.yml'
   pull_request:
     branches: [ main ]
     paths-ignore:
@@ -17,8 +16,7 @@ on:
       - '*.md'  
       - 'LICENSE'
       - '.gitignore'
-      - '_config.yml'
-      - 'Gemfile*'
+      - '.github/workflows/docs.yml'
 
 jobs:
   test:
