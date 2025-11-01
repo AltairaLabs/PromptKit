@@ -171,14 +171,15 @@ func TestLoggingWithStructuredAttributes(t *testing.T) {
 
 func TestRedactSensitiveData_OpenAIKey(t *testing.T) {
 	// OpenAI keys start with sk- and are at least 32 chars
-	input := "My API key is sk-1234567890abcdefghijklmnopqrstuvwxyz12345678 and I want it hidden" // NOSONAR - fake test key
+	fakeKey := "sk-1234567890abcdefghijklmnopqrstuvwxyz12345678" // Fake test key - not a real credential
+	input := "My API key is " + fakeKey + " and I want it hidden"
 	result := RedactSensitiveData(input)
 
 	if result == input {
 		t.Error("Expected API key to be redacted")
 	}
 
-	if strings.Contains(result, "sk-1234567890abcdefghijklmnopqrstuvwxyz12345678") { // NOSONAR - fake test key
+	if strings.Contains(result, fakeKey) {
 		t.Error("Expected full API key to not be in result")
 	}
 
@@ -188,14 +189,15 @@ func TestRedactSensitiveData_OpenAIKey(t *testing.T) {
 }
 
 func TestRedactSensitiveData_GoogleKey(t *testing.T) {
-	input := "Google API key: AIzaSyDaGmWKa4JsXZ-HjGw7ISLn_3namBGewQe" // NOSONAR - fake test key
+	fakeGoogleKey := "AIzaSyDaGmWKa4JsXZ-HjGw7ISLn_3namBGewQe" // Fake test key - not a real credential
+	input := "Google API key: " + fakeGoogleKey
 	result := RedactSensitiveData(input)
 
 	if result == input {
 		t.Error("Expected Google API key to be redacted")
 	}
 
-	if strings.Contains(result, "AIzaSyDaGmWKa4JsXZ-HjGw7ISLn_3namBGewQe") { // NOSONAR - fake test key
+	if strings.Contains(result, fakeGoogleKey) {
 		t.Error("Expected full API key to not be in result")
 	}
 
@@ -205,14 +207,15 @@ func TestRedactSensitiveData_GoogleKey(t *testing.T) {
 }
 
 func TestRedactSensitiveData_BearerToken(t *testing.T) {
-	input := "Authorization: Bearer abc123def456"
+	fakeToken := "abc123def456" // Fake test token - not a real credential
+	input := "Authorization: Bearer " + fakeToken
 	result := RedactSensitiveData(input)
 
 	if result == input {
 		t.Error("Expected Bearer token to be redacted")
 	}
 
-	if strings.Contains(result, "Bearer abc123def456") {
+	if strings.Contains(result, "Bearer "+fakeToken) {
 		t.Error("Expected full token to not be in result")
 	}
 
@@ -222,14 +225,16 @@ func TestRedactSensitiveData_BearerToken(t *testing.T) {
 }
 
 func TestRedactSensitiveData_MultipleKeys(t *testing.T) {
-	input := "Keys: sk-1234567890abcdefghijklmnopqrstuvwxyz12345678 and AIzaSyDaGmWKa4JsXZ-HjGw7ISLn_3namBGewQe" // NOSONAR - fake test keys
+	fakeOpenAIKey := "sk-1234567890abcdefghijklmnopqrstuvwxyz12345678" // Fake test key - not a real credential
+	fakeGoogleKey := "AIzaSyDaGmWKa4JsXZ-HjGw7ISLn_3namBGewQe"         // Fake test key - not a real credential
+	input := "Keys: " + fakeOpenAIKey + " and " + fakeGoogleKey
 	result := RedactSensitiveData(input)
 
-	if strings.Contains(result, "sk-1234567890abcdefghijklmnopqrstuvwxyz12345678") { // NOSONAR - fake test key
+	if strings.Contains(result, fakeOpenAIKey) {
 		t.Error("OpenAI key should be redacted")
 	}
 
-	if strings.Contains(result, "AIzaSyDaGmWKa4JsXZ-HjGw7ISLn_3namBGewQe") { // NOSONAR - fake test key
+	if strings.Contains(result, fakeGoogleKey) {
 		t.Error("Google key should be redacted")
 	}
 
@@ -259,9 +264,10 @@ func TestAPIRequest_WithHeaders(t *testing.T) {
 	SetVerbose(true) // Enable debug logging
 	defer SetVerbose(false)
 
+	fakeBearerToken := "sk-1234567890abcdefghijklmnopqrstuvwxyz12345678" // Fake test key - not a real credential
 	headers := map[string]string{
 		"Content-Type":  "application/json",
-		"Authorization": "Bearer sk-1234567890abcdefghijklmnopqrstuvwxyz12345678", // NOSONAR - fake test key
+		"Authorization": "Bearer " + fakeBearerToken,
 	}
 
 	// Should not panic and should redact the bearer token
@@ -286,7 +292,8 @@ func TestAPIRequest_WithAPIKeyInURL(t *testing.T) {
 	SetVerbose(true) // Enable debug logging
 	defer SetVerbose(false)
 
-	url := "https://api.test.com/v1/endpoint?key=AIzaSyDaGmWKa4JsXZ-HjGw7ISLn_3namBGewQe" // NOSONAR - fake test key
+	fakeAPIKey := "AIzaSyDaGmWKa4JsXZ-HjGw7ISLn_3namBGewQe" // Fake test key - not a real credential
+	url := "https://api.test.com/v1/endpoint?key=" + fakeAPIKey
 
 	// Should not panic and should redact the API key in URL
 	APIRequest("TestProvider", "GET", url, nil, nil)
@@ -321,7 +328,8 @@ func TestAPIResponse_WithSensitiveDataInBody(t *testing.T) {
 	SetVerbose(true) // Enable debug logging
 	defer SetVerbose(false)
 
-	body := `{"api_key":"sk-1234567890abcdefghijklmnopqrstuvwxyz12345678","status":"ok"}` // NOSONAR - fake test key
+	fakeAPIKeyInJSON := "sk-1234567890abcdefghijklmnopqrstuvwxyz12345678" // Fake test key - not a real credential
+	body := `{"api_key":"` + fakeAPIKeyInJSON + `","status":"ok"}`
 
 	// Should not panic and should redact API key in body
 	APIResponse("TestProvider", 200, body, nil)
