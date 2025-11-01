@@ -22,9 +22,9 @@ import (
 
 func main() {
 	// Check for API key
-	apiKey := os.Getenv("OPENAI_API_KEY")
+	apiKey := os.Getenv("OPENAI_API_KEY") // NOSONAR: Example code showing environment variable usage
 	if apiKey == "" {
-		log.Fatal("OPENAI_API_KEY environment variable is required")
+		log.Fatal("OPENAI_API_KEY environment variable is required") // NOSONAR: Example code
 	}
 
 	// Create provider

@@ -20,9 +20,9 @@ func main() {
 	ctx := context.Background()
 
 	// Get API key from environment
-	apiKey := os.Getenv("OPENAI_API_KEY")
+	apiKey := os.Getenv("OPENAI_API_KEY") // NOSONAR: Example code showing environment variable usage
 	if apiKey == "" {
-		log.Fatal("OPENAI_API_KEY environment variable not set")
+		log.Fatal("OPENAI_API_KEY environment variable not set") // NOSONAR: Example code
 	}
 
 	// Create an OpenAI provider
