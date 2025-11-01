@@ -21,7 +21,6 @@ plugins:
   - jekyll-feed
   - jekyll-sitemap
   - jekyll-seo-tag
-  - jekyll-github-metadata
 
 # Kramdown settings
 kramdown:
