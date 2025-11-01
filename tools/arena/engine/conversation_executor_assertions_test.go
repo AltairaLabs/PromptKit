@@ -97,7 +97,7 @@ func TestConversationExecutor_WarnOnUserTurnAssertions(t *testing.T) {
 	// Close writer and read output
 	w.Close()
 	var output bytes.Buffer
-	output.ReadFrom(r)
+	_, _ = output.ReadFrom(r) // Ignore error and bytes written in test
 
 	// Should not fail
 	require.False(t, result.Failed, "Conversation should not fail")

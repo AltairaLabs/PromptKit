@@ -54,9 +54,9 @@ func init() {
 	runCmd.Flags().StringSlice("roles", []string{}, "Self-play role configurations to use")
 
 	// Bind flags to viper
-	viper.BindPFlag("concurrency", runCmd.Flags().Lookup("concurrency"))
-	viper.BindPFlag("out_dir", runCmd.Flags().Lookup("out"))
-	viper.BindPFlag("ci_mode", runCmd.Flags().Lookup("ci"))
+	_ = viper.BindPFlag("concurrency", runCmd.Flags().Lookup("concurrency"))
+	_ = viper.BindPFlag("out_dir", runCmd.Flags().Lookup("out"))
+	_ = viper.BindPFlag("ci_mode", runCmd.Flags().Lookup("ci"))
 	viper.BindPFlag("html_report", runCmd.Flags().Lookup("html"))
 	viper.BindPFlag("temperature", runCmd.Flags().Lookup("temperature"))
 	viper.BindPFlag("max_tokens", runCmd.Flags().Lookup("max-tokens"))

@@ -206,3 +206,33 @@ docs-clean: ## Clean generated documentation
 	@echo "✅ Generated documentation cleaned"
 
 docs: docs-build ## Generate all documentation (alias for docs-build)
+
+# Code Quality targets
+sonar-install: ## Install SonarScanner locally
+	@echo "📊 Installing SonarScanner..."
+	@if command -v brew >/dev/null 2>&1; then \
+		brew install sonar-scanner; \
+	elif command -v npm >/dev/null 2>&1; then \
+		npm install -g sonarqube-scanner; \
+	else \
+		echo "Please install SonarScanner manually: https://docs.sonarqube.org/latest/analysis/scan/sonarscanner/"; \
+	fi
+
+sonar-scan: ## Run SonarScanner locally (requires SONAR_TOKEN env var for CLI authentication)
+	@echo "📊 Running SonarScanner analysis..."
+	@if [ -z "$(SONAR_TOKEN)" ]; then \
+		echo "❌ SONAR_TOKEN environment variable is required for local CLI scanning"; \
+		echo "💡 Get your token from: https://sonarcloud.io/account/security/"; \
+		echo "ℹ️  Note: CI/CD via GitHub Actions doesn't need a token for public repos"; \
+		exit 1; \
+	fi
+	@sonar-scanner \
+		-Dsonar.projectKey=AltairaLabs_promptkit-public \
+		-Dsonar.organization=altairalabs \
+		-Dsonar.sources=. \
+		-Dsonar.host.url=https://sonarcloud.io \
+		-Dsonar.login=$(SONAR_TOKEN) \
+		-Dsonar.go.coverage.reportPaths=coverage.out \
+		-Dsonar.exclusions="**/*_test.go,**/vendor/**,**/bin/**,**/docs/**"
+
+sonar-quick: coverage sonar-scan ## Generate coverage and run Sonar analysis in one command

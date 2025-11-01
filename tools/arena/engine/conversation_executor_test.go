@@ -674,7 +674,7 @@ func TestExecuteConversation_ValidationFailureMultipleTurns(t *testing.T) {
 					},
 				}
 				state.Messages = append(state.Messages, messages...)
-				req.StateStoreConfig.Store.(statestore.Store).Save(ctx, state)
+				_ = req.StateStoreConfig.Store.(statestore.Store).Save(ctx, state) // Ignore error in test
 				return nil
 			} else {
 				// Second turn fails validation but saves messages first
@@ -694,7 +694,7 @@ func TestExecuteConversation_ValidationFailureMultipleTurns(t *testing.T) {
 					},
 				}
 				state.Messages = append(state.Messages, messages...)
-				req.StateStoreConfig.Store.(statestore.Store).Save(ctx, state)
+				_ = req.StateStoreConfig.Store.(statestore.Store).Save(ctx, state) // Ignore error in test
 				return errors.New("validation failed (*validators.BannedWordsValidator): [guarantee]")
 			}
 		},

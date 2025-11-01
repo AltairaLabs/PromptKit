@@ -23,6 +23,7 @@ go.work.sum
 .vscode/
 .VSCodeCounter/
 .idea/
+.scannerwork/
 *.swp
 *.swo
 *~
@@ -50,6 +51,7 @@ logs/
 tmp/
 temp/
 *.tmp
+docs/local-backlog/
 
 packs/
 

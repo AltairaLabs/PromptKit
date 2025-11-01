@@ -695,7 +695,7 @@ func TestGetValidationsForTurn(t *testing.T) {
 					"turn_metrics": []
 				}`
 				var v map[string]interface{}
-				json.Unmarshal([]byte(jsonStr), &v)
+				_ = json.Unmarshal([]byte(jsonStr), &v) // Ignore error in test
 				return v
 			}(),
 			turnIndex: 1,
@@ -820,7 +820,7 @@ func TestGetTurnMetrics(t *testing.T) {
 					"validations": []
 				}`
 				var v map[string]interface{}
-				json.Unmarshal([]byte(jsonStr), &v)
+				_ = json.Unmarshal([]byte(jsonStr), &v) // Ignore error in test
 				return v
 			}(),
 			turnIndex: 1,
@@ -924,7 +924,8 @@ func testGetValidationsForTurn(validators interface{}, turnIndex int) []map[stri
 	return turnValidations
 }
 
-func testGetTurnMetrics(validators interface{}, turnIndex int) map[string]interface{} {
+// testGetTurnData is a helper function to extract data for a specific turn from validators
+func testGetTurnData(validators interface{}, dataKey string, turnIndex int) interface{} {
 	if validators == nil {
 		return nil
 	}
@@ -933,21 +934,21 @@ func testGetTurnMetrics(validators interface{}, turnIndex int) map[string]interf
 		return nil
 	}
 
-	metricsRaw := validatorsMap["turn_metrics"]
-	if metricsRaw == nil {
+	dataRaw := validatorsMap[dataKey]
+	if dataRaw == nil {
 		return nil
 	}
 
 	// Try to convert to []interface{} (happens when loaded from JSON)
-	if metrics, ok := metricsRaw.([]interface{}); ok {
-		for _, m := range metrics {
-			metric, ok := m.(map[string]interface{})
+	if data, ok := dataRaw.([]interface{}); ok {
+		for _, item := range data {
+			itemMap, ok := item.(map[string]interface{})
 			if !ok {
 				continue
 			}
-			// Check if this metric is for the current turn
-			if ti, ok := metric["turn_index"].(float64); ok && int(ti) == turnIndex {
-				return metric
+			// Check if this item is for the current turn
+			if ti, ok := itemMap["turn_index"].(float64); ok && int(ti) == turnIndex {
+				return itemMap
 			}
 		}
 		return nil
@@ -955,22 +956,30 @@ func testGetTurnMetrics(validators interface{}, turnIndex int) map[string]interf
 
 	// Handle direct struct type (when passed from Go without JSON round-trip)
 	// Convert to generic map format
-	jsonBytes, err := json.Marshal(metricsRaw)
+	jsonBytes, err := json.Marshal(dataRaw)
 	if err != nil {
 		return nil
 	}
-	var metrics []map[string]interface{}
-	if err := json.Unmarshal(jsonBytes, &metrics); err != nil {
+	var items []map[string]interface{}
+	if err := json.Unmarshal(jsonBytes, &items); err != nil {
 		return nil
 	}
 
-	for _, metric := range metrics {
-		// Check if this metric is for the current turn
-		if ti, ok := metric["turn_index"].(float64); ok && int(ti) == turnIndex {
-			return metric
+	for _, item := range items {
+		// Check if this item is for the current turn
+		if ti, ok := item["turn_index"].(float64); ok && int(ti) == turnIndex {
+			return item
 		}
 	}
 	return nil
+}
+
+func testGetTurnMetrics(validators interface{}, turnIndex int) map[string]interface{} {
+	result := testGetTurnData(validators, "turn_metrics", turnIndex)
+	if result == nil {
+		return nil
+	}
+	return result.(map[string]interface{})
 }
 
 func TestHasValidations(t *testing.T) {
@@ -1015,7 +1024,7 @@ func TestHasValidations(t *testing.T) {
 					]
 				}`
 				var v map[string]interface{}
-				json.Unmarshal([]byte(jsonStr), &v)
+				_ = json.Unmarshal([]byte(jsonStr), &v) // Ignore error in test
 				return v
 			}(),
 			turnIndex: 1,
@@ -1034,52 +1043,8 @@ func TestHasValidations(t *testing.T) {
 }
 
 func testHasValidations(validators interface{}, turnIndex int) bool {
-	if validators == nil {
-		return false
-	}
-	validatorsMap, ok := validators.(map[string]interface{})
-	if !ok {
-		return false
-	}
-
-	validationsRaw := validatorsMap["validations"]
-	if validationsRaw == nil {
-		return false
-	}
-
-	// Try to convert to []interface{} (happens when loaded from JSON)
-	if validations, ok := validationsRaw.([]interface{}); ok {
-		for _, v := range validations {
-			validation, ok := v.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			// Check if this validation is for the current turn
-			if ti, ok := validation["turn_index"].(float64); ok && int(ti) == turnIndex {
-				return true
-			}
-		}
-		return false
-	}
-
-	// Handle direct struct type (when passed from Go without JSON round-trip)
-	// Convert to generic map format
-	jsonBytes, err := json.Marshal(validationsRaw)
-	if err != nil {
-		return false
-	}
-	var validations []map[string]interface{}
-	if err := json.Unmarshal(jsonBytes, &validations); err != nil {
-		return false
-	}
-
-	for _, validation := range validations {
-		// Check if this validation is for the current turn
-		if ti, ok := validation["turn_index"].(float64); ok && int(ti) == turnIndex {
-			return true
-		}
-	}
-	return false
+	result := testGetTurnData(validators, "validations", turnIndex)
+	return result != nil
 }
 
 // TestGenerateHTML_WithMessageCostInfo tests that the HTML template correctly

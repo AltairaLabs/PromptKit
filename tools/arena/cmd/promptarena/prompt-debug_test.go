@@ -130,7 +130,7 @@ func TestOutputPromptJSON(t *testing.T) {
 
 				// Read captured output
 				var buf bytes.Buffer
-				io.Copy(&buf, r)
+				_, _ = io.Copy(&buf, r) // Ignore error and bytes written in test
 				output := buf.String()
 
 				// Verify JSON contains expected fields

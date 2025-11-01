@@ -2,7 +2,7 @@ package engine
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/sha256"
 	"fmt"
 	"time"
 
@@ -200,6 +200,6 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 // generateRunID creates a unique run ID for a combination
 func generateRunID(combo RunCombination) string {
 	timestamp := time.Now().Format("2006-01-02T15-04Z")
-	hash := md5.Sum([]byte(fmt.Sprintf("%s_%s_%s", combo.Region, combo.ScenarioID, combo.ProviderID)))
+	hash := sha256.Sum256([]byte(fmt.Sprintf("%s_%s_%s", combo.Region, combo.ScenarioID, combo.ProviderID)))
 	return fmt.Sprintf("%s_%s_%s_%s_%x", timestamp, combo.ProviderID, combo.Region, combo.ScenarioID, hash[:4])
 }

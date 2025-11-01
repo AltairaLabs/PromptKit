@@ -26,7 +26,7 @@ func ArenaAssertionMiddleware(registry *runtimeValidators.Registry, assertions [
 
 // Process implements pipeline.Middleware.Process
 func (m *assertionMiddleware) Process(ctx *pipeline.ExecutionContext, next func() error) error {
-	var validation_errors []error
+	var validationErrors []error
 
 	// If no assertions configured, nothing to validate
 	if len(m.assertions) != 0 {
@@ -85,7 +85,7 @@ func (m *assertionMiddleware) Process(ctx *pipeline.ExecutionContext, next func(
 
 				// Fail fast on assertion failure
 				if !result.OK {
-					validation_errors = append(validation_errors, fmt.Errorf("assertion %q failed with details: %v", assertionConfig.Type, result.Details))
+					validationErrors = append(validationErrors, fmt.Errorf("assertion %q failed with details: %v", assertionConfig.Type, result.Details))
 				}
 			}
 
@@ -98,14 +98,14 @@ func (m *assertionMiddleware) Process(ctx *pipeline.ExecutionContext, next func(
 		}
 
 	}
-	// Proceed to next middleware/handler. Generally, this calls teh state store middleware to save the results
-	next_err := next()
+	// Proceed to next middleware/handler. Generally, this calls the state store middleware to save the results
+	nextErr := next()
 
-	if len(validation_errors) > 0 {
-		return fmt.Errorf("validation failed: %v", validation_errors)
+	if len(validationErrors) > 0 {
+		return fmt.Errorf("validation failed: %v", validationErrors)
 	}
 
-	return next_err
+	return nextErr
 }
 
 // StreamChunk implements pipeline.Middleware.StreamChunk

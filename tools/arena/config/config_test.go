@@ -23,7 +23,7 @@ spec:
     - user: "Hello"
 `
 	scenarioPath := filepath.Join(tmpDir, "scenario1.yaml")
-	if err := os.WriteFile(scenarioPath, []byte(scenarioContent), 0644); err != nil {
+	if err := os.WriteFile(scenarioPath, []byte(scenarioContent), 0600); err != nil {
 		t.Fatalf("Failed to write test scenario: %v", err)
 	}
 
@@ -46,7 +46,7 @@ spec:
     output_cost_per_1k: 0.02
 `
 	providerPath := filepath.Join(tmpDir, "provider1.yaml")
-	if err := os.WriteFile(providerPath, []byte(providerContent), 0644); err != nil {
+	if err := os.WriteFile(providerPath, []byte(providerContent), 0600); err != nil {
 		t.Fatalf("Failed to write test provider: %v", err)
 	}
 
@@ -66,7 +66,7 @@ spec:
     - file: provider1.yaml
 `
 
-	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	err := os.WriteFile(configPath, []byte(configContent), 0600)
 	if err != nil {
 		t.Fatalf("Failed to write test config: %v", err)
 	}

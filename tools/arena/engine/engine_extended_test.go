@@ -193,7 +193,7 @@ func TestExecuteRuns_ContextCancellation(t *testing.T) {
 	tmpDir := t.TempDir()
 	eng := newTestEngine(t, tmpDir, cfg)
 
-	// Create a context that's already cancelled
+	// Create a context that's already canceled
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 

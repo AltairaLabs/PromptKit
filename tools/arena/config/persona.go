@@ -246,8 +246,9 @@ func (p *UserPersonaPack) buildTemplatedPrompt(region string, contextVars map[st
 	vars["region"] = region
 
 	// Set defaults for persona-specific variables if empty
+	const defaultVerbosity = "medium"
 	if vars["verbosity"] == "" {
-		vars["verbosity"] = "medium"
+		vars["verbosity"] = defaultVerbosity
 	}
 	if vars["challenge_level"] == "" {
 		vars["challenge_level"] = "medium"
