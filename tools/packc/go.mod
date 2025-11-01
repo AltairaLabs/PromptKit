@@ -1,6 +1,6 @@
 module github.com/AltairaLabs/PromptKit/tools/packc
 
-go 1.24.0
+go 1.25.1
 
 replace github.com/AltairaLabs/PromptKit/pkg => ../../pkg
 

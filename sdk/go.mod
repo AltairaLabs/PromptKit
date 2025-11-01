@@ -1,6 +1,6 @@
 module github.com/AltairaLabs/PromptKit/sdk
 
-go 1.24.0
+go 1.25.1
 
 require (
 	github.com/AltairaLabs/PromptKit/runtime v0.0.0
