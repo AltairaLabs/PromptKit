@@ -8,6 +8,8 @@ on:
       - '*.md'
       - 'LICENSE'
       - '.gitignore'
+      - '_config.yml'
+      - 'Gemfile*'
   pull_request:
     branches: [ main ]
     paths-ignore:
@@ -15,6 +17,8 @@ on:
       - '*.md'  
       - 'LICENSE'
       - '.gitignore'
+      - '_config.yml'
+      - 'Gemfile*'
 
 jobs:
   test:
