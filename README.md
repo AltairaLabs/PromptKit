@@ -1,10 +1,20 @@
 # PromptKit
 
+<!-- Build & Quality Badges -->
 [![CI](https://github.com/AltairaLabs/PromptKit/workflows/CI/badge.svg)](https://github.com/AltairaLabs/PromptKit/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/AltairaLabs/PromptKit/branch/main/graph/badge.svg)](https://codecov.io/gh/AltairaLabs/PromptKit)
 [![Go Report Card](https://goreportcard.com/badge/github.com/AltairaLabs/PromptKit)](https://goreportcard.com/report/github.com/AltairaLabs/PromptKit)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+
+<!-- Security & Compliance Badges -->
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/AltairaLabs/PromptKit/badge)](https://api.securityscorecards.dev/projects/github.com/AltairaLabs/PromptKit)
+
+<!-- Version & Distribution Badges -->
 [![Release](https://img.shields.io/github/release/AltairaLabs/PromptKit.svg)](https://github.com/AltairaLabs/PromptKit/releases)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/AltairaLabs/PromptKit)](https://golang.org/)
+[![Go Reference](https://pkg.go.dev/badge/github.com/AltairaLabs/PromptKit.svg)](https://pkg.go.dev/github.com/AltairaLabs/PromptKit)
+
+<!-- License Badges -->
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 > **Professional LLM Testing & Production Deployment Framework**
 
 PromptKit is an open-source framework for testing, optimizing, and deploying LLM-based applications with confidence.
