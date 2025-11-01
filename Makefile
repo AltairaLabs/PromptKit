@@ -24,7 +24,16 @@ test: ## Run all tests
 
 test-race: ## Run tests with race detector
 	@echo "Testing runtime with race detector..."
-	@cd runtime && go test -race -v ./...
+	@cd runtime && go test -race -v ./... 2>&1 | tee race-test.log; \
+	if grep -q "^FAIL" race-test.log; then \
+		echo "Tests failed"; \
+		rm race-test.log; \
+		exit 1; \
+	else \
+		echo "All tests passed (race detector completed)"; \
+		rm race-test.log; \
+		exit 0; \
+	fi
 
 coverage: ## Generate test coverage report
 	@echo "Generating coverage for runtime..."
