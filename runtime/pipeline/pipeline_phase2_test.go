@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -12,11 +13,11 @@ import (
 
 // Mock middleware for testing
 type testMiddleware struct {
-	processCalled bool
+	processCalled atomic.Bool
 }
 
 func (m *testMiddleware) Process(ctx *ExecutionContext, next func() error) error {
-	m.processCalled = true
+	m.processCalled.Store(true)
 	return next()
 }
 
@@ -74,7 +75,7 @@ func TestPipeline_Execute_WithConcurrencyControl(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
-	assert.True(t, m.processCalled)
+	assert.True(t, m.processCalled.Load())
 }
 
 // TestPipeline_ExecuteStream_WithBufferSize verifies streaming with configured buffer
@@ -101,7 +102,7 @@ func TestPipeline_ExecuteStream_WithBufferSize(t *testing.T) {
 	}
 
 	assert.NotNil(t, finalChunk)
-	assert.True(t, m.processCalled)
+	assert.True(t, m.processCalled.Load())
 }
 
 // TestPipeline_Shutdown verifies graceful shutdown
