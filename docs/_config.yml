@@ -41,12 +41,12 @@ collections:
 
 # Navigation
 header_pages:
-  - docs/index.md
-  - docs/guides/sdk-quickstart.md
-  - docs/guides/arena-user-guide.md
-  - docs/guides/packc-user-guide.md
-  - docs/api/sdk.md
-  - docs/api/runtime.md
+  - index.md
+  - guides/sdk-quickstart.md
+  - guides/arena-user-guide.md
+  - guides/packc-user-guide.md
+  - api/sdk.md
+  - api/runtime.md
 
 # Exclude from processing
 exclude:
@@ -82,16 +82,16 @@ include:
 # Default layouts
 defaults:
   - scope:
-      path: "docs"
+      path: ""
     values:
       layout: "page"
   - scope:
-      path: "docs/guides"
+      path: "guides"
     values:
       layout: "page"
       nav_order: 2
   - scope:
-      path: "docs/api"
+      path: "api"
     values:
       layout: "page" 
       nav_order: 3

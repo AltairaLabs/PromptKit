@@ -1,7 +1,7 @@
 ---
 layout: page
 title: "PromptKit Documentation"
-permalink: /docs/
+permalink: /
 ---
 # PromptKit Documentation
 
