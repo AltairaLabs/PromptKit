@@ -303,10 +303,3 @@ func (s *mockApprovalStore) approve(toolName string, args json.RawMessage, resul
 		rejected: false,
 	}
 }
-
-func (s *mockApprovalStore) reject(toolName string, args json.RawMessage, reason string) {
-	s.approvals[s.key(args)] = &mockApproval{
-		rejected: true,
-		reason:   reason,
-	}
-}

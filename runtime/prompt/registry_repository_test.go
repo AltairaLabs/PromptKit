@@ -93,8 +93,8 @@ func TestRegistry_ListTaskTypes_WithRepository(t *testing.T) {
 	registry := prompt.NewRegistryWithRepository(repo)
 
 	// Force load to populate cache
-	registry.LoadConfig("task1")
-	registry.LoadConfig("task2")
+	_, _ = registry.LoadConfig("task1")
+	_, _ = registry.LoadConfig("task2")
 
 	taskTypes := registry.ListTaskTypes()
 

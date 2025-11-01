@@ -26,7 +26,7 @@ func TestClaudeProvider_CacheControlNotSentForHaiku(t *testing.T) {
 		// Return a valid response
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"id":      "msg_test",
 			"type":    "message",
 			"role":    "assistant",
@@ -119,7 +119,7 @@ func TestClaudeToolProvider_CacheControlNotSentForHaiku(t *testing.T) {
 		// Return a valid response
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"id":      "msg_test",
 			"type":    "message",
 			"role":    "assistant",

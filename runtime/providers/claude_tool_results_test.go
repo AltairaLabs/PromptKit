@@ -33,7 +33,7 @@ func TestClaudeToolProvider_BuildRequestWithToolMessages(t *testing.T) {
 			"usage":       map[string]int{"input_tokens": 100, "output_tokens": 50},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -174,7 +174,7 @@ func TestClaudeToolProvider_MultipleToolResultsGrouped(t *testing.T) {
 			"usage":       map[string]int{"input_tokens": 100, "output_tokens": 50},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 

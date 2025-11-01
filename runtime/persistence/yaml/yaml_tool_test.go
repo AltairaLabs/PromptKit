@@ -180,8 +180,8 @@ func TestYAMLToolRepository_LoadDirectory(t *testing.T) {
 	// Create subdirectories with tools
 	subDir1 := filepath.Join(tmpDir, "subdir1")
 	subDir2 := filepath.Join(tmpDir, "subdir2")
-	os.MkdirAll(subDir1, 0755)
-	os.MkdirAll(subDir2, 0755)
+	_ = os.MkdirAll(subDir1, 0755)
+	_ = os.MkdirAll(subDir2, 0755)
 
 	// Create tool files in different locations
 	tools := []struct {

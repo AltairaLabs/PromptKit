@@ -57,60 +57,6 @@ func (m *mockStreamingValidator) SupportsStreaming() bool {
 }
 
 // mockProvider simulates an LLM response
-type mockProviderMiddleware struct {
-	responseContent string
-	streaming       bool
-}
-
-func (m *mockProviderMiddleware) Before(execCtx *pipeline.ExecutionContext) error {
-	if m.streaming && execCtx.StreamOutput != nil {
-		// Stream the response
-		go func() {
-			defer close(execCtx.StreamOutput)
-			execCtx.StreamOutput <- providers.StreamChunk{
-				Delta:   m.responseContent,
-				Content: m.responseContent,
-			}
-		}()
-	} else {
-		// Non-streaming response
-		execCtx.Response = &pipeline.Response{
-			Content: m.responseContent,
-		}
-	}
-	return nil
-}
-
-func (m *mockProviderMiddleware) After(execCtx *pipeline.ExecutionContext) error {
-	return nil
-}
-
-func (m *mockProviderMiddleware) StreamChunk(execCtx *pipeline.ExecutionContext, chunk *providers.StreamChunk) error {
-	return nil
-}
-
-// mockProviderWithTools simulates an LLM response with tool usage
-type mockProviderWithToolsMiddleware struct {
-	content       string
-	finalResponse string
-}
-
-func (m *mockProviderWithToolsMiddleware) Before(execCtx *pipeline.ExecutionContext) error {
-	execCtx.Response = &pipeline.Response{
-		Content:       m.content,
-		FinalResponse: m.finalResponse,
-	}
-	return nil
-}
-
-func (m *mockProviderWithToolsMiddleware) After(execCtx *pipeline.ExecutionContext) error {
-	return nil
-}
-
-func (m *mockProviderWithToolsMiddleware) StreamChunk(execCtx *pipeline.ExecutionContext, chunk *providers.StreamChunk) error {
-	return nil
-}
-
 func TestDynamicValidatorMiddleware_NoValidators(t *testing.T) {
 	registry := validators.NewRegistry()
 

@@ -76,7 +76,7 @@ func TestGeminiToolProvider_ToolLoopDetection(t *testing.T) {
 				},
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(response)
+			_ = json.NewEncoder(w).Encode(response)
 		} else {
 			// Second request should have tool results - verify they're there
 			hasToolResults := false
@@ -116,7 +116,7 @@ func TestGeminiToolProvider_ToolLoopDetection(t *testing.T) {
 				},
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(response)
+			_ = json.NewEncoder(w).Encode(response)
 		}
 	}))
 	defer server.Close()
