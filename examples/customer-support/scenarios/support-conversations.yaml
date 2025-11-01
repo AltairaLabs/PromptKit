@@ -1,0 +1,41 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: customer-support-scenarios
+spec:
+  task_type: support
+  description: "Customer support bot conversation testing scenarios"
+
+  turns:
+    - role: user
+      content: "Hi, I'd like to track my order. My order number is #12345"
+    - role: user
+      content: "It says it's out for delivery but I haven't received it yet"
+    - role: user
+      content: "I'd like to get a refund for my purchase"
+    - role: user
+      content: "The product doesn't work as described in the listing"
+    - role: user
+      content: "The app keeps crashing when I try to log in"
+    - role: user
+      content: "I'm on iOS 17, latest version of the app"
+    - role: user
+      content: "I already tried reinstalling it"
+
+  context:
+    goal: "test customer support responses"
+    timeline: "immediate"
+    experience_level: "various"
+
+  context_metadata:
+    domain: "customer support"
+    role: "support agent"
+    user_context: "customers with various issues and requests"
+    session_goal: "provide helpful, professional support while maintaining consistent tone"
+
+  constraints:
+    max_sentences: 5
+    required_themes:
+      - "professional"
+      - "helpful"
+      - "empathetic"

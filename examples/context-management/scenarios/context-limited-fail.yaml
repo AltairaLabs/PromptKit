@@ -1,0 +1,31 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: context-limited-fail
+spec:
+  task_type: chat
+  description: "Test 'fail' strategy - errors when budget exceeded"
+  
+  # Strict mode: fail if budget exceeded
+  context_policy:
+    token_budget: 300         # Very low budget
+    reserve_for_output: 150
+    strategy: "fail"          # Fail instead of truncating
+  
+  turns:
+    - role: user
+      content: "Tell me about the solar system."
+    
+    - role: user
+      content: "What are all the planets in detail?"
+    
+    - role: user
+      content: "Tell me everything about Jupiter, Saturn, and their moons."
+    
+    # This turn should trigger an error because context exceeds budget
+    - role: user
+      content: "Now explain the asteroid belt and Kuiper belt in great detail."
+
+  context_metadata:
+    domain: "astronomy"
+    test_goal: "verify execution fails when budget exceeded with fail strategy"

@@ -1,0 +1,33 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: context-management-demo
+
+spec:
+  description: "Demonstrates context management with token budget enforcement"
+  
+  # Prompt configuration
+  prompt_configs:
+    - id: chat
+      file: prompts/chat-prompt.yaml
+  
+  # Test providers with different token limits
+  providers:
+    - file: providers/openai-gpt4.yaml
+    - file: providers/anthropic-claude-sonnet.yaml
+  
+  # Test scenarios with various context policies
+  scenarios:
+    - file: scenarios/context-unlimited.yaml
+    - file: scenarios/context-limited-oldest.yaml
+    - file: scenarios/context-limited-fail.yaml
+    - file: scenarios/context-with-caching.yaml
+  
+  defaults:
+    temperature: 0.7
+    max_tokens: 2000
+    seed: 42
+    concurrency: 1
+    out_dir: out
+    html_report: report.html
+

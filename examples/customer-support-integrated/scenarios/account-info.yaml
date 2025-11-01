@@ -1,0 +1,18 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: account-info
+spec:
+  description: "Customer asking about their account details"
+  task_type: "customer-support"
+  
+  turns:
+    - role: "user"
+      content: "Can you tell me when my subscription renews? My email is mary.wilson@email.com"
+      
+      # Expected: Agent should use get_customer_info and check_subscription_status tools
+      
+    - role: "user"
+      content: "Also, what plan am I on currently?"
+      
+      # Expected: Agent should reference subscription_status from previous tool call

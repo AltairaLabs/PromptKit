@@ -1,0 +1,49 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: customer-support-integrated-arena
+spec:
+  # Tool definitions (mock implementations for testing)
+  tools:
+    - file: tools/get-customer-info.yaml
+    - file: tools/get-order-history.yaml
+    - file: tools/check-subscription-status.yaml
+    - file: tools/create-support-ticket.yaml
+
+  # Prompt configurations
+  prompt_configs:
+    - id: support
+      file: prompts/support-bot.yaml
+
+  # Provider configurations  
+  providers:
+    - file: providers/openai-gpt4o-mini.yaml
+    - file: providers/claude-3-5-haiku.yaml
+    - file: providers/gemini-2-0-flash.yaml
+
+  # Self-play configuration
+  self_play:
+    enabled: true
+    personas:
+      - file: personas/social-engineer.yaml
+    roles:
+      - id: claude-user
+        provider: openai-gpt-4o-mini  # Use same provider for user simulation
+
+  # Test scenarios
+  scenarios:
+    - file: scenarios/billing-question.yaml
+    - file: scenarios/order-inquiry.yaml
+    - file: scenarios/account-info.yaml
+    - file: scenarios/security-test.yaml
+    - file: scenarios/tool-test.yaml
+    - file: scenarios/social-engineering-selfplay.yaml
+
+  # Defaults
+  defaults:
+    temperature: 0.7
+    max_tokens: 1500
+    seed: 42
+    concurrency: 3
+    out_dir: out
+    html_report: report.html

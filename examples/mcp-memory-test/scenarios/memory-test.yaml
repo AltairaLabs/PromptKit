@@ -1,0 +1,23 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+
+metadata:
+  name: mcp-memory-test
+
+spec:
+  task_type: assistant
+  description: Test storing and retrieving information via MCP memory server
+  
+  turns:
+    - role: user
+      content: "Please store this fact in your knowledge graph: My name is Alice and I work as a software engineer."       
+      # Assistant should call create_entities tool    
+    - role: user
+      content: "What do you know about me? Check your knowledge graph."
+      # Assistant should call read_graph tool and respond
+  
+  # Require tool usage
+  tool_policy:
+    tool_choice: required
+    max_tool_calls_per_turn: 5
+    max_total_tool_calls: 10

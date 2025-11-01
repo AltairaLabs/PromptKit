@@ -1,0 +1,47 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+
+metadata:
+  name: memory-conversations
+
+spec:
+  task_type: memory-assistant
+  description: Test conversational memory storage and retrieval with multiple turns
+  
+  turns:
+    # Turn 1-2: Basic introduction and name storage
+    - role: user
+      content: "Hi! My name is Alice and I'm a software engineer."
+    - role: user
+      content: "What's my name and what do I do?"
+    
+    # Turn 3-4: Adding preferences
+    - role: user
+      content: "I love Python programming and I'm currently working on a web scraper project."
+    - role: user
+      content: "What programming language do I like?"
+    
+    # Turn 5-6: Testing relationships
+    - role: user
+      content: "I work with my colleague Dana on an AI project called PromptKit."
+    - role: user
+      content: "Who do I work with and on what project?"
+    
+    # Turn 7-8: Incremental information
+    - role: user
+      content: "I also specialize in data processing and API integrations."
+    - role: user
+      content: "Tell me everything you know about my technical skills."
+    
+    # Turn 9-10: Search and recall
+    - role: user
+      content: "I enjoy hiking, reading sci-fi novels, and drinking good coffee in my free time."
+    - role: user
+      content: "What are my hobbies?"
+  
+  # Require tool usage for memory operations
+  tool_policy:
+    tool_choice: required
+    max_tool_calls_per_turn: 10
+    max_total_tool_calls: 50
+

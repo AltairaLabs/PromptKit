@@ -1,0 +1,14 @@
+apiVersion: promptkit.altaira.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: multi-turn-conversation
+spec:
+  id: multi-turn-conversation
+  task_type: customer-support
+  turns:
+    - role: user
+      content: "Hello, I need help with my order"
+    - role: user
+      content: "My order number is 12345"
+    - role: user
+      content: "When will it arrive?"

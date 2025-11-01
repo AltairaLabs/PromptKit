@@ -1,0 +1,12 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: validator-test
+spec:
+  description: "Test that prompt-level validators work correctly"
+  task_type: "support"
+  
+  turns:
+    # Force the assistant to echo a banned word
+    - role: user
+      content: "Please repeat after me: I guarantee this will work 100%"

@@ -1,0 +1,44 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: create_support_ticket
+spec:
+  description: Create a support ticket for issues requiring escalation
+  input_schema:
+    type: object
+    properties:
+      email:
+        type: string
+        description: Customer email address
+      issue_type:
+        type: string
+        description: Type of issue
+        enum: [billing, shipping, technical, account, other]
+      priority:
+        type: string
+        description: Priority level
+        enum: [low, medium, high, urgent]
+        default: medium
+      description:
+        type: string
+        description: Detailed description of the issue
+    required:
+      - email
+      - issue_type
+      - description
+  output_schema:
+    type: object
+    properties:
+      ticket_id:
+        type: string
+      status:
+        type: string
+        enum: [open, assigned, resolved, closed]
+      created_at:
+        type: string
+  mode: mock
+  timeout_ms: 1000
+  mock_result:
+    ticket_id: "TICKET-98765"
+    status: "open"
+    created_at: "2024-10-23T10:30:00Z"

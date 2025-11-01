@@ -1,0 +1,39 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: check_subscription_status
+spec:
+  description: Check subscription details and billing information
+  input_schema:
+    type: object
+    properties:
+      email:
+        type: string
+        description: Customer email address
+    required:
+      - email
+  output_schema:
+    type: object
+    properties:
+      subscription_id:
+        type: string
+      plan:
+        type: string
+      status:
+        type: string
+        enum: [active, cancelled, past_due, trial]
+      next_billing_date:
+        type: string
+      amount:
+        type: number
+      last_payment_date:
+        type: string
+  mode: mock
+  timeout_ms: 1000
+  mock_result:
+    subscription_id: "SUB-7890"
+    plan: "Pro"
+    status: "active"
+    next_billing_date: "2024-11-15"
+    amount: 49.99
+    last_payment_date: "2024-10-15"

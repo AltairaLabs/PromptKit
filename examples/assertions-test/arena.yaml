@@ -1,0 +1,38 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: assertions-test
+spec:
+  prompt_configs:
+    - id: assistant
+      file: prompts/assistant.yaml
+
+  providers:
+    - file: providers/gemini.yaml
+    - file: providers/openai.yaml
+
+  scenarios:
+    - file: scenarios/scripted-turns.yaml
+    - file: scenarios/self-play.yaml
+    - file: scenarios/tool-usage.yaml
+
+  tools:
+    - file: tools/search.yaml
+    - file: tools/calculate.yaml
+
+    # Self-play configuration
+  self_play:
+    enabled: true
+    personas:
+      - file: personas/curious-learner.yaml
+    roles:
+      - id: gemini-user
+        provider: gemini-flash
+
+  defaults:
+    temperature: 0.7
+    max_tokens: 150
+    seed: 42
+    concurrency: 2
+    out_dir: out
+    html_report: report.html

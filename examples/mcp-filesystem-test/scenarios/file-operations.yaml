@@ -1,0 +1,46 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+
+metadata:
+  name: file-operations
+
+spec:
+  task_type: file-assistant
+  description: Test filesystem operations including read, write, and directory listing
+  
+  turns:
+    # Turn 1-2: Create and write a file
+    - role: user
+      content: "Create a file called 'notes.txt' in the test_workspace directory with the content: 'Hello from PromptKit! This is a test file.'"
+    - role: user
+      content: "Read the contents of notes.txt to verify it was created correctly."
+    
+    # Turn 3-4: List directory and create another file
+    - role: user
+      content: "List all files in the test_workspace directory."
+    - role: user
+      content: "Create another file called 'data.txt' with the content: 'Test data: 123, 456, 789'"
+    
+    # Turn 5-6: Read second file and verify both exist
+    - role: user
+      content: "Read the contents of data.txt."
+    - role: user
+      content: "List all files in test_workspace again to confirm both files exist."
+    
+    # Turn 7-8: Create subdirectory and move file
+    - role: user
+      content: "Create a subdirectory called 'archive' inside test_workspace."
+    - role: user
+      content: "Move data.txt into the archive subdirectory."
+    
+    # Turn 9-10: Verify move and read from new location
+    - role: user
+      content: "List the files in the archive subdirectory."
+    - role: user
+      content: "Read the contents of archive/data.txt to verify it's still intact."
+  
+  # Require tool usage for filesystem operations
+  tool_policy:
+    tool_choice: required
+    max_tool_calls_per_turn: 5
+    max_total_tool_calls: 30

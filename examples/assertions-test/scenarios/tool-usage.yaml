@@ -1,0 +1,31 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: tool-usage
+spec:
+  task_type: assistant
+  description: "Tool usage with tool call assertions"
+
+  turns:
+    - role: user
+      content: "Search for information about AI and calculate 15 * 3"
+      assertions:
+        - type: tools_called
+          params:
+            tools:
+              - "search"
+              - "calculate"
+        - type: content_includes
+          params:
+            patterns:
+              - "3 results"
+              - "42"
+
+    - role: user
+      content: "What's 2 + 2? Don't use any tools, just answer directly."
+      assertions:
+        - type: tools_not_called
+          params:
+            tools:
+              - "search"
+              - "calculate"
