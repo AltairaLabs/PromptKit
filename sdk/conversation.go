@@ -16,6 +16,13 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
 )
 
+// Role constants for message types
+const (
+	RoleAssistant = "assistant"
+	RoleUser      = "user"
+	RoleTool      = "tool"
+)
+
 // ConversationManager provides high-level API for managing LLM conversations.
 // It automatically constructs the pipeline with appropriate middleware based on
 // the PromptPack configuration.
