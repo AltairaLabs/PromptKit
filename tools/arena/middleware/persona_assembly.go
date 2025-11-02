@@ -6,7 +6,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/tools/arena/config"
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 )
 
 // PersonaAssemblyMiddleware assembles persona prompts using the same

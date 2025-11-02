@@ -21,7 +21,7 @@ import (
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
-	"github.com/AltairaLabs/PromptKit/tools/arena/config"
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 )
 
 // NewRegistryFromConfig creates a registry from a config object.

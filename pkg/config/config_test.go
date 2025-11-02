@@ -31,9 +31,8 @@ spec:
 	providerContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Provider
 metadata:
-  name: test-provider
+  name: provider1
 spec:
-  id: provider1
   type: openai
   model: gpt-4
   base_url: https://api.openai.com/v1
@@ -178,7 +177,7 @@ func TestLoadProvider(t *testing.T) {
 	providerContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Provider
 metadata:
-  name: test-provider
+  name: provider1
 spec:
   type: openai
   model: gpt-4
@@ -205,8 +204,8 @@ spec:
 		t.Fatal("Provider is nil")
 	}
 
-	if provider.ID != "test-provider" {
-		t.Errorf("Expected ID 'test-provider', got '%s'", provider.ID)
+	if provider.ID != "provider1" {
+		t.Errorf("Expected ID 'provider1', got '%s'", provider.ID)
 	}
 
 	if provider.Type != "openai" {
@@ -293,5 +292,196 @@ func TestConfig_Defaults(t *testing.T) {
 
 	if cfg.Defaults.Concurrency != 10 {
 		t.Errorf("Expected concurrency 10, got %d", cfg.Defaults.Concurrency)
+	}
+}
+
+func TestLoadConfig_WithSelfPlay(t *testing.T) {
+	// Create a temporary config file
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "test-config.yaml")
+
+	// Create scenario file
+	scenarioContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: test-scenario
+spec:
+  id: scenario1
+  description: Test scenario
+  turns:
+    - user: "Hello"
+`
+	scenarioPath := filepath.Join(tmpDir, "scenario1.yaml")
+	if err := os.WriteFile(scenarioPath, []byte(scenarioContent), 0600); err != nil {
+		t.Fatalf("Failed to write test scenario: %v", err)
+	}
+
+	// Create provider file
+	providerContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: provider1
+spec:
+  type: openai
+  model: gpt-4
+  base_url: https://api.openai.com/v1
+  defaults:
+    temperature: 0.7
+    top_p: 1.0
+    max_tokens: 100
+  pricing:
+    input_cost_per_1k: 0.01
+    output_cost_per_1k: 0.02
+`
+	providerPath := filepath.Join(tmpDir, "provider1.yaml")
+	if err := os.WriteFile(providerPath, []byte(providerContent), 0600); err != nil {
+		t.Fatalf("Failed to write test provider: %v", err)
+	}
+
+	// Create persona file
+	personaContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Persona
+metadata:
+  name: test-persona
+spec:
+  description: Test persona
+  system_prompt: "You are a helpful assistant"
+  goals:
+    - Be helpful
+  style:
+    verbosity: medium
+    challenge_level: high
+`
+	personaPath := filepath.Join(tmpDir, "persona1.yaml")
+	if err := os.WriteFile(personaPath, []byte(personaContent), 0600); err != nil {
+		t.Fatalf("Failed to write test persona: %v", err)
+	}
+
+	configContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: test-arena
+spec:
+  defaults:
+    verbose: true
+    concurrency: 4
+
+  scenarios:
+    - file: scenario1.yaml
+
+  providers:
+    - file: provider1.yaml
+
+  self_play:
+    enabled: true
+    personas:
+      - file: persona1.yaml
+    roles:
+      - id: role1
+        provider: provider1
+`
+
+	err := os.WriteFile(configPath, []byte(configContent), 0600)
+	if err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	config, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	if config == nil {
+		t.Fatal("Config is nil")
+	}
+
+	// Check self-play configuration
+	if config.SelfPlay == nil {
+		t.Fatal("SelfPlay config is nil")
+	}
+
+	if !config.SelfPlay.Enabled {
+		t.Error("Expected self-play to be enabled")
+	}
+
+	if len(config.SelfPlay.Personas) != 1 {
+		t.Errorf("Expected 1 persona, got %d", len(config.SelfPlay.Personas))
+	}
+
+	if len(config.SelfPlay.Roles) != 1 {
+		t.Errorf("Expected 1 role, got %d", len(config.SelfPlay.Roles))
+	}
+
+	if config.SelfPlay.Roles[0].ID != "role1" {
+		t.Errorf("Expected role ID 'role1', got '%s'", config.SelfPlay.Roles[0].ID)
+	}
+
+	if config.SelfPlay.Roles[0].Provider != "provider1" {
+		t.Errorf("Expected role provider 'provider1', got '%s'", config.SelfPlay.Roles[0].Provider)
+	}
+
+	// Check loaded personas
+	if len(config.LoadedPersonas) != 1 {
+		t.Errorf("Expected 1 loaded persona, got %d", len(config.LoadedPersonas))
+	}
+
+	persona, exists := config.LoadedPersonas["test-persona"]
+	if !exists {
+		t.Fatal("Expected persona 'test-persona' to be loaded")
+	}
+
+	if persona.SystemPrompt != "You are a helpful assistant" {
+		t.Errorf("Expected persona system prompt 'You are a helpful assistant', got '%s'", persona.SystemPrompt)
+	}
+}
+
+func TestLoadConfig_LoadPromptConfigsError(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "test-config.yaml")
+
+	// Create config that references a nonexistent prompt file
+	configContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: test-arena
+spec:
+  prompt_configs:
+    - id: test
+      file: nonexistent.yaml
+`
+
+	err := os.WriteFile(configPath, []byte(configContent), 0600)
+	if err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	_, err = LoadConfig(configPath)
+	if err == nil {
+		t.Error("Expected error when prompt file doesn't exist")
+	}
+}
+
+func TestLoadConfig_LoadToolsError(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "test-config.yaml")
+
+	// Create config that references a nonexistent tool file
+	configContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: test-arena
+spec:
+  tools:
+    - file: nonexistent.yaml
+`
+
+	err := os.WriteFile(configPath, []byte(configContent), 0600)
+	if err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	_, err = LoadConfig(configPath)
+	if err == nil {
+		t.Error("Expected error when tool file doesn't exist")
 	}
 }

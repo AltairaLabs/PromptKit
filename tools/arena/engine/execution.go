@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/tools/arena/config"
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 

@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/tools/arena/config"
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 )
 
 // Test helper: creates a basic mock provider

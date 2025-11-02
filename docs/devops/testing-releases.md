@@ -60,8 +60,11 @@ git tag pkg/v0.0.1-test
 git tag sdk/v0.0.1-test
 git push origin runtime/v0.0.1-test pkg/v0.0.1-test sdk/v0.0.1-test
 
-# Wait 5 minutes, test SDK installation
+# Wait 5 minutes, then test in a temporary module
+mkdir -p /tmp/test-sdk && cd /tmp/test-sdk
+go mod init example.com/test
 go get github.com/AltairaLabs/PromptKit/sdk@v0.0.1-test
+cd - && rm -rf /tmp/test-sdk
 
 # Then continue with tool release...
 ```
@@ -91,8 +94,11 @@ git tag test/pkg/v0.0.1
 git tag test/sdk/v0.0.1
 git push origin test/runtime/v0.0.1 test/pkg/v0.0.1 test/sdk/v0.0.1
 
-# Wait 2 minutes (NOT 10!), then test SDK
+# Wait 2 minutes (NOT 10!), then test SDK in a temp module
+mkdir -p /tmp/test-sdk && cd /tmp/test-sdk
+go mod init example.com/test
 go get github.com/AltairaLabs/PromptKit/sdk@test/sdk/v0.0.1
+cd -
 
 # Test tool installation
 go install github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@test/tools/arena/v0.0.1
