@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -458,5 +459,89 @@ spec:
 
 	if len(persona.Constraints) != 2 {
 		t.Errorf("Expected 2 constraints, got %d", len(persona.Constraints))
+	}
+}
+
+func TestUserPersonaPack_BuildTemplatedPrompt(t *testing.T) {
+	persona := &UserPersonaPack{
+		ID:             "test-persona",
+		SystemTemplate: "Hello {{name}}, you are {{verbosity}} verbose. Goals: {{persona_goals}}",
+		Goals:          []string{"Be helpful", "Be accurate"},
+		Style: PersonaStyle{
+			Verbosity: "very",
+		},
+		RequiredVars: []string{"name"},
+		OptionalVars: map[string]string{
+			"optional": "default",
+		},
+	}
+
+	// Test successful rendering
+	contextVars := map[string]string{
+		"name":     "Alice",
+		"optional": "overridden",
+	}
+
+	result, err := persona.buildTemplatedPrompt("us", contextVars)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	expected := "Hello Alice, you are very verbose. Goals: Be helpful, Be accurate"
+	if result != expected {
+		t.Errorf("Expected '%s', got '%s'", expected, result)
+	}
+}
+
+func TestUserPersonaPack_BuildTemplatedPrompt_MissingRequiredVar(t *testing.T) {
+	persona := &UserPersonaPack{
+		ID:             "test-persona",
+		SystemTemplate: "Hello {{name}}",
+		RequiredVars:   []string{"name"},
+	}
+
+	_, err := persona.buildTemplatedPrompt("us", nil)
+	if err == nil {
+		t.Error("Expected error for missing required variable")
+	}
+}
+
+func TestUserPersonaPack_BuildTemplatedPrompt_WithFragments(t *testing.T) {
+	persona := &UserPersonaPack{
+		ID:             "test-persona",
+		SystemTemplate: "Template text",
+		Fragments: []FragmentRef{
+			{Name: "frag1", Path: "path1", Required: true},
+		},
+	}
+
+	_, err := persona.buildTemplatedPrompt("us", nil)
+	if err == nil {
+		t.Error("Expected error for fragments (not implemented)")
+	}
+
+	if !strings.Contains(err.Error(), "fragment loading for personas not yet fully implemented") {
+		t.Errorf("Expected fragment error message, got: %v", err)
+	}
+}
+
+func TestConvertFragmentRefs(t *testing.T) {
+	configRefs := []FragmentRef{
+		{Name: "frag1", Path: "path1", Required: true},
+		{Name: "frag2", Path: "path2", Required: false},
+	}
+
+	promptRefs := convertFragmentRefs(configRefs)
+
+	if len(promptRefs) != 2 {
+		t.Errorf("Expected 2 refs, got %d", len(promptRefs))
+	}
+
+	if promptRefs[0].Name != "frag1" || promptRefs[0].Path != "path1" || !promptRefs[0].Required {
+		t.Error("First ref conversion incorrect")
+	}
+
+	if promptRefs[1].Name != "frag2" || promptRefs[1].Path != "path2" || promptRefs[1].Required {
+		t.Error("Second ref conversion incorrect")
 	}
 }

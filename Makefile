@@ -50,11 +50,17 @@ test: ## Run all tests
 	@cd runtime && go test -v ./...
 	@echo "Testing SDK..."
 	@cd sdk && go test -v ./...
+	@echo "Testing pkg..."
+	@cd pkg && go test -v ./... || echo "No pkg tests yet"
 	@$(MAKE) test-tools
 
 test-tools: ## Run CLI tool tests (where applicable)
 	@echo "Testing arena middleware and commands..."
 	@cd tools/arena && go test -v ./... || echo "Arena tests completed"
+	@echo "Testing packc..."
+	@cd tools/packc && go test -v ./... || echo "PackC tests completed"
+	@echo "Testing inspect-state..."
+	@cd tools/inspect-state && go test -v ./... || echo "Inspect-state tests completed"
 
 test-race: ## Run tests with race detector
 	@echo "Testing runtime with race detector..."
@@ -71,8 +77,29 @@ test-race: ## Run tests with race detector
 		rm race-test.log; \
 		exit 1; \
 	fi
+	@echo "Testing pkg with race detector..."
+	@cd pkg && go test -race -v ./... 2>&1 | tee -a race-test.log || echo "Pkg race test completed"; \
+	if grep -q "^FAIL" race-test.log; then \
+		echo "Pkg tests failed"; \
+		rm race-test.log; \
+		exit 1; \
+	fi
 	@echo "Testing arena with race detector..."
 	@cd tools/arena && go test -race -v ./... 2>&1 | tee -a race-test.log || echo "Arena race test completed"; \
+	if grep -q "^FAIL" race-test.log; then \
+		echo "Arena tests failed"; \
+		rm race-test.log; \
+		exit 1; \
+	fi
+	@echo "Testing packc with race detector..."
+	@cd tools/packc && go test -race -v ./... 2>&1 | tee -a race-test.log || echo "PackC race test completed"; \
+	if grep -q "^FAIL" race-test.log; then \
+		echo "PackC tests failed"; \
+		rm race-test.log; \
+		exit 1; \
+	fi
+	@echo "Testing inspect-state with race detector..."
+	@cd tools/inspect-state && go test -race -v ./... 2>&1 | tee -a race-test.log || echo "Inspect-state race test completed"; \
 	if grep -q "^FAIL" race-test.log; then \
 		echo "Tests failed"; \
 		rm race-test.log; \
@@ -90,12 +117,21 @@ coverage: ## Generate test coverage report
 	@echo "Generating coverage for SDK..."
 	@cd sdk && go test -coverprofile=sdk-coverage.out ./...
 	@cd sdk && go tool cover -func=sdk-coverage.out | grep "^total:" || echo "No SDK coverage data"
+	@echo "Generating coverage for pkg..."
+	@cd pkg && go test -coverprofile=pkg-coverage.out ./... || echo "No pkg test coverage"
+	@cd pkg && go tool cover -func=pkg-coverage.out | grep "^total:" 2>/dev/null || echo "No pkg coverage data"
 	@echo "Generating coverage for arena..."
 	@cd tools/arena && go test -coverprofile=arena-coverage.out ./... || echo "No arena test coverage"
 	@cd tools/arena && go tool cover -func=arena-coverage.out | grep "^total:" 2>/dev/null || echo "No arena coverage data"
+	@echo "Generating coverage for packc..."
+	@cd tools/packc && go test -coverprofile=packc-coverage.out ./... || echo "No packc test coverage"
+	@cd tools/packc && go tool cover -func=packc-coverage.out | grep "^total:" 2>/dev/null || echo "No packc coverage data"
+	@echo "Generating coverage for inspect-state..."
+	@cd tools/inspect-state && go test -coverprofile=inspect-state-coverage.out ./... || echo "No inspect-state test coverage"
+	@cd tools/inspect-state && go tool cover -func=inspect-state-coverage.out | grep "^total:" 2>/dev/null || echo "No inspect-state coverage data"
 	@echo "Merging coverage files..."
 	@echo "mode: set" > coverage.out
-	@grep -h -v "^mode:" runtime/runtime-coverage.out sdk/sdk-coverage.out tools/arena/arena-coverage.out >> coverage.out 2>/dev/null || true
+	@grep -h -v "^mode:" runtime/runtime-coverage.out sdk/sdk-coverage.out pkg/pkg-coverage.out tools/arena/arena-coverage.out tools/packc/packc-coverage.out tools/inspect-state/inspect-state-coverage.out >> coverage.out 2>/dev/null || true
 	@echo "Coverage report generated: coverage.out"
 
 lint: ## Run linters
@@ -105,14 +141,20 @@ lint: ## Run linters
 	@echo "Linting SDK..."
 	@cd sdk && go vet ./...
 	@cd sdk && go fmt ./...
+	@echo "Linting pkg..."
+	@cd pkg && go vet ./...
+	@cd pkg && go fmt ./...
 	@echo "Linting CLI tools..."
 	@cd tools/arena && go vet ./... && go fmt ./...
 	@cd tools/packc && go vet ./... && go fmt ./...
 	@cd tools/inspect-state && go vet ./... && go fmt ./...
 	@echo "Running golangci-lint..."
-	@cd runtime && golangci-lint run ./... || echo "golangci-lint not installed or failed"
-	@cd sdk && golangci-lint run ./... || echo "golangci-lint not installed or failed"
-	@cd tools/arena && golangci-lint run ./... || echo "golangci-lint not installed or failed"
+	@cd runtime && golangci-lint run ./...
+	@cd sdk && golangci-lint run ./...
+	@cd pkg && golangci-lint run ./...
+	@cd tools/arena && golangci-lint run ./...
+	@cd tools/packc && golangci-lint run ./...
+	@cd tools/inspect-state && golangci-lint run ./...
 
 install-tools: ## Install CLI tools to system PATH
 	@echo "Installing CLI tools to system..."

@@ -73,59 +73,60 @@ func LoadConfig(filename string) (*Config, error) {
 	return cfg, nil
 }
 
-// LoadScenario loads and parses a scenario from a YAML file in K8s-style manifest format
-func LoadScenario(filename string) (*Scenario, error) {
+// k8sManifest is an interface for K8s-style manifest types
+type k8sManifest interface {
+	GetAPIVersion() string
+	GetKind() string
+	GetName() string
+	SetID(id string)
+}
+
+// loadSimpleK8sManifest is a generic loader for K8s-style manifest files
+// This is used for simple config types (Scenario, Provider) that don't support legacy formats
+func loadSimpleK8sManifest[T k8sManifest](filename string, expectedKind string) (T, error) {
+	var zero T
+
 	data, err := os.ReadFile(filename)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read scenario file: %w", err)
+		return zero, fmt.Errorf("failed to read %s file: %w", expectedKind, err)
 	}
 
-	var config ScenarioConfig
+	var config T
 	if err := yaml.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse scenario file: %w", err)
+		return zero, fmt.Errorf("failed to parse %s file: %w", expectedKind, err)
 	}
 
 	// Validate required K8s manifest fields
-	if config.APIVersion == "" {
-		return nil, fmt.Errorf("missing required field: apiVersion")
+	if config.GetAPIVersion() == "" {
+		return zero, fmt.Errorf("missing required field: apiVersion")
 	}
-	if config.Kind != "Scenario" {
-		return nil, fmt.Errorf("invalid kind: expected 'Scenario', got '%s'", config.Kind)
+	if config.GetKind() != expectedKind {
+		return zero, fmt.Errorf("invalid kind: expected '%s', got '%s'", expectedKind, config.GetKind())
 	}
-	if config.Metadata.Name == "" {
-		return nil, fmt.Errorf("missing required field: metadata.name")
+	if config.GetName() == "" {
+		return zero, fmt.Errorf("missing required field: metadata.name")
 	}
 
 	// Use metadata.name as the ID
-	config.Spec.ID = config.Metadata.Name
+	config.SetID(config.GetName())
+	return config, nil
+}
+
+// LoadScenario loads and parses a scenario from a YAML file in K8s-style manifest format
+func LoadScenario(filename string) (*Scenario, error) {
+	config, err := loadSimpleK8sManifest[*ScenarioConfig](filename, "Scenario")
+	if err != nil {
+		return nil, err
+	}
 	return &config.Spec, nil
 }
 
 // LoadProvider loads and parses a provider configuration from a YAML file in K8s-style manifest format
 func LoadProvider(filename string) (*Provider, error) {
-	data, err := os.ReadFile(filename)
+	config, err := loadSimpleK8sManifest[*ProviderConfig](filename, "Provider")
 	if err != nil {
-		return nil, fmt.Errorf("failed to read provider file: %w", err)
+		return nil, err
 	}
-
-	var config ProviderConfig
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse provider file: %w", err)
-	}
-
-	// Validate required K8s manifest fields
-	if config.APIVersion == "" {
-		return nil, fmt.Errorf("missing required field: apiVersion")
-	}
-	if config.Kind != "Provider" {
-		return nil, fmt.Errorf("invalid kind: expected 'Provider', got '%s'", config.Kind)
-	}
-	if config.Metadata.Name == "" {
-		return nil, fmt.Errorf("missing required field: metadata.name")
-	}
-
-	// Use metadata.name as the ID
-	config.Spec.ID = config.Metadata.Name
 	return &config.Spec, nil
 }
 

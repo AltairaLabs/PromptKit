@@ -1,60 +1,22 @@
-linters-settings:
-  govet:
-    enable:
-      - shadow
-  gocyclo:
-    min-complexity: 15
-  goconst:
-    min-len: 3
-    min-occurrences: 3
-  misspell:
-    locale: US
-  lll:
-    line-length: 120
-  goimports:
-    local-prefixes: github.com/AltairaLabs/PromptKit
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - experimental
-      - opinionated
-      - performance
-      - style
-    disabled-checks:
-      - dupImport
-      - ifElseChain
-      - octalLiteral
-      - whyNoLint
-      - wrapperFunc
-  # Replace gomnd with mnd
-  mnd:
-    checks:
-      - argument
-      - case
-      - condition
-      - operation
-      - return
-      - assign
+version: "2"
 
+# Linter settings (not for formatters)
 linters:
   enable:
     - bodyclose
     - copyloopvar  # replaces exportloopref
-    - depguard
+    # - depguard   # Disabled - too many false positives with internal imports
     - dogsled
     - dupl
     - errcheck
     - exhaustive
-    - funlen
+    # - funlen     # Disabled - many legitimately complex functions
     - gochecknoinits
     - goconst
     - gocritic
     - gocyclo
-    - gofmt
-    - goimports
     - goprintffuncname
     - gosec
-    - gosimple
     - govet        # includes shadow detection
     - ineffassign
     - lll
@@ -65,82 +27,133 @@ linters:
     - nolintlint
     - rowserrcheck
     - staticcheck
-    - stylecheck
-    - typecheck
     - unconvert
     - unparam
     - unused       # replaces deadcode, structcheck, varcheck
     - whitespace
+  settings:
+    govet:
+      enable:
+        - shadow
+    gocyclo:
+      min-complexity: 15
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+    misspell:
+      locale: US
+    lll:
+      line-length: 120
+    errcheck:
+      # Exclude functions where ignoring errors is common practice
+      exclude-functions:
+        - '(*net/http.Client).CloseIdleConnections'
+        - '(*io.Closer).Close'
+        - '(io.Closer).Close'
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - opinionated
+        - performance
+        - style
+      disabled-checks:
+        - dupImport
+        - ifElseChain
+        - octalLiteral
+        - whyNoLint
+        - wrapperFunc
+    mnd:
+      checks:
+        - argument
+        - case
+        - condition
+        - operation
+        - return
+        - assign
+  exclusions:
+    paths:
+      - vendor
+      - bin
+      - out
+    rules:
+      # Exclude errcheck for defer Close() - it's idiomatic to ignore these errors
+      - text: "Error return value of.*Close.*is not checked"
+        linters:
+          - errcheck
+      # Exclude most linters from test files
+      - path: '_test\.go'
+        linters:
+          - mnd
+          - gocyclo
+          - goconst
+          - gosec
+          - lll
+          - gocritic
+          - gochecknoinits
+          - unused
+          - depguard
+          - errcheck
+          - staticcheck
+          - govet
+          - whitespace
+      - path: 'test_.*\.go'
+        linters:
+          - mnd
+          - funlen
+          - gocyclo
+          - goconst
+          - gosec
+          - lll
+          - gocritic
+          - gochecknoinits
+          - unused
+          - depguard
+          - errcheck
+          - staticcheck
+          - govet
+          - whitespace
+      - path: 'cmd/'
+        linters:
+          - funlen
+      - path: 'examples/'
+        linters:
+          - mnd
+          - funlen
+          - gocyclo
+          - goconst
+          - gosec
+          - lll
+          - gocritic
+          - gochecknoinits
+          - unused
+          - depguard
+          - errcheck
+          - staticcheck
+          - govet
+          - whitespace
 
-issues:
-  exclude-rules:
-    # Exclude most linters from test files
-    - path: _test\.go
-      linters:
-        - mnd
-        - funlen
-        - gocyclo
-        - goconst
-        - gosec
-        - lll
-        - gocritic
-        - gochecknoinits
-        - unused
-        - depguard
-        - errcheck
-        - staticcheck
-        - govet
-        - whitespace
-        - goimports
-    - path: test_.*\.go
-      linters:
-        - mnd
-        - funlen
-        - gocyclo
-        - goconst
-        - gosec
-        - lll
-        - gocritic
-        - gochecknoinits
-        - unused
-        - depguard
-        - errcheck
-        - staticcheck
-        - govet
-        - whitespace
-        - goimports
-    - path: cmd/
-      linters:
-        - funlen
-    - path: examples/
-      linters:
-        - mnd
-        - funlen
-        - gocyclo
-        - goconst
-        - gosec
-        - lll
-        - gocritic
-        - gochecknoinits
-        - unused
-        - depguard
-        - errcheck
-        - staticcheck
-        - govet
-        - whitespace
-        - goimports
-  exclude-dirs:
-    - vendor
-    - bin
-    - out
+# Formatter settings (goimports is a formatter in v2)
+formatters:
+  enable:
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/AltairaLabs/PromptKit
+  exclusions:
+    paths:
+      - vendor
+      - bin
+      - out
 
 run:
   timeout: 5m
-  issues-exit-code: 1
   tests: false
 
 output:
   formats:
-    - format: colored-line-number
-  print-issued-lines: true
-  print-linter-name: true
+    text:
+      colors: true
+      print-issued-lines: true
+      print-linter-name: true

@@ -34,10 +34,10 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
     
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@3041bf56c941b39c61721a86cd11f3bb1338122a # v5.2.0
       with:
         go-version: ${{ matrix.go-version }}
     
@@ -52,37 +52,20 @@ jobs:
     
     - name: Run tests with race detector
       run: make test-race
-    
-    - name: Run tests with JUnit output
-      run: |
-        echo "Running tests with JUnit output for GitHub reporting..."
-        mkdir -p test-results
-        # Run tests with JUnit output for better GitHub integration
-        gotestsum --junitfile test-results/runtime.xml --format testname -- -coverprofile=runtime-cover.out ./runtime/...
-        gotestsum --junitfile test-results/sdk.xml --format testname -- -coverprofile=sdk-cover.out ./sdk/...
-        gotestsum --junitfile test-results/arena.xml --format testname -- -coverprofile=arena-cover.out ./tools/arena/...
-    
-    - name: Publish Test Results
-      uses: dorny/test-reporter@v1.9.1
-      if: always()  # Run even if tests fail
-      with:
-        name: Go Test Results
-        path: 'test-results/*.xml'
-        reporter: java-junit
-        fail-on-error: false
   
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
+    needs: [test, lint]
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       with:
         fetch-depth: 0  # Shallow clones should be disabled for better relevancy of analysis
     
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@3041bf56c941b39c61721a86cd11f3bb1338122a # v5.2.0
       with:
         go-version: '1.25.1'
     
@@ -97,20 +80,54 @@ jobs:
         gotestsum --junitfile test-results/coverage-runtime.xml --format testname -- -coverprofile=runtime/runtime-coverage.out ./runtime/...
         gotestsum --junitfile test-results/coverage-sdk.xml --format testname -- -coverprofile=sdk/sdk-coverage.out ./sdk/...
         gotestsum --junitfile test-results/coverage-arena.xml --format testname -- -coverprofile=tools/arena/arena-coverage.out ./tools/arena/...
+        gotestsum --junitfile test-results/coverage-pkg.xml --format testname -- -coverprofile=pkg/pkg-coverage.out ./pkg/...
+        gotestsum --junitfile test-results/coverage-packc.xml --format testname -- -coverprofile=tools/packc/packc-coverage.out ./tools/packc/...
+        gotestsum --junitfile test-results/coverage-inspect-state.xml --format testname -- -coverprofile=tools/inspect-state/inspect-state-coverage.out ./tools/inspect-state/...
         
         # Merge coverage files as before
         echo "mode: set" > coverage.out
-        grep -h -v "^mode:" runtime/runtime-coverage.out sdk/sdk-coverage.out tools/arena/arena-coverage.out >> coverage.out 2>/dev/null || true
+        grep -h -v "^mode:" runtime/runtime-coverage.out sdk/sdk-coverage.out tools/arena/arena-coverage.out pkg/pkg-coverage.out tools/packc/packc-coverage.out tools/inspect-state/inspect-state-coverage.out >> coverage.out 2>/dev/null || true
         echo "Coverage report generated: coverage.out"
     
     - name: Publish Coverage Test Results  
-      uses: dorny/test-reporter@v1.9.1
+      uses: dorny/test-reporter@31a54ee7ebcacc03a09ea97a7e5465a47b84aea5 # v1.9.1
       if: always()
       with:
         name: Coverage Test Results
         path: 'test-results/*.xml'
         reporter: java-junit
         fail-on-error: false
+    
+    - name: Download lint reports
+      uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+      with:
+        path: lint-reports
+        pattern: golangci-lint-report-*
+        merge-multiple: true
+    
+    - name: Combine lint reports
+      if: always()
+      run: |
+        echo "Combining golangci-lint reports for SonarCloud..."
+        mkdir -p lint-reports
+        # Create a combined JSON report with all issues
+        echo '{"Issues":[' > golangci-lint-report.json
+        FIRST=true
+        for report in lint-reports/golangci-lint-report-*.json; do
+          if [ -f "$report" ]; then
+            echo "Processing $report"
+            if [ "$FIRST" = true ]; then
+              FIRST=false
+              jq -r '.Issues[]' "$report" >> golangci-lint-report.json || echo "[]"
+            else
+              echo "," >> golangci-lint-report.json
+              jq -r '.Issues[]' "$report" >> golangci-lint-report.json || echo "[]"
+            fi
+          fi
+        done
+        echo ']}' >> golangci-lint-report.json
+        echo "Combined lint report created"
+        cat golangci-lint-report.json
     
     - name: Verify coverage file
       run: |
@@ -119,6 +136,8 @@ jobs:
         ls -la coverage.out 2>/dev/null || echo "coverage.out not found"
         echo "Coverage file size:"
         wc -l coverage.out 2>/dev/null || echo "Cannot read coverage.out"
+        echo "Lint report:"
+        ls -la golangci-lint-report.json 2>/dev/null || echo "golangci-lint-report.json not found"
     
     - name: SonarCloud Scan
       uses: SonarSource/sonarqube-scan-action@0303d6b62e310685c0e34d0b9cde218036885c4d # v5.0.0
@@ -129,18 +148,49 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module:
+          - ./runtime
+          - ./sdk
+          - ./pkg
+          - ./tools/arena
+          - ./tools/packc
+          - ./tools/inspect-state
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
     
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@3041bf56c941b39c61721a86cd11f3bb1338122a # v5.2.0
       with:
         go-version: '1.25.1'
+        cache-dependency-path: |
+          runtime/go.sum
+          sdk/go.sum
+          pkg/go.sum
+          tools/arena/go.sum
+          tools/packc/go.sum
+          tools/inspect-state/go.sum
     
-    - name: Run linting
-      run: make lint
+    - name: Run golangci-lint in ${{ matrix.module }}
+      uses: golangci/golangci-lint-action@v7
+      with:
+        version: v2.6.0
+        working-directory: ${{ matrix.module }}
+        args: --issues-exit-code=0
+        only-new-issues: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Upload lint report
+      if: always()
+      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+      with:
+        name: golangci-lint-report-${{ strategy.job-index }}
+        path: ${{ matrix.module }}/golangci-lint-report-${{ strategy.job-index }}.json
+        retention-days: 5
   
   build:
     name: Build
@@ -148,10 +198,10 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
     
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@3041bf56c941b39c61721a86cd11f3bb1338122a # v5.2.0
       with:
         go-version: '1.25.1'
     

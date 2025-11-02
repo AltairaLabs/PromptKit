@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/tools/arena/config"
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/spf13/cobra"
 )
 

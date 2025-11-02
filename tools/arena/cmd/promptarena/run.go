@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/tools/arena/config"
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/render"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"

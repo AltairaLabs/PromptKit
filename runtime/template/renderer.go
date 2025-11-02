@@ -38,7 +38,7 @@ func (r *Renderer) Render(templateText string, vars map[string]string) (string, 
 	result := templateText
 
 	// Do multiple passes to handle nested variable substitution
-	maxPasses := 3
+	maxPasses := 10
 	for pass := 0; pass < maxPasses; pass++ {
 		changed := false
 		for key, value := range vars {

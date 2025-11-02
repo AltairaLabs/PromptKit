@@ -53,6 +53,14 @@ Real-world applications and patterns:
 - **[Context Management](../examples/context-management/)** - Advanced prompt templating
 - **[Human-in-the-Loop](../examples/hitl-approval/)** - Approval workflows
 
+## DevOps & Releases
+
+For maintainers and release management:
+
+- **[DevOps Documentation](./devops/)** - Release processes and operational guides
+- **[Testing Releases](./devops/testing-releases-quickstart.md)** - Safe release testing workflow
+- **[CI/CD Workflows](../.github/workflows/)** - GitHub Actions automation
+
 ## Contributing
 
 Help improve PromptKit:

@@ -3,9 +3,9 @@ package engine
 import (
 	"context"
 
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/AltairaLabs/PromptKit/tools/arena/config"
 )
 
 // ConversationExecutor orchestrates full conversation flows

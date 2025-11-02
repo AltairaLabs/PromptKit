@@ -4,8 +4,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/tools/arena/config"
 )
 
 // Test helper: creates a basic mock provider

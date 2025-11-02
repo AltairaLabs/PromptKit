@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
-	"github.com/AltairaLabs/PromptKit/tools/arena/config"
 )
 
 const version = "v0.1.0"
@@ -260,7 +260,17 @@ func inspectCommand() {
 		os.Exit(1)
 	}
 
-	// Pack-level information
+	printPackInfo(pack)
+	printTemplateEngine(pack)
+	printPrompts(pack)
+	printFragments(pack)
+	printMetadata(pack)
+	printCompilationInfo(pack)
+
+	fmt.Println()
+}
+
+func printPackInfo(pack *prompt.Pack) {
 	fmt.Printf("\n=== Pack Information ===\n")
 	fmt.Printf("Pack: %s\n", pack.Name)
 	fmt.Printf("ID: %s\n", pack.ID)
@@ -268,73 +278,90 @@ func inspectCommand() {
 	if pack.Description != "" {
 		fmt.Printf("Description: %s\n", pack.Description)
 	}
+}
 
-	// Template Engine
+func printTemplateEngine(pack *prompt.Pack) {
 	if pack.TemplateEngine != nil {
 		fmt.Printf("\nTemplate Engine: %s (%s)\n", pack.TemplateEngine.Version, pack.TemplateEngine.Syntax)
 		if len(pack.TemplateEngine.Features) > 0 {
 			fmt.Printf("Features: %v\n", pack.TemplateEngine.Features)
 		}
 	}
+}
 
-	// Prompts
+func printPrompts(pack *prompt.Pack) {
 	fmt.Printf("\n=== Prompts (%d) ===\n", len(pack.Prompts))
 	for taskType, p := range pack.Prompts {
-		fmt.Printf("\n[%s]\n", taskType)
-		fmt.Printf("  Name: %s\n", p.Name)
-		if p.Description != "" {
-			fmt.Printf("  Description: %s\n", p.Description)
-		}
-		fmt.Printf("  Version: %s\n", p.Version)
+		printPromptDetails(taskType, p)
+	}
+}
 
-		// Variables
-		requiredVars := []string{}
-		optionalVars := []string{}
-		for _, v := range p.Variables {
-			if v.Required {
-				requiredVars = append(requiredVars, v.Name)
-			} else {
-				optionalVars = append(optionalVars, v.Name)
-			}
-		}
-		fmt.Printf("  Variables: %d required, %d optional\n", len(requiredVars), len(optionalVars))
-		if len(requiredVars) > 0 {
-			fmt.Printf("    Required: %v\n", requiredVars)
-		}
+func printPromptDetails(taskType string, p *prompt.PackPrompt) {
+	fmt.Printf("\n[%s]\n", taskType)
+	fmt.Printf("  Name: %s\n", p.Name)
+	if p.Description != "" {
+		fmt.Printf("  Description: %s\n", p.Description)
+	}
+	fmt.Printf("  Version: %s\n", p.Version)
 
-		// Tools
-		if len(p.Tools) > 0 {
-			fmt.Printf("  Tools (%d): %v\n", len(p.Tools), p.Tools)
-		}
+	printPromptVariables(p)
+	printPromptTools(p)
+	printPromptValidators(p)
+	printPromptTestedModels(p)
+}
 
-		// Validators
-		if len(p.Validators) > 0 {
-			fmt.Printf("  Validators (%d):\n", len(p.Validators))
-			for _, v := range p.Validators {
-				enabled := "disabled"
-				if v.Enabled != nil && *v.Enabled {
-					enabled = "enabled"
-				}
-				fmt.Printf("    - %s (%s)\n", v.Type, enabled)
-			}
-		}
-
-		// Tested Models
-		if len(p.TestedModels) > 0 {
-			fmt.Printf("  Tested Models (%d):\n", len(p.TestedModels))
-			for _, tm := range p.TestedModels {
-				fmt.Printf("    - %s/%s: %.1f%% success, avg %d tokens\n",
-					tm.Provider, tm.Model, tm.SuccessRate*100, tm.AvgTokens)
-			}
+func printPromptVariables(p *prompt.PackPrompt) {
+	requiredVars := []string{}
+	optionalVars := []string{}
+	for _, v := range p.Variables {
+		if v.Required {
+			requiredVars = append(requiredVars, v.Name)
+		} else {
+			optionalVars = append(optionalVars, v.Name)
 		}
 	}
+	fmt.Printf("  Variables: %d required, %d optional\n", len(requiredVars), len(optionalVars))
+	if len(requiredVars) > 0 {
+		fmt.Printf("    Required: %v\n", requiredVars)
+	}
+}
 
-	// Fragments
+func printPromptTools(p *prompt.PackPrompt) {
+	if len(p.Tools) > 0 {
+		fmt.Printf("  Tools (%d): %v\n", len(p.Tools), p.Tools)
+	}
+}
+
+func printPromptValidators(p *prompt.PackPrompt) {
+	if len(p.Validators) > 0 {
+		fmt.Printf("  Validators (%d):\n", len(p.Validators))
+		for _, v := range p.Validators {
+			enabled := "disabled"
+			if v.Enabled != nil && *v.Enabled {
+				enabled = "enabled"
+			}
+			fmt.Printf("    - %s (%s)\n", v.Type, enabled)
+		}
+	}
+}
+
+func printPromptTestedModels(p *prompt.PackPrompt) {
+	if len(p.TestedModels) > 0 {
+		fmt.Printf("  Tested Models (%d):\n", len(p.TestedModels))
+		for _, tm := range p.TestedModels {
+			fmt.Printf("    - %s/%s: %.1f%% success, avg %d tokens\n",
+				tm.Provider, tm.Model, tm.SuccessRate*100, tm.AvgTokens)
+		}
+	}
+}
+
+func printFragments(pack *prompt.Pack) {
 	if len(pack.Fragments) > 0 {
 		fmt.Printf("\nShared Fragments (%d): %v\n", len(pack.Fragments), getFragmentNames(pack.Fragments))
 	}
+}
 
-	// Metadata
+func printMetadata(pack *prompt.Pack) {
 	if pack.Metadata != nil {
 		fmt.Printf("\nPack Metadata:\n")
 		if pack.Metadata.Domain != "" {
@@ -347,16 +374,15 @@ func inspectCommand() {
 			fmt.Printf("  Tags: %v\n", pack.Metadata.Tags)
 		}
 	}
+}
 
-	// Compilation Info
+func printCompilationInfo(pack *prompt.Pack) {
 	if pack.Compilation != nil {
 		fmt.Printf("\nCompilation: %s, %s, Schema: %s\n",
 			pack.Compilation.CompiledWith,
 			pack.Compilation.CreatedAt,
 			pack.Compilation.Schema)
 	}
-
-	fmt.Println()
 }
 
 func getFragmentNames(fragments map[string]string) []string {

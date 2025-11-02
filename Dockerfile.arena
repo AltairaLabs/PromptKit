@@ -1,0 +1,21 @@
+# Multi-stage build for promptarena
+FROM alpine:3.20
+
+# Install ca-certificates for HTTPS
+RUN apk --no-cache add ca-certificates
+
+# Copy the binary from goreleaser context
+COPY promptarena /usr/local/bin/promptarena
+
+# Create a non-root user
+RUN adduser -D -u 1000 promptarena
+
+# Switch to non-root user
+USER promptarena
+
+# Set working directory
+WORKDIR /home/promptarena
+
+# Default command
+ENTRYPOINT ["/usr/local/bin/promptarena"]
+CMD ["--help"]

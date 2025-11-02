@@ -6,11 +6,9 @@ replace github.com/AltairaLabs/PromptKit/pkg => ../../pkg
 
 replace github.com/AltairaLabs/PromptKit/runtime => ../../runtime
 
-replace github.com/AltairaLabs/PromptKit/tools/arena => ../arena
-
 require (
+	github.com/AltairaLabs/PromptKit/pkg v0.0.0
 	github.com/AltairaLabs/PromptKit/runtime v0.0.0
-	github.com/AltairaLabs/PromptKit/tools/arena v0.0.0-00010101000000-000000000000
 )
 
 require (
@@ -19,7 +17,6 @@ require (
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/kr/text v0.2.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/x448/float16 v0.8.4 // indirect

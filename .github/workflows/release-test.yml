@@ -1,0 +1,209 @@
+name: Release Test
+
+# Only run manually or on release-test/* branches
+on:
+  workflow_dispatch:
+    inputs:
+      tool:
+        description: 'Tool to test (arena/packc)'
+        required: true
+        type: choice
+        options:
+          - arena
+          - packc
+      version:
+        description: 'Test version (e.g., v0.0.1-test)'
+        required: true
+        default: 'v0.0.1-test'
+  push:
+    branches:
+      - 'release-test/**'
+    tags:
+      - 'test/tools/*/v*'
+
+permissions:
+  contents: write
+
+jobs:
+  test-release-prep:
+    name: Test Release Preparation
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      with:
+        fetch-depth: 0
+    
+    - name: Setup Go
+      uses: actions/setup-go@3041bf56c941b39c61721a86cd11f3bb1338122a # v5.2.0
+      with:
+        go-version: '1.25.1'
+    
+    - name: Determine tool to test
+      id: tool
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        INPUT_TOOL: ${{ inputs.tool }}
+        INPUT_VERSION: ${{ inputs.version }}
+        GITHUB_REF: ${{ github.ref }}
+      run: |
+        if [ "$EVENT_NAME" == "workflow_dispatch" ]; then
+          TOOL="$INPUT_TOOL"
+          VERSION="$INPUT_VERSION"
+        else
+          # Extract from tag if tag-based trigger
+          TAG=${GITHUB_REF#refs/tags/}
+          if [[ $TAG == test/tools/* ]]; then
+            TOOL=$(echo $TAG | cut -d/ -f3)
+            VERSION=$(echo $TAG | cut -d/ -f4)
+          else
+            TOOL="arena"  # default
+            VERSION="v0.0.1-test"
+          fi
+        fi
+        echo "tool=$TOOL" >> $GITHUB_OUTPUT
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Testing tool: $TOOL version: $VERSION"
+    
+    - name: Show current go.mod before changes
+      run: |
+        echo "=== Current go.mod for tools/${{ steps.tool.outputs.tool }} ==="
+        cat tools/${{ steps.tool.outputs.tool }}/go.mod
+    
+    - name: Simulate replace directive removal
+      run: |
+        cd tools/${{ steps.tool.outputs.tool }}
+        
+        # Create a backup
+        cp go.mod go.mod.backup
+        
+        echo "=== Removing replace directives ==="
+        # Remove replace directives
+        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
+        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/pkg
+        
+        echo "=== go.mod after removing replace ==="
+        cat go.mod
+        
+        echo "=== Attempting to resolve dependencies ==="
+        # Try to get dependencies (this will fail if versions don't exist)
+        go mod download || echo "⚠️  Dependencies not available on remote (expected for test)"
+        go mod tidy || echo "⚠️  go mod tidy failed (expected for test)"
+    
+    - name: Show what would be committed
+      run: |
+        echo "=== Files that would change in a real release ==="
+        git diff tools/${{ steps.tool.outputs.tool }}/go.mod
+    
+    - name: Test build with local dependencies
+      run: |
+        echo "=== Testing build with local workspace ==="
+        # Restore original go.mod for testing
+        cd tools/${{ steps.tool.outputs.tool }}
+        cp go.mod.backup go.mod
+        
+        # Build to ensure nothing broke
+        go build -v ./...
+        echo "✅ Build successful with local dependencies"
+    
+    - name: Generate release checklist
+      run: |
+        cat << EOF > release-checklist.md
+        # Release Test Results for tools/${{ steps.tool.outputs.tool }} ${{ steps.tool.outputs.version }}
+        
+        ## Pre-Release Checklist
+        - [ ] Runtime and pkg modules are tagged and published
+        - [ ] Replace directives removed from go.mod
+        - [ ] Dependencies resolve from remote
+        - [ ] go mod tidy runs cleanly
+        - [ ] Builds successfully
+        - [ ] Tests pass
+        
+        ## Commands to Run
+        
+        ### 1. Tag dependencies first:
+        \`\`\`bash
+        git tag runtime/${{ steps.tool.outputs.version }}
+        git push origin runtime/${{ steps.tool.outputs.version }}
+        
+        git tag pkg/${{ steps.tool.outputs.version }}
+        git push origin pkg/${{ steps.tool.outputs.version }}
+        \`\`\`
+        
+        ### 2. Wait a few minutes for Go proxy, then update tool:
+        \`\`\`bash
+        cd tools/${{ steps.tool.outputs.tool }}
+        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
+        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/pkg
+        go get github.com/AltairaLabs/PromptKit/runtime@${{ steps.tool.outputs.version }}
+        go get github.com/AltairaLabs/PromptKit/pkg@${{ steps.tool.outputs.version }}
+        go mod tidy
+        \`\`\`
+        
+        ### 3. Create release branch and tag:
+        \`\`\`bash
+        git checkout -b release/tools/${{ steps.tool.outputs.tool }}/${{ steps.tool.outputs.version }}
+        git add tools/${{ steps.tool.outputs.tool }}/go.mod tools/${{ steps.tool.outputs.tool }}/go.sum
+        git commit -m "Release tools/${{ steps.tool.outputs.tool }} ${{ steps.tool.outputs.version }}"
+        git tag tools/${{ steps.tool.outputs.tool }}/${{ steps.tool.outputs.version }}
+        git push origin release/tools/${{ steps.tool.outputs.tool }}/${{ steps.tool.outputs.version }}
+        git push origin tools/${{ steps.tool.outputs.tool }}/${{ steps.tool.outputs.version }}
+        \`\`\`
+        
+        ### 4. Test installation:
+        \`\`\`bash
+        # Wait 5-10 minutes for Go proxy
+        go install github.com/AltairaLabs/PromptKit/tools/${{ steps.tool.outputs.tool }}/cmd/prompt${{ steps.tool.outputs.tool }}@${{ steps.tool.outputs.version }}
+        \`\`\`
+        
+        ### 5. After testing, merge back to main (with replace directives restored)
+        \`\`\`bash
+        git checkout main
+        # Keep development version with replace directives
+        \`\`\`
+        
+        ## Notes
+        - Test tags should use \`test/\` prefix: \`test/tools/arena/v0.0.1\`
+        - Real releases should NOT use test prefix
+        - Always test with a non-production version number first
+        - Go proxy caches for 24 hours - bad tags can't be removed!
+        EOF
+        
+        cat release-checklist.md
+    
+    - name: Upload checklist
+      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+      with:
+        name: release-checklist-${{ steps.tool.outputs.tool }}-${{ steps.tool.outputs.version }}
+        path: release-checklist.md
+
+  dry-run-summary:
+    name: Dry Run Summary
+    runs-on: ubuntu-latest
+    needs: test-release-prep
+    
+    steps:
+    - name: Summary
+      run: |
+        cat << EOF >> $GITHUB_STEP_SUMMARY
+        # 🧪 Release Test Dry Run Complete
+        
+        This was a **dry run** - no actual tags or releases were created.
+        
+        ## Next Steps for Real Release
+        
+        1. **Create a test repository first** (recommended)
+        2. **Or use test tags** with \`test/\` prefix
+        3. **Review the release checklist** artifact
+        4. **Delete test branches** when done: \`git push origin --delete release-test/mybranch\`
+        
+        ## Testing Strategy
+        
+        Choose one:
+        - 🔹 **Test Repo**: Create \`AltairaLabs/promptkit-release-test\` (safest)
+        - 🔹 **Test Tags**: Use \`test/tools/arena/v0.0.1\` prefix (can be deleted)
+        - 🔹 **Test Branch**: Use \`release-test/\` branches (this workflow)
+        
+        ⚠️  **Warning**: Regular tags on Go proxy cache for 24 hours and cannot be deleted!
+        EOF
