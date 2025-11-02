@@ -4,14 +4,16 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestExtractRunIDs(t *testing.T) {
@@ -287,7 +289,7 @@ func TestSaveResult(t *testing.T) {
 			filename := filepath.Join(tmpDir, "result.json")
 
 			// Save result
-			err := saveResult(tt.result, filename)
+			err := saveResult(&tt.result, filename)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -369,6 +371,148 @@ func TestSaveJSON(t *testing.T) {
 				require.NoError(t, err)
 				assert.NotNil(t, loaded)
 			}
+		})
+	}
+}
+
+func TestCountResultsByStatus(t *testing.T) {
+	tests := []struct {
+		name            string
+		results         []engine.RunResult
+		expectedSuccess int
+		expectedError   int
+	}{
+		{
+			name:            "no results",
+			results:         []engine.RunResult{},
+			expectedSuccess: 0,
+			expectedError:   0,
+		},
+		{
+			name: "all successful",
+			results: []engine.RunResult{
+				{RunID: "run-001", Error: ""},
+				{RunID: "run-002", Error: ""},
+				{RunID: "run-003", Error: ""},
+			},
+			expectedSuccess: 3,
+			expectedError:   0,
+		},
+		{
+			name: "all errors",
+			results: []engine.RunResult{
+				{RunID: "run-001", Error: "error 1"},
+				{RunID: "run-002", Error: "error 2"},
+			},
+			expectedSuccess: 0,
+			expectedError:   2,
+		},
+		{
+			name: "mixed results",
+			results: []engine.RunResult{
+				{RunID: "run-001", Error: ""},
+				{RunID: "run-002", Error: "some error"},
+				{RunID: "run-003", Error: ""},
+				{RunID: "run-004", Error: "another error"},
+			},
+			expectedSuccess: 2,
+			expectedError:   2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			successCount, errorCount := countResultsByStatus(tt.results)
+			assert.Equal(t, tt.expectedSuccess, successCount)
+			assert.Equal(t, tt.expectedError, errorCount)
+		})
+	}
+}
+
+func TestCreateSummary(t *testing.T) {
+	now := time.Now()
+
+	tests := []struct {
+		name         string
+		results      []engine.RunResult
+		successCount int
+		errorCount   int
+		configFile   string
+		expectedKeys []string
+	}{
+		{
+			name:         "empty results",
+			results:      []engine.RunResult{},
+			successCount: 0,
+			errorCount:   0,
+			configFile:   "test.yaml",
+			expectedKeys: []string{"total_runs", "successful", "errors", "timestamp", "config_file", "run_ids"},
+		},
+		{
+			name: "with results",
+			results: []engine.RunResult{
+				{RunID: "run-001"},
+				{RunID: "run-002"},
+			},
+			successCount: 2,
+			errorCount:   0,
+			configFile:   "arena.yaml",
+			expectedKeys: []string{"total_runs", "successful", "errors", "timestamp", "config_file", "run_ids"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			summary := createSummary(tt.results, tt.successCount, tt.errorCount, tt.configFile)
+
+			// Check all expected keys exist
+			for _, key := range tt.expectedKeys {
+				assert.Contains(t, summary, key)
+			}
+
+			// Check specific values
+			assert.Equal(t, len(tt.results), summary["total_runs"])
+			assert.Equal(t, tt.successCount, summary["successful"])
+			assert.Equal(t, tt.errorCount, summary["errors"])
+			assert.Equal(t, tt.configFile, summary["config_file"])
+
+			// Check run_ids
+			runIDs := summary["run_ids"].([]string)
+			assert.Equal(t, len(tt.results), len(runIDs))
+
+			// Check timestamp is recent (within last minute)
+			timestamp, ok := summary["timestamp"].(time.Time)
+			assert.True(t, ok)
+			assert.WithinDuration(t, now, timestamp, time.Minute)
+		})
+	}
+}
+
+func TestResolveHTMLReportPath(t *testing.T) {
+	tests := []struct {
+		name           string
+		outDir         string
+		htmlReportPath string
+		expectedPrefix string // We'll check if the result starts with this
+	}{
+		{
+			name:           "empty path generates timestamped file",
+			outDir:         "/tmp/output",
+			htmlReportPath: "",
+			expectedPrefix: "/tmp/output/report-",
+		},
+		{
+			name:           "custom path gets resolved",
+			outDir:         "/tmp/output",
+			htmlReportPath: "custom-report.html",
+			expectedPrefix: "/tmp/output/custom-report.html",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := resolveHTMLReportPath(tt.outDir, tt.htmlReportPath)
+			assert.True(t, strings.HasPrefix(result, tt.expectedPrefix))
 		})
 	}
 }

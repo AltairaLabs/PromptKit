@@ -13,6 +13,60 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
+// Test constants to avoid string literal duplication (SonarQube go:S1192)
+const (
+	// Test providers
+	testProviderOpenAI         = "openai"
+	testProviderOpenAIGPT4Mini = "openai-gpt-4o-mini"
+	testProviderAnthropic      = "anthropic"
+	testProviderTest           = "test-provider"
+	testProviderUnknown        = "unknown-provider"
+
+	// Test regions
+	testRegionUSWest  = "us-west"
+	testRegionUSEast  = "us-east"
+	testRegionUS      = "us"
+	testRegionUnknown = "unknown-region"
+
+	// Test scenarios
+	testScenario1        = "scenario1"
+	testScenario2        = "scenario2"
+	testScenarioS1       = "s1"
+	testScenarioS2       = "s2"
+	testScenarioSelfPlay = "selfplay-scenario"
+
+	// Test run IDs
+	testRunID1 = "run1"
+	testRunID2 = "run2"
+	testRunID3 = "run3"
+
+	// Test report titles
+	testReportTitle   = "Test Report"
+	testTemplateTitle = "Template Test"
+	testEdgeCaseTitle = "Edge Case Test"
+
+	// Test strings
+	testTotalRuns = "Total Runs"
+	testErrorMsg  = "Test error message"
+
+	// Common test error messages
+	testFailedGenerateHTML = "Failed to generate HTML: %v"
+	testGeneratedHTMLEmpty = "Generated HTML is empty"
+
+	// Validation test strings
+	testValidatorBannedWords = "*validators.BannedWordsValidator"
+	testValidatorLength      = "*validators.LengthValidator"
+	testValidations          = "validations"
+	testTurnMetrics          = "turn_metrics"
+	testTurnIndex            = "turn_index"
+	testValidatorType        = "validator_type"
+	testPassed               = "passed"
+	testDetails              = "details"
+	testTokensIn             = "tokens_in"
+	testTokensOut            = "tokens_out"
+	testCostUSD              = "cost_usd"
+)
+
 // Helper function to create test results
 func createTestResult(id, provider, region, scenario string, cost float64, inputTokens, outputTokens int, hasError bool, duration time.Duration) engine.RunResult {
 	result := engine.RunResult{
@@ -31,7 +85,7 @@ func createTestResult(id, provider, region, scenario string, cost float64, input
 	}
 
 	if hasError {
-		result.Error = "Test error message"
+		result.Error = testErrorMsg
 	}
 
 	return result
@@ -80,7 +134,7 @@ func TestPrepareReportData_EmptyResults(t *testing.T) {
 
 func TestPrepareReportData_SingleResult(t *testing.T) {
 	results := []engine.RunResult{
-		createTestResult("run1", "openai", "us-west", "scenario1", 0.05, 100, 50, false, 500*time.Millisecond),
+		createTestResult(testRunID1, testProviderOpenAI, testRegionUSWest, testScenario1, 0.05, 100, 50, false, 500*time.Millisecond),
 	}
 
 	data := prepareReportData(results)
@@ -109,24 +163,24 @@ func TestPrepareReportData_SingleResult(t *testing.T) {
 		t.Error("Expected average latency to be calculated")
 	}
 
-	if len(data.Providers) != 1 || data.Providers[0] != "openai" {
-		t.Errorf("Expected 1 provider 'openai', got %v", data.Providers)
+	if len(data.Providers) != 1 || data.Providers[0] != testProviderOpenAI {
+		t.Errorf("Expected 1 provider '%s', got %v", testProviderOpenAI, data.Providers)
 	}
 
-	if len(data.Regions) != 1 || data.Regions[0] != "us-west" {
-		t.Errorf("Expected 1 region 'us-west', got %v", data.Regions)
+	if len(data.Regions) != 1 || data.Regions[0] != testRegionUSWest {
+		t.Errorf("Expected 1 region '%s', got %v", testRegionUSWest, data.Regions)
 	}
 
-	if len(data.Scenarios) != 1 || data.Scenarios[0] != "scenario1" {
-		t.Errorf("Expected 1 scenario 'scenario1', got %v", data.Scenarios)
+	if len(data.Scenarios) != 1 || data.Scenarios[0] != testScenario1 {
+		t.Errorf("Expected 1 scenario '%s', got %v", testScenario1, data.Scenarios)
 	}
 }
 
 func TestPrepareReportData_MultipleResults(t *testing.T) {
 	results := []engine.RunResult{
-		createTestResult("run1", "openai", "us-west", "scenario1", 0.05, 100, 50, false, 500*time.Millisecond),
-		createTestResult("run2", "anthropic", "us-east", "scenario2", 0.03, 80, 40, false, 300*time.Millisecond),
-		createTestResult("run3", "openai", "us-west", "scenario2", 0.04, 90, 45, true, 0),
+		createTestResult(testRunID1, testProviderOpenAI, testRegionUSWest, testScenario1, 0.05, 100, 50, false, 500*time.Millisecond),
+		createTestResult(testRunID2, testProviderAnthropic, testRegionUSEast, testScenario2, 0.03, 80, 40, false, 300*time.Millisecond),
+		createTestResult(testRunID3, testProviderOpenAI, testRegionUSWest, testScenario2, 0.04, 90, 45, true, 0),
 	}
 
 	data := prepareReportData(results)
@@ -180,7 +234,7 @@ func TestPrepareReportData_AvgLatencyFormatting(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			results := []engine.RunResult{
-				createTestResult("run1", "openai", "us", "s1", 0.01, 100, 50, false, tt.duration),
+				createTestResult(testRunID1, testProviderOpenAI, testRegionUS, testScenarioS1, 0.01, 100, 50, false, tt.duration),
 			}
 
 			data := prepareReportData(results)
@@ -193,7 +247,7 @@ func TestPrepareReportData_AvgLatencyFormatting(t *testing.T) {
 }
 
 func TestPrepareReportData_WithCachedTokens(t *testing.T) {
-	result := createTestResult("run1", "openai", "us", "s1", 0.05, 100, 50, false, 500*time.Millisecond)
+	result := createTestResult(testRunID1, testProviderOpenAI, testRegionUS, testScenarioS1, 0.05, 100, 50, false, 500*time.Millisecond)
 	result.Cost.CachedTokens = 25
 	results := []engine.RunResult{result}
 
@@ -219,11 +273,11 @@ func TestGenerateMatrix_EmptyResults(t *testing.T) {
 
 func TestGenerateMatrix_SingleCell(t *testing.T) {
 	results := []engine.RunResult{
-		createTestResult("run1", "openai", "us-west", "scenario1", 0.05, 100, 50, false, 500*time.Millisecond),
-		createTestResult("run2", "openai", "us-west", "scenario2", 0.03, 80, 40, false, 300*time.Millisecond),
+		createTestResult(testRunID1, testProviderOpenAI, testRegionUSWest, testScenario1, 0.05, 100, 50, false, 500*time.Millisecond),
+		createTestResult(testRunID2, testProviderOpenAI, testRegionUSWest, testScenario2, 0.03, 80, 40, false, 300*time.Millisecond),
 	}
-	providers := []string{"openai"}
-	regions := []string{"us-west"}
+	providers := []string{testProviderOpenAI}
+	regions := []string{testRegionUSWest}
 
 	matrix := generateMatrix(results, providers, regions)
 
@@ -236,12 +290,12 @@ func TestGenerateMatrix_SingleCell(t *testing.T) {
 	}
 
 	cell := matrix[0][0]
-	if cell.Provider != "openai" {
-		t.Errorf("Expected provider 'openai', got '%s'", cell.Provider)
+	if cell.Provider != testProviderOpenAI {
+		t.Errorf("Expected provider '%s', got '%s'", testProviderOpenAI, cell.Provider)
 	}
 
-	if cell.Region != "us-west" {
-		t.Errorf("Expected region 'us-west', got '%s'", cell.Region)
+	if cell.Region != testRegionUSWest {
+		t.Errorf("Expected region '%s', got '%s'", testRegionUSWest, cell.Region)
 	}
 
 	if cell.Scenarios != 2 {
@@ -264,12 +318,12 @@ func TestGenerateMatrix_SingleCell(t *testing.T) {
 
 func TestGenerateMatrix_MultipleProviders(t *testing.T) {
 	results := []engine.RunResult{
-		createTestResult("run1", "openai", "us-west", "s1", 0.05, 100, 50, false, 500*time.Millisecond),
-		createTestResult("run2", "anthropic", "us-west", "s1", 0.03, 80, 40, false, 300*time.Millisecond),
-		createTestResult("run3", "openai", "us-east", "s1", 0.04, 90, 45, true, 0),
+		createTestResult(testRunID1, testProviderOpenAI, testRegionUSWest, testScenarioS1, 0.05, 100, 50, false, 500*time.Millisecond),
+		createTestResult(testRunID2, testProviderAnthropic, testRegionUSWest, testScenarioS1, 0.03, 80, 40, false, 300*time.Millisecond),
+		createTestResult(testRunID3, testProviderOpenAI, testRegionUSEast, testScenarioS1, 0.04, 90, 45, true, 0),
 	}
-	providers := []string{"openai", "anthropic"}
-	regions := []string{"us-west", "us-east"}
+	providers := []string{testProviderOpenAI, testProviderAnthropic}
+	regions := []string{testRegionUSWest, testRegionUSEast}
 
 	matrix := generateMatrix(results, providers, regions)
 
@@ -308,7 +362,7 @@ func TestGenerateMatrix_MultipleProviders(t *testing.T) {
 
 func TestGenerateHTML_ValidData(t *testing.T) {
 	data := HTMLReportData{
-		Title:       "Test Report",
+		Title:       testReportTitle,
 		GeneratedAt: time.Now(),
 		Summary: ReportSummary{
 			TotalRuns:      5,
@@ -319,27 +373,27 @@ func TestGenerateHTML_ValidData(t *testing.T) {
 			AvgLatency:     "250.00ms",
 		},
 		Results:   []engine.RunResult{},
-		Providers: []string{"openai"},
-		Regions:   []string{"us"},
+		Providers: []string{testProviderOpenAI},
+		Regions:   []string{testRegionUS},
 		Scenarios: []string{"test"},
 		Matrix:    [][]MatrixCell{},
 	}
 
 	html, err := generateHTML(data)
 	if err != nil {
-		t.Fatalf("Failed to generate HTML: %v", err)
+		t.Fatalf(testFailedGenerateHTML, err)
 	}
 
 	if len(html) == 0 {
-		t.Error("Generated HTML is empty")
+		t.Error(testGeneratedHTMLEmpty)
 	}
 
 	// Check for key content in HTML
-	if !strings.Contains(html, "Test Report") {
+	if !strings.Contains(html, testReportTitle) {
 		t.Error("HTML doesn't contain title")
 	}
 
-	if !strings.Contains(html, "Total Runs") {
+	if !strings.Contains(html, testTotalRuns) {
 		t.Error("HTML doesn't contain 'Total Runs'")
 	}
 }
@@ -347,7 +401,7 @@ func TestGenerateHTML_ValidData(t *testing.T) {
 func TestGenerateHTML_TemplateFunctions(t *testing.T) {
 	// Test with data that exercises template functions
 	data := HTMLReportData{
-		Title:       "Template Test",
+		Title:       testTemplateTitle,
 		GeneratedAt: time.Now(),
 		Summary: ReportSummary{
 			TotalRuns:      10,
@@ -358,19 +412,19 @@ func TestGenerateHTML_TemplateFunctions(t *testing.T) {
 			AvgLatency:     "100.00ms",
 		},
 		Results: []engine.RunResult{
-			createTestResult("run1", "openai", "us", "s1", 0.05, 100, 50, false, 500*time.Millisecond),
+			createTestResult(testRunID1, testProviderOpenAI, testRegionUS, testScenarioS1, 0.05, 100, 50, false, 500*time.Millisecond),
 		},
-		Providers: []string{"openai"},
-		Regions:   []string{"us"},
-		Scenarios: []string{"s1"},
+		Providers: []string{testProviderOpenAI},
+		Regions:   []string{testRegionUS},
+		Scenarios: []string{testScenarioS1},
 		Matrix: [][]MatrixCell{
-			{{Provider: "openai", Region: "us", Scenarios: 1, Successful: 1, Errors: 0, Cost: 0.05}},
+			{{Provider: testProviderOpenAI, Region: testRegionUS, Scenarios: 1, Successful: 1, Errors: 0, Cost: 0.05}},
 		},
 	}
 
 	html, err := generateHTML(data)
 	if err != nil {
-		t.Fatalf("Failed to generate HTML: %v", err)
+		t.Fatalf(testFailedGenerateHTML, err)
 	}
 
 	// The template should format the cost
@@ -385,7 +439,7 @@ func TestGenerateHTMLReport_CreatesFiles(t *testing.T) {
 	outputPath := filepath.Join(tmpDir, "test-report.html")
 
 	results := []engine.RunResult{
-		createTestResult("run1", "openai", "us-west", "scenario1", 0.05, 100, 50, false, 500*time.Millisecond),
+		createTestResult(testRunID1, testProviderOpenAI, testRegionUSWest, testScenario1, 0.05, 100, 50, false, 500*time.Millisecond),
 	}
 
 	err := GenerateHTMLReport(results, outputPath)
@@ -426,7 +480,7 @@ func TestGenerateHTMLReport_CreatesDirectory(t *testing.T) {
 	outputPath := filepath.Join(tmpDir, "nested", "dir", "report.html")
 
 	results := []engine.RunResult{
-		createTestResult("run1", "openai", "us", "s1", 0.05, 100, 50, false, 500*time.Millisecond),
+		createTestResult(testRunID1, testProviderOpenAI, testRegionUS, testScenarioS1, 0.05, 100, 50, false, 500*time.Millisecond),
 	}
 
 	err := GenerateHTMLReport(results, outputPath)
@@ -448,7 +502,7 @@ func TestGenerateHTMLReport_CreatesDirectory(t *testing.T) {
 func TestGenerateHTMLReport_InvalidPath(t *testing.T) {
 	// Use an invalid path (directory without write permissions on Unix-like systems)
 	results := []engine.RunResult{
-		createTestResult("run1", "openai", "us", "s1", 0.05, 100, 50, false, 500*time.Millisecond),
+		createTestResult(testRunID1, testProviderOpenAI, testRegionUS, testScenarioS1, 0.05, 100, 50, false, 500*time.Millisecond),
 	}
 
 	// This path should be invalid on most systems
@@ -531,8 +585,8 @@ func TestReportSummary_Structure(t *testing.T) {
 
 func TestMatrixCell_Structure(t *testing.T) {
 	cell := MatrixCell{
-		Provider:   "openai",
-		Region:     "us-west",
+		Provider:   testProviderOpenAI,
+		Region:     testRegionUSWest,
 		Scenarios:  5,
 		Successful: 4,
 		Errors:     1,
@@ -565,8 +619,8 @@ func TestMatrixCell_Structure(t *testing.T) {
 func TestPrepareReportData_ZeroDuration(t *testing.T) {
 	// Test with results that have zero duration (should not affect average)
 	results := []engine.RunResult{
-		createTestResult("run1", "openai", "us", "s1", 0.05, 100, 50, false, 500*time.Millisecond),
-		createTestResult("run2", "openai", "us", "s2", 0.03, 80, 40, true, 0), // Error with no duration
+		createTestResult(testRunID1, testProviderOpenAI, testRegionUS, testScenarioS1, 0.05, 100, 50, false, 500*time.Millisecond),
+		createTestResult(testRunID2, testProviderOpenAI, testRegionUS, testScenarioS2, 0.03, 80, 40, true, 0), // Error with no duration
 	}
 
 	data := prepareReportData(results)
@@ -585,10 +639,10 @@ func TestPrepareReportData_ZeroDuration(t *testing.T) {
 func TestGenerateMatrix_UnmatchedResults(t *testing.T) {
 	// Test with results that don't match the provider/region lists
 	results := []engine.RunResult{
-		createTestResult("run1", "unknown-provider", "unknown-region", "s1", 0.05, 100, 50, false, 500*time.Millisecond),
+		createTestResult(testRunID1, testProviderUnknown, testRegionUnknown, testScenarioS1, 0.05, 100, 50, false, 500*time.Millisecond),
 	}
-	providers := []string{"openai"}
-	regions := []string{"us-west"}
+	providers := []string{testProviderOpenAI}
+	regions := []string{testRegionUSWest}
 
 	matrix := generateMatrix(results, providers, regions)
 
@@ -607,8 +661,8 @@ func TestGenerateMatrix_UnmatchedResults(t *testing.T) {
 func TestPrepareReportData_DuplicateProviders(t *testing.T) {
 	// Multiple results with same provider/region should be deduplicated
 	results := []engine.RunResult{
-		createTestResult("run1", "openai", "us", "s1", 0.05, 100, 50, false, 500*time.Millisecond),
-		createTestResult("run2", "openai", "us", "s2", 0.03, 80, 40, false, 300*time.Millisecond),
+		createTestResult(testRunID1, testProviderOpenAI, testRegionUS, testScenarioS1, 0.05, 100, 50, false, 500*time.Millisecond),
+		createTestResult(testRunID2, testProviderOpenAI, testRegionUS, testScenarioS2, 0.03, 80, 40, false, 300*time.Millisecond),
 	}
 
 	data := prepareReportData(results)
@@ -642,27 +696,27 @@ func TestGetValidationsForTurn(t *testing.T) {
 		{
 			name: "direct struct type (from Go)",
 			validators: map[string]interface{}{
-				"validations": []statestore.ValidationResult{
+				testValidations: []statestore.ValidationResult{
 					{
 						TurnIndex:     1,
-						ValidatorType: "*validators.BannedWordsValidator",
+						ValidatorType: testValidatorBannedWords,
 						Passed:        false,
 						Details:       map[string]interface{}{"value": []string{"guarantee"}},
 					},
 					{
 						TurnIndex:     1,
-						ValidatorType: "*validators.LengthValidator",
+						ValidatorType: testValidatorLength,
 						Passed:        true,
 						Details:       map[string]interface{}{"length": 100},
 					},
 					{
 						TurnIndex:     2,
-						ValidatorType: "*validators.BannedWordsValidator",
+						ValidatorType: testValidatorBannedWords,
 						Passed:        true,
 						Details:       nil,
 					},
 				},
-				"turn_metrics": []map[string]interface{}{},
+				testTurnMetrics: []map[string]interface{}{},
 			},
 			turnIndex: 1,
 			want:      2,
@@ -672,27 +726,27 @@ func TestGetValidationsForTurn(t *testing.T) {
 			validators: func() interface{} {
 				// Simulate what happens when JSON is loaded
 				jsonStr := `{
-					"validations": [
+					"` + testValidations + `": [
 						{
-							"turn_index": 1,
-							"validator_type": "*validators.BannedWordsValidator",
-							"passed": false,
-							"details": {"value": ["guarantee"]}
+							"` + testTurnIndex + `": 1,
+							"` + testValidatorType + `": "` + testValidatorBannedWords + `",
+							"` + testPassed + `": false,
+							"` + testDetails + `": {"value": ["guarantee"]}
 						},
 						{
-							"turn_index": 1,
-							"validator_type": "*validators.LengthValidator",
-							"passed": true,
-							"details": {"length": 100}
+							"` + testTurnIndex + `": 1,
+							"` + testValidatorType + `": "` + testValidatorLength + `",
+							"` + testPassed + `": true,
+							"` + testDetails + `": {"length": 100}
 						},
 						{
-							"turn_index": 2,
-							"validator_type": "*validators.BannedWordsValidator",
-							"passed": true,
-							"details": null
+							"` + testTurnIndex + `": 2,
+							"` + testValidatorType + `": "` + testValidatorBannedWords + `",
+							"` + testPassed + `": true,
+							"` + testDetails + `": null
 						}
 					],
-					"turn_metrics": []
+					"` + testTurnMetrics + `": []
 				}`
 				var v map[string]interface{}
 				_ = json.Unmarshal([]byte(jsonStr), &v) // Ignore error in test
@@ -704,7 +758,7 @@ func TestGetValidationsForTurn(t *testing.T) {
 		{
 			name: "turn 2 has one validation",
 			validators: map[string]interface{}{
-				"validations": []statestore.ValidationResult{
+				testValidations: []statestore.ValidationResult{
 					{TurnIndex: 1, ValidatorType: "test1", Passed: true},
 					{TurnIndex: 2, ValidatorType: "test2", Passed: false},
 				},
@@ -715,7 +769,7 @@ func TestGetValidationsForTurn(t *testing.T) {
 		{
 			name: "turn 3 has no validations",
 			validators: map[string]interface{}{
-				"validations": []statestore.ValidationResult{
+				testValidations: []statestore.ValidationResult{
 					{TurnIndex: 1, ValidatorType: "test1", Passed: true},
 					{TurnIndex: 2, ValidatorType: "test2", Passed: false},
 				},
@@ -780,21 +834,21 @@ func TestGetTurnMetrics(t *testing.T) {
 		{
 			name: "direct struct type (from Go)",
 			validators: map[string]interface{}{
-				"turn_metrics": []map[string]interface{}{
+				testTurnMetrics: []map[string]interface{}{
 					{
-						"turn_index": 1,
-						"tokens_in":  100,
-						"tokens_out": 50,
-						"cost_usd":   0.001,
+						testTurnIndex: 1,
+						testTokensIn:  100,
+						testTokensOut: 50,
+						testCostUSD:   0.001,
 					},
 					{
-						"turn_index": 2,
-						"tokens_in":  200,
-						"tokens_out": 75,
-						"cost_usd":   0.002,
+						testTurnIndex: 2,
+						testTokensIn:  200,
+						testTokensOut: 75,
+						testCostUSD:   0.002,
 					},
 				},
-				"validations": []statestore.ValidationResult{},
+				testValidations: []statestore.ValidationResult{},
 			},
 			turnIndex: 1,
 			wantNil:   false,
@@ -803,21 +857,21 @@ func TestGetTurnMetrics(t *testing.T) {
 			name: "JSON-loaded type (from file)",
 			validators: func() interface{} {
 				jsonStr := `{
-					"turn_metrics": [
+					"` + testTurnMetrics + `": [
 						{
-							"turn_index": 1,
-							"tokens_in": 100,
-							"tokens_out": 50,
-							"cost_usd": 0.001
+							"` + testTurnIndex + `": 1,
+							"` + testTokensIn + `": 100,
+							"` + testTokensOut + `": 50,
+							"` + testCostUSD + `": 0.001
 						},
 						{
-							"turn_index": 2,
-							"tokens_in": 200,
-							"tokens_out": 75,
-							"cost_usd": 0.002
+							"` + testTurnIndex + `": 2,
+							"` + testTokensIn + `": 200,
+							"` + testTokensOut + `": 75,
+							"` + testCostUSD + `": 0.002
 						}
 					],
-					"validations": []
+					"` + testValidations + `": []
 				}`
 				var v map[string]interface{}
 				_ = json.Unmarshal([]byte(jsonStr), &v) // Ignore error in test
@@ -829,9 +883,9 @@ func TestGetTurnMetrics(t *testing.T) {
 		{
 			name: "turn not found",
 			validators: map[string]interface{}{
-				"turn_metrics": []map[string]interface{}{
-					{"turn_index": 1, "tokens_in": 100},
-					{"turn_index": 2, "tokens_in": 200},
+				testTurnMetrics: []map[string]interface{}{
+					{testTurnIndex: 1, testTokensIn: 100},
+					{testTurnIndex: 2, testTokensIn: 200},
 				},
 			},
 			turnIndex: 3,
@@ -998,7 +1052,7 @@ func TestHasValidations(t *testing.T) {
 		{
 			name: "has validation for turn",
 			validators: map[string]interface{}{
-				"validations": []statestore.ValidationResult{
+				testValidations: []statestore.ValidationResult{
 					{TurnIndex: 1, ValidatorType: "test", Passed: true},
 				},
 			},
@@ -1008,7 +1062,7 @@ func TestHasValidations(t *testing.T) {
 		{
 			name: "no validation for turn",
 			validators: map[string]interface{}{
-				"validations": []statestore.ValidationResult{
+				testValidations: []statestore.ValidationResult{
 					{TurnIndex: 1, ValidatorType: "test", Passed: true},
 				},
 			},
@@ -1019,8 +1073,8 @@ func TestHasValidations(t *testing.T) {
 			name: "JSON-loaded type",
 			validators: func() interface{} {
 				jsonStr := `{
-					"validations": [
-						{"turn_index": 1, "validator_type": "test", "passed": true}
+					"` + testValidations + `": [
+						{"` + testTurnIndex + `": 1, "` + testValidatorType + `": "test", "` + testPassed + `": true}
 					]
 				}`
 				var v map[string]interface{}
@@ -1053,7 +1107,7 @@ func testHasValidations(validators interface{}, turnIndex int) bool {
 // "can't evaluate field TotalCostUSD in type *types.CostInfo"
 func TestGenerateHTML_WithMessageCostInfo(t *testing.T) {
 	// Create a result with messages that have CostInfo
-	result := createTestResult("run1", "openai-gpt-4o-mini", "us-west", "scenario1", 0.05, 100, 50, false, 500*time.Millisecond)
+	result := createTestResult(testRunID1, testProviderOpenAIGPT4Mini, testRegionUSWest, testScenario1, 0.05, 100, 50, false, 500*time.Millisecond)
 
 	// Add messages with CostInfo to the result
 	result.Messages = []types.Message{
@@ -1106,7 +1160,7 @@ func TestGenerateHTML_WithMessageCostInfo(t *testing.T) {
 	}
 
 	if len(html) == 0 {
-		t.Error("Generated HTML is empty")
+		t.Error(testGeneratedHTMLEmpty)
 	}
 
 	// Verify the HTML contains the formatted costs
@@ -1143,7 +1197,7 @@ func TestGenerateHTML_WithMessageCostInfo(t *testing.T) {
 // TestGenerateHTML_UserMessageWithCostInfo tests that user messages with CostInfo
 // (from self-play scenarios) display the cost/latency badge in the HTML.
 func TestGenerateHTML_UserMessageWithCostInfo(t *testing.T) {
-	result := createTestResult("run1", "openai-gpt-4o-mini", "us-west", "selfplay-scenario", 0.0001, 231, 59, false, 1500*time.Millisecond)
+	result := createTestResult(testRunID1, testProviderOpenAIGPT4Mini, testRegionUSWest, testScenarioSelfPlay, 0.0001, 231, 59, false, 1500*time.Millisecond)
 
 	// Add messages mimicking a self-play scenario
 	result.Messages = []types.Message{
@@ -1205,7 +1259,7 @@ func TestGenerateHTML_UserMessageWithCostInfo(t *testing.T) {
 
 	html, err := generateHTML(data)
 	if err != nil {
-		t.Fatalf("Failed to generate HTML: %v", err)
+		t.Fatalf(testFailedGenerateHTML, err)
 	}
 
 	// The HTML should contain cost badges for both user (self-play) and assistant messages
@@ -1312,7 +1366,7 @@ func TestGenerateHTML_MessageCostInfoEdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := createTestResult("run1", "test-provider", "us", "s1", 0.05, 100, 50, false, 500*time.Millisecond)
+			result := createTestResult(testRunID1, testProviderTest, testRegionUS, testScenarioS1, 0.05, 100, 50, false, 500*time.Millisecond)
 
 			// Add a message with the test CostInfo
 			result.Messages = []types.Message{
@@ -1326,7 +1380,7 @@ func TestGenerateHTML_MessageCostInfoEdgeCases(t *testing.T) {
 			}
 
 			data := HTMLReportData{
-				Title:       "Edge Case Test",
+				Title:       testEdgeCaseTitle,
 				GeneratedAt: time.Now(),
 				Summary: ReportSummary{
 					TotalRuns:      1,
@@ -1337,7 +1391,7 @@ func TestGenerateHTML_MessageCostInfoEdgeCases(t *testing.T) {
 					AvgLatency:     "100.00ms",
 				},
 				Results:   []engine.RunResult{result},
-				Providers: []string{"test-provider"},
+				Providers: []string{testProviderTest},
 				Regions:   []string{"us"},
 				Scenarios: []string{"s1"},
 				Matrix:    [][]MatrixCell{},
@@ -1350,7 +1404,7 @@ func TestGenerateHTML_MessageCostInfoEdgeCases(t *testing.T) {
 			}
 
 			if !tt.wantErr && len(html) == 0 {
-				t.Error("Generated HTML is empty")
+				t.Error(testGeneratedHTMLEmpty)
 			}
 		})
 	}

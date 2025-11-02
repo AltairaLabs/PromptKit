@@ -47,7 +47,7 @@ func TestPackManager_LoadPack(t *testing.T) {
 		t.Fatalf("failed to marshal pack: %v", err)
 	}
 
-	if err := os.WriteFile(packPath, data, 0644); err != nil {
+	if err := os.WriteFile(packPath, data, 0600); err != nil {
 		t.Fatalf("failed to write pack file: %v", err)
 	}
 

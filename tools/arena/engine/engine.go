@@ -138,29 +138,54 @@ func NewEngine(
 // Close shuts down the engine and cleans up resources.
 // This includes closing all MCP server connections and provider HTTP clients.
 func (e *Engine) Close() error {
-	// Close MCP registry (if initialized)
+	if err := e.closeMCPRegistry(); err != nil {
+		return err
+	}
+
+	if err := e.closeProviderRegistry(); err != nil {
+		return err
+	}
+
+	if err := e.closeSelfPlayRegistry(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// closeMCPRegistry closes the MCP registry if initialized
+func (e *Engine) closeMCPRegistry() error {
 	if e.mcpRegistry != nil {
 		if err := e.mcpRegistry.Close(); err != nil {
 			return fmt.Errorf("failed to close MCP registry: %w", err)
 		}
 	}
+	return nil
+}
 
-	// Close provider registry (closes HTTP connections)
+// closeProviderRegistry closes the provider registry
+func (e *Engine) closeProviderRegistry() error {
 	if e.providerRegistry != nil {
 		if err := e.providerRegistry.Close(); err != nil {
 			return fmt.Errorf("failed to close provider registry: %w", err)
 		}
 	}
+	return nil
+}
 
-	// Close self-play providers if they exist
-	if e.conversationExecutor != nil {
-		if executor, ok := e.conversationExecutor.(*DefaultConversationExecutor); ok {
-			if executor.selfPlayRegistry != nil {
-				if err := executor.selfPlayRegistry.Close(); err != nil {
-					return fmt.Errorf("failed to close self-play registry: %w", err)
-				}
-			}
-		}
+// closeSelfPlayRegistry closes the self-play registry if it exists
+func (e *Engine) closeSelfPlayRegistry() error {
+	if e.conversationExecutor == nil {
+		return nil
+	}
+
+	executor, ok := e.conversationExecutor.(*DefaultConversationExecutor)
+	if !ok || executor.selfPlayRegistry == nil {
+		return nil
+	}
+
+	if err := executor.selfPlayRegistry.Close(); err != nil {
+		return fmt.Errorf("failed to close self-play registry: %w", err)
 	}
 
 	return nil

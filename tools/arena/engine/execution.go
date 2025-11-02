@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/tools/arena/config"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
@@ -27,77 +28,117 @@ import (
 // Each combination represents one independent test run that will be executed
 // and validated separately.
 func (e *Engine) GenerateRunPlan(regionFilter, providerFilter, scenarioFilter []string) (*RunPlan, error) {
-	var combinations []RunCombination
-
-	// Get all regions from prompt configs if no region filter
-	regions := regionFilter
-	if len(regions) == 0 {
-		// Use default region if no region filter specified
-		regions = []string{"default"}
+	regions := e.resolveRegions(regionFilter)
+	scenarioIDs, err := e.resolveScenarios(scenarioFilter)
+	if err != nil {
+		return nil, err
 	}
 
-	// Get all scenario IDs if no scenario filter
-	scenarioIDs := scenarioFilter
-	if len(scenarioIDs) == 0 {
-		for id := range e.scenarios {
-			scenarioIDs = append(scenarioIDs, id)
-		}
-	}
-
-	// Generate combinations - provider selection is per-scenario
-	for _, region := range regions {
-		for _, scenarioID := range scenarioIDs {
-			scenario, exists := e.scenarios[scenarioID]
-			if !exists {
-				return nil, fmt.Errorf("scenario %s not found", scenarioID)
-			}
-
-			// Determine which providers to use for this scenario
-			var scenarioProviders []string
-
-			if len(scenario.Providers) > 0 {
-				// Scenario specifies providers - use those
-				scenarioProviders = scenario.Providers
-			} else if len(providerFilter) > 0 {
-				// Scenario doesn't specify, but CLI has provider filter - use filter
-				// This handles the case where provider registry might be empty (tests)
-				scenarioProviders = providerFilter
-			} else {
-				// Scenario doesn't specify and no CLI filter - use all arena providers
-				scenarioProviders = e.providerRegistry.List()
-			}
-
-			// Apply CLI provider filter if specified AND scenario specified providers
-			// (if scenario didn't specify, we already used the filter above)
-			var finalProviders []string
-			if len(scenario.Providers) > 0 && len(providerFilter) > 0 {
-				// Intersect scenario providers with CLI filter
-				filterSet := make(map[string]bool)
-				for _, p := range providerFilter {
-					filterSet[p] = true
-				}
-				for _, p := range scenarioProviders {
-					if filterSet[p] {
-						finalProviders = append(finalProviders, p)
-					}
-				}
-			} else {
-				// No intersection needed - use scenario providers as-is
-				finalProviders = scenarioProviders
-			}
-
-			// Create combinations for this scenario with its providers
-			for _, providerID := range finalProviders {
-				combinations = append(combinations, RunCombination{
-					Region:     region,
-					ScenarioID: scenarioID,
-					ProviderID: providerID,
-				})
-			}
-		}
+	combinations, err := e.generateCombinations(regions, scenarioIDs, providerFilter)
+	if err != nil {
+		return nil, err
 	}
 
 	return &RunPlan{Combinations: combinations}, nil
+}
+
+// resolveRegions returns the regions to use, applying default if empty
+func (e *Engine) resolveRegions(regionFilter []string) []string {
+	if len(regionFilter) == 0 {
+		return []string{"default"}
+	}
+	return regionFilter
+}
+
+// resolveScenarios returns the scenario IDs to use, applying all scenarios if empty
+func (e *Engine) resolveScenarios(scenarioFilter []string) ([]string, error) {
+	if len(scenarioFilter) > 0 {
+		return scenarioFilter, nil
+	}
+
+	var scenarioIDs []string
+	for id := range e.scenarios {
+		scenarioIDs = append(scenarioIDs, id)
+	}
+	return scenarioIDs, nil
+}
+
+// generateCombinations creates all valid combinations of regions, scenarios, and providers
+func (e *Engine) generateCombinations(regions, scenarioIDs []string, providerFilter []string) ([]RunCombination, error) {
+	var combinations []RunCombination
+
+	for _, region := range regions {
+		for _, scenarioID := range scenarioIDs {
+			scenarioCombinations, err := e.generateScenarioCombinations(region, scenarioID, providerFilter)
+			if err != nil {
+				return nil, err
+			}
+			combinations = append(combinations, scenarioCombinations...)
+		}
+	}
+
+	return combinations, nil
+}
+
+// generateScenarioCombinations creates combinations for a specific scenario
+func (e *Engine) generateScenarioCombinations(region, scenarioID string, providerFilter []string) ([]RunCombination, error) {
+	scenario, exists := e.scenarios[scenarioID]
+	if !exists {
+		return nil, fmt.Errorf("scenario %s not found", scenarioID)
+	}
+
+	providers := e.resolveProvidersForScenario(scenario, providerFilter)
+
+	var combinations []RunCombination
+	for _, providerID := range providers {
+		combinations = append(combinations, RunCombination{
+			Region:     region,
+			ScenarioID: scenarioID,
+			ProviderID: providerID,
+		})
+	}
+
+	return combinations, nil
+}
+
+// resolveProvidersForScenario determines which providers to use for a specific scenario
+func (e *Engine) resolveProvidersForScenario(scenario *config.Scenario, providerFilter []string) []string {
+	// Determine initial provider list based on scenario
+	scenarioProviders := e.getInitialProviders(scenario, providerFilter)
+
+	// Apply filter if both scenario specifies providers and filter is provided
+	if len(scenario.Providers) > 0 && len(providerFilter) > 0 {
+		return e.intersectProviders(scenarioProviders, providerFilter)
+	}
+
+	return scenarioProviders
+}
+
+// getInitialProviders gets the initial provider list based on scenario and filters
+func (e *Engine) getInitialProviders(scenario *config.Scenario, providerFilter []string) []string {
+	if len(scenario.Providers) > 0 {
+		return scenario.Providers
+	}
+	if len(providerFilter) > 0 {
+		return providerFilter
+	}
+	return e.providerRegistry.List()
+}
+
+// intersectProviders returns the intersection of scenario providers and filter
+func (e *Engine) intersectProviders(scenarioProviders, providerFilter []string) []string {
+	filterSet := make(map[string]bool)
+	for _, p := range providerFilter {
+		filterSet[p] = true
+	}
+
+	var finalProviders []string
+	for _, p := range scenarioProviders {
+		if filterSet[p] {
+			finalProviders = append(finalProviders, p)
+		}
+	}
+	return finalProviders
 }
 
 // executeRun executes a single test combination: region + scenario + provider.

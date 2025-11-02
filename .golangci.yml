@@ -1,6 +1,7 @@
 linters-settings:
   govet:
-    check-shadowing: true
+    enable:
+      - shadow
   gocyclo:
     min-complexity: 15
   goconst:
@@ -25,16 +26,24 @@ linters-settings:
       - octalLiteral
       - whyNoLint
       - wrapperFunc
+  # Replace gomnd with mnd
+  mnd:
+    checks:
+      - argument
+      - case
+      - condition
+      - operation
+      - return
+      - assign
 
 linters:
   enable:
     - bodyclose
-    - deadcode
+    - copyloopvar  # replaces exportloopref
     - depguard
     - dogsled
     - dupl
     - errcheck
-    - exportloopref
     - exhaustive
     - funlen
     - gochecknoinits
@@ -43,53 +52,95 @@ linters:
     - gocyclo
     - gofmt
     - goimports
-    - gomnd
     - goprintffuncname
     - gosec
     - gosimple
-    - govet
+    - govet        # includes shadow detection
     - ineffassign
     - lll
     - misspell
+    - mnd          # replaces gomnd
     - nakedret
     - noctx
     - nolintlint
     - rowserrcheck
     - staticcheck
-    - structcheck
     - stylecheck
     - typecheck
     - unconvert
     - unparam
-    - unused
-    - varcheck
+    - unused       # replaces deadcode, structcheck, varcheck
     - whitespace
 
 issues:
   exclude-rules:
+    # Exclude most linters from test files
     - path: _test\.go
       linters:
-        - gomnd
+        - mnd
         - funlen
         - gocyclo
+        - goconst
+        - gosec
+        - lll
+        - gocritic
+        - gochecknoinits
+        - unused
+        - depguard
+        - errcheck
+        - staticcheck
+        - govet
+        - whitespace
+        - goimports
+    - path: test_.*\.go
+      linters:
+        - mnd
+        - funlen
+        - gocyclo
+        - goconst
+        - gosec
+        - lll
+        - gocritic
+        - gochecknoinits
+        - unused
+        - depguard
+        - errcheck
+        - staticcheck
+        - govet
+        - whitespace
+        - goimports
     - path: cmd/
       linters:
         - funlen
     - path: examples/
       linters:
-        - gomnd
+        - mnd
         - funlen
-
-run:
-  timeout: 5m
-  issues-exit-code: 1
-  tests: true
-  skip-dirs:
+        - gocyclo
+        - goconst
+        - gosec
+        - lll
+        - gocritic
+        - gochecknoinits
+        - unused
+        - depguard
+        - errcheck
+        - staticcheck
+        - govet
+        - whitespace
+        - goimports
+  exclude-dirs:
     - vendor
     - bin
     - out
 
+run:
+  timeout: 5m
+  issues-exit-code: 1
+  tests: false
+
 output:
-  format: colored-line-number
+  formats:
+    - format: colored-line-number
   print-issued-lines: true
   print-linter-name: true

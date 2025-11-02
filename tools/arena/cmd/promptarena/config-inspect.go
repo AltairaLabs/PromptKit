@@ -17,6 +17,10 @@ var configInspectCmd = &cobra.Command{
 	RunE:  runConfigInspect,
 }
 
+const (
+	indentedItemFormat = "  - %s\n"
+)
+
 var (
 	inspectFormat  string
 	inspectVerbose bool
@@ -195,49 +199,62 @@ func outputJSON(data *InspectionData) error {
 }
 
 func outputText(data *InspectionData) error {
+	printConfigurationSummary(data)
+	printAvailableOptions(data)
+	printValidationResults(data)
+
+	if inspectStats && data.CacheStats != nil {
+		printCacheStatistics(data.CacheStats)
+	}
+
+	return nil
+}
+
+// printConfigurationSummary prints the configuration summary section
+func printConfigurationSummary(data *InspectionData) {
 	fmt.Println("=== Prompt Arena Configuration ===")
 	fmt.Println()
 
-	fmt.Printf("Prompt Configs: %d\n", len(data.PromptConfigs))
-	if inspectVerbose {
-		for _, pc := range data.PromptConfigs {
-			fmt.Printf("  - %s\n", pc)
-		}
-	}
-	fmt.Println()
-
-	fmt.Printf("Providers: %d\n", len(data.Providers))
-	if inspectVerbose {
-		for _, p := range data.Providers {
-			fmt.Printf("  - %s\n", p)
-		}
-	}
-	fmt.Println()
-
-	fmt.Printf("Scenarios: %d\n", len(data.Scenarios))
-	if inspectVerbose {
-		for _, s := range data.Scenarios {
-			fmt.Printf("  - %s\n", s)
-		}
-	}
-	fmt.Println()
+	printConfigSection("Prompt Configs", len(data.PromptConfigs), data.PromptConfigs)
+	printConfigSection("Providers", len(data.Providers), data.Providers)
+	printConfigSection("Scenarios", len(data.Scenarios), data.Scenarios)
 
 	if len(data.SelfPlayRoles) > 0 {
-		fmt.Printf("Self-Play Roles: %d\n", len(data.SelfPlayRoles))
-		if inspectVerbose {
-			for _, role := range data.SelfPlayRoles {
-				fmt.Printf("  - %s\n", role)
-			}
-		}
-		fmt.Println()
+		printConfigSection("Self-Play Roles", len(data.SelfPlayRoles), data.SelfPlayRoles)
 	}
+}
 
+// printConfigSection prints a configuration section with optional verbose details
+func printConfigSection(title string, count int, items []string) {
+	fmt.Printf("%s: %d\n", title, count)
+	if inspectVerbose {
+		for _, item := range items {
+			fmt.Printf(indentedItemFormat, item)
+		}
+	}
+	fmt.Println()
+}
+
+// printAvailableOptions prints the available options section
+func printAvailableOptions(data *InspectionData) {
 	fmt.Println("=== Available Options ===")
 	fmt.Printf("Task Types: %v\n", data.AvailableTaskTypes)
 	fmt.Printf("Regions: %v\n", data.AvailableRegions)
 	fmt.Println()
+}
 
+// printValidationResults prints the validation results section
+func printValidationResults(data *InspectionData) {
 	fmt.Println("=== Configuration Validation ===")
+
+	printValidationStatus(data)
+	printValidationWarnings(data)
+
+	fmt.Println()
+}
+
+// printValidationStatus prints the main validation status
+func printValidationStatus(data *InspectionData) {
 	if data.ValidationPassed {
 		fmt.Println("✓ Configuration is valid")
 	} else {
@@ -246,7 +263,10 @@ func outputText(data *InspectionData) error {
 			fmt.Printf("  %s\n", data.ValidationError)
 		}
 	}
+}
 
+// printValidationWarnings prints validation warnings if any
+func printValidationWarnings(data *InspectionData) {
 	if data.ValidationWarnings > 0 {
 		fmt.Printf("⚠ Configuration has %d warning(s)\n", data.ValidationWarnings)
 	}
@@ -254,42 +274,44 @@ func outputText(data *InspectionData) error {
 	if inspectVerbose && len(data.ValidationWarningDetails) > 0 {
 		fmt.Println("\nValidation Warnings:")
 		for _, warn := range data.ValidationWarningDetails {
-			fmt.Printf("  - %s\n", warn)
+			fmt.Printf(indentedItemFormat, warn)
 		}
 	}
+}
+
+// printCacheStatistics prints the cache statistics section
+func printCacheStatistics(cacheStats *CacheStatsData) {
+	fmt.Println("=== Cache Statistics ===")
+
+	printCacheInfo("Prompt Cache", &cacheStats.PromptCache)
+	printCacheInfo("Fragment Cache", &cacheStats.FragmentCache)
+
+	if cacheStats.SelfPlayCache.Size > 0 {
+		printSelfPlayCacheInfo(&cacheStats.SelfPlayCache)
+	}
+
 	fmt.Println()
+}
 
-	if inspectStats && data.CacheStats != nil {
-		fmt.Println("=== Cache Statistics ===")
-
-		fmt.Printf("Prompt Cache: %d entries\n", data.CacheStats.PromptCache.Size)
-		if inspectVerbose && len(data.CacheStats.PromptCache.Entries) > 0 {
-			for _, entry := range data.CacheStats.PromptCache.Entries {
-				fmt.Printf("  - %s\n", entry)
-			}
+// printCacheInfo prints information about a specific cache
+func printCacheInfo(cacheName string, cache *CacheInfo) {
+	fmt.Printf("%s: %d entries\n", cacheName, cache.Size)
+	if inspectVerbose && len(cache.Entries) > 0 {
+		for _, entry := range cache.Entries {
+			fmt.Printf(indentedItemFormat, entry)
 		}
-
-		fmt.Printf("Fragment Cache: %d entries\n", data.CacheStats.FragmentCache.Size)
-		if inspectVerbose && len(data.CacheStats.FragmentCache.Entries) > 0 {
-			for _, entry := range data.CacheStats.FragmentCache.Entries {
-				fmt.Printf("  - %s\n", entry)
-			}
-		}
-
-		if data.CacheStats.SelfPlayCache.Size > 0 {
-			fmt.Printf("Self-Play Cache: %d entries\n", data.CacheStats.SelfPlayCache.Size)
-			fmt.Printf("  Hits: %d, Misses: %d, Hit Rate: %.2f%%\n",
-				data.CacheStats.SelfPlayCache.Hits,
-				data.CacheStats.SelfPlayCache.Misses,
-				data.CacheStats.SelfPlayCache.HitRate*100)
-			if inspectVerbose && len(data.CacheStats.SelfPlayCache.Entries) > 0 {
-				for _, entry := range data.CacheStats.SelfPlayCache.Entries {
-					fmt.Printf("  - %s\n", entry)
-				}
-			}
-		}
-		fmt.Println()
 	}
+}
 
-	return nil
+// printSelfPlayCacheInfo prints self-play cache information with hit rate statistics
+func printSelfPlayCacheInfo(cache *CacheInfo) {
+	fmt.Printf("Self-Play Cache: %d entries\n", cache.Size)
+	fmt.Printf("  Hits: %d, Misses: %d, Hit Rate: %.2f%%\n",
+		cache.Hits, cache.Misses, cache.HitRate*100)
+
+	if inspectVerbose && len(cache.Entries) > 0 {
+		for _, entry := range cache.Entries {
+			fmt.Printf(indentedItemFormat, entry)
+		}
+	}
 }

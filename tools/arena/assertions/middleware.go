@@ -26,86 +26,141 @@ func ArenaAssertionMiddleware(registry *runtimeValidators.Registry, assertions [
 
 // Process implements pipeline.Middleware.Process
 func (m *assertionMiddleware) Process(ctx *pipeline.ExecutionContext, next func() error) error {
-	var validationErrors []error
-
-	// If no assertions configured, nothing to validate
-	if len(m.assertions) != 0 {
-
-		// Find the last assistant message to validate
-		lastAssistantMsgIdx := -1
-		for i := len(ctx.Messages) - 1; i >= 0; i-- {
-			if ctx.Messages[i].Role == "assistant" {
-				lastAssistantMsgIdx = i
-				break
-			}
-		}
-
-		if lastAssistantMsgIdx == -1 {
-			// No assistant message to validate, skip assertions
-		} else {
-
-			// Get pointer to the actual message in the slice
-			lastAssistantMsg := &ctx.Messages[lastAssistantMsgIdx]
-
-			// Prepare context for validators
-			// Collect messages from THIS TURN ONLY (not from entire conversation history)
-			// Use Source field to identify new messages (not loaded from StateStore)
-			var turnMessages []types.Message
-			for _, msg := range ctx.Messages {
-				// Include messages not from statestore (current turn)
-				if msg.Source != "statestore" {
-					turnMessages = append(turnMessages, msg)
-				}
-			}
-
-			// Run all assertions
-			results := make(map[string]interface{})
-			for _, assertionConfig := range m.assertions {
-				// Inject context into validator params
-				params := make(map[string]interface{})
-				for k, v := range assertionConfig.Params {
-					params[k] = v
-				}
-				// Pass deep clone of turn messages to validators
-				params["_turn_messages"] = deepCloneMessages(turnMessages)
-				params["_execution_context_messages"] = deepCloneMessages(ctx.Messages)
-
-				// Create validator
-				factory, ok := m.registry.Get(assertionConfig.Type)
-				if !ok {
-					logger.Warn("unknown assertion validator type %q", assertionConfig.Type)
-					continue
-				}
-
-				validator := factory(params)
-
-				// Validate
-				result := validator.Validate(lastAssistantMsg.Content, params)
-				results[assertionConfig.Type] = result
-
-				// Fail fast on assertion failure
-				if !result.OK {
-					validationErrors = append(validationErrors, fmt.Errorf("assertion %q failed with details: %v", assertionConfig.Type, result.Details))
-				}
-			}
-
-			// Attach results to message metadata
-			if lastAssistantMsg.Meta == nil {
-				lastAssistantMsg.Meta = make(map[string]interface{})
-			}
-
-			lastAssistantMsg.Meta["assertions"] = results
-		}
-
+	// Skip validation if no assertions configured
+	if len(m.assertions) == 0 {
+		return next()
 	}
-	// Proceed to next middleware/handler. Generally, this calls the state store middleware to save the results
+
+	// Run assertions and collect any errors
+	validationErrors := m.runAssertions(ctx)
+
+	// Execute next middleware
 	nextErr := next()
 
+	// Return validation errors if any occurred
 	if len(validationErrors) > 0 {
 		return fmt.Errorf("validation failed: %v", validationErrors)
 	}
 
 	return nextErr
+}
+
+// runAssertions executes all configured assertions on the context
+func (m *assertionMiddleware) runAssertions(ctx *pipeline.ExecutionContext) []error {
+	// Find the last assistant message to validate
+	lastAssistantMsg := m.findLastAssistantMessage(ctx)
+	if lastAssistantMsg == nil {
+		return nil // No assistant message to validate
+	}
+
+	// Prepare validation context
+	turnMessages := m.extractTurnMessages(ctx)
+
+	// Execute all assertions
+	results, errors := m.executeAssertions(lastAssistantMsg, turnMessages, ctx.Messages)
+
+	// Attach results to message metadata
+	m.attachResultsToMessage(lastAssistantMsg, results)
+
+	return errors
+}
+
+// findLastAssistantMessage finds the most recent assistant message in the context
+func (m *assertionMiddleware) findLastAssistantMessage(ctx *pipeline.ExecutionContext) *types.Message {
+	for i := len(ctx.Messages) - 1; i >= 0; i-- {
+		if ctx.Messages[i].Role == "assistant" {
+			return &ctx.Messages[i]
+		}
+	}
+	return nil
+}
+
+// extractTurnMessages extracts messages from the current turn (not from StateStore)
+func (m *assertionMiddleware) extractTurnMessages(ctx *pipeline.ExecutionContext) []types.Message {
+	var turnMessages []types.Message
+	for _, msg := range ctx.Messages {
+		if msg.Source != "statestore" {
+			turnMessages = append(turnMessages, msg)
+		}
+	}
+	return turnMessages
+}
+
+// executeAssertions runs all configured assertions and returns results and errors
+func (m *assertionMiddleware) executeAssertions(
+	lastAssistantMsg *types.Message,
+	turnMessages []types.Message,
+	allMessages []types.Message,
+) (map[string]interface{}, []error) {
+	results := make(map[string]interface{})
+	var validationErrors []error
+
+	for _, assertionConfig := range m.assertions {
+		result, err := m.runSingleAssertion(assertionConfig, lastAssistantMsg, turnMessages, allMessages)
+		if err != nil {
+			logger.Warn("unknown assertion validator type %q", assertionConfig.Type)
+			continue
+		}
+
+		results[assertionConfig.Type] = result
+
+		// Collect validation failures
+		if !result.OK {
+			validationErrors = append(validationErrors,
+				fmt.Errorf("assertion %q failed with details: %v", assertionConfig.Type, result.Details))
+		}
+	}
+
+	return results, validationErrors
+}
+
+// runSingleAssertion executes a single assertion configuration
+func (m *assertionMiddleware) runSingleAssertion(
+	assertionConfig runtimeValidators.ValidatorConfig,
+	lastAssistantMsg *types.Message,
+	turnMessages []types.Message,
+	allMessages []types.Message,
+) (runtimeValidators.ValidationResult, error) {
+	// Create validator
+	factory, ok := m.registry.Get(assertionConfig.Type)
+	if !ok {
+		return runtimeValidators.ValidationResult{}, fmt.Errorf("unknown validator type")
+	}
+
+	// Prepare parameters with context
+	params := m.buildValidatorParams(assertionConfig.Params, turnMessages, allMessages)
+	validator := factory(params)
+
+	// Execute validation
+	return validator.Validate(lastAssistantMsg.Content, params), nil
+}
+
+// buildValidatorParams builds parameters for validator execution
+func (m *assertionMiddleware) buildValidatorParams(
+	configParams map[string]interface{},
+	turnMessages []types.Message,
+	allMessages []types.Message,
+) map[string]interface{} {
+	params := make(map[string]interface{})
+
+	// Copy configuration parameters
+	for k, v := range configParams {
+		params[k] = v
+	}
+
+	// Add context parameters
+	params["_turn_messages"] = deepCloneMessages(turnMessages)
+	params["_execution_context_messages"] = deepCloneMessages(allMessages)
+
+	return params
+}
+
+// attachResultsToMessage attaches validation results to the message metadata
+func (m *assertionMiddleware) attachResultsToMessage(msg *types.Message, results map[string]interface{}) {
+	if msg.Meta == nil {
+		msg.Meta = make(map[string]interface{})
+	}
+	msg.Meta["assertions"] = results
 }
 
 // StreamChunk implements pipeline.Middleware.StreamChunk

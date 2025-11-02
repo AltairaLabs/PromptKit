@@ -1,0 +1,9 @@
+# SonarLint exclusions
+**/*_test.go
+**/test_*.go
+**/tests/**
+**/examples/**
+**/docs/**
+**/*test*/**
+**/vendor/**
+**/bin/**

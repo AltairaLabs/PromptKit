@@ -12,6 +12,10 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
+const (
+	testPromptSupport = "support"
+)
+
 func TestConversationManager_CreateConversation(t *testing.T) {
 	// Create a test pack
 	tmpDir := t.TempDir()
@@ -26,8 +30,8 @@ func TestConversationManager_CreateConversation(t *testing.T) {
 			"syntax":  "{{variable}}",
 		},
 		"prompts": map[string]interface{}{
-			"support": map[string]interface{}{
-				"id":              "support",
+			testPromptSupport: map[string]interface{}{
+				"id":              testPromptSupport,
 				"name":            "Support Bot",
 				"version":         "1.0.0",
 				"system_template": "You are a {{role}} assistant.",
@@ -46,8 +50,13 @@ func TestConversationManager_CreateConversation(t *testing.T) {
 		},
 	}
 
-	data, _ := json.MarshalIndent(packData, "", "  ")
-	os.WriteFile(packPath, data, 0644)
+	data, err := json.MarshalIndent(packData, "", "  ")
+	if err != nil {
+		t.Fatalf("Failed to marshal pack data: %v", err)
+	}
+	if err := os.WriteFile(packPath, data, 0600); err != nil {
+		t.Fatalf("Failed to write pack file: %v", err)
+	}
 
 	// Create mock provider
 	mockProvider := providers.NewMockProvider("test-provider", "test-model", false)
@@ -70,7 +79,7 @@ func TestConversationManager_CreateConversation(t *testing.T) {
 	ctx := context.Background()
 	conv, err := manager.CreateConversation(ctx, pack, ConversationConfig{
 		UserID:     "user123",
-		PromptName: "support",
+		PromptName: testPromptSupport,
 		Variables: map[string]interface{}{
 			"role": "customer support",
 		},
@@ -83,8 +92,8 @@ func TestConversationManager_CreateConversation(t *testing.T) {
 		t.Errorf("expected user ID 'user123', got '%s'", conv.GetUserID())
 	}
 
-	if conv.promptName != "support" {
-		t.Errorf("expected prompt name 'support', got '%s'", conv.promptName)
+	if conv.promptName != testPromptSupport {
+		t.Errorf("expected prompt name '%s', got '%s'", testPromptSupport, conv.promptName)
 	}
 
 	// Verify system prompt was interpolated
@@ -117,8 +126,13 @@ func TestConversationManager_Send(t *testing.T) {
 		},
 	}
 
-	data, _ := json.MarshalIndent(packData, "", "  ")
-	os.WriteFile(packPath, data, 0644)
+	data, err := json.MarshalIndent(packData, "", "  ")
+	if err != nil {
+		t.Fatalf("Failed to marshal pack data: %v", err)
+	}
+	if err := os.WriteFile(packPath, data, 0600); err != nil {
+		t.Fatalf("Failed to write pack file: %v", err)
+	}
 
 	// Create mock provider with canned response
 	mockProvider := providers.NewMockProvider("test-provider", "test-model", false)
@@ -191,8 +205,13 @@ func TestConversationManager_GetConversation(t *testing.T) {
 		},
 	}
 
-	data, _ := json.MarshalIndent(packData, "", "  ")
-	os.WriteFile(packPath, data, 0644)
+	data, err := json.MarshalIndent(packData, "", "  ")
+	if err != nil {
+		t.Fatalf("Failed to marshal pack data: %v", err)
+	}
+	if err := os.WriteFile(packPath, data, 0600); err != nil {
+		t.Fatalf("Failed to write pack file: %v", err)
+	}
 
 	// Create mock provider
 	mockProvider := providers.NewMockProvider("test-provider", "test-model", false)
@@ -275,8 +294,13 @@ func TestConversationManager_SendStream(t *testing.T) {
 		},
 	}
 
-	data, _ := json.MarshalIndent(packData, "", "  ")
-	os.WriteFile(packPath, data, 0644)
+	data, err := json.MarshalIndent(packData, "", "  ")
+	if err != nil {
+		t.Fatalf("Failed to marshal pack data: %v", err)
+	}
+	if err := os.WriteFile(packPath, data, 0600); err != nil {
+		t.Fatalf("Failed to write pack file: %v", err)
+	}
 
 	// Create mock provider that supports streaming
 	mockProvider := providers.NewMockProvider("test-provider", "test-model", false)

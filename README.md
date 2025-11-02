@@ -33,22 +33,37 @@ PromptKit provides two main components:
 
 ### Installation
 
-```bash
-# Install Arena CLI
-go install github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@latest
+#### Option 1: Install from source (recommended)
 
-# Or use as a library
-go get github.com/AltairaLabs/PromptKit/pkg/...
+```bash
+# Clone the repository
+git clone https://github.com/AltairaLabs/PromptKit.git
+cd PromptKit
+
+# Build and install tools locally
+make install-tools-user
+
+# Or install to system PATH (may require sudo)
+make install-tools
 ```
+
+#### Option 2: Direct install (currently not supported)
+
+```bash
+# This doesn't work due to monorepo structure with replace directives
+# go install github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@latest
+```
+
+**Note:** Due to the monorepo structure with internal dependencies, tools must currently be built from source. We're working on making direct installation possible.
 
 ### Arena - Test Your LLM Applications
 
 ```bash
 # Run tests across multiple providers
-promptarena run scenarios/customer-support.yaml --out results/
+promptarena run -c examples/customer-support 
 
-# Generate HTML report
-promptarena run scenarios/customer-support.yaml --html report.html
+# View HTML report
+open out/report.html
 ```
 
 ### SDK - Deploy to Production
@@ -73,7 +88,7 @@ result, err := engine.Chat(ctx, userMessage)
 
 This is a monorepo containing multiple tools and libraries:
 
-```
+```text
 promptkit/
 ├── tools/
 │   ├── arena/          # PromptKit Arena - Testing framework

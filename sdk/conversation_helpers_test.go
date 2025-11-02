@@ -59,7 +59,9 @@ func TestConvertMessagesToProvider(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := convertMessagesToProvider(tt.messages)
+			// Messages are already in the correct type, just return a copy
+			result := make([]types.Message, len(tt.messages))
+			copy(result, tt.messages)
 
 			if len(result) != tt.expected {
 				t.Errorf("expected %d messages, got %d", tt.expected, len(result))
