@@ -179,7 +179,7 @@ jobs:
       with:
         version: v2.6
         working-directory: ${{ matrix.module }}
-        args: --issues-exit-code=0 --out-format json:golangci-lint-report-${{ strategy.job-index }}.json,colored-line-number
+        args: --issues-exit-code=0 --output.json.path=golangci-lint-report-${{ strategy.job-index }}.json
         only-new-issues: true
         problem-matchers: true
       env:
