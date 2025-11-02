@@ -384,7 +384,7 @@ func (c *Conversation) Send(ctx context.Context, userMessage string, opts ...Sen
 	var validations []types.ValidationResult
 	if len(result.Messages) > 0 {
 		lastMsg := result.Messages[len(result.Messages)-1]
-		if lastMsg.Role == "assistant" {
+		if lastMsg.Role == RoleAssistant {
 			validations = lastMsg.Validations
 		}
 	}
@@ -507,7 +507,7 @@ func (c *Conversation) SendStream(ctx context.Context, userMessage string, opts 
 					var validations []types.ValidationResult
 					if len(finalResult.Messages) > 0 {
 						lastMsg := finalResult.Messages[len(finalResult.Messages)-1]
-						if lastMsg.Role == "assistant" {
+						if lastMsg.Role == RoleAssistant {
 							validations = lastMsg.Validations
 						}
 					}
@@ -557,14 +557,14 @@ func (c *Conversation) HasPendingTools() bool {
 	for i := len(c.state.Messages) - 1; i >= 0; i-- {
 		msg := c.state.Messages[i]
 
-		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+		if msg.Role == RoleAssistant && len(msg.ToolCalls) > 0 {
 			// Check if any tool call is missing a result
 			for _, toolCall := range msg.ToolCalls {
 				hasResult := false
 
 				// Look for corresponding tool result message
 				for j := i + 1; j < len(c.state.Messages); j++ {
-					if c.state.Messages[j].Role == "tool" &&
+					if c.state.Messages[j].Role == RoleTool &&
 						c.state.Messages[j].ToolResult != nil &&
 						c.state.Messages[j].ToolResult.ID == toolCall.ID {
 						hasResult = true
@@ -634,7 +634,7 @@ func (c *Conversation) AddToolResult(toolCallID, result string) error {
 	found := false
 	for i := len(c.state.Messages) - 1; i >= 0; i-- {
 		msg := c.state.Messages[i]
-		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+		if msg.Role == RoleAssistant && len(msg.ToolCalls) > 0 {
 			for _, toolCall := range msg.ToolCalls {
 				if toolCall.ID == toolCallID {
 					found = true
@@ -653,7 +653,7 @@ func (c *Conversation) AddToolResult(toolCallID, result string) error {
 
 	// Add tool result message
 	toolResultMsg := types.Message{
-		Role:    "tool",
+		Role:    RoleTool,
 		Content: result,
 		ToolResult: &types.MessageToolResult{
 			ID:      toolCallID,
@@ -688,7 +688,7 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 	}
 
 	lastMsg := c.state.Messages[len(c.state.Messages)-1]
-	if lastMsg.Role != "tool" {
+	if lastMsg.Role != RoleTool {
 		return nil, fmt.Errorf("last message must be a tool result to continue")
 	}
 
@@ -783,7 +783,7 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 	var validations []types.ValidationResult
 	if len(result.Messages) > 0 {
 		lastMsg := result.Messages[len(result.Messages)-1]
-		if lastMsg.Role == "assistant" {
+		if lastMsg.Role == RoleAssistant {
 			validations = lastMsg.Validations
 		}
 	}
