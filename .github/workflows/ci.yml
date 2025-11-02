@@ -132,6 +132,13 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.25.1'
+        cache-dependency-path: |
+          runtime/go.sum
+          sdk/go.sum
+          pkg/go.sum
+          tools/arena/go.sum
+          tools/packc/go.sum
+          tools/inspect-state/go.sum
     
     - name: Run golangci-lint in ${{ matrix.module }}
       uses: golangci/golangci-lint-action@v7
