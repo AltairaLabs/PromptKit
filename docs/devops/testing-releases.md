@@ -20,109 +20,81 @@ This script will:
 
 ## Testing Strategies (Choose One)
 
-### Strategy 1: Local Script (Recommended First)
+### Strategy 1: Local Script (Recommended)
 
-**Best for:** Initial testing and understanding the process
+**Best for:** Testing the release process safely without side effects
 
 ```bash
 # Test locally without any git operations
 ./scripts/test-release.sh arena v0.0.1-test
+
+# Or test packc
+./scripts/test-release.sh packc v0.0.1-test
 ```
 
 **Pros:**
-- ✅ Zero risk
+- ✅ Zero risk - no file modifications
 - ✅ Instant feedback
 - ✅ No cleanup needed
+- ✅ Tests the same build process as production
 
 **Cons:**
-- ❌ Doesn't test actual go install
-- ❌ Doesn't test Go proxy behavior
+- ❌ Doesn't test actual go install from Go proxy
+- ❌ Doesn't test Go proxy caching behavior
+
+**Recommendation:** Use this first. It tests 95% of the release process with zero risk.
 
 ---
 
-### Strategy 2: Test Repository (Recommended for Full Testing)
+### Strategy 2: Test Tags in Main Repo (Use With Caution)
 
-**Best for:** Testing the complete workflow including `go install` and SDK
+**Best for:** Testing the actual Go proxy behavior with real tags
+
+**⚠️ WARNING:** Tags are cached by Go proxy after 5-10 minutes and stuck for 24 hours minimum. Only use if you're confident and can delete quickly!
 
 ```bash
-# 1. Create a private test repo
-gh repo create AltairaLabs/promptkit-release-test --private --clone
-
-# 2. Copy your monorepo
-cd promptkit-release-test
-git remote add upstream https://github.com/AltairaLabs/PromptKit.git
-git pull upstream main
-git push origin main
-
-# 3. Test the full release process there (all libraries)
+# Use '-test' suffix - can be deleted if you're FAST (< 5 minutes)
+# The -test suffix is a valid pre-release identifier per semantic versioning
+# See: https://semver.org/#spec-item-9
 git tag runtime/v0.0.1-test
 git tag pkg/v0.0.1-test
 git tag sdk/v0.0.1-test
-git push origin runtime/v0.0.1-test pkg/v0.0.1-test sdk/v0.0.1-test
+git tag tools/arena/v0.0.1-test
+git tag tools/packc/v0.0.1-test
+git push origin runtime/v0.0.1-test pkg/v0.0.1-test sdk/v0.0.1-test tools/arena/v0.0.1-test tools/packc/v0.0.1-test
 
-# Wait 5 minutes, then test in a temporary module
+# Wait 2-3 minutes, then test
 mkdir -p /tmp/test-sdk && cd /tmp/test-sdk
 go mod init example.com/test
 go get github.com/AltairaLabs/PromptKit/sdk@v0.0.1-test
-cd - && rm -rf /tmp/test-sdk
-
-# Then continue with tool release...
-```
-
-**Pros:**
-- ✅ Tests complete workflow
-- ✅ Tests `go install` for real
-- ✅ Isolated from main repo
-- ✅ Can delete entire repo when done
-
-**Cons:**
-- ❌ Requires creating separate repo
-- ❌ More setup time
-
----
-
-### Strategy 3: Test Tags with Prefix
-
-**Best for:** Testing in main repo with deletable tags
-
-**⚠️ WARNING:** Only works if you push test tags immediately. Once Go proxy caches a tag (5-10 min), it's there for 24 hours even if you delete it!
-
-```bash
-# Use 'test/' prefix - can be deleted quickly
-git tag test/runtime/v0.0.1
-git tag test/pkg/v0.0.1
-git tag test/sdk/v0.0.1
-git push origin test/runtime/v0.0.1 test/pkg/v0.0.1 test/sdk/v0.0.1
-
-# Wait 2 minutes (NOT 10!), then test SDK in a temp module
-mkdir -p /tmp/test-sdk && cd /tmp/test-sdk
-go mod init example.com/test
-go get github.com/AltairaLabs/PromptKit/sdk@test/sdk/v0.0.1
 cd -
 
-# Test tool installation
-go install github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@test/tools/arena/v0.0.1
+go install github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@v0.0.1-test
+go install github.com/AltairaLabs/PromptKit/tools/packc@v0.0.1-test
 
-# If it doesn't work, delete IMMEDIATELY (within 5 min)
-git push origin --delete test/runtime/v0.0.1 test/pkg/v0.0.1 test/sdk/v0.0.1
-git tag -d test/runtime/v0.0.1 test/pkg/v0.0.1 test/sdk/v0.0.1
+# If successful, DELETE IMMEDIATELY (within 5 min)
+git push origin --delete runtime/v0.0.1-test pkg/v0.0.1-test sdk/v0.0.1-test tools/arena/v0.0.1-test tools/packc/v0.0.1-test
+git tag -d runtime/v0.0.1-test pkg/v0.0.1-test sdk/v0.0.1-test tools/arena/v0.0.1-test tools/packc/v0.0.1-test
 ```
 
 **Pros:**
 - ✅ Tests in real repo
-- ✅ Tests actual `go install`
-- ✅ Deletable (if quick)
+- ✅ Tests actual `go install` and `go get`
+- ✅ Tests Go proxy behavior
+- ✅ Deletable if quick (< 5 min)
 
 **Cons:**
-- ⚠️ Cached by Go proxy after 5-10 minutes
-- ⚠️ Must be deleted quickly or stuck for 24h
-- ⚠️ Risky if you forget
+- ⚠️ **DANGEROUS**: Cached by Go proxy after 5-10 minutes
+- ⚠️ **RISKY**: Must delete quickly or stuck for 24h
+- ⚠️ **NOT RECOMMENDED**: Easy to forget and pollute history
+
+**Recommendation:** Skip this unless you absolutely need to test Go proxy caching. Use Strategy 1 instead.
 
 ---
 
-### Strategy 4: Release Test Branch + GitHub Actions
+### Strategy 3: GitHub Actions Testing
 
-**Best for:** Testing automation and CI/CD
+**Best for:** Testing automation and CI/CD workflows
 
 ```bash
 # 1. Create a release test branch
@@ -141,59 +113,52 @@ git branch -d release-test/arena-v0.0.1
 **Pros:**
 - ✅ Tests GitHub Actions workflow
 - ✅ No tags created
-- ✅ Branches are deletable
+- ✅ Branches are deletable anytime
 - ✅ Can iterate quickly
 
 **Cons:**
 - ❌ Doesn't test actual `go install`
 - ❌ Doesn't test Go proxy
 
+**Recommendation:** Use after Strategy 1 to test CI/CD automation.
+
 ---
 
 ## Recommended Testing Flow
 
-### Phase 1: Learn the Process (Day 1)
-```bash
-# Test locally first
-./scripts/test-release.sh arena v0.0.1-test
-```
+### Before First Release
 
-### Phase 2: Test Automation (Day 1)
 ```bash
-# Test GitHub Actions
+# Day 1: Test locally (5 minutes)
+./scripts/test-release.sh arena v0.0.1-test
+
+# Day 2: Test GitHub Actions (10 minutes)
 git checkout -b release-test/arena-v0.0.1
 git push origin release-test/arena-v0.0.1
 # Check workflow, then delete branch
+
+# Day 3: Do real release
+./scripts/release.sh v1.0.0
 ```
 
-### Phase 3: Full Integration Test (Day 2)
-```bash
-# Create test repo
-gh repo create AltairaLabs/promptkit-release-test --private --clone
-# Test complete release process there
-# Delete repo when done
-```
+**That's it.** Don't overcomplicate it with test repos or risky tag testing.
 
-### Phase 4: Real Release (Day 3+)
-```bash
-# Now do it for real in main repo
-# Use semantic version: v1.0.0
-```
+---
 
 ## Common Pitfalls to Avoid
 
-### ❌ DON'T: Push test tags without 'test/' prefix
+### ❌ DON'T: Push test tags without '-test' suffix
 ```bash
-# BAD - will be cached by Go proxy!
+# BAD - looks like a real release!
 git tag runtime/v0.0.1
 git push origin runtime/v0.0.1
 ```
 
-### ✅ DO: Use test prefix for experimental tags
+### ✅ DO: Use -test suffix for experimental tags
 ```bash
 # GOOD - clearly marked as test
-git tag test/runtime/v0.0.1
-git push origin test/runtime/v0.0.1
+git tag runtime/v0.0.1-test
+git push origin runtime/v0.0.1-test
 ```
 
 ### ❌ DON'T: Leave test tags for more than 5 minutes
@@ -202,11 +167,9 @@ git push origin test/runtime/v0.0.1
 # or it will be cached by Go proxy for 24 hours
 ```
 
-### ✅ DO: Use a separate test repository for thorough testing
-```bash
-# Much safer approach
-gh repo create promptkit-release-test --private
-```
+**Better:** Just use the local test script (Strategy 1) instead of risking it.
+
+---
 
 ## Go Proxy Caching Behavior
 
@@ -216,25 +179,27 @@ Important facts about Go's module proxy:
 2. **Cache Duration**: Modules are cached for **24 hours** minimum
 3. **Cannot Un-publish**: Once cached, you **cannot remove** a version
 4. **Test Window**: You have ~5-10 minutes before proxy caches it
-5. **Best Practice**: Always test in separate repo or with test/ prefix
+5. **Best Practice**: Always test in separate repo or with -test suffix
 
 ## Cleanup Commands
 
 ### Remove Local Test Tags
 ```bash
-git tag -d test/runtime/v0.0.1
-git tag -d test/pkg/v0.0.1
-git tag -d test/sdk/v0.0.1
-git tag -d test/tools/arena/v0.0.1
+git tag -d runtime/v0.0.1-test
+git tag -d pkg/v0.0.1-test
+git tag -d sdk/v0.0.1-test
+git tag -d tools/arena/v0.0.1-test
+git tag -d tools/packc/v0.0.1-test
 ```
 
 ### Remove Remote Test Tags (QUICKLY!)
 ```bash
 # Only works if done within ~5 minutes of pushing
-git push origin --delete test/runtime/v0.0.1
-git push origin --delete test/pkg/v0.0.1
-git push origin --delete test/sdk/v0.0.1
-git push origin --delete test/tools/arena/v0.0.1
+git push origin --delete runtime/v0.0.1-test
+git push origin --delete pkg/v0.0.1-test
+git push origin --delete sdk/v0.0.1-test
+git push origin --delete tools/arena/v0.0.1-test
+git push origin --delete tools/packc/v0.0.1-test
 ```
 
 ### Delete Test Branches
@@ -246,10 +211,7 @@ git branch -d release-test/arena-v0.0.1
 git push origin --delete release-test/arena-v0.0.1
 ```
 
-### Delete Test Repository
-```bash
-gh repo delete AltairaLabs/promptkit-release-test --yes
-```
+---
 
 ## Manual Testing Workflow
 

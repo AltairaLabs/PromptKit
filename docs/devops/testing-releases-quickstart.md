@@ -87,22 +87,22 @@ git push origin runtime/v0.0.1
 # ^ This will be stuck for 24 hours if you change your mind
 ```
 
-### ✅ Do use test/ prefix if you must tag
+### ✅ Do use -test suffix if you must tag
 
 ```bash
 # BETTER - clearly marked as test
-git tag test/runtime/v0.0.1  
-git push origin test/runtime/v0.0.1
+git tag runtime/v0.0.1-test
+git push origin runtime/v0.0.1-test
 
 # Delete within 5 minutes if needed
-git push origin --delete test/runtime/v0.0.1
+git push origin --delete runtime/v0.0.1-test
 ```
 
 ### ✅ Best: Use separate test repo
 
 ```bash
 # BEST - completely isolated, delete anytime
-gh repo create promptkit-release-test --private
+gh repo create PromptKit-release-test --private
 ```
 
 ---
