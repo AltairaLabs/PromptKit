@@ -21,11 +21,11 @@ package turnexecutors
 import (
 	"context"
 
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 )
 
 // TurnExecutor executes one complete conversation turn (user message + AI response + tools)

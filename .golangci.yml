@@ -1,3 +1,5 @@
+version: 2
+
 linters-settings:
   govet:
     enable:
@@ -50,11 +52,8 @@ linters:
     - goconst
     - gocritic
     - gocyclo
-    - gofmt
-    - goimports
     - goprintffuncname
     - gosec
-    - gosimple
     - govet        # includes shadow detection
     - ineffassign
     - lll
@@ -65,8 +64,6 @@ linters:
     - nolintlint
     - rowserrcheck
     - staticcheck
-    - stylecheck
-    - typecheck
     - unconvert
     - unparam
     - unused       # replaces deadcode, structcheck, varcheck

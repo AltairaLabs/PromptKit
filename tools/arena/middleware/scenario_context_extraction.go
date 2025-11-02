@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 )
 
 // ScenarioContextExtractionMiddleware extracts context using scenario metadata and conversation history.

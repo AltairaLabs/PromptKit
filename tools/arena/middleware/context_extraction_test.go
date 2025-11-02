@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 )
 
 func TestContextExtractionMiddleware_EmptyMessages(t *testing.T) {

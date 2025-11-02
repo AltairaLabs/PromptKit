@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 )
 
 // CacheKey represents a structured cache key for user generators
