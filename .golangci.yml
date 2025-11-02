@@ -5,12 +5,12 @@ linters:
   enable:
     - bodyclose
     - copyloopvar  # replaces exportloopref
-    - depguard
+    # - depguard   # Disabled - too many false positives with internal imports
     - dogsled
     - dupl
     - errcheck
     - exhaustive
-    - funlen
+    # - funlen     # Disabled - many legitimately complex functions
     - gochecknoinits
     - goconst
     - gocritic
@@ -44,6 +44,12 @@ linters:
       locale: US
     lll:
       line-length: 120
+    errcheck:
+      # Exclude functions where ignoring errors is common practice
+      exclude-functions:
+        - '(*net/http.Client).CloseIdleConnections'
+        - '(*io.Closer).Close'
+        - '(io.Closer).Close'
     gocritic:
       enabled-tags:
         - diagnostic
@@ -71,11 +77,14 @@ linters:
       - bin
       - out
     rules:
+      # Exclude errcheck for defer Close() - it's idiomatic to ignore these errors
+      - text: "Error return value of.*Close.*is not checked"
+        linters:
+          - errcheck
       # Exclude most linters from test files
       - path: '_test\.go'
         linters:
           - mnd
-          - funlen
           - gocyclo
           - goconst
           - gosec

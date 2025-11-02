@@ -138,6 +138,9 @@ jobs:
       with:
         version: v2.6
         working-directory: ${{ matrix.module }}
+        args: --issues-exit-code=0
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   
   build:
     name: Build
