@@ -33,7 +33,7 @@ PromptKit provides two main components:
 
 ### Installation
 
-#### Option 1: Install from source (recommended)
+#### Option 1: Install from source
 
 ```bash
 # Clone the repository
@@ -47,14 +47,21 @@ make install-tools-user
 make install-tools
 ```
 
-#### Option 2: Direct install (currently not supported)
+#### Option 2: Build individual tools
 
 ```bash
-# This doesn't work due to monorepo structure with replace directives
-# go install github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@latest
+# Clone the repository
+git clone https://github.com/AltairaLabs/PromptKit.git
+cd PromptKit
+
+# Build just arena
+cd tools/arena && go build -o promptarena ./cmd/promptarena
+
+# Or build just packc
+cd tools/packc && go build -o packc .
 ```
 
-**Note:** Due to the monorepo structure with internal dependencies, tools must currently be built from source. We're working on making direct installation possible.
+**Note:** Tools arena and packc are now independently buildable with no cross-dependencies. Direct installation via `go install` is not supported due to the monorepo structure with replace directives for shared internal packages (`runtime` and `pkg`).
 
 ### Arena - Test Your LLM Applications
 

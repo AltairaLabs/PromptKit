@@ -57,3 +57,7 @@ docs/local-backlog/
 packs/
 
 /promptpack-spec/
+
+# Ignore tools' build and module files
+**/packc
+**/promptarena

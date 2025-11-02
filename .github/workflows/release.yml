@@ -1,0 +1,360 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., v1.0.0)'
+        required: true
+        type: string
+      phase:
+        description: 'Release phase'
+        required: true
+        type: choice
+        options:
+          - full
+          - libs-only
+          - tools-only
+        default: full
+      skip_tests:
+        description: 'Skip running tests'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  validate:
+    name: Validate Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.validate.outputs.version }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Validate version format
+      id: validate
+      run: |
+        VERSION="${{ inputs.version }}"
+        
+        # Ensure version starts with 'v'
+        if [[ ! $VERSION =~ ^v ]]; then
+          VERSION="v$VERSION"
+        fi
+        
+        # Validate semver format
+        if [[ ! $VERSION =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "::error::Version must be in format v1.0.0"
+          exit 1
+        fi
+        
+        # Check if version already exists
+        if git tag -l | grep -q "^$VERSION$\|^runtime/$VERSION$"; then
+          echo "::error::Version $VERSION already exists"
+          exit 1
+        fi
+        
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "✓ Version $VERSION is valid and available"
+    
+    - name: Setup Go
+      if: ${{ !inputs.skip_tests }}
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.25.1'
+    
+    - name: Run tests
+      if: ${{ !inputs.skip_tests }}
+      run: |
+        echo "Running full test suite..."
+        make test
+        make test-race
+        echo "✓ All tests passed"
+
+  tag-dependencies:
+    name: Tag Libraries
+    runs-on: ubuntu-latest
+    needs: validate
+    if: ${{ inputs.phase == 'full' || inputs.phase == 'dependencies-only' }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Configure Git
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+    
+    - name: Tag runtime
+      run: |
+        VERSION="${{ needs.validate.outputs.version }}"
+        echo "Tagging runtime/$VERSION"
+        git tag -a "runtime/$VERSION" -m "Release runtime $VERSION"
+        git push origin "runtime/$VERSION"
+        echo "✓ Tagged runtime/$VERSION"
+    
+    - name: Tag pkg
+      run: |
+        VERSION="${{ needs.validate.outputs.version }}"
+        echo "Tagging pkg/$VERSION"
+        git tag -a "pkg/$VERSION" -m "Release pkg $VERSION"
+        git push origin "pkg/$VERSION"
+        echo "✓ Tagged pkg/$VERSION"
+    
+    - name: Tag sdk
+      run: |
+        VERSION="${{ needs.validate.outputs.version }}"
+        echo "Tagging sdk/$VERSION"
+        git tag -a "sdk/$VERSION" -m "Release sdk $VERSION"
+        git push origin "sdk/$VERSION"
+        echo "✓ Tagged sdk/$VERSION"
+    
+    - name: Wait for Go proxy
+      if: ${{ inputs.phase == 'full' }}
+      run: |
+        echo "⏳ Waiting 10 minutes for Go proxy to cache libraries..."
+        sleep 600
+    
+    - name: Verify on Go proxy
+      run: |
+        VERSION="${{ needs.validate.outputs.version }}"
+        
+        echo "Checking runtime module..."
+        for i in {1..5}; do
+          if curl -f -s "https://proxy.golang.org/github.com/!altaira!labs/!prompt!kit/runtime/@v/$VERSION.info"; then
+            echo "✓ runtime/$VERSION is available on Go proxy"
+            break
+          fi
+          echo "Attempt $i/5 failed, waiting 30s..."
+          sleep 30
+        done
+        
+        echo "Checking pkg module..."
+        for i in {1..5}; do
+          if curl -f -s "https://proxy.golang.org/github.com/!altaira!labs/!prompt!kit/pkg/@v/$VERSION.info"; then
+            echo "✓ pkg/$VERSION is available on Go proxy"
+            break
+          fi
+          echo "Attempt $i/5 failed, waiting 30s..."
+          sleep 30
+        done
+        
+        echo "Checking sdk module..."
+        for i in {1..5}; do
+          if curl -f -s "https://proxy.golang.org/github.com/!altaira!labs/!prompt!kit/sdk/@v/$VERSION.info"; then
+            echo "✓ sdk/$VERSION is available on Go proxy"
+            break
+          fi
+          echo "Attempt $i/5 failed, waiting 30s..."
+          sleep 30
+        done
+
+  update-tools:
+    name: Update and Tag Tools
+    runs-on: ubuntu-latest
+    needs: [validate, tag-dependencies]
+    if: ${{ always() && (inputs.phase == 'full' || inputs.phase == 'tools-only') && needs.validate.result == 'success' }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.25.1'
+    
+    - name: Configure Git
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+    
+    - name: Create release branch
+      run: |
+        VERSION="${{ needs.validate.outputs.version }}"
+        BRANCH="release/tools/$VERSION"
+        git checkout -b "$BRANCH"
+        echo "✓ Created branch $BRANCH"
+    
+    - name: Update arena dependencies
+      run: |
+        VERSION="${{ needs.validate.outputs.version }}"
+        echo "Updating tools/arena..."
+        cd tools/arena
+        
+        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
+        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/pkg
+        go get "github.com/AltairaLabs/PromptKit/runtime@$VERSION"
+        go get "github.com/AltairaLabs/PromptKit/pkg@$VERSION"
+        go mod tidy
+        
+        echo "Building arena..."
+        go build -v ./...
+        
+        cd ../..
+        echo "✓ Updated arena"
+    
+    - name: Update packc dependencies
+      run: |
+        VERSION="${{ needs.validate.outputs.version }}"
+        echo "Updating tools/packc..."
+        cd tools/packc
+        
+        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
+        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/pkg
+        go get "github.com/AltairaLabs/PromptKit/runtime@$VERSION"
+        go get "github.com/AltairaLabs/PromptKit/pkg@$VERSION"
+        go mod tidy
+        
+        echo "Building packc..."
+        go build -v ./...
+        
+        cd ../..
+        echo "✓ Updated packc"
+    
+    - name: Commit changes
+      run: |
+        VERSION="${{ needs.validate.outputs.version }}"
+        git add tools/arena/go.mod tools/arena/go.sum
+        git add tools/packc/go.mod tools/packc/go.sum
+        git commit -m "release: update tools to $VERSION"
+        
+        BRANCH="release/tools/$VERSION"
+        git push origin "$BRANCH"
+        echo "✓ Pushed $BRANCH"
+    
+    - name: Tag arena
+      run: |
+        VERSION="${{ needs.validate.outputs.version }}"
+        git tag -a "tools/arena/$VERSION" -m "Release arena $VERSION"
+        git push origin "tools/arena/$VERSION"
+        echo "✓ Tagged tools/arena/$VERSION"
+    
+    - name: Tag packc
+      run: |
+        VERSION="${{ needs.validate.outputs.version }}"
+        git tag -a "tools/packc/$VERSION" -m "Release packc $VERSION"
+        git push origin "tools/packc/$VERSION"
+        echo "✓ Tagged tools/packc/$VERSION"
+    
+    - name: Wait and verify installation
+      run: |
+        VERSION="${{ needs.validate.outputs.version }}"
+        
+        echo "⏳ Waiting 5 minutes for Go proxy..."
+        sleep 300
+        
+        echo "Testing arena installation..."
+        if go install "github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@$VERSION"; then
+          echo "✓ Arena installation successful"
+        else
+          echo "⚠ Arena installation needs more time"
+        fi
+        
+        echo "Testing packc installation..."
+        if go install "github.com/AltairaLabs/PromptKit/tools/packc@$VERSION"; then
+          echo "✓ Packc installation successful"
+        else
+          echo "⚠ Packc installation needs more time"
+        fi
+
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [validate, update-tools]
+    if: ${{ inputs.phase == 'full' }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.25.1'
+    
+    - name: Run GoReleaser
+      uses: goreleaser/goreleaser-action@v5
+      with:
+        distribution: goreleaser
+        version: latest
+        args: release --clean
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Upload artifacts summary
+      run: |
+        echo "## 📦 Release Artifacts Created" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "GoReleaser has created:" >> $GITHUB_STEP_SUMMARY
+        echo "- Multi-platform binaries (Linux, macOS, Windows)" >> $GITHUB_STEP_SUMMARY
+        echo "- Archives (tar.gz, zip)" >> $GITHUB_STEP_SUMMARY
+        echo "- Checksums for verification" >> $GITHUB_STEP_SUMMARY
+        echo "- Automated changelog" >> $GITHUB_STEP_SUMMARY
+        echo "- Draft GitHub release" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Review at:** https://github.com/${{ github.repository }}/releases" >> $GITHUB_STEP_SUMMARY
+
+  summary:
+    name: Release Summary
+    runs-on: ubuntu-latest
+    needs: [validate, tag-dependencies, update-tools, create-release]
+    if: always()
+    
+    steps:
+    - name: Generate summary
+      run: |
+        VERSION="${{ needs.validate.outputs.version }}"
+        
+        cat >> $GITHUB_STEP_SUMMARY << EOF
+        # Release $VERSION Summary
+        
+        ## Status
+        
+        - Validation: ${{ needs.validate.result }}
+        - Dependencies: ${{ needs.tag-dependencies.result }}
+        - Tools: ${{ needs.update-tools.result }}
+        - GitHub Release: ${{ needs.create-release.result }}
+        
+        ## Installation
+        
+        **SDK Library:**
+        \`\`\`bash
+        go get github.com/AltairaLabs/PromptKit/sdk@$VERSION
+        \`\`\`
+        
+        **CLI Tools:**
+        \`\`\`bash
+        go install github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@$VERSION
+        go install github.com/AltairaLabs/PromptKit/tools/packc@$VERSION
+        \`\`\`
+        
+        ## Next Steps
+        
+        1. Review and publish the [draft release](https://github.com/${{ github.repository }}/releases)
+        2. Update README.md with new version
+        3. Announce the release
+        4. Restore replace directives on main branch (if needed)
+        
+        ## Verification
+        
+        Test the release:
+        \`\`\`bash
+        promptarena --version
+        packc --version
+        \`\`\`
+        EOF
