@@ -4,6 +4,11 @@ This directory contains operational and release management documentation for Pro
 
 ## Contents
 
+### Repository Management
+
+- **[branch-protection.md](./branch-protection.md)** - Complete branch protection rules and configuration guide
+- **[branch-protection-quickref.md](./branch-protection-quickref.md)** - Quick reference for working with protected branches
+
 ### CI/CD & Pipelines
 
 - **[ci-cd-pipelines.md](./ci-cd-pipelines.md)** - Complete documentation of all GitHub Actions workflows

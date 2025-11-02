@@ -1,0 +1,48 @@
+# CODEOWNERS for PromptKit
+# This file defines code ownership and automatically assigns reviewers for PRs.
+# Learn more: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Global fallback - all files not matched below
+# @AltairaLabs/maintainers
+
+# Runtime and core components
+/runtime/                           @AltairaLabs/maintainers
+/pkg/                               @AltairaLabs/maintainers
+
+# SDK
+/sdk/                               @AltairaLabs/maintainers
+
+# Tools
+/tools/arena/                       @AltairaLabs/maintainers
+/tools/packc/                       @AltairaLabs/maintainers
+/tools/inspect-state/               @AltairaLabs/maintainers
+
+# CI/CD and Infrastructure
+/.github/workflows/                 @AltairaLabs/maintainers
+/.github/CODEOWNERS                 @AltairaLabs/maintainers
+/.goreleaser.yml                    @AltairaLabs/maintainers
+/docs/devops/branch-protection*.md  @AltairaLabs/maintainers
+/Makefile                           @AltairaLabs/maintainers
+/Dockerfile.*                       @AltairaLabs/maintainers
+
+# Go module files
+go.work                             @AltairaLabs/maintainers
+**/go.mod                           @AltairaLabs/maintainers
+**/go.sum                           @AltairaLabs/maintainers
+
+# Documentation
+/docs/                              @AltairaLabs/maintainers
+/*.md                               @AltairaLabs/maintainers
+
+# Examples
+/examples/                          @AltairaLabs/maintainers
+
+# Security and Governance
+/SECURITY.md                        @AltairaLabs/maintainers
+/CODE_OF_CONDUCT.md                 @AltairaLabs/maintainers
+/GOVERNANCE.md                      @AltairaLabs/maintainers
+/LICENSE                            @AltairaLabs/maintainers
+/CONTRIBUTING.md                    @AltairaLabs/maintainers
+
+# Scripts
+/scripts/                           @AltairaLabs/maintainers

@@ -39,6 +39,7 @@ jobs:
       uses: actions/setup-go@3041bf56c941b39c61721a86cd11f3bb1338122a # v5.2.0
       with:
         go-version: '1.25.1'
+        cache: false  # Disable cache since we use a workspace setup
     
     - name: Determine tool to test
       id: tool
@@ -78,16 +79,20 @@ jobs:
         # Create a backup
         cp go.mod go.mod.backup
         
+        echo "=== Setting explicit versions first ==="
+        VERSION="${{ steps.tool.outputs.version }}"
+        go mod edit -require="github.com/AltairaLabs/PromptKit/runtime@$VERSION"
+        go mod edit -require="github.com/AltairaLabs/PromptKit/pkg@$VERSION"
+        
         echo "=== Removing replace directives ==="
-        # Remove replace directives
         go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
         go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/pkg
         
-        echo "=== go.mod after removing replace ==="
+        echo "=== go.mod after changes ==="
         cat go.mod
         
         echo "=== Attempting to resolve dependencies ==="
-        # Try to get dependencies (this will fail if versions don't exist)
+        # Try to download dependencies (this will fail if versions don't exist)
         go mod download || echo "⚠️  Dependencies not available on remote (expected for test)"
         go mod tidy || echo "⚠️  go mod tidy failed (expected for test)"
     
@@ -131,13 +136,20 @@ jobs:
         git push origin pkg/${{ steps.tool.outputs.version }}
         \`\`\`
         
-        ### 2. Wait a few minutes for Go proxy, then update tool:
+        ### 2. Wait for Go proxy to recognize tags, then update tool:
         \`\`\`bash
         cd tools/${{ steps.tool.outputs.tool }}
+        
+        # Set explicit version requirements BEFORE dropping replace
+        go mod edit -require="github.com/AltairaLabs/PromptKit/runtime@${{ steps.tool.outputs.version }}"
+        go mod edit -require="github.com/AltairaLabs/PromptKit/pkg@${{ steps.tool.outputs.version }}"
+        
+        # Now drop replace directives
         go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
         go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/pkg
-        go get github.com/AltairaLabs/PromptKit/runtime@${{ steps.tool.outputs.version }}
-        go get github.com/AltairaLabs/PromptKit/pkg@${{ steps.tool.outputs.version }}
+        
+        # Download and tidy
+        go mod download
         go mod tidy
         \`\`\`
         

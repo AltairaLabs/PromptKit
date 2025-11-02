@@ -146,15 +146,16 @@ git checkout -b release/tools/arena/v1.0.0
 ```bash
 cd tools/arena
 
-# Remove replace directives
+# Set explicit version requirements BEFORE dropping replace
+go mod edit -require="github.com/AltairaLabs/PromptKit/runtime@v1.0.0"
+go mod edit -require="github.com/AltairaLabs/PromptKit/pkg@v1.0.0"
+
+# Now remove replace directives
 go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
 go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/pkg
 
-# Update to versioned dependencies
-go get github.com/AltairaLabs/PromptKit/runtime@v1.0.0
-go get github.com/AltairaLabs/PromptKit/pkg@v1.0.0
-
-# Clean up dependencies
+# Download and clean up dependencies
+go mod download
 go mod tidy
 
 # Verify build works
@@ -168,15 +169,16 @@ cd ../..
 ```bash
 cd tools/packc
 
-# Remove replace directives
+# Set explicit version requirements BEFORE dropping replace
+go mod edit -require="github.com/AltairaLabs/PromptKit/runtime@v1.0.0"
+go mod edit -require="github.com/AltairaLabs/PromptKit/pkg@v1.0.0"
+
+# Now remove replace directives
 go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
 go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/pkg
 
-# Update to versioned dependencies
-go get github.com/AltairaLabs/PromptKit/runtime@v1.0.0
-go get github.com/AltairaLabs/PromptKit/pkg@v1.0.0
-
-# Clean up dependencies
+# Download and clean up dependencies
+go mod download
 go mod tidy
 
 # Verify build works
@@ -351,17 +353,19 @@ git push origin runtime/$VERSION pkg/$VERSION
 
 # 3. Update tool dependencies
 cd tools/arena
+go mod edit -require="github.com/AltairaLabs/PromptKit/runtime@$VERSION"
+go mod edit -require="github.com/AltairaLabs/PromptKit/pkg@$VERSION"
 go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
 go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/pkg
-go get github.com/AltairaLabs/PromptKit/runtime@$VERSION
-go get github.com/AltairaLabs/PromptKit/pkg@$VERSION
+go mod download
 go mod tidy
 
 cd ../packc
+go mod edit -require="github.com/AltairaLabs/PromptKit/runtime@$VERSION"
+go mod edit -require="github.com/AltairaLabs/PromptKit/pkg@$VERSION"
 go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
 go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/pkg
-go get github.com/AltairaLabs/PromptKit/runtime@$VERSION
-go get github.com/AltairaLabs/PromptKit/pkg@$VERSION
+go mod download
 go mod tidy
 
 cd ../..

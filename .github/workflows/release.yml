@@ -63,6 +63,41 @@ jobs:
           exit 1
         fi
         
+        # Get latest version and compare
+        echo "Checking if $VERSION is newer than existing versions..."
+        LATEST_TAG=$(git tag -l "runtime/v*" | sort -V | tail -n1)
+        
+        if [ -n "$LATEST_TAG" ]; then
+          LATEST_VERSION="${LATEST_TAG#runtime/}"
+          echo "Latest existing version: $LATEST_VERSION"
+          echo "New version: $VERSION"
+          
+          # Extract version numbers for comparison
+          LATEST_MAJOR=$(echo "$LATEST_VERSION" | cut -d. -f1 | sed 's/v//')
+          LATEST_MINOR=$(echo "$LATEST_VERSION" | cut -d. -f2)
+          LATEST_PATCH=$(echo "$LATEST_VERSION" | cut -d. -f3)
+          
+          NEW_MAJOR=$(echo "$VERSION" | cut -d. -f1 | sed 's/v//')
+          NEW_MINOR=$(echo "$VERSION" | cut -d. -f2)
+          NEW_PATCH=$(echo "$VERSION" | cut -d. -f3)
+          
+          # Compare versions
+          if [ "$NEW_MAJOR" -lt "$LATEST_MAJOR" ]; then
+            echo "::error::New version $VERSION is older than latest $LATEST_VERSION (major version is lower)"
+            exit 1
+          elif [ "$NEW_MAJOR" -eq "$LATEST_MAJOR" ] && [ "$NEW_MINOR" -lt "$LATEST_MINOR" ]; then
+            echo "::error::New version $VERSION is older than latest $LATEST_VERSION (minor version is lower)"
+            exit 1
+          elif [ "$NEW_MAJOR" -eq "$LATEST_MAJOR" ] && [ "$NEW_MINOR" -eq "$LATEST_MINOR" ] && [ "$NEW_PATCH" -le "$LATEST_PATCH" ]; then
+            echo "::error::New version $VERSION is not newer than latest $LATEST_VERSION (patch version is not higher)"
+            exit 1
+          fi
+          
+          echo "✓ Version $VERSION is newer than $LATEST_VERSION"
+        else
+          echo "✓ No existing versions found, this will be the first release"
+        fi
+        
         echo "version=$VERSION" >> $GITHUB_OUTPUT
         echo "✓ Version $VERSION is valid and available"
     
@@ -71,6 +106,7 @@ jobs:
       uses: actions/setup-go@3041bf56c941b39c61721a86cd11f3bb1338122a # v5.2.0
       with:
         go-version: '1.25.1'
+        cache: false  # Disable cache since we use a workspace setup
     
     - name: Run tests
       if: ${{ !inputs.skip_tests }}
@@ -84,7 +120,7 @@ jobs:
     name: Tag Libraries
     runs-on: ubuntu-latest
     needs: validate
-    if: ${{ inputs.phase == 'full' || inputs.phase == 'dependencies-only' }}
+    if: ${{ inputs.phase == 'full' || inputs.phase == 'libs-only' }}
     
     steps:
     - name: Checkout code
@@ -102,67 +138,90 @@ jobs:
         VERSION: ${{ needs.validate.outputs.version }}
       run: |
         echo "Tagging runtime/$VERSION"
-        git tag -a "runtime/$VERSION" -m "Release runtime $VERSION"
-        git push origin "runtime/$VERSION"
-        echo "✓ Tagged runtime/$VERSION"
+        if git rev-parse "runtime/$VERSION" >/dev/null 2>&1; then
+          echo "⚠ Tag runtime/$VERSION already exists, skipping"
+        else
+          git tag -a "runtime/$VERSION" -m "Release runtime $VERSION"
+          git push origin "runtime/$VERSION"
+          echo "✓ Tagged runtime/$VERSION"
+        fi
     
     - name: Tag pkg
       env:
         VERSION: ${{ needs.validate.outputs.version }}
       run: |
         echo "Tagging pkg/$VERSION"
-        git tag -a "pkg/$VERSION" -m "Release pkg $VERSION"
-        git push origin "pkg/$VERSION"
-        echo "✓ Tagged pkg/$VERSION"
+        if git rev-parse "pkg/$VERSION" >/dev/null 2>&1; then
+          echo "⚠ Tag pkg/$VERSION already exists, skipping"
+        else
+          git tag -a "pkg/$VERSION" -m "Release pkg $VERSION"
+          git push origin "pkg/$VERSION"
+          echo "✓ Tagged pkg/$VERSION"
+        fi
     
     - name: Tag sdk
       env:
         VERSION: ${{ needs.validate.outputs.version }}
       run: |
         echo "Tagging sdk/$VERSION"
-        git tag -a "sdk/$VERSION" -m "Release sdk $VERSION"
-        git push origin "sdk/$VERSION"
-        echo "✓ Tagged sdk/$VERSION"
-    
-    - name: Wait for Go proxy
-      if: ${{ inputs.phase == 'full' }}
-      run: |
-        echo "⏳ Waiting 10 minutes for Go proxy to cache libraries..."
-        sleep 600
+        if git rev-parse "sdk/$VERSION" >/dev/null 2>&1; then
+          echo "⚠ Tag sdk/$VERSION already exists, skipping"
+        else
+          git tag -a "sdk/$VERSION" -m "Release sdk $VERSION"
+          git push origin "sdk/$VERSION"
+          echo "✓ Tagged sdk/$VERSION"
+        fi
     
     - name: Verify on Go proxy
       env:
         VERSION: ${{ needs.validate.outputs.version }}
       run: |
-        echo "Checking runtime module..."
-        for i in {1..5}; do
-          if curl -f -s "https://proxy.golang.org/github.com/!altaira!labs/!prompt!kit/runtime/@v/$VERSION.info"; then
-            echo "✓ runtime/$VERSION is available on Go proxy"
-            break
-          fi
-          echo "Attempt $i/5 failed, waiting 30s..."
-          sleep 30
-        done
+        echo "Verifying tags are available on Go proxy..."
         
-        echo "Checking pkg module..."
-        for i in {1..5}; do
-          if curl -f -s "https://proxy.golang.org/github.com/!altaira!labs/!prompt!kit/pkg/@v/$VERSION.info"; then
-            echo "✓ pkg/$VERSION is available on Go proxy"
-            break
-          fi
-          echo "Attempt $i/5 failed, waiting 30s..."
-          sleep 30
-        done
+        # Function to check if a module version is available
+        check_module() {
+          local module=$1
+          local version=$2
+          echo "Checking $module..."
+          for i in {1..10}; do
+            if curl -f -s "https://proxy.golang.org/github.com/!altaira!labs/!prompt!kit/$module/@v/$version.info" >/dev/null 2>&1; then
+              echo "✓ $module@$version is available"
+              return 0
+            fi
+            echo "  Attempt $i/10: Not available yet, waiting 20s..."
+            sleep 20
+          done
+          echo "⚠ $module@$version still not available after 200s"
+          return 1
+        }
         
-        echo "Checking sdk module..."
-        for i in {1..5}; do
-          if curl -f -s "https://proxy.golang.org/github.com/!altaira!labs/!prompt!kit/sdk/@v/$VERSION.info"; then
-            echo "✓ sdk/$VERSION is available on Go proxy"
-            break
-          fi
-          echo "Attempt $i/5 failed, waiting 30s..."
-          sleep 30
-        done
+        # Check all three modules
+        check_module "runtime" "$VERSION" &
+        PID_RUNTIME=$!
+        
+        check_module "pkg" "$VERSION" &
+        PID_PKG=$!
+        
+        check_module "sdk" "$VERSION" &
+        PID_SDK=$!
+        
+        # Wait for all checks to complete
+        wait $PID_RUNTIME
+        RESULT_RUNTIME=$?
+        
+        wait $PID_PKG
+        RESULT_PKG=$?
+        
+        wait $PID_SDK
+        RESULT_SDK=$?
+        
+        # Report overall status
+        if [ $RESULT_RUNTIME -eq 0 ] && [ $RESULT_PKG -eq 0 ] && [ $RESULT_SDK -eq 0 ]; then
+          echo "✓ All modules are available on Go proxy"
+        else
+          echo "⚠ Some modules may need more time to propagate"
+          echo "  This is normal and they will be available shortly"
+        fi
 
   update-tools:
     name: Update and Tag Tools
@@ -180,6 +239,7 @@ jobs:
       uses: actions/setup-go@3041bf56c941b39c61721a86cd11f3bb1338122a # v5.2.0
       with:
         go-version: '1.25.1'
+        cache: false  # Disable cache since we use a workspace setup
     
     - name: Configure Git
       run: |
@@ -191,82 +251,139 @@ jobs:
         VERSION: ${{ needs.validate.outputs.version }}
       run: |
         BRANCH="release/tools/$VERSION"
-        git checkout -b "$BRANCH"
-        echo "✓ Created branch $BRANCH"
+        # Check if branch already exists remotely
+        if git ls-remote --heads origin "$BRANCH" | grep -q "$BRANCH"; then
+          echo "⚠ Branch $BRANCH already exists, checking it out"
+          git fetch origin "$BRANCH"
+          git checkout "$BRANCH"
+        else
+          git checkout -b "$BRANCH"
+          echo "✓ Created branch $BRANCH"
+        fi
     
     - name: Update arena dependencies
       env:
         VERSION: ${{ needs.validate.outputs.version }}
       run: |
-        echo "Updating tools/arena..."
+        echo "Updating tools/arena to use $VERSION..."
         cd tools/arena
         
+        # First, explicitly require the new versions (before dropping replace)
+        echo "Setting required versions to $VERSION..."
+        go mod edit -require="github.com/AltairaLabs/PromptKit/runtime@$VERSION"
+        go mod edit -require="github.com/AltairaLabs/PromptKit/pkg@$VERSION"
+        
+        # Now remove local replace directives
         go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
         go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/pkg
-        go get "github.com/AltairaLabs/PromptKit/runtime@$VERSION"
-        go get "github.com/AltairaLabs/PromptKit/pkg@$VERSION"
+        
+        # Download the modules with retry logic
+        echo "Downloading dependencies..."
+        for i in {1..10}; do
+          if go mod download 2>&1; then
+            echo "✓ Downloaded dependencies"
+            break
+          fi
+          if [ $i -eq 10 ]; then
+            echo "::error::Failed to download dependencies after 10 attempts"
+            exit 1
+          fi
+          echo "  Attempt $i/10 failed, waiting 30s..."
+          sleep 30
+        done
+        
         go mod tidy
         
         echo "Building arena..."
         go build -v ./...
         
         cd ../..
-        echo "✓ Updated arena"
+        echo "✓ Updated arena to $VERSION"
     
     - name: Update packc dependencies
       env:
         VERSION: ${{ needs.validate.outputs.version }}
       run: |
-        echo "Updating tools/packc..."
+        echo "Updating tools/packc to use $VERSION..."
         cd tools/packc
         
+        # First, explicitly require the new versions (before dropping replace)
+        echo "Setting required versions to $VERSION..."
+        go mod edit -require="github.com/AltairaLabs/PromptKit/runtime@$VERSION"
+        go mod edit -require="github.com/AltairaLabs/PromptKit/pkg@$VERSION"
+        
+        # Now remove local replace directives
         go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
         go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/pkg
-        go get "github.com/AltairaLabs/PromptKit/runtime@$VERSION"
-        go get "github.com/AltairaLabs/PromptKit/pkg@$VERSION"
+        
+        # Download the modules with retry logic
+        echo "Downloading dependencies..."
+        for i in {1..10}; do
+          if go mod download 2>&1; then
+            echo "✓ Downloaded dependencies"
+            break
+          fi
+          if [ $i -eq 10 ]; then
+            echo "::error::Failed to download dependencies after 10 attempts"
+            exit 1
+          fi
+          echo "  Attempt $i/10 failed, waiting 30s..."
+          sleep 30
+        done
+        
         go mod tidy
         
         echo "Building packc..."
         go build -v ./...
         
         cd ../..
-        echo "✓ Updated packc"
+        echo "✓ Updated packc to $VERSION"
     
     - name: Commit changes
       env:
         VERSION: ${{ needs.validate.outputs.version }}
       run: |
-        git add tools/arena/go.mod tools/arena/go.sum
-        git add tools/packc/go.mod tools/packc/go.sum
-        git commit -m "release: update tools to $VERSION"
-        
         BRANCH="release/tools/$VERSION"
-        git push origin "$BRANCH"
-        echo "✓ Pushed $BRANCH"
+        
+        # Check if there are changes to commit
+        if git diff --quiet tools/arena/go.mod tools/arena/go.sum tools/packc/go.mod tools/packc/go.sum; then
+          echo "⚠ No changes to commit (already up to date)"
+        else
+          git add tools/arena/go.mod tools/arena/go.sum
+          git add tools/packc/go.mod tools/packc/go.sum
+          git commit -m "release: update tools to $VERSION"
+          git push origin "$BRANCH"
+          echo "✓ Pushed $BRANCH"
+        fi
     
     - name: Tag arena
       env:
         VERSION: ${{ needs.validate.outputs.version }}
       run: |
-        git tag -a "tools/arena/$VERSION" -m "Release arena $VERSION"
-        git push origin "tools/arena/$VERSION"
-        echo "✓ Tagged tools/arena/$VERSION"
+        if git rev-parse "tools/arena/$VERSION" >/dev/null 2>&1; then
+          echo "⚠ Tag tools/arena/$VERSION already exists, skipping"
+        else
+          git tag -a "tools/arena/$VERSION" -m "Release arena $VERSION"
+          git push origin "tools/arena/$VERSION"
+          echo "✓ Tagged tools/arena/$VERSION"
+        fi
     
     - name: Tag packc
       env:
         VERSION: ${{ needs.validate.outputs.version }}
       run: |
-        git tag -a "tools/packc/$VERSION" -m "Release packc $VERSION"
-        git push origin "tools/packc/$VERSION"
-        echo "✓ Tagged tools/packc/$VERSION"
+        if git rev-parse "tools/packc/$VERSION" >/dev/null 2>&1; then
+          echo "⚠ Tag tools/packc/$VERSION already exists, skipping"
+          else
+          git tag -a "tools/packc/$VERSION" -m "Release packc $VERSION"
+          git push origin "tools/packc/$VERSION"
+          echo "✓ Tagged tools/packc/$VERSION"
+        fi
     
-    - name: Wait and verify installation
+    - name: Verify installation
       env:
         VERSION: ${{ needs.validate.outputs.version }}
       run: |
-        echo "⏳ Waiting 5 minutes for Go proxy..."
-        sleep 300
-        
         echo "Testing arena installation..."
         if go install "github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@$VERSION"; then
           echo "✓ Arena installation successful"
@@ -284,7 +401,7 @@ jobs:
   create-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [validate, update-tools]
+    needs: [validate, tag-dependencies]
     if: ${{ inputs.phase == 'full' }}
     
     steps:
@@ -297,6 +414,7 @@ jobs:
       uses: actions/setup-go@3041bf56c941b39c61721a86cd11f3bb1338122a # v5.2.0
       with:
         go-version: '1.25.1'
+        cache: false  # Disable cache since we use a workspace setup
     
     - name: Run GoReleaser
       uses: goreleaser/goreleaser-action@9ed2f89a662bf1735a48bc8557fd212fa902bebf # v6.1.0

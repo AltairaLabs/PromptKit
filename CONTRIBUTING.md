@@ -214,9 +214,14 @@ make coverage
 1. **Ensure CI passes** - All tests and linter checks must pass
 2. **Update documentation** - README, examples, inline docs
 3. **Add changelog entry** - Describe your changes
-4. **Request review** - Tag maintainers
+4. **Request review** - Tag maintainers (see `.github/CODEOWNERS`)
 5. **Address feedback** - Respond to review comments
-6. **Squash commits** - Clean commit history before merge
+6. **Resolve all conversations** - All review comments must be marked as resolved
+7. **Sign commits** - Use `git commit -s` for DCO compliance
+8. **Keep branch updated** - Rebase or merge with latest `main`
+9. **Squash merge** - Maintains clean commit history (preferred)
+
+**Note**: The `main` branch is protected. See [Branch Protection Guide](docs/devops/branch-protection.md) and [Quick Reference](docs/devops/branch-protection-quickref.md) for details.
 
 ## Release Process
 
