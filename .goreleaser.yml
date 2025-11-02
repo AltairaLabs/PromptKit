@@ -157,8 +157,8 @@ release:
     
     **Full Changelog**: https://github.com/AltairaLabs/PromptKit/compare/{{.PreviousTag}}...{{.Tag}}
 
-# Homebrew tap
-brews:
+# Homebrew casks (replaces deprecated brews)
+homebrew_casks:
   - name: promptkit
     repository:
       owner: AltairaLabs
@@ -170,54 +170,51 @@ brews:
     commit_author:
       name: goreleaserbot
       email: bot@goreleaser.com
-    install: |
-      bin.install "promptarena"
-      bin.install "packc"
-    test: |
-      system "#{bin}/promptarena", "--version"
-      system "#{bin}/packc", "--version"
-
-# Docker images
-dockers:
-  - image_templates:
-      - "ghcr.io/altairalabs/promptarena:{{ .Version }}"
-      - "ghcr.io/altairalabs/promptarena:{{ .Major }}.{{ .Minor }}"
-      - "ghcr.io/altairalabs/promptarena:{{ .Major }}"
-      - "ghcr.io/altairalabs/promptarena:latest"
-    dockerfile: Dockerfile.arena
-    use: buildx
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/amd64,linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title=promptarena"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.source={{.GitURL}}"
-    goos: linux
-    goarch: amd64
-    ids:
+    binaries:
       - promptarena
-  
-  - image_templates:
-      - "ghcr.io/altairalabs/packc:{{ .Version }}"
-      - "ghcr.io/altairalabs/packc:{{ .Major }}.{{ .Minor }}"
-      - "ghcr.io/altairalabs/packc:{{ .Major }}"
-      - "ghcr.io/altairalabs/packc:latest"
-    dockerfile: Dockerfile.packc
-    use: buildx
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/amd64,linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title=packc"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.source={{.GitURL}}"
-    goos: linux
-    goarch: amd64
-    ids:
       - packc
+
+# Docker images (disabled for now - will migrate to dockers_v2 after testing basic releases)
+# dockers:
+#   - image_templates:
+#       - "ghcr.io/altairalabs/promptarena:{{ .Version }}"
+#       - "ghcr.io/altairalabs/promptarena:{{ .Major }}.{{ .Minor }}"
+#       - "ghcr.io/altairalabs/promptarena:{{ .Major }}"
+#       - "ghcr.io/altairalabs/promptarena:latest"
+#     dockerfile: Dockerfile.arena
+#     use: buildx
+#     build_flag_templates:
+#       - "--pull"
+#       - "--platform=linux/amd64,linux/arm64"
+#       - "--label=org.opencontainers.image.created={{.Date}}"
+#       - "--label=org.opencontainers.image.title=promptarena"
+#       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+#       - "--label=org.opencontainers.image.version={{.Version}}"
+#       - "--label=org.opencontainers.image.source={{.GitURL}}"
+#     goos: linux
+#     goarch: amd64
+#     ids:
+#       - promptarena
+#   
+#   - image_templates:
+#       - "ghcr.io/altairalabs/packc:{{ .Version }}"
+#       - "ghcr.io/altairalabs/packc:{{ .Major }}.{{ .Minor }}"
+#       - "ghcr.io/altairalabs/packc:{{ .Major }}"
+#       - "ghcr.io/altairalabs/packc:latest"
+#     dockerfile: Dockerfile.packc
+#     use: buildx
+#     build_flag_templates:
+#       - "--pull"
+#       - "--platform=linux/amd64,linux/arm64"
+#       - "--label=org.opencontainers.image.created={{.Date}}"
+#       - "--label=org.opencontainers.image.title=packc"
+#       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+#       - "--label=org.opencontainers.image.version={{.Version}}"
+#       - "--label=org.opencontainers.image.source={{.GitURL}}"
+#     goos: linux
+#     goarch: amd64
+#     ids:
+#       - packc
 
 # Announce (optional - uncomment to announce releases)
 # announce:

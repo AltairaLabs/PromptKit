@@ -9,6 +9,11 @@ on:
       - 'LICENSE'
       - '.gitignore'
       - '.github/workflows/docs.yml'
+      - '.github/workflows/release.yml'
+      - '.github/workflows/release-test.yml'
+      - '.github/CODEOWNERS'
+      - 'scripts/setup-branch-protection.sh'
+      - '.goreleaser.yml'
   pull_request:
     branches: [ main ]
     paths-ignore:
@@ -17,6 +22,11 @@ on:
       - 'LICENSE'
       - '.gitignore'
       - '.github/workflows/docs.yml'
+      - '.github/workflows/release.yml'
+      - '.github/workflows/release-test.yml'
+      - '.github/CODEOWNERS'
+      - 'scripts/setup-branch-protection.sh'
+      - '.goreleaser.yml'
 
 permissions:
   contents: read
