@@ -35,14 +35,16 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       with:
         fetch-depth: 0
     
     - name: Validate version format
       id: validate
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
       run: |
-        VERSION="${{ inputs.version }}"
+        VERSION="$INPUT_VERSION"
         
         # Ensure version starts with 'v'
         if [[ ! $VERSION =~ ^v ]]; then
@@ -66,7 +68,7 @@ jobs:
     
     - name: Setup Go
       if: ${{ !inputs.skip_tests }}
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@3041bf56c941b39c61721a86cd11f3bb1338122a # v5.2.0
       with:
         go-version: '1.25.1'
     
@@ -86,7 +88,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       with:
         fetch-depth: 0
     
@@ -96,24 +98,27 @@ jobs:
         git config user.email "github-actions[bot]@users.noreply.github.com"
     
     - name: Tag runtime
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
       run: |
-        VERSION="${{ needs.validate.outputs.version }}"
         echo "Tagging runtime/$VERSION"
         git tag -a "runtime/$VERSION" -m "Release runtime $VERSION"
         git push origin "runtime/$VERSION"
         echo "✓ Tagged runtime/$VERSION"
     
     - name: Tag pkg
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
       run: |
-        VERSION="${{ needs.validate.outputs.version }}"
         echo "Tagging pkg/$VERSION"
         git tag -a "pkg/$VERSION" -m "Release pkg $VERSION"
         git push origin "pkg/$VERSION"
         echo "✓ Tagged pkg/$VERSION"
     
     - name: Tag sdk
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
       run: |
-        VERSION="${{ needs.validate.outputs.version }}"
         echo "Tagging sdk/$VERSION"
         git tag -a "sdk/$VERSION" -m "Release sdk $VERSION"
         git push origin "sdk/$VERSION"
@@ -126,9 +131,9 @@ jobs:
         sleep 600
     
     - name: Verify on Go proxy
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
       run: |
-        VERSION="${{ needs.validate.outputs.version }}"
-        
         echo "Checking runtime module..."
         for i in {1..5}; do
           if curl -f -s "https://proxy.golang.org/github.com/!altaira!labs/!prompt!kit/runtime/@v/$VERSION.info"; then
@@ -167,12 +172,12 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       with:
         fetch-depth: 0
     
     - name: Setup Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@3041bf56c941b39c61721a86cd11f3bb1338122a # v5.2.0
       with:
         go-version: '1.25.1'
     
@@ -182,15 +187,17 @@ jobs:
         git config user.email "github-actions[bot]@users.noreply.github.com"
     
     - name: Create release branch
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
       run: |
-        VERSION="${{ needs.validate.outputs.version }}"
         BRANCH="release/tools/$VERSION"
         git checkout -b "$BRANCH"
         echo "✓ Created branch $BRANCH"
     
     - name: Update arena dependencies
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
       run: |
-        VERSION="${{ needs.validate.outputs.version }}"
         echo "Updating tools/arena..."
         cd tools/arena
         
@@ -207,8 +214,9 @@ jobs:
         echo "✓ Updated arena"
     
     - name: Update packc dependencies
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
       run: |
-        VERSION="${{ needs.validate.outputs.version }}"
         echo "Updating tools/packc..."
         cd tools/packc
         
@@ -225,8 +233,9 @@ jobs:
         echo "✓ Updated packc"
     
     - name: Commit changes
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
       run: |
-        VERSION="${{ needs.validate.outputs.version }}"
         git add tools/arena/go.mod tools/arena/go.sum
         git add tools/packc/go.mod tools/packc/go.sum
         git commit -m "release: update tools to $VERSION"
@@ -236,23 +245,25 @@ jobs:
         echo "✓ Pushed $BRANCH"
     
     - name: Tag arena
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
       run: |
-        VERSION="${{ needs.validate.outputs.version }}"
         git tag -a "tools/arena/$VERSION" -m "Release arena $VERSION"
         git push origin "tools/arena/$VERSION"
         echo "✓ Tagged tools/arena/$VERSION"
     
     - name: Tag packc
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
       run: |
-        VERSION="${{ needs.validate.outputs.version }}"
         git tag -a "tools/packc/$VERSION" -m "Release packc $VERSION"
         git push origin "tools/packc/$VERSION"
         echo "✓ Tagged tools/packc/$VERSION"
     
     - name: Wait and verify installation
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
       run: |
-        VERSION="${{ needs.validate.outputs.version }}"
-        
         echo "⏳ Waiting 5 minutes for Go proxy..."
         sleep 300
         
@@ -278,17 +289,17 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       with:
         fetch-depth: 0
     
     - name: Setup Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@3041bf56c941b39c61721a86cd11f3bb1338122a # v5.2.0
       with:
         go-version: '1.25.1'
     
     - name: Run GoReleaser
-      uses: goreleaser/goreleaser-action@v5
+      uses: goreleaser/goreleaser-action@9ed2f89a662bf1735a48bc8557fd212fa902bebf # v6.1.0
       with:
         distribution: goreleaser
         version: latest
@@ -317,18 +328,23 @@ jobs:
     
     steps:
     - name: Generate summary
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
+        VALIDATION_RESULT: ${{ needs.validate.result }}
+        DEPENDENCIES_RESULT: ${{ needs.tag-dependencies.result }}
+        TOOLS_RESULT: ${{ needs.update-tools.result }}
+        RELEASE_RESULT: ${{ needs.create-release.result }}
+        GITHUB_REPO: ${{ github.repository }}
       run: |
-        VERSION="${{ needs.validate.outputs.version }}"
-        
         cat >> $GITHUB_STEP_SUMMARY << EOF
         # Release $VERSION Summary
         
         ## Status
         
-        - Validation: ${{ needs.validate.result }}
-        - Dependencies: ${{ needs.tag-dependencies.result }}
-        - Tools: ${{ needs.update-tools.result }}
-        - GitHub Release: ${{ needs.create-release.result }}
+        - Validation: $VALIDATION_RESULT
+        - Dependencies: $DEPENDENCIES_RESULT
+        - Tools: $TOOLS_RESULT
+        - GitHub Release: $RELEASE_RESULT
         
         ## Installation
         
@@ -345,7 +361,7 @@ jobs:
         
         ## Next Steps
         
-        1. Review and publish the [draft release](https://github.com/${{ github.repository }}/releases)
+        1. Review and publish the [draft release](https://github.com/$GITHUB_REPO/releases)
         2. Update README.md with new version
         3. Announce the release
         4. Restore replace directives on main branch (if needed)
