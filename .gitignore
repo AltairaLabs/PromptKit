@@ -20,10 +20,11 @@ lcov.info
 go.work.sum
 
 # IDE
-.vscode/
 .VSCodeCounter/
 .idea/
 .scannerwork/
+.sonarlint/
+.sonarqube/
 *.swp
 *.swo
 *~

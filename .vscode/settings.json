@@ -1,0 +1,16 @@
+{
+    "sonarlint.connectedMode.project": {
+        "connectionId": "altairalabs",
+        "projectKey": "AltairaLabs_PromptKit"
+    },
+    "sonarlint.rules": {
+        "go:S1192": "off"
+    },
+    "sonarlint.analysisExcludePatterns": [
+        "**/*_test.go",
+        "**/test_*.go", 
+        "**/tests/**",
+        "**/examples/**",
+        "**/docs/**"
+    ]
+}
