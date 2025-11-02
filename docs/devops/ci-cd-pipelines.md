@@ -9,6 +9,18 @@ PromptKit uses GitHub Actions for:
 - **Documentation Deployment** - Automatic GitHub Pages updates
 - **Release Testing** - Safe release workflow validation
 
+### Recent CI Optimizations (Nov 2025)
+
+The CI pipeline has been optimized for efficiency and completeness:
+
+- ✅ **Eliminated duplicate test execution** - Reduced from 3 test runs to 2 (normal + race detector)
+- ✅ **Complete module coverage** - Now tests all modules including `pkg`, `tools/packc`, and `tools/inspect-state`
+- ✅ **Single test result publication** - Coverage job now handles test reporting (removed duplicate from test job)
+- ✅ **Enhanced linting feedback** - golangci-lint GitHub Action provides inline PR annotations
+- ✅ **Faster CI feedback** - Reduced redundant overhead while maintaining thorough testing
+
+These improvements ensure comprehensive testing across the entire monorepo while minimizing CI execution time.
+
 ## Active Workflows
 
 ### 1. CI Pipeline (`ci.yml`)
@@ -31,13 +43,16 @@ PromptKit uses GitHub Actions for:
   4. Install `gotestsum` for enhanced test reporting
   5. Run tests (`make test`)
   6. Run tests with race detector (`make test-race`)
-  7. Generate JUnit test reports for runtime, SDK, and arena
-  8. Publish test results to GitHub Checks
 
 **Test Packages:**
 - `./runtime/...` - Core runtime components
 - `./sdk/...` - SDK library
+- `./pkg/...` - Shared configuration and utilities
 - `./tools/arena/...` - Arena CLI tool
+- `./tools/packc/...` - PackC CLI tool
+- `./tools/inspect-state/...` - State inspection utility
+
+**Note:** This job runs tests twice (normal + race detector) for fast feedback. Test result publishing is handled by the Coverage job to avoid duplication.
 
 #### Coverage Job
 - **Runs on:** Ubuntu Latest
@@ -46,15 +61,23 @@ PromptKit uses GitHub Actions for:
   1. Checkout code (full depth for SonarCloud)
   2. Set up Go
   3. Install `gotestsum`
-  4. Generate coverage reports with JUnit output
+  4. Generate coverage reports with JUnit output for all modules
   5. Merge coverage files into single `coverage.out`
-  6. Publish coverage test results
+  6. Publish test results to GitHub Checks (single publication point)
   7. Verify coverage file
   8. Run SonarCloud scan
 
+**Coverage Packages:**
+- `./runtime/...` - Core runtime components
+- `./sdk/...` - SDK library
+- `./pkg/...` - Shared configuration and utilities
+- `./tools/arena/...` - Arena CLI tool
+- `./tools/packc/...` - PackC CLI tool
+- `./tools/inspect-state/...` - State inspection utility
+
 **SonarCloud Integration:**
 - Analyzes code quality, security, and coverage
-- Results visible at: https://sonarcloud.io/project/overview?id=AltairaLabs_PromptKit
+- Results visible at: <https://sonarcloud.io/project/overview?id=AltairaLabs_PromptKit>
 - Requires: `SONAR_TOKEN` secret
 
 #### Lint Job
@@ -63,12 +86,16 @@ PromptKit uses GitHub Actions for:
 - **Steps:**
   1. Checkout code
   2. Set up Go
-  3. Run linting (`make lint`)
+  3. Run golangci-lint with GitHub Action
 
-**Linting Tools:**
-- `go vet` - Static analysis
-- `go fmt` - Code formatting
-- `golangci-lint` - Comprehensive linting (if installed)
+**Linting Features:**
+- Inline PR annotations for issues
+- Annotations in file diffs
+- Results in PR checks tab
+- Only shows new issues in PRs (`only-new-issues: true`)
+- Comprehensive linting via `golangci-lint`
+
+**Configuration:** Uses `.golangci.yml` in repository root
 
 #### Build Job
 - **Runs on:** Ubuntu Latest

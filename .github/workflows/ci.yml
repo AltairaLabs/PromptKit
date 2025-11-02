@@ -52,24 +52,6 @@ jobs:
     
     - name: Run tests with race detector
       run: make test-race
-    
-    - name: Run tests with JUnit output
-      run: |
-        echo "Running tests with JUnit output for GitHub reporting..."
-        mkdir -p test-results
-        # Run tests with JUnit output for better GitHub integration
-        gotestsum --junitfile test-results/runtime.xml --format testname -- -coverprofile=runtime-cover.out ./runtime/...
-        gotestsum --junitfile test-results/sdk.xml --format testname -- -coverprofile=sdk-cover.out ./sdk/...
-        gotestsum --junitfile test-results/arena.xml --format testname -- -coverprofile=arena-cover.out ./tools/arena/...
-    
-    - name: Publish Test Results
-      uses: dorny/test-reporter@v1.9.1
-      if: always()  # Run even if tests fail
-      with:
-        name: Go Test Results
-        path: 'test-results/*.xml'
-        reporter: java-junit
-        fail-on-error: false
   
   coverage:
     name: Coverage
@@ -97,10 +79,13 @@ jobs:
         gotestsum --junitfile test-results/coverage-runtime.xml --format testname -- -coverprofile=runtime/runtime-coverage.out ./runtime/...
         gotestsum --junitfile test-results/coverage-sdk.xml --format testname -- -coverprofile=sdk/sdk-coverage.out ./sdk/...
         gotestsum --junitfile test-results/coverage-arena.xml --format testname -- -coverprofile=tools/arena/arena-coverage.out ./tools/arena/...
+        gotestsum --junitfile test-results/coverage-pkg.xml --format testname -- -coverprofile=pkg/pkg-coverage.out ./pkg/...
+        gotestsum --junitfile test-results/coverage-packc.xml --format testname -- -coverprofile=tools/packc/packc-coverage.out ./tools/packc/...
+        gotestsum --junitfile test-results/coverage-inspect-state.xml --format testname -- -coverprofile=tools/inspect-state/inspect-state-coverage.out ./tools/inspect-state/...
         
         # Merge coverage files as before
         echo "mode: set" > coverage.out
-        grep -h -v "^mode:" runtime/runtime-coverage.out sdk/sdk-coverage.out tools/arena/arena-coverage.out >> coverage.out 2>/dev/null || true
+        grep -h -v "^mode:" runtime/runtime-coverage.out sdk/sdk-coverage.out tools/arena/arena-coverage.out pkg/pkg-coverage.out tools/packc/packc-coverage.out tools/inspect-state/inspect-state-coverage.out >> coverage.out 2>/dev/null || true
         echo "Coverage report generated: coverage.out"
     
     - name: Publish Coverage Test Results  
@@ -139,8 +124,13 @@ jobs:
       with:
         go-version: '1.25.1'
     
-    - name: Run linting
-      run: make lint
+    - name: golangci-lint
+      uses: golangci/golangci-lint-action@v6
+      with:
+        version: latest
+        args: --timeout=5m
+        # Show annotations in PR
+        only-new-issues: true
   
   build:
     name: Build
