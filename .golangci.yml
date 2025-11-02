@@ -1,43 +1,6 @@
-version: 2
+version: "2"
 
-linters-settings:
-  govet:
-    enable:
-      - shadow
-  gocyclo:
-    min-complexity: 15
-  goconst:
-    min-len: 3
-    min-occurrences: 3
-  misspell:
-    locale: US
-  lll:
-    line-length: 120
-  goimports:
-    local-prefixes: github.com/AltairaLabs/PromptKit
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - experimental
-      - opinionated
-      - performance
-      - style
-    disabled-checks:
-      - dupImport
-      - ifElseChain
-      - octalLiteral
-      - whyNoLint
-      - wrapperFunc
-  # Replace gomnd with mnd
-  mnd:
-    checks:
-      - argument
-      - case
-      - condition
-      - operation
-      - return
-      - assign
-
+# Linter settings (not for formatters)
 linters:
   enable:
     - bodyclose
@@ -68,76 +31,120 @@ linters:
     - unparam
     - unused       # replaces deadcode, structcheck, varcheck
     - whitespace
+  settings:
+    govet:
+      enable:
+        - shadow
+    gocyclo:
+      min-complexity: 15
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+    misspell:
+      locale: US
+    lll:
+      line-length: 120
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - opinionated
+        - performance
+        - style
+      disabled-checks:
+        - dupImport
+        - ifElseChain
+        - octalLiteral
+        - whyNoLint
+        - wrapperFunc
+    mnd:
+      checks:
+        - argument
+        - case
+        - condition
+        - operation
+        - return
+        - assign
+  exclusions:
+    paths:
+      - vendor
+      - bin
+      - out
+    rules:
+      # Exclude most linters from test files
+      - path: '_test\.go'
+        linters:
+          - mnd
+          - funlen
+          - gocyclo
+          - goconst
+          - gosec
+          - lll
+          - gocritic
+          - gochecknoinits
+          - unused
+          - depguard
+          - errcheck
+          - staticcheck
+          - govet
+          - whitespace
+      - path: 'test_.*\.go'
+        linters:
+          - mnd
+          - funlen
+          - gocyclo
+          - goconst
+          - gosec
+          - lll
+          - gocritic
+          - gochecknoinits
+          - unused
+          - depguard
+          - errcheck
+          - staticcheck
+          - govet
+          - whitespace
+      - path: 'cmd/'
+        linters:
+          - funlen
+      - path: 'examples/'
+        linters:
+          - mnd
+          - funlen
+          - gocyclo
+          - goconst
+          - gosec
+          - lll
+          - gocritic
+          - gochecknoinits
+          - unused
+          - depguard
+          - errcheck
+          - staticcheck
+          - govet
+          - whitespace
 
-issues:
-  exclude-rules:
-    # Exclude most linters from test files
-    - path: _test\.go
-      linters:
-        - mnd
-        - funlen
-        - gocyclo
-        - goconst
-        - gosec
-        - lll
-        - gocritic
-        - gochecknoinits
-        - unused
-        - depguard
-        - errcheck
-        - staticcheck
-        - govet
-        - whitespace
-        - goimports
-    - path: test_.*\.go
-      linters:
-        - mnd
-        - funlen
-        - gocyclo
-        - goconst
-        - gosec
-        - lll
-        - gocritic
-        - gochecknoinits
-        - unused
-        - depguard
-        - errcheck
-        - staticcheck
-        - govet
-        - whitespace
-        - goimports
-    - path: cmd/
-      linters:
-        - funlen
-    - path: examples/
-      linters:
-        - mnd
-        - funlen
-        - gocyclo
-        - goconst
-        - gosec
-        - lll
-        - gocritic
-        - gochecknoinits
-        - unused
-        - depguard
-        - errcheck
-        - staticcheck
-        - govet
-        - whitespace
-        - goimports
-  exclude-dirs:
-    - vendor
-    - bin
-    - out
+# Formatter settings (goimports is a formatter in v2)
+formatters:
+  enable:
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/AltairaLabs/PromptKit
+  exclusions:
+    paths:
+      - vendor
+      - bin
+      - out
 
 run:
   timeout: 5m
-  issues-exit-code: 1
   tests: false
 
 output:
   formats:
-    colored-line-number: {}
-  print-issued-lines: true
-  print-linter-name: true
+    text:
+      colors: true
+      print-issued-lines: true
+      print-linter-name: true
