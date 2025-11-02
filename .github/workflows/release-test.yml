@@ -42,10 +42,15 @@ jobs:
     
     - name: Determine tool to test
       id: tool
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        INPUT_TOOL: ${{ inputs.tool }}
+        INPUT_VERSION: ${{ inputs.version }}
+        GITHUB_REF: ${{ github.ref }}
       run: |
-        if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-          TOOL="${{ inputs.tool }}"
-          VERSION="${{ inputs.version }}"
+        if [ "$EVENT_NAME" == "workflow_dispatch" ]; then
+          TOOL="$INPUT_TOOL"
+          VERSION="$INPUT_VERSION"
         else
           # Extract from tag if tag-based trigger
           TAG=${GITHUB_REF#refs/tags/}

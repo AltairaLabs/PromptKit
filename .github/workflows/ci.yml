@@ -175,13 +175,12 @@ jobs:
           tools/inspect-state/go.sum
     
     - name: Run golangci-lint in ${{ matrix.module }}
-      uses: golangci/golangci-lint-action@971e284b6050e8a5849b72094c50ab08da042db8 # v7.1.0
+      uses: golangci/golangci-lint-action@v7
       with:
-        version: v2.6
+        version: v2.6.0
         working-directory: ${{ matrix.module }}
-        args: --issues-exit-code=0 --output.json.path=golangci-lint-report-${{ strategy.job-index }}.json
+        args: --issues-exit-code=0
         only-new-issues: true
-        problem-matchers: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     
