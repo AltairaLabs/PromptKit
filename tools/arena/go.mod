@@ -2,13 +2,9 @@ module github.com/AltairaLabs/PromptKit/tools/arena
 
 go 1.25.1
 
-replace github.com/AltairaLabs/PromptKit/runtime => ../../runtime
-
-replace github.com/AltairaLabs/PromptKit/pkg => ../../pkg
-
 require (
-	github.com/AltairaLabs/PromptKit/pkg v0.0.0
-	github.com/AltairaLabs/PromptKit/runtime v0.0.0
+	github.com/AltairaLabs/PromptKit/pkg v0.0.1
+	github.com/AltairaLabs/PromptKit/runtime v0.0.1
 	github.com/redis/go-redis/v9 v9.16.0
 	github.com/russross/blackfriday/v2 v2.1.0
 	github.com/spf13/cobra v1.10.1
