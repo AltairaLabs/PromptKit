@@ -114,6 +114,15 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module:
+          - ./runtime
+          - ./sdk
+          - ./pkg
+          - ./tools/arena
+          - ./tools/packc
+          - ./tools/inspect-state
     
     steps:
     - name: Checkout code
@@ -124,10 +133,11 @@ jobs:
       with:
         go-version: '1.25.1'
     
-    - name: Run golangci-lint
+    - name: Run golangci-lint in ${{ matrix.module }}
       uses: golangci/golangci-lint-action@v7
       with:
         version: v2.6
+        working-directory: ${{ matrix.module }}
   
   build:
     name: Build
