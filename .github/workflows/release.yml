@@ -172,6 +172,19 @@ jobs:
           echo "✓ Tagged sdk/$VERSION"
         fi
     
+    - name: Tag root version (for GoReleaser)
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
+      run: |
+        echo "Tagging $VERSION (root-level for GoReleaser/releases)"
+        if git rev-parse "$VERSION" >/dev/null 2>&1; then
+          echo "⚠ Tag $VERSION already exists, skipping"
+        else
+          git tag -a "$VERSION" -m "Release $VERSION"
+          git push origin "$VERSION"
+          echo "✓ Tagged $VERSION"
+        fi
+    
     - name: Verify on Go proxy
       env:
         VERSION: ${{ needs.validate.outputs.version }}

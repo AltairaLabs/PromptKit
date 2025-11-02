@@ -58,6 +58,10 @@ packs/
 
 /promptpack-spec/
 
-# Ignore tools' build and module files
-**/packc
-**/promptarena
+# Ignore tools' built binaries (but not the source directories)
+bin/packc
+bin/promptarena
+packc
+promptarena
+!tools/packc/
+!tools/arena/
