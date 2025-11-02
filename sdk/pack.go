@@ -279,7 +279,7 @@ func (pm *PackManager) validatePack(pack *Pack) error {
 
 	// Validate each prompt
 	for taskType, prompt := range pack.Prompts {
-		if err := pm.validatePrompt(taskType, prompt, pack); err != nil {
+		if err := pm.validatePrompt(prompt, pack); err != nil {
 			return fmt.Errorf("invalid prompt %s: %w", taskType, err)
 		}
 	}
@@ -288,7 +288,7 @@ func (pm *PackManager) validatePack(pack *Pack) error {
 }
 
 // validatePrompt validates a single prompt configuration
-func (pm *PackManager) validatePrompt(taskType string, prompt *Prompt, pack *Pack) error {
+func (pm *PackManager) validatePrompt(prompt *Prompt, pack *Pack) error {
 	if prompt.ID == "" {
 		return fmt.Errorf("prompt missing required field: id")
 	}

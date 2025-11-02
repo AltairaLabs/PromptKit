@@ -350,63 +350,6 @@ func (cm *ConversationManager) GetConversation(ctx context.Context, conversation
 	return conv, nil
 }
 
-// buildPipeline creates the middleware pipeline for Send and SendStream operations
-func (c *Conversation) buildPipeline() *pipeline.Pipeline {
-	var pipelineMiddleware []pipeline.Middleware
-
-	// 1. StateStore Load middleware - loads conversation state
-	storeConfig := &pipeline.StateStoreConfig{
-		Store:          c.manager.stateStore,
-		ConversationID: c.id,
-		UserID:         c.userID,
-		Metadata:       c.state.Metadata,
-	}
-	pipelineMiddleware = append(pipelineMiddleware, middleware.StateStoreLoadMiddleware(storeConfig))
-
-	// 2. Prompt assembly - loads prompt config and populates SystemPrompt + AllowedTools
-	baseVariables := make(map[string]string)
-	pipelineMiddleware = append(pipelineMiddleware, middleware.PromptAssemblyMiddleware(c.registry, c.promptName, baseVariables))
-
-	// 3. Template middleware - substitutes variables in system prompt
-	pipelineMiddleware = append(pipelineMiddleware, middleware.TemplateMiddleware())
-
-	// 4. Context builder middleware - manages token budget and truncation (if policy configured)
-	if c.contextPolicy != nil {
-		pipelineMiddleware = append(pipelineMiddleware, middleware.ContextBuilderMiddleware(c.contextPolicy))
-	}
-
-	// 5. Provider middleware - executes LLM
-	providerConfig := &middleware.ProviderMiddlewareConfig{
-		MaxTokens:   c.prompt.Parameters.MaxTokens,
-		Temperature: float32(c.prompt.Parameters.Temperature),
-	}
-
-	// Tool policy from prompt if configured
-	var toolPolicy *pipeline.ToolPolicy
-	if c.prompt.ToolPolicy != nil {
-		toolPolicy = &pipeline.ToolPolicy{
-			ToolChoice:          c.prompt.ToolPolicy.ToolChoice,
-			MaxToolCallsPerTurn: c.prompt.ToolPolicy.MaxToolCallsPerTurn,
-			Blocklist:           c.prompt.ToolPolicy.Blocklist,
-		}
-	}
-
-	pipelineMiddleware = append(pipelineMiddleware, middleware.ProviderMiddleware(
-		c.manager.provider,
-		c.manager.toolRegistry,
-		toolPolicy,
-		providerConfig,
-	))
-
-	// 6. Dynamic validator middleware - validates response
-	pipelineMiddleware = append(pipelineMiddleware, middleware.DynamicValidatorMiddleware(validators.DefaultRegistry))
-
-	// 7. StateStore Save middleware - saves conversation state
-	pipelineMiddleware = append(pipelineMiddleware, middleware.StateStoreSaveMiddleware(storeConfig))
-
-	return pipeline.NewPipeline(pipelineMiddleware...)
-}
-
 // Send sends a user message and gets an assistant response
 func (c *Conversation) Send(ctx context.Context, userMessage string, opts ...SendOptions) (*Response, error) {
 	c.mu.Lock()
