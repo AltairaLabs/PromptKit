@@ -296,7 +296,9 @@ func (cm *ConversationManager) CreateConversation(ctx context.Context, pack *Pac
 }
 
 // GetConversation loads an existing conversation from state store
-func (cm *ConversationManager) GetConversation(ctx context.Context, conversationID string, pack *Pack) (*Conversation, error) {
+func (cm *ConversationManager) GetConversation(
+	ctx context.Context, conversationID string, pack *Pack,
+) (*Conversation, error) {
 	// Check if already loaded
 	cm.mu.RLock()
 	if conv, exists := cm.conversations[conversationID]; exists {
@@ -380,39 +382,9 @@ func (c *Conversation) Send(ctx context.Context, userMessage string, opts ...Sen
 	c.state.LastAccessedAt = time.Now()
 	// Note: SystemPrompt is already set in state from NewConversation
 
-	// Extract validations from the assistant message
-	var validations []types.ValidationResult
-	if len(result.Messages) > 0 {
-		lastMsg := result.Messages[len(result.Messages)-1]
-		if lastMsg.Role == RoleAssistant {
-			validations = lastMsg.Validations
-		}
-	}
-
-	// Extract pending tools from result metadata
-	var pendingTools []tools.PendingToolInfo
-	if result.Metadata != nil {
-		if pendingData, ok := result.Metadata["pending_tools"]; ok {
-			switch v := pendingData.(type) {
-			case []tools.PendingToolInfo:
-				pendingTools = v
-			case []*tools.PendingToolInfo:
-				for _, p := range v {
-					if p != nil {
-						pendingTools = append(pendingTools, *p)
-					}
-				}
-			case []interface{}:
-				for _, item := range v {
-					if info, ok := item.(*tools.PendingToolInfo); ok {
-						pendingTools = append(pendingTools, *info)
-					} else if info, ok := item.(tools.PendingToolInfo); ok {
-						pendingTools = append(pendingTools, info)
-					}
-				}
-			}
-		}
-	}
+	// Extract validations and pending tools
+	validations := c.extractValidationsFromResult(result)
+	pendingTools := c.extractPendingToolsFromMetadata(result.Metadata)
 
 	// Build response
 	response := &Response{
@@ -433,113 +405,143 @@ func (c *Conversation) SendStream(ctx context.Context, userMessage string, opts 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Build middleware pipeline using helper
-	pipelineMiddleware := c.buildMiddlewarePipeline()
+	// Execute pipeline in streaming mode
+	streamChan, err := c.executeStreamingPipeline(ctx, userMessage)
+	if err != nil {
+		return nil, err
+	}
 
-	// Create pipeline
+	// Create and start stream processor
+	eventChan := make(chan StreamEvent, 10)
+	go c.processStreamEvents(streamChan, eventChan)
+
+	return eventChan, nil
+}
+
+// executeStreamingPipeline executes the pipeline in streaming mode
+func (c *Conversation) executeStreamingPipeline(ctx context.Context, userMessage string) (<-chan providers.StreamChunk, error) {
+	pipelineMiddleware := c.buildMiddlewarePipeline()
 	p := pipeline.NewPipeline(pipelineMiddleware...)
 
-	// Execute pipeline in streaming mode
 	streamChan, err := p.ExecuteStream(ctx, "user", userMessage)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start streaming: %w", err)
 	}
 
-	// Create output channel for SDK stream events
-	eventChan := make(chan StreamEvent, 10)
+	return streamChan, nil
+}
 
-	// Start goroutine to convert provider stream chunks to SDK stream events
-	go func() {
-		defer close(eventChan)
+// processStreamEvents processes stream chunks and converts them to SDK events
+func (c *Conversation) processStreamEvents(streamChan <-chan providers.StreamChunk, eventChan chan<- StreamEvent) {
+	defer close(eventChan)
 
-		start := time.Now()
-		var lastContent string
-		var finalResult *pipeline.ExecutionResult
+	start := time.Now()
+	var lastContent string
+	var finalResult *pipeline.ExecutionResult
 
-		for chunk := range streamChan {
-			// Handle errors
-			if chunk.Error != nil {
-				eventChan <- StreamEvent{
-					Type:  "error",
-					Error: chunk.Error,
-				}
-				return
-			}
-
-			// Handle content deltas
-			if chunk.Delta != "" {
-				eventChan <- StreamEvent{
-					Type:    "content",
-					Content: chunk.Delta,
-				}
-				lastContent = chunk.Content // Accumulated content
-			}
-
-			// Handle tool calls
-			if len(chunk.ToolCalls) > 0 {
-				for _, tc := range chunk.ToolCalls {
-					eventChan <- StreamEvent{
-						Type: "tool_call",
-						ToolCall: &types.MessageToolCall{
-							ID:   tc.ID,
-							Name: tc.Name,
-							Args: tc.Args,
-						},
-					}
-				}
-			}
-
-			// Handle stream completion
-			if chunk.FinishReason != nil {
-				// Extract final result if present
-				if chunk.FinalResult != nil {
-					if result, ok := chunk.FinalResult.(*pipeline.ExecutionResult); ok {
-						finalResult = result
-					}
-				}
-
-				// Update conversation state
-				if finalResult != nil {
-					c.state.Messages = finalResult.Messages
-					c.state.LastAccessedAt = time.Now()
-
-					// Extract validations from the assistant message
-					var validations []types.ValidationResult
-					if len(finalResult.Messages) > 0 {
-						lastMsg := finalResult.Messages[len(finalResult.Messages)-1]
-						if lastMsg.Role == RoleAssistant {
-							validations = lastMsg.Validations
-						}
-					}
-
-					// Build final response
-					response := &Response{
-						Content:     lastContent,
-						ToolCalls:   finalResult.Response.ToolCalls,
-						TokensUsed:  finalResult.CostInfo.InputTokens + finalResult.CostInfo.OutputTokens,
-						Cost:        finalResult.CostInfo.TotalCost,
-						LatencyMs:   time.Since(start).Milliseconds(),
-						Validations: validations,
-					}
-
-					// Send done event with final response
-					eventChan <- StreamEvent{
-						Type:  "done",
-						Final: response,
-					}
-				} else {
-					// No final result, just send done
-					eventChan <- StreamEvent{
-						Type: "done",
-					}
-				}
-
-				return
-			}
+	for chunk := range streamChan {
+		if c.handleStreamError(&chunk, eventChan) {
+			return
 		}
-	}()
 
-	return eventChan, nil
+		c.handleContentDelta(&chunk, eventChan, &lastContent)
+		c.handleToolCalls(&chunk, eventChan)
+
+		if c.handleStreamCompletion(&chunk, eventChan, &finalResult, lastContent, start) {
+			return
+		}
+	}
+}
+
+// handleStreamError handles error events in the stream
+func (c *Conversation) handleStreamError(chunk *providers.StreamChunk, eventChan chan<- StreamEvent) bool {
+	if chunk.Error != nil {
+		eventChan <- StreamEvent{
+			Type:  "error",
+			Error: chunk.Error,
+		}
+		return true // Signal to stop processing
+	}
+	return false
+}
+
+// handleContentDelta handles content delta events
+func (c *Conversation) handleContentDelta(chunk *providers.StreamChunk, eventChan chan<- StreamEvent, lastContent *string) {
+	if chunk.Delta != "" {
+		eventChan <- StreamEvent{
+			Type:    "content",
+			Content: chunk.Delta,
+		}
+		*lastContent = chunk.Content // Accumulated content
+	}
+}
+
+// handleToolCalls handles tool call events
+func (c *Conversation) handleToolCalls(chunk *providers.StreamChunk, eventChan chan<- StreamEvent) {
+	for _, tc := range chunk.ToolCalls {
+		eventChan <- StreamEvent{
+			Type: "tool_call",
+			ToolCall: &types.MessageToolCall{
+				ID:   tc.ID,
+				Name: tc.Name,
+				Args: tc.Args,
+			},
+		}
+	}
+}
+
+// handleStreamCompletion handles stream completion and final response
+func (c *Conversation) handleStreamCompletion(
+	chunk *providers.StreamChunk,
+	eventChan chan<- StreamEvent,
+	finalResult **pipeline.ExecutionResult,
+	lastContent string,
+	start time.Time,
+) bool {
+	if chunk.FinishReason == nil {
+		return false
+	}
+
+	// Extract final result if present
+	c.extractFinalResult(chunk, finalResult)
+
+	// Send completion event
+	if *finalResult != nil {
+		c.updateStateFromStreamResult(*finalResult)
+		response := c.buildStreamResponse(*finalResult, lastContent, start)
+		eventChan <- StreamEvent{Type: "done", Final: response}
+	} else {
+		eventChan <- StreamEvent{Type: "done"}
+	}
+
+	return true // Signal to stop processing
+}
+
+// extractFinalResult extracts the final result from stream chunk
+func (c *Conversation) extractFinalResult(chunk *providers.StreamChunk, finalResult **pipeline.ExecutionResult) {
+	if chunk.FinalResult != nil {
+		if result, ok := chunk.FinalResult.(*pipeline.ExecutionResult); ok {
+			*finalResult = result
+		}
+	}
+}
+
+// updateStateFromStreamResult updates conversation state from streaming result
+func (c *Conversation) updateStateFromStreamResult(result *pipeline.ExecutionResult) {
+	c.state.Messages = result.Messages
+	c.state.LastAccessedAt = time.Now()
+}
+
+// buildStreamResponse builds the final response for streaming
+func (c *Conversation) buildStreamResponse(result *pipeline.ExecutionResult, content string, start time.Time) *Response {
+	return &Response{
+		Content:     content,
+		ToolCalls:   result.Response.ToolCalls,
+		TokensUsed:  result.CostInfo.InputTokens + result.CostInfo.OutputTokens,
+		Cost:        result.CostInfo.TotalCost,
+		LatencyMs:   time.Since(start).Milliseconds(),
+		Validations: c.extractValidationsFromResult(result), // Reuse existing function
+	}
 }
 
 // HasPendingTools checks if the conversation has any pending tool calls awaiting approval
@@ -547,38 +549,27 @@ func (c *Conversation) HasPendingTools() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	// Check if the last message is an assistant message with tool calls
-	// and there's no corresponding tool result message
 	if len(c.state.Messages) == 0 {
 		return false
 	}
 
 	// Find the last assistant message with tool calls
-	for i := len(c.state.Messages) - 1; i >= 0; i-- {
-		msg := c.state.Messages[i]
-
-		if msg.Role == RoleAssistant && len(msg.ToolCalls) > 0 {
-			// Check if any tool call is missing a result
-			for _, toolCall := range msg.ToolCalls {
-				hasResult := false
-
-				// Look for corresponding tool result message
-				for j := i + 1; j < len(c.state.Messages); j++ {
-					if c.state.Messages[j].Role == RoleTool &&
-						c.state.Messages[j].ToolResult != nil &&
-						c.state.Messages[j].ToolResult.ID == toolCall.ID {
-						hasResult = true
-						break
-					}
-				}
-
-				if !hasResult {
-					return true
-				}
-			}
-		}
+	msgIndex, msg := c.findLastAssistantMessageWithToolCalls()
+	if msgIndex == -1 || msg == nil {
+		return false
 	}
 
+	// Check if any tool call is missing a result
+	return c.hasAnyPendingToolCall(msg.ToolCalls, msgIndex)
+}
+
+// hasAnyPendingToolCall checks if any tool calls are missing results
+func (c *Conversation) hasAnyPendingToolCall(toolCalls []types.MessageToolCall, startIndex int) bool {
+	for _, toolCall := range toolCalls {
+		if !c.hasToolResult(toolCall.ID, startIndex) {
+			return true
+		}
+	}
 	return false
 }
 
@@ -588,36 +579,11 @@ func (c *Conversation) GetPendingTools() []tools.PendingToolInfo {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	var pending []tools.PendingToolInfo
-
-	// Check metadata for pending_tools (set by provider middleware)
-	if c.state.Metadata != nil {
-		if pendingData, ok := c.state.Metadata["pending_tools"]; ok {
-			// Handle different possible types
-			switch v := pendingData.(type) {
-			case []tools.PendingToolInfo:
-				pending = v
-			case []*tools.PendingToolInfo:
-				// Convert pointers to values
-				for _, p := range v {
-					if p != nil {
-						pending = append(pending, *p)
-					}
-				}
-			case []interface{}:
-				// Try to convert each item
-				for _, item := range v {
-					if info, ok := item.(*tools.PendingToolInfo); ok {
-						pending = append(pending, *info)
-					} else if info, ok := item.(tools.PendingToolInfo); ok {
-						pending = append(pending, info)
-					}
-				}
-			}
-		}
+	if c.state.Metadata == nil {
+		return nil
 	}
 
-	return pending
+	return c.extractPendingToolsFromMetadata(c.state.Metadata)
 }
 
 // AddToolResult adds a tool execution result to the conversation.
@@ -631,23 +597,7 @@ func (c *Conversation) AddToolResult(toolCallID, result string) error {
 	defer c.mu.Unlock()
 
 	// Validate that there's a pending tool call with this ID
-	found := false
-	for i := len(c.state.Messages) - 1; i >= 0; i-- {
-		msg := c.state.Messages[i]
-		if msg.Role == RoleAssistant && len(msg.ToolCalls) > 0 {
-			for _, toolCall := range msg.ToolCalls {
-				if toolCall.ID == toolCallID {
-					found = true
-					break
-				}
-			}
-		}
-		if found {
-			break
-		}
-	}
-
-	if !found {
+	if !c.findToolCallInHistory(toolCallID) {
 		return fmt.Errorf("tool call ID %s not found in conversation history", toolCallID)
 	}
 
@@ -664,11 +614,8 @@ func (c *Conversation) AddToolResult(toolCallID, result string) error {
 	c.state.Messages = append(c.state.Messages, toolResultMsg)
 	c.state.LastAccessedAt = time.Now()
 
-	// Clear pending_tools from metadata since we're adding a result
-	if c.state.Metadata != nil {
-		// Note: We only clear if ALL pending tools have results
-		// For simplicity, we'll keep the metadata until Continue() is called
-	}
+	// Note: We keep pending_tools in metadata until Continue() is called
+	// This allows multiple AddToolResult calls before continuing
 
 	return nil
 }
@@ -682,95 +629,63 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Verify we have tool result messages to continue with
+	// Validate preconditions for continuing
+	lastMsg, err := c.validateContinuePreconditions()
+	if err != nil {
+		return nil, err
+	}
+
+	// Save current state before continuing
+	if saveErr := c.manager.stateStore.Save(ctx, c.state); saveErr != nil {
+		return nil, fmt.Errorf("failed to save state before continuing: %w", saveErr)
+	}
+
+	// Execute pipeline and get result
+	result, latency, err := c.executeContinuePipeline(ctx, lastMsg)
+	if err != nil {
+		return nil, err
+	}
+
+	// Update conversation state and clean up metadata
+	c.updateStateAfterContinue(result)
+
+	// Build and return response
+	return c.buildContinueResponse(result, latency), nil
+}
+
+// validateContinuePreconditions validates that we can continue the conversation
+func (c *Conversation) validateContinuePreconditions() (types.Message, error) {
 	if len(c.state.Messages) == 0 {
-		return nil, fmt.Errorf("no messages in conversation")
+		return types.Message{}, fmt.Errorf("no messages in conversation")
 	}
 
 	lastMsg := c.state.Messages[len(c.state.Messages)-1]
 	if lastMsg.Role != RoleTool {
-		return nil, fmt.Errorf("last message must be a tool result to continue")
+		return types.Message{}, fmt.Errorf("last message must be a tool result to continue")
 	}
 
-	// Save the current state before continuing
-	if err := c.manager.stateStore.Save(ctx, c.state); err != nil {
-		return nil, fmt.Errorf("failed to save state before continuing: %w", err)
-	}
+	return lastMsg, nil
+}
 
-	// Build middleware pipeline (similar to Send but without adding a new user message)
-	var pipelineMiddleware []pipeline.Middleware
+// executeContinuePipeline executes the pipeline for continuing conversation
+func (c *Conversation) executeContinuePipeline(ctx context.Context, lastMsg types.Message) (*pipeline.ExecutionResult, time.Duration, error) {
+	// Build middleware pipeline using the existing helper
+	pipelineMiddleware := c.buildMiddlewarePipeline()
 
-	// 1. StateStore Load middleware
-	storeConfig := &pipeline.StateStoreConfig{
-		Store:          c.manager.stateStore,
-		ConversationID: c.id,
-		UserID:         c.userID,
-		Metadata:       c.state.Metadata,
-	}
-	pipelineMiddleware = append(pipelineMiddleware, middleware.StateStoreLoadMiddleware(storeConfig))
-
-	// 2. Prompt assembly
-	baseVariables := make(map[string]string)
-	pipelineMiddleware = append(pipelineMiddleware, middleware.PromptAssemblyMiddleware(c.registry, c.promptName, baseVariables))
-
-	// 3. Template middleware
-	pipelineMiddleware = append(pipelineMiddleware, middleware.TemplateMiddleware())
-
-	// 4. Context builder (if configured)
-	if c.contextPolicy != nil {
-		pipelineMiddleware = append(pipelineMiddleware, middleware.ContextBuilderMiddleware(c.contextPolicy))
-	}
-
-	// 5. Provider middleware
-	providerConfig := &middleware.ProviderMiddlewareConfig{
-		MaxTokens:   c.prompt.Parameters.MaxTokens,
-		Temperature: float32(c.prompt.Parameters.Temperature),
-	}
-
-	var toolPolicy *pipeline.ToolPolicy
-	if c.prompt.ToolPolicy != nil {
-		toolPolicy = &pipeline.ToolPolicy{
-			ToolChoice:          c.prompt.ToolPolicy.ToolChoice,
-			MaxToolCallsPerTurn: c.prompt.ToolPolicy.MaxToolCallsPerTurn,
-			Blocklist:           c.prompt.ToolPolicy.Blocklist,
-		}
-	}
-
-	pipelineMiddleware = append(pipelineMiddleware, middleware.ProviderMiddleware(
-		c.manager.provider,
-		c.manager.toolRegistry,
-		toolPolicy,
-		providerConfig,
-	))
-
-	// 6. Validator middleware
-	pipelineMiddleware = append(pipelineMiddleware, middleware.DynamicValidatorMiddleware(validators.DefaultRegistry))
-
-	// 7. StateStore Save middleware
-	pipelineMiddleware = append(pipelineMiddleware, middleware.StateStoreSaveMiddleware(storeConfig))
-
-	// Create pipeline
+	// Create and execute pipeline
 	p := pipeline.NewPipeline(pipelineMiddleware...)
-
-	// Execute pipeline using ExecuteWithMessage to continue from current state
-	// We need to use a special approach since we're not adding a new user message
-	// Instead, we'll execute with the existing message history
-
-	// The pipeline will load the state (including our new tool result message)
-	// and the provider middleware will see the tool result and continue execution
-
-	// Create a synthetic "continue" message that the pipeline can process
-	// Actually, we can use Execute with an empty continuation
 	start := time.Now()
 
-	// Use ExecuteWithMessage with the last tool result message
 	result, err := p.ExecuteWithMessage(ctx, lastMsg)
 	if err != nil {
-		return nil, fmt.Errorf("pipeline execution error: %w", err)
+		return nil, 0, fmt.Errorf("pipeline execution error: %w", err)
 	}
-	latency := time.Since(start)
 
-	// Update conversation state
+	return result, time.Since(start), nil
+}
+
+// updateStateAfterContinue updates conversation state after successful continue
+func (c *Conversation) updateStateAfterContinue(result *pipeline.ExecutionResult) {
 	c.state.Messages = result.Messages
 	c.state.LastAccessedAt = time.Now()
 
@@ -778,53 +693,19 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 	if c.state.Metadata != nil {
 		delete(c.state.Metadata, "pending_tools")
 	}
+}
 
-	// Extract validations
-	var validations []types.ValidationResult
-	if len(result.Messages) > 0 {
-		lastMsg := result.Messages[len(result.Messages)-1]
-		if lastMsg.Role == RoleAssistant {
-			validations = lastMsg.Validations
-		}
-	}
-
-	// Extract pending tools from result metadata (in case there are more pending)
-	var pendingTools []tools.PendingToolInfo
-	if result.Metadata != nil {
-		if pendingData, ok := result.Metadata["pending_tools"]; ok {
-			switch v := pendingData.(type) {
-			case []tools.PendingToolInfo:
-				pendingTools = v
-			case []*tools.PendingToolInfo:
-				for _, p := range v {
-					if p != nil {
-						pendingTools = append(pendingTools, *p)
-					}
-				}
-			case []interface{}:
-				for _, item := range v {
-					if info, ok := item.(*tools.PendingToolInfo); ok {
-						pendingTools = append(pendingTools, *info)
-					} else if info, ok := item.(tools.PendingToolInfo); ok {
-						pendingTools = append(pendingTools, info)
-					}
-				}
-			}
-		}
-	}
-
-	// Build response
-	response := &Response{
+// buildContinueResponse builds the response object for Continue operation
+func (c *Conversation) buildContinueResponse(result *pipeline.ExecutionResult, latency time.Duration) *Response {
+	return &Response{
 		Content:      result.Response.Content,
 		ToolCalls:    result.Response.ToolCalls,
 		TokensUsed:   result.CostInfo.InputTokens + result.CostInfo.OutputTokens,
 		Cost:         result.CostInfo.TotalCost,
 		LatencyMs:    latency.Milliseconds(),
-		Validations:  validations,
-		PendingTools: pendingTools,
+		Validations:  c.extractValidationsFromResult(result),
+		PendingTools: c.extractPendingToolsFromMetadata(result.Metadata),
 	}
-
-	return response, nil
 }
 
 // GetHistory returns the conversation message history
@@ -907,11 +788,109 @@ func (c *Conversation) buildMiddlewarePipeline() []pipeline.Middleware {
 	return pipelineMiddleware
 }
 
-func convertMessagesToProvider(messages []types.Message) []types.Message {
-	// Messages are already in the correct type, just return a copy
-	providerMsgs := make([]types.Message, len(messages))
-	copy(providerMsgs, messages)
-	return providerMsgs
+// extractValidationsFromResult extracts validation results from the last assistant message
+func (c *Conversation) extractValidationsFromResult(result *pipeline.ExecutionResult) []types.ValidationResult {
+	if len(result.Messages) == 0 {
+		return nil
+	}
+
+	lastMsg := result.Messages[len(result.Messages)-1]
+	if lastMsg.Role == RoleAssistant {
+		return lastMsg.Validations
+	}
+
+	return nil
+}
+
+// extractPendingToolsFromMetadata extracts pending tools from result metadata with type conversion
+func (c *Conversation) extractPendingToolsFromMetadata(metadata map[string]interface{}) []tools.PendingToolInfo {
+	if metadata == nil {
+		return nil
+	}
+
+	pendingData, ok := metadata["pending_tools"]
+	if !ok {
+		return nil
+	}
+
+	return c.convertToPendingToolsSlice(pendingData)
+}
+
+// convertToPendingToolsSlice converts various types to []tools.PendingToolInfo
+func (c *Conversation) convertToPendingToolsSlice(data interface{}) []tools.PendingToolInfo {
+	switch v := data.(type) {
+	case []tools.PendingToolInfo:
+		return v
+	case []*tools.PendingToolInfo:
+		return c.convertPointerSliceToValueSlice(v)
+	case []interface{}:
+		return c.convertInterfaceSliceToTools(v)
+	default:
+		return nil
+	}
+}
+
+// convertPointerSliceToValueSlice converts []*tools.PendingToolInfo to []tools.PendingToolInfo
+func (c *Conversation) convertPointerSliceToValueSlice(pointers []*tools.PendingToolInfo) []tools.PendingToolInfo {
+	var result []tools.PendingToolInfo
+	for _, p := range pointers {
+		if p != nil {
+			result = append(result, *p)
+		}
+	}
+	return result
+}
+
+// convertInterfaceSliceToTools converts []interface{} to []tools.PendingToolInfo
+func (c *Conversation) convertInterfaceSliceToTools(items []interface{}) []tools.PendingToolInfo {
+	var result []tools.PendingToolInfo
+	for _, item := range items {
+		if info, ok := item.(*tools.PendingToolInfo); ok {
+			result = append(result, *info)
+		} else if info, ok := item.(tools.PendingToolInfo); ok {
+			result = append(result, info)
+		}
+	}
+	return result
+}
+
+// findLastAssistantMessageWithToolCalls finds the most recent assistant message with tool calls
+func (c *Conversation) findLastAssistantMessageWithToolCalls() (int, *types.Message) {
+	for i := len(c.state.Messages) - 1; i >= 0; i-- {
+		msg := &c.state.Messages[i]
+		if msg.Role == RoleAssistant && len(msg.ToolCalls) > 0 {
+			return i, msg
+		}
+	}
+	return -1, nil
+}
+
+// hasToolResult checks if a tool call has a corresponding result message
+func (c *Conversation) hasToolResult(toolCallID string, startIndex int) bool {
+	for j := startIndex + 1; j < len(c.state.Messages); j++ {
+		msg := &c.state.Messages[j]
+		if msg.Role == RoleTool &&
+			msg.ToolResult != nil &&
+			msg.ToolResult.ID == toolCallID {
+			return true
+		}
+	}
+	return false
+}
+
+// findToolCallInHistory finds a tool call by ID in conversation history
+func (c *Conversation) findToolCallInHistory(toolCallID string) bool {
+	for i := len(c.state.Messages) - 1; i >= 0; i-- {
+		msg := c.state.Messages[i]
+		if msg.Role == RoleAssistant && len(msg.ToolCalls) > 0 {
+			for _, toolCall := range msg.ToolCalls {
+				if toolCall.ID == toolCallID {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func generateConversationID() string {

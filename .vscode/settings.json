@@ -3,11 +3,11 @@
         "connectionId": "altairalabs",
         "projectKey": "AltairaLabs_PromptKit"
     },
-    "sonarlint.rules": {
-        "go:S1192": "off",
-        "go:S1006": "off",
-        "go:S1066": "off"
-    },
+    // "sonarlint.rules": {
+    //     "go:S1192": "off",
+    //     "go:S1006": "off",
+    //     "go:S1066": "off"
+    // },
     "sonarlint.disableTelemetry": true,
     "sonarlint.analysisExcludePatterns": [
         "**/*_test.go",
@@ -19,8 +19,5 @@
         "**/vendor/**",
         "**/bin/**"
     ],
-    "files.associations": {
-        "*_test.go": "plaintext"
-    },
     "sonarlint.testFilePattern": "**/*_test.go"
 }

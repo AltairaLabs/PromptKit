@@ -16,17 +16,17 @@ import (
 // Test constants to avoid string literal duplication (SonarQube go:S1192)
 const (
 	// Test providers
-	testProviderOpenAI           = "openai"
-	testProviderOpenAIGPT4Mini  = "openai-gpt-4o-mini"
-	testProviderAnthropic       = "anthropic"
-	testProviderTest            = "test-provider"
-	testProviderUnknown         = "unknown-provider"
+	testProviderOpenAI         = "openai"
+	testProviderOpenAIGPT4Mini = "openai-gpt-4o-mini"
+	testProviderAnthropic      = "anthropic"
+	testProviderTest           = "test-provider"
+	testProviderUnknown        = "unknown-provider"
 
 	// Test regions
-	testRegionUSWest    = "us-west"
-	testRegionUSEast    = "us-east"
-	testRegionUS        = "us"
-	testRegionUnknown   = "unknown-region"
+	testRegionUSWest  = "us-west"
+	testRegionUSEast  = "us-east"
+	testRegionUS      = "us"
+	testRegionUnknown = "unknown-region"
 
 	// Test scenarios
 	testScenario1        = "scenario1"
@@ -41,9 +41,9 @@ const (
 	testRunID3 = "run3"
 
 	// Test report titles
-	testReportTitle    = "Test Report"
-	testTemplateTitle  = "Template Test"
-	testEdgeCaseTitle  = "Edge Case Test"
+	testReportTitle   = "Test Report"
+	testTemplateTitle = "Template Test"
+	testEdgeCaseTitle = "Edge Case Test"
 
 	// Test strings
 	testTotalRuns = "Total Runs"

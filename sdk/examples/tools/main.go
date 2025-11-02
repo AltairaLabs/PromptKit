@@ -13,6 +13,10 @@ import (
 	"github.com/AltairaLabs/PromptKit/sdk"
 )
 
+const (
+	failedToSendMessage = "Failed to send message: %v"
+)
+
 // This example demonstrates how to use tools with the SDK.
 // It shows:
 // 1. Creating and registering tool descriptors
@@ -21,45 +25,32 @@ import (
 // 4. Handling tool results
 
 func main() {
-	// Check for API key
+	validateEnvironment()
+
+	conv := setupConversation()
+	ctx := context.Background()
+
+	fmt.Printf("🤖 Tool Demo Conversation (ID: %s)\n\n", conv.GetID())
+
+	runToolExamples(ctx, conv)
+	showConversationHistory(conv)
+}
+
+// validateEnvironment checks for required environment variables
+func validateEnvironment() {
 	apiKey := os.Getenv("OPENAI_API_KEY") // NOSONAR: Example code showing environment variable usage
 	if apiKey == "" {
 		log.Fatal("OPENAI_API_KEY environment variable is required") // NOSONAR: Example code
 	}
+}
 
-	// Create provider
-	provider := providers.NewOpenAIProvider(
-		"openai",
-		"gpt-4",
-		"",
-		providers.ProviderDefaults{
-			Temperature: 0.7,
-			MaxTokens:   500,
-		},
-		false,
-	)
-
-	// Create tool registry
-	toolRegistry := tools.NewRegistry()
-
-	// Register mock tools
-	if err := registerTools(toolRegistry); err != nil {
-		log.Fatalf("Failed to register tools: %v", err)
-	}
-
-	// Create conversation manager with tools
-	manager, err := sdk.NewConversationManager(
-		sdk.WithProvider(provider),
-		sdk.WithToolRegistry(toolRegistry),
-	)
-	if err != nil {
-		log.Fatalf("Failed to create conversation manager: %v", err)
-	}
-
-	// Create a test pack with tool policy
+// setupConversation creates and configures the conversation manager and conversation
+func setupConversation() *sdk.Conversation {
+	provider := createProvider()
+	toolRegistry := createAndRegisterTools()
+	manager := createConversationManager(provider, toolRegistry)
 	pack := createTestPack()
 
-	// Create conversation
 	ctx := context.Background()
 	conv, err := manager.CreateConversation(ctx, pack, sdk.ConversationConfig{
 		UserID:     "user123",
@@ -72,59 +63,104 @@ func main() {
 		log.Fatalf("Failed to create conversation: %v", err)
 	}
 
-	fmt.Printf("🤖 Tool Demo Conversation (ID: %s)\n\n", conv.GetID())
+	return conv
+}
 
-	// Example 1: Simple tool call
+// createProvider creates an OpenAI provider with default settings
+func createProvider() *providers.OpenAIProvider {
+	return providers.NewOpenAIProvider(
+		"openai",
+		"gpt-4",
+		"",
+		providers.ProviderDefaults{
+			Temperature: 0.7,
+			MaxTokens:   500,
+		},
+		false,
+	)
+}
+
+// createAndRegisterTools creates a tool registry and registers mock tools
+func createAndRegisterTools() *tools.Registry {
+	toolRegistry := tools.NewRegistry()
+	if err := registerTools(toolRegistry); err != nil {
+		log.Fatalf("Failed to register tools: %v", err)
+	}
+	return toolRegistry
+}
+
+// createConversationManager creates a conversation manager with provider and tools
+func createConversationManager(provider *providers.OpenAIProvider, toolRegistry *tools.Registry) *sdk.ConversationManager {
+	manager, err := sdk.NewConversationManager(
+		sdk.WithProvider(provider),
+		sdk.WithToolRegistry(toolRegistry),
+	)
+	if err != nil {
+		log.Fatalf("Failed to create conversation manager: %v", err)
+	}
+	return manager
+}
+
+// runToolExamples executes all the tool demonstration examples
+func runToolExamples(ctx context.Context, conv *sdk.Conversation) {
+	runTimeExample(ctx, conv)
+	runWeatherExample(ctx, conv)
+	runCalculatorExample(ctx, conv)
+}
+
+// runTimeExample demonstrates the get_current_time tool
+func runTimeExample(ctx context.Context, conv *sdk.Conversation) {
 	fmt.Println("=== Example 1: Get Current Time ===")
 	fmt.Println("User: What time is it?")
 	resp, err := conv.Send(ctx, "What time is it?")
 	if err != nil {
-		log.Fatalf("Failed to send message: %v", err)
+		log.Fatalf(failedToSendMessage, err)
 	}
-	fmt.Printf("Assistant: %s\n", resp.Content)
-	if len(resp.ToolCalls) > 0 {
-		fmt.Printf("🔧 Tools called: %d\n", len(resp.ToolCalls))
-		for _, tc := range resp.ToolCalls {
-			fmt.Printf("  - %s\n", tc.Name)
-		}
-	}
-	fmt.Printf("💰 Cost: $%.4f | ⏱️  Latency: %dms\n\n", resp.Cost, resp.LatencyMs)
+	displayResponse(resp, false)
+}
 
-	// Example 2: Tool with parameters
+// runWeatherExample demonstrates the get_weather tool with parameters
+func runWeatherExample(ctx context.Context, conv *sdk.Conversation) {
 	time.Sleep(1 * time.Second)
 	fmt.Println("=== Example 2: Weather Query ===")
 	fmt.Println("User: What's the weather in San Francisco?")
-	resp, err = conv.Send(ctx, "What's the weather in San Francisco?")
+	resp, err := conv.Send(ctx, "What's the weather in San Francisco?")
 	if err != nil {
-		log.Fatalf("Failed to send message: %v", err)
+		log.Fatalf(failedToSendMessage, err)
 	}
-	fmt.Printf("Assistant: %s\n", resp.Content)
-	if len(resp.ToolCalls) > 0 {
-		fmt.Printf("🔧 Tools called: %d\n", len(resp.ToolCalls))
-		for _, tc := range resp.ToolCalls {
-			fmt.Printf("  - %s with args: %s\n", tc.Name, string(tc.Args))
-		}
-	}
-	fmt.Printf("💰 Cost: $%.4f | ⏱️  Latency: %dms\n\n", resp.Cost, resp.LatencyMs)
+	displayResponse(resp, true)
+}
 
-	// Example 3: Calculator tool
+// runCalculatorExample demonstrates the calculator tool
+func runCalculatorExample(ctx context.Context, conv *sdk.Conversation) {
 	time.Sleep(1 * time.Second)
 	fmt.Println("=== Example 3: Calculator ===")
 	fmt.Println("User: What is 42 + 58?")
-	resp, err = conv.Send(ctx, "What is 42 + 58?")
+	resp, err := conv.Send(ctx, "What is 42 + 58?")
 	if err != nil {
-		log.Fatalf("Failed to send message: %v", err)
+		log.Fatalf(failedToSendMessage, err)
 	}
+	displayResponse(resp, true)
+}
+
+// displayResponse shows the assistant response and tool call information
+func displayResponse(resp *sdk.Response, showArgs bool) {
 	fmt.Printf("Assistant: %s\n", resp.Content)
 	if len(resp.ToolCalls) > 0 {
 		fmt.Printf("🔧 Tools called: %d\n", len(resp.ToolCalls))
 		for _, tc := range resp.ToolCalls {
-			fmt.Printf("  - %s with args: %s\n", tc.Name, string(tc.Args))
+			if showArgs {
+				fmt.Printf("  - %s with args: %s\n", tc.Name, string(tc.Args))
+			} else {
+				fmt.Printf("  - %s\n", tc.Name)
+			}
 		}
 	}
 	fmt.Printf("💰 Cost: $%.4f | ⏱️  Latency: %dms\n\n", resp.Cost, resp.LatencyMs)
+}
 
-	// Show conversation history
+// showConversationHistory displays the complete conversation history
+func showConversationHistory(conv *sdk.Conversation) {
 	fmt.Println("📜 Conversation History:")
 	history := conv.GetHistory()
 	for i, msg := range history {

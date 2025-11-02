@@ -73,61 +73,99 @@ func LoadPersona(filename string) (*UserPersonaPack, error) {
 	ext := strings.ToLower(filepath.Ext(filename))
 
 	if ext == ".yaml" || ext == ".yml" {
-		// Try K8s-style manifest first - parse as generic structure then convert
-		var temp interface{}
-		if err := yaml.Unmarshal(data, &temp); err != nil {
-			return nil, fmt.Errorf("failed to parse YAML persona file %s: %w", filename, err)
-		}
+		return loadYAMLPersona(data, filename)
+	}
 
-		// Check if this looks like a K8s manifest
-		if tempMap, ok := temp.(map[string]interface{}); ok {
-			if apiVersion, hasAPI := tempMap["apiVersion"].(string); hasAPI && apiVersion != "" {
-				// This is a K8s manifest - convert to JSON then to our struct
-				jsonData, err := json.Marshal(temp)
-				if err != nil {
-					return nil, fmt.Errorf("failed to convert K8s manifest to JSON for %s: %w", filename, err)
-				}
+	return loadJSONPersona(data, filename)
+}
 
-				var personaConfig PersonaConfig
-				if err := json.Unmarshal(jsonData, &personaConfig); err != nil {
-					return nil, fmt.Errorf("failed to unmarshal K8s manifest %s: %w", filename, err)
-				}
+// loadYAMLPersona loads a persona from YAML data
+func loadYAMLPersona(data []byte, filename string) (*UserPersonaPack, error) {
+	temp, err := parseYAMLData(data, filename)
+	if err != nil {
+		return nil, err
+	}
 
-				// Validate K8s manifest structure
-				if personaConfig.Kind == "" {
-					return nil, fmt.Errorf("persona config %s is missing kind", filename)
-				}
-				if personaConfig.Kind != "Persona" {
-					return nil, fmt.Errorf("persona config %s has invalid kind: expected 'Persona', got '%s'", filename, personaConfig.Kind)
-				}
-				if personaConfig.Metadata.Name == "" {
-					return nil, fmt.Errorf("persona config %s is missing metadata.name", filename)
-				}
-
-				// Use metadata.name as persona ID
-				personaConfig.Spec.ID = personaConfig.Metadata.Name
-
-				return validateAndReturnPersona(&personaConfig.Spec, filename)
-			}
-
-			// Not a K8s manifest - fall back to legacy format
-			jsonData, err := json.Marshal(temp)
-			if err != nil {
-				return nil, fmt.Errorf("failed to convert YAML to JSON for %s: %w", filename, err)
-			}
-
-			var persona UserPersonaPack
-			if err := json.Unmarshal(jsonData, &persona); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal persona %s: %w", filename, err)
-			}
-
-			return validateAndReturnPersona(&persona, filename)
-		}
-
+	tempMap, ok := temp.(map[string]interface{})
+	if !ok {
 		return nil, fmt.Errorf("invalid YAML structure in %s", filename)
 	}
 
-	// For JSON files, assume legacy format
+	if isK8sManifest(tempMap) {
+		return loadK8sManifest(tempMap, filename)
+	}
+
+	return loadLegacyYAMLFormat(tempMap, filename)
+}
+
+// parseYAMLData parses YAML data into a generic interface
+func parseYAMLData(data []byte, filename string) (interface{}, error) {
+	var temp interface{}
+	if err := yaml.Unmarshal(data, &temp); err != nil {
+		return nil, fmt.Errorf("failed to parse YAML persona file %s: %w", filename, err)
+	}
+	return temp, nil
+}
+
+// isK8sManifest checks if the YAML structure is a K8s manifest
+func isK8sManifest(tempMap map[string]interface{}) bool {
+	apiVersion, hasAPI := tempMap["apiVersion"].(string)
+	return hasAPI && apiVersion != ""
+}
+
+// loadK8sManifest loads a persona from a K8s-style manifest
+func loadK8sManifest(tempMap map[string]interface{}, filename string) (*UserPersonaPack, error) {
+	jsonData, err := json.Marshal(tempMap)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert K8s manifest to JSON for %s: %w", filename, err)
+	}
+
+	var personaConfig PersonaConfig
+	if err := json.Unmarshal(jsonData, &personaConfig); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal K8s manifest %s: %w", filename, err)
+	}
+
+	if err := validateK8sManifest(&personaConfig, filename); err != nil {
+		return nil, err
+	}
+
+	// Use metadata.name as persona ID
+	personaConfig.Spec.ID = personaConfig.Metadata.Name
+
+	return validateAndReturnPersona(&personaConfig.Spec, filename)
+}
+
+// validateK8sManifest validates K8s manifest structure
+func validateK8sManifest(personaConfig *PersonaConfig, filename string) error {
+	if personaConfig.Kind == "" {
+		return fmt.Errorf("persona config %s is missing kind", filename)
+	}
+	if personaConfig.Kind != "Persona" {
+		return fmt.Errorf("persona config %s has invalid kind: expected 'Persona', got '%s'", filename, personaConfig.Kind)
+	}
+	if personaConfig.Metadata.Name == "" {
+		return fmt.Errorf("persona config %s is missing metadata.name", filename)
+	}
+	return nil
+}
+
+// loadLegacyYAMLFormat loads a persona from legacy YAML format
+func loadLegacyYAMLFormat(tempMap map[string]interface{}, filename string) (*UserPersonaPack, error) {
+	jsonData, err := json.Marshal(tempMap)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert YAML to JSON for %s: %w", filename, err)
+	}
+
+	var persona UserPersonaPack
+	if err := json.Unmarshal(jsonData, &persona); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal persona %s: %w", filename, err)
+	}
+
+	return validateAndReturnPersona(&persona, filename)
+}
+
+// loadJSONPersona loads a persona from JSON data
+func loadJSONPersona(data []byte, filename string) (*UserPersonaPack, error) {
 	var persona UserPersonaPack
 	if err := json.Unmarshal(data, &persona); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON persona file: %w", err)

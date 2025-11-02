@@ -114,80 +114,107 @@ func (ce *DefaultConversationExecutor) executeWithoutStreaming(ctx context.Conte
 
 // executeWithStreaming runs conversation with streaming enabled, using per-turn overrides
 func (ce *DefaultConversationExecutor) executeWithStreaming(ctx context.Context, req ConversationRequest) *ConversationResult {
-	// Execute each turn in the scenario
 	for turnIdx, scenarioTurn := range req.Scenario.Turns {
-		// Warn if assertions are specified on user turns (they only validate assistant responses)
-		if scenarioTurn.Role == "user" && len(scenarioTurn.Assertions) > 0 {
-			logger.Warn("Ignoring assertions on user turn - assertions only validate assistant responses",
-				"turn", turnIdx)
-		}
-
-		// Build turn request (StateStore manages history)
-		turnReq := turnexecutors.TurnRequest{
-			Provider:         req.Provider,
-			Scenario:         req.Scenario,
-			PromptRegistry:   ce.promptRegistry,
-			TaskType:         req.Scenario.TaskType,
-			Region:           req.Region,
-			Temperature:      float64(req.Config.Defaults.Temperature),
-			MaxTokens:        req.Config.Defaults.MaxTokens,
-			Seed:             &req.Config.Defaults.Seed,
-			StateStoreConfig: convertStateStoreConfig(req.StateStoreConfig),
-			ConversationID:   req.ConversationID,
-			Assertions:       scenarioTurn.Assertions, // Pass turn-level assertions
-		}
-
-		var err error
-
-		// Check if this turn should use streaming
-		shouldStream := req.Scenario.ShouldStreamTurn(turnIdx)
-
-		// Choose executor based on role and streaming preference
-		if ce.isSelfPlayRole(scenarioTurn.Role) {
-			// Self-play turn (LLM-generated user message)
-			turnReq.SelfPlayRole = scenarioTurn.Role
-			turnReq.SelfPlayPersona = scenarioTurn.Persona
-
-			if shouldStream {
-				err = ce.executeTurnWithStreaming(ctx, turnReq, ce.selfPlayExecutor)
-			} else {
-				err = ce.selfPlayExecutor.ExecuteTurn(ctx, turnReq)
-			}
-		} else if scenarioTurn.Role == "user" {
-			// Scripted user turn
-			turnReq.ScriptedContent = scenarioTurn.Content
-
-			if shouldStream {
-				err = ce.executeTurnWithStreaming(ctx, turnReq, ce.scriptedExecutor)
-			} else {
-				err = ce.scriptedExecutor.ExecuteTurn(ctx, turnReq)
-			}
-		} else {
-			err = fmt.Errorf("unsupported role: %s", scenarioTurn.Role)
-		}
-
+		err := ce.executeStreamingTurn(ctx, req, turnIdx, scenarioTurn)
 		if err != nil {
-			logger.Error("Turn execution failed",
-				"turn", turnIdx,
-				"role", scenarioTurn.Role,
-				"streaming", shouldStream,
-				"error", err)
-
-			// Load messages from StateStore (they were saved before validation failed)
-			result := ce.buildResultFromStateStore(req)
-			result.Failed = true
-			result.Error = err.Error()
-			return result
+			return ce.handleTurnExecutionError(req, err, turnIdx, scenarioTurn)
 		}
 
-		logger.Debug("Turn completed",
-			"turn", turnIdx,
-			"role", scenarioTurn.Role,
-			"streaming", shouldStream)
+		ce.logTurnCompletion(turnIdx, scenarioTurn, req.Scenario.ShouldStreamTurn(turnIdx))
 	}
 
-	// Load final conversation state from StateStore
 	return ce.buildResultFromStateStore(req)
+}
+
+// executeStreamingTurn executes a single turn with streaming support
+func (ce *DefaultConversationExecutor) executeStreamingTurn(ctx context.Context, req ConversationRequest, turnIdx int, scenarioTurn config.TurnDefinition) error {
+	ce.warnOnUserTurnAssertions(scenarioTurn, turnIdx)
+
+	turnReq := ce.buildTurnRequest(req, scenarioTurn)
+	shouldStream := req.Scenario.ShouldStreamTurn(turnIdx)
+
+	return ce.executeTurnByRole(ctx, turnReq, scenarioTurn, shouldStream)
+}
+
+// warnOnUserTurnAssertions warns if assertions are specified on user turns
+func (ce *DefaultConversationExecutor) warnOnUserTurnAssertions(scenarioTurn config.TurnDefinition, turnIdx int) {
+	if scenarioTurn.Role == "user" && len(scenarioTurn.Assertions) > 0 {
+		logger.Warn("Ignoring assertions on user turn - assertions only validate assistant responses",
+			"turn", turnIdx)
+	}
+}
+
+// buildTurnRequest creates a TurnRequest from the conversation request and scenario turn
+func (ce *DefaultConversationExecutor) buildTurnRequest(req ConversationRequest, scenarioTurn config.TurnDefinition) turnexecutors.TurnRequest {
+	return turnexecutors.TurnRequest{
+		Provider:         req.Provider,
+		Scenario:         req.Scenario,
+		PromptRegistry:   ce.promptRegistry,
+		TaskType:         req.Scenario.TaskType,
+		Region:           req.Region,
+		Temperature:      float64(req.Config.Defaults.Temperature),
+		MaxTokens:        req.Config.Defaults.MaxTokens,
+		Seed:             &req.Config.Defaults.Seed,
+		StateStoreConfig: convertStateStoreConfig(req.StateStoreConfig),
+		ConversationID:   req.ConversationID,
+		Assertions:       scenarioTurn.Assertions,
+	}
+}
+
+// executeTurnByRole executes a turn based on its role (self-play or scripted)
+func (ce *DefaultConversationExecutor) executeTurnByRole(ctx context.Context, turnReq turnexecutors.TurnRequest, scenarioTurn config.TurnDefinition, shouldStream bool) error {
+	if ce.isSelfPlayRole(scenarioTurn.Role) {
+		return ce.executeSelfPlayTurn(ctx, turnReq, scenarioTurn, shouldStream)
+	}
+
+	if scenarioTurn.Role == "user" {
+		return ce.executeScriptedTurn(ctx, turnReq, scenarioTurn, shouldStream)
+	}
+
+	return fmt.Errorf("unsupported role: %s", scenarioTurn.Role)
+}
+
+// executeSelfPlayTurn executes a self-play turn
+func (ce *DefaultConversationExecutor) executeSelfPlayTurn(ctx context.Context, turnReq turnexecutors.TurnRequest, scenarioTurn config.TurnDefinition, shouldStream bool) error {
+	turnReq.SelfPlayRole = scenarioTurn.Role
+	turnReq.SelfPlayPersona = scenarioTurn.Persona
+
+	if shouldStream {
+		return ce.executeTurnWithStreaming(ctx, turnReq, ce.selfPlayExecutor)
+	}
+	return ce.selfPlayExecutor.ExecuteTurn(ctx, turnReq)
+}
+
+// executeScriptedTurn executes a scripted user turn
+func (ce *DefaultConversationExecutor) executeScriptedTurn(ctx context.Context, turnReq turnexecutors.TurnRequest, scenarioTurn config.TurnDefinition, shouldStream bool) error {
+	turnReq.ScriptedContent = scenarioTurn.Content
+
+	if shouldStream {
+		return ce.executeTurnWithStreaming(ctx, turnReq, ce.scriptedExecutor)
+	}
+	return ce.scriptedExecutor.ExecuteTurn(ctx, turnReq)
+}
+
+// handleTurnExecutionError handles errors that occur during turn execution
+func (ce *DefaultConversationExecutor) handleTurnExecutionError(req ConversationRequest, err error, turnIdx int, scenarioTurn config.TurnDefinition) *ConversationResult {
+	logger.Error("Turn execution failed",
+		"turn", turnIdx,
+		"role", scenarioTurn.Role,
+		"streaming", req.Scenario.ShouldStreamTurn(turnIdx),
+		"error", err)
+
+	result := ce.buildResultFromStateStore(req)
+	result.Failed = true
+	result.Error = err.Error()
+	return result
+}
+
+// logTurnCompletion logs successful turn completion
+func (ce *DefaultConversationExecutor) logTurnCompletion(turnIdx int, scenarioTurn config.TurnDefinition, shouldStream bool) {
+	logger.Debug("Turn completed",
+		"turn", turnIdx,
+		"role", scenarioTurn.Role,
+		"streaming", shouldStream)
 }
 
 // executeTurnWithStreaming executes a turn using streaming and returns the complete messages
@@ -222,186 +249,245 @@ func (ce *DefaultConversationExecutor) ExecuteConversationStream(ctx context.Con
 
 	go func() {
 		defer close(outChan)
-
-		// Initialize result (will be populated from StateStore at end)
-		result := &ConversationResult{
-			Messages: []types.Message{},
-			Cost:     types.CostInfo{},
-			SelfPlay: ce.containsSelfPlay(req.Scenario),
-		}
-
-		// Execute each turn in the scenario
-		for turnIdx, scenarioTurn := range req.Scenario.Turns {
-			// Build turn request (StateStore manages history)
-			turnReq := turnexecutors.TurnRequest{
-				Provider:         req.Provider,
-				Scenario:         req.Scenario,
-				PromptRegistry:   ce.promptRegistry,
-				TaskType:         req.Scenario.TaskType,
-				Region:           req.Region,
-				Temperature:      float64(req.Config.Defaults.Temperature),
-				MaxTokens:        req.Config.Defaults.MaxTokens,
-				Seed:             &req.Config.Defaults.Seed,
-				StateStoreConfig: convertStateStoreConfig(req.StateStoreConfig),
-				ConversationID:   req.ConversationID,
-			}
-
-			// Choose executor based on role
-			var stream <-chan turnexecutors.MessageStreamChunk
-			var err error
-
-			if ce.isSelfPlayRole(scenarioTurn.Role) {
-				// Self-play turn (LLM-generated user message)
-				turnReq.SelfPlayRole = scenarioTurn.Role
-				turnReq.SelfPlayPersona = scenarioTurn.Persona
-				stream, err = ce.selfPlayExecutor.ExecuteTurnStream(ctx, turnReq)
-			} else if scenarioTurn.Role == "user" {
-				// Scripted user turn
-				turnReq.ScriptedContent = scenarioTurn.Content
-				stream, err = ce.scriptedExecutor.ExecuteTurnStream(ctx, turnReq)
-			} else {
-				outChan <- ConversationStreamChunk{
-					Result: result,
-					Error:  fmt.Errorf("unsupported role: %s", scenarioTurn.Role),
-				}
-				return
-			}
-
-			if err != nil {
-				outChan <- ConversationStreamChunk{
-					Result: result,
-					Error:  fmt.Errorf("turn execution failed: %w", err),
-				}
-				return
-			}
-
-			// Stream turn chunks
-			for chunk := range stream {
-				if chunk.Error != nil {
-					outChan <- ConversationStreamChunk{
-						TurnIndex: turnIdx,
-						Result:    result,
-						Error:     chunk.Error,
-					}
-					return
-				}
-
-				// Send conversation chunk with current state
-				outChan <- ConversationStreamChunk{
-					TurnIndex:    turnIdx,
-					Delta:        chunk.Delta,
-					TokenCount:   chunk.TokenCount,
-					FinishReason: chunk.FinishReason,
-					Result:       result,
-				}
-			}
-		}
-
-		// Load final conversation state from StateStore
-		finalResult := ce.buildResultFromStateStore(req)
-
-		// Send final chunk with complete result
-		outChan <- ConversationStreamChunk{
-			Result: finalResult,
-		}
+		ce.executeStreamingConversation(ctx, req, outChan)
 	}()
 
 	return outChan, nil
 }
 
+// executeStreamingConversation handles the main streaming conversation logic
+func (ce *DefaultConversationExecutor) executeStreamingConversation(ctx context.Context, req ConversationRequest, outChan chan<- ConversationStreamChunk) {
+	result := ce.initializeStreamResult(req)
+
+	for turnIdx, scenarioTurn := range req.Scenario.Turns {
+		if !ce.executeStreamingTurnAndSendChunks(ctx, req, turnIdx, scenarioTurn, result, outChan) {
+			return // Error occurred, goroutine should exit
+		}
+	}
+
+	ce.sendFinalStreamResult(req, outChan)
+}
+
+// initializeStreamResult creates the initial conversation result for streaming
+func (ce *DefaultConversationExecutor) initializeStreamResult(req ConversationRequest) *ConversationResult {
+	return &ConversationResult{
+		Messages: []types.Message{},
+		Cost:     types.CostInfo{},
+		SelfPlay: ce.containsSelfPlay(req.Scenario),
+	}
+}
+
+// executeStreamingTurnAndSendChunks executes a turn and sends chunks to output channel
+func (ce *DefaultConversationExecutor) executeStreamingTurnAndSendChunks(
+	ctx context.Context,
+	req ConversationRequest,
+	turnIdx int,
+	scenarioTurn config.TurnDefinition,
+	result *ConversationResult,
+	outChan chan<- ConversationStreamChunk,
+) bool {
+	turnReq := ce.buildTurnRequest(req, scenarioTurn)
+
+	stream, err := ce.getStreamForRole(ctx, turnReq, scenarioTurn)
+	if err != nil {
+		ce.sendErrorChunk(outChan, result, err)
+		return false
+	}
+
+	return ce.consumeStreamAndSendChunks(stream, turnIdx, result, outChan)
+}
+
+// getStreamForRole gets the appropriate stream based on the turn's role
+func (ce *DefaultConversationExecutor) getStreamForRole(
+	ctx context.Context,
+	turnReq turnexecutors.TurnRequest,
+	scenarioTurn config.TurnDefinition,
+) (<-chan turnexecutors.MessageStreamChunk, error) {
+	if ce.isSelfPlayRole(scenarioTurn.Role) {
+		turnReq.SelfPlayRole = scenarioTurn.Role
+		turnReq.SelfPlayPersona = scenarioTurn.Persona
+		return ce.selfPlayExecutor.ExecuteTurnStream(ctx, turnReq)
+	}
+
+	if scenarioTurn.Role == "user" {
+		turnReq.ScriptedContent = scenarioTurn.Content
+		return ce.scriptedExecutor.ExecuteTurnStream(ctx, turnReq)
+	}
+
+	return nil, fmt.Errorf("unsupported role: %s", scenarioTurn.Role)
+}
+
+// consumeStreamAndSendChunks consumes a turn stream and sends chunks to output
+func (ce *DefaultConversationExecutor) consumeStreamAndSendChunks(
+	stream <-chan turnexecutors.MessageStreamChunk,
+	turnIdx int,
+	result *ConversationResult,
+	outChan chan<- ConversationStreamChunk,
+) bool {
+	for chunk := range stream {
+		if chunk.Error != nil {
+			ce.sendTurnErrorChunk(outChan, turnIdx, result, chunk.Error)
+			return false
+		}
+
+		ce.sendTurnChunk(outChan, turnIdx, chunk, result)
+	}
+	return true
+}
+
+// sendErrorChunk sends an error chunk to the output channel
+func (ce *DefaultConversationExecutor) sendErrorChunk(outChan chan<- ConversationStreamChunk, result *ConversationResult, err error) {
+	outChan <- ConversationStreamChunk{
+		Result: result,
+		Error:  err,
+	}
+}
+
+// sendTurnErrorChunk sends a turn-specific error chunk to the output channel
+func (ce *DefaultConversationExecutor) sendTurnErrorChunk(outChan chan<- ConversationStreamChunk, turnIdx int, result *ConversationResult, err error) {
+	outChan <- ConversationStreamChunk{
+		TurnIndex: turnIdx,
+		Result:    result,
+		Error:     err,
+	}
+}
+
+// sendTurnChunk sends a regular turn chunk to the output channel
+func (ce *DefaultConversationExecutor) sendTurnChunk(outChan chan<- ConversationStreamChunk, turnIdx int, chunk turnexecutors.MessageStreamChunk, result *ConversationResult) {
+	outChan <- ConversationStreamChunk{
+		TurnIndex:    turnIdx,
+		Delta:        chunk.Delta,
+		TokenCount:   chunk.TokenCount,
+		FinishReason: chunk.FinishReason,
+		Result:       result,
+	}
+}
+
+// sendFinalStreamResult sends the final result with complete conversation state
+func (ce *DefaultConversationExecutor) sendFinalStreamResult(req ConversationRequest, outChan chan<- ConversationStreamChunk) {
+	finalResult := ce.buildResultFromStateStore(req)
+	outChan <- ConversationStreamChunk{
+		Result: finalResult,
+	}
+}
+
 // buildResultFromStateStore loads the final conversation state from StateStore and builds the result
 func (ce *DefaultConversationExecutor) buildResultFromStateStore(req ConversationRequest) *ConversationResult {
-	// StateStore is required - no bypass path
-	if req.StateStoreConfig == nil || req.StateStoreConfig.Store == nil {
-		return &ConversationResult{
-			Messages: []types.Message{},
-			Cost:     types.CostInfo{},
-			Failed:   true,
-			Error:    "StateStore is required but not configured",
-		}
+	_, messages, err := ce.loadMessagesFromStateStore(req)
+	if err != nil {
+		return ce.createErrorResult(err.Error())
 	}
 
-	// Cast Store to statestore.Store
-	store, ok := req.StateStoreConfig.Store.(statestore.Store)
-	if !ok {
-		return &ConversationResult{
-			Messages: []types.Message{},
-			Cost:     types.CostInfo{},
-			Failed:   true,
-			Error:    "invalid StateStore implementation",
-		}
-	}
-
-	// Load conversation state from StateStore
-	state, err := store.Load(context.Background(), req.ConversationID)
-	if err != nil && !errors.Is(err, statestore.ErrNotFound) {
-		return &ConversationResult{
-			Messages: []types.Message{},
-			Cost:     types.CostInfo{},
-			Failed:   true,
-			Error:    fmt.Sprintf("failed to load conversation from StateStore: %v", err),
-		}
-	}
-
-	// Extract messages from state
-	var messages []types.Message
-	if state != nil {
-		messages = state.Messages
-	}
-
-	// Calculate totals from messages
-	var totalCost types.CostInfo
-	toolStats := &types.ToolStats{
-		TotalCalls: 0,
-		ByTool:     make(map[string]int),
-	}
-	var violations []types.ValidationError
-
-	for _, msg := range messages {
-		// Aggregate costs
-		if msg.CostInfo != nil {
-			totalCost.InputTokens += msg.CostInfo.InputTokens
-			totalCost.OutputTokens += msg.CostInfo.OutputTokens
-			totalCost.CachedTokens += msg.CostInfo.CachedTokens
-			totalCost.InputCostUSD += msg.CostInfo.InputCostUSD
-			totalCost.OutputCostUSD += msg.CostInfo.OutputCostUSD
-			totalCost.CachedCostUSD += msg.CostInfo.CachedCostUSD
-			totalCost.TotalCost += msg.CostInfo.TotalCost
-		}
-
-		// Count tool calls
-		for _, tc := range msg.ToolCalls {
-			toolStats.TotalCalls++
-			toolStats.ByTool[tc.Name]++
-		}
-	}
-
-	// Set to nil if no tools were used
-	if toolStats.TotalCalls == 0 {
-		toolStats = nil
-	}
-
-	// Detect self-play and extract persona ID
-	isSelfPlay := ce.containsSelfPlay(req.Scenario)
-	var personaID string
-	if isSelfPlay {
-		// Extract persona ID from first self-play turn
-		for _, turn := range req.Scenario.Turns {
-			if ce.isSelfPlayRole(turn.Role) && turn.Persona != "" {
-				personaID = turn.Persona
-				break
-			}
-		}
-	}
+	totalCost, toolStats := ce.calculateTotalsFromMessages(messages)
+	isSelfPlay, personaID := ce.extractSelfPlayInfo(req.Scenario)
 
 	return &ConversationResult{
 		Messages:   messages,
 		Cost:       totalCost,
 		ToolStats:  toolStats,
-		Violations: violations,
+		Violations: []types.ValidationError{},
 		SelfPlay:   isSelfPlay,
 		PersonaID:  personaID,
 	}
+}
+
+// loadMessagesFromStateStore loads messages from the state store
+func (ce *DefaultConversationExecutor) loadMessagesFromStateStore(req ConversationRequest) (statestore.Store, []types.Message, error) {
+	if req.StateStoreConfig == nil || req.StateStoreConfig.Store == nil {
+		return nil, nil, errors.New("StateStore is required but not configured")
+	}
+
+	store, ok := req.StateStoreConfig.Store.(statestore.Store)
+	if !ok {
+		return nil, nil, errors.New("invalid StateStore implementation")
+	}
+
+	state, err := store.Load(context.Background(), req.ConversationID)
+	if err != nil && !errors.Is(err, statestore.ErrNotFound) {
+		return nil, nil, fmt.Errorf("failed to load conversation from StateStore: %v", err)
+	}
+
+	var messages []types.Message
+	if state != nil {
+		messages = state.Messages
+	}
+
+	return store, messages, nil
+}
+
+// createErrorResult creates a ConversationResult for error cases
+func (ce *DefaultConversationExecutor) createErrorResult(errorMsg string) *ConversationResult {
+	return &ConversationResult{
+		Messages: []types.Message{},
+		Cost:     types.CostInfo{},
+		Failed:   true,
+		Error:    errorMsg,
+	}
+}
+
+// calculateTotalsFromMessages calculates cost and tool statistics from messages
+func (ce *DefaultConversationExecutor) calculateTotalsFromMessages(messages []types.Message) (types.CostInfo, *types.ToolStats) {
+	var totalCost types.CostInfo
+	toolStats := &types.ToolStats{
+		TotalCalls: 0,
+		ByTool:     make(map[string]int),
+	}
+
+	for _, msg := range messages {
+		ce.aggregateMessageCost(&totalCost, msg.CostInfo)
+		ce.aggregateToolStats(toolStats, msg.ToolCalls)
+	}
+
+	if toolStats.TotalCalls == 0 {
+		toolStats = nil
+	}
+
+	return totalCost, toolStats
+}
+
+// aggregateMessageCost adds message cost information to the total
+func (ce *DefaultConversationExecutor) aggregateMessageCost(totalCost *types.CostInfo, msgCost *types.CostInfo) {
+	if msgCost == nil {
+		return
+	}
+
+	totalCost.InputTokens += msgCost.InputTokens
+	totalCost.OutputTokens += msgCost.OutputTokens
+	totalCost.CachedTokens += msgCost.CachedTokens
+	totalCost.InputCostUSD += msgCost.InputCostUSD
+	totalCost.OutputCostUSD += msgCost.OutputCostUSD
+	totalCost.CachedCostUSD += msgCost.CachedCostUSD
+	totalCost.TotalCost += msgCost.TotalCost
+}
+
+// aggregateToolStats counts tool calls from the message
+func (ce *DefaultConversationExecutor) aggregateToolStats(toolStats *types.ToolStats, toolCalls []types.MessageToolCall) {
+	for _, tc := range toolCalls {
+		toolStats.TotalCalls++
+		toolStats.ByTool[tc.Name]++
+	}
+}
+
+// extractSelfPlayInfo detects self-play and extracts persona ID
+func (ce *DefaultConversationExecutor) extractSelfPlayInfo(scenario *config.Scenario) (bool, string) {
+	isSelfPlay := ce.containsSelfPlay(scenario)
+	var personaID string
+
+	if isSelfPlay {
+		personaID = ce.findFirstSelfPlayPersona(scenario)
+	}
+
+	return isSelfPlay, personaID
+}
+
+// findFirstSelfPlayPersona finds the persona ID from the first self-play turn
+func (ce *DefaultConversationExecutor) findFirstSelfPlayPersona(scenario *config.Scenario) string {
+	for _, turn := range scenario.Turns {
+		if ce.isSelfPlayRole(turn.Role) && turn.Persona != "" {
+			return turn.Persona
+		}
+	}
+	return ""
 }
 
 // isSelfPlayRole checks if a role is configured for self-play
