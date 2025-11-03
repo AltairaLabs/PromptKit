@@ -13,7 +13,6 @@
 
 
 <!-- Version & Distribution Badges -->
-[![Go Version](https://img.shields.io/github/go-mod/go-version/AltairaLabs/PromptKit)](https://golang.org/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/AltairaLabs/PromptKit.svg)](https://pkg.go.dev/github.com/AltairaLabs/PromptKit)
 
 <!-- License Badges -->
