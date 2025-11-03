@@ -1409,3 +1409,92 @@ func TestGenerateHTML_MessageCostInfoEdgeCases(t *testing.T) {
 		})
 	}
 }
+
+func TestHasValidators_WithMessageValidations(t *testing.T) {
+tests := []struct {
+name        string
+message     types.Message
+wantDisplay bool
+}{
+{
+name: "message with validations",
+message: types.Message{
+Role:    "assistant",
+Content: "Test response",
+Validations: []types.ValidationResult{
+{
+ValidatorType: "*validators.BannedWordsValidator",
+Passed:        false,
+Details: map[string]interface{}{
+"value": []string{"damn"},
+},
+},
+},
+},
+wantDisplay: true,
+},
+{
+name: "message without validations",
+message: types.Message{
+Role:    "assistant",
+Content: "Test response",
+},
+wantDisplay: false,
+},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+result := createTestResult(testRunID1, testProviderTest, testRegionUS, testScenarioS1, 0.01, 50, 25, false, 100*time.Millisecond)
+result.Messages = []types.Message{tt.message}
+
+data := prepareReportData([]engine.RunResult{result})
+html, err := generateHTML(data)
+if err != nil {
+t.Fatalf("generateHTML() error = %v", err)
+}
+
+hasValidationBadge := strings.Contains(html, "badge-label\">V</span>")
+if hasValidationBadge != tt.wantDisplay {
+t.Errorf("Expected validation badge = %v, got %v", tt.wantDisplay, hasValidationBadge)
+}
+})
+}
+}
+
+
+func TestGetValidatorsFromMessage(t *testing.T) {
+tests := []struct {
+name    string
+msgData map[string]interface{}
+want    int // number of validators
+}{
+{
+name: "message with validations array",
+msgData: map[string]interface{}{
+"validations": []interface{}{
+map[string]interface{}{
+"validator_type": "*validators.BannedWordsValidator",
+"passed":         false,
+},
+},
+},
+want: 1,
+},
+{
+name:    "message without validations",
+msgData: map[string]interface{}{},
+want:    0,
+},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+got := getValidatorsFromMessage(tt.msgData)
+if len(got) != tt.want {
+t.Errorf("getValidatorsFromMessage() returned %d validators, want %d", len(got), tt.want)
+}
+})
+}
+}
+

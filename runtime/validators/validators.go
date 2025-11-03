@@ -20,7 +20,7 @@ import (
 
 // ValidationResult holds the result of a validation check
 type ValidationResult struct {
-	OK      bool        `json:"ok"`
+	Passed  bool        `json:"passed"`
 	Details interface{} `json:"details,omitempty"`
 }
 
@@ -74,7 +74,7 @@ func (v *BannedWordsValidator) Validate(content string, params map[string]interf
 	}
 
 	return ValidationResult{
-		OK:      len(violations) == 0,
+		Passed:  len(violations) == 0,
 		Details: violations,
 	}
 }
@@ -110,18 +110,18 @@ func NewMaxSentencesValidator() *MaxSentencesValidator {
 func (v *MaxSentencesValidator) Validate(content string, params map[string]interface{}) ValidationResult {
 	maxSentences, exists := params["max_sentences"]
 	if !exists {
-		return ValidationResult{OK: true}
+		return ValidationResult{Passed: true}
 	}
 
 	max, ok := maxSentences.(int)
 	if !ok {
-		return ValidationResult{OK: true}
+		return ValidationResult{Passed: true}
 	}
 
 	count := countSentences(content)
 
 	return ValidationResult{
-		OK: count <= max,
+		Passed: count <= max,
 		Details: map[string]interface{}{
 			"count": count,
 			"max":   max,
@@ -146,12 +146,12 @@ func NewRequiredFieldsValidator() *RequiredFieldsValidator {
 func (v *RequiredFieldsValidator) Validate(content string, params map[string]interface{}) ValidationResult {
 	requiredFields, exists := params["required_fields"]
 	if !exists {
-		return ValidationResult{OK: true}
+		return ValidationResult{Passed: true}
 	}
 
 	fields, ok := requiredFields.([]string)
 	if !ok {
-		return ValidationResult{OK: true}
+		return ValidationResult{Passed: true}
 	}
 
 	var missing []string
@@ -162,7 +162,7 @@ func (v *RequiredFieldsValidator) Validate(content string, params map[string]int
 	}
 
 	return ValidationResult{
-		OK: len(missing) == 0,
+		Passed: len(missing) == 0,
 		Details: map[string]interface{}{
 			"missing": missing,
 		},
@@ -186,17 +186,17 @@ func NewCommitValidator() *CommitValidator {
 func (v *CommitValidator) Validate(content string, params map[string]interface{}) ValidationResult {
 	mustEndWithCommit, exists := params["must_end_with_commit"]
 	if !exists || !mustEndWithCommit.(bool) {
-		return ValidationResult{OK: true}
+		return ValidationResult{Passed: true}
 	}
 
 	commitFields, exists := params["commit_fields"]
 	if !exists {
-		return ValidationResult{OK: true}
+		return ValidationResult{Passed: true}
 	}
 
 	fields, ok := commitFields.([]string)
 	if !ok {
-		return ValidationResult{OK: true}
+		return ValidationResult{Passed: true}
 	}
 
 	// Check if content contains commit-like structure
@@ -206,7 +206,7 @@ func (v *CommitValidator) Validate(content string, params map[string]interface{}
 
 	if !hasCommitStructure {
 		return ValidationResult{
-			OK: false,
+			Passed: false,
 			Details: map[string]interface{}{
 				"error": "missing commit structure",
 			},
@@ -224,7 +224,7 @@ func (v *CommitValidator) Validate(content string, params map[string]interface{}
 	}
 
 	return ValidationResult{
-		OK: len(missing) == 0,
+		Passed: len(missing) == 0,
 		Details: map[string]interface{}{
 			"missing_fields": missing,
 		},
@@ -249,13 +249,13 @@ func (v *LengthValidator) Validate(content string, params map[string]interface{}
 	maxChars, hasMaxChars := params["max_characters"]
 	maxTokens, hasMaxTokens := params["max_tokens"]
 
-	result := ValidationResult{OK: true, Details: map[string]interface{}{}}
+	result := ValidationResult{Passed: true, Details: map[string]interface{}{}}
 
 	if hasMaxChars {
 		if max, ok := maxChars.(int); ok {
 			charCount := len(content)
 			if charCount > max {
-				result.OK = false
+				result.Passed = false
 			}
 			result.Details.(map[string]interface{})["character_count"] = charCount
 			result.Details.(map[string]interface{})["max_characters"] = max
@@ -267,7 +267,7 @@ func (v *LengthValidator) Validate(content string, params map[string]interface{}
 			// Rough token estimation (1 token ≈ 4 characters)
 			tokenCount := len(content) / 4
 			if tokenCount > max {
-				result.OK = false
+				result.Passed = false
 			}
 			result.Details.(map[string]interface{})["token_count"] = tokenCount
 			result.Details.(map[string]interface{})["max_tokens"] = max
@@ -280,42 +280,73 @@ func (v *LengthValidator) Validate(content string, params map[string]interface{}
 // ValidateChunk validates stream chunk against length limits and aborts if exceeded
 func (v *LengthValidator) ValidateChunk(chunk providers.StreamChunk, params ...map[string]interface{}) error {
 	// Extract params if provided
-	var p map[string]interface{}
-	if len(params) > 0 {
-		p = params[0]
-	}
-
+	p := extractParams(params)
 	if p == nil {
 		return nil
 	}
 
 	// Check character limit
-	if maxChars, hasMaxChars := p["max_characters"]; hasMaxChars {
-		if max, ok := maxChars.(int); ok {
-			charCount := len(chunk.Content)
-			if charCount > max {
-				return &providers.ValidationAbortError{
-					Reason: "exceeded max_characters limit",
-					Chunk:  chunk,
-				}
-			}
-		}
+	if err := checkCharacterLimit(chunk, p); err != nil {
+		return err
 	}
 
 	// Check token limit
-	if maxTokens, hasMaxTokens := p["max_tokens"]; hasMaxTokens {
-		if max, ok := maxTokens.(int); ok {
-			// Use actual token count if available, otherwise estimate
-			tokenCount := chunk.TokenCount
-			if tokenCount == 0 {
-				tokenCount = len(chunk.Content) / 4
-			}
-			if tokenCount > max {
-				return &providers.ValidationAbortError{
-					Reason: "exceeded max_tokens limit",
-					Chunk:  chunk,
-				}
-			}
+	return checkTokenLimit(chunk, p)
+}
+
+// extractParams extracts parameters from variadic parameter list
+func extractParams(params []map[string]interface{}) map[string]interface{} {
+	if len(params) > 0 {
+		return params[0]
+	}
+	return nil
+}
+
+// checkCharacterLimit validates character count against max_characters limit
+func checkCharacterLimit(chunk providers.StreamChunk, p map[string]interface{}) error {
+	maxChars, hasMaxChars := p["max_characters"]
+	if !hasMaxChars {
+		return nil
+	}
+
+	max, ok := maxChars.(int)
+	if !ok {
+		return nil
+	}
+
+	charCount := len(chunk.Content)
+	if charCount > max {
+		return &providers.ValidationAbortError{
+			Reason: "exceeded max_characters limit",
+			Chunk:  chunk,
+		}
+	}
+
+	return nil
+}
+
+// checkTokenLimit validates token count against max_tokens limit
+func checkTokenLimit(chunk providers.StreamChunk, p map[string]interface{}) error {
+	maxTokens, hasMaxTokens := p["max_tokens"]
+	if !hasMaxTokens {
+		return nil
+	}
+
+	max, ok := maxTokens.(int)
+	if !ok {
+		return nil
+	}
+
+	// Use actual token count if available, otherwise estimate
+	tokenCount := chunk.TokenCount
+	if tokenCount == 0 {
+		tokenCount = len(chunk.Content) / 4
+	}
+
+	if tokenCount > max {
+		return &providers.ValidationAbortError{
+			Reason: "exceeded max_tokens limit",
+			Chunk:  chunk,
 		}
 	}
 

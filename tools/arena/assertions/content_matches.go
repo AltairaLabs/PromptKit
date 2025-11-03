@@ -1,4 +1,4 @@
-package validators
+package assertions
 
 import (
 	"regexp"
@@ -35,7 +35,7 @@ func (v *ContentMatchesValidator) Validate(content string, params map[string]int
 	// No pattern means nothing to validate
 	if v.rawPattern == "" {
 		return runtimeValidators.ValidationResult{
-			OK: true,
+			Passed: true,
 			Details: map[string]interface{}{
 				"matched": true,
 			},
@@ -45,7 +45,7 @@ func (v *ContentMatchesValidator) Validate(content string, params map[string]int
 	// Invalid pattern
 	if v.pattern == nil {
 		return runtimeValidators.ValidationResult{
-			OK: false,
+			Passed: false,
 			Details: map[string]interface{}{
 				"matched": false,
 				"error":   "invalid regex pattern: " + v.rawPattern,
@@ -57,7 +57,7 @@ func (v *ContentMatchesValidator) Validate(content string, params map[string]int
 	matched := v.pattern.MatchString(content)
 
 	return runtimeValidators.ValidationResult{
-		OK: matched,
+		Passed: matched,
 		Details: map[string]interface{}{
 			"matched": matched,
 			"pattern": v.rawPattern,

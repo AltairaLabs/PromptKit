@@ -10,7 +10,7 @@ import (
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/AltairaLabs/PromptKit/runtime/validators"
+	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/stretchr/testify/mock"
@@ -91,12 +91,13 @@ func TestSelfPlayExecutor_WithAssertions_Pass(t *testing.T) {
 		ConversationID:   "test-selfplay-conv",
 		SelfPlayRole:     "gemini-user",
 		SelfPlayPersona:  "curious-learner",
-		Assertions: []validators.ValidatorConfig{
+		Assertions: []assertions.AssertionConfig{
 			{
 				Type: "content_includes",
 				Params: map[string]interface{}{
 					"patterns": []string{"renewable"},
 				},
+				Message: "Expected content to include renewable energy topics",
 			},
 		},
 	}
@@ -217,12 +218,13 @@ func TestSelfPlayExecutor_WithAssertions_Fail(t *testing.T) {
 		ConversationID:   "test-selfplay-fail",
 		SelfPlayRole:     "gemini-user",
 		SelfPlayPersona:  "",
-		Assertions: []validators.ValidatorConfig{
+		Assertions: []assertions.AssertionConfig{
 			{
 				Type: "content_includes",
 				Params: map[string]interface{}{
 					"patterns": []string{"solar"}, // Word not in response
 				},
+				Message: "Expected content to include solar energy",
 			},
 		},
 	}

@@ -135,12 +135,41 @@ func TestDynamicValidatorMiddleware_BannedWords_Fail(t *testing.T) {
 					t.Fatalf("Expected ValidationError, got: %T", err)
 				}
 
-				// Check that the error mentions the banned word
-				if !strings.Contains(strings.ToLower(valErr.Details), strings.ToLower(tc.wantWord)) {
-					t.Errorf("Expected error to mention %q, got: %s", tc.wantWord, valErr.Details)
+				// Check that the Failures array contains information about the banned word
+				found := false
+				for _, failure := range valErr.Failures {
+					// BannedWordsValidator returns Details as []string wrapped in map["value": violations]
+					if value, ok := failure.Details["value"]; ok {
+						// value could be []string or []interface{}
+						switch v := value.(type) {
+						case []string:
+							for _, word := range v {
+								if strings.EqualFold(word, tc.wantWord) {
+									found = true
+									break
+								}
+							}
+						case []interface{}:
+							for _, word := range v {
+								if wordStr, ok := word.(string); ok {
+									if strings.EqualFold(wordStr, tc.wantWord) {
+										found = true
+										break
+									}
+								}
+							}
+						}
+					}
+					if found {
+						break
+					}
 				}
 
-				t.Logf("Correctly caught banned word %q: %s", tc.wantWord, valErr.Details)
+				if !found {
+					t.Errorf("Expected failure details to mention banned word %q, got failures: %+v", tc.wantWord, valErr.Failures)
+				}
+
+				t.Logf("Correctly caught banned word %q in validation failures", tc.wantWord)
 			}
 		})
 	}

@@ -11,40 +11,40 @@ func TestBannedWordsValidator(t *testing.T) {
 	tests := []struct {
 		name    string
 		content string
-		wantOK  bool
+		wantPassed  bool
 	}{
 		{
 			name:    "No banned words",
 			content: "This is a clean and appropriate message",
-			wantOK:  true,
+			wantPassed:  true,
 		},
 		{
 			name:    "Contains banned word",
 			content: "This message contains a badword in it",
-			wantOK:  false,
+			wantPassed:  false,
 		},
 		{
 			name:    "Case insensitive match",
 			content: "This message contains OFFENSIVE content",
-			wantOK:  false,
+			wantPassed:  false,
 		},
 		{
 			name:    "Multiple banned words",
 			content: "This is badword and also offensive",
-			wantOK:  false,
+			wantPassed:  false,
 		},
 		{
 			name:    "Partial word match should not trigger",
 			content: "This is good behavior",
-			wantOK:  true,
+			wantPassed:  true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := validator.Validate(tt.content, nil)
-			if result.OK != tt.wantOK {
-				t.Errorf("Validate() OK = %v, want %v", result.OK, tt.wantOK)
+			if result.Passed != tt.wantPassed {
+				t.Errorf("Validate() Passed = %v, want %v", result.Passed, tt.wantPassed)
 			}
 		})
 	}
@@ -57,45 +57,45 @@ func TestMaxSentencesValidator(t *testing.T) {
 		name    string
 		content string
 		params  map[string]interface{}
-		wantOK  bool
+		wantPassed  bool
 	}{
 		{
 			name:    "Under limit",
 			content: "This is sentence one. This is sentence two.",
 			params:  map[string]interface{}{"max_sentences": 3},
-			wantOK:  true,
+			wantPassed:  true,
 		},
 		{
 			name:    "At limit",
 			content: "Sentence one. Sentence two. Sentence three.",
 			params:  map[string]interface{}{"max_sentences": 3},
-			wantOK:  true,
+			wantPassed:  true,
 		},
 		{
 			name:    "Over limit",
 			content: "One. Two. Three. Four.",
 			params:  map[string]interface{}{"max_sentences": 3},
-			wantOK:  false,
+			wantPassed:  false,
 		},
 		{
 			name:    "No params",
 			content: "Any content here.",
 			params:  map[string]interface{}{},
-			wantOK:  true,
+			wantPassed:  true,
 		},
 		{
 			name:    "Invalid param type",
 			content: "Any content.",
 			params:  map[string]interface{}{"max_sentences": "not an int"},
-			wantOK:  true,
+			wantPassed:  true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := validator.Validate(tt.content, tt.params)
-			if result.OK != tt.wantOK {
-				t.Errorf("Validate() OK = %v, want %v, details = %v", result.OK, tt.wantOK, result.Details)
+			if result.Passed != tt.wantPassed {
+				t.Errorf("Validate() Passed = %v, want %v, details = %v", result.Passed, tt.wantPassed, result.Details)
 			}
 		})
 	}
@@ -108,39 +108,39 @@ func TestRequiredFieldsValidator(t *testing.T) {
 		name    string
 		content string
 		params  map[string]interface{}
-		wantOK  bool
+		wantPassed  bool
 	}{
 		{
 			name:    "All fields present",
 			content: "Response includes name and email and phone",
 			params:  map[string]interface{}{"required_fields": []string{"name", "email"}},
-			wantOK:  true,
+			wantPassed:  true,
 		},
 		{
 			name:    "Missing one field",
 			content: "Response includes name only",
 			params:  map[string]interface{}{"required_fields": []string{"name", "email"}},
-			wantOK:  false,
+			wantPassed:  false,
 		},
 		{
 			name:    "No required fields param",
 			content: "Any content",
 			params:  map[string]interface{}{},
-			wantOK:  true,
+			wantPassed:  true,
 		},
 		{
 			name:    "Invalid param type",
 			content: "Any content",
 			params:  map[string]interface{}{"required_fields": "not a slice"},
-			wantOK:  true,
+			wantPassed:  true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := validator.Validate(tt.content, tt.params)
-			if result.OK != tt.wantOK {
-				t.Errorf("Validate() OK = %v, want %v, details = %v", result.OK, tt.wantOK, result.Details)
+			if result.Passed != tt.wantPassed {
+				t.Errorf("Validate() Passed = %v, want %v, details = %v", result.Passed, tt.wantPassed, result.Details)
 			}
 		})
 	}
@@ -153,13 +153,13 @@ func TestCommitValidator(t *testing.T) {
 		name    string
 		content string
 		params  map[string]interface{}
-		wantOK  bool
+		wantPassed  bool
 	}{
 		{
 			name:    "Not required",
 			content: "Any response",
 			params:  map[string]interface{}{"must_end_with_commit": false},
-			wantOK:  true,
+			wantPassed:  true,
 		},
 		{
 			name:    "Required with commit structure",
@@ -168,7 +168,7 @@ func TestCommitValidator(t *testing.T) {
 				"must_end_with_commit": true,
 				"commit_fields":        []string{"decision", "next step"},
 			},
-			wantOK: true,
+			wantPassed: true,
 		},
 		{
 			name:    "Missing commit structure",
@@ -177,7 +177,7 @@ func TestCommitValidator(t *testing.T) {
 				"must_end_with_commit": true,
 				"commit_fields":        []string{"decision"},
 			},
-			wantOK: false,
+			wantPassed: false,
 		},
 		{
 			name:    "Has structure but missing required field",
@@ -186,21 +186,21 @@ func TestCommitValidator(t *testing.T) {
 				"must_end_with_commit": true,
 				"commit_fields":        []string{"decision", "rationale"},
 			},
-			wantOK: false,
+			wantPassed: false,
 		},
 		{
 			name:    "No params",
 			content: "Any content",
 			params:  map[string]interface{}{},
-			wantOK:  true,
+			wantPassed:  true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := validator.Validate(tt.content, tt.params)
-			if result.OK != tt.wantOK {
-				t.Errorf("Validate() OK = %v, want %v, details = %v", result.OK, tt.wantOK, result.Details)
+			if result.Passed != tt.wantPassed {
+				t.Errorf("Validate() Passed = %v, want %v, details = %v", result.Passed, tt.wantPassed, result.Details)
 			}
 		})
 	}
@@ -213,31 +213,31 @@ func TestLengthValidator(t *testing.T) {
 		name    string
 		content string
 		params  map[string]interface{}
-		wantOK  bool
+		wantPassed  bool
 	}{
 		{
 			name:    "Under character limit",
 			content: "Short text",
 			params:  map[string]interface{}{"max_characters": 100},
-			wantOK:  true,
+			wantPassed:  true,
 		},
 		{
 			name:    "Over character limit",
 			content: "This is a very long text that exceeds the character limit",
 			params:  map[string]interface{}{"max_characters": 10},
-			wantOK:  false,
+			wantPassed:  false,
 		},
 		{
 			name:    "Under token limit",
 			content: "Short text",
 			params:  map[string]interface{}{"max_tokens": 100},
-			wantOK:  true,
+			wantPassed:  true,
 		},
 		{
 			name:    "Over token limit",
 			content: "This is a text that should exceed the token limit when divided by four",
 			params:  map[string]interface{}{"max_tokens": 5},
-			wantOK:  false,
+			wantPassed:  false,
 		},
 		{
 			name:    "Both limits under",
@@ -246,21 +246,21 @@ func TestLengthValidator(t *testing.T) {
 				"max_characters": 100,
 				"max_tokens":     100,
 			},
-			wantOK: true,
+			wantPassed: true,
 		},
 		{
 			name:    "No limits",
 			content: "Any content of any length",
 			params:  map[string]interface{}{},
-			wantOK:  true,
+			wantPassed:  true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := validator.Validate(tt.content, tt.params)
-			if result.OK != tt.wantOK {
-				t.Errorf("Validate() OK = %v, want %v, details = %v", result.OK, tt.wantOK, result.Details)
+			if result.Passed != tt.wantPassed {
+				t.Errorf("Validate() Passed = %v, want %v, details = %v", result.Passed, tt.wantPassed, result.Details)
 			}
 		})
 	}
@@ -316,11 +316,11 @@ func TestCountSentences(t *testing.T) {
 
 func TestValidationResult(t *testing.T) {
 	result := ValidationResult{
-		OK:      true,
+		Passed:      true,
 		Details: map[string]interface{}{"key": "value"},
 	}
 
-	if !result.OK {
+	if !result.Passed {
 		t.Error("Expected OK to be true")
 	}
 

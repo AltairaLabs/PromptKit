@@ -1,4 +1,4 @@
-package validators
+package assertions
 
 import (
 	"testing"
@@ -11,7 +11,7 @@ func TestToolsNotCalledValidator(t *testing.T) {
 		name           string
 		forbiddenTools []string
 		actualCalls    []types.MessageToolCall
-		wantOK         bool
+		wantPassed      bool
 		wantCalled     []string
 	}{
 		{
@@ -20,7 +20,7 @@ func TestToolsNotCalledValidator(t *testing.T) {
 			actualCalls: []types.MessageToolCall{
 				{Name: "check_subscription_status"},
 			},
-			wantOK:     true,
+			wantPassed:     true,
 			wantCalled: nil,
 		},
 		{
@@ -29,7 +29,7 @@ func TestToolsNotCalledValidator(t *testing.T) {
 			actualCalls: []types.MessageToolCall{
 				{Name: "get_customer_info"},
 			},
-			wantOK:     false,
+			wantPassed:     false,
 			wantCalled: []string{"get_customer_info"},
 		},
 		{
@@ -39,14 +39,14 @@ func TestToolsNotCalledValidator(t *testing.T) {
 				{Name: "get_customer_info"},
 				{Name: "delete_account"},
 			},
-			wantOK:     false,
+			wantPassed:     false,
 			wantCalled: []string{"get_customer_info", "delete_account"},
 		},
 		{
 			name:           "No tools called",
 			forbiddenTools: []string{"get_customer_info"},
 			actualCalls:    []types.MessageToolCall{},
-			wantOK:         true,
+			wantPassed:         true,
 			wantCalled:     nil,
 		},
 		{
@@ -55,7 +55,7 @@ func TestToolsNotCalledValidator(t *testing.T) {
 			actualCalls: []types.MessageToolCall{
 				{Name: "any_tool"},
 			},
-			wantOK:     true,
+			wantPassed:     true,
 			wantCalled: nil,
 		},
 		{
@@ -65,7 +65,7 @@ func TestToolsNotCalledValidator(t *testing.T) {
 				{Name: "delete_account"},
 				{Name: "delete_account"},
 			},
-			wantOK:     false,
+			wantPassed:     false,
 			wantCalled: []string{"delete_account"},
 		},
 		{
@@ -76,7 +76,7 @@ func TestToolsNotCalledValidator(t *testing.T) {
 				{Name: "delete_account"},
 				{Name: "check_subscription"},
 			},
-			wantOK:     false,
+			wantPassed:     false,
 			wantCalled: []string{"delete_account"},
 		},
 	}
@@ -97,12 +97,12 @@ func TestToolsNotCalledValidator(t *testing.T) {
 			// Validate
 			result := validator.Validate("", enhancedParams)
 
-			if result.OK != tt.wantOK {
-				t.Errorf("Validate() OK = %v, want %v", result.OK, tt.wantOK)
+			if result.Passed != tt.wantPassed {
+				t.Errorf("Validate() OK = %v, want %v", result.Passed, tt.wantPassed)
 			}
 
 			// Check forbidden tools that were called
-			if !result.OK {
+			if !result.Passed {
 				details, ok := result.Details.(map[string]interface{})
 				if !ok {
 					t.Fatalf("Expected details to be map[string]interface{}, got %T", result.Details)
@@ -170,7 +170,7 @@ func TestToolsNotCalledValidator_FactoryWithSliceTypes(t *testing.T) {
 			})
 
 			// Should always pass when no tools are called
-			if !result.OK {
+			if !result.Passed {
 				t.Error("Expected OK=true when no tools called")
 			}
 		})

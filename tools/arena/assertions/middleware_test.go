@@ -1,4 +1,4 @@
-package validators
+package assertions
 
 import (
 	"testing"
@@ -10,7 +10,7 @@ import (
 
 func TestArenaAssertionMiddleware_NoAssertions(t *testing.T) {
 	registry := NewArenaAssertionRegistry()
-	mw := ArenaAssertionMiddleware(registry, []runtimeValidators.ValidatorConfig{})
+	mw := ArenaAssertionMiddleware(registry, []AssertionConfig{})
 
 	execCtx := &pipeline.ExecutionContext{
 		Messages: []types.Message{
@@ -37,12 +37,13 @@ func TestArenaAssertionMiddleware_NoAssertions(t *testing.T) {
 
 func TestArenaAssertionMiddleware_ToolsCalled_Pass(t *testing.T) {
 	registry := NewArenaAssertionRegistry()
-	assertions := []runtimeValidators.ValidatorConfig{
+	assertions := []AssertionConfig{
 		{
 			Type: "tools_called",
 			Params: map[string]interface{}{
 				"tools": []string{"search", "calculate"},
 			},
+			Message: "test message",
 		},
 	}
 	mw := ArenaAssertionMiddleware(registry, assertions)
@@ -84,12 +85,13 @@ func TestArenaAssertionMiddleware_ToolsCalled_Pass(t *testing.T) {
 
 func TestArenaAssertionMiddleware_ToolsCalled_Fail(t *testing.T) {
 	registry := NewArenaAssertionRegistry()
-	assertions := []runtimeValidators.ValidatorConfig{
+	assertions := []AssertionConfig{
 		{
 			Type: "tools_called",
 			Params: map[string]interface{}{
 				"tools": []string{"search", "calculate", "missing_tool"},
 			},
+			Message: "test message",
 		},
 	}
 	mw := ArenaAssertionMiddleware(registry, assertions)
@@ -125,12 +127,13 @@ func TestArenaAssertionMiddleware_ToolsCalled_Fail(t *testing.T) {
 
 func TestArenaAssertionMiddleware_ContentIncludes_Pass(t *testing.T) {
 	registry := NewArenaAssertionRegistry()
-	assertions := []runtimeValidators.ValidatorConfig{
+	assertions := []AssertionConfig{
 		{
 			Type: "content_includes",
 			Params: map[string]interface{}{
 				"patterns": []string{"hello", "world"},
 			},
+			Message: "test message",
 		},
 	}
 	mw := ArenaAssertionMiddleware(registry, assertions)
@@ -159,12 +162,13 @@ func TestArenaAssertionMiddleware_ContentIncludes_Pass(t *testing.T) {
 
 func TestArenaAssertionMiddleware_ContentIncludes_Fail(t *testing.T) {
 	registry := NewArenaAssertionRegistry()
-	assertions := []runtimeValidators.ValidatorConfig{
+	assertions := []AssertionConfig{
 		{
 			Type: "content_includes",
 			Params: map[string]interface{}{
 				"patterns": []string{"missing_pattern"},
 			},
+			Message: "test message",
 		},
 	}
 	mw := ArenaAssertionMiddleware(registry, assertions)
@@ -193,12 +197,13 @@ func TestArenaAssertionMiddleware_ContentIncludes_Fail(t *testing.T) {
 
 func TestArenaAssertionMiddleware_MultipleAssertions(t *testing.T) {
 	registry := NewArenaAssertionRegistry()
-	assertions := []runtimeValidators.ValidatorConfig{
+	assertions := []AssertionConfig{
 		{
 			Type: "tools_called",
 			Params: map[string]interface{}{
 				"tools": []string{"search"},
 			},
+			Message: "test message",
 		},
 		{
 			Type: "content_includes",
@@ -250,10 +255,11 @@ func TestArenaAssertionMiddleware_MultipleAssertions(t *testing.T) {
 
 func TestArenaAssertionMiddleware_InvalidValidatorType(t *testing.T) {
 	registry := NewArenaAssertionRegistry()
-	assertions := []runtimeValidators.ValidatorConfig{
+	assertions := []AssertionConfig{
 		{
-			Type:   "invalid_validator_type",
-			Params: map[string]interface{}{},
+			Type:    "invalid_validator_type",
+			Params:  map[string]interface{}{},
+			Message: "test message",
 		},
 	}
 	mw := ArenaAssertionMiddleware(registry, assertions)
@@ -283,12 +289,13 @@ func TestArenaAssertionMiddleware_InvalidValidatorType(t *testing.T) {
 
 func TestArenaAssertionMiddleware_NoAssistantMessage(t *testing.T) {
 	registry := NewArenaAssertionRegistry()
-	assertions := []runtimeValidators.ValidatorConfig{
+	assertions := []AssertionConfig{
 		{
 			Type: "content_includes",
 			Params: map[string]interface{}{
 				"patterns": []string{"test"},
 			},
+			Message: "test message",
 		},
 	}
 	mw := ArenaAssertionMiddleware(registry, assertions)
@@ -317,12 +324,13 @@ func TestArenaAssertionMiddleware_NoAssistantMessage(t *testing.T) {
 
 func TestArenaAssertionMiddleware_StreamChunk_NoOp(t *testing.T) {
 	registry := NewArenaAssertionRegistry()
-	assertions := []runtimeValidators.ValidatorConfig{
+	assertions := []AssertionConfig{
 		{
 			Type: "content_includes",
 			Params: map[string]interface{}{
 				"patterns": []string{"test"},
 			},
+			Message: "test message",
 		},
 	}
 	mw := ArenaAssertionMiddleware(registry, assertions)
@@ -347,10 +355,11 @@ func TestArenaAssertionMiddleware_ContextInjection(t *testing.T) {
 		return &testContextValidator{capturedParams: &capturedParams}
 	})
 
-	assertions := []runtimeValidators.ValidatorConfig{
+	assertions := []AssertionConfig{
 		{
-			Type:   "test_context_validator",
-			Params: map[string]interface{}{"custom": "value"},
+			Type:    "test_context_validator",
+			Params:  map[string]interface{}{"custom": "value"},
+			Message: "test message",
 		},
 	}
 	mw := ArenaAssertionMiddleware(registry, assertions)
@@ -412,10 +421,11 @@ func TestArenaAssertionMiddleware_SourceFieldFiltering(t *testing.T) {
 		return &testCaptureValidator{capturedMessages: &capturedTurnMessages}
 	})
 
-	assertions := []runtimeValidators.ValidatorConfig{
+	assertions := []AssertionConfig{
 		{
-			Type:   "test_capture_validator",
-			Params: map[string]interface{}{},
+			Type:    "test_capture_validator",
+			Params:  map[string]interface{}{},
+			Message: "test message",
 		},
 	}
 	mw := ArenaAssertionMiddleware(registry, assertions)
@@ -475,7 +485,7 @@ func (v *testCaptureValidator) Validate(content string, params map[string]interf
 	if turnMessages, ok := params["_turn_messages"].([]types.Message); ok {
 		*v.capturedMessages = turnMessages
 	}
-	return runtimeValidators.ValidationResult{OK: true}
+	return runtimeValidators.ValidationResult{Passed: true}
 }
 
 // testContextValidator is a test helper
@@ -485,5 +495,5 @@ type testContextValidator struct {
 
 func (v *testContextValidator) Validate(content string, params map[string]interface{}) runtimeValidators.ValidationResult {
 	*v.capturedParams = params
-	return runtimeValidators.ValidationResult{OK: true}
+	return runtimeValidators.ValidationResult{Passed: true}
 }

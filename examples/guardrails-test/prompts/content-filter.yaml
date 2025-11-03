@@ -1,0 +1,25 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: content-filter
+spec:
+  task_type: "assistant"
+  description: "Content filter test prompt for guardrail assertion testing"
+
+  system_template: |
+    You are a helpful assistant that provides information on various topics.
+    You should be informative and respectful in your responses.
+
+  # Validators - will be run with suppression enabled by Arena test framework
+  validators:
+    - type: banned_words
+      params:
+        words:
+          - damn
+          - crap
+          - hell
+        case_sensitive: false
+    
+    - type: length
+      params:
+        max_characters: 100

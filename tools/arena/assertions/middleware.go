@@ -1,4 +1,4 @@
-package validators
+package assertions
 
 import (
 	"fmt"
@@ -13,11 +13,11 @@ import (
 // assertionMiddleware implements pipeline.Middleware for turn-level assertions
 type assertionMiddleware struct {
 	registry   *runtimeValidators.Registry
-	assertions []runtimeValidators.ValidatorConfig
+	assertions []AssertionConfig
 }
 
 // ArenaAssertionMiddleware creates middleware that validates assertions after LLM responses
-func ArenaAssertionMiddleware(registry *runtimeValidators.Registry, assertions []runtimeValidators.ValidatorConfig) pipeline.Middleware {
+func ArenaAssertionMiddleware(registry *runtimeValidators.Registry, assertions []AssertionConfig) pipeline.Middleware {
 	return &assertionMiddleware{
 		registry:   registry,
 		assertions: assertions,
@@ -102,12 +102,14 @@ func (m *assertionMiddleware) executeAssertions(
 			continue
 		}
 
-		results[assertionConfig.Type] = result
+		// Convert to AssertionResult with message from config
+		assertionResult := FromValidationResult(result, assertionConfig.Message)
+		results[assertionConfig.Type] = assertionResult
 
 		// Collect validation failures
-		if !result.OK {
+		if !assertionResult.Passed {
 			validationErrors = append(validationErrors,
-				fmt.Errorf("assertion %q failed with details: %v", assertionConfig.Type, result.Details))
+				fmt.Errorf("assertion %q failed with details: %v", assertionConfig.Type, assertionResult.Details))
 		}
 	}
 
@@ -116,7 +118,7 @@ func (m *assertionMiddleware) executeAssertions(
 
 // runSingleAssertion executes a single assertion configuration
 func (m *assertionMiddleware) runSingleAssertion(
-	assertionConfig runtimeValidators.ValidatorConfig,
+	assertionConfig AssertionConfig,
 	lastAssistantMsg *types.Message,
 	turnMessages []types.Message,
 	allMessages []types.Message,

@@ -1,4 +1,4 @@
-package validators
+package assertions
 
 import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -46,7 +46,7 @@ func (v *ToolsNotCalledValidator) Validate(content string, params map[string]int
 	}
 
 	return runtimeValidators.ValidationResult{
-		OK: len(called) == 0,
+		Passed: len(called) == 0,
 		Details: map[string]interface{}{
 			"forbidden_tools_called": called,
 		},

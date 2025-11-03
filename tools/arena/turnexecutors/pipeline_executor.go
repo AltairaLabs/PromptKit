@@ -143,7 +143,8 @@ func (e *PipelineExecutor) Execute(
 
 	// 7. Dynamic validator middleware - validates response against prompt-level validators (guardrails)
 	// This runs after the provider creates the assistant message, validates it, and attaches results
-	pipelineMiddleware = append(pipelineMiddleware, middleware.DynamicValidatorMiddleware(validators.DefaultRegistry))
+	// Arena uses suppression mode so validators record failures without halting, enabling guardrail assertions
+	pipelineMiddleware = append(pipelineMiddleware, middleware.DynamicValidatorMiddlewareWithSuppression(validators.DefaultRegistry, true))
 
 	// 8. StateStore Save middleware (if configured) - saves conversation state
 	// Listed before assertions so StateStore's next() is called first, but StateStore's save work

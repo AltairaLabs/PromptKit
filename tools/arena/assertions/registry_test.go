@@ -1,4 +1,4 @@
-package validators
+package assertions
 
 import (
 	"testing"
@@ -40,7 +40,7 @@ func TestArenaAssertionRegistry_CreateValidators(t *testing.T) {
 		params        map[string]interface{}
 		testContent   string
 		testParams    map[string]interface{}
-		wantOK        bool
+		wantPassed      bool
 	}{
 		{
 			name:          "tools_called validator",
@@ -54,7 +54,7 @@ func TestArenaAssertionRegistry_CreateValidators(t *testing.T) {
 					{Name: "get_customer_info"},
 				},
 			},
-			wantOK: true,
+			wantPassed: true,
 		},
 		{
 			name:          "tools_not_called validator",
@@ -68,7 +68,7 @@ func TestArenaAssertionRegistry_CreateValidators(t *testing.T) {
 					{Name: "get_customer_info"},
 				},
 			},
-			wantOK: true,
+			wantPassed: true,
 		},
 		{
 			name:          "content_includes validator",
@@ -78,7 +78,7 @@ func TestArenaAssertionRegistry_CreateValidators(t *testing.T) {
 			},
 			testContent: "Your account status is active",
 			testParams:  map[string]interface{}{},
-			wantOK:      true,
+			wantPassed:      true,
 		},
 		{
 			name:          "content_matches validator",
@@ -88,7 +88,7 @@ func TestArenaAssertionRegistry_CreateValidators(t *testing.T) {
 			},
 			testContent: "Your account and status information",
 			testParams:  map[string]interface{}{},
-			wantOK:      true,
+			wantPassed:      true,
 		},
 	}
 
@@ -105,9 +105,9 @@ func TestArenaAssertionRegistry_CreateValidators(t *testing.T) {
 			}
 
 			result := validator.Validate(tt.testContent, tt.testParams)
-			if result.OK != tt.wantOK {
+			if result.Passed != tt.wantPassed {
 				t.Errorf("Validate() OK = %v, want %v, details = %v",
-					result.OK, tt.wantOK, result.Details)
+					result.Passed, tt.wantPassed, result.Details)
 			}
 		})
 	}

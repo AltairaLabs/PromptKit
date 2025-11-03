@@ -1,7 +1,7 @@
 package config
 
 import (
-	"github.com/AltairaLabs/PromptKit/runtime/validators"
+	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -244,7 +244,7 @@ type TurnDefinition struct {
 	Streaming *bool `json:"streaming,omitempty" yaml:"streaming,omitempty"` // Override streaming for this turn
 
 	// Turn-level assertions (for testing only)
-	Assertions []validators.ValidatorConfig `json:"assertions,omitempty" yaml:"assertions,omitempty"`
+	Assertions []assertions.AssertionConfig `json:"assertions,omitempty" yaml:"assertions,omitempty"`
 }
 
 // ProviderConfig represents a Provider in K8s-style manifest format

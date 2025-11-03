@@ -497,11 +497,11 @@ func TestMemoryStore_DeepCloneMessageMeta(t *testing.T) {
 	// Create state with message containing Meta field (simulating assertions)
 	assertionResults := map[string]interface{}{
 		"content_includes": map[string]interface{}{
-			"ok":      true,
+			"passed":      true,
 			"details": map[string]interface{}{"matched": true},
 		},
 		"content_matches": map[string]interface{}{
-			"ok":      true,
+			"passed":      true,
 			"details": map[string]interface{}{"pattern": ".*hello.*"},
 		},
 	}
@@ -557,13 +557,13 @@ func TestMemoryStore_DeepCloneMessageMeta(t *testing.T) {
 	contentIncludes, ok := assertionsMap["content_includes"]
 	require.True(t, ok, "content_includes should exist")
 	contentIncludesMap := contentIncludes.(map[string]interface{})
-	assert.Equal(t, true, contentIncludesMap["ok"])
+	assert.Equal(t, true, contentIncludesMap["passed"])
 
 	// Verify content_matches assertion
 	contentMatches, ok := assertionsMap["content_matches"]
 	require.True(t, ok, "content_matches should exist")
 	contentMatchesMap := contentMatches.(map[string]interface{})
-	assert.Equal(t, true, contentMatchesMap["ok"])
+	assert.Equal(t, true, contentMatchesMap["passed"])
 
 	// Verify other_data is preserved
 	assert.Equal(t, "some value", assistantMsg.Meta["other_data"])

@@ -13,7 +13,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
-	"github.com/AltairaLabs/PromptKit/runtime/validators"
+	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/stretchr/testify/require"
 )
 
@@ -52,7 +52,7 @@ func TestConversationExecutor_WarnOnUserTurnAssertions(t *testing.T) {
 			{
 				Role:    "user",
 				Content: "Test question",
-				Assertions: []validators.ValidatorConfig{
+				Assertions: []assertions.AssertionConfig{
 					{
 						Type: "content_includes",
 						Params: map[string]interface{}{

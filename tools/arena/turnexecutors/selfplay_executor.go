@@ -7,6 +7,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
@@ -30,62 +31,81 @@ func NewSelfPlayExecutor(pipelineExecutor *PipelineExecutor, contentProvider sel
 // ExecuteTurn executes a self-play turn (LLM-generated user message + AI response)
 func (e *SelfPlayExecutor) ExecuteTurn(ctx context.Context, req TurnRequest) error {
 	// Load history from StateStore if configured
-	var history []types.Message
-	if req.StateStoreConfig != nil && req.ConversationID != "" {
-		store, ok := req.StateStoreConfig.Store.(statestore.Store)
-		if ok {
-			state, err := store.Load(ctx, req.ConversationID)
-			if err != nil && !errors.Is(err, statestore.ErrNotFound) {
-				return fmt.Errorf("failed to load history from StateStore: %w", err)
-			}
-			if state != nil && len(state.Messages) > 0 {
-				history = state.Messages
-			}
-		}
+	history, err := e.loadHistory(ctx, req)
+	if err != nil {
+		return err
 	}
 
 	// Generate user message using LLM
+	userMessage, err := e.generateUserMessage(ctx, req, history)
+	if err != nil {
+		return err
+	}
+
+	// Execute AI response through the pipeline
+	return e.pipelineExecutor.Execute(ctx, req, userMessage)
+}
+
+// loadHistory loads conversation history from StateStore
+func (e *SelfPlayExecutor) loadHistory(ctx context.Context, req TurnRequest) ([]types.Message, error) {
+	if req.StateStoreConfig == nil || req.ConversationID == "" {
+		return nil, nil
+	}
+
+	store, ok := req.StateStoreConfig.Store.(statestore.Store)
+	if !ok {
+		return nil, nil
+	}
+
+	state, err := store.Load(ctx, req.ConversationID)
+	if err != nil && !errors.Is(err, statestore.ErrNotFound) {
+		return nil, fmt.Errorf("failed to load history from StateStore: %w", err)
+	}
+
+	if state != nil && len(state.Messages) > 0 {
+		return state.Messages, nil
+	}
+
+	return nil, nil
+}
+
+// generateUserMessage generates a user message using the content provider
+func (e *SelfPlayExecutor) generateUserMessage(
+	ctx context.Context,
+	req TurnRequest,
+	history []types.Message,
+) (types.Message, error) {
 	contentGen, err := e.contentProvider.GetContentGenerator(req.SelfPlayRole, req.SelfPlayPersona)
 	if err != nil {
-		return fmt.Errorf("failed to get content generator: %w", err)
+		return types.Message{}, fmt.Errorf("failed to get content generator: %w", err)
 	}
 
 	execResult, err := contentGen.NextUserTurn(ctx, history)
 	if err != nil {
-		return fmt.Errorf("failed to generate user turn: %w", err)
+		return types.Message{}, fmt.Errorf("failed to generate user turn: %w", err)
 	}
 
-	// Extract the assistant response from the execution result
-	// The last message in the result should be the generated assistant message
 	if execResult.Response == nil || execResult.Response.Content == "" {
-		return fmt.Errorf("no response content generated")
+		return types.Message{}, fmt.Errorf("no response content generated")
 	}
 
-	// Populate self-play metadata to attach to the user message
-	selfPlayMeta := map[string]interface{}{
-		"role":                req.SelfPlayRole,
-		"self_play_execution": true,
-	}
+	return e.buildUserMessageFromResult(req, execResult), nil
+}
 
-	// Add metadata from the execution result (includes persona, etc.)
-	if execResult.Metadata != nil {
-		for k, v := range execResult.Metadata {
-			selfPlayMeta[k] = v
-		}
-	}
+// buildUserMessageFromResult constructs a user message from execution result
+func (e *SelfPlayExecutor) buildUserMessageFromResult(
+	req TurnRequest,
+	execResult *pipeline.ExecutionResult,
+) types.Message {
+	selfPlayMeta := e.buildSelfPlayMetadata(req, execResult)
 
-	// Add the full execution trace for debugging
-	selfPlayMeta["trace"] = execResult.Trace
-
-	// Calculate latency from execution trace
 	var latencyMs int64
 	if execResult.Trace.CompletedAt != nil {
 		latencyMs = execResult.Trace.CompletedAt.Sub(execResult.Trace.StartedAt).Milliseconds()
 	}
 
-	// Create user message with all metadata attached directly
-	userMessage := types.Message{
-		Role:      "user", // This is a self-play user message
+	return types.Message{
+		Role:      "user",
 		Content:   execResult.Response.Content,
 		CostInfo:  &execResult.CostInfo,
 		LatencyMs: latencyMs,
@@ -93,221 +113,323 @@ func (e *SelfPlayExecutor) ExecuteTurn(ctx context.Context, req TurnRequest) err
 			"raw_response": selfPlayMeta,
 		},
 	}
+}
 
-	// Execute AI response through the pipeline (messages saved to StateStore)
-	// The userMessage now has metadata attached, no middleware injection needed
-	return e.pipelineExecutor.Execute(ctx, req, userMessage)
+// buildSelfPlayMetadata creates metadata for self-play execution
+func (e *SelfPlayExecutor) buildSelfPlayMetadata(
+	req TurnRequest,
+	execResult *pipeline.ExecutionResult,
+) map[string]interface{} {
+	meta := map[string]interface{}{
+		"role":                req.SelfPlayRole,
+		"self_play_execution": true,
+		"trace":               execResult.Trace,
+	}
+
+	if execResult.Metadata != nil {
+		for k, v := range execResult.Metadata {
+			meta[k] = v
+		}
+	}
+
+	return meta
 }
 
 // ExecuteTurnStream executes a self-play turn with streaming
-func (e *SelfPlayExecutor) ExecuteTurnStream(ctx context.Context, req TurnRequest) (<-chan MessageStreamChunk, error) {
+func (e *SelfPlayExecutor) ExecuteTurnStream(
+	ctx context.Context,
+	req TurnRequest,
+) (<-chan MessageStreamChunk, error) {
 	outChan := make(chan MessageStreamChunk)
 
 	go func() {
 		defer close(outChan)
 
 		// Load history from StateStore if configured
-		var history []types.Message
-		if req.StateStoreConfig != nil && req.ConversationID != "" {
-			store, ok := req.StateStoreConfig.Store.(statestore.Store)
-			if ok {
-				state, err := store.Load(ctx, req.ConversationID)
-				if err != nil && !errors.Is(err, statestore.ErrNotFound) {
-					outChan <- MessageStreamChunk{Error: fmt.Errorf("failed to load history from StateStore: %w", err)}
-					return
-				}
-				if state != nil && len(state.Messages) > 0 {
-					history = state.Messages
-				}
-			}
-		}
-
-		// Generate user message using LLM (non-streaming)
-		contentGen, err := e.contentProvider.GetContentGenerator(req.SelfPlayRole, req.SelfPlayPersona)
+		history, err := e.loadHistoryForStream(ctx, req, outChan)
 		if err != nil {
-			outChan <- MessageStreamChunk{Error: fmt.Errorf("failed to get content generator: %w", err)}
-			return
+			return // Error already sent to channel
 		}
 
-		execResult, err := contentGen.NextUserTurn(ctx, history)
+		// Generate user message using LLM
+		userMessage, err := e.generateUserMessageForStream(ctx, req, history, outChan)
 		if err != nil {
-			outChan <- MessageStreamChunk{Error: fmt.Errorf("failed to generate user turn: %w", err)}
+			return // Error already sent to channel
+		}
+
+		// Handle non-streaming providers
+		if e.handleNonStreamingProvider(ctx, req, userMessage, outChan) {
 			return
 		}
 
-		// Extract the assistant response from the execution result
-		if execResult.Response == nil || execResult.Response.Content == "" {
-			outChan <- MessageStreamChunk{Error: fmt.Errorf("no response content generated")}
-			return
-		}
-
-		// Convert generated message to types.Message
-		userMessage := types.Message{
-			Role:    "user", // This is a self-play user message
-			Content: execResult.Response.Content,
-		}
-
-		// Copy cost info from execution result
-		userMessage.CostInfo = &execResult.CostInfo
-
-		// Calculate latency from execution trace
-		if execResult.Trace.CompletedAt != nil {
-			userMessage.LatencyMs = execResult.Trace.CompletedAt.Sub(execResult.Trace.StartedAt).Milliseconds()
-		}
-
-		// Populate metadata with self-play information and full trace
-		selfPlayMeta := map[string]interface{}{
-			"role":                req.SelfPlayRole,
-			"self_play_execution": true,
-		}
-
-		// Add metadata from the execution result (includes persona, etc.)
-		if execResult.Metadata != nil {
-			for k, v := range execResult.Metadata {
-				selfPlayMeta[k] = v
-			}
-		}
-
-		// Add the full execution trace for debugging
-		selfPlayMeta["trace"] = execResult.Trace
-
-		userMessage.Meta = map[string]interface{}{
-			"raw_response": selfPlayMeta,
-		}
-
-		messages := []types.Message{userMessage}
-
-		// Check if provider supports streaming for AI response
-		if !req.Provider.SupportsStreaming() {
-			// Fallback to non-streaming (messages saved to StateStore)
-			err := e.pipelineExecutor.Execute(ctx, req, userMessage)
-			if err != nil {
-				outChan <- MessageStreamChunk{Messages: messages, Error: err}
-				return
-			}
-
-			// Send final chunk indicating completion (messages in StateStore)
-			finishReason := "stop"
-			outChan <- MessageStreamChunk{
-				Messages:     []types.Message{}, // Messages in StateStore, not returned
-				FinishReason: &finishReason,
-			}
-			return
-		} // Use pipeline for streaming execution
-		// Build base variables
-		baseVariables := buildBaseVariables(req.Region)
-
-		// Build provider config
-		providerConfig := &middleware.ProviderMiddlewareConfig{
-			MaxTokens:   req.MaxTokens,
-			Temperature: float32(req.Temperature),
-			Seed:        req.Seed,
-		}
-
-		// Build pipeline with middleware
-		var middlewares []pipeline.Middleware
-
-		// 0. StateStore Load middleware (if configured)
-		if req.StateStoreConfig != nil && req.ConversationID != "" {
-			storeConfig := &pipeline.StateStoreConfig{
-				Store:          req.StateStoreConfig.Store,
-				ConversationID: req.ConversationID,
-				UserID:         req.StateStoreConfig.UserID,
-				Metadata:       req.StateStoreConfig.Metadata,
-			}
-			middlewares = append(middlewares, middleware.StateStoreLoadMiddleware(storeConfig))
-		}
-
-		// 1. Inject variables (StateStore handles history)
-		middlewares = append(middlewares, &variableInjectionMiddleware{variables: baseVariables})
-
-		// 2-3. Prompt and template middleware
-		middlewares = append(middlewares,
-			middleware.PromptAssemblyMiddleware(req.PromptRegistry, req.TaskType, baseVariables),
-			middleware.TemplateMiddleware(),
-			middleware.ProviderMiddleware(req.Provider, nil, nil, providerConfig), // No tools for selfplay executor
-		)
-
-		// 4. Dynamic validator middleware - validates response against prompt-level validators
-		middlewares = append(middlewares, middleware.DynamicValidatorMiddleware(validators.DefaultRegistry))
-
-		// 5. StateStore Save middleware (if configured)
-		if req.StateStoreConfig != nil && req.ConversationID != "" {
-			storeConfig := &pipeline.StateStoreConfig{
-				Store:          req.StateStoreConfig.Store,
-				ConversationID: req.ConversationID,
-				UserID:         req.StateStoreConfig.UserID,
-				Metadata:       req.StateStoreConfig.Metadata,
-			}
-			middlewares = append(middlewares, middleware.StateStoreSaveMiddleware(storeConfig))
-		}
-
-		pl := pipeline.NewPipeline(middlewares...)
-
-		// Execute pipeline (streaming)
-		streamChan, err := pl.ExecuteStream(ctx, userMessage.Role, userMessage.Content)
-		if err != nil {
-			outChan <- MessageStreamChunk{Messages: messages, Error: err}
-			return
-		}
-
-		// Forward stream chunks to output
-		assistantIndex := 1 // Index where assistant message will be
-		var assistantMsg types.Message
-		assistantMsg.Role = "assistant"
-
-		for chunk := range streamChan {
-			if chunk.Error != nil {
-				outChan <- MessageStreamChunk{
-					Messages: messages,
-					Error:    chunk.Error,
-				}
-				return
-			}
-
-			// Check for final result in last chunk
-			if chunk.FinalResult != nil {
-				// Pipeline is complete - final chunk received
-				break
-			}
-
-			// Update assistant message with accumulated content
-			assistantMsg.Content = chunk.Content
-
-			// Convert tool calls if present
-			if len(chunk.ToolCalls) > 0 {
-				assistantMsg.ToolCalls = make([]types.MessageToolCall, len(chunk.ToolCalls))
-				for i, tc := range chunk.ToolCalls {
-					assistantMsg.ToolCalls[i] = types.MessageToolCall{
-						ID:   tc.ID,
-						Name: tc.Name,
-						Args: tc.Args,
-					}
-				}
-			}
-
-			// Update messages list
-			if len(messages) == assistantIndex {
-				messages = append(messages, assistantMsg)
-			} else {
-				messages[assistantIndex] = assistantMsg
-			}
-
-			// Send message chunk
-			outChan <- MessageStreamChunk{
-				Messages:     messages,
-				Delta:        chunk.Delta,
-				MessageIndex: assistantIndex,
-				TokenCount:   chunk.TokenCount,
-				FinishReason: chunk.FinishReason,
-			}
-
-			// Stop if we got finish reason
-			if chunk.FinishReason != nil {
-				break
-			}
-		}
+		// Execute streaming pipeline
+		e.executeStreamingPipeline(ctx, req, userMessage, outChan)
 	}()
 
 	return outChan, nil
+}
+
+// loadHistoryForStream loads conversation history from StateStore
+func (e *SelfPlayExecutor) loadHistoryForStream(
+	ctx context.Context,
+	req TurnRequest,
+	outChan chan<- MessageStreamChunk,
+) ([]types.Message, error) {
+	if req.StateStoreConfig == nil || req.ConversationID == "" {
+		return nil, nil
+	}
+
+	store, ok := req.StateStoreConfig.Store.(statestore.Store)
+	if !ok {
+		return nil, nil
+	}
+
+	state, err := store.Load(ctx, req.ConversationID)
+	if err != nil && !errors.Is(err, statestore.ErrNotFound) {
+		outChan <- MessageStreamChunk{
+			Error: fmt.Errorf("failed to load history from StateStore: %w", err),
+		}
+		return nil, err
+	}
+
+	if state != nil && len(state.Messages) > 0 {
+		return state.Messages, nil
+	}
+
+	return nil, nil
+}
+
+// generateUserMessageForStream generates the user message for self-play
+func (e *SelfPlayExecutor) generateUserMessageForStream(
+	ctx context.Context,
+	req TurnRequest,
+	history []types.Message,
+	outChan chan<- MessageStreamChunk,
+) (types.Message, error) {
+	contentGen, err := e.contentProvider.GetContentGenerator(req.SelfPlayRole, req.SelfPlayPersona)
+	if err != nil {
+		outChan <- MessageStreamChunk{Error: fmt.Errorf("failed to get content generator: %w", err)}
+		return types.Message{}, err
+	}
+
+	execResult, err := contentGen.NextUserTurn(ctx, history)
+	if err != nil {
+		outChan <- MessageStreamChunk{Error: fmt.Errorf("failed to generate user turn: %w", err)}
+		return types.Message{}, err
+	}
+
+	if execResult.Response == nil || execResult.Response.Content == "" {
+		err := fmt.Errorf("no response content generated")
+		outChan <- MessageStreamChunk{Error: err}
+		return types.Message{}, err
+	}
+
+	return e.buildUserMessage(req, execResult), nil
+}
+
+// buildUserMessage constructs a user message from execution result
+func (e *SelfPlayExecutor) buildUserMessage(
+	req TurnRequest,
+	execResult *pipeline.ExecutionResult,
+) types.Message {
+	userMessage := types.Message{
+		Role:     "user",
+		Content:  execResult.Response.Content,
+		CostInfo: &execResult.CostInfo,
+	}
+
+	if execResult.Trace.CompletedAt != nil {
+		userMessage.LatencyMs = execResult.Trace.CompletedAt.Sub(execResult.Trace.StartedAt).Milliseconds()
+	}
+
+	selfPlayMeta := map[string]interface{}{
+		"role":                req.SelfPlayRole,
+		"self_play_execution": true,
+		"trace":               execResult.Trace,
+	}
+
+	if execResult.Metadata != nil {
+		for k, v := range execResult.Metadata {
+			selfPlayMeta[k] = v
+		}
+	}
+
+	userMessage.Meta = map[string]interface{}{
+		"raw_response": selfPlayMeta,
+	}
+
+	return userMessage
+}
+
+// handleNonStreamingProvider handles providers that don't support streaming
+// Returns true if handled (caller should return)
+func (e *SelfPlayExecutor) handleNonStreamingProvider(
+	ctx context.Context,
+	req TurnRequest,
+	userMessage types.Message,
+	outChan chan<- MessageStreamChunk,
+) bool {
+	if req.Provider.SupportsStreaming() {
+		return false
+	}
+
+	messages := []types.Message{userMessage}
+	err := e.pipelineExecutor.Execute(ctx, req, userMessage)
+	if err != nil {
+		outChan <- MessageStreamChunk{Messages: messages, Error: err}
+		return true
+	}
+
+	finishReason := "stop"
+	outChan <- MessageStreamChunk{
+		Messages:     []types.Message{},
+		FinishReason: &finishReason,
+	}
+	return true
+}
+
+// executeStreamingPipeline builds and executes the streaming pipeline
+func (e *SelfPlayExecutor) executeStreamingPipeline(
+	ctx context.Context,
+	req TurnRequest,
+	userMessage types.Message,
+	outChan chan<- MessageStreamChunk,
+) {
+	messages := []types.Message{userMessage}
+
+	// Build and execute pipeline
+	middlewares := e.buildStreamingMiddlewares(req)
+	pl := pipeline.NewPipeline(middlewares...)
+
+	streamChan, err := pl.ExecuteStream(ctx, userMessage.Role, userMessage.Content)
+	if err != nil {
+		outChan <- MessageStreamChunk{Messages: messages, Error: err}
+		return
+	}
+
+	// Forward stream chunks
+	e.forwardStreamChunks(streamChan, messages, outChan)
+}
+
+// buildStreamingMiddlewares constructs the middleware chain for streaming
+func (e *SelfPlayExecutor) buildStreamingMiddlewares(req TurnRequest) []pipeline.Middleware {
+	baseVariables := buildBaseVariables(req.Region)
+
+	providerConfig := &middleware.ProviderMiddlewareConfig{
+		MaxTokens:   req.MaxTokens,
+		Temperature: float32(req.Temperature),
+		Seed:        req.Seed,
+	}
+
+	var middlewares []pipeline.Middleware
+
+	// StateStore Load middleware
+	if req.StateStoreConfig != nil && req.ConversationID != "" {
+		storeConfig := &pipeline.StateStoreConfig{
+			Store:          req.StateStoreConfig.Store,
+			ConversationID: req.ConversationID,
+			UserID:         req.StateStoreConfig.UserID,
+			Metadata:       req.StateStoreConfig.Metadata,
+		}
+		middlewares = append(middlewares, middleware.StateStoreLoadMiddleware(storeConfig))
+	}
+
+	// Variable injection
+	middlewares = append(middlewares, &variableInjectionMiddleware{variables: baseVariables})
+
+	// Prompt, template, and provider middleware
+	middlewares = append(middlewares,
+		middleware.PromptAssemblyMiddleware(req.PromptRegistry, req.TaskType, baseVariables),
+		middleware.TemplateMiddleware(),
+		middleware.ProviderMiddleware(req.Provider, nil, nil, providerConfig),
+	)
+
+	// Dynamic validator middleware with suppression
+	middlewares = append(middlewares,
+		middleware.DynamicValidatorMiddlewareWithSuppression(validators.DefaultRegistry, true),
+	)
+
+	// StateStore Save middleware
+	if req.StateStoreConfig != nil && req.ConversationID != "" {
+		storeConfig := &pipeline.StateStoreConfig{
+			Store:          req.StateStoreConfig.Store,
+			ConversationID: req.ConversationID,
+			UserID:         req.StateStoreConfig.UserID,
+			Metadata:       req.StateStoreConfig.Metadata,
+		}
+		middlewares = append(middlewares, middleware.StateStoreSaveMiddleware(storeConfig))
+	}
+
+	return middlewares
+}
+
+// forwardStreamChunks forwards stream chunks from pipeline to output channel
+func (e *SelfPlayExecutor) forwardStreamChunks(
+	streamChan <-chan providers.StreamChunk,
+	messages []types.Message,
+	outChan chan<- MessageStreamChunk,
+) {
+	assistantIndex := 1
+	var assistantMsg types.Message
+	assistantMsg.Role = "assistant"
+
+	for chunk := range streamChan {
+		if chunk.Error != nil {
+			outChan <- MessageStreamChunk{Messages: messages, Error: chunk.Error}
+			return
+		}
+
+		if chunk.FinalResult != nil {
+			break
+		}
+
+		assistantMsg = e.updateAssistantMessage(assistantMsg, chunk)
+		messages = e.updateMessagesList(messages, assistantMsg, assistantIndex)
+
+		outChan <- MessageStreamChunk{
+			Messages:     messages,
+			Delta:        chunk.Delta,
+			MessageIndex: assistantIndex,
+			TokenCount:   chunk.TokenCount,
+			FinishReason: chunk.FinishReason,
+		}
+
+		if chunk.FinishReason != nil {
+			break
+		}
+	}
+}
+
+// updateAssistantMessage updates assistant message with chunk data
+func (e *SelfPlayExecutor) updateAssistantMessage(
+	msg types.Message,
+	chunk providers.StreamChunk,
+) types.Message {
+	msg.Content = chunk.Content
+
+	if len(chunk.ToolCalls) > 0 {
+		msg.ToolCalls = make([]types.MessageToolCall, len(chunk.ToolCalls))
+		for i, tc := range chunk.ToolCalls {
+			msg.ToolCalls[i] = types.MessageToolCall{
+				ID:   tc.ID,
+				Name: tc.Name,
+				Args: tc.Args,
+			}
+		}
+	}
+
+	return msg
+}
+
+// updateMessagesList updates the messages list with current assistant message
+func (e *SelfPlayExecutor) updateMessagesList(
+	messages []types.Message,
+	assistantMsg types.Message,
+	assistantIndex int,
+) []types.Message {
+	if len(messages) == assistantIndex {
+		return append(messages, assistantMsg)
+	}
+	messages[assistantIndex] = assistantMsg
+	return messages
 }

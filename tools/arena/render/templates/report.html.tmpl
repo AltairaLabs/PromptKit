@@ -703,6 +703,28 @@
             white-space: pre-wrap;
         }
         
+        .validation-message {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.5rem;
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 4px;
+            padding: 0.5rem;
+            margin-top: 0.5rem;
+        }
+        
+        .validation-message-icon {
+            font-size: 0.9rem;
+            flex-shrink: 0;
+        }
+        
+        .validation-message-text {
+            font-size: 0.8rem;
+            color: #1e40af;
+            line-height: 1.4;
+        }
+        
         .turn-metrics-badge {
             display: inline-flex;
             align-items: center;
@@ -848,9 +870,9 @@
                             <div class="conversation">
                                 {{range $msgIdx, $msg := $result.Messages}}
                                 {{$assertions := getAssertions $msg.Meta}}
-                                {{$validators := getValidators $msg.Meta}}
+                                {{$validators := getValidators $msg}}
                                 {{$hasAssertions := hasAssertions $msg.Meta}}
-                                {{$hasValidators := hasValidators $msg.Meta}}
+                                {{$hasValidators := hasValidators $msg}}
                                 {{$hasRawRequest := false}}
                                 {{if $msg.Meta}}
                                     {{$metaMap := $msg.Meta}}
@@ -909,6 +931,13 @@
                                                     {{if getOK $assertion}}Passed{{else}}Failed{{end}}
                                                 </div>
                                             </div>
+                                            {{$message := getMessage $assertion}}
+                                            {{if $message}}
+                                            <div class="validation-message">
+                                                <div class="validation-message-icon">ℹ️</div>
+                                                <div class="validation-message-text">{{$message}}</div>
+                                            </div>
+                                            {{end}}
                                             {{$details := getDetails $assertion}}
                                             {{if $details}}
                                             <div class="validation-details">
