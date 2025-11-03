@@ -1,4 +1,4 @@
-package validators
+package assertions
 
 import (
 	"regexp"
@@ -45,7 +45,7 @@ func (v *RoleIntegrityValidator) Validate(content string, params map[string]inte
 	}
 
 	return ValidationResult{
-		OK: len(violations) == 0,
+		Passed: len(violations) == 0,
 		Details: map[string]interface{}{
 			"violations": violations,
 		},
@@ -70,7 +70,7 @@ func (v *QuestionCapValidator) Validate(content string, params map[string]interf
 	questionCount := strings.Count(content, "?")
 
 	return ValidationResult{
-		OK: questionCount <= 1,
+		Passed: questionCount <= 1,
 		Details: map[string]interface{}{
 			"question_count": questionCount,
 			"max_allowed":    1,
@@ -106,7 +106,7 @@ func (v *LengthCapValidator) Validate(content string, params map[string]interfac
 	sentenceCount := len(nonEmptySentences)
 
 	return ValidationResult{
-		OK: sentenceCount <= 2,
+		Passed: sentenceCount <= 2,
 		Details: map[string]interface{}{
 			"sentence_count": sentenceCount,
 			"max_allowed":    2,

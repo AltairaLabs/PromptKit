@@ -9,7 +9,7 @@ import (
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/AltairaLabs/PromptKit/runtime/validators"
+	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -72,12 +72,13 @@ func TestPipelineExecutor_AssertionsPass(t *testing.T) {
 		TaskType:         "test",
 		StateStoreConfig: storeConfig,
 		ConversationID:   "test-conv",
-		Assertions: []validators.ValidatorConfig{
+		Assertions: []assertions.AssertionConfig{
 			{
 				Type: "content_includes",
 				Params: map[string]interface{}{
 					"patterns": []string{"search"},
 				},
+				Message: "Expected content to include search patterns",
 			},
 		},
 	}
@@ -170,12 +171,13 @@ func TestPipelineExecutor_AssertionsFail(t *testing.T) {
 		TaskType:         "test",
 		StateStoreConfig: storeConfig,
 		ConversationID:   "test-conv-fail",
-		Assertions: []validators.ValidatorConfig{
+		Assertions: []assertions.AssertionConfig{
 			{
 				Type: "content_includes",
 				Params: map[string]interface{}{
 					"patterns": []string{"missing_word"}, // Word not in response
 				},
+				Message: "Expected content to include missing word",
 			},
 		},
 	}

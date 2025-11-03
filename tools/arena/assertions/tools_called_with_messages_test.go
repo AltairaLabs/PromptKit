@@ -1,4 +1,4 @@
-package validators
+package assertions
 
 import (
 	"testing"
@@ -14,7 +14,7 @@ func TestToolsCalledValidator_WithMessages(t *testing.T) {
 		name          string
 		expectedTools []string
 		messages      []types.Message
-		wantOK        bool
+		wantPassed      bool
 		wantMissing   []string
 	}{
 		{
@@ -61,7 +61,7 @@ func TestToolsCalledValidator_WithMessages(t *testing.T) {
 					Timestamp: time.Now(),
 				},
 			},
-			wantOK:      true,
+			wantPassed:      true,
 			wantMissing: nil,
 		},
 		{
@@ -84,7 +84,7 @@ func TestToolsCalledValidator_WithMessages(t *testing.T) {
 				{Role: "user", Content: "What's 2 + 2?", Timestamp: time.Now()},
 				{Role: "assistant", Content: "4", Timestamp: time.Now()}, // No tools
 			},
-			wantOK:      true,
+			wantPassed:      true,
 			wantMissing: nil,
 		},
 		{
@@ -104,7 +104,7 @@ func TestToolsCalledValidator_WithMessages(t *testing.T) {
 				{Role: "tool", Content: "Results", Timestamp: time.Now()},
 				{Role: "assistant", Content: "Here are the results", Timestamp: time.Now()},
 			},
-			wantOK:      false,
+			wantPassed:      false,
 			wantMissing: []string{"calculate"},
 		},
 	}
@@ -126,12 +126,12 @@ func TestToolsCalledValidator_WithMessages(t *testing.T) {
 			// Validate
 			result := validator.Validate("", enhancedParams)
 
-			if result.OK != tt.wantOK {
-				t.Errorf("Validate() OK = %v, want %v", result.OK, tt.wantOK)
+			if result.Passed != tt.wantPassed {
+				t.Errorf("Validate() OK = %v, want %v", result.Passed, tt.wantPassed)
 			}
 
 			// Check missing tools
-			if !result.OK {
+			if !result.Passed {
 				details, ok := result.Details.(map[string]interface{})
 				if !ok {
 					t.Fatalf("Expected details to be map[string]interface{}, got %T", result.Details)
@@ -203,7 +203,7 @@ func TestToolsCalledValidator_SourceFieldFiltering(t *testing.T) {
 
 	// Should pass because calculate tool was called in current turn
 	result := validator.Validate("", enhancedParams)
-	if !result.OK {
+	if !result.Passed {
 		t.Errorf("Expected validation to pass (calculate called in current turn), got: %v", result.Details)
 	}
 
@@ -243,7 +243,7 @@ func TestToolsCalledValidator_SourceFieldFiltering(t *testing.T) {
 
 	// Should fail because search was only in historical messages
 	result2 := validator2.Validate("", enhancedParams2)
-	if result2.OK {
+	if result2.Passed {
 		t.Error("Expected validation to fail (search not in current turn)")
 	}
 

@@ -1,4 +1,4 @@
-package validators
+package assertions
 
 import (
 	runtimeValidators "github.com/AltairaLabs/PromptKit/runtime/validators"
@@ -13,6 +13,7 @@ func NewArenaAssertionRegistry() *runtimeValidators.Registry {
 	registry.Register("tools_not_called", NewToolsNotCalledValidator)
 	registry.Register("content_includes", NewContentIncludesValidator)
 	registry.Register("content_matches", NewContentMatchesValidator)
+	registry.Register("guardrail_triggered", NewGuardrailTriggeredValidator)
 
 	return registry
 }

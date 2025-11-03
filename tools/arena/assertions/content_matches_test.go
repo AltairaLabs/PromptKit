@@ -1,4 +1,4 @@
-package validators
+package assertions
 
 import (
 	"testing"
@@ -9,67 +9,67 @@ func TestContentMatchesValidator(t *testing.T) {
 		name    string
 		pattern string
 		content string
-		wantOK  bool
+		wantPassed  bool
 	}{
 		{
 			name:    "Exact match",
 			pattern: "account status",
 			content: "Your account status is active",
-			wantOK:  true,
+			wantPassed:  true,
 		},
 		{
 			name:    "Regex pattern match",
 			pattern: `cannot.*access.*another.*account`,
 			content: "Sorry, you cannot access another user's account for privacy reasons",
-			wantOK:  true,
+			wantPassed:  true,
 		},
 		{
 			name:    "Pattern not found",
 			pattern: "password reset",
 			content: "Your account is active",
-			wantOK:  false,
+			wantPassed:  false,
 		},
 		{
 			name:    "Case insensitive match",
 			pattern: `(?i)ACCOUNT`,
 			content: "your account is ready",
-			wantOK:  true,
+			wantPassed:  true,
 		},
 		{
 			name:    "Complex regex",
 			pattern: `\b(error|failure|problem)\b`,
 			content: "We encountered an error processing your request",
-			wantOK:  true,
+			wantPassed:  true,
 		},
 		{
 			name:    "Complex regex no match",
 			pattern: `\b(error|failure|problem)\b`,
 			content: "Everything is working correctly",
-			wantOK:  false,
+			wantPassed:  false,
 		},
 		{
 			name:    "Empty pattern",
 			pattern: "",
 			content: "any content",
-			wantOK:  true,
+			wantPassed:  true,
 		},
 		{
 			name:    "Empty content",
 			pattern: "something",
 			content: "",
-			wantOK:  false,
+			wantPassed:  false,
 		},
 		{
 			name:    "Start of line anchor",
 			pattern: `^Sorry`,
 			content: "Sorry, I cannot help with that",
-			wantOK:  true,
+			wantPassed:  true,
 		},
 		{
 			name:    "End of line anchor",
 			pattern: `account$`,
 			content: "Please check your account",
-			wantOK:  true,
+			wantPassed:  true,
 		},
 	}
 
@@ -84,9 +84,9 @@ func TestContentMatchesValidator(t *testing.T) {
 			// Validate
 			result := validator.Validate(tt.content, params)
 
-			if result.OK != tt.wantOK {
+			if result.Passed != tt.wantPassed {
 				t.Errorf("Validate() OK = %v, want %v (pattern: %q, content: %q)",
-					result.OK, tt.wantOK, tt.pattern, tt.content)
+					result.Passed, tt.wantPassed, tt.pattern, tt.content)
 			}
 
 			// Check details
@@ -95,7 +95,7 @@ func TestContentMatchesValidator(t *testing.T) {
 				t.Fatalf("Expected details to be map[string]interface{}, got %T", result.Details)
 			}
 
-			if result.OK {
+			if result.Passed {
 				matched, ok := details["matched"].(bool)
 				if !ok || !matched {
 					t.Errorf("Expected matched=true in details when OK=true")
@@ -122,7 +122,7 @@ func TestContentMatchesValidator_InvalidRegex(t *testing.T) {
 	// Validation should fail with invalid regex
 	result := validator.Validate("any content", params)
 
-	if result.OK {
+	if result.Passed {
 		t.Error("Expected validation to fail with invalid regex pattern")
 	}
 }
@@ -134,7 +134,7 @@ func TestContentMatchesValidator_MissingPattern(t *testing.T) {
 	// Should pass when no pattern specified (nothing to match)
 	result := validator.Validate("any content", params)
 
-	if !result.OK {
+	if !result.Passed {
 		t.Error("Expected OK=true when no pattern specified")
 	}
 }

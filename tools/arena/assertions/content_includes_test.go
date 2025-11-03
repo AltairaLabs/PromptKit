@@ -1,4 +1,4 @@
-package validators
+package assertions
 
 import (
 	"testing"
@@ -9,63 +9,63 @@ func TestContentIncludesValidator(t *testing.T) {
 		name        string
 		patterns    []string
 		content     string
-		wantOK      bool
+		wantPassed      bool
 		wantMissing []string
 	}{
 		{
 			name:        "All patterns found",
 			patterns:    []string{"account", "status"},
 			content:     "Your account status is active",
-			wantOK:      true,
+			wantPassed:      true,
 			wantMissing: nil,
 		},
 		{
 			name:        "One pattern missing",
 			patterns:    []string{"account", "subscription", "active"},
 			content:     "Your account is active",
-			wantOK:      false,
+			wantPassed:      false,
 			wantMissing: []string{"subscription"},
 		},
 		{
 			name:        "All patterns missing",
 			patterns:    []string{"password", "reset"},
 			content:     "Your account is active",
-			wantOK:      false,
+			wantPassed:      false,
 			wantMissing: []string{"password", "reset"},
 		},
 		{
 			name:        "Case insensitive match",
 			patterns:    []string{"Account", "Status"},
 			content:     "your account status is good",
-			wantOK:      true,
+			wantPassed:      true,
 			wantMissing: nil,
 		},
 		{
 			name:        "No patterns specified",
 			patterns:    []string{},
 			content:     "any content",
-			wantOK:      true,
+			wantPassed:      true,
 			wantMissing: nil,
 		},
 		{
 			name:        "Empty content",
 			patterns:    []string{"something"},
 			content:     "",
-			wantOK:      false,
+			wantPassed:      false,
 			wantMissing: []string{"something"},
 		},
 		{
 			name:        "Partial word match",
 			patterns:    []string{"count"},
 			content:     "Your account is ready",
-			wantOK:      true,
+			wantPassed:      true,
 			wantMissing: nil,
 		},
 		{
 			name:        "Multiple occurrences",
 			patterns:    []string{"account"},
 			content:     "Your account account account",
-			wantOK:      true,
+			wantPassed:      true,
 			wantMissing: nil,
 		},
 	}
@@ -81,12 +81,12 @@ func TestContentIncludesValidator(t *testing.T) {
 			// Validate
 			result := validator.Validate(tt.content, params)
 
-			if result.OK != tt.wantOK {
-				t.Errorf("Validate() OK = %v, want %v", result.OK, tt.wantOK)
+			if result.Passed != tt.wantPassed {
+				t.Errorf("Validate() OK = %v, want %v", result.Passed, tt.wantPassed)
 			}
 
 			// Check missing patterns
-			if !result.OK {
+			if !result.Passed {
 				details, ok := result.Details.(map[string]interface{})
 				if !ok {
 					t.Fatalf("Expected details to be map[string]interface{}, got %T", result.Details)
@@ -142,7 +142,7 @@ func TestContentIncludesValidator_FactoryWithSliceTypes(t *testing.T) {
 			result := validator.Validate("some content", tt.params)
 
 			// Should pass if no patterns or patterns not in content
-			if !result.OK && len(tt.params) == 0 {
+			if !result.Passed && len(tt.params) == 0 {
 				t.Error("Expected OK=true when no patterns specified")
 			}
 		})

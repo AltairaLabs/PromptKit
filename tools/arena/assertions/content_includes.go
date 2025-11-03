@@ -1,4 +1,4 @@
-package validators
+package assertions
 
 import (
 	"strings"
@@ -30,7 +30,7 @@ func (v *ContentIncludesValidator) Validate(content string, params map[string]in
 	}
 
 	return runtimeValidators.ValidationResult{
-		OK: len(missing) == 0,
+		Passed: len(missing) == 0,
 		Details: map[string]interface{}{
 			"missing_patterns": missing,
 		},

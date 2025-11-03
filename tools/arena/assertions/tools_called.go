@@ -1,4 +1,4 @@
-package validators
+package assertions
 
 import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -44,7 +44,7 @@ func (v *ToolsCalledValidator) Validate(content string, params map[string]interf
 	}
 
 	return runtimeValidators.ValidationResult{
-		OK: len(missing) == 0,
+		Passed: len(missing) == 0,
 		Details: map[string]interface{}{
 			"missing_tools": missing,
 		},

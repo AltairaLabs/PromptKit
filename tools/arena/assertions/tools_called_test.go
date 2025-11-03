@@ -1,4 +1,4 @@
-package validators
+package assertions
 
 import (
 	"testing"
@@ -11,7 +11,7 @@ func TestToolsCalledValidator(t *testing.T) {
 		name          string
 		expectedTools []string
 		actualCalls   []types.MessageToolCall
-		wantOK        bool
+		wantPassed      bool
 		wantMissing   []string
 	}{
 		{
@@ -21,7 +21,7 @@ func TestToolsCalledValidator(t *testing.T) {
 				{Name: "get_customer_info"},
 				{Name: "check_subscription_status"},
 			},
-			wantOK:      true,
+			wantPassed:      true,
 			wantMissing: nil,
 		},
 		{
@@ -30,14 +30,14 @@ func TestToolsCalledValidator(t *testing.T) {
 			actualCalls: []types.MessageToolCall{
 				{Name: "get_customer_info"},
 			},
-			wantOK:      false,
+			wantPassed:      false,
 			wantMissing: []string{"check_subscription_status"},
 		},
 		{
 			name:          "Missing all tools",
 			expectedTools: []string{"get_customer_info", "check_subscription_status"},
 			actualCalls:   []types.MessageToolCall{},
-			wantOK:        false,
+			wantPassed:        false,
 			wantMissing:   []string{"get_customer_info", "check_subscription_status"},
 		},
 		{
@@ -47,7 +47,7 @@ func TestToolsCalledValidator(t *testing.T) {
 				{Name: "get_customer_info"},
 				{Name: "extra_tool"},
 			},
-			wantOK:      true,
+			wantPassed:      true,
 			wantMissing: nil,
 		},
 		{
@@ -56,7 +56,7 @@ func TestToolsCalledValidator(t *testing.T) {
 			actualCalls: []types.MessageToolCall{
 				{Name: "some_tool"},
 			},
-			wantOK:      true,
+			wantPassed:      true,
 			wantMissing: nil,
 		},
 		{
@@ -66,7 +66,7 @@ func TestToolsCalledValidator(t *testing.T) {
 				{Name: "get_customer_info"},
 				{Name: "get_customer_info"},
 			},
-			wantOK:      true,
+			wantPassed:      true,
 			wantMissing: nil,
 		},
 	}
@@ -87,12 +87,12 @@ func TestToolsCalledValidator(t *testing.T) {
 			// Validate
 			result := validator.Validate("", enhancedParams)
 
-			if result.OK != tt.wantOK {
-				t.Errorf("Validate() OK = %v, want %v", result.OK, tt.wantOK)
+			if result.Passed != tt.wantPassed {
+				t.Errorf("Validate() OK = %v, want %v", result.Passed, tt.wantPassed)
 			}
 
 			// Check missing tools
-			if !result.OK {
+			if !result.Passed {
 				details, ok := result.Details.(map[string]interface{})
 				if !ok {
 					t.Fatalf("Expected details to be map[string]interface{}, got %T", result.Details)
@@ -162,7 +162,7 @@ func TestToolsCalledValidator_FactoryWithSliceTypes(t *testing.T) {
 			})
 
 			// Should pass if no tools are expected or fail if tools are expected
-			if len(tt.want) == 0 && !result.OK {
+			if len(tt.want) == 0 && !result.Passed {
 				t.Error("Expected OK=true when no tools expected")
 			}
 		})

@@ -234,7 +234,7 @@ func TestBannedWordsValidator_PostValidation(t *testing.T) {
 	validator := NewBannedWordsValidator([]string{"badword"})
 
 	result := validator.Validate("This contains badword in it", nil)
-	if result.OK {
+	if result.Passed {
 		t.Error("expected validation to fail")
 	}
 
@@ -257,7 +257,7 @@ func TestLengthValidator_PostValidation(t *testing.T) {
 	}
 
 	result := validator.Validate("This is too long", params)
-	if result.OK {
+	if result.Passed {
 		t.Error("expected validation to fail")
 	}
 
