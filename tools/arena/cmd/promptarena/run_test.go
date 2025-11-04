@@ -516,3 +516,14 @@ func TestResolveHTMLReportPath(t *testing.T) {
 		})
 	}
 }
+
+func TestMockProviderFlagsRegistered(t *testing.T) {
+	// Test that mock provider flags are properly registered
+	mockProviderFlag := runCmd.Flags().Lookup("mock-provider")
+	require.NotNil(t, mockProviderFlag, "mock-provider flag should be registered")
+	assert.Equal(t, "false", mockProviderFlag.DefValue, "mock-provider should default to false")
+
+	mockConfigFlag := runCmd.Flags().Lookup("mock-config")
+	require.NotNil(t, mockConfigFlag, "mock-config flag should be registered")
+	assert.Equal(t, "", mockConfigFlag.DefValue, "mock-config should default to empty string")
+}

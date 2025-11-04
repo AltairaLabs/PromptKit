@@ -54,6 +54,12 @@ temp/
 *.tmp
 docs/local-backlog/
 
+# Jekyll (documentation)
+docs/_site/
+docs/.jekyll-cache/
+docs/.sass-cache/
+docs/Gemfile.lock
+
 packs/
 
 /promptpack-spec/
@@ -61,7 +67,15 @@ packs/
 # Ignore tools' built binaries (but not the source directories)
 bin/packc
 bin/promptarena
-packc
-promptarena
 !tools/packc/
 !tools/arena/
+
+# SDK examples: ignore everything except .go, .md, and go.mod/go.sum files
+sdk/examples/**/*
+!sdk/examples/**/*.go
+!sdk/examples/**/*.md
+!sdk/examples/**/go.mod
+!sdk/examples/**/go.sum
+!sdk/examples/**/
+
+
