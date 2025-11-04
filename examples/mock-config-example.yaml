@@ -1,0 +1,48 @@
+# Mock Provider Configuration Example
+#
+# This file demonstrates the YAML format for configuring mock responses
+# used by MockProvider with FileMockRepository. This allows Arena tests,
+# SDK examples, and other code to use deterministic responses without
+# making actual API calls.
+#
+# Structure:
+# - defaultResponse: Fallback response used when no specific match is found
+# - scenarios: Map of scenario IDs to their specific configurations
+#   - Each scenario can have:
+#     - defaultResponse: Default for this scenario (overrides global)
+#     - turns: Map of turn numbers to specific responses
+
+# Global default response (used when no scenario/turn match is found)
+defaultResponse: "This is a mock response from the configured provider."
+
+# Scenario-specific configurations
+scenarios:
+  # Example: Customer support conversation
+  customer-support:
+    defaultResponse: "Thank you for contacting support. How can I help you today?"
+    turns:
+      1: "Thank you for reaching out. I understand you're having an issue. Could you provide more details?"
+      2: "I've reviewed your account and can see the problem. Let me help you resolve this."
+      3: "The issue has been resolved. Is there anything else I can assist you with?"
+      4: "You're welcome! Have a great day."
+
+  # Example: Multi-turn technical conversation
+  code-review:
+    defaultResponse: "I'd be happy to review your code."
+    turns:
+      1: "This code looks good overall. I have a few suggestions for improvement."
+      2: "Here's a refactored version that addresses the performance concerns."
+      3: "The error handling could be more robust. Consider adding try-catch blocks."
+
+  # Example: Simple question-answer scenario
+  quick-question:
+    # No turn-specific responses, just use scenario default
+    defaultResponse: "The answer to your question is: 42."
+
+  # Example: Scenario with only turn-specific responses (no scenario default)
+  interview:
+    turns:
+      1: "Tell me about yourself."
+      2: "What are your strengths and weaknesses?"
+      3: "Where do you see yourself in 5 years?"
+      4: "Do you have any questions for me?"

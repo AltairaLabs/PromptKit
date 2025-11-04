@@ -7,25 +7,46 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// MockProvider is a simple mock provider for testing and development.
-// It returns canned responses without making any API calls.
+// MockProvider is a provider implementation for testing and development.
+// It returns mock responses without making any API calls, using a repository
+// pattern to source responses from various backends (files, memory, databases).
+//
+// MockProvider is designed to be reusable across different contexts:
+//   - Arena testing: scenario and turn-specific responses
+//   - SDK examples: simple deterministic responses
+//   - Unit tests: programmatic response configuration
 type MockProvider struct {
 	id                string
 	model             string
-	value             string // For backward compatibility with tests
-	response          string
+	value             string                 // For backward compatibility with existing tests
+	repository        MockResponseRepository // Source of mock responses
 	includeRawOutput  bool
 	supportsStreaming bool
 }
 
-// NewMockProvider creates a new mock provider.
+// NewMockProvider creates a new mock provider with default in-memory responses.
+// This constructor maintains backward compatibility with existing code.
 func NewMockProvider(id, model string, includeRawOutput bool) *MockProvider {
 	response := fmt.Sprintf("Mock response from %s model %s", id, model)
+	repo := NewInMemoryMockRepository(response)
+	
 	return &MockProvider{
 		id:                id,
 		model:             model,
 		value:             response, // For backward compatibility
-		response:          response,
+		repository:        repo,
+		includeRawOutput:  includeRawOutput,
+		supportsStreaming: true,
+	}
+}
+
+// NewMockProviderWithRepository creates a mock provider with a custom response repository.
+// This allows for advanced scenarios like file-based or database-backed mock responses.
+func NewMockProviderWithRepository(id, model string, includeRawOutput bool, repo MockResponseRepository) *MockProvider {
+	return &MockProvider{
+		id:                id,
+		model:             model,
+		repository:        repo,
 		includeRawOutput:  includeRawOutput,
 		supportsStreaming: true,
 	}
@@ -36,10 +57,20 @@ func (m *MockProvider) ID() string {
 	return m.id
 }
 
-// Chat returns a mock response.
+// Chat returns a mock response using the configured repository.
 func (m *MockProvider) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error) {
-	// Use value if set (for backward compatibility with tests), otherwise use response
-	responseText := m.response
+	// Try to get response from repository
+	params := MockResponseParams{
+		ProviderID: m.id,
+		ModelName:  m.model,
+	}
+	
+	responseText, err := m.repository.GetResponse(ctx, params)
+	if err != nil {
+		return ChatResponse{}, fmt.Errorf("failed to get mock response: %w", err)
+	}
+	
+	// Use value if set (for backward compatibility with tests), otherwise use repository response
 	if m.value != "" {
 		responseText = m.value
 	}
@@ -72,15 +103,26 @@ func (m *MockProvider) Chat(ctx context.Context, req ChatRequest) (ChatResponse,
 	}, nil
 }
 
-// ChatStream returns a mock streaming response.
+// ChatStream returns a mock streaming response using the configured repository.
 func (m *MockProvider) ChatStream(ctx context.Context, req ChatRequest) (<-chan StreamChunk, error) {
 	outChan := make(chan StreamChunk, 1)
 
 	go func() {
 		defer close(outChan)
 
-		// Use value if set (for backward compatibility with tests), otherwise use response
-		responseText := m.response
+		// Try to get response from repository
+		params := MockResponseParams{
+			ProviderID: m.id,
+			ModelName:  m.model,
+		}
+		
+		responseText, err := m.repository.GetResponse(ctx, params)
+		if err != nil {
+			// Send error in stream
+			return
+		}
+		
+		// Use value if set (for backward compatibility with tests), otherwise use repository response
 		if m.value != "" {
 			responseText = m.value
 		}
