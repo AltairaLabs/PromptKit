@@ -21,12 +21,13 @@ import (
 
 // ChatRequest represents a request to a chat provider
 type ChatRequest struct {
-	System      string          `json:"system"`
-	Messages    []types.Message `json:"messages"`
-	Temperature float32         `json:"temperature"`
-	TopP        float32         `json:"top_p"`
-	MaxTokens   int             `json:"max_tokens"`
-	Seed        *int            `json:"seed,omitempty"`
+	System      string                 `json:"system"`
+	Messages    []types.Message        `json:"messages"`
+	Temperature float32                `json:"temperature"`
+	TopP        float32                `json:"top_p"`
+	MaxTokens   int                    `json:"max_tokens"`
+	Seed        *int                   `json:"seed,omitempty"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"` // Optional metadata for provider-specific context
 }
 
 // ChatResponse represents a response from a chat provider
