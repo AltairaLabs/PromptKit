@@ -135,41 +135,6 @@ func (m *MockToolProvider) ChatWithTools(ctx context.Context, req ChatRequest, t
 	}, nil, nil
 }
 
-// ContinueWithToolResults implements the ToolSupport interface.
-// This method handles continuation after tool execution, using the next
-// turn in the mock configuration sequence.
-func (m *MockToolProvider) ContinueWithToolResults(ctx context.Context, req ChatRequest, prior ChatResponse, tools interface{}, toolChoice string, results []types.MessageToolResult) (ChatResponse, []types.MessageToolCall, error) {
-	logger.Debug("MockToolProvider ContinueWithToolResults",
-		"provider_id", m.id,
-		"tool_result_count", len(results),
-		"prior_had_tool_calls", len(prior.ToolCalls) > 0,
-		"current_metadata", req.Metadata)
-
-	// For mock provider, we advance to the next turn in sequence
-	// by incrementing the turn number from the request metadata
-	newReq := req
-
-	// Increment turn number for continuation
-	if req.Metadata != nil {
-		if turnNum, ok := req.Metadata["mock_turn_number"].(int); ok {
-			// Create new metadata map with incremented turn number
-			newMetadata := make(map[string]interface{})
-			for k, v := range req.Metadata {
-				newMetadata[k] = v
-			}
-			newMetadata["mock_turn_number"] = turnNum + 1
-			newReq.Metadata = newMetadata
-
-			logger.Debug("MockToolProvider advancing to next turn",
-				"provider_id", m.id,
-				"new_turn_number", turnNum+1)
-		}
-	}
-
-	// Get the next mock response using ChatWithTools logic
-	return m.ChatWithTools(ctx, newReq, tools, toolChoice)
-}
-
 // generateMockCostInfo creates cost information for mock responses.
 func (m *MockToolProvider) generateMockCostInfo(inputTokens, outputTokens int) types.CostInfo {
 	return types.CostInfo{

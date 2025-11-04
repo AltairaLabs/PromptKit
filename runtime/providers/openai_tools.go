@@ -108,141 +108,6 @@ func (p *OpenAIToolProvider) ChatWithTools(ctx context.Context, req ChatRequest,
 	return resp, toolCalls, nil
 }
 
-// ContinueWithToolResults continues conversation with tool results
-func (p *OpenAIToolProvider) ContinueWithToolResults(ctx context.Context, req ChatRequest, prior ChatResponse, tools interface{}, toolChoice string, results []types.MessageToolResult) (ChatResponse, []types.MessageToolCall, error) {
-	// Parse the original response to get the tool calls
-	var openaiResp struct {
-		Choices []struct {
-			Message struct {
-				Content   string           `json:"content"`
-				ToolCalls []openAIToolCall `json:"tool_calls,omitempty"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-
-	if err := json.Unmarshal(prior.Raw, &openaiResp); err != nil {
-		return ChatResponse{}, nil, fmt.Errorf("failed to parse prior response: %w", err)
-	}
-
-	if len(openaiResp.Choices) == 0 || len(openaiResp.Choices[0].Message.ToolCalls) == 0 {
-		// No tool calls in the prior response, just return it
-		return prior, nil, nil
-	}
-
-	// Build messages: start with original conversation history
-	messages := make([]map[string]interface{}, 0, len(req.Messages)+1+len(results))
-
-	// Add all original messages (system prompt + conversation history)
-	for _, msg := range req.Messages {
-		openaiMsg := map[string]interface{}{
-			"role":    msg.Role,
-			"content": msg.Content,
-		}
-
-		// Handle tool-related fields if present
-		if len(msg.ToolCalls) > 0 {
-			toolCalls := make([]map[string]interface{}, len(msg.ToolCalls))
-			for i, tc := range msg.ToolCalls {
-				toolCalls[i] = map[string]interface{}{
-					"id":   tc.ID,
-					"type": "function",
-					"function": map[string]interface{}{
-						"name":      tc.Name,
-						"arguments": string(tc.Args),
-					},
-				}
-			}
-			openaiMsg["tool_calls"] = toolCalls
-		}
-
-		// Handle tool result messages (convert from types.Message.ToolResult)
-		if msg.Role == "tool" && msg.ToolResult != nil {
-			openaiMsg["tool_call_id"] = msg.ToolResult.ID
-			openaiMsg["name"] = msg.ToolResult.Name
-		}
-
-		messages = append(messages, openaiMsg)
-	}
-
-	// Add the assistant message with tool calls from the prior response
-	assistantMsg := map[string]interface{}{
-		"role":       "assistant",
-		"content":    openaiResp.Choices[0].Message.Content,
-		"tool_calls": openaiResp.Choices[0].Message.ToolCalls,
-	}
-	messages = append(messages, assistantMsg)
-
-	// Add tool result messages
-	for _, result := range results {
-		content := result.Content
-		if result.Error != "" {
-			// Format error message with helpful context for the LLM
-			errorInfo := map[string]interface{}{
-				"error":      result.Error,
-				"tool":       result.Name,
-				"can_retry":  true,
-				"suggestion": "Review the error message and adjust your tool call parameters if needed. You may try again with corrected parameters or use a different approach.",
-			}
-			errorJSON, _ := json.Marshal(errorInfo)
-			content = string(errorJSON)
-		}
-
-		toolMsg := map[string]interface{}{
-			"role":         "tool",
-			"content":      content,
-			"tool_call_id": result.ID,
-		}
-		messages = append(messages, toolMsg)
-	}
-
-	// Build request for continuation with tools
-	openaiReq := map[string]interface{}{
-		"model":    p.model,
-		"messages": messages,
-	}
-
-	// Include tools and tool_choice
-	if tools != nil {
-		openaiReq["tools"] = tools
-		if toolChoice != "" {
-			openaiReq["tool_choice"] = toolChoice
-		}
-	}
-
-	// Track latency - START timing
-	start := time.Now()
-
-	// Prepare response with raw request if configured (set early to preserve on error)
-	chatResp := ChatResponse{}
-	if p.ShouldIncludeRawOutput() {
-		chatResp.RawRequest = openaiReq
-	}
-
-	// Make the API call
-	respBytes, err := p.makeRequest(ctx, openaiReq)
-	if err != nil {
-		chatResp.Latency = time.Since(start)
-		return chatResp, nil, err
-	}
-
-	// Calculate latency immediately after API call completes
-	latency := time.Since(start)
-
-	// Parse response
-	resp, toolCalls, err := p.parseToolResponse(respBytes)
-	if err != nil {
-		resp.Latency = latency
-		resp.RawRequest = chatResp.RawRequest
-		return resp, nil, err
-	}
-
-	// Set latency and raw request on response
-	resp.Latency = latency
-	resp.RawRequest = chatResp.RawRequest
-
-	return resp, toolCalls, nil
-}
-
 // buildToolRequest constructs the OpenAI API request with tools
 func (p *OpenAIToolProvider) buildToolRequest(req ChatRequest, tools interface{}, toolChoice string) map[string]interface{} {
 	// Convert messages to OpenAI format (using map to handle all valid fields)
@@ -306,11 +171,12 @@ func (p *OpenAIToolProvider) buildToolRequest(req ChatRequest, tools interface{}
 	if tools != nil {
 		openaiReq["tools"] = tools
 		if toolChoice != "" && toolChoice != "auto" {
-			if toolChoice == "required" {
+			switch toolChoice {
+			case "required":
 				openaiReq["tool_choice"] = "required"
-			} else if toolChoice == "none" {
+			case "none":
 				openaiReq["tool_choice"] = "none"
-			} else {
+			default:
 				// Specific function name
 				openaiReq["tool_choice"] = map[string]interface{}{
 					"type": "function",

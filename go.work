@@ -4,6 +4,7 @@ use (
 	./pkg
 	./runtime
 	./sdk
+	./sdk/examples/hitl-approval
 	./tools/arena
 	./tools/inspect-state
 	./tools/packc

@@ -534,8 +534,3 @@ func (m *MockProviderWithTools) ChatWithTools(ctx context.Context, req providers
 	args := m.Called(ctx, req, tooling, toolChoice)
 	return args.Get(0).(providers.ChatResponse), args.Get(1).([]types.MessageToolCall), args.Error(2)
 }
-
-func (m *MockProviderWithTools) ContinueWithToolResults(ctx context.Context, req providers.ChatRequest, prior providers.ChatResponse, tools interface{}, toolChoice string, results []types.MessageToolResult) (providers.ChatResponse, []types.MessageToolCall, error) {
-	args := m.Called(ctx, req, prior, tools, toolChoice, results)
-	return args.Get(0).(providers.ChatResponse), args.Get(1).([]types.MessageToolCall), args.Error(2)
-}

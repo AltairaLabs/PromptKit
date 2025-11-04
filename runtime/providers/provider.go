@@ -83,8 +83,4 @@ type ToolSupport interface {
 
 	// ChatWithTools performs a chat request with tool support
 	ChatWithTools(ctx context.Context, req ChatRequest, tools interface{}, toolChoice string) (ChatResponse, []types.MessageToolCall, error)
-
-	// ContinueWithToolResults continues conversation with tool results
-	// req contains the original messages, prior is the response with tool calls, results are tool outputs
-	ContinueWithToolResults(ctx context.Context, req ChatRequest, prior ChatResponse, tools interface{}, toolChoice string, results []types.MessageToolResult) (ChatResponse, []types.MessageToolCall, error)
 }
