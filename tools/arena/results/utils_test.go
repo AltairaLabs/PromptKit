@@ -70,7 +70,7 @@ func TestSummaryBuilder_BuildSummary_WithResults(t *testing.T) {
 			Region:     "eu-west-1",
 			Cost:       types.CostInfo{TotalCost: 0.0015, InputTokens: 110, OutputTokens: 55},
 			Duration:   2500 * time.Millisecond,
-			Error:      "", // Success
+			Error:      "",                                                                                      // Success
 			Violations: []types.ValidationError{{Type: "test", Tool: "validator", Detail: "validation failed"}}, // But has violations
 		},
 	}
@@ -104,11 +104,11 @@ func TestSummaryBuilder_BuildSummary_WithResults(t *testing.T) {
 
 func TestCountResultsByStatus(t *testing.T) {
 	testResults := []engine.RunResult{
-		{Error: "", Violations: []types.ValidationError{}},                              // Success
-		{Error: "test error", Violations: []types.ValidationError{}},                   // Failure - error
-		{Error: "", Violations: []types.ValidationError{{Type: "test"}}},               // Failure - violations
+		{Error: "", Violations: []types.ValidationError{}},                            // Success
+		{Error: "test error", Violations: []types.ValidationError{}},                  // Failure - error
+		{Error: "", Violations: []types.ValidationError{{Type: "test"}}},              // Failure - violations
 		{Error: "another error", Violations: []types.ValidationError{{Type: "test"}}}, // Failure - both
-		{Error: "", Violations: []types.ValidationError{}},                              // Success
+		{Error: "", Violations: []types.ValidationError{}},                            // Success
 	}
 
 	passed, failed := results.CountResultsByStatus(testResults)
@@ -163,7 +163,7 @@ func TestExtractUniqueValues(t *testing.T) {
 		{ScenarioID: "scenario-2"},
 		{ScenarioID: "scenario-1"}, // Duplicate
 		{ScenarioID: "scenario-3"},
-		{ScenarioID: ""},           // Empty should be filtered out
+		{ScenarioID: ""}, // Empty should be filtered out
 	}
 
 	extractor := func(r engine.RunResult) string { return r.ScenarioID }
