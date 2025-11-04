@@ -13,9 +13,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
-func TestExtractRunIDs_Deprecated(t *testing.T) {
-	t.Skip("Function removed - now handled by repository pattern")
-}
+
 
 func TestGetStringFromMap(t *testing.T) {
 	tests := []struct {
@@ -212,13 +210,7 @@ func TestConvertToEngineRunResult(t *testing.T) {
 	})
 }
 
-func TestSaveResult_Deprecated(t *testing.T) {
-	t.Skip("Function removed - now handled by repository pattern")
-}
 
-func TestSaveJSON_Deprecated(t *testing.T) {
-	t.Skip("Function removed - now handled by repository pattern")
-}
 
 func TestCountResultsByStatus(t *testing.T) {
 	tests := []struct {
@@ -274,13 +266,7 @@ func TestCountResultsByStatus(t *testing.T) {
 	}
 }
 
-func TestCreateSummary_Deprecated(t *testing.T) {
-	t.Skip("Function removed - now handled by repository pattern")
-}
 
-func TestResolveHTMLReportPath_Deprecated(t *testing.T) {
-	t.Skip("Function removed - now handled by repository pattern")
-}
 
 func TestMockProviderFlagsRegistered(t *testing.T) {
 	// Test that mock provider flags are properly registered
