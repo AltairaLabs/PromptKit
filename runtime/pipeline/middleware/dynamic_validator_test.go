@@ -23,7 +23,7 @@ func (m *mockValidator) Validate(content string, params map[string]interface{}) 
 		for i := 0; i <= len(content)-len(m.failOn); i++ {
 			if content[i:i+len(m.failOn)] == m.failOn {
 				return validators.ValidationResult{
-					Passed:      false,
+					Passed:  false,
 					Details: map[string]interface{}{"found": m.failOn},
 				}
 			}

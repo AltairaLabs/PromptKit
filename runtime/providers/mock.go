@@ -29,7 +29,7 @@ type MockProvider struct {
 func NewMockProvider(id, model string, includeRawOutput bool) *MockProvider {
 	response := fmt.Sprintf("Mock response from %s model %s", id, model)
 	repo := NewInMemoryMockRepository(response)
-	
+
 	return &MockProvider{
 		id:                id,
 		model:             model,
@@ -64,12 +64,12 @@ func (m *MockProvider) Chat(ctx context.Context, req ChatRequest) (ChatResponse,
 		ProviderID: m.id,
 		ModelName:  m.model,
 	}
-	
+
 	responseText, err := m.repository.GetResponse(ctx, params)
 	if err != nil {
 		return ChatResponse{}, fmt.Errorf("failed to get mock response: %w", err)
 	}
-	
+
 	// Use value if set (for backward compatibility with tests), otherwise use repository response
 	if m.value != "" {
 		responseText = m.value
@@ -115,13 +115,13 @@ func (m *MockProvider) ChatStream(ctx context.Context, req ChatRequest) (<-chan 
 			ProviderID: m.id,
 			ModelName:  m.model,
 		}
-		
+
 		responseText, err := m.repository.GetResponse(ctx, params)
 		if err != nil {
 			// Send error in stream
 			return
 		}
-		
+
 		// Use value if set (for backward compatibility with tests), otherwise use repository response
 		if m.value != "" {
 			responseText = m.value

@@ -6,70 +6,70 @@ import (
 
 func TestContentMatchesValidator(t *testing.T) {
 	tests := []struct {
-		name    string
-		pattern string
-		content string
-		wantPassed  bool
+		name       string
+		pattern    string
+		content    string
+		wantPassed bool
 	}{
 		{
-			name:    "Exact match",
-			pattern: "account status",
-			content: "Your account status is active",
-			wantPassed:  true,
+			name:       "Exact match",
+			pattern:    "account status",
+			content:    "Your account status is active",
+			wantPassed: true,
 		},
 		{
-			name:    "Regex pattern match",
-			pattern: `cannot.*access.*another.*account`,
-			content: "Sorry, you cannot access another user's account for privacy reasons",
-			wantPassed:  true,
+			name:       "Regex pattern match",
+			pattern:    `cannot.*access.*another.*account`,
+			content:    "Sorry, you cannot access another user's account for privacy reasons",
+			wantPassed: true,
 		},
 		{
-			name:    "Pattern not found",
-			pattern: "password reset",
-			content: "Your account is active",
-			wantPassed:  false,
+			name:       "Pattern not found",
+			pattern:    "password reset",
+			content:    "Your account is active",
+			wantPassed: false,
 		},
 		{
-			name:    "Case insensitive match",
-			pattern: `(?i)ACCOUNT`,
-			content: "your account is ready",
-			wantPassed:  true,
+			name:       "Case insensitive match",
+			pattern:    `(?i)ACCOUNT`,
+			content:    "your account is ready",
+			wantPassed: true,
 		},
 		{
-			name:    "Complex regex",
-			pattern: `\b(error|failure|problem)\b`,
-			content: "We encountered an error processing your request",
-			wantPassed:  true,
+			name:       "Complex regex",
+			pattern:    `\b(error|failure|problem)\b`,
+			content:    "We encountered an error processing your request",
+			wantPassed: true,
 		},
 		{
-			name:    "Complex regex no match",
-			pattern: `\b(error|failure|problem)\b`,
-			content: "Everything is working correctly",
-			wantPassed:  false,
+			name:       "Complex regex no match",
+			pattern:    `\b(error|failure|problem)\b`,
+			content:    "Everything is working correctly",
+			wantPassed: false,
 		},
 		{
-			name:    "Empty pattern",
-			pattern: "",
-			content: "any content",
-			wantPassed:  true,
+			name:       "Empty pattern",
+			pattern:    "",
+			content:    "any content",
+			wantPassed: true,
 		},
 		{
-			name:    "Empty content",
-			pattern: "something",
-			content: "",
-			wantPassed:  false,
+			name:       "Empty content",
+			pattern:    "something",
+			content:    "",
+			wantPassed: false,
 		},
 		{
-			name:    "Start of line anchor",
-			pattern: `^Sorry`,
-			content: "Sorry, I cannot help with that",
-			wantPassed:  true,
+			name:       "Start of line anchor",
+			pattern:    `^Sorry`,
+			content:    "Sorry, I cannot help with that",
+			wantPassed: true,
 		},
 		{
-			name:    "End of line anchor",
-			pattern: `account$`,
-			content: "Please check your account",
-			wantPassed:  true,
+			name:       "End of line anchor",
+			pattern:    `account$`,
+			content:    "Please check your account",
+			wantPassed: true,
 		},
 	}
 

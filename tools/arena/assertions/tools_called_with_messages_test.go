@@ -14,7 +14,7 @@ func TestToolsCalledValidator_WithMessages(t *testing.T) {
 		name          string
 		expectedTools []string
 		messages      []types.Message
-		wantPassed      bool
+		wantPassed    bool
 		wantMissing   []string
 	}{
 		{
@@ -61,7 +61,7 @@ func TestToolsCalledValidator_WithMessages(t *testing.T) {
 					Timestamp: time.Now(),
 				},
 			},
-			wantPassed:      true,
+			wantPassed:  true,
 			wantMissing: nil,
 		},
 		{
@@ -84,7 +84,7 @@ func TestToolsCalledValidator_WithMessages(t *testing.T) {
 				{Role: "user", Content: "What's 2 + 2?", Timestamp: time.Now()},
 				{Role: "assistant", Content: "4", Timestamp: time.Now()}, // No tools
 			},
-			wantPassed:      true,
+			wantPassed:  true,
 			wantMissing: nil,
 		},
 		{
@@ -104,7 +104,7 @@ func TestToolsCalledValidator_WithMessages(t *testing.T) {
 				{Role: "tool", Content: "Results", Timestamp: time.Now()},
 				{Role: "assistant", Content: "Here are the results", Timestamp: time.Now()},
 			},
-			wantPassed:      false,
+			wantPassed:  false,
 			wantMissing: []string{"calculate"},
 		},
 	}

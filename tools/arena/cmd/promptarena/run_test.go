@@ -555,4 +555,3 @@ func TestExtractRunParameters_MockProviderFlags(t *testing.T) {
 	_ = runCmd.Flags().Set("mock-provider", "false")
 	_ = runCmd.Flags().Set("mock-config", "")
 }
-

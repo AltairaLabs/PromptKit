@@ -11,7 +11,7 @@ func TestToolsNotCalledValidator(t *testing.T) {
 		name           string
 		forbiddenTools []string
 		actualCalls    []types.MessageToolCall
-		wantPassed      bool
+		wantPassed     bool
 		wantCalled     []string
 	}{
 		{
@@ -20,7 +20,7 @@ func TestToolsNotCalledValidator(t *testing.T) {
 			actualCalls: []types.MessageToolCall{
 				{Name: "check_subscription_status"},
 			},
-			wantPassed:     true,
+			wantPassed: true,
 			wantCalled: nil,
 		},
 		{
@@ -29,7 +29,7 @@ func TestToolsNotCalledValidator(t *testing.T) {
 			actualCalls: []types.MessageToolCall{
 				{Name: "get_customer_info"},
 			},
-			wantPassed:     false,
+			wantPassed: false,
 			wantCalled: []string{"get_customer_info"},
 		},
 		{
@@ -39,14 +39,14 @@ func TestToolsNotCalledValidator(t *testing.T) {
 				{Name: "get_customer_info"},
 				{Name: "delete_account"},
 			},
-			wantPassed:     false,
+			wantPassed: false,
 			wantCalled: []string{"get_customer_info", "delete_account"},
 		},
 		{
 			name:           "No tools called",
 			forbiddenTools: []string{"get_customer_info"},
 			actualCalls:    []types.MessageToolCall{},
-			wantPassed:         true,
+			wantPassed:     true,
 			wantCalled:     nil,
 		},
 		{
@@ -55,7 +55,7 @@ func TestToolsNotCalledValidator(t *testing.T) {
 			actualCalls: []types.MessageToolCall{
 				{Name: "any_tool"},
 			},
-			wantPassed:     true,
+			wantPassed: true,
 			wantCalled: nil,
 		},
 		{
@@ -65,7 +65,7 @@ func TestToolsNotCalledValidator(t *testing.T) {
 				{Name: "delete_account"},
 				{Name: "delete_account"},
 			},
-			wantPassed:     false,
+			wantPassed: false,
 			wantCalled: []string{"delete_account"},
 		},
 		{
@@ -76,7 +76,7 @@ func TestToolsNotCalledValidator(t *testing.T) {
 				{Name: "delete_account"},
 				{Name: "check_subscription"},
 			},
-			wantPassed:     false,
+			wantPassed: false,
 			wantCalled: []string{"delete_account"},
 		},
 	}

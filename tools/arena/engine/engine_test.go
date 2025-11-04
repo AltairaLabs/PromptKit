@@ -277,7 +277,7 @@ func TestEnableMockProviderMode(t *testing.T) {
 
 func TestEnableMockProviderMode_WithConfigFile(t *testing.T) {
 	tmpDir := t.TempDir()
-	
+
 	cfg := &config.Config{
 		Defaults: config.Defaults{
 			Verbose: false,

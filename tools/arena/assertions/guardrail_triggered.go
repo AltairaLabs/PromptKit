@@ -49,7 +49,7 @@ func (v *GuardrailTriggeredValidator) extractParams(
 	execMessages, ok := params["_execution_context_messages"].([]types.Message)
 	if !ok {
 		result = runtimeValidators.ValidationResult{
-			Passed:      false,
+			Passed:  false,
 			Details: "missing _execution_context_messages parameter",
 		}
 		return execMessages, expectedType, shouldTrigger, result
@@ -62,7 +62,7 @@ func (v *GuardrailTriggeredValidator) extractParams(
 		expectedType, ok = params["validator"].(string)
 		if !ok {
 			result = runtimeValidators.ValidationResult{
-				Passed:      false,
+				Passed:  false,
 				Details: "validator or validator_type parameter required",
 			}
 			return execMessages, expectedType, shouldTrigger, result
@@ -94,7 +94,7 @@ func (v *GuardrailTriggeredValidator) findAssistantValidations(
 	}
 
 	result = runtimeValidators.ValidationResult{
-		Passed:      false,
+		Passed:  false,
 		Details: "no assistant message found to check validations",
 	}
 	return validations, result
@@ -182,7 +182,7 @@ func (v *GuardrailTriggeredValidator) handleMissingValidator(
 	if shouldTrigger {
 		// We expected it to run and fail, but it didn't even run
 		return runtimeValidators.ValidationResult{
-			Passed:      false,
+			Passed:  false,
 			Details: fmt.Sprintf("expected validator %q to run but it did not", expectedType),
 		}
 	}
@@ -209,7 +209,7 @@ func (v *GuardrailTriggeredValidator) validateResult(
 	if shouldTrigger && found.Passed {
 		// We expected it to fail, but it passed
 		return runtimeValidators.ValidationResult{
-			Passed:      false,
+			Passed:  false,
 			Details: fmt.Sprintf("expected validator %q to fail but it passed", expectedType),
 		}
 	}
