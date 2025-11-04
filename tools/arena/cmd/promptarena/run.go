@@ -92,6 +92,7 @@ func init() {
 	runCmd.Flags().Bool("ci", false, "CI mode (headless)")
 	runCmd.Flags().Bool("html", false, "Generate HTML report (deprecated: use --format)")
 	runCmd.Flags().StringSlice("format", []string{}, "Output formats (json, junit, html) - defaults from config")
+	runCmd.Flags().StringSlice("formats", []string{}, "Output formats (json, junit, html) - alias for --format")
 	runCmd.Flags().String("junit-file", "", "JUnit XML output file (default: out/junit.xml)")
 	runCmd.Flags().String("html-file", "", "HTML report output file (default: out/report-[timestamp].html)")
 	runCmd.Flags().Float32("temperature", 0.6, "Override temperature")
@@ -262,17 +263,27 @@ func extractMockFlags(cmd *cobra.Command, params *RunParameters) error {
 // extractOutputFormatFlags extracts output format flags and applies config defaults
 func extractOutputFormatFlags(cmd *cobra.Command, cfg *config.Config, params *RunParameters) error {
 	var err error
-	if params.OutputFormats, err = cmd.Flags().GetStringSlice("format"); err != nil {
-		return fmt.Errorf("failed to get format flag: %w", err)
-	}
-	// If format flag wasn't changed, use config defaults, otherwise fallback to json
-	if !cmd.Flags().Changed("format") {
-		if len(cfg.Defaults.OutputFormats) > 0 {
-			params.OutputFormats = cfg.Defaults.OutputFormats
-		} else {
-			params.OutputFormats = []string{"json"} // Default fallback
+
+	// Check if --formats (plural) flag was used
+	if cmd.Flags().Changed("formats") {
+		if params.OutputFormats, err = cmd.Flags().GetStringSlice("formats"); err != nil {
+			return fmt.Errorf("failed to get formats flag: %w", err)
+		}
+	} else {
+		// Use --format (singular) flag
+		if params.OutputFormats, err = cmd.Flags().GetStringSlice("format"); err != nil {
+			return fmt.Errorf("failed to get format flag: %w", err)
+		}
+		// If format flag wasn't changed, use config defaults, otherwise fallback to json
+		if !cmd.Flags().Changed("format") {
+			if len(cfg.Defaults.OutputFormats) > 0 {
+				params.OutputFormats = cfg.Defaults.OutputFormats
+			} else {
+				params.OutputFormats = []string{"json"} // Default fallback
+			}
 		}
 	}
+
 	if params.JUnitFile, err = cmd.Flags().GetString("junit-file"); err != nil {
 		return fmt.Errorf("failed to get junit-file flag: %w", err)
 	}
