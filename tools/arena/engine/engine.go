@@ -185,9 +185,9 @@ func (e *Engine) EnableMockProviderMode(mockConfigPath string) error {
 	// Create a new provider registry with mock providers
 	mockRegistry := providers.NewRegistry()
 
-	// Replace each provider with a MockProvider using the same ID
+	// Replace each provider with a MockToolProvider using the same ID for tool call simulation
 	for providerID, provider := range e.providers {
-		mockProvider := providers.NewMockProviderWithRepository(
+		mockProvider := providers.NewMockToolProviderWithRepository(
 			providerID,
 			provider.Model,
 			provider.IncludeRawOutput,

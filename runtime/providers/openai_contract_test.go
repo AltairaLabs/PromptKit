@@ -87,6 +87,7 @@ func TestOpenAIToolProvider_ChatWithToolsLatency(t *testing.T) {
 			MaxTokens:   100,
 		},
 		false,
+		nil,
 	)
 	defer provider.Close()
 

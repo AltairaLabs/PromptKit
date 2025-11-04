@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -103,14 +104,24 @@ func executeNonStreaming(execCtx *pipeline.ExecutionContext, provider providers.
 			currentToolChoice = "auto"
 		}
 
+		// Log debugging info about tool support decision
+		logger.Debug("ProviderMiddleware execution decision",
+			"round", round,
+			"provider_type", fmt.Sprintf("%T", provider),
+			"provider_tools_nil", providerTools == nil,
+			"allowed_tools_count", len(execCtx.AllowedTools),
+			"tool_choice", currentToolChoice)
+
 		if providerTools != nil {
 			// Provider supports tools - use ChatWithTools
+			logger.Debug("Using ChatWithTools path", "provider_type", fmt.Sprintf("%T", provider))
 			toolSupport := provider.(providers.ToolSupport)
 			resp, toolCalls, callErr = toolSupport.ChatWithTools(ctx, req, providerTools, currentToolChoice)
 			// Merge tool calls into response
 			resp.ToolCalls = toolCalls
 		} else {
 			// No tools or provider doesn't support tools - use regular Chat
+			logger.Debug("Using regular Chat path", "provider_type", fmt.Sprintf("%T", provider), "reason", "providerTools is nil")
 			resp, callErr = provider.Chat(ctx, req)
 		}
 

@@ -116,13 +116,16 @@ func (e *PipelineExecutor) Execute(
 		pipelineMiddleware = append(pipelineMiddleware, middleware.ContextBuilderMiddleware(contextPolicy))
 	}
 
-	// 5a. Mock scenario context middleware (only for MockProvider)
-	// This adds scenario context to the execution context so MockProvider can use scenario-specific responses
+	// 5a. Mock scenario context middleware (only for MockProvider and MockToolProvider)
+	// This adds scenario context to the execution context so mock providers can use scenario-specific responses
 	if _, isMockProvider := req.Provider.(*providers.MockProvider); isMockProvider {
 		logger.Debug("Adding MockScenarioContextMiddleware for MockProvider", "scenario_id", req.Scenario.ID)
 		pipelineMiddleware = append(pipelineMiddleware, arenamiddleware.MockScenarioContextMiddleware(req.Scenario))
+	} else if _, isMockToolProvider := req.Provider.(*providers.MockToolProvider); isMockToolProvider {
+		logger.Debug("Adding MockScenarioContextMiddleware for MockToolProvider", "scenario_id", req.Scenario.ID)
+		pipelineMiddleware = append(pipelineMiddleware, arenamiddleware.MockScenarioContextMiddleware(req.Scenario))
 	} else {
-		logger.Debug("Provider is not MockProvider, skipping MockScenarioContextMiddleware", "provider_type", fmt.Sprintf("%T", req.Provider))
+		logger.Debug("Provider is not a mock provider, skipping MockScenarioContextMiddleware", "provider_type", fmt.Sprintf("%T", req.Provider))
 	}
 
 	// 6. Provider middleware executes LLM and handles tool execution

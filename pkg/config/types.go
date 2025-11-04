@@ -258,15 +258,16 @@ type ProviderConfig struct {
 
 // Provider defines API connection and defaults
 type Provider struct {
-	ID               string           `json:"id" yaml:"id"`
-	Type             string           `json:"type" yaml:"type"`
-	Model            string           `json:"model" yaml:"model"`
-	BaseURL          string           `json:"base_url" yaml:"base_url"`
-	RateLimit        RateLimit        `json:"rate_limit" yaml:"rate_limit"`
-	Defaults         ProviderDefaults `json:"defaults" yaml:"defaults"`
-	Pricing          Pricing          `json:"pricing" yaml:"pricing"`
-	PricingCorrectAt string           `json:"pricing_correct_at" yaml:"pricing_correct_at"`
-	IncludeRawOutput bool             `json:"include_raw_output" yaml:"include_raw_output"` // Include raw API requests in output for debugging
+	ID               string                 `json:"id" yaml:"id"`
+	Type             string                 `json:"type" yaml:"type"`
+	Model            string                 `json:"model" yaml:"model"`
+	BaseURL          string                 `json:"base_url" yaml:"base_url"`
+	RateLimit        RateLimit              `json:"rate_limit" yaml:"rate_limit"`
+	Defaults         ProviderDefaults       `json:"defaults" yaml:"defaults"`
+	Pricing          Pricing                `json:"pricing" yaml:"pricing"`
+	PricingCorrectAt string                 `json:"pricing_correct_at" yaml:"pricing_correct_at"`
+	IncludeRawOutput bool                   `json:"include_raw_output" yaml:"include_raw_output"`                   // Include raw API requests in output for debugging
+	AdditionalConfig map[string]interface{} `json:"additional_config,omitempty" yaml:"additional_config,omitempty"` // Additional provider-specific configuration
 }
 
 // Pricing defines cost per 1K tokens for input and output

@@ -19,7 +19,7 @@ type OpenAIToolProvider struct {
 }
 
 // NewOpenAIToolProvider creates a new OpenAI provider with tool support
-func NewOpenAIToolProvider(id, model, baseURL string, defaults ProviderDefaults, includeRawOutput bool) *OpenAIToolProvider {
+func NewOpenAIToolProvider(id, model, baseURL string, defaults ProviderDefaults, includeRawOutput bool, additionalConfig map[string]interface{}) *OpenAIToolProvider {
 	return &OpenAIToolProvider{
 		OpenAIProvider: NewOpenAIProvider(id, model, baseURL, defaults, includeRawOutput),
 	}

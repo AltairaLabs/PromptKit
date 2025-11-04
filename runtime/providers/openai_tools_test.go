@@ -15,7 +15,7 @@ func TestNewOpenAIToolProvider(t *testing.T) {
 		MaxTokens:   1000,
 	}
 
-	provider := NewOpenAIToolProvider("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false)
+	provider := NewOpenAIToolProvider("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false, nil)
 
 	if provider == nil {
 		t.Fatal("Expected non-nil provider")
@@ -35,7 +35,7 @@ func TestNewOpenAIToolProvider(t *testing.T) {
 // ============================================================================
 
 func TestOpenAIBuildTooling_Empty(t *testing.T) {
-	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", ProviderDefaults{}, false)
+	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", ProviderDefaults{}, false, nil)
 
 	tools, err := provider.BuildTooling(nil)
 	if err != nil {
@@ -48,7 +48,7 @@ func TestOpenAIBuildTooling_Empty(t *testing.T) {
 }
 
 func TestOpenAIBuildTooling_SingleTool(t *testing.T) {
-	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", ProviderDefaults{}, false)
+	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", ProviderDefaults{}, false, nil)
 
 	schema := json.RawMessage(`{"type": "object", "properties": {"query": {"type": "string"}}}`)
 	descriptors := []*ToolDescriptor{
@@ -96,7 +96,7 @@ func TestOpenAIBuildTooling_SingleTool(t *testing.T) {
 }
 
 func TestOpenAIBuildTooling_MultipleTools(t *testing.T) {
-	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", ProviderDefaults{}, false)
+	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", ProviderDefaults{}, false, nil)
 
 	schema1 := json.RawMessage(`{"type": "object", "properties": {"query": {"type": "string"}}}`)
 	schema2 := json.RawMessage(`{"type": "object", "properties": {"code": {"type": "string"}}}`)
@@ -140,7 +140,7 @@ func TestOpenAIBuildTooling_MultipleTools(t *testing.T) {
 }
 
 func TestOpenAIBuildTooling_ComplexSchema(t *testing.T) {
-	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", ProviderDefaults{}, false)
+	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", ProviderDefaults{}, false, nil)
 
 	schema := json.RawMessage(`{
 		"type": "object",
@@ -198,7 +198,7 @@ func TestOpenAIBuildTooling_ComplexSchema(t *testing.T) {
 // ============================================================================
 
 func TestOpenAIParseToolResponse_NoToolCalls(t *testing.T) {
-	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", ProviderDefaults{}, false)
+	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", ProviderDefaults{}, false, nil)
 
 	responseJSON := `{
 		"id": "chatcmpl-123",
@@ -243,7 +243,7 @@ func TestOpenAIParseToolResponse_NoToolCalls(t *testing.T) {
 }
 
 func TestOpenAIParseToolResponse_WithToolCalls(t *testing.T) {
-	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", ProviderDefaults{}, false)
+	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", ProviderDefaults{}, false, nil)
 
 	responseJSON := `{
 		"id": "chatcmpl-123",
@@ -311,7 +311,7 @@ func TestOpenAIParseToolResponse_WithToolCalls(t *testing.T) {
 }
 
 func TestOpenAIParseToolResponse_MultipleToolCalls(t *testing.T) {
-	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", ProviderDefaults{}, false)
+	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", ProviderDefaults{}, false, nil)
 
 	responseJSON := `{
 		"id": "chatcmpl-123",
@@ -376,7 +376,7 @@ func TestOpenAIParseToolResponse_MultipleToolCalls(t *testing.T) {
 }
 
 func TestOpenAIParseToolResponse_InvalidJSON(t *testing.T) {
-	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", ProviderDefaults{}, false)
+	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", ProviderDefaults{}, false, nil)
 
 	responseJSON := `{invalid json`
 
@@ -387,7 +387,7 @@ func TestOpenAIParseToolResponse_InvalidJSON(t *testing.T) {
 }
 
 func TestOpenAIParseToolResponse_MissingFields(t *testing.T) {
-	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", ProviderDefaults{}, false)
+	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", ProviderDefaults{}, false, nil)
 
 	responseJSON := `{
 		"id": "chatcmpl-123",
@@ -419,7 +419,7 @@ func TestOpenAIParseToolResponse_MissingFields(t *testing.T) {
 }
 
 func TestOpenAIParseToolResponse_CachedTokens(t *testing.T) {
-	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", ProviderDefaults{}, false)
+	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", ProviderDefaults{}, false, nil)
 
 	responseJSON := `{
 		"id": "chatcmpl-123",

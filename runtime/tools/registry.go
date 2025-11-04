@@ -48,6 +48,17 @@ func newRegistry(repository ToolRepository) *Registry {
 	registry.RegisterExecutor(NewMockStaticExecutor())
 	registry.RegisterExecutor(NewMockScriptedExecutor())
 
+	// Preload all tools from repository into cache if repository is provided
+	if repository != nil {
+		if toolNames, err := repository.ListTools(); err == nil {
+			for _, name := range toolNames {
+				if tool, err := repository.LoadTool(name); err == nil && tool != nil {
+					registry.tools[name] = tool
+				}
+			}
+		}
+	}
+
 	return registry
 }
 
