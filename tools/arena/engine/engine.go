@@ -153,6 +153,55 @@ func (e *Engine) Close() error {
 	return nil
 }
 
+// EnableMockProviderMode replaces all providers in the registry with MockProvider instances.
+// This is useful for CI/testing scenarios where deterministic responses are needed without
+// making actual API calls. If mockConfigPath is provided, it loads mock responses from
+// a YAML configuration file using the FileMockRepository.
+//
+// The mock configuration supports:
+//   - Default responses for all scenarios
+//   - Scenario-specific responses
+//   - Turn-by-turn responses within scenarios
+//
+// Parameters:
+//   - mockConfigPath: Optional path to YAML configuration file for mock responses
+//
+// Returns an error if the mock configuration file cannot be loaded or parsed.
+func (e *Engine) EnableMockProviderMode(mockConfigPath string) error {
+	var repository providers.MockResponseRepository
+
+	// Create appropriate repository based on whether config file is provided
+	if mockConfigPath != "" {
+		fileRepo, err := providers.NewFileMockRepository(mockConfigPath)
+		if err != nil {
+			return fmt.Errorf("failed to load mock configuration from %s: %w", mockConfigPath, err)
+		}
+		repository = fileRepo
+	} else {
+		// Use default in-memory repository with generic responses
+		repository = providers.NewInMemoryMockRepository("Mock response from provider")
+	}
+
+	// Create a new provider registry with mock providers
+	mockRegistry := providers.NewRegistry()
+
+	// Replace each provider with a MockProvider using the same ID
+	for providerID, provider := range e.providers {
+		mockProvider := providers.NewMockProviderWithRepository(
+			providerID,
+			provider.Model,
+			provider.IncludeRawOutput,
+			repository,
+		)
+		mockRegistry.Register(mockProvider)
+	}
+
+	// Replace the engine's provider registry
+	e.providerRegistry = mockRegistry
+
+	return nil
+}
+
 // closeMCPRegistry closes the MCP registry if initialized
 func (e *Engine) closeMCPRegistry() error {
 	if e.mcpRegistry != nil {

@@ -497,11 +497,11 @@ func TestMemoryStore_DeepCloneMessageMeta(t *testing.T) {
 	// Create state with message containing Meta field (simulating assertions)
 	assertionResults := map[string]interface{}{
 		"content_includes": map[string]interface{}{
-			"passed":      true,
+			"passed":  true,
 			"details": map[string]interface{}{"matched": true},
 		},
 		"content_matches": map[string]interface{}{
-			"passed":      true,
+			"passed":  true,
 			"details": map[string]interface{}{"pattern": ".*hello.*"},
 		},
 	}

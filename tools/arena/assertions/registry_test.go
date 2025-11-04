@@ -40,7 +40,7 @@ func TestArenaAssertionRegistry_CreateValidators(t *testing.T) {
 		params        map[string]interface{}
 		testContent   string
 		testParams    map[string]interface{}
-		wantPassed      bool
+		wantPassed    bool
 	}{
 		{
 			name:          "tools_called validator",
@@ -78,7 +78,7 @@ func TestArenaAssertionRegistry_CreateValidators(t *testing.T) {
 			},
 			testContent: "Your account status is active",
 			testParams:  map[string]interface{}{},
-			wantPassed:      true,
+			wantPassed:  true,
 		},
 		{
 			name:          "content_matches validator",
@@ -88,7 +88,7 @@ func TestArenaAssertionRegistry_CreateValidators(t *testing.T) {
 			},
 			testContent: "Your account and status information",
 			testParams:  map[string]interface{}{},
-			wantPassed:      true,
+			wantPassed:  true,
 		},
 	}
 

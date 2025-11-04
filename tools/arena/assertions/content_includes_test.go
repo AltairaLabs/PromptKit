@@ -9,63 +9,63 @@ func TestContentIncludesValidator(t *testing.T) {
 		name        string
 		patterns    []string
 		content     string
-		wantPassed      bool
+		wantPassed  bool
 		wantMissing []string
 	}{
 		{
 			name:        "All patterns found",
 			patterns:    []string{"account", "status"},
 			content:     "Your account status is active",
-			wantPassed:      true,
+			wantPassed:  true,
 			wantMissing: nil,
 		},
 		{
 			name:        "One pattern missing",
 			patterns:    []string{"account", "subscription", "active"},
 			content:     "Your account is active",
-			wantPassed:      false,
+			wantPassed:  false,
 			wantMissing: []string{"subscription"},
 		},
 		{
 			name:        "All patterns missing",
 			patterns:    []string{"password", "reset"},
 			content:     "Your account is active",
-			wantPassed:      false,
+			wantPassed:  false,
 			wantMissing: []string{"password", "reset"},
 		},
 		{
 			name:        "Case insensitive match",
 			patterns:    []string{"Account", "Status"},
 			content:     "your account status is good",
-			wantPassed:      true,
+			wantPassed:  true,
 			wantMissing: nil,
 		},
 		{
 			name:        "No patterns specified",
 			patterns:    []string{},
 			content:     "any content",
-			wantPassed:      true,
+			wantPassed:  true,
 			wantMissing: nil,
 		},
 		{
 			name:        "Empty content",
 			patterns:    []string{"something"},
 			content:     "",
-			wantPassed:      false,
+			wantPassed:  false,
 			wantMissing: []string{"something"},
 		},
 		{
 			name:        "Partial word match",
 			patterns:    []string{"count"},
 			content:     "Your account is ready",
-			wantPassed:      true,
+			wantPassed:  true,
 			wantMissing: nil,
 		},
 		{
 			name:        "Multiple occurrences",
 			patterns:    []string{"account"},
 			content:     "Your account account account",
-			wantPassed:      true,
+			wantPassed:  true,
 			wantMissing: nil,
 		},
 	}

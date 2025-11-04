@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
@@ -194,5 +197,172 @@ func TestExecuteRuns_InvalidScenario(t *testing.T) {
 
 	if result.Error != "scenario not found: nonexistent" {
 		t.Errorf("Expected 'scenario not found' error, got: %s", result.Error)
+	}
+}
+
+func TestEnableMockProviderMode(t *testing.T) {
+	// Create config with multiple providers
+	cfg := &config.Config{
+		Defaults: config.Defaults{
+			Verbose: false,
+		},
+		LoadedProviders: map[string]*config.Provider{
+			"mock1": {
+				ID:               "mock1",
+				Type:             "openai",
+				Model:            "gpt-4",
+				IncludeRawOutput: false,
+			},
+			"mock2": {
+				ID:               "mock2",
+				Type:             "anthropic",
+				Model:            "claude-3-sonnet-20240229",
+				IncludeRawOutput: true,
+			},
+		},
+	}
+
+	// Create provider registry manually
+	providerRegistry := providers.NewRegistry()
+	for _, provider := range cfg.LoadedProviders {
+		// Create mock providers for the initial state (to avoid needing API keys)
+		mockProvider := providers.NewMockProvider(provider.ID, provider.Model, provider.IncludeRawOutput)
+		providerRegistry.Register(mockProvider)
+	}
+
+	// Create minimal engine using the direct constructor
+	eng, err := NewEngine(cfg, providerRegistry, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+
+	// Verify provider registry exists
+	if eng.providerRegistry == nil {
+		t.Fatal("Provider registry is nil")
+	}
+
+	// Verify provider configs are loaded
+	if len(eng.providers) != 2 {
+		t.Fatalf("Expected 2 provider configs, got %d", len(eng.providers))
+	}
+
+	// Enable mock provider mode (should replace providers in registry)
+	err = eng.EnableMockProviderMode("")
+	if err != nil {
+		t.Fatalf("EnableMockProviderMode failed: %v", err)
+	}
+
+	// Verify providers are still accessible from registry
+	mock1, ok := eng.providerRegistry.Get("mock1")
+	if !ok {
+		t.Fatal("Mock provider mock1 not found in registry after EnableMockProviderMode")
+	}
+	if mock1.ID() != "mock1" {
+		t.Errorf("Expected mock provider ID mock1, got %s", mock1.ID())
+	}
+
+	mock2, ok := eng.providerRegistry.Get("mock2")
+	if !ok {
+		t.Fatal("Mock provider mock2 not found in registry after EnableMockProviderMode")
+	}
+	if mock2.ID() != "mock2" {
+		t.Errorf("Expected mock provider ID mock2, got %s", mock2.ID())
+	}
+
+	// Verify the provider configs are still preserved
+	if len(eng.providers) != 2 {
+		t.Errorf("Expected 2 provider configs after mock mode, got %d", len(eng.providers))
+	}
+}
+
+func TestEnableMockProviderMode_WithConfigFile(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cfg := &config.Config{
+		Defaults: config.Defaults{
+			Verbose: false,
+		},
+		LoadedProviders: map[string]*config.Provider{
+			"test-provider": {
+				ID:    "test-provider",
+				Type:  "openai",
+				Model: "gpt-4",
+			},
+		},
+	}
+
+	// Create provider registry manually
+	providerRegistry := providers.NewRegistry()
+	mockProvider := providers.NewMockProvider("test-provider", "gpt-4", false)
+	providerRegistry.Register(mockProvider)
+
+	eng, err := NewEngine(cfg, providerRegistry, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+
+	// Create a mock config file
+	mockConfigPath := filepath.Join(tmpDir, "mock-config.yaml")
+	mockConfigContent := `defaultResponse: "Test default response"
+scenarios:
+  test-scenario:
+    defaultResponse: "Scenario specific response"
+    turns:
+      1: "First turn response"
+      2: "Second turn response"
+`
+	if err := os.WriteFile(mockConfigPath, []byte(mockConfigContent), 0644); err != nil {
+		t.Fatalf("Failed to write mock config file: %v", err)
+	}
+
+	// Enable mock provider mode with config file
+	err = eng.EnableMockProviderMode(mockConfigPath)
+	if err != nil {
+		t.Fatalf("EnableMockProviderMode with config file failed: %v", err)
+	}
+
+	// Verify provider is still accessible
+	provider, ok := eng.providerRegistry.Get("test-provider")
+	if !ok {
+		t.Fatal("Provider not found after enabling mock mode with config")
+	}
+	if provider.ID() != "test-provider" {
+		t.Errorf("Expected provider ID test-provider, got %s", provider.ID())
+	}
+}
+
+func TestEnableMockProviderMode_WithInvalidConfigFile(t *testing.T) {
+	cfg := &config.Config{
+		Defaults: config.Defaults{
+			Verbose: false,
+		},
+		LoadedProviders: map[string]*config.Provider{
+			"test-provider": {
+				ID:    "test-provider",
+				Type:  "openai",
+				Model: "gpt-4",
+			},
+		},
+	}
+
+	// Create provider registry manually
+	providerRegistry := providers.NewRegistry()
+	mockProvider := providers.NewMockProvider("test-provider", "gpt-4", false)
+	providerRegistry.Register(mockProvider)
+
+	eng, err := NewEngine(cfg, providerRegistry, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+
+	// Try to enable mock provider mode with non-existent config file
+	err = eng.EnableMockProviderMode("/path/to/nonexistent/mock-config.yaml")
+	if err == nil {
+		t.Fatal("Expected error when using non-existent mock config file, got nil")
+	}
+
+	expectedErrSubstring := "failed to load mock configuration"
+	if !strings.Contains(err.Error(), expectedErrSubstring) {
+		t.Errorf("Expected error to contain %q, got %q", expectedErrSubstring, err.Error())
 	}
 }

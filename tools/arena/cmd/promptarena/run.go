@@ -18,6 +18,11 @@ import (
 	"github.com/spf13/viper"
 )
 
+// Flag name constants to avoid duplication
+const (
+	flagMaxTokens = "max-tokens"
+)
+
 var runCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Run conversation simulations",
@@ -46,9 +51,13 @@ func init() {
 	runCmd.Flags().Bool("ci", false, "CI mode (headless)")
 	runCmd.Flags().Bool("html", false, "Generate HTML report")
 	runCmd.Flags().Float32("temperature", 0.6, "Override temperature")
-	runCmd.Flags().Int("max-tokens", 400, "Override max tokens")
+	runCmd.Flags().Int(flagMaxTokens, 0, "Override max tokens for all scenarios")
 	runCmd.Flags().IntP("seed", "s", 42, "Random seed")
 	runCmd.Flags().BoolP("verbose", "v", false, "Enable verbose debug logging for API calls")
+
+	// Mock provider settings
+	runCmd.Flags().Bool("mock-provider", false, "Replace all providers with MockProvider (for CI/testing)")
+	runCmd.Flags().String("mock-config", "", "Path to mock provider configuration file (YAML)")
 
 	// Self-play settings
 	runCmd.Flags().Bool("selfplay", false, "Enable self-play mode")
@@ -60,7 +69,7 @@ func init() {
 	_ = viper.BindPFlag("ci_mode", runCmd.Flags().Lookup("ci"))
 	_ = viper.BindPFlag("html_report", runCmd.Flags().Lookup("html"))
 	_ = viper.BindPFlag("temperature", runCmd.Flags().Lookup("temperature"))
-	_ = viper.BindPFlag("max_tokens", runCmd.Flags().Lookup("max-tokens"))
+	_ = viper.BindPFlag(flagMaxTokens, runCmd.Flags().Lookup(flagMaxTokens))
 	_ = viper.BindPFlag("seed", runCmd.Flags().Lookup("seed"))
 	_ = viper.BindPFlag("selfplay", runCmd.Flags().Lookup("selfplay"))
 	_ = viper.BindPFlag("roles", runCmd.Flags().Lookup("roles"))
@@ -103,6 +112,8 @@ type RunParameters struct {
 	Verbose        bool
 	GenerateHTML   bool
 	HTMLReportPath string
+	MockProvider   bool   // Enable mock provider mode
+	MockConfig     string // Path to mock provider configuration
 }
 
 // loadConfiguration loads the configuration file and sets up viper
@@ -160,6 +171,14 @@ func extractRunParameters(cmd *cobra.Command, cfg *config.Config) (*RunParameter
 		return nil, fmt.Errorf("failed to get verbose flag: %w", err)
 	}
 
+	// Extract mock provider flags
+	if params.MockProvider, err = cmd.Flags().GetBool("mock-provider"); err != nil {
+		return nil, fmt.Errorf("failed to get mock-provider flag: %w", err)
+	}
+	if params.MockConfig, err = cmd.Flags().GetString("mock-config"); err != nil {
+		return nil, fmt.Errorf("failed to get mock-config flag: %w", err)
+	}
+
 	// Process HTML report settings
 	if err := processHTMLSettings(cmd, cfg, params); err != nil {
 		return nil, err
@@ -197,8 +216,8 @@ func applyConfigurationOverrides(cmd *cobra.Command, cfg *config.Config, params 
 	}
 
 	// Apply max_tokens override if provided
-	if cmd.Flags().Changed("max-tokens") {
-		if maxTokens, err := cmd.Flags().GetInt("max-tokens"); err == nil {
+	if cmd.Flags().Changed(flagMaxTokens) {
+		if maxTokens, err := cmd.Flags().GetInt(flagMaxTokens); err == nil {
 			cfg.Defaults.MaxTokens = maxTokens
 		}
 	}
@@ -229,6 +248,19 @@ func executeRuns(configFile string, params *RunParameters) ([]engine.RunResult, 
 	eng, err := engine.NewEngineFromConfigFile(configFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create engine: %w", err)
+	}
+
+	// Apply mock provider override if requested
+	if params.MockProvider {
+		if err := eng.EnableMockProviderMode(params.MockConfig); err != nil {
+			return nil, fmt.Errorf("failed to enable mock provider mode: %w", err)
+		}
+		if !params.CIMode {
+			fmt.Println("Mock Provider Mode: ENABLED")
+			if params.MockConfig != "" {
+				fmt.Printf("Mock Config: %s\n", params.MockConfig)
+			}
+		}
 	}
 
 	// Generate run plan

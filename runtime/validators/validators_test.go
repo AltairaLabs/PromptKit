@@ -9,34 +9,34 @@ func TestBannedWordsValidator(t *testing.T) {
 	validator := NewBannedWordsValidator(bannedWords)
 
 	tests := []struct {
-		name    string
-		content string
-		wantPassed  bool
+		name       string
+		content    string
+		wantPassed bool
 	}{
 		{
-			name:    "No banned words",
-			content: "This is a clean and appropriate message",
-			wantPassed:  true,
+			name:       "No banned words",
+			content:    "This is a clean and appropriate message",
+			wantPassed: true,
 		},
 		{
-			name:    "Contains banned word",
-			content: "This message contains a badword in it",
-			wantPassed:  false,
+			name:       "Contains banned word",
+			content:    "This message contains a badword in it",
+			wantPassed: false,
 		},
 		{
-			name:    "Case insensitive match",
-			content: "This message contains OFFENSIVE content",
-			wantPassed:  false,
+			name:       "Case insensitive match",
+			content:    "This message contains OFFENSIVE content",
+			wantPassed: false,
 		},
 		{
-			name:    "Multiple banned words",
-			content: "This is badword and also offensive",
-			wantPassed:  false,
+			name:       "Multiple banned words",
+			content:    "This is badword and also offensive",
+			wantPassed: false,
 		},
 		{
-			name:    "Partial word match should not trigger",
-			content: "This is good behavior",
-			wantPassed:  true,
+			name:       "Partial word match should not trigger",
+			content:    "This is good behavior",
+			wantPassed: true,
 		},
 	}
 
@@ -54,40 +54,40 @@ func TestMaxSentencesValidator(t *testing.T) {
 	validator := NewMaxSentencesValidator()
 
 	tests := []struct {
-		name    string
-		content string
-		params  map[string]interface{}
-		wantPassed  bool
+		name       string
+		content    string
+		params     map[string]interface{}
+		wantPassed bool
 	}{
 		{
-			name:    "Under limit",
-			content: "This is sentence one. This is sentence two.",
-			params:  map[string]interface{}{"max_sentences": 3},
-			wantPassed:  true,
+			name:       "Under limit",
+			content:    "This is sentence one. This is sentence two.",
+			params:     map[string]interface{}{"max_sentences": 3},
+			wantPassed: true,
 		},
 		{
-			name:    "At limit",
-			content: "Sentence one. Sentence two. Sentence three.",
-			params:  map[string]interface{}{"max_sentences": 3},
-			wantPassed:  true,
+			name:       "At limit",
+			content:    "Sentence one. Sentence two. Sentence three.",
+			params:     map[string]interface{}{"max_sentences": 3},
+			wantPassed: true,
 		},
 		{
-			name:    "Over limit",
-			content: "One. Two. Three. Four.",
-			params:  map[string]interface{}{"max_sentences": 3},
-			wantPassed:  false,
+			name:       "Over limit",
+			content:    "One. Two. Three. Four.",
+			params:     map[string]interface{}{"max_sentences": 3},
+			wantPassed: false,
 		},
 		{
-			name:    "No params",
-			content: "Any content here.",
-			params:  map[string]interface{}{},
-			wantPassed:  true,
+			name:       "No params",
+			content:    "Any content here.",
+			params:     map[string]interface{}{},
+			wantPassed: true,
 		},
 		{
-			name:    "Invalid param type",
-			content: "Any content.",
-			params:  map[string]interface{}{"max_sentences": "not an int"},
-			wantPassed:  true,
+			name:       "Invalid param type",
+			content:    "Any content.",
+			params:     map[string]interface{}{"max_sentences": "not an int"},
+			wantPassed: true,
 		},
 	}
 
@@ -105,34 +105,34 @@ func TestRequiredFieldsValidator(t *testing.T) {
 	validator := NewRequiredFieldsValidator()
 
 	tests := []struct {
-		name    string
-		content string
-		params  map[string]interface{}
-		wantPassed  bool
+		name       string
+		content    string
+		params     map[string]interface{}
+		wantPassed bool
 	}{
 		{
-			name:    "All fields present",
-			content: "Response includes name and email and phone",
-			params:  map[string]interface{}{"required_fields": []string{"name", "email"}},
-			wantPassed:  true,
+			name:       "All fields present",
+			content:    "Response includes name and email and phone",
+			params:     map[string]interface{}{"required_fields": []string{"name", "email"}},
+			wantPassed: true,
 		},
 		{
-			name:    "Missing one field",
-			content: "Response includes name only",
-			params:  map[string]interface{}{"required_fields": []string{"name", "email"}},
-			wantPassed:  false,
+			name:       "Missing one field",
+			content:    "Response includes name only",
+			params:     map[string]interface{}{"required_fields": []string{"name", "email"}},
+			wantPassed: false,
 		},
 		{
-			name:    "No required fields param",
-			content: "Any content",
-			params:  map[string]interface{}{},
-			wantPassed:  true,
+			name:       "No required fields param",
+			content:    "Any content",
+			params:     map[string]interface{}{},
+			wantPassed: true,
 		},
 		{
-			name:    "Invalid param type",
-			content: "Any content",
-			params:  map[string]interface{}{"required_fields": "not a slice"},
-			wantPassed:  true,
+			name:       "Invalid param type",
+			content:    "Any content",
+			params:     map[string]interface{}{"required_fields": "not a slice"},
+			wantPassed: true,
 		},
 	}
 
@@ -150,16 +150,16 @@ func TestCommitValidator(t *testing.T) {
 	validator := NewCommitValidator()
 
 	tests := []struct {
-		name    string
-		content string
-		params  map[string]interface{}
-		wantPassed  bool
+		name       string
+		content    string
+		params     map[string]interface{}
+		wantPassed bool
 	}{
 		{
-			name:    "Not required",
-			content: "Any response",
-			params:  map[string]interface{}{"must_end_with_commit": false},
-			wantPassed:  true,
+			name:       "Not required",
+			content:    "Any response",
+			params:     map[string]interface{}{"must_end_with_commit": false},
+			wantPassed: true,
 		},
 		{
 			name:    "Required with commit structure",
@@ -189,10 +189,10 @@ func TestCommitValidator(t *testing.T) {
 			wantPassed: false,
 		},
 		{
-			name:    "No params",
-			content: "Any content",
-			params:  map[string]interface{}{},
-			wantPassed:  true,
+			name:       "No params",
+			content:    "Any content",
+			params:     map[string]interface{}{},
+			wantPassed: true,
 		},
 	}
 
@@ -210,34 +210,34 @@ func TestLengthValidator(t *testing.T) {
 	validator := NewLengthValidator()
 
 	tests := []struct {
-		name    string
-		content string
-		params  map[string]interface{}
-		wantPassed  bool
+		name       string
+		content    string
+		params     map[string]interface{}
+		wantPassed bool
 	}{
 		{
-			name:    "Under character limit",
-			content: "Short text",
-			params:  map[string]interface{}{"max_characters": 100},
-			wantPassed:  true,
+			name:       "Under character limit",
+			content:    "Short text",
+			params:     map[string]interface{}{"max_characters": 100},
+			wantPassed: true,
 		},
 		{
-			name:    "Over character limit",
-			content: "This is a very long text that exceeds the character limit",
-			params:  map[string]interface{}{"max_characters": 10},
-			wantPassed:  false,
+			name:       "Over character limit",
+			content:    "This is a very long text that exceeds the character limit",
+			params:     map[string]interface{}{"max_characters": 10},
+			wantPassed: false,
 		},
 		{
-			name:    "Under token limit",
-			content: "Short text",
-			params:  map[string]interface{}{"max_tokens": 100},
-			wantPassed:  true,
+			name:       "Under token limit",
+			content:    "Short text",
+			params:     map[string]interface{}{"max_tokens": 100},
+			wantPassed: true,
 		},
 		{
-			name:    "Over token limit",
-			content: "This is a text that should exceed the token limit when divided by four",
-			params:  map[string]interface{}{"max_tokens": 5},
-			wantPassed:  false,
+			name:       "Over token limit",
+			content:    "This is a text that should exceed the token limit when divided by four",
+			params:     map[string]interface{}{"max_tokens": 5},
+			wantPassed: false,
 		},
 		{
 			name:    "Both limits under",
@@ -249,10 +249,10 @@ func TestLengthValidator(t *testing.T) {
 			wantPassed: true,
 		},
 		{
-			name:    "No limits",
-			content: "Any content of any length",
-			params:  map[string]interface{}{},
-			wantPassed:  true,
+			name:       "No limits",
+			content:    "Any content of any length",
+			params:     map[string]interface{}{},
+			wantPassed: true,
 		},
 	}
 
@@ -316,7 +316,7 @@ func TestCountSentences(t *testing.T) {
 
 func TestValidationResult(t *testing.T) {
 	result := ValidationResult{
-		Passed:      true,
+		Passed:  true,
 		Details: map[string]interface{}{"key": "value"},
 	}
 

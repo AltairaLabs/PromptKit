@@ -11,7 +11,7 @@ func TestToolsCalledValidator(t *testing.T) {
 		name          string
 		expectedTools []string
 		actualCalls   []types.MessageToolCall
-		wantPassed      bool
+		wantPassed    bool
 		wantMissing   []string
 	}{
 		{
@@ -21,7 +21,7 @@ func TestToolsCalledValidator(t *testing.T) {
 				{Name: "get_customer_info"},
 				{Name: "check_subscription_status"},
 			},
-			wantPassed:      true,
+			wantPassed:  true,
 			wantMissing: nil,
 		},
 		{
@@ -30,14 +30,14 @@ func TestToolsCalledValidator(t *testing.T) {
 			actualCalls: []types.MessageToolCall{
 				{Name: "get_customer_info"},
 			},
-			wantPassed:      false,
+			wantPassed:  false,
 			wantMissing: []string{"check_subscription_status"},
 		},
 		{
 			name:          "Missing all tools",
 			expectedTools: []string{"get_customer_info", "check_subscription_status"},
 			actualCalls:   []types.MessageToolCall{},
-			wantPassed:        false,
+			wantPassed:    false,
 			wantMissing:   []string{"get_customer_info", "check_subscription_status"},
 		},
 		{
@@ -47,7 +47,7 @@ func TestToolsCalledValidator(t *testing.T) {
 				{Name: "get_customer_info"},
 				{Name: "extra_tool"},
 			},
-			wantPassed:      true,
+			wantPassed:  true,
 			wantMissing: nil,
 		},
 		{
@@ -56,7 +56,7 @@ func TestToolsCalledValidator(t *testing.T) {
 			actualCalls: []types.MessageToolCall{
 				{Name: "some_tool"},
 			},
-			wantPassed:      true,
+			wantPassed:  true,
 			wantMissing: nil,
 		},
 		{
@@ -66,7 +66,7 @@ func TestToolsCalledValidator(t *testing.T) {
 				{Name: "get_customer_info"},
 				{Name: "get_customer_info"},
 			},
-			wantPassed:      true,
+			wantPassed:  true,
 			wantMissing: nil,
 		},
 	}

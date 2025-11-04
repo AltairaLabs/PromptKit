@@ -10,7 +10,7 @@ import (
 )
 
 // TestBadgeSemantics_GuardrailTriggeredExpected tests the specific case:
-// - Guardrail IS triggered (validator.passed = false) → should show red ✗ 
+// - Guardrail IS triggered (validator.passed = false) → should show red ✗
 // - Assertion expects it (assertion.ok = true) → should show green ✓
 func TestBadgeSemantics_GuardrailTriggeredExpected(t *testing.T) {
 	result := createTestResult("run1", "test-provider", "us", "scenario1", 0.01, 50, 25, false, 100*time.Millisecond)
@@ -55,7 +55,7 @@ func TestBadgeSemantics_GuardrailTriggeredExpected(t *testing.T) {
 	if !strings.Contains(html, "validation-badge failed") {
 		t.Error("Expected validator badge to show 'failed' when guardrail triggers")
 	}
-	
+
 	// Should have a cross mark in validator badge
 	validatorBadgeSection := extractBadgeSection(html, "V")
 	if !strings.Contains(validatorBadgeSection, "✗") {
@@ -69,7 +69,7 @@ func TestBadgeSemantics_GuardrailTriggeredExpected(t *testing.T) {
 	if !strings.Contains(html, "validation-badge passed") {
 		t.Error("Expected assertion badge to show 'passed' when assertion succeeds")
 	}
-	
+
 	// Should have a check mark in assertion badge
 	assertionBadgeSection := extractBadgeSection(html, "A")
 	if !strings.Contains(assertionBadgeSection, "✓") {
@@ -115,7 +115,7 @@ func TestBadgeSemantics_GuardrailNotTriggeredGood(t *testing.T) {
 	if !strings.Contains(html, "validation-badge passed") {
 		t.Error("Expected validator badge to show 'passed' when no violations")
 	}
-	
+
 	validatorBadgeSection := extractBadgeSection(html, "V")
 	if !strings.Contains(validatorBadgeSection, "✓") {
 		t.Error("Expected ✓ in validator badge when no violations")
@@ -156,7 +156,7 @@ func TestBadgeSemantics_GuardrailTriggeredNotExpected(t *testing.T) {
 			Meta: map[string]interface{}{
 				"assertions": map[string]interface{}{
 					"no_guardrail_triggered": map[string]interface{}{
-						"passed":      false, // Assertion FAILED (we didn't expect this - bad)
+						"passed":  false, // Assertion FAILED (we didn't expect this - bad)
 						"details": "expected no violations but got violations",
 					},
 				},
@@ -181,7 +181,7 @@ func TestBadgeSemantics_GuardrailTriggeredNotExpected(t *testing.T) {
 	if !strings.Contains(assertionBadgeSection, "✗") {
 		t.Error("Expected ✗ in assertion badge when test fails")
 	}
-	
+
 	// Both should have failed class
 	failedCount := strings.Count(html, "validation-badge failed")
 	if failedCount < 2 {
@@ -197,7 +197,7 @@ func extractBadgeSection(html, badgeLabel string) string {
 	if idx == -1 {
 		return ""
 	}
-	
+
 	// Extract surrounding context (200 chars before and after)
 	start := idx - 200
 	if start < 0 {
@@ -207,6 +207,6 @@ func extractBadgeSection(html, badgeLabel string) string {
 	if end > len(html) {
 		end = len(html)
 	}
-	
+
 	return html[start:end]
 }
