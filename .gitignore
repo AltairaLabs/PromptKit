@@ -36,6 +36,7 @@ Thumbs.db
 # Output directories
 output/
 results/
+!tools/arena/results/
 reports/
 *.html
 out/
