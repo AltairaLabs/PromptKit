@@ -150,12 +150,13 @@ type SelfPlayRoleGroup struct {
 
 // Defaults contains default configuration values
 type Defaults struct {
-	Temperature float32 `yaml:"temperature"`
-	MaxTokens   int     `yaml:"max_tokens"`
-	Seed        int     `yaml:"seed"`
-	Concurrency int     `yaml:"concurrency"`
-	HTMLReport  string  `yaml:"html_report"`
-	OutDir      string  `yaml:"out_dir"`
+	Temperature   float32  `yaml:"temperature"`
+	MaxTokens     int      `yaml:"max_tokens"`
+	Seed          int      `yaml:"seed"`
+	Concurrency   int      `yaml:"concurrency"`
+	HTMLReport    string   `yaml:"html_report"`
+	OutDir        string   `yaml:"out_dir"`
+	OutputFormats []string `yaml:"output_formats"`
 	// ConfigDir is the base directory for all config files (prompts, providers, scenarios, tools).
 	// If not set, defaults to the directory containing the main config file.
 	// If the main config file path is not known, defaults to current working directory.

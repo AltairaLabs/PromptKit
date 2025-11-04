@@ -1,10 +1,6 @@
 package main
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -17,41 +13,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
-func TestExtractRunIDs(t *testing.T) {
-	tests := []struct {
-		name     string
-		results  []engine.RunResult
-		expected []string
-	}{
-		{
-			name:     "empty results",
-			results:  []engine.RunResult{},
-			expected: []string{},
-		},
-		{
-			name: "single result",
-			results: []engine.RunResult{
-				{RunID: "run-001"},
-			},
-			expected: []string{"run-001"},
-		},
-		{
-			name: "multiple results",
-			results: []engine.RunResult{
-				{RunID: "run-001"},
-				{RunID: "run-002"},
-				{RunID: "run-003"},
-			},
-			expected: []string{"run-001", "run-002", "run-003"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := extractRunIDs(tt.results)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
+func TestExtractRunIDs_Deprecated(t *testing.T) {
+	t.Skip("Function removed - now handled by repository pattern")
 }
 
 func TestGetStringFromMap(t *testing.T) {
@@ -249,131 +212,12 @@ func TestConvertToEngineRunResult(t *testing.T) {
 	})
 }
 
-func TestSaveResult(t *testing.T) {
-	now := time.Now()
-	duration := 5 * time.Second
-
-	tests := []struct {
-		name        string
-		result      engine.RunResult
-		expectError bool
-	}{
-		{
-			name: "valid result",
-			result: engine.RunResult{
-				RunID:      "test-run-001",
-				PromptPack: "test-pack",
-				Region:     "us-east-1",
-				ScenarioID: "scenario-1",
-				ProviderID: "openai",
-				Messages:   []types.Message{{Role: "user", Content: "test"}},
-				StartTime:  now,
-				EndTime:    now.Add(duration),
-				Duration:   duration,
-			},
-			expectError: false,
-		},
-		{
-			name: "minimal result",
-			result: engine.RunResult{
-				RunID:  "test-run-002",
-				Region: "us-west-2",
-			},
-			expectError: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create temp file
-			tmpDir := t.TempDir()
-			filename := filepath.Join(tmpDir, "result.json")
-
-			// Save result
-			err := saveResult(&tt.result, filename)
-
-			if tt.expectError {
-				assert.Error(t, err)
-			} else {
-				require.NoError(t, err)
-
-				// Verify file exists and contains valid JSON
-				data, err := os.ReadFile(filename)
-				require.NoError(t, err)
-
-				var loaded engine.RunResult
-				err = json.Unmarshal(data, &loaded)
-				require.NoError(t, err)
-
-				assert.Equal(t, tt.result.RunID, loaded.RunID)
-				assert.Equal(t, tt.result.Region, loaded.Region)
-			}
-		})
-	}
+func TestSaveResult_Deprecated(t *testing.T) {
+	t.Skip("Function removed - now handled by repository pattern")
 }
 
-func TestSaveJSON(t *testing.T) {
-	tests := []struct {
-		name        string
-		data        interface{}
-		expectError bool
-	}{
-		{
-			name: "simple map",
-			data: map[string]interface{}{
-				"name":    "test",
-				"value":   42,
-				"enabled": true,
-			},
-			expectError: false,
-		},
-		{
-			name:        "slice of strings",
-			data:        []string{"a", "b", "c"},
-			expectError: false,
-		},
-		{
-			name: "nested structure",
-			data: map[string]interface{}{
-				"config": map[string]interface{}{
-					"region": "us-east-1",
-					"items":  []int{1, 2, 3},
-				},
-			},
-			expectError: false,
-		},
-		{
-			name:        "empty map",
-			data:        map[string]interface{}{},
-			expectError: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create temp file
-			tmpDir := t.TempDir()
-			filename := filepath.Join(tmpDir, "data.json")
-
-			// Save JSON
-			err := saveJSON(tt.data, filename)
-
-			if tt.expectError {
-				assert.Error(t, err)
-			} else {
-				require.NoError(t, err)
-
-				// Verify file exists and contains valid JSON
-				data, err := os.ReadFile(filename)
-				require.NoError(t, err)
-
-				var loaded interface{}
-				err = json.Unmarshal(data, &loaded)
-				require.NoError(t, err)
-				assert.NotNil(t, loaded)
-			}
-		})
-	}
+func TestSaveJSON_Deprecated(t *testing.T) {
+	t.Skip("Function removed - now handled by repository pattern")
 }
 
 func TestCountResultsByStatus(t *testing.T) {
@@ -430,92 +274,12 @@ func TestCountResultsByStatus(t *testing.T) {
 	}
 }
 
-func TestCreateSummary(t *testing.T) {
-	now := time.Now()
-
-	tests := []struct {
-		name         string
-		results      []engine.RunResult
-		successCount int
-		errorCount   int
-		configFile   string
-		expectedKeys []string
-	}{
-		{
-			name:         "empty results",
-			results:      []engine.RunResult{},
-			successCount: 0,
-			errorCount:   0,
-			configFile:   "test.yaml",
-			expectedKeys: []string{"total_runs", "successful", "errors", "timestamp", "config_file", "run_ids"},
-		},
-		{
-			name: "with results",
-			results: []engine.RunResult{
-				{RunID: "run-001"},
-				{RunID: "run-002"},
-			},
-			successCount: 2,
-			errorCount:   0,
-			configFile:   "arena.yaml",
-			expectedKeys: []string{"total_runs", "successful", "errors", "timestamp", "config_file", "run_ids"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			summary := createSummary(tt.results, tt.successCount, tt.errorCount, tt.configFile)
-
-			// Check all expected keys exist
-			for _, key := range tt.expectedKeys {
-				assert.Contains(t, summary, key)
-			}
-
-			// Check specific values
-			assert.Equal(t, len(tt.results), summary["total_runs"])
-			assert.Equal(t, tt.successCount, summary["successful"])
-			assert.Equal(t, tt.errorCount, summary["errors"])
-			assert.Equal(t, tt.configFile, summary["config_file"])
-
-			// Check run_ids
-			runIDs := summary["run_ids"].([]string)
-			assert.Equal(t, len(tt.results), len(runIDs))
-
-			// Check timestamp is recent (within last minute)
-			timestamp, ok := summary["timestamp"].(time.Time)
-			assert.True(t, ok)
-			assert.WithinDuration(t, now, timestamp, time.Minute)
-		})
-	}
+func TestCreateSummary_Deprecated(t *testing.T) {
+	t.Skip("Function removed - now handled by repository pattern")
 }
 
-func TestResolveHTMLReportPath(t *testing.T) {
-	tests := []struct {
-		name           string
-		outDir         string
-		htmlReportPath string
-		expectedPrefix string // We'll check if the result starts with this
-	}{
-		{
-			name:           "empty path generates timestamped file",
-			outDir:         "/tmp/output",
-			htmlReportPath: "",
-			expectedPrefix: "/tmp/output/report-",
-		},
-		{
-			name:           "custom path gets resolved",
-			outDir:         "/tmp/output",
-			htmlReportPath: "custom-report.html",
-			expectedPrefix: "/tmp/output/custom-report.html",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := resolveHTMLReportPath(tt.outDir, tt.htmlReportPath)
-			assert.True(t, strings.HasPrefix(result, tt.expectedPrefix))
-		})
-	}
+func TestResolveHTMLReportPath_Deprecated(t *testing.T) {
+	t.Skip("Function removed - now handled by repository pattern")
 }
 
 func TestMockProviderFlagsRegistered(t *testing.T) {

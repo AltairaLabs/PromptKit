@@ -1,0 +1,42 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+
+metadata:
+  name: cicd-test-results-example
+  description: Example configuration showcasing CI/CD test results output formats
+
+spec:
+  # Prompt Configuration (example)
+  prompt_configs:
+    - id: test-prompt
+      file: prompts/test-prompt.yaml
+
+  # Test Scenarios (example)
+  scenarios:
+    - file: scenarios/basic-test.yaml
+
+  # Provider Configuration (example)
+  providers:
+    - file: providers/openai-gpt4o-mini.yaml
+
+  # Default Settings with Output Format Configuration
+  defaults:
+    temperature: 0.7
+    max_tokens: 1000
+    seed: 42
+    concurrency: 2
+    out_dir: out
+    html_report: report.html
+    
+    # New: Default output formats - supports json, junit, html
+    # This configuration will be used when --format flag is not specified
+    output_formats:
+      - json   # Always generate JSON for debugging and detailed results
+      - junit  # Generate JUnit XML for CI/CD pipeline integration
+      - html   # Generate HTML reports for human-readable results
+    
+    # Alternative examples:
+    # output_formats: ["json"]              # JSON only
+    # output_formats: ["json", "junit"]     # JSON + JUnit for CI/CD
+    # output_formats: ["html"]              # HTML only for reports
+    # output_formats: []                    # Will default to ["json"] if not specified

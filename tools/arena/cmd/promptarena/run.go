@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -12,7 +11,10 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
-	"github.com/AltairaLabs/PromptKit/tools/arena/render"
+	"github.com/AltairaLabs/PromptKit/tools/arena/results"
+	"github.com/AltairaLabs/PromptKit/tools/arena/results/html"
+	jsonrepo "github.com/AltairaLabs/PromptKit/tools/arena/results/json"
+	"github.com/AltairaLabs/PromptKit/tools/arena/results/junit"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -22,6 +24,45 @@ import (
 const (
 	flagMaxTokens = "max-tokens"
 )
+
+// contains checks if a string slice contains a specific string
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
+// createResultRepository creates a composite repository based on output formats
+func createResultRepository(params *RunParameters) (results.ResultRepository, error) {
+	composite := results.NewCompositeRepository()
+
+	for _, format := range params.OutputFormats {
+		switch format {
+		case "json":
+			jsonRepo := jsonrepo.NewJSONResultRepository(params.OutDir)
+			composite.AddRepository(jsonRepo)
+		case "junit":
+			junitRepo := junit.NewJUnitResultRepository(params.JUnitFile)
+			composite.AddRepository(junitRepo)
+		case "html":
+			htmlRepo := html.NewHTMLResultRepository(params.HTMLFile)
+			composite.AddRepository(htmlRepo)
+		default:
+			return nil, fmt.Errorf("unsupported output format: %s", format)
+		}
+	}
+
+	return composite, nil
+}
+
+// createResultSummary creates a summary using the results builder
+func createResultSummary(runResults []engine.RunResult, successCount, errorCount int, configFile string) *results.ResultSummary {
+	builder := results.NewSummaryBuilder(configFile)
+	return builder.BuildSummary(runResults)
+}
 
 var runCmd = &cobra.Command{
 	Use:   "run",
@@ -49,7 +90,10 @@ func init() {
 	runCmd.Flags().IntP("concurrency", "j", 6, "Number of concurrent workers")
 	runCmd.Flags().StringP("out", "o", "out", "Output directory")
 	runCmd.Flags().Bool("ci", false, "CI mode (headless)")
-	runCmd.Flags().Bool("html", false, "Generate HTML report")
+	runCmd.Flags().Bool("html", false, "Generate HTML report (deprecated: use --format)")
+	runCmd.Flags().StringSlice("format", []string{}, "Output formats (json, junit, html) - defaults from config")
+	runCmd.Flags().String("junit-file", "", "JUnit XML output file (default: out/junit.xml)")
+	runCmd.Flags().String("html-file", "", "HTML report output file (default: out/report-[timestamp].html)")
 	runCmd.Flags().Float32("temperature", 0.6, "Override temperature")
 	runCmd.Flags().Int(flagMaxTokens, 0, "Override max tokens for all scenarios")
 	runCmd.Flags().IntP("seed", "s", 42, "Random seed")
@@ -110,10 +154,13 @@ type RunParameters struct {
 	OutDir         string
 	CIMode         bool
 	Verbose        bool
-	GenerateHTML   bool
-	HTMLReportPath string
-	MockProvider   bool   // Enable mock provider mode
-	MockConfig     string // Path to mock provider configuration
+	GenerateHTML   bool     // Deprecated: use OutputFormats
+	HTMLReportPath string   // Deprecated: use HTMLFile
+	OutputFormats  []string // New: output formats (json, junit, html)
+	JUnitFile      string   // New: JUnit XML output file
+	HTMLFile       string   // New: HTML output file
+	MockProvider   bool     // Enable mock provider mode
+	MockConfig     string   // Path to mock provider configuration
 }
 
 // loadConfiguration loads the configuration file and sets up viper
@@ -146,40 +193,23 @@ func loadConfiguration(cmd *cobra.Command) (string, *config.Config, error) {
 // extractRunParameters extracts all run parameters from command flags
 func extractRunParameters(cmd *cobra.Command, cfg *config.Config) (*RunParameters, error) {
 	params := &RunParameters{}
-	var err error
 
-	// Extract override flags
-	if params.Regions, err = cmd.Flags().GetStringSlice("region"); err != nil {
-		return nil, fmt.Errorf("failed to get region flag: %w", err)
-	}
-	if params.Providers, err = cmd.Flags().GetStringSlice("provider"); err != nil {
-		return nil, fmt.Errorf("failed to get provider flag: %w", err)
-	}
-	if params.Scenarios, err = cmd.Flags().GetStringSlice("scenario"); err != nil {
-		return nil, fmt.Errorf("failed to get scenario flag: %w", err)
-	}
-	if params.Concurrency, err = cmd.Flags().GetInt("concurrency"); err != nil {
-		return nil, fmt.Errorf("failed to get concurrency flag: %w", err)
-	}
-	if params.OutDir, err = cmd.Flags().GetString("out"); err != nil {
-		return nil, fmt.Errorf("failed to get out flag: %w", err)
-	}
-	if params.CIMode, err = cmd.Flags().GetBool("ci"); err != nil {
-		return nil, fmt.Errorf("failed to get ci flag: %w", err)
-	}
-	if params.Verbose, err = cmd.Flags().GetBool("verbose"); err != nil {
-		return nil, fmt.Errorf("failed to get verbose flag: %w", err)
+	// Extract basic flags
+	if err := extractBasicFlags(cmd, params); err != nil {
+		return nil, err
 	}
 
 	// Extract mock provider flags
-	if params.MockProvider, err = cmd.Flags().GetBool("mock-provider"); err != nil {
-		return nil, fmt.Errorf("failed to get mock-provider flag: %w", err)
-	}
-	if params.MockConfig, err = cmd.Flags().GetString("mock-config"); err != nil {
-		return nil, fmt.Errorf("failed to get mock-config flag: %w", err)
+	if err := extractMockFlags(cmd, params); err != nil {
+		return nil, err
 	}
 
-	// Process HTML report settings
+	// Extract output format flags
+	if err := extractOutputFormatFlags(cmd, cfg, params); err != nil {
+		return nil, err
+	}
+
+	// Process HTML report settings (maintain backward compatibility)
 	if err := processHTMLSettings(cmd, cfg, params); err != nil {
 		return nil, err
 	}
@@ -190,22 +220,133 @@ func extractRunParameters(cmd *cobra.Command, cfg *config.Config) (*RunParameter
 	return params, nil
 }
 
-// processHTMLSettings determines HTML report generation settings
-func processHTMLSettings(cmd *cobra.Command, cfg *config.Config, params *RunParameters) error {
-	// HTML report generation: use CLI flag if set, otherwise check config
-	if cmd.Flags().Changed("html") {
-		// CLI flag takes precedence
-		var err error
-		params.GenerateHTML, err = cmd.Flags().GetBool("html")
-		if err != nil {
-			return fmt.Errorf("failed to get html flag: %w", err)
-		}
-	} else if cfg.Defaults.HTMLReport != "" {
-		// Use config file setting
-		params.GenerateHTML = true
-		params.HTMLReportPath = cfg.Defaults.HTMLReport
+// extractBasicFlags extracts basic command flags
+func extractBasicFlags(cmd *cobra.Command, params *RunParameters) error {
+	var err error
+	if params.Regions, err = cmd.Flags().GetStringSlice("region"); err != nil {
+		return fmt.Errorf("failed to get region flag: %w", err)
+	}
+	if params.Providers, err = cmd.Flags().GetStringSlice("provider"); err != nil {
+		return fmt.Errorf("failed to get provider flag: %w", err)
+	}
+	if params.Scenarios, err = cmd.Flags().GetStringSlice("scenario"); err != nil {
+		return fmt.Errorf("failed to get scenario flag: %w", err)
+	}
+	if params.Concurrency, err = cmd.Flags().GetInt("concurrency"); err != nil {
+		return fmt.Errorf("failed to get concurrency flag: %w", err)
+	}
+	if params.OutDir, err = cmd.Flags().GetString("out"); err != nil {
+		return fmt.Errorf("failed to get out flag: %w", err)
+	}
+	if params.CIMode, err = cmd.Flags().GetBool("ci"); err != nil {
+		return fmt.Errorf("failed to get ci flag: %w", err)
+	}
+	if params.Verbose, err = cmd.Flags().GetBool("verbose"); err != nil {
+		return fmt.Errorf("failed to get verbose flag: %w", err)
 	}
 	return nil
+}
+
+// extractMockFlags extracts mock provider configuration flags
+func extractMockFlags(cmd *cobra.Command, params *RunParameters) error {
+	var err error
+	if params.MockProvider, err = cmd.Flags().GetBool("mock-provider"); err != nil {
+		return fmt.Errorf("failed to get mock-provider flag: %w", err)
+	}
+	if params.MockConfig, err = cmd.Flags().GetString("mock-config"); err != nil {
+		return fmt.Errorf("failed to get mock-config flag: %w", err)
+	}
+	return nil
+}
+
+// extractOutputFormatFlags extracts output format flags and applies config defaults
+func extractOutputFormatFlags(cmd *cobra.Command, cfg *config.Config, params *RunParameters) error {
+	var err error
+	if params.OutputFormats, err = cmd.Flags().GetStringSlice("format"); err != nil {
+		return fmt.Errorf("failed to get format flag: %w", err)
+	}
+	// If format flag wasn't changed, use config defaults, otherwise fallback to json
+	if !cmd.Flags().Changed("format") {
+		if len(cfg.Defaults.OutputFormats) > 0 {
+			params.OutputFormats = cfg.Defaults.OutputFormats
+		} else {
+			params.OutputFormats = []string{"json"} // Default fallback
+		}
+	}
+	if params.JUnitFile, err = cmd.Flags().GetString("junit-file"); err != nil {
+		return fmt.Errorf("failed to get junit-file flag: %w", err)
+	}
+	if params.HTMLFile, err = cmd.Flags().GetString("html-file"); err != nil {
+		return fmt.Errorf("failed to get html-file flag: %w", err)
+	}
+	return nil
+}
+
+// processHTMLSettings determines HTML report generation settings
+// Maintains backward compatibility while transitioning to new format system
+func processHTMLSettings(cmd *cobra.Command, cfg *config.Config, params *RunParameters) error {
+	// Handle HTML flag and config settings
+	if err := processHTMLFlags(cmd, cfg, params); err != nil {
+		return err
+	}
+
+	// Set default output file paths
+	setDefaultFilePaths(params)
+
+	return nil
+}
+
+// processHTMLFlags handles the deprecated --html flag and config HTML settings
+func processHTMLFlags(cmd *cobra.Command, cfg *config.Config, params *RunParameters) error {
+	if cmd.Flags().Changed("html") {
+		return processDeprecatedHTMLFlag(cmd, params)
+	}
+	if cfg.Defaults.HTMLReport != "" {
+		processConfigHTMLSetting(cfg, params)
+	}
+	return nil
+}
+
+// processDeprecatedHTMLFlag handles the deprecated --html flag for backward compatibility
+func processDeprecatedHTMLFlag(cmd *cobra.Command, params *RunParameters) error {
+	var err error
+	params.GenerateHTML, err = cmd.Flags().GetBool("html")
+	if err != nil {
+		return fmt.Errorf("failed to get html flag: %w", err)
+	}
+	// Add html to output formats if not already present
+	if params.GenerateHTML && !contains(params.OutputFormats, "html") {
+		params.OutputFormats = append(params.OutputFormats, "html")
+	}
+	return nil
+}
+
+// processConfigHTMLSetting processes HTML settings from configuration file
+func processConfigHTMLSetting(cfg *config.Config, params *RunParameters) {
+	params.GenerateHTML = true
+	params.HTMLReportPath = cfg.Defaults.HTMLReport
+	// Add html to output formats if not already present
+	if !contains(params.OutputFormats, "html") {
+		params.OutputFormats = append(params.OutputFormats, "html")
+	}
+}
+
+// setDefaultFilePaths sets default file paths for output files if not specified
+func setDefaultFilePaths(params *RunParameters) {
+	// Set default JUnit file path
+	if params.JUnitFile == "" {
+		params.JUnitFile = filepath.Join(params.OutDir, "junit.xml")
+	}
+
+	// Set default HTML file path if HTML generation is enabled
+	if params.HTMLFile == "" && (params.GenerateHTML || contains(params.OutputFormats, "html")) {
+		if params.HTMLReportPath != "" {
+			params.HTMLFile = config.ResolveOutputPath(params.OutDir, params.HTMLReportPath)
+		} else {
+			timestamp := time.Now().Format("2006-01-02T15-04-05")
+			params.HTMLFile = filepath.Join(params.OutDir, fmt.Sprintf("report-%s.html", timestamp))
+		}
+	}
 }
 
 // applyConfigurationOverrides applies command line overrides to configuration
@@ -236,8 +377,12 @@ func displayRunInfo(params *RunParameters, configFile string) {
 	fmt.Printf("Scenarios: %s\n", strings.Join(params.Scenarios, ", "))
 	fmt.Printf("Concurrency: %d\n", params.Concurrency)
 	fmt.Printf("Output: %s\n", params.OutDir)
-	if params.GenerateHTML {
-		fmt.Printf("HTML Report: enabled\n")
+	fmt.Printf("Formats: %s\n", strings.Join(params.OutputFormats, ", "))
+	if contains(params.OutputFormats, "junit") {
+		fmt.Printf("JUnit XML: %s\n", params.JUnitFile)
+	}
+	if contains(params.OutputFormats, "html") || params.GenerateHTML {
+		fmt.Printf("HTML Report: %s\n", params.HTMLFile)
 	}
 	fmt.Println()
 }
@@ -306,73 +451,33 @@ func convertRunResults(ctx context.Context, eng *engine.Engine, runIDs []string)
 	return results, nil
 }
 
-// processResults processes, saves, and reports execution results
+// processResults processes, saves, and reports execution results using repository pattern
 func processResults(results []engine.RunResult, params *RunParameters, configFile string) error {
 	// Create output directory
 	if err := os.MkdirAll(params.OutDir, 0755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	// Save individual results and count status
-	successCount, errorCount := saveIndividualResults(results, params.OutDir)
-
-	// Create and save index summary
-	if err := saveIndexSummary(results, successCount, errorCount, configFile, params.OutDir); err != nil {
-		return err
+	// Create composite repository for multiple output formats
+	repository, err := createResultRepository(params)
+	if err != nil {
+		return fmt.Errorf("failed to create result repository: %w", err)
 	}
 
-	// Generate HTML report if requested
-	generateHTMLReport(results, params)
+	// Save results using repository pattern
+	if err := repository.SaveResults(results); err != nil {
+		return fmt.Errorf("failed to save results: %w", err)
+	}
+
+	// Create and save summary
+	successCount, errorCount := countResultsByStatus(results)
+	summary := createResultSummary(results, successCount, errorCount, configFile)
+	if err := repository.SaveSummary(summary); err != nil {
+		log.Printf("Warning: failed to save summary: %v", err)
+	}
 
 	// Display final summary and handle CI mode errors
 	return displayFinalSummary(params, results, successCount, errorCount)
-}
-
-// saveIndividualResults saves each result to individual JSON files
-func saveIndividualResults(results []engine.RunResult, outDir string) (successCount, errorCount int) {
-	successCount, errorCount = countResultsByStatus(results)
-
-	for i := range results {
-		filename := filepath.Join(outDir, results[i].RunID+".json")
-		if err := saveResult(&results[i], filename); err != nil {
-			log.Printf("Warning: failed to save result %s: %v", results[i].RunID, err)
-		}
-	}
-
-	return successCount, errorCount
-}
-
-// saveIndexSummary creates and saves the index summary file
-func saveIndexSummary(results []engine.RunResult, successCount, errorCount int, configFile, outDir string) error {
-	summary := createSummary(results, successCount, errorCount, configFile)
-
-	indexFile := filepath.Join(outDir, "index.json")
-	if err := saveJSON(summary, indexFile); err != nil {
-		log.Printf("Warning: failed to save index: %v", err)
-		return err
-	}
-
-	return nil
-}
-
-// generateHTMLReport generates HTML report if requested
-func generateHTMLReport(results []engine.RunResult, params *RunParameters) {
-	if !params.GenerateHTML {
-		return
-	}
-
-	var htmlFile string
-	if params.HTMLReportPath != "" {
-		htmlFile = config.ResolveOutputPath(params.OutDir, params.HTMLReportPath)
-	} else {
-		htmlFile = resolveHTMLReportPath(params.OutDir, "")
-	}
-
-	if err := render.GenerateHTMLReport(results, htmlFile); err != nil {
-		log.Printf("Warning: failed to generate HTML report: %v", err)
-	} else if !params.CIMode {
-		fmt.Printf("HTML report generated: %s\n", htmlFile)
-	}
 }
 
 // displayFinalSummary displays execution summary and handles CI mode errors
@@ -384,6 +489,14 @@ func displayFinalSummary(params *RunParameters, results []engine.RunResult, succ
 		fmt.Printf("Successful: %d\n", successCount)
 		fmt.Printf("Errors: %d\n", errorCount)
 		fmt.Printf("Results saved to: %s\n", params.OutDir)
+
+		// Show specific output files generated
+		if contains(params.OutputFormats, "junit") {
+			fmt.Printf("JUnit XML: %s\n", params.JUnitFile)
+		}
+		if contains(params.OutputFormats, "html") || params.GenerateHTML {
+			fmt.Printf("HTML Report: %s\n", params.HTMLFile)
+		}
 	}
 
 	// Exit with error code if any runs failed and CI mode
@@ -392,30 +505,6 @@ func displayFinalSummary(params *RunParameters, results []engine.RunResult, succ
 	}
 
 	return nil
-}
-
-func saveResult(result *engine.RunResult, filename string) error {
-	data, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filename, data, 0600)
-}
-
-func saveJSON(data interface{}, filename string) error {
-	jsonData, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filename, jsonData, 0600)
-}
-
-func extractRunIDs(results []engine.RunResult) []string {
-	ids := make([]string, len(results))
-	for i := range results {
-		ids[i] = results[i].RunID
-	}
-	return ids
 }
 
 // convertToEngineRunResult converts statestore.RunResult to engine.RunResult
@@ -488,25 +577,4 @@ func countResultsByStatus(results []engine.RunResult) (successCount, errorCount 
 	}
 
 	return successCount, errorCount
-}
-
-// createSummary creates a summary data structure
-func createSummary(results []engine.RunResult, successCount, errorCount int, configFile string) map[string]interface{} {
-	return map[string]interface{}{
-		"total_runs":  len(results),
-		"successful":  successCount,
-		"errors":      errorCount,
-		"timestamp":   time.Now(),
-		"config_file": configFile,
-		"run_ids":     extractRunIDs(results),
-	}
-}
-
-// resolveHTMLReportPath determines the final HTML report path
-func resolveHTMLReportPath(outDir, htmlReportPath string) string {
-	if htmlReportPath == "" {
-		timestamp := time.Now().Format("2006-01-02T15-04Z")
-		return filepath.Join(outDir, fmt.Sprintf("report-%s.html", timestamp))
-	}
-	return config.ResolveOutputPath(outDir, htmlReportPath)
 }
