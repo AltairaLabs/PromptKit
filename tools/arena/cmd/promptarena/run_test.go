@@ -13,8 +13,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
-
-
 func TestGetStringFromMap(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -210,8 +208,6 @@ func TestConvertToEngineRunResult(t *testing.T) {
 	})
 }
 
-
-
 func TestCountResultsByStatus(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -265,8 +261,6 @@ func TestCountResultsByStatus(t *testing.T) {
 		})
 	}
 }
-
-
 
 func TestMockProviderFlagsRegistered(t *testing.T) {
 	// Test that mock provider flags are properly registered
