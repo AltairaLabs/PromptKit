@@ -27,7 +27,7 @@ type JUnitOptions struct {
 	// Include additional metadata in system-out
 	IncludeSystemOut bool
 
-	// Include error details in system-err  
+	// Include error details in system-err
 	IncludeSystemErr bool
 
 	// Template for suite names (default: scenario ID)
@@ -157,7 +157,7 @@ func (r *JUnitResultRepository) generateSuiteName(result *engine.RunResult) stri
 	return result.ScenarioID
 }
 
-// generateTestName creates a test name using the configured template  
+// generateTestName creates a test name using the configured template
 func (r *JUnitResultRepository) generateTestName(result *engine.RunResult) string {
 	// For now, use provider.region.runID format
 	// Future: implement template processing

@@ -16,8 +16,8 @@ import (
 
 const (
 	// File names and error messages
-	indexFileName                  = "index.json"
-	errFailedToCreateOutputDir     = "failed to create output directory: %w"
+	indexFileName              = "index.json"
+	errFailedToCreateOutputDir = "failed to create output directory: %w"
 )
 
 // JSONResultRepository stores results as JSON files (one per result + index).

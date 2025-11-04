@@ -11,13 +11,13 @@ import (
 
 // JUnitTestSuites represents the root element of JUnit XML
 type JUnitTestSuites struct {
-	XMLName    xml.Name           `xml:"testsuites"`
-	Name       string             `xml:"name,attr"`
-	Tests      int                `xml:"tests,attr"`
-	Failures   int                `xml:"failures,attr"`
-	Errors     int                `xml:"errors,attr"`
-	Time       float64            `xml:"time,attr"`
-	TestSuites []*JUnitTestSuite  `xml:"testsuite"`
+	XMLName    xml.Name          `xml:"testsuites"`
+	Name       string            `xml:"name,attr"`
+	Tests      int               `xml:"tests,attr"`
+	Failures   int               `xml:"failures,attr"`
+	Errors     int               `xml:"errors,attr"`
+	Time       float64           `xml:"time,attr"`
+	TestSuites []*JUnitTestSuite `xml:"testsuite"`
 }
 
 // JUnitTestSuite represents a group of related tests (typically by scenario)
@@ -34,15 +34,15 @@ type JUnitTestSuite struct {
 
 // JUnitTestCase represents a single test execution
 type JUnitTestCase struct {
-	XMLName   xml.Name       `xml:"testcase"`
-	Name      string         `xml:"name,attr"`
-	Classname string         `xml:"classname,attr"`
-	Time      float64        `xml:"time,attr"`
-	Failure   *JUnitFailure  `xml:"failure,omitempty"`
-	Error     *JUnitError    `xml:"error,omitempty"`
-	Skipped   *JUnitSkipped  `xml:"skipped,omitempty"`
-	SystemOut *JUnitOutput   `xml:"system-out,omitempty"`
-	SystemErr *JUnitOutput   `xml:"system-err,omitempty"`
+	XMLName   xml.Name      `xml:"testcase"`
+	Name      string        `xml:"name,attr"`
+	Classname string        `xml:"classname,attr"`
+	Time      float64       `xml:"time,attr"`
+	Failure   *JUnitFailure `xml:"failure,omitempty"`
+	Error     *JUnitError   `xml:"error,omitempty"`
+	Skipped   *JUnitSkipped `xml:"skipped,omitempty"`
+	SystemOut *JUnitOutput  `xml:"system-out,omitempty"`
+	SystemErr *JUnitOutput  `xml:"system-err,omitempty"`
 }
 
 // JUnitFailure represents a test failure (assertion failed, validation error, etc.)
