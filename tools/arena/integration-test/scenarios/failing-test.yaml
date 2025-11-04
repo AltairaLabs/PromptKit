@@ -1,0 +1,35 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+
+metadata:
+  name: failing-test-scenario
+
+spec:
+  id: failing-test
+  task_type: integration-test
+  description: "Test scenario that should fail - validates error reporting in CI/CD"
+  
+  turns:
+    - role: user
+      content: "Execute database connection test"
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["SUCCESS", "PASS"]
+          message: "Response should contain SUCCESS or PASS for passing test"
+    
+    - role: user
+      content: "Run data validation checks"
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["VALIDATION_SUCCESS"]
+          message: "Response should contain VALIDATION_SUCCESS (this will fail with ERROR response)"
+      
+    - role: user
+      content: "Report final test status"
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "^(PASS|SUCCESS)"
+          message: "Final status should start with PASS or SUCCESS (will fail with FATAL response)"

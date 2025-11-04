@@ -98,7 +98,7 @@ func (m *assertionMiddleware) executeAssertions(
 	for _, assertionConfig := range m.assertions {
 		result, err := m.runSingleAssertion(assertionConfig, lastAssistantMsg, turnMessages, allMessages)
 		if err != nil {
-			logger.Warn("unknown assertion validator type %q", assertionConfig.Type)
+			logger.Debug("unknown assertion validator type", "type", assertionConfig.Type)
 			continue
 		}
 

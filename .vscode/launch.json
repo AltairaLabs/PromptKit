@@ -1,0 +1,40 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Arena Integration Test",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceFolder}/tools/arena/cmd/promptarena",
+            "args": [
+                "run",
+                "--config", "integration-test/arena.yaml",
+                "--mock-provider",
+                "--mock-config", "integration-test/mock-config-with-errors.yaml", 
+                "--out", "integration-test/output-debug-session",
+                "--format", "json",
+                "--ci",
+                "-v",
+                "--scenario", "failing-test-scenario"
+            ],
+            "cwd": "${workspaceFolder}/tools/arena",
+            "env": {},
+            "console": "integratedTerminal",
+            "showLog": true
+        },
+        {
+            "name": "Debug Arena - Simple",
+            "type": "go",
+            "request": "launch", 
+            "mode": "debug",
+            "program": "${workspaceFolder}/tools/arena/cmd/promptarena",
+            "args": [
+                "run",
+                "--help"
+            ],
+            "cwd": "${workspaceFolder}/tools/arena",
+            "console": "integratedTerminal"
+        }
+    ]
+}

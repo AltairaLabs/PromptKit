@@ -14,6 +14,11 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
 )
 
+const (
+	// Error message for unsupported roles
+	errUnsupportedRole = "unsupported role: %s"
+)
+
 // DefaultConversationExecutor implements ConversationExecutor interface
 type DefaultConversationExecutor struct {
 	scriptedExecutor turnexecutors.TurnExecutor
@@ -53,9 +58,9 @@ func (ce *DefaultConversationExecutor) ExecuteConversation(ctx context.Context, 
 func (ce *DefaultConversationExecutor) executeWithoutStreaming(ctx context.Context, req ConversationRequest) *ConversationResult {
 	// Execute each turn in the scenario
 	for turnIdx, scenarioTurn := range req.Scenario.Turns {
-		// Warn if assertions are specified on user turns (they only validate assistant responses)
+		// Debug if assertions are specified on user turns (they only validate assistant responses)
 		if scenarioTurn.Role == "user" && len(scenarioTurn.Assertions) > 0 {
-			logger.Warn("Ignoring assertions on user turn - assertions only validate assistant responses",
+			logger.Debug("Assertions on user turn will validate next assistant response",
 				"turn", turnIdx)
 		}
 
@@ -87,7 +92,7 @@ func (ce *DefaultConversationExecutor) executeWithoutStreaming(ctx context.Conte
 			turnReq.ScriptedContent = scenarioTurn.Content
 			err = ce.scriptedExecutor.ExecuteTurn(ctx, turnReq)
 		} else {
-			err = fmt.Errorf("unsupported role: %s", scenarioTurn.Role)
+			err = fmt.Errorf(errUnsupportedRole, scenarioTurn.Role)
 		}
 
 		if err != nil {
@@ -128,7 +133,7 @@ func (ce *DefaultConversationExecutor) executeWithStreaming(ctx context.Context,
 
 // executeStreamingTurn executes a single turn with streaming support
 func (ce *DefaultConversationExecutor) executeStreamingTurn(ctx context.Context, req ConversationRequest, turnIdx int, scenarioTurn config.TurnDefinition) error {
-	ce.warnOnUserTurnAssertions(scenarioTurn, turnIdx)
+	ce.debugOnUserTurnAssertions(scenarioTurn, turnIdx)
 
 	turnReq := ce.buildTurnRequest(req, scenarioTurn)
 	shouldStream := req.Scenario.ShouldStreamTurn(turnIdx)
@@ -136,10 +141,10 @@ func (ce *DefaultConversationExecutor) executeStreamingTurn(ctx context.Context,
 	return ce.executeTurnByRole(ctx, turnReq, scenarioTurn, shouldStream)
 }
 
-// warnOnUserTurnAssertions warns if assertions are specified on user turns
-func (ce *DefaultConversationExecutor) warnOnUserTurnAssertions(scenarioTurn config.TurnDefinition, turnIdx int) {
+// debugOnUserTurnAssertions logs debug message if assertions are specified on user turns
+func (ce *DefaultConversationExecutor) debugOnUserTurnAssertions(scenarioTurn config.TurnDefinition, turnIdx int) {
 	if scenarioTurn.Role == "user" && len(scenarioTurn.Assertions) > 0 {
-		logger.Warn("Ignoring assertions on user turn - assertions only validate assistant responses",
+		logger.Debug("Assertions on user turn will validate next assistant response",
 			"turn", turnIdx)
 	}
 }
@@ -171,7 +176,7 @@ func (ce *DefaultConversationExecutor) executeTurnByRole(ctx context.Context, tu
 		return ce.executeScriptedTurn(ctx, turnReq, scenarioTurn, shouldStream)
 	}
 
-	return fmt.Errorf("unsupported role: %s", scenarioTurn.Role)
+	return fmt.Errorf(errUnsupportedRole, scenarioTurn.Role)
 }
 
 // executeSelfPlayTurn executes a self-play turn
@@ -314,7 +319,7 @@ func (ce *DefaultConversationExecutor) getStreamForRole(
 		return ce.scriptedExecutor.ExecuteTurnStream(ctx, turnReq)
 	}
 
-	return nil, fmt.Errorf("unsupported role: %s", scenarioTurn.Role)
+	return nil, fmt.Errorf(errUnsupportedRole, scenarioTurn.Role)
 }
 
 // consumeStreamAndSendChunks consumes a turn stream and sends chunks to output

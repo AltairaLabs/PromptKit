@@ -20,14 +20,31 @@ func main() {
 
 	ctx := context.Background()
 
-	// Step 1: Setup SDK components
+	// Setup and create conversation
+	conversation := setupConversation(ctx)
+
+	// Send user message and get initial response
+	response := sendUserMessage(ctx, conversation)
+
+	// Handle approval workflow if needed
+	if len(response.PendingTools) > 0 {
+		handleApprovalWorkflow(ctx, conversation, response)
+	} else {
+		fmt.Println("\n✓ Request completed immediately (no approval needed)")
+	}
+
+	// Show final results
+	showConversationHistory(conversation)
+	showMethodsDemonstrated()
+}
+
+func setupConversation(ctx context.Context) *sdk.Conversation {
 	fmt.Println("Step 1: Setting up conversation manager...")
 	manager, pack, err := setupManager(ctx)
 	if err != nil {
 		log.Fatalf("Setup failed: %v", err)
 	}
 
-	// Step 2: Create conversation
 	fmt.Println("\nStep 2: Creating new conversation...")
 	conversation, err := manager.CreateConversation(ctx, pack, sdk.ConversationConfig{
 		UserID:     "user_123",
@@ -42,7 +59,10 @@ func main() {
 	}
 	fmt.Printf("   Conversation ID: %s\n", conversation.GetID())
 
-	// Step 3: User requests refund (high-risk action)
+	return conversation
+}
+
+func sendUserMessage(ctx context.Context, conversation *sdk.Conversation) *sdk.Response {
 	fmt.Println("\nStep 3: User requests refund...")
 	userMessage := "I want a refund for my order #12345. The amount was $149.99."
 
@@ -54,83 +74,107 @@ func main() {
 	fmt.Printf("   Bot response: %s\n", response.Content)
 	fmt.Printf("   Pending tools: %d\n", len(response.PendingTools))
 
-	// Step 4: Check for pending approvals
-	if len(response.PendingTools) > 0 {
-		fmt.Println("\n⏸️  Tool execution requires approval")
+	return response
+}
 
-		for i, pending := range response.PendingTools {
-			fmt.Printf("\n📋 Pending Tool #%d:\n", i+1)
-			fmt.Printf("   Tool: %s\n", pending.ToolName)
-			fmt.Printf("   Reason: %s\n", pending.Reason)
-			fmt.Printf("   Message: %s\n", pending.Message)
+func handleApprovalWorkflow(ctx context.Context, conversation *sdk.Conversation, response *sdk.Response) {
+	fmt.Println("\n⏸️  Tool execution requires approval")
 
-			if riskLevel, ok := pending.Metadata["risk_level"]; ok {
-				fmt.Printf("   Risk Level: %s\n", riskLevel)
-			}
-			if amount, ok := pending.Metadata["amount"]; ok {
-				fmt.Printf("   Amount: $%.2f\n", amount)
-			}
-			if orderID, ok := pending.Metadata["order_id"]; ok {
-				fmt.Printf("   Order ID: %s\n", orderID)
-			}
+	// Display pending tools
+	displayPendingTools(response.PendingTools)
 
-			if pending.CallbackURL != "" {
-				fmt.Printf("   Approval URL: %s\n", pending.CallbackURL)
-			}
-			if pending.ExpiresAt != nil && !pending.ExpiresAt.IsZero() {
-				fmt.Printf("   Expires: %s\n", pending.ExpiresAt.Format("2006-01-02 15:04:05"))
-			}
-		}
+	// Simulate approval process
+	simulateApprovalProcess()
 
-		// Step 5: Simulate approval workflow
-		fmt.Println("\n\nStep 5: Simulating supervisor approval...")
-		fmt.Println("   [Notification sent to supervisor@example.com]")
-		fmt.Println("   [Supervisor reviews refund request...]")
-		time.Sleep(1 * time.Second) // Simulate review time
-		fmt.Println("   [✓ Supervisor APPROVED the refund]")
+	// Add approved tool result and continue
+	addApprovedResultAndContinue(ctx, conversation)
+}
 
-		// Step 6: Add approved tool result
-		fmt.Println("\nStep 6: Adding approved tool result...")
+func displayPendingTools(pendingTools []tools.PendingToolInfo) {
+	for i, pending := range pendingTools {
+		fmt.Printf("\n📋 Pending Tool #%d:\n", i+1)
+		fmt.Printf("   Tool: %s\n", pending.ToolName)
+		fmt.Printf("   Reason: %s\n", pending.Reason)
+		fmt.Printf("   Message: %s\n", pending.Message)
 
-		// Find the tool call ID from the conversation history
-		toolCallID := findToolCallID(conversation)
-		if toolCallID == "" {
-			log.Fatal("Could not find tool call ID")
-		}
+		displayToolMetadata(pending.Metadata)
+		displayToolDetails(pending)
+	}
+}
 
-		// Create approved result (in real app, this comes from actual tool execution)
-		approvedResult := map[string]interface{}{
-			"status":         "approved",
-			"refund_amount":  149.99,
-			"transaction_id": "refund_txn_789",
-			"approved_by":    "supervisor@example.com",
-			"approved_at":    time.Now().Format(time.RFC3339),
-		}
-		resultJSON, _ := json.Marshal(approvedResult)
+func displayToolMetadata(metadata map[string]interface{}) {
+	if riskLevel, ok := metadata["risk_level"]; ok {
+		fmt.Printf("   Risk Level: %s\n", riskLevel)
+	}
+	if amount, ok := metadata["amount"]; ok {
+		fmt.Printf("   Amount: $%.2f\n", amount)
+	}
+	if orderID, ok := metadata["order_id"]; ok {
+		fmt.Printf("   Order ID: %s\n", orderID)
+	}
+}
 
-		err = conversation.AddToolResult(toolCallID, string(resultJSON))
-		if err != nil {
-			log.Fatalf("Failed to add tool result: %v", err)
-		}
-		fmt.Println("   ✓ Tool result added")
+func displayToolDetails(pending tools.PendingToolInfo) {
+	if pending.CallbackURL != "" {
+		fmt.Printf("   Approval URL: %s\n", pending.CallbackURL)
+	}
+	if pending.ExpiresAt != nil && !pending.ExpiresAt.IsZero() {
+		fmt.Printf("   Expires: %s\n", pending.ExpiresAt.Format("2006-01-02 15:04:05"))
+	}
+}
 
-		// Step 7: Continue conversation
-		fmt.Println("\nStep 7: Resuming conversation...")
-		finalResponse, err := conversation.Continue(ctx)
-		if err != nil {
-			log.Fatalf("Failed to continue: %v", err)
-		}
+func simulateApprovalProcess() {
+	fmt.Println("\n\nStep 5: Simulating supervisor approval...")
+	fmt.Println("   [Notification sent to supervisor@example.com]")
+	fmt.Println("   [Supervisor reviews refund request...]")
+	time.Sleep(1 * time.Second) // Simulate review time
+	fmt.Println("   [✓ Supervisor APPROVED the refund]")
+}
 
-		fmt.Println("\n✓ Conversation resumed successfully")
-		fmt.Printf("   Final bot response: %s\n", finalResponse.Content)
-		fmt.Printf("   Tokens used: %d\n", finalResponse.TokensUsed)
-		fmt.Printf("   Latency: %dms\n", finalResponse.LatencyMs)
+func addApprovedResultAndContinue(ctx context.Context, conversation *sdk.Conversation) {
+	fmt.Println("\nStep 6: Adding approved tool result...")
 
-	} else {
-		fmt.Println("\n✓ Request completed immediately (no approval needed)")
+	toolCallID := findToolCallID(conversation)
+	if toolCallID == "" {
+		log.Fatal("Could not find tool call ID")
 	}
 
-	// Step 8: Show conversation history
+	approvedResult := createApprovedResult()
+	resultJSON, _ := json.Marshal(approvedResult)
+
+	err := conversation.AddToolResult(toolCallID, string(resultJSON))
+	if err != nil {
+		log.Fatalf("Failed to add tool result: %v", err)
+	}
+	fmt.Println("   ✓ Tool result added")
+
+	continueConversation(ctx, conversation)
+}
+
+func createApprovedResult() map[string]interface{} {
+	return map[string]interface{}{
+		"status":         "approved",
+		"refund_amount":  149.99,
+		"transaction_id": "refund_txn_789",
+		"approved_by":    "supervisor@example.com",
+		"approved_at":    time.Now().Format(time.RFC3339),
+	}
+}
+
+func continueConversation(ctx context.Context, conversation *sdk.Conversation) {
+	fmt.Println("\nStep 7: Resuming conversation...")
+	finalResponse, err := conversation.Continue(ctx)
+	if err != nil {
+		log.Fatalf("Failed to continue: %v", err)
+	}
+
+	fmt.Println("\n✓ Conversation resumed successfully")
+	fmt.Printf("   Final bot response: %s\n", finalResponse.Content)
+	fmt.Printf("   Tokens used: %d\n", finalResponse.TokensUsed)
+	fmt.Printf("   Latency: %dms\n", finalResponse.LatencyMs)
+}
+
+func showConversationHistory(conversation *sdk.Conversation) {
 	fmt.Println("\n\nStep 8: Conversation History:")
 	history := conversation.GetHistory()
 	for i, msg := range history {
@@ -142,7 +186,9 @@ func main() {
 			fmt.Printf("       Tool result: %s\n", truncate(msg.ToolResult.Content, 60))
 		}
 	}
+}
 
+func showMethodsDemonstrated() {
 	fmt.Println("\n=== Example Complete ===")
 	fmt.Println("\nKey SDK Methods Demonstrated:")
 	fmt.Println("✓ conversation.Send() - Send message and detect pending tools")
