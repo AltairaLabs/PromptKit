@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
@@ -527,3 +528,31 @@ func TestMockProviderFlagsRegistered(t *testing.T) {
 	require.NotNil(t, mockConfigFlag, "mock-config flag should be registered")
 	assert.Equal(t, "", mockConfigFlag.DefValue, "mock-config should default to empty string")
 }
+
+func TestExtractRunParameters_MockProviderFlags(t *testing.T) {
+	// Create a test command with mock provider flags set
+	cfg := &config.Config{
+		Defaults: config.Defaults{
+			Verbose: false,
+		},
+	}
+
+	// Set the mock provider flags
+	_ = runCmd.Flags().Set("mock-provider", "true")
+	_ = runCmd.Flags().Set("mock-config", "/path/to/mock.yaml")
+	_ = runCmd.Flags().Set("verbose", "false")
+	_ = runCmd.Flags().Set("ci", "false")
+
+	// Extract parameters
+	params, err := extractRunParameters(runCmd, cfg)
+	require.NoError(t, err)
+
+	// Verify mock provider parameters are extracted
+	assert.True(t, params.MockProvider, "MockProvider should be true")
+	assert.Equal(t, "/path/to/mock.yaml", params.MockConfig, "MockConfig should match")
+
+	// Clean up flags for other tests
+	_ = runCmd.Flags().Set("mock-provider", "false")
+	_ = runCmd.Flags().Set("mock-config", "")
+}
+

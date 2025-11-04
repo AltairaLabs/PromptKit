@@ -112,6 +112,8 @@ type RunParameters struct {
 	Verbose        bool
 	GenerateHTML   bool
 	HTMLReportPath string
+	MockProvider   bool   // Enable mock provider mode
+	MockConfig     string // Path to mock provider configuration
 }
 
 // loadConfiguration loads the configuration file and sets up viper
@@ -167,6 +169,14 @@ func extractRunParameters(cmd *cobra.Command, cfg *config.Config) (*RunParameter
 	}
 	if params.Verbose, err = cmd.Flags().GetBool("verbose"); err != nil {
 		return nil, fmt.Errorf("failed to get verbose flag: %w", err)
+	}
+
+	// Extract mock provider flags
+	if params.MockProvider, err = cmd.Flags().GetBool("mock-provider"); err != nil {
+		return nil, fmt.Errorf("failed to get mock-provider flag: %w", err)
+	}
+	if params.MockConfig, err = cmd.Flags().GetString("mock-config"); err != nil {
+		return nil, fmt.Errorf("failed to get mock-config flag: %w", err)
 	}
 
 	// Process HTML report settings
@@ -238,6 +248,19 @@ func executeRuns(configFile string, params *RunParameters) ([]engine.RunResult, 
 	eng, err := engine.NewEngineFromConfigFile(configFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create engine: %w", err)
+	}
+
+	// Apply mock provider override if requested
+	if params.MockProvider {
+		if err := eng.EnableMockProviderMode(params.MockConfig); err != nil {
+			return nil, fmt.Errorf("failed to enable mock provider mode: %w", err)
+		}
+		if !params.CIMode {
+			fmt.Println("Mock Provider Mode: ENABLED")
+			if params.MockConfig != "" {
+				fmt.Printf("Mock Config: %s\n", params.MockConfig)
+			}
+		}
 	}
 
 	// Generate run plan

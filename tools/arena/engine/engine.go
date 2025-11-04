@@ -153,6 +153,41 @@ func (e *Engine) Close() error {
 	return nil
 }
 
+// EnableMockProviderMode replaces all providers in the registry with MockProvider instances.
+// This is useful for CI/testing scenarios where deterministic responses are needed without
+// making actual API calls. If mockConfigPath is provided, it will be used to configure
+// scenario-specific mock responses (feature not yet implemented).
+//
+// Parameters:
+//   - mockConfigPath: Optional path to YAML configuration file for mock responses
+//
+// Returns an error if mock providers cannot be created or if mock config is not yet supported.
+func (e *Engine) EnableMockProviderMode(mockConfigPath string) error {
+	// Mock configuration file support is not yet implemented
+	// This will be added in a future enhancement to support scenario-specific responses
+	if mockConfigPath != "" {
+		return fmt.Errorf("mock configuration file support is not yet implemented (see #27)")
+	}
+
+	// Create a new provider registry with mock providers
+	mockRegistry := providers.NewRegistry()
+
+	// Replace each provider with a MockProvider using the same ID
+	for providerID, provider := range e.providers {
+		mockProvider := providers.NewMockProvider(
+			providerID,
+			provider.Model,
+			provider.IncludeRawOutput,
+		)
+		mockRegistry.Register(mockProvider)
+	}
+
+	// Replace the engine's provider registry
+	e.providerRegistry = mockRegistry
+
+	return nil
+}
+
 // closeMCPRegistry closes the MCP registry if initialized
 func (e *Engine) closeMCPRegistry() error {
 	if e.mcpRegistry != nil {
