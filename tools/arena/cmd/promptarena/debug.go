@@ -27,9 +27,31 @@ func init() {
 }
 
 func runDebug(cmd *cobra.Command) error {
+	configFile, err := getConfigFile(cmd)
+	if err != nil {
+		return err
+	}
+
+	printDebugHeader(configFile)
+
+	cfg, err := config.LoadConfig(configFile)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	printConfigOverview(cfg)
+	printScenarios(cfg.LoadedScenarios)
+	printProviders(cfg.LoadedProviders)
+
+	fmt.Printf("\n✅ Debug complete!\n")
+	return nil
+}
+
+// getConfigFile retrieves and validates the config file path
+func getConfigFile(cmd *cobra.Command) (string, error) {
 	configFile, err := cmd.Flags().GetString("config")
 	if err != nil {
-		return fmt.Errorf("failed to get config flag: %w", err)
+		return "", fmt.Errorf("failed to get config flag: %w", err)
 	}
 
 	// If config path is a directory, append arena.yaml
@@ -37,17 +59,18 @@ func runDebug(cmd *cobra.Command) error {
 		configFile = filepath.Join(configFile, "arena.yaml")
 	}
 
+	return configFile, nil
+}
+
+// printDebugHeader prints the debug mode header
+func printDebugHeader(configFile string) {
 	fmt.Printf("🔍 Altaira Prompt Arena - Debug Mode\n")
 	fmt.Printf("=====================================\n")
 	fmt.Printf("Config file: %s\n\n", configFile)
+}
 
-	// Load configuration directly
-	cfg, err := config.LoadConfig(configFile)
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	// Show configuration overview
+// printConfigOverview prints the configuration overview section
+func printConfigOverview(cfg *config.Config) {
 	fmt.Printf("📋 Configuration Overview\n")
 	fmt.Printf("--------------------------\n")
 	fmt.Printf("Prompt Configs: %d\n", len(cfg.PromptConfigs))
@@ -58,64 +81,61 @@ func runDebug(cmd *cobra.Command) error {
 	fmt.Printf("Default Seed: %d\n", cfg.Defaults.Seed)
 	fmt.Printf("Default Concurrency: %d\n", cfg.Defaults.Concurrency)
 	fmt.Printf("\n")
+}
 
-	// Show scenarios
-	scenarios := cfg.LoadedScenarios
-	if len(scenarios) > 0 {
-		fmt.Printf("🎬 Scenarios\n")
-		fmt.Printf("-------------\n")
-		for id, scenario := range scenarios {
-			fmt.Printf("ID: %s\n", id)
-			fmt.Printf("Task Type: %s\n", scenario.TaskType)
-			if scenario.Mode != "" {
-				fmt.Printf("Mode: %s\n", scenario.Mode)
-			}
-			fmt.Printf("Description: %s\n", scenario.Description)
-			fmt.Printf("Turns: %d\n", len(scenario.Turns))
-
-			if len(scenario.Constraints) > 0 {
-				fmt.Printf("Constraints: %v\n", getConstraintKeys(scenario.Constraints))
-			}
-
-			fmt.Printf("\n")
-		}
+// printScenarios prints all loaded scenarios
+func printScenarios(scenarios map[string]*config.Scenario) {
+	if len(scenarios) == 0 {
+		return
 	}
 
-	// Show providers
-	providers := cfg.LoadedProviders
-	if len(providers) > 0 {
-		fmt.Printf("🔌 Providers\n")
-		fmt.Printf("-------------\n")
-		for id, provider := range providers {
-			fmt.Printf("ID: %s\n", id)
-			fmt.Printf("Type: %s\n", provider.Type)
-			fmt.Printf("Model: %s\n", provider.Model)
-			fmt.Printf("Base URL: %s\n", provider.BaseURL)
-			fmt.Printf("Rate Limit: %d rps, %d burst\n", provider.RateLimit.RPS, provider.RateLimit.Burst)
-			fmt.Printf("Defaults: temp=%.1f, top_p=%.1f, max_tokens=%d\n",
-				provider.Defaults.Temperature, provider.Defaults.TopP, provider.Defaults.MaxTokens)
-			fmt.Printf("\n")
-		}
+	fmt.Printf("🎬 Scenarios\n")
+	fmt.Printf("-------------\n")
+	for id, scenario := range scenarios {
+		printScenarioDetails(id, *scenario)
+	}
+}
+
+// printScenarioDetails prints details for a single scenario
+func printScenarioDetails(id string, scenario config.Scenario) {
+	fmt.Printf("ID: %s\n", id)
+	fmt.Printf("Task Type: %s\n", scenario.TaskType)
+	if scenario.Mode != "" {
+		fmt.Printf("Mode: %s\n", scenario.Mode)
+	}
+	fmt.Printf("Description: %s\n", scenario.Description)
+	fmt.Printf("Turns: %d\n", len(scenario.Turns))
+
+	if len(scenario.Constraints) > 0 {
+		fmt.Printf("Constraints: %v\n", getConstraintKeys(scenario.Constraints))
 	}
 
-	// Test system prompt generation
-	// 	fmt.Printf("🧪 System Prompt Test\n")
-	// 	fmt.Printf("----------------------\n")
-	//
-	// 	// Use default regions for testing
-	// 	testRegions := eng.GetAvailableRegions()
-	//
-	// 	testTaskTypes := eng.GetAvailableTaskTypes()
-	//
-	// 	for _, region := range testRegions {
-	// 		for _, taskType := range testTaskTypes {
-	// 			systemPrompt := eng.BuildSystemPrompt(region, taskType)
-	// 			fmt.Printf("%s + %s: %s\n", region, taskType, truncateString(systemPrompt, 80))
-	// 		}
-	// 	}
-	//
-	fmt.Printf("\n✅ Debug complete!\n")
-	return nil
+	fmt.Printf("\n")
+}
+
+// printProviders prints all loaded providers
+func printProviders(providers map[string]*config.Provider) {
+	if len(providers) == 0 {
+		return
+	}
+
+	fmt.Printf("🔌 Providers\n")
+	fmt.Printf("-------------\n")
+	for id, provider := range providers {
+		printProviderDetails(id, *provider)
+	}
+}
+
+// printProviderDetails prints details for a single provider
+func printProviderDetails(id string, provider config.Provider) {
+	fmt.Printf("ID: %s\n", id)
+	fmt.Printf("Type: %s\n", provider.Type)
+	fmt.Printf("Model: %s\n", provider.Model)
+	fmt.Printf("Base URL: %s\n", provider.BaseURL)
+	fmt.Printf("Rate Limit: %d rps, %d burst\n", provider.RateLimit.RPS, provider.RateLimit.Burst)
+	fmt.Printf("Defaults: temp=%.1f, top_p=%.1f, max_tokens=%d\n",
+		provider.Defaults.Temperature, provider.Defaults.TopP, provider.Defaults.MaxTokens)
+	fmt.Printf("\n")
 }
 
 func getWrapperKeys(wrappers map[string]interface{}) []string {

@@ -22,7 +22,7 @@ func MockScenarioContextMiddleware(scenario *config.Scenario) pipeline.Middlewar
 }
 
 func (m *mockScenarioContextMiddleware) Process(execCtx *pipeline.ExecutionContext, next func() error) error {
-	// Add scenario context to the execution context if we have scenario metadata
+	// Add scenario context to the execution context metadata if we have scenario metadata
 	if m.scenario != nil && m.scenario.ID != "" {
 		// For turn numbering, we'll use the number of user messages in the current conversation
 		// as a simple proxy for turn number (since each user message represents a turn)
@@ -33,7 +33,14 @@ func (m *mockScenarioContextMiddleware) Process(execCtx *pipeline.ExecutionConte
 			}
 		}
 
-		execCtx.Context = providers.WithMockScenarioContext(execCtx.Context, m.scenario.ID, turnNumber)
+		// Initialize metadata map if not exists
+		if execCtx.Metadata == nil {
+			execCtx.Metadata = make(map[string]interface{})
+		}
+
+		// Add scenario context to metadata for MockProvider
+		execCtx.Metadata["mock_scenario_id"] = m.scenario.ID
+		execCtx.Metadata["mock_turn_number"] = turnNumber
 	}
 
 	return next()

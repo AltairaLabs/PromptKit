@@ -154,7 +154,6 @@ func executeNonStreaming(execCtx *pipeline.ExecutionContext, provider providers.
 
 // executeStreaming handles streaming execution with tool support
 func executeStreaming(execCtx *pipeline.ExecutionContext, provider providers.Provider, toolRegistry *tools.Registry, policy *pipeline.ToolPolicy, config *ProviderMiddlewareConfig) error {
-	ctx := execCtx.Context
 	// Check if provider supports streaming
 	if !provider.SupportsStreaming() {
 		return errors.New("provider middleware: provider does not support streaming")
@@ -171,145 +170,8 @@ func executeStreaming(execCtx *pipeline.ExecutionContext, provider providers.Pro
 			return err
 		}
 
-		// Build provider request
-		req := buildProviderRequest(execCtx, config)
-
-		// Call provider streaming
-		startTime := time.Now()
-		stream, err := provider.ChatStream(ctx, req)
-		if err != nil {
-			return fmt.Errorf("provider middleware: streaming failed: %w", err)
-		}
-
-		// Process stream chunks
-		var finalContent string
-		var toolCalls []types.MessageToolCall
-		var streamInterrupted bool
-		var finalChunk *providers.StreamChunk // Track final chunk for cost info
-
-		for chunk := range stream {
-			if chunk.Error != nil {
-				// Forward error chunk to output
-				if execCtx.StreamOutput != nil {
-					execCtx.EmitStreamChunk(chunk)
-				}
-				return fmt.Errorf("provider middleware: stream error: %w", chunk.Error)
-			}
-
-			// Track final content and tool calls
-			finalContent = chunk.Content
-			toolCalls = chunk.ToolCalls
-
-			// Track the final chunk (for cost info)
-			if chunk.FinishReason != nil {
-				finalChunk = &chunk
-			}
-
-			// Forward chunk to output (will run middleware StreamChunk hooks via EmitStreamChunk)
-			if execCtx.StreamOutput != nil {
-				if !execCtx.EmitStreamChunk(chunk) {
-					// Stream was interrupted (e.g., by validation failure)
-					// Mark as interrupted and break to save partial message
-					streamInterrupted = true
-					break
-				}
-			}
-		}
-		duration := time.Since(startTime)
-
-		// If stream was interrupted, add the partial assistant message before returning error
-		// This ensures validation results can be attached to the message
-		if streamInterrupted {
-			// Calculate approximate cost for interrupted stream
-			approxCost := calculateApproximateCost(provider, req, finalContent)
-
-			// Build partial pipeline response
-			pipelineResp := pipeline.Response{
-				Content: finalContent,
-			}
-
-			// Add cost info to pipeline response metadata
-			if approxCost != nil {
-				pipelineResp.Metadata = pipeline.ResponseMetadata{
-					TokensInput:  approxCost.InputTokens,
-					TokensOutput: approxCost.OutputTokens,
-					Cost:         approxCost.TotalCost,
-				}
-			}
-
-			execCtx.Response = &pipelineResp
-
-			// Record LLM call in trace before adding message
-			recordLLMCall(execCtx, config, &pipelineResp, startTime, duration, nil, convertToolCalls(toolCalls))
-
-			// Create assistant message with approximate cost
-			assistantMsg := createAssistantMessage(finalContent, nil, approxCost, duration)
-			// Store estimate type in Meta for debugging
-			assistantMsg.Meta = map[string]interface{}{
-				"raw_response": map[string]interface{}{
-					"cost_estimate_type": "approximate",
-				},
-			}
-			execCtx.Messages = append(execCtx.Messages, assistantMsg)
-
-			return nil
-		}
-
-		// Build pipeline response from final chunk
-		pipelineResp := pipeline.Response{
-			Content: finalContent,
-		}
-
-		// Add cost info from final chunk if available
-		var costInfo *types.CostInfo
-		if finalChunk != nil && finalChunk.CostInfo != nil {
-			costInfo = finalChunk.CostInfo
-			pipelineResp.Metadata = pipeline.ResponseMetadata{
-				TokensInput:  costInfo.InputTokens,
-				TokensOutput: costInfo.OutputTokens,
-				Cost:         costInfo.TotalCost,
-			}
-		}
-
-		execCtx.Response = &pipelineResp
-
-		// Check if there were tool calls
-		if len(toolCalls) == 0 {
-			// No tools to execute, we're done
-			// Record LLM call in trace before adding message
-			recordLLMCall(execCtx, config, &pipelineResp, startTime, duration, costInfo, convertToolCalls(toolCalls))
-
-			// Create assistant message
-			assistantMsg := createAssistantMessage(finalContent, nil, costInfo, duration)
-			// Store estimate type in Meta for debugging
-			if costInfo != nil {
-				assistantMsg.Meta = map[string]interface{}{
-					"raw_response": map[string]interface{}{
-						"cost_estimate_type": "exact",
-					},
-				}
-			}
-			execCtx.Messages = append(execCtx.Messages, assistantMsg)
-
-			break
-		}
-
-		// Record LLM call in trace and add assistant message with tool calls
-		recordLLMCall(execCtx, config, &pipelineResp, startTime, duration, costInfo, convertToolCalls(toolCalls))
-
-		assistantMsg := createAssistantMessage(finalContent, convertToolCalls(toolCalls), costInfo, duration)
-		// Store estimate type in Meta for debugging
-		if costInfo != nil {
-			assistantMsg.Meta = map[string]interface{}{
-				"raw_response": map[string]interface{}{
-					"cost_estimate_type": "exact",
-				},
-			}
-		}
-		execCtx.Messages = append(execCtx.Messages, assistantMsg)
-
-		// Process tool calls (if any) and determine if we need another round
-		hasMoreRounds, err := processToolCallRound(execCtx, toolRegistry, policy, toolCalls)
+		// Execute one streaming round
+		hasMoreRounds, err := executeStreamingRound(execCtx, provider, toolRegistry, policy, config)
 		if err != nil {
 			return err
 		}
@@ -321,6 +183,171 @@ func executeStreaming(execCtx *pipeline.ExecutionContext, provider providers.Pro
 	}
 
 	return nil
+}
+
+// executeStreamingRound executes a single round of streaming
+func executeStreamingRound(execCtx *pipeline.ExecutionContext, provider providers.Provider, toolRegistry *tools.Registry, policy *pipeline.ToolPolicy, config *ProviderMiddlewareConfig) (bool, error) {
+	// Build provider request
+	req := buildProviderRequest(execCtx, config)
+
+	// Call provider streaming
+	startTime := time.Now()
+	stream, err := provider.ChatStream(execCtx.Context, req)
+	if err != nil {
+		return false, fmt.Errorf("provider middleware: streaming failed: %w", err)
+	}
+
+	// Process stream chunks
+	streamResult, err := processStreamChunks(execCtx, stream)
+	if err != nil {
+		return false, err
+	}
+
+	duration := time.Since(startTime)
+
+	// Handle interrupted streams
+	if streamResult.interrupted {
+		return false, handleStreamInterruption(execCtx, provider, req, streamResult, duration, config)
+	}
+
+	// Handle completed streams
+	return handleStreamCompletion(execCtx, streamResult, duration, toolRegistry, policy, config)
+}
+
+// streamProcessResult holds the results of processing stream chunks
+type streamProcessResult struct {
+	finalContent string
+	toolCalls    []types.MessageToolCall
+	interrupted  bool
+	finalChunk   *providers.StreamChunk
+}
+
+// processStreamChunks processes all chunks from a stream
+func processStreamChunks(execCtx *pipeline.ExecutionContext, stream <-chan providers.StreamChunk) (*streamProcessResult, error) {
+	result := &streamProcessResult{}
+
+	for chunk := range stream {
+		if chunk.Error != nil {
+			// Forward error chunk to output
+			if execCtx.StreamOutput != nil {
+				execCtx.EmitStreamChunk(chunk)
+			}
+			return nil, fmt.Errorf("provider middleware: stream error: %w", chunk.Error)
+		}
+
+		// Track final content and tool calls
+		result.finalContent = chunk.Content
+		result.toolCalls = chunk.ToolCalls
+
+		// Track the final chunk (for cost info)
+		if chunk.FinishReason != nil {
+			finalChunk := chunk
+			result.finalChunk = &finalChunk
+		}
+
+		// Forward chunk to output (will run middleware StreamChunk hooks via EmitStreamChunk)
+		if execCtx.StreamOutput != nil {
+			if !execCtx.EmitStreamChunk(chunk) {
+				// Stream was interrupted (e.g., by validation failure)
+				result.interrupted = true
+				break
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// handleStreamInterruption handles interrupted streams by saving partial messages
+func handleStreamInterruption(execCtx *pipeline.ExecutionContext, provider providers.Provider, req providers.ChatRequest, result *streamProcessResult, duration time.Duration, config *ProviderMiddlewareConfig) error {
+	// Calculate approximate cost for interrupted stream
+	approxCost := calculateApproximateCost(provider, req, result.finalContent)
+
+	// Build partial pipeline response
+	pipelineResp := pipeline.Response{
+		Content: result.finalContent,
+	}
+
+	// Add cost info to pipeline response metadata
+	if approxCost != nil {
+		pipelineResp.Metadata = pipeline.ResponseMetadata{
+			TokensInput:  approxCost.InputTokens,
+			TokensOutput: approxCost.OutputTokens,
+			Cost:         approxCost.TotalCost,
+		}
+	}
+
+	execCtx.Response = &pipelineResp
+
+	// Record LLM call in trace before adding message
+	recordLLMCall(execCtx, config, &pipelineResp, time.Now().Add(-duration), duration, nil, convertToolCalls(result.toolCalls))
+
+	// Create assistant message with approximate cost
+	assistantMsg := createAssistantMessage(result.finalContent, nil, approxCost, duration)
+	assistantMsg.Meta = map[string]interface{}{
+		"raw_response": map[string]interface{}{
+			"cost_estimate_type": "approximate",
+		},
+	}
+	execCtx.Messages = append(execCtx.Messages, assistantMsg)
+
+	return nil
+}
+
+// handleStreamCompletion handles completed streams and determines if more rounds are needed
+func handleStreamCompletion(execCtx *pipeline.ExecutionContext, result *streamProcessResult, duration time.Duration, toolRegistry *tools.Registry, policy *pipeline.ToolPolicy, config *ProviderMiddlewareConfig) (bool, error) {
+	// Build pipeline response from final chunk
+	pipelineResp := pipeline.Response{
+		Content: result.finalContent,
+	}
+
+	// Add cost info from final chunk if available
+	var costInfo *types.CostInfo
+	if result.finalChunk != nil && result.finalChunk.CostInfo != nil {
+		costInfo = result.finalChunk.CostInfo
+		pipelineResp.Metadata = pipeline.ResponseMetadata{
+			TokensInput:  costInfo.InputTokens,
+			TokensOutput: costInfo.OutputTokens,
+			Cost:         costInfo.TotalCost,
+		}
+	}
+
+	execCtx.Response = &pipelineResp
+	startTime := time.Now().Add(-duration)
+
+	// Check if there were tool calls
+	if len(result.toolCalls) == 0 {
+		// No tools to execute, we're done
+		recordLLMCall(execCtx, config, &pipelineResp, startTime, duration, costInfo, convertToolCalls(result.toolCalls))
+
+		assistantMsg := createAssistantMessage(result.finalContent, nil, costInfo, duration)
+		if costInfo != nil {
+			assistantMsg.Meta = map[string]interface{}{
+				"raw_response": map[string]interface{}{
+					"cost_estimate_type": "exact",
+				},
+			}
+		}
+		execCtx.Messages = append(execCtx.Messages, assistantMsg)
+
+		return false, nil // No more rounds needed
+	}
+
+	// Record LLM call in trace and add assistant message with tool calls
+	recordLLMCall(execCtx, config, &pipelineResp, startTime, duration, costInfo, convertToolCalls(result.toolCalls))
+
+	assistantMsg := createAssistantMessage(result.finalContent, convertToolCalls(result.toolCalls), costInfo, duration)
+	if costInfo != nil {
+		assistantMsg.Meta = map[string]interface{}{
+			"raw_response": map[string]interface{}{
+				"cost_estimate_type": "exact",
+			},
+		}
+	}
+	execCtx.Messages = append(execCtx.Messages, assistantMsg)
+
+	// Process tool calls and determine if we need another round
+	return processToolCallRound(execCtx, toolRegistry, policy, result.toolCalls)
 }
 
 // buildProviderTooling extracts the duplicated tool setup logic
@@ -546,6 +573,14 @@ func buildProviderRequest(execCtx *pipeline.ExecutionContext, config *ProviderMi
 		req.Seed = config.Seed
 	}
 
+	// Copy all ExecutionContext.Metadata to ChatRequest.Metadata by value
+	if len(execCtx.Metadata) > 0 {
+		req.Metadata = make(map[string]interface{})
+		for key, value := range execCtx.Metadata {
+			req.Metadata[key] = value
+		}
+	}
+
 	return req
 }
 
@@ -559,101 +594,149 @@ func executeToolCalls(execCtx *pipeline.ExecutionContext, toolRegistry *tools.Re
 	var pendingToolInfos []interface{} // Store pending tool info for metadata
 
 	for _, call := range toolCalls {
-		// Check blocklist
-		if policy != nil && isToolBlocked(call.Name, policy.Blocklist) {
-			results = append(results, types.MessageToolResult{
-				ID:      call.ID,
-				Name:    call.Name,
-				Content: fmt.Sprintf("Tool %s is blocked by policy", call.Name),
-				Error:   fmt.Sprintf("Tool %s is blocked by policy", call.Name),
-			})
-			continue
-		}
-
-		// Try async execution first (handles both async and sync tools)
-		asyncResult, err := toolRegistry.ExecuteAsync(call.Name, call.Args)
+		result, pendingInfo, err := executeToolCall(execCtx, toolRegistry, policy, call)
 		if err != nil {
-			results = append(results, types.MessageToolResult{
-				ID:      call.ID,
-				Name:    call.Name,
-				Content: fmt.Sprintf("Error: %v", err),
-				Error:   err.Error(),
-			})
-			continue
+			return nil, err
 		}
 
-		// Handle based on status
-		switch asyncResult.Status {
-		case tools.ToolStatusPending:
-			// Tool is pending - add to ExecutionContext and store metadata
-			pendingMsg := asyncResult.PendingInfo.Message
-			if pendingMsg == "" {
-				pendingMsg = fmt.Sprintf("Tool %s is pending approval", call.Name)
-			}
+		results = append(results, result)
 
-			// Add to pending tool calls in ExecutionContext
-			execCtx.AddPendingToolCall(call)
-
-			// Store pending info for metadata
-			pendingToolInfos = append(pendingToolInfos, asyncResult.PendingInfo)
-
-			results = append(results, types.MessageToolResult{
-				ID:        call.ID,
-				Name:      call.Name,
-				Content:   pendingMsg,
-				Error:     "", // Not an error, just pending
-				LatencyMs: 0,
-			})
-
-		case tools.ToolStatusFailed:
-			// Tool execution failed
-			results = append(results, types.MessageToolResult{
-				ID:      call.ID,
-				Name:    call.Name,
-				Content: fmt.Sprintf("Tool execution failed: %s", asyncResult.Error),
-				Error:   asyncResult.Error,
-			})
-
-		case tools.ToolStatusComplete:
-			// Tool completed successfully - decode content
-			var resultValue interface{}
-			if err := json.Unmarshal(asyncResult.Content, &resultValue); err != nil {
-				results = append(results, types.MessageToolResult{
-					ID:      call.ID,
-					Name:    call.Name,
-					Content: string(asyncResult.Content),
-				})
-				continue
-			}
-
-			var content string
-			switch v := resultValue.(type) {
-			case string:
-				content = v
-			case float64, int, int64, bool, nil:
-				content = fmt.Sprintf("%v", v)
-			default:
-				jsonBytes, _ := json.Marshal(v)
-				content = string(jsonBytes)
-			}
-
-			results = append(results, types.MessageToolResult{
-				ID:      call.ID,
-				Name:    call.Name,
-				Content: content,
-			})
+		if pendingInfo != nil {
+			pendingToolInfos = append(pendingToolInfos, pendingInfo)
 		}
 	}
 
 	// Store pending tool infos in ExecutionContext metadata for middleware to use
+	storePendingToolInfos(execCtx, pendingToolInfos)
+
+	return results, nil
+}
+
+// executeToolCall executes a single tool call and returns the result
+func executeToolCall(execCtx *pipeline.ExecutionContext, toolRegistry *tools.Registry, policy *pipeline.ToolPolicy, call types.MessageToolCall) (types.MessageToolResult, interface{}, error) {
+	// Check blocklist
+	if policy != nil && isToolBlocked(call.Name, policy.Blocklist) {
+		return createBlockedToolResult(call), nil, nil
+	}
+
+	// Try async execution first (handles both async and sync tools)
+	asyncResult, err := toolRegistry.ExecuteAsync(call.Name, call.Args)
+	if err != nil {
+		return createErrorToolResult(call, err), nil, nil
+	}
+
+	// Handle based on status
+	return handleAsyncToolResult(execCtx, call, asyncResult)
+}
+
+// createBlockedToolResult creates a result for blocked tools
+func createBlockedToolResult(call types.MessageToolCall) types.MessageToolResult {
+	return types.MessageToolResult{
+		ID:      call.ID,
+		Name:    call.Name,
+		Content: fmt.Sprintf("Tool %s is blocked by policy", call.Name),
+		Error:   fmt.Sprintf("Tool %s is blocked by policy", call.Name),
+	}
+}
+
+// createErrorToolResult creates a result for failed tool execution
+func createErrorToolResult(call types.MessageToolCall, err error) types.MessageToolResult {
+	return types.MessageToolResult{
+		ID:      call.ID,
+		Name:    call.Name,
+		Content: fmt.Sprintf("Error: %v", err),
+		Error:   err.Error(),
+	}
+}
+
+// handleAsyncToolResult handles the result of async tool execution
+func handleAsyncToolResult(execCtx *pipeline.ExecutionContext, call types.MessageToolCall, asyncResult *tools.ToolExecutionResult) (types.MessageToolResult, interface{}, error) {
+	switch asyncResult.Status {
+	case tools.ToolStatusPending:
+		return handlePendingTool(execCtx, call, asyncResult)
+	case tools.ToolStatusFailed:
+		return handleFailedTool(call, asyncResult), nil, nil
+	case tools.ToolStatusComplete:
+		return handleCompleteTool(call, asyncResult), nil, nil
+	default:
+		return createErrorToolResult(call, fmt.Errorf("unknown tool status: %v", asyncResult.Status)), nil, nil
+	}
+}
+
+// handlePendingTool handles pending tool execution
+func handlePendingTool(execCtx *pipeline.ExecutionContext, call types.MessageToolCall, asyncResult *tools.ToolExecutionResult) (types.MessageToolResult, interface{}, error) {
+	// Tool is pending - add to ExecutionContext and store metadata
+	pendingMsg := asyncResult.PendingInfo.Message
+	if pendingMsg == "" {
+		pendingMsg = fmt.Sprintf("Tool %s is pending approval", call.Name)
+	}
+
+	// Add to pending tool calls in ExecutionContext
+	execCtx.AddPendingToolCall(call)
+
+	result := types.MessageToolResult{
+		ID:        call.ID,
+		Name:      call.Name,
+		Content:   pendingMsg,
+		Error:     "", // Not an error, just pending
+		LatencyMs: 0,
+	}
+
+	return result, asyncResult.PendingInfo, nil
+}
+
+// handleFailedTool handles failed tool execution
+func handleFailedTool(call types.MessageToolCall, asyncResult *tools.ToolExecutionResult) types.MessageToolResult {
+	return types.MessageToolResult{
+		ID:      call.ID,
+		Name:    call.Name,
+		Content: fmt.Sprintf("Tool execution failed: %s", asyncResult.Error),
+		Error:   asyncResult.Error,
+	}
+}
+
+// handleCompleteTool handles completed tool execution
+func handleCompleteTool(call types.MessageToolCall, asyncResult *tools.ToolExecutionResult) types.MessageToolResult {
+	// Tool completed successfully - decode content
+	var resultValue interface{}
+	if err := json.Unmarshal(asyncResult.Content, &resultValue); err != nil {
+		return types.MessageToolResult{
+			ID:      call.ID,
+			Name:    call.Name,
+			Content: string(asyncResult.Content),
+		}
+	}
+
+	content := formatToolResult(resultValue)
+
+	return types.MessageToolResult{
+		ID:      call.ID,
+		Name:    call.Name,
+		Content: content,
+	}
+}
+
+// formatToolResult formats the tool result content
+func formatToolResult(resultValue interface{}) string {
+	switch v := resultValue.(type) {
+	case string:
+		return v
+	case float64, int, int64, bool, nil:
+		return fmt.Sprintf("%v", v)
+	default:
+		jsonBytes, _ := json.Marshal(v)
+		return string(jsonBytes)
+	}
+}
+
+// storePendingToolInfos stores pending tool infos in ExecutionContext metadata
+func storePendingToolInfos(execCtx *pipeline.ExecutionContext, pendingToolInfos []interface{}) {
 	if len(pendingToolInfos) > 0 {
 		if execCtx.Metadata == nil {
 			execCtx.Metadata = make(map[string]interface{})
 		}
 		execCtx.Metadata["pending_tools"] = pendingToolInfos
 	}
-
-	return results, nil
 }
 
 // isToolBlocked checks if a tool is in the blocklist

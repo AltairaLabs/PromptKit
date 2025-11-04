@@ -248,24 +248,113 @@ jobs:
           --mock-provider \
           --mock-config mock-responses.yaml \
           --scenario customer-support-scenarios \
-          --provider openai-gpt-4o-mini
+          --provider openai-gpt-4o-mini \
+          --formats json,junit,html
     
     - name: Verify output was generated
       run: |
         if [ ! -d "examples/customer-support/out" ]; then
-          echo "Error: Output directory not created"
+          echo "Error: Customer-support output directory not created"
           exit 1
         fi
         if [ ! -f "examples/customer-support/out/index.json" ]; then
-          echo "Error: index.json not created"
+          echo "Error: Customer-support index.json not created"
           exit 1
         fi
-        echo "Mock provider test completed successfully!"
+        if [ ! -f "examples/customer-support/out/junit.xml" ]; then
+          echo "Error: Customer-support junit.xml not created"
+          exit 1
+        fi
+        
+        echo "Customer support Arena test completed successfully!"
+        
+        # Show test results summary
+        echo "=== Customer Support Test Results ==="
+        ls -la examples/customer-support/out/
     
-    - name: Upload Arena output
+    - name: Generate Arena Test Summary
+      if: always()
+      run: |
+        cd examples/customer-support/out
+        
+        echo "# 🎯 Arena Customer Support Test Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Extract key metrics from index.json
+        if [ -f "index.json" ]; then
+          TOTAL_RUNS=$(jq -r '.total_runs // 0' index.json)
+          SUCCESSFUL=$(jq -r '.successful // 0' index.json)
+          ERRORS=$(jq -r '.errors // 0' index.json)
+          TOTAL_COST=$(jq -r '.total_cost // 0' index.json)
+          AVG_COST=$(jq -r '.average_cost // 0' index.json)
+          DURATION=$(jq -r '.total_duration // "0s"' index.json)
+          
+          echo "## 📊 Test Overview" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 🏃 Total Runs | $TOTAL_RUNS |" >> $GITHUB_STEP_SUMMARY
+          echo "| ✅ Successful | $SUCCESSFUL |" >> $GITHUB_STEP_SUMMARY
+          echo "| ❌ Errors | $ERRORS |" >> $GITHUB_STEP_SUMMARY
+          echo "| 💰 Total Cost | \$$(printf '%.6f' $TOTAL_COST) |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📈 Avg Cost | \$$(printf '%.6f' $AVG_COST) |" >> $GITHUB_STEP_SUMMARY
+          echo "| ⏱️ Duration | $DURATION |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Show scenarios tested
+          echo "## 🎬 Scenarios Tested" >> $GITHUB_STEP_SUMMARY
+          jq -r '.scenarios[]?' index.json | while read scenario; do
+            echo "- $scenario" >> $GITHUB_STEP_SUMMARY
+          done
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Show providers used
+          echo "## 🔌 Providers Used" >> $GITHUB_STEP_SUMMARY
+          jq -r '.providers[]?' index.json | while read provider; do
+            echo "- $provider" >> $GITHUB_STEP_SUMMARY
+          done
+          echo "" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Show individual test results
+        echo "## 📋 Individual Test Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        for file in *.json; do
+          if [[ "$file" != "index.json" && -f "$file" ]]; then
+            SCENARIO=$(jq -r '.ScenarioID // "Unknown"' "$file")
+            PROVIDER=$(jq -r '.ProviderID // "Unknown"' "$file")
+            ERROR=$(jq -r '.Error // ""' "$file")
+            COST=$(jq -r '.Cost.total_cost_usd // 0' "$file")
+            DURATION=$(jq -r '.Duration // 0' "$file")
+            
+            if [ -n "$ERROR" ] && [ "$ERROR" != "null" ] && [ "$ERROR" != "" ]; then
+              echo "### ❌ $SCENARIO ($PROVIDER)" >> $GITHUB_STEP_SUMMARY
+              echo "**Error:** $ERROR" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "### ✅ $SCENARIO ($PROVIDER)" >> $GITHUB_STEP_SUMMARY
+              echo "**Cost:** \$$(printf '%.6f' $COST) | **Duration:** ${DURATION}µs" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+        done
+        
+        # Add download link for full reports
+        echo "## 📎 Full Reports" >> $GITHUB_STEP_SUMMARY
+        echo "Download the complete HTML and JSON reports from the **arena-customer-support-reports** artifact above." >> $GITHUB_STEP_SUMMARY
+    
+    - name: Publish Arena Test Results
+      uses: dorny/test-reporter@31a54ee7ebcacc03a09ea97a7e5465a47b84aea5 # v1.9.1
+      if: always()
+      with:
+        name: Arena Customer Support Tests
+        path: examples/customer-support/out/junit.xml
+        reporter: java-junit
+        fail-on-error: false
+    
+    - name: Upload Arena Test Reports
       if: always()
       uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
       with:
-        name: arena-mock-output
+        name: arena-customer-support-reports
         path: examples/customer-support/out/
         retention-days: 5

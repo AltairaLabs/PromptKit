@@ -8,16 +8,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// Context keys for mock provider scenario and turn information
-type contextKey string
-
-const (
-	// MockScenarioIDKey is used to pass scenario ID through context
-	MockScenarioIDKey contextKey = "mock_scenario_id"
-	// MockTurnNumberKey is used to pass turn number through context
-	MockTurnNumberKey contextKey = "mock_turn_number"
-)
-
 // MockProvider is a provider implementation for testing and development.
 // It returns mock responses without making any API calls, using a repository
 // pattern to source responses from various backends (files, memory, databases).
@@ -76,12 +66,14 @@ func (m *MockProvider) Chat(ctx context.Context, req ChatRequest) (ChatResponse,
 		ModelName:  m.model,
 	}
 
-	// Extract scenario context if available
-	if scenarioID, ok := ctx.Value(MockScenarioIDKey).(string); ok {
-		params.ScenarioID = scenarioID
-	}
-	if turnNumber, ok := ctx.Value(MockTurnNumberKey).(int); ok {
-		params.TurnNumber = turnNumber
+	// Extract scenario context if available from ChatRequest.Metadata
+	if req.Metadata != nil {
+		if scenarioID, ok := req.Metadata["mock_scenario_id"].(string); ok {
+			params.ScenarioID = scenarioID
+		}
+		if turnNumber, ok := req.Metadata["mock_turn_number"].(int); ok {
+			params.TurnNumber = turnNumber
+		}
 	}
 
 	// Debug logging for troubleshooting mock provider behavior
@@ -141,80 +133,121 @@ func (m *MockProvider) ChatStream(ctx context.Context, req ChatRequest) (<-chan 
 
 	go func() {
 		defer close(outChan)
-
-		// Try to get response from repository with scenario context
-		params := MockResponseParams{
-			ProviderID: m.id,
-			ModelName:  m.model,
-		}
-
-		// Extract scenario context if available
-		if scenarioID, ok := ctx.Value(MockScenarioIDKey).(string); ok {
-			params.ScenarioID = scenarioID
-		}
-		if turnNumber, ok := ctx.Value(MockTurnNumberKey).(int); ok {
-			params.TurnNumber = turnNumber
-		}
-
-		// Debug logging for troubleshooting mock provider streaming behavior
-		logger.Debug("MockProvider ChatStream request",
-			"provider_id", m.id,
-			"model", m.model,
-			"scenario_id", params.ScenarioID,
-			"turn_number", params.TurnNumber,
-			"has_scenario_context", params.ScenarioID != "",
-			"backward_compat_value", m.value != "")
-
-		responseText, err := m.repository.GetResponse(ctx, params)
-		if err != nil {
-			logger.Debug("MockProvider stream repository error", "error", err)
-			// Send error in stream
-			return
-		}
-
-		// Use value if set (for backward compatibility with tests), otherwise use repository response
-		if m.value != "" {
-			logger.Debug("MockProvider stream using backward compatibility value", "response", m.value)
-			responseText = m.value
-		} else {
-			logger.Debug("MockProvider stream using repository response", "response", responseText)
-		}
-
-		// Count input tokens
-		inputTokens := 0
-		for _, msg := range req.Messages {
-			inputTokens += len(msg.Content) / 4
-		}
-		if inputTokens == 0 {
-			inputTokens = 10
-		}
-
-		outputTokens := len(responseText) / 4
-		if outputTokens == 0 {
-			outputTokens = 20
-		}
-
-		// Send the mock response as a single chunk
-		outChan <- StreamChunk{
-			Content:      responseText,
-			Delta:        responseText,
-			TokenCount:   outputTokens,
-			DeltaTokens:  outputTokens,
-			FinishReason: ptr("stop"),
-			FinalResult: &ChatResponse{
-				Content: responseText,
-				CostInfo: &types.CostInfo{
-					InputTokens:   inputTokens,
-					OutputTokens:  outputTokens,
-					InputCostUSD:  float64(inputTokens) * 0.00001,
-					OutputCostUSD: float64(outputTokens) * 0.00001,
-					TotalCost:     float64(inputTokens+outputTokens) * 0.00001,
-				},
-			},
-		}
+		m.handleStreamRequest(ctx, req, outChan)
 	}()
 
 	return outChan, nil
+}
+
+// handleStreamRequest processes the stream request and sends the response
+func (m *MockProvider) handleStreamRequest(ctx context.Context, req ChatRequest, outChan chan<- StreamChunk) {
+	params := m.buildMockResponseParams(req)
+	m.logStreamRequest(params)
+
+	responseText := m.getStreamResponse(ctx, params)
+	if responseText == "" {
+		return // Error already logged in getStreamResponse
+	}
+
+	inputTokens := m.calculateInputTokens(req.Messages)
+	outputTokens := m.calculateOutputTokens(responseText)
+
+	chunk := m.createStreamChunk(responseText, inputTokens, outputTokens)
+	outChan <- chunk
+}
+
+// buildMockResponseParams creates parameters for the mock response
+func (m *MockProvider) buildMockResponseParams(req ChatRequest) MockResponseParams {
+	params := MockResponseParams{
+		ProviderID: m.id,
+		ModelName:  m.model,
+	}
+
+	// Extract scenario context if available from ChatRequest.Metadata
+	if req.Metadata != nil {
+		if scenarioID, ok := req.Metadata["mock_scenario_id"].(string); ok {
+			params.ScenarioID = scenarioID
+		}
+		if turnNumber, ok := req.Metadata["mock_turn_number"].(int); ok {
+			params.TurnNumber = turnNumber
+		}
+	}
+
+	return params
+}
+
+// logStreamRequest logs debug information for the stream request
+func (m *MockProvider) logStreamRequest(params MockResponseParams) {
+	logger.Debug("MockProvider ChatStream request",
+		"provider_id", m.id,
+		"model", m.model,
+		"scenario_id", params.ScenarioID,
+		"turn_number", params.TurnNumber,
+		"has_scenario_context", params.ScenarioID != "",
+		"backward_compat_value", m.value != "")
+}
+
+// getStreamResponse gets the response text from repository or fallback value
+func (m *MockProvider) getStreamResponse(ctx context.Context, params MockResponseParams) string {
+	responseText, err := m.repository.GetResponse(ctx, params)
+	if err != nil {
+		logger.Debug("MockProvider stream repository error", "error", err)
+		return ""
+	}
+
+	// Use value if set (for backward compatibility with tests), otherwise use repository response
+	if m.value != "" {
+		logger.Debug("MockProvider stream using backward compatibility value", "response", m.value)
+		return m.value
+	}
+
+	logger.Debug("MockProvider stream using repository response", "response", responseText)
+	return responseText
+}
+
+// calculateInputTokens estimates input tokens from messages
+func (m *MockProvider) calculateInputTokens(messages []types.Message) int {
+	inputTokens := 0
+	for _, msg := range messages {
+		inputTokens += len(msg.Content) / 4
+	}
+	if inputTokens == 0 {
+		inputTokens = 10
+	}
+	return inputTokens
+}
+
+// calculateOutputTokens estimates output tokens from response text
+func (m *MockProvider) calculateOutputTokens(responseText string) int {
+	outputTokens := len(responseText) / 4
+	if outputTokens == 0 {
+		outputTokens = 20
+	}
+	return outputTokens
+}
+
+// createStreamChunk creates a stream chunk with the response and cost info
+func (m *MockProvider) createStreamChunk(responseText string, inputTokens, outputTokens int) StreamChunk {
+	costInfo := &types.CostInfo{
+		InputTokens:   inputTokens,
+		OutputTokens:  outputTokens,
+		InputCostUSD:  float64(inputTokens) * 0.00001,
+		OutputCostUSD: float64(outputTokens) * 0.00001,
+		TotalCost:     float64(inputTokens+outputTokens) * 0.00001,
+	}
+
+	return StreamChunk{
+		Content:      responseText,
+		Delta:        responseText,
+		TokenCount:   outputTokens,
+		DeltaTokens:  outputTokens,
+		FinishReason: ptr("stop"),
+		CostInfo:     costInfo,
+		FinalResult: &ChatResponse{
+			Content:  responseText,
+			CostInfo: costInfo,
+		},
+	}
 }
 
 // SupportsStreaming indicates whether the provider supports streaming.
@@ -252,11 +285,4 @@ func (m *MockProvider) CalculateCost(inputTokens, outputTokens, cachedTokens int
 		CachedCostUSD: cachedCost,
 		TotalCost:     inputCost + cachedCost + outputCost,
 	}
-}
-
-// WithMockScenarioContext adds scenario information to context for MockProvider
-func WithMockScenarioContext(ctx context.Context, scenarioID string, turnNumber int) context.Context {
-	ctx = context.WithValue(ctx, MockScenarioIDKey, scenarioID)
-	ctx = context.WithValue(ctx, MockTurnNumberKey, turnNumber)
-	return ctx
 }
