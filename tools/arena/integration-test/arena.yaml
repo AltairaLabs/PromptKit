@@ -1,0 +1,39 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+
+metadata:
+  name: cicd-integration-test
+  description: Integration test for CI/CD multi-format output validation
+
+spec:
+  # Prompt Configuration
+  prompt_configs:
+    - id: integration-test
+      file: prompts/integration-test.yaml
+
+  # Test Scenarios - mix of success and failure cases
+  scenarios:
+    - file: scenarios/successful-test.yaml
+    - file: scenarios/failing-test.yaml
+    - file: scenarios/timeout-test.yaml
+
+  # Provider Configuration - will be replaced by mock provider
+  providers:
+    - file: providers/mock-provider.yaml
+
+  # Default Settings - configure all output formats for CI/CD testing
+  defaults:
+    temperature: 0.1
+    max_tokens: 500
+    seed: 42
+    concurrency: 1
+    out_dir: output
+    
+    # CI/CD Output Formats - test all formats simultaneously
+    output_formats:
+      - json   # Detailed results for debugging and analysis
+      - junit  # CI/CD pipeline integration and test reporting
+      - html   # Human-readable reports for review
+    
+    # Additional settings
+    verbose: true

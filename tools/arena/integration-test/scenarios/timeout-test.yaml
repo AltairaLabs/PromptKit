@@ -1,0 +1,17 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+
+metadata:
+  name: timeout-test-scenario
+
+spec:
+  id: timeout-test
+  task_type: integration-test
+  description: "Test scenario that simulates timeout - validates timeout handling"
+  
+  turns:
+    - role: user
+      content: "Start long-running performance test"
+    
+    - role: user
+      content: "Check test execution status"

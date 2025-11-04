@@ -17,9 +17,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestConversationExecutor_WarnOnUserTurnAssertions verifies that a warning is logged
-// when assertions are specified on user turns (which are meaningless)
-func TestConversationExecutor_WarnOnUserTurnAssertions(t *testing.T) {
+// TestConversationExecutor_DebugOnUserTurnAssertions verifies that a debug message is logged
+// when assertions are specified on user turns (which will validate assistant responses)
+func TestConversationExecutor_DebugOnUserTurnAssertions(t *testing.T) {
 	// Capture stderr output where logger writes
 	originalStderr := os.Stderr
 	defer func() {
@@ -28,7 +28,7 @@ func TestConversationExecutor_WarnOnUserTurnAssertions(t *testing.T) {
 
 	r, w, _ := os.Pipe()
 	os.Stderr = w
-	logger.SetVerbose(false)
+	logger.SetVerbose(true) // Enable debug logging
 
 	// Create mock turn executor
 	mockTurnExec := &MockTurnExecutor{}
@@ -102,10 +102,9 @@ func TestConversationExecutor_WarnOnUserTurnAssertions(t *testing.T) {
 	// Should not fail
 	require.False(t, result.Failed, "Conversation should not fail")
 
-	// Should have logged a warning about assertions on user turn
+	// Should have logged a debug message about assertions on user turn
 	outputStr := output.String()
 	require.True(t,
-		strings.Contains(outputStr, "Ignoring assertions on user turn") ||
-			strings.Contains(outputStr, "assertions only validate assistant responses"),
-		"Expected warning about assertions on user turn in output: %s", outputStr)
+		strings.Contains(outputStr, "Assertions on user turn will validate next assistant response"),
+		"Expected debug message about assertions on user turn in output: %s", outputStr)
 }

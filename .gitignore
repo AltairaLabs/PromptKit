@@ -40,6 +40,11 @@ results/
 reports/
 *.html
 out/
+tools/arena/integration-test/**/*.json
+tools/arena/integration-test/**/*.html
+tools/arena/integration-test/**/*.xml
+tools/arena/promptarena
+
 
 # Logs
 *.log

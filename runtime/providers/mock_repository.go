@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"gopkg.in/yaml.v3"
 )
 
@@ -77,29 +79,49 @@ func NewFileMockRepository(configPath string) (*FileMockRepository, error) {
 // 3. Global default response
 // 4. Generic fallback message
 func (r *FileMockRepository) GetResponse(ctx context.Context, params MockResponseParams) (string, error) {
+	logger.Debug("FileMockRepository GetResponse",
+		"scenario_id", params.ScenarioID,
+		"turn_number", params.TurnNumber,
+		"provider_id", params.ProviderID,
+		"model", params.ModelName,
+		"available_scenarios", getScenarioKeys(r.config.Scenarios))
+
 	// Try scenario + turn specific response
 	if params.ScenarioID != "" {
 		if scenario, exists := r.config.Scenarios[params.ScenarioID]; exists {
+			logger.Debug("Found scenario in config", "scenario_id", params.ScenarioID)
 			if params.TurnNumber > 0 {
 				if turnResponse, ok := scenario.Turns[params.TurnNumber]; ok {
+					logger.Debug("Using scenario+turn specific response",
+						"scenario_id", params.ScenarioID,
+						"turn_number", params.TurnNumber,
+						"response", turnResponse)
 					return turnResponse, nil
 				}
+				logger.Debug("No turn-specific response found", "turn_number", params.TurnNumber, "available_turns", getTurnKeys(scenario.Turns))
 			}
 
 			// Try scenario default
 			if scenario.DefaultResponse != "" {
+				logger.Debug("Using scenario default response", "scenario_id", params.ScenarioID, "response", scenario.DefaultResponse)
 				return scenario.DefaultResponse, nil
 			}
+			logger.Debug("No scenario default response configured", "scenario_id", params.ScenarioID)
+		} else {
+			logger.Debug("Scenario not found in config", "scenario_id", params.ScenarioID, "available_scenarios", getScenarioKeys(r.config.Scenarios))
 		}
 	}
 
 	// Try global default
 	if r.config.DefaultResponse != "" {
+		logger.Debug("Using global default response", "response", r.config.DefaultResponse)
 		return r.config.DefaultResponse, nil
 	}
 
 	// Final fallback
-	return fmt.Sprintf("Mock response for provider %s model %s", params.ProviderID, params.ModelName), nil
+	fallback := fmt.Sprintf("Mock response for provider %s model %s", params.ProviderID, params.ModelName)
+	logger.Debug("Using final fallback response", "response", fallback)
+	return fallback, nil
 }
 
 // InMemoryMockRepository stores mock responses in memory.
@@ -154,4 +176,21 @@ func (r *InMemoryMockRepository) GetResponse(ctx context.Context, params MockRes
 
 	// Final fallback
 	return fmt.Sprintf("Mock response for provider %s model %s", params.ProviderID, params.ModelName), nil
+}
+
+// Helper functions for debug logging
+func getScenarioKeys(scenarios map[string]ScenarioMockConfig) []string {
+	keys := make([]string, 0, len(scenarios))
+	for k := range scenarios {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+func getTurnKeys(turns map[int]string) []string {
+	keys := make([]string, 0, len(turns))
+	for k := range turns {
+		keys = append(keys, strconv.Itoa(k))
+	}
+	return keys
 }

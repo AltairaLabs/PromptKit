@@ -1,0 +1,44 @@
+# Integration Test Mock Configuration with ERRORS
+# This configuration includes some failures to test error reporting
+
+defaultResponse: "This is a default mock response for integration testing."
+
+scenarios:
+  # Test scenario that should PASS - represents successful test
+  successful-test-scenario:
+    defaultResponse: "Test completed successfully!"
+    turns:
+      1: "Starting test execution..."
+      2: "All validations passed. Test successful!"
+      3: "Integration test completed with expected results."
+
+  # Test scenario that should FAIL - represents failed test with error
+  failing-test-scenario:
+    defaultResponse: "ERROR: Test failed with validation errors"
+    turns:
+      1: "Initiating test sequence..."
+      2: "ERROR: Validation failed - Expected 'success' but got 'failure'"  
+      3: "FATAL: Test execution terminated due to critical errors"
+
+  # Test scenario for timeout simulation
+  timeout-test-scenario:
+    defaultResponse: "TIMEOUT: Test exceeded maximum execution time"
+    turns:
+      1: "Beginning test execution..."
+      2: "ERROR: Test timed out after 30 seconds"
+
+  # Test scenario for mixed results
+  mixed-results:
+    defaultResponse: "Test completed with mixed results."
+    turns:
+      1: "Starting comprehensive test suite..."
+      2: "Some tests passed, some failed - see details"
+      3: "Final result: PARTIAL SUCCESS"
+
+  # Test scenario for edge cases
+  edge-case-test:
+    defaultResponse: "Edge case testing completed."
+    turns:
+      1: "Testing boundary conditions..."
+      2: "Edge case validation successful"
+      3: "All boundary tests passed"

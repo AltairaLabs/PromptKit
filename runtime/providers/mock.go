@@ -4,7 +4,18 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+)
+
+// Context keys for mock provider scenario and turn information
+type contextKey string
+
+const (
+	// MockScenarioIDKey is used to pass scenario ID through context
+	MockScenarioIDKey contextKey = "mock_scenario_id"
+	// MockTurnNumberKey is used to pass turn number through context
+	MockTurnNumberKey contextKey = "mock_turn_number"
 )
 
 // MockProvider is a provider implementation for testing and development.
@@ -59,20 +70,41 @@ func (m *MockProvider) ID() string {
 
 // Chat returns a mock response using the configured repository.
 func (m *MockProvider) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error) {
-	// Try to get response from repository
+	// Try to get response from repository with scenario context
 	params := MockResponseParams{
 		ProviderID: m.id,
 		ModelName:  m.model,
 	}
 
+	// Extract scenario context if available
+	if scenarioID, ok := ctx.Value(MockScenarioIDKey).(string); ok {
+		params.ScenarioID = scenarioID
+	}
+	if turnNumber, ok := ctx.Value(MockTurnNumberKey).(int); ok {
+		params.TurnNumber = turnNumber
+	}
+
+	// Debug logging for troubleshooting mock provider behavior
+	logger.Debug("MockProvider Chat request",
+		"provider_id", m.id,
+		"model", m.model,
+		"scenario_id", params.ScenarioID,
+		"turn_number", params.TurnNumber,
+		"has_scenario_context", params.ScenarioID != "",
+		"backward_compat_value", m.value != "")
+
 	responseText, err := m.repository.GetResponse(ctx, params)
 	if err != nil {
+		logger.Debug("MockProvider repository error", "error", err)
 		return ChatResponse{}, fmt.Errorf("failed to get mock response: %w", err)
 	}
 
 	// Use value if set (for backward compatibility with tests), otherwise use repository response
 	if m.value != "" {
+		logger.Debug("MockProvider using backward compatibility value", "response", m.value)
 		responseText = m.value
+	} else {
+		logger.Debug("MockProvider using repository response", "response", responseText)
 	}
 
 	// Count tokens based on message length (rough approximation)
@@ -110,21 +142,42 @@ func (m *MockProvider) ChatStream(ctx context.Context, req ChatRequest) (<-chan 
 	go func() {
 		defer close(outChan)
 
-		// Try to get response from repository
+		// Try to get response from repository with scenario context
 		params := MockResponseParams{
 			ProviderID: m.id,
 			ModelName:  m.model,
 		}
 
+		// Extract scenario context if available
+		if scenarioID, ok := ctx.Value(MockScenarioIDKey).(string); ok {
+			params.ScenarioID = scenarioID
+		}
+		if turnNumber, ok := ctx.Value(MockTurnNumberKey).(int); ok {
+			params.TurnNumber = turnNumber
+		}
+
+		// Debug logging for troubleshooting mock provider streaming behavior
+		logger.Debug("MockProvider ChatStream request",
+			"provider_id", m.id,
+			"model", m.model,
+			"scenario_id", params.ScenarioID,
+			"turn_number", params.TurnNumber,
+			"has_scenario_context", params.ScenarioID != "",
+			"backward_compat_value", m.value != "")
+
 		responseText, err := m.repository.GetResponse(ctx, params)
 		if err != nil {
+			logger.Debug("MockProvider stream repository error", "error", err)
 			// Send error in stream
 			return
 		}
 
 		// Use value if set (for backward compatibility with tests), otherwise use repository response
 		if m.value != "" {
+			logger.Debug("MockProvider stream using backward compatibility value", "response", m.value)
 			responseText = m.value
+		} else {
+			logger.Debug("MockProvider stream using repository response", "response", responseText)
 		}
 
 		// Count input tokens
@@ -199,4 +252,11 @@ func (m *MockProvider) CalculateCost(inputTokens, outputTokens, cachedTokens int
 		CachedCostUSD: cachedCost,
 		TotalCost:     inputCost + cachedCost + outputCost,
 	}
+}
+
+// WithMockScenarioContext adds scenario information to context for MockProvider
+func WithMockScenarioContext(ctx context.Context, scenarioID string, turnNumber int) context.Context {
+	ctx = context.WithValue(ctx, MockScenarioIDKey, scenarioID)
+	ctx = context.WithValue(ctx, MockTurnNumberKey, turnNumber)
+	return ctx
 }

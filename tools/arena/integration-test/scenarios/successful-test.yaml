@@ -1,0 +1,20 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+
+metadata:
+  name: successful-test-scenario
+
+spec:
+  id: successful-test
+  task_type: integration-test
+  description: "Test scenario that should pass - validates successful CI/CD integration"
+  
+  turns:
+    - role: user
+      content: "Run integration test for user authentication module"
+    
+    - role: user  
+      content: "Validate that all security checks pass"
+      
+    - role: user
+      content: "Confirm test completion status"

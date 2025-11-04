@@ -1,0 +1,26 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+
+metadata:
+  name: integration-test-prompt
+
+spec:
+  task_type: integration-test
+  
+  # Simple test prompt for integration testing
+  system_prompt: |
+    You are an integration test assistant. Your job is to respond to test scenarios
+    and provide appropriate responses for CI/CD testing purposes.
+    
+    When responding to tests:
+    - Be clear and concise
+    - Indicate success or failure appropriately
+    - Provide meaningful error messages when tests fail
+    
+  # User message template for scenarios
+  user_template: |
+    Execute test scenario: {{ .scenario_name }}
+    
+    Test details: {{ .test_description }}
+    
+    Please respond with the appropriate test result.
