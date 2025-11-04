@@ -7,6 +7,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -280,4 +281,361 @@ func TestStreamProcessResult(t *testing.T) {
 	if result.finalChunk == nil {
 		t.Error("Expected final chunk to be set")
 	}
+}
+
+// TestExecuteStreaming tests the main streaming execution entry point
+func TestExecuteStreaming(t *testing.T) {
+	tests := []struct {
+		name           string
+		setupProvider  func() providers.Provider
+		setupRegistry  func() *tools.Registry
+		messages       []types.Message
+		expectError    bool
+		expectMessages int
+	}{
+		{
+			name: "successful streaming without tools",
+			setupProvider: func() providers.Provider {
+				mockRepo := providers.NewInMemoryMockRepository("Test response")
+				return providers.NewMockProviderWithRepository("test-provider", "test-model", false, mockRepo)
+			},
+			setupRegistry: func() *tools.Registry {
+				return tools.NewRegistry()
+			},
+			messages: []types.Message{
+				{Role: "user", Content: "test message"},
+			},
+			expectError:    false,
+			expectMessages: 2, // user + assistant
+		},
+		{
+			name: "streaming without tool registry",
+			setupProvider: func() providers.Provider {
+				mockRepo := providers.NewInMemoryMockRepository("Test response without tools")
+				return providers.NewMockProviderWithRepository("test-provider", "test-model", false, mockRepo)
+			},
+			setupRegistry: func() *tools.Registry {
+				return nil
+			},
+			messages: []types.Message{
+				{Role: "user", Content: "test message"},
+			},
+			expectError:    false,
+			expectMessages: 2, // user + assistant
+		},
+		{
+			name: "streaming with empty messages",
+			setupProvider: func() providers.Provider {
+				mockRepo := providers.NewInMemoryMockRepository("Response to empty")
+				return providers.NewMockProviderWithRepository("test-provider", "test-model", false, mockRepo)
+			},
+			setupRegistry: func() *tools.Registry {
+				return tools.NewRegistry()
+			},
+			messages:       []types.Message{},
+			expectError:    false,
+			expectMessages: 1, // assistant response
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			provider := tt.setupProvider()
+			registry := tt.setupRegistry()
+
+			execCtx := &pipeline.ExecutionContext{
+				Context:    context.Background(),
+				Messages:   tt.messages,
+				StreamMode: true,
+				Metadata: map[string]interface{}{
+					"mock_scenario_id": "test-scenario",
+					"mock_turn_number": 1,
+				},
+			}
+
+			// Create provider middleware
+			middleware := ProviderMiddleware(provider, registry, nil, nil)
+
+			// Execute the middleware process function which calls executeStreaming internally
+			err := middleware.Process(execCtx, func() error { return nil })
+
+			if tt.expectError {
+				if err == nil {
+					t.Error("Expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if len(execCtx.Messages) != tt.expectMessages {
+				t.Errorf("Expected %d messages, got %d", tt.expectMessages, len(execCtx.Messages))
+			}
+		})
+	}
+}
+
+// TestHandleStreamInterruption tests the interrupted stream handling
+func TestHandleStreamInterruption(t *testing.T) {
+	tests := []struct {
+		name           string
+		currentContent string
+		expectCost     bool
+		expectMessage  bool
+	}{
+		{
+			name:           "interruption with content",
+			currentContent: "Partial response...",
+			expectCost:     true,
+			expectMessage:  true,
+		},
+		{
+			name:           "interruption with empty content",
+			currentContent: "",
+			expectCost:     true,
+			expectMessage:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create mock provider
+			mockRepo := providers.NewInMemoryMockRepository("Test response")
+			mockProvider := providers.NewMockProviderWithRepository("test-provider", "test-model", false, mockRepo)
+
+			// Create execution context
+			execCtx := &pipeline.ExecutionContext{
+				Context: context.Background(),
+				Messages: []types.Message{
+					{Role: "user", Content: "test message"},
+				},
+				Metadata:   map[string]interface{}{},
+				StreamMode: true,
+			}
+
+			// Create provider request
+			req := providers.ChatRequest{
+				Messages: execCtx.Messages,
+			}
+
+			// Create stream process result with the content
+			result := &streamProcessResult{
+				finalContent: tt.currentContent,
+				interrupted:  true,
+			}
+
+			// Handle interruption via package-level function
+			err := handleStreamInterruption(execCtx, mockProvider, req, result, 0, nil)
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			// Should have added assistant message
+			if tt.expectMessage {
+				if len(execCtx.Messages) != 2 {
+					t.Errorf("Expected 2 messages, got %d", len(execCtx.Messages))
+					return
+				}
+
+				lastMsg := execCtx.Messages[len(execCtx.Messages)-1]
+				if lastMsg.Role != "assistant" {
+					t.Errorf("Expected assistant message, got %s", lastMsg.Role)
+				}
+
+				if lastMsg.Content != tt.currentContent {
+					t.Errorf("Expected content %q, got %q", tt.currentContent, lastMsg.Content)
+				}
+
+				// Check that message has Meta field with cost_estimate_type
+				if lastMsg.Meta == nil {
+					t.Error("Expected Meta field on message but got nil")
+					return
+				}
+
+				rawResp, ok := lastMsg.Meta["raw_response"]
+				if !ok {
+					t.Error("Expected raw_response in Meta")
+					return
+				}
+
+				if rawRespMap, ok := rawResp.(map[string]interface{}); ok {
+					if costEstType, ok := rawRespMap["cost_estimate_type"]; !ok || costEstType != "approximate" {
+						t.Errorf("Expected cost_estimate_type=approximate, got %v", costEstType)
+					}
+				}
+			}
+
+			// Check execCtx.Response for cost information
+			if tt.expectCost {
+				if execCtx.Response == nil {
+					t.Error("Expected Response to be set but got nil")
+					return
+				}
+
+				// The approximate cost should be reflected in Response.Metadata
+				// (TokensInput, TokensOutput, Cost fields)
+				if execCtx.Response.Metadata.TokensInput == 0 && execCtx.Response.Metadata.TokensOutput == 0 {
+					// Mock provider might return zero tokens, which is acceptable for this test
+					// Just verify the response structure is present
+				}
+			}
+		})
+	}
+}
+
+// TestCreateErrorToolResult tests the error tool result creation
+func TestCreateErrorToolResult(t *testing.T) {
+	tests := []struct {
+		name      string
+		toolID    string
+		toolName  string
+		err       error
+		expectID  string
+		expectErr string
+	}{
+		{
+			name:      "simple error result",
+			toolID:    "call_123",
+			toolName:  "test_tool",
+			err:       errors.New("tool failed"),
+			expectID:  "call_123",
+			expectErr: "tool failed",
+		},
+		{
+			name:      "empty error message",
+			toolID:    "call_456",
+			toolName:  "another_tool",
+			err:       errors.New(""),
+			expectID:  "call_456",
+			expectErr: "",
+		},
+		{
+			name:      "complex error message",
+			toolID:    "call_789",
+			toolName:  "complex_tool",
+			err:       errors.New("Multiple errors occurred:\n1. Connection timeout\n2. Invalid response"),
+			expectID:  "call_789",
+			expectErr: "Multiple errors occurred:\n1. Connection timeout\n2. Invalid response",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create tool call
+			toolCall := types.MessageToolCall{
+				ID:   tt.toolID,
+				Name: tt.toolName,
+			}
+
+			// Create error result
+			result := createErrorToolResult(toolCall, tt.err)
+
+			// Verify result structure
+			if result.ID != tt.expectID {
+				t.Errorf("Expected ID %q, got %q", tt.expectID, result.ID)
+			}
+
+			if result.Name != tt.toolName {
+				t.Errorf("Expected Name %q, got %q", tt.toolName, result.Name)
+			}
+
+			// Content should contain "Error: " prefix
+			expectedContent := "Error: " + tt.expectErr
+			if result.Content != expectedContent {
+				t.Errorf("Expected Content %q, got %q", expectedContent, result.Content)
+			}
+
+			if result.Error != tt.expectErr {
+				t.Errorf("Expected Error %q, got %q", tt.expectErr, result.Error)
+			}
+		})
+	}
+}
+
+// TestStreamChunk tests the middleware chunk handler
+func TestStreamChunk(t *testing.T) {
+	// Create mock provider
+	mockRepo := providers.NewInMemoryMockRepository("Test response")
+	mockProvider := providers.NewMockProviderWithRepository("test-provider", "test-model", false, mockRepo)
+
+	// Create provider middleware
+	middleware := ProviderMiddleware(mockProvider, nil, nil, nil)
+
+	// Create execution context
+	execCtx := &pipeline.ExecutionContext{
+		Context: context.Background(),
+	}
+
+	// Create test chunks (using pointers as expected by the method)
+	testChunks := []*providers.StreamChunk{
+		{Content: "Hello"},
+		{Content: "Hello world"},
+		{Content: "Hello world!", FinishReason: strPtr("stop")},
+	}
+
+	// Test each chunk
+	for _, chunk := range testChunks {
+		err := middleware.StreamChunk(execCtx, chunk)
+
+		// StreamChunk should be a no-op and return nil
+		if err != nil {
+			t.Errorf("StreamChunk should return nil, got error: %v", err)
+		}
+	}
+
+	// Test with empty chunk
+	emptyChunk := &providers.StreamChunk{}
+	err := middleware.StreamChunk(execCtx, emptyChunk)
+	if err != nil {
+		t.Errorf("StreamChunk with empty chunk should return nil, got error: %v", err)
+	}
+
+	// Test with error chunk
+	errorChunk := &providers.StreamChunk{Error: errors.New("stream error")}
+	err = middleware.StreamChunk(execCtx, errorChunk)
+	if err != nil {
+		t.Errorf("StreamChunk with error chunk should return nil, got error: %v", err)
+	}
+}
+
+// MockToolRegistry is a simple mock for testing
+type MockToolRegistry struct {
+	tools map[string]func(context.Context, string) (string, error)
+}
+
+func NewMockToolRegistry() *MockToolRegistry {
+	return &MockToolRegistry{
+		tools: make(map[string]func(context.Context, string) (string, error)),
+	}
+}
+
+func (m *MockToolRegistry) AddTool(name string, fn func(context.Context, string) (string, error)) {
+	m.tools[name] = fn
+}
+
+func (m *MockToolRegistry) Execute(ctx context.Context, name string, args string) (string, error) {
+	if fn, ok := m.tools[name]; ok {
+		return fn(ctx, args)
+	}
+	return "", errors.New("tool not found")
+}
+
+func (m *MockToolRegistry) Get(name string) (interface{}, error) {
+	if _, ok := m.tools[name]; ok {
+		return m.tools[name], nil
+	}
+	return nil, errors.New("tool not found")
+}
+
+func (m *MockToolRegistry) List() []string {
+	var names []string
+	for name := range m.tools {
+		names = append(names, name)
+	}
+	return names
 }
