@@ -78,8 +78,8 @@ type openAIRequest struct {
 }
 
 type openAIMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string      `json:"role"`
+	Content interface{} `json:"content"` // Can be string or []interface{} for multimodal
 }
 
 type openAIResponse struct {
@@ -240,7 +240,10 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req ChatRequest) (ChatRespons
 	// Calculate cost breakdown
 	costBreakdown := p.CalculateCost(openAIResp.Usage.PromptTokens, openAIResp.Usage.CompletionTokens, cachedTokens)
 
-	chatResp.Content = openAIResp.Choices[0].Message.Content
+	// Extract content - can be string or array of content parts
+	content := extractContentString(openAIResp.Choices[0].Message.Content)
+
+	chatResp.Content = content
 	chatResp.CostInfo = &costBreakdown
 	chatResp.Latency = latency
 	chatResp.Raw = respBody
