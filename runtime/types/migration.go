@@ -2,6 +2,11 @@ package types
 
 import "fmt"
 
+// TODO: Review necessity of migration utilities - currently only used in tests.
+// This entire file may be premature infrastructure. Consider removing or deferring
+// until there's a concrete use case in production code (arena, packc, or SDK consumers).
+// See discussion: feature/multimodal-phase1-core-types branch review.
+
 // MigrateToMultimodal converts a legacy text-only message to use the Parts structure.
 // This is useful when transitioning existing code to the new multimodal API.
 func MigrateToMultimodal(msg *Message) {
@@ -227,15 +232,15 @@ func SplitMultimodalMessage(msg Message) (text string, mediaParts []ContentPart)
 // This is the inverse of SplitMultimodalMessage.
 func CombineTextAndMedia(role, text string, mediaParts []ContentPart) Message {
 	msg := Message{Role: role}
-	
+
 	if text != "" {
 		msg.AddTextPart(text)
 	}
-	
+
 	for _, part := range mediaParts {
 		msg.AddPart(part)
 	}
-	
+
 	return msg
 }
 

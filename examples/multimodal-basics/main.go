@@ -1,4 +1,3 @@
-package multimodalbasics
 package main
 
 import (
@@ -45,11 +44,11 @@ func main() {
 	multiMsg.AddTextPart("Please analyze these files:")
 	multiMsg.AddImagePartFromURL("https://example.com/diagram.png", nil)
 	multiMsg.AddTextPart("And listen to this audio:")
-	
+
 	// Using base64-encoded audio data
 	audioData := types.NewAudioPartFromData("YmFzZTY0IGF1ZGlvIGRhdGE=", types.MIMETypeAudioMP3)
 	multiMsg.AddPart(audioData)
-	
+
 	fmt.Println("\n5. Multi-content Message (Text + Image + Audio):")
 	printMessage(multiMsg)
 
