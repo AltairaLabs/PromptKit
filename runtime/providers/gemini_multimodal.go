@@ -15,49 +15,49 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-)// GetMultimodalCapabilities returns Gemini's multimodal support capabilities
+) // GetMultimodalCapabilities returns Gemini's multimodal support capabilities
 func (p *GeminiProvider) GetMultimodalCapabilities() MultimodalCapabilities {
-// Gemini supports images, audio, and video
-return MultimodalCapabilities{
-SupportsImages: true,
-SupportsAudio:  true,
-SupportsVideo:  true,
-ImageFormats: []string{
-types.MIMETypeImageJPEG,
-types.MIMETypeImagePNG,
-types.MIMETypeImageWebP,
-types.MIMETypeImageGIF,
-"image/heic",
-"image/heif",
-},
-AudioFormats: []string{
-"audio/wav",
-"audio/mp3",
-"audio/aiff",
-"audio/aac",
-"audio/ogg",
-"audio/flac",
-},
-VideoFormats: []string{
-"video/mp4",
-"video/mpeg",
-"video/mov",
-"video/avi",
-"video/flv",
-"video/mpg",
-"video/webm",
-"video/wmv",
-"video/3gpp",
-},
-MaxImageSizeMB: 20,
-MaxAudioSizeMB: 20,
-MaxVideoSizeMB: 20,
-}
+	// Gemini supports images, audio, and video
+	return MultimodalCapabilities{
+		SupportsImages: true,
+		SupportsAudio:  true,
+		SupportsVideo:  true,
+		ImageFormats: []string{
+			types.MIMETypeImageJPEG,
+			types.MIMETypeImagePNG,
+			types.MIMETypeImageWebP,
+			types.MIMETypeImageGIF,
+			"image/heic",
+			"image/heif",
+		},
+		AudioFormats: []string{
+			"audio/wav",
+			"audio/mp3",
+			"audio/aiff",
+			"audio/aac",
+			"audio/ogg",
+			"audio/flac",
+		},
+		VideoFormats: []string{
+			"video/mp4",
+			"video/mpeg",
+			"video/mov",
+			"video/avi",
+			"video/flv",
+			"video/mpg",
+			"video/webm",
+			"video/wmv",
+			"video/3gpp",
+		},
+		MaxImageSizeMB: 20,
+		MaxAudioSizeMB: 20,
+		MaxVideoSizeMB: 20,
+	}
 }
 
 // ChatMultimodal performs a chat request with multimodal content
 func (p *GeminiProvider) ChatMultimodal(ctx context.Context, req ChatRequest) (ChatResponse, error) {
-// Validate that messages are compatible with Gemini's capabilities
+	// Validate that messages are compatible with Gemini's capabilities
 	for i := range req.Messages {
 		if err := ValidateMultimodalMessage(p, req.Messages[i]); err != nil {
 			return ChatResponse{}, err
@@ -77,81 +77,81 @@ func (p *GeminiProvider) ChatMultimodal(ctx context.Context, req ChatRequest) (C
 // ChatMultimodalStream performs a streaming chat request with multimodal content
 func (p *GeminiProvider) ChatMultimodalStream(ctx context.Context, req ChatRequest) (<-chan StreamChunk, error) {
 	// Validate that messages are compatible with Gemini's capabilities
-for i := range req.Messages {
-if err := ValidateMultimodalMessage(p, req.Messages[i]); err != nil {
-return nil, err
-}
-}
+	for i := range req.Messages {
+		if err := ValidateMultimodalMessage(p, req.Messages[i]); err != nil {
+			return nil, err
+		}
+	}
 
-// Convert messages to Gemini format (handles both legacy and multimodal)
-contents, systemInstruction, err := convertMessagesToGemini(req.Messages, req.System)
-if err != nil {
-return nil, fmt.Errorf("failed to convert messages: %w", err)
-}
+	// Convert messages to Gemini format (handles both legacy and multimodal)
+	contents, systemInstruction, err := convertMessagesToGemini(req.Messages, req.System)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert messages: %w", err)
+	}
 
-// Use the common streaming implementation
-return p.chatStreamWithContents(ctx, contents, systemInstruction, req.Temperature, req.TopP, req.MaxTokens, req.Seed)
+	// Use the common streaming implementation
+	return p.chatStreamWithContents(ctx, contents, systemInstruction, req.Temperature, req.TopP, req.MaxTokens, req.Seed)
 }
 
 // convertMessagesToGemini converts PromptKit messages to Gemini format
 // Handles both legacy text-only and new multimodal messages
 func convertMessagesToGemini(messages []types.Message, systemPrompt string) ([]geminiContent, *geminiContent, error) {
-var contents []geminiContent
-var systemInstruction *geminiContent
+	var contents []geminiContent
+	var systemInstruction *geminiContent
 
-// Handle system message
-if systemPrompt != "" {
-systemInstruction = &geminiContent{
-Parts: []geminiPart{{Text: systemPrompt}},
-}
-}
+	// Handle system message
+	if systemPrompt != "" {
+		systemInstruction = &geminiContent{
+			Parts: []geminiPart{{Text: systemPrompt}},
+		}
+	}
 
-// Convert each message
-for _, msg := range messages {
-content, err := convertMessageToGemini(msg)
-if err != nil {
-return nil, nil, err
-}
-contents = append(contents, content)
-}
+	// Convert each message
+	for _, msg := range messages {
+		content, err := convertMessageToGemini(msg)
+		if err != nil {
+			return nil, nil, err
+		}
+		contents = append(contents, content)
+	}
 
-return contents, systemInstruction, nil
+	return contents, systemInstruction, nil
 }
 
 // convertMessageToGemini converts a single PromptKit message to Gemini format
 func convertMessageToGemini(msg types.Message) (geminiContent, error) {
-// Handle legacy text-only messages
-if !msg.IsMultimodal() {
-role := msg.Role
-// Gemini uses "user" and "model" roles
-if role == "assistant" {
-role = "model"
-}
-return geminiContent{
-Role:  role,
-Parts: []geminiPart{{Text: msg.GetContent()}},
-}, nil
-}
+	// Handle legacy text-only messages
+	if !msg.IsMultimodal() {
+		role := msg.Role
+		// Gemini uses "user" and "model" roles
+		if role == "assistant" {
+			role = "model"
+		}
+		return geminiContent{
+			Role:  role,
+			Parts: []geminiPart{{Text: msg.GetContent()}},
+		}, nil
+	}
 
-// Handle multimodal messages with parts
-role := msg.Role
-if role == "assistant" {
-role = "model"
-}
+	// Handle multimodal messages with parts
+	role := msg.Role
+	if role == "assistant" {
+		role = "model"
+	}
 
-var parts []geminiPart
-for _, part := range msg.Parts {
-gPart, err := convertPartToGemini(part)
-if err != nil {
-return geminiContent{}, err
-}
-parts = append(parts, gPart)
-}
+	var parts []geminiPart
+	for _, part := range msg.Parts {
+		gPart, err := convertPartToGemini(part)
+		if err != nil {
+			return geminiContent{}, err
+		}
+		parts = append(parts, gPart)
+	}
 
-return geminiContent{
-Role:  role,
-Parts: parts,
-}, nil
+	return geminiContent{
+		Role:  role,
+		Parts: parts,
+	}, nil
 }
 
 // convertPartToGemini converts a ContentPart to Gemini's format
@@ -192,43 +192,43 @@ func convertMediaPartToGemini(part types.ContentPart) (geminiPart, error) {
 		base64Data = *part.Media.Data
 	} else if part.Media.URL != nil && *part.Media.URL != "" {
 		// Gemini doesn't support direct URLs, need to fetch and convert
-return geminiPart{}, fmt.Errorf("gemini does not support media URLs, please use inline data or file paths")
-} else if part.Media.FilePath != nil && *part.Media.FilePath != "" {
-// Read file and convert to base64
-base64Data, err = readFileAsBase64(*part.Media.FilePath)
-if err != nil {
-return geminiPart{}, fmt.Errorf("failed to read file: %w", err)
-}
-} else {
-return geminiPart{}, fmt.Errorf("%s part missing data source (data, url, or file_path)", part.Type)
-}
+		return geminiPart{}, fmt.Errorf("gemini does not support media URLs, please use inline data or file paths")
+	} else if part.Media.FilePath != nil && *part.Media.FilePath != "" {
+		// Read file and convert to base64
+		base64Data, err = readFileAsBase64(*part.Media.FilePath)
+		if err != nil {
+			return geminiPart{}, fmt.Errorf("failed to read file: %w", err)
+		}
+	} else {
+		return geminiPart{}, fmt.Errorf("%s part missing data source (data, url, or file_path)", part.Type)
+	}
 
-// Create Gemini inline data part
-return geminiPart{
-InlineData: &geminiInlineData{
-MimeType: mimeType,
-Data:     base64Data,
-},
-}, nil
+	// Create Gemini inline data part
+	return geminiPart{
+		InlineData: &geminiInlineData{
+			MimeType: mimeType,
+			Data:     base64Data,
+		},
+	}, nil
 }
 
 // readFileAsBase64 reads a file and returns its base64-encoded content
 func readFileAsBase64(filePath string) (string, error) {
-// Expand ~ to home directory
-if strings.HasPrefix(filePath, "~/") {
-home, err := os.UserHomeDir()
-if err != nil {
-return "", fmt.Errorf("failed to get home directory: %w", err)
-}
-filePath = filepath.Join(home, filePath[2:])
-}
+	// Expand ~ to home directory
+	if strings.HasPrefix(filePath, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to get home directory: %w", err)
+		}
+		filePath = filepath.Join(home, filePath[2:])
+	}
 
-data, err := os.ReadFile(filePath)
-if err != nil {
-return "", fmt.Errorf("failed to read file: %w", err)
-}
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file: %w", err)
+	}
 
-return base64.StdEncoding.EncodeToString(data), nil
+	return base64.StdEncoding.EncodeToString(data), nil
 }
 
 // chatWithContents is a helper method for both regular and multimodal chat
@@ -286,7 +286,7 @@ func (p *GeminiProvider) chatWithContents(ctx context.Context, contents []gemini
 
 	// Debug log the request
 	headers := map[string]string{
-		"Content-Type": "application/json",
+		contentTypeHeader: applicationJSON,
 	}
 	logger.APIRequest("Gemini", "POST", url, headers, geminiReq)
 
@@ -297,7 +297,7 @@ func (p *GeminiProvider) chatWithContents(ctx context.Context, contents []gemini
 		return chatResp, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set(contentTypeHeader, applicationJSON)
 
 	resp, err := p.Client.Do(httpReq)
 	if err != nil {
@@ -320,48 +320,15 @@ func (p *GeminiProvider) chatWithContents(ctx context.Context, contents []gemini
 	if resp.StatusCode != http.StatusOK {
 		chatResp.Latency = time.Since(start)
 		chatResp.Raw = respBody
-		return chatResp, fmt.Errorf("Gemini API error (status %d): %s", resp.StatusCode, string(respBody))
+		return chatResp, fmt.Errorf("gemini api error (status %d): %s", resp.StatusCode, string(respBody))
 	}
 
-	// Parse response
-	var geminiResp geminiResponse
-	if err := json.Unmarshal(respBody, &geminiResp); err != nil {
+	// Parse and validate response
+	geminiResp, err := p.parseGeminiResponse(respBody)
+	if err != nil {
 		chatResp.Latency = time.Since(start)
 		chatResp.Raw = respBody
-		return chatResp, fmt.Errorf("failed to unmarshal response: %w", err)
-	}
-
-	// Check for prompt feedback errors
-	if geminiResp.PromptFeedback != nil && geminiResp.PromptFeedback.BlockReason != "" {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBody
-		return chatResp, fmt.Errorf("prompt blocked by Gemini: %s", geminiResp.PromptFeedback.BlockReason)
-	}
-
-	// Check for candidates
-	if len(geminiResp.Candidates) == 0 {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBody
-		return chatResp, fmt.Errorf("no candidates in Gemini response")
-	}
-
-	candidate := geminiResp.Candidates[0]
-
-	// Check for content parts
-	if len(candidate.Content.Parts) == 0 {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBody
-		// Handle different finish reasons
-		switch candidate.FinishReason {
-		case "MAX_TOKENS":
-			return chatResp, fmt.Errorf("gemini returned MAX_TOKENS error")
-		case "SAFETY":
-			return chatResp, fmt.Errorf("response blocked by Gemini safety filters")
-		case "RECITATION":
-			return chatResp, fmt.Errorf("response blocked due to recitation concerns")
-		default:
-			return chatResp, fmt.Errorf("no content parts in response (finish reason: %s)", candidate.FinishReason)
-		}
+		return chatResp, err
 	}
 
 	// Extract token counts
@@ -377,12 +344,50 @@ func (p *GeminiProvider) chatWithContents(ctx context.Context, contents []gemini
 	// Calculate cost breakdown
 	costBreakdown := p.CalculateCost(tokensIn, tokensOut, cachedTokens)
 
+	candidate := geminiResp.Candidates[0]
 	chatResp.Content = candidate.Content.Parts[0].Text
 	chatResp.CostInfo = &costBreakdown
 	chatResp.Latency = latency
 	chatResp.Raw = respBody
 
 	return chatResp, nil
+}
+
+// parseGeminiResponse parses and validates a Gemini API response
+func (p *GeminiProvider) parseGeminiResponse(respBody []byte) (*geminiResponse, error) {
+	var geminiResp geminiResponse
+	if err := json.Unmarshal(respBody, &geminiResp); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	// Check for prompt feedback errors
+	if geminiResp.PromptFeedback != nil && geminiResp.PromptFeedback.BlockReason != "" {
+		return nil, fmt.Errorf("prompt blocked: %s", geminiResp.PromptFeedback.BlockReason)
+	}
+
+	// Check for candidates
+	if len(geminiResp.Candidates) == 0 {
+		return nil, fmt.Errorf("no candidates in response")
+	}
+
+	candidate := geminiResp.Candidates[0]
+
+	// Check for content parts
+	if len(candidate.Content.Parts) == 0 {
+		// Handle different finish reasons
+		switch candidate.FinishReason {
+		case "MAX_TOKENS":
+			return nil, fmt.Errorf("max tokens limit reached")
+		case "SAFETY":
+			return nil, fmt.Errorf("response blocked by safety filters")
+		case "RECITATION":
+			return nil, fmt.Errorf("response blocked due to recitation concerns")
+		default:
+			return nil, fmt.Errorf("no content parts in response (finish reason: %s)", candidate.FinishReason)
+		}
+	}
+
+	return &geminiResp, nil
 }
 
 // chatStreamWithContents is a helper method for both regular and multimodal streaming
@@ -433,7 +438,7 @@ func (p *GeminiProvider) chatStreamWithContents(ctx context.Context, contents []
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set(contentTypeHeader, applicationJSON)
 
 	resp, err := p.Client.Do(httpReq)
 	if err != nil {
@@ -443,7 +448,7 @@ func (p *GeminiProvider) chatStreamWithContents(ctx context.Context, contents []
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Gemini API error (status %d): %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("gemini api error (status %d): %s", resp.StatusCode, string(body))
 	}
 
 	outChan := make(chan StreamChunk)

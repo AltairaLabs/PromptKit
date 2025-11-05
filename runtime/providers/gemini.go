@@ -204,7 +204,7 @@ func (p *GeminiProvider) Chat(ctx context.Context, req ChatRequest) (ChatRespons
 
 	// Debug log the request
 	headers := map[string]string{
-		"Content-Type": "application/json",
+		contentTypeHeader: applicationJSON,
 	}
 	logger.APIRequest("Gemini", "POST", url, headers, geminiReq)
 
@@ -215,7 +215,7 @@ func (p *GeminiProvider) Chat(ctx context.Context, req ChatRequest) (ChatRespons
 		return chatResp, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set(contentTypeHeader, applicationJSON)
 
 	resp, err := p.Client.Do(httpReq)
 	if err != nil {
@@ -441,7 +441,7 @@ func (p *GeminiProvider) ChatStream(ctx context.Context, req ChatRequest) (<-cha
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set(contentTypeHeader, applicationJSON)
 
 	resp, err := p.Client.Do(httpReq)
 	if err != nil {
