@@ -12,16 +12,16 @@ type mockProvider struct {
 	id string
 }
 
-func (m *mockProvider) ID() string                                                  { return m.id }
+func (m *mockProvider) ID() string { return m.id }
 func (m *mockProvider) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error) {
 	return ChatResponse{}, nil
 }
 func (m *mockProvider) ChatStream(ctx context.Context, req ChatRequest) (<-chan StreamChunk, error) {
 	return nil, nil
 }
-func (m *mockProvider) SupportsStreaming() bool { return false }
+func (m *mockProvider) SupportsStreaming() bool      { return false }
 func (m *mockProvider) ShouldIncludeRawOutput() bool { return false }
-func (m *mockProvider) Close() error { return nil }
+func (m *mockProvider) Close() error                 { return nil }
 func (m *mockProvider) CalculateCost(inputTokens, outputTokens, cachedTokens int) types.CostInfo {
 	return types.CostInfo{}
 }
