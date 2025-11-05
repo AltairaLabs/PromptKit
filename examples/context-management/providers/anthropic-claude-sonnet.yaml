@@ -4,7 +4,7 @@ metadata:
   name: anthropic-claude-sonnet
 spec:
   type: claude
-  model: claude-3-5-haiku-20241022
+  model: claude-3-5-sonnet-20240620
   base_url: https://api.anthropic.com
   
   rate_limit:

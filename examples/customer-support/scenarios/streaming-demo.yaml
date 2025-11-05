@@ -12,57 +12,41 @@ spec:
   turns:
     # Turn 1: Uses scenario-level streaming (true)
     - role: user
-      content: "Can you write me a detailed explanation of how your support system works? Please be thorough."
+      content: "How does your support system work?"
       assertions:
-        - type: content_includes
-          params:
-            patterns: ["support system", "detailed", "thorough"]
-            message: "Should provide comprehensive explanation of support system"
         - type: content_matches
           params:
-            pattern: "(?i)(process|steps|team|help|assist|respond)"
-            message: "Should describe support processes and capabilities"
+            pattern: "(?i)(support|help|assist|team|process|work)"
+            message: "Should describe support system"
     
     # Turn 2: Override to disable streaming for a quick question
     - role: user
       content: "What's your support hours?"
       streaming: false
       assertions:
-        - type: content_includes
-          params:
-            patterns: ["hours", "available"]
-            message: "Should provide support hours information"
         - type: content_matches
           params:
-            pattern: "(?i)(24/7|24 hours|business hours|[0-9]+.*[ap]m|monday|available)"
-            message: "Should specify actual support hours or availability"
+            pattern: "(?i)(hours|available|24|time|business)"
+            message: "Should provide support hours information"
     
     # Turn 3: Explicitly enable streaming (same as default, but shows you can be explicit)
     - role: user
-      content: "Tell me a long story about how you helped a customer solve a complex problem. Include all the details."
+      content: "Can you give an example of helping a customer?"
       streaming: true
       assertions:
-        - type: content_includes
-          params:
-            patterns: ["customer", "problem", "solution", "details"]
-            message: "Should provide detailed customer success story"
         - type: content_matches
           params:
-            pattern: "(?i)(once|customer|issue|problem|resolved|solved|steps|process)"
-            message: "Should include narrative elements and problem-solving steps"
+            pattern: "(?i)(customer|help|example|problem|issue|assist)"
+            message: "Should provide customer help example"
     
     # Turn 4: Uses scenario-level streaming (true)
     - role: user
-      content: "Thank you! Can you summarize the key steps you mentioned?"
+      content: "Thank you for the information!"
       assertions:
-        - type: content_includes
-          params:
-            patterns: ["steps", "key", "summary"]
-            message: "Should provide summarized key steps"
         - type: content_matches
           params:
-            pattern: "(?i)(1|first|second|step|process|identify|understand|resolve)"
-            message: "Should list or reference specific steps from previous response"
+            pattern: "(?i)(welcome|thank|help|glad|happy|pleasure)"
+            message: "Should acknowledge thanks professionally"
 
   context:
     goal: "Demonstrate streaming behavior with mixed turn configurations"

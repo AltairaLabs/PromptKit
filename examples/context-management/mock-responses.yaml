@@ -23,8 +23,8 @@ scenarios:
       3: "The inner planets are Mercury, Venus, Earth, and Mars - they're rocky and closer to the Sun. The outer planets are Jupiter, Saturn, Uranus, and Neptune - they're much larger and made mostly of gas and ice."
       4: "Jupiter is amazing! It's the largest planet in our solar system and yes, it does have that famous Great Red Spot - a giant storm that's been raging for hundreds of years."
       5: "Saturn's rings are made of countless chunks of ice and rock, ranging from tiny particles to house-sized boulders. They likely formed from destroyed moons or comets that got too close to Saturn."
-      6: "Jupiter has the most moons in our solar system - it has 95 known moons! The four largest ones are called the Galilean moons: Io, Europa, Ganymede, and Callisto."
-      7: "I don't have that information from our current conversation. It seems like our earlier discussion about your introduction might not be available to me right now."
+      6: "Saturn has the most moons in our solar system - it has 146 known moons! This includes large moons like Titan and Enceladus, as well as many smaller moonlets within its ring system."
+      7: "You haven't provided your name in our conversation that I can see, so I can't answer that question."
 
   context-limited-fail:
     defaultResponse: "I'm ready to discuss astronomy topics."

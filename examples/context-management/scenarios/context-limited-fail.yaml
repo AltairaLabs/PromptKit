@@ -18,14 +18,14 @@ spec:
       assertions:
         - type: content_includes
           params:
-            patterns: ["solar system", "planets"]
+            patterns: ["solar system"]
     
     - role: user
       content: "What are all the planets in detail?"
       assertions:
         - type: content_includes
           params:
-            patterns: ["planets"]
+            patterns: ["Mercury", "Venus", "Earth", "Mars"]
     
     - role: user
       content: "Tell me everything about Jupiter, Saturn, and their moons."
