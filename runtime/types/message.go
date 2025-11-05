@@ -9,7 +9,12 @@ import (
 // This is the canonical message type used throughout the system.
 type Message struct {
 	Role    string `json:"role"`    // "system", "user", "assistant", "tool"
-	Content string `json:"content"` // Message content
+	Content string `json:"content"` // Message content (legacy text-only, maintained for backward compatibility)
+
+	// Multimodal content parts (text, images, audio, video)
+	// If Parts is non-empty, it takes precedence over Content.
+	// For backward compatibility, if Parts is empty, Content will be used.
+	Parts []ContentPart `json:"parts,omitempty"`
 
 	// Tool invocations (for assistant messages that call tools)
 	ToolCalls []MessageToolCall `json:"tool_calls,omitempty"`
@@ -93,4 +98,98 @@ type ValidationResult struct {
 	Passed        bool                   `json:"passed"`              // Whether the validation passed
 	Details       map[string]interface{} `json:"details,omitempty"`   // Validator-specific details about the result
 	Timestamp     time.Time              `json:"timestamp,omitempty"` // When the validation was performed
+}
+
+// GetContent returns the content of the message.
+// If Parts is non-empty, it returns only the text parts concatenated.
+// Otherwise, it returns the legacy Content field.
+func (m *Message) GetContent() string {
+	if len(m.Parts) > 0 {
+		var text string
+		for _, part := range m.Parts {
+			if part.Type == ContentTypeText && part.Text != nil {
+				text += *part.Text
+			}
+		}
+		return text
+	}
+	return m.Content
+}
+
+// IsMultimodal returns true if the message contains multimodal content (Parts)
+func (m *Message) IsMultimodal() bool {
+	return len(m.Parts) > 0
+}
+
+// HasMediaContent returns true if the message contains any media (image, audio, video)
+func (m *Message) HasMediaContent() bool {
+	for _, part := range m.Parts {
+		if part.Type == ContentTypeImage || part.Type == ContentTypeAudio || part.Type == ContentTypeVideo {
+			return true
+		}
+	}
+	return false
+}
+
+// SetTextContent sets the message content to simple text.
+// This clears any existing Parts and sets the legacy Content field.
+func (m *Message) SetTextContent(text string) {
+	m.Content = text
+	m.Parts = nil
+}
+
+// SetMultimodalContent sets the message content to multimodal parts.
+// This clears the legacy Content field.
+func (m *Message) SetMultimodalContent(parts []ContentPart) {
+	m.Parts = parts
+	m.Content = ""
+}
+
+// AddPart adds a content part to the message.
+// If this is the first part added, it clears the legacy Content field.
+func (m *Message) AddPart(part ContentPart) {
+	if len(m.Parts) == 0 {
+		m.Content = ""
+	}
+	m.Parts = append(m.Parts, part)
+}
+
+// AddTextPart adds a text content part to the message
+func (m *Message) AddTextPart(text string) {
+	m.AddPart(NewTextPart(text))
+}
+
+// AddImagePart adds an image content part from a file path
+func (m *Message) AddImagePart(filePath string, detail *string) error {
+	part, err := NewImagePart(filePath, detail)
+	if err != nil {
+		return err
+	}
+	m.AddPart(part)
+	return nil
+}
+
+// AddImagePartFromURL adds an image content part from a URL
+func (m *Message) AddImagePartFromURL(url string, detail *string) {
+	m.AddPart(NewImagePartFromURL(url, detail))
+}
+
+// AddAudioPart adds an audio content part from a file path
+func (m *Message) AddAudioPart(filePath string) error {
+	part, err := NewAudioPart(filePath)
+	if err != nil {
+		return err
+	}
+	m.AddPart(part)
+	return nil
+}
+
+// AddVideoPart adds a video content part from a file path
+func (m *Message) AddVideoPart(filePath string) error {
+	part, err := NewVideoPart(filePath)
+	if err != nil {
+		return err
+	}
+	m.AddPart(part)
+	return nil
 }
