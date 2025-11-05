@@ -1,12 +1,14 @@
 package markdown
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/stretchr/testify/assert"
@@ -19,7 +21,7 @@ func TestNewMarkdownResultRepository(t *testing.T) {
 
 	assert.Equal(t, tmpDir, repo.outputDir)
 	assert.Equal(t, filepath.Join(tmpDir, "results.md"), repo.outputFile)
-	assert.True(t, repo.includeDetails)
+	assert.True(t, repo.config.IncludeDetails)
 }
 
 func TestNewMarkdownResultRepositoryWithFile(t *testing.T) {
@@ -29,7 +31,7 @@ func TestNewMarkdownResultRepositoryWithFile(t *testing.T) {
 
 	assert.Equal(t, tmpDir, repo.outputDir)
 	assert.Equal(t, customFile, repo.outputFile)
-	assert.True(t, repo.includeDetails)
+	assert.True(t, repo.config.IncludeDetails)
 }
 
 func TestSaveResults_EmptyResults(t *testing.T) {
@@ -54,15 +56,15 @@ func TestSetIncludeDetails(t *testing.T) {
 	repo := NewMarkdownResultRepository(tmpDir)
 
 	// Default is true
-	assert.True(t, repo.includeDetails)
+	assert.True(t, repo.config.IncludeDetails)
 
 	// Set to false
 	repo.SetIncludeDetails(false)
-	assert.False(t, repo.includeDetails)
+	assert.False(t, repo.config.IncludeDetails)
 
 	// Set back to true
 	repo.SetIncludeDetails(true)
-	assert.True(t, repo.includeDetails)
+	assert.True(t, repo.config.IncludeDetails)
 }
 
 func TestUnsupportedOperations(t *testing.T) {
@@ -93,6 +95,33 @@ func createTestResults() []engine.RunResult {
 		createResultWithTools("run-004", "scenario-3", "gpt-4"),
 		createResultWithViolations("run-005", "scenario-2", "claude"),
 	}
+}
+
+// Helper function to create test results with specific counts
+func createTestResultsWithCounts(total, passed, failed int) []engine.RunResult {
+	if total < passed+failed {
+		panic("total must be >= passed + failed")
+	}
+
+	results := make([]engine.RunResult, 0, total)
+
+	// Add passed results
+	for i := 0; i < passed; i++ {
+		results = append(results, createSuccessfulResult(fmt.Sprintf("run-%03d", i+1), "scenario-1", "gpt-4"))
+	}
+
+	// Add failed results
+	for i := 0; i < failed; i++ {
+		results = append(results, createFailedResult(fmt.Sprintf("run-%03d", passed+i+1), "scenario-2", "claude"))
+	}
+
+	// Add remaining results as passed (to reach total)
+	remaining := total - passed - failed
+	for i := 0; i < remaining; i++ {
+		results = append(results, createSuccessfulResult(fmt.Sprintf("run-%03d", passed+failed+i+1), "scenario-3", "gemini"))
+	}
+
+	return results
 }
 
 func createSuccessfulResult(runID, scenario, provider string) engine.RunResult {
@@ -351,4 +380,204 @@ func TestSaveSummary(t *testing.T) {
 	// SaveSummary should not return error (it's a no-op for markdown)
 	err := repo.SaveSummary(nil)
 	assert.NoError(t, err)
+}
+
+// TDD Tests for Markdown Configuration Support
+
+func TestNewMarkdownResultRepository_WithConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Test with nil config (should use defaults)
+	repo := NewMarkdownResultRepositoryWithConfig(tmpDir, nil)
+	assert.Equal(t, tmpDir, repo.outputDir)
+	assert.True(t, repo.config.IncludeDetails)
+	assert.True(t, repo.config.ShowOverview)
+	assert.True(t, repo.config.ShowResultsMatrix)
+	assert.True(t, repo.config.ShowFailedTests)
+	assert.True(t, repo.config.ShowCostSummary)
+
+	// Test with custom config
+	customConfig := &MarkdownConfig{
+		IncludeDetails:    false,
+		ShowOverview:      false,
+		ShowResultsMatrix: true,
+		ShowFailedTests:   true,
+		ShowCostSummary:   false,
+	}
+
+	repo = NewMarkdownResultRepositoryWithConfig(tmpDir, customConfig)
+	assert.Equal(t, customConfig, repo.config)
+}
+
+func TestCreateMarkdownConfigFromDefaults(t *testing.T) {
+	tests := []struct {
+		name     string
+		defaults *config.Defaults
+		expected *MarkdownConfig
+	}{
+		{
+			name:     "nil defaults should return default config",
+			defaults: nil,
+			expected: &MarkdownConfig{
+				IncludeDetails:    true,
+				ShowOverview:      true,
+				ShowResultsMatrix: true,
+				ShowFailedTests:   true,
+				ShowCostSummary:   true,
+			},
+		},
+		{
+			name: "custom markdown config from new output structure",
+			defaults: &config.Defaults{
+				Output: config.OutputConfig{
+					Dir:     "test-output",
+					Formats: []string{"markdown"},
+					Markdown: &config.MarkdownOutputConfig{
+						IncludeDetails:    false,
+						ShowOverview:      false,
+						ShowResultsMatrix: true,
+						ShowFailedTests:   true,
+						ShowCostSummary:   false,
+					},
+				},
+			},
+			expected: &MarkdownConfig{
+				IncludeDetails:    false,
+				ShowOverview:      false,
+				ShowResultsMatrix: true,
+				ShowFailedTests:   true,
+				ShowCostSummary:   false,
+			},
+		},
+		{
+			name: "backward compatibility with old MarkdownConfig",
+			defaults: &config.Defaults{
+				MarkdownConfig: &config.MarkdownConfig{
+					IncludeDetails:    false,
+					ShowOverview:      false,
+					ShowResultsMatrix: true,
+					ShowFailedTests:   true,
+					ShowCostSummary:   false,
+				},
+			},
+			expected: &MarkdownConfig{
+				IncludeDetails:    false,
+				ShowOverview:      false,
+				ShowResultsMatrix: true,
+				ShowFailedTests:   true,
+				ShowCostSummary:   false,
+			},
+		},
+		{
+			name: "defaults without markdown config should return default config",
+			defaults: &config.Defaults{
+				Temperature: 0.7,
+				MaxTokens:   1000,
+			},
+			expected: &MarkdownConfig{
+				IncludeDetails:    true,
+				ShowOverview:      true,
+				ShowResultsMatrix: true,
+				ShowFailedTests:   true,
+				ShowCostSummary:   true,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := CreateMarkdownConfigFromDefaults(tt.defaults)
+			assert.Equal(t, tt.expected, config)
+		})
+	}
+}
+
+func TestSaveResults_WithConfiguredSections(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create config that hides some sections
+	customConfig := &MarkdownConfig{
+		IncludeDetails:    false,
+		ShowOverview:      true,
+		ShowResultsMatrix: false,
+		ShowFailedTests:   true,
+		ShowCostSummary:   false,
+	}
+
+	repo := NewMarkdownResultRepositoryWithConfig(tmpDir, customConfig)
+
+	// Create test results with failures
+	results := createTestResultsWithCounts(3, 1, 2) // 3 total, 1 passed, 2 failed
+
+	err := repo.SaveResults(results)
+	require.NoError(t, err)
+
+	// Read the generated file
+	content, err := os.ReadFile(repo.outputFile)
+	require.NoError(t, err)
+	markdown := string(content)
+
+	// Should include overview
+	assert.Contains(t, markdown, "# 🧪 PromptArena Test Results")
+	assert.Contains(t, markdown, "## 📊 Overview")
+
+	// Should NOT include results matrix (ShowResultsMatrix = false)
+	assert.NotContains(t, markdown, "## 🔍 Test Results")
+
+	// Should include failed tests
+	assert.Contains(t, markdown, "## 🔍 Failed Tests")
+
+	// Should NOT include cost summary (ShowCostSummary = false)
+	assert.NotContains(t, markdown, "## 💰 Cost Breakdown")
+
+	// Should NOT include details (IncludeDetails = false) - this would be implemented in failed tests section
+	// For now just verify that our sections are working as expected
+}
+
+func TestConfigurationIntegration(t *testing.T) {
+	// Test that we can load configuration from arena YAML
+	tmpDir := t.TempDir()
+
+	// Create a test arena.yaml with new modular output config
+	arenaConfig := `apiVersion: "promptkit.ai/v1"
+kind: "Arena"
+metadata:
+  name: "test-config"
+spec:
+  providers: []
+  scenarios: []
+  defaults:
+    temperature: 0.7
+    max_tokens: 1000
+    output:
+      dir: "test-output"
+      formats: ["json", "markdown"]
+      markdown:
+        include_details: false
+        show_overview: true
+        show_results_matrix: false
+        show_failed_tests: true
+        show_cost_summary: false`
+
+	configFile := filepath.Join(tmpDir, "arena.yaml")
+	err := os.WriteFile(configFile, []byte(arenaConfig), 0644)
+	require.NoError(t, err)
+
+	// Load the config
+	cfg, err := config.LoadConfig(configFile)
+	require.NoError(t, err)
+
+	// Create markdown config from defaults
+	markdownConfig := CreateMarkdownConfigFromDefaults(&cfg.Defaults)
+
+	// Verify the configuration was loaded correctly
+	assert.False(t, markdownConfig.IncludeDetails)
+	assert.True(t, markdownConfig.ShowOverview)
+	assert.False(t, markdownConfig.ShowResultsMatrix)
+	assert.True(t, markdownConfig.ShowFailedTests)
+	assert.False(t, markdownConfig.ShowCostSummary)
+
+	// Test with repository
+	repo := NewMarkdownResultRepositoryWithConfig(tmpDir, markdownConfig)
+	assert.Equal(t, markdownConfig, repo.config)
 }

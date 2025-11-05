@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"gopkg.in/yaml.v3"
+
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 )
 
 // LoadConfig loads and validates configuration from a YAML file in K8s-style manifest format.

@@ -6,8 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/spf13/cobra"
+
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 )
 
 var configInspectCmd = &cobra.Command{

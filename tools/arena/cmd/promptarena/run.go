@@ -9,6 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/results"
@@ -17,8 +20,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/results/junit"
 	"github.com/AltairaLabs/PromptKit/tools/arena/results/markdown"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 // Flag name constants to avoid duplication
@@ -37,7 +38,7 @@ func contains(slice []string, item string) bool {
 }
 
 // createResultRepository creates a composite repository based on output formats
-func createResultRepository(params *RunParameters) (results.ResultRepository, error) {
+func createResultRepository(params *RunParameters, configFile string) (results.ResultRepository, error) {
 	composite := results.NewCompositeRepository()
 
 	for _, format := range params.OutputFormats {
@@ -52,7 +53,23 @@ func createResultRepository(params *RunParameters) (results.ResultRepository, er
 			htmlRepo := html.NewHTMLResultRepository(params.HTMLFile)
 			composite.AddRepository(htmlRepo)
 		case "markdown":
-			markdownRepo := markdown.NewMarkdownResultRepositoryWithFile(params.MarkdownFile)
+			// Get markdown configuration from arena defaults
+			var markdownConfig *markdown.MarkdownConfig
+			if configFile != "" {
+				// Load config to get markdown defaults
+				cfg, err := config.LoadConfig(configFile)
+				if err == nil && cfg != nil {
+					markdownConfig = markdown.CreateMarkdownConfigFromDefaults(&cfg.Defaults)
+				}
+			}
+			if markdownConfig == nil {
+				markdownConfig = markdown.CreateMarkdownConfigFromDefaults(nil)
+			}
+
+			// Create markdown repository with configuration and custom output file
+			markdownRepo := markdown.NewMarkdownResultRepositoryWithConfig(filepath.Dir(params.MarkdownFile), markdownConfig)
+			// Override the output file path
+			markdownRepo.SetOutputFile(params.MarkdownFile)
 			composite.AddRepository(markdownRepo)
 		default:
 			return nil, fmt.Errorf("unsupported output format: %s", format)
@@ -282,8 +299,9 @@ func extractOutputFormatFlags(cmd *cobra.Command, cfg *config.Config, params *Ru
 		}
 		// If format flag wasn't changed, use config defaults, otherwise fallback to json
 		if !cmd.Flags().Changed("format") {
-			if len(cfg.Defaults.OutputFormats) > 0 {
-				params.OutputFormats = cfg.Defaults.OutputFormats
+			outputConfig := cfg.Defaults.GetOutputConfig()
+			if len(outputConfig.Formats) > 0 {
+				params.OutputFormats = outputConfig.Formats
 			} else {
 				params.OutputFormats = []string{"json"} // Default fallback
 			}
@@ -487,7 +505,7 @@ func processResults(results []engine.RunResult, params *RunParameters, configFil
 	}
 
 	// Create composite repository for multiple output formats
-	repository, err := createResultRepository(params)
+	repository, err := createResultRepository(params, configFile)
 	if err != nil {
 		return fmt.Errorf("failed to create result repository: %w", err)
 	}

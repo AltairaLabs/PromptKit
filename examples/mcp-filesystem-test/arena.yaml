@@ -37,14 +37,10 @@ spec:
     max_tokens: 1000
     seed: 42
     concurrency: 1
-    out_dir: out
-    html_report: report.html
     
-    # Output formats for CI/CD test results integration
-    # Supported formats: json, junit, html
-    # If not specified, defaults to ["json"]
-    # CLI --format flag overrides this setting
-    output_formats:
-      - json   # Detailed results for debugging
-      - junit  # CI/CD pipeline integration  
-      - html   # Human-readable reports
+    # Output configuration for CI/CD test results integration
+    output:
+      dir: out
+      formats: ["json", "junit", "html"]  # Detailed results, CI/CD integration, human-readable reports
+      html:
+        file: report.html

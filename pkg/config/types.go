@@ -1,8 +1,9 @@
 package config
 
 import (
-	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 )
 
 // PromptConfigRef references a prompt builder configuration
@@ -42,13 +43,17 @@ type Config struct {
 	ConfigDir string `yaml:"-" json:"-"`
 }
 
+const (
+	defaultStateStoreType = "memory"
+)
+
 // GetStateStoreType returns the configured state store type, defaulting to "memory" if not specified.
 func (c *Config) GetStateStoreType() string {
 	if c.StateStore == nil {
-		return "memory"
+		return defaultStateStoreType
 	}
 	if c.StateStore.Type == "" {
-		return "memory"
+		return defaultStateStoreType
 	}
 	return c.StateStore.Type
 }
@@ -57,12 +62,12 @@ func (c *Config) GetStateStoreType() string {
 func (c *Config) GetStateStoreConfig() *StateStoreConfig {
 	if c.StateStore == nil {
 		return &StateStoreConfig{
-			Type: "memory",
+			Type: defaultStateStoreType,
 		}
 	}
 	// Set default type if not specified
 	if c.StateStore.Type == "" {
-		c.StateStore.Type = "memory"
+		c.StateStore.Type = defaultStateStoreType
 	}
 	return c.StateStore
 }
@@ -150,19 +155,153 @@ type SelfPlayRoleGroup struct {
 
 // Defaults contains default configuration values
 type Defaults struct {
-	Temperature   float32  `yaml:"temperature"`
-	MaxTokens     int      `yaml:"max_tokens"`
-	Seed          int      `yaml:"seed"`
-	Concurrency   int      `yaml:"concurrency"`
-	HTMLReport    string   `yaml:"html_report"`
-	OutDir        string   `yaml:"out_dir"`
-	OutputFormats []string `yaml:"output_formats"`
+	Temperature float32      `yaml:"temperature"`
+	MaxTokens   int          `yaml:"max_tokens"`
+	Seed        int          `yaml:"seed"`
+	Concurrency int          `yaml:"concurrency"`
+	Output      OutputConfig `yaml:"output"`
 	// ConfigDir is the base directory for all config files (prompts, providers, scenarios, tools).
 	// If not set, defaults to the directory containing the main config file.
 	// If the main config file path is not known, defaults to current working directory.
 	ConfigDir string   `yaml:"config_dir"`
 	FailOn    []string `yaml:"fail_on"`
 	Verbose   bool     `yaml:"verbose"`
+
+	// Deprecated fields for backward compatibility (will be removed)
+	HTMLReport     string          `yaml:"html_report,omitempty"`
+	OutDir         string          `yaml:"out_dir,omitempty"`
+	OutputFormats  []string        `yaml:"output_formats,omitempty"`
+	MarkdownConfig *MarkdownConfig `yaml:"markdown_config,omitempty"`
+}
+
+// OutputConfig contains configuration for all output formats
+type OutputConfig struct {
+	Dir      string                `yaml:"dir"`                // Base output directory
+	Formats  []string              `yaml:"formats"`            // List of enabled formats: json, html, markdown, junit
+	JSON     *JSONOutputConfig     `yaml:"json,omitempty"`     // JSON-specific configuration
+	HTML     *HTMLOutputConfig     `yaml:"html,omitempty"`     // HTML-specific configuration
+	Markdown *MarkdownOutputConfig `yaml:"markdown,omitempty"` // Markdown-specific configuration
+	JUnit    *JUnitOutputConfig    `yaml:"junit,omitempty"`    // JUnit-specific configuration
+}
+
+// JSONOutputConfig contains configuration options for JSON output
+type JSONOutputConfig struct {
+	// Future: could add options like pretty printing, compression, etc.
+}
+
+// HTMLOutputConfig contains configuration options for HTML output
+type HTMLOutputConfig struct {
+	File string `yaml:"file,omitempty"` // Custom HTML output file name
+	// Future: could add theme, template, styling options, etc.
+}
+
+// MarkdownOutputConfig contains configuration options for markdown output formatting
+type MarkdownOutputConfig struct {
+	File              string `yaml:"file,omitempty"`      // Custom markdown output file name
+	IncludeDetails    bool   `yaml:"include_details"`     // Include detailed test information
+	ShowOverview      bool   `yaml:"show_overview"`       // Show executive overview section
+	ShowResultsMatrix bool   `yaml:"show_results_matrix"` // Show results matrix table
+	ShowFailedTests   bool   `yaml:"show_failed_tests"`   // Show failed tests section
+	ShowCostSummary   bool   `yaml:"show_cost_summary"`   // Show cost analysis section
+}
+
+// JUnitOutputConfig contains configuration options for JUnit XML output
+type JUnitOutputConfig struct {
+	File string `yaml:"file,omitempty"` // Custom JUnit output file name
+	// Future: could add options like test suite naming, etc.
+}
+
+// Deprecated: Use MarkdownOutputConfig instead
+type MarkdownConfig struct {
+	IncludeDetails    bool `yaml:"include_details"`     // Include detailed test information
+	ShowOverview      bool `yaml:"show_overview"`       // Show executive overview section
+	ShowResultsMatrix bool `yaml:"show_results_matrix"` // Show results matrix table
+	ShowFailedTests   bool `yaml:"show_failed_tests"`   // Show failed tests section
+	ShowCostSummary   bool `yaml:"show_cost_summary"`   // Show cost analysis section
+}
+
+// GetOutputConfig returns the effective output configuration, handling backward compatibility
+func (d *Defaults) GetOutputConfig() OutputConfig {
+	// If new format is used, return it directly
+	if d.Output.Dir != "" || len(d.Output.Formats) > 0 {
+		return d.Output
+	}
+
+	// Handle backward compatibility
+	output := OutputConfig{
+		Dir:     d.OutDir,
+		Formats: d.OutputFormats,
+	}
+
+	// Default dir if not specified
+	if output.Dir == "" {
+		output.Dir = "out"
+	}
+
+	// Default formats if not specified
+	if len(output.Formats) == 0 {
+		output.Formats = []string{"json"}
+	}
+
+	// Migrate HTML config
+	if d.HTMLReport != "" {
+		output.HTML = &HTMLOutputConfig{
+			File: d.HTMLReport,
+		}
+	}
+
+	// Migrate Markdown config
+	if d.MarkdownConfig != nil {
+		output.Markdown = &MarkdownOutputConfig{
+			IncludeDetails:    d.MarkdownConfig.IncludeDetails,
+			ShowOverview:      d.MarkdownConfig.ShowOverview,
+			ShowResultsMatrix: d.MarkdownConfig.ShowResultsMatrix,
+			ShowFailedTests:   d.MarkdownConfig.ShowFailedTests,
+			ShowCostSummary:   d.MarkdownConfig.ShowCostSummary,
+		}
+	}
+
+	return output
+}
+
+// GetMarkdownOutputConfig returns the markdown configuration with defaults
+func (o *OutputConfig) GetMarkdownOutputConfig() *MarkdownOutputConfig {
+	if o.Markdown != nil {
+		return o.Markdown
+	}
+
+	// Return default configuration
+	return &MarkdownOutputConfig{
+		IncludeDetails:    true,
+		ShowOverview:      true,
+		ShowResultsMatrix: true,
+		ShowFailedTests:   true,
+		ShowCostSummary:   true,
+	}
+}
+
+// GetHTMLOutputConfig returns the HTML configuration with defaults
+func (o *OutputConfig) GetHTMLOutputConfig() *HTMLOutputConfig {
+	if o.HTML != nil {
+		return o.HTML
+	}
+
+	// Return default configuration
+	return &HTMLOutputConfig{
+		File: "report.html",
+	}
+}
+
+// GetJUnitOutputConfig returns the JUnit configuration with defaults
+func (o *OutputConfig) GetJUnitOutputConfig() *JUnitOutputConfig {
+	if o.JUnit != nil {
+		return o.JUnit
+	}
+
+	// Return default configuration
+	return &JUnitOutputConfig{
+		File: "results.xml",
+	}
 }
 
 // ContextMetadata provides structured context information for scenarios

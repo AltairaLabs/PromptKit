@@ -7,9 +7,10 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/render"
-	"github.com/spf13/cobra"
 )
 
 var renderCmd = &cobra.Command{

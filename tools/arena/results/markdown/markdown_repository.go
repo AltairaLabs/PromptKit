@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/results"
@@ -22,38 +23,106 @@ const (
 	errFailedToCreateOutputDir = "failed to create output directory: %w"
 )
 
+// MarkdownConfig holds configuration options for markdown output formatting
+type MarkdownConfig struct {
+	IncludeDetails    bool // Include detailed test information
+	ShowOverview      bool // Show executive overview section
+	ShowResultsMatrix bool // Show results matrix table
+	ShowFailedTests   bool // Show failed tests section
+	ShowCostSummary   bool // Show cost analysis section
+}
+
 // MarkdownResultRepository stores results as a Markdown file.
 // This provides human-readable output suitable for CI/CD integration,
 // GitHub PR comments, and documentation generation.
 type MarkdownResultRepository struct {
-	outputDir      string
-	outputFile     string
-	includeDetails bool
+	outputDir  string
+	outputFile string
+	config     *MarkdownConfig
 }
 
 // NewMarkdownResultRepository creates a new Markdown result repository that writes
-// to the specified output directory.
+// to the specified output directory with default configuration.
 func NewMarkdownResultRepository(outputDir string) *MarkdownResultRepository {
-	return &MarkdownResultRepository{
-		outputDir:      outputDir,
-		outputFile:     filepath.Join(outputDir, markdownFileName),
-		includeDetails: true,
-	}
+	return NewMarkdownResultRepositoryWithConfig(outputDir, nil)
 }
 
 // NewMarkdownResultRepositoryWithFile creates a new Markdown result repository
-// with a custom output file path.
+// with a custom output file path and default configuration.
 func NewMarkdownResultRepositoryWithFile(outputFile string) *MarkdownResultRepository {
+	config := &MarkdownConfig{
+		IncludeDetails:    true,
+		ShowOverview:      true,
+		ShowResultsMatrix: true,
+		ShowFailedTests:   true,
+		ShowCostSummary:   true,
+	}
+
 	return &MarkdownResultRepository{
-		outputDir:      filepath.Dir(outputFile),
-		outputFile:     outputFile,
-		includeDetails: true,
+		outputDir:  filepath.Dir(outputFile),
+		outputFile: outputFile,
+		config:     config,
 	}
 }
 
-// SetIncludeDetails configures whether to include detailed sections for failed cases
+// NewMarkdownResultRepositoryWithConfig creates a new Markdown result repository
+// with the specified output directory and configuration.
+func NewMarkdownResultRepositoryWithConfig(outputDir string, config *MarkdownConfig) *MarkdownResultRepository {
+	if config == nil {
+		config = &MarkdownConfig{
+			IncludeDetails:    true,
+			ShowOverview:      true,
+			ShowResultsMatrix: true,
+			ShowFailedTests:   true,
+			ShowCostSummary:   true,
+		}
+	}
+
+	return &MarkdownResultRepository{
+		outputDir:  outputDir,
+		outputFile: filepath.Join(outputDir, markdownFileName),
+		config:     config,
+	}
+}
+
+// CreateMarkdownConfigFromDefaults creates a MarkdownConfig from arena defaults.
+func CreateMarkdownConfigFromDefaults(defaults *config.Defaults) *MarkdownConfig {
+	if defaults == nil {
+		return createDefaultMarkdownConfig()
+	}
+
+	// Get the effective output configuration
+	outputConfig := defaults.GetOutputConfig()
+	markdownOutputConfig := outputConfig.GetMarkdownOutputConfig()
+
+	return &MarkdownConfig{
+		IncludeDetails:    markdownOutputConfig.IncludeDetails,
+		ShowOverview:      markdownOutputConfig.ShowOverview,
+		ShowResultsMatrix: markdownOutputConfig.ShowResultsMatrix,
+		ShowFailedTests:   markdownOutputConfig.ShowFailedTests,
+		ShowCostSummary:   markdownOutputConfig.ShowCostSummary,
+	}
+}
+
+// createDefaultMarkdownConfig returns the default markdown configuration
+func createDefaultMarkdownConfig() *MarkdownConfig {
+	return &MarkdownConfig{
+		IncludeDetails:    true,
+		ShowOverview:      true,
+		ShowResultsMatrix: true,
+		ShowFailedTests:   true,
+		ShowCostSummary:   true,
+	}
+} // SetIncludeDetails configures whether to include detailed test information.
+// Deprecated: Use NewMarkdownResultRepositoryWithConfig instead.
 func (r *MarkdownResultRepository) SetIncludeDetails(include bool) {
-	r.includeDetails = include
+	r.config.IncludeDetails = include
+}
+
+// SetOutputFile sets a custom output file path for the markdown repository.
+func (r *MarkdownResultRepository) SetOutputFile(outputFile string) {
+	r.outputFile = outputFile
+	r.outputDir = filepath.Dir(outputFile)
 }
 
 // GetOutputFile returns the output file path for this repository
@@ -104,19 +173,23 @@ func (r *MarkdownResultRepository) generateMarkdownReport(runResults []engine.Ru
 	// Header with summary
 	content.WriteString("# 🧪 PromptArena Test Results\n\n")
 
-	// Overview section
-	r.writeOverviewSection(&content, summary)
+	// Overview section (configurable)
+	if r.config.ShowOverview {
+		r.writeOverviewSection(&content, summary)
+	}
 
-	// Results matrix
-	r.writeResultsMatrix(&content, runResults)
+	// Results matrix (configurable)
+	if r.config.ShowResultsMatrix {
+		r.writeResultsMatrix(&content, runResults)
+	}
 
-	// Failed tests details (if any)
-	if summary.Failed > 0 {
+	// Failed tests details (if configured and have failures)
+	if r.config.ShowFailedTests && summary.Failed > 0 {
 		r.writeFailedTestsSection(&content, runResults)
 	}
 
-	// Cost breakdown
-	if summary.TotalCost > 0 {
+	// Cost breakdown (if configured and have costs)
+	if r.config.ShowCostSummary && summary.TotalCost > 0 {
 		r.writeCostSection(&content, runResults, summary)
 	}
 

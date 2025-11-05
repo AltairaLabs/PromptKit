@@ -27,6 +27,9 @@ spec:
     max_tokens: 150
     seed: 42
     timeout: 30s
-    out_dir: out
-    html_report: report.html
+    output:
+      dir: out
+      formats: ["json", "html"]
+      html:
+        file: report.html
 
