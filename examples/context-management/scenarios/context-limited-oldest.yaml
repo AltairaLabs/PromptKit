@@ -32,14 +32,27 @@ spec:
     # Turn 5: Another question (might be kept)
     - role: user
       content: "What about Saturn's rings? How were they formed?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["Saturn", "rings"]
     
     # Turn 6: Recent question (will be kept)
     - role: user
       content: "Which planet has the most moons?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["moons", "Saturn"]
     
     # Turn 7: Memory test (should fail with truncated context)
     - role: user
       content: "What's my name again?"  # This should show context was truncated
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(haven't.*mentioned|haven't.*provided|don't.*have|can't.*answer|can't.*provide|don't.*know|not.*provided|no.*name)"
+            message: "Should indicate inability to remember name due to context truncation"
 
   context_metadata:
     domain: "astronomy"

@@ -11,10 +11,28 @@ spec:
   turns:
     - role: user
       content: "Please store this fact in your knowledge graph: My name is Alice and I work as a software engineer."       
-      # Assistant should call create_entities tool    
+      # Assistant should call create_entities tool
+      assertions:
+        - type: tools_called
+          params:
+            tools: ["create_entities"]
+            message: "Should use create_entities tool to store information in knowledge graph"
+        - type: content_includes
+          params:
+            patterns: ["stored", "knowledge graph", "Alice", "software engineer"]
+            message: "Should confirm storing the information about Alice being a software engineer"
     - role: user
       content: "What do you know about me? Check your knowledge graph."
       # Assistant should call read_graph tool and respond
+      assertions:
+        - type: tools_called
+          params:
+            tools: ["read_graph"]
+            message: "Should use read_graph tool to retrieve stored information"
+        - type: content_includes
+          params:
+            patterns: ["Alice", "software engineer"]
+            message: "Should recall and display the previously stored information"
   
   # Require tool usage
   tool_policy:

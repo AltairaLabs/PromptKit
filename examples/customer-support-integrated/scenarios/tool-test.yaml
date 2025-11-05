@@ -16,3 +16,4 @@ spec:
   turns:
     - role: user
       content: "Hi, I need to check my account status and recent orders. My email is jane.smith@acme.com"
+      assertions: []
