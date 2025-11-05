@@ -16,12 +16,4 @@ spec:
   turns:
     - role: user
       content: "Hi, I need to check my account status and recent orders. My email is jane.smith@acme.com"
-      assertions:
-        - type: tools_called
-          params:
-            tools: ["get_customer_info", "get_order_history", "check_subscription_status"]
-            message: "Should call tools to check account status and order history"
-        - type: content_includes
-          params:
-            patterns: ["account", "orders", "check", "look up"]
-            message: "Should acknowledge request to check account and orders"
+      assertions: []

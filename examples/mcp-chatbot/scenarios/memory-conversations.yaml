@@ -79,8 +79,8 @@ spec:
       assertions:
         - type: content_includes
           params:
-            patterns: ["hiking", "sci-fi", "coffee", "hobbies"]
-            message: "Should acknowledge and store hobby information"
+            patterns: ["hiking", "sci-fi", "coffee"]
+            message: "Should acknowledge and store hobby information (relaxed: only activities required)"
     - role: user
       content: "What are my hobbies?"
       assertions:

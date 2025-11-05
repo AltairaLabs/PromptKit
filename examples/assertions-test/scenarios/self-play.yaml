@@ -16,13 +16,13 @@ spec:
             patterns:
               - "power"
               - "solar"
-    
-    # Turn 2-3: Self-play continues the conversation
+
+    # Turn 2-3: Self-play continues the conversation (2 conversational turns)
     - role: gemini-user
       persona: curious-learner
       turns: 2
       assertions:
-        - type: content_includes
+        - type: content_matches
           params:
-            patterns:
-              - "solar"
+            pattern: "(?i)solar"
+            message: "Should mention solar in the follow-up turns."

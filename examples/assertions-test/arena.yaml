@@ -27,7 +27,7 @@ spec:
       - file: personas/curious-learner.yaml
     roles:
       - id: gemini-user
-        provider: gemini-flash
+        provider: openai-mini
 
   defaults:
     temperature: 0.5

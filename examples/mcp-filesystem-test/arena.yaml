@@ -13,9 +13,9 @@ spec:
       args:
         - "-y"
         - "@modelcontextprotocol/server-filesystem"
-        - "examples/mcp-filesystem-test"
+        - "."
       env:
-        PATH: "/opt/homebrew/opt/libpq/bin:/Users/chaholl/.nvm/versions/node/v22.14.0/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        PATH: "Make sure you node is on your path"
 
   # Prompt Configuration
   prompt_configs:

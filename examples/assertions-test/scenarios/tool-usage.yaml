@@ -15,11 +15,14 @@ spec:
             tools:
               - "search"
               - "calculate"
-        - type: content_includes
+        - type: content_matches
           params:
-            patterns:
-              - "3 results"
-              - "42"
+            pattern: "(?i)(results|information about AI)"
+            message: "Should mention results or information about AI."
+        - type: content_matches
+          params:
+            pattern: "(?i)42"
+            message: "Should mention the result of 15 * 3."
 
     - role: user
       content: "What's 2 + 2? Don't use any tools, just answer directly."
