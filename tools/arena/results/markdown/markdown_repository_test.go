@@ -581,3 +581,15 @@ spec:
 	repo := NewMarkdownResultRepositoryWithConfig(tmpDir, markdownConfig)
 	assert.Equal(t, markdownConfig, repo.config)
 }
+
+func TestSetOutputFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	repo := NewMarkdownResultRepository(tmpDir)
+	
+	// Test setting output file
+	testFile := "custom-output.md"
+	repo.SetOutputFile(testFile)
+	
+	// Verify the file was set
+	assert.Equal(t, testFile, repo.GetOutputFile())
+}

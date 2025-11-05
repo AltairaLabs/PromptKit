@@ -563,3 +563,72 @@ func TestExtractRegionFromPersonaID(t *testing.T) {
 		})
 	}
 }
+
+func TestDisplayScenarioInfo(t *testing.T) {
+	tests := []struct {
+		name     string
+		opts     *promptDebugOptions
+		scenario *config.Scenario
+		verbose  bool
+	}{
+		{
+			name: "verbose disabled - no output",
+			opts: &promptDebugOptions{
+				Verbose:      false,
+				ScenarioFile: "test.yaml",
+			},
+			scenario: &config.Scenario{
+				TaskType: "test-task",
+			},
+		},
+		{
+			name: "verbose enabled - shows output",
+			opts: &promptDebugOptions{
+				Verbose:      true,
+				ScenarioFile: "test.yaml",
+				Domain:       "test-domain",
+				User:         "test-user", 
+				Context:      "test-context",
+			},
+			scenario: &config.Scenario{
+				TaskType: "test-task",
+				ContextMetadata: &config.ContextMetadata{
+					Domain:   "scenario-domain",
+					UserRole: "scenario-user",
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Just test that the function doesn't panic
+			displayScenarioInfo(tt.opts, tt.scenario)
+		})
+	}
+}
+
+func TestRunPromptDebug_ErrorCases(t *testing.T) {
+	// Test with invalid command setup
+	cmd := &cobra.Command{}
+	
+	// Test without required flags set up
+	err := runPromptDebug(cmd)
+	assert.Error(t, err, "Should error when flags are not set up")
+}
+
+func TestApplyScenarioOverrides_ErrorCases(t *testing.T) {
+	opts := &promptDebugOptions{
+		ScenarioFile: "/nonexistent/scenario.yaml",
+	}
+	cfg := &config.Config{}
+	
+	// Test with non-existent scenario file
+	err := applyScenarioOverrides(opts, cfg)
+	assert.Error(t, err, "Should error with non-existent scenario file")
+	
+	// Test with empty scenario file (no error case)
+	opts.ScenarioFile = ""
+	err = applyScenarioOverrides(opts, cfg)
+	assert.NoError(t, err, "Should not error when no scenario file specified")
+}

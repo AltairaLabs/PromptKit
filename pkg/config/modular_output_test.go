@@ -121,3 +121,139 @@ spec:
 	assert.False(t, markdownConfig.ShowFailedTests)
 	assert.True(t, markdownConfig.ShowCostSummary)
 }
+
+func TestGetMarkdownOutputConfig_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name         string
+		outputConfig *config.OutputConfig
+		expected     *config.MarkdownOutputConfig
+	}{
+		{
+			name: "nil markdown config returns default",
+			outputConfig: &config.OutputConfig{
+				Markdown: nil,
+			},
+			expected: &config.MarkdownOutputConfig{
+				IncludeDetails:     true,
+				ShowOverview:       true,
+				ShowResultsMatrix:  true,
+				ShowFailedTests:    true,
+				ShowCostSummary:    true,
+			},
+		},
+		{
+			name: "empty markdown config returns as-is",
+			outputConfig: &config.OutputConfig{
+				Markdown: &config.MarkdownOutputConfig{},
+			},
+			expected: &config.MarkdownOutputConfig{
+				IncludeDetails:     false, // Default zero values
+				ShowOverview:       false,
+				ShowResultsMatrix:  false,
+				ShowFailedTests:    false,
+				ShowCostSummary:    false,
+			},
+		},
+		{
+			name: "partial markdown config fills defaults",
+			outputConfig: &config.OutputConfig{
+				Markdown: &config.MarkdownOutputConfig{
+					File:           "custom.md",
+					IncludeDetails: false,
+				},
+			},
+			expected: &config.MarkdownOutputConfig{
+				File:               "custom.md",
+				IncludeDetails:     false, // As set, others are zero values
+				ShowOverview:       false,
+				ShowResultsMatrix:  false,
+				ShowFailedTests:    false,
+				ShowCostSummary:    false,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.outputConfig.GetMarkdownOutputConfig()
+			assert.Equal(t, tt.expected.File, result.File)
+			assert.Equal(t, tt.expected.IncludeDetails, result.IncludeDetails)
+			assert.Equal(t, tt.expected.ShowOverview, result.ShowOverview)
+			assert.Equal(t, tt.expected.ShowResultsMatrix, result.ShowResultsMatrix)
+			assert.Equal(t, tt.expected.ShowFailedTests, result.ShowFailedTests)
+			assert.Equal(t, tt.expected.ShowCostSummary, result.ShowCostSummary)
+		})
+	}
+}
+
+func TestGetHTMLOutputConfig_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name         string
+		outputConfig *config.OutputConfig
+		expected     *config.HTMLOutputConfig
+	}{
+		{
+			name: "nil html config returns default",
+			outputConfig: &config.OutputConfig{
+				HTML: nil,
+			},
+			expected: &config.HTMLOutputConfig{
+				File: "report.html", // Default value
+			},
+		},
+		{
+			name: "existing html config returned as-is",
+			outputConfig: &config.OutputConfig{
+				HTML: &config.HTMLOutputConfig{
+					File: "custom.html",
+				},
+			},
+			expected: &config.HTMLOutputConfig{
+				File: "custom.html",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.outputConfig.GetHTMLOutputConfig()
+			assert.Equal(t, tt.expected.File, result.File)
+		})
+	}
+}
+
+func TestGetJUnitOutputConfig_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name         string
+		outputConfig *config.OutputConfig
+		expected     *config.JUnitOutputConfig
+	}{
+		{
+			name: "nil junit config returns default",
+			outputConfig: &config.OutputConfig{
+				JUnit: nil,
+			},
+			expected: &config.JUnitOutputConfig{
+				File: "results.xml", // Default value
+			},
+		},
+		{
+			name: "existing junit config returned as-is",
+			outputConfig: &config.OutputConfig{
+				JUnit: &config.JUnitOutputConfig{
+					File: "custom.xml",
+				},
+			},
+			expected: &config.JUnitOutputConfig{
+				File: "custom.xml",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.outputConfig.GetJUnitOutputConfig()
+			assert.Equal(t, tt.expected.File, result.File)
+		})
+	}
+}

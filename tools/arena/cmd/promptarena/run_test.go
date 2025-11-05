@@ -299,3 +299,56 @@ func TestExtractRunParameters_MockProviderFlags(t *testing.T) {
 	_ = runCmd.Flags().Set("mock-provider", "false")
 	_ = runCmd.Flags().Set("mock-config", "")
 }
+
+func TestSetDefaultFilePaths(t *testing.T) {
+	tests := []struct {
+		name             string
+		params           *RunParameters
+		expectedOutDir   string
+		expectedJUnitFile string
+		expectedHTMLFile string
+	}{
+		{
+			name: "all empty - sets junit default",
+			params: &RunParameters{
+				OutDir:    "",
+				JUnitFile: "",
+				HTMLFile:  "",
+			},
+			expectedOutDir:    "", // OutDir not changed by function
+			expectedJUnitFile: "junit.xml", // Default JUnit file
+			expectedHTMLFile:  "",
+		},
+		{
+			name: "custom outdir",
+			params: &RunParameters{
+				OutDir:    "custom-output", 
+				JUnitFile: "",
+				HTMLFile:  "",
+			},
+			expectedOutDir:    "custom-output",
+			expectedJUnitFile: "custom-output/junit.xml", // JUnit uses OutDir
+			expectedHTMLFile:  "",
+		},
+		{
+			name: "custom files - keeps as-is",
+			params: &RunParameters{
+				OutDir:    "results",
+				JUnitFile: "custom.xml",
+				HTMLFile:  "custom.html",
+			},
+			expectedOutDir:    "results",
+			expectedJUnitFile: "custom.xml",
+			expectedHTMLFile:  "custom.html",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setDefaultFilePaths(tt.params)
+			assert.Equal(t, tt.expectedOutDir, tt.params.OutDir)
+			assert.Equal(t, tt.expectedJUnitFile, tt.params.JUnitFile)
+			assert.Equal(t, tt.expectedHTMLFile, tt.params.HTMLFile)
+		})
+	}
+}
