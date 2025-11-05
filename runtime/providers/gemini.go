@@ -74,7 +74,13 @@ type geminiContent struct {
 }
 
 type geminiPart struct {
-	Text string `json:"text"`
+	Text       string            `json:"text,omitempty"`
+	InlineData *geminiInlineData `json:"inlineData,omitempty"`
+}
+
+type geminiInlineData struct {
+	MimeType string `json:"mimeType"`
+	Data     string `json:"data"` // base64 encoded
 }
 
 type geminiGenConfig struct {

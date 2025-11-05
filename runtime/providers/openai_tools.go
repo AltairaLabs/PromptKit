@@ -298,7 +298,7 @@ func (p *OpenAIToolProvider) makeRequest(ctx context.Context, request interface{
 	req.Header.Set(authorizationHeader, bearerPrefix+p.apiKey)
 
 	logger.APIRequest("OpenAI", "POST", p.baseURL+openAIChatCompletionsPath, map[string]string{
-		contentTypeHeader:  applicationJSON,
+		contentTypeHeader:   applicationJSON,
 		authorizationHeader: bearerPrefix + p.apiKey,
 	}, request)
 
