@@ -14,6 +14,15 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+// HTTP constants
+const (
+	openAIChatCompletionsPath = "/chat/completions"
+	contentTypeHeader         = "Content-Type"
+	applicationJSON           = "application/json"
+	authorizationHeader       = "Authorization"
+	bearerPrefix              = "Bearer "
+)
+
 // OpenAIProvider implements the Provider interface for OpenAI
 type OpenAIProvider struct {
 	id               string
@@ -175,19 +184,19 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req ChatRequest) (ChatRespons
 	}
 
 	// Make HTTP request
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+"/chat/completions", bytes.NewReader(reqBody))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+openAIChatCompletionsPath, bytes.NewReader(reqBody))
 	if err != nil {
 		return chatResp, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	httpReq.Header.Set(contentTypeHeader, applicationJSON)
+	httpReq.Header.Set(authorizationHeader, bearerPrefix+p.apiKey)
 
 	client := &http.Client{Timeout: 30 * time.Second}
 
-	logger.APIRequest("OpenAI", "POST", p.baseURL+"/chat/completions", map[string]string{
-		"Content-Type":  "application/json",
-		"Authorization": "Bearer " + p.apiKey,
+	logger.APIRequest("OpenAI", "POST", p.baseURL+openAIChatCompletionsPath, map[string]string{
+		contentTypeHeader:   applicationJSON,
+		authorizationHeader: bearerPrefix + p.apiKey,
 	}, openAIReq)
 
 	resp, err := client.Do(httpReq)

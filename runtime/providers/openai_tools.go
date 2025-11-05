@@ -110,61 +110,7 @@ func (p *OpenAIToolProvider) ChatWithTools(ctx context.Context, req ChatRequest,
 
 // buildToolRequest constructs the OpenAI API request with tools
 func (p *OpenAIToolProvider) buildToolRequest(req ChatRequest, tools interface{}, toolChoice string) map[string]interface{} {
-	// Convert messages to OpenAI format (using map to handle all valid fields)
-	messages := make([]map[string]interface{}, 0, len(req.Messages)+1)
-
-	// Add system message if present
-	if req.System != "" {
-		messages = append(messages, map[string]interface{}{
-			"role":    "system",
-			"content": req.System,
-		})
-	}
-
-	// Add conversation messages
-	for _, msg := range req.Messages {
-		// Convert message to OpenAI format (handles both legacy and multimodal)
-		convertedMsg, err := p.convertMessageToOpenAI(msg)
-		if err != nil {
-			// Log error but continue with best effort (use Content as fallback)
-			// This allows tool calls to work even if multimodal conversion fails
-			convertedMsg = openAIMessage{
-				Role:    msg.Role,
-				Content: msg.GetContent(),
-			}
-		}
-
-		// Build the message map with content
-		openaiMsg := map[string]interface{}{
-			"role":    convertedMsg.Role,
-			"content": convertedMsg.Content,
-		}
-
-		// Add tool-related fields if present
-		if len(msg.ToolCalls) > 0 {
-			// Convert ToolCalls to OpenAI format
-			toolCalls := make([]map[string]interface{}, len(msg.ToolCalls))
-			for i, tc := range msg.ToolCalls {
-				toolCalls[i] = map[string]interface{}{
-					"id":   tc.ID,
-					"type": "function",
-					"function": map[string]interface{}{
-						"name":      tc.Name,
-						"arguments": string(tc.Args),
-					},
-				}
-			}
-			openaiMsg["tool_calls"] = toolCalls
-		}
-
-		// Handle tool result messages (convert from types.Message.ToolResult)
-		if msg.Role == "tool" && msg.ToolResult != nil {
-			openaiMsg["tool_call_id"] = msg.ToolResult.ID
-			openaiMsg["name"] = msg.ToolResult.Name
-		}
-
-		messages = append(messages, openaiMsg)
-	}
+	messages := p.convertRequestMessagesToOpenAI(req)
 
 	// Build request
 	openaiReq := map[string]interface{}{
@@ -182,25 +128,102 @@ func (p *OpenAIToolProvider) buildToolRequest(req ChatRequest, tools interface{}
 	// Add tools if provided
 	if tools != nil {
 		openaiReq["tools"] = tools
-		if toolChoice != "" && toolChoice != "auto" {
-			switch toolChoice {
-			case "required":
-				openaiReq["tool_choice"] = "required"
-			case "none":
-				openaiReq["tool_choice"] = "none"
-			default:
-				// Specific function name
-				openaiReq["tool_choice"] = map[string]interface{}{
-					"type": "function",
-					"function": map[string]string{
-						"name": toolChoice,
-					},
-				}
-			}
-		}
+		p.addToolChoiceToRequest(openaiReq, toolChoice)
 	}
 
 	return openaiReq
+}
+
+// convertRequestMessagesToOpenAI converts all messages in a request to OpenAI format
+func (p *OpenAIToolProvider) convertRequestMessagesToOpenAI(req ChatRequest) []map[string]interface{} {
+	messages := make([]map[string]interface{}, 0, len(req.Messages)+1)
+
+	// Add system message if present
+	if req.System != "" {
+		messages = append(messages, map[string]interface{}{
+			"role":    "system",
+			"content": req.System,
+		})
+	}
+
+	// Add conversation messages
+	for _, msg := range req.Messages {
+		openaiMsg := p.convertSingleMessageForTools(msg)
+		messages = append(messages, openaiMsg)
+	}
+
+	return messages
+}
+
+// convertSingleMessageForTools converts a single message to OpenAI format including tool metadata
+func (p *OpenAIToolProvider) convertSingleMessageForTools(msg types.Message) map[string]interface{} {
+	// Convert message to OpenAI format (handles both legacy and multimodal)
+	convertedMsg, err := p.convertMessageToOpenAI(msg)
+	if err != nil {
+		// Log error but continue with best effort (use Content as fallback)
+		// This allows tool calls to work even if multimodal conversion fails
+		convertedMsg = openAIMessage{
+			Role:    msg.Role,
+			Content: msg.GetContent(),
+		}
+	}
+
+	// Build the message map with content
+	openaiMsg := map[string]interface{}{
+		"role":    convertedMsg.Role,
+		"content": convertedMsg.Content,
+	}
+
+	// Add tool-related fields if present
+	if len(msg.ToolCalls) > 0 {
+		openaiMsg["tool_calls"] = p.convertToolCallsToOpenAI(msg.ToolCalls)
+	}
+
+	// Handle tool result messages
+	if msg.Role == "tool" && msg.ToolResult != nil {
+		openaiMsg["tool_call_id"] = msg.ToolResult.ID
+		openaiMsg["name"] = msg.ToolResult.Name
+	}
+
+	return openaiMsg
+}
+
+// convertToolCallsToOpenAI converts ToolCalls to OpenAI format
+func (p *OpenAIToolProvider) convertToolCallsToOpenAI(toolCalls []types.MessageToolCall) []map[string]interface{} {
+	result := make([]map[string]interface{}, len(toolCalls))
+	for i, tc := range toolCalls {
+		result[i] = map[string]interface{}{
+			"id":   tc.ID,
+			"type": "function",
+			"function": map[string]interface{}{
+				"name":      tc.Name,
+				"arguments": string(tc.Args),
+			},
+		}
+	}
+	return result
+}
+
+// addToolChoiceToRequest adds tool_choice parameter based on the choice string
+func (p *OpenAIToolProvider) addToolChoiceToRequest(openaiReq map[string]interface{}, toolChoice string) {
+	if toolChoice == "" || toolChoice == "auto" {
+		return
+	}
+
+	switch toolChoice {
+	case "required":
+		openaiReq["tool_choice"] = "required"
+	case "none":
+		openaiReq["tool_choice"] = "none"
+	default:
+		// Specific function name
+		openaiReq["tool_choice"] = map[string]interface{}{
+			"type": "function",
+			"function": map[string]string{
+				"name": toolChoice,
+			},
+		}
+	}
 }
 
 // parseToolResponse parses the OpenAI response and extracts tool calls
@@ -266,17 +289,17 @@ func (p *OpenAIToolProvider) makeRequest(ctx context.Context, request interface{
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+"/chat/completions", bytes.NewBuffer(reqBytes))
+	req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+openAIChatCompletionsPath, bytes.NewBuffer(reqBytes))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+p.apiKey)
+	req.Header.Set(contentTypeHeader, applicationJSON)
+	req.Header.Set(authorizationHeader, bearerPrefix+p.apiKey)
 
-	logger.APIRequest("OpenAI", "POST", p.baseURL+"/chat/completions", map[string]string{
-		"Content-Type":  "application/json",
-		"Authorization": "Bearer " + p.apiKey,
+	logger.APIRequest("OpenAI", "POST", p.baseURL+openAIChatCompletionsPath, map[string]string{
+		contentTypeHeader:  applicationJSON,
+		authorizationHeader: bearerPrefix + p.apiKey,
 	}, request)
 
 	resp, err := p.client.Do(req)
