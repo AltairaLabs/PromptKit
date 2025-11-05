@@ -1,0 +1,417 @@
+// Package markdown provides Markdown file-based result storage for Arena.
+// This package implements the ResultRepository interface to save Arena
+// test results as Markdown formatted files, enabling seamless integration
+// with CI/CD pipelines and GitHub workflows.
+package markdown
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
+	"github.com/AltairaLabs/PromptKit/tools/arena/results"
+)
+
+const (
+	// File names and error messages
+	markdownFileName           = "results.md"
+	errFailedToCreateOutputDir = "failed to create output directory: %w"
+)
+
+// MarkdownResultRepository stores results as a Markdown file.
+// This provides human-readable output suitable for CI/CD integration,
+// GitHub PR comments, and documentation generation.
+type MarkdownResultRepository struct {
+	outputDir    string
+	outputFile   string
+	includeDetails bool
+}
+
+// NewMarkdownResultRepository creates a new Markdown result repository that writes
+// to the specified output directory.
+func NewMarkdownResultRepository(outputDir string) *MarkdownResultRepository {
+	return &MarkdownResultRepository{
+		outputDir:      outputDir,
+		outputFile:     filepath.Join(outputDir, markdownFileName),
+		includeDetails: true,
+	}
+}
+
+// NewMarkdownResultRepositoryWithFile creates a new Markdown result repository
+// with a custom output file path.
+func NewMarkdownResultRepositoryWithFile(outputFile string) *MarkdownResultRepository {
+	return &MarkdownResultRepository{
+		outputDir:      filepath.Dir(outputFile),
+		outputFile:     outputFile,
+		includeDetails: true,
+	}
+}
+
+// SetIncludeDetails configures whether to include detailed sections for failed cases
+func (r *MarkdownResultRepository) SetIncludeDetails(include bool) {
+	r.includeDetails = include
+}
+
+// GetOutputFile returns the output file path for this repository
+func (r *MarkdownResultRepository) GetOutputFile() string {
+	return r.outputFile
+}
+
+// SaveResults saves all results as a Markdown formatted file.
+func (r *MarkdownResultRepository) SaveResults(runResults []engine.RunResult) error {
+	// Validate inputs
+	if err := results.ValidateResults(runResults); err != nil {
+		return fmt.Errorf("validation failed: %w", err)
+	}
+
+	// Create output directory
+	if err := os.MkdirAll(r.outputDir, 0755); err != nil {
+		return fmt.Errorf(errFailedToCreateOutputDir, err)
+	}
+
+	// Generate markdown content
+	markdownContent := r.generateMarkdownReport(runResults)
+
+	// Write to file
+	if err := os.WriteFile(r.outputFile, []byte(markdownContent), 0600); err != nil {
+		return fmt.Errorf("failed to write markdown file %s: %w", r.outputFile, err)
+	}
+
+	return nil
+}
+
+// SaveSummary saves a summary of all test results 
+func (r *MarkdownResultRepository) SaveSummary(summary *results.ResultSummary) error {
+	// For markdown, we integrate summary into the main report
+	// This method can be used to update an existing report with summary info
+	return nil
+}
+
+// generateMarkdownReport creates the complete markdown report
+func (r *MarkdownResultRepository) generateMarkdownReport(runResults []engine.RunResult) string {
+	if len(runResults) == 0 {
+		return "# PromptArena Evaluation Results\n\n*No results to display*\n"
+	}
+
+	summary := r.calculateSummary(runResults)
+	
+	var content strings.Builder
+	
+	// Header with summary
+	content.WriteString("# 🧪 PromptArena Test Results\n\n")
+	
+	// Overview section
+	r.writeOverviewSection(&content, summary)
+	
+	// Results matrix
+	r.writeResultsMatrix(&content, runResults)
+	
+	// Failed tests details (if any)
+	if summary.Failed > 0 {
+		r.writeFailedTestsSection(&content, runResults)
+	}
+	
+	// Cost breakdown
+	if summary.TotalCost > 0 {
+		r.writeCostSection(&content, runResults, summary)
+	}
+	
+	return content.String()
+}
+
+// LoadResults returns an error as markdown format doesn't support loading
+func (r *MarkdownResultRepository) LoadResults() ([]engine.RunResult, error) {
+	return nil, fmt.Errorf("markdown repository does not support loading results")
+}
+
+// SupportsStreaming returns false as markdown generates a complete report
+func (r *MarkdownResultRepository) SupportsStreaming() bool {
+	return false
+}
+
+// SaveResult returns an error as markdown doesn't support streaming
+func (r *MarkdownResultRepository) SaveResult(result *engine.RunResult) error {
+	return fmt.Errorf("markdown repository does not support streaming individual results")
+}
+
+// testSummary holds summary statistics for the markdown report
+type testSummary struct {
+	Total       int
+	Passed      int
+	Failed      int
+	TotalCost   float64
+	TotalTokens int
+	Duration    time.Duration
+}
+
+// calculateSummary computes summary statistics from run results
+func (r *MarkdownResultRepository) calculateSummary(runResults []engine.RunResult) testSummary {
+	summary := testSummary{
+		Total: len(runResults),
+	}
+	
+	for _, result := range runResults {
+		// Count passed/failed based on errors and assertion failures
+		if result.Error != "" || len(result.Violations) > 0 || r.hasFailedAssertions(&result) {
+			summary.Failed++
+		} else {
+			summary.Passed++
+		}
+		
+		// Accumulate costs and tokens
+		summary.TotalCost += result.Cost.TotalCost
+		summary.TotalTokens += result.Cost.InputTokens + result.Cost.OutputTokens
+		summary.Duration += result.Duration
+	}
+	
+	return summary
+}
+
+// hasFailedAssertions checks if a result has any failed assertions
+func (r *MarkdownResultRepository) hasFailedAssertions(result *engine.RunResult) bool {
+	// Check if any message has failed assertions in metadata
+	for _, msg := range result.Messages {
+		if msg.Meta != nil {
+			if assertions, ok := msg.Meta["assertions"]; ok {
+				if assertionMap, ok := assertions.(map[string]interface{}); ok {
+					for _, assertion := range assertionMap {
+						if assertionResult, ok := assertion.(map[string]interface{}); ok {
+							if passed, exists := assertionResult["passed"]; exists {
+								if passedBool, ok := passed.(bool); ok && !passedBool {
+									return true
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+// writeOverviewSection writes the summary overview section
+func (r *MarkdownResultRepository) writeOverviewSection(content *strings.Builder, summary testSummary) {
+	content.WriteString("## 📊 Overview\n\n")
+	content.WriteString("| Metric | Value |\n")
+	content.WriteString("|--------|-------|\n")
+	content.WriteString(fmt.Sprintf("| Tests Run | %d |\n", summary.Total))
+	content.WriteString(fmt.Sprintf("| Passed | %d ✅ |\n", summary.Passed))
+	content.WriteString(fmt.Sprintf("| Failed | %d ❌ |\n", summary.Failed))
+	
+	if summary.Total > 0 {
+		successRate := float64(summary.Passed) / float64(summary.Total) * 100
+		content.WriteString(fmt.Sprintf("| Success Rate | %.1f%% |\n", successRate))
+	}
+	
+	if summary.TotalCost > 0 {
+		content.WriteString(fmt.Sprintf("| Total Cost | $%.4f |\n", summary.TotalCost))
+	}
+	
+	if summary.Duration > 0 {
+		content.WriteString(fmt.Sprintf("| Total Duration | %s |\n", summary.Duration.String()))
+	}
+	
+	content.WriteString("\n")
+}
+
+// writeResultsMatrix writes the detailed results matrix
+func (r *MarkdownResultRepository) writeResultsMatrix(content *strings.Builder, runResults []engine.RunResult) {
+	content.WriteString("## 🔍 Test Results\n\n")
+	content.WriteString("| Provider | Scenario | Region | Status | Duration | Guardrails | Assertions | Tools | Cost |\n")
+	content.WriteString("|----------|----------|--------|---------|-----------|------------|------------|-------|------|\n")
+	
+	for _, result := range runResults {
+		r.writeResultRow(content, &result)
+	}
+	
+	content.WriteString("\n")
+}
+
+// writeResultRow writes a single result row in the matrix
+func (r *MarkdownResultRepository) writeResultRow(content *strings.Builder, result *engine.RunResult) {
+	// Determine status
+	status := "✅ Pass"
+	if result.Error != "" || len(result.Violations) > 0 || r.hasFailedAssertions(result) {
+		status = "❌ Fail"
+	}
+	
+	// Check for guardrails (violations indicate guardrails were present)
+	hasGuardrails := "❌"
+	if len(result.Violations) > 0 {
+		hasGuardrails = "✅"
+	} else {
+		// Check if any prompt config had validators - we can infer from scenario/provider setup
+		// For now, mark as unknown
+		hasGuardrails = "-"
+	}
+	
+	// Check for assertions
+	hasAssertions := "-"
+	assertionCount := r.countAssertions(result)
+	if assertionCount > 0 {
+		hasAssertions = fmt.Sprintf("✅ (%d)", assertionCount)
+	}
+	
+	// Check for tool usage
+	toolsUsed := "-"
+	if result.ToolStats != nil && result.ToolStats.TotalCalls > 0 {
+		toolsUsed = fmt.Sprintf("✅ (%d calls)", result.ToolStats.TotalCalls)
+	}
+	
+	// Format cost
+	cost := "-"
+	if result.Cost.TotalCost > 0 {
+		cost = fmt.Sprintf("$%.4f", result.Cost.TotalCost)
+	}
+	
+	// Format duration
+	duration := result.Duration.Truncate(time.Millisecond).String()
+	
+	content.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",
+		result.ProviderID,
+		result.ScenarioID,
+		result.Region,
+		status,
+		duration,
+		hasGuardrails,
+		hasAssertions,
+		toolsUsed,
+		cost,
+	))
+}
+
+// countAssertions counts the number of assertions configured for a result
+func (r *MarkdownResultRepository) countAssertions(result *engine.RunResult) int {
+	count := 0
+	for _, msg := range result.Messages {
+		if msg.Meta != nil {
+			if assertions, ok := msg.Meta["assertions"]; ok {
+				if assertionMap, ok := assertions.(map[string]interface{}); ok {
+					count += len(assertionMap)
+				}
+			}
+		}
+	}
+	return count
+}
+
+// writeFailedTestsSection writes detailed information about failed tests
+func (r *MarkdownResultRepository) writeFailedTestsSection(content *strings.Builder, runResults []engine.RunResult) {
+	content.WriteString("## 🔍 Failed Tests\n\n")
+	
+	for _, result := range runResults {
+		if result.Error != "" || len(result.Violations) > 0 || r.hasFailedAssertions(&result) {
+			r.writeFailedTestDetail(content, &result)
+		}
+	}
+}
+
+// writeFailedTestDetail writes details for a single failed test
+func (r *MarkdownResultRepository) writeFailedTestDetail(content *strings.Builder, result *engine.RunResult) {
+	content.WriteString(fmt.Sprintf("### ❌ %s → %s (%s)\n\n", result.ScenarioID, result.ProviderID, result.Region))
+	
+	// Basic info
+	content.WriteString(fmt.Sprintf("- **Duration**: %s\n", result.Duration.String()))
+	if result.Cost.TotalCost > 0 {
+		content.WriteString(fmt.Sprintf("- **Cost**: $%.4f\n", result.Cost.TotalCost))
+	}
+	
+	// Error details
+	if result.Error != "" {
+		content.WriteString(fmt.Sprintf("- **Error**: %s\n", result.Error))
+	}
+	
+	// Guardrail violations
+	if len(result.Violations) > 0 {
+		content.WriteString(fmt.Sprintf("- **Guardrail Violations**: %d\n", len(result.Violations)))
+		for _, violation := range result.Violations {
+			content.WriteString(fmt.Sprintf("  - `%s`: %s\n", violation.Type, violation.Detail))
+		}
+	}
+	
+	// Assertion failures
+	r.writeAssertionFailures(content, result)
+	
+	// Tool usage
+	if result.ToolStats != nil && result.ToolStats.TotalCalls > 0 {
+		content.WriteString(fmt.Sprintf("- **Tools Used**: %d total calls\n", result.ToolStats.TotalCalls))
+		for toolName, count := range result.ToolStats.ByTool {
+			content.WriteString(fmt.Sprintf("  - `%s`: %d calls\n", toolName, count))
+		}
+	}
+	
+	content.WriteString("\n")
+}
+
+// writeAssertionFailures writes assertion failure details
+func (r *MarkdownResultRepository) writeAssertionFailures(content *strings.Builder, result *engine.RunResult) {
+	failedAssertions := 0
+	
+	for _, msg := range result.Messages {
+		if msg.Meta != nil {
+			if assertions, ok := msg.Meta["assertions"]; ok {
+				if assertionMap, ok := assertions.(map[string]interface{}); ok {
+					for assertionType, assertion := range assertionMap {
+						if assertionResult, ok := assertion.(map[string]interface{}); ok {
+							if passed, exists := assertionResult["passed"]; exists {
+								if passedBool, ok := passed.(bool); ok && !passedBool {
+									if failedAssertions == 0 {
+										content.WriteString("- **Assertion Failures**:\n")
+									}
+									failedAssertions++
+									
+									message := ""
+									if msgInterface, exists := assertionResult["message"]; exists {
+										if msgStr, ok := msgInterface.(string); ok {
+											message = msgStr
+										}
+									}
+									
+									details := ""
+									if detailsInterface, exists := assertionResult["details"]; exists {
+										details = fmt.Sprintf("%v", detailsInterface)
+									}
+									
+									content.WriteString(fmt.Sprintf("  - `%s`: %s", assertionType, message))
+									if details != "" && details != "<nil>" {
+										content.WriteString(fmt.Sprintf(" (%s)", details))
+									}
+									content.WriteString("\n")
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// writeCostSection writes the cost breakdown section
+func (r *MarkdownResultRepository) writeCostSection(content *strings.Builder, runResults []engine.RunResult, summary testSummary) {
+	content.WriteString("## 💰 Cost Breakdown\n\n")
+	
+	// Group by provider
+	providerCosts := make(map[string]float64)
+	providerCounts := make(map[string]int)
+	
+	for _, result := range runResults {
+		providerCosts[result.ProviderID] += result.Cost.TotalCost
+		providerCounts[result.ProviderID]++
+	}
+	
+	content.WriteString("| Provider | Total Cost | Runs | Avg Cost |\n")
+	content.WriteString("|----------|------------|------|----------|\n")
+	
+	for provider, totalCost := range providerCosts {
+		avgCost := totalCost / float64(providerCounts[provider])
+		content.WriteString(fmt.Sprintf("| %s | $%.4f | %d | $%.4f |\n",
+			provider, totalCost, providerCounts[provider], avgCost))
+	}
+	
+	content.WriteString("\n")
+}

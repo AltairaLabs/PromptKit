@@ -15,6 +15,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/results/html"
 	jsonrepo "github.com/AltairaLabs/PromptKit/tools/arena/results/json"
 	"github.com/AltairaLabs/PromptKit/tools/arena/results/junit"
+	"github.com/AltairaLabs/PromptKit/tools/arena/results/markdown"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -50,6 +51,9 @@ func createResultRepository(params *RunParameters) (results.ResultRepository, er
 		case "html":
 			htmlRepo := html.NewHTMLResultRepository(params.HTMLFile)
 			composite.AddRepository(htmlRepo)
+		case "markdown":
+			markdownRepo := markdown.NewMarkdownResultRepositoryWithFile(params.MarkdownFile)
+			composite.AddRepository(markdownRepo)
 		default:
 			return nil, fmt.Errorf("unsupported output format: %s", format)
 		}
@@ -91,10 +95,11 @@ func init() {
 	runCmd.Flags().StringP("out", "o", "out", "Output directory")
 	runCmd.Flags().Bool("ci", false, "CI mode (headless)")
 	runCmd.Flags().Bool("html", false, "Generate HTML report (deprecated: use --format)")
-	runCmd.Flags().StringSlice("format", []string{}, "Output formats (json, junit, html) - defaults from config")
-	runCmd.Flags().StringSlice("formats", []string{}, "Output formats (json, junit, html) - alias for --format")
+	runCmd.Flags().StringSlice("format", []string{}, "Output formats (json, junit, html, markdown) - defaults from config")
+	runCmd.Flags().StringSlice("formats", []string{}, "Output formats (json, junit, html, markdown) - alias for --format")
 	runCmd.Flags().String("junit-file", "", "JUnit XML output file (default: out/junit.xml)")
 	runCmd.Flags().String("html-file", "", "HTML report output file (default: out/report-[timestamp].html)")
+	runCmd.Flags().String("markdown-file", "", "Markdown report output file (default: out/results.md)")
 	runCmd.Flags().Float32("temperature", 0.6, "Override temperature")
 	runCmd.Flags().Int(flagMaxTokens, 0, "Override max tokens for all scenarios")
 	runCmd.Flags().IntP("seed", "s", 42, "Random seed")
@@ -157,9 +162,10 @@ type RunParameters struct {
 	Verbose        bool
 	GenerateHTML   bool     // Deprecated: use OutputFormats
 	HTMLReportPath string   // Deprecated: use HTMLFile
-	OutputFormats  []string // New: output formats (json, junit, html)
+	OutputFormats  []string // New: output formats (json, junit, html, markdown)
 	JUnitFile      string   // New: JUnit XML output file
 	HTMLFile       string   // New: HTML output file
+	MarkdownFile   string   // New: Markdown output file
 	MockProvider   bool     // Enable mock provider mode
 	MockConfig     string   // Path to mock provider configuration
 }
@@ -290,6 +296,9 @@ func extractOutputFormatFlags(cmd *cobra.Command, cfg *config.Config, params *Ru
 	if params.HTMLFile, err = cmd.Flags().GetString("html-file"); err != nil {
 		return fmt.Errorf("failed to get html-file flag: %w", err)
 	}
+	if params.MarkdownFile, err = cmd.Flags().GetString("markdown-file"); err != nil {
+		return fmt.Errorf("failed to get markdown-file flag: %w", err)
+	}
 	return nil
 }
 
@@ -358,6 +367,11 @@ func setDefaultFilePaths(params *RunParameters) {
 			params.HTMLFile = filepath.Join(params.OutDir, fmt.Sprintf("report-%s.html", timestamp))
 		}
 	}
+
+	// Set default Markdown file path if markdown generation is enabled
+	if params.MarkdownFile == "" && contains(params.OutputFormats, "markdown") {
+		params.MarkdownFile = filepath.Join(params.OutDir, "results.md")
+	}
 }
 
 // applyConfigurationOverrides applies command line overrides to configuration
@@ -394,6 +408,9 @@ func displayRunInfo(params *RunParameters, configFile string) {
 	}
 	if contains(params.OutputFormats, "html") || params.GenerateHTML {
 		fmt.Printf("HTML Report: %s\n", params.HTMLFile)
+	}
+	if contains(params.OutputFormats, "markdown") {
+		fmt.Printf("Markdown Report: %s\n", params.MarkdownFile)
 	}
 	fmt.Println()
 }
@@ -507,6 +524,9 @@ func displayFinalSummary(params *RunParameters, results []engine.RunResult, succ
 		}
 		if contains(params.OutputFormats, "html") || params.GenerateHTML {
 			fmt.Printf("HTML Report: %s\n", params.HTMLFile)
+		}
+		if contains(params.OutputFormats, "markdown") {
+			fmt.Printf("Markdown Report: %s\n", params.MarkdownFile)
 		}
 	}
 
