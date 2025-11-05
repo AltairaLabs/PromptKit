@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/results"
 )
@@ -25,8 +26,8 @@ const (
 // This provides human-readable output suitable for CI/CD integration,
 // GitHub PR comments, and documentation generation.
 type MarkdownResultRepository struct {
-	outputDir    string
-	outputFile   string
+	outputDir      string
+	outputFile     string
 	includeDetails bool
 }
 
@@ -83,7 +84,7 @@ func (r *MarkdownResultRepository) SaveResults(runResults []engine.RunResult) er
 	return nil
 }
 
-// SaveSummary saves a summary of all test results 
+// SaveSummary saves a summary of all test results
 func (r *MarkdownResultRepository) SaveSummary(summary *results.ResultSummary) error {
 	// For markdown, we integrate summary into the main report
 	// This method can be used to update an existing report with summary info
@@ -97,28 +98,28 @@ func (r *MarkdownResultRepository) generateMarkdownReport(runResults []engine.Ru
 	}
 
 	summary := r.calculateSummary(runResults)
-	
+
 	var content strings.Builder
-	
+
 	// Header with summary
 	content.WriteString("# 🧪 PromptArena Test Results\n\n")
-	
+
 	// Overview section
 	r.writeOverviewSection(&content, summary)
-	
+
 	// Results matrix
 	r.writeResultsMatrix(&content, runResults)
-	
+
 	// Failed tests details (if any)
 	if summary.Failed > 0 {
 		r.writeFailedTestsSection(&content, runResults)
 	}
-	
+
 	// Cost breakdown
 	if summary.TotalCost > 0 {
 		r.writeCostSection(&content, runResults, summary)
 	}
-	
+
 	return content.String()
 }
 
@@ -152,7 +153,7 @@ func (r *MarkdownResultRepository) calculateSummary(runResults []engine.RunResul
 	summary := testSummary{
 		Total: len(runResults),
 	}
-	
+
 	for _, result := range runResults {
 		// Count passed/failed based on errors and assertion failures
 		if result.Error != "" || len(result.Violations) > 0 || r.hasFailedAssertions(&result) {
@@ -160,37 +161,69 @@ func (r *MarkdownResultRepository) calculateSummary(runResults []engine.RunResul
 		} else {
 			summary.Passed++
 		}
-		
+
 		// Accumulate costs and tokens
 		summary.TotalCost += result.Cost.TotalCost
 		summary.TotalTokens += result.Cost.InputTokens + result.Cost.OutputTokens
 		summary.Duration += result.Duration
 	}
-	
+
 	return summary
 }
 
 // hasFailedAssertions checks if a result has any failed assertions
 func (r *MarkdownResultRepository) hasFailedAssertions(result *engine.RunResult) bool {
-	// Check if any message has failed assertions in metadata
 	for _, msg := range result.Messages {
-		if msg.Meta != nil {
-			if assertions, ok := msg.Meta["assertions"]; ok {
-				if assertionMap, ok := assertions.(map[string]interface{}); ok {
-					for _, assertion := range assertionMap {
-						if assertionResult, ok := assertion.(map[string]interface{}); ok {
-							if passed, exists := assertionResult["passed"]; exists {
-								if passedBool, ok := passed.(bool); ok && !passedBool {
-									return true
-								}
-							}
-						}
-					}
-				}
-			}
+		if r.messageHasFailedAssertions(&msg) {
+			return true
 		}
 	}
 	return false
+}
+
+// messageHasFailedAssertions checks if a single message has failed assertions
+func (r *MarkdownResultRepository) messageHasFailedAssertions(msg *types.Message) bool {
+	if msg.Meta == nil {
+		return false
+	}
+
+	assertions, ok := msg.Meta["assertions"]
+	if !ok {
+		return false
+	}
+
+	assertionMap, ok := assertions.(map[string]interface{})
+	if !ok {
+		return false
+	}
+
+	return r.hasFailedAssertionInMap(assertionMap)
+}
+
+// hasFailedAssertionInMap checks if any assertion in the map failed
+func (r *MarkdownResultRepository) hasFailedAssertionInMap(assertionMap map[string]interface{}) bool {
+	for _, assertion := range assertionMap {
+		if r.isFailedAssertion(assertion) {
+			return true
+		}
+	}
+	return false
+}
+
+// isFailedAssertion checks if a single assertion failed
+func (r *MarkdownResultRepository) isFailedAssertion(assertion interface{}) bool {
+	assertionResult, ok := assertion.(map[string]interface{})
+	if !ok {
+		return false
+	}
+
+	passed, exists := assertionResult["passed"]
+	if !exists {
+		return false
+	}
+
+	passedBool, ok := passed.(bool)
+	return ok && !passedBool
 }
 
 // writeOverviewSection writes the summary overview section
@@ -201,20 +234,20 @@ func (r *MarkdownResultRepository) writeOverviewSection(content *strings.Builder
 	content.WriteString(fmt.Sprintf("| Tests Run | %d |\n", summary.Total))
 	content.WriteString(fmt.Sprintf("| Passed | %d ✅ |\n", summary.Passed))
 	content.WriteString(fmt.Sprintf("| Failed | %d ❌ |\n", summary.Failed))
-	
+
 	if summary.Total > 0 {
 		successRate := float64(summary.Passed) / float64(summary.Total) * 100
 		content.WriteString(fmt.Sprintf("| Success Rate | %.1f%% |\n", successRate))
 	}
-	
+
 	if summary.TotalCost > 0 {
 		content.WriteString(fmt.Sprintf("| Total Cost | $%.4f |\n", summary.TotalCost))
 	}
-	
+
 	if summary.Duration > 0 {
 		content.WriteString(fmt.Sprintf("| Total Duration | %s |\n", summary.Duration.String()))
 	}
-	
+
 	content.WriteString("\n")
 }
 
@@ -223,11 +256,11 @@ func (r *MarkdownResultRepository) writeResultsMatrix(content *strings.Builder, 
 	content.WriteString("## 🔍 Test Results\n\n")
 	content.WriteString("| Provider | Scenario | Region | Status | Duration | Guardrails | Assertions | Tools | Cost |\n")
 	content.WriteString("|----------|----------|--------|---------|-----------|------------|------------|-------|------|\n")
-	
+
 	for _, result := range runResults {
 		r.writeResultRow(content, &result)
 	}
-	
+
 	content.WriteString("\n")
 }
 
@@ -238,7 +271,7 @@ func (r *MarkdownResultRepository) writeResultRow(content *strings.Builder, resu
 	if result.Error != "" || len(result.Violations) > 0 || r.hasFailedAssertions(result) {
 		status = "❌ Fail"
 	}
-	
+
 	// Check for guardrails (violations indicate guardrails were present)
 	hasGuardrails := "❌"
 	if len(result.Violations) > 0 {
@@ -248,29 +281,29 @@ func (r *MarkdownResultRepository) writeResultRow(content *strings.Builder, resu
 		// For now, mark as unknown
 		hasGuardrails = "-"
 	}
-	
+
 	// Check for assertions
 	hasAssertions := "-"
 	assertionCount := r.countAssertions(result)
 	if assertionCount > 0 {
 		hasAssertions = fmt.Sprintf("✅ (%d)", assertionCount)
 	}
-	
+
 	// Check for tool usage
 	toolsUsed := "-"
 	if result.ToolStats != nil && result.ToolStats.TotalCalls > 0 {
 		toolsUsed = fmt.Sprintf("✅ (%d calls)", result.ToolStats.TotalCalls)
 	}
-	
+
 	// Format cost
 	cost := "-"
 	if result.Cost.TotalCost > 0 {
 		cost = fmt.Sprintf("$%.4f", result.Cost.TotalCost)
 	}
-	
+
 	// Format duration
 	duration := result.Duration.Truncate(time.Millisecond).String()
-	
+
 	content.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",
 		result.ProviderID,
 		result.ScenarioID,
@@ -302,7 +335,7 @@ func (r *MarkdownResultRepository) countAssertions(result *engine.RunResult) int
 // writeFailedTestsSection writes detailed information about failed tests
 func (r *MarkdownResultRepository) writeFailedTestsSection(content *strings.Builder, runResults []engine.RunResult) {
 	content.WriteString("## 🔍 Failed Tests\n\n")
-	
+
 	for _, result := range runResults {
 		if result.Error != "" || len(result.Violations) > 0 || r.hasFailedAssertions(&result) {
 			r.writeFailedTestDetail(content, &result)
@@ -313,18 +346,18 @@ func (r *MarkdownResultRepository) writeFailedTestsSection(content *strings.Buil
 // writeFailedTestDetail writes details for a single failed test
 func (r *MarkdownResultRepository) writeFailedTestDetail(content *strings.Builder, result *engine.RunResult) {
 	content.WriteString(fmt.Sprintf("### ❌ %s → %s (%s)\n\n", result.ScenarioID, result.ProviderID, result.Region))
-	
+
 	// Basic info
 	content.WriteString(fmt.Sprintf("- **Duration**: %s\n", result.Duration.String()))
 	if result.Cost.TotalCost > 0 {
 		content.WriteString(fmt.Sprintf("- **Cost**: $%.4f\n", result.Cost.TotalCost))
 	}
-	
+
 	// Error details
 	if result.Error != "" {
 		content.WriteString(fmt.Sprintf("- **Error**: %s\n", result.Error))
 	}
-	
+
 	// Guardrail violations
 	if len(result.Violations) > 0 {
 		content.WriteString(fmt.Sprintf("- **Guardrail Violations**: %d\n", len(result.Violations)))
@@ -332,10 +365,10 @@ func (r *MarkdownResultRepository) writeFailedTestDetail(content *strings.Builde
 			content.WriteString(fmt.Sprintf("  - `%s`: %s\n", violation.Type, violation.Detail))
 		}
 	}
-	
+
 	// Assertion failures
 	r.writeAssertionFailures(content, result)
-	
+
 	// Tool usage
 	if result.ToolStats != nil && result.ToolStats.TotalCalls > 0 {
 		content.WriteString(fmt.Sprintf("- **Tools Used**: %d total calls\n", result.ToolStats.TotalCalls))
@@ -343,75 +376,146 @@ func (r *MarkdownResultRepository) writeFailedTestDetail(content *strings.Builde
 			content.WriteString(fmt.Sprintf("  - `%s`: %d calls\n", toolName, count))
 		}
 	}
-	
+
 	content.WriteString("\n")
 }
 
 // writeAssertionFailures writes assertion failure details
 func (r *MarkdownResultRepository) writeAssertionFailures(content *strings.Builder, result *engine.RunResult) {
-	failedAssertions := 0
-	
+	failures := r.collectAssertionFailures(result)
+
+	if len(failures) == 0 {
+		return
+	}
+
+	content.WriteString("- **Assertion Failures**:\n")
+	for _, failure := range failures {
+		r.writeAssertionFailure(content, failure)
+	}
+}
+
+// assertionFailure represents a single assertion failure
+type assertionFailure struct {
+	Type    string
+	Message string
+	Details string
+}
+
+// collectAssertionFailures gathers all assertion failures from a result
+func (r *MarkdownResultRepository) collectAssertionFailures(result *engine.RunResult) []assertionFailure {
+	var failures []assertionFailure
+
 	for _, msg := range result.Messages {
-		if msg.Meta != nil {
-			if assertions, ok := msg.Meta["assertions"]; ok {
-				if assertionMap, ok := assertions.(map[string]interface{}); ok {
-					for assertionType, assertion := range assertionMap {
-						if assertionResult, ok := assertion.(map[string]interface{}); ok {
-							if passed, exists := assertionResult["passed"]; exists {
-								if passedBool, ok := passed.(bool); ok && !passedBool {
-									if failedAssertions == 0 {
-										content.WriteString("- **Assertion Failures**:\n")
-									}
-									failedAssertions++
-									
-									message := ""
-									if msgInterface, exists := assertionResult["message"]; exists {
-										if msgStr, ok := msgInterface.(string); ok {
-											message = msgStr
-										}
-									}
-									
-									details := ""
-									if detailsInterface, exists := assertionResult["details"]; exists {
-										details = fmt.Sprintf("%v", detailsInterface)
-									}
-									
-									content.WriteString(fmt.Sprintf("  - `%s`: %s", assertionType, message))
-									if details != "" && details != "<nil>" {
-										content.WriteString(fmt.Sprintf(" (%s)", details))
-									}
-									content.WriteString("\n")
-								}
-							}
-						}
-					}
-				}
-			}
+		msgFailures := r.extractMessageAssertionFailures(&msg)
+		failures = append(failures, msgFailures...)
+	}
+
+	return failures
+}
+
+// extractMessageAssertionFailures extracts failures from a single message
+func (r *MarkdownResultRepository) extractMessageAssertionFailures(msg *types.Message) []assertionFailure {
+	var failures []assertionFailure
+
+	if msg.Meta == nil {
+		return failures
+	}
+
+	assertions, ok := msg.Meta["assertions"]
+	if !ok {
+		return failures
+	}
+
+	assertionMap, ok := assertions.(map[string]interface{})
+	if !ok {
+		return failures
+	}
+
+	for assertionType, assertion := range assertionMap {
+		if failure := r.extractSingleAssertionFailure(assertionType, assertion); failure != nil {
+			failures = append(failures, *failure)
 		}
 	}
+
+	return failures
+}
+
+// extractSingleAssertionFailure extracts a failure from a single assertion
+func (r *MarkdownResultRepository) extractSingleAssertionFailure(assertionType string, assertion interface{}) *assertionFailure {
+	assertionResult, ok := assertion.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	passed, exists := assertionResult["passed"]
+	if !exists {
+		return nil
+	}
+
+	passedBool, ok := passed.(bool)
+	if !ok || passedBool {
+		return nil
+	}
+
+	// Extract message and details
+	message := r.extractStringFromMap(assertionResult, "message")
+	details := r.extractDetailsFromMap(assertionResult, "details")
+
+	return &assertionFailure{
+		Type:    assertionType,
+		Message: message,
+		Details: details,
+	}
+}
+
+// writeAssertionFailure writes a single assertion failure
+func (r *MarkdownResultRepository) writeAssertionFailure(content *strings.Builder, failure assertionFailure) {
+	content.WriteString(fmt.Sprintf("  - `%s`: %s", failure.Type, failure.Message))
+	if failure.Details != "" && failure.Details != "<nil>" {
+		content.WriteString(fmt.Sprintf(" (%s)", failure.Details))
+	}
+	content.WriteString("\n")
+}
+
+// extractStringFromMap safely extracts a string value from a map
+func (r *MarkdownResultRepository) extractStringFromMap(m map[string]interface{}, key string) string {
+	if value, exists := m[key]; exists {
+		if str, ok := value.(string); ok {
+			return str
+		}
+	}
+	return ""
+}
+
+// extractDetailsFromMap safely extracts details from a map and formats them
+func (r *MarkdownResultRepository) extractDetailsFromMap(m map[string]interface{}, key string) string {
+	if value, exists := m[key]; exists {
+		return fmt.Sprintf("%v", value)
+	}
+	return ""
 }
 
 // writeCostSection writes the cost breakdown section
 func (r *MarkdownResultRepository) writeCostSection(content *strings.Builder, runResults []engine.RunResult, summary testSummary) {
 	content.WriteString("## 💰 Cost Breakdown\n\n")
-	
+
 	// Group by provider
 	providerCosts := make(map[string]float64)
 	providerCounts := make(map[string]int)
-	
+
 	for _, result := range runResults {
 		providerCosts[result.ProviderID] += result.Cost.TotalCost
 		providerCounts[result.ProviderID]++
 	}
-	
+
 	content.WriteString("| Provider | Total Cost | Runs | Avg Cost |\n")
 	content.WriteString("|----------|------------|------|----------|\n")
-	
+
 	for provider, totalCost := range providerCosts {
 		avgCost := totalCost / float64(providerCounts[provider])
 		content.WriteString(fmt.Sprintf("| %s | $%.4f | %d | $%.4f |\n",
 			provider, totalCost, providerCounts[provider], avgCost))
 	}
-	
+
 	content.WriteString("\n")
 }
