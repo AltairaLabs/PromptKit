@@ -9,10 +9,28 @@ spec:
   turns:
     - role: "user"
       content: "Hi, I placed an order last week but haven't received it yet. Order number ORD-2024-1234. My email is john.smith@email.com"
+      assertions:
+        - type: tools_called
+          params:
+            tools: ["get_customer_info", "get_order_history"]
+            message: "Should use get_customer_info and get_order_history tools to look up customer and order details"
+        - type: content_includes
+          params:
+            patterns: ["order", "ORD-2024-1234", "look up", "check"]
+            message: "Should acknowledge the order inquiry and indicate looking up information"
       
       # Expected: Agent should use get_customer_info and get_order_history tools
       
     - role: "user"
       content: "It's been 8 days. The estimated delivery was 5-7 business days."
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["understand", "concern", "delay", "investigate"]
+            message: "Should acknowledge the delay concern and offer to investigate"
+        - type: content_matches
+          params:
+            pattern: "(?i)(apologize|sorry|understand|investigate|contact|carrier|create.*ticket)"
+            message: "Should show empathy and offer next steps like creating a support ticket"
       
       # Expected: Agent might use create_support_ticket tool

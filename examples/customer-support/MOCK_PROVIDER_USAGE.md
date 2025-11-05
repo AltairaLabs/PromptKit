@@ -185,3 +185,4 @@ Currently, the mock provider:
 - [Mock Configuration Example](mock-config-example.yaml) - Full configuration format
 - [Arena User Guide](../../docs/guides/arena-user-guide.md) - General Arena usage
 - [GitHub Issue #27](https://github.com/AltairaLabs/PromptKit/issues/27) - Mock Provider enhancement tracking
+

@@ -9,18 +9,87 @@ spec:
   turns:
     - role: user
       content: "Hi, I'd like to track my order. My order number is #12345"
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["order", "track", "#12345"]
+            message: "Should acknowledge the order tracking request and reference the order number"
+        - type: content_matches
+          params:
+            pattern: "(?i)(thank you|thanks|hello|hi).*(help|assist|track|order)"
+            message: "Should provide professional greeting and offer to help"
+    
     - role: user
       content: "It says it's out for delivery but I haven't received it yet"
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["delivery", "understand", "concern"]
+            message: "Should acknowledge delivery concern with empathy"
+        - type: content_matches
+          params:
+            pattern: "(?i)(delivery|courier|arrive|today|window)"
+            message: "Should provide information about delivery expectations"
+    
     - role: user
       content: "I'd like to get a refund for my purchase"
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["refund", "help", "process"]
+            message: "Should acknowledge refund request and offer to help"
+        - type: content_matches
+          params:
+            pattern: "(?i)(order number|details|reason|verify)"
+            message: "Should ask for necessary information to process refund"
+    
     - role: user
       content: "The product doesn't work as described in the listing"
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["sorry", "apologize", "frustrating", "understand"]
+            message: "Should show empathy for product issues"
+        - type: content_matches
+          params:
+            pattern: "(?i)(refund|return|exchange|resolve)"
+            message: "Should offer solutions for defective product"
+    
     - role: user
       content: "The app keeps crashing when I try to log in"
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["troubleshoot", "help", "device", "version"]
+            message: "Should offer technical troubleshooting assistance"
+        - type: content_matches
+          params:
+            pattern: "(?i)(device|operating system|version|iOS|Android)"
+            message: "Should ask for device/system information for troubleshooting"
+    
     - role: user
       content: "I'm on iOS 17, latest version of the app"
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["iOS", "version", "information", "helpful"]
+            message: "Should acknowledge the provided information"
+        - type: content_matches
+          params:
+            pattern: "(?i)(tried|restart|steps|troubleshooting|cache|settings)"
+            message: "Should ask about or suggest troubleshooting steps"
+    
     - role: user
       content: "I already tried reinstalling it"
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["appreciate", "tried", "steps"]
+            message: "Should acknowledge previous troubleshooting attempts"
+        - type: content_matches
+          params:
+            pattern: "(?i)(technical team|escalate|investigate|update|cache|settings)"
+            message: "Should offer next level support or additional troubleshooting"
 
   context:
     goal: "test customer support responses"

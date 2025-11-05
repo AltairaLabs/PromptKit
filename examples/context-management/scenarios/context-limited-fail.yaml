@@ -15,16 +15,29 @@ spec:
   turns:
     - role: user
       content: "Tell me about the solar system."
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["solar system", "planets"]
     
     - role: user
       content: "What are all the planets in detail?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["planets"]
     
     - role: user
       content: "Tell me everything about Jupiter, Saturn, and their moons."
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["Jupiter", "Saturn", "moons"]
     
     # This turn should trigger an error because context exceeds budget
     - role: user
       content: "Now explain the asteroid belt and Kuiper belt in great detail."
+      # No assertions here since this turn should fail due to budget exceeded
 
   context_metadata:
     domain: "astronomy"
