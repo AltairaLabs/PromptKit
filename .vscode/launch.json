@@ -1,6 +1,26 @@
 {
     "version": "0.2.0",
     "configurations": [
+
+
+        {
+            "name": "Debug Arena Customer Support INtegrated",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceFolder}/tools/arena/cmd/promptarena",
+            "args": [
+                "run",
+                "--config", "examples/customer-support-integrated/arena.yaml",        
+                "--provider", "mock-tool-simulation",                
+                "-v",
+                "--scenario", "tool-test"
+            ],
+            "cwd": "${workspaceFolder}",
+            "env": {},
+            "console": "integratedTerminal",
+            "showLog": true
+        },
         {
             "name": "Debug Arena Integration Test",
             "type": "go",

@@ -158,18 +158,6 @@ type AsyncToolExecutor interface {
 	ExecuteAsync(descriptor *ToolDescriptor, args json.RawMessage) (*ToolExecutionResult, error)
 }
 
-// ToolSupport interface extends provider capabilities with tool support
-type ToolSupport interface {
-	// BuildTooling converts tool descriptors to provider-native format
-	BuildTooling(descriptors []*ToolDescriptor) (interface{}, error)
-
-	// ChatWithTools performs a chat request with tool support
-	ChatWithTools(req ChatRequest, tools interface{}, toolChoice string) (ChatResponse, []ToolCall, error)
-
-	// ContinueWithToolResults continues conversation with tool results
-	ContinueWithToolResults(prior ChatResponse, results []ToolResult) (ChatResponse, []ToolCall, error)
-}
-
 // ChatRequest represents a chat request (extending existing type)
 type ChatRequest struct {
 	System      string        `json:"system"`

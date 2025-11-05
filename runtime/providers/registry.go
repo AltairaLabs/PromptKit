@@ -50,6 +50,7 @@ type ProviderSpec struct {
 	BaseURL          string
 	Defaults         ProviderDefaults
 	IncludeRawOutput bool
+	AdditionalConfig map[string]interface{} // Flexible key-value pairs for provider-specific configuration
 }
 
 // CreateProviderFromSpec creates a provider implementation from a spec.
@@ -72,13 +73,13 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 
 	switch spec.Type {
 	case "openai":
-		return NewOpenAIToolProvider(spec.ID, spec.Model, baseURL, spec.Defaults, spec.IncludeRawOutput), nil
+		return NewOpenAIToolProvider(spec.ID, spec.Model, baseURL, spec.Defaults, spec.IncludeRawOutput, spec.AdditionalConfig), nil
 	case "gemini":
 		return NewGeminiToolProvider(spec.ID, spec.Model, baseURL, spec.Defaults, spec.IncludeRawOutput), nil
 	case "claude":
 		return NewClaudeToolProvider(spec.ID, spec.Model, baseURL, spec.Defaults, spec.IncludeRawOutput), nil
 	case "mock":
-		return NewMockProvider(spec.ID, spec.Model, spec.IncludeRawOutput), nil
+		return NewMockToolProvider(spec.ID, spec.Model, spec.IncludeRawOutput, spec.AdditionalConfig), nil
 	default:
 		return nil, &UnsupportedProviderError{ProviderType: spec.Type}
 	}

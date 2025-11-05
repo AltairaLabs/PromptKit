@@ -20,6 +20,7 @@ spec:
     - file: providers/openai-gpt4o-mini.yaml
     - file: providers/claude-3-5-haiku.yaml
     - file: providers/gemini-2-0-flash.yaml
+    - file: providers/mock-tool-simulation.yaml
 
   # Self-play configuration
   self_play:

@@ -234,11 +234,6 @@ func (m *mockProviderForPendingTest) ChatWithTools(ctx context.Context, req prov
 	return resp, resp.ToolCalls, err
 }
 
-func (m *mockProviderForPendingTest) ContinueWithToolResults(ctx context.Context, req providers.ChatRequest, prior providers.ChatResponse, tooling interface{}, toolChoice string, results []types.MessageToolResult) (providers.ChatResponse, []types.MessageToolCall, error) {
-	resp, err := m.onCall()
-	return resp, resp.ToolCalls, err
-}
-
 type mockAsyncRefundTool struct {
 	approvalStore *mockApprovalStore
 }

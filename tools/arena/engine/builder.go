@@ -91,6 +91,7 @@ func createProviderImpl(provider *config.Provider) (providers.Provider, error) {
 		Model:            provider.Model,
 		BaseURL:          provider.BaseURL,
 		IncludeRawOutput: provider.IncludeRawOutput,
+		AdditionalConfig: provider.AdditionalConfig, // Pass through additional config
 		Defaults: providers.ProviderDefaults{
 			Temperature: provider.Defaults.Temperature,
 			TopP:        provider.Defaults.TopP,

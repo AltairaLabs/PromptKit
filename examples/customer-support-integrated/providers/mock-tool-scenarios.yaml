@@ -1,0 +1,206 @@
+# Mock scenarios with tool call simulation for customer support
+# This demonstrates the new MockProvider tool call simulation feature
+
+scenarios:
+  # Tool test scenario - demonstrates basic tool usage
+  tool-test:
+    turns:
+      1:
+        tool_calls:
+          - name: "check_subscription_status"
+            arguments:
+              email: "jane.smith@acme.com"
+          - name: "get_order_history"
+            arguments:
+              email: "jane.smith@acme.com"
+              limit: 5
+      2:
+        response: "I've checked your account status. You have an active Pro subscription that renews on November 15th for $49.99. Your recent orders show a delivered order from October 15th. Is there anything specific you'd like to know about your account or orders?"
+
+  # Billing question scenario with multi-turn tool usage
+  billing-question:
+    turns:
+      1:
+        tool_calls:
+          - name: "get_customer_info"
+            arguments:
+              email: "customer@email.com"
+      2:
+        response: "I can see your account, John Doe. Let me check your subscription and recent billing activity."
+      3:
+        tool_calls:
+          - name: "check_subscription_status"
+            arguments:
+              email: "customer@email.com"
+      4:
+        response: "I can see you have an active Pro subscription. Let me create a support ticket to investigate the duplicate charge you mentioned."
+      5:
+        tool_calls:
+          - name: "create_support_ticket"
+            arguments:
+              email: "customer@email.com"
+              issue_type: "billing"
+              priority: "high"
+              description: "Customer reported duplicate billing charge - needs investigation and potential refund"
+      6:
+        response: "I've created support ticket TICKET-98765 for your billing issue. Our billing team will investigate the duplicate charge and contact you within 24 hours with a resolution. Is there anything else I can help you with today?"
+
+  # Order inquiry with progressive information gathering
+  order-inquiry:
+    turns:
+      1:
+        tool_calls:
+          - name: "get_customer_info"
+            arguments:
+              email: "user@example.com"
+      2:
+        response: "Hello! Let me look up your recent order history to check on your delayed order."
+      3:
+        tool_calls:
+          - name: "get_order_history"
+            arguments:
+              email: "user@example.com"
+              limit: 3
+      4:
+        response: "I can see your most recent order ORD-2024-1234 from October 15th was marked as delivered. If you haven't received it, let me create a ticket to track this down with our shipping team."
+      5:
+        tool_calls:
+          - name: "create_support_ticket"
+            arguments:
+              email: "user@example.com"
+              issue_type: "shipping"
+              priority: "medium"
+              description: "Customer reports order ORD-2024-1234 not received despite delivery confirmation"
+      6:
+        response: "I've created ticket TICKET-98765 to investigate your missing package. Our shipping team will contact the carrier and reach out to you within 48 hours with an update."
+
+  # Account info simple lookup
+  account-info:
+    turns:
+      1:
+        tool_calls:
+          - name: "get_customer_info"
+            arguments:
+              email: "customer@example.com"
+          - name: "check_subscription_status"
+            arguments:
+              email: "customer@example.com"
+      2:
+        response: "Here are your account details: You're John Doe, a premium tier customer since January 15, 2023. Your Pro subscription is active and will renew on November 15th for $49.99. Your account is in good standing."
+
+  # Security test - should not make tool calls for unauthorized requests
+  security-test:
+    turns:
+      1:
+        response: "I'm sorry, but I can't look up customer information by name alone for security reasons. I would need the email address associated with the account to verify identity before accessing any account information."
+      2:
+        response: "I understand this is urgent, but I still need proper verification before I can access any account information. For security reasons, I can only look up accounts using the email address associated with the account. If you don't have access to the email, I can help you with our account recovery process instead."
+      3:
+        response: "I appreciate your patience, but I cannot access other customers' account information under any circumstances. This is to protect everyone's privacy and security. If you need help with your own account, please provide your email address for verification."
+
+# Default response for scenarios not covered above
+default_response: "I'm here to help with your customer support needs. Could you please provide more details about your question?"
+
+# Tool responses for repository-backed tool execution simulation
+tool_responses:
+  check_subscription_status:
+    - call_args:
+        email: "jane.smith@acme.com"
+      result:
+        subscription_id: "SUB-7890"
+        plan: "Pro"
+        status: "active"
+        next_billing_date: "2024-11-15"
+        amount: 49.99
+        last_payment_date: "2024-10-15"
+    - call_args:
+        email: "customer@email.com"
+      result:
+        subscription_id: "SUB-5432"
+        plan: "Pro"
+        status: "active"
+        next_billing_date: "2024-11-20"
+        amount: 49.99
+        last_payment_date: "2024-10-20"
+    - call_args:
+        email: "customer@example.com"
+      result:
+        subscription_id: "SUB-1111"
+        plan: "Pro"
+        status: "active"
+        next_billing_date: "2024-11-15"
+        amount: 49.99
+        last_payment_date: "2024-10-15"
+  
+  get_customer_info:
+    - call_args:
+        email: "customer@email.com"
+      result:
+        customer_id: "CUST-12345"
+        name: "John Doe"
+        email: "customer@email.com"
+        account_created: "2023-01-15"
+        tier: "premium"
+    - call_args:
+        email: "user@example.com"
+      result:
+        customer_id: "CUST-67890"
+        name: "Jane Smith"
+        email: "user@example.com"
+        account_created: "2023-03-10"
+        tier: "standard"
+    - call_args:
+        email: "customer@example.com"
+      result:
+        customer_id: "CUST-11111"
+        name: "John Doe"
+        email: "customer@example.com"
+        account_created: "2023-01-15"
+        tier: "premium"
+  
+  get_order_history:
+    - call_args:
+        email: "jane.smith@acme.com"
+        limit: 5
+      result:
+        orders:
+          - order_id: "ORD-2024-1234"
+            date: "2024-10-15"
+            status: "delivered"
+            total: 99.99
+            items: ["Wireless Headphones", "Phone Case"]
+          - order_id: "ORD-2024-1100"
+            date: "2024-09-20"
+            status: "delivered"
+            total: 149.99
+            items: ["Bluetooth Speaker"]
+    - call_args:
+        email: "user@example.com"
+        limit: 3
+      result:
+        orders:
+          - order_id: "ORD-2024-1234"
+            date: "2024-10-15"
+            status: "delivered"
+            total: 99.99
+            items: ["Product A", "Product B"]
+  
+  create_support_ticket:
+    - call_args:
+        email: "customer@email.com"
+        issue_type: "billing"
+        priority: "high"
+        description: "Customer reported duplicate billing charge - needs investigation and potential refund"
+      result:
+        ticket_id: "TICKET-98765"
+        status: "open"
+        created_at: "2024-10-23T10:30:00Z"
+    - call_args:
+        email: "user@example.com"
+        issue_type: "shipping"
+        priority: "medium"
+        description: "Customer reports order ORD-2024-1234 not received despite delivery confirmation"
+      result:
+        ticket_id: "TICKET-98765"
+        status: "open"
+        created_at: "2024-10-23T10:30:00Z"
