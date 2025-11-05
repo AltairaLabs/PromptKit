@@ -37,12 +37,12 @@ func RunProviderContractTests(t *testing.T, config ProviderContractTests) {
 	})
 
 	t.Run("Contract_Chat_ReturnsLatency", func(t *testing.T) {
-		testChatReturnsLatency(t, config.Provider)
+		ValidateChatReturnsLatency(t, config.Provider)
 	})
 
 	if config.SupportsToolsExpected {
 		t.Run("Contract_ChatWithTools_ReturnsLatency", func(t *testing.T) {
-			testChatWithToolsReturnsLatency(t, config.Provider)
+			ValidateChatWithToolsReturnsLatency(t, config.Provider)
 		})
 	}
 
@@ -77,9 +77,10 @@ func testProviderID(t *testing.T, provider Provider) {
 	}
 }
 
-// testChatReturnsLatency verifies that Chat() returns a response with non-zero latency.
+// ValidateChatReturnsLatency verifies that Chat() returns a response with non-zero latency.
 // This is the critical test that would have caught the production bug!
-func testChatReturnsLatency(t *testing.T, provider Provider) {
+// Exported for use in provider-specific regression tests.
+func ValidateChatReturnsLatency(t *testing.T, provider Provider) {
 	ctx := context.Background()
 	req := ChatRequest{
 		Messages: []types.Message{
@@ -116,9 +117,10 @@ func testChatReturnsLatency(t *testing.T, provider Provider) {
 	}
 }
 
-// testChatWithToolsReturnsLatency verifies that ChatWithTools() returns a response with non-zero latency.
+// ValidateChatWithToolsReturnsLatency verifies that ChatWithTools() returns a response with non-zero latency.
 // This test is CRITICAL - it would have caught the production bug where ChatWithTools didn't set latency!
-func testChatWithToolsReturnsLatency(t *testing.T, provider Provider) {
+// Exported for use in provider-specific regression tests.
+func ValidateChatWithToolsReturnsLatency(t *testing.T, provider Provider) {
 	toolSupport, ok := provider.(ToolSupport)
 	if !ok {
 		t.Skip("Provider doesn't implement ToolSupport interface")

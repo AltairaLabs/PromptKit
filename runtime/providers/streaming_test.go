@@ -1,23 +1,33 @@
-package providers
+package providers_test
 
 import (
 	"context"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/claude"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/gemini"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/openai"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
+
+// ptr is a helper function to create a pointer to a string
+func ptr(s string) *string {
+	return &s
+}
 
 func TestOpenAIStreaming(t *testing.T) {
 	if os.Getenv("OPENAI_API_KEY") == "" {
 		t.Skip("OPENAI_API_KEY not set")
 	}
 
-	provider := NewOpenAIProvider(
+	provider := openai.NewOpenAIProvider(
 		"openai-test",
 		"gpt-4o-mini",
 		"https://api.openai.com/v1",
-		ProviderDefaults{
+		providers.ProviderDefaults{
 			Temperature: 0.7,
 			TopP:        1.0,
 			MaxTokens:   100,
@@ -25,7 +35,7 @@ func TestOpenAIStreaming(t *testing.T) {
 		false,
 	)
 
-	req := ChatRequest{
+	req := providers.ChatRequest{
 		System:      "You are a helpful assistant.",
 		Messages:    []types.Message{{Role: "user", Content: "Say hello!"}},
 		Temperature: 0.7,
@@ -41,7 +51,7 @@ func TestOpenAIStreaming(t *testing.T) {
 	}
 
 	chunkCount := 0
-	var finalChunk StreamChunk
+	var finalChunk providers.StreamChunk
 
 	for chunk := range stream {
 		if chunk.Error != nil {
@@ -79,11 +89,11 @@ func TestClaudeStreaming(t *testing.T) {
 		t.Skip("ANTHROPIC_API_KEY not set")
 	}
 
-	provider := NewClaudeProvider(
+	provider := claude.NewClaudeProvider(
 		"claude-test",
 		"claude-3-5-haiku-20241022",
 		"https://api.anthropic.com",
-		ProviderDefaults{
+		providers.ProviderDefaults{
 			Temperature: 0.7,
 			TopP:        1.0,
 			MaxTokens:   100,
@@ -91,7 +101,7 @@ func TestClaudeStreaming(t *testing.T) {
 		false,
 	)
 
-	req := ChatRequest{
+	req := providers.ChatRequest{
 		System:      "You are a helpful assistant.",
 		Messages:    []types.Message{{Role: "user", Content: "Say hello!"}},
 		Temperature: 0.7,
@@ -107,7 +117,7 @@ func TestClaudeStreaming(t *testing.T) {
 	}
 
 	chunkCount := 0
-	var finalChunk StreamChunk
+	var finalChunk providers.StreamChunk
 
 	for chunk := range stream {
 		if chunk.Error != nil {
@@ -145,11 +155,11 @@ func TestGeminiStreaming(t *testing.T) {
 		t.Skip("GEMINI_API_KEY not set")
 	}
 
-	provider := NewGeminiProvider(
+	provider := gemini.NewGeminiProvider(
 		"gemini-test",
 		"gemini-2.0-flash-exp",
 		"https://generativelanguage.googleapis.com",
-		ProviderDefaults{
+		providers.ProviderDefaults{
 			Temperature: 0.7,
 			TopP:        1.0,
 			MaxTokens:   100,
@@ -157,7 +167,7 @@ func TestGeminiStreaming(t *testing.T) {
 		false,
 	)
 
-	req := ChatRequest{
+	req := providers.ChatRequest{
 		System:      "You are a helpful assistant.",
 		Messages:    []types.Message{{Role: "user", Content: "Say hello!"}},
 		Temperature: 0.7,
@@ -173,7 +183,7 @@ func TestGeminiStreaming(t *testing.T) {
 	}
 
 	chunkCount := 0
-	var finalChunk StreamChunk
+	var finalChunk providers.StreamChunk
 
 	for chunk := range stream {
 		if chunk.Error != nil {
@@ -207,21 +217,21 @@ func TestGeminiStreaming(t *testing.T) {
 }
 
 func TestSupportsStreaming(t *testing.T) {
-	providers := []Provider{
-		NewOpenAIProvider("openai", "gpt-4o-mini", "https://api.openai.com/v1", ProviderDefaults{}, false),
-		NewClaudeProvider("claude", "claude-3-5-haiku-20241022", "https://api.anthropic.com", ProviderDefaults{}, false),
-		NewGeminiProvider("gemini", "gemini-2.0-flash-exp", "https://generativelanguage.googleapis.com", ProviderDefaults{}, false),
+	providers := []providers.Provider{
+		openai.NewOpenAIProvider("openai", "gpt-4o-mini", "https://api.openai.com/v1", providers.ProviderDefaults{}, false),
+		claude.NewClaudeProvider("claude", "claude-3-5-haiku-20241022", "https://api.anthropic.com", providers.ProviderDefaults{}, false),
+		gemini.NewGeminiProvider("gemini", "gemini-2.0-flash-exp", "https://generativelanguage.googleapis.com", providers.ProviderDefaults{}, false),
 	}
 
 	for _, p := range providers {
 		if !p.SupportsStreaming() {
-			t.Errorf("Provider %s should support streaming", p.ID())
+			t.Errorf("providers.Provider %s should support streaming", p.ID())
 		}
 	}
 }
 
 func TestStreamChunk_Basic(t *testing.T) {
-	chunk := StreamChunk{
+	chunk := providers.StreamChunk{
 		Content:     "Hello world",
 		Delta:       " world",
 		TokenCount:  5,
@@ -255,7 +265,7 @@ func TestStreamChunk_Basic(t *testing.T) {
 
 func TestStreamChunk_WithFinishReason(t *testing.T) {
 	reason := "stop"
-	chunk := StreamChunk{
+	chunk := providers.StreamChunk{
 		Content:      "Complete response",
 		TokenCount:   10,
 		FinishReason: &reason,
@@ -271,11 +281,11 @@ func TestStreamChunk_WithFinishReason(t *testing.T) {
 }
 
 func TestStreamChunk_WithError(t *testing.T) {
-	testErr := &ValidationAbortError{
+	testErr := &providers.ValidationAbortError{
 		Reason: "banned word detected",
 	}
 
-	chunk := StreamChunk{
+	chunk := providers.StreamChunk{
 		Content:      "Partial content",
 		Error:        testErr,
 		FinishReason: ptr("validation_failed"),
@@ -285,13 +295,13 @@ func TestStreamChunk_WithError(t *testing.T) {
 		t.Fatal("Error should not be nil")
 	}
 
-	if !IsValidationAbort(chunk.Error) {
-		t.Error("Error should be ValidationAbortError")
+	if !providers.IsValidationAbort(chunk.Error) {
+		t.Error("Error should be providers.ValidationAbortError")
 	}
 }
 
 func TestStreamChunk_WithMetadata(t *testing.T) {
-	chunk := StreamChunk{
+	chunk := providers.StreamChunk{
 		Content: "Test",
 		Metadata: map[string]interface{}{
 			"model":    "gpt-4",
@@ -315,9 +325,9 @@ func TestStreamChunk_WithMetadata(t *testing.T) {
 
 func TestStreamEvent_Basic(t *testing.T) {
 	now := time.Now()
-	chunk := &StreamChunk{Content: "test", Delta: "test"}
+	chunk := &providers.StreamChunk{Content: "test", Delta: "test"}
 
-	event := StreamEvent{
+	event := providers.StreamEvent{
 		Type:      "chunk",
 		Chunk:     chunk,
 		Timestamp: now,
@@ -337,7 +347,7 @@ func TestStreamEvent_Basic(t *testing.T) {
 }
 
 func TestStreamEvent_Complete(t *testing.T) {
-	event := StreamEvent{
+	event := providers.StreamEvent{
 		Type:      "complete",
 		Timestamp: time.Now(),
 	}
@@ -356,9 +366,9 @@ func TestStreamEvent_Complete(t *testing.T) {
 }
 
 func TestStreamEvent_Error(t *testing.T) {
-	testErr := &ValidationAbortError{Reason: "test"}
+	testErr := &providers.ValidationAbortError{Reason: "test"}
 
-	event := StreamEvent{
+	event := providers.StreamEvent{
 		Type:      "error",
 		Error:     testErr,
 		Timestamp: time.Now(),
@@ -372,14 +382,14 @@ func TestStreamEvent_Error(t *testing.T) {
 		t.Fatal("Error should not be nil")
 	}
 
-	if !IsValidationAbort(event.Error) {
-		t.Error("Error should be ValidationAbortError")
+	if !providers.IsValidationAbort(event.Error) {
+		t.Error("Error should be providers.ValidationAbortError")
 	}
 }
 
 func TestValidationAbortError(t *testing.T) {
-	chunk := StreamChunk{Content: "bad content"}
-	err := &ValidationAbortError{
+	chunk := providers.StreamChunk{Content: "bad content"}
+	err := &providers.ValidationAbortError{
 		Reason: "contains banned word",
 		Chunk:  chunk,
 	}
@@ -400,8 +410,8 @@ func TestIsValidationAbort(t *testing.T) {
 		want bool
 	}{
 		{
-			name: "ValidationAbortError",
-			err:  &ValidationAbortError{Reason: "test"},
+			name: "providers.ValidationAbortError",
+			err:  &providers.ValidationAbortError{Reason: "test"},
 			want: true,
 		},
 		{
@@ -418,8 +428,8 @@ func TestIsValidationAbort(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := IsValidationAbort(tt.err); got != tt.want {
-				t.Errorf("IsValidationAbort() = %v, want %v", got, tt.want)
+			if got := providers.IsValidationAbort(tt.err); got != tt.want {
+				t.Errorf("providers.IsValidationAbort() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -447,7 +457,7 @@ func TestPtr(t *testing.T) {
 }
 
 func TestStreamChunk_EmptyStrings(t *testing.T) {
-	chunk := StreamChunk{
+	chunk := providers.StreamChunk{
 		Content:     "",
 		Delta:       "",
 		TokenCount:  0,
@@ -464,7 +474,7 @@ func TestStreamChunk_EmptyStrings(t *testing.T) {
 }
 
 func TestStreamChunk_ZeroValues(t *testing.T) {
-	var chunk StreamChunk
+	var chunk providers.StreamChunk
 
 	if chunk.Content != "" {
 		t.Error("Zero value Content should be empty")
@@ -497,18 +507,18 @@ func TestStreamChunk_ZeroValues(t *testing.T) {
 
 func TestStreamObserver_Interface(t *testing.T) {
 	// Verify that our mock observer implements the interface
-	var _ StreamObserver = &mockStreamObserver{}
+	var _ providers.StreamObserver = &mockStreamObserver{}
 }
 
 type mockStreamObserver struct {
-	chunks    []StreamChunk
+	chunks    []providers.StreamChunk
 	completed bool
 	errors    []error
 	duration  time.Duration
 	tokens    int
 }
 
-func (m *mockStreamObserver) OnChunk(chunk StreamChunk) {
+func (m *mockStreamObserver) OnChunk(chunk providers.StreamChunk) {
 	m.chunks = append(m.chunks, chunk)
 }
 
@@ -526,8 +536,8 @@ func TestMockObserver(t *testing.T) {
 	observer := &mockStreamObserver{}
 
 	// Send some chunks
-	observer.OnChunk(StreamChunk{Content: "hello", Delta: "hello", TokenCount: 1})
-	observer.OnChunk(StreamChunk{Content: "hello world", Delta: " world", TokenCount: 2})
+	observer.OnChunk(providers.StreamChunk{Content: "hello", Delta: "hello", TokenCount: 1})
+	observer.OnChunk(providers.StreamChunk{Content: "hello world", Delta: " world", TokenCount: 2})
 
 	if len(observer.chunks) != 2 {
 		t.Fatalf("Expected 2 chunks, got %d", len(observer.chunks))
@@ -545,7 +555,7 @@ func TestMockObserver(t *testing.T) {
 	}
 
 	// Error
-	observer.OnError(&ValidationAbortError{Reason: "test"})
+	observer.OnError(&providers.ValidationAbortError{Reason: "test"})
 
 	if len(observer.errors) != 1 {
 		t.Fatalf("Expected 1 error, got %d", len(observer.errors))
