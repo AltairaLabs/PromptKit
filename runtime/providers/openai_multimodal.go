@@ -421,4 +421,16 @@ func (p *OpenAIProvider) chatStreamWithMessages(ctx context.Context, req ChatReq
 	return outChan, nil
 }
 
+// ChatMultimodalWithTools implements MultimodalToolSupport interface for OpenAIToolProvider
+// This allows combining multimodal content (images) with tool calls in a single request
+func (p *OpenAIToolProvider) ChatMultimodalWithTools(ctx context.Context, req ChatRequest, tools interface{}, toolChoice string) (ChatResponse, []types.MessageToolCall, error) {
+	// Validate that all messages are compatible with OpenAI's capabilities
+	for i := range req.Messages {
+		if err := ValidateMultimodalMessage(p, req.Messages[i]); err != nil {
+			return ChatResponse{}, nil, err
+		}
+	}
 
+	// Use the existing ChatWithTools which now handles multimodal via updated buildToolRequest
+	return p.ChatWithTools(ctx, req, tools, toolChoice)
+}

@@ -123,9 +123,21 @@ func (p *OpenAIToolProvider) buildToolRequest(req ChatRequest, tools interface{}
 
 	// Add conversation messages
 	for _, msg := range req.Messages {
+		// Convert message to OpenAI format (handles both legacy and multimodal)
+		convertedMsg, err := p.convertMessageToOpenAI(msg)
+		if err != nil {
+			// Log error but continue with best effort (use Content as fallback)
+			// This allows tool calls to work even if multimodal conversion fails
+			convertedMsg = openAIMessage{
+				Role:    msg.Role,
+				Content: msg.GetContent(),
+			}
+		}
+
+		// Build the message map with content
 		openaiMsg := map[string]interface{}{
-			"role":    msg.Role,
-			"content": msg.Content,
+			"role":    convertedMsg.Role,
+			"content": convertedMsg.Content,
 		}
 
 		// Add tool-related fields if present
