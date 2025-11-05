@@ -42,10 +42,10 @@ func TestMockScenarioContextMiddleware_WithScenarioID(t *testing.T) {
 
 func TestMockScenarioContextMiddleware_TurnNumberCalculation(t *testing.T) {
 	tests := []struct {
-		name             string
-		messages         []types.Message
-		expectedTurnNum  int
-		description      string
+		name            string
+		messages        []types.Message
+		expectedTurnNum int
+		description     string
 	}{
 		{
 			name: "single user message",
@@ -207,9 +207,9 @@ func TestMockScenarioContextMiddleware_OverwritesExistingMockData(t *testing.T) 
 			{Role: "user", Content: "Second"},
 		},
 		Metadata: map[string]interface{}{
-			"mock_scenario_id":  "old-scenario",
-			"mock_turn_number":  99,
-			"other_data":        "preserved",
+			"mock_scenario_id": "old-scenario",
+			"mock_turn_number": 99,
+			"other_data":       "preserved",
 		},
 	}
 

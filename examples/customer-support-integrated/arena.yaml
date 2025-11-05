@@ -43,8 +43,11 @@ spec:
   # Defaults
   defaults:
     temperature: 0.7
-    max_tokens: 1500
+    max_tokens: 1000
     seed: 42
     concurrency: 3
-    out_dir: out
-    html_report: report.html
+    output:
+      dir: out
+      formats: ["json", "html"]
+      html:
+        file: report.html

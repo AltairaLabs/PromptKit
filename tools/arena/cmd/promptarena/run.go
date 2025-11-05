@@ -9,15 +9,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/results"
 	"github.com/AltairaLabs/PromptKit/tools/arena/results/html"
 	jsonrepo "github.com/AltairaLabs/PromptKit/tools/arena/results/json"
 	"github.com/AltairaLabs/PromptKit/tools/arena/results/junit"
+	"github.com/AltairaLabs/PromptKit/tools/arena/results/markdown"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 // Flag name constants to avoid duplication
@@ -36,7 +38,7 @@ func contains(slice []string, item string) bool {
 }
 
 // createResultRepository creates a composite repository based on output formats
-func createResultRepository(params *RunParameters) (results.ResultRepository, error) {
+func createResultRepository(params *RunParameters, configFile string) (results.ResultRepository, error) {
 	composite := results.NewCompositeRepository()
 
 	for _, format := range params.OutputFormats {
@@ -50,6 +52,25 @@ func createResultRepository(params *RunParameters) (results.ResultRepository, er
 		case "html":
 			htmlRepo := html.NewHTMLResultRepository(params.HTMLFile)
 			composite.AddRepository(htmlRepo)
+		case "markdown":
+			// Get markdown configuration from arena defaults
+			var markdownConfig *markdown.MarkdownConfig
+			if configFile != "" {
+				// Load config to get markdown defaults
+				cfg, err := config.LoadConfig(configFile)
+				if err == nil && cfg != nil {
+					markdownConfig = markdown.CreateMarkdownConfigFromDefaults(&cfg.Defaults)
+				}
+			}
+			if markdownConfig == nil {
+				markdownConfig = markdown.CreateMarkdownConfigFromDefaults(nil)
+			}
+
+			// Create markdown repository with configuration and custom output file
+			markdownRepo := markdown.NewMarkdownResultRepositoryWithConfig(filepath.Dir(params.MarkdownFile), markdownConfig)
+			// Override the output file path
+			markdownRepo.SetOutputFile(params.MarkdownFile)
+			composite.AddRepository(markdownRepo)
 		default:
 			return nil, fmt.Errorf("unsupported output format: %s", format)
 		}
@@ -91,10 +112,11 @@ func init() {
 	runCmd.Flags().StringP("out", "o", "out", "Output directory")
 	runCmd.Flags().Bool("ci", false, "CI mode (headless)")
 	runCmd.Flags().Bool("html", false, "Generate HTML report (deprecated: use --format)")
-	runCmd.Flags().StringSlice("format", []string{}, "Output formats (json, junit, html) - defaults from config")
-	runCmd.Flags().StringSlice("formats", []string{}, "Output formats (json, junit, html) - alias for --format")
+	runCmd.Flags().StringSlice("format", []string{}, "Output formats (json, junit, html, markdown) - defaults from config")
+	runCmd.Flags().StringSlice("formats", []string{}, "Output formats (json, junit, html, markdown) - alias for --format")
 	runCmd.Flags().String("junit-file", "", "JUnit XML output file (default: out/junit.xml)")
 	runCmd.Flags().String("html-file", "", "HTML report output file (default: out/report-[timestamp].html)")
+	runCmd.Flags().String("markdown-file", "", "Markdown report output file (default: out/results.md)")
 	runCmd.Flags().Float32("temperature", 0.6, "Override temperature")
 	runCmd.Flags().Int(flagMaxTokens, 0, "Override max tokens for all scenarios")
 	runCmd.Flags().IntP("seed", "s", 42, "Random seed")
@@ -157,9 +179,10 @@ type RunParameters struct {
 	Verbose        bool
 	GenerateHTML   bool     // Deprecated: use OutputFormats
 	HTMLReportPath string   // Deprecated: use HTMLFile
-	OutputFormats  []string // New: output formats (json, junit, html)
+	OutputFormats  []string // New: output formats (json, junit, html, markdown)
 	JUnitFile      string   // New: JUnit XML output file
 	HTMLFile       string   // New: HTML output file
+	MarkdownFile   string   // New: Markdown output file
 	MockProvider   bool     // Enable mock provider mode
 	MockConfig     string   // Path to mock provider configuration
 }
@@ -276,8 +299,9 @@ func extractOutputFormatFlags(cmd *cobra.Command, cfg *config.Config, params *Ru
 		}
 		// If format flag wasn't changed, use config defaults, otherwise fallback to json
 		if !cmd.Flags().Changed("format") {
-			if len(cfg.Defaults.OutputFormats) > 0 {
-				params.OutputFormats = cfg.Defaults.OutputFormats
+			outputConfig := cfg.Defaults.GetOutputConfig()
+			if len(outputConfig.Formats) > 0 {
+				params.OutputFormats = outputConfig.Formats
 			} else {
 				params.OutputFormats = []string{"json"} // Default fallback
 			}
@@ -289,6 +313,9 @@ func extractOutputFormatFlags(cmd *cobra.Command, cfg *config.Config, params *Ru
 	}
 	if params.HTMLFile, err = cmd.Flags().GetString("html-file"); err != nil {
 		return fmt.Errorf("failed to get html-file flag: %w", err)
+	}
+	if params.MarkdownFile, err = cmd.Flags().GetString("markdown-file"); err != nil {
+		return fmt.Errorf("failed to get markdown-file flag: %w", err)
 	}
 	return nil
 }
@@ -358,6 +385,11 @@ func setDefaultFilePaths(params *RunParameters) {
 			params.HTMLFile = filepath.Join(params.OutDir, fmt.Sprintf("report-%s.html", timestamp))
 		}
 	}
+
+	// Set default Markdown file path if markdown generation is enabled
+	if params.MarkdownFile == "" && contains(params.OutputFormats, "markdown") {
+		params.MarkdownFile = filepath.Join(params.OutDir, "results.md")
+	}
 }
 
 // applyConfigurationOverrides applies command line overrides to configuration
@@ -394,6 +426,9 @@ func displayRunInfo(params *RunParameters, configFile string) {
 	}
 	if contains(params.OutputFormats, "html") || params.GenerateHTML {
 		fmt.Printf("HTML Report: %s\n", params.HTMLFile)
+	}
+	if contains(params.OutputFormats, "markdown") {
+		fmt.Printf("Markdown Report: %s\n", params.MarkdownFile)
 	}
 	fmt.Println()
 }
@@ -470,7 +505,7 @@ func processResults(results []engine.RunResult, params *RunParameters, configFil
 	}
 
 	// Create composite repository for multiple output formats
-	repository, err := createResultRepository(params)
+	repository, err := createResultRepository(params, configFile)
 	if err != nil {
 		return fmt.Errorf("failed to create result repository: %w", err)
 	}
@@ -507,6 +542,9 @@ func displayFinalSummary(params *RunParameters, results []engine.RunResult, succ
 		}
 		if contains(params.OutputFormats, "html") || params.GenerateHTML {
 			fmt.Printf("HTML Report: %s\n", params.HTMLFile)
+		}
+		if contains(params.OutputFormats, "markdown") {
+			fmt.Printf("Markdown Report: %s\n", params.MarkdownFile)
 		}
 	}
 

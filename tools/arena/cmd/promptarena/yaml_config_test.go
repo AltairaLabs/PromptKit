@@ -168,6 +168,7 @@ func setupTestFlags(cmd *cobra.Command) {
 	cmd.Flags().StringSlice("format", []string{}, "Output formats")
 	cmd.Flags().String("junit-file", "", "JUnit XML output file")
 	cmd.Flags().String("html-file", "", "HTML report output file")
+	cmd.Flags().String("markdown-file", "", "Markdown output file")
 	cmd.Flags().Bool("html", false, "Generate HTML report")
 	cmd.Flags().Float32("temperature", 0.6, "Temperature")
 	cmd.Flags().Int("max-tokens", 0, "Max tokens")

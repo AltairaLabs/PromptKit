@@ -13,7 +13,7 @@ func TestCreateResultRepository_JSON(t *testing.T) {
 		OutputFormats: []string{"json"},
 	}
 
-	repo, err := createResultRepository(params)
+	repo, err := createResultRepository(params, "")
 	require.NoError(t, err)
 	assert.NotNil(t, repo)
 }
@@ -26,7 +26,7 @@ func TestCreateResultRepository_Multiple(t *testing.T) {
 		HTMLFile:      "/tmp/test/report.html",
 	}
 
-	repo, err := createResultRepository(params)
+	repo, err := createResultRepository(params, "")
 	require.NoError(t, err)
 	assert.NotNil(t, repo)
 }
@@ -37,7 +37,7 @@ func TestCreateResultRepository_UnsupportedFormat(t *testing.T) {
 		OutputFormats: []string{"invalid"},
 	}
 
-	repo, err := createResultRepository(params)
+	repo, err := createResultRepository(params, "")
 	assert.Error(t, err)
 	assert.Nil(t, repo)
 	assert.Contains(t, err.Error(), "unsupported output format: invalid")

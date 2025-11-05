@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/spf13/cobra"
+
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
 var rootCmd = &cobra.Command{
