@@ -587,7 +587,7 @@ func TestDisplayScenarioInfo(t *testing.T) {
 				Verbose:      true,
 				ScenarioFile: "test.yaml",
 				Domain:       "test-domain",
-				User:         "test-user", 
+				User:         "test-user",
 				Context:      "test-context",
 			},
 			scenario: &config.Scenario{
@@ -611,7 +611,7 @@ func TestDisplayScenarioInfo(t *testing.T) {
 func TestRunPromptDebug_ErrorCases(t *testing.T) {
 	// Test with invalid command setup
 	cmd := &cobra.Command{}
-	
+
 	// Test without required flags set up
 	err := runPromptDebug(cmd)
 	assert.Error(t, err, "Should error when flags are not set up")
@@ -622,11 +622,11 @@ func TestApplyScenarioOverrides_ErrorCases(t *testing.T) {
 		ScenarioFile: "/nonexistent/scenario.yaml",
 	}
 	cfg := &config.Config{}
-	
+
 	// Test with non-existent scenario file
 	err := applyScenarioOverrides(opts, cfg)
 	assert.Error(t, err, "Should error with non-existent scenario file")
-	
+
 	// Test with empty scenario file (no error case)
 	opts.ScenarioFile = ""
 	err = applyScenarioOverrides(opts, cfg)

@@ -302,11 +302,11 @@ func TestExtractRunParameters_MockProviderFlags(t *testing.T) {
 
 func TestSetDefaultFilePaths(t *testing.T) {
 	tests := []struct {
-		name             string
-		params           *RunParameters
-		expectedOutDir   string
+		name              string
+		params            *RunParameters
+		expectedOutDir    string
 		expectedJUnitFile string
-		expectedHTMLFile string
+		expectedHTMLFile  string
 	}{
 		{
 			name: "all empty - sets junit default",
@@ -315,14 +315,14 @@ func TestSetDefaultFilePaths(t *testing.T) {
 				JUnitFile: "",
 				HTMLFile:  "",
 			},
-			expectedOutDir:    "", // OutDir not changed by function
+			expectedOutDir:    "",          // OutDir not changed by function
 			expectedJUnitFile: "junit.xml", // Default JUnit file
 			expectedHTMLFile:  "",
 		},
 		{
 			name: "custom outdir",
 			params: &RunParameters{
-				OutDir:    "custom-output", 
+				OutDir:    "custom-output",
 				JUnitFile: "",
 				HTMLFile:  "",
 			},

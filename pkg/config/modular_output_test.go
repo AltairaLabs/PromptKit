@@ -134,11 +134,11 @@ func TestGetMarkdownOutputConfig_EdgeCases(t *testing.T) {
 				Markdown: nil,
 			},
 			expected: &config.MarkdownOutputConfig{
-				IncludeDetails:     true,
-				ShowOverview:       true,
-				ShowResultsMatrix:  true,
-				ShowFailedTests:    true,
-				ShowCostSummary:    true,
+				IncludeDetails:    true,
+				ShowOverview:      true,
+				ShowResultsMatrix: true,
+				ShowFailedTests:   true,
+				ShowCostSummary:   true,
 			},
 		},
 		{
@@ -147,11 +147,11 @@ func TestGetMarkdownOutputConfig_EdgeCases(t *testing.T) {
 				Markdown: &config.MarkdownOutputConfig{},
 			},
 			expected: &config.MarkdownOutputConfig{
-				IncludeDetails:     false, // Default zero values
-				ShowOverview:       false,
-				ShowResultsMatrix:  false,
-				ShowFailedTests:    false,
-				ShowCostSummary:    false,
+				IncludeDetails:    false, // Default zero values
+				ShowOverview:      false,
+				ShowResultsMatrix: false,
+				ShowFailedTests:   false,
+				ShowCostSummary:   false,
 			},
 		},
 		{
@@ -163,12 +163,12 @@ func TestGetMarkdownOutputConfig_EdgeCases(t *testing.T) {
 				},
 			},
 			expected: &config.MarkdownOutputConfig{
-				File:               "custom.md",
-				IncludeDetails:     false, // As set, others are zero values
-				ShowOverview:       false,
-				ShowResultsMatrix:  false,
-				ShowFailedTests:    false,
-				ShowCostSummary:    false,
+				File:              "custom.md",
+				IncludeDetails:    false, // As set, others are zero values
+				ShowOverview:      false,
+				ShowResultsMatrix: false,
+				ShowFailedTests:   false,
+				ShowCostSummary:   false,
 			},
 		},
 	}
