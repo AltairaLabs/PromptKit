@@ -352,3 +352,89 @@ func TestSetDefaultFilePaths(t *testing.T) {
 		})
 	}
 }
+
+func TestCreateResultSummary(t *testing.T) {
+	tests := []struct {
+		name         string
+		results      []engine.RunResult
+		successCount int
+		errorCount   int
+		configFile   string
+	}{
+		{
+			name:         "empty results",
+			results:      []engine.RunResult{},
+			successCount: 0,
+			errorCount:   0,
+			configFile:   "test.yaml",
+		},
+		{
+			name: "successful runs",
+			results: []engine.RunResult{
+				{RunID: "run-001", Error: ""},
+				{RunID: "run-002", Error: ""},
+			},
+			successCount: 2,
+			errorCount:   0,
+			configFile:   "test.yaml",
+		},
+		{
+			name: "failed runs",
+			results: []engine.RunResult{
+				{RunID: "run-001", Error: "timeout error"},
+				{RunID: "run-002", Error: "connection error"},
+			},
+			successCount: 0,
+			errorCount:   2,
+			configFile:   "test.yaml",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := createResultSummary(tt.results, tt.successCount, tt.errorCount, tt.configFile)
+			assert.NotNil(t, result)
+		})
+	}
+}
+
+func TestDisplayRunInfo(t *testing.T) {
+	params := &RunParameters{
+		Regions:      []string{"us-east-1"},
+		Providers:    []string{"openai"},
+		Scenarios:    []string{"scenario1"},
+		Concurrency:  4,
+		OutDir:       "output",
+		CIMode:       false,
+		Verbose:      true,
+		MockProvider: true,
+		JUnitFile:    "junit.xml",
+		HTMLFile:     "report.html",
+	}
+
+	configFile := "test.yaml"
+
+	// This function mainly prints to stdout, so we just test it doesn't panic
+	t.Run("displays run info without error", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			displayRunInfo(params, configFile)
+		})
+	})
+}
+
+func TestDisplayFinalSummary(t *testing.T) {
+	results := []engine.RunResult{
+		{RunID: "run-001", Error: ""},
+		{RunID: "run-002", Error: "some error"},
+		{RunID: "run-003", Error: ""},
+	}
+
+	params := &RunParameters{
+		OutDir: t.TempDir(),
+	}
+
+	t.Run("displays summary without error", func(t *testing.T) {
+		err := displayFinalSummary(params, results, 2, 1)
+		assert.NoError(t, err)
+	})
+}

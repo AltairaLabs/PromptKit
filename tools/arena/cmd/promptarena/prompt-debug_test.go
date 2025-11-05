@@ -632,3 +632,163 @@ func TestApplyScenarioOverrides_ErrorCases(t *testing.T) {
 	err = applyScenarioOverrides(opts, cfg)
 	assert.NoError(t, err, "Should not error when no scenario file specified")
 }
+
+func TestShowAvailableConfigurations(t *testing.T) {
+	cfg := &config.Config{}
+
+	t.Run("displays configurations without error", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			showAvailableConfigurations(cfg)
+		})
+	})
+}
+
+func TestGenerateAndDisplayPrompt(t *testing.T) {
+	cfg := &config.Config{}
+
+	opts := &promptDebugOptions{
+		Region:     "us-east-1",
+		TaskType:   "chat",
+		ShowPrompt: true,
+		ShowMeta:   true,
+		ShowStats:  true,
+		Verbose:    false,
+	}
+
+	t.Run("generates and displays prompt without error", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			generateAndDisplayPrompt(opts, cfg)
+		})
+	})
+}
+
+func TestBuildSystemPrompt(t *testing.T) {
+	cfg := &config.Config{}
+
+	opts := &promptDebugOptions{
+		Region:   "us-east-1",
+		TaskType: "chat",
+	}
+
+	t.Run("handles empty config without panic", func(t *testing.T) {
+		result, _, _, err := buildSystemPrompt(opts, cfg)
+		// Expected to error due to no prompt config, but shouldn't panic
+		assert.Error(t, err)
+		assert.NotNil(t, result)
+	})
+}
+
+func TestBuildPersonaPrompt(t *testing.T) {
+	cfg := &config.Config{}
+
+	opts := &promptDebugOptions{
+		Region:   "us-east-1",
+		TaskType: "chat",
+		Persona:  "test-persona",
+	}
+
+	variables := map[string]string{
+		"region": "us-east-1",
+	}
+
+	t.Run("handles missing persona gracefully", func(t *testing.T) {
+		result, _, _, err := buildPersonaPrompt(opts, cfg, variables)
+		// Expected to error due to no persona, but shouldn't panic
+		assert.Error(t, err)
+		assert.NotNil(t, result)
+	})
+}
+
+func TestBuildRegionTaskPrompt(t *testing.T) {
+	cfg := &config.Config{}
+
+	opts := &promptDebugOptions{
+		Region:   "us-east-1",
+		TaskType: "chat",
+	}
+
+	variables := map[string]string{
+		"region": "us-east-1",
+	}
+
+	t.Run("handles missing config gracefully", func(t *testing.T) {
+		result, _, _, err := buildRegionTaskPrompt(opts, cfg, variables)
+		// Expected to error due to no prompt config, but shouldn't panic
+		assert.Error(t, err)
+		assert.NotNil(t, result)
+	})
+}
+
+func TestDisplayPromptResults(t *testing.T) {
+	opts := &promptDebugOptions{
+		ShowPrompt: true,
+		ShowMeta:   true,
+		ShowStats:  true,
+		OutputJSON: false,
+		Region:     "us-east-1",
+		TaskType:   "chat",
+	}
+
+	promptResult := "You are a helpful assistant."
+	taskType := "chat"
+	variables := map[string]string{
+		"region":   "us-east-1",
+		"taskType": "chat",
+	}
+	cfg := &config.Config{}
+
+	t.Run("displays results without error", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			displayPromptResults(opts, cfg, promptResult, taskType, variables)
+		})
+	})
+}
+
+func TestDisplayMetadata(t *testing.T) {
+	opts := &promptDebugOptions{
+		Region:   "us-east-1",
+		TaskType: "chat",
+	}
+
+	cfg := &config.Config{}
+	promptResult := "Test prompt"
+	variables := map[string]string{
+		"region": "us-east-1",
+	}
+
+	t.Run("displays metadata without error", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			displayMetadata(opts, cfg, promptResult, variables, 2, 3)
+		})
+	})
+}
+
+func TestDisplayStatistics(t *testing.T) {
+	promptResult := "This is a test prompt with multiple words and characters."
+
+	t.Run("displays statistics without error", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			displayStatistics(promptResult)
+		})
+	})
+}
+
+func TestDisplaySystemPrompt(t *testing.T) {
+	promptResult := "You are a helpful assistant."
+
+	t.Run("displays system prompt without error", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			displaySystemPrompt(promptResult)
+		})
+	})
+}
+
+func TestDisplayDebugInfo(t *testing.T) {
+	cfg := &config.Config{}
+
+	t.Run("displays debug info without error", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			displayDebugInfo(cfg)
+		})
+	})
+}
