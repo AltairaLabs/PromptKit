@@ -5,14 +5,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 )
 
 // TestConversationManager_CreateConversation_ValidationErrors tests that validation errors
 // are properly wrapped and meaningful to callers
 func TestConversationManager_CreateConversation_ValidationErrors(t *testing.T) {
 	// Setup
-	mockProvider := providers.NewMockProvider("test-provider", "test-model", false)
+	mockProvider := mock.NewMockProvider("test-provider", "test-model", false)
 	manager, err := NewConversationManager(WithProvider(mockProvider))
 	if err != nil {
 		t.Fatalf("failed to create manager: %v", err)

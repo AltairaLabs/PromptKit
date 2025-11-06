@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/openai"
 	"github.com/AltairaLabs/PromptKit/sdk"
 )
 
@@ -19,7 +20,7 @@ func main() {
 	}
 
 	// Create provider
-	provider := providers.NewOpenAIProvider(
+	provider := openai.NewOpenAIProvider(
 		"openai",
 		"gpt-4",
 		"", // Use default base URL

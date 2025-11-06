@@ -1,29 +1,35 @@
-package providers
+package providers_test
 
 import (
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/claude"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/gemini"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/openai"
 )
 
 func TestProvider_BasicMethods(t *testing.T) {
 	tests := []struct {
 		name     string
-		provider Provider
+		provider providers.Provider
 	}{
 		{
 			name:     "MockProvider",
-			provider: NewMockProvider("test", "test-model", false),
+			provider: mock.NewMockProvider("test", "test-model", false),
 		},
 		{
 			name:     "ClaudeProvider",
-			provider: NewClaudeProvider("test-claude", "claude-3-opus", "fake-key", ProviderDefaults{}, false),
+			provider: claude.NewClaudeProvider("test-claude", "claude-3-opus", "fake-key", providers.ProviderDefaults{}, false),
 		},
 		{
 			name:     "OpenAIProvider",
-			provider: NewOpenAIProvider("test-openai", "gpt-4", "fake-key", ProviderDefaults{}, false),
+			provider: openai.NewOpenAIProvider("test-openai", "gpt-4", "fake-key", providers.ProviderDefaults{}, false),
 		},
 		{
 			name:     "GeminiProvider",
-			provider: NewGeminiProvider("test-gemini", "gemini-pro", "fake-key", ProviderDefaults{}, false),
+			provider: gemini.NewGeminiProvider("test-gemini", "gemini-pro", "fake-key", providers.ProviderDefaults{}, false),
 		},
 	}
 

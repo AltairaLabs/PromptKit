@@ -9,6 +9,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/openai"
 	"github.com/AltairaLabs/PromptKit/sdk"
 )
 
@@ -26,7 +27,7 @@ func main() {
 	}
 
 	// Create an OpenAI provider
-	provider := providers.NewOpenAIProvider(
+	provider := openai.NewOpenAIProvider(
 		"openai",
 		"gpt-4o-mini",
 		"",

@@ -7,6 +7,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -112,7 +113,7 @@ func TestProcessStreamChunks(t *testing.T) {
 // TestCalculateApproximateCost tests the approximate cost calculation helper
 func TestCalculateApproximateCost(t *testing.T) {
 	// Create a mock provider with nil repository (uses default responses)
-	mockProvider := providers.NewMockProvider("test-provider", "test-model", false)
+	mockProvider := mock.NewMockProvider("test-provider", "test-model", false)
 
 	// Create a chat request
 	req := providers.ChatRequest{
@@ -214,8 +215,8 @@ func strPtr(s string) *string {
 // TestExecuteStreamingRound tests a single streaming round
 func TestExecuteStreamingRound(t *testing.T) {
 	// Create mock provider with in-memory repository
-	mockRepo := providers.NewInMemoryMockRepository("Test response")
-	mockProvider := providers.NewMockProviderWithRepository("test-provider", "test-model", false, mockRepo)
+	mockRepo := mock.NewInMemoryMockRepository("Test response")
+	mockProvider := mock.NewMockProviderWithRepository("test-provider", "test-model", false, mockRepo)
 
 	// Create execution context
 	execCtx := &pipeline.ExecutionContext{
@@ -296,8 +297,8 @@ func TestExecuteStreaming(t *testing.T) {
 		{
 			name: "successful streaming without tools",
 			setupProvider: func() providers.Provider {
-				mockRepo := providers.NewInMemoryMockRepository("Test response")
-				return providers.NewMockProviderWithRepository("test-provider", "test-model", false, mockRepo)
+				mockRepo := mock.NewInMemoryMockRepository("Test response")
+				return mock.NewMockProviderWithRepository("test-provider", "test-model", false, mockRepo)
 			},
 			setupRegistry: func() *tools.Registry {
 				return tools.NewRegistry()
@@ -311,8 +312,8 @@ func TestExecuteStreaming(t *testing.T) {
 		{
 			name: "streaming without tool registry",
 			setupProvider: func() providers.Provider {
-				mockRepo := providers.NewInMemoryMockRepository("Test response without tools")
-				return providers.NewMockProviderWithRepository("test-provider", "test-model", false, mockRepo)
+				mockRepo := mock.NewInMemoryMockRepository("Test response without tools")
+				return mock.NewMockProviderWithRepository("test-provider", "test-model", false, mockRepo)
 			},
 			setupRegistry: func() *tools.Registry {
 				return nil
@@ -326,8 +327,8 @@ func TestExecuteStreaming(t *testing.T) {
 		{
 			name: "streaming with empty messages",
 			setupProvider: func() providers.Provider {
-				mockRepo := providers.NewInMemoryMockRepository("Response to empty")
-				return providers.NewMockProviderWithRepository("test-provider", "test-model", false, mockRepo)
+				mockRepo := mock.NewInMemoryMockRepository("Response to empty")
+				return mock.NewMockProviderWithRepository("test-provider", "test-model", false, mockRepo)
 			},
 			setupRegistry: func() *tools.Registry {
 				return tools.NewRegistry()
@@ -403,8 +404,8 @@ func TestHandleStreamInterruption(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create mock provider
-			mockRepo := providers.NewInMemoryMockRepository("Test response")
-			mockProvider := providers.NewMockProviderWithRepository("test-provider", "test-model", false, mockRepo)
+			mockRepo := mock.NewInMemoryMockRepository("Test response")
+			mockProvider := mock.NewMockProviderWithRepository("test-provider", "test-model", false, mockRepo)
 
 			// Create execution context
 			execCtx := &pipeline.ExecutionContext{
@@ -560,8 +561,8 @@ func TestCreateErrorToolResult(t *testing.T) {
 // TestStreamChunk tests the middleware chunk handler
 func TestStreamChunk(t *testing.T) {
 	// Create mock provider
-	mockRepo := providers.NewInMemoryMockRepository("Test response")
-	mockProvider := providers.NewMockProviderWithRepository("test-provider", "test-model", false, mockRepo)
+	mockRepo := mock.NewInMemoryMockRepository("Test response")
+	mockProvider := mock.NewMockProviderWithRepository("test-provider", "test-model", false, mockRepo)
 
 	// Create provider middleware
 	middleware := ProviderMiddleware(mockProvider, nil, nil, nil)

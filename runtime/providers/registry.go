@@ -5,6 +5,16 @@ type Registry struct {
 	providers map[string]Provider
 }
 
+// ProviderFactory is a function that creates a provider from a spec
+type ProviderFactory func(spec ProviderSpec) (Provider, error)
+
+var providerFactories = make(map[string]ProviderFactory)
+
+// RegisterProviderFactory registers a factory function for a provider type
+func RegisterProviderFactory(providerType string, factory ProviderFactory) {
+	providerFactories[providerType] = factory
+}
+
 // NewRegistry creates a new provider registry
 func NewRegistry() *Registry {
 	return &Registry{
@@ -71,18 +81,16 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 		}
 	}
 
-	switch spec.Type {
-	case "openai":
-		return NewOpenAIToolProvider(spec.ID, spec.Model, baseURL, spec.Defaults, spec.IncludeRawOutput, spec.AdditionalConfig), nil
-	case "gemini":
-		return NewGeminiToolProvider(spec.ID, spec.Model, baseURL, spec.Defaults, spec.IncludeRawOutput), nil
-	case "claude":
-		return NewClaudeToolProvider(spec.ID, spec.Model, baseURL, spec.Defaults, spec.IncludeRawOutput), nil
-	case "mock":
-		return NewMockToolProvider(spec.ID, spec.Model, spec.IncludeRawOutput, spec.AdditionalConfig), nil
-	default:
+	// Update spec with default baseURL
+	spec.BaseURL = baseURL
+
+	// Look up the factory for this provider type
+	factory, exists := providerFactories[spec.Type]
+	if !exists {
 		return nil, &UnsupportedProviderError{ProviderType: spec.Type}
 	}
+
+	return factory(spec)
 }
 
 // UnsupportedProviderError is returned when a provider type is not recognized

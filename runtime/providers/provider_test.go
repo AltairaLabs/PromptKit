@@ -1,12 +1,36 @@
 package providers
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
+
+// testMockProvider is a minimal mock provider for testing registry functionality
+// This is separate from the production mock provider in the mock subpackage
+type testMockProvider struct {
+	id    string
+	value string
+}
+
+func (m *testMockProvider) ID() string { return m.id }
+func (m *testMockProvider) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error) {
+	return ChatResponse{Content: m.value}, nil
+}
+func (m *testMockProvider) ChatStream(ctx context.Context, req ChatRequest) (<-chan StreamChunk, error) {
+	ch := make(chan StreamChunk)
+	close(ch)
+	return ch, nil
+}
+func (m *testMockProvider) SupportsStreaming() bool      { return false }
+func (m *testMockProvider) ShouldIncludeRawOutput() bool { return false }
+func (m *testMockProvider) Close() error                 { return nil }
+func (m *testMockProvider) CalculateCost(inputTokens, outputTokens, cachedTokens int) types.CostInfo {
+	return types.CostInfo{}
+}
 
 func TestChatMessage_Structure(t *testing.T) {
 	msg := types.Message{
@@ -364,7 +388,7 @@ func TestNewRegistry(t *testing.T) {
 
 func TestRegistry_Register(t *testing.T) {
 	registry := NewRegistry()
-	provider := &MockProvider{id: "test-provider"}
+	provider := &testMockProvider{id: "test-provider"}
 
 	registry.Register(provider)
 
@@ -381,7 +405,7 @@ func TestRegistry_Register(t *testing.T) {
 
 func TestRegistry_Get_Existing(t *testing.T) {
 	registry := NewRegistry()
-	provider := &MockProvider{id: "existing"}
+	provider := &testMockProvider{id: "existing"}
 
 	registry.Register(provider)
 
@@ -427,7 +451,7 @@ func TestRegistry_List_Empty(t *testing.T) {
 func TestRegistry_List_Multiple(t *testing.T) {
 	registry := NewRegistry()
 
-	providers := []*MockProvider{
+	providers := []*testMockProvider{
 		{id: "provider1"},
 		{id: "provider2"},
 		{id: "provider3"},
@@ -459,8 +483,8 @@ func TestRegistry_List_Multiple(t *testing.T) {
 func TestRegistry_RegisterOverwrite(t *testing.T) {
 	registry := NewRegistry()
 
-	provider1 := &MockProvider{id: "test", value: "first"}
-	provider2 := &MockProvider{id: "test", value: "second"}
+	provider1 := &testMockProvider{id: "test", value: "first"}
+	provider2 := &testMockProvider{id: "test", value: "second"}
 
 	registry.Register(provider1)
 	registry.Register(provider2) // Should overwrite
@@ -471,7 +495,7 @@ func TestRegistry_RegisterOverwrite(t *testing.T) {
 		t.Error("Provider should exist")
 	}
 
-	if mock, ok := retrieved.(*MockProvider); ok {
+	if mock, ok := retrieved.(*testMockProvider); ok {
 		if mock.value != "second" {
 			t.Error("Provider should be overwritten with second value")
 		}
@@ -481,8 +505,8 @@ func TestRegistry_RegisterOverwrite(t *testing.T) {
 func TestRegistry_Close(t *testing.T) {
 	registry := NewRegistry()
 
-	provider1 := &MockProvider{id: "provider1", value: "first"}
-	provider2 := &MockProvider{id: "provider2", value: "second"}
+	provider1 := &testMockProvider{id: "provider1", value: "first"}
+	provider2 := &testMockProvider{id: "provider2", value: "second"}
 
 	registry.Register(provider1)
 	registry.Register(provider2)

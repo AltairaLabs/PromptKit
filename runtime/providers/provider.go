@@ -46,6 +46,14 @@ type Pricing struct {
 	OutputCostPer1K float64
 }
 
+// ProviderDefaults holds default parameters for providers
+type ProviderDefaults struct {
+	Temperature float32
+	TopP        float32
+	MaxTokens   int
+	Pricing     Pricing
+}
+
 // Provider interface defines the contract for chat providers
 type Provider interface {
 	ID() string

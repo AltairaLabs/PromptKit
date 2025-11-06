@@ -1,15 +1,20 @@
-package providers
+package providers_test
 
 import (
 	"context"
 	"encoding/json"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/claude"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/gemini"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/openai"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 func TestOpenAIStreamResponse(t *testing.T) {
@@ -33,25 +38,25 @@ data: [DONE]
 	}))
 	defer server.Close()
 
-	provider := NewOpenAIProvider(
+	provider := openai.NewOpenAIProvider(
 		"test",
 		"gpt-4o-mini",
 		server.URL,
-		ProviderDefaults{Temperature: 0.7, MaxTokens: 100},
+		providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 100},
 		false,
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	stream, err := provider.ChatStream(ctx, ChatRequest{
+	stream, err := provider.ChatStream(ctx, providers.ChatRequest{
 		Messages: []types.Message{{Role: "user", Content: "test"}},
 	})
 	if err != nil {
 		t.Fatalf("ChatStream failed: %v", err)
 	}
 
-	chunks := []StreamChunk{}
+	chunks := []providers.StreamChunk{}
 	for chunk := range stream {
 		if chunk.Error != nil {
 			t.Fatalf("Stream error: %v", chunk.Error)
@@ -94,25 +99,25 @@ data: {"type":"message_stop","message":{"stop_reason":"end_turn"}}
 	}))
 	defer server.Close()
 
-	provider := NewClaudeProvider(
+	provider := claude.NewClaudeProvider(
 		"test",
 		"claude-3-5-haiku-20241022",
 		server.URL,
-		ProviderDefaults{Temperature: 0.7, MaxTokens: 100},
+		providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 100},
 		false,
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	stream, err := provider.ChatStream(ctx, ChatRequest{
+	stream, err := provider.ChatStream(ctx, providers.ChatRequest{
 		Messages: []types.Message{{Role: "user", Content: "test"}},
 	})
 	if err != nil {
 		t.Fatalf("ChatStream failed: %v", err)
 	}
 
-	chunks := []StreamChunk{}
+	chunks := []providers.StreamChunk{}
 	for chunk := range stream {
 		if chunk.Error != nil {
 			t.Fatalf("Stream error: %v", chunk.Error)
@@ -149,25 +154,25 @@ func TestGeminiStreamResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewGeminiProvider(
+	provider := gemini.NewGeminiProvider(
 		"test",
 		"gemini-2.0-flash-exp",
 		server.URL,
-		ProviderDefaults{Temperature: 0.7, MaxTokens: 100},
+		providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 100},
 		false,
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	stream, err := provider.ChatStream(ctx, ChatRequest{
+	stream, err := provider.ChatStream(ctx, providers.ChatRequest{
 		Messages: []types.Message{{Role: "user", Content: "test"}},
 	})
 	if err != nil {
 		t.Fatalf("ChatStream failed: %v", err)
 	}
 
-	chunks := []StreamChunk{}
+	chunks := []providers.StreamChunk{}
 	for chunk := range stream {
 		if chunk.Error != nil {
 			t.Fatalf("Stream error: %v", chunk.Error)
@@ -207,11 +212,11 @@ func TestStreamContextCancellation(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewOpenAIProvider(
+	provider := openai.NewOpenAIProvider(
 		"test",
 		"gpt-4o-mini",
 		server.URL,
-		ProviderDefaults{},
+		providers.ProviderDefaults{},
 		false,
 	)
 
@@ -219,7 +224,7 @@ func TestStreamContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	stream, err := provider.ChatStream(ctx, ChatRequest{
+	stream, err := provider.ChatStream(ctx, providers.ChatRequest{
 		Messages: []types.Message{{Role: "user", Content: "test"}},
 	})
 	if err != nil {
@@ -247,16 +252,16 @@ func TestStreamHTTPError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewOpenAIProvider(
+	provider := openai.NewOpenAIProvider(
 		"test",
 		"gpt-4o-mini",
 		server.URL,
-		ProviderDefaults{},
+		providers.ProviderDefaults{},
 		false,
 	)
 
 	ctx := context.Background()
-	_, err := provider.ChatStream(ctx, ChatRequest{
+	_, err := provider.ChatStream(ctx, providers.ChatRequest{
 		Messages: []types.Message{{Role: "user", Content: "test"}},
 	})
 
@@ -287,23 +292,23 @@ data: [DONE]
 	}))
 	defer server.Close()
 
-	provider := NewOpenAIProvider(
+	provider := openai.NewOpenAIProvider(
 		"test",
 		"gpt-4o-mini",
 		server.URL,
-		ProviderDefaults{},
+		providers.ProviderDefaults{},
 		false,
 	)
 
 	ctx := context.Background()
-	stream, err := provider.ChatStream(ctx, ChatRequest{
+	stream, err := provider.ChatStream(ctx, providers.ChatRequest{
 		Messages: []types.Message{{Role: "user", Content: "test"}},
 	})
 	if err != nil {
 		t.Fatalf("ChatStream failed: %v", err)
 	}
 
-	chunks := []StreamChunk{}
+	chunks := []providers.StreamChunk{}
 	for chunk := range stream {
 		if chunk.Error != nil {
 			t.Fatalf("Stream error: %v", chunk.Error)
@@ -326,23 +331,23 @@ func TestStreamEmptyResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewOpenAIProvider(
+	provider := openai.NewOpenAIProvider(
 		"test",
 		"gpt-4o-mini",
 		server.URL,
-		ProviderDefaults{},
+		providers.ProviderDefaults{},
 		false,
 	)
 
 	ctx := context.Background()
-	stream, err := provider.ChatStream(ctx, ChatRequest{
+	stream, err := provider.ChatStream(ctx, providers.ChatRequest{
 		Messages: []types.Message{{Role: "user", Content: "test"}},
 	})
 	if err != nil {
 		t.Fatalf("ChatStream failed: %v", err)
 	}
 
-	chunks := []StreamChunk{}
+	chunks := []providers.StreamChunk{}
 	for chunk := range stream {
 		chunks = append(chunks, chunk)
 	}
@@ -379,11 +384,11 @@ data: [DONE]
 	}))
 	defer server.Close()
 
-	provider := NewOpenAIProvider(
+	provider := openai.NewOpenAIProvider(
 		"test",
 		"gpt-4o-mini",
 		server.URL,
-		ProviderDefaults{
+		providers.ProviderDefaults{
 			Temperature: 0.8,
 			TopP:        0.9,
 			MaxTokens:   200,
@@ -392,7 +397,7 @@ data: [DONE]
 	)
 
 	ctx := context.Background()
-	stream, err := provider.ChatStream(ctx, ChatRequest{
+	stream, err := provider.ChatStream(ctx, providers.ChatRequest{
 		Messages: []types.Message{{Role: "user", Content: "test"}},
 		// Don't specify temperature - should use default
 	})
@@ -406,7 +411,7 @@ data: [DONE]
 }
 
 func TestIsValidationAbortWithNil(t *testing.T) {
-	if IsValidationAbort(nil) {
-		t.Error("IsValidationAbort(nil) should return false")
+	if providers.IsValidationAbort(nil) {
+		t.Error("providers.IsValidationAbort(nil) should return false")
 	}
 }

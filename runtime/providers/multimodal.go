@@ -224,3 +224,14 @@ func (e *UnsupportedContentError) Error() string {
 	}
 	return e.Provider + ": " + e.Message
 }
+
+// ValidateMultimodalRequest validates all messages in a chat request for multimodal compatibility
+// This is a helper function to reduce duplication across provider implementations
+func ValidateMultimodalRequest(p MultimodalSupport, req ChatRequest) error {
+	for _, msg := range req.Messages {
+		if err := ValidateMultimodalMessage(p, msg); err != nil {
+			return err
+		}
+	}
+	return nil
+}

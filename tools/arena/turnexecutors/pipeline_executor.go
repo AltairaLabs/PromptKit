@@ -8,6 +8,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
@@ -118,10 +119,10 @@ func (e *PipelineExecutor) Execute(
 
 	// 5a. Mock scenario context middleware (only for MockProvider and MockToolProvider)
 	// This adds scenario context to the execution context so mock providers can use scenario-specific responses
-	if _, isMockProvider := req.Provider.(*providers.MockProvider); isMockProvider {
+	if _, isMockProvider := req.Provider.(*mock.MockProvider); isMockProvider {
 		logger.Debug("Adding MockScenarioContextMiddleware for MockProvider", "scenario_id", req.Scenario.ID)
 		pipelineMiddleware = append(pipelineMiddleware, arenamiddleware.MockScenarioContextMiddleware(req.Scenario))
-	} else if _, isMockToolProvider := req.Provider.(*providers.MockToolProvider); isMockToolProvider {
+	} else if _, isMockToolProvider := req.Provider.(*mock.MockToolProvider); isMockToolProvider {
 		logger.Debug("Adding MockScenarioContextMiddleware for MockToolProvider", "scenario_id", req.Scenario.ID)
 		pipelineMiddleware = append(pipelineMiddleware, arenamiddleware.MockScenarioContextMiddleware(req.Scenario))
 	} else {

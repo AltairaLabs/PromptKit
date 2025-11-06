@@ -12,6 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
@@ -226,7 +227,7 @@ func TestEnableMockProviderMode(t *testing.T) {
 	providerRegistry := providers.NewRegistry()
 	for _, provider := range cfg.LoadedProviders {
 		// Create mock providers for the initial state (to avoid needing API keys)
-		mockProvider := providers.NewMockProvider(provider.ID, provider.Model, provider.IncludeRawOutput)
+		mockProvider := mock.NewMockProvider(provider.ID, provider.Model, provider.IncludeRawOutput)
 		providerRegistry.Register(mockProvider)
 	}
 
@@ -293,7 +294,7 @@ func TestEnableMockProviderMode_WithConfigFile(t *testing.T) {
 
 	// Create provider registry manually
 	providerRegistry := providers.NewRegistry()
-	mockProvider := providers.NewMockProvider("test-provider", "gpt-4", false)
+	mockProvider := mock.NewMockProvider("test-provider", "gpt-4", false)
 	providerRegistry.Register(mockProvider)
 
 	eng, err := NewEngine(cfg, providerRegistry, nil, nil, nil)
@@ -347,7 +348,7 @@ func TestEnableMockProviderMode_WithInvalidConfigFile(t *testing.T) {
 
 	// Create provider registry manually
 	providerRegistry := providers.NewRegistry()
-	mockProvider := providers.NewMockProvider("test-provider", "gpt-4", false)
+	mockProvider := mock.NewMockProvider("test-provider", "gpt-4", false)
 	providerRegistry.Register(mockProvider)
 
 	eng, err := NewEngine(cfg, providerRegistry, nil, nil, nil)
