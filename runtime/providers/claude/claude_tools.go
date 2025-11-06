@@ -97,102 +97,134 @@ func (p *ClaudeToolProvider) ChatWithTools(ctx context.Context, req providers.Ch
 	return p.parseToolResponse(respBytes, chatResp)
 }
 
-func (p *ClaudeToolProvider) buildToolRequest(req providers.ChatRequest, tools interface{}, toolChoice string) map[string]interface{} {
-	// Convert messages to Claude format
-	// Claude requires tool_result blocks to be in a user message immediately after the assistant message with tool_use
-	messages := make([]claudeToolMessage, 0, len(req.Messages))
+// processClaudeToolResult converts a tool message to Claude's tool_result format
+func processClaudeToolResult(msg types.Message) claudeToolResult {
+	return claudeToolResult{
+		Type:      "tool_result",
+		ToolUseID: msg.ToolResult.ID,
+		Content:   msg.Content,
+	}
+}
 
-	// Collect any pending tool results to group together
+// buildClaudeMessageContent creates content array for a message including text and tool calls
+func buildClaudeMessageContent(msg types.Message, pendingToolResults []claudeToolResult) []interface{} {
+	content := make([]interface{}, 0)
+
+	// Add pending tool results first if this is a user message
+	if msg.Role == "user" && len(pendingToolResults) > 0 {
+		for _, tr := range pendingToolResults {
+			content = append(content, tr)
+		}
+	}
+
+	// Add the message text content if present
+	if msg.Content != "" {
+		content = append(content, claudeTextContent{
+			Type: "text",
+			Text: msg.Content,
+		})
+	}
+
+	// Add tool calls if this is an assistant message
+	if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+		for _, toolCall := range msg.ToolCalls {
+			content = append(content, claudeToolUse{
+				Type:  "tool_use",
+				ID:    toolCall.ID,
+				Name:  toolCall.Name,
+				Input: toolCall.Args,
+			})
+		}
+	}
+
+	return content
+}
+
+// addClaudeToolConfig adds tool configuration to the request based on toolChoice
+func addClaudeToolConfig(request map[string]interface{}, tools interface{}, toolChoice string) {
+	request["tools"] = tools
+
+	if toolChoice == "" {
+		return
+	}
+
+	switch toolChoice {
+	case "auto":
+		request["tool_choice"] = map[string]interface{}{"type": "auto"}
+	case "required", "any":
+		request["tool_choice"] = map[string]interface{}{"type": "any"}
+	default:
+		request["tool_choice"] = map[string]interface{}{
+			"type": "tool",
+			"name": toolChoice,
+		}
+	}
+}
+
+// flushPendingToolResults creates a user message from pending tool results
+func flushPendingToolResults(pendingToolResults []claudeToolResult) claudeToolMessage {
+	toolResultContent := make([]interface{}, len(pendingToolResults))
+	for i, tr := range pendingToolResults {
+		toolResultContent[i] = tr
+	}
+	return claudeToolMessage{
+		Role:    "user",
+		Content: toolResultContent,
+	}
+}
+
+// processMessageForTools processes a single message and manages tool results
+func (p *ClaudeToolProvider) processMessageForTools(
+	msg types.Message,
+	pendingToolResults []claudeToolResult,
+	messages []claudeToolMessage,
+	tools interface{},
+) ([]claudeToolMessage, []claudeToolResult) {
+	// If we have pending tool results and this is not a user message, create a user message for them
+	if len(pendingToolResults) > 0 && msg.Role != "user" {
+		messages = append(messages, flushPendingToolResults(pendingToolResults))
+		pendingToolResults = nil
+	}
+
+	content := buildClaudeMessageContent(msg, pendingToolResults)
+	if msg.Role == "user" {
+		pendingToolResults = nil
+	}
+
+	if len(content) == 0 {
+		return messages, pendingToolResults
+	}
+
+	claudeMsg := claudeToolMessage{
+		Role:    msg.Role,
+		Content: content,
+	}
+
+	// For caching: cache the first user message if tools are present and model supports caching
+	if p.supportsCaching() && msg.Role == "user" && len(messages) == 0 && tools != nil {
+		claudeMsg.CacheControl = &claudeCacheControl{Type: "ephemeral"}
+	}
+
+	messages = append(messages, claudeMsg)
+	return messages, pendingToolResults
+}
+
+func (p *ClaudeToolProvider) buildToolRequest(req providers.ChatRequest, tools interface{}, toolChoice string) map[string]interface{} {
+	messages := make([]claudeToolMessage, 0, len(req.Messages))
 	var pendingToolResults []claudeToolResult
 
 	for _, msg := range req.Messages {
 		if msg.Role == "tool" {
-			// Collect tool result to be added to the next user message or grouped together
-			toolResult := claudeToolResult{
-				Type:      "tool_result",
-				ToolUseID: msg.ToolResult.ID,
-				Content:   msg.Content,
-			}
-			pendingToolResults = append(pendingToolResults, toolResult)
+			pendingToolResults = append(pendingToolResults, processClaudeToolResult(msg))
 			continue
 		}
 
-		// If we have pending tool results and this is a user message, add them to this message
-		// Or if this is not a user message but we have pending results, create a user message for them
-		if len(pendingToolResults) > 0 {
-			if msg.Role != "user" {
-				// Create a user message with the tool results before adding this message
-				toolResultContent := make([]interface{}, len(pendingToolResults))
-				for i, tr := range pendingToolResults {
-					toolResultContent[i] = tr
-				}
-				messages = append(messages, claudeToolMessage{
-					Role:    "user",
-					Content: toolResultContent,
-				})
-				pendingToolResults = nil
-			}
-		}
-
-		content := []interface{}{}
-
-		// Add pending tool results first if this is a user message
-		if msg.Role == "user" && len(pendingToolResults) > 0 {
-			for _, tr := range pendingToolResults {
-				content = append(content, tr)
-			}
-			pendingToolResults = nil
-		}
-
-		// Add the message text content if present
-		if msg.Content != "" {
-			content = append(content, claudeTextContent{
-				Type: "text",
-				Text: msg.Content,
-			})
-		}
-
-		// Add tool calls if this is an assistant message
-		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
-			for _, toolCall := range msg.ToolCalls {
-				content = append(content, claudeToolUse{
-					Type:  "tool_use",
-					ID:    toolCall.ID,
-					Name:  toolCall.Name,
-					Input: toolCall.Args,
-				})
-			}
-		}
-
-		// Skip empty messages (e.g., assistant message with only tool calls and no text)
-		if len(content) == 0 {
-			continue
-		}
-
-		claudeMsg := claudeToolMessage{
-			Role:    msg.Role,
-			Content: content,
-		}
-
-		// For caching: cache the first user message if tools are present and model supports caching
-		// This ensures tool definitions are cached along with the initial context
-		if p.supportsCaching() && msg.Role == "user" && len(messages) == 0 && tools != nil {
-			claudeMsg.CacheControl = &claudeCacheControl{Type: "ephemeral"}
-		}
-
-		messages = append(messages, claudeMsg)
+		messages, pendingToolResults = p.processMessageForTools(msg, pendingToolResults, messages, tools)
 	}
 
 	// If there are still pending tool results at the end, add them as a final user message
 	if len(pendingToolResults) > 0 {
-		toolResultContent := make([]interface{}, len(pendingToolResults))
-		for i, tr := range pendingToolResults {
-			toolResultContent[i] = tr
-		}
-		messages = append(messages, claudeToolMessage{
-			Role:    "user",
-			Content: toolResultContent,
-		})
+		messages = append(messages, flushPendingToolResults(pendingToolResults))
 	}
 
 	request := map[string]interface{}{
@@ -208,25 +240,56 @@ func (p *ClaudeToolProvider) buildToolRequest(req providers.ChatRequest, tools i
 	}
 
 	if tools != nil {
-		request["tools"] = tools
-		// Claude uses "tool_choice" parameter like: {"type": "auto"} or {"type": "tool", "name": "tool_name"}
-		if toolChoice != "" {
-			switch toolChoice {
-			case "auto":
-				request["tool_choice"] = map[string]interface{}{"type": "auto"}
-			case "required", "any":
-				request["tool_choice"] = map[string]interface{}{"type": "any"}
-			default:
-				// Assume it's a specific tool name
-				request["tool_choice"] = map[string]interface{}{
-					"type": "tool",
-					"name": toolChoice,
-				}
-			}
-		}
+		addClaudeToolConfig(request, tools, toolChoice)
 	}
 
 	return request
+}
+
+// extractTextContentFromResponse extracts text content from Claude response
+func extractTextContentFromResponse(content []claudeContent) string {
+	for _, c := range content {
+		if c.Type == "text" {
+			return c.Text
+		}
+	}
+	return ""
+}
+
+// parseToolCallsFromRawResponse extracts tool calls from raw JSON response
+func parseToolCallsFromRawResponse(respBytes []byte) []types.MessageToolCall {
+	var toolCalls []types.MessageToolCall
+	var rawResp map[string]interface{}
+
+	if err := json.Unmarshal(respBytes, &rawResp); err != nil {
+		return toolCalls
+	}
+
+	content, ok := rawResp["content"].([]interface{})
+	if !ok {
+		return toolCalls
+	}
+
+	for _, item := range content {
+		itemMap, ok := item.(map[string]interface{})
+		if !ok || itemMap["type"] != "tool_use" {
+			continue
+		}
+
+		toolCall := types.MessageToolCall{
+			ID:   itemMap["id"].(string),
+			Name: itemMap["name"].(string),
+		}
+
+		if input, ok := itemMap["input"]; ok {
+			inputBytes, _ := json.Marshal(input)
+			toolCall.Args = json.RawMessage(inputBytes)
+		}
+
+		toolCalls = append(toolCalls, toolCall)
+	}
+
+	return toolCalls
 }
 
 func (p *ClaudeToolProvider) parseToolResponse(respBytes []byte, chatResp providers.ChatResponse) (providers.ChatResponse, []types.MessageToolCall, error) {
@@ -251,41 +314,11 @@ func (p *ClaudeToolProvider) parseToolResponse(respBytes []byte, chatResp provid
 		return chatResp, nil, fmt.Errorf("no content in Claude response")
 	}
 
-	// Extract text content and tool calls
-	var textContent string
-	var toolCalls []types.MessageToolCall
+	// Extract text content
+	textContent := extractTextContentFromResponse(resp.Content)
 
-	for _, content := range resp.Content {
-		if content.Type == "text" {
-			textContent = content.Text
-		}
-		// Claude may also have tool_use content, but we need to handle that differently
-		// For now, focusing on text responses
-	}
-
-	// Check if response contains tool calls in raw format
-	var rawResp map[string]interface{}
-	if err := json.Unmarshal(respBytes, &rawResp); err == nil {
-		if content, ok := rawResp["content"].([]interface{}); ok {
-			for _, item := range content {
-				if itemMap, ok := item.(map[string]interface{}); ok {
-					if itemMap["type"] == "tool_use" {
-						toolCall := types.MessageToolCall{
-							ID:   itemMap["id"].(string),
-							Name: itemMap["name"].(string),
-						}
-
-						if input, ok := itemMap["input"]; ok {
-							inputBytes, _ := json.Marshal(input)
-							toolCall.Args = json.RawMessage(inputBytes)
-						}
-
-						toolCalls = append(toolCalls, toolCall)
-					}
-				}
-			}
-		}
-	}
+	// Parse tool calls from raw response
+	toolCalls := parseToolCallsFromRawResponse(respBytes)
 
 	// Calculate cost breakdown
 	costBreakdown := p.ClaudeProvider.CalculateCost(resp.Usage.InputTokens, resp.Usage.OutputTokens, resp.Usage.CacheReadInputTokens)

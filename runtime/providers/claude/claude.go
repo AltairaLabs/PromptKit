@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
@@ -32,13 +31,10 @@ type ClaudeProvider struct {
 
 // NewClaudeProvider creates a new Claude provider
 func NewClaudeProvider(id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool) *ClaudeProvider {
-	apiKey := os.Getenv("ANTHROPIC_API_KEY")
-	if apiKey == "" {
-		apiKey = os.Getenv("CLAUDE_API_KEY")
-	}
+	base, apiKey := providers.NewBaseProviderWithAPIKey(id, includeRawOutput, "ANTHROPIC_API_KEY", "CLAUDE_API_KEY")
 
 	return &ClaudeProvider{
-		BaseProvider: providers.NewBaseProvider(id, includeRawOutput, &http.Client{Timeout: 60 * time.Second}),
+		BaseProvider: base,
 		model:        model,
 		baseURL:      baseURL,
 		apiKey:       apiKey,
@@ -119,96 +115,72 @@ func (p *ClaudeProvider) supportsCaching() bool {
 	}
 }
 
-// Chat sends a chat request to Claude
-func (p *ClaudeProvider) Chat(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
-	start := time.Now()
+// convertMessagesToClaudeFormat converts provider messages to Claude format with cache control
+func (p *ClaudeProvider) convertMessagesToClaudeFormat(messages []types.Message) []claudeMessage {
+	claudeMessages := make([]claudeMessage, 0, len(messages))
+	minCharsForCaching := 2048 * 4 // ~8192 characters (Claude requires 2048 tokens minimum)
 
-	// Convert messages to Claude format
-	messages := make([]claudeMessage, 0, len(req.Messages))
-
-	for i, msg := range req.Messages {
-		// Create content block for the message
+	for i, msg := range messages {
 		contentBlock := claudeContentBlock{
 			Type: "text",
 			Text: msg.Content,
 		}
 
-		// Enable cache control only if model supports it and content is long enough
-		// Claude caching requires 2048 tokens minimum
-		// Estimate ~4 characters per token for rough threshold
-		minCharsForCaching := 2048 * 4 // ~8192 characters
-
 		// Only cache the last message with sufficient content to maximize cache hits
-		if p.supportsCaching() && i == len(req.Messages)-1 && len(msg.Content) >= minCharsForCaching {
+		if p.supportsCaching() && i == len(messages)-1 && len(msg.Content) >= minCharsForCaching {
 			contentBlock.CacheControl = &claudeCacheControl{Type: "ephemeral"}
 		}
 
-		claudeMsg := claudeMessage{
+		claudeMessages = append(claudeMessages, claudeMessage{
 			Role:    msg.Role,
 			Content: []claudeContentBlock{contentBlock},
-		}
-
-		messages = append(messages, claudeMsg)
+		})
 	}
 
-	// Apply provider defaults for zero values
-	temperature := req.Temperature
+	return claudeMessages
+}
+
+// createSystemBlocks creates system content blocks with cache control if applicable
+func (p *ClaudeProvider) createSystemBlocks(systemPrompt string) []claudeContentBlock {
+	if systemPrompt == "" {
+		return nil
+	}
+
+	systemBlock := claudeContentBlock{
+		Type: "text",
+		Text: systemPrompt,
+	}
+
+	// Enable cache control for system prompt only if model supports it and prompt is long enough
+	minCharsForCaching := 1024 * 4 // ~4096 characters for system prompt
+	if p.supportsCaching() && len(systemPrompt) >= minCharsForCaching {
+		systemBlock.CacheControl = &claudeCacheControl{Type: "ephemeral"}
+	}
+
+	return []claudeContentBlock{systemBlock}
+}
+
+// applyDefaults applies provider defaults to zero values in the request
+func (p *ClaudeProvider) applyDefaults(temperature, topP float32, maxTokens int) (float32, float32, int) {
 	if temperature == 0 {
 		temperature = p.defaults.Temperature
 	}
-
-	topP := req.TopP
 	if topP == 0 {
 		topP = p.defaults.TopP
 	}
-
-	maxTokens := req.MaxTokens
 	if maxTokens == 0 {
 		maxTokens = p.defaults.MaxTokens
 	}
+	return temperature, topP, maxTokens
+}
 
-	// Create system content blocks if system prompt exists
-	var systemBlocks []claudeContentBlock
-	if req.System != "" {
-		// Enable cache control for system prompt only if model supports it and prompt is long enough
-		systemBlock := claudeContentBlock{
-			Type: "text",
-			Text: req.System,
-		}
-
-		// Estimate ~4 characters per token for rough threshold
-		minCharsForCaching := 1024 * 4 // ~4096 characters for system prompt
-		if p.supportsCaching() && len(req.System) >= minCharsForCaching {
-			systemBlock.CacheControl = &claudeCacheControl{Type: "ephemeral"}
-		}
-
-		systemBlocks = []claudeContentBlock{systemBlock}
-	}
-
-	// Create request
-	claudeReq := claudeRequest{
-		Model:       p.model,
-		MaxTokens:   maxTokens,
-		Messages:    messages,
-		System:      systemBlocks,
-		Temperature: temperature,
-		TopP:        topP,
-	}
-
+// makeClaudeHTTPRequest sends the HTTP request to Claude API
+func (p *ClaudeProvider) makeClaudeHTTPRequest(ctx context.Context, claudeReq claudeRequest, chatResp providers.ChatResponse, start time.Time) ([]byte, providers.ChatResponse, error) {
 	reqBody, err := json.Marshal(claudeReq)
 	if err != nil {
-		return providers.ChatResponse{}, fmt.Errorf("failed to marshal request: %w", err)
+		return nil, chatResp, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Prepare response with raw request if configured (set early to preserve on error)
-	chatResp := providers.ChatResponse{
-		Latency: time.Since(start), // Will be updated at the end
-	}
-	if p.ShouldIncludeRawOutput() {
-		chatResp.RawRequest = claudeReq
-	}
-
-	// Construct URL
 	url := p.baseURL + "/messages"
 	logger.Debug("Claude API request",
 		"base_url", p.baseURL,
@@ -216,11 +188,10 @@ func (p *ClaudeProvider) Chat(ctx context.Context, req providers.ChatRequest) (p
 		"model", p.model,
 		"has_api_key", p.apiKey != "")
 
-	// Make HTTP request
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
 	if err != nil {
 		chatResp.Latency = time.Since(start)
-		return chatResp, fmt.Errorf("failed to create request: %w", err)
+		return nil, chatResp, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -236,14 +207,14 @@ func (p *ClaudeProvider) Chat(ctx context.Context, req providers.ChatRequest) (p
 	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
 		chatResp.Latency = time.Since(start)
-		return chatResp, fmt.Errorf("failed to send request: %w", err)
+		return nil, chatResp, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		chatResp.Latency = time.Since(start)
-		return chatResp, fmt.Errorf("failed to read response: %w", err)
+		return nil, chatResp, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	logger.APIResponse("Claude", resp.StatusCode, string(respBody), nil)
@@ -256,26 +227,27 @@ func (p *ClaudeProvider) Chat(ctx context.Context, req providers.ChatRequest) (p
 			"response", string(respBody))
 		chatResp.Latency = time.Since(start)
 		chatResp.Raw = respBody
-		return chatResp, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
+		return nil, chatResp, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
 	}
 
+	return respBody, chatResp, nil
+}
+
+// parseAndValidateClaudeResponse parses and validates the Claude API response
+func (p *ClaudeProvider) parseAndValidateClaudeResponse(respBody []byte, chatResp providers.ChatResponse, start time.Time) (claudeResponse, string, providers.ChatResponse, error) {
 	var claudeResp claudeResponse
-	if err := json.Unmarshal(respBody, &claudeResp); err != nil {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBody
-		return chatResp, fmt.Errorf("failed to unmarshal response: %w", err)
+	if err := providers.UnmarshalJSON(respBody, &claudeResp, &chatResp, start); err != nil {
+		return claudeResp, "", chatResp, err
 	}
 
 	if claudeResp.Error != nil {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBody
-		return chatResp, fmt.Errorf("claude API error: %s", claudeResp.Error.Message)
+		providers.SetErrorResponse(&chatResp, respBody, start)
+		return claudeResp, "", chatResp, fmt.Errorf("claude API error: %s", claudeResp.Error.Message)
 	}
 
 	if len(claudeResp.Content) == 0 {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBody
-		return chatResp, fmt.Errorf("no content in response")
+		providers.SetErrorResponse(&chatResp, respBody, start)
+		return claudeResp, "", chatResp, fmt.Errorf("no content in response")
 	}
 
 	// Find text content
@@ -290,7 +262,53 @@ func (p *ClaudeProvider) Chat(ctx context.Context, req providers.ChatRequest) (p
 	if responseText == "" {
 		chatResp.Latency = time.Since(start)
 		chatResp.Raw = respBody
-		return chatResp, fmt.Errorf("no text content found in response")
+		return claudeResp, "", chatResp, fmt.Errorf("no text content found in response")
+	}
+
+	return claudeResp, responseText, chatResp, nil
+}
+
+// Chat sends a chat request to Claude
+func (p *ClaudeProvider) Chat(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
+	start := time.Now()
+
+	// Convert messages to Claude format
+	messages := p.convertMessagesToClaudeFormat(req.Messages)
+
+	// Apply provider defaults
+	temperature, topP, maxTokens := p.applyDefaults(req.Temperature, req.TopP, req.MaxTokens)
+
+	// Create system content blocks
+	systemBlocks := p.createSystemBlocks(req.System)
+
+	// Create request
+	claudeReq := claudeRequest{
+		Model:       p.model,
+		MaxTokens:   maxTokens,
+		Messages:    messages,
+		System:      systemBlocks,
+		Temperature: temperature,
+		TopP:        topP,
+	}
+
+	// Prepare response with raw request if configured (set early to preserve on error)
+	chatResp := providers.ChatResponse{
+		Latency: time.Since(start), // Will be updated at the end
+	}
+	if p.ShouldIncludeRawOutput() {
+		chatResp.RawRequest = claudeReq
+	}
+
+	// Make HTTP request
+	respBody, chatResp, err := p.makeClaudeHTTPRequest(ctx, claudeReq, chatResp, start)
+	if err != nil {
+		return chatResp, err
+	}
+
+	// Parse and validate response
+	claudeResp, responseText, chatResp, err := p.parseAndValidateClaudeResponse(respBody, chatResp, start)
+	if err != nil {
+		return chatResp, err
 	}
 
 	latency := time.Since(start)
@@ -434,15 +452,14 @@ func (p *ClaudeProvider) ChatStream(ctx context.Context, req providers.ChatReque
 	httpReq.Header.Set("anthropic-version", "2023-06-01")
 	httpReq.Header.Set("Accept", "text/event-stream")
 
+	//nolint:bodyclose // body is closed in streamResponse goroutine
 	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	if err := providers.CheckHTTPError(resp); err != nil {
+		return nil, err
 	}
 
 	outChan := make(chan providers.StreamChunk)
@@ -450,6 +467,75 @@ func (p *ClaudeProvider) ChatStream(ctx context.Context, req providers.ChatReque
 	go p.streamResponse(ctx, resp.Body, outChan)
 
 	return outChan, nil
+}
+
+// processClaudeContentDelta handles content_block_delta events from Claude stream
+func (p *ClaudeProvider) processClaudeContentDelta(event struct {
+	Type  string `json:"type"`
+	Delta *struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"delta,omitempty"`
+	Message *struct {
+		StopReason string       `json:"stop_reason"`
+		Usage      *claudeUsage `json:"usage,omitempty"`
+	} `json:"message,omitempty"`
+}, accumulated string, totalTokens int, outChan chan<- providers.StreamChunk) (string, int) {
+	if event.Delta == nil || event.Delta.Type != "text_delta" {
+		return accumulated, totalTokens
+	}
+
+	delta := event.Delta.Text
+	accumulated += delta
+	totalTokens++ // Approximate
+
+	outChan <- providers.StreamChunk{
+		Content:     accumulated,
+		Delta:       delta,
+		TokenCount:  totalTokens,
+		DeltaTokens: 1,
+	}
+
+	return accumulated, totalTokens
+}
+
+// processClaudeMessageStop handles message_stop events from Claude stream
+func (p *ClaudeProvider) processClaudeMessageStop(event struct {
+	Type  string `json:"type"`
+	Delta *struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"delta,omitempty"`
+	Message *struct {
+		StopReason string       `json:"stop_reason"`
+		Usage      *claudeUsage `json:"usage,omitempty"`
+	} `json:"message,omitempty"`
+}, accumulated string, totalTokens int, outChan chan<- providers.StreamChunk) {
+	finishReason := "stop"
+	finalChunk := providers.StreamChunk{
+		Content:      accumulated,
+		TokenCount:   totalTokens,
+		FinishReason: &finishReason,
+	}
+
+	if event.Message != nil {
+		if event.Message.StopReason != "" {
+			finishReason = event.Message.StopReason
+			finalChunk.FinishReason = &finishReason
+		}
+
+		// Extract cost from usage if available
+		if event.Message.Usage != nil {
+			tokensIn := event.Message.Usage.InputTokens
+			tokensOut := event.Message.Usage.OutputTokens
+			cachedTokens := event.Message.Usage.CacheReadInputTokens
+
+			costBreakdown := p.CalculateCost(tokensIn, tokensOut, cachedTokens)
+			finalChunk.CostInfo = &costBreakdown
+		}
+	}
+
+	outChan <- finalChunk
 }
 
 // streamResponse reads SSE stream from Claude and sends chunks
@@ -493,45 +579,10 @@ func (p *ClaudeProvider) streamResponse(ctx context.Context, body io.ReadCloser,
 
 		switch event.Type {
 		case "content_block_delta":
-			if event.Delta != nil && event.Delta.Type == "text_delta" {
-				delta := event.Delta.Text
-				accumulated += delta
-				totalTokens++ // Approximate
-
-				outChan <- providers.StreamChunk{
-					Content:     accumulated,
-					Delta:       delta,
-					TokenCount:  totalTokens,
-					DeltaTokens: 1,
-				}
-			}
+			accumulated, totalTokens = p.processClaudeContentDelta(event, accumulated, totalTokens, outChan)
 
 		case "message_stop":
-			finishReason := "stop"
-			finalChunk := providers.StreamChunk{
-				Content:      accumulated,
-				TokenCount:   totalTokens,
-				FinishReason: &finishReason,
-			}
-
-			if event.Message != nil {
-				if event.Message.StopReason != "" {
-					finishReason = event.Message.StopReason
-					finalChunk.FinishReason = &finishReason
-				}
-
-				// Extract cost from usage if available
-				if event.Message.Usage != nil {
-					tokensIn := event.Message.Usage.InputTokens
-					tokensOut := event.Message.Usage.OutputTokens
-					cachedTokens := event.Message.Usage.CacheReadInputTokens
-
-					costBreakdown := p.CalculateCost(tokensIn, tokensOut, cachedTokens)
-					finalChunk.CostInfo = &costBreakdown
-				}
-			}
-
-			outChan <- finalChunk
+			p.processClaudeMessageStop(event, accumulated, totalTokens, outChan)
 			return
 		}
 	}

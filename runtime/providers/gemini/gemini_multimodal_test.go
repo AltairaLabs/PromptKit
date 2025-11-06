@@ -1,10 +1,17 @@
 package gemini
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGeminiProvider_GetMultimodalCapabilities(t *testing.T) {
@@ -550,5 +557,215 @@ func TestGeminiProvider_MixedMultimodal(t *testing.T) {
 
 	if converted.Parts[2].InlineData == nil || converted.Parts[2].InlineData.MimeType != "video/mp4" {
 		t.Error("Third part should be video")
+	}
+}
+
+// TestChatMultimodal_Integration tests the ChatMultimodal method with HTTP mocking
+func TestChatMultimodal_Integration(t *testing.T) {
+	tests := []struct {
+		name           string
+		messages       []types.Message
+		serverResponse geminiResponse
+		serverStatus   int
+		wantErr        bool
+		errContains    string
+	}{
+		{
+			name: "Successful multimodal request with image",
+			messages: []types.Message{
+				{
+					Role: "user",
+					Parts: []types.ContentPart{
+						types.NewTextPart("What's in this image?"),
+						{
+							Type: types.ContentTypeImage,
+							Media: &types.MediaContent{
+								MIMEType: "image/jpeg",
+								Data:     providers.StringPtr(string("fake-image-data")),
+							},
+						},
+					},
+				},
+			},
+			serverResponse: geminiResponse{
+				Candidates: []geminiCandidate{
+					{
+						Content: geminiContent{
+							Parts: []geminiPart{{Text: "I see an interesting image."}},
+							Role:  "model",
+						},
+						FinishReason: "STOP",
+					},
+				},
+				UsageMetadata: &geminiUsage{
+					PromptTokenCount:     150,
+					CandidatesTokenCount: 50,
+					TotalTokenCount:      200,
+				},
+			},
+			serverStatus: http.StatusOK,
+			wantErr:      false,
+		},
+		{
+			name: "API error response",
+			messages: []types.Message{
+				{
+					Role: "user",
+					Parts: []types.ContentPart{
+						types.NewTextPart("Test"),
+					},
+				},
+			},
+			serverResponse: geminiResponse{},
+			serverStatus:   http.StatusBadRequest,
+			wantErr:        true,
+			errContains:    "400",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tt.serverStatus)
+				json.NewEncoder(w).Encode(tt.serverResponse)
+			}))
+			defer server.Close()
+
+			provider := NewGeminiProvider(
+				"test",
+				"gemini-2.0-flash",
+				server.URL,
+				providers.ProviderDefaults{
+					Temperature: 0.7,
+					TopP:        0.9,
+					MaxTokens:   1000,
+				},
+				false,
+			)
+
+			req := providers.ChatRequest{
+				Messages:    tt.messages,
+				Temperature: 0.8,
+				MaxTokens:   500,
+			}
+
+			resp, err := provider.ChatMultimodal(context.Background(), req)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+				return
+			}
+
+			require.NoError(t, err)
+			assert.NotEmpty(t, resp.Content)
+			assert.NotNil(t, resp.CostInfo)
+			assert.Greater(t, resp.Latency, time.Duration(0))
+		})
+	}
+}
+
+// TestChatMultimodalStream_Integration tests the ChatMultimodalStream method
+func TestChatMultimodalStream_Integration(t *testing.T) {
+	tests := []struct {
+		name         string
+		messages     []types.Message
+		serverChunks []geminiResponse
+		wantErr      bool
+		errContains  string
+	}{
+		{
+			name: "Successful streaming with image",
+			messages: []types.Message{
+				{
+					Role: "user",
+					Parts: []types.ContentPart{
+						types.NewTextPart("Describe this"),
+						{
+							Type: types.ContentTypeImage,
+							Media: &types.MediaContent{
+								MIMEType: "image/png",
+								Data:     providers.StringPtr("image-data"),
+							},
+						},
+					},
+				},
+			},
+			serverChunks: []geminiResponse{
+				{
+					Candidates: []geminiCandidate{
+						{
+							Content: geminiContent{
+								Parts: []geminiPart{{Text: "This"}},
+							},
+						},
+					},
+				},
+				{
+					Candidates: []geminiCandidate{
+						{
+							Content: geminiContent{
+								Parts: []geminiPart{{Text: " is nice"}},
+							},
+							FinishReason: "STOP",
+						},
+					},
+					UsageMetadata: &geminiUsage{
+						PromptTokenCount:     100,
+						CandidatesTokenCount: 30,
+					},
+				},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				json.NewEncoder(w).Encode(tt.serverChunks)
+			}))
+			defer server.Close()
+
+			provider := NewGeminiProvider(
+				"test",
+				"gemini-2.0-flash",
+				server.URL,
+				providers.ProviderDefaults{Temperature: 0.7},
+				false,
+			)
+
+			req := providers.ChatRequest{
+				Messages: tt.messages,
+			}
+
+			streamChan, err := provider.ChatMultimodalStream(context.Background(), req)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, streamChan)
+
+			var chunks []providers.StreamChunk
+			for chunk := range streamChan {
+				chunks = append(chunks, chunk)
+			}
+
+			assert.NotEmpty(t, chunks)
+
+			lastChunk := chunks[len(chunks)-1]
+			assert.NotNil(t, lastChunk.FinishReason)
+		})
 	}
 }

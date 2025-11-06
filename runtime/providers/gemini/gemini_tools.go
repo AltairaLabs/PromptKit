@@ -124,110 +124,135 @@ func (p *GeminiToolProvider) ChatWithTools(ctx context.Context, req providers.Ch
 	return p.parseToolResponse(respBytes, chatResp)
 }
 
+// processToolMessage converts a tool result message to Gemini's functionResponse format
+func processToolMessage(msg types.Message) map[string]interface{} {
+	var response interface{}
+	if err := json.Unmarshal([]byte(msg.Content), &response); err != nil {
+		// If unmarshal fails, wrap the content in an object
+		response = map[string]interface{}{
+			"result": msg.Content,
+		}
+	} else {
+		// Successfully unmarshaled, but check if it's a map (object) or primitive
+		if _, isMap := response.(map[string]interface{}); !isMap {
+			response = map[string]interface{}{
+				"result": response,
+			}
+		}
+	}
+
+	// Debug: log tool message details
+	logger.Debug("Processing tool message",
+		"name", msg.ToolResult.Name,
+		"content_length", len(msg.Content),
+		"tool_result_id", msg.ToolResult.ID)
+
+	if msg.ToolResult.Name == "" {
+		logger.Warn("Tool message has empty Name field - functionResponse will be invalid")
+	}
+
+	return map[string]interface{}{
+		"functionResponse": map[string]interface{}{
+			"name":     msg.ToolResult.Name,
+			"response": response,
+		},
+	}
+}
+
+// buildMessageParts creates parts array for a message including text and tool calls
+func buildMessageParts(msg types.Message, pendingToolResults []map[string]interface{}) []interface{} {
+	parts := make([]interface{}, 0)
+
+	// Add pending tool results first if this is a user message
+	if msg.Role == "user" {
+		for _, tr := range pendingToolResults {
+			parts = append(parts, tr)
+		}
+	}
+
+	// Add text content
+	if msg.Content != "" {
+		parts = append(parts, map[string]interface{}{
+			"text": msg.Content,
+		})
+	}
+
+	// Add tool calls if this is a model message
+	if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+		for _, toolCall := range msg.ToolCalls {
+			var args interface{}
+			if err := json.Unmarshal(toolCall.Args, &args); err != nil {
+				args = string(toolCall.Args)
+			}
+			parts = append(parts, map[string]interface{}{
+				"functionCall": map[string]interface{}{
+					"name": toolCall.Name,
+					"args": args,
+				},
+			})
+		}
+	}
+
+	return parts
+}
+
+// addToolConfig adds tool configuration to the request based on toolChoice
+func addToolConfig(request map[string]interface{}, tools interface{}, toolChoice string) {
+	request["tools"] = []interface{}{tools}
+
+	mode := "AUTO" // default
+	if toolChoice != "" {
+		switch toolChoice {
+		case "auto":
+			mode = "AUTO"
+		case "required", "any":
+			mode = "ANY"
+		case "none":
+			mode = "NONE"
+		default:
+			mode = "ANY"
+		}
+	}
+
+	request["tool_config"] = map[string]interface{}{
+		"function_calling_config": map[string]interface{}{
+			"mode": mode,
+		},
+	}
+}
+
 func (p *GeminiToolProvider) buildToolRequest(req providers.ChatRequest, tools interface{}, toolChoice string) map[string]interface{} {
 	// Convert messages to Gemini format
-	// Gemini requires functionResponse parts to be in a user message immediately after the model message with functionCall
 	contents := make([]map[string]interface{}, 0, len(req.Messages))
-
-	// Collect any pending tool results to group together
 	var pendingToolResults []map[string]interface{}
 
 	for _, msg := range req.Messages {
 		if msg.Role == "tool" {
-			// Collect tool result to be added to the next user message or grouped together
-			var response interface{}
-			if err := json.Unmarshal([]byte(msg.Content), &response); err != nil {
-				// If unmarshal fails, wrap the content in an object
-				// Gemini requires functionResponse.response to be a Struct (object)
-				response = map[string]interface{}{
-					"result": msg.Content,
-				}
-			} else {
-				// Successfully unmarshaled, but check if it's a map (object) or primitive
-				// Gemini requires responses to be objects
-				if _, isMap := response.(map[string]interface{}); !isMap {
-					response = map[string]interface{}{
-						"result": response,
-					}
-				}
-			}
-
-			// Debug: log tool message details
-			logger.Debug("Processing tool message",
-				"name", msg.ToolResult.Name,
-				"content_length", len(msg.Content),
-				"tool_result_id", msg.ToolResult.ID)
-
-			if msg.ToolResult.Name == "" {
-				logger.Warn("Tool message has empty Name field - functionResponse will be invalid")
-			}
-
-			functionResponse := map[string]interface{}{
-				"functionResponse": map[string]interface{}{
-					"name":     msg.ToolResult.Name,
-					"response": response,
-				},
-			}
-			pendingToolResults = append(pendingToolResults, functionResponse)
+			pendingToolResults = append(pendingToolResults, processToolMessage(msg))
 			continue
 		}
 
-		// If we have pending tool results, add them as a user message before this message
-		if len(pendingToolResults) > 0 {
-			// Tool results must be in a user message
-			if msg.Role != "user" {
-				// Create a user message with the tool results
-				contents = append(contents, map[string]interface{}{
-					"role":  "user",
-					"parts": pendingToolResults,
-				})
-				pendingToolResults = nil
-			}
+		// If we have pending tool results, add them as a user message before non-user messages
+		if len(pendingToolResults) > 0 && msg.Role != "user" {
+			contents = append(contents, map[string]interface{}{
+				"role":  "user",
+				"parts": pendingToolResults,
+			})
+			pendingToolResults = nil
+		}
+
+		parts := buildMessageParts(msg, pendingToolResults)
+		if msg.Role == "user" {
+			pendingToolResults = nil
+		}
+
+		if len(parts) == 0 {
+			continue
 		}
 
 		role := msg.Role
 		if role == "assistant" {
 			role = "model"
-		}
-
-		parts := make([]interface{}, 0)
-
-		// Add pending tool results first if this is a user message
-		if msg.Role == "user" && len(pendingToolResults) > 0 {
-			for _, tr := range pendingToolResults {
-				parts = append(parts, tr)
-			}
-			pendingToolResults = nil
-		}
-
-		// Add text content
-		if msg.Content != "" {
-			parts = append(parts, map[string]interface{}{
-				"text": msg.Content,
-			})
-		}
-
-		// Add tool calls if this is a model message
-		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
-			for _, toolCall := range msg.ToolCalls {
-				var args interface{}
-				if err := json.Unmarshal(toolCall.Args, &args); err != nil {
-					// If unmarshal fails, use raw JSON as string fallback
-					args = string(toolCall.Args)
-				}
-
-				parts = append(parts, map[string]interface{}{
-					"functionCall": map[string]interface{}{
-						"name": toolCall.Name,
-						"args": args,
-					},
-				})
-			}
-		}
-
-		// Skip empty messages
-		if len(parts) == 0 {
-			continue
 		}
 
 		contents = append(contents, map[string]interface{}{
@@ -262,45 +287,7 @@ func (p *GeminiToolProvider) buildToolRequest(req providers.ChatRequest, tools i
 	}
 
 	if tools != nil {
-		request["tools"] = []interface{}{tools}
-
-		// Gemini uses tool_config to control tool usage
-		if toolChoice != "" {
-			switch toolChoice {
-			case "auto":
-				request["tool_config"] = map[string]interface{}{
-					"function_calling_config": map[string]interface{}{
-						"mode": "AUTO", // Let Gemini decide when to use tools or return text
-					},
-				}
-			case "required", "any":
-				request["tool_config"] = map[string]interface{}{
-					"function_calling_config": map[string]interface{}{
-						"mode": "ANY",
-					},
-				}
-			case "none":
-				request["tool_config"] = map[string]interface{}{
-					"function_calling_config": map[string]interface{}{
-						"mode": "NONE",
-					},
-				}
-			default:
-				// For specific tool names, use ANY mode (Gemini doesn't support specific tool forcing like OpenAI)
-				request["tool_config"] = map[string]interface{}{
-					"function_calling_config": map[string]interface{}{
-						"mode": "ANY",
-					},
-				}
-			}
-		} else {
-			// Default to AUTO mode to allow model flexibility
-			request["tool_config"] = map[string]interface{}{
-				"function_calling_config": map[string]interface{}{
-					"mode": "AUTO",
-				},
-			}
-		}
+		addToolConfig(request, tools, toolChoice)
 	}
 
 	return request

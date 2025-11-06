@@ -1,9 +1,15 @@
 package openai
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 func TestNewOpenAIProvider(t *testing.T) {
@@ -376,5 +382,453 @@ func TestOpenAIError_Structure(t *testing.T) {
 
 	if err.Code != "rate_limit" {
 		t.Error("Code mismatch")
+	}
+}
+
+func TestChat_Integration(t *testing.T) {
+	t.Run("Successful chat request with system message", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/chat/completions" {
+				t.Errorf("Expected path '/chat/completions', got %q", r.URL.Path)
+			}
+			if r.Method != "POST" {
+				t.Errorf("Expected method 'POST', got %q", r.Method)
+			}
+
+			// Verify headers
+			if r.Header.Get("Content-Type") != "application/json" {
+				t.Errorf("Expected Content-Type 'application/json', got %q", r.Header.Get("Content-Type"))
+			}
+			if r.Header.Get("Authorization") != "Bearer test-key" {
+				t.Errorf("Expected Authorization 'Bearer test-key', got %q", r.Header.Get("Authorization"))
+			}
+
+			// Parse request to verify system message was sent
+			var req openAIRequest
+			json.NewDecoder(r.Body).Decode(&req)
+			if len(req.Messages) < 1 || req.Messages[0].Role != "system" {
+				t.Error("Expected first message to be system message")
+			}
+
+			// Send successful response
+			resp := openAIResponse{
+				ID:      "chatcmpl-123",
+				Object:  "chat.completion",
+				Created: time.Now().Unix(),
+				Model:   "gpt-4",
+				Choices: []openAIChoice{
+					{
+						Index: 0,
+						Message: openAIMessage{
+							Role:    "assistant",
+							Content: "Hello! How can I help you?",
+						},
+						FinishReason: "stop",
+					},
+				},
+				Usage: openAIUsage{
+					PromptTokens:     10,
+					CompletionTokens: 8,
+					TotalTokens:      18,
+				},
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		provider := &OpenAIProvider{
+			BaseProvider: providers.NewBaseProvider("test", false, nil),
+			model:        "gpt-4",
+			baseURL:      server.URL,
+			apiKey:       "test-key",
+			defaults: providers.ProviderDefaults{
+				Temperature: 0.7,
+				TopP:        0.9,
+				MaxTokens:   1000,
+				Pricing: providers.Pricing{
+					InputCostPer1K:  0.03,
+					OutputCostPer1K: 0.06,
+				},
+			},
+		}
+
+		resp, err := provider.Chat(context.Background(), providers.ChatRequest{
+			System: "You are a helpful assistant",
+			Messages: []types.Message{
+				{Role: "user", Content: "Hello"},
+			},
+		})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if resp.Content != "Hello! How can I help you?" {
+			t.Errorf("Expected content 'Hello! How can I help you?', got %q", resp.Content)
+		}
+
+		if resp.CostInfo == nil {
+			t.Error("Expected cost info but got nil")
+		} else {
+			if resp.CostInfo.InputTokens != 10 {
+				t.Errorf("Expected 10 input tokens, got %d", resp.CostInfo.InputTokens)
+			}
+			if resp.CostInfo.OutputTokens != 8 {
+				t.Errorf("Expected 8 output tokens, got %d", resp.CostInfo.OutputTokens)
+			}
+		}
+
+		if resp.Latency <= 0 {
+			t.Error("Expected latency > 0")
+		}
+	})
+
+	t.Run("API error response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":{"message":"Invalid request","type":"invalid_request_error"}}`))
+		}))
+		defer server.Close()
+
+		provider := &OpenAIProvider{
+			BaseProvider: providers.NewBaseProvider("test", false, nil),
+			model:        "gpt-4",
+			baseURL:      server.URL,
+			apiKey:       "test-key",
+			defaults:     providers.ProviderDefaults{},
+		}
+
+		resp, err := provider.Chat(context.Background(), providers.ChatRequest{
+			Messages: []types.Message{{Role: "user", Content: "Test"}},
+		})
+
+		if err == nil {
+			t.Fatal("Expected error but got nil")
+		}
+
+		if resp.Latency <= 0 {
+			t.Error("Expected latency > 0 even on error")
+		}
+	})
+
+	t.Run("Chat with seed parameter", func(t *testing.T) {
+		var receivedSeed *int
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req openAIRequest
+			json.NewDecoder(r.Body).Decode(&req)
+			receivedSeed = req.Seed
+
+			resp := openAIResponse{
+				Choices: []openAIChoice{{Message: openAIMessage{Content: "Test"}}},
+				Usage:   openAIUsage{PromptTokens: 5, CompletionTokens: 5},
+			}
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		provider := &OpenAIProvider{
+			BaseProvider: providers.NewBaseProvider("test", false, nil),
+			model:        "gpt-4",
+			baseURL:      server.URL,
+			apiKey:       "test-key",
+			defaults:     providers.ProviderDefaults{},
+		}
+
+		seed := 12345
+		_, err := provider.Chat(context.Background(), providers.ChatRequest{
+			Messages: []types.Message{{Role: "user", Content: "Test"}},
+			Seed:     &seed,
+		})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if receivedSeed == nil {
+			t.Fatal("Expected seed to be sent but got nil")
+		}
+		if *receivedSeed != 12345 {
+			t.Errorf("Expected seed 12345, got %d", *receivedSeed)
+		}
+	})
+
+	t.Run("Uses request values over defaults", func(t *testing.T) {
+		var receivedTemp float32
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req openAIRequest
+			json.NewDecoder(r.Body).Decode(&req)
+			receivedTemp = req.Temperature
+
+			resp := openAIResponse{
+				Choices: []openAIChoice{{Message: openAIMessage{Content: "Test"}}},
+				Usage:   openAIUsage{PromptTokens: 5, CompletionTokens: 5},
+			}
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		provider := &OpenAIProvider{
+			BaseProvider: providers.NewBaseProvider("test", false, nil),
+			model:        "gpt-4",
+			baseURL:      server.URL,
+			apiKey:       "test-key",
+			defaults:     providers.ProviderDefaults{Temperature: 0.7},
+		}
+
+		_, err := provider.Chat(context.Background(), providers.ChatRequest{
+			Messages:    []types.Message{{Role: "user", Content: "Test"}},
+			Temperature: 0.9,
+		})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if receivedTemp != 0.9 {
+			t.Errorf("Expected temperature 0.9 (from request), got %.2f", receivedTemp)
+		}
+	})
+}
+
+func TestChatStream_Integration(t *testing.T) {
+	t.Run("Basic streaming response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Accept") != "text/event-stream" {
+				t.Errorf("Expected Accept 'text/event-stream', got %q", r.Header.Get("Accept"))
+			}
+
+			w.Header().Set("Content-Type", "text/event-stream")
+			flusher := w.(http.Flusher)
+
+			// Send chunks
+			chunks := []string{
+				`data: {"choices":[{"delta":{"content":"Hello"}}]}`,
+				`data: {"choices":[{"delta":{"content":" world"}}]}`,
+				`data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}`,
+				`data: [DONE]`,
+			}
+
+			for _, chunk := range chunks {
+				w.Write([]byte(chunk + "\n\n"))
+				flusher.Flush()
+			}
+		}))
+		defer server.Close()
+
+		provider := &OpenAIProvider{
+			BaseProvider: providers.NewBaseProvider("test", false, &http.Client{}),
+			model:        "gpt-4",
+			baseURL:      server.URL,
+			apiKey:       "test-key",
+			defaults: providers.ProviderDefaults{
+				Pricing: providers.Pricing{
+					InputCostPer1K:  0.03,
+					OutputCostPer1K: 0.06,
+				},
+			},
+		}
+
+		streamChan, err := provider.ChatStream(context.Background(), providers.ChatRequest{
+			Messages: []types.Message{{Role: "user", Content: "Test"}},
+		})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		var chunks []providers.StreamChunk
+		for chunk := range streamChan {
+			chunks = append(chunks, chunk)
+		}
+
+		if len(chunks) == 0 {
+			t.Fatal("Expected chunks but got none")
+		}
+
+		// Check accumulated content
+		lastChunk := chunks[len(chunks)-1]
+		if lastChunk.Content != "Hello world" {
+			t.Errorf("Expected accumulated content 'Hello world', got %q", lastChunk.Content)
+		}
+
+		// Check for cost info in final chunk
+		if lastChunk.CostInfo == nil {
+			t.Error("Expected cost info in final chunk")
+		}
+	})
+
+	t.Run("Stream with tool calls", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			flusher := w.(http.Flusher)
+
+			chunks := []string{
+				`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_123","function":{"name":"get_weather","arguments":"{\"loc"}}]}}]}`,
+				`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"ation\":\"NYC\"}"}}]}}]}`,
+				`data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":20,"completion_tokens":15}}`,
+				`data: [DONE]`,
+			}
+
+			for _, chunk := range chunks {
+				w.Write([]byte(chunk + "\n\n"))
+				flusher.Flush()
+			}
+		}))
+		defer server.Close()
+
+		provider := &OpenAIProvider{
+			BaseProvider: providers.NewBaseProvider("test", false, &http.Client{}),
+			model:        "gpt-4",
+			baseURL:      server.URL,
+			apiKey:       "test-key",
+			defaults: providers.ProviderDefaults{
+				Pricing: providers.Pricing{
+					InputCostPer1K:  0.03,
+					OutputCostPer1K: 0.06,
+				},
+			},
+		}
+
+		streamChan, err := provider.ChatStream(context.Background(), providers.ChatRequest{
+			Messages: []types.Message{{Role: "user", Content: "What's the weather?"}},
+		})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		var lastChunk providers.StreamChunk
+		for chunk := range streamChan {
+			lastChunk = chunk
+		}
+
+		if len(lastChunk.ToolCalls) != 1 {
+			t.Fatalf("Expected 1 tool call, got %d", len(lastChunk.ToolCalls))
+		}
+
+		tc := lastChunk.ToolCalls[0]
+		if tc.ID != "call_123" {
+			t.Errorf("Expected tool call ID 'call_123', got %q", tc.ID)
+		}
+		if tc.Name != "get_weather" {
+			t.Errorf("Expected tool call name 'get_weather', got %q", tc.Name)
+		}
+		expectedArgs := `{"location":"NYC"}`
+		if string(tc.Args) != expectedArgs {
+			t.Errorf("Expected args %q, got %q", expectedArgs, string(tc.Args))
+		}
+	})
+
+	t.Run("Context cancellation", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			flusher := w.(http.Flusher)
+
+			// Send one chunk
+			w.Write([]byte(`data: {"choices":[{"delta":{"content":"Hello"}}]}` + "\n\n"))
+			flusher.Flush()
+
+			// Wait a bit before closing (simulates slow response)
+			time.Sleep(100 * time.Millisecond)
+		}))
+		defer server.Close()
+
+		provider := &OpenAIProvider{
+			BaseProvider: providers.NewBaseProvider("test", false, &http.Client{}),
+			model:        "gpt-4",
+			baseURL:      server.URL,
+			apiKey:       "test-key",
+			defaults:     providers.ProviderDefaults{},
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+
+		streamChan, err := provider.ChatStream(ctx, providers.ChatRequest{
+			Messages: []types.Message{{Role: "user", Content: "Test"}},
+		})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Read first chunk
+		<-streamChan
+
+		// Cancel context
+		cancel()
+
+		// Should finish (either with cancellation or normal end)
+		for range streamChan {
+			// Drain remaining chunks
+		}
+	})
+}
+
+func TestExtractContentString(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  interface{}
+		expected string
+	}{
+		{
+			name:     "Simple string content",
+			content:  "Hello, world!",
+			expected: "Hello, world!",
+		},
+		{
+			name:     "Empty string",
+			content:  "",
+			expected: "",
+		},
+		{
+			name: "Array with single text part",
+			content: []interface{}{
+				map[string]interface{}{"type": "text", "text": "Response text"},
+			},
+			expected: "Response text",
+		},
+		{
+			name: "Array with multiple text parts",
+			content: []interface{}{
+				map[string]interface{}{"type": "text", "text": "First part. "},
+				map[string]interface{}{"type": "text", "text": "Second part."},
+			},
+			expected: "First part. Second part.",
+		},
+		{
+			name: "Array with mixed text and non-text parts",
+			content: []interface{}{
+				map[string]interface{}{"type": "text", "text": "Before image. "},
+				map[string]interface{}{"type": "image_url", "image_url": map[string]string{"url": "https://example.com/img.png"}},
+				map[string]interface{}{"type": "text", "text": "After image."},
+			},
+			expected: "Before image. After image.",
+		},
+		{
+			name:     "Nil content",
+			content:  nil,
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractContentString(tt.content)
+			if result != tt.expected {
+				t.Errorf("Expected %q, got %q", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestSupportsStreaming(t *testing.T) {
+	provider := &OpenAIProvider{
+		BaseProvider: providers.NewBaseProvider("test", false, nil),
+	}
+
+	if !provider.SupportsStreaming() {
+		t.Error("Expected OpenAI provider to support streaming")
 	}
 }

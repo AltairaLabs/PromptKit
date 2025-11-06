@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -36,13 +35,10 @@ type OpenAIProvider struct {
 
 // NewOpenAIProvider creates a new OpenAI provider
 func NewOpenAIProvider(id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool) *OpenAIProvider {
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		apiKey = os.Getenv("OPENAI_TOKEN")
-	}
+	base, apiKey := providers.NewBaseProviderWithAPIKey(id, includeRawOutput, "OPENAI_API_KEY", "OPENAI_TOKEN")
 
 	return &OpenAIProvider{
-		BaseProvider: providers.NewBaseProvider(id, includeRawOutput, &http.Client{Timeout: 60 * time.Second}),
+		BaseProvider: base,
 		model:        model,
 		baseURL:      baseURL,
 		apiKey:       apiKey,
@@ -98,11 +94,8 @@ type openAIError struct {
 	Code    string `json:"code"`
 }
 
-// Chat sends a chat request to OpenAI
-func (p *OpenAIProvider) Chat(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
-	start := time.Now()
-
-	// Convert messages
+// prepareOpenAIMessages converts chat request messages to OpenAI format with system message
+func prepareOpenAIMessages(req providers.ChatRequest) []openAIMessage {
 	messages := make([]openAIMessage, 0, len(req.Messages)+1)
 	if req.System != "" {
 		messages = append(messages, openAIMessage{
@@ -118,7 +111,11 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req providers.ChatRequest) (p
 		})
 	}
 
-	// Apply provider defaults for zero values
+	return messages
+}
+
+// applyRequestDefaults applies provider defaults to zero-valued request parameters
+func (p *OpenAIProvider) applyRequestDefaults(req providers.ChatRequest) (float32, float32, int) {
 	temperature := req.Temperature
 	if temperature == 0 {
 		temperature = p.defaults.Temperature
@@ -133,6 +130,17 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req providers.ChatRequest) (p
 	if maxTokens == 0 {
 		maxTokens = p.defaults.MaxTokens
 	}
+
+	return temperature, topP, maxTokens
+}
+
+// Chat sends a chat request to OpenAI
+func (p *OpenAIProvider) Chat(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
+	start := time.Now()
+
+	// Convert messages and apply defaults
+	messages := prepareOpenAIMessages(req)
+	temperature, topP, maxTokens := p.applyRequestDefaults(req)
 
 	// Create request
 	openAIReq := openAIRequest{
@@ -291,37 +299,9 @@ func (p *OpenAIProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) ty
 
 // ChatStream streams a chat response from OpenAI
 func (p *OpenAIProvider) ChatStream(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
-	// Convert messages
-	messages := make([]openAIMessage, 0, len(req.Messages)+1)
-	if req.System != "" {
-		messages = append(messages, openAIMessage{
-			Role:    "system",
-			Content: req.System,
-		})
-	}
-
-	for _, msg := range req.Messages {
-		messages = append(messages, openAIMessage{
-			Role:    msg.Role,
-			Content: msg.Content,
-		})
-	}
-
-	// Apply provider defaults for zero values
-	temperature := req.Temperature
-	if temperature == 0 {
-		temperature = p.defaults.Temperature
-	}
-
-	topP := req.TopP
-	if topP == 0 {
-		topP = p.defaults.TopP
-	}
-
-	maxTokens := req.MaxTokens
-	if maxTokens == 0 {
-		maxTokens = p.defaults.MaxTokens
-	}
+	// Convert messages and apply defaults
+	messages := prepareOpenAIMessages(req)
+	temperature, topP, maxTokens := p.applyRequestDefaults(req)
 
 	// Create streaming request
 	openAIReq := map[string]interface{}{
@@ -354,15 +334,14 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, req providers.ChatReque
 	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
 	httpReq.Header.Set("Accept", "text/event-stream")
 
+	//nolint:bodyclose // body is closed in streamResponse goroutine
 	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	if err := providers.CheckHTTPError(resp); err != nil {
+		return nil, err
 	}
 
 	outChan := make(chan providers.StreamChunk)
@@ -370,6 +349,80 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, req providers.ChatReque
 	go p.streamResponse(ctx, resp.Body, outChan)
 
 	return outChan, nil
+}
+
+// openAIStreamChunk represents the structure of OpenAI streaming response chunks
+type openAIStreamChunk struct {
+	Choices []struct {
+		Delta struct {
+			Content   string `json:"content"`
+			ToolCalls []struct {
+				Index    int    `json:"index"`
+				ID       string `json:"id,omitempty"`
+				Type     string `json:"type,omitempty"`
+				Function struct {
+					Name      string `json:"name,omitempty"`
+					Arguments string `json:"arguments,omitempty"`
+				} `json:"function,omitempty"`
+			} `json:"tool_calls,omitempty"`
+		} `json:"delta"`
+		FinishReason *string `json:"finish_reason"`
+	} `json:"choices"`
+	Usage *openAIUsage `json:"usage,omitempty"`
+}
+
+// processToolCallDeltas accumulates tool call data from streaming deltas
+func processToolCallDeltas(accumulatedToolCalls *[]types.MessageToolCall, toolCallDeltas []struct {
+	Index    int    `json:"index"`
+	ID       string `json:"id,omitempty"`
+	Type     string `json:"type,omitempty"`
+	Function struct {
+		Name      string `json:"name,omitempty"`
+		Arguments string `json:"arguments,omitempty"`
+	} `json:"function,omitempty"`
+}) {
+	for _, tcDelta := range toolCallDeltas {
+		// Ensure we have enough slots
+		for len(*accumulatedToolCalls) <= tcDelta.Index {
+			*accumulatedToolCalls = append(*accumulatedToolCalls, types.MessageToolCall{})
+		}
+
+		tc := &(*accumulatedToolCalls)[tcDelta.Index]
+
+		if tcDelta.ID != "" {
+			tc.ID = tcDelta.ID
+		}
+		if tcDelta.Function.Name != "" {
+			tc.Name = tcDelta.Function.Name
+		}
+		if tcDelta.Function.Arguments != "" {
+			tc.Args = append(tc.Args, []byte(tcDelta.Function.Arguments)...)
+		}
+	}
+}
+
+// createFinalStreamChunk creates the final chunk with usage and cost information
+func (p *OpenAIProvider) createFinalStreamChunk(accumulated string, accumulatedToolCalls []types.MessageToolCall, totalTokens int, finishReason *string, usage *openAIUsage) providers.StreamChunk {
+	finalChunk := providers.StreamChunk{
+		Content:      accumulated,
+		ToolCalls:    accumulatedToolCalls,
+		TokenCount:   totalTokens,
+		FinishReason: finishReason,
+	}
+
+	if usage != nil {
+		tokensIn := usage.PromptTokens
+		tokensOut := usage.CompletionTokens
+		cachedTokens := 0
+		if usage.PromptTokensDetails != nil {
+			cachedTokens = usage.PromptTokensDetails.CachedTokens
+		}
+
+		costBreakdown := p.CalculateCost(tokensIn, tokensOut, cachedTokens)
+		finalChunk.CostInfo = &costBreakdown
+	}
+
+	return finalChunk
 }
 
 // streamResponse reads SSE stream from OpenAI and sends chunks
@@ -406,25 +459,7 @@ func (p *OpenAIProvider) streamResponse(ctx context.Context, body io.ReadCloser,
 			return
 		}
 
-		var chunk struct {
-			Choices []struct {
-				Delta struct {
-					Content   string `json:"content"`
-					ToolCalls []struct {
-						Index    int    `json:"index"`
-						ID       string `json:"id,omitempty"`
-						Type     string `json:"type,omitempty"`
-						Function struct {
-							Name      string `json:"name,omitempty"`
-							Arguments string `json:"arguments,omitempty"`
-						} `json:"function,omitempty"`
-					} `json:"tool_calls,omitempty"`
-				} `json:"delta"`
-				FinishReason *string `json:"finish_reason"`
-			} `json:"choices"`
-			Usage *openAIUsage `json:"usage,omitempty"` // Present in final chunk
-		}
-
+		var chunk openAIStreamChunk
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			continue // Skip malformed chunks
 		}
@@ -433,15 +468,16 @@ func (p *OpenAIProvider) streamResponse(ctx context.Context, body io.ReadCloser,
 			continue
 		}
 
+		choice := chunk.Choices[0]
+
 		// Handle content delta
-		delta := chunk.Choices[0].Delta.Content
-		if delta != "" {
-			accumulated += delta
-			totalTokens++ // Approximate
+		if choice.Delta.Content != "" {
+			accumulated += choice.Delta.Content
+			totalTokens++
 
 			outChan <- providers.StreamChunk{
 				Content:     accumulated,
-				Delta:       delta,
+				Delta:       choice.Delta.Content,
 				ToolCalls:   accumulatedToolCalls,
 				TokenCount:  totalTokens,
 				DeltaTokens: 1,
@@ -449,29 +485,8 @@ func (p *OpenAIProvider) streamResponse(ctx context.Context, body io.ReadCloser,
 		}
 
 		// Handle tool call deltas
-		if len(chunk.Choices[0].Delta.ToolCalls) > 0 {
-			for _, tcDelta := range chunk.Choices[0].Delta.ToolCalls {
-				// Ensure we have enough slots in accumulated tool calls
-				for len(accumulatedToolCalls) <= tcDelta.Index {
-					accumulatedToolCalls = append(accumulatedToolCalls, types.MessageToolCall{})
-				}
-
-				tc := &accumulatedToolCalls[tcDelta.Index]
-
-				// Accumulate tool call data
-				if tcDelta.ID != "" {
-					tc.ID = tcDelta.ID
-				}
-				if tcDelta.Function.Name != "" {
-					tc.Name = tcDelta.Function.Name
-				}
-				if tcDelta.Function.Arguments != "" {
-					// Append arguments (they come in chunks)
-					tc.Args = append(tc.Args, []byte(tcDelta.Function.Arguments)...)
-				}
-			}
-
-			// Send chunk with updated tool calls
+		if len(choice.Delta.ToolCalls) > 0 {
+			processToolCallDeltas(&accumulatedToolCalls, choice.Delta.ToolCalls)
 			outChan <- providers.StreamChunk{
 				Content:     accumulated,
 				ToolCalls:   accumulatedToolCalls,
@@ -480,27 +495,9 @@ func (p *OpenAIProvider) streamResponse(ctx context.Context, body io.ReadCloser,
 			}
 		}
 
-		if chunk.Choices[0].FinishReason != nil {
-			finalChunk := providers.StreamChunk{
-				Content:      accumulated,
-				ToolCalls:    accumulatedToolCalls,
-				TokenCount:   totalTokens,
-				FinishReason: chunk.Choices[0].FinishReason,
-			}
-
-			// Extract cost from usage if available
-			if chunk.Usage != nil {
-				tokensIn := chunk.Usage.PromptTokens
-				tokensOut := chunk.Usage.CompletionTokens
-				cachedTokens := 0
-				if chunk.Usage.PromptTokensDetails != nil {
-					cachedTokens = chunk.Usage.PromptTokensDetails.CachedTokens
-				}
-
-				costBreakdown := p.CalculateCost(tokensIn, tokensOut, cachedTokens)
-				finalChunk.CostInfo = &costBreakdown
-			}
-
+		// Handle finish reason
+		if choice.FinishReason != nil {
+			finalChunk := p.createFinalStreamChunk(accumulated, accumulatedToolCalls, totalTokens, choice.FinishReason, chunk.Usage)
 			outChan <- finalChunk
 			return
 		}

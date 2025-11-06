@@ -400,15 +400,14 @@ func (p *OpenAIProvider) chatStreamWithMessages(ctx context.Context, req provide
 	httpReq.Header.Set(authorizationHeader, bearerPrefix+p.apiKey)
 	httpReq.Header.Set("Accept", "text/event-stream")
 
+	//nolint:bodyclose // body is closed in streamResponse goroutine
 	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	if err := providers.CheckHTTPError(resp); err != nil {
+		return nil, err
 	}
 
 	outChan := make(chan providers.StreamChunk)

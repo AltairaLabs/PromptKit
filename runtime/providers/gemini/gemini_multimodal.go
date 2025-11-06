@@ -226,21 +226,7 @@ func (p *GeminiProvider) chatWithContents(ctx context.Context, contents []gemini
 	}
 
 	// Create request
-	geminiReq := geminiRequest{
-		Contents:          contents,
-		SystemInstruction: systemInstruction,
-		GenerationConfig: geminiGenConfig{
-			Temperature:     temperature,
-			TopP:            topP,
-			MaxOutputTokens: maxTokens,
-		},
-		SafetySettings: []geminiSafety{
-			{Category: "HARM_CATEGORY_HARASSMENT", Threshold: "BLOCK_NONE"},
-			{Category: "HARM_CATEGORY_HATE_SPEECH", Threshold: "BLOCK_NONE"},
-			{Category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", Threshold: "BLOCK_NONE"},
-			{Category: "HARM_CATEGORY_DANGEROUS_CONTENT", Threshold: "BLOCK_NONE"},
-		},
-	}
+	geminiReq := p.buildGeminiRequest(contents, systemInstruction, temperature, topP, maxTokens)
 
 	// Note: Gemini doesn't support seed parameter like OpenAI does
 
@@ -382,21 +368,7 @@ func (p *GeminiProvider) chatStreamWithContents(ctx context.Context, contents []
 	}
 
 	// Create streaming request
-	geminiReq := geminiRequest{
-		Contents:          contents,
-		SystemInstruction: systemInstruction,
-		GenerationConfig: geminiGenConfig{
-			Temperature:     temperature,
-			TopP:            topP,
-			MaxOutputTokens: maxTokens,
-		},
-		SafetySettings: []geminiSafety{
-			{Category: "HARM_CATEGORY_HARASSMENT", Threshold: "BLOCK_NONE"},
-			{Category: "HARM_CATEGORY_HATE_SPEECH", Threshold: "BLOCK_NONE"},
-			{Category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", Threshold: "BLOCK_NONE"},
-			{Category: "HARM_CATEGORY_DANGEROUS_CONTENT", Threshold: "BLOCK_NONE"},
-		},
-	}
+	geminiReq := p.buildGeminiRequest(contents, systemInstruction, temperature, topP, maxTokens)
 
 	// Note: Gemini doesn't support seed parameter
 

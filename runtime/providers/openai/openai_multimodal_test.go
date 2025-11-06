@@ -1,11 +1,17 @@
 package openai
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestOpenAIProvider_GetMultimodalCapabilities(t *testing.T) {
@@ -766,6 +772,429 @@ func TestOpenAIMessage_JSONMarshaling(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestChatMultimodal_Integration tests the full ChatMultimodal flow with HTTP mocking
+func TestChatMultimodal_Integration(t *testing.T) {
+	tests := []struct {
+		name           string
+		messages       []types.Message
+		serverResponse openAIResponse
+		serverStatus   int
+		wantErr        bool
+		errContains    string
+		validateReq    func(t *testing.T, req map[string]interface{})
+	}{
+		{
+			name: "Successful multimodal request with image",
+			messages: []types.Message{
+				{
+					Role: "user",
+					Parts: []types.ContentPart{
+						types.NewTextPart("What's in this image?"),
+						{
+							Type: types.ContentTypeImage,
+							Media: &types.MediaContent{
+								URL:      strPtr("https://example.com/test.jpg"),
+								MIMEType: types.MIMETypeImageJPEG,
+							},
+						},
+					},
+				},
+			},
+			serverResponse: openAIResponse{
+				ID:      "chatcmpl-123",
+				Object:  "chat.completion",
+				Created: time.Now().Unix(),
+				Model:   "gpt-4o",
+				Choices: []openAIChoice{
+					{
+						Index: 0,
+						Message: openAIMessage{
+							Role:    "assistant",
+							Content: "I see a beautiful image.",
+						},
+						FinishReason: "stop",
+					},
+				},
+				Usage: openAIUsage{
+					PromptTokens:     150,
+					CompletionTokens: 50,
+					TotalTokens:      200,
+				},
+			},
+			serverStatus: http.StatusOK,
+			wantErr:      false,
+			validateReq: func(t *testing.T, req map[string]interface{}) {
+				messages, ok := req["messages"].([]interface{})
+				require.True(t, ok, "messages should be array")
+				require.Len(t, messages, 1)
+
+				msg := messages[0].(map[string]interface{})
+				content, ok := msg["content"].([]interface{})
+				require.True(t, ok, "content should be array for multimodal")
+				require.Len(t, content, 2, "should have text and image parts")
+			},
+		},
+		{
+			name: "API error response",
+			messages: []types.Message{
+				{
+					Role: "user",
+					Parts: []types.ContentPart{
+						types.NewTextPart("Test"),
+					},
+				},
+			},
+			serverResponse: openAIResponse{
+				Error: &openAIError{
+					Message: "Invalid request",
+					Type:    "invalid_request_error",
+					Code:    "invalid_prompt",
+				},
+			},
+			serverStatus: http.StatusBadRequest,
+			wantErr:      true,
+			errContains:  "400",
+		},
+		{
+			name: "Empty response choices",
+			messages: []types.Message{
+				{
+					Role: "user",
+					Parts: []types.ContentPart{
+						types.NewTextPart("Test"),
+					},
+				},
+			},
+			serverResponse: openAIResponse{
+				ID:      "chatcmpl-123",
+				Choices: []openAIChoice{},
+			},
+			serverStatus: http.StatusOK,
+			wantErr:      true,
+			errContains:  "no choices in response",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create test server
+			var capturedRequest map[string]interface{}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Capture the request
+				if err := json.NewDecoder(r.Body).Decode(&capturedRequest); err != nil {
+					t.Fatalf("Failed to decode request: %v", err)
+				}
+
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tt.serverStatus)
+				json.NewEncoder(w).Encode(tt.serverResponse)
+			}))
+			defer server.Close()
+
+			// Create provider
+			provider := NewOpenAIProvider(
+				"test",
+				"gpt-4o",
+				server.URL,
+				providers.ProviderDefaults{
+					Temperature: 0.7,
+					TopP:        0.9,
+					MaxTokens:   1000,
+				},
+				false,
+			)
+
+			// Create request
+			req := providers.ChatRequest{
+				Messages:    tt.messages,
+				Temperature: 0.8,
+				MaxTokens:   500,
+			}
+
+			// Execute
+			resp, err := provider.ChatMultimodal(context.Background(), req)
+
+			// Validate error
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+				return
+			}
+
+			// Validate success
+			require.NoError(t, err)
+			assert.NotEmpty(t, resp.Content)
+			assert.NotNil(t, resp.CostInfo)
+			assert.Greater(t, resp.Latency, time.Duration(0))
+
+			// Validate request if callback provided
+			if tt.validateReq != nil && capturedRequest != nil {
+				tt.validateReq(t, capturedRequest)
+			}
+		})
+	}
+}
+
+// TestChatMultimodalStream_Integration tests the streaming multimodal flow
+func TestChatMultimodalStream_Integration(t *testing.T) {
+	tests := []struct {
+		name         string
+		messages     []types.Message
+		serverChunks []string
+		wantErr      bool
+		errContains  string
+	}{
+		{
+			name: "Successful streaming with image",
+			messages: []types.Message{
+				{
+					Role: "user",
+					Parts: []types.ContentPart{
+						types.NewTextPart("Describe this"),
+						{
+							Type: types.ContentTypeImage,
+							Media: &types.MediaContent{
+								URL:      strPtr("https://example.com/image.png"),
+								MIMEType: types.MIMETypeImagePNG,
+							},
+						},
+					},
+				},
+			},
+			serverChunks: []string{
+				`data: {"choices":[{"delta":{"content":"This"},"finish_reason":null}]}`,
+				`data: {"choices":[{"delta":{"content":" is"},"finish_reason":null}]}`,
+				`data: {"choices":[{"delta":{"content":" nice"},"finish_reason":null}]}`,
+				`data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":30,"total_tokens":130}}`,
+				`data: [DONE]`,
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create test server
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.WriteHeader(http.StatusOK)
+
+				flusher, ok := w.(http.Flusher)
+				require.True(t, ok, "ResponseWriter should support flushing")
+
+				for _, chunk := range tt.serverChunks {
+					w.Write([]byte(chunk + "\n\n"))
+					flusher.Flush()
+				}
+			}))
+			defer server.Close()
+
+			// Create provider
+			provider := NewOpenAIProvider(
+				"test",
+				"gpt-4o",
+				server.URL,
+				providers.ProviderDefaults{Temperature: 0.7},
+				false,
+			)
+
+			// Create request
+			req := providers.ChatRequest{
+				Messages: tt.messages,
+			}
+
+			// Execute
+			streamChan, err := provider.ChatMultimodalStream(context.Background(), req)
+
+			// Validate error
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+				return
+			}
+
+			// Validate success
+			require.NoError(t, err)
+			require.NotNil(t, streamChan)
+
+			// Collect chunks
+			var chunks []providers.StreamChunk
+			for chunk := range streamChan {
+				chunks = append(chunks, chunk)
+			}
+
+			// Should have received multiple chunks
+			assert.NotEmpty(t, chunks)
+
+			// Last chunk should have finish reason
+			lastChunk := chunks[len(chunks)-1]
+			assert.NotNil(t, lastChunk.FinishReason)
+		})
+	}
+}
+
+// TestChatWithMessages_ErrorHandling tests error paths in the internal chatWithMessages helper
+func TestChatWithMessages_ErrorHandling(t *testing.T) {
+	tests := []struct {
+		name           string
+		messages       []types.Message
+		serverStatus   int
+		serverResponse interface{}
+		wantErr        bool
+		errContains    string
+	}{
+		{
+			name: "Malformed JSON response",
+			messages: []types.Message{
+				{Role: "user", Content: "test"},
+			},
+			serverStatus:   http.StatusOK,
+			serverResponse: "invalid json{",
+			wantErr:        true,
+			errContains:    "failed to unmarshal response",
+		},
+		{
+			name: "Network timeout simulation",
+			messages: []types.Message{
+				{Role: "user", Content: "test"},
+			},
+			serverStatus: http.StatusRequestTimeout,
+			serverResponse: map[string]interface{}{
+				"error": map[string]interface{}{
+					"message": "Request timeout",
+					"type":    "timeout",
+				},
+			},
+			wantErr:     true,
+			errContains: "408",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.serverStatus)
+				if str, ok := tt.serverResponse.(string); ok {
+					w.Write([]byte(str))
+				} else {
+					json.NewEncoder(w).Encode(tt.serverResponse)
+				}
+			}))
+			defer server.Close()
+
+			provider := NewOpenAIProvider(
+				"test",
+				"gpt-4o",
+				server.URL,
+				providers.ProviderDefaults{Temperature: 0.7},
+				false,
+			)
+
+			req := providers.ChatRequest{
+				Messages: tt.messages,
+			}
+
+			_, err := provider.ChatMultimodal(context.Background(), req)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestChatStreamWithMessages_Cancellation tests context cancellation during streaming
+func TestChatStreamWithMessages_Cancellation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+
+		flusher := w.(http.Flusher)
+
+		// Send a few chunks then simulate delay
+		w.Write([]byte(`data: {"choices":[{"delta":{"content":"Start"}}]}` + "\n\n"))
+		flusher.Flush()
+
+		time.Sleep(100 * time.Millisecond)
+		w.Write([]byte(`data: {"choices":[{"delta":{"content":" middle"}}]}` + "\n\n"))
+		flusher.Flush()
+
+		time.Sleep(5 * time.Second) // This should be cancelled
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIProvider("test", "gpt-4o", server.URL, providers.ProviderDefaults{}, false)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	streamChan, err := provider.ChatMultimodalStream(ctx, providers.ChatRequest{
+		Messages: []types.Message{{Role: "user", Content: "test"}},
+	})
+	require.NoError(t, err)
+
+	var lastChunk providers.StreamChunk
+	for chunk := range streamChan {
+		lastChunk = chunk
+	}
+
+	// Should have error or cancelled finish reason
+	if lastChunk.Error != nil {
+		assert.Contains(t, lastChunk.Error.Error(), "context")
+	} else {
+		assert.NotNil(t, lastChunk.FinishReason)
+		assert.Equal(t, "cancelled", *lastChunk.FinishReason)
+	}
+}
+
+// TestChatStreamWithMessages_MalformedChunks tests handling of malformed SSE chunks
+func TestChatStreamWithMessages_MalformedChunks(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+
+		flusher := w.(http.Flusher)
+
+		// Send good chunk
+		w.Write([]byte(`data: {"choices":[{"delta":{"content":"Good"}}]}` + "\n\n"))
+		flusher.Flush()
+
+		// Send malformed chunk (should be skipped)
+		w.Write([]byte(`data: {invalid json` + "\n\n"))
+		flusher.Flush()
+
+		// Send done
+		w.Write([]byte(`data: [DONE]` + "\n\n"))
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIProvider("test", "gpt-4o", server.URL, providers.ProviderDefaults{}, false)
+
+	streamChan, err := provider.ChatMultimodalStream(context.Background(), providers.ChatRequest{
+		Messages: []types.Message{{Role: "user", Content: "test"}},
+	})
+	require.NoError(t, err)
+
+	var chunks []providers.StreamChunk
+	for chunk := range streamChan {
+		chunks = append(chunks, chunk)
+	}
+
+	// Should still complete successfully (malformed chunk skipped)
+	assert.NotEmpty(t, chunks)
+	lastChunk := chunks[len(chunks)-1]
+	assert.NotNil(t, lastChunk.FinishReason)
 }
 
 // Helper function

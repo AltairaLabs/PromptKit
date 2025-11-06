@@ -438,7 +438,7 @@ func (p *ClaudeProvider) chatStreamWithContentsMultimodal(ctx context.Context, m
 
 // streamResponseMultimodal processes the streaming response
 func (p *ClaudeProvider) streamResponseMultimodal(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
-	defer close(outChan)
+	// Don't defer close here since streamResponse already closes the channel
 	defer body.Close()
 
 	// Use the existing streaming logic from claude.go
