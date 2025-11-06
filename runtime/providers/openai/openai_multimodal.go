@@ -39,10 +39,8 @@ func (p *OpenAIProvider) GetMultimodalCapabilities() providers.MultimodalCapabil
 // ChatMultimodal performs a chat request with multimodal content
 func (p *OpenAIProvider) ChatMultimodal(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
 	// Validate that messages are compatible with OpenAI's capabilities
-	for i := range req.Messages {
-		if err := providers.ValidateMultimodalMessage(p, req.Messages[i]); err != nil {
-			return providers.ChatResponse{}, err
-		}
+	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
+		return providers.ChatResponse{}, err
 	}
 
 	// Convert messages to OpenAI format (handles both legacy and multimodal)
@@ -58,10 +56,8 @@ func (p *OpenAIProvider) ChatMultimodal(ctx context.Context, req providers.ChatR
 // ChatMultimodalStream performs a streaming chat request with multimodal content
 func (p *OpenAIProvider) ChatMultimodalStream(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
 	// Validate that messages are compatible with OpenAI's capabilities
-	for i := range req.Messages {
-		if err := providers.ValidateMultimodalMessage(p, req.Messages[i]); err != nil {
-			return nil, err
-		}
+	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
+		return nil, err
 	}
 
 	// Convert messages to OpenAI format (handles both legacy and multimodal)

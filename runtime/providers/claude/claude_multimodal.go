@@ -54,10 +54,8 @@ type claudeContentBlockMultimodal struct {
 // ChatMultimodal sends a multimodal chat request to Claude
 func (p *ClaudeProvider) ChatMultimodal(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
 	// Validate multimodal messages
-	for _, msg := range req.Messages {
-		if err := providers.ValidateMultimodalMessage(p, msg); err != nil {
-			return providers.ChatResponse{}, err
-		}
+	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
+		return providers.ChatResponse{}, err
 	}
 
 	// Convert to Claude format with multimodal support
@@ -72,10 +70,8 @@ func (p *ClaudeProvider) ChatMultimodal(ctx context.Context, req providers.ChatR
 // ChatMultimodalStream sends a streaming multimodal chat request to Claude
 func (p *ClaudeProvider) ChatMultimodalStream(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
 	// Validate multimodal messages
-	for _, msg := range req.Messages {
-		if err := providers.ValidateMultimodalMessage(p, msg); err != nil {
-			return nil, err
-		}
+	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
+		return nil, err
 	}
 
 	// Convert to Claude format with multimodal support
