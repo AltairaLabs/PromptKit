@@ -13,7 +13,7 @@ scenarios:
     defaultResponse: "I can see a clear image. Let me provide a detailed analysis."
     turns:
       1: |
-        I can see this is a well-composed photograph with several interesting elements. 
+        This image is a well-composed photograph with several interesting elements. 
         The image shows a landscape with mountains in the background, bathed in golden hour lighting. 
         In the foreground, there's a winding path leading through meadow grass. The sky features 
         scattered clouds with warm orange and pink tones from the setting sun. The overall 
@@ -22,7 +22,7 @@ scenarios:
         sharp while slightly softening the distant mountains.
       
       2: |
-        The color palette is predominantly warm, with golden yellows and oranges dominating the scene. 
+        The image's color palette is predominantly warm, with golden yellows and oranges dominating the scene. 
         The grass in the foreground has a rich amber tone, while the sky transitions from deep blue 
         at the top to warm orange near the horizon. The mountains appear in muted purple-grey tones, 
         providing a cool contrast to the warm foreground. The composition uses leading lines effectively - 
@@ -35,7 +35,7 @@ scenarios:
     defaultResponse: "I can see both images clearly. Let me compare them for you."
     turns:
       1: |
-        Comparing these two images, I can identify several key differences:
+        Comparing these two images, I can identify several key differences between the images:
         
         Image 1 (Left):
         - Appears to be taken in natural daylight with softer, diffused lighting

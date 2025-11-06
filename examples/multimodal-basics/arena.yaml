@@ -23,4 +23,4 @@ spec:
       dir: out
       formats: ["json", "html"]
       html:
-        file: multimodal-report.html
+        file: report.html

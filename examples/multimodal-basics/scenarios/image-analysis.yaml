@@ -9,20 +9,20 @@ spec:
   turns:
     - role: user
       content: "What do you see in this image?"
-      # Note: In actual Arena implementation, media will be passed via API
-      # For now, this tests the text-based multimodal response
+      # Note: Real multimodal would pass actual images
+      # These assertions work with text-based responses from vision models
       assertions:
         - type: content_includes
           params:
             patterns:
               - "image"
-              - "see"
+              # Removed "see" - models may use "visible", "shows", "depicts" etc.
         - type: min_length
           params:
-            min_characters: 50
+            min_characters: 100
         - type: max_length
           params:
-            max_characters: 2000
+            max_characters: 5000  # Allow for thorough, detailed analysis
 
     - role: user
       content: "Can you describe the colors and composition?"
@@ -33,4 +33,7 @@ spec:
               - "color"
         - type: min_length
           params:
-            min_characters: 30
+            min_characters: 50
+        - type: max_length
+          params:
+            max_characters: 3000

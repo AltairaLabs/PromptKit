@@ -104,8 +104,34 @@ func TestValidateMediaConfig(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name: "config with invalid example",
+			config: &MediaConfig{
+				Enabled:        true,
+				SupportedTypes: []string{"image"},
+				Image: &ImageConfig{
+					MaxSizeMB:      20,
+					AllowedFormats: []string{"jpeg"},
+				},
+				Examples: []MultimodalExample{
+					{
+						Name: "invalid-example",
+						Parts: []ExampleContentPart{
+							{
+								Text: "", // Empty text
+								Media: &ExampleMedia{
+									FilePath: "", // Empty path
+									MIMEType: "", // Empty MIME type
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: true,
+			errMsg:  "invalid example",
+		},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateMediaConfig(tt.config)
@@ -708,6 +734,42 @@ func TestGetMediaConfigs(t *testing.T) {
 		got := GetImageConfig(configNoImage)
 		if got != nil {
 			t.Errorf("GetImageConfig() = %v, want nil", got)
+		}
+	})
+
+	t.Run("GetAudioConfig unsupported", func(t *testing.T) {
+		configNoAudio := &MediaConfig{
+			Enabled:        true,
+			SupportedTypes: []string{"image"},
+		}
+		got := GetAudioConfig(configNoAudio)
+		if got != nil {
+			t.Errorf("GetAudioConfig() = %v, want nil", got)
+		}
+	})
+
+	t.Run("GetVideoConfig unsupported", func(t *testing.T) {
+		configNoVideo := &MediaConfig{
+			Enabled:        true,
+			SupportedTypes: []string{"image"},
+		}
+		got := GetVideoConfig(configNoVideo)
+		if got != nil {
+			t.Errorf("GetVideoConfig() = %v, want nil", got)
+		}
+	})
+
+	t.Run("GetAudioConfig nil config", func(t *testing.T) {
+		got := GetAudioConfig(nil)
+		if got != nil {
+			t.Errorf("GetAudioConfig(nil) = %v, want nil", got)
+		}
+	})
+
+	t.Run("GetVideoConfig nil config", func(t *testing.T) {
+		got := GetVideoConfig(nil)
+		if got != nil {
+			t.Errorf("GetVideoConfig(nil) = %v, want nil", got)
 		}
 	})
 }

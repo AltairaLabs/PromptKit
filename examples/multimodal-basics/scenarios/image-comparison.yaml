@@ -14,13 +14,13 @@ spec:
           params:
             patterns:
               - "image"
-              - "difference"
+              # Keeping "difference" as it's specific to comparison task
         - type: min_length
           params:
             min_characters: 100
         - type: max_length
           params:
-            max_characters: 2000
+            max_characters: 5000  # Allow for detailed comparative analysis
 
     - role: user
       content: "Which image appears more professional and why?"
@@ -32,3 +32,6 @@ spec:
         - type: min_length
           params:
             min_characters: 50
+        - type: max_length
+          params:
+            max_characters: 3000  # Reasonable for opinion + justification

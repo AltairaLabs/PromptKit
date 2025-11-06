@@ -329,7 +329,7 @@ func processHTMLSettings(cmd *cobra.Command, cfg *config.Config, params *RunPara
 	}
 
 	// Set default output file paths
-	setDefaultFilePaths(params)
+	setDefaultFilePaths(cfg, params)
 
 	return nil
 }
@@ -370,7 +370,7 @@ func processConfigHTMLSetting(cfg *config.Config, params *RunParameters) {
 }
 
 // setDefaultFilePaths sets default file paths for output files if not specified
-func setDefaultFilePaths(params *RunParameters) {
+func setDefaultFilePaths(cfg *config.Config, params *RunParameters) {
 	// Set default JUnit file path
 	if params.JUnitFile == "" {
 		params.JUnitFile = filepath.Join(params.OutDir, "junit.xml")
@@ -378,9 +378,14 @@ func setDefaultFilePaths(params *RunParameters) {
 
 	// Set default HTML file path if HTML generation is enabled
 	if params.HTMLFile == "" && (params.GenerateHTML || contains(params.OutputFormats, "html")) {
+		// First priority: deprecated HTMLReportPath for backward compatibility
 		if params.HTMLReportPath != "" {
 			params.HTMLFile = config.ResolveOutputPath(params.OutDir, params.HTMLReportPath)
+		} else if cfg.Defaults.Output.HTML != nil && cfg.Defaults.Output.HTML.File != "" {
+			// Second priority: new Output.HTML.File configuration
+			params.HTMLFile = config.ResolveOutputPath(params.OutDir, cfg.Defaults.Output.HTML.File)
 		} else {
+			// Default: timestamped report file
 			timestamp := time.Now().Format("2006-01-02T15-04-05")
 			params.HTMLFile = filepath.Join(params.OutDir, fmt.Sprintf("report-%s.html", timestamp))
 		}
