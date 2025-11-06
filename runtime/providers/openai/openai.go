@@ -136,110 +136,11 @@ func (p *OpenAIProvider) applyRequestDefaults(req providers.ChatRequest) (float3
 
 // Chat sends a chat request to OpenAI
 func (p *OpenAIProvider) Chat(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
-	start := time.Now()
-
-	// Convert messages and apply defaults
+	// Convert messages to OpenAI format
 	messages := prepareOpenAIMessages(req)
-	temperature, topP, maxTokens := p.applyRequestDefaults(req)
 
-	// Create request
-	openAIReq := openAIRequest{
-		Model:       p.model,
-		Messages:    messages,
-		Temperature: temperature,
-		TopP:        topP,
-		MaxTokens:   maxTokens,
-		Seed:        req.Seed,
-	}
-
-	reqBody, err := json.Marshal(openAIReq)
-	if err != nil {
-		return providers.ChatResponse{}, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	// Prepare response with raw request if configured (set early to preserve on error)
-	chatResp := providers.ChatResponse{
-		Latency: time.Since(start), // Will be updated at the end
-	}
-	if p.ShouldIncludeRawOutput() {
-		chatResp.RawRequest = openAIReq
-	}
-
-	// Make HTTP request
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+openAIChatCompletionsPath, bytes.NewReader(reqBody))
-	if err != nil {
-		return chatResp, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	httpReq.Header.Set(authorizationHeader, bearerPrefix+p.apiKey)
-
-	client := &http.Client{Timeout: 30 * time.Second}
-
-	logger.APIRequest("OpenAI", "POST", p.baseURL+openAIChatCompletionsPath, map[string]string{
-		contentTypeHeader:   applicationJSON,
-		authorizationHeader: bearerPrefix + p.apiKey,
-	}, openAIReq)
-
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		chatResp.Latency = time.Since(start)
-		return chatResp, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		chatResp.Latency = time.Since(start)
-		return chatResp, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	logger.APIResponse("OpenAI", resp.StatusCode, string(respBody), nil)
-
-	if resp.StatusCode != http.StatusOK {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBody
-		return chatResp, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	var openAIResp openAIResponse
-	if err := json.Unmarshal(respBody, &openAIResp); err != nil {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBody
-		return chatResp, fmt.Errorf("failed to unmarshal response: %w", err)
-	}
-
-	if openAIResp.Error != nil {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBody
-		return chatResp, fmt.Errorf("OpenAI API error: %s", openAIResp.Error.Message)
-	}
-
-	if len(openAIResp.Choices) == 0 {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBody
-		return chatResp, fmt.Errorf("no choices in response")
-	}
-
-	latency := time.Since(start)
-
-	cachedTokens := 0
-	if openAIResp.Usage.PromptTokensDetails != nil {
-		cachedTokens = openAIResp.Usage.PromptTokensDetails.CachedTokens
-	}
-
-	// Calculate cost breakdown
-	costBreakdown := p.CalculateCost(openAIResp.Usage.PromptTokens, openAIResp.Usage.CompletionTokens, cachedTokens)
-
-	// Extract content - can be string or array of content parts
-	content := extractContentString(openAIResp.Choices[0].Message.Content)
-
-	chatResp.Content = content
-	chatResp.CostInfo = &costBreakdown
-	chatResp.Latency = latency
-	chatResp.Raw = respBody
-
-	return chatResp, nil
+	// Delegate to the common implementation
+	return p.chatWithMessages(ctx, req, messages)
 }
 
 // CalculateCost calculates detailed cost breakdown including optional cached tokens
@@ -299,56 +200,11 @@ func (p *OpenAIProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) ty
 
 // ChatStream streams a chat response from OpenAI
 func (p *OpenAIProvider) ChatStream(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
-	// Convert messages and apply defaults
+	// Convert messages to OpenAI format
 	messages := prepareOpenAIMessages(req)
-	temperature, topP, maxTokens := p.applyRequestDefaults(req)
 
-	// Create streaming request
-	openAIReq := map[string]interface{}{
-		"model":       p.model,
-		"messages":    messages,
-		"temperature": temperature,
-		"top_p":       topP,
-		"max_tokens":  maxTokens,
-		"stream":      true,
-		"stream_options": map[string]interface{}{
-			"include_usage": true,
-		},
-	}
-	if req.Seed != nil {
-		openAIReq["seed"] = *req.Seed
-	}
-
-	reqBody, err := json.Marshal(openAIReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	// Make HTTP request
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+"/chat/completions", bytes.NewReader(reqBody))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
-	httpReq.Header.Set("Accept", "text/event-stream")
-
-	//nolint:bodyclose // body is closed in streamResponse goroutine
-	resp, err := p.GetHTTPClient().Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-
-	if err := providers.CheckHTTPError(resp); err != nil {
-		return nil, err
-	}
-
-	outChan := make(chan providers.StreamChunk)
-
-	go p.streamResponse(ctx, resp.Body, outChan)
-
-	return outChan, nil
+	// Delegate to the common implementation
+	return p.chatStreamWithMessages(ctx, req, messages)
 }
 
 // openAIStreamChunk represents the structure of OpenAI streaming response chunks
@@ -511,6 +367,211 @@ func (p *OpenAIProvider) streamResponse(ctx context.Context, body io.ReadCloser,
 			FinishReason: providers.StringPtr("error"),
 		}
 	}
+}
+
+// extractContentString extracts text content from OpenAI's response content
+// which can be either a string or an array of content parts
+func extractContentString(content interface{}) string {
+	if str, ok := content.(string); ok {
+		return str
+	}
+
+	if parts, ok := content.([]interface{}); ok {
+		return extractTextFromParts(parts)
+	}
+
+	return ""
+}
+
+// extractTextFromParts extracts text from an array of content parts
+func extractTextFromParts(parts []interface{}) string {
+	var text string
+	for _, part := range parts {
+		if textVal := getTextFromPart(part); textVal != "" {
+			text += textVal
+		}
+	}
+	return text
+}
+
+// getTextFromPart extracts text from a single content part
+func getTextFromPart(part interface{}) string {
+	partMap, ok := part.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+
+	partType, ok := partMap["type"].(string)
+	if !ok || partType != "text" {
+		return ""
+	}
+
+	textVal, ok := partMap["text"].(string)
+	if !ok {
+		return ""
+	}
+
+	return textVal
+}
+
+// chatWithMessages is a refactored version of Chat that accepts pre-converted messages
+func (p *OpenAIProvider) chatWithMessages(ctx context.Context, req providers.ChatRequest, messages []openAIMessage) (providers.ChatResponse, error) {
+	start := time.Now()
+
+	// Apply provider defaults for zero values
+	temperature, topP, maxTokens := p.applyRequestDefaults(req)
+
+	// Create request
+	openAIReq := openAIRequest{
+		Model:       p.model,
+		Messages:    messages,
+		Temperature: temperature,
+		TopP:        topP,
+		MaxTokens:   maxTokens,
+		Seed:        req.Seed,
+	}
+
+	reqBody, err := json.Marshal(openAIReq)
+	if err != nil {
+		return providers.ChatResponse{}, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Prepare response with raw request if configured (set early to preserve on error)
+	chatResp := providers.ChatResponse{
+		Latency: time.Since(start), // Will be updated at the end
+	}
+	if p.ShouldIncludeRawOutput() {
+		chatResp.RawRequest = openAIReq
+	}
+
+	// Make HTTP request
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+openAIChatCompletionsPath, bytes.NewReader(reqBody))
+	if err != nil {
+		return chatResp, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	httpReq.Header.Set(contentTypeHeader, applicationJSON)
+	httpReq.Header.Set(authorizationHeader, bearerPrefix+p.apiKey)
+
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	logger.APIRequest("OpenAI", "POST", p.baseURL+openAIChatCompletionsPath, map[string]string{
+		contentTypeHeader:   applicationJSON,
+		authorizationHeader: bearerPrefix + p.apiKey,
+	}, openAIReq)
+
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		chatResp.Latency = time.Since(start)
+		return chatResp, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		chatResp.Latency = time.Since(start)
+		return chatResp, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	logger.APIResponse("OpenAI", resp.StatusCode, string(respBody), nil)
+
+	if resp.StatusCode != http.StatusOK {
+		chatResp.Latency = time.Since(start)
+		chatResp.Raw = respBody
+		return chatResp, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var openAIResp openAIResponse
+	if err := json.Unmarshal(respBody, &openAIResp); err != nil {
+		chatResp.Latency = time.Since(start)
+		chatResp.Raw = respBody
+		return chatResp, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	if openAIResp.Error != nil {
+		chatResp.Latency = time.Since(start)
+		chatResp.Raw = respBody
+		return chatResp, fmt.Errorf("OpenAI API error: %s", openAIResp.Error.Message)
+	}
+
+	if len(openAIResp.Choices) == 0 {
+		chatResp.Latency = time.Since(start)
+		chatResp.Raw = respBody
+		return chatResp, fmt.Errorf("no choices in response")
+	}
+
+	latency := time.Since(start)
+
+	cachedTokens := 0
+	if openAIResp.Usage.PromptTokensDetails != nil {
+		cachedTokens = openAIResp.Usage.PromptTokensDetails.CachedTokens
+	}
+
+	// Calculate cost breakdown
+	costBreakdown := p.CalculateCost(openAIResp.Usage.PromptTokens, openAIResp.Usage.CompletionTokens, cachedTokens)
+
+	// Extract content - can be string or array of content parts
+	content := extractContentString(openAIResp.Choices[0].Message.Content)
+
+	chatResp.Content = content
+	chatResp.CostInfo = &costBreakdown
+	chatResp.Latency = latency
+	chatResp.Raw = respBody
+
+	return chatResp, nil
+}
+
+// chatStreamWithMessages is a refactored version of ChatStream that accepts pre-converted messages
+func (p *OpenAIProvider) chatStreamWithMessages(ctx context.Context, req providers.ChatRequest, messages []openAIMessage) (<-chan providers.StreamChunk, error) {
+	// Apply provider defaults for zero values
+	temperature, topP, maxTokens := p.applyRequestDefaults(req)
+
+	// Create streaming request
+	openAIReq := map[string]interface{}{
+		"model":       p.model,
+		"messages":    messages,
+		"temperature": temperature,
+		"top_p":       topP,
+		"max_tokens":  maxTokens,
+		"stream":      true,
+		"stream_options": map[string]interface{}{
+			"include_usage": true,
+		},
+	}
+	if req.Seed != nil {
+		openAIReq["seed"] = *req.Seed
+	}
+
+	reqBody, err := json.Marshal(openAIReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Make HTTP request
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+openAIChatCompletionsPath, bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	httpReq.Header.Set(contentTypeHeader, applicationJSON)
+	httpReq.Header.Set(authorizationHeader, bearerPrefix+p.apiKey)
+	httpReq.Header.Set("Accept", "text/event-stream")
+
+	//nolint:bodyclose // body is closed in streamResponse goroutine
+	resp, err := p.GetHTTPClient().Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+
+	if err := providers.CheckHTTPError(resp); err != nil {
+		return nil, err
+	}
+
+	outChan := make(chan providers.StreamChunk)
+
+	go p.streamResponse(ctx, resp.Body, outChan)
+
+	return outChan, nil
 }
 
 // SupportsStreaming is provided by BaseProvider (returns true)
