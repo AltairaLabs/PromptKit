@@ -95,7 +95,7 @@ type openAIError struct {
 }
 
 // prepareOpenAIMessages converts chat request messages to OpenAI format with system message
-func prepareOpenAIMessages(req providers.ChatRequest) []openAIMessage {
+func (p *OpenAIProvider) prepareOpenAIMessages(req providers.ChatRequest) ([]openAIMessage, error) {
 	messages := make([]openAIMessage, 0, len(req.Messages)+1)
 	if req.System != "" {
 		messages = append(messages, openAIMessage{
@@ -104,14 +104,16 @@ func prepareOpenAIMessages(req providers.ChatRequest) []openAIMessage {
 		})
 	}
 
+	// Convert each message, handling both legacy text and multimodal Parts
 	for _, msg := range req.Messages {
-		messages = append(messages, openAIMessage{
-			Role:    msg.Role,
-			Content: msg.Content,
-		})
+		converted, err := p.convertMessageToOpenAI(msg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert message: %w", err)
+		}
+		messages = append(messages, converted)
 	}
 
-	return messages
+	return messages, nil
 }
 
 // applyRequestDefaults applies provider defaults to zero-valued request parameters
@@ -137,7 +139,10 @@ func (p *OpenAIProvider) applyRequestDefaults(req providers.ChatRequest) (float3
 // Chat sends a chat request to OpenAI
 func (p *OpenAIProvider) Chat(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
 	// Convert messages to OpenAI format
-	messages := prepareOpenAIMessages(req)
+	messages, err := p.prepareOpenAIMessages(req)
+	if err != nil {
+		return providers.ChatResponse{}, fmt.Errorf("failed to prepare messages: %w", err)
+	}
 
 	// Delegate to the common implementation
 	return p.chatWithMessages(ctx, req, messages)
@@ -201,7 +206,10 @@ func (p *OpenAIProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) ty
 // ChatStream streams a chat response from OpenAI
 func (p *OpenAIProvider) ChatStream(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
 	// Convert messages to OpenAI format
-	messages := prepareOpenAIMessages(req)
+	messages, err := p.prepareOpenAIMessages(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare messages: %w", err)
+	}
 
 	// Delegate to the common implementation
 	return p.chatStreamWithMessages(ctx, req, messages)

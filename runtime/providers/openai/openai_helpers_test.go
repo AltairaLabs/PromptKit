@@ -9,6 +9,8 @@ import (
 )
 
 func TestPrepareOpenAIMessages(t *testing.T) {
+	provider := NewOpenAIProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
+
 	tests := []struct {
 		name           string
 		req            providers.ChatRequest
@@ -66,7 +68,10 @@ func TestPrepareOpenAIMessages(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			messages := prepareOpenAIMessages(tt.req)
+			messages, err := provider.prepareOpenAIMessages(tt.req)
+			if err != nil {
+				t.Fatalf("Failed to prepare messages: %v", err)
+			}
 
 			if len(messages) != tt.expectedCount {
 				t.Errorf("Expected %d messages, got %d", tt.expectedCount, len(messages))
@@ -557,7 +562,10 @@ func TestOpenAIHelpers_Integration(t *testing.T) {
 		}
 
 		// Step 1: Prepare messages
-		messages := prepareOpenAIMessages(req)
+		messages, err := provider.prepareOpenAIMessages(req)
+		if err != nil {
+			t.Fatalf("Failed to prepare messages: %v", err)
+		}
 		if len(messages) != 4 {
 			t.Errorf("Expected 4 messages (system + 3), got %d", len(messages))
 		}

@@ -2,6 +2,7 @@ package turnexecutors
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
@@ -24,15 +25,46 @@ func NewScriptedExecutor(pipelineExecutor *PipelineExecutor) *ScriptedExecutor {
 
 // ExecuteTurn executes a scripted turn (user message from scenario + AI response)
 func (e *ScriptedExecutor) ExecuteTurn(ctx context.Context, req TurnRequest) error {
-	// Create user message with timestamp
-	userMessage := types.Message{
-		Role:      "user",
-		Content:   req.ScriptedContent,
-		Timestamp: time.Now(),
+	// Build user message from scripted content or parts
+	userMessage, err := e.buildUserMessage(req)
+	if err != nil {
+		return err
 	}
 
 	// Execute through pipeline (messages saved to StateStore)
 	return e.pipelineExecutor.Execute(ctx, req, userMessage)
+}
+
+// buildUserMessage creates a user message from either ScriptedContent or ScriptedParts
+func (e *ScriptedExecutor) buildUserMessage(req TurnRequest) (types.Message, error) {
+	userMessage := types.Message{
+		Role:      "user",
+		Timestamp: time.Now(),
+	}
+
+	// Debug: print what we have
+	fmt.Printf("[DEBUG] buildUserMessage: ScriptedParts length=%d, ScriptedContent length=%d\n",
+		len(req.ScriptedParts), len(req.ScriptedContent))
+
+	// If Parts are provided, use multimodal content (takes precedence)
+	if len(req.ScriptedParts) > 0 {
+		// Determine base directory for resolving relative file paths
+		// In Arena, scenarios are loaded from a file, so we use the scenario directory
+		baseDir := "" // Will be resolved relative to CWD if no absolute path
+
+		parts, err := ConvertTurnPartsToMessageParts(req.ScriptedParts, baseDir)
+		if err != nil {
+			return types.Message{}, fmt.Errorf("failed to convert multimodal parts: %w", err)
+		}
+		userMessage.Parts = parts
+		fmt.Printf("[DEBUG] buildUserMessage: Converted to %d message parts, IsMultimodal=%v\n",
+			len(parts), userMessage.IsMultimodal())
+	} else {
+		// Fall back to legacy text-only content
+		userMessage.Content = req.ScriptedContent
+	}
+
+	return userMessage, nil
 }
 
 // ExecuteTurnStream executes a scripted turn with streaming
@@ -88,20 +120,22 @@ func (e *ScriptedExecutor) executeStreamingPipeline(
 	req TurnRequest,
 	outChan chan<- MessageStreamChunk,
 ) {
-	userMessage := types.Message{
-		Role:      "user",
-		Content:   req.ScriptedContent,
-		Timestamp: time.Now(),
+	// Build user message from scripted content or parts
+	userMessage, err := e.buildUserMessage(req)
+	if err != nil {
+		outChan <- MessageStreamChunk{Error: err}
+		return
 	}
+
 	messages := []types.Message{userMessage}
 
 	// Build and execute pipeline
 	middlewares := e.buildStreamingMiddlewares(req)
 	pl := pipeline.NewPipeline(middlewares...)
 
-	streamChan, err := pl.ExecuteStream(ctx, userMessage.Role, userMessage.Content)
-	if err != nil {
-		outChan <- MessageStreamChunk{Error: err}
+	streamChan, streamErr := pl.ExecuteStream(ctx, userMessage.Role, userMessage.Content)
+	if streamErr != nil {
+		outChan <- MessageStreamChunk{Error: streamErr}
 		return
 	}
 

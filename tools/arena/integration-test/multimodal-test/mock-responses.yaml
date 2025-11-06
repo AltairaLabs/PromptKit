@@ -1,0 +1,12 @@
+# Mock responses for multimodal testing
+defaultResponse: "Mock response to your multimodal content."
+
+scenarios:
+  multimodal-mock-test:
+    defaultResponse: "I'm ready to process multimodal content."
+    turns:
+      1: "I acknowledge your multimodal support test. Ready to process multimodal content including images and audio."
+      2: "I can see an image was provided via URL. This is a test image showing multimodal capabilities."
+      3: "I've analyzed the local image file. The image contains test data for multimodal testing."
+      4: "I've processed the audio file. It contains test audio data."
+      5: "I've received multiple items including several images and text content for analysis."

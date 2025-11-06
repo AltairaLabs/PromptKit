@@ -1,0 +1,20 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: multimodal-real-test-config
+
+spec:
+  providers:
+    - file: providers/openai-gpt-4o-mini-real.yaml
+
+  scenarios:
+    - file: scenarios/multimodal-real.yaml
+
+  defaults:
+    temperature: 0.7
+    max_tokens: 500
+    seed: 42
+    concurrency: 1
+    output:
+      dir: out-real
+      formats: ["json"]

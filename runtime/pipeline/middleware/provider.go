@@ -120,9 +120,22 @@ func executeNonStreaming(execCtx *pipeline.ExecutionContext, provider providers.
 			// Merge tool calls into response
 			resp.ToolCalls = toolCalls
 		} else {
-			// No tools or provider doesn't support tools - use regular Chat
-			logger.Debug("Using regular Chat path", "provider_type", fmt.Sprintf("%T", provider), "reason", "providerTools is nil")
-			resp, callErr = provider.Chat(ctx, req)
+			// No tools or provider doesn't support tools - check if multimodal
+			isMultimodal := isRequestMultimodal(req)
+			if isMultimodal {
+				// Check if provider supports multimodal
+				if multimodalProvider, ok := provider.(providers.MultimodalSupport); ok {
+					logger.Debug("Using ChatMultimodal path", "provider_type", fmt.Sprintf("%T", provider))
+					resp, callErr = multimodalProvider.ChatMultimodal(ctx, req)
+				} else {
+					logger.Debug("Using regular Chat path for multimodal request", "provider_type", fmt.Sprintf("%T", provider), "reason", "provider does not support MultimodalSupport interface")
+					resp, callErr = provider.Chat(ctx, req)
+				}
+			} else {
+				// Regular text-only request
+				logger.Debug("Using regular Chat path", "provider_type", fmt.Sprintf("%T", provider), "reason", "providerTools is nil")
+				resp, callErr = provider.Chat(ctx, req)
+			}
 		}
 
 		duration := time.Since(startTime)
@@ -561,6 +574,7 @@ func buildProviderRequest(execCtx *pipeline.ExecutionContext, config *ProviderMi
 		providerMsg := types.Message{
 			Role:      msg.Role,
 			Content:   msg.Content,
+			Parts:     msg.Parts,     // Preserve multimodal parts
 			ToolCalls: msg.ToolCalls, // Already []types.MessageToolCall
 		}
 
@@ -833,4 +847,14 @@ func (m *providerMiddleware) StreamChunk(execCtx *pipeline.ExecutionContext, chu
 	// Provider middleware doesn't intercept its own chunks
 	// It generates them, so no processing needed here
 	return nil
+}
+
+// isRequestMultimodal checks if any message in the request contains multimodal content
+func isRequestMultimodal(req providers.ChatRequest) bool {
+	for _, msg := range req.Messages {
+		if msg.IsMultimodal() {
+			return true
+		}
+	}
+	return false
 }

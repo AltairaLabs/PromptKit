@@ -78,9 +78,10 @@ type TurnRequest struct {
 	ConversationID   string            // Conversation identifier for state persistence
 
 	// Executor-specific fields (only one should be set depending on executor type)
-	ScriptedContent string // For ScriptedExecutor: the user message content
-	SelfPlayRole    string // For SelfPlayExecutor: the self-play role
-	SelfPlayPersona string // For SelfPlayExecutor: the persona to use
+	ScriptedContent string                   // For ScriptedExecutor: the user message content (legacy text-only)
+	ScriptedParts   []config.TurnContentPart // For ScriptedExecutor: multimodal content parts (takes precedence over ScriptedContent)
+	SelfPlayRole    string                   // For SelfPlayExecutor: the self-play role
+	SelfPlayPersona string                   // For SelfPlayExecutor: the persona to use
 
 	// Assertions to validate after turn execution
 	Assertions []assertions.AssertionConfig

@@ -1,0 +1,84 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: multimodal-mock-test
+spec:
+  task_type: multimodal-test
+  description: "Test multimodal content with mock provider"
+
+  turns:
+    # Turn 1: Text-only (legacy format, for backwards compatibility)
+    - role: user
+      content: "Hello, I'm testing multimodal support"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "multimodal"
+        - type: min_length
+          params:
+            min_characters: 20
+
+    # Turn 2: Multimodal - Text + Image (from URL)
+    - role: user
+      parts:
+        - type: text
+          text: "What do you see in this image?"
+        - type: image
+          media:
+            url: "https://example.com/test.jpg"
+            mime_type: "image/jpeg"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "image"
+
+    # Turn 3: Multimodal - Text + Image (from file)
+    - role: user
+      parts:
+        - type: text
+          text: "Analyze this local image file"
+        - type: image
+          media:
+            file_path: "test-media/test-image.jpg"
+            mime_type: "image/jpeg"
+      assertions:
+        - type: min_length
+          params:
+            min_characters: 10
+
+    # Turn 4: Multimodal - Text + Audio (from file)
+    - role: user
+      parts:
+        - type: text
+          text: "What's in this audio file?"
+        - type: audio
+          media:
+            file_path: "test-media/test-audio.mp3"
+            mime_type: "audio/mpeg"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "audio"
+
+    # Turn 5: Mixed multimodal content
+    - role: user
+      parts:
+        - type: text
+          text: "Here are multiple items:"
+        - type: image
+          media:
+            url: "https://example.com/image1.jpg"
+            mime_type: "image/jpeg"
+        - type: text
+          text: "and here's another:"
+        - type: image
+          media:
+            file_path: "test-media/test-image.jpg"
+            mime_type: "image/jpeg"
+      assertions:
+        - type: min_length
+          params:
+            min_characters: 5
