@@ -1,0 +1,20 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+
+metadata:
+  name: multimodal-test
+  description: Test multimodal functionality with mock provider
+
+spec:
+  providers:
+    - file: providers/mock-multimodal-provider.yaml
+
+  scenarios:
+    - file: scenarios/multimodal-mock.yaml
+
+  defaults:
+    concurrency: 1
+    timeout: 30s
+    output:
+      dir: out
+      formats: ["json"]

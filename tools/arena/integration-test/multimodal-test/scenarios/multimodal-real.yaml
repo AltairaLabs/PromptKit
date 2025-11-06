@@ -1,0 +1,39 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: multimodal-real-test
+
+spec:
+  id: multimodal-real-test
+  task_type: multimodal-test-real
+  mode: scripted
+  description: "Test real multimodal capabilities with actual provider (requires API key)"
+  
+  # Test with both OpenAI and Claude if available
+  providers: []  # Use all configured providers
+  
+  turns:
+    # Turn 1: Simple image from URL
+    - role: user
+      parts:
+        - type: text
+          text: "What do you see in this image? Please describe it briefly."
+        - type: image
+          media:
+            url: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Cat03.jpg/220px-Cat03.jpg"
+            mime_type: "image/jpeg"
+            detail: "low"
+      assertions:
+        - type: min_length
+          value: 20
+        - type: content_includes
+          value: ["cat", "animal"]
+
+    # Turn 2: Follow-up question (no new media)
+    - role: user
+      parts:
+        - type: text
+          text: "What color is the animal in the previous image?"
+      assertions:
+        - type: min_length
+          value: 5

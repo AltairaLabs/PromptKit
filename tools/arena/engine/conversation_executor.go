@@ -65,6 +65,8 @@ func (ce *DefaultConversationExecutor) executeWithoutStreaming(ctx context.Conte
 		}
 
 		// Build turn request (StateStore manages history)
+		// Include both legacy ScriptedContent and new ScriptedParts so multimodal
+		// parts from the scenario are preserved for non-streaming execution.
 		turnReq := turnexecutors.TurnRequest{
 			Provider:         req.Provider,
 			Scenario:         req.Scenario,
@@ -76,7 +78,10 @@ func (ce *DefaultConversationExecutor) executeWithoutStreaming(ctx context.Conte
 			Seed:             &req.Config.Defaults.Seed,
 			StateStoreConfig: convertStateStoreConfig(req.StateStoreConfig),
 			ConversationID:   req.ConversationID,
-			Assertions:       scenarioTurn.Assertions, // Pass turn-level assertions
+			// Preserve both content and parts from the scenario
+			ScriptedContent: scenarioTurn.Content,
+			ScriptedParts:   scenarioTurn.Parts,
+			Assertions:      scenarioTurn.Assertions, // Pass turn-level assertions
 		}
 
 		var err error
@@ -88,8 +93,11 @@ func (ce *DefaultConversationExecutor) executeWithoutStreaming(ctx context.Conte
 			turnReq.SelfPlayPersona = scenarioTurn.Persona
 			err = ce.selfPlayExecutor.ExecuteTurn(ctx, turnReq)
 		} else if scenarioTurn.Role == "user" {
-			// Scripted user turn
+			// Scripted user turn (non-streaming path)
+			// ScriptedContent and ScriptedParts are already set on turnReq above,
+			// but keep explicit assignment to be defensive.
 			turnReq.ScriptedContent = scenarioTurn.Content
+			turnReq.ScriptedParts = scenarioTurn.Parts
 			err = ce.scriptedExecutor.ExecuteTurn(ctx, turnReq)
 		} else {
 			err = fmt.Errorf(errUnsupportedRole, scenarioTurn.Role)
@@ -162,6 +170,8 @@ func (ce *DefaultConversationExecutor) buildTurnRequest(req ConversationRequest,
 		Seed:             &req.Config.Defaults.Seed,
 		StateStoreConfig: convertStateStoreConfig(req.StateStoreConfig),
 		ConversationID:   req.ConversationID,
+		ScriptedContent:  scenarioTurn.Content, // Legacy text content (for backward compatibility)
+		ScriptedParts:    scenarioTurn.Parts,   // Multimodal content parts (takes precedence over ScriptedContent)
 		Assertions:       scenarioTurn.Assertions,
 	}
 }
@@ -193,6 +203,8 @@ func (ce *DefaultConversationExecutor) executeSelfPlayTurn(ctx context.Context, 
 // executeScriptedTurn executes a scripted user turn
 func (ce *DefaultConversationExecutor) executeScriptedTurn(ctx context.Context, turnReq turnexecutors.TurnRequest, scenarioTurn config.TurnDefinition, shouldStream bool) error {
 	turnReq.ScriptedContent = scenarioTurn.Content
+	// Preserve multimodal parts for scripted turns (streaming and non-streaming)
+	turnReq.ScriptedParts = scenarioTurn.Parts
 
 	if shouldStream {
 		return ce.executeTurnWithStreaming(ctx, turnReq, ce.scriptedExecutor)
