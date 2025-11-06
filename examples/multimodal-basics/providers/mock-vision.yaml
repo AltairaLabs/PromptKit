@@ -1,0 +1,13 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: mock-vision
+spec:
+  type: mock
+  model: mock-multimodal-v1
+  config:
+    file: mock-responses.yaml
+  include_raw_output: true
+  defaults:
+    temperature: 0.7
+    max_tokens: 1500

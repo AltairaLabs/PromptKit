@@ -1,96 +1,100 @@
 # Multimodal Basics Example
 
-This example demonstrates the basic multimodal capabilities of PromptKit, showing how to configure prompts to accept and process images, audio, and video content.
+This example demonstrates how to configure and use multimodal media support in PromptKit, with runnable PromptArena tests using both real models and mock providers.
 
-## Overview
+## Quick Start
 
-PromptKit's multimodal support allows prompts to process:
-- **Images**: Photos, diagrams, screenshots (JPEG, PNG, WebP, GIF)
-- **Audio**: Voice recordings, music, sound effects (MP3, WAV, OGG, WebM)
-- **Video**: Video clips, recordings (MP4, WebM)
+### 1. Setup
 
-## Prompt Configurations
+```bash
+# Copy environment template
+cp .env.example .env
 
-### 1. Image Analyzer (`image-analyzer.yaml`)
-
-Analyzes images and provides detailed descriptions.
-
-**Features:**
-- Supports JPEG, PNG, WebP formats
-- Maximum 20MB per image
-- Up to 5 images per message
-- High-detail analysis by default
-
-**Example Usage:**
-```yaml
-parts:
-  - type: text
-    text: "What's in this image?"
-  - type: image
-    media:
-      file_path: "./images/photo.jpg"
-      mime_type: "image/jpeg"
-      detail: "high"
+# Add your Gemini API key to .env (for real model testing)
+echo "GEMINI_API_KEY=your_actual_key" > .env
 ```
 
-### 2. Audio Transcriber (`audio-transcriber.yaml`)
+### 2. Run Tests
 
-Transcribes and analyzes audio content.
+```bash
+# Run with mock provider (no API keys needed - perfect for CI/CD)
+promptarena run arena.yaml --provider mock-vision
 
-**Features:**
-- Supports MP3, WAV, OGG, WebM formats
-- Maximum 25MB per audio file
-- Maximum 10 minutes duration
-- Speaker identification
-- Tone and emotion analysis
+# Run with real Gemini vision model (requires API key)
+promptarena run arena.yaml --provider gemini-vision
 
-**Example Usage:**
-```yaml
-parts:
-  - type: text
-    text: "Please transcribe this recording"
-  - type: audio
-    media:
-      file_path: "./audio/meeting.mp3"
-      mime_type: "audio/mpeg"
+# Run all providers and scenarios
+promptarena run arena.yaml
 ```
 
-### 3. Mixed Media Assistant (`mixed-media-assistant.yaml`)
+### 3. View Results
 
-Processes multiple media types together for comprehensive analysis.
+```bash
+# View HTML report
+open out/multimodal-report.html
 
-**Features:**
-- Supports images, audio, and video
-- Identifies relationships between media
-- Provides integrated insights
-- Handles up to 100MB videos (5 minutes max)
-
-**Example Usage:**
-```yaml
-parts:
-  - type: text
-    text: "Analyze this presentation"
-  - type: image
-    media:
-      file_path: "./media/slide1.png"
-      mime_type: "image/png"
-  - type: audio
-    media:
-      file_path: "./media/narration.mp3"
-      mime_type: "audio/mpeg"
+# Or check JSON results
+cat out/results.json | jq
 ```
 
-## Media Configuration
+## Structure
 
-The `media:` section in PromptConfig YAML controls multimodal behavior:
+```
+multimodal-basics/
+├── arena.yaml                  # Arena configuration
+├── prompts/
+│   ├── image-analyzer.yaml     # Multimodal prompt with MediaConfig
+│   ├── audio-transcriber.yaml  # Audio analysis example
+│   └── mixed-media-assistant.yaml  # Combined media types
+├── providers/
+│   ├── gemini-vision.yaml      # Real Gemini model configuration
+│   └── mock-vision.yaml        # Mock provider for testing
+├── scenarios/
+│   ├── image-analysis.yaml     # Single image test
+│   └── image-comparison.yaml   # Multiple images test
+├── mock-responses.yaml         # Deterministic mock responses
+└── .env.example                # Environment template
+```
+
+## Features
+
+### Runnable Scenarios
+
+✅ **Image Analysis** (`scenarios/image-analysis.yaml`)
+- Tests single image description capabilities
+- Validates response includes image-related content
+- Checks length constraints (50-2000 characters)
+- Tests color and composition analysis
+
+✅ **Image Comparison** (`scenarios/image-comparison.yaml`)
+- Tests comparing multiple images
+- Validates comparative analysis
+- Checks professional assessment capabilities
+- Tests detailed technical descriptions
+
+### Provider Support
+
+✅ **Mock Provider** (`providers/mock-vision.yaml`)
+- Deterministic testing without API calls
+- Scenario-specific responses in `mock-responses.yaml`
+- Turn-by-turn scripted responses
+- Perfect for CI/CD testing and development
+
+✅ **Gemini Vision** (`providers/gemini-vision.yaml`)
+- Real multimodal model testing
+- Requires `GEMINI_API_KEY` in `.env`
+- Tests actual vision capabilities
+- Validates MediaConfig constraints work with real models
+
+## MediaConfig Structure
+
+Each prompt includes a `media:` section that defines capabilities:
 
 ```yaml
 media:
   enabled: true
   supported_types:
     - image
-    - audio
-    - video
   
   image:
     max_size_mb: 20
@@ -98,131 +102,250 @@ media:
     default_detail: high
     max_images_per_msg: 5
   
-  audio:
-    max_size_mb: 25
-    allowed_formats: [mp3, wav, ogg]
-    max_duration_sec: 600
-  
-  video:
-    max_size_mb: 100
-    allowed_formats: [mp4, webm]
-    max_duration_sec: 300
+  examples:
+    - name: "single-image-analysis"
+      role: user
+      parts:
+        - type: text
+          text: "What's in this image?"
+        - type: image
+          media:
+            file_path: "./test-images/sample.jpg"
+            mime_type: "image/jpeg"
 ```
 
-## Configuration Options
+## Running Specific Tests
 
-### Image Configuration
+```bash
+# Test only image analysis scenario
+promptarena run arena.yaml --scenario image-analysis
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `max_size_mb` | Maximum image size in MB | 0 (unlimited) |
-| `allowed_formats` | Allowed image formats | all supported |
-| `default_detail` | Detail level: low/high/auto | high |
-| `max_images_per_msg` | Max images per message | 0 (unlimited) |
+# Test only mock provider
+promptarena run arena.yaml --provider mock-vision
 
-### Audio Configuration
+# Test with specific prompt config
+promptarena run arena.yaml --prompt image-analyzer
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `max_size_mb` | Maximum audio size in MB | 0 (unlimited) |
-| `allowed_formats` | Allowed audio formats | all supported |
-| `max_duration_sec` | Max duration in seconds | 0 (unlimited) |
-| `require_metadata` | Require duration/bitrate | false |
+# Increase concurrency for faster testing
+promptarena run arena.yaml --concurrency 5
 
-### Video Configuration
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `max_size_mb` | Maximum video size in MB | 0 (unlimited) |
-| `allowed_formats` | Allowed video formats | all supported |
-| `max_duration_sec` | Max duration in seconds | 0 (unlimited) |
-| `require_metadata` | Require resolution/fps | false |
-
-## Media Sources
-
-Content can be provided in three ways:
-
-### 1. File Path (Relative)
-```yaml
-media:
-  file_path: "./images/photo.jpg"
-  mime_type: "image/jpeg"
+# Generate only HTML output
+promptarena run arena.yaml --output-format html
 ```
 
-### 2. URL
-```yaml
-media:
-  url: "https://example.com/image.jpg"
-  mime_type: "image/jpeg"
-```
+## Mock Responses
 
-### 3. Base64 Data (Inline)
-```yaml
-media:
-  data: "iVBORw0KGgoAAAANSUhEUgA..."
-  mime_type: "image/png"
-```
-
-## Examples with Multimodal Parts
-
-The `media.examples` section provides sample interactions:
+The `mock-responses.yaml` file provides deterministic responses for testing:
 
 ```yaml
-examples:
-  - name: "image-analysis"
-    description: "Single image analysis"
-    role: user
-    parts:
-      - type: text
-        text: "What's in this image?"
-      - type: image
-        media:
-          file_path: "./test-images/sample.jpg"
-          mime_type: "image/jpeg"
-          detail: "high"
+scenarios:
+  image-analysis:
+    turns:
+      1: "I can see a landscape with mountains..."
+      2: "The color palette is predominantly warm..."
+      
+  image-comparison:
+    turns:
+      1: "Comparing these two images, I can identify..."
+      2: "Image 2 appears more professional because..."
 ```
 
-## Provider Compatibility
+Benefits of mock responses:
+- ✅ Predictable test results
+- ✅ No API costs during development
+- ✅ Fast iteration on prompt logic
+- ✅ CI/CD testing without secrets
+- ✅ Scenario-specific responses
 
-| Provider | Images | Audio | Video | Notes |
-|----------|--------|-------|-------|-------|
-| OpenAI GPT-4V | ✅ | ❌ | ❌ | Images only |
-| Claude 3+ | ✅ | ❌ | ❌ | Images only |
-| Gemini 2.0 | ✅ | ✅ | ✅ | Full multimodal |
+## Architecture Notes
 
-## Best Practices
+### Media Bundling: NOT Implemented
 
-1. **File Sizes**: Keep media files reasonably sized for faster processing
-2. **Detail Levels**: Use `low` detail for quick processing, `high` for detailed analysis
-3. **Format Selection**: Use widely-supported formats (JPEG for images, MP3 for audio, MP4 for video)
-4. **Context**: Provide text context with media to guide the analysis
-5. **Validation**: Configure appropriate validators to ensure output quality
+MediaConfig defines **capabilities only** (types, sizes, formats supported).
 
-## Error Handling
+Actual media files are:
+- ✅ Provided by users as input at runtime
+- ✅ Returned by models as output  
+- ❌ NOT bundled into prompt packs
 
-Common media validation errors:
+Benefits:
+- Lightweight packs (no embedded media)
+- Clear separation of prompt logic and user data
+- Dynamic media handling at runtime
+- No storage/versioning concerns for media
 
-- **Invalid format**: Check `allowed_formats` in configuration
-- **File too large**: Check `max_size_mb` limits
-- **Duration exceeded**: Check `max_duration_sec` for audio/video
-- **Too many items**: Check `max_images_per_msg` or similar limits
+### Provider Implementation
+
+Multimodal support requires provider-level implementation:
+- **Gemini 2.0**: Images, audio, video ✅
+- **GPT-4V**: Images ✅
+- **Claude 3**: Images ✅
+
+MediaConfig advertises what the prompt supports; actual handling depends on provider capabilities.
+
+## Validation
+
+MediaConfig is validated at compile time by PackC:
+
+```bash
+# Compile and validate
+packc compile prompts/image-analyzer.yaml -o image-analyzer.pack.json
+
+# Check media configuration in compiled pack
+jq '.prompts[].media' image-analyzer.pack.json
+```
+
+Validation checks:
+- ✅ Supported types are valid (`image`, `audio`, `video`)
+- ✅ Size limits are positive numbers
+- ✅ Formats are from allowed lists
+- ✅ Examples have proper structure (role, parts, media)
+- ⚠️  Warns about missing example files (non-blocking)
 
 ## Testing
 
-To test these configurations:
+### Unit Tests
 
-1. Create test media files in appropriate directories
-2. Use PromptArena to run scenarios with multimodal content
-3. Validate output using assertions
+```bash
+# Test media validation logic
+cd ../../runtime/prompt
+go test -v -run TestValidateMediaConfig
+
+# Test pack loading with MediaConfig
+go test -v -run TestLoadPackWithMediaConfig
+```
+
+Test coverage:
+- 53 comprehensive test cases
+- 77.8-100% coverage across media validation functions
+- Tests for all media types and configurations
+- Edge cases and error conditions
+
+### Integration Tests (Arena)
+
+```bash
+# Run all scenarios with both providers
+promptarena run arena.yaml
+
+# Run with verbose output
+promptarena run arena.yaml -v
+
+# Generate detailed HTML report
+promptarena run arena.yaml --output-dir ./test-results
+```
+
+## Expected Output
+
+### Successful Mock Run
+
+```
+Running Arena: multimodal-basics
+Loaded 1 prompt configs
+Loaded 2 providers
+Loaded 2 scenarios
+
+Running scenario: image-analysis (mock-vision)
+  Turn 1: ✓ Passed (content_includes: "image", "see")
+  Turn 1: ✓ Passed (min_length: 50 chars)
+  Turn 1: ✓ Passed (max_length: 2000 chars)
+  Turn 2: ✓ Passed (content_includes: "color")
+  Turn 2: ✓ Passed (min_length: 30 chars)
+
+Running scenario: image-comparison (mock-vision)
+  Turn 1: ✓ Passed (content_includes: "image", "difference")
+  Turn 1: ✓ Passed (min_length: 100 chars)
+  Turn 2: ✓ Passed (content_includes: "professional")
+
+Summary:
+  Total Tests: 8
+  Passed: 8
+  Failed: 0
+  Success Rate: 100%
+
+Report saved to: out/multimodal-report.html
+```
+
+## Troubleshooting
+
+### Missing API Key
+
+```
+Error: GEMINI_API_KEY not set
+Solution: cp .env.example .env && edit .env with your key
+```
+
+### Provider Not Found
+
+```
+Error: Provider 'gemini-vision' not found
+Solution: Check that providers/gemini-vision.yaml exists and arena.yaml references it correctly
+```
+
+### Assertion Failures
+
+Check the HTML report for detailed failure information:
+```bash
+open out/multimodal-report.html
+# Look for red X marks and click for details
+```
+
+### Mock Responses Not Working
+
+```
+Error: Mock provider returning default response
+Solution: Check that scenario name in arena.yaml matches key in mock-responses.yaml
+```
 
 ## Next Steps
 
-- Explore the [customer-support-multimodal](../customer-support-multimodal/) example for real-world usage
-- See the [PromptPack specification](../../docs/pack-format-spec.md) for pack compilation
-- Review provider-specific multimodal documentation
+### 1. Add Real Images
+
+Create test images for actual multimodal testing:
+
+```bash
+mkdir test-images
+# Add sample images: sample-photo.jpg, before.jpg, after.jpg
+```
+
+### 2. Extend Scenarios
+
+Add more complex test cases:
+- OCR text extraction from images
+- Object detection validation
+- Style transfer comparison
+- Multi-step image reasoning
+
+### 3. Add Audio/Video Support
+
+Test other media types:
+
+```bash
+# Copy and modify audio-transcriber.yaml
+# Add audio scenarios
+# Configure mock responses for audio tests
+```
+
+### 4. CI/CD Integration
+
+Use mock provider in automated tests:
+
+```yaml
+# .github/workflows/test.yml
+- name: Test Multimodal
+  run: |
+    cd examples/multimodal-basics
+    promptarena run arena.yaml --provider mock-vision
+```
+
+## Related Documentation
+
+- [MediaConfig Specification](../../docs/guides/multimodal-support.md)
+- [PromptArena User Guide](../../docs/guides/arena-user-guide.md)
+- [Provider Configuration](../../docs/guides/provider-configuration.md)
+- [Mock Provider Usage](../assertions-test/MOCK_PROVIDER_USAGE.md)
 
 ## Related Examples
 
-- [assertions-test](../assertions-test/) - Testing multimodal outputs
-- [customer-support-integrated](../customer-support-integrated/) - Tools with multimodal
-- [mcp-filesystem-test](../mcp-filesystem-test/) - File-based media access
+- [assertions-test/](../assertions-test/) - Testing with assertions and mock providers
+- [customer-support-integrated/](../customer-support-integrated/) - Complex real-world scenario
+- [guardrails-test/](../guardrails-test/) - Content validation examples

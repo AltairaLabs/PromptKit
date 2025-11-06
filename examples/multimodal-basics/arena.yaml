@@ -1,0 +1,26 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: multimodal-basics
+spec:
+  prompt_configs:
+    - id: image-analyzer
+      file: prompts/image-analyzer.yaml
+
+  providers:
+    - file: providers/gemini-vision.yaml
+    - file: providers/mock-vision.yaml
+
+  scenarios:
+    - file: scenarios/image-analysis.yaml
+    - file: scenarios/image-comparison.yaml
+
+  defaults:
+    temperature: 0.7
+    max_tokens: 1000
+    concurrency: 2
+    output:
+      dir: out
+      formats: ["json", "html"]
+      html:
+        file: multimodal-report.html
