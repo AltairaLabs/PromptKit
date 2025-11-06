@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/openai"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/sdk"
 )
@@ -67,8 +68,8 @@ func setupConversation() *sdk.Conversation {
 }
 
 // createProvider creates an OpenAI provider with default settings
-func createProvider() *providers.OpenAIProvider {
-	return providers.NewOpenAIProvider(
+func createProvider() *openai.OpenAIProvider {
+	return openai.NewOpenAIProvider(
 		"openai",
 		"gpt-4",
 		"",
@@ -90,7 +91,7 @@ func createAndRegisterTools() *tools.Registry {
 }
 
 // createConversationManager creates a conversation manager with provider and tools
-func createConversationManager(provider *providers.OpenAIProvider, toolRegistry *tools.Registry) *sdk.ConversationManager {
+func createConversationManager(provider providers.Provider, toolRegistry *tools.Registry) *sdk.ConversationManager {
 	manager, err := sdk.NewConversationManager(
 		sdk.WithProvider(provider),
 		sdk.WithToolRegistry(toolRegistry),
