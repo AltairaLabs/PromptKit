@@ -1,11 +1,52 @@
 package prompt
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// mockPromptRepository is a simple in-memory repository for testing
+type mockPromptRepository struct {
+	prompts   map[string]*PromptConfig
+	fragments map[string]*Fragment
+}
+
+func newMockPromptRepository() *mockPromptRepository {
+	return &mockPromptRepository{
+		prompts:   make(map[string]*PromptConfig),
+		fragments: make(map[string]*Fragment),
+	}
+}
+
+func (m *mockPromptRepository) LoadPrompt(taskType string) (*PromptConfig, error) {
+	if prompt, ok := m.prompts[taskType]; ok {
+		return prompt, nil
+	}
+	return nil, fmt.Errorf("prompt not found: %s", taskType)
+}
+
+func (m *mockPromptRepository) LoadFragment(name string, relativePath string, baseDir string) (*Fragment, error) {
+	if fragment, ok := m.fragments[name]; ok {
+		return fragment, nil
+	}
+	return nil, fmt.Errorf("fragment not found: %s", name)
+}
+
+func (m *mockPromptRepository) ListPrompts() ([]string, error) {
+	prompts := make([]string, 0, len(m.prompts))
+	for taskType := range m.prompts {
+		prompts = append(prompts, taskType)
+	}
+	return prompts, nil
+}
+
+func (m *mockPromptRepository) SavePrompt(config *PromptConfig) error {
+	m.prompts[config.Spec.TaskType] = config
+	return nil
+}
 
 // createTestRegistry creates a registry with no repository for testing
 // This allows direct manipulation of cache fields for unit tests
@@ -15,6 +56,11 @@ func createTestRegistry() *Registry {
 		fragmentCache:    make(map[string]*Fragment),
 		fragmentResolver: &FragmentResolver{fragmentCache: make(map[string]*Fragment)},
 	}
+}
+
+// createTestRegistryWithRepo creates a registry with a mock repository for testing
+func createTestRegistryWithRepo() *Registry {
+	return NewRegistryWithRepository(newMockPromptRepository())
 }
 
 func TestRegistry_GetAvailableTaskTypes(t *testing.T) {
@@ -173,5 +219,57 @@ func TestRegistry_ListTaskTypes(t *testing.T) {
 		reg := createTestRegistry()
 		tasks := reg.ListTaskTypes()
 		assert.Empty(t, tasks)
+	})
+}
+
+func TestRegistry_GetPromptInfo(t *testing.T) {
+	t.Run("returns prompt info for valid task", func(t *testing.T) {
+		reg := createTestRegistryWithRepo()
+
+		// Register a config
+		cfg := &PromptConfig{
+			Spec: PromptSpec{
+				TaskType:    "test-task",
+				Version:     "1.0.0",
+				Description: "Test prompt",
+				Fragments: []FragmentRef{
+					{Name: "fragment1", Required: true},
+					{Name: "fragment2", Required: false},
+				},
+				RequiredVars: []string{"var1", "var2"},
+				OptionalVars: map[string]string{
+					"opt1": "default1",
+					"opt2": "default2",
+				},
+				AllowedTools: []string{"tool1", "tool2"},
+				ModelOverrides: map[string]ModelOverride{
+					"override1": {},
+					"override2": {},
+				},
+			},
+		}
+		_ = reg.RegisterConfig("test-task", cfg)
+
+		info, err := reg.GetPromptInfo("test-task")
+
+		require.NoError(t, err)
+		assert.Equal(t, "test-task", info.TaskType)
+		assert.Equal(t, "1.0.0", info.Version)
+		assert.Equal(t, "Test prompt", info.Description)
+		assert.Equal(t, 2, info.FragmentCount)
+		assert.Equal(t, []string{"var1", "var2"}, info.RequiredVars)
+		assert.ElementsMatch(t, []string{"opt1", "opt2"}, info.OptionalVars)
+		assert.Equal(t, []string{"tool1", "tool2"}, info.ToolAllowlist)
+		assert.ElementsMatch(t, []string{"override1", "override2"}, info.ModelOverrides)
+	})
+
+	t.Run("returns error for non-existent task", func(t *testing.T) {
+		reg := createTestRegistryWithRepo()
+
+		info, err := reg.GetPromptInfo("non-existent-task")
+
+		assert.Error(t, err)
+		assert.Nil(t, info)
+		assert.Contains(t, err.Error(), "failed to get prompt info")
 	})
 }

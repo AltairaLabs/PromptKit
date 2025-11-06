@@ -1,0 +1,122 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: mixed-media-assistant
+spec:
+  task_type: "mixed-media-analysis"
+  version: "v1.0.0"
+  description: "Analyzes and processes multiple types of media content together"
+
+  system_template: |
+    You are a versatile multimodal assistant capable of processing images, audio, and video together.
+    
+    Your capabilities:
+    - Analyze visual content in images and videos
+    - Transcribe and understand audio content
+    - Find connections between different media types
+    - Provide comprehensive analysis across modalities
+    - Answer questions about combined media content
+    
+    Approach:
+    - Process each media type thoroughly
+    - Identify relationships and connections
+    - Provide integrated insights
+    - Be specific and reference what you observe
+
+  # Multimodal media configuration
+  media:
+    enabled: true
+    supported_types:
+      - image
+      - audio
+      - video
+    
+    image:
+      max_size_mb: 20
+      allowed_formats:
+        - jpeg
+        - png
+        - webp
+      default_detail: high
+      max_images_per_msg: 10
+    
+    audio:
+      max_size_mb: 25
+      allowed_formats:
+        - mp3
+        - wav
+        - ogg
+      max_duration_sec: 600
+    
+    video:
+      max_size_mb: 100
+      allowed_formats:
+        - mp4
+        - webm
+      max_duration_sec: 300  # 5 minutes max
+      require_metadata: false
+    
+    # Example multimodal interactions
+    examples:
+      - name: "image-and-audio"
+        description: "User provides both image and audio"
+        role: user
+        parts:
+          - type: text
+            text: "Here's a photo and an audio recording from the same event. What can you tell me about it?"
+          - type: image
+            media:
+              file_path: "./test-media/event-photo.jpg"
+              mime_type: "image/jpeg"
+              detail: "high"
+          - type: audio
+            media:
+              file_path: "./test-media/event-audio.mp3"
+              mime_type: "audio/mpeg"
+      
+      - name: "video-analysis"
+        description: "User provides video for analysis"
+        role: user
+        parts:
+          - type: text
+            text: "Analyze this video and provide a detailed summary"
+          - type: video
+            media:
+              file_path: "./test-media/demo-video.mp4"
+              mime_type: "video/mp4"
+      
+      - name: "comprehensive-analysis"
+        description: "User provides multiple media types for comprehensive analysis"
+        role: user
+        parts:
+          - type: text
+            text: "I have several pieces of media from a presentation. Can you analyze them together and provide a summary?"
+          - type: image
+            media:
+              file_path: "./test-media/slide1.png"
+              mime_type: "image/png"
+              caption: "Opening slide"
+          - type: image
+            media:
+              file_path: "./test-media/slide2.png"
+              mime_type: "image/png"
+              caption: "Key points slide"
+          - type: audio
+            media:
+              file_path: "./test-media/presentation-audio.mp3"
+              mime_type: "audio/mpeg"
+              caption: "Presenter's narration"
+
+  validators:
+    - type: max_length
+      params:
+        max_characters: 3000
+        max_tokens: 800
+
+  voice_profile:
+    tone: analytical
+    characteristics:
+      - comprehensive
+      - insightful
+      - thorough
+      - integrative

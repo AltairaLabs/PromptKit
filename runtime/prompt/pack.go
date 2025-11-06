@@ -7,6 +7,34 @@ import (
 	"time"
 )
 
+// PromptLoader interface abstracts the registry for testing
+type PromptLoader interface {
+	LoadConfig(taskType string) (*PromptConfig, error)
+	ListTaskTypes() []string
+}
+
+// TimeProvider allows injecting time for deterministic tests
+type TimeProvider interface {
+	Now() time.Time
+}
+
+type realTimeProvider struct{}
+
+func (r realTimeProvider) Now() time.Time {
+	return time.Now()
+}
+
+// FileWriter abstracts file writing for testing
+type FileWriter interface {
+	WriteFile(path string, data []byte, perm os.FileMode) error
+}
+
+type realFileWriter struct{}
+
+func (r realFileWriter) WriteFile(path string, data []byte, perm os.FileMode) error {
+	return os.WriteFile(path, data, perm)
+}
+
 // Pack represents the complete JSON pack format containing MULTIPLE prompts for different task types.
 //
 // DESIGN DECISION: Why separate Pack types in runtime vs sdk?
@@ -70,6 +98,9 @@ type PackPrompt struct {
 	Tools      []string        `json:"tools,omitempty"`       // Allowed tool names
 	ToolPolicy *ToolPolicyPack `json:"tool_policy,omitempty"` // Tool usage policy
 
+	// Multimodal media configuration
+	MediaConfig *MediaConfig `json:"media,omitempty"`
+
 	// Pipeline
 	Pipeline map[string]interface{} `json:"pipeline,omitempty"` // Pipeline configuration
 
@@ -104,39 +135,62 @@ type ParametersPack struct {
 
 // PackCompiler compiles PromptConfig to Pack format
 type PackCompiler struct {
-	registry *Registry
+	loader       PromptLoader
+	timeProvider TimeProvider
+	fileWriter   FileWriter
 }
 
-// NewPackCompiler creates a new pack compiler
+// NewPackCompiler creates a new pack compiler with default dependencies
 func NewPackCompiler(registry *Registry) *PackCompiler {
-	return &PackCompiler{registry: registry}
+	return &PackCompiler{
+		loader:       registry,
+		timeProvider: realTimeProvider{},
+		fileWriter:   realFileWriter{},
+	}
+}
+
+// NewPackCompilerWithDeps creates a pack compiler with injected dependencies (for testing)
+func NewPackCompilerWithDeps(loader PromptLoader, timeProvider TimeProvider, fileWriter FileWriter) *PackCompiler {
+	return &PackCompiler{
+		loader:       loader,
+		timeProvider: timeProvider,
+		fileWriter:   fileWriter,
+	}
 }
 
 // CompileToFile compiles a prompt config to a JSON pack file
-func (pc *PackCompiler) CompileToFile(taskType string, outputPath string, compilerVersion string) error {
+func (pc *PackCompiler) CompileToFile(taskType, outputPath, compilerVersion string) error {
 	pack, err := pc.Compile(taskType, compilerVersion)
 	if err != nil {
 		return fmt.Errorf("compilation failed: %w", err)
 	}
 
-	// Marshal to JSON with indentation
-	data, err := json.MarshalIndent(pack, "", "  ")
+	return pc.WritePack(pack, outputPath)
+}
+
+// WritePack writes a pack to a file
+func (pc *PackCompiler) WritePack(pack *Pack, outputPath string) error {
+	data, err := pc.MarshalPack(pack)
 	if err != nil {
 		return fmt.Errorf("failed to marshal pack: %w", err)
 	}
 
-	// Write to file
-	if err := os.WriteFile(outputPath, data, 0644); err != nil {
+	if err := pc.fileWriter.WriteFile(outputPath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write pack file: %w", err)
 	}
 
 	return nil
 }
 
+// MarshalPack marshals pack to JSON (testable without I/O)
+func (pc *PackCompiler) MarshalPack(pack *Pack) ([]byte, error) {
+	return json.MarshalIndent(pack, "", "  ")
+}
+
 // Compile compiles a single prompt config to Pack format (for backward compatibility)
-func (pc *PackCompiler) Compile(taskType string, compilerVersion string) (*Pack, error) {
+func (pc *PackCompiler) Compile(taskType, compilerVersion string) (*Pack, error) {
 	// Load the config (this will auto-populate defaults)
-	config, err := pc.registry.LoadConfig(taskType)
+	config, err := pc.loader.LoadConfig(taskType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
@@ -162,6 +216,7 @@ func (pc *PackCompiler) Compile(taskType string, compilerVersion string) (*Pack,
 		Variables:      config.Spec.Variables,
 		Tools:          config.Spec.AllowedTools,
 		Validators:     config.Spec.Validators,
+		MediaConfig:    config.Spec.MediaConfig,
 		TestedModels:   config.Spec.TestedModels,
 		ModelOverrides: config.Spec.ModelOverrides,
 		Pipeline:       GetDefaultPipelineConfig(),
@@ -189,9 +244,9 @@ func (pc *PackCompiler) Compile(taskType string, compilerVersion string) (*Pack,
 }
 
 // CompileFromRegistry compiles ALL prompts from the registry into a single Pack
-func (pc *PackCompiler) CompileFromRegistry(packID string, compilerVersion string) (*Pack, error) {
+func (pc *PackCompiler) CompileFromRegistry(packID, compilerVersion string) (*Pack, error) {
 	// Get all prompt configs from registry
-	taskTypes := pc.registry.ListTaskTypes()
+	taskTypes := pc.loader.ListTaskTypes()
 
 	// If registry is empty, try to load all available configs
 	if len(taskTypes) == 0 {
@@ -212,7 +267,7 @@ func (pc *PackCompiler) CompileFromRegistry(packID string, compilerVersion strin
 
 	// Add each prompt to the pack
 	for _, taskType := range taskTypes {
-		config, err := pc.registry.LoadConfig(taskType)
+		config, err := pc.loader.LoadConfig(taskType)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load config for %s: %w", taskType, err)
 		}
@@ -232,6 +287,7 @@ func (pc *PackCompiler) CompileFromRegistry(packID string, compilerVersion strin
 			Variables:      config.Spec.Variables,
 			Tools:          config.Spec.AllowedTools,
 			Validators:     config.Spec.Validators,
+			MediaConfig:    config.Spec.MediaConfig,
 			TestedModels:   config.Spec.TestedModels,
 			ModelOverrides: config.Spec.ModelOverrides,
 			Pipeline:       GetDefaultPipelineConfig(),
@@ -253,7 +309,7 @@ func (pc *PackCompiler) CompileFromRegistry(packID string, compilerVersion strin
 	// Generate compilation info
 	pack.Compilation = &CompilationInfo{
 		CompiledWith: compilerVersion,
-		CreatedAt:    getCurrentTimestamp(),
+		CreatedAt:    pc.getCurrentTimestamp(),
 		Schema:       "v1",
 	}
 
@@ -261,8 +317,8 @@ func (pc *PackCompiler) CompileFromRegistry(packID string, compilerVersion strin
 }
 
 // getCurrentTimestamp returns the current timestamp in RFC3339 format
-func getCurrentTimestamp() string {
-	return time.Now().Format(time.RFC3339)
+func (pc *PackCompiler) getCurrentTimestamp() string {
+	return pc.timeProvider.Now().Format(time.RFC3339)
 }
 
 // LoadPack loads a pack from a JSON file

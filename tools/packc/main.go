@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
@@ -12,6 +13,8 @@ import (
 )
 
 const version = "v0.1.0"
+
+const warningFormat = "  - %s\n"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -136,6 +139,23 @@ func compileCommand() {
 
 	fmt.Printf("Loaded %d prompt configs from memory repository\n", len(cfg.LoadedPromptConfigs))
 
+	// Validate media references
+	configDir := filepath.Dir(*configFile)
+	for _, promptData := range cfg.LoadedPromptConfigs {
+		promptConfig, ok := promptData.Config.(*prompt.PromptConfig)
+		if !ok {
+			continue
+		}
+
+		warnings := validateMediaReferences(promptConfig, configDir)
+		if len(warnings) > 0 {
+			fmt.Printf("⚠ Media validation warnings for %s:\n", promptConfig.Spec.TaskType)
+			for _, w := range warnings {
+				fmt.Printf(warningFormat, w)
+			}
+		}
+	}
+
 	compiler := prompt.NewPackCompiler(registry)
 
 	fmt.Printf("Compiling %d prompts into pack '%s'...\n", len(cfg.PromptConfigs), *packID)
@@ -192,6 +212,16 @@ func compilePromptCommand() {
 
 	taskType := promptConfig.Spec.TaskType
 
+	// Validate media references
+	promptDir := filepath.Dir(*promptFile)
+	warnings := validateMediaReferences(promptConfig, promptDir)
+	if len(warnings) > 0 {
+		fmt.Printf("⚠ Media validation warnings:\n")
+		for _, w := range warnings {
+			fmt.Printf(warningFormat, w)
+		}
+	}
+
 	// Create memory repository and register the prompt
 	memRepo := memory.NewMemoryPromptRepository()
 	if err := memRepo.SavePrompt(promptConfig); err != nil {
@@ -239,7 +269,7 @@ func validateCommand() {
 	} else {
 		fmt.Printf("⚠ Pack has %d warnings:\n", len(warnings))
 		for _, w := range warnings {
-			fmt.Printf("  - %s\n", w)
+			fmt.Printf(warningFormat, w)
 		}
 		os.Exit(1)
 	}
@@ -391,4 +421,46 @@ func getFragmentNames(fragments map[string]string) []string {
 		names = append(names, name)
 	}
 	return names
+}
+
+// validateMediaReferences checks if media files referenced in examples exist
+func validateMediaReferences(config *prompt.PromptConfig, baseDir string) []string {
+	var warnings []string
+
+	if config.Spec.MediaConfig == nil || !config.Spec.MediaConfig.Enabled {
+		return warnings
+	}
+
+	for _, example := range config.Spec.MediaConfig.Examples {
+		warnings = append(warnings, validateExampleMediaReferences(example, baseDir)...)
+	}
+
+	return warnings
+}
+
+// validateExampleMediaReferences validates media references in a single example
+func validateExampleMediaReferences(example prompt.MultimodalExample, baseDir string) []string {
+	var warnings []string
+
+	for i, part := range example.Parts {
+		if part.Media == nil || part.Media.FilePath == "" {
+			continue
+		}
+
+		// Only validate file paths (not URLs)
+		filePath := part.Media.FilePath
+		// If path is relative, resolve from base directory
+		if !filepath.IsAbs(filePath) && baseDir != "" {
+			filePath = filepath.Join(baseDir, filePath)
+		}
+
+		// Check if file exists
+		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+			warnings = append(warnings, fmt.Sprintf(
+				"Media file not found: %s (example: %s, part %d)",
+				part.Media.FilePath, example.Name, i))
+		}
+	}
+
+	return warnings
 }

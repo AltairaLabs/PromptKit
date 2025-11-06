@@ -345,7 +345,9 @@ func TestSetDefaultFilePaths(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			setDefaultFilePaths(tt.params)
+			// Create a minimal config for the test
+			cfg := &config.Config{}
+			setDefaultFilePaths(cfg, tt.params)
 			assert.Equal(t, tt.expectedOutDir, tt.params.OutDir)
 			assert.Equal(t, tt.expectedJUnitFile, tt.params.JUnitFile)
 			assert.Equal(t, tt.expectedHTMLFile, tt.params.HTMLFile)

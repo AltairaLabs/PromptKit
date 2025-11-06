@@ -2,12 +2,15 @@ package prompt
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestPack_Validate(t *testing.T) {
@@ -352,11 +355,13 @@ func TestLoadPack(t *testing.T) {
 }
 
 func TestNewPackCompiler(t *testing.T) {
-	registry := createTestRegistry()
+	registry := createTestRegistryWithRepo()
 	compiler := NewPackCompiler(registry)
 
 	require.NotNil(t, compiler)
-	assert.Equal(t, registry, compiler.registry)
+	assert.NotNil(t, compiler.loader)
+	assert.NotNil(t, compiler.timeProvider)
+	assert.NotNil(t, compiler.fileWriter)
 }
 
 func TestAssembledPrompt_UsesTools(t *testing.T) {
@@ -377,5 +382,416 @@ func TestAssembledPrompt_UsesTools(t *testing.T) {
 	t.Run("nil tools", func(t *testing.T) {
 		ap := &AssembledPrompt{}
 		assert.False(t, ap.UsesTools())
+	})
+}
+
+func TestLoadPackWithMediaConfig(t *testing.T) {
+	t.Run("pack with media config", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		packFile := filepath.Join(tmpDir, "multimodal.pack.json")
+
+		pack := &Pack{
+			ID:      "multimodal-pack",
+			Name:    "Multimodal Pack",
+			Version: "v1.0.0",
+			TemplateEngine: &TemplateEngineInfo{
+				Version: "v1",
+				Syntax:  "handlebars",
+			},
+			Prompts: map[string]*PackPrompt{
+				"image-analysis": {
+					ID:             "image-analysis",
+					Name:           "Image Analyzer",
+					SystemTemplate: "Analyze the provided image",
+					MediaConfig: &MediaConfig{
+						Enabled:        true,
+						SupportedTypes: []string{"image"},
+						Image: &ImageConfig{
+							MaxSizeMB:      20,
+							AllowedFormats: []string{"jpeg", "png", "webp"},
+							DefaultDetail:  "high",
+						},
+					},
+				},
+			},
+		}
+
+		data, err := json.MarshalIndent(pack, "", "  ")
+		require.NoError(t, err)
+		err = os.WriteFile(packFile, data, 0644)
+		require.NoError(t, err)
+
+		loaded, err := LoadPack(packFile)
+		require.NoError(t, err)
+		assert.Equal(t, "multimodal-pack", loaded.ID)
+		assert.Len(t, loaded.Prompts, 1)
+
+		prompt := loaded.Prompts["image-analysis"]
+		require.NotNil(t, prompt)
+		require.NotNil(t, prompt.MediaConfig)
+		assert.True(t, prompt.MediaConfig.Enabled)
+		assert.Equal(t, []string{"image"}, prompt.MediaConfig.SupportedTypes)
+		assert.NotNil(t, prompt.MediaConfig.Image)
+		assert.Equal(t, 20, prompt.MediaConfig.Image.MaxSizeMB)
+		assert.Equal(t, []string{"jpeg", "png", "webp"}, prompt.MediaConfig.Image.AllowedFormats)
+		assert.Equal(t, "high", prompt.MediaConfig.Image.DefaultDetail)
+	})
+
+	t.Run("pack without media config", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		packFile := filepath.Join(tmpDir, "simple.pack.json")
+
+		pack := &Pack{
+			ID:      "simple-pack",
+			Version: "v1.0.0",
+			Prompts: map[string]*PackPrompt{
+				"greeting": {
+					ID:             "greeting",
+					SystemTemplate: "Hello {{name}}",
+				},
+			},
+		}
+
+		data, err := json.MarshalIndent(pack, "", "  ")
+		require.NoError(t, err)
+		err = os.WriteFile(packFile, data, 0644)
+		require.NoError(t, err)
+
+		loaded, err := LoadPack(packFile)
+		require.NoError(t, err)
+		assert.Equal(t, "simple-pack", loaded.ID)
+
+		prompt := loaded.Prompts["greeting"]
+		require.NotNil(t, prompt)
+		assert.Nil(t, prompt.MediaConfig) // Should be nil for non-multimodal prompts
+	})
+}
+
+// mockTimeProvider for deterministic tests
+type mockTimeProvider struct {
+	fixedTime time.Time
+}
+
+func (m mockTimeProvider) Now() time.Time {
+	return m.fixedTime
+}
+
+// mockFileWriter for testing without actual file I/O
+type mockFileWriter struct {
+	writtenFiles map[string][]byte
+	writeError   error
+}
+
+func newMockFileWriter() *mockFileWriter {
+	return &mockFileWriter{
+		writtenFiles: make(map[string][]byte),
+	}
+}
+
+func (m *mockFileWriter) WriteFile(path string, data []byte, perm os.FileMode) error {
+	if m.writeError != nil {
+		return m.writeError
+	}
+	m.writtenFiles[path] = data
+	return nil
+}
+
+func TestPackCompiler_Compile(t *testing.T) {
+	// Create mock repository with test config
+	repo := newMockPromptRepository()
+	testConfig := &PromptConfig{
+		Spec: PromptSpec{
+			TaskType:       "test-task",
+			Version:        "1.0.0",
+			Description:    "Test prompt for compilation",
+			SystemTemplate: "Hello {{name}}",
+			RequiredVars:   []string{"name"},
+			TemplateEngine: &TemplateEngineInfo{
+				Version: "v1",
+				Syntax:  "handlebars",
+			},
+			Variables: []VariableMetadata{
+				{Name: "name", Required: true, Type: "string"},
+			},
+			AllowedTools: []string{"search"},
+		},
+		Metadata: metav1.ObjectMeta{
+			Name: "Test Task",
+		},
+	}
+	repo.prompts["test-task"] = testConfig
+
+	// Create registry and compiler
+	registry := NewRegistryWithRepository(repo)
+	_ = registry.RegisterConfig("test-task", testConfig)
+
+	fixedTime := time.Date(2025, 11, 6, 12, 0, 0, 0, time.UTC)
+	timeProvider := mockTimeProvider{fixedTime: fixedTime}
+	fileWriter := newMockFileWriter()
+
+	compiler := NewPackCompilerWithDeps(registry, timeProvider, fileWriter)
+
+	t.Run("compiles valid config successfully", func(t *testing.T) {
+		pack, err := compiler.Compile("test-task", "packc v1.0.0")
+
+		require.NoError(t, err)
+		assert.Equal(t, "test-task", pack.ID)
+		assert.Equal(t, "Test Task", pack.Name)
+		assert.Equal(t, "1.0.0", pack.Version)
+		assert.Equal(t, "Test prompt for compilation", pack.Description)
+		assert.NotNil(t, pack.TemplateEngine)
+		assert.Equal(t, "v1", pack.TemplateEngine.Version)
+
+		// Check prompt
+		require.Contains(t, pack.Prompts, "test-task")
+		prompt := pack.Prompts["test-task"]
+		assert.Equal(t, "test-task", prompt.ID)
+		assert.Equal(t, "Test Task", prompt.Name)
+		assert.Equal(t, "Hello {{name}}", prompt.SystemTemplate)
+		assert.Equal(t, []string{"search"}, prompt.Tools)
+		assert.Len(t, prompt.Variables, 1)
+		assert.Equal(t, "name", prompt.Variables[0].Name)
+
+		// Check compilation info
+		assert.NotNil(t, pack.Compilation)
+		assert.Equal(t, "packc v1.0.0", pack.Compilation.CompiledWith)
+		assert.Equal(t, "v1", pack.Compilation.Schema)
+	})
+
+	t.Run("returns error for non-existent task", func(t *testing.T) {
+		pack, err := compiler.Compile("non-existent", "packc v1.0.0")
+
+		assert.Error(t, err)
+		assert.Nil(t, pack)
+		assert.Contains(t, err.Error(), "failed to load config")
+	})
+
+	t.Run("handles config with fragments", func(t *testing.T) {
+		configWithFragments := &PromptConfig{
+			Spec: PromptSpec{
+				TaskType:    "task-with-fragments",
+				Version:     "1.0.0",
+				Description: "Task with fragments",
+				Fragments: []FragmentRef{
+					{Name: "intro", Required: true},
+					{Name: "outro", Required: false},
+				},
+				TemplateEngine: &TemplateEngineInfo{
+					Version: "v1",
+					Syntax:  "handlebars",
+				},
+			},
+			Metadata: metav1.ObjectMeta{
+				Name: "Task With Fragments",
+			},
+		}
+		repo.prompts["task-with-fragments"] = configWithFragments
+		_ = registry.RegisterConfig("task-with-fragments", configWithFragments)
+
+		pack, err := compiler.Compile("task-with-fragments", "packc v1.0.0")
+
+		require.NoError(t, err)
+		assert.Len(t, pack.Fragments, 2)
+		assert.Contains(t, pack.Fragments, "intro")
+		assert.Contains(t, pack.Fragments, "outro")
+	})
+}
+
+func TestPackCompiler_CompileFromRegistry(t *testing.T) {
+	// Create mock repository with multiple configs
+	repo := newMockPromptRepository()
+
+	config1 := &PromptConfig{
+		Spec: PromptSpec{
+			TaskType:       "task1",
+			Version:        "1.0.0",
+			Description:    "First task",
+			SystemTemplate: "Task 1: {{input}}",
+			TemplateEngine: &TemplateEngineInfo{
+				Version: "v1",
+				Syntax:  "handlebars",
+			},
+		},
+		Metadata: metav1.ObjectMeta{Name: "Task One"},
+	}
+
+	config2 := &PromptConfig{
+		Spec: PromptSpec{
+			TaskType:       "task2",
+			Version:        "2.0.0",
+			Description:    "Second task",
+			SystemTemplate: "Task 2: {{output}}",
+			TemplateEngine: &TemplateEngineInfo{
+				Version: "v1",
+				Syntax:  "handlebars",
+			},
+		},
+		Metadata: metav1.ObjectMeta{Name: "Task Two"},
+	}
+
+	repo.prompts["task1"] = config1
+	repo.prompts["task2"] = config2
+
+	// Create registry and compiler
+	registry := NewRegistryWithRepository(repo)
+	_ = registry.RegisterConfig("task1", config1)
+	_ = registry.RegisterConfig("task2", config2)
+
+	fixedTime := time.Date(2025, 11, 6, 12, 0, 0, 0, time.UTC)
+	timeProvider := mockTimeProvider{fixedTime: fixedTime}
+	fileWriter := newMockFileWriter()
+
+	compiler := NewPackCompilerWithDeps(registry, timeProvider, fileWriter)
+
+	t.Run("compiles all prompts from registry", func(t *testing.T) {
+		pack, err := compiler.CompileFromRegistry("multi-pack", "packc v1.0.0")
+
+		require.NoError(t, err)
+		assert.Equal(t, "multi-pack", pack.ID)
+		assert.Equal(t, "multi-pack", pack.Name)
+		assert.Equal(t, "v1.0.0", pack.Version)
+		assert.Contains(t, pack.Description, "2 prompts")
+
+		// Check both prompts are included
+		assert.Len(t, pack.Prompts, 2)
+		assert.Contains(t, pack.Prompts, "task1")
+		assert.Contains(t, pack.Prompts, "task2")
+
+		// Verify prompt details
+		assert.Equal(t, "Task 1: {{input}}", pack.Prompts["task1"].SystemTemplate)
+		assert.Equal(t, "Task 2: {{output}}", pack.Prompts["task2"].SystemTemplate)
+
+		// Check compilation info
+		assert.NotNil(t, pack.Compilation)
+		assert.Equal(t, "packc v1.0.0", pack.Compilation.CompiledWith)
+		assert.Equal(t, fixedTime.Format(time.RFC3339), pack.Compilation.CreatedAt)
+		assert.Equal(t, "v1", pack.Compilation.Schema)
+	})
+
+	t.Run("returns error for empty registry", func(t *testing.T) {
+		emptyRepo := newMockPromptRepository()
+		emptyRegistry := NewRegistryWithRepository(emptyRepo)
+		emptyCompiler := NewPackCompilerWithDeps(emptyRegistry, timeProvider, fileWriter)
+
+		pack, err := emptyCompiler.CompileFromRegistry("empty-pack", "packc v1.0.0")
+
+		assert.Error(t, err)
+		assert.Nil(t, pack)
+		assert.Contains(t, err.Error(), "no prompts found in registry")
+	})
+}
+
+func TestPackCompiler_CompileToFile(t *testing.T) {
+	// Create mock repository with test config
+	repo := newMockPromptRepository()
+	testConfig := &PromptConfig{
+		Spec: PromptSpec{
+			TaskType:       "test-task",
+			Version:        "1.0.0",
+			SystemTemplate: "Test template",
+			TemplateEngine: &TemplateEngineInfo{
+				Version: "v1",
+				Syntax:  "handlebars",
+			},
+		},
+		Metadata: metav1.ObjectMeta{Name: "Test"},
+	}
+	repo.prompts["test-task"] = testConfig
+
+	registry := NewRegistryWithRepository(repo)
+	_ = registry.RegisterConfig("test-task", testConfig)
+
+	fixedTime := time.Date(2025, 11, 6, 12, 0, 0, 0, time.UTC)
+	timeProvider := mockTimeProvider{fixedTime: fixedTime}
+	fileWriter := newMockFileWriter()
+
+	compiler := NewPackCompilerWithDeps(registry, timeProvider, fileWriter)
+
+	t.Run("compiles to file successfully", func(t *testing.T) {
+		outputPath := "/tmp/test.pack.json"
+
+		err := compiler.CompileToFile("test-task", outputPath, "packc v1.0.0")
+
+		require.NoError(t, err)
+		assert.Contains(t, fileWriter.writtenFiles, outputPath)
+
+		// Verify the written content is valid JSON
+		var pack Pack
+		err = json.Unmarshal(fileWriter.writtenFiles[outputPath], &pack)
+		require.NoError(t, err)
+		assert.Equal(t, "test-task", pack.ID)
+	})
+
+	t.Run("returns error on compilation failure", func(t *testing.T) {
+		err := compiler.CompileToFile("non-existent", "/tmp/test.pack.json", "packc v1.0.0")
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "compilation failed")
+	})
+
+	t.Run("returns error on write failure", func(t *testing.T) {
+		fileWriter.writeError = fmt.Errorf("disk full")
+
+		err := compiler.CompileToFile("test-task", "/tmp/test.pack.json", "packc v1.0.0")
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to write pack file")
+
+		fileWriter.writeError = nil // Reset for other tests
+	})
+}
+
+func TestPackCompiler_MarshalPack(t *testing.T) {
+	compiler := NewPackCompiler(createTestRegistryWithRepo())
+
+	pack := &Pack{
+		ID:      "test-pack",
+		Version: "v1.0.0",
+		Prompts: map[string]*PackPrompt{
+			"test": {
+				ID:             "test",
+				SystemTemplate: "Hello",
+			},
+		},
+	}
+
+	t.Run("marshals pack to JSON", func(t *testing.T) {
+		data, err := compiler.MarshalPack(pack)
+
+		require.NoError(t, err)
+		assert.NotEmpty(t, data)
+
+		// Verify it's valid JSON
+		var unmarshaled Pack
+		err = json.Unmarshal(data, &unmarshaled)
+		require.NoError(t, err)
+		assert.Equal(t, "test-pack", unmarshaled.ID)
+	})
+}
+
+func TestPackCompiler_WritePack(t *testing.T) {
+	fileWriter := newMockFileWriter()
+	compiler := NewPackCompilerWithDeps(
+		createTestRegistryWithRepo(),
+		realTimeProvider{},
+		fileWriter,
+	)
+
+	pack := &Pack{
+		ID:      "test-pack",
+		Version: "v1.0.0",
+		Prompts: map[string]*PackPrompt{
+			"test": {
+				ID:             "test",
+				SystemTemplate: "Hello",
+			},
+		},
+	}
+
+	t.Run("writes pack successfully", func(t *testing.T) {
+		err := compiler.WritePack(pack, "/tmp/output.pack.json")
+
+		require.NoError(t, err)
+		assert.Contains(t, fileWriter.writtenFiles, "/tmp/output.pack.json")
 	})
 }

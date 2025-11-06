@@ -652,3 +652,107 @@ func indexOf(s, substr string) int {
 	}
 	return -1
 }
+
+func TestPackManager_LoadPackWithMediaConfig(t *testing.T) {
+	// Create temp pack file with MediaConfig
+	tmpDir := t.TempDir()
+	packPath := filepath.Join(tmpDir, "multimodal.pack.json")
+
+	// Create pack data with MediaConfig
+	packData := map[string]interface{}{
+		"id":      "multimodal-pack",
+		"name":    "Multimodal Pack",
+		"version": "1.0.0",
+		"template_engine": map[string]interface{}{
+			"version": "v1",
+			"syntax":  "{{variable}}",
+		},
+		"prompts": map[string]interface{}{
+			"image-analyzer": map[string]interface{}{
+				"id":              "image-analyzer",
+				"name":            "Image Analyzer",
+				"system_template": "Analyze the provided image: {{task}}",
+				"variables": []map[string]interface{}{
+					{
+						"name":     "task",
+						"required": true,
+					},
+				},
+				"media": map[string]interface{}{
+					"enabled":         true,
+					"supported_types": []string{"image"},
+					"image": map[string]interface{}{
+						"max_size_mb":        20,
+						"allowed_formats":    []string{"jpeg", "png", "webp"},
+						"default_detail":     "high",
+						"max_images_per_msg": 5,
+					},
+				},
+			},
+		},
+	}
+
+	data, err := json.MarshalIndent(packData, "", "  ")
+	if err != nil {
+		t.Fatalf("failed to marshal pack: %v", err)
+	}
+
+	if err := os.WriteFile(packPath, data, 0600); err != nil {
+		t.Fatalf("failed to write pack file: %v", err)
+	}
+
+	// Load the pack
+	pm := NewPackManager()
+	pack, err := pm.LoadPack(packPath)
+	if err != nil {
+		t.Fatalf("failed to load pack: %v", err)
+	}
+
+	if pack.ID != "multimodal-pack" {
+		t.Errorf("expected pack ID 'multimodal-pack', got '%s'", pack.ID)
+	}
+
+	// Get the prompt with MediaConfig
+	promptConfig, err := pack.GetPrompt("image-analyzer")
+	if err != nil {
+		t.Fatalf("failed to get prompt: %v", err)
+	}
+	if promptConfig == nil {
+		t.Fatal("Prompt not found")
+	}
+
+	// Verify MediaConfig is present and correct
+	if promptConfig.MediaConfig == nil {
+		t.Fatal("MediaConfig should not be nil")
+	}
+
+	t.Logf("MediaConfig: %+v", promptConfig.MediaConfig)
+	if promptConfig.MediaConfig.Image != nil {
+		t.Logf("Image config: %+v", promptConfig.MediaConfig.Image)
+	}
+
+	if !promptConfig.MediaConfig.Enabled {
+		t.Error("MediaConfig should be enabled")
+	}
+
+	if len(promptConfig.MediaConfig.SupportedTypes) != 1 || promptConfig.MediaConfig.SupportedTypes[0] != "image" {
+		t.Errorf("Expected supported types [image], got %v", promptConfig.MediaConfig.SupportedTypes)
+	}
+
+	if promptConfig.MediaConfig.Image == nil {
+		t.Fatal("Image config should not be nil")
+	}
+
+	if promptConfig.MediaConfig.Image.MaxSizeMB != 20 {
+		t.Errorf("Expected MaxSizeMB 20, got %d", promptConfig.MediaConfig.Image.MaxSizeMB)
+	}
+
+	expectedFormats := []string{"jpeg", "png", "webp"}
+	if len(promptConfig.MediaConfig.Image.AllowedFormats) != len(expectedFormats) {
+		t.Errorf("Expected %d formats, got %d", len(expectedFormats), len(promptConfig.MediaConfig.Image.AllowedFormats))
+	}
+
+	if promptConfig.MediaConfig.Image.DefaultDetail != "high" {
+		t.Errorf("Expected DefaultDetail 'high', got '%s'", promptConfig.MediaConfig.Image.DefaultDetail)
+	}
+}

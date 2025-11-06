@@ -121,6 +121,9 @@ type Prompt struct {
 	// Tool policy
 	ToolPolicy *ToolPolicy `json:"tool_policy,omitempty"`
 
+	// Multimodal media configuration
+	MediaConfig *prompt.MediaConfig `json:"media,omitempty"`
+
 	// Pipeline configuration
 	Pipeline *PipelineConfig `json:"pipeline,omitempty"`
 
@@ -483,6 +486,7 @@ func (p *Pack) convertToRuntimeConfig(taskType string, sdkPrompt *Prompt) *promp
 			Variables:      varMetadata,
 			ModelOverrides: modelOverrides,
 			AllowedTools:   sdkPrompt.ToolNames,
+			MediaConfig:    sdkPrompt.MediaConfig, // Multimodal support
 			Validators:     validatorConfigs,
 			TestedModels:   testedModels,
 			TemplateEngine: &prompt.TemplateEngineInfo{

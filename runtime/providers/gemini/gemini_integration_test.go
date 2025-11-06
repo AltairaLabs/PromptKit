@@ -403,9 +403,9 @@ func TestHandleNoCandidatesError(t *testing.T) {
 	provider := NewGeminiProvider("test", "gemini-2.0-flash", "https://api.test", providers.ProviderDefaults{}, false)
 
 	tests := []struct {
-		name         string
-		response     geminiResponse
-		errContains  string
+		name        string
+		response    geminiResponse
+		errContains string
 	}{
 		{
 			name: "Prompt blocked with safety ratings",
@@ -492,13 +492,13 @@ func TestProcessGeminiStreamChunk(t *testing.T) {
 	provider := NewGeminiProvider("test", "gemini-2.0-flash", "https://api.test", providers.ProviderDefaults{}, false)
 
 	tests := []struct {
-		name          string
-		chunk         geminiResponse
-		accumulated   string
-		totalTokens   int
-		wantFinished  bool
-		wantContent   string
-		wantTokens    int
+		name         string
+		chunk        geminiResponse
+		accumulated  string
+		totalTokens  int
+		wantFinished bool
+		wantContent  string
+		wantTokens   int
 	}{
 		{
 			name: "Regular chunk with text",

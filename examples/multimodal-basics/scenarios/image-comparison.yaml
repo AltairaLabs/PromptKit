@@ -1,0 +1,37 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: image-comparison
+spec:
+  task_type: image-analysis
+  description: "Test comparing multiple images"
+
+  turns:
+    - role: user
+      content: "Compare these two images and describe the differences"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "image"
+              # Keeping "difference" as it's specific to comparison task
+        - type: min_length
+          params:
+            min_characters: 100
+        - type: max_length
+          params:
+            max_characters: 5000  # Allow for detailed comparative analysis
+
+    - role: user
+      content: "Which image appears more professional and why?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "professional"
+        - type: min_length
+          params:
+            min_characters: 50
+        - type: max_length
+          params:
+            max_characters: 3000  # Reasonable for opinion + justification

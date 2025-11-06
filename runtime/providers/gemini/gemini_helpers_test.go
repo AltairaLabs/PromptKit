@@ -9,9 +9,9 @@ import (
 
 func TestConvertMessagesToGeminiContents(t *testing.T) {
 	tests := []struct {
-		name     string
-		messages []types.Message
-		expected int
+		name      string
+		messages  []types.Message
+		expected  int
 		checkRole string
 	}{
 		{
@@ -19,7 +19,7 @@ func TestConvertMessagesToGeminiContents(t *testing.T) {
 			messages: []types.Message{
 				{Role: "user", Content: "Hello"},
 			},
-			expected: 1,
+			expected:  1,
 			checkRole: "user",
 		},
 		{
@@ -27,7 +27,7 @@ func TestConvertMessagesToGeminiContents(t *testing.T) {
 			messages: []types.Message{
 				{Role: "assistant", Content: "Hi there"},
 			},
-			expected: 1,
+			expected:  1,
 			checkRole: "model",
 		},
 		{
@@ -71,7 +71,7 @@ func TestConvertMessagesToGeminiContents(t *testing.T) {
 			for i, msg := range tt.messages {
 				if i < len(contents) && len(contents[i].Parts) > 0 {
 					if contents[i].Parts[0].Text != msg.Content {
-						t.Errorf("Message %d: expected content %q, got %q", 
+						t.Errorf("Message %d: expected content %q, got %q",
 							i, msg.Content, contents[i].Parts[0].Text)
 					}
 				}
@@ -82,13 +82,13 @@ func TestConvertMessagesToGeminiContents(t *testing.T) {
 
 func TestPrepareGeminiRequest(t *testing.T) {
 	tests := []struct {
-		name               string
-		req                providers.ChatRequest
-		defaults           providers.ProviderDefaults
-		expectSystem       bool
-		expectedTemp       float32
-		expectedTopP       float32
-		expectedMaxTokens  int
+		name              string
+		req               providers.ChatRequest
+		defaults          providers.ProviderDefaults
+		expectSystem      bool
+		expectedTemp      float32
+		expectedTopP      float32
+		expectedMaxTokens int
 	}{
 		{
 			name: "Uses request values when provided",
@@ -150,7 +150,7 @@ func TestPrepareGeminiRequest(t *testing.T) {
 			req: providers.ChatRequest{
 				Messages:    []types.Message{{Role: "user", Content: "test"}},
 				Temperature: 0.6,
-				TopP:        0,  // Will use default
+				TopP:        0, // Will use default
 				MaxTokens:   200,
 			},
 			defaults: providers.ProviderDefaults{
@@ -183,7 +183,7 @@ func TestPrepareGeminiRequest(t *testing.T) {
 				if systemInstruction == nil {
 					t.Error("Expected system instruction but got nil")
 				} else if len(systemInstruction.Parts) == 0 || systemInstruction.Parts[0].Text != tt.req.System {
-					t.Errorf("Expected system instruction %q, got %v", 
+					t.Errorf("Expected system instruction %q, got %v",
 						tt.req.System, systemInstruction)
 				}
 			} else {
@@ -210,13 +210,13 @@ func TestBuildGeminiRequest(t *testing.T) {
 	provider := &GeminiProvider{}
 
 	tests := []struct {
-		name               string
-		contents           []geminiContent
-		systemInstruction  *geminiContent
-		temperature        float32
-		topP               float32
-		maxTokens          int
-		checkSafety        bool
+		name              string
+		contents          []geminiContent
+		systemInstruction *geminiContent
+		temperature       float32
+		topP              float32
+		maxTokens         int
+		checkSafety       bool
 	}{
 		{
 			name: "Creates request with all parameters",
@@ -271,15 +271,15 @@ func TestBuildGeminiRequest(t *testing.T) {
 
 			// Check generation config
 			if req.GenerationConfig.Temperature != tt.temperature {
-				t.Errorf("Expected temperature %.2f, got %.2f", 
+				t.Errorf("Expected temperature %.2f, got %.2f",
 					tt.temperature, req.GenerationConfig.Temperature)
 			}
 			if req.GenerationConfig.TopP != tt.topP {
-				t.Errorf("Expected topP %.2f, got %.2f", 
+				t.Errorf("Expected topP %.2f, got %.2f",
 					tt.topP, req.GenerationConfig.TopP)
 			}
 			if req.GenerationConfig.MaxOutputTokens != tt.maxTokens {
-				t.Errorf("Expected maxTokens %d, got %d", 
+				t.Errorf("Expected maxTokens %d, got %d",
 					tt.maxTokens, req.GenerationConfig.MaxOutputTokens)
 			}
 
@@ -315,9 +315,9 @@ func TestGeminiHelpers_Integration(t *testing.T) {
 				{Role: "assistant", Content: "Hi there"},
 				{Role: "user", Content: "How are you?"},
 			},
-			Temperature: 0,     // Should use default
-			TopP:        0.9,   // Should use this value
-			MaxTokens:   0,     // Should use default
+			Temperature: 0,   // Should use default
+			TopP:        0.9, // Should use this value
+			MaxTokens:   0,   // Should use default
 		}
 
 		// Step 1: Prepare request

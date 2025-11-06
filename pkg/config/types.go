@@ -373,6 +373,10 @@ type TurnDefinition struct {
 	Role    string `json:"role" yaml:"role"` // "user", "assistant", or provider selector like "claude-user" (only for self-play turns)
 	Content string `json:"content,omitempty" yaml:"content,omitempty"`
 
+	// Multimodal content parts (text, images, audio, video)
+	// If Parts is non-empty, it takes precedence over Content.
+	Parts []TurnContentPart `json:"parts,omitempty" yaml:"parts,omitempty"`
+
 	// Self-play specific fields (when role is a provider selector like "claude-user")
 	Persona       string  `json:"persona,omitempty" yaml:"persona,omitempty"`               // Persona ID for self-play
 	Turns         int     `json:"turns,omitempty" yaml:"turns,omitempty"`                   // Number of user messages to generate
@@ -385,6 +389,25 @@ type TurnDefinition struct {
 
 	// Turn-level assertions (for testing only)
 	Assertions []assertions.AssertionConfig `json:"assertions,omitempty" yaml:"assertions,omitempty"`
+}
+
+// TurnContentPart represents a content part in a scenario turn (simplified for YAML configuration)
+type TurnContentPart struct {
+	Type string `json:"type" yaml:"type"`                     // "text", "image", "audio", "video"
+	Text string `json:"text,omitempty" yaml:"text,omitempty"` // Text content (for type=text)
+
+	// For media content
+	Media *TurnMediaContent `json:"media,omitempty" yaml:"media,omitempty"`
+}
+
+// TurnMediaContent represents media content in a turn definition
+type TurnMediaContent struct {
+	FilePath string `json:"file_path,omitempty" yaml:"file_path,omitempty"` // Relative path to media file (resolved at test time)
+	URL      string `json:"url,omitempty" yaml:"url,omitempty"`             // External URL (http/https)
+	Data     string `json:"data,omitempty" yaml:"data,omitempty"`           // Base64-encoded data (for inline media)
+	MIMEType string `json:"mime_type" yaml:"mime_type"`                     // MIME type (e.g., "image/jpeg")
+	Detail   string `json:"detail,omitempty" yaml:"detail,omitempty"`       // Detail level for images: "low", "high", "auto"
+	Caption  string `json:"caption,omitempty" yaml:"caption,omitempty"`     // Optional caption/description
 }
 
 // ProviderConfig represents a Provider in K8s-style manifest format

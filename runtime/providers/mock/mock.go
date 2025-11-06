@@ -57,10 +57,12 @@ func NewMockProviderWithRepository(id, model string, includeRawOutput bool, repo
 
 func init() {
 	providers.RegisterProviderFactory("mock", func(spec providers.ProviderSpec) (providers.Provider, error) {
+		// Use MockToolProvider by default as it's backward compatible with MockProvider
+		// and supports both tool calls and scenario-specific responses
 		if repo, ok := spec.AdditionalConfig["repository"].(MockResponseRepository); ok {
-			return NewMockProviderWithRepository(spec.ID, spec.Model, spec.IncludeRawOutput, repo), nil
+			return NewMockToolProviderWithRepository(spec.ID, spec.Model, spec.IncludeRawOutput, repo), nil
 		}
-		return NewMockProvider(spec.ID, spec.Model, spec.IncludeRawOutput), nil
+		return NewMockToolProvider(spec.ID, spec.Model, spec.IncludeRawOutput, spec.AdditionalConfig), nil
 	})
 }
 

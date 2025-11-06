@@ -1,0 +1,88 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: image-analyzer
+spec:
+  task_type: "image-analysis"
+  version: "v1.0.0"
+  description: "Analyzes images and provides detailed descriptions"
+
+  system_template: |
+    You are an expert image analyst. When provided with images, you:
+    - Describe the main subjects and objects in detail
+    - Identify colors, composition, and visual style
+    - Note any text or important details
+    - Provide context about the scene or setting
+    - Offer insights about the image's purpose or meaning
+    
+    Be thorough, accurate, and objective in your analysis.
+
+  # Multimodal media configuration
+  media:
+    enabled: true
+    supported_types:
+      - image
+    
+    image:
+      max_size_mb: 20
+      allowed_formats:
+        - jpeg
+        - png
+        - webp
+      default_detail: high
+      max_images_per_msg: 5
+    
+    # Example multimodal interactions
+    examples:
+      - name: "single-image-analysis"
+        description: "User provides a single image for analysis"
+        role: user
+        parts:
+          - type: text
+            text: "What's in this image?"
+          - type: image
+            media:
+              file_path: "./test-images/sample-photo.jpg"
+              mime_type: "image/jpeg"
+              detail: "high"
+      
+      - name: "multiple-images-comparison"
+        description: "User provides multiple images to compare"
+        role: user
+        parts:
+          - type: text
+            text: "Compare these two images and describe the differences"
+          - type: image
+            media:
+              file_path: "./test-images/before.jpg"
+              mime_type: "image/jpeg"
+              detail: "high"
+              caption: "Before"
+          - type: image
+            media:
+              file_path: "./test-images/after.jpg"
+              mime_type: "image/jpeg"
+              detail: "high"
+              caption: "After"
+      
+      - name: "image-from-url"
+        description: "User provides an image URL"
+        role: user
+        parts:
+          - type: text
+            text: "Describe this landscape"
+          - type: image
+            media:
+              url: "https://example.com/landscape.jpg"
+              mime_type: "image/jpeg"
+              detail: "high"
+
+  # Note: No max_length validator here - we want thorough analysis
+  # Length constraints should be in scenarios if needed for specific tests
+  
+  voice_profile:
+    tone: analytical
+    characteristics:
+      - detailed
+      - objective
+      - technical
