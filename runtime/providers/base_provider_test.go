@@ -28,12 +28,12 @@ func TestNewBaseProvider(t *testing.T) {
 
 func TestNewBaseProviderWithAPIKey(t *testing.T) {
 	tests := []struct {
-		name         string
-		primaryKey   string
-		fallbackKey  string
-		primaryVal   string
-		fallbackVal  string
-		expectedKey  string
+		name        string
+		primaryKey  string
+		fallbackKey string
+		primaryVal  string
+		fallbackVal string
+		expectedKey string
 	}{
 		{
 			name:        "Uses primary key when available",
@@ -113,7 +113,7 @@ func TestBaseProvider_Close(t *testing.T) {
 
 func TestBaseProvider_SupportsStreaming(t *testing.T) {
 	base := NewBaseProvider("test-provider", false, nil)
-	
+
 	if !base.SupportsStreaming() {
 		t.Error("Expected SupportsStreaming to return true by default")
 	}
@@ -121,11 +121,11 @@ func TestBaseProvider_SupportsStreaming(t *testing.T) {
 
 func TestCheckHTTPError(t *testing.T) {
 	tests := []struct {
-		name           string
-		statusCode     int
-		responseBody   string
-		expectError    bool
-		errorContains  string
+		name          string
+		statusCode    int
+		responseBody  string
+		expectError   bool
+		errorContains string
 	}{
 		{
 			name:         "Success status returns no error",
@@ -213,11 +213,11 @@ func TestCheckHTTPError(t *testing.T) {
 
 func TestUnmarshalJSON(t *testing.T) {
 	tests := []struct {
-		name          string
-		jsonData      string
-		expectError   bool
-		checkLatency  bool
-		checkRaw      bool
+		name         string
+		jsonData     string
+		expectError  bool
+		checkLatency bool
+		checkRaw     bool
 	}{
 		{
 			name:        "Valid JSON unmarshals successfully",
@@ -292,7 +292,7 @@ func TestUnmarshalJSON_TypeMismatch(t *testing.T) {
 
 	// This JSON doesn't match the struct
 	jsonData := `{"different": "fields", "other": 123}`
-	
+
 	err := UnmarshalJSON([]byte(jsonData), &result, chatResp, start)
 
 	// Should not error as JSON is valid, just doesn't populate the struct fully
@@ -328,10 +328,10 @@ func TestSetErrorResponse(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			chatResp := &ChatResponse{}
 			start := time.Now()
-			
+
 			// Wait a tiny bit to ensure latency is measurable
 			time.Sleep(1 * time.Millisecond)
-			
+
 			SetErrorResponse(chatResp, []byte(tt.respBody), start)
 
 			if tt.checkFields {
@@ -356,7 +356,7 @@ func TestBaseProvider_Integration(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{
-				"error": "invalid_request",
+				"error":   "invalid_request",
 				"message": "The request was malformed",
 			})
 		}))

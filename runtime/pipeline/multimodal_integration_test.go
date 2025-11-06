@@ -12,7 +12,7 @@ import (
 func TestPipelineWithMultimodalMessages(t *testing.T) {
 	// Create a simple middleware that validates message handling
 	validator := &multimodalValidatorMiddleware{}
-	
+
 	pipeline := NewPipeline(validator)
 
 	// Test 1: Legacy text message
@@ -21,11 +21,11 @@ func TestPipelineWithMultimodalMessages(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		
+
 		if len(result.Messages) != 1 {
 			t.Errorf("Expected 1 message, got %d", len(result.Messages))
 		}
-		
+
 		msg := result.Messages[0]
 		if msg.Role != "user" {
 			t.Errorf("Expected role 'user', got %q", msg.Role)
@@ -40,19 +40,19 @@ func TestPipelineWithMultimodalMessages(t *testing.T) {
 		multimodalMsg := types.Message{Role: "user"}
 		multimodalMsg.AddTextPart("What's in this image?")
 		multimodalMsg.AddImagePartFromURL("https://example.com/image.jpg", nil)
-		
+
 		// Create context with pre-existing message
 		internalCtx := &ExecutionContext{
 			Context:  context.Background(),
 			Messages: []types.Message{multimodalMsg},
 			Metadata: make(map[string]interface{}),
 		}
-		
+
 		err := validator.Process(internalCtx, func() error { return nil })
 		if err != nil {
 			t.Fatalf("Process() error = %v", err)
 		}
-		
+
 		// Verify the message stayed multimodal
 		if !internalCtx.Messages[0].IsMultimodal() {
 			t.Error("Message should still be multimodal")
@@ -75,7 +75,7 @@ func TestExecutionContextWithMultimodalMessages(t *testing.T) {
 	msg := types.Message{Role: "user"}
 	msg.AddTextPart("Analyze this:")
 	msg.AddImagePartFromURL("https://example.com/chart.png", nil)
-	
+
 	ctx.Messages = append(ctx.Messages, msg)
 
 	if len(ctx.Messages) != 1 {
@@ -263,7 +263,7 @@ func TestPipelineMultimodalMessageBackwardCompatibility(t *testing.T) {
 	if msg.Content != "Legacy message" {
 		t.Errorf("Expected content 'Legacy message', got %q", msg.Content)
 	}
-	
+
 	// Legacy messages should not be multimodal by default
 	if msg.IsMultimodal() {
 		t.Error("Legacy message should not be multimodal")
@@ -337,7 +337,7 @@ func (m *multimodalValidatorMiddleware) Process(ctx *ExecutionContext, next func
 					ctx.Error = err
 					return err
 				}
-				
+
 				// Track validation in metadata
 				if ctx.Metadata["validated_parts"] == nil {
 					ctx.Metadata["validated_parts"] = []string{}
@@ -346,7 +346,7 @@ func (m *multimodalValidatorMiddleware) Process(ctx *ExecutionContext, next func
 					ctx.Metadata["validated_parts"].([]string),
 					part.Type,
 				)
-				
+
 				_ = j // Use variable
 			}
 		}

@@ -77,6 +77,7 @@ type PromptSpec struct {
 	Variables      []VariableMetadata       `yaml:"variables,omitempty"` // Enhanced variable metadata
 	ModelOverrides map[string]ModelOverride `yaml:"model_overrides"`
 	AllowedTools   []string                 `yaml:"allowed_tools,omitempty"` // Tools this prompt can use
+	MediaConfig    *MediaConfig             `yaml:"media,omitempty"`         // Multimodal media configuration
 	Validators     []ValidatorConfig        `yaml:"validators,omitempty"`    // Validators/Guardrails for production runtime
 	TestedModels   []ModelTestResultRef     `yaml:"tested_models,omitempty"` // Model testing metadata
 	Metadata       *PromptMetadata          `yaml:"metadata,omitempty"`      // Additional metadata for pack format
@@ -95,11 +96,104 @@ type ModelTestResultRef struct {
 	AvgLatencyMs int     `yaml:"avg_latency_ms,omitempty"`
 }
 
+// MediaConfig defines multimodal media support configuration for a prompt
+type MediaConfig struct {
+	// Enable multimodal support for this prompt
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	// Supported content types: "image", "audio", "video"
+	SupportedTypes []string `yaml:"supported_types,omitempty" json:"supported_types,omitempty"`
+	// Image-specific configuration
+	Image *ImageConfig `yaml:"image,omitempty" json:"image,omitempty"`
+	// Audio-specific configuration
+	Audio *AudioConfig `yaml:"audio,omitempty" json:"audio,omitempty"`
+	// Video-specific configuration
+	Video *VideoConfig `yaml:"video,omitempty" json:"video,omitempty"`
+	// Example multimodal messages
+	Examples []MultimodalExample `yaml:"examples,omitempty" json:"examples,omitempty"`
+}
+
+// ImageConfig contains image-specific configuration
+type ImageConfig struct {
+	// Maximum image size in MB (0 = unlimited)
+	MaxSizeMB int `yaml:"max_size_mb,omitempty" json:"max_size_mb,omitempty"`
+	// Allowed formats: ["jpeg", "png", "webp", "gif"]
+	AllowedFormats []string `yaml:"allowed_formats,omitempty" json:"allowed_formats,omitempty"`
+	// Default detail level: "low", "high", "auto"
+	DefaultDetail string `yaml:"default_detail,omitempty" json:"default_detail,omitempty"`
+	// Whether captions are required
+	RequireCaption bool `yaml:"require_caption,omitempty" json:"require_caption,omitempty"`
+	// Max images per message (0 = unlimited)
+	MaxImagesPerMsg int `yaml:"max_images_per_msg,omitempty" json:"max_images_per_msg,omitempty"`
+}
+
+// AudioConfig contains audio-specific configuration
+type AudioConfig struct {
+	// Maximum audio size in MB (0 = unlimited)
+	MaxSizeMB int `yaml:"max_size_mb,omitempty" json:"max_size_mb,omitempty"`
+	// Allowed formats: ["mp3", "wav", "ogg", "webm"]
+	AllowedFormats []string `yaml:"allowed_formats,omitempty" json:"allowed_formats,omitempty"`
+	// Max duration in seconds (0 = unlimited)
+	MaxDurationSec int `yaml:"max_duration_sec,omitempty" json:"max_duration_sec,omitempty"`
+	// Whether metadata (duration, bitrate) is required
+	RequireMetadata bool `yaml:"require_metadata,omitempty" json:"require_metadata,omitempty"`
+}
+
+// VideoConfig contains video-specific configuration
+type VideoConfig struct {
+	// Maximum video size in MB (0 = unlimited)
+	MaxSizeMB int `yaml:"max_size_mb,omitempty" json:"max_size_mb,omitempty"`
+	// Allowed formats: ["mp4", "webm", "ogg"]
+	AllowedFormats []string `yaml:"allowed_formats,omitempty" json:"allowed_formats,omitempty"`
+	// Max duration in seconds (0 = unlimited)
+	MaxDurationSec int `yaml:"max_duration_sec,omitempty" json:"max_duration_sec,omitempty"`
+	// Whether metadata (resolution, fps) is required
+	RequireMetadata bool `yaml:"require_metadata,omitempty" json:"require_metadata,omitempty"`
+}
+
+// MultimodalExample represents an example multimodal message for testing/documentation
+type MultimodalExample struct {
+	// Example name/identifier
+	Name string `yaml:"name" json:"name"`
+	// Human-readable description
+	Description string `yaml:"description,omitempty" json:"description,omitempty"`
+	// Message role: "user", "assistant"
+	Role string `yaml:"role" json:"role"`
+	// Content parts for this example
+	Parts []ExampleContentPart `yaml:"parts" json:"parts"`
+}
+
+// ExampleContentPart represents a content part in an example (simplified for YAML)
+type ExampleContentPart struct {
+	// Content type: "text", "image", "audio", "video"
+	Type string `yaml:"type" json:"type"`
+	// Text content (for type=text)
+	Text string `yaml:"text,omitempty" json:"text,omitempty"`
+	// For media content
+	Media *ExampleMedia `yaml:"media,omitempty" json:"media,omitempty"`
+}
+
+// ExampleMedia represents media references in examples
+type ExampleMedia struct {
+	// Relative path to media file
+	FilePath string `yaml:"file_path,omitempty" json:"file_path,omitempty"`
+	// External URL
+	URL string `yaml:"url,omitempty" json:"url,omitempty"`
+	// MIME type
+	MIMEType string `yaml:"mime_type" json:"mime_type"`
+	// Detail level for images
+	Detail string `yaml:"detail,omitempty" json:"detail,omitempty"`
+	// Optional caption
+	Caption string `yaml:"caption,omitempty" json:"caption,omitempty"`
+}
+
 // ValidatorConfig extends validators.ValidatorConfig with prompt-pack specific fields
 type ValidatorConfig struct {
-	validators.ValidatorConfig `yaml:",inline"` // Embed base config (Type, Params)
-	Enabled                    *bool            `yaml:"enabled,omitempty"`           // Enable/disable validator (default: true)
-	FailOnViolation            *bool            `yaml:"fail_on_violation,omitempty"` // Fail execution on violation (default: true)
+	// Embed base config (Type, Params)
+	validators.ValidatorConfig `yaml:",inline"`
+	// Enable/disable validator (default: true)
+	Enabled *bool `yaml:"enabled,omitempty"`
+	// Fail execution on violation (default: true)
+	FailOnViolation *bool `yaml:"fail_on_violation,omitempty"`
 }
 
 // TemplateEngineInfo describes the template engine used for variable substitution
@@ -238,8 +332,8 @@ func (r *Registry) LoadWithVars(activity string, vars map[string]string, model s
 	}
 
 	// Validate required variables
-	if err := r.validateRequiredVars(config, vars); err != nil {
-		logger.Error("Prompt missing required vars for activity '%s': %v", activity, err)
+	if validationErr := r.validateRequiredVars(config, vars); validationErr != nil {
+		logger.Error("Prompt missing required vars for activity '%s': %v", activity, validationErr)
 		return nil
 	}
 
@@ -248,9 +342,9 @@ func (r *Registry) LoadWithVars(activity string, vars map[string]string, model s
 
 	// Assemble fragments into final variables if configured
 	if len(config.Spec.Fragments) > 0 {
-		fragmentVars, err := r.fragmentResolver.AssembleFragments(config.Spec.Fragments, finalVars, "")
-		if err != nil {
-			logger.Error("Fragment assembly failed for activity '%s': %v", activity, err)
+		fragmentVars, fragmentErr := r.fragmentResolver.AssembleFragments(config.Spec.Fragments, finalVars, "")
+		if fragmentErr != nil {
+			logger.Error("Fragment assembly failed for activity '%s': %v", activity, fragmentErr)
 			return nil
 		}
 		// Merge fragment variables into final vars
@@ -278,9 +372,9 @@ func (r *Registry) LoadWithVars(activity string, vars map[string]string, model s
 	}
 
 	// Render template with variables using template renderer
-	assembledText, err := r.templateRenderer.Render(systemTemplate, finalVars)
-	if err != nil {
-		logger.Error("Template rendering failed for activity '%s': %v", activity, err)
+	assembledText, renderErr := r.templateRenderer.Render(systemTemplate, finalVars)
+	if renderErr != nil {
+		logger.Error("Template rendering failed for activity '%s': %v", activity, renderErr)
 		return nil
 	}
 
@@ -295,7 +389,11 @@ func (r *Registry) LoadWithVars(activity string, vars map[string]string, model s
 	}
 
 	// Debug logging (controlled by global log level via -v flag)
-	logger.Debug("🔧 Assembled prompt", "task_type", config.Spec.TaskType, "hash", hash[:8], "tools", len(config.Spec.AllowedTools), "validators", len(config.Spec.Validators))
+	logger.Debug("🔧 Assembled prompt",
+		"task_type", config.Spec.TaskType,
+		"hash", hash[:8],
+		"tools", len(config.Spec.AllowedTools),
+		"validators", len(config.Spec.Validators))
 
 	return &result
 }

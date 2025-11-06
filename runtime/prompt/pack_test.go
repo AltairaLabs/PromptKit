@@ -379,3 +379,85 @@ func TestAssembledPrompt_UsesTools(t *testing.T) {
 		assert.False(t, ap.UsesTools())
 	})
 }
+
+func TestLoadPackWithMediaConfig(t *testing.T) {
+	t.Run("pack with media config", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		packFile := filepath.Join(tmpDir, "multimodal.pack.json")
+
+		pack := &Pack{
+			ID:      "multimodal-pack",
+			Name:    "Multimodal Pack",
+			Version: "v1.0.0",
+			TemplateEngine: &TemplateEngineInfo{
+				Version: "v1",
+				Syntax:  "handlebars",
+			},
+			Prompts: map[string]*PackPrompt{
+				"image-analysis": {
+					ID:             "image-analysis",
+					Name:           "Image Analyzer",
+					SystemTemplate: "Analyze the provided image",
+					MediaConfig: &MediaConfig{
+						Enabled:        true,
+						SupportedTypes: []string{"image"},
+						Image: &ImageConfig{
+							MaxSizeMB:      20,
+							AllowedFormats: []string{"jpeg", "png", "webp"},
+							DefaultDetail:  "high",
+						},
+					},
+				},
+			},
+		}
+
+		data, err := json.MarshalIndent(pack, "", "  ")
+		require.NoError(t, err)
+		err = os.WriteFile(packFile, data, 0644)
+		require.NoError(t, err)
+
+		loaded, err := LoadPack(packFile)
+		require.NoError(t, err)
+		assert.Equal(t, "multimodal-pack", loaded.ID)
+		assert.Len(t, loaded.Prompts, 1)
+
+		prompt := loaded.Prompts["image-analysis"]
+		require.NotNil(t, prompt)
+		require.NotNil(t, prompt.MediaConfig)
+		assert.True(t, prompt.MediaConfig.Enabled)
+		assert.Equal(t, []string{"image"}, prompt.MediaConfig.SupportedTypes)
+		assert.NotNil(t, prompt.MediaConfig.Image)
+		assert.Equal(t, 20, prompt.MediaConfig.Image.MaxSizeMB)
+		assert.Equal(t, []string{"jpeg", "png", "webp"}, prompt.MediaConfig.Image.AllowedFormats)
+		assert.Equal(t, "high", prompt.MediaConfig.Image.DefaultDetail)
+	})
+
+	t.Run("pack without media config", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		packFile := filepath.Join(tmpDir, "simple.pack.json")
+
+		pack := &Pack{
+			ID:      "simple-pack",
+			Version: "v1.0.0",
+			Prompts: map[string]*PackPrompt{
+				"greeting": {
+					ID:             "greeting",
+					SystemTemplate: "Hello {{name}}",
+				},
+			},
+		}
+
+		data, err := json.MarshalIndent(pack, "", "  ")
+		require.NoError(t, err)
+		err = os.WriteFile(packFile, data, 0644)
+		require.NoError(t, err)
+
+		loaded, err := LoadPack(packFile)
+		require.NoError(t, err)
+		assert.Equal(t, "simple-pack", loaded.ID)
+
+		prompt := loaded.Prompts["greeting"]
+		require.NotNil(t, prompt)
+		assert.Nil(t, prompt.MediaConfig) // Should be nil for non-multimodal prompts
+	})
+}

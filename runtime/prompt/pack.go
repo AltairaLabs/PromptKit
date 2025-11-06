@@ -70,6 +70,9 @@ type PackPrompt struct {
 	Tools      []string        `json:"tools,omitempty"`       // Allowed tool names
 	ToolPolicy *ToolPolicyPack `json:"tool_policy,omitempty"` // Tool usage policy
 
+	// Multimodal media configuration
+	MediaConfig *MediaConfig `json:"media,omitempty"`
+
 	// Pipeline
 	Pipeline map[string]interface{} `json:"pipeline,omitempty"` // Pipeline configuration
 
@@ -113,7 +116,7 @@ func NewPackCompiler(registry *Registry) *PackCompiler {
 }
 
 // CompileToFile compiles a prompt config to a JSON pack file
-func (pc *PackCompiler) CompileToFile(taskType string, outputPath string, compilerVersion string) error {
+func (pc *PackCompiler) CompileToFile(taskType, outputPath, compilerVersion string) error {
 	pack, err := pc.Compile(taskType, compilerVersion)
 	if err != nil {
 		return fmt.Errorf("compilation failed: %w", err)
@@ -126,7 +129,7 @@ func (pc *PackCompiler) CompileToFile(taskType string, outputPath string, compil
 	}
 
 	// Write to file
-	if err := os.WriteFile(outputPath, data, 0644); err != nil {
+	if err := os.WriteFile(outputPath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write pack file: %w", err)
 	}
 
@@ -134,7 +137,7 @@ func (pc *PackCompiler) CompileToFile(taskType string, outputPath string, compil
 }
 
 // Compile compiles a single prompt config to Pack format (for backward compatibility)
-func (pc *PackCompiler) Compile(taskType string, compilerVersion string) (*Pack, error) {
+func (pc *PackCompiler) Compile(taskType, compilerVersion string) (*Pack, error) {
 	// Load the config (this will auto-populate defaults)
 	config, err := pc.registry.LoadConfig(taskType)
 	if err != nil {
@@ -162,6 +165,7 @@ func (pc *PackCompiler) Compile(taskType string, compilerVersion string) (*Pack,
 		Variables:      config.Spec.Variables,
 		Tools:          config.Spec.AllowedTools,
 		Validators:     config.Spec.Validators,
+		MediaConfig:    config.Spec.MediaConfig,
 		TestedModels:   config.Spec.TestedModels,
 		ModelOverrides: config.Spec.ModelOverrides,
 		Pipeline:       GetDefaultPipelineConfig(),
@@ -189,7 +193,7 @@ func (pc *PackCompiler) Compile(taskType string, compilerVersion string) (*Pack,
 }
 
 // CompileFromRegistry compiles ALL prompts from the registry into a single Pack
-func (pc *PackCompiler) CompileFromRegistry(packID string, compilerVersion string) (*Pack, error) {
+func (pc *PackCompiler) CompileFromRegistry(packID, compilerVersion string) (*Pack, error) {
 	// Get all prompt configs from registry
 	taskTypes := pc.registry.ListTaskTypes()
 
@@ -232,6 +236,7 @@ func (pc *PackCompiler) CompileFromRegistry(packID string, compilerVersion strin
 			Variables:      config.Spec.Variables,
 			Tools:          config.Spec.AllowedTools,
 			Validators:     config.Spec.Validators,
+			MediaConfig:    config.Spec.MediaConfig,
 			TestedModels:   config.Spec.TestedModels,
 			ModelOverrides: config.Spec.ModelOverrides,
 			Pipeline:       GetDefaultPipelineConfig(),

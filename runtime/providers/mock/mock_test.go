@@ -1,9 +1,8 @@
 package mock
 
 import (
-
-"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"context"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"testing"
 )
