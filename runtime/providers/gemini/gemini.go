@@ -480,7 +480,7 @@ func (p *GeminiProvider) streamResponse(ctx context.Context, body io.ReadCloser,
 	if err != nil {
 		outChan <- providers.StreamChunk{
 			Error:        fmt.Errorf("failed to read response body: %w", err),
-			FinishReason: ptr("error"),
+			FinishReason: providers.StringPtr("error"),
 		}
 		return
 	}
@@ -490,7 +490,7 @@ func (p *GeminiProvider) streamResponse(ctx context.Context, body io.ReadCloser,
 	if err := json.Unmarshal(bodyBytes, &responses); err != nil {
 		outChan <- providers.StreamChunk{
 			Error:        fmt.Errorf("failed to parse streaming response: %w", err),
-			FinishReason: ptr("error"),
+			FinishReason: providers.StringPtr("error"),
 		}
 		return
 	}
@@ -505,7 +505,7 @@ func (p *GeminiProvider) streamResponse(ctx context.Context, body io.ReadCloser,
 			outChan <- providers.StreamChunk{
 				Content:      accumulated,
 				Error:        ctx.Err(),
-				FinishReason: ptr("cancelled"),
+				FinishReason: providers.StringPtr("cancelled"),
 			}
 			return
 		default:
@@ -560,16 +560,11 @@ func (p *GeminiProvider) streamResponse(ctx context.Context, body io.ReadCloser,
 	outChan <- providers.StreamChunk{
 		Content:      accumulated,
 		TokenCount:   totalTokens,
-		FinishReason: ptr("stop"),
+		FinishReason: providers.StringPtr("stop"),
 	}
 }
 
 // SupportsStreaming returns true for Gemini
 func (p *GeminiProvider) SupportsStreaming() bool {
 	return true
-}
-
-// ptr is a helper function that returns a pointer to a string
-func ptr(s string) *string {
-	return &s
 }

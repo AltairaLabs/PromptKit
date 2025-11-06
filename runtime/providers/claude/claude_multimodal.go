@@ -3,14 +3,10 @@ package claude
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
@@ -221,7 +217,7 @@ func (p *ClaudeProvider) convertImagePartToClaude(part types.ContentPart) (claud
 		block.Source.URL = *part.Media.URL
 	} else if part.Media.FilePath != nil && *part.Media.FilePath != "" {
 		// File path - load and convert to base64
-		data, err := loadFileAsBase64(*part.Media.FilePath)
+		data, err := providers.LoadFileAsBase64(*part.Media.FilePath)
 		if err != nil {
 			return claudeContentBlockMultimodal{}, fmt.Errorf("failed to load image file: %w", err)
 		}
@@ -232,25 +228,6 @@ func (p *ClaudeProvider) convertImagePartToClaude(part types.ContentPart) (claud
 	}
 
 	return block, nil
-}
-
-// loadFileAsBase64 loads a file and returns its base64 encoded content
-func loadFileAsBase64(filePath string) (string, error) {
-	// Expand home directory if needed
-	if strings.HasPrefix(filePath, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to get home directory: %w", err)
-		}
-		filePath = filepath.Join(home, filePath[2:])
-	}
-
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read file: %w", err)
-	}
-
-	return base64.StdEncoding.EncodeToString(data), nil
 }
 
 // chatWithContentsMultimodal handles the actual API call with multimodal content

@@ -3,20 +3,18 @@ package gemini
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-) // GetMultimodalCapabilities returns Gemini's multimodal support capabilities
+)
+
+// GetMultimodalCapabilities returns Gemini's multimodal support capabilities
 func (p *GeminiProvider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
 	// Gemini supports images, audio, and video
 	return providers.MultimodalCapabilities{
@@ -196,7 +194,7 @@ func convertMediaPartToGemini(part types.ContentPart) (geminiPart, error) {
 		return geminiPart{}, fmt.Errorf("gemini does not support media URLs, please use inline data or file paths")
 	} else if part.Media.FilePath != nil && *part.Media.FilePath != "" {
 		// Read file and convert to base64
-		base64Data, err = readFileAsBase64(*part.Media.FilePath)
+		base64Data, err = providers.LoadFileAsBase64(*part.Media.FilePath)
 		if err != nil {
 			return geminiPart{}, fmt.Errorf("failed to read file: %w", err)
 		}
@@ -211,25 +209,6 @@ func convertMediaPartToGemini(part types.ContentPart) (geminiPart, error) {
 			Data:     base64Data,
 		},
 	}, nil
-}
-
-// readFileAsBase64 reads a file and returns its base64-encoded content
-func readFileAsBase64(filePath string) (string, error) {
-	// Expand ~ to home directory
-	if strings.HasPrefix(filePath, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to get home directory: %w", err)
-		}
-		filePath = filepath.Join(home, filePath[2:])
-	}
-
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read file: %w", err)
-	}
-
-	return base64.StdEncoding.EncodeToString(data), nil
 }
 
 // chatWithContents is a helper method for both regular and multimodal chat

@@ -302,7 +302,7 @@ func TestGeminiProvider_ValidateMultimodalMessage(t *testing.T) {
 					{
 						Type: "image",
 						Media: &types.MediaContent{
-							Data:     ptr("base64data"),
+							Data:     providers.StringPtr("base64data"),
 							MIMEType: "image/jpeg",
 						},
 					},
@@ -318,7 +318,7 @@ func TestGeminiProvider_ValidateMultimodalMessage(t *testing.T) {
 					{
 						Type: "audio",
 						Media: &types.MediaContent{
-							Data:     ptr("base64data"),
+							Data:     providers.StringPtr("base64data"),
 							MIMEType: "audio/mp3",
 						},
 					},
@@ -334,7 +334,7 @@ func TestGeminiProvider_ValidateMultimodalMessage(t *testing.T) {
 					{
 						Type: "video",
 						Media: &types.MediaContent{
-							Data:     ptr("base64data"),
+							Data:     providers.StringPtr("base64data"),
 							MIMEType: "video/mp4",
 						},
 					},
@@ -350,7 +350,7 @@ func TestGeminiProvider_ValidateMultimodalMessage(t *testing.T) {
 					{
 						Type: "image",
 						Media: &types.MediaContent{
-							Data:     ptr("base64data"),
+							Data:     providers.StringPtr("base64data"),
 							MIMEType: "image/bmp", // Not supported
 						},
 					},

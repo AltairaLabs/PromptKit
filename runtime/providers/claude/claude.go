@@ -485,7 +485,7 @@ func (p *ClaudeProvider) streamResponse(ctx context.Context, body io.ReadCloser,
 			outChan <- providers.StreamChunk{
 				Content:      accumulated,
 				Error:        ctx.Err(),
-				FinishReason: ptr("cancelled"),
+				FinishReason: providers.StringPtr("cancelled"),
 			}
 			return
 		default:
@@ -558,7 +558,7 @@ func (p *ClaudeProvider) streamResponse(ctx context.Context, body io.ReadCloser,
 		outChan <- providers.StreamChunk{
 			Content:      accumulated,
 			Error:        err,
-			FinishReason: ptr("error"),
+			FinishReason: providers.StringPtr("error"),
 		}
 	}
 }
@@ -566,9 +566,4 @@ func (p *ClaudeProvider) streamResponse(ctx context.Context, body io.ReadCloser,
 // SupportsStreaming returns true for Claude
 func (p *ClaudeProvider) SupportsStreaming() bool {
 	return true
-}
-
-// ptr is a helper function that returns a pointer to a string
-func ptr(s string) *string {
-	return &s
 }

@@ -409,7 +409,7 @@ func (p *OpenAIProvider) streamResponse(ctx context.Context, body io.ReadCloser,
 				Content:      accumulated,
 				ToolCalls:    accumulatedToolCalls,
 				Error:        ctx.Err(),
-				FinishReason: ptr("cancelled"),
+				FinishReason: providers.StringPtr("cancelled"),
 			}
 			return
 		default:
@@ -421,7 +421,7 @@ func (p *OpenAIProvider) streamResponse(ctx context.Context, body io.ReadCloser,
 				Content:      accumulated,
 				ToolCalls:    accumulatedToolCalls,
 				TokenCount:   totalTokens,
-				FinishReason: ptr("stop"),
+				FinishReason: providers.StringPtr("stop"),
 			}
 			return
 		}
@@ -531,7 +531,7 @@ func (p *OpenAIProvider) streamResponse(ctx context.Context, body io.ReadCloser,
 			Content:      accumulated,
 			ToolCalls:    accumulatedToolCalls,
 			Error:        err,
-			FinishReason: ptr("error"),
+			FinishReason: providers.StringPtr("error"),
 		}
 	}
 }
@@ -539,9 +539,4 @@ func (p *OpenAIProvider) streamResponse(ctx context.Context, body io.ReadCloser,
 // SupportsStreaming returns true for OpenAI
 func (p *OpenAIProvider) SupportsStreaming() bool {
 	return true
-}
-
-// ptr is a helper function that returns a pointer to a string
-func ptr(s string) *string {
-return &s
 }
