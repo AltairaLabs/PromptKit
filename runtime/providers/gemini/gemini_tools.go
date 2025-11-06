@@ -110,7 +110,7 @@ func (p *GeminiToolProvider) ChatWithTools(ctx context.Context, req providers.Ch
 
 	// Prepare response with raw request if configured (set early to preserve on error)
 	chatResp := providers.ChatResponse{}
-	if p.includeRawOutput {
+	if p.ShouldIncludeRawOutput() {
 		chatResp.RawRequest = geminiReq
 	}
 
@@ -411,7 +411,7 @@ func (p *GeminiToolProvider) makeRequest(ctx context.Context, request interface{
 
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := p.Client.Do(req)
+	resp, err := p.GetHTTPClient().Do(req)
 	if err != nil {
 		logger.APIResponse("Gemini-Tools", 0, "", err)
 		return nil, fmt.Errorf("request failed: %w", err)

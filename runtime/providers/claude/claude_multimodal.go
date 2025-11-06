@@ -268,7 +268,7 @@ func (p *ClaudeProvider) chatWithContentsMultimodal(ctx context.Context, message
 	chatResp := providers.ChatResponse{
 		Latency: time.Since(start),
 	}
-	if p.includeRawOutput {
+	if p.ShouldIncludeRawOutput() {
 		chatResp.RawRequest = claudeReq
 	}
 
@@ -292,7 +292,7 @@ func (p *ClaudeProvider) chatWithContentsMultimodal(ctx context.Context, message
 	httpReq.Header.Set("x-api-key", p.apiKey)
 	httpReq.Header.Set("anthropic-version", "2023-06-01")
 
-	resp, err := p.client.Do(httpReq)
+	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
 		logger.APIResponse("Claude", 0, "", err)
 		chatResp.Latency = time.Since(start)
@@ -343,7 +343,7 @@ func (p *ClaudeProvider) chatWithContentsMultimodal(ctx context.Context, message
 	chatResp.CostInfo = &costBreakdown
 	chatResp.Latency = latency
 
-	if p.includeRawOutput {
+	if p.ShouldIncludeRawOutput() {
 		chatResp.Raw = respBody
 	}
 
@@ -418,7 +418,7 @@ func (p *ClaudeProvider) chatStreamWithContentsMultimodal(ctx context.Context, m
 	httpReq.Header.Set("x-api-key", p.apiKey)
 	httpReq.Header.Set("anthropic-version", "2023-06-01")
 
-	resp, err := p.client.Do(httpReq)
+	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

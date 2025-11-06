@@ -400,7 +400,7 @@ func (p *OpenAIProvider) chatStreamWithMessages(ctx context.Context, req provide
 	httpReq.Header.Set(authorizationHeader, bearerPrefix+p.apiKey)
 	httpReq.Header.Set("Accept", "text/event-stream")
 
-	resp, err := p.client.Do(httpReq)
+	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

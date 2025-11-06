@@ -23,13 +23,11 @@ const (
 
 // ClaudeProvider implements the Provider interface for Anthropic Claude
 type ClaudeProvider struct {
-	id               string
-	model            string
-	baseURL          string
-	apiKey           string
-	defaults         providers.ProviderDefaults
-	includeRawOutput bool
-	client           *http.Client
+	providers.BaseProvider
+	model    string
+	baseURL  string
+	apiKey   string
+	defaults providers.ProviderDefaults
 }
 
 // NewClaudeProvider creates a new Claude provider
@@ -40,31 +38,15 @@ func NewClaudeProvider(id, model, baseURL string, defaults providers.ProviderDef
 	}
 
 	return &ClaudeProvider{
-		id:               id,
-		model:            model,
-		baseURL:          baseURL,
-		apiKey:           apiKey,
-		defaults:         defaults,
-		includeRawOutput: includeRawOutput,
-		client:           &http.Client{Timeout: 60 * time.Second},
+		BaseProvider: providers.NewBaseProvider(id, includeRawOutput, &http.Client{Timeout: 60 * time.Second}),
+		model:        model,
+		baseURL:      baseURL,
+		apiKey:       apiKey,
+		defaults:     defaults,
 	}
 }
 
-// ID returns the provider ID
-func (p *ClaudeProvider) ID() string {
-	return p.id
-}
-
-// ShouldIncludeRawOutput returns whether to include raw API requests in output
-func (p *ClaudeProvider) ShouldIncludeRawOutput() bool {
-	return p.includeRawOutput
-}
-
-// Close closes the HTTP client and cleans up idle connections
-func (p *ClaudeProvider) Close() error {
-	p.client.CloseIdleConnections()
-	return nil
-}
+// Close implements provider cleanup (uses BaseProvider.Close)
 
 // Claude API request/response structures
 type claudeRequest struct {
@@ -222,7 +204,7 @@ func (p *ClaudeProvider) Chat(ctx context.Context, req providers.ChatRequest) (p
 	chatResp := providers.ChatResponse{
 		Latency: time.Since(start), // Will be updated at the end
 	}
-	if p.includeRawOutput {
+	if p.ShouldIncludeRawOutput() {
 		chatResp.RawRequest = claudeReq
 	}
 
@@ -251,7 +233,7 @@ func (p *ClaudeProvider) Chat(ctx context.Context, req providers.ChatRequest) (p
 		"Anthropic-Version": "2023-06-01",
 	}, claudeReq)
 
-	resp, err := p.client.Do(httpReq)
+	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
 		chatResp.Latency = time.Since(start)
 		return chatResp, fmt.Errorf("failed to send request: %w", err)
@@ -336,7 +318,7 @@ func (p *ClaudeProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) ty
 		cachedCostPer1K = inputCostPer1K * 0.1
 	} else {
 		// Fallback to hardcoded pricing with warning
-		fmt.Printf("WARNING: No pricing configured for provider %s (model: %s), using fallback pricing\n", p.id, p.model)
+		fmt.Printf("WARNING: No pricing configured for provider %s (model: %s), using fallback pricing\n", p.ID(), p.model)
 
 		switch p.model {
 		case "claude-3-5-sonnet-20241022", "claude-3-5-sonnet-20240620":
@@ -452,7 +434,7 @@ func (p *ClaudeProvider) ChatStream(ctx context.Context, req providers.ChatReque
 	httpReq.Header.Set("anthropic-version", "2023-06-01")
 	httpReq.Header.Set("Accept", "text/event-stream")
 
-	resp, err := p.client.Do(httpReq)
+	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
@@ -563,7 +545,4 @@ func (p *ClaudeProvider) streamResponse(ctx context.Context, body io.ReadCloser,
 	}
 }
 
-// SupportsStreaming returns true for Claude
-func (p *ClaudeProvider) SupportsStreaming() bool {
-	return true
-}
+// SupportsStreaming is provided by BaseProvider (returns true)

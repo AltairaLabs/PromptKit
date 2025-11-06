@@ -253,7 +253,7 @@ func (p *GeminiProvider) chatWithContents(ctx context.Context, contents []gemini
 	chatResp := providers.ChatResponse{
 		Latency: time.Since(start),
 	}
-	if p.includeRawOutput {
+	if p.ShouldIncludeRawOutput() {
 		chatResp.RawRequest = geminiReq
 	}
 
@@ -275,7 +275,7 @@ func (p *GeminiProvider) chatWithContents(ctx context.Context, contents []gemini
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
 
-	resp, err := p.Client.Do(httpReq)
+	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
 		logger.APIResponse("Gemini", 0, "", err)
 		chatResp.Latency = time.Since(start)
@@ -416,7 +416,7 @@ func (p *GeminiProvider) chatStreamWithContents(ctx context.Context, contents []
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
 
-	resp, err := p.Client.Do(httpReq)
+	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

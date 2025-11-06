@@ -323,7 +323,7 @@ func (p *ClaudeToolProvider) makeRequest(ctx context.Context, request interface{
 	req.Header.Set("x-api-key", p.apiKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
 
-	resp, err := p.client.Do(req)
+	resp, err := p.GetHTTPClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}

@@ -25,13 +25,11 @@ const (
 
 // GeminiProvider implements the Provider interface for Google Gemini
 type GeminiProvider struct {
-	id               string
-	Model            string
-	BaseURL          string
-	ApiKey           string
-	Defaults         providers.ProviderDefaults
-	includeRawOutput bool
-	Client           *http.Client
+	providers.BaseProvider
+	Model    string
+	BaseURL  string
+	ApiKey   string
+	Defaults providers.ProviderDefaults
 }
 
 // NewGeminiProvider creates a new Gemini provider
@@ -42,30 +40,12 @@ func NewGeminiProvider(id, model, baseURL string, defaults providers.ProviderDef
 	}
 
 	return &GeminiProvider{
-		id:               id,
-		Model:            model,
-		BaseURL:          baseURL,
-		ApiKey:           apiKey,
-		Defaults:         defaults,
-		includeRawOutput: includeRawOutput,
-		Client:           &http.Client{Timeout: 60 * time.Second},
+		BaseProvider: providers.NewBaseProvider(id, includeRawOutput, &http.Client{Timeout: 60 * time.Second}),
+		Model:        model,
+		BaseURL:      baseURL,
+		ApiKey:       apiKey,
+		Defaults:     defaults,
 	}
-}
-
-// ID returns the provider ID
-func (p *GeminiProvider) ID() string {
-	return p.id
-}
-
-// ShouldIncludeRawOutput returns whether to include raw API requests in output
-func (p *GeminiProvider) ShouldIncludeRawOutput() bool {
-	return p.includeRawOutput
-}
-
-// Close closes the HTTP client and cleans up idle connections
-func (p *GeminiProvider) Close() error {
-	p.Client.CloseIdleConnections()
-	return nil
 }
 
 // Gemini API request/response structures
@@ -203,7 +183,7 @@ func (p *GeminiProvider) Chat(ctx context.Context, req providers.ChatRequest) (p
 	chatResp := providers.ChatResponse{
 		Latency: time.Since(start), // Will be updated at the end
 	}
-	if p.includeRawOutput {
+	if p.ShouldIncludeRawOutput() {
 		chatResp.RawRequest = geminiReq
 	}
 
@@ -225,7 +205,7 @@ func (p *GeminiProvider) Chat(ctx context.Context, req providers.ChatRequest) (p
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
 
-	resp, err := p.Client.Do(httpReq)
+	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
 		logger.APIResponse("Gemini", 0, "", err)
 		chatResp.Latency = time.Since(start)
@@ -341,7 +321,7 @@ func (p *GeminiProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) ty
 		cachedCostPer1K = inputCostPer1K * 0.5
 	} else {
 		// Fallback to hardcoded pricing with warning
-		fmt.Printf("WARNING: No pricing configured for provider %s (model: %s), using fallback pricing\n", p.id, p.Model)
+		fmt.Printf("WARNING: No pricing configured for provider %s (model: %s), using fallback pricing\n", p.ID(), p.Model)
 
 		switch p.Model {
 		case "gemini-1.5-pro", "gemini-2.5-pro":
@@ -451,7 +431,7 @@ func (p *GeminiProvider) ChatStream(ctx context.Context, req providers.ChatReque
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
 
-	resp, err := p.Client.Do(httpReq)
+	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
@@ -564,7 +544,4 @@ func (p *GeminiProvider) streamResponse(ctx context.Context, body io.ReadCloser,
 	}
 }
 
-// SupportsStreaming returns true for Gemini
-func (p *GeminiProvider) SupportsStreaming() bool {
-	return true
-}
+// SupportsStreaming is provided by BaseProvider (returns true)

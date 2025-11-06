@@ -304,7 +304,7 @@ func (p *OpenAIToolProvider) makeRequest(ctx context.Context, request interface{
 		authorizationHeader: bearerPrefix + p.apiKey,
 	}, request)
 
-	resp, err := p.client.Do(req)
+	resp, err := p.GetHTTPClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}

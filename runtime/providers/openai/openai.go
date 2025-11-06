@@ -27,13 +27,11 @@ const (
 
 // OpenAIProvider implements the Provider interface for OpenAI
 type OpenAIProvider struct {
-	id               string
-	model            string
-	baseURL          string
-	apiKey           string
-	defaults         providers.ProviderDefaults
-	includeRawOutput bool
-	client           *http.Client
+	providers.BaseProvider
+	model    string
+	baseURL  string
+	apiKey   string
+	defaults providers.ProviderDefaults
 }
 
 // NewOpenAIProvider creates a new OpenAI provider
@@ -44,30 +42,12 @@ func NewOpenAIProvider(id, model, baseURL string, defaults providers.ProviderDef
 	}
 
 	return &OpenAIProvider{
-		id:               id,
-		model:            model,
-		baseURL:          baseURL,
-		apiKey:           apiKey,
-		defaults:         defaults,
-		includeRawOutput: includeRawOutput,
-		client:           &http.Client{Timeout: 60 * time.Second},
+		BaseProvider: providers.NewBaseProvider(id, includeRawOutput, &http.Client{Timeout: 60 * time.Second}),
+		model:        model,
+		baseURL:      baseURL,
+		apiKey:       apiKey,
+		defaults:     defaults,
 	}
-}
-
-// ID returns the provider ID
-func (p *OpenAIProvider) ID() string {
-	return p.id
-}
-
-// ShouldIncludeRawOutput returns whether to include raw API requests in output
-func (p *OpenAIProvider) ShouldIncludeRawOutput() bool {
-	return p.includeRawOutput
-}
-
-// Close closes the HTTP client and cleans up idle connections
-func (p *OpenAIProvider) Close() error {
-	p.client.CloseIdleConnections()
-	return nil
 }
 
 // OpenAI API request/response structures
@@ -266,7 +246,7 @@ func (p *OpenAIProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) ty
 		cachedCostPer1K = inputCostPer1K * 0.5
 	} else {
 		// Fallback to hardcoded pricing with warning
-		fmt.Printf("WARNING: No pricing configured for provider %s (model: %s), using fallback pricing\n", p.id, p.model)
+		fmt.Printf("WARNING: No pricing configured for provider %s (model: %s), using fallback pricing\n", p.ID(), p.model)
 
 		switch p.model {
 		case "gpt-4":
@@ -374,7 +354,7 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, req providers.ChatReque
 	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
 	httpReq.Header.Set("Accept", "text/event-stream")
 
-	resp, err := p.client.Do(httpReq)
+	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
@@ -536,7 +516,4 @@ func (p *OpenAIProvider) streamResponse(ctx context.Context, body io.ReadCloser,
 	}
 }
 
-// SupportsStreaming returns true for OpenAI
-func (p *OpenAIProvider) SupportsStreaming() bool {
-	return true
-}
+// SupportsStreaming is provided by BaseProvider (returns true)
