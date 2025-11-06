@@ -30,6 +30,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 )
 
@@ -153,33 +154,28 @@ func (e *Engine) Close() error {
 	return nil
 }
 
-// EnableMockProviderMode replaces all providers in the registry with MockProvider instances.
-// This is useful for CI/testing scenarios where deterministic responses are needed without
-// making actual API calls. If mockConfigPath is provided, it loads mock responses from
-// a YAML configuration file using the FileMockRepository.
-//
-// The mock configuration supports:
-//   - Default responses for all scenarios
-//   - Scenario-specific responses
-//   - Turn-by-turn responses within scenarios
+// EnableMockProviderMode replaces all providers in the registry with mock providers.
+// This enables testing of scenario behavior without making real API calls.
+// Mock providers can use either file-based configuration for scenario-specific
+// responses or default in-memory responses.
 //
 // Parameters:
 //   - mockConfigPath: Optional path to YAML configuration file for mock responses
 //
 // Returns an error if the mock configuration file cannot be loaded or parsed.
 func (e *Engine) EnableMockProviderMode(mockConfigPath string) error {
-	var repository providers.MockResponseRepository
+	var repository mock.MockResponseRepository
 
 	// Create appropriate repository based on whether config file is provided
 	if mockConfigPath != "" {
-		fileRepo, err := providers.NewFileMockRepository(mockConfigPath)
+		fileRepo, err := mock.NewFileMockRepository(mockConfigPath)
 		if err != nil {
 			return fmt.Errorf("failed to load mock configuration from %s: %w", mockConfigPath, err)
 		}
 		repository = fileRepo
 	} else {
 		// Use default in-memory repository with generic responses
-		repository = providers.NewInMemoryMockRepository("Mock response from provider")
+		repository = mock.NewInMemoryMockRepository("Mock response from provider")
 	}
 
 	// Create a new provider registry with mock providers
@@ -187,7 +183,7 @@ func (e *Engine) EnableMockProviderMode(mockConfigPath string) error {
 
 	// Replace each provider with a MockToolProvider using the same ID for tool call simulation
 	for providerID, provider := range e.providers {
-		mockProvider := providers.NewMockToolProviderWithRepository(
+		mockProvider := mock.NewMockToolProviderWithRepository(
 			providerID,
 			provider.Model,
 			provider.IncludeRawOutput,

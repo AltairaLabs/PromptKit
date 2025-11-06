@@ -11,7 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/openai"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/stretchr/testify/require"
@@ -65,7 +65,7 @@ func TestConversationExecutor_DebugOnUserTurnAssertions(t *testing.T) {
 	}
 
 	// Create provider
-	provider := &providers.OpenAIProvider{}
+	provider := &openai.OpenAIProvider{}
 
 	// Create config
 	cfg := &config.Config{
