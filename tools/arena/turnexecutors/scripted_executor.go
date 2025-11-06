@@ -42,10 +42,6 @@ func (e *ScriptedExecutor) buildUserMessage(req TurnRequest) (types.Message, err
 		Timestamp: time.Now(),
 	}
 
-	// Debug: print what we have
-	fmt.Printf("[DEBUG] buildUserMessage: ScriptedParts length=%d, ScriptedContent length=%d\n",
-		len(req.ScriptedParts), len(req.ScriptedContent))
-
 	// If Parts are provided, use multimodal content (takes precedence)
 	if len(req.ScriptedParts) > 0 {
 		// Determine base directory for resolving relative file paths
@@ -57,8 +53,6 @@ func (e *ScriptedExecutor) buildUserMessage(req TurnRequest) (types.Message, err
 			return types.Message{}, fmt.Errorf("failed to convert multimodal parts: %w", err)
 		}
 		userMessage.Parts = parts
-		fmt.Printf("[DEBUG] buildUserMessage: Converted to %d message parts, IsMultimodal=%v\n",
-			len(parts), userMessage.IsMultimodal())
 	} else {
 		// Fall back to legacy text-only content
 		userMessage.Content = req.ScriptedContent

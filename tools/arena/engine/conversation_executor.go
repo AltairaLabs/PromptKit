@@ -159,9 +159,6 @@ func (ce *DefaultConversationExecutor) debugOnUserTurnAssertions(scenarioTurn co
 
 // buildTurnRequest creates a TurnRequest from the conversation request and scenario turn
 func (ce *DefaultConversationExecutor) buildTurnRequest(req ConversationRequest, scenarioTurn config.TurnDefinition) turnexecutors.TurnRequest {
-	fmt.Printf("[DEBUG] buildTurnRequest: scenarioTurn.Parts length=%d, scenarioTurn.Content length=%d\n",
-		len(scenarioTurn.Parts), len(scenarioTurn.Content))
-
 	return turnexecutors.TurnRequest{
 		Provider:         req.Provider,
 		Scenario:         req.Scenario,
