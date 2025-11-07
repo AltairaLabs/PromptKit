@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -44,6 +45,9 @@ type ExecutionContext struct {
 	StreamOutput      chan providers.StreamChunk // Output channel for streaming chunks
 	StreamInterrupted bool                       // Set to true by middleware to stop streaming
 	InterruptReason   string                     // Reason for interruption
+
+	// Middleware control
+	ShortCircuit bool // Set to true by middleware to intentionally skip remaining middleware
 
 	// Internal: handler for processing chunks through middleware (set by Pipeline)
 	streamChunkHandler func(*providers.StreamChunk) error
@@ -273,7 +277,25 @@ type LLMCall struct {
 	Duration     time.Duration           `json:"duration"`               // How long the call took
 	Cost         types.CostInfo          `json:"cost"`                   // Cost information for this call
 	ToolCalls    []types.MessageToolCall `json:"tool_calls,omitempty"`   // If this call triggered tool execution
-	Error        error                   `json:"error,omitempty"`        // If the call failed
+	Error        *string                 `json:"error,omitempty"`        // Error message if the call failed (nil if successful)
+}
+
+// SetError sets the error for this LLM call from an error value.
+func (l *LLMCall) SetError(err error) {
+	if err != nil {
+		errMsg := err.Error()
+		l.Error = &errMsg
+	} else {
+		l.Error = nil
+	}
+}
+
+// GetError returns the error as an error type, or nil if no error occurred.
+func (l *LLMCall) GetError() error {
+	if l.Error == nil {
+		return nil
+	}
+	return errors.New(*l.Error)
 }
 
 // TraceEvent represents a significant event during pipeline execution.

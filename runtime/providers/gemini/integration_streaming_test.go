@@ -101,14 +101,12 @@ func TestStreamingIntegration_EndToEnd(t *testing.T) {
 			t.Fatalf("failed to send chunk %d: %v", i, err)
 		}
 		t.Logf("Sent chunk %d/%d", i+1, len(chunks))
+
+		// Small delay between chunks to avoid overwhelming the API
+		time.Sleep(50 * time.Millisecond)
 	}
 
-	// Send text to trigger response
-	if err := session.SendText(ctx, "Please acknowledge receipt of the audio."); err != nil {
-		t.Fatalf("failed to send text: %v", err)
-	}
-
-	t.Log("Waiting for responses...")
+	t.Log("Audio sent, waiting for responses...")
 
 	// Wait for responses or timeout
 	select {

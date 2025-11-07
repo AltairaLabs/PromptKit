@@ -12,6 +12,21 @@ import (
 var _ providers.StreamInputSupport = (*GeminiProvider)(nil)
 
 // CreateStreamSession creates a new bidirectional streaming session with Gemini Live API
+//
+// Response Modalities:
+// By default, the session is configured to return TEXT responses only.
+// To request audio responses, pass "response_modalities" in the request metadata:
+//
+//	req := providers.StreamInputRequest{
+//	    Config: config,
+//	    Metadata: map[string]interface{}{
+//	        "response_modalities": []string{"AUDIO"},        // Audio only
+//	        // OR
+//	        "response_modalities": []string{"TEXT", "AUDIO"}, // Both text and audio
+//	    },
+//	}
+//
+// Audio responses will be delivered in the StreamChunk.Metadata["audio_data"] field as base64-encoded PCM.
 func (p *GeminiProvider) CreateStreamSession(ctx context.Context, req providers.StreamInputRequest) (providers.StreamInputSession, error) {
 	// Validate configuration
 	if err := req.Config.Validate(); err != nil {
@@ -31,11 +46,36 @@ func (p *GeminiProvider) CreateStreamSession(ctx context.Context, req providers.
 
 	// Construct WebSocket URL for Gemini Live API
 	// Format: wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent
-	// Note: API key is passed via Authorization header, not as query parameter
+	// Note: API key is passed via x-goog-api-key header, not as query parameter
 	wsURL := "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
 
-	// Create session
-	session, err := NewGeminiStreamSession(ctx, wsURL, p.ApiKey)
+	// Configure session with model and response modalities
+	config := StreamSessionConfig{
+		Model: p.Model,
+	}
+
+	// Check metadata for response modalities configuration
+	if req.Metadata != nil {
+		if modalities, ok := req.Metadata["response_modalities"].([]string); ok {
+			config.ResponseModalities = modalities
+		} else if modalities, ok := req.Metadata["response_modalities"].([]interface{}); ok {
+			// Handle case where metadata comes as []interface{}
+			config.ResponseModalities = make([]string, 0, len(modalities))
+			for _, m := range modalities {
+				if s, ok := m.(string); ok {
+					config.ResponseModalities = append(config.ResponseModalities, s)
+				}
+			}
+		}
+	}
+
+	// Default to TEXT if not specified
+	if len(config.ResponseModalities) == 0 {
+		config.ResponseModalities = []string{"TEXT"}
+	}
+
+	// Create session with configuration
+	session, err := NewGeminiStreamSession(ctx, wsURL, p.ApiKey, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stream session: %w", err)
 	}

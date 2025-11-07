@@ -29,8 +29,14 @@ type GeminiStreamSession struct {
 	sequenceNum int64
 }
 
+// StreamSessionConfig configures a streaming session
+type StreamSessionConfig struct {
+	Model              string   // Model name (will be prefixed with "models/" automatically)
+	ResponseModalities []string // "TEXT" and/or "AUDIO"
+}
+
 // NewGeminiStreamSession creates a new streaming session
-func NewGeminiStreamSession(ctx context.Context, wsURL, apiKey string) (*GeminiStreamSession, error) {
+func NewGeminiStreamSession(ctx context.Context, wsURL, apiKey string, config StreamSessionConfig) (*GeminiStreamSession, error) {
 	sessionCtx, cancel := context.WithCancel(ctx)
 
 	ws := NewWebSocketManager(wsURL, apiKey)
@@ -47,13 +53,28 @@ func NewGeminiStreamSession(ctx context.Context, wsURL, apiKey string) (*GeminiS
 		errCh:      make(chan error, 1),
 	}
 
+	// Default to TEXT if no modalities specified
+	modalities := config.ResponseModalities
+	if len(modalities) == 0 {
+		modalities = []string{"TEXT"}
+	}
+
+	// Ensure model is in correct format: models/{model}
+	modelPath := config.Model
+	if modelPath == "" {
+		modelPath = "gemini-2.0-flash-exp" // Default model
+	}
+	if len(modelPath) < 7 || modelPath[:7] != "models/" {
+		modelPath = "models/" + modelPath
+	}
+
 	// Send initial setup message (required by Gemini Live API)
 	// Per docs: first message must be BidiGenerateContentSetup
 	setupMsg := map[string]interface{}{
 		"setup": map[string]interface{}{
-			"model": "models/gemini-2.0-flash-exp", // Model must be in format: models/{model}
+			"model": modelPath,
 			"generationConfig": map[string]interface{}{
-				"responseModalities": []string{"AUDIO"},
+				"responseModalities": modalities,
 			},
 		},
 	}
@@ -104,7 +125,7 @@ func (s *GeminiStreamSession) SendChunk(ctx context.Context, chunk *types.MediaC
 	return s.ws.Send(msg)
 }
 
-// SendText sends a text message to the server
+// SendText sends a text message to the server and marks the turn as complete
 func (s *GeminiStreamSession) SendText(ctx context.Context, text string) error {
 	s.mu.Lock()
 	if s.closed {
@@ -113,8 +134,9 @@ func (s *GeminiStreamSession) SendText(ctx context.Context, text string) error {
 	}
 	s.mu.Unlock()
 
-	// Build text message
-	msg := buildTextMessage(text, false)
+	// Build text message with turn_complete set to true
+	// This signals to Gemini that we're done sending input and expecting a response
+	msg := buildTextMessage(text, true)
 
 	return s.ws.Send(msg)
 }
@@ -237,15 +259,31 @@ func (s *GeminiStreamSession) processServerMessage(msg *ServerMessage) error {
 // processModelTurn processes a model turn from the server
 func (s *GeminiStreamSession) processModelTurn(turn *ModelTurn, turnComplete bool) error {
 	response := providers.StreamChunk{
-		Content: "",
+		Content:  "",
+		Metadata: make(map[string]interface{}),
 	}
 
-	// Extract text from parts
+	// Extract text and audio from parts
 	for _, part := range turn.Parts {
 		if part.Text != "" {
 			response.Content += part.Text
+			response.Delta = part.Text
 		}
-		// Media data would be handled here if needed
+
+		// Handle audio/media data
+		if part.InlineData != nil {
+			// Store audio data in metadata
+			// The data is base64 encoded PCM audio from Gemini
+			response.Metadata["audio_mime_type"] = part.InlineData.MimeType
+			response.Metadata["audio_data"] = part.InlineData.Data // Base64 encoded
+			response.Metadata["has_audio"] = true
+		}
+	}
+
+	// Mark turn completion
+	if turnComplete {
+		finishReason := "complete"
+		response.FinishReason = &finishReason
 	}
 
 	// Send response to channel
@@ -258,27 +296,24 @@ func (s *GeminiStreamSession) processModelTurn(turn *ModelTurn, turnComplete boo
 	}
 }
 
-// buildClientMessage builds a client message with media chunk
+// buildClientMessage builds a realtime input message with media chunk
 func buildClientMessage(chunk types.MediaChunk, turnComplete bool) map[string]interface{} {
-	// Encode binary data as base64 would happen here in real implementation
-	// For now, we'll use the data directly (assuming it's already encoded)
-
-	part := map[string]interface{}{
-		"inline_data": map[string]interface{}{
-			"mime_type": "audio/pcm;rate=16000", // Default to PCM audio
-			"data":      string(chunk.Data),     // Should be base64 encoded
-		},
+	// Encode binary PCM data as base64 for transmission
+	encoder := NewAudioEncoder()
+	base64Data, err := encoder.EncodePCM(chunk.Data)
+	if err != nil {
+		// If encoding fails, use empty string (should not happen with valid PCM data)
+		base64Data = ""
 	}
 
 	return map[string]interface{}{
-		"client_content": map[string]interface{}{
-			"turns": []map[string]interface{}{
+		"realtime_input": map[string]interface{}{
+			"media_chunks": []map[string]interface{}{
 				{
-					"role":  "user",
-					"parts": []interface{}{part},
+					"mime_type": "audio/pcm",
+					"data":      base64Data,
 				},
 			},
-			"turn_complete": turnComplete,
 		},
 	}
 }
@@ -326,13 +361,13 @@ type ModelTurn struct {
 // Part represents a content part (text or inline data)
 type Part struct {
 	Text       string      `json:"text,omitempty"`
-	InlineData *InlineData `json:"inline_data,omitempty"`
+	InlineData *InlineData `json:"inlineData,omitempty"` // camelCase!
 }
 
 // InlineData represents inline media data
 type InlineData struct {
-	MimeType string `json:"mime_type,omitempty"`
-	Data     string `json:"data,omitempty"` // Base64 encoded
+	MimeType string `json:"mimeType,omitempty"` // camelCase!
+	Data     string `json:"data,omitempty"`     // Base64 encoded
 }
 
 // Marshal methods for easier JSON serialization

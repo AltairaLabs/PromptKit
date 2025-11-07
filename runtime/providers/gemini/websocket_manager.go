@@ -72,9 +72,9 @@ func (wm *WebSocketManager) Connect(ctx context.Context) error {
 	}
 
 	// Create headers with API key authentication
-	// Per Gemini Live API docs: use Authorization header with "Token" prefix
+	// Per Gemini Live API docs: use x-goog-api-key header
 	headers := http.Header{}
-	headers.Set("Authorization", fmt.Sprintf("Token %s", wm.apiKey))
+	headers.Set("x-goog-api-key", wm.apiKey)
 
 	// Connect
 	conn, resp, err := dialer.DialContext(ctx, wm.url, headers)
@@ -154,8 +154,8 @@ func (wm *WebSocketManager) Receive(ctx context.Context, v interface{}) error {
 		return fmt.Errorf("failed to read message: %w", err)
 	}
 
-	// Verify it's a text message
-	if messageType != websocket.TextMessage {
+	// Accept both text and binary messages (Gemini Live API uses both)
+	if messageType != websocket.TextMessage && messageType != websocket.BinaryMessage {
 		return fmt.Errorf("unexpected message type: %d", messageType)
 	}
 
