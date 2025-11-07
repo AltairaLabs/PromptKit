@@ -60,7 +60,7 @@ func TestStreamingDemo_RealAPI(t *testing.T) {
 	}
 
 	fmt.Println("📡 Step 1: Establishing WebSocket connection to Gemini Live API...")
-	session, err := provider.CreateStreamSession(ctx, req)
+	session, err := provider.CreateStreamSession(ctx, &req)
 	if err != nil {
 		t.Fatalf("❌ Failed to create session: %v", err)
 	}

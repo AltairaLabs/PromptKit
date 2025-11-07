@@ -27,7 +27,7 @@ var _ providers.StreamInputSupport = (*GeminiProvider)(nil)
 //	}
 //
 // Audio responses will be delivered in the StreamChunk.Metadata["audio_data"] field as base64-encoded PCM.
-func (p *GeminiProvider) CreateStreamSession(ctx context.Context, req providers.StreamInputRequest) (providers.StreamInputSession, error) {
+func (p *GeminiProvider) CreateStreamSession(ctx context.Context, req *providers.StreamInputRequest) (providers.StreamInputSession, error) {
 	// Validate configuration
 	if err := req.Config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid stream configuration: %w", err)
@@ -56,9 +56,10 @@ func (p *GeminiProvider) CreateStreamSession(ctx context.Context, req providers.
 
 	// Check metadata for response modalities configuration
 	if req.Metadata != nil {
-		if modalities, ok := req.Metadata["response_modalities"].([]string); ok {
+		switch modalities := req.Metadata["response_modalities"].(type) {
+		case []string:
 			config.ResponseModalities = modalities
-		} else if modalities, ok := req.Metadata["response_modalities"].([]interface{}); ok {
+		case []interface{}:
 			// Handle case where metadata comes as []interface{}
 			config.ResponseModalities = make([]string, 0, len(modalities))
 			for _, m := range modalities {

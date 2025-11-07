@@ -155,11 +155,11 @@ func TestLLMCall_SetError_NilError(t *testing.T) {
 	llmCall := LLMCall{
 		Sequence: 1,
 	}
-	
+
 	// Set an error first
 	llmCall.SetError(errors.New("some error"))
 	assert.NotNil(t, llmCall.Error)
-	
+
 	// Now set nil - should clear the error
 	llmCall.SetError(nil)
 	assert.Nil(t, llmCall.Error)
@@ -170,13 +170,13 @@ func TestExecutionContext_InterruptStream(t *testing.T) {
 	ctx := &ExecutionContext{
 		StreamMode: true,
 	}
-	
+
 	assert.False(t, ctx.StreamInterrupted)
 	assert.Equal(t, "", ctx.InterruptReason)
-	
+
 	// Interrupt the stream
 	ctx.InterruptStream("rate limit exceeded")
-	
+
 	assert.True(t, ctx.StreamInterrupted)
 	assert.Equal(t, "rate limit exceeded", ctx.InterruptReason)
 }

@@ -61,7 +61,7 @@ func TestDiagnostic_AudioModalityRawMessages(t *testing.T) {
 	}
 
 	fmt.Println("📡 Creating session with AUDIO modality...")
-	session, err := provider.CreateStreamSession(ctx, req)
+	session, err := provider.CreateStreamSession(ctx, &req)
 	if err != nil {
 		if strings.Contains(err.Error(), "API key not valid") ||
 			strings.Contains(err.Error(), "policy violation") ||

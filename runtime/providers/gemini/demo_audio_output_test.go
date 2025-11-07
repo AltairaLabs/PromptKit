@@ -70,7 +70,7 @@ func TestStreamingDemo_AudioAndTextOutput(t *testing.T) {
 	fmt.Println("📡 Step 1: Establishing WebSocket connection...")
 	fmt.Println("   🎯 Configured for TEXT + AUDIO responses")
 	fmt.Println("   ⚠️  Note: Audio output may not be available in current API version")
-	session, err := provider.CreateStreamSession(ctx, req)
+	session, err := provider.CreateStreamSession(ctx, &req)
 	if err != nil {
 		// If audio output is not supported, the API will reject with "invalid argument"
 		errMsg := err.Error()
@@ -271,7 +271,7 @@ func TestStreamingDemo_AudioOutputOnly(t *testing.T) {
 	fmt.Println("📡 Step 1: Establishing WebSocket connection...")
 	fmt.Println("   🎯 Configured for AUDIO-ONLY responses")
 	fmt.Println("   ⚠️  Note: Audio output may not be available in current API version")
-	session, err := provider.CreateStreamSession(ctx, req)
+	session, err := provider.CreateStreamSession(ctx, &req)
 	if err != nil {
 		// If audio output is not supported, the API will reject with "invalid argument"
 		errMsg := err.Error()

@@ -20,9 +20,9 @@ func TestGeminiAPIError_Error(t *testing.T) {
 
 func TestGeminiAPIError_IsRetryable(t *testing.T) {
 	tests := []struct {
-		name    string
-		code    int
-		want    bool
+		name string
+		code int
+		want bool
 	}{
 		{"rate limit", 429, true},
 		{"internal server error", 500, true},

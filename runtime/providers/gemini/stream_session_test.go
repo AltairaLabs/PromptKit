@@ -284,6 +284,168 @@ func TestGeminiStreamSession_ReceiveResponse(t *testing.T) {
 	}
 }
 
+func TestGeminiStreamSession_ReceiveAudioResponse(t *testing.T) {
+	server := newMockWebSocketServer(func(conn *websocket.Conn) {
+		// First read setup message
+		_, _, _ = conn.ReadMessage()
+
+		// Send setup_complete response
+		setupResponse := ServerMessage{
+			SetupComplete: &SetupComplete{},
+		}
+		setupData, _ := json.Marshal(setupResponse)
+		_ = conn.WriteMessage(websocket.TextMessage, setupData)
+
+		// Send a model response with audio data
+		audioData := "SGVsbG8gV29ybGQ=" // Base64 encoded "Hello World"
+		response := ServerMessage{
+			ServerContent: &ServerContent{
+				ModelTurn: &ModelTurn{
+					Parts: []Part{
+						{
+							InlineData: &InlineData{
+								MimeType: "audio/pcm",
+								Data:     audioData,
+							},
+						},
+					},
+				},
+				TurnComplete: true,
+			},
+		}
+
+		data, _ := json.Marshal(response)
+		_ = conn.WriteMessage(websocket.TextMessage, data)
+
+		// Keep connection alive
+		_, _, _ = conn.ReadMessage()
+	})
+	defer server.Close()
+
+	ctx := context.Background()
+	session, err := NewGeminiStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+	if err != nil {
+		t.Fatalf("NewGeminiStreamSession failed: %v", err)
+	}
+	defer session.Close()
+
+	// Receive response with audio
+	select {
+	case chunk := <-session.Response():
+		// Verify MediaDelta is populated
+		if chunk.MediaDelta == nil {
+			t.Fatal("Expected MediaDelta to be populated")
+		}
+
+		if chunk.MediaDelta.MIMEType != "audio/pcm" {
+			t.Errorf("Expected MIMEType 'audio/pcm', got '%s'", chunk.MediaDelta.MIMEType)
+		}
+
+		if chunk.MediaDelta.Data == nil {
+			t.Fatal("Expected Data to be populated")
+		}
+
+		if *chunk.MediaDelta.Data != "SGVsbG8gV29ybGQ=" {
+			t.Errorf("Expected base64 data 'SGVsbG8gV29ybGQ=', got '%s'", *chunk.MediaDelta.Data)
+		}
+
+		// Verify audio metadata is populated
+		if chunk.MediaDelta.Channels == nil {
+			t.Error("Expected Channels to be populated")
+		} else if *chunk.MediaDelta.Channels != 1 {
+			t.Errorf("Expected Channels to be 1, got %d", *chunk.MediaDelta.Channels)
+		}
+
+		if chunk.MediaDelta.BitRate == nil {
+			t.Error("Expected BitRate (sample rate) to be populated")
+		} else if *chunk.MediaDelta.BitRate != 16000 {
+			t.Errorf("Expected BitRate to be 16000, got %d", *chunk.MediaDelta.BitRate)
+		}
+
+		// Verify finish reason
+		if chunk.FinishReason == nil {
+			t.Error("Expected FinishReason to be set")
+		} else if *chunk.FinishReason != "complete" {
+			t.Errorf("Expected FinishReason 'complete', got '%s'", *chunk.FinishReason)
+		}
+
+	case <-time.After(1 * time.Second):
+		t.Fatal("Timeout waiting for response")
+	}
+}
+
+func TestGeminiStreamSession_ReceiveMixedResponse(t *testing.T) {
+	server := newMockWebSocketServer(func(conn *websocket.Conn) {
+		// First read setup message
+		_, _, _ = conn.ReadMessage()
+
+		// Send setup_complete response
+		setupResponse := ServerMessage{
+			SetupComplete: &SetupComplete{},
+		}
+		setupData, _ := json.Marshal(setupResponse)
+		_ = conn.WriteMessage(websocket.TextMessage, setupData)
+
+		// Send a model response with both text and audio
+		audioData := "YXVkaW8=" // Base64 encoded "audio"
+		response := ServerMessage{
+			ServerContent: &ServerContent{
+				ModelTurn: &ModelTurn{
+					Parts: []Part{
+						{Text: "Here is your audio:"},
+						{
+							InlineData: &InlineData{
+								MimeType: "audio/pcm",
+								Data:     audioData,
+							},
+						},
+					},
+				},
+				TurnComplete: false, // Not complete yet
+			},
+		}
+
+		data, _ := json.Marshal(response)
+		_ = conn.WriteMessage(websocket.TextMessage, data)
+
+		// Keep connection alive
+		_, _, _ = conn.ReadMessage()
+	})
+	defer server.Close()
+
+	ctx := context.Background()
+	session, err := NewGeminiStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+	if err != nil {
+		t.Fatalf("NewGeminiStreamSession failed: %v", err)
+	}
+	defer session.Close()
+
+	// Receive mixed response
+	select {
+	case chunk := <-session.Response():
+		// Verify both text and audio are present
+		if chunk.Content != "Here is your audio:" {
+			t.Errorf("Expected text 'Here is your audio:', got '%s'", chunk.Content)
+		}
+
+		if chunk.MediaDelta == nil {
+			t.Fatal("Expected MediaDelta to be populated")
+		}
+
+		if *chunk.MediaDelta.Data != "YXVkaW8=" {
+			t.Errorf("Expected audio data 'YXVkaW8=', got '%s'", *chunk.MediaDelta.Data)
+		}
+
+		// Verify finish reason is nil (not complete)
+		if chunk.FinishReason != nil {
+			t.Errorf("Expected FinishReason to be nil, got '%s'", *chunk.FinishReason)
+		}
+
+	case <-time.After(1 * time.Second):
+		t.Fatal("Timeout waiting for response")
+	}
+}
+
 func TestGeminiStreamSession_Close(t *testing.T) {
 	server := newMockWebSocketServer(func(conn *websocket.Conn) {
 		// Read setup message
