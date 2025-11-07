@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -68,8 +69,6 @@ func (m *providerMiddleware) Process(execCtx *pipeline.ExecutionContext, next fu
 	return nextErr
 } // executeNonStreaming handles non-streaming execution (original logic)
 func executeNonStreaming(execCtx *pipeline.ExecutionContext, provider providers.Provider, toolRegistry *tools.Registry, policy *pipeline.ToolPolicy, config *ProviderMiddlewareConfig) error {
-	ctx := execCtx.Context
-
 	// Build tools for provider (if available)
 	providerTools, toolChoice, err := buildProviderTooling(provider, toolRegistry, execCtx, policy)
 	if err != nil {
@@ -87,82 +86,8 @@ func executeNonStreaming(execCtx *pipeline.ExecutionContext, provider providers.
 			return err
 		}
 
-		// Build provider request
-		req := buildProviderRequest(execCtx, config)
-
-		// Call provider (with or without tools)
-		startTime := time.Now()
-		var resp providers.ChatResponse
-		var toolCalls []types.MessageToolCall
-		var callErr error
-
-		// Determine tool choice for this round
-		// After first round, always use "auto" to allow the LLM to generate a final response
-		// This prevents infinite loops when tool_choice is "required"
-		currentToolChoice := toolChoice
-		if round > 1 {
-			currentToolChoice = "auto"
-		}
-
-		// Log debugging info about tool support decision
-		logger.Debug("ProviderMiddleware execution decision",
-			"round", round,
-			"provider_type", fmt.Sprintf("%T", provider),
-			"provider_tools_nil", providerTools == nil,
-			"allowed_tools_count", len(execCtx.AllowedTools),
-			"tool_choice", currentToolChoice)
-
-		if providerTools != nil {
-			// Provider supports tools - use ChatWithTools
-			logger.Debug("Using ChatWithTools path", "provider_type", fmt.Sprintf("%T", provider))
-			toolSupport := provider.(providers.ToolSupport)
-			resp, toolCalls, callErr = toolSupport.ChatWithTools(ctx, req, providerTools, currentToolChoice)
-			// Merge tool calls into response
-			resp.ToolCalls = toolCalls
-		} else {
-			// No tools or provider doesn't support tools - check if multimodal
-			isMultimodal := isRequestMultimodal(req)
-			if isMultimodal {
-				// Check if provider supports multimodal
-				if multimodalProvider, ok := provider.(providers.MultimodalSupport); ok {
-					logger.Debug("Using ChatMultimodal path", "provider_type", fmt.Sprintf("%T", provider))
-					resp, callErr = multimodalProvider.ChatMultimodal(ctx, req)
-				} else {
-					logger.Debug("Using regular Chat path for multimodal request", "provider_type", fmt.Sprintf("%T", provider), "reason", "provider does not support MultimodalSupport interface")
-					resp, callErr = provider.Chat(ctx, req)
-				}
-			} else {
-				// Regular text-only request
-				logger.Debug("Using regular Chat path", "provider_type", fmt.Sprintf("%T", provider), "reason", "providerTools is nil")
-				resp, callErr = provider.Chat(ctx, req)
-			}
-		}
-
-		duration := time.Since(startTime)
-
-		if callErr != nil {
-			return fmt.Errorf("provider middleware: generation failed: %w", callErr)
-		}
-
-		// Store raw response
-		execCtx.RawResponse = resp
-
-		// Accumulate costs
-		accumulateCost(execCtx, resp.CostInfo)
-
-		// Convert provider response to pipeline response
-		pipelineResp := convertProviderResponse(&resp)
-		execCtx.Response = &pipelineResp
-
-		// Record LLM call in trace before adding message
-		recordLLMCall(execCtx, config, &pipelineResp, startTime, duration, resp.CostInfo, convertToolCalls(resp.ToolCalls))
-
-		// Add assistant message to conversation history
-		assistantMsg := createAssistantMessage(resp.Content, convertToolCalls(resp.ToolCalls), resp.CostInfo, resp.Latency)
-		execCtx.Messages = append(execCtx.Messages, assistantMsg)
-
-		// Process tool calls (if any) and determine if we need another round
-		hasMoreRounds, err := processToolCallRound(execCtx, toolRegistry, policy, resp.ToolCalls)
+		// Execute one non-streaming round
+		hasMoreRounds, err := executeNonStreamingRound(execCtx, provider, round, providerTools, toolChoice, toolRegistry, policy, config)
 		if err != nil {
 			return err
 		}
@@ -174,6 +99,101 @@ func executeNonStreaming(execCtx *pipeline.ExecutionContext, provider providers.
 	}
 
 	return nil
+}
+
+// executeNonStreamingRound executes a single round of non-streaming execution
+func executeNonStreamingRound(execCtx *pipeline.ExecutionContext, provider providers.Provider, round int, providerTools interface{}, toolChoice string, toolRegistry *tools.Registry, policy *pipeline.ToolPolicy, config *ProviderMiddlewareConfig) (bool, error) {
+	// Build provider request
+	req := buildProviderRequest(execCtx, config)
+
+	// Determine tool choice for this round
+	currentToolChoice := toolChoice
+	if round > 1 {
+		currentToolChoice = "auto"
+	}
+
+	// Call provider and get response
+	startTime := time.Now()
+	resp, callErr := callProviderNonStreaming(execCtx, provider, req, providerTools, currentToolChoice)
+	duration := time.Since(startTime)
+
+	if callErr != nil {
+		return false, fmt.Errorf("provider middleware: generation failed: %w", callErr)
+	}
+
+	// Process response and update context
+	return processNonStreamingResponse(execCtx, &resp, startTime, duration, toolRegistry, policy, config)
+}
+
+// callProviderNonStreaming calls the appropriate provider method based on capabilities
+func callProviderNonStreaming(execCtx *pipeline.ExecutionContext, provider providers.Provider, req providers.ChatRequest, providerTools interface{}, toolChoice string) (providers.ChatResponse, error) {
+	ctx := execCtx.Context
+
+	// Log debugging info
+	logger.Debug("ProviderMiddleware execution decision",
+		"provider_type", fmt.Sprintf("%T", provider),
+		"provider_tools_nil", providerTools == nil,
+		"allowed_tools_count", len(execCtx.AllowedTools),
+		"tool_choice", toolChoice)
+
+	if providerTools != nil {
+		return callProviderWithTools(ctx, provider, req, providerTools, toolChoice)
+	}
+
+	return callProviderWithoutTools(ctx, provider, req)
+}
+
+// callProviderWithTools calls provider with tool support
+func callProviderWithTools(ctx context.Context, provider providers.Provider, req providers.ChatRequest, providerTools interface{}, toolChoice string) (providers.ChatResponse, error) {
+	logger.Debug("Using ChatWithTools path", "provider_type", fmt.Sprintf("%T", provider))
+	toolSupport := provider.(providers.ToolSupport)
+	resp, toolCalls, err := toolSupport.ChatWithTools(ctx, req, providerTools, toolChoice)
+	if err != nil {
+		return resp, err
+	}
+	// Merge tool calls into response
+	resp.ToolCalls = toolCalls
+	return resp, nil
+}
+
+// callProviderWithoutTools calls provider without tools, handling multimodal if needed
+func callProviderWithoutTools(ctx context.Context, provider providers.Provider, req providers.ChatRequest) (providers.ChatResponse, error) {
+	isMultimodal := isRequestMultimodal(req)
+
+	if isMultimodal {
+		if multimodalProvider, ok := provider.(providers.MultimodalSupport); ok {
+			logger.Debug("Using ChatMultimodal path", "provider_type", fmt.Sprintf("%T", provider))
+			return multimodalProvider.ChatMultimodal(ctx, req)
+		}
+		logger.Debug("Using regular Chat path for multimodal request", "provider_type", fmt.Sprintf("%T", provider), "reason", "provider does not support MultimodalSupport interface")
+	} else {
+		logger.Debug("Using regular Chat path", "provider_type", fmt.Sprintf("%T", provider), "reason", "providerTools is nil")
+	}
+
+	return provider.Chat(ctx, req)
+}
+
+// processNonStreamingResponse processes the provider response and updates execution context
+func processNonStreamingResponse(execCtx *pipeline.ExecutionContext, resp *providers.ChatResponse, startTime time.Time, duration time.Duration, toolRegistry *tools.Registry, policy *pipeline.ToolPolicy, config *ProviderMiddlewareConfig) (bool, error) {
+	// Store raw response
+	execCtx.RawResponse = *resp
+
+	// Accumulate costs
+	accumulateCost(execCtx, resp.CostInfo)
+
+	// Convert provider response to pipeline response
+	pipelineResp := convertProviderResponse(resp)
+	execCtx.Response = &pipelineResp
+
+	// Record LLM call in trace before adding message
+	recordLLMCall(execCtx, config, &pipelineResp, startTime, duration, resp.CostInfo, convertToolCalls(resp.ToolCalls))
+
+	// Add assistant message to conversation history
+	assistantMsg := createAssistantMessage(resp.Content, convertToolCalls(resp.ToolCalls), resp.CostInfo, resp.Latency)
+	execCtx.Messages = append(execCtx.Messages, assistantMsg)
+
+	// Process tool calls (if any) and determine if we need another round
+	return processToolCallRound(execCtx, toolRegistry, policy, resp.ToolCalls)
 }
 
 // executeStreaming handles streaming execution with tool support
