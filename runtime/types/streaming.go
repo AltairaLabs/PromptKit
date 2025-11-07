@@ -119,32 +119,38 @@ func (c *StreamingMediaConfig) Validate() error {
 		return fmt.Errorf("chunk size must be positive, got: %d", c.ChunkSize)
 	}
 
-	// Audio-specific validation
+	// Validate based on media type
 	if c.Type == ContentTypeAudio {
-		if c.SampleRate <= 0 {
-			return fmt.Errorf("sample rate must be positive for audio, got: %d", c.SampleRate)
-		}
-		if c.Channels <= 0 {
-			return fmt.Errorf("channels must be positive for audio, got: %d", c.Channels)
-		}
-		if c.Encoding == "" {
-			return fmt.Errorf("encoding is required for audio")
-		}
+		return c.validateAudioConfig()
 	}
+	return c.validateVideoConfig()
+}
 
-	// Video-specific validation
-	if c.Type == ContentTypeVideo {
-		if c.Width <= 0 {
-			return fmt.Errorf("width must be positive for video, got: %d", c.Width)
-		}
-		if c.Height <= 0 {
-			return fmt.Errorf("height must be positive for video, got: %d", c.Height)
-		}
-		if c.FrameRate <= 0 {
-			return fmt.Errorf("frame rate must be positive for video, got: %d", c.FrameRate)
-		}
+// validateAudioConfig validates audio-specific configuration
+func (c *StreamingMediaConfig) validateAudioConfig() error {
+	if c.SampleRate <= 0 {
+		return fmt.Errorf("sample rate must be positive for audio, got: %d", c.SampleRate)
 	}
+	if c.Channels <= 0 {
+		return fmt.Errorf("channels must be positive for audio, got: %d", c.Channels)
+	}
+	if c.Encoding == "" {
+		return fmt.Errorf("encoding is required for audio")
+	}
+	return nil
+}
 
+// validateVideoConfig validates video-specific configuration
+func (c *StreamingMediaConfig) validateVideoConfig() error {
+	if c.Width <= 0 {
+		return fmt.Errorf("width must be positive for video, got: %d", c.Width)
+	}
+	if c.Height <= 0 {
+		return fmt.Errorf("height must be positive for video, got: %d", c.Height)
+	}
+	if c.FrameRate <= 0 {
+		return fmt.Errorf("frame rate must be positive for video, got: %d", c.FrameRate)
+	}
 	return nil
 }
 
