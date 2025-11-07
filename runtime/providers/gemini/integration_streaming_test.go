@@ -1,3 +1,4 @@
+//go:build integration
 // +build integration
 
 package gemini
@@ -5,6 +6,7 @@ package gemini
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,7 +16,11 @@ import (
 
 // TestStreamingIntegration_EndToEnd tests bidirectional streaming with real Gemini API
 // Run with: go test -tags=integration -run TestStreamingIntegration_EndToEnd
-// Requires: GEMINI_API_KEY environment variable
+// Requires: GEMINI_API_KEY environment variable with Live API access enabled
+//
+// NOTE: The Gemini Live API is in preview and requires special access.
+// If you see "API key not valid" errors, your API key may not have Live API access.
+// To enable Live API access, visit: https://ai.google.dev/
 func TestStreamingIntegration_EndToEnd(t *testing.T) {
 	apiKey := os.Getenv("GEMINI_API_KEY")
 	if apiKey == "" {
@@ -53,6 +59,11 @@ func TestStreamingIntegration_EndToEnd(t *testing.T) {
 
 	session, err := provider.CreateStreamSession(ctx, req)
 	if err != nil {
+		// Check if this is a Live API access error
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "API key not valid") || strings.Contains(errMsg, "websocket: close 1007") {
+			t.Skipf("Skipping test: API key does not have Gemini Live API access. The Live API is in preview and requires special enablement. Visit https://ai.google.dev/ to request access. Error: %v", err)
+		}
 		t.Fatalf("failed to create session: %v", err)
 	}
 	defer session.Close()
@@ -159,6 +170,11 @@ func TestStreamingIntegration_AudioRoundTrip(t *testing.T) {
 
 	session, err := provider.CreateStreamSession(ctx, req)
 	if err != nil {
+		// Check if this is a Live API access error
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "API key not valid") || strings.Contains(errMsg, "websocket: close 1007") {
+			t.Skipf("Skipping test: API key does not have Gemini Live API access. Error: %v", err)
+		}
 		t.Fatalf("failed to create session: %v", err)
 	}
 	defer session.Close()
@@ -269,6 +285,11 @@ func TestStreamingIntegration_Performance(t *testing.T) {
 	start := time.Now()
 	session, err := provider.CreateStreamSession(ctx, req)
 	if err != nil {
+		// Check if this is a Live API access error
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "API key not valid") || strings.Contains(errMsg, "websocket: close 1007") {
+			t.Skipf("Skipping test: API key does not have Gemini Live API access. Error: %v", err)
+		}
 		t.Fatalf("failed to create session: %v", err)
 	}
 	defer session.Close()

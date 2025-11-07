@@ -13,6 +13,18 @@ import (
 func TestNewGeminiStreamSession(t *testing.T) {
 	// Create mock server
 	server := newMockWebSocketServer(func(conn *websocket.Conn) {
+		// Read setup message
+		_, _, _ = conn.ReadMessage()
+
+		// Send setup_complete response
+		setupResponse := ServerMessage{
+			ServerContent: &ServerContent{
+				SetupComplete: true,
+			},
+		}
+		setupData, _ := json.Marshal(setupResponse)
+		_ = conn.WriteMessage(websocket.TextMessage, setupData)
+
 		// Keep connection alive
 		_, _, _ = conn.ReadMessage()
 	})

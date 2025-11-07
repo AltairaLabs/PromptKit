@@ -2,6 +2,7 @@ package gemini
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -232,6 +233,11 @@ func TestGeminiProvider_CreateStreamSession_ValidConfig(t *testing.T) {
 
 	session, err := provider.CreateStreamSession(ctx, req)
 	if err != nil {
+		// Check if this is a Live API access error
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "API key not valid") || strings.Contains(errMsg, "websocket: close 1007") {
+			t.Skipf("Skipping test: API key does not have Gemini Live API access. Error: %v", err)
+		}
 		t.Fatalf("unexpected error creating session: %v", err)
 	}
 
