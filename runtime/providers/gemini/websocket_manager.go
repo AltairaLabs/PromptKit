@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"net/http"
 	"sync"
 	"time"
 
@@ -65,16 +66,18 @@ func (wm *WebSocketManager) Connect(ctx context.Context) error {
 		return nil // Already connected
 	}
 
-	// Build URL with API key
-	fullURL := fmt.Sprintf("%s?key=%s", wm.url, wm.apiKey)
-
 	// Create dialer with context
 	dialer := websocket.Dialer{
-		HandshakeTimeout: 10 * time.Second,
+		HandshakeTimeout: 45 * time.Second,
 	}
 
+	// Create headers with API key authentication
+	// Per Gemini Live API docs: use Authorization header with "Token" prefix
+	headers := http.Header{}
+	headers.Set("Authorization", fmt.Sprintf("Token %s", wm.apiKey))
+
 	// Connect
-	conn, resp, err := dialer.DialContext(ctx, fullURL, nil)
+	conn, resp, err := dialer.DialContext(ctx, wm.url, headers)
 	if err != nil {
 		if resp != nil {
 			return fmt.Errorf("websocket dial failed (status %d): %w", resp.StatusCode, err)

@@ -18,9 +18,7 @@ func TestNewGeminiStreamSession(t *testing.T) {
 
 		// Send setup_complete response
 		setupResponse := ServerMessage{
-			ServerContent: &ServerContent{
-				SetupComplete: true,
-			},
+			SetupComplete: &SetupComplete{},
 		}
 		setupData, _ := json.Marshal(setupResponse)
 		_ = conn.WriteMessage(websocket.TextMessage, setupData)
@@ -58,10 +56,8 @@ func TestGeminiStreamSession_SendChunk(t *testing.T) {
 		_, _, _ = conn.ReadMessage()
 
 		// Send setup_complete response
-		setupResponse := map[string]interface{}{
-			"server_content": map[string]interface{}{
-				"setup_complete": true,
-			},
+		setupResponse := ServerMessage{
+			SetupComplete: &SetupComplete{},
 		}
 		setupData, _ := json.Marshal(setupResponse)
 		_ = conn.WriteMessage(websocket.TextMessage, setupData)
@@ -120,10 +116,8 @@ func TestGeminiStreamSession_SendText(t *testing.T) {
 		_, _, _ = conn.ReadMessage()
 
 		// Send setup_complete response
-		setupResponse := map[string]interface{}{
-			"server_content": map[string]interface{}{
-				"setup_complete": true,
-			},
+		setupResponse := ServerMessage{
+			SetupComplete: &SetupComplete{},
 		}
 		setupData, _ := json.Marshal(setupResponse)
 		_ = conn.WriteMessage(websocket.TextMessage, setupData)
@@ -186,10 +180,8 @@ func TestGeminiStreamSession_CompleteTurn(t *testing.T) {
 		_, _, _ = conn.ReadMessage()
 
 		// Send setup_complete response
-		setupResponse := map[string]interface{}{
-			"server_content": map[string]interface{}{
-				"setup_complete": true,
-			},
+		setupResponse := ServerMessage{
+			SetupComplete: &SetupComplete{},
 		}
 		setupData, _ := json.Marshal(setupResponse)
 		_ = conn.WriteMessage(websocket.TextMessage, setupData)
@@ -244,9 +236,7 @@ func TestGeminiStreamSession_ReceiveResponse(t *testing.T) {
 
 		// Send setup_complete response
 		setupResponse := ServerMessage{
-			ServerContent: &ServerContent{
-				SetupComplete: true,
-			},
+			SetupComplete: &SetupComplete{},
 		}
 		setupData, _ := json.Marshal(setupResponse)
 		_ = conn.WriteMessage(websocket.TextMessage, setupData)
@@ -296,9 +286,7 @@ func TestGeminiStreamSession_Close(t *testing.T) {
 
 		// Send setup_complete response
 		setupResponse := ServerMessage{
-			ServerContent: &ServerContent{
-				SetupComplete: true,
-			},
+			SetupComplete: &SetupComplete{},
 		}
 		setupData, _ := json.Marshal(setupResponse)
 		_ = conn.WriteMessage(websocket.TextMessage, setupData)
@@ -345,9 +333,7 @@ func TestGeminiStreamSession_Done(t *testing.T) {
 
 		// Send setup_complete response
 		setupResponse := ServerMessage{
-			ServerContent: &ServerContent{
-				SetupComplete: true,
-			},
+			SetupComplete: &SetupComplete{},
 		}
 		setupData, _ := json.Marshal(setupResponse)
 		_ = conn.WriteMessage(websocket.TextMessage, setupData)
@@ -406,9 +392,7 @@ func TestGeminiStreamSession_ContextCancellation(t *testing.T) {
 
 		// Send setup_complete response
 		setupResponse := ServerMessage{
-			ServerContent: &ServerContent{
-				SetupComplete: true,
-			},
+			SetupComplete: &SetupComplete{},
 		}
 		setupData, _ := json.Marshal(setupResponse)
 		_ = conn.WriteMessage(websocket.TextMessage, setupData)
@@ -449,9 +433,7 @@ func TestGeminiStreamSession_MultipleResponses(t *testing.T) {
 
 		// Send setup_complete response
 		setupResponse := ServerMessage{
-			ServerContent: &ServerContent{
-				SetupComplete: true,
-			},
+			SetupComplete: &SetupComplete{},
 		}
 		setupData, _ := json.Marshal(setupResponse)
 		_ = conn.WriteMessage(websocket.TextMessage, setupData)

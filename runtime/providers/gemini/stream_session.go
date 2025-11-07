@@ -48,11 +48,12 @@ func NewGeminiStreamSession(ctx context.Context, wsURL, apiKey string) (*GeminiS
 	}
 
 	// Send initial setup message (required by Gemini Live API)
+	// Per docs: first message must be BidiGenerateContentSetup
 	setupMsg := map[string]interface{}{
 		"setup": map[string]interface{}{
-			"model": "models/gemini-2.0-flash-exp",
-			"generation_config": map[string]interface{}{
-				"response_modalities": []string{"AUDIO"},
+			"model": "models/gemini-2.0-flash-exp", // Model must be in format: models/{model}
+			"generationConfig": map[string]interface{}{
+				"responseModalities": []string{"AUDIO"},
 			},
 		},
 	}
@@ -73,7 +74,7 @@ func NewGeminiStreamSession(ctx context.Context, wsURL, apiKey string) (*GeminiS
 		return nil, fmt.Errorf("failed to receive setup response: %w", err)
 	}
 
-	if setupResponse.ServerContent == nil || !setupResponse.ServerContent.SetupComplete {
+	if setupResponse.SetupComplete == nil {
 		ws.Close()
 		cancel()
 		return nil, fmt.Errorf("invalid setup response: setup_complete not received")
@@ -214,16 +215,16 @@ func (s *GeminiStreamSession) receiveLoop() {
 
 // processServerMessage processes a message from the server
 func (s *GeminiStreamSession) processServerMessage(msg *ServerMessage) error {
+	// Check for setup_complete
+	if msg.SetupComplete != nil {
+		return nil // Setup acknowledged
+	}
+
 	if msg.ServerContent == nil {
 		return nil
 	}
 
 	content := msg.ServerContent
-
-	// Check for setup_complete
-	if content.SetupComplete {
-		return nil // Setup acknowledged
-	}
 
 	// Process model turn
 	if content.ModelTurn != nil {
@@ -303,14 +304,18 @@ func buildTextMessage(text string, turnComplete bool) map[string]interface{} {
 
 // ServerMessage represents a message from the Gemini server
 type ServerMessage struct {
-	ServerContent *ServerContent `json:"server_content,omitempty"`
+	SetupComplete *SetupComplete `json:"setupComplete,omitempty"`
+	ServerContent *ServerContent `json:"serverContent,omitempty"`
 }
+
+// SetupComplete indicates setup is complete (empty object per docs)
+type SetupComplete struct{}
 
 // ServerContent represents the server content
 type ServerContent struct {
-	ModelTurn     *ModelTurn `json:"model_turn,omitempty"`
-	TurnComplete  bool       `json:"turn_complete,omitempty"`
-	SetupComplete bool       `json:"setup_complete,omitempty"`
+	ModelTurn    *ModelTurn `json:"modelTurn,omitempty"`
+	TurnComplete bool       `json:"turnComplete,omitempty"`
+	Interrupted  bool       `json:"interrupted,omitempty"`
 }
 
 // ModelTurn represents a model response turn

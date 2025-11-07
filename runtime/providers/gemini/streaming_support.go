@@ -29,9 +29,10 @@ func (p *GeminiProvider) CreateStreamSession(ctx context.Context, req providers.
 		return nil, fmt.Errorf("invalid audio configuration: %w", err)
 	}
 
-	// Construct WebSocket URL
-	// Format: wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=API_KEY
-	wsURL := fmt.Sprintf("wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=%s", p.ApiKey)
+	// Construct WebSocket URL for Gemini Live API
+	// Format: wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent
+	// Note: API key is passed via Authorization header, not as query parameter
+	wsURL := "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
 
 	// Create session
 	session, err := NewGeminiStreamSession(ctx, wsURL, p.ApiKey)
