@@ -167,7 +167,7 @@ func TestWebSocketManager_SendReceive(t *testing.T) {
 
 	// Receive message
 	var recvMsg map[string]string
-	err = wm.Receive(&recvMsg)
+	err = wm.Receive(context.Background(), &recvMsg)
 	if err != nil {
 		t.Fatalf("Receive failed: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestWebSocketManager_Receive_InvalidJSON(t *testing.T) {
 	defer wm.Close()
 
 	var msg map[string]string
-	err := wm.Receive(&msg)
+	err := wm.Receive(context.Background(), &msg)
 	if err == nil {
 		t.Error("Expected error when receiving invalid JSON")
 	}
@@ -246,7 +246,7 @@ func TestWebSocketManager_Receive_BinaryMessage(t *testing.T) {
 	defer wm.Close()
 
 	var msg map[string]string
-	err := wm.Receive(&msg)
+	err := wm.Receive(context.Background(), &msg)
 	if err == nil {
 		t.Error("Expected error when receiving binary message")
 	}
@@ -534,7 +534,7 @@ func TestWebSocketManager_FullLifecycle(t *testing.T) {
 	// Send/receive
 	_ = wm.Send(map[string]string{"type": "ping"})
 	var response map[string]string
-	_ = wm.Receive(&response)
+	_ = wm.Receive(ctx, &response)
 
 	// Request close and close connection
 	_ = wm.Send(map[string]string{"type": "close"})

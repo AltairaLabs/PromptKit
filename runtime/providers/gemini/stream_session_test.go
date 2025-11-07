@@ -42,6 +42,19 @@ func TestGeminiStreamSession_SendChunk(t *testing.T) {
 	// Create echo server
 	receivedMsg := false
 	server := newMockWebSocketServer(func(conn *websocket.Conn) {
+		// First read setup message
+		_, _, _ = conn.ReadMessage()
+
+		// Send setup_complete response
+		setupResponse := map[string]interface{}{
+			"server_content": map[string]interface{}{
+				"setup_complete": true,
+			},
+		}
+		setupData, _ := json.Marshal(setupResponse)
+		_ = conn.WriteMessage(websocket.TextMessage, setupData)
+
+		// Now read the actual message
 		_, data, err := conn.ReadMessage()
 		if err != nil {
 			return
@@ -91,6 +104,19 @@ func TestGeminiStreamSession_SendChunk(t *testing.T) {
 func TestGeminiStreamSession_SendText(t *testing.T) {
 	receivedText := ""
 	server := newMockWebSocketServer(func(conn *websocket.Conn) {
+		// First read setup message
+		_, _, _ = conn.ReadMessage()
+
+		// Send setup_complete response
+		setupResponse := map[string]interface{}{
+			"server_content": map[string]interface{}{
+				"setup_complete": true,
+			},
+		}
+		setupData, _ := json.Marshal(setupResponse)
+		_ = conn.WriteMessage(websocket.TextMessage, setupData)
+
+		// Now read the text message
 		_, data, err := conn.ReadMessage()
 		if err != nil {
 			return
@@ -144,6 +170,19 @@ func TestGeminiStreamSession_SendText(t *testing.T) {
 func TestGeminiStreamSession_CompleteTurn(t *testing.T) {
 	turnComplete := false
 	server := newMockWebSocketServer(func(conn *websocket.Conn) {
+		// First read setup message
+		_, _, _ = conn.ReadMessage()
+
+		// Send setup_complete response
+		setupResponse := map[string]interface{}{
+			"server_content": map[string]interface{}{
+				"setup_complete": true,
+			},
+		}
+		setupData, _ := json.Marshal(setupResponse)
+		_ = conn.WriteMessage(websocket.TextMessage, setupData)
+
+		// Now read the turn_complete message
 		_, data, err := conn.ReadMessage()
 		if err != nil {
 			return
@@ -188,6 +227,18 @@ func TestGeminiStreamSession_CompleteTurn(t *testing.T) {
 
 func TestGeminiStreamSession_ReceiveResponse(t *testing.T) {
 	server := newMockWebSocketServer(func(conn *websocket.Conn) {
+		// First read setup message
+		_, _, _ = conn.ReadMessage()
+
+		// Send setup_complete response
+		setupResponse := ServerMessage{
+			ServerContent: &ServerContent{
+				SetupComplete: true,
+			},
+		}
+		setupData, _ := json.Marshal(setupResponse)
+		_ = conn.WriteMessage(websocket.TextMessage, setupData)
+
 		// Send a model response
 		response := ServerMessage{
 			ServerContent: &ServerContent{
@@ -228,6 +279,19 @@ func TestGeminiStreamSession_ReceiveResponse(t *testing.T) {
 
 func TestGeminiStreamSession_Close(t *testing.T) {
 	server := newMockWebSocketServer(func(conn *websocket.Conn) {
+		// Read setup message
+		_, _, _ = conn.ReadMessage()
+
+		// Send setup_complete response
+		setupResponse := ServerMessage{
+			ServerContent: &ServerContent{
+				SetupComplete: true,
+			},
+		}
+		setupData, _ := json.Marshal(setupResponse)
+		_ = conn.WriteMessage(websocket.TextMessage, setupData)
+
+		// Keep alive
 		_, _, _ = conn.ReadMessage()
 	})
 	defer server.Close()
@@ -264,6 +328,19 @@ func TestGeminiStreamSession_Close(t *testing.T) {
 
 func TestGeminiStreamSession_Done(t *testing.T) {
 	server := newMockWebSocketServer(func(conn *websocket.Conn) {
+		// Read setup message
+		_, _, _ = conn.ReadMessage()
+
+		// Send setup_complete response
+		setupResponse := ServerMessage{
+			ServerContent: &ServerContent{
+				SetupComplete: true,
+			},
+		}
+		setupData, _ := json.Marshal(setupResponse)
+		_ = conn.WriteMessage(websocket.TextMessage, setupData)
+
+		// Keep alive
 		_, _, _ = conn.ReadMessage()
 	})
 	defer server.Close()
@@ -296,29 +373,34 @@ func TestGeminiStreamSession_Done(t *testing.T) {
 
 func TestGeminiStreamSession_Error(t *testing.T) {
 	server := newMockWebSocketServer(func(conn *websocket.Conn) {
-		// Close connection immediately to cause error
+		// Read setup message then close connection immediately to cause error
+		_, _, _ = conn.ReadMessage()
 		conn.Close()
 	})
 	defer server.Close()
 
 	ctx := context.Background()
-	session, err := NewGeminiStreamSession(ctx, server.URL(), "test-key")
-	if err != nil {
-		t.Fatalf("NewGeminiStreamSession failed: %v", err)
-	}
-	defer session.Close()
-
-	// Wait for error to be detected
-	time.Sleep(200 * time.Millisecond)
-
-	// Check error
-	if session.Error() == nil {
-		t.Error("Expected error after connection close")
+	_, err := NewGeminiStreamSession(ctx, server.URL(), "test-key")
+	// Expect failure since server closes without sending setup_complete
+	if err == nil {
+		t.Fatal("Expected error when connection closes during setup")
 	}
 }
 
 func TestGeminiStreamSession_ContextCancellation(t *testing.T) {
 	server := newMockWebSocketServer(func(conn *websocket.Conn) {
+		// Read setup message
+		_, _, _ = conn.ReadMessage()
+
+		// Send setup_complete response
+		setupResponse := ServerMessage{
+			ServerContent: &ServerContent{
+				SetupComplete: true,
+			},
+		}
+		setupData, _ := json.Marshal(setupResponse)
+		_ = conn.WriteMessage(websocket.TextMessage, setupData)
+
 		// Keep connection alive
 		for {
 			_, _, err := conn.ReadMessage()
@@ -350,6 +432,18 @@ func TestGeminiStreamSession_ContextCancellation(t *testing.T) {
 
 func TestGeminiStreamSession_MultipleResponses(t *testing.T) {
 	server := newMockWebSocketServer(func(conn *websocket.Conn) {
+		// Read setup message
+		_, _, _ = conn.ReadMessage()
+
+		// Send setup_complete response
+		setupResponse := ServerMessage{
+			ServerContent: &ServerContent{
+				SetupComplete: true,
+			},
+		}
+		setupData, _ := json.Marshal(setupResponse)
+		_ = conn.WriteMessage(websocket.TextMessage, setupData)
+
 		// Send multiple responses
 		responses := []string{"Hello", "from", "Gemini!"}
 		for _, text := range responses {

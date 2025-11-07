@@ -31,7 +31,7 @@ func (p *GeminiProvider) CreateStreamSession(ctx context.Context, req providers.
 
 	// Construct WebSocket URL
 	// Format: wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=API_KEY
-	wsURL := fmt.Sprintf("wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=%s", p.ApiKey)
+	wsURL := fmt.Sprintf("wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=%s", p.ApiKey)
 
 	// Create session
 	session, err := NewGeminiStreamSession(ctx, wsURL, p.ApiKey)

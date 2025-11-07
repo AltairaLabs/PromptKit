@@ -95,16 +95,19 @@ func (wm *WebSocketManager) IsConnected() bool {
 	return wm.connected && !wm.closed
 }
 
-// Send sends a JSON message over the WebSocket
+// Send sends a message through the WebSocket
 func (wm *WebSocketManager) Send(msg interface{}) error {
 	wm.mu.RLock()
-	defer wm.mu.RUnlock()
+	closed := wm.closed
+	conn := wm.conn
+	connected := wm.connected
+	wm.mu.RUnlock()
 
-	if wm.closed {
+	if closed {
 		return errors.New(ErrManagerClosed)
 	}
 
-	if !wm.connected || wm.conn == nil {
+	if !connected || conn == nil {
 		return errors.New(ErrNotConnected)
 	}
 
@@ -114,18 +117,21 @@ func (wm *WebSocketManager) Send(msg interface{}) error {
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 
-	// Send as text message
-	err = wm.conn.WriteMessage(websocket.TextMessage, data)
+	// Send as text message (don't hold lock during I/O)
+	err = conn.WriteMessage(websocket.TextMessage, data)
 	if err != nil {
-		wm.markDisconnected()
+		// Mark disconnected without nested locking
+		wm.mu.Lock()
+		wm.connected = false
+		wm.mu.Unlock()
 		return fmt.Errorf("failed to send message: %w", err)
 	}
 
 	return nil
 }
 
-// Receive receives and unmarshals a JSON message from the WebSocket
-func (wm *WebSocketManager) Receive(v interface{}) error {
+// Receive reads a message from the WebSocket
+func (wm *WebSocketManager) Receive(ctx context.Context, v interface{}) error {
 	wm.mu.RLock()
 	conn := wm.conn
 	connected := wm.connected
@@ -135,10 +141,13 @@ func (wm *WebSocketManager) Receive(v interface{}) error {
 		return errors.New(ErrNotConnected)
 	}
 
-	// Read message
+	// Read message (don't hold lock during I/O)
 	messageType, data, err := conn.ReadMessage()
 	if err != nil {
-		wm.markDisconnected()
+		// Mark disconnected without nested locking
+		wm.mu.Lock()
+		wm.connected = false
+		wm.mu.Unlock()
 		return fmt.Errorf("failed to read message: %w", err)
 	}
 
@@ -159,15 +168,21 @@ func (wm *WebSocketManager) Receive(v interface{}) error {
 // SendPing sends a WebSocket ping to keep the connection alive
 func (wm *WebSocketManager) SendPing() error {
 	wm.mu.RLock()
-	defer wm.mu.RUnlock()
+	conn := wm.conn
+	connected := wm.connected
+	wm.mu.RUnlock()
 
-	if !wm.connected || wm.conn == nil {
+	if !connected || conn == nil {
 		return errors.New(ErrNotConnected)
 	}
 
-	err := wm.conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second))
+	// Send ping (don't hold lock during I/O)
+	err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second))
 	if err != nil {
-		wm.markDisconnected()
+		// Mark disconnected without nested locking
+		wm.mu.Lock()
+		wm.connected = false
+		wm.mu.Unlock()
 		return fmt.Errorf("failed to send ping: %w", err)
 	}
 

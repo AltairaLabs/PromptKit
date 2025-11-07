@@ -47,6 +47,38 @@ func NewGeminiStreamSession(ctx context.Context, wsURL, apiKey string) (*GeminiS
 		errCh:      make(chan error, 1),
 	}
 
+	// Send initial setup message (required by Gemini Live API)
+	setupMsg := map[string]interface{}{
+		"setup": map[string]interface{}{
+			"model": "models/gemini-2.0-flash-exp",
+			"generation_config": map[string]interface{}{
+				"response_modalities": []string{"AUDIO"},
+			},
+		},
+	}
+	if err := ws.Send(setupMsg); err != nil {
+		ws.Close()
+		cancel()
+		return nil, fmt.Errorf("failed to send setup message: %w", err)
+	}
+
+	// Wait for setup_complete response
+	setupCtx, setupCancel := context.WithTimeout(sessionCtx, 10*time.Second)
+	defer setupCancel()
+
+	var setupResponse ServerMessage
+	if err := ws.Receive(setupCtx, &setupResponse); err != nil {
+		ws.Close()
+		cancel()
+		return nil, fmt.Errorf("failed to receive setup response: %w", err)
+	}
+
+	if setupResponse.ServerContent == nil || !setupResponse.ServerContent.SetupComplete {
+		ws.Close()
+		cancel()
+		return nil, fmt.Errorf("invalid setup response: setup_complete not received")
+	}
+
 	// Start heartbeat
 	ws.StartHeartbeat(sessionCtx, 30*time.Second)
 
@@ -152,7 +184,7 @@ func (s *GeminiStreamSession) receiveLoop() {
 			return
 		default:
 			var serverMsg ServerMessage
-			if err := s.ws.Receive(&serverMsg); err != nil {
+			if err := s.ws.Receive(s.ctx, &serverMsg); err != nil {
 				// Check if session was closed
 				s.mu.Lock()
 				closed := s.closed
