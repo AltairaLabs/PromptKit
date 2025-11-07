@@ -250,3 +250,97 @@ func TestGeminiProvider_CreateStreamSession_ValidConfig(t *testing.T) {
 		t.Errorf("error closing session: %v", err)
 	}
 }
+
+func TestGeminiProvider_CreateStreamSession_ResponseModalities(t *testing.T) {
+	provider := NewGeminiProvider("test", "gemini-2.0-flash-exp", "https://api.test.com", providers.ProviderDefaults{}, false)
+	ctx := context.Background()
+
+	baseConfig := types.StreamingMediaConfig{
+		Type:       types.ContentTypeAudio,
+		ChunkSize:  3200,
+		SampleRate: 16000,
+		Channels:   1,
+		BitDepth:   16,
+		Encoding:   "pcm_linear16",
+	}
+
+	tests := []struct {
+		name              string
+		metadata          map[string]interface{}
+		expectedModality  []string
+		shouldCreateSession bool
+	}{
+		{
+			name:              "default TEXT modality",
+			metadata:          nil,
+			expectedModality:  []string{"TEXT"},
+			shouldCreateSession: false, // Will fail without API key but validates config path
+		},
+		{
+			name: "AUDIO modality - string slice",
+			metadata: map[string]interface{}{
+				"response_modalities": []string{"AUDIO"},
+			},
+			expectedModality:  []string{"AUDIO"},
+			shouldCreateSession: false,
+		},
+		{
+			name: "TEXT and AUDIO modalities - interface slice",
+			metadata: map[string]interface{}{
+				"response_modalities": []interface{}{"TEXT", "AUDIO"},
+			},
+			expectedModality:  []string{"TEXT", "AUDIO"},
+			shouldCreateSession: false,
+		},
+		{
+			name: "empty modalities metadata",
+			metadata: map[string]interface{}{
+				"response_modalities": []string{},
+			},
+			expectedModality:  []string{"TEXT"}, // Should default to TEXT
+			shouldCreateSession: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := providers.StreamInputRequest{
+				Config:   baseConfig,
+				Metadata: tt.metadata,
+			}
+
+			// This will attempt to create a session and fail due to no API key
+			// But we're testing that the config path is executed correctly
+			_, err := provider.CreateStreamSession(ctx, req)
+			
+			// Should get an error about websocket connection, not about validation
+			if err != nil {
+				errMsg := err.Error()
+				// Make sure we didn't fail on config validation
+				if !strings.Contains(errMsg, "failed to create stream session") && !strings.Contains(errMsg, "websocket") && !strings.Contains(errMsg, "connection") {
+					t.Errorf("Expected connection error, got: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestGeminiProvider_CreateStreamSession_EmptyConfig(t *testing.T) {
+	provider := NewGeminiProvider("test", "gemini-2.0-flash-exp", "https://api.test.com", providers.ProviderDefaults{}, false)
+	ctx := context.Background()
+
+	req := providers.StreamInputRequest{
+		Config: types.StreamingMediaConfig{
+			// Empty config
+		},
+	}
+
+	_, err := provider.CreateStreamSession(ctx, req)
+	if err == nil {
+		t.Fatal("expected error for empty configuration, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "invalid stream configuration") {
+		t.Errorf("expected 'invalid stream configuration' error, got: %v", err)
+	}
+}

@@ -375,19 +375,86 @@ func TestGeminiStreamSession_Done(t *testing.T) {
 }
 
 func TestGeminiStreamSession_Error(t *testing.T) {
-	server := newMockWebSocketServer(func(conn *websocket.Conn) {
-		// Read setup message then close connection immediately to cause error
-		_, _, _ = conn.ReadMessage()
-		conn.Close()
-	})
-	defer server.Close()
+	t.Run("error during setup", func(t *testing.T) {
+		server := newMockWebSocketServer(func(conn *websocket.Conn) {
+			// Read setup message then close connection immediately to cause error
+			_, _, _ = conn.ReadMessage()
+			conn.Close()
+		})
+		defer server.Close()
 
-	ctx := context.Background()
-	_, err := NewGeminiStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
-	// Expect failure since server closes without sending setup_complete
-	if err == nil {
-		t.Fatal("Expected error when connection closes during setup")
-	}
+		ctx := context.Background()
+		_, err := NewGeminiStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+		// Expect failure since server closes without sending setup_complete
+		if err == nil {
+			t.Fatal("Expected error when connection closes during setup")
+		}
+	})
+
+	t.Run("error during receive loop", func(t *testing.T) {
+		server := newMockWebSocketServer(func(conn *websocket.Conn) {
+			// Read setup message
+			_, _, _ = conn.ReadMessage()
+
+			// Send setup_complete response
+			setupResponse := ServerMessage{
+				SetupComplete: &SetupComplete{},
+			}
+			setupData, _ := json.Marshal(setupResponse)
+			_ = conn.WriteMessage(websocket.TextMessage, setupData)
+
+			// Send invalid JSON to cause error
+			_ = conn.WriteMessage(websocket.TextMessage, []byte("invalid json"))
+		})
+		defer server.Close()
+
+		ctx := context.Background()
+		session, err := NewGeminiStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+		if err != nil {
+			t.Fatalf("Failed to create session: %v", err)
+		}
+		defer session.Close()
+
+		// Wait for error to propagate
+		time.Sleep(50 * time.Millisecond)
+
+		// Check Error() method
+		sessionErr := session.Error()
+		if sessionErr == nil {
+			t.Error("Expected Error() to return an error after invalid JSON")
+		}
+	})
+
+	t.Run("no error when session is healthy", func(t *testing.T) {
+		server := newMockWebSocketServer(func(conn *websocket.Conn) {
+			// Read setup message
+			_, _, _ = conn.ReadMessage()
+
+			// Send setup_complete response
+			setupResponse := ServerMessage{
+				SetupComplete: &SetupComplete{},
+			}
+			setupData, _ := json.Marshal(setupResponse)
+			_ = conn.WriteMessage(websocket.TextMessage, setupData)
+
+			// Keep connection alive
+			time.Sleep(100 * time.Millisecond)
+		})
+		defer server.Close()
+
+		ctx := context.Background()
+		session, err := NewGeminiStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+		if err != nil {
+			t.Fatalf("Failed to create session: %v", err)
+		}
+		defer session.Close()
+
+		// Check Error() method immediately - should return nil
+		sessionErr := session.Error()
+		if sessionErr != nil {
+			t.Errorf("Expected Error() to return nil for healthy session, got: %v", sessionErr)
+		}
+	})
 }
 
 func TestGeminiStreamSession_ContextCancellation(t *testing.T) {
