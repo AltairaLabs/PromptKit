@@ -13,7 +13,7 @@ func TestValidatorConfig_Loading(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create a prompt config with validators
-	yamlContent := `apiVersion: prompt.promptkit.ai/v1
+	yamlContent := `apiVersion: prompt.promptkit.altairalabs.ai/v1
 kind: PromptConfig
 metadata:
   name: test-validators
@@ -101,7 +101,7 @@ func TestValidatorConfig_InAssembledPrompt(t *testing.T) {
 	}
 
 	// Create a prompt config with validators
-	yamlContent := `apiVersion: prompt.promptkit.ai/v1
+	yamlContent := `apiVersion: prompt.promptkit.altairalabs.ai/v1
 kind: PromptConfig
 metadata:
   name: test-validators

@@ -15,7 +15,7 @@ func TestCLIFormatOverride(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create an arena.yaml with default formats
-	arenaYAML := `apiVersion: "promptkit.ai/v1"
+	arenaYAML := `apiVersion: "promptkit.altairalabs.ai/v1"
 kind: "Arena"
 metadata:
   name: "cli-override-test"
@@ -105,7 +105,7 @@ func TestBackwardCompatibilityFormatOverride(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create an arena.yaml with old format
-	arenaYAML := `apiVersion: "promptkit.ai/v1"
+	arenaYAML := `apiVersion: "promptkit.altairalabs.ai/v1"
 kind: "Arena"
 metadata:
   name: "backward-compat-test"

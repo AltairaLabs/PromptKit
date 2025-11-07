@@ -539,7 +539,7 @@ func TestConfigurationIntegration(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create a test arena.yaml with new modular output config
-	arenaConfig := `apiVersion: "promptkit.ai/v1"
+	arenaConfig := `apiVersion: "promptkit.altairalabs.ai/v1"
 kind: "Arena"
 metadata:
   name: "test-config"

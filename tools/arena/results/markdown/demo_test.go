@@ -18,7 +18,7 @@ func TestMarkdownConfigurationFromYAML(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create an arena.yaml with modular output configuration
-	arenaYAML := `apiVersion: "promptkit.ai/v1"
+	arenaYAML := `apiVersion: "promptkit.altairalabs.ai/v1"
 kind: "Arena"
 metadata:
   name: "markdown-demo-config"

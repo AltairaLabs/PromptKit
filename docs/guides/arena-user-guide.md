@@ -1,382 +1,710 @@
 ---
 layout: page
-title: "Arena CLI User Guide"
+title: "Arena CLI Reference"
 permalink: /docs/guides/arena-user-guide/
 nav_order: 2
 ---
-# PromptKit Arena - CLI User Guide
 
-PromptKit Arena is a comprehensive testing framework for LLM applications. It enables you to run multi-turn conversation simulations across multiple providers, validate tool usage, and generate detailed performance reports.
+# PromptArena CLI Reference
 
-## Quick Start
+Complete command-line interface reference for PromptArena, the LLM testing framework.
 
-### Installation
+## Overview
 
-```bash
-# Install from source
-go install github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@latest
-
-# Or build locally
-make build-arena
-./bin/promptarena --help
-```
-
-### Basic Usage
+PromptArena (`promptarena`) is a CLI tool for running multi-turn conversation simulations across multiple LLM providers, validating conversation flows, and generating comprehensive test reports.
 
 ```bash
-# Run tests from a scenario file
-promptarena run examples/customer-support/arena.yaml
-
-# Generate HTML report
-promptarena run examples/customer-support/arena.yaml --html report.html
-
-# Run with specific providers
-promptarena run scenarios/test.yaml --providers openai,anthropic
-
-# Verbose output for debugging
-promptarena run scenarios/test.yaml --verbose
+promptarena [command] [flags]
 ```
 
-## Command Reference
+## Commands
 
-### `promptarena run`
+| Command | Description |
+|---------|-------------|
+| `run` | Run conversation simulations (main command) |
+| `config-inspect` | Inspect and validate configuration |
+| `debug` | Debug configuration and prompt loading |
+| `prompt-debug` | Debug and test prompt generation |
+| `render` | Generate HTML report from existing results |
+| `completion` | Generate shell autocompletion script |
+| `help` | Help about any command |
 
-Run test scenarios defined in a configuration file.
-
-**Syntax:**
+## Global Flags
 
 ```bash
-promptarena run <config-file> [flags]
+-h, --help         help for promptarena
 ```
 
-**Flags:**
+---
 
-- `--providers` - Comma-separated list of providers to test (default: all configured)
-- `--scenarios` - Comma-separated list of scenarios to run (default: all)
-- `--output, -o` - Output directory for results (default: `./results`)
-- `--html` - Generate HTML report at specified path
-- `--json` - Generate JSON report at specified path
-- `--verbose, -v` - Enable verbose logging
-- `--parallel` - Number of parallel executions (default: 1)
-- `--timeout` - Timeout for individual tests (default: 30s)
+## `promptarena run`
 
-**Examples:**
+Run multi-turn conversation simulations across multiple LLM providers.
+
+### Usage
 
 ```bash
-# Basic test run
-promptarena run arena.yaml
-
-# Generate both JSON and HTML reports
-promptarena run arena.yaml --json results.json --html report.html
-
-# Run specific scenarios with verbose output
-promptarena run arena.yaml --scenarios "customer-inquiry,technical-support" --verbose
-
-# Parallel execution with custom timeout
-promptarena run arena.yaml --parallel 3 --timeout 60s
+promptarena run [flags]
 ```
 
-### `promptarena validate`
+### Flags
 
-Validate configuration files without running tests.
+#### Configuration
 
-**Syntax:**
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-c, --config` | string | `arena.yaml` | Configuration file path |
+
+#### Execution Control
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-j, --concurrency` | int | `6` | Number of concurrent workers |
+| `-s, --seed` | int | `42` | Random seed for reproducibility |
+| `--ci` | bool | `false` | CI mode (headless, minimal output) |
+
+#### Filtering
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--provider` | []string | all | Providers to use (comma-separated) |
+| `--scenario` | []string | all | Scenarios to run (comma-separated) |
+| `--region` | []string | all | Regions to run (comma-separated) |
+| `--roles` | []string | all | Self-play role configurations to use |
+
+#### Parameter Overrides
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--temperature` | float32 | `0.6` | Override temperature for all scenarios |
+| `--max-tokens` | int | - | Override max tokens for all scenarios |
+
+#### Self-Play Mode
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--selfplay` | bool | `false` | Enable self-play mode |
+
+#### Mock Testing
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--mock-provider` | bool | `false` | Replace all providers with MockProvider |
+| `--mock-config` | string | - | Path to mock provider configuration (YAML) |
+
+#### Output Configuration
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-o, --out` | string | `out` | Output directory |
+| `--format` | []string | from config | Output formats: json, junit, html, markdown |
+| `--formats` | []string | from config | Alias for --format |
+
+#### Legacy Output Flags (Deprecated)
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--html` | bool | `false` | Generate HTML report (use --format html instead) |
+| `--html-file` | string | `out/report-[timestamp].html` | HTML report output file |
+| `--junit-file` | string | `out/junit.xml` | JUnit XML output file |
+| `--markdown-file` | string | `out/results.md` | Markdown report output file |
+
+#### Debugging
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-v, --verbose` | bool | `false` | Enable verbose debug logging for API calls |
+
+### Examples
+
+#### Basic Run
 
 ```bash
-promptarena validate <config-file>
+# Run all tests with default configuration
+promptarena run
+
+# Specify configuration file
+promptarena run --config my-arena.yaml
 ```
 
-**Examples:**
+#### Filter Execution
+
+```bash
+# Run specific providers only
+promptarena run --provider openai,anthropic
+
+# Run specific scenarios
+promptarena run --scenario basic-qa,edge-cases
+
+# Combine filters
+promptarena run --provider openai --scenario customer-support
+```
+
+#### Control Parallelism
+
+```bash
+# Run with 3 concurrent workers
+promptarena run --concurrency 3
+
+# Sequential execution (no parallelism)
+promptarena run --concurrency 1
+```
+
+#### Override Parameters
+
+```bash
+# Override temperature for all tests
+promptarena run --temperature 0.8
+
+# Override max tokens
+promptarena run --max-tokens 500
+
+# Combined overrides
+promptarena run --temperature 0.9 --max-tokens 1000
+```
+
+#### Output Formats
+
+```bash
+# Generate JSON and HTML reports
+promptarena run --format json,html
+
+# Generate all available formats
+promptarena run --format json,junit,html,markdown
+
+# Custom output directory
+promptarena run --out test-results-2024-01-15
+
+# Specify custom HTML filename (legacy)
+promptarena run --html --html-file custom-report.html
+```
+
+#### Mock Testing
+
+```bash
+# Use mock provider instead of real APIs (fast, no cost)
+promptarena run --mock-provider
+
+# Use custom mock configuration
+promptarena run --mock-config mock-responses.yaml
+```
+
+#### Self-Play Mode
+
+```bash
+# Enable self-play testing
+promptarena run --selfplay
+
+# Self-play with specific roles
+promptarena run --selfplay --roles frustrated-customer,tech-support
+```
+
+#### CI/CD Mode
+
+```bash
+# Headless mode for CI pipelines
+promptarena run --ci --format junit,json
+
+# With specific quality gates
+promptarena run --ci --concurrency 3 --format junit
+```
+
+#### Debugging
+
+```bash
+# Verbose output for troubleshooting
+promptarena run --verbose
+
+# Verbose with specific scenario
+promptarena run --verbose --scenario failing-test
+```
+
+#### Reproducible Tests
+
+```bash
+# Use specific seed for reproducibility
+promptarena run --seed 12345
+
+# Same seed across runs produces same results
+promptarena run --seed 12345 --provider openai
+```
+
+---
+
+## `promptarena config-inspect`
+
+Inspect and validate arena configuration, showing all loaded resources and validating cross-references.
+
+### Usage
+
+```bash
+promptarena config-inspect [flags]
+```
+
+### Flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-c, --config` | string | `arena.yaml` | Configuration file path |
+| `--format` | string | `text` | Output format: text, json |
+| `--verbose` | bool | `false` | Show detailed information |
+| `--stats` | bool | `false` | Show cache statistics |
+
+### Examples
+
+```bash
+# Inspect default configuration
+promptarena config-inspect
+
+# Inspect specific config file
+promptarena config-inspect --config staging-arena.yaml
+
+# Verbose output with details
+promptarena config-inspect --verbose
+
+# JSON output for programmatic use
+promptarena config-inspect --format json
+
+# Show cache statistics
+promptarena config-inspect --stats
+```
+
+### Output
+
+The command displays:
+- Loaded prompt configurations
+- Configured providers
+- Available scenarios
+- Tool definitions
+- MCP server configurations
+- Cross-reference validation results
+
+**Example Output**:
+
+```
+Configuration: arena.yaml
+
+Prompt Configs:
+  ✓ support (prompts/support-bot.yaml)
+  ✓ creative (prompts/content-gen.yaml)
+
+Providers:
+  ✓ openai-gpt4o-mini (providers/openai.yaml)
+  ✓ claude-3-5-sonnet (providers/claude.yaml)
+
+Scenarios:
+  ✓ basic-qa (scenarios/qa.yaml) [task_type: support]
+  ✓ tool-calling (scenarios/tools.yaml) [task_type: support]
+
+Tools:
+  ✓ get_weather (tools/weather.yaml) [mode: live]
+  ✓ search_db (tools/database.yaml) [mode: mock]
+
+Validation:
+  ✓ All scenario task_types match prompt configs
+  ✓ All provider references valid
+  ✓ All tool references valid
+```
+
+---
+
+## `promptarena debug`
+
+Debug command shows loaded configuration, prompt packs, scenarios, and providers to help troubleshoot configuration issues.
+
+### Usage
+
+```bash
+promptarena debug [flags]
+```
+
+### Flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-c, --config` | string | `arena.yaml` | Configuration file path |
+
+### Examples
+
+```bash
+# Debug default configuration
+promptarena debug
+
+# Debug specific config
+promptarena debug --config test-arena.yaml
+```
+
+### Use Cases
+
+- Troubleshoot configuration loading issues
+- Verify all files are found and parsed correctly
+- Check prompt pack assembly
+- Validate provider initialization
+
+---
+
+## `promptarena prompt-debug`
+
+Test prompt generation with specific regions, task types, and contexts. Useful for validating prompt assembly before running full tests.
+
+### Usage
+
+```bash
+promptarena prompt-debug [flags]
+```
+
+### Flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-c, --config` | string | `arena.yaml` | Configuration file path |
+| `-t, --task-type` | string | - | Task type for prompt generation |
+| `-r, --region` | string | - | Region for prompt generation |
+| `--persona` | string | - | Persona ID to test |
+| `--scenario` | string | - | Scenario file path to load task_type and context |
+| `--context` | string | - | Context slot content |
+| `--user` | string | - | User context (e.g., "iOS developer") |
+| `--domain` | string | - | Domain hint (e.g., "mobile development") |
+| `-l, --list` | bool | `false` | List available regions and task types |
+| `-j, --json` | bool | `false` | Output as JSON |
+| `-p, --show-prompt` | bool | `true` | Show the full assembled prompt |
+| `-m, --show-meta` | bool | `true` | Show metadata and configuration info |
+| `-s, --show-stats` | bool | `true` | Show statistics (length, tokens, etc.) |
+| `-v, --verbose` | bool | `false` | Verbose output with debug info |
+
+### Examples
+
+```bash
+# List available configurations
+promptarena prompt-debug --list
+
+# Test prompt generation for task type
+promptarena prompt-debug --task-type support
+
+# Test with region
+promptarena prompt-debug --task-type support --region us
+
+# Test with persona
+promptarena prompt-debug --persona us-hustler-v1
+
+# Test with scenario file
+promptarena prompt-debug --scenario scenarios/customer-support.yaml
+
+# Test with custom context
+promptarena prompt-debug --task-type support --context "urgent billing issue"
+
+# JSON output for parsing
+promptarena prompt-debug --task-type support --json
+
+# Minimal output (just the prompt)
+promptarena prompt-debug --task-type support --show-meta=false --show-stats=false
+```
+
+### Output
+
+The command shows:
+- Assembled system prompt
+- Metadata (task type, region, persona)
+- Statistics (character count, estimated tokens)
+- Configuration used
+
+**Example Output**:
+
+```
+=== Prompt Debug ===
+
+Task Type: support
+Region: us
+Persona: default
+
+--- System Prompt ---
+You are a helpful customer support agent for TechCo.
+
+Your role:
+- Answer product questions
+- Help track orders
+- Process returns and refunds
+...
+
+--- Statistics ---
+Characters: 1,234
+Estimated Tokens: 308
+Lines: 42
+
+--- Metadata ---
+Prompt Config: support
+Version: v1.0.0
+Validators: 3
+```
+
+---
+
+## `promptarena render`
+
+Generate an HTML report from existing test results.
+
+### Usage
+
+```bash
+promptarena render [index.json path] [flags]
+```
+
+### Flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-o, --output` | string | `report-[timestamp].html` | Output HTML file path |
+
+### Examples
+
+```bash
+# Render from default location
+promptarena render out/index.json
+
+# Custom output path
+promptarena render out/index.json --output custom-report.html
+
+# Render from archived results
+promptarena render archive/2024-01-15/index.json --output reports/jan-15-report.html
+```
+
+### Use Cases
+
+- Regenerate reports after test runs
+- Create reports with different formatting
+- Archive and view historical results
+- Share results without re-running tests
+
+---
+
+## `promptarena completion`
+
+Generate shell autocompletion script for bash, zsh, fish, or PowerShell.
+
+### Usage
+
+```bash
+promptarena completion [bash|zsh|fish|powershell]
+```
+
+### Examples
+
+```bash
+# Bash
+promptarena completion bash > /etc/bash_completion.d/promptarena
+
+# Zsh
+promptarena completion zsh > "${fpath[1]}/_promptarena"
+
+# Fish
+promptarena completion fish > ~/.config/fish/completions/promptarena.fish
+
+# PowerShell
+promptarena completion powershell > promptarena.ps1
+```
+
+---
+
+## Environment Variables
+
+PromptArena respects the following environment variables:
+
+| Variable | Description |
+|----------|-------------|
+| `OPENAI_API_KEY` | OpenAI API authentication |
+| `ANTHROPIC_API_KEY` | Anthropic API authentication |
+| `GOOGLE_API_KEY` | Google AI API authentication |
+| `PROMPTARENA_CONFIG` | Default configuration file (overrides `arena.yaml`) |
+| `PROMPTARENA_OUTPUT` | Default output directory (overrides `out`) |
+
+### Example
+
+```bash
+export OPENAI_API_KEY="sk-..."
+export ANTHROPIC_API_KEY="sk-ant-..."
+export PROMPTARENA_CONFIG="staging-arena.yaml"
+export PROMPTARENA_OUTPUT="test-results"
+
+promptarena run
+```
+
+---
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success - all tests passed |
+| `1` | Failure - one or more tests failed or error occurred |
+
+Check exit code in scripts:
+
+```bash
+if promptarena run --ci; then
+  echo "✅ Tests passed"
+else
+  echo "❌ Tests failed"
+  exit 1
+fi
+```
+
+---
+
+## Common Workflows
+
+### Local Development
+
+```bash
+# Quick test with mock providers
+promptarena run --mock-provider
+
+# Test specific feature
+promptarena run --scenario new-feature --verbose
+
+# Inspect configuration
+promptarena config-inspect --verbose
+```
+
+### CI/CD Pipeline
+
+```bash
+# Run in headless CI mode
+promptarena run --ci --format junit,json
+
+# Check specific providers
+promptarena run --ci --provider openai,anthropic --format junit
+```
+
+### Debugging
 
 ```bash
 # Validate configuration
-promptarena validate arena.yaml
+promptarena config-inspect
 
-# Validate multiple files
-promptarena validate scenarios/*.yaml
+# Debug prompt assembly
+promptarena prompt-debug --task-type support --verbose
+
+# Run with verbose logging
+promptarena run --verbose --scenario failing-test
+
+# Check configuration loading
+promptarena debug
 ```
 
-### `promptarena init`
-
-Initialize a new Arena project with example configurations.
-
-**Syntax:**
+### Report Generation
 
 ```bash
-promptarena init [project-name]
+# Run tests
+promptarena run --format json
+
+# Later, generate HTML from results
+promptarena render out/index.json --output reports/latest.html
 ```
 
-**Examples:**
+### Multi-Provider Comparison
 
 ```bash
-# Create new project in current directory
-promptarena init
+# Test all providers
+promptarena run --format html,json
 
-# Create new project in specified directory
-promptarena init my-llm-tests
+# Test specific providers
+promptarena run --provider openai,anthropic,gemini --format html
 ```
 
-## Configuration File Format
+---
 
-Arena uses YAML configuration files to define test scenarios, providers, and validation rules.
+## Configuration File
+
+PromptArena uses a YAML configuration file (default: `arena.yaml`). See the [Configuration Reference](../promptarena/config-reference.md) for complete documentation.
 
 ### Basic Structure
 
 ```yaml
-# arena.yaml
-version: "1.0"
-name: "Customer Support Tests"
-description: "Test scenarios for customer support chatbot"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: my-arena
+spec:
+  prompt_configs:
+    - id: assistant
+      file: prompts/assistant.yaml
 
-providers:
-  openai:
-    model: "gpt-4"
-    api_key_env: "OPENAI_API_KEY"
-  
-  anthropic:
-    model: "claude-3-opus-20240229"
-    api_key_env: "ANTHROPIC_API_KEY"
+  providers:
+    - file: providers/openai.yaml
 
-personas:
-  support_agent:
-    name: "Customer Support Agent"
-    system_prompt: |
-      You are a helpful customer support agent. Be polite, 
-      professional, and try to resolve customer issues quickly.
+  scenarios:
+    - file: scenarios/test.yaml
 
-scenarios:
-  - name: "basic-inquiry"
-    description: "Handle a basic product inquiry"
-    persona: "support_agent"
-    turns:
-      - user: "Hi, I'm interested in your pricing plans."
-        assertions:
-          - type: "contains"
-            value: "pricing"
-          - type: "tone"
-            value: "helpful"
-      
-      - user: "What's included in the basic plan?"
-        assertions:
-          - type: "contains"
-            value: "basic plan"
-          - type: "response_time"
-            max_ms: 5000
+  defaults:
+    output:
+      dir: out
+      formats: ["json", "html"]
 ```
 
-### Advanced Configuration
+---
 
-#### MCP Integration
+## Tips & Best Practices
 
-```yaml
-mcp:
-  servers:
-    - name: memory
-      command: npx
-      args: ["-y", "@modelcontextprotocol/server-memory"]
-    
-    - name: filesystem
-      command: npx
-      args: ["-y", "@modelcontextprotocol/server-filesystem", "./data"]
-
-scenarios:
-  - name: "tool-usage-test"
-    description: "Test tool calling with MCP servers"
-    persona: "assistant"
-    turns:
-      - user: "Remember that my favorite color is blue"
-        assertions:
-          - type: "tool_called"
-            tool: "memory_store"
-      
-      - user: "What files are in the data directory?"
-        assertions:
-          - type: "tool_called"
-            tool: "list_files"
-```
-
-#### Multi-Provider Testing
-
-```yaml
-provider_matrix:
-  - providers: ["openai", "anthropic"]
-    scenarios: ["basic-inquiry", "complex-support"]
-  
-  - providers: ["openai"]
-    scenarios: ["tool-usage-test"]  # Only test tools with OpenAI
-
-reporting:
-  compare_providers: true
-  include_costs: true
-  include_latency: true
-```
-
-### Assertion Types
-
-Arena supports various assertion types for validating responses:
-
-#### Content Assertions
-
-```yaml
-assertions:
-  - type: "contains"
-    value: "expected text"
-  
-  - type: "not_contains"
-    value: "forbidden text"
-  
-  - type: "regex"
-    pattern: "\\d{3}-\\d{3}-\\d{4}"  # Phone number pattern
-  
-  - type: "length"
-    min: 10
-    max: 500
-```
-
-#### Behavior Assertions
-
-```yaml
-assertions:
-  - type: "tone"
-    value: "professional"  # Uses built-in tone analysis
-  
-  - type: "response_time"
-    max_ms: 3000
-  
-  - type: "token_count"
-    max: 1000
-  
-  - type: "cost"
-    max_usd: 0.05
-```
-
-#### Tool Assertions
-
-```yaml
-assertions:
-  - type: "tool_called"
-    tool: "search_database"
-  
-  - type: "tool_result"
-    tool: "get_user_info"
-    contains: "user found"
-  
-  - type: "no_tools_called"  # Ensure no tools were used
-```
-
-## Best Practices
-
-### Organizing Test Scenarios
-
-1. **Group by Feature**: Create separate scenario files for different features
-2. **Use Descriptive Names**: Make scenario names clear and specific
-3. **Progressive Complexity**: Start with simple scenarios, add complexity gradually
-
-```text
-tests/
-├── arena.yaml              # Main configuration
-├── scenarios/
-│   ├── basic-chat.yaml    # Simple conversation tests  
-│   ├── tool-usage.yaml    # Tool calling tests
-│   └── edge-cases.yaml    # Error handling tests
-└── personas/
-    ├── support-agent.yaml
-    └── technical-expert.yaml
-```
-
-### Provider Testing Strategy
-
-1. **Start with One Provider**: Validate logic with a single, reliable provider
-2. **Add Provider Comparison**: Test differences between providers
-3. **Test Provider-Specific Features**: Some tools/features may work differently
-
-### Assertion Design
-
-1. **Multiple Small Assertions**: Better than one complex assertion
-2. **Test Both Positive and Negative Cases**: Ensure the system behaves correctly
-3. **Include Performance Metrics**: Response time and cost tracking
-
-### Debugging Failed Tests
-
-1. **Use Verbose Mode**: `--verbose` flag shows detailed execution
-2. **Check Individual Assertions**: Review which specific assertion failed
-3. **Examine Tool Calls**: Verify MCP tool integration is working correctly
-4. **Review Provider Responses**: Look at raw provider outputs in results
-
-## Examples
-
-### Customer Support Testing
-
-```yaml
-scenarios:
-  - name: "escalation-path"
-    description: "Test proper escalation to human agent"
-    persona: "support_agent"
-    turns:
-      - user: "Your product completely broke my business!"
-        assertions:
-          - type: "tone"
-            value: "empathetic"
-          - type: "contains"
-            value: "sorry"
-      
-      - user: "I demand to speak to a manager right now!"
-        assertions:
-          - type: "contains"
-            value: "escalate"
-          - type: "not_contains"
-            value: "cannot help"
-```
-
-### Technical Documentation Testing
-
-```yaml
-scenarios:
-  - name: "code-explanation"
-    description: "Test code explanation capabilities"
-    persona: "technical_assistant"
-    turns:
-      - user: "Explain this Python function: def fibonacci(n): return n if n <= 1 else fibonacci(n-1) + fibonacci(n-2)"
-        assertions:
-          - type: "contains"
-            value: "recursive"
-          - type: "contains"
-            value: "fibonacci"
-          - type: "length"
-            min: 100
-```
-
-## Troubleshooting
-
-### Common Issues
-
-#### Configuration Validation Errors
+### Performance
 
 ```bash
-# Always validate before running
-promptarena validate arena.yaml
+# Increase concurrency for faster execution
+promptarena run --concurrency 10
+
+# Reduce concurrency for stability
+promptarena run --concurrency 1
 ```
 
-#### Provider Authentication
+### Cost Control
 
 ```bash
-# Ensure environment variables are set
-export OPENAI_API_KEY="your-key-here"
-export ANTHROPIC_API_KEY="your-key-here"
+# Use mock provider during development
+promptarena run --mock-provider
+
+# Test with cheaper models first
+promptarena run --provider gpt-3.5-turbo
 ```
 
-#### MCP Server Issues
+### Reproducibility
 
 ```bash
-# Test MCP servers independently
-npx -y @modelcontextprotocol/server-memory
+# Always use same seed for consistent results
+promptarena run --seed 42
+
+# Document seed in test reports
+promptarena run --seed 42 --format json,html
 ```
 
-#### Performance Issues
+### Debugging
 
 ```bash
-# Reduce parallelism for stability
-promptarena run arena.yaml --parallel 1 --timeout 60s
+# Always start with config validation
+promptarena config-inspect --verbose
+
+# Use verbose mode to see API calls
+promptarena run --verbose --scenario problematic-test
+
+# Test prompt generation separately
+promptarena prompt-debug --scenario scenarios/test.yaml
 ```
 
-For more examples, see the `examples/` directory in the PromptKit repository.
+---
+
+## Next Steps
+
+- **[PromptArena Getting Started](../promptarena/getting-started.md)** - First project walkthrough
+- **[Configuration Reference](../promptarena/config-reference.md)** - Complete config documentation
+- **[CI/CD Integration](../promptarena/ci-cd-integration.md)** - Running in pipelines
+
+---
+
+**Need Help?**
+
+```bash
+# General help
+promptarena --help
+
+# Command-specific help
+promptarena run --help
+promptarena config-inspect --help
+```

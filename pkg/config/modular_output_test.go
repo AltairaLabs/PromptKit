@@ -14,7 +14,7 @@ func TestModularOutputConfiguration(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Test new modular configuration structure
-	arenaYAML := `apiVersion: "promptkit.ai/v1"
+	arenaYAML := `apiVersion: "promptkit.altairalabs.ai/v1"
 kind: "Arena"
 metadata:
   name: "modular-output-test"
@@ -75,7 +75,7 @@ func TestBackwardCompatibility(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Test backward compatibility with old format
-	arenaYAML := `apiVersion: "promptkit.ai/v1"
+	arenaYAML := `apiVersion: "promptkit.altairalabs.ai/v1"
 kind: "Arena"
 metadata:
   name: "backward-compatibility-test"

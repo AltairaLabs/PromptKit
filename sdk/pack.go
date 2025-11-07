@@ -474,7 +474,7 @@ func (p *Pack) convertToRuntimeConfig(taskType string, sdkPrompt *Prompt) *promp
 
 	// Build PromptConfig
 	return &prompt.PromptConfig{
-		APIVersion: "promptkit.ai/v1",
+		APIVersion: "promptkit.altairalabs.ai/v1",
 		Kind:       "Prompt",
 		Spec: prompt.PromptSpec{
 			TaskType:       taskType,
