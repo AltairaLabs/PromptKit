@@ -17,6 +17,10 @@ type StreamChunk struct {
 	// Delta is the new content in this chunk
 	Delta string `json:"delta"`
 
+	// MediaDelta contains new media content in this chunk (audio, video, images)
+	// Uses the same MediaContent type as non-streaming messages for API consistency.
+	MediaDelta *types.MediaContent `json:"media_delta,omitempty"`
+
 	// TokenCount is the total number of tokens so far
 	TokenCount int `json:"token_count"`
 

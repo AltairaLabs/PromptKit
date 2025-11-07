@@ -106,24 +106,30 @@ func TestDiagnostic_AudioModalityRawMessages(t *testing.T) {
 			fmt.Printf("Content: %q\n", chunk.Content)
 			fmt.Printf("Delta: %q\n", chunk.Delta)
 
+			// Check for audio in MediaDelta (first-class field)
+			if chunk.MediaDelta != nil {
+				hasAudioData = true
+				fmt.Println("🎵🎵🎵 AUDIO DATA FOUND! 🎵🎵🎵")
+				fmt.Printf("   MIME Type: %s\n", chunk.MediaDelta.MIMEType)
+				if chunk.MediaDelta.Data != nil {
+					audioData := *chunk.MediaDelta.Data
+					fmt.Printf("   Data length: %d bytes\n", len(audioData))
+					if len(audioData) > 0 {
+						fmt.Printf("   First 50 chars: %q\n", audioData[:min(50, len(audioData))])
+					}
+				}
+				if chunk.MediaDelta.Channels != nil {
+					fmt.Printf("   Channels: %d\n", *chunk.MediaDelta.Channels)
+				}
+				if chunk.MediaDelta.BitRate != nil {
+					fmt.Printf("   Sample Rate: %d Hz\n", *chunk.MediaDelta.BitRate)
+				}
+			}
+
 			if chunk.Metadata != nil {
 				fmt.Printf("Metadata keys: %d\n", len(chunk.Metadata))
 				for key, val := range chunk.Metadata {
 					fmt.Printf("   - %s: %v\n", key, val)
-				}
-
-				if hasAudio, ok := chunk.Metadata["has_audio"].(bool); ok && hasAudio {
-					hasAudioData = true
-					fmt.Println("🎵🎵🎵 AUDIO DATA FOUND! 🎵🎵🎵")
-					if mimeType, ok := chunk.Metadata["audio_mime_type"].(string); ok {
-						fmt.Printf("   MIME Type: %s\n", mimeType)
-					}
-					if audioData, ok := chunk.Metadata["audio_data"].(string); ok {
-						fmt.Printf("   Data length: %d bytes\n", len(audioData))
-						if len(audioData) > 0 {
-							fmt.Printf("   First 50 chars: %q\n", audioData[:min(50, len(audioData))])
-						}
-					}
 				}
 			} else {
 				fmt.Println("Metadata: nil")
@@ -138,9 +144,7 @@ func TestDiagnostic_AudioModalityRawMessages(t *testing.T) {
 		if err := session.Error(); err != nil {
 			fmt.Printf("\n❌ Session error: %v\n", err)
 		}
-	}()
-
-	// Also tap into the raw websocket to see what's REALLY coming through
+	}() // Also tap into the raw websocket to see what's REALLY coming through
 	go func() {
 		// Wait a bit for session to be ready
 		time.Sleep(2 * time.Second)
