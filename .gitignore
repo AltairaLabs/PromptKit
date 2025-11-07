@@ -85,3 +85,4 @@ sdk/examples/**/*
 !sdk/examples/**/
 
 
+runtime/test_output.txt

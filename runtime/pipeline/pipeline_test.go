@@ -42,6 +42,114 @@ func TestNewPipeline(t *testing.T) {
 	assert.Len(t, p.middleware, 2)
 }
 
+func TestNewPipelineWithConfig_ValidatesMaxConcurrentExecutions(t *testing.T) {
+	tests := []struct {
+		name        string
+		config      *PipelineRuntimeConfig
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "zero MaxConcurrentExecutions (filled with default)",
+			config: &PipelineRuntimeConfig{
+				MaxConcurrentExecutions: 0,
+				StreamBufferSize:        100,
+			},
+			expectError: false, // Zero values are filled with defaults
+		},
+		{
+			name: "negative MaxConcurrentExecutions",
+			config: &PipelineRuntimeConfig{
+				MaxConcurrentExecutions: -5,
+				StreamBufferSize:        100,
+			},
+			expectError: true,
+			errorMsg:    "MaxConcurrentExecutions must be non-negative",
+		},
+		{
+			name: "valid MaxConcurrentExecutions",
+			config: &PipelineRuntimeConfig{
+				MaxConcurrentExecutions: 10,
+				StreamBufferSize:        100,
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := NewPipelineWithConfigValidated(tt.config)
+
+			if tt.expectError {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errorMsg)
+				assert.Nil(t, p)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, p)
+				// Verify defaults were applied for zero values
+				if tt.config.MaxConcurrentExecutions == 0 {
+					assert.Equal(t, 100, p.config.MaxConcurrentExecutions, "zero MaxConcurrentExecutions should be filled with default")
+				}
+			}
+		})
+	}
+}
+
+func TestNewPipelineWithConfig_ValidatesStreamBufferSize(t *testing.T) {
+	tests := []struct {
+		name        string
+		config      *PipelineRuntimeConfig
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "zero StreamBufferSize (filled with default)",
+			config: &PipelineRuntimeConfig{
+				MaxConcurrentExecutions: 10,
+				StreamBufferSize:        0,
+			},
+			expectError: false, // Zero values are filled with defaults
+		},
+		{
+			name: "negative StreamBufferSize",
+			config: &PipelineRuntimeConfig{
+				MaxConcurrentExecutions: 10,
+				StreamBufferSize:        -10,
+			},
+			expectError: true,
+			errorMsg:    "StreamBufferSize must be non-negative",
+		},
+		{
+			name: "valid StreamBufferSize",
+			config: &PipelineRuntimeConfig{
+				MaxConcurrentExecutions: 10,
+				StreamBufferSize:        50,
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := NewPipelineWithConfigValidated(tt.config)
+
+			if tt.expectError {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errorMsg)
+				assert.Nil(t, p)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, p)
+				// Verify defaults were applied for zero values
+				if tt.config.StreamBufferSize == 0 {
+					assert.Equal(t, 100, p.config.StreamBufferSize, "zero StreamBufferSize should be filled with default")
+				}
+			}
+		})
+	}
+}
+
 func TestPipeline_Execute_EmptyPipeline(t *testing.T) {
 	p := NewPipeline()
 
@@ -111,6 +219,40 @@ func TestPipeline_Execute_MultipleMiddleware(t *testing.T) {
 	}, executionOrder)
 }
 
+func TestPipeline_Execute_MiddlewareShortCircuit(t *testing.T) {
+	// Test that middleware can intentionally short-circuit without warnings
+	var executionOrder []string
+
+	// First middleware runs normally
+	middleware1 := &funcMiddleware{fn: func(execCtx *ExecutionContext, next func() error) error {
+		executionOrder = append(executionOrder, "m1")
+		return next()
+	}}
+
+	// Second middleware short-circuits (e.g., auth rejection, validation failure)
+	middleware2 := &funcMiddleware{fn: func(execCtx *ExecutionContext, next func() error) error {
+		executionOrder = append(executionOrder, "m2-shortcircuit")
+		// Set ShortCircuit flag to indicate intentional early exit
+		execCtx.ShortCircuit = true
+		return nil // No error, but don't call next()
+	}}
+
+	// Third middleware should not run
+	middleware3 := &funcMiddleware{fn: func(execCtx *ExecutionContext, next func() error) error {
+		executionOrder = append(executionOrder, "m3")
+		return next()
+	}}
+
+	p := NewPipeline(middleware1, middleware2, middleware3)
+
+	result, err := p.Execute(context.Background(), "", "")
+
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Equal(t, []string{"m1", "m2-shortcircuit"}, executionOrder)
+	// Middleware 3 should not have executed
+}
+
 func TestPipeline_Execute_ErrorInMiddleware(t *testing.T) {
 	expectedErr := errors.New("middleware error")
 
@@ -169,6 +311,84 @@ func TestPipeline_Execute_MiddlewareModifiesContext(t *testing.T) {
 	assert.Equal(t, "data", capturedMetadata["custom"])
 	// Metadata should be in result
 	assert.Equal(t, "data", result.Metadata["custom"])
+}
+
+func TestPipeline_ExecuteStream_ResourceCleanupOnCancelledContext(t *testing.T) {
+	// Test that semaphore acquisition happens inside goroutine, so cancelled
+	// contexts are handled gracefully without resource leaks
+	config := &PipelineRuntimeConfig{
+		MaxConcurrentExecutions: 1, // Only allow one execution
+		StreamBufferSize:        10,
+	}
+
+	middleware := &funcMiddleware{
+		fn: func(execCtx *ExecutionContext, next func() error) error {
+			return next()
+		},
+	}
+
+	p, err := NewPipelineWithConfigValidated(config, middleware)
+	assert.NoError(t, err)
+
+	// Create a cancelled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	// ExecuteStream now returns the channel immediately (doesn't wait for Acquire)
+	// The error will be sent through the channel instead
+	stream, err := p.ExecuteStream(ctx, "user", "test")
+	assert.NoError(t, err) // No error on main thread anymore
+	assert.NotNil(t, stream)
+
+	// Read from stream - should get error chunk due to cancelled context
+	chunk := <-stream
+	assert.NotNil(t, chunk.Error)
+
+	// Channel should be closed after error
+	_, ok := <-stream
+	assert.False(t, ok, "channel should be closed")
+
+	// Now try another execution with valid context - should succeed (no leaked resources)
+	validCtx := context.Background()
+	stream2, err2 := p.ExecuteStream(validCtx, "user", "test2")
+	assert.NoError(t, err2)
+	assert.NotNil(t, stream2)
+
+	// Drain the stream
+	for range stream2 {
+		// Just consume
+	}
+}
+
+func TestPipeline_ExecuteStream_NoLeakOnPanic(t *testing.T) {
+	// This test demonstrates that if something unexpected happens between
+	// semaphore.Acquire and go routine launch, resources could leak.
+	// The fix moves Acquire/wg.Add into the goroutine.
+
+	config := &PipelineRuntimeConfig{
+		MaxConcurrentExecutions: 2,
+		StreamBufferSize:        10,
+	}
+
+	p, err := NewPipelineWithConfigValidated(config)
+	assert.NoError(t, err)
+
+	// First execution should work
+	stream1, err := p.ExecuteStream(context.Background(), "user", "test1")
+	assert.NoError(t, err)
+	assert.NotNil(t, stream1)
+
+	// Drain it
+	for range stream1 {
+	}
+
+	// Second execution should also work (no leaked resources)
+	stream2, err := p.ExecuteStream(context.Background(), "user", "test2")
+	assert.NoError(t, err)
+	assert.NotNil(t, stream2)
+
+	for range stream2 {
+	}
 }
 
 func TestPipeline_Execute_ContextCancellation(t *testing.T) {

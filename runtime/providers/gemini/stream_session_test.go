@@ -30,7 +30,7 @@ func TestNewGeminiStreamSession(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	session, err := NewGeminiStreamSession(ctx, server.URL(), "test-key")
+	session, err := NewGeminiStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("NewGeminiStreamSession failed: %v", err)
 	}
@@ -74,7 +74,8 @@ func TestGeminiStreamSession_SendChunk(t *testing.T) {
 			return
 		}
 
-		if msg["client_content"] != nil {
+		// Check for realtime_input format (new format for audio chunks)
+		if msg["realtime_input"] != nil {
 			receivedMsg.Store(true)
 		}
 
@@ -84,7 +85,7 @@ func TestGeminiStreamSession_SendChunk(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	session, err := NewGeminiStreamSession(ctx, server.URL(), "test-key")
+	session, err := NewGeminiStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("NewGeminiStreamSession failed: %v", err)
 	}
@@ -154,7 +155,7 @@ func TestGeminiStreamSession_SendText(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	session, err := NewGeminiStreamSession(ctx, server.URL(), "test-key")
+	session, err := NewGeminiStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("NewGeminiStreamSession failed: %v", err)
 	}
@@ -213,7 +214,7 @@ func TestGeminiStreamSession_CompleteTurn(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	session, err := NewGeminiStreamSession(ctx, server.URL(), "test-key")
+	session, err := NewGeminiStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("NewGeminiStreamSession failed: %v", err)
 	}
@@ -266,7 +267,7 @@ func TestGeminiStreamSession_ReceiveResponse(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	session, err := NewGeminiStreamSession(ctx, server.URL(), "test-key")
+	session, err := NewGeminiStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("NewGeminiStreamSession failed: %v", err)
 	}
@@ -301,7 +302,7 @@ func TestGeminiStreamSession_Close(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	session, err := NewGeminiStreamSession(ctx, server.URL(), "test-key")
+	session, err := NewGeminiStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("NewGeminiStreamSession failed: %v", err)
 	}
@@ -348,7 +349,7 @@ func TestGeminiStreamSession_Done(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	session, err := NewGeminiStreamSession(ctx, server.URL(), "test-key")
+	session, err := NewGeminiStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("NewGeminiStreamSession failed: %v", err)
 	}
@@ -374,19 +375,86 @@ func TestGeminiStreamSession_Done(t *testing.T) {
 }
 
 func TestGeminiStreamSession_Error(t *testing.T) {
-	server := newMockWebSocketServer(func(conn *websocket.Conn) {
-		// Read setup message then close connection immediately to cause error
-		_, _, _ = conn.ReadMessage()
-		conn.Close()
-	})
-	defer server.Close()
+	t.Run("error during setup", func(t *testing.T) {
+		server := newMockWebSocketServer(func(conn *websocket.Conn) {
+			// Read setup message then close connection immediately to cause error
+			_, _, _ = conn.ReadMessage()
+			conn.Close()
+		})
+		defer server.Close()
 
-	ctx := context.Background()
-	_, err := NewGeminiStreamSession(ctx, server.URL(), "test-key")
-	// Expect failure since server closes without sending setup_complete
-	if err == nil {
-		t.Fatal("Expected error when connection closes during setup")
-	}
+		ctx := context.Background()
+		_, err := NewGeminiStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+		// Expect failure since server closes without sending setup_complete
+		if err == nil {
+			t.Fatal("Expected error when connection closes during setup")
+		}
+	})
+
+	t.Run("error during receive loop", func(t *testing.T) {
+		server := newMockWebSocketServer(func(conn *websocket.Conn) {
+			// Read setup message
+			_, _, _ = conn.ReadMessage()
+
+			// Send setup_complete response
+			setupResponse := ServerMessage{
+				SetupComplete: &SetupComplete{},
+			}
+			setupData, _ := json.Marshal(setupResponse)
+			_ = conn.WriteMessage(websocket.TextMessage, setupData)
+
+			// Send invalid JSON to cause error
+			_ = conn.WriteMessage(websocket.TextMessage, []byte("invalid json"))
+		})
+		defer server.Close()
+
+		ctx := context.Background()
+		session, err := NewGeminiStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+		if err != nil {
+			t.Fatalf("Failed to create session: %v", err)
+		}
+		defer session.Close()
+
+		// Wait for error to propagate
+		time.Sleep(50 * time.Millisecond)
+
+		// Check Error() method
+		sessionErr := session.Error()
+		if sessionErr == nil {
+			t.Error("Expected Error() to return an error after invalid JSON")
+		}
+	})
+
+	t.Run("no error when session is healthy", func(t *testing.T) {
+		server := newMockWebSocketServer(func(conn *websocket.Conn) {
+			// Read setup message
+			_, _, _ = conn.ReadMessage()
+
+			// Send setup_complete response
+			setupResponse := ServerMessage{
+				SetupComplete: &SetupComplete{},
+			}
+			setupData, _ := json.Marshal(setupResponse)
+			_ = conn.WriteMessage(websocket.TextMessage, setupData)
+
+			// Keep connection alive
+			time.Sleep(100 * time.Millisecond)
+		})
+		defer server.Close()
+
+		ctx := context.Background()
+		session, err := NewGeminiStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+		if err != nil {
+			t.Fatalf("Failed to create session: %v", err)
+		}
+		defer session.Close()
+
+		// Check Error() method immediately - should return nil
+		sessionErr := session.Error()
+		if sessionErr != nil {
+			t.Errorf("Expected Error() to return nil for healthy session, got: %v", sessionErr)
+		}
+	})
 }
 
 func TestGeminiStreamSession_ContextCancellation(t *testing.T) {
@@ -412,7 +480,7 @@ func TestGeminiStreamSession_ContextCancellation(t *testing.T) {
 	defer server.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	session, err := NewGeminiStreamSession(ctx, server.URL(), "test-key")
+	session, err := NewGeminiStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("NewGeminiStreamSession failed: %v", err)
 	}
@@ -463,7 +531,7 @@ func TestGeminiStreamSession_MultipleResponses(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	session, err := NewGeminiStreamSession(ctx, server.URL(), "test-key")
+	session, err := NewGeminiStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("NewGeminiStreamSession failed: %v", err)
 	}
@@ -502,13 +570,23 @@ func TestBuildClientMessage(t *testing.T) {
 		t.Fatal("Expected message to be built")
 	}
 
-	clientContent, ok := msg["client_content"].(map[string]interface{})
+	// New format uses realtime_input instead of client_content
+	realtimeInput, ok := msg["realtime_input"].(map[string]interface{})
 	if !ok {
-		t.Fatal("Expected client_content field")
+		t.Fatal("Expected realtime_input field")
 	}
 
-	if turnComplete, ok := clientContent["turn_complete"].(bool); !ok || turnComplete {
-		t.Error("Expected turn_complete to be false")
+	mediaChunks, ok := realtimeInput["media_chunks"].([]map[string]interface{})
+	if !ok || len(mediaChunks) == 0 {
+		t.Fatal("Expected media_chunks array")
+	}
+
+	if mimeType, ok := mediaChunks[0]["mime_type"].(string); !ok || mimeType != "audio/pcm" {
+		t.Error("Expected mime_type to be 'audio/pcm'")
+	}
+
+	if data, ok := mediaChunks[0]["data"].(string); !ok || data == "" {
+		t.Error("Expected base64 encoded data")
 	}
 }
 

@@ -72,14 +72,49 @@ type Pipeline struct {
 // NewPipeline creates a new pipeline with the given middleware.
 // Uses default runtime configuration.
 func NewPipeline(middleware ...Middleware) *Pipeline {
-	return NewPipelineWithConfig(nil, middleware...)
+	p, _ := NewPipelineWithConfigValidated(nil, middleware...)
+	return p
 }
 
 // NewPipelineWithConfig creates a new pipeline with the given configuration and middleware.
 // If config is nil, uses default configuration.
+// Note: This function does not validate config values for backward compatibility.
+// Use NewPipelineWithConfigValidated for validation.
 func NewPipelineWithConfig(config *PipelineRuntimeConfig, middleware ...Middleware) *Pipeline {
+	p, _ := NewPipelineWithConfigValidated(config, middleware...)
+	return p
+}
+
+// NewPipelineWithConfigValidated creates a new pipeline with validation.
+// Returns an error if config contains invalid values (negative numbers).
+// If config is nil, uses default configuration.
+// If config has zero values for some fields, they are filled with defaults.
+func NewPipelineWithConfigValidated(config *PipelineRuntimeConfig, middleware ...Middleware) (*Pipeline, error) {
 	if config == nil {
 		config = DefaultPipelineRuntimeConfig()
+	} else {
+		// Validate negative values first (truly invalid)
+		if config.MaxConcurrentExecutions < 0 {
+			return nil, fmt.Errorf("invalid pipeline config: MaxConcurrentExecutions must be non-negative, got %d", config.MaxConcurrentExecutions)
+		}
+		if config.StreamBufferSize < 0 {
+			return nil, fmt.Errorf("invalid pipeline config: StreamBufferSize must be non-negative, got %d", config.StreamBufferSize)
+		}
+
+		// Merge with defaults for any zero values (zero means "not set, use default")
+		defaults := DefaultPipelineRuntimeConfig()
+		if config.MaxConcurrentExecutions == 0 {
+			config.MaxConcurrentExecutions = defaults.MaxConcurrentExecutions
+		}
+		if config.StreamBufferSize == 0 {
+			config.StreamBufferSize = defaults.StreamBufferSize
+		}
+		if config.ExecutionTimeout == 0 {
+			config.ExecutionTimeout = defaults.ExecutionTimeout
+		}
+		if config.GracefulShutdownTimeout == 0 {
+			config.GracefulShutdownTimeout = defaults.GracefulShutdownTimeout
+		}
 	}
 
 	return &Pipeline{
@@ -87,7 +122,7 @@ func NewPipelineWithConfig(config *PipelineRuntimeConfig, middleware ...Middlewa
 		config:     config,
 		semaphore:  semaphore.NewWeighted(int64(config.MaxConcurrentExecutions)),
 		shutdown:   make(chan struct{}),
-	}
+	}, nil
 }
 
 // Shutdown gracefully shuts down the pipeline, waiting for in-flight executions to complete.
@@ -289,14 +324,6 @@ func (p *Pipeline) ExecuteStream(
 		return nil, ErrPipelineShuttingDown
 	}
 
-	// Acquire semaphore for concurrency control
-	if err := p.semaphore.Acquire(ctx, 1); err != nil {
-		return nil, fmt.Errorf(errFailedToAcquireSlot, err)
-	}
-
-	// Track execution for graceful shutdown
-	p.wg.Add(1)
-
 	// Apply execution timeout if configured
 	execCtx, cancel := p.applyExecutionTimeout(ctx)
 
@@ -312,6 +339,8 @@ func (p *Pipeline) ExecuteStream(
 	}
 
 	// Execute pipeline in background
+	// Note: Semaphore acquisition and waitgroup tracking now happen inside the goroutine
+	// to ensure proper cleanup even if goroutine fails to start
 	go p.executeStreamBackground(internalCtx, cancel)
 
 	return internalCtx.StreamOutput, nil
@@ -368,6 +397,24 @@ func (p *Pipeline) createStreamChunkHandler(internalCtx *ExecutionContext) func(
 
 // executeStreamBackground runs the pipeline execution in the background
 func (p *Pipeline) executeStreamBackground(internalCtx *ExecutionContext, cancel context.CancelFunc) {
+	// Acquire semaphore for concurrency control
+	// This is now done inside the goroutine to prevent resource leaks if goroutine fails to start
+	if err := p.semaphore.Acquire(internalCtx.Context, 1); err != nil {
+		// Send error chunk and close immediately
+		internalCtx.StreamOutput <- providers.StreamChunk{
+			Error:        err,
+			FinishReason: strPtr("error"),
+		}
+		close(internalCtx.StreamOutput)
+		if cancel != nil {
+			cancel()
+		}
+		return
+	}
+
+	// Track execution for graceful shutdown
+	p.wg.Add(1)
+
 	defer func() {
 		close(internalCtx.StreamOutput)
 		p.semaphore.Release(1)
@@ -485,10 +532,12 @@ func (p *Pipeline) executeChain(execCtx *ExecutionContext, index int) error {
 
 	if !nextCalled && err == nil && index < len(p.middleware)-1 {
 		// Middleware didn't call next() and didn't return an error
-		// This breaks the chain and prevents subsequent middleware from running
-		logger.Warn(errMiddlewareChainBroken,
-			"middleware", middlewareName,
-			"position", index)
+		// Only warn if ShortCircuit flag is not set (intentional short-circuits are fine)
+		if !execCtx.ShortCircuit {
+			logger.Warn(errMiddlewareChainBroken,
+				"middleware", middlewareName,
+				"position", index)
+		}
 	}
 
 	if nextCalledMultipleTimes {

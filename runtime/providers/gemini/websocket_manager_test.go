@@ -249,11 +249,12 @@ func TestWebSocketManager_Receive_BinaryMessage(t *testing.T) {
 	var msg map[string]string
 	err := wm.Receive(context.Background(), &msg)
 	if err == nil {
-		t.Error("Expected error when receiving binary message")
+		t.Error("Expected error when receiving non-JSON binary message")
 	}
 
-	if !strings.Contains(err.Error(), "unexpected message type") {
-		t.Errorf("Expected message type error, got: %v", err)
+	// Binary messages are now accepted, but non-JSON content will fail to unmarshal
+	if !strings.Contains(err.Error(), "unmarshal") {
+		t.Errorf("Expected unmarshal error, got: %v", err)
 	}
 }
 
