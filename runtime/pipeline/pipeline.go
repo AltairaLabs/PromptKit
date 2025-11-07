@@ -86,19 +86,35 @@ func NewPipelineWithConfig(config *PipelineRuntimeConfig, middleware ...Middlewa
 }
 
 // NewPipelineWithConfigValidated creates a new pipeline with validation.
-// Returns an error if config contains invalid values.
+// Returns an error if config contains invalid values (negative numbers).
 // If config is nil, uses default configuration.
+// If config has zero values for some fields, they are filled with defaults.
 func NewPipelineWithConfigValidated(config *PipelineRuntimeConfig, middleware ...Middleware) (*Pipeline, error) {
 	if config == nil {
 		config = DefaultPipelineRuntimeConfig()
-	}
+	} else {
+		// Validate negative values first (truly invalid)
+		if config.MaxConcurrentExecutions < 0 {
+			return nil, fmt.Errorf("invalid pipeline config: MaxConcurrentExecutions must be non-negative, got %d", config.MaxConcurrentExecutions)
+		}
+		if config.StreamBufferSize < 0 {
+			return nil, fmt.Errorf("invalid pipeline config: StreamBufferSize must be non-negative, got %d", config.StreamBufferSize)
+		}
 
-	// Validate configuration
-	if config.MaxConcurrentExecutions <= 0 {
-		return nil, fmt.Errorf("invalid pipeline config: MaxConcurrentExecutions must be positive, got %d", config.MaxConcurrentExecutions)
-	}
-	if config.StreamBufferSize <= 0 {
-		return nil, fmt.Errorf("invalid pipeline config: StreamBufferSize must be positive, got %d", config.StreamBufferSize)
+		// Merge with defaults for any zero values (zero means "not set, use default")
+		defaults := DefaultPipelineRuntimeConfig()
+		if config.MaxConcurrentExecutions == 0 {
+			config.MaxConcurrentExecutions = defaults.MaxConcurrentExecutions
+		}
+		if config.StreamBufferSize == 0 {
+			config.StreamBufferSize = defaults.StreamBufferSize
+		}
+		if config.ExecutionTimeout == 0 {
+			config.ExecutionTimeout = defaults.ExecutionTimeout
+		}
+		if config.GracefulShutdownTimeout == 0 {
+			config.GracefulShutdownTimeout = defaults.GracefulShutdownTimeout
+		}
 	}
 
 	return &Pipeline{

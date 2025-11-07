@@ -50,13 +50,12 @@ func TestNewPipelineWithConfig_ValidatesMaxConcurrentExecutions(t *testing.T) {
 		errorMsg    string
 	}{
 		{
-			name: "zero MaxConcurrentExecutions",
+			name: "zero MaxConcurrentExecutions (filled with default)",
 			config: &PipelineRuntimeConfig{
 				MaxConcurrentExecutions: 0,
 				StreamBufferSize:        100,
 			},
-			expectError: true,
-			errorMsg:    "MaxConcurrentExecutions must be positive",
+			expectError: false, // Zero values are filled with defaults
 		},
 		{
 			name: "negative MaxConcurrentExecutions",
@@ -65,7 +64,7 @@ func TestNewPipelineWithConfig_ValidatesMaxConcurrentExecutions(t *testing.T) {
 				StreamBufferSize:        100,
 			},
 			expectError: true,
-			errorMsg:    "MaxConcurrentExecutions must be positive",
+			errorMsg:    "MaxConcurrentExecutions must be non-negative",
 		},
 		{
 			name: "valid MaxConcurrentExecutions",
@@ -88,6 +87,10 @@ func TestNewPipelineWithConfig_ValidatesMaxConcurrentExecutions(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.NotNil(t, p)
+				// Verify defaults were applied for zero values
+				if tt.config.MaxConcurrentExecutions == 0 {
+					assert.Equal(t, 100, p.config.MaxConcurrentExecutions, "zero MaxConcurrentExecutions should be filled with default")
+				}
 			}
 		})
 	}
@@ -101,13 +104,12 @@ func TestNewPipelineWithConfig_ValidatesStreamBufferSize(t *testing.T) {
 		errorMsg    string
 	}{
 		{
-			name: "zero StreamBufferSize",
+			name: "zero StreamBufferSize (filled with default)",
 			config: &PipelineRuntimeConfig{
 				MaxConcurrentExecutions: 10,
 				StreamBufferSize:        0,
 			},
-			expectError: true,
-			errorMsg:    "StreamBufferSize must be positive",
+			expectError: false, // Zero values are filled with defaults
 		},
 		{
 			name: "negative StreamBufferSize",
@@ -116,7 +118,7 @@ func TestNewPipelineWithConfig_ValidatesStreamBufferSize(t *testing.T) {
 				StreamBufferSize:        -10,
 			},
 			expectError: true,
-			errorMsg:    "StreamBufferSize must be positive",
+			errorMsg:    "StreamBufferSize must be non-negative",
 		},
 		{
 			name: "valid StreamBufferSize",
@@ -139,6 +141,10 @@ func TestNewPipelineWithConfig_ValidatesStreamBufferSize(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.NotNil(t, p)
+				// Verify defaults were applied for zero values
+				if tt.config.StreamBufferSize == 0 {
+					assert.Equal(t, 100, p.config.StreamBufferSize, "zero StreamBufferSize should be filled with default")
+				}
 			}
 		})
 	}
