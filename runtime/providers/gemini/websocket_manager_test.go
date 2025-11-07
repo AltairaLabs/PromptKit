@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -76,9 +77,9 @@ func TestNewWebSocketManager(t *testing.T) {
 
 func TestWebSocketManager_Connect(t *testing.T) {
 	// Create mock server
-	connected := false
+	var connected atomic.Bool
 	server := newMockWebSocketServer(func(conn *websocket.Conn) {
-		connected = true
+		connected.Store(true)
 		// Keep connection alive
 		_, _, _ = conn.ReadMessage()
 	})
@@ -97,7 +98,7 @@ func TestWebSocketManager_Connect(t *testing.T) {
 		t.Error("Expected connected after Connect()")
 	}
 
-	if !connected {
+	if !connected.Load() {
 		t.Error("Server handler was not called")
 	}
 
@@ -284,10 +285,10 @@ func TestWebSocketManager_SendPing(t *testing.T) {
 }
 
 func TestWebSocketManager_StartHeartbeat(t *testing.T) {
-	pingCount := 0
+	var pingCount atomic.Int32
 	server := newMockWebSocketServer(func(conn *websocket.Conn) {
 		conn.SetPingHandler(func(string) error {
-			pingCount++
+			pingCount.Add(1)
 			return nil
 		})
 		// Keep reading
@@ -312,8 +313,9 @@ func TestWebSocketManager_StartHeartbeat(t *testing.T) {
 	// Wait for multiple pings
 	time.Sleep(250 * time.Millisecond)
 
-	if pingCount < 3 {
-		t.Errorf("Expected at least 3 pings, got %d", pingCount)
+	count := pingCount.Load()
+	if count < 3 {
+		t.Errorf("Expected at least 3 pings, got %d", count)
 	}
 }
 

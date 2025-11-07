@@ -3,6 +3,7 @@ package gemini
 import (
 	"context"
 	"encoding/json"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -50,7 +51,7 @@ func TestNewGeminiStreamSession(t *testing.T) {
 
 func TestGeminiStreamSession_SendChunk(t *testing.T) {
 	// Create echo server
-	receivedMsg := false
+	var receivedMsg atomic.Bool
 	server := newMockWebSocketServer(func(conn *websocket.Conn) {
 		// First read setup message
 		_, _, _ = conn.ReadMessage()
@@ -74,7 +75,7 @@ func TestGeminiStreamSession_SendChunk(t *testing.T) {
 		}
 
 		if msg["client_content"] != nil {
-			receivedMsg = true
+			receivedMsg.Store(true)
 		}
 
 		// Keep connection alive
@@ -104,13 +105,13 @@ func TestGeminiStreamSession_SendChunk(t *testing.T) {
 	// Give time for message to be received
 	time.Sleep(100 * time.Millisecond)
 
-	if !receivedMsg {
+	if !receivedMsg.Load() {
 		t.Error("Server did not receive message")
 	}
 }
 
 func TestGeminiStreamSession_SendText(t *testing.T) {
-	receivedText := ""
+	var receivedText atomic.Value // stores string
 	server := newMockWebSocketServer(func(conn *websocket.Conn) {
 		// First read setup message
 		_, _, _ = conn.ReadMessage()
@@ -139,7 +140,7 @@ func TestGeminiStreamSession_SendText(t *testing.T) {
 					if parts, ok := turn["parts"].([]interface{}); ok && len(parts) > 0 {
 						if part, ok := parts[0].(map[string]interface{}); ok {
 							if text, ok := part["text"].(string); ok {
-								receivedText = text
+								receivedText.Store(text)
 							}
 						}
 					}
@@ -168,13 +169,16 @@ func TestGeminiStreamSession_SendText(t *testing.T) {
 	// Give time for message to be received
 	time.Sleep(100 * time.Millisecond)
 
-	if receivedText != "Hello, Gemini!" {
-		t.Errorf("Expected text 'Hello, Gemini!', got '%s'", receivedText)
+	received := receivedText.Load()
+	if received == nil {
+		t.Error("Server did not receive text")
+	} else if received.(string) != "Hello, Gemini!" {
+		t.Errorf("Expected text 'Hello, Gemini!', got '%s'", received)
 	}
 }
 
 func TestGeminiStreamSession_CompleteTurn(t *testing.T) {
-	turnComplete := false
+	var turnComplete atomic.Bool
 	server := newMockWebSocketServer(func(conn *websocket.Conn) {
 		// First read setup message
 		_, _, _ = conn.ReadMessage()
@@ -199,7 +203,7 @@ func TestGeminiStreamSession_CompleteTurn(t *testing.T) {
 
 		if clientContent, ok := msg["client_content"].(map[string]interface{}); ok {
 			if complete, ok := clientContent["turn_complete"].(bool); ok && complete {
-				turnComplete = true
+				turnComplete.Store(true)
 			}
 		}
 
@@ -224,7 +228,7 @@ func TestGeminiStreamSession_CompleteTurn(t *testing.T) {
 	// Give time for message to be received
 	time.Sleep(100 * time.Millisecond)
 
-	if !turnComplete {
+	if !turnComplete.Load() {
 		t.Error("Server did not receive turn_complete message")
 	}
 }
