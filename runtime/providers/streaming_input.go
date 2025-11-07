@@ -107,7 +107,7 @@ type StreamInputSupport interface {
 	// CreateStreamSession creates a new bidirectional streaming session.
 	// The session remains active until Close() is called or an error occurs.
 	// Returns an error if the provider doesn't support the requested media type.
-	CreateStreamSession(ctx context.Context, req StreamInputRequest) (StreamInputSession, error)
+	CreateStreamSession(ctx context.Context, req *StreamInputRequest) (StreamInputSession, error)
 
 	// SupportsStreamInput returns the media types supported for streaming input.
 	// Common values: types.ContentTypeAudio, types.ContentTypeVideo

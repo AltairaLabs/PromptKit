@@ -200,7 +200,7 @@ func TestGeminiProvider_CreateStreamSession_InvalidConfig(t *testing.T) {
 				Config: tt.config,
 			}
 
-			_, err := provider.CreateStreamSession(ctx, req)
+			_, err := provider.CreateStreamSession(ctx, &req)
 			if err == nil {
 				t.Fatal("expected error for invalid configuration, got nil")
 			}
@@ -231,7 +231,7 @@ func TestGeminiProvider_CreateStreamSession_ValidConfig(t *testing.T) {
 		SystemMsg: "You are a helpful voice assistant",
 	}
 
-	session, err := provider.CreateStreamSession(ctx, req)
+	session, err := provider.CreateStreamSession(ctx, &req)
 	if err != nil {
 		// Check if this is a Live API access error
 		errMsg := err.Error()
@@ -265,15 +265,15 @@ func TestGeminiProvider_CreateStreamSession_ResponseModalities(t *testing.T) {
 	}
 
 	tests := []struct {
-		name              string
-		metadata          map[string]interface{}
-		expectedModality  []string
+		name                string
+		metadata            map[string]interface{}
+		expectedModality    []string
 		shouldCreateSession bool
 	}{
 		{
-			name:              "default TEXT modality",
-			metadata:          nil,
-			expectedModality:  []string{"TEXT"},
+			name:                "default TEXT modality",
+			metadata:            nil,
+			expectedModality:    []string{"TEXT"},
 			shouldCreateSession: false, // Will fail without API key but validates config path
 		},
 		{
@@ -281,7 +281,7 @@ func TestGeminiProvider_CreateStreamSession_ResponseModalities(t *testing.T) {
 			metadata: map[string]interface{}{
 				"response_modalities": []string{"AUDIO"},
 			},
-			expectedModality:  []string{"AUDIO"},
+			expectedModality:    []string{"AUDIO"},
 			shouldCreateSession: false,
 		},
 		{
@@ -289,7 +289,7 @@ func TestGeminiProvider_CreateStreamSession_ResponseModalities(t *testing.T) {
 			metadata: map[string]interface{}{
 				"response_modalities": []interface{}{"TEXT", "AUDIO"},
 			},
-			expectedModality:  []string{"TEXT", "AUDIO"},
+			expectedModality:    []string{"TEXT", "AUDIO"},
 			shouldCreateSession: false,
 		},
 		{
@@ -297,7 +297,7 @@ func TestGeminiProvider_CreateStreamSession_ResponseModalities(t *testing.T) {
 			metadata: map[string]interface{}{
 				"response_modalities": []string{},
 			},
-			expectedModality:  []string{"TEXT"}, // Should default to TEXT
+			expectedModality:    []string{"TEXT"}, // Should default to TEXT
 			shouldCreateSession: false,
 		},
 	}
@@ -311,8 +311,8 @@ func TestGeminiProvider_CreateStreamSession_ResponseModalities(t *testing.T) {
 
 			// This will attempt to create a session and fail due to no API key
 			// But we're testing that the config path is executed correctly
-			_, err := provider.CreateStreamSession(ctx, req)
-			
+			_, err := provider.CreateStreamSession(ctx, &req)
+
 			// Should get an error about websocket connection, not about validation
 			if err != nil {
 				errMsg := err.Error()
@@ -335,7 +335,7 @@ func TestGeminiProvider_CreateStreamSession_EmptyConfig(t *testing.T) {
 		},
 	}
 
-	_, err := provider.CreateStreamSession(ctx, req)
+	_, err := provider.CreateStreamSession(ctx, &req)
 	if err == nil {
 		t.Fatal("expected error for empty configuration, got nil")
 	}

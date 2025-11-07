@@ -57,7 +57,7 @@ func TestStreamingIntegration_EndToEnd(t *testing.T) {
 		SystemMsg: "You are a helpful voice assistant. Please respond briefly.",
 	}
 
-	session, err := provider.CreateStreamSession(ctx, req)
+	session, err := provider.CreateStreamSession(ctx, &req)
 	if err != nil {
 		// Check if this is a Live API access error
 		errMsg := err.Error()
@@ -166,7 +166,7 @@ func TestStreamingIntegration_AudioRoundTrip(t *testing.T) {
 		Config: config,
 	}
 
-	session, err := provider.CreateStreamSession(ctx, req)
+	session, err := provider.CreateStreamSession(ctx, &req)
 	if err != nil {
 		// Check if this is a Live API access error
 		errMsg := err.Error()
@@ -242,7 +242,7 @@ func TestStreamingIntegration_ErrorHandling(t *testing.T) {
 				Config: config,
 			}
 
-			_, err := provider.CreateStreamSession(ctx, req)
+			_, err := provider.CreateStreamSession(ctx, &req)
 
 			if tt.expectErr && err == nil {
 				t.Error("expected error, got nil")
@@ -281,7 +281,7 @@ func TestStreamingIntegration_Performance(t *testing.T) {
 	}
 
 	start := time.Now()
-	session, err := provider.CreateStreamSession(ctx, req)
+	session, err := provider.CreateStreamSession(ctx, &req)
 	if err != nil {
 		// Check if this is a Live API access error
 		errMsg := err.Error()

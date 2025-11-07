@@ -70,7 +70,7 @@ func TestStreamingDemo_AudioAndTextOutput(t *testing.T) {
 	fmt.Println("📡 Step 1: Establishing WebSocket connection...")
 	fmt.Println("   🎯 Configured for TEXT + AUDIO responses")
 	fmt.Println("   ⚠️  Note: Audio output may not be available in current API version")
-	session, err := provider.CreateStreamSession(ctx, req)
+	session, err := provider.CreateStreamSession(ctx, &req)
 	if err != nil {
 		// If audio output is not supported, the API will reject with "invalid argument"
 		errMsg := err.Error()
@@ -108,15 +108,20 @@ func TestStreamingDemo_AudioAndTextOutput(t *testing.T) {
 				fmt.Printf("📝 [Text Chunk %d] %q\n", textChunks, chunk.Content)
 			}
 
-			// Check for AUDIO content in metadata
-			if chunk.Metadata != nil {
-				if hasAudio, ok := chunk.Metadata["has_audio"].(bool); ok && hasAudio {
-					audioChunks++
-					mimeType := chunk.Metadata["audio_mime_type"].(string)
-					audioData := chunk.Metadata["audio_data"].(string)
-					totalAudioBytes += len(audioData)
-					fmt.Printf("🎵 [Audio Chunk %d] mime=%s, size=%d bytes (base64)\n",
-						audioChunks, mimeType, len(audioData))
+			// Check for AUDIO content (first-class MediaDelta field)
+			if chunk.MediaDelta != nil {
+				audioChunks++
+				audioData := *chunk.MediaDelta.Data // Base64 string
+				totalAudioBytes += len(audioData)
+				fmt.Printf("🎵 [Audio Chunk %d] mime=%s, size=%d bytes (base64)\n",
+					audioChunks, chunk.MediaDelta.MIMEType, len(audioData))
+
+				// Show audio metadata if available
+				if chunk.MediaDelta.Channels != nil {
+					fmt.Printf("   Channels: %d\n", *chunk.MediaDelta.Channels)
+				}
+				if chunk.MediaDelta.BitRate != nil {
+					fmt.Printf("   Sample Rate: %d Hz\n", *chunk.MediaDelta.BitRate)
 				}
 			}
 
@@ -266,7 +271,7 @@ func TestStreamingDemo_AudioOutputOnly(t *testing.T) {
 	fmt.Println("📡 Step 1: Establishing WebSocket connection...")
 	fmt.Println("   🎯 Configured for AUDIO-ONLY responses")
 	fmt.Println("   ⚠️  Note: Audio output may not be available in current API version")
-	session, err := provider.CreateStreamSession(ctx, req)
+	session, err := provider.CreateStreamSession(ctx, &req)
 	if err != nil {
 		// If audio output is not supported, the API will reject with "invalid argument"
 		errMsg := err.Error()
@@ -295,15 +300,12 @@ func TestStreamingDemo_AudioOutputOnly(t *testing.T) {
 				fmt.Printf("📝 [Unexpected Text] %q\n", chunk.Content)
 			}
 
-			// Check for AUDIO
-			if chunk.Metadata != nil {
-				if hasAudio, ok := chunk.Metadata["has_audio"].(bool); ok && hasAudio {
-					audioChunks++
-					mimeType := chunk.Metadata["audio_mime_type"].(string)
-					audioData := chunk.Metadata["audio_data"].(string)
-					fmt.Printf("🎵 [Audio Chunk %d] mime=%s, size=%d bytes\n",
-						audioChunks, mimeType, len(audioData))
-				}
+			// Check for AUDIO (first-class MediaDelta field)
+			if chunk.MediaDelta != nil {
+				audioChunks++
+				audioData := *chunk.MediaDelta.Data // Base64 string
+				fmt.Printf("🎵 [Audio Chunk %d] mime=%s, size=%d bytes\n",
+					audioChunks, chunk.MediaDelta.MIMEType, len(audioData))
 			}
 
 			if chunk.FinishReason != nil {

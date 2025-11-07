@@ -60,7 +60,7 @@ func TestStreamingDemo_RealAPI(t *testing.T) {
 	}
 
 	fmt.Println("📡 Step 1: Establishing WebSocket connection to Gemini Live API...")
-	session, err := provider.CreateStreamSession(ctx, req)
+	session, err := provider.CreateStreamSession(ctx, &req)
 	if err != nil {
 		t.Fatalf("❌ Failed to create session: %v", err)
 	}
@@ -85,15 +85,12 @@ func TestStreamingDemo_RealAPI(t *testing.T) {
 			fullResponse += chunk.Content
 			receivedChunks = true
 
-			// Check for audio in metadata
-			if chunk.Metadata != nil {
-				if hasAudio, ok := chunk.Metadata["has_audio"].(bool); ok && hasAudio {
-					audioChunks++
-					mimeType := chunk.Metadata["audio_mime_type"].(string)
-					audioData := chunk.Metadata["audio_data"].(string)
-					fmt.Printf("🎵 [Chunk %d] Received AUDIO: mime=%s, size=%d bytes (base64)\n",
-						chunkCount, mimeType, len(audioData))
-				}
+			// Check for audio in MediaDelta (first-class field)
+			if chunk.MediaDelta != nil {
+				audioChunks++
+				audioData := *chunk.MediaDelta.Data // Base64 string
+				fmt.Printf("🎵 [Chunk %d] Received AUDIO: mime=%s, size=%d bytes (base64)\n",
+					chunkCount, chunk.MediaDelta.MIMEType, len(audioData))
 			}
 
 			if chunk.Content != "" {

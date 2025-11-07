@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -259,8 +260,7 @@ func (s *GeminiStreamSession) processServerMessage(msg *ServerMessage) error {
 // processModelTurn processes a model turn from the server
 func (s *GeminiStreamSession) processModelTurn(turn *ModelTurn, turnComplete bool) error {
 	response := providers.StreamChunk{
-		Content:  "",
-		Metadata: make(map[string]interface{}),
+		Content: "",
 	}
 
 	// Extract text and audio from parts
@@ -272,11 +272,21 @@ func (s *GeminiStreamSession) processModelTurn(turn *ModelTurn, turnComplete boo
 
 		// Handle audio/media data
 		if part.InlineData != nil {
-			// Store audio data in metadata
 			// The data is base64 encoded PCM audio from Gemini
-			response.Metadata["audio_mime_type"] = part.InlineData.MimeType
-			response.Metadata["audio_data"] = part.InlineData.Data // Base64 encoded
-			response.Metadata["has_audio"] = true
+			// Use MediaDelta for first-class media content
+			response.MediaDelta = &types.MediaContent{
+				Data:     &part.InlineData.Data, // Already base64 encoded
+				MIMEType: part.InlineData.MimeType,
+			}
+
+			// Add audio-specific metadata if this is audio
+			if strings.HasPrefix(part.InlineData.MimeType, "audio/") {
+				// Gemini uses 16kHz mono audio
+				channels := 1
+				sampleRate := 16000
+				response.MediaDelta.Channels = &channels
+				response.MediaDelta.BitRate = &sampleRate // Store sample rate in BitRate field
+			}
 		}
 	}
 
