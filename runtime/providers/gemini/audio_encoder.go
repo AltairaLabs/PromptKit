@@ -185,7 +185,7 @@ func (e *AudioEncoder) ReadChunks(ctx context.Context, reader io.Reader) (<-chan
 			}
 
 			n, err := io.ReadFull(reader, buffer)
-			
+
 			// Send previous chunk if we have one
 			if previousChunk != nil {
 				e.markLastChunkIfEOF(previousChunk, err, n)
@@ -267,7 +267,7 @@ func (e *AudioEncoder) createChunk(buffer []byte, n int, sequenceNum int64, isLa
 	}
 	copy(chunk.Data, buffer[:n])
 	return chunk
-}// AssembleChunks reassembles MediaChunks back into continuous PCM data
+} // AssembleChunks reassembles MediaChunks back into continuous PCM data
 func (e *AudioEncoder) AssembleChunks(chunks []*types.MediaChunk) ([]byte, error) {
 	if len(chunks) == 0 {
 		return nil, ErrEmptyAudioData
