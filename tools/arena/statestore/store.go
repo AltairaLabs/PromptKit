@@ -122,7 +122,11 @@ func (s *ArenaStateStore) Save(ctx context.Context, state *runtimestore.Conversa
 
 // SaveWithTrace stores conversation state with execution trace (Arena-specific method)
 // This is called by ArenaStateStoreSaveMiddleware to directly pass the trace
-func (s *ArenaStateStore) SaveWithTrace(ctx context.Context, state *runtimestore.ConversationState, trace *pipeline.ExecutionTrace) error {
+func (s *ArenaStateStore) SaveWithTrace(
+	ctx context.Context,
+	state *runtimestore.ConversationState,
+	trace *pipeline.ExecutionTrace,
+) error {
 	if state == nil {
 		return fmt.Errorf("state cannot be nil")
 	}
@@ -189,7 +193,9 @@ func (s *ArenaStateStore) attachTraceToMessages(state *runtimestore.Conversation
 }
 
 // deepCloneConversationState creates a deep copy of ConversationState including all messages
-func (s *ArenaStateStore) deepCloneConversationState(state *runtimestore.ConversationState) *runtimestore.ConversationState {
+func (s *ArenaStateStore) deepCloneConversationState(
+	state *runtimestore.ConversationState,
+) *runtimestore.ConversationState {
 	if state == nil {
 		return nil
 	}
@@ -238,22 +244,45 @@ func (s *ArenaStateStore) deepCloneMessage(msg *types.Message) types.Message {
 		Content:   msg.Content,
 		Timestamp: msg.Timestamp,
 		LatencyMs: msg.LatencyMs,
-		Source:    msg.Source, // Preserve Source field
+		Source:    msg.Source,
 	}
 
-	// Deep clone ToolCalls slice
-	if len(msg.ToolCalls) > 0 {
-		cloned.ToolCalls = make([]types.MessageToolCall, len(msg.ToolCalls))
-		for i, tc := range msg.ToolCalls {
-			cloned.ToolCalls[i] = types.MessageToolCall{
-				ID:   tc.ID,
-				Name: tc.Name,
-				Args: append(json.RawMessage(nil), tc.Args...), // Clone the raw JSON bytes
-			}
+	s.cloneMessageParts(&cloned, msg)
+	s.cloneMessageToolCalls(&cloned, msg)
+	s.cloneMessageToolResult(&cloned, msg)
+	s.cloneMessageCostInfo(&cloned, msg)
+	s.cloneMessageMeta(&cloned, msg)
+	s.cloneMessageValidations(&cloned, msg)
+
+	return cloned
+}
+
+// cloneMessageParts clones the Parts slice (multimodal content)
+func (s *ArenaStateStore) cloneMessageParts(cloned *types.Message, msg *types.Message) {
+	if len(msg.Parts) > 0 {
+		cloned.Parts = make([]types.ContentPart, len(msg.Parts))
+		copy(cloned.Parts, msg.Parts)
+	}
+}
+
+// cloneMessageToolCalls clones the ToolCalls slice
+func (s *ArenaStateStore) cloneMessageToolCalls(cloned *types.Message, msg *types.Message) {
+	if len(msg.ToolCalls) == 0 {
+		return
+	}
+
+	cloned.ToolCalls = make([]types.MessageToolCall, len(msg.ToolCalls))
+	for i, tc := range msg.ToolCalls {
+		cloned.ToolCalls[i] = types.MessageToolCall{
+			ID:   tc.ID,
+			Name: tc.Name,
+			Args: append(json.RawMessage(nil), tc.Args...),
 		}
 	}
+}
 
-	// Deep clone ToolResult
+// cloneMessageToolResult clones the ToolResult
+func (s *ArenaStateStore) cloneMessageToolResult(cloned *types.Message, msg *types.Message) {
 	if msg.ToolResult != nil {
 		cloned.ToolResult = &types.MessageToolResult{
 			ID:        msg.ToolResult.ID,
@@ -263,8 +292,10 @@ func (s *ArenaStateStore) deepCloneMessage(msg *types.Message) types.Message {
 			LatencyMs: msg.ToolResult.LatencyMs,
 		}
 	}
+}
 
-	// Deep clone CostInfo
+// cloneMessageCostInfo clones the CostInfo
+func (s *ArenaStateStore) cloneMessageCostInfo(cloned *types.Message, msg *types.Message) {
 	if msg.CostInfo != nil {
 		cloned.CostInfo = &types.CostInfo{
 			InputTokens:   msg.CostInfo.InputTokens,
@@ -276,35 +307,43 @@ func (s *ArenaStateStore) deepCloneMessage(msg *types.Message) types.Message {
 			TotalCost:     msg.CostInfo.TotalCost,
 		}
 	}
+}
 
-	// Deep clone Meta map (this is critical for assertions!)
+// cloneMessageMeta clones the Meta map
+func (s *ArenaStateStore) cloneMessageMeta(cloned *types.Message, msg *types.Message) {
 	if len(msg.Meta) > 0 {
 		cloned.Meta = make(map[string]interface{}, len(msg.Meta))
 		for k, v := range msg.Meta {
 			cloned.Meta[k] = s.deepCloneValue(v)
 		}
 	}
+}
 
-	// Deep clone Validations slice
-	if len(msg.Validations) > 0 {
-		cloned.Validations = make([]types.ValidationResult, len(msg.Validations))
-		for i, vr := range msg.Validations {
-			cloned.Validations[i] = types.ValidationResult{
-				ValidatorType: vr.ValidatorType,
-				Passed:        vr.Passed,
-				Timestamp:     vr.Timestamp,
-			}
-			// Deep clone Details map
-			if len(vr.Details) > 0 {
-				cloned.Validations[i].Details = make(map[string]interface{}, len(vr.Details))
-				for k, v := range vr.Details {
-					cloned.Validations[i].Details[k] = s.deepCloneValue(v)
-				}
-			}
-		}
+// cloneMessageValidations clones the Validations slice
+func (s *ArenaStateStore) cloneMessageValidations(cloned *types.Message, msg *types.Message) {
+	if len(msg.Validations) == 0 {
+		return
 	}
 
-	return cloned
+	cloned.Validations = make([]types.ValidationResult, len(msg.Validations))
+	for i, vr := range msg.Validations {
+		cloned.Validations[i] = types.ValidationResult{
+			ValidatorType: vr.ValidatorType,
+			Passed:        vr.Passed,
+			Timestamp:     vr.Timestamp,
+		}
+		s.cloneValidationDetails(&cloned.Validations[i], &vr)
+	}
+}
+
+// cloneValidationDetails clones the Details map in a ValidationResult
+func (s *ArenaStateStore) cloneValidationDetails(cloned *types.ValidationResult, vr *types.ValidationResult) {
+	if len(vr.Details) > 0 {
+		cloned.Details = make(map[string]interface{}, len(vr.Details))
+		for k, v := range vr.Details {
+			cloned.Details[k] = s.deepCloneValue(v)
+		}
+	}
 }
 
 // deepCloneValue attempts to deep clone various types commonly found in metadata/meta maps

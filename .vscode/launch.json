@@ -1,7 +1,26 @@
 {
     "version": "0.2.0",
     "configurations": [
-
+        
+        {
+            "name": "Debug Arena Media Test",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceFolder}/tools/arena/cmd/promptarena",
+            "args": [
+                "run",
+                "--config", "examples/arena-media-test/arena.yaml",
+                "--scenario", "image-analysis-local",
+                "-v"
+            ],
+            "cwd": "${workspaceFolder}",
+            "env": {},
+            "console": "integratedTerminal",
+            "showLog": true,
+            "stopOnEntry": false,
+            "trace": "verbose"
+        },
         {
             "name": "Debug Gemini Audio Output Test",
             "type": "go",

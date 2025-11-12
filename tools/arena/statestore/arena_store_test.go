@@ -654,3 +654,212 @@ func TestArenaStateStore_DumpToJSON_WithMetadata(t *testing.T) {
 	assert.Equal(t, float64(5), cost["output_tokens"])
 	assert.Equal(t, 0.0015, cost["total_cost_usd"])
 }
+
+func TestArenaStateStore_MultimodalContentPreservation(t *testing.T) {
+	store := NewArenaStateStore()
+	ctx := context.Background()
+
+	// Create a message with multimodal Parts
+	textPtr := "What's in this image?"
+	imageData := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+	imageURL := "data:image/png;base64," + imageData
+	detailAuto := "auto"
+
+	state := &statestore.ConversationState{
+		ID:     "conv-multimodal",
+		UserID: "user-test",
+		Messages: []types.Message{
+			{
+				Role:      "user",
+				Timestamp: time.Now(),
+				Parts: []types.ContentPart{
+					{
+						Type: types.ContentTypeText,
+						Text: &textPtr,
+					},
+					{
+						Type: types.ContentTypeImage,
+						Media: &types.MediaContent{
+							URL:      &imageURL,
+							MIMEType: types.MIMETypeImagePNG,
+							Detail:   &detailAuto,
+						},
+					},
+				},
+			},
+			{
+				Role:      "assistant",
+				Content:   "I see a small test image.",
+				Timestamp: time.Now(),
+			},
+		},
+	}
+
+	// Save the state
+	err := store.Save(ctx, state)
+	require.NoError(t, err)
+
+	// Load and verify Parts are preserved
+	loaded, err := store.Load(ctx, "conv-multimodal")
+	require.NoError(t, err)
+	require.Len(t, loaded.Messages, 2)
+
+	// Check first message has Parts
+	userMsg := loaded.Messages[0]
+	assert.Equal(t, "user", userMsg.Role)
+	require.Len(t, userMsg.Parts, 2, "Parts should be preserved after save/load")
+
+	// Verify text part
+	assert.Equal(t, types.ContentTypeText, userMsg.Parts[0].Type)
+	require.NotNil(t, userMsg.Parts[0].Text)
+	assert.Equal(t, "What's in this image?", *userMsg.Parts[0].Text)
+
+	// Verify image part
+	assert.Equal(t, types.ContentTypeImage, userMsg.Parts[1].Type)
+	require.NotNil(t, userMsg.Parts[1].Media)
+	require.NotNil(t, userMsg.Parts[1].Media.URL)
+	assert.Contains(t, *userMsg.Parts[1].Media.URL, imageData)
+	assert.Equal(t, types.MIMETypeImagePNG, userMsg.Parts[1].Media.MIMEType)
+	require.NotNil(t, userMsg.Parts[1].Media.Detail)
+	assert.Equal(t, "auto", *userMsg.Parts[1].Media.Detail)
+
+	// Verify assistant message
+	assistantMsg := loaded.Messages[1]
+	assert.Equal(t, "assistant", assistantMsg.Role)
+	assert.Equal(t, "I see a small test image.", assistantMsg.Content)
+	assert.Len(t, assistantMsg.Parts, 0, "Assistant message should have no Parts")
+}
+
+func TestArenaStateStore_MultimodalContentCloning(t *testing.T) {
+	store := NewArenaStateStore()
+	ctx := context.Background()
+
+	// Create initial state with one multimodal message
+	textPtr := "First message"
+	state := &statestore.ConversationState{
+		ID:     "conv-clone-test",
+		UserID: "user-test",
+		Messages: []types.Message{
+			{
+				Role:      "user",
+				Timestamp: time.Now(),
+				Parts: []types.ContentPart{
+					{
+						Type: types.ContentTypeText,
+						Text: &textPtr,
+					},
+				},
+			},
+		},
+	}
+
+	// Save first turn
+	err := store.Save(ctx, state)
+	require.NoError(t, err)
+
+	// Load and add another message
+	loaded, err := store.Load(ctx, "conv-clone-test")
+	require.NoError(t, err)
+	require.Len(t, loaded.Messages, 1)
+	require.Len(t, loaded.Messages[0].Parts, 1, "First message should have Parts")
+
+	// Add a second multimodal message
+	secondTextPtr := "Second message"
+	loaded.Messages = append(loaded.Messages, types.Message{
+		Role:      "assistant",
+		Content:   "Response to first",
+		Timestamp: time.Now(),
+	})
+	loaded.Messages = append(loaded.Messages, types.Message{
+		Role:      "user",
+		Timestamp: time.Now(),
+		Parts: []types.ContentPart{
+			{
+				Type: types.ContentTypeText,
+				Text: &secondTextPtr,
+			},
+		},
+	})
+
+	// Save second turn
+	err = store.Save(ctx, loaded)
+	require.NoError(t, err)
+
+	// Load again and verify all Parts are preserved
+	final, err := store.Load(ctx, "conv-clone-test")
+	require.NoError(t, err)
+	require.Len(t, final.Messages, 3)
+
+	// Verify first user message still has Parts
+	assert.Len(t, final.Messages[0].Parts, 1, "First message Parts should be preserved across multiple saves")
+	assert.Equal(t, "First message", *final.Messages[0].Parts[0].Text)
+
+	// Verify assistant message has no Parts
+	assert.Len(t, final.Messages[1].Parts, 0)
+	assert.Equal(t, "Response to first", final.Messages[1].Content)
+
+	// Verify second user message has Parts
+	assert.Len(t, final.Messages[2].Parts, 1, "Second message Parts should be preserved")
+	assert.Equal(t, "Second message", *final.Messages[2].Parts[0].Text)
+}
+
+func TestArenaStateStore_AudioAndVideoContentPreservation(t *testing.T) {
+	store := NewArenaStateStore()
+	ctx := context.Background()
+
+	audioData := "//uQxAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAACAAADhABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV"
+	audioURL := "data:audio/mp3;base64," + audioData
+	videoURL := "https://example.com/video.mp4"
+
+	state := &statestore.ConversationState{
+		ID:     "conv-av-test",
+		UserID: "user-test",
+		Messages: []types.Message{
+			{
+				Role:      "user",
+				Timestamp: time.Now(),
+				Parts: []types.ContentPart{
+					{
+						Type: types.ContentTypeAudio,
+						Media: &types.MediaContent{
+							URL:      &audioURL,
+							MIMEType: types.MIMETypeAudioMP3,
+						},
+					},
+					{
+						Type: types.ContentTypeVideo,
+						Media: &types.MediaContent{
+							URL:      &videoURL,
+							MIMEType: types.MIMETypeVideoMP4,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Save and load
+	err := store.Save(ctx, state)
+	require.NoError(t, err)
+
+	loaded, err := store.Load(ctx, "conv-av-test")
+	require.NoError(t, err)
+	require.Len(t, loaded.Messages, 1)
+
+	msg := loaded.Messages[0]
+	require.Len(t, msg.Parts, 2, "Audio and video Parts should be preserved")
+
+	// Verify audio part
+	assert.Equal(t, types.ContentTypeAudio, msg.Parts[0].Type)
+	require.NotNil(t, msg.Parts[0].Media)
+	require.NotNil(t, msg.Parts[0].Media.URL)
+	assert.Contains(t, *msg.Parts[0].Media.URL, audioData)
+	assert.Equal(t, types.MIMETypeAudioMP3, msg.Parts[0].Media.MIMEType)
+
+	// Verify video part
+	assert.Equal(t, types.ContentTypeVideo, msg.Parts[1].Type)
+	require.NotNil(t, msg.Parts[1].Media)
+	require.NotNil(t, msg.Parts[1].Media.URL)
+	assert.Equal(t, videoURL, *msg.Parts[1].Media.URL)
+	assert.Equal(t, types.MIMETypeVideoMP4, msg.Parts[1].Media.MIMEType)
+}

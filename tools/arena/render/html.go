@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/russross/blackfriday/v2"
 )
@@ -62,6 +63,13 @@ type ReportSummary struct {
 	TotalCost      float64 `json:"total_cost"`
 	TotalTokens    int     `json:"total_tokens"`
 	AvgLatency     string  `json:"avg_latency"`
+	// Media statistics
+	TotalImages      int   `json:"total_images"`
+	TotalAudio       int   `json:"total_audio"`
+	TotalVideo       int   `json:"total_video"`
+	MediaLoadSuccess int   `json:"media_load_success"`
+	MediaLoadErrors  int   `json:"media_load_errors"`
+	TotalMediaSize   int64 `json:"total_media_size_bytes"`
 }
 
 // MatrixCell represents a cell in the provider x region matrix
@@ -139,6 +147,9 @@ func prepareReportData(results []engine.RunResult) HTMLReportData {
 		}
 	}
 
+	// Calculate media statistics
+	mediaStats := calculateMediaStats(results)
+
 	// Convert maps to slices
 	providerList := make([]string, 0, len(providers))
 	for p := range providers {
@@ -178,12 +189,18 @@ func prepareReportData(results []engine.RunResult) HTMLReportData {
 		Title:       "Altaira Prompt Arena Report",
 		GeneratedAt: time.Now(),
 		Summary: ReportSummary{
-			TotalRuns:      len(results),
-			SuccessfulRuns: successfulRuns,
-			ErrorRuns:      len(results) - successfulRuns,
-			TotalCost:      totalCost,
-			TotalTokens:    totalTokens,
-			AvgLatency:     avgLatency,
+			TotalRuns:        len(results),
+			SuccessfulRuns:   successfulRuns,
+			ErrorRuns:        len(results) - successfulRuns,
+			TotalCost:        totalCost,
+			TotalTokens:      totalTokens,
+			AvgLatency:       avgLatency,
+			TotalImages:      mediaStats.TotalImages,
+			TotalAudio:       mediaStats.TotalAudio,
+			TotalVideo:       mediaStats.TotalVideo,
+			MediaLoadSuccess: mediaStats.MediaLoadSuccess,
+			MediaLoadErrors:  mediaStats.MediaLoadErrors,
+			TotalMediaSize:   mediaStats.TotalMediaSize,
 		},
 		Results:        results,
 		Providers:      providerList,
@@ -308,23 +325,25 @@ func generateScenarioGroups(results []engine.RunResult, scenarios []string) []Sc
 
 func generateHTML(data HTMLReportData) (string, error) {
 	tmpl := template.Must(template.New("report").Funcs(template.FuncMap{
-		"formatCost":       formatCost,
-		"formatDuration":   formatDuration,
-		"formatPercent":    formatPercent,
-		"statusClass":      getStatusClass,
-		"prettyJSON":       prettyJSON,
-		"renderMarkdown":   renderMarkdown,
-		"json":             convertToJS,
-		"add":              func(a, b int) int { return a + b },
-		"getAssertions":    getAssertions,
-		"getValidators":    getValidatorsFromMessage,
-		"assertionsPassed": checkAssertionsPassed,
-		"validatorsPassed": checkValidatorsPassed,
-		"hasAssertions":    hasAssertions,
-		"hasValidators":    hasValidatorsInMessage,
-		"getOK":            getOKFromResult,
-		"getDetails":       getDetailsFromResult,
-		"getMessage":       getMessage,
+		"formatCost":           formatCost,
+		"formatDuration":       formatDuration,
+		"formatPercent":        formatPercent,
+		"statusClass":          getStatusClass,
+		"prettyJSON":           prettyJSON,
+		"renderMarkdown":       renderMarkdown,
+		"renderMessageContent": renderMessageContent,
+		"formatBytes":          formatBytesHTML,
+		"json":                 convertToJS,
+		"add":                  func(a, b int) int { return a + b },
+		"getAssertions":        getAssertions,
+		"getValidators":        getValidatorsFromMessage,
+		"assertionsPassed":     checkAssertionsPassed,
+		"validatorsPassed":     checkValidatorsPassed,
+		"hasAssertions":        hasAssertions,
+		"hasValidators":        hasValidatorsInMessage,
+		"getOK":                getOKFromResult,
+		"getDetails":           getDetailsFromResult,
+		"getMessage":           getMessage,
 	}).Parse(reportTemplate))
 
 	var buf strings.Builder
@@ -701,4 +720,16 @@ func getMessageViaJSON(result interface{}) string {
 		}
 	}
 	return ""
+}
+
+// renderMessageContent renders a message with multimodal media support.
+// This is a bridge function for template use.
+func renderMessageContent(msg types.Message) template.HTML {
+	return template.HTML(renderMessageWithMedia(msg))
+}
+
+// formatBytesHTML formats a byte count as a human-readable string.
+// This is a bridge function for template use.
+func formatBytesHTML(bytes int64) string {
+	return formatBytes(int(bytes))
 }

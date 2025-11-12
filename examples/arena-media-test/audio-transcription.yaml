@@ -1,0 +1,52 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: audio-transcription
+  description: Test audio file processing and transcription
+spec:
+  provider: mock-media
+  
+  turns:
+    - role: user
+      parts:
+        - type: text
+          text: "Transcribe this audio file:"
+        - type: audio
+          media:
+            file_path: ../../tools/arena/testdata/media/test-audio-small.wav
+            mime_type: audio/wav
+      
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "audio"
+
+    - role: user
+      parts:
+        - type: text
+          text: "What's the difference between WAV and OGG format?"
+        - type: audio
+          media:
+            file_path: ../../tools/arena/testdata/media/test-audio-small.wav
+            mime_type: audio/wav
+        - type: audio
+          media:
+            file_path: ../../tools/arena/testdata/media/test-audio-small.ogg
+            mime_type: audio/ogg
+      
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "compression"
+
+    - role: user
+      parts:
+        - type: text
+          text: "Analyze the audio content and provide insights:"
+        - type: audio
+          media:
+            file_path: ../../tools/arena/testdata/media/test-audio-small.wav
+            mime_type: audio/wav
+

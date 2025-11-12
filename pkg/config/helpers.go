@@ -43,7 +43,8 @@ func ResolveConfigDir(cfg *Config, configFilePath string) string {
 
 	// Use directory containing the main config file
 	if configFilePath != "" {
-		return filepath.Dir(configFilePath)
+		dir := filepath.Dir(configFilePath)
+		return dir
 	}
 
 	// Default to current working directory

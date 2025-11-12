@@ -1,0 +1,81 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: multimodal-mixed
+  description: Test combining text, images, audio, and video in conversations
+spec:
+  provider: mock-media
+  
+  turns:
+    - role: user
+      parts:
+        - type: text
+          text: "I need help analyzing this media:"
+        - type: image
+          media:
+            file_path: ../../tools/arena/testdata/media/test-image-small.jpg
+            mime_type: image/jpeg
+        - type: text
+          text: "And this audio file:"
+        - type: audio
+          media:
+            file_path: ../../tools/arena/testdata/media/test-audio-small.wav
+            mime_type: audio/wav
+      
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "image"
+
+    - role: user
+      parts:
+        - type: text
+          text: "Here are multiple images in different formats:"
+        - type: image
+          media:
+            file_path: ../../tools/arena/testdata/media/test-image-small.jpg
+            mime_type: image/jpeg
+        - type: image
+          media:
+            file_path: ../../tools/arena/testdata/media/test-image-small.png
+            mime_type: image/png
+        - type: image
+          media:
+            file_path: ../../tools/arena/testdata/media/test-image-small.gif
+            mime_type: image/gif
+        - type: image
+          media:
+            file_path: ../../tools/arena/testdata/media/test-image-small.webp
+            mime_type: image/webp
+        - type: text
+          text: "Which format is best for web use?"
+      
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "format"
+
+    - role: user
+      parts:
+        - type: text
+          text: "Mixed local and remote media:"
+        - type: image
+          media:
+            file_path: ../../tools/arena/testdata/media/test-image-small.jpg
+            mime_type: image/jpeg
+        - type: image
+          media:
+            url: https://picsum.photos/200/300
+            mime_type: image/jpeg
+        - type: audio
+          media:
+            file_path: ../../tools/arena/testdata/media/test-audio-small.ogg
+            mime_type: audio/ogg
+      
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "local"

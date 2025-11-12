@@ -643,6 +643,347 @@ spec:
 
 ---
 
+## Multimodal Content & Media Rendering
+
+PromptArena supports multimodal content (images, audio, video) in test scenarios with comprehensive media rendering in all output formats.
+
+### Media Content in Scenarios
+
+Test scenarios can include multimodal content using the `parts` array:
+
+```yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: image-analysis
+spec:
+  turns:
+    - role: user
+      parts:
+        - type: text
+          text: "What's in this image?"
+        - type: image
+          media:
+            file_path: test-data/sample.jpg
+            detail: high
+```
+
+#### Supported Media Types
+
+- **Images**: JPEG, PNG, GIF, WebP
+- **Audio**: MP3, WAV, OGG, M4A
+- **Video**: MP4, WebM, MOV
+
+#### Media Sources
+
+Media can be loaded from three sources:
+
+**1. Local Files**
+```yaml
+- type: image
+  media:
+    file_path: images/diagram.png
+    detail: high
+```
+
+**2. URLs** (fetched during test execution)
+```yaml
+- type: image
+  media:
+    url: https://example.com/photo.jpg
+    detail: auto
+```
+
+**3. Inline Base64 Data**
+```yaml
+- type: image
+  media:
+    data: "iVBORw0KGgoAAAANSUhEUgAAAAUA..."
+    mime_type: image/png
+    detail: low
+```
+
+### Media Rendering in Reports
+
+All output formats include media statistics and rendering:
+
+#### HTML Reports
+
+HTML reports include:
+
+**Media Summary Dashboard**
+- Visual statistics cards showing:
+  - Total images, audio, and video files
+  - Successfully loaded vs. failed media
+  - Total media size in human-readable format
+  - Media type icons (🖼️ 🎵 🎬)
+
+**Media Badges**
+```
+🖼️ x3  🎵 x2  ✅ 5  ❌ 0  💾 1.2 MB
+```
+
+**Media Items Display**
+- Individual media items with:
+  - Type icon and format badge
+  - Source (file path, URL, or "inline")
+  - MIME type
+  - File size
+  - Load status (✅ loaded / ❌ error)
+
+**Example HTML Output**:
+```html
+<div class="media-summary">
+  <div class="stat-card">
+    <div class="stat-value">5</div>
+    <div class="stat-label">🖼️ Images</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">3</div>
+    <div class="stat-label">🎵 Audio</div>
+  </div>
+  <!-- ... -->
+</div>
+```
+
+#### JUnit XML Reports
+
+JUnit XML includes media metadata as test suite properties:
+
+```xml
+<testsuite name="image-analysis" tests="1">
+  <properties>
+    <property name="media.images.total" value="5"/>
+    <property name="media.audio.total" value="3"/>
+    <property name="media.video.total" value="0"/>
+    <property name="media.loaded.success" value="8"/>
+    <property name="media.loaded.errors" value="0"/>
+    <property name="media.size.total_bytes" value="1245678"/>
+  </properties>
+  <testcase name="test-001" classname="image-analysis" time="2.34"/>
+</testsuite>
+```
+
+**Property Naming Convention**:
+- `media.{type}.total` - Count by media type (images, audio, video)
+- `media.loaded.success` - Successfully loaded media items
+- `media.loaded.errors` - Failed media loads
+- `media.size.total_bytes` - Total size in bytes
+
+These properties are useful for:
+- CI/CD metrics and tracking
+- Test result analysis
+- Media resource monitoring
+
+#### Markdown Reports
+
+Markdown reports include a media statistics table in the overview section:
+
+```markdown
+## 📊 Overview
+
+| Metric | Value |
+|--------|-------|
+| Tests Run | 6 |
+| Passed | 5 ✅ |
+| Failed | 1 ❌ |
+| Success Rate | 83.3% |
+| Total Cost | $0.0245 |
+| Total Duration | 12.5s |
+
+### 🎨 Media Content
+
+| Type | Count |
+|------|-------|
+| 🖼️  Images | 5 |
+| 🎵 Audio Files | 3 |
+| 🎬 Videos | 0 |
+| ✅ Loaded | 8 |
+| ❌ Errors | 0 |
+| 💾 Total Size | 1.2 MB |
+```
+
+### Media Loading Options
+
+Control how media is loaded and processed:
+
+#### HTTP Media Loader
+
+For URL-based media, configure the HTTP loader:
+
+```yaml
+spec:
+  defaults:
+    media:
+      http:
+        timeout: 30s
+        max_file_size: 50MB
+```
+
+#### Local File Paths
+
+Relative paths are resolved from the configuration file directory:
+
+```yaml
+# If arena.yaml is in /project/tests/
+# This resolves to /project/tests/images/sample.jpg
+- type: image
+  media:
+    file_path: images/sample.jpg
+```
+
+### Media Validation
+
+PromptArena validates media content:
+
+**Path Security**
+- Prevents path traversal attacks (`..` sequences)
+- Validates file paths are within allowed directories
+- Checks symlink targets
+
+**File Validation**
+- Verifies MIME types match content types
+- Checks file existence
+- Validates file sizes against limits
+- Ensures files are regular files (not directories)
+
+**Error Handling**
+- Media load failures are captured in test results
+- Errors reported in all output formats
+- Tests can continue with partial media failures
+
+### Examples
+
+#### Testing Image Analysis
+
+```yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: product-image-analysis
+spec:
+  task_type: vision
+  turns:
+    - role: user
+      parts:
+        - type: text
+          text: "Analyze this product image for defects"
+        - type: image
+          media:
+            file_path: test-data/product-123.jpg
+            detail: high
+  assertions:
+    - type: content_includes
+      patterns: ["quality", "inspection"]
+```
+
+#### Testing Audio Transcription
+
+```yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: audio-transcription
+spec:
+  task_type: transcription
+  turns:
+    - role: user
+      parts:
+        - type: text
+          text: "Transcribe this audio"
+        - type: audio
+          media:
+            file_path: test-data/meeting-recording.mp3
+  assertions:
+    - type: content_includes
+      patterns: ["meeting", "agenda"]
+```
+
+#### Mixed Multimodal Content
+
+```yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: multimodal-analysis
+spec:
+  turns:
+    - role: user
+      parts:
+        - type: text
+          text: "Compare these media files"
+        - type: image
+          media:
+            file_path: charts/q1-results.png
+        - type: image
+          media:
+            file_path: charts/q2-results.png
+        - type: audio
+          media:
+            file_path: presentations/summary.mp3
+```
+
+### Generate Media-Rich Reports
+
+```bash
+# Run multimodal tests with all formats
+promptarena run --format html,junit,markdown
+
+# HTML report includes interactive media dashboard
+open out/report.html
+
+# JUnit XML includes media metrics for CI
+cat out/junit.xml | grep "media\."
+
+# Markdown shows media statistics
+cat out/results.md
+```
+
+### Media Statistics in CI/CD
+
+Extract media metrics from JUnit XML:
+
+```bash
+# Count total images tested
+xmllint --xpath "//property[@name='media.images.total']/@value" out/junit.xml
+
+# Check for media load errors
+xmllint --xpath "//property[@name='media.loaded.errors']/@value" out/junit.xml
+```
+
+### Best Practices
+
+**File Organization**
+```
+project/
+├── arena.yaml
+├── test-data/
+│   ├── images/
+│   │   ├── valid/
+│   │   └── invalid/
+│   ├── audio/
+│   └── video/
+└── scenarios/
+    └── multimodal-tests.yaml
+```
+
+**Size Limits**
+- Keep test media files small (<10MB recommended)
+- Use compressed formats (WebP for images, MP3 for audio)
+- Consider using thumbnails for image tests
+
+**URL Loading**
+- Use reliable, stable URLs for CI/CD
+- Consider local copies for critical tests
+- Set appropriate timeouts for remote resources
+
+**Assertions**
+- Validate media is processed in responses
+- Check for expected content types
+- Verify quality/accuracy of analysis
+
+---
+
 ## Tips & Best Practices
 
 ### Performance
