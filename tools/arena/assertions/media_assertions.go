@@ -19,47 +19,56 @@ const (
 	errAtLeastOneFormat  = "at least one format must be specified"
 )
 
-// ImageFormatValidator checks that media content has one of the allowed image formats
-type ImageFormatValidator struct {
-	formats []string // e.g., ["jpeg", "png", "webp"]
-}
+// Violation message templates
+const (
+	msgDurationBelowMin = "duration %.1fs below minimum %.1fs"
+	msgDurationAboveMax = "duration %.1fs exceeds maximum %.1fs"
+	msgWidthBelowMin    = "width %d below minimum %d"
+	msgWidthAboveMax    = "width %d exceeds maximum %d"
+	msgHeightBelowMin   = "height %d below minimum %d"
+	msgHeightAboveMax   = "height %d exceeds maximum %d"
+)
 
-// NewImageFormatValidator creates a new image_format validator from params
-func NewImageFormatValidator(params map[string]interface{}) runtimeValidators.Validator {
-	formats := extractStringSlice(params, "formats")
-	return &ImageFormatValidator{formats: formats}
-}
+// baseMediaValidator provides common functionality for all media validators
+type baseMediaValidator struct{}
 
-// Validate checks if the message contains images with allowed formats
-func (v *ImageFormatValidator) Validate(content string, params map[string]interface{}) runtimeValidators.ValidationResult {
-	// Extract message from params
+// extractMessage safely extracts a message from params
+func (b *baseMediaValidator) extractMessage(params map[string]interface{}) (types.Message, bool) {
 	message, ok := params["message"].(types.Message)
-	if !ok {
-		return runtimeValidators.ValidationResult{
-			Passed: false,
-			Details: map[string]interface{}{
-				"error": errMessageRequired,
-			},
-		}
-	}
+	return message, ok
+}
 
+// createErrorResult creates a validation result with an error
+func (b *baseMediaValidator) createErrorResult(errorMsg string) runtimeValidators.ValidationResult {
+	return runtimeValidators.ValidationResult{
+		Passed: false,
+		Details: map[string]interface{}{
+			"error": errorMsg,
+		},
+	}
+}
+
+// formatValidator provides common format validation logic
+type formatValidator struct {
+	baseMediaValidator
+	formats     []string
+	contentType string
+	noMediaErr  string
+}
+
+// validateFormats checks if media parts have allowed formats
+func (v *formatValidator) validateFormats(message types.Message) runtimeValidators.ValidationResult {
 	if len(v.formats) == 0 {
-		return runtimeValidators.ValidationResult{
-			Passed: false,
-			Details: map[string]interface{}{
-				"error": errAtLeastOneFormat,
-			},
-		}
+		return v.createErrorResult(errAtLeastOneFormat)
 	}
 
-	// Find all image parts
-	var imageFormats []string
+	var foundFormats []string
 	var invalidFormats []string
 
 	for _, part := range message.Parts {
-		if part.Type == types.ContentTypeImage && part.Media != nil {
+		if part.Type == v.contentType && part.Media != nil {
 			format := extractFormatFromMIMEType(part.Media.MIMEType)
-			imageFormats = append(imageFormats, format)
+			foundFormats = append(foundFormats, format)
 
 			if !v.isAllowedFormat(format) {
 				invalidFormats = append(invalidFormats, format)
@@ -67,11 +76,11 @@ func (v *ImageFormatValidator) Validate(content string, params map[string]interf
 		}
 	}
 
-	if len(imageFormats) == 0 {
+	if len(foundFormats) == 0 {
 		return runtimeValidators.ValidationResult{
 			Passed: false,
 			Details: map[string]interface{}{
-				"error":           errNoImagesFound,
+				"error":           v.noMediaErr,
 				"allowed_formats": v.formats,
 			},
 		}
@@ -80,14 +89,14 @@ func (v *ImageFormatValidator) Validate(content string, params map[string]interf
 	return runtimeValidators.ValidationResult{
 		Passed: len(invalidFormats) == 0,
 		Details: map[string]interface{}{
-			"found_formats":   imageFormats,
+			"found_formats":   foundFormats,
 			"invalid_formats": invalidFormats,
 			"allowed_formats": v.formats,
 		},
 	}
 }
 
-func (v *ImageFormatValidator) isAllowedFormat(format string) bool {
+func (v *formatValidator) isAllowedFormat(format string) bool {
 	format = strings.ToLower(format)
 	for _, allowed := range v.formats {
 		if strings.ToLower(allowed) == format {
@@ -95,6 +104,131 @@ func (v *ImageFormatValidator) isAllowedFormat(format string) bool {
 		}
 	}
 	return false
+}
+
+// durationValidator provides common duration validation logic
+type durationValidator struct {
+	baseMediaValidator
+	minSeconds  *float64
+	maxSeconds  *float64
+	contentType string
+	noMediaErr  string
+	countKey    string
+}
+
+// validateDurations checks if media durations are within range
+func (v *durationValidator) validateDurations(message types.Message) runtimeValidators.ValidationResult {
+	var mediaCount int
+	var violations []string
+
+	for _, part := range message.Parts {
+		if part.Type == v.contentType && part.Media != nil {
+			mediaCount++
+			violations = append(violations, v.checkDuration(part.Media)...)
+		}
+	}
+
+	if mediaCount == 0 {
+		return v.createErrorResult(v.noMediaErr)
+	}
+
+	return runtimeValidators.ValidationResult{
+		Passed: len(violations) == 0,
+		Details: map[string]interface{}{
+			v.countKey:   mediaCount,
+			"violations": violations,
+		},
+	}
+}
+
+func (v *durationValidator) checkDuration(media *types.MediaContent) []string {
+	if media.Duration == nil {
+		return []string{"missing duration metadata"}
+	}
+
+	duration := float64(*media.Duration)
+	var violations []string
+
+	if v.minSeconds != nil && duration < *v.minSeconds {
+		violations = append(violations, fmt.Sprintf(msgDurationBelowMin, duration, *v.minSeconds))
+	}
+	if v.maxSeconds != nil && duration > *v.maxSeconds {
+		violations = append(violations, fmt.Sprintf(msgDurationAboveMax, duration, *v.maxSeconds))
+	}
+
+	return violations
+}
+
+// dimensionValidator provides common dimension validation logic
+type dimensionValidator struct {
+	baseMediaValidator
+	minWidth  *int
+	maxWidth  *int
+	minHeight *int
+	maxHeight *int
+}
+
+// checkDimensions validates width and height
+func (v *dimensionValidator) checkDimensions(media *types.MediaContent, missingErr string) []string {
+	if media.Width == nil || media.Height == nil {
+		return []string{missingErr}
+	}
+
+	width := *media.Width
+	height := *media.Height
+	var violations []string
+
+	violations = append(violations, v.checkWidthRange(width)...)
+	violations = append(violations, v.checkHeightRange(height)...)
+
+	return violations
+}
+
+func (v *dimensionValidator) checkWidthRange(width int) []string {
+	var violations []string
+	if v.minWidth != nil && width < *v.minWidth {
+		violations = append(violations, fmt.Sprintf(msgWidthBelowMin, width, *v.minWidth))
+	}
+	if v.maxWidth != nil && width > *v.maxWidth {
+		violations = append(violations, fmt.Sprintf(msgWidthAboveMax, width, *v.maxWidth))
+	}
+	return violations
+}
+
+func (v *dimensionValidator) checkHeightRange(height int) []string {
+	var violations []string
+	if v.minHeight != nil && height < *v.minHeight {
+		violations = append(violations, fmt.Sprintf(msgHeightBelowMin, height, *v.minHeight))
+	}
+	if v.maxHeight != nil && height > *v.maxHeight {
+		violations = append(violations, fmt.Sprintf(msgHeightAboveMax, height, *v.maxHeight))
+	}
+	return violations
+}
+
+// ImageFormatValidator checks that media content has one of the allowed image formats
+type ImageFormatValidator struct {
+	formatValidator
+}
+
+// NewImageFormatValidator creates a new image_format validator from params
+func NewImageFormatValidator(params map[string]interface{}) runtimeValidators.Validator {
+	return &ImageFormatValidator{
+		formatValidator: formatValidator{
+			formats:     extractStringSlice(params, "formats"),
+			contentType: types.ContentTypeImage,
+			noMediaErr:  errNoImagesFound,
+		},
+	}
+}
+
+// Validate checks if the message contains images with allowed formats
+func (v *ImageFormatValidator) Validate(content string, params map[string]interface{}) runtimeValidators.ValidationResult {
+	message, ok := v.extractMessage(params)
+	if !ok {
+		return v.createErrorResult(errMessageRequired)
+	}
+	return v.validateFormats(message)
 }
 
 // ImageDimensionsValidator checks that images meet dimension requirements
@@ -221,13 +355,18 @@ func (v *ImageDimensionsValidator) checkHeightRange(height int) []string {
 
 // AudioDurationValidator checks that audio duration is within range
 type AudioDurationValidator struct {
-	minSeconds *float64
-	maxSeconds *float64
+	durationValidator
 }
 
 // NewAudioDurationValidator creates a new audio_duration validator from params
 func NewAudioDurationValidator(params map[string]interface{}) runtimeValidators.Validator {
-	validator := &AudioDurationValidator{}
+	validator := &AudioDurationValidator{
+		durationValidator: durationValidator{
+			contentType: types.ContentTypeAudio,
+			noMediaErr:  errNoAudioFound,
+			countKey:    "audio_count",
+		},
+	}
 
 	if minSec, ok := params["min_seconds"].(float64); ok {
 		validator.minSeconds = &minSec
@@ -248,147 +387,52 @@ func NewAudioDurationValidator(params map[string]interface{}) runtimeValidators.
 
 // Validate checks if audio duration is within allowed range
 func (v *AudioDurationValidator) Validate(content string, params map[string]interface{}) runtimeValidators.ValidationResult {
-	message, ok := params["message"].(types.Message)
+	message, ok := v.extractMessage(params)
 	if !ok {
-		return runtimeValidators.ValidationResult{
-			Passed: false,
-			Details: map[string]interface{}{
-				"error": errMessageRequired,
-			},
-		}
+		return v.createErrorResult(errMessageRequired)
 	}
-
-	var audioCount int
-	var violations []string
-
-	for _, part := range message.Parts {
-		if part.Type == types.ContentTypeAudio && part.Media != nil {
-			audioCount++
-			violations = append(violations, v.checkAudioDuration(part.Media)...)
-		}
-	}
-
-	if audioCount == 0 {
-		return runtimeValidators.ValidationResult{
-			Passed: false,
-			Details: map[string]interface{}{
-				"error": errNoAudioFound,
-			},
-		}
-	}
-
-	return runtimeValidators.ValidationResult{
-		Passed: len(violations) == 0,
-		Details: map[string]interface{}{
-			"audio_count": audioCount,
-			"violations":  violations,
-		},
-	}
-}
-
-func (v *AudioDurationValidator) checkAudioDuration(media *types.MediaContent) []string {
-	if media.Duration == nil {
-		return []string{"audio missing duration metadata"}
-	}
-
-	duration := float64(*media.Duration)
-	var violations []string
-
-	if v.minSeconds != nil && duration < *v.minSeconds {
-		violations = append(violations, fmt.Sprintf("duration %.1fs below minimum %.1fs", duration, *v.minSeconds))
-	}
-	if v.maxSeconds != nil && duration > *v.maxSeconds {
-		violations = append(violations, fmt.Sprintf("duration %.1fs exceeds maximum %.1fs", duration, *v.maxSeconds))
-	}
-
-	return violations
+	return v.validateDurations(message)
 }
 
 // AudioFormatValidator checks that audio content has one of the allowed formats
 type AudioFormatValidator struct {
-	formats []string // e.g., ["mp3", "wav", "opus"]
+	formatValidator
 }
 
 // NewAudioFormatValidator creates a new audio_format validator from params
 func NewAudioFormatValidator(params map[string]interface{}) runtimeValidators.Validator {
-	formats := extractStringSlice(params, "formats")
-	return &AudioFormatValidator{formats: formats}
-}
-
-// Validate checks if the message contains audio with allowed formats
-func (v *AudioFormatValidator) Validate(content string, params map[string]interface{}) runtimeValidators.ValidationResult {
-	message, ok := params["message"].(types.Message)
-	if !ok {
-		return runtimeValidators.ValidationResult{
-			Passed: false,
-			Details: map[string]interface{}{
-				"error": errMessageRequired,
-			},
-		}
-	}
-
-	if len(v.formats) == 0 {
-		return runtimeValidators.ValidationResult{
-			Passed: false,
-			Details: map[string]interface{}{
-				"error": errAtLeastOneFormat,
-			},
-		}
-	}
-
-	var audioFormats []string
-	var invalidFormats []string
-
-	for _, part := range message.Parts {
-		if part.Type == types.ContentTypeAudio && part.Media != nil {
-			format := extractFormatFromMIMEType(part.Media.MIMEType)
-			audioFormats = append(audioFormats, format)
-
-			if !v.isAllowedFormat(format) {
-				invalidFormats = append(invalidFormats, format)
-			}
-		}
-	}
-
-	if len(audioFormats) == 0 {
-		return runtimeValidators.ValidationResult{
-			Passed: false,
-			Details: map[string]interface{}{
-				"error":           errNoAudioFound,
-				"allowed_formats": v.formats,
-			},
-		}
-	}
-
-	return runtimeValidators.ValidationResult{
-		Passed: len(invalidFormats) == 0,
-		Details: map[string]interface{}{
-			"found_formats":   audioFormats,
-			"invalid_formats": invalidFormats,
-			"allowed_formats": v.formats,
+	return &AudioFormatValidator{
+		formatValidator: formatValidator{
+			formats:     extractStringSlice(params, "formats"),
+			contentType: types.ContentTypeAudio,
+			noMediaErr:  errNoAudioFound,
 		},
 	}
 }
 
-func (v *AudioFormatValidator) isAllowedFormat(format string) bool {
-	format = strings.ToLower(format)
-	for _, allowed := range v.formats {
-		if strings.ToLower(allowed) == format {
-			return true
-		}
+// Validate checks if the message contains audio with allowed formats
+func (v *AudioFormatValidator) Validate(content string, params map[string]interface{}) runtimeValidators.ValidationResult {
+	message, ok := v.extractMessage(params)
+	if !ok {
+		return v.createErrorResult(errMessageRequired)
 	}
-	return false
+	return v.validateFormats(message)
 }
 
 // VideoDurationValidator checks that video duration is within range
 type VideoDurationValidator struct {
-	minSeconds *float64
-	maxSeconds *float64
+	durationValidator
 }
 
 // NewVideoDurationValidator creates a new video_duration validator from params
 func NewVideoDurationValidator(params map[string]interface{}) runtimeValidators.Validator {
-	validator := &VideoDurationValidator{}
+	validator := &VideoDurationValidator{
+		durationValidator: durationValidator{
+			contentType: types.ContentTypeVideo,
+			noMediaErr:  errNoVideoFound,
+			countKey:    "video_count",
+		},
+	}
 
 	if minSec, ok := params["min_seconds"].(float64); ok {
 		validator.minSeconds = &minSec
@@ -409,60 +453,11 @@ func NewVideoDurationValidator(params map[string]interface{}) runtimeValidators.
 
 // Validate checks if video duration is within allowed range
 func (v *VideoDurationValidator) Validate(content string, params map[string]interface{}) runtimeValidators.ValidationResult {
-	message, ok := params["message"].(types.Message)
+	message, ok := v.extractMessage(params)
 	if !ok {
-		return runtimeValidators.ValidationResult{
-			Passed: false,
-			Details: map[string]interface{}{
-				"error": errMessageRequired,
-			},
-		}
+		return v.createErrorResult(errMessageRequired)
 	}
-
-	var videoCount int
-	var violations []string
-
-	for _, part := range message.Parts {
-		if part.Type == types.ContentTypeVideo && part.Media != nil {
-			videoCount++
-			violations = append(violations, v.checkVideoDuration(part.Media)...)
-		}
-	}
-
-	if videoCount == 0 {
-		return runtimeValidators.ValidationResult{
-			Passed: false,
-			Details: map[string]interface{}{
-				"error": errNoVideoFound,
-			},
-		}
-	}
-
-	return runtimeValidators.ValidationResult{
-		Passed: len(violations) == 0,
-		Details: map[string]interface{}{
-			"video_count": videoCount,
-			"violations":  violations,
-		},
-	}
-}
-
-func (v *VideoDurationValidator) checkVideoDuration(media *types.MediaContent) []string {
-	if media.Duration == nil {
-		return []string{"video missing duration metadata"}
-	}
-
-	duration := float64(*media.Duration)
-	var violations []string
-
-	if v.minSeconds != nil && duration < *v.minSeconds {
-		violations = append(violations, fmt.Sprintf("duration %.1fs below minimum %.1fs", duration, *v.minSeconds))
-	}
-	if v.maxSeconds != nil && duration > *v.maxSeconds {
-		violations = append(violations, fmt.Sprintf("duration %.1fs exceeds maximum %.1fs", duration, *v.maxSeconds))
-	}
-
-	return violations
+	return v.validateDurations(message)
 }
 
 // VideoResolutionValidator checks that video resolution meets requirements
