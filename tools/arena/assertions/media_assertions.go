@@ -10,13 +10,13 @@ import (
 
 // Error messages
 const (
-	errMessageRequired      = "message parameter required"
-	errNoImagesFound        = "no images found in message"
-	errNoAudioFound         = "no audio found in message"
-	errNoVideoFound         = "no video found in message"
-	errMissingDimensions    = "image missing width/height metadata"
-	errMissingDuration      = "missing duration metadata"
-	errAtLeastOneFormat     = "at least one format must be specified"
+	errMessageRequired   = "message parameter required"
+	errNoImagesFound     = "no images found in message"
+	errNoAudioFound      = "no audio found in message"
+	errNoVideoFound      = "no video found in message"
+	errMissingDimensions = "image missing width/height metadata"
+	errMissingDuration   = "missing duration metadata"
+	errAtLeastOneFormat  = "at least one format must be specified"
 )
 
 // ImageFormatValidator checks that media content has one of the allowed image formats
@@ -151,36 +151,7 @@ func (v *ImageDimensionsValidator) Validate(content string, params map[string]in
 	for _, part := range message.Parts {
 		if part.Type == types.ContentTypeImage && part.Media != nil {
 			imageCount++
-
-			if part.Media.Width == nil || part.Media.Height == nil {
-				violations = append(violations, "image missing width/height metadata")
-				continue
-			}
-
-			width := *part.Media.Width
-			height := *part.Media.Height
-
-			// Check exact dimensions
-			if v.exactWidth != nil && width != *v.exactWidth {
-				violations = append(violations, fmt.Sprintf("width %d does not match required %d", width, *v.exactWidth))
-			}
-			if v.exactHeight != nil && height != *v.exactHeight {
-				violations = append(violations, fmt.Sprintf("height %d does not match required %d", height, *v.exactHeight))
-			}
-
-			// Check min/max
-			if v.minWidth != nil && width < *v.minWidth {
-				violations = append(violations, fmt.Sprintf("width %d below minimum %d", width, *v.minWidth))
-			}
-			if v.maxWidth != nil && width > *v.maxWidth {
-				violations = append(violations, fmt.Sprintf("width %d exceeds maximum %d", width, *v.maxWidth))
-			}
-			if v.minHeight != nil && height < *v.minHeight {
-				violations = append(violations, fmt.Sprintf("height %d below minimum %d", height, *v.minHeight))
-			}
-			if v.maxHeight != nil && height > *v.maxHeight {
-				violations = append(violations, fmt.Sprintf("height %d exceeds maximum %d", height, *v.maxHeight))
-			}
+			violations = append(violations, v.checkImageDimensions(part.Media)...)
 		}
 	}
 
@@ -200,6 +171,52 @@ func (v *ImageDimensionsValidator) Validate(content string, params map[string]in
 			"violations":  violations,
 		},
 	}
+}
+
+func (v *ImageDimensionsValidator) checkImageDimensions(media *types.MediaContent) []string {
+	if media.Width == nil || media.Height == nil {
+		return []string{"image missing width/height metadata"}
+	}
+
+	width := *media.Width
+	height := *media.Height
+	var violations []string
+
+	// Check exact dimensions
+	if v.exactWidth != nil && width != *v.exactWidth {
+		violations = append(violations, fmt.Sprintf("width %d does not match required %d", width, *v.exactWidth))
+	}
+	if v.exactHeight != nil && height != *v.exactHeight {
+		violations = append(violations, fmt.Sprintf("height %d does not match required %d", height, *v.exactHeight))
+	}
+
+	// Check min/max
+	violations = append(violations, v.checkWidthRange(width)...)
+	violations = append(violations, v.checkHeightRange(height)...)
+
+	return violations
+}
+
+func (v *ImageDimensionsValidator) checkWidthRange(width int) []string {
+	var violations []string
+	if v.minWidth != nil && width < *v.minWidth {
+		violations = append(violations, fmt.Sprintf("width %d below minimum %d", width, *v.minWidth))
+	}
+	if v.maxWidth != nil && width > *v.maxWidth {
+		violations = append(violations, fmt.Sprintf("width %d exceeds maximum %d", width, *v.maxWidth))
+	}
+	return violations
+}
+
+func (v *ImageDimensionsValidator) checkHeightRange(height int) []string {
+	var violations []string
+	if v.minHeight != nil && height < *v.minHeight {
+		violations = append(violations, fmt.Sprintf("height %d below minimum %d", height, *v.minHeight))
+	}
+	if v.maxHeight != nil && height > *v.maxHeight {
+		violations = append(violations, fmt.Sprintf("height %d exceeds maximum %d", height, *v.maxHeight))
+	}
+	return violations
 }
 
 // AudioDurationValidator checks that audio duration is within range
@@ -247,20 +264,7 @@ func (v *AudioDurationValidator) Validate(content string, params map[string]inte
 	for _, part := range message.Parts {
 		if part.Type == types.ContentTypeAudio && part.Media != nil {
 			audioCount++
-
-			if part.Media.Duration == nil {
-				violations = append(violations, "audio missing duration metadata")
-				continue
-			}
-
-			duration := float64(*part.Media.Duration)
-
-			if v.minSeconds != nil && duration < *v.minSeconds {
-				violations = append(violations, fmt.Sprintf("duration %.1fs below minimum %.1fs", duration, *v.minSeconds))
-			}
-			if v.maxSeconds != nil && duration > *v.maxSeconds {
-				violations = append(violations, fmt.Sprintf("duration %.1fs exceeds maximum %.1fs", duration, *v.maxSeconds))
-			}
+			violations = append(violations, v.checkAudioDuration(part.Media)...)
 		}
 	}
 
@@ -280,6 +284,24 @@ func (v *AudioDurationValidator) Validate(content string, params map[string]inte
 			"violations":  violations,
 		},
 	}
+}
+
+func (v *AudioDurationValidator) checkAudioDuration(media *types.MediaContent) []string {
+	if media.Duration == nil {
+		return []string{"audio missing duration metadata"}
+	}
+
+	duration := float64(*media.Duration)
+	var violations []string
+
+	if v.minSeconds != nil && duration < *v.minSeconds {
+		violations = append(violations, fmt.Sprintf("duration %.1fs below minimum %.1fs", duration, *v.minSeconds))
+	}
+	if v.maxSeconds != nil && duration > *v.maxSeconds {
+		violations = append(violations, fmt.Sprintf("duration %.1fs exceeds maximum %.1fs", duration, *v.maxSeconds))
+	}
+
+	return violations
 }
 
 // AudioFormatValidator checks that audio content has one of the allowed formats
@@ -403,20 +425,7 @@ func (v *VideoDurationValidator) Validate(content string, params map[string]inte
 	for _, part := range message.Parts {
 		if part.Type == types.ContentTypeVideo && part.Media != nil {
 			videoCount++
-
-			if part.Media.Duration == nil {
-				violations = append(violations, "video missing duration metadata")
-				continue
-			}
-
-			duration := float64(*part.Media.Duration)
-
-			if v.minSeconds != nil && duration < *v.minSeconds {
-				violations = append(violations, fmt.Sprintf("duration %.1fs below minimum %.1fs", duration, *v.minSeconds))
-			}
-			if v.maxSeconds != nil && duration > *v.maxSeconds {
-				violations = append(violations, fmt.Sprintf("duration %.1fs exceeds maximum %.1fs", duration, *v.maxSeconds))
-			}
+			violations = append(violations, v.checkVideoDuration(part.Media)...)
 		}
 	}
 
@@ -436,6 +445,24 @@ func (v *VideoDurationValidator) Validate(content string, params map[string]inte
 			"violations":  violations,
 		},
 	}
+}
+
+func (v *VideoDurationValidator) checkVideoDuration(media *types.MediaContent) []string {
+	if media.Duration == nil {
+		return []string{"video missing duration metadata"}
+	}
+
+	duration := float64(*media.Duration)
+	var violations []string
+
+	if v.minSeconds != nil && duration < *v.minSeconds {
+		violations = append(violations, fmt.Sprintf("duration %.1fs below minimum %.1fs", duration, *v.minSeconds))
+	}
+	if v.maxSeconds != nil && duration > *v.maxSeconds {
+		violations = append(violations, fmt.Sprintf("duration %.1fs exceeds maximum %.1fs", duration, *v.maxSeconds))
+	}
+
+	return violations
 }
 
 // VideoResolutionValidator checks that video resolution meets requirements
@@ -487,43 +514,7 @@ func (v *VideoResolutionValidator) Validate(content string, params map[string]in
 	for _, part := range message.Parts {
 		if part.Type == types.ContentTypeVideo && part.Media != nil {
 			videoCount++
-
-			if part.Media.Width == nil || part.Media.Height == nil {
-				violations = append(violations, "video missing width/height metadata")
-				continue
-			}
-
-			width := *part.Media.Width
-			height := *part.Media.Height
-
-			// Check presets first
-			if len(v.presets) > 0 {
-				matchesPreset := false
-				for _, preset := range v.presets {
-					if v.matchesResolutionPreset(width, height, preset) {
-						matchesPreset = true
-						break
-					}
-				}
-				if !matchesPreset {
-					violations = append(violations, fmt.Sprintf("resolution %dx%d does not match any preset: %v", width, height, v.presets))
-					continue
-				}
-			}
-
-			// Check min/max
-			if v.minWidth != nil && width < *v.minWidth {
-				violations = append(violations, fmt.Sprintf("width %d below minimum %d", width, *v.minWidth))
-			}
-			if v.maxWidth != nil && width > *v.maxWidth {
-				violations = append(violations, fmt.Sprintf("width %d exceeds maximum %d", width, *v.maxWidth))
-			}
-			if v.minHeight != nil && height < *v.minHeight {
-				violations = append(violations, fmt.Sprintf("height %d below minimum %d", height, *v.minHeight))
-			}
-			if v.maxHeight != nil && height > *v.maxHeight {
-				violations = append(violations, fmt.Sprintf("height %d exceeds maximum %d", height, *v.maxHeight))
-			}
+			violations = append(violations, v.checkVideoResolution(part.Media)...)
 		}
 	}
 
@@ -543,6 +534,60 @@ func (v *VideoResolutionValidator) Validate(content string, params map[string]in
 			"violations":  violations,
 		},
 	}
+}
+
+func (v *VideoResolutionValidator) checkVideoResolution(media *types.MediaContent) []string {
+	if media.Width == nil || media.Height == nil {
+		return []string{"video missing width/height metadata"}
+	}
+
+	width := *media.Width
+	height := *media.Height
+	var violations []string
+
+	// Check presets first
+	if len(v.presets) > 0 {
+		if !v.matchesAnyPreset(width, height) {
+			return []string{fmt.Sprintf("resolution %dx%d does not match any preset: %v", width, height, v.presets)}
+		}
+	}
+
+	// Check min/max ranges
+	violations = append(violations, v.checkVideoWidthRange(width)...)
+	violations = append(violations, v.checkVideoHeightRange(height)...)
+
+	return violations
+}
+
+func (v *VideoResolutionValidator) matchesAnyPreset(width, height int) bool {
+	for _, preset := range v.presets {
+		if v.matchesResolutionPreset(width, height, preset) {
+			return true
+		}
+	}
+	return false
+}
+
+func (v *VideoResolutionValidator) checkVideoWidthRange(width int) []string {
+	var violations []string
+	if v.minWidth != nil && width < *v.minWidth {
+		violations = append(violations, fmt.Sprintf("width %d below minimum %d", width, *v.minWidth))
+	}
+	if v.maxWidth != nil && width > *v.maxWidth {
+		violations = append(violations, fmt.Sprintf("width %d exceeds maximum %d", width, *v.maxWidth))
+	}
+	return violations
+}
+
+func (v *VideoResolutionValidator) checkVideoHeightRange(height int) []string {
+	var violations []string
+	if v.minHeight != nil && height < *v.minHeight {
+		violations = append(violations, fmt.Sprintf("height %d below minimum %d", height, *v.minHeight))
+	}
+	if v.maxHeight != nil && height > *v.maxHeight {
+		violations = append(violations, fmt.Sprintf("height %d exceeds maximum %d", height, *v.maxHeight))
+	}
+	return violations
 }
 
 func (v *VideoResolutionValidator) matchesResolutionPreset(width, height int, preset string) bool {

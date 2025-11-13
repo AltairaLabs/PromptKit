@@ -984,9 +984,400 @@ project/
 
 ---
 
+## Media Assertions (Phase 1)
+
+Arena provides six specialized media validators to test media content in LLM responses. These assertions validate format, dimensions, duration, and resolution of images, audio, and video outputs.
+
+### Image Assertions
+
+#### `image_format`
+
+Validates that images in assistant responses match allowed formats.
+
+**Parameters:**
+
+- `formats` ([]string, required): List of allowed formats (e.g., `png`, `jpeg`, `jpg`, `webp`, `gif`)
+
+**Example:**
+
+```yaml
+turns:
+  - role: user
+    parts:
+      - type: text
+        text: "Generate a PNG image of a sunset"
+    
+    assertions:
+      - type: image_format
+        params:
+          formats:
+            - png
+```
+
+**Use Cases:**
+
+- Validate model outputs correct image format
+- Test format conversion capabilities
+- Ensure compatibility with downstream systems
+
+#### `image_dimensions`
+
+Validates image dimensions (width and height) in assistant responses.
+
+**Parameters:**
+
+- `width` (int, optional): Exact required width in pixels
+- `height` (int, optional): Exact required height in pixels
+- `min_width` (int, optional): Minimum width in pixels
+- `max_width` (int, optional): Maximum width in pixels
+- `min_height` (int, optional): Minimum height in pixels
+- `max_height` (int, optional): Maximum height in pixels
+
+**Example:**
+
+```yaml
+turns:
+  - role: user
+    parts:
+      - type: text
+        text: "Create a 1920x1080 wallpaper"
+    
+    assertions:
+      # Exact dimensions
+      - type: image_dimensions
+        params:
+          width: 1920
+          height: 1080
+```
+
+```yaml
+turns:
+  - role: user
+    parts:
+      - type: text
+        text: "Generate a thumbnail"
+    
+    assertions:
+      # Size range
+      - type: image_dimensions
+        params:
+          min_width: 100
+          max_width: 400
+          min_height: 100
+          max_height: 400
+```
+
+**Use Cases:**
+
+- Validate exact resolution requirements
+- Test minimum/maximum size constraints
+- Verify thumbnail generation
+- Ensure HD/4K resolution compliance
+
+### Audio Assertions
+
+#### `audio_format`
+
+Validates audio format in assistant responses.
+
+**Parameters:**
+
+- `formats` ([]string, required): List of allowed formats (e.g., `mp3`, `wav`, `ogg`, `m4a`, `flac`)
+
+**Example:**
+
+```yaml
+turns:
+  - role: user
+    parts:
+      - type: text
+        text: "Generate an audio clip"
+    
+    assertions:
+      - type: audio_format
+        params:
+          formats:
+            - mp3
+            - wav
+```
+
+**Use Cases:**
+
+- Validate audio output format
+- Test format compatibility
+- Ensure codec requirements
+
+#### `audio_duration`
+
+Validates audio duration in assistant responses.
+
+**Parameters:**
+
+- `min_seconds` (float, optional): Minimum duration in seconds
+- `max_seconds` (float, optional): Maximum duration in seconds
+
+**Example:**
+
+```yaml
+turns:
+  - role: user
+    parts:
+      - type: text
+        text: "Create a 30-second audio clip"
+    
+    assertions:
+      - type: audio_duration
+        params:
+          min_seconds: 29
+          max_seconds: 31
+```
+
+```yaml
+turns:
+  - role: user
+    parts:
+      - type: text
+        text: "Generate a brief notification sound"
+    
+    assertions:
+      - type: audio_duration
+        params:
+          max_seconds: 5
+```
+
+**Use Cases:**
+
+- Validate exact duration requirements
+- Test length constraints
+- Verify podcast/music length
+- Ensure compliance with platform limits
+
+### Video Assertions
+
+#### `video_resolution`
+
+Validates video resolution in assistant responses.
+
+**Parameters:**
+
+- `presets` ([]string, optional): List of resolution presets
+- `min_width` (int, optional): Minimum width in pixels
+- `max_width` (int, optional): Maximum width in pixels
+- `min_height` (int, optional): Minimum height in pixels
+- `max_height` (int, optional): Maximum height in pixels
+
+**Supported Presets:**
+
+- `480p`, `sd` - Standard Definition (480 height)
+- `720p`, `hd` - HD (720 height)
+- `1080p`, `fhd`, `full_hd` - Full HD (1080 height)
+- `1440p`, `2k`, `qhd` - QHD (1440 height)
+- `2160p`, `4k`, `uhd` - 4K Ultra HD (2160 height)
+- `4320p`, `8k` - 8K (4320 height)
+
+**Example with Presets:**
+
+```yaml
+turns:
+  - role: user
+    parts:
+      - type: text
+        text: "Generate a 1080p video"
+    
+    assertions:
+      - type: video_resolution
+        params:
+          presets:
+            - 1080p
+            - fhd
+```
+
+**Example with Dimensions:**
+
+```yaml
+turns:
+  - role: user
+    parts:
+      - type: text
+        text: "Create a high-resolution video"
+    
+    assertions:
+      - type: video_resolution
+        params:
+          min_width: 1920
+          min_height: 1080
+```
+
+**Use Cases:**
+
+- Validate exact resolution requirements
+- Test HD/4K compliance
+- Verify minimum quality standards
+- Validate aspect ratios
+
+#### `video_duration`
+
+Validates video duration in assistant responses.
+
+**Parameters:**
+
+- `min_seconds` (float, optional): Minimum duration in seconds
+- `max_seconds` (float, optional): Maximum duration in seconds
+
+**Example:**
+
+```yaml
+turns:
+  - role: user
+    parts:
+      - type: text
+        text: "Create a 1-minute video clip"
+    
+    assertions:
+      - type: video_duration
+        params:
+          min_seconds: 59
+          max_seconds: 61
+```
+
+**Use Cases:**
+
+- Validate exact duration requirements
+- Test length constraints
+- Verify platform compliance (e.g., TikTok 60s limit)
+- Ensure streaming segment sizes
+
+### Combining Media Assertions
+
+You can combine multiple media assertions on a single turn:
+
+```yaml
+turns:
+  - role: user
+    parts:
+      - type: text
+        text: "Create a 30-second 4K video in MP4 format"
+    
+    assertions:
+      # Validate format (if you add video_format validator)
+      - type: content_includes
+        params:
+          patterns: ["video"]
+      
+      # Validate resolution
+      - type: video_resolution
+        params:
+          presets:
+            - 4k
+            - uhd
+      
+      # Validate duration
+      - type: video_duration
+        params:
+          min_seconds: 29
+          max_seconds: 31
+```
+
+### Complete Example Scenario
+
+```yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: media-validation-complete
+  description: Comprehensive media validation testing
+spec:
+  provider: gpt-4-vision
+  
+  turns:
+    # Image validation
+    - role: user
+      parts:
+        - type: text
+          text: "Generate a 1920x1080 PNG wallpaper"
+      
+      assertions:
+        - type: image_format
+          params:
+            formats: [png]
+        
+        - type: image_dimensions
+          params:
+            width: 1920
+            height: 1080
+    
+    # Audio validation
+    - role: user
+      parts:
+        - type: text
+          text: "Create a 10-second MP3 audio clip"
+      
+      assertions:
+        - type: audio_format
+          params:
+            formats: [mp3]
+        
+        - type: audio_duration
+          params:
+            min_seconds: 9
+            max_seconds: 11
+    
+    # Video validation
+    - role: user
+      parts:
+        - type: text
+          text: "Generate a 30-second 4K video"
+      
+      assertions:
+        - type: video_resolution
+          params:
+            presets: [4k, uhd]
+        
+        - type: video_duration
+          params:
+            min_seconds: 29
+            max_seconds: 31
+```
+
+### Media Assertion Best Practices
+
+#### Format Validation
+
+- Always specify multiple acceptable formats when possible
+- Use lowercase format names for consistency
+- Test format conversion capabilities
+
+#### Dimension/Resolution Testing
+
+- Use min/max ranges to allow for encoding variations
+- Test common aspect ratios (16:9, 4:3, 9:16)
+- Validate minimum quality standards
+
+#### Duration Testing
+
+- Allow small tolerance ranges (±1-2 seconds)
+- Test edge cases (very short/long durations)
+- Verify platform-specific limits
+
+#### Performance
+
+- Media assertions execute on assistant responses only
+- No API calls are made for validation
+- Assertions run in parallel with other validators
+
+### Example Test Scenarios
+
+See complete examples in `examples/arena-media-test/`:
+
+- `image-validation.yaml` - Image format and dimension testing
+- `audio-validation.yaml` - Audio format and duration testing
+- `video-validation.yaml` - Video resolution and duration testing
+
+---
+
 ## Tips & Best Practices
 
-### Performance
+### Execution Performance
 
 ```bash
 # Increase concurrency for faster execution
@@ -1016,7 +1407,7 @@ promptarena run --seed 42
 promptarena run --seed 42 --format json,html
 ```
 
-### Debugging
+### Debugging Tips
 
 ```bash
 # Always start with config validation

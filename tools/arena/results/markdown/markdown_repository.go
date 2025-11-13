@@ -219,13 +219,20 @@ type testSummary struct {
 	TotalCost   float64
 	TotalTokens int
 	Duration    time.Duration
-	// Media statistics
+	// Media statistics (from message content)
 	TotalImages      int
 	TotalAudio       int
 	TotalVideo       int
 	MediaLoadSuccess int
 	MediaLoadErrors  int
 	TotalMediaSize   int64
+	// MediaOutput statistics (extracted outputs)
+	TotalMediaOutputs       int
+	OutputImages            int
+	OutputAudio             int
+	OutputVideo             int
+	TotalMediaOutputSize    int64
+	AvgMediaOutputSizeBytes int64
 }
 
 // calculateSummary computes summary statistics from run results
@@ -249,6 +256,9 @@ func (r *MarkdownResultRepository) calculateSummary(runResults []engine.RunResul
 
 		// Calculate media statistics
 		r.addMediaStats(&summary, &result)
+
+		// Calculate MediaOutput statistics
+		r.addMediaOutputStats(&summary, &result)
 	}
 
 	return summary
@@ -283,6 +293,32 @@ func (r *MarkdownResultRepository) processMediaPart(summary *testSummary, part *
 		summary.TotalMediaSize += r.calculateMediaSize(part.Media)
 	} else {
 		summary.MediaLoadErrors++
+	}
+}
+
+// addMediaOutputStats adds MediaOutput statistics from a result to the summary
+func (r *MarkdownResultRepository) addMediaOutputStats(summary *testSummary, result *engine.RunResult) {
+	for i := range result.MediaOutputs {
+		output := &result.MediaOutputs[i]
+		summary.TotalMediaOutputs++
+
+		// Count by type
+		switch output.Type {
+		case "image":
+			summary.OutputImages++
+		case "audio":
+			summary.OutputAudio++
+		case "video":
+			summary.OutputVideo++
+		}
+
+		// Accumulate size
+		summary.TotalMediaOutputSize += output.SizeBytes
+	}
+
+	// Calculate average size if we have outputs
+	if summary.TotalMediaOutputs > 0 {
+		summary.AvgMediaOutputSizeBytes = summary.TotalMediaOutputSize / int64(summary.TotalMediaOutputs)
 	}
 }
 
@@ -390,32 +426,69 @@ func (r *MarkdownResultRepository) writeOverviewSection(content *strings.Builder
 		content.WriteString(fmt.Sprintf("| Total Duration | %s |\n", summary.Duration.String()))
 	}
 
-	// Add media statistics if any media content exists
-	if summary.TotalImages > 0 || summary.TotalAudio > 0 || summary.TotalVideo > 0 {
-		content.WriteString("\n### 🎨 Media Content\n\n")
-		content.WriteString("| Type | Count |\n")
-		content.WriteString("|------|-------|\n")
-
-		if summary.TotalImages > 0 {
-			content.WriteString(fmt.Sprintf("| 🖼️  Images | %d |\n", summary.TotalImages))
-		}
-		if summary.TotalAudio > 0 {
-			content.WriteString(fmt.Sprintf("| 🎵 Audio Files | %d |\n", summary.TotalAudio))
-		}
-		if summary.TotalVideo > 0 {
-			content.WriteString(fmt.Sprintf("| 🎬 Videos | %d |\n", summary.TotalVideo))
-		}
-
-		content.WriteString(fmt.Sprintf("| ✅ Loaded | %d |\n", summary.MediaLoadSuccess))
-		if summary.MediaLoadErrors > 0 {
-			content.WriteString(fmt.Sprintf("| ❌ Errors | %d |\n", summary.MediaLoadErrors))
-		}
-		if summary.TotalMediaSize > 0 {
-			content.WriteString(fmt.Sprintf("| 💾 Total Size | %s |\n", r.formatBytes(summary.TotalMediaSize)))
-		}
-	}
+	// Write media content and output statistics
+	r.writeMediaContentSection(content, summary)
+	r.writeMediaOutputsSection(content, summary)
 
 	content.WriteString("\n")
+}
+
+// writeMediaContentSection writes media content statistics
+func (r *MarkdownResultRepository) writeMediaContentSection(content *strings.Builder, summary testSummary) {
+	if summary.TotalImages == 0 && summary.TotalAudio == 0 && summary.TotalVideo == 0 {
+		return
+	}
+
+	content.WriteString("\n### 🎨 Media Content\n\n")
+	content.WriteString("| Type | Count |\n")
+	content.WriteString("|------|-------|\n")
+
+	if summary.TotalImages > 0 {
+		content.WriteString(fmt.Sprintf("| 🖼️  Images | %d |\n", summary.TotalImages))
+	}
+	if summary.TotalAudio > 0 {
+		content.WriteString(fmt.Sprintf("| 🎵 Audio Files | %d |\n", summary.TotalAudio))
+	}
+	if summary.TotalVideo > 0 {
+		content.WriteString(fmt.Sprintf("| 🎬 Videos | %d |\n", summary.TotalVideo))
+	}
+
+	content.WriteString(fmt.Sprintf("| ✅ Loaded | %d |\n", summary.MediaLoadSuccess))
+	if summary.MediaLoadErrors > 0 {
+		content.WriteString(fmt.Sprintf("| ❌ Errors | %d |\n", summary.MediaLoadErrors))
+	}
+	if summary.TotalMediaSize > 0 {
+		content.WriteString(fmt.Sprintf("| 💾 Total Size | %s |\n", r.formatBytes(summary.TotalMediaSize)))
+	}
+}
+
+// writeMediaOutputsSection writes MediaOutput statistics
+func (r *MarkdownResultRepository) writeMediaOutputsSection(content *strings.Builder, summary testSummary) {
+	if summary.TotalMediaOutputs == 0 {
+		return
+	}
+
+	content.WriteString("\n### 📤 Media Outputs\n\n")
+	content.WriteString("| Type | Count |\n")
+	content.WriteString("|------|-------|\n")
+	content.WriteString(fmt.Sprintf("| Total Outputs | %d |\n", summary.TotalMediaOutputs))
+
+	if summary.OutputImages > 0 {
+		content.WriteString(fmt.Sprintf("| 🖼️  Images | %d |\n", summary.OutputImages))
+	}
+	if summary.OutputAudio > 0 {
+		content.WriteString(fmt.Sprintf("| 🎵 Audio | %d |\n", summary.OutputAudio))
+	}
+	if summary.OutputVideo > 0 {
+		content.WriteString(fmt.Sprintf("| 🎬 Video | %d |\n", summary.OutputVideo))
+	}
+
+	if summary.TotalMediaOutputSize > 0 {
+		content.WriteString(fmt.Sprintf("| 💾 Total Size | %s |\n", r.formatBytes(summary.TotalMediaOutputSize)))
+	}
+	if summary.AvgMediaOutputSizeBytes > 0 {
+		content.WriteString(fmt.Sprintf("| 📊 Avg Size | %s |\n", r.formatBytes(summary.AvgMediaOutputSizeBytes)))
+	}
 }
 
 // writeResultsMatrix writes the detailed results matrix

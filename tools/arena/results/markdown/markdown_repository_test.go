@@ -593,3 +593,115 @@ func TestSetOutputFile(t *testing.T) {
 	// Verify the file was set
 	assert.Equal(t, testFile, repo.GetOutputFile())
 }
+
+func TestMarkdownResultRepository_MediaOutputs(t *testing.T) {
+	tmpDir := t.TempDir()
+	repo := NewMarkdownResultRepository(tmpDir)
+
+	// Create test result with MediaOutputs
+	results := []engine.RunResult{
+		{
+			RunID:      "test-run-001",
+			ProviderID: "test-provider",
+			ScenarioID: "media-scenario",
+			Region:     "us-west-1",
+			Duration:   time.Second * 2,
+			Error:      "",
+			Violations: []types.ValidationError{},
+			Messages:   []types.Message{},
+			MediaOutputs: []engine.MediaOutput{
+				{
+					Type:      "image",
+					MIMEType:  "image/png",
+					SizeBytes: 102400,
+					Width:     ptr(800),
+					Height:    ptr(600),
+					FilePath:  "/tmp/output1.png",
+				},
+				{
+					Type:      "image",
+					MIMEType:  "image/jpeg",
+					SizeBytes: 204800,
+					Width:     ptr(1920),
+					Height:    ptr(1080),
+					FilePath:  "/tmp/output2.jpg",
+				},
+				{
+					Type:      "audio",
+					MIMEType:  "audio/wav",
+					SizeBytes: 512000,
+					Duration:  ptr(30), // seconds as int
+					FilePath:  "/tmp/audio.wav",
+				},
+				{
+					Type:      "video",
+					MIMEType:  "video/mp4",
+					SizeBytes: 2048000,
+					Duration:  ptr(60), // seconds as int
+					Width:     ptr(1280),
+					Height:    ptr(720),
+					FilePath:  "/tmp/video.mp4",
+				},
+			},
+			Cost: types.CostInfo{
+				TotalCost: 0.05,
+			},
+		},
+	}
+
+	err := repo.SaveResults(results)
+	require.NoError(t, err)
+
+	// Read generated markdown
+	content, err := os.ReadFile(repo.GetOutputFile())
+	require.NoError(t, err)
+	markdown := string(content)
+
+	// Verify MediaOutputs section exists
+	assert.Contains(t, markdown, "### 📤 Media Outputs")
+	assert.Contains(t, markdown, "| Total Outputs | 4 |")
+	assert.Contains(t, markdown, "| 🖼️  Images | 2 |")
+	assert.Contains(t, markdown, "| 🎵 Audio | 1 |")
+	assert.Contains(t, markdown, "| 🎬 Video | 1 |")
+
+	// Verify size calculations (102400 + 204800 + 512000 + 2048000 = 2867200 bytes)
+	// formatBytes uses 1024 base, so 2867200 / 1024 / 1024 = 2.7 MB
+	assert.Contains(t, markdown, "| 💾 Total Size | 2.7 MB |")
+
+	// Verify average size (2867200 / 4 = 716800 bytes)
+	// 716800 / 1024 = 700.0 KB
+	assert.Contains(t, markdown, "| 📊 Avg Size | 700.0 KB |")
+}
+
+func TestMarkdownResultRepository_NoMediaOutputs(t *testing.T) {
+	tmpDir := t.TempDir()
+	repo := NewMarkdownResultRepository(tmpDir)
+
+	// Create test result without MediaOutputs
+	results := []engine.RunResult{
+		{
+			RunID:        "test-run-002",
+			ProviderID:   "test-provider",
+			ScenarioID:   "no-media-scenario",
+			Region:       "us-west-1",
+			Duration:     time.Second,
+			Messages:     []types.Message{},
+			MediaOutputs: []engine.MediaOutput{}, // Empty
+		},
+	}
+
+	err := repo.SaveResults(results)
+	require.NoError(t, err)
+
+	// Read generated markdown
+	content, err := os.ReadFile(repo.GetOutputFile())
+	require.NoError(t, err)
+	markdown := string(content)
+
+	// Verify MediaOutputs section does NOT exist when there are no outputs
+	assert.NotContains(t, markdown, "### 📤 Media Outputs")
+}
+
+func ptr[T any](v T) *T {
+	return &v
+}

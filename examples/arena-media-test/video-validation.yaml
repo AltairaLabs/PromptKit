@@ -1,0 +1,187 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: video-validation
+  description: >
+    Demonstrates video duration and resolution validation using media assertions.
+    Tests video_duration and video_resolution validators on assistant responses.
+spec:
+  provider: mock-media
+  
+  turns:
+    # Turn 1: Generate video and validate basic properties
+    - role: user
+      parts:
+        - type: text
+          text: "Generate a short video clip"
+      
+      assertions:
+        # Validate assistant response includes video
+        - type: content_includes
+          params:
+            patterns:
+              - "video"
+        
+        # Validate video duration is reasonable
+        - type: video_duration
+          params:
+            min_seconds: 1
+            max_seconds: 60
+    
+    # Turn 2: Request specific video duration
+    - role: user
+      parts:
+        - type: text
+          text: "Create a 30-second video clip"
+      
+      assertions:
+        # Validate 30-second duration (with tolerance)
+        - type: video_duration
+          params:
+            min_seconds: 29
+            max_seconds: 31
+    
+    # Turn 3: Request HD video (720p)
+    - role: user
+      parts:
+        - type: text
+          text: "Generate a 720p HD video"
+      
+      assertions:
+        # Validate 720p resolution using preset
+        - type: video_resolution
+          params:
+            presets:
+              - 720p
+              - hd
+    
+    # Turn 4: Request Full HD video (1080p)
+    - role: user
+      parts:
+        - type: text
+          text: "Create a Full HD 1080p video"
+      
+      assertions:
+        # Validate 1080p resolution
+        - type: video_resolution
+          params:
+            presets:
+              - 1080p
+              - fhd
+              - full_hd
+    
+    # Turn 5: Request 4K video
+    - role: user
+      parts:
+        - type: text
+          text: "Generate a 4K ultra HD video"
+      
+      assertions:
+        # Validate 4K resolution (3840x2160)
+        - type: video_resolution
+          params:
+            presets:
+              - 4k
+              - uhd
+              - 2160p
+    
+    # Turn 6: Validate minimum resolution
+    - role: user
+      parts:
+        - type: text
+          text: "Create a high-resolution video"
+      
+      assertions:
+        # Validate at least HD resolution
+        - type: video_resolution
+          params:
+            min_width: 1280
+            min_height: 720
+    
+    # Turn 7: Validate exact resolution dimensions
+    - role: user
+      parts:
+        - type: text
+          text: "Generate a 1920x1080 video"
+      
+      assertions:
+        # Validate exact dimensions using min/max
+        - type: video_resolution
+          params:
+            min_width: 1920
+            max_width: 1920
+            min_height: 1080
+            max_height: 1080
+    
+    # Turn 8: Combined duration and resolution validation
+    - role: user
+      parts:
+        - type: text
+          text: "Create a 1-minute 4K video clip"
+      
+      assertions:
+        # Validate 1-minute duration
+        - type: video_duration
+          params:
+            min_seconds: 59
+            max_seconds: 61
+        
+        # Validate 4K resolution
+        - type: video_resolution
+          params:
+            presets:
+              - 4k
+              - uhd
+    
+    # Turn 9: Validate short-form video
+    - role: user
+      parts:
+        - type: text
+          text: "Generate a TikTok-style vertical video (9:16 aspect ratio)"
+      
+      assertions:
+        # Validate duration (TikTok max 60 seconds)
+        - type: video_duration
+          params:
+            max_seconds: 60
+        
+        # Validate vertical orientation (height > width)
+        - type: video_resolution
+          params:
+            min_width: 720
+            min_height: 1280
+    
+    # Turn 10: Multiple resolution options
+    - role: user
+      parts:
+        - type: text
+          text: "Create videos in multiple resolutions: SD, HD, and 4K"
+      
+      assertions:
+        # Validate multiple resolution presets
+        - type: video_resolution
+          params:
+            presets:
+              - 480p
+              - 720p
+              - 1080p
+              - 4k
+    
+    # Turn 11: Long-form content validation
+    - role: user
+      parts:
+        - type: text
+          text: "Generate a 5-minute tutorial video in 1080p"
+      
+      assertions:
+        # Validate 5-minute duration
+        - type: video_duration
+          params:
+            min_seconds: 290
+            max_seconds: 310
+        
+        # Validate 1080p resolution
+        - type: video_resolution
+          params:
+            presets:
+              - 1080p

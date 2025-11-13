@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // SaveMetadata stores Arena-specific metadata for a run
@@ -54,6 +55,9 @@ func (s *ArenaStateStore) GetResult(ctx context.Context, runID string) (*RunResu
 	toolStats := s.computeToolStats(arenaState)
 	violations := s.extractViolationsFlat(arenaState)
 
+	// Collect media outputs from messages
+	mediaOutputs := s.collectMediaOutputs(arenaState)
+
 	// Reconstruct RunResult
 	result := &RunResult{
 		RunID:      arenaState.RunMetadata.RunID,
@@ -78,6 +82,8 @@ func (s *ArenaStateStore) GetResult(ctx context.Context, runID string) (*RunResu
 		SessionTags:   arenaState.RunMetadata.SessionTags,
 		AssistantRole: arenaState.RunMetadata.AssistantRole,
 		UserRole:      arenaState.RunMetadata.UserRole,
+
+		MediaOutputs: mediaOutputs,
 	}
 
 	return result, nil
@@ -155,6 +161,80 @@ func (s *ArenaStateStore) ListRunIDs(ctx context.Context) ([]string, error) {
 	}
 
 	return runIDs, nil
+}
+
+// collectMediaOutputs extracts media outputs from arena state messages
+func (s *ArenaStateStore) collectMediaOutputs(state *ArenaConversationState) []MediaOutput {
+	var outputs []MediaOutput
+
+	for msgIdx, msg := range state.Messages {
+		// Only collect from assistant messages
+		if msg.Role != "assistant" {
+			continue
+		}
+
+		outputs = append(outputs, s.collectMediaFromMessage(&msg, msgIdx)...)
+	}
+
+	return outputs
+}
+
+// collectMediaFromMessage extracts media outputs from a single message
+func (s *ArenaStateStore) collectMediaFromMessage(msg *types.Message, msgIdx int) []MediaOutput {
+	var outputs []MediaOutput
+
+	for partIdx, part := range msg.Parts {
+		if part.Media == nil {
+			continue
+		}
+
+		output := s.buildMediaOutput(&part, msgIdx, partIdx)
+		outputs = append(outputs, output)
+	}
+
+	return outputs
+}
+
+// buildMediaOutput creates a MediaOutput from a content part
+func (s *ArenaStateStore) buildMediaOutput(part *types.ContentPart, msgIdx, partIdx int) MediaOutput {
+	output := MediaOutput{
+		Type:       part.Type,
+		MIMEType:   part.Media.MIMEType,
+		MessageIdx: msgIdx,
+		PartIdx:    partIdx,
+	}
+
+	// Copy metadata
+	output.Duration = part.Media.Duration
+	output.Width = part.Media.Width
+	output.Height = part.Media.Height
+
+	// Calculate size
+	output.SizeBytes = s.calculateMediaSize(part.Media)
+
+	// Store file path
+	if part.Media.FilePath != nil {
+		output.FilePath = *part.Media.FilePath
+	}
+
+	// Store thumbnail for images
+	if part.Type == "image" && part.Media.Data != nil && len(*part.Media.Data) <= 50000 {
+		output.Thumbnail = *part.Media.Data
+	}
+
+	return output
+}
+
+// calculateMediaSize determines the size of media content in bytes
+func (s *ArenaStateStore) calculateMediaSize(media *types.MediaContent) int64 {
+	if media.SizeKB != nil {
+		return *media.SizeKB * 1024
+	}
+	if media.Data != nil {
+		// Estimate from base64 data
+		return int64(len(*media.Data) * 3 / 4)
+	}
+	return 0
 }
 
 // SaveRunMetadata is deprecated: use SaveMetadata instead
