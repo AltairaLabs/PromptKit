@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"gopkg.in/yaml.v3"
 )
 
@@ -32,12 +33,41 @@ type MockResponseParams struct {
 	ModelName  string // Optional: Model name being mocked
 }
 
-// MockTurn represents a structured mock response that may include tool calls.
-// This extends simple text responses to support tool call simulation.
+// MockTurn represents a structured mock response that may include tool calls and multimodal content.
+// This extends simple text responses to support tool call simulation and multimodal content parts.
 type MockTurn struct {
-	Type      string         `yaml:"type"`                 // "text" or "tool_calls"
-	Content   string         `yaml:"content,omitempty"`    // Text content for the response
-	ToolCalls []MockToolCall `yaml:"tool_calls,omitempty"` // Tool calls to simulate
+	Type      string             `yaml:"type"`                 // "text", "tool_calls", or "multimodal"
+	Content   string             `yaml:"content,omitempty"`    // Text content for the response (backward compatibility)
+	Text      string             `yaml:"text,omitempty"`       // Text content (preferred for multimodal responses)
+	Parts     []MockContentPart  `yaml:"parts,omitempty"`      // Multimodal content parts (text, image, audio, video)
+	ToolCalls []MockToolCall     `yaml:"tool_calls,omitempty"` // Tool calls to simulate
+}
+
+// MockContentPart represents a single content part in a multimodal mock response.
+// This mirrors the structure of types.ContentPart but with YAML-friendly field names.
+type MockContentPart struct {
+	Type     string          `yaml:"type"`               // "text", "image", "audio", or "video"
+	Text     string          `yaml:"text,omitempty"`     // Text content (for type="text")
+	ImageURL *MockImageURL   `yaml:"image_url,omitempty"` // Image URL (for type="image")
+	AudioURL *MockAudioURL   `yaml:"audio_url,omitempty"` // Audio URL (for type="audio")
+	VideoURL *MockVideoURL   `yaml:"video_url,omitempty"` // Video URL (for type="video")
+	Metadata map[string]interface{} `yaml:"metadata,omitempty"` // Additional metadata
+}
+
+// MockImageURL represents image content in a mock response.
+type MockImageURL struct {
+	URL    string  `yaml:"url"`              // URL to the image (can be mock://, http://, https://, data:, or file path)
+	Detail *string `yaml:"detail,omitempty"` // Detail level: "low", "high", "auto"
+}
+
+// MockAudioURL represents audio content in a mock response.
+type MockAudioURL struct {
+	URL string `yaml:"url"` // URL to the audio file (can be mock://, http://, https://, data:, or file path)
+}
+
+// MockVideoURL represents video content in a mock response.
+type MockVideoURL struct {
+	URL string `yaml:"url"` // URL to the video file (can be mock://, http://, https://, data:, or file path)
 }
 
 // MockToolCall represents a simulated tool call from the LLM.
@@ -333,6 +363,221 @@ func (r *InMemoryMockRepository) GetTurn(ctx context.Context, params MockRespons
 		Type:    "text",
 		Content: content,
 	}, nil
+}
+
+// ToContentParts converts MockTurn to a slice of types.ContentPart.
+// This handles both legacy text-only responses and new multimodal responses.
+func (t *MockTurn) ToContentParts() []types.ContentPart {
+	// If Parts are explicitly defined, convert them
+	if len(t.Parts) > 0 {
+		parts := make([]types.ContentPart, 0, len(t.Parts))
+		for _, mockPart := range t.Parts {
+			if part := mockPart.ToContentPart(); part != nil {
+				parts = append(parts, *part)
+			}
+		}
+		return parts
+	}
+
+	// Backward compatibility: if only text/content is set, return a single text part
+	text := t.Text
+	if text == "" {
+		text = t.Content
+	}
+	if text != "" {
+		return []types.ContentPart{types.NewTextPart(text)}
+	}
+
+	return nil
+}
+
+// ToContentPart converts a MockContentPart to types.ContentPart.
+func (m *MockContentPart) ToContentPart() *types.ContentPart {
+	switch m.Type {
+	case "text":
+		if m.Text != "" {
+			part := types.NewTextPart(m.Text)
+			return &part
+		}
+
+	case "image":
+		if m.ImageURL != nil {
+			return m.imageURLToContentPart()
+		}
+
+	case "audio":
+		if m.AudioURL != nil {
+			return m.audioURLToContentPart()
+		}
+
+	case "video":
+		if m.VideoURL != nil {
+			return m.videoURLToContentPart()
+		}
+	}
+
+	return nil
+}
+
+// imageURLToContentPart converts MockImageURL to types.ContentPart
+func (m *MockContentPart) imageURLToContentPart() *types.ContentPart {
+	url := m.ImageURL.URL
+	mimeType := inferMIMETypeFromURL(url)
+	
+	media := &types.MediaContent{
+		URL:      &url,
+		MIMEType: mimeType,
+		Detail:   m.ImageURL.Detail,
+	}
+	
+	// Apply metadata if present
+	m.applyMetadataToMedia(media)
+	
+	return &types.ContentPart{
+		Type:  types.ContentTypeImage,
+		Media: media,
+	}
+}
+
+// audioURLToContentPart converts MockAudioURL to types.ContentPart
+func (m *MockContentPart) audioURLToContentPart() *types.ContentPart {
+	url := m.AudioURL.URL
+	mimeType := inferMIMETypeFromURL(url)
+	
+	media := &types.MediaContent{
+		URL:      &url,
+		MIMEType: mimeType,
+	}
+	
+	// Apply metadata if present
+	m.applyMetadataToMedia(media)
+	
+	return &types.ContentPart{
+		Type:  types.ContentTypeAudio,
+		Media: media,
+	}
+}
+
+// videoURLToContentPart converts MockVideoURL to types.ContentPart
+func (m *MockContentPart) videoURLToContentPart() *types.ContentPart {
+	url := m.VideoURL.URL
+	mimeType := inferMIMETypeFromURL(url)
+	
+	media := &types.MediaContent{
+		URL:      &url,
+		MIMEType: mimeType,
+	}
+	
+	// Apply metadata if present
+	m.applyMetadataToMedia(media)
+	
+	return &types.ContentPart{
+		Type:  types.ContentTypeVideo,
+		Media: media,
+	}
+}
+
+// applyMetadataToMedia applies metadata fields to MediaContent
+func (m *MockContentPart) applyMetadataToMedia(media *types.MediaContent) {
+	if m.Metadata == nil {
+		return
+	}
+	
+	// Extract and apply common metadata fields
+	if format, ok := m.Metadata["format"].(string); ok {
+		media.Format = &format
+	}
+	if width, ok := m.Metadata["width"].(int); ok {
+		media.Width = &width
+	}
+	if height, ok := m.Metadata["height"].(int); ok {
+		media.Height = &height
+	}
+	if size, ok := m.Metadata["size"].(int); ok {
+		size64 := int64(size)
+		sizeKB := size64 / 1024
+		media.SizeKB = &sizeKB
+	}
+	if sizeKB, ok := m.Metadata["size_kb"].(int); ok {
+		sizeKB64 := int64(sizeKB)
+		media.SizeKB = &sizeKB64
+	}
+	if duration, ok := m.Metadata["duration"].(int); ok {
+		media.Duration = &duration
+	}
+	if durationSeconds, ok := m.Metadata["duration_seconds"].(int); ok {
+		media.Duration = &durationSeconds
+	}
+	if durationFloat, ok := m.Metadata["duration_seconds"].(float64); ok {
+		durationInt := int(durationFloat)
+		media.Duration = &durationInt
+	}
+	if bitRate, ok := m.Metadata["bit_rate"].(int); ok {
+		media.BitRate = &bitRate
+	}
+	if channels, ok := m.Metadata["channels"].(int); ok {
+		media.Channels = &channels
+	}
+	if fps, ok := m.Metadata["fps"].(int); ok {
+		media.FPS = &fps
+	}
+	if caption, ok := m.Metadata["caption"].(string); ok {
+		media.Caption = &caption
+	}
+}
+
+// inferMIMETypeFromURL infers MIME type from URL based on extension
+func inferMIMETypeFromURL(url string) string {
+	// Handle mock:// URLs - infer from extension
+	if len(url) > 7 && url[:7] == "mock://" {
+		url = url[7:] // Remove mock:// prefix
+	}
+	
+	// Try to infer from extension
+	ext := ""
+	for i := len(url) - 1; i >= 0; i-- {
+		if url[i] == '.' {
+			ext = url[i:]
+			break
+		}
+		if url[i] == '/' || url[i] == '?' {
+			break
+		}
+	}
+	
+	switch ext {
+	// Images
+	case ".jpg", ".jpeg":
+		return types.MIMETypeImageJPEG
+	case ".png":
+		return types.MIMETypeImagePNG
+	case ".gif":
+		return types.MIMETypeImageGIF
+	case ".webp":
+		return types.MIMETypeImageWebP
+	
+	// Audio
+	case ".mp3":
+		return types.MIMETypeAudioMP3
+	case ".wav":
+		return types.MIMETypeAudioWAV
+	case ".ogg", ".oga":
+		return types.MIMETypeAudioOgg
+	case ".weba":
+		return types.MIMETypeAudioWebM
+	
+	// Video
+	case ".mp4":
+		return types.MIMETypeVideoMP4
+	case ".webm":
+		return types.MIMETypeVideoWebM
+	case ".ogv":
+		return types.MIMETypeVideoOgg
+	
+	default:
+		// Default fallback
+		return "application/octet-stream"
+	}
 }
 
 // Helper functions for debug logging

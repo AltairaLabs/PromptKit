@@ -98,18 +98,32 @@ func (m *MockProvider) Chat(ctx context.Context, req providers.ChatRequest) (pro
 		"has_scenario_context", params.ScenarioID != "",
 		"backward_compat_value", m.value != "")
 
-	responseText, err := m.repository.GetResponse(ctx, params)
+	// Get structured turn response (supports multimodal content)
+	turn, err := m.repository.GetTurn(ctx, params)
 	if err != nil {
 		logger.Debug("MockProvider repository error", "error", err)
 		return providers.ChatResponse{}, fmt.Errorf("failed to get mock response: %w", err)
 	}
 
-	// Use value if set (for backward compatibility with tests), otherwise use repository response
+	// Use value if set (for backward compatibility with tests)
+	var responseText string
+	var parts []types.ContentPart
+	
 	if m.value != "" {
 		logger.Debug("MockProvider using backward compatibility value", "response", m.value)
 		responseText = m.value
+		// For backward compatibility, create a single text part
+		parts = []types.ContentPart{types.NewTextPart(m.value)}
 	} else {
-		logger.Debug("MockProvider using repository response", "response", responseText)
+		logger.Debug("MockProvider using repository response", "turn_type", turn.Type, "has_parts", len(turn.Parts) > 0)
+		// Get text content for backward compatibility
+		responseText = turn.Content
+		if responseText == "" {
+			responseText = turn.Text
+		}
+		
+		// Convert mock turn to content parts
+		parts = turn.ToContentParts()
 	}
 
 	// Count tokens based on message length (rough approximation)
@@ -136,6 +150,7 @@ func (m *MockProvider) Chat(ctx context.Context, req providers.ChatRequest) (pro
 
 	return providers.ChatResponse{
 		Content:  responseText,
+		Parts:    parts,
 		CostInfo: &costBreakdown,
 	}, nil
 }
@@ -157,15 +172,34 @@ func (m *MockProvider) handleStreamRequest(ctx context.Context, req providers.Ch
 	params := m.buildMockResponseParams(req)
 	m.logStreamRequest(params)
 
-	responseText := m.getStreamResponse(ctx, params)
-	if responseText == "" {
-		return // Error already logged in getStreamResponse
+	// Get structured turn response (supports multimodal content)
+	turn, err := m.getStreamTurn(ctx, params)
+	if err != nil {
+		logger.Debug("MockProvider stream repository error", "error", err)
+		return
+	}
+
+	// Use value if set (for backward compatibility with tests)
+	var responseText string
+	var parts []types.ContentPart
+	
+	if m.value != "" {
+		logger.Debug("MockProvider stream using backward compatibility value", "response", m.value)
+		responseText = m.value
+		parts = []types.ContentPart{types.NewTextPart(m.value)}
+	} else {
+		logger.Debug("MockProvider stream using repository response", "turn_type", turn.Type, "has_parts", len(turn.Parts) > 0)
+		responseText = turn.Content
+		if responseText == "" {
+			responseText = turn.Text
+		}
+		parts = turn.ToContentParts()
 	}
 
 	inputTokens := m.calculateInputTokens(req.Messages)
 	outputTokens := m.calculateOutputTokens(responseText)
 
-	chunk := m.createStreamChunk(responseText, inputTokens, outputTokens)
+	chunk := m.createStreamChunk(responseText, parts, inputTokens, outputTokens)
 	outChan <- chunk
 }
 
@@ -201,21 +235,8 @@ func (m *MockProvider) logStreamRequest(params MockResponseParams) {
 }
 
 // getStreamResponse gets the response text from repository or fallback value
-func (m *MockProvider) getStreamResponse(ctx context.Context, params MockResponseParams) string {
-	responseText, err := m.repository.GetResponse(ctx, params)
-	if err != nil {
-		logger.Debug("MockProvider stream repository error", "error", err)
-		return ""
-	}
-
-	// Use value if set (for backward compatibility with tests), otherwise use repository response
-	if m.value != "" {
-		logger.Debug("MockProvider stream using backward compatibility value", "response", m.value)
-		return m.value
-	}
-
-	logger.Debug("MockProvider stream using repository response", "response", responseText)
-	return responseText
+func (m *MockProvider) getStreamTurn(ctx context.Context, params MockResponseParams) (*MockTurn, error) {
+	return m.repository.GetTurn(ctx, params)
 }
 
 // calculateInputTokens estimates input tokens from messages
@@ -240,7 +261,7 @@ func (m *MockProvider) calculateOutputTokens(responseText string) int {
 }
 
 // createStreamChunk creates a stream chunk with the response and cost info
-func (m *MockProvider) createStreamChunk(responseText string, inputTokens, outputTokens int) providers.StreamChunk {
+func (m *MockProvider) createStreamChunk(responseText string, parts []types.ContentPart, inputTokens, outputTokens int) providers.StreamChunk {
 	costInfo := &types.CostInfo{
 		InputTokens:   inputTokens,
 		OutputTokens:  outputTokens,
@@ -258,6 +279,7 @@ func (m *MockProvider) createStreamChunk(responseText string, inputTokens, outpu
 		CostInfo:     costInfo,
 		FinalResult: &providers.ChatResponse{
 			Content:  responseText,
+			Parts:    parts,
 			CostInfo: costInfo,
 		},
 	}
