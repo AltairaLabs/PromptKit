@@ -135,7 +135,7 @@ func TestCreateAssistantMessage(t *testing.T) {
 		content := "Hello, world!"
 		duration := 100 * time.Millisecond
 
-		msg := createAssistantMessage(content, nil, nil, duration)
+		msg := createAssistantMessage(content, nil, nil, nil, duration)
 
 		assert.Equal(t, "assistant", msg.Role)
 		assert.Equal(t, "Hello, world!", msg.Content)
@@ -149,7 +149,7 @@ func TestCreateAssistantMessage(t *testing.T) {
 			{ID: "call1", Name: "tool1", Args: json.RawMessage(`{}`)},
 		}
 
-		msg := createAssistantMessage("content", toolCalls, nil, 0)
+		msg := createAssistantMessage("content", nil, toolCalls, nil, 0)
 
 		assert.Len(t, msg.ToolCalls, 1)
 		assert.Equal(t, "call1", msg.ToolCalls[0].ID)
@@ -162,7 +162,7 @@ func TestCreateAssistantMessage(t *testing.T) {
 			TotalCost:    0.001,
 		}
 
-		msg := createAssistantMessage("content", nil, costInfo, 0)
+		msg := createAssistantMessage("content", nil, nil, costInfo, 0)
 
 		require.NotNil(t, msg.CostInfo)
 		assert.Equal(t, 10, msg.CostInfo.InputTokens)
@@ -183,15 +183,11 @@ func TestRecordLLMCall(t *testing.T) {
 			},
 		}
 
-		config := &ProviderMiddlewareConfig{
-			DisableTrace: true,
-		}
-
 		response := &pipeline.Response{Content: "response"}
 		startTime := time.Now()
 		duration := 100 * time.Millisecond
 
-		recordLLMCall(execCtx, config, response, startTime, duration, nil, nil)
+		execCtx.RecordLLMCall(true, response, startTime, duration, nil, nil)
 
 		assert.Len(t, execCtx.Trace.LLMCalls, 0)
 	})
@@ -206,10 +202,6 @@ func TestRecordLLMCall(t *testing.T) {
 			},
 		}
 
-		config := &ProviderMiddlewareConfig{
-			DisableTrace: false,
-		}
-
 		response := &pipeline.Response{Content: "response"}
 		startTime := time.Now()
 		duration := 100 * time.Millisecond
@@ -220,7 +212,7 @@ func TestRecordLLMCall(t *testing.T) {
 		}
 
 		messageIndex := len(execCtx.Messages)
-		recordLLMCall(execCtx, config, response, startTime, duration, costInfo, nil)
+		execCtx.RecordLLMCall(false, response, startTime, duration, costInfo, nil)
 
 		require.Len(t, execCtx.Trace.LLMCalls, 1)
 		llmCall := execCtx.Trace.LLMCalls[0]
@@ -246,10 +238,9 @@ func TestRecordLLMCall(t *testing.T) {
 			},
 		}
 
-		config := &ProviderMiddlewareConfig{}
 		response := &pipeline.Response{Content: "response"}
 
-		recordLLMCall(execCtx, config, response, time.Now(), 0, nil, nil)
+		execCtx.RecordLLMCall(false, response, time.Now(), 0, nil, nil)
 
 		require.Len(t, execCtx.Trace.LLMCalls, 3)
 		assert.Equal(t, 3, execCtx.Trace.LLMCalls[2].Sequence)

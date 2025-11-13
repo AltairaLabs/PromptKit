@@ -33,6 +33,7 @@ type ChatRequest struct {
 // ChatResponse represents a response from a chat provider
 type ChatResponse struct {
 	Content    string                  `json:"content"`
+	Parts      []types.ContentPart     `json:"parts,omitempty"`     // Multimodal content parts (text, image, audio, video)
 	CostInfo   *types.CostInfo         `json:"cost_info,omitempty"` // Cost breakdown for this response (includes token counts)
 	Latency    time.Duration           `json:"latency"`
 	Raw        []byte                  `json:"raw,omitempty"`
