@@ -421,26 +421,41 @@ func (s *ArenaStateStore) GetArenaState(ctx context.Context, conversationID stri
 	return arenaState, nil
 }
 
+// MediaOutput represents media content produced during a run
+type MediaOutput struct {
+	Type       string `json:"Type"`       // "image", "audio", "video"
+	MIMEType   string `json:"MIMEType"`   // e.g., "image/png", "audio/wav"
+	SizeBytes  int64  `json:"SizeBytes"`  // Size in bytes
+	Duration   *int   `json:"Duration"`   // Duration in seconds for audio/video
+	Width      *int   `json:"Width"`      // Width in pixels for images/video
+	Height     *int   `json:"Height"`     // Height in pixels for images/video
+	FilePath   string `json:"FilePath"`   // Path to the media file if available
+	Thumbnail  string `json:"Thumbnail"`  // Base64-encoded thumbnail for images
+	MessageIdx int    `json:"MessageIdx"` // Index of the message containing this media
+	PartIdx    int    `json:"PartIdx"`    // Index of the part within the message
+}
+
 // RunResult represents the full result structure for JSON compatibility
 // This type mirrors engine.RunResult to avoid circular dependencies
 type RunResult struct {
-	RunID      string                  `json:"RunID"`
-	PromptPack string                  `json:"PromptPack"`
-	Region     string                  `json:"Region"`
-	ScenarioID string                  `json:"ScenarioID"`
-	ProviderID string                  `json:"ProviderID"`
-	Params     map[string]interface{}  `json:"Params"`
-	Messages   []types.Message         `json:"Messages"`
-	Commit     map[string]interface{}  `json:"Commit"`
-	Cost       types.CostInfo          `json:"Cost"`
-	ToolStats  *types.ToolStats        `json:"ToolStats"`
-	Violations []types.ValidationError `json:"Violations"`
-	StartTime  time.Time               `json:"StartTime"`
-	EndTime    time.Time               `json:"EndTime"`
-	Duration   time.Duration           `json:"Duration"`
-	Error      string                  `json:"Error"`
-	SelfPlay   bool                    `json:"SelfPlay"`
-	PersonaID  string                  `json:"PersonaID"`
+	RunID        string                  `json:"RunID"`
+	PromptPack   string                  `json:"PromptPack"`
+	Region       string                  `json:"Region"`
+	ScenarioID   string                  `json:"ScenarioID"`
+	ProviderID   string                  `json:"ProviderID"`
+	Params       map[string]interface{}  `json:"Params"`
+	Messages     []types.Message         `json:"Messages"`
+	Commit       map[string]interface{}  `json:"Commit"`
+	Cost         types.CostInfo          `json:"Cost"`
+	ToolStats    *types.ToolStats        `json:"ToolStats"`
+	Violations   []types.ValidationError `json:"Violations"`
+	StartTime    time.Time               `json:"StartTime"`
+	EndTime      time.Time               `json:"EndTime"`
+	Duration     time.Duration           `json:"Duration"`
+	Error        string                  `json:"Error"`
+	SelfPlay     bool                    `json:"SelfPlay"`
+	PersonaID    string                  `json:"PersonaID"`
+	MediaOutputs []MediaOutput           `json:"MediaOutputs"` // Media produced during the run
 
 	UserFeedback  *Feedback   `json:"UserFeedback"`
 	SessionTags   []string    `json:"SessionTags"`

@@ -382,13 +382,17 @@ func (ce *DefaultConversationExecutor) buildResultFromStateStore(req Conversatio
 	totalCost, toolStats := ce.calculateTotalsFromMessages(messages)
 	isSelfPlay, personaID := ce.extractSelfPlayInfo(req.Scenario)
 
+	// Collect media outputs from assistant messages
+	mediaOutputs := CollectMediaOutputs(messages)
+
 	return &ConversationResult{
-		Messages:   messages,
-		Cost:       totalCost,
-		ToolStats:  toolStats,
-		Violations: []types.ValidationError{},
-		SelfPlay:   isSelfPlay,
-		PersonaID:  personaID,
+		Messages:     messages,
+		Cost:         totalCost,
+		ToolStats:    toolStats,
+		Violations:   []types.ValidationError{},
+		SelfPlay:     isSelfPlay,
+		PersonaID:    personaID,
+		MediaOutputs: mediaOutputs,
 	}
 }
 

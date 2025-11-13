@@ -184,6 +184,11 @@ func (r *JUnitResultRepository) convertTestCase(result *engine.RunResult) JUnitT
 		Time:      result.Duration.Seconds(),
 	}
 
+	// Add MediaOutputs as properties if present
+	if len(result.MediaOutputs) > 0 {
+		testCase.Properties = r.buildMediaOutputProperties(result.MediaOutputs)
+	}
+
 	// Add metadata as system-out
 	if r.options.IncludeSystemOut {
 		metadata := r.buildMetadata(result)
@@ -284,6 +289,134 @@ func (r *JUnitResultRepository) buildValidationDetails(violations []ValidationEr
 	}
 
 	return details.String()
+}
+
+// buildMediaOutputProperties creates JUnit properties for MediaOutputs
+func (r *JUnitResultRepository) buildMediaOutputProperties(mediaOutputs []engine.MediaOutput) []JUnitProperty {
+	var properties []JUnitProperty
+
+	// Add aggregate statistics
+	properties = append(properties, r.buildMediaOutputSummaryProperties(mediaOutputs)...)
+
+	// Add individual media output details
+	properties = append(properties, r.buildIndividualMediaOutputProperties(mediaOutputs)...)
+
+	return properties
+}
+
+// buildMediaOutputSummaryProperties creates summary properties for all media outputs
+func (r *JUnitResultRepository) buildMediaOutputSummaryProperties(mediaOutputs []engine.MediaOutput) []JUnitProperty {
+	var properties []JUnitProperty
+
+	// Count media outputs by type
+	imageCount := 0
+	audioCount := 0
+	videoCount := 0
+	var totalSize int64
+
+	for i := range mediaOutputs {
+		output := &mediaOutputs[i]
+		switch output.Type {
+		case "image":
+			imageCount++
+		case "audio":
+			audioCount++
+		case "video":
+			videoCount++
+		}
+		totalSize += output.SizeBytes
+	}
+
+	// Add properties for media output counts
+	properties = append(properties, JUnitProperty{
+		Name:  "media_outputs.total",
+		Value: fmt.Sprintf("%d", len(mediaOutputs)),
+	})
+
+	if imageCount > 0 {
+		properties = append(properties, JUnitProperty{
+			Name:  "media_outputs.images",
+			Value: fmt.Sprintf("%d", imageCount),
+		})
+	}
+
+	if audioCount > 0 {
+		properties = append(properties, JUnitProperty{
+			Name:  "media_outputs.audio",
+			Value: fmt.Sprintf("%d", audioCount),
+		})
+	}
+
+	if videoCount > 0 {
+		properties = append(properties, JUnitProperty{
+			Name:  "media_outputs.video",
+			Value: fmt.Sprintf("%d", videoCount),
+		})
+	}
+
+	if totalSize > 0 {
+		properties = append(properties, JUnitProperty{
+			Name:  "media_outputs.total_size_bytes",
+			Value: fmt.Sprintf("%d", totalSize),
+		})
+	}
+
+	return properties
+}
+
+// buildIndividualMediaOutputProperties creates properties for each media output
+func (r *JUnitResultRepository) buildIndividualMediaOutputProperties(mediaOutputs []engine.MediaOutput) []JUnitProperty {
+	var properties []JUnitProperty
+
+	for i := range mediaOutputs {
+		output := &mediaOutputs[i]
+		prefix := fmt.Sprintf("media_outputs.%d", i)
+
+		properties = append(properties, JUnitProperty{
+			Name:  fmt.Sprintf("%s.type", prefix),
+			Value: output.Type,
+		})
+
+		properties = append(properties, JUnitProperty{
+			Name:  fmt.Sprintf("%s.mime_type", prefix),
+			Value: output.MIMEType,
+		})
+
+		if output.SizeBytes > 0 {
+			properties = append(properties, JUnitProperty{
+				Name:  fmt.Sprintf("%s.size_bytes", prefix),
+				Value: fmt.Sprintf("%d", output.SizeBytes),
+			})
+		}
+
+		if output.Duration != nil && *output.Duration > 0 {
+			properties = append(properties, JUnitProperty{
+				Name:  fmt.Sprintf("%s.duration_seconds", prefix),
+				Value: fmt.Sprintf("%d", *output.Duration),
+			})
+		}
+
+		if output.Width != nil && output.Height != nil && *output.Width > 0 && *output.Height > 0 {
+			properties = append(properties, JUnitProperty{
+				Name:  fmt.Sprintf("%s.dimensions", prefix),
+				Value: fmt.Sprintf("%dx%d", *output.Width, *output.Height),
+			})
+		}
+
+		if output.FilePath != "" {
+			properties = append(properties, JUnitProperty{
+				Name:  fmt.Sprintf("%s.file_path", prefix),
+				Value: output.FilePath,
+			})
+		}
+
+		properties = append(properties, JUnitProperty{
+			Name:  fmt.Sprintf("%s.message_index", prefix),
+			Value: fmt.Sprintf("%d", output.MessageIdx),
+		})
+	}
+
+	return properties
 }
 
 // writeJUnitXML writes the JUnit XML to file

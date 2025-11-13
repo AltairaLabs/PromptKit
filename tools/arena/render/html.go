@@ -344,6 +344,8 @@ func generateHTML(data HTMLReportData) (string, error) {
 		"getOK":                getOKFromResult,
 		"getDetails":           getDetailsFromResult,
 		"getMessage":           getMessage,
+		"hasMediaOutputs":      hasMediaOutputs,
+		"renderMediaOutputs":   renderMediaOutputs,
 	}).Parse(reportTemplate))
 
 	var buf strings.Builder
@@ -732,4 +734,88 @@ func renderMessageContent(msg types.Message) template.HTML {
 // This is a bridge function for template use.
 func formatBytesHTML(bytes int64) string {
 	return formatBytes(int(bytes))
+}
+
+// hasMediaOutputs checks if a result has any media outputs.
+func hasMediaOutputs(result engine.RunResult) bool {
+	return len(result.MediaOutputs) > 0
+}
+
+// renderMediaOutputs renders the MediaOutputs section for a result as HTML.
+func renderMediaOutputs(outputs []engine.MediaOutput) template.HTML {
+	if len(outputs) == 0 {
+		return ""
+	}
+
+	var html strings.Builder
+	html.WriteString(`<div class="media-outputs-section">`)
+	html.WriteString(`<div class="media-outputs-header">📸 Media Outputs (`)
+	html.WriteString(fmt.Sprintf("%d", len(outputs)))
+	html.WriteString(`)</div>`)
+	html.WriteString(`<div class="media-outputs-grid">`)
+
+	for _, output := range outputs {
+		html.WriteString(`<div class="media-output-card">`)
+
+		// Media type icon and header
+		icon := getMediaTypeIcon(output.Type)
+		html.WriteString(`<div class="media-output-header">`)
+		html.WriteString(fmt.Sprintf(`<span class="media-icon">%s</span>`, icon))
+		html.WriteString(fmt.Sprintf(`<span class="media-type">%s</span>`, output.Type))
+		html.WriteString(`</div>`)
+
+		// Thumbnail for images (if available and small enough)
+		if output.Type == "image" && output.Thumbnail != "" {
+			html.WriteString(fmt.Sprintf(`<div class="media-thumbnail"><img src="data:%s;base64,%s" alt="Image thumbnail" /></div>`, output.MIMEType, output.Thumbnail))
+		}
+
+		// Media details
+		html.WriteString(`<div class="media-details">`)
+
+		// MIME type
+		html.WriteString(`<div class="media-detail-item">`)
+		html.WriteString(fmt.Sprintf(`<span class="media-detail-label">Type:</span> <span class="media-detail-value">%s</span>`, output.MIMEType))
+		html.WriteString(`</div>`)
+
+		// Size
+		if output.SizeBytes > 0 {
+			html.WriteString(`<div class="media-detail-item">`)
+			html.WriteString(fmt.Sprintf(`<span class="media-detail-label">Size:</span> <span class="media-detail-value">%s</span>`, formatBytes(int(output.SizeBytes))))
+			html.WriteString(`</div>`)
+		}
+
+		// Duration for audio/video
+		if output.Duration != nil && *output.Duration > 0 {
+			html.WriteString(`<div class="media-detail-item">`)
+			html.WriteString(fmt.Sprintf(`<span class="media-detail-label">Duration:</span> <span class="media-detail-value">%ds</span>`, *output.Duration))
+			html.WriteString(`</div>`)
+		}
+
+		// Dimensions for images/video
+		if output.Width != nil && output.Height != nil && *output.Width > 0 && *output.Height > 0 {
+			html.WriteString(`<div class="media-detail-item">`)
+			html.WriteString(fmt.Sprintf(`<span class="media-detail-label">Dimensions:</span> <span class="media-detail-value">%d×%d</span>`, *output.Width, *output.Height))
+			html.WriteString(`</div>`)
+		}
+
+		// File path
+		if output.FilePath != "" {
+			html.WriteString(`<div class="media-detail-item">`)
+			html.WriteString(fmt.Sprintf(`<span class="media-detail-label">Source:</span> <span class="media-detail-value media-filepath" title="%s">%s</span>`, output.FilePath, truncateSource(output.FilePath, 30)))
+			html.WriteString(`</div>`)
+		}
+
+		// Message reference
+		html.WriteString(`<div class="media-detail-item">`)
+		html.WriteString(fmt.Sprintf(`<span class="media-detail-label">Message:</span> <span class="media-detail-value">#%d</span>`, output.MessageIdx+1))
+		html.WriteString(`</div>`)
+
+		html.WriteString(`</div>`) // media-details
+		html.WriteString(`</div>`) // media-output-card
+	}
+
+	html.WriteString(`</div>`) // media-outputs-grid
+	html.WriteString(`</div>`) // media-outputs-section
+
+	return template.HTML(html.String())
 }

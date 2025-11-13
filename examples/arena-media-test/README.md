@@ -1,15 +1,33 @@
 # Arena Media Testing Examples
 
-This directory contains example test scenarios demonstrating how to use media content (images, audio, video) with Arena's scripted test executor.
+This directory contains example test scenarios demonstrating how to use media content (images, audio, video) with Arena's scripted test executor and media validation assertions.
 
 ## Example Scenarios
+
+### Media Input Examples
 
 1. **image-analysis.yaml** - Basic image analysis with local files
 2. **image-url.yaml** - Loading images from HTTP URLs
 3. **multimodal-mixed.yaml** - Combining text, images, and other media types
 4. **audio-transcription.yaml** - Audio file processing examples
-5. **video-processing.yaml** - Video file handling
-6. **error-handling.yaml** - Examples of error conditions and validation
+
+### Media Validation Examples (Phase 1)
+
+1. **image-validation.yaml** - Image format and dimension validation
+   - Validates image formats (PNG, JPEG, WebP, etc.)
+   - Tests exact dimensions, min/max ranges
+   - Demonstrates combined format + dimension assertions
+
+2. **audio-validation.yaml** - Audio format and duration validation
+   - Validates audio formats (MP3, WAV, OGG, etc.)
+   - Tests duration constraints (min/max seconds)
+   - Examples for short clips, podcasts, and longer content
+
+3. **video-validation.yaml** - Video resolution and duration validation
+   - Validates video resolutions (720p, 1080p, 4K presets)
+   - Tests duration constraints for video content
+   - Demonstrates aspect ratio and dimension validation
+   - Examples for short-form, long-form, and vertical video
 
 ## Running Examples
 
@@ -40,9 +58,95 @@ Examples reference test media files from `tools/arena/testdata/media/`. In your 
 - **mime_type**: MIME type of the media (required for inline data)
 - **detail**: Image detail level - "low", "high", or "auto" (images only)
 
+## Media Assertions
+
+Arena Phase 1 includes six media validation assertions that validate media content in assistant responses:
+
+### Image Assertions
+
+**image_format** - Validates image format/MIME type
+
+```yaml
+assertions:
+  - type: image_format
+    params:
+      formats:
+        - png
+        - jpeg
+        - webp
+```
+
+**image_dimensions** - Validates image dimensions (width/height)
+
+```yaml
+assertions:
+  - type: image_dimensions
+    params:
+      width: 1920          # Exact width
+      height: 1080         # Exact height
+      min_width: 1280      # Minimum width
+      max_width: 3840      # Maximum width
+      min_height: 720      # Minimum height
+      max_height: 2160     # Maximum height
+```
+
+### Audio Assertions
+
+**audio_format** - Validates audio format/MIME type
+
+```yaml
+assertions:
+  - type: audio_format
+    params:
+      formats:
+        - mp3
+        - wav
+        - ogg
+```
+
+**audio_duration** - Validates audio duration in seconds
+
+```yaml
+assertions:
+  - type: audio_duration
+    params:
+      min_seconds: 10      # Minimum duration
+      max_seconds: 60      # Maximum duration
+```
+
+### Video Assertions
+
+**video_resolution** - Validates video resolution
+
+```yaml
+assertions:
+  - type: video_resolution
+    params:
+      presets:            # Use named presets
+        - 720p
+        - 1080p
+        - 4k
+      # Or use explicit dimensions
+      min_width: 1280
+      min_height: 720
+```
+
+**video_duration** - Validates video duration in seconds
+
+```yaml
+assertions:
+  - type: video_duration
+    params:
+      min_seconds: 30
+      max_seconds: 120
+```
+
+Supported resolution presets: `480p`, `sd`, `720p`, `hd`, `1080p`, `fhd`, `full_hd`, `1440p`, `2k`, `qhd`, `2160p`, `4k`, `uhd`, `4320p`, `8k`
+
 ## Size Limits
 
 Default limits:
+
 - HTTP downloads: 50MB maximum
 - Timeout: 30 seconds for HTTP requests
 

@@ -385,3 +385,85 @@ func TestJUnitResultRepository_DirectoryCreation(t *testing.T) {
 	// Verify nested directory was created
 	assert.FileExists(t, nestedPath)
 }
+
+func TestJUnitResultRepository_MediaOutputProperties(t *testing.T) {
+	tmpDir := t.TempDir()
+	junitFile := filepath.Join(tmpDir, "junit.xml")
+	repo := junit.NewJUnitResultRepository(junitFile)
+
+	// Create result with MediaOutputs
+	width := 1920
+	height := 1080
+	duration := 30
+
+	result := createTestResult("run-001", "scenario-1", "openai", "us-east-1", false, 0.001, 2*time.Second)
+	result.MediaOutputs = []engine.MediaOutput{
+		{
+			Type:       "image",
+			MIMEType:   "image/png",
+			SizeBytes:  1024000,
+			Width:      &width,
+			Height:     &height,
+			FilePath:   "/path/to/image.png",
+			MessageIdx: 0,
+		},
+		{
+			Type:       "audio",
+			MIMEType:   "audio/wav",
+			SizeBytes:  512000,
+			Duration:   &duration,
+			FilePath:   "/path/to/audio.wav",
+			MessageIdx: 1,
+		},
+	}
+
+	testResults := []engine.RunResult{result}
+
+	err := repo.SaveResults(testResults)
+	require.NoError(t, err)
+
+	// Read and parse XML
+	data, err := os.ReadFile(junitFile)
+	require.NoError(t, err)
+
+	var testSuites junit.JUnitTestSuites
+	err = xml.Unmarshal(data, &testSuites)
+	require.NoError(t, err)
+
+	require.Len(t, testSuites.TestSuites, 1)
+	suite := testSuites.TestSuites[0]
+	require.Len(t, suite.TestCases, 1)
+
+	testCase := suite.TestCases[0]
+
+	// Verify MediaOutput properties are present
+	require.NotEmpty(t, testCase.Properties)
+
+	// Build a property map for easier assertion
+	propMap := make(map[string]string)
+	for _, prop := range testCase.Properties {
+		propMap[prop.Name] = prop.Value
+	}
+
+	// Verify summary properties
+	assert.Equal(t, "2", propMap["media_outputs.total"])
+	assert.Equal(t, "1", propMap["media_outputs.images"])
+	assert.Equal(t, "1", propMap["media_outputs.audio"])
+	assert.Equal(t, "1536000", propMap["media_outputs.total_size_bytes"])
+
+	// Verify first MediaOutput (image)
+	assert.Equal(t, "image", propMap["media_outputs.0.type"])
+	assert.Equal(t, "image/png", propMap["media_outputs.0.mime_type"])
+	assert.Equal(t, "1024000", propMap["media_outputs.0.size_bytes"])
+	assert.Equal(t, "1920x1080", propMap["media_outputs.0.dimensions"])
+	assert.Equal(t, "/path/to/image.png", propMap["media_outputs.0.file_path"])
+	assert.Equal(t, "0", propMap["media_outputs.0.message_index"])
+
+	// Verify second MediaOutput (audio)
+	assert.Equal(t, "audio", propMap["media_outputs.1.type"])
+	assert.Equal(t, "audio/wav", propMap["media_outputs.1.mime_type"])
+	assert.Equal(t, "512000", propMap["media_outputs.1.size_bytes"])
+	assert.Equal(t, "30", propMap["media_outputs.1.duration_seconds"])
+	assert.Equal(t, "/path/to/audio.wav", propMap["media_outputs.1.file_path"])
+	assert.Equal(t, "1", propMap["media_outputs.1.message_index"])
+}

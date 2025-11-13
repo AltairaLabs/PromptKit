@@ -863,3 +863,265 @@ func TestArenaStateStore_AudioAndVideoContentPreservation(t *testing.T) {
 	assert.Equal(t, videoURL, *msg.Parts[1].Media.URL)
 	assert.Equal(t, types.MIMETypeVideoMP4, msg.Parts[1].Media.MIMEType)
 }
+
+func TestArenaStateStore_CollectMediaFromMessage(t *testing.T) {
+	store := NewArenaStateStore()
+
+	t.Run("message_with_multiple_media_parts", func(t *testing.T) {
+		imgURL := "https://example.com/image.png"
+		audioURL := "https://example.com/audio.mp3"
+		width := 1920
+		height := 1080
+		duration := 30
+
+		msg := &types.Message{
+			Role: "assistant",
+			Parts: []types.ContentPart{
+				{
+					Type: "text",
+					Text: strPtr("Here are your files"),
+				},
+				{
+					Type: types.ContentTypeImage,
+					Media: &types.MediaContent{
+						URL:      &imgURL,
+						MIMEType: types.MIMETypeImagePNG,
+						Width:    &width,
+						Height:   &height,
+					},
+				},
+				{
+					Type: types.ContentTypeAudio,
+					Media: &types.MediaContent{
+						URL:      &audioURL,
+						MIMEType: types.MIMETypeAudioMP3,
+						Duration: &duration,
+					},
+				},
+			},
+		}
+
+		outputs := store.collectMediaFromMessage(msg, 0)
+
+		require.Len(t, outputs, 2, "Should collect 2 media parts (not text)")
+
+		// Check image output
+		assert.Equal(t, types.ContentTypeImage, outputs[0].Type)
+		assert.Equal(t, types.MIMETypeImagePNG, outputs[0].MIMEType)
+		assert.Equal(t, 0, outputs[0].MessageIdx)
+		assert.Equal(t, 1, outputs[0].PartIdx)
+
+		// Check audio output
+		assert.Equal(t, types.ContentTypeAudio, outputs[1].Type)
+		assert.Equal(t, types.MIMETypeAudioMP3, outputs[1].MIMEType)
+		assert.Equal(t, 0, outputs[1].MessageIdx)
+		assert.Equal(t, 2, outputs[1].PartIdx)
+	})
+
+	t.Run("message_with_no_media", func(t *testing.T) {
+		msg := &types.Message{
+			Role: "user",
+			Parts: []types.ContentPart{
+				{
+					Type: "text",
+					Text: strPtr("Just text"),
+				},
+			},
+		}
+
+		outputs := store.collectMediaFromMessage(msg, 0)
+		assert.Empty(t, outputs, "Should return empty slice for text-only message")
+	})
+
+	t.Run("message_with_nil_media", func(t *testing.T) {
+		msg := &types.Message{
+			Role: "assistant",
+			Parts: []types.ContentPart{
+				{
+					Type:  types.ContentTypeImage,
+					Media: nil, // Nil media
+				},
+			},
+		}
+
+		outputs := store.collectMediaFromMessage(msg, 0)
+		assert.Empty(t, outputs, "Should skip parts with nil media")
+	})
+}
+
+func TestArenaStateStore_BuildMediaOutput(t *testing.T) {
+	store := NewArenaStateStore()
+
+	t.Run("image_with_dimensions", func(t *testing.T) {
+		imgURL := "https://example.com/test.jpg"
+		width := 1920
+		height := 1080
+		filePath := "/tmp/test.jpg"
+
+		part := &types.ContentPart{
+			Type: types.ContentTypeImage,
+			Media: &types.MediaContent{
+				URL:      &imgURL,
+				MIMEType: types.MIMETypeImageJPEG,
+				Width:    &width,
+				Height:   &height,
+				FilePath: &filePath,
+			},
+		}
+
+		output := store.buildMediaOutput(part, 1, 2)
+
+		assert.Equal(t, types.ContentTypeImage, output.Type)
+		assert.Equal(t, types.MIMETypeImageJPEG, output.MIMEType)
+		assert.Equal(t, 1, output.MessageIdx)
+		assert.Equal(t, 2, output.PartIdx)
+		assert.Equal(t, width, *output.Width)
+		assert.Equal(t, height, *output.Height)
+		assert.Equal(t, filePath, output.FilePath)
+	})
+
+	t.Run("audio_with_duration", func(t *testing.T) {
+		audioURL := "https://example.com/test.mp3"
+		duration := 45
+
+		part := &types.ContentPart{
+			Type: types.ContentTypeAudio,
+			Media: &types.MediaContent{
+				URL:      &audioURL,
+				MIMEType: types.MIMETypeAudioMP3,
+				Duration: &duration,
+			},
+		}
+
+		output := store.buildMediaOutput(part, 0, 1)
+
+		assert.Equal(t, types.ContentTypeAudio, output.Type)
+		assert.Equal(t, types.MIMETypeAudioMP3, output.MIMEType)
+		assert.Equal(t, duration, *output.Duration)
+	})
+
+	t.Run("video_with_all_metadata", func(t *testing.T) {
+		videoURL := "https://example.com/test.mp4"
+		width := 3840
+		height := 2160
+		duration := 120
+		filePath := "/tmp/test.mp4"
+
+		part := &types.ContentPart{
+			Type: types.ContentTypeVideo,
+			Media: &types.MediaContent{
+				URL:      &videoURL,
+				MIMEType: types.MIMETypeVideoMP4,
+				Width:    &width,
+				Height:   &height,
+				Duration: &duration,
+				FilePath: &filePath,
+			},
+		}
+
+		output := store.buildMediaOutput(part, 2, 3)
+
+		assert.Equal(t, types.ContentTypeVideo, output.Type)
+		assert.Equal(t, types.MIMETypeVideoMP4, output.MIMEType)
+		assert.Equal(t, width, *output.Width)
+		assert.Equal(t, height, *output.Height)
+		assert.Equal(t, duration, *output.Duration)
+		assert.Equal(t, filePath, output.FilePath)
+	})
+
+	t.Run("image_with_small_thumbnail", func(t *testing.T) {
+		imgURL := "https://example.com/test.png"
+		imgData := "c21hbGwtaW1hZ2UtZGF0YS1sZXNzLXRoYW4tNTBrYg==" // base64 encoded small data
+
+		part := &types.ContentPart{
+			Type: types.ContentTypeImage,
+			Media: &types.MediaContent{
+				URL:      &imgURL,
+				MIMEType: types.MIMETypeImagePNG,
+				Data:     &imgData,
+			},
+		}
+
+		output := store.buildMediaOutput(part, 0, 0)
+
+		assert.NotEmpty(t, output.Thumbnail, "Small images should have thumbnail")
+		assert.Equal(t, imgData, output.Thumbnail)
+	})
+
+	t.Run("image_without_thumbnail_when_too_large", func(t *testing.T) {
+		imgURL := "https://example.com/test.png"
+		// Create base64 string larger than 50KB
+		largeData := make([]byte, 60000)
+		for i := range largeData {
+			largeData[i] = 'A'
+		}
+		imgData := string(largeData)
+
+		part := &types.ContentPart{
+			Type: types.ContentTypeImage,
+			Media: &types.MediaContent{
+				URL:      &imgURL,
+				MIMEType: types.MIMETypeImagePNG,
+				Data:     &imgData,
+			},
+		}
+
+		output := store.buildMediaOutput(part, 0, 0)
+
+		assert.Empty(t, output.Thumbnail, "Large images should not have thumbnail")
+	})
+}
+
+func TestArenaStateStore_CalculateMediaSize(t *testing.T) {
+	store := NewArenaStateStore()
+
+	t.Run("size_from_sizeKB", func(t *testing.T) {
+		sizeKB := int64(1024) // 1MB
+		media := &types.MediaContent{
+			SizeKB: &sizeKB,
+		}
+
+		size := store.calculateMediaSize(media)
+		assert.Equal(t, int64(1024*1024), size, "Should convert KB to bytes")
+	})
+
+	t.Run("size_from_base64_data", func(t *testing.T) {
+		// Base64 encoded data (4 bytes base64 = 3 bytes original)
+		data := "AAAABBBBCCCCDDDD" // 16 bytes base64
+		media := &types.MediaContent{
+			Data: &data,
+		}
+
+		size := store.calculateMediaSize(media)
+		// 16 * 3 / 4 = 12 bytes
+		assert.Equal(t, int64(12), size, "Should estimate size from base64 data length")
+	})
+
+	t.Run("zero_size_when_no_size_info", func(t *testing.T) {
+		url := "https://example.com/test.jpg"
+		media := &types.MediaContent{
+			URL:      &url,
+			MIMEType: types.MIMETypeImageJPEG,
+		}
+
+		size := store.calculateMediaSize(media)
+		assert.Equal(t, int64(0), size, "Should return 0 when no size information available")
+	})
+
+	t.Run("prefer_sizeKB_over_data", func(t *testing.T) {
+		sizeKB := int64(500)
+		data := "some-data"
+		media := &types.MediaContent{
+			SizeKB: &sizeKB,
+			Data:   &data,
+		}
+
+		size := store.calculateMediaSize(media)
+		assert.Equal(t, int64(500*1024), size, "Should prefer SizeKB when both are available")
+	})
+}
+
+// Helper function for string pointers
+func strPtr(s string) *string {
+	return &s
+}
