@@ -772,6 +772,133 @@
             font-weight: 600;
         }
         
+        /* Media Content Styles */
+        .media-summary-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.25rem 0.5rem;
+            background: #f7fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.375rem;
+            font-size: 0.875rem;
+            margin-left: 0.5rem;
+        }
+        
+        .media-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.125rem 0.375rem;
+            border-radius: 0.25rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        
+        .media-badge.image {
+            background: #e6f7ff;
+            color: #0066cc;
+        }
+        
+        .media-badge.audio {
+            background: #fff0f6;
+            color: #c41d7f;
+        }
+        
+        .media-badge.video {
+            background: #f6ffed;
+            color: #389e0d;
+        }
+        
+        .media-items {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid #e2e8f0;
+        }
+        
+        .media-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+            padding: 0.75rem;
+            background: #f8f9fa;
+            border-radius: 0.5rem;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .media-item.loaded {
+            background: #f0fdf4;
+            border-color: #86efac;
+        }
+        
+        .media-item.error {
+            background: #fef2f2;
+            border-color: #fca5a5;
+        }
+        
+        .media-item.not-loaded {
+            background: #fefce8;
+            border-color: #fde047;
+        }
+        
+        .media-icon {
+            font-size: 1.5rem;
+            line-height: 1;
+            flex-shrink: 0;
+        }
+        
+        .media-info {
+            flex: 1;
+            min-width: 0;
+        }
+        
+        .media-type {
+            font-weight: 600;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #64748b;
+            margin-bottom: 0.25rem;
+        }
+        
+        .media-source {
+            font-size: 0.875rem;
+            color: #1e293b;
+            word-break: break-all;
+            margin-bottom: 0.25rem;
+        }
+        
+        .media-meta {
+            display: flex;
+            gap: 1rem;
+            font-size: 0.75rem;
+            color: #64748b;
+        }
+        
+        .media-status {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+        
+        .media-status.loaded {
+            color: #16a34a;
+        }
+        
+        .media-status.error {
+            color: #dc2626;
+        }
+        
+        .media-status.not-loaded {
+            color: #ca8a04;
+        }
+        
         /* Validation UI Styles - Deprecated (kept for backwards compatibility) */
     </style>
 </head>
@@ -806,6 +933,46 @@
                     <div class="stat-label">Avg Latency</div>
                 </div>
             </div>
+            
+            {{if or (gt .Summary.TotalImages 0) (gt .Summary.TotalAudio 0) (gt .Summary.TotalVideo 0)}}
+            <h3 style="margin-top: 2rem; margin-bottom: 1rem; font-size: 1.2rem; color: #2d3748;">Media Content</h3>
+            <div class="stats-grid">
+                {{if gt .Summary.TotalImages 0}}
+                <div class="stat-card">
+                    <div class="stat-number">🖼️ {{.Summary.TotalImages}}</div>
+                    <div class="stat-label">Images</div>
+                </div>
+                {{end}}
+                {{if gt .Summary.TotalAudio 0}}
+                <div class="stat-card">
+                    <div class="stat-number">🎵 {{.Summary.TotalAudio}}</div>
+                    <div class="stat-label">Audio Files</div>
+                </div>
+                {{end}}
+                {{if gt .Summary.TotalVideo 0}}
+                <div class="stat-card">
+                    <div class="stat-number">🎬 {{.Summary.TotalVideo}}</div>
+                    <div class="stat-label">Videos</div>
+                </div>
+                {{end}}
+                <div class="stat-card">
+                    <div class="stat-number">✅ {{.Summary.MediaLoadSuccess}}</div>
+                    <div class="stat-label">Loaded</div>
+                </div>
+                {{if gt .Summary.MediaLoadErrors 0}}
+                <div class="stat-card">
+                    <div class="stat-number" style="color: #dc2626;">❌ {{.Summary.MediaLoadErrors}}</div>
+                    <div class="stat-label">Errors</div>
+                </div>
+                {{end}}
+                {{if gt .Summary.TotalMediaSize 0}}
+                <div class="stat-card">
+                    <div class="stat-number">{{formatBytes .Summary.TotalMediaSize}}</div>
+                    <div class="stat-label">Total Size</div>
+                </div>
+                {{end}}
+            </div>
+            {{end}}
         </div>
         
         {{range $scenarioIdx, $scenarioGroup := .ScenarioGroups}}
@@ -975,7 +1142,7 @@
                                     {{end}}
                                     
                                     {{if ne $msg.Role "tool"}}
-                                    <div class="turn-content">{{if $msg.Content}}{{renderMarkdown $msg.Content}}{{end}}</div>
+                                    <div class="turn-content">{{renderMessageContent $msg}}</div>
                                     {{end}}
                                     {{if $msg.ToolCalls}}
                                     <div class="tool-calls">

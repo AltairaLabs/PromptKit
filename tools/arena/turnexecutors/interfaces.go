@@ -73,6 +73,9 @@ type TurnRequest struct {
 	TaskType       string
 	Region         string
 
+	// Base directory for resolving relative file paths in media content
+	BaseDir string
+
 	// State management (StateStore handles all history)
 	StateStoreConfig *StateStoreConfig // State store configuration
 	ConversationID   string            // Conversation identifier for state persistence

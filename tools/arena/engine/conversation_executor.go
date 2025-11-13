@@ -64,25 +64,8 @@ func (ce *DefaultConversationExecutor) executeWithoutStreaming(ctx context.Conte
 				"turn", turnIdx)
 		}
 
-		// Build turn request (StateStore manages history)
-		// Include both legacy ScriptedContent and new ScriptedParts so multimodal
-		// parts from the scenario are preserved for non-streaming execution.
-		turnReq := turnexecutors.TurnRequest{
-			Provider:         req.Provider,
-			Scenario:         req.Scenario,
-			PromptRegistry:   ce.promptRegistry,
-			TaskType:         req.Scenario.TaskType,
-			Region:           req.Region,
-			Temperature:      float64(req.Config.Defaults.Temperature),
-			MaxTokens:        req.Config.Defaults.MaxTokens,
-			Seed:             &req.Config.Defaults.Seed,
-			StateStoreConfig: convertStateStoreConfig(req.StateStoreConfig),
-			ConversationID:   req.ConversationID,
-			// Preserve both content and parts from the scenario
-			ScriptedContent: scenarioTurn.Content,
-			ScriptedParts:   scenarioTurn.Parts,
-			Assertions:      scenarioTurn.Assertions, // Pass turn-level assertions
-		}
+		// Build turn request using the shared builder function
+		turnReq := ce.buildTurnRequest(req, scenarioTurn)
 
 		var err error
 
@@ -94,10 +77,6 @@ func (ce *DefaultConversationExecutor) executeWithoutStreaming(ctx context.Conte
 			err = ce.selfPlayExecutor.ExecuteTurn(ctx, turnReq)
 		} else if scenarioTurn.Role == "user" {
 			// Scripted user turn (non-streaming path)
-			// ScriptedContent and ScriptedParts are already set on turnReq above,
-			// but keep explicit assignment to be defensive.
-			turnReq.ScriptedContent = scenarioTurn.Content
-			turnReq.ScriptedParts = scenarioTurn.Parts
 			err = ce.scriptedExecutor.ExecuteTurn(ctx, turnReq)
 		} else {
 			err = fmt.Errorf(errUnsupportedRole, scenarioTurn.Role)
@@ -159,12 +138,17 @@ func (ce *DefaultConversationExecutor) debugOnUserTurnAssertions(scenarioTurn co
 
 // buildTurnRequest creates a TurnRequest from the conversation request and scenario turn
 func (ce *DefaultConversationExecutor) buildTurnRequest(req ConversationRequest, scenarioTurn config.TurnDefinition) turnexecutors.TurnRequest {
+	baseDir := ""
+	if req.Config != nil {
+		baseDir = req.Config.ConfigDir
+	}
 	return turnexecutors.TurnRequest{
 		Provider:         req.Provider,
 		Scenario:         req.Scenario,
 		PromptRegistry:   ce.promptRegistry,
 		TaskType:         req.Scenario.TaskType,
 		Region:           req.Region,
+		BaseDir:          baseDir,
 		Temperature:      float64(req.Config.Defaults.Temperature),
 		MaxTokens:        req.Config.Defaults.MaxTokens,
 		Seed:             &req.Config.Defaults.Seed,

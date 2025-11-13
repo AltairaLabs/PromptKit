@@ -44,11 +44,13 @@ func (e *ScriptedExecutor) buildUserMessage(req TurnRequest) (types.Message, err
 
 	// If Parts are provided, use multimodal content (takes precedence)
 	if len(req.ScriptedParts) > 0 {
-		// Determine base directory for resolving relative file paths
-		// In Arena, scenarios are loaded from a file, so we use the scenario directory
-		baseDir := "" // Will be resolved relative to CWD if no absolute path
+		// Use the base directory from the request (resolved from config directory)
+		baseDir := req.BaseDir
 
-		parts, err := ConvertTurnPartsToMessageParts(req.ScriptedParts, baseDir)
+		// Create HTTP loader for URL-based media (30 second timeout, 50MB max)
+		httpLoader := NewHTTPMediaLoader(30*time.Second, 50*1024*1024)
+
+		parts, err := ConvertTurnPartsToMessageParts(context.Background(), req.ScriptedParts, baseDir, httpLoader)
 		if err != nil {
 			return types.Message{}, fmt.Errorf("failed to convert multimodal parts: %w", err)
 		}

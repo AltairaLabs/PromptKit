@@ -219,6 +219,13 @@ type testSummary struct {
 	TotalCost   float64
 	TotalTokens int
 	Duration    time.Duration
+	// Media statistics
+	TotalImages      int
+	TotalAudio       int
+	TotalVideo       int
+	MediaLoadSuccess int
+	MediaLoadErrors  int
+	TotalMediaSize   int64
 }
 
 // calculateSummary computes summary statistics from run results
@@ -239,9 +246,71 @@ func (r *MarkdownResultRepository) calculateSummary(runResults []engine.RunResul
 		summary.TotalCost += result.Cost.TotalCost
 		summary.TotalTokens += result.Cost.InputTokens + result.Cost.OutputTokens
 		summary.Duration += result.Duration
+
+		// Calculate media statistics
+		r.addMediaStats(&summary, &result)
 	}
 
 	return summary
+}
+
+// addMediaStats adds media statistics from a result to the summary
+func (r *MarkdownResultRepository) addMediaStats(summary *testSummary, result *engine.RunResult) {
+	for i := range result.Messages {
+		msg := &result.Messages[i]
+		if len(msg.Parts) == 0 {
+			continue
+		}
+
+		for j := range msg.Parts {
+			part := &msg.Parts[j]
+			if part.Media == nil {
+				continue
+			}
+			r.processMediaPart(summary, part)
+		}
+	}
+}
+
+// processMediaPart processes a single media part and updates statistics
+func (r *MarkdownResultRepository) processMediaPart(summary *testSummary, part *types.ContentPart) {
+	// Count by type
+	r.countMediaByType(summary, part.Type)
+
+	// Count load status
+	if r.mediaHasData(part.Media) {
+		summary.MediaLoadSuccess++
+		summary.TotalMediaSize += r.calculateMediaSize(part.Media)
+	} else {
+		summary.MediaLoadErrors++
+	}
+}
+
+// countMediaByType increments the appropriate media type counter
+func (r *MarkdownResultRepository) countMediaByType(summary *testSummary, contentType string) {
+	switch contentType {
+	case types.ContentTypeImage:
+		summary.TotalImages++
+	case types.ContentTypeAudio:
+		summary.TotalAudio++
+	case types.ContentTypeVideo:
+		summary.TotalVideo++
+	}
+}
+
+// mediaHasData checks if media has any data source
+func (r *MarkdownResultRepository) mediaHasData(media *types.MediaContent) bool {
+	return (media.Data != nil && *media.Data != "") ||
+		(media.FilePath != nil && *media.FilePath != "") ||
+		(media.URL != nil && *media.URL != "")
+}
+
+// calculateMediaSize calculates the size of inline media data
+func (r *MarkdownResultRepository) calculateMediaSize(media *types.MediaContent) int64 {
+	if media.Data != nil && *media.Data != "" {
+		return int64(len(*media.Data))
+	}
+	return 0
 }
 
 // hasFailedAssertions checks if a result has any failed assertions
@@ -319,6 +388,31 @@ func (r *MarkdownResultRepository) writeOverviewSection(content *strings.Builder
 
 	if summary.Duration > 0 {
 		content.WriteString(fmt.Sprintf("| Total Duration | %s |\n", summary.Duration.String()))
+	}
+
+	// Add media statistics if any media content exists
+	if summary.TotalImages > 0 || summary.TotalAudio > 0 || summary.TotalVideo > 0 {
+		content.WriteString("\n### 🎨 Media Content\n\n")
+		content.WriteString("| Type | Count |\n")
+		content.WriteString("|------|-------|\n")
+
+		if summary.TotalImages > 0 {
+			content.WriteString(fmt.Sprintf("| 🖼️  Images | %d |\n", summary.TotalImages))
+		}
+		if summary.TotalAudio > 0 {
+			content.WriteString(fmt.Sprintf("| 🎵 Audio Files | %d |\n", summary.TotalAudio))
+		}
+		if summary.TotalVideo > 0 {
+			content.WriteString(fmt.Sprintf("| 🎬 Videos | %d |\n", summary.TotalVideo))
+		}
+
+		content.WriteString(fmt.Sprintf("| ✅ Loaded | %d |\n", summary.MediaLoadSuccess))
+		if summary.MediaLoadErrors > 0 {
+			content.WriteString(fmt.Sprintf("| ❌ Errors | %d |\n", summary.MediaLoadErrors))
+		}
+		if summary.TotalMediaSize > 0 {
+			content.WriteString(fmt.Sprintf("| 💾 Total Size | %s |\n", r.formatBytes(summary.TotalMediaSize)))
+		}
 	}
 
 	content.WriteString("\n")
@@ -591,4 +685,18 @@ func (r *MarkdownResultRepository) writeCostSection(content *strings.Builder, ru
 	}
 
 	content.WriteString("\n")
+}
+
+// formatBytes formats a byte count as a human-readable string
+func (r *MarkdownResultRepository) formatBytes(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }

@@ -1,19 +1,54 @@
 package turnexecutors
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+const (
+	// Error message constants
+	errMissingMediaConfig    = "missing media content configuration"
+	errNoMediaSource         = "no URL, data, or file_path specified"
+	errInlineDataMissingMIME = "inline data specified but mime_type is missing"
+	errURLNoHTTPLoader       = "URL specified but HTTP loader not available"
+)
+
+// HTTPMediaLoader handles loading media from HTTP/HTTPS URLs
+type HTTPMediaLoader struct {
+	client      *http.Client
+	maxFileSize int64 // Maximum file size in bytes
+}
+
+// NewHTTPMediaLoader creates a new HTTP media loader with the specified timeout and max file size
+func NewHTTPMediaLoader(timeout time.Duration, maxFileSize int64) *HTTPMediaLoader {
+	return &HTTPMediaLoader{
+		client: &http.Client{
+			Timeout: timeout,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				// Allow up to 10 redirects
+				if len(via) >= 10 {
+					return fmt.Errorf("stopped after 10 redirects")
+				}
+				return nil
+			},
+		},
+		maxFileSize: maxFileSize,
+	}
+}
+
 // ConvertTurnPartsToMessageParts converts scenario turn parts to runtime message parts,
-// loading media files from disk as needed
-func ConvertTurnPartsToMessageParts(turnParts []config.TurnContentPart, baseDir string) ([]types.ContentPart, error) {
+// loading media files from disk or URLs as needed
+func ConvertTurnPartsToMessageParts(ctx context.Context, turnParts []config.TurnContentPart, baseDir string, httpLoader *HTTPMediaLoader) ([]types.ContentPart, error) {
 	if len(turnParts) == 0 {
 		return nil, nil
 	}
@@ -21,7 +56,7 @@ func ConvertTurnPartsToMessageParts(turnParts []config.TurnContentPart, baseDir 
 	messageParts := make([]types.ContentPart, 0, len(turnParts))
 
 	for i, turnPart := range turnParts {
-		messagePart, err := convertSinglePart(turnPart, baseDir, i)
+		messagePart, err := convertSinglePart(ctx, turnPart, baseDir, httpLoader, i)
 		if err != nil {
 			return nil, err
 		}
@@ -32,38 +67,48 @@ func ConvertTurnPartsToMessageParts(turnParts []config.TurnContentPart, baseDir 
 }
 
 // convertSinglePart converts a single turn content part to a message content part
-func convertSinglePart(turnPart config.TurnContentPart, baseDir string, index int) (types.ContentPart, error) {
+func convertSinglePart(ctx context.Context, turnPart config.TurnContentPart, baseDir string, httpLoader *HTTPMediaLoader, index int) (types.ContentPart, error) {
 	switch turnPart.Type {
 	case "text":
 		return convertTextPart(turnPart, index)
 	case "image":
-		return convertImagePart(turnPart, baseDir, index)
+		return convertImagePart(ctx, turnPart, baseDir, httpLoader, index)
 	case "audio":
-		return convertAudioPart(turnPart, baseDir, index)
+		return convertAudioPart(ctx, turnPart, baseDir, httpLoader, index)
 	case "video":
-		return convertVideoPart(turnPart, baseDir, index)
+		return convertVideoPart(ctx, turnPart, baseDir, httpLoader, index)
 	default:
-		return types.ContentPart{}, fmt.Errorf("unsupported content part type at index %d: %s", index, turnPart.Type)
+		return types.ContentPart{}, NewValidationError(index, "unknown", "", fmt.Sprintf("unsupported content part type: %s", turnPart.Type))
 	}
 }
 
 // convertTextPart converts a text content part
 func convertTextPart(turnPart config.TurnContentPart, index int) (types.ContentPart, error) {
 	if turnPart.Text == "" {
-		return types.ContentPart{}, fmt.Errorf("text part at index %d has empty text", index)
+		return types.ContentPart{}, NewValidationError(index, "text", "", "empty text content")
 	}
 	return types.NewTextPart(turnPart.Text), nil
 }
 
-// convertImagePart converts an image content part, loading from file if needed
-func convertImagePart(turnPart config.TurnContentPart, baseDir string, index int) (types.ContentPart, error) {
+// convertImagePart converts an image content part, loading from file or URL if needed
+func convertImagePart(ctx context.Context, turnPart config.TurnContentPart, baseDir string, httpLoader *HTTPMediaLoader, index int) (types.ContentPart, error) {
 	if turnPart.Media == nil {
-		return types.ContentPart{}, fmt.Errorf("image part at index %d missing media content", index)
+		return types.ContentPart{}, NewValidationError(index, "image", "", errMissingMediaConfig)
 	}
+
+	detail := parseDetailLevel(turnPart.Media.Detail)
 
 	// Handle URL-based images
 	if turnPart.Media.URL != "" {
-		detail := parseDetailLevel(turnPart.Media.Detail)
+		// If httpLoader is provided, fetch and encode the image
+		if httpLoader != nil {
+			data, mimeType, err := httpLoader.loadMediaFromURL(ctx, turnPart.Media.URL, "image", index)
+			if err != nil {
+				return types.ContentPart{}, err
+			}
+			return types.NewImagePartFromData(data, mimeType, detail), nil
+		}
+		// Otherwise use URL directly (provider will fetch)
 		return types.NewImagePartFromURL(turnPart.Media.URL, detail), nil
 	}
 
@@ -73,7 +118,6 @@ func convertImagePart(turnPart config.TurnContentPart, baseDir string, index int
 		if mimeType == "" {
 			mimeType = "image/jpeg" // Default
 		}
-		detail := parseDetailLevel(turnPart.Media.Detail)
 		return types.NewImagePartFromData(turnPart.Media.Data, mimeType, detail), nil
 	}
 
@@ -82,20 +126,32 @@ func convertImagePart(turnPart config.TurnContentPart, baseDir string, index int
 		return loadImageFromFile(turnPart.Media.FilePath, baseDir, turnPart.Media.Detail, index)
 	}
 
-	return types.ContentPart{}, fmt.Errorf("image part at index %d has no URL, data, or file_path", index)
+	return types.ContentPart{}, NewValidationError(index, "image", "", errNoMediaSource)
 }
 
-// convertAudioPart converts an audio content part, loading from file if needed
-func convertAudioPart(turnPart config.TurnContentPart, baseDir string, index int) (types.ContentPart, error) {
+// convertAudioPart converts an audio content part, loading from file or URL if needed
+func convertAudioPart(ctx context.Context, turnPart config.TurnContentPart, baseDir string, httpLoader *HTTPMediaLoader, index int) (types.ContentPart, error) {
 	if turnPart.Media == nil {
-		return types.ContentPart{}, fmt.Errorf("audio part at index %d missing media content", index)
+		return types.ContentPart{}, NewValidationError(index, "audio", "", errMissingMediaConfig)
+	}
+
+	// Handle URL-based audio
+	if turnPart.Media.URL != "" {
+		if httpLoader == nil {
+			return types.ContentPart{}, NewValidationError(index, "audio", turnPart.Media.URL, errURLNoHTTPLoader)
+		}
+		data, mimeType, err := httpLoader.loadMediaFromURL(ctx, turnPart.Media.URL, "audio", index)
+		if err != nil {
+			return types.ContentPart{}, err
+		}
+		return types.NewAudioPartFromData(data, mimeType), nil
 	}
 
 	// Handle inline base64 data
 	if turnPart.Media.Data != "" {
 		mimeType := turnPart.Media.MIMEType
 		if mimeType == "" {
-			return types.ContentPart{}, fmt.Errorf("audio part at index %d with inline data missing mime_type", index)
+			return types.ContentPart{}, NewValidationError(index, "audio", "", errInlineDataMissingMIME)
 		}
 		return types.NewAudioPartFromData(turnPart.Media.Data, mimeType), nil
 	}
@@ -105,20 +161,32 @@ func convertAudioPart(turnPart config.TurnContentPart, baseDir string, index int
 		return loadAudioFromFile(turnPart.Media.FilePath, baseDir, index)
 	}
 
-	return types.ContentPart{}, fmt.Errorf("audio part at index %d has no data or file_path (URLs not supported for audio)", index)
+	return types.ContentPart{}, NewValidationError(index, "audio", "", errNoMediaSource)
 }
 
-// convertVideoPart converts a video content part, loading from file if needed
-func convertVideoPart(turnPart config.TurnContentPart, baseDir string, index int) (types.ContentPart, error) {
+// convertVideoPart converts a video content part, loading from file or URL if needed
+func convertVideoPart(ctx context.Context, turnPart config.TurnContentPart, baseDir string, httpLoader *HTTPMediaLoader, index int) (types.ContentPart, error) {
 	if turnPart.Media == nil {
-		return types.ContentPart{}, fmt.Errorf("video part at index %d missing media content", index)
+		return types.ContentPart{}, NewValidationError(index, "video", "", errMissingMediaConfig)
+	}
+
+	// Handle URL-based video
+	if turnPart.Media.URL != "" {
+		if httpLoader == nil {
+			return types.ContentPart{}, NewValidationError(index, "video", turnPart.Media.URL, errURLNoHTTPLoader)
+		}
+		data, mimeType, err := httpLoader.loadMediaFromURL(ctx, turnPart.Media.URL, "video", index)
+		if err != nil {
+			return types.ContentPart{}, err
+		}
+		return types.NewVideoPartFromData(data, mimeType), nil
 	}
 
 	// Handle inline base64 data
 	if turnPart.Media.Data != "" {
 		mimeType := turnPart.Media.MIMEType
 		if mimeType == "" {
-			return types.ContentPart{}, fmt.Errorf("video part at index %d with inline data missing mime_type", index)
+			return types.ContentPart{}, NewValidationError(index, "video", "", errInlineDataMissingMIME)
 		}
 		return types.NewVideoPartFromData(turnPart.Media.Data, mimeType), nil
 	}
@@ -128,14 +196,14 @@ func convertVideoPart(turnPart config.TurnContentPart, baseDir string, index int
 		return loadVideoFromFile(turnPart.Media.FilePath, baseDir, index)
 	}
 
-	return types.ContentPart{}, fmt.Errorf("video part at index %d has no data or file_path (URLs not supported for video)", index)
+	return types.ContentPart{}, NewValidationError(index, "video", "", errNoMediaSource)
 }
 
 // loadImageFromFile loads an image from disk and returns a content part
 func loadImageFromFile(filePath, baseDir, detail string, index int) (types.ContentPart, error) {
 	fullPath := resolveFilePath(filePath, baseDir)
 
-	data, mimeType, err := loadMediaFile(fullPath, index)
+	data, mimeType, err := loadMediaFile(fullPath, "image", index)
 	if err != nil {
 		return types.ContentPart{}, err
 	}
@@ -148,7 +216,7 @@ func loadImageFromFile(filePath, baseDir, detail string, index int) (types.Conte
 func loadAudioFromFile(filePath, baseDir string, index int) (types.ContentPart, error) {
 	fullPath := resolveFilePath(filePath, baseDir)
 
-	data, mimeType, err := loadMediaFile(fullPath, index)
+	data, mimeType, err := loadMediaFile(fullPath, "audio", index)
 	if err != nil {
 		return types.ContentPart{}, err
 	}
@@ -160,7 +228,7 @@ func loadAudioFromFile(filePath, baseDir string, index int) (types.ContentPart, 
 func loadVideoFromFile(filePath, baseDir string, index int) (types.ContentPart, error) {
 	fullPath := resolveFilePath(filePath, baseDir)
 
-	data, mimeType, err := loadMediaFile(fullPath, index)
+	data, mimeType, err := loadMediaFile(fullPath, "video", index)
 	if err != nil {
 		return types.ContentPart{}, err
 	}
@@ -168,17 +236,78 @@ func loadVideoFromFile(filePath, baseDir string, index int) (types.ContentPart, 
 	return types.NewVideoPartFromData(data, mimeType), nil
 }
 
+// loadMediaFromURL fetches media from an HTTP/HTTPS URL and returns base64-encoded data and MIME type
+func (h *HTTPMediaLoader) loadMediaFromURL(ctx context.Context, url, contentType string, index int) (string, string, error) {
+	// Validate URL scheme
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		return "", "", NewValidationError(index, contentType, url, "unsupported URL scheme (only http:// and https:// are supported)")
+	}
+
+	// Create request with context
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", "", NewNetworkError(index, contentType, url, "failed to create HTTP request", err)
+	}
+
+	// Execute request
+	resp, err := h.client.Do(req)
+	if err != nil {
+		// Check if context was cancelled
+		if ctx.Err() != nil {
+			return "", "", NewNetworkError(index, contentType, url, "request cancelled or timed out", ctx.Err())
+		}
+		return "", "", NewNetworkError(index, contentType, url, "failed to fetch from URL", err)
+	}
+	defer resp.Body.Close()
+
+	// Check status code
+	if resp.StatusCode != http.StatusOK {
+		msg := fmt.Sprintf("HTTP %d response", resp.StatusCode)
+		return "", "", NewNetworkError(index, contentType, url, msg, nil)
+	}
+
+	// Check content length against max file size
+	if resp.ContentLength > 0 && resp.ContentLength > h.maxFileSize {
+		msg := fmt.Sprintf("content-length %d bytes exceeds maximum %d bytes", resp.ContentLength, h.maxFileSize)
+		return "", "", NewSizeError(index, contentType, url, msg)
+	}
+
+	// Read response body with size limit
+	limitReader := io.LimitReader(resp.Body, h.maxFileSize+1)
+	fileData, err := io.ReadAll(limitReader)
+	if err != nil {
+		return "", "", NewNetworkError(index, contentType, url, "failed to read response body", err)
+	}
+
+	// Check if we hit the size limit
+	if int64(len(fileData)) > h.maxFileSize {
+		msg := fmt.Sprintf("response body %d bytes exceeds maximum %d bytes", len(fileData), h.maxFileSize)
+		return "", "", NewSizeError(index, contentType, url, msg)
+	}
+
+	// Get MIME type from Content-Type header or detect from URL
+	mimeType := resp.Header.Get("Content-Type")
+	if mimeType == "" {
+		mimeType = detectMIMEType(url)
+	}
+
+	// Base64 encode
+	base64Data := base64.StdEncoding.EncodeToString(fileData)
+
+	return base64Data, mimeType, nil
+}
+
 // loadMediaFile reads a media file and returns base64-encoded data and MIME type
-func loadMediaFile(fullPath string, index int) (string, string, error) {
+func loadMediaFile(fullPath, contentType string, index int) (string, string, error) {
 	// Check if file exists
 	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-		return "", "", fmt.Errorf("media file at index %d does not exist: %s", index, fullPath)
+		return "", "", NewFileError(index, contentType, fullPath, "file does not exist", err)
 	}
 
 	// Read file
 	fileData, err := os.ReadFile(fullPath)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to read media file at index %d (%s): %w", index, fullPath, err)
+		return "", "", NewFileError(index, contentType, fullPath, "failed to read file", err)
 	}
 
 	// Detect MIME type from file extension
@@ -195,7 +324,8 @@ func resolveFilePath(filePath, baseDir string) string {
 	if filepath.IsAbs(filePath) {
 		return filePath
 	}
-	return filepath.Join(baseDir, filePath)
+	result := filepath.Join(baseDir, filePath)
+	return result
 }
 
 // detectMIMEType detects MIME type from file extension

@@ -2,6 +2,8 @@ package types
 
 import (
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -94,10 +96,10 @@ type ValidationError struct {
 // ValidationResult represents the outcome of a validator check on a message.
 // These are attached to assistant messages to show which validations passed or failed.
 type ValidationResult struct {
-	ValidatorType string                 `json:"validator_type"`      // Type of validator (e.g., "*validators.BannedWordsValidator")
+	ValidatorType string                 `json:"validator_type"`      // Type of validator
 	Passed        bool                   `json:"passed"`              // Whether the validation passed
-	Details       map[string]interface{} `json:"details,omitempty"`   // Validator-specific details about the result
-	Timestamp     time.Time              `json:"timestamp,omitempty"` // When the validation was performed
+	Details       map[string]interface{} `json:"details,omitempty"`   // Validator-specific details
+	Timestamp     time.Time              `json:"timestamp,omitempty"` // When validation was performed
 }
 
 // GetContent returns the content of the message.
@@ -192,4 +194,174 @@ func (m *Message) AddVideoPart(filePath string) error {
 	}
 	m.AddPart(part)
 	return nil
+}
+
+// MediaSummary provides a high-level overview of media content in a message.
+// This is included in JSON output to make multimodal messages more observable.
+type MediaSummary struct {
+	TotalParts int                `json:"total_parts"`           // Total number of content parts
+	TextParts  int                `json:"text_parts"`            // Number of text parts
+	ImageParts int                `json:"image_parts"`           // Number of image parts
+	AudioParts int                `json:"audio_parts"`           // Number of audio parts
+	VideoParts int                `json:"video_parts"`           // Number of video parts
+	MediaItems []MediaItemSummary `json:"media_items,omitempty"` // Details of each media item
+}
+
+// MediaItemSummary provides details about a single media item in a message.
+type MediaItemSummary struct {
+	Type      string `json:"type"`             // Content type: "image", "audio", "video"
+	Source    string `json:"source"`           // Source description (file path, URL, or "inline data")
+	MIMEType  string `json:"mime_type"`        // MIME type
+	SizeBytes int    `json:"size_bytes"`       // Size in bytes (0 if unknown)
+	Detail    string `json:"detail,omitempty"` // Detail level for images
+	Loaded    bool   `json:"loaded"`           // Whether media was successfully loaded
+	Error     string `json:"error,omitempty"`  // Error message if loading failed
+}
+
+// MarshalJSON implements custom JSON marshaling for Message.
+// This enhances the output by:
+// 1. Populating the Content field with a human-readable summary when Parts exist
+// 2. Adding a MediaSummary field for observability of multimodal content
+func (m Message) MarshalJSON() ([]byte, error) {
+	// Create a type alias to avoid infinite recursion
+	type MessageAlias Message
+
+	// Convert to alias to get default marshaling behavior
+	aux := struct {
+		MessageAlias
+		MediaSummary *MediaSummary `json:"media_summary,omitempty"`
+	}{
+		MessageAlias: MessageAlias(m),
+	}
+
+	// If Parts exist and Content is empty, populate content with summary
+	if len(m.Parts) > 0 && m.Content == "" {
+		aux.Content = m.getContentSummary()
+	}
+
+	// Add media summary if Parts exist
+	if len(m.Parts) > 0 {
+		aux.MediaSummary = m.getMediaSummary()
+	}
+
+	return json.Marshal(aux)
+}
+
+// getContentSummary returns a human-readable summary of the message content.
+// For multimodal messages, this includes text parts and a summary of media.
+func (m *Message) getContentSummary() string {
+	if len(m.Parts) == 0 {
+		return m.Content
+	}
+
+	var parts []string
+
+	// Collect text parts
+	for _, part := range m.Parts {
+		if part.Type == ContentTypeText && part.Text != nil {
+			parts = append(parts, *part.Text)
+		}
+	}
+
+	// Add media summary
+	mediaCounts := make(map[string]int)
+	for _, part := range m.Parts {
+		if part.Type != ContentTypeText {
+			mediaCounts[part.Type]++
+		}
+	}
+
+	if len(mediaCounts) > 0 {
+		var mediaDesc []string
+		if count := mediaCounts[ContentTypeImage]; count > 0 {
+			mediaDesc = append(mediaDesc, fmt.Sprintf("%d image(s)", count))
+		}
+		if count := mediaCounts[ContentTypeAudio]; count > 0 {
+			mediaDesc = append(mediaDesc, fmt.Sprintf("%d audio file(s)", count))
+		}
+		if count := mediaCounts[ContentTypeVideo]; count > 0 {
+			mediaDesc = append(mediaDesc, fmt.Sprintf("%d video(s)", count))
+		}
+		parts = append(parts, "["+strings.Join(mediaDesc, ", ")+"]")
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// getMediaSummary generates a MediaSummary with details about all media in the message.
+func (m *Message) getMediaSummary() *MediaSummary {
+	if len(m.Parts) == 0 {
+		return nil
+	}
+
+	summary := &MediaSummary{
+		TotalParts: len(m.Parts),
+		MediaItems: make([]MediaItemSummary, 0),
+	}
+
+	for _, part := range m.Parts {
+		switch part.Type {
+		case ContentTypeText:
+			summary.TextParts++
+		case ContentTypeImage:
+			summary.ImageParts++
+			summary.MediaItems = append(summary.MediaItems, getMediaItemSummary(part))
+		case ContentTypeAudio:
+			summary.AudioParts++
+			summary.MediaItems = append(summary.MediaItems, getMediaItemSummary(part))
+		case ContentTypeVideo:
+			summary.VideoParts++
+			summary.MediaItems = append(summary.MediaItems, getMediaItemSummary(part))
+		}
+	}
+
+	return summary
+}
+
+// getMediaItemSummary extracts summary information from a media ContentPart.
+func getMediaItemSummary(part ContentPart) MediaItemSummary {
+	item := MediaItemSummary{
+		Type:   part.Type,
+		Loaded: false, // Will be true if Data is set
+	}
+
+	if part.Media == nil {
+		item.Error = "no media content"
+		return item
+	}
+
+	item.MIMEType = part.Media.MIMEType
+
+	// Determine source
+	if part.Media.Data != nil && *part.Media.Data != "" {
+		item.Source = "inline data"
+		item.Loaded = true
+		// Estimate size from base64 data (roughly 3/4 of base64 length)
+		const (
+			base64Ratio     = 4
+			base64Numerator = 3
+		)
+		item.SizeBytes = (len(*part.Media.Data) * base64Numerator) / base64Ratio
+	} else if part.Media.FilePath != nil {
+		item.Source = *part.Media.FilePath
+		// If Data field is set later, media was successfully loaded
+	} else if part.Media.URL != nil {
+		item.Source = *part.Media.URL
+	} else {
+		item.Source = "unknown"
+		item.Error = "no data source"
+	}
+
+	// Add detail level for images
+	if part.Type == ContentTypeImage && part.Media.Detail != nil {
+		item.Detail = *part.Media.Detail
+	}
+
+	// Use size metadata if available
+	if part.Media.SizeKB != nil {
+		const bytesPerKB = 1024
+		item.SizeBytes = int(*part.Media.SizeKB * bytesPerKB)
+	}
+
+	return item
 }

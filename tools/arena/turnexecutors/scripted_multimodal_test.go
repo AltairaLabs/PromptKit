@@ -1,6 +1,8 @@
 package turnexecutors
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -35,6 +37,15 @@ func TestScriptedExecutor_BuildUserMessage_LegacyTextContent(t *testing.T) {
 }
 
 func TestScriptedExecutor_BuildUserMessage_MultimodalParts(t *testing.T) {
+	// Create a mock HTTP server for the image
+	imageData := []byte("fake-image-data")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.WriteHeader(http.StatusOK)
+		w.Write(imageData)
+	}))
+	defer server.Close()
+
 	executor := NewScriptedExecutor(nil)
 
 	turnParts := []config.TurnContentPart{
@@ -42,7 +53,7 @@ func TestScriptedExecutor_BuildUserMessage_MultimodalParts(t *testing.T) {
 		{
 			Type: "image",
 			Media: &config.TurnMediaContent{
-				URL:      "https://example.com/image.jpg",
+				URL:      server.URL, // Use mock server URL
 				MIMEType: "image/jpeg",
 			},
 		},
@@ -74,6 +85,11 @@ func TestScriptedExecutor_BuildUserMessage_MultimodalParts(t *testing.T) {
 	// Verify image part
 	if msg.Parts[1].Type != types.ContentTypeImage {
 		t.Errorf("Expected second part to be image, got %s", msg.Parts[1].Type)
+	}
+
+	// Verify image was loaded via HTTP (has data, not URL reference)
+	if msg.Parts[1].Media == nil || msg.Parts[1].Media.Data == nil {
+		t.Error("Expected image data to be loaded from URL")
 	}
 }
 

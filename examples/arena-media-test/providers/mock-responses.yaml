@@ -1,0 +1,47 @@
+# Mock responses for media test scenarios
+defaultResponse: "Mock response from mock-media model mock-media-model"
+
+scenarios:
+  # Image analysis with local files
+  image-analysis-local:
+    turns:
+      1: "I can see a test image with simple geometric shapes and patterns."
+      2: "Comparing the two images, I notice both show similar test patterns. The main difference is the file format - JPEG uses lossy compression while PNG uses lossless compression."
+      3: "This WebP image shows the same test pattern with modern compression."
+
+  # Audio transcription tests
+  audio-transcription:
+    turns:
+      1: "I can hear audio content in the WAV file. The audio appears to contain a test signal."
+      2: "WAV is an uncompressed format with high quality but larger file sizes, while OGG uses lossy compression for smaller files with good quality."
+      3: "The audio content shows a simple waveform pattern, suggesting this is a test audio file with basic signal characteristics."
+
+  # Mixed media (images and audio together)
+  mixed-media:
+    turns:
+      1: "I can see both visual and audio content here. The image shows test patterns and the audio file contains a test signal."
+      2: "Analyzing these three images: JPEG shows compressed image data, PNG uses lossless compression, and GIF supports animation with limited colors."
+
+  # All formats test
+  all-formats:
+    turns:
+      1: "JPEG format detected - lossy compression, good for photographs."
+      2: "PNG format detected - lossless compression, supports transparency."
+      3: "GIF format detected - supports animation, limited color palette."
+      4: "WebP format detected - modern format with efficient compression."
+      5: "WAV audio format detected - uncompressed audio, high quality."
+      6: "OGG audio format detected - open-source compressed audio format."
+
+  # Multimodal mixed content
+  multimodal-mixed:
+    turns:
+      1: "I can see an image with text overlay and visual content."
+      2: "Analyzing both the image and text, I notice coordinated multimodal information."
+      3: "The combination of text and visual elements from local and remote sources creates a rich multimodal message."
+
+  # Image from URL (will use default since URLs may vary)
+  image-from-url:
+    turns:
+      1: "I can see an image loaded from the URL. It appears to be a placeholder or random image."
+      2: "These two images from different URLs show different visual content."
+      3: "Comparing the local and remote images, both are valid images but from different sources."

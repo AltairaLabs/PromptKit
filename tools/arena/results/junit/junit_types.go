@@ -22,27 +22,35 @@ type JUnitTestSuites struct {
 
 // JUnitTestSuite represents a group of related tests (typically by scenario)
 type JUnitTestSuite struct {
-	XMLName   xml.Name        `xml:"testsuite"`
-	Name      string          `xml:"name,attr"`
-	Tests     int             `xml:"tests,attr"`
-	Failures  int             `xml:"failures,attr"`
-	Errors    int             `xml:"errors,attr"`
-	Time      float64         `xml:"time,attr"`
-	Timestamp string          `xml:"timestamp,attr"`
-	TestCases []JUnitTestCase `xml:"testcase"`
+	XMLName    xml.Name        `xml:"testsuite"`
+	Name       string          `xml:"name,attr"`
+	Tests      int             `xml:"tests,attr"`
+	Failures   int             `xml:"failures,attr"`
+	Errors     int             `xml:"errors,attr"`
+	Time       float64         `xml:"time,attr"`
+	Timestamp  string          `xml:"timestamp,attr"`
+	TestCases  []JUnitTestCase `xml:"testcase"`
+	Properties []JUnitProperty `xml:"properties>property,omitempty"`
+}
+
+// JUnitProperty represents a key-value property in test suite or test case
+type JUnitProperty struct {
+	Name  string `xml:"name,attr"`
+	Value string `xml:"value,attr"`
 }
 
 // JUnitTestCase represents a single test execution
 type JUnitTestCase struct {
-	XMLName   xml.Name      `xml:"testcase"`
-	Name      string        `xml:"name,attr"`
-	Classname string        `xml:"classname,attr"`
-	Time      float64       `xml:"time,attr"`
-	Failure   *JUnitFailure `xml:"failure,omitempty"`
-	Error     *JUnitError   `xml:"error,omitempty"`
-	Skipped   *JUnitSkipped `xml:"skipped,omitempty"`
-	SystemOut *JUnitOutput  `xml:"system-out,omitempty"`
-	SystemErr *JUnitOutput  `xml:"system-err,omitempty"`
+	XMLName    xml.Name        `xml:"testcase"`
+	Name       string          `xml:"name,attr"`
+	Classname  string          `xml:"classname,attr"`
+	Time       float64         `xml:"time,attr"`
+	Failure    *JUnitFailure   `xml:"failure,omitempty"`
+	Error      *JUnitError     `xml:"error,omitempty"`
+	Skipped    *JUnitSkipped   `xml:"skipped,omitempty"`
+	SystemOut  *JUnitOutput    `xml:"system-out,omitempty"`
+	SystemErr  *JUnitOutput    `xml:"system-err,omitempty"`
+	Properties []JUnitProperty `xml:"properties>property,omitempty"`
 }
 
 // JUnitFailure represents a test failure (assertion failed, validation error, etc.)

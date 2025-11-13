@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/results"
 )
@@ -132,7 +133,16 @@ func (r *JUnitResultRepository) convertToJUnit(runResults []engine.RunResult) *J
 	totalErrors := 0
 	totalTime := 0.0
 
+	// Calculate media stats for all results
+	mediaStats := calculateMediaStats(runResults)
+	mediaProperties := renderMediaProperties(mediaStats)
+
 	for _, suite := range suiteMap {
+		// Add media properties to each suite
+		if len(mediaProperties) > 0 {
+			suite.Properties = mediaProperties
+		}
+
 		suites = append(suites, suite)
 		totalTests += suite.Tests
 		totalFailures += suite.Failures
@@ -315,4 +325,129 @@ func (r *JUnitResultRepository) SupportsStreaming() bool {
 // SaveResult is not supported for JUnit (needs all results for proper XML structure)
 func (r *JUnitResultRepository) SaveResult(result *engine.RunResult) error {
 	return results.NewUnsupportedOperationError("SaveResult", "JUnit repository does not support streaming writes")
+}
+
+// MediaStats holds aggregated media statistics for a test suite
+type MediaStats struct {
+	TotalImages      int
+	TotalAudio       int
+	TotalVideo       int
+	MediaLoadSuccess int
+	MediaLoadErrors  int
+	TotalMediaSize   int64
+}
+
+// calculateMediaStats aggregates media statistics from all messages in results
+func calculateMediaStats(runResults []engine.RunResult) MediaStats {
+	stats := MediaStats{}
+
+	for i := range runResults {
+		result := &runResults[i]
+		for j := range result.Messages {
+			msg := &result.Messages[j]
+			if len(msg.Parts) == 0 {
+				continue
+			}
+
+			for k := range msg.Parts {
+				part := &msg.Parts[k]
+				if part.Media == nil {
+					continue
+				}
+				processMediaPartStats(&stats, part)
+			}
+		}
+	}
+
+	return stats
+}
+
+// processMediaPartStats processes a single media part and updates statistics
+func processMediaPartStats(stats *MediaStats, part *types.ContentPart) {
+	// Count by type
+	countMediaByType(stats, part.Type)
+
+	// Count load status
+	if mediaHasData(part.Media) {
+		stats.MediaLoadSuccess++
+		stats.TotalMediaSize += calculateMediaSize(part.Media)
+	} else {
+		stats.MediaLoadErrors++
+	}
+}
+
+// countMediaByType increments the appropriate media type counter
+func countMediaByType(stats *MediaStats, contentType string) {
+	switch contentType {
+	case types.ContentTypeImage:
+		stats.TotalImages++
+	case types.ContentTypeAudio:
+		stats.TotalAudio++
+	case types.ContentTypeVideo:
+		stats.TotalVideo++
+	}
+}
+
+// mediaHasData checks if media has any data source
+func mediaHasData(media *types.MediaContent) bool {
+	return (media.Data != nil && *media.Data != "") ||
+		(media.FilePath != nil && *media.FilePath != "") ||
+		(media.URL != nil && *media.URL != "")
+}
+
+// calculateMediaSize calculates the size of inline media data
+func calculateMediaSize(media *types.MediaContent) int64 {
+	if media.Data != nil && *media.Data != "" {
+		return int64(len(*media.Data))
+	}
+	return 0
+}
+
+// renderMediaProperties creates JUnit properties for media statistics
+func renderMediaProperties(stats MediaStats) []JUnitProperty {
+	var properties []JUnitProperty
+
+	if stats.TotalImages > 0 {
+		properties = append(properties, JUnitProperty{
+			Name:  "media.images.total",
+			Value: fmt.Sprintf("%d", stats.TotalImages),
+		})
+	}
+
+	if stats.TotalAudio > 0 {
+		properties = append(properties, JUnitProperty{
+			Name:  "media.audio.total",
+			Value: fmt.Sprintf("%d", stats.TotalAudio),
+		})
+	}
+
+	if stats.TotalVideo > 0 {
+		properties = append(properties, JUnitProperty{
+			Name:  "media.video.total",
+			Value: fmt.Sprintf("%d", stats.TotalVideo),
+		})
+	}
+
+	if stats.MediaLoadSuccess > 0 || stats.MediaLoadErrors > 0 {
+		properties = append(properties, JUnitProperty{
+			Name:  "media.loaded.success",
+			Value: fmt.Sprintf("%d", stats.MediaLoadSuccess),
+		})
+	}
+
+	if stats.MediaLoadErrors > 0 {
+		properties = append(properties, JUnitProperty{
+			Name:  "media.loaded.errors",
+			Value: fmt.Sprintf("%d", stats.MediaLoadErrors),
+		})
+	}
+
+	if stats.TotalMediaSize > 0 {
+		properties = append(properties, JUnitProperty{
+			Name:  "media.size.total_bytes",
+			Value: fmt.Sprintf("%d", stats.TotalMediaSize),
+		})
+	}
+
+	return properties
 }

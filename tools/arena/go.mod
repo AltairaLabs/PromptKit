@@ -8,7 +8,7 @@ replace github.com/AltairaLabs/PromptKit/pkg => ../../pkg
 
 require (
 	github.com/AltairaLabs/PromptKit/pkg v0.0.0
-	github.com/AltairaLabs/PromptKit/runtime v0.0.0
+	github.com/AltairaLabs/PromptKit/runtime v0.0.1
 	github.com/redis/go-redis/v9 v9.16.0
 	github.com/russross/blackfriday/v2 v2.1.0
 	github.com/spf13/cobra v1.10.1
@@ -28,6 +28,7 @@ require (
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
+	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
