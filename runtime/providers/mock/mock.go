@@ -108,7 +108,7 @@ func (m *MockProvider) Chat(ctx context.Context, req providers.ChatRequest) (pro
 	// Use value if set (for backward compatibility with tests)
 	var responseText string
 	var parts []types.ContentPart
-	
+
 	if m.value != "" {
 		logger.Debug("MockProvider using backward compatibility value", "response", m.value)
 		responseText = m.value
@@ -121,7 +121,7 @@ func (m *MockProvider) Chat(ctx context.Context, req providers.ChatRequest) (pro
 		if responseText == "" {
 			responseText = turn.Text
 		}
-		
+
 		// Convert mock turn to content parts
 		parts = turn.ToContentParts()
 	}
@@ -182,7 +182,7 @@ func (m *MockProvider) handleStreamRequest(ctx context.Context, req providers.Ch
 	// Use value if set (for backward compatibility with tests)
 	var responseText string
 	var parts []types.ContentPart
-	
+
 	if m.value != "" {
 		logger.Debug("MockProvider stream using backward compatibility value", "response", m.value)
 		responseText = m.value

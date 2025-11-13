@@ -151,3 +151,105 @@ Default limits:
 - Timeout: 30 seconds for HTTP requests
 
 These can be configured in the Arena engine settings.
+
+## Mock Provider Multimodal Support
+
+The MockProvider now supports returning multimodal content in responses, enabling realistic testing of media validators without requiring actual LLM API calls. This is particularly useful for:
+
+- Fast, deterministic testing in CI/CD pipelines
+- Testing without API costs
+- Offline development
+- Testing edge cases with specific media configurations
+
+### Configuration Format
+
+Mock responses can include multimodal content parts in `providers/mock-responses.yaml`:
+
+```yaml
+scenarios:
+  image-analysis-local:
+    turns:
+      1:
+        text: "I can see a test image."
+        parts:
+          - type: text
+            text: "I can see a test image with simple geometric shapes."
+          - type: image
+            image_url:
+              url: "mock://test-shapes.png"
+            metadata:
+              format: "PNG"
+              width: 800
+              height: 600
+              size: 51200
+```
+
+### Supported Content Types
+
+**Text Parts:**
+
+```yaml
+- type: text
+  text: "Your text content here"
+```
+
+**Image Parts:**
+
+```yaml
+- type: image
+  image_url:
+    url: "mock://test-image.png"  # or https://, data:, file path
+    detail: "high"  # optional: low, high, auto
+  metadata:
+    format: "PNG"
+    width: 1920
+    height: 1080
+```
+
+**Audio Parts:**
+
+```yaml
+- type: audio
+  audio_url:
+    url: "mock://test-audio.mp3"
+  metadata:
+    format: "MP3"
+    duration_seconds: 30
+    channels: 2
+```
+
+**Video Parts:**
+
+```yaml
+- type: video
+  video_url:
+    url: "mock://test-video.mp4"
+  metadata:
+    format: "MP4"
+    width: 1920
+    height: 1080
+    duration_seconds: 60
+    fps: 30
+```
+
+### URL Schemes
+
+- **mock://**: Mock URLs for test fixtures (e.g., `mock://test-image.png`)
+- **https:// / http://**: External URLs (e.g., `https://picsum.photos/200`)
+- **data:**: Inline base64-encoded data
+- **file paths**: Local file paths
+
+### Backward Compatibility
+
+Text-only responses continue to work:
+
+```yaml
+scenarios:
+  simple-text:
+    turns:
+      1: "Simple text response"  # Old format
+      2:
+        text: "New format without parts"  # Also works
+```
+
+See `providers/mock-responses.yaml` for complete examples.
