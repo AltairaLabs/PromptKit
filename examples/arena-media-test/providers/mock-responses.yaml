@@ -273,3 +273,334 @@ scenarios:
           - type: image
             image_url:
               url: "https://picsum.photos/500/500"
+
+  # Image validation scenarios
+  image-validation:
+    turns:
+      1:
+        text: "Here's a PNG image of a sunset."
+        parts:
+          - type: text
+            text: "Here's a PNG image of a sunset."
+          - type: image
+            image_url:
+              url: "mock://sunset.png"
+            metadata:
+              format: "PNG"
+              width: 1920
+              height: 1080
+      2:
+        text: "Here's the JPEG version."
+        parts:
+          - type: text
+            text: "Here's the JPEG version."
+          - type: image
+            image_url:
+              url: "mock://sunset.jpg"
+            metadata:
+              format: "JPEG"
+              width: 1920
+              height: 1080
+      3:
+        text: "Here's a 1920x1080 wallpaper image."
+        parts:
+          - type: text
+            text: "Here's a 1920x1080 wallpaper image."
+          - type: image
+            image_url:
+              url: "mock://wallpaper.png"
+            metadata:
+              format: "PNG"
+              width: 1920
+              height: 1080
+      4:
+        text: "Here's a high-resolution landscape image."
+        parts:
+          - type: text
+            text: "Here's a high-resolution landscape image."
+          - type: image
+            image_url:
+              url: "mock://landscape-hd.jpg"
+            metadata:
+              format: "JPEG"
+              width: 2560
+              height: 1440
+      5:
+        text: "Here's a thumbnail version."
+        parts:
+          - type: text
+            text: "Here's a thumbnail version."
+          - type: image
+            image_url:
+              url: "mock://thumbnail.png"
+            metadata:
+              format: "PNG"
+              width: 300
+              height: 300
+      6:
+        text: "Here are three images in different formats."
+        parts:
+          - type: text
+            text: "Here are three images in different formats."
+          - type: image
+            image_url:
+              url: "mock://image1.png"
+            metadata:
+              format: "PNG"
+              width: 1920
+              height: 1080
+          - type: image
+            image_url:
+              url: "mock://image2.jpg"
+            metadata:
+              format: "JPEG"
+              width: 1920
+              height: 1080
+          - type: image
+            image_url:
+              url: "mock://image3.webp"
+            metadata:
+              format: "WebP"
+              width: 1920
+              height: 1080
+      7:
+        text: "Here's a WebP image in 4K resolution."
+        parts:
+          - type: text
+            text: "Here's a WebP image in 4K resolution."
+          - type: image
+            image_url:
+              url: "mock://4k-image.webp"
+            metadata:
+              format: "WebP"
+              width: 3840
+              height: 2160
+
+  # Audio validation scenarios
+  audio-validation:
+    turns:
+      1:
+        text: "Here's a short audio clip of a bird chirping."
+        parts:
+          - type: text
+            text: "Here's a short audio clip of a bird chirping."
+          - type: audio
+            audio_url:
+              url: "mock://bird-chirp.wav"
+            metadata:
+              format: "WAV"
+              duration_seconds: 5
+              channels: 2
+      2:
+        text: "Here's the MP3 version."
+        parts:
+          - type: text
+            text: "Here's the MP3 version."
+          - type: audio
+            audio_url:
+              url: "mock://bird-chirp.mp3"
+            metadata:
+              format: "MP3"
+              duration_seconds: 5
+              channels: 2
+      3:
+        text: "Here's a 30-second audio clip."
+        parts:
+          - type: text
+            text: "Here's a 30-second audio clip."
+          - type: audio
+            audio_url:
+              url: "mock://audio-30s.mp3"
+            metadata:
+              format: "MP3"
+              duration_seconds: 30
+              channels: 2
+      4:
+        text: "Here's a very short audio clip."
+        parts:
+          - type: text
+            text: "Here's a very short audio clip."
+          - type: audio
+            audio_url:
+              url: "mock://audio-short.wav"
+            metadata:
+              format: "WAV"
+              duration_seconds: 3
+              channels: 2
+      5:
+        text: "Here's a podcast episode."
+        parts:
+          - type: text
+            text: "Here's a podcast episode."
+          - type: audio
+            audio_url:
+              url: "mock://podcast.mp3"
+            metadata:
+              format: "MP3"
+              duration_seconds: 1800
+              channels: 2
+      6:
+        text: "Here's a long-form interview."
+        parts:
+          - type: text
+            text: "Here's a long-form interview."
+          - type: audio
+            audio_url:
+              url: "mock://interview.mp3"
+            metadata:
+              format: "MP3"
+              duration_seconds: 3600
+              channels: 2
+      7:
+        text: "Here are three audio clips in different formats."
+        parts:
+          - type: text
+            text: "Here are three audio clips in different formats."
+          - type: audio
+            audio_url:
+              url: "mock://clip1.wav"
+            metadata:
+              format: "WAV"
+              duration_seconds: 10
+          - type: audio
+            audio_url:
+              url: "mock://clip2.mp3"
+            metadata:
+              format: "MP3"
+              duration_seconds: 10
+          - type: audio
+            audio_url:
+              url: "mock://clip3.ogg"
+            metadata:
+              format: "OGG"
+              duration_seconds: 10
+
+  # Video validation scenarios
+  video-validation:
+    turns:
+      1:
+        text: "Here's a short video clip."
+        parts:
+          - type: text
+            text: "Here's a short video clip."
+          - type: video
+            video_url:
+              url: "mock://short-clip.mp4"
+            metadata:
+              format: "MP4"
+              width: 1280
+              height: 720
+              duration_seconds: 15
+              fps: 30
+      2:
+        text: "Here's a 30-second video clip."
+        parts:
+          - type: text
+            text: "Here's a 30-second video clip."
+          - type: video
+            video_url:
+              url: "mock://30s-video.mp4"
+            metadata:
+              format: "MP4"
+              width: 1280
+              height: 720
+              duration_seconds: 30
+              fps: 30
+      3:
+        text: "Here's a 720p HD video."
+        parts:
+          - type: text
+            text: "Here's a 720p HD video."
+          - type: video
+            video_url:
+              url: "mock://video-720p.mp4"
+            metadata:
+              format: "MP4"
+              width: 1280
+              height: 720
+              duration_seconds: 20
+              fps: 30
+      4:
+        text: "Here's a 1080p Full HD video."
+        parts:
+          - type: text
+            text: "Here's a 1080p Full HD video."
+          - type: video
+            video_url:
+              url: "mock://video-1080p.mp4"
+            metadata:
+              format: "MP4"
+              width: 1920
+              height: 1080
+              duration_seconds: 25
+              fps: 60
+      5:
+        text: "Here's a 4K Ultra HD video."
+        parts:
+          - type: text
+            text: "Here's a 4K Ultra HD video."
+          - type: video
+            video_url:
+              url: "mock://video-4k.mp4"
+            metadata:
+              format: "MP4"
+              width: 3840
+              height: 2160
+              duration_seconds: 30
+              fps: 60
+      6:
+        text: "Here's a short-form vertical video."
+        parts:
+          - type: text
+            text: "Here's a short-form vertical video."
+          - type: video
+            video_url:
+              url: "mock://vertical-video.mp4"
+            metadata:
+              format: "MP4"
+              width: 1080
+              height: 1920
+              duration_seconds: 15
+              fps: 30
+      7:
+        text: "Here's a cinematic widescreen video."
+        parts:
+          - type: text
+            text: "Here's a cinematic widescreen video."
+          - type: video
+            video_url:
+              url: "mock://widescreen.mp4"
+            metadata:
+              format: "MP4"
+              width: 2560
+              height: 1080
+              duration_seconds: 45
+              fps: 24
+      8:
+        text: "Here's a brief video ad."
+        parts:
+          - type: text
+            text: "Here's a brief video ad."
+          - type: video
+            video_url:
+              url: "mock://ad-video.mp4"
+            metadata:
+              format: "MP4"
+              width: 1920
+              height: 1080
+              duration_seconds: 5
+              fps: 30
+      9:
+        text: "Here's a longer documentary clip."
+        parts:
+          - type: text
+            text: "Here's a longer documentary clip."
+          - type: video
+            video_url:
+              url: "mock://documentary.mp4"
+            metadata:
+              format: "MP4"
+              width: 1920
+              height: 1080
+              duration_seconds: 300
+              fps: 24

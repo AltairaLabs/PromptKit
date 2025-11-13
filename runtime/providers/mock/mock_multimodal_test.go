@@ -13,14 +13,14 @@ import (
 func TestMockProvider_MultimodalResponse_Image(t *testing.T) {
 	// Create an in-memory repository with multimodal response
 	repo := NewInMemoryMockRepository("default text")
-	
+
 	// Create mock provider
 	mockProvider := NewMockProviderWithRepository("test-provider", "test-model", false, repo)
-	
+
 	// Manually add a multimodal turn to the repository
 	// Since InMemoryMockRepository doesn't support structured turns yet,
 	// we'll test via file-based repository
-	
+
 	// For now, test that backward compatibility works
 	req := providers.ChatRequest{
 		Messages: []types.Message{
@@ -31,9 +31,11 @@ func TestMockProvider_MultimodalResponse_Image(t *testing.T) {
 			"mock_turn_number": 1,
 		},
 	}
-	
+
 	resp, err := mockProvider.Chat(context.Background(), req)
 	require.NoError(t, err)
+	t.Logf("Content: %q", resp.Content)
+	t.Logf("Parts: %+v", resp.Parts)
 	assert.NotEmpty(t, resp.Content)
 }
 
@@ -42,7 +44,7 @@ func TestMockTurn_ToContentParts_TextOnly(t *testing.T) {
 		Type:    "text",
 		Content: "Hello, world!",
 	}
-	
+
 	parts := turn.ToContentParts()
 	require.Len(t, parts, 1)
 	assert.Equal(t, types.ContentTypeText, parts[0].Type)
@@ -52,8 +54,8 @@ func TestMockTurn_ToContentParts_TextOnly(t *testing.T) {
 
 func TestMockTurn_ToContentParts_MultimodalImage(t *testing.T) {
 	turn := &MockTurn{
-		Type: "multimodal",
-		Text: "Here is an image",
+		Type:    "multimodal",
+		Content: "Here is an image",
 		Parts: []MockContentPart{
 			{
 				Type: "text",
@@ -73,22 +75,22 @@ func TestMockTurn_ToContentParts_MultimodalImage(t *testing.T) {
 			},
 		},
 	}
-	
+
 	parts := turn.ToContentParts()
 	require.Len(t, parts, 2)
-	
+
 	// Check text part
 	assert.Equal(t, types.ContentTypeText, parts[0].Type)
 	assert.NotNil(t, parts[0].Text)
 	assert.Equal(t, "Here is an image", *parts[0].Text)
-	
+
 	// Check image part
 	assert.Equal(t, types.ContentTypeImage, parts[1].Type)
 	require.NotNil(t, parts[1].Media)
 	assert.NotNil(t, parts[1].Media.URL)
 	assert.Equal(t, "mock://test-image.png", *parts[1].Media.URL)
 	assert.Equal(t, types.MIMETypeImagePNG, parts[1].Media.MIMEType)
-	
+
 	// Check metadata was applied
 	assert.NotNil(t, parts[1].Media.Format)
 	assert.Equal(t, "PNG", *parts[1].Media.Format)
@@ -112,24 +114,24 @@ func TestMockTurn_ToContentParts_MultimodalAudio(t *testing.T) {
 					URL: "mock://test-audio.mp3",
 				},
 				Metadata: map[string]interface{}{
-					"format":            "MP3",
-					"duration_seconds":  30.5,
-					"channels":          2,
+					"format":           "MP3",
+					"duration_seconds": 30.5,
+					"channels":         2,
 				},
 			},
 		},
 	}
-	
+
 	parts := turn.ToContentParts()
 	require.Len(t, parts, 2)
-	
+
 	// Check audio part
 	assert.Equal(t, types.ContentTypeAudio, parts[1].Type)
 	require.NotNil(t, parts[1].Media)
 	assert.NotNil(t, parts[1].Media.URL)
 	assert.Equal(t, "mock://test-audio.mp3", *parts[1].Media.URL)
 	assert.Equal(t, types.MIMETypeAudioMP3, parts[1].Media.MIMEType)
-	
+
 	// Check metadata
 	assert.NotNil(t, parts[1].Media.Format)
 	assert.Equal(t, "MP3", *parts[1].Media.Format)
@@ -149,26 +151,26 @@ func TestMockTurn_ToContentParts_MultimodalVideo(t *testing.T) {
 					URL: "mock://test-video.mp4",
 				},
 				Metadata: map[string]interface{}{
-					"format":            "MP4",
-					"width":             1920,
-					"height":            1080,
-					"duration_seconds":  60.0,
-					"fps":               30,
+					"format":           "MP4",
+					"width":            1920,
+					"height":           1080,
+					"duration_seconds": 60.0,
+					"fps":              30,
 				},
 			},
 		},
 	}
-	
+
 	parts := turn.ToContentParts()
 	require.Len(t, parts, 1)
-	
+
 	// Check video part
 	assert.Equal(t, types.ContentTypeVideo, parts[0].Type)
 	require.NotNil(t, parts[0].Media)
 	assert.NotNil(t, parts[0].Media.URL)
 	assert.Equal(t, "mock://test-video.mp4", *parts[0].Media.URL)
 	assert.Equal(t, types.MIMETypeVideoMP4, parts[0].Media.MIMEType)
-	
+
 	// Check metadata
 	assert.NotNil(t, parts[0].Media.Format)
 	assert.Equal(t, "MP4", *parts[0].Media.Format)
@@ -200,7 +202,7 @@ func TestInferMIMETypeFromURL(t *testing.T) {
 		{"https://example.com/image.png", types.MIMETypeImagePNG},
 		{"https://example.com/audio.mp3", types.MIMETypeAudioMP3},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.url, func(t *testing.T) {
 			result := inferMIMETypeFromURL(tt.url)
@@ -239,10 +241,10 @@ func TestMockTurn_ToContentParts_Mixed(t *testing.T) {
 			},
 		},
 	}
-	
+
 	parts := turn.ToContentParts()
 	require.Len(t, parts, 4)
-	
+
 	assert.Equal(t, types.ContentTypeText, parts[0].Type)
 	assert.Equal(t, types.ContentTypeImage, parts[1].Type)
 	assert.Equal(t, types.ContentTypeText, parts[2].Type)

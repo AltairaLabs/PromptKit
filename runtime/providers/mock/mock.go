@@ -116,17 +116,18 @@ func (m *MockProvider) Chat(ctx context.Context, req providers.ChatRequest) (pro
 		parts = []types.ContentPart{types.NewTextPart(m.value)}
 	} else {
 		logger.Debug("MockProvider using repository response", "turn_type", turn.Type, "has_parts", len(turn.Parts) > 0)
-		// Get text content for backward compatibility
+		// Get text content
 		responseText = turn.Content
-		if responseText == "" {
-			responseText = turn.Text
-		}
 
 		// Convert mock turn to content parts
 		parts = turn.ToContentParts()
-	}
+		logger.Debug("MockProvider parts converted", "num_parts", len(parts), "content", responseText)
 
-	// Count tokens based on message length (rough approximation)
+		// If we have parts but no responseText, generate a summary from parts
+		if responseText == "" && len(parts) > 0 {
+			responseText = generateContentSummary(parts)
+		}
+	} // Count tokens based on message length (rough approximation)
 	inputTokens := 0
 	for _, msg := range req.Messages {
 		inputTokens += len(msg.Content) / 4 // Rough approximation: ~4 chars per token
@@ -190,9 +191,6 @@ func (m *MockProvider) handleStreamRequest(ctx context.Context, req providers.Ch
 	} else {
 		logger.Debug("MockProvider stream using repository response", "turn_type", turn.Type, "has_parts", len(turn.Parts) > 0)
 		responseText = turn.Content
-		if responseText == "" {
-			responseText = turn.Text
-		}
 		parts = turn.ToContentParts()
 	}
 
@@ -325,4 +323,82 @@ func (m *MockProvider) CalculateCost(inputTokens, outputTokens, cachedTokens int
 // ptr is a helper function to create a pointer to a value
 func ptr[T any](v T) *T {
 	return &v
+}
+
+// generateContentSummary creates a human-readable summary from content parts
+// generateContentSummary creates a human-readable text summary from content parts.
+// This is used when Parts are provided but Content field is empty.
+func generateContentSummary(parts []types.ContentPart) string {
+	if len(parts) == 0 {
+		return ""
+	}
+
+	textParts, mediaCounts := extractPartsAndCounts(parts)
+	return buildSummary(textParts, mediaCounts)
+}
+
+// extractPartsAndCounts separates text parts and counts media types
+func extractPartsAndCounts(parts []types.ContentPart) ([]string, map[string]int) {
+	var textParts []string
+	mediaCounts := make(map[string]int)
+
+	for _, part := range parts {
+		if part.Type == types.ContentTypeText && part.Text != nil {
+			textParts = append(textParts, *part.Text)
+		} else {
+			mediaCounts[part.Type]++
+		}
+	}
+
+	return textParts, mediaCounts
+}
+
+// buildSummary constructs the final summary from text parts and media counts
+func buildSummary(textParts []string, mediaCounts map[string]int) string {
+	summary := ""
+	if len(textParts) > 0 {
+		summary = textParts[0] // Use first text part as primary content
+	}
+
+	if len(mediaCounts) > 0 {
+		mediaDesc := buildMediaDescription(mediaCounts)
+		summary = appendMediaDescription(summary, mediaDesc)
+	}
+
+	return summary
+}
+
+// buildMediaDescription creates a description of media items from counts
+func buildMediaDescription(mediaCounts map[string]int) []string {
+	var mediaDesc []string
+
+	mediaDesc = appendMediaType(mediaDesc, mediaCounts, types.ContentTypeImage, "image", "images")
+	mediaDesc = appendMediaType(mediaDesc, mediaCounts, types.ContentTypeAudio, "audio", "audio files")
+	mediaDesc = appendMediaType(mediaDesc, mediaCounts, types.ContentTypeVideo, "video", "videos")
+
+	return mediaDesc
+}
+
+// appendMediaType adds a media type description if count > 0
+func appendMediaType(mediaDesc []string, mediaCounts map[string]int, mediaType, singular, plural string) []string {
+	if count := mediaCounts[mediaType]; count > 0 {
+		if count == 1 {
+			return append(mediaDesc, singular)
+		}
+		return append(mediaDesc, fmt.Sprintf("%d %s", count, plural))
+	}
+	return mediaDesc
+}
+
+// appendMediaDescription adds media description to summary
+func appendMediaDescription(summary string, mediaDesc []string) string {
+	if len(mediaDesc) == 0 {
+		return summary
+	}
+
+	mediaStr := " [" + fmt.Sprintf("%v", mediaDesc) + "]"
+	if summary == "" {
+		return "Content includes: " + mediaStr
+	}
+	return summary + mediaStr
 }

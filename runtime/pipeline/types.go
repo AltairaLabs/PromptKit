@@ -99,6 +99,42 @@ func (ctx *ExecutionContext) ClearPendingToolCalls() {
 	ctx.PendingToolCalls = nil
 }
 
+// RecordLLMCall adds an LLM call to the execution trace if tracing is enabled.
+// This method is called by provider middleware to track all LLM interactions.
+func (ctx *ExecutionContext) RecordLLMCall(disableTrace bool, response *Response, startTime time.Time, duration time.Duration, costInfo *types.CostInfo, toolCalls []types.MessageToolCall) {
+	// Check if tracing is enabled (default true unless explicitly disabled)
+	if disableTrace {
+		return
+	}
+
+	// The message index is the current length of messages (before we append)
+	// This assumes the message will be appended right after this call
+	messageIndex := len(ctx.Messages)
+
+	llmCall := LLMCall{
+		Sequence:     len(ctx.Trace.LLMCalls) + 1,
+		MessageIndex: messageIndex,
+		Response:     response,
+		StartedAt:    startTime,
+		Duration:     duration,
+		ToolCalls:    toolCalls,
+	}
+
+	if costInfo != nil {
+		llmCall.Cost = types.CostInfo{
+			InputTokens:   costInfo.InputTokens,
+			OutputTokens:  costInfo.OutputTokens,
+			CachedTokens:  costInfo.CachedTokens,
+			InputCostUSD:  costInfo.InputCostUSD,
+			OutputCostUSD: costInfo.OutputCostUSD,
+			CachedCostUSD: costInfo.CachedCostUSD,
+			TotalCost:     costInfo.TotalCost,
+		}
+	}
+
+	ctx.Trace.LLMCalls = append(ctx.Trace.LLMCalls, llmCall)
+}
+
 // EmitStreamChunk emits a stream chunk to the output channel.
 // Returns false if the stream has been interrupted or the channel is closed.
 // Middleware that produces chunks should check the return value to know when to stop.

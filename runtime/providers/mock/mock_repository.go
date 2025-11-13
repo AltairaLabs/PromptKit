@@ -37,8 +37,7 @@ type MockResponseParams struct {
 // This extends simple text responses to support tool call simulation and multimodal content parts.
 type MockTurn struct {
 	Type      string            `yaml:"type"`                 // "text", "tool_calls", or "multimodal"
-	Content   string            `yaml:"content,omitempty"`    // Text content for the response (backward compatibility)
-	Text      string            `yaml:"text,omitempty"`       // Text content (preferred for multimodal responses)
+	Content   string            `yaml:"content,omitempty"`    // Text content for the response
 	Parts     []MockContentPart `yaml:"parts,omitempty"`      // Multimodal content parts (text, image, audio, video)
 	ToolCalls []MockToolCall    `yaml:"tool_calls,omitempty"` // Tool calls to simulate
 }
@@ -242,12 +241,22 @@ func (r *FileMockRepository) parseStructuredResponse(responseMap map[string]inte
 		turn.Type = typeVal
 	}
 
-	// Parse content field (supports both "content" and "response" for backward compatibility)
+	// Parse content field - supports 'content', 'text', and 'response' (legacy) keys
 	if contentVal, ok := responseMap["content"].(string); ok {
 		turn.Content = contentVal
+	} else if textVal, ok := responseMap["text"].(string); ok {
+		turn.Content = textVal // YAML can use 'text' field, maps to Content
 	} else if responseVal, ok := responseMap["response"].(string); ok {
-		// Support legacy "response" field name
-		turn.Content = responseVal
+		turn.Content = responseVal // Legacy 'response' field support
+	}
+
+	// Parse parts field for multimodal content
+	if partsVal, ok := responseMap["parts"].([]interface{}); ok {
+		parts, err := r.parseParts(partsVal)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse parts: %w", err)
+		}
+		turn.Parts = parts
 	}
 
 	// Parse tool calls field
@@ -264,6 +273,95 @@ func (r *FileMockRepository) parseStructuredResponse(responseMap map[string]inte
 	}
 
 	return &turn, nil
+}
+
+// parseParts parses multimodal content parts from interface{} slice.
+// parseParts parses multimodal content parts from YAML data
+func (r *FileMockRepository) parseParts(partsData []interface{}) ([]MockContentPart, error) {
+	parts := make([]MockContentPart, 0, len(partsData))
+
+	for i, partData := range partsData {
+		part, err := r.parseSinglePart(partData, i)
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, part)
+	}
+
+	return parts, nil
+}
+
+// parseSinglePart parses a single content part from YAML data
+func (r *FileMockRepository) parseSinglePart(partData interface{}, index int) (MockContentPart, error) {
+	partMap, ok := partData.(map[string]interface{})
+	if !ok {
+		return MockContentPart{}, fmt.Errorf("part %d is not a map", index)
+	}
+
+	part := MockContentPart{}
+
+	// Parse type and text
+	if typeVal, ok := partMap["type"].(string); ok {
+		part.Type = typeVal
+	}
+	if textVal, ok := partMap["text"].(string); ok {
+		part.Text = textVal
+	}
+
+	// Parse media URLs
+	part.ImageURL = parseImageURL(partMap)
+	part.AudioURL = parseAudioURL(partMap)
+	part.VideoURL = parseVideoURL(partMap)
+
+	// Parse metadata
+	if metadataVal, ok := partMap["metadata"].(map[string]interface{}); ok {
+		part.Metadata = metadataVal
+	}
+
+	return part, nil
+}
+
+// parseImageURL extracts image URL configuration from a part map
+func parseImageURL(partMap map[string]interface{}) *MockImageURL {
+	imageURLVal, ok := partMap["image_url"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	imageURL := &MockImageURL{}
+	if url, ok := imageURLVal["url"].(string); ok {
+		imageURL.URL = url
+	}
+	if detail, ok := imageURLVal["detail"].(string); ok {
+		imageURL.Detail = &detail
+	}
+	return imageURL
+}
+
+// parseAudioURL extracts audio URL configuration from a part map
+func parseAudioURL(partMap map[string]interface{}) *MockAudioURL {
+	audioURLVal, ok := partMap["audio_url"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	if url, ok := audioURLVal["url"].(string); ok {
+		return &MockAudioURL{URL: url}
+	}
+	return nil
+}
+
+// parseVideoURL extracts video URL configuration from a part map
+func parseVideoURL(partMap map[string]interface{}) *MockVideoURL {
+	videoURLVal, ok := partMap["video_url"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	if url, ok := videoURLVal["url"].(string); ok {
+		return &MockVideoURL{URL: url}
+	}
+	return nil
 }
 
 // parseToolCalls parses tool call data from interface{} slice.
@@ -379,13 +477,9 @@ func (t *MockTurn) ToContentParts() []types.ContentPart {
 		return parts
 	}
 
-	// Backward compatibility: if only text/content is set, return a single text part
-	text := t.Text
-	if text == "" {
-		text = t.Content
-	}
-	if text != "" {
-		return []types.ContentPart{types.NewTextPart(text)}
+	// Backward compatibility: if only content is set, return a single text part
+	if t.Content != "" {
+		return []types.ContentPart{types.NewTextPart(t.Content)}
 	}
 
 	return nil

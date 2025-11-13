@@ -22,6 +22,14 @@ type ProviderMiddlewareConfig struct {
 	DisableTrace bool // Disable execution tracing (default: false = tracing enabled)
 }
 
+// toolingConfig bundles tool-related parameters for round execution
+type toolingConfig struct {
+	providerTools interface{}
+	toolChoice    string
+	registry      *tools.Registry
+	policy        *pipeline.ToolPolicy
+}
+
 // providerMiddleware executes LLM calls and handles tool execution via the ToolRegistry.
 type providerMiddleware struct {
 	provider     providers.Provider
@@ -75,6 +83,14 @@ func executeNonStreaming(execCtx *pipeline.ExecutionContext, provider providers.
 		return fmt.Errorf("provider middleware: %w", err)
 	}
 
+	// Bundle tool-related configuration
+	tooling := toolingConfig{
+		providerTools: providerTools,
+		toolChoice:    toolChoice,
+		registry:      toolRegistry,
+		policy:        policy,
+	}
+
 	// Multi-round execution loop for tool calls
 	round := 0
 
@@ -87,7 +103,7 @@ func executeNonStreaming(execCtx *pipeline.ExecutionContext, provider providers.
 		}
 
 		// Execute one non-streaming round
-		hasMoreRounds, err := executeNonStreamingRound(execCtx, provider, round, providerTools, toolChoice, toolRegistry, policy, config)
+		hasMoreRounds, err := executeNonStreamingRound(execCtx, provider, round, tooling, config)
 		if err != nil {
 			return err
 		}
@@ -102,19 +118,19 @@ func executeNonStreaming(execCtx *pipeline.ExecutionContext, provider providers.
 }
 
 // executeNonStreamingRound executes a single round of non-streaming execution
-func executeNonStreamingRound(execCtx *pipeline.ExecutionContext, provider providers.Provider, round int, providerTools interface{}, toolChoice string, toolRegistry *tools.Registry, policy *pipeline.ToolPolicy, config *ProviderMiddlewareConfig) (bool, error) {
+func executeNonStreamingRound(execCtx *pipeline.ExecutionContext, provider providers.Provider, round int, tooling toolingConfig, config *ProviderMiddlewareConfig) (bool, error) {
 	// Build provider request
 	req := buildProviderRequest(execCtx, config)
 
 	// Determine tool choice for this round
-	currentToolChoice := toolChoice
+	currentToolChoice := tooling.toolChoice
 	if round > 1 {
 		currentToolChoice = "auto"
 	}
 
 	// Call provider and get response
 	startTime := time.Now()
-	resp, callErr := callProviderNonStreaming(execCtx, provider, req, providerTools, currentToolChoice)
+	resp, callErr := callProviderNonStreaming(execCtx, provider, req, tooling.providerTools, currentToolChoice)
 	duration := time.Since(startTime)
 
 	if callErr != nil {
@@ -122,7 +138,7 @@ func executeNonStreamingRound(execCtx *pipeline.ExecutionContext, provider provi
 	}
 
 	// Process response and update context
-	return processNonStreamingResponse(execCtx, &resp, startTime, duration, toolRegistry, policy, config)
+	return processNonStreamingResponse(execCtx, &resp, startTime, duration, tooling.registry, tooling.policy, config)
 }
 
 // callProviderNonStreaming calls the appropriate provider method based on capabilities
@@ -186,10 +202,10 @@ func processNonStreamingResponse(execCtx *pipeline.ExecutionContext, resp *provi
 	execCtx.Response = &pipelineResp
 
 	// Record LLM call in trace before adding message
-	recordLLMCall(execCtx, config, &pipelineResp, startTime, duration, resp.CostInfo, convertToolCalls(resp.ToolCalls))
+	execCtx.RecordLLMCall(config != nil && config.DisableTrace, &pipelineResp, startTime, duration, resp.CostInfo, convertToolCalls(resp.ToolCalls))
 
 	// Add assistant message to conversation history
-	assistantMsg := createAssistantMessage(resp.Content, convertToolCalls(resp.ToolCalls), resp.CostInfo, resp.Latency)
+	assistantMsg := createAssistantMessage(resp.Content, resp.Parts, convertToolCalls(resp.ToolCalls), resp.CostInfo, resp.Latency)
 	execCtx.Messages = append(execCtx.Messages, assistantMsg)
 
 	// Process tool calls (if any) and determine if we need another round
@@ -324,10 +340,10 @@ func handleStreamInterruption(execCtx *pipeline.ExecutionContext, provider provi
 	execCtx.Response = &pipelineResp
 
 	// Record LLM call in trace before adding message
-	recordLLMCall(execCtx, config, &pipelineResp, time.Now().Add(-duration), duration, nil, convertToolCalls(result.toolCalls))
+	execCtx.RecordLLMCall(config != nil && config.DisableTrace, &pipelineResp, time.Now().Add(-duration), duration, nil, convertToolCalls(result.toolCalls))
 
 	// Create assistant message with approximate cost
-	assistantMsg := createAssistantMessage(result.finalContent, nil, approxCost, duration)
+	assistantMsg := createAssistantMessage(result.finalContent, nil, nil, approxCost, duration)
 	assistantMsg.Meta = map[string]interface{}{
 		"raw_response": map[string]interface{}{
 			"cost_estimate_type": "approximate",
@@ -362,9 +378,9 @@ func handleStreamCompletion(execCtx *pipeline.ExecutionContext, result *streamPr
 	// Check if there were tool calls
 	if len(result.toolCalls) == 0 {
 		// No tools to execute, we're done
-		recordLLMCall(execCtx, config, &pipelineResp, startTime, duration, costInfo, convertToolCalls(result.toolCalls))
+		execCtx.RecordLLMCall(config != nil && config.DisableTrace, &pipelineResp, startTime, duration, costInfo, convertToolCalls(result.toolCalls))
 
-		assistantMsg := createAssistantMessage(result.finalContent, nil, costInfo, duration)
+		assistantMsg := createAssistantMessage(result.finalContent, nil, nil, costInfo, duration)
 		if costInfo != nil {
 			assistantMsg.Meta = map[string]interface{}{
 				"raw_response": map[string]interface{}{
@@ -378,9 +394,9 @@ func handleStreamCompletion(execCtx *pipeline.ExecutionContext, result *streamPr
 	}
 
 	// Record LLM call in trace and add assistant message with tool calls
-	recordLLMCall(execCtx, config, &pipelineResp, startTime, duration, costInfo, convertToolCalls(result.toolCalls))
+	execCtx.RecordLLMCall(config != nil && config.DisableTrace, &pipelineResp, startTime, duration, costInfo, convertToolCalls(result.toolCalls))
 
-	assistantMsg := createAssistantMessage(result.finalContent, convertToolCalls(result.toolCalls), costInfo, duration)
+	assistantMsg := createAssistantMessage(result.finalContent, nil, convertToolCalls(result.toolCalls), costInfo, duration)
 	if costInfo != nil {
 		assistantMsg.Meta = map[string]interface{}{
 			"raw_response": map[string]interface{}{
@@ -440,10 +456,11 @@ func buildProviderTooling(provider providers.Provider, toolRegistry *tools.Regis
 }
 
 // createAssistantMessage creates an assistant message with consistent fields
-func createAssistantMessage(content string, toolCalls []types.MessageToolCall, costInfo *types.CostInfo, duration time.Duration) types.Message {
+func createAssistantMessage(content string, parts []types.ContentPart, toolCalls []types.MessageToolCall, costInfo *types.CostInfo, duration time.Duration) types.Message {
 	msg := types.Message{
 		Role:      "assistant",
 		Content:   content,
+		Parts:     parts,
 		ToolCalls: toolCalls,
 		Timestamp: time.Now(),
 		LatencyMs: duration.Milliseconds(),
@@ -451,42 +468,6 @@ func createAssistantMessage(content string, toolCalls []types.MessageToolCall, c
 		Source:    "pipeline",
 	}
 	return msg
-}
-
-// recordLLMCall adds an LLM call to the execution trace if tracing is enabled
-func recordLLMCall(execCtx *pipeline.ExecutionContext, config *ProviderMiddlewareConfig, response *pipeline.Response, startTime time.Time, duration time.Duration, costInfo *types.CostInfo, toolCalls []types.MessageToolCall) {
-	// Check if tracing is enabled (default true unless explicitly disabled)
-	enableTrace := config == nil || !config.DisableTrace
-	if !enableTrace {
-		return
-	}
-
-	// The message index is the current length of messages (before we append)
-	// This assumes the message will be appended right after this call
-	messageIndex := len(execCtx.Messages)
-
-	llmCall := pipeline.LLMCall{
-		Sequence:     len(execCtx.Trace.LLMCalls) + 1,
-		MessageIndex: messageIndex,
-		Response:     response,
-		StartedAt:    startTime,
-		Duration:     duration,
-		ToolCalls:    toolCalls,
-	}
-
-	if costInfo != nil {
-		llmCall.Cost = types.CostInfo{
-			InputTokens:   costInfo.InputTokens,
-			OutputTokens:  costInfo.OutputTokens,
-			CachedTokens:  costInfo.CachedTokens,
-			InputCostUSD:  costInfo.InputCostUSD,
-			OutputCostUSD: costInfo.OutputCostUSD,
-			CachedCostUSD: costInfo.CachedCostUSD,
-			TotalCost:     costInfo.TotalCost,
-		}
-	}
-
-	execCtx.Trace.LLMCalls = append(execCtx.Trace.LLMCalls, llmCall)
 }
 
 // accumulateCost adds cost info to the execution context's cumulative cost

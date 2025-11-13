@@ -10,7 +10,8 @@ spec:
   base_url: ""
   
   # Reference to mock responses file
-  mock_config_file: mock-responses.yaml
+  additional_config:
+    mock_config: /examples/arena-media-test/providers/mock-responses.yaml
   
   defaults:
     temperature: 0.7
