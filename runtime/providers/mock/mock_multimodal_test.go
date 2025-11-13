@@ -250,3 +250,126 @@ func TestMockTurn_ToContentParts_Mixed(t *testing.T) {
 	assert.Equal(t, types.ContentTypeText, parts[2].Type)
 	assert.Equal(t, types.ContentTypeAudio, parts[3].Type)
 }
+
+func TestMockProvider_ChatWithMultimodalYAML(t *testing.T) {
+	// Create a temporary YAML file with multimodal content
+	yamlContent := `
+scenarios:
+  test-multimodal:
+    turns:
+      1:
+        text: "Here is an image:"
+        parts:
+          - type: text
+            text: "Here is an image:"
+          - type: image
+            image_url:
+              url: "mock://test-image.png"
+            metadata:
+              format: "PNG"
+              width: 1920
+              height: 1080
+`
+	tmpfile := createTempYAMLFile(t, yamlContent)
+
+	repo, err := NewFileMockRepository(tmpfile)
+	require.NoError(t, err)
+
+	provider := NewMockProviderWithRepository("test-provider", "test-model", false, repo)
+
+	req := providers.ChatRequest{
+		Messages: []types.Message{
+			{Role: "user", Content: "Show me"},
+		},
+		Metadata: map[string]interface{}{
+			"mock_scenario_id": "test-multimodal",
+			"mock_turn_number": 1,
+		},
+	}
+
+	resp, err := provider.Chat(context.Background(), req)
+	require.NoError(t, err)
+
+	// Verify multimodal response
+	assert.NotEmpty(t, resp.Content)
+	require.Len(t, resp.Parts, 2)
+	assert.Equal(t, types.ContentTypeText, resp.Parts[0].Type)
+	assert.Equal(t, types.ContentTypeImage, resp.Parts[1].Type)
+}
+
+func TestMockProvider_ChatWithAudioYAML(t *testing.T) {
+	yamlContent := `
+scenarios:
+  test-audio:
+    turns:
+      1:
+        parts:
+          - type: audio
+            audio_url:
+              url: "mock://test-audio.mp3"
+            metadata:
+              format: "MP3"
+              duration_seconds: 30
+`
+	tmpfile := createTempYAMLFile(t, yamlContent)
+
+	repo, err := NewFileMockRepository(tmpfile)
+	require.NoError(t, err)
+
+	provider := NewMockProviderWithRepository("test-provider", "test-model", false, repo)
+
+	req := providers.ChatRequest{
+		Messages: []types.Message{
+			{Role: "user", Content: "Play audio"},
+		},
+		Metadata: map[string]interface{}{
+			"mock_scenario_id": "test-audio",
+			"mock_turn_number": 1,
+		},
+	}
+
+	resp, err := provider.Chat(context.Background(), req)
+	require.NoError(t, err)
+
+	require.Len(t, resp.Parts, 1)
+	assert.Equal(t, types.ContentTypeAudio, resp.Parts[0].Type)
+}
+
+func TestMockProvider_ChatWithVideoYAML(t *testing.T) {
+	yamlContent := `
+scenarios:
+  test-video:
+    turns:
+      1:
+        parts:
+          - type: video
+            video_url:
+              url: "mock://test-video.mp4"
+            metadata:
+              format: "MP4"
+              width: 1920
+              height: 1080
+`
+	tmpfile := createTempYAMLFile(t, yamlContent)
+
+	repo, err := NewFileMockRepository(tmpfile)
+	require.NoError(t, err)
+
+	provider := NewMockProviderWithRepository("test-provider", "test-model", false, repo)
+
+	req := providers.ChatRequest{
+		Messages: []types.Message{
+			{Role: "user", Content: "Show video"},
+		},
+		Metadata: map[string]interface{}{
+			"mock_scenario_id": "test-video",
+			"mock_turn_number": 1,
+		},
+	}
+
+	resp, err := provider.Chat(context.Background(), req)
+	require.NoError(t, err)
+
+	require.Len(t, resp.Parts, 1)
+	assert.Equal(t, types.ContentTypeVideo, resp.Parts[0].Type)
+}
