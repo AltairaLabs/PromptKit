@@ -1496,3 +1496,1003 @@ func TestGetValidatorsFromMessage(t *testing.T) {
 		})
 	}
 }
+
+func TestPrepareReportData_WithMediaStats(t *testing.T) {
+	imageData := "base64imagedata"
+	audioData := "base64audiodata"
+
+	result := createTestResult(testRunID1, testProviderOpenAI, testRegionUSWest, testScenario1, 0.05, 100, 50, false, 500*time.Millisecond)
+	result.Messages = []types.Message{
+		{
+			Role:    "user",
+			Content: "Generate some media",
+		},
+		{
+			Role:    "assistant",
+			Content: "Here you go",
+			Parts: []types.ContentPart{
+				{
+					Type: types.ContentTypeImage,
+					Media: &types.MediaContent{
+						MIMEType: "image/png",
+						Data:     &imageData,
+					},
+				},
+				{
+					Type: types.ContentTypeAudio,
+					Media: &types.MediaContent{
+						MIMEType: "audio/mp3",
+						Data:     &audioData,
+					},
+				},
+			},
+		},
+	}
+
+	data := prepareReportData([]engine.RunResult{result})
+
+	// Check media statistics
+	if data.Summary.TotalImages != 1 {
+		t.Errorf("Expected TotalImages 1, got %d", data.Summary.TotalImages)
+	}
+	if data.Summary.TotalAudio != 1 {
+		t.Errorf("Expected TotalAudio 1, got %d", data.Summary.TotalAudio)
+	}
+	if data.Summary.TotalVideo != 0 {
+		t.Errorf("Expected TotalVideo 0, got %d", data.Summary.TotalVideo)
+	}
+	if data.Summary.MediaLoadSuccess != 2 {
+		t.Errorf("Expected MediaLoadSuccess 2, got %d", data.Summary.MediaLoadSuccess)
+	}
+	if data.Summary.MediaLoadErrors != 0 {
+		t.Errorf("Expected MediaLoadErrors 0, got %d", data.Summary.MediaLoadErrors)
+	}
+}
+
+func TestGenerateScenarioGroups_SingleScenario(t *testing.T) {
+	results := []engine.RunResult{
+		createTestResult(testRunID1, testProviderOpenAI, testRegionUSWest, testScenario1, 0.05, 100, 50, false, 500*time.Millisecond),
+		createTestResult(testRunID2, testProviderAnthropic, testRegionUSEast, testScenario1, 0.03, 80, 40, false, 300*time.Millisecond),
+	}
+
+	groups := generateScenarioGroups(results, []string{testScenario1})
+
+	if len(groups) != 1 {
+		t.Fatalf("Expected 1 scenario group, got %d", len(groups))
+	}
+
+	group := groups[0]
+	if group.ScenarioID != testScenario1 {
+		t.Errorf("Expected ScenarioID %s, got %s", testScenario1, group.ScenarioID)
+	}
+	if len(group.Providers) != 2 {
+		t.Errorf("Expected 2 providers in group, got %d", len(group.Providers))
+	}
+	if len(group.Regions) != 2 {
+		t.Errorf("Expected 2 regions in group, got %d", len(group.Regions))
+	}
+	if len(group.Results) != 2 {
+		t.Errorf("Expected 2 results in group, got %d", len(group.Results))
+	}
+	if len(group.Matrix) != 2 {
+		t.Errorf("Expected matrix with 2 rows, got %d", len(group.Matrix))
+	}
+}
+
+func TestGenerateScenarioGroups_MultipleScenarios(t *testing.T) {
+	results := []engine.RunResult{
+		createTestResult(testRunID1, testProviderOpenAI, testRegionUSWest, testScenario1, 0.05, 100, 50, false, 500*time.Millisecond),
+		createTestResult(testRunID2, testProviderAnthropic, testRegionUSWest, testScenario2, 0.03, 80, 40, false, 300*time.Millisecond),
+		createTestResult(testRunID3, testProviderOpenAI, testRegionUSEast, testScenario1, 0.04, 90, 45, false, 400*time.Millisecond),
+	}
+
+	groups := generateScenarioGroups(results, []string{testScenario1, testScenario2})
+
+	if len(groups) != 2 {
+		t.Fatalf("Expected 2 scenario groups, got %d", len(groups))
+	}
+
+	// Check first scenario group
+	group1 := groups[0]
+	if group1.ScenarioID != testScenario1 {
+		t.Errorf("Group 0: Expected ScenarioID %s, got %s", testScenario1, group1.ScenarioID)
+	}
+	if len(group1.Results) != 2 {
+		t.Errorf("Group 0: Expected 2 results, got %d", len(group1.Results))
+	}
+
+	// Check second scenario group
+	group2 := groups[1]
+	if group2.ScenarioID != testScenario2 {
+		t.Errorf("Group 1: Expected ScenarioID %s, got %s", testScenario2, group2.ScenarioID)
+	}
+	if len(group2.Results) != 1 {
+		t.Errorf("Group 1: Expected 1 result, got %d", len(group2.Results))
+	}
+}
+
+func TestRenderMessageContent(t *testing.T) {
+	msg := types.Message{
+		Role:    "assistant",
+		Content: "Hello, world!",
+	}
+
+	html := renderMessageContent(msg)
+	htmlStr := string(html)
+
+	if !strings.Contains(htmlStr, "assistant") {
+		t.Error("HTML should contain role 'assistant'")
+	}
+	if !strings.Contains(htmlStr, "Hello, world!") {
+		t.Error("HTML should contain message content")
+	}
+}
+
+func TestFormatBytesHTML(t *testing.T) {
+	tests := []struct {
+		bytes    int64
+		expected string
+	}{
+		{0, "0 B"},
+		{1024, "1.0 KB"},
+		{1024 * 1024, "1.0 MB"},
+		{1024 * 1024 * 1024, "1.0 GB"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			result := formatBytesHTML(tt.bytes)
+			if result != tt.expected {
+				t.Errorf("formatBytesHTML(%d) = %s, want %s", tt.bytes, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestHasMediaOutputs(t *testing.T) {
+	tests := []struct {
+		name     string
+		result   engine.RunResult
+		expected bool
+	}{
+		{
+			name:     "no media outputs",
+			result:   engine.RunResult{},
+			expected: false,
+		},
+		{
+			name: "with media outputs",
+			result: engine.RunResult{
+				MediaOutputs: []engine.MediaOutput{
+					{Type: types.ContentTypeImage},
+				},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := hasMediaOutputs(tt.result)
+			if result != tt.expected {
+				t.Errorf("hasMediaOutputs() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestRenderMediaOutputs(t *testing.T) {
+	width := 800
+	height := 600
+	duration := 120
+	outputs := []engine.MediaOutput{
+		{
+			Type:      types.ContentTypeImage,
+			MIMEType:  "image/jpeg",
+			SizeBytes: 1024 * 500,
+			Width:     &width,
+			Height:    &height,
+			FilePath:  "/path/to/image.jpg",
+		},
+		{
+			Type:      types.ContentTypeVideo,
+			MIMEType:  "video/mp4",
+			SizeBytes: 1024 * 1024 * 10,
+			Duration:  &duration,
+			FilePath:  "/path/to/video.mp4",
+		},
+	}
+
+	html := renderMediaOutputs(outputs)
+	htmlStr := string(html)
+
+	// Check for container div
+	if !strings.Contains(htmlStr, "media-outputs-section") {
+		t.Error("HTML should contain media-outputs-section div")
+	}
+
+	// Check for count
+	if !strings.Contains(htmlStr, "2") {
+		t.Error("HTML should show count of 2 media outputs")
+	}
+
+	// Check for image details
+	if !strings.Contains(htmlStr, "image/jpeg") {
+		t.Error("HTML should contain image MIME type")
+	}
+	if !strings.Contains(htmlStr, "800×600") {
+		t.Error("HTML should contain image dimensions")
+	}
+
+	// Check for video details
+	if !strings.Contains(htmlStr, "video/mp4") {
+		t.Error("HTML should contain video MIME type")
+	}
+	if !strings.Contains(htmlStr, "120s") {
+		t.Error("HTML should contain video duration")
+	}
+}
+
+func TestRenderMediaOutputs_Empty(t *testing.T) {
+	outputs := []engine.MediaOutput{}
+	html := renderMediaOutputs(outputs)
+
+	if html != "" {
+		t.Error("Expected empty HTML for empty outputs")
+	}
+}
+
+func TestRenderMediaOutputs_WithThumbnail(t *testing.T) {
+	outputs := []engine.MediaOutput{
+		{
+			Type:      types.ContentTypeImage,
+			MIMEType:  "image/png",
+			SizeBytes: 1024,
+			Thumbnail: "base64thumbnaildata",
+		},
+	}
+
+	html := renderMediaOutputs(outputs)
+	htmlStr := string(html)
+
+	if !strings.Contains(htmlStr, "media-thumbnail") {
+		t.Error("HTML should contain media-thumbnail div")
+	}
+	if !strings.Contains(htmlStr, "base64thumbnaildata") {
+		t.Error("HTML should contain thumbnail data")
+	}
+	if !strings.Contains(htmlStr, "data:image/png;base64,") {
+		t.Error("HTML should contain proper data URI for thumbnail")
+	}
+}
+
+func TestFindProviderIndex(t *testing.T) {
+	providers := []string{"openai", "anthropic", "google"}
+
+	tests := []struct {
+		providerID string
+		expected   int
+	}{
+		{"openai", 0},
+		{"anthropic", 1},
+		{"google", 2},
+		{"unknown", -1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.providerID, func(t *testing.T) {
+			result := findProviderIndex(tt.providerID, providers)
+			if result != tt.expected {
+				t.Errorf("findProviderIndex(%s) = %d, want %d", tt.providerID, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestFindRegionIndex(t *testing.T) {
+	regions := []string{"us-west", "us-east", "eu-central"}
+
+	tests := []struct {
+		region   string
+		expected int
+	}{
+		{"us-west", 0},
+		{"us-east", 1},
+		{"eu-central", 2},
+		{"unknown", -1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.region, func(t *testing.T) {
+			result := findRegionIndex(tt.region, regions)
+			if result != tt.expected {
+				t.Errorf("findRegionIndex(%s) = %d, want %d", tt.region, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestUpdateMatrixCell(t *testing.T) {
+	cell := MatrixCell{
+		Provider: testProviderOpenAI,
+		Region:   testRegionUSWest,
+	}
+
+	result := createTestResult(testRunID1, testProviderOpenAI, testRegionUSWest, testScenario1, 0.05, 100, 50, false, 500*time.Millisecond)
+
+	updateMatrixCell(&cell, result)
+
+	if cell.Scenarios != 1 {
+		t.Errorf("Expected Scenarios 1, got %d", cell.Scenarios)
+	}
+	if cell.Successful != 1 {
+		t.Errorf("Expected Successful 1, got %d", cell.Successful)
+	}
+	if cell.Errors != 0 {
+		t.Errorf("Expected Errors 0, got %d", cell.Errors)
+	}
+	if cell.Cost != 0.05 {
+		t.Errorf("Expected Cost 0.05, got %f", cell.Cost)
+	}
+}
+
+func TestUpdateMatrixCell_WithError(t *testing.T) {
+	cell := MatrixCell{
+		Provider: testProviderOpenAI,
+		Region:   testRegionUSWest,
+	}
+
+	result := createTestResult(testRunID1, testProviderOpenAI, testRegionUSWest, testScenario1, 0.03, 100, 50, true, 0)
+
+	updateMatrixCell(&cell, result)
+
+	if cell.Scenarios != 1 {
+		t.Errorf("Expected Scenarios 1, got %d", cell.Scenarios)
+	}
+	if cell.Successful != 0 {
+		t.Errorf("Expected Successful 0, got %d", cell.Successful)
+	}
+	if cell.Errors != 1 {
+		t.Errorf("Expected Errors 1, got %d", cell.Errors)
+	}
+}
+
+func TestInitializeMatrix(t *testing.T) {
+	providers := []string{"provider1", "provider2"}
+	regions := []string{"region1", "region2", "region3"}
+
+	matrix := initializeMatrix(providers, regions)
+
+	if len(matrix) != 2 {
+		t.Errorf("Expected 2 rows, got %d", len(matrix))
+	}
+	if len(matrix[0]) != 3 {
+		t.Errorf("Expected 3 columns, got %d", len(matrix[0]))
+	}
+
+	// Check cell initialization
+	if matrix[0][0].Provider != "provider1" || matrix[0][0].Region != "region1" {
+		t.Error("Matrix cell [0][0] not initialized correctly")
+	}
+	if matrix[1][2].Provider != "provider2" || matrix[1][2].Region != "region3" {
+		t.Error("Matrix cell [1][2] not initialized correctly")
+	}
+}
+
+func TestPopulateMatrixWithResults(t *testing.T) {
+	providers := []string{testProviderOpenAI, testProviderAnthropic}
+	regions := []string{testRegionUSWest, testRegionUSEast}
+
+	matrix := initializeMatrix(providers, regions)
+
+	results := []engine.RunResult{
+		createTestResult(testRunID1, testProviderOpenAI, testRegionUSWest, testScenario1, 0.05, 100, 50, false, 500*time.Millisecond),
+		createTestResult(testRunID2, testProviderOpenAI, testRegionUSWest, testScenario2, 0.03, 80, 40, false, 300*time.Millisecond),
+		createTestResult(testRunID3, testProviderAnthropic, testRegionUSEast, testScenario1, 0.04, 90, 45, true, 0),
+	}
+
+	populateMatrixWithResults(matrix, results, providers, regions)
+
+	// Check openai/us-west cell (2 results)
+	if matrix[0][0].Scenarios != 2 {
+		t.Errorf("Cell [0][0] expected 2 scenarios, got %d", matrix[0][0].Scenarios)
+	}
+	if matrix[0][0].Successful != 2 {
+		t.Errorf("Cell [0][0] expected 2 successful, got %d", matrix[0][0].Successful)
+	}
+
+	// Check anthropic/us-east cell (1 error)
+	if matrix[1][1].Scenarios != 1 {
+		t.Errorf("Cell [1][1] expected 1 scenario, got %d", matrix[1][1].Scenarios)
+	}
+	if matrix[1][1].Errors != 1 {
+		t.Errorf("Cell [1][1] expected 1 error, got %d", matrix[1][1].Errors)
+	}
+
+	// Check openai/us-east cell (empty)
+	if matrix[0][1].Scenarios != 0 {
+		t.Errorf("Cell [0][1] expected 0 scenarios, got %d", matrix[0][1].Scenarios)
+	}
+}
+
+func TestFormatCost(t *testing.T) {
+	tests := []struct {
+		cost     float64
+		expected string
+	}{
+		{0.0, "$0.0000"},
+		{0.05, "$0.0500"},
+		{1.2345, "$1.2345"},
+		{10.5, "$10.5000"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			result := formatCost(tt.cost)
+			if result != tt.expected {
+				t.Errorf("formatCost(%f) = %s, want %s", tt.cost, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestFormatDuration(t *testing.T) {
+	tests := []struct {
+		duration time.Duration
+		contains string
+	}{
+		{500 * time.Nanosecond, "µs"},
+		{500 * time.Microsecond, "µs"},
+		{500 * time.Millisecond, "ms"},
+		{2 * time.Second, "s"},
+		{250 * time.Millisecond, "ms"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.contains, func(t *testing.T) {
+			result := formatDuration(tt.duration)
+			if !strings.Contains(result, tt.contains) {
+				t.Errorf("formatDuration(%v) = %s, want to contain %s", tt.duration, result, tt.contains)
+			}
+		})
+	}
+}
+
+func TestFormatPercent(t *testing.T) {
+	tests := []struct {
+		part     int
+		total    int
+		expected string
+	}{
+		{0, 0, "0%"},
+		{5, 10, "50.0%"},
+		{1, 3, "33.3%"},
+		{10, 10, "100.0%"},
+		{0, 10, "0.0%"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			result := formatPercent(tt.part, tt.total)
+			if result != tt.expected {
+				t.Errorf("formatPercent(%d, %d) = %s, want %s", tt.part, tt.total, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGetStatusClass(t *testing.T) {
+	tests := []struct {
+		successful int
+		errors     int
+		expected   string
+	}{
+		{0, 0, "empty"},
+		{5, 0, "success"},
+		{0, 5, "error"},
+		{5, 2, "error"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			result := getStatusClass(tt.successful, tt.errors)
+			if result != tt.expected {
+				t.Errorf("getStatusClass(%d, %d) = %s, want %s", tt.successful, tt.errors, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestPrettyJSON_String(t *testing.T) {
+	jsonStr := `{"key":"value","number":123}`
+	result := prettyJSON(jsonStr)
+
+	// Should be formatted with indentation
+	if !strings.Contains(result, "\n") {
+		t.Error("Expected formatted JSON with newlines")
+	}
+	if !strings.Contains(result, "key") {
+		t.Error("Expected JSON to contain 'key'")
+	}
+}
+
+func TestPrettyJSON_Object(t *testing.T) {
+	obj := map[string]interface{}{
+		"name":  "test",
+		"count": 42,
+	}
+	result := prettyJSON(obj)
+
+	if !strings.Contains(result, "name") {
+		t.Error("Expected JSON to contain 'name'")
+	}
+	if !strings.Contains(result, "42") {
+		t.Error("Expected JSON to contain '42'")
+	}
+}
+
+func TestPrettyJSON_InvalidString(t *testing.T) {
+	invalidJSON := "not json at all"
+	result := prettyJSON(invalidJSON)
+
+	// Should return original string for invalid JSON
+	if result != invalidJSON {
+		t.Errorf("Expected original string for invalid JSON, got %s", result)
+	}
+}
+
+func TestConvertToJS(t *testing.T) {
+	data := map[string]string{
+		"key": "value",
+	}
+
+	result := convertToJS(data)
+	resultStr := string(result)
+
+	if !strings.Contains(resultStr, "key") {
+		t.Error("Expected JS to contain 'key'")
+	}
+	if !strings.Contains(resultStr, "value") {
+		t.Error("Expected JS to contain 'value'")
+	}
+}
+
+func TestGetAssertions(t *testing.T) {
+	tests := []struct {
+		name     string
+		meta     interface{}
+		expected bool
+	}{
+		{
+			name:     "nil meta",
+			meta:     nil,
+			expected: false,
+		},
+		{
+			name: "with assertions",
+			meta: map[string]interface{}{
+				"assertions": map[string]interface{}{
+					"test": "value",
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "without assertions",
+			meta: map[string]interface{}{
+				"other": "value",
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getAssertions(tt.meta)
+			hasAssertions := len(result) > 0
+			if hasAssertions != tt.expected {
+				t.Errorf("getAssertions() has assertions = %v, want %v", hasAssertions, tt.expected)
+			}
+		})
+	}
+}
+
+func TestHasAssertions(t *testing.T) {
+	tests := []struct {
+		name     string
+		meta     interface{}
+		expected bool
+	}{
+		{
+			name:     "nil meta",
+			meta:     nil,
+			expected: false,
+		},
+		{
+			name: "with assertions",
+			meta: map[string]interface{}{
+				"assertions": map[string]interface{}{
+					"test": "value",
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "empty assertions",
+			meta: map[string]interface{}{
+				"assertions": map[string]interface{}{},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := hasAssertions(tt.meta)
+			if result != tt.expected {
+				t.Errorf("hasAssertions() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGetMessageFromMap(t *testing.T) {
+	tests := []struct {
+		name     string
+		result   interface{}
+		expected string
+	}{
+		{
+			name: "map with message",
+			result: map[string]interface{}{
+				"message": "test message",
+			},
+			expected: "test message",
+		},
+		{
+			name:     "map without message",
+			result:   map[string]interface{}{},
+			expected: "",
+		},
+		{
+			name:     "nil",
+			result:   nil,
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getMessageFromMap(tt.result)
+			if result != tt.expected {
+				t.Errorf("getMessageFromMap() = %s, want %s", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGetOKFromResult(t *testing.T) {
+	tests := []struct {
+		name     string
+		result   interface{}
+		expected bool
+	}{
+		{
+			name: "map with passed=true",
+			result: map[string]interface{}{
+				"passed": true,
+			},
+			expected: true,
+		},
+		{
+			name: "map with passed=false",
+			result: map[string]interface{}{
+				"passed": false,
+			},
+			expected: false,
+		},
+		{
+			name: "map with Passed=true",
+			result: map[string]interface{}{
+				"Passed": true,
+			},
+			expected: true,
+		},
+		{
+			name:     "map without passed field",
+			result:   map[string]interface{}{},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getOKFromResult(tt.result)
+			if result != tt.expected {
+				t.Errorf("getOKFromResult() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGetDetailsFromResult(t *testing.T) {
+	tests := []struct {
+		name     string
+		result   interface{}
+		hasValue bool
+	}{
+		{
+			name: "map with details",
+			result: map[string]interface{}{
+				"details": map[string]interface{}{"key": "value"},
+			},
+			hasValue: true,
+		},
+		{
+			name: "map with Details",
+			result: map[string]interface{}{
+				"Details": "some details",
+			},
+			hasValue: true,
+		},
+		{
+			name:     "map without details",
+			result:   map[string]interface{}{},
+			hasValue: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getDetailsFromResult(tt.result)
+			if (result != nil) != tt.hasValue {
+				t.Errorf("getDetailsFromResult() has value = %v, want %v", result != nil, tt.hasValue)
+			}
+		})
+	}
+}
+
+func TestCheckValidatorsPassed_AllPass(t *testing.T) {
+	validators := map[string]interface{}{
+		"validator1": map[string]interface{}{"passed": true},
+		"validator2": map[string]interface{}{"passed": true},
+	}
+
+	result := checkValidatorsPassed(validators)
+	if !result {
+		t.Error("Expected all validators to pass")
+	}
+}
+
+func TestCheckValidatorsPassed_OneFails(t *testing.T) {
+	validators := map[string]interface{}{
+		"validator1": map[string]interface{}{"passed": true},
+		"validator2": map[string]interface{}{"passed": false},
+	}
+
+	result := checkValidatorsPassed(validators)
+	if result {
+		t.Error("Expected validators to fail")
+	}
+}
+
+func TestCheckValidatorsPassed_Nil(t *testing.T) {
+	result := checkValidatorsPassed(nil)
+	if !result {
+		t.Error("Expected nil validators to pass")
+	}
+}
+
+func TestCheckAssertionsPassed_AllPass(t *testing.T) {
+	assertions := map[string]interface{}{
+		"assertion1": map[string]interface{}{"passed": true},
+		"assertion2": map[string]interface{}{"passed": true},
+	}
+
+	result := checkAssertionsPassed(assertions)
+	if !result {
+		t.Error("Expected all assertions to pass")
+	}
+}
+
+func TestCheckAssertionsPassed_OneFails(t *testing.T) {
+	assertions := map[string]interface{}{
+		"assertion1": map[string]interface{}{"passed": true},
+		"assertion2": map[string]interface{}{"passed": false},
+	}
+
+	result := checkAssertionsPassed(assertions)
+	if result {
+		t.Error("Expected assertions to fail")
+	}
+}
+
+func TestCheckAssertionsPassed_Nil(t *testing.T) {
+	result := checkAssertionsPassed(nil)
+	if !result {
+		t.Error("Expected nil assertions to pass")
+	}
+}
+
+func TestIsValidatorPassed_MapFormat(t *testing.T) {
+	tests := []struct {
+		name      string
+		validator interface{}
+		expected  bool
+	}{
+		{
+			name: "passed validator",
+			validator: map[string]interface{}{
+				"passed": true,
+			},
+			expected: true,
+		},
+		{
+			name: "failed validator",
+			validator: map[string]interface{}{
+				"passed": false,
+			},
+			expected: false,
+		},
+		{
+			name:      "validator without passed field",
+			validator: map[string]interface{}{},
+			expected:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isValidatorPassed(tt.validator)
+			if result != tt.expected {
+				t.Errorf("isValidatorPassed() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestConvertValidationsToMap(t *testing.T) {
+	validations := []interface{}{
+		map[string]interface{}{
+			"validator_type": "type1",
+			"passed":         true,
+		},
+		map[string]interface{}{
+			"validator_type": "type2",
+			"passed":         false,
+		},
+	}
+
+	result := convertValidationsToMap(validations)
+
+	if len(result) != 2 {
+		t.Errorf("Expected 2 validators, got %d", len(result))
+	}
+	if _, exists := result["type1"]; !exists {
+		t.Error("Expected type1 to exist in result")
+	}
+	if _, exists := result["type2"]; !exists {
+		t.Error("Expected type2 to exist in result")
+	}
+}
+
+func TestGetLegacyValidators(t *testing.T) {
+	tests := []struct {
+		name     string
+		meta     interface{}
+		expected bool
+	}{
+		{
+			name:     "nil meta",
+			meta:     nil,
+			expected: false,
+		},
+		{
+			name: "with validators",
+			meta: map[string]interface{}{
+				"validators": map[string]interface{}{
+					"test": "value",
+				},
+			},
+			expected: true,
+		},
+		{
+			name:     "without validators",
+			meta:     map[string]interface{}{},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getLegacyValidators(tt.meta)
+			hasValidators := len(result) > 0
+			if hasValidators != tt.expected {
+				t.Errorf("getLegacyValidators() has validators = %v, want %v", hasValidators, tt.expected)
+			}
+		})
+	}
+}
+
+func TestHasLegacyValidators(t *testing.T) {
+	tests := []struct {
+		name     string
+		meta     interface{}
+		expected bool
+	}{
+		{
+			name:     "nil meta",
+			meta:     nil,
+			expected: false,
+		},
+		{
+			name: "with validators",
+			meta: map[string]interface{}{
+				"validators": map[string]interface{}{
+					"test": "value",
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "empty validators",
+			meta: map[string]interface{}{
+				"validators": map[string]interface{}{},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := hasLegacyValidators(tt.meta)
+			if result != tt.expected {
+				t.Errorf("hasLegacyValidators() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestRenderMarkdown(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		contains string
+	}{
+		{
+			name:     "plain text",
+			input:    "Hello, world!",
+			contains: "Hello, world!",
+		},
+		{
+			name:     "bold text",
+			input:    "**bold**",
+			contains: "<strong>",
+		},
+		{
+			name:     "italic text",
+			input:    "*italic*",
+			contains: "<em>",
+		},
+		{
+			name:     "list",
+			input:    "- Item 1\n- Item 2",
+			contains: "<li>",
+		},
+		{
+			name:     "code block",
+			input:    "`code`",
+			contains: "code",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := renderMarkdown(tt.input)
+			resultStr := string(result)
+			if !strings.Contains(resultStr, tt.contains) {
+				t.Errorf("renderMarkdown(%s) = %s, want to contain %s", tt.input, resultStr, tt.contains)
+			}
+		})
+	}
+}
