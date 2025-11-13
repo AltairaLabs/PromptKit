@@ -206,6 +206,25 @@ func (v *dimensionValidator) checkHeightRange(height int) []string {
 	return violations
 }
 
+// extractDurationParams extracts min/max duration parameters from params map
+func extractDurationParams(params map[string]interface{}) (minSeconds, maxSeconds *float64) {
+	if minSec, ok := params["min_seconds"].(float64); ok {
+		minSeconds = &minSec
+	} else if minSecInt, ok := params["min_seconds"].(int); ok {
+		minSec := float64(minSecInt)
+		minSeconds = &minSec
+	}
+
+	if maxSec, ok := params["max_seconds"].(float64); ok {
+		maxSeconds = &maxSec
+	} else if maxSecInt, ok := params["max_seconds"].(int); ok {
+		maxSec := float64(maxSecInt)
+		maxSeconds = &maxSec
+	}
+
+	return minSeconds, maxSeconds
+}
+
 // ImageFormatValidator checks that media content has one of the allowed image formats
 type ImageFormatValidator struct {
 	formatValidator
@@ -233,10 +252,7 @@ func (v *ImageFormatValidator) Validate(content string, params map[string]interf
 
 // ImageDimensionsValidator checks that images meet dimension requirements
 type ImageDimensionsValidator struct {
-	minWidth    *int
-	maxWidth    *int
-	minHeight   *int
-	maxHeight   *int
+	dimensionValidator
 	exactWidth  *int
 	exactHeight *int
 }
@@ -269,14 +285,9 @@ func NewImageDimensionsValidator(params map[string]interface{}) runtimeValidator
 
 // Validate checks if images meet dimension requirements
 func (v *ImageDimensionsValidator) Validate(content string, params map[string]interface{}) runtimeValidators.ValidationResult {
-	message, ok := params["message"].(types.Message)
+	message, ok := v.extractMessage(params)
 	if !ok {
-		return runtimeValidators.ValidationResult{
-			Passed: false,
-			Details: map[string]interface{}{
-				"error": errMessageRequired,
-			},
-		}
+		return v.createErrorResult(errMessageRequired)
 	}
 
 	var imageCount int
@@ -290,12 +301,7 @@ func (v *ImageDimensionsValidator) Validate(content string, params map[string]in
 	}
 
 	if imageCount == 0 {
-		return runtimeValidators.ValidationResult{
-			Passed: false,
-			Details: map[string]interface{}{
-				"error": errNoImagesFound,
-			},
-		}
+		return v.createErrorResult(errNoImagesFound)
 	}
 
 	return runtimeValidators.ValidationResult{
@@ -324,32 +330,10 @@ func (v *ImageDimensionsValidator) checkImageDimensions(media *types.MediaConten
 		violations = append(violations, fmt.Sprintf("height %d does not match required %d", height, *v.exactHeight))
 	}
 
-	// Check min/max
+	// Check min/max using base validator methods
 	violations = append(violations, v.checkWidthRange(width)...)
 	violations = append(violations, v.checkHeightRange(height)...)
 
-	return violations
-}
-
-func (v *ImageDimensionsValidator) checkWidthRange(width int) []string {
-	var violations []string
-	if v.minWidth != nil && width < *v.minWidth {
-		violations = append(violations, fmt.Sprintf("width %d below minimum %d", width, *v.minWidth))
-	}
-	if v.maxWidth != nil && width > *v.maxWidth {
-		violations = append(violations, fmt.Sprintf("width %d exceeds maximum %d", width, *v.maxWidth))
-	}
-	return violations
-}
-
-func (v *ImageDimensionsValidator) checkHeightRange(height int) []string {
-	var violations []string
-	if v.minHeight != nil && height < *v.minHeight {
-		violations = append(violations, fmt.Sprintf("height %d below minimum %d", height, *v.minHeight))
-	}
-	if v.maxHeight != nil && height > *v.maxHeight {
-		violations = append(violations, fmt.Sprintf("height %d exceeds maximum %d", height, *v.maxHeight))
-	}
 	return violations
 }
 
@@ -368,19 +352,7 @@ func NewAudioDurationValidator(params map[string]interface{}) runtimeValidators.
 		},
 	}
 
-	if minSec, ok := params["min_seconds"].(float64); ok {
-		validator.minSeconds = &minSec
-	} else if minSecInt, ok := params["min_seconds"].(int); ok {
-		minSec := float64(minSecInt)
-		validator.minSeconds = &minSec
-	}
-
-	if maxSec, ok := params["max_seconds"].(float64); ok {
-		validator.maxSeconds = &maxSec
-	} else if maxSecInt, ok := params["max_seconds"].(int); ok {
-		maxSec := float64(maxSecInt)
-		validator.maxSeconds = &maxSec
-	}
+	validator.minSeconds, validator.maxSeconds = extractDurationParams(params)
 
 	return validator
 }
@@ -434,19 +406,7 @@ func NewVideoDurationValidator(params map[string]interface{}) runtimeValidators.
 		},
 	}
 
-	if minSec, ok := params["min_seconds"].(float64); ok {
-		validator.minSeconds = &minSec
-	} else if minSecInt, ok := params["min_seconds"].(int); ok {
-		minSec := float64(minSecInt)
-		validator.minSeconds = &minSec
-	}
-
-	if maxSec, ok := params["max_seconds"].(float64); ok {
-		validator.maxSeconds = &maxSec
-	} else if maxSecInt, ok := params["max_seconds"].(int); ok {
-		maxSec := float64(maxSecInt)
-		validator.maxSeconds = &maxSec
-	}
+	validator.minSeconds, validator.maxSeconds = extractDurationParams(params)
 
 	return validator
 }
@@ -462,11 +422,8 @@ func (v *VideoDurationValidator) Validate(content string, params map[string]inte
 
 // VideoResolutionValidator checks that video resolution meets requirements
 type VideoResolutionValidator struct {
-	minWidth  *int
-	maxWidth  *int
-	minHeight *int
-	maxHeight *int
-	presets   []string // e.g., ["720p", "1080p", "4k"]
+	dimensionValidator
+	presets []string // e.g., ["720p", "1080p", "4k"]
 }
 
 // NewVideoResolutionValidator creates a new video_resolution validator from params
@@ -493,14 +450,9 @@ func NewVideoResolutionValidator(params map[string]interface{}) runtimeValidator
 
 // Validate checks if video resolution meets requirements
 func (v *VideoResolutionValidator) Validate(content string, params map[string]interface{}) runtimeValidators.ValidationResult {
-	message, ok := params["message"].(types.Message)
+	message, ok := v.extractMessage(params)
 	if !ok {
-		return runtimeValidators.ValidationResult{
-			Passed: false,
-			Details: map[string]interface{}{
-				"error": errMessageRequired,
-			},
-		}
+		return v.createErrorResult(errMessageRequired)
 	}
 
 	var videoCount int
@@ -514,12 +466,7 @@ func (v *VideoResolutionValidator) Validate(content string, params map[string]in
 	}
 
 	if videoCount == 0 {
-		return runtimeValidators.ValidationResult{
-			Passed: false,
-			Details: map[string]interface{}{
-				"error": errNoVideoFound,
-			},
-		}
+		return v.createErrorResult(errNoVideoFound)
 	}
 
 	return runtimeValidators.ValidationResult{
@@ -547,9 +494,9 @@ func (v *VideoResolutionValidator) checkVideoResolution(media *types.MediaConten
 		}
 	}
 
-	// Check min/max ranges
-	violations = append(violations, v.checkVideoWidthRange(width)...)
-	violations = append(violations, v.checkVideoHeightRange(height)...)
+	// Check min/max ranges using base validator methods
+	violations = append(violations, v.checkWidthRange(width)...)
+	violations = append(violations, v.checkHeightRange(height)...)
 
 	return violations
 }
@@ -561,28 +508,6 @@ func (v *VideoResolutionValidator) matchesAnyPreset(width, height int) bool {
 		}
 	}
 	return false
-}
-
-func (v *VideoResolutionValidator) checkVideoWidthRange(width int) []string {
-	var violations []string
-	if v.minWidth != nil && width < *v.minWidth {
-		violations = append(violations, fmt.Sprintf("width %d below minimum %d", width, *v.minWidth))
-	}
-	if v.maxWidth != nil && width > *v.maxWidth {
-		violations = append(violations, fmt.Sprintf("width %d exceeds maximum %d", width, *v.maxWidth))
-	}
-	return violations
-}
-
-func (v *VideoResolutionValidator) checkVideoHeightRange(height int) []string {
-	var violations []string
-	if v.minHeight != nil && height < *v.minHeight {
-		violations = append(violations, fmt.Sprintf("height %d below minimum %d", height, *v.minHeight))
-	}
-	if v.maxHeight != nil && height > *v.maxHeight {
-		violations = append(violations, fmt.Sprintf("height %d exceeds maximum %d", height, *v.maxHeight))
-	}
-	return violations
 }
 
 func (v *VideoResolutionValidator) matchesResolutionPreset(width, height int, preset string) bool {
