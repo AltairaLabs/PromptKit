@@ -98,6 +98,9 @@ func TestWebSocketManager_Connect(t *testing.T) {
 		t.Error("Expected connected after Connect()")
 	}
 
+	// Wait briefly for handler to be called (async connection establishment)
+	time.Sleep(50 * time.Millisecond)
+
 	if !connected.Load() {
 		t.Error("Server handler was not called")
 	}
