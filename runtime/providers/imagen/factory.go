@@ -30,16 +30,16 @@ func init() {
 			location = "us-central1"
 		}
 
-		provider := NewImagenProvider(
-			spec.ID,
-			spec.Model,
-			spec.BaseURL,
-			apiKey,
-			projectID,
-			location,
-			spec.IncludeRawOutput,
-			spec.Defaults,
-		)
+		provider := NewImagenProvider(ImagenConfig{
+			ID:               spec.ID,
+			Model:            spec.Model,
+			BaseURL:          spec.BaseURL,
+			ApiKey:           apiKey,
+			ProjectID:        projectID,
+			Location:         location,
+			IncludeRawOutput: spec.IncludeRawOutput,
+			Defaults:         spec.Defaults,
+		})
 		return provider, nil
 	})
 }

@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -502,6 +503,16 @@ func TestRegistry_RegisterOverwrite(t *testing.T) {
 	}
 }
 
+// testErrorProvider is a mock provider that returns an error on Close
+type testErrorProvider struct {
+	*testMockProvider
+	closeErr error
+}
+
+func (p *testErrorProvider) Close() error {
+	return p.closeErr
+}
+
 func TestRegistry_Close(t *testing.T) {
 	registry := NewRegistry()
 
@@ -521,6 +532,28 @@ func TestRegistry_Close(t *testing.T) {
 	err = registry.Close()
 	if err != nil {
 		t.Errorf("Second Close() returned error: %v", err)
+	}
+}
+
+func TestRegistry_CloseWithErrorHandling(t *testing.T) {
+	registry := NewRegistry()
+
+	closeErr := errors.New("close failed")
+	errorProvider := &testErrorProvider{
+		testMockProvider: &testMockProvider{id: "error-provider", value: "test"},
+		closeErr:         closeErr,
+	}
+
+	registry.Register(errorProvider)
+
+	// Close should return the error from the provider
+	err := registry.Close()
+	if err == nil {
+		t.Fatal("Expected Close() to return error, got nil")
+	}
+
+	if err != closeErr {
+		t.Errorf("Expected error '%v', got '%v'", closeErr, err)
 	}
 }
 

@@ -67,33 +67,41 @@ type imagenMetadata struct {
 	// Add metadata fields if needed
 }
 
+// ImagenConfig holds configuration for creating an Imagen provider
+type ImagenConfig struct {
+	ID               string
+	Model            string
+	BaseURL          string
+	ApiKey           string
+	ProjectID        string
+	Location         string
+	IncludeRawOutput bool
+	Defaults         providers.ProviderDefaults
+}
+
 // NewImagenProvider creates a new Imagen provider
-func NewImagenProvider(
-	id, model, baseURL, apiKey, projectID, location string,
-	includeRawOutput bool,
-	defaults providers.ProviderDefaults,
-) *ImagenProvider {
-	if baseURL == "" {
-		baseURL = defaultBaseURL
+func NewImagenProvider(config ImagenConfig) *ImagenProvider {
+	if config.BaseURL == "" {
+		config.BaseURL = defaultBaseURL
 	}
-	if model == "" {
-		model = "imagen-4.0-generate-001"
+	if config.Model == "" {
+		config.Model = "imagen-4.0-generate-001"
 	}
-	if location == "" {
-		location = "us-central1"
+	if config.Location == "" {
+		config.Location = "us-central1"
 	}
 
 	httpClient := &http.Client{Timeout: defaultTimeout}
 	p := &ImagenProvider{
-		BaseProvider: providers.NewBaseProvider(id, includeRawOutput, httpClient),
-		Model:        model,
-		BaseURL:      baseURL,
-		ApiKey:       apiKey,
-		ProjectID:    projectID,
-		Location:     location,
+		BaseProvider: providers.NewBaseProvider(config.ID, config.IncludeRawOutput, httpClient),
+		Model:        config.Model,
+		BaseURL:      config.BaseURL,
+		ApiKey:       config.ApiKey,
+		ProjectID:    config.ProjectID,
+		Location:     config.Location,
 		HTTPClient:   httpClient,
 	}
-	p.Defaults = defaults
+	p.Defaults = config.Defaults
 	return p
 }
 

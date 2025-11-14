@@ -11,6 +11,20 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+// newTestProvider creates a test provider with default values
+func newTestProvider(id string) *ImagenProvider {
+	return NewImagenProvider(ImagenConfig{
+		ID:               id,
+		Model:            "imagen-4.0-generate-001",
+		BaseURL:          "https://aiplatform.googleapis.com/v1",
+		ApiKey:           "test-key",
+		ProjectID:        "test-project",
+		Location:         "us-central1",
+		IncludeRawOutput: false,
+		Defaults:         providers.ProviderDefaults{},
+	})
+}
+
 // TestProviderIDNotHardcoded is a regression test for the bug where provider ID
 // was hardcoded to "imagen" instead of using the ID from the config YAML.
 // This test ensures the provider respects the metadata.name field from the YAML config.
@@ -27,16 +41,7 @@ func TestProviderIDNotHardcoded(t *testing.T) {
 	// This is the actual metadata.name from imagen-provider.yaml
 	configuredID := "imagen-provider"
 
-	provider := NewImagenProvider(
-		configuredID,
-		"imagen-4.0-generate-001",
-		"https://aiplatform.googleapis.com/v1",
-		"test-key",
-		"test-project",
-		"us-central1",
-		false,
-		providers.ProviderDefaults{},
-	)
+	provider := newTestProvider(configuredID)
 
 	// Before the fix, this would fail because ID() returned hardcoded "imagen"
 	if provider.ID() != configuredID {
@@ -67,16 +72,7 @@ func TestProviderID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			provider := NewImagenProvider(
-				tt.providerID,                // id
-				"imagen-4.0-generate-001",    // model
-				"https://test.example.com",   // baseURL
-				"test-api-key",               // apiKey
-				"test-project",               // projectID
-				"us-central1",                // location
-				false,                        // includeRawOutput
-				providers.ProviderDefaults{}, // defaults
-			)
+			provider := newTestProvider(tt.providerID)
 
 			if provider.ID() != tt.providerID {
 				t.Errorf("Expected provider ID %q, got %q", tt.providerID, provider.ID())
@@ -192,16 +188,16 @@ func TestProviderDefaults(t *testing.T) {
 		Temperature: 0.7,
 	}
 
-	provider := NewImagenProvider(
-		"test-imagen",
-		"imagen-4.0-generate-001",
-		"https://test.example.com",
-		"test-key",
-		"test-project",
-		"us-central1",
-		false,
-		defaults,
-	)
+	provider := NewImagenProvider(ImagenConfig{
+		ID:               "test-imagen",
+		Model:            "imagen-4.0-generate-001",
+		BaseURL:          "https://test.example.com",
+		ApiKey:           "test-key",
+		ProjectID:        "test-project",
+		Location:         "us-central1",
+		IncludeRawOutput: false,
+		Defaults:         defaults,
+	})
 
 	if provider.Defaults.MaxTokens != defaults.MaxTokens {
 		t.Errorf("Expected MaxTokens %d, got %d", defaults.MaxTokens, provider.Defaults.MaxTokens)
@@ -222,16 +218,16 @@ func TestProviderFieldsInitialization(t *testing.T) {
 	location := "europe-west1"
 	includeRaw := true
 
-	provider := NewImagenProvider(
-		id,
-		model,
-		baseURL,
-		apiKey,
-		projectID,
-		location,
-		includeRaw,
-		providers.ProviderDefaults{},
-	)
+	provider := NewImagenProvider(ImagenConfig{
+		ID:               id,
+		Model:            model,
+		BaseURL:          baseURL,
+		ApiKey:           apiKey,
+		ProjectID:        projectID,
+		Location:         location,
+		IncludeRawOutput: includeRaw,
+		Defaults:         providers.ProviderDefaults{},
+	})
 
 	if provider.ID() != id {
 		t.Errorf("Expected ID %q, got %q", id, provider.ID())
@@ -264,16 +260,16 @@ func TestProviderFieldsInitialization(t *testing.T) {
 
 // TestProviderDefaultValues ensures default values are applied when empty
 func TestProviderDefaultValues(t *testing.T) {
-	provider := NewImagenProvider(
-		"test-id",
-		"", // empty model - should use default
-		"", // empty baseURL - should use default
-		"test-key",
-		"test-project",
-		"", // empty location - should use default
-		false,
-		providers.ProviderDefaults{},
-	)
+	provider := NewImagenProvider(ImagenConfig{
+		ID:               "test-id",
+		Model:            "", // empty model - should use default
+		BaseURL:          "", // empty baseURL - should use default
+		ApiKey:           "test-key",
+		ProjectID:        "test-project",
+		Location:         "", // empty location - should use default
+		IncludeRawOutput: false,
+		Defaults:         providers.ProviderDefaults{},
+	})
 
 	expectedModel := "imagen-4.0-generate-001"
 	if provider.Model != expectedModel {
@@ -387,16 +383,7 @@ func TestExtractPrompt(t *testing.T) {
 
 // TestCalculateCost tests cost calculation
 func TestCalculateCost(t *testing.T) {
-	provider := NewImagenProvider(
-		"test-id",
-		"imagen-4.0-generate-001",
-		defaultBaseURL,
-		"test-key",
-		"test-project",
-		"us-central1",
-		false,
-		providers.ProviderDefaults{},
-	)
+	provider := newTestProvider("test-id")
 
 	cost := provider.CalculateCost(1000, 500, 100)
 
@@ -415,16 +402,7 @@ func TestCalculateCost(t *testing.T) {
 
 // TestSupportsStreaming tests streaming support
 func TestSupportsStreaming(t *testing.T) {
-	provider := NewImagenProvider(
-		"test-id",
-		"imagen-4.0-generate-001",
-		defaultBaseURL,
-		"test-key",
-		"test-project",
-		"us-central1",
-		false,
-		providers.ProviderDefaults{},
-	)
+	provider := newTestProvider("test-id")
 
 	if provider.SupportsStreaming() {
 		t.Error("Imagen should not support streaming")
@@ -433,16 +411,7 @@ func TestSupportsStreaming(t *testing.T) {
 
 // TestPredictStream tests that streaming returns error
 func TestPredictStream(t *testing.T) {
-	provider := NewImagenProvider(
-		"test-id",
-		"imagen-4.0-generate-001",
-		defaultBaseURL,
-		"test-key",
-		"test-project",
-		"us-central1",
-		false,
-		providers.ProviderDefaults{},
-	)
+	provider := newTestProvider("test-id")
 
 	ctx := context.Background()
 	req := providers.PredictionRequest{
@@ -462,18 +431,9 @@ func TestPredictStream(t *testing.T) {
 	}
 }
 
-// TestClose tests resource cleanup
+// TestClose tests the Close method
 func TestClose(t *testing.T) {
-	provider := NewImagenProvider(
-		"test-id",
-		"imagen-4.0-generate-001",
-		defaultBaseURL,
-		"test-key",
-		"test-project",
-		"us-central1",
-		false,
-		providers.ProviderDefaults{},
-	)
+	provider := newTestProvider("test-id")
 
 	err := provider.Close()
 	if err != nil {
@@ -488,16 +448,16 @@ func stringPtr(s string) *string {
 
 // TestPredictErrorCases tests error handling in Predict method
 func TestPredictErrorCases(t *testing.T) {
-	provider := NewImagenProvider(
-		"test-id",
-		"imagen-4.0-generate-001",
-		"https://invalid-url-that-will-fail.example.com",
-		"test-key",
-		"test-project",
-		"us-central1",
-		false,
-		providers.ProviderDefaults{},
-	)
+	provider := NewImagenProvider(ImagenConfig{
+		ID:               "test-id",
+		Model:            "imagen-4.0-generate-001",
+		BaseURL:          "https://invalid-url-that-will-fail.example.com",
+		ApiKey:           "test-key",
+		ProjectID:        "test-project",
+		Location:         "us-central1",
+		IncludeRawOutput: false,
+		Defaults:         providers.ProviderDefaults{},
+	})
 
 	ctx := context.Background()
 
@@ -580,16 +540,16 @@ func TestPredictSuccess(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewImagenProvider(
-		"test-id",
-		"imagen-4.0-generate-001",
-		server.URL,
-		"test-key",
-		"test-project",
-		"us-central1",
-		false,
-		providers.ProviderDefaults{},
-	)
+	provider := NewImagenProvider(ImagenConfig{
+		ID:               "test-id",
+		Model:            "imagen-4.0-generate-001",
+		BaseURL:          server.URL,
+		ApiKey:           "test-key",
+		ProjectID:        "test-project",
+		Location:         "us-central1",
+		IncludeRawOutput: false,
+		Defaults:         providers.ProviderDefaults{},
+	})
 
 	ctx := context.Background()
 	req := providers.PredictionRequest{
@@ -663,16 +623,16 @@ func TestPredictAPIError(t *testing.T) {
 			}))
 			defer server.Close()
 
-			provider := NewImagenProvider(
-				"test-id",
-				"imagen-4.0-generate-001",
-				server.URL,
-				"test-key",
-				"",
-				"",
-				false,
-				providers.ProviderDefaults{},
-			)
+			provider := NewImagenProvider(ImagenConfig{
+				ID:               "test-id",
+				Model:            "imagen-4.0-generate-001",
+				BaseURL:          server.URL,
+				ApiKey:           "test-key",
+				ProjectID:        "",
+				Location:         "",
+				IncludeRawOutput: false,
+				Defaults:         providers.ProviderDefaults{},
+			})
 
 			ctx := context.Background()
 			req := providers.PredictionRequest{
@@ -706,16 +666,16 @@ func TestPredictEmptyPredictions(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewImagenProvider(
-		"test-id",
-		"imagen-4.0-generate-001",
-		server.URL,
-		"test-key",
-		"",
-		"",
-		false,
-		providers.ProviderDefaults{},
-	)
+	provider := NewImagenProvider(ImagenConfig{
+		ID:               "test-id",
+		Model:            "imagen-4.0-generate-001",
+		BaseURL:          server.URL,
+		ApiKey:           "test-key",
+		ProjectID:        "",
+		Location:         "",
+		IncludeRawOutput: false,
+		Defaults:         providers.ProviderDefaults{},
+	})
 
 	ctx := context.Background()
 	req := providers.PredictionRequest{
@@ -743,16 +703,16 @@ func TestPredictInvalidJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewImagenProvider(
-		"test-id",
-		"imagen-4.0-generate-001",
-		server.URL,
-		"test-key",
-		"",
-		"",
-		false,
-		providers.ProviderDefaults{},
-	)
+	provider := NewImagenProvider(ImagenConfig{
+		ID:               "test-id",
+		Model:            "imagen-4.0-generate-001",
+		BaseURL:          server.URL,
+		ApiKey:           "test-key",
+		ProjectID:        "",
+		Location:         "",
+		IncludeRawOutput: false,
+		Defaults:         providers.ProviderDefaults{},
+	})
 
 	ctx := context.Background()
 	req := providers.PredictionRequest{
