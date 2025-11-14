@@ -71,8 +71,8 @@ func (p *OpenAIToolProvider) BuildTooling(descriptors []*providers.ToolDescripto
 	return tools, nil
 }
 
-// ChatWithTools performs a chat request with tool support
-func (p *OpenAIToolProvider) ChatWithTools(ctx context.Context, req providers.ChatRequest, tools interface{}, toolChoice string) (providers.ChatResponse, []types.MessageToolCall, error) {
+// PredictWithTools performs a prediction request with tool support
+func (p *OpenAIToolProvider) PredictWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	// Track latency - START timing
 	start := time.Now()
 
@@ -80,16 +80,16 @@ func (p *OpenAIToolProvider) ChatWithTools(ctx context.Context, req providers.Ch
 	openaiReq := p.buildToolRequest(req, tools, toolChoice)
 
 	// Prepare response with raw request if configured (set early to preserve on error)
-	chatResp := providers.ChatResponse{}
+	predictResp := providers.PredictionResponse{}
 	if p.ShouldIncludeRawOutput() {
-		chatResp.RawRequest = openaiReq
+		predictResp.RawRequest = openaiReq
 	}
 
 	// Make the API call
 	respBytes, err := p.makeRequest(ctx, openaiReq)
 	if err != nil {
-		chatResp.Latency = time.Since(start)
-		return chatResp, nil, err
+		predictResp.Latency = time.Since(start)
+		return predictResp, nil, err
 	}
 
 	// Calculate latency immediately after API call completes
@@ -99,19 +99,19 @@ func (p *OpenAIToolProvider) ChatWithTools(ctx context.Context, req providers.Ch
 	resp, toolCalls, err := p.parseToolResponse(respBytes)
 	if err != nil {
 		resp.Latency = latency
-		resp.RawRequest = chatResp.RawRequest
+		resp.RawRequest = predictResp.RawRequest
 		return resp, nil, err
 	}
 
 	// Set latency on response
 	resp.Latency = latency
-	resp.RawRequest = chatResp.RawRequest
+	resp.RawRequest = predictResp.RawRequest
 
 	return resp, toolCalls, nil
 }
 
 // buildToolRequest constructs the OpenAI API request with tools
-func (p *OpenAIToolProvider) buildToolRequest(req providers.ChatRequest, tools interface{}, toolChoice string) map[string]interface{} {
+func (p *OpenAIToolProvider) buildToolRequest(req providers.PredictionRequest, tools interface{}, toolChoice string) map[string]interface{} {
 	messages := p.convertRequestMessagesToOpenAI(req)
 
 	// Build request
@@ -137,7 +137,7 @@ func (p *OpenAIToolProvider) buildToolRequest(req providers.ChatRequest, tools i
 }
 
 // convertRequestMessagesToOpenAI converts all messages in a request to OpenAI format
-func (p *OpenAIToolProvider) convertRequestMessagesToOpenAI(req providers.ChatRequest) []map[string]interface{} {
+func (p *OpenAIToolProvider) convertRequestMessagesToOpenAI(req providers.PredictionRequest) []map[string]interface{} {
 	messages := make([]map[string]interface{}, 0, len(req.Messages)+1)
 
 	// Add system message if present
@@ -229,7 +229,7 @@ func (p *OpenAIToolProvider) addToolChoiceToRequest(openaiReq map[string]interfa
 }
 
 // parseToolResponse parses the OpenAI response and extracts tool calls
-func (p *OpenAIToolProvider) parseToolResponse(respBytes []byte) (providers.ChatResponse, []types.MessageToolCall, error) {
+func (p *OpenAIToolProvider) parseToolResponse(respBytes []byte) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	var openaiResp struct {
 		Choices []struct {
 			Message struct {
@@ -247,11 +247,11 @@ func (p *OpenAIToolProvider) parseToolResponse(respBytes []byte) (providers.Chat
 	}
 
 	if err := json.Unmarshal(respBytes, &openaiResp); err != nil {
-		return providers.ChatResponse{}, nil, fmt.Errorf("failed to parse OpenAI response: %w", err)
+		return providers.PredictionResponse{}, nil, fmt.Errorf("failed to parse OpenAI response: %w", err)
 	}
 
 	if len(openaiResp.Choices) == 0 {
-		return providers.ChatResponse{}, nil, fmt.Errorf("no choices in OpenAI response")
+		return providers.PredictionResponse{}, nil, fmt.Errorf("no choices in OpenAI response")
 	}
 
 	choice := openaiResp.Choices[0]
@@ -265,7 +265,7 @@ func (p *OpenAIToolProvider) parseToolResponse(respBytes []byte) (providers.Chat
 	// Calculate cost breakdown
 	costBreakdown := p.OpenAIProvider.CalculateCost(openaiResp.Usage.PromptTokens, openaiResp.Usage.CompletionTokens, cachedTokens)
 
-	resp := providers.ChatResponse{
+	resp := providers.PredictionResponse{
 		Content:  choice.Message.Content,
 		CostInfo: &costBreakdown,
 		Raw:      respBytes,
@@ -291,7 +291,7 @@ func (p *OpenAIToolProvider) makeRequest(ctx context.Context, request interface{
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+openAIChatCompletionsPath, bytes.NewBuffer(reqBytes))
+	req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+openAIPredictCompletionsPath, bytes.NewBuffer(reqBytes))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -299,7 +299,7 @@ func (p *OpenAIToolProvider) makeRequest(ctx context.Context, request interface{
 	req.Header.Set(contentTypeHeader, applicationJSON)
 	req.Header.Set(authorizationHeader, bearerPrefix+p.apiKey)
 
-	logger.APIRequest("OpenAI", "POST", p.baseURL+openAIChatCompletionsPath, map[string]string{
+	logger.APIRequest("OpenAI", "POST", p.baseURL+openAIPredictCompletionsPath, map[string]string{
 		contentTypeHeader:   applicationJSON,
 		authorizationHeader: bearerPrefix + p.apiKey,
 	}, request)

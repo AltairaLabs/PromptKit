@@ -3,8 +3,7 @@ kind: Scenario
 metadata:
   name: mixed-media
 spec:
-  provider: mock-media
-  task_type: media-test
+  task_type: media-analysis
   description: "Test mixing different media types (images and audio)"
 
   turns:
@@ -21,11 +20,16 @@ spec:
             file_path: ../../tools/arena/testdata/media/test-audio-small.wav
             mime_type: audio/wav
       assertions:
-        - type: content_includes
+        - type: image_format
           params:
-            patterns:
-              - "image"
-              - "audio"
+            formats:
+              - png
+            message: "Validate PNG image format."
+        - type: audio_format
+          params:
+            formats:
+              - mp3
+            message: "Validate MP3 audio format."
 
     - role: user
       parts:
@@ -44,8 +48,10 @@ spec:
             file_path: ../../tools/arena/testdata/media/test-image-small.gif
             mime_type: image/gif
       assertions:
-        - type: content_includes
+        - type: image_format
           params:
-            patterns:
-              - "JPEG"
-              - "PNG"
+            formats:
+              - jpeg
+              - png
+              - gif
+            message: "Validate JPEG, PNG, and GIF image formats."

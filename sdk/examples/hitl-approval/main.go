@@ -309,7 +309,7 @@ func (m *MockProvider) ID() string {
 	return "mock-provider-1"
 }
 
-func (m *MockProvider) Chat(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
+func (m *MockProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	// Check if we have tool results - if so, give final response
 	hasToolResult := false
 	for _, msg := range req.Messages {
@@ -321,13 +321,13 @@ func (m *MockProvider) Chat(ctx context.Context, req providers.ChatRequest) (pro
 
 	if hasToolResult {
 		// Final response after tool execution
-		return providers.ChatResponse{
+		return providers.PredictionResponse{
 			Content: "Your refund has been processed successfully! You should see the refund in your account within 3-5 business days.",
 		}, nil
 	}
 
 	// Initial response - call the refund tool
-	return providers.ChatResponse{
+	return providers.PredictionResponse{
 		Content: "I'll process that refund for you right away.",
 		ToolCalls: []types.MessageToolCall{
 			{
@@ -339,7 +339,7 @@ func (m *MockProvider) Chat(ctx context.Context, req providers.ChatRequest) (pro
 	}, nil
 }
 
-func (m *MockProvider) ChatStream(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
+func (m *MockProvider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	return nil, fmt.Errorf("streaming not supported")
 }
 

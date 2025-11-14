@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestChat_Integration tests the Chat method with HTTP mocking
-func TestChat_Integration(t *testing.T) {
+// TestPredict_Integration tests the Predict method with HTTP mocking
+func TestPredict_Integration(t *testing.T) {
 	tests := []struct {
 		name           string
 		messages       []types.Message
@@ -26,7 +26,7 @@ func TestChat_Integration(t *testing.T) {
 		errContains    string
 	}{
 		{
-			name: "Successful chat request",
+			name: "Successful predict request",
 			messages: []types.Message{
 				{Role: "user", Content: "Hello"},
 			},
@@ -150,14 +150,14 @@ func TestChat_Integration(t *testing.T) {
 			)
 
 			// Create request
-			req := providers.ChatRequest{
+			req := providers.PredictionRequest{
 				Messages:    tt.messages,
 				System:      tt.system,
 				Temperature: 0.8,
 			}
 
 			// Execute
-			resp, err := provider.Chat(context.Background(), req)
+			resp, err := provider.Predict(context.Background(), req)
 
 			// Validate
 			if tt.wantErr {
@@ -176,8 +176,8 @@ func TestChat_Integration(t *testing.T) {
 	}
 }
 
-// TestChatStream_Integration tests the ChatStream method
-func TestChatStream_Integration(t *testing.T) {
+// TestPredictStream_Integration tests the PredictStream method
+func TestPredictStream_Integration(t *testing.T) {
 	tests := []struct {
 		name         string
 		messages     []types.Message
@@ -248,12 +248,12 @@ func TestChatStream_Integration(t *testing.T) {
 			)
 
 			// Create request
-			req := providers.ChatRequest{
+			req := providers.PredictionRequest{
 				Messages: tt.messages,
 			}
 
 			// Execute
-			streamChan, err := provider.ChatStream(context.Background(), req)
+			streamChan, err := provider.PredictStream(context.Background(), req)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -327,10 +327,10 @@ func TestMakeGeminiHTTPRequest(t *testing.T) {
 				},
 			}
 
-			chatResp := providers.ChatResponse{}
+			predictResp := providers.PredictionResponse{}
 			start := time.Now()
 
-			respBody, chatResp, err := provider.makeGeminiHTTPRequest(context.Background(), geminiReq, chatResp, start)
+			respBody, predictResp, err := provider.makeGeminiHTTPRequest(context.Background(), geminiReq, predictResp, start)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -381,10 +381,10 @@ func TestParseAndValidateGeminiResponse(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			provider := NewGeminiProvider("test", "gemini-2.0-flash", "https://api.test", providers.ProviderDefaults{}, false)
 
-			chatResp := providers.ChatResponse{}
+			predictResp := providers.PredictionResponse{}
 			start := time.Now()
 
-			_, candidate, _, err := provider.parseAndValidateGeminiResponse([]byte(tt.respBody), chatResp, start)
+			_, candidate, _, err := provider.parseAndValidateGeminiResponse([]byte(tt.respBody), predictResp, start)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -432,10 +432,10 @@ func TestHandleNoCandidatesError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			chatResp := providers.ChatResponse{}
+			predictResp := providers.PredictionResponse{}
 			start := time.Now()
 
-			_, err := provider.handleNoCandidatesError(tt.response, chatResp, []byte("{}"), start)
+			_, err := provider.handleNoCandidatesError(tt.response, predictResp, []byte("{}"), start)
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.errContains)
@@ -476,10 +476,10 @@ func TestHandleGeminiFinishReason(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			chatResp := providers.ChatResponse{}
+			predictResp := providers.PredictionResponse{}
 			start := time.Now()
 
-			_, err := provider.handleGeminiFinishReason(tt.finishReason, chatResp, []byte("{}"), start)
+			_, err := provider.handleGeminiFinishReason(tt.finishReason, predictResp, []byte("{}"), start)
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.errContains)

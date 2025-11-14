@@ -71,7 +71,7 @@ func TestStateStoreLoadMiddleware_SetsSourceOnLoadedMessages(t *testing.T) {
 func TestProviderMiddleware_SetsSourceOnCreatedMessages(t *testing.T) {
 	// Create a mock provider that returns a simple response
 	mockProvider := &mockProviderForSourceTest{
-		response: providers.ChatResponse{
+		response: providers.PredictionResponse{
 			Content: "Test response from LLM",
 		},
 	}
@@ -107,7 +107,7 @@ func TestProviderMiddleware_SetsSourceOnCreatedMessages(t *testing.T) {
 func TestProviderMiddleware_SetsSourceOnToolMessages(t *testing.T) {
 	// Create a mock provider that returns tool calls
 	mockProvider := &mockProviderWithToolsForSourceTest{
-		responses: []providers.ChatResponse{
+		responses: []providers.PredictionResponse{
 			// Round 1: LLM requests a tool call
 			{
 				Content: "I'll calculate that for you",
@@ -203,7 +203,7 @@ func TestIntegration_SourceFieldAcrossMiddleware(t *testing.T) {
 
 	// Create mock provider
 	mockProvider := &mockProviderForSourceTest{
-		response: providers.ChatResponse{
+		response: providers.PredictionResponse{
 			Content: "second answer",
 		},
 	}
@@ -259,14 +259,14 @@ func TestIntegration_SourceFieldAcrossMiddleware(t *testing.T) {
 
 // Mock provider for Source tests
 type mockProviderForSourceTest struct {
-	response providers.ChatResponse
+	response providers.PredictionResponse
 }
 
 func (m *mockProviderForSourceTest) ID() string { return "mock-source-test" }
-func (m *mockProviderForSourceTest) Chat(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
+func (m *mockProviderForSourceTest) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	return m.response, nil
 }
-func (m *mockProviderForSourceTest) ChatStream(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
+func (m *mockProviderForSourceTest) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	ch := make(chan providers.StreamChunk)
 	close(ch)
 	return ch, nil
@@ -281,17 +281,17 @@ func (m *mockProviderForSourceTest) SupportsTools() bool          { return false
 
 // Mock provider with tool support for Source tests
 type mockProviderWithToolsForSourceTest struct {
-	responses []providers.ChatResponse
+	responses []providers.PredictionResponse
 	callIndex int
 }
 
 func (m *mockProviderWithToolsForSourceTest) ID() string { return "mock-tools-source-test" }
-func (m *mockProviderWithToolsForSourceTest) Chat(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
+func (m *mockProviderWithToolsForSourceTest) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	resp := m.responses[m.callIndex]
 	m.callIndex++
 	return resp, nil
 }
-func (m *mockProviderWithToolsForSourceTest) ChatStream(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
+func (m *mockProviderWithToolsForSourceTest) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	ch := make(chan providers.StreamChunk)
 	close(ch)
 	return ch, nil
@@ -308,7 +308,7 @@ func (m *mockProviderWithToolsForSourceTest) BuildTooling(tools []*providers.Too
 	return tools, nil
 }
 
-func (m *mockProviderWithToolsForSourceTest) ChatWithTools(ctx context.Context, req providers.ChatRequest, tools interface{}, toolChoice string) (providers.ChatResponse, []types.MessageToolCall, error) {
+func (m *mockProviderWithToolsForSourceTest) PredictWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	resp := m.responses[m.callIndex]
 	m.callIndex++
 	return resp, resp.ToolCalls, nil

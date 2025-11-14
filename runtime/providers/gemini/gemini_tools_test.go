@@ -60,7 +60,7 @@ func TestGeminiToolResponseParsing(t *testing.T) {
 	}
 
 	// Parse the response
-	chatResp, toolCalls, err := provider.parseToolResponse([]byte(geminiResponseJSON), providers.ChatResponse{})
+	predictResp, toolCalls, err := provider.parseToolResponse([]byte(geminiResponseJSON), providers.PredictionResponse{})
 	if err != nil {
 		t.Fatalf("Failed to parse Gemini response: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestGeminiToolResponseParsing(t *testing.T) {
 		t.Errorf("Expected tool calls to be extracted, got 0")
 
 		// Debug: Print what we got
-		t.Logf("Chat response: %+v", chatResp)
+		t.Logf("Predict response: %+v", predictResp)
 		t.Logf("Tool calls: %+v", toolCalls)
 
 		// Let's manually debug the parsing
@@ -128,12 +128,12 @@ func TestGeminiToolResponseParsing(t *testing.T) {
 	}
 
 	// Verify token counts
-	if chatResp.CostInfo.InputTokens != 181 {
-		t.Errorf("Expected 181 input tokens, got %d", chatResp.CostInfo.InputTokens)
+	if predictResp.CostInfo.InputTokens != 181 {
+		t.Errorf("Expected 181 input tokens, got %d", predictResp.CostInfo.InputTokens)
 	}
 
-	if chatResp.CostInfo.OutputTokens != 19 {
-		t.Errorf("Expected 19 output tokens, got %d", chatResp.CostInfo.OutputTokens)
+	if predictResp.CostInfo.OutputTokens != 19 {
+		t.Errorf("Expected 19 output tokens, got %d", predictResp.CostInfo.OutputTokens)
 	}
 
 	t.Logf("SUCCESS: Tool call extracted correctly: %+v", toolCall)

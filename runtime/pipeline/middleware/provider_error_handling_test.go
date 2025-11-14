@@ -15,8 +15,8 @@ import (
 func TestProviderMiddleware_ErrorHandling(t *testing.T) {
 	// Create a mock provider that returns an error
 	mockProvider := new(MockProvider)
-	mockProvider.On("Chat", context.Background(), mock.Anything).Return(
-		providers.ChatResponse{},
+	mockProvider.On("Predict", context.Background(), mock.Anything).Return(
+		providers.PredictionResponse{},
 		errors.New("simulated provider error"),
 	)
 
@@ -75,8 +75,8 @@ func findSubstring(s, substr string) bool {
 func TestProviderMiddleware_NextError(t *testing.T) {
 	// Create a mock provider that succeeds
 	mockProvider := new(MockProvider)
-	mockProvider.On("Chat", context.Background(), mock.Anything).Return(
-		providers.ChatResponse{
+	mockProvider.On("Predict", context.Background(), mock.Anything).Return(
+		providers.PredictionResponse{
 			Content: "Success response",
 			CostInfo: &types.CostInfo{
 				InputTokens:  10,

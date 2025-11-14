@@ -189,13 +189,13 @@ func (m *MockStreamingProvider) ID() string {
 	return "mock-streaming"
 }
 
-func (m *MockStreamingProvider) Chat(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
-	return providers.ChatResponse{
+func (m *MockStreamingProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+	return providers.PredictionResponse{
 		Content: "mock response",
 	}, nil
 }
 
-func (m *MockStreamingProvider) ChatStream(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
+func (m *MockStreamingProvider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	if m.streamError != nil {
 		ch := make(chan providers.StreamChunk, 1)
 		ch <- providers.StreamChunk{Error: m.streamError}
@@ -240,13 +240,13 @@ func (m *MockNonStreamingProvider) ID() string {
 	return "mock-non-streaming"
 }
 
-func (m *MockNonStreamingProvider) Chat(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
-	return providers.ChatResponse{
+func (m *MockNonStreamingProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+	return providers.PredictionResponse{
 		Content: "mock response",
 	}, nil
 }
 
-func (m *MockNonStreamingProvider) ChatStream(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
+func (m *MockNonStreamingProvider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	return nil, nil
 }
 

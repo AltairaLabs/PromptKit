@@ -35,12 +35,12 @@ type MultimodalSupport interface {
 	// GetMultimodalCapabilities returns what types of multimodal content this provider supports
 	GetMultimodalCapabilities() MultimodalCapabilities
 
-	// ChatMultimodal performs a chat request with multimodal message content
+	// PredictMultimodal performs a predict request with multimodal message content
 	// Messages in the request can contain Parts with images, audio, or video
-	ChatMultimodal(ctx context.Context, req ChatRequest) (ChatResponse, error)
+	PredictMultimodal(ctx context.Context, req PredictionRequest) (PredictionResponse, error)
 
-	// ChatMultimodalStream performs a streaming chat request with multimodal content
-	ChatMultimodalStream(ctx context.Context, req ChatRequest) (<-chan StreamChunk, error)
+	// PredictMultimodalStream performs a streaming predict request with multimodal content
+	PredictMultimodalStream(ctx context.Context, req PredictionRequest) (<-chan StreamChunk, error)
 }
 
 // MultimodalToolSupport interface for providers that support both multimodal and tools
@@ -48,8 +48,8 @@ type MultimodalToolSupport interface {
 	MultimodalSupport // Extends multimodal support
 	ToolSupport       // Extends tool support
 
-	// ChatMultimodalWithTools performs a chat request with both multimodal content and tools
-	ChatMultimodalWithTools(ctx context.Context, req ChatRequest, tools interface{}, toolChoice string) (ChatResponse, []types.MessageToolCall, error)
+	// PredictMultimodalWithTools performs a predict request with both multimodal content and tools
+	PredictMultimodalWithTools(ctx context.Context, req PredictionRequest, tools interface{}, toolChoice string) (PredictionResponse, []types.MessageToolCall, error)
 }
 
 // SupportsMultimodal checks if a provider implements multimodal support
@@ -225,9 +225,9 @@ func (e *UnsupportedContentError) Error() string {
 	return e.Provider + ": " + e.Message
 }
 
-// ValidateMultimodalRequest validates all messages in a chat request for multimodal compatibility
+// ValidateMultimodalRequest validates all messages in a predict request for multimodal compatibility
 // This is a helper function to reduce duplication across provider implementations
-func ValidateMultimodalRequest(p MultimodalSupport, req ChatRequest) error {
+func ValidateMultimodalRequest(p MultimodalSupport, req PredictionRequest) error {
 	for _, msg := range req.Messages {
 		if err := ValidateMultimodalMessage(p, msg); err != nil {
 			return err

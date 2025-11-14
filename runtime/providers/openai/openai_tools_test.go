@@ -203,8 +203,8 @@ func TestOpenAIParseToolResponse_NoToolCalls(t *testing.T) {
 	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
 
 	responseJSON := `{
-		"id": "chatcmpl-123",
-		"object": "chat.completion",
+		"id": "predictcmpl-123",
+		"object": "predict.completion",
 		"created": 1677652288,
 		"model": "gpt-4",
 		"choices": [{
@@ -222,25 +222,25 @@ func TestOpenAIParseToolResponse_NoToolCalls(t *testing.T) {
 		}
 	}`
 
-	chatResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON))
+	predictResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON))
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	if chatResp.Content != "Hello! How can I help you today?" {
-		t.Errorf("Expected content 'Hello! How can I help you today?', got '%s'", chatResp.Content)
+	if predictResp.Content != "Hello! How can I help you today?" {
+		t.Errorf("Expected content 'Hello! How can I help you today?', got '%s'", predictResp.Content)
 	}
 
 	if len(toolCalls) != 0 {
 		t.Errorf("Expected 0 tool calls, got %d", len(toolCalls))
 	}
 
-	if chatResp.CostInfo.InputTokens != 10 {
-		t.Errorf("Expected 10 input tokens, got %d", chatResp.CostInfo.InputTokens)
+	if predictResp.CostInfo.InputTokens != 10 {
+		t.Errorf("Expected 10 input tokens, got %d", predictResp.CostInfo.InputTokens)
 	}
 
-	if chatResp.CostInfo.OutputTokens != 20 {
-		t.Errorf("Expected 20 output tokens, got %d", chatResp.CostInfo.OutputTokens)
+	if predictResp.CostInfo.OutputTokens != 20 {
+		t.Errorf("Expected 20 output tokens, got %d", predictResp.CostInfo.OutputTokens)
 	}
 }
 
@@ -248,8 +248,8 @@ func TestOpenAIParseToolResponse_WithToolCalls(t *testing.T) {
 	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
 
 	responseJSON := `{
-		"id": "chatcmpl-123",
-		"object": "chat.completion",
+		"id": "predictcmpl-123",
+		"object": "predict.completion",
 		"created": 1677652288,
 		"model": "gpt-4",
 		"choices": [{
@@ -275,7 +275,7 @@ func TestOpenAIParseToolResponse_WithToolCalls(t *testing.T) {
 		}
 	}`
 
-	chatResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON))
+	predictResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON))
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -303,12 +303,12 @@ func TestOpenAIParseToolResponse_WithToolCalls(t *testing.T) {
 		t.Errorf("Expected query 'weather', got %v", args["query"])
 	}
 
-	if chatResp.CostInfo.InputTokens != 50 {
-		t.Errorf("Expected 50 input tokens, got %d", chatResp.CostInfo.InputTokens)
+	if predictResp.CostInfo.InputTokens != 50 {
+		t.Errorf("Expected 50 input tokens, got %d", predictResp.CostInfo.InputTokens)
 	}
 
-	if chatResp.CostInfo.OutputTokens != 30 {
-		t.Errorf("Expected 30 output tokens, got %d", chatResp.CostInfo.OutputTokens)
+	if predictResp.CostInfo.OutputTokens != 30 {
+		t.Errorf("Expected 30 output tokens, got %d", predictResp.CostInfo.OutputTokens)
 	}
 }
 
@@ -316,8 +316,8 @@ func TestOpenAIParseToolResponse_MultipleToolCalls(t *testing.T) {
 	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
 
 	responseJSON := `{
-		"id": "chatcmpl-123",
-		"object": "chat.completion",
+		"id": "predictcmpl-123",
+		"object": "predict.completion",
 		"created": 1677652288,
 		"model": "gpt-4",
 		"choices": [{
@@ -353,7 +353,7 @@ func TestOpenAIParseToolResponse_MultipleToolCalls(t *testing.T) {
 		}
 	}`
 
-	chatResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON))
+	predictResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON))
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -372,8 +372,8 @@ func TestOpenAIParseToolResponse_MultipleToolCalls(t *testing.T) {
 		t.Errorf("Expected second tool 'calculate', got '%s'", toolCalls[1].Name)
 	}
 
-	if chatResp.CostInfo.InputTokens != 100 {
-		t.Errorf("Expected 100 input tokens, got %d", chatResp.CostInfo.InputTokens)
+	if predictResp.CostInfo.InputTokens != 100 {
+		t.Errorf("Expected 100 input tokens, got %d", predictResp.CostInfo.InputTokens)
 	}
 }
 
@@ -392,7 +392,7 @@ func TestOpenAIParseToolResponse_MissingFields(t *testing.T) {
 	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
 
 	responseJSON := `{
-		"id": "chatcmpl-123",
+		"id": "predictcmpl-123",
 		"choices": [{
 			"message": {
 				"role": "assistant",
@@ -401,13 +401,13 @@ func TestOpenAIParseToolResponse_MissingFields(t *testing.T) {
 		}]
 	}`
 
-	chatResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON))
+	predictResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON))
 	if err != nil {
 		t.Fatalf("Expected no error for missing usage, got %v", err)
 	}
 
-	if chatResp.Content != "test" {
-		t.Errorf("Expected content 'test', got '%s'", chatResp.Content)
+	if predictResp.Content != "test" {
+		t.Errorf("Expected content 'test', got '%s'", predictResp.Content)
 	}
 
 	if len(toolCalls) != 0 {
@@ -415,8 +415,8 @@ func TestOpenAIParseToolResponse_MissingFields(t *testing.T) {
 	}
 
 	// Token counts should be 0 if usage is missing
-	if chatResp.CostInfo.InputTokens != 0 {
-		t.Errorf("Expected 0 input tokens, got %d", chatResp.CostInfo.InputTokens)
+	if predictResp.CostInfo.InputTokens != 0 {
+		t.Errorf("Expected 0 input tokens, got %d", predictResp.CostInfo.InputTokens)
 	}
 }
 
@@ -424,8 +424,8 @@ func TestOpenAIParseToolResponse_CachedTokens(t *testing.T) {
 	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
 
 	responseJSON := `{
-		"id": "chatcmpl-123",
-		"object": "chat.completion",
+		"id": "predictcmpl-123",
+		"object": "predict.completion",
 		"created": 1677652288,
 		"model": "gpt-4",
 		"choices": [{
@@ -446,28 +446,28 @@ func TestOpenAIParseToolResponse_CachedTokens(t *testing.T) {
 		}
 	}`
 
-	chatResp, _, err := provider.parseToolResponse([]byte(responseJSON))
+	predictResp, _, err := provider.parseToolResponse([]byte(responseJSON))
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
 	// Total prompt tokens is 100, with 50 cached
 	// So InputTokens (non-cached) should be 50
-	if chatResp.CostInfo.InputTokens != 50 {
-		t.Errorf("Expected 50 non-cached input tokens, got %d", chatResp.CostInfo.InputTokens)
+	if predictResp.CostInfo.InputTokens != 50 {
+		t.Errorf("Expected 50 non-cached input tokens, got %d", predictResp.CostInfo.InputTokens)
 	}
 
-	if chatResp.CostInfo.CachedTokens != 50 {
-		t.Errorf("Expected 50 cached tokens, got %d", chatResp.CostInfo.CachedTokens)
+	if predictResp.CostInfo.CachedTokens != 50 {
+		t.Errorf("Expected 50 cached tokens, got %d", predictResp.CostInfo.CachedTokens)
 	}
 
-	if chatResp.CostInfo.OutputTokens != 20 {
-		t.Errorf("Expected 20 output tokens, got %d", chatResp.CostInfo.OutputTokens)
+	if predictResp.CostInfo.OutputTokens != 20 {
+		t.Errorf("Expected 20 output tokens, got %d", predictResp.CostInfo.OutputTokens)
 	}
 
 	// Verify the response is parsed correctly
-	if chatResp.Content != "Hello!" {
-		t.Errorf("Expected content 'Hello!', got '%s'", chatResp.Content)
+	if predictResp.Content != "Hello!" {
+		t.Errorf("Expected content 'Hello!', got '%s'", predictResp.Content)
 	}
 }
 
@@ -537,5 +537,74 @@ func TestOpenAIToolCallStructure(t *testing.T) {
 	// Verify arguments is a string
 	if unmarshaled.Function.Arguments != `{"query": "test"}` {
 		t.Errorf("Expected arguments string, got '%s'", unmarshaled.Function.Arguments)
+	}
+}
+
+// ============================================================================
+// addToolChoiceToRequest Tests
+// ============================================================================
+
+func TestOpenAIToolProvider_AddToolChoiceToRequest(t *testing.T) {
+	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+
+	tests := []struct {
+		name       string
+		toolChoice string
+		want       interface{}
+	}{
+		{
+			name:       "empty string - no tool_choice added",
+			toolChoice: "",
+			want:       nil,
+		},
+		{
+			name:       "auto - no tool_choice added",
+			toolChoice: "auto",
+			want:       nil,
+		},
+		{
+			name:       "required",
+			toolChoice: "required",
+			want:       "required",
+		},
+		{
+			name:       "none",
+			toolChoice: "none",
+			want:       "none",
+		},
+		{
+			name:       "specific function name",
+			toolChoice: "search_function",
+			want: map[string]interface{}{
+				"type": "function",
+				"function": map[string]string{
+					"name": "search_function",
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			openaiReq := make(map[string]interface{})
+			provider.addToolChoiceToRequest(openaiReq, tt.toolChoice)
+
+			if tt.want == nil {
+				if _, exists := openaiReq["tool_choice"]; exists {
+					t.Errorf("Expected no tool_choice, but found %v", openaiReq["tool_choice"])
+				}
+			} else {
+				got, exists := openaiReq["tool_choice"]
+				if !exists {
+					t.Fatal("Expected tool_choice to be set")
+				}
+
+				gotJSON, _ := json.Marshal(got)
+				wantJSON, _ := json.Marshal(tt.want)
+				if string(gotJSON) != string(wantJSON) {
+					t.Errorf("Expected tool_choice %s, got %s", wantJSON, gotJSON)
+				}
+			}
+		})
 	}
 }

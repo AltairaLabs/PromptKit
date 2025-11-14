@@ -146,7 +146,7 @@ func TestImageFormatValidator(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			validator := NewImageFormatValidator(tt.params)
 			validationParams := map[string]interface{}{
-				"message": tt.message,
+				"_assistant_message": tt.message,
 			}
 			result := validator.Validate("", validationParams)
 
@@ -300,7 +300,7 @@ func TestImageDimensionsValidator(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			validator := NewImageDimensionsValidator(tt.params)
 			validationParams := map[string]interface{}{
-				"message": tt.message,
+				"_assistant_message": tt.message,
 			}
 			result := validator.Validate("", validationParams)
 
@@ -448,7 +448,7 @@ func TestAudioDurationValidator(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			validator := NewAudioDurationValidator(tt.params)
 			validationParams := map[string]interface{}{
-				"message": tt.message,
+				"_assistant_message": tt.message,
 			}
 			result := validator.Validate("", validationParams)
 
@@ -566,7 +566,7 @@ func TestAudioFormatValidator(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			validator := NewAudioFormatValidator(tt.params)
 			validationParams := map[string]interface{}{
-				"message": tt.message,
+				"_assistant_message": tt.message,
 			}
 			result := validator.Validate("", validationParams)
 
@@ -694,7 +694,7 @@ func TestVideoDurationValidator(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			validator := NewVideoDurationValidator(tt.params)
 			validationParams := map[string]interface{}{
-				"message": tt.message,
+				"_assistant_message": tt.message,
 			}
 			result := validator.Validate("", validationParams)
 
@@ -887,7 +887,7 @@ func TestVideoResolutionValidator(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			validator := NewVideoResolutionValidator(tt.params)
 			validationParams := map[string]interface{}{
-				"message": tt.message,
+				"_assistant_message": tt.message,
 			}
 			result := validator.Validate("", validationParams)
 

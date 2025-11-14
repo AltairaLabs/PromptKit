@@ -308,8 +308,8 @@ func TestOpenAIMessage_Structure(t *testing.T) {
 
 func TestOpenAIResponse_Structure(t *testing.T) {
 	resp := openAIResponse{
-		ID:      "chatcmpl-123",
-		Object:  "chat.completion",
+		ID:      "predictcmpl-123",
+		Object:  "predict.completion",
 		Created: 1234567890,
 		Model:   "gpt-4",
 		Choices: []openAIChoice{
@@ -329,7 +329,7 @@ func TestOpenAIResponse_Structure(t *testing.T) {
 		},
 	}
 
-	if resp.ID != "chatcmpl-123" {
+	if resp.ID != "predictcmpl-123" {
 		t.Error("ID mismatch")
 	}
 
@@ -385,11 +385,11 @@ func TestOpenAIError_Structure(t *testing.T) {
 	}
 }
 
-func TestChat_Integration(t *testing.T) {
-	t.Run("Successful chat request with system message", func(t *testing.T) {
+func TestPredict_Integration(t *testing.T) {
+	t.Run("Successful predict request with system message", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path != "/chat/completions" {
-				t.Errorf("Expected path '/chat/completions', got %q", r.URL.Path)
+			if r.URL.Path != "/predict/completions" {
+				t.Errorf("Expected path '/predict/completions', got %q", r.URL.Path)
 			}
 			if r.Method != "POST" {
 				t.Errorf("Expected method 'POST', got %q", r.Method)
@@ -412,8 +412,8 @@ func TestChat_Integration(t *testing.T) {
 
 			// Send successful response
 			resp := openAIResponse{
-				ID:      "chatcmpl-123",
-				Object:  "chat.completion",
+				ID:      "predictcmpl-123",
+				Object:  "predict.completion",
 				Created: time.Now().Unix(),
 				Model:   "gpt-4",
 				Choices: []openAIChoice{
@@ -454,7 +454,7 @@ func TestChat_Integration(t *testing.T) {
 			},
 		}
 
-		resp, err := provider.Chat(context.Background(), providers.ChatRequest{
+		resp, err := provider.Predict(context.Background(), providers.PredictionRequest{
 			System: "You are a helpful assistant",
 			Messages: []types.Message{
 				{Role: "user", Content: "Hello"},
@@ -500,7 +500,7 @@ func TestChat_Integration(t *testing.T) {
 			defaults:     providers.ProviderDefaults{},
 		}
 
-		resp, err := provider.Chat(context.Background(), providers.ChatRequest{
+		resp, err := provider.Predict(context.Background(), providers.PredictionRequest{
 			Messages: []types.Message{{Role: "user", Content: "Test"}},
 		})
 
@@ -513,7 +513,7 @@ func TestChat_Integration(t *testing.T) {
 		}
 	})
 
-	t.Run("Chat with seed parameter", func(t *testing.T) {
+	t.Run("Predict with seed parameter", func(t *testing.T) {
 		var receivedSeed *int
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			var req openAIRequest
@@ -537,7 +537,7 @@ func TestChat_Integration(t *testing.T) {
 		}
 
 		seed := 12345
-		_, err := provider.Chat(context.Background(), providers.ChatRequest{
+		_, err := provider.Predict(context.Background(), providers.PredictionRequest{
 			Messages: []types.Message{{Role: "user", Content: "Test"}},
 			Seed:     &seed,
 		})
@@ -577,7 +577,7 @@ func TestChat_Integration(t *testing.T) {
 			defaults:     providers.ProviderDefaults{Temperature: 0.7},
 		}
 
-		_, err := provider.Chat(context.Background(), providers.ChatRequest{
+		_, err := provider.Predict(context.Background(), providers.PredictionRequest{
 			Messages:    []types.Message{{Role: "user", Content: "Test"}},
 			Temperature: 0.9,
 		})
@@ -592,7 +592,7 @@ func TestChat_Integration(t *testing.T) {
 	})
 }
 
-func TestChatStream_Integration(t *testing.T) {
+func TestPredictStream_Integration(t *testing.T) {
 	t.Run("Basic streaming response", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Header.Get("Accept") != "text/event-stream" {
@@ -630,7 +630,7 @@ func TestChatStream_Integration(t *testing.T) {
 			},
 		}
 
-		streamChan, err := provider.ChatStream(context.Background(), providers.ChatRequest{
+		streamChan, err := provider.PredictStream(context.Background(), providers.PredictionRequest{
 			Messages: []types.Message{{Role: "user", Content: "Test"}},
 		})
 
@@ -691,7 +691,7 @@ func TestChatStream_Integration(t *testing.T) {
 			},
 		}
 
-		streamChan, err := provider.ChatStream(context.Background(), providers.ChatRequest{
+		streamChan, err := provider.PredictStream(context.Background(), providers.PredictionRequest{
 			Messages: []types.Message{{Role: "user", Content: "What's the weather?"}},
 		})
 
@@ -745,7 +745,7 @@ func TestChatStream_Integration(t *testing.T) {
 
 		ctx, cancel := context.WithCancel(context.Background())
 
-		streamChan, err := provider.ChatStream(ctx, providers.ChatRequest{
+		streamChan, err := provider.PredictStream(ctx, providers.PredictionRequest{
 			Messages: []types.Message{{Role: "user", Content: "Test"}},
 		})
 

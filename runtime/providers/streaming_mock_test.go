@@ -49,11 +49,11 @@ data: [DONE]
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	stream, err := provider.ChatStream(ctx, providers.ChatRequest{
+	stream, err := provider.PredictStream(ctx, providers.PredictionRequest{
 		Messages: []types.Message{{Role: "user", Content: "test"}},
 	})
 	if err != nil {
-		t.Fatalf("ChatStream failed: %v", err)
+		t.Fatalf("PredictStream failed: %v", err)
 	}
 
 	chunks := []providers.StreamChunk{}
@@ -110,11 +110,11 @@ data: {"type":"message_stop","message":{"stop_reason":"end_turn"}}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	stream, err := provider.ChatStream(ctx, providers.ChatRequest{
+	stream, err := provider.PredictStream(ctx, providers.PredictionRequest{
 		Messages: []types.Message{{Role: "user", Content: "test"}},
 	})
 	if err != nil {
-		t.Fatalf("ChatStream failed: %v", err)
+		t.Fatalf("PredictStream failed: %v", err)
 	}
 
 	chunks := []providers.StreamChunk{}
@@ -165,11 +165,11 @@ func TestGeminiStreamResponse(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	stream, err := provider.ChatStream(ctx, providers.ChatRequest{
+	stream, err := provider.PredictStream(ctx, providers.PredictionRequest{
 		Messages: []types.Message{{Role: "user", Content: "test"}},
 	})
 	if err != nil {
-		t.Fatalf("ChatStream failed: %v", err)
+		t.Fatalf("PredictStream failed: %v", err)
 	}
 
 	chunks := []providers.StreamChunk{}
@@ -224,11 +224,11 @@ func TestStreamContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	stream, err := provider.ChatStream(ctx, providers.ChatRequest{
+	stream, err := provider.PredictStream(ctx, providers.PredictionRequest{
 		Messages: []types.Message{{Role: "user", Content: "test"}},
 	})
 	if err != nil {
-		t.Fatalf("ChatStream failed: %v", err)
+		t.Fatalf("PredictStream failed: %v", err)
 	}
 
 	gotCancellation := false
@@ -261,7 +261,7 @@ func TestStreamHTTPError(t *testing.T) {
 	)
 
 	ctx := context.Background()
-	_, err := provider.ChatStream(ctx, providers.ChatRequest{
+	_, err := provider.PredictStream(ctx, providers.PredictionRequest{
 		Messages: []types.Message{{Role: "user", Content: "test"}},
 	})
 
@@ -301,11 +301,11 @@ data: [DONE]
 	)
 
 	ctx := context.Background()
-	stream, err := provider.ChatStream(ctx, providers.ChatRequest{
+	stream, err := provider.PredictStream(ctx, providers.PredictionRequest{
 		Messages: []types.Message{{Role: "user", Content: "test"}},
 	})
 	if err != nil {
-		t.Fatalf("ChatStream failed: %v", err)
+		t.Fatalf("PredictStream failed: %v", err)
 	}
 
 	chunks := []providers.StreamChunk{}
@@ -340,11 +340,11 @@ func TestStreamEmptyResponse(t *testing.T) {
 	)
 
 	ctx := context.Background()
-	stream, err := provider.ChatStream(ctx, providers.ChatRequest{
+	stream, err := provider.PredictStream(ctx, providers.PredictionRequest{
 		Messages: []types.Message{{Role: "user", Content: "test"}},
 	})
 	if err != nil {
-		t.Fatalf("ChatStream failed: %v", err)
+		t.Fatalf("PredictStream failed: %v", err)
 	}
 
 	chunks := []providers.StreamChunk{}
@@ -397,12 +397,12 @@ data: [DONE]
 	)
 
 	ctx := context.Background()
-	stream, err := provider.ChatStream(ctx, providers.ChatRequest{
+	stream, err := provider.PredictStream(ctx, providers.PredictionRequest{
 		Messages: []types.Message{{Role: "user", Content: "test"}},
 		// Don't specify temperature - should use default
 	})
 	if err != nil {
-		t.Fatalf("ChatStream failed: %v", err)
+		t.Fatalf("PredictStream failed: %v", err)
 	}
 
 	// Consume stream

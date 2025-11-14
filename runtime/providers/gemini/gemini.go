@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -126,8 +127,8 @@ func convertMessagesToGeminiContents(messages []types.Message) []geminiContent {
 	return contents
 }
 
-// prepareGeminiRequest converts a chat request to Gemini format with defaults applied
-func (p *GeminiProvider) prepareGeminiRequest(req providers.ChatRequest) ([]geminiContent, *geminiContent, float32, float32, int) {
+// prepareGeminiRequest converts a predict request to Gemini format with defaults applied
+func (p *GeminiProvider) prepareGeminiRequest(req providers.PredictionRequest) ([]geminiContent, *geminiContent, float32, float32, int) {
 	// Handle system message
 	var systemInstruction *geminiContent
 	if req.System != "" {
@@ -178,26 +179,26 @@ func (p *GeminiProvider) buildGeminiRequest(contents []geminiContent, systemInst
 }
 
 // handleGeminiFinishReason processes error finish reasons from Gemini responses
-func (p *GeminiProvider) handleGeminiFinishReason(finishReason string, chatResp providers.ChatResponse, respBody []byte, start time.Time) (providers.ChatResponse, error) {
-	chatResp.Latency = time.Since(start)
-	chatResp.Raw = respBody
+func (p *GeminiProvider) handleGeminiFinishReason(finishReason string, predictResp providers.PredictionResponse, respBody []byte, start time.Time) (providers.PredictionResponse, error) {
+	predictResp.Latency = time.Since(start)
+	predictResp.Raw = respBody
 
 	switch finishReason {
 	case "MAX_TOKENS":
-		return chatResp, fmt.Errorf("gemini returned MAX_TOKENS error (this should not happen with reasonable limits)")
+		return predictResp, fmt.Errorf("gemini returned MAX_TOKENS error (this should not happen with reasonable limits)")
 	case "SAFETY":
-		return chatResp, fmt.Errorf("response blocked by Gemini safety filters")
+		return predictResp, fmt.Errorf("response blocked by Gemini safety filters")
 	case "RECITATION":
-		return chatResp, fmt.Errorf("response blocked due to recitation concerns")
+		return predictResp, fmt.Errorf("response blocked due to recitation concerns")
 	default:
-		return chatResp, fmt.Errorf("no content parts in response (finish reason: %s)", finishReason)
+		return predictResp, fmt.Errorf("no content parts in response (finish reason: %s)", finishReason)
 	}
 }
 
 // handleNoCandidatesError creates an appropriate error when no candidates are returned
-func (p *GeminiProvider) handleNoCandidatesError(geminiResp geminiResponse, chatResp providers.ChatResponse, respBody []byte, start time.Time) (providers.ChatResponse, error) {
-	chatResp.Latency = time.Since(start)
-	chatResp.Raw = respBody
+func (p *GeminiProvider) handleNoCandidatesError(geminiResp geminiResponse, predictResp providers.PredictionResponse, respBody []byte, start time.Time) (providers.PredictionResponse, error) {
+	predictResp.Latency = time.Since(start)
+	predictResp.Raw = respBody
 
 	// Check if prompt was blocked
 	if geminiResp.PromptFeedback != nil && geminiResp.PromptFeedback.BlockReason != "" {
@@ -210,7 +211,7 @@ func (p *GeminiProvider) handleNoCandidatesError(geminiResp geminiResponse, chat
 			errorMsg += ")"
 		}
 		errorMsg += " - consider adjusting safety settings or prompt content"
-		return chatResp, errors.New(errorMsg)
+		return predictResp, errors.New(errorMsg)
 	}
 
 	// No candidates but also no explicit block reason
@@ -219,14 +220,14 @@ func (p *GeminiProvider) handleNoCandidatesError(geminiResp geminiResponse, chat
 		errorMsg += fmt.Sprintf(" - used %d prompt tokens", geminiResp.UsageMetadata.PromptTokenCount)
 	}
 	errorMsg += " - this may indicate the model refused to generate content, try rephrasing the prompt or checking system instructions"
-	return chatResp, errors.New(errorMsg)
+	return predictResp, errors.New(errorMsg)
 }
 
 // makeGeminiHTTPRequest sends the HTTP request to Gemini API
-func (p *GeminiProvider) makeGeminiHTTPRequest(ctx context.Context, geminiReq geminiRequest, chatResp providers.ChatResponse, start time.Time) ([]byte, providers.ChatResponse, error) {
+func (p *GeminiProvider) makeGeminiHTTPRequest(ctx context.Context, geminiReq geminiRequest, predictResp providers.PredictionResponse, start time.Time) ([]byte, providers.PredictionResponse, error) {
 	reqBody, err := json.Marshal(geminiReq)
 	if err != nil {
-		return nil, chatResp, fmt.Errorf("failed to marshal request: %w", err)
+		return nil, predictResp, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	// Build URL with API key
@@ -241,8 +242,8 @@ func (p *GeminiProvider) makeGeminiHTTPRequest(ctx context.Context, geminiReq ge
 	// Make HTTP request
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
 	if err != nil {
-		chatResp.Latency = time.Since(start)
-		return nil, chatResp, fmt.Errorf("failed to create request: %w", err)
+		predictResp.Latency = time.Since(start)
+		return nil, predictResp, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
@@ -250,41 +251,41 @@ func (p *GeminiProvider) makeGeminiHTTPRequest(ctx context.Context, geminiReq ge
 	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
 		logger.APIResponse("Gemini", 0, "", err)
-		chatResp.Latency = time.Since(start)
-		return nil, chatResp, fmt.Errorf("failed to send request: %w", err)
+		predictResp.Latency = time.Since(start)
+		return nil, predictResp, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		logger.APIResponse("Gemini", resp.StatusCode, "", err)
-		chatResp.Latency = time.Since(start)
-		return nil, chatResp, fmt.Errorf("failed to read response: %w", err)
+		predictResp.Latency = time.Since(start)
+		return nil, predictResp, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	// Debug log the response
 	logger.APIResponse("Gemini", resp.StatusCode, string(respBody), nil)
 
 	if resp.StatusCode != http.StatusOK {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBody
-		return nil, chatResp, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
+		predictResp.Latency = time.Since(start)
+		predictResp.Raw = respBody
+		return nil, predictResp, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	return respBody, chatResp, nil
+	return respBody, predictResp, nil
 }
 
 // parseAndValidateGeminiResponse parses and validates the Gemini API response
-func (p *GeminiProvider) parseAndValidateGeminiResponse(respBody []byte, chatResp providers.ChatResponse, start time.Time) (geminiResponse, geminiCandidate, providers.ChatResponse, error) {
+func (p *GeminiProvider) parseAndValidateGeminiResponse(respBody []byte, predictResp providers.PredictionResponse, start time.Time) (geminiResponse, geminiCandidate, providers.PredictionResponse, error) {
 	var geminiResp geminiResponse
 	if err := json.Unmarshal(respBody, &geminiResp); err != nil {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBody
-		return geminiResp, geminiCandidate{}, chatResp, fmt.Errorf("failed to unmarshal response: %w", err)
+		predictResp.Latency = time.Since(start)
+		predictResp.Raw = respBody
+		return geminiResp, geminiCandidate{}, predictResp, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 
 	if len(geminiResp.Candidates) == 0 {
-		resp, err := p.handleNoCandidatesError(geminiResp, chatResp, respBody, start)
+		resp, err := p.handleNoCandidatesError(geminiResp, predictResp, respBody, start)
 		return geminiResp, geminiCandidate{}, resp, err
 	}
 
@@ -292,21 +293,21 @@ func (p *GeminiProvider) parseAndValidateGeminiResponse(respBody []byte, chatRes
 
 	// Check for safety blocking
 	if candidate.FinishReason == "SAFETY" {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBody
-		return geminiResp, candidate, chatResp, fmt.Errorf("response blocked by safety filters")
+		predictResp.Latency = time.Since(start)
+		predictResp.Raw = respBody
+		return geminiResp, candidate, predictResp, fmt.Errorf("response blocked by safety filters")
 	}
 
 	if len(candidate.Content.Parts) == 0 {
-		resp, err := p.handleGeminiFinishReason(candidate.FinishReason, chatResp, respBody, start)
+		resp, err := p.handleGeminiFinishReason(candidate.FinishReason, predictResp, respBody, start)
 		return geminiResp, candidate, resp, err
 	}
 
-	return geminiResp, candidate, chatResp, nil
+	return geminiResp, candidate, predictResp, nil
 }
 
-// Chat sends a chat request to Gemini
-func (p *GeminiProvider) Chat(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
+// Predict sends a predict request to Gemini
+func (p *GeminiProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	start := time.Now()
 
 	// Convert messages to Gemini format and apply defaults
@@ -316,23 +317,23 @@ func (p *GeminiProvider) Chat(ctx context.Context, req providers.ChatRequest) (p
 	geminiReq := p.buildGeminiRequest(contents, systemInstruction, temperature, topP, maxTokens)
 
 	// Prepare response with raw request if configured (set early to preserve on error)
-	chatResp := providers.ChatResponse{
+	predictResp := providers.PredictionResponse{
 		Latency: time.Since(start), // Will be updated at the end
 	}
 	if p.ShouldIncludeRawOutput() {
-		chatResp.RawRequest = geminiReq
+		predictResp.RawRequest = geminiReq
 	}
 
 	// Make HTTP request
-	respBody, chatResp, err := p.makeGeminiHTTPRequest(ctx, geminiReq, chatResp, start)
+	respBody, predictResp, err := p.makeGeminiHTTPRequest(ctx, geminiReq, predictResp, start)
 	if err != nil {
-		return chatResp, err
+		return predictResp, err
 	}
 
 	// Parse and validate response
-	geminiResp, candidate, chatResp, err := p.parseAndValidateGeminiResponse(respBody, chatResp, start)
+	geminiResp, candidate, predictResp, err := p.parseAndValidateGeminiResponse(respBody, predictResp, start)
 	if err != nil {
-		return chatResp, err
+		return predictResp, err
 	}
 
 	// Extract token counts
@@ -347,12 +348,65 @@ func (p *GeminiProvider) Chat(ctx context.Context, req providers.ChatRequest) (p
 	// Calculate cost breakdown (Gemini doesn't support cached tokens yet)
 	costBreakdown := p.CalculateCost(tokensIn, tokensOut, 0)
 
-	chatResp.Content = candidate.Content.Parts[0].Text
-	chatResp.CostInfo = &costBreakdown
-	chatResp.Latency = latency
-	chatResp.Raw = respBody
+	// Extract all content parts (text + inline media + markdown images)
+	var contentParts []types.ContentPart
+	var textContent strings.Builder
 
-	return chatResp, nil
+	for _, part := range candidate.Content.Parts {
+		if part.Text != "" {
+			// Check if text contains markdown images and split accordingly
+			textParts := processTextPartForImages(part.Text)
+			contentParts = append(contentParts, textParts...)
+			textContent.WriteString(part.Text)
+		}
+
+		if part.InlineData != nil {
+			// Add inline media part (image, audio, video)
+			mediaType := inferMediaTypeFromMIME(part.InlineData.MimeType)
+			var mediaPart types.ContentPart
+
+			switch mediaType {
+			case types.ContentTypeImage:
+				mediaPart = types.NewImagePartFromData(part.InlineData.Data, part.InlineData.MimeType, nil)
+			case types.ContentTypeAudio:
+				mediaPart = types.NewAudioPartFromData(part.InlineData.Data, part.InlineData.MimeType)
+			case types.ContentTypeVideo:
+				mediaPart = types.NewVideoPartFromData(part.InlineData.Data, part.InlineData.MimeType)
+			default:
+				// Unknown media type, skip
+				continue
+			}
+
+			contentParts = append(contentParts, mediaPart)
+		}
+	}
+
+	predictResp.Content = textContent.String()
+	predictResp.Parts = contentParts
+	predictResp.CostInfo = &costBreakdown
+	predictResp.Latency = latency
+	predictResp.Raw = respBody
+
+	// Debug log the extracted parts
+	logger.Debug("Extracted content parts from Gemini response",
+		"total_parts", len(contentParts),
+		"text_parts", countPartsByType(contentParts, types.ContentTypeText),
+		"image_parts", countPartsByType(contentParts, types.ContentTypeImage),
+		"audio_parts", countPartsByType(contentParts, types.ContentTypeAudio),
+		"video_parts", countPartsByType(contentParts, types.ContentTypeVideo))
+
+	return predictResp, nil
+}
+
+// countPartsByType counts how many parts match a given type
+func countPartsByType(parts []types.ContentPart, partType string) int {
+	count := 0
+	for _, part := range parts {
+		if part.Type == partType {
+			count++
+		}
+	}
+	return count
 }
 
 // CalculateCost calculates detailed cost breakdown including optional cached tokens
@@ -406,8 +460,8 @@ func (p *GeminiProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) ty
 	}
 }
 
-// ChatStream streams a chat response from Gemini
-func (p *GeminiProvider) ChatStream(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
+// PredictStream streams a predict response from Gemini
+func (p *GeminiProvider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	// Convert messages to Gemini format and apply defaults
 	contents, systemInstruction, temperature, topP, maxTokens := p.prepareGeminiRequest(req)
 
@@ -547,6 +601,20 @@ func (p *GeminiProvider) streamResponse(ctx context.Context, body io.ReadCloser,
 		Content:      accumulated,
 		TokenCount:   totalTokens,
 		FinishReason: providers.StringPtr("stop"),
+	}
+}
+
+// inferMediaTypeFromMIME infers the content type (image/audio/video) from a MIME type
+func inferMediaTypeFromMIME(mimeType string) string {
+	switch {
+	case strings.HasPrefix(mimeType, "image/"):
+		return types.ContentTypeImage
+	case strings.HasPrefix(mimeType, "audio/"):
+		return types.ContentTypeAudio
+	case strings.HasPrefix(mimeType, "video/"):
+		return types.ContentTypeVideo
+	default:
+		return ""
 	}
 }
 

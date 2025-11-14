@@ -248,23 +248,23 @@ func TestUnmarshalJSON(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var result map[string]interface{}
-			chatResp := &ChatResponse{}
+			predictResp := &PredictionResponse{}
 			start := time.Now()
 
-			err := UnmarshalJSON([]byte(tt.jsonData), &result, chatResp, start)
+			err := UnmarshalJSON([]byte(tt.jsonData), &result, predictResp, start)
 
 			if tt.expectError {
 				if err == nil {
 					t.Error("Expected error but got nil")
 				}
-				if tt.checkLatency && chatResp.Latency == 0 {
+				if tt.checkLatency && predictResp.Latency == 0 {
 					t.Error("Expected latency to be set on error")
 				}
-				if tt.checkRaw && len(chatResp.Raw) == 0 {
+				if tt.checkRaw && len(predictResp.Raw) == 0 {
 					t.Error("Expected raw response to be set on error")
 				}
-				if tt.checkRaw && string(chatResp.Raw) != tt.jsonData {
-					t.Errorf("Expected raw to be %q, got %q", tt.jsonData, string(chatResp.Raw))
+				if tt.checkRaw && string(predictResp.Raw) != tt.jsonData {
+					t.Errorf("Expected raw to be %q, got %q", tt.jsonData, string(predictResp.Raw))
 				}
 			} else {
 				if err != nil {
@@ -287,13 +287,13 @@ func TestUnmarshalJSON_TypeMismatch(t *testing.T) {
 	}
 
 	var result StructType
-	chatResp := &ChatResponse{}
+	predictResp := &PredictionResponse{}
 	start := time.Now()
 
 	// This JSON doesn't match the struct
 	jsonData := `{"different": "fields", "other": 123}`
 
-	err := UnmarshalJSON([]byte(jsonData), &result, chatResp, start)
+	err := UnmarshalJSON([]byte(jsonData), &result, predictResp, start)
 
 	// Should not error as JSON is valid, just doesn't populate the struct fully
 	if err != nil {
@@ -326,23 +326,23 @@ func TestSetErrorResponse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			chatResp := &ChatResponse{}
+			predictResp := &PredictionResponse{}
 			start := time.Now()
 
 			// Wait a tiny bit to ensure latency is measurable
 			time.Sleep(1 * time.Millisecond)
 
-			SetErrorResponse(chatResp, []byte(tt.respBody), start)
+			SetErrorResponse(predictResp, []byte(tt.respBody), start)
 
 			if tt.checkFields {
-				if chatResp.Latency == 0 {
+				if predictResp.Latency == 0 {
 					t.Error("Expected latency to be set")
 				}
-				if chatResp.Latency < time.Millisecond {
+				if predictResp.Latency < time.Millisecond {
 					t.Error("Expected latency to be at least 1ms")
 				}
-				if string(chatResp.Raw) != tt.respBody {
-					t.Errorf("Expected raw to be %q, got %q", tt.respBody, string(chatResp.Raw))
+				if string(predictResp.Raw) != tt.respBody {
+					t.Errorf("Expected raw to be %q, got %q", tt.respBody, string(predictResp.Raw))
 				}
 			}
 		})
@@ -364,7 +364,7 @@ func TestBaseProvider_Integration(t *testing.T) {
 
 		base, _ := NewBaseProviderWithAPIKey("test", false, "TEST_KEY_1", "TEST_KEY_2")
 		start := time.Now()
-		chatResp := &ChatResponse{}
+		predictResp := &PredictionResponse{}
 
 		// Make request
 		resp, err := base.GetHTTPClient().Get(server.URL)
@@ -380,12 +380,12 @@ func TestBaseProvider_Integration(t *testing.T) {
 
 		// Simulate setting error response
 		errorBody := []byte(`{"error": "test"}`)
-		SetErrorResponse(chatResp, errorBody, start)
+		SetErrorResponse(predictResp, errorBody, start)
 
-		if chatResp.Latency == 0 {
+		if predictResp.Latency == 0 {
 			t.Error("Expected latency to be set")
 		}
-		if len(chatResp.Raw) == 0 {
+		if len(predictResp.Raw) == 0 {
 			t.Error("Expected raw to be set")
 		}
 	})
@@ -405,7 +405,7 @@ func TestBaseProvider_Integration(t *testing.T) {
 
 		base, _ := NewBaseProviderWithAPIKey("test", true, "TEST_KEY_1", "TEST_KEY_2")
 		start := time.Now()
-		chatResp := &ChatResponse{}
+		predictResp := &PredictionResponse{}
 
 		// Make request
 		resp, err := base.GetHTTPClient().Get(server.URL)
@@ -426,7 +426,7 @@ func TestBaseProvider_Integration(t *testing.T) {
 			"response": "success",
 		})
 
-		err = UnmarshalJSON(respBody, &result, chatResp, start)
+		err = UnmarshalJSON(respBody, &result, predictResp, start)
 		if err != nil {
 			t.Errorf("Expected successful unmarshal, got: %v", err)
 		}

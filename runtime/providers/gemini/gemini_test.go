@@ -407,3 +407,72 @@ func TestGeminiPromptFeedback_Structure(t *testing.T) {
 		t.Error("BlockReason mismatch")
 	}
 }
+
+// TestInferMediaTypeFromMIME tests the MIME type inference function
+func TestInferMediaTypeFromMIME(t *testing.T) {
+	tests := []struct {
+		name     string
+		mimeType string
+		want     string
+	}{
+		{
+			name:     "image/jpeg",
+			mimeType: "image/jpeg",
+			want:     "image",
+		},
+		{
+			name:     "image/png",
+			mimeType: "image/png",
+			want:     "image",
+		},
+		{
+			name:     "image/webp",
+			mimeType: "image/webp",
+			want:     "image",
+		},
+		{
+			name:     "audio/mp3",
+			mimeType: "audio/mp3",
+			want:     "audio",
+		},
+		{
+			name:     "audio/wav",
+			mimeType: "audio/wav",
+			want:     "audio",
+		},
+		{
+			name:     "video/mp4",
+			mimeType: "video/mp4",
+			want:     "video",
+		},
+		{
+			name:     "video/webm",
+			mimeType: "video/webm",
+			want:     "video",
+		},
+		{
+			name:     "unknown type",
+			mimeType: "application/json",
+			want:     "",
+		},
+		{
+			name:     "text type",
+			mimeType: "text/plain",
+			want:     "",
+		},
+		{
+			name:     "empty string",
+			mimeType: "",
+			want:     "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := inferMediaTypeFromMIME(tt.mimeType)
+			if got != tt.want {
+				t.Errorf("inferMediaTypeFromMIME(%q) = %q, want %q", tt.mimeType, got, tt.want)
+			}
+		})
+	}
+}

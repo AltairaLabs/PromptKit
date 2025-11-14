@@ -111,7 +111,7 @@ func (m *MockProvider) ID() string {
 	return m.id
 }
 
-func (m *MockProvider) Chat(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
+func (m *MockProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	costBreakdown := types.CostInfo{
 		InputTokens:   10,
 		OutputTokens:  20,
@@ -119,7 +119,7 @@ func (m *MockProvider) Chat(ctx context.Context, req providers.ChatRequest) (pro
 		OutputCostUSD: 0.0002,
 		TotalCost:     0.0003,
 	}
-	return providers.ChatResponse{
+	return providers.PredictionResponse{
 		Content:  "mock response",
 		CostInfo: &costBreakdown,
 	}, nil
@@ -133,7 +133,7 @@ func (m *MockProvider) Close() error {
 	return nil
 }
 
-func (m *MockProvider) ChatStream(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
+func (m *MockProvider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	return nil, nil
 }
 

@@ -49,26 +49,26 @@ func TestBuildProviderRequest_MetadataCopy(t *testing.T) {
 
 			if tt.expectedMetadata == nil {
 				if req.Metadata != nil && len(req.Metadata) > 0 {
-					t.Errorf("Expected ChatRequest.Metadata to be nil or empty, got %v", req.Metadata)
+					t.Errorf("Expected PredictionRequest.Metadata to be nil or empty, got %v", req.Metadata)
 				}
 			} else {
 				if req.Metadata == nil {
-					t.Error("Expected ChatRequest.Metadata to be set, but it was nil")
+					t.Error("Expected PredictionRequest.Metadata to be set, but it was nil")
 					return
 				}
 
 				if len(req.Metadata) != len(tt.expectedMetadata) {
-					t.Errorf("ChatRequest.Metadata length = %d, want %d", len(req.Metadata), len(tt.expectedMetadata))
+					t.Errorf("PredictionRequest.Metadata length = %d, want %d", len(req.Metadata), len(tt.expectedMetadata))
 				}
 
 				for key, expectedValue := range tt.expectedMetadata {
 					actualValue, exists := req.Metadata[key]
 					if !exists {
-						t.Errorf("Expected metadata key %q to exist in ChatRequest", key)
+						t.Errorf("Expected metadata key %q to exist in PredictionRequest", key)
 						continue
 					}
 					if actualValue != expectedValue {
-						t.Errorf("ChatRequest.Metadata[%q] = %v, want %v", key, actualValue, expectedValue)
+						t.Errorf("PredictionRequest.Metadata[%q] = %v, want %v", key, actualValue, expectedValue)
 					}
 				}
 			}

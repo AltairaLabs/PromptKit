@@ -154,6 +154,16 @@ func (m *assertionMiddleware) buildValidatorParams(
 	params["_turn_messages"] = deepCloneMessages(turnMessages)
 	params["_execution_context_messages"] = deepCloneMessages(allMessages)
 
+	// Add the last assistant message for media validators to access Parts
+	if len(turnMessages) > 0 {
+		for i := len(turnMessages) - 1; i >= 0; i-- {
+			if turnMessages[i].Role == "assistant" {
+				params["_assistant_message"] = turnMessages[i]
+				break
+			}
+		}
+	}
+
 	return params
 }
 

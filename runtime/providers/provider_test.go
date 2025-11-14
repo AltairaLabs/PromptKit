@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -17,10 +18,10 @@ type testMockProvider struct {
 }
 
 func (m *testMockProvider) ID() string { return m.id }
-func (m *testMockProvider) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error) {
-	return ChatResponse{Content: m.value}, nil
+func (m *testMockProvider) Predict(ctx context.Context, req PredictionRequest) (PredictionResponse, error) {
+	return PredictionResponse{Content: m.value}, nil
 }
-func (m *testMockProvider) ChatStream(ctx context.Context, req ChatRequest) (<-chan StreamChunk, error) {
+func (m *testMockProvider) PredictStream(ctx context.Context, req PredictionRequest) (<-chan StreamChunk, error) {
 	ch := make(chan StreamChunk)
 	close(ch)
 	return ch, nil
@@ -32,7 +33,7 @@ func (m *testMockProvider) CalculateCost(inputTokens, outputTokens, cachedTokens
 	return types.CostInfo{}
 }
 
-func TestChatMessage_Structure(t *testing.T) {
+func TestPredictMessage_Structure(t *testing.T) {
 	msg := types.Message{
 		Role:    "user",
 		Content: "Hello, world!",
@@ -47,7 +48,7 @@ func TestChatMessage_Structure(t *testing.T) {
 	}
 }
 
-func TestChatMessage_WithToolCalls(t *testing.T) {
+func TestPredictMessage_WithToolCalls(t *testing.T) {
 	toolCall := types.MessageToolCall{
 		Name: "search",
 		Args: json.RawMessage(`{"query": "test"}`),
@@ -69,7 +70,7 @@ func TestChatMessage_WithToolCalls(t *testing.T) {
 	}
 }
 
-func TestChatMessage_ToolResult(t *testing.T) {
+func TestPredictMessage_ToolResult(t *testing.T) {
 	msg := types.Message{
 		Role:    "tool",
 		Content: `{"result": "found"}`,
@@ -121,9 +122,9 @@ func TestToolCall_Structure(t *testing.T) {
 	}
 }
 
-func TestChatRequest_Structure(t *testing.T) {
+func TestPredictionRequest_Structure(t *testing.T) {
 	seed := 42
-	req := ChatRequest{
+	req := PredictionRequest{
 		System: "You are helpful",
 		Messages: []types.Message{
 			{Role: "user", Content: "Hello"},
@@ -159,8 +160,8 @@ func TestChatRequest_Structure(t *testing.T) {
 	}
 }
 
-func TestChatRequest_MultipleMessages(t *testing.T) {
-	req := ChatRequest{
+func TestPredictionRequest_MultipleMessages(t *testing.T) {
+	req := PredictionRequest{
 		System: "Test",
 		Messages: []types.Message{
 			{Role: "user", Content: "First"},
@@ -184,8 +185,8 @@ func TestChatRequest_MultipleMessages(t *testing.T) {
 	}
 }
 
-func TestChatResponse_Structure(t *testing.T) {
-	resp := ChatResponse{
+func TestPredictionResponse_Structure(t *testing.T) {
+	resp := PredictionResponse{
 		Content: "Response text",
 		CostInfo: &types.CostInfo{
 			InputTokens:   100,
@@ -221,8 +222,8 @@ func TestChatResponse_Structure(t *testing.T) {
 	}
 }
 
-func TestChatResponse_WithToolCalls(t *testing.T) {
-	resp := ChatResponse{
+func TestPredictionResponse_WithToolCalls(t *testing.T) {
+	resp := PredictionResponse{
 		Content: "Using tools",
 		CostInfo: &types.CostInfo{
 			InputTokens:  50,
@@ -502,6 +503,16 @@ func TestRegistry_RegisterOverwrite(t *testing.T) {
 	}
 }
 
+// testErrorProvider is a mock provider that returns an error on Close
+type testErrorProvider struct {
+	*testMockProvider
+	closeErr error
+}
+
+func (p *testErrorProvider) Close() error {
+	return p.closeErr
+}
+
 func TestRegistry_Close(t *testing.T) {
 	registry := NewRegistry()
 
@@ -524,7 +535,29 @@ func TestRegistry_Close(t *testing.T) {
 	}
 }
 
-func TestChatMessage_DifferentRoles(t *testing.T) {
+func TestRegistry_CloseWithErrorHandling(t *testing.T) {
+	registry := NewRegistry()
+
+	closeErr := errors.New("close failed")
+	errorProvider := &testErrorProvider{
+		testMockProvider: &testMockProvider{id: "error-provider", value: "test"},
+		closeErr:         closeErr,
+	}
+
+	registry.Register(errorProvider)
+
+	// Close should return the error from the provider
+	err := registry.Close()
+	if err == nil {
+		t.Fatal("Expected Close() to return error, got nil")
+	}
+
+	if err != closeErr {
+		t.Errorf("Expected error '%v', got '%v'", closeErr, err)
+	}
+}
+
+func TestPredictMessage_DifferentRoles(t *testing.T) {
 	roles := []string{"user", "assistant", "system", "tool"}
 
 	for _, role := range roles {
@@ -539,8 +572,8 @@ func TestChatMessage_DifferentRoles(t *testing.T) {
 	}
 }
 
-func TestChatRequest_NilSeed(t *testing.T) {
-	req := ChatRequest{
+func TestPredictionRequest_NilSeed(t *testing.T) {
+	req := PredictionRequest{
 		System:      "Test",
 		Messages:    []types.Message{{Role: "user", Content: "Hi"}},
 		Temperature: 0.7,
@@ -553,8 +586,8 @@ func TestChatRequest_NilSeed(t *testing.T) {
 	}
 }
 
-func TestChatResponse_ZeroLatency(t *testing.T) {
-	resp := ChatResponse{
+func TestPredictionResponse_ZeroLatency(t *testing.T) {
+	resp := PredictionResponse{
 		Content: "Fast response",
 		CostInfo: &types.CostInfo{
 			InputTokens:  10,
@@ -583,5 +616,15 @@ func TestToolCall_EmptyArgs(t *testing.T) {
 
 	if len(parsed) != 0 {
 		t.Error("Expected empty args object")
+	}
+}
+
+// TestUnsupportedProviderError tests the error message formatting
+func TestUnsupportedProviderError(t *testing.T) {
+	err := &UnsupportedProviderError{ProviderType: "unknown-provider"}
+	expected := "unsupported provider type: unknown-provider"
+
+	if err.Error() != expected {
+		t.Errorf("Expected error message %q, got %q", expected, err.Error())
 	}
 }

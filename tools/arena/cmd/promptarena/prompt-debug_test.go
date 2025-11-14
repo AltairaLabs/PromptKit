@@ -72,7 +72,7 @@ func TestOutputPromptJSON(t *testing.T) {
 			name:             "basic output",
 			systemPrompt:     "You are a helpful assistant.",
 			region:           "us-east-1",
-			taskType:         "chat",
+			taskType:         "predict",
 			configFile:       "config.yaml",
 			variables:        map[string]string{"var1": "value1"},
 			promptPacksCount: 2,
@@ -163,7 +163,7 @@ func TestParsePromptDebugFlags(t *testing.T) {
 				"config":      "test.yaml",
 				"scenario":    "scenario.yaml",
 				"region":      "us-east-1",
-				"task-type":   "chat",
+				"task-type":   "predict",
 				"persona":     "assistant",
 				"context":     "test context",
 				"domain":      "testing",
@@ -180,7 +180,7 @@ func TestParsePromptDebugFlags(t *testing.T) {
 				assert.Equal(t, "test.yaml", opts.ConfigFile)
 				assert.Equal(t, "scenario.yaml", opts.ScenarioFile)
 				assert.Equal(t, "us-east-1", opts.Region)
-				assert.Equal(t, "chat", opts.TaskType)
+				assert.Equal(t, "predict", opts.TaskType)
 				assert.Equal(t, "assistant", opts.Persona)
 				assert.Equal(t, "test context", opts.Context)
 				assert.Equal(t, "testing", opts.Domain)
@@ -648,7 +648,7 @@ func TestGenerateAndDisplayPrompt(t *testing.T) {
 
 	opts := &promptDebugOptions{
 		Region:     "us-east-1",
-		TaskType:   "chat",
+		TaskType:   "predict",
 		ShowPrompt: true,
 		ShowMeta:   true,
 		ShowStats:  true,
@@ -667,7 +667,7 @@ func TestBuildSystemPrompt(t *testing.T) {
 
 	opts := &promptDebugOptions{
 		Region:   "us-east-1",
-		TaskType: "chat",
+		TaskType: "predict",
 	}
 
 	t.Run("handles empty config without panic", func(t *testing.T) {
@@ -683,7 +683,7 @@ func TestBuildPersonaPrompt(t *testing.T) {
 
 	opts := &promptDebugOptions{
 		Region:   "us-east-1",
-		TaskType: "chat",
+		TaskType: "predict",
 		Persona:  "test-persona",
 	}
 
@@ -704,7 +704,7 @@ func TestBuildRegionTaskPrompt(t *testing.T) {
 
 	opts := &promptDebugOptions{
 		Region:   "us-east-1",
-		TaskType: "chat",
+		TaskType: "predict",
 	}
 
 	variables := map[string]string{
@@ -726,14 +726,14 @@ func TestDisplayPromptResults(t *testing.T) {
 		ShowStats:  true,
 		OutputJSON: false,
 		Region:     "us-east-1",
-		TaskType:   "chat",
+		TaskType:   "predict",
 	}
 
 	promptResult := "You are a helpful assistant."
-	taskType := "chat"
+	taskType := "predict"
 	variables := map[string]string{
 		"region":   "us-east-1",
-		"taskType": "chat",
+		"taskType": "predict",
 	}
 	cfg := &config.Config{}
 
@@ -747,7 +747,7 @@ func TestDisplayPromptResults(t *testing.T) {
 func TestDisplayMetadata(t *testing.T) {
 	opts := &promptDebugOptions{
 		Region:   "us-east-1",
-		TaskType: "chat",
+		TaskType: "predict",
 	}
 
 	cfg := &config.Config{}

@@ -13,14 +13,14 @@ func TestPrepareOpenAIMessages(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		req            providers.ChatRequest
+		req            providers.PredictionRequest
 		expectedCount  int
 		checkFirstRole string
 		checkSystem    bool
 	}{
 		{
 			name: "Messages with system prompt",
-			req: providers.ChatRequest{
+			req: providers.PredictionRequest{
 				System: "You are a helpful assistant",
 				Messages: []types.Message{
 					{Role: "user", Content: "Hello"},
@@ -32,7 +32,7 @@ func TestPrepareOpenAIMessages(t *testing.T) {
 		},
 		{
 			name: "Messages without system prompt",
-			req: providers.ChatRequest{
+			req: providers.PredictionRequest{
 				System: "",
 				Messages: []types.Message{
 					{Role: "user", Content: "Hello"},
@@ -45,7 +45,7 @@ func TestPrepareOpenAIMessages(t *testing.T) {
 		},
 		{
 			name: "Empty messages with system",
-			req: providers.ChatRequest{
+			req: providers.PredictionRequest{
 				System:   "Test system",
 				Messages: []types.Message{},
 			},
@@ -54,7 +54,7 @@ func TestPrepareOpenAIMessages(t *testing.T) {
 		},
 		{
 			name: "Multiple messages preserve order",
-			req: providers.ChatRequest{
+			req: providers.PredictionRequest{
 				Messages: []types.Message{
 					{Role: "user", Content: "First"},
 					{Role: "assistant", Content: "Second"},
@@ -122,7 +122,7 @@ func TestPrepareOpenAIMessages(t *testing.T) {
 func TestApplyRequestDefaults(t *testing.T) {
 	tests := []struct {
 		name              string
-		req               providers.ChatRequest
+		req               providers.PredictionRequest
 		defaults          providers.ProviderDefaults
 		expectedTemp      float32
 		expectedTopP      float32
@@ -130,7 +130,7 @@ func TestApplyRequestDefaults(t *testing.T) {
 	}{
 		{
 			name: "Uses request values when provided",
-			req: providers.ChatRequest{
+			req: providers.PredictionRequest{
 				Temperature: 0.8,
 				TopP:        0.95,
 				MaxTokens:   500,
@@ -146,7 +146,7 @@ func TestApplyRequestDefaults(t *testing.T) {
 		},
 		{
 			name: "Falls back to defaults for zero values",
-			req: providers.ChatRequest{
+			req: providers.PredictionRequest{
 				Temperature: 0,
 				TopP:        0,
 				MaxTokens:   0,
@@ -162,7 +162,7 @@ func TestApplyRequestDefaults(t *testing.T) {
 		},
 		{
 			name: "Mixed values - some request, some defaults",
-			req: providers.ChatRequest{
+			req: providers.PredictionRequest{
 				Temperature: 0.6,
 				TopP:        0,
 				MaxTokens:   1500,
@@ -178,7 +178,7 @@ func TestApplyRequestDefaults(t *testing.T) {
 		},
 		{
 			name: "All defaults when request is empty",
-			req:  providers.ChatRequest{},
+			req:  providers.PredictionRequest{},
 			defaults: providers.ProviderDefaults{
 				Temperature: 0.75,
 				TopP:        0.88,
@@ -549,7 +549,7 @@ func TestOpenAIHelpers_Integration(t *testing.T) {
 			},
 		}
 
-		req := providers.ChatRequest{
+		req := providers.PredictionRequest{
 			System: "You are a test assistant",
 			Messages: []types.Message{
 				{Role: "user", Content: "Hello"},

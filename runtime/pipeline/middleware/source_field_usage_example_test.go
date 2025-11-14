@@ -33,7 +33,7 @@ func TestSourceField_UsageExample(t *testing.T) {
 
 	// Create mock provider for new turn
 	mockProvider := &mockProviderForSourceTest{
-		response: providers.ChatResponse{
+		response: providers.PredictionResponse{
 			Content: "5+5 equals 10",
 		},
 	}

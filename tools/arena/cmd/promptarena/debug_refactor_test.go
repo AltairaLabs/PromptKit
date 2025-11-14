@@ -112,7 +112,7 @@ func TestPrintScenariosOutput(t *testing.T) {
 				"test1": {
 					ID:          "test1",
 					Description: "Test scenario 1",
-					TaskType:    "chat",
+					TaskType:    "predict",
 					Turns: []config.TurnDefinition{
 						{Role: "user", Content: "Hello"},
 					},
@@ -152,7 +152,7 @@ func TestPrintScenarioDetailsOutput(t *testing.T) {
 	scenario := config.Scenario{
 		ID:          "test-scenario",
 		Description: "A test scenario",
-		TaskType:    "chat",
+		TaskType:    "predict",
 		Turns: []config.TurnDefinition{
 			{Role: "user", Content: "Hello"},
 			{Role: "assistant", Content: "Hi there"},
@@ -326,7 +326,7 @@ metadata:
   name: test-scenario
 spec:
   id: test-scenario
-  task_type: chat
+  task_type: predict
   description: A test scenario
   turns:
     - role: user

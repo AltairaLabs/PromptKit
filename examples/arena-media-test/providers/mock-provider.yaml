@@ -4,24 +4,11 @@ metadata:
   name: mock-media
 
 spec:
-  id: mock-media
   type: mock
   model: mock-media-model
-  base_url: ""
-  
-  # Reference to mock responses file
   additional_config:
-    mock_config: /examples/arena-media-test/providers/mock-responses.yaml
-  
+    mock_config: providers/mock-responses.yaml
   defaults:
     temperature: 0.7
-    top_p: 1.0
-    max_tokens: 100
-  
-  rate_limit:
-    rps: 10
-    burst: 20
-  
-  pricing:
-    input_cost_per_1k: 0.0
-    output_cost_per_1k: 0.0
+    max_tokens: 1000
+

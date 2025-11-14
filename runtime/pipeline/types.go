@@ -221,6 +221,7 @@ type Middleware interface {
 type Response struct {
 	Role          string
 	Content       string
+	Parts         []types.ContentPart // Multimodal content parts (text, image, audio, video)
 	ToolCalls     []types.MessageToolCall
 	FinalResponse string // If tools were used, this is the final response after tools
 	Metadata      ResponseMetadata

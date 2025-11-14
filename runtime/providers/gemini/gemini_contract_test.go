@@ -71,8 +71,8 @@ func TestGeminiToolProvider_Contract(t *testing.T) {
 	t.Skip("Contract tests temporarily disabled during package restructuring")
 }
 
-// TestGeminiToolProvider_ChatWithToolsLatency verifies the latency bug fix for Gemini.
-func TestGeminiToolProvider_ChatWithToolsLatency(t *testing.T) {
+// TestGeminiToolProvider_PredictWithToolsLatency verifies the latency bug fix for Gemini.
+func TestGeminiToolProvider_PredictWithToolsLatency(t *testing.T) {
 	apiKey := os.Getenv("GEMINI_API_KEY")
 	if apiKey == "" {
 		t.Skip("Skipping Gemini tool latency test - GEMINI_API_KEY not set")
@@ -94,14 +94,14 @@ func TestGeminiToolProvider_ChatWithToolsLatency(t *testing.T) {
 	)
 	defer provider.Close()
 
-	// This test ensures ChatWithTools sets latency correctly
+	// This test ensures PredictWithTools sets latency correctly
 	toolSupport, ok := interface{}(provider).(providers.ToolSupport)
 	if !ok {
 		t.Fatal("Provider doesn't implement ToolSupport interface")
 	}
 
 	ctx := context.Background()
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "What's the weather like in San Francisco?"},
 		},
@@ -130,7 +130,7 @@ func TestGeminiToolProvider_ChatWithToolsLatency(t *testing.T) {
 	}
 
 	start := time.Now()
-	resp, toolCalls, err := toolSupport.ChatWithTools(ctx, req, tools, "auto")
+	resp, toolCalls, err := toolSupport.PredictWithTools(ctx, req, tools, "auto")
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -140,10 +140,10 @@ func TestGeminiToolProvider_ChatWithToolsLatency(t *testing.T) {
 
 	// CRITICAL: Latency must be non-zero
 	if resp.Latency == 0 {
-		t.Errorf("CRITICAL BUG: ChatWithTools() returned Latency=0, but call took %v", elapsed)
+		t.Errorf("CRITICAL BUG: PredictWithTools() returned Latency=0, but call took %v", elapsed)
 		t.Logf("Response: %+v", resp)
 		t.Logf("ToolCalls: %+v", toolCalls)
 	}
 
-	t.Logf("✓ ChatWithTools() correctly set Latency=%v (actual: %v)", resp.Latency, elapsed)
+	t.Logf("✓ PredictWithTools() correctly set Latency=%v (actual: %v)", resp.Latency, elapsed)
 }

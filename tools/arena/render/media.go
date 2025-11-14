@@ -92,7 +92,7 @@ func renderMediaItem(item types.MediaItemSummary) string {
 }
 
 // renderMessageWithMedia shows rich media content in a message.
-// Returns HTML with media badges, text content, and individual media item cards.
+// Returns HTML with text content and individual media item cards.
 func renderMessageWithMedia(msg types.Message) string {
 	html := fmt.Sprintf("<div class='message %s'>", msg.Role)
 
@@ -102,15 +102,17 @@ func renderMessageWithMedia(msg types.Message) string {
 		mediaSummary = getMediaSummaryFromParts(msg.Parts)
 	}
 
-	// Render media summary badge if present
-	if mediaSummary != nil && mediaSummary.TotalParts > 0 {
-		html += renderMediaSummaryBadge(mediaSummary)
-	}
-
-	// Render text content
-	if msg.Content != "" {
-		html += fmt.Sprintf("<div class='message-text'>%s</div>",
-			template.HTMLEscapeString(msg.Content))
+	// Render text content - use GetContent() to extract text from Parts if needed
+	textContent := msg.GetContent()
+	if textContent != "" {
+		// Render markdown for assistant messages, escape HTML for others
+		var renderedContent string
+		if msg.Role == "assistant" {
+			renderedContent = string(renderMarkdown(textContent))
+		} else {
+			renderedContent = template.HTMLEscapeString(textContent)
+		}
+		html += fmt.Sprintf("<div class='message-text'>%s</div>", renderedContent)
 	}
 
 	// Render individual media items

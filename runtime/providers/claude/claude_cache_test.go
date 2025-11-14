@@ -58,13 +58,13 @@ func TestClaudeProvider_CacheControlNotSentForHaiku(t *testing.T) {
 		false,
 	)
 
-	// Create a chat request with a long message that would trigger cache_control
+	// Create a predict request with a long message that would trigger cache_control
 	longContent := ""
 	for i := 0; i < 10000; i++ {
 		longContent += "This is a long message to test caching. "
 	}
 
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: longContent},
 		},
@@ -72,10 +72,10 @@ func TestClaudeProvider_CacheControlNotSentForHaiku(t *testing.T) {
 		MaxTokens:   100,
 	}
 
-	// Execute the chat
-	_, err := provider.Chat(context.Background(), req)
+	// Execute the predict
+	_, err := provider.Predict(context.Background(), req)
 	if err != nil {
-		t.Fatalf("Chat failed: %v", err)
+		t.Fatalf("Predict failed: %v", err)
 	}
 
 	// CRITICAL TEST: Verify that cache_control was NOT sent
@@ -151,13 +151,13 @@ func TestClaudeToolProvider_CacheControlNotSentForHaiku(t *testing.T) {
 		false,
 	)
 
-	// Create a chat request with a long system prompt
+	// Create a predict request with a long system prompt
 	longSystem := ""
 	for i := 0; i < 10000; i++ {
 		longSystem += "This is a long system prompt. "
 	}
 
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		System: longSystem,
 		Messages: []types.Message{
 			{Role: "user", Content: "Hello"},
@@ -166,7 +166,7 @@ func TestClaudeToolProvider_CacheControlNotSentForHaiku(t *testing.T) {
 		MaxTokens:   100,
 	}
 
-	// Execute the chat with tools
+	// Execute the predict with tools
 	tools := []*providers.ToolDescriptor{
 		{
 			Name:        "test_tool",
@@ -175,9 +175,9 @@ func TestClaudeToolProvider_CacheControlNotSentForHaiku(t *testing.T) {
 		},
 	}
 
-	_, _, err := provider.ChatWithTools(context.Background(), req, tools, "auto")
+	_, _, err := provider.PredictWithTools(context.Background(), req, tools, "auto")
 	if err != nil {
-		t.Fatalf("ChatWithTools failed: %v", err)
+		t.Fatalf("PredictWithTools failed: %v", err)
 	}
 
 	// CRITICAL TEST: Verify that cache_control was NOT sent in system blocks

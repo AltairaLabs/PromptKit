@@ -6,7 +6,7 @@ metadata:
     Demonstrates video duration and resolution validation using media assertions.
     Tests video_duration and video_resolution validators on assistant responses.
 spec:
-  provider: mock-media
+  task_type: media-analysis
   
   turns:
     # Turn 1: Generate video and validate basic properties

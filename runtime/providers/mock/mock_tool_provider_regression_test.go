@@ -3,10 +3,11 @@ package mock
 import (
 	"context"
 	"encoding/json"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/stretchr/testify/assert"
@@ -59,7 +60,7 @@ default_response: "I don't have information for this scenario."
 	ctx := context.Background()
 
 	t.Run("Turn 1 - Tool Calls Generated", func(t *testing.T) {
-		req := providers.ChatRequest{
+		req := providers.PredictionRequest{
 			Messages: []types.Message{
 				{Role: "user", Content: "What's the weather like?"},
 			},
@@ -69,7 +70,7 @@ default_response: "I don't have information for this scenario."
 			},
 		}
 
-		response, toolCalls, err := provider.ChatWithTools(ctx, req, nil, "auto")
+		response, toolCalls, err := provider.PredictWithTools(ctx, req, nil, "auto")
 
 		require.NoError(t, err)
 		assert.Len(t, toolCalls, 2, "Should generate 2 tool calls")
@@ -95,7 +96,7 @@ default_response: "I don't have information for this scenario."
 	})
 
 	t.Run("Turn 2 - Text Response", func(t *testing.T) {
-		req := providers.ChatRequest{
+		req := providers.PredictionRequest{
 			Messages: []types.Message{
 				{Role: "user", Content: "What's the weather like?"},
 			},
@@ -105,7 +106,7 @@ default_response: "I don't have information for this scenario."
 			},
 		}
 
-		response, toolCalls, err := provider.ChatWithTools(ctx, req, nil, "auto")
+		response, toolCalls, err := provider.PredictWithTools(ctx, req, nil, "auto")
 
 		require.NoError(t, err)
 		assert.Empty(t, toolCalls, "Should not generate tool calls for text response turn")
@@ -114,7 +115,7 @@ default_response: "I don't have information for this scenario."
 	})
 
 	t.Run("Turn 3 - More Tool Calls", func(t *testing.T) {
-		req := providers.ChatRequest{
+		req := providers.PredictionRequest{
 			Messages: []types.Message{
 				{Role: "user", Content: "Set a reminder for me"},
 			},
@@ -124,7 +125,7 @@ default_response: "I don't have information for this scenario."
 			},
 		}
 
-		_, toolCalls, err := provider.ChatWithTools(ctx, req, nil, "auto")
+		_, toolCalls, err := provider.PredictWithTools(ctx, req, nil, "auto")
 
 		require.NoError(t, err)
 		assert.Len(t, toolCalls, 1, "Should generate 1 tool call")
@@ -138,7 +139,7 @@ default_response: "I don't have information for this scenario."
 	})
 
 	t.Run("Turn 4 - Final Text Response", func(t *testing.T) {
-		req := providers.ChatRequest{
+		req := providers.PredictionRequest{
 			Messages: []types.Message{
 				{Role: "user", Content: "Set a reminder for me"},
 			},
@@ -148,7 +149,7 @@ default_response: "I don't have information for this scenario."
 			},
 		}
 
-		response, toolCalls, err := provider.ChatWithTools(ctx, req, nil, "auto")
+		response, toolCalls, err := provider.PredictWithTools(ctx, req, nil, "auto")
 
 		require.NoError(t, err)
 		assert.Empty(t, toolCalls, "Should not generate tool calls for text response turn")
@@ -288,7 +289,7 @@ defaultResponse: "Fallback response"
 	ctx := context.Background()
 
 	t.Run("Missing scenario - uses fallback", func(t *testing.T) {
-		req := providers.ChatRequest{
+		req := providers.PredictionRequest{
 			Messages: []types.Message{
 				{Role: "user", Content: "Test message"},
 			},
@@ -298,14 +299,14 @@ defaultResponse: "Fallback response"
 			},
 		}
 
-		response, toolCalls, err := provider.ChatWithTools(ctx, req, nil, "auto")
+		response, toolCalls, err := provider.PredictWithTools(ctx, req, nil, "auto")
 		require.NoError(t, err)
 		assert.Empty(t, toolCalls)
 		assert.Equal(t, "Fallback response", response.Content)
 	})
 
 	t.Run("Missing turn - uses fallback", func(t *testing.T) {
-		req := providers.ChatRequest{
+		req := providers.PredictionRequest{
 			Messages: []types.Message{
 				{Role: "user", Content: "Test message"},
 			},
@@ -315,14 +316,14 @@ defaultResponse: "Fallback response"
 			},
 		}
 
-		response, toolCalls, err := provider.ChatWithTools(ctx, req, nil, "auto")
+		response, toolCalls, err := provider.PredictWithTools(ctx, req, nil, "auto")
 		require.NoError(t, err)
 		assert.Empty(t, toolCalls)
 		assert.Equal(t, "Fallback response", response.Content)
 	})
 
 	t.Run("Invalid tool call arguments handled gracefully", func(t *testing.T) {
-		req := providers.ChatRequest{
+		req := providers.PredictionRequest{
 			Messages: []types.Message{
 				{Role: "user", Content: "Test message"},
 			},
@@ -332,7 +333,7 @@ defaultResponse: "Fallback response"
 			},
 		}
 
-		_, toolCalls, err := provider.ChatWithTools(ctx, req, nil, "auto")
+		_, toolCalls, err := provider.PredictWithTools(ctx, req, nil, "auto")
 		require.NoError(t, err)
 		// Should still return tool calls, even if one has missing arguments
 		assert.Len(t, toolCalls, 2)
@@ -385,7 +386,7 @@ defaultResponse: "Default fallback"
 	ctx := context.Background()
 
 	t.Run("Old-style string responses work", func(t *testing.T) {
-		req := providers.ChatRequest{
+		req := providers.PredictionRequest{
 			Messages: []types.Message{
 				{Role: "user", Content: "Test"},
 			},
@@ -395,7 +396,7 @@ defaultResponse: "Default fallback"
 			},
 		}
 
-		response, toolCalls, err := provider.ChatWithTools(ctx, req, nil, "auto")
+		response, toolCalls, err := provider.PredictWithTools(ctx, req, nil, "auto")
 		require.NoError(t, err)
 		assert.Empty(t, toolCalls)
 		assert.Equal(t, "Simple string response for turn 1", response.Content)
@@ -403,7 +404,7 @@ defaultResponse: "Default fallback"
 
 	t.Run("Mixed style scenario works", func(t *testing.T) {
 		// Test old-style string in mixed scenario
-		req1 := providers.ChatRequest{
+		req1 := providers.PredictionRequest{
 			Messages: []types.Message{{Role: "user", Content: "Test"}},
 			Metadata: map[string]interface{}{
 				"mock_scenario_id": "mixed-style",
@@ -411,13 +412,13 @@ defaultResponse: "Default fallback"
 			},
 		}
 
-		response1, toolCalls1, err := provider.ChatWithTools(ctx, req1, nil, "auto")
+		response1, toolCalls1, err := provider.PredictWithTools(ctx, req1, nil, "auto")
 		require.NoError(t, err)
 		assert.Empty(t, toolCalls1)
 		assert.Equal(t, "Old style string", response1.Content)
 
 		// Test new-style response in mixed scenario
-		req2 := providers.ChatRequest{
+		req2 := providers.PredictionRequest{
 			Messages: []types.Message{{Role: "user", Content: "Test"}},
 			Metadata: map[string]interface{}{
 				"mock_scenario_id": "mixed-style",
@@ -425,13 +426,13 @@ defaultResponse: "Default fallback"
 			},
 		}
 
-		response2, toolCalls2, err := provider.ChatWithTools(ctx, req2, nil, "auto")
+		response2, toolCalls2, err := provider.PredictWithTools(ctx, req2, nil, "auto")
 		require.NoError(t, err)
 		assert.Empty(t, toolCalls2)
 		assert.Equal(t, "New style response", response2.Content)
 
 		// Test tool calls in mixed scenario
-		req3 := providers.ChatRequest{
+		req3 := providers.PredictionRequest{
 			Messages: []types.Message{{Role: "user", Content: "Test"}},
 			Metadata: map[string]interface{}{
 				"mock_scenario_id": "mixed-style",
@@ -439,7 +440,7 @@ defaultResponse: "Default fallback"
 			},
 		}
 
-		_, toolCalls3, err := provider.ChatWithTools(ctx, req3, nil, "auto")
+		_, toolCalls3, err := provider.PredictWithTools(ctx, req3, nil, "auto")
 		require.NoError(t, err)
 		assert.Len(t, toolCalls3, 1)
 		assert.Equal(t, "new_tool", toolCalls3[0].Name)

@@ -2,10 +2,11 @@ package mock
 
 import (
 	"context"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -195,17 +196,17 @@ func TestMockProviderWithRepository(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Test Chat method (repository is used internally, but we can't easily inject scenario/turn)
+	// Test Predict method (repository is used internally, but we can't easily inject scenario/turn)
 	// This mainly tests that the provider was created successfully
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "test message"},
 		},
 	}
 
-	resp, err := provider.Chat(ctx, req)
+	resp, err := provider.Predict(ctx, req)
 	if err != nil {
-		t.Fatalf("Chat failed: %v", err)
+		t.Fatalf("Predict failed: %v", err)
 	}
 
 	// Response should be from repository (default since we can't set scenario context)

@@ -13,10 +13,10 @@ type mockProvider struct {
 }
 
 func (m *mockProvider) ID() string { return m.id }
-func (m *mockProvider) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error) {
-	return ChatResponse{}, nil
+func (m *mockProvider) Predict(ctx context.Context, req PredictionRequest) (PredictionResponse, error) {
+	return PredictionResponse{}, nil
 }
-func (m *mockProvider) ChatStream(ctx context.Context, req ChatRequest) (<-chan StreamChunk, error) {
+func (m *mockProvider) PredictStream(ctx context.Context, req PredictionRequest) (<-chan StreamChunk, error) {
 	return nil, nil
 }
 func (m *mockProvider) SupportsStreaming() bool      { return false }
@@ -36,11 +36,11 @@ func (m *mockMultimodalProvider) GetMultimodalCapabilities() MultimodalCapabilit
 	return m.capabilities
 }
 
-func (m *mockMultimodalProvider) ChatMultimodal(ctx context.Context, req ChatRequest) (ChatResponse, error) {
-	return ChatResponse{}, nil
+func (m *mockMultimodalProvider) PredictMultimodal(ctx context.Context, req PredictionRequest) (PredictionResponse, error) {
+	return PredictionResponse{}, nil
 }
 
-func (m *mockMultimodalProvider) ChatMultimodalStream(ctx context.Context, req ChatRequest) (<-chan StreamChunk, error) {
+func (m *mockMultimodalProvider) PredictMultimodalStream(ctx context.Context, req PredictionRequest) (<-chan StreamChunk, error) {
 	return nil, nil
 }
 

@@ -11,7 +11,7 @@ import (
 // GetMultimodalCapabilities returns OpenAI's multimodal capabilities
 func (p *OpenAIProvider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
 	// OpenAI Vision API supports images
-	// Audio/video are not directly supported in the chat API (use Whisper separately)
+	// Audio/video are not directly supported in the predict API (use Whisper separately)
 	return providers.MultimodalCapabilities{
 		SupportsImages: true,
 		SupportsAudio:  false,
@@ -30,25 +30,25 @@ func (p *OpenAIProvider) GetMultimodalCapabilities() providers.MultimodalCapabil
 	}
 }
 
-// ChatMultimodal performs a chat request with multimodal content
-func (p *OpenAIProvider) ChatMultimodal(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
+// PredictMultimodal performs a predict request with multimodal content
+func (p *OpenAIProvider) PredictMultimodal(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	// Validate that messages are compatible with OpenAI's capabilities
 	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
-		return providers.ChatResponse{}, err
+		return providers.PredictionResponse{}, err
 	}
 
 	// Convert messages to OpenAI format (handles both legacy and multimodal)
 	messages, err := p.convertMessagesToOpenAI(req)
 	if err != nil {
-		return providers.ChatResponse{}, fmt.Errorf("failed to convert messages: %w", err)
+		return providers.PredictionResponse{}, fmt.Errorf("failed to convert messages: %w", err)
 	}
 
-	// Use the existing Chat implementation but with converted messages
-	return p.chatWithMessages(ctx, req, messages)
+	// Use the existing Predict implementation but with converted messages
+	return p.predictWithMessages(ctx, req, messages)
 }
 
-// ChatMultimodalStream performs a streaming chat request with multimodal content
-func (p *OpenAIProvider) ChatMultimodalStream(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
+// PredictMultimodalStream performs a streaming predict request with multimodal content
+func (p *OpenAIProvider) PredictMultimodalStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	// Validate that messages are compatible with OpenAI's capabilities
 	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
 		return nil, err
@@ -60,13 +60,13 @@ func (p *OpenAIProvider) ChatMultimodalStream(ctx context.Context, req providers
 		return nil, fmt.Errorf("failed to convert messages: %w", err)
 	}
 
-	// Use the existing ChatStream implementation but with converted messages
-	return p.chatStreamWithMessages(ctx, req, messages)
+	// Use the existing PredictStream implementation but with converted messages
+	return p.predictStreamWithMessages(ctx, req, messages)
 }
 
 // convertMessagesToOpenAI converts PromptKit messages to OpenAI format
 // Handles both legacy text-only and new multimodal messages
-func (p *OpenAIProvider) convertMessagesToOpenAI(req providers.ChatRequest) ([]openAIMessage, error) {
+func (p *OpenAIProvider) convertMessagesToOpenAI(req providers.PredictionRequest) ([]openAIMessage, error) {
 	messages := make([]openAIMessage, 0, len(req.Messages)+1)
 
 	// Add system message if present
@@ -125,7 +125,7 @@ func (p *OpenAIProvider) convertMessageToOpenAI(msg types.Message) (openAIMessag
 			contentParts = append(contentParts, imagePart)
 
 		case types.ContentTypeAudio, types.ContentTypeVideo:
-			return openAIMessage{}, fmt.Errorf("audio and video content not supported by OpenAI chat API")
+			return openAIMessage{}, fmt.Errorf("audio and video content not supported by OpenAI predict API")
 
 		default:
 			return openAIMessage{}, fmt.Errorf("unknown content type: %s", part.Type)
@@ -180,16 +180,16 @@ func (p *OpenAIProvider) convertImagePartToOpenAI(part types.ContentPart) (map[s
 	return imagePart, nil
 }
 
-// ChatMultimodalWithTools implements providers.MultimodalToolSupport interface for OpenAIToolProvider
+// PredictMultimodalWithTools implements providers.MultimodalToolSupport interface for OpenAIToolProvider
 // This allows combining multimodal content (images) with tool calls in a single request
-func (p *OpenAIToolProvider) ChatMultimodalWithTools(ctx context.Context, req providers.ChatRequest, tools interface{}, toolChoice string) (providers.ChatResponse, []types.MessageToolCall, error) {
+func (p *OpenAIToolProvider) PredictMultimodalWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	// Validate that all messages are compatible with OpenAI's capabilities
 	for i := range req.Messages {
 		if err := providers.ValidateMultimodalMessage(p, req.Messages[i]); err != nil {
-			return providers.ChatResponse{}, nil, err
+			return providers.PredictionResponse{}, nil, err
 		}
 	}
 
-	// Use the existing ChatWithTools which now handles multimodal via updated buildToolRequest
-	return p.ChatWithTools(ctx, req, tools, toolChoice)
+	// Use the existing PredictWithTools which now handles multimodal via updated buildToolRequest
+	return p.PredictWithTools(ctx, req, tools, toolChoice)
 }

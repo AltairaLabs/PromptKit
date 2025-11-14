@@ -310,7 +310,7 @@ func TestPrintMetadata(t *testing.T) {
 			Metadata: &prompt.PromptMetadata{
 				Domain:   "customer-support",
 				Language: "en",
-				Tags:     []string{"support", "chat"},
+				Tags:     []string{"support", "predict"},
 			},
 		}
 		printMetadata(pack)

@@ -158,26 +158,26 @@ type AsyncToolExecutor interface {
 	ExecuteAsync(descriptor *ToolDescriptor, args json.RawMessage) (*ToolExecutionResult, error)
 }
 
-// ChatRequest represents a chat request (extending existing type)
-type ChatRequest struct {
-	System      string        `json:"system"`
-	Messages    []ChatMessage `json:"messages"`
-	Temperature float32       `json:"temperature"`
-	TopP        float32       `json:"top_p"`
-	MaxTokens   int           `json:"max_tokens"`
-	Seed        *int          `json:"seed,omitempty"`
+// PredictionRequest represents a predict request (extending existing type)
+type PredictionRequest struct {
+	System      string           `json:"system"`
+	Messages    []PredictMessage `json:"messages"`
+	Temperature float32          `json:"temperature"`
+	TopP        float32          `json:"top_p"`
+	MaxTokens   int              `json:"max_tokens"`
+	Seed        *int             `json:"seed,omitempty"`
 }
 
-// ChatMessage represents a chat message (simplified version for tool context)
-type ChatMessage struct {
+// PredictMessage represents a predict message (simplified version for tool context)
+type PredictMessage struct {
 	Role               string     `json:"role"`
 	Content            string     `json:"content"`
 	ToolCalls          []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallResponseID string     `json:"tool_call_id,omitempty"` // For tool result messages
 }
 
-// ChatResponse represents a chat response (extending existing type)
-type ChatResponse struct {
+// PredictionResponse represents a predict response (extending existing type)
+type PredictionResponse struct {
 	Content   string        `json:"content"`
 	TokensIn  int           `json:"tokens_in"`
 	TokensOut int           `json:"tokens_out"`

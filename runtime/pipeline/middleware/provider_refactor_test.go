@@ -521,7 +521,7 @@ func (m *MockProviderWithTools) BuildTooling(descriptors []*providers.ToolDescri
 	return args.Get(0), args.Error(1)
 }
 
-func (m *MockProviderWithTools) ChatWithTools(ctx context.Context, req providers.ChatRequest, tooling interface{}, toolChoice string) (providers.ChatResponse, []types.MessageToolCall, error) {
+func (m *MockProviderWithTools) PredictWithTools(ctx context.Context, req providers.PredictionRequest, tooling interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	args := m.Called(ctx, req, tooling, toolChoice)
-	return args.Get(0).(providers.ChatResponse), args.Get(1).([]types.MessageToolCall), args.Error(2)
+	return args.Get(0).(providers.PredictionResponse), args.Get(1).([]types.MessageToolCall), args.Error(2)
 }

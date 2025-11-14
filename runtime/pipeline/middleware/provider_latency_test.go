@@ -16,7 +16,7 @@ import (
 func TestProviderMiddleware_AssistantMessageLatency(t *testing.T) {
 	// Create a mock provider that returns a response with explicit latency
 	mockProvider := &mockProviderWithLatency{
-		response: providers.ChatResponse{
+		response: providers.PredictionResponse{
 			Content: "Test response",
 			Latency: 1234 * time.Millisecond, // Explicit latency value
 			CostInfo: &types.CostInfo{
@@ -101,7 +101,7 @@ func TestProviderMiddleware_AssistantMessageLatency(t *testing.T) {
 func TestProviderMiddleware_AssistantMessageLatency_WithoutCostInfo(t *testing.T) {
 	// Create a mock provider that returns a response with latency but NO cost info
 	mockProvider := &mockProviderWithLatency{
-		response: providers.ChatResponse{
+		response: providers.PredictionResponse{
 			Content:  "Test response without cost",
 			Latency:  567 * time.Millisecond,
 			CostInfo: nil, // No cost info
@@ -154,7 +154,7 @@ func TestProviderMiddleware_AssistantMessageLatency_WithoutCostInfo(t *testing.T
 
 // mockProviderWithLatency is a test provider that returns a configurable response
 type mockProviderWithLatency struct {
-	response  providers.ChatResponse
+	response  providers.PredictionResponse
 	callCount int
 }
 
@@ -162,27 +162,27 @@ func (m *mockProviderWithLatency) ID() string {
 	return "mock-provider-latency-test"
 }
 
-func (m *mockProviderWithLatency) Chat(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
+func (m *mockProviderWithLatency) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	m.callCount++
 	// Simulate some delay
 	time.Sleep(10 * time.Millisecond)
 	return m.response, nil
 }
 
-func (m *mockProviderWithLatency) ChatStream(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
+func (m *mockProviderWithLatency) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	// Not needed for this test
 	ch := make(chan providers.StreamChunk)
 	close(ch)
 	return ch, nil
 }
 
-func (m *mockProviderWithLatency) ChatWithTools(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
-	// Just delegate to Chat for testing
-	return m.Chat(ctx, req)
+func (m *mockProviderWithLatency) PredictWithTools(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+	// Just delegate to Predict for testing
+	return m.Predict(ctx, req)
 }
 
-func (m *mockProviderWithLatency) ChatStreamWithTools(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
-	return m.ChatStream(ctx, req)
+func (m *mockProviderWithLatency) PredictStreamWithTools(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+	return m.PredictStream(ctx, req)
 }
 
 func (m *mockProviderWithLatency) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.CostInfo {

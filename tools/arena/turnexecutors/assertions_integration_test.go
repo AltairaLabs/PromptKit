@@ -30,11 +30,11 @@ func TestPipelineExecutor_AssertionsPass(t *testing.T) {
 		OutputCostUSD: 0.0005,
 		TotalCost:     0.001,
 	}
-	response := providers.ChatResponse{
+	response := providers.PredictionResponse{
 		Content:  "I will search for that information.", // Contains "search"
 		CostInfo: &costBreakdown,
 	}
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(response, nil)
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(response, nil)
 
 	toolRegistry := tools.NewRegistry()
 	store := statestore.NewArenaStateStore()
@@ -129,11 +129,11 @@ func TestPipelineExecutor_AssertionsFail(t *testing.T) {
 		OutputCostUSD: 0.0005,
 		TotalCost:     0.001,
 	}
-	response := providers.ChatResponse{
+	response := providers.PredictionResponse{
 		Content:  "I will not use any tools.",
 		CostInfo: &costBreakdown,
 	}
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(response, nil)
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(response, nil)
 
 	toolRegistry := tools.NewRegistry()
 	store := statestore.NewArenaStateStore()
@@ -215,11 +215,11 @@ func TestPipelineExecutor_NoAssertions(t *testing.T) {
 		OutputCostUSD: 0.0005,
 		TotalCost:     0.001,
 	}
-	response := providers.ChatResponse{
+	response := providers.PredictionResponse{
 		Content:  "Test response",
 		CostInfo: &costBreakdown,
 	}
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(response, nil)
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(response, nil)
 
 	toolRegistry := tools.NewRegistry()
 	store := statestore.NewArenaStateStore()

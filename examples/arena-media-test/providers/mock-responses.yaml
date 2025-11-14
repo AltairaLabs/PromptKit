@@ -6,10 +6,10 @@ scenarios:
   image-analysis-local:
     turns:
       1:
-        text: "I can see a test image with simple geometric shapes and patterns."
+        text: "This is a PNG image with simple geometric shapes and patterns. The image format is PNG, dimensions are 800x600."
         parts:
           - type: text
-            text: "I can see a test image with simple geometric shapes and patterns."
+            text: "This is a PNG image with simple geometric shapes and patterns. The image format is PNG, dimensions are 800x600."
           - type: image
             image_url:
               url: "mock://test-shapes.png"
@@ -19,10 +19,10 @@ scenarios:
               height: 600
               size: 51200
       2:
-        text: "Comparing the two images, I notice both show similar test patterns."
+        text: "Comparing the two images: one is JPEG format (1024x768), the other is PNG format (1024x768). The main difference is JPEG uses lossy compression, PNG uses lossless compression."
         parts:
           - type: text
-            text: "Comparing the two images, I notice both show similar test patterns. The main difference is the file format - JPEG uses lossy compression while PNG uses lossless compression."
+            text: "Comparing the two images: one is JPEG format (1024x768), the other is PNG format (1024x768). The main difference is JPEG uses lossy compression, PNG uses lossless compression."
           - type: image
             image_url:
               url: "mock://test-pattern.jpg"
@@ -38,10 +38,10 @@ scenarios:
               width: 1024
               height: 768
       3:
-        text: "This WebP image shows the same test pattern with modern compression."
+        text: "This is a WebP image (1024x768) showing the same test pattern with modern compression. Format: WebP."
         parts:
           - type: text
-            text: "This WebP image shows the same test pattern with modern compression."
+            text: "This is a WebP image (1024x768) showing the same test pattern with modern compression. Format: WebP."
           - type: image
             image_url:
               url: "mock://test-pattern.webp"
@@ -55,10 +55,10 @@ scenarios:
   audio-transcription:
     turns:
       1:
-        text: "I can hear audio content in the WAV file."
+        text: "This is a WAV audio file containing a test signal. Format: WAV, duration: 30 seconds, channels: 2."
         parts:
           - type: text
-            text: "I can hear audio content in the WAV file. The audio appears to contain a test signal."
+            text: "This is a WAV audio file containing a test signal. Format: WAV, duration: 30 seconds, channels: 2."
           - type: audio
             audio_url:
               url: "mock://test-audio.wav"
@@ -68,10 +68,10 @@ scenarios:
               size: 512000
               channels: 2
       2:
-        text: "WAV is uncompressed, while OGG uses lossy compression."
+        text: "WAV is an uncompressed audio format, OGG uses lossy compression. Both files are 30 seconds, stereo. Format: WAV and OGG."
         parts:
           - type: text
-            text: "WAV is an uncompressed format with high quality but larger file sizes, while OGG uses lossy compression for smaller files with good quality."
+            text: "WAV is an uncompressed audio format, OGG uses lossy compression. Both files are 30 seconds, stereo. Format: WAV and OGG."
           - type: audio
             audio_url:
               url: "mock://test-audio.ogg"
@@ -81,10 +81,10 @@ scenarios:
               size: 102400
               channels: 2
       3:
-        text: "The audio content shows a simple waveform pattern."
+        text: "This is a WAV audio file with a simple waveform pattern. Format: WAV, duration: 10 seconds."
         parts:
           - type: text
-            text: "The audio content shows a simple waveform pattern, suggesting this is a test audio file with basic signal characteristics."
+            text: "This is a WAV audio file with a simple waveform pattern. Format: WAV, duration: 10 seconds."
           - type: audio
             audio_url:
               url: "mock://test-signal.wav"
@@ -97,10 +97,10 @@ scenarios:
   mixed-media:
     turns:
       1:
-        text: "I can see both visual and audio content here."
+        text: "This is a PNG image (1920x1080) and an MP3 audio file (15 seconds). Both image and audio content are present."
         parts:
           - type: text
-            text: "I can see both visual and audio content here. The image shows test patterns and the audio file contains a test signal."
+            text: "This is a PNG image (1920x1080) and an MP3 audio file (15 seconds). Both image and audio content are present."
           - type: image
             image_url:
               url: "mock://test-visual.png"
@@ -115,10 +115,10 @@ scenarios:
               format: "MP3"
               duration_seconds: 15
       2:
-        text: "Analyzing these three images."
+        text: "Analyzing these three images: JPEG, PNG, and GIF formats are present. JPEG is compressed, PNG is lossless, GIF supports animation."
         parts:
           - type: text
-            text: "Analyzing these three images: JPEG shows compressed image data, PNG uses lossless compression, and GIF supports animation with limited colors."
+            text: "Analyzing these three images: JPEG, PNG, and GIF formats are present. JPEG is compressed, PNG is lossless, GIF supports animation."
           - type: image
             image_url:
               url: "mock://comparison.jpg"
@@ -211,17 +211,17 @@ scenarios:
             metadata:
               format: "PNG"
       2:
-        text: "Analyzing both the image and text."
+        text: "Analyzing multiple image formats: JPEG, PNG, GIF, and WebP. Each format has its own characteristics."
         parts:
           - type: text
-            text: "Analyzing both the image and text, I notice coordinated multimodal information."
+            text: "Analyzing multiple image formats: JPEG, PNG, GIF, and WebP. Each format has its own characteristics."
           - type: image
             image_url:
               url: "mock://multimodal-content.jpg"
             metadata:
               format: "JPEG"
       3:
-        text: "The combination of text and visual elements creates a rich multimodal message."
+        text: "The combination of text and visual elements from local and remote sources creates a rich multimodal message."
         parts:
           - type: text
             text: "The combination of text and visual elements from local and remote sources creates a rich multimodal message."
@@ -428,16 +428,16 @@ scenarios:
               duration_seconds: 3
               channels: 2
       5:
-        text: "Here's a podcast episode."
+        text: "Here's a 2-minute meditation soundtrack (MP3 format, 120 seconds)."
         parts:
           - type: text
-            text: "Here's a podcast episode."
+            text: "Here's a 2-minute meditation soundtrack (MP3 format, 120 seconds)."
           - type: audio
             audio_url:
               url: "mock://podcast.mp3"
             metadata:
               format: "MP3"
-              duration_seconds: 1800
+              duration_seconds: 125
               channels: 2
       6:
         text: "Here's a long-form interview."
@@ -452,28 +452,28 @@ scenarios:
               duration_seconds: 3600
               channels: 2
       7:
-        text: "Here are three audio clips in different formats."
+        text: "Here's a 10-second WAV audio sample."
         parts:
           - type: text
-            text: "Here are three audio clips in different formats."
+            text: "Here's a 10-second WAV audio sample."
           - type: audio
             audio_url:
               url: "mock://clip1.wav"
             metadata:
               format: "WAV"
               duration_seconds: 10
+      8:
+        text: "Here's a 5-minute podcast intro (MP3 format, 300 seconds)."
+        parts:
+          - type: text
+            text: "Here's a 5-minute podcast intro (MP3 format, 300 seconds)."
           - type: audio
             audio_url:
-              url: "mock://clip2.mp3"
+              url: "mock://podcast-intro.mp3"
             metadata:
               format: "MP3"
-              duration_seconds: 10
-          - type: audio
-            audio_url:
-              url: "mock://clip3.ogg"
-            metadata:
-              format: "OGG"
-              duration_seconds: 10
+              duration_seconds: 300
+              channels: 2
 
   # Video validation scenarios
   video-validation:
@@ -549,58 +549,113 @@ scenarios:
               duration_seconds: 30
               fps: 60
       6:
-        text: "Here's a short-form vertical video."
+        text: "Here's a short-form vertical video (1280x1920)."
         parts:
           - type: text
-            text: "Here's a short-form vertical video."
+            text: "Here's a short-form vertical video (1280x1920)."
           - type: video
             video_url:
               url: "mock://vertical-video.mp4"
             metadata:
               format: "MP4"
-              width: 1080
+              width: 1280
               height: 1920
               duration_seconds: 15
               fps: 30
       7:
-        text: "Here's a cinematic widescreen video."
+        text: "Here's a 1920x1080 video."
         parts:
           - type: text
-            text: "Here's a cinematic widescreen video."
+            text: "Here's a 1920x1080 video."
           - type: video
             video_url:
-              url: "mock://widescreen.mp4"
-            metadata:
-              format: "MP4"
-              width: 2560
-              height: 1080
-              duration_seconds: 45
-              fps: 24
-      8:
-        text: "Here's a brief video ad."
-        parts:
-          - type: text
-            text: "Here's a brief video ad."
-          - type: video
-            video_url:
-              url: "mock://ad-video.mp4"
+              url: "mock://1080p-video.mp4"
             metadata:
               format: "MP4"
               width: 1920
               height: 1080
-              duration_seconds: 5
+              duration_seconds: 30
               fps: 30
-      9:
-        text: "Here's a longer documentary clip."
+      8:
+        text: "Here's a 1-minute 4K video clip (3840x2160, 60 seconds)."
         parts:
           - type: text
-            text: "Here's a longer documentary clip."
+            text: "Here's a 1-minute 4K video clip (3840x2160, 60 seconds)."
           - type: video
             video_url:
-              url: "mock://documentary.mp4"
+              url: "mock://4k-60s.mp4"
+            metadata:
+              format: "MP4"
+              width: 3840
+              height: 2160
+              duration_seconds: 60
+              fps: 60
+      9:
+        text: "Here's a TikTok-style vertical video (1280x1920, 30 seconds)."
+        parts:
+          - type: text
+            text: "Here's a TikTok-style vertical video (1280x1920, 30 seconds)."
+          - type: video
+            video_url:
+              url: "mock://tiktok-vertical.mp4"
+            metadata:
+              format: "MP4"
+              width: 1280
+              height: 1920
+              duration_seconds: 30
+              fps: 30
+      10:
+        text: "Here are videos in multiple resolutions: 480p, 720p, 1080p, and 4K."
+        parts:
+          - type: text
+            text: "Here are videos in multiple resolutions: 480p, 720p, 1080p, and 4K."
+          - type: video
+            video_url:
+              url: "mock://480p-video.mp4"
+            metadata:
+              format: "MP4"
+              width: 854
+              height: 480
+              duration_seconds: 20
+              fps: 30
+          - type: video
+            video_url:
+              url: "mock://720p-video.mp4"
+            metadata:
+              format: "MP4"
+              width: 1280
+              height: 720
+              duration_seconds: 20
+              fps: 30
+          - type: video
+            video_url:
+              url: "mock://1080p-video.mp4"
+            metadata:
+              format: "MP4"
+              width: 1920
+              height: 1080
+              duration_seconds: 20
+              fps: 30
+          - type: video
+            video_url:
+              url: "mock://4k-video.mp4"
+            metadata:
+              format: "MP4"
+              width: 3840
+              height: 2160
+              duration_seconds: 20
+              fps: 60
+      11:
+        text: "Here's a 5-minute tutorial video in 1080p (300 seconds)."
+        parts:
+          - type: text
+            text: "Here's a 5-minute tutorial video in 1080p (300 seconds)."
+          - type: video
+            video_url:
+              url: "mock://tutorial-1080p.mp4"
             metadata:
               format: "MP4"
               width: 1920
               height: 1080
               duration_seconds: 300
-              fps: 24
+              fps: 30

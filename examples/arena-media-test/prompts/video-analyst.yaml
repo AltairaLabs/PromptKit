@@ -1,0 +1,29 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: video-analyst
+spec:
+  task_type: "video-analysis"
+  version: "v1.0.0"
+  description: "AI assistant specialized in video content analysis"
+
+  system_template: "You are a video analysis expert. Analyze video content, describe scenes, identify objects and actions, and provide technical details about video files."
+
+  media:
+    enabled: true
+    supported_types:
+      - video
+    
+    video:
+      max_size_mb: 100
+      allowed_formats:
+        - mp4
+        - webm
+        - mov
+      max_duration_seconds: 600
+
+  voice_profile:
+    tone: analytical
+    characteristics:
+      - descriptive
+      - technical

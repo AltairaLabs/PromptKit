@@ -230,25 +230,25 @@ func TestClaudeParseToolResponse_NoToolCalls(t *testing.T) {
 		}
 	}`
 
-	chatResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON), providers.ChatResponse{})
+	predictResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON), providers.PredictionResponse{})
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	if chatResp.Content != "Hello! How can I help you today?" {
-		t.Errorf("Expected content 'Hello! How can I help you today?', got '%s'", chatResp.Content)
+	if predictResp.Content != "Hello! How can I help you today?" {
+		t.Errorf("Expected content 'Hello! How can I help you today?', got '%s'", predictResp.Content)
 	}
 
 	if len(toolCalls) != 0 {
 		t.Errorf("Expected 0 tool calls, got %d", len(toolCalls))
 	}
 
-	if chatResp.CostInfo.InputTokens != 10 {
-		t.Errorf("Expected 10 input tokens, got %d", chatResp.CostInfo.InputTokens)
+	if predictResp.CostInfo.InputTokens != 10 {
+		t.Errorf("Expected 10 input tokens, got %d", predictResp.CostInfo.InputTokens)
 	}
 
-	if chatResp.CostInfo.OutputTokens != 20 {
-		t.Errorf("Expected 20 output tokens, got %d", chatResp.CostInfo.OutputTokens)
+	if predictResp.CostInfo.OutputTokens != 20 {
+		t.Errorf("Expected 20 output tokens, got %d", predictResp.CostInfo.OutputTokens)
 	}
 }
 
@@ -281,7 +281,7 @@ func TestClaudeParseToolResponse_WithToolCall(t *testing.T) {
 		}
 	}`
 
-	chatResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON), providers.ChatResponse{})
+	predictResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON), providers.PredictionResponse{})
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -310,16 +310,16 @@ func TestClaudeParseToolResponse_WithToolCall(t *testing.T) {
 	}
 
 	// Content should include the text part
-	if chatResp.Content != "I'll search for that information." {
-		t.Errorf("Expected text content, got '%s'", chatResp.Content)
+	if predictResp.Content != "I'll search for that information." {
+		t.Errorf("Expected text content, got '%s'", predictResp.Content)
 	}
 
-	if chatResp.CostInfo.InputTokens != 50 {
-		t.Errorf("Expected 50 input tokens, got %d", chatResp.CostInfo.InputTokens)
+	if predictResp.CostInfo.InputTokens != 50 {
+		t.Errorf("Expected 50 input tokens, got %d", predictResp.CostInfo.InputTokens)
 	}
 
-	if chatResp.CostInfo.OutputTokens != 30 {
-		t.Errorf("Expected 30 output tokens, got %d", chatResp.CostInfo.OutputTokens)
+	if predictResp.CostInfo.OutputTokens != 30 {
+		t.Errorf("Expected 30 output tokens, got %d", predictResp.CostInfo.OutputTokens)
 	}
 }
 
@@ -356,7 +356,7 @@ func TestClaudeParseToolResponse_MultipleToolCalls(t *testing.T) {
 		}
 	}`
 
-	chatResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON), providers.ChatResponse{})
+	predictResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON), providers.PredictionResponse{})
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -375,8 +375,8 @@ func TestClaudeParseToolResponse_MultipleToolCalls(t *testing.T) {
 		t.Errorf("Expected second tool 'calculate', got '%s'", toolCalls[1].Name)
 	}
 
-	if chatResp.CostInfo.InputTokens != 100 {
-		t.Errorf("Expected 100 input tokens, got %d", chatResp.CostInfo.InputTokens)
+	if predictResp.CostInfo.InputTokens != 100 {
+		t.Errorf("Expected 100 input tokens, got %d", predictResp.CostInfo.InputTokens)
 	}
 }
 
@@ -414,7 +414,7 @@ func TestClaudeParseToolResponse_MixedContent(t *testing.T) {
 		}
 	}`
 
-	chatResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON), providers.ChatResponse{})
+	predictResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON), providers.PredictionResponse{})
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -425,7 +425,7 @@ func TestClaudeParseToolResponse_MixedContent(t *testing.T) {
 
 	// Current implementation extracts only the last text part
 	// This is a known limitation - for now just verify it extracts something
-	if chatResp.Content == "" {
+	if predictResp.Content == "" {
 		t.Error("Expected some text content to be extracted")
 	}
 }
@@ -435,7 +435,7 @@ func TestClaudeParseToolResponse_InvalidJSON(t *testing.T) {
 
 	responseJSON := `{invalid json`
 
-	_, _, err := provider.parseToolResponse([]byte(responseJSON), providers.ChatResponse{})
+	_, _, err := provider.parseToolResponse([]byte(responseJSON), providers.PredictionResponse{})
 	if err == nil {
 		t.Error("Expected error for invalid JSON, got nil")
 	}
@@ -462,28 +462,28 @@ func TestClaudeParseToolResponse_CachedTokens(t *testing.T) {
 		}
 	}`
 
-	chatResp, _, err := provider.parseToolResponse([]byte(responseJSON), providers.ChatResponse{})
+	predictResp, _, err := provider.parseToolResponse([]byte(responseJSON), providers.PredictionResponse{})
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
 	// Total input tokens is 100, with 80 from cache
 	// So non-cached InputTokens should be 20
-	if chatResp.CostInfo.InputTokens != 20 {
-		t.Errorf("Expected 20 non-cached input tokens, got %d", chatResp.CostInfo.InputTokens)
+	if predictResp.CostInfo.InputTokens != 20 {
+		t.Errorf("Expected 20 non-cached input tokens, got %d", predictResp.CostInfo.InputTokens)
 	}
 
-	if chatResp.CostInfo.CachedTokens != 80 {
-		t.Errorf("Expected 80 cached tokens, got %d", chatResp.CostInfo.CachedTokens)
+	if predictResp.CostInfo.CachedTokens != 80 {
+		t.Errorf("Expected 80 cached tokens, got %d", predictResp.CostInfo.CachedTokens)
 	}
 
-	if chatResp.CostInfo.OutputTokens != 20 {
-		t.Errorf("Expected 20 output tokens, got %d", chatResp.CostInfo.OutputTokens)
+	if predictResp.CostInfo.OutputTokens != 20 {
+		t.Errorf("Expected 20 output tokens, got %d", predictResp.CostInfo.OutputTokens)
 	}
 
 	// Verify the response is parsed correctly
-	if chatResp.Content != "Hello!" {
-		t.Errorf("Expected content 'Hello!', got '%s'", chatResp.Content)
+	if predictResp.Content != "Hello!" {
+		t.Errorf("Expected content 'Hello!', got '%s'", predictResp.Content)
 	}
 }
 
@@ -503,7 +503,7 @@ func TestClaudeParseToolResponse_EmptyContent(t *testing.T) {
 		}
 	}`
 
-	_, _, err := provider.parseToolResponse([]byte(responseJSON), providers.ChatResponse{})
+	_, _, err := provider.parseToolResponse([]byte(responseJSON), providers.PredictionResponse{})
 	// The current implementation returns an error for empty content
 	if err == nil {
 		t.Error("Expected error for empty content, got nil")

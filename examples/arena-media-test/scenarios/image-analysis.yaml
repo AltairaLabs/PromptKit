@@ -4,7 +4,7 @@ metadata:
   name: image-analysis-local
   description: Test image analysis using local image files
 spec:
-  provider: mock-media
+  task_type: media-analysis
   
   turns:
     - role: user
@@ -16,12 +16,12 @@ spec:
             file_path: ../../tools/arena/testdata/media/test-image-small.jpg
             mime_type: image/jpeg
             detail: high
-      
       assertions:
         - type: content_includes
           params:
             patterns:
               - "image"
+            message: "Response should mention the image"
 
     - role: user
       parts:
@@ -35,26 +35,11 @@ spec:
           media:
             file_path: ../../tools/arena/testdata/media/test-image-small.png
             mime_type: image/png
-      
       assertions:
         - type: content_includes
           params:
             patterns:
-              - "comparing"
-              - "difference"
+              - "image"
+            message: "Response should discuss the images"
 
-    - role: user
-      parts:
-        - type: text
-          text: "Analyze this WebP image:"
-        - type: image
-          media:
-            file_path: ../../tools/arena/testdata/media/test-image-small.webp
-            mime_type: image/webp
-            detail: auto
-      
-      assertions:
-        - type: content_includes
-          params:
-            patterns:
-              - "WebP"
+

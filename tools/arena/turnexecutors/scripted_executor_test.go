@@ -28,9 +28,9 @@ func (m *MockProvider) ID() string {
 	return args.String(0)
 }
 
-func (m *MockProvider) Chat(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
+func (m *MockProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	args := m.Called(ctx, req)
-	return args.Get(0).(providers.ChatResponse), args.Error(1)
+	return args.Get(0).(providers.PredictionResponse), args.Error(1)
 }
 
 func (m *MockProvider) ShouldIncludeRawOutput() bool {
@@ -43,7 +43,7 @@ func (m *MockProvider) Close() error {
 	return args.Error(0)
 }
 
-func (m *MockProvider) ChatStream(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
+func (m *MockProvider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	args := m.Called(ctx, req)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -83,11 +83,11 @@ func TestScriptedExecutor_ExecuteTurn_Success(t *testing.T) {
 		OutputCostUSD: 0.0005,
 		TotalCost:     0.001,
 	}
-	response := providers.ChatResponse{
+	response := providers.PredictionResponse{
 		Content:  "I can help you with that.",
 		CostInfo: &costBreakdown,
 	}
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(response, nil)
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(response, nil)
 
 	toolRegistry := tools.NewRegistry()
 	aiExecutor := NewPipelineExecutor(toolRegistry)
@@ -157,7 +157,7 @@ func TestScriptedExecutor_ExecuteTurn_AIResponseError(t *testing.T) {
 
 	// Mock AI response error
 	expectedErr := errors.New("API rate limit exceeded")
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(providers.ChatResponse{}, expectedErr)
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(providers.PredictionResponse{}, expectedErr)
 
 	toolRegistry := tools.NewRegistry()
 	aiExecutor := NewPipelineExecutor(toolRegistry)
@@ -232,11 +232,11 @@ func TestScriptedExecutor_ExecuteTurn_EmptyScriptedContent(t *testing.T) {
 		OutputCostUSD: 0.0005,
 		TotalCost:     0.001,
 	}
-	response := providers.ChatResponse{
+	response := providers.PredictionResponse{
 		Content:  "Hello! How can I help you?",
 		CostInfo: &costBreakdown,
 	}
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(response, nil)
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(response, nil)
 
 	err := executor.ExecuteTurn(context.Background(), req)
 
@@ -258,7 +258,7 @@ func TestScriptedExecutor_ExecuteTurn_WithHistory(t *testing.T) {
 	mockProvider.On("ShouldIncludeRawOutput").Return(false).Maybe()
 	mockProvider.On("SupportsStreaming").Return(false).Maybe()
 
-	response := providers.ChatResponse{
+	response := providers.PredictionResponse{
 		Content: "Based on our previous conversation, I can help.",
 		CostInfo: &types.CostInfo{
 			InputTokens:   20,
@@ -268,7 +268,7 @@ func TestScriptedExecutor_ExecuteTurn_WithHistory(t *testing.T) {
 			TotalCost:     0.002,
 		},
 	}
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(response, nil)
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(response, nil)
 
 	toolRegistry := tools.NewRegistry()
 	aiExecutor := NewPipelineExecutor(toolRegistry)
@@ -332,8 +332,8 @@ func TestScriptedExecutor_ExecuteTurn_WithHistory(t *testing.T) {
 	assert.Equal(t, "Follow-up question", state.Messages[userIdx].Content)
 	assert.Equal(t, "Based on our previous conversation, I can help.", state.Messages[assistantIdx].Content)
 
-	// Verify Chat was called (history is handled by StateStore middleware, not passed directly)
-	mockProvider.AssertCalled(t, "Chat", mock.Anything, mock.Anything)
+	// Verify Predict was called (history is handled by StateStore middleware, not passed directly)
+	mockProvider.AssertCalled(t, "Predict", mock.Anything, mock.Anything)
 }
 
 func TestScriptedExecutor_ExecuteTurn_SetsTimestamp(t *testing.T) {
@@ -350,11 +350,11 @@ func TestScriptedExecutor_ExecuteTurn_SetsTimestamp(t *testing.T) {
 		OutputCostUSD: 0.0005,
 		TotalCost:     0.001,
 	}
-	response := providers.ChatResponse{
+	response := providers.PredictionResponse{
 		Content:  "I can help you with that.",
 		CostInfo: &costBreakdown,
 	}
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(response, nil)
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(response, nil)
 
 	toolRegistry := tools.NewRegistry()
 	aiExecutor := NewPipelineExecutor(toolRegistry)

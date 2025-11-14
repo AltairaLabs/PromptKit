@@ -1,13 +1,13 @@
 // Package providers implements multi-LLM provider support with unified interfaces.
 //
-// This package provides a common abstraction for chat-based LLM providers including
+// This package provides a common abstraction for predict-based LLM providers including
 // OpenAI, Anthropic Claude, and Google Gemini. It handles:
-//   - Chat completion requests with streaming support
+//   - Predict completion requests with streaming support
 //   - Tool/function calling with provider-specific formats
 //   - Cost tracking and token usage calculation
 //   - Rate limiting and error handling
 //
-// All providers implement the Provider interface for basic chat, and ToolSupport
+// All providers implement the Provider interface for basic predict, and ToolSupport
 // interface for function calling capabilities.
 package providers
 
@@ -19,8 +19,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// ChatRequest represents a request to a chat provider
-type ChatRequest struct {
+// PredictionRequest represents a request to a predict provider
+type PredictionRequest struct {
 	System      string                 `json:"system"`
 	Messages    []types.Message        `json:"messages"`
 	Temperature float32                `json:"temperature"`
@@ -30,8 +30,8 @@ type ChatRequest struct {
 	Metadata    map[string]interface{} `json:"metadata,omitempty"` // Optional metadata for provider-specific context
 }
 
-// ChatResponse represents a response from a chat provider
-type ChatResponse struct {
+// PredictionResponse represents a response from a predict provider
+type PredictionResponse struct {
 	Content    string                  `json:"content"`
 	Parts      []types.ContentPart     `json:"parts,omitempty"`     // Multimodal content parts (text, image, audio, video)
 	CostInfo   *types.CostInfo         `json:"cost_info,omitempty"` // Cost breakdown for this response (includes token counts)
@@ -55,13 +55,13 @@ type ProviderDefaults struct {
 	Pricing     Pricing
 }
 
-// Provider interface defines the contract for chat providers
+// Provider interface defines the contract for predict providers
 type Provider interface {
 	ID() string
-	Chat(ctx context.Context, req ChatRequest) (ChatResponse, error)
+	Predict(ctx context.Context, req PredictionRequest) (PredictionResponse, error)
 
 	// Streaming support
-	ChatStream(ctx context.Context, req ChatRequest) (<-chan StreamChunk, error)
+	PredictStream(ctx context.Context, req PredictionRequest) (<-chan StreamChunk, error)
 	SupportsStreaming() bool
 
 	ShouldIncludeRawOutput() bool
@@ -90,6 +90,6 @@ type ToolSupport interface {
 	// BuildTooling converts tool descriptors to provider-native format
 	BuildTooling(descriptors []*ToolDescriptor) (interface{}, error)
 
-	// ChatWithTools performs a chat request with tool support
-	ChatWithTools(ctx context.Context, req ChatRequest, tools interface{}, toolChoice string) (ChatResponse, []types.MessageToolCall, error)
+	// PredictWithTools performs a predict request with tool support
+	PredictWithTools(ctx context.Context, req PredictionRequest, tools interface{}, toolChoice string) (PredictionResponse, []types.MessageToolCall, error)
 }

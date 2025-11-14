@@ -14,11 +14,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestChat_Integration tests the Chat method with real HTTP mocking
-func TestChat_Integration(t *testing.T) {
+// TestPredict_Integration tests the Predict method with real HTTP mocking
+func TestPredict_Integration(t *testing.T) {
 	tests := []struct {
 		name           string
-		request        providers.ChatRequest
+		request        providers.PredictionRequest
 		mockResponse   claudeResponse
 		mockStatusCode int
 		expectError    bool
@@ -26,7 +26,7 @@ func TestChat_Integration(t *testing.T) {
 	}{
 		{
 			name: "Successful request",
-			request: providers.ChatRequest{
+			request: providers.PredictionRequest{
 				Messages: []types.Message{
 					{Role: "user", Content: "Hello"},
 				},
@@ -52,7 +52,7 @@ func TestChat_Integration(t *testing.T) {
 		},
 		{
 			name: "API error response",
-			request: providers.ChatRequest{
+			request: providers.PredictionRequest{
 				Messages: []types.Message{
 					{Role: "user", Content: "Hello"},
 				},
@@ -69,7 +69,7 @@ func TestChat_Integration(t *testing.T) {
 		},
 		{
 			name: "HTTP error",
-			request: providers.ChatRequest{
+			request: providers.PredictionRequest{
 				Messages: []types.Message{
 					{Role: "user", Content: "Hello"},
 				},
@@ -80,7 +80,7 @@ func TestChat_Integration(t *testing.T) {
 		},
 		{
 			name: "Empty content in response",
-			request: providers.ChatRequest{
+			request: providers.PredictionRequest{
 				Messages: []types.Message{
 					{Role: "user", Content: "Hello"},
 				},
@@ -95,7 +95,7 @@ func TestChat_Integration(t *testing.T) {
 		},
 		{
 			name: "No text content found",
-			request: providers.ChatRequest{
+			request: providers.PredictionRequest{
 				Messages: []types.Message{
 					{Role: "user", Content: "Hello"},
 				},
@@ -112,7 +112,7 @@ func TestChat_Integration(t *testing.T) {
 		},
 		{
 			name: "With cache read tokens",
-			request: providers.ChatRequest{
+			request: providers.PredictionRequest{
 				Messages: []types.Message{
 					{Role: "user", Content: "Hello"},
 				},
@@ -169,7 +169,7 @@ func TestChat_Integration(t *testing.T) {
 			}
 
 			// Execute
-			resp, err := provider.Chat(context.Background(), tt.request)
+			resp, err := provider.Predict(context.Background(), tt.request)
 
 			// Assert
 			if tt.expectError {
@@ -187,8 +187,8 @@ func TestChat_Integration(t *testing.T) {
 	}
 }
 
-// TestChatStream_Integration tests the ChatStream method with real HTTP mocking
-func TestChatStream_Integration(t *testing.T) {
+// TestPredictStream_Integration tests the PredictStream method with real HTTP mocking
+func TestPredictStream_Integration(t *testing.T) {
 	t.Run("Successful streaming", func(t *testing.T) {
 		// Create mock server that returns SSE stream
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -253,7 +253,7 @@ data: {"type":"message_stop","message":{"usage":{"input_tokens":10,"output_token
 		}
 
 		// Execute
-		streamChan, err := provider.ChatStream(context.Background(), providers.ChatRequest{
+		streamChan, err := provider.PredictStream(context.Background(), providers.PredictionRequest{
 			Messages: []types.Message{
 				{Role: "user", Content: "Hello"},
 			},
@@ -566,7 +566,7 @@ func TestMakeClaudeHTTPRequest(t *testing.T) {
 				Messages:  []claudeMessage{},
 			}
 
-			_, _, err := provider.makeClaudeHTTPRequest(context.Background(), claudeReq, providers.ChatResponse{}, time.Now())
+			_, _, err := provider.makeClaudeHTTPRequest(context.Background(), claudeReq, providers.PredictionResponse{}, time.Now())
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -627,7 +627,7 @@ func TestParseAndValidateClaudeResponse(t *testing.T) {
 			provider := &ClaudeProvider{}
 
 			respBody, _ := json.Marshal(tt.response)
-			_, _, _, err := provider.parseAndValidateClaudeResponse(respBody, providers.ChatResponse{}, time.Now())
+			_, _, _, err := provider.parseAndValidateClaudeResponse(respBody, providers.PredictionResponse{}, time.Now())
 
 			if tt.expectError {
 				require.Error(t, err)

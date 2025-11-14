@@ -135,7 +135,7 @@ func TestGeminiToolProvider_ToolLoopDetection(t *testing.T) {
 		{Role: "user", Content: "Check my subscription"},
 	}
 
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages:    messages,
 		MaxTokens:   1024,
 		Temperature: 0.7,
@@ -153,9 +153,9 @@ func TestGeminiToolProvider_ToolLoopDetection(t *testing.T) {
 	ctx := context.Background()
 
 	// First call - should return tool calls
-	resp1, toolCalls1, err := provider.ChatWithTools(ctx, req, geminiTools, "auto")
+	resp1, toolCalls1, err := provider.PredictWithTools(ctx, req, geminiTools, "auto")
 	if err != nil {
-		t.Fatalf("First ChatWithTools failed: %v", err)
+		t.Fatalf("First PredictWithTools failed: %v", err)
 	}
 
 	if len(toolCalls1) != 1 {
@@ -185,9 +185,9 @@ func TestGeminiToolProvider_ToolLoopDetection(t *testing.T) {
 
 	// Second call - should include tool results
 	req.Messages = messages
-	resp2, toolCalls2, err := provider.ChatWithTools(ctx, req, geminiTools, "auto")
+	resp2, toolCalls2, err := provider.PredictWithTools(ctx, req, geminiTools, "auto")
 	if err != nil {
-		t.Fatalf("Second ChatWithTools failed: %v", err)
+		t.Fatalf("Second PredictWithTools failed: %v", err)
 	}
 
 	if len(toolCalls2) != 0 {

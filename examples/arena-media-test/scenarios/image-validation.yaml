@@ -6,14 +6,14 @@ metadata:
     Demonstrates image format and dimension validation using media assertions.
     Tests image_format and image_dimensions validators on assistant responses.
 spec:
-  provider: mock-media
+  task_type: media-analysis
   
   turns:
     # Turn 1: Generate an image and validate its format
     - role: user
       parts:
         - type: text
-          text: "Generate a PNG image of a sunset"
+          text: "Generate a 100x100 pixel red square PNG image"
       
       assertions:
         # Validate assistant response includes image content

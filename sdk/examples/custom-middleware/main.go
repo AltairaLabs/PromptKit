@@ -107,7 +107,7 @@ func main() {
 		WithMiddleware(&LoggingMiddleware{}).
 		// Add metrics tracking
 		WithMiddleware(&MetricsMiddleware{
-			serviceName: "chat-api",
+			serviceName: "predict-api",
 		}).
 		// Add provider using convenience method (simple provider without tools)
 		// For tool support, use: WithProvider(provider, registry, policy)

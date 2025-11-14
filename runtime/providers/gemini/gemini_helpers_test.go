@@ -83,7 +83,7 @@ func TestConvertMessagesToGeminiContents(t *testing.T) {
 func TestPrepareGeminiRequest(t *testing.T) {
 	tests := []struct {
 		name              string
-		req               providers.ChatRequest
+		req               providers.PredictionRequest
 		defaults          providers.ProviderDefaults
 		expectSystem      bool
 		expectedTemp      float32
@@ -92,7 +92,7 @@ func TestPrepareGeminiRequest(t *testing.T) {
 	}{
 		{
 			name: "Uses request values when provided",
-			req: providers.ChatRequest{
+			req: providers.PredictionRequest{
 				Messages:    []types.Message{{Role: "user", Content: "test"}},
 				Temperature: 0.7,
 				TopP:        0.9,
@@ -110,7 +110,7 @@ func TestPrepareGeminiRequest(t *testing.T) {
 		},
 		{
 			name: "Falls back to defaults when zero values",
-			req: providers.ChatRequest{
+			req: providers.PredictionRequest{
 				Messages:    []types.Message{{Role: "user", Content: "test"}},
 				Temperature: 0,
 				TopP:        0,
@@ -128,7 +128,7 @@ func TestPrepareGeminiRequest(t *testing.T) {
 		},
 		{
 			name: "Handles system message",
-			req: providers.ChatRequest{
+			req: providers.PredictionRequest{
 				System:      "You are a helpful assistant",
 				Messages:    []types.Message{{Role: "user", Content: "test"}},
 				Temperature: 0.5,
@@ -147,7 +147,7 @@ func TestPrepareGeminiRequest(t *testing.T) {
 		},
 		{
 			name: "Mixed: some request values, some defaults",
-			req: providers.ChatRequest{
+			req: providers.PredictionRequest{
 				Messages:    []types.Message{{Role: "user", Content: "test"}},
 				Temperature: 0.6,
 				TopP:        0, // Will use default
@@ -308,7 +308,7 @@ func TestGeminiHelpers_Integration(t *testing.T) {
 			},
 		}
 
-		req := providers.ChatRequest{
+		req := providers.PredictionRequest{
 			System: "You are a test assistant",
 			Messages: []types.Message{
 				{Role: "user", Content: "Hello"},

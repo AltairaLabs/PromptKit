@@ -28,7 +28,7 @@ func TestOpenAIToolProvider_WithMultimodalMessages(t *testing.T) {
 	}
 
 	// Build a request with this multimodal message
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{msg},
 	}
 
@@ -93,7 +93,7 @@ func TestOpenAIToolProvider_MultimodalToolSupport(t *testing.T) {
 	_, ok := interface{}(toolProvider).(providers.MultimodalToolSupport)
 	if !ok {
 		t.Error("OpenAIToolProvider should implement providers.MultimodalToolSupport interface")
-		t.Log("    Missing: ChatMultimodalWithTools() method")
+		t.Log("    Missing: PredictMultimodalWithTools() method")
 	} else {
 		t.Log("✓ OpenAIToolProvider implements providers.MultimodalToolSupport interface")
 	}
@@ -102,7 +102,7 @@ func TestOpenAIToolProvider_MultimodalToolSupport(t *testing.T) {
 	_, ok = interface{}(toolProvider).(providers.MultimodalSupport)
 	if ok {
 		t.Log("✓ OpenAIToolProvider implements providers.MultimodalSupport interface")
-		t.Log("    This means it inherits GetMultimodalCapabilities(), ChatMultimodal(), ChatMultimodalStream()")
+		t.Log("    This means it inherits GetMultimodalCapabilities(), PredictMultimodal(), PredictMultimodalStream()")
 	} else {
 		t.Log("⚠️  OpenAIToolProvider does NOT implement providers.MultimodalSupport interface")
 	}
@@ -139,7 +139,7 @@ func TestOpenAIToolProvider_BuildToolRequestWithLegacyMessage(t *testing.T) {
 		Content: "Hello, world!",
 	}
 
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{msg},
 	}
 
@@ -180,7 +180,7 @@ func TestOpenAIToolProvider_BuildToolRequestWithTools(t *testing.T) {
 		},
 	}
 
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{msg},
 	}
 
@@ -243,7 +243,7 @@ func TestOpenAIToolProvider_BuildToolRequestWithToolCalls(t *testing.T) {
 		},
 	}
 
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{assistantMsg, toolResultMsg},
 	}
 
@@ -319,7 +319,7 @@ func TestOpenAIToolProvider_BuildToolRequestWithMultimodalAndToolResult(t *testi
 		Content: "The chart shows an upward trend.",
 	}
 
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{userMsg, assistantMsg, toolMsg, finalMsg},
 	}
 
@@ -377,7 +377,7 @@ func TestOpenAIToolProvider_MultimodalValidation(t *testing.T) {
 		},
 	}
 
-	// This should fail validation since OpenAI doesn't support audio in chat
+	// This should fail validation since OpenAI doesn't support audio in predict
 	_, err := toolProvider.convertMessageToOpenAI(msg)
 	if err == nil {
 		t.Error("Expected error for unsupported audio content")

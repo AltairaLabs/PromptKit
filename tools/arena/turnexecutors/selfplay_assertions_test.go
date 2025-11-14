@@ -33,11 +33,11 @@ func TestSelfPlayExecutor_WithAssertions_Pass(t *testing.T) {
 		OutputCostUSD: 0.0005,
 		TotalCost:     0.001,
 	}
-	response := providers.ChatResponse{
+	response := providers.PredictionResponse{
 		Content:  "Renewable energy sources like solar and wind are essential for sustainability.",
 		CostInfo: &costBreakdown,
 	}
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(response, nil)
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(response, nil)
 
 	// Setup mock self-play content provider - reuse from streaming_test.go pattern
 	mockContentGen := &selfPlayMockContentGenerator{
@@ -162,11 +162,11 @@ func TestSelfPlayExecutor_WithAssertions_Fail(t *testing.T) {
 		OutputCostUSD: 0.0005,
 		TotalCost:     0.001,
 	}
-	response := providers.ChatResponse{
+	response := providers.PredictionResponse{
 		Content:  "Wind energy is a good renewable source.",
 		CostInfo: &costBreakdown,
 	}
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(response, nil)
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(response, nil)
 
 	// Setup mock self-play content provider
 	mockContentGen := &selfPlayMockContentGenerator{
