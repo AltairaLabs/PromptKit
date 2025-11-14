@@ -730,3 +730,72 @@ func TestPredictInvalidJSON(t *testing.T) {
 		t.Errorf("Expected error to start with 'failed to unmarshal', got %q", err.Error())
 	}
 }
+
+// TestPredictLowLevelErrors tests low-level error handling paths for full coverage
+func TestPredictLowLevelErrors(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupServer func() *httptest.Server
+		wantErrMsg  string
+	}{
+		{
+			name: "http client error - connection refused",
+			setupServer: func() *httptest.Server {
+				// Create server and immediately close it to cause connection error
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+				server.Close()
+				return server
+			},
+			wantErrMsg: "failed to make request",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := tt.setupServer()
+
+			provider := NewImagenProvider(ImagenConfig{
+				ID:               "test-id",
+				Model:            "imagen-4.0-generate-001",
+				BaseURL:          server.URL,
+				ApiKey:           "test-key",
+				ProjectID:        "",
+				Location:         "",
+				IncludeRawOutput: false,
+				Defaults:         providers.ProviderDefaults{},
+			})
+
+			ctx := context.Background()
+			req := providers.PredictionRequest{
+				Messages: []types.Message{
+					{Role: "user", Content: "Generate image"},
+				},
+			}
+
+			_, err := provider.Predict(ctx, req)
+			if err == nil {
+				t.Fatal("Expected error, got nil")
+			}
+
+			if !containsString(err.Error(), tt.wantErrMsg) {
+				t.Errorf("Expected error to contain %q, got %q", tt.wantErrMsg, err.Error())
+			}
+		})
+	}
+}
+
+// Helper function to check if string contains substring
+func containsString(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) &&
+		(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr ||
+			len(s) > len(substr) && findSubstring(s, substr)))
+}
+
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

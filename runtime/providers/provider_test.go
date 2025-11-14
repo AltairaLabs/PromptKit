@@ -618,3 +618,13 @@ func TestToolCall_EmptyArgs(t *testing.T) {
 		t.Error("Expected empty args object")
 	}
 }
+
+// TestUnsupportedProviderError tests the error message formatting
+func TestUnsupportedProviderError(t *testing.T) {
+	err := &UnsupportedProviderError{ProviderType: "unknown-provider"}
+	expected := "unsupported provider type: unknown-provider"
+
+	if err.Error() != expected {
+		t.Errorf("Expected error message %q, got %q", expected, err.Error())
+	}
+}

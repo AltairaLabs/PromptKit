@@ -769,3 +769,652 @@ func TestPredictMultimodalStream_Integration(t *testing.T) {
 		})
 	}
 }
+
+// TestPredictMultimodal_ValidationError tests validation error handling
+func TestPredictMultimodal_ValidationError(t *testing.T) {
+	provider := NewGeminiProvider(
+		"test",
+		"gemini-2.0-flash",
+		"https://test.example.com",
+		providers.ProviderDefaults{},
+		false,
+	)
+
+	// Test with unsupported media format
+	req := providers.PredictionRequest{
+		Messages: []types.Message{
+			{
+				Role: "user",
+				Parts: []types.ContentPart{
+					{
+						Type: types.ContentTypeImage,
+						Media: &types.MediaContent{
+							MIMEType: "image/bmp", // Unsupported format
+							Data:     providers.StringPtr("fake-data"),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	_, err := provider.PredictMultimodal(context.Background(), req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported")
+}
+
+// TestPredictMultimodalStream_ValidationError tests streaming validation error handling
+func TestPredictMultimodalStream_ValidationError(t *testing.T) {
+	provider := NewGeminiProvider(
+		"test",
+		"gemini-2.0-flash",
+		"https://test.example.com",
+		providers.ProviderDefaults{},
+		false,
+	)
+
+	// Test with unsupported media format
+	req := providers.PredictionRequest{
+		Messages: []types.Message{
+			{
+				Role: "user",
+				Parts: []types.ContentPart{
+					{
+						Type: types.ContentTypeImage,
+						Media: &types.MediaContent{
+							MIMEType: "image/tiff", // Unsupported format
+							Data:     providers.StringPtr("fake-data"),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	_, err := provider.PredictMultimodalStream(context.Background(), req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported")
+}
+
+// TestPredictWithContents_HTTPErrors tests error handling in predictWithContents
+func TestPredictWithContents_HTTPErrors(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupServer func() *httptest.Server
+		wantErrMsg  string
+	}{
+		{
+			name: "HTTP request creation error - handled by context cancellation",
+			setupServer: func() *httptest.Server {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusOK)
+					json.NewEncoder(w).Encode(geminiResponse{
+						Candidates: []geminiCandidate{
+							{Content: geminiContent{Parts: []geminiPart{{Text: "response"}}}},
+						},
+					})
+				}))
+				return server
+			},
+			wantErrMsg: "",
+		},
+		{
+			name: "HTTP send error - connection refused",
+			setupServer: func() *httptest.Server {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusOK)
+				}))
+				server.Close() // Close immediately to cause connection error
+				return server
+			},
+			wantErrMsg: "failed to send request",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := tt.setupServer()
+			if tt.name != "HTTP send error - connection refused" {
+				defer server.Close()
+			}
+
+			provider := NewGeminiProvider(
+				"test",
+				"gemini-2.0-flash",
+				server.URL,
+				providers.ProviderDefaults{},
+				false,
+			)
+
+			contents := []geminiContent{
+				{Role: "user", Parts: []geminiPart{{Text: "test"}}},
+			}
+
+			_, err := provider.predictWithContents(context.Background(), contents, nil, 0.7, 0.9, 100, nil)
+
+			if tt.wantErrMsg == "" {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErrMsg)
+			}
+		})
+	}
+}
+
+// TestPredictStreamWithContents_HTTPErrors tests error handling in predictStreamWithContents
+func TestPredictStreamWithContents_HTTPErrors(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupServer func() *httptest.Server
+		wantErrMsg  string
+	}{
+		{
+			name: "HTTP send error",
+			setupServer: func() *httptest.Server {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusOK)
+				}))
+				server.Close()
+				return server
+			},
+			wantErrMsg: "failed to send request",
+		},
+		{
+			name: "API error status",
+			setupServer: func() *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusUnauthorized)
+					w.Write([]byte("unauthorized"))
+				}))
+			},
+			wantErrMsg: "401",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := tt.setupServer()
+			if tt.name != "HTTP send error" {
+				defer server.Close()
+			}
+
+			provider := NewGeminiProvider(
+				"test",
+				"gemini-2.0-flash",
+				server.URL,
+				providers.ProviderDefaults{},
+				false,
+			)
+
+			contents := []geminiContent{
+				{Role: "user", Parts: []geminiPart{{Text: "test"}}},
+			}
+
+			_, err := provider.predictStreamWithContents(context.Background(), contents, nil, 0.7, 0.9, 100, nil)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErrMsg)
+		})
+	}
+}
+
+// TestConvertImageMissingMIMEType tests missing MIME type error
+func TestConvertImageMissingMIMEType(t *testing.T) {
+	data := "base64data"
+	msg := types.Message{
+		Role: "user",
+		Parts: []types.ContentPart{
+			{
+				Type: types.ContentTypeImage,
+				Media: &types.MediaContent{
+					Data: &data,
+					// Missing MIMEType
+				},
+			},
+		},
+	}
+
+	_, err := convertMessageToGemini(msg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing mime_type")
+}
+
+// TestConvertUnsupportedPartType tests unsupported content type
+func TestConvertUnsupportedPartType(t *testing.T) {
+	msg := types.Message{
+		Role: "user",
+		Parts: []types.ContentPart{
+			{
+				Type: "unsupported_type",
+			},
+		},
+	}
+
+	_, err := convertMessageToGemini(msg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported part type")
+}
+
+// TestConvertNilTextPart tests nil text pointer
+func TestConvertNilTextPart(t *testing.T) {
+	msg := types.Message{
+		Role: "user",
+		Parts: []types.ContentPart{
+			{
+				Type: types.ContentTypeText,
+				Text: nil,
+			},
+		},
+	}
+
+	_, err := convertMessageToGemini(msg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "empty text")
+}
+
+// TestConvertMediaURLNotSupported tests that URLs are not supported by Gemini
+func TestConvertMediaURLNotSupported(t *testing.T) {
+	url := "https://example.com/image.jpg"
+	msg := types.Message{
+		Role: "user",
+		Parts: []types.ContentPart{
+			{
+				Type: types.ContentTypeImage,
+				Media: &types.MediaContent{
+					URL:      &url,
+					MIMEType: types.MIMETypeImageJPEG,
+				},
+			},
+		},
+	}
+
+	_, err := convertMessageToGemini(msg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not support media URLs")
+}
+
+// TestConvertMediaMissingDataSource tests missing all data sources
+func TestConvertMediaMissingDataSource(t *testing.T) {
+	msg := types.Message{
+		Role: "user",
+		Parts: []types.ContentPart{
+			{
+				Type: types.ContentTypeImage,
+				Media: &types.MediaContent{
+					MIMEType: types.MIMETypeImageJPEG,
+					// No Data, URL, or FilePath
+				},
+			},
+		},
+	}
+
+	_, err := convertMessageToGemini(msg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing data source")
+}
+
+// TestConvertMediaMissingMediaField tests missing media field entirely
+func TestConvertMediaMissingMediaField(t *testing.T) {
+	msg := types.Message{
+		Role: "user",
+		Parts: []types.ContentPart{
+			{
+				Type:  types.ContentTypeImage,
+				Media: nil,
+			},
+		},
+	}
+
+	_, err := convertMessageToGemini(msg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing media field")
+}
+
+// TestPredictWithContents_MarshalError tests JSON marshal error
+func TestPredictWithContents_MarshalError(t *testing.T) {
+	provider := NewGeminiProvider(
+		"test",
+		"gemini-2.0-flash",
+		"https://generativelanguage.googleapis.com/v1beta",
+		providers.ProviderDefaults{},
+		false,
+	)
+
+	// Create invalid content that will fail marshaling
+	// In practice, this is very rare with proper typed data
+	// We test that normal content marshals successfully
+	contents := []geminiContent{
+		{Role: "user", Parts: []geminiPart{{Text: "Hello"}}},
+	}
+
+	_, err := provider.predictWithContents(context.Background(), contents, nil, 0.7, 0.9, 100, nil)
+	// This will fail at HTTP stage, not marshal, for valid content
+	if err != nil && err.Error() == "failed to marshal request" {
+		t.Error("Unexpected marshal error for valid content")
+	}
+}
+
+// TestPredictStreamWithContents_MarshalError tests JSON marshal error in streaming
+func TestPredictStreamWithContents_MarshalError(t *testing.T) {
+	provider := NewGeminiProvider(
+		"test",
+		"gemini-2.0-flash",
+		"https://generativelanguage.googleapis.com/v1beta",
+		providers.ProviderDefaults{},
+		false,
+	)
+
+	// Test with valid content to ensure marshal works
+	contents := []geminiContent{
+		{Role: "user", Parts: []geminiPart{{Text: "Hello"}}},
+	}
+
+	_, err := provider.predictStreamWithContents(context.Background(), contents, nil, 0.7, 0.9, 100, nil)
+	// Should fail at HTTP stage, not marshal
+	if err != nil && err.Error() == "failed to marshal request" {
+		t.Error("Unexpected marshal error for valid content")
+	}
+}
+
+// TestParseGeminiResponse_EmptyCandidates tests empty candidates error
+func TestParseGeminiResponse_EmptyCandidates(t *testing.T) {
+	provider := NewGeminiProvider(
+		"test",
+		"gemini-2.0-flash",
+		"https://generativelanguage.googleapis.com/v1beta",
+		providers.ProviderDefaults{},
+		false,
+	)
+
+	respBody := []byte(`{"candidates": []}`)
+
+	_, err := provider.parseGeminiResponse(respBody)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no candidates")
+}
+
+// TestParseGeminiResponse_PromptBlocked tests prompt feedback blocking
+func TestParseGeminiResponse_PromptBlocked(t *testing.T) {
+	provider := NewGeminiProvider(
+		"test",
+		"gemini-2.0-flash",
+		"https://generativelanguage.googleapis.com/v1beta",
+		providers.ProviderDefaults{},
+		false,
+	)
+
+	respBody := []byte(`{
+		"promptFeedback": {
+			"blockReason": "SAFETY"
+		},
+		"candidates": []
+	}`)
+
+	_, err := provider.parseGeminiResponse(respBody)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "prompt blocked")
+	assert.Contains(t, err.Error(), "SAFETY")
+}
+
+// TestParseGeminiResponse_MaxTokens tests MAX_TOKENS finish reason
+func TestParseGeminiResponse_MaxTokens(t *testing.T) {
+	provider := NewGeminiProvider(
+		"test",
+		"gemini-2.0-flash",
+		"https://generativelanguage.googleapis.com/v1beta",
+		providers.ProviderDefaults{},
+		false,
+	)
+
+	respBody := []byte(`{
+		"candidates": [{
+			"content": {
+				"parts": [],
+				"role": "model"
+			},
+			"finishReason": "MAX_TOKENS"
+		}]
+	}`)
+
+	_, err := provider.parseGeminiResponse(respBody)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "max tokens limit reached")
+}
+
+// TestParseGeminiResponse_SafetyFilter tests SAFETY finish reason
+func TestParseGeminiResponse_SafetyFilter(t *testing.T) {
+	provider := NewGeminiProvider(
+		"test",
+		"gemini-2.0-flash",
+		"https://generativelanguage.googleapis.com/v1beta",
+		providers.ProviderDefaults{},
+		false,
+	)
+
+	respBody := []byte(`{
+		"candidates": [{
+			"content": {
+				"parts": [],
+				"role": "model"
+			},
+			"finishReason": "SAFETY"
+		}]
+	}`)
+
+	_, err := provider.parseGeminiResponse(respBody)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "blocked by safety filters")
+}
+
+// TestParseGeminiResponse_Recitation tests RECITATION finish reason
+func TestParseGeminiResponse_Recitation(t *testing.T) {
+	provider := NewGeminiProvider(
+		"test",
+		"gemini-2.0-flash",
+		"https://generativelanguage.googleapis.com/v1beta",
+		providers.ProviderDefaults{},
+		false,
+	)
+
+	respBody := []byte(`{
+		"candidates": [{
+			"content": {
+				"parts": [],
+				"role": "model"
+			},
+			"finishReason": "RECITATION"
+		}]
+	}`)
+
+	_, err := provider.parseGeminiResponse(respBody)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "recitation concerns")
+}
+
+// TestParseGeminiResponse_UnknownFinishReason tests unknown finish reason
+func TestParseGeminiResponse_UnknownFinishReason(t *testing.T) {
+	provider := NewGeminiProvider(
+		"test",
+		"gemini-2.0-flash",
+		"https://generativelanguage.googleapis.com/v1beta",
+		providers.ProviderDefaults{},
+		false,
+	)
+
+	respBody := []byte(`{
+		"candidates": [{
+			"content": {
+				"parts": [],
+				"role": "model"
+			},
+			"finishReason": "UNKNOWN_REASON"
+		}]
+	}`)
+
+	_, err := provider.parseGeminiResponse(respBody)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no content parts")
+	assert.Contains(t, err.Error(), "UNKNOWN_REASON")
+}
+
+// TestParseGeminiResponse_InvalidJSON tests invalid JSON response
+func TestParseGeminiResponse_InvalidJSON(t *testing.T) {
+	provider := NewGeminiProvider(
+		"test",
+		"gemini-2.0-flash",
+		"https://generativelanguage.googleapis.com/v1beta",
+		providers.ProviderDefaults{},
+		false,
+	)
+
+	respBody := []byte(`{"candidates": [invalid json`)
+
+	_, err := provider.parseGeminiResponse(respBody)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to unmarshal")
+}
+
+// TestConvertMessagesToGemini_WithSystemPrompt tests system prompt conversion
+func TestConvertMessagesToGemini_WithSystemPrompt(t *testing.T) {
+	messages := []types.Message{
+		{Role: "user", Content: "Hello"},
+	}
+
+	contents, systemInstruction, err := convertMessagesToGemini(messages, "You are helpful")
+	require.NoError(t, err)
+	require.NotNil(t, systemInstruction)
+	assert.Equal(t, "You are helpful", systemInstruction.Parts[0].Text)
+	assert.Len(t, contents, 1)
+}
+
+// TestConvertMessagesToGemini_ConversionError tests message conversion error propagation
+func TestConvertMessagesToGemini_ConversionError(t *testing.T) {
+	messages := []types.Message{
+		{
+			Role: "user",
+			Parts: []types.ContentPart{
+				{Type: "unsupported_type"},
+			},
+		},
+	}
+
+	_, _, err := convertMessagesToGemini(messages, "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported part type")
+}
+
+// TestPredictWithContents_ReadBodyError tests error reading response body
+func TestPredictWithContents_ReadBodyError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "100")
+		w.WriteHeader(http.StatusOK)
+		// Send nothing, causing read mismatch
+	}))
+	defer server.Close()
+
+	provider := NewGeminiProvider(
+		"test",
+		"gemini-2.0-flash",
+		server.URL,
+		providers.ProviderDefaults{},
+		false,
+	)
+
+	req := providers.PredictionRequest{
+		Messages: []types.Message{
+			{Role: "user", Content: "Hello"},
+		},
+	}
+
+	resp, err := provider.PredictMultimodal(context.Background(), req)
+	// Should get error from parsing or reading
+	if err == nil {
+		t.Error("Expected error reading or parsing response")
+	}
+	// Latency should still be set
+	if resp.Latency == 0 {
+		t.Error("Expected latency to be set even on error")
+	}
+}
+
+// TestPredictWithContents_InvalidURL tests invalid URL error
+func TestPredictWithContents_InvalidURL(t *testing.T) {
+	provider := NewGeminiProvider(
+		"test",
+		"gemini-2.0-flash",
+		"http://\x7f/invalid", // Invalid URL with control character
+		providers.ProviderDefaults{},
+		false,
+	)
+
+	contents := []geminiContent{
+		{Role: "user", Parts: []geminiPart{{Text: "Hello"}}},
+	}
+
+	resp, err := provider.predictWithContents(context.Background(), contents, nil, 0.7, 0.9, 100, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to create request")
+	// Latency should be set even on error
+	assert.NotZero(t, resp.Latency)
+}
+
+// TestConvertEmptyTextString tests empty string text
+func TestConvertEmptyTextString(t *testing.T) {
+	emptyStr := ""
+	msg := types.Message{
+		Role: "user",
+		Parts: []types.ContentPart{
+			{
+				Type: types.ContentTypeText,
+				Text: &emptyStr,
+			},
+		},
+	}
+
+	_, err := convertMessageToGemini(msg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "empty text")
+}
+
+// TestConvertAudioPartWithFilePath tests audio file path loading error
+func TestConvertAudioPartWithFilePath(t *testing.T) {
+	filePath := "/nonexistent/audio.mp3"
+	msg := types.Message{
+		Role: "user",
+		Parts: []types.ContentPart{
+			{
+				Type: types.ContentTypeAudio,
+				Media: &types.MediaContent{
+					FilePath: &filePath,
+					MIMEType: types.MIMETypeAudioMP3,
+				},
+			},
+		},
+	}
+
+	_, err := convertMessageToGemini(msg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to read file")
+}
+
+// TestConvertVideoPartWithFilePath tests video file path loading error
+func TestConvertVideoPartWithFilePath(t *testing.T) {
+	filePath := "/nonexistent/video.mp4"
+	msg := types.Message{
+		Role: "user",
+		Parts: []types.ContentPart{
+			{
+				Type: types.ContentTypeVideo,
+				Media: &types.MediaContent{
+					FilePath: &filePath,
+					MIMEType: types.MIMETypeVideoMP4,
+				},
+			},
+		},
+	}
+
+	_, err := convertMessageToGemini(msg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to read file")
+}

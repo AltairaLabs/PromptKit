@@ -539,3 +539,72 @@ func TestOpenAIToolCallStructure(t *testing.T) {
 		t.Errorf("Expected arguments string, got '%s'", unmarshaled.Function.Arguments)
 	}
 }
+
+// ============================================================================
+// addToolChoiceToRequest Tests
+// ============================================================================
+
+func TestOpenAIToolProvider_AddToolChoiceToRequest(t *testing.T) {
+	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+
+	tests := []struct {
+		name       string
+		toolChoice string
+		want       interface{}
+	}{
+		{
+			name:       "empty string - no tool_choice added",
+			toolChoice: "",
+			want:       nil,
+		},
+		{
+			name:       "auto - no tool_choice added",
+			toolChoice: "auto",
+			want:       nil,
+		},
+		{
+			name:       "required",
+			toolChoice: "required",
+			want:       "required",
+		},
+		{
+			name:       "none",
+			toolChoice: "none",
+			want:       "none",
+		},
+		{
+			name:       "specific function name",
+			toolChoice: "search_function",
+			want: map[string]interface{}{
+				"type": "function",
+				"function": map[string]string{
+					"name": "search_function",
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			openaiReq := make(map[string]interface{})
+			provider.addToolChoiceToRequest(openaiReq, tt.toolChoice)
+
+			if tt.want == nil {
+				if _, exists := openaiReq["tool_choice"]; exists {
+					t.Errorf("Expected no tool_choice, but found %v", openaiReq["tool_choice"])
+				}
+			} else {
+				got, exists := openaiReq["tool_choice"]
+				if !exists {
+					t.Fatal("Expected tool_choice to be set")
+				}
+
+				gotJSON, _ := json.Marshal(got)
+				wantJSON, _ := json.Marshal(tt.want)
+				if string(gotJSON) != string(wantJSON) {
+					t.Errorf("Expected tool_choice %s, got %s", wantJSON, gotJSON)
+				}
+			}
+		})
+	}
+}
