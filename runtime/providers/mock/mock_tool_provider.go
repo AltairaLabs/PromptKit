@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
@@ -63,11 +64,11 @@ func (m *MockToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor)
 	return descriptors, nil
 }
 
-// ChatWithTools implements the ToolSupport interface.
+// PredictWithTools implements the ToolSupport interface.
 // This method handles the initial chat request with tools available,
 // potentially returning tool calls based on the mock configuration.
-func (m *MockToolProvider) ChatWithTools(ctx context.Context, req providers.ChatRequest, tools interface{}, toolChoice string) (providers.ChatResponse, []types.MessageToolCall, error) {
-	logger.Debug("MockToolProvider ChatWithTools",
+func (m *MockToolProvider) PredictWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
+	logger.Debug("MockToolProvider PredictWithTools",
 		"provider_id", m.id,
 		"tool_choice", toolChoice,
 		"message_count", len(req.Messages))
@@ -83,14 +84,14 @@ func (m *MockToolProvider) ChatWithTools(ctx context.Context, req providers.Chat
 		ModelName:  m.model,
 	}
 
-	logger.Debug("MockToolProvider ChatWithTools using turn",
+	logger.Debug("MockToolProvider PredictWithTools using turn",
 		"provider_id", m.id,
 		"detected_turn", turnNumber,
 		"scenario_id", params.ScenarioID)
 
 	mockTurn, err := m.repository.GetTurn(ctx, params)
 	if err != nil {
-		return providers.ChatResponse{}, nil, fmt.Errorf("failed to get mock turn: %w", err)
+		return providers.PredictionResponse{}, nil, fmt.Errorf("failed to get mock turn: %w", err)
 	}
 
 	// Build cost info for the response
@@ -104,7 +105,7 @@ func (m *MockToolProvider) ChatWithTools(ctx context.Context, req providers.Chat
 		for i, tc := range mockTurn.ToolCalls {
 			argsBytes, err := json.Marshal(tc.Arguments)
 			if err != nil {
-				return providers.ChatResponse{}, nil, fmt.Errorf("failed to marshal tool call arguments: %w", err)
+				return providers.PredictionResponse{}, nil, fmt.Errorf("failed to marshal tool call arguments: %w", err)
 			}
 
 			toolCalls[i] = types.MessageToolCall{
@@ -118,7 +119,7 @@ func (m *MockToolProvider) ChatWithTools(ctx context.Context, req providers.Chat
 			"provider_id", m.id,
 			"tool_call_count", len(toolCalls))
 
-		return providers.ChatResponse{
+		return providers.PredictionResponse{
 			Content:   mockTurn.Content,
 			ToolCalls: toolCalls,
 			CostInfo:  &costInfo,
@@ -130,7 +131,7 @@ func (m *MockToolProvider) ChatWithTools(ctx context.Context, req providers.Chat
 		"provider_id", m.id,
 		"response_length", len(mockTurn.Content))
 
-	return providers.ChatResponse{
+	return providers.PredictionResponse{
 		Content:  mockTurn.Content,
 		CostInfo: &costInfo,
 	}, nil, nil
@@ -169,7 +170,7 @@ func (m *MockToolProvider) calculateOutputTokens(responseText string) int {
 }
 
 // detectTurnFromConversation analyzes the conversation history to determine the current turn number
-func (m *MockToolProvider) detectTurnFromConversation(req providers.ChatRequest) int {
+func (m *MockToolProvider) detectTurnFromConversation(req providers.PredictionRequest) int {
 	// Start with base turn number from metadata
 	baseTurnNumber := 1
 	if req.Metadata != nil {
@@ -202,7 +203,7 @@ func (m *MockToolProvider) detectTurnFromConversation(req providers.ChatRequest)
 }
 
 // getScenarioID extracts the scenario ID from request metadata
-func (m *MockToolProvider) getScenarioID(req providers.ChatRequest) string {
+func (m *MockToolProvider) getScenarioID(req providers.PredictionRequest) string {
 	if req.Metadata != nil {
 		if sid, ok := req.Metadata["mock_scenario_id"].(string); ok {
 			return sid

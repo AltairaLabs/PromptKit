@@ -17,11 +17,11 @@ import (
 
 // HTTP constants
 const (
-	openAIChatCompletionsPath = "/chat/completions"
-	contentTypeHeader         = "Content-Type"
-	applicationJSON           = "application/json"
-	authorizationHeader       = "Authorization"
-	bearerPrefix              = "Bearer "
+	openAIPredictCompletionsPath = "/chat/completions"
+	contentTypeHeader            = "Content-Type"
+	applicationJSON              = "application/json"
+	authorizationHeader          = "Authorization"
+	bearerPrefix                 = "Bearer "
 )
 
 // OpenAIProvider implements the Provider interface for OpenAI
@@ -95,7 +95,7 @@ type openAIError struct {
 }
 
 // prepareOpenAIMessages converts chat request messages to OpenAI format with system message
-func (p *OpenAIProvider) prepareOpenAIMessages(req providers.ChatRequest) ([]openAIMessage, error) {
+func (p *OpenAIProvider) prepareOpenAIMessages(req providers.PredictionRequest) ([]openAIMessage, error) {
 	messages := make([]openAIMessage, 0, len(req.Messages)+1)
 	if req.System != "" {
 		messages = append(messages, openAIMessage{
@@ -117,7 +117,7 @@ func (p *OpenAIProvider) prepareOpenAIMessages(req providers.ChatRequest) ([]ope
 }
 
 // applyRequestDefaults applies provider defaults to zero-valued request parameters
-func (p *OpenAIProvider) applyRequestDefaults(req providers.ChatRequest) (float32, float32, int) {
+func (p *OpenAIProvider) applyRequestDefaults(req providers.PredictionRequest) (float32, float32, int) {
 	temperature := req.Temperature
 	if temperature == 0 {
 		temperature = p.defaults.Temperature
@@ -136,12 +136,12 @@ func (p *OpenAIProvider) applyRequestDefaults(req providers.ChatRequest) (float3
 	return temperature, topP, maxTokens
 }
 
-// Chat sends a chat request to OpenAI
-func (p *OpenAIProvider) Chat(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
+// Predict sends a chat request to OpenAI
+func (p *OpenAIProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	// Convert messages to OpenAI format
 	messages, err := p.prepareOpenAIMessages(req)
 	if err != nil {
-		return providers.ChatResponse{}, fmt.Errorf("failed to prepare messages: %w", err)
+		return providers.PredictionResponse{}, fmt.Errorf("failed to prepare messages: %w", err)
 	}
 
 	// Delegate to the common implementation
@@ -203,8 +203,8 @@ func (p *OpenAIProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) ty
 	}
 }
 
-// ChatStream streams a chat response from OpenAI
-func (p *OpenAIProvider) ChatStream(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
+// PredictStream streams a chat response from OpenAI
+func (p *OpenAIProvider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	// Convert messages to OpenAI format
 	messages, err := p.prepareOpenAIMessages(req)
 	if err != nil {
@@ -422,8 +422,8 @@ func getTextFromPart(part interface{}) string {
 	return textVal
 }
 
-// chatWithMessages is a refactored version of Chat that accepts pre-converted messages
-func (p *OpenAIProvider) chatWithMessages(ctx context.Context, req providers.ChatRequest, messages []openAIMessage) (providers.ChatResponse, error) {
+// chatWithMessages is a refactored version of Predict that accepts pre-converted messages
+func (p *OpenAIProvider) chatWithMessages(ctx context.Context, req providers.PredictionRequest, messages []openAIMessage) (providers.PredictionResponse, error) {
 	start := time.Now()
 
 	// Apply provider defaults for zero values
@@ -441,11 +441,11 @@ func (p *OpenAIProvider) chatWithMessages(ctx context.Context, req providers.Cha
 
 	reqBody, err := json.Marshal(openAIReq)
 	if err != nil {
-		return providers.ChatResponse{}, fmt.Errorf("failed to marshal request: %w", err)
+		return providers.PredictionResponse{}, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	// Prepare response with raw request if configured (set early to preserve on error)
-	chatResp := providers.ChatResponse{
+	chatResp := providers.PredictionResponse{
 		Latency: time.Since(start), // Will be updated at the end
 	}
 	if p.ShouldIncludeRawOutput() {
@@ -453,7 +453,7 @@ func (p *OpenAIProvider) chatWithMessages(ctx context.Context, req providers.Cha
 	}
 
 	// Make HTTP request
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+openAIChatCompletionsPath, bytes.NewReader(reqBody))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+openAIPredictCompletionsPath, bytes.NewReader(reqBody))
 	if err != nil {
 		return chatResp, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -463,7 +463,7 @@ func (p *OpenAIProvider) chatWithMessages(ctx context.Context, req providers.Cha
 
 	client := &http.Client{Timeout: 30 * time.Second}
 
-	logger.APIRequest("OpenAI", "POST", p.baseURL+openAIChatCompletionsPath, map[string]string{
+	logger.APIRequest("OpenAI", "POST", p.baseURL+openAIPredictCompletionsPath, map[string]string{
 		contentTypeHeader:   applicationJSON,
 		authorizationHeader: bearerPrefix + p.apiKey,
 	}, openAIReq)
@@ -529,8 +529,8 @@ func (p *OpenAIProvider) chatWithMessages(ctx context.Context, req providers.Cha
 	return chatResp, nil
 }
 
-// chatStreamWithMessages is a refactored version of ChatStream that accepts pre-converted messages
-func (p *OpenAIProvider) chatStreamWithMessages(ctx context.Context, req providers.ChatRequest, messages []openAIMessage) (<-chan providers.StreamChunk, error) {
+// chatStreamWithMessages is a refactored version of PredictStream that accepts pre-converted messages
+func (p *OpenAIProvider) chatStreamWithMessages(ctx context.Context, req providers.PredictionRequest, messages []openAIMessage) (<-chan providers.StreamChunk, error) {
 	// Apply provider defaults for zero values
 	temperature, topP, maxTokens := p.applyRequestDefaults(req)
 
@@ -556,7 +556,7 @@ func (p *OpenAIProvider) chatStreamWithMessages(ctx context.Context, req provide
 	}
 
 	// Make HTTP request
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+openAIChatCompletionsPath, bytes.NewReader(reqBody))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+openAIPredictCompletionsPath, bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

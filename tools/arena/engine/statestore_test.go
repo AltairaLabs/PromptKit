@@ -324,10 +324,10 @@ func (p *testProvider) ID() string              { return p.id }
 func (p *testProvider) Type() string            { return "test" }
 func (p *testProvider) Model() string           { return "test-model" }
 func (p *testProvider) SupportsStreaming() bool { return false }
-func (p *testProvider) Chat(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
-	return providers.ChatResponse{Content: "test response"}, nil
+func (p *testProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+	return providers.PredictionResponse{Content: "test response"}, nil
 }
-func (p *testProvider) ChatStream(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
+func (p *testProvider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	ch := make(chan providers.StreamChunk)
 	close(ch)
 	return ch, nil

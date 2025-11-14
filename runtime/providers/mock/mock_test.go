@@ -2,9 +2,10 @@ package mock
 
 import (
 	"context"
+	"testing"
+
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"testing"
 )
 
 func TestCreateProviderFromSpec_Mock(t *testing.T) {
@@ -29,15 +30,15 @@ func TestCreateProviderFromSpec_Mock(t *testing.T) {
 
 	// Test that it can handle a chat request
 	ctx := context.Background()
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "Hello"},
 		},
 	}
 
-	resp, err := provider.Chat(ctx, req)
+	resp, err := provider.Predict(ctx, req)
 	if err != nil {
-		t.Fatalf("Expected no error from Chat, got: %v", err)
+		t.Fatalf("Expected no error from Predict, got: %v", err)
 	}
 
 	if resp.Content == "" {
@@ -53,17 +54,17 @@ func TestCreateProviderFromSpec_Mock(t *testing.T) {
 	}
 }
 
-func TestMockProvider_Chat(t *testing.T) {
+func TestMockProvider_Predict(t *testing.T) {
 	provider := NewMockProvider("test-id", "test-model", false)
 
 	ctx := context.Background()
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "Test message"},
 		},
 	}
 
-	resp, err := provider.Chat(ctx, req)
+	resp, err := provider.Predict(ctx, req)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -86,17 +87,17 @@ func TestMockProvider_Chat(t *testing.T) {
 	}
 }
 
-func TestMockProvider_ChatStream(t *testing.T) {
+func TestMockProvider_PredictStream(t *testing.T) {
 	provider := NewMockProvider("test-id", "test-model", false)
 
 	ctx := context.Background()
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "Test message"},
 		},
 	}
 
-	stream, err := provider.ChatStream(ctx, req)
+	stream, err := provider.PredictStream(ctx, req)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -111,7 +112,7 @@ func TestMockProvider_ChatStream(t *testing.T) {
 			t.Error("Expected final result in chunk")
 		}
 		// FinalResult is interface{}, so we need to type assert
-		if finalResult, ok := chunk.FinalResult.(*providers.ChatResponse); ok {
+		if finalResult, ok := chunk.FinalResult.(*providers.PredictionResponse); ok {
 			if finalResult.CostInfo == nil {
 				t.Error("Expected cost info in final result")
 			}

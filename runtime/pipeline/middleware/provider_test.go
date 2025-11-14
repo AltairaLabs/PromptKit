@@ -25,12 +25,12 @@ func (m *MockProvider) ID() string {
 	return args.String(0)
 }
 
-func (m *MockProvider) Chat(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
+func (m *MockProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	args := m.Called(ctx, req)
-	return args.Get(0).(providers.ChatResponse), args.Error(1)
+	return args.Get(0).(providers.PredictionResponse), args.Error(1)
 }
 
-func (m *MockProvider) ChatStream(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
+func (m *MockProvider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	args := m.Called(ctx, req)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -60,7 +60,7 @@ func (m *MockProvider) CalculateCost(inputTokens, outputTokens, cachedTokens int
 func TestProviderMiddleware_SimpleResponse(t *testing.T) {
 	mockProvider := new(MockProvider)
 
-	response := providers.ChatResponse{
+	response := providers.PredictionResponse{
 		Content: "Hello, world!",
 		CostInfo: &types.CostInfo{
 			InputTokens:   10,
@@ -72,7 +72,7 @@ func TestProviderMiddleware_SimpleResponse(t *testing.T) {
 		Latency: 100 * time.Millisecond,
 	}
 
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(response, nil)
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(response, nil)
 
 	providerConfig := &ProviderMiddlewareConfig{
 		Temperature: 0.7,
@@ -118,8 +118,8 @@ func TestProviderMiddleware_NoProvider(t *testing.T) {
 
 func TestProviderMiddleware_ProviderError(t *testing.T) {
 	mockProvider := new(MockProvider)
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(
-		providers.ChatResponse{},
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(
+		providers.PredictionResponse{},
 		assert.AnError,
 	)
 
@@ -142,7 +142,7 @@ func TestProviderMiddleware_WithToolCalls(t *testing.T) {
 	mockProvider := new(MockProvider)
 
 	// First response with tool call
-	firstResponse := providers.ChatResponse{
+	firstResponse := providers.PredictionResponse{
 		Content: "I'll check the weather for you",
 		ToolCalls: []types.MessageToolCall{
 			{
@@ -160,7 +160,7 @@ func TestProviderMiddleware_WithToolCalls(t *testing.T) {
 	}
 
 	// Second response after tool execution
-	secondResponse := providers.ChatResponse{
+	secondResponse := providers.PredictionResponse{
 		Content: "The weather in NYC is sunny and 72 degrees",
 		CostInfo: &types.CostInfo{
 			InputTokens:  15,
@@ -170,8 +170,8 @@ func TestProviderMiddleware_WithToolCalls(t *testing.T) {
 		Latency: 150 * time.Millisecond,
 	}
 
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(firstResponse, nil).Once()
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(secondResponse, nil).Once()
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(firstResponse, nil).Once()
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(secondResponse, nil).Once()
 
 	// Create mock tool registry
 	toolRegistry := tools.NewRegistry()
@@ -242,7 +242,7 @@ func TestProviderMiddleware_MaxRoundsExceeded(t *testing.T) {
 	mockProvider := new(MockProvider)
 
 	// Always return a tool call
-	response := providers.ChatResponse{
+	response := providers.PredictionResponse{
 		Content: "Calling tool",
 		ToolCalls: []types.MessageToolCall{
 			{
@@ -256,7 +256,7 @@ func TestProviderMiddleware_MaxRoundsExceeded(t *testing.T) {
 		},
 	}
 
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(response, nil)
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(response, nil)
 
 	// Create mock tool registry
 	toolRegistry := tools.NewRegistry()
@@ -293,7 +293,7 @@ func TestProviderMiddleware_BlockedTool(t *testing.T) {
 	mockProvider := new(MockProvider)
 
 	// Response with blocked tool call
-	response := providers.ChatResponse{
+	response := providers.PredictionResponse{
 		Content: "Calling blocked tool",
 		ToolCalls: []types.MessageToolCall{
 			{
@@ -308,15 +308,15 @@ func TestProviderMiddleware_BlockedTool(t *testing.T) {
 	}
 
 	// Second response after blocked tool
-	response2 := providers.ChatResponse{
+	response2 := providers.PredictionResponse{
 		Content: "Tool was blocked",
 		CostInfo: &types.CostInfo{
 			TotalCost: 0.0001,
 		},
 	}
 
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(response, nil).Once()
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(response2, nil).Once()
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(response, nil).Once()
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(response2, nil).Once()
 
 	toolPolicy := &pipeline.ToolPolicy{
 		Blocklist: []string{"blocked_tool"},
@@ -346,7 +346,7 @@ func TestProviderMiddleware_BlockedTool(t *testing.T) {
 func TestProviderMiddleware_CostAccumulation(t *testing.T) {
 	mockProvider := new(MockProvider)
 
-	response := providers.ChatResponse{
+	response := providers.PredictionResponse{
 		Content: "Response",
 		CostInfo: &types.CostInfo{
 			InputTokens:   100,
@@ -359,7 +359,7 @@ func TestProviderMiddleware_CostAccumulation(t *testing.T) {
 		},
 	}
 
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(response, nil)
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(response, nil)
 
 	middleware := ProviderMiddleware(mockProvider, nil, nil, nil)
 
@@ -421,7 +421,7 @@ func TestProviderMiddleware_ExecutionTrace(t *testing.T) {
 	toolRegistry.RegisterExecutor(tools.NewMockStaticExecutor())
 
 	// First LLM call - returns tool call
-	firstResponse := providers.ChatResponse{
+	firstResponse := providers.PredictionResponse{
 		Content: "Let me echo that for you.",
 		ToolCalls: []types.MessageToolCall{
 			{
@@ -441,7 +441,7 @@ func TestProviderMiddleware_ExecutionTrace(t *testing.T) {
 	}
 
 	// Second LLM call - final response after tool execution
-	secondResponse := providers.ChatResponse{
+	secondResponse := providers.PredictionResponse{
 		Content: "I've echoed your message: Hello from tool!",
 		CostInfo: &types.CostInfo{
 			InputTokens:   20,
@@ -453,8 +453,8 @@ func TestProviderMiddleware_ExecutionTrace(t *testing.T) {
 		Latency: 150 * time.Millisecond,
 	}
 
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(firstResponse, nil).Once()
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(secondResponse, nil).Once()
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(firstResponse, nil).Once()
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(secondResponse, nil).Once()
 
 	middleware := ProviderMiddleware(mockProvider, toolRegistry, nil, nil)
 
@@ -513,7 +513,7 @@ func TestProviderMiddleware_ExecutionTrace(t *testing.T) {
 func TestProviderMiddleware_SetsTimestamp(t *testing.T) {
 	mockProvider := new(MockProvider)
 
-	response := providers.ChatResponse{
+	response := providers.PredictionResponse{
 		Content: "Hello, world!",
 		CostInfo: &types.CostInfo{
 			InputTokens:   10,
@@ -525,7 +525,7 @@ func TestProviderMiddleware_SetsTimestamp(t *testing.T) {
 		Latency: 100 * time.Millisecond,
 	}
 
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(response, nil)
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(response, nil)
 
 	providerConfig := &ProviderMiddlewareConfig{
 		Temperature: 0.7,

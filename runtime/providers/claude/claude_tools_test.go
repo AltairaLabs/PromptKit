@@ -230,7 +230,7 @@ func TestClaudeParseToolResponse_NoToolCalls(t *testing.T) {
 		}
 	}`
 
-	chatResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON), providers.ChatResponse{})
+	chatResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON), providers.PredictionResponse{})
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -281,7 +281,7 @@ func TestClaudeParseToolResponse_WithToolCall(t *testing.T) {
 		}
 	}`
 
-	chatResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON), providers.ChatResponse{})
+	chatResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON), providers.PredictionResponse{})
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -356,7 +356,7 @@ func TestClaudeParseToolResponse_MultipleToolCalls(t *testing.T) {
 		}
 	}`
 
-	chatResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON), providers.ChatResponse{})
+	chatResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON), providers.PredictionResponse{})
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -414,7 +414,7 @@ func TestClaudeParseToolResponse_MixedContent(t *testing.T) {
 		}
 	}`
 
-	chatResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON), providers.ChatResponse{})
+	chatResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON), providers.PredictionResponse{})
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -435,7 +435,7 @@ func TestClaudeParseToolResponse_InvalidJSON(t *testing.T) {
 
 	responseJSON := `{invalid json`
 
-	_, _, err := provider.parseToolResponse([]byte(responseJSON), providers.ChatResponse{})
+	_, _, err := provider.parseToolResponse([]byte(responseJSON), providers.PredictionResponse{})
 	if err == nil {
 		t.Error("Expected error for invalid JSON, got nil")
 	}
@@ -462,7 +462,7 @@ func TestClaudeParseToolResponse_CachedTokens(t *testing.T) {
 		}
 	}`
 
-	chatResp, _, err := provider.parseToolResponse([]byte(responseJSON), providers.ChatResponse{})
+	chatResp, _, err := provider.parseToolResponse([]byte(responseJSON), providers.PredictionResponse{})
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -503,7 +503,7 @@ func TestClaudeParseToolResponse_EmptyContent(t *testing.T) {
 		}
 	}`
 
-	_, _, err := provider.parseToolResponse([]byte(responseJSON), providers.ChatResponse{})
+	_, _, err := provider.parseToolResponse([]byte(responseJSON), providers.PredictionResponse{})
 	// The current implementation returns an error for empty content
 	if err == nil {
 		t.Error("Expected error for empty content, got nil")

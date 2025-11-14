@@ -21,8 +21,8 @@ func TestScriptedExecutor_HandleNonStreamingProvider_Error(t *testing.T) {
 	mockProvider.On("SupportsStreaming").Return(false)
 	mockProvider.On("ShouldIncludeRawOutput").Return(false).Maybe()
 
-	// Mock provider will return an error during Chat
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(providers.ChatResponse{}, errors.New("chat failed"))
+	// Mock provider will return an error during Predict
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(providers.PredictionResponse{}, errors.New("chat failed"))
 
 	toolRegistry := tools.NewRegistry()
 	pipelineExecutor := NewPipelineExecutor(toolRegistry)
@@ -58,7 +58,7 @@ func TestScriptedExecutor_HandleNonStreamingProvider_Error(t *testing.T) {
 			t.Error("Expected error in channel, got nil")
 		}
 		// Error message includes the pipeline wrapper
-		expectedSubstring := "chat failed"
+		expectedSubstring := "generation failed"
 		if !strings.Contains(chunk.Error.Error(), expectedSubstring) {
 			t.Errorf("Expected error to contain '%s', got: %v", expectedSubstring, chunk.Error)
 		}
@@ -80,11 +80,11 @@ func TestScriptedExecutor_HandleNonStreamingProvider_Success(t *testing.T) {
 		InputTokens:  10,
 		OutputTokens: 5,
 	}
-	response := providers.ChatResponse{
+	response := providers.PredictionResponse{
 		Content:  "Hello response",
 		CostInfo: &costBreakdown,
 	}
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(response, nil)
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(response, nil)
 
 	toolRegistry := tools.NewRegistry()
 	pipelineExecutor := NewPipelineExecutor(toolRegistry)
@@ -167,8 +167,8 @@ func TestSelfPlayExecutor_HandleNonStreamingProvider_Error(t *testing.T) {
 	mockProvider.On("SupportsStreaming").Return(false)
 	mockProvider.On("ShouldIncludeRawOutput").Return(false).Maybe()
 
-	// Mock provider will return an error during Chat
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(providers.ChatResponse{}, errors.New("chat failed"))
+	// Mock provider will return an error during Predict
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(providers.PredictionResponse{}, errors.New("chat failed"))
 
 	toolRegistry := tools.NewRegistry()
 	pipelineExecutor := NewPipelineExecutor(toolRegistry)
@@ -237,11 +237,11 @@ func TestSelfPlayExecutor_HandleNonStreamingProvider_Success(t *testing.T) {
 		InputTokens:  10,
 		OutputTokens: 5,
 	}
-	response := providers.ChatResponse{
+	response := providers.PredictionResponse{
 		Content:  "Response content",
 		CostInfo: &costBreakdown,
 	}
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(response, nil)
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(response, nil)
 
 	toolRegistry := tools.NewRegistry()
 	pipelineExecutor := NewPipelineExecutor(toolRegistry)

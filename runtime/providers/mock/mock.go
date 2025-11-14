@@ -71,15 +71,15 @@ func (m *MockProvider) ID() string {
 	return m.id
 }
 
-// Chat returns a mock response using the configured repository.
-func (m *MockProvider) Chat(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
+// Predict returns a mock response using the configured repository.
+func (m *MockProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	// Try to get response from repository with scenario context
 	params := MockResponseParams{
 		ProviderID: m.id,
 		ModelName:  m.model,
 	}
 
-	// Extract scenario context if available from providers.ChatRequest.Metadata
+	// Extract scenario context if available from providers.PredictionRequest.Metadata
 	if req.Metadata != nil {
 		if scenarioID, ok := req.Metadata["mock_scenario_id"].(string); ok {
 			params.ScenarioID = scenarioID
@@ -90,7 +90,7 @@ func (m *MockProvider) Chat(ctx context.Context, req providers.ChatRequest) (pro
 	}
 
 	// Debug logging for troubleshooting mock provider behavior
-	logger.Debug("MockProvider Chat request",
+	logger.Debug("MockProvider Predict request",
 		"provider_id", m.id,
 		"model", m.model,
 		"scenario_id", params.ScenarioID,
@@ -102,7 +102,7 @@ func (m *MockProvider) Chat(ctx context.Context, req providers.ChatRequest) (pro
 	turn, err := m.repository.GetTurn(ctx, params)
 	if err != nil {
 		logger.Debug("MockProvider repository error", "error", err)
-		return providers.ChatResponse{}, fmt.Errorf("failed to get mock response: %w", err)
+		return providers.PredictionResponse{}, fmt.Errorf("failed to get mock response: %w", err)
 	}
 
 	// Use value if set (for backward compatibility with tests)
@@ -149,15 +149,15 @@ func (m *MockProvider) Chat(ctx context.Context, req providers.ChatRequest) (pro
 		TotalCost:     float64(inputTokens+outputTokens) * 0.00001,
 	}
 
-	return providers.ChatResponse{
+	return providers.PredictionResponse{
 		Content:  responseText,
 		Parts:    parts,
 		CostInfo: &costBreakdown,
 	}, nil
 }
 
-// ChatStream returns a mock streaming response using the configured repository.
-func (m *MockProvider) ChatStream(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
+// PredictStream returns a mock streaming response using the configured repository.
+func (m *MockProvider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	outChan := make(chan providers.StreamChunk, 1)
 
 	go func() {
@@ -169,7 +169,7 @@ func (m *MockProvider) ChatStream(ctx context.Context, req providers.ChatRequest
 }
 
 // handleStreamRequest processes the stream request and sends the response
-func (m *MockProvider) handleStreamRequest(ctx context.Context, req providers.ChatRequest, outChan chan<- providers.StreamChunk) {
+func (m *MockProvider) handleStreamRequest(ctx context.Context, req providers.PredictionRequest, outChan chan<- providers.StreamChunk) {
 	params := m.buildMockResponseParams(req)
 	m.logStreamRequest(params)
 
@@ -202,13 +202,13 @@ func (m *MockProvider) handleStreamRequest(ctx context.Context, req providers.Ch
 }
 
 // buildMockResponseParams creates parameters for the mock response
-func (m *MockProvider) buildMockResponseParams(req providers.ChatRequest) MockResponseParams {
+func (m *MockProvider) buildMockResponseParams(req providers.PredictionRequest) MockResponseParams {
 	params := MockResponseParams{
 		ProviderID: m.id,
 		ModelName:  m.model,
 	}
 
-	// Extract scenario context if available from providers.ChatRequest.Metadata
+	// Extract scenario context if available from providers.PredictionRequest.Metadata
 	if req.Metadata != nil {
 		if scenarioID, ok := req.Metadata["mock_scenario_id"].(string); ok {
 			params.ScenarioID = scenarioID
@@ -223,7 +223,7 @@ func (m *MockProvider) buildMockResponseParams(req providers.ChatRequest) MockRe
 
 // logStreamRequest logs debug information for the stream request
 func (m *MockProvider) logStreamRequest(params MockResponseParams) {
-	logger.Debug("MockProvider ChatStream request",
+	logger.Debug("MockProvider PredictStream request",
 		"provider_id", m.id,
 		"model", m.model,
 		"scenario_id", params.ScenarioID,
@@ -275,7 +275,7 @@ func (m *MockProvider) createStreamChunk(responseText string, parts []types.Cont
 		DeltaTokens:  outputTokens,
 		FinishReason: ptr("stop"),
 		CostInfo:     costInfo,
-		FinalResult: &providers.ChatResponse{
+		FinalResult: &providers.PredictionResponse{
 			Content:  responseText,
 			Parts:    parts,
 			CostInfo: costInfo,

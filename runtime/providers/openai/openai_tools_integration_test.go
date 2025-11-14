@@ -11,7 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-func TestChatWithTools_Integration(t *testing.T) {
+func TestPredictWithTools_Integration(t *testing.T) {
 	t.Run("Successful tool call", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			resp := openAIResponse{
@@ -55,7 +55,7 @@ func TestChatWithTools_Integration(t *testing.T) {
 			},
 		}
 
-		resp, toolCalls, err := provider.ChatWithTools(context.Background(), providers.ChatRequest{
+		resp, toolCalls, err := provider.PredictWithTools(context.Background(), providers.PredictionRequest{
 			Messages: []types.Message{{Role: "user", Content: "What's the weather?"}},
 		}, tools, "auto")
 
@@ -83,7 +83,7 @@ func TestChatWithTools_Integration(t *testing.T) {
 		}
 
 		// Test with empty messages
-		_, _, err := provider.ChatWithTools(context.Background(), providers.ChatRequest{
+		_, _, err := provider.PredictWithTools(context.Background(), providers.PredictionRequest{
 			Messages: []types.Message{},
 		}, nil, "")
 
@@ -260,7 +260,7 @@ func TestToolProviderCreation(t *testing.T) {
 	})
 }
 
-func TestChatMultimodalWithTools(t *testing.T) {
+func TestPredictMultimodalWithTools(t *testing.T) {
 	t.Run("Validates multimodal message with unsupported content", func(t *testing.T) {
 		provider := &OpenAIToolProvider{
 			OpenAIProvider: &OpenAIProvider{
@@ -286,7 +286,7 @@ func TestChatMultimodalWithTools(t *testing.T) {
 			},
 		}
 
-		_, _, err := provider.ChatMultimodalWithTools(context.Background(), providers.ChatRequest{
+		_, _, err := provider.PredictMultimodalWithTools(context.Background(), providers.PredictionRequest{
 			Messages: []types.Message{msg},
 		}, nil, "")
 
@@ -334,7 +334,7 @@ func TestChatMultimodalWithTools(t *testing.T) {
 			},
 		}
 
-		resp, _, err := provider.ChatMultimodalWithTools(context.Background(), providers.ChatRequest{
+		resp, _, err := provider.PredictMultimodalWithTools(context.Background(), providers.PredictionRequest{
 			Messages: []types.Message{msg},
 		}, nil, "")
 

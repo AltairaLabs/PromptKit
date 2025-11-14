@@ -76,13 +76,13 @@ func (p *ClaudeToolProvider) BuildTooling(descriptors []*providers.ToolDescripto
 	return tools, nil
 }
 
-// ChatWithTools performs a chat request with tool support
-func (p *ClaudeToolProvider) ChatWithTools(ctx context.Context, req providers.ChatRequest, tools interface{}, toolChoice string) (providers.ChatResponse, []types.MessageToolCall, error) {
+// PredictWithTools performs a chat request with tool support
+func (p *ClaudeToolProvider) PredictWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	// Build Claude request with tools
 	claudeReq := p.buildToolRequest(req, tools, toolChoice)
 
 	// Prepare response with raw request if configured (set early to preserve on error)
-	chatResp := providers.ChatResponse{}
+	chatResp := providers.PredictionResponse{}
 	if p.ShouldIncludeRawOutput() {
 		chatResp.RawRequest = claudeReq
 	}
@@ -209,7 +209,7 @@ func (p *ClaudeToolProvider) processMessageForTools(
 	return messages, pendingToolResults
 }
 
-func (p *ClaudeToolProvider) buildToolRequest(req providers.ChatRequest, tools interface{}, toolChoice string) map[string]interface{} {
+func (p *ClaudeToolProvider) buildToolRequest(req providers.PredictionRequest, tools interface{}, toolChoice string) map[string]interface{} {
 	messages := make([]claudeToolMessage, 0, len(req.Messages))
 	var pendingToolResults []claudeToolResult
 
@@ -292,7 +292,7 @@ func parseToolCallsFromRawResponse(respBytes []byte) []types.MessageToolCall {
 	return toolCalls
 }
 
-func (p *ClaudeToolProvider) parseToolResponse(respBytes []byte, chatResp providers.ChatResponse) (providers.ChatResponse, []types.MessageToolCall, error) {
+func (p *ClaudeToolProvider) parseToolResponse(respBytes []byte, chatResp providers.PredictionResponse) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	start := time.Now()
 
 	var resp claudeResponse

@@ -35,7 +35,7 @@ func TestOpenAIStreaming(t *testing.T) {
 		false,
 	)
 
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		System:      "You are a helpful assistant.",
 		Messages:    []types.Message{{Role: "user", Content: "Say hello!"}},
 		Temperature: 0.7,
@@ -45,9 +45,9 @@ func TestOpenAIStreaming(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	stream, err := provider.ChatStream(ctx, req)
+	stream, err := provider.PredictStream(ctx, req)
 	if err != nil {
-		t.Fatalf("ChatStream failed: %v", err)
+		t.Fatalf("PredictStream failed: %v", err)
 	}
 
 	chunkCount := 0
@@ -101,7 +101,7 @@ func TestClaudeStreaming(t *testing.T) {
 		false,
 	)
 
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		System:      "You are a helpful assistant.",
 		Messages:    []types.Message{{Role: "user", Content: "Say hello!"}},
 		Temperature: 0.7,
@@ -111,9 +111,9 @@ func TestClaudeStreaming(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	stream, err := provider.ChatStream(ctx, req)
+	stream, err := provider.PredictStream(ctx, req)
 	if err != nil {
-		t.Fatalf("ChatStream failed: %v", err)
+		t.Fatalf("PredictStream failed: %v", err)
 	}
 
 	chunkCount := 0
@@ -167,7 +167,7 @@ func TestGeminiStreaming(t *testing.T) {
 		false,
 	)
 
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		System:      "You are a helpful assistant.",
 		Messages:    []types.Message{{Role: "user", Content: "Say hello!"}},
 		Temperature: 0.7,
@@ -177,9 +177,9 @@ func TestGeminiStreaming(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	stream, err := provider.ChatStream(ctx, req)
+	stream, err := provider.PredictStream(ctx, req)
 	if err != nil {
-		t.Fatalf("ChatStream failed: %v", err)
+		t.Fatalf("PredictStream failed: %v", err)
 	}
 
 	chunkCount := 0

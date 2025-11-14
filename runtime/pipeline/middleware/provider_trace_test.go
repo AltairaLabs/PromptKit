@@ -21,8 +21,8 @@ func TestProviderMiddleware_MessageIndexTracking(t *testing.T) {
 	mockProvider := new(MockProvider)
 
 	// Mock a simple response
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(
-		providers.ChatResponse{
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(
+		providers.PredictionResponse{
 			Content: "Hello!",
 			CostInfo: &types.CostInfo{
 				InputTokens:  10,
@@ -79,7 +79,7 @@ func TestProviderMiddleware_MessageIndexWithTools(t *testing.T) {
 	mockProvider := new(MockProvider)
 
 	// First response with tool call
-	firstResponse := providers.ChatResponse{
+	firstResponse := providers.PredictionResponse{
 		Content: "I'll check the weather",
 		ToolCalls: []types.MessageToolCall{
 			{
@@ -97,7 +97,7 @@ func TestProviderMiddleware_MessageIndexWithTools(t *testing.T) {
 	}
 
 	// Second response after tool execution
-	secondResponse := providers.ChatResponse{
+	secondResponse := providers.PredictionResponse{
 		Content: "Weather is sunny",
 		CostInfo: &types.CostInfo{
 			InputTokens:  15,
@@ -107,8 +107,8 @@ func TestProviderMiddleware_MessageIndexWithTools(t *testing.T) {
 		Latency: 150 * time.Millisecond,
 	}
 
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(firstResponse, nil).Once()
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(secondResponse, nil).Once()
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(firstResponse, nil).Once()
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(secondResponse, nil).Once()
 
 	// Create tool registry
 	toolRegistry := tools.NewRegistry()
@@ -162,8 +162,8 @@ func TestProviderMiddleware_MessageIndexWithTools(t *testing.T) {
 func TestProviderMiddleware_TraceDisabled(t *testing.T) {
 	mockProvider := new(MockProvider)
 
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(
-		providers.ChatResponse{
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(
+		providers.PredictionResponse{
 			Content: "Hello!",
 			CostInfo: &types.CostInfo{
 				InputTokens:  10,
@@ -218,8 +218,8 @@ func TestProviderMiddleware_TraceDisabled(t *testing.T) {
 func TestProviderMiddleware_TraceDefaultEnabled(t *testing.T) {
 	mockProvider := new(MockProvider)
 
-	mockProvider.On("Chat", mock.Anything, mock.Anything).Return(
-		providers.ChatResponse{
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(
+		providers.PredictionResponse{
 			Content: "Hello!",
 			CostInfo: &types.CostInfo{
 				InputTokens:  10,

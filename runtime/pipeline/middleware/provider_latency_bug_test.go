@@ -11,7 +11,7 @@ import (
 )
 
 // TestProviderMiddleware_RealProviderBehavior tests the exact scenario we see in production:
-// The provider returns a ChatResponse with Latency=0 (default value) because
+// The provider returns a PredictionResponse with Latency=0 (default value) because
 // something is wrong with how the provider constructs the response.
 func TestProviderMiddleware_RealProviderBehavior_ZeroLatency(t *testing.T) {
 	t.Log("This test reproduces the production bug where provider returns Latency=0")
@@ -19,7 +19,7 @@ func TestProviderMiddleware_RealProviderBehavior_ZeroLatency(t *testing.T) {
 	// Create a provider that mimics the broken behavior we see in production
 	mockProvider := &mockBrokenProvider{
 		// This simulates what we think is happening in OpenAI provider
-		response: providers.ChatResponse{
+		response: providers.PredictionResponse{
 			Content: "Test response",
 			// Latency: 0 (default value, not explicitly set)
 			// This is what we suspect is happening!
@@ -72,7 +72,7 @@ func TestProviderMiddleware_RealProviderBehavior_ZeroLatency(t *testing.T) {
 	if assistantMsg.LatencyMs == 0 {
 		t.Logf("KNOWN ISSUE: LatencyMs is 0 because provider returned Latency=0")
 		t.Logf("This is why latency_ms may be missing from production JSON when providers don't set Latency")
-		t.Logf("Providers should measure and set the Latency field in ChatResponse")
+		t.Logf("Providers should measure and set the Latency field in PredictionResponse")
 		// Note: This is a known limitation, not a test failure
 		// The fix should be in the provider implementations, not the middleware
 	} else {
@@ -82,14 +82,14 @@ func TestProviderMiddleware_RealProviderBehavior_ZeroLatency(t *testing.T) {
 
 // mockBrokenProvider simulates a provider that doesn't set Latency properly
 type mockBrokenProvider struct {
-	response providers.ChatResponse
+	response providers.PredictionResponse
 }
 
 func (m *mockBrokenProvider) ID() string {
 	return "mock-broken-provider"
 }
 
-func (m *mockBrokenProvider) Chat(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
+func (m *mockBrokenProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	// Simulate delay but DON'T set it in response (this is the bug!)
 	time.Sleep(100 * time.Millisecond)
 
@@ -97,18 +97,18 @@ func (m *mockBrokenProvider) Chat(ctx context.Context, req providers.ChatRequest
 	return m.response, nil
 }
 
-func (m *mockBrokenProvider) ChatStream(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
+func (m *mockBrokenProvider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	ch := make(chan providers.StreamChunk)
 	close(ch)
 	return ch, nil
 }
 
-func (m *mockBrokenProvider) ChatWithTools(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
-	return m.Chat(ctx, req)
+func (m *mockBrokenProvider) PredictWithTools(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+	return m.Predict(ctx, req)
 }
 
-func (m *mockBrokenProvider) ChatStreamWithTools(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
-	return m.ChatStream(ctx, req)
+func (m *mockBrokenProvider) PredictStreamWithTools(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+	return m.PredictStream(ctx, req)
 }
 
 func (m *mockBrokenProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.CostInfo {

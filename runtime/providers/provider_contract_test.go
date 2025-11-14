@@ -36,22 +36,22 @@ func RunProviderContractTests(t *testing.T, config ProviderContractTests) {
 		testProviderID(t, config.Provider)
 	})
 
-	t.Run("Contract_Chat_ReturnsLatency", func(t *testing.T) {
-		ValidateChatReturnsLatency(t, config.Provider)
+	t.Run("Contract_Predict_ReturnsLatency", func(t *testing.T) {
+		ValidatePredictReturnsLatency(t, config.Provider)
 	})
 
 	if config.SupportsToolsExpected {
-		t.Run("Contract_ChatWithTools_ReturnsLatency", func(t *testing.T) {
-			ValidateChatWithToolsReturnsLatency(t, config.Provider)
+		t.Run("Contract_PredictWithTools_ReturnsLatency", func(t *testing.T) {
+			ValidatePredictWithToolsReturnsLatency(t, config.Provider)
 		})
 	}
 
-	t.Run("Contract_Chat_ReturnsCostInfo", func(t *testing.T) {
-		testChatReturnsCostInfo(t, config.Provider)
+	t.Run("Contract_Predict_ReturnsCostInfo", func(t *testing.T) {
+		testPredictReturnsCostInfo(t, config.Provider)
 	})
 
-	t.Run("Contract_Chat_NonEmptyResponse", func(t *testing.T) {
-		testChatNonEmptyResponse(t, config.Provider)
+	t.Run("Contract_Predict_NonEmptyResponse", func(t *testing.T) {
+		testPredictNonEmptyResponse(t, config.Provider)
 	})
 
 	t.Run("Contract_CalculateCost_Reasonable", func(t *testing.T) {
@@ -63,8 +63,8 @@ func RunProviderContractTests(t *testing.T, config ProviderContractTests) {
 	})
 
 	if config.SupportsStreamingExpected {
-		t.Run("Contract_ChatStream_ReturnsLatency", func(t *testing.T) {
-			testChatStreamReturnsLatency(t, config.Provider)
+		t.Run("Contract_PredictStream_ReturnsLatency", func(t *testing.T) {
+			testPredictStreamReturnsLatency(t, config.Provider)
 		})
 	}
 }
@@ -77,12 +77,12 @@ func testProviderID(t *testing.T, provider Provider) {
 	}
 }
 
-// ValidateChatReturnsLatency verifies that Chat() returns a response with non-zero latency.
+// ValidatePredictReturnsLatency verifies that Predict() returns a response with non-zero latency.
 // This is the critical test that would have caught the production bug!
 // Exported for use in provider-specific regression tests.
-func ValidateChatReturnsLatency(t *testing.T, provider Provider) {
+func ValidatePredictReturnsLatency(t *testing.T, provider Provider) {
 	ctx := context.Background()
-	req := ChatRequest{
+	req := PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "Say 'test'"},
 		},
@@ -91,7 +91,7 @@ func ValidateChatReturnsLatency(t *testing.T, provider Provider) {
 	}
 
 	start := time.Now()
-	resp, err := provider.Chat(ctx, req)
+	resp, err := provider.Predict(ctx, req)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -101,7 +101,7 @@ func ValidateChatReturnsLatency(t *testing.T, provider Provider) {
 
 	// CRITICAL: Latency must be non-zero
 	if resp.Latency == 0 {
-		t.Errorf("CRITICAL BUG: Chat() returned Latency=0, but call took %v", elapsed)
+		t.Errorf("CRITICAL BUG: Predict() returned Latency=0, but call took %v", elapsed)
 		t.Logf("Response: %+v", resp)
 		t.Logf("This will cause latency_ms to be omitted from JSON due to omitempty tag")
 	}
@@ -117,10 +117,10 @@ func ValidateChatReturnsLatency(t *testing.T, provider Provider) {
 	}
 }
 
-// ValidateChatWithToolsReturnsLatency verifies that ChatWithTools() returns a response with non-zero latency.
-// This test is CRITICAL - it would have caught the production bug where ChatWithTools didn't set latency!
+// ValidatePredictWithToolsReturnsLatency verifies that PredictWithTools() returns a response with non-zero latency.
+// This test is CRITICAL - it would have caught the production bug where PredictWithTools didn't set latency!
 // Exported for use in provider-specific regression tests.
-func ValidateChatWithToolsReturnsLatency(t *testing.T, provider Provider) {
+func ValidatePredictWithToolsReturnsLatency(t *testing.T, provider Provider) {
 	toolSupport, ok := provider.(ToolSupport)
 	if !ok {
 		t.Skip("Provider doesn't implement ToolSupport interface")
@@ -128,7 +128,7 @@ func ValidateChatWithToolsReturnsLatency(t *testing.T, provider Provider) {
 	}
 
 	ctx := context.Background()
-	req := ChatRequest{
+	req := PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "What's the weather like in San Francisco?"},
 		},
@@ -161,11 +161,11 @@ func ValidateChatWithToolsReturnsLatency(t *testing.T, provider Provider) {
 	}
 
 	start := time.Now()
-	resp, toolCalls, err := toolSupport.ChatWithTools(ctx, req, tools, "auto")
+	resp, toolCalls, err := toolSupport.PredictWithTools(ctx, req, tools, "auto")
 	elapsed := time.Since(start)
 
 	if err != nil {
-		t.Skipf("Skipping ChatWithTools latency test due to API error: %v", err)
+		t.Skipf("Skipping PredictWithTools latency test due to API error: %v", err)
 		return
 	}
 
@@ -173,7 +173,7 @@ func ValidateChatWithToolsReturnsLatency(t *testing.T, provider Provider) {
 
 	// CRITICAL: Latency must be non-zero
 	if resp.Latency == 0 {
-		t.Errorf("CRITICAL BUG: ChatWithTools() returned Latency=0, but call took %v", elapsed)
+		t.Errorf("CRITICAL BUG: PredictWithTools() returned Latency=0, but call took %v", elapsed)
 		t.Logf("Response: %+v", resp)
 		t.Logf("This will cause latency_ms to be omitted from JSON due to omitempty tag")
 		t.Logf("This is the EXACT production bug we're fixing!")
@@ -190,10 +190,10 @@ func ValidateChatWithToolsReturnsLatency(t *testing.T, provider Provider) {
 	}
 }
 
-// testChatReturnsCostInfo verifies that Chat() returns cost information
-func testChatReturnsCostInfo(t *testing.T, provider Provider) {
+// testPredictReturnsCostInfo verifies that Predict() returns cost information
+func testPredictReturnsCostInfo(t *testing.T, provider Provider) {
 	ctx := context.Background()
-	req := ChatRequest{
+	req := PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "Say 'test'"},
 		},
@@ -201,7 +201,7 @@ func testChatReturnsCostInfo(t *testing.T, provider Provider) {
 		Temperature: 0.7,
 	}
 
-	resp, err := provider.Chat(ctx, req)
+	resp, err := provider.Predict(ctx, req)
 	if err != nil {
 		t.Skipf("Skipping cost test due to API error (may need credentials): %v", err)
 		return
@@ -209,7 +209,7 @@ func testChatReturnsCostInfo(t *testing.T, provider Provider) {
 
 	// Cost info should be present
 	if resp.CostInfo == nil {
-		t.Error("Chat() returned nil CostInfo")
+		t.Error("Predict() returned nil CostInfo")
 		return
 	}
 
@@ -228,10 +228,10 @@ func testChatReturnsCostInfo(t *testing.T, provider Provider) {
 	}
 }
 
-// testChatNonEmptyResponse verifies that Chat() returns non-empty content
-func testChatNonEmptyResponse(t *testing.T, provider Provider) {
+// testPredictNonEmptyResponse verifies that Predict() returns non-empty content
+func testPredictNonEmptyResponse(t *testing.T, provider Provider) {
 	ctx := context.Background()
-	req := ChatRequest{
+	req := PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "Say 'hello'"},
 		},
@@ -239,14 +239,14 @@ func testChatNonEmptyResponse(t *testing.T, provider Provider) {
 		Temperature: 0.7,
 	}
 
-	resp, err := provider.Chat(ctx, req)
+	resp, err := provider.Predict(ctx, req)
 	if err != nil {
 		t.Skipf("Skipping response test due to API error (may need credentials): %v", err)
 		return
 	}
 
 	if resp.Content == "" {
-		t.Error("Chat() returned empty content")
+		t.Error("Predict() returned empty content")
 	}
 }
 
@@ -298,10 +298,10 @@ func testSupportsStreamingMatches(t *testing.T, provider Provider, expected bool
 	}
 }
 
-// testChatStreamReturnsLatency verifies that streaming responses include latency in final chunk
-func testChatStreamReturnsLatency(t *testing.T, provider Provider) {
+// testPredictStreamReturnsLatency verifies that streaming responses include latency in final chunk
+func testPredictStreamReturnsLatency(t *testing.T, provider Provider) {
 	ctx := context.Background()
-	req := ChatRequest{
+	req := PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "Count to 3"},
 		},
@@ -310,7 +310,7 @@ func testChatStreamReturnsLatency(t *testing.T, provider Provider) {
 	}
 
 	start := time.Now()
-	chunks, err := provider.ChatStream(ctx, req)
+	chunks, err := provider.PredictStream(ctx, req)
 	if err != nil {
 		t.Skipf("Skipping stream latency test due to API error: %v", err)
 		return
@@ -353,13 +353,13 @@ func testChatStreamReturnsLatency(t *testing.T, provider Provider) {
 func SkipIfNoCredentials(t *testing.T, provider Provider) {
 	// Try a simple call to see if credentials work
 	ctx := context.Background()
-	req := ChatRequest{
+	req := PredictionRequest{
 		Messages:    []types.Message{{Role: "user", Content: "test"}},
 		MaxTokens:   10,
 		Temperature: 0.5,
 	}
 
-	_, err := provider.Chat(ctx, req)
+	_, err := provider.Predict(ctx, req)
 	if err != nil {
 		t.Skipf("Skipping test - API credentials not available or provider not accessible: %v", err)
 	}

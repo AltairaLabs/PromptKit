@@ -64,7 +64,7 @@ func TestClaudeProvider_CacheControlNotSentForHaiku(t *testing.T) {
 		longContent += "This is a long message to test caching. "
 	}
 
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: longContent},
 		},
@@ -73,9 +73,9 @@ func TestClaudeProvider_CacheControlNotSentForHaiku(t *testing.T) {
 	}
 
 	// Execute the chat
-	_, err := provider.Chat(context.Background(), req)
+	_, err := provider.Predict(context.Background(), req)
 	if err != nil {
-		t.Fatalf("Chat failed: %v", err)
+		t.Fatalf("Predict failed: %v", err)
 	}
 
 	// CRITICAL TEST: Verify that cache_control was NOT sent
@@ -157,7 +157,7 @@ func TestClaudeToolProvider_CacheControlNotSentForHaiku(t *testing.T) {
 		longSystem += "This is a long system prompt. "
 	}
 
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		System: longSystem,
 		Messages: []types.Message{
 			{Role: "user", Content: "Hello"},
@@ -175,9 +175,9 @@ func TestClaudeToolProvider_CacheControlNotSentForHaiku(t *testing.T) {
 		},
 	}
 
-	_, _, err := provider.ChatWithTools(context.Background(), req, tools, "auto")
+	_, _, err := provider.PredictWithTools(context.Background(), req, tools, "auto")
 	if err != nil {
-		t.Fatalf("ChatWithTools failed: %v", err)
+		t.Fatalf("PredictWithTools failed: %v", err)
 	}
 
 	// CRITICAL TEST: Verify that cache_control was NOT sent in system blocks

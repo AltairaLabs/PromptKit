@@ -18,8 +18,8 @@ import (
 // GeminiToolProvider extends GeminiProvider with tool support
 type GeminiToolProvider struct {
 	*GeminiProvider
-	currentTools   interface{}            // Store current tools for continuation
-	currentRequest *providers.ChatRequest // Store current request context for continuation
+	currentTools   interface{}                  // Store current tools for continuation
+	currentRequest *providers.PredictionRequest // Store current request context for continuation
 }
 
 // NewGeminiToolProvider creates a new Gemini provider with tool support
@@ -95,9 +95,9 @@ func (p *GeminiToolProvider) BuildTooling(descriptors []*providers.ToolDescripto
 	}, nil
 }
 
-// ChatWithTools performs a chat request with tool support
-func (p *GeminiToolProvider) ChatWithTools(ctx context.Context, req providers.ChatRequest, tools interface{}, toolChoice string) (providers.ChatResponse, []types.MessageToolCall, error) {
-	logger.Debug("ChatWithTools called",
+// PredictWithTools performs a chat request with tool support
+func (p *GeminiToolProvider) PredictWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
+	logger.Debug("PredictWithTools called",
 		"toolChoice", toolChoice,
 		"messages", len(req.Messages))
 
@@ -109,7 +109,7 @@ func (p *GeminiToolProvider) ChatWithTools(ctx context.Context, req providers.Ch
 	geminiReq := p.buildToolRequest(req, tools, toolChoice)
 
 	// Prepare response with raw request if configured (set early to preserve on error)
-	chatResp := providers.ChatResponse{}
+	chatResp := providers.PredictionResponse{}
 	if p.ShouldIncludeRawOutput() {
 		chatResp.RawRequest = geminiReq
 	}
@@ -221,7 +221,7 @@ func addToolConfig(request map[string]interface{}, tools interface{}, toolChoice
 	}
 }
 
-func (p *GeminiToolProvider) buildToolRequest(req providers.ChatRequest, tools interface{}, toolChoice string) map[string]interface{} {
+func (p *GeminiToolProvider) buildToolRequest(req providers.PredictionRequest, tools interface{}, toolChoice string) map[string]interface{} {
 	// Convert messages to Gemini format
 	contents := make([]map[string]interface{}, 0, len(req.Messages))
 	var pendingToolResults []map[string]interface{}
@@ -293,7 +293,7 @@ func (p *GeminiToolProvider) buildToolRequest(req providers.ChatRequest, tools i
 	return request
 }
 
-func (p *GeminiToolProvider) parseToolResponse(respBytes []byte, chatResp providers.ChatResponse) (providers.ChatResponse, []types.MessageToolCall, error) {
+func (p *GeminiToolProvider) parseToolResponse(respBytes []byte, chatResp providers.PredictionResponse) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	start := time.Now()
 
 	var resp geminiToolResponse

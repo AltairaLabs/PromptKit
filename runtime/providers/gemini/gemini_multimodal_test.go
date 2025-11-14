@@ -560,8 +560,8 @@ func TestGeminiProvider_MixedMultimodal(t *testing.T) {
 	}
 }
 
-// TestChatMultimodal_Integration tests the ChatMultimodal method with HTTP mocking
-func TestChatMultimodal_Integration(t *testing.T) {
+// TestPredictMultimodal_Integration tests the PredictMultimodal method with HTTP mocking
+func TestPredictMultimodal_Integration(t *testing.T) {
 	tests := []struct {
 		name           string
 		messages       []types.Message
@@ -644,13 +644,13 @@ func TestChatMultimodal_Integration(t *testing.T) {
 				false,
 			)
 
-			req := providers.ChatRequest{
+			req := providers.PredictionRequest{
 				Messages:    tt.messages,
 				Temperature: 0.8,
 				MaxTokens:   500,
 			}
 
-			resp, err := provider.ChatMultimodal(context.Background(), req)
+			resp, err := provider.PredictMultimodal(context.Background(), req)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -668,8 +668,8 @@ func TestChatMultimodal_Integration(t *testing.T) {
 	}
 }
 
-// TestChatMultimodalStream_Integration tests the ChatMultimodalStream method
-func TestChatMultimodalStream_Integration(t *testing.T) {
+// TestPredictMultimodalStream_Integration tests the PredictMultimodalStream method
+func TestPredictMultimodalStream_Integration(t *testing.T) {
 	tests := []struct {
 		name         string
 		messages     []types.Message
@@ -740,11 +740,11 @@ func TestChatMultimodalStream_Integration(t *testing.T) {
 				false,
 			)
 
-			req := providers.ChatRequest{
+			req := providers.PredictionRequest{
 				Messages: tt.messages,
 			}
 
-			streamChan, err := provider.ChatMultimodalStream(context.Background(), req)
+			streamChan, err := provider.PredictMultimodalStream(context.Background(), req)
 
 			if tt.wantErr {
 				require.Error(t, err)

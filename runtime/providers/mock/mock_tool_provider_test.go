@@ -3,9 +3,10 @@ package mock
 import (
 	"context"
 	"encoding/json"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"os"
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/stretchr/testify/assert"
@@ -45,14 +46,14 @@ func TestMockToolProvider_BuildTooling(t *testing.T) {
 	assert.Equal(t, descriptors, result)
 }
 
-func TestMockToolProvider_ChatWithTools_TextResponse(t *testing.T) {
+func TestMockToolProvider_PredictWithTools_TextResponse(t *testing.T) {
 	// Create repository with text response
 	repo := NewInMemoryMockRepository("default")
 	repo.SetResponse("test-scenario", 1, "Hello from mock provider!")
 
 	provider := NewMockToolProviderWithRepository("test-id", "test-model", false, repo)
 
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "Hello"},
 		},
@@ -63,7 +64,7 @@ func TestMockToolProvider_ChatWithTools_TextResponse(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	resp, toolCalls, err := provider.ChatWithTools(ctx, req, nil, "auto")
+	resp, toolCalls, err := provider.PredictWithTools(ctx, req, nil, "auto")
 
 	require.NoError(t, err)
 	assert.Equal(t, "Hello from mock provider!", resp.Content)
@@ -73,7 +74,7 @@ func TestMockToolProvider_ChatWithTools_TextResponse(t *testing.T) {
 	assert.Greater(t, resp.CostInfo.OutputTokens, 0)
 }
 
-func TestMockToolProvider_ChatWithTools_ToolCallResponse(t *testing.T) {
+func TestMockToolProvider_PredictWithTools_ToolCallResponse(t *testing.T) {
 	// Create a file repository with structured tool call response
 	configData := `
 scenarios:
@@ -102,7 +103,7 @@ scenarios:
 
 	provider := NewMockToolProviderWithRepository("test-id", "test-model", false, repo)
 
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "What's the weather in SF?"},
 		},
@@ -113,7 +114,7 @@ scenarios:
 	}
 
 	ctx := context.Background()
-	resp, toolCalls, err := provider.ChatWithTools(ctx, req, nil, "auto")
+	resp, toolCalls, err := provider.PredictWithTools(ctx, req, nil, "auto")
 
 	require.NoError(t, err)
 	assert.Equal(t, "I'll help you with that task.", resp.Content)
@@ -157,7 +158,7 @@ func TestMockToolProvider_InvalidToolCallArgs(t *testing.T) {
 	// Since InMemoryMockRepository only supports text responses, let's test a different error case:
 	// Test repository error instead
 
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "Test"},
 		},
@@ -168,7 +169,7 @@ func TestMockToolProvider_InvalidToolCallArgs(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	resp, toolCalls, err := provider.ChatWithTools(ctx, req, nil, "auto")
+	resp, toolCalls, err := provider.PredictWithTools(ctx, req, nil, "auto")
 
 	// Should not error, but fall back to default response
 	require.NoError(t, err)
@@ -181,7 +182,7 @@ func TestMockToolProvider_NoScenarioFallback(t *testing.T) {
 	repo := NewInMemoryMockRepository("Default fallback response")
 	provider := NewMockToolProviderWithRepository("test-id", "test-model", false, repo)
 
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "Hello"},
 		},
@@ -189,7 +190,7 @@ func TestMockToolProvider_NoScenarioFallback(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	resp, toolCalls, err := provider.ChatWithTools(ctx, req, nil, "auto")
+	resp, toolCalls, err := provider.PredictWithTools(ctx, req, nil, "auto")
 
 	require.NoError(t, err)
 	assert.Equal(t, "Default fallback response", resp.Content)
@@ -216,13 +217,13 @@ func TestMockToolProvider_DetectTurnFromConversation(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		request      providers.ChatRequest
+		request      providers.PredictionRequest
 		expectedTurn int
 		description  string
 	}{
 		{
 			name: "initial_turn_no_metadata",
-			request: providers.ChatRequest{
+			request: providers.PredictionRequest{
 				Messages: []types.Message{
 					{Role: "user", Content: "Hello"},
 				},
@@ -232,7 +233,7 @@ func TestMockToolProvider_DetectTurnFromConversation(t *testing.T) {
 		},
 		{
 			name: "initial_turn_with_metadata",
-			request: providers.ChatRequest{
+			request: providers.PredictionRequest{
 				Messages: []types.Message{
 					{Role: "user", Content: "Hello"},
 				},
@@ -245,7 +246,7 @@ func TestMockToolProvider_DetectTurnFromConversation(t *testing.T) {
 		},
 		{
 			name: "continuation_turn_with_tool_results",
-			request: providers.ChatRequest{
+			request: providers.PredictionRequest{
 				Messages: []types.Message{
 					{Role: "user", Content: "What's the weather?"},
 					{Role: "assistant", Content: "I'll check that for you.", ToolCalls: []types.MessageToolCall{
@@ -263,7 +264,7 @@ func TestMockToolProvider_DetectTurnFromConversation(t *testing.T) {
 		},
 		{
 			name: "multiple_tool_results",
-			request: providers.ChatRequest{
+			request: providers.PredictionRequest{
 				Messages: []types.Message{
 					{Role: "user", Content: "Multi-tool request"},
 					{Role: "assistant", Content: "Processing..."},
@@ -280,7 +281,7 @@ func TestMockToolProvider_DetectTurnFromConversation(t *testing.T) {
 		},
 		{
 			name: "mixed_conversation_no_tool_results",
-			request: providers.ChatRequest{
+			request: providers.PredictionRequest{
 				Messages: []types.Message{
 					{Role: "user", Content: "Hello"},
 					{Role: "assistant", Content: "Hi there!"},
@@ -308,13 +309,13 @@ func TestMockToolProvider_GetScenarioID(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		request     providers.ChatRequest
+		request     providers.PredictionRequest
 		expectedID  string
 		description string
 	}{
 		{
 			name: "no_metadata",
-			request: providers.ChatRequest{
+			request: providers.PredictionRequest{
 				Messages: []types.Message{{Role: "user", Content: "Hello"}},
 			},
 			expectedID:  "",
@@ -322,7 +323,7 @@ func TestMockToolProvider_GetScenarioID(t *testing.T) {
 		},
 		{
 			name: "no_scenario_id_in_metadata",
-			request: providers.ChatRequest{
+			request: providers.PredictionRequest{
 				Messages: []types.Message{{Role: "user", Content: "Hello"}},
 				Metadata: map[string]interface{}{
 					"mock_turn_number": 1,
@@ -334,7 +335,7 @@ func TestMockToolProvider_GetScenarioID(t *testing.T) {
 		},
 		{
 			name: "valid_scenario_id",
-			request: providers.ChatRequest{
+			request: providers.PredictionRequest{
 				Messages: []types.Message{{Role: "user", Content: "Hello"}},
 				Metadata: map[string]interface{}{
 					"mock_scenario_id": "test-scenario",
@@ -346,7 +347,7 @@ func TestMockToolProvider_GetScenarioID(t *testing.T) {
 		},
 		{
 			name: "scenario_id_wrong_type",
-			request: providers.ChatRequest{
+			request: providers.PredictionRequest{
 				Messages: []types.Message{{Role: "user", Content: "Hello"}},
 				Metadata: map[string]interface{}{
 					"mock_scenario_id": 12345, // wrong type
@@ -492,7 +493,7 @@ func TestMockToolProvider_CalculateTokens(t *testing.T) {
 	})
 }
 
-func TestMockToolProvider_ChatWithTools_ConversationProgression(t *testing.T) {
+func TestMockToolProvider_PredictWithTools_ConversationProgression(t *testing.T) {
 	// Test the full conversation flow with turn detection
 	configData := `
 scenarios:
@@ -520,7 +521,7 @@ scenarios:
 	provider := NewMockToolProviderWithRepository("test-id", "test-model", false, repo)
 
 	// Turn 1: Initial request - should return tool calls
-	req1 := providers.ChatRequest{
+	req1 := providers.PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "I need some data"},
 		},
@@ -531,7 +532,7 @@ scenarios:
 	}
 
 	ctx := context.Background()
-	resp1, toolCalls1, err := provider.ChatWithTools(ctx, req1, nil, "auto")
+	resp1, toolCalls1, err := provider.PredictWithTools(ctx, req1, nil, "auto")
 
 	require.NoError(t, err)
 	assert.Equal(t, "I'll help you with multiple tools.", resp1.Content)
@@ -539,7 +540,7 @@ scenarios:
 	assert.Equal(t, "get_data", toolCalls1[0].Name)
 
 	// Turn 2: After tool execution - should return text response
-	req2 := providers.ChatRequest{
+	req2 := providers.PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "I need some data"},
 			{Role: "assistant", Content: "I'll help you with multiple tools.", ToolCalls: toolCalls1},
@@ -551,7 +552,7 @@ scenarios:
 		},
 	}
 
-	resp2, toolCalls2, err := provider.ChatWithTools(ctx, req2, nil, "auto")
+	resp2, toolCalls2, err := provider.PredictWithTools(ctx, req2, nil, "auto")
 
 	require.NoError(t, err)
 	assert.Equal(t, "Based on the data I retrieved, here's your answer.", resp2.Content)
@@ -587,7 +588,7 @@ scenarios:
 
 	provider := NewMockToolProviderWithRepository("test-id", "test-model", false, repo)
 
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "Test complex arguments"},
 		},
@@ -598,7 +599,7 @@ scenarios:
 	}
 
 	ctx := context.Background()
-	_, toolCalls, err := provider.ChatWithTools(ctx, req, nil, "auto")
+	_, toolCalls, err := provider.PredictWithTools(ctx, req, nil, "auto")
 
 	require.NoError(t, err)
 	assert.Len(t, toolCalls, 1)

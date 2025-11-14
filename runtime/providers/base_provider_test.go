@@ -248,7 +248,7 @@ func TestUnmarshalJSON(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var result map[string]interface{}
-			chatResp := &ChatResponse{}
+			chatResp := &PredictionResponse{}
 			start := time.Now()
 
 			err := UnmarshalJSON([]byte(tt.jsonData), &result, chatResp, start)
@@ -287,7 +287,7 @@ func TestUnmarshalJSON_TypeMismatch(t *testing.T) {
 	}
 
 	var result StructType
-	chatResp := &ChatResponse{}
+	chatResp := &PredictionResponse{}
 	start := time.Now()
 
 	// This JSON doesn't match the struct
@@ -326,7 +326,7 @@ func TestSetErrorResponse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			chatResp := &ChatResponse{}
+			chatResp := &PredictionResponse{}
 			start := time.Now()
 
 			// Wait a tiny bit to ensure latency is measurable
@@ -364,7 +364,7 @@ func TestBaseProvider_Integration(t *testing.T) {
 
 		base, _ := NewBaseProviderWithAPIKey("test", false, "TEST_KEY_1", "TEST_KEY_2")
 		start := time.Now()
-		chatResp := &ChatResponse{}
+		chatResp := &PredictionResponse{}
 
 		// Make request
 		resp, err := base.GetHTTPClient().Get(server.URL)
@@ -405,7 +405,7 @@ func TestBaseProvider_Integration(t *testing.T) {
 
 		base, _ := NewBaseProviderWithAPIKey("test", true, "TEST_KEY_1", "TEST_KEY_2")
 		start := time.Now()
-		chatResp := &ChatResponse{}
+		chatResp := &PredictionResponse{}
 
 		// Make request
 		resp, err := base.GetHTTPClient().Get(server.URL)

@@ -73,7 +73,7 @@ func TestClaudeToolProvider_BuildRequestWithToolMessages(t *testing.T) {
 		{Role: "user", Content: "Thanks! Now check NYC."},
 	}
 
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages:    messages,
 		MaxTokens:   1024,
 		Temperature: 0.7,
@@ -91,9 +91,9 @@ func TestClaudeToolProvider_BuildRequestWithToolMessages(t *testing.T) {
 
 	// Make the request
 	ctx := context.Background()
-	_, _, err := provider.ChatWithTools(ctx, req, claudeTools, "auto")
+	_, _, err := provider.PredictWithTools(ctx, req, claudeTools, "auto")
 	if err != nil {
-		t.Fatalf("ChatWithTools failed: %v", err)
+		t.Fatalf("PredictWithTools failed: %v", err)
 	}
 
 	// Verify the captured request has correct structure
@@ -217,7 +217,7 @@ func TestClaudeToolProvider_MultipleToolResultsGrouped(t *testing.T) {
 		},
 	}
 
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages:    messages,
 		MaxTokens:   1024,
 		Temperature: 0.7,
@@ -233,9 +233,9 @@ func TestClaudeToolProvider_MultipleToolResultsGrouped(t *testing.T) {
 	claudeTools, _ := provider.BuildTooling([]*providers.ToolDescriptor{&tools[0]})
 
 	ctx := context.Background()
-	_, _, err := provider.ChatWithTools(ctx, req, claudeTools, "auto")
+	_, _, err := provider.PredictWithTools(ctx, req, claudeTools, "auto")
 	if err != nil {
-		t.Fatalf("ChatWithTools failed: %v", err)
+		t.Fatalf("PredictWithTools failed: %v", err)
 	}
 
 	requestMessages, ok := capturedRequest["messages"].([]interface{})

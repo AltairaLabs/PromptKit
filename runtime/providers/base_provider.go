@@ -77,7 +77,7 @@ func CheckHTTPError(resp *http.Response) error {
 }
 
 // UnmarshalJSON unmarshals JSON with error recovery that sets latency and raw response
-func UnmarshalJSON(respBody []byte, v interface{}, chatResp *ChatResponse, start time.Time) error {
+func UnmarshalJSON(respBody []byte, v interface{}, chatResp *PredictionResponse, start time.Time) error {
 	if err := json.Unmarshal(respBody, v); err != nil {
 		chatResp.Latency = time.Since(start)
 		chatResp.Raw = respBody
@@ -87,7 +87,7 @@ func UnmarshalJSON(respBody []byte, v interface{}, chatResp *ChatResponse, start
 }
 
 // SetErrorResponse sets latency and raw body on error responses
-func SetErrorResponse(chatResp *ChatResponse, respBody []byte, start time.Time) {
+func SetErrorResponse(chatResp *PredictionResponse, respBody []byte, start time.Time) {
 	chatResp.Latency = time.Since(start)
 	chatResp.Raw = respBody
 }

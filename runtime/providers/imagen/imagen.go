@@ -98,7 +98,7 @@ func NewImagenProvider(
 }
 
 // extractPrompt extracts the text prompt from a message
-func extractPrompt(req providers.ChatRequest) (string, error) {
+func extractPrompt(req providers.PredictionRequest) (string, error) {
 	if len(req.Messages) == 0 {
 		return "", fmt.Errorf("no messages provided")
 	}
@@ -127,13 +127,13 @@ func extractPrompt(req providers.ChatRequest) (string, error) {
 	return prompt, nil
 }
 
-// Chat generates images based on the last user message
-func (p *ImagenProvider) Chat(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
+// Predict generates images based on the last user message
+func (p *ImagenProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	start := time.Now()
 
 	prompt, err := extractPrompt(req)
 	if err != nil {
-		return providers.ChatResponse{}, err
+		return providers.PredictionResponse{}, err
 	}
 
 	// Build request
@@ -149,7 +149,7 @@ func (p *ImagenProvider) Chat(ctx context.Context, req providers.ChatRequest) (p
 
 	reqBody, err := json.Marshal(imagenReq)
 	if err != nil {
-		return providers.ChatResponse{}, fmt.Errorf("failed to marshal request: %w", err)
+		return providers.PredictionResponse{}, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	// Build URL for Gemini API: models/{model}:predict
@@ -160,7 +160,7 @@ func (p *ImagenProvider) Chat(ctx context.Context, req providers.ChatRequest) (p
 	// Create HTTP request
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(reqBody))
 	if err != nil {
-		return providers.ChatResponse{}, fmt.Errorf("failed to create request: %w", err)
+		return providers.PredictionResponse{}, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -170,29 +170,29 @@ func (p *ImagenProvider) Chat(ctx context.Context, req providers.ChatRequest) (p
 	// Make request
 	resp, err := p.HTTPClient.Do(httpReq)
 	if err != nil {
-		return providers.ChatResponse{}, fmt.Errorf("failed to make request: %w", err)
+		return providers.PredictionResponse{}, fmt.Errorf("failed to make request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return providers.ChatResponse{}, fmt.Errorf("failed to read response: %w", err)
+		return providers.PredictionResponse{}, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	logger.Debug("🟢 API Response", "provider", "Imagen", "status_code", resp.StatusCode)
 
 	if resp.StatusCode != http.StatusOK {
-		return providers.ChatResponse{}, fmt.Errorf("API error %d: %s", resp.StatusCode, string(respBody))
+		return providers.PredictionResponse{}, fmt.Errorf("API error %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	// Parse response
 	var imagenResp imagenResponse
 	if err := json.Unmarshal(respBody, &imagenResp); err != nil {
-		return providers.ChatResponse{}, fmt.Errorf("failed to unmarshal response: %w", err)
+		return providers.PredictionResponse{}, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 
 	if len(imagenResp.Predictions) == 0 {
-		return providers.ChatResponse{}, fmt.Errorf("no images generated")
+		return providers.PredictionResponse{}, fmt.Errorf("no images generated")
 	}
 
 	// Build content parts with the generated image
@@ -221,7 +221,7 @@ func (p *ImagenProvider) Chat(ctx context.Context, req providers.ChatRequest) (p
 		TotalCost:    costPerImage,
 	}
 
-	return providers.ChatResponse{
+	return providers.PredictionResponse{
 		Content:  "Generated image based on your prompt.",
 		Parts:    contentParts,
 		CostInfo: &costBreakdown,
@@ -239,10 +239,10 @@ func (p *ImagenProvider) CalculateCost(inputTokens, outputTokens, cachedTokens i
 	}
 }
 
-// ChatStream is not supported for image generation
-func (p *ImagenProvider) ChatStream(
+// PredictStream is not supported for image generation
+func (p *ImagenProvider) PredictStream(
 	ctx context.Context,
-	req providers.ChatRequest,
+	req providers.PredictionRequest,
 ) (<-chan providers.StreamChunk, error) {
 	return nil, fmt.Errorf("streaming not supported for Imagen")
 }

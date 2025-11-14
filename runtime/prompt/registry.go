@@ -353,7 +353,7 @@ func (r *Registry) LoadWithVars(activity string, vars map[string]string, model s
 		}
 	}
 
-	// Note: Tools are configured at LLM provider level via ChatOptions.Tools
+	// Note: Tools are configured at LLM provider level via PredictOptions.Tools
 	// Tool allowlist filtering happens in orchestrator.getFilteredTools()
 
 	// Apply model overrides (only for template modifications)

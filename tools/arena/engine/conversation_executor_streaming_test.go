@@ -392,11 +392,11 @@ func (m *MockStreamingProvider) ID() string {
 	return "mock-streaming"
 }
 
-func (m *MockStreamingProvider) Chat(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
-	return providers.ChatResponse{}, nil
+func (m *MockStreamingProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+	return providers.PredictionResponse{}, nil
 }
 
-func (m *MockStreamingProvider) ChatStream(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
+func (m *MockStreamingProvider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	return nil, nil
 }
 

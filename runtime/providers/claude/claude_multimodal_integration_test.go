@@ -13,11 +13,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestChatMultimodal_Integration tests multimodal chat with HTTP mocking
-func TestChatMultimodal_Integration(t *testing.T) {
+// TestPredictMultimodal_Integration tests multimodal chat with HTTP mocking
+func TestPredictMultimodal_Integration(t *testing.T) {
 	tests := []struct {
 		name           string
-		request        providers.ChatRequest
+		request        providers.PredictionRequest
 		mockResponse   claudeResponse
 		mockStatusCode int
 		expectError    bool
@@ -25,7 +25,7 @@ func TestChatMultimodal_Integration(t *testing.T) {
 	}{
 		{
 			name: "Successful multimodal request with image",
-			request: providers.ChatRequest{
+			request: providers.PredictionRequest{
 				Messages: []types.Message{
 					{
 						Role: "user",
@@ -54,7 +54,7 @@ func TestChatMultimodal_Integration(t *testing.T) {
 		},
 		{
 			name: "API error response",
-			request: providers.ChatRequest{
+			request: providers.PredictionRequest{
 				Messages: []types.Message{
 					{
 						Role: "user",
@@ -106,7 +106,7 @@ func TestChatMultimodal_Integration(t *testing.T) {
 			}
 
 			// Execute
-			resp, err := provider.ChatMultimodal(context.Background(), tt.request)
+			resp, err := provider.PredictMultimodal(context.Background(), tt.request)
 
 			// Assert
 			if tt.expectError {
@@ -123,8 +123,8 @@ func TestChatMultimodal_Integration(t *testing.T) {
 	}
 }
 
-// TestChatMultimodalStream_Integration tests streaming multimodal chat
-func TestChatMultimodalStream_Integration(t *testing.T) {
+// TestPredictMultimodalStream_Integration tests streaming multimodal chat
+func TestPredictMultimodalStream_Integration(t *testing.T) {
 	t.Run("Successful streaming with image", func(t *testing.T) {
 		// Create mock server that returns SSE stream
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -185,7 +185,7 @@ data: {"type":"message_stop","message":{"usage":{"input_tokens":50,"output_token
 		}
 
 		// Execute
-		streamChan, err := provider.ChatMultimodalStream(context.Background(), providers.ChatRequest{
+		streamChan, err := provider.PredictMultimodalStream(context.Background(), providers.PredictionRequest{
 			Messages: []types.Message{
 				{
 					Role: "user",

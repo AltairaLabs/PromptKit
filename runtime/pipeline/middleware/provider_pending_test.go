@@ -38,11 +38,11 @@ func TestProviderMiddleware_StopsOnPendingTools(t *testing.T) {
 	// Create a mock provider that will be called
 	callCount := 0
 	mockProvider := &mockProviderForPendingTest{
-		onCall: func() (providers.ChatResponse, error) {
+		onCall: func() (providers.PredictionResponse, error) {
 			callCount++
 			if callCount == 1 {
 				// First call: LLM wants to call the tool
-				return providers.ChatResponse{
+				return providers.PredictionResponse{
 					Content: "I'll process that refund.",
 					ToolCalls: []types.MessageToolCall{
 						{
@@ -55,7 +55,7 @@ func TestProviderMiddleware_StopsOnPendingTools(t *testing.T) {
 			}
 			// Second call should NOT happen when tool is pending
 			t.Error("Provider was called a second time after tool returned pending - should have stopped!")
-			return providers.ChatResponse{
+			return providers.PredictionResponse{
 				Content: "This should not be generated",
 			}, nil
 		},
@@ -136,10 +136,10 @@ func TestProviderMiddleware_ContinuesAfterApproval(t *testing.T) {
 	// Mock provider with 2 expected calls
 	callCount := 0
 	mockProvider := &mockProviderForPendingTest{
-		onCall: func() (providers.ChatResponse, error) {
+		onCall: func() (providers.PredictionResponse, error) {
 			callCount++
 			if callCount == 1 {
-				return providers.ChatResponse{
+				return providers.PredictionResponse{
 					Content: "I'll process that refund.",
 					ToolCalls: []types.MessageToolCall{
 						{
@@ -151,7 +151,7 @@ func TestProviderMiddleware_ContinuesAfterApproval(t *testing.T) {
 				}, nil
 			}
 			// Second call: LLM responds after tool completes
-			return providers.ChatResponse{
+			return providers.PredictionResponse{
 				Content: "Your refund has been processed successfully.",
 			}, nil
 		},
@@ -194,18 +194,18 @@ func TestProviderMiddleware_ContinuesAfterApproval(t *testing.T) {
 // Mock types for testing
 
 type mockProviderForPendingTest struct {
-	onCall func() (providers.ChatResponse, error)
+	onCall func() (providers.PredictionResponse, error)
 }
 
 func (m *mockProviderForPendingTest) ID() string {
 	return "mock-pending-test"
 }
 
-func (m *mockProviderForPendingTest) Chat(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
+func (m *mockProviderForPendingTest) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	return m.onCall()
 }
 
-func (m *mockProviderForPendingTest) ChatStream(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
+func (m *mockProviderForPendingTest) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	return nil, nil
 }
 
@@ -229,7 +229,7 @@ func (m *mockProviderForPendingTest) BuildTooling(descriptors []*providers.ToolD
 	return nil, nil
 }
 
-func (m *mockProviderForPendingTest) ChatWithTools(ctx context.Context, req providers.ChatRequest, tooling interface{}, toolChoice string) (providers.ChatResponse, []types.MessageToolCall, error) {
+func (m *mockProviderForPendingTest) PredictWithTools(ctx context.Context, req providers.PredictionRequest, tooling interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	resp, err := m.onCall()
 	return resp, resp.ToolCalls, err
 }

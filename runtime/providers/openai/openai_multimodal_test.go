@@ -654,7 +654,7 @@ func TestOpenAIProvider_ValidateMultimodalMessage(t *testing.T) {
 func TestOpenAIProvider_ConvertMessagesToOpenAI(t *testing.T) {
 	provider := NewOpenAIProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
 
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		System: "You are a helpful assistant.",
 		Messages: []types.Message{
 			{
@@ -774,8 +774,8 @@ func TestOpenAIMessage_JSONMarshaling(t *testing.T) {
 	}
 }
 
-// TestChatMultimodal_Integration tests the full ChatMultimodal flow with HTTP mocking
-func TestChatMultimodal_Integration(t *testing.T) {
+// TestPredictMultimodal_Integration tests the full PredictMultimodal flow with HTTP mocking
+func TestPredictMultimodal_Integration(t *testing.T) {
 	tests := []struct {
 		name           string
 		messages       []types.Message
@@ -907,14 +907,14 @@ func TestChatMultimodal_Integration(t *testing.T) {
 			)
 
 			// Create request
-			req := providers.ChatRequest{
+			req := providers.PredictionRequest{
 				Messages:    tt.messages,
 				Temperature: 0.8,
 				MaxTokens:   500,
 			}
 
 			// Execute
-			resp, err := provider.ChatMultimodal(context.Background(), req)
+			resp, err := provider.PredictMultimodal(context.Background(), req)
 
 			// Validate error
 			if tt.wantErr {
@@ -939,8 +939,8 @@ func TestChatMultimodal_Integration(t *testing.T) {
 	}
 }
 
-// TestChatMultimodalStream_Integration tests the streaming multimodal flow
-func TestChatMultimodalStream_Integration(t *testing.T) {
+// TestPredictMultimodalStream_Integration tests the streaming multimodal flow
+func TestPredictMultimodalStream_Integration(t *testing.T) {
 	tests := []struct {
 		name         string
 		messages     []types.Message
@@ -1003,12 +1003,12 @@ func TestChatMultimodalStream_Integration(t *testing.T) {
 			)
 
 			// Create request
-			req := providers.ChatRequest{
+			req := providers.PredictionRequest{
 				Messages: tt.messages,
 			}
 
 			// Execute
-			streamChan, err := provider.ChatMultimodalStream(context.Background(), req)
+			streamChan, err := provider.PredictMultimodalStream(context.Background(), req)
 
 			// Validate error
 			if tt.wantErr {
@@ -1039,8 +1039,8 @@ func TestChatMultimodalStream_Integration(t *testing.T) {
 	}
 }
 
-// TestChatWithMessages_ErrorHandling tests error paths in the internal chatWithMessages helper
-func TestChatWithMessages_ErrorHandling(t *testing.T) {
+// TestPredictWithMessages_ErrorHandling tests error paths in the internal chatWithMessages helper
+func TestPredictWithMessages_ErrorHandling(t *testing.T) {
 	tests := []struct {
 		name           string
 		messages       []types.Message
@@ -1096,11 +1096,11 @@ func TestChatWithMessages_ErrorHandling(t *testing.T) {
 				false,
 			)
 
-			req := providers.ChatRequest{
+			req := providers.PredictionRequest{
 				Messages: tt.messages,
 			}
 
-			_, err := provider.ChatMultimodal(context.Background(), req)
+			_, err := provider.PredictMultimodal(context.Background(), req)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -1113,8 +1113,8 @@ func TestChatWithMessages_ErrorHandling(t *testing.T) {
 	}
 }
 
-// TestChatStreamWithMessages_Cancellation tests context cancellation during streaming
-func TestChatStreamWithMessages_Cancellation(t *testing.T) {
+// TestPredictStreamWithMessages_Cancellation tests context cancellation during streaming
+func TestPredictStreamWithMessages_Cancellation(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
@@ -1138,7 +1138,7 @@ func TestChatStreamWithMessages_Cancellation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
-	streamChan, err := provider.ChatMultimodalStream(ctx, providers.ChatRequest{
+	streamChan, err := provider.PredictMultimodalStream(ctx, providers.PredictionRequest{
 		Messages: []types.Message{{Role: "user", Content: "test"}},
 	})
 	require.NoError(t, err)
@@ -1157,8 +1157,8 @@ func TestChatStreamWithMessages_Cancellation(t *testing.T) {
 	}
 }
 
-// TestChatStreamWithMessages_MalformedChunks tests handling of malformed SSE chunks
-func TestChatStreamWithMessages_MalformedChunks(t *testing.T) {
+// TestPredictStreamWithMessages_MalformedChunks tests handling of malformed SSE chunks
+func TestPredictStreamWithMessages_MalformedChunks(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
@@ -1181,7 +1181,7 @@ func TestChatStreamWithMessages_MalformedChunks(t *testing.T) {
 
 	provider := NewOpenAIProvider("test", "gpt-4o", server.URL, providers.ProviderDefaults{}, false)
 
-	streamChan, err := provider.ChatMultimodalStream(context.Background(), providers.ChatRequest{
+	streamChan, err := provider.PredictMultimodalStream(context.Background(), providers.PredictionRequest{
 		Messages: []types.Message{{Role: "user", Content: "test"}},
 	})
 	require.NoError(t, err)

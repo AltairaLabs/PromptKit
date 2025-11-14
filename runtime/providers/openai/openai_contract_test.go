@@ -74,7 +74,7 @@ func TestOpenAIProvider_LatencyBugFix(t *testing.T) {
 
 	// This is the exact test that would have caught the production bug
 	ctx := context.Background()
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "Say 'test'"},
 		},
@@ -83,7 +83,7 @@ func TestOpenAIProvider_LatencyBugFix(t *testing.T) {
 	}
 
 	start := time.Now()
-	resp, err := provider.Chat(ctx, req)
+	resp, err := provider.Predict(ctx, req)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -93,16 +93,16 @@ func TestOpenAIProvider_LatencyBugFix(t *testing.T) {
 
 	// CRITICAL: Latency must be non-zero
 	if resp.Latency == 0 {
-		t.Errorf("CRITICAL BUG: Chat() returned Latency=0, but call took %v", elapsed)
+		t.Errorf("CRITICAL BUG: Predict() returned Latency=0, but call took %v", elapsed)
 		t.Logf("Response: %+v", resp)
 	}
 
-	t.Logf("✓ Chat() correctly set Latency=%v (actual: %v)", resp.Latency, elapsed)
+	t.Logf("✓ Predict() correctly set Latency=%v (actual: %v)", resp.Latency, elapsed)
 }
 
-// TestOpenAIToolProvider_ChatWithToolsLatency is the CRITICAL test that proves
-// the production bug exists: ChatWithTools() returns Latency=0.
-func TestOpenAIToolProvider_ChatWithToolsLatency(t *testing.T) {
+// TestOpenAIToolProvider_PredictWithToolsLatency is the CRITICAL test that proves
+// the production bug exists: PredictWithTools() returns Latency=0.
+func TestOpenAIToolProvider_PredictWithToolsLatency(t *testing.T) {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
 		t.Skip("Skipping OpenAI tool latency test - OPENAI_API_KEY not set")
@@ -128,7 +128,7 @@ func TestOpenAIToolProvider_ChatWithToolsLatency(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "What's the weather like in San Francisco?"},
 		},
@@ -157,7 +157,7 @@ func TestOpenAIToolProvider_ChatWithToolsLatency(t *testing.T) {
 	}
 
 	start := time.Now()
-	resp, toolCalls, err := toolSupport.ChatWithTools(ctx, req, tools, "auto")
+	resp, toolCalls, err := toolSupport.PredictWithTools(ctx, req, tools, "auto")
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -167,10 +167,10 @@ func TestOpenAIToolProvider_ChatWithToolsLatency(t *testing.T) {
 
 	// CRITICAL: Latency must be non-zero
 	if resp.Latency == 0 {
-		t.Errorf("CRITICAL BUG: ChatWithTools() returned Latency=0, but call took %v", elapsed)
+		t.Errorf("CRITICAL BUG: PredictWithTools() returned Latency=0, but call took %v", elapsed)
 		t.Logf("Response: %+v", resp)
 		t.Logf("ToolCalls: %+v", toolCalls)
 	}
 
-	t.Logf("✓ ChatWithTools() correctly set Latency=%v (actual: %v)", resp.Latency, elapsed)
+	t.Logf("✓ PredictWithTools() correctly set Latency=%v (actual: %v)", resp.Latency, elapsed)
 }

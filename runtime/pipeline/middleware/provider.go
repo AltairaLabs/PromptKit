@@ -142,7 +142,7 @@ func executeNonStreamingRound(execCtx *pipeline.ExecutionContext, provider provi
 }
 
 // callProviderNonStreaming calls the appropriate provider method based on capabilities
-func callProviderNonStreaming(execCtx *pipeline.ExecutionContext, provider providers.Provider, req providers.ChatRequest, providerTools interface{}, toolChoice string) (providers.ChatResponse, error) {
+func callProviderNonStreaming(execCtx *pipeline.ExecutionContext, provider providers.Provider, req providers.PredictionRequest, providerTools interface{}, toolChoice string) (providers.PredictionResponse, error) {
 	ctx := execCtx.Context
 
 	// Log debugging info
@@ -160,10 +160,10 @@ func callProviderNonStreaming(execCtx *pipeline.ExecutionContext, provider provi
 }
 
 // callProviderWithTools calls provider with tool support
-func callProviderWithTools(ctx context.Context, provider providers.Provider, req providers.ChatRequest, providerTools interface{}, toolChoice string) (providers.ChatResponse, error) {
-	logger.Debug("Using ChatWithTools path", "provider_type", fmt.Sprintf("%T", provider))
+func callProviderWithTools(ctx context.Context, provider providers.Provider, req providers.PredictionRequest, providerTools interface{}, toolChoice string) (providers.PredictionResponse, error) {
+	logger.Debug("Using PredictWithTools path", "provider_type", fmt.Sprintf("%T", provider))
 	toolSupport := provider.(providers.ToolSupport)
-	resp, toolCalls, err := toolSupport.ChatWithTools(ctx, req, providerTools, toolChoice)
+	resp, toolCalls, err := toolSupport.PredictWithTools(ctx, req, providerTools, toolChoice)
 	if err != nil {
 		return resp, err
 	}
@@ -173,24 +173,24 @@ func callProviderWithTools(ctx context.Context, provider providers.Provider, req
 }
 
 // callProviderWithoutTools calls provider without tools, handling multimodal if needed
-func callProviderWithoutTools(ctx context.Context, provider providers.Provider, req providers.ChatRequest) (providers.ChatResponse, error) {
+func callProviderWithoutTools(ctx context.Context, provider providers.Provider, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	isMultimodal := isRequestMultimodal(req)
 
 	if isMultimodal {
 		if multimodalProvider, ok := provider.(providers.MultimodalSupport); ok {
-			logger.Debug("Using ChatMultimodal path", "provider_type", fmt.Sprintf("%T", provider))
-			return multimodalProvider.ChatMultimodal(ctx, req)
+			logger.Debug("Using PredictMultimodal path", "provider_type", fmt.Sprintf("%T", provider))
+			return multimodalProvider.PredictMultimodal(ctx, req)
 		}
-		logger.Debug("Using regular Chat path for multimodal request", "provider_type", fmt.Sprintf("%T", provider), "reason", "provider does not support MultimodalSupport interface")
+		logger.Debug("Using regular Predict path for multimodal request", "provider_type", fmt.Sprintf("%T", provider), "reason", "provider does not support MultimodalSupport interface")
 	} else {
-		logger.Debug("Using regular Chat path", "provider_type", fmt.Sprintf("%T", provider), "reason", "providerTools is nil")
+		logger.Debug("Using regular Predict path", "provider_type", fmt.Sprintf("%T", provider), "reason", "providerTools is nil")
 	}
 
-	return provider.Chat(ctx, req)
+	return provider.Predict(ctx, req)
 }
 
 // processNonStreamingResponse processes the provider response and updates execution context
-func processNonStreamingResponse(execCtx *pipeline.ExecutionContext, resp *providers.ChatResponse, startTime time.Time, duration time.Duration, toolRegistry *tools.Registry, policy *pipeline.ToolPolicy, config *ProviderMiddlewareConfig) (bool, error) {
+func processNonStreamingResponse(execCtx *pipeline.ExecutionContext, resp *providers.PredictionResponse, startTime time.Time, duration time.Duration, toolRegistry *tools.Registry, policy *pipeline.ToolPolicy, config *ProviderMiddlewareConfig) (bool, error) {
 	// Store raw response
 	execCtx.RawResponse = *resp
 
@@ -252,7 +252,7 @@ func executeStreamingRound(execCtx *pipeline.ExecutionContext, provider provider
 
 	// Call provider streaming
 	startTime := time.Now()
-	stream, err := provider.ChatStream(execCtx.Context, req)
+	stream, err := provider.PredictStream(execCtx.Context, req)
 	if err != nil {
 		return false, fmt.Errorf("provider middleware: streaming failed: %w", err)
 	}
@@ -319,7 +319,7 @@ func processStreamChunks(execCtx *pipeline.ExecutionContext, stream <-chan provi
 }
 
 // handleStreamInterruption handles interrupted streams by saving partial messages
-func handleStreamInterruption(execCtx *pipeline.ExecutionContext, provider providers.Provider, req providers.ChatRequest, result *streamProcessResult, duration time.Duration, config *ProviderMiddlewareConfig) error {
+func handleStreamInterruption(execCtx *pipeline.ExecutionContext, provider providers.Provider, req providers.PredictionRequest, result *streamProcessResult, duration time.Duration, config *ProviderMiddlewareConfig) error {
 	// Calculate approximate cost for interrupted stream
 	approxCost := calculateApproximateCost(provider, req, result.finalContent)
 
@@ -562,11 +562,11 @@ func processToolCallRound(execCtx *pipeline.ExecutionContext, toolRegistry *tool
 }
 
 // buildProviderRequest constructs the provider request from ExecutionContext
-func buildProviderRequest(execCtx *pipeline.ExecutionContext, config *ProviderMiddlewareConfig) providers.ChatRequest {
+func buildProviderRequest(execCtx *pipeline.ExecutionContext, config *ProviderMiddlewareConfig) providers.PredictionRequest {
 	// Convert pipeline messages to provider messages
 	providerMsgs := make([]types.Message, 0, len(execCtx.Messages))
 
-	// Skip system message since it goes in ChatRequest.System
+	// Skip system message since it goes in PredictionRequest.System
 	for _, msg := range execCtx.Messages {
 		if msg.Role == "system" {
 			continue
@@ -587,7 +587,7 @@ func buildProviderRequest(execCtx *pipeline.ExecutionContext, config *ProviderMi
 		providerMsgs = append(providerMsgs, providerMsg)
 	}
 
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		System:   execCtx.Prompt, // Use the assembled prompt from TemplateMiddleware
 		Messages: providerMsgs,
 	}
@@ -599,7 +599,7 @@ func buildProviderRequest(execCtx *pipeline.ExecutionContext, config *ProviderMi
 		req.Seed = config.Seed
 	}
 
-	// Copy all ExecutionContext.Metadata to ChatRequest.Metadata by value
+	// Copy all ExecutionContext.Metadata to PredictionRequest.Metadata by value
 	if len(execCtx.Metadata) > 0 {
 		req.Metadata = make(map[string]interface{})
 		for key, value := range execCtx.Metadata {
@@ -775,8 +775,8 @@ func isToolBlocked(toolName string, blocklist []string) bool {
 	return false
 }
 
-// convertProviderResponse converts providers.ChatResponse to pipeline.Response
-func convertProviderResponse(resp *providers.ChatResponse) pipeline.Response {
+// convertProviderResponse converts providers.PredictionResponse to pipeline.Response
+func convertProviderResponse(resp *providers.PredictionResponse) pipeline.Response {
 	finalResponse := ""
 	if len(resp.ToolCalls) == 0 {
 		finalResponse = resp.Content
@@ -809,7 +809,7 @@ func convertToolCalls(calls []types.MessageToolCall) []types.MessageToolCall {
 }
 
 // estimateRequestTokens estimates input token count from request
-func estimateRequestTokens(req providers.ChatRequest) int {
+func estimateRequestTokens(req providers.PredictionRequest) int {
 	tokens := 0
 
 	// Count system message tokens (~4 chars per token)
@@ -829,7 +829,7 @@ func estimateRequestTokens(req providers.ChatRequest) int {
 }
 
 // calculateApproximateCost calculates approximate cost for interrupted streams
-func calculateApproximateCost(provider providers.Provider, req providers.ChatRequest, outputContent string) *types.CostInfo {
+func calculateApproximateCost(provider providers.Provider, req providers.PredictionRequest, outputContent string) *types.CostInfo {
 	// Estimate input tokens from request
 	approxInputTokens := estimateRequestTokens(req)
 
@@ -852,7 +852,7 @@ func (m *providerMiddleware) StreamChunk(execCtx *pipeline.ExecutionContext, chu
 }
 
 // isRequestMultimodal checks if any message in the request contains multimodal content
-func isRequestMultimodal(req providers.ChatRequest) bool {
+func isRequestMultimodal(req providers.PredictionRequest) bool {
 	for _, msg := range req.Messages {
 		if msg.IsMultimodal() {
 			return true

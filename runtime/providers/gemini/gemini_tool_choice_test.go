@@ -79,7 +79,7 @@ func TestGeminiToolProvider_ToolChoiceMapping(t *testing.T) {
 				},
 			}
 
-			req := providers.ChatRequest{
+			req := providers.PredictionRequest{
 				Messages:    messages,
 				MaxTokens:   1024,
 				Temperature: 0.7,

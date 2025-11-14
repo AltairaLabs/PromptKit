@@ -22,7 +22,7 @@ func TestMockProvider_MultimodalResponse_Image(t *testing.T) {
 	// we'll test via file-based repository
 
 	// For now, test that backward compatibility works
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "Show me an image"},
 		},
@@ -32,7 +32,7 @@ func TestMockProvider_MultimodalResponse_Image(t *testing.T) {
 		},
 	}
 
-	resp, err := mockProvider.Chat(context.Background(), req)
+	resp, err := mockProvider.Predict(context.Background(), req)
 	require.NoError(t, err)
 	t.Logf("Content: %q", resp.Content)
 	t.Logf("Parts: %+v", resp.Parts)
@@ -251,7 +251,7 @@ func TestMockTurn_ToContentParts_Mixed(t *testing.T) {
 	assert.Equal(t, types.ContentTypeAudio, parts[3].Type)
 }
 
-func TestMockProvider_ChatWithMultimodalYAML(t *testing.T) {
+func TestMockProvider_PredictWithMultimodalYAML(t *testing.T) {
 	// Create a temporary YAML file with multimodal content
 	yamlContent := `
 scenarios:
@@ -277,7 +277,7 @@ scenarios:
 
 	provider := NewMockProviderWithRepository("test-provider", "test-model", false, repo)
 
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "Show me"},
 		},
@@ -287,7 +287,7 @@ scenarios:
 		},
 	}
 
-	resp, err := provider.Chat(context.Background(), req)
+	resp, err := provider.Predict(context.Background(), req)
 	require.NoError(t, err)
 
 	// Verify multimodal response
@@ -297,7 +297,7 @@ scenarios:
 	assert.Equal(t, types.ContentTypeImage, resp.Parts[1].Type)
 }
 
-func TestMockProvider_ChatWithAudioYAML(t *testing.T) {
+func TestMockProvider_PredictWithAudioYAML(t *testing.T) {
 	yamlContent := `
 scenarios:
   test-audio:
@@ -318,7 +318,7 @@ scenarios:
 
 	provider := NewMockProviderWithRepository("test-provider", "test-model", false, repo)
 
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "Play audio"},
 		},
@@ -328,14 +328,14 @@ scenarios:
 		},
 	}
 
-	resp, err := provider.Chat(context.Background(), req)
+	resp, err := provider.Predict(context.Background(), req)
 	require.NoError(t, err)
 
 	require.Len(t, resp.Parts, 1)
 	assert.Equal(t, types.ContentTypeAudio, resp.Parts[0].Type)
 }
 
-func TestMockProvider_ChatWithVideoYAML(t *testing.T) {
+func TestMockProvider_PredictWithVideoYAML(t *testing.T) {
 	yamlContent := `
 scenarios:
   test-video:
@@ -357,7 +357,7 @@ scenarios:
 
 	provider := NewMockProviderWithRepository("test-provider", "test-model", false, repo)
 
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "Show video"},
 		},
@@ -367,7 +367,7 @@ scenarios:
 		},
 	}
 
-	resp, err := provider.Chat(context.Background(), req)
+	resp, err := provider.Predict(context.Background(), req)
 	require.NoError(t, err)
 
 	require.Len(t, resp.Parts, 1)

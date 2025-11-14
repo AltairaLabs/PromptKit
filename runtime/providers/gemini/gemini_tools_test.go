@@ -60,7 +60,7 @@ func TestGeminiToolResponseParsing(t *testing.T) {
 	}
 
 	// Parse the response
-	chatResp, toolCalls, err := provider.parseToolResponse([]byte(geminiResponseJSON), providers.ChatResponse{})
+	chatResp, toolCalls, err := provider.parseToolResponse([]byte(geminiResponseJSON), providers.PredictionResponse{})
 	if err != nil {
 		t.Fatalf("Failed to parse Gemini response: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestGeminiToolResponseParsing(t *testing.T) {
 		t.Errorf("Expected tool calls to be extracted, got 0")
 
 		// Debug: Print what we got
-		t.Logf("Chat response: %+v", chatResp)
+		t.Logf("Predict response: %+v", chatResp)
 		t.Logf("Tool calls: %+v", toolCalls)
 
 		// Let's manually debug the parsing

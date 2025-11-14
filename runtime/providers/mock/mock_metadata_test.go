@@ -2,14 +2,15 @@ package mock
 
 import (
 	"context"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"math"
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-func TestMockProvider_Metadata_Chat(t *testing.T) {
+func TestMockProvider_Metadata_Predict(t *testing.T) {
 	tests := []struct {
 		name     string
 		metadata map[string]interface{}
@@ -58,31 +59,31 @@ func TestMockProvider_Metadata_Chat(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			provider := NewMockProvider("test-provider", "test-model", false)
 
-			req := providers.ChatRequest{
+			req := providers.PredictionRequest{
 				Messages: []types.Message{
 					{Role: "user", Content: "Test message"},
 				},
 				Metadata: tt.metadata,
 			}
 
-			resp, err := provider.Chat(context.Background(), req)
+			resp, err := provider.Predict(context.Background(), req)
 			if err != nil {
-				t.Errorf("Chat() error = %v, wantErr = false", err)
+				t.Errorf("Predict() error = %v, wantErr = false", err)
 				return
 			}
 
 			if resp.Content == "" {
-				t.Error("Chat() response content is empty")
+				t.Error("Predict() response content is empty")
 			}
 
 			if resp.CostInfo == nil {
-				t.Error("Chat() response should include cost info")
+				t.Error("Predict() response should include cost info")
 			}
 		})
 	}
 }
 
-func TestMockProvider_Metadata_ChatStream(t *testing.T) {
+func TestMockProvider_Metadata_PredictStream(t *testing.T) {
 	tests := []struct {
 		name     string
 		metadata map[string]interface{}
@@ -104,16 +105,16 @@ func TestMockProvider_Metadata_ChatStream(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			provider := NewMockProvider("test-provider", "test-model", false)
 
-			req := providers.ChatRequest{
+			req := providers.PredictionRequest{
 				Messages: []types.Message{
 					{Role: "user", Content: "Test stream message"},
 				},
 				Metadata: tt.metadata,
 			}
 
-			stream, err := provider.ChatStream(context.Background(), req)
+			stream, err := provider.PredictStream(context.Background(), req)
 			if err != nil {
-				t.Errorf("ChatStream() error = %v, wantErr = false", err)
+				t.Errorf("PredictStream() error = %v, wantErr = false", err)
 				return
 			}
 
@@ -124,16 +125,16 @@ func TestMockProvider_Metadata_ChatStream(t *testing.T) {
 			}
 
 			if len(chunks) == 0 {
-				t.Error("ChatStream() should produce at least one chunk")
+				t.Error("PredictStream() should produce at least one chunk")
 			}
 
 			lastChunk := chunks[len(chunks)-1]
 			if lastChunk.Content == "" {
-				t.Error("ChatStream() last chunk content is empty")
+				t.Error("PredictStream() last chunk content is empty")
 			}
 
 			if lastChunk.CostInfo == nil {
-				t.Error("ChatStream() last chunk should include cost info")
+				t.Error("PredictStream() last chunk should include cost info")
 			}
 		})
 	}
@@ -143,7 +144,7 @@ func TestMockProvider_HelperFunctions(t *testing.T) {
 	provider := NewMockProvider("test-provider", "test-model", false)
 
 	t.Run("buildMockResponseParams", func(t *testing.T) {
-		req := providers.ChatRequest{
+		req := providers.PredictionRequest{
 			Messages: []types.Message{{Role: "user", Content: "test"}},
 			Metadata: map[string]interface{}{
 				"mock_scenario_id": "scenario-123",

@@ -175,7 +175,7 @@ func (p *ClaudeProvider) applyDefaults(temperature, topP float32, maxTokens int)
 }
 
 // makeClaudeHTTPRequest sends the HTTP request to Claude API
-func (p *ClaudeProvider) makeClaudeHTTPRequest(ctx context.Context, claudeReq claudeRequest, chatResp providers.ChatResponse, start time.Time) ([]byte, providers.ChatResponse, error) {
+func (p *ClaudeProvider) makeClaudeHTTPRequest(ctx context.Context, claudeReq claudeRequest, chatResp providers.PredictionResponse, start time.Time) ([]byte, providers.PredictionResponse, error) {
 	reqBody, err := json.Marshal(claudeReq)
 	if err != nil {
 		return nil, chatResp, fmt.Errorf("failed to marshal request: %w", err)
@@ -234,7 +234,7 @@ func (p *ClaudeProvider) makeClaudeHTTPRequest(ctx context.Context, claudeReq cl
 }
 
 // parseAndValidateClaudeResponse parses and validates the Claude API response
-func (p *ClaudeProvider) parseAndValidateClaudeResponse(respBody []byte, chatResp providers.ChatResponse, start time.Time) (claudeResponse, string, providers.ChatResponse, error) {
+func (p *ClaudeProvider) parseAndValidateClaudeResponse(respBody []byte, chatResp providers.PredictionResponse, start time.Time) (claudeResponse, string, providers.PredictionResponse, error) {
 	var claudeResp claudeResponse
 	if err := providers.UnmarshalJSON(respBody, &claudeResp, &chatResp, start); err != nil {
 		return claudeResp, "", chatResp, err
@@ -268,8 +268,8 @@ func (p *ClaudeProvider) parseAndValidateClaudeResponse(respBody []byte, chatRes
 	return claudeResp, responseText, chatResp, nil
 }
 
-// Chat sends a chat request to Claude
-func (p *ClaudeProvider) Chat(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
+// Predict sends a chat request to Claude
+func (p *ClaudeProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	start := time.Now()
 
 	// Convert messages to Claude format
@@ -292,7 +292,7 @@ func (p *ClaudeProvider) Chat(ctx context.Context, req providers.ChatRequest) (p
 	}
 
 	// Prepare response with raw request if configured (set early to preserve on error)
-	chatResp := providers.ChatResponse{
+	chatResp := providers.PredictionResponse{
 		Latency: time.Since(start), // Will be updated at the end
 	}
 	if p.ShouldIncludeRawOutput() {
@@ -383,8 +383,8 @@ func (p *ClaudeProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) ty
 	}
 }
 
-// ChatStream streams a chat response from Claude
-func (p *ClaudeProvider) ChatStream(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
+// PredictStream streams a chat response from Claude
+func (p *ClaudeProvider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	// Convert messages to Claude format
 	messages := make([]claudeMessage, 0, len(req.Messages))
 

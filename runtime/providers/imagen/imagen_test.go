@@ -295,13 +295,13 @@ func TestProviderDefaultValues(t *testing.T) {
 func TestExtractPrompt(t *testing.T) {
 	tests := []struct {
 		name    string
-		req     providers.ChatRequest
+		req     providers.PredictionRequest
 		want    string
 		wantErr bool
 	}{
 		{
 			name: "extract from Content field",
-			req: providers.ChatRequest{
+			req: providers.PredictionRequest{
 				Messages: []types.Message{
 					{Role: "user", Content: "Generate an image"},
 				},
@@ -311,7 +311,7 @@ func TestExtractPrompt(t *testing.T) {
 		},
 		{
 			name: "extract from Parts",
-			req: providers.ChatRequest{
+			req: providers.PredictionRequest{
 				Messages: []types.Message{
 					{
 						Role:    "user",
@@ -327,7 +327,7 @@ func TestExtractPrompt(t *testing.T) {
 		},
 		{
 			name: "no messages",
-			req: providers.ChatRequest{
+			req: providers.PredictionRequest{
 				Messages: []types.Message{},
 			},
 			want:    "",
@@ -335,7 +335,7 @@ func TestExtractPrompt(t *testing.T) {
 		},
 		{
 			name: "last message not from user",
-			req: providers.ChatRequest{
+			req: providers.PredictionRequest{
 				Messages: []types.Message{
 					{Role: "assistant", Content: "Here's an image"},
 				},
@@ -345,7 +345,7 @@ func TestExtractPrompt(t *testing.T) {
 		},
 		{
 			name: "empty prompt",
-			req: providers.ChatRequest{
+			req: providers.PredictionRequest{
 				Messages: []types.Message{
 					{Role: "user", Content: "", Parts: []types.ContentPart{}},
 				},
@@ -355,7 +355,7 @@ func TestExtractPrompt(t *testing.T) {
 		},
 		{
 			name: "parts with non-text content",
-			req: providers.ChatRequest{
+			req: providers.PredictionRequest{
 				Messages: []types.Message{
 					{
 						Role: "user",
@@ -431,8 +431,8 @@ func TestSupportsStreaming(t *testing.T) {
 	}
 }
 
-// TestChatStream tests that streaming returns error
-func TestChatStream(t *testing.T) {
+// TestPredictStream tests that streaming returns error
+func TestPredictStream(t *testing.T) {
 	provider := NewImagenProvider(
 		"test-id",
 		"imagen-4.0-generate-001",
@@ -445,15 +445,15 @@ func TestChatStream(t *testing.T) {
 	)
 
 	ctx := context.Background()
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "Generate image"},
 		},
 	}
 
-	_, err := provider.ChatStream(ctx, req)
+	_, err := provider.PredictStream(ctx, req)
 	if err == nil {
-		t.Error("Expected error for ChatStream, got nil")
+		t.Error("Expected error for PredictStream, got nil")
 	}
 
 	expectedErr := "streaming not supported for Imagen"
@@ -486,8 +486,8 @@ func stringPtr(s string) *string {
 	return &s
 }
 
-// TestChatErrorCases tests error handling in Chat method
-func TestChatErrorCases(t *testing.T) {
+// TestPredictErrorCases tests error handling in Predict method
+func TestPredictErrorCases(t *testing.T) {
 	provider := NewImagenProvider(
 		"test-id",
 		"imagen-4.0-generate-001",
@@ -503,19 +503,19 @@ func TestChatErrorCases(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		req     providers.ChatRequest
+		req     providers.PredictionRequest
 		wantErr string
 	}{
 		{
 			name: "no messages",
-			req: providers.ChatRequest{
+			req: providers.PredictionRequest{
 				Messages: []types.Message{},
 			},
 			wantErr: "no messages provided",
 		},
 		{
 			name: "last message not user",
-			req: providers.ChatRequest{
+			req: providers.PredictionRequest{
 				Messages: []types.Message{
 					{Role: "assistant", Content: "response"},
 				},
@@ -524,7 +524,7 @@ func TestChatErrorCases(t *testing.T) {
 		},
 		{
 			name: "empty prompt",
-			req: providers.ChatRequest{
+			req: providers.PredictionRequest{
 				Messages: []types.Message{
 					{Role: "user", Content: ""},
 				},
@@ -535,7 +535,7 @@ func TestChatErrorCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := provider.Chat(ctx, tt.req)
+			_, err := provider.Predict(ctx, tt.req)
 			if err == nil {
 				t.Fatal("Expected error, got nil")
 			}
@@ -546,8 +546,8 @@ func TestChatErrorCases(t *testing.T) {
 	}
 }
 
-// TestChatSuccess tests successful image generation with mock server
-func TestChatSuccess(t *testing.T) {
+// TestPredictSuccess tests successful image generation with mock server
+func TestPredictSuccess(t *testing.T) {
 	// Create mock server that returns a successful response
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify request method and headers
@@ -592,13 +592,13 @@ func TestChatSuccess(t *testing.T) {
 	)
 
 	ctx := context.Background()
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "Generate a red square"},
 		},
 	}
 
-	resp, err := provider.Chat(ctx, req)
+	resp, err := provider.Predict(ctx, req)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -627,8 +627,8 @@ func TestChatSuccess(t *testing.T) {
 	}
 }
 
-// TestChatAPIError tests handling of API errors
-func TestChatAPIError(t *testing.T) {
+// TestPredictAPIError tests handling of API errors
+func TestPredictAPIError(t *testing.T) {
 	tests := []struct {
 		name       string
 		statusCode int
@@ -675,13 +675,13 @@ func TestChatAPIError(t *testing.T) {
 			)
 
 			ctx := context.Background()
-			req := providers.ChatRequest{
+			req := providers.PredictionRequest{
 				Messages: []types.Message{
 					{Role: "user", Content: "Generate image"},
 				},
 			}
 
-			_, err := provider.Chat(ctx, req)
+			_, err := provider.Predict(ctx, req)
 			if err == nil {
 				t.Fatal("Expected error, got nil")
 			}
@@ -693,8 +693,8 @@ func TestChatAPIError(t *testing.T) {
 	}
 }
 
-// TestChatEmptyPredictions tests handling of empty predictions
-func TestChatEmptyPredictions(t *testing.T) {
+// TestPredictEmptyPredictions tests handling of empty predictions
+func TestPredictEmptyPredictions(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Return response with empty predictions
 		response := imagenResponse{
@@ -718,13 +718,13 @@ func TestChatEmptyPredictions(t *testing.T) {
 	)
 
 	ctx := context.Background()
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "Generate image"},
 		},
 	}
 
-	_, err := provider.Chat(ctx, req)
+	_, err := provider.Predict(ctx, req)
 	if err == nil {
 		t.Fatal("Expected error for empty predictions, got nil")
 	}
@@ -735,8 +735,8 @@ func TestChatEmptyPredictions(t *testing.T) {
 	}
 }
 
-// TestChatInvalidJSON tests handling of invalid JSON response
-func TestChatInvalidJSON(t *testing.T) {
+// TestPredictInvalidJSON tests handling of invalid JSON response
+func TestPredictInvalidJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("invalid json response"))
@@ -755,13 +755,13 @@ func TestChatInvalidJSON(t *testing.T) {
 	)
 
 	ctx := context.Background()
-	req := providers.ChatRequest{
+	req := providers.PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "Generate image"},
 		},
 	}
 
-	_, err := provider.Chat(ctx, req)
+	_, err := provider.Predict(ctx, req)
 	if err == nil {
 		t.Fatal("Expected error for invalid JSON, got nil")
 	}

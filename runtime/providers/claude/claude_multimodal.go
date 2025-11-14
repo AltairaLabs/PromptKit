@@ -51,24 +51,24 @@ type claudeContentBlockMultimodal struct {
 	CacheControl *claudeCacheControl `json:"cache_control,omitempty"`
 }
 
-// ChatMultimodal sends a multimodal chat request to Claude
-func (p *ClaudeProvider) ChatMultimodal(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
+// PredictMultimodal sends a multimodal chat request to Claude
+func (p *ClaudeProvider) PredictMultimodal(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	// Validate multimodal messages
 	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
-		return providers.ChatResponse{}, err
+		return providers.PredictionResponse{}, err
 	}
 
 	// Convert to Claude format with multimodal support
 	messages, system, err := p.convertMessagesToClaudeMultimodal(req.Messages)
 	if err != nil {
-		return providers.ChatResponse{}, fmt.Errorf("failed to convert messages: %w", err)
+		return providers.PredictionResponse{}, fmt.Errorf("failed to convert messages: %w", err)
 	}
 
 	return p.chatWithContentsMultimodal(ctx, messages, system, req.Temperature, req.TopP, req.MaxTokens, req.Seed)
 }
 
-// ChatMultimodalStream sends a streaming multimodal chat request to Claude
-func (p *ClaudeProvider) ChatMultimodalStream(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
+// PredictMultimodalStream sends a streaming multimodal chat request to Claude
+func (p *ClaudeProvider) PredictMultimodalStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	// Validate multimodal messages
 	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
 		return nil, err
@@ -227,7 +227,7 @@ func (p *ClaudeProvider) convertImagePartToClaude(part types.ContentPart) (claud
 }
 
 // chatWithContentsMultimodal handles the actual API call with multimodal content
-func (p *ClaudeProvider) chatWithContentsMultimodal(ctx context.Context, messages []claudeMessage, system []claudeContentBlockMultimodal, temperature, topP float32, maxTokens int, seed *int) (providers.ChatResponse, error) {
+func (p *ClaudeProvider) chatWithContentsMultimodal(ctx context.Context, messages []claudeMessage, system []claudeContentBlockMultimodal, temperature, topP float32, maxTokens int, seed *int) (providers.PredictionResponse, error) {
 	start := time.Now()
 
 	// Apply provider defaults for zero values
@@ -261,11 +261,11 @@ func (p *ClaudeProvider) chatWithContentsMultimodal(ctx context.Context, message
 
 	reqBody, err := json.Marshal(claudeReq)
 	if err != nil {
-		return providers.ChatResponse{}, fmt.Errorf("failed to marshal request: %w", err)
+		return providers.PredictionResponse{}, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	// Prepare response
-	chatResp := providers.ChatResponse{
+	chatResp := providers.PredictionResponse{
 		Latency: time.Since(start),
 	}
 	if p.ShouldIncludeRawOutput() {

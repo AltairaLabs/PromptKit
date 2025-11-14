@@ -115,8 +115,8 @@ func TestCalculateApproximateCost(t *testing.T) {
 	// Create a mock provider with nil repository (uses default responses)
 	mockProvider := mock.NewMockProvider("test-provider", "test-model", false)
 
-	// Create a chat request
-	req := providers.ChatRequest{
+	// Create a Predict request
+	req := providers.PredictionRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "Hello world"},
 		},
@@ -418,7 +418,7 @@ func TestHandleStreamInterruption(t *testing.T) {
 			}
 
 			// Create provider request
-			req := providers.ChatRequest{
+			req := providers.PredictionRequest{
 				Messages: execCtx.Messages,
 			}
 

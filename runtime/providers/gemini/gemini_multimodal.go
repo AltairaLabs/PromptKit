@@ -54,25 +54,25 @@ func (p *GeminiProvider) GetMultimodalCapabilities() providers.MultimodalCapabil
 	}
 }
 
-// ChatMultimodal performs a chat request with multimodal content
-func (p *GeminiProvider) ChatMultimodal(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
+// PredictMultimodal performs a chat request with multimodal content
+func (p *GeminiProvider) PredictMultimodal(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	// Validate that messages are compatible with Gemini's capabilities
 	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
-		return providers.ChatResponse{}, err
+		return providers.PredictionResponse{}, err
 	}
 
 	// Convert messages to Gemini format (handles both legacy and multimodal)
 	contents, systemInstruction, err := convertMessagesToGemini(req.Messages, req.System)
 	if err != nil {
-		return providers.ChatResponse{}, fmt.Errorf("failed to convert messages: %w", err)
+		return providers.PredictionResponse{}, fmt.Errorf("failed to convert messages: %w", err)
 	}
 
 	// Use the common chat implementation
 	return p.chatWithContents(ctx, contents, systemInstruction, req.Temperature, req.TopP, req.MaxTokens, req.Seed)
 }
 
-// ChatMultimodalStream performs a streaming chat request with multimodal content
-func (p *GeminiProvider) ChatMultimodalStream(ctx context.Context, req providers.ChatRequest) (<-chan providers.StreamChunk, error) {
+// PredictMultimodalStream performs a streaming chat request with multimodal content
+func (p *GeminiProvider) PredictMultimodalStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	// Validate that messages are compatible with Gemini's capabilities
 	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
 		return nil, err
@@ -208,8 +208,8 @@ func convertMediaPartToGemini(part types.ContentPart) (geminiPart, error) {
 }
 
 // chatWithContents is a helper method for both regular and multimodal chat
-// It's similar to Chat() but accepts pre-converted contents
-func (p *GeminiProvider) chatWithContents(ctx context.Context, contents []geminiContent, systemInstruction *geminiContent, temperature, topP float32, maxTokens int, seed *int) (providers.ChatResponse, error) {
+// It's similar to Predict() but accepts pre-converted contents
+func (p *GeminiProvider) chatWithContents(ctx context.Context, contents []geminiContent, systemInstruction *geminiContent, temperature, topP float32, maxTokens int, seed *int) (providers.PredictionResponse, error) {
 	start := time.Now()
 
 	// Apply provider defaults for zero values
@@ -232,11 +232,11 @@ func (p *GeminiProvider) chatWithContents(ctx context.Context, contents []gemini
 
 	reqBody, err := json.Marshal(geminiReq)
 	if err != nil {
-		return providers.ChatResponse{}, fmt.Errorf("failed to marshal request: %w", err)
+		return providers.PredictionResponse{}, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	// Prepare response with raw request if configured
-	chatResp := providers.ChatResponse{
+	chatResp := providers.PredictionResponse{
 		Latency: time.Since(start),
 	}
 	if p.ShouldIncludeRawOutput() {
