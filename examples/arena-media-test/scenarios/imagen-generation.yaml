@@ -1,0 +1,49 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: imagen-generation
+  description: >
+    Tests Google Imagen 4.0 image generation with PNG format validation.
+    Imagen only generates PNG format images.
+spec:
+  task_type: media-analysis
+  
+  turns:
+    # Turn 1: Generate a simple image
+    - role: user
+      parts:
+        - type: text
+          text: "Generate a 100x100 pixel red square"
+      
+      assertions:
+        # Validate assistant response includes image
+        - type: content_includes
+          params:
+            patterns:
+              - "image"
+              - "Generated"
+        
+        # Validate image format is PNG (Imagen always generates PNG)
+        - type: image_format
+          params:
+            formats:
+              - png
+    
+    # Turn 2: Generate another image
+    - role: user
+      parts:
+        - type: text
+          text: "Generate a blue circle"
+      
+      assertions:
+        # Validate image format is PNG
+        - type: image_format
+          params:
+            formats:
+              - png
+        
+        # Validate response includes confirmation
+        - type: content_includes
+          params:
+            patterns:
+              - "image"

@@ -6,7 +6,7 @@ metadata:
     Demonstrates audio format and duration validation using media assertions.
     Tests audio_format and audio_duration validators on assistant responses.
 spec:
-  provider: mock-media
+  task_type: media-analysis
   
   turns:
     # Turn 1: Generate audio and validate format

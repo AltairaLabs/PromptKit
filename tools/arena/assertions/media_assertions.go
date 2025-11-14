@@ -10,7 +10,7 @@ import (
 
 // Error messages
 const (
-	errMessageRequired   = "message parameter required"
+	errMessageRequired   = "assistant message not found in validation context"
 	errNoImagesFound     = "no images found in message"
 	errNoAudioFound      = "no audio found in message"
 	errNoVideoFound      = "no video found in message"
@@ -32,9 +32,9 @@ const (
 // baseMediaValidator provides common functionality for all media validators
 type baseMediaValidator struct{}
 
-// extractMessage safely extracts a message from params
-func (b *baseMediaValidator) extractMessage(params map[string]interface{}) (types.Message, bool) {
-	message, ok := params["message"].(types.Message)
+// extractAssistantMessage safely extracts the assistant message from params
+func (b *baseMediaValidator) extractAssistantMessage(params map[string]interface{}) (types.Message, bool) {
+	message, ok := params["_assistant_message"].(types.Message)
 	return message, ok
 }
 
@@ -116,31 +116,6 @@ type durationValidator struct {
 	countKey    string
 }
 
-// validateDurations checks if media durations are within range
-func (v *durationValidator) validateDurations(message types.Message) runtimeValidators.ValidationResult {
-	var mediaCount int
-	var violations []string
-
-	for _, part := range message.Parts {
-		if part.Type == v.contentType && part.Media != nil {
-			mediaCount++
-			violations = append(violations, v.checkDuration(part.Media)...)
-		}
-	}
-
-	if mediaCount == 0 {
-		return v.createErrorResult(v.noMediaErr)
-	}
-
-	return runtimeValidators.ValidationResult{
-		Passed: len(violations) == 0,
-		Details: map[string]interface{}{
-			v.countKey:   mediaCount,
-			"violations": violations,
-		},
-	}
-}
-
 func (v *durationValidator) checkDuration(media *types.MediaContent) []string {
 	if media.Duration == nil {
 		return []string{"missing duration metadata"}
@@ -166,22 +141,6 @@ type dimensionValidator struct {
 	maxWidth  *int
 	minHeight *int
 	maxHeight *int
-}
-
-// checkDimensions validates width and height
-func (v *dimensionValidator) checkDimensions(media *types.MediaContent, missingErr string) []string {
-	if media.Width == nil || media.Height == nil {
-		return []string{missingErr}
-	}
-
-	width := *media.Width
-	height := *media.Height
-	var violations []string
-
-	violations = append(violations, v.checkWidthRange(width)...)
-	violations = append(violations, v.checkHeightRange(height)...)
-
-	return violations
 }
 
 func (v *dimensionValidator) checkWidthRange(width int) []string {
@@ -243,7 +202,7 @@ func NewImageFormatValidator(params map[string]interface{}) runtimeValidators.Va
 
 // Validate checks if the message contains images with allowed formats
 func (v *ImageFormatValidator) Validate(content string, params map[string]interface{}) runtimeValidators.ValidationResult {
-	message, ok := v.extractMessage(params)
+	message, ok := v.extractAssistantMessage(params)
 	if !ok {
 		return v.createErrorResult(errMessageRequired)
 	}
@@ -285,7 +244,7 @@ func NewImageDimensionsValidator(params map[string]interface{}) runtimeValidator
 
 // Validate checks if images meet dimension requirements
 func (v *ImageDimensionsValidator) Validate(content string, params map[string]interface{}) runtimeValidators.ValidationResult {
-	message, ok := v.extractMessage(params)
+	message, ok := v.extractAssistantMessage(params)
 	if !ok {
 		return v.createErrorResult(errMessageRequired)
 	}
@@ -359,11 +318,46 @@ func NewAudioDurationValidator(params map[string]interface{}) runtimeValidators.
 
 // Validate checks if audio duration is within allowed range
 func (v *AudioDurationValidator) Validate(content string, params map[string]interface{}) runtimeValidators.ValidationResult {
-	message, ok := v.extractMessage(params)
+	message, ok := v.extractAssistantMessage(params)
 	if !ok {
 		return v.createErrorResult(errMessageRequired)
 	}
-	return v.validateDurations(message)
+
+	var audioCount int
+	var violations []string
+	var foundDurations []float64
+
+	for _, part := range message.Parts {
+		if part.Type == v.contentType && part.Media != nil {
+			audioCount++
+			if part.Media.Duration != nil {
+				foundDurations = append(foundDurations, float64(*part.Media.Duration))
+			}
+			violations = append(violations, v.checkDuration(part.Media)...)
+		}
+	}
+
+	if audioCount == 0 {
+		return v.createErrorResult(v.noMediaErr)
+	}
+
+	details := map[string]interface{}{
+		"audio_count":     audioCount,
+		"found_durations": foundDurations,
+		"violations":      violations,
+	}
+
+	if v.minSeconds != nil {
+		details["min_seconds"] = *v.minSeconds
+	}
+	if v.maxSeconds != nil {
+		details["max_seconds"] = *v.maxSeconds
+	}
+
+	return runtimeValidators.ValidationResult{
+		Passed:  len(violations) == 0,
+		Details: details,
+	}
 }
 
 // AudioFormatValidator checks that audio content has one of the allowed formats
@@ -384,7 +378,7 @@ func NewAudioFormatValidator(params map[string]interface{}) runtimeValidators.Va
 
 // Validate checks if the message contains audio with allowed formats
 func (v *AudioFormatValidator) Validate(content string, params map[string]interface{}) runtimeValidators.ValidationResult {
-	message, ok := v.extractMessage(params)
+	message, ok := v.extractAssistantMessage(params)
 	if !ok {
 		return v.createErrorResult(errMessageRequired)
 	}
@@ -413,11 +407,46 @@ func NewVideoDurationValidator(params map[string]interface{}) runtimeValidators.
 
 // Validate checks if video duration is within allowed range
 func (v *VideoDurationValidator) Validate(content string, params map[string]interface{}) runtimeValidators.ValidationResult {
-	message, ok := v.extractMessage(params)
+	message, ok := v.extractAssistantMessage(params)
 	if !ok {
 		return v.createErrorResult(errMessageRequired)
 	}
-	return v.validateDurations(message)
+
+	var videoCount int
+	var violations []string
+	var foundDurations []float64
+
+	for _, part := range message.Parts {
+		if part.Type == v.contentType && part.Media != nil {
+			videoCount++
+			if part.Media.Duration != nil {
+				foundDurations = append(foundDurations, float64(*part.Media.Duration))
+			}
+			violations = append(violations, v.checkDuration(part.Media)...)
+		}
+	}
+
+	if videoCount == 0 {
+		return v.createErrorResult(v.noMediaErr)
+	}
+
+	details := map[string]interface{}{
+		"video_count":     videoCount,
+		"found_durations": foundDurations,
+		"violations":      violations,
+	}
+
+	if v.minSeconds != nil {
+		details["min_seconds"] = *v.minSeconds
+	}
+	if v.maxSeconds != nil {
+		details["max_seconds"] = *v.maxSeconds
+	}
+
+	return runtimeValidators.ValidationResult{
+		Passed:  len(violations) == 0,
+		Details: details,
+	}
 }
 
 // VideoResolutionValidator checks that video resolution meets requirements
@@ -450,17 +479,22 @@ func NewVideoResolutionValidator(params map[string]interface{}) runtimeValidator
 
 // Validate checks if video resolution meets requirements
 func (v *VideoResolutionValidator) Validate(content string, params map[string]interface{}) runtimeValidators.ValidationResult {
-	message, ok := v.extractMessage(params)
+	message, ok := v.extractAssistantMessage(params)
 	if !ok {
 		return v.createErrorResult(errMessageRequired)
 	}
 
 	var videoCount int
 	var violations []string
+	var foundResolutions []string
 
 	for _, part := range message.Parts {
 		if part.Type == types.ContentTypeVideo && part.Media != nil {
 			videoCount++
+			if part.Media.Width != nil && part.Media.Height != nil {
+				foundResolutions = append(foundResolutions,
+					fmt.Sprintf("%dx%d", *part.Media.Width, *part.Media.Height))
+			}
 			violations = append(violations, v.checkVideoResolution(part.Media)...)
 		}
 	}
@@ -469,12 +503,32 @@ func (v *VideoResolutionValidator) Validate(content string, params map[string]in
 		return v.createErrorResult(errNoVideoFound)
 	}
 
+	details := map[string]interface{}{
+		"video_count":       videoCount,
+		"found_resolutions": foundResolutions,
+		"violations":        violations,
+	}
+
+	// Add constraints to details
+	if len(v.presets) > 0 {
+		details["allowed_presets"] = v.presets
+	}
+	if v.minWidth != nil {
+		details["min_width"] = *v.minWidth
+	}
+	if v.maxWidth != nil {
+		details["max_width"] = *v.maxWidth
+	}
+	if v.minHeight != nil {
+		details["min_height"] = *v.minHeight
+	}
+	if v.maxHeight != nil {
+		details["max_height"] = *v.maxHeight
+	}
+
 	return runtimeValidators.ValidationResult{
-		Passed: len(violations) == 0,
-		Details: map[string]interface{}{
-			"video_count": videoCount,
-			"violations":  violations,
-		},
+		Passed:  len(violations) == 0,
+		Details: details,
 	}
 }
 

@@ -3,23 +3,29 @@ kind: Arena
 metadata:
   name: arena-media-test
 spec:
+  prompt_configs:
+    - id: media-assistant
+      file: prompts/media-assistant.yaml
+
   providers:
     - file: providers/mock-provider.yaml
+    - file: providers/gemini-provider.yaml
+    - file: providers/imagen-provider.yaml
 
   scenarios:
-    - file: image-analysis.yaml
-    - file: image-url.yaml
-    - file: multimodal-mixed.yaml
-    - file: audio-transcription.yaml
-    - file: mixed-media.yaml
-    - file: all-formats.yaml
-    - file: image-validation.yaml
-    - file: audio-validation.yaml
-    - file: video-validation.yaml
+    - file: scenarios/image-analysis.yaml
+    - file: scenarios/image-url.yaml
+    - file: scenarios/multimodal-mixed.yaml
+    - file: scenarios/audio-transcription.yaml
+    - file: scenarios/mixed-media.yaml
+    - file: scenarios/all-formats.yaml
+    - file: scenarios/image-validation.yaml
+    - file: scenarios/audio-validation.yaml
+    - file: scenarios/video-validation.yaml
+    - file: scenarios/imagen-generation.yaml
 
   defaults:
     temperature: 0.7
-    max_tokens: 1000
     concurrency: 2
     output:
       dir: out

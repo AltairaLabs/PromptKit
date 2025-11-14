@@ -4,7 +4,7 @@ metadata:
   name: image-analysis-local
   description: Test image analysis using local image files
 spec:
-  provider: mock-media
+  task_type: media-analysis
   
   turns:
     - role: user
@@ -16,12 +16,12 @@ spec:
             file_path: ../../tools/arena/testdata/media/test-image-small.jpg
             mime_type: image/jpeg
             detail: high
-      
       assertions:
-        - type: content_includes
+        - type: image_format
           params:
-            patterns:
-              - "image"
+            formats:
+              - png
+            message: "Validate PNG format in assistant response."
 
     - role: user
       parts:
@@ -35,13 +35,13 @@ spec:
           media:
             file_path: ../../tools/arena/testdata/media/test-image-small.png
             mime_type: image/png
-      
       assertions:
-        - type: content_includes
+        - type: image_format
           params:
-            patterns:
-              - "comparing"
-              - "difference"
+            formats:
+              - jpeg
+              - png
+            message: "Validate JPEG and PNG formats in assistant response."
 
     - role: user
       parts:
@@ -52,9 +52,9 @@ spec:
             file_path: ../../tools/arena/testdata/media/test-image-small.webp
             mime_type: image/webp
             detail: auto
-      
       assertions:
-        - type: content_includes
+        - type: image_format
           params:
-            patterns:
-              - "WebP"
+            formats:
+              - webp
+            message: "Validate WebP format in assistant response."

@@ -142,6 +142,24 @@ func (ce *DefaultConversationExecutor) buildTurnRequest(req ConversationRequest,
 	if req.Config != nil {
 		baseDir = req.Config.ConfigDir
 	}
+	// Determine temperature: use override > config default (if set) > provider default (via 0)
+	temperature := float64(req.Config.Defaults.Temperature)
+	if req.Temperature != nil {
+		temperature = *req.Temperature
+	} else if req.Config.Defaults.Temperature == 0 {
+		// Config has no temperature set, pass 0 to let provider use its default
+		temperature = 0
+	}
+
+	// Determine max_tokens: use override > config default (if set) > provider default (via 0)
+	maxTokens := req.Config.Defaults.MaxTokens
+	if req.MaxTokens != nil {
+		maxTokens = *req.MaxTokens
+	} else if req.Config.Defaults.MaxTokens == 0 {
+		// Config has no max_tokens set, pass 0 to let provider use its default
+		maxTokens = 0
+	}
+
 	return turnexecutors.TurnRequest{
 		Provider:         req.Provider,
 		Scenario:         req.Scenario,
@@ -149,8 +167,8 @@ func (ce *DefaultConversationExecutor) buildTurnRequest(req ConversationRequest,
 		TaskType:         req.Scenario.TaskType,
 		Region:           req.Region,
 		BaseDir:          baseDir,
-		Temperature:      float64(req.Config.Defaults.Temperature),
-		MaxTokens:        req.Config.Defaults.MaxTokens,
+		Temperature:      temperature,
+		MaxTokens:        maxTokens,
 		Seed:             &req.Config.Defaults.Seed,
 		StateStoreConfig: convertStateStoreConfig(req.StateStoreConfig),
 		ConversationID:   req.ConversationID,

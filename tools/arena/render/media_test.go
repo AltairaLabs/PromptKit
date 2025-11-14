@@ -309,7 +309,23 @@ func TestRenderMessageWithMedia(t *testing.T) {
 					},
 				},
 			},
-			want: []string{"message user", "Analyze this image", "media-badge image", "🖼️", "media-items", "test.jpg"},
+			want:    []string{"message user", "Analyze this image", "media-items", "test.jpg", "🖼️"},
+			wantNot: []string{"media-badge"},
+		},
+		{
+			name: "user message with Parts but empty Content (scenario executor pattern)",
+			msg: types.Message{
+				Role:    "user",
+				Content: "", // Empty Content field
+				Parts: []types.ContentPart{
+					{
+						Type: types.ContentTypeText,
+						Text: stringPtr("Generate a short audio clip"),
+					},
+				},
+			},
+			want:    []string{"message user", "Generate a short audio clip", "message-text"},
+			wantNot: []string{"media-badge", "media-items"}, // No media, only text
 		},
 		{
 			name: "message with multiple media types",
@@ -334,7 +350,8 @@ func TestRenderMessageWithMedia(t *testing.T) {
 					},
 				},
 			},
-			want: []string{"message assistant", "🖼️", "🎵", "chart.png", "voice.wav", "media-items"},
+			want:    []string{"message assistant", "🖼️", "🎵", "chart.png", "voice.wav", "media-items"},
+			wantNot: []string{"media-badge"},
 		},
 	}
 

@@ -1,7 +1,6 @@
 {
     "version": "0.2.0",
     "configurations": [
-        
         {
             "name": "Debug Arena Media Test",
             "type": "go",
@@ -11,7 +10,8 @@
             "args": [
                 "run",
                 "--config", "examples/arena-media-test/arena.yaml",
-                "--scenario", "image-analysis-local",
+                "--scenario", "image-validation",
+                "--provider", "imogen-provider",
                 "-v"
             ],
             "cwd": "${workspaceFolder}",

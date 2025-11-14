@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -347,12 +348,65 @@ func (p *GeminiProvider) Chat(ctx context.Context, req providers.ChatRequest) (p
 	// Calculate cost breakdown (Gemini doesn't support cached tokens yet)
 	costBreakdown := p.CalculateCost(tokensIn, tokensOut, 0)
 
-	chatResp.Content = candidate.Content.Parts[0].Text
+	// Extract all content parts (text + inline media + markdown images)
+	var contentParts []types.ContentPart
+	var textContent strings.Builder
+
+	for _, part := range candidate.Content.Parts {
+		if part.Text != "" {
+			// Check if text contains markdown images and split accordingly
+			textParts := processTextPartForImages(part.Text)
+			contentParts = append(contentParts, textParts...)
+			textContent.WriteString(part.Text)
+		}
+
+		if part.InlineData != nil {
+			// Add inline media part (image, audio, video)
+			mediaType := inferMediaTypeFromMIME(part.InlineData.MimeType)
+			var mediaPart types.ContentPart
+
+			switch mediaType {
+			case types.ContentTypeImage:
+				mediaPart = types.NewImagePartFromData(part.InlineData.Data, part.InlineData.MimeType, nil)
+			case types.ContentTypeAudio:
+				mediaPart = types.NewAudioPartFromData(part.InlineData.Data, part.InlineData.MimeType)
+			case types.ContentTypeVideo:
+				mediaPart = types.NewVideoPartFromData(part.InlineData.Data, part.InlineData.MimeType)
+			default:
+				// Unknown media type, skip
+				continue
+			}
+
+			contentParts = append(contentParts, mediaPart)
+		}
+	}
+
+	chatResp.Content = textContent.String()
+	chatResp.Parts = contentParts
 	chatResp.CostInfo = &costBreakdown
 	chatResp.Latency = latency
 	chatResp.Raw = respBody
 
+	// Debug log the extracted parts
+	logger.Debug("Extracted content parts from Gemini response",
+		"total_parts", len(contentParts),
+		"text_parts", countPartsByType(contentParts, types.ContentTypeText),
+		"image_parts", countPartsByType(contentParts, types.ContentTypeImage),
+		"audio_parts", countPartsByType(contentParts, types.ContentTypeAudio),
+		"video_parts", countPartsByType(contentParts, types.ContentTypeVideo))
+
 	return chatResp, nil
+}
+
+// countPartsByType counts how many parts match a given type
+func countPartsByType(parts []types.ContentPart, partType string) int {
+	count := 0
+	for _, part := range parts {
+		if part.Type == partType {
+			count++
+		}
+	}
+	return count
 }
 
 // CalculateCost calculates detailed cost breakdown including optional cached tokens
@@ -547,6 +601,20 @@ func (p *GeminiProvider) streamResponse(ctx context.Context, body io.ReadCloser,
 		Content:      accumulated,
 		TokenCount:   totalTokens,
 		FinishReason: providers.StringPtr("stop"),
+	}
+}
+
+// inferMediaTypeFromMIME infers the content type (image/audio/video) from a MIME type
+func inferMediaTypeFromMIME(mimeType string) string {
+	switch {
+	case strings.HasPrefix(mimeType, "image/"):
+		return types.ContentTypeImage
+	case strings.HasPrefix(mimeType, "audio/"):
+		return types.ContentTypeAudio
+	case strings.HasPrefix(mimeType, "video/"):
+		return types.ContentTypeVideo
+	default:
+		return ""
 	}
 }
 

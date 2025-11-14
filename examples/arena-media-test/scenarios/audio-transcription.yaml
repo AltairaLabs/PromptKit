@@ -4,7 +4,7 @@ metadata:
   name: audio-transcription
   description: Test audio file processing and transcription
 spec:
-  provider: mock-media
+  task_type: media-analysis
   
   turns:
     - role: user
@@ -15,12 +15,12 @@ spec:
           media:
             file_path: ../../tools/arena/testdata/media/test-audio-small.wav
             mime_type: audio/wav
-      
       assertions:
-        - type: content_includes
+        - type: audio_format
           params:
-            patterns:
-              - "audio"
+            formats:
+              - wav
+            message: "Validate WAV audio format in assistant response."
 
     - role: user
       parts:
@@ -34,12 +34,13 @@ spec:
           media:
             file_path: ../../tools/arena/testdata/media/test-audio-small.ogg
             mime_type: audio/ogg
-      
       assertions:
-        - type: content_includes
+        - type: audio_format
           params:
-            patterns:
-              - "compression"
+            formats:
+              - wav
+              - ogg
+            message: "Validate WAV and OGG audio formats in assistant response."
 
     - role: user
       parts:

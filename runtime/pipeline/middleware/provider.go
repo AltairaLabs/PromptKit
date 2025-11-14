@@ -785,6 +785,7 @@ func convertProviderResponse(resp *providers.ChatResponse) pipeline.Response {
 	pipelineResp := pipeline.Response{
 		Role:          "assistant",
 		Content:       resp.Content,
+		Parts:         resp.Parts, // Include multimodal parts (images, audio, video)
 		ToolCalls:     convertToolCalls(resp.ToolCalls),
 		FinalResponse: finalResponse,
 		Metadata: pipeline.ResponseMetadata{

@@ -4,7 +4,7 @@ metadata:
   name: image-from-url
   description: Test loading images from HTTP/HTTPS URLs
 spec:
-  provider: mock-media
+  task_type: media-analysis
   
   turns:
     - role: user

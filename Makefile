@@ -1,4 +1,14 @@
-.PHONY: help build build-tools build-arena build-packc build-inspect-state test test-tools test-race lint clean coverage install install-tools install-tools-user
+.PHONY: help build build-tools build-arena build-packc build-inspect-state test test-tools test-race lint clean coverage install install-tools install-tools-user uninstall-tools
+# Uninstall CLI tools from system and user PATH
+uninstall-tools: ## Uninstall CLI tools from system and user PATH
+	@echo "Uninstalling CLI tools from /usr/local/bin and ~/.local/bin..."
+	@rm -f /usr/local/bin/promptarena || echo "promptarena not found in /usr/local/bin"
+	@rm -f /usr/local/bin/packc || echo "packc not found in /usr/local/bin"
+	@rm -f /usr/local/bin/inspect-state || echo "inspect-state not found in /usr/local/bin"
+	@rm -f ~/.local/bin/promptarena || echo "promptarena not found in ~/.local/bin"
+	@rm -f ~/.local/bin/packc || echo "packc not found in ~/.local/bin"
+	@rm -f ~/.local/bin/inspect-state || echo "inspect-state not found in ~/.local/bin"
+	@echo "CLI tools uninstalled from system and user PATH."
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
