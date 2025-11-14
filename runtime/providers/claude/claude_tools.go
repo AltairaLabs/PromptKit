@@ -76,25 +76,25 @@ func (p *ClaudeToolProvider) BuildTooling(descriptors []*providers.ToolDescripto
 	return tools, nil
 }
 
-// PredictWithTools performs a chat request with tool support
+// PredictWithTools performs a predict request with tool support
 func (p *ClaudeToolProvider) PredictWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	// Build Claude request with tools
 	claudeReq := p.buildToolRequest(req, tools, toolChoice)
 
 	// Prepare response with raw request if configured (set early to preserve on error)
-	chatResp := providers.PredictionResponse{}
+	predictResp := providers.PredictionResponse{}
 	if p.ShouldIncludeRawOutput() {
-		chatResp.RawRequest = claudeReq
+		predictResp.RawRequest = claudeReq
 	}
 
 	// Make the API call
 	respBytes, err := p.makeRequest(ctx, claudeReq)
 	if err != nil {
-		return chatResp, nil, err
+		return predictResp, nil, err
 	}
 
 	// Parse response and extract tool calls
-	return p.parseToolResponse(respBytes, chatResp)
+	return p.parseToolResponse(respBytes, predictResp)
 }
 
 // processClaudeToolResult converts a tool message to Claude's tool_result format
@@ -292,26 +292,26 @@ func parseToolCallsFromRawResponse(respBytes []byte) []types.MessageToolCall {
 	return toolCalls
 }
 
-func (p *ClaudeToolProvider) parseToolResponse(respBytes []byte, chatResp providers.PredictionResponse) (providers.PredictionResponse, []types.MessageToolCall, error) {
+func (p *ClaudeToolProvider) parseToolResponse(respBytes []byte, predictResp providers.PredictionResponse) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	start := time.Now()
 
 	var resp claudeResponse
 	if err := json.Unmarshal(respBytes, &resp); err != nil {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBytes
-		return chatResp, nil, fmt.Errorf("failed to parse Claude response: %w", err)
+		predictResp.Latency = time.Since(start)
+		predictResp.Raw = respBytes
+		return predictResp, nil, fmt.Errorf("failed to parse Claude response: %w", err)
 	}
 
 	if resp.Error != nil {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBytes
-		return chatResp, nil, fmt.Errorf("claude API error: %s", resp.Error.Message)
+		predictResp.Latency = time.Since(start)
+		predictResp.Raw = respBytes
+		return predictResp, nil, fmt.Errorf("claude API error: %s", resp.Error.Message)
 	}
 
 	if len(resp.Content) == 0 {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBytes
-		return chatResp, nil, fmt.Errorf("no content in Claude response")
+		predictResp.Latency = time.Since(start)
+		predictResp.Raw = respBytes
+		return predictResp, nil, fmt.Errorf("no content in Claude response")
 	}
 
 	// Extract text content
@@ -323,13 +323,13 @@ func (p *ClaudeToolProvider) parseToolResponse(respBytes []byte, chatResp provid
 	// Calculate cost breakdown
 	costBreakdown := p.ClaudeProvider.CalculateCost(resp.Usage.InputTokens, resp.Usage.OutputTokens, resp.Usage.CacheReadInputTokens)
 
-	chatResp.Content = textContent
-	chatResp.CostInfo = &costBreakdown
-	chatResp.Latency = time.Since(start)
-	chatResp.Raw = respBytes
-	chatResp.ToolCalls = toolCalls
+	predictResp.Content = textContent
+	predictResp.CostInfo = &costBreakdown
+	predictResp.Latency = time.Since(start)
+	predictResp.Raw = respBytes
+	predictResp.ToolCalls = toolCalls
 
-	return chatResp, toolCalls, nil
+	return predictResp, toolCalls, nil
 }
 
 func (p *ClaudeToolProvider) makeRequest(ctx context.Context, request interface{}) ([]byte, error) {

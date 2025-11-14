@@ -10,8 +10,8 @@
             "args": [
                 "run",
                 "--config", "examples/arena-media-test/arena.yaml",
-                "--scenario", "image-validation",
-                "--provider", "imogen-provider",
+                "--scenario", "audio-transcription",
+                "--provider", "gemini-flash",
                 "-v"
             ],
             "cwd": "${workspaceFolder}",

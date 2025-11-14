@@ -12,7 +12,7 @@ import (
 )
 
 // TestExecuteConversation_TenScriptedTurns tests that all 10 turns execute
-// This reproduces the MCP chatbot scenario which has 10 turns
+// This reproduces the MCP predictbot scenario which has 10 turns
 func TestExecuteConversation_TenScriptedTurns(t *testing.T) {
 	// Track which turns were executed
 	executedTurns := []int{}
@@ -82,7 +82,7 @@ func TestExecuteConversation_TenScriptedTurns(t *testing.T) {
 		createTestPromptRegistry(t),
 	)
 
-	// Create scenario with 10 turns (like MCP chatbot memory-conversations scenario)
+	// Create scenario with 10 turns (like MCP predictbot memory-conversations scenario)
 	scenario := &config.Scenario{
 		ID:       "memory-conversations",
 		TaskType: "memory-assistant",

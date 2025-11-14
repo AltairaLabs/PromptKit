@@ -308,8 +308,8 @@ func TestOpenAIMessage_Structure(t *testing.T) {
 
 func TestOpenAIResponse_Structure(t *testing.T) {
 	resp := openAIResponse{
-		ID:      "chatcmpl-123",
-		Object:  "chat.completion",
+		ID:      "predictcmpl-123",
+		Object:  "predict.completion",
 		Created: 1234567890,
 		Model:   "gpt-4",
 		Choices: []openAIChoice{
@@ -329,7 +329,7 @@ func TestOpenAIResponse_Structure(t *testing.T) {
 		},
 	}
 
-	if resp.ID != "chatcmpl-123" {
+	if resp.ID != "predictcmpl-123" {
 		t.Error("ID mismatch")
 	}
 
@@ -386,10 +386,10 @@ func TestOpenAIError_Structure(t *testing.T) {
 }
 
 func TestPredict_Integration(t *testing.T) {
-	t.Run("Successful chat request with system message", func(t *testing.T) {
+	t.Run("Successful predict request with system message", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path != "/chat/completions" {
-				t.Errorf("Expected path '/chat/completions', got %q", r.URL.Path)
+			if r.URL.Path != "/predict/completions" {
+				t.Errorf("Expected path '/predict/completions', got %q", r.URL.Path)
 			}
 			if r.Method != "POST" {
 				t.Errorf("Expected method 'POST', got %q", r.Method)
@@ -412,8 +412,8 @@ func TestPredict_Integration(t *testing.T) {
 
 			// Send successful response
 			resp := openAIResponse{
-				ID:      "chatcmpl-123",
-				Object:  "chat.completion",
+				ID:      "predictcmpl-123",
+				Object:  "predict.completion",
 				Created: time.Now().Unix(),
 				Model:   "gpt-4",
 				Choices: []openAIChoice{

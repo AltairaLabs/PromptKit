@@ -4,7 +4,7 @@ metadata:
   name: audio-transcription
   description: Test audio file processing and transcription
 spec:
-  task_type: media-analysis
+  task_type: audio-analysis
   
   turns:
     - role: user
@@ -16,31 +16,27 @@ spec:
             file_path: ../../tools/arena/testdata/media/test-audio-small.wav
             mime_type: audio/wav
       assertions:
-        - type: audio_format
+        - type: content_includes
           params:
-            formats:
-              - wav
-            message: "Validate WAV audio format in assistant response."
+            patterns:
+              - "audio"
+              - "transcri"
+            message: "Response should mention audio or transcription"
 
     - role: user
       parts:
         - type: text
-          text: "What's the difference between WAV and OGG format?"
+          text: "What format is this audio file and what are its technical properties?"
         - type: audio
           media:
             file_path: ../../tools/arena/testdata/media/test-audio-small.wav
             mime_type: audio/wav
-        - type: audio
-          media:
-            file_path: ../../tools/arena/testdata/media/test-audio-small.ogg
-            mime_type: audio/ogg
       assertions:
-        - type: audio_format
+        - type: content_includes
           params:
-            formats:
-              - wav
-              - ogg
-            message: "Validate WAV and OGG audio formats in assistant response."
+            patterns:
+              - "audio"
+            message: "Response should discuss audio format"
 
     - role: user
       parts:

@@ -13,7 +13,7 @@ spec:
     - role: user
       parts:
         - type: text
-          text: "Generate a 100x100 pixel red square"
+          text: "Generate an image of a sunset over mountains"
       
       assertions:
         # Validate assistant response includes image
@@ -33,7 +33,7 @@ spec:
     - role: user
       parts:
         - type: text
-          text: "Generate a blue circle"
+          text: "Generate an image of a peaceful lake"
       
       assertions:
         # Validate image format is PNG

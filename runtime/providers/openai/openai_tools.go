@@ -80,16 +80,16 @@ func (p *OpenAIToolProvider) PredictWithTools(ctx context.Context, req providers
 	openaiReq := p.buildToolRequest(req, tools, toolChoice)
 
 	// Prepare response with raw request if configured (set early to preserve on error)
-	chatResp := providers.PredictionResponse{}
+	predictResp := providers.PredictionResponse{}
 	if p.ShouldIncludeRawOutput() {
-		chatResp.RawRequest = openaiReq
+		predictResp.RawRequest = openaiReq
 	}
 
 	// Make the API call
 	respBytes, err := p.makeRequest(ctx, openaiReq)
 	if err != nil {
-		chatResp.Latency = time.Since(start)
-		return chatResp, nil, err
+		predictResp.Latency = time.Since(start)
+		return predictResp, nil, err
 	}
 
 	// Calculate latency immediately after API call completes
@@ -99,13 +99,13 @@ func (p *OpenAIToolProvider) PredictWithTools(ctx context.Context, req providers
 	resp, toolCalls, err := p.parseToolResponse(respBytes)
 	if err != nil {
 		resp.Latency = latency
-		resp.RawRequest = chatResp.RawRequest
+		resp.RawRequest = predictResp.RawRequest
 		return resp, nil, err
 	}
 
 	// Set latency on response
 	resp.Latency = latency
-	resp.RawRequest = chatResp.RawRequest
+	resp.RawRequest = predictResp.RawRequest
 
 	return resp, toolCalls, nil
 }

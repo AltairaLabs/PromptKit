@@ -1,13 +1,13 @@
 // Package providers implements multi-LLM provider support with unified interfaces.
 //
-// This package provides a common abstraction for chat-based LLM providers including
+// This package provides a common abstraction for predict-based LLM providers including
 // OpenAI, Anthropic Claude, and Google Gemini. It handles:
 //   - Predict completion requests with streaming support
 //   - Tool/function calling with provider-specific formats
 //   - Cost tracking and token usage calculation
 //   - Rate limiting and error handling
 //
-// All providers implement the Provider interface for basic chat, and ToolSupport
+// All providers implement the Provider interface for basic predict, and ToolSupport
 // interface for function calling capabilities.
 package providers
 
@@ -19,7 +19,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// PredictionRequest represents a request to a chat provider
+// PredictionRequest represents a request to a predict provider
 type PredictionRequest struct {
 	System      string                 `json:"system"`
 	Messages    []types.Message        `json:"messages"`
@@ -30,7 +30,7 @@ type PredictionRequest struct {
 	Metadata    map[string]interface{} `json:"metadata,omitempty"` // Optional metadata for provider-specific context
 }
 
-// PredictionResponse represents a response from a chat provider
+// PredictionResponse represents a response from a predict provider
 type PredictionResponse struct {
 	Content    string                  `json:"content"`
 	Parts      []types.ContentPart     `json:"parts,omitempty"`     // Multimodal content parts (text, image, audio, video)
@@ -55,7 +55,7 @@ type ProviderDefaults struct {
 	Pricing     Pricing
 }
 
-// Provider interface defines the contract for chat providers
+// Provider interface defines the contract for predict providers
 type Provider interface {
 	ID() string
 	Predict(ctx context.Context, req PredictionRequest) (PredictionResponse, error)
@@ -90,6 +90,6 @@ type ToolSupport interface {
 	// BuildTooling converts tool descriptors to provider-native format
 	BuildTooling(descriptors []*ToolDescriptor) (interface{}, error)
 
-	// PredictWithTools performs a chat request with tool support
+	// PredictWithTools performs a predict request with tool support
 	PredictWithTools(ctx context.Context, req PredictionRequest, tools interface{}, toolChoice string) (PredictionResponse, []types.MessageToolCall, error)
 }

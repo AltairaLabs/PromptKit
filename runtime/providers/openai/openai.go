@@ -17,7 +17,7 @@ import (
 
 // HTTP constants
 const (
-	openAIPredictCompletionsPath = "/chat/completions"
+	openAIPredictCompletionsPath = "/predict/completions"
 	contentTypeHeader            = "Content-Type"
 	applicationJSON              = "application/json"
 	authorizationHeader          = "Authorization"
@@ -94,7 +94,7 @@ type openAIError struct {
 	Code    string `json:"code"`
 }
 
-// prepareOpenAIMessages converts chat request messages to OpenAI format with system message
+// prepareOpenAIMessages converts predict request messages to OpenAI format with system message
 func (p *OpenAIProvider) prepareOpenAIMessages(req providers.PredictionRequest) ([]openAIMessage, error) {
 	messages := make([]openAIMessage, 0, len(req.Messages)+1)
 	if req.System != "" {
@@ -136,7 +136,7 @@ func (p *OpenAIProvider) applyRequestDefaults(req providers.PredictionRequest) (
 	return temperature, topP, maxTokens
 }
 
-// Predict sends a chat request to OpenAI
+// Predict sends a predict request to OpenAI
 func (p *OpenAIProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	// Convert messages to OpenAI format
 	messages, err := p.prepareOpenAIMessages(req)
@@ -145,7 +145,7 @@ func (p *OpenAIProvider) Predict(ctx context.Context, req providers.PredictionRe
 	}
 
 	// Delegate to the common implementation
-	return p.chatWithMessages(ctx, req, messages)
+	return p.predictWithMessages(ctx, req, messages)
 }
 
 // CalculateCost calculates detailed cost breakdown including optional cached tokens
@@ -203,7 +203,7 @@ func (p *OpenAIProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) ty
 	}
 }
 
-// PredictStream streams a chat response from OpenAI
+// PredictStream streams a predict response from OpenAI
 func (p *OpenAIProvider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	// Convert messages to OpenAI format
 	messages, err := p.prepareOpenAIMessages(req)
@@ -212,7 +212,7 @@ func (p *OpenAIProvider) PredictStream(ctx context.Context, req providers.Predic
 	}
 
 	// Delegate to the common implementation
-	return p.chatStreamWithMessages(ctx, req, messages)
+	return p.predictStreamWithMessages(ctx, req, messages)
 }
 
 // openAIStreamChunk represents the structure of OpenAI streaming response chunks
@@ -422,8 +422,8 @@ func getTextFromPart(part interface{}) string {
 	return textVal
 }
 
-// chatWithMessages is a refactored version of Predict that accepts pre-converted messages
-func (p *OpenAIProvider) chatWithMessages(ctx context.Context, req providers.PredictionRequest, messages []openAIMessage) (providers.PredictionResponse, error) {
+// predictWithMessages is a refactored version of Predict that accepts pre-converted messages
+func (p *OpenAIProvider) predictWithMessages(ctx context.Context, req providers.PredictionRequest, messages []openAIMessage) (providers.PredictionResponse, error) {
 	start := time.Now()
 
 	// Apply provider defaults for zero values
@@ -445,17 +445,17 @@ func (p *OpenAIProvider) chatWithMessages(ctx context.Context, req providers.Pre
 	}
 
 	// Prepare response with raw request if configured (set early to preserve on error)
-	chatResp := providers.PredictionResponse{
+	predictResp := providers.PredictionResponse{
 		Latency: time.Since(start), // Will be updated at the end
 	}
 	if p.ShouldIncludeRawOutput() {
-		chatResp.RawRequest = openAIReq
+		predictResp.RawRequest = openAIReq
 	}
 
 	// Make HTTP request
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+openAIPredictCompletionsPath, bytes.NewReader(reqBody))
 	if err != nil {
-		return chatResp, fmt.Errorf("failed to create request: %w", err)
+		return predictResp, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
@@ -470,42 +470,42 @@ func (p *OpenAIProvider) chatWithMessages(ctx context.Context, req providers.Pre
 
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		chatResp.Latency = time.Since(start)
-		return chatResp, fmt.Errorf("failed to send request: %w", err)
+		predictResp.Latency = time.Since(start)
+		return predictResp, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		chatResp.Latency = time.Since(start)
-		return chatResp, fmt.Errorf("failed to read response body: %w", err)
+		predictResp.Latency = time.Since(start)
+		return predictResp, fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	logger.APIResponse("OpenAI", resp.StatusCode, string(respBody), nil)
 
 	if resp.StatusCode != http.StatusOK {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBody
-		return chatResp, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
+		predictResp.Latency = time.Since(start)
+		predictResp.Raw = respBody
+		return predictResp, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	var openAIResp openAIResponse
 	if err := json.Unmarshal(respBody, &openAIResp); err != nil {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBody
-		return chatResp, fmt.Errorf("failed to unmarshal response: %w", err)
+		predictResp.Latency = time.Since(start)
+		predictResp.Raw = respBody
+		return predictResp, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 
 	if openAIResp.Error != nil {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBody
-		return chatResp, fmt.Errorf("OpenAI API error: %s", openAIResp.Error.Message)
+		predictResp.Latency = time.Since(start)
+		predictResp.Raw = respBody
+		return predictResp, fmt.Errorf("OpenAI API error: %s", openAIResp.Error.Message)
 	}
 
 	if len(openAIResp.Choices) == 0 {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBody
-		return chatResp, fmt.Errorf("no choices in response")
+		predictResp.Latency = time.Since(start)
+		predictResp.Raw = respBody
+		return predictResp, fmt.Errorf("no choices in response")
 	}
 
 	latency := time.Since(start)
@@ -521,16 +521,16 @@ func (p *OpenAIProvider) chatWithMessages(ctx context.Context, req providers.Pre
 	// Extract content - can be string or array of content parts
 	content := extractContentString(openAIResp.Choices[0].Message.Content)
 
-	chatResp.Content = content
-	chatResp.CostInfo = &costBreakdown
-	chatResp.Latency = latency
-	chatResp.Raw = respBody
+	predictResp.Content = content
+	predictResp.CostInfo = &costBreakdown
+	predictResp.Latency = latency
+	predictResp.Raw = respBody
 
-	return chatResp, nil
+	return predictResp, nil
 }
 
-// chatStreamWithMessages is a refactored version of PredictStream that accepts pre-converted messages
-func (p *OpenAIProvider) chatStreamWithMessages(ctx context.Context, req providers.PredictionRequest, messages []openAIMessage) (<-chan providers.StreamChunk, error) {
+// predictStreamWithMessages is a refactored version of PredictStream that accepts pre-converted messages
+func (p *OpenAIProvider) predictStreamWithMessages(ctx context.Context, req providers.PredictionRequest, messages []openAIMessage) (<-chan providers.StreamChunk, error) {
 	// Apply provider defaults for zero values
 	temperature, topP, maxTokens := p.applyRequestDefaults(req)
 

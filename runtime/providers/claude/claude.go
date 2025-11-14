@@ -175,10 +175,10 @@ func (p *ClaudeProvider) applyDefaults(temperature, topP float32, maxTokens int)
 }
 
 // makeClaudeHTTPRequest sends the HTTP request to Claude API
-func (p *ClaudeProvider) makeClaudeHTTPRequest(ctx context.Context, claudeReq claudeRequest, chatResp providers.PredictionResponse, start time.Time) ([]byte, providers.PredictionResponse, error) {
+func (p *ClaudeProvider) makeClaudeHTTPRequest(ctx context.Context, claudeReq claudeRequest, predictResp providers.PredictionResponse, start time.Time) ([]byte, providers.PredictionResponse, error) {
 	reqBody, err := json.Marshal(claudeReq)
 	if err != nil {
-		return nil, chatResp, fmt.Errorf("failed to marshal request: %w", err)
+		return nil, predictResp, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	url := p.baseURL + "/messages"
@@ -190,8 +190,8 @@ func (p *ClaudeProvider) makeClaudeHTTPRequest(ctx context.Context, claudeReq cl
 
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
 	if err != nil {
-		chatResp.Latency = time.Since(start)
-		return nil, chatResp, fmt.Errorf("failed to create request: %w", err)
+		predictResp.Latency = time.Since(start)
+		return nil, predictResp, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -206,15 +206,15 @@ func (p *ClaudeProvider) makeClaudeHTTPRequest(ctx context.Context, claudeReq cl
 
 	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
-		chatResp.Latency = time.Since(start)
-		return nil, chatResp, fmt.Errorf("failed to send request: %w", err)
+		predictResp.Latency = time.Since(start)
+		return nil, predictResp, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		chatResp.Latency = time.Since(start)
-		return nil, chatResp, fmt.Errorf("failed to read response: %w", err)
+		predictResp.Latency = time.Since(start)
+		return nil, predictResp, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	logger.APIResponse("Claude", resp.StatusCode, string(respBody), nil)
@@ -225,29 +225,29 @@ func (p *ClaudeProvider) makeClaudeHTTPRequest(ctx context.Context, claudeReq cl
 			"url", url,
 			"model", p.model,
 			"response", string(respBody))
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBody
-		return nil, chatResp, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
+		predictResp.Latency = time.Since(start)
+		predictResp.Raw = respBody
+		return nil, predictResp, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	return respBody, chatResp, nil
+	return respBody, predictResp, nil
 }
 
 // parseAndValidateClaudeResponse parses and validates the Claude API response
-func (p *ClaudeProvider) parseAndValidateClaudeResponse(respBody []byte, chatResp providers.PredictionResponse, start time.Time) (claudeResponse, string, providers.PredictionResponse, error) {
+func (p *ClaudeProvider) parseAndValidateClaudeResponse(respBody []byte, predictResp providers.PredictionResponse, start time.Time) (claudeResponse, string, providers.PredictionResponse, error) {
 	var claudeResp claudeResponse
-	if err := providers.UnmarshalJSON(respBody, &claudeResp, &chatResp, start); err != nil {
-		return claudeResp, "", chatResp, err
+	if err := providers.UnmarshalJSON(respBody, &claudeResp, &predictResp, start); err != nil {
+		return claudeResp, "", predictResp, err
 	}
 
 	if claudeResp.Error != nil {
-		providers.SetErrorResponse(&chatResp, respBody, start)
-		return claudeResp, "", chatResp, fmt.Errorf("claude API error: %s", claudeResp.Error.Message)
+		providers.SetErrorResponse(&predictResp, respBody, start)
+		return claudeResp, "", predictResp, fmt.Errorf("claude API error: %s", claudeResp.Error.Message)
 	}
 
 	if len(claudeResp.Content) == 0 {
-		providers.SetErrorResponse(&chatResp, respBody, start)
-		return claudeResp, "", chatResp, fmt.Errorf("no content in response")
+		providers.SetErrorResponse(&predictResp, respBody, start)
+		return claudeResp, "", predictResp, fmt.Errorf("no content in response")
 	}
 
 	// Find text content
@@ -260,15 +260,15 @@ func (p *ClaudeProvider) parseAndValidateClaudeResponse(respBody []byte, chatRes
 	}
 
 	if responseText == "" {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBody
-		return claudeResp, "", chatResp, fmt.Errorf("no text content found in response")
+		predictResp.Latency = time.Since(start)
+		predictResp.Raw = respBody
+		return claudeResp, "", predictResp, fmt.Errorf("no text content found in response")
 	}
 
-	return claudeResp, responseText, chatResp, nil
+	return claudeResp, responseText, predictResp, nil
 }
 
-// Predict sends a chat request to Claude
+// Predict sends a predict request to Claude
 func (p *ClaudeProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	start := time.Now()
 
@@ -292,23 +292,23 @@ func (p *ClaudeProvider) Predict(ctx context.Context, req providers.PredictionRe
 	}
 
 	// Prepare response with raw request if configured (set early to preserve on error)
-	chatResp := providers.PredictionResponse{
+	predictResp := providers.PredictionResponse{
 		Latency: time.Since(start), // Will be updated at the end
 	}
 	if p.ShouldIncludeRawOutput() {
-		chatResp.RawRequest = claudeReq
+		predictResp.RawRequest = claudeReq
 	}
 
 	// Make HTTP request
-	respBody, chatResp, err := p.makeClaudeHTTPRequest(ctx, claudeReq, chatResp, start)
+	respBody, predictResp, err := p.makeClaudeHTTPRequest(ctx, claudeReq, predictResp, start)
 	if err != nil {
-		return chatResp, err
+		return predictResp, err
 	}
 
 	// Parse and validate response
-	claudeResp, responseText, chatResp, err := p.parseAndValidateClaudeResponse(respBody, chatResp, start)
+	claudeResp, responseText, predictResp, err := p.parseAndValidateClaudeResponse(respBody, predictResp, start)
 	if err != nil {
-		return chatResp, err
+		return predictResp, err
 	}
 
 	latency := time.Since(start)
@@ -316,12 +316,12 @@ func (p *ClaudeProvider) Predict(ctx context.Context, req providers.PredictionRe
 	// Calculate cost breakdown
 	costBreakdown := p.CalculateCost(claudeResp.Usage.InputTokens, claudeResp.Usage.OutputTokens, claudeResp.Usage.CacheReadInputTokens)
 
-	chatResp.Content = responseText
-	chatResp.CostInfo = &costBreakdown
-	chatResp.Latency = latency
-	chatResp.Raw = respBody
+	predictResp.Content = responseText
+	predictResp.CostInfo = &costBreakdown
+	predictResp.Latency = latency
+	predictResp.Raw = respBody
 
-	return chatResp, nil
+	return predictResp, nil
 }
 
 // CalculateCost calculates detailed cost breakdown including optional cached tokens
@@ -383,7 +383,7 @@ func (p *ClaudeProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) ty
 	}
 }
 
-// PredictStream streams a chat response from Claude
+// PredictStream streams a predict response from Claude
 func (p *ClaudeProvider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	// Convert messages to Claude format
 	messages := make([]claudeMessage, 0, len(req.Messages))

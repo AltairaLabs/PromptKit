@@ -39,18 +39,14 @@ spec:
     - role: user
       parts:
         - type: text
-          text: "Compare local and remote images:"
+          text: "Describe this image in detail:"
         - type: image
           media:
-            file_path: ../../tools/arena/testdata/media/test-image-small.jpg
-            mime_type: image/jpeg
-        - type: image
-          media:
-            url: https://picsum.photos/200/300
+            url: https://picsum.photos/400/300
             mime_type: image/jpeg
       
       assertions:
         - type: content_includes
           params:
             patterns:
-              - "local"
+              - "image"

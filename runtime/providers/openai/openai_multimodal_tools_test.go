@@ -377,7 +377,7 @@ func TestOpenAIToolProvider_MultimodalValidation(t *testing.T) {
 		},
 	}
 
-	// This should fail validation since OpenAI doesn't support audio in chat
+	// This should fail validation since OpenAI doesn't support audio in predict
 	_, err := toolProvider.convertMessageToOpenAI(msg)
 	if err == nil {
 		t.Error("Expected error for unsupported audio content")

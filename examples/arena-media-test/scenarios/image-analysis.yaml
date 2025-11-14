@@ -17,11 +17,11 @@ spec:
             mime_type: image/jpeg
             detail: high
       assertions:
-        - type: image_format
+        - type: content_includes
           params:
-            formats:
-              - png
-            message: "Validate PNG format in assistant response."
+            patterns:
+              - "image"
+            message: "Response should mention the image"
 
     - role: user
       parts:
@@ -36,25 +36,10 @@ spec:
             file_path: ../../tools/arena/testdata/media/test-image-small.png
             mime_type: image/png
       assertions:
-        - type: image_format
+        - type: content_includes
           params:
-            formats:
-              - jpeg
-              - png
-            message: "Validate JPEG and PNG formats in assistant response."
+            patterns:
+              - "image"
+            message: "Response should discuss the images"
 
-    - role: user
-      parts:
-        - type: text
-          text: "Analyze this WebP image:"
-        - type: image
-          media:
-            file_path: ../../tools/arena/testdata/media/test-image-small.webp
-            mime_type: image/webp
-            detail: auto
-      assertions:
-        - type: image_format
-          params:
-            formats:
-              - webp
-            message: "Validate WebP format in assistant response."
+

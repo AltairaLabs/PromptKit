@@ -95,7 +95,7 @@ func (p *GeminiToolProvider) BuildTooling(descriptors []*providers.ToolDescripto
 	}, nil
 }
 
-// PredictWithTools performs a chat request with tool support
+// PredictWithTools performs a predict request with tool support
 func (p *GeminiToolProvider) PredictWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	logger.Debug("PredictWithTools called",
 		"toolChoice", toolChoice,
@@ -109,19 +109,19 @@ func (p *GeminiToolProvider) PredictWithTools(ctx context.Context, req providers
 	geminiReq := p.buildToolRequest(req, tools, toolChoice)
 
 	// Prepare response with raw request if configured (set early to preserve on error)
-	chatResp := providers.PredictionResponse{}
+	predictResp := providers.PredictionResponse{}
 	if p.ShouldIncludeRawOutput() {
-		chatResp.RawRequest = geminiReq
+		predictResp.RawRequest = geminiReq
 	}
 
 	// Make the API call
 	respBytes, err := p.makeRequest(ctx, geminiReq)
 	if err != nil {
-		return chatResp, nil, err
+		return predictResp, nil, err
 	}
 
 	// Parse response and extract tool calls
-	return p.parseToolResponse(respBytes, chatResp)
+	return p.parseToolResponse(respBytes, predictResp)
 }
 
 // processToolMessage converts a tool result message to Gemini's functionResponse format
@@ -293,37 +293,37 @@ func (p *GeminiToolProvider) buildToolRequest(req providers.PredictionRequest, t
 	return request
 }
 
-func (p *GeminiToolProvider) parseToolResponse(respBytes []byte, chatResp providers.PredictionResponse) (providers.PredictionResponse, []types.MessageToolCall, error) {
+func (p *GeminiToolProvider) parseToolResponse(respBytes []byte, predictResp providers.PredictionResponse) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	start := time.Now()
 
 	var resp geminiToolResponse
 	if err := json.Unmarshal(respBytes, &resp); err != nil {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBytes
-		return chatResp, nil, fmt.Errorf("failed to parse Gemini response: %w", err)
+		predictResp.Latency = time.Since(start)
+		predictResp.Raw = respBytes
+		return predictResp, nil, fmt.Errorf("failed to parse Gemini response: %w", err)
 	}
 
 	if len(resp.Candidates) == 0 {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBytes
-		return chatResp, nil, fmt.Errorf("no candidates in Gemini response")
+		predictResp.Latency = time.Since(start)
+		predictResp.Raw = respBytes
+		return predictResp, nil, fmt.Errorf("no candidates in Gemini response")
 	}
 
 	candidate := resp.Candidates[0]
 	if len(candidate.Content.Parts) == 0 {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBytes
+		predictResp.Latency = time.Since(start)
+		predictResp.Raw = respBytes
 		// Handle different finish reasons
 		switch candidate.FinishReason {
 		case "MAX_TOKENS":
 			// Don't use fallback - return error to see when this happens
-			return chatResp, nil, fmt.Errorf("gemini returned MAX_TOKENS error (this should not happen with reasonable limits)")
+			return predictResp, nil, fmt.Errorf("gemini returned MAX_TOKENS error (this should not happen with reasonable limits)")
 		case "SAFETY":
-			return chatResp, nil, fmt.Errorf("response blocked by Gemini safety filters")
+			return predictResp, nil, fmt.Errorf("response blocked by Gemini safety filters")
 		case "RECITATION":
-			return chatResp, nil, fmt.Errorf("response blocked due to recitation concerns")
+			return predictResp, nil, fmt.Errorf("response blocked due to recitation concerns")
 		default:
-			return chatResp, nil, fmt.Errorf("no parts in Gemini candidate (finish reason: %s)", candidate.FinishReason)
+			return predictResp, nil, fmt.Errorf("no parts in Gemini candidate (finish reason: %s)", candidate.FinishReason)
 		}
 	}
 
@@ -362,13 +362,13 @@ func (p *GeminiToolProvider) parseToolResponse(respBytes []byte, chatResp provid
 	// Calculate cost breakdown (Gemini doesn't support cached tokens yet)
 	costBreakdown := p.GeminiProvider.CalculateCost(tokensIn, tokensOut, 0)
 
-	chatResp.Content = textContent
-	chatResp.CostInfo = &costBreakdown
-	chatResp.Latency = time.Since(start)
-	chatResp.Raw = respBytes
-	chatResp.ToolCalls = toolCalls
+	predictResp.Content = textContent
+	predictResp.CostInfo = &costBreakdown
+	predictResp.Latency = time.Since(start)
+	predictResp.Raw = respBytes
+	predictResp.ToolCalls = toolCalls
 
-	return chatResp, toolCalls, nil
+	return predictResp, toolCalls, nil
 }
 
 func (p *GeminiToolProvider) makeRequest(ctx context.Context, request interface{}) ([]byte, error) {

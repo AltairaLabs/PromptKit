@@ -22,7 +22,7 @@ func TestScriptedExecutor_HandleNonStreamingProvider_Error(t *testing.T) {
 	mockProvider.On("ShouldIncludeRawOutput").Return(false).Maybe()
 
 	// Mock provider will return an error during Predict
-	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(providers.PredictionResponse{}, errors.New("chat failed"))
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(providers.PredictionResponse{}, errors.New("predict failed"))
 
 	toolRegistry := tools.NewRegistry()
 	pipelineExecutor := NewPipelineExecutor(toolRegistry)
@@ -168,7 +168,7 @@ func TestSelfPlayExecutor_HandleNonStreamingProvider_Error(t *testing.T) {
 	mockProvider.On("ShouldIncludeRawOutput").Return(false).Maybe()
 
 	// Mock provider will return an error during Predict
-	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(providers.PredictionResponse{}, errors.New("chat failed"))
+	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(providers.PredictionResponse{}, errors.New("predict failed"))
 
 	toolRegistry := tools.NewRegistry()
 	pipelineExecutor := NewPipelineExecutor(toolRegistry)

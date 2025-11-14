@@ -65,7 +65,7 @@ func (m *MockToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor)
 }
 
 // PredictWithTools implements the ToolSupport interface.
-// This method handles the initial chat request with tools available,
+// This method handles the initial predict request with tools available,
 // potentially returning tool calls based on the mock configuration.
 func (m *MockToolProvider) PredictWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	logger.Debug("MockToolProvider PredictWithTools",

@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestPredictMultimodal_Integration tests multimodal chat with HTTP mocking
+// TestPredictMultimodal_Integration tests multimodal predict with HTTP mocking
 func TestPredictMultimodal_Integration(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -123,7 +123,7 @@ func TestPredictMultimodal_Integration(t *testing.T) {
 	}
 }
 
-// TestPredictMultimodalStream_Integration tests streaming multimodal chat
+// TestPredictMultimodalStream_Integration tests streaming multimodal predict
 func TestPredictMultimodalStream_Integration(t *testing.T) {
 	t.Run("Successful streaming with image", func(t *testing.T) {
 		// Create mock server that returns SSE stream

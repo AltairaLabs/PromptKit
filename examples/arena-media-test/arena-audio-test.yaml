@@ -1,31 +1,23 @@
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Arena
 metadata:
-  name: arena-media-test
+  name: arena-audio-test
 spec:
   prompt_configs:
-    - id: media-assistant
-      file: prompts/media-assistant.yaml
     - id: audio-analyst
       file: prompts/audio-analyst.yaml
 
   providers:
-    - file: providers/mock-provider.yaml
     - file: providers/gemini-provider.yaml
-    - file: providers/imagen-provider.yaml
 
   scenarios:
-    - file: scenarios/image-analysis.yaml
-    - file: scenarios/image-url.yaml
-    - file: scenarios/multimodal-mixed.yaml
     - file: scenarios/audio-transcription.yaml
-    - file: scenarios/imagen-generation.yaml
 
   defaults:
     temperature: 0.7
-    concurrency: 2
+    concurrency: 1
     output:
-      dir: out
+      dir: out/audio-test
       formats: ["json", "html"]
       html:
         file: report.html

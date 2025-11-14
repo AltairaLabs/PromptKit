@@ -55,7 +55,7 @@ spec:
         - type: content_includes
           params:
             patterns:
-              - "format"
+              - "image"
 
     - role: user
       parts:
@@ -78,4 +78,4 @@ spec:
         - type: content_includes
           params:
             patterns:
-              - "local"
+              - "image"

@@ -58,7 +58,7 @@ func TestClaudeProvider_CacheControlNotSentForHaiku(t *testing.T) {
 		false,
 	)
 
-	// Create a chat request with a long message that would trigger cache_control
+	// Create a predict request with a long message that would trigger cache_control
 	longContent := ""
 	for i := 0; i < 10000; i++ {
 		longContent += "This is a long message to test caching. "
@@ -72,7 +72,7 @@ func TestClaudeProvider_CacheControlNotSentForHaiku(t *testing.T) {
 		MaxTokens:   100,
 	}
 
-	// Execute the chat
+	// Execute the predict
 	_, err := provider.Predict(context.Background(), req)
 	if err != nil {
 		t.Fatalf("Predict failed: %v", err)
@@ -151,7 +151,7 @@ func TestClaudeToolProvider_CacheControlNotSentForHaiku(t *testing.T) {
 		false,
 	)
 
-	// Create a chat request with a long system prompt
+	// Create a predict request with a long system prompt
 	longSystem := ""
 	for i := 0; i < 10000; i++ {
 		longSystem += "This is a long system prompt. "
@@ -166,7 +166,7 @@ func TestClaudeToolProvider_CacheControlNotSentForHaiku(t *testing.T) {
 		MaxTokens:   100,
 	}
 
-	// Execute the chat with tools
+	// Execute the predict with tools
 	tools := []*providers.ToolDescriptor{
 		{
 			Name:        "test_tool",

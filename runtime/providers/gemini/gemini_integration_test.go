@@ -26,7 +26,7 @@ func TestPredict_Integration(t *testing.T) {
 		errContains    string
 	}{
 		{
-			name: "Successful chat request",
+			name: "Successful predict request",
 			messages: []types.Message{
 				{Role: "user", Content: "Hello"},
 			},
@@ -327,10 +327,10 @@ func TestMakeGeminiHTTPRequest(t *testing.T) {
 				},
 			}
 
-			chatResp := providers.PredictionResponse{}
+			predictResp := providers.PredictionResponse{}
 			start := time.Now()
 
-			respBody, chatResp, err := provider.makeGeminiHTTPRequest(context.Background(), geminiReq, chatResp, start)
+			respBody, predictResp, err := provider.makeGeminiHTTPRequest(context.Background(), geminiReq, predictResp, start)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -381,10 +381,10 @@ func TestParseAndValidateGeminiResponse(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			provider := NewGeminiProvider("test", "gemini-2.0-flash", "https://api.test", providers.ProviderDefaults{}, false)
 
-			chatResp := providers.PredictionResponse{}
+			predictResp := providers.PredictionResponse{}
 			start := time.Now()
 
-			_, candidate, _, err := provider.parseAndValidateGeminiResponse([]byte(tt.respBody), chatResp, start)
+			_, candidate, _, err := provider.parseAndValidateGeminiResponse([]byte(tt.respBody), predictResp, start)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -432,10 +432,10 @@ func TestHandleNoCandidatesError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			chatResp := providers.PredictionResponse{}
+			predictResp := providers.PredictionResponse{}
 			start := time.Now()
 
-			_, err := provider.handleNoCandidatesError(tt.response, chatResp, []byte("{}"), start)
+			_, err := provider.handleNoCandidatesError(tt.response, predictResp, []byte("{}"), start)
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.errContains)
@@ -476,10 +476,10 @@ func TestHandleGeminiFinishReason(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			chatResp := providers.PredictionResponse{}
+			predictResp := providers.PredictionResponse{}
 			start := time.Now()
 
-			_, err := provider.handleGeminiFinishReason(tt.finishReason, chatResp, []byte("{}"), start)
+			_, err := provider.handleGeminiFinishReason(tt.finishReason, predictResp, []byte("{}"), start)
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.errContains)

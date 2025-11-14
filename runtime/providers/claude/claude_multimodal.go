@@ -51,7 +51,7 @@ type claudeContentBlockMultimodal struct {
 	CacheControl *claudeCacheControl `json:"cache_control,omitempty"`
 }
 
-// PredictMultimodal sends a multimodal chat request to Claude
+// PredictMultimodal sends a multimodal predict request to Claude
 func (p *ClaudeProvider) PredictMultimodal(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	// Validate multimodal messages
 	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
@@ -64,10 +64,10 @@ func (p *ClaudeProvider) PredictMultimodal(ctx context.Context, req providers.Pr
 		return providers.PredictionResponse{}, fmt.Errorf("failed to convert messages: %w", err)
 	}
 
-	return p.chatWithContentsMultimodal(ctx, messages, system, req.Temperature, req.TopP, req.MaxTokens, req.Seed)
+	return p.predictWithContentsMultimodal(ctx, messages, system, req.Temperature, req.TopP, req.MaxTokens, req.Seed)
 }
 
-// PredictMultimodalStream sends a streaming multimodal chat request to Claude
+// PredictMultimodalStream sends a streaming multimodal predict request to Claude
 func (p *ClaudeProvider) PredictMultimodalStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	// Validate multimodal messages
 	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
@@ -80,7 +80,7 @@ func (p *ClaudeProvider) PredictMultimodalStream(ctx context.Context, req provid
 		return nil, fmt.Errorf("failed to convert messages: %w", err)
 	}
 
-	return p.chatStreamWithContentsMultimodal(ctx, messages, system, req.Temperature, req.TopP, req.MaxTokens, req.Seed)
+	return p.predictStreamWithContentsMultimodal(ctx, messages, system, req.Temperature, req.TopP, req.MaxTokens, req.Seed)
 }
 
 // convertMessagesToClaudeMultimodal converts PromptKit messages to Claude's multimodal format
@@ -226,8 +226,8 @@ func (p *ClaudeProvider) convertImagePartToClaude(part types.ContentPart) (claud
 	return block, nil
 }
 
-// chatWithContentsMultimodal handles the actual API call with multimodal content
-func (p *ClaudeProvider) chatWithContentsMultimodal(ctx context.Context, messages []claudeMessage, system []claudeContentBlockMultimodal, temperature, topP float32, maxTokens int, seed *int) (providers.PredictionResponse, error) {
+// predictWithContentsMultimodal handles the actual API call with multimodal content
+func (p *ClaudeProvider) predictWithContentsMultimodal(ctx context.Context, messages []claudeMessage, system []claudeContentBlockMultimodal, temperature, topP float32, maxTokens int, seed *int) (providers.PredictionResponse, error) {
 	start := time.Now()
 
 	// Apply provider defaults for zero values
@@ -265,11 +265,11 @@ func (p *ClaudeProvider) chatWithContentsMultimodal(ctx context.Context, message
 	}
 
 	// Prepare response
-	chatResp := providers.PredictionResponse{
+	predictResp := providers.PredictionResponse{
 		Latency: time.Since(start),
 	}
 	if p.ShouldIncludeRawOutput() {
-		chatResp.RawRequest = claudeReq
+		predictResp.RawRequest = claudeReq
 	}
 
 	// Build URL
@@ -284,8 +284,8 @@ func (p *ClaudeProvider) chatWithContentsMultimodal(ctx context.Context, message
 	// Make HTTP request
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
 	if err != nil {
-		chatResp.Latency = time.Since(start)
-		return chatResp, fmt.Errorf("failed to create request: %w", err)
+		predictResp.Latency = time.Since(start)
+		return predictResp, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
@@ -295,40 +295,40 @@ func (p *ClaudeProvider) chatWithContentsMultimodal(ctx context.Context, message
 	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
 		logger.APIResponse("Claude", 0, "", err)
-		chatResp.Latency = time.Since(start)
-		return chatResp, fmt.Errorf("failed to send request: %w", err)
+		predictResp.Latency = time.Since(start)
+		return predictResp, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		logger.APIResponse("Claude", resp.StatusCode, "", err)
-		chatResp.Latency = time.Since(start)
-		return chatResp, fmt.Errorf("failed to read response: %w", err)
+		predictResp.Latency = time.Since(start)
+		return predictResp, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	// Debug log the response
 	logger.APIResponse("Claude", resp.StatusCode, string(respBody), nil)
 
 	if resp.StatusCode != http.StatusOK {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBody
-		return chatResp, fmt.Errorf("claude api error (status %d): %s", resp.StatusCode, string(respBody))
+		predictResp.Latency = time.Since(start)
+		predictResp.Raw = respBody
+		return predictResp, fmt.Errorf("claude api error (status %d): %s", resp.StatusCode, string(respBody))
 	}
 
 	// Parse response
 	claudeResp, err := parseClaudeResponse(respBody)
 	if err != nil {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBody
-		return chatResp, err
+		predictResp.Latency = time.Since(start)
+		predictResp.Raw = respBody
+		return predictResp, err
 	}
 
 	// Extract content
 	if len(claudeResp.Content) == 0 {
-		chatResp.Latency = time.Since(start)
-		chatResp.Raw = respBody
-		return chatResp, fmt.Errorf("no content in claude response")
+		predictResp.Latency = time.Since(start)
+		predictResp.Raw = respBody
+		return predictResp, fmt.Errorf("no content in claude response")
 	}
 
 	// Calculate latency and cost
@@ -339,15 +339,15 @@ func (p *ClaudeProvider) chatWithContentsMultimodal(ctx context.Context, message
 		claudeResp.Usage.CacheReadInputTokens,
 	)
 
-	chatResp.Content = claudeResp.Content[0].Text
-	chatResp.CostInfo = &costBreakdown
-	chatResp.Latency = latency
+	predictResp.Content = claudeResp.Content[0].Text
+	predictResp.CostInfo = &costBreakdown
+	predictResp.Latency = latency
 
 	if p.ShouldIncludeRawOutput() {
-		chatResp.Raw = respBody
+		predictResp.Raw = respBody
 	}
 
-	return chatResp, nil
+	return predictResp, nil
 }
 
 // parseClaudeResponse parses and validates a Claude API response
@@ -370,8 +370,8 @@ func parseClaudeResponse(respBody []byte) (*claudeResponse, error) {
 	return &claudeResp, nil
 }
 
-// chatStreamWithContentsMultimodal handles streaming API calls with multimodal content
-func (p *ClaudeProvider) chatStreamWithContentsMultimodal(ctx context.Context, messages []claudeMessage, system []claudeContentBlockMultimodal, temperature, topP float32, maxTokens int, seed *int) (<-chan providers.StreamChunk, error) {
+// predictStreamWithContentsMultimodal handles streaming API calls with multimodal content
+func (p *ClaudeProvider) predictStreamWithContentsMultimodal(ctx context.Context, messages []claudeMessage, system []claudeContentBlockMultimodal, temperature, topP float32, maxTokens int, seed *int) (<-chan providers.StreamChunk, error) {
 	// Apply provider defaults
 	if temperature == 0 {
 		temperature = p.defaults.Temperature

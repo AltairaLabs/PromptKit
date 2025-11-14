@@ -115,8 +115,8 @@ func TestConversationManager_Send(t *testing.T) {
 			"version": "v1",
 		},
 		"prompts": map[string]interface{}{
-			"chat": map[string]interface{}{
-				"id":              "chat",
+			"predict": map[string]interface{}{
+				"id":              "predict",
 				"system_template": "You are a helpful assistant.",
 				"parameters": map[string]interface{}{
 					"temperature": 0.7,
@@ -150,7 +150,7 @@ func TestConversationManager_Send(t *testing.T) {
 	ctx := context.Background()
 	conv, err := manager.CreateConversation(ctx, pack, ConversationConfig{
 		UserID:     "user123",
-		PromptName: "chat",
+		PromptName: "predict",
 	})
 	if err != nil {
 		t.Fatalf("failed to create conversation: %v", err)
@@ -194,8 +194,8 @@ func TestConversationManager_GetConversation(t *testing.T) {
 			"version": "v1",
 		},
 		"prompts": map[string]interface{}{
-			"chat": map[string]interface{}{
-				"id":              "chat",
+			"predict": map[string]interface{}{
+				"id":              "predict",
 				"system_template": "You are helpful.",
 				"parameters": map[string]interface{}{
 					"temperature": 0.7,
@@ -235,9 +235,9 @@ func TestConversationManager_GetConversation(t *testing.T) {
 	// Create conversation with metadata including prompt_name
 	conv, err := manager.CreateConversation(ctx, pack, ConversationConfig{
 		UserID:     "user123",
-		PromptName: "chat",
+		PromptName: "predict",
 		Metadata: map[string]interface{}{
-			"prompt_name": "chat",
+			"prompt_name": "predict",
 		},
 	})
 	if err != nil {

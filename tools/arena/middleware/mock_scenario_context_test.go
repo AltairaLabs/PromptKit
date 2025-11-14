@@ -283,7 +283,7 @@ func TestMockScenarioContextMiddleware_CompleteScenario(t *testing.T) {
 	scenario := &config.Scenario{
 		ID:          "comprehensive-test",
 		Description: "A comprehensive test scenario",
-		TaskType:    "chat",
+		TaskType:    "predict",
 		Mode:        "interactive",
 	}
 

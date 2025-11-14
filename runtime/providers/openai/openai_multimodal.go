@@ -11,7 +11,7 @@ import (
 // GetMultimodalCapabilities returns OpenAI's multimodal capabilities
 func (p *OpenAIProvider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
 	// OpenAI Vision API supports images
-	// Audio/video are not directly supported in the chat API (use Whisper separately)
+	// Audio/video are not directly supported in the predict API (use Whisper separately)
 	return providers.MultimodalCapabilities{
 		SupportsImages: true,
 		SupportsAudio:  false,
@@ -30,7 +30,7 @@ func (p *OpenAIProvider) GetMultimodalCapabilities() providers.MultimodalCapabil
 	}
 }
 
-// PredictMultimodal performs a chat request with multimodal content
+// PredictMultimodal performs a predict request with multimodal content
 func (p *OpenAIProvider) PredictMultimodal(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	// Validate that messages are compatible with OpenAI's capabilities
 	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
@@ -44,10 +44,10 @@ func (p *OpenAIProvider) PredictMultimodal(ctx context.Context, req providers.Pr
 	}
 
 	// Use the existing Predict implementation but with converted messages
-	return p.chatWithMessages(ctx, req, messages)
+	return p.predictWithMessages(ctx, req, messages)
 }
 
-// PredictMultimodalStream performs a streaming chat request with multimodal content
+// PredictMultimodalStream performs a streaming predict request with multimodal content
 func (p *OpenAIProvider) PredictMultimodalStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	// Validate that messages are compatible with OpenAI's capabilities
 	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
@@ -61,7 +61,7 @@ func (p *OpenAIProvider) PredictMultimodalStream(ctx context.Context, req provid
 	}
 
 	// Use the existing PredictStream implementation but with converted messages
-	return p.chatStreamWithMessages(ctx, req, messages)
+	return p.predictStreamWithMessages(ctx, req, messages)
 }
 
 // convertMessagesToOpenAI converts PromptKit messages to OpenAI format
@@ -125,7 +125,7 @@ func (p *OpenAIProvider) convertMessageToOpenAI(msg types.Message) (openAIMessag
 			contentParts = append(contentParts, imagePart)
 
 		case types.ContentTypeAudio, types.ContentTypeVideo:
-			return openAIMessage{}, fmt.Errorf("audio and video content not supported by OpenAI chat API")
+			return openAIMessage{}, fmt.Errorf("audio and video content not supported by OpenAI predict API")
 
 		default:
 			return openAIMessage{}, fmt.Errorf("unknown content type: %s", part.Type)

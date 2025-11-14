@@ -28,7 +28,7 @@ func TestCreateProviderFromSpec_Mock(t *testing.T) {
 		t.Errorf("Expected ID 'test-mock', got '%s'", provider.ID())
 	}
 
-	// Test that it can handle a chat request
+	// Test that it can handle a predict request
 	ctx := context.Background()
 	req := providers.PredictionRequest{
 		Messages: []types.Message{

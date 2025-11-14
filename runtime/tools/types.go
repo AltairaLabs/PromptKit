@@ -158,7 +158,7 @@ type AsyncToolExecutor interface {
 	ExecuteAsync(descriptor *ToolDescriptor, args json.RawMessage) (*ToolExecutionResult, error)
 }
 
-// PredictionRequest represents a chat request (extending existing type)
+// PredictionRequest represents a predict request (extending existing type)
 type PredictionRequest struct {
 	System      string           `json:"system"`
 	Messages    []PredictMessage `json:"messages"`
@@ -168,7 +168,7 @@ type PredictionRequest struct {
 	Seed        *int             `json:"seed,omitempty"`
 }
 
-// PredictMessage represents a chat message (simplified version for tool context)
+// PredictMessage represents a predict message (simplified version for tool context)
 type PredictMessage struct {
 	Role               string     `json:"role"`
 	Content            string     `json:"content"`
@@ -176,7 +176,7 @@ type PredictMessage struct {
 	ToolCallResponseID string     `json:"tool_call_id,omitempty"` // For tool result messages
 }
 
-// PredictionResponse represents a chat response (extending existing type)
+// PredictionResponse represents a predict response (extending existing type)
 type PredictionResponse struct {
 	Content   string        `json:"content"`
 	TokensIn  int           `json:"tokens_in"`

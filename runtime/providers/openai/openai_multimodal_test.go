@@ -24,11 +24,11 @@ func TestOpenAIProvider_GetMultimodalCapabilities(t *testing.T) {
 	}
 
 	if caps.SupportsAudio {
-		t.Error("Expected OpenAI not to support audio in chat API")
+		t.Error("Expected OpenAI not to support audio in predict API")
 	}
 
 	if caps.SupportsVideo {
-		t.Error("Expected OpenAI not to support video in chat API")
+		t.Error("Expected OpenAI not to support video in predict API")
 	}
 
 	if len(caps.ImageFormats) == 0 {
@@ -369,7 +369,7 @@ func TestOpenAIProvider_ConvertAudioReturnsError(t *testing.T) {
 		t.Fatal("Expected error when converting audio content, got nil")
 	}
 
-	expectedErr := "audio and video content not supported by OpenAI chat API"
+	expectedErr := "audio and video content not supported by OpenAI predict API"
 	if err.Error() != expectedErr {
 		t.Errorf("Expected error '%s', got '%s'", expectedErr, err.Error())
 	}
@@ -803,8 +803,8 @@ func TestPredictMultimodal_Integration(t *testing.T) {
 				},
 			},
 			serverResponse: openAIResponse{
-				ID:      "chatcmpl-123",
-				Object:  "chat.completion",
+				ID:      "predictcmpl-123",
+				Object:  "predict.completion",
 				Created: time.Now().Unix(),
 				Model:   "gpt-4o",
 				Choices: []openAIChoice{
@@ -868,7 +868,7 @@ func TestPredictMultimodal_Integration(t *testing.T) {
 				},
 			},
 			serverResponse: openAIResponse{
-				ID:      "chatcmpl-123",
+				ID:      "predictcmpl-123",
 				Choices: []openAIChoice{},
 			},
 			serverStatus: http.StatusOK,
@@ -1039,7 +1039,7 @@ func TestPredictMultimodalStream_Integration(t *testing.T) {
 	}
 }
 
-// TestPredictWithMessages_ErrorHandling tests error paths in the internal chatWithMessages helper
+// TestPredictWithMessages_ErrorHandling tests error paths in the internal predictWithMessages helper
 func TestPredictWithMessages_ErrorHandling(t *testing.T) {
 	tests := []struct {
 		name           string

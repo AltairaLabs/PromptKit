@@ -35,11 +35,11 @@ type MultimodalSupport interface {
 	// GetMultimodalCapabilities returns what types of multimodal content this provider supports
 	GetMultimodalCapabilities() MultimodalCapabilities
 
-	// PredictMultimodal performs a chat request with multimodal message content
+	// PredictMultimodal performs a predict request with multimodal message content
 	// Messages in the request can contain Parts with images, audio, or video
 	PredictMultimodal(ctx context.Context, req PredictionRequest) (PredictionResponse, error)
 
-	// PredictMultimodalStream performs a streaming chat request with multimodal content
+	// PredictMultimodalStream performs a streaming predict request with multimodal content
 	PredictMultimodalStream(ctx context.Context, req PredictionRequest) (<-chan StreamChunk, error)
 }
 
@@ -48,7 +48,7 @@ type MultimodalToolSupport interface {
 	MultimodalSupport // Extends multimodal support
 	ToolSupport       // Extends tool support
 
-	// PredictMultimodalWithTools performs a chat request with both multimodal content and tools
+	// PredictMultimodalWithTools performs a predict request with both multimodal content and tools
 	PredictMultimodalWithTools(ctx context.Context, req PredictionRequest, tools interface{}, toolChoice string) (PredictionResponse, []types.MessageToolCall, error)
 }
 
@@ -225,7 +225,7 @@ func (e *UnsupportedContentError) Error() string {
 	return e.Provider + ": " + e.Message
 }
 
-// ValidateMultimodalRequest validates all messages in a chat request for multimodal compatibility
+// ValidateMultimodalRequest validates all messages in a predict request for multimodal compatibility
 // This is a helper function to reduce duplication across provider implementations
 func ValidateMultimodalRequest(p MultimodalSupport, req PredictionRequest) error {
 	for _, msg := range req.Messages {
