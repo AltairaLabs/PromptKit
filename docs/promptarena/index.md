@@ -1,12 +1,10 @@
 ---
-layout: page
-title: "PromptArena"
-permalink: /docs/promptarena/
-nav_order: 5
+layout: default
+title: PromptArena
+nav_order: 3
 has_children: true
+description: "LLM Testing for Prompt Engineers"
 ---
-
-# PromptArena: LLM Testing for Prompt Engineers
 
 PromptArena is a comprehensive testing framework designed specifically for prompt engineers who need to validate, iterate, and optimize LLM applications with confidence. Whether you're building chatbots, content generators, or AI assistants, PromptArena helps you ensure quality and consistency across different models and scenarios.
 
@@ -213,12 +211,12 @@ Explore the documentation to learn more:
 
 - **[Getting Started](./getting-started.md)** - Detailed installation and first project
 - **[PromptPack Specification](./promptpack-spec.md)** - Understanding the format
-- **[Writing Scenarios](./writing-scenarios.md)** - Creating effective test cases
-- **[Assertions & Validation](./assertions.md)** - Verifying LLM behavior
-- **[Multi-Provider Testing](./providers.md)** - Testing across models
-- **[Tool Integration](./tools.md)** - Testing function calling
-- **[Self-Play Testing](./selfplay.md)** - AI-driven test generation
-- **[Best Practices](./best-practices.md)** - Tips from the field
+- **[Configuration Reference](./config-reference.md)** - Arena configuration options
+- **[Assertions Reference](./assertions-reference.md)** - Verifying LLM behavior
+- **[Validators Reference](./validators-reference.md)** - Built-in validators and guardrails
+- **[Output Formats](./output-formats.md)** - HTML, JSON, and Markdown reports
+- **[Mock Provider](./mock-provider.md)** - Fast testing without API calls
+- **[CI/CD Integration](./ci-cd-integration.md)** - Automating tests in pipelines
 
 ## Community & Support
 

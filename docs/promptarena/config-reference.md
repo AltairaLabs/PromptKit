@@ -6,7 +6,6 @@ parent: PromptArena
 nav_order: 3
 ---
 
-# Configuration Reference
 
 This document provides a comprehensive reference for all PromptArena configuration files, including every field, its purpose, and examples.
 
@@ -710,7 +709,7 @@ spec:
   # For mock mode: Template response
   mock_template: |                  # Alternative to mock_result
     {
-      "location": "{{ .location }}",
+      "location": "{% raw %}{{ .location }}{% endraw %}",
       "temperature": 72,
       "conditions": "Sunny"
     }
@@ -746,6 +745,7 @@ mock_result:
 
 Returns templated response with variables:
 
+{% raw %}
 ```yaml
 mode: mock
 mock_template: |
@@ -754,6 +754,7 @@ mock_template: |
     "result": "Mock result for {{ .location }}"
   }
 ```
+{% endraw %}
 
 #### Live Mode (HTTP)
 

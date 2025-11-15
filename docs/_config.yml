@@ -1,8 +1,8 @@
 # Jekyll configuration for PromptKit Documentation
 title: "PromptKit Documentation"
 description: "Comprehensive framework for building, testing, and deploying LLM applications"
-baseurl: "/PromptKit"
-url: "https://altairaai.github.io"
+baseurl: "" # Empty for local development, set to "/PromptKit" for GitHub Pages
+url: "http://localhost:4000" # For local development
 
 # Source directory (since we're in /docs)
 source: .
@@ -16,7 +16,7 @@ github:
 # Build settings
 markdown: kramdown
 highlighter: rouge
-theme: minima
+theme: just-the-docs
 plugins:
   - jekyll-feed
   - jekyll-sitemap
@@ -43,8 +43,10 @@ collections:
 header_pages:
   - index.md
   - guides/sdk-quickstart.md
+  - promptarena/index.md
   - guides/arena-user-guide.md
   - guides/packc-user-guide.md
+  - architecture/system-overview.md
   - api/sdk.md
   - api/runtime.md
 
@@ -60,7 +62,7 @@ exclude:
   - ../sdk/
   - ../tools/
   - ../scripts/
-  - ../examples/*/
+  - ../examples/
   - ../*.go
   - ../go.mod
   - ../go.sum
@@ -70,36 +72,25 @@ exclude:
   - ../CODE_QUALITY_IMPROVEMENTS.md
   - ../CODE_QUALITY_REPORT.md
   - ../IMPLEMENTATION_PROPOSAL.md
+  - local-backlog/
+  - local-backlog/**/*
+  - _examples_temp/
 
-# Include in processing
+# Include in processing (generated during build)
 include:
-  - ../README.md
+  - examples/
+  - sdk-examples/
   - ../CONTRIBUTING.md
   - ../CODE_OF_CONDUCT.md
   - ../GOVERNANCE.md
   - ../SECURITY.md
 
-# Default layouts
+# Default layouts - Just the Docs uses "default" layout
 defaults:
   - scope:
       path: ""
     values:
-      layout: "page"
-  - scope:
-      path: "guides"
-    values:
-      layout: "page"
-      nav_order: 2
-  - scope:
-      path: "api"
-    values:
-      layout: "page" 
-      nav_order: 3
-  - scope:
-      path: ""
-      type: "posts"
-    values:
-      layout: "post"
+      layout: "default"
 
 # SEO settings
 lang: en
@@ -112,6 +103,32 @@ social_links:
   github: AltairaAI
   twitter: AltairaAI
 
+# Just the Docs theme settings
+color_scheme: promptkit
+search_enabled: true
+search:
+  heading_level: 2
+  previews: 3
+  preview_words_before: 5
+  preview_words_after: 10
+  tokenizer_separator: /[\s/]+/
+  rel_url: true
+  button: false
+
+# Navigation
+nav_external_links:
+  - title: GitHub
+    url: https://github.com/AltairaLabs/PromptKit
+  - title: Report Issue
+    url: https://github.com/AltairaLabs/PromptKit/issues/new
+
+# Footer
+footer_content: "Copyright &copy; 2024 AltairaLabs. Distributed under the <a href=\"https://github.com/AltairaLabs/PromptKit/blob/main/LICENSE\">Apache 2.0 License</a>."
+
+# Back to top link
+back_to_top: true
+back_to_top_text: "Back to top"
+
 # Enable Mermaid diagrams
 mermaid:
-  enable: true
+  version: "10.6.1"

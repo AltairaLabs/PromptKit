@@ -21,6 +21,9 @@ func StateStoreLoadMiddleware(config *pipeline.StateStoreConfig) pipeline.Middle
 	return &stateStoreLoadMiddleware{config: config}
 }
 
+// Process loads conversation history from the state store and prepends it to ExecutionContext.Messages.
+// This middleware should be placed first in the pipeline before any other middleware.
+// If the conversation doesn't exist, it starts with an empty history.
 func (m *stateStoreLoadMiddleware) Process(execCtx *pipeline.ExecutionContext, next func() error) error {
 	// Load state before continuing to next middleware
 	// Skip if no config provided (no-op)
@@ -65,6 +68,7 @@ func (m *stateStoreLoadMiddleware) Process(execCtx *pipeline.ExecutionContext, n
 	return next()
 }
 
+// StreamChunk is a no-op for state store load middleware as it doesn't process stream chunks.
 func (m *stateStoreLoadMiddleware) StreamChunk(execCtx *pipeline.ExecutionContext, chunk *providers.StreamChunk) error {
 	// StateStore load middleware doesn't process chunks
 	return nil

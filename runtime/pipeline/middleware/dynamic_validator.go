@@ -42,6 +42,9 @@ func DynamicValidatorMiddlewareWithSuppression(
 	}
 }
 
+// Process validates the LLM response using configured validators and attaches results to the message.
+// It retrieves validator configurations from ExecutionContext metadata, runs validations,
+// and continues to the next middleware to persist results.
 func (m *dynamicValidatorMiddleware) Process(execCtx *pipeline.ExecutionContext, next func() error) error {
 	// Get validator configs from metadata (populated by PromptAssemblyMiddleware)
 	validatorList, validatorParams, _, shouldReturn := m.getValidators(execCtx)
@@ -237,6 +240,9 @@ func (m *dynamicValidatorMiddleware) handleValidationFailures(
 	}
 }
 
+// StreamChunk validates streaming content in real-time using configured validators.
+// It accumulates content in a buffer and runs validators that support streaming validation.
+// On validation failure, it can interrupt the stream if not in suppression mode.
 func (m *dynamicValidatorMiddleware) StreamChunk(
 	execCtx *pipeline.ExecutionContext,
 	chunk *providers.StreamChunk,

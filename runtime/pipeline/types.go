@@ -318,6 +318,7 @@ type LLMCall struct {
 }
 
 // SetError sets the error for this LLM call from an error value.
+// If err is nil, clears the error field.
 func (l *LLMCall) SetError(err error) {
 	if err != nil {
 		errMsg := err.Error()
@@ -328,6 +329,7 @@ func (l *LLMCall) SetError(err error) {
 }
 
 // GetError returns the error as an error type, or nil if no error occurred.
+// This is a convenience method for accessing the Error field as an error type.
 func (l *LLMCall) GetError() error {
 	if l.Error == nil {
 		return nil

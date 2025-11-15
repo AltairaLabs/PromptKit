@@ -1,3 +1,4 @@
+
 # Context Management Example
 
 This example demonstrates Arena's context management capabilities for handling long conversations with token budget constraints.

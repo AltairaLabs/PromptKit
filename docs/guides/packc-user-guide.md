@@ -1,10 +1,11 @@
 ---
-layout: page
+layout: default
 title: "PackC CLI User Guide"
-permalink: /docs/guides/packc-user-guide/
-nav_order: 2
+parent: Guides
+nav_order: 3
 ---
-# PromptKit PackC - CLI User Guide
+
+## PromptKit PackC - CLI User Guide
 
 PackC is the PromptKit compiler that transforms source files into optimized prompt packs. It supports multiple input formats, advanced compilation features, and generates portable prompt packages for various deployment targets.
 
@@ -268,7 +269,7 @@ PackC generates standardized prompt packs:
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "metadata": {
     "name": "customer-support-pack",
     "version": "1.2.0",
@@ -323,16 +324,16 @@ template_engine: "handlebars"
 
 prompt:
   system: |
-    {{#if technical_user}}
+    {{ "{{" }}#if technical_user}}
     You are a technical support specialist.
     {{else}}
     You are a general customer service agent.
-    {{/if}}
+    {{ "{{" }}/if}}
   
   user: |
-    {{#each issues}}
-    Issue {{@index}}: {{this.description}}
-    {{/each}}
+    {{ "{{" }}#each issues}}
+    Issue {{ "{{" }}@index}}: {{this.description}}
+    {{ "{{" }}/each}}
 
 variables:
   technical_user:
@@ -357,10 +358,10 @@ template_engine: "go"
 prompt:
   user: |
     {{range .items}}
-    - {{.name}}: {{.value}}
+    - {{ "{{" }}.name}}: {{ "{{" }}.value}}
     {{end}}
     
-    {{if gt (len .items) 5}}
+    {{ "{{" }}if gt (len .items) 5}}
     Note: You have many items to process.
     {{end}}
 ```

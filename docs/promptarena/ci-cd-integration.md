@@ -6,7 +6,6 @@ parent: PromptArena
 nav_order: 7
 ---
 
-# CI/CD Integration
 
 Integrate PromptArena into your CI/CD pipeline to automatically test prompts on every commit, prevent regressions, and maintain quality standards.
 
@@ -372,6 +371,7 @@ pipeline {
 
 ## CircleCI
 
+{% raw %}
 ```yaml
 # .circleci/config.yml
 version: 2.1
@@ -402,6 +402,8 @@ jobs:
           key: promptkit-v1-{{ .Branch }}
           paths:
             - /tmp/promptkit
+```
+{% endraw %}
 
       - run:
           name: Run Tests
@@ -639,6 +641,7 @@ jobs:
 
 Cache PromptArena installation:
 
+{% raw %}
 ```yaml
 - name: Cache PromptKit
   uses: actions/cache@v3
@@ -653,6 +656,7 @@ Cache PromptArena installation:
       cd /tmp/promptkit && make install-tools-user
     fi
 ```
+{% endraw %}
 
 ## Quality Gates
 

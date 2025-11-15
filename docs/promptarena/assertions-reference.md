@@ -6,7 +6,6 @@ parent: PromptArena
 nav_order: 4
 ---
 
-# Assertions Reference
 
 Assertions are checks that verify LLM behavior during test execution. They run after each turn and determine whether the response meets expectations.
 

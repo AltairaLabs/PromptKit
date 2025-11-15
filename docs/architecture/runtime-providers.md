@@ -1,12 +1,11 @@
 ---
-layout: page
+layout: default
 title: "Runtime Provider System Architecture"
 permalink: /docs/architecture/runtime-providers/
 nav_order: 6
 parent: Architecture
 ---
 
-# Runtime Provider System Architecture
 
 The PromptKit provider system provides a unified abstraction for interacting with multiple LLM providers while handling provider-specific details transparently. This architecture enables seamless switching between providers and facilitates multi-provider testing and comparison.
 

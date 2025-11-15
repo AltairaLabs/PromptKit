@@ -1,12 +1,9 @@
 ---
-layout: page
-title: "Runtime Pipeline Architecture"
-permalink: /docs/architecture/runtime-pipeline/
-nav_order: 5
+layout: default
+title: Runtime Pipeline
 parent: Architecture
+nav_order: 2
 ---
-
-# Runtime Pipeline Architecture
 
 The PromptKit runtime pipeline is a middleware-based execution engine that processes LLM interactions through a composable chain of processing stages. This architecture provides flexibility, extensibility, and clear separation of concerns.
 

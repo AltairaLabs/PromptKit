@@ -86,3 +86,8 @@ sdk/examples/**/*
 
 
 runtime/test_output.txt
+
+# Generated documentation examples (created during docs-build)
+docs/examples/
+docs/sdk-examples/
+docs/_examples_temp/

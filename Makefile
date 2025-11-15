@@ -249,11 +249,16 @@ docs-build: ## Build complete documentation site
 	@echo "🏗️ Building documentation site..."
 	@$(MAKE) docs-api
 	@$(MAKE) docs-cli
+	@echo "📝 Preparing example documentation..."
+	@./scripts/prepare-examples-docs.sh
 	@echo "✅ Documentation site built in docs/"
 
 docs-clean: ## Clean generated documentation
 	@echo "🧹 Cleaning generated documentation..."
 	@rm -rf docs/api/
+	@rm -rf docs/examples/
+	@rm -rf docs/sdk-examples/
+	@rm -rf docs/_examples_temp/
 	@rm -rf docs/guides/*/commands.txt
 	@echo "✅ Generated documentation cleaned"
 

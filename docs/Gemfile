@@ -6,9 +6,10 @@ gem "jekyll-feed", "~> 0.12"
 gem "jekyll-sitemap"
 gem "jekyll-seo-tag"
 gem "jekyll-github-metadata"
+gem "jekyll-remote-theme"
 
-# Theme
-gem "minima", "~> 2.5"
+# Theme - Just the Docs is purpose-built for documentation
+gem "just-the-docs", "~> 0.8"
 
 # Dependencies
 gem "kramdown-parser-gfm"

@@ -6,7 +6,6 @@ parent: PromptArena
 nav_order: 7
 ---
 
-# Mock Provider Configuration
 
 MockProvider enables running PromptArena tests without making actual API calls. It returns deterministic responses based on configuration, making it perfect for CI/CD pipelines, local development, and reproducible testing.
 

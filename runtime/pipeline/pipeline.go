@@ -562,6 +562,7 @@ type ValidationError struct {
 	Failures []types.ValidationResult // All failed validations (for aggregation)
 }
 
+// Error returns the error message for this validation error.
 func (e *ValidationError) Error() string {
 	return fmt.Sprintf(errValidationFailed, e.Type, e.Details)
 }

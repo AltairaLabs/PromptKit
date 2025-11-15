@@ -1,12 +1,11 @@
 ---
-layout: page
+layout: default
 title: "Runtime Tool & MCP Integration Architecture"
 permalink: /docs/architecture/runtime-tools-mcp/
 nav_order: 7
 parent: Architecture
 ---
 
-# Runtime Tool & MCP Integration Architecture
 
 The PromptKit tool system enables LLMs to interact with external systems through a flexible, extensible architecture. Native support for the Model Context Protocol (MCP) allows integration with a growing ecosystem of tool servers while maintaining backward compatibility with standalone tool definitions.
 
@@ -557,6 +556,7 @@ mock_result:
 **Use Case**: Dynamic testing, template-based responses
 
 **Configuration**:
+{% raw %}
 ```yaml
 mode: mock
 mock_template: |
@@ -566,11 +566,12 @@ mock_template: |
     "message": "Weather for {{ .location }}"
   }
 ```
+{% endraw %}
 
 **Executor**: Renders template with provided arguments
 
 **Template Syntax**:
-- `{{ .field }}`: Substitute argument value
+- `{% raw %}{{ .field }}{% endraw %}`: Substitute argument value
 - Simple string replacement
 - Result must be valid JSON
 

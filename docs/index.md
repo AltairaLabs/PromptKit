@@ -1,9 +1,10 @@
 ---
-layout: page
-title: "PromptKit Documentation"
+layout: default
+title: Home
+nav_order: 1
 permalink: /
+description: "Comprehensive framework for building, testing, and deploying LLM applications with confidence"
 ---
-# PromptKit Documentation
 
 Welcome to PromptKit - a comprehensive framework for building, testing, and deploying LLM applications with confidence.
 
@@ -12,8 +13,8 @@ Welcome to PromptKit - a comprehensive framework for building, testing, and depl
 New to PromptKit? Start here:
 
 - **[SDK Quickstart Tutorial](./guides/sdk-quickstart.md)** - Build your first LLM application in minutes
+- **[Arena Quickstart](./promptarena/getting-started.md)** - Test LLM applications with PromptArena
 - **[Examples](../examples/)** - Browse working examples for common use cases
-- **[Installation](./QUICKSTART.md)** - Get PromptKit running on your system
 
 ## User Guides
 
@@ -71,8 +72,9 @@ Help improve PromptKit:
 
 ## Reference
 
-- **[Pack Format Specification](./pack-format-spec.md)** - Prompt pack file format
-- **[Validators](./validators.md)** - Built-in validation rules
+- **[PromptPack Specification](./promptarena/promptpack-spec.md)** - Prompt pack file format
+- **[Validators Reference](./promptarena/validators-reference.md)** - Built-in validation rules
+- **[Assertions Reference](./promptarena/assertions-reference.md)** - Test assertions
 - **[ADRs (Architecture Decision Records)](./adr/)** - Design decisions and rationale
 
 ## Support

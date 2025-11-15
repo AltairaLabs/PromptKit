@@ -75,6 +75,7 @@ type ValidationAbortError struct {
 	Chunk  StreamChunk
 }
 
+// Error returns the error message for this validation abort error.
 func (e *ValidationAbortError) Error() string {
 	return "validation aborted stream: " + e.Reason
 }

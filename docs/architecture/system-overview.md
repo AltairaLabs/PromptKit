@@ -1,14 +1,25 @@
 ---
-layout: page
-title: "System Overview"
-permalink: /docs/architecture/system-overview/
-nav_order: 4
+layout: default
+title: System Overview
+parent: Architecture
+nav_order: 1
 ---
-# PromptKit System Architecture
 
-This document provides visual representations of the PromptKit system architecture and component relationships.
+# System Overview
+{: .no_toc }
 
-## System Overview
+Visual representations of the PromptKit system architecture and component relationships.
+{: .fs-6 .fw-300 }
+
+## Table of contents
+{: .no_toc .text-delta }
+
+1. TOC
+{:toc}
+
+---
+
+## Overview
 
 ```mermaid
 graph TB

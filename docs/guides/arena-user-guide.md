@@ -1,11 +1,11 @@
 ---
-layout: page
+layout: default
 title: "Arena CLI Reference"
-permalink: /docs/guides/arena-user-guide/
+parent: Guides
 nav_order: 2
 ---
 
-# PromptArena CLI Reference
+## PromptArena CLI Reference
 
 Complete command-line interface reference for PromptArena, the LLM testing framework.
 

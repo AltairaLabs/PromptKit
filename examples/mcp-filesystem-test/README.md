@@ -1,3 +1,4 @@
+
 # MCP Filesystem Integration Example
 
 This example demonstrates an AI assistant with filesystem access capabilities using the MCP filesystem server.
