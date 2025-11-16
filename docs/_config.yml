@@ -30,14 +30,40 @@ kramdown:
     block:
       line_numbers: false
 
-# Collections
+# Collections - Product-centric with Diátaxis
 collections:
+  # Legacy collections (keep for backward compatibility during migration)
   guides:
     output: true
     permalink: /:collection/:name/
   api:
     output: true
     permalink: /:collection/:name/
+  
+  # New product-centric collections
+  arena:
+    output: true
+    permalink: /arena/:path/
+  packc:
+    output: true
+    permalink: /packc/:path/
+  sdk:
+    output: true
+    permalink: /sdk/:path/
+  runtime:
+    output: true
+    permalink: /runtime/:path/
+  
+  # Cross-product documentation
+  workflows:
+    output: true
+    permalink: /workflows/:name/
+  concepts:
+    output: true
+    permalink: /concepts/:path/
+  community:
+    output: true
+    permalink: /community/:name/
 
 # Navigation
 header_pages:
@@ -85,12 +111,172 @@ include:
   - ../GOVERNANCE.md
   - ../SECURITY.md
 
-# Default layouts - Just the Docs uses "default" layout
+# Default layouts with product context
 defaults:
+  # Global default
   - scope:
       path: ""
     values:
       layout: "default"
+  
+  # Arena documentation
+  - scope:
+      path: "arena"
+    values:
+      layout: "default"
+      product: "arena"
+      product_name: "PromptArena"
+      product_icon: "🏟️"
+  
+  - scope:
+      path: "arena/tutorials"
+    values:
+      doc_type: "tutorial"
+      parent: "Arena Tutorials"
+  
+  - scope:
+      path: "arena/how-to"
+    values:
+      doc_type: "how-to"
+      parent: "Arena How-To"
+  
+  - scope:
+      path: "arena/explanation"
+    values:
+      doc_type: "explanation"
+      parent: "Arena Concepts"
+  
+  - scope:
+      path: "arena/reference"
+    values:
+      doc_type: "reference"
+      parent: "Arena Reference"
+  
+  # PackC documentation
+  - scope:
+      path: "packc"
+    values:
+      layout: "default"
+      product: "packc"
+      product_name: "PackC"
+      product_icon: "📦"
+  
+  - scope:
+      path: "packc/tutorials"
+    values:
+      doc_type: "tutorial"
+      parent: "PackC Tutorials"
+  
+  - scope:
+      path: "packc/how-to"
+    values:
+      doc_type: "how-to"
+      parent: "PackC How-To"
+  
+  - scope:
+      path: "packc/explanation"
+    values:
+      doc_type: "explanation"
+      parent: "PackC Concepts"
+  
+  - scope:
+      path: "packc/reference"
+    values:
+      doc_type: "reference"
+      parent: "PackC Reference"
+  
+  # SDK documentation
+  - scope:
+      path: "sdk"
+    values:
+      layout: "default"
+      product: "sdk"
+      product_name: "PromptKit SDK"
+      product_icon: "🚀"
+  
+  - scope:
+      path: "sdk/tutorials"
+    values:
+      doc_type: "tutorial"
+      parent: "SDK Tutorials"
+  
+  - scope:
+      path: "sdk/how-to"
+    values:
+      doc_type: "how-to"
+      parent: "SDK How-To"
+  
+  - scope:
+      path: "sdk/explanation"
+    values:
+      doc_type: "explanation"
+      parent: "SDK Concepts"
+  
+  - scope:
+      path: "sdk/reference"
+    values:
+      doc_type: "reference"
+      parent: "SDK Reference"
+  
+  # Runtime documentation
+  - scope:
+      path: "runtime"
+    values:
+      layout: "default"
+      product: "runtime"
+      product_name: "Runtime"
+      product_icon: "⚙️"
+  
+  - scope:
+      path: "runtime/tutorials"
+    values:
+      doc_type: "tutorial"
+      parent: "Runtime Tutorials"
+  
+  - scope:
+      path: "runtime/how-to"
+    values:
+      doc_type: "how-to"
+      parent: "Runtime How-To"
+  
+  - scope:
+      path: "runtime/explanation"
+    values:
+      doc_type: "explanation"
+      parent: "Runtime Concepts"
+  
+  - scope:
+      path: "runtime/reference"
+    values:
+      doc_type: "reference"
+      parent: "Runtime Reference"
+  
+  # Cross-product
+  - scope:
+      path: "workflows"
+    values:
+      layout: "default"
+      doc_type: "workflow"
+      parent: "Workflows"
+  
+  - scope:
+      path: "concepts"
+    values:
+      layout: "default"
+      doc_type: "concept"
+      parent: "Concepts"
+  
+  - scope:
+      path: "community"
+    values:
+      layout: "default"
+      parent: "Community"
+  
+  - scope:
+      path: "getting-started"
+    values:
+      layout: "default"
+      parent: "Getting Started"
 
 # SEO settings
 lang: en
@@ -114,6 +300,31 @@ search:
   tokenizer_separator: /[\s/]+/
   rel_url: true
   button: false
+
+# Navigation structure for product-centric collections
+just_the_docs:
+  collections:
+    arena:
+      name: "🏟️ Arena"
+      nav_order: 2
+    packc:
+      name: "📦 PackC"
+      nav_order: 3
+    sdk:
+      name: "🚀 SDK"
+      nav_order: 4
+    runtime:
+      name: "⚙️ Runtime"
+      nav_order: 5
+    workflows:
+      name: "🔄 Workflows"
+      nav_order: 6
+    concepts:
+      name: "💡 Concepts"
+      nav_order: 7
+    community:
+      name: "🤝 Community"
+      nav_order: 8
 
 # Navigation
 nav_external_links:

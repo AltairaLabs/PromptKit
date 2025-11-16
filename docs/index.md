@@ -3,86 +3,175 @@ layout: default
 title: Home
 nav_order: 1
 permalink: /
-description: "Comprehensive framework for building, testing, and deploying LLM applications with confidence"
+description: "Professional LLM development framework with testing, packaging, and production deployment tools"
 ---
 
-Welcome to PromptKit - a comprehensive framework for building, testing, and deploying LLM applications with confidence.
+# PromptKit Documentation
 
-## Quick Start
+**Professional LLM development framework with testing, packaging, and production deployment tools**
 
-New to PromptKit? Start here:
+---
 
-- **[SDK Quickstart Tutorial](./guides/sdk-quickstart.md)** - Build your first LLM application in minutes
-- **[Arena Quickstart](./promptarena/getting-started.md)** - Test LLM applications with PromptArena
-- **[Examples](../examples/)** - Browse working examples for common use cases
+## 👥 I am a...
 
-## User Guides
+Choose your path based on your role and goals:
 
-### Core Tools
+### 🎨 Prompt Engineer / ML Ops
+**I want to develop and test LLM prompts systematically**
 
-- **[Arena CLI Guide](./guides/arena-user-guide.md)** - Test LLM applications with multi-provider scenarios
-- **[PackC CLI Guide](./guides/packc-user-guide.md)** - Compile and optimize prompt packs
-- **[SDK Guide](./guides/sdk-quickstart.md)** - Build robust LLM applications with Go
+You need **PromptArena** - a comprehensive testing framework for validating prompts across multiple providers.
 
-### Development Workflow
+**Quick Start**: [Arena Tutorial: Your First Test](/arena/tutorials/01-first-test/) (5 minutes)
 
-1. **Design** - Create prompts and scenarios
-2. **Compile** - Use PackC to build optimized prompt packs  
-3. **Test** - Validate with Arena across multiple providers
-4. **Deploy** - Integrate with the SDK in production
+**What you can do**:
+- Test prompts across OpenAI, Claude, Gemini simultaneously
+- Validate multi-turn conversations
+- Compare provider performance and costs
+- Integrate MCP tools for real-world testing
+- Generate comprehensive test reports
 
-## API Reference
+[**Get Started with Arena →**](/arena/)
 
-Auto-generated documentation from source code:
+---
 
-- **[SDK API](./api/sdk.md)** - Complete SDK interface documentation
-- **[Runtime API](./api/runtime.md)** - Core runtime components and types
+### 💻 Application Developer
+**I want to build production LLM applications**
 
-## Architecture
+You need **PromptKit SDK** - a production-ready Go library for building robust LLM applications.
 
-Understand how PromptKit works:
+**Quick Start**: [SDK Tutorial: Your First Chatbot](/sdk/tutorials/01-first-chatbot/) (15 minutes)
 
-- **[System Overview](./architecture/system-overview.md)** - High-level architecture with diagrams
-- **[Component Design](./architecture/)** - Detailed component specifications
+**What you can do**:
+- Use pre-tested, compiled PromptPacks
+- Build type-safe conversational applications
+- Manage state persistence (Redis, Postgres, in-memory)
+- Handle streaming responses
+- Deploy confidently to production
 
-## Examples
+[**Get Started with SDK →**](/sdk/)
 
-Real-world applications and patterns:
+---
 
-- **[Customer Support](../examples/customer-support/)** - Multi-turn conversation handling
-- **[MCP Integration](../examples/mcp-chatbot/)** - Tool usage with Model Context Protocol
-- **[Context Management](../examples/context-management/)** - Advanced prompt templating
-- **[Human-in-the-Loop](../examples/hitl-approval/)** - Approval workflows
+### 🔧 DevOps / Build Engineer
+**I want to package prompts and integrate into CI/CD**
 
-## DevOps & Releases
+You need **PackC** - a compiler for packaging and optimizing PromptPacks.
 
-For maintainers and release management:
+**Quick Start**: [PackC Tutorial: First Compilation](/packc/tutorials/01-first-compilation/) (5 minutes)
 
-- **[DevOps Documentation](./devops/)** - Release processes and operational guides
-- **[Testing Releases](./devops/testing-releases-quickstart.md)** - Safe release testing workflow
-- **[CI/CD Workflows](../.github/workflows/)** - GitHub Actions automation
+**What you can do**:
+- Compile tested prompts into optimized packages
+- Validate pack structure and schema
+- Integrate into build pipelines
+- Version and distribute prompt packages
+- Bridge development and production
 
-## Contributing
+[**Get Started with PackC →**](/packc/)
 
-Help improve PromptKit:
+---
 
-- **[Contributing Guide](../CONTRIBUTING.md)** - Development setup and guidelines
-- **[Code of Conduct](../CODE_OF_CONDUCT.md)** - Community standards
-- **[Governance](../GOVERNANCE.md)** - Project organization and decision making
+### 🏗️ Framework Contributor / Advanced User
+**I want to extend PromptKit or understand internals**
 
-## Reference
+You need **Runtime** - the core framework powering all PromptKit tools.
 
-- **[PromptPack Specification](./promptarena/promptpack-spec.md)** - Prompt pack file format
-- **[Validators Reference](./promptarena/validators-reference.md)** - Built-in validation rules
-- **[Assertions Reference](./promptarena/assertions-reference.md)** - Test assertions
-- **[ADRs (Architecture Decision Records)](./adr/)** - Design decisions and rationale
+**Quick Start**: [Runtime Tutorial: Custom Provider](/runtime/tutorials/01-custom-provider/) (20 minutes)
 
-## Support
+**What you can do**:
+- Build custom LLM providers
+- Create custom middleware components
+- Implement custom validators
+- Understand architectural decisions
+- Contribute to framework development
 
-- **[GitHub Issues](https://github.com/AltairaLabs/PromptKit/issues)** - Bug reports and feature requests  
-- **[Discussions](https://github.com/AltairaLabs/PromptKit/discussions)** - Community Q&A
-- **[Security](../SECURITY.md)** - Report security vulnerabilities
+[**Get Started with Runtime →**](/runtime/)
 
-## License
+---
 
-PromptKit is licensed under the [Apache 2.0 License](../LICENSE).
+## 🔄 Complete Workflow
+
+**See how all tools work together**: [End-to-End Workflow Guide](/workflows/complete-workflow/)
+
+```mermaid
+graph LR
+    A[👨‍💻 Prompt Engineer<br/>Develops prompts] -->|Tests with| B[🏟️ Arena]
+    B -->|Validates| C[✅ Tested Prompts]
+    C -->|Compiles with| D[📦 PackC]
+    D -->|Produces| E[📄 .pack.json]
+    E -->|Used by| F[🚀 SDK]
+    F -->|Builds| G[🎯 Production App]
+    
+    style B fill:#e1f5fe
+    style D fill:#fff9c4
+    style F fill:#f3e5f5
+```
+
+---
+
+## 📚 Browse by Documentation Type
+
+### [📖 Tutorials](/getting-started/)
+Step-by-step learning paths for each tool. Start here if you're new.
+
+### [🔧 How-To Guides](/workflows/)
+Task-oriented guides for accomplishing specific goals.
+
+### [💡 Concepts & Architecture](/concepts/)
+Understand how PromptKit works and why it's designed this way.
+
+### [📋 API & CLI Reference](#)
+Technical specifications for all tools:
+- [Arena CLI Reference](/arena/reference/cli-commands/)
+- [PackC CLI Reference](/packc/reference/cli-commands/)
+- [SDK API Reference](/sdk/reference/api/)
+- [Runtime API Reference](/runtime/reference/api/)
+
+---
+
+## 🎯 Quick Links by Need
+
+### I need to...
+
+**Install PromptKit**
+- [Install Arena](/arena/how-to/installation/) - For testing
+- [Install PackC](/packc/how-to/installation/) - For compilation
+- [Install SDK](/sdk/how-to/installation/) - For development
+
+**Learn Core Concepts**
+- [What are PromptPacks?](/concepts/promptpacks-explained/)
+- [Provider Abstraction](/concepts/provider-ecosystem/)
+- [MCP Integration](/concepts/mcp-integration/)
+- [System Architecture](/concepts/architecture/system-overview/)
+
+**See Examples**
+- [Arena Examples](/arena/examples/) - Testing scenarios
+- [SDK Examples](/sdk/examples/) - Application patterns
+- [Runtime Examples](/runtime/examples/) - Extension patterns
+
+**Contribute**
+- [Contributing Guide](/community/contributing/)
+- [Architecture Decision Records](/concepts/architecture/adr/)
+- [Development Setup](/community/contributing/#development-setup)
+
+---
+
+## 🆘 Need Help?
+
+- **🐛 Bug Reports**: [GitHub Issues](https://github.com/AltairaLabs/PromptKit/issues)
+- **💬 Questions**: [GitHub Discussions](https://github.com/AltairaLabs/PromptKit/discussions)
+- **🔒 Security**: [Security Policy](/community/security/)
+- **📖 More Help**: [Troubleshooting Guides](/workflows/)
+
+---
+
+## 🌟 Popular Pages
+
+- [Your First Arena Test](/arena/tutorials/01-first-test/)
+- [Build Your First Chatbot](/sdk/tutorials/01-first-chatbot/)
+- [Arena CLI Commands](/arena/reference/cli-commands/)
+- [SDK API Reference](/sdk/reference/api/)
+- [Complete Workflow Guide](/workflows/complete-workflow/)
+
+---
+
+<small>Built with ❤️ by [AltairaLabs](https://altairalabs.ai) | [Apache 2.0 License](https://github.com/AltairaLabs/PromptKit/blob/main/LICENSE)</small>
