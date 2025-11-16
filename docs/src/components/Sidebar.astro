@@ -1,0 +1,159 @@
+---
+import { getCollection } from 'astro:content';
+
+interface Props {
+  product?: string;
+  currentPath: string;
+}
+
+const { product, currentPath } = Astro.props;
+
+// Get all docs for the current product
+let docs: any[] = [];
+if (product) {
+  try {
+    docs = await getCollection(product as any);
+  } catch (e) {
+    // Collection might not exist yet
+    docs = [];
+  }
+}
+
+// Group by directory/category
+const grouped: Record<string, any[]> = {};
+docs.forEach(doc => {
+  const parts = doc.slug.split('/');
+  const category = parts.length > 1 ? parts[0] : 'General';
+  if (!grouped[category]) grouped[category] = [];
+  grouped[category].push(doc);
+});
+
+// Sort each group
+Object.keys(grouped).forEach(key => {
+  grouped[key].sort((a, b) => {
+    if (a.data.order !== undefined && b.data.order !== undefined) {
+      return a.data.order - b.data.order;
+    }
+    return a.data.title.localeCompare(b.data.title);
+  });
+});
+
+const categoryOrder = ['tutorials', 'how-to', 'explanation', 'reference'];
+const sortedCategories = Object.keys(grouped).sort((a, b) => {
+  const aIndex = categoryOrder.indexOf(a.toLowerCase());
+  const bIndex = categoryOrder.indexOf(b.toLowerCase());
+  if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+  if (aIndex !== -1) return -1;
+  if (bIndex !== -1) return 1;
+  return a.localeCompare(b);
+});
+---
+
+<nav class="sidebar-nav">
+  {product && (
+    <div class="sidebar-header">
+      <h2>{product.charAt(0).toUpperCase() + product.slice(1)}</h2>
+    </div>
+  )}
+  
+  {sortedCategories.map(category => (
+    <div class="nav-section">
+      <h3>{category.charAt(0).toUpperCase() + category.slice(1)}</h3>
+      <ul>
+        {grouped[category].map(doc => {
+          const href = `${import.meta.env.BASE_URL}/${product}/${doc.slug}`;
+          const isActive = currentPath === href || currentPath.startsWith(href + '/');
+          return (
+            <li>
+              <a href={href} class={isActive ? 'active' : ''}>
+                {doc.data.title}
+              </a>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  ))}
+  
+  {docs.length === 0 && product && (
+    <p class="sidebar-empty">No documentation available yet.</p>
+  )}
+</nav>
+
+<style>
+  .sidebar-nav {
+    font-size: 0.875rem;
+  }
+
+  .sidebar-header h2 {
+    margin: 0 0 1.5rem 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+  }
+
+  .nav-section {
+    margin-bottom: 1.5rem;
+  }
+
+  .nav-section h3 {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+    color: #57606a;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .nav-section h3 {
+      color: #8b949e;
+    }
+  }
+
+  .nav-section ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .nav-section li {
+    margin: 0;
+  }
+
+  .nav-section a {
+    display: block;
+    padding: 0.375rem 0.75rem;
+    color: var(--color-text);
+    text-decoration: none;
+    border-radius: 6px;
+    transition: background-color 0.2s;
+  }
+
+  .nav-section a:hover {
+    background-color: rgba(175, 184, 193, 0.1);
+    text-decoration: none;
+  }
+
+  .nav-section a.active {
+    background-color: rgba(9, 105, 218, 0.1);
+    font-weight: 600;
+    color: var(--color-link);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .nav-section a.active {
+      background-color: rgba(88, 166, 255, 0.1);
+    }
+  }
+
+  .sidebar-empty {
+    color: #57606a;
+    font-size: 0.875rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .sidebar-empty {
+      color: #8b949e;
+    }
+  }
+</style>

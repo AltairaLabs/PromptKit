@@ -1,0 +1,76 @@
+---
+// Simple static Table of Contents component
+// Gets headings from the rendered content
+
+interface Props {
+  headings?: Array<{ depth: number; slug: string; text: string }>;
+}
+
+const { headings = [] } = Astro.props;
+
+// Filter to only show h2 and h3
+const filteredHeadings = headings.filter(h => h.depth <= 3);
+---
+
+{filteredHeadings.length > 0 && (
+  <nav class="toc">
+    <h4>On this page</h4>
+    <ul>
+      {filteredHeadings.map(heading => (
+        <li class={`toc-level-${heading.depth}`}>
+          <a href={`#${heading.slug}`}>
+            {heading.text}
+          </a>
+        </li>
+      ))}
+    </ul>
+  </nav>
+)}
+
+<style>
+  .toc {
+    position: sticky;
+    top: 80px;
+    max-height: calc(100vh - 100px);
+    overflow-y: auto;
+  }
+
+  .toc h4 {
+    margin-bottom: 1rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+
+  .toc ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .toc li {
+    margin-bottom: 0.5rem;
+  }
+
+  .toc a {
+    font-size: 0.875rem;
+    color: var(--color-text);
+    text-decoration: none;
+    opacity: 0.7;
+    transition: all 0.2s;
+    display: block;
+  }
+
+  .toc a:hover {
+    color: var(--color-link);
+    opacity: 1;
+    text-decoration: none;
+  }
+
+  .toc-level-2 {
+    padding-left: 0;
+  }
+
+  .toc-level-3 {
+    padding-left: 0.75rem;
+  }
+</style>

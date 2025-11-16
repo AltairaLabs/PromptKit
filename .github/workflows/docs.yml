@@ -5,7 +5,11 @@ on:
     branches: [ main ]
     paths:
       - 'docs/**'
+      - 'examples/**/README.md'
+      - 'sdk/examples/**/README.md'
+      - 'scripts/prepare-examples-docs.sh'
       - '.github/workflows/docs.yml'
+      - 'Makefile'
       - 'README.md'
       - 'CONTRIBUTING.md'
       - 'CODE_OF_CONDUCT.md'
@@ -29,31 +33,41 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       
-      - name: Setup Ruby
-        uses: ruby/setup-ruby@a6e6f86333f0a2523ece813039b8b4be04560854 # v1.195.0
+      - name: Setup Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
-          ruby-version: '3.1'
-          working-directory: ./docs
-          bundler-cache: true
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: docs/package-lock.json
+      
+      - name: Setup Go
+        uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5.1.0
+        with:
+          go-version: '1.22'
+          cache: true
+      
+      - name: Install gomarkdoc
+        run: go install github.com/princjef/gomarkdoc/cmd/gomarkdoc@latest
+      
+      - name: Build CLI tools
+        run: make build-tools
       
       - name: Setup Pages
         id: pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
       
-      - name: Install dependencies
-        run: bundle install --gemfile=docs/Gemfile
+      - name: Install Node dependencies
+        run: make docs-install
         
-      - name: Build with Jekyll
-        run: |
-          cd docs
-          bundle exec jekyll build --baseurl "${{ steps.pages.outputs.base_path }}"
+      - name: Build documentation
+        run: make docs-build
         env:
-          JEKYLL_ENV: production
+          NODE_ENV: production
       
       - name: Upload artifact
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
-          path: docs/_site
+          path: docs/dist
 
   deploy:
     runs-on: ubuntu-latest

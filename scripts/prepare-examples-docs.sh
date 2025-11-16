@@ -1,30 +1,27 @@
 #!/bin/bash
-# Script to dynamically add front matter to example READMEs for Jekyll processing
-# This runs during docs-build and doesn't modify the source files
+# Script to dynamically prepare example READMEs for Astro documentation
+# This runs during docs-build and copies example READMEs to the appropriate content collections
 #
-# To add a new example section:
-# 1. Call process_examples with: source_dir, output_subdir, parent_title, grand_parent_title, nav_order
-# 2. Add the new output directory to the copy section at the end
-# 3. Update Makefile docs-clean to remove the new output directory
-# 4. Update docs/_config.yml to include the new output directory
+# Examples are integrated into their respective product collections:
+# - /examples -> arena/examples/
+# - /sdk/examples -> sdk/examples/
 
-TEMP_DIR="docs/_examples_temp"
+ARENA_OUTPUT="docs/src/content/arena/examples"
+SDK_OUTPUT="docs/src/content/sdk/examples"
 
-# Clean up any existing temp directory
-rm -rf "$TEMP_DIR"
-mkdir -p "$TEMP_DIR"
+# Clean up existing example directories
+rm -rf "$ARENA_OUTPUT"
+rm -rf "$SDK_OUTPUT"
+mkdir -p "$ARENA_OUTPUT"
+mkdir -p "$SDK_OUTPUT"
 
-# Function to process examples from a directory
-# Args: source_dir, output_subdir, parent_title, grand_parent_title, nav_order
+# Function to process examples from a directory (Astro version)
+# Args: source_dir, output_path
 process_examples() {
     local source_dir=$1
-    local output_subdir=$2
-    local parent_title=$3
-    local grand_parent_title=$4
-    local nav_order=$5
+    local output_path=$2
     
-    local temp_subdir="$TEMP_DIR/$output_subdir"
-    mkdir -p "$temp_subdir"
+    mkdir -p "$output_path"
     
     # Process each example README
     for example_dir in "$source_dir"/*/; do
@@ -32,38 +29,24 @@ process_examples() {
             dirname=$(basename "$example_dir")
             readme_path="${example_dir}README.md"
             
-            # Skip if already has front matter
-            if head -1 "$readme_path" | grep -q "^---"; then
-                continue
-            fi
-            
             # Extract title from first heading
             title=$(grep -m 1 "^# " "$readme_path" | sed 's/^# //' || echo "$dirname")
+            # Remove the "# " from title
+            title=$(echo "$title" | sed 's/^# //')
             
-            # Create temp file with front matter
-            temp_file="$temp_subdir/${dirname}.md"
-            if [ -n "$grand_parent_title" ]; then
-                cat > "$temp_file" << EOF
+            # Create output file with Astro frontmatter
+            output_file="$output_path/${dirname}.md"
+            cat > "$output_file" << EOF
 ---
-layout: default
-title: ${dirname}
-parent: ${parent_title}
-grand_parent: ${grand_parent_title}
----
-
-EOF
-            else
-                cat > "$temp_file" << EOF
----
-layout: default
-title: ${dirname}
-parent: ${parent_title}
+title: ${title}
+description: Example demonstrating ${dirname}
+docType: example
+order: 100
 ---
 
 EOF
-            fi
-            # Append original content
-            cat "$readme_path" >> "$temp_file"
+            # Append original content (without the first heading since it's in title)
+            tail -n +2 "$readme_path" >> "$output_file"
             
             echo "  Processed: $dirname"
         fi
@@ -71,65 +54,30 @@ EOF
     
     # Process main examples README if needed
     if [ -f "$source_dir/README.md" ]; then
-        if ! head -1 "$source_dir/README.md" | grep -q "^---"; then
-            temp_file="$temp_subdir/_index.md"
-            if [ -n "$grand_parent_title" ]; then
-                cat > "$temp_file" << EOF
+        output_file="$output_path/index.md"
+        # Extract title
+        title=$(grep -m 1 "^# " "$source_dir/README.md" | sed 's/^# //' || echo "Examples")
+        
+        cat > "$output_file" << EOF
 ---
-layout: default
-title: ${parent_title}
-parent: ${grand_parent_title}
-nav_order: ${nav_order}
-has_children: true
----
-
-EOF
-            else
-                cat > "$temp_file" << EOF
----
-layout: default
-title: ${parent_title}
-nav_order: ${nav_order}
-has_children: true
+title: ${title}
+description: Code examples and tutorials
+docType: example
+order: 99
 ---
 
 EOF
-            fi
-            cat "$source_dir/README.md" >> "$temp_file"
-            echo "  Processed: ${parent_title} index"
-        fi
+        tail -n +2 "$source_dir/README.md" >> "$output_file"
+        echo "  Processed: ${title} index"
     fi
 }
 
-# Process PromptArena examples (top-level /examples)
+# Process PromptArena examples (top-level /examples) into arena/examples/
 echo "Processing PromptArena examples..."
-process_examples "examples" "promptarena-examples" "PromptArena Examples" "PromptArena" "10"
+process_examples "examples" "$ARENA_OUTPUT"
 
-# Process SDK examples
+# Process SDK examples into sdk/examples/
 echo "Processing SDK examples..."
-process_examples "sdk/examples" "sdk-examples" "SDK Examples" "Guides" "10"
+process_examples "sdk/examples" "$SDK_OUTPUT"
 
-# Copy temp files to docs directory for Jekyll processing
-if [ -d "$TEMP_DIR" ] && [ "$(ls -A $TEMP_DIR)" ]; then
-    # Copy PromptArena examples
-    if [ -d "$TEMP_DIR/promptarena-examples" ]; then
-        mkdir -p docs/examples
-        cp -r "$TEMP_DIR/promptarena-examples"/* docs/examples/
-        # Rename _index.md to index.md
-        if [ -f "docs/examples/_index.md" ]; then
-            mv docs/examples/_index.md docs/examples/index.md
-        fi
-    fi
-    
-    # Copy SDK examples
-    if [ -d "$TEMP_DIR/sdk-examples" ]; then
-        mkdir -p docs/sdk-examples
-        cp -r "$TEMP_DIR/sdk-examples"/* docs/sdk-examples/
-        # Rename _index.md to index.md
-        if [ -f "docs/sdk-examples/_index.md" ]; then
-            mv docs/sdk-examples/_index.md docs/sdk-examples/index.md
-        fi
-    fi
-fi
-
-echo "✅ Example READMEs prepared for Jekyll"
+echo "✅ Example READMEs prepared for Astro in arena/examples/ and sdk/examples/"
