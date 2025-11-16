@@ -55,4 +55,8 @@ export const collections = {
     type: 'content',
     schema: docSchema,
   }),
+  'contributors': defineCollection({
+    type: 'content',
+    schema: docSchema,
+  }),
 };

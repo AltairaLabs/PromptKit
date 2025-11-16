@@ -252,6 +252,11 @@ docs-validate: ## Validate documentation links and formatting
 	done
 	@echo "✅ Documentation validation complete"
 
+docs-check-links: docs-build ## Check for broken links in built documentation
+	@echo "🔗 Checking for broken links..."
+	@cd docs && npm run check-links
+	@echo "✅ Link check complete"
+
 docs-serve: ## Serve documentation locally for development
 	@echo "🌐 Starting Astro development server..."
 	@cd docs && npm run dev
