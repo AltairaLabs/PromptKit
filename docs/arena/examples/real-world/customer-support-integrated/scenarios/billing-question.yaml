@@ -1,0 +1,20 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: billing-question
+spec:
+  description: "Customer asking about a billing discrepancy"
+  task_type: "customer-support"
+  
+  turns:
+    - role: "user"
+      content: "Hi, I was charged twice for my subscription this month. My email is sarah.jones@email.com. Can you help?"
+      assertions: []
+      
+      # Expected: Agent should use get_customer_info and check_subscription_status tools
+      
+    - role: "user"  
+      content: "Yes, I see two charges of $49.99 on October 15th"
+      assertions: []
+      
+      # Expected: Agent should use create_support_ticket tool

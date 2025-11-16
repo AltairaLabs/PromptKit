@@ -1,0 +1,82 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: customer-support-scenarios
+spec:
+  task_type: support
+  description: "Customer support bot conversation testing scenarios"
+
+  turns:
+    - role: user
+      content: "Hi, I'd like to track my order. My order number is #12345"
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(help|assist|track)"
+            message: "Should offer to help with tracking"
+    
+    - role: user
+      content: "It says it's out for delivery but I haven't received it yet"
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(understand|delivery|help)"
+            message: "Should acknowledge delivery concern and offer assistance"
+    
+    - role: user
+      content: "I'd like to get a refund for my purchase"
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(refund|help|assist|process)"
+            message: "Should acknowledge refund request"
+    
+    - role: user
+      content: "The product doesn't work as described in the listing"
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(sorry|understand|apologize|help|resolve|refund|return)"
+            message: "Should show empathy and offer solutions"
+    
+    - role: user
+      content: "The app keeps crashing when I try to log in"
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(help|troubleshoot|device|system|version)"
+            message: "Should offer technical assistance"
+    
+    - role: user
+      content: "I'm on iOS 17, latest version of the app"
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(thanks|information|try|restart|steps|settings)"
+            message: "Should acknowledge information and suggest next steps"
+    
+    - role: user
+      content: "I already tried reinstalling it"
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(understand|appreciate|try|technical|escalate|team)"
+            message: "Should acknowledge attempts and offer further assistance"
+
+  context:
+    goal: "test customer support responses"
+    timeline: "immediate"
+    experience_level: "various"
+
+  context_metadata:
+    domain: "customer support"
+    role: "support agent"
+    user_context: "customers with various issues and requests"
+    session_goal: "provide helpful, professional support while maintaining consistent tone"
+
+  constraints:
+    max_sentences: 5
+    required_themes:
+      - "professional"
+      - "helpful"
+      - "empathetic"

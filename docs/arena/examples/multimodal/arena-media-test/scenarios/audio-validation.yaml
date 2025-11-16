@@ -1,0 +1,137 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: audio-validation
+  description: >
+    Demonstrates audio format and duration validation using media assertions.
+    Tests audio_format and audio_duration validators on assistant responses.
+spec:
+  task_type: media-analysis
+  
+  turns:
+    # Turn 1: Generate audio and validate format
+    - role: user
+      parts:
+        - type: text
+          text: "Generate a short audio clip of a bird chirping"
+      
+      assertions:
+        # Validate assistant response includes audio
+        - type: content_includes
+          params:
+            patterns:
+              - "audio"
+        
+        # Validate audio format is WAV or MP3
+        - type: audio_format
+          params:
+            formats:
+              - wav
+              - mp3
+    
+    # Turn 2: Request specific audio format
+    - role: user
+      parts:
+        - type: text
+          text: "Convert that to MP3 format"
+      
+      assertions:
+        # Validate MP3 format
+        - type: audio_format
+          params:
+            formats:
+              - mp3
+              - mpeg
+    
+    # Turn 3: Generate audio with duration constraint
+    - role: user
+      parts:
+        - type: text
+          text: "Create a 30-second audio clip"
+      
+      assertions:
+        # Validate exact duration (allowing small variance)
+        - type: audio_duration
+          params:
+            min_seconds: 29
+            max_seconds: 31
+    
+    # Turn 4: Generate short audio clip
+    - role: user
+      parts:
+        - type: text
+          text: "Create a brief notification sound"
+      
+      assertions:
+        # Validate short duration (under 5 seconds)
+        - type: audio_duration
+          params:
+            max_seconds: 5
+    
+    # Turn 5: Generate longer audio content
+    - role: user
+      parts:
+        - type: text
+          text: "Generate a 2-minute meditation soundtrack"
+      
+      assertions:
+        # Validate duration is at least 2 minutes (120 seconds)
+        - type: audio_duration
+          params:
+            min_seconds: 120
+            max_seconds: 130
+    
+    # Turn 6: Multiple audio formats
+    - role: user
+      parts:
+        - type: text
+          text: "Create three audio files: WAV, MP3, and OGG formats"
+      
+      assertions:
+        # Validate multiple supported formats
+        - type: audio_format
+          params:
+            formats:
+              - wav
+              - mp3
+              - ogg
+    
+    # Turn 7: Combined format and duration validation
+    - role: user
+      parts:
+        - type: text
+          text: "Create a 10-second WAV audio sample"
+      
+      assertions:
+        # Validate WAV format
+        - type: audio_format
+          params:
+            formats:
+              - wav
+        
+        # Validate 10-second duration (with tolerance)
+        - type: audio_duration
+          params:
+            min_seconds: 9
+            max_seconds: 11
+    
+    # Turn 8: Validate podcast-length audio
+    - role: user
+      parts:
+        - type: text
+          text: "Generate a 5-minute podcast intro"
+      
+      assertions:
+        # Validate duration is around 5 minutes (300 seconds)
+        - type: audio_duration
+          params:
+            min_seconds: 290
+            max_seconds: 310
+        
+        # Validate high-quality format
+        - type: audio_format
+          params:
+            formats:
+              - wav
+              - flac
+              - mp3

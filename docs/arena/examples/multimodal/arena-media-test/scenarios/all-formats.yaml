@@ -1,0 +1,92 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: all-formats
+spec:
+  task_type: media-analysis
+  description: "Test all supported media formats"
+
+  turns:
+    - role: user
+      parts:
+        - type: text
+          text: "Test JPEG format:"
+        - type: image
+          media:
+            file_path: ../../tools/arena/testdata/media/test-image-small.jpg
+            mime_type: image/jpeg
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "JPEG"
+
+    - role: user
+      parts:
+        - type: text
+          text: "Test PNG format:"
+        - type: image
+          media:
+            file_path: ../../tools/arena/testdata/media/test-image-small.png
+            mime_type: image/png
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "PNG"
+
+    - role: user
+      parts:
+        - type: text
+          text: "Test GIF format:"
+        - type: image
+          media:
+            file_path: ../../tools/arena/testdata/media/test-image-small.gif
+            mime_type: image/gif
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "GIF"
+
+    - role: user
+      parts:
+        - type: text
+          text: "Test WebP format:"
+        - type: image
+          media:
+            file_path: ../../tools/arena/testdata/media/test-image-small.webp
+            mime_type: image/webp
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "WebP"
+
+    - role: user
+      parts:
+        - type: text
+          text: "Test WAV audio format:"
+        - type: audio
+          media:
+            file_path: ../../tools/arena/testdata/media/test-audio-small.wav
+            mime_type: audio/wav
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "WAV"
+
+    - role: user
+      parts:
+        - type: text
+          text: "Test OGG audio format:"
+        - type: audio
+          media:
+            file_path: ../../tools/arena/testdata/media/test-audio-small.ogg
+            mime_type: audio/ogg
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "OGG"

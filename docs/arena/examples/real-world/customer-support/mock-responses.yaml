@@ -1,0 +1,18 @@
+# Mock Provider Configuration for Customer Support Example
+#
+# This configuration provides deterministic responses for testing
+# the customer support Arena example without making real API calls.
+
+defaultResponse: "Thank you for contacting our support team. How can I assist you today?"
+
+scenarios:
+  customer-support-scenarios:
+    defaultResponse: "I'm here to help you with your inquiry."
+    turns:
+      1: "Thank you for reaching out! I can help you track your order #12345. Let me look that up for you right away. According to our system, your order is currently out for delivery and should arrive by the end of today."
+      2: "I understand your concern about not receiving your order yet. Out for delivery status means it's with the courier and scheduled for delivery today. Deliveries can sometimes occur later in the day. Would you like me to contact the courier to get a more specific delivery window for you?"
+      3: "I'd be happy to help you process a refund. To better assist you, could you please provide your order number and let me know the reason for the refund request? This will help us process it more quickly."
+      4: "I'm sorry to hear the product didn't meet your expectations. That's definitely frustrating when something doesn't work as described. To process your refund, I'll need to verify a few details. Can you tell me what specific issues you're experiencing with the product?"
+      5: "I apologize for the trouble with the app crashing. Login issues can be frustrating. Let's troubleshoot this together. First, can you tell me which device and operating system version you're using? This will help me provide more specific guidance."
+      6: "Thank you for that information. iOS 17 with the latest app version - that's helpful to know. Have you tried any troubleshooting steps so far, such as restarting your device or reinstalling the app?"
+      7: "I appreciate you trying those steps already. Since reinstalling didn't resolve the issue, let's try a few more things. First, can you check if your iOS has any pending updates? Also, try clearing the app's cache by going to Settings > [App Name] > Clear Cache. If the issue persists, I can escalate this to our technical team for further investigation."

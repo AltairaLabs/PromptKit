@@ -1,0 +1,26 @@
+# Mock Provider Configuration for Assertions Test Example
+#
+# This configuration provides deterministic responses for testing
+# assertion functionality without making real API calls.
+
+defaultResponse: "I'm ready to help with your questions and provide accurate information."
+
+scenarios:
+  scripted-turns:
+    defaultResponse: "I'm here to assist you with various topics."
+    turns:
+      1: "The capital of France is Paris. Paris has been the capital of France for centuries and is located in the north-central part of the country along the Seine River."
+      2: "Python is a high-level, interpreted programming language known for its simple syntax and versatility. Python programming is widely used for web development, data science, artificial intelligence, automation, and many other applications."
+
+  self-play:
+    defaultResponse: "I'm ready to discuss renewable energy and environmental topics."
+    turns:
+      1: "Renewable energy sources like solar power are crucial for our sustainable future. Solar energy harnesses the power of the sun through photovoltaic cells and can significantly reduce our dependence on fossil fuels while providing clean electricity."
+      2: "Wind energy is another excellent renewable source that converts wind motion into electricity. These renewable technologies are becoming more efficient and cost-effective each year."
+      3: "Hydroelectric power uses flowing water to generate clean energy, while geothermal systems tap into the Earth's natural heat. All these renewable energy sources help reduce carbon emissions."
+
+  tool-usage:
+    defaultResponse: "I'm ready to help and can use various tools as needed."
+    turns:
+      1: "I'll search for information about renewable energy for you. Let me use the search tool to find the latest data and research on this important topic."
+      2: "Now let me calculate the potential energy savings from solar panel installation. I'll use the calculator tool to determine the estimated annual energy production and cost benefits for a typical residential solar system."

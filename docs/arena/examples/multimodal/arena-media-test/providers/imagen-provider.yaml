@@ -1,0 +1,7 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: imagen-provider
+spec:
+  type: imagen
+  model: imagen-4.0-generate-001

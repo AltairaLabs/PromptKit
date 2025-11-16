@@ -1,0 +1,73 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: context-with-caching
+spec:
+  task_type: chat
+  description: "Test Anthropic prompt caching with context management"
+  
+  # Enable caching for Anthropic providers
+  context_policy:
+    token_budget: 50000       # 50k tokens
+    reserve_for_output: 4000
+    strategy: "oldest"
+    cache_breakpoints: true   # Enable Anthropic caching
+  
+  # Only test with Anthropic (caching-enabled provider)
+  providers:
+    - anthropic-claude-sonnet
+  
+  turns:
+    - role: user
+      content: "What are the planets in our solar system?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["planets", "solar system"]
+    
+    - role: user
+      content: "Tell me about Mercury."
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["Mercury"]
+    
+    - role: user
+      content: "What about Venus?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["Venus"]
+    
+    - role: user
+      content: "Now tell me about Earth."
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["Earth"]
+    
+    - role: user
+      content: "What about Mars?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["Mars"]
+    
+    # These subsequent turns should benefit from cached system prompt
+    - role: user
+      content: "Tell me about Jupiter."
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["Jupiter"]
+    
+    - role: user
+      content: "What about Saturn?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["Saturn"]
+
+  context_metadata:
+    domain: "astronomy"
+    test_goal: "verify cache breakpoints reduce costs on subsequent turns"

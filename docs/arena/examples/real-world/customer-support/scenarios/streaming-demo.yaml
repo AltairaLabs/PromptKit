@@ -1,0 +1,65 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: streaming-demo
+spec:
+  task_type: support
+  description: "Demonstrates streaming configuration at scenario and turn level"
+  
+  # Enable streaming for all turns by default
+  streaming: true
+  
+  turns:
+    # Turn 1: Uses scenario-level streaming (true)
+    - role: user
+      content: "How does your support system work?"
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(support|help|assist|team|process|work)"
+            message: "Should describe support system"
+    
+    # Turn 2: Override to disable streaming for a quick question
+    - role: user
+      content: "What's your support hours?"
+      streaming: false
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(hours|available|24|time|business)"
+            message: "Should provide support hours information"
+    
+    # Turn 3: Explicitly enable streaming (same as default, but shows you can be explicit)
+    - role: user
+      content: "Can you give an example of helping a customer?"
+      streaming: true
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(customer|help|example|problem|issue|assist)"
+            message: "Should provide customer help example"
+    
+    # Turn 4: Uses scenario-level streaming (true)
+    - role: user
+      content: "Thank you for the information!"
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(welcome|thank|help|glad|happy|pleasure)"
+            message: "Should acknowledge thanks professionally"
+
+  context:
+    goal: "Demonstrate streaming behavior with mixed turn configurations"
+    timeline: "immediate"
+
+  context_metadata:
+    domain: "customer support"
+    role: "support agent"
+    user_context: "customers asking various questions"
+    session_goal: "Respond helpfully while demonstrating streaming capabilities"
+
+  constraints:
+    max_sentences: 10
+    required_themes:
+      - "professional"
+      - "helpful"

@@ -1,0 +1,31 @@
+# Mock Provider Configuration for MCP Filesystem Test Example
+#
+# This configuration provides deterministic responses for testing
+# filesystem operations via MCP without making real API calls.
+
+defaultResponse: "I'm ready to help with filesystem operations using the available tools."
+
+scenarios:
+  file-operations:
+    defaultResponse: "I can help you with file and directory operations."
+    turns:
+      1: "I've successfully created the file 'notes.txt' in the test_workspace directory with your specified content. The file is now ready for use."
+      2: "Here are the contents of notes.txt: 'Hello from PromptKit! This is a test file.' The file was created correctly with the exact content you requested."
+      3: "Files in test_workspace directory:\n- notes.txt\n\nThe directory currently contains the notes.txt file we just created."
+      4: "I've successfully created 'data.txt' in the test_workspace directory with the content: 'Test data: 123, 456, 789'. The file is now available."
+      5: "Here are the contents of data.txt: 'Test data: 123, 456, 789' - exactly as specified when we created the file."
+      6: "Files in test_workspace directory:\n- notes.txt\n- data.txt\n\nBoth files are present and accounted for in the directory."
+      7: "I've successfully created the 'archive' subdirectory inside test_workspace. The new directory structure is ready for organizing files."
+      8: "I've successfully moved data.txt into the archive subdirectory. The file is now located at test_workspace/archive/data.txt."
+      9: "Files in the archive subdirectory:\n- data.txt\n\nThe data.txt file has been successfully moved to the archive directory."
+      10: "Here are the contents of archive/data.txt: 'Test data: 123, 456, 789' - the file content remains intact after the move operation."
+
+  error-recovery:
+    defaultResponse: "I'll help you with filesystem operations and handle any errors appropriately."
+    turns:
+      1: "I attempted to read 'nonexistent.txt' but the file does not exist in the test workspace directory. Would you like me to create it instead?"
+      2: "I've successfully created 'nonexistent.txt' with the content 'This file was created after an error.' The file now exists and can be accessed."
+      3: "I cannot access the '/etc' directory due to security restrictions and permission limitations. This is expected behavior to protect system files."
+      4: "Files in test_workspace directory:\n- nonexistent.txt\n\nThe directory contains the file we just created after handling the previous error."
+      5: "I understand there might be some confusion about the file names and operations. Let me clarify what files are currently available."
+      6: "Current files in test_workspace:\n- nonexistent.txt (created after the initial error)\n\nThis shows the actual state of the directory with the files that exist."

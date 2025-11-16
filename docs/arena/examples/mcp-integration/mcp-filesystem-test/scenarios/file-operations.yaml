@@ -1,0 +1,136 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+
+metadata:
+  name: file-operations
+
+spec:
+  task_type: file-assistant
+  description: Test filesystem operations including read, write, and directory listing
+  
+  turns:
+    # Turn 1-2: Create and write a file
+    - role: user
+      content: "Create a file called 'notes.txt' in the test_workspace directory with the content: 'Hello from PromptKit! This is a test file.'"
+      assertions:
+        - type: tools_called
+          params:
+            tools: ["write_file"]
+            message: "Should use write_file tool to create the notes.txt file"
+        - type: content_includes
+          params:
+            patterns: ["created", "notes.txt", "successfully"]
+            message: "Should confirm file creation"
+    - role: user
+      content: "Read the contents of notes.txt to verify it was created correctly."
+      assertions:
+        - type: tools_called
+          params:
+            tools: ["read_file"]
+            message: "Should use read_file tool to read the file contents"
+        - type: content_includes
+          params:
+            patterns: ["Hello from PromptKit!", "test file"]
+            message: "Should display the exact content that was written to the file"
+    
+    # Turn 3-4: List directory and create another file
+    - role: user
+      content: "List all files in the test_workspace directory."
+      assertions:
+        - type: tools_called
+          params:
+            tools: ["list_directory"]
+            message: "Should use list_directory tool to show directory contents"
+        - type: content_includes
+          params:
+            patterns: ["notes.txt", "test_workspace"]
+            message: "Should show notes.txt in the directory listing"
+    - role: user
+      content: "Create another file called 'data.txt' with the content: 'Test data: 123, 456, 789'"
+      assertions:
+        - type: tools_called
+          params:
+            tools: ["write_file"]
+            message: "Should use write_file tool to create data.txt"
+        - type: content_includes
+          params:
+            patterns: ["created", "data.txt"]
+            message: "Should confirm data.txt creation"
+    
+    # Turn 5-6: Read second file and verify both exist
+    - role: user
+      content: "Read the contents of data.txt."
+      assertions:
+        - type: tools_called
+          params:
+            tools: ["read_file"]
+            message: "Should use read_file tool to read data.txt"
+        - type: content_includes
+          params:
+            patterns: ["Test data: 123, 456, 789"]
+            message: "Should display the exact content of data.txt"
+    - role: user
+      content: "List all files in test_workspace again to confirm both files exist."
+      assertions:
+        - type: tools_called
+          params:
+            tools: ["list_directory"]
+            message: "Should use list_directory tool"
+        - type: content_includes
+          params:
+            patterns: ["notes.txt", "data.txt"]
+            message: "Should show both files in directory listing"
+    
+    # Turn 7-8: Create subdirectory and move file
+    - role: user
+      content: "Create a subdirectory called 'archive' inside test_workspace."
+      assertions:
+        - type: tools_called
+          params:
+            tools: ["create_directory"]
+            message: "Should use create_directory tool to make archive subdirectory"
+        - type: content_includes
+          params:
+            patterns: ["created", "archive", "directory"]
+            message: "Should confirm directory creation"
+    - role: user
+      content: "Move data.txt into the archive subdirectory."
+      assertions:
+        - type: tools_called
+          params:
+            tools: ["move_file"]
+            message: "Should use move_file tool to relocate data.txt"
+        - type: content_includes
+          params:
+            patterns: ["moved", "data.txt", "archive"]
+            message: "Should confirm file was moved to archive directory"
+    
+    # Turn 9-10: Verify move and read from new location
+    - role: user
+      content: "List the files in the archive subdirectory."
+      assertions:
+        - type: tools_called
+          params:
+            tools: ["list_directory"]
+            message: "Should use list_directory tool on archive subdirectory"
+        - type: content_includes
+          params:
+            patterns: ["data.txt", "archive"]
+            message: "Should show data.txt in archive directory"
+    - role: user
+      content: "Read the contents of archive/data.txt to verify it's still intact."
+      assertions:
+        - type: tools_called
+          params:
+            tools: ["read_file"]
+            message: "Should use read_file tool on moved file"
+        - type: content_includes
+          params:
+            patterns: ["Test data: 123, 456, 789"]
+            message: "Should display original content confirming file integrity after move"
+  
+  # Require tool usage for filesystem operations
+  tool_policy:
+    tool_choice: required
+    max_tool_calls_per_turn: 5
+    max_total_tool_calls: 30
