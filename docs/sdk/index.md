@@ -4,6 +4,12 @@ title: PromptKit SDK
 nav_order: 4
 has_children: true
 permalink: /sdk/
+description: "Production-ready Go library for building robust LLM applications"
+keywords: "Go SDK, LLM SDK, AI application development, conversational AI, chatbot SDK, production AI, Go library, state management, streaming responses"
+seo:
+  type: SoftwareSourceCode
+  name: "PromptKit SDK"
+  programmingLanguage: "Go"
 ---
 
 # 🚀 PromptKit SDK

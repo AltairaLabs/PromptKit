@@ -4,6 +4,10 @@ title: Home
 nav_order: 1
 permalink: /
 description: "Professional LLM development framework with testing, packaging, and production deployment tools"
+keywords: "LLM framework, prompt testing, prompt engineering, AI application development, Go SDK, multi-provider testing, production AI deployment"
+seo:
+  type: WebSite
+  name: "PromptKit Documentation"
 ---
 
 # PromptKit Documentation

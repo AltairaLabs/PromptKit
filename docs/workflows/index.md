@@ -3,6 +3,8 @@ layout: docs
 title: Workflows
 nav_order: 8
 has_children: true
+description: "End-to-end development workflows using PromptKit components"
+keywords: "development workflow, testing workflow, deployment workflow, full-stack development, CI/CD workflow, production deployment, DevOps"
 ---
 
 # Workflows

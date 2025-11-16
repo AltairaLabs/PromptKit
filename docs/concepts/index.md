@@ -3,6 +3,8 @@ layout: docs
 title: Concepts
 nav_order: 7
 has_children: true
+description: "Fundamental concepts that apply across all PromptKit components"
+keywords: "prompt engineering, LLM concepts, template systems, provider abstraction, validation, guardrails, state management, tool integration, MCP"
 ---
 
 # Core Concepts

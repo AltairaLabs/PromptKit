@@ -4,6 +4,11 @@ title: PackC
 nav_order: 3
 has_children: true
 permalink: /packc/
+description: "PromptPack Compiler - Package and optimize prompts for production"
+keywords: "prompt compiler, prompt packaging, production prompts, CI/CD integration, prompt optimization, versioned prompts, artifact management"
+seo:
+  type: SoftwareApplication
+  name: "PackC"
 ---
 
 # 📦 PackC

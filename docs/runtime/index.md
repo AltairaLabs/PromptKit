@@ -4,6 +4,12 @@ title: Runtime
 nav_order: 5
 has_children: true
 permalink: /runtime/
+description: "Core framework powering all PromptKit tools"
+keywords: "LLM runtime, AI framework, provider abstraction, tool integration, MCP integration, pipeline architecture, conversation management, Go framework"
+seo:
+  type: SoftwareSourceCode
+  name: "PromptKit Runtime"
+  programmingLanguage: "Go"
 ---
 
 # ⚙️ Runtime

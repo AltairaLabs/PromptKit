@@ -32,18 +32,10 @@ kramdown:
 
 # Collections - Product-centric with Diátaxis
 collections:
-  # Legacy collections (keep for backward compatibility during migration)
-  guides:
+  # Product-centric collections
+  promptarena:
     output: true
-    permalink: /:collection/:name/
-  api:
-    output: true
-    permalink: /:collection/:name/
-  
-  # New product-centric collections
-  arena:
-    output: true
-    permalink: /arena/:path/
+    permalink: /promptarena/:path/
   packc:
     output: true
     permalink: /packc/:path/
@@ -57,24 +49,21 @@ collections:
   # Cross-product documentation
   workflows:
     output: true
-    permalink: /workflows/:name/
+    permalink: /workflows/:path/
   concepts:
     output: true
     permalink: /concepts/:path/
-  community:
+  guides:
     output: true
-    permalink: /community/:name/
+    permalink: /guides/:name/
+  architecture:
+    output: true
+    permalink: /architecture/:path/
+  adr:
+    output: true
+    permalink: /adr/:name/
 
-# Navigation
-header_pages:
-  - index.md
-  - guides/sdk-quickstart.md
-  - promptarena/index.md
-  - guides/arena-user-guide.md
-  - guides/packc-user-guide.md
-  - architecture/system-overview.md
-  - api/sdk.md
-  - api/runtime.md
+# Navigation (header_pages removed - using collection-based navigation)
 
 # Exclude from processing
 exclude:
@@ -100,7 +89,8 @@ exclude:
   - ../IMPLEMENTATION_PROPOSAL.md
   - local-backlog/
   - local-backlog/**/*
-  - _examples_temp/
+  - _archive/
+  - _archive/**/*
 
 # Include in processing (generated during build)
 include:
@@ -122,6 +112,14 @@ defaults:
   # Arena documentation
   - scope:
       path: "arena"
+    values:
+      layout: "default"
+      product: "arena"
+      product_name: "PromptArena"
+      product_icon: "🏟️"
+  
+  - scope:
+      path: "promptarena"
     values:
       layout: "default"
       product: "arena"
@@ -267,16 +265,22 @@ defaults:
       parent: "Concepts"
   
   - scope:
-      path: "community"
+      path: "guides"
     values:
       layout: "default"
-      parent: "Community"
+      parent: "Guides"
   
   - scope:
-      path: "getting-started"
+      path: "architecture"
     values:
       layout: "default"
-      parent: "Getting Started"
+      parent: "Architecture"
+  
+  - scope:
+      path: "adr"
+    values:
+      layout: "default"
+      parent: "Architecture Decision Records"
 
 # SEO settings
 lang: en
@@ -304,26 +308,23 @@ search:
 # Navigation structure for product-centric collections
 just_the_docs:
   collections:
-    arena:
+    promptarena:
       name: "🏟️ Arena"
-      nav_order: 2
+      nav_order: 3
     packc:
       name: "📦 PackC"
-      nav_order: 3
+      nav_order: 4
     sdk:
       name: "🚀 SDK"
-      nav_order: 4
+      nav_order: 5
     runtime:
       name: "⚙️ Runtime"
-      nav_order: 5
+      nav_order: 6
     workflows:
       name: "🔄 Workflows"
-      nav_order: 6
+      nav_order: 7
     concepts:
       name: "💡 Concepts"
-      nav_order: 7
-    community:
-      name: "🤝 Community"
       nav_order: 8
 
 # Navigation

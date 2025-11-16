@@ -4,6 +4,11 @@ title: PromptArena
 nav_order: 2
 has_children: true
 permalink: /arena/
+description: "Comprehensive testing framework for validating LLM prompts across multiple providers"
+keywords: "prompt testing, LLM testing, multi-provider testing, AI testing, prompt validation, test automation, OpenAI testing, Claude testing, Gemini testing"
+seo:
+  type: SoftwareApplication
+  name: "PromptArena"
 ---
 
 # 🏟️ PromptArena

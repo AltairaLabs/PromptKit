@@ -1,0 +1,275 @@
+---
+layout: default
+title: PromptArena Examples
+parent: PromptArena
+nav_order: 10
+has_children: true
+---
+
+# PromptKit Examples
+
+This directory contains comprehensive examples demonstrating various features and use cases of PromptKit. Each example is self-contained and includes configuration files, documentation, and any necessary code.
+
+## Example Categories
+
+### 🤖 Arena Testing Examples
+Examples demonstrating the PromptKit Arena testing framework for automated prompt evaluation and validation.
+
+### 🔧 Integration Examples  
+Examples showing how to integrate PromptKit with external systems and tools.
+
+### 🧠 Advanced Features
+Examples showcasing advanced PromptKit capabilities like human-in-the-loop workflows, state management, and custom middleware.
+
+---
+
+## Available Examples
+
+### 1. **assertions-test**
+**Category**: Arena Testing  
+**Purpose**: Demonstrates how to write and use assertions for automated prompt testing
+- Arena configuration for assertion-based testing
+- Multiple assertion types and validation patterns
+- Provider configurations for different LLM services
+
+### 2. **context-management**
+**Category**: Integration  
+**Purpose**: Shows context management and conversation state handling
+- Context preservation across conversation turns
+- State management patterns
+- Memory and context injection techniques
+
+### 3. **customer-support**
+**Category**: Arena Testing  
+**Purpose**: Complete customer support chatbot example with arena testing
+- Customer support prompt configurations
+- Multi-provider testing (OpenAI, Claude, Gemini)
+- Scenario-based testing for support conversations
+- Pack-based prompt organization
+
+### 4. **customer-support-integrated** 
+**Category**: Integration  
+**Purpose**: Integrated customer support system with external tool calls
+- Customer information retrieval
+- Support ticket creation
+- Order history access
+- Subscription status checking
+- Multi-persona testing
+
+### 5. **hitl-approval** ⭐
+**Category**: Advanced Features  
+**Purpose**: Human-in-the-loop workflow for high-value operations
+- **Language**: Go
+- **Features**: 
+  - Approval workflows for sensitive operations
+  - Email notification system
+  - Async processing patterns
+  - Custom middleware integration
+- **Files**: `main.go`, `async_email_tool.go`, `mock_provider.go`
+
+### 6. **mcp-chatbot**
+**Category**: Integration  
+**Purpose**: Model Context Protocol (MCP) integration for chatbots
+- MCP server configuration
+- Protocol-based tool integration
+- Chat scenario testing
+
+### 7. **mcp-filesystem-test** ⭐
+**Category**: Integration  
+**Purpose**: MCP integration with filesystem operations  
+- **Language**: Go
+- **Features**:
+  - Filesystem MCP server integration
+  - File operations through MCP protocol
+  - Testing MCP tool functionality
+- **Files**: `test_filesystem.go`
+
+### 8. **mcp-memory-test** ⭐
+**Category**: Integration  
+**Purpose**: MCP integration with memory/storage systems
+- **Language**: Go  
+- **Features**:
+  - Memory-based MCP server testing
+  - Persistent storage through MCP
+  - State preservation testing
+- **Files**: `test_mcp.go`
+
+### 9. **phase2-demo** ⭐
+**Category**: Advanced Features
+**Purpose**: Comprehensive demonstration of PromptKit Phase 2 capabilities
+- **Language**: Go
+- **Features**:
+  - Advanced pipeline configurations
+  - Custom middleware examples
+  - Multi-provider orchestration
+- **Files**: `main.go`
+
+### 10. **statestore-example**
+**Category**: Advanced Features  
+**Purpose**: State store configuration and usage patterns
+- State persistence configuration
+- Arena testing with state store
+- State inspection and debugging
+
+---
+
+## Getting Started
+
+### Running Arena Examples
+Most examples include an `arena.yaml` file for testing with the PromptKit Arena:
+
+```bash
+# Navigate to any arena example
+cd examples/customer-support
+
+# Run arena testing
+promptarena run
+
+# Inspect configuration
+promptarena config inspect
+
+# Generate reports
+promptarena render
+```
+
+### Running Go Examples  
+Examples with Go code can be built and executed directly:
+
+```bash
+# Navigate to a Go example
+cd examples/hitl-approval
+
+# Build the example
+go build
+
+# Run the example
+./hitl-approval
+```
+
+### Understanding Configuration Files
+
+#### `arena.yaml`
+Main Arena configuration file defining:
+- Prompt configurations and packs
+- Provider settings (OpenAI, Claude, Gemini, etc.)
+- Test scenarios and assertions
+- Self-play configurations
+
+#### Provider Files (`providers/`)
+Individual provider configurations:
+- `openai-gpt4o-mini.yaml` - OpenAI GPT-4o Mini
+- `claude-3-5-haiku.yaml` - Anthropic Claude 3.5 Haiku  
+- `gemini-2-0-flash.yaml` - Google Gemini 2.0 Flash
+
+#### Scenario Files (`scenarios/`)
+Test scenario definitions:
+- Conversation flows
+- Expected behaviors
+- Validation criteria
+- Streaming configurations
+
+#### Prompt Files (`prompts/`)
+Prompt configurations and templates:
+- System prompts
+- User prompts  
+- Prompt packs
+- Template variables
+
+## Example Patterns
+
+### Basic Arena Testing
+1. Configure providers in `providers/`
+2. Define prompts in `prompts/`
+3. Set up scenarios in `scenarios/`
+4. Configure arena in `arena.yaml`
+5. Run tests with `promptarena run`
+
+### Integration Development
+1. Implement integration logic in Go
+2. Configure MCP servers if needed
+3. Set up workspace in `go.work`
+4. Build and test integration
+5. Document usage patterns
+
+### Advanced Workflows  
+1. Design custom middleware
+2. Implement HITL patterns
+3. Configure state management
+4. Set up async processing
+5. Test with arena framework
+
+## Best Practices
+
+### Configuration Management
+- Use environment variables for sensitive data
+- Organize configs by environment (dev, staging, prod)
+- Version control configuration templates
+- Document configuration parameters
+
+### Testing Strategy
+- Write comprehensive arena scenarios
+- Test across multiple providers
+- Validate edge cases and error conditions
+- Use assertions for automated validation
+
+### Code Organization
+- Follow Go module best practices
+- Use clear, descriptive naming
+- Include comprehensive documentation
+- Implement proper error handling
+
+## Troubleshooting
+
+### Common Issues
+
+**Import Path Errors**
+- Ensure `go.work` includes your example module
+- Verify import paths match repository structure
+- Check Go version compatibility
+
+**Arena Configuration Errors**  
+- Validate YAML syntax with `promptarena config inspect`
+- Check file paths are relative to arena.yaml
+- Verify provider configurations are accessible
+
+**Build Failures**
+- Ensure all dependencies are properly versioned
+- Check for Go version compatibility
+- Verify replace directives in go.mod
+
+### Getting Help
+
+- Check individual example README files for specific guidance
+- Review Arena documentation for testing framework details
+- Consult SDK documentation for integration patterns
+- Check troubleshooting guides in `/docs`
+
+---
+
+## Contributing
+
+When adding new examples:
+
+1. **Create descriptive directory names**
+2. **Include comprehensive README.md**
+3. **Add arena.yaml for testable examples**
+4. **Update this main README**
+5. **Test all configurations work**
+6. **Document any special requirements**
+
+### Example Template Structure
+```
+new-example/
+├── README.md              # Detailed example documentation
+├── arena.yaml            # Arena configuration (if applicable)
+├── go.mod               # Go module (if Go code)
+├── main.go              # Main implementation (if Go code)
+├── prompts/             # Prompt configurations
+├── providers/           # Provider configurations  
+├── scenarios/           # Test scenarios
+└── tools/              # Tool configurations (if applicable)
+```
+
+---
+
+*This examples collection demonstrates the full power and flexibility of PromptKit across various use cases, from simple prompt testing to complex multi-system integrations.*
