@@ -17,19 +17,24 @@ Create provider configurations in `providers/` directory:
 
 ```yaml
 # providers/openai.yaml
-version: "1.0"
-type: openai
-model: gpt-4o-mini
-region: us
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: openai-gpt4o-mini
+  labels:
+    provider: openai
 
-parameters:
-  temperature: 0.6
-  max_tokens: 2000
-  top_p: 1.0
-
-auth:
-  api_key_env: OPENAI_API_KEY  # Read from environment variable
+spec:
+  type: openai
+  model: gpt-4o-mini
+  
+  defaults:
+    temperature: 0.6
+    max_tokens: 2000
+    top_p: 1.0
 ```
+
+Authentication uses the `OPENAI_API_KEY` environment variable automatically.
 
 ## Supported Providers
 
@@ -37,17 +42,20 @@ auth:
 
 ```yaml
 # providers/openai-gpt4.yaml
-version: "1.0"
-type: openai
-model: gpt-4o
-region: us
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: openai-gpt4o
+  labels:
+    provider: openai
 
-parameters:
-  temperature: 0.7
-  max_tokens: 4000
-
-auth:
-  api_key_env: OPENAI_API_KEY
+spec:
+  type: openai
+  model: gpt-4o
+  
+  defaults:
+    temperature: 0.7
+    max_tokens: 4000
 ```
 
 **Available Models**: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `gpt-3.5-turbo`
@@ -56,18 +64,23 @@ auth:
 
 ```yaml
 # providers/claude.yaml
-version: "1.0"
-type: anthropic
-model: claude-3-5-sonnet-20241022
-region: us
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: claude-sonnet
+  labels:
+    provider: anthropic
 
-parameters:
-  temperature: 0.6
-  max_tokens: 4000
-
-auth:
-  api_key_env: ANTHROPIC_API_KEY
+spec:
+  type: anthropic
+  model: claude-3-5-sonnet-20241022
+  
+  defaults:
+    temperature: 0.6
+    max_tokens: 4000
 ```
+
+Authentication uses the `ANTHROPIC_API_KEY` environment variable automatically.
 
 **Available Models**: `claude-3-5-sonnet-20241022`, `claude-3-5-haiku-20241022`, `claude-3-opus-20240229`
 
@@ -75,18 +88,23 @@ auth:
 
 ```yaml
 # providers/gemini.yaml
-version: "1.0"
-type: google
-model: gemini-1.5-flash
-region: us
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: gemini-flash
+  labels:
+    provider: google
 
-parameters:
-  temperature: 0.7
-  max_tokens: 2000
-
-auth:
-  api_key_env: GOOGLE_API_KEY
+spec:
+  type: gemini
+  model: gemini-1.5-flash
+  
+  defaults:
+    temperature: 0.7
+    max_tokens: 2000
 ```
+
+Authentication uses the `GOOGLE_API_KEY` environment variable automatically.
 
 **Available Models**: `gemini-1.5-pro`, `gemini-1.5-flash`, `gemini-2.0-flash-exp`
 
@@ -94,43 +112,48 @@ auth:
 
 ```yaml
 # providers/azure-openai.yaml
-version: "1.0"
-type: azure-openai
-model: gpt-4o
-region: eastus
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: azure-openai-gpt4o
+  labels:
+    provider: azure-openai
 
-azure:
-  endpoint: https://your-resource.openai.azure.com
-  deployment: gpt-4o-deployment
-  api_version: "2024-02-15-preview"
-
-parameters:
-  temperature: 0.6
-  max_tokens: 2000
-
-auth:
-  api_key_env: AZURE_OPENAI_API_KEY
+spec:
+  type: azure-openai
+  model: gpt-4o
+  
+  base_url: https://your-resource.openai.azure.com
+  
+  defaults:
+    temperature: 0.6
+    max_tokens: 2000
 ```
+
+Authentication uses the `AZURE_OPENAI_API_KEY` environment variable automatically.
 
 ## Arena Configuration
 
 Reference providers in your `arena.yaml`:
 
 ```yaml
-version: "1.0"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: multi-provider-arena
 
-providers:
-  - path: ./providers/openai.yaml
-  - path: ./providers/claude.yaml
-  - path: ./providers/gemini.yaml
-
-# Provider selection
-default_providers: [openai-gpt4, claude-sonnet]
-
-# Or in scenarios, specify which providers to use
-scenarios:
-  - path: ./scenarios/customer-support.yaml
-    providers: [openai-gpt4, claude-sonnet]  # Test with these providers
+spec:
+  prompt_configs:
+    - id: support
+      file: prompts/support.yaml
+  
+  providers:
+    - file: providers/openai.yaml
+    - file: providers/claude.yaml
+    - file: providers/gemini.yaml
+  
+  scenarios:
+    - file: scenarios/customer-support.yaml
 ```
 
 ## Authentication Setup
@@ -185,59 +208,69 @@ env:
 Test across different model sizes/versions:
 
 ```yaml
-# providers/openai-variants.yaml
+# providers/openai-gpt4.yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: openai-gpt4
+  labels:
+    provider: openai
+    tier: premium
+
+spec:
+  type: openai
+  model: gpt-4o
+  defaults:
+    temperature: 0.6
+
 ---
-version: "1.0"
-type: openai
-model: gpt-4o
-alias: openai-gpt4
-parameters:
-  temperature: 0.6
----
-version: "1.0"
-type: openai
-model: gpt-4o-mini
-alias: openai-mini
-parameters:
-  temperature: 0.6
-```
+# providers/openai-mini.yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: openai-mini
+  labels:
+    provider: openai
+    tier: cost-effective
 
-### Regional Variants
-
-```yaml
-# providers/claude-us.yaml
-version: "1.0"
-type: anthropic
-model: claude-3-5-sonnet-20241022
-region: us
-alias: claude-us
-
-# providers/claude-eu.yaml
-version: "1.0"
-type: anthropic
-model: claude-3-5-sonnet-20241022
-region: eu
-alias: claude-eu
+spec:
+  type: openai
+  model: gpt-4o-mini
+  defaults:
+    temperature: 0.6
 ```
 
 ### Temperature Variations
 
 ```yaml
 # providers/openai-creative.yaml
-version: "1.0"
-type: openai
-model: gpt-4o
-alias: openai-creative
-parameters:
-  temperature: 0.9  # More creative/random
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: openai-creative
+  labels:
+    mode: creative
 
+spec:
+  type: openai
+  model: gpt-4o
+  defaults:
+    temperature: 0.9  # More creative/random
+
+---
 # providers/openai-precise.yaml
-version: "1.0"
-type: openai
-model: gpt-4o
-alias: openai-precise
-parameters:
-  temperature: 0.1  # More deterministic
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: openai-precise
+  labels:
+    mode: deterministic
+
+spec:
+  type: openai
+  model: gpt-4o
+  defaults:
+    temperature: 0.1  # More deterministic
 ```
 
 ## Provider Selection
@@ -257,16 +290,23 @@ promptarena run
 
 ### Scenario-specific Providers
 
+Use labels to specify provider constraints:
+
 ```yaml
 # scenarios/openai-only.yaml
-version: "1.0"
-task_type: support
-providers: [openai-gpt4]  # Only test with this provider
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: openai-specific-test
+  labels:
+    provider-specific: openai
 
-test_cases:
-  - name: "OpenAI-specific feature test"
-    turns:
-      - user: "Test message"
+spec:
+  task_type: support
+  
+  turns:
+    - role: user
+      content: "Test message"
 ```
 
 ## Parameter Overrides

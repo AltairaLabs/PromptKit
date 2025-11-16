@@ -7,39 +7,49 @@ order: 1
 
 Learn how to install and set up PromptArena for testing LLM applications.
 
-## Prerequisites
-
-- Go 1.23 or later
-- Git
-
 ## Installation Methods
 
-### Option 1: Install from Source (Recommended)
+### Option 1: Homebrew (macOS/Linux - Recommended)
 
 ```bash
-# Clone the repository
-git clone https://github.com/altairalabs/promptkit.git
-cd promptkit
+# Install PromptKit (includes PromptArena)
+brew install promptkit
 
-# Build and install Arena
-make install-arena
+# Verify installation
+promptarena --version
 ```
 
-This installs the `promptarena` binary to your system.
-
-### Option 2: Build Locally
+### Option 2: Go Install
 
 ```bash
-# From the repository root
-make build-arena
+# Install directly with Go
+go install github.com/altairalabs/promptkit/tools/arena@latest
 
-# The binary is available at:
-./bin/promptarena
+# The binary will be in your $GOPATH/bin
+promptarena --version
 ```
 
 ### Option 3: Download Pre-built Binary
 
 Visit the [PromptKit Releases](https://github.com/altairalabs/promptkit/releases) page and download the appropriate binary for your platform.
+
+```bash
+# Example for macOS (adjust version and platform as needed)
+curl -LO https://github.com/AltairaLabs/PromptKit/releases/latest/download/promptarena-darwin-amd64
+chmod +x promptarena-darwin-amd64
+sudo mv promptarena-darwin-amd64 /usr/local/bin/promptarena
+```
+
+### For Developers: Build from Source
+
+```bash
+# Clone the repository
+git clone https://github.com/AltairaLabs/PromptKit.git
+cd PromptKit
+
+# Build and install
+make install-arena
+```
 
 ## Verify Installation
 
@@ -61,16 +71,20 @@ cd my-llm-tests
 
 # Create a minimal config file
 cat > arena.yaml << 'EOF'
-version: "1.0"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: my-llm-tests
 
-prompts:
-  - path: ./prompts
-
-providers:
-  - path: ./providers
-
-scenarios:
-  - path: ./scenarios
+spec:
+  prompts:
+    - path: ./prompts
+  
+  providers:
+    - path: ./providers
+  
+  scenarios:
+    - path: ./scenarios
 EOF
 ```
 
@@ -82,9 +96,9 @@ EOF
 
 ## Troubleshooting
 
-### Command Not Found
+### Command Not Found (Go Install)
 
-If `promptarena` is not found after installation:
+If `promptarena` is not found after `go install`:
 
 ```bash
 # Ensure Go bin is in your PATH
@@ -92,20 +106,21 @@ export PATH=$PATH:$(go env GOPATH)/bin
 
 # Add to your shell profile (~/.zshrc or ~/.bashrc)
 echo 'export PATH=$PATH:$(go env GOPATH)/bin' >> ~/.zshrc
+source ~/.zshrc
 ```
 
-### Permission Denied
+### Permission Denied (Binary Download)
 
 ```bash
 # Make the binary executable
-chmod +x ./bin/promptarena
+chmod +x promptarena-*
 ```
 
-### Build Failures
+### Homebrew Not Found
 
-Ensure you have Go 1.23 or later:
+Install Homebrew first:
 
 ```bash
-go version
-# Should show: go version go1.23.x or higher
+# macOS/Linux
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ```

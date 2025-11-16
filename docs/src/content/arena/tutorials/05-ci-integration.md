@@ -182,20 +182,25 @@ In your GitHub repository:
 `scenarios/smoke/basic.yaml`:
 
 ```yaml
-version: "1.0"
-task_type: support
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: basic-response-test
+  labels:
+    category: smoke
+    speed: fast
 
-test_cases:
-  - name: "Basic Response Test"
-    tags: [smoke, fast]
-    
-    turns:
-      - user: "Hello"
-        expected:
-          - type: response_received
-          - type: not_empty
-          - type: max_length
-            value: 200
+spec:
+  task_type: support
+  
+  turns:
+    - role: user
+      content: "Hello"
+      assertions:
+        - type: content_length
+          params:
+            max: 200
+            message: "Response should be brief"
 ```
 
 ### Critical Path Tests
@@ -203,25 +208,38 @@ test_cases:
 `scenarios/critical/core.yaml`:
 
 ```yaml
-version: "1.0"
-task_type: support
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: core-functionality
+  labels:
+    category: critical
+    priority: must-pass
 
-test_cases:
-  - name: "Core Functionality"
-    tags: [critical, must-pass]
-    
-    turns:
-      - user: "What are your business hours?"
-        expected:
-          - type: contains
-            value: ["Monday", "Friday"]
-          - type: response_time
+spec:
+  task_type: support
+  
+  turns:
+    - role: user
+      content: "What are your business hours?"
+      assertions:
+        - type: content_includes
+          params:
+            text: "Monday"
+            message: "Should mention business days"
+        
+        - type: response_time
+          params:
             max_seconds: 3
-      
-      - user: "How do I contact support?"
-        expected:
-          - type: contains
-            value: ["email", "phone", "chat"]
+            message: "Should respond quickly"
+    
+    - role: user
+      content: "How do I contact support?"
+      assertions:
+        - type: content_includes
+          params:
+            text: "email"
+            message: "Should provide contact methods"
 ```
 
 ## Step 5: Add Quality Gates

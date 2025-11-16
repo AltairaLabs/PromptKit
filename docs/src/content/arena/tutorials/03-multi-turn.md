@@ -39,48 +39,53 @@ Multi-turn testing ensures:
 Create `scenarios/support-conversation.yaml`:
 
 ```yaml
-version: "1.0"
-task_type: support
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: account-issue-resolution
+  labels:
+    category: multi-turn
+    type: customer-service
 
-test_cases:
-  - name: "Account Issue Resolution"
-    tags: [multi-turn, customer-service]
+spec:
+  task_type: support
+  
+  turns:
+    # Turn 1: Initial problem statement
+    - role: user
+      content: "I can't access my account"
+      assertions:
+        - type: content_includes
+          params:
+            text: "help"
+            message: "Should offer help"
     
-    turns:
-      # Turn 1: Initial problem statement
-      - user: "I can't access my account"
-        expected:
-          - type: contains
-            value: ["help", "account", "access"]
-          - type: tone
-            value: helpful
-      
-      # Turn 2: Providing details
-      - user: "I get an error message saying 'Invalid credentials'"
-        expected:
-          # Should reference the previous context
-          - type: references_previous
-            value: true
-          - type: contains
-            value: ["password", "reset", "credentials"]
-      
-      # Turn 3: Follow-up question
-      - user: "How long will it take?"
-        expected:
-          # Should understand "it" refers to password reset
-          - type: references_previous
-            value: true
-          - type: contains
-            value: ["time", "minutes", "hours"]
-      
-      # Turn 4: Additional inquiry
-      - user: "Will I lose my saved preferences?"
-        expected:
-          # Should maintain conversation context
-          - type: contains
-            value: ["preferences", "saved", "keep"]
-          - type: sentiment
-            value: reassuring
+    # Turn 2: Providing details
+    - role: user
+      content: "I get an error message saying 'Invalid credentials'"
+      assertions:
+        - type: content_includes
+          params:
+            text: "password"
+            message: "Should reference password reset"
+    
+    # Turn 3: Follow-up question
+    - role: user
+      content: "How long will it take?"
+      assertions:
+        - type: content_includes
+          params:
+            text: "time"
+            message: "Should provide timeframe"
+    
+    # Turn 4: Additional inquiry
+    - role: user
+      content: "Will I lose my saved preferences?"
+      assertions:
+        - type: content_includes
+          params:
+            text: "preferences"
+            message: "Should address preferences concern"
 ```
 
 ## Step 2: Test Context Retention
@@ -98,52 +103,57 @@ The `references_previous` assertion checks if the response demonstrates awarenes
 Create `scenarios/progressive-disclosure.yaml`:
 
 ```yaml
-version: "1.0"
-task_type: support
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: flight-booking
+  labels:
+    category: progressive
+    type: multi-turn
 
-test_cases:
-  - name: "Step-by-Step Information Collection"
-    tags: [progressive, multi-turn]
+spec:
+  task_type: support
+  description: "Step-by-step information collection"
+  
+  context_metadata:
+    session_goal: "Book a flight"
+  
+  turns:
+    # Turn 1: Initial inquiry
+    - role: user
+      content: "I need to book a flight"
+      assertions:
+        - type: content_includes
+          params:
+            text: "destination"
+            message: "Should ask for destination"
     
-    turns:
-      # Turn 1: Initial inquiry
-      - user: "I need to book a flight"
-        expected:
-          - type: contains
-            value: ["destination", "where", "travel"]
-      
-      # Turn 2: Provide destination
-      - user: "To New York"
-        context:
-          destination: "New York"
-        expected:
-          - type: contains
-            value: ["New York", "date", "when"]
-          - type: references_previous
-            value: true
-      
-      # Turn 3: Provide date
-      - user: "Next Friday"
-        context:
-          destination: "New York"
-          date: "next Friday"
-        expected:
-          - type: contains
-            value: ["Friday", "class", "preferences"]
-      
-      # Turn 4: Complete booking
-      - user: "Economy class, window seat"
-        context:
-          destination: "New York"
-          date: "next Friday"
-          class: "economy"
-          seat: "window"
-        expected:
-          - type: contains
-            value: ["economy", "window", "confirm", "New York"]
-          # Should reference all collected information
-          - type: references_previous
-            value: true
+    # Turn 2: Provide destination
+    - role: user
+      content: "To New York"
+      assertions:
+        - type: content_includes
+          params:
+            text: "date"
+            message: "Should ask for date"
+    
+    # Turn 3: Provide date
+    - role: user
+      content: "Next Friday"
+      assertions:
+        - type: content_includes
+          params:
+            text: "class"
+            message: "Should ask for class preferences"
+    
+    # Turn 4: Complete booking
+    - role: user
+      content: "Economy class, window seat"
+      assertions:
+        - type: content_includes
+          params:
+            text: "confirm"
+            message: "Should confirm booking details"
 ```
 
 ## Step 4: Conversation Branching
@@ -151,35 +161,58 @@ test_cases:
 Test different conversation paths:
 
 ```yaml
-version: "1.0"
-task_type: support
+# Path A: Successful resolution
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: happy-path-conversation
+  labels:
+    path: happy
 
-test_cases:
-  # Path A: Successful resolution
-  - name: "Happy Path Conversation"
-    tags: [happy-path]
-    
-    turns:
-      - user: "My order hasn't arrived"
-      - user: "Order number is #12345"
-      - user: "Yes, the address is correct"
-      - user: "Great, thank you!"
-        expected:
-          - type: sentiment
-            value: positive
+spec:
+  task_type: support
   
-  # Path B: Escalation needed
-  - name: "Escalation Path"
-    tags: [escalation]
-    
-    turns:
-      - user: "My order hasn't arrived"
-      - user: "Order number is #12345"
-      - user: "No, I need it urgently"
-      - user: "This is unacceptable"
-        expected:
-          - type: contains
-            value: ["supervisor", "manager", "escalate"]
+  turns:
+    - role: user
+      content: "My order hasn't arrived"
+    - role: user
+      content: "Order number is #12345"
+    - role: user
+      content: "Yes, the address is correct"
+    - role: user
+      content: "Great, thank you!"
+      assertions:
+        - type: content_includes
+          params:
+            text: "welcome"
+            message: "Should acknowledge thanks positively"
+
+---
+# Path B: Escalation needed
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: escalation-path
+  labels:
+    path: escalation
+
+spec:
+  task_type: support
+  
+  turns:
+    - role: user
+      content: "My order hasn't arrived"
+    - role: user
+      content: "Order number is #12345"
+    - role: user
+      content: "No, I need it urgently"
+    - role: user
+      content: "This is unacceptable"
+      assertions:
+        - type: content_includes
+          params:
+            text: "supervisor"
+            message: "Should offer escalation"
 ```
 
 ## Step 5: Testing Conversation Memory
@@ -187,33 +220,43 @@ test_cases:
 Create `scenarios/memory-test.yaml`:
 
 ```yaml
-version: "1.0"
-task_type: support
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: long-term-memory-test
+  labels:
+    category: memory
+    type: context-retention
 
-test_cases:
-  - name: "Long-Term Memory Test"
-    tags: [memory, context]
+spec:
+  task_type: support
+  
+  turns:
+    # Turn 1: Introduction
+    - role: user
+      content: "Hi, my name is Alice and I'm calling about my account"
+      assertions:
+        - type: content_includes
+          params:
+            text: "Alice"
+            message: "Should acknowledge name"
     
-    turns:
-      # Turn 1: Introduction
-      - user: "Hi, my name is Alice and I'm calling about my account"
-        expected:
-          - type: contains
-            value: ["Alice", "account"]
-      
-      # Turn 2-5: Other topics
-      - user: "What are your business hours?"
-      - user: "Do you offer international shipping?"
-      - user: "What's your return policy?"
-      
-      # Turn 6: Reference earlier context
-      - user: "What was my name again?"
-        expected:
-          # Should remember name from turn 1
-          - type: contains
-            value: "Alice"
-          - type: references_previous
-            value: true
+    # Turn 2-5: Other topics
+    - role: user
+      content: "What are your business hours?"
+    - role: user
+      content: "Do you offer international shipping?"
+    - role: user
+      content: "What's your return policy?"
+    
+    # Turn 6: Reference earlier context
+    - role: user
+      content: "What was my name again?"
+      assertions:
+        - type: content_includes
+          params:
+            text: "Alice"
+            message: "Should remember name from turn 1"
 ```
 
 ## Step 6: Conditional Responses
@@ -221,40 +264,50 @@ test_cases:
 Test context-dependent responses:
 
 ```yaml
-version: "1.0"
-task_type: support
+# Premium user scenario
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: premium-user-support
 
-fixtures:
-  premium_user:
-    tier: "premium"
+spec:
+  task_type: support
+  
+  context_metadata:
+    user_tier: premium
     account_id: "P-12345"
   
-  basic_user:
-    tier: "basic"
-    account_id: "B-67890"
+  turns:
+    - role: user
+      content: "I need help with my account"
+      assertions:
+        - type: content_includes
+          params:
+            text: "premium"
+            message: "Should recognize premium tier"
 
-test_cases:
-  - name: "Premium User Support"
-    context:
-      user: ${fixtures.premium_user}
-    
-    turns:
-      - user: "I need help with my account"
-        expected:
-          - type: contains
-            value: ["premium", "priority"]
-          - type: tone
-            value: personalized
+---
+# Basic user scenario
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: basic-user-support
+
+spec:
+  task_type: support
   
-  - name: "Basic User Support"
-    context:
-      user: ${fixtures.basic_user}
-    
-    turns:
-      - user: "I need help with my account"
-        expected:
-          - type: tone
-            value: helpful
+  context_metadata:
+    user_tier: basic
+    account_id: "B-67890"
+  
+  turns:
+    - role: user
+      content: "I need help with my account"
+      assertions:
+        - type: content_includes
+          params:
+            text: "help"
+            message: "Should offer helpful support"
 ```
 
 ## Step 7: Error Recovery
@@ -262,41 +315,57 @@ test_cases:
 Test how the system handles conversation errors:
 
 ```yaml
-version: "1.0"
-task_type: support
+# Clarification scenario
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: clarification-request
+  labels:
+    category: error-recovery
 
-test_cases:
-  - name: "Clarification Request"
-    tags: [error-recovery]
-    
-    turns:
-      - user: "I need that thing"
-        expected:
-          # Should ask for clarification
-          - type: contains
-            value: ["clarify", "specific", "which"]
-      
-      - user: "Sorry, I meant the refund policy"
-        expected:
-          # Should proceed with clarified topic
-          - type: contains
-            value: ["refund", "policy"]
-          - type: references_previous
-            value: true
+spec:
+  task_type: support
   
-  - name: "Misunderstanding Correction"
-    tags: [correction]
+  turns:
+    - role: user
+      content: "I need that thing"
+      assertions:
+        - type: content_includes
+          params:
+            text: "clarify"
+            message: "Should ask for clarification"
     
-    turns:
-      - user: "When can I get my order?"
-      
-      - user: "Actually, I meant to ask about returns, not delivery"
-        expected:
-          # Should pivot to the corrected topic
-          - type: contains
-            value: ["return", "policy"]
-          - type: not_contains
-            value: ["delivery", "shipping"]
+    - role: user
+      content: "Sorry, I meant the refund policy"
+      assertions:
+        - type: content_includes
+          params:
+            text: "refund"
+            message: "Should proceed with clarified topic"
+
+---
+# Misunderstanding correction
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: misunderstanding-correction
+  labels:
+    category: correction
+
+spec:
+  task_type: support
+  
+  turns:
+    - role: user
+      content: "When can I get my order?"
+    
+    - role: user
+      content: "Actually, I meant to ask about returns, not delivery"
+      assertions:
+        - type: content_includes
+          params:
+            text: "return"
+            message: "Should pivot to the corrected topic"
 ```
 
 ## Step 8: Run Multi-Turn Tests
@@ -340,27 +409,23 @@ cat out/results.json | jq '.results[] | select(.assertions[] |
 Test both sides of a conversation:
 
 ```yaml
-version: "1.0"
-task_type: support
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: self-play-customer-interaction
+  labels:
+    category: self-play
 
-test_cases:
-  - name: "Self-Play Customer Interaction"
-    tags: [self-play]
-    
-    self_play:
-      enabled: true
-      roles:
-        - name: customer
-          persona: "frustrated customer with billing issue"
-        - name: agent
-          persona: "helpful support agent"
-    
+spec:
+  task_type: support
+  
+  self_play:
+    enabled: true
+    persona: frustrated-customer
     max_turns: 10
-    
-    success_criteria:
-      - type: conversation_resolved
-      - type: max_turns
-        value: 10
+    exit_conditions:
+      - satisfaction_expressed
+      - escalation_requested
 ```
 
 Run self-play mode:
@@ -374,31 +439,40 @@ promptarena run --selfplay --scenario self-play-customer
 #### Information Extraction
 
 ```yaml
-turns:
-  - user: "Book a table for 4 people tomorrow at 7pm"
-    expected:
-      - type: extracted_info
-        fields:
-          party_size: "4"
-          date: "tomorrow"
-          time: "7pm"
+spec:
+  turns:
+    - role: user
+      content: "Book a table for 4 people tomorrow at 7pm"
+      assertions:
+        - type: content_includes
+          params:
+            text: "4"
+            message: "Should capture party size"
 ```
 
 #### Confirmation Loop
 
 ```yaml
-turns:
-  - user: "Cancel my subscription"
-  
-  - user: "Yes, I'm sure"
-    expected:
-      - type: contains
-        value: ["confirm", "cancelled"]
-  
-  - user: "Can you tell me what I'll lose?"
-    expected:
-      - type: references_previous
-        value: true
+spec:
+  turns:
+    - role: user
+      content: "Cancel my subscription"
+    
+    - role: user
+      content: "Yes, I'm sure"
+      assertions:
+        - type: content_includes
+          params:
+            text: "confirm"
+            message: "Should confirm cancellation"
+    
+    - role: user
+      content: "Can you tell me what I'll lose?"
+      assertions:
+        - type: content_includes
+          params:
+            text: "lose"
+            message: "Should explain consequences"
 ```
 
 ## Best Practices
@@ -409,59 +483,105 @@ Model actual user interactions:
 
 ```yaml
 # ✅ Good - natural conversation
-turns:
-  - user: "Hi, I have a question"
-  - user: "About shipping times"
-  - user: "To California"
+spec:
+  turns:
+    - role: user
+      content: "Hi, I have a question"
+    - role: user
+      content: "About shipping times"
+    - role: user
+      content: "To California"
 
 # ❌ Avoid - too structured
-turns:
-  - user: "Question: What are shipping times to California?"
+spec:
+  turns:
+    - role: user
+      content: "Question: What are shipping times to California?"
 ```
 
 ### 2. Validate Context at Each Turn
 
 ```yaml
-turns:
-  - user: "I'm having an issue"
-  
-  - user: "With my recent order"
-    expected:
-      - type: references_previous  # Always check
-        value: true
+spec:
+  turns:
+    - role: user
+      content: "I'm having an issue"
+    
+    - role: user
+      content: "With my recent order"
+      assertions:
+        - type: content_includes
+          params:
+            text: "order"
+            message: "Should reference order context"
 ```
 
 ### 3. Test Edge Cases
 
 ```yaml
-test_cases:
-  - name: "Very Long Conversation"
-    turns:
-      # ... 20+ turns
-  
-  - name: "Topic Switching"
-    turns:
-      - user: "Question about billing"
-      - user: "Actually, never mind, tell me about features"
-  
-  - name: "Ambiguous References"
-    turns:
-      - user: "Tell me about plans"
-      - user: "What about that one?"  # Ambiguous reference
+# Very long conversation
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: very-long-conversation
+
+spec:
+  task_type: support
+  constraints:
+    max_turns: 20
+  turns:
+    # ... 20+ turns
+
+---
+# Topic switching
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: topic-switching
+
+spec:
+  task_type: support
+  turns:
+    - role: user
+      content: "Question about billing"
+    - role: user
+      content: "Actually, never mind, tell me about features"
+
+---
+# Ambiguous references
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: ambiguous-references
+
+spec:
+  task_type: support
+  turns:
+    - role: user
+      content: "Tell me about plans"
+    - role: user
+      content: "What about that one?"
 ```
 
-### 4. Use Fixtures for Complex State
+### 4. Use Context Metadata for Complex State
 
 ```yaml
-fixtures:
-  conversation_state_1:
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: resume-conversation
+
+spec:
+  task_type: support
+  
+  context_metadata:
     previous_topic: "billing"
     unresolved_issues: ["payment failed"]
     user_mood: "frustrated"
-
-test_cases:
-  - name: "Resume Conversation"
-    context: ${fixtures.conversation_state_1}
+  
+  turns:
+    - role: user
+      content: "Let's continue where we left off"
 ```
 
 ## Common Issues
@@ -479,16 +599,17 @@ promptarena run --verbose --scenario memory-test
 
 ```yaml
 # ❌ Too strict
-expected:
+assertions:
   - type: exact_match
-    value: "I understand you mentioned your order number earlier."
+    params:
+      text: "I understand you mentioned your order number earlier."
 
 # ✅ Better
-expected:
-  - type: references_previous
-    value: true
-  - type: contains
-    value: ["order number", "mentioned"]
+assertions:
+  - type: content_includes
+    params:
+      text: "order number"
+      message: "Should reference order"
 ```
 
 ### Long Conversations Timeout

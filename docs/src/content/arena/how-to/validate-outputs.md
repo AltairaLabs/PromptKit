@@ -20,13 +20,25 @@ PromptArena provides built-in assertions and custom validators to verify that LL
 Check if response includes specific text:
 
 ```yaml
-turns:
-  - user: "What are your business hours?"
-    expected:
-      - type: contains
-        value: "Monday"
-      - type: contains
-        value: ["9 AM", "5 PM"]  # Any of these
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: business-hours-check
+
+spec:
+  turns:
+    - role: user
+      content: "What are your business hours?"
+      assertions:
+        - type: content_includes
+          params:
+            text: "Monday"
+            message: "Should mention Monday"
+        
+        - type: content_includes
+          params:
+            text: "9 AM"
+            message: "Should include opening time"
 ```
 
 #### Regex Match
@@ -34,11 +46,20 @@ turns:
 Pattern matching:
 
 ```yaml
-turns:
-  - user: "What's the support email?"
-    expected:
-      - type: regex
-        value: '[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}'
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: email-validation
+
+spec:
+  turns:
+    - role: user
+      content: "What's the support email?"
+      assertions:
+        - type: content_regex
+          params:
+            pattern: '[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}'
+            message: "Should contain valid email"
 ```
 
 #### Exact Match
@@ -46,11 +67,20 @@ turns:
 Precise response validation:
 
 ```yaml
-turns:
-  - user: "What is 2+2?"
-    expected:
-      - type: exact_match
-        value: "4"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: math-exact
+
+spec:
+  turns:
+    - role: user
+      content: "What is 2+2?"
+      assertions:
+        - type: content_exact
+          params:
+            text: "4"
+            message: "Should answer exactly 4"
 ```
 
 #### Not Contains
@@ -58,11 +88,20 @@ turns:
 Ensure specific content is absent:
 
 ```yaml
-turns:
-  - user: "Describe our product"
-    expected:
-      - type: not_contains
-        value: ["competitor", "alternative"]
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: product-description
+
+spec:
+  turns:
+    - role: user
+      content: "Describe our product"
+      assertions:
+        - type: content_excludes
+          params:
+            text: "competitor"
+            message: "Should not mention competitors"
 ```
 
 ### Structural Assertions
@@ -70,43 +109,74 @@ turns:
 #### Length Constraints
 
 ```yaml
-turns:
-  - user: "Provide a brief summary"
-    expected:
-      - type: max_length
-        value: 200  # Max characters
-      
-      - type: min_length
-        value: 50   # Min characters
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: summary-length
+
+spec:
+  turns:
+    - role: user
+      content: "Provide a brief summary"
+      assertions:
+        - type: content_max_length
+          params:
+            length: 200
+            message: "Should be under 200 characters"
+        
+        - type: content_min_length
+          params:
+            length: 50
+            message: "Should be at least 50 characters"
 ```
 
 #### Word Count
 
 ```yaml
-turns:
-  - user: "Write a tweet"
-    expected:
-      - type: max_words
-        value: 30
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: tweet-length
+
+spec:
+  turns:
+    - role: user
+      content: "Write a tweet"
+      assertions:
+        - type: content_max_words
+          params:
+            count: 30
+            message: "Should be under 30 words"
 ```
 
 #### JSON Structure
 
 ```yaml
-turns:
-  - user: "Return user data as JSON"
-    expected:
-      - type: valid_json
-      
-      - type: json_schema
-        value:
-          type: object
-          required: [name, email]
-          properties:
-            name:
-              type: string
-            email:
-              type: string
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: json-validation
+
+spec:
+  turns:
+    - role: user
+      content: "Return user data as JSON"
+      assertions:
+        - type: content_json_valid
+          params:
+            message: "Should return valid JSON"
+        
+        - type: content_json_schema
+          params:
+            schema:
+              type: object
+              required: [name, email]
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+            message: "Should match user schema"
 ```
 
 ### Behavioral Assertions
@@ -114,39 +184,68 @@ turns:
 #### Tool Calling
 
 ```yaml
-turns:
-  - user: "What's the weather in Paris?"
-    expected:
-      - type: tool_called
-        value: "get_weather"
-      
-      - type: tool_args_match
-        value:
-          location: "Paris"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: weather-tool-check
+
+spec:
+  turns:
+    - role: user
+      content: "What's the weather in Paris?"
+      assertions:
+        - type: tools_called
+          params:
+            tools: ["get_weather"]
+            message: "Should call weather tool"
+        
+        - type: tool_args_match
+          params:
+            tool: "get_weather"
+            args:
+              location: "Paris"
+            message: "Should pass Paris as location"
 ```
 
 #### Response Time
 
 ```yaml
-turns:
-  - user: "Quick question"
-    expected:
-      - type: response_time
-        max_seconds: 3
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: response-speed
+
+spec:
+  turns:
+    - role: user
+      content: "Quick question"
+      assertions:
+        - type: response_time_max
+          params:
+            seconds: 3
+            message: "Should respond within 3 seconds"
 ```
 
 #### Context Retention
 
 ```yaml
-turns:
-  - user: "My name is Alice"
-  
-  - user: "What's my name?"
-    expected:
-      - type: references_previous
-        value: true
-      - type: contains
-        value: "Alice"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: context-memory
+
+spec:
+  turns:
+    - role: user
+      content: "My name is Alice"
+    
+    - role: user
+      content: "What's my name?"
+      assertions:
+        - type: content_includes
+          params:
+            text: "Alice"
+            message: "Should remember user's name"
 ```
 
 ### Quality Assertions
@@ -154,31 +253,56 @@ turns:
 #### Sentiment
 
 ```yaml
-turns:
-  - user: "I love your product!"
-    expected:
-      - type: sentiment
-        value: positive  # positive, negative, neutral
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: sentiment-check
+
+spec:
+  turns:
+    - role: user
+      content: "I love your product!"
+      assertions:
+        - type: sentiment_positive
+          params:
+            message: "Should have positive sentiment"
 ```
 
 #### Tone
 
 ```yaml
-turns:
-  - user: "Explain this technical concept"
-    expected:
-      - type: tone
-        value: professional  # professional, casual, formal, friendly
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: tone-check
+
+spec:
+  turns:
+    - role: user
+      content: "Explain this technical concept"
+      assertions:
+        - type: tone_professional
+          params:
+            message: "Should use professional tone"
 ```
 
 #### Language Detection
 
 ```yaml
-turns:
-  - user: "Respond in Spanish"
-    expected:
-      - type: language
-        value: es
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: language-check
+
+spec:
+  turns:
+    - role: user
+      content: "Respond in Spanish"
+      assertions:
+        - type: language_is
+          params:
+            language: "es"
+            message: "Should respond in Spanish"
 ```
 
 ## Custom Validators
@@ -189,45 +313,68 @@ Create custom validation logic for complex requirements.
 
 ```yaml
 # validators/custom-validators.yaml
-version: "1.0"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: custom-validators
 
-validators:
-  - name: check_pii_removal
-    description: "Ensures no PII in responses"
-    type: script
-    language: python
-    script: |
-      import re
-      
-      def validate(response, context):
-          # Check for email addresses
-          if re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', response):
-              return False, "Email address found in response"
-          
-          # Check for phone numbers
-          if re.search(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b', response):
-              return False, "Phone number found in response"
-          
-          # Check for SSN patterns
-          if re.search(r'\b\d{3}-\d{2}-\d{4}\b', response):
-              return False, "SSN pattern found in response"
-          
-          return True, "No PII detected"
+spec:
+  type: validator
+  
+  validators:
+    - name: check_pii_removal
+      description: "Ensures no PII in responses"
+      language: python
+      script: |
+        import re
+        
+        def validate(response, context):
+            # Check for email addresses
+            if re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', response):
+                return False, "Email address found in response"
+            
+            # Check for phone numbers
+            if re.search(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b', response):
+                return False, "Phone number found in response"
+            
+            # Check for SSN patterns
+            if re.search(r'\b\d{3}-\d{2}-\d{4}\b', response):
+                return False, "SSN pattern found in response"
+            
+            return True, "No PII detected"
 ```
 
 ### Use Custom Validators
 
 ```yaml
 # arena.yaml
-validators:
-  - path: ./validators/custom-validators.yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: pii-testing-arena
+
+spec:
+  validators:
+    - path: ./validators/custom-validators.yaml
+  
+  scenarios:
+    - path: ./scenarios/pii-test.yaml
 
 # In scenario
-turns:
-  - user: "Tell me about user John Doe"
-    expected:
-      - type: custom
-        validator: check_pii_removal
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: pii-test
+
+spec:
+  turns:
+    - role: user
+      content: "Tell me about user John Doe"
+      assertions:
+        - type: custom_validator
+          params:
+            validator: check_pii_removal
+            message: "Should not contain PII"
 ```
 
 ### Advanced Validator Examples
@@ -256,34 +403,49 @@ validators:
 #### Factual Accuracy (with external data)
 
 ```yaml
-validators:
-  - name: fact_check
-    type: script
-    language: python
-    script: |
-      import json
-      
-      def validate(response, context):
-          facts = context.get("known_facts", {})
-          
-          for key, value in facts.items():
-              if key in response and str(value) not in response:
-                  return False, f"Incorrect {key}: expected {value}"
-          
-          return True, "Facts verified"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: fact-checker
+
+spec:
+  type: validator
+  
+  validators:
+    - name: fact_check
+      language: python
+      script: |
+        import json
+        
+        def validate(response, context):
+            facts = context.get("known_facts", {})
+            
+            for key, value in facts.items():
+                if key in response and str(value) not in response:
+                    return False, f"Incorrect {key}: expected {value}"
+            
+            return True, "Facts verified"
 
 # Use in scenario
-test_cases:
-  - name: "Fact checking test"
-    context:
-      known_facts:
-        price: "$99"
-        warranty: "2 years"
-    turns:
-      - user: "What's the warranty period?"
-        expected:
-          - type: custom
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: fact-checking-test
+
+spec:
+  fixtures:
+    known_facts:
+      price: "$99"
+      warranty: "2 years"
+  
+  turns:
+    - role: user
+      content: "What's the warranty period?"
+      assertions:
+        - type: custom_validator
+          params:
             validator: fact_check
+            message: "Facts should be accurate"
 ```
 
 #### Citation Validation
@@ -334,25 +496,27 @@ turns:
 ### Conditional Assertions
 
 ```yaml
-turns:
-  - user: "Check order status"
-    expected:
-      # Always validate
-      - type: contains
-        value: "order"
-      
-      # Conditional on context
-      - type: contains
-        value: "shipped"
-        condition:
-          field: order_status
-          equals: "shipped"
-      
-      - type: contains
-        value: "processing"
-        condition:
-          field: order_status
-          equals: "pending"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: order-status-conditional
+
+spec:
+  turns:
+    - role: user
+      content: "Check order status"
+      assertions:
+        # Always validate
+        - type: content_includes
+          params:
+            text: "order"
+            message: "Should mention order"
+        
+        # Additional checks based on order status
+        - type: content_includes
+          params:
+            text: "shipped"
+            message: "Should mention shipping if shipped"
 ```
 
 ## Testing Strategies
@@ -386,20 +550,32 @@ Start with basic assertions, add complexity:
 Define must-pass criteria:
 
 ```yaml
-test_cases:
-  - name: "Critical Path Test"
-    quality_gates:
-      pass_threshold: 100  # All assertions must pass
-    
-    turns:
-      - user: "Important customer query"
-        expected:
-          - type: contains
-            value: "critical terms"
-          - type: response_time
-            max_seconds: 1
-          - type: custom
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: critical-path-test
+
+spec:
+  task_type: critical
+  
+  turns:
+    - role: user
+      content: "Important customer query"
+      assertions:
+        - type: content_includes
+          params:
+            text: "critical terms"
+            message: "Must include critical terms"
+        
+        - type: response_time_max
+          params:
+            seconds: 1
+            message: "Must respond within 1 second"
+        
+        - type: custom_validator
+          params:
             validator: safety_check
+            message: "Must pass safety check"
 ```
 
 ### Regression Testing
@@ -407,17 +583,20 @@ test_cases:
 Track quality over time:
 
 ```yaml
-test_cases:
-  - name: "Baseline Quality Check"
-    baseline:
-      reference_run: "2024-01-15"
-      tolerance: 5  # 5% variation allowed
-    
-    turns:
-      - user: "Standard query"
-        expected:
-          - type: quality_score
-            min_score: 0.85
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: baseline-quality-check
+
+spec:
+  turns:
+    - role: user
+      content: "Standard query"
+      assertions:
+        - type: quality_score_min
+          params:
+            score: 0.85
+            message: "Quality should be above 85%"
 ```
 
 ## Output Reports

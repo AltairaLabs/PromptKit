@@ -23,19 +23,26 @@ In this tutorial, you'll learn to:
 
 ## Prerequisites
 
-- Go 1.22 or higher installed
 - Basic command-line knowledge
 - A text editor
 
 ## Step 1: Install PackC
 
-First, install the packc compiler:
+Choose your preferred installation method:
+
+**Option 1: Homebrew (Recommended)**
+```bash
+brew install promptkit
+```
+
+**Option 2: Go Install**
+```bash
+go install github.com/AltairaLabs/PromptKit/tools/packc@latest
+```
+
+**Verify installation:**
 
 ```bash
-# Install packc
-go install github.com/AltairaLabs/PromptKit/tools/packc@latest
-
-# Verify installation
 packc version
 ```
 
@@ -45,10 +52,11 @@ packc version
 packc v0.1.0
 ```
 
-If packc isn't found, add Go's bin directory to your PATH:
+If packc isn't found after using Go install, add Go's bin directory to your PATH:
 
 ```bash
 export PATH="$PATH:$(go env GOPATH)/bin"
+source ~/.zshrc  # or ~/.bashrc
 ```
 
 ## Step 2: Create Project Structure

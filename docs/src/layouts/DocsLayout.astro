@@ -1,5 +1,6 @@
 ---
 import Mermaid from '../components/Mermaid.astro';
+import FeedbackBox from '../components/FeedbackBox.astro';
 
 interface Props {
   title: string;
@@ -265,6 +266,7 @@ const currentPath = Astro.url.pathname;
 
       <main class="docs-content">
         <slot />
+        <FeedbackBox />
       </main>
 
       <aside class="docs-toc">

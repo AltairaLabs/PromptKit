@@ -21,31 +21,36 @@ A well-designed test scenario is:
 ### The Building Blocks
 
 ```yaml
-version: "1.0"
-task_type: support          # Links to prompt configuration
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: descriptive-name
+  tags: [category, priority]
 
-test_cases:
-  - name: "Descriptive Name"
-    tags: [category, priority]
-    context:                # Test-specific data
-      user_tier: "premium"
-    
-    turns:
-      - user: "User message"
-        expected:           # Assertions
-          - type: contains
-            value: "expected content"
+spec:
+  task_type: support          # Links to prompt configuration
+  
+  fixtures:                   # Test-specific data
+    user_tier: "premium"
+  
+  turns:
+    - role: user
+      content: "User message"
+      assertions:             # Quality criteria
+        - type: content_includes
+          params:
+            text: "expected content"
+            message: "Should include expected content"
 ```
 
 **Each element serves a purpose:**
 
-- **version**: Schema compatibility
+- **apiVersion/kind**: Schema compatibility and resource type
+- **metadata**: Identifies the scenario with name and tags
 - **task_type**: Connects to prompt configuration
-- **test_cases**: Logical grouping of related tests
-- **tags**: Organization and filtering
-- **context**: State and variables
+- **fixtures**: Reusable test data and variables
 - **turns**: Conversation exchanges
-- **expected**: Quality criteria
+- **assertions**: Quality criteria with params and messages
 
 ## Design Patterns
 
@@ -55,24 +60,41 @@ Each test case should validate one specific behavior:
 
 ```yaml
 # ✅ Good: Tests one thing
-test_cases:
-  - name: "Greeting Response"
-    turns:
-      - user: "Hello"
-        expected:
-          - type: contains
-            value: ["hi", "hello", "greetings"]
-          - type: tone
-            value: friendly
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: greeting-response
+
+spec:
+  turns:
+    - role: user
+      content: "Hello"
+      assertions:
+        - type: content_includes
+          params:
+            text: "hello"
+            message: "Should greet back"
+        
+        - type: tone_friendly
+          params:
+            message: "Should be friendly"
 
 # ❌ Avoid: Tests multiple unrelated things
-test_cases:
-  - name: "Everything Test"
-    turns:
-      - user: "Hello"
-      - user: "What's your refund policy?"
-      - user: "How do I contact support?"
-      - user: "What are your hours?"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: everything-test
+
+spec:
+  turns:
+    - role: user
+      content: "Hello"
+    - role: user
+      content: "What's your refund policy?"
+    - role: user
+      content: "How do I contact support?"
+    - role: user
+      content: "What are your hours?"
 ```
 
 **Why:** Single-responsibility tests are:
@@ -86,21 +108,27 @@ test_cases:
 Structure each turn with clear phases:
 
 ```yaml
-turns:
-  # Arrange: Set up context
-  - user: "I'm having an issue with my order"
-    context:
-      order_id: "12345"
-      order_status: "shipped"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: order-issue-test
+
+spec:
+  fixtures:
+    order_id: "12345"
+    order_status: "shipped"
   
-  # Act: Perform action (implicit - LLM responds)
-  
-  # Assert: Verify behavior
-    expected:
-      - type: contains
-        value: ["order", "12345"]
-      - type: references_previous
-        value: true
+  turns:
+    # Arrange: Set up context (via fixtures)
+    # Act: LLM responds to user message
+    # Assert: Verify behavior
+    - role: user
+      content: "I'm having an issue with my order"
+      assertions:
+        - type: content_includes
+          params:
+            text: "12345"
+            message: "Should reference order ID"
 ```
 
 ### Pattern 3: Progressive Complexity
@@ -108,28 +136,50 @@ turns:
 Start simple, build up:
 
 ```yaml
-test_cases:
-  # Level 1: Basic interaction
-  - name: "Simple Greeting"
-    turns:
-      - user: "Hi"
+# Level 1: Basic interaction
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: simple-greeting
+
+spec:
+  turns:
+    - role: user
+      content: "Hi"
+
+# Level 2: With fixtures
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: personalized-greeting
+
+spec:
+  fixtures:
+    user_name: "Alice"
   
-  # Level 2: With context
-  - name: "Personalized Greeting"
-    context:
-      user_name: "Alice"
-    turns:
-      - user: "Hi"
-        expected:
-          - type: contains
-            value: "Alice"
-  
-  # Level 3: Multi-turn
-  - name: "Greeting Conversation"
-    turns:
-      - user: "Hi, I'm Alice"
-      - user: "What's your name?"
-      - user: "Nice to meet you"
+  turns:
+    - role: user
+      content: "Hi"
+      assertions:
+        - type: content_includes
+          params:
+            text: "Alice"
+            message: "Should use user name"
+
+# Level 3: Multi-turn
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: greeting-conversation
+
+spec:
+  turns:
+    - role: user
+      content: "Hi, I'm Alice"
+    - role: user
+      content: "What's your name?"
+    - role: user
+      content: "Nice to meet you"
 ```
 
 ### Pattern 4: Edge Case Coverage
@@ -137,30 +187,57 @@ test_cases:
 Systematically test boundaries:
 
 ```yaml
-test_cases:
-  # Happy path
-  - name: "Standard Input"
-    turns:
-      - user: "What are your hours?"
+# Happy path
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: standard-input
+
+spec:
+  turns:
+    - role: user
+      content: "What are your hours?"
+
+# Empty input
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: empty-message
+  tags: [edge-case]
+
+spec:
+  turns:
+    - role: user
+      content: ""
+      assertions:
+        - type: error_handled
+          params:
+            message: "Should handle empty input"
+
+# Very long input
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: long-message
+  tags: [edge-case]
+
+spec:
+  fixtures:
+    long_text: "Very long message..."  # 10k chars
   
-  # Empty input
-  - name: "Empty Message"
-    tags: [edge-case]
-    turns:
-      - user: ""
-        expected:
-          - type: error_handled
-  
-  # Very long input
-  - name: "Long Message"
-    tags: [edge-case]
-    turns:
-      - user: "${fixtures.10k_char_message}"
-        expected:
-          - type: response_received
-  
-  # Special characters
-  - name: "Special Characters"
+  turns:
+    - role: user
+      content: "{{fixtures.long_text}}"
+      assertions:
+        - type: response_received
+          params:
+            message: "Should handle long input"
+
+# Special characters
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: special-characters
     tags: [edge-case]
     turns:
       - user: "Hello <script>alert('test')</script>"

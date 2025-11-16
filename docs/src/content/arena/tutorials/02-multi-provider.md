@@ -74,17 +74,20 @@ Create provider configurations:
 `providers/openai.yaml`:
 
 ```yaml
-version: "1.0"
-type: openai
-model: gpt-4o-mini
-alias: openai-mini
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: openai-gpt4o-mini
+  labels:
+    provider: openai
 
-parameters:
-  temperature: 0.7
-  max_tokens: 500
-
-auth:
-  api_key_env: OPENAI_API_KEY
+spec:
+  type: openai
+  model: gpt-4o-mini
+  
+  defaults:
+    temperature: 0.7
+    max_tokens: 500
 ```
 
 ### Anthropic Claude
@@ -92,17 +95,20 @@ auth:
 `providers/claude.yaml`:
 
 ```yaml
-version: "1.0"
-type: anthropic
-model: claude-3-5-sonnet-20241022
-alias: claude-sonnet
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: claude-sonnet
+  labels:
+    provider: anthropic
 
-parameters:
-  temperature: 0.7
-  max_tokens: 500
-
-auth:
-  api_key_env: ANTHROPIC_API_KEY
+spec:
+  type: anthropic
+  model: claude-3-5-sonnet-20241022
+  
+  defaults:
+    temperature: 0.7
+    max_tokens: 500
 ```
 
 ### Google Gemini
@@ -110,17 +116,20 @@ auth:
 `providers/gemini.yaml`:
 
 ```yaml
-version: "1.0"
-type: google
-model: gemini-1.5-flash
-alias: gemini-flash
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: gemini-flash
+  labels:
+    provider: google
 
-parameters:
-  temperature: 0.7
-  max_tokens: 500
-
-auth:
-  api_key_env: GOOGLE_API_KEY
+spec:
+  type: gemini
+  model: gemini-1.5-flash
+  
+  defaults:
+    temperature: 0.7
+    max_tokens: 500
 ```
 
 ## Step 4: Create a Comparison Test
@@ -128,39 +137,38 @@ auth:
 Create `scenarios/customer-support.yaml`:
 
 ```yaml
-version: "1.0"
-task_type: support
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: customer-support
+  labels:
+    category: customer-service
+    priority: comparison
 
-test_cases:
-  - name: "Product Inquiry"
-    tags: [customer-service, comparison]
+spec:
+  task_type: support
+  
+  turns:
+    - role: user
+      content: "I'm having trouble logging into my account. Can you help?"
+      assertions:
+        - type: content_includes
+          params:
+            text: "account"
+            message: "Should acknowledge account issue"
+        
+        - type: content_length
+          params:
+            max: 300
+            message: "Keep response concise"
     
-    turns:
-      - user: "I'm having trouble logging into my account. Can you help?"
-        expected:
-          # Common expectations for ALL providers
-          - type: contains
-            value: ["account", "login", "help"]
-          
-          - type: sentiment
-            value: positive
-          
-          - type: tone
-            value: helpful
-          
-          - type: max_length
-            value: 300
-          
-          - type: response_time
-            max_seconds: 5
-      
-      - user: "I've tried resetting my password but didn't receive an email."
-        expected:
-          - type: contains
-            value: ["email", "spam", "check"]
-          
-          - type: sentiment
-            value: empathetic
+    - role: user
+      content: "I've tried resetting my password but didn't receive an email."
+      assertions:
+        - type: content_includes
+          params:
+            text: "email"
+            message: "Should address email issue"
 ```
 
 ## Step 5: Update Arena Configuration
@@ -168,18 +176,23 @@ test_cases:
 Edit `arena.yaml`:
 
 ```yaml
-version: "1.0"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: multi-provider-test
 
-prompts:
-  - path: ./prompts
-
-providers:
-  - path: ./providers/openai.yaml
-  - path: ./providers/claude.yaml
-  - path: ./providers/gemini.yaml
-
-scenarios:
-  - path: ./scenarios
+spec:
+  prompt_configs:
+    - id: support
+      file: prompts/support.yaml
+  
+  providers:
+    - file: providers/openai.yaml
+    - file: providers/claude.yaml
+    - file: providers/gemini.yaml
+  
+  scenarios:
+    - file: scenarios/customer-support.yaml
 ```
 
 ## Step 6: Run Multi-Provider Tests
@@ -249,24 +262,28 @@ promptarena run --provider openai-mini,claude-sonnet
 Create `scenarios/style-test.yaml`:
 
 ```yaml
-version: "1.0"
-task_type: support
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: style-test
 
-test_cases:
-  - name: "Response Style Analysis"
-    turns:
-      - user: "Explain how your product works"
-        expected:
-          # Check for technical depth
-          - type: contains
-            value: ["feature", "work", "process"]
-          
-          # Check response length variations
-          - type: min_length
-            value: 50
-          
-          - type: max_length
-            value: 500
+spec:
+  task_type: support
+  
+  turns:
+    - role: user
+      content: "Explain how your product works"
+      assertions:
+        - type: content_includes
+          params:
+            text: "feature"
+            message: "Should explain features"
+        
+        - type: content_length
+          params:
+            min: 50
+            max: 500
+            message: "Response should be substantial but not excessive"
 ```
 
 Run and compare:
@@ -283,13 +300,22 @@ cat out/results.json | jq '.results[] | {provider: .provider, response: .respons
 Check response times:
 
 ```yaml
-test_cases:
-  - name: "Performance Test"
-    turns:
-      - user: "Quick question: what's your return policy?"
-        expected:
-          - type: response_time
-            max_seconds: 2  # All providers should respond quickly
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: performance-test
+
+spec:
+  task_type: support
+  
+  turns:
+    - role: user
+      content: "Quick question: what's your return policy?"
+      assertions:
+        - type: response_time
+          params:
+            max_seconds: 2
+            message: "All providers should respond quickly"
 ```
 
 ### Cost Analysis
@@ -326,35 +352,47 @@ Test provider-specific features:
 ### Testing Structured Output (OpenAI)
 
 ```yaml
-test_cases:
-  - name: "JSON Response Test"
-    providers: [openai-mini]  # OpenAI-only
-    
-    turns:
-      - user: "Return user info as JSON with name and email"
-        expected:
-          - type: valid_json
-          - type: json_schema
-            value:
-              type: object
-              required: [name, email]
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: json-response-test
+  labels:
+    provider-specific: openai
+
+spec:
+  task_type: support
+  
+  turns:
+    - role: user
+      content: "Return user info as JSON with name and email"
+      assertions:
+        - type: valid_json
+          params:
+            message: "Response should be valid JSON"
 ```
 
 ### Testing Long Context (Claude)
 
 ```yaml
-test_cases:
-  - name: "Long Context Test"
-    providers: [claude-sonnet]  # Claude excels at long context
-    
-    context:
-      long_document: "${fixtures.10k_word_doc}"
-    
-    turns:
-      - user: "Summarize this document"
-        expected:
-          - type: contains
-            value: "key points"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: long-context-test
+  labels:
+    provider-specific: claude
+
+spec:
+  task_type: support
+  description: "Claude excels at long context"
+  
+  turns:
+    - role: user
+      content: "Summarize this document"
+      assertions:
+        - type: content_includes
+          params:
+            text: "key points"
+            message: "Should identify key points"
 ```
 
 ## Best Practices
@@ -365,9 +403,10 @@ Use the same temperature and max_tokens across providers for fair comparison:
 
 ```yaml
 # All providers
-parameters:
-  temperature: 0.7
-  max_tokens: 500
+spec:
+  defaults:
+    temperature: 0.7
+    max_tokens: 500
 ```
 
 ### 2. Provider-Agnostic Assertions
@@ -376,36 +415,47 @@ Write assertions that work across all providers:
 
 ```yaml
 # ✅ Good - flexible
-expected:
-  - type: contains
-    value: ["help", "assist", "support"]
+assertions:
+  - type: content_includes
+    params:
+      text: "help"
+      message: "Should offer help"
 
 # ❌ Avoid - too specific to one provider's style
-expected:
+assertions:
   - type: exact_match
-    value: "I'd be happy to help you with that!"
+    params:
+      text: "I'd be happy to help you with that!"
 ```
 
-### 3. Use Aliases
+### 3. Use Meaningful Names
 
-Give providers meaningful names:
+Give providers descriptive names:
 
 ```yaml
 # providers/openai-creative.yaml
-version: "1.0"
-type: openai
-model: gpt-4o-mini
-alias: creative-mini
-parameters:
-  temperature: 0.9
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: openai-creative
+
+spec:
+  type: openai
+  model: gpt-4o-mini
+  defaults:
+    temperature: 0.9
 
 # providers/openai-precise.yaml
-version: "1.0"
-type: openai
-model: gpt-4o-mini
-alias: precise-mini
-parameters:
-  temperature: 0.1
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: openai-precise
+
+spec:
+  type: openai
+  model: gpt-4o-mini
+  defaults:
+    temperature: 0.1
 ```
 
 Test configuration variants:
@@ -419,12 +469,21 @@ promptarena run --provider creative-mini,precise-mini
 Add comments to your scenarios:
 
 ```yaml
-test_cases:
-  - name: "Customer Support Response"
-    # Note: Claude tends to be more verbose
-    # OpenAI more concise, Gemini fastest
-    turns:
-      - user: "Help with order tracking"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: customer-support-response
+  annotations:
+    notes: |
+      Claude tends to be more verbose
+      OpenAI more concise, Gemini fastest
+
+spec:
+  task_type: support
+  
+  turns:
+    - role: user
+      content: "Help with order tracking"
 ```
 
 ## Common Issues

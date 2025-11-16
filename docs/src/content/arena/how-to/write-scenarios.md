@@ -16,26 +16,40 @@ Test scenarios define the conversation flows, expected behaviors, and validation
 Create a file `scenarios/basic-test.yaml`:
 
 ```yaml
-version: "1.0"
-task_type: support  # Links to prompt configuration
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: basic-customer-inquiry
+  labels:
+    category: customer-service
+    priority: basic
 
-test_cases:
-  - name: "Basic Customer Inquiry"
-    tags: [customer-service, basic]
-    
-    # The conversation turns
-    turns:
-      - user: "What are your business hours?"
-        expected:
-          - type: contains
-            value: "Monday"
-          - type: response_time
+spec:
+  task_type: support  # Links to prompt configuration
+  description: "Tests customer support responses"
+  
+  # The conversation turns
+  turns:
+    - role: user
+      content: "What are your business hours?"
+      assertions:
+        - type: content_includes
+          params:
+            text: "Monday"
+            message: "Should mention business days"
+        
+        - type: response_time
+          params:
             max_seconds: 3
-      
-      - user: "Do you offer weekend support?"
-        expected:
-          - type: contains
-            value: ["Saturday", "Sunday"]
+            message: "Should respond quickly"
+    
+    - role: user
+      content: "Do you offer weekend support?"
+      assertions:
+        - type: content_includes
+          params:
+            text: "Saturday"
+            message: "Should mention weekend availability"
 ```
 
 ## Key Components
@@ -43,26 +57,32 @@ test_cases:
 ### Scenario Metadata
 
 ```yaml
-version: "1.0"           # PromptPack version
-task_type: support       # Links to prompt config
-region: us              # Optional: regional variant
-description: "Tests customer support responses"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: support-test
+  labels:
+    category: support
+    region: us
+  annotations:
+    description: "Tests customer support responses"
 ```
 
-### Test Cases
+### Spec Section
 
-Each test case defines a complete conversation:
+The spec section contains your test configuration:
 
 ```yaml
-test_cases:
-  - name: "Unique Test Name"
-    tags: [category, priority]  # For filtering
-    context:                    # Optional scenario-specific context
-      urgency: high
-      topic: billing
-    
-    turns:
-      # Conversation turns go here
+spec:
+  task_type: support
+  description: "Conversation flow test"
+  
+  context_metadata:
+    urgency: high
+    topic: billing
+  
+  turns:
+    # Conversation turns go here
 ```
 
 ### Conversation Turns
@@ -70,22 +90,20 @@ test_cases:
 Define user messages and expected responses:
 
 ```yaml
-turns:
-  # Basic turn
-  - user: "Hello, I need help"
-  
-  # Turn with assertions
-  - user: "What's the refund policy?"
-    expected:
-      - type: contains
-        value: "30 days"
-      - type: sentiment
-        value: positive
-  
-  # Turn with context
-  - user: "Can I upgrade my plan?"
-    context:
-      current_plan: "Basic"
+spec:
+  turns:
+    # Basic turn
+    - role: user
+      content: "Hello, I need help"
+    
+    # Turn with assertions
+    - role: user
+      content: "What's the refund policy?"
+      assertions:
+        - type: content_includes
+          params:
+            text: "30 days"
+            message: "Should mention refund period"
 ```
 
 ## Common Patterns
@@ -95,38 +113,33 @@ turns:
 Test conversation flow and context retention:
 
 ```yaml
-test_cases:
-  - name: "Multi-turn Support Dialog"
-    turns:
-      - user: "I'm having issues with my account"
-      
-      - user: "It won't let me log in"
-        expected:
-          - type: contains
-            value: ["password", "reset"]
-      
-      - user: "I already tried that"
-        expected:
-          - type: references_previous
-            value: true
-```
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: multi-turn-support-dialog
 
-### Parameter Variations
-
-Test different model settings:
-
-```yaml
-test_cases:
-  - name: "Creative Response Test"
-    parameters:
-      temperature: 0.9
-      max_tokens: 500
+spec:
+  task_type: support
+  
+  turns:
+    - role: user
+      content: "I'm having issues with my account"
     
-    turns:
-      - user: "Generate a creative product description"
-        expected:
-          - type: min_length
-            value: 100
+    - role: user
+      content: "It won't let me log in"
+      assertions:
+        - type: content_includes
+          params:
+            text: "password"
+            message: "Should offer password reset"
+    
+    - role: user
+      content: "I already tried that"
+      assertions:
+        - type: content_includes
+          params:
+            text: "help"
+            message: "Should provide alternative help"
 ```
 
 ### Tool/Function Calling
@@ -134,15 +147,27 @@ test_cases:
 Test tool integration:
 
 ```yaml
-test_cases:
-  - name: "Weather Query with Tool"
-    turns:
-      - user: "What's the weather in San Francisco?"
-        expected:
-          - type: tool_called
-            value: "get_weather"
-          - type: contains
-            value: ["temperature", "forecast"]
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: weather-query-with-tool
+
+spec:
+  task_type: assistant
+  
+  turns:
+    - role: user
+      content: "What's the weather in San Francisco?"
+      assertions:
+        - type: tools_called
+          params:
+            tools: ["get_weather"]
+            message: "Should call weather tool"
+        
+        - type: content_includes
+          params:
+            text: "temperature"
+            message: "Should mention temperature"
 ```
 
 ## Advanced Features
@@ -152,29 +177,53 @@ test_cases:
 Reuse common data across scenarios:
 
 ```yaml
-fixtures:
-  sample_user:
-    name: "Jane Smith"
-    account_id: "12345"
-    plan: "Premium"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: account-specific-test
 
-test_cases:
-  - name: "Account-specific Test"
-    context:
-      user: ${fixtures.sample_user}
+spec:
+  task_type: support
+  
+  fixtures:
+    sample_user:
+      name: "Jane Smith"
+      account_id: "12345"
+      plan: "Premium"
+  
+  system_template: |
+    You are helping user {{fixtures.sample_user.name}} 
+    (Account: {{fixtures.sample_user.account_id}}).
+  
+  turns:
+    - role: user
+      content: "What's my current plan?"
+      assertions:
+        - type: content_includes
+          params:
+            text: "Premium"
+            message: "Should reference user's Premium plan"
 ```
 
 ### Conditional Assertions
 
 ```yaml
-turns:
-  - user: "Check my order status"
-    expected:
-      - type: contains
-        value: "shipped"
-        condition:
-          field: order_status
-          equals: "shipped"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: order-status-check
+
+spec:
+  task_type: support
+  
+  turns:
+    - role: user
+      content: "Check my order status"
+      assertions:
+        - type: content_includes
+          params:
+            text: "shipped"
+            message: "Should mention shipped status"
 ```
 
 ### Multiple Providers
@@ -216,36 +265,68 @@ promptarena run --scenario high-priority
 ### 3. Balance Specificity
 
 ```yaml
-# Too specific (brittle)
-expected:
-  - type: exact_match
-    value: "Your account balance is exactly $42.00"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: balance-check-flexible
 
-# Better (flexible)
-expected:
-  - type: contains
-    value: "account balance"
-  - type: regex
-    value: '\$\d+\.\d{2}'
+spec:
+  task_type: support
+  
+  turns:
+    # Too specific (brittle)
+    - role: user
+      content: "What's my account balance?"
+      assertions:
+        - type: content_exact
+          params:
+            text: "Your account balance is exactly $42.00"
+            message: "Exact match - too brittle"
+    
+    # Better (flexible)
+    - role: user
+      content: "What's my account balance?"
+      assertions:
+        - type: content_includes
+          params:
+            text: "account balance"
+            message: "Should mention balance"
+        
+        - type: content_regex
+          params:
+            pattern: '\$\d+\.\d{2}'
+            message: "Should include dollar amount"
 ```
 
 ### 4. Test Edge Cases
 
 ```yaml
-test_cases:
-  - name: "Empty Input"
-    turns:
-      - user: ""
-        expected:
-          - type: error_handled
-            value: true
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: edge-case-testing
+
+spec:
+  task_type: support
   
-  - name: "Very Long Input"
-    turns:
-      - user: "${fixtures.long_text}"  # 10,000 chars
-        expected:
-          - type: response_received
-            value: true
+  fixtures:
+    long_text: "Very long text here..."  # 10,000 chars
+  
+  turns:
+    - role: user
+      content: ""
+      assertions:
+        - type: content_includes
+          params:
+            text: "help"
+            message: "Should handle empty input gracefully"
+    
+    - role: user
+      content: "{{fixtures.long_text}}"
+      assertions:
+        - type: content_not_empty
+          params:
+            message: "Should respond to very long input"
 ```
 
 ## File Organization

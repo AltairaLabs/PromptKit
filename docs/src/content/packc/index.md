@@ -25,8 +25,11 @@ PackC is a compiler that helps you:
 ## Quick Start
 
 ```bash
-# Install PackC
-make build-packc
+# Install PromptKit (includes PackC)
+brew install promptkit
+
+# Or with Go
+go install github.com/AltairaLabs/PromptKit/tools/packc@latest
 
 # Create a prompt source file
 cat > my-prompt.yaml <<EOF
@@ -39,10 +42,10 @@ prompts:
 EOF
 
 # Compile the pack
-./bin/packc compile my-prompt.yaml --output my-app.pack.json
+packc compile my-prompt.yaml --output my-app.pack.json
 
 # Validate the result
-./bin/packc validate my-app.pack.json
+packc validate my-app.pack.json
 ```
 
 **Next**: [Your First Compilation Tutorial](/packc/tutorials/01-first-compilation/)

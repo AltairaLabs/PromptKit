@@ -17,24 +17,28 @@ Learn the basics of PromptArena by creating and running your first LLM test.
 
 ## Prerequisites
 
-- Go 1.23 or later installed
 - An OpenAI API key (free tier works)
 
 ## Step 1: Install PromptArena
 
+Choose your preferred installation method:
+
+**Option 1: Homebrew (Recommended)**
 ```bash
-# Clone the repository
-git clone https://github.com/altairalabs/promptkit.git
-cd promptkit
-
-# Install Arena
-make install-arena
-
-# Verify installation
-promptarena --help
+brew install promptkit
 ```
 
-You should see the PromptArena command help.
+**Option 2: Go Install**
+```bash
+go install github.com/AltairaLabs/PromptKit/tools/arena@latest
+```
+
+**Verify installation:**
+```bash
+promptarena --version
+```
+
+You should see the PromptArena version information.
 
 ## Step 2: Create Your Test Project
 
@@ -52,45 +56,51 @@ mkdir -p prompts providers scenarios
 Create `prompts/greeter.yaml`:
 
 ```yaml
-version: "1.0"
-task_type: greeting
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: greeter
 
-system_prompt: |
-  You are a friendly assistant who greets users warmly.
-  Keep responses brief and welcoming.
-
-user_prompt_template: |
-  User message: 
+spec:
+  task_type: greeting
+  
+  system_template: |
+    You are a friendly assistant who greets users warmly.
+    Keep responses brief and welcoming.
 ```
 
 **What's happening here?**
-- `task_type`: Identifies this prompt configuration (we'll reference it later)
-- `system_prompt`: Instructions for the LLM
-- `user_prompt_template`: Template for user messages (Go template syntax)
+- `apiVersion` and `kind`: Standard PromptKit resource identifiers
+- `metadata.name`: Identifies this prompt configuration (we'll reference it later)
+- `spec.task_type`: Categorizes the prompt's purpose
+- `spec.system_template`: System instructions sent to the LLM
 
 ## Step 4: Configure a Provider
 
 Create `providers/openai.yaml`:
 
 ```yaml
-version: "1.0"
-type: openai
-model: gpt-4o-mini
-region: us
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: openai-gpt4o-mini
 
-parameters:
-  temperature: 0.7
-  max_tokens: 150
-
-auth:
-  api_key_env: OPENAI_API_KEY
+spec:
+  type: openai
+  model: gpt-4o-mini
+  
+  defaults:
+    temperature: 0.7
+    max_tokens: 150
 ```
 
 **What's happening here?**
-- `type`: The provider type (openai, anthropic, google, etc.)
-- `model`: Specific model to use
-- `parameters`: Model settings
-- `auth`: How to authenticate (reads from environment variable)
+- `apiVersion` and `kind`: Standard PromptKit resource identifiers
+- `metadata.name`: Friendly name for this provider configuration
+- `spec.type`: The provider type (openai, anthropic, gemini)
+- `spec.model`: Specific model to use
+- `spec.defaults`: Model parameters like temperature and max_tokens
+- Authentication uses environment variable `OPENAI_API_KEY` automatically
 
 ## Step 5: Set Your API Key
 
@@ -108,55 +118,70 @@ source ~/.zshrc
 Create `scenarios/greeting-test.yaml`:
 
 ```yaml
-version: "1.0"
-task_type: greeting  # Links to prompts/greeter.yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: greeting-test
+  labels:
+    category: basic
 
-test_cases:
-  - name: "Basic Greeting"
-    tags: [basic, greeting]
+spec:
+  task_type: greeting  # Links to prompts/greeter.yaml
+  
+  turns:
+    - role: user
+      content: "Hello!"
+      assertions:
+        - type: content_includes
+          params:
+            text: "hello"
+            message: "Should include greeting"
+        
+        - type: content_length
+          params:
+            max: 100
+            message: "Response should be brief"
     
-    turns:
-      - user: "Hello!"
-        expected:
-          - type: contains
-            value: ["hello", "hi", "greet"]
-          
-          - type: max_length
-            value: 100
-      
-      - user: "How are you?"
-        expected:
-          - type: contains
-            value: ["good", "well", "great"]
-          
-          - type: sentiment
-            value: positive
+    - role: user
+      content: "How are you?"
+      assertions:
+        - type: content_includes
+          params:
+            text: "good"
+            message: "Should respond positively"
 ```
 
 **What's happening here?**
-- `task_type`: Links to the prompt configuration
-- `test_cases`: List of tests to run
-- `turns`: Conversation exchanges
-- `expected`: Assertions to validate responses
+- `apiVersion` and `kind`: Standard PromptKit resource identifiers
+- `metadata.name`: Identifies this scenario
+- `spec.task_type`: Links to the prompt configuration with matching task_type
+- `spec.turns`: Array of conversation exchanges
+- `role: user`: Each user turn triggers an LLM response
+- `assertions`: Checks to validate the LLM's response
 
 ## Step 7: Create Main Configuration
 
 Create `arena.yaml` in your project root:
 
 ```yaml
-version: "1.0"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: my-first-test
 
-prompts:
-  - path: ./prompts
-
-providers:
-  - path: ./providers
-
-scenarios:
-  - path: ./scenarios
+spec:
+  prompt_configs:
+    - id: greeter
+      file: prompts/greeter.yaml
+  
+  providers:
+    - file: providers/openai.yaml
+  
+  scenarios:
+    - file: scenarios/greeting-test.yaml
 ```
 
-This tells Arena where to find your configuration files.
+This tells Arena which configurations to load and how to connect them.
 
 ## Step 8: Run Your First Test
 
@@ -231,23 +256,25 @@ Arena saved results in multiple formats for analysis.
 
 ### Add More Assertions
 
-Edit `scenarios/greeting-test.yaml`:
+Edit `scenarios/greeting-test.yaml` to add more checks:
 
 ```yaml
-turns:
-  - user: "Hello!"
-    expected:
-      - type: contains
-        value: ["hello", "hi", "greet"]
-      
-      - type: max_length
-        value: 100
-      
-      - type: response_time
-        max_seconds: 3
-      
-      - type: tone
-        value: friendly
+spec:
+  turns:
+    - role: user
+      content: "Hello!"
+      assertions:
+        - type: content_includes
+          params:
+            text: "hello"
+        
+        - type: content_length
+          params:
+            max: 100
+        
+        - type: response_time
+          params:
+            max_seconds: 3
 ```
 
 Run again:
@@ -258,24 +285,35 @@ promptarena run
 
 ### Test Edge Cases
 
-Add a new test case:
+Create a new scenario file `scenarios/edge-cases.yaml`:
 
 ```yaml
-test_cases:
-  - name: "Basic Greeting"
-    # ... existing test
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: edge-cases
+  labels:
+    category: edge-case
+
+spec:
+  task_type: greeting
   
-  - name: "Empty Input"
-    tags: [edge-case]
-    
-    turns:
-      - user: ""
-        expected:
-          - type: response_received
-            value: true
-          
-          - type: min_length
-            value: 10
+  turns:
+    - role: user
+      content: ""
+      assertions:
+        - type: content_length
+          params:
+            min: 10
+```
+
+Add it to `arena.yaml`:
+
+```yaml
+spec:
+  scenarios:
+    - file: scenarios/greeting-test.yaml
+    - file: scenarios/edge-cases.yaml
 ```
 
 ### Adjust Temperature
@@ -283,9 +321,10 @@ test_cases:
 Edit `providers/openai.yaml`:
 
 ```yaml
-parameters:
-  temperature: 0.2  # More deterministic
-  max_tokens: 150
+spec:
+  defaults:
+    temperature: 0.2  # More deterministic
+    max_tokens: 150
 ```
 
 Run and compare:

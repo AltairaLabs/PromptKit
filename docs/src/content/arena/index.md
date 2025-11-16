@@ -27,24 +27,45 @@ PromptArena is a powerful testing tool that helps you:
 ## Quick Start
 
 ```bash
-# Install Arena
-make build-arena
+# Install PromptKit (includes PromptArena)
+brew install promptkit
+
+# Or with Go
+go install github.com/AltairaLabs/PromptKit/tools/arena@latest
 
 # Create your first test
-cat > my-test.yaml <<EOF
-name: "My First Test"
-scenarios:
-  - name: "Basic Greeting"
-    providers: [openai, anthropic]
-    messages:
-      - role: user
-        content: "Hello!"
-    assertions:
-      - type: not_empty
+cat > arena.yaml <<EOF
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: my-first-test
+
+spec:
+  providers:
+    - path: ./providers/openai.yaml
+  
+  scenarios:
+    - path: ./scenarios/greeting.yaml
+EOF
+
+cat > scenarios/greeting.yaml <<EOF
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: basic-greeting
+
+spec:
+  turns:
+    - role: user
+      content: "Hello!"
+      assertions:
+        - type: content_not_empty
+          params:
+            message: "Should respond"
 EOF
 
 # Run the test
-./bin/promptarena test my-test.yaml
+./bin/promptarena run
 ```
 
 **Next**: [Your First Arena Test Tutorial](/arena/tutorials/01-first-test/)
@@ -104,15 +125,20 @@ Complete technical specifications:
 Test the same prompt across different LLM providers simultaneously:
 
 ```yaml
-scenarios:
-  - name: "Cross-Provider Test"
-    providers:
-      - openai
-      - anthropic
-      - google
-    messages:
-      - role: user
-        content: "Explain quantum computing"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: cross-provider-test
+
+spec:
+  providers:
+    - path: ./providers/openai.yaml
+    - path: ./providers/claude.yaml
+    - path: ./providers/gemini.yaml
+  
+  scenarios:
+    - path: ./scenarios/quantum-test.yaml
+      providers: [openai-gpt4, claude-sonnet, gemini-pro]
 ```
 
 ### Rich Assertions
@@ -120,15 +146,35 @@ scenarios:
 Validate outputs with powerful assertions:
 
 ```yaml
-assertions:
-  - type: not_empty
-  - type: contains
-    value: "quantum"
-  - type: max_tokens
-    value: 500
-  - type: semantic_similarity
-    reference: "Expected explanation"
-    threshold: 0.85
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: quantum-test
+
+spec:
+  turns:
+    - role: user
+      content: "Explain quantum computing"
+      assertions:
+        - type: content_not_empty
+          params:
+            message: "Should provide response"
+        
+        - type: content_includes
+          params:
+            text: "quantum"
+            message: "Should mention quantum"
+        
+        - type: content_max_tokens
+          params:
+            tokens: 500
+            message: "Should be concise"
+        
+        - type: semantic_similarity
+          params:
+            reference: "Expected explanation"
+            threshold: 0.85
+            message: "Should match expected content"
 ```
 
 ### Performance Metrics
@@ -147,7 +193,7 @@ Run tests in your pipeline:
 ```yaml
 # .github/workflows/test-prompts.yml
 - name: Test Prompts
-  run: promptarena test tests/*.yaml --fail-on-error
+  run: promptarena run --ci --fail-on-error
 ```
 
 ---

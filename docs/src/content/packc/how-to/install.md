@@ -11,21 +11,13 @@ Install the packc compiler on your system.
 
 Get packc installed and ready to compile prompt packs.
 
-## Prerequisites
-
-- Go 1.22 or higher
-- Git (for source installation)
-- Network access to download dependencies
-
 ## Installation Methods
 
-### Method 1: Install from Source (Recommended)
-
-This installs the latest version from the repository:
+### Method 1: Homebrew (macOS/Linux - Recommended)
 
 ```bash
-# Install latest version
-go install github.com/AltairaLabs/PromptKit/tools/packc@latest
+# Install PromptKit (includes PackC)
+brew install promptkit
 
 # Verify installation
 packc version
@@ -37,19 +29,55 @@ packc version
 packc v0.1.0
 ```
 
-### Method 2: Install Specific Version
+### Method 2: Go Install
 
-Pin to a specific version for reproducible builds:
+This installs the latest version directly:
 
 ```bash
-# Install specific version
-go install github.com/AltairaLabs/PromptKit/tools/packc@v0.1.0
+# Install latest version
+go install github.com/AltairaLabs/PromptKit/tools/packc@latest
 
 # Verify installation
 packc version
 ```
 
-### Method 3: Build from Source
+**To install a specific version:**
+
+```bash
+# Install specific version
+go install github.com/AltairaLabs/PromptKit/tools/packc@v0.1.0
+```
+
+### Method 3: Download Pre-built Binary
+
+Visit the [PromptKit Releases](https://github.com/AltairaLabs/PromptKit/releases) page and download the appropriate binary for your platform.
+
+```bash
+# Example for macOS (adjust version and platform as needed)
+curl -LO https://github.com/AltairaLabs/PromptKit/releases/latest/download/packc-darwin-amd64
+chmod +x packc-darwin-amd64
+sudo mv packc-darwin-amd64 /usr/local/bin/packc
+
+# Verify
+packc version
+```
+
+### Method 4: Docker
+
+Run packc in a container:
+
+```bash
+# Pull image (when available)
+docker pull ghcr.io/AltairaLabs/packc:latest
+
+# Or build locally from the repo
+docker build -t packc -f Dockerfile.packc .
+
+# Run packc
+docker run --rm -v $(pwd):/workspace packc version
+```
+
+### For Developers: Build from Source
 
 For development or custom builds:
 
@@ -63,21 +91,6 @@ make build-packc
 
 # Binary is at ./bin/packc
 ./bin/packc version
-```
-
-### Method 4: Docker
-
-Run packc in a container:
-
-```bash
-# Pull image (when available)
-docker pull ghcr.io/AltairaLabs/packc:latest
-
-# Or build locally
-docker build -t packc -f Dockerfile.packc .
-
-# Run packc
-docker run --rm -v $(pwd):/workspace packc version
 ```
 
 ## Verify Installation
@@ -198,35 +211,33 @@ packc compile --config arena.yaml --output "$PACKC_OUTPUT_DIR/app.pack.json" --i
 
 ### macOS
 
-```bash
-# Install with Homebrew (when available)
-brew install AltairaLabs/tap/packc
+Homebrew is the recommended method:
 
-# Or use go install
-go install github.com/AltairaLabs/PromptKit/tools/packc@latest
+```bash
+brew install promptkit
 ```
 
 ### Linux
 
-```bash
-# Install with go
-go install github.com/AltairaLabs/PromptKit/tools/packc@latest
+Use Go install or download the binary:
 
-# Or download binary (when available)
-curl -L https://github.com/AltairaLabs/PromptKit/releases/download/v0.1.0/packc-linux-amd64 -o /usr/local/bin/packc
-chmod +x /usr/local/bin/packc
+```bash
+# Download binary
+curl -LO https://github.com/AltairaLabs/PromptKit/releases/latest/download/packc-linux-amd64
+chmod +x packc-linux-amd64
+sudo mv packc-linux-amd64 /usr/local/bin/packc
 ```
 
-### Windows
+### Windows (PowerShell)
+
+Download the binary and add to PATH:
 
 ```powershell
-# Install with go
-go install github.com/AltairaLabs/PromptKit/tools/packc@latest
+# Download from GitHub releases
+# https://github.com/AltairaLabs/PromptKit/releases
 
-# Or download binary (when available)
-# Download from https://github.com/AltairaLabs/PromptKit/releases
-# Extract to C:\Program Files\packc\
-# Add to PATH
+# Or use go install
+go install github.com/AltairaLabs/PromptKit/tools/packc@latest
 ```
 
 ## CI/CD Installation

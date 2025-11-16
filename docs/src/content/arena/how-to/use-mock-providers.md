@@ -34,17 +34,23 @@ Create custom mock responses with a configuration file:
 
 ```yaml
 # mock-config.yaml
-version: "1.0"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: mock-responses
 
-responses:
-  - pattern: "hello|hi|hey"
-    response: "Hello! How can I help you today?"
+spec:
+  type: mock
   
-  - pattern: "weather"
-    response: "I can check the weather. What location are you interested in?"
-  
-  - pattern: ".*"  # Catch-all
-    response: "I understand. Let me help with that."
+  responses:
+    - pattern: "hello|hi|hey"
+      response: "Hello! How can I help you today?"
+    
+    - pattern: "weather"
+      response: "I can check the weather. What location are you interested in?"
+    
+    - pattern: ".*"  # Catch-all
+      response: "I understand. Let me help with that."
 ```
 
 ### Run with Mock Config
@@ -274,53 +280,59 @@ jobs:
 
 ```yaml
 # mock-customer-support.yaml
-version: "1.0"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: mock-customer-support
 
-# Default behavior
-default_response: "I'm here to help. Can you provide more details?"
-
-# Specific patterns
-responses:
-  # Greetings
-  - pattern: "^(hello|hi|hey)"
-    responses:
-      - "Hello! How can I assist you today?"
-      - "Hi there! What brings you here?"
+spec:
+  type: mock
   
-  # Business hours
-  - pattern: "(hours|open|closed|schedule)"
-    response: "We're open Monday-Friday, 9 AM to 5 PM EST."
+  # Default behavior
+  default_response: "I'm here to help. Can you provide more details?"
   
-  # Billing
-  - pattern: "(billing|payment|charge|invoice)"
-    response: "I can help with billing questions. Do you have your account number?"
-    set_context:
-      topic: "billing"
-  
-  # Account lookup
-  - pattern: "^[A-Z]{2}\\d{8}$"
-    context_required: "topic=billing"
-    response: "I found your account. Your current balance is $42.00."
-  
-  # Escalation
-  - pattern: "(angry|frustrated|manager|escalate)"
-    response: "I understand your frustration. Let me connect you with a supervisor."
-    set_context:
-      escalated: true
-  
-  # Tool calling
-  - pattern: "weather in (.*)"
-    response: "The current weather in $1 is sunny, 72°F."
-    tool_call:
-      name: "get_weather"
-      arguments:
-        location: "$1"
-  
-  # Error simulation
-  - pattern: "trigger_error"
-    error:
-      type: "api_error"
-      message: "Service temporarily unavailable"
+  # Specific patterns
+  responses:
+    # Greetings
+    - pattern: "^(hello|hi|hey)"
+      responses:
+        - "Hello! How can I assist you today?"
+        - "Hi there! What brings you here?"
+    
+    # Business hours
+    - pattern: "(hours|open|closed|schedule)"
+      response: "We're open Monday-Friday, 9 AM to 5 PM EST."
+    
+    # Billing
+    - pattern: "(billing|payment|charge|invoice)"
+      response: "I can help with billing questions. Do you have your account number?"
+      set_context:
+        topic: "billing"
+    
+    # Account lookup
+    - pattern: "^[A-Z]{2}\\d{8}$"
+      context_required: "topic=billing"
+      response: "I found your account. Your current balance is $42.00."
+    
+    # Escalation
+    - pattern: "(angry|frustrated|manager|escalate)"
+      response: "I understand your frustration. Let me connect you with a supervisor."
+      set_context:
+        escalated: true
+    
+    # Tool calling
+    - pattern: "weather in (.*)"
+      response: "The current weather in $1 is sunny, 72°F."
+      tool_call:
+        name: "get_weather"
+        arguments:
+          location: "$1"
+    
+    # Error simulation
+    - pattern: "trigger_error"
+      error:
+        type: "api_error"
+        message: "Service temporarily unavailable"
 ```
 
 Use this mock:
