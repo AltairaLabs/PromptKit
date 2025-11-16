@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Configure LLM Providers
 nav_order: 3
 parent: Arena How-To

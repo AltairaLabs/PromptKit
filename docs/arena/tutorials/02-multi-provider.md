@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: "Tutorial 2: Multi-Provider Testing"
 nav_order: 2
 parent: Arena Tutorials

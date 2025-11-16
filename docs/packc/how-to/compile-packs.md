@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Compile Packs
 parent: How-To Guides
 grand_parent: PackC
@@ -81,7 +81,7 @@ For individual prompt development or testing.
      system_prompt: |
        You are a helpful customer support agent.
      user_template: |
-       Customer: {{.message}}
+       Customer: {% raw %}{{.message}}{% endraw %}
    ```
 
 2. **Compile the prompt**

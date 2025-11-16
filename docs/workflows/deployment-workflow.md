@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Deployment Workflow
 parent: Workflows
 nav_order: 3

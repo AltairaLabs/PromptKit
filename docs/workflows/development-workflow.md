@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Development Workflow
 parent: Workflows
 nav_order: 1

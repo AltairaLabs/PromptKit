@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Types
 parent: Runtime Reference
 grand_parent: Runtime

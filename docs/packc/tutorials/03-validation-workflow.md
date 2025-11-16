@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: "03: Validation Workflows"
 parent: Tutorials
 grand_parent: PackC
@@ -48,7 +48,7 @@ spec:
   name: AI Assistant
   description: General purpose assistant
   system_prompt: You are a helpful AI assistant.
-  user_template: "User: {{.message}}"
+  user_template: "User: {% raw %}{{.message}}{% endraw %}"
   template_engine: go
   parameters:
     temperature: 0.7

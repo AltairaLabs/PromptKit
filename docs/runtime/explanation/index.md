@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Runtime Explanation
 parent: Runtime
 nav_order: 4

@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: CI/CD Integration
 parent: How-To Guides
 grand_parent: PackC

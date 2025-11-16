@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Tools & MCP
 parent: Concepts
 nav_order: 6

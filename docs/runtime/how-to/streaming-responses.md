@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Streaming Responses
 parent: Runtime How-To
 grand_parent: Runtime

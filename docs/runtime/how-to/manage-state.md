@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Manage State
 parent: Runtime How-To
 grand_parent: Runtime
@@ -386,6 +386,7 @@ func saveWithRetry(store statestore.StateStore, sessionID string, messages []typ
    ```
 
 3. Verify store connection:
+   {% raw %}
    ```go
    // Test save/load
    testMessages := []types.Message{{Role: "user", Content: "test"}}
@@ -395,6 +396,7 @@ func saveWithRetry(store statestore.StateStore, sessionID string, messages []typ
        log.Fatal("Store not working")
    }
    ```
+   {% endraw %}
 
 ### Issue: Redis Connection Failed
 

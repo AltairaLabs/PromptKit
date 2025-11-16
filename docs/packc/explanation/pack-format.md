@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Pack Format
 parent: Explanation
 grand_parent: PackC
@@ -76,6 +76,7 @@ Know exactly what version and when it was compiled.
 
 Each prompt in the `prompts` map:
 
+{% raw %}
 ```json
 {
   "prompts": {
@@ -96,6 +97,7 @@ Each prompt in the `prompts` map:
   }
 }
 ```
+{% endraw %}
 
 ## Why JSON?
 
@@ -148,6 +150,7 @@ Supported engines:
 
 Reusable prompt components:
 
+{% raw %}
 ```json
 {
   "fragments": {
@@ -164,6 +167,7 @@ Reusable prompt components:
   }
 }
 ```
+{% endraw %}
 
 Benefits:
 - **DRY** - Define once, use many times
@@ -259,12 +263,14 @@ Reasons:
 
 Templates can execute code:
 
+{% raw %}
 ```json
 {
   "user_template": "{{.input}}"  // Safe
   "user_template": "{{exec .cmd}}"  // Dangerous!
 }
 ```
+{% endraw %}
 
 PackC validates templates for safety.
 

@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: SDK How-To Guides
 nav_order: 2
 parent: SDK

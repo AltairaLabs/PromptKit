@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Workflows
 nav_order: 8
 has_children: true

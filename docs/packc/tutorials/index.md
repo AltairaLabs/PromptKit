@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Tutorials
 parent: PackC
 nav_order: 3

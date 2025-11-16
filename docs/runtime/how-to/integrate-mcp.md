@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Integrate MCP
 parent: Runtime How-To
 grand_parent: Runtime

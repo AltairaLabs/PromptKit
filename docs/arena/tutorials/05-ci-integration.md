@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: "Tutorial 5: CI/CD Integration"
 nav_order: 5
 parent: Arena Tutorials
@@ -363,9 +363,9 @@ strategy:
     environment: [dev, staging, prod]
 
 steps:
-  - name: Run tests in ${{ matrix.environment }}
+  - name: Run tests in {% raw %}${{ matrix.environment }}{% endraw %}
     env:
-      OPENAI_API_KEY: ${{ secrets[format('{0}_OPENAI_API_KEY', matrix.environment)] }}
+      OPENAI_API_KEY: {% raw %}${{ secrets[format('{0}_OPENAI_API_KEY', matrix.environment)] }}{% endraw %}
     run: |
       promptarena run \
         --config arena-${{ matrix.environment }}.yaml \

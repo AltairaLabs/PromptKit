@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: "Tutorial 2: Multi-Turn Conversations"
 parent: Runtime Tutorials
 grand_parent: Runtime

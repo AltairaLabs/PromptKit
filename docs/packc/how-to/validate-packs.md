@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Validate Packs
 parent: How-To Guides
 grand_parent: PackC

@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: How-To Guides
 parent: PackC
 nav_order: 2

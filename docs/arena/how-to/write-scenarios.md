@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Write Test Scenarios
 nav_order: 2
 parent: Arena How-To

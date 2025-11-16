@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Assertion Examples
 nav_order: 2
 parent: Arena Examples

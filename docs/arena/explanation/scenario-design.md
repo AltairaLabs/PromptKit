@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Scenario Design Principles
 nav_order: 2
 parent: Arena Explanation

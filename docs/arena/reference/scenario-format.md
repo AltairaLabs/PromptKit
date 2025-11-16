@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Test Scenario Format
 nav_order: 6
 parent: Arena Reference

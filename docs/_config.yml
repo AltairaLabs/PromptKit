@@ -33,9 +33,9 @@ kramdown:
 # Collections - Product-centric with Diátaxis
 collections:
   # Product-centric collections
-  promptarena:
+  arena:
     output: true
-    permalink: /promptarena/:path/
+    permalink: /arena/:path/
   packc:
     output: true
     permalink: /packc/:path/
@@ -109,9 +109,19 @@ defaults:
     values:
       layout: "default"
   
-  # Arena documentation
+  # Arena documentation - use Just the Docs default
   - scope:
       path: "arena"
+    values:
+      layout: "default"
+      product: "arena"
+      product_name: "PromptArena"
+      product_icon: "🏟️"
+  
+  # Arena collection - same settings
+  - scope:
+      path: ""
+      type: "arena"
     values:
       layout: "default"
       product: "arena"
@@ -159,6 +169,16 @@ defaults:
       product_name: "PackC"
       product_icon: "📦"
   
+  # PackC collection
+  - scope:
+      path: ""
+      type: "packc"
+    values:
+      layout: "default"
+      product: "packc"
+      product_name: "PackC"
+      product_icon: "📦"
+  
   - scope:
       path: "packc/tutorials"
     values:
@@ -186,6 +206,16 @@ defaults:
   # SDK documentation
   - scope:
       path: "sdk"
+    values:
+      layout: "default"
+      product: "sdk"
+      product_name: "PromptKit SDK"
+      product_icon: "🚀"
+  
+  # SDK collection
+  - scope:
+      path: ""
+      type: "sdk"
     values:
       layout: "default"
       product: "sdk"
@@ -225,6 +255,16 @@ defaults:
       product_name: "Runtime"
       product_icon: "⚙️"
   
+  # Runtime collection
+  - scope:
+      path: ""
+      type: "runtime"
+    values:
+      layout: "default"
+      product: "runtime"
+      product_name: "Runtime"
+      product_icon: "⚙️"
+  
   - scope:
       path: "runtime/tutorials"
     values:
@@ -251,18 +291,36 @@ defaults:
   
   # Cross-product
   - scope:
+      path: "concepts"
+    values:
+      layout: "default"
+      doc_type: "concept"
+      parent: "Concepts"
+  
+  # Concepts collection
+  - scope:
+      path: ""
+      type: "concepts"
+    values:
+      layout: "default"
+      doc_type: "concept"
+      parent: "Concepts"
+  
+  - scope:
       path: "workflows"
     values:
       layout: "default"
       doc_type: "workflow"
       parent: "Workflows"
   
+  # Workflows collection
   - scope:
-      path: "concepts"
+      path: ""
+      type: "workflows"
     values:
       layout: "default"
-      doc_type: "concept"
-      parent: "Concepts"
+      doc_type: "workflow"
+      parent: "Workflows"
   
   - scope:
       path: "guides"
@@ -308,7 +366,7 @@ search:
 # Navigation structure for product-centric collections
 just_the_docs:
   collections:
-    promptarena:
+    arena:
       name: "🏟️ Arena"
       nav_order: 3
     packc:
@@ -320,11 +378,11 @@ just_the_docs:
     runtime:
       name: "⚙️ Runtime"
       nav_order: 6
-    workflows:
-      name: "🔄 Workflows"
-      nav_order: 7
     concepts:
-      name: "💡 Concepts"
+      name: "� Concepts"
+      nav_order: 7
+    workflows:
+      name: "� Workflows"
       nav_order: 8
 
 # Navigation

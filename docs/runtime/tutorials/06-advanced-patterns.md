@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: "Tutorial 6: Advanced Patterns"
 parent: Runtime Tutorials
 grand_parent: Runtime

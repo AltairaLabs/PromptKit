@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Multimodal Examples
 nav_order: 4
 parent: Arena Examples

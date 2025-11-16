@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Middleware Design
 parent: Runtime Explanation
 grand_parent: Runtime
@@ -186,6 +186,7 @@ func (m *Middleware) Before(ctx *ExecutionContext) error {
 
 Pipeline runs middleware in sequence:
 
+{% raw %}
 ```go
 func (p *Pipeline) Execute(ctx context.Context, role, content string) (*PipelineResult, error) {
     execCtx := &ExecutionContext{
@@ -201,6 +202,7 @@ func (p *Pipeline) Execute(ctx context.Context, role, content string) (*Pipeline
     }
     
     // Run After hooks (reverse order)
+{% endraw %}
     for i := len(p.middleware) - 1; i >= 0; i-- {
         if err := p.middleware[i].After(execCtx); err != nil {
             return nil, err
@@ -614,6 +616,7 @@ ValidatorMiddleware([]Validator{
 
 Test middleware in isolation:
 
+{% raw %}
 ```go
 func TestLoggingMiddleware(t *testing.T) {
     mw := NewLoggingMiddleware()
@@ -626,6 +629,7 @@ func TestLoggingMiddleware(t *testing.T) {
     
     ctx.Response = &ProviderResponse{Content: "response"}
     err = mw.After(ctx)
+{% endraw %}
     assert.NoError(t, err)
 }
 ```

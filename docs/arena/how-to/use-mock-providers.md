@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Use Mock Providers
 nav_order: 4
 parent: Arena How-To

@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: "Tutorial 5: Custom Pipelines"
 nav_order: 5
 parent: SDK Tutorials

@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Install PromptArena
 nav_order: 1
 parent: Arena How-To

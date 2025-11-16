@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: "Tutorial 1: Your First Conversation"
 nav_order: 1
 parent: SDK Tutorials

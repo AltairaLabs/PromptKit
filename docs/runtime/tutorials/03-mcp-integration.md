@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: "Tutorial 3: MCP Integration"
 parent: Runtime Tutorials
 grand_parent: Runtime

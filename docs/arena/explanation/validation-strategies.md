@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Validation Strategies
 nav_order: 4
 parent: Arena Explanation

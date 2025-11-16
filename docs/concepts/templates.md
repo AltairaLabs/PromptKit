@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Templates
 parent: Concepts
 nav_order: 2
@@ -157,17 +157,22 @@ conv := sdk.NewConversation(provider, &sdk.ConversationConfig{
 ### Variable Substitution
 
 Basic:
+{% raw %}
 ```
 Hello, {{.name}}!
 ```
+{% endraw %}
 
 With defaults:
+{% raw %}
 ```
 Hello, {{.name | default "Guest"}}!
 ```
+{% endraw %}
 
 ### Conditionals
 
+{% raw %}
 ```yaml
 system: |
   You are a support agent.
@@ -175,9 +180,11 @@ system: |
   Provide priority support.
   {{end}}
 ```
+{% endraw %}
 
 ### Loops
 
+{% raw %}
 ```yaml
 system: |
   Available commands:
@@ -185,37 +192,46 @@ system: |
   - {{.}}
   {{end}}
 ```
+{% endraw %}
 
 ### Functions
 
+{% raw %}
 ```yaml
 system: |
   User: {{.email | lowercase}}
   Role: {{.role | uppercase}}
 ```
+{% endraw %}
 
 ## Template Best Practices
 
 ### Structure
 
 ✅ **Separate system and user prompts**
+{% raw %}
 ```yaml
 system: |
   Instructions for AI
 user: |
   User input: {{.input}}
 ```
+{% endraw %}
 
 ✅ **Use clear variable names**
+{% raw %}
 ```yaml
 {{.customer_name}} not {{.cn}}
 {{.ticket_id}} not {{.id}}
 ```
+{% endraw %}
 
 ✅ **Provide defaults**
+{% raw %}
 ```yaml
 tone: {{.tone | default "professional"}}
 ```
+{% endraw %}
 
 ✅ **Document variables**
 ```yaml
@@ -366,9 +382,11 @@ func TestTemplate(t *testing.T) {
 
 ### Problem: Variable Not Substituted
 
+{% raw %}
 ```
 Output: "Hello, {{.name}}!"  // Variable not replaced
 ```
+{% endraw %}
 
 **Solution**: Check variable is provided
 
@@ -402,6 +420,7 @@ Error: unexpected "}" in template
 
 **Solution**: Check template syntax
 
+{% raw %}
 ```yaml
 # Wrong
 {{.name}  # Missing closing brace
@@ -409,6 +428,7 @@ Error: unexpected "}" in template
 # Correct
 {{.name}}
 ```
+{% endraw %}
 
 ## Advanced Features
 

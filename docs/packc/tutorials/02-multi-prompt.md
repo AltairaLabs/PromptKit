@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: "02: Multi-Prompt Packs"
 parent: Tutorials
 grand_parent: PackC
@@ -65,8 +65,8 @@ spec:
     Greet the customer warmly and ask how you can help them today.
   
   user_template: |
-    Customer: {{.customer_name}}
-    Previous interactions: {{.interaction_count}}
+    Customer: {% raw %}{{.customer_name}}{% endraw %}
+    Previous interactions: {% raw %}{{.interaction_count}}{% endraw %}
   
   template_engine: go
   
@@ -93,9 +93,9 @@ spec:
     Always be patient and understanding.
   
   user_template: |
-    Customer: {{.customer_name}}
-    Issue: {{.issue_description}}
-    Product: {{.product_name}}
+    Customer: {% raw %}{{.customer_name}}{% endraw %}
+    Issue: {% raw %}{{.issue_description}}{% endraw %}
+    Product: {% raw %}{{.product_name}}{% endraw %}
   
   template_engine: go
   
@@ -128,11 +128,11 @@ spec:
     Be empathetic and assure the customer their issue has high priority.
   
   user_template: |
-    Customer: {{.customer_name}}
-    Account Type: {{.account_type}}
-    Issue: {{.issue_description}}
-    Previous attempts: {{.resolution_attempts}}
-    Urgency: {{.urgency_level}}
+    Customer: {% raw %}{{.customer_name}}{% endraw %}
+    Account Type: {% raw %}{{.account_type}}{% endraw %}
+    Issue: {% raw %}{{.issue_description}}{% endraw %}
+    Previous attempts: {% raw %}{{.resolution_attempts}}{% endraw %}
+    Urgency: {% raw %}{{.urgency_level}}{% endraw %}
   
   template_engine: go
   
@@ -301,8 +301,8 @@ spec:
     Ask if the issue was resolved and if they need any additional help.
   
   user_template: |
-    Customer: {{.customer_name}}
-    Resolution: {{.resolution_summary}}
+    Customer: {% raw %}{{.customer_name}}{% endraw %}
+    Resolution: {% raw %}{{.resolution_summary}}{% endraw %}
   
   template_engine: go
   

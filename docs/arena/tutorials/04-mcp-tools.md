@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: "Tutorial 4: Testing MCP Tools"
 nav_order: 4
 parent: Arena Tutorials
@@ -123,7 +123,7 @@ system_prompt: |
   Always confirm when you've stored or retrieved information.
 
 user_prompt_template: |
-  User: {{.UserMessage}}
+  User: {% raw %}{{.UserMessage}}{% endraw %}
 
 tools_enabled: true
 ```

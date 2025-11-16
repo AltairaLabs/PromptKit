@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Explanation
 parent: PackC
 nav_order: 4

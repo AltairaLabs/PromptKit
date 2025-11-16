@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: "05: CI/CD Pipeline"
 parent: Tutorials
 grand_parent: PackC
@@ -46,7 +46,7 @@ spec:
   task_type: assistant
   name: AI Assistant
   system_prompt: You are a helpful AI assistant.
-  user_template: "{{.message}}"
+  user_template: "{% raw %}{{.message}}{% endraw %}"
   template_engine: go
   parameters:
     temperature: 0.7
@@ -304,7 +304,7 @@ act push -j build
   uses: actions/cache@v3
   with:
     path: ~/go/pkg/mod
-    key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+    key: {% raw %}${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}{% endraw %}
 ```
 
 ### 2. Matrix Builds

@@ -1,8 +1,9 @@
 ---
-layout: docs
+layout: default
 title: Runtime Reference
 parent: Runtime
 nav_order: 1
+has_children: true
 ---
 
 # Runtime Reference

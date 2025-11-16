@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: "Tutorial 2: Streaming Responses"
 nav_order: 2
 parent: SDK Tutorials

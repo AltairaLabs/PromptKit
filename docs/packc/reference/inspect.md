@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: inspect
 nav_order: 4
 parent: PackC Reference

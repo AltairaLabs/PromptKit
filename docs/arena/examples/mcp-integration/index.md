@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: MCP Integration Examples
 nav_order: 3
 parent: Arena Examples

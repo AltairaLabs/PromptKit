@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Manage Conversation State
 nav_order: 7
 parent: SDK How-To Guides

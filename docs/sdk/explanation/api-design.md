@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: API Design Philosophy
 nav_order: 4
 parent: SDK Explanation

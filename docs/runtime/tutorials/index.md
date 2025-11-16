@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Runtime Tutorials
 parent: Runtime
 nav_order: 2

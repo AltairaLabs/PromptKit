@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: "Tutorial 4: Validation & Guardrails"
 parent: Runtime Tutorials
 grand_parent: Runtime

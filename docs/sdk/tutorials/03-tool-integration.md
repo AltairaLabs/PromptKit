@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: "Tutorial 3: Tool Integration"
 nav_order: 3
 parent: SDK Tutorials

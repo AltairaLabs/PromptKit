@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Prompts
 parent: Concepts
 nav_order: 1
@@ -178,6 +178,7 @@ response, _ := conv.Send(ctx, "Hello")
 
 PackC packages prompts for distribution:
 
+{% raw %}
 ```yaml
 # support.prompt
 system: |
@@ -187,6 +188,7 @@ system: |
 user: |
   {{.question}}
 ```
+{% endraw %}
 
 Pack and use:
 
@@ -272,6 +274,7 @@ Text: [input]
 
 ### Creative
 
+{% raw %}
 ```
 Write a creative product description for:
 
@@ -282,6 +285,7 @@ Target audience: {{.audience}}
 Style: Engaging and persuasive
 Length: 50-100 words
 ```
+{% endraw %}
 
 ## Prompt Management
 

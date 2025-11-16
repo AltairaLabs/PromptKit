@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Real-World Applications
 nav_order: 5
 parent: Arena Examples

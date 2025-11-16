@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Testing Workflow
 parent: Workflows
 nav_order: 2

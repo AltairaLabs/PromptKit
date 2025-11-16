@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: "04: Pack Management"
 parent: Tutorials
 grand_parent: PackC
@@ -83,7 +83,7 @@ spec:
   name: AI Assistant
   description: Production assistant
   system_prompt: You are a helpful AI assistant.
-  user_template: "{{.message}}"
+  user_template: "{% raw %}{{.message}}{% endraw %}"
   template_engine: go
   parameters:
     temperature: 0.7

@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Pipeline Architecture
 parent: Runtime Explanation
 grand_parent: Runtime

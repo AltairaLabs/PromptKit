@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Integrate with CI/CD
 nav_order: 6
 parent: Arena How-To

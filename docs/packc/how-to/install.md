@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Install PackC
 parent: How-To Guides
 grand_parent: PackC

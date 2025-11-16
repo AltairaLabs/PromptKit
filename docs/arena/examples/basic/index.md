@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Basic Examples
 nav_order: 1
 parent: Arena Examples

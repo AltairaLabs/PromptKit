@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Validate Outputs
 nav_order: 5
 parent: Arena How-To

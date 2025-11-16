@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: "Tutorial 5: Production Deployment"
 parent: Runtime Tutorials
 grand_parent: Runtime

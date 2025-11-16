@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: State Management
 parent: Concepts
 nav_order: 5

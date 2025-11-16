@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: PromptPack Format
 nav_order: 5
 parent: SDK Explanation

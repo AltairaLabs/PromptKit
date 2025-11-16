@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Register Tools
 nav_order: 6
 parent: SDK How-To Guides

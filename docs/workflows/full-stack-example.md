@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Full-Stack Example
 parent: Workflows
 nav_order: 4

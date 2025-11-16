@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: State Management
 parent: Runtime Explanation
 grand_parent: Runtime
@@ -411,6 +411,7 @@ With Redis:
 
 Use in-memory store for fast tests:
 
+{% raw %}
 ```go
 func TestStateManagement(t *testing.T) {
     store := statestore.NewInMemoryStateStore()
@@ -426,6 +427,7 @@ func TestStateManagement(t *testing.T) {
     assert.Equal(t, messages, loaded)
 }
 ```
+{% endraw %}
 
 ### Mock Store
 

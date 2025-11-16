@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Handle Errors
 parent: Runtime How-To
 grand_parent: Runtime

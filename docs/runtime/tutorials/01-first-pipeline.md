@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: "Tutorial 1: First Pipeline"
 parent: Runtime Tutorials
 grand_parent: Runtime

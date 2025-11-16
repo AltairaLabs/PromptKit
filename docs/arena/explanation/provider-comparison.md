@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Provider Comparison Guide
 nav_order: 3
 parent: Arena Explanation

@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: "01: Your First Pack"
 parent: Tutorials
 grand_parent: PackC
@@ -80,6 +80,7 @@ my-first-pack/
 
 Create your first prompt file:
 
+{% raw %}
 ```bash
 cat > prompts/greeting.yaml <<'EOF'
 apiVersion: promptkit/v1
@@ -103,6 +104,7 @@ spec:
     max_tokens: 150
 EOF
 ```
+{% endraw %}
 
 This creates a simple greeting prompt with template variables.
 
@@ -182,8 +184,8 @@ Prompts
   You are a friendly assistant. Greet the user warmly and ask how you can help.
   
   User Template:
-  User name: {{.name}}
-  Time of day: {{.time_of_day}}
+  User name: {% raw %}{{.name}}{% endraw %}
+  Time of day: {% raw %}{{.time_of_day}}{% endraw %}
   
   Parameters:
   - temperature: 0.7
@@ -326,8 +328,8 @@ spec:
     You are a friendly assistant. Greet the user warmly and ask how you can help.
   
   user_template: |
-    User name: {{.name}}
-    Time of day: {{.time_of_day}}
+    User name: {% raw %}{{.name}}{% endraw %}
+    Time of day: {% raw %}{{.time_of_day}}{% endraw %}
   
   template_engine: go
   

@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: State Store
 parent: Runtime Reference
 grand_parent: Runtime

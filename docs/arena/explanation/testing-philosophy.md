@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: LLM Testing Philosophy
 nav_order: 1
 parent: Arena Explanation

@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: "Tutorial 3: Multi-Turn Conversations"
 nav_order: 3
 parent: Arena Tutorials

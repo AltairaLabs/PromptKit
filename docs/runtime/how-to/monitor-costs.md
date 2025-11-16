@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Monitor Costs
 parent: Runtime How-To
 grand_parent: Runtime

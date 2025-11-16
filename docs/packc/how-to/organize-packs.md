@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Organize Pack Files
 parent: How-To Guides
 grand_parent: PackC

@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: validate
 nav_order: 3
 parent: PackC Reference

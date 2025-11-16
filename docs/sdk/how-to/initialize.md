@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Initialize the SDK
 nav_order: 1
 parent: SDK How-To Guides

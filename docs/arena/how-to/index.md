@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Arena How-To
 nav_order: 2
 parent: PromptArena

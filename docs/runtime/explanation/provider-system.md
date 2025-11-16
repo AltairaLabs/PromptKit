@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Provider System
 parent: Runtime Explanation
 grand_parent: Runtime

@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Concepts
 nav_order: 7
 has_children: true

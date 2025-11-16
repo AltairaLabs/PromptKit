@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Validation Strategy
 parent: Explanation
 grand_parent: PackC

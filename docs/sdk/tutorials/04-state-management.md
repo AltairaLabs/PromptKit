@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: "Tutorial 4: State Management"
 nav_order: 4
 parent: SDK Tutorials

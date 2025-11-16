@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: SDK Explanation
 nav_order: 4
 parent: SDK

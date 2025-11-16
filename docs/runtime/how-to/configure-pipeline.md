@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Configure Pipeline
 parent: Runtime How-To
 grand_parent: Runtime

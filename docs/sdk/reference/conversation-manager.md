@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: ConversationManager
 nav_order: 1
 parent: SDK Reference

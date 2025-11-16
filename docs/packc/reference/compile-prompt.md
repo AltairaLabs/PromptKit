@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: compile-prompt
 parent: Reference
 grand_parent: PackC
@@ -105,7 +105,7 @@ spec:
     You assist customers with their questions.
   
   user_template: |
-    Customer: {{.message}}
+    Customer: {% raw %}{{.message}}{% endraw %}
   
   template_engine: go
   
@@ -134,7 +134,7 @@ The command produces a JSON pack file with this structure:
       "name": "Customer Support Agent",
       "description": "Handles customer inquiries",
       "system": "You are a helpful customer support agent.\nYou assist customers with their questions.",
-      "user_template": "Customer: {{.message}}",
+      "user_template": "Customer: {% raw %}{{.message}}{% endraw %}",
       "template_engine": "go",
       "parameters": {
         "temperature": 0.7,

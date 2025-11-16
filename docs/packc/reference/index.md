@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: PackC Reference
 nav_order: 1
 parent: PackC

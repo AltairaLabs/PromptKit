@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Validators
 parent: Runtime Reference
 grand_parent: Runtime

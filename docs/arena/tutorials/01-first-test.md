@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: "Tutorial 1: Your First Test"
 nav_order: 1
 parent: Arena Tutorials
@@ -63,7 +63,7 @@ system_prompt: |
   Keep responses brief and welcoming.
 
 user_prompt_template: |
-  User message: {{.UserMessage}}
+  User message: {% raw %}{{.UserMessage}}{% endraw %}
 ```
 
 **What's happening here?**

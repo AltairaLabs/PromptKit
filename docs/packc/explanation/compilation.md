@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Compilation Architecture
 parent: Explanation
 grand_parent: PackC
@@ -146,11 +146,13 @@ Returns list of validation warnings (non-fatal) or errors (fatal).
 
 Default template engine:
 
+{% raw %}
 ```yaml
 user_template: |
   User: {{.name}}
   Message: {{.message}}
 ```
+{% endraw %}
 
 **Processing**:
 1. Parse template text
@@ -176,6 +178,7 @@ But doesn't execute (no runtime data available).
 
 ### Fragment Definition
 
+{% raw %}
 ```yaml
 # fragment.yaml
 fragments:
@@ -183,6 +186,7 @@ fragments:
     content: "Company: {{.company}}"
     description: "Standard company info"
 ```
+{% endraw %}
 
 ### Fragment Compilation
 
@@ -192,6 +196,7 @@ Two strategies:
 
 Fragment content embedded in prompt:
 
+{% raw %}
 ```json
 {
   "prompts": {
@@ -201,11 +206,13 @@ Fragment content embedded in prompt:
   }
 }
 ```
+{% endraw %}
 
 **2. Reference**
 
 Fragment stored separately:
 
+{% raw %}
 ```json
 {
   "fragments": {
@@ -219,6 +226,7 @@ Fragment stored separately:
   }
 }
 ```
+{% endraw %}
 
 **Tradeoff**:
 - Inline: Faster execution, larger size

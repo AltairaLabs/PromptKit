@@ -1,5 +1,5 @@
 ---
-layout: docs
+layout: default
 title: Send Messages
 nav_order: 3
 parent: SDK How-To Guides
