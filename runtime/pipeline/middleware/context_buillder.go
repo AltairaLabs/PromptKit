@@ -45,6 +45,9 @@ func ContextBuilderMiddleware(policy *ContextBuilderPolicy) pipeline.Middleware 
 	return &contextBuilderMiddleware{policy: policy}
 }
 
+// Process manages conversation context by enforcing token budget limits and applying truncation strategies.
+// This middleware should be placed before ProviderMiddleware in the pipeline.
+// If messages exceed the token budget, it applies the configured truncation strategy.
 func (m *contextBuilderMiddleware) Process(execCtx *pipeline.ExecutionContext, next func() error) error {
 	// No policy specified, pass through without modification
 	if m.policy == nil {
@@ -101,6 +104,7 @@ func (m *contextBuilderMiddleware) Process(execCtx *pipeline.ExecutionContext, n
 	return next()
 }
 
+// StreamChunk is a no-op for context builder middleware as it doesn't process stream chunks.
 func (m *contextBuilderMiddleware) StreamChunk(execCtx *pipeline.ExecutionContext, chunk *providers.StreamChunk) error {
 	// Context builder middleware doesn't process chunks
 	return nil

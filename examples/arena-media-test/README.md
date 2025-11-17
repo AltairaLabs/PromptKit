@@ -1,3 +1,4 @@
+
 # Arena Media Testing Examples
 
 This directory contains example test scenarios demonstrating how to use media content (images, audio, video) with Arena's scripted test executor and media validation assertions.

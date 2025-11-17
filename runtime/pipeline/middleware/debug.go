@@ -29,6 +29,8 @@ func DebugMiddleware(stage string) pipeline.Middleware {
 	return &debugMiddleware{stage: stage}
 }
 
+// Process logs the execution context before and after calling the next middleware.
+// This is useful for debugging pipeline state at different stages of execution.
 func (m *debugMiddleware) Process(execCtx *pipeline.ExecutionContext, next func() error) error {
 
 	logger.Warn("Debug middleware has been added to the pipeline with text: stage. This may affect performance.", "stage", m.stage)
@@ -45,6 +47,8 @@ func (m *debugMiddleware) Process(execCtx *pipeline.ExecutionContext, next func(
 	return err
 }
 
+// StreamChunk is a no-op for debug middleware to avoid excessive logging.
+// Logging every chunk would be too noisy for most debugging scenarios.
 func (m *debugMiddleware) StreamChunk(execCtx *pipeline.ExecutionContext, chunk *providers.StreamChunk) error {
 	// Don't log every chunk (too noisy), but you could add a flag to enable it
 	return nil

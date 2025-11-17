@@ -24,6 +24,9 @@ func ContextExtractionMiddleware() pipeline.Middleware {
 	return &contextExtractionMiddleware{}
 }
 
+// Process extracts context variables from the conversation history and merges them into ExecutionContext.Variables.
+// It analyzes messages to detect domain hints, user roles, and other context variables.
+// Results are cached in metadata to avoid repeated extraction.
 func (m *contextExtractionMiddleware) Process(execCtx *pipeline.ExecutionContext, next func() error) error {
 	// Extract context from conversation messages
 	conversationID := ""
@@ -67,6 +70,7 @@ func (m *contextExtractionMiddleware) Process(execCtx *pipeline.ExecutionContext
 	return next()
 }
 
+// StreamChunk is a no-op for context extraction middleware as it doesn't process stream chunks.
 func (m *contextExtractionMiddleware) StreamChunk(execCtx *pipeline.ExecutionContext, chunk *providers.StreamChunk) error {
 	// Context extraction middleware doesn't process chunks
 	return nil

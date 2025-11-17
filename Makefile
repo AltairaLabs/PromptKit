@@ -197,38 +197,54 @@ clean: ## Clean build artifacts
 	@rm -f tools/inspect-state/inspect-state
 	@echo "Cleaned build artifacts"
 
-# Documentation targets
+# Documentation targets (Astro-based)
 docs-install: ## Install documentation dependencies
 	@echo "📦 Installing documentation dependencies..."
 	@command -v gomarkdoc >/dev/null 2>&1 || { \
 		echo "Installing gomarkdoc..."; \
 		go install github.com/princjef/gomarkdoc/cmd/gomarkdoc@latest; \
 	}
-	@echo "Installing Jekyll dependencies..."
-	@cd docs && gem install bundler && bundle install
+	@echo "Installing Astro dependencies..."
+	@cd docs && npm install
 	@echo "✅ Documentation dependencies installed"
 
 docs-api: ## Generate API documentation from Go code
 	@echo "🔧 Generating API documentation..."
-	@mkdir -p docs/api
+	@mkdir -p docs/src/content/api
 	@echo "Generating SDK API docs..."
-	@cd sdk && gomarkdoc --output ../docs/api/sdk.md .
+	@cd sdk && gomarkdoc --output ../docs/src/content/api/sdk-temp.md .
+	@echo "---" > docs/src/content/api/sdk.md
+	@echo "title: SDK API Reference" >> docs/src/content/api/sdk.md
+	@echo "description: Complete API reference for the PromptKit Go SDK" >> docs/src/content/api/sdk.md
+	@echo "docType: reference" >> docs/src/content/api/sdk.md
+	@echo "order: 1" >> docs/src/content/api/sdk.md
+	@echo "---" >> docs/src/content/api/sdk.md
+	@cat docs/src/content/api/sdk-temp.md >> docs/src/content/api/sdk.md
+	@rm docs/src/content/api/sdk-temp.md
 	@echo "Generating Runtime API docs..."
-	@cd runtime && gomarkdoc --output ../docs/api/runtime.md ./...
+	@cd runtime && gomarkdoc --output ../docs/src/content/api/runtime-temp.md ./...
+	@echo "---" > docs/src/content/api/runtime.md
+	@echo "title: Runtime API Reference" >> docs/src/content/api/runtime.md
+	@echo "description: Complete API reference for the PromptKit Runtime" >> docs/src/content/api/runtime.md
+	@echo "docType: reference" >> docs/src/content/api/runtime.md
+	@echo "order: 2" >> docs/src/content/api/runtime.md
+	@echo "---" >> docs/src/content/api/runtime.md
+	@cat docs/src/content/api/runtime-temp.md >> docs/src/content/api/runtime.md
+	@rm docs/src/content/api/runtime-temp.md
 	@echo "✅ API documentation generated"
 
 docs-cli: ## Generate CLI documentation and man pages
 	@echo "📋 Generating CLI documentation..."
-	@mkdir -p docs/guides/arena docs/guides/packc
+	@mkdir -p docs/src/content/reference
 	@echo "Generating Arena CLI docs..."
-	@./bin/promptarena --help > docs/guides/arena/commands.txt 2>/dev/null || echo "Arena CLI help captured"
+	@./bin/promptarena --help > docs/src/content/reference/arena-cli.txt 2>/dev/null || echo "Arena CLI help captured"
 	@echo "Generating PackC CLI docs..."  
-	@./bin/packc --help > docs/guides/packc/commands.txt 2>/dev/null || echo "PackC CLI help captured"
+	@./bin/packc --help > docs/src/content/reference/packc-cli.txt 2>/dev/null || echo "PackC CLI help captured"
 	@echo "✅ CLI documentation generated"
 
 docs-validate: ## Validate documentation links and formatting
 	@echo "🔍 Validating documentation..."
-	@find docs -name "*.md" -type f | while read file; do \
+	@find docs/src/content -name "*.md" -type f | while read file; do \
 		echo "Checking $$file..."; \
 		if command -v markdownlint >/dev/null 2>&1; then \
 			markdownlint "$$file" || true; \
@@ -236,25 +252,35 @@ docs-validate: ## Validate documentation links and formatting
 	done
 	@echo "✅ Documentation validation complete"
 
+docs-check-links: docs-build ## Check for broken links in built documentation
+	@echo "🔗 Checking for broken links..."
+	@cd docs && npm run check-links
+	@echo "✅ Link check complete"
+
 docs-serve: ## Serve documentation locally for development
-	@echo "🌐 Starting Jekyll development server..."
-	@if command -v bundle >/dev/null 2>&1; then \
-		echo "Serving docs at http://localhost:4000"; \
-		cd docs && bundle exec jekyll serve --host 0.0.0.0 --port 4000 --livereload; \
-	else \
-		echo "❌ Bundle not found. Install Jekyll with: cd docs && gem install bundler && bundle install"; \
-		exit 1; \
-	fi
+	@echo "🌐 Starting Astro development server..."
+	@cd docs && npm run dev
 docs-build: ## Build complete documentation site
 	@echo "🏗️ Building documentation site..."
 	@$(MAKE) docs-api
 	@$(MAKE) docs-cli
-	@echo "✅ Documentation site built in docs/"
+	@echo "📝 Preparing example documentation..."
+	@./scripts/prepare-examples-docs.sh
+	@echo "🔨 Building Astro site..."
+	@cd docs && npm run build
+	@echo "✅ Documentation site built in docs/dist/"
+
+docs-preview: ## Preview built documentation
+	@echo "👀 Previewing documentation..."
+	@cd docs && npm run preview
 
 docs-clean: ## Clean generated documentation
 	@echo "🧹 Cleaning generated documentation..."
-	@rm -rf docs/api/
-	@rm -rf docs/guides/*/commands.txt
+	@rm -rf docs/dist/
+	@rm -rf docs/.astro/
+	@rm -rf docs/src/content/api/
+	@rm -rf docs/src/content/examples/
+	@rm -rf docs/src/content/reference/*-cli.txt
 	@echo "✅ Generated documentation cleaned"
 
 docs: docs-build ## Generate all documentation (alias for docs-build)

@@ -60,11 +60,17 @@ temp/
 *.tmp
 docs/local-backlog/
 
-# Jekyll (documentation)
-docs/_site/
-docs/.jekyll-cache/
-docs/.sass-cache/
-docs/Gemfile.lock
+# Documentation (Astro)
+docs/dist/
+docs/.astro/
+docs/node_modules/
+docs/src/content/api/
+docs/src/content/arena/examples/
+docs/src/content/sdk/examples/
+docs/src/content/reference/*-cli.txt
+
+# Jekyll backup (legacy)
+docs-jekyll-backup/
 
 packs/
 
@@ -86,3 +92,6 @@ sdk/examples/**/*
 
 
 runtime/test_output.txt
+
+
+docs/linkinator-report.json

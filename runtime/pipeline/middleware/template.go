@@ -16,6 +16,8 @@ func TemplateMiddleware() pipeline.Middleware {
 	return &templateMiddleware{}
 }
 
+// Process substitutes variable placeholders in the system prompt with values from ExecutionContext.Variables.
+// It replaces {{variable}} placeholders and stores the result in ExecutionContext.Prompt.
 func (m *templateMiddleware) Process(execCtx *pipeline.ExecutionContext, next func() error) error {
 	// Start with the system prompt
 	prompt := execCtx.SystemPrompt
@@ -38,6 +40,7 @@ func (m *templateMiddleware) Process(execCtx *pipeline.ExecutionContext, next fu
 	return next()
 }
 
+// StreamChunk is a no-op for template middleware as it doesn't process stream chunks.
 func (m *templateMiddleware) StreamChunk(execCtx *pipeline.ExecutionContext, chunk *providers.StreamChunk) error {
 	// Template middleware doesn't process chunks
 	return nil

@@ -53,6 +53,9 @@ func ProviderMiddleware(provider providers.Provider, toolRegistry *tools.Registr
 	}
 }
 
+// Process executes the LLM provider call and handles tool execution if needed.
+// It routes to either streaming or non-streaming execution based on ExecutionContext.StreamMode.
+// This method always calls next() even if an error occurs to ensure state is saved.
 func (m *providerMiddleware) Process(execCtx *pipeline.ExecutionContext, next func() error) error {
 	if m.provider == nil {
 		return errors.New("provider middleware: no provider configured")
@@ -845,6 +848,7 @@ func calculateApproximateCost(provider providers.Provider, req providers.Predict
 	return &costBreakdown
 }
 
+// StreamChunk is a no-op for provider middleware as it generates chunks rather than processing them.
 func (m *providerMiddleware) StreamChunk(execCtx *pipeline.ExecutionContext, chunk *providers.StreamChunk) error {
 	// Provider middleware doesn't intercept its own chunks
 	// It generates them, so no processing needed here

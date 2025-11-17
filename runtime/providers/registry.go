@@ -22,12 +22,12 @@ func NewRegistry() *Registry {
 	}
 }
 
-// Register adds a provider to the registry
+// Register adds a provider to the registry using its ID as the key.
 func (r *Registry) Register(provider Provider) {
 	r.providers[provider.ID()] = provider
 }
 
-// Get retrieves a provider by ID
+// Get retrieves a provider by ID, returning the provider and a boolean indicating if it was found.
 func (r *Registry) Get(id string) (Provider, bool) {
 	provider, exists := r.providers[id]
 	return provider, exists
@@ -42,7 +42,8 @@ func (r *Registry) List() []string {
 	return ids
 }
 
-// Close closes all registered providers and cleans up their resources
+// Close closes all registered providers and cleans up their resources.
+// Returns the first error encountered, if any.
 func (r *Registry) Close() error {
 	for _, provider := range r.providers {
 		if err := provider.Close(); err != nil {
@@ -100,6 +101,7 @@ type UnsupportedProviderError struct {
 	ProviderType string
 }
 
+// Error returns the error message for this unsupported provider error.
 func (e *UnsupportedProviderError) Error() string {
 	return "unsupported provider type: " + e.ProviderType
 }

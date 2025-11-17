@@ -22,6 +22,9 @@ func StateStoreSaveMiddleware(config *pipeline.StateStoreConfig) pipeline.Middle
 	return &stateStoreSaveMiddleware{config: config}
 }
 
+// Process saves the conversation state to the state store after execution completes.
+// This middleware should be placed last in the pipeline after all other middleware.
+// It saves state even if execution failed to preserve partial state for debugging and recovery.
 func (m *stateStoreSaveMiddleware) Process(execCtx *pipeline.ExecutionContext, next func() error) error {
 	// Continue to next middleware first
 	err := next()
@@ -93,6 +96,7 @@ func saveToStateStore(execCtx *pipeline.ExecutionContext, store statestore.Store
 	return store.Save(execCtx.Context, state)
 }
 
+// StreamChunk is a no-op for state store save middleware as it doesn't process stream chunks.
 func (m *stateStoreSaveMiddleware) StreamChunk(execCtx *pipeline.ExecutionContext, chunk *providers.StreamChunk) error {
 	// StateStore save middleware doesn't process chunks
 	return nil

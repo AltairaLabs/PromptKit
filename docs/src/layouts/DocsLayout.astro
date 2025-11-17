@@ -1,0 +1,294 @@
+---
+import Mermaid from '../components/Mermaid.astro';
+import FeedbackBox from '../components/FeedbackBox.astro';
+
+interface Props {
+  title: string;
+  description?: string;
+  product?: string;
+}
+
+const { title, description, product } = Astro.props;
+const currentPath = Astro.url.pathname;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title} | PromptKit Documentation</title>
+    {description && <meta name="description" content={description} />}
+    <link rel="icon" type="image/svg+xml" href={`${import.meta.env.BASE_URL}/favicon.svg`} />
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        --color-bg: #ffffff;
+        --color-text: #24292f;
+        --color-border: #d0d7de;
+        --color-sidebar-bg: #f6f8fa;
+        --color-link: #0969da;
+        --color-link-hover: #0550ae;
+        --sidebar-width: 280px;
+        --toc-width: 240px;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --color-bg: #0d1117;
+          --color-text: #c9d1d9;
+          --color-border: #30363d;
+          --color-sidebar-bg: #161b22;
+          --color-link: #58a6ff;
+          --color-link-hover: #79c0ff;
+        }
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+        line-height: 1.6;
+        color: var(--color-text);
+        background-color: var(--color-bg);
+      }
+
+      .docs-container {
+        display: flex;
+        min-height: calc(100vh - 60px);
+      }
+
+      .docs-sidebar {
+        width: var(--sidebar-width);
+        background: var(--color-sidebar-bg);
+        border-right: 1px solid var(--color-border);
+        position: sticky;
+        top: 60px;
+        height: calc(100vh - 60px);
+        overflow-y: auto;
+        padding: 1.5rem;
+      }
+
+      .docs-content {
+        flex: 1;
+        max-width: 800px;
+        padding: 2rem 3rem;
+        min-width: 0;
+      }
+
+      .docs-toc {
+        width: var(--toc-width);
+        padding: 2rem 1.5rem;
+        position: sticky;
+        top: 60px;
+        height: calc(100vh - 60px);
+        overflow-y: auto;
+        display: none;
+      }
+
+      @media (min-width: 1400px) {
+        .docs-toc {
+          display: block;
+        }
+      }
+
+      .header {
+        height: 60px;
+        border-bottom: 1px solid var(--color-border);
+        padding: 0 2rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        position: sticky;
+        top: 0;
+        background: var(--color-bg);
+        z-index: 100;
+      }
+
+      .header-logo {
+        font-size: 1.25rem;
+        font-weight: 600;
+        text-decoration: none;
+        color: var(--color-text);
+      }
+
+      .header-nav {
+        display: flex;
+        gap: 2rem;
+        align-items: center;
+      }
+
+      .header-nav a {
+        text-decoration: none;
+        color: var(--color-text);
+        font-weight: 500;
+      }
+
+      .header-nav a:hover {
+        color: var(--color-link);
+      }
+
+      a {
+        color: var(--color-link);
+        text-decoration: none;
+      }
+
+      a:hover {
+        color: var(--color-link-hover);
+        text-decoration: underline;
+      }
+
+      h1, h2, h3, h4, h5, h6 {
+        margin-top: 1.5rem;
+        margin-bottom: 0.75rem;
+        font-weight: 600;
+        line-height: 1.25;
+      }
+
+      h1 {
+        font-size: 2rem;
+        border-bottom: 1px solid var(--color-border);
+        padding-bottom: 0.5rem;
+      }
+
+      h2 {
+        font-size: 1.5rem;
+        border-bottom: 1px solid var(--color-border);
+        padding-bottom: 0.3rem;
+      }
+
+      h3 {
+        font-size: 1.25rem;
+      }
+
+      p {
+        margin-bottom: 1rem;
+      }
+
+      pre {
+        background: #f6f8fa;
+        border: 1px solid var(--color-border);
+        border-radius: 6px;
+        padding: 1rem;
+        overflow-x: auto;
+        margin-bottom: 1rem;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        pre {
+          background: #161b22;
+        }
+      }
+
+      code {
+        background: rgba(175, 184, 193, 0.2);
+        padding: 0.2em 0.4em;
+        border-radius: 3px;
+        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+        font-size: 85%;
+      }
+
+      pre code {
+        background: none;
+        padding: 0;
+      }
+
+      ul, ol {
+        margin-left: 2rem;
+        margin-bottom: 1rem;
+      }
+
+      blockquote {
+        border-left: 4px solid var(--color-border);
+        padding-left: 1rem;
+        margin: 1rem 0;
+        color: #57606a;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        blockquote {
+          color: #8b949e;
+        }
+      }
+
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        margin-bottom: 1rem;
+      }
+
+      th, td {
+        border: 1px solid var(--color-border);
+        padding: 0.5rem;
+        text-align: left;
+      }
+
+      th {
+        background: var(--color-sidebar-bg);
+        font-weight: 600;
+      }
+
+      @media (max-width: 768px) {
+        .docs-sidebar {
+          display: none;
+        }
+        
+        .docs-content {
+          padding: 1.5rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="header">
+      <a href={`${import.meta.env.BASE_URL}/`} class="header-logo">PromptKit</a>
+      <nav class="header-nav">
+        <a href={`${import.meta.env.BASE_URL}/arena/`}>Arena</a>
+        <a href={`${import.meta.env.BASE_URL}/sdk/`}>SDK</a>
+        <a href={`${import.meta.env.BASE_URL}/packc/`}>PackC</a>
+        <a href={`${import.meta.env.BASE_URL}/runtime/`}>Runtime</a>
+        <a href={`${import.meta.env.BASE_URL}/concepts/`}>Concepts</a>
+        <a href={`${import.meta.env.BASE_URL}/workflows/`}>Workflows</a>
+        <a href={`${import.meta.env.BASE_URL}/architecture/`}>Architecture</a>
+        <a href={`${import.meta.env.BASE_URL}/contributors/`}>Contributors</a>
+        <a href={`${import.meta.env.BASE_URL}/api/`}>API</a>
+        <a href="https://github.com/AltairaLabs/PromptKit" target="_blank">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="docs-container">
+      <aside class="docs-sidebar">
+        <slot name="sidebar" />
+      </aside>
+
+      <main class="docs-content">
+        <slot />
+        <FeedbackBox />
+      </main>
+
+      <aside class="docs-toc">
+        <slot name="toc" />
+      </aside>
+    </div>
+    
+    <Mermaid />
+    
+    <script>
+      // Additional diagnostic script to check page load
+      console.log('Page loaded, DOM state:', document.readyState);
+      console.log('Total pre elements:', document.querySelectorAll('pre').length);
+      console.log('Pre elements with data-language:', document.querySelectorAll('pre[data-language]').length);
+      console.log('Pre elements with mermaid:', document.querySelectorAll('pre[data-language="mermaid"]').length);
+      
+      const mermaidPres = document.querySelectorAll('pre[data-language="mermaid"]');
+      console.log('Mermaid pre blocks found:', mermaidPres.length);
+      mermaidPres.forEach((pre, i) => {
+        const code = pre.querySelector('code');
+        console.log(`Mermaid block ${i}:`, code ? code.textContent.substring(0, 30) : 'no code');
+      });
+    </script>
+  </body>
+</html>

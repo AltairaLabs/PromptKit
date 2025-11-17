@@ -26,6 +26,9 @@ func PromptAssemblyMiddleware(promptRegistry *prompt.Registry, taskType string, 
 	}
 }
 
+// Process loads and assembles the prompt for the specified task type from the prompt registry.
+// It populates ExecutionContext with system prompt, allowed tools, base variables, and validator configurations.
+// This middleware should run before context extraction and template substitution.
 func (m *promptAssemblyMiddleware) Process(execCtx *pipeline.ExecutionContext, next func() error) error {
 	// If prompt registry is not configured, use default
 	if m.promptRegistry == nil {
@@ -85,6 +88,7 @@ func (m *promptAssemblyMiddleware) Process(execCtx *pipeline.ExecutionContext, n
 	return next()
 }
 
+// StreamChunk is a no-op for prompt assembly middleware as it doesn't process stream chunks.
 func (m *promptAssemblyMiddleware) StreamChunk(execCtx *pipeline.ExecutionContext, chunk *providers.StreamChunk) error {
 	// Prompt assembly middleware doesn't process chunks
 	return nil

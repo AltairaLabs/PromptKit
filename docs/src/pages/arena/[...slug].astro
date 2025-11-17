@@ -1,0 +1,32 @@
+---
+import { getCollection } from 'astro:content';
+import type { GetStaticPaths } from 'astro';
+import DocsLayout from '../../layouts/DocsLayout.astro';
+import Sidebar from '../../components/Sidebar.astro';
+import TableOfContentsStatic from '../../components/TableOfContentsStatic.astro';
+
+export const getStaticPaths = (async () => {
+  const arenaEntries = await getCollection('arena');
+  return arenaEntries
+    .filter(entry => entry.slug !== 'index')
+    .map(entry => ({
+      params: { slug: entry.slug },
+      props: { entry },
+    }));
+}) satisfies GetStaticPaths;
+
+const { entry } = Astro.props;
+const { Content, headings } = await entry.render();
+---
+
+<DocsLayout 
+  title={entry.data.title} 
+  description={entry.data.description}
+  product="arena"
+>
+  <Sidebar slot="sidebar" product="arena" currentPath={Astro.url.pathname} />
+  
+  <Content />
+  
+  <TableOfContentsStatic slot="toc" headings={headings} />
+</DocsLayout>

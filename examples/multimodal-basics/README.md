@@ -1,3 +1,4 @@
+
 # Multimodal Basics Example
 
 This example demonstrates how to configure and use multimodal media support in PromptKit, with runnable PromptArena tests using both real models and mock providers.

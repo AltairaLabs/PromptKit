@@ -1,0 +1,158 @@
+---
+const pagePath = Astro.url.pathname;
+const pageUrl = Astro.url.href;
+
+const repoUrl = 'https://github.com/AltairaLabs/PromptKit';
+
+function createIssueUrl(sentiment?: string) {
+  const title = encodeURIComponent(`Feedback for: ${pagePath}`);
+  const body = encodeURIComponent(`**Page URL:** ${pageUrl}\n\n**Feedback:**\n\n[Please provide your feedback here]`);
+  const labels = sentiment ? `documentation,${sentiment}` : 'documentation';
+  const labelParam = `&labels=${encodeURIComponent(labels)}`;
+  return `${repoUrl}/issues/new?title=${title}&body=${body}${labelParam}`;
+}
+
+const positiveUrl = createIssueUrl('positive');
+const negativeUrl = createIssueUrl('negative');
+const reportUrl = createIssueUrl();
+---
+
+<div class="feedback-box">
+  <div class="feedback-content">
+    <span class="feedback-question">Was this page helpful?</span>
+    <div class="feedback-actions">
+      <a href={positiveUrl} target="_blank" rel="noopener noreferrer" class="feedback-btn feedback-btn-yes" title="Yes, this page was helpful">
+        👍 Yes
+      </a>
+      <a href={negativeUrl} target="_blank" rel="noopener noreferrer" class="feedback-btn feedback-btn-no" title="No, this page needs improvement">
+        👎 No
+      </a>
+      <span class="feedback-divider">|</span>
+      <a href={reportUrl} target="_blank" rel="noopener noreferrer" class="feedback-link" title="Report an issue with this page">
+        Report an issue
+      </a>
+    </div>
+  </div>
+</div>
+
+<style>
+  .feedback-box {
+    margin-top: 3rem;
+    padding: 1.5rem;
+    border-top: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    background-color: #f9fafb;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .feedback-box {
+      border-top-color: #374151;
+      background-color: #1f2937;
+    }
+  }
+
+  .feedback-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  @media (min-width: 640px) {
+    .feedback-content {
+      flex-direction: row;
+      justify-content: center;
+      gap: 1.5rem;
+    }
+  }
+
+  .feedback-question {
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: #374151;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .feedback-question {
+      color: #d1d5db;
+    }
+  }
+
+  .feedback-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .feedback-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #374151;
+    background-color: #fff;
+    border: 1px solid #d1d5db;
+    border-radius: 0.375rem;
+    text-decoration: none;
+    transition: all 0.2s;
+    cursor: pointer;
+  }
+
+  .feedback-btn:hover {
+    background-color: #f3f4f6;
+    border-color: #9ca3af;
+    transform: translateY(-1px);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .feedback-btn {
+      color: #d1d5db;
+      background-color: #374151;
+      border-color: #4b5563;
+    }
+
+    .feedback-btn:hover {
+      background-color: #4b5563;
+      border-color: #6b7280;
+    }
+  }
+
+  .feedback-divider {
+    color: #d1d5db;
+    font-weight: 300;
+    user-select: none;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .feedback-divider {
+      color: #4b5563;
+    }
+  }
+
+  .feedback-link {
+    font-size: 0.875rem;
+    color: #2563eb;
+    text-decoration: none;
+    font-weight: 500;
+    transition: color 0.2s;
+  }
+
+  .feedback-link:hover {
+    color: #1d4ed8;
+    text-decoration: underline;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .feedback-link {
+      color: #60a5fa;
+    }
+
+    .feedback-link:hover {
+      color: #93c5fd;
+    }
+  }
+</style>

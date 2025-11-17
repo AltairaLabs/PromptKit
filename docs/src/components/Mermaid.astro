@@ -1,0 +1,81 @@
+---
+// Component for rendering Mermaid diagrams on the client side
+---
+<script>
+  import mermaid from 'mermaid';
+  
+  // Function to initialize and render mermaid diagrams
+  async function initMermaid() {
+    try {
+      console.log('Initializing Mermaid...');
+      
+      // Initialize mermaid with dark theme
+      mermaid.initialize({
+        startOnLoad: false, // We'll manually trigger rendering
+        theme: 'dark',
+        themeVariables: {
+          primaryColor: '#4b5563',
+          primaryTextColor: '#e1e4e8',
+          primaryBorderColor: '#6b7280',
+          lineColor: '#9ca3af',
+          secondaryColor: '#374151',
+          tertiaryColor: '#1f2937',
+        },
+      });
+      
+      // Find all mermaid code blocks - the data-language attribute is on the <pre> element!
+      const mermaidPres = document.querySelectorAll('pre[data-language="mermaid"]');
+      console.log(`Found ${mermaidPres.length} Mermaid diagrams to render`);
+      
+      mermaidPres.forEach((pre, index) => {
+        // Get the code content from the code element inside the pre
+        const codeElement = pre.querySelector('code');
+        const code = codeElement ? codeElement.textContent || '' : '';
+        
+        console.log(`Processing Mermaid diagram ${index + 1}:`, code.substring(0, 50) + '...');
+        
+        // Create a div for mermaid to render into
+        const mermaidDiv = document.createElement('div');
+        mermaidDiv.className = 'mermaid';
+        mermaidDiv.textContent = code;
+        
+        // Replace the pre block with the mermaid div
+        if (pre.parentElement) {
+          pre.parentElement.replaceChild(mermaidDiv, pre);
+        }
+      });
+      
+      // Run mermaid to render all diagrams
+      if (mermaidPres.length > 0) {
+        console.log('Running Mermaid rendering...');
+        await mermaid.run();
+        console.log('Mermaid rendering complete!');
+      } else {
+        console.log('No Mermaid diagrams to render');
+      }
+    } catch (error) {
+      console.error('Error initializing Mermaid:', error);
+    }
+  }
+  
+  // Run when DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initMermaid);
+  } else {
+    // DOM is already loaded, run immediately
+    initMermaid();
+  }
+</script>
+
+<style>
+  :global(.mermaid) {
+    display: flex;
+    justify-content: center;
+    margin: 2rem 0;
+  }
+  
+  :global(.mermaid svg) {
+    max-width: 100%;
+    height: auto;
+  }
+</style>

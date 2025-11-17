@@ -1,3 +1,4 @@
+
 # Customer Support - Integrated Tools Example
 
 This example demonstrates a customer support chatbot that uses **tools** to retrieve customer information, check orders, and manage tickets.
