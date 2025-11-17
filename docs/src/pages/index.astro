@@ -1,6 +1,19 @@
 ---
 import DocsLayout from '../layouts/DocsLayout.astro';
-const base = import.meta.env.BASE_URL;
+
+// Helper function to properly join base URL with path
+const joinPath = (path: string) => {
+  const base = import.meta.env.BASE_URL;
+  // If base is just "/", return the path as-is (it should already start with /)
+  if (base === '/') {
+    return path.startsWith('/') ? path : `/${path}`;
+  }
+  // Remove trailing slash from base if present
+  const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base;
+  // Ensure path starts with /
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${cleanBase}${cleanPath}`;
+};
 ---
 
 <DocsLayout title="PromptKit Documentation" description="Professional LLM development framework with testing, packaging, and production deployment tools">
@@ -20,7 +33,7 @@ const base = import.meta.env.BASE_URL;
     <h3>🎨 Prompt Engineer / ML Ops</h3>
     <p><strong>I want to develop and test LLM prompts systematically</strong></p>
     <p>You need <strong>PromptArena</strong> - a comprehensive testing framework for validating prompts across multiple providers.</p>
-    <p><strong>Quick Start</strong>: <a href={`${base}/arena/tutorials/01-first-test/`}>Arena Tutorial: Your First Test</a> (5 minutes)</p>
+    <p><strong>Quick Start</strong>: <a href={joinPath('/arena/tutorials/01-first-test/')}>Arena Tutorial: Your First Test</a> (5 minutes)</p>
     <p><strong>What you can do</strong>:</p>
     <ul>
       <li>Test prompts across OpenAI, Claude, Gemini simultaneously</li>
@@ -29,14 +42,14 @@ const base = import.meta.env.BASE_URL;
       <li>Integrate MCP tools for real-world testing</li>
       <li>Generate comprehensive test reports</li>
     </ul>
-    <p><a href={`${base}/arena/`}><strong>Get Started with Arena →</strong></a></p>
+    <p><a href={joinPath('/arena/')}><strong>Get Started with Arena →</strong></a></p>
 
     <hr />
 
     <h3>💻 Application Developer</h3>
     <p><strong>I want to build production LLM applications</strong></p>
     <p>You need <strong>PromptKit SDK</strong> - a production-ready Go library for building robust LLM applications.</p>
-    <p><strong>Quick Start</strong>: <a href={`${base}/sdk/tutorials/01-first-chatbot/`}>SDK Tutorial: Your First Chatbot</a> (15 minutes)</p>
+    <p><strong>Quick Start</strong>: <a href={joinPath('/sdk/tutorials/01-first-chatbot/')}>SDK Tutorial: Your First Chatbot</a> (15 minutes)</p>
     <p><strong>What you can do</strong>:</p>
     <ul>
       <li>Use pre-tested, compiled PromptPacks</li>
@@ -45,14 +58,14 @@ const base = import.meta.env.BASE_URL;
       <li>Handle streaming responses</li>
       <li>Deploy confidently to production</li>
     </ul>
-    <p><a href={`${base}/sdk/`}><strong>Get Started with SDK →</strong></a></p>
+    <p><a href={joinPath('/sdk/')}><strong>Get Started with SDK →</strong></a></p>
 
     <hr />
 
     <h3>🔧 DevOps / Build Engineer</h3>
     <p><strong>I want to package prompts and integrate into CI/CD</strong></p>
     <p>You need <strong>PackC</strong> - a compiler for packaging and optimizing PromptPacks.</p>
-    <p><strong>Quick Start</strong>: <a href={`${base}/packc/tutorials/01-first-pack/`}>PackC Tutorial: First Pack</a> (5 minutes)</p>
+    <p><strong>Quick Start</strong>: <a href={joinPath('/packc/tutorials/01-first-pack/')}>PackC Tutorial: First Pack</a> (5 minutes)</p>
     <p><strong>What you can do</strong>:</p>
     <ul>
       <li>Compile tested prompts into optimized packages</li>
@@ -61,14 +74,14 @@ const base = import.meta.env.BASE_URL;
       <li>Version and distribute prompt packages</li>
       <li>Bridge development and production</li>
     </ul>
-    <p><a href={`${base}/packc/`}><strong>Get Started with PackC →</strong></a></p>
+    <p><a href={joinPath('/packc/')}><strong>Get Started with PackC →</strong></a></p>
 
     <hr />
 
     <h3>🏗️ Framework Contributor / Advanced User</h3>
     <p><strong>I want to extend PromptKit or understand internals</strong></p>
     <p>You need <strong>Runtime</strong> - the core framework powering all PromptKit tools.</p>
-    <p><strong>Quick Start</strong>: <a href={`${base}/runtime/tutorials/01-custom-provider/`}>Runtime Tutorial: Custom Provider</a> (20 minutes)</p>
+    <p><strong>Quick Start</strong>: <a href={joinPath('/runtime/tutorials/01-custom-provider/')}> Runtime Tutorial: Custom Provider</a> (20 minutes)</p>
     <p><strong>What you can do</strong>:</p>
     <ul>
       <li>Build custom LLM providers</li>
@@ -77,7 +90,7 @@ const base = import.meta.env.BASE_URL;
       <li>Understand architectural decisions</li>
       <li>Contribute to framework development</li>
     </ul>
-    <p><a href={`${base}/runtime/`}><strong>Get Started with Runtime →</strong></a></p>
+    <p><a href={joinPath('/runtime/')}><strong>Get Started with Runtime →</strong></a></p>
 
     <hr />
 
@@ -88,10 +101,10 @@ const base = import.meta.env.BASE_URL;
         <h3 style="margin: 0 0 0.5rem 0;">📖 Tutorials</h3>
         <p style="margin: 0; font-size: 0.875rem;">Step-by-step learning paths for each tool. Start here if you're new.</p>
         <ul style="margin-top: 0.5rem; font-size: 0.875rem;">
-          <li><a href={`${base}/arena/tutorials/`}>Arena Tutorials</a></li>
-          <li><a href={`${base}/sdk/tutorials/`}>SDK Tutorials</a></li>
-          <li><a href={`${base}/packc/tutorials/`}>PackC Tutorials</a></li>
-          <li><a href={`${base}/runtime/tutorials/`}>Runtime Tutorials</a></li>
+          <li><a href={joinPath('/arena/tutorials/')}>Arena Tutorials</a></li>
+          <li><a href={joinPath('/sdk/tutorials/')}>SDK Tutorials</a></li>
+          <li><a href={joinPath('/packc/tutorials/')}>PackC Tutorials</a></li>
+          <li><a href={joinPath('/runtime/tutorials/')}>Runtime Tutorials</a></li>
         </ul>
       </div>
 
@@ -99,10 +112,10 @@ const base = import.meta.env.BASE_URL;
         <h3 style="margin: 0 0 0.5rem 0;">� How-To Guides</h3>
         <p style="margin: 0; font-size: 0.875rem;">Task-oriented guides for specific goals.</p>
         <ul style="margin-top: 0.5rem; font-size: 0.875rem;">
-          <li><a href={`${base}/arena/how-to/`}>Arena How-Tos</a></li>
-          <li><a href={`${base}/sdk/how-to/`}>SDK How-Tos</a></li>
-          <li><a href={`${base}/packc/how-to/`}>PackC How-Tos</a></li>
-          <li><a href={`${base}/runtime/how-to/`}>Runtime How-Tos</a></li>
+          <li><a href={joinPath('/arena/how-to/')}>Arena How-Tos</a></li>
+          <li><a href={joinPath('/sdk/how-to/')}>SDK How-Tos</a></li>
+          <li><a href={joinPath('/packc/how-to/')}>PackC How-Tos</a></li>
+          <li><a href={joinPath('/runtime/how-to/')}>Runtime How-Tos</a></li>
         </ul>
       </div>
 
@@ -110,10 +123,10 @@ const base = import.meta.env.BASE_URL;
         <h3 style="margin: 0 0 0.5rem 0;">� Explanations</h3>
         <p style="margin: 0; font-size: 0.875rem;">Understand concepts and design decisions.</p>
         <ul style="margin-top: 0.5rem; font-size: 0.875rem;">
-          <li><a href={`${base}/arena/explanation/`}>Arena Concepts</a></li>
-          <li><a href={`${base}/sdk/explanation/`}>SDK Concepts</a></li>
-          <li><a href={`${base}/packc/explanation/`}>PackC Concepts</a></li>
-          <li><a href={`${base}/runtime/explanation/`}>Runtime Concepts</a></li>
+          <li><a href={joinPath('/arena/explanation/')}>Arena Concepts</a></li>
+          <li><a href={joinPath('/sdk/explanation/')}>SDK Concepts</a></li>
+          <li><a href={joinPath('/packc/explanation/')}>PackC Concepts</a></li>
+          <li><a href={joinPath('/runtime/explanation/')}>Runtime Concepts</a></li>
         </ul>
       </div>
 
@@ -121,10 +134,10 @@ const base = import.meta.env.BASE_URL;
         <h3 style="margin: 0 0 0.5rem 0;">📋 Reference</h3>
         <p style="margin: 0; font-size: 0.875rem;">Technical specifications and API docs.</p>
         <ul style="margin-top: 0.5rem; font-size: 0.875rem;">
-          <li><a href={`${base}/arena/reference/`}>Arena Reference</a></li>
-          <li><a href={`${base}/sdk/reference/`}>SDK Reference</a></li>
-          <li><a href={`${base}/packc/reference/`}>PackC Reference</a></li>
-          <li><a href={`${base}/runtime/reference/`}>Runtime Reference</a></li>
+          <li><a href={joinPath('/arena/reference/')}>Arena Reference</a></li>
+          <li><a href={joinPath('/sdk/reference/')}>SDK Reference</a></li>
+          <li><a href={joinPath('/packc/reference/')}>PackC Reference</a></li>
+          <li><a href={joinPath('/runtime/reference/')}>Runtime Reference</a></li>
         </ul>
       </div>
     </div>

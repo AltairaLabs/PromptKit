@@ -8,6 +8,20 @@ interface Props {
 
 const { product, currentPath } = Astro.props;
 
+// Helper function to properly join base URL with path
+const joinPath = (path: string) => {
+  const base = import.meta.env.BASE_URL;
+  // If base is just "/", return the path as-is (it should already start with /)
+  if (base === '/') {
+    return path.startsWith('/') ? path : `/${path}`;
+  }
+  // Remove trailing slash from base if present
+  const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base;
+  // Ensure path starts with /
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${cleanBase}${cleanPath}`;
+};
+
 // Get all docs for the current product
 let docs: any[] = [];
 if (product) {
@@ -61,7 +75,7 @@ const sortedCategories = Object.keys(grouped).sort((a, b) => {
       <h3>{category.charAt(0).toUpperCase() + category.slice(1)}</h3>
       <ul>
         {grouped[category].map(doc => {
-          const href = `${import.meta.env.BASE_URL}/${product}/${doc.slug}`;
+          const href = joinPath(`/${product}/${doc.slug}`);
           const isActive = currentPath === href || currentPath.startsWith(href + '/');
           return (
             <li>

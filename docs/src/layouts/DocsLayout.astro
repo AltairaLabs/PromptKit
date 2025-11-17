@@ -10,6 +10,20 @@ interface Props {
 
 const { title, description, product } = Astro.props;
 const currentPath = Astro.url.pathname;
+
+// Helper function to properly join base URL with path
+const joinPath = (path: string) => {
+  const base = import.meta.env.BASE_URL;
+  // If base is just "/", return the path as-is (it should already start with /)
+  if (base === '/') {
+    return path.startsWith('/') ? path : `/${path}`;
+  }
+  // Remove trailing slash from base if present
+  const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base;
+  // Ensure path starts with /
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${cleanBase}${cleanPath}`;
+};
 ---
 
 <!doctype html>
@@ -19,7 +33,7 @@ const currentPath = Astro.url.pathname;
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{title} | PromptKit Documentation</title>
     {description && <meta name="description" content={description} />}
-    <link rel="icon" type="image/svg+xml" href={`${import.meta.env.BASE_URL}/favicon.svg`} />
+    <link rel="icon" type="image/svg+xml" href={joinPath('/favicon.svg')} />
     <style>
       * {
         box-sizing: border-box;
@@ -244,17 +258,17 @@ const currentPath = Astro.url.pathname;
   </head>
   <body>
     <header class="header">
-      <a href={`${import.meta.env.BASE_URL}/`} class="header-logo">PromptKit</a>
+      <a href={joinPath('/')} class="header-logo">PromptKit</a>
       <nav class="header-nav">
-        <a href={`${import.meta.env.BASE_URL}/arena/`}>Arena</a>
-        <a href={`${import.meta.env.BASE_URL}/sdk/`}>SDK</a>
-        <a href={`${import.meta.env.BASE_URL}/packc/`}>PackC</a>
-        <a href={`${import.meta.env.BASE_URL}/runtime/`}>Runtime</a>
-        <a href={`${import.meta.env.BASE_URL}/concepts/`}>Concepts</a>
-        <a href={`${import.meta.env.BASE_URL}/workflows/`}>Workflows</a>
-        <a href={`${import.meta.env.BASE_URL}/architecture/`}>Architecture</a>
-        <a href={`${import.meta.env.BASE_URL}/contributors/`}>Contributors</a>
-        <a href={`${import.meta.env.BASE_URL}/api/`}>API</a>
+        <a href={joinPath('/arena/')}>Arena</a>
+        <a href={joinPath('/sdk/')}>SDK</a>
+        <a href={joinPath('/packc/')}>PackC</a>
+        <a href={joinPath('/runtime/')}>Runtime</a>
+        <a href={joinPath('/concepts/')}>Concepts</a>
+        <a href={joinPath('/workflows/')}>Workflows</a>
+        <a href={joinPath('/architecture/')}>Architecture</a>
+        <a href={joinPath('/contributors/')}>Contributors</a>
+        <a href={joinPath('/api/')}>API</a>
         <a href="https://github.com/AltairaLabs/PromptKit" target="_blank">GitHub</a>
       </nav>
     </header>
