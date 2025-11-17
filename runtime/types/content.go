@@ -29,18 +29,22 @@ type MediaContent struct {
 	FilePath *string `json:"file_path,omitempty"` // Local file path
 	URL      *string `json:"url,omitempty"`       // External URL (http/https)
 
+	// Storage backend reference (used when media is externalized)
+	StorageReference *string `json:"storage_reference,omitempty"` // Backend-specific storage reference
+
 	// Media metadata
-	MIMEType string  `json:"mime_type"`          // e.g., "image/jpeg", "audio/mp3", "video/mp4"
-	Format   *string `json:"format,omitempty"`   // Optional format hint (e.g., "png", "mp3", "mp4")
-	SizeKB   *int64  `json:"size_kb,omitempty"`  // Optional size in kilobytes
-	Detail   *string `json:"detail,omitempty"`   // Optional detail level for images: "low", "high", "auto"
-	Caption  *string `json:"caption,omitempty"`  // Optional caption/description
-	Duration *int    `json:"duration,omitempty"` // Optional duration in seconds (for audio/video)
-	BitRate  *int    `json:"bit_rate,omitempty"` // Optional bit rate in kbps (for audio/video)
-	Channels *int    `json:"channels,omitempty"` // Optional number of channels (for audio)
-	Width    *int    `json:"width,omitempty"`    // Optional width in pixels (for image/video)
-	Height   *int    `json:"height,omitempty"`   // Optional height in pixels (for image/video)
-	FPS      *int    `json:"fps,omitempty"`      // Optional frames per second (for video)
+	MIMEType   string  `json:"mime_type"`             // e.g., "image/jpeg", "audio/mp3", "video/mp4"
+	Format     *string `json:"format,omitempty"`      // Optional format hint (e.g., "png", "mp3", "mp4")
+	SizeKB     *int64  `json:"size_kb,omitempty"`     // Optional size in kilobytes
+	Detail     *string `json:"detail,omitempty"`      // Optional detail level for images: "low", "high", "auto"
+	Caption    *string `json:"caption,omitempty"`     // Optional caption/description
+	Duration   *int    `json:"duration,omitempty"`    // Optional duration in seconds (for audio/video)
+	BitRate    *int    `json:"bit_rate,omitempty"`    // Optional bit rate in kbps (for audio/video)
+	Channels   *int    `json:"channels,omitempty"`    // Optional number of channels (for audio)
+	Width      *int    `json:"width,omitempty"`       // Optional width in pixels (for image/video)
+	Height     *int    `json:"height,omitempty"`      // Optional height in pixels (for image/video)
+	FPS        *int    `json:"fps,omitempty"`         // Optional frames per second (for video)
+	PolicyName *string `json:"policy_name,omitempty"` // Retention policy name
 }
 
 // ContentType constants for different content part types
