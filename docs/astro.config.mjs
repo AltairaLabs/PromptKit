@@ -5,8 +5,8 @@ import sitemap from '@astrojs/sitemap';
 
 // https://astro.build/config
 export default defineConfig({
-  site: 'https://altairalabs.github.io',
-  base: '/promptkit',
+  site: 'https://promptkit.altairalabs.ai',
+  base: '/',
   integrations: [
     mdx(),
     // React removed - using native Astro components only
