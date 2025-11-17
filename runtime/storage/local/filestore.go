@@ -285,7 +285,7 @@ func (fs *FileStore) computeHash(data []byte) string {
 	return hex.EncodeToString(hash[:])
 }
 
-func (fs *FileStore) generateFilePath(metadata *storage.MediaMetadata, hash string, mimeType string) (string, error) {
+func (fs *FileStore) generateFilePath(metadata *storage.MediaMetadata, hash, mimeType string) (string, error) {
 	// Get file extension from MIME type
 	ext := getExtensionFromMIME(mimeType)
 
