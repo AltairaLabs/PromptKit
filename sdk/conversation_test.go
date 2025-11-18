@@ -5,11 +5,15 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 const (
@@ -428,5 +432,189 @@ func TestConversationManager_WithConfig(t *testing.T) {
 
 	if !manager.config.EnableMetrics {
 		t.Error("expected metrics to be enabled")
+	}
+}
+
+func TestConversation_StreamHelpers_UpdateStateFromStreamResult(t *testing.T) {
+	conv := &Conversation{
+		state: &statestore.ConversationState{
+			Messages: []types.Message{{Role: "user", Content: "test"}},
+		},
+	}
+
+	result := &pipeline.ExecutionResult{
+		Messages: []types.Message{
+			{Role: "user", Content: "test"},
+			{Role: "assistant", Content: "response"},
+		},
+	}
+
+	conv.updateStateFromStreamResult(result)
+
+	if len(conv.state.Messages) != 2 {
+		t.Errorf("expected 2 messages, got %d", len(conv.state.Messages))
+	}
+	if conv.state.Messages[1].Role != "assistant" {
+		t.Errorf("expected assistant role, got %s", conv.state.Messages[1].Role)
+	}
+}
+
+func TestConversation_StreamHelpers_BuildStreamResponse(t *testing.T) {
+	conv := &Conversation{}
+
+	result := &pipeline.ExecutionResult{
+		Response: &pipeline.Response{
+			Role:    "assistant",
+			Content: "Hello",
+			ToolCalls: []types.MessageToolCall{
+				{ID: "call1", Name: "tool1"},
+			},
+		},
+		CostInfo: types.CostInfo{
+			InputTokens:  10,
+			OutputTokens: 20,
+			TotalCost:    0.001,
+		},
+	}
+
+	start := time.Now().Add(-100 * time.Millisecond)
+	response := conv.buildStreamResponse(result, "Hello", start)
+
+	if response.Content != "Hello" {
+		t.Errorf("expected content 'Hello', got '%s'", response.Content)
+	}
+	if response.TokensUsed != 30 {
+		t.Errorf("expected 30 tokens, got %d", response.TokensUsed)
+	}
+	if response.Cost != 0.001 {
+		t.Errorf("expected cost 0.001, got %f", response.Cost)
+	}
+	if response.LatencyMs < 90 {
+		t.Errorf("expected latency >= 90ms, got %d", response.LatencyMs)
+	}
+	if len(response.ToolCalls) != 1 {
+		t.Errorf("expected 1 tool call, got %d", len(response.ToolCalls))
+	}
+}
+
+func TestConversation_ContinueHelpers(t *testing.T) {
+	t.Run("validateContinuePreconditions_empty", func(t *testing.T) {
+		conv := &Conversation{
+			state: &statestore.ConversationState{
+				Messages: []types.Message{},
+			},
+		}
+
+		_, err := conv.validateContinuePreconditions()
+		if err == nil {
+			t.Error("expected error for empty messages")
+		}
+		if !strings.Contains(err.Error(), "no messages") {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("validateContinuePreconditions_wrongRole", func(t *testing.T) {
+		conv := &Conversation{
+			state: &statestore.ConversationState{
+				Messages: []types.Message{
+					{Role: "user", Content: "hello"},
+				},
+			},
+		}
+
+		_, err := conv.validateContinuePreconditions()
+		if err == nil {
+			t.Error("expected error for wrong role")
+		}
+		if !strings.Contains(err.Error(), "must be a tool result") {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("validateContinuePreconditions_success", func(t *testing.T) {
+		conv := &Conversation{
+			state: &statestore.ConversationState{
+				Messages: []types.Message{
+					{Role: "user", Content: "hello"},
+					{Role: "assistant", ToolCalls: []types.MessageToolCall{{ID: "call1"}}},
+					{Role: "tool", ToolResult: &types.MessageToolResult{ID: "call1", Content: "result"}},
+				},
+			},
+		}
+
+		msg, err := conv.validateContinuePreconditions()
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if msg.Role != "tool" {
+			t.Errorf("expected tool role, got %s", msg.Role)
+		}
+	})
+}
+
+func TestConversation_UpdateStateAfterContinue(t *testing.T) {
+	conv := &Conversation{
+		state: &statestore.ConversationState{
+			Messages: []types.Message{{Role: "user", Content: "test"}},
+			Metadata: map[string]interface{}{
+				"pending_tools": []interface{}{"tool1"},
+				"other_key":     "value",
+			},
+		},
+	}
+
+	result := &pipeline.ExecutionResult{
+		Messages: []types.Message{
+			{Role: "user", Content: "test"},
+			{Role: "assistant", Content: "done"},
+		},
+	}
+
+	conv.updateStateAfterContinue(result)
+
+	if len(conv.state.Messages) != 2 {
+		t.Errorf("expected 2 messages, got %d", len(conv.state.Messages))
+	}
+	if _, exists := conv.state.Metadata["pending_tools"]; exists {
+		t.Error("expected pending_tools to be cleared")
+	}
+	if conv.state.Metadata["other_key"] != "value" {
+		t.Error("expected other metadata to be preserved")
+	}
+}
+
+func TestConversation_BuildContinueResponse(t *testing.T) {
+	conv := &Conversation{}
+
+	result := &pipeline.ExecutionResult{
+		Response: &pipeline.Response{
+			Content: "Completed",
+		},
+		CostInfo: types.CostInfo{
+			InputTokens:  5,
+			OutputTokens: 15,
+			TotalCost:    0.0005,
+		},
+		Messages: []types.Message{
+			{Role: "user", Content: "test"},
+			{Role: "assistant", Content: "Completed"},
+		},
+	}
+
+	latency := 250 * time.Millisecond
+	response := conv.buildContinueResponse(result, latency)
+
+	if response.Content != "Completed" {
+		t.Errorf("expected content 'Completed', got '%s'", response.Content)
+	}
+	if response.TokensUsed != 20 {
+		t.Errorf("expected 20 tokens, got %d", response.TokensUsed)
+	}
+	if response.Cost != 0.0005 {
+		t.Errorf("expected cost 0.0005, got %f", response.Cost)
+	}
+	if response.LatencyMs != 250 {
+		t.Errorf("expected latency 250ms, got %d", response.LatencyMs)
 	}
 }
