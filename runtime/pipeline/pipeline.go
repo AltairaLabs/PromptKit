@@ -249,69 +249,7 @@ func (p *Pipeline) ExecuteWithOptions(opts *ExecutionOptions, role, content stri
 // If role is empty, no message is appended (useful for testing).
 // Returns the ExecutionResult containing messages, response, trace, and metadata.
 func (p *Pipeline) Execute(ctx context.Context, role string, content string) (*ExecutionResult, error) {
-	// Check if shutting down
-	if p.isShuttingDown() {
-		return nil, ErrPipelineShuttingDown
-	}
-
-	// Acquire semaphore for concurrency control
-	if err := p.semaphore.Acquire(ctx, 1); err != nil {
-		return nil, fmt.Errorf(errFailedToAcquireSlot, err)
-	}
-	defer p.semaphore.Release(1)
-
-	// Track execution for graceful shutdown
-	p.wg.Add(1)
-	defer p.wg.Done()
-
-	// Apply execution timeout if configured
-	execCtx := ctx
-	var cancel context.CancelFunc
-	if p.config.ExecutionTimeout > 0 {
-		execCtx, cancel = context.WithTimeout(ctx, p.config.ExecutionTimeout)
-		defer cancel()
-	}
-
-	// Create fresh internal execution context
-	internalCtx := &ExecutionContext{
-		Context:  execCtx,
-		Messages: []types.Message{},
-		Metadata: make(map[string]interface{}),
-		Trace: ExecutionTrace{
-			LLMCalls:  []LLMCall{},
-			Events:    []TraceEvent{},
-			StartedAt: time.Now(),
-		},
-	}
-
-	// Append the new message to the conversation (if role is provided)
-	if role != "" {
-		internalCtx.Messages = append(internalCtx.Messages, types.Message{
-			Role:    role,
-			Content: content,
-		})
-	}
-
-	// Execute the middleware chain
-	err := p.executeChain(internalCtx, 0)
-
-	// Mark execution as complete
-	now := time.Now()
-	internalCtx.Trace.CompletedAt = &now
-
-	// Return the first error encountered (if any)
-	if internalCtx.Error != nil {
-		err = internalCtx.Error
-	}
-
-	// Return immutable result
-	return &ExecutionResult{
-		Messages: internalCtx.Messages,
-		Response: internalCtx.Response,
-		Trace:    internalCtx.Trace,
-		CostInfo: internalCtx.CostInfo,
-		Metadata: internalCtx.Metadata,
-	}, err
+	return p.ExecuteWithOptions(&ExecutionOptions{Context: ctx}, role, content)
 }
 
 // ExecuteWithMessage runs the pipeline with a complete Message object, returning the execution result.
@@ -329,6 +267,20 @@ func (p *Pipeline) Execute(ctx context.Context, role string, content string) (*E
 // Middleware can still modify the message during execution if needed.
 // Returns the ExecutionResult containing messages, response, trace, and metadata.
 func (p *Pipeline) ExecuteWithMessage(ctx context.Context, message types.Message) (*ExecutionResult, error) {
+	return p.executeWithMessageInternal(&ExecutionOptions{Context: ctx}, message)
+}
+
+// executeWithMessageInternal is the internal implementation shared by ExecuteWithMessage
+func (p *Pipeline) executeWithMessageInternal(opts *ExecutionOptions, message types.Message) (*ExecutionResult, error) {
+	if opts == nil {
+		opts = &ExecutionOptions{}
+	}
+
+	ctx := opts.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	// Check if shutting down
 	if p.isShuttingDown() {
 		return nil, ErrPipelineShuttingDown
@@ -354,9 +306,12 @@ func (p *Pipeline) ExecuteWithMessage(ctx context.Context, message types.Message
 
 	// Create fresh internal execution context
 	internalCtx := &ExecutionContext{
-		Context:  execCtx,
-		Messages: []types.Message{},
-		Metadata: make(map[string]interface{}),
+		Context:        execCtx,
+		RunID:          opts.RunID,
+		SessionID:      opts.SessionID,
+		ConversationID: opts.ConversationID,
+		Messages:       []types.Message{},
+		Metadata:       make(map[string]interface{}),
 		Trace: ExecutionTrace{
 			LLMCalls:  []LLMCall{},
 			Events:    []TraceEvent{},
