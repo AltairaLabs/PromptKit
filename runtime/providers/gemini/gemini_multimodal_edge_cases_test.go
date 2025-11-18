@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -121,7 +122,8 @@ func TestGeminiProvider_ParseGeminiResponse_UnknownFinishReason(t *testing.T) {
 }
 
 func TestGeminiProvider_ConvertMediaPartToGemini_URLError(t *testing.T) {
-	url := "https://example.com/media.jpg"
+	// Use a URL that will fail quickly (localhost unreachable port)
+	url := "http://localhost:1/nonexistent.jpg"
 	part := types.ContentPart{
 		Type: types.ContentTypeImage,
 		Media: &types.MediaContent{
@@ -132,11 +134,12 @@ func TestGeminiProvider_ConvertMediaPartToGemini_URLError(t *testing.T) {
 
 	_, err := convertMediaPartToGemini(part)
 	if err == nil {
-		t.Error("Expected error for URL-based media (not supported by Gemini)")
+		t.Error("Expected error for unreachable URL")
 	}
 
-	if err != nil && err.Error() != "gemini does not support media URLs, please use inline data or file paths" {
-		t.Errorf("Unexpected error: %v", err)
+	// MediaLoader now fetches URLs, so we expect connection error
+	if err != nil && !strings.Contains(err.Error(), "failed to load image data") {
+		t.Errorf("Expected connection error, got: %v", err)
 	}
 }
 

@@ -338,8 +338,8 @@ func TestClaudeProvider_ConvertImageMissingDataSource(t *testing.T) {
 		t.Error("Expected error for image without data source, got nil")
 	}
 
-	if err != nil && err.Error() != "no data source specified for image" {
-		t.Errorf("Expected 'no data source' error, got: %v", err)
+	if err != nil && !strings.Contains(err.Error(), "no media source available") {
+		t.Errorf("Expected 'no media source available' error, got: %v", err)
 	}
 }
 

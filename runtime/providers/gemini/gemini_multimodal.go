@@ -178,24 +178,11 @@ func convertMediaPartToGemini(part types.ContentPart) (geminiPart, error) {
 		return geminiPart{}, fmt.Errorf("%s part missing mime_type", part.Type)
 	}
 
-	// Get base64 data based on source
-	var base64Data string
-	var err error
-
-	if part.Media.Data != nil && *part.Media.Data != "" {
-		// Direct base64 data
-		base64Data = *part.Media.Data
-	} else if part.Media.URL != nil && *part.Media.URL != "" {
-		// Gemini doesn't support direct URLs, need to fetch and convert
-		return geminiPart{}, fmt.Errorf("gemini does not support media URLs, please use inline data or file paths")
-	} else if part.Media.FilePath != nil && *part.Media.FilePath != "" {
-		// Read file and convert to base64
-		base64Data, err = providers.LoadFileAsBase64(*part.Media.FilePath)
-		if err != nil {
-			return geminiPart{}, fmt.Errorf("failed to read file: %w", err)
-		}
-	} else {
-		return geminiPart{}, fmt.Errorf("%s part missing data source (data, url, or file_path)", part.Type)
+	// Use MediaLoader to get base64 data from any source (Data, FilePath, URL, StorageReference)
+	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+	base64Data, err := loader.GetBase64Data(context.Background(), part.Media)
+	if err != nil {
+		return geminiPart{}, fmt.Errorf("failed to load %s data: %w", part.Type, err)
 	}
 
 	// Create Gemini inline data part

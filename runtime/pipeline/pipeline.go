@@ -162,6 +162,87 @@ func (p *Pipeline) isShuttingDown() bool {
 	return p.isShutdown
 }
 
+// ExecuteWithOptions runs the pipeline with the given role, content, and execution options.
+// This method provides fine-grained control over execution including RunID, SessionID, and ConversationID.
+// Returns the ExecutionResult containing messages, response, trace, and metadata.
+func (p *Pipeline) ExecuteWithOptions(opts *ExecutionOptions, role, content string) (*ExecutionResult, error) {
+	if opts == nil {
+		opts = &ExecutionOptions{}
+	}
+
+	ctx := opts.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	// Check if shutting down
+	if p.isShuttingDown() {
+		return nil, ErrPipelineShuttingDown
+	}
+
+	// Acquire semaphore for concurrency control
+	if err := p.semaphore.Acquire(ctx, 1); err != nil {
+		return nil, fmt.Errorf(errFailedToAcquireSlot, err)
+	}
+	defer p.semaphore.Release(1)
+
+	// Track execution for graceful shutdown
+	p.wg.Add(1)
+	defer p.wg.Done()
+
+	// Apply execution timeout if configured
+	execCtx := ctx
+	var cancel context.CancelFunc
+	if p.config.ExecutionTimeout > 0 {
+		execCtx, cancel = context.WithTimeout(ctx, p.config.ExecutionTimeout)
+		defer cancel()
+	}
+
+	// Create fresh internal execution context
+	internalCtx := &ExecutionContext{
+		Context:        execCtx,
+		RunID:          opts.RunID,
+		SessionID:      opts.SessionID,
+		ConversationID: opts.ConversationID,
+		Messages:       []types.Message{},
+		Metadata:       make(map[string]interface{}),
+		Trace: ExecutionTrace{
+			LLMCalls:  []LLMCall{},
+			Events:    []TraceEvent{},
+			StartedAt: time.Now(),
+		},
+	}
+
+	// Append the new message to the conversation (if role is provided)
+	if role != "" {
+		internalCtx.Messages = append(internalCtx.Messages, types.Message{
+			Role:    role,
+			Content: content,
+		})
+	}
+
+	// Execute the middleware chain
+	err := p.executeChain(internalCtx, 0)
+
+	// Mark execution as complete
+	now := time.Now()
+	internalCtx.Trace.CompletedAt = &now
+
+	// Return the first error encountered (if any)
+	if internalCtx.Error != nil {
+		err = internalCtx.Error
+	}
+
+	// Return immutable result
+	return &ExecutionResult{
+		Messages: internalCtx.Messages,
+		Response: internalCtx.Response,
+		Trace:    internalCtx.Trace,
+		CostInfo: internalCtx.CostInfo,
+		Metadata: internalCtx.Metadata,
+	}, err
+}
+
 // Execute runs the pipeline with the given role and content, returning the execution result.
 // It creates a fresh internal ExecutionContext for each call, preventing state contamination.
 // The role and content parameters are used to create the initial user message.

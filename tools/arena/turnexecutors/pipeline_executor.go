@@ -9,6 +9,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
@@ -34,12 +35,14 @@ func (m *variableInjectionMiddleware) StreamChunk(execCtx *pipeline.ExecutionCon
 // It handles both non-streaming and streaming execution, including multi-round tool calls.
 type PipelineExecutor struct {
 	toolRegistry *tools.Registry
+	mediaStorage storage.MediaStorageService
 }
 
 // NewPipelineExecutor creates a new pipeline executor
-func NewPipelineExecutor(toolRegistry *tools.Registry) *PipelineExecutor {
+func NewPipelineExecutor(toolRegistry *tools.Registry, mediaStorage storage.MediaStorageService) *PipelineExecutor {
 	return &PipelineExecutor{
 		toolRegistry: toolRegistry,
+		mediaStorage: mediaStorage,
 	}
 }
 
@@ -225,6 +228,19 @@ func (e *PipelineExecutor) addProviderMiddleware(middlewares *[]pipeline.Middlew
 		toolPolicy,
 		providerConfig,
 	))
+
+	// Media externalization middleware - externalizes large media to storage
+	if e.mediaStorage != nil {
+		mediaConfig := &middleware.MediaExternalizerConfig{
+			Enabled:         true,
+			StorageService:  e.mediaStorage,
+			SizeThresholdKB: 100, // Externalize media larger than 100KB
+			DefaultPolicy:   "retain",
+			RunID:           req.ConversationID, // Use conversation ID as run ID
+			ConversationID:  req.ConversationID,
+		}
+		*middlewares = append(*middlewares, middleware.MediaExternalizerMiddleware(mediaConfig))
+	}
 }
 
 // buildToolPolicy creates tool policy from scenario configuration

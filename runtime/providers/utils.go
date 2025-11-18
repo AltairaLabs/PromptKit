@@ -1,11 +1,9 @@
 package providers
 
 import (
-	"encoding/base64"
-	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
+	"context"
+
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // StringPtr is a helper function that returns a pointer to a string.
@@ -15,22 +13,17 @@ func StringPtr(s string) *string {
 }
 
 // LoadFileAsBase64 reads a file and returns its content as a base64-encoded string.
-// It supports home directory expansion (~/path) and is used by multimodal providers
-// to load image files.
+// Deprecated: Use MediaLoader.GetBase64Data instead for better functionality including
+// storage reference support, URL loading, and proper context handling.
+//
+// This function is kept for backward compatibility but will be removed in a future version.
+// It now delegates to the new MediaLoader implementation.
 func LoadFileAsBase64(filePath string) (string, error) {
-	// Expand home directory if needed
-	if strings.HasPrefix(filePath, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to get home directory: %w", err)
-		}
-		filePath = filepath.Join(home, filePath[2:])
+	// Delegate to the new media_loader.go implementation
+	// This maintains backward compatibility while using the new infrastructure
+	loader := NewMediaLoader(MediaLoaderConfig{})
+	media := &types.MediaContent{
+		FilePath: &filePath,
 	}
-
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read file: %w", err)
-	}
-
-	return base64.StdEncoding.EncodeToString(data), nil
+	return loader.GetBase64Data(context.Background(), media)
 }

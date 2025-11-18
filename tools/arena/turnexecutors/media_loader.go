@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -21,6 +22,9 @@ const (
 	errNoMediaSource         = "no URL, data, or file_path specified"
 	errInlineDataMissingMIME = "inline data specified but mime_type is missing"
 	errURLNoHTTPLoader       = "URL specified but HTTP loader not available"
+	errStorageServiceMissing = "storage reference specified but storage service not available"
+	errStorageRetrieveFailed = "failed to retrieve from storage"
+	errStorageReturnedNoData = "storage returned media without data"
 )
 
 // HTTPMediaLoader handles loading media from HTTP/HTTPS URLs
@@ -47,8 +51,15 @@ func NewHTTPMediaLoader(timeout time.Duration, maxFileSize int64) *HTTPMediaLoad
 }
 
 // ConvertTurnPartsToMessageParts converts scenario turn parts to runtime message parts,
-// loading media files from disk or URLs as needed
-func ConvertTurnPartsToMessageParts(ctx context.Context, turnParts []config.TurnContentPart, baseDir string, httpLoader *HTTPMediaLoader) ([]types.ContentPart, error) {
+// loading media files from disk, URLs, or storage references as needed.
+// The storageService parameter is optional and only needed when loading from storage references.
+func ConvertTurnPartsToMessageParts(
+	ctx context.Context,
+	turnParts []config.TurnContentPart,
+	baseDir string,
+	httpLoader *HTTPMediaLoader,
+	storageService storage.MediaStorageService,
+) ([]types.ContentPart, error) {
 	if len(turnParts) == 0 {
 		return nil, nil
 	}
@@ -56,7 +67,7 @@ func ConvertTurnPartsToMessageParts(ctx context.Context, turnParts []config.Turn
 	messageParts := make([]types.ContentPart, 0, len(turnParts))
 
 	for i, turnPart := range turnParts {
-		messagePart, err := convertSinglePart(ctx, turnPart, baseDir, httpLoader, i)
+		messagePart, err := convertSinglePart(ctx, turnPart, baseDir, httpLoader, storageService, i)
 		if err != nil {
 			return nil, err
 		}
@@ -67,16 +78,23 @@ func ConvertTurnPartsToMessageParts(ctx context.Context, turnParts []config.Turn
 }
 
 // convertSinglePart converts a single turn content part to a message content part
-func convertSinglePart(ctx context.Context, turnPart config.TurnContentPart, baseDir string, httpLoader *HTTPMediaLoader, index int) (types.ContentPart, error) {
+func convertSinglePart(
+	ctx context.Context,
+	turnPart config.TurnContentPart,
+	baseDir string,
+	httpLoader *HTTPMediaLoader,
+	storageService storage.MediaStorageService,
+	index int,
+) (types.ContentPart, error) {
 	switch turnPart.Type {
 	case "text":
 		return convertTextPart(turnPart, index)
 	case "image":
-		return convertImagePart(ctx, turnPart, baseDir, httpLoader, index)
+		return convertImagePart(ctx, turnPart, baseDir, httpLoader, storageService, index)
 	case "audio":
-		return convertAudioPart(ctx, turnPart, baseDir, httpLoader, index)
+		return convertAudioPart(ctx, turnPart, baseDir, httpLoader, storageService, index)
 	case "video":
-		return convertVideoPart(ctx, turnPart, baseDir, httpLoader, index)
+		return convertVideoPart(ctx, turnPart, baseDir, httpLoader, storageService, index)
 	default:
 		return types.ContentPart{}, NewValidationError(index, "unknown", "", fmt.Sprintf("unsupported content part type: %s", turnPart.Type))
 	}
@@ -90,13 +108,60 @@ func convertTextPart(turnPart config.TurnContentPart, index int) (types.ContentP
 	return types.NewTextPart(turnPart.Text), nil
 }
 
-// convertImagePart converts an image content part, loading from file or URL if needed
-func convertImagePart(ctx context.Context, turnPart config.TurnContentPart, baseDir string, httpLoader *HTTPMediaLoader, index int) (types.ContentPart, error) {
+// loadFromStorageReference loads media from a storage reference
+func loadFromStorageReference(
+	ctx context.Context,
+	storageService storage.MediaStorageService,
+	ref string,
+	contentType string,
+	index int,
+) (*types.MediaContent, error) {
+	if storageService == nil {
+		return nil, NewValidationError(index, contentType, ref, errStorageServiceMissing)
+	}
+
+	media, err := storageService.RetrieveMedia(ctx, storage.StorageReference(ref))
+	if err != nil {
+		return nil, NewFileError(index, contentType, ref, errStorageRetrieveFailed, err)
+	}
+
+	if media.Data == nil {
+		return nil, NewValidationError(index, contentType, ref, errStorageReturnedNoData)
+	}
+
+	return media, nil
+}
+
+// convertImagePart converts an image content part, loading from storage reference, file, or URL if needed
+func convertImagePart(
+	ctx context.Context,
+	turnPart config.TurnContentPart,
+	baseDir string,
+	httpLoader *HTTPMediaLoader,
+	storageService storage.MediaStorageService,
+	index int,
+) (types.ContentPart, error) {
 	if turnPart.Media == nil {
 		return types.ContentPart{}, NewValidationError(index, "image", "", errMissingMediaConfig)
 	}
 
 	detail := parseDetailLevel(turnPart.Media.Detail)
+
+	// Handle storage reference (highest priority)
+	if turnPart.Media.StorageReference != "" {
+		media, err := loadFromStorageReference(
+			ctx,
+			storageService,
+			turnPart.Media.StorageReference,
+			"image",
+			index,
+		)
+		if err != nil {
+			return types.ContentPart{}, err
+		}
+		media.Detail = detail
+		return types.ContentPart{Type: types.ContentTypeImage, Media: media}, nil
+	}
 
 	// Handle URL-based images
 	if turnPart.Media.URL != "" {
@@ -129,13 +194,33 @@ func convertImagePart(ctx context.Context, turnPart config.TurnContentPart, base
 	return types.ContentPart{}, NewValidationError(index, "image", "", errNoMediaSource)
 }
 
-// convertAudioPart converts an audio content part, loading from file or URL if needed
-func convertAudioPart(ctx context.Context, turnPart config.TurnContentPart, baseDir string, httpLoader *HTTPMediaLoader, index int) (types.ContentPart, error) {
+// convertAudioPart converts an audio content part, loading from storage reference, file, or URL if needed
+func convertAudioPart(
+	ctx context.Context,
+	turnPart config.TurnContentPart,
+	baseDir string,
+	httpLoader *HTTPMediaLoader,
+	storageService storage.MediaStorageService,
+	index int,
+) (types.ContentPart, error) {
 	if turnPart.Media == nil {
 		return types.ContentPart{}, NewValidationError(index, "audio", "", errMissingMediaConfig)
 	}
 
-	// Handle URL-based audio
+	// Handle storage reference (highest priority)
+	if turnPart.Media.StorageReference != "" {
+		media, err := loadFromStorageReference(
+			ctx,
+			storageService,
+			turnPart.Media.StorageReference,
+			"audio",
+			index,
+		)
+		if err != nil {
+			return types.ContentPart{}, err
+		}
+		return types.ContentPart{Type: types.ContentTypeAudio, Media: media}, nil
+	} // Handle URL-based audio
 	if turnPart.Media.URL != "" {
 		if httpLoader == nil {
 			return types.ContentPart{}, NewValidationError(index, "audio", turnPart.Media.URL, errURLNoHTTPLoader)
@@ -164,10 +249,32 @@ func convertAudioPart(ctx context.Context, turnPart config.TurnContentPart, base
 	return types.ContentPart{}, NewValidationError(index, "audio", "", errNoMediaSource)
 }
 
-// convertVideoPart converts a video content part, loading from file or URL if needed
-func convertVideoPart(ctx context.Context, turnPart config.TurnContentPart, baseDir string, httpLoader *HTTPMediaLoader, index int) (types.ContentPart, error) {
+// convertVideoPart converts a video content part, loading from storage reference, file, or URL if needed
+func convertVideoPart(
+	ctx context.Context,
+	turnPart config.TurnContentPart,
+	baseDir string,
+	httpLoader *HTTPMediaLoader,
+	storageService storage.MediaStorageService,
+	index int,
+) (types.ContentPart, error) {
 	if turnPart.Media == nil {
 		return types.ContentPart{}, NewValidationError(index, "video", "", errMissingMediaConfig)
+	}
+
+	// Handle storage reference (highest priority)
+	if turnPart.Media.StorageReference != "" {
+		media, err := loadFromStorageReference(
+			ctx,
+			storageService,
+			turnPart.Media.StorageReference,
+			"video",
+			index,
+		)
+		if err != nil {
+			return types.ContentPart{}, err
+		}
+		return types.ContentPart{Type: types.ContentTypeVideo, Media: media}, nil
 	}
 
 	// Handle URL-based video
