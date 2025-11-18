@@ -35,10 +35,11 @@ func (m *variableInjectionMiddleware) StreamChunk(execCtx *pipeline.ExecutionCon
 // It handles both non-streaming and streaming execution, including multi-round tool calls.
 type PipelineExecutor struct {
 	toolRegistry *tools.Registry
-	mediaStorage storage.MediaStorageService
+	mediaStorage storage.MediaStorageService // Media storage service for externalization
 }
 
-// NewPipelineExecutor creates a new pipeline executor
+// NewPipelineExecutor creates a new pipeline executor with the specified tool registry and media storage.
+// The mediaStorage parameter enables automatic externalization of large media content to file storage.
 func NewPipelineExecutor(toolRegistry *tools.Registry, mediaStorage storage.MediaStorageService) *PipelineExecutor {
 	return &PipelineExecutor{
 		toolRegistry: toolRegistry,

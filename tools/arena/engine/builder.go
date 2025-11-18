@@ -309,6 +309,7 @@ func buildMCPRegistry(cfg *config.Config) (*mcp.RegistryImpl, error) {
 }
 
 // newConversationExecutor creates the conversation executor with self-play support if enabled.
+// The mediaStorage parameter is passed through to turn executors to enable media externalization.
 // This function stays in engine package as it creates engine-specific types.
 func newConversationExecutor(cfg *config.Config, toolRegistry *tools.Registry, promptRegistry *prompt.Registry, mediaStorage storage.MediaStorageService) (ConversationExecutor, error) {
 	// Build turn executors (always needed, even without self-play)
