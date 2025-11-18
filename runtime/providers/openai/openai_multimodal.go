@@ -152,22 +152,17 @@ func (p *OpenAIProvider) convertImagePartToOpenAI(part types.ContentPart) (map[s
 
 	// Handle different data sources
 	if part.Media.URL != nil && *part.Media.URL != "" {
-		// External URL
+		// External URL - use directly
 		imageURL["url"] = *part.Media.URL
-	} else if part.Media.Data != nil && *part.Media.Data != "" {
-		// Base64-encoded data - format as data URL
-		dataURL := fmt.Sprintf("data:%s;base64,%s", part.Media.MIMEType, *part.Media.Data)
-		imageURL["url"] = dataURL
-	} else if part.Media.FilePath != nil && *part.Media.FilePath != "" {
-		// File path - need to read and encode
-		data, err := part.Media.GetBase64Data()
+	} else {
+		// Use MediaLoader for all other sources (Data, FilePath, StorageReference)
+		loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+		data, err := loader.GetBase64Data(context.Background(), part.Media)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read image file: %w", err)
+			return nil, fmt.Errorf("failed to load image data: %w", err)
 		}
 		dataURL := fmt.Sprintf("data:%s;base64,%s", part.Media.MIMEType, data)
 		imageURL["url"] = dataURL
-	} else {
-		return nil, fmt.Errorf("image part has no data source (url, data, or file_path)")
 	}
 
 	// Add detail level if specified

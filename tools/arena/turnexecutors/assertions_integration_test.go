@@ -47,7 +47,7 @@ func TestPipelineExecutor_AssertionsPass(t *testing.T) {
 		TaskType: "test",
 	}
 
-	executor := NewPipelineExecutor(toolRegistry)
+	executor := NewPipelineExecutor(toolRegistry, nil)
 
 	// Pre-initialize state store (required for ArenaStateStore)
 	storeIface := storeConfig.Store
@@ -146,7 +146,7 @@ func TestPipelineExecutor_AssertionsFail(t *testing.T) {
 		TaskType: "test",
 	}
 
-	executor := NewPipelineExecutor(toolRegistry)
+	executor := NewPipelineExecutor(toolRegistry, nil)
 
 	// Pre-initialize state store (required for ArenaStateStore)
 	storeIface := storeConfig.Store
@@ -232,7 +232,7 @@ func TestPipelineExecutor_NoAssertions(t *testing.T) {
 		TaskType: "test",
 	}
 
-	executor := NewPipelineExecutor(toolRegistry)
+	executor := NewPipelineExecutor(toolRegistry, nil)
 
 	// Pre-initialize state store (required for ArenaStateStore)
 	storeIface := storeConfig.Store

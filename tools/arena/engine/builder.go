@@ -20,6 +20,7 @@ import (
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
@@ -81,8 +82,14 @@ func buildEngineComponents(cfg *config.Config) (
 		return nil, nil, nil, nil, fmt.Errorf("failed to discover MCP tools: %w", err)
 	}
 
+	// Build media storage service
+	mediaStorage, err := buildMediaStorage(cfg)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
 	// Build conversation executor (engine-specific, stays here)
-	conversationExecutor, err := newConversationExecutor(cfg, toolRegistry, promptRegistry)
+	conversationExecutor, err := newConversationExecutor(cfg, toolRegistry, promptRegistry, mediaStorage)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -302,10 +309,11 @@ func buildMCPRegistry(cfg *config.Config) (*mcp.RegistryImpl, error) {
 }
 
 // newConversationExecutor creates the conversation executor with self-play support if enabled.
+// The mediaStorage parameter is passed through to turn executors to enable media externalization.
 // This function stays in engine package as it creates engine-specific types.
-func newConversationExecutor(cfg *config.Config, toolRegistry *tools.Registry, promptRegistry *prompt.Registry) (ConversationExecutor, error) {
+func newConversationExecutor(cfg *config.Config, toolRegistry *tools.Registry, promptRegistry *prompt.Registry, mediaStorage storage.MediaStorageService) (ConversationExecutor, error) {
 	// Build turn executors (always needed, even without self-play)
-	pipelineExecutor := turnexecutors.NewPipelineExecutor(toolRegistry)
+	pipelineExecutor := turnexecutors.NewPipelineExecutor(toolRegistry, mediaStorage)
 	scriptedExecutor := turnexecutors.NewScriptedExecutor(pipelineExecutor)
 
 	// Check if self-play is enabled

@@ -162,12 +162,19 @@ func (p *Pipeline) isShuttingDown() bool {
 	return p.isShutdown
 }
 
-// Execute runs the pipeline with the given role and content, returning the execution result.
-// It creates a fresh internal ExecutionContext for each call, preventing state contamination.
-// The role and content parameters are used to create the initial user message.
-// If role is empty, no message is appended (useful for testing).
+// ExecuteWithOptions runs the pipeline with the given role, content, and execution options.
+// This method provides fine-grained control over execution including RunID, SessionID, and ConversationID.
 // Returns the ExecutionResult containing messages, response, trace, and metadata.
-func (p *Pipeline) Execute(ctx context.Context, role string, content string) (*ExecutionResult, error) {
+func (p *Pipeline) ExecuteWithOptions(opts *ExecutionOptions, role, content string) (*ExecutionResult, error) {
+	if opts == nil {
+		opts = &ExecutionOptions{}
+	}
+
+	ctx := opts.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	// Check if shutting down
 	if p.isShuttingDown() {
 		return nil, ErrPipelineShuttingDown
@@ -193,9 +200,12 @@ func (p *Pipeline) Execute(ctx context.Context, role string, content string) (*E
 
 	// Create fresh internal execution context
 	internalCtx := &ExecutionContext{
-		Context:  execCtx,
-		Messages: []types.Message{},
-		Metadata: make(map[string]interface{}),
+		Context:        execCtx,
+		RunID:          opts.RunID,
+		SessionID:      opts.SessionID,
+		ConversationID: opts.ConversationID,
+		Messages:       []types.Message{},
+		Metadata:       make(map[string]interface{}),
 		Trace: ExecutionTrace{
 			LLMCalls:  []LLMCall{},
 			Events:    []TraceEvent{},
@@ -233,6 +243,15 @@ func (p *Pipeline) Execute(ctx context.Context, role string, content string) (*E
 	}, err
 }
 
+// Execute runs the pipeline with the given role and content, returning the execution result.
+// It creates a fresh internal ExecutionContext for each call, preventing state contamination.
+// The role and content parameters are used to create the initial user message.
+// If role is empty, no message is appended (useful for testing).
+// Returns the ExecutionResult containing messages, response, trace, and metadata.
+func (p *Pipeline) Execute(ctx context.Context, role string, content string) (*ExecutionResult, error) {
+	return p.ExecuteWithOptions(&ExecutionOptions{Context: ctx}, role, content)
+}
+
 // ExecuteWithMessage runs the pipeline with a complete Message object, returning the execution result.
 // This method allows callers to provide a fully-populated message with all fields (Meta, Timestamp, etc.)
 // rather than just role and content. This is useful when you need to preserve metadata or other
@@ -248,6 +267,20 @@ func (p *Pipeline) Execute(ctx context.Context, role string, content string) (*E
 // Middleware can still modify the message during execution if needed.
 // Returns the ExecutionResult containing messages, response, trace, and metadata.
 func (p *Pipeline) ExecuteWithMessage(ctx context.Context, message types.Message) (*ExecutionResult, error) {
+	return p.executeWithMessageInternal(&ExecutionOptions{Context: ctx}, message)
+}
+
+// executeWithMessageInternal is the internal implementation shared by ExecuteWithMessage
+func (p *Pipeline) executeWithMessageInternal(opts *ExecutionOptions, message types.Message) (*ExecutionResult, error) {
+	if opts == nil {
+		opts = &ExecutionOptions{}
+	}
+
+	ctx := opts.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	// Check if shutting down
 	if p.isShuttingDown() {
 		return nil, ErrPipelineShuttingDown
@@ -273,9 +306,12 @@ func (p *Pipeline) ExecuteWithMessage(ctx context.Context, message types.Message
 
 	// Create fresh internal execution context
 	internalCtx := &ExecutionContext{
-		Context:  execCtx,
-		Messages: []types.Message{},
-		Metadata: make(map[string]interface{}),
+		Context:        execCtx,
+		RunID:          opts.RunID,
+		SessionID:      opts.SessionID,
+		ConversationID: opts.ConversationID,
+		Messages:       []types.Message{},
+		Metadata:       make(map[string]interface{}),
 		Trace: ExecutionTrace{
 			LLMCalls:  []LLMCall{},
 			Events:    []TraceEvent{},

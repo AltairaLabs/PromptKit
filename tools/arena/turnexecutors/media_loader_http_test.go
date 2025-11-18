@@ -340,7 +340,7 @@ func TestConvertTurnPartsToMessageParts_ImageFromURLWithLoader(t *testing.T) {
 	loader := NewHTTPMediaLoader(5*time.Second, 1024*1024)
 
 	// Convert with HTTP loader
-	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", loader)
+	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", loader, nil)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -394,7 +394,7 @@ func TestConvertTurnPartsToMessageParts_AudioFromURLWithLoader(t *testing.T) {
 	loader := NewHTTPMediaLoader(5*time.Second, 1024*1024)
 
 	// Convert with HTTP loader
-	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", loader)
+	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", loader, nil)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -448,7 +448,7 @@ func TestConvertTurnPartsToMessageParts_VideoFromURLWithLoader(t *testing.T) {
 	loader := NewHTTPMediaLoader(5*time.Second, 1024*1024)
 
 	// Convert with HTTP loader
-	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", loader)
+	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", loader, nil)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -489,7 +489,7 @@ func TestConvertTurnPartsToMessageParts_URLWithoutLoader(t *testing.T) {
 	}
 
 	// Convert WITHOUT HTTP loader (nil)
-	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", nil)
+	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", nil, nil)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -528,7 +528,7 @@ func TestConvertTurnPartsToMessageParts_AudioURLWithoutLoader(t *testing.T) {
 	}
 
 	// Convert WITHOUT HTTP loader (should error for audio)
-	_, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", nil)
+	_, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", nil, nil)
 	if err == nil {
 		t.Fatal("Expected error for audio URL without loader, got nil")
 	}
@@ -550,7 +550,7 @@ func TestConvertTurnPartsToMessageParts_VideoURLWithoutLoader(t *testing.T) {
 	}
 
 	// Convert WITHOUT HTTP loader (should error for video)
-	_, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", nil)
+	_, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", nil, nil)
 	if err == nil {
 		t.Fatal("Expected error for video URL without loader, got nil")
 	}

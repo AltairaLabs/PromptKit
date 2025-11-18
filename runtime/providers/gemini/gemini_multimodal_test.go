@@ -1013,9 +1013,10 @@ func TestConvertNilTextPart(t *testing.T) {
 	assert.Contains(t, err.Error(), "empty text")
 }
 
-// TestConvertMediaURLNotSupported tests that URLs are not supported by Gemini
+// TestConvertMediaURLNotSupported tests error handling for unreachable URLs
 func TestConvertMediaURLNotSupported(t *testing.T) {
-	url := "https://example.com/image.jpg"
+	// Use localhost unreachable port for quick failure
+	url := "http://localhost:1/nonexistent.jpg"
 	msg := types.Message{
 		Role: "user",
 		Parts: []types.ContentPart{
@@ -1031,7 +1032,8 @@ func TestConvertMediaURLNotSupported(t *testing.T) {
 
 	_, err := convertMessageToGemini(msg)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "does not support media URLs")
+	// MediaLoader now fetches URLs, so we expect connection error
+	assert.Contains(t, err.Error(), "failed to load image data")
 }
 
 // TestConvertMediaMissingDataSource tests missing all data sources
@@ -1051,7 +1053,7 @@ func TestConvertMediaMissingDataSource(t *testing.T) {
 
 	_, err := convertMessageToGemini(msg)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "missing data source")
+	assert.Contains(t, err.Error(), "no media source available")
 }
 
 // TestConvertMediaMissingMediaField tests missing media field entirely
