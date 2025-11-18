@@ -281,11 +281,3 @@ func (e *ScriptedExecutor) updateMessagesList(
 	messages[assistantIndex] = assistantMsg
 	return messages
 }
-
-func buildBaseVariables(region string) map[string]string {
-	baseVars := map[string]string{}
-	if region != "" {
-		baseVars["region"] = region
-	}
-	return baseVars
-}
