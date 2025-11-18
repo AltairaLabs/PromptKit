@@ -226,10 +226,17 @@ func (mc *MediaContent) Validate() error {
 // GetBase64Data returns the base64-encoded data for this media content.
 // If the data is already base64-encoded, it returns it directly.
 // If the data is from a file, it reads and encodes the file.
-// If the data is from a URL, it returns an error (caller should fetch separately).
+// If the data is from a URL or StorageReference, it returns an error (caller should use MediaLoader).
+//
+// Deprecated: For new code, use providers.MediaLoader.GetBase64Data which supports all sources
+// including storage references and URLs with proper context handling.
 func (mc *MediaContent) GetBase64Data() (string, error) {
 	if mc.Data != nil {
 		return *mc.Data, nil
+	}
+
+	if mc.StorageReference != nil {
+		return "", fmt.Errorf("cannot get base64 data from storage reference %s: use MediaLoader with storage service", *mc.StorageReference)
 	}
 
 	if mc.FilePath != nil {
@@ -241,7 +248,7 @@ func (mc *MediaContent) GetBase64Data() (string, error) {
 	}
 
 	if mc.URL != nil {
-		return "", fmt.Errorf("cannot get base64 data from URL %s: caller must fetch URL separately", *mc.URL)
+		return "", fmt.Errorf("cannot get base64 data from URL %s: use MediaLoader with HTTP support", *mc.URL)
 	}
 
 	return "", fmt.Errorf("no data source available")

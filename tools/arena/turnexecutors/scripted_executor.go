@@ -50,7 +50,7 @@ func (e *ScriptedExecutor) buildUserMessage(req TurnRequest) (types.Message, err
 		// Create HTTP loader for URL-based media (30 second timeout, 50MB max)
 		httpLoader := NewHTTPMediaLoader(30*time.Second, 50*1024*1024)
 
-		parts, err := ConvertTurnPartsToMessageParts(context.Background(), req.ScriptedParts, baseDir, httpLoader)
+		parts, err := ConvertTurnPartsToMessageParts(context.Background(), req.ScriptedParts, baseDir, httpLoader, nil)
 		if err != nil {
 			return types.Message{}, fmt.Errorf("failed to convert multimodal parts: %w", err)
 		}
@@ -171,6 +171,19 @@ func (e *ScriptedExecutor) buildStreamingMiddlewares(req TurnRequest) []pipeline
 		middleware.TemplateMiddleware(),
 		middleware.ProviderMiddleware(req.Provider, nil, nil, providerConfig),
 	)
+
+	// Media externalization middleware
+	if e.pipelineExecutor.mediaStorage != nil {
+		mediaConfig := &middleware.MediaExternalizerConfig{
+			Enabled:         true,
+			StorageService:  e.pipelineExecutor.mediaStorage,
+			SizeThresholdKB: 100,
+			DefaultPolicy:   "retain",
+			RunID:           req.ConversationID,
+			ConversationID:  req.ConversationID,
+		}
+		middlewares = append(middlewares, middleware.MediaExternalizerMiddleware(mediaConfig))
+	}
 
 	// Dynamic validator middleware with suppression
 	middlewares = append(middlewares,

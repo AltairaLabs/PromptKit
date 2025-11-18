@@ -1,15 +1,15 @@
 package policy
 
 import (
-"context"
-"encoding/json"
-"fmt"
-"os"
-"path/filepath"
-"strings"
-"time"
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
 
-"github.com/AltairaLabs/PromptKit/runtime/storage"
+	"github.com/AltairaLabs/PromptKit/runtime/storage"
 )
 
 // TimeBasedPolicyHandler implements PolicyHandler for time-based retention policies.
@@ -140,65 +140,65 @@ func (h *TimeBasedPolicyHandler) processMetaFile(metaPath string, now time.Time)
 	}
 
 	return true
-}// StartEnforcement starts a background goroutine that periodically enforces policies.
+} // StartEnforcement starts a background goroutine that periodically enforces policies.
 func (h *TimeBasedPolicyHandler) StartEnforcement(ctx context.Context, baseDir string) {
-go func() {
-defer close(h.doneCh)
+	go func() {
+		defer close(h.doneCh)
 
-ticker := time.NewTicker(h.enforcementInterval)
-defer ticker.Stop()
+		ticker := time.NewTicker(h.enforcementInterval)
+		defer ticker.Stop()
 
-for {
-select {
-case <-ticker.C:
-if err := h.EnforcePolicy(ctx, baseDir); err != nil {
-fmt.Printf("Policy enforcement error: %v\n", err)
-}
-case <-h.stopCh:
-return
-case <-ctx.Done():
-return
-}
-}
-}()
+		for {
+			select {
+			case <-ticker.C:
+				if err := h.EnforcePolicy(ctx, baseDir); err != nil {
+					fmt.Printf("Policy enforcement error: %v\n", err)
+				}
+			case <-h.stopCh:
+				return
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 }
 
 // Stop signals the enforcement goroutine to stop and waits for it to finish.
 func (h *TimeBasedPolicyHandler) Stop() {
-close(h.stopCh)
-<-h.doneCh
+	close(h.stopCh)
+	<-h.doneCh
 }
 
 // loadPolicyMetadata loads policy metadata from a .meta file.
 func (h *TimeBasedPolicyHandler) loadPolicyMetadata(metaPath string) (*PolicyMetadata, error) {
-data, err := os.ReadFile(metaPath)
-if err != nil {
-return nil, fmt.Errorf("failed to read metadata file: %w", err)
-}
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read metadata file: %w", err)
+	}
 
-// The .meta file contains MediaMetadata with PolicyName
-// We need to extract policy info and compute expiration
-var mediaMetadata storage.MediaMetadata
-if err := json.Unmarshal(data, &mediaMetadata); err != nil {
-return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
-}
+	// The .meta file contains MediaMetadata with PolicyName
+	// We need to extract policy info and compute expiration
+	var mediaMetadata storage.MediaMetadata
+	if err := json.Unmarshal(data, &mediaMetadata); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
+	}
 
-if mediaMetadata.PolicyName == "" {
-return nil, fmt.Errorf("no policy name in metadata")
-}
+	if mediaMetadata.PolicyName == "" {
+		return nil, fmt.Errorf("no policy name in metadata")
+	}
 
-// Parse policy to get duration
-_, duration, err := ParsePolicyName(mediaMetadata.PolicyName)
-if err != nil {
-return nil, fmt.Errorf("failed to parse policy: %w", err)
-}
+	// Parse policy to get duration
+	_, duration, err := ParsePolicyName(mediaMetadata.PolicyName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse policy: %w", err)
+	}
 
-// Calculate expiration time
-expiresAt := mediaMetadata.Timestamp.Add(duration)
+	// Calculate expiration time
+	expiresAt := mediaMetadata.Timestamp.Add(duration)
 
-return &PolicyMetadata{
-PolicyName: mediaMetadata.PolicyName,
-ExpiresAt:  &expiresAt,
-CreatedAt:  mediaMetadata.Timestamp,
-}, nil
+	return &PolicyMetadata{
+		PolicyName: mediaMetadata.PolicyName,
+		ExpiresAt:  &expiresAt,
+		CreatedAt:  mediaMetadata.Timestamp,
+	}, nil
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
@@ -38,6 +39,7 @@ type ConversationManager struct {
 	provider     providers.Provider
 	stateStore   statestore.Store
 	toolRegistry *tools.Registry
+	mediaStorage storage.MediaStorageService
 
 	// Configuration
 	config ManagerConfig
@@ -57,6 +59,11 @@ type ManagerConfig struct {
 
 	// EnableMetrics enables built-in metrics collection
 	EnableMetrics bool
+
+	// Media externalization settings
+	EnableMediaExternalization bool   // Enable automatic media externalization
+	MediaSizeThresholdKB       int64  // Size threshold in KB (media larger than this is externalized)
+	MediaDefaultPolicy         string // Default retention policy for externalized media
 }
 
 // ConversationConfig configures a new conversation
@@ -181,6 +188,22 @@ func WithToolRegistry(registry *tools.Registry) ManagerOption {
 func WithConfig(config ManagerConfig) ManagerOption {
 	return func(cm *ConversationManager) error {
 		cm.config = config
+		return nil
+	}
+}
+
+// WithMediaStorage sets the media storage service for media externalization
+func WithMediaStorage(storageService storage.MediaStorageService) ManagerOption {
+	return func(cm *ConversationManager) error {
+		cm.mediaStorage = storageService
+		// Enable media externalization by default when storage is provided
+		if cm.config.MediaSizeThresholdKB == 0 {
+			cm.config.MediaSizeThresholdKB = 100 // Default 100KB threshold
+		}
+		if cm.config.MediaDefaultPolicy == "" {
+			cm.config.MediaDefaultPolicy = "retain" // Default retention policy
+		}
+		cm.config.EnableMediaExternalization = true
 		return nil
 	}
 }
@@ -779,10 +802,35 @@ func (c *Conversation) buildMiddlewarePipeline() []pipeline.Middleware {
 		providerConfig,
 	))
 
-	// 6. Dynamic validator middleware - validates response
+	// 6. Media externalizer middleware - externalizes large media to storage (if enabled)
+	if c.manager.config.EnableMediaExternalization && c.manager.mediaStorage != nil {
+		// Extract RunID and SessionID from metadata if available
+		var runID, sessionID string
+		if c.state.Metadata != nil {
+			if rid, ok := c.state.Metadata["run_id"].(string); ok {
+				runID = rid
+			}
+			if sid, ok := c.state.Metadata["session_id"].(string); ok {
+				sessionID = sid
+			}
+		}
+
+		mediaConfig := &middleware.MediaExternalizerConfig{
+			Enabled:         true,
+			StorageService:  c.manager.mediaStorage,
+			SizeThresholdKB: c.manager.config.MediaSizeThresholdKB,
+			DefaultPolicy:   c.manager.config.MediaDefaultPolicy,
+			RunID:           runID,
+			SessionID:       sessionID,
+			ConversationID:  c.id,
+		}
+		pipelineMiddleware = append(pipelineMiddleware, middleware.MediaExternalizerMiddleware(mediaConfig))
+	}
+
+	// 7. Dynamic validator middleware - validates response
 	pipelineMiddleware = append(pipelineMiddleware, middleware.DynamicValidatorMiddleware(validators.DefaultRegistry))
 
-	// 7. StateStore Save middleware - saves conversation state
+	// 8. StateStore Save middleware - saves conversation state
 	pipelineMiddleware = append(pipelineMiddleware, middleware.StateStoreSaveMiddleware(storeConfig))
 
 	return pipelineMiddleware
