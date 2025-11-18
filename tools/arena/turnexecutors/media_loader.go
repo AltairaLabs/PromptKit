@@ -132,6 +132,75 @@ func loadFromStorageReference(
 	return media, nil
 }
 
+// mediaConversionConfig holds configuration for media conversion
+type mediaConversionConfig struct {
+	ctx            context.Context
+	turnPart       config.TurnContentPart
+	baseDir        string
+	httpLoader     *HTTPMediaLoader
+	storageService storage.MediaStorageService
+	index          int
+	contentType    string
+}
+
+// convertMediaPart is a generic helper for converting media parts (audio/video)
+// It reduces code duplication by handling the common conversion logic
+func convertMediaPart(
+	cfg mediaConversionConfig,
+	createPartFromData func(data, mimeType string) types.ContentPart,
+	loadFromFile func(filePath, baseDir string, idx int) (types.ContentPart, error),
+) (types.ContentPart, error) {
+	if cfg.turnPart.Media == nil {
+		return types.ContentPart{}, NewValidationError(cfg.index, cfg.contentType, "", errMissingMediaConfig)
+	}
+
+	// Handle storage reference (highest priority)
+	if cfg.turnPart.Media.StorageReference != "" {
+		media, err := loadFromStorageReference(cfg.ctx, cfg.storageService, cfg.turnPart.Media.StorageReference, cfg.contentType, cfg.index)
+		if err != nil {
+			return types.ContentPart{}, err
+		}
+		var mediaType string
+		switch cfg.contentType {
+		case "audio":
+			mediaType = types.ContentTypeAudio
+		case "video":
+			mediaType = types.ContentTypeVideo
+		default:
+			mediaType = cfg.contentType
+		}
+		return types.ContentPart{Type: mediaType, Media: media}, nil
+	}
+
+	// Handle URL-based media
+	if cfg.turnPart.Media.URL != "" {
+		if cfg.httpLoader == nil {
+			return types.ContentPart{}, NewValidationError(cfg.index, cfg.contentType, cfg.turnPart.Media.URL, errURLNoHTTPLoader)
+		}
+		data, mimeType, err := cfg.httpLoader.loadMediaFromURL(cfg.ctx, cfg.turnPart.Media.URL, cfg.contentType, cfg.index)
+		if err != nil {
+			return types.ContentPart{}, err
+		}
+		return createPartFromData(data, mimeType), nil
+	}
+
+	// Handle inline base64 data
+	if cfg.turnPart.Media.Data != "" {
+		mimeType := cfg.turnPart.Media.MIMEType
+		if mimeType == "" {
+			return types.ContentPart{}, NewValidationError(cfg.index, cfg.contentType, "", errInlineDataMissingMIME)
+		}
+		return createPartFromData(cfg.turnPart.Media.Data, mimeType), nil
+	}
+
+	// Handle file path - load from disk
+	if cfg.turnPart.Media.FilePath != "" {
+		return loadFromFile(cfg.turnPart.Media.FilePath, cfg.baseDir, cfg.index)
+	}
+
+	return types.ContentPart{}, NewValidationError(cfg.index, cfg.contentType, "", errNoMediaSource)
+}
+
 // convertImagePart converts an image content part, loading from storage reference, file, or URL if needed
 func convertImagePart(
 	ctx context.Context,
@@ -203,50 +272,23 @@ func convertAudioPart(
 	storageService storage.MediaStorageService,
 	index int,
 ) (types.ContentPart, error) {
-	if turnPart.Media == nil {
-		return types.ContentPart{}, NewValidationError(index, "audio", "", errMissingMediaConfig)
+	cfg := mediaConversionConfig{
+		ctx:            ctx,
+		turnPart:       turnPart,
+		baseDir:        baseDir,
+		httpLoader:     httpLoader,
+		storageService: storageService,
+		index:          index,
+		contentType:    "audio",
 	}
-
-	// Handle storage reference (highest priority)
-	if turnPart.Media.StorageReference != "" {
-		media, err := loadFromStorageReference(
-			ctx,
-			storageService,
-			turnPart.Media.StorageReference,
-			"audio",
-			index,
-		)
-		if err != nil {
-			return types.ContentPart{}, err
-		}
-		return types.ContentPart{Type: types.ContentTypeAudio, Media: media}, nil
-	} // Handle URL-based audio
-	if turnPart.Media.URL != "" {
-		if httpLoader == nil {
-			return types.ContentPart{}, NewValidationError(index, "audio", turnPart.Media.URL, errURLNoHTTPLoader)
-		}
-		data, mimeType, err := httpLoader.loadMediaFromURL(ctx, turnPart.Media.URL, "audio", index)
-		if err != nil {
-			return types.ContentPart{}, err
-		}
-		return types.NewAudioPartFromData(data, mimeType), nil
-	}
-
-	// Handle inline base64 data
-	if turnPart.Media.Data != "" {
-		mimeType := turnPart.Media.MIMEType
-		if mimeType == "" {
-			return types.ContentPart{}, NewValidationError(index, "audio", "", errInlineDataMissingMIME)
-		}
-		return types.NewAudioPartFromData(turnPart.Media.Data, mimeType), nil
-	}
-
-	// Handle file path - load from disk
-	if turnPart.Media.FilePath != "" {
-		return loadAudioFromFile(turnPart.Media.FilePath, baseDir, index)
-	}
-
-	return types.ContentPart{}, NewValidationError(index, "audio", "", errNoMediaSource)
+	return convertMediaPart(cfg,
+		func(data, mimeType string) types.ContentPart {
+			return types.NewAudioPartFromData(data, mimeType)
+		},
+		func(filePath, baseDir string, idx int) (types.ContentPart, error) {
+			return loadAudioFromFile(filePath, baseDir, idx)
+		},
+	)
 }
 
 // convertVideoPart converts a video content part, loading from storage reference, file, or URL if needed
@@ -258,52 +300,23 @@ func convertVideoPart(
 	storageService storage.MediaStorageService,
 	index int,
 ) (types.ContentPart, error) {
-	if turnPart.Media == nil {
-		return types.ContentPart{}, NewValidationError(index, "video", "", errMissingMediaConfig)
+	cfg := mediaConversionConfig{
+		ctx:            ctx,
+		turnPart:       turnPart,
+		baseDir:        baseDir,
+		httpLoader:     httpLoader,
+		storageService: storageService,
+		index:          index,
+		contentType:    "video",
 	}
-
-	// Handle storage reference (highest priority)
-	if turnPart.Media.StorageReference != "" {
-		media, err := loadFromStorageReference(
-			ctx,
-			storageService,
-			turnPart.Media.StorageReference,
-			"video",
-			index,
-		)
-		if err != nil {
-			return types.ContentPart{}, err
-		}
-		return types.ContentPart{Type: types.ContentTypeVideo, Media: media}, nil
-	}
-
-	// Handle URL-based video
-	if turnPart.Media.URL != "" {
-		if httpLoader == nil {
-			return types.ContentPart{}, NewValidationError(index, "video", turnPart.Media.URL, errURLNoHTTPLoader)
-		}
-		data, mimeType, err := httpLoader.loadMediaFromURL(ctx, turnPart.Media.URL, "video", index)
-		if err != nil {
-			return types.ContentPart{}, err
-		}
-		return types.NewVideoPartFromData(data, mimeType), nil
-	}
-
-	// Handle inline base64 data
-	if turnPart.Media.Data != "" {
-		mimeType := turnPart.Media.MIMEType
-		if mimeType == "" {
-			return types.ContentPart{}, NewValidationError(index, "video", "", errInlineDataMissingMIME)
-		}
-		return types.NewVideoPartFromData(turnPart.Media.Data, mimeType), nil
-	}
-
-	// Handle file path - load from disk
-	if turnPart.Media.FilePath != "" {
-		return loadVideoFromFile(turnPart.Media.FilePath, baseDir, index)
-	}
-
-	return types.ContentPart{}, NewValidationError(index, "video", "", errNoMediaSource)
+	return convertMediaPart(cfg,
+		func(data, mimeType string) types.ContentPart {
+			return types.NewVideoPartFromData(data, mimeType)
+		},
+		func(filePath, baseDir string, idx int) (types.ContentPart, error) {
+			return loadVideoFromFile(filePath, baseDir, idx)
+		},
+	)
 }
 
 // loadImageFromFile loads an image from disk and returns a content part

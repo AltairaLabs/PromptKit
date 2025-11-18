@@ -444,7 +444,7 @@ func TestGetBase64Data_StorageReference(t *testing.T) {
 		StorageReference: &ref,
 		MIMEType:         "image/jpeg",
 	}
-	
+
 	_, err := media.GetBase64Data()
 	if err == nil {
 		t.Error("expected error when getting base64 data from storage reference")
@@ -459,7 +459,7 @@ func TestGetBase64Data_URL(t *testing.T) {
 		URL:      &url,
 		MIMEType: "image/jpeg",
 	}
-	
+
 	_, err := media.GetBase64Data()
 	if err == nil {
 		t.Error("expected error when getting base64 data from URL")
@@ -474,7 +474,7 @@ func TestInferMIMETypeFromURL_Fallback(t *testing.T) {
 	if result != MIMETypeImageJPEG {
 		t.Errorf("expected default MIME type %s, got %s", MIMETypeImageJPEG, result)
 	}
-	
+
 	// URL with unknown extension should default to JPEG
 	result = inferMIMETypeFromURL("https://example.com/file.unknown")
 	if result != MIMETypeImageJPEG {
