@@ -25,7 +25,7 @@ func TestScriptedExecutor_HandleNonStreamingProvider_Error(t *testing.T) {
 	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(providers.PredictionResponse{}, errors.New("predict failed"))
 
 	toolRegistry := tools.NewRegistry()
-	pipelineExecutor := NewPipelineExecutor(toolRegistry)
+	pipelineExecutor := NewPipelineExecutor(toolRegistry, nil)
 	executor := NewScriptedExecutor(pipelineExecutor)
 
 	scenario := &config.Scenario{
@@ -87,7 +87,7 @@ func TestScriptedExecutor_HandleNonStreamingProvider_Success(t *testing.T) {
 	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(response, nil)
 
 	toolRegistry := tools.NewRegistry()
-	pipelineExecutor := NewPipelineExecutor(toolRegistry)
+	pipelineExecutor := NewPipelineExecutor(toolRegistry, nil)
 	executor := NewScriptedExecutor(pipelineExecutor)
 
 	scenario := &config.Scenario{
@@ -134,7 +134,7 @@ func TestScriptedExecutor_HandleNonStreamingProvider_NotHandled(t *testing.T) {
 	mockProvider.On("SupportsStreaming").Return(true)
 
 	toolRegistry := tools.NewRegistry()
-	pipelineExecutor := NewPipelineExecutor(toolRegistry)
+	pipelineExecutor := NewPipelineExecutor(toolRegistry, nil)
 	executor := NewScriptedExecutor(pipelineExecutor)
 
 	req := TurnRequest{
@@ -171,7 +171,7 @@ func TestSelfPlayExecutor_HandleNonStreamingProvider_Error(t *testing.T) {
 	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(providers.PredictionResponse{}, errors.New("predict failed"))
 
 	toolRegistry := tools.NewRegistry()
-	pipelineExecutor := NewPipelineExecutor(toolRegistry)
+	pipelineExecutor := NewPipelineExecutor(toolRegistry, nil)
 
 	mockContentProvider := &MockSelfPlayProvider{
 		contentGen: &MockContentGenerator{
@@ -244,7 +244,7 @@ func TestSelfPlayExecutor_HandleNonStreamingProvider_Success(t *testing.T) {
 	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(response, nil)
 
 	toolRegistry := tools.NewRegistry()
-	pipelineExecutor := NewPipelineExecutor(toolRegistry)
+	pipelineExecutor := NewPipelineExecutor(toolRegistry, nil)
 
 	mockContentProvider := &MockSelfPlayProvider{
 		contentGen: &MockContentGenerator{

@@ -52,7 +52,7 @@ func TestStateStore_EndToEnd(t *testing.T) {
 	toolRegistry := tools.NewRegistry()
 
 	// Create turn executors
-	pipelineExecutor := turnexecutors.NewPipelineExecutor(toolRegistry)
+	pipelineExecutor := turnexecutors.NewPipelineExecutor(toolRegistry, nil)
 	scriptedExecutor := turnexecutors.NewScriptedExecutor(pipelineExecutor)
 
 	// Create conversation executor
