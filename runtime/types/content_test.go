@@ -402,3 +402,82 @@ func TestInferMIMEType(t *testing.T) {
 func stringPtr(s string) *string {
 	return &s
 }
+
+func TestNewImagePart_ErrorPath(t *testing.T) {
+	// Test with unsupported extension
+	tmpDir := t.TempDir()
+	unsupportedFile := filepath.Join(tmpDir, "test.xyz")
+	os.WriteFile(unsupportedFile, []byte("test"), 0644)
+	_, err := NewImagePart(unsupportedFile, nil)
+	if err == nil {
+		t.Error("expected error for unsupported extension")
+	} else if !strings.Contains(err.Error(), "unsupported file extension") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestNewAudioPart_ErrorPath(t *testing.T) {
+	// Test with unsupported extension
+	tmpDir := t.TempDir()
+	unsupportedFile := filepath.Join(tmpDir, "test.unknown")
+	os.WriteFile(unsupportedFile, []byte("test"), 0644)
+	_, err := NewAudioPart(unsupportedFile)
+	if err == nil {
+		t.Error("expected error for unsupported extension")
+	}
+}
+
+func TestNewVideoPart_ErrorPath(t *testing.T) {
+	// Test with unsupported extension
+	tmpDir := t.TempDir()
+	unsupportedFile := filepath.Join(tmpDir, "test.xyz")
+	os.WriteFile(unsupportedFile, []byte("test"), 0644)
+	_, err := NewVideoPart(unsupportedFile)
+	if err == nil {
+		t.Error("expected error for unsupported extension")
+	}
+}
+
+func TestGetBase64Data_StorageReference(t *testing.T) {
+	ref := "storage-ref-123"
+	media := &MediaContent{
+		StorageReference: &ref,
+		MIMEType:         "image/jpeg",
+	}
+	
+	_, err := media.GetBase64Data()
+	if err == nil {
+		t.Error("expected error when getting base64 data from storage reference")
+	} else if !strings.Contains(err.Error(), "storage reference") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestGetBase64Data_URL(t *testing.T) {
+	url := "https://example.com/image.jpg"
+	media := &MediaContent{
+		URL:      &url,
+		MIMEType: "image/jpeg",
+	}
+	
+	_, err := media.GetBase64Data()
+	if err == nil {
+		t.Error("expected error when getting base64 data from URL")
+	} else if !strings.Contains(err.Error(), "URL") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestInferMIMETypeFromURL_Fallback(t *testing.T) {
+	// URL with no extension should default to JPEG
+	result := inferMIMETypeFromURL("https://example.com/image")
+	if result != MIMETypeImageJPEG {
+		t.Errorf("expected default MIME type %s, got %s", MIMETypeImageJPEG, result)
+	}
+	
+	// URL with unknown extension should default to JPEG
+	result = inferMIMETypeFromURL("https://example.com/file.unknown")
+	if result != MIMETypeImageJPEG {
+		t.Errorf("expected default MIME type %s, got %s", MIMETypeImageJPEG, result)
+	}
+}
