@@ -315,8 +315,10 @@ func (e *Engine) GetStateStore() statestore.Store {
 	return e.stateStore
 }
 
-// buildMediaStorage creates a media storage service for externalization.
-// Media is stored in <output_dir>/media/ subdirectory.
+// buildMediaStorage creates a media storage service for media externalization.
+// It stores media files in the <output_dir>/media/ subdirectory using run-based organization.
+// This enables automatic externalization of large media content to reduce memory usage and
+// improve performance when processing media-heavy scenarios.
 func buildMediaStorage(cfg *config.Config) (storage.MediaStorageService, error) {
 	// Determine the media storage directory
 	outDir := cfg.Defaults.Output.Dir

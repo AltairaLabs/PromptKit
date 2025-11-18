@@ -192,7 +192,24 @@ func WithConfig(config ManagerConfig) ManagerOption {
 	}
 }
 
-// WithMediaStorage sets the media storage service for media externalization
+// WithMediaStorage sets the media storage service for automatic media externalization.
+// When enabled, large media content in provider responses is automatically moved from inline
+// base64 data to file storage, significantly reducing memory usage and improving performance.
+//
+// Default behavior when storage is provided:
+//   - Media externalization is enabled
+//   - Size threshold is set to 100KB (media larger than this is externalized)
+//   - Retention policy defaults to "retain" (keep media indefinitely)
+//
+// To customize these defaults, use WithConfig after WithMediaStorage.
+//
+// Example:
+//
+//	storage, _ := local.NewFileStore(local.FileStoreConfig{BaseDir: "./media"})
+//	manager, _ := sdk.NewConversationManager(
+//	    sdk.WithProvider(provider),
+//	    sdk.WithMediaStorage(storage),
+//	)
 func WithMediaStorage(storageService storage.MediaStorageService) ManagerOption {
 	return func(cm *ConversationManager) error {
 		cm.mediaStorage = storageService
