@@ -386,3 +386,235 @@ func TestArenaStateStoreSaveMiddleware_CapturesFromMessages(t *testing.T) {
 		t.Errorf("Expected banned_word='forbidden' in details, got %v", validation.Details)
 	}
 }
+
+// TestArenaStateStoreSaveMiddleware_SystemPromptPrepending tests that system prompts are prepended as first message
+func TestArenaStateStoreSaveMiddleware_SystemPromptPrepending(t *testing.T) {
+	arenaStore := statestore.NewArenaStateStore()
+
+	config := &pipeline.StateStoreConfig{
+		Store:          arenaStore,
+		ConversationID: "conv-sysprompt-1",
+		UserID:         "test-user",
+	}
+
+	now := time.Now()
+	execCtx := &pipeline.ExecutionContext{
+		Context:      context.Background(),
+		SystemPrompt: "You are a helpful assistant",
+		Messages: []types.Message{
+			{
+				Role:      "user",
+				Content:   "Hello",
+				Timestamp: now,
+			},
+			{
+				Role:      "assistant",
+				Content:   "Hi there!",
+				Timestamp: now.Add(time.Second),
+			},
+		},
+		Metadata: map[string]interface{}{},
+	}
+
+	middleware := ArenaStateStoreSaveMiddleware(config)
+	err := middleware.Process(execCtx, func() error { return nil })
+	if err != nil {
+		t.Fatalf("Middleware returned error: %v", err)
+	}
+
+	// Load state and verify system message was prepended
+	state, err := arenaStore.Load(context.Background(), "conv-sysprompt-1")
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if len(state.Messages) != 3 {
+		t.Fatalf("Expected 3 messages (system + user + assistant), got %d", len(state.Messages))
+	}
+
+	// Verify first message is system prompt
+	if state.Messages[0].Role != "system" {
+		t.Errorf("Expected first message role to be 'system', got %s", state.Messages[0].Role)
+	}
+	if state.Messages[0].Content != "You are a helpful assistant" {
+		t.Errorf("Expected system content 'You are a helpful assistant', got %s", state.Messages[0].Content)
+	}
+	if state.Messages[0].Timestamp.IsZero() {
+		t.Error("System message should have timestamp")
+	}
+
+	// Verify system message has Parts array with text content
+	if len(state.Messages[0].Parts) != 1 {
+		t.Errorf("Expected system message to have 1 Part, got %d", len(state.Messages[0].Parts))
+	} else {
+		if state.Messages[0].Parts[0].Type != types.ContentTypeText {
+			t.Errorf("Expected Part type 'text', got %s", state.Messages[0].Parts[0].Type)
+		}
+		if state.Messages[0].Parts[0].Text == nil {
+			t.Error("Expected Part Text to be non-nil")
+		} else if *state.Messages[0].Parts[0].Text != "You are a helpful assistant" {
+			t.Errorf("Expected Part Text 'You are a helpful assistant', got %s", *state.Messages[0].Parts[0].Text)
+		}
+	}
+
+	// Verify subsequent messages
+	if state.Messages[1].Role != "user" || state.Messages[1].Content != "Hello" {
+		t.Error("Second message should be user message 'Hello'")
+	}
+	if state.Messages[2].Role != "assistant" || state.Messages[2].Content != "Hi there!" {
+		t.Error("Third message should be assistant message 'Hi there!'")
+	}
+}
+
+// TestArenaStateStoreSaveMiddleware_NoSystemPrompt tests that messages are copied normally without system prompt
+func TestArenaStateStoreSaveMiddleware_NoSystemPrompt(t *testing.T) {
+	arenaStore := statestore.NewArenaStateStore()
+
+	config := &pipeline.StateStoreConfig{
+		Store:          arenaStore,
+		ConversationID: "conv-nosysprompt",
+		UserID:         "test-user",
+	}
+
+	execCtx := &pipeline.ExecutionContext{
+		Context:      context.Background(),
+		SystemPrompt: "", // Empty system prompt
+		Messages: []types.Message{
+			{
+				Role:      "user",
+				Content:   "Hello",
+				Timestamp: time.Now(),
+			},
+			{
+				Role:      "assistant",
+				Content:   "Hi there!",
+				Timestamp: time.Now(),
+			},
+		},
+		Metadata: map[string]interface{}{},
+	}
+
+	middleware := ArenaStateStoreSaveMiddleware(config)
+	err := middleware.Process(execCtx, func() error { return nil })
+	if err != nil {
+		t.Fatalf("Middleware returned error: %v", err)
+	}
+
+	// Load state and verify no system message
+	state, err := arenaStore.Load(context.Background(), "conv-nosysprompt")
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if len(state.Messages) != 2 {
+		t.Fatalf("Expected 2 messages (user + assistant), got %d", len(state.Messages))
+	}
+
+	// Verify messages without system prompt
+	if state.Messages[0].Role != "user" || state.Messages[0].Content != "Hello" {
+		t.Error("First message should be user message 'Hello'")
+	}
+	if state.Messages[1].Role != "assistant" || state.Messages[1].Content != "Hi there!" {
+		t.Error("Second message should be assistant message 'Hi there!'")
+	}
+}
+
+// TestArenaStateStoreSaveMiddleware_SystemPromptMetadata tests that system_prompt is stored in metadata
+func TestArenaStateStoreSaveMiddleware_SystemPromptMetadata(t *testing.T) {
+	arenaStore := statestore.NewArenaStateStore()
+
+	config := &pipeline.StateStoreConfig{
+		Store:          arenaStore,
+		ConversationID: "conv-sysmeta",
+		UserID:         "test-user",
+	}
+
+	systemPrompt := "You are a specialized AI assistant for customer service"
+
+	execCtx := &pipeline.ExecutionContext{
+		Context:      context.Background(),
+		SystemPrompt: systemPrompt,
+		Messages: []types.Message{
+			{
+				Role:      "user",
+				Content:   "Test",
+				Timestamp: time.Now(),
+			},
+		},
+		Metadata: map[string]interface{}{},
+	}
+
+	middleware := ArenaStateStoreSaveMiddleware(config)
+	err := middleware.Process(execCtx, func() error { return nil })
+	if err != nil {
+		t.Fatalf("Middleware returned error: %v", err)
+	}
+
+	// Load state and verify system_prompt is in metadata
+	state, err := arenaStore.Load(context.Background(), "conv-sysmeta")
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	// Check metadata contains system_prompt
+	systemPromptValue, exists := state.Metadata["system_prompt"]
+	if !exists {
+		t.Fatal("system_prompt should be in metadata")
+	}
+	if systemPromptValue != systemPrompt {
+		t.Errorf("Expected system_prompt '%s', got '%v'", systemPrompt, systemPromptValue)
+	}
+}
+
+// TestArenaStateStoreSaveMiddleware_SystemPromptTimestamp tests that system message uses first message timestamp
+func TestArenaStateStoreSaveMiddleware_SystemPromptTimestamp(t *testing.T) {
+	arenaStore := statestore.NewArenaStateStore()
+
+	config := &pipeline.StateStoreConfig{
+		Store:          arenaStore,
+		ConversationID: "conv-systime",
+		UserID:         "test-user",
+	}
+
+	firstMessageTime := time.Now().Add(-1 * time.Minute) // 1 minute ago
+
+	execCtx := &pipeline.ExecutionContext{
+		Context:      context.Background(),
+		SystemPrompt: "You are helpful",
+		Messages: []types.Message{
+			{
+				Role:      "user",
+				Content:   "Hello",
+				Timestamp: firstMessageTime,
+			},
+			{
+				Role:      "assistant",
+				Content:   "Hi!",
+				Timestamp: time.Now(),
+			},
+		},
+		Metadata: map[string]interface{}{},
+	}
+
+	middleware := ArenaStateStoreSaveMiddleware(config)
+	err := middleware.Process(execCtx, func() error { return nil })
+	if err != nil {
+		t.Fatalf("Middleware returned error: %v", err)
+	}
+
+	// Load state and verify system message timestamp
+	state, err := arenaStore.Load(context.Background(), "conv-systime")
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if len(state.Messages) != 3 {
+		t.Fatalf("Expected 3 messages, got %d", len(state.Messages))
+	}
+
+	// System message should have the same timestamp as the first user message
+	if state.Messages[0].Timestamp.Unix() != firstMessageTime.Unix() {
+		t.Errorf("System message timestamp (%v) should match first message timestamp (%v)",
+			state.Messages[0].Timestamp, firstMessageTime)
+	}
+}

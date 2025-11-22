@@ -1125,3 +1125,188 @@ func TestArenaStateStore_CalculateMediaSize(t *testing.T) {
 func strPtr(s string) *string {
 	return &s
 }
+
+// TestArenaStateStore_GetResult_SystemPromptInjection tests that system_prompt is injected into params
+func TestArenaStateStore_GetResult_SystemPromptInjection(t *testing.T) {
+	store := NewArenaStateStore()
+	ctx := context.Background()
+
+	systemPrompt := "You are a helpful AI assistant"
+
+	// Save conversation state with system_prompt in metadata
+	state := &statestore.ConversationState{
+		ID:     "run-sysprompt-inject",
+		UserID: "test-user",
+		Messages: []types.Message{
+			{Role: "user", Content: "Hello"},
+			{Role: "assistant", Content: "Hi"},
+		},
+		Metadata: map[string]interface{}{
+			"system_prompt": systemPrompt,
+		},
+	}
+	err := store.Save(ctx, state)
+	require.NoError(t, err)
+
+	// Save run metadata with params
+	metadata := &RunMetadata{
+		RunID:      "run-sysprompt-inject",
+		ScenarioID: "test",
+		ProviderID: "test",
+		Params: map[string]interface{}{
+			"temperature": 0.7,
+			"max_tokens":  100,
+		},
+	}
+	err = store.SaveMetadata(ctx, "run-sysprompt-inject", metadata)
+	require.NoError(t, err)
+
+	// Get result and verify system_prompt was injected into params
+	result, err := store.GetResult(ctx, "run-sysprompt-inject")
+	require.NoError(t, err)
+	require.NotNil(t, result.Params)
+
+	// Check system_prompt in params
+	systemPromptParam, exists := result.Params["system_prompt"]
+	assert.True(t, exists, "system_prompt should be in params")
+	assert.Equal(t, systemPrompt, systemPromptParam)
+
+	// Verify original params are still present
+	assert.Equal(t, 0.7, result.Params["temperature"])
+	assert.Equal(t, 100, result.Params["max_tokens"])
+}
+
+// TestArenaStateStore_GetResult_NoSystemPromptInMetadata tests when system_prompt is not in metadata
+func TestArenaStateStore_GetResult_NoSystemPromptInMetadata(t *testing.T) {
+	store := NewArenaStateStore()
+	ctx := context.Background()
+
+	// Save conversation state without system_prompt in metadata
+	state := &statestore.ConversationState{
+		ID:       "run-no-sysprompt",
+		UserID:   "test-user",
+		Messages: []types.Message{{Role: "user", Content: "Hello"}},
+		Metadata: map[string]interface{}{
+			"other_field": "some value",
+		},
+	}
+	err := store.Save(ctx, state)
+	require.NoError(t, err)
+
+	// Save run metadata
+	metadata := &RunMetadata{
+		RunID:      "run-no-sysprompt",
+		ScenarioID: "test",
+		ProviderID: "test",
+		Params: map[string]interface{}{
+			"temperature": 0.5,
+		},
+	}
+	err = store.SaveMetadata(ctx, "run-no-sysprompt", metadata)
+	require.NoError(t, err)
+
+	// Get result and verify params don't have system_prompt
+	result, err := store.GetResult(ctx, "run-no-sysprompt")
+	require.NoError(t, err)
+	require.NotNil(t, result.Params)
+
+	// system_prompt should not be in params
+	_, exists := result.Params["system_prompt"]
+	assert.False(t, exists, "system_prompt should not be in params when not in metadata")
+
+	// Verify original params are present
+	assert.Equal(t, 0.5, result.Params["temperature"])
+}
+
+// TestArenaStateStore_GetResult_ParamsMerge tests that params are properly merged
+func TestArenaStateStore_GetResult_ParamsMerge(t *testing.T) {
+	store := NewArenaStateStore()
+	ctx := context.Background()
+
+	systemPrompt := "You are an expert"
+
+	// Save conversation state with metadata
+	state := &statestore.ConversationState{
+		ID:       "run-merge",
+		UserID:   "test-user",
+		Messages: []types.Message{{Role: "user", Content: "Test"}},
+		Metadata: map[string]interface{}{
+			"system_prompt": systemPrompt,
+			"custom_field":  "custom_value",
+		},
+	}
+	err := store.Save(ctx, state)
+	require.NoError(t, err)
+
+	// Save run metadata with multiple params
+	metadata := &RunMetadata{
+		RunID:      "run-merge",
+		ScenarioID: "test",
+		ProviderID: "test",
+		Params: map[string]interface{}{
+			"temperature":  0.8,
+			"max_tokens":   200,
+			"top_p":        0.9,
+			"existing_key": "existing_value",
+		},
+	}
+	err = store.SaveMetadata(ctx, "run-merge", metadata)
+	require.NoError(t, err)
+
+	// Get result and verify all params are present
+	result, err := store.GetResult(ctx, "run-merge")
+	require.NoError(t, err)
+	require.NotNil(t, result.Params)
+
+	// Check system_prompt was added
+	assert.Equal(t, systemPrompt, result.Params["system_prompt"])
+
+	// Check all original params are preserved
+	assert.Equal(t, 0.8, result.Params["temperature"])
+	assert.Equal(t, 200, result.Params["max_tokens"])
+	assert.Equal(t, 0.9, result.Params["top_p"])
+	assert.Equal(t, "existing_value", result.Params["existing_key"])
+
+	// Verify custom_field from metadata is NOT in params (only system_prompt is injected)
+	_, exists := result.Params["custom_field"]
+	assert.False(t, exists, "custom_field from metadata should not be in params")
+}
+
+// TestArenaStateStore_GetResult_NilParams tests behavior when RunMetadata.Params is nil
+func TestArenaStateStore_GetResult_NilParams(t *testing.T) {
+	store := NewArenaStateStore()
+	ctx := context.Background()
+
+	systemPrompt := "You are helpful"
+
+	// Save conversation state with system_prompt in metadata
+	state := &statestore.ConversationState{
+		ID:       "run-nil-params",
+		UserID:   "test-user",
+		Messages: []types.Message{{Role: "user", Content: "Hello"}},
+		Metadata: map[string]interface{}{
+			"system_prompt": systemPrompt,
+		},
+	}
+	err := store.Save(ctx, state)
+	require.NoError(t, err)
+
+	// Save run metadata with nil Params
+	metadata := &RunMetadata{
+		RunID:      "run-nil-params",
+		ScenarioID: "test",
+		ProviderID: "test",
+		Params:     nil, // Nil params
+	}
+	err = store.SaveMetadata(ctx, "run-nil-params", metadata)
+	require.NoError(t, err)
+
+	// Get result and verify params are created with system_prompt
+	result, err := store.GetResult(ctx, "run-nil-params")
+	require.NoError(t, err)
+	require.NotNil(t, result.Params, "Params should be created even when RunMetadata.Params is nil")
+
+	// Check system_prompt is in params
+	assert.Equal(t, systemPrompt, result.Params["system_prompt"])
+	assert.Len(t, result.Params, 1, "Should only have system_prompt in params")
+}
