@@ -15,6 +15,7 @@ spec:
     - file: scenarios/scripted-turns.yaml
     - file: scenarios/self-play.yaml
     - file: scenarios/tool-usage.yaml
+    - file: scenarios/json-validation.yaml
 
   tools:
     - file: tools/search.yaml

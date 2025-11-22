@@ -49,6 +49,48 @@ func (m *arenaStateStoreSaveMiddleware) Process(execCtx *pipeline.ExecutionConte
 	return err // Return the original error from next() if any
 }
 
+// createSystemMessage creates a system message with the given prompt and timestamp
+func createSystemMessage(systemPrompt string, timestamp time.Time) types.Message {
+	textContent := systemPrompt
+	return types.Message{
+		Role:    "system",
+		Content: systemPrompt,
+		Parts: []types.ContentPart{
+			{
+				Type: "text",
+				Text: &textContent,
+			},
+		},
+		Timestamp: timestamp,
+	}
+}
+
+// prependSystemMessage prepends a system message if not already present
+func prependSystemMessage(messages []types.Message, systemPrompt string) []types.Message {
+	// Check if first message is already a system message
+	if len(messages) > 0 && messages[0].Role == "system" {
+		// Already has system message, return as-is
+		result := make([]types.Message, len(messages))
+		copy(result, messages)
+		return result
+	}
+
+	// Determine timestamp for system message
+	var timestamp time.Time
+	if len(messages) > 0 {
+		timestamp = messages[0].Timestamp
+	} else {
+		timestamp = time.Now()
+	}
+
+	// Create new slice with system message prepended
+	systemMsg := createSystemMessage(systemPrompt, timestamp)
+	result := make([]types.Message, 0, len(messages)+1)
+	result = append(result, systemMsg)
+	result = append(result, messages...)
+	return result
+}
+
 func saveToArenaStateStore(
 	execCtx *pipeline.ExecutionContext,
 	arenaStore *statestore.ArenaStateStore,
@@ -77,33 +119,9 @@ func saveToArenaStateStore(
 
 	// Prepend system prompt as the first message if present
 	// This ensures the system prompt is visible in Arena results
+	// Only prepend if not already present (to avoid duplicates in multi-turn conversations)
 	if execCtx.SystemPrompt != "" {
-		textContent := execCtx.SystemPrompt
-
-		// Determine timestamp for system message
-		var timestamp time.Time
-		if len(execCtx.Messages) > 0 {
-			timestamp = execCtx.Messages[0].Timestamp
-		} else {
-			timestamp = time.Now()
-		}
-
-		systemMsg := types.Message{
-			Role:    "system",
-			Content: execCtx.SystemPrompt,
-			Parts: []types.ContentPart{
-				{
-					Type: "text",
-					Text: &textContent,
-				},
-			},
-			Timestamp: timestamp,
-		}
-
-		// Create messages array with system message first
-		state.Messages = make([]types.Message, 0, len(execCtx.Messages)+1)
-		state.Messages = append(state.Messages, systemMsg)
-		state.Messages = append(state.Messages, execCtx.Messages...)
+		state.Messages = prependSystemMessage(execCtx.Messages, execCtx.SystemPrompt)
 	} else {
 		// No system prompt, just copy messages
 		state.Messages = make([]types.Message, len(execCtx.Messages))

@@ -1,0 +1,161 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: json-validation
+spec:
+  task_type: assistant
+  description: "JSON validation assertions with structured data responses"
+
+  turns:
+    - role: user
+      content: "Generate a user profile in JSON format with name, age, and email fields. The name should be 'Alice Smith', age 28, and email 'alice@example.com'."
+      assertions:
+        # Validate response contains valid JSON
+        - type: is_valid_json
+          params:
+            allow_wrapped: true
+            extract_json: true
+
+        # Validate against JSON schema
+        - type: json_schema
+          params:
+            schema:
+              type: object
+              required: ["name", "age", "email"]
+              properties:
+                name:
+                  type: string
+                age:
+                  type: integer
+                  minimum: 18
+                  maximum: 120
+                email:
+                  type: string
+                  pattern: "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+            allow_wrapped: true
+            extract_json: true
+
+        # Validate specific field values using JSONPath
+        - type: json_path
+          params:
+            expression: "name"
+            expected: "Alice Smith"
+            allow_wrapped: true
+            extract_json: true
+
+        - type: json_path
+          params:
+            expression: "age"
+            expected: 28
+            allow_wrapped: true
+            extract_json: true
+
+    - role: user
+      content: "Generate a list of products in JSON format. Each product should have id, name, price, and inStock fields. Include at least 3 products."
+      assertions:
+        # Validate array structure
+        - type: is_valid_json
+          params:
+            allow_wrapped: true
+            extract_json: true
+
+        # Validate array schema
+        - type: json_schema
+          params:
+            schema:
+              type: array
+              minItems: 3
+              items:
+                type: object
+                required: ["id", "name", "price", "inStock"]
+                properties:
+                  id:
+                    oneOf:
+                      - type: integer
+                      - type: string
+                  name:
+                    type: string
+                  price:
+                    type: number
+                    minimum: 0
+                  inStock:
+                    type: boolean
+            allow_wrapped: true
+            extract_json: true
+
+        # Validate array length using JSONPath
+        - type: json_path
+          params:
+            expression: "length([*])"
+            min: 3
+            allow_wrapped: true
+            extract_json: true
+
+        # Validate all products have positive prices
+        - type: json_path
+          params:
+            expression: "length([?price > `0`])"
+            min: 3
+            allow_wrapped: true
+            extract_json: true
+
+    - role: user
+      content: "Create a nested JSON object representing a company with departments. The company should have a name and an array of departments, where each department has a name and an array of employees."
+      assertions:
+        # Validate nested JSON structure
+        - type: is_valid_json
+          params:
+            allow_wrapped: true
+            extract_json: true
+
+        # Validate nested schema
+        - type: json_schema
+          params:
+            schema:
+              type: object
+              required: ["departments"]
+              properties:
+                name:
+                  type: string
+                companyName:
+                  type: string
+                departments:
+                  type: array
+                  items:
+                    type: object
+                    required: ["name", "employees"]
+                    properties:
+                      name:
+                        type: string
+                      employees:
+                        type: array
+                        items:
+                          type: object
+                          required: ["name"]
+                          properties:
+                            name:
+                              type: string
+                            role:
+                              type: string
+                            title:
+                              type: string
+                            position:
+                              type: string
+            allow_wrapped: true
+            extract_json: true
+
+        # Validate company has at least one department
+        - type: json_path
+          params:
+            expression: "length(departments)"
+            min: 1
+            allow_wrapped: true
+            extract_json: true
+
+        # Validate at least one employee exists
+        - type: json_path
+          params:
+            expression: "length(departments[*].employees[*])"
+            min: 1
+            allow_wrapped: true
+            extract_json: true
