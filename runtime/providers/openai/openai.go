@@ -17,7 +17,7 @@ import (
 
 // HTTP constants
 const (
-	openAIPredictCompletionsPath = "/predict/completions"
+	openAIPredictCompletionsPath = "/v1/chat/completions"
 	contentTypeHeader            = "Content-Type"
 	applicationJSON              = "application/json"
 	authorizationHeader          = "Authorization"
