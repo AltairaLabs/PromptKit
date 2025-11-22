@@ -45,7 +45,7 @@ function getPlatformInfo() {
 
 function getDownloadUrl(platform, arch) {
   const archiveExt = platform === 'Windows' ? 'zip' : 'tar.gz';
-  const archiveName = `PromptKit_v${VERSION}_${platform}_${arch}.${archiveExt}`;
+  const archiveName = `PromptKit_${VERSION}_${platform}_${arch}.${archiveExt}`;
   return `https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}/${archiveName}`;
 }
 
