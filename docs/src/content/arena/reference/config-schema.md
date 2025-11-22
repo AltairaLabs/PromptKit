@@ -167,17 +167,43 @@ Array of prompt configuration references.
 **Fields**:
 - `id` (string, required): Internal ID used to reference this prompt in scenarios
 - `file` (string, required): Path to PromptConfig YAML file (relative to arena.yaml)
-- `vars` (object, optional): Override template variables defined in the prompt
+- `vars` (object, optional): Override template variables defined in the prompt's `optional_vars`
+
+**Variable Override Workflow**:
+
+Variables flow through three levels with the following precedence (highest to lowest):
+1. **Runtime variables** - Passed at execution time via SDK/CLI
+2. **Arena configuration** - Defined in `prompt_configs[].vars`
+3. **Prompt defaults** - Defined in PromptConfig's `optional_vars`
 
 **Example**:
+
 ```yaml
+# arena.yaml
 prompt_configs:
   - id: support
     file: prompts/support.yaml
     vars:
-      company: "ACME Corp"
-      hours: "24/7"
+      company_name: "ACME Corp"
+      support_hours: "24/7"
+      support_email: "help@acme.com"
 ```
+
+```yaml
+# prompts/support.yaml
+spec:
+  optional_vars:
+    company_name: "Generic Company"
+    support_hours: "9 AM - 5 PM"
+    support_email: "support@example.com"
+  
+  system_template: |
+    You are a support agent for {{company_name}}.
+    Our hours: {{support_hours}}
+    Contact: {{support_email}}
+```
+
+In this example, the arena.yaml vars override the defaults, so the rendered template will use "ACME Corp", "24/7", and "help@acme.com".
 
 #### `providers`
 
@@ -374,15 +400,73 @@ Categorizes the prompt's purpose.
 
 #### `system_template`
 
-The system prompt sent to the LLM. Supports template variables using `` syntax.
+The system prompt sent to the LLM. Supports template variables using `{{variable_name}}` syntax.
 
 **Example with Variables**:
 ```yaml
-system_template: |
-  You are a support agent for .
-  Contact us at .
-  Hours: 
+spec:
+  optional_vars:
+    company_name: "TechCo"
+    support_email: "help@techco.com"
+    business_hours: "9 AM - 5 PM EST"
+  
+  system_template: |
+    You are a support agent for {{company_name}}.
+    Contact us at {{support_email}}.
+    Hours: {{business_hours}}
 ```
+
+Variables are substituted when the prompt is assembled. They can be overridden in arena.yaml using the `prompt_configs[].vars` field.
+
+#### `optional_vars`
+
+Optional map of template variables with default values. These variables can be referenced in `system_template` using `{{variable_name}}` syntax.
+
+**Fields**: Key-value pairs where keys are variable names and values are default strings.
+
+**Example**:
+```yaml
+optional_vars:
+  company_name: "ACME Inc"
+  support_tier: "Premium"
+  max_response_time: "24 hours"
+```
+
+**Variable Overrides**: Values defined here can be overridden in arena.yaml:
+
+```yaml
+# arena.yaml
+prompt_configs:
+  - id: premium-support
+    file: prompts/support.yaml
+    vars:
+      support_tier: "Enterprise"  # Overrides "Premium"
+      max_response_time: "4 hours"  # Overrides "24 hours"
+```
+
+#### `required_vars`
+
+Optional array of variable names that must be provided at runtime. If a required variable is not provided, prompt assembly will fail.
+
+**Fields**: Array of strings (variable names).
+
+**Example**:
+```yaml
+required_vars:
+  - customer_id
+  - account_type
+  - subscription_tier
+
+system_template: |
+  Customer: {{customer_id}}
+  Account: {{account_type}}
+  Tier: {{subscription_tier}}
+```
+
+Required variables must be provided either:
+- In arena.yaml via `prompt_configs[].vars`
+- At runtime via SDK/API calls
+- Through scenario-specific configuration
 
 #### `validators`
 
