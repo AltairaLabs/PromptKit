@@ -388,8 +388,8 @@ func TestOpenAIError_Structure(t *testing.T) {
 func TestPredict_Integration(t *testing.T) {
 	t.Run("Successful predict request with system message", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path != "/predict/completions" {
-				t.Errorf("Expected path '/predict/completions', got %q", r.URL.Path)
+			if r.URL.Path != "/chat/completions" {
+				t.Errorf("Expected path '/chat/completions', got %q", r.URL.Path)
 			}
 			if r.Method != "POST" {
 				t.Errorf("Expected method 'POST', got %q", r.Method)
