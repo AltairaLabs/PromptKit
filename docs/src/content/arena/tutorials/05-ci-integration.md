@@ -53,7 +53,31 @@ my-project/
 │           └── basic.yaml
 ```
 
-## Step 2: Create GitHub Actions Workflow
+## Step 2: Choose Installation Method
+
+For CI/CD, we recommend using npm for PromptArena installation:
+
+**Why npm for CI?**
+- ✅ No Go toolchain required (faster setup)
+- ✅ Works on all platforms (Linux, macOS, Windows)
+- ✅ Simpler workflow (one command)
+- ✅ Node.js typically already in CI environments
+- ✅ Faster installation time
+
+**Alternative: Go Install** (if you prefer):
+```yaml
+- name: Set up Go
+  uses: actions/setup-go@v5
+  with:
+    go-version: '1.23'
+
+- name: Install PromptArena
+  run: go install github.com/altairalabs/promptkit/tools/arena@latest
+```
+
+For this tutorial, we'll use npm as it's simpler and faster.
+
+## Step 3: Create GitHub Actions Workflow
 
 Create `.github/workflows/llm-tests.yml`:
 
@@ -80,14 +104,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.23'
-      
       - name: Install PromptArena
-        run: |
-          go install github.com/altairalabs/promptkit/tools/arena@latest
+        run: npm install -g @altairalabs/promptarena
       
       - name: Run smoke tests with mock provider
         working-directory: tests
@@ -115,14 +133,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.23'
-      
       - name: Install PromptArena
-        run: |
-          go install github.com/altairalabs/promptkit/tools/arena@latest
+        run: npm install -g @altairalabs/promptarena
       
       - name: Run integration tests
         working-directory: tests
@@ -164,7 +176,7 @@ jobs:
           echo "✅ Quality gate passed: $PASS_RATE >= 95%"
 ```
 
-## Step 3: Configure API Keys as Secrets
+## Step 4: Configure API Keys as Secrets
 
 In your GitHub repository:
 
@@ -175,7 +187,7 @@ In your GitHub repository:
    - `ANTHROPIC_API_KEY`
    - `GOOGLE_API_KEY`
 
-## Step 4: Create Test Suites for CI
+## Step 5: Create Test Suites for CI
 
 ### Smoke Tests (Fast Validation)
 
@@ -242,7 +254,7 @@ spec:
             message: "Should provide contact methods"
 ```
 
-## Step 5: Add Quality Gates
+## Step 6: Add Quality Gates
 
 Create `tests/quality-gates.sh`:
 
@@ -297,7 +309,7 @@ Use in workflow:
   run: bash tests/quality-gates.sh
 ```
 
-## Step 6: Optimize for CI Performance
+## Step 7: Optimize for CI Performance
 
 ### Use Concurrency Control
 
@@ -329,7 +341,7 @@ else
 fi
 ```
 
-## Step 7: PR Comments with Results
+## Step 8: PR Comments with Results
 
 Add test results to PR comments:
 
@@ -368,7 +380,7 @@ Add test results to PR comments:
       });
 ```
 
-## Step 8: Multi-Environment Testing
+## Step 9: Multi-Environment Testing
 
 Test across dev, staging, production:
 
@@ -388,7 +400,7 @@ steps:
         --out out/$
 ```
 
-## Step 9: Scheduled Testing
+## Step 10: Scheduled Testing
 
 Run tests on a schedule:
 
@@ -403,6 +415,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      
+      - name: Install PromptArena
+        run: npm install -g @altairalabs/promptarena
       
       - name: Run full test suite
         env:
@@ -431,7 +446,7 @@ jobs:
           SLACK_WEBHOOK_URL: $
 ```
 
-## Step 10: Deployment Gates
+## Step 11: Deployment Gates
 
 Block deployments on test failures:
 
@@ -448,6 +463,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      
+      - name: Install PromptArena
+        run: npm install -g @altairalabs/promptarena
       
       - name: Run LLM tests
         env:
@@ -490,12 +508,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: $
       
       - name: Install Arena
-        run: go install github.com/altairalabs/promptkit/tools/arena@latest
+        run: npm install -g @altairalabs/promptarena
       
       - name: Smoke tests
         working-directory: tests
@@ -516,12 +531,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: $
       
       - name: Install Arena
-        run: go install github.com/altairalabs/promptkit/tools/arena@latest
+        run: npm install -g @altairalabs/promptarena
       
       - name: Critical tests
         working-directory: tests
@@ -558,12 +570,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: $
       
       - name: Install Arena
-        run: go install github.com/altairalabs/promptkit/tools/arena@latest
+        run: npm install -g @altairalabs/promptarena
       
       - name: Full test suite
         working-directory: tests

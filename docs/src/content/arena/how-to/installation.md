@@ -9,7 +9,41 @@ Learn how to install and set up PromptArena for testing LLM applications.
 
 ## Installation Methods
 
-### Option 1: Homebrew (macOS/Linux - Recommended)
+### Option 1: npm/npx (Recommended for JavaScript/TypeScript Projects)
+
+The easiest way to use PromptArena, especially if you're working in a JavaScript/TypeScript environment:
+
+```bash
+# Use without installation (recommended for trying it out)
+npx @altairalabs/promptarena run -c arena.yaml
+
+# Install globally
+npm install -g @altairalabs/promptarena
+
+# Or add to your project as a dev dependency
+npm install --save-dev @altairalabs/promptarena
+```
+
+**Benefits:**
+- No Go toolchain required
+- Works with npm, yarn, and pnpm
+- Easy integration with package.json scripts
+- Automatic platform detection
+
+**Add to your package.json:**
+```json
+{
+  "scripts": {
+    "test:prompts": "promptarena run -c ./tests/arena.yaml",
+    "test:watch": "promptarena run -c ./tests/arena.yaml --watch"
+  },
+  "devDependencies": {
+    "@altairalabs/promptarena": "^0.0.1"
+  }
+}
+```
+
+### Option 2: Homebrew (macOS/Linux)
 
 ```bash
 # Install PromptKit (includes PromptArena)
@@ -19,7 +53,7 @@ brew install promptkit
 promptarena --version
 ```
 
-### Option 2: Go Install
+### Option 3: Go Install
 
 ```bash
 # Install directly with Go
@@ -29,7 +63,7 @@ go install github.com/altairalabs/promptkit/tools/arena@latest
 promptarena --version
 ```
 
-### Option 3: Download Pre-built Binary
+### Option 4: Download Pre-built Binary
 
 Visit the [PromptKit Releases](https://github.com/altairalabs/promptkit/releases) page and download the appropriate binary for your platform.
 
