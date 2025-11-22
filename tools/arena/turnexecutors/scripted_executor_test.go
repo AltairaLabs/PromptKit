@@ -140,12 +140,13 @@ func TestScriptedExecutor_ExecuteTurn_Success(t *testing.T) {
 	state, loadErr := store.Load(context.Background(), req.ConversationID)
 	require.NoError(t, loadErr)
 	require.NotNil(t, state)
-	require.Len(t, state.Messages, 2) // user + assistant
+	require.Len(t, state.Messages, 3) // system + user + assistant
 
-	assert.Equal(t, "user", state.Messages[0].Role)
-	assert.Equal(t, "Hello, I need help.", state.Messages[0].Content)
-	assert.Equal(t, "assistant", state.Messages[1].Role)
-	assert.Equal(t, "I can help you with that.", state.Messages[1].Content)
+	assert.Equal(t, "system", state.Messages[0].Role)
+	assert.Equal(t, "user", state.Messages[1].Role)
+	assert.Equal(t, "Hello, I need help.", state.Messages[1].Content)
+	assert.Equal(t, "assistant", state.Messages[2].Role)
+	assert.Equal(t, "I can help you with that.", state.Messages[2].Content)
 	mockProvider.AssertExpectations(t)
 }
 
@@ -247,8 +248,9 @@ func TestScriptedExecutor_ExecuteTurn_EmptyScriptedContent(t *testing.T) {
 	state, loadErr := store.Load(context.Background(), req.ConversationID)
 	require.NoError(t, loadErr)
 	require.NotNil(t, state)
-	require.Len(t, state.Messages, 2)              // user + assistant
-	assert.Equal(t, "", state.Messages[0].Content) // Empty scripted content
+	require.Len(t, state.Messages, 3)              // system + user + assistant
+	assert.Equal(t, "system", state.Messages[0].Role)
+	assert.Equal(t, "", state.Messages[1].Content) // Empty scripted content
 	mockProvider.AssertExpectations(t)
 }
 
@@ -409,10 +411,10 @@ func TestScriptedExecutor_ExecuteTurn_SetsTimestamp(t *testing.T) {
 	state, loadErr := store.Load(context.Background(), req.ConversationID)
 	require.NoError(t, loadErr)
 	require.NotNil(t, state)
-	require.Len(t, state.Messages, 2) // user + assistant
+	require.Len(t, state.Messages, 3) // system + user + assistant
 
-	userMessage := state.Messages[0]
-	assistantMessage := state.Messages[1]
+	userMessage := state.Messages[1]
+	assistantMessage := state.Messages[2]
 
 	// Verify user message has timestamp set
 	assert.False(t, userMessage.Timestamp.IsZero(), "User message timestamp should not be zero value")
