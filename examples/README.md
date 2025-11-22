@@ -103,6 +103,18 @@ Examples showcasing advanced PromptKit capabilities like human-in-the-loop workf
 - Arena testing with state store
 - State inspection and debugging
 
+### 11. **variables-demo** ⭐
+**Category**: Arena Testing  
+**Purpose**: Comprehensive guide to using variables in promptconfigs
+- **Features**:
+  - Defining optional variables with defaults
+  - Using required variables
+  - Overriding variables in arena.yaml
+  - Creating multiple configs from one template
+  - Variable resolution priority
+- **Learn**: How to make prompts flexible and reusable with template variables
+- **Includes**: Restaurant bot and product support examples with detailed testing
+
 ---
 
 ## Getting Started
@@ -171,10 +183,18 @@ Prompt configurations and templates:
 
 ### Basic Arena Testing
 1. Configure providers in `providers/`
-2. Define prompts in `prompts/`
+2. Define prompts in `prompts/` with optional/required variables
 3. Set up scenarios in `scenarios/`
-4. Configure arena in `arena.yaml`
+4. Configure arena in `arena.yaml` and override variables as needed
 5. Run tests with `promptarena run`
+
+### Working with Variables
+1. Define `optional_vars` in your promptconfig for defaults
+2. Define `required_vars` for values that must be provided
+3. Use `{{variable_name}}` syntax in `system_template`
+4. Override variables in `arena.yaml` under `prompt_configs[].vars`
+5. Test different configurations with scenarios
+6. See `variables-demo/` for complete examples
 
 ### Integration Development
 1. Implement integration logic in Go

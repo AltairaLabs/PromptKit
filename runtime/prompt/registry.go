@@ -331,21 +331,35 @@ func (r *Registry) LoadWithVars(activity string, vars map[string]string, model s
 		return nil
 	}
 
-	// Validate required variables
-	if validationErr := r.validateRequiredVars(config, vars); validationErr != nil {
-		logger.Error("Prompt missing required vars for activity '%s': %v", activity, validationErr)
+	// Validate and merge variables
+	finalVars, err := r.prepareVariables(config, vars, activity)
+	if err != nil {
 		return nil
+	}
+
+	// Get system template with model overrides applied
+	systemTemplate := r.applyModelOverrides(config, model)
+
+	// Render template and create assembled prompt
+	return r.renderAndAssemble(config, systemTemplate, finalVars, activity)
+}
+
+// prepareVariables validates required vars, merges with defaults, and assembles fragments
+func (r *Registry) prepareVariables(config *PromptConfig, vars map[string]string, activity string) (map[string]string, error) {
+	// Validate required variables
+	if err := r.validateRequiredVars(config, vars); err != nil {
+		logger.Error("Prompt missing required vars for activity '%s': %v", activity, err)
+		return nil, err
 	}
 
 	// Merge optional variables with defaults
 	finalVars := r.mergeVars(config, vars)
 
-	// Assemble fragments into final variables if configured
+	// Assemble fragments if configured
 	if len(config.Spec.Fragments) > 0 {
-		fragmentVars, fragmentErr := r.fragmentResolver.AssembleFragments(config.Spec.Fragments, finalVars, "")
-		if fragmentErr != nil {
-			logger.Error("Fragment assembly failed for activity '%s': %v", activity, fragmentErr)
-			return nil
+		fragmentVars, err := r.assembleFragmentVars(config, finalVars, activity)
+		if err != nil {
+			return nil, err
 		}
 		// Merge fragment variables into final vars
 		for key, val := range fragmentVars {
@@ -353,28 +367,48 @@ func (r *Registry) LoadWithVars(activity string, vars map[string]string, model s
 		}
 	}
 
-	// Note: Tools are configured at LLM provider level via PredictOptions.Tools
-	// Tool allowlist filtering happens in orchestrator.getFilteredTools()
+	return finalVars, nil
+}
 
-	// Apply model overrides (only for template modifications)
+// assembleFragmentVars assembles fragment variables
+func (r *Registry) assembleFragmentVars(config *PromptConfig, finalVars map[string]string, activity string) (map[string]string, error) {
+	fragmentVars, err := r.fragmentResolver.AssembleFragments(config.Spec.Fragments, finalVars, "")
+	if err != nil {
+		logger.Error("Fragment assembly failed for activity '%s': %v", activity, err)
+		return nil, err
+	}
+	return fragmentVars, nil
+}
+
+// applyModelOverrides applies model-specific template overrides
+func (r *Registry) applyModelOverrides(config *PromptConfig, model string) string {
 	systemTemplate := config.Spec.SystemTemplate
-	if model != "" {
-		if override, exists := config.Spec.ModelOverrides[model]; exists {
-			if override.SystemTemplate != "" {
-				systemTemplate = override.SystemTemplate
-			}
-			if override.SystemTemplateSuffix != "" {
-				systemTemplate += override.SystemTemplateSuffix
-			}
-			// Note: Temperature and MaxTokens from model_overrides are ignored
-			// These should be configured at the scenario or provider level
-		}
+
+	if model == "" {
+		return systemTemplate
 	}
 
-	// Render template with variables using template renderer
-	assembledText, renderErr := r.templateRenderer.Render(systemTemplate, finalVars)
-	if renderErr != nil {
-		logger.Error("Template rendering failed for activity '%s': %v", activity, renderErr)
+	override, exists := config.Spec.ModelOverrides[model]
+	if !exists {
+		return systemTemplate
+	}
+
+	if override.SystemTemplate != "" {
+		systemTemplate = override.SystemTemplate
+	}
+	if override.SystemTemplateSuffix != "" {
+		systemTemplate += override.SystemTemplateSuffix
+	}
+
+	return systemTemplate
+}
+
+// renderAndAssemble renders the template and creates the final AssembledPrompt
+func (r *Registry) renderAndAssemble(config *PromptConfig, systemTemplate string, finalVars map[string]string, activity string) *AssembledPrompt {
+	// Render template with variables
+	assembledText, err := r.templateRenderer.Render(systemTemplate, finalVars)
+	if err != nil {
+		logger.Error("Template rendering failed for activity '%s': %v", activity, err)
 		return nil
 	}
 

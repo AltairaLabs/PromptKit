@@ -69,145 +69,210 @@ func (e *PipelineExecutor) Execute(
 	req TurnRequest,
 	userMessage types.Message,
 ) error {
-	// Build base variables for prompt assembly
-	baseVariables := map[string]string{}
-	if req.Region != "" {
-		baseVariables["region"] = req.Region
+	// Build base variables and context policy
+	baseVariables := e.buildBaseVariables(req)
+	contextPolicy := e.buildContextPolicy(req)
+
+	// Build complete middleware pipeline
+	pipelineMiddleware := e.buildMiddlewarePipeline(req, baseVariables, contextPolicy)
+
+	// Create and execute pipeline
+	p := pipeline.NewPipeline(pipelineMiddleware...)
+
+	// Log the call
+	logger.LLMCall(req.Provider.ID(), "assistant", 1, req.Temperature, "max_tokens", req.MaxTokens)
+
+	// Execute pipeline
+	_, err := p.ExecuteWithMessage(ctx, userMessage)
+	if err != nil {
+		return e.handlePipelineError(req, err)
 	}
 
-	// Build context policy from scenario if present
-	var contextPolicy *middleware.ContextBuilderPolicy
-	if req.Scenario.ContextPolicy != nil {
-		contextPolicy = &middleware.ContextBuilderPolicy{
-			TokenBudget:      req.Scenario.ContextPolicy.TokenBudget,
-			ReserveForOutput: req.Scenario.ContextPolicy.ReserveForOutput,
-			Strategy:         convertTruncationStrategy(req.Scenario.ContextPolicy.Strategy),
-			CacheBreakpoints: req.Scenario.ContextPolicy.CacheBreakpoints,
+	logger.Debug("Pipeline execution completed successfully")
+	return nil
+}
+
+// buildBaseVariables constructs the base variables map from request
+func (e *PipelineExecutor) buildBaseVariables(req TurnRequest) map[string]string {
+	baseVariables := make(map[string]string)
+
+	// Add prompt config variable overrides from arena.yaml (highest priority)
+	for k, v := range req.PromptVars {
+		baseVariables[k] = v
+	}
+
+	// Add region (if not already set)
+	if req.Region != "" {
+		if _, exists := baseVariables["region"]; !exists {
+			baseVariables["region"] = req.Region
 		}
 	}
 
-	// Build pipeline with middleware
+	return baseVariables
+}
+
+// buildContextPolicy creates context policy from scenario configuration
+func (e *PipelineExecutor) buildContextPolicy(req TurnRequest) *middleware.ContextBuilderPolicy {
+	if req.Scenario.ContextPolicy == nil {
+		return nil
+	}
+
+	return &middleware.ContextBuilderPolicy{
+		TokenBudget:      req.Scenario.ContextPolicy.TokenBudget,
+		ReserveForOutput: req.Scenario.ContextPolicy.ReserveForOutput,
+		Strategy:         convertTruncationStrategy(req.Scenario.ContextPolicy.Strategy),
+		CacheBreakpoints: req.Scenario.ContextPolicy.CacheBreakpoints,
+	}
+}
+
+// buildMiddlewarePipeline constructs the complete middleware pipeline
+func (e *PipelineExecutor) buildMiddlewarePipeline(
+	req TurnRequest,
+	baseVariables map[string]string,
+	contextPolicy *middleware.ContextBuilderPolicy,
+) []pipeline.Middleware {
 	var pipelineMiddleware []pipeline.Middleware
 
-	// 0. StateStore Load middleware - loads conversation state (if configured)
-	if req.StateStoreConfig != nil {
-		storeConfig := &pipeline.StateStoreConfig{
-			Store:          req.StateStoreConfig.Store,
-			ConversationID: req.ConversationID,
-			UserID:         req.StateStoreConfig.UserID,
-			Metadata:       req.StateStoreConfig.Metadata,
-		}
-		pipelineMiddleware = append(pipelineMiddleware, middleware.StateStoreLoadMiddleware(storeConfig))
-	}
+	// 0. StateStore Load middleware
+	e.addStateStoreLoadMiddleware(&pipelineMiddleware, req)
 
-	// 1. Middleware to inject variables (StateStore handles history when configured)
-	pipelineMiddleware = append(pipelineMiddleware, &variableInjectionMiddleware{variables: baseVariables})
+	// 1-4. Core prompt assembly and template middleware
+	e.addPromptMiddleware(&pipelineMiddleware, req, baseVariables)
 
-	// 2. Prompt assembly runs to load prompt config and populate SystemPrompt + AllowedTools
-	pipelineMiddleware = append(pipelineMiddleware, middleware.PromptAssemblyMiddleware(req.PromptRegistry, req.TaskType, baseVariables))
-
-	// 3. Context extraction populates Variables from scenario metadata + message analysis
-	pipelineMiddleware = append(pipelineMiddleware, arenamiddleware.ScenarioContextExtractionMiddleware(req.Scenario))
-
-	// 4. Template middleware uses Variables populated by context extraction
-	pipelineMiddleware = append(pipelineMiddleware, middleware.TemplateMiddleware())
-
-	// 5. Add context builder middleware if we have a context policy
+	// 5. Context builder middleware
 	if contextPolicy != nil {
 		pipelineMiddleware = append(pipelineMiddleware, middleware.ContextBuilderMiddleware(contextPolicy))
 	}
 
-	// 5a. Mock scenario context middleware (only for MockProvider and MockToolProvider)
-	// This adds scenario context to the execution context so mock providers can use scenario-specific responses
-	if _, isMockProvider := req.Provider.(*mock.MockProvider); isMockProvider {
-		logger.Debug("Adding MockScenarioContextMiddleware for MockProvider", "scenario_id", req.Scenario.ID)
-		pipelineMiddleware = append(pipelineMiddleware, arenamiddleware.MockScenarioContextMiddleware(req.Scenario))
-	} else if _, isMockToolProvider := req.Provider.(*mock.MockToolProvider); isMockToolProvider {
-		logger.Debug("Adding MockScenarioContextMiddleware for MockToolProvider", "scenario_id", req.Scenario.ID)
-		pipelineMiddleware = append(pipelineMiddleware, arenamiddleware.MockScenarioContextMiddleware(req.Scenario))
-	} else {
-		logger.Debug("Provider is not a mock provider, skipping MockScenarioContextMiddleware", "provider_type", fmt.Sprintf("%T", req.Provider))
+	// 5a. Mock scenario context middleware
+	e.addMockMiddleware(&pipelineMiddleware, req)
+
+	// 6. Provider middleware
+	e.addProviderMiddleware(&pipelineMiddleware, req)
+
+	// 7. Validator middleware
+	pipelineMiddleware = append(pipelineMiddleware, middleware.DynamicValidatorMiddlewareWithSuppression(validators.DefaultRegistry, true))
+
+	// 8. StateStore Save middleware
+	e.addStateStoreSaveMiddleware(&pipelineMiddleware, req)
+
+	// 9. Assertion middleware
+	e.addAssertionMiddleware(&pipelineMiddleware, req)
+
+	return pipelineMiddleware
+}
+
+// addStateStoreLoadMiddleware adds StateStore load middleware if configured
+func (e *PipelineExecutor) addStateStoreLoadMiddleware(middlewares *[]pipeline.Middleware, req TurnRequest) {
+	if req.StateStoreConfig == nil {
+		return
 	}
 
-	// 6. Provider middleware executes LLM and handles tool execution
+	storeConfig := &pipeline.StateStoreConfig{
+		Store:          req.StateStoreConfig.Store,
+		ConversationID: req.ConversationID,
+		UserID:         req.StateStoreConfig.UserID,
+		Metadata:       req.StateStoreConfig.Metadata,
+	}
+	*middlewares = append(*middlewares, middleware.StateStoreLoadMiddleware(storeConfig))
+}
+
+// addPromptMiddleware adds prompt assembly and template middleware
+func (e *PipelineExecutor) addPromptMiddleware(middlewares *[]pipeline.Middleware, req TurnRequest, baseVariables map[string]string) {
+	// 1. Variable injection
+	*middlewares = append(*middlewares, &variableInjectionMiddleware{variables: baseVariables})
+
+	// 2. Prompt assembly
+	*middlewares = append(*middlewares, middleware.PromptAssemblyMiddleware(req.PromptRegistry, req.TaskType, baseVariables))
+
+	// 3. Context extraction
+	*middlewares = append(*middlewares, arenamiddleware.ScenarioContextExtractionMiddleware(req.Scenario))
+
+	// 4. Template middleware
+	*middlewares = append(*middlewares, middleware.TemplateMiddleware())
+}
+
+// addMockMiddleware adds mock scenario context middleware for mock providers
+func (e *PipelineExecutor) addMockMiddleware(middlewares *[]pipeline.Middleware, req TurnRequest) {
+	if _, isMockProvider := req.Provider.(*mock.MockProvider); isMockProvider {
+		logger.Debug("Adding MockScenarioContextMiddleware for MockProvider", "scenario_id", req.Scenario.ID)
+		*middlewares = append(*middlewares, arenamiddleware.MockScenarioContextMiddleware(req.Scenario))
+		return
+	}
+
+	if _, isMockToolProvider := req.Provider.(*mock.MockToolProvider); isMockToolProvider {
+		logger.Debug("Adding MockScenarioContextMiddleware for MockToolProvider", "scenario_id", req.Scenario.ID)
+		*middlewares = append(*middlewares, arenamiddleware.MockScenarioContextMiddleware(req.Scenario))
+		return
+	}
+
+	logger.Debug("Provider is not a mock provider, skipping MockScenarioContextMiddleware", "provider_type", fmt.Sprintf("%T", req.Provider))
+}
+
+// addProviderMiddleware adds provider middleware with tool policy
+func (e *PipelineExecutor) addProviderMiddleware(middlewares *[]pipeline.Middleware, req TurnRequest) {
 	providerConfig := &middleware.ProviderMiddlewareConfig{
 		MaxTokens:   req.MaxTokens,
 		Temperature: float32(req.Temperature),
 		Seed:        req.Seed,
 	}
 
-	// Tool policy from scenario
-	var toolPolicy *pipeline.ToolPolicy
-	if req.Scenario != nil && req.Scenario.ToolPolicy != nil {
-		toolPolicy = &pipeline.ToolPolicy{
-			ToolChoice:          req.Scenario.ToolPolicy.ToolChoice,
-			MaxRounds:           0, // Not supported in config, using unlimited
-			MaxToolCallsPerTurn: req.Scenario.ToolPolicy.MaxToolCallsPerTurn,
-			Blocklist:           req.Scenario.ToolPolicy.Blocklist,
-		}
-	}
+	toolPolicy := e.buildToolPolicy(req)
 
-	pipelineMiddleware = append(pipelineMiddleware, middleware.ProviderMiddleware(
+	*middlewares = append(*middlewares, middleware.ProviderMiddleware(
 		req.Provider,
 		e.toolRegistry,
 		toolPolicy,
 		providerConfig,
 	))
+}
 
-	// 7. Dynamic validator middleware - validates response against prompt-level validators (guardrails)
-	// This runs after the provider creates the assistant message, validates it, and attaches results
-	// Arena uses suppression mode so validators record failures without halting, enabling guardrail assertions
-	pipelineMiddleware = append(pipelineMiddleware, middleware.DynamicValidatorMiddlewareWithSuppression(validators.DefaultRegistry, true))
-
-	// 8. StateStore Save middleware (if configured) - saves conversation state
-	// Listed before assertions so StateStore's next() is called first, but StateStore's save work
-	// happens AFTER assertions (since work after next() executes in reverse order)
-	var stateStoreSaveMiddleware pipeline.Middleware
-	if req.StateStoreConfig != nil && req.ConversationID != "" {
-		storeConfig := &pipeline.StateStoreConfig{
-			Store:          req.StateStoreConfig.Store,
-			ConversationID: req.ConversationID,
-			UserID:         req.StateStoreConfig.UserID,
-			Metadata:       req.StateStoreConfig.Metadata,
-		}
-		stateStoreSaveMiddleware = arenamiddleware.ArenaStateStoreSaveMiddleware(storeConfig)
-		pipelineMiddleware = append(pipelineMiddleware, stateStoreSaveMiddleware)
+// buildToolPolicy creates tool policy from scenario configuration
+func (e *PipelineExecutor) buildToolPolicy(req TurnRequest) *pipeline.ToolPolicy {
+	if req.Scenario == nil || req.Scenario.ToolPolicy == nil {
+		return nil
 	}
 
-	// 9. Assertion middleware - validates turn-level assertions from scenario config
-	// Listed after StateStore so assertions run first (after next() work executes in reverse order)
-	// This ensures assertions modify message Meta before StateStore saves
-	if len(req.Assertions) > 0 {
-		assertionRegistry := arenaassertions.NewArenaAssertionRegistry()
-		pipelineMiddleware = append(pipelineMiddleware, arenaassertions.ArenaAssertionMiddleware(assertionRegistry, req.Assertions))
+	return &pipeline.ToolPolicy{
+		ToolChoice:          req.Scenario.ToolPolicy.ToolChoice,
+		MaxRounds:           0, // Not supported in config, using unlimited
+		MaxToolCallsPerTurn: req.Scenario.ToolPolicy.MaxToolCallsPerTurn,
+		Blocklist:           req.Scenario.ToolPolicy.Blocklist,
+	}
+}
+
+// addStateStoreSaveMiddleware adds StateStore save middleware if configured
+func (e *PipelineExecutor) addStateStoreSaveMiddleware(middlewares *[]pipeline.Middleware, req TurnRequest) {
+	if req.StateStoreConfig == nil || req.ConversationID == "" {
+		return
 	}
 
-	p := pipeline.NewPipeline(pipelineMiddleware...)
+	storeConfig := &pipeline.StateStoreConfig{
+		Store:          req.StateStoreConfig.Store,
+		ConversationID: req.ConversationID,
+		UserID:         req.StateStoreConfig.UserID,
+		Metadata:       req.StateStoreConfig.Metadata,
+	}
+	*middlewares = append(*middlewares, arenamiddleware.ArenaStateStoreSaveMiddleware(storeConfig))
+}
 
-	// Log the call (StateStore manages history, we just log with message count 1)
-	logger.LLMCall(req.Provider.ID(), "assistant", 1, req.Temperature, "max_tokens", req.MaxTokens)
-
-	// Execute pipeline with the complete message (including Meta field with self-play metadata)
-	// This preserves all message fields through execution without needing middleware injection
-	_, err := p.ExecuteWithMessage(ctx, userMessage)
-	if err != nil {
-		// Check if this is a validation error
-		if valErr, ok := err.(*pipeline.ValidationError); ok {
-			// For now, we'll treat validation errors as fatal
-			// In the future, we might want to return partial results with validation info
-			logger.LLMError(req.Provider.ID(), "assistant", valErr)
-			return fmt.Errorf("validation failed: %w", valErr)
-		}
-
-		// Other errors are fatal
-		logger.LLMError(req.Provider.ID(), "assistant", err)
-		return fmt.Errorf("pipeline execution failed: %w", err)
+// addAssertionMiddleware adds assertion middleware if assertions are configured
+func (e *PipelineExecutor) addAssertionMiddleware(middlewares *[]pipeline.Middleware, req TurnRequest) {
+	if len(req.Assertions) == 0 {
+		return
 	}
 
-	// Log response (cost info is in StateStore, but not easily accessible here)
-	// For now, just log success
-	logger.Debug("Pipeline execution completed successfully")
+	assertionRegistry := arenaassertions.NewArenaAssertionRegistry()
+	*middlewares = append(*middlewares, arenaassertions.ArenaAssertionMiddleware(assertionRegistry, req.Assertions))
+}
 
-	// Messages are now in StateStore, no need to return them
-	return nil
+// handlePipelineError handles errors from pipeline execution
+func (e *PipelineExecutor) handlePipelineError(req TurnRequest, err error) error {
+	if valErr, ok := err.(*pipeline.ValidationError); ok {
+		logger.LLMError(req.Provider.ID(), "assistant", valErr)
+		return fmt.Errorf("validation failed: %w", valErr)
+	}
+
+	logger.LLMError(req.Provider.ID(), "assistant", err)
+	return fmt.Errorf("pipeline execution failed: %w", err)
 }

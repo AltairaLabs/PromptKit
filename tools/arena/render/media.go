@@ -105,9 +105,9 @@ func renderMessageWithMedia(msg types.Message) string {
 	// Render text content - use GetContent() to extract text from Parts if needed
 	textContent := msg.GetContent()
 	if textContent != "" {
-		// Render markdown for assistant messages, escape HTML for others
+		// Render markdown for assistant and system messages, escape HTML for others
 		var renderedContent string
-		if msg.Role == "assistant" {
+		if msg.Role == "assistant" || msg.Role == "system" {
 			renderedContent = string(renderMarkdown(textContent))
 		} else {
 			renderedContent = template.HTMLEscapeString(textContent)

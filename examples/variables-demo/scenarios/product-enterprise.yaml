@@ -1,0 +1,63 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: product-enterprise
+  labels:
+    category: product-support
+    tier: enterprise
+  annotations:
+    description: "Tests enterprise product support with fully customized variables"
+spec:
+  task_type: product-support-enterprise
+  description: |
+    This scenario demonstrates using the SAME prompt template but with
+    completely different variable values for an enterprise version.
+    
+    Variables for product-support-enterprise config:
+    - company_name: "TechStart Inc"
+    - product_name: "CloudSync Enterprise"
+    - support_email: "enterprise@techstart.com"
+    - support_hours: "24/7 with dedicated account manager"
+    - warranty_period: "3 years with SLA"
+    - return_window: "60 days"
+    - product_category: "enterprise cloud storage"
+
+  turns:
+    - role: user
+      content: "Tell me about your product and support offering"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "CloudSync Enterprise"
+              - "enterprise"
+            message: "Should mention Enterprise product variant"
+
+    - role: user
+      content: "When can I reach support?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "24/7"
+              - "account manager"
+            message: "Should mention premium support hours with account manager"
+
+    - role: user
+      content: "What's the warranty coverage?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "3 year"
+              - "SLA"
+            message: "Should mention enhanced warranty (3 years with SLA)"
+
+    - role: user
+      content: "How long do I have to return it?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "60"
+            message: "Should mention extended return window (60 days) instead of default"

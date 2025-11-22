@@ -8,8 +8,9 @@ import (
 
 // PromptConfigRef references a prompt builder configuration
 type PromptConfigRef struct {
-	ID   string `yaml:"id"`
-	File string `yaml:"file"`
+	ID   string            `yaml:"id"`
+	File string            `yaml:"file"`
+	Vars map[string]string `yaml:"vars,omitempty"`
 }
 
 // ArenaConfig represents the main Arena configuration in K8s-style manifest format
@@ -109,9 +110,10 @@ type RedisConfig struct {
 
 // PromptConfigData holds a loaded prompt configuration with its file path
 type PromptConfigData struct {
-	FilePath string      // relative to ConfigDir
-	Config   interface{} // parsed prompt configuration (*prompt.PromptConfig at runtime)
-	TaskType string      // extracted from Config.Spec.TaskType
+	FilePath string            // relative to ConfigDir
+	Config   interface{}       // parsed prompt configuration (*prompt.PromptConfig at runtime)
+	TaskType string            // extracted from Config.Spec.TaskType
+	Vars     map[string]string // Variable overrides from arena.yaml
 }
 
 // ToolData holds raw tool configuration data

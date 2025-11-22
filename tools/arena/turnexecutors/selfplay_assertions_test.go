@@ -114,15 +114,20 @@ func TestSelfPlayExecutor_WithAssertions_Pass(t *testing.T) {
 		t.Fatalf("Failed to get arena state: %v", err)
 	}
 
-	// Should have 2 messages: user (self-play generated) + assistant
-	if len(arenaState.Messages) < 2 {
-		t.Fatalf("Expected at least 2 messages (user + assistant), got %d", len(arenaState.Messages))
+	// Should have 3 messages: system + user (self-play generated) + assistant
+	if len(arenaState.Messages) < 3 {
+		t.Fatalf("Expected at least 3 messages (system + user + assistant), got %d", len(arenaState.Messages))
 	}
 
-	// Check that first message is the self-play generated user message
-	userMsg := arenaState.Messages[0]
+	// Check that first message is system
+	if arenaState.Messages[0].Role != "system" {
+		t.Fatalf("Expected first message to be system, got %s", arenaState.Messages[0].Role)
+	}
+
+	// Check that second message is the self-play generated user message
+	userMsg := arenaState.Messages[1]
 	if userMsg.Role != "user" {
-		t.Fatalf("Expected first message to be user, got %s", userMsg.Role)
+		t.Fatalf("Expected second message to be user, got %s", userMsg.Role)
 	}
 	if userMsg.Content != "Tell me about renewable energy solutions." {
 		t.Fatalf("Unexpected user message content: %s", userMsg.Content)
@@ -134,7 +139,7 @@ func TestSelfPlayExecutor_WithAssertions_Pass(t *testing.T) {
 	}
 
 	// Check assistant message has assertions
-	assistantMsg := arenaState.Messages[1]
+	assistantMsg := arenaState.Messages[2]
 	if assistantMsg.Role != "assistant" {
 		t.Fatalf("Expected second message to be assistant, got %s", assistantMsg.Role)
 	}
