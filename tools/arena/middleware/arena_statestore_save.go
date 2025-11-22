@@ -3,6 +3,7 @@ package middleware
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -78,6 +79,15 @@ func saveToArenaStateStore(
 	// This ensures the system prompt is visible in Arena results
 	if execCtx.SystemPrompt != "" {
 		textContent := execCtx.SystemPrompt
+
+		// Determine timestamp for system message
+		var timestamp time.Time
+		if len(execCtx.Messages) > 0 {
+			timestamp = execCtx.Messages[0].Timestamp
+		} else {
+			timestamp = time.Now()
+		}
+
 		systemMsg := types.Message{
 			Role:    "system",
 			Content: execCtx.SystemPrompt,
@@ -87,7 +97,7 @@ func saveToArenaStateStore(
 					Text: &textContent,
 				},
 			},
-			Timestamp: execCtx.Messages[0].Timestamp, // Use same timestamp as first user message
+			Timestamp: timestamp,
 		}
 
 		// Create messages array with system message first
