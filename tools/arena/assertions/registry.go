@@ -15,6 +15,11 @@ func NewArenaAssertionRegistry() *runtimeValidators.Registry {
 	registry.Register("content_matches", NewContentMatchesValidator)
 	registry.Register("guardrail_triggered", NewGuardrailTriggeredValidator)
 
+	// Register JSON validation assertions
+	registry.Register("is_valid_json", NewIsValidJSONValidator)
+	registry.Register("json_schema", NewJSONSchemaValidator)
+	registry.Register("json_path", NewJSONPathValidator)
+
 	// Register media assertion validators
 	registry.Register("image_format", NewImageFormatValidator)
 	registry.Register("image_dimensions", NewImageDimensionsValidator)

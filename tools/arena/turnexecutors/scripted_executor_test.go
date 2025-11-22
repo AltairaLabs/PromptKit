@@ -248,7 +248,7 @@ func TestScriptedExecutor_ExecuteTurn_EmptyScriptedContent(t *testing.T) {
 	state, loadErr := store.Load(context.Background(), req.ConversationID)
 	require.NoError(t, loadErr)
 	require.NotNil(t, state)
-	require.Len(t, state.Messages, 3)              // system + user + assistant
+	require.Len(t, state.Messages, 3) // system + user + assistant
 	assert.Equal(t, "system", state.Messages[0].Role)
 	assert.Equal(t, "", state.Messages[1].Content) // Empty scripted content
 	mockProvider.AssertExpectations(t)
