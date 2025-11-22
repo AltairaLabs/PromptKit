@@ -1,0 +1,81 @@
+name: Publish npm Packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 1.0.0 without the v prefix)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        package: [promptarena, packc]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+      
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+          else
+            VERSION="${{ inputs.version }}"
+          fi
+          # Strip leading 'v' if present
+          VERSION="${VERSION#v}"
+          # Validate semver format
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$'; then
+            echo "::error::Invalid version format: $VERSION"
+            exit 1
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Publishing version: $VERSION"
+      
+      - name: Update package.json version
+        working-directory: npm/${{ matrix.package }}
+        run: |
+          npm version ${{ steps.version.outputs.version }} --no-git-tag-version
+          echo "Updated package.json to version ${{ steps.version.outputs.version }}"
+      
+      - name: Verify package contents
+        working-directory: npm/${{ matrix.package }}
+        run: |
+          npm pack --dry-run
+      
+      - name: Publish to npm
+        working-directory: npm/${{ matrix.package }}
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      
+      - name: Create summary
+        run: |
+          echo "### ✅ Published @altairalabs/${{ matrix.package }}@${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Package:** \`@altairalabs/${{ matrix.package }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Registry:** https://www.npmjs.com/package/@altairalabs/${{ matrix.package }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Install:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "npm install -g @altairalabs/${{ matrix.package }}" >> $GITHUB_STEP_SUMMARY
+          echo "# or" >> $GITHUB_STEP_SUMMARY
+          echo "npx @altairalabs/${{ matrix.package }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

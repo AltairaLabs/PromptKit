@@ -1,0 +1,52 @@
+{
+  "name": "@altairalabs/packc",
+  "version": "0.0.1",
+  "description": "PromptKit Pack Compiler - Compile and validate prompt packs for LLM applications",
+  "bin": {
+    "packc": "./bin/packc.js"
+  },
+  "scripts": {
+    "postinstall": "node postinstall.js",
+    "test": "node bin/packc.js version"
+  },
+  "keywords": [
+    "llm",
+    "prompt",
+    "compiler",
+    "validation",
+    "ai",
+    "prompt-engineering",
+    "pack",
+    "openai",
+    "anthropic",
+    "gemini"
+  ],
+  "author": "Altaira Labs",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AltairaLabs/PromptKit.git",
+    "directory": "npm/packc"
+  },
+  "bugs": {
+    "url": "https://github.com/AltairaLabs/PromptKit/issues"
+  },
+  "homepage": "https://github.com/AltairaLabs/PromptKit#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "files": [
+    "bin/",
+    "postinstall.js",
+    "README.md"
+  ]
+}

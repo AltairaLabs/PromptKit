@@ -1,0 +1,54 @@
+{
+  "name": "@altairalabs/promptarena",
+  "version": "0.0.1",
+  "description": "PromptKit Arena - Multi-turn conversation simulation and testing tool for LLM applications",
+  "bin": {
+    "promptarena": "./bin/promptarena.js"
+  },
+  "scripts": {
+    "postinstall": "node postinstall.js",
+    "test": "node bin/promptarena.js --version"
+  },
+  "keywords": [
+    "llm",
+    "testing",
+    "prompt",
+    "ai",
+    "conversation",
+    "evaluation",
+    "chatbot",
+    "openai",
+    "anthropic",
+    "gemini",
+    "quality-assurance",
+    "test-automation"
+  ],
+  "author": "Altaira Labs",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AltairaLabs/PromptKit.git",
+    "directory": "npm/promptarena"
+  },
+  "bugs": {
+    "url": "https://github.com/AltairaLabs/PromptKit/issues"
+  },
+  "homepage": "https://github.com/AltairaLabs/PromptKit#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "files": [
+    "bin/",
+    "postinstall.js",
+    "README.md"
+  ]
+}
