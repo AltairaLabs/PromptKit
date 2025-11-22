@@ -1,6 +1,6 @@
 {
   "name": "@altairalabs/promptarena",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "PromptKit Arena - Multi-turn conversation simulation and testing tool for LLM applications",
   "bin": {
