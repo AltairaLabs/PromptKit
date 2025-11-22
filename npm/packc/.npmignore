@@ -1,0 +1,24 @@
+# Ignore downloaded binaries
+packc
+packc.exe
+
+# Ignore archive files
+*.tar.gz
+*.zip
+
+# Ignore node_modules if testing locally
+node_modules/
+
+# Ignore npm pack output
+*.tgz
+
+# Ignore test artifacts
+coverage/
+.nyc_output/
+
+# Ignore IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
