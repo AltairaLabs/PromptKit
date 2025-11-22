@@ -51,8 +51,15 @@ jobs:
       - name: Update package.json version
         working-directory: npm/${{ matrix.package }}
         run: |
-          npm version ${{ steps.version.outputs.version }} --no-git-tag-version
-          echo "Updated package.json to version ${{ steps.version.outputs.version }}"
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          TARGET_VERSION="${{ steps.version.outputs.version }}"
+          
+          if [ "$CURRENT_VERSION" = "$TARGET_VERSION" ]; then
+            echo "Package already at version $TARGET_VERSION"
+          else
+            npm version $TARGET_VERSION --no-git-tag-version
+            echo "Updated package.json from $CURRENT_VERSION to $TARGET_VERSION"
+          fi
       
       - name: Verify package contents
         working-directory: npm/${{ matrix.package }}
