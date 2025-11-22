@@ -682,3 +682,269 @@ func TestJSONValidation_Integration(t *testing.T) {
 		}
 	})
 }
+
+// TestHelperFunctions tests the helper comparison and conversion functions
+func TestHelperFunctions(t *testing.T) {
+	t.Run("toFloat64 conversions", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			input    interface{}
+			expected float64
+			ok       bool
+		}{
+			{"float64", float64(42.5), 42.5, true},
+			{"float32", float32(42.5), 42.5, true},
+			{"int", int(42), 42.0, true},
+			{"int8", int8(42), 42.0, true},
+			{"int16", int16(42), 42.0, true},
+			{"int32", int32(42), 42.0, true},
+			{"int64", int64(42), 42.0, true},
+			{"uint", uint(42), 42.0, true},
+			{"uint8", uint8(42), 42.0, true},
+			{"uint16", uint16(42), 42.0, true},
+			{"uint32", uint32(42), 42.0, true},
+			{"uint64", uint64(42), 42.0, true},
+			{"string", "not a number", 0, false},
+			{"bool", true, 0, false},
+			{"nil", nil, 0, false},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				result, ok := toFloat64(tt.input)
+				assert.Equal(t, tt.ok, ok, "Conversion success should match")
+				if ok {
+					assert.Equal(t, tt.expected, result, "Converted value should match")
+				}
+			})
+		}
+	})
+
+	t.Run("areNilsEqual", func(t *testing.T) {
+		assert.True(t, areNilsEqual(nil, nil), "Both nil should be equal")
+		assert.True(t, areNilsEqual("a", "b"), "Both non-nil should return true")
+		assert.False(t, areNilsEqual(nil, "a"), "One nil should return false")
+		assert.False(t, areNilsEqual("a", nil), "One nil should return false")
+	})
+
+	t.Run("areNumbersEqual", func(t *testing.T) {
+		assert.True(t, areNumbersEqual(42, 42.0), "Same numeric value")
+		assert.True(t, areNumbersEqual(int64(100), float64(100)), "Different numeric types")
+		assert.False(t, areNumbersEqual(42, 43), "Different values")
+		assert.False(t, areNumbersEqual("42", 42), "String vs number")
+	})
+
+	t.Run("areArraysEqual", func(t *testing.T) {
+		assert.True(t, areArraysEqual(
+			[]interface{}{1, 2, 3},
+			[]interface{}{1, 2, 3},
+		), "Same arrays")
+
+		assert.True(t, areArraysEqual(
+			[]interface{}{"a", "b"},
+			[]interface{}{"a", "b"},
+		), "String arrays")
+
+		assert.False(t, areArraysEqual(
+			[]interface{}{1, 2, 3},
+			[]interface{}{1, 2, 4},
+		), "Different values")
+
+		assert.False(t, areArraysEqual(
+			[]interface{}{1, 2},
+			[]interface{}{1, 2, 3},
+		), "Different lengths")
+
+		assert.False(t, areArraysEqual(
+			"not an array",
+			[]interface{}{1, 2},
+		), "Non-array input")
+
+		assert.False(t, areArraysEqual(
+			[]interface{}{1, 2},
+			"not an array",
+		), "Non-array input")
+	})
+
+	t.Run("areMapsEqual", func(t *testing.T) {
+		assert.True(t, areMapsEqual(
+			map[string]interface{}{"a": 1, "b": 2},
+			map[string]interface{}{"a": 1, "b": 2},
+		), "Same maps")
+
+		assert.True(t, areMapsEqual(
+			map[string]interface{}{"name": "John", "age": 30},
+			map[string]interface{}{"name": "John", "age": 30},
+		), "String and number values")
+
+		assert.False(t, areMapsEqual(
+			map[string]interface{}{"a": 1},
+			map[string]interface{}{"a": 2},
+		), "Different values")
+
+		assert.False(t, areMapsEqual(
+			map[string]interface{}{"a": 1},
+			map[string]interface{}{"a": 1, "b": 2},
+		), "Different sizes")
+
+		assert.False(t, areMapsEqual(
+			"not a map",
+			map[string]interface{}{"a": 1},
+		), "Non-map input")
+
+		assert.False(t, areMapsEqual(
+			map[string]interface{}{"a": 1},
+			"not a map",
+		), "Non-map input")
+
+		assert.False(t, areMapsEqual(
+			map[string]interface{}{"a": 1},
+			map[string]interface{}{"b": 1},
+		), "Different keys")
+	})
+
+	t.Run("truncateString", func(t *testing.T) {
+		assert.Equal(t, "hello", truncateString("hello", 10), "Short string unchanged")
+		assert.Equal(t, "hello", truncateString("hello", 5), "Exact length unchanged")
+		assert.Equal(t, "hel...", truncateString("hello world", 3), "Long string truncated")
+		assert.Equal(t, "", truncateString("", 10), "Empty string")
+	})
+}
+
+// TestJSONExtractionEdgeCases tests edge cases in JSON extraction
+func TestJSONExtractionEdgeCases(t *testing.T) {
+	t.Run("Nested objects and arrays", func(t *testing.T) {
+		content := `Here's some complex JSON: {"users": [{"name": "Alice", "tags": ["admin", "user"]}, {"name": "Bob"}]}`
+		params := map[string]interface{}{
+			"extract_json": true,
+		}
+
+		validator := NewIsValidJSONValidator(params)
+		result := validator.Validate(content, params)
+		assert.True(t, result.Passed, "Should extract and validate nested JSON")
+	})
+
+	t.Run("Multiple JSON objects - extracts first", func(t *testing.T) {
+		content := `First: {"a": 1} Second: {"b": 2}`
+		params := map[string]interface{}{
+			"extract_json": true,
+		}
+
+		validator := NewIsValidJSONValidator(params)
+		result := validator.Validate(content, params)
+		assert.True(t, result.Passed, "Should extract first valid JSON")
+	})
+
+	t.Run("Markdown with language tag", func(t *testing.T) {
+		content := "```json\n{\"status\": \"success\"}\n```"
+		params := map[string]interface{}{
+			"allow_wrapped": true,
+		}
+
+		validator := NewIsValidJSONValidator(params)
+		result := validator.Validate(content, params)
+		assert.True(t, result.Passed, "Should extract from code block")
+	})
+
+	t.Run("JSON with strings containing braces", func(t *testing.T) {
+		content := `{"message": "This {is} a {test}"}`
+		params := map[string]interface{}{}
+
+		validator := NewIsValidJSONValidator(params)
+		result := validator.Validate(content, params)
+		assert.True(t, result.Passed, "Should handle braces in strings")
+	})
+}
+
+// TestJSONSchemaEdgeCases tests edge cases in schema validation
+func TestJSONSchemaEdgeCases(t *testing.T) {
+	t.Run("Schema with oneOf", func(t *testing.T) {
+		content := `{"value": "string"}`
+		params := map[string]interface{}{
+			"schema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"value": map[string]interface{}{
+						"oneOf": []interface{}{
+							map[string]interface{}{"type": "string"},
+							map[string]interface{}{"type": "number"},
+						},
+					},
+				},
+			},
+		}
+
+		validator := NewJSONSchemaValidator(params)
+		result := validator.Validate(content, params)
+		assert.True(t, result.Passed, "Should validate oneOf schema")
+	})
+
+	t.Run("Schema validation error paths", func(t *testing.T) {
+		content := `{"age": "not a number"}`
+		params := map[string]interface{}{
+			"schema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"age": map[string]interface{}{"type": "number"},
+				},
+			},
+		}
+
+		validator := NewJSONSchemaValidator(params)
+		result := validator.Validate(content, params)
+		assert.False(t, result.Passed, "Should fail validation")
+		details := result.Details.(map[string]interface{})
+		assert.Contains(t, details, "errors", "Should have error details")
+	})
+}
+
+// TestJSONPathEdgeCases tests edge cases in JMESPath validation
+func TestJSONPathEdgeCases(t *testing.T) {
+	t.Run("Contains with non-array result", func(t *testing.T) {
+		content := `{"value": "test"}`
+		params := map[string]interface{}{
+			"expression": "value",
+			"contains":   []interface{}{"test"},
+		}
+
+		validator := NewJSONPathValidator(params)
+		result := validator.Validate(content, params)
+		assert.False(t, result.Passed, "Should fail - result not an array")
+	})
+
+	t.Run("Numeric constraints with non-numeric result", func(t *testing.T) {
+		content := `{"value": "string"}`
+		params := map[string]interface{}{
+			"expression": "value",
+			"min":        float64(0),
+		}
+
+		validator := NewJSONPathValidator(params)
+		result := validator.Validate(content, params)
+		assert.False(t, result.Passed, "Should fail - result not numeric")
+	})
+
+	t.Run("Array count with non-array result", func(t *testing.T) {
+		content := `{"value": "string"}`
+		params := map[string]interface{}{
+			"expression":  "value",
+			"min_results": 1,
+		}
+
+		validator := NewJSONPathValidator(params)
+		result := validator.Validate(content, params)
+		assert.False(t, result.Passed, "Should fail - result not an array")
+	})
+
+	t.Run("Contains with non-array contains param", func(t *testing.T) {
+		content := `{"items": [1, 2, 3]}`
+		params := map[string]interface{}{
+			"expression": "items",
+			"contains":   "not an array",
+		}
+
+		validator := NewJSONPathValidator(params)
+		result := validator.Validate(content, params)
+		assert.False(t, result.Passed, "Should fail - contains not an array")
+	})
+}
