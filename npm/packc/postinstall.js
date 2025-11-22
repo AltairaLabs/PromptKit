@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
-const https = require('https');
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
-const { execSync } = require('child_process');
-const { pipeline } = require('stream');
-const { promisify } = require('util');
+const https = require('node:https');
+const http = require('node:http');
+const fs = require('node:fs');
+const path = require('node:path');
+const { execSync } = require('node:child_process');
+const { pipeline } = require('node:stream');
+const { promisify } = require('node:util');
 
 const streamPipeline = promisify(pipeline);
 
@@ -131,7 +131,4 @@ async function install() {
   }
 }
 
-install().catch(err => {
-  console.error('Unexpected error:', err);
-  process.exit(1);
-});
+await install();
