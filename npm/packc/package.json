@@ -1,6 +1,7 @@
 {
   "name": "@altairalabs/packc",
   "version": "0.0.1",
+  "type": "module",
   "description": "PromptKit Pack Compiler - Compile and validate prompt packs for LLM applications",
   "bin": {
     "packc": "./bin/packc.js"

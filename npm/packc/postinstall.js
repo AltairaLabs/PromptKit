@@ -1,12 +1,18 @@
 #!/usr/bin/env node
 
-const https = require('node:https');
-const http = require('node:http');
-const fs = require('node:fs');
-const path = require('node:path');
-const { execSync } = require('node:child_process');
-const { pipeline } = require('node:stream');
-const { promisify } = require('node:util');
+import https from 'node:https';
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { execSync } from 'node:child_process';
+import { pipeline } from 'node:stream';
+import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const streamPipeline = promisify(pipeline);
 
