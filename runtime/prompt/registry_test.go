@@ -273,3 +273,247 @@ func TestRegistry_GetPromptInfo(t *testing.T) {
 		assert.Contains(t, err.Error(), "failed to get prompt info")
 	})
 }
+
+// Tests for refactored helper methods
+
+func TestRegistry_PrepareVariables(t *testing.T) {
+	reg := createTestRegistry()
+
+	tests := []struct {
+		name        string
+		config      *PromptConfig
+		vars        map[string]string
+		wantErr     bool
+		expectedLen int
+	}{
+		{
+			name: "valid required and optional vars",
+			config: &PromptConfig{
+				Spec: PromptSpec{
+					RequiredVars: []string{"var1", "var2"},
+					OptionalVars: map[string]string{
+						"opt1": "default1",
+						"opt2": "default2",
+					},
+				},
+			},
+			vars: map[string]string{
+				"var1": "value1",
+				"var2": "value2",
+			},
+			wantErr:     false,
+			expectedLen: 4, // 2 required + 2 optional
+		},
+		{
+			name: "override optional vars",
+			config: &PromptConfig{
+				Spec: PromptSpec{
+					RequiredVars: []string{"var1"},
+					OptionalVars: map[string]string{
+						"opt1": "default1",
+					},
+				},
+			},
+			vars: map[string]string{
+				"var1": "value1",
+				"opt1": "override1",
+			},
+			wantErr:     false,
+			expectedLen: 2, // 1 required + 1 optional (overridden)
+		},
+		{
+			name: "missing required var",
+			config: &PromptConfig{
+				Spec: PromptSpec{
+					RequiredVars: []string{"var1", "var2"},
+					OptionalVars: map[string]string{},
+				},
+			},
+			vars: map[string]string{
+				"var1": "value1",
+				// var2 missing
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := reg.prepareVariables(tt.config, tt.vars, "test-activity")
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+
+			assert.NoError(t, err)
+			assert.Len(t, result, tt.expectedLen)
+		})
+	}
+}
+
+func TestRegistry_ApplyModelOverrides(t *testing.T) {
+	reg := createTestRegistry()
+
+	tests := []struct {
+		name           string
+		config         *PromptConfig
+		model          string
+		expectedResult string
+	}{
+		{
+			name: "no model specified",
+			config: &PromptConfig{
+				Spec: PromptSpec{
+					SystemTemplate: "base template",
+				},
+			},
+			model:          "",
+			expectedResult: "base template",
+		},
+		{
+			name: "model with template override",
+			config: &PromptConfig{
+				Spec: PromptSpec{
+					SystemTemplate: "base template",
+					ModelOverrides: map[string]ModelOverride{
+						"gpt-4": {
+							SystemTemplate: "gpt-4 template",
+						},
+					},
+				},
+			},
+			model:          "gpt-4",
+			expectedResult: "gpt-4 template",
+		},
+		{
+			name: "model with suffix override",
+			config: &PromptConfig{
+				Spec: PromptSpec{
+					SystemTemplate: "base template",
+					ModelOverrides: map[string]ModelOverride{
+						"gpt-4": {
+							SystemTemplateSuffix: " additional instructions",
+						},
+					},
+				},
+			},
+			model:          "gpt-4",
+			expectedResult: "base template additional instructions",
+		},
+		{
+			name: "model with both template and suffix",
+			config: &PromptConfig{
+				Spec: PromptSpec{
+					SystemTemplate: "base template",
+					ModelOverrides: map[string]ModelOverride{
+						"gpt-4": {
+							SystemTemplate:       "gpt-4 template",
+							SystemTemplateSuffix: " with suffix",
+						},
+					},
+				},
+			},
+			model:          "gpt-4",
+			expectedResult: "gpt-4 template with suffix",
+		},
+		{
+			name: "model without override uses base",
+			config: &PromptConfig{
+				Spec: PromptSpec{
+					SystemTemplate: "base template",
+					ModelOverrides: map[string]ModelOverride{
+						"gpt-4": {
+							SystemTemplate: "gpt-4 template",
+						},
+					},
+				},
+			},
+			model:          "claude-3",
+			expectedResult: "base template",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := reg.applyModelOverrides(tt.config, tt.model)
+			assert.Equal(t, tt.expectedResult, result)
+		})
+	}
+}
+
+func TestRegistry_MergeVars(t *testing.T) {
+	reg := createTestRegistry()
+
+	tests := []struct {
+		name     string
+		config   *PromptConfig
+		vars     map[string]string
+		expected map[string]string
+	}{
+		{
+			name: "no optional vars",
+			config: &PromptConfig{
+				Spec: PromptSpec{
+					OptionalVars: map[string]string{},
+				},
+			},
+			vars: map[string]string{
+				"var1": "value1",
+			},
+			expected: map[string]string{
+				"var1": "value1",
+			},
+		},
+		{
+			name: "optional vars with no overrides",
+			config: &PromptConfig{
+				Spec: PromptSpec{
+					OptionalVars: map[string]string{
+						"opt1": "default1",
+						"opt2": "default2",
+					},
+				},
+			},
+			vars: map[string]string{
+				"var1": "value1",
+			},
+			expected: map[string]string{
+				"opt1": "default1",
+				"opt2": "default2",
+				"var1": "value1",
+			},
+		},
+		{
+			name: "override optional vars",
+			config: &PromptConfig{
+				Spec: PromptSpec{
+					OptionalVars: map[string]string{
+						"opt1": "default1",
+						"opt2": "default2",
+					},
+				},
+			},
+			vars: map[string]string{
+				"opt1": "override1", // Override default
+				"var1": "value1",
+			},
+			expected: map[string]string{
+				"opt1": "override1",
+				"opt2": "default2",
+				"var1": "value1",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := reg.mergeVars(tt.config, tt.vars)
+
+			assert.Len(t, result, len(tt.expected))
+			for key, expectedVal := range tt.expected {
+				assert.Equal(t, expectedVal, result[key], "Variable %s mismatch", key)
+			}
+		})
+	}
+}

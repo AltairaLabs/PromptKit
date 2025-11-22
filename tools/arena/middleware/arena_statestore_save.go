@@ -74,10 +74,31 @@ func saveToArenaStateStore(
 		}
 	}
 
-	// Update state with all messages from execution
-	// Copy messages to preserve immutability
-	state.Messages = make([]types.Message, len(execCtx.Messages))
-	copy(state.Messages, execCtx.Messages)
+	// Prepend system prompt as the first message if present
+	// This ensures the system prompt is visible in Arena results
+	if execCtx.SystemPrompt != "" {
+		textContent := execCtx.SystemPrompt
+		systemMsg := types.Message{
+			Role:    "system",
+			Content: execCtx.SystemPrompt,
+			Parts: []types.ContentPart{
+				{
+					Type: "text",
+					Text: &textContent,
+				},
+			},
+			Timestamp: execCtx.Messages[0].Timestamp, // Use same timestamp as first user message
+		}
+
+		// Create messages array with system message first
+		state.Messages = make([]types.Message, 0, len(execCtx.Messages)+1)
+		state.Messages = append(state.Messages, systemMsg)
+		state.Messages = append(state.Messages, execCtx.Messages...)
+	} else {
+		// No system prompt, just copy messages
+		state.Messages = make([]types.Message, len(execCtx.Messages))
+		copy(state.Messages, execCtx.Messages)
+	}
 
 	// Copy execution metadata (overwrites state metadata)
 	for k, v := range execCtx.Metadata {
@@ -88,6 +109,11 @@ func saveToArenaStateStore(
 	if execCtx.CostInfo.TotalCost > 0 {
 		state.Metadata["total_cost_usd"] = execCtx.CostInfo.TotalCost
 		state.Metadata["total_tokens"] = execCtx.CostInfo.InputTokens + execCtx.CostInfo.OutputTokens
+	}
+
+	// Store system prompt in metadata for Arena results (for backwards compatibility)
+	if execCtx.SystemPrompt != "" {
+		state.Metadata["system_prompt"] = execCtx.SystemPrompt
 	}
 
 	// Save state with trace (Arena-specific method)

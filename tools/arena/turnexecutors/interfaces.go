@@ -72,6 +72,7 @@ type TurnRequest struct {
 	PromptRegistry *prompt.Registry
 	TaskType       string
 	Region         string
+	PromptVars     map[string]string // Variable overrides from arena.yaml prompt_configs[].vars
 
 	// Base directory for resolving relative file paths in media content
 	BaseDir string

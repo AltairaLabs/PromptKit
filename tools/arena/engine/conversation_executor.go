@@ -160,12 +160,24 @@ func (ce *DefaultConversationExecutor) buildTurnRequest(req ConversationRequest,
 		maxTokens = 0
 	}
 
+	// Look up variable overrides from arena.yaml for this scenario's task_type
+	var promptVars map[string]string
+	if req.Config != nil && req.Scenario != nil {
+		for _, promptConfigData := range req.Config.LoadedPromptConfigs {
+			if promptConfigData.TaskType == req.Scenario.TaskType {
+				promptVars = promptConfigData.Vars
+				break
+			}
+		}
+	}
+
 	return turnexecutors.TurnRequest{
 		Provider:         req.Provider,
 		Scenario:         req.Scenario,
 		PromptRegistry:   ce.promptRegistry,
 		TaskType:         req.Scenario.TaskType,
 		Region:           req.Region,
+		PromptVars:       promptVars,
 		BaseDir:          baseDir,
 		Temperature:      temperature,
 		MaxTokens:        maxTokens,

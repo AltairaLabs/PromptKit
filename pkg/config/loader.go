@@ -152,11 +152,12 @@ func (c *Config) loadPromptConfigs(configPath string) error {
 			return fmt.Errorf("failed to parse prompt %s: %w", ref.File, err)
 		}
 
-		// Store parsed config with metadata
+		// Store parsed config with metadata and variable overrides from arena.yaml
 		c.LoadedPromptConfigs[ref.ID] = &PromptConfigData{
 			FilePath: ref.File,
 			Config:   promptConfig,
 			TaskType: promptConfig.Spec.TaskType,
+			Vars:     ref.Vars, // Store variable overrides from arena.yaml
 		}
 	}
 	return nil

@@ -86,3 +86,111 @@ func TestBuildBaseVariables(t *testing.T) {
 		})
 	}
 }
+
+// TestPipelineExecutor_BuildBaseVariables tests the buildBaseVariables method with PromptVars
+func TestPipelineExecutor_BuildBaseVariables(t *testing.T) {
+	executor := NewPipelineExecutor(nil)
+
+	tests := []struct {
+		name         string
+		req          TurnRequest
+		expectedVars map[string]string
+	}{
+		{
+			name: "prompt vars only",
+			req: TurnRequest{
+				PromptVars: map[string]string{
+					"restaurant_name": "Sushi Haven",
+					"cuisine_type":    "Japanese",
+				},
+				Region: "",
+			},
+			expectedVars: map[string]string{
+				"restaurant_name": "Sushi Haven",
+				"cuisine_type":    "Japanese",
+			},
+		},
+		{
+			name: "region only",
+			req: TurnRequest{
+				PromptVars: nil,
+				Region:     "us",
+			},
+			expectedVars: map[string]string{
+				"region": "us",
+			},
+		},
+		{
+			name: "prompt vars and region - both included",
+			req: TurnRequest{
+				PromptVars: map[string]string{
+					"restaurant_name": "Sushi Haven",
+					"cuisine_type":    "Japanese",
+				},
+				Region: "us",
+			},
+			expectedVars: map[string]string{
+				"restaurant_name": "Sushi Haven",
+				"cuisine_type":    "Japanese",
+				"region":          "us",
+			},
+		},
+		{
+			name: "prompt vars override region",
+			req: TurnRequest{
+				PromptVars: map[string]string{
+					"restaurant_name": "Sushi Haven",
+					"region":          "uk", // Override region
+				},
+				Region: "us", // Should not be used
+			},
+			expectedVars: map[string]string{
+				"restaurant_name": "Sushi Haven",
+				"region":          "uk", // PromptVars takes precedence
+			},
+		},
+		{
+			name: "empty request",
+			req: TurnRequest{
+				PromptVars: nil,
+				Region:     "",
+			},
+			expectedVars: map[string]string{},
+		},
+		{
+			name: "complex vars with special characters",
+			req: TurnRequest{
+				PromptVars: map[string]string{
+					"restaurant_name": "Sushi Haven",
+					"business_hours":  "12 PM - 11 PM, closed Mondays",
+					"special_offer":   "10% off for seniors & students!",
+				},
+				Region: "us",
+			},
+			expectedVars: map[string]string{
+				"restaurant_name": "Sushi Haven",
+				"business_hours":  "12 PM - 11 PM, closed Mondays",
+				"special_offer":   "10% off for seniors & students!",
+				"region":          "us",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := executor.buildBaseVariables(tt.req)
+
+			if len(result) != len(tt.expectedVars) {
+				t.Errorf("Expected %d variables, got %d", len(tt.expectedVars), len(result))
+			}
+
+			for key, expectedVal := range tt.expectedVars {
+				if actualVal, ok := result[key]; !ok {
+					t.Errorf("Missing variable %s", key)
+				} else if actualVal != expectedVal {
+					t.Errorf("Variable %s: expected %q, got %q", key, expectedVal, actualVal)
+				}
+			}
+		})
+	}
+}

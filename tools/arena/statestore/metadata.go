@@ -58,6 +58,19 @@ func (s *ArenaStateStore) GetResult(ctx context.Context, runID string) (*RunResu
 	// Collect media outputs from messages
 	mediaOutputs := s.collectMediaOutputs(arenaState)
 
+	// Build Params map from RunMetadata.Params and inject system_prompt from state.Metadata
+	params := make(map[string]interface{})
+	if arenaState.RunMetadata.Params != nil {
+		for k, v := range arenaState.RunMetadata.Params {
+			params[k] = v
+		}
+	}
+
+	// Add system_prompt from conversation metadata if present
+	if systemPrompt, ok := arenaState.Metadata["system_prompt"]; ok {
+		params["system_prompt"] = systemPrompt
+	}
+
 	// Reconstruct RunResult
 	result := &RunResult{
 		RunID:      arenaState.RunMetadata.RunID,
@@ -65,7 +78,7 @@ func (s *ArenaStateStore) GetResult(ctx context.Context, runID string) (*RunResu
 		Region:     arenaState.RunMetadata.Region,
 		ScenarioID: arenaState.RunMetadata.ScenarioID,
 		ProviderID: arenaState.RunMetadata.ProviderID,
-		Params:     arenaState.RunMetadata.Params,
+		Params:     params,
 		Messages:   arenaState.Messages,
 		Commit:     arenaState.RunMetadata.Commit,
 		Cost:       totalCost,

@@ -1,0 +1,30 @@
+# Mock Provider Configuration
+# This defines response patterns for testing without calling real LLM APIs
+
+scenarios:
+  restaurant-default:
+    turns:
+      1: "Hello! Welcome to TastyBites, your favorite Italian restaurant! We serve authentic Italian cuisine with fresh ingredients. We're open from 11 AM to 10 PM daily. How can I help you today?"
+      2: "We're open daily from 11 AM to 10 PM. Feel free to stop by anytime during those hours!"
+      3: "Our dress code is smart casual. We want you to feel comfortable while maintaining a refined atmosphere."
+
+  restaurant-custom:
+    turns:
+      1: "Welcome to Sushi Haven! We specialize in authentic Japanese cuisine with the freshest fish. We're open from 12 PM to 11 PM, but please note we're closed on Mondays. What can I help you with?"
+      2: "We're open from 12 PM to 11 PM every day except Mondays, when we're closed for staff training. We look forward to seeing you!"
+      3: "Our dress code is casual. Come as you are and enjoy our Japanese cuisine in a relaxed atmosphere!"
+      4: "For reservations, please call us at (555) 123-4567. We'd be happy to book a table for you!"
+
+  product-support:
+    turns:
+      1: "Hello! I'm a product expert from TechStart Inc, and I specialize in CloudSync Pro, our cloud storage solution. How can I assist you today?"
+      2: "Our support team is available Monday through Friday, 9 AM to 5 PM EST. Feel free to reach out during those hours!"
+      3: "CloudSync Pro comes with a comprehensive 2 year warranty covering all hardware and software defects."
+      4: "We have a 30 day return policy. If you're not satisfied within the first 30 days, we'll process a full refund."
+
+  product-enterprise:
+    turns:
+      1: "Welcome! I'm here to help you with CloudSync Enterprise, TechStart Inc's premium enterprise cloud storage solution. What would you like to know?"
+      2: "As an enterprise customer, you have 24/7 support access with a dedicated account manager who can assist you at any time."
+      3: "CloudSync Enterprise includes a 3 year warranty with SLA guarantees, ensuring maximum uptime and priority support."
+      4: "Enterprise customers enjoy an extended 60 day return window, giving you plenty of time to evaluate the solution."

@@ -1,0 +1,62 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: product-support
+  labels:
+    category: product-support
+    tier: standard
+  annotations:
+    description: "Tests product support bot with required variables"
+spec:
+  task_type: product-support
+  description: |
+    This scenario tests the product expert bot with REQUIRED variables.
+    Required variables provided in arena.yaml:
+    - company_name: "TechStart Inc"
+    - product_name: "CloudSync Pro"
+    - support_email: "support@techstart.com"
+    
+    Optional overrides:
+    - support_hours: "9 AM - 5 PM EST, Monday-Friday"
+    - warranty_period: "2 years"
+    - product_category: "cloud storage"
+
+  turns:
+    - role: user
+      content: "What product are you supporting and what company are you from?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "TechStart"
+              - "CloudSync Pro"
+            message: "Should mention required variables: company (TechStart Inc) and product (CloudSync Pro)"
+
+    - role: user
+      content: "What are your support hours?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "9 AM"
+              - "5 PM"
+              - "EST"
+            message: "Should mention custom support hours (9 AM - 5 PM EST)"
+
+    - role: user
+      content: "How long is the warranty?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "2 year"
+            message: "Should mention custom warranty period (2 years)"
+
+    - role: user
+      content: "What's the return policy?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "30"
+            message: "Should mention DEFAULT return window (30 days) - not overridden"
