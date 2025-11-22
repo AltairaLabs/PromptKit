@@ -11,9 +11,11 @@ on:
       - '.github/workflows/docs.yml'
       - '.github/workflows/release.yml'
       - '.github/workflows/release-test.yml'
+      - '.github/workflows/npm-publish.yml'
       - '.github/CODEOWNERS'
       - 'scripts/setup-branch-protection.sh'
       - '.goreleaser.yml'
+      - 'npm/**'
   pull_request:
     branches: [ main ]
     paths-ignore:
@@ -24,9 +26,11 @@ on:
       - '.github/workflows/docs.yml'
       - '.github/workflows/release.yml'
       - '.github/workflows/release-test.yml'
+      - '.github/workflows/npm-publish.yml'
       - '.github/CODEOWNERS'
       - 'scripts/setup-branch-protection.sh'
       - '.goreleaser.yml'
+      - 'npm/**'
 
 permissions:
   contents: read
