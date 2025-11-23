@@ -380,6 +380,22 @@ func (r *MarkdownResultRepository) messageHasFailedAssertions(msg *types.Message
 
 // hasFailedAssertionInMap checks if any assertion in the map failed
 func (r *MarkdownResultRepository) hasFailedAssertionInMap(assertionMap map[string]interface{}) bool {
+	// Check top-level "passed" field (new format)
+	if passed, ok := assertionMap["passed"].(bool); ok {
+		return !passed
+	}
+
+	// Check "results" array (new format)
+	if results, ok := assertionMap["results"].([]interface{}); ok {
+		for _, assertion := range results {
+			if r.isFailedAssertion(assertion) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Legacy format
 	for _, assertion := range assertionMap {
 		if r.isFailedAssertion(assertion) {
 			return true
@@ -655,28 +671,56 @@ func (r *MarkdownResultRepository) collectAssertionFailures(result *engine.RunRe
 
 // extractMessageAssertionFailures extracts failures from a single message
 func (r *MarkdownResultRepository) extractMessageAssertionFailures(msg *types.Message) []assertionFailure {
-	var failures []assertionFailure
-
 	if msg.Meta == nil {
-		return failures
+		return nil
 	}
 
 	assertions, ok := msg.Meta["assertions"]
 	if !ok {
-		return failures
+		return nil
 	}
 
 	assertionMap, ok := assertions.(map[string]interface{})
 	if !ok {
-		return failures
+		return nil
 	}
 
+	// Check new format with "results" array
+	if results, ok := assertionMap["results"].([]interface{}); ok {
+		return r.extractFailuresFromResults(results)
+	}
+
+	// Legacy format
+	return r.extractFailuresFromLegacyMap(assertionMap)
+}
+
+// extractFailuresFromResults extracts failures from new results array format
+func (r *MarkdownResultRepository) extractFailuresFromResults(results []interface{}) []assertionFailure {
+	var failures []assertionFailure
+	for i, assertion := range results {
+		assertionData, ok := assertion.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		assertionType, _ := assertionData["type"].(string)
+		if assertionType == "" {
+			assertionType = fmt.Sprintf("assertion_%d", i)
+		}
+		if failure := r.extractSingleAssertionFailure(assertionType, assertion); failure != nil {
+			failures = append(failures, *failure)
+		}
+	}
+	return failures
+}
+
+// extractFailuresFromLegacyMap extracts failures from legacy assertion map format
+func (r *MarkdownResultRepository) extractFailuresFromLegacyMap(assertionMap map[string]interface{}) []assertionFailure {
+	var failures []assertionFailure
 	for assertionType, assertion := range assertionMap {
 		if failure := r.extractSingleAssertionFailure(assertionType, assertion); failure != nil {
 			failures = append(failures, *failure)
 		}
 	}
-
 	return failures
 }
 

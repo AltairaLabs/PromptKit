@@ -248,8 +248,20 @@ func TestArenaAssertionMiddleware_MultipleAssertions(t *testing.T) {
 		t.Fatal("Expected assertions map in meta")
 	}
 
-	if len(assertionResults) != 2 {
-		t.Fatalf("Expected 2 assertion results, got %d", len(assertionResults))
+	// Check the results array
+	resultsArray, ok := assertionResults["results"].([]interface{})
+	if !ok {
+		t.Fatal("Expected results array in assertions")
+	}
+
+	if len(resultsArray) != 2 {
+		t.Fatalf("Expected 2 assertion results, got %d", len(resultsArray))
+	}
+
+	// Verify both passed
+	passed, ok := assertionResults["passed"].(bool)
+	if !ok || !passed {
+		t.Fatal("Expected all assertions to pass")
 	}
 }
 

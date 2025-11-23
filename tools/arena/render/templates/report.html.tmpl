@@ -1190,6 +1190,35 @@
                                     {{if $hasAssertions}}
                                     <div class="validations-section" id="assertions-{{$result.RunID}}-{{$msgIdx}}">
                                         <div class="validations-header">Assertions</div>
+                                        {{if hasAssertionResults $assertions}}
+                                        {{/* New format: iterate over results array */}}
+                                        {{range $assertion := getAssertionResults $assertions}}
+                                        <div class="validation-item {{if getOK $assertion}}passed{{else}}failed{{end}}">
+                                            <div class="validation-header">
+                                                <div class="validation-type">{{getAssertionType $assertion}}</div>
+                                                <div class="validation-status {{if getOK $assertion}}passed{{else}}failed{{end}}">
+                                                    <span class="validation-icon">{{if getOK $assertion}}✓{{else}}✗{{end}}</span>
+                                                    {{if getOK $assertion}}Passed{{else}}Failed{{end}}
+                                                </div>
+                                            </div>
+                                            {{$message := getMessage $assertion}}
+                                            {{if $message}}
+                                            <div class="validation-message">
+                                                <div class="validation-message-icon">ℹ️</div>
+                                                <div class="validation-message-text">{{$message}}</div>
+                                            </div>
+                                            {{end}}
+                                            {{$details := getDetails $assertion}}
+                                            {{if $details}}
+                                            <div class="validation-details">
+                                                <div class="validation-details-label">Details</div>
+                                                <div class="validation-details-content">{{prettyJSON $details}}</div>
+                                            </div>
+                                            {{end}}
+                                        </div>
+                                        {{end}}
+                                        {{else}}
+                                        {{/* Legacy format: iterate over map */}}
                                         {{range $name, $assertion := $assertions}}
                                         <div class="validation-item {{if getOK $assertion}}passed{{else}}failed{{end}}">
                                             <div class="validation-header">
@@ -1214,6 +1243,7 @@
                                             </div>
                                             {{end}}
                                         </div>
+                                        {{end}}
                                         {{end}}
                                     </div>
                                     {{end}}

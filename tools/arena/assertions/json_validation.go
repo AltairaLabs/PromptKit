@@ -242,20 +242,24 @@ func (v *JSONSchemaValidator) Validate(
 
 // JSONPathValidator validates JSON using JMESPath expressions
 type JSONPathValidator struct {
-	expression   string
-	expected     interface{}
-	contains     interface{}
-	minResults   int
-	maxResults   int
-	min          *float64
-	max          *float64
-	allowWrapped bool
-	extractJSON  bool
+	jmespathExpression string
+	expected           interface{}
+	contains           interface{}
+	minResults         int
+	maxResults         int
+	min                *float64
+	max                *float64
+	allowWrapped       bool
+	extractJSON        bool
 }
 
 // NewJSONPathValidator creates a new json_path validator
 func NewJSONPathValidator(params map[string]interface{}) runtimeValidators.Validator {
-	expression, _ := params["expression"].(string)
+	// Support both jmespath_expression (new) and expression (deprecated) for backward compatibility
+	jmespathExpression, _ := params["jmespath_expression"].(string)
+	if jmespathExpression == "" {
+		jmespathExpression, _ = params["expression"].(string)
+	}
 	expected := params["expected"]
 	contains := params["contains"]
 	minResults, _ := params["min_results"].(int)
@@ -272,15 +276,15 @@ func NewJSONPathValidator(params map[string]interface{}) runtimeValidators.Valid
 	}
 
 	return &JSONPathValidator{
-		expression:   expression,
-		expected:     expected,
-		contains:     contains,
-		minResults:   minResults,
-		maxResults:   maxResults,
-		min:          minVal,
-		max:          maxVal,
-		allowWrapped: allowWrapped,
-		extractJSON:  extractJSON,
+		jmespathExpression: jmespathExpression,
+		expected:           expected,
+		contains:           contains,
+		minResults:         minResults,
+		maxResults:         maxResults,
+		min:                minVal,
+		max:                maxVal,
+		allowWrapped:       allowWrapped,
+		extractJSON:        extractJSON,
 	}
 }
 
@@ -318,13 +322,13 @@ func (v *JSONPathValidator) Validate(content string, params map[string]interface
 	}
 
 	// Execute JMESPath expression
-	result, err := jmespath.Search(v.expression, data)
+	result, err := jmespath.Search(v.jmespathExpression, data)
 	if err != nil {
 		return runtimeValidators.ValidationResult{
 			Passed: false,
 			Details: map[string]interface{}{
-				"error":      fmt.Sprintf("JMESPath error: %v", err),
-				"expression": v.expression,
+				"error":               fmt.Sprintf("JMESPath error: %v", err),
+				"jmespath_expression": v.jmespathExpression,
 			},
 		}
 	}

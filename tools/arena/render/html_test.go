@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -2089,7 +2090,7 @@ func TestGetAssertions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := getAssertions(tt.meta)
-			hasAssertions := len(result) > 0
+			hasAssertions := result != nil
 			if hasAssertions != tt.expected {
 				t.Errorf("getAssertions() has assertions = %v, want %v", hasAssertions, tt.expected)
 			}
@@ -2492,6 +2493,170 @@ func TestRenderMarkdown(t *testing.T) {
 			resultStr := string(result)
 			if !strings.Contains(resultStr, tt.contains) {
 				t.Errorf("renderMarkdown(%s) = %s, want to contain %s", tt.input, resultStr, tt.contains)
+			}
+		})
+	}
+}
+
+func TestHasAssertionResults(t *testing.T) {
+	tests := []struct {
+		name       string
+		assertions map[string]interface{}
+		want       bool
+	}{
+		{
+			name:       "nil assertions",
+			assertions: nil,
+			want:       false,
+		},
+		{
+			name:       "empty assertions",
+			assertions: map[string]interface{}{},
+			want:       false,
+		},
+		{
+			name: "assertions with empty results array",
+			assertions: map[string]interface{}{
+				"results": []interface{}{},
+			},
+			want: false,
+		},
+		{
+			name: "assertions with results array",
+			assertions: map[string]interface{}{
+				"results": []interface{}{
+					map[string]interface{}{"type": "is_valid_json", "passed": true},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "assertions without results field",
+			assertions: map[string]interface{}{
+				"passed": true,
+				"total":  1,
+			},
+			want: false,
+		},
+		{
+			name: "assertions with non-array results",
+			assertions: map[string]interface{}{
+				"results": "not an array",
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := hasAssertionResults(tt.assertions)
+			if got != tt.want {
+				t.Errorf("hasAssertionResults() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetAssertionResults(t *testing.T) {
+	tests := []struct {
+		name       string
+		assertions map[string]interface{}
+		want       []interface{}
+	}{
+		{
+			name:       "nil assertions",
+			assertions: nil,
+			want:       nil,
+		},
+		{
+			name:       "empty assertions",
+			assertions: map[string]interface{}{},
+			want:       nil,
+		},
+		{
+			name: "assertions with results array",
+			assertions: map[string]interface{}{
+				"results": []interface{}{
+					map[string]interface{}{"type": "is_valid_json", "passed": true},
+					map[string]interface{}{"type": "json_schema", "passed": true},
+				},
+			},
+			want: []interface{}{
+				map[string]interface{}{"type": "is_valid_json", "passed": true},
+				map[string]interface{}{"type": "json_schema", "passed": true},
+			},
+		},
+		{
+			name: "assertions without results field",
+			assertions: map[string]interface{}{
+				"passed": true,
+			},
+			want: nil,
+		},
+		{
+			name: "assertions with non-array results",
+			assertions: map[string]interface{}{
+				"results": "not an array",
+			},
+			want: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := getAssertionResults(tt.assertions)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("getAssertionResults() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetAssertionType(t *testing.T) {
+	tests := []struct {
+		name      string
+		assertion interface{}
+		want      string
+	}{
+		{
+			name:      "nil assertion",
+			assertion: nil,
+			want:      "",
+		},
+		{
+			name: "assertion with type field",
+			assertion: map[string]interface{}{
+				"type":   "is_valid_json",
+				"passed": true,
+			},
+			want: "is_valid_json",
+		},
+		{
+			name: "assertion without type field",
+			assertion: map[string]interface{}{
+				"passed": true,
+			},
+			want: "",
+		},
+		{
+			name: "assertion with non-string type",
+			assertion: map[string]interface{}{
+				"type": 123,
+			},
+			want: "",
+		},
+		{
+			name:      "non-map assertion",
+			assertion: "not a map",
+			want:      "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := getAssertionType(tt.assertion)
+			if got != tt.want {
+				t.Errorf("getAssertionType() = %v, want %v", got, tt.want)
 			}
 		})
 	}

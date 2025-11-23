@@ -35,17 +35,17 @@ spec:
             allow_wrapped: true
             extract_json: true
 
-        # Validate specific field values using JSONPath
+        # Validate specific field values using JMESPath
         - type: json_path
           params:
-            expression: "name"
+            jmespath_expression: "name"
             expected: "Alice Smith"
             allow_wrapped: true
             extract_json: true
 
         - type: json_path
           params:
-            expression: "age"
+            jmespath_expression: "age"
             expected: 28
             allow_wrapped: true
             extract_json: true
@@ -83,10 +83,10 @@ spec:
             allow_wrapped: true
             extract_json: true
 
-        # Validate array length using JSONPath
+        # Validate array length using JMESPath
         - type: json_path
           params:
-            expression: "length([*])"
+            jmespath_expression: "length([*])"
             min: 3
             allow_wrapped: true
             extract_json: true
@@ -94,7 +94,7 @@ spec:
         # Validate all products have positive prices
         - type: json_path
           params:
-            expression: "length([?price > `0`])"
+            jmespath_expression: "length([?price > `0`])"
             min: 3
             allow_wrapped: true
             extract_json: true
@@ -147,7 +147,7 @@ spec:
         # Validate company has at least one department
         - type: json_path
           params:
-            expression: "length(departments)"
+            jmespath_expression: "length(departments)"
             min: 1
             allow_wrapped: true
             extract_json: true
@@ -155,7 +155,7 @@ spec:
         # Validate at least one employee exists
         - type: json_path
           params:
-            expression: "length(departments[*].employees[*])"
+            jmespath_expression: "length(departments[*].employees[*])"
             min: 1
             allow_wrapped: true
             extract_json: true
