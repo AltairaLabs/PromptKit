@@ -346,6 +346,9 @@ func generateHTML(data HTMLReportData) (string, error) {
 		"getMessage":           getMessage,
 		"hasMediaOutputs":      hasMediaOutputs,
 		"renderMediaOutputs":   renderMediaOutputs,
+		"hasAssertionResults":  hasAssertionResults,
+		"getAssertionResults":  getAssertionResults,
+		"getAssertionType":     getAssertionType,
 	}).Parse(reportTemplate))
 
 	var buf strings.Builder
@@ -453,22 +456,57 @@ func checkAssertionsPassed(assertions map[string]interface{}) bool {
 	if assertions == nil {
 		return true
 	}
-	for _, v := range assertions {
-		// Try to access as map first
+
+	// Check top-level "passed" field (new format)
+	if passed, ok := assertions["passed"].(bool); ok {
+		return passed
+	}
+
+	// Check "results" array (new format)
+	if results, ok := assertions["results"].([]interface{}); ok {
+		return checkAssertionResultsArray(results)
+	}
+
+	// Legacy format: iterate over assertions map
+	return checkLegacyAssertions(assertions)
+}
+
+// checkAssertionResultsArray checks if all assertions in the results array passed
+func checkAssertionResultsArray(results []interface{}) bool {
+	for _, v := range results {
 		if assertion, ok := v.(map[string]interface{}); ok {
 			if passed, exists := assertion["passed"].(bool); exists && !passed {
 				return false
 			}
 		}
-		// Try to access Passed field directly (for struct types)
-		if assertion, ok := v.(struct {
-			Passed  bool
-			Details interface{}
-		}); ok {
-			if !assertion.Passed {
-				return false
-			}
+	}
+	return true
+}
+
+// checkLegacyAssertions checks legacy assertion format
+func checkLegacyAssertions(assertions map[string]interface{}) bool {
+	for _, v := range assertions {
+		if !checkSingleAssertion(v) {
+			return false
 		}
+	}
+	return true
+}
+
+// checkSingleAssertion checks if a single assertion passed
+func checkSingleAssertion(assertion interface{}) bool {
+	// Try to access as map first
+	if assertionMap, ok := assertion.(map[string]interface{}); ok {
+		if passed, exists := assertionMap["passed"].(bool); exists {
+			return passed
+		}
+	}
+	// Try to access Passed field directly (for struct types)
+	if assertionStruct, ok := assertion.(struct {
+		Passed  bool
+		Details interface{}
+	}); ok {
+		return assertionStruct.Passed
 	}
 	return true
 }
@@ -661,7 +699,49 @@ func hasAssertions(meta interface{}) bool {
 		return false
 	}
 	assertions, ok := metaMap["assertions"].(map[string]interface{})
-	return ok && len(assertions) > 0
+	if !ok {
+		return false
+	}
+
+	// Check for new format: assertions.results array
+	if results, hasResults := assertions["results"].([]interface{}); hasResults {
+		return len(results) > 0
+	}
+
+	// Legacy format: check map
+	return len(assertions) > 0
+}
+
+// hasAssertionResults checks if assertions has a results array (new format)
+func hasAssertionResults(assertions map[string]interface{}) bool {
+	if assertions == nil {
+		return false
+	}
+	results, ok := assertions["results"].([]interface{})
+	return ok && len(results) > 0
+}
+
+// getAssertionResults extracts the results array from assertions
+func getAssertionResults(assertions map[string]interface{}) []interface{} {
+	if assertions == nil {
+		return nil
+	}
+	if results, ok := assertions["results"].([]interface{}); ok {
+		return results
+	}
+	return nil
+}
+
+// getAssertionType extracts the type field from an assertion result
+func getAssertionType(assertion interface{}) string {
+	if m, ok := assertion.(map[string]interface{}); ok {
+		if t, exists := m["type"]; exists {
+			if str, ok := t.(string); ok {
+				return str
+			}
+		}
+	}
+	return ""
 }
 
 // getMessage extracts the message field from an assertion or validation result

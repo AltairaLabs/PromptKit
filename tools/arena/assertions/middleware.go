@@ -92,28 +92,47 @@ func (m *assertionMiddleware) executeAssertions(
 	turnMessages []types.Message,
 	allMessages []types.Message,
 ) (map[string]interface{}, []error) {
-	results := make(map[string]interface{})
+	// Use array to preserve all assertion results (including multiple of same type)
+	results := make([]interface{}, 0, len(m.assertions))
 	var validationErrors []error
 
-	for _, assertionConfig := range m.assertions {
+	for i, assertionConfig := range m.assertions {
 		result, err := m.runSingleAssertion(assertionConfig, lastAssistantMsg, turnMessages, allMessages)
 		if err != nil {
-			logger.Debug("unknown assertion validator type", "type", assertionConfig.Type)
+			logger.Debug("unknown assertion validator type", "type", assertionConfig.Type, "index", i)
 			continue
 		}
 
 		// Convert to AssertionResult with message from config
 		assertionResult := FromValidationResult(result, assertionConfig.Message)
-		results[assertionConfig.Type] = assertionResult
 
-		// Collect validation failures
+		// Add type field so we know what kind of assertion this is
+		assertionWithType := map[string]interface{}{
+			"type":    assertionConfig.Type,
+			"passed":  assertionResult.Passed,
+			"details": assertionResult.Details,
+			"message": assertionResult.Message,
+		}
+		results = append(results, assertionWithType)
+
+		// Collect validation failures and fail fast
 		if !assertionResult.Passed {
 			validationErrors = append(validationErrors,
-				fmt.Errorf("assertion %q failed with details: %v", assertionConfig.Type, assertionResult.Details))
+				fmt.Errorf("assertion %d (%s) failed with details: %v", i, assertionConfig.Type, assertionResult.Details))
+			// Fail fast: stop on first failure
+			break
 		}
 	}
 
-	return results, validationErrors
+	// Convert array to map with summary metadata
+	resultsMap := map[string]interface{}{
+		"results": results,
+		"passed":  len(validationErrors) == 0,
+		"total":   len(results),
+		"failed":  len(validationErrors),
+	}
+
+	return resultsMap, validationErrors
 }
 
 // runSingleAssertion executes a single assertion configuration

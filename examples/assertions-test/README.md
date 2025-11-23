@@ -54,7 +54,9 @@ cp .env.example .env
 
 - `is_valid_json` - Validates response contains parseable JSON (with optional extraction from markdown)
 - `json_schema` - Validates JSON structure against JSON Schema specification
-- `json_path` - Validates JSON content using JMESPath queries with expected values and constraints
+- `json_path` - Validates JSON content using JMESPath expressions with expected values and constraints
+  - Uses `jmespath_expression` parameter (not JSON Path `$` syntax)
+  - Backward compatible with `expression` parameter
 
 ## Expected Behavior
 
@@ -116,10 +118,10 @@ turns:
           allow_wrapped: true
           extract_json: true
       
-      # Validate specific field values with JSONPath
+      # Validate specific field values with JMESPath
       - type: json_path
         params:
-          query: "name"
+          jmespath_expression: "name"
           expected: "Alice Smith"
           allow_wrapped: true
           extract_json: true
@@ -129,7 +131,7 @@ turns:
 
 - **Automatic JSON Extraction**: Extracts JSON from markdown code blocks or mixed content
 - **Schema Validation**: Validates structure, types, required fields, constraints
-- **Field Validation**: Uses JMESPath queries to validate specific values, array lengths, nested data
+- **Field Validation**: Uses JMESPath expressions to validate specific values, array lengths, nested data
 - **Mock Support**: Works with deterministic mock responses for rapid testing
 - **Real API Support**: Validates actual LLM responses for production testing
 

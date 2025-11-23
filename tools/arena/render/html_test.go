@@ -2089,7 +2089,7 @@ func TestGetAssertions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := getAssertions(tt.meta)
-			hasAssertions := len(result) > 0
+			hasAssertions := result != nil
 			if hasAssertions != tt.expected {
 				t.Errorf("getAssertions() has assertions = %v, want %v", hasAssertions, tt.expected)
 			}
