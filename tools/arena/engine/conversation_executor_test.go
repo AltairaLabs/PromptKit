@@ -201,8 +201,7 @@ func createTestPromptRegistry(t *testing.T) *prompt.Registry {
 			Version:        "v1.0.0",
 			Description:    "Test support prompt",
 			SystemTemplate: "You are a helpful test assistant.",
-			RequiredVars:   []string{},
-			OptionalVars:   map[string]string{},
+			Variables:      []prompt.VariableMetadata{},
 		},
 	}
 
