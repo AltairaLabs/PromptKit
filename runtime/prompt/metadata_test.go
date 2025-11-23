@@ -33,57 +33,39 @@ func TestPopulateDefaults_Variables(t *testing.T) {
 	registry := createTestRegistry()
 	config := &PromptConfig{
 		Spec: PromptSpec{
-			TaskType:     "test",
-			RequiredVars: []string{"name", "email"},
-			OptionalVars: map[string]string{
-				"greeting": "Hello",
-				"title":    "Mr.",
+			TaskType: "test",
+			Variables: []VariableMetadata{
+				{Name: "name", Required: true, Type: "string"},
+				{Name: "email", Required: true, Type: "string"},
+				{Name: "greeting", Required: false, Type: "string", Default: "Hello"},
+				{Name: "title", Required: false, Type: "string", Default: "Mr."},
 			},
 		},
 	}
 
 	registry.populateDefaults(config)
 
+	// populateDefaults should not modify Variables anymore
 	if len(config.Spec.Variables) != 4 {
 		t.Fatalf("Expected 4 variables, got %d", len(config.Spec.Variables))
 	}
 
-	// Check required vars
-	foundName := false
-	foundEmail := false
+	// Verify variables are unchanged
 	for _, v := range config.Spec.Variables {
-		if v.Name == "name" {
-			foundName = true
-			if !v.Required {
-				t.Error("Variable 'name' should be required")
-			}
+		if v.Name == "name" && !v.Required {
+			t.Error("Variable 'name' should be required")
 		}
-		if v.Name == "email" {
-			foundEmail = true
-			if !v.Required {
-				t.Error("Variable 'email' should be required")
-			}
+		if v.Name == "email" && !v.Required {
+			t.Error("Variable 'email' should be required")
 		}
-	}
-	if !foundName || !foundEmail {
-		t.Error("Required variables not properly generated")
-	}
-
-	// Check optional vars
-	foundGreeting := false
-	for _, v := range config.Spec.Variables {
 		if v.Name == "greeting" {
-			foundGreeting = true
 			if v.Required {
 				t.Error("Variable 'greeting' should be optional")
 			}
 			if v.Default != "Hello" {
-				t.Errorf("Expected default 'Hello', got '%s'", v.Default)
+				t.Errorf("Expected default 'Hello', got '%v'", v.Default)
 			}
 		}
-	}
-	if !foundGreeting {
-		t.Error("Optional variable 'greeting' not found")
 	}
 }
 
@@ -146,11 +128,17 @@ spec:
   version: "1.0.0"
   description: Test prompt
   system_template: "You are a {{role}}. Help {{customer_name}}."
-  required_vars:
-    - role
-    - customer_name
-  optional_vars:
-    greeting: "Hello"
+  variables:
+    - name: role
+      type: string
+      required: true
+    - name: customer_name
+      type: string
+      required: true
+    - name: greeting
+      type: string
+      required: false
+      default: "Hello"
   validators:
     - type: banned_words
       params:

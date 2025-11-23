@@ -7,19 +7,46 @@ spec:
   version: "v1.0.0"
   description: "Product expert with configurable company and product details"
 
-  # Optional variables with defaults
-  # In a real scenario, you might make some of these required_vars
-  # For this demo, we use optional_vars so they can be overridden in arena.yaml
-  optional_vars:
-    company_name: "TechCo"
-    product_name: "ProductX"
-    support_email: "support@techco.com"
-    support_hours: "24/7"
-    warranty_period: "1 year"
-    return_window: "30 days"
-    product_category: "software"
+  # Variables with rich metadata
+  # These can be overridden in arena.yaml or at runtime
+  variables:
+    - name: company_name
+      type: string
+      required: false
+      default: "TechCo"
+      description: "Company name"
+    - name: product_name
+      type: string
+      required: false
+      default: "ProductX"
+      description: "Product name"
+    - name: support_email
+      type: string
+      required: false
+      default: "support@techco.com"
+      description: "Support contact email"
+    - name: support_hours
+      type: string
+      required: false
+      default: "24/7"
+      description: "Support availability hours"
+    - name: warranty_period
+      type: string
+      required: false
+      default: "1 year"
+      description: "Product warranty duration"
+    - name: return_window
+      type: string
+      required: false
+      default: "30 days"
+      description: "Return policy window"
+    - name: product_category
+      type: string
+      required: false
+      default: "software"
+      description: "Product category"
 
-  # System template using both required and optional variables
+  # System template using variables
   system_template: |
     You are a product expert for {{company_name}}, specializing in {{product_name}}.
     

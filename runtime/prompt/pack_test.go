@@ -505,7 +505,6 @@ func TestPackCompiler_Compile(t *testing.T) {
 			Version:        "1.0.0",
 			Description:    "Test prompt for compilation",
 			SystemTemplate: "Hello {{name}}",
-			RequiredVars:   []string{"name"},
 			TemplateEngine: &TemplateEngineInfo{
 				Version: "v1",
 				Syntax:  "handlebars",

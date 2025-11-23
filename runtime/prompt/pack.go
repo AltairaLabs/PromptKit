@@ -245,68 +245,19 @@ func (pc *PackCompiler) Compile(taskType, compilerVersion string) (*Pack, error)
 
 // CompileFromRegistry compiles ALL prompts from the registry into a single Pack
 func (pc *PackCompiler) CompileFromRegistry(packID, compilerVersion string) (*Pack, error) {
-	// Get all prompt configs from registry
 	taskTypes := pc.loader.ListTaskTypes()
-
-	// If registry is empty, try to load all available configs
 	if len(taskTypes) == 0 {
-		// Registry might not have loaded configs yet - this is expected
-		// Return empty pack with message
 		return nil, fmt.Errorf("no prompts found in registry (registry may need to be pre-loaded)")
 	}
 
-	// Create pack structure
-	pack := &Pack{
-		ID:          packID,
-		Name:        packID,
-		Version:     "v1.0.0", // Default version
-		Description: fmt.Sprintf("Pack containing %d prompts", len(taskTypes)),
-		Prompts:     make(map[string]*PackPrompt),
-		Fragments:   make(map[string]string),
-	}
+	pack := pc.createEmptyPack(packID, len(taskTypes))
 
-	// Add each prompt to the pack
 	for _, taskType := range taskTypes {
-		config, err := pc.loader.LoadConfig(taskType)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load config for %s: %w", taskType, err)
-		}
-
-		// Set pack-level fields from first prompt (template engine)
-		if pack.TemplateEngine == nil && config.Spec.TemplateEngine != nil {
-			pack.TemplateEngine = config.Spec.TemplateEngine
-		}
-
-		// Create PackPrompt
-		packPrompt := &PackPrompt{
-			ID:             config.Spec.TaskType,
-			Name:           config.Metadata.Name,
-			Description:    config.Spec.Description,
-			Version:        config.Spec.Version,
-			SystemTemplate: config.Spec.SystemTemplate,
-			Variables:      config.Spec.Variables,
-			Tools:          config.Spec.AllowedTools,
-			Validators:     config.Spec.Validators,
-			MediaConfig:    config.Spec.MediaConfig,
-			TestedModels:   config.Spec.TestedModels,
-			ModelOverrides: config.Spec.ModelOverrides,
-			Pipeline:       GetDefaultPipelineConfig(),
-		}
-
-		pack.Prompts[taskType] = packPrompt
-
-		// Collect fragments
-		if len(config.Spec.Fragments) > 0 {
-			for _, fragRef := range config.Spec.Fragments {
-				// Avoid duplicates
-				if _, exists := pack.Fragments[fragRef.Name]; !exists {
-					pack.Fragments[fragRef.Name] = fmt.Sprintf("{{%s}}", fragRef.Name)
-				}
-			}
+		if err := pc.addPromptToPack(pack, taskType); err != nil {
+			return nil, err
 		}
 	}
 
-	// Generate compilation info
 	pack.Compilation = &CompilationInfo{
 		CompiledWith: compilerVersion,
 		CreatedAt:    pc.getCurrentTimestamp(),
@@ -314,6 +265,62 @@ func (pc *PackCompiler) CompileFromRegistry(packID, compilerVersion string) (*Pa
 	}
 
 	return pack, nil
+}
+
+// createEmptyPack creates a new empty pack structure
+func (pc *PackCompiler) createEmptyPack(packID string, promptCount int) *Pack {
+	return &Pack{
+		ID:          packID,
+		Name:        packID,
+		Version:     "v1.0.0",
+		Description: fmt.Sprintf("Pack containing %d prompts", promptCount),
+		Prompts:     make(map[string]*PackPrompt),
+		Fragments:   make(map[string]string),
+	}
+}
+
+// addPromptToPack loads a prompt config and adds it to the pack
+func (pc *PackCompiler) addPromptToPack(pack *Pack, taskType string) error {
+	config, err := pc.loader.LoadConfig(taskType)
+	if err != nil {
+		return fmt.Errorf("failed to load config for %s: %w", taskType, err)
+	}
+
+	if pack.TemplateEngine == nil && config.Spec.TemplateEngine != nil {
+		pack.TemplateEngine = config.Spec.TemplateEngine
+	}
+
+	pack.Prompts[taskType] = pc.createPackPrompt(config)
+	pc.collectFragments(pack, config)
+
+	return nil
+}
+
+// createPackPrompt creates a PackPrompt from a PromptConfig
+func (pc *PackCompiler) createPackPrompt(config *PromptConfig) *PackPrompt {
+	return &PackPrompt{
+		ID:             config.Spec.TaskType,
+		Name:           config.Metadata.Name,
+		Description:    config.Spec.Description,
+		Version:        config.Spec.Version,
+		SystemTemplate: config.Spec.SystemTemplate,
+		Variables:      config.Spec.Variables,
+		Tools:          config.Spec.AllowedTools,
+		Validators:     config.Spec.Validators,
+		MediaConfig:    config.Spec.MediaConfig,
+		TestedModels:   config.Spec.TestedModels,
+		ModelOverrides: config.Spec.ModelOverrides,
+		Pipeline:       GetDefaultPipelineConfig(),
+	}
+}
+
+// collectFragments collects fragment references from config into pack
+func (pc *PackCompiler) collectFragments(pack *Pack, config *PromptConfig) {
+	for _, fragRef := range config.Spec.Fragments {
+		if _, exists := pack.Fragments[fragRef.Name]; !exists {
+			pack.Fragments[fragRef.Name] = fmt.Sprintf("{{%s}}", fragRef.Name)
+		}
+	}
 }
 
 // getCurrentTimestamp returns the current timestamp in RFC3339 format
@@ -339,60 +346,78 @@ func LoadPack(filePath string) (*Pack, error) {
 // Validate validates a pack format
 func (p *Pack) Validate() []string {
 	warnings := []string{}
+	warnings = append(warnings, p.validatePackFields()...)
+	warnings = append(warnings, p.validateTemplateEngine()...)
+	warnings = append(warnings, p.validatePrompts()...)
+	warnings = append(warnings, p.validateCompilation()...)
+	return warnings
+}
 
-	// Check required fields
+// validatePackFields validates pack-level required fields
+func (p *Pack) validatePackFields() []string {
+	warnings := []string{}
 	if p.ID == "" {
 		warnings = append(warnings, "missing required field: id")
 	}
 	if p.Version == "" {
 		warnings = append(warnings, "missing required field: version")
-	} else {
-		// Validate pack version format
-		if err := validateSemanticVersion(p.Version); err != nil {
-			warnings = append(warnings, fmt.Sprintf("invalid pack version '%s': %v", p.Version, err))
-		}
+	} else if err := validateSemanticVersion(p.Version); err != nil {
+		warnings = append(warnings, fmt.Sprintf("invalid pack version '%s': %v", p.Version, err))
 	}
 	if len(p.Prompts) == 0 {
 		warnings = append(warnings, "no prompts defined in pack")
 	}
+	return warnings
+}
 
-	// Check template engine
+// validateTemplateEngine validates template engine configuration
+func (p *Pack) validateTemplateEngine() []string {
+	warnings := []string{}
 	if p.TemplateEngine == nil {
 		warnings = append(warnings, "missing template_engine configuration")
-	} else {
-		if p.TemplateEngine.Version == "" {
-			warnings = append(warnings, "template_engine.version not set")
-		}
-		if p.TemplateEngine.Syntax == "" {
-			warnings = append(warnings, "template_engine.syntax not set")
-		}
+		return warnings
 	}
-
-	// Validate each prompt
-	for taskType, prompt := range p.Prompts {
-		if prompt.SystemTemplate == "" {
-			warnings = append(warnings, fmt.Sprintf("prompt '%s': missing system_template", taskType))
-		}
-		if len(prompt.Variables) == 0 {
-			warnings = append(warnings, fmt.Sprintf("prompt '%s': no variables defined", taskType))
-		}
-
-		// Validate prompt version
-		if prompt.Version == "" {
-			warnings = append(warnings, fmt.Sprintf("prompt '%s': missing version", taskType))
-		} else {
-			if err := validateSemanticVersion(prompt.Version); err != nil {
-				warnings = append(warnings, fmt.Sprintf("prompt '%s': invalid version '%s': %v", taskType, prompt.Version, err))
-			}
-		}
+	if p.TemplateEngine.Version == "" {
+		warnings = append(warnings, "template_engine.version not set")
 	}
-
-	// Check compilation info
-	if p.Compilation == nil {
-		warnings = append(warnings, "missing compilation metadata")
+	if p.TemplateEngine.Syntax == "" {
+		warnings = append(warnings, "template_engine.syntax not set")
 	}
-
 	return warnings
+}
+
+// validatePrompts validates each prompt in the pack
+func (p *Pack) validatePrompts() []string {
+	warnings := []string{}
+	for taskType, prompt := range p.Prompts {
+		warnings = append(warnings, validatePrompt(taskType, prompt)...)
+	}
+	return warnings
+}
+
+// validatePrompt validates a single prompt
+func validatePrompt(taskType string, prompt *PackPrompt) []string {
+	warnings := []string{}
+	if prompt.SystemTemplate == "" {
+		warnings = append(warnings, fmt.Sprintf("prompt '%s': missing system_template", taskType))
+	}
+	if len(prompt.Variables) == 0 {
+		warnings = append(warnings, fmt.Sprintf("prompt '%s': no variables defined", taskType))
+	}
+	if prompt.Version == "" {
+		warnings = append(warnings, fmt.Sprintf("prompt '%s': missing version", taskType))
+	} else if err := validateSemanticVersion(prompt.Version); err != nil {
+		warnings = append(warnings, fmt.Sprintf("prompt '%s': invalid version '%s': %v", taskType, prompt.Version, err))
+	}
+	return warnings
+}
+
+// validateCompilation validates compilation metadata
+func (p *Pack) validateCompilation() []string {
+	if p.Compilation == nil {
+		return []string{"missing compilation metadata"}
+	}
+	return []string{}
 }
 
 // GetPrompt returns a specific prompt by task type
@@ -434,8 +459,11 @@ func (p *Pack) GetOptionalVariables(taskType string) map[string]string {
 
 	vars := make(map[string]string)
 	for _, v := range prompt.Variables {
-		if !v.Required && v.Default != "" {
-			vars[v.Name] = v.Default
+		if !v.Required && v.Default != nil {
+			// Convert default value to string
+			if defaultStr, ok := v.Default.(string); ok && defaultStr != "" {
+				vars[v.Name] = defaultStr
+			}
 		}
 	}
 	return vars

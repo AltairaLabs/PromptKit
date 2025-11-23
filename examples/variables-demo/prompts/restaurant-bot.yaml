@@ -7,16 +7,46 @@ spec:
   version: "v1.0.0"
   description: "Restaurant assistant bot with customizable branding and policies"
 
-  # Optional variables with default values
+  # Variables with rich metadata and defaults
   # These can be overridden in arena.yaml or at runtime
-  optional_vars:
-    restaurant_name: "TastyBites"
-    cuisine_type: "Italian"
-    opening_hours: "11 AM - 10 PM daily"
-    phone_number: "(555) 123-4567"
-    reservation_policy: "We accept reservations up to 30 days in advance"
-    cancellation_policy: "Free cancellation up to 24 hours before reservation"
-    dress_code: "Smart casual"
+  variables:
+    - name: restaurant_name
+      type: string
+      required: false
+      default: "TastyBites"
+      description: "The restaurant's display name"
+      example: "La Bella Italia"
+    - name: cuisine_type
+      type: string
+      required: false
+      default: "Italian"
+      description: "Type of cuisine served"
+      example: "French"
+    - name: opening_hours
+      type: string
+      required: false
+      default: "11 AM - 10 PM daily"
+      description: "Restaurant operating hours"
+    - name: phone_number
+      type: string
+      required: false
+      default: "(555) 123-4567"
+      description: "Contact phone number"
+    - name: reservation_policy
+      type: string
+      required: false
+      default: "We accept reservations up to 30 days in advance"
+      description: "Reservation booking policy"
+    - name: cancellation_policy
+      type: string
+      required: false
+      default: "Free cancellation up to 24 hours before reservation"
+      description: "Cancellation terms and conditions"
+    - name: dress_code
+      type: string
+      required: false
+      default: "Smart casual"
+      description: "Expected dress code"
 
   # System template using the variables
   # Variables are referenced using {{variable_name}} syntax
