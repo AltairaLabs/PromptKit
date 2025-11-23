@@ -702,6 +702,185 @@ func TestMarkdownResultRepository_NoMediaOutputs(t *testing.T) {
 	assert.NotContains(t, markdown, "### 📤 Media Outputs")
 }
 
+func TestExtractMessageAssertionFailures(t *testing.T) {
+	repo := &MarkdownResultRepository{}
+
+	t.Run("new format with results array", func(t *testing.T) {
+		msg := &types.Message{
+			Role: "assistant",
+			Meta: map[string]interface{}{
+				"assertions": map[string]interface{}{
+					"passed": false,
+					"total":  3,
+					"failed": 1,
+					"results": []interface{}{
+						map[string]interface{}{
+							"type":    "is_valid_json",
+							"passed":  true,
+							"details": "Valid JSON",
+						},
+						map[string]interface{}{
+							"type":    "json_schema",
+							"passed":  false,
+							"details": map[string]interface{}{"error": "Schema validation failed"},
+							"message": "Invalid schema",
+						},
+						map[string]interface{}{
+							"type":    "json_path",
+							"passed":  true,
+							"details": map[string]interface{}{"result": "Alice"},
+						},
+					},
+				},
+			},
+		}
+
+		failures := repo.extractMessageAssertionFailures(msg)
+		assert.Equal(t, 1, len(failures))
+		assert.Equal(t, "json_schema", failures[0].Type)
+		assert.Equal(t, "Invalid schema", failures[0].Message)
+	})
+
+	t.Run("legacy format with map", func(t *testing.T) {
+		msg := &types.Message{
+			Role: "assistant",
+			Meta: map[string]interface{}{
+				"assertions": map[string]interface{}{
+					"is_valid_json": map[string]interface{}{
+						"passed":  true,
+						"details": "Valid JSON",
+					},
+					"json_schema": map[string]interface{}{
+						"passed":  false,
+						"details": map[string]interface{}{"error": "Schema validation failed"},
+						"message": "Invalid schema",
+					},
+				},
+			},
+		}
+
+		failures := repo.extractMessageAssertionFailures(msg)
+		assert.Equal(t, 1, len(failures))
+		assert.Equal(t, "json_schema", failures[0].Type)
+	})
+
+	t.Run("nil meta", func(t *testing.T) {
+		msg := &types.Message{Role: "assistant"}
+		failures := repo.extractMessageAssertionFailures(msg)
+		assert.Nil(t, failures)
+	})
+
+	t.Run("meta without assertions", func(t *testing.T) {
+		msg := &types.Message{
+			Role: "assistant",
+			Meta: map[string]interface{}{"other": "data"},
+		}
+		failures := repo.extractMessageAssertionFailures(msg)
+		assert.Nil(t, failures)
+	})
+
+	t.Run("empty results array", func(t *testing.T) {
+		msg := &types.Message{
+			Role: "assistant",
+			Meta: map[string]interface{}{
+				"assertions": map[string]interface{}{
+					"results": []interface{}{},
+				},
+			},
+		}
+		failures := repo.extractMessageAssertionFailures(msg)
+		assert.Empty(t, failures)
+	})
+
+	t.Run("all assertions pass", func(t *testing.T) {
+		msg := &types.Message{
+			Role: "assistant",
+			Meta: map[string]interface{}{
+				"assertions": map[string]interface{}{
+					"results": []interface{}{
+						map[string]interface{}{"type": "is_valid_json", "passed": true},
+						map[string]interface{}{"type": "json_schema", "passed": true},
+					},
+				},
+			},
+		}
+		failures := repo.extractMessageAssertionFailures(msg)
+		assert.Empty(t, failures)
+	})
+}
+
+func TestHasFailedAssertionInMap(t *testing.T) {
+	repo := &MarkdownResultRepository{}
+
+	t.Run("new format - top level passed field true", func(t *testing.T) {
+		assertions := map[string]interface{}{
+			"passed": true,
+			"total":  2,
+			"results": []interface{}{
+				map[string]interface{}{"type": "is_valid_json", "passed": true},
+			},
+		}
+		assert.False(t, repo.hasFailedAssertionInMap(assertions))
+	})
+
+	t.Run("new format - top level passed field false", func(t *testing.T) {
+		assertions := map[string]interface{}{
+			"passed": false,
+			"total":  2,
+			"failed": 1,
+			"results": []interface{}{
+				map[string]interface{}{"type": "is_valid_json", "passed": true},
+				map[string]interface{}{"type": "json_schema", "passed": false},
+			},
+		}
+		assert.True(t, repo.hasFailedAssertionInMap(assertions))
+	})
+
+	t.Run("new format - results array with failure", func(t *testing.T) {
+		assertions := map[string]interface{}{
+			"results": []interface{}{
+				map[string]interface{}{"type": "is_valid_json", "passed": true},
+				map[string]interface{}{"type": "json_schema", "passed": false},
+			},
+		}
+		assert.True(t, repo.hasFailedAssertionInMap(assertions))
+	})
+
+	t.Run("new format - results array all pass", func(t *testing.T) {
+		assertions := map[string]interface{}{
+			"results": []interface{}{
+				map[string]interface{}{"type": "is_valid_json", "passed": true},
+				map[string]interface{}{"type": "json_schema", "passed": true},
+			},
+		}
+		assert.False(t, repo.hasFailedAssertionInMap(assertions))
+	})
+
+	t.Run("legacy format - has failure", func(t *testing.T) {
+		assertions := map[string]interface{}{
+			"is_valid_json": map[string]interface{}{"passed": true},
+			"json_schema":   map[string]interface{}{"passed": false},
+		}
+		assert.True(t, repo.hasFailedAssertionInMap(assertions))
+	})
+
+	t.Run("legacy format - all pass", func(t *testing.T) {
+		assertions := map[string]interface{}{
+			"is_valid_json": map[string]interface{}{"passed": true},
+			"json_schema":   map[string]interface{}{"passed": true},
+		}
+		assert.False(t, repo.hasFailedAssertionInMap(assertions))
+	})
+
+	t.Run("nil assertions", func(t *testing.T) {
+		assert.False(t, repo.hasFailedAssertionInMap(nil))
+	})
+
+	t.Run("empty assertions", func(t *testing.T) {
+		assert.False(t, repo.hasFailedAssertionInMap(map[string]interface{}{}))
+	})
+}
+
 func ptr[T any](v T) *T {
 	return &v
 }
