@@ -244,23 +244,59 @@ Register in code, reference in pack
 
 ## Advanced Features
 
-### Template Variables
+### Variables
+
+Define variables with rich metadata including types, validation, and defaults:
 
 ```json
 {
-  "system_prompt": "You are a  who . Your expertise is in .",
-  "template_vars": {
-    "role": "helpful assistant",
-    "behavior": "provides accurate information",
-    "domain": "customer support"
-  }
+  "system_prompt": "You are a {{role}} who {{behavior}}. Your expertise is in {{domain}}.",
+  "variables": [
+    {
+      "name": "role",
+      "type": "string",
+      "required": true,
+      "description": "The role of the assistant",
+      "example": "helpful assistant"
+    },
+    {
+      "name": "behavior",
+      "type": "string",
+      "required": false,
+      "default": "provides accurate information",
+      "description": "Expected behavior"
+    },
+    {
+      "name": "domain",
+      "type": "string",
+      "required": false,
+      "default": "customer support",
+      "description": "Area of expertise",
+      "validation": {
+        "pattern": "^(customer support|technical support|sales)$"
+      }
+    }
+  ]
 }
 ```
+
+**Supported Variable Types:**
+- `string` - Text values
+- `number` - Numeric values (integers or floats)
+- `boolean` - true/false values
+- `array` - Arrays of values
+- `object` - Complex nested objects
 
 **Render at Runtime:**
 ```go
 pack, _ := manager.LoadPack("./template.pack.json")
-pack.SetVar("domain", "technical support")
+conv, _ := manager.NewConversation(ctx, pack, sdk.ConversationConfig{
+    PromptName: "assistant",
+    Variables: map[string]interface{}{
+        "domain": "technical support",
+        "role": "expert advisor",
+    },
+})
 ```
 
 ### Conditional Prompts

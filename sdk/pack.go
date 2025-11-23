@@ -481,8 +481,6 @@ func (p *Pack) convertToRuntimeConfig(taskType string, sdkPrompt *Prompt) *promp
 			Version:        sdkPrompt.Version,
 			Description:    sdkPrompt.Description,
 			SystemTemplate: sdkPrompt.SystemTemplate,
-			RequiredVars:   requiredVars,
-			OptionalVars:   optionalVars,
 			Variables:      varMetadata,
 			ModelOverrides: modelOverrides,
 			AllowedTools:   sdkPrompt.ToolNames,

@@ -183,18 +183,19 @@ Prompt configurations and templates:
 
 ### Basic Arena Testing
 1. Configure providers in `providers/`
-2. Define prompts in `prompts/` with optional/required variables
+2. Define prompts in `prompts/` with variables array (required and optional)
 3. Set up scenarios in `scenarios/`
 4. Configure arena in `arena.yaml` and override variables as needed
 5. Run tests with `promptarena run`
 
 ### Working with Variables
-1. Define `optional_vars` in your promptconfig for defaults
-2. Define `required_vars` for values that must be provided
-3. Use `{{variable_name}}` syntax in `system_template`
-4. Override variables in `arena.yaml` under `prompt_configs[].vars`
-5. Test different configurations with scenarios
-6. See `variables-demo/` for complete examples
+1. Define `variables` array in your promptconfig with type, required status, and defaults
+2. Set `required: true` for values that must be provided
+3. Set `required: false` with `default` value for optional variables
+4. Use `{{variable_name}}` syntax in `system_template`
+5. Override variables in `arena.yaml` under `prompt_configs[].vars`
+6. Test different configurations with scenarios
+7. See `variables-demo/` for complete examples
 
 ### Integration Development
 1. Implement integration logic in Go

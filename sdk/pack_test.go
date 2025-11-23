@@ -342,28 +342,31 @@ func TestPack_CreateRegistry(t *testing.T) {
 		t.Errorf("system template mismatch: %s", config.Spec.SystemTemplate)
 	}
 
-	// Verify required vars
-	if len(config.Spec.RequiredVars) != 1 {
-		t.Errorf("expected 1 required var, got %d", len(config.Spec.RequiredVars))
-	}
-	if config.Spec.RequiredVars[0] != "role" {
-		t.Errorf("expected required var 'role', got '%s'", config.Spec.RequiredVars[0])
-	}
-
-	// Verify optional vars
-	if len(config.Spec.OptionalVars) != 1 {
-		t.Errorf("expected 1 optional var, got %d", len(config.Spec.OptionalVars))
-	}
-	if _, ok := config.Spec.OptionalVars["company"]; !ok {
-		t.Error("expected 'company' in optional vars")
-	}
-	if config.Spec.OptionalVars["company"] != "TechCo" {
-		t.Errorf("expected default 'TechCo', got '%v'", config.Spec.OptionalVars["company"])
-	}
-
-	// Verify variable metadata
+	// Verify variables
 	if len(config.Spec.Variables) != 2 {
 		t.Errorf("expected 2 variables, got %d", len(config.Spec.Variables))
+	}
+
+	// Verify required var
+	hasRole := false
+	for _, v := range config.Spec.Variables {
+		if v.Name == "role" && v.Required {
+			hasRole = true
+		}
+	}
+	if !hasRole {
+		t.Error("expected required var 'role'")
+	}
+
+	// Verify optional var
+	hasCompany := false
+	for _, v := range config.Spec.Variables {
+		if v.Name == "company" && !v.Required && v.Default == "TechCo" {
+			hasCompany = true
+		}
+	}
+	if !hasCompany {
+		t.Error("expected optional var 'company' with default 'TechCo'")
 	}
 
 	// Verify validators
@@ -390,8 +393,15 @@ func TestPack_CreateRegistry(t *testing.T) {
 	if salesConfig.Spec.TaskType != "sales" {
 		t.Errorf("expected task type 'sales', got '%s'", salesConfig.Spec.TaskType)
 	}
-	if len(salesConfig.Spec.RequiredVars) != 1 {
-		t.Errorf("expected 1 required var for sales, got %d", len(salesConfig.Spec.RequiredVars))
+	// Verify sales has 1 required variable
+	requiredCount := 0
+	for _, v := range salesConfig.Spec.Variables {
+		if v.Required {
+			requiredCount++
+		}
+	}
+	if requiredCount != 1 {
+		t.Errorf("expected 1 required var for sales, got %d", requiredCount)
 	}
 }
 

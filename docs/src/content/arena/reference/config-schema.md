@@ -167,14 +167,14 @@ Array of prompt configuration references.
 **Fields**:
 - `id` (string, required): Internal ID used to reference this prompt in scenarios
 - `file` (string, required): Path to PromptConfig YAML file (relative to arena.yaml)
-- `vars` (object, optional): Override template variables defined in the prompt's `optional_vars`
+- `vars` (object, optional): Override template variables defined in the prompt's `variables` with `required: false`
 
 **Variable Override Workflow**:
 
 Variables flow through three levels with the following precedence (highest to lowest):
 1. **Runtime variables** - Passed at execution time via SDK/CLI
 2. **Arena configuration** - Defined in `prompt_configs[].vars`
-3. **Prompt defaults** - Defined in PromptConfig's `optional_vars`
+3. **Prompt defaults** - Defined in PromptConfig's `variables` array (for non-required variables)
 
 **Example**:
 
@@ -192,10 +192,22 @@ prompt_configs:
 ```yaml
 # prompts/support.yaml
 spec:
-  optional_vars:
-    company_name: "Generic Company"
-    support_hours: "9 AM - 5 PM"
-    support_email: "support@example.com"
+  variables:
+    - name: company_name
+      type: string
+      required: false
+      default: "Generic Company"
+      description: "Company name for branding"
+    - name: support_hours
+      type: string
+      required: false
+      default: "9 AM - 5 PM"
+      description: "Customer support operating hours"
+    - name: support_email
+      type: string
+      required: false
+      default: "support@example.com"
+      description: "Support contact email"
   
   system_template: |
     You are a support agent for {{company_name}}.
@@ -336,11 +348,27 @@ spec:
     - Offer alternatives
 
   # Optional: Template variables
-  required_vars:
-    - company_name
-    - support_email
-    - hours_of_operation
-    - return_policy
+  variables:
+    - name: company_name
+      type: string
+      required: true
+      description: "Company name for branding"
+      example: "ShopCo"
+    - name: support_email
+      type: string
+      required: true
+      description: "Support contact email"
+      example: "help@shopco.com"
+    - name: hours_of_operation
+      type: string
+      required: true
+      description: "Business hours"
+      example: "9 AM - 5 PM EST"
+    - name: return_policy
+      type: string
+      required: true
+      description: "Return policy details"
+      example: "30-day returns on unused items"
 
   # Optional: Runtime validators/guardrails
   validators:
@@ -405,10 +433,22 @@ The system prompt sent to the LLM. Supports template variables using `{{variable
 **Example with Variables**:
 ```yaml
 spec:
-  optional_vars:
-    company_name: "TechCo"
-    support_email: "help@techco.com"
-    business_hours: "9 AM - 5 PM EST"
+  variables:
+    - name: company_name
+      type: string
+      required: false
+      default: "TechCo"
+      description: "Company name for branding"
+    - name: support_email
+      type: string
+      required: false
+      default: "help@techco.com"
+      description: "Support contact email"
+    - name: business_hours
+      type: string
+      required: false
+      default: "9 AM - 5 PM EST"
+      description: "Business operating hours"
   
   system_template: |
     You are a support agent for {{company_name}}.
@@ -418,21 +458,75 @@ spec:
 
 Variables are substituted when the prompt is assembled. They can be overridden in arena.yaml using the `prompt_configs[].vars` field.
 
-#### `optional_vars`
+#### `variables`
 
-Optional map of template variables with default values. These variables can be referenced in `system_template` using `{{variable_name}}` syntax.
+Array of variable definitions with rich metadata. Variables can be referenced in `system_template` using `{{variable_name}}` syntax.
 
-**Fields**: Key-value pairs where keys are variable names and values are default strings.
+**Variable Fields**:
+- `name` (string, required): Variable name
+- `type` (string, required): Data type - `string`, `number`, `boolean`, `array`, `object`
+- `required` (boolean, required): Whether variable must be provided
+- `default` (any, optional): Default value (for non-required variables)
+- `description` (string, optional): Human-readable description
+- `example` (any, optional): Example value
+- `validation` (object, optional): Validation rules (e.g., `pattern`, `minLength`, `maxLength`, `min`, `max`)
 
-**Example**:
+**Example - Required Variables**:
 ```yaml
-optional_vars:
-  company_name: "ACME Inc"
-  support_tier: "Premium"
-  max_response_time: "24 hours"
+variables:
+  - name: customer_id
+    type: string
+    required: true
+    description: "Unique customer identifier"
+    example: "CUST-12345"
+  - name: account_type
+    type: string
+    required: true
+    description: "Account tier"
+    example: "premium"
+    validation:
+      pattern: "^(basic|premium|enterprise)$"
+  - name: max_retries
+    type: number
+    required: true
+    description: "Maximum retry attempts"
+    example: 3
+    validation:
+      min: 1
+      max: 10
+
+system_template: |
+  Customer: {{customer_id}}
+  Account: {{account_type}}
+  Max Retries: {{max_retries}}
 ```
 
-**Variable Overrides**: Values defined here can be overridden in arena.yaml:
+**Example - Optional Variables with Defaults**:
+```yaml
+variables:
+  - name: company_name
+    type: string
+    required: false
+    default: "ACME Inc"
+    description: "Company name for branding"
+  - name: support_tier
+    type: string
+    required: false
+    default: "Premium"
+    description: "Support service level"
+  - name: response_timeout
+    type: number
+    required: false
+    default: 24
+    description: "Maximum response time in hours"
+  - name: features_enabled
+    type: array
+    required: false
+    default: ["chat", "email", "phone"]
+    description: "Enabled support channels"
+```
+
+**Variable Overrides**: Values can be overridden in arena.yaml:
 
 ```yaml
 # arena.yaml
@@ -441,32 +535,16 @@ prompt_configs:
     file: prompts/support.yaml
     vars:
       support_tier: "Enterprise"  # Overrides "Premium"
-      max_response_time: "4 hours"  # Overrides "24 hours"
+      response_timeout: 4  # Overrides 24
 ```
 
-#### `required_vars`
-
-Optional array of variable names that must be provided at runtime. If a required variable is not provided, prompt assembly will fail.
-
-**Fields**: Array of strings (variable names).
-
-**Example**:
-```yaml
-required_vars:
-  - customer_id
-  - account_type
-  - subscription_tier
-
-system_template: |
-  Customer: {{customer_id}}
-  Account: {{account_type}}
-  Tier: {{subscription_tier}}
-```
-
+**Variable Precedence**:
 Required variables must be provided either:
 - In arena.yaml via `prompt_configs[].vars`
 - At runtime via SDK/API calls
 - Through scenario-specific configuration
+
+Optional variables use defaults if not provided.
 
 #### `validators`
 

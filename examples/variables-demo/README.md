@@ -4,11 +4,12 @@ This example demonstrates how to **define and use variables** in PromptKit promp
 
 ## 🎯 What You'll Learn
 
-1. How to define **optional variables** with defaults in promptconfigs
-2. How to define **required variables** that must be provided
-3. How to **override variables** in `arena.yaml`
-4. How to create **multiple configurations** from one prompt template
-5. How variables flow from promptconfig → arena.yaml → scenarios
+1. How to define **variables** with types, descriptions, and metadata
+2. How to specify **required variables** (`required: true`) that must be provided
+3. How to define **optional variables** (`required: false`) with default values
+4. How to **override variables** in `arena.yaml`
+5. How to create **multiple configurations** from one prompt template
+6. How variables flow from promptconfig → arena.yaml → scenarios
 
 ---
 
@@ -19,12 +20,14 @@ variables-demo/
 ├── README.md                           # This file
 ├── arena.yaml                          # Arena config showing variable overrides
 ├── prompts/
-│   ├── restaurant-bot.yaml            # Example with optional_vars
-│   └── product-expert.yaml            # Example with required_vars
+│   ├── restaurant-bot.yaml            # Example with optional variables (required: false)
+│   ├── restaurant-bot-custom.yaml     # Variant with custom defaults
+│   ├── product-expert.yaml            # Example with optional variables
+│   └── product-expert-enterprise.yaml # Enterprise variant with different defaults
 ├── scenarios/
 │   ├── restaurant-default.yaml        # Tests default values
 │   ├── restaurant-custom.yaml         # Tests overridden values
-│   ├── product-support.yaml           # Tests required variables
+│   ├── product-support.yaml           # Tests variable resolution
 │   └── product-enterprise.yaml        # Tests multiple configs from one template
 └── providers/
     └── openai-gpt4o-mini.yaml
@@ -39,8 +42,10 @@ variables-demo/
 Variables are resolved in this order (highest to lowest priority):
 
 1. **Arena-level `vars`** (in `arena.yaml` under `prompt_configs[].vars`)
-2. **PromptConfig `optional_vars`** (defaults in the prompt file)
+2. **PromptConfig `variables`** (defaults specified in `variables` array with `required: false`)
 3. **Scenario context variables** (auto-extracted: `domain`, `user_role`, etc.)
+
+**Note:** Required variables (`required: true`) must be provided via arena-level `vars` or at runtime.
 
 ### Variable Syntax
 
@@ -54,16 +59,33 @@ system_template: |
 
 ---
 
-## 📝 Example 1: Optional Variables
+## 📝 Example 1: Optional Variables (required: false)
 
 **File:** `prompts/restaurant-bot.yaml`
 
 ```yaml
 spec:
-  optional_vars:
-    restaurant_name: "TastyBites"        # Default value
-    cuisine_type: "Italian"              # Default value
-    opening_hours: "11 AM - 10 PM daily" # Default value
+  variables:
+    - name: restaurant_name
+      type: string
+      required: false
+      default: "TastyBites"
+      description: "The restaurant's display name"
+      example: "La Bella Italia"
+    
+    - name: cuisine_type
+      type: string
+      required: false
+      default: "Italian"
+      description: "Type of cuisine served"
+      example: "Japanese"
+    
+    - name: opening_hours
+      type: string
+      required: false
+      default: "11 AM - 10 PM daily"
+      description: "Restaurant operating hours"
+      example: "12 PM - 11 PM, closed Mondays"
 
   system_template: |
     You are the AI assistant for {{restaurant_name}}, 
@@ -103,19 +125,44 @@ prompt_configs:
 
 ---
 
-## 📝 Example 2: Overriding Variables
+## 📝 Example 2: Variable Types and Validation
 
 **File:** `prompts/product-expert.yaml`
 
 ```yaml
 spec:
-  # Optional variables with defaults
-  optional_vars:
-    company_name: "TechCo"
-    product_name: "ProductX"
-    support_email: "support@techco.com"
-    support_hours: "24/7"
-    warranty_period: "1 year"
+  variables:
+    - name: company_name
+      type: string
+      required: false
+      default: "TechCo"
+      description: "Company name for branding"
+    
+    - name: product_name
+      type: string
+      required: false
+      default: "ProductX"
+      description: "Product name"
+    
+    - name: support_email
+      type: string
+      required: false
+      default: "support@techco.com"
+      description: "Support contact email"
+      validation:
+        pattern: "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+    
+    - name: support_hours
+      type: string
+      required: false
+      default: "24/7"
+      description: "Support availability"
+    
+    - name: warranty_period
+      type: string
+      required: false
+      default: "1 year"
+      description: "Product warranty duration"
 
   system_template: |
     You are a product expert for {{company_name}}, 
@@ -255,39 +302,90 @@ open out/report.html
 
 ## 💡 Best Practices
 
-### 1. Use Optional Variables for Common Customizations
+### 1. Define Variables with Full Metadata
 
 ```yaml
-optional_vars:
-  company_name: "ACME Corp"     # Brand name
-  support_email: "help@acme.com"
-  support_hours: "24/7"
+variables:
+  - name: company_name
+    type: string
+    required: false
+    default: "ACME Corp"
+    description: "Brand name for customer-facing content"
+    example: "TechCorp Industries"
+  
+  - name: support_email
+    type: string
+    required: false
+    default: "help@acme.com"
+    description: "Primary support contact email"
+    validation:
+      pattern: "^[\\w._%+-]+@[\\w.-]+\\.[A-Za-z]{2,}$"
+  
+  - name: max_response_time
+    type: number
+    required: false
+    default: 24
+    description: "Maximum response time in hours"
+    validation:
+      min: 1
+      max: 72
 ```
 
 ### 2. Use Required Variables for Critical Information
 
 ```yaml
-required_vars:
-  - api_key          # Must be provided
-  - database_url     # Must be provided
-  - region           # Must be provided
+variables:
+  - name: api_key
+    type: string
+    required: true
+    description: "API authentication key"
+    validation:
+      pattern: "^sk-[a-zA-Z0-9]{32,}$"
+  
+  - name: database_url
+    type: string
+    required: true
+    description: "Database connection URL"
+  
+  - name: region
+    type: string
+    required: true
+    description: "Deployment region"
+    validation:
+      pattern: "^(us|eu|asia)-(east|west|central)-[1-3]$"
 ```
 
-### 3. Document Your Variables
-
-Add comments in your promptconfig:
+### 3. Leverage Type Safety
 
 ```yaml
-optional_vars:
-  # Company branding
-  company_name: "TechCo"
+variables:
+  # String with validation
+  - name: environment
+    type: string
+    required: true
+    validation:
+      pattern: "^(dev|staging|prod)$"
   
-  # Contact information
-  support_email: "support@techco.com"
-  support_phone: "(555) 123-4567"
+  # Number with range
+  - name: timeout_seconds
+    type: number
+    required: false
+    default: 30
+    validation:
+      min: 5
+      max: 300
   
-  # Business hours
-  opening_hours: "9 AM - 5 PM EST"
+  # Boolean flag
+  - name: debug_mode
+    type: boolean
+    required: false
+    default: false
+  
+  # Array of strings
+  - name: allowed_features
+    type: array
+    required: false
+    default: ["chat", "search", "analysis"]
 ```
 
 ### 4. Use Descriptive Variable Names

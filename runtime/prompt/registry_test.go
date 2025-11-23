@@ -236,10 +236,11 @@ func TestRegistry_GetPromptInfo(t *testing.T) {
 					{Name: "fragment1", Required: true},
 					{Name: "fragment2", Required: false},
 				},
-				RequiredVars: []string{"var1", "var2"},
-				OptionalVars: map[string]string{
-					"opt1": "default1",
-					"opt2": "default2",
+				Variables: []VariableMetadata{
+					{Name: "var1", Required: true, Type: "string"},
+					{Name: "var2", Required: true, Type: "string"},
+					{Name: "opt1", Required: false, Type: "string", Default: "default1"},
+					{Name: "opt2", Required: false, Type: "string", Default: "default2"},
 				},
 				AllowedTools: []string{"tool1", "tool2"},
 				ModelOverrides: map[string]ModelOverride{
@@ -290,10 +291,11 @@ func TestRegistry_PrepareVariables(t *testing.T) {
 			name: "valid required and optional vars",
 			config: &PromptConfig{
 				Spec: PromptSpec{
-					RequiredVars: []string{"var1", "var2"},
-					OptionalVars: map[string]string{
-						"opt1": "default1",
-						"opt2": "default2",
+					Variables: []VariableMetadata{
+						{Name: "var1", Required: true, Type: "string"},
+						{Name: "var2", Required: true, Type: "string"},
+						{Name: "opt1", Required: false, Type: "string", Default: "default1"},
+						{Name: "opt2", Required: false, Type: "string", Default: "default2"},
 					},
 				},
 			},
@@ -308,9 +310,9 @@ func TestRegistry_PrepareVariables(t *testing.T) {
 			name: "override optional vars",
 			config: &PromptConfig{
 				Spec: PromptSpec{
-					RequiredVars: []string{"var1"},
-					OptionalVars: map[string]string{
-						"opt1": "default1",
+					Variables: []VariableMetadata{
+						{Name: "var1", Required: true, Type: "string"},
+						{Name: "opt1", Required: false, Type: "string", Default: "default1"},
 					},
 				},
 			},
@@ -325,8 +327,10 @@ func TestRegistry_PrepareVariables(t *testing.T) {
 			name: "missing required var",
 			config: &PromptConfig{
 				Spec: PromptSpec{
-					RequiredVars: []string{"var1", "var2"},
-					OptionalVars: map[string]string{},
+					Variables: []VariableMetadata{
+						{Name: "var1", Required: true, Type: "string"},
+						{Name: "var2", Required: true, Type: "string"},
+					},
 				},
 			},
 			vars: map[string]string{
@@ -455,7 +459,7 @@ func TestRegistry_MergeVars(t *testing.T) {
 			name: "no optional vars",
 			config: &PromptConfig{
 				Spec: PromptSpec{
-					OptionalVars: map[string]string{},
+					Variables: []VariableMetadata{},
 				},
 			},
 			vars: map[string]string{
@@ -469,9 +473,9 @@ func TestRegistry_MergeVars(t *testing.T) {
 			name: "optional vars with no overrides",
 			config: &PromptConfig{
 				Spec: PromptSpec{
-					OptionalVars: map[string]string{
-						"opt1": "default1",
-						"opt2": "default2",
+					Variables: []VariableMetadata{
+						{Name: "opt1", Required: false, Type: "string", Default: "default1"},
+						{Name: "opt2", Required: false, Type: "string", Default: "default2"},
 					},
 				},
 			},
@@ -488,9 +492,9 @@ func TestRegistry_MergeVars(t *testing.T) {
 			name: "override optional vars",
 			config: &PromptConfig{
 				Spec: PromptSpec{
-					OptionalVars: map[string]string{
-						"opt1": "default1",
-						"opt2": "default2",
+					Variables: []VariableMetadata{
+						{Name: "opt1", Required: false, Type: "string", Default: "default1"},
+						{Name: "opt2", Required: false, Type: "string", Default: "default2"},
 					},
 				},
 			},

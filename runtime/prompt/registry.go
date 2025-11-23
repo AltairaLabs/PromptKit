@@ -72,9 +72,7 @@ type PromptSpec struct {
 	TemplateEngine *TemplateEngineInfo      `yaml:"template_engine,omitempty"` // Template engine configuration
 	Fragments      []FragmentRef            `yaml:"fragments,omitempty"`       // New: fragment assembly
 	SystemTemplate string                   `yaml:"system_template"`
-	RequiredVars   []string                 `yaml:"required_vars"`
-	OptionalVars   map[string]string        `yaml:"optional_vars"`
-	Variables      []VariableMetadata       `yaml:"variables,omitempty"` // Enhanced variable metadata
+	Variables      []VariableMetadata       `yaml:"variables,omitempty"` // Variable definitions with rich metadata
 	ModelOverrides map[string]ModelOverride `yaml:"model_overrides"`
 	AllowedTools   []string                 `yaml:"allowed_tools,omitempty"` // Tools this prompt can use
 	MediaConfig    *MediaConfig             `yaml:"media,omitempty"`         // Multimodal media configuration
@@ -204,22 +202,16 @@ type TemplateEngineInfo struct {
 }
 
 // VariableMetadata contains enhanced metadata for a variable
+// VariableMetadata defines a template variable with validation rules
+// This struct matches the SDK Variable type for PromptPack spec compliance
 type VariableMetadata struct {
-	Name        string              `yaml:"name"`                  // Variable name
-	Type        string              `yaml:"type,omitempty"`        // Variable type (string, int, etc.)
-	Required    bool                `yaml:"required"`              // Whether variable is required
-	Default     string              `yaml:"default,omitempty"`     // Default value if optional
-	Description string              `yaml:"description,omitempty"` // Human-readable description
-	Example     string              `yaml:"example,omitempty"`     // Example value
-	Enum        []string            `yaml:"enum,omitempty"`        // Allowed values
-	Validation  *VariableValidation `yaml:"validation,omitempty"`  // Validation rules
-}
-
-// VariableValidation contains validation rules for a variable
-type VariableValidation struct {
-	Pattern   string `yaml:"pattern,omitempty"`    // Regex pattern
-	MinLength int    `yaml:"min_length,omitempty"` // Minimum length
-	MaxLength int    `yaml:"max_length,omitempty"` // Maximum length
+	Name        string                 `yaml:"name" json:"name"`
+	Type        string                 `yaml:"type,omitempty" json:"type,omitempty"` // "string", "number", "boolean", "object", "array"
+	Required    bool                   `yaml:"required" json:"required"`
+	Default     interface{}            `yaml:"default,omitempty" json:"default,omitempty"`
+	Description string                 `yaml:"description,omitempty" json:"description,omitempty"`
+	Example     interface{}            `yaml:"example,omitempty" json:"example,omitempty"`
+	Validation  map[string]interface{} `yaml:"validation,omitempty" json:"validation,omitempty"`
 }
 
 // PromptMetadata contains additional metadata for the pack format
@@ -492,17 +484,29 @@ func (r *Registry) loadConfig(activity string) (*PromptConfig, error) {
 
 // validateRequiredVars ensures all required variables are provided
 func (r *Registry) validateRequiredVars(config *PromptConfig, vars map[string]string) error {
-	return r.templateRenderer.ValidateRequiredVars(config.Spec.RequiredVars, vars)
+	// Extract required variable names from Variables
+	requiredVars := []string{}
+	for _, v := range config.Spec.Variables {
+		if v.Required {
+			requiredVars = append(requiredVars, v.Name)
+		}
+	}
+	return r.templateRenderer.ValidateRequiredVars(requiredVars, vars)
 }
 
-// mergeVars combines provided vars with optional defaults
+// mergeVars combines provided vars with optional defaults from Variables
 func (r *Registry) mergeVars(config *PromptConfig, vars map[string]string) map[string]string {
 	// Pre-allocate with known capacity for better performance
-	result := make(map[string]string, len(config.Spec.OptionalVars)+len(vars))
+	result := make(map[string]string, len(config.Spec.Variables)+len(vars))
 
-	// Start with optional defaults
-	for key, defaultVal := range config.Spec.OptionalVars {
-		result[key] = defaultVal
+	// Start with variable defaults
+	for _, v := range config.Spec.Variables {
+		if !v.Required && v.Default != nil {
+			// Convert default value to string (skip empty strings)
+			if defaultStr, ok := v.Default.(string); ok && defaultStr != "" {
+				result[v.Name] = defaultStr
+			}
+		}
 	}
 
 	// Override with provided vars
@@ -579,13 +583,24 @@ func (r *Registry) GetPromptInfo(taskType string) (*PromptInfo, error) {
 		return nil, fmt.Errorf("failed to get prompt info: %w", err)
 	}
 
+	// Extract required and optional variable names
+	requiredVars := []string{}
+	optionalVars := []string{}
+	for _, v := range config.Spec.Variables {
+		if v.Required {
+			requiredVars = append(requiredVars, v.Name)
+		} else {
+			optionalVars = append(optionalVars, v.Name)
+		}
+	}
+
 	return &PromptInfo{
 		TaskType:       config.Spec.TaskType,
 		Version:        config.Spec.Version,
 		Description:    config.Spec.Description,
 		FragmentCount:  len(config.Spec.Fragments),
-		RequiredVars:   config.Spec.RequiredVars,
-		OptionalVars:   extractKeys(config.Spec.OptionalVars),
+		RequiredVars:   requiredVars,
+		OptionalVars:   optionalVars,
 		ToolAllowlist:  config.Spec.AllowedTools,
 		ModelOverrides: extractKeys(config.Spec.ModelOverrides),
 	}, nil
@@ -626,29 +641,7 @@ func (r *Registry) populateDefaults(config *PromptConfig) {
 		}
 	}
 
-	// Auto-generate Variables metadata from RequiredVars and OptionalVars if not specified
-	if len(config.Spec.Variables) == 0 && (len(config.Spec.RequiredVars) > 0 || len(config.Spec.OptionalVars) > 0) {
-		config.Spec.Variables = make([]VariableMetadata, 0)
-
-		// Add required variables
-		for _, varName := range config.Spec.RequiredVars {
-			config.Spec.Variables = append(config.Spec.Variables, VariableMetadata{
-				Name:     varName,
-				Type:     "string",
-				Required: true,
-			})
-		}
-
-		// Add optional variables
-		for varName, defaultVal := range config.Spec.OptionalVars {
-			config.Spec.Variables = append(config.Spec.Variables, VariableMetadata{
-				Name:     varName,
-				Type:     "string",
-				Required: false,
-				Default:  defaultVal,
-			})
-		}
-	}
+	// Variables are now required in the new format - no auto-migration
 
 	// Set default validator flags if not specified
 	trueVal := true

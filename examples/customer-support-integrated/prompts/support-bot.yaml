@@ -7,9 +7,17 @@ spec:
   version: "v1.0.0"
   description: "Customer support bot with integrated tools"
   
-  optional_vars:
-    company_name: "TechCo"
-    support_hours: "24/7"
+  variables:
+    - name: company_name
+      type: string
+      required: false
+      default: "TechCo"
+      description: "Company name"
+    - name: support_hours
+      type: string
+      required: false
+      default: "24/7"
+      description: "Support availability"
   
   system_template: |
     You are a {{company_name}} customer support agent with access to customer information systems.

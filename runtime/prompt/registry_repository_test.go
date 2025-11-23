@@ -28,8 +28,7 @@ func TestRegistry_LoadWithRepository(t *testing.T) {
 		Spec: prompt.PromptSpec{
 			TaskType:       "test-task",
 			SystemTemplate: "You are a test assistant",
-			RequiredVars:   []string{},
-			OptionalVars:   map[string]string{},
+			Variables:      []prompt.VariableMetadata{},
 		},
 	})
 
@@ -59,8 +58,10 @@ func TestRegistry_LoadWithVars_WithRepository(t *testing.T) {
 		Spec: prompt.PromptSpec{
 			TaskType:       "var-test",
 			SystemTemplate: "Hello {{name}}, welcome to {{place}}!",
-			RequiredVars:   []string{"name"},
-			OptionalVars:   map[string]string{"place": "Earth"},
+			Variables: []prompt.VariableMetadata{
+				{Name: "name", Required: true, Type: "string"},
+				{Name: "place", Required: false, Type: "string", Default: "Earth"},
+			},
 		},
 	})
 
