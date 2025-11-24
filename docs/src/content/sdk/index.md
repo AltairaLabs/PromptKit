@@ -84,6 +84,7 @@ Focused guides for specific SDK tasks:
 - [Implement Tools](/sdk/how-to/implement-tools/) - MCP and custom tools
 - [Add Middleware](/sdk/how-to/add-middleware/) - Custom processing
 - [Configure State](/sdk/how-to/configure-state/) - State management options
+- [Configure Media Storage](/sdk/how-to/configure-media-storage/) - Optimize memory for media
 - [Handle Streaming](/sdk/how-to/handle-streaming/) - Real-time responses
 - [Error Handling](/sdk/how-to/error-handling/) - Robust error management
 - [Deploy to Production](/sdk/how-to/deploy-production/) - Deployment patterns
@@ -125,6 +126,26 @@ config := &sdk.Config{
     Pack:     pack,
 }
 conv, _ := manager.NewConversationWithPrompt(ctx, "support-greeting")
+```
+
+### Media Storage
+
+Automatic externalization for images, audio, and video:
+
+```go
+import "github.com/AltairaLabs/PromptKit/runtime/storage/local"
+
+fileStore := local.NewFileStore(local.FileStoreConfig{
+    BaseDir:             "./media",
+    EnableDeduplication: true,
+})
+
+manager, _ := sdk.NewConversationManager(
+    sdk.WithProvider(provider),
+    sdk.WithMediaStorage(fileStore),
+)
+
+// Large media automatically stored to disk, reducing memory by 70-90%
 ```
 
 ### State Persistence

@@ -58,6 +58,144 @@ type ToolSupport interface {
 }
 ```
 
+### MultimodalSupport
+
+Providers that support images, audio, or video inputs implement `MultimodalSupport`:
+
+```go
+type MultimodalSupport interface {
+    Provider
+    
+    // Get supported multimodal capabilities
+    GetMultimodalCapabilities() MultimodalCapabilities
+    
+    // Execute with multimodal content
+    PredictMultimodal(ctx context.Context, req PredictionRequest) (PredictionResponse, error)
+    
+    // Stream with multimodal content
+    PredictMultimodalStream(ctx context.Context, req PredictionRequest) (<-chan StreamChunk, error)
+}
+```
+
+**MultimodalCapabilities**:
+
+```go
+type MultimodalCapabilities struct {
+    SupportsImages bool       // Can process image inputs
+    SupportsAudio  bool       // Can process audio inputs
+    SupportsVideo  bool       // Can process video inputs
+    ImageFormats   []string   // Supported image MIME types
+    AudioFormats   []string   // Supported audio MIME types
+    VideoFormats   []string   // Supported video MIME types
+    MaxImageSizeMB int        // Max image size (0 = unlimited/unknown)
+    MaxAudioSizeMB int        // Max audio size (0 = unlimited/unknown)
+    MaxVideoSizeMB int        // Max video size (0 = unlimited/unknown)
+}
+```
+
+**Provider Multimodal Support**:
+
+| Provider | Images | Audio | Video | Notes |
+|----------|--------|-------|-------|-------|
+| OpenAI GPT-4o/4o-mini | ✅ | ❌ | ❌ | JPEG, PNG, GIF, WebP |
+| Anthropic Claude 3.5 | ✅ | ❌ | ❌ | JPEG, PNG, GIF, WebP |
+| Google Gemini 1.5 | ✅ | ✅ | ✅ | Full multimodal support |
+
+**Helper Functions**:
+
+```go
+// Check if provider supports multimodal
+func SupportsMultimodal(p Provider) bool
+
+// Get multimodal provider (returns nil if not supported)
+func GetMultimodalProvider(p Provider) MultimodalSupport
+
+// Check specific media type support
+func HasImageSupport(p Provider) bool
+func HasAudioSupport(p Provider) bool
+func HasVideoSupport(p Provider) bool
+
+// Check format compatibility
+func IsFormatSupported(p Provider, contentType string, mimeType string) bool
+
+// Validate message compatibility
+func ValidateMultimodalMessage(p Provider, msg types.Message) error
+```
+
+**Usage Example**:
+
+```go
+// Check capabilities
+if providers.HasImageSupport(provider) {
+    caps := providers.GetMultimodalProvider(provider).GetMultimodalCapabilities()
+    fmt.Printf("Max image size: %d MB\n", caps.MaxImageSizeMB)
+}
+
+// Send multimodal request
+req := providers.PredictionRequest{
+    System: "You are a helpful assistant.",
+    Messages: []types.Message{
+        {
+            Role: "user",
+            Parts: []types.ContentPart{
+                {Type: "text", Text: "What's in this image?"},
+                {
+                    Type: "image",
+                    Media: &types.MediaContent{
+                        Type:     "image",
+                        MIMEType: "image/jpeg",
+                        Data:     imageBase64,
+                    },
+                },
+            },
+        },
+    },
+}
+
+if mp := providers.GetMultimodalProvider(provider); mp != nil {
+    resp, err := mp.PredictMultimodal(ctx, req)
+}
+```
+
+### MultimodalToolSupport
+
+Providers that support both multimodal content and function calling implement `MultimodalToolSupport`:
+
+```go
+type MultimodalToolSupport interface {
+    MultimodalSupport
+    ToolSupport
+    
+    // Execute with both multimodal content and tools
+    PredictMultimodalWithTools(
+        ctx context.Context,
+        req PredictionRequest,
+        tools interface{},
+        toolChoice string,
+    ) (PredictionResponse, []types.MessageToolCall, error)
+}
+```
+
+**Usage Example**:
+
+```go
+// Use images with tool calls
+tools, _ := provider.BuildTooling(toolDescriptors)
+
+resp, toolCalls, err := provider.PredictMultimodalWithTools(
+    ctx,
+    multimodalRequest,
+    tools,
+    "auto",
+)
+
+// Response contains both text and any tool calls
+fmt.Println(resp.Content)
+for _, call := range toolCalls {
+    fmt.Printf("Tool called: %s\n", call.Name)
+}
+```
+
 ## Request/Response Types
 
 ### PredictionRequest
@@ -678,7 +816,381 @@ for chunk := range streamChan {
 
 ## See Also
 
+- [MediaLoader](#medialoader) - Unified media loading
 - [Pipeline Reference](pipeline) - Using providers in pipelines
 - [Tools Reference](tools) - Function calling
 - [Provider How-To](../how-to/configure-providers) - Configuration guide
 - [Provider Explanation](../explanation/provider-architecture) - Architecture details
+
+## MediaLoader
+
+Unified interface for loading media content from various sources (inline data, storage references, file paths, URLs).
+
+### Overview
+
+`MediaLoader` abstracts media access, allowing providers to load media transparently regardless of where it's stored. This is essential for media externalization, where large media is stored on disk instead of being kept in memory.
+
+```go
+import "github.com/AltairaLabs/PromptKit/runtime/providers"
+
+loader := providers.NewMediaLoader(providers.MediaLoaderConfig{
+    StorageService: fileStore,
+    HTTPTimeout:    30 * time.Second,
+    MaxURLSizeBytes: 50 * 1024 * 1024, // 50 MB
+})
+```
+
+### Type Definition
+
+```go
+type MediaLoader struct {
+    // Unexported fields
+}
+```
+
+### Constructor
+
+#### NewMediaLoader
+
+Creates a new MediaLoader with the specified configuration.
+
+```go
+func NewMediaLoader(config MediaLoaderConfig) *MediaLoader
+```
+
+**Parameters:**
+
+- `config` - MediaLoaderConfig with storage service and options
+
+**Returns:**
+
+- `*MediaLoader` - Ready-to-use media loader
+
+**Example:**
+
+```go
+import (
+    "github.com/AltairaLabs/PromptKit/runtime/providers"
+    "github.com/AltairaLabs/PromptKit/runtime/storage/local"
+)
+
+fileStore := local.NewFileStore(local.FileStoreConfig{
+    BaseDir: "./media",
+})
+
+loader := providers.NewMediaLoader(providers.MediaLoaderConfig{
+    StorageService: fileStore,
+    HTTPTimeout:    30 * time.Second,
+    MaxURLSizeBytes: 50 * 1024 * 1024,
+})
+```
+
+### Configuration
+
+#### MediaLoaderConfig
+
+Configuration for MediaLoader instances.
+
+```go
+type MediaLoaderConfig struct {
+    StorageService   storage.MediaStorageService // Required for storage references
+    HTTPTimeout      time.Duration               // Timeout for URL fetches
+    MaxURLSizeBytes  int64                       // Max size for URL content
+}
+```
+
+**Fields:**
+
+**StorageService** - Media storage backend
+
+- Required if loading from storage references
+- Typically a FileStore or cloud storage backend
+- Set to nil if not using media externalization
+
+**HTTPTimeout** - HTTP request timeout for URLs
+
+- Default: 30 seconds
+- Applies to URL fetches only
+- Set to 0 for no timeout
+
+**MaxURLSizeBytes** - Maximum size for URL content
+
+- Default: 50 MB
+- Prevents downloading huge files
+- Returns error if content larger
+
+### Methods
+
+#### GetBase64Data
+
+Loads media content from any source and returns base64-encoded data.
+
+```go
+func (l *MediaLoader) GetBase64Data(
+    ctx context.Context,
+    media *types.MediaContent,
+) (string, error)
+```
+
+**Parameters:**
+
+- `ctx` - Context for cancellation and timeout
+- `media` - MediaContent with one or more sources
+
+**Returns:**
+
+- `string` - Base64-encoded media data
+- `error` - Load errors (not found, timeout, size limit, etc.)
+
+**Source Priority:**
+
+Media is loaded from the first available source in this order:
+
+1. **Data** - Inline base64 data (if present)
+2. **StorageReference** - External storage (requires StorageService)
+3. **FilePath** - Local file system path
+4. **URL** - HTTP/HTTPS URL (with timeout and size limits)
+
+**Example:**
+
+```go
+// Load from any source
+data, err := loader.GetBase64Data(ctx, media)
+if err != nil {
+    log.Printf("Failed to load media: %v", err)
+    return err
+}
+
+// Use the data
+fmt.Printf("Loaded %d bytes\n", len(data))
+```
+
+### Usage Examples
+
+#### Basic Usage
+
+```go
+// Media with inline data
+media := &types.MediaContent{
+    Type:     "image",
+    MimeType: "image/png",
+    Data:     "iVBORw0KGgoAAAANSUhEUg...", // Base64
+}
+
+data, err := loader.GetBase64Data(ctx, media)
+// Returns media.Data immediately (already inline)
+```
+
+#### Load from Storage
+
+```go
+// Media externalized to storage
+media := &types.MediaContent{
+    Type:     "image",
+    MimeType: "image/png",
+    StorageReference: &storage.StorageReference{
+        ID:      "abc123-def456-ghi789",
+        Backend: "file",
+    },
+}
+
+data, err := loader.GetBase64Data(ctx, media)
+// Loads from disk via StorageService
+```
+
+#### Load from File Path
+
+```go
+// Media from local file
+media := &types.MediaContent{
+    Type:     "image",
+    MimeType: "image/jpeg",
+    FilePath: "/path/to/image.jpg",
+}
+
+data, err := loader.GetBase64Data(ctx, media)
+// Reads file and converts to base64
+```
+
+#### Load from URL
+
+```go
+// Media from HTTP URL
+media := &types.MediaContent{
+    Type:     "image",
+    MimeType: "image/png",
+    URL:      "https://example.com/image.png",
+}
+
+data, err := loader.GetBase64Data(ctx, media)
+// Fetches URL with timeout and size checks
+```
+
+#### Provider Integration
+
+```go
+// Provider using MediaLoader
+type MyProvider struct {
+    mediaLoader *providers.MediaLoader
+}
+
+func (p *MyProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+    // Load media from messages
+    for _, msg := range req.Messages {
+        for _, content := range msg.Content {
+            if content.Media != nil {
+                // Load media transparently
+                data, err := p.mediaLoader.GetBase64Data(ctx, content.Media)
+                if err != nil {
+                    return providers.PredictionResponse{}, err
+                }
+                
+                // Use data in API call
+                // ...
+            }
+        }
+    }
+    
+    // Call LLM API
+    // ...
+}
+```
+
+### Error Handling
+
+MediaLoader returns specific errors:
+
+```go
+data, err := loader.GetBase64Data(ctx, media)
+if err != nil {
+    switch {
+    case errors.Is(err, providers.ErrNoMediaSource):
+        // No source available (no Data, StorageReference, FilePath, or URL)
+    case errors.Is(err, providers.ErrMediaNotFound):
+        // Storage reference or file path not found
+    case errors.Is(err, providers.ErrMediaTooLarge):
+        // URL content exceeds MaxURLSizeBytes
+    case errors.Is(err, context.DeadlineExceeded):
+        // HTTP timeout or context cancelled
+    default:
+        // Other errors (permission, network, etc.)
+    }
+}
+```
+
+### Performance Considerations
+
+#### Caching
+
+MediaLoader does not cache loaded media. For repeated access:
+
+```go
+// Cache loaded media yourself
+mediaCache := make(map[string]string)
+
+data, ok := mediaCache[media.StorageReference.ID]
+if !ok {
+    var err error
+    data, err = loader.GetBase64Data(ctx, media)
+    if err != nil {
+        return err
+    }
+    mediaCache[media.StorageReference.ID] = data
+}
+```
+
+#### Async Loading
+
+For loading multiple media items in parallel:
+
+```go
+type loadResult struct {
+    data string
+    err  error
+}
+
+// Load media concurrently
+results := make([]loadResult, len(mediaItems))
+var wg sync.WaitGroup
+
+for i, media := range mediaItems {
+    wg.Add(1)
+    go func(idx int, m *types.MediaContent) {
+        defer wg.Done()
+        data, err := loader.GetBase64Data(ctx, m)
+        results[idx] = loadResult{data, err}
+    }(i, media)
+}
+
+wg.Wait()
+
+// Check results
+for i, result := range results {
+    if result.err != nil {
+        log.Printf("Failed to load media %d: %v", i, result.err)
+    }
+}
+```
+
+### Best Practices
+
+**✅ Do:**
+
+- Create one MediaLoader per application (reuse)
+- Set reasonable HTTP timeout (30s is good default)
+- Set MaxURLSizeBytes to prevent abuse
+- Handle errors gracefully (media may be unavailable)
+- Use context for cancellation support
+
+**❌ Don't:**
+
+- Don't create MediaLoader per request (expensive)
+- Don't ignore errors (media may be corrupted/missing)
+- Don't set timeout too low (large images take time)
+- Don't allow unlimited URL sizes (DoS risk)
+- Don't cache without bounds (memory leak)
+
+### Integration with Media Storage
+
+MediaLoader and media storage work together:
+
+```go
+// 1. Set up storage
+fileStore := local.NewFileStore(local.FileStoreConfig{
+    BaseDir: "./media",
+})
+
+// 2. Create loader with storage
+loader := providers.NewMediaLoader(providers.MediaLoaderConfig{
+    StorageService: fileStore,
+})
+
+// 3. Use in SDK
+manager, _ := sdk.NewConversationManager(
+    sdk.WithProvider(provider),
+    sdk.WithMediaStorage(fileStore), // Externalizes media
+)
+
+// 4. Provider automatically uses loader
+// Media externalized by MediaExternalizer middleware
+// Provider loads via MediaLoader when needed
+// Application code remains unchanged
+```
+
+**Flow:**
+
+```text
+1. User sends image → inline Data
+2. LLM returns generated image → inline Data
+3. MediaExternalizer → externalizes to storage, clears Data, adds StorageReference
+4. State saved → only reference in Redis/Postgres
+5. Next turn: Provider needs image → MediaLoader loads from StorageReference
+6. Transparent to application code
+```
+
+### See Also
+
+- [Storage Reference](storage) - Media storage backends
+- [Types Reference](types#mediacontent) - MediaContent structure
+- [How-To: Configure Media Storage](../../sdk/how-to/configure-media-storage) - Setup guide
+- [Explanation: Media Storage](../../sdk/explanation/media-storage) - Design and architecture
