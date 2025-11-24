@@ -18,6 +18,11 @@ func LoadConfig(filename string) (*Config, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
+	// Step 1: JSON Schema validation (structure, types, required fields)
+	if err := ValidateArenaConfig(data); err != nil {
+		return nil, fmt.Errorf("schema validation failed: %w", err)
+	}
+
 	var arenaConfig ArenaConfig
 	if err := yaml.Unmarshal(data, &arenaConfig); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
@@ -92,6 +97,22 @@ func loadSimpleK8sManifest[T k8sManifest](filename string, expectedKind string) 
 		return zero, fmt.Errorf("failed to read %s file: %w", expectedKind, err)
 	}
 
+	// Schema validation based on kind
+	var validationErr error
+	switch expectedKind {
+	case "Scenario":
+		validationErr = ValidateScenario(data)
+	case "Provider":
+		validationErr = ValidateProvider(data)
+	case "Tool":
+		validationErr = ValidateTool(data)
+	case "Persona":
+		validationErr = ValidatePersona(data)
+	}
+	if validationErr != nil {
+		return zero, fmt.Errorf("schema validation failed for %s: %w", expectedKind, validationErr)
+	}
+
 	var config T
 	if err := yaml.Unmarshal(data, &config); err != nil {
 		return zero, fmt.Errorf("failed to parse %s file: %w", expectedKind, err)
@@ -144,6 +165,11 @@ func (c *Config) loadPromptConfigs(configPath string) error {
 		data, err := os.ReadFile(fullPath)
 		if err != nil {
 			return fmt.Errorf("failed to read prompt file %s: %w", ref.File, err)
+		}
+
+		// Schema validation
+		if err := ValidatePromptConfig(data); err != nil {
+			return fmt.Errorf("schema validation failed for %s: %w", ref.File, err)
 		}
 
 		// Parse configuration
