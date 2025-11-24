@@ -198,6 +198,18 @@ schemas-check: build-schema-gen ## Check if schemas are up to date (for CI)
 	@echo "Checking if schemas are up to date..."
 	@./bin/schema-gen --check
 
+schemas-copy: schemas ## Copy schemas to docs/public for hosting
+	@echo "Copying schemas to docs/public/schemas..."
+	@mkdir -p docs/public/schemas
+	@cp -r schemas/* docs/public/schemas/
+	@echo "✓ Schemas copied to docs/public/schemas"
+	@echo ""
+	@echo "Schemas will be available at:"
+	@find docs/public/schemas -name "*.json" -type f | while read -r file; do \
+		rel_path=$$(echo $$file | sed 's|docs/public/schemas/||'); \
+		echo "  https://promptkit.altairalabs.ai/schemas/$$rel_path"; \
+	done
+
 clean: ## Clean build artifacts
 	@rm -rf bin/
 	@rm -f runtime/coverage.out
@@ -278,6 +290,7 @@ docs-build: ## Build complete documentation site
 	@echo "🏗️ Building documentation site..."
 	@$(MAKE) docs-api
 	@$(MAKE) docs-cli
+	@$(MAKE) schemas-copy
 	@echo "📝 Preparing example documentation..."
 	@./scripts/prepare-examples-docs.sh
 	@echo "🔨 Building Astro site..."

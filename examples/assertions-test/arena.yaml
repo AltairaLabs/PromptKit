@@ -1,4 +1,4 @@
-$schema: https://schemas.promptkit.altairalabs.ai/v1alpha1/arena.json
+$schema: https://promptkit.altairalabs.ai/schemas/v1alpha1/arena.json
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Arena
 metadata:

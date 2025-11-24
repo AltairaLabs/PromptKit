@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	schemaBaseURL            = "https://schemas.promptkit.altairalabs.ai/v1alpha1"
+	schemaBaseURL            = "https://promptkit.altairalabs.ai/schemas/v1alpha1"
 	defaultTemperature       = 0.7
 	defaultMaxTokens         = 1000
 	defaultProviderMaxTokens = 2000

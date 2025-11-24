@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.promptkit.altairalabs.ai/v1alpha1/provider.json",
+  "$id": "https://promptkit.altairalabs.ai/schemas/v1alpha1/provider.json",
   "$defs": {
     "FieldsV1": {
       "properties": {},
