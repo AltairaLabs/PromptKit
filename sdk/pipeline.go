@@ -4,6 +4,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
@@ -72,6 +73,30 @@ func (pb *PipelineBuilder) WithSimpleProvider(provider providers.Provider) *Pipe
 // This replaces {{variable}} placeholders in the system prompt.
 func (pb *PipelineBuilder) WithTemplate() *PipelineBuilder {
 	pb.middleware = append(pb.middleware, middleware.TemplateMiddleware())
+	return pb
+}
+
+// WithMediaExternalization adds media externalization middleware.
+// This automatically stores large media content to a storage backend and replaces
+// inline base64 data with storage references, reducing memory usage.
+//
+// Parameters:
+//   - storageService: The storage backend for media files
+//   - sizeThresholdKB: Media larger than this (in KB) will be externalized
+//   - defaultPolicy: Retention policy name (e.g., "retain", "delete-after-30d")
+//
+// Example:
+//
+//	storage, _ := local.NewFileStore(local.FileStoreConfig{BaseDir: "./media"})
+//	builder.WithMediaExternalization(storage, 100, "retain")
+func (pb *PipelineBuilder) WithMediaExternalization(storageService storage.MediaStorageService, sizeThresholdKB int64, defaultPolicy string) *PipelineBuilder {
+	config := &middleware.MediaExternalizerConfig{
+		Enabled:         true,
+		StorageService:  storageService,
+		SizeThresholdKB: sizeThresholdKB,
+		DefaultPolicy:   defaultPolicy,
+	}
+	pb.middleware = append(pb.middleware, middleware.MediaExternalizerMiddleware(config))
 	return pb
 }
 

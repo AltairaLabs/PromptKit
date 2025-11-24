@@ -203,24 +203,19 @@ func (p *ClaudeProvider) convertImagePartToClaude(part types.ContentPart) (claud
 	}
 
 	// Determine which data source is set
-	if part.Media.Data != nil && *part.Media.Data != "" {
-		// Base64 data
-		block.Source.Type = "base64"
-		block.Source.Data = *part.Media.Data
-	} else if part.Media.URL != nil && *part.Media.URL != "" {
-		// URL
+	if part.Media.URL != nil && *part.Media.URL != "" {
+		// External URL - use directly
 		block.Source.Type = "url"
 		block.Source.URL = *part.Media.URL
-	} else if part.Media.FilePath != nil && *part.Media.FilePath != "" {
-		// File path - load and convert to base64
-		data, err := providers.LoadFileAsBase64(*part.Media.FilePath)
+	} else {
+		// Use MediaLoader for all other sources (Data, FilePath, StorageReference)
+		loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+		data, err := loader.GetBase64Data(context.Background(), part.Media)
 		if err != nil {
-			return claudeContentBlockMultimodal{}, fmt.Errorf("failed to load image file: %w", err)
+			return claudeContentBlockMultimodal{}, fmt.Errorf("failed to load image data: %w", err)
 		}
 		block.Source.Type = "base64"
 		block.Source.Data = data
-	} else {
-		return claudeContentBlockMultimodal{}, fmt.Errorf("no data source specified for image")
 	}
 
 	return block, nil

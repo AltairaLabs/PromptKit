@@ -63,7 +63,7 @@ func TestSelfPlayExecutor_WithAssertions_Pass(t *testing.T) {
 	}
 
 	// Create executors
-	pipelineExecutor := NewPipelineExecutor(toolRegistry)
+	pipelineExecutor := NewPipelineExecutor(toolRegistry, nil)
 	selfPlayExecutor := NewSelfPlayExecutor(pipelineExecutor, mockContentProvider)
 
 	// Pre-initialize state store
@@ -195,7 +195,7 @@ func TestSelfPlayExecutor_WithAssertions_Fail(t *testing.T) {
 		TaskType: "test",
 	}
 
-	pipelineExecutor := NewPipelineExecutor(toolRegistry)
+	pipelineExecutor := NewPipelineExecutor(toolRegistry, nil)
 	selfPlayExecutor := NewSelfPlayExecutor(pipelineExecutor, mockContentProvider)
 
 	// Pre-initialize state store

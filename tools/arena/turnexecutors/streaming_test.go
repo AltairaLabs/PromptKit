@@ -31,7 +31,7 @@ func TestScriptedExecutor_ExecuteTurnStream_Success(t *testing.T) {
 	}
 
 	toolRegistry := tools.NewRegistry()
-	aiExecutor := NewPipelineExecutor(toolRegistry)
+	aiExecutor := NewPipelineExecutor(toolRegistry, nil)
 	executor := NewScriptedExecutor(aiExecutor)
 
 	req := TurnRequest{
@@ -79,7 +79,7 @@ func TestScriptedExecutor_ExecuteTurnStream_ProviderError(t *testing.T) {
 	}
 
 	toolRegistry := tools.NewRegistry()
-	aiExecutor := NewPipelineExecutor(toolRegistry)
+	aiExecutor := NewPipelineExecutor(toolRegistry, nil)
 	executor := NewScriptedExecutor(aiExecutor)
 
 	req := TurnRequest{
@@ -116,7 +116,7 @@ func TestScriptedExecutor_ExecuteTurnStream_ContextCancellation(t *testing.T) {
 	}
 
 	toolRegistry := tools.NewRegistry()
-	aiExecutor := NewPipelineExecutor(toolRegistry)
+	aiExecutor := NewPipelineExecutor(toolRegistry, nil)
 	executor := NewScriptedExecutor(aiExecutor)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -295,7 +295,7 @@ func TestSelfPlayExecutor_ExecuteTurnStream_Success(t *testing.T) {
 	}
 
 	toolRegistry := tools.NewRegistry()
-	aiExecutor := NewPipelineExecutor(toolRegistry)
+	aiExecutor := NewPipelineExecutor(toolRegistry, nil)
 	executor := NewSelfPlayExecutor(aiExecutor, mockSelfPlayProvider)
 
 	req := TurnRequest{

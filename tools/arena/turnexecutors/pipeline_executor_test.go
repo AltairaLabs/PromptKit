@@ -87,10 +87,8 @@ func TestBuildBaseVariables(t *testing.T) {
 	}
 }
 
-// TestPipelineExecutor_BuildBaseVariables tests the buildBaseVariables method with PromptVars
+// TestPipelineExecutor_BuildBaseVariables tests the buildBaseVariables function with PromptVars
 func TestPipelineExecutor_BuildBaseVariables(t *testing.T) {
-	executor := NewPipelineExecutor(nil)
-
 	tests := []struct {
 		name         string
 		req          TurnRequest
@@ -178,7 +176,16 @@ func TestPipelineExecutor_BuildBaseVariables(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := executor.buildBaseVariables(tt.req)
+			// Build base variables from region
+			baseVars := buildBaseVariables(tt.req.Region)
+			// Merge with PromptVars (PromptVars take precedence)
+			result := make(map[string]string)
+			for k, v := range baseVars {
+				result[k] = v
+			}
+			for k, v := range tt.req.PromptVars {
+				result[k] = v
+			}
 
 			if len(result) != len(tt.expectedVars) {
 				t.Errorf("Expected %d variables, got %d", len(tt.expectedVars), len(result))

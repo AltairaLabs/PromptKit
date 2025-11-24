@@ -12,7 +12,7 @@ import (
 )
 
 func TestConvertTurnPartsToMessageParts_EmptyParts(t *testing.T) {
-	parts, err := ConvertTurnPartsToMessageParts(context.Background(), nil, "", nil)
+	parts, err := ConvertTurnPartsToMessageParts(context.Background(), nil, "", nil, nil)
 	if err != nil {
 		t.Errorf("Expected no error for nil parts, got: %v", err)
 	}
@@ -20,7 +20,7 @@ func TestConvertTurnPartsToMessageParts_EmptyParts(t *testing.T) {
 		t.Errorf("Expected nil parts, got: %v", parts)
 	}
 
-	parts, err = ConvertTurnPartsToMessageParts(context.Background(), []config.TurnContentPart{}, "", nil)
+	parts, err = ConvertTurnPartsToMessageParts(context.Background(), []config.TurnContentPart{}, "", nil, nil)
 	if err != nil {
 		t.Errorf("Expected no error for empty parts, got: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestConvertTurnPartsToMessageParts_TextOnly(t *testing.T) {
 		{Type: "text", Text: "How are you?"},
 	}
 
-	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", nil)
+	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", nil, nil)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestConvertTurnPartsToMessageParts_EmptyText(t *testing.T) {
 		{Type: "text", Text: ""},
 	}
 
-	_, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", nil)
+	_, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", nil, nil)
 	if err == nil {
 		t.Error("Expected error for empty text part")
 	}
@@ -75,7 +75,7 @@ func TestConvertTurnPartsToMessageParts_ImageFromURL(t *testing.T) {
 		},
 	}
 
-	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", nil)
+	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", nil, nil)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestConvertTurnPartsToMessageParts_ImageFromData(t *testing.T) {
 		},
 	}
 
-	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", nil)
+	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", nil, nil)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestConvertTurnPartsToMessageParts_ImageFromFile(t *testing.T) {
 		},
 	}
 
-	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, tmpDir, nil)
+	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, tmpDir, nil, nil)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestConvertTurnPartsToMessageParts_ImageMissingMedia(t *testing.T) {
 		{Type: "image", Media: nil},
 	}
 
-	_, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", nil)
+	_, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", nil, nil)
 	if err == nil {
 		t.Error("Expected error for image part with no media")
 	}
@@ -206,7 +206,7 @@ func TestConvertTurnPartsToMessageParts_ImageNoSource(t *testing.T) {
 		},
 	}
 
-	_, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", nil)
+	_, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", nil, nil)
 	if err == nil {
 		t.Error("Expected error for image with no URL, data, or file_path")
 	}
@@ -225,7 +225,7 @@ func TestConvertTurnPartsToMessageParts_AudioFromData(t *testing.T) {
 		},
 	}
 
-	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", nil)
+	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", nil, nil)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestConvertTurnPartsToMessageParts_AudioFromFile(t *testing.T) {
 		},
 	}
 
-	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, tmpDir, nil)
+	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, tmpDir, nil, nil)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -290,7 +290,7 @@ func TestConvertTurnPartsToMessageParts_AudioMissingMIMEType(t *testing.T) {
 		},
 	}
 
-	_, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", nil)
+	_, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", nil, nil)
 	if err == nil {
 		t.Error("Expected error for audio with inline data but no MIME type")
 	}
@@ -309,7 +309,7 @@ func TestConvertTurnPartsToMessageParts_VideoFromData(t *testing.T) {
 		},
 	}
 
-	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", nil)
+	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", nil, nil)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -346,7 +346,7 @@ func TestConvertTurnPartsToMessageParts_VideoFromFile(t *testing.T) {
 		},
 	}
 
-	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, tmpDir, nil)
+	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, tmpDir, nil, nil)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -374,7 +374,7 @@ func TestConvertTurnPartsToMessageParts_FileNotFound(t *testing.T) {
 		},
 	}
 
-	_, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "/tmp", nil)
+	_, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "/tmp", nil, nil)
 	if err == nil {
 		t.Error("Expected error for nonexistent file")
 	}
@@ -385,7 +385,7 @@ func TestConvertTurnPartsToMessageParts_UnsupportedType(t *testing.T) {
 		{Type: "document", Text: "unsupported"},
 	}
 
-	_, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", nil)
+	_, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", nil, nil)
 	if err == nil {
 		t.Error("Expected error for unsupported content type")
 	}
@@ -425,7 +425,7 @@ func TestConvertTurnPartsToMessageParts_MixedContent(t *testing.T) {
 		},
 	}
 
-	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, tmpDir, nil)
+	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, tmpDir, nil, nil)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}

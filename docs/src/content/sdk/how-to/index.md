@@ -27,6 +27,7 @@ Practical, task-focused guides for common SDK operations.
 
 ## Advanced Topics
 
+- **[Configure Media Storage](configure-media-storage)** - Optimize memory for media
 - **[Custom Middleware](custom-middleware)** - Add observability and metrics
 - **[Error Handling](error-handling)** - Handle failures gracefully
 - **[Configure Context](configure-context)** - Manage token budgets
@@ -91,6 +92,11 @@ for event := range ch {
 2. [Configure Context](configure-context) - Manage token costs
 3. [Custom Middleware](custom-middleware) - Add metrics
 4. [Error Handling](error-handling) - Production patterns
+
+### Working with Media
+
+1. [Configure Media Storage](configure-media-storage) - Images, audio, video
+2. [Handle Streaming](stream-responses) - Real-time media processing
 
 ### Advanced Customization
 

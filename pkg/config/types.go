@@ -404,12 +404,13 @@ type TurnContentPart struct {
 
 // TurnMediaContent represents media content in a turn definition
 type TurnMediaContent struct {
-	FilePath string `json:"file_path,omitempty" yaml:"file_path,omitempty"` // Relative path to media file (resolved at test time)
-	URL      string `json:"url,omitempty" yaml:"url,omitempty"`             // External URL (http/https)
-	Data     string `json:"data,omitempty" yaml:"data,omitempty"`           // Base64-encoded data (for inline media)
-	MIMEType string `json:"mime_type" yaml:"mime_type"`                     // MIME type (e.g., "image/jpeg")
-	Detail   string `json:"detail,omitempty" yaml:"detail,omitempty"`       // Detail level for images: "low", "high", "auto"
-	Caption  string `json:"caption,omitempty" yaml:"caption,omitempty"`     // Optional caption/description
+	FilePath         string `json:"file_path,omitempty" yaml:"file_path,omitempty"`                 // Relative path to media file (resolved at test time)
+	URL              string `json:"url,omitempty" yaml:"url,omitempty"`                             // External URL (http/https)
+	Data             string `json:"data,omitempty" yaml:"data,omitempty"`                           // Base64-encoded data (for inline media)
+	StorageReference string `json:"storage_reference,omitempty" yaml:"storage_reference,omitempty"` // Storage backend reference (for externalized media)
+	MIMEType         string `json:"mime_type" yaml:"mime_type"`                                     // MIME type (e.g., "image/jpeg")
+	Detail           string `json:"detail,omitempty" yaml:"detail,omitempty"`                       // Detail level for images: "low", "high", "auto"
+	Caption          string `json:"caption,omitempty" yaml:"caption,omitempty"`                     // Optional caption/description
 }
 
 // ProviderConfig represents a Provider in K8s-style manifest format

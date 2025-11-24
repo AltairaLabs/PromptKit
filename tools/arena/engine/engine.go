@@ -24,6 +24,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
@@ -32,6 +33,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/storage"
+	"github.com/AltairaLabs/PromptKit/runtime/storage/local"
 )
 
 // Engine manages the execution of prompt testing scenarios across multiple
@@ -45,8 +48,9 @@ type Engine struct {
 	config               *config.Config
 	providerRegistry     *providers.Registry // Registry for looking up providers by ID
 	promptRegistry       *prompt.Registry
-	mcpRegistry          *mcp.RegistryImpl // Registry for MCP servers
-	stateStore           statestore.Store  // State store for conversation persistence (always enabled)
+	mcpRegistry          *mcp.RegistryImpl           // Registry for MCP servers
+	stateStore           statestore.Store            // State store for conversation persistence (always enabled)
+	mediaStorage         storage.MediaStorageService // Media storage for externalization (always enabled)
 	scenarios            map[string]*config.Scenario
 	providers            map[string]*config.Provider
 	personas             map[string]*config.UserPersonaPack
@@ -123,12 +127,19 @@ func NewEngine(
 		return nil, fmt.Errorf("failed to build state store: %w", err)
 	}
 
+	// Build media storage service for externalization
+	mediaStorage, err := buildMediaStorage(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build media storage: %w", err)
+	}
+
 	return &Engine{
 		config:               cfg,
 		providerRegistry:     providerRegistry,
 		promptRegistry:       promptRegistry,
 		mcpRegistry:          mcpRegistry,
 		stateStore:           stateStore,
+		mediaStorage:         mediaStorage,
 		conversationExecutor: convExecutor,
 		scenarios:            cfg.LoadedScenarios,
 		providers:            cfg.LoadedProviders,
@@ -302,4 +313,31 @@ func (e *Engine) ExecuteRuns(ctx context.Context, plan *RunPlan, concurrency int
 // GetStateStore returns the engine's state store for accessing run results
 func (e *Engine) GetStateStore() statestore.Store {
 	return e.stateStore
+}
+
+// buildMediaStorage creates a media storage service for media externalization.
+// It stores media files in the <output_dir>/media/ subdirectory using run-based organization.
+// This enables automatic externalization of large media content to reduce memory usage and
+// improve performance when processing media-heavy scenarios.
+func buildMediaStorage(cfg *config.Config) (storage.MediaStorageService, error) {
+	// Determine the media storage directory
+	outDir := cfg.Defaults.Output.Dir
+	if outDir == "" {
+		outDir = "out"
+	}
+
+	mediaDir := filepath.Join(outDir, "media")
+
+	// Create local file store with run-based organization
+	fileStore, err := local.NewFileStore(local.FileStoreConfig{
+		BaseDir:             mediaDir,
+		Organization:        storage.OrganizationByRun,
+		EnableDeduplication: true,
+		DefaultPolicy:       "retain",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create media file store: %w", err)
+	}
+
+	return fileStore, nil
 }

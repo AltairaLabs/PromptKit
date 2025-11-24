@@ -16,6 +16,11 @@ type ExecutionContext struct {
 	// Context for cancellation, deadlines, and request-scoped values
 	Context context.Context
 
+	// Identifiers for organization and tracking
+	RunID          string // Test run or execution batch identifier
+	SessionID      string // Session identifier for grouping related conversations
+	ConversationID string // Conversation identifier for this specific exchange
+
 	// State (mutable by middleware)
 	SystemPrompt     string                    // Populated by PromptAssemblyMiddleware
 	Variables        map[string]string         // Populated by PromptAssemblyMiddleware and ContextExtractionMiddleware
@@ -361,4 +366,20 @@ type ExecutionResult struct {
 	Trace    ExecutionTrace         `json:"trace"`     // Complete execution trace with all LLM calls
 	CostInfo types.CostInfo         `json:"cost_info"` // Aggregate cost across all LLM calls
 	Metadata map[string]interface{} `json:"metadata"`  // Metadata populated by middleware
+}
+
+// ExecutionOptions provides optional parameters for pipeline execution.
+// All fields are optional and will use sensible defaults if not provided.
+type ExecutionOptions struct {
+	// RunID identifies the test run or execution batch
+	RunID string
+
+	// SessionID identifies the session for grouping related conversations
+	SessionID string
+
+	// ConversationID identifies this specific conversation exchange
+	ConversationID string
+
+	// Context for cancellation and timeouts (if nil, uses context.Background())
+	Context context.Context
 }

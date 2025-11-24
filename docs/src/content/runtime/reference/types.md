@@ -243,6 +243,142 @@ type VideoData struct {
 
 Video content for video-capable models.
 
+### MediaContent
+
+```go
+type MediaContent struct {
+    Type             string                      // "image", "audio", "video"
+    MimeType         string                      // "image/png", "audio/mp3", etc.
+    Data             string                      // Base64 encoded data (may be empty if externalized)
+    FilePath         string                      // Local file path
+    URL              string                      // HTTP/HTTPS URL
+    StorageReference *storage.StorageReference   // External storage reference
+}
+```
+
+Unified media container supporting multiple sources. Part of the media externalization system.
+
+**Fields:**
+
+- **Type**: Media type ("image", "audio", "video")
+- **MimeType**: MIME type (e.g., "image/png", "audio/mp3")
+- **Data**: Base64-encoded media data (empty if externalized)
+- **FilePath**: Path to local file (alternative to Data)
+- **URL**: HTTP/HTTPS URL (alternative to Data)
+- **StorageReference**: Reference to externally stored media
+
+**Source Priority:**
+
+Media is loaded in this order:
+
+1. **Data** - If present, use inline base64 data
+2. **StorageReference** - Load from storage backend
+3. **FilePath** - Load from local file system
+4. **URL** - Fetch from HTTP/HTTPS
+
+Use `MediaLoader.GetBase64Data()` to load transparently from any source.
+
+**Examples:**
+
+Inline data:
+
+```go
+media := &types.MediaContent{
+    Type:     "image",
+    MimeType: "image/png",
+    Data:     "iVBORw0KGgoAAAANSUhEUg...",
+}
+```
+
+Externalized to storage:
+
+```go
+media := &types.MediaContent{
+    Type:     "image",
+    MimeType: "image/png",
+    Data:     "", // Cleared after externalization
+    StorageReference: &storage.StorageReference{
+        ID:      "abc123-def456-ghi789",
+        Backend: "file",
+        Metadata: map[string]string{
+            "path": "/media/session-xyz/conv-abc/abc123-def456-ghi789.png",
+        },
+    },
+}
+```
+
+From local file:
+
+```go
+media := &types.MediaContent{
+    Type:     "image",
+    MimeType: "image/jpeg",
+    FilePath: "/path/to/user-upload.jpg",
+}
+```
+
+From URL:
+
+```go
+media := &types.MediaContent{
+    Type:     "image",
+    MimeType: "image/jpeg",
+    URL:      "https://example.com/photo.jpg",
+}
+```
+
+**Media Externalization:**
+
+When media exceeds the size threshold, it's automatically externalized:
+
+```go
+// Before externalization (from LLM response)
+media := &types.MediaContent{
+    Type:     "image",
+    MimeType: "image/png",
+    Data:     "iVBORw0..." // 2 MB base64 string
+}
+
+// After externalization (by MediaExternalizer middleware)
+media := &types.MediaContent{
+    Type:             "image",
+    MimeType:         "image/png",
+    Data:             "", // Cleared - memory saved!
+    StorageReference: &storage.StorageReference{
+        ID:      "abc123-def456-ghi789",
+        Backend: "file",
+    },
+}
+```
+
+**Loading Media:**
+
+Use MediaLoader for unified access:
+
+```go
+import "github.com/AltairaLabs/PromptKit/runtime/providers"
+
+loader := providers.NewMediaLoader(providers.MediaLoaderConfig{
+    StorageService: fileStore,
+})
+
+// Works with any source
+data, err := loader.GetBase64Data(ctx, media)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Now have base64 data regardless of original source
+fmt.Printf("Loaded %d bytes\n", len(data))
+```
+
+**See Also:**
+
+- [Storage Reference](storage) - MediaStorageService interface
+- [Providers Reference](providers#medialoader) - MediaLoader documentation
+- [How-To: Configure Media Storage](../../sdk/how-to/configure-media-storage) - Setup guide
+- [Explanation: Media Storage](../../sdk/explanation/media-storage) - Design and architecture
+
 ## Usage Examples
 
 ### Building Conversations

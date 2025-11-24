@@ -62,7 +62,7 @@ func (m *MockProvider) CalculateCost(inputTokens, outputTokens, cachedTokens int
 }
 
 func TestNewScriptedExecutor(t *testing.T) {
-	aiExecutor := NewPipelineExecutor(tools.NewRegistry())
+	aiExecutor := NewPipelineExecutor(tools.NewRegistry(), nil)
 	executor := NewScriptedExecutor(aiExecutor)
 
 	assert.NotNil(t, executor)
@@ -90,7 +90,7 @@ func TestScriptedExecutor_ExecuteTurn_Success(t *testing.T) {
 	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(response, nil)
 
 	toolRegistry := tools.NewRegistry()
-	aiExecutor := NewPipelineExecutor(toolRegistry)
+	aiExecutor := NewPipelineExecutor(toolRegistry, nil)
 	executor := NewScriptedExecutor(aiExecutor)
 
 	req := TurnRequest{
@@ -161,7 +161,7 @@ func TestScriptedExecutor_ExecuteTurn_AIResponseError(t *testing.T) {
 	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(providers.PredictionResponse{}, expectedErr)
 
 	toolRegistry := tools.NewRegistry()
-	aiExecutor := NewPipelineExecutor(toolRegistry)
+	aiExecutor := NewPipelineExecutor(toolRegistry, nil)
 	executor := NewScriptedExecutor(aiExecutor)
 
 	req := TurnRequest{
@@ -182,7 +182,7 @@ func TestScriptedExecutor_ExecuteTurn_AIResponseError(t *testing.T) {
 
 func TestScriptedExecutor_ExecuteTurn_EmptyScriptedContent(t *testing.T) {
 	toolRegistry := tools.NewRegistry()
-	aiExecutor := NewPipelineExecutor(toolRegistry)
+	aiExecutor := NewPipelineExecutor(toolRegistry, nil)
 	executor := NewScriptedExecutor(aiExecutor)
 
 	mockProvider := new(MockProvider)
@@ -273,7 +273,7 @@ func TestScriptedExecutor_ExecuteTurn_WithHistory(t *testing.T) {
 	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(response, nil)
 
 	toolRegistry := tools.NewRegistry()
-	aiExecutor := NewPipelineExecutor(toolRegistry)
+	aiExecutor := NewPipelineExecutor(toolRegistry, nil)
 	executor := NewScriptedExecutor(aiExecutor)
 
 	req := TurnRequest{
@@ -359,7 +359,7 @@ func TestScriptedExecutor_ExecuteTurn_SetsTimestamp(t *testing.T) {
 	mockProvider.On("Predict", mock.Anything, mock.Anything).Return(response, nil)
 
 	toolRegistry := tools.NewRegistry()
-	aiExecutor := NewPipelineExecutor(toolRegistry)
+	aiExecutor := NewPipelineExecutor(toolRegistry, nil)
 	executor := NewScriptedExecutor(aiExecutor)
 
 	// Record time before execution

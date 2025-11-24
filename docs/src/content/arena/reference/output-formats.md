@@ -18,6 +18,35 @@ PromptArena supports multiple output formats for test results, each optimized fo
 | **Markdown** | Documentation, GitHub | `.md` | ✅ Good |
 | **JUnit XML** | CI/CD systems | `.xml` | ✅ Excellent |
 
+## Output Directory Structure
+
+After running tests, Arena creates the following structure:
+
+```text
+out/
+  results.json           # JSON results
+  report.html            # HTML report
+  report.md              # Markdown report
+  junit.xml              # JUnit XML
+  media/                 # Media storage (images, audio, video)
+    run-20241124-123456/
+      session-xyz/
+        conv-abc/
+          image1.png
+          image1.png.meta
+```
+
+**Media Directory:**
+
+Arena automatically creates a `media/` directory to store large media content (images, audio, video) generated or processed during tests. This prevents memory issues and makes test artifacts easy to access.
+
+- **Organization**: By-run (each test run isolated)
+- **Deduplication**: Enabled (shared media stored once)
+- **Metadata**: Each media file has a `.meta` sidecar with context
+- **Location**: `{output_dir}/media/run-{timestamp}/`
+
+See: [Media Storage Documentation](../../sdk/how-to/configure-media-storage) for details.
+
 ## Configuration
 
 Configure output in `arena.yaml`:

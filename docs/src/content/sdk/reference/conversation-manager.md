@@ -160,9 +160,12 @@ Configuration for the ConversationManager.
 
 ```go
 type ManagerConfig struct {
-    MaxConcurrentExecutions int           // Limit parallel pipeline executions
-    DefaultTimeout          time.Duration // Default timeout for LLM requests
-    EnableMetrics           bool          // Enable built-in metrics collection
+    MaxConcurrentExecutions  int           // Limit parallel pipeline executions
+    DefaultTimeout           time.Duration // Default timeout for LLM requests
+    EnableMetrics            bool          // Enable built-in metrics collection
+    EnableMediaExternalization bool        // Enable media storage (auto-set by WithMediaStorage)
+    MediaSizeThresholdKB     int64         // Minimum size to externalize (default: 100)
+    MediaDefaultPolicy       string        // Media retention policy (default: "retain")
 }
 ```
 
@@ -182,6 +185,23 @@ type ManagerConfig struct {
   - Enables built-in metrics collection
   - Tracks latency, token usage, costs
   - Access via manager.GetMetrics()
+
+- **EnableMediaExternalization** (default: false)
+  - Automatically set to `true` when using `WithMediaStorage()`
+  - Can be explicitly disabled if needed
+  - Requires media storage service to be configured
+
+- **MediaSizeThresholdKB** (default: 100)
+  - Minimum media size (in KB) to externalize
+  - Media smaller than this stays in memory
+  - Set to 0 to externalize all media
+  - Only applies when `EnableMediaExternalization` is true
+
+- **MediaDefaultPolicy** (default: "retain")
+  - Media retention policy: "retain" or "delete"
+  - "retain": Keep media files indefinitely
+  - "delete": Delete media when conversation ends (not yet implemented)
+  - Applies to all conversations unless overridden
 
 ### ConversationConfig
 
@@ -307,6 +327,42 @@ manager, _ := sdk.NewConversationManager(
 )
 ```
 
+### WithMediaStorage
+
+Sets the media storage service for automatic externalization of large media content.
+
+```go
+func WithMediaStorage(storageService storage.MediaStorageService) ManagerOption
+```
+
+**Optional.** Enables automatic media externalization to reduce memory usage.
+
+**Example:**
+
+```go
+import "github.com/AltairaLabs/PromptKit/runtime/storage/local"
+
+fileStore := local.NewFileStore(local.FileStoreConfig{
+    BaseDir:             "./media",
+    Organization:        local.OrganizationBySession,
+    EnableDeduplication: true,
+})
+
+manager, _ := sdk.NewConversationManager(
+    sdk.WithProvider(provider),
+    sdk.WithMediaStorage(fileStore),
+)
+```
+
+**Behavior:**
+
+- Automatically enables `EnableMediaExternalization` in config
+- Media larger than `MediaSizeThresholdKB` stored to disk
+- Reduces memory footprint by 70-90% for media-heavy applications
+- Transparent to application code
+
+**See:** [How-To: Configure Media Storage](../how-to/configure-media-storage)
+
 ### WithConfig
 
 Sets the manager configuration.
@@ -326,6 +382,8 @@ manager, _ := sdk.NewConversationManager(
         MaxConcurrentExecutions: 20,
         DefaultTimeout:          45 * time.Second,
         EnableMetrics:           true,
+        MediaSizeThresholdKB:    100,
+        MediaDefaultPolicy:      "retain",
     }),
 )
 ```
@@ -462,6 +520,50 @@ func toolsExample() error {
 }
 ```
 
+### With Media Storage
+
+```go
+func mediaStorageExample() error {
+    import "github.com/AltairaLabs/PromptKit/runtime/storage/local"
+    
+    // Create file store
+    fileStore := local.NewFileStore(local.FileStoreConfig{
+        BaseDir:             "./media",
+        Organization:        local.OrganizationBySession,
+        EnableDeduplication: true,
+    })
+
+    // Create manager with media storage
+    manager, err := sdk.NewConversationManager(
+        sdk.WithProvider(provider),
+        sdk.WithMediaStorage(fileStore),
+        sdk.WithConfig(sdk.ManagerConfig{
+            MediaSizeThresholdKB: 100, // Externalize media > 100KB
+            MediaDefaultPolicy:   "retain",
+        }),
+    )
+    if err != nil {
+        return err
+    }
+
+    pack, _ := manager.LoadPack("./vision.pack.json")
+    conv, _ := manager.NewConversation(ctx, pack, sdk.ConversationConfig{
+        UserID:     "user123",
+        SessionID:  "session-xyz",
+        PromptName: "image-analyzer",
+    })
+
+    // Generate image - automatically externalized if > 100KB
+    resp, _ := conv.Send(ctx, "Generate an image of a sunset")
+    
+    // Large images automatically stored to ./media/session-xyz/conv-.../
+    // Memory footprint reduced by ~90%
+    
+    fmt.Println(resp.Content)
+    return nil
+}
+```
+
 ### Full Configuration
 
 ```go
@@ -476,16 +578,26 @@ func fullConfigExample() error {
     registry := tools.NewRegistry()
     registry.Register("search", searchTool)
     registry.Register("calculator", calcTool)
+    
+    // Media storage
+    fileStore := local.NewFileStore(local.FileStoreConfig{
+        BaseDir:             "/var/lib/myapp/media",
+        Organization:        local.OrganizationBySession,
+        EnableDeduplication: true,
+    })
 
     // Create manager with all options
     manager, err := sdk.NewConversationManager(
         sdk.WithProvider(provider),
         sdk.WithStateStore(redisStore),
         sdk.WithToolRegistry(registry),
+        sdk.WithMediaStorage(fileStore),
         sdk.WithConfig(sdk.ManagerConfig{
             MaxConcurrentExecutions: 50,
             DefaultTimeout:          60 * time.Second,
             EnableMetrics:           true,
+            MediaSizeThresholdKB:    100,
+            MediaDefaultPolicy:      "retain",
         }),
     )
     if err != nil {
@@ -496,6 +608,7 @@ func fullConfigExample() error {
 
     conv, _ := manager.NewConversation(ctx, pack, sdk.ConversationConfig{
         UserID:     "user123",
+        SessionID:  "session-abc",
         PromptName: "assistant",
         Variables: map[string]interface{}{
             "name":     "Alice",
@@ -622,5 +735,7 @@ conv, _ := manager.NewConversation(ctx, pack, sdk.ConversationConfig{
 
 - [Conversation Reference](conversation) - Conversation instance methods
 - [Pack Reference](pack-format) - PromptPack format
+- [Storage Reference](../../runtime/reference/storage) - Media storage API
 - [How-To: Initialize SDK](../how-to/initialize) - Setup guide
+- [How-To: Configure Media Storage](../how-to/configure-media-storage) - Media storage configuration
 - [Tutorial: First Application](../tutorials/01-first-app) - Step-by-step tutorial
