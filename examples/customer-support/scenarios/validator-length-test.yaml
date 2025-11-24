@@ -3,6 +3,7 @@ kind: Scenario
 metadata:
   name: validator-length-test
 spec:
+  id: validator-length-test
   description: "Test max_length validator by requesting a long response"
   task_type: "support"
   

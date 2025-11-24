@@ -3,7 +3,7 @@ package generators
 import (
 	"github.com/invopop/jsonschema"
 
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 )
 
 // GeneratePromptConfigSchema generates the JSON Schema for PromptConfig configuration
@@ -11,9 +11,10 @@ func GeneratePromptConfigSchema() (interface{}, error) {
 	reflector := jsonschema.Reflector{
 		AllowAdditionalProperties: false,
 		ExpandedStruct:            true,
+		FieldNameTag:              "yaml",
 	}
 
-	schema := reflector.Reflect(&prompt.PromptConfig{})
+	schema := reflector.Reflect(&config.PromptConfigSchema{})
 
 	schema.ID = schemaBaseURL + "/promptconfig.json"
 	schema.Title = "PromptKit PromptConfig Configuration"

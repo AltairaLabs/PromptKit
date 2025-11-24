@@ -73,7 +73,7 @@ type PromptSpec struct {
 	Fragments      []FragmentRef            `yaml:"fragments,omitempty"`       // New: fragment assembly
 	SystemTemplate string                   `yaml:"system_template"`
 	Variables      []VariableMetadata       `yaml:"variables,omitempty"` // Variable definitions with rich metadata
-	ModelOverrides map[string]ModelOverride `yaml:"model_overrides"`
+	ModelOverrides map[string]ModelOverride `yaml:"model_overrides,omitempty"`
 	AllowedTools   []string                 `yaml:"allowed_tools,omitempty"` // Tools this prompt can use
 	MediaConfig    *MediaConfig             `yaml:"media,omitempty"`         // Multimodal media configuration
 	Validators     []ValidatorConfig        `yaml:"validators,omitempty"`    // Validators/Guardrails for production runtime

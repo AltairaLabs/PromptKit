@@ -3,6 +3,7 @@ kind: Provider
 metadata:
   name: gemini-2-0-flash
 spec:
+  id: gemini-2-0-flash
   type: gemini
   model: gemini-2.0-flash-exp
   defaults:

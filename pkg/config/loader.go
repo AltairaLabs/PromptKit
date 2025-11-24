@@ -18,28 +18,20 @@ func LoadConfig(filename string) (*Config, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	// Step 1: JSON Schema validation (structure, types, required fields)
+	// Step 1: JSON Schema validation (structure, types, required fields, kind values)
 	if err := ValidateArenaConfig(data); err != nil {
 		return nil, fmt.Errorf("schema validation failed: %w", err)
 	}
 
-	var arenaConfig ArenaConfig
-	if err := yaml.Unmarshal(data, &arenaConfig); err != nil {
+	// Use K8s version for unmarshaling to support full ObjectMeta
+	var arenaConfigK8s ArenaConfigK8s
+	if err := yaml.Unmarshal(data, &arenaConfigK8s); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
-	// Validate required K8s manifest fields
-	if arenaConfig.APIVersion == "" {
-		return nil, fmt.Errorf("missing required field: apiVersion")
-	}
-	if arenaConfig.Kind != "Arena" {
-		return nil, fmt.Errorf("invalid kind: expected 'Arena', got '%s'", arenaConfig.Kind)
-	}
-	if arenaConfig.Metadata.Name == "" {
-		return nil, fmt.Errorf("missing required field: metadata.name")
-	}
+	// Schema validation already confirmed required fields and kind value are correct
 
-	cfg := &arenaConfig.Spec
+	cfg := &arenaConfigK8s.Spec
 
 	// Determine base directory for resolving relative paths
 	cfg.ConfigDir = ResolveConfigDir(cfg, filename)
@@ -118,16 +110,7 @@ func loadSimpleK8sManifest[T k8sManifest](filename string, expectedKind string) 
 		return zero, fmt.Errorf("failed to parse %s file: %w", expectedKind, err)
 	}
 
-	// Validate required K8s manifest fields
-	if config.GetAPIVersion() == "" {
-		return zero, fmt.Errorf("missing required field: apiVersion")
-	}
-	if config.GetKind() != expectedKind {
-		return zero, fmt.Errorf("invalid kind: expected '%s', got '%s'", expectedKind, config.GetKind())
-	}
-	if config.GetName() == "" {
-		return zero, fmt.Errorf("missing required field: metadata.name")
-	}
+	// Schema validation already confirmed required fields and kind value are correct
 
 	// Use metadata.name as the ID
 	config.SetID(config.GetName())
@@ -136,7 +119,8 @@ func loadSimpleK8sManifest[T k8sManifest](filename string, expectedKind string) 
 
 // LoadScenario loads and parses a scenario from a YAML file in K8s-style manifest format
 func LoadScenario(filename string) (*Scenario, error) {
-	config, err := loadSimpleK8sManifest[*ScenarioConfig](filename, "Scenario")
+	// Use K8s version for unmarshaling
+	config, err := loadSimpleK8sManifest[*ScenarioConfigK8s](filename, "Scenario")
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +129,8 @@ func LoadScenario(filename string) (*Scenario, error) {
 
 // LoadProvider loads and parses a provider configuration from a YAML file in K8s-style manifest format
 func LoadProvider(filename string) (*Provider, error) {
-	config, err := loadSimpleK8sManifest[*ProviderConfig](filename, "Provider")
+	// Use K8s version for unmarshaling
+	config, err := loadSimpleK8sManifest[*ProviderConfigK8s](filename, "Provider")
 	if err != nil {
 		return nil, err
 	}

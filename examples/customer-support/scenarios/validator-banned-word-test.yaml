@@ -3,6 +3,7 @@ kind: Scenario
 metadata:
   name: validator-banned-word-test
 spec:
+  id: validator-banned-word-test
   description: "Test banned word validator by asking assistant to repeat banned phrases"
   task_type: "support"
   

@@ -11,6 +11,7 @@ func GenerateScenarioSchema() (interface{}, error) {
 	reflector := jsonschema.Reflector{
 		AllowAdditionalProperties: false,
 		ExpandedStruct:            true,
+		FieldNameTag:              "yaml",
 	}
 
 	schema := reflector.Reflect(&config.ScenarioConfig{})

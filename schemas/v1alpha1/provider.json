@@ -2,133 +2,37 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://promptkit.altairalabs.ai/schemas/v1alpha1/provider.json",
   "$defs": {
-    "FieldsV1": {
-      "properties": {},
-      "additionalProperties": false,
-      "type": "object"
-    },
-    "ManagedFieldsEntry": {
-      "properties": {
-        "manager": {
-          "type": "string"
-        },
-        "operation": {
-          "type": "string"
-        },
-        "apiVersion": {
-          "type": "string"
-        },
-        "time": {
-          "$ref": "#/$defs/Time"
-        },
-        "fieldsType": {
-          "type": "string"
-        },
-        "fieldsV1": {
-          "$ref": "#/$defs/FieldsV1"
-        },
-        "subresource": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object"
-    },
     "ObjectMeta": {
       "properties": {
         "name": {
-          "type": "string"
-        },
-        "generateName": {
-          "type": "string"
+          "type": "string",
+          "title": "Name",
+          "description": "Name of the resource"
         },
         "namespace": {
-          "type": "string"
-        },
-        "selfLink": {
-          "type": "string"
-        },
-        "uid": {
-          "type": "string"
-        },
-        "resourceVersion": {
-          "type": "string"
-        },
-        "generation": {
-          "type": "integer"
-        },
-        "creationTimestamp": {
-          "$ref": "#/$defs/Time"
-        },
-        "deletionTimestamp": {
-          "$ref": "#/$defs/Time"
-        },
-        "deletionGracePeriodSeconds": {
-          "type": "integer"
+          "type": "string",
+          "title": "Namespace",
+          "description": "Namespace for the resource"
         },
         "labels": {
           "additionalProperties": {
             "type": "string"
           },
-          "type": "object"
+          "type": "object",
+          "title": "Labels",
+          "description": "Key-value pairs for organizing resources"
         },
         "annotations": {
           "additionalProperties": {
             "type": "string"
           },
-          "type": "object"
-        },
-        "ownerReferences": {
-          "items": {
-            "$ref": "#/$defs/OwnerReference"
-          },
-          "type": "array"
-        },
-        "finalizers": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "managedFields": {
-          "items": {
-            "$ref": "#/$defs/ManagedFieldsEntry"
-          },
-          "type": "array"
+          "type": "object",
+          "title": "Annotations",
+          "description": "Additional metadata"
         }
       },
       "additionalProperties": false,
       "type": "object"
-    },
-    "OwnerReference": {
-      "properties": {
-        "apiVersion": {
-          "type": "string"
-        },
-        "kind": {
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        },
-        "uid": {
-          "type": "string"
-        },
-        "controller": {
-          "type": "boolean"
-        },
-        "blockOwnerDeletion": {
-          "type": "boolean"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "apiVersion",
-        "kind",
-        "name",
-        "uid"
-      ]
     },
     "Pricing": {
       "properties": {
@@ -184,13 +88,7 @@
       "required": [
         "id",
         "type",
-        "model",
-        "base_url",
-        "rate_limit",
-        "defaults",
-        "pricing",
-        "pricing_correct_at",
-        "include_raw_output"
+        "model"
       ]
     },
     "ProviderDefaults": {
@@ -228,34 +126,28 @@
         "rps",
         "burst"
       ]
-    },
-    "Time": {
-      "properties": {},
-      "additionalProperties": false,
-      "type": "object"
     }
   },
   "properties": {
-    "APIVersion": {
+    "apiVersion": {
       "type": "string"
     },
-    "Kind": {
+    "kind": {
       "type": "string"
     },
-    "Metadata": {
+    "metadata": {
       "$ref": "#/$defs/ObjectMeta"
     },
-    "Spec": {
+    "spec": {
       "$ref": "#/$defs/Provider"
     }
   },
   "additionalProperties": false,
   "type": "object",
   "required": [
-    "APIVersion",
-    "Kind",
-    "Metadata",
-    "Spec"
+    "apiVersion",
+    "kind",
+    "spec"
   ],
   "title": "PromptArena Provider Configuration",
   "description": "Provider configuration for PromptArena LLM connections",

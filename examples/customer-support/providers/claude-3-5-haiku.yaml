@@ -3,6 +3,7 @@ kind: Provider
 metadata:
   name: claude-3-5-haiku
 spec:
+  id: claude-3-5-haiku
   type: claude
   model: claude-3-5-haiku-20241022
   defaults:

@@ -3,7 +3,7 @@ package generators
 import (
 	"github.com/invopop/jsonschema"
 
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 )
 
 // GenerateToolSchema generates the JSON Schema for Tool configuration
@@ -11,9 +11,10 @@ func GenerateToolSchema() (interface{}, error) {
 	reflector := jsonschema.Reflector{
 		AllowAdditionalProperties: false,
 		ExpandedStruct:            true,
+		FieldNameTag:              "yaml",
 	}
 
-	schema := reflector.Reflect(&tools.ToolConfig{})
+	schema := reflector.Reflect(&config.ToolConfigSchema{})
 
 	schema.ID = schemaBaseURL + "/tool.json"
 	schema.Title = "PromptKit Tool Configuration"

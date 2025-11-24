@@ -17,8 +17,10 @@ const (
 // GenerateArenaSchema generates the JSON Schema for Arena configuration
 func GenerateArenaSchema() (interface{}, error) {
 	reflector := jsonschema.Reflector{
-		AllowAdditionalProperties: false,
-		ExpandedStruct:            true,
+		AllowAdditionalProperties:  false,
+		ExpandedStruct:             true,
+		FieldNameTag:               "yaml",
+		RequiredFromJSONSchemaTags: false, // Use omitempty to determine required fields
 	}
 
 	schema := reflector.Reflect(&config.ArenaConfig{})

@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/xeipuuv/gojsonschema"
 )
 
 func TestValidateArenaConfig_Valid(t *testing.T) {
@@ -22,6 +23,8 @@ spec:
     - file: provider.yaml
   scenarios:
     - file: scenario.yaml
+  defaults:
+    temperature: 0.7
 `)
 
 	err := ValidateArenaConfig(validConfig)
@@ -41,6 +44,51 @@ spec:
 	err := ValidateArenaConfig(invalidConfig)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "schema")
+}
+
+func TestSchemaCaching(t *testing.T) {
+	// Clear cache before test
+	schemaCache.mu.Lock()
+	schemaCache.schemas = make(map[string]*gojsonschema.Schema)
+	schemaCache.mu.Unlock()
+
+	validConfig := []byte(`
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: test-arena
+spec:
+  prompt_configs:
+    - id: test
+      file: test.yaml
+  providers:
+    - file: provider.yaml
+  scenarios:
+    - file: scenario.yaml
+`)
+
+	schemaDir := "../../docs/public/schemas/v1alpha1"
+
+	// First validation - should cache the schema
+	_, err := ValidateWithLocalSchema(validConfig, ConfigTypeArena, schemaDir)
+	require.NoError(t, err)
+
+	// Check that schema was cached
+	schemaCache.mu.RLock()
+	schemaKey := "file://" + schemaDir + "/arena.json"
+	cachedSchema := schemaCache.schemas[schemaKey]
+	schemaCache.mu.RUnlock()
+	assert.NotNil(t, cachedSchema, "Schema should be cached after first validation")
+
+	// Second validation - should use cached schema
+	_, err = ValidateWithLocalSchema(validConfig, ConfigTypeArena, schemaDir)
+	require.NoError(t, err)
+
+	// Verify same schema instance is used (pointer equality)
+	schemaCache.mu.RLock()
+	cachedSchema2 := schemaCache.schemas[schemaKey]
+	schemaCache.mu.RUnlock()
+	assert.Same(t, cachedSchema, cachedSchema2, "Should reuse cached schema instance")
 }
 
 func TestValidateArenaConfig_MissingKind(t *testing.T) {
@@ -65,6 +113,7 @@ kind: Scenario
 metadata:
   name: test-scenario
 spec:
+  id: test-scenario
   task_type: test
   description: Test scenario
   turns:
@@ -83,6 +132,7 @@ kind: Provider
 metadata:
   name: test-provider
 spec:
+  id: test-provider
   type: openai
   model: gpt-4
 `)
@@ -99,6 +149,8 @@ metadata:
   name: test-prompt
 spec:
   task_type: test
+  version: v1.0.0
+  description: Test prompt config
   system_template: You are a helpful assistant
 `)
 
@@ -115,7 +167,10 @@ metadata:
 spec:
   name: get_weather
   description: Get weather information
+  input_schema: {}
+  output_schema: {}
   mode: mock
+  timeout_ms: 5000
 `)
 
 	err := ValidateTool(validTool)
@@ -129,9 +184,20 @@ kind: Persona
 metadata:
   name: test-persona
 spec:
-  role: user
+  id: test-persona
   description: Test user persona
-  behavior: friendly
+  system_prompt: You are a friendly test user
+  goals:
+    - Test the system
+  constraints:
+    - Be polite
+  style:
+    verbosity: medium
+    challenge_level: low
+    friction_tags: []
+  defaults:
+    temperature: 0.7
+    seed: 42
 `)
 
 	err := ValidatePersona(validPersona)

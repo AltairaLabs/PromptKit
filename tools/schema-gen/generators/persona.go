@@ -6,22 +6,15 @@ import (
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 )
 
-// UserPersonaPack represents a user persona for self-play
-type UserPersonaPack struct {
-	APIVersion string                   `yaml:"apiVersion"`
-	Kind       string                   `yaml:"kind"`
-	Metadata   map[string]interface{}   `yaml:"metadata,omitempty"`
-	Spec       config.SelfPlayRoleGroup `yaml:"spec"`
-}
-
 // GeneratePersonaSchema generates the JSON Schema for Persona configuration
 func GeneratePersonaSchema() (interface{}, error) {
 	reflector := jsonschema.Reflector{
 		AllowAdditionalProperties: false,
 		ExpandedStruct:            true,
+		FieldNameTag:              "yaml",
 	}
 
-	schema := reflector.Reflect(&UserPersonaPack{})
+	schema := reflector.Reflect(&config.PersonaConfigSchema{})
 
 	schema.ID = schemaBaseURL + "/persona.json"
 	schema.Title = "PromptKit Persona Configuration"

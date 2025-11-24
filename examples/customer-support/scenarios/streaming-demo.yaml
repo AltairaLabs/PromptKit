@@ -3,6 +3,7 @@ kind: Scenario
 metadata:
   name: streaming-demo
 spec:
+  id: streaming-demo
   task_type: support
   description: "Demonstrates streaming configuration at scenario and turn level"
   
@@ -54,9 +55,8 @@ spec:
 
   context_metadata:
     domain: "customer support"
-    role: "support agent"
-    user_context: "customers asking various questions"
-    session_goal: "Respond helpfully while demonstrating streaming capabilities"
+    user_role: "support agent"
+    project_stage: "demo"
 
   constraints:
     max_sentences: 10

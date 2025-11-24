@@ -3,6 +3,7 @@ kind: Scenario
 metadata:
   name: customer-support-scenarios
 spec:
+  id: customer-support-scenarios
   task_type: support
   description: "Customer support bot conversation testing scenarios"
 
@@ -70,9 +71,8 @@ spec:
 
   context_metadata:
     domain: "customer support"
-    role: "support agent"
-    user_context: "customers with various issues and requests"
-    session_goal: "provide helpful, professional support while maintaining consistent tone"
+    user_role: "support agent"
+    project_stage: "production"
 
   constraints:
     max_sentences: 5
