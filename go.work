@@ -7,4 +7,5 @@ use (
 	./tools/arena
 	./tools/inspect-state
 	./tools/packc
+	./tools/schema-gen
 )

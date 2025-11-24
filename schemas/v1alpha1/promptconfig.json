@@ -1,0 +1,699 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.promptkit.altairalabs.ai/v1alpha1/promptconfig.json",
+  "$defs": {
+    "AudioConfig": {
+      "properties": {
+        "max_size_mb": {
+          "type": "integer"
+        },
+        "allowed_formats": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "max_duration_sec": {
+          "type": "integer"
+        },
+        "require_metadata": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ChangelogEntry": {
+      "properties": {
+        "Version": {
+          "type": "string"
+        },
+        "Date": {
+          "type": "string"
+        },
+        "Author": {
+          "type": "string"
+        },
+        "Description": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "Version",
+        "Date",
+        "Author",
+        "Description"
+      ]
+    },
+    "CompilationInfo": {
+      "properties": {
+        "CompiledWith": {
+          "type": "string"
+        },
+        "CreatedAt": {
+          "type": "string"
+        },
+        "Schema": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "CompiledWith",
+        "CreatedAt",
+        "Schema"
+      ]
+    },
+    "CostEstimate": {
+      "properties": {
+        "MinCostUSD": {
+          "type": "number"
+        },
+        "MaxCostUSD": {
+          "type": "number"
+        },
+        "AvgCostUSD": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "MinCostUSD",
+        "MaxCostUSD",
+        "AvgCostUSD"
+      ]
+    },
+    "ExampleContentPart": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "media": {
+          "$ref": "#/$defs/ExampleMedia"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
+    "ExampleMedia": {
+      "properties": {
+        "file_path": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "mime_type": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "caption": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "mime_type"
+      ]
+    },
+    "FieldsV1": {
+      "properties": {},
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "FragmentRef": {
+      "properties": {
+        "Name": {
+          "type": "string"
+        },
+        "Path": {
+          "type": "string"
+        },
+        "Required": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "Name",
+        "Path",
+        "Required"
+      ]
+    },
+    "ImageConfig": {
+      "properties": {
+        "max_size_mb": {
+          "type": "integer"
+        },
+        "allowed_formats": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "default_detail": {
+          "type": "string"
+        },
+        "require_caption": {
+          "type": "boolean"
+        },
+        "max_images_per_msg": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ManagedFieldsEntry": {
+      "properties": {
+        "manager": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "apiVersion": {
+          "type": "string"
+        },
+        "time": {
+          "$ref": "#/$defs/Time"
+        },
+        "fieldsType": {
+          "type": "string"
+        },
+        "fieldsV1": {
+          "$ref": "#/$defs/FieldsV1"
+        },
+        "subresource": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "MediaConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "supported_types": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "image": {
+          "$ref": "#/$defs/ImageConfig"
+        },
+        "audio": {
+          "$ref": "#/$defs/AudioConfig"
+        },
+        "video": {
+          "$ref": "#/$defs/VideoConfig"
+        },
+        "examples": {
+          "items": {
+            "$ref": "#/$defs/MultimodalExample"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "enabled"
+      ]
+    },
+    "ModelOverride": {
+      "properties": {
+        "SystemTemplate": {
+          "type": "string"
+        },
+        "SystemTemplateSuffix": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "SystemTemplate",
+        "SystemTemplateSuffix"
+      ]
+    },
+    "ModelTestResultRef": {
+      "properties": {
+        "Provider": {
+          "type": "string"
+        },
+        "Model": {
+          "type": "string"
+        },
+        "Date": {
+          "type": "string"
+        },
+        "SuccessRate": {
+          "type": "number"
+        },
+        "AvgTokens": {
+          "type": "integer"
+        },
+        "AvgCost": {
+          "type": "number"
+        },
+        "AvgLatencyMs": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "Provider",
+        "Model",
+        "Date",
+        "SuccessRate",
+        "AvgTokens",
+        "AvgCost",
+        "AvgLatencyMs"
+      ]
+    },
+    "MultimodalExample": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "parts": {
+          "items": {
+            "$ref": "#/$defs/ExampleContentPart"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "role",
+        "parts"
+      ]
+    },
+    "ObjectMeta": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "generateName": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "selfLink": {
+          "type": "string"
+        },
+        "uid": {
+          "type": "string"
+        },
+        "resourceVersion": {
+          "type": "string"
+        },
+        "generation": {
+          "type": "integer"
+        },
+        "creationTimestamp": {
+          "$ref": "#/$defs/Time"
+        },
+        "deletionTimestamp": {
+          "$ref": "#/$defs/Time"
+        },
+        "deletionGracePeriodSeconds": {
+          "type": "integer"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "ownerReferences": {
+          "items": {
+            "$ref": "#/$defs/OwnerReference"
+          },
+          "type": "array"
+        },
+        "finalizers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "managedFields": {
+          "items": {
+            "$ref": "#/$defs/ManagedFieldsEntry"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "OwnerReference": {
+      "properties": {
+        "apiVersion": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "uid": {
+          "type": "string"
+        },
+        "controller": {
+          "type": "boolean"
+        },
+        "blockOwnerDeletion": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "apiVersion",
+        "kind",
+        "name",
+        "uid"
+      ]
+    },
+    "PerformanceMetrics": {
+      "properties": {
+        "AvgLatencyMs": {
+          "type": "integer"
+        },
+        "P95LatencyMs": {
+          "type": "integer"
+        },
+        "AvgTokens": {
+          "type": "integer"
+        },
+        "SuccessRate": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "AvgLatencyMs",
+        "P95LatencyMs",
+        "AvgTokens",
+        "SuccessRate"
+      ]
+    },
+    "PromptMetadata": {
+      "properties": {
+        "Domain": {
+          "type": "string"
+        },
+        "Language": {
+          "type": "string"
+        },
+        "Tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "CostEstimate": {
+          "$ref": "#/$defs/CostEstimate"
+        },
+        "Performance": {
+          "$ref": "#/$defs/PerformanceMetrics"
+        },
+        "Changelog": {
+          "items": {
+            "$ref": "#/$defs/ChangelogEntry"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "Domain",
+        "Language",
+        "Tags",
+        "CostEstimate",
+        "Performance",
+        "Changelog"
+      ]
+    },
+    "PromptSpec": {
+      "properties": {
+        "TaskType": {
+          "type": "string"
+        },
+        "Version": {
+          "type": "string"
+        },
+        "Description": {
+          "type": "string"
+        },
+        "TemplateEngine": {
+          "$ref": "#/$defs/TemplateEngineInfo"
+        },
+        "Fragments": {
+          "items": {
+            "$ref": "#/$defs/FragmentRef"
+          },
+          "type": "array"
+        },
+        "SystemTemplate": {
+          "type": "string"
+        },
+        "Variables": {
+          "items": {
+            "$ref": "#/$defs/VariableMetadata"
+          },
+          "type": "array"
+        },
+        "ModelOverrides": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ModelOverride"
+          },
+          "type": "object"
+        },
+        "AllowedTools": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "MediaConfig": {
+          "$ref": "#/$defs/MediaConfig"
+        },
+        "Validators": {
+          "items": {
+            "$ref": "#/$defs/ValidatorConfig"
+          },
+          "type": "array"
+        },
+        "TestedModels": {
+          "items": {
+            "$ref": "#/$defs/ModelTestResultRef"
+          },
+          "type": "array"
+        },
+        "Metadata": {
+          "$ref": "#/$defs/PromptMetadata"
+        },
+        "Compilation": {
+          "$ref": "#/$defs/CompilationInfo"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "TaskType",
+        "Version",
+        "Description",
+        "TemplateEngine",
+        "Fragments",
+        "SystemTemplate",
+        "Variables",
+        "ModelOverrides",
+        "AllowedTools",
+        "MediaConfig",
+        "Validators",
+        "TestedModels",
+        "Metadata",
+        "Compilation"
+      ]
+    },
+    "TemplateEngineInfo": {
+      "properties": {
+        "Version": {
+          "type": "string"
+        },
+        "Syntax": {
+          "type": "string"
+        },
+        "Features": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "Version",
+        "Syntax",
+        "Features"
+      ]
+    },
+    "Time": {
+      "properties": {},
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ValidatorConfig": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        },
+        "Enabled": {
+          "type": "boolean"
+        },
+        "FailOnViolation": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "params",
+        "Enabled",
+        "FailOnViolation"
+      ]
+    },
+    "VariableMetadata": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "default": true,
+        "description": {
+          "type": "string"
+        },
+        "example": true,
+        "validation": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "required"
+      ]
+    },
+    "VideoConfig": {
+      "properties": {
+        "max_size_mb": {
+          "type": "integer"
+        },
+        "allowed_formats": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "max_duration_sec": {
+          "type": "integer"
+        },
+        "require_metadata": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    }
+  },
+  "properties": {
+    "APIVersion": {
+      "type": "string"
+    },
+    "Kind": {
+      "type": "string"
+    },
+    "Metadata": {
+      "$ref": "#/$defs/ObjectMeta"
+    },
+    "Spec": {
+      "$ref": "#/$defs/PromptSpec"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "APIVersion",
+    "Kind",
+    "Metadata",
+    "Spec"
+  ],
+  "title": "PromptKit PromptConfig Configuration",
+  "description": "Prompt template configuration for PromptKit",
+  "examples": [
+    {
+      "apiVersion": "promptkit.altairalabs.ai/v1alpha1",
+      "kind": "PromptConfig",
+      "metadata": {
+        "name": "customer-support"
+      },
+      "spec": {
+        "description": "Customer support assistant",
+        "system_template": "You are a helpful customer support assistant.",
+        "task_type": "support",
+        "version": "1.0.0"
+      }
+    }
+  ]
+}

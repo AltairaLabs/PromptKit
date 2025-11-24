@@ -1,0 +1,624 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.promptkit.altairalabs.ai/v1alpha1/arena.json",
+  "$defs": {
+    "Config": {
+      "properties": {
+        "PromptConfigs": {
+          "items": {
+            "$ref": "#/$defs/PromptConfigRef"
+          },
+          "type": "array"
+        },
+        "Providers": {
+          "items": {
+            "$ref": "#/$defs/ProviderRef"
+          },
+          "type": "array"
+        },
+        "Scenarios": {
+          "items": {
+            "$ref": "#/$defs/ScenarioRef"
+          },
+          "type": "array"
+        },
+        "Tools": {
+          "items": {
+            "$ref": "#/$defs/ToolRef"
+          },
+          "type": "array"
+        },
+        "MCPServers": {
+          "items": {
+            "$ref": "#/$defs/MCPServerConfig"
+          },
+          "type": "array"
+        },
+        "StateStore": {
+          "$ref": "#/$defs/StateStoreConfig"
+        },
+        "Defaults": {
+          "$ref": "#/$defs/Defaults"
+        },
+        "SelfPlay": {
+          "$ref": "#/$defs/SelfPlayConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "PromptConfigs",
+        "Providers",
+        "Scenarios",
+        "Tools",
+        "MCPServers",
+        "StateStore",
+        "Defaults",
+        "SelfPlay"
+      ]
+    },
+    "Defaults": {
+      "properties": {
+        "Temperature": {
+          "type": "number"
+        },
+        "MaxTokens": {
+          "type": "integer"
+        },
+        "Seed": {
+          "type": "integer"
+        },
+        "Concurrency": {
+          "type": "integer"
+        },
+        "Output": {
+          "$ref": "#/$defs/OutputConfig"
+        },
+        "ConfigDir": {
+          "type": "string"
+        },
+        "FailOn": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "Verbose": {
+          "type": "boolean"
+        },
+        "HTMLReport": {
+          "type": "string"
+        },
+        "OutDir": {
+          "type": "string"
+        },
+        "OutputFormats": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "MarkdownConfig": {
+          "$ref": "#/$defs/MarkdownConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "Temperature",
+        "MaxTokens",
+        "Seed",
+        "Concurrency",
+        "Output",
+        "ConfigDir",
+        "FailOn",
+        "Verbose",
+        "HTMLReport",
+        "OutDir",
+        "OutputFormats",
+        "MarkdownConfig"
+      ]
+    },
+    "FieldsV1": {
+      "properties": {},
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "HTMLOutputConfig": {
+      "properties": {
+        "File": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "File"
+      ]
+    },
+    "JSONOutputConfig": {
+      "properties": {},
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "JUnitOutputConfig": {
+      "properties": {
+        "File": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "File"
+      ]
+    },
+    "MCPServerConfig": {
+      "properties": {
+        "Name": {
+          "type": "string"
+        },
+        "Command": {
+          "type": "string"
+        },
+        "Args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "Env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "Name",
+        "Command",
+        "Args",
+        "Env"
+      ]
+    },
+    "ManagedFieldsEntry": {
+      "properties": {
+        "manager": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "apiVersion": {
+          "type": "string"
+        },
+        "time": {
+          "$ref": "#/$defs/Time"
+        },
+        "fieldsType": {
+          "type": "string"
+        },
+        "fieldsV1": {
+          "$ref": "#/$defs/FieldsV1"
+        },
+        "subresource": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "MarkdownConfig": {
+      "properties": {
+        "IncludeDetails": {
+          "type": "boolean"
+        },
+        "ShowOverview": {
+          "type": "boolean"
+        },
+        "ShowResultsMatrix": {
+          "type": "boolean"
+        },
+        "ShowFailedTests": {
+          "type": "boolean"
+        },
+        "ShowCostSummary": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "IncludeDetails",
+        "ShowOverview",
+        "ShowResultsMatrix",
+        "ShowFailedTests",
+        "ShowCostSummary"
+      ]
+    },
+    "MarkdownOutputConfig": {
+      "properties": {
+        "File": {
+          "type": "string"
+        },
+        "IncludeDetails": {
+          "type": "boolean"
+        },
+        "ShowOverview": {
+          "type": "boolean"
+        },
+        "ShowResultsMatrix": {
+          "type": "boolean"
+        },
+        "ShowFailedTests": {
+          "type": "boolean"
+        },
+        "ShowCostSummary": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "File",
+        "IncludeDetails",
+        "ShowOverview",
+        "ShowResultsMatrix",
+        "ShowFailedTests",
+        "ShowCostSummary"
+      ]
+    },
+    "ObjectMeta": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "generateName": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "selfLink": {
+          "type": "string"
+        },
+        "uid": {
+          "type": "string"
+        },
+        "resourceVersion": {
+          "type": "string"
+        },
+        "generation": {
+          "type": "integer"
+        },
+        "creationTimestamp": {
+          "$ref": "#/$defs/Time"
+        },
+        "deletionTimestamp": {
+          "$ref": "#/$defs/Time"
+        },
+        "deletionGracePeriodSeconds": {
+          "type": "integer"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "ownerReferences": {
+          "items": {
+            "$ref": "#/$defs/OwnerReference"
+          },
+          "type": "array"
+        },
+        "finalizers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "managedFields": {
+          "items": {
+            "$ref": "#/$defs/ManagedFieldsEntry"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "OutputConfig": {
+      "properties": {
+        "Dir": {
+          "type": "string"
+        },
+        "Formats": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "JSON": {
+          "$ref": "#/$defs/JSONOutputConfig"
+        },
+        "HTML": {
+          "$ref": "#/$defs/HTMLOutputConfig"
+        },
+        "Markdown": {
+          "$ref": "#/$defs/MarkdownOutputConfig"
+        },
+        "JUnit": {
+          "$ref": "#/$defs/JUnitOutputConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "Dir",
+        "Formats",
+        "JSON",
+        "HTML",
+        "Markdown",
+        "JUnit"
+      ]
+    },
+    "OwnerReference": {
+      "properties": {
+        "apiVersion": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "uid": {
+          "type": "string"
+        },
+        "controller": {
+          "type": "boolean"
+        },
+        "blockOwnerDeletion": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "apiVersion",
+        "kind",
+        "name",
+        "uid"
+      ]
+    },
+    "PersonaRef": {
+      "properties": {
+        "File": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "File"
+      ]
+    },
+    "PromptConfigRef": {
+      "properties": {
+        "ID": {
+          "type": "string"
+        },
+        "File": {
+          "type": "string"
+        },
+        "Vars": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "ID",
+        "File",
+        "Vars"
+      ]
+    },
+    "ProviderRef": {
+      "properties": {
+        "File": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "File"
+      ]
+    },
+    "RedisConfig": {
+      "properties": {
+        "Address": {
+          "type": "string"
+        },
+        "Password": {
+          "type": "string"
+        },
+        "Database": {
+          "type": "integer"
+        },
+        "TTL": {
+          "type": "string"
+        },
+        "Prefix": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "Address",
+        "Password",
+        "Database",
+        "TTL",
+        "Prefix"
+      ]
+    },
+    "ScenarioRef": {
+      "properties": {
+        "File": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "File"
+      ]
+    },
+    "SelfPlayConfig": {
+      "properties": {
+        "Enabled": {
+          "type": "boolean"
+        },
+        "Personas": {
+          "items": {
+            "$ref": "#/$defs/PersonaRef"
+          },
+          "type": "array"
+        },
+        "Roles": {
+          "items": {
+            "$ref": "#/$defs/SelfPlayRoleGroup"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "Enabled",
+        "Personas",
+        "Roles"
+      ]
+    },
+    "SelfPlayRoleGroup": {
+      "properties": {
+        "ID": {
+          "type": "string"
+        },
+        "Provider": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "ID",
+        "Provider"
+      ]
+    },
+    "StateStoreConfig": {
+      "properties": {
+        "Type": {
+          "type": "string"
+        },
+        "Redis": {
+          "$ref": "#/$defs/RedisConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "Type",
+        "Redis"
+      ]
+    },
+    "Time": {
+      "properties": {},
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ToolRef": {
+      "properties": {
+        "File": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "File"
+      ]
+    }
+  },
+  "properties": {
+    "APIVersion": {
+      "type": "string"
+    },
+    "Kind": {
+      "type": "string"
+    },
+    "Metadata": {
+      "$ref": "#/$defs/ObjectMeta"
+    },
+    "Spec": {
+      "$ref": "#/$defs/Config"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "APIVersion",
+    "Kind",
+    "Metadata",
+    "Spec"
+  ],
+  "title": "PromptArena Configuration",
+  "description": "Main configuration for PromptArena test suites",
+  "examples": [
+    {
+      "apiVersion": "promptkit.altairalabs.ai/v1alpha1",
+      "kind": "Arena",
+      "metadata": {
+        "name": "my-test-suite"
+      },
+      "spec": {
+        "defaults": {
+          "concurrency": 1,
+          "max_tokens": 1000,
+          "output": {
+            "dir": "out",
+            "formats": [
+              "json",
+              "html"
+            ]
+          },
+          "temperature": 0.7
+        },
+        "providers": [
+          {
+            "file": "providers/openai.yaml"
+          }
+        ],
+        "scenarios": [
+          {
+            "file": "scenarios/test-scenario.yaml"
+          }
+        ]
+      }
+    }
+  ]
+}

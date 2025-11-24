@@ -55,6 +55,11 @@ build-inspect-state: ## Build inspect-state utility
 	@cd tools/inspect-state && go build -o ../../bin/inspect-state .
 	@echo "inspect-state built successfully -> bin/inspect-state"
 
+build-schema-gen: ## Build schema-gen utility
+	@echo "Building schema-gen..."
+	@cd tools/schema-gen && go build -o ../../bin/schema-gen .
+	@echo "schema-gen built successfully -> bin/schema-gen"
+
 test: ## Run all tests
 	@echo "Testing runtime..."
 	@cd runtime && go test -v ./...
@@ -185,6 +190,14 @@ install-tools-user: ## Install CLI tools to user PATH (~/.local/bin)
 	@echo "CLI tools installed to ~/.local/bin"
 	@echo "Make sure ~/.local/bin is in your PATH"
 
+schemas: build-schema-gen ## Generate JSON schemas
+	@echo "Generating JSON schemas..."
+	@./bin/schema-gen
+
+schemas-check: build-schema-gen ## Check if schemas are up to date (for CI)
+	@echo "Checking if schemas are up to date..."
+	@./bin/schema-gen --check
+
 clean: ## Clean build artifacts
 	@rm -rf bin/
 	@rm -f runtime/coverage.out
@@ -195,6 +208,7 @@ clean: ## Clean build artifacts
 	@rm -f tools/arena/promptarena
 	@rm -f tools/packc/packc
 	@rm -f tools/inspect-state/inspect-state
+	@rm -f tools/schema-gen/schema-gen
 	@echo "Cleaned build artifacts"
 
 # Documentation targets (Astro-based)

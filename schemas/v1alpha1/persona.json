@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.promptkit.altairalabs.ai/v1alpha1/persona.json",
+  "$defs": {
+    "SelfPlayRoleGroup": {
+      "properties": {
+        "ID": {
+          "type": "string"
+        },
+        "Provider": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "ID",
+        "Provider"
+      ]
+    }
+  },
+  "properties": {
+    "APIVersion": {
+      "type": "string"
+    },
+    "Kind": {
+      "type": "string"
+    },
+    "Metadata": {
+      "type": "object"
+    },
+    "Spec": {
+      "$ref": "#/$defs/SelfPlayRoleGroup"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "APIVersion",
+    "Kind",
+    "Metadata",
+    "Spec"
+  ],
+  "title": "PromptKit Persona Configuration",
+  "description": "User persona configuration for self-play scenarios",
+  "examples": [
+    {
+      "apiVersion": "promptkit.altairalabs.ai/v1alpha1",
+      "kind": "Persona",
+      "metadata": {
+        "name": "customer-persona"
+      },
+      "spec": {
+        "id": "customer",
+        "provider": "gpt4"
+      }
+    }
+  ]
+}

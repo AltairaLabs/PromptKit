@@ -1,12 +1,12 @@
 package policy_test
 
 import (
-"testing"
-"time"
+	"testing"
+	"time"
 
-"github.com/AltairaLabs/PromptKit/runtime/storage/policy"
-"github.com/stretchr/testify/assert"
-"github.com/stretchr/testify/require"
+	"github.com/AltairaLabs/PromptKit/runtime/storage/policy"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParsePolicyName(t *testing.T) {
@@ -77,17 +77,17 @@ func TestParsePolicyName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-gotType, gotDuration, err := policy.ParsePolicyName(tt.policyName)
+			gotType, gotDuration, err := policy.ParsePolicyName(tt.policyName)
 
-if tt.wantError {
-assert.Error(t, err)
-return
-}
+			if tt.wantError {
+				assert.Error(t, err)
+				return
+			}
 
-require.NoError(t, err)
-assert.Equal(t, tt.wantType, gotType)
-assert.Equal(t, tt.wantDuration, gotDuration)
-})
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantType, gotType)
+			assert.Equal(t, tt.wantDuration, gotDuration)
+		})
 	}
 }
 
@@ -134,7 +134,7 @@ func TestPolicyConfig_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-err := tt.config.Validate()
+			err := tt.config.Validate()
 
 			if tt.wantError {
 				assert.Error(t, err)
@@ -151,7 +151,7 @@ err := tt.config.Validate()
 
 func TestPolicyMetadata(t *testing.T) {
 	t.Run("creates policy metadata", func(t *testing.T) {
-now := time.Now()
+		now := time.Now()
 		expiresAt := now.Add(5 * time.Minute)
 
 		metadata := policy.PolicyMetadata{
@@ -167,7 +167,7 @@ now := time.Now()
 	})
 
 	t.Run("creates policy metadata without expiration", func(t *testing.T) {
-now := time.Now()
+		now := time.Now()
 
 		metadata := policy.PolicyMetadata{
 			PolicyName: "retain-forever",

@@ -1,3 +1,4 @@
+$schema: https://schemas.promptkit.altairalabs.ai/v1alpha1/scenario.json
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Scenario
 metadata:
