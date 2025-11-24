@@ -353,7 +353,7 @@ jobs:
         name: Arena Customer Support Tests
         path: examples/customer-support/out/junit.xml
         reporter: java-junit
-        fail-on-error: false
+        fail-on-error: true
     
     - name: Upload Arena Test Reports
       if: always()
