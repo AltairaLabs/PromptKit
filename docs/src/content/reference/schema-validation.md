@@ -14,6 +14,20 @@ JSON schemas are automatically generated from the PromptKit codebase and provide
 - **Validation**: Ensure your config files match the expected structure
 - **IDE Support**: Get autocomplete, inline documentation, and error checking
 - **CI/CD Integration**: Validate configs automatically in your pipelines
+- **Automatic Loading**: Configs are validated against schemas when loaded by PromptKit tools
+
+### Automatic Validation
+
+As of version 1.0, PromptKit automatically validates all configuration files against their schemas during loading:
+
+- **Arena configs**: Validated when `config.LoadConfig()` is called
+- **Scenarios**: Validated when loading individual scenario files
+- **Providers**: Validated when loading provider configurations
+- **PromptConfigs**: Validated when loading prompt configuration files
+- **Tools**: Validated when loading tool definitions
+- **Personas**: Validated when loading persona files
+
+This means you'll get immediate, detailed error messages if your configs don't match the expected structure, making it easier to catch typos and structural issues early.
 
 ## Available Schemas
 
@@ -187,6 +201,45 @@ Use [lsp-mode](https://emacs-lsp.github.io/lsp-mode/) with yaml-language-server:
 ```
 
 ## Command Line Validation
+
+### Using promptarena validate (Recommended)
+
+The `promptarena` CLI includes a built-in validate command that automatically detects config types:
+
+```bash
+# Validate any config file (auto-detects type from 'kind' field)
+promptarena validate arena.yaml
+promptarena validate scenarios/test.yaml
+promptarena validate providers/openai.yaml
+
+# Explicit type specification
+promptarena validate config.yaml --type arena
+
+# Schema-only validation (skip business logic checks)
+promptarena validate arena.yaml --schema-only
+
+# Verbose error output
+promptarena validate arena.yaml --verbose
+```
+
+**Features:**
+
+- Automatic type detection from `kind` field
+- Schema validation with detailed error messages
+- Optional business logic validation for arena configs
+- Field path highlighting in error messages
+
+**Example output:**
+
+```text
+Validating arena.yaml as type 'arena'...
+✅ Schema validation passed for arena.yaml
+
+Running business logic validation...
+✅ Business logic validation passed
+
+✅ arena.yaml is valid
+```
 
 ### Using ajv-cli
 
