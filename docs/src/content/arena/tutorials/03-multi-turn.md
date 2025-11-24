@@ -57,16 +57,16 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "help"
+            patterns: ["help"]
             message: "Should offer help"
     
     # Turn 2: Providing details
     - role: user
       content: "I get an error message saying 'Invalid credentials'"
       assertions:
-        - type: content_includes
+        - type: content_matches
           params:
-            text: "password"
+            pattern: "(?i)(password|reset|credentials)"
             message: "Should reference password reset"
     
     # Turn 3: Follow-up question
@@ -75,7 +75,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "time"
+            patterns: ["time"]
             message: "Should provide timeframe"
     
     # Turn 4: Additional inquiry
@@ -84,7 +84,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "preferences"
+            patterns: ["preferences"]
             message: "Should address preferences concern"
 ```
 
@@ -125,7 +125,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "destination"
+            patterns: ["destination"]
             message: "Should ask for destination"
     
     # Turn 2: Provide destination
@@ -134,7 +134,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "date"
+            patterns: ["date"]
             message: "Should ask for date"
     
     # Turn 3: Provide date
@@ -143,7 +143,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "class"
+            patterns: ["class"]
             message: "Should ask for class preferences"
     
     # Turn 4: Complete booking
@@ -152,7 +152,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "confirm"
+            patterns: ["confirm"]
             message: "Should confirm booking details"
 ```
 
@@ -184,7 +184,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "welcome"
+            patterns: ["welcome"]
             message: "Should acknowledge thanks positively"
 
 ---
@@ -211,7 +211,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "supervisor"
+            patterns: ["supervisor"]
             message: "Should offer escalation"
 ```
 
@@ -238,7 +238,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "Alice"
+            patterns: ["Alice"]
             message: "Should acknowledge name"
     
     # Turn 2-5: Other topics
@@ -255,7 +255,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "Alice"
+            patterns: ["Alice"]
             message: "Should remember name from turn 1"
 ```
 
@@ -283,7 +283,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "premium"
+            patterns: ["premium"]
             message: "Should recognize premium tier"
 
 ---
@@ -306,7 +306,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "help"
+            patterns: ["help"]
             message: "Should offer helpful support"
 ```
 
@@ -332,7 +332,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "clarify"
+            patterns: ["clarify"]
             message: "Should ask for clarification"
     
     - role: user
@@ -340,7 +340,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "refund"
+            patterns: ["refund"]
             message: "Should proceed with clarified topic"
 
 ---
@@ -364,7 +364,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "return"
+            patterns: ["return"]
             message: "Should pivot to the corrected topic"
 ```
 
@@ -446,7 +446,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "4"
+            patterns: ["4"]
             message: "Should capture party size"
 ```
 
@@ -463,7 +463,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "confirm"
+            patterns: ["confirm"]
             message: "Should confirm cancellation"
     
     - role: user
@@ -471,7 +471,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "lose"
+            patterns: ["lose"]
             message: "Should explain consequences"
 ```
 
@@ -512,7 +512,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "order"
+            patterns: ["order"]
             message: "Should reference order context"
 ```
 
@@ -600,15 +600,13 @@ promptarena run --verbose --scenario memory-test
 ```yaml
 # ❌ Too strict
 assertions:
-  - type: exact_match
-    params:
-      text: "I understand you mentioned your order number earlier."
+      patterns: ["I understand you mentioned your order number earlier."]
 
 # ✅ Better
 assertions:
   - type: content_includes
     params:
-      text: "order number"
+      patterns: ["order number"]
       message: "Should reference order"
 ```
 

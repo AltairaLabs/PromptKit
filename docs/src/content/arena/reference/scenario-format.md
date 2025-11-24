@@ -138,7 +138,7 @@ turns:
   - role: user
     content:
       - type: text
-        text: "What's in this image?"
+        patterns: ["What's in this image?"]
       - type: image
         image_url:
           url: "path/to/image.jpg"

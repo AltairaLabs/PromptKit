@@ -57,17 +57,24 @@ Testing across providers helps you:
 
 **Testing considerations:**
 ```yaml
-test_cases:
-  - name: "OpenAI Test"
-    providers: [openai-gpt4o-mini]
-    expected:
-      # Expect concise responses
-      - type: max_length
-        value: 300
-      
-      # Strong at following instructions
-      - type: format_compliance
-        value: high
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: openai-conciseness-test
+
+spec:
+  task_type: general
+  description: "OpenAI Test - expects concise responses"
+  providers: [openai-gpt4o-mini]  # Test only this provider
+  
+  turns:
+    - role: user
+      content: "Explain quantum computing"
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "^.{1,300}$"
+            message: "Should be concise (under 300 chars)"
 ```
 
 ### Anthropic (Claude Series)
@@ -101,17 +108,23 @@ test_cases:
 
 **Testing considerations:**
 ```yaml
-test_cases:
-  - name: "Claude Test"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: claude-test
+
+spec:
+  task_type: test
+  description: "Claude Test"
+  
     providers: [claude-sonnet]
-    expected:
+    assertions:
       # Expect more verbose responses
       - type: min_length
         value: 100
       
       # Excellent at context retention
-      - type: references_previous
-        value: true
+value: true
       
       # Strong safety filtering
       - type: tone
@@ -149,17 +162,24 @@ test_cases:
 
 **Testing considerations:**
 ```yaml
-test_cases:
-  - name: "Gemini Test"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: gemini-test
+
+spec:
+  task_type: test
+  description: "Gemini Test"
+  
     providers: [gemini-flash]
-    expected:
+    assertions:
       # Expect fast responses
-      - type: response_time
-        max_seconds: 2
+max_seconds: 2
       
       # Good at direct answers
-      - type: contains
-        value: "key information"
+      - type: content_includes
+        params:
+          patterns: "key information"
 ```
 
 ## Response Style Comparison
@@ -199,10 +219,11 @@ Here are 3 benefits:
 
 **Test across styles:**
 ```yaml
-expected:
+assertions:
   # Provider-agnostic content check
-  - type: contains
-    value: ["cardiovascular", "mental", "energy"]
+  - type: content_includes
+    params:
+      patterns: ["cardiovascular", "mental", "energy"]
   
   # Not: format-specific assertion
   # - type: regex
@@ -221,7 +242,7 @@ Response length varies significantly:
 
 **Accommodate variation:**
 ```yaml
-expected:
+assertions:
   # Instead of exact length
   - type: length_range
     min: 50
@@ -265,7 +286,7 @@ Error debugging steps:
 
 **Test for appropriate tone:**
 ```yaml
-expected:
+assertions:
   # Not provider-specific phrases
   - type: tone
     value: helpful
@@ -294,15 +315,13 @@ gemini-pro:            ~1.0-2.0 seconds
 
 **Test with appropriate thresholds:**
 ```yaml
-expected:
+assertions:
   # Fast models
-  - type: response_time
-    max_seconds: 2
+max_seconds: 2
     providers: [openai-mini, gemini-flash, claude-haiku]
   
   # Powerful models (allow more time)
-  - type: response_time
-    max_seconds: 4
+max_seconds: 4
     providers: [openai-gpt4o, claude-sonnet, gemini-pro]
 ```
 
@@ -318,14 +337,22 @@ Maximum context varies:
 
 **Test long context:**
 ```yaml
-test_cases:
-  - name: "Long Document Analysis"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: long-document-analysis
+
+spec:
+  task_type: test
+  description: "Long Document Analysis"
+  
     providers: [claude-sonnet, gemini-pro]  # Best for long context
     context:
       document: "${fixtures.50k_word_doc}"
     turns:
-      - user: "Summarize the key points"
-        expected:
+      - role: user
+        content: "Summarize the key points"
+        assertions:
           - type: references_document
             value: true
 ```
@@ -375,12 +402,13 @@ Support varies:
 
 ```yaml
 # OpenAI: Excellent
-test_cases:
+turns:
   - name: "Tool Calling Test"
     providers: [openai-gpt4o]
     turns:
-      - user: "What's the weather in Paris?"
-        expected:
+      - role: user
+        content: "What's the weather in Paris?"
+        assertions:
           - type: tool_called
             value: "get_weather"
           - type: tool_args_accurate
@@ -417,15 +445,17 @@ Vision/image support:
 
 ```yaml
 # All support images, but differently
-test_cases:
+turns:
   - name: "Image Analysis"
     providers: [gpt-4o, claude-opus, gemini-pro]
     turns:
-      - user: "Describe this image"
+      - role: user
+        content: "Describe this image"
         image: "./test-image.jpg"
-        expected:
-          - type: contains
-            value: ["objects", "colors", "scene"]
+        assertions:
+          - type: content_includes
+            params:
+              patterns: ["objects", "colors", "scene"]
 ```
 
 ## Testing Strategy by Provider
@@ -435,20 +465,28 @@ test_cases:
 Test all providers with same scenario:
 
 ```yaml
-test_cases:
-  - name: "Standard Support Query"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: standard-support-query
+
+spec:
+  task_type: test
+  description: "Standard Support Query"
+  
     providers: [openai-gpt4o-mini, claude-sonnet, gemini-flash]
     
     turns:
-      - user: "What's your refund policy?"
-        expected:
+      - role: user
+        content: "What's your refund policy?"
+        assertions:
           # Common requirements for ALL providers
-          - type: contains
-            value: ["refund", "policy", "days"]
+          - type: content_includes
+            params:
+              patterns: ["refund", "policy", "days"]
           - type: sentiment
             value: helpful
-          - type: response_time
-            max_seconds: 5
+max_seconds: 5
 ```
 
 ### Provider-Specific Tests
@@ -457,27 +495,26 @@ Test unique capabilities:
 
 ```yaml
 # OpenAI: Function calling
-test_cases:
+turns:
   - name: "Function Calling"
     providers: [openai-gpt4o]
-    expected:
+    assertions:
       - type: tool_called
         value: "specific_function"
 
 # Claude: Long context
-test_cases:
+turns:
   - name: "Long Document Processing"
     providers: [claude-sonnet]
     context:
       document: "${fixtures.100k_token_doc}"
 
 # Gemini: Speed
-test_cases:
+turns:
   - name: "High Throughput"
     providers: [gemini-flash]
-    expected:
-      - type: response_time
-        max_seconds: 1
+    assertions:
+max_seconds: 1
 ```
 
 ### Fallback Testing
@@ -485,8 +522,15 @@ test_cases:
 Test provider redundancy:
 
 ```yaml
-test_cases:
-  - name: "Provider Failover"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: provider-failover
+
+spec:
+  task_type: test
+  description: "Provider Failover"
+  
     primary_provider: openai-gpt4o
     fallback_providers: [claude-sonnet, gemini-pro]
     
@@ -510,14 +554,15 @@ Write tests that work across providers:
 
 ```yaml
 # ✅ Good: Works for all providers
-expected:
-  - type: contains
-    value: ["key", "terms"]
+assertions:
+  - type: content_includes
+    params:
+      patterns: ["key", "terms"]
   - type: sentiment
     value: appropriate
 
 # ❌ Avoid: Provider-specific expectations
-expected:
+assertions:
   - type: starts_with
     value: "Here are 3"  # Too OpenAI-specific
 ```
@@ -528,7 +573,7 @@ Account for style differences:
 
 ```yaml
 # Test content, not format
-expected:
+assertions:
   - type: content_similarity
     baseline: "${fixtures.expected_content}"
     threshold: 0.85  # 85% similar
@@ -537,8 +582,15 @@ expected:
 ### 3. Use Tags for Provider Categories
 
 ```yaml
-test_cases:
-  - name: "Fast Provider Test"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: fast-provider-test
+
+spec:
+  task_type: test
+  description: "Fast Provider Test"
+  
     tags: [fast-providers]
     providers: [openai-mini, gemini-flash, claude-haiku]
   

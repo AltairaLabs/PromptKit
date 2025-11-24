@@ -237,11 +237,9 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "Monday"
+            patterns: ["Monday"]
             message: "Should mention business days"
-        
-        - type: response_time
-          params:
+params:
             max_seconds: 3
             message: "Should respond quickly"
     
@@ -250,7 +248,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "email"
+            patterns: ["email"]
             message: "Should provide contact methods"
 ```
 

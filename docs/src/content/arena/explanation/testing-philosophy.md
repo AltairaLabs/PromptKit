@@ -35,14 +35,13 @@ Instead of testing for exact outputs, test for desired behaviors:
 
 ```yaml
 # ❌ Brittle: Exact match
-expected:
-  - type: exact_match
-    value: "Thank you for contacting AcmeCorp support."
+assertions:
 
 # ✅ Robust: Behavior validation
-expected:
-  - type: contains
-    value: ["thank", "AcmeCorp", "support"]
+assertions:
+  - type: content_includes
+    params:
+      patterns: ["thank", "AcmeCorp", "support"]
   - type: tone
     value: professional
   - type: sentiment
@@ -63,7 +62,7 @@ LLM quality isn't binary (pass/fail). It's multi-dimensional:
 - **Performance**: Fast enough?
 
 ```yaml
-expected:
+assertions:
   - type: contains           # Correctness
     value: "30-day return"
   
@@ -72,11 +71,9 @@ expected:
   
   - type: not_contains       # Safety
     value: ["offensive", "inappropriate"]
-  
-  - type: references_previous # Consistency
+
     value: true
-  
-  - type: response_time      # Performance
+
     max_seconds: 2
 ```
 
@@ -104,26 +101,30 @@ Context matters in LLM testing:
 
 ```yaml
 # Same question, different contexts
-test_cases:
+turns:
   - name: "Technical Support Context"
     context:
       user_type: "developer"
       urgency: "high"
     turns:
-      - user: "How do I fix this error?"
-        expected:
-          - type: contains
-            value: ["code", "debug", "solution"]
+      - role: user
+        content: "How do I fix this error?"
+        assertions:
+          - type: content_includes
+            params:
+              patterns: ["code", "debug", "solution"]
   
   - name: "General Inquiry Context"
     context:
       user_type: "general"
       urgency: "low"
     turns:
-      - user: "How do I fix this error?"
-        expected:
-          - type: contains
-            value: ["help", "guide", "steps"]
+      - role: user
+        content: "How do I fix this error?"
+        assertions:
+          - type: content_includes
+            params:
+              patterns: ["help", "guide", "steps"]
           - type: tone
             value: beginner-friendly
 ```
@@ -189,27 +190,28 @@ Start simple, add complexity:
 
 ```yaml
 # Level 1: Structural
-expected:
+assertions:
   - type: response_received
   - type: not_empty
   - type: valid_format
 
 # Level 2: Content
-expected:
-  - type: contains
-    value: "key information"
+assertions:
+  - type: content_includes
+    params:
+      patterns: "key information"
   - type: min_length
     value: 50
 
 # Level 3: Quality
-expected:
+assertions:
   - type: sentiment
     value: appropriate
   - type: tone
     value: professional
 
 # Level 4: Custom Business Logic
-expected:
+assertions:
   - type: custom
     validator: brand_compliance
   - type: custom
@@ -264,9 +266,10 @@ Instead of code, use declarations:
 
 ```yaml
 # Declarative (PromptArena)
-expected:
-  - type: contains
-    value: "customer service"
+assertions:
+  - type: content_includes
+    params:
+      patterns: "customer service"
   - type: sentiment
     value: positive
 
@@ -305,18 +308,17 @@ promptarena run --provider openai-gpt4o-mini
 
 ```yaml
 # Too rigid
-expected:
-  - type: exact_match
-    value: "Thank you for contacting us. A support representative will assist you shortly. Our business hours are Monday-Friday 9AM-5PM EST."
+assertions:
 ```
 
 **Problem**: Brittle. Any wording change breaks the test.
 
 **Better:**
 ```yaml
-expected:
-  - type: contains
-    value: ["thank", "support", "business hours"]
+assertions:
+  - type: content_includes
+    params:
+      patterns: ["thank", "support", "business hours"]
   - type: tone
     value: professional
 ```
@@ -325,7 +327,7 @@ expected:
 
 ```yaml
 # Too loose
-expected:
+assertions:
   - type: response_received
 ```
 
@@ -333,10 +335,11 @@ expected:
 
 **Better:**
 ```yaml
-expected:
+assertions:
   - type: response_received
-  - type: contains
-    value: "relevant keywords"
+  - type: content_includes
+    params:
+      patterns: "relevant keywords"
   - type: min_length
     value: 50
   - type: sentiment
@@ -347,7 +350,7 @@ expected:
 
 ```yaml
 # Assumes specific response structure
-expected:
+assertions:
   - type: regex
     value: "^Hello.*\nHow can I help\?$"
 ```
@@ -356,9 +359,10 @@ expected:
 
 **Better:**
 ```yaml
-expected:
-  - type: contains
-    value: ["hello", "help"]
+assertions:
+  - type: content_includes
+    params:
+      patterns: ["hello", "help"]
   - type: sentiment
     value: welcoming
 ```
@@ -367,7 +371,7 @@ expected:
 
 ```yaml
 # Tests how, not what
-expected:
+assertions:
   - type: tool_called
     value: "calculate"
   - type: tool_args
@@ -379,9 +383,10 @@ expected:
 **Better:**
 ```yaml
 # Tests outcome
-expected:
-  - type: contains
-    value: "4"
+assertions:
+  - type: content_includes
+    params:
+      patterns: "4"
   - type: correctness
     expected_result: "4"
 ```
@@ -419,7 +424,7 @@ quality_gates:
 
 ```yaml
 # Test new prompt vs. old prompt
-test_cases:
+turns:
   - name: "Baseline Prompt"
     prompt_version: "v1.0"
     baseline: true
@@ -465,12 +470,20 @@ Human Eval → Ground Truth → Automated Tests → Continuous Validation
 ### Human-in-the-Loop Testing
 
 ```yaml
-test_cases:
-  - name: "Requires Human Review"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: requires-human-review
+
+spec:
+  task_type: test
+  description: "Requires Human Review"
+  
     tags: [human-review]
     
     turns:
-      - user: "Complex ethical question"
+      - role: user
+        content: "Complex ethical question"
         human_evaluation:
           required: true
           criteria:

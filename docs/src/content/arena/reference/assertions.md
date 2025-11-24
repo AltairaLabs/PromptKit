@@ -69,7 +69,7 @@ Checks that the response contains specific text (case-insensitive).
   assertions:
     - type: content_includes
       params:
-        text: "Paris"
+        patterns: ["Paris"]
         message: "Should mention Paris"
 ```
 
@@ -377,7 +377,7 @@ Verifies that a specific validator/guardrail was triggered.
     - type: guardrail_triggered
       params:
         guardrail: banned_words
-        expected: true
+        assertions: true
         message: "Should catch banned word 'definitely'"
 
 # Verify no guardrail triggered
@@ -386,7 +386,7 @@ Verifies that a specific validator/guardrail was triggered.
   assertions:
     - type: guardrail_triggered
       params:
-        expected: false
+        assertions: false
         message: "Should not trigger any guardrail"
 ```
 
@@ -398,7 +398,7 @@ Verifies that a specific validator/guardrail was triggered.
     - type: guardrail_triggered
       params:
         guardrail: max_length
-        expected: true
+        assertions: true
         message: "Should trigger length limit"
 ```
 
@@ -429,7 +429,7 @@ Multiple assertions can check different aspects:
     # Check content
     - type: content_includes
       params:
-        text: "weather"
+        patterns: ["weather"]
         message: "Should acknowledge weather request"
 
     # Check tool usage
@@ -484,7 +484,7 @@ turns:
     assertions:
       - type: content_includes
         params:
-          text: "order"
+          patterns: ["order"]
 
   # Turn 2: Provide details
   - role: user
@@ -492,7 +492,7 @@ turns:
     assertions:
       - type: content_includes
         params:
-          text: "#12345"
+          patterns: ["#12345"]
       - type: tools_called
         params:
           tools: ["check_order_status"]
@@ -514,12 +514,12 @@ turns:
 # ❌ Too vague
 - type: content_includes
   params:
-    text: "help"
+    patterns: ["help"]
 
 # ✅ Specific and meaningful
 - type: content_includes
   params:
-    text: "Let me help you track your order"
+    patterns: ["Let me help you track your order"]
     message: "Should offer specific order tracking help"
 ```
 
@@ -570,7 +570,7 @@ turns:
 # ✅ Using content_includes for simple text
 - type: content_includes
   params:
-    text: "Paris"
+    patterns: ["Paris"]
 
 # ✅ Using regex for complex patterns
 - type: content_matches

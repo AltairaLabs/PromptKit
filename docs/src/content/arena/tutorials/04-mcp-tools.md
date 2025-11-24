@@ -126,7 +126,7 @@ spec:
         
         - type: content_includes
           params:
-            text: "remember"
+            patterns: ["remember"]
             message: "Should confirm storage"
     
     # Turn 2: Request to recall information
@@ -140,7 +140,7 @@ spec:
         
         - type: content_includes
           params:
-            text: "blue"
+            patterns: ["blue"]
             message: "Should include recalled information"
 ```
 
@@ -271,7 +271,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "4"
+            patterns: ["4"]
             message: "Should answer directly"
     
     # Scenario where tool is needed
@@ -308,7 +308,7 @@ spec:
         
         - type: content_includes
           params:
-            text: "don't have"
+            patterns: ["don't have"]
             message: "Should handle gracefully when not found"
 ```
 
@@ -338,7 +338,7 @@ spec:
         
         - type: content_includes
           params:
-            text: "admin"
+            patterns: ["admin"]
             message: "Should mention admin users"
 ```
 
@@ -366,7 +366,7 @@ spec:
         
         - type: content_includes
           params:
-            text: "Bitcoin"
+            patterns: ["Bitcoin"]
             message: "Should mention Bitcoin"
 ```
 
@@ -534,7 +534,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "error"
+            patterns: ["error"]
             message: "Should handle tool errors gracefully"
 ```
 

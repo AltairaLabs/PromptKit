@@ -39,7 +39,7 @@ spec:
       assertions:             # Quality criteria
         - type: content_includes
           params:
-            text: "expected content"
+            patterns: ["expected content"]
             message: "Should include expected content"
 ```
 
@@ -72,12 +72,13 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "hello"
+            patterns: ["hello"]
             message: "Should greet back"
         
-        - type: tone_friendly
+        - type: content_matches
           params:
-            message: "Should be friendly"
+            pattern: "(?i)(hi|hello|welcome|nice)"
+            message: "Should use friendly language"
 
 # ❌ Avoid: Tests multiple unrelated things
 apiVersion: promptkit.altairalabs.ai/v1alpha1
@@ -127,7 +128,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "12345"
+            patterns: ["12345"]
             message: "Should reference order ID"
 ```
 
@@ -163,7 +164,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "Alice"
+            patterns: ["Alice"]
             message: "Should use user name"
 
 # Level 3: Multi-turn
@@ -223,7 +224,7 @@ metadata:
 
 spec:
   fixtures:
-    long_text: "Very long message..."  # 10k chars
+    long_patterns: ["Very long message..."]  # 10k chars
   
   turns:
     - role: user
@@ -240,8 +241,9 @@ metadata:
   name: special-characters
     tags: [edge-case]
     turns:
-      - user: "Hello <script>alert('test')</script>"
-        expected:
+      - role: user
+        content: "Hello <script>alert('test')</script>"
+        assertions:
           - type: not_contains
             value: "<script>"
   
@@ -249,8 +251,9 @@ metadata:
   - name: "Non-English Input"
     tags: [edge-case, i18n]
     turns:
-      - user: "¿Cuáles son sus horas?"
-        expected:
+      - role: user
+        content: "¿Cuáles son sus horas?"
+        assertions:
           - type: language
             value: ["es", "en"]
 ```
@@ -319,7 +322,8 @@ context:
     location: "US-CA"
 
 turns:
-  - user: "What benefits do I have?"
+  - role: user
+    content: "What benefits do I have?"
     # LLM can use context in response
 ```
 
@@ -335,8 +339,10 @@ context:
 **History**: Implicit from previous turns
 ```yaml
 turns:
-  - user: "My order number is 12345"
-  - user: "What's the status?"  # Refers to previous turn
+  - role: user
+    content: "My order number is 12345"
+  - role: user
+    content: "What's the status?"  # Refers to previous turn
 ```
 
 **When to use each:**
@@ -361,7 +367,7 @@ fixtures:
     Lorem ipsum dolor sit amet...
     (1000+ words)
 
-test_cases:
+turns:
   - name: "Premium User Support"
     context:
       user: ${fixtures.premium_user}
@@ -378,7 +384,7 @@ test_cases:
 Apply multiple validation levels:
 
 ```yaml
-expected:
+assertions:
   # Layer 1: Structure
   - type: response_received
   - type: not_empty
@@ -386,8 +392,9 @@ expected:
     value: 500
   
   # Layer 2: Content
-  - type: contains
-    value: "key information"
+  - type: content_includes
+    params:
+      patterns: "key information"
   
   # Layer 3: Quality
   - type: sentiment
@@ -406,20 +413,22 @@ Choose the right level:
 
 ```yaml
 # Too loose (accepts anything)
-expected:
+assertions:
   - type: response_received
 
 # Appropriate (validates behavior)
-expected:
-  - type: contains
-    value: ["refund", "policy"]
-  - type: tone
-    value: helpful
+assertions:
+  - type: content_includes
+    params:
+      patterns: ["refund", "policy"]
+      message: "Should mention refund policy"
 
 # Too strict (brittle)
-expected:
-  - type: exact_match
-    value: "Our refund policy allows returns within 30 days."
+assertions:
+  - type: content_matches
+    params:
+      pattern: "^Our refund policy allows returns within 30 days\\\\.$"
+      message: "Exact match - too rigid"
 ```
 
 ### Negative Assertions
@@ -427,7 +436,7 @@ expected:
 Test what should NOT happen:
 
 ```yaml
-expected:
+assertions:
   # Should not mention competitors
   - type: not_contains
     value: ["CompetitorA", "CompetitorB"]
@@ -448,34 +457,50 @@ expected:
 Design natural progressions:
 
 ```yaml
-test_cases:
-  - name: "Support Ticket Resolution"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: support-ticket-resolution
+
+spec:
+  task_type: test
+  description: "Support Ticket Resolution"
+  
     tags: [multi-turn, support]
     
     turns:
       # 1. Problem statement
-      - user: "I can't log into my account"
-        expected:
-          - type: contains
-            value: ["help", "account"]
+      - role: user
+        content: "I can't log into my account"
+        assertions:
+          - type: content_includes
+            params:
+              patterns: ["help", "account"]
       
       # 2. Information gathering
-      - user: "I get an 'invalid password' error"
-        expected:
-          - type: contains
-            value: ["reset", "password"]
-          - type: references_previous
-            value: true
+      - role: user
+        content: "I get an 'invalid password' error"
+        assertions:
+          - type: content_includes
+            params:
+              patterns: ["reset", "password"]
+          - type: content_includes
+            params:
+              patterns: ["password", "reset"]
+              message: "Should reference password reset"
       
       # 3. Solution attempt
-      - user: "I tried resetting but didn't get the email"
-        expected:
-          - type: contains
-            value: ["spam", "check", "resend"]
+      - role: user
+        content: "I tried resetting but didn't get the email"
+        assertions:
+          - type: content_includes
+            params:
+              patterns: ["spam", "check", "resend"]
       
       # 4. Resolution
-      - user: "Found it in spam, thank you!"
-        expected:
+      - role: user
+        content: "Found it in spam, thank you!"
+        assertions:
           - type: sentiment
             value: positive
 ```
@@ -485,31 +510,44 @@ test_cases:
 Test conversation state changes:
 
 ```yaml
-test_cases:
-  - name: "Booking Flow State Machine"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: booking-flow-state-machine
+
+spec:
+  task_type: test
+  description: "Booking Flow State Machine"
+  
     
     turns:
       # State: INIT → COLLECTING_DESTINATION
-      - user: "I want to book a flight"
-        expected:
-          - type: contains
-            value: "destination"
+      - role: user
+        content: "I want to book a flight"
+        assertions:
+          - type: content_includes
+            params:
+              patterns: "destination"
       
       # State: COLLECTING_DESTINATION → COLLECTING_DATE
-      - user: "To London"
+      - role: user
+        content: "To London"
         context:
           booking_state: "collecting_date"
-        expected:
-          - type: contains
-            value: ["London", "date", "when"]
+        assertions:
+          - type: content_includes
+            params:
+              patterns: ["London", "date", "when"]
       
       # State: COLLECTING_DATE → CONFIRMING
-      - user: "Next Friday"
+      - role: user
+        content: "Next Friday"
         context:
           booking_state: "confirming"
-        expected:
-          - type: contains
-            value: ["confirm", "London", "Friday"]
+        assertions:
+          - type: content_includes
+            params:
+              patterns: ["confirm", "London", "Friday"]
 ```
 
 ### Branch Testing
@@ -517,26 +555,31 @@ test_cases:
 Test conversation branches:
 
 ```yaml
-test_cases:
+turns:
   # Path A: Customer satisfied
-  - name: "Happy Path"
-    turns:
-      - user: "Issue with order"
-      - user: "Order #12345"
-      - user: "That solved it, thanks!"
-        expected:
+turns:
+      - role: user
+        content: "Issue with order"
+      - role: user
+        content: "Order #12345"
+      - role: user
+        content: "That solved it, thanks!"
+        assertions:
           - type: sentiment
             value: positive
   
   # Path B: Customer needs escalation
-  - name: "Escalation Path"
-    turns:
-      - user: "Issue with order"
-      - user: "Order #12345"
-      - user: "That doesn't help, I need a manager"
-        expected:
-          - type: contains
-            value: ["manager", "supervisor", "escalate"]
+turns:
+      - role: user
+        content: "Issue with order"
+      - role: user
+        content: "Order #12345"
+      - role: user
+        content: "That doesn't help, I need a manager"
+        assertions:
+          - type: content_includes
+            params:
+              patterns: ["manager", "supervisor", "escalate"]
 ```
 
 ## Performance Considerations
@@ -571,14 +614,14 @@ Design cost-effective scenarios:
 
 ```yaml
 # Expensive: Multiple providers, long conversations
-test_cases:
+turns:
   - name: "Full Conversation Flow"
     providers: [gpt-4o, claude-opus, gemini-pro]
     turns: [10 multi-turn exchanges]
     # Cost: ~$0.50 per run
 
 # Optimized: Targeted testing
-test_cases:
+turns:
   - name: "Critical Path Only"
     providers: [gpt-4o-mini]
     turns: [3 key exchanges]
@@ -617,8 +660,15 @@ metadata:
 Handle outdated tests:
 
 ```yaml
-test_cases:
-  - name: "Legacy Greeting Test"
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: legacy-greeting-test
+
+spec:
+  task_type: test
+  description: "Legacy Greeting Test"
+  
     deprecated: true
     deprecated_reason: "Replaced by greeting-v2.yaml"
     skip: true
@@ -638,22 +688,24 @@ templates:
     tags: [customer-support]
     context:
       department: "support"
-    expected: &support_expected
+    assertions: &support_expected
       - type: tone
         value: helpful
       - type: sentiment
         value: positive
 
 # Inherit template
-test_cases:
+turns:
   - name: "Billing Support"
     <<: *support_base
     turns:
-      - user: "Question about my bill"
-        expected:
+      - role: user
+        content: "Question about my bill"
+        assertions:
           <<: *support_expected
-          - type: contains
-            value: "billing"
+          - type: content_includes
+            params:
+              patterns: "billing"
 ```
 
 ## Anti-Patterns to Avoid
@@ -662,9 +714,8 @@ test_cases:
 
 ```yaml
 # Too much in one scenario
-test_cases:
-  - name: "Test Everything"
-    turns:
+turns:
+turns:
       # 50+ turns testing unrelated features
 ```
 
@@ -674,7 +725,7 @@ test_cases:
 
 ```yaml
 # Unreliable tests
-expected:
+assertions:
   - type: regex
     value: "^Exactly this format$"  # LLMs vary formatting
 ```
@@ -685,10 +736,10 @@ expected:
 
 ```yaml
 # Unclear purpose
-test_cases:
-  - name: "Test 1"
-    turns:
-      - user: "something"
+turns:
+turns:
+      - role: user
+        content: "something"
 ```
 
 **Fix:** Add descriptive names and tags
@@ -698,7 +749,8 @@ test_cases:
 ```yaml
 # Brittle test data
 turns:
-  - user: "My order is #12345 placed on 2024-01-01 for $99.99"
+  - role: user
+    content: "My order is #12345 placed on 2024-01-01 for $99.99"
 ```
 
 **Fix:** Use fixtures and context

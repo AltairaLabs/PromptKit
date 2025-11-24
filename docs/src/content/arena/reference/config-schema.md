@@ -601,7 +601,7 @@ spec:
       assertions:                   # Optional: Checks for this turn
         - type: content_includes
           params:
-            text: "track"
+            patterns: ["track"]
             message: "Should acknowledge tracking request"
 
         - type: content_matches
@@ -645,7 +645,7 @@ spec:
   context_metadata:
     domain: "e-commerce"                   # Domain
     role: "support agent"                  # LLM role
-    user_context: "customer waiting"       # User situation
+    user_conpatterns: ["customer waiting"]       # User situation
     session_goal: "resolve concern"        # Desired outcome
 
   # Optional: Constraints

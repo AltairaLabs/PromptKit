@@ -35,11 +35,9 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "Monday"
+            patterns: ["Monday"]
             message: "Should mention business days"
-        
-        - type: response_time
-          params:
+params:
             max_seconds: 3
             message: "Should respond quickly"
     
@@ -48,7 +46,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "Saturday"
+            patterns: ["Saturday"]
             message: "Should mention weekend availability"
 ```
 
@@ -102,7 +100,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "30 days"
+            patterns: ["30 days"]
             message: "Should mention refund period"
 ```
 
@@ -130,7 +128,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "password"
+            patterns: ["password"]
             message: "Should offer password reset"
     
     - role: user
@@ -138,7 +136,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "help"
+            patterns: ["help"]
             message: "Should provide alternative help"
 ```
 
@@ -166,7 +164,7 @@ spec:
         
         - type: content_includes
           params:
-            text: "temperature"
+            patterns: ["temperature"]
             message: "Should mention temperature"
 ```
 
@@ -201,7 +199,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "Premium"
+            patterns: ["Premium"]
             message: "Should reference user's Premium plan"
 ```
 
@@ -222,7 +220,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "shipped"
+            patterns: ["shipped"]
             message: "Should mention shipped status"
 ```
 
@@ -278,9 +276,7 @@ spec:
     - role: user
       content: "What's my account balance?"
       assertions:
-        - type: content_exact
-          params:
-            text: "Your account balance is exactly $42.00"
+            patterns: ["Your account balance is exactly $42.00"]
             message: "Exact match - too brittle"
     
     # Better (flexible)
@@ -289,10 +285,10 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "account balance"
+            patterns: ["account balance"]
             message: "Should mention balance"
         
-        - type: content_regex
+        - type: content_matches
           params:
             pattern: '\$\d+\.\d{2}'
             message: "Should include dollar amount"
@@ -310,7 +306,7 @@ spec:
   task_type: support
   
   fixtures:
-    long_text: "Very long text here..."  # 10,000 chars
+    long_patterns: ["Very long text here..."]  # 10,000 chars
   
   turns:
     - role: user
@@ -318,7 +314,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "help"
+            patterns: ["help"]
             message: "Should handle empty input gracefully"
     
     - role: user

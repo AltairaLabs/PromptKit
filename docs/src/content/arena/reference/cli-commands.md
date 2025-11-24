@@ -659,7 +659,7 @@ spec:
     - role: user
       parts:
         - type: text
-          text: "What's in this image?"
+          patterns: ["What's in this image?"]
         - type: image
           media:
             file_path: test-data/sample.jpg
@@ -865,7 +865,7 @@ spec:
     - role: user
       parts:
         - type: text
-          text: "Analyze this product image for defects"
+          patterns: ["Analyze this product image for defects"]
         - type: image
           media:
             file_path: test-data/product-123.jpg
@@ -888,7 +888,7 @@ spec:
     - role: user
       parts:
         - type: text
-          text: "Transcribe this audio"
+          patterns: ["Transcribe this audio"]
         - type: audio
           media:
             file_path: test-data/meeting-recording.mp3
@@ -909,7 +909,7 @@ spec:
     - role: user
       parts:
         - type: text
-          text: "Compare these media files"
+          patterns: ["Compare these media files"]
         - type: image
           media:
             file_path: charts/q1-results.png
@@ -1003,7 +1003,7 @@ turns:
   - role: user
     parts:
       - type: text
-        text: "Generate a PNG image of a sunset"
+        patterns: ["Generate a PNG image of a sunset"]
     
     assertions:
       - type: image_format
@@ -1038,7 +1038,7 @@ turns:
   - role: user
     parts:
       - type: text
-        text: "Create a 1920x1080 wallpaper"
+        patterns: ["Create a 1920x1080 wallpaper"]
     
     assertions:
       # Exact dimensions
@@ -1053,7 +1053,7 @@ turns:
   - role: user
     parts:
       - type: text
-        text: "Generate a thumbnail"
+        patterns: ["Generate a thumbnail"]
     
     assertions:
       # Size range
@@ -1089,7 +1089,7 @@ turns:
   - role: user
     parts:
       - type: text
-        text: "Generate an audio clip"
+        patterns: ["Generate an audio clip"]
     
     assertions:
       - type: audio_format
@@ -1121,7 +1121,7 @@ turns:
   - role: user
     parts:
       - type: text
-        text: "Create a 30-second audio clip"
+        patterns: ["Create a 30-second audio clip"]
     
     assertions:
       - type: audio_duration
@@ -1135,7 +1135,7 @@ turns:
   - role: user
     parts:
       - type: text
-        text: "Generate a brief notification sound"
+        patterns: ["Generate a brief notification sound"]
     
     assertions:
       - type: audio_duration
@@ -1180,7 +1180,7 @@ turns:
   - role: user
     parts:
       - type: text
-        text: "Generate a 1080p video"
+        patterns: ["Generate a 1080p video"]
     
     assertions:
       - type: video_resolution
@@ -1197,7 +1197,7 @@ turns:
   - role: user
     parts:
       - type: text
-        text: "Create a high-resolution video"
+        patterns: ["Create a high-resolution video"]
     
     assertions:
       - type: video_resolution
@@ -1229,7 +1229,7 @@ turns:
   - role: user
     parts:
       - type: text
-        text: "Create a 1-minute video clip"
+        patterns: ["Create a 1-minute video clip"]
     
     assertions:
       - type: video_duration
@@ -1254,7 +1254,7 @@ turns:
   - role: user
     parts:
       - type: text
-        text: "Create a 30-second 4K video in MP4 format"
+        patterns: ["Create a 30-second 4K video in MP4 format"]
     
     assertions:
       # Validate format (if you add video_format validator)
@@ -1292,7 +1292,7 @@ spec:
     - role: user
       parts:
         - type: text
-          text: "Generate a 1920x1080 PNG wallpaper"
+          patterns: ["Generate a 1920x1080 PNG wallpaper"]
       
       assertions:
         - type: image_format
@@ -1308,7 +1308,7 @@ spec:
     - role: user
       parts:
         - type: text
-          text: "Create a 10-second MP3 audio clip"
+          patterns: ["Create a 10-second MP3 audio clip"]
       
       assertions:
         - type: audio_format
@@ -1324,7 +1324,7 @@ spec:
     - role: user
       parts:
         - type: text
-          text: "Generate a 30-second 4K video"
+          patterns: ["Generate a 30-second 4K video"]
       
       assertions:
         - type: video_resolution

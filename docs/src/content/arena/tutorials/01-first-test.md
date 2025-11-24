@@ -134,7 +134,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "hello"
+            patterns: ["hello"]
             message: "Should include greeting"
         
         - type: content_length
@@ -147,7 +147,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "good"
+            patterns: ["good"]
             message: "Should respond positively"
 ```
 
@@ -266,14 +266,12 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "hello"
+            patterns: ["hello"]
         
         - type: content_length
           params:
             max: 100
-        
-        - type: response_time
-          params:
+params:
             max_seconds: 3
 ```
 

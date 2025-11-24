@@ -156,25 +156,15 @@ spec:
     - role: user
       content: "Explain quantum computing"
       assertions:
-        - type: content_not_empty
-          params:
-            message: "Should provide response"
-        
         - type: content_includes
           params:
-            text: "quantum"
+            patterns: ["quantum"]
             message: "Should mention quantum"
         
-        - type: content_max_tokens
+        - type: content_matches
           params:
-            tokens: 500
-            message: "Should be concise"
-        
-        - type: semantic_similarity
-          params:
-            reference: "Expected explanation"
-            threshold: 0.85
-            message: "Should match expected content"
+            pattern: "(qubit|superposition|entanglement)"
+            message: "Should mention key quantum concepts"
 ```
 
 ### Performance Metrics

@@ -566,7 +566,7 @@ spec:
         - type: guardrail_triggered
           params:
             guardrail: banned_words
-            expected: true
+            assertions: true
             message: "Should catch 'definitely'"
 ```
 

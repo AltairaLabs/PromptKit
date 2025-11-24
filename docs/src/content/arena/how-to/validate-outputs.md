@@ -32,12 +32,12 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "Monday"
+            patterns: ["Monday"]
             message: "Should mention Monday"
         
         - type: content_includes
           params:
-            text: "9 AM"
+            patterns: ["9 AM"]
             message: "Should include opening time"
 ```
 
@@ -56,36 +56,15 @@ spec:
     - role: user
       content: "What's the support email?"
       assertions:
-        - type: content_regex
+        - type: content_matches
           params:
             pattern: '[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}'
             message: "Should contain valid email"
 ```
 
-#### Exact Match
+#### Not Containstern Matching
 
-Precise response validation:
-
-```yaml
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Scenario
-metadata:
-  name: math-exact
-
-spec:
-  turns:
-    - role: user
-      content: "What is 2+2?"
-      assertions:
-        - type: content_exact
-          params:
-            text: "4"
-            message: "Should answer exactly 4"
-```
-
-#### Not Contains
-
-Ensure specific content is absent:
+Ensure specific content is absent using negative lookahead:
 
 ```yaml
 apiVersion: promptkit.altairalabs.ai/v1alpha1
@@ -98,56 +77,13 @@ spec:
     - role: user
       content: "Describe our product"
       assertions:
-        - type: content_excludes
+        - type: content_matches
           params:
-            text: "competitor"
+            pattern: "^(?!.*competitor).*$"
             message: "Should not mention competitors"
 ```
 
 ### Structural Assertions
-
-#### Length Constraints
-
-```yaml
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Scenario
-metadata:
-  name: summary-length
-
-spec:
-  turns:
-    - role: user
-      content: "Provide a brief summary"
-      assertions:
-        - type: content_max_length
-          params:
-            length: 200
-            message: "Should be under 200 characters"
-        
-        - type: content_min_length
-          params:
-            length: 50
-            message: "Should be at least 50 characters"
-```
-
-#### Word Count
-
-```yaml
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Scenario
-metadata:
-  name: tweet-length
-
-spec:
-  turns:
-    - role: user
-      content: "Write a tweet"
-      assertions:
-        - type: content_max_words
-          params:
-            count: 30
-            message: "Should be under 30 words"
-```
 
 #### JSON Structure
 
@@ -162,11 +98,11 @@ spec:
     - role: user
       content: "Return user data as JSON"
       assertions:
-        - type: content_json_valid
+        - type: is_valid_json
           params:
             message: "Should return valid JSON"
         
-        - type: content_json_schema
+        - type: json_schema
           params:
             schema:
               type: object
@@ -199,31 +135,12 @@ spec:
             tools: ["get_weather"]
             message: "Should call weather tool"
         
-        - type: tool_args_match
+        - type: tools_called_with
           params:
             tool: "get_weather"
-            args:
+            expected_args:
               location: "Paris"
             message: "Should pass Paris as location"
-```
-
-#### Response Time
-
-```yaml
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Scenario
-metadata:
-  name: response-speed
-
-spec:
-  turns:
-    - role: user
-      content: "Quick question"
-      assertions:
-        - type: response_time_max
-          params:
-            seconds: 3
-            message: "Should respond within 3 seconds"
 ```
 
 #### Context Retention
@@ -244,65 +161,8 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "Alice"
+            patterns: ["Alice"]
             message: "Should remember user's name"
-```
-
-### Quality Assertions
-
-#### Sentiment
-
-```yaml
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Scenario
-metadata:
-  name: sentiment-check
-
-spec:
-  turns:
-    - role: user
-      content: "I love your product!"
-      assertions:
-        - type: sentiment_positive
-          params:
-            message: "Should have positive sentiment"
-```
-
-#### Tone
-
-```yaml
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Scenario
-metadata:
-  name: tone-check
-
-spec:
-  turns:
-    - role: user
-      content: "Explain this technical concept"
-      assertions:
-        - type: tone_professional
-          params:
-            message: "Should use professional tone"
-```
-
-#### Language Detection
-
-```yaml
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Scenario
-metadata:
-  name: language-check
-
-spec:
-  turns:
-    - role: user
-      content: "Respond in Spanish"
-      assertions:
-        - type: language_is
-          params:
-            language: "es"
-            message: "Should respond in Spanish"
 ```
 
 ## Custom Validators
@@ -481,15 +341,15 @@ validators:
 ```yaml
 turns:
   - user: "Provide customer support response"
-    expected:
-      - type: contains
-        value: ["thank you", "help"]
+    assertions:
+      - type: content_includes
+        params:
+          patterns: ["thank you", "help"]
       - type: sentiment
         value: positive
       - type: max_length
         value: 500
-      - type: response_time
-        max_seconds: 2
+max_seconds: 2
     # All assertions must pass
 ```
 
@@ -509,13 +369,13 @@ spec:
         # Always validate
         - type: content_includes
           params:
-            text: "order"
+            patterns: ["order"]
             message: "Should mention order"
         
         # Additional checks based on order status
         - type: content_includes
           params:
-            text: "shipped"
+            patterns: ["shipped"]
             message: "Should mention shipping if shipped"
 ```
 
@@ -531,7 +391,7 @@ Start with basic assertions, add complexity:
 - type: not_empty
 
 # Level 2: Content presence
-- type: contains
+- type: content_includes
   value: "customer service"
 
 # Level 3: Quality checks
@@ -564,11 +424,9 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "critical terms"
+            patterns: ["critical terms"]
             message: "Must include critical terms"
-        
-        - type: response_time_max
-          params:
+params:
             seconds: 1
             message: "Must respond within 1 second"
         
@@ -593,8 +451,6 @@ spec:
     - role: user
       content: "Standard query"
       assertions:
-        - type: quality_score_min
-          params:
             score: 0.85
             message: "Quality should be above 85%"
 ```
@@ -653,7 +509,7 @@ Example JSON output:
 - type: not_empty
 
 # Then content
-- type: contains
+- type: content_includes
   value: "expected data"
 
 # Finally quality
@@ -665,11 +521,9 @@ Example JSON output:
 
 ```yaml
 # Too strict (brittle)
-- type: exact_match
-  value: "Thank you for contacting AcmeCorp support..."
 
 # Better (flexible)
-- type: contains
+- type: content_includes
   value: ["thank", "AcmeCorp", "support"]
 - type: sentiment
   value: positive

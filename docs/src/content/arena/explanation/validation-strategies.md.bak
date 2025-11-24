@@ -12,12 +12,10 @@ Comprehensive guide to designing effective validation and assertion strategies f
 LLM outputs are non-deterministic and variable. Traditional exact-match testing doesn't work:
 
 ```yaml
-# ❌ This will fail - too rigid
-assertions:
-  - type: content_matches
-    params:
-      pattern: "^The capital of France is Paris\\.$"
-      message: "Exact match required"
+# ❌ This will fail randomly
+expected:
+  - type: exact_match
+    value: "The capital of France is Paris."
 
 # LLM might say:
 # - "Paris is the capital of France."
@@ -35,18 +33,16 @@ Focus on what the response achieves, not how it's phrased:
 
 ```yaml
 # ✅ Good: Tests behavior
-assertions:
-  - type: content_includes
-    params:
-      patterns: ["Paris"]
-      message: "Should mention Paris"
+expected:
+  - type: contains
+    value: "Paris"
+  - type: relevance
+    threshold: 0.8
 
 # ❌ Bad: Tests exact wording
-assertions:
-  - type: content_matches
-    params:
-      pattern: "^The capital is Paris$"
-      message: "Exact match"
+expected:
+  - type: exact_match
+    value: "The capital is Paris"
 ```
 
 ### 2. Layer Your Validations
@@ -54,28 +50,23 @@ assertions:
 Use multiple validation types from loose to strict:
 
 ```yaml
-assertions:
+expected:
   # Layer 1: Basic content presence
-  - type: content_includes
-    params:
-      patterns: ["key", "terms"]
+  - type: contains
+    value: ["key", "terms"]
   
   # Layer 2: Structural validation
-  - type: is_valid_json
-    params:
-      message: "Must be valid JSON"
+  - type: json_valid
+    value: true
   
-  # Layer 3: Schema validation
-  - type: json_schema
-    params:
-      schema:
-        type: object
-        required: ["expected_field"]
+  # Layer 3: Semantic validation
+  - type: semantic_similarity
+    baseline: "Expected meaning"
+    threshold: 0.85
   
-  # Layer 4: Pattern matching
-  - type: content_matches
-    params:
-      pattern: "business_rule_pattern"
+  # Layer 4: Business logic
+  - type: custom
+    validator: validate_business_rules
 ```
 
 ### 3. Tolerate Variation
@@ -84,18 +75,14 @@ Build assertions that accept legitimate variation:
 
 ```yaml
 # ✅ Flexible
-assertions:
-  - type: content_matches
-    params:
-      pattern: "(refund|money back|return funds)"
-      message: "Should mention refund option"
+expected:
+  - type: contains_any
+    value: ["refund", "money back", "return funds"]
   
 # ❌ Too rigid
-assertions:
-  - type: content_includes
-    params:
-      patterns: ["refund policy"]
-      message: "Must say exactly 'refund policy'"
+expected:
+  - type: contains
+    value: "refund policy"
 ```
 
 ### 4. Fail Fast, Fail Clear
@@ -103,16 +90,14 @@ assertions:
 Design assertions that fail with helpful messages:
 
 ```yaml
-assertions:
-  - type: content_includes
-    params:
-      patterns: ["critical_info"]
-      message: "Missing required policy information"
+expected:
+  - type: contains
+    value: "critical_info"
+    failure_message: "Missing required policy information"
   
-  - type: content_matches
-    params:
-      pattern: "^(?!.*(harmful|inappropriate)).*$"
-      message: "Response contains inappropriate content"
+  - type: not_contains
+    value: ["harmful", "inappropriate"]
+    failure_message: "Response contains inappropriate content"
 ```
 
 ## Validation Types
@@ -125,22 +110,19 @@ Check for required content:
 
 ```yaml
 # Single term
-assertions:
-  - type: content_includes
-    params:
-      patterns: ["Paris"]
+expected:
+  - type: contains
+    value: "Paris"
 
 # Multiple terms (all must be present)
-assertions:
-  - type: content_includes
-    params:
-      patterns: ["Paris", "France", "capital"]
+expected:
+  - type: contains
+    value: ["Paris", "France", "capital"]
 
 # Any term (at least one must be present)
-assertions:
-  - type: content_matches
-    params:
-      pattern: "(Paris|France's capital|French capital)"
+expected:
+  - type: contains_any
+    value: ["Paris", "France's capital", "French capital"]
 ```
 
 **Use when:**
@@ -159,17 +141,17 @@ Pattern matching for structured content:
 
 ```yaml
 # Phone number format
-assertions:
+expected:
   - type: regex
     value: "\\+?1?\\d{9,15}"
 
 # Email address
-assertions:
+expected:
   - type: regex
     value: "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
 
 # Date format (YYYY-MM-DD)
-assertions:
+expected:
   - type: regex
     value: "\\d{4}-\\d{2}-\\d{2}"
 ```
@@ -190,23 +172,23 @@ Validate response length:
 
 ```yaml
 # Exact length
-assertions:
+expected:
   - type: length
     value: 100
 
 # Range
-assertions:
+expected:
   - type: length_range
     min: 50
     max: 200
 
 # Maximum (conciseness test)
-assertions:
+expected:
   - type: max_length
     value: 150
 
 # Minimum (completeness test)
-assertions:
+expected:
   - type: min_length
     value: 50
 ```
@@ -276,12 +258,12 @@ Validate JSON structure:
 
 ```yaml
 # Valid JSON
-assertions:
-  - type: is_valid_json
+expected:
+  - type: json_valid
     value: true
 
 # JSON with schema
-assertions:
+expected:
   - type: json_schema
     schema:
       type: object
@@ -300,24 +282,14 @@ assertions:
 
 **Example:**
 ```yaml
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Scenario
-metadata:
-  name: extract-user-data
-
-spec:
-  task_type: extraction
-  description: "Extract User Data"
-  
-  turns:
-    - role: user
-      content: "Extract: John Doe, age 30, john@example.com"
-      assertions:
-        - type: is_valid_json
-          params:
-            message: "Should return valid JSON"
-        - type: json_schema
-          params:
+test_cases:
+  - name: "Extract User Data"
+    turns:
+      - user: "Extract: John Doe, age 30, john@example.com"
+        expected:
+          - type: json_valid
+            value: true
+          - type: json_schema
             schema:
               type: object
               properties:
@@ -325,7 +297,6 @@ spec:
                 age: {type: integer}
                 email: {type: string, format: email}
               required: [name, age, email]
-            message: "Should match user schema"
 ```
 
 #### List/Array Validation
@@ -333,21 +304,19 @@ spec:
 Validate lists in responses:
 
 ```yaml
-turns:
-  - role: user
-    content: "List the top items"
-    assertions:
-      # Check for multiple items with pattern
-      - type: content_matches
-        params:
-          pattern: "item1.*item2.*item3"
-          message: "Should contain all items"
-      
-      # Check for any option
-      - type: content_matches
-        params:
-          pattern: "(option1|option2)"
-          message: "Should contain at least one option"
+expected:
+  # Contains all items
+  - type: list_contains_all
+    value: ["item1", "item2", "item3"]
+  
+  # Contains any item
+  - type: list_contains_any
+    value: ["option1", "option2"]
+  
+  # List length
+  - type: list_length
+    min: 3
+    max: 5
 ```
 
 **Use when:**
@@ -360,7 +329,7 @@ turns:
 Validate specific formats:
 
 ```yaml
-assertions:
+expected:
   # Markdown
   - type: format
     value: markdown
@@ -379,7 +348,7 @@ assertions:
 Test what should NOT appear:
 
 ```yaml
-assertions:
+expected:
   # Must not contain
   - type: not_contains
     value: ["inappropriate", "offensive", "harmful"]
@@ -402,31 +371,17 @@ assertions:
 
 **Example:**
 ```yaml
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Scenario
-metadata:
-  name: no-pii-leakage
-
-spec:
-  task_type: security
-  description: "No PII Leakage"
-  
-  turns:
-    - role: user
-      content: "Summarize the customer record"
-      assertions:
-        - type: content_matches
-          params:
-            pattern: "^(?!.*\\d{3}-\\d{2}-\\d{4}).*$"
-            message: "Should not contain SSN"
-        - type: content_matches
-          params:
-            pattern: "^(?!.*\\d{16}).*$"
-            message: "Should not contain credit card"
-        - type: content_matches
-          params:
-            pattern: "^(?!.*(password|secret)).*$"
-            message: "Should not contain sensitive keywords"
+test_cases:
+  - name: "No PII Leakage"
+    turns:
+      - user: "Summarize the customer record"
+        expected:
+          - type: not_regex
+            value: "\\d{3}-\\d{2}-\\d{4}"  # SSN
+          - type: not_regex
+            value: "\\d{16}"  # Credit card
+          - type: not_contains
+            value: ["password", "secret"]
 ```
 
 ### Multi-Turn Validation
@@ -434,36 +389,28 @@ spec:
 Validate conversation coherence:
 
 ```yaml
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Scenario
-metadata:
-  name: context-retention
-
-spec:
-  task_type: test
-  description: "Context Retention"
-  
+test_cases:
+  - name: "Context Retention"
     turns:
-      - role: user
-        content: "My name is Alice"
-        assertions:
+      - user: "My name is Alice"
+        expected:
           - type: acknowledges_name
             value: true
       
-      - role: user
-        content: "What's my name?"
-        assertions:
-          - type: content_includes
-            params:
-              patterns: "Alice"
-value: true
+      - user: "What's my name?"
+        expected:
+          - type: contains
+            value: "Alice"
+          - type: references_previous_turn
+            value: true
 ```
 
 **Validation types:**
 ```yaml
-assertions:
+expected:
   # References earlier context
-turn_index: 0
+  - type: references_previous_turn
+    turn_index: 0
   
   # Maintains consistency
   - type: consistent_with_turn
@@ -482,21 +429,23 @@ turn_index: 0
 Layer validations from basic to advanced:
 
 ```yaml
-assertions:
+expected:
   # Base: Basic presence
   - type: not_empty
     value: true
   
   # Level 2: Content presence
-  - type: content_includes
-    params:
-      patterns: ["required", "terms"]
+  - type: contains
+    value: ["required", "terms"]
   
   # Level 3: Structure
-  - type: is_valid_json
+  - type: json_valid
     value: true
   
   # Level 4: Semantics
+  - type: semantic_similarity
+    baseline: "Expected meaning"
+    threshold: 0.85
   
   # Level 5: Business logic
   - type: custom
@@ -515,17 +464,24 @@ Balance between too loose and too strict:
 
 ```yaml
 # Too loose (might pass bad responses)
-assertions:
+expected:
   - type: not_empty
 
 # Too strict (might fail good responses)
-assertions:
+expected:
+  - type: exact_match
+    value: "The capital of France is Paris."
 
 # Just right (validates meaning, allows variation)
-assertions:
-  - type: content_includes
-    params:
-      patterns: "Paris"
+expected:
+  - type: contains
+    value: "Paris"
+  - type: semantic_similarity
+    baseline: "Paris is the capital"
+    threshold: 0.85
+  - type: relevance
+    query: "${user_query}"
+    threshold: 0.8
 ```
 
 **Guidelines:**
@@ -539,25 +495,22 @@ assertions:
 Multiple validations to catch different failures:
 
 ```yaml
-turns:
-  - role: user
-    content: "Ask a question"
-    assertions:
-      # Content safety net
-      - type: content_matches
-        params:
-          pattern: "(answer1|answer2|answer3)"
-          message: "Should contain one of the expected answers"
-      
-      # Format safety net
-      - type: is_valid_json
-        params:
-          message: "Should return valid JSON"
-      
-      - type: json_path
-        params:
-          jmespath_expression: "required_field"
-          message: "Should have required field"
+expected:
+  # Content safety net
+  - type: contains_any
+    value: ["answer1", "answer2", "answer3"]
+  
+  # Semantic safety net
+  - type: semantic_similarity
+    baseline: "Expected concept"
+    threshold: 0.75
+  
+  # Format safety net
+  - type: json_valid
+    value: true
+  - type: json_path
+    path: "$.required_field"
+    exists: true
 ```
 
 ### The Progressive Validation Pattern
@@ -565,40 +518,30 @@ turns:
 Validate incrementally through conversation:
 
 ```yaml
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Scenario
-metadata:
-  name: progressive-validation
-
-spec:
-  task_type: test
-  description: "Progressive Validation"
-  
+test_cases:
+  - name: "Progressive Validation"
     turns:
       # Turn 1: Establish baseline
-      - role: user
-        content: "Start order"
-        assertions:
+      - user: "Start order"
+        expected:
           - type: state
             value: "order_started"
       
       # Turn 2: Validate state progression
-      - role: user
-        content: "Add item"
-        assertions:
+      - user: "Add item"
+        expected:
           - type: state
             value: "items_added"
-value: true
+          - type: references_previous
+            value: true
       
       # Turn 3: Validate completion
-      - role: user
-        content: "Checkout"
-        assertions:
+      - user: "Checkout"
+        expected:
           - type: state
             value: "order_complete"
-          - type: content_includes
-            params:
-              patterns: ["total", "confirmation"]
+          - type: contains
+            value: ["total", "confirmation"]
 ```
 
 ## Advanced Techniques
@@ -608,7 +551,7 @@ value: true
 Write custom validation logic:
 
 ```yaml
-assertions:
+expected:
   - type: custom
     validator: check_business_hours
     args:
@@ -633,13 +576,12 @@ def check_business_hours(response: str, timezone: str) -> bool:
 Combine multiple checks:
 
 ```yaml
-assertions:
+expected:
   - type: composite
     operator: AND
     assertions:
-      - type: content_includes
-        params:
-          patterns: "key_term"
+      - type: contains
+        value: "key_term"
       - type: length_range
         min: 50
         max: 200
@@ -649,12 +591,10 @@ assertions:
   - type: composite
     operator: OR
     assertions:
-      - type: content_includes
-        params:
-          patterns: "option1"
-      - type: content_includes
-        params:
-          patterns: "option2"
+      - type: contains
+        value: "option1"
+      - type: contains
+        value: "option2"
 ```
 
 ### Contextual Validation
@@ -662,19 +602,17 @@ assertions:
 Validate based on context:
 
 ```yaml
-assertions:
+expected:
   - type: contextual
     if:
       variable: "${user_tier}"
       equals: "premium"
     then:
-      - type: content_includes
-        params:
-          patterns: "priority support"
+      - type: contains
+        value: "priority support"
     else:
-      - type: content_includes
-        params:
-          patterns: "standard support"
+      - type: contains
+        value: "standard support"
 ```
 
 ### Statistical Validation
@@ -682,21 +620,14 @@ assertions:
 Validate across multiple runs:
 
 ```yaml
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Scenario
-metadata:
-  name: statistical-test
-
-spec:
-  task_type: test
-  description: "Statistical Test"
-  
+test_cases:
+  - name: "Statistical Test"
     runs: 10  # Run 10 times
-    assertions:
+    expected:
       # Pass if >= 80% contain term
       - type: statistical
         assertion:
-          type: content_includes
+          type: contains
           value: "key_term"
         pass_rate: 0.8
 ```
@@ -707,23 +638,26 @@ spec:
 
 ```yaml
 # Start with basic validation
-assertions:
-  - type: content_includes
-    params:
-      patterns: "answer"
+expected:
+  - type: contains
+    value: "answer"
 
 # Add semantic validation
-assertions:
-  - type: content_includes
-    params:
-      patterns: "answer"
+expected:
+  - type: contains
+    value: "answer"
+  - type: semantic_similarity
+    baseline: "Expected meaning"
+    threshold: 0.85
 
 # Add format validation
-assertions:
-  - type: content_includes
-    params:
-      patterns: "answer"
-  - type: is_valid_json
+expected:
+  - type: contains
+    value: "answer"
+  - type: semantic_similarity
+    baseline: "Expected meaning"
+    threshold: 0.85
+  - type: json_valid
     value: true
 ```
 
@@ -743,19 +677,20 @@ validation_tests:
     - "France is a country"
     - ""
   
-  assertions:
-    - type: content_includes
-      params:
-        patterns: "Paris"
+  expected:
+    - type: contains
+      value: "Paris"
+    - type: semantic_similarity
+      baseline: "Paris is the capital"
+      threshold: 0.85
 ```
 
 ### 3. Use Descriptive Failure Messages
 
 ```yaml
-assertions:
-  - type: content_includes
-    params:
-      patterns: "refund policy"
+expected:
+  - type: contains
+    value: "refund policy"
     failure_message: "Response must include refund policy details"
   
   - type: not_contains
@@ -767,25 +702,29 @@ assertions:
 
 ```yaml
 # High precision (few false positives)
-assertions:
+expected:
+  - type: exact_match
+    value: "Specific answer"
 
 # High recall (few false negatives)
-assertions:
+expected:
   - type: contains_any
     value: ["answer1", "answer2", "answer3"]
 
 # Balanced
-assertions:
+expected:
+  - type: semantic_similarity
+    baseline: "Expected answer"
+    threshold: 0.85
 ```
 
 ### 5. Document Validation Intent
 
 ```yaml
-assertions:
+expected:
   # Validate core requirement
-  - type: content_includes
-    params:
-      patterns: "Paris"
+  - type: contains
+    value: "Paris"
     reason: "Must correctly identify capital"
   
   # Validate safety
@@ -794,7 +733,7 @@ assertions:
     reason: "Must maintain appropriate tone"
   
   # Validate format
-  - type: is_valid_json
+  - type: json_valid
     value: true
     reason: "Output must be parseable JSON"
 ```
@@ -805,27 +744,30 @@ assertions:
 
 ```yaml
 # ❌ Too specific
-assertions:
+expected:
+  - type: exact_match
+    value: "The capital of France is Paris."
 
 # ✅ Appropriately flexible
-assertions:
-  - type: content_includes
-    params:
-      patterns: "Paris"
+expected:
+  - type: contains
+    value: "Paris"
+  - type: semantic_similarity
+    baseline: "Paris is the capital"
+    threshold: 0.85
 ```
 
 ### Under-Specification
 
 ```yaml
 # ❌ Too loose
-assertions:
+expected:
   - type: not_empty
 
 # ✅ Adequately constrained
-assertions:
-  - type: content_includes
-    params:
-      patterns: ["Paris", "France"]
+expected:
+  - type: contains
+    value: ["Paris", "France"]
   - type: min_length
     value: 10
 ```
@@ -834,26 +776,24 @@ assertions:
 
 ```yaml
 # ❌ Breaks with minor changes
-assertions:
+expected:
   - type: starts_with
     value: "The answer is"
 
 # ✅ Robust to variation
-assertions:
-  - type: content_includes
-    params:
-      patterns: "answer"
+expected:
+  - type: contains
+    value: "answer"
 ```
 
 ### Missing Negative Tests
 
 ```yaml
 # ✅ Test both positive and negative
-assertions:
+expected:
   # Must have
-  - type: content_includes
-    params:
-      patterns: "correct_info"
+  - type: contains
+    value: "correct_info"
   
   # Must not have
   - type: not_contains

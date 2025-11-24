@@ -154,7 +154,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "account"
+            patterns: ["account"]
             message: "Should acknowledge account issue"
         
         - type: content_length
@@ -167,7 +167,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "email"
+            patterns: ["email"]
             message: "Should address email issue"
 ```
 
@@ -276,7 +276,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "feature"
+            patterns: ["feature"]
             message: "Should explain features"
         
         - type: content_length
@@ -312,8 +312,7 @@ spec:
     - role: user
       content: "Quick question: what's your return policy?"
       assertions:
-        - type: response_time
-          params:
+params:
             max_seconds: 2
             message: "All providers should respond quickly"
 ```
@@ -391,7 +390,7 @@ spec:
       assertions:
         - type: content_includes
           params:
-            text: "key points"
+            patterns: ["key points"]
             message: "Should identify key points"
 ```
 
@@ -418,14 +417,12 @@ Write assertions that work across all providers:
 assertions:
   - type: content_includes
     params:
-      text: "help"
+      patterns: ["help"]
       message: "Should offer help"
 
 # ❌ Avoid - too specific to one provider's style
 assertions:
-  - type: exact_match
-    params:
-      text: "I'd be happy to help you with that!"
+      patterns: ["I'd be happy to help you with that!"]
 ```
 
 ### 3. Use Meaningful Names
