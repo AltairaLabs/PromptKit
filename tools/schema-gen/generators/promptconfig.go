@@ -17,8 +17,11 @@ func GeneratePromptConfigSchema() (interface{}, error) {
 	schema := reflector.Reflect(&config.PromptConfigSchema{})
 
 	schema.ID = schemaBaseURL + "/promptconfig.json"
-	schema.Title = "PromptKit PromptConfig Configuration"
-	schema.Description = "Prompt template configuration for PromptKit"
+	schema.Title = "PromptKit Prompt Configuration"
+	schema.Description = "Prompt configuration for PromptKit"
+
+	// Allow the standard $schema field
+	allowSchemaField(schema)
 
 	addPromptConfigExample(schema)
 

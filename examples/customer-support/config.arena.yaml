@@ -1,0 +1,36 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: customer-support-arena
+spec:
+  prompt_configs:
+    - id: support
+      file: prompts/support-bot.yaml
+
+  providers:
+    - file: providers/openai-gpt4o-mini.provider.yaml
+    - file: providers/claude-3-5-haiku.provider.yaml
+    - file: providers/gemini-2-0-flash.provider.yaml
+
+  scenarios:
+    - file: scenarios/support-conversations.scenario.yaml
+    - file: scenarios/streaming-demo.scenario.yaml
+    - file: scenarios/validator-test.scenario.yaml
+    - file: scenarios/validator-banned-word-test.scenario.yaml
+    - file: scenarios/validator-length-test.scenario.yaml
+
+  tools:
+    - file: tools/example-tool.tool.yaml
+
+  defaults:
+    temperature: 0.7
+    max_tokens: 1500
+    seed: 42
+    concurrency: 3
+    output:
+      dir: out
+      formats: ["json", "html"]
+      html:
+        file: report.html
+    fail_on:
+      - provider_error

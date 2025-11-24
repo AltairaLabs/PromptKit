@@ -20,6 +20,9 @@ func GenerateScenarioSchema() (interface{}, error) {
 	schema.Title = "PromptArena Scenario Configuration"
 	schema.Description = "Scenario configuration for PromptArena test cases"
 
+	// Allow the standard $schema field
+	allowSchemaField(schema)
+
 	addScenarioExample(schema)
 
 	return schema, nil

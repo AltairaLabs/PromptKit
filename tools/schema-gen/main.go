@@ -8,14 +8,18 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/tools/schema-gen/generators"
 )
 
 const (
-	defaultOutputDir = "schemas/v1alpha1"
-	schemaVersion    = "v1alpha1"
-	dirPermissions   = 0750
-	filePermissions  = 0600
+	dirPermissions  = 0750
+	filePermissions = 0600
+)
+
+var (
+	// defaultOutputDir uses the schema version from config
+	defaultOutputDir = "schemas/" + config.SchemaVersion
 )
 
 var (
@@ -72,6 +76,13 @@ func run() error {
 		return err
 	}
 
+	// Generate latest schema references
+	if !*checkMode {
+		if err := generateLatestSchemas(repoRoot, schemaGens); err != nil {
+			return fmt.Errorf("failed to generate latest schemas: %w", err)
+		}
+	}
+
 	if *checkMode {
 		if hasChanges {
 			return fmt.Errorf("schemas are out of date - run 'make schemas' to update")
@@ -79,6 +90,7 @@ func run() error {
 		fmt.Println("✓ All schemas are up to date")
 	} else {
 		fmt.Printf("✓ Generated %d schemas in %s\n", len(schemaGens), outputPath)
+		fmt.Printf("✓ Generated latest schema references\n")
 	}
 
 	return nil
@@ -246,6 +258,71 @@ func formatExistingSchemas(outputPath string) error {
 		}
 
 		fmt.Printf("✓ Formatted %s\n", file)
+	}
+
+	return nil
+}
+
+func generateLatestSchemas(repoRoot string, schemaGens []struct {
+	name      string
+	generator func() (interface{}, error)
+	filename  string
+}) error {
+	latestDir := filepath.Join(repoRoot, "docs", "public", "schemas", "latest")
+	if err := os.MkdirAll(latestDir, dirPermissions); err != nil {
+		return fmt.Errorf("failed to create latest directory: %w", err)
+	}
+
+	baseURL := "https://promptkit.altairalabs.ai/schemas"
+
+	// Generate main schema refs
+	for _, sg := range schemaGens {
+		ref := map[string]string{
+			"$ref": fmt.Sprintf("%s/%s/%s", baseURL, config.SchemaVersion, sg.filename),
+		}
+
+		data, err := json.MarshalIndent(ref, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal latest ref for %s: %w", sg.filename, err)
+		}
+		data = append(data, '\n')
+
+		outputFile := filepath.Join(latestDir, sg.filename)
+		if err := os.WriteFile(outputFile, data, filePermissions); err != nil {
+			return fmt.Errorf("failed to write latest ref %s: %w", sg.filename, err)
+		}
+
+		if *verbose {
+			fmt.Printf("✓ Generated latest/%s -> %s/%s\n", sg.filename, config.SchemaVersion, sg.filename)
+		}
+	}
+
+	// Generate common schema refs
+	commonLatestDir := filepath.Join(latestDir, "common")
+	if err := os.MkdirAll(commonLatestDir, dirPermissions); err != nil {
+		return fmt.Errorf("failed to create latest/common directory: %w", err)
+	}
+
+	commonSchemas := []string{"metadata.json", "assertions.json", "media.json"}
+	for _, filename := range commonSchemas {
+		ref := map[string]string{
+			"$ref": fmt.Sprintf("%s/%s/common/%s", baseURL, config.SchemaVersion, filename),
+		}
+
+		data, err := json.MarshalIndent(ref, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal latest ref for common/%s: %w", filename, err)
+		}
+		data = append(data, '\n')
+
+		outputFile := filepath.Join(commonLatestDir, filename)
+		if err := os.WriteFile(outputFile, data, filePermissions); err != nil {
+			return fmt.Errorf("failed to write latest ref common/%s: %w", filename, err)
+		}
+
+		if *verbose {
+			fmt.Printf("✓ Generated latest/common/%s -> %s/common/%s\n", filename, config.SchemaVersion, filename)
+		}
 	}
 
 	return nil

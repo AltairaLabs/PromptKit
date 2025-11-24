@@ -50,6 +50,12 @@
   "files": [
     "bin/",
     "postinstall.js",
-    "README.md"
-  ]
+    "README.md",
+    "schemas/",
+    "schema-map.json"
+  ],
+  "exports": {
+    "./schemas/*": "./schemas/*.json",
+    "./schema-map": "./schema-map.json"
+  }
 }

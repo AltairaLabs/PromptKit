@@ -89,7 +89,7 @@ jobs:
         echo "Validating Arena configs with promptarena validate..."
         ERRORS=0
         
-        for file in $(find examples -name "arena.yaml"); do
+        for file in $(find examples -name "config.arena.yaml" -o -name "*.arena.yaml" -o -name "arena.yaml"); do
           echo "Validating $file..."
           if ./bin/promptarena validate "$file" --schema-only; then
             echo "✓ $file passed"
@@ -135,7 +135,7 @@ jobs:
         SCHEMA="schemas/v1alpha1/arena.json"
         ERRORS=0
         
-        for file in $(find examples -name "arena.yaml" -o -name "*arena*.yaml"); do
+        for file in $(find examples -name "config.arena.yaml" -o -name "*.arena.yaml" -o -name "arena.yaml"); do
           echo "Checking $file..."
           if ajv validate -s "$SCHEMA" -d "$file" --strict=false 2>&1; then
             echo "✓ $file is valid"
@@ -156,7 +156,7 @@ jobs:
         SCHEMA="schemas/v1alpha1/scenario.json"
         ERRORS=0
         
-        for file in $(find examples -path "*/scenarios/*.yaml"); do
+        for file in $(find examples -name "*.scenario.yaml" -o -path "*/scenarios/*.yaml"); do
           echo "Checking $file..."
           if ajv validate -s "$SCHEMA" -d "$file" --strict=false 2>&1; then
             echo "✓ $file is valid"
@@ -177,7 +177,7 @@ jobs:
         SCHEMA="schemas/v1alpha1/provider.json"
         ERRORS=0
         
-        for file in $(find examples -path "*/providers/*.yaml"); do
+        for file in $(find examples -name "*.provider.yaml" -o -path "*/providers/*.yaml"); do
           echo "Checking $file..."
           if ajv validate -s "$SCHEMA" -d "$file" --strict=false 2>&1; then
             echo "✓ $file is valid"

@@ -120,6 +120,11 @@
     },
     "spec": {
       "$ref": "#/$defs/ToolSpec"
+    },
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "description": "JSON Schema reference URL"
     }
   },
   "additionalProperties": false,

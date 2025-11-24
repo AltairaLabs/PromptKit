@@ -140,6 +140,11 @@
     },
     "spec": {
       "$ref": "#/$defs/Provider"
+    },
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "description": "JSON Schema reference URL"
     }
   },
   "additionalProperties": false,

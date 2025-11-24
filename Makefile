@@ -190,7 +190,7 @@ install-tools-user: ## Install CLI tools to user PATH (~/.local/bin)
 	@echo "CLI tools installed to ~/.local/bin"
 	@echo "Make sure ~/.local/bin is in your PATH"
 
-schemas: build-schema-gen ## Generate JSON schemas
+schemas: build-schema-gen ## Generate JSON schemas (including latest refs)
 	@echo "Generating JSON schemas..."
 	@./bin/schema-gen
 

@@ -1,0 +1,50 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: audio-transcription
+  description: Test audio file processing and transcription
+spec:
+  id: "audio-transcription"
+  task_type: audio-analysis
+  
+  turns:
+    - role: user
+      parts:
+        - type: text
+          text: "Transcribe this audio file:"
+        - type: audio
+          media:
+            file_path: ../../tools/arena/testdata/media/test-audio-small.wav
+            mime_type: audio/wav
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "audio"
+              - "transcri"
+            message: "Response should mention audio or transcription"
+
+    - role: user
+      parts:
+        - type: text
+          text: "What format is this audio file and what are its technical properties?"
+        - type: audio
+          media:
+            file_path: ../../tools/arena/testdata/media/test-audio-small.wav
+            mime_type: audio/wav
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "audio"
+            message: "Response should discuss audio format"
+
+    - role: user
+      parts:
+        - type: text
+          text: "Analyze the audio content and provide insights:"
+        - type: audio
+          media:
+            file_path: ../../tools/arena/testdata/media/test-audio-small.wav
+            mime_type: audio/wav
+

@@ -31,10 +31,33 @@ This means you'll get immediate, detailed error messages if your configs don't m
 
 ## Available Schemas
 
-All schemas are available at `https://promptkit.altairalabs.ai/schemas/v1alpha1/`:
+All schemas are available at `https://promptkit.altairalabs.ai/schemas/`.
 
-| Config Type | Schema URL |
-|------------|-----------|
+### Using Latest Schemas (Recommended)
+
+The `/latest/` path automatically points to the current stable schema version:
+
+| Config Type | Latest Schema URL |
+|------------|-------------------|
+| Arena | `https://promptkit.altairalabs.ai/schemas/latest/arena.json` |
+| Scenario | `https://promptkit.altairalabs.ai/schemas/latest/scenario.json` |
+| Provider | `https://promptkit.altairalabs.ai/schemas/latest/provider.json` |
+| PromptConfig | `https://promptkit.altairalabs.ai/schemas/latest/promptconfig.json` |
+| Tool | `https://promptkit.altairalabs.ai/schemas/latest/tool.json` |
+| Persona | `https://promptkit.altairalabs.ai/schemas/latest/persona.json` |
+
+**Benefits of using `/latest/`:**
+
+- Automatic updates when new schema versions are released
+- No need to update URLs in your config files
+- Always get the latest validation rules and field definitions
+
+### Versioned Schemas
+
+For stability in production or when you need a specific schema version:
+
+| Config Type | Versioned Schema URL |
+|------------|----------------------|
 | Arena | `https://promptkit.altairalabs.ai/schemas/v1alpha1/arena.json` |
 | Scenario | `https://promptkit.altairalabs.ai/schemas/v1alpha1/scenario.json` |
 | Provider | `https://promptkit.altairalabs.ai/schemas/v1alpha1/provider.json` |
@@ -55,64 +78,117 @@ Shared configuration structures:
 Add a `$schema` field at the top of your YAML config:
 
 ```yaml
-$schema: https://promptkit.altairalabs.ai/schemas/v1alpha1/arena.json
+$schema: https://promptkit.altairalabs.ai/schemas/latest/arena.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
 metadata:
   name: my-arena
-  version: 1.0.0
-# ... rest of config
+spec:
+  # ... rest of config
 ```
+
+**Tip:** Use `/latest/` in the `$schema` URL to automatically get schema updates, while `apiVersion` remains stable for runtime compatibility.
 
 ### Arena Configuration
 
+Recommended file name: `config.arena.yaml`
+
 ```yaml
-$schema: https://promptkit.altairalabs.ai/schemas/v1alpha1/arena.json
+$schema: https://promptkit.altairalabs.ai/schemas/latest/arena.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
 metadata:
   name: customer-support-arena
-  version: 1.0.0
-  description: Customer support testing arena
-
-scenarios:
-  - file: scenarios/support-ticket.yaml
-  - file: scenarios/product-inquiry.yaml
-
-providers:
-  - file: providers/openai.yaml
-  - file: providers/anthropic.yaml
+spec:
+  scenarios:
+    - file: scenarios/support-ticket.scenario.yaml
+    - file: scenarios/product-inquiry.scenario.yaml
+  
+  providers:
+    - file: providers/openai.provider.yaml
+    - file: providers/anthropic.provider.yaml
 ```
 
 ### Scenario Configuration
 
+Recommended file name: `*.scenario.yaml` (e.g., `support-ticket.scenario.yaml`)
+
 ```yaml
-$schema: https://promptkit.altairalabs.ai/schemas/v1alpha1/scenario.json
+$schema: https://promptkit.altairalabs.ai/schemas/latest/scenario.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
 metadata:
   name: support-ticket
-  version: 1.0.0
-
-description: Test handling of customer support tickets
-prompt: scenarios/prompts/support-ticket.md
-
-assertions:
-  - type: contains
-    value: "ticket number"
-  - type: latency
-    threshold: 2000
+spec:
+  id: "support-ticket"
+  task_type: "assistant"
+  description: "Test handling of customer support tickets"
+  
+  turns:
+    - role: user
+      content: "I need help with my order"
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["ticket number", "order"]
 ```
 
 ### Provider Configuration
 
+Recommended file name: `*.provider.yaml` (e.g., `openai.provider.yaml`)
+
 ```yaml
-$schema: https://promptkit.altairalabs.ai/schemas/v1alpha1/provider.json
+$schema: https://promptkit.altairalabs.ai/schemas/latest/provider.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
 metadata:
-  name: openai
-  version: 1.0.0
+  name: openai-gpt4
+spec:
+  id: "openai-gpt4"
+  type: openai
+  model: gpt-4
+  defaults:
+    temperature: 0.7
+    max_tokens: 2000
+```
 
-type: openai
-model: gpt-4
+### Tool Configuration
 
-config:
-  api_key: ${OPENAI_API_KEY}
-  temperature: 0.7
-  max_tokens: 2000
+Recommended file name: `*.tool.yaml` (e.g., `search.tool.yaml`)
+
+```yaml
+$schema: https://promptkit.altairalabs.ai/schemas/latest/tool.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: search
+spec:
+  id: "search"
+  description: "Search for information"
+  input_schema:
+    type: object
+    properties:
+      query:
+        type: string
+        description: "Search query"
+```
+
+### Persona Configuration
+
+Recommended file name: `*.persona.yaml` (e.g., `customer.persona.yaml`)
+
+```yaml
+$schema: https://promptkit.altairalabs.ai/schemas/latest/persona.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Persona
+metadata:
+  name: curious-customer
+spec:
+  id: "curious-customer"
+  description: "A curious customer asking detailed questions"
+  traits:
+    - inquisitive
+    - detail-oriented
 ```
 
 ## VS Code Integration
@@ -128,23 +204,29 @@ Add to your workspace or user settings:
 ```json
 {
   "yaml.schemas": {
-    "https://promptkit.altairalabs.ai/schemas/v1alpha1/arena.json": [
-      "**/arena.yaml",
-      "**/*arena*.yaml"
+    "https://promptkit.altairalabs.ai/schemas/latest/arena.json": [
+      "config.arena.yaml",
+      "*.arena.yaml",
+      "**/arena.yaml"
     ],
-    "https://promptkit.altairalabs.ai/schemas/v1alpha1/scenario.json": [
+    "https://promptkit.altairalabs.ai/schemas/latest/scenario.json": [
+      "*.scenario.yaml",
       "**/scenarios/*.yaml"
     ],
-    "https://promptkit.altairalabs.ai/schemas/v1alpha1/provider.json": [
+    "https://promptkit.altairalabs.ai/schemas/latest/provider.json": [
+      "*.provider.yaml",
       "**/providers/*.yaml"
     ],
-    "https://promptkit.altairalabs.ai/schemas/v1alpha1/promptconfig.json": [
+    "https://promptkit.altairalabs.ai/schemas/latest/promptconfig.json": [
+      "*.prompt.yaml",
       "**/prompts/*.yaml"
     ],
-    "https://promptkit.altairalabs.ai/schemas/v1alpha1/tool.json": [
+    "https://promptkit.altairalabs.ai/schemas/latest/tool.json": [
+      "*.tool.yaml",
       "**/tools/*.yaml"
     ],
-    "https://promptkit.altairalabs.ai/schemas/v1alpha1/persona.json": [
+    "https://promptkit.altairalabs.ai/schemas/latest/persona.json": [
+      "*.persona.yaml",
       "**/personas/*.yaml"
     ]
   },
@@ -152,6 +234,15 @@ Add to your workspace or user settings:
   "yaml.validate": true
 }
 ```
+
+**File Naming Convention:** Use typed file extensions for better IDE integration:
+
+- Arena: `config.arena.yaml`
+- Scenarios: `*.scenario.yaml`
+- Providers: `*.provider.yaml`
+- Tools: `*.tool.yaml`
+- Personas: `*.persona.yaml`
+- PromptConfigs: `*.prompt.yaml`
 
 ### Features
 
@@ -168,9 +259,9 @@ Once configured, VS Code provides:
 
 1. Open **Settings** → **Languages & Frameworks** → **Schemas and DTDs** → **JSON Schema Mappings**
 2. Click **+** to add a new mapping
-3. Enter schema URL: `https://promptkit.altairalabs.ai/schemas/v1alpha1/arena.json`
-4. Add file pattern: `**/arena.yaml`
-5. Repeat for other config types
+3. Enter schema URL: `https://promptkit.altairalabs.ai/schemas/latest/arena.json`
+4. Add file patterns: `config.arena.yaml`, `*.arena.yaml`
+5. Repeat for other config types (scenario, provider, tool, persona)
 
 ### Vim/Neovim
 
@@ -181,9 +272,11 @@ require('lspconfig').yamlls.setup {
   settings = {
     yaml = {
       schemas = {
-        ["https://promptkit.altairalabs.ai/schemas/v1alpha1/arena.json"] = "**/arena.yaml",
-        ["https://promptkit.altairalabs.ai/schemas/v1alpha1/scenario.json"] = "**/scenarios/*.yaml",
-        ["https://promptkit.altairalabs.ai/schemas/v1alpha1/provider.json"] = "**/providers/*.yaml",
+        ["https://promptkit.altairalabs.ai/schemas/latest/arena.json"] = { "config.arena.yaml", "*.arena.yaml" },
+        ["https://promptkit.altairalabs.ai/schemas/latest/scenario.json"] = { "*.scenario.yaml", "**/scenarios/*.yaml" },
+        ["https://promptkit.altairalabs.ai/schemas/latest/provider.json"] = { "*.provider.yaml", "**/providers/*.yaml" },
+        ["https://promptkit.altairalabs.ai/schemas/latest/tool.json"] = { "*.tool.yaml", "**/tools/*.yaml" },
+        ["https://promptkit.altairalabs.ai/schemas/latest/persona.json"] = { "*.persona.yaml", "**/personas/*.yaml" },
       }
     }
   }
@@ -197,8 +290,58 @@ Use [lsp-mode](https://emacs-lsp.github.io/lsp-mode/) with yaml-language-server:
 ```elisp
 (with-eval-after-load 'lsp-mode
   (add-to-list 'lsp-yaml-schemas
-               '("https://promptkit.altairalabs.ai/schemas/v1alpha1/arena.json" . ["**/arena.yaml"])))
+               '("https://promptkit.altairalabs.ai/schemas/latest/arena.json" . ["config.arena.yaml" "*.arena.yaml"]))
+  (add-to-list 'lsp-yaml-schemas
+               '("https://promptkit.altairalabs.ai/schemas/latest/scenario.json" . ["*.scenario.yaml"])))
 ```
+
+## File Naming Conventions
+
+PromptKit uses typed file extensions to improve IDE integration and make file purposes clear:
+
+| Type | Pattern | Example |
+|------|---------|----------|
+| Arena | `config.arena.yaml` | `config.arena.yaml` |
+| Scenario | `*.scenario.yaml` | `support-ticket.scenario.yaml` |
+| Provider | `*.provider.yaml` | `openai-gpt4.provider.yaml` |
+| Tool | `*.tool.yaml` | `search.tool.yaml` |
+| Persona | `*.persona.yaml` | `curious-customer.persona.yaml` |
+| PromptConfig | `*.prompt.yaml` | `assistant.prompt.yaml` |
+
+### Why Use Typed Extensions?
+
+1. **Better IDE Support**: Schema stores and language servers can match files by pattern
+2. **Self-Documenting**: File purpose is clear from the name
+3. **Easier Navigation**: Find all providers with `find . -name "*.provider.yaml"`
+4. **Backwards Compatible**: Old names like `arena.yaml` still work
+
+### Migration Example
+
+Old structure:
+
+```text
+arena.yaml
+providers/
+  openai.yaml
+  anthropic.yaml
+scenarios/
+  test1.yaml
+  test2.yaml
+```
+
+New structure:
+
+```text
+config.arena.yaml
+providers/
+  openai.provider.yaml
+  anthropic.provider.yaml
+scenarios/
+  test1.scenario.yaml
+  test2.scenario.yaml
+```
+
+**Note:** The `kind` field in each manifest remains the authoritative type indicator at runtime. File naming is primarily for IDE and developer experience.
 
 ## Command Line Validation
 

@@ -10,12 +10,12 @@ replace (
 
 require (
 	github.com/AltairaLabs/PromptKit/pkg v0.0.0
-	github.com/AltairaLabs/PromptKit/runtime v0.0.1
 	github.com/invopop/jsonschema v0.13.0
 	k8s.io/apimachinery v0.34.2
 )
 
 require (
+	github.com/AltairaLabs/PromptKit/runtime v0.0.1 // indirect
 	github.com/AltairaLabs/PromptKit/tools/arena v0.0.1 // indirect
 	github.com/Masterminds/semver/v3 v3.4.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect

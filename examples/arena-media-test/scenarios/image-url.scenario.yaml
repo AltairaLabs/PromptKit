@@ -1,0 +1,53 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: image-from-url
+  description: Test loading images from HTTP/HTTPS URLs
+spec:
+  id: "image-url"
+  task_type: media-analysis
+  
+  turns:
+    - role: user
+      parts:
+        - type: text
+          text: "Analyze this image from a URL:"
+        - type: image
+          media:
+            url: https://picsum.photos/200/300
+            mime_type: image/jpeg
+            detail: high
+      
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "image"
+
+    - role: user
+      parts:
+        - type: text
+          text: "What's the difference between these images?"
+        - type: image
+          media:
+            url: https://picsum.photos/200/300?random=1
+            mime_type: image/jpeg
+        - type: image
+          media:
+            url: https://picsum.photos/200/300?random=2
+            mime_type: image/jpeg
+
+    - role: user
+      parts:
+        - type: text
+          text: "Describe this image in detail:"
+        - type: image
+          media:
+            url: https://picsum.photos/400/300
+            mime_type: image/jpeg
+      
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "image"

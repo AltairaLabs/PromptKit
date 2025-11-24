@@ -20,6 +20,9 @@ func GenerateToolSchema() (interface{}, error) {
 	schema.Title = "PromptKit Tool Configuration"
 	schema.Description = "Tool/function configuration for PromptKit"
 
+	// Allow the standard $schema field
+	allowSchemaField(schema)
+
 	addToolExample(schema)
 
 	return schema, nil

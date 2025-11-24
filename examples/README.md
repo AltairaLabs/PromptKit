@@ -152,32 +152,82 @@ go build
 
 ### Understanding Configuration Files
 
-#### `arena.yaml`
+#### File Naming Conventions
+
+PromptKit uses typed file extensions for better IDE integration and discoverability:
+
+| Type | File Pattern | Example |
+|------|-------------|---------|
+| Arena | `config.arena.yaml` | `config.arena.yaml` |
+| Provider | `*.provider.yaml` | `openai-gpt4.provider.yaml` |
+| Scenario | `*.scenario.yaml` | `support-ticket.scenario.yaml` |
+| Tool | `*.tool.yaml` | `search.tool.yaml` |
+| Persona | `*.persona.yaml` | `curious-customer.persona.yaml` |
+| PromptConfig | `*.prompt.yaml` | `assistant.prompt.yaml` |
+
+**Benefits:**
+
+- IDE automatically detects and validates files using JSON schemas
+- File purposes are self-documenting
+- Easy to find all files of a specific type
+- Compatible with schema stores for automatic IDE integration
+
+#### `config.arena.yaml`
+
 Main Arena configuration file defining:
+
 - Prompt configurations and packs
 - Provider settings (OpenAI, Claude, Gemini, etc.)
 - Test scenarios and assertions
 - Self-play configurations
 
-#### Provider Files (`providers/`)
-Individual provider configurations:
-- `openai-gpt4o-mini.yaml` - OpenAI GPT-4o Mini
-- `claude-3-5-haiku.yaml` - Anthropic Claude 3.5 Haiku  
-- `gemini-2-0-flash.yaml` - Google Gemini 2.0 Flash
+**Schema URL:** `https://promptkit.altairalabs.ai/schemas/latest/arena.json`
 
-#### Scenario Files (`scenarios/`)
+#### Provider Files (`providers/*.provider.yaml`)
+Individual provider configurations:
+- `openai-gpt4o-mini.provider.yaml` - OpenAI GPT-4o Mini
+- `claude-3-5-haiku.provider.yaml` - Anthropic Claude 3.5 Haiku  
+- `gemini-2-0-flash.provider.yaml` - Google Gemini 2.0 Flash
+
+**Schema URL:** `https://promptkit.altairalabs.ai/schemas/latest/provider.json`
+
+#### Scenario Files (`scenarios/*.scenario.yaml`)
 Test scenario definitions:
 - Conversation flows
 - Expected behaviors
 - Validation criteria
 - Streaming configurations
 
-#### Prompt Files (`prompts/`)
+**Schema URL:** `https://promptkit.altairalabs.ai/schemas/latest/scenario.json`
+
+#### Prompt Files (`prompts/*.prompt.yaml`)
 Prompt configurations and templates:
 - System prompts
 - User prompts  
 - Prompt packs
 - Template variables
+
+**Schema URL:** `https://promptkit.altairalabs.ai/schemas/latest/promptconfig.json`
+
+#### Adding Schema Validation
+
+Add `$schema` at the top of any config file for IDE support:
+
+```yaml
+$schema: https://promptkit.altairalabs.ai/schemas/latest/arena.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: my-arena
+spec:
+  # ... configuration
+```
+
+This enables:
+- Autocomplete in VS Code, IntelliJ, and other IDEs
+- Real-time validation and error checking
+- Inline documentation on hover
+- Structured editing support
 
 ## Example Patterns
 

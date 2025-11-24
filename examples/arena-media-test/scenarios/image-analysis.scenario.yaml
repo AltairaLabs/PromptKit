@@ -1,0 +1,46 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: image-analysis-local
+  description: Test image analysis using local image files
+spec:
+  id: "image-analysis"
+  task_type: media-analysis
+  
+  turns:
+    - role: user
+      parts:
+        - type: text
+          text: "What objects do you see in this image?"
+        - type: image
+          media:
+            file_path: ../../tools/arena/testdata/media/test-image-small.jpg
+            mime_type: image/jpeg
+            detail: high
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "image"
+            message: "Response should mention the image"
+
+    - role: user
+      parts:
+        - type: text
+          text: "Compare these two images:"
+        - type: image
+          media:
+            file_path: ../../tools/arena/testdata/media/test-image-small.jpg
+            mime_type: image/jpeg
+        - type: image
+          media:
+            file_path: ../../tools/arena/testdata/media/test-image-small.png
+            mime_type: image/png
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "image"
+            message: "Response should discuss the images"
+
+

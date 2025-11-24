@@ -20,6 +20,9 @@ func GenerateProviderSchema() (interface{}, error) {
 	schema.Title = "PromptArena Provider Configuration"
 	schema.Description = "Provider configuration for PromptArena LLM connections"
 
+	// Allow the standard $schema field
+	allowSchemaField(schema)
+
 	addProviderExample(schema)
 
 	return schema, nil

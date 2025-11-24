@@ -44,3 +44,20 @@ func GenerateMediaSchema() (interface{}, error) {
 
 	return schema, nil
 }
+
+// allowSchemaField adds the $schema property to the schema's allowed properties.
+// This is a standard JSON Schema field that users can use to reference the schema URL.
+func allowSchemaField(schema *jsonschema.Schema) {
+	if schema.Properties == nil {
+		return
+	}
+
+	// Add $schema as an optional string property
+	schemaProperty := &jsonschema.Schema{
+		Type:        "string",
+		Format:      "uri",
+		Description: "JSON Schema reference URL",
+	}
+
+	schema.Properties.Set("$schema", schemaProperty)
+}

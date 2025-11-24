@@ -1,0 +1,46 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+
+metadata:
+  name: mcp-filesystem-test
+  description: Test filesystem operations via MCP server
+
+spec:
+  # MCP Server Configuration
+  mcp_servers:
+    - name: filesystem
+      command: npx
+      args:
+        - "-y"
+        - "@modelcontextprotocol/server-filesystem"
+        - "."
+      env:
+        PATH: "Make sure you node is on your path"
+
+  # Prompt Configuration
+  prompt_configs:
+    - id: file-assistant
+      file: prompts/file-assistant.yaml
+
+  # Test Scenarios
+  scenarios:
+    - file: scenarios/file-operations.scenario.yaml
+    - file: scenarios/error-recovery.scenario.yaml
+
+  # Provider Configuration
+  providers:
+    - file: providers/openai-gpt4o-mini.provider.yaml
+
+  # Default Settings
+  defaults:
+    temperature: 0.7
+    max_tokens: 1000
+    seed: 42
+    concurrency: 1
+    
+    # Output configuration for CI/CD test results integration
+    output:
+      dir: out
+      formats: ["json", "junit", "html"]  # Detailed results, CI/CD integration, human-readable reports
+      html:
+        file: report.html

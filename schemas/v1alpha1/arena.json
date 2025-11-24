@@ -437,6 +437,11 @@
     },
     "spec": {
       "$ref": "#/$defs/Config"
+    },
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "description": "JSON Schema reference URL"
     }
   },
   "additionalProperties": false,

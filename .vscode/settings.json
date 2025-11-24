@@ -21,23 +21,29 @@
     ],
     "sonarlint.testFilePattern": "**/*_test.go",
     "yaml.schemas": {
-        "https://promptkit.altairalabs.ai/schemas/v1alpha1/arena.json": [
-            "examples/**/arena.yaml",
-            "examples/**/*arena*.yaml"
+        "https://promptkit.altairalabs.ai/schemas/latest/arena.json": [
+            "examples/**/config.arena.yaml",
+            "examples/**/*.arena.yaml",
+            "examples/**/arena.yaml"
         ],
-        "https://promptkit.altairalabs.ai/schemas/v1alpha1/scenario.json": [
+        "https://promptkit.altairalabs.ai/schemas/latest/scenario.json": [
+            "examples/**/*.scenario.yaml",
             "examples/**/scenarios/*.yaml"
         ],
-        "https://promptkit.altairalabs.ai/schemas/v1alpha1/provider.json": [
+        "https://promptkit.altairalabs.ai/schemas/latest/provider.json": [
+            "examples/**/*.provider.yaml",
             "examples/**/providers/*.yaml"
         ],
-        "https://promptkit.altairalabs.ai/schemas/v1alpha1/promptconfig.json": [
+        "https://promptkit.altairalabs.ai/schemas/latest/promptconfig.json": [
+            "examples/**/*.prompt.yaml",
             "examples/**/prompts/*.yaml"
         ],
-        "https://promptkit.altairalabs.ai/schemas/v1alpha1/tool.json": [
+        "https://promptkit.altairalabs.ai/schemas/latest/tool.json": [
+            "examples/**/*.tool.yaml",
             "examples/**/tools/*.yaml"
         ],
-        "https://promptkit.altairalabs.ai/schemas/v1alpha1/persona.json": [
+        "https://promptkit.altairalabs.ai/schemas/latest/persona.json": [
+            "examples/**/*.persona.yaml",
             "examples/**/personas/*.yaml"
         ]
     },

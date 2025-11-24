@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "1.0.0",
+  "schemas": {
+    "arena": {
+      "version": "v1alpha1",
+      "path": "./schemas/arena.json",
+      "url": "https://promptkit.altairalabs.ai/schemas/latest/arena.json",
+      "filePatterns": ["config.arena.yaml", "*.arena.yaml", "**/arena.yaml"]
+    },
+    "scenario": {
+      "version": "v1alpha1",
+      "path": "./schemas/scenario.json",
+      "url": "https://promptkit.altairalabs.ai/schemas/latest/scenario.json",
+      "filePatterns": ["scenarios/*.yaml", "*.scenario.yaml"]
+    },
+    "provider": {
+      "version": "v1alpha1",
+      "path": "./schemas/provider.json",
+      "url": "https://promptkit.altairalabs.ai/schemas/latest/provider.json",
+      "filePatterns": ["providers/*.yaml", "*.provider.yaml"]
+    },
+    "promptconfig": {
+      "version": "v1alpha1",
+      "path": "./schemas/promptconfig.json",
+      "url": "https://promptkit.altairalabs.ai/schemas/latest/promptconfig.json",
+      "filePatterns": ["prompts/*.yaml", "*.prompt.yaml"]
+    },
+    "tool": {
+      "version": "v1alpha1",
+      "path": "./schemas/tool.json",
+      "url": "https://promptkit.altairalabs.ai/schemas/latest/tool.json",
+      "filePatterns": ["tools/*.yaml", "*.tool.yaml"]
+    },
+    "persona": {
+      "version": "v1alpha1",
+      "path": "./schemas/persona.json",
+      "url": "https://promptkit.altairalabs.ai/schemas/latest/persona.json",
+      "filePatterns": ["personas/*.yaml", "*.persona.yaml"]
+    }
+  }
+}

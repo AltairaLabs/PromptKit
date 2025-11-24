@@ -537,6 +537,11 @@
     },
     "spec": {
       "$ref": "#/$defs/PromptSpec"
+    },
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "description": "JSON Schema reference URL"
     }
   },
   "additionalProperties": false,
@@ -546,8 +551,8 @@
     "kind",
     "spec"
   ],
-  "title": "PromptKit PromptConfig Configuration",
-  "description": "Prompt template configuration for PromptKit",
+  "title": "PromptKit Prompt Configuration",
+  "description": "Prompt configuration for PromptKit",
   "examples": [
     {
       "apiVersion": "promptkit.altairalabs.ai/v1alpha1",

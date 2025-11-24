@@ -1,0 +1,14 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: gemini-flash
+spec:
+  id: "gemini-flash"
+  type: gemini
+  model: gemini-2.5-pro
+  base_url: "https://generativelanguage.googleapis.com/v1beta"
+  defaults:
+    temperature: 0.7
+    max_tokens: 8192
+    top_p: 1.0
+

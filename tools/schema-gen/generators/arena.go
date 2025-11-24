@@ -29,6 +29,9 @@ func GenerateArenaSchema() (interface{}, error) {
 	schema.Title = "PromptArena Configuration"
 	schema.Description = "Main configuration for PromptArena test suites"
 
+	// Allow the standard $schema field
+	allowSchemaField(schema)
+
 	// Add example
 	addArenaExample(schema)
 

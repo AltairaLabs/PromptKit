@@ -202,7 +202,7 @@ func TestGenerateMediaSchema(t *testing.T) {
 }
 
 func TestSchemaBaseURL(t *testing.T) {
-	expected := "https://schemas.promptkit.altairalabs.ai/v1alpha1"
+	expected := "https://promptkit.altairalabs.ai/schemas/v1alpha1"
 	if schemaBaseURL != expected {
 		t.Errorf("schemaBaseURL = %v, want %v", schemaBaseURL, expected)
 	}

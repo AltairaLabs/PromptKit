@@ -20,6 +20,9 @@ func GeneratePersonaSchema() (interface{}, error) {
 	schema.Title = "PromptKit Persona Configuration"
 	schema.Description = "User persona configuration for self-play scenarios"
 
+	// Allow the standard $schema field
+	allowSchemaField(schema)
+
 	addPersonaExample(schema)
 
 	return schema, nil

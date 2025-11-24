@@ -170,6 +170,11 @@
     },
     "spec": {
       "$ref": "#/$defs/UserPersonaPack"
+    },
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "description": "JSON Schema reference URL"
     }
   },
   "additionalProperties": false,

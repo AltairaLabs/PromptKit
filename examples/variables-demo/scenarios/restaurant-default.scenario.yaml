@@ -1,0 +1,49 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: restaurant-default
+  labels:
+    category: restaurant
+    config: default
+  annotations:
+    description: "Tests the restaurant bot using default variable values"
+spec:
+  id: "restaurant-default"
+  task_type: restaurant-service
+  description: |
+    This scenario tests the restaurant bot with its DEFAULT variable values.
+    Expected behavior:
+    - Should identify as "TastyBites"
+    - Should mention Italian cuisine
+    - Should state hours as "11 AM - 10 PM daily"
+
+  turns:
+    - role: user
+      content: "Hi, what's your restaurant's name and what kind of food do you serve?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "TastyBites"
+              - "Italian"
+            message: "Should mention restaurant name (TastyBites) and cuisine type (Italian) from default variables"
+
+    - role: user
+      content: "What are your hours?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "11"
+              - "10"
+            message: "Should mention opening hours from default variable (11 AM - 10 PM)"
+
+    - role: user
+      content: "What's the dress code?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "smart casual"
+            case_sensitive: false
+            message: "Should mention dress code from default variable"
