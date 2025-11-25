@@ -16,6 +16,7 @@ func GeneratePersonaSchema() (interface{}, error) {
 
 	schema := reflector.Reflect(&config.PersonaConfigSchema{})
 
+	schema.Version = "https://json-schema.org/draft-07/schema"
 	schema.ID = schemaBaseURL + "/persona.json"
 	schema.Title = "PromptKit Persona Configuration"
 	schema.Description = "User persona configuration for self-play scenarios"

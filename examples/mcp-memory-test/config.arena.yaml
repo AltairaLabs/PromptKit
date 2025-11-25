@@ -3,7 +3,8 @@ kind: Arena
 
 metadata:
   name: mcp-memory-test
-  description: Test MCP integration with memory server
+  annotations:
+    description: Test MCP integration with memory server
 
 spec:
   # MCP Server Configuration
@@ -14,8 +15,8 @@ spec:
         - "-y"
         - "@modelcontextprotocol/server-memory"
       env:
-        PATH: "/opt/homebrew/opt/libpq/bin:/Users/chaholl/.krew/bin:/opt/homebrew/opt/libpq/bin:/Users/chaholl/.nvm/versions/node/v22.14.0/bin:/Users/chaholl/.krew/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/Library/Apple/usr/bin:/Applications/Wireshark.app/Contents/MacOS:/Applications/VMware Fusion.app/Contents/Public:/usr/local/share/dotnet:~/.dotnet/tools:/Users/chaholl/.cargo/bin:/Users/chaholl/go/bin/:/Users/chaholl/Library/Application Support/Code/User/globalStorage/github.copilot-chat/debugCommand:/Users/chaholl/go/bin/"
-  
+        PATH: "Make sure node is on your path"
+ 
   # Prompts
   prompt_configs:
     - id: assistant

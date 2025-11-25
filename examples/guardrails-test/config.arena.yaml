@@ -21,12 +21,9 @@ spec:
 
   # Default configuration
   defaults:
-    provider: openai-gpt4
-    prompt_config: content-filter
     temperature: 0.7
     max_tokens: 150
     seed: 42
-    timeout: 30s
     output:
       dir: out
       formats: ["json", "html"]

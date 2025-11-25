@@ -16,6 +16,7 @@ func GenerateScenarioSchema() (interface{}, error) {
 
 	schema := reflector.Reflect(&config.ScenarioConfig{})
 
+	schema.Version = "https://json-schema.org/draft-07/schema"
 	schema.ID = schemaBaseURL + "/scenario.json"
 	schema.Title = "PromptArena Scenario Configuration"
 	schema.Description = "Scenario configuration for PromptArena test cases"

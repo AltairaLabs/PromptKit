@@ -4,8 +4,6 @@ metadata:
   name: context-management-demo
 
 spec:
-  description: "Demonstrates context management with token budget enforcement"
-  
   # Prompt configuration
   prompt_configs:
     - id: chat

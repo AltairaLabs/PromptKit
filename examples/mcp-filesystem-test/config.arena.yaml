@@ -3,7 +3,8 @@ kind: Arena
 
 metadata:
   name: mcp-filesystem-test
-  description: Test filesystem operations via MCP server
+  annotations:
+    description: Test filesystem operations via MCP server
 
 spec:
   # MCP Server Configuration
@@ -15,7 +16,7 @@ spec:
         - "@modelcontextprotocol/server-filesystem"
         - "."
       env:
-        PATH: "Make sure you node is on your path"
+        PATH: "Make sure node is on your path"
 
   # Prompt Configuration
   prompt_configs:

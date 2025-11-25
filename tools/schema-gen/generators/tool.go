@@ -16,6 +16,7 @@ func GenerateToolSchema() (interface{}, error) {
 
 	schema := reflector.Reflect(&config.ToolConfigSchema{})
 
+	schema.Version = "https://json-schema.org/draft-07/schema"
 	schema.ID = schemaBaseURL + "/tool.json"
 	schema.Title = "PromptKit Tool Configuration"
 	schema.Description = "Tool/function configuration for PromptKit"

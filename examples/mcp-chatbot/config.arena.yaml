@@ -3,7 +3,8 @@ kind: Arena
 
 metadata:
   name: mcp-chatbot-example
-  description: Conversational AI with persistent memory via MCP
+  annotations:
+    description: Conversational AI with persistent memory via MCP
 
 spec:
   # MCP Server Configuration

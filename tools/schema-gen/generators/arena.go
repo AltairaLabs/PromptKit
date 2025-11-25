@@ -25,6 +25,7 @@ func GenerateArenaSchema() (interface{}, error) {
 
 	schema := reflector.Reflect(&config.ArenaConfig{})
 
+	schema.Version = "https://json-schema.org/draft-07/schema"
 	schema.ID = schemaBaseURL + "/arena.json"
 	schema.Title = "PromptArena Configuration"
 	schema.Description = "Main configuration for PromptArena test suites"

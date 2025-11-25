@@ -16,6 +16,7 @@ func GenerateProviderSchema() (interface{}, error) {
 
 	schema := reflector.Reflect(&config.ProviderConfig{})
 
+	schema.Version = "https://json-schema.org/draft-07/schema"
 	schema.ID = schemaBaseURL + "/provider.json"
 	schema.Title = "PromptArena Provider Configuration"
 	schema.Description = "Provider configuration for PromptArena LLM connections"
