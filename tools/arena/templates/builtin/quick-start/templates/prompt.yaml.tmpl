@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/promptconfig.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: assistant
+
+spec:
+  task_type: general
+  version: "1.0.0"
+  description: "A helpful assistant for general queries"
+  
+  system_template: |
+    You are a helpful AI assistant. Be concise and friendly.
+    Answer questions clearly and accurately.
+  
+  variables: []
+  
+  metadata:
+    domain: "general"
+    language: "en"
+    tags: ["assistant", "general"]

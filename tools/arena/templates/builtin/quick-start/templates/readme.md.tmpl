@@ -1,0 +1,43 @@
+# {{.project_name}}
+
+PromptArena test project created from the **quick-start** template.
+
+## Getting Started
+
+This project includes:
+- ✅ Basic prompt configuration (`prompts/assistant.yaml`)
+- ✅ Provider configuration (`providers/{{.provider}}.yaml`)
+- ✅ Sample test scenario (`scenarios/basic-test.yaml`)
+- ✅ Arena configuration (`arena.yaml`)
+
+## Run Your First Test
+
+```bash
+# Run all scenarios
+promptarena run
+
+# View results
+open out/report.html
+```
+
+{{if ne .provider "mock"}}## Configure API Keys
+
+1. Copy `.env.example` to `.env`
+2. Add your API key
+3. Run the tests
+
+{{end}}## Next Steps
+
+- Modify `prompts/assistant.yaml` to customize the assistant behavior
+- Add more scenarios in the `scenarios/` directory
+- Adjust provider settings in `providers/{{.provider}}.yaml`
+
+## Documentation
+
+- [Getting Started Guide](https://promptkit.altairalabs.ai/arena/tutorials/01-first-test)
+- [API Reference](https://promptkit.altairalabs.ai/arena/reference)
+- [Examples](https://promptkit.altairalabs.ai/arena/examples)
+
+---
+
+Generated with PromptArena `promptarena init`

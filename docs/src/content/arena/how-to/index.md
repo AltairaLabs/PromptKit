@@ -15,6 +15,11 @@ Set up PromptArena on your system and verify the installation.
 </div>
 
 <div class="code-example" markdown="1">
+### [Use Project Templates](use-project-templates)
+Quickly scaffold new test projects with the `promptarena init` command.
+</div>
+
+<div class="code-example" markdown="1">
 ### [Write Test Scenarios](write-scenarios)
 Create and structure test scenarios for LLM testing with the PromptPack format.
 </div>

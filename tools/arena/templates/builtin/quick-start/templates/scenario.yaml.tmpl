@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/scenario.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: basic-test
+
+spec:
+  id: greeting-test
+  task_type: general
+  description: "Basic greeting and Q&A test"
+  
+  turns:
+    - role: user
+      content: "Hello! How are you today?"
+      assertions:
+        - type: content_not_empty
+          params: {}
+          message: "Response should not be empty"
+        
+    - role: user
+      content: "What's the capital of France?"
+      assertions:
+        - type: contains_any
+          params:
+            values: ["Paris", "paris"]
+          message: "Response should mention Paris"
+          
+        - type: max_tokens
+          params:
+            max: 100
+          message: "Response should be concise"
