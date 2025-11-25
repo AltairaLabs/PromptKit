@@ -178,7 +178,7 @@ func TestBuildProviderRequest_WithMetadata(t *testing.T) {
 
 			// Check metadata was copied
 			if tt.metadata == nil {
-				if req.Metadata != nil && len(req.Metadata) > 0 {
+				if len(req.Metadata) > 0 {
 					t.Errorf("Expected nil or empty metadata, got %v", req.Metadata)
 				}
 			} else {
