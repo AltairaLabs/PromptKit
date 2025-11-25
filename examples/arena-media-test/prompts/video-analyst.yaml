@@ -20,10 +20,4 @@ spec:
         - mp4
         - webm
         - mov
-      max_duration_seconds: 600
-
-  voice_profile:
-    tone: analytical
-    characteristics:
-      - descriptive
-      - technical
+      max_duration_sec: 600

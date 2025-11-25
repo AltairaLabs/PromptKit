@@ -21,10 +21,4 @@ spec:
         - wav
         - ogg
         - flac
-      max_duration_seconds: 600
-
-  voice_profile:
-    tone: analytical
-    characteristics:
-      - precise
-      - technical
+      max_duration_sec: 600

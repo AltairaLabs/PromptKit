@@ -80,10 +80,3 @@ spec:
       params:
         max_characters: 5000
         max_tokens: 1500
-
-  voice_profile:
-    tone: professional
-    characteristics:
-      - accurate
-      - detailed
-      - systematic

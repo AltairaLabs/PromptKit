@@ -4,6 +4,7 @@ metadata:
   name: chat-prompt
 spec:
   task_type: chat
+  version: "v1.0.0"
   description: "Simple chat assistant for context management demo"
   
   system_template: |

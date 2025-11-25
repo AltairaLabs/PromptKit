@@ -112,11 +112,3 @@ spec:
       params:
         max_characters: 3000
         max_tokens: 800
-
-  voice_profile:
-    tone: analytical
-    characteristics:
-      - comprehensive
-      - insightful
-      - thorough
-      - integrative
