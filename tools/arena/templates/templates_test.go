@@ -838,3 +838,271 @@ spec:
 	_, err = loader.LoadFromFile(invalidTemplatePath)
 	assert.Error(t, err)
 }
+
+func TestLoader_Load_RemoteTemplate(t *testing.T) {
+	loader := NewLoader("")
+
+	// Test that non-existent remote template returns error
+	_, err := loader.Load("nonexistent-remote-template")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "template not found")
+}
+
+func TestLoader_Load_LocalTemplate(t *testing.T) {
+	// Create a temporary template file
+	tempDir := t.TempDir()
+	templatePath := filepath.Join(tempDir, "template.yaml")
+
+	templateContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Template
+metadata:
+  name: local-template
+spec:
+  files:
+    - path: test.txt
+      content: "Test"
+`
+	err := os.WriteFile(templatePath, []byte(templateContent), 0644)
+	require.NoError(t, err)
+
+	loader := NewLoader("")
+
+	// Test loading with absolute path (starts with /)
+	tmpl, err := loader.Load(templatePath)
+	require.NoError(t, err)
+	assert.Equal(t, "local-template", tmpl.Metadata.Name)
+}
+
+func TestGenerator_Generate_WithHooks(t *testing.T) {
+	tmpl := &Template{
+		APIVersion: "promptkit.altairalabs.ai/v1alpha1",
+		Kind:       "Template",
+		Metadata: TemplateMetadata{
+			Name: "test-with-hooks",
+		},
+		Spec: TemplateSpec{
+			Hooks: &HookSet{
+				PreCreate: []Hook{
+					{
+						Command: "echo 'pre-create'",
+						Message: "Running pre-create hook",
+					},
+				},
+				PostCreate: []Hook{
+					{
+						Command: "echo 'post-create'",
+						Message: "Running post-create hook",
+					},
+				},
+			},
+			Files: []FileSpec{
+				{
+					Path:    "test.txt",
+					Content: "Hello",
+				},
+			},
+		},
+	}
+
+	tempDir := t.TempDir()
+	loader := NewLoader("")
+	generator := NewGenerator(tmpl, loader)
+
+	config := &TemplateConfig{
+		ProjectName: "test-hooks",
+		OutputDir:   tempDir,
+		Variables:   map[string]interface{}{},
+		Template:    tmpl,
+	}
+
+	result, err := generator.Generate(config)
+	require.NoError(t, err)
+	assert.True(t, result.Success)
+	assert.NotEmpty(t, result.FilesCreated)
+}
+
+func TestGenerator_Generate_WithConditionalHooks(t *testing.T) {
+	tmpl := &Template{
+		APIVersion: "promptkit.altairalabs.ai/v1alpha1",
+		Kind:       "Template",
+		Metadata: TemplateMetadata{
+			Name: "test-conditional-hooks",
+		},
+		Spec: TemplateSpec{
+			Hooks: &HookSet{
+				PreCreate: []Hook{
+					{
+						Command:   "echo 'should run'",
+						Condition: "{{.run_hook}}",
+					},
+					{
+						Command:   "echo 'should not run'",
+						Condition: "{{.skip_hook}}",
+					},
+				},
+			},
+			Files: []FileSpec{
+				{
+					Path:    "test.txt",
+					Content: "Test",
+				},
+			},
+		},
+	}
+
+	tempDir := t.TempDir()
+	loader := NewLoader("")
+	generator := NewGenerator(tmpl, loader)
+
+	config := &TemplateConfig{
+		ProjectName: "test",
+		OutputDir:   tempDir,
+		Variables: map[string]interface{}{
+			"run_hook":  true,
+			"skip_hook": false,
+		},
+		Template: tmpl,
+	}
+
+	result, err := generator.Generate(config)
+	require.NoError(t, err)
+	assert.True(t, result.Success)
+}
+
+func TestGenerator_Generate_HookWithRenderError(t *testing.T) {
+	tmpl := &Template{
+		APIVersion: "promptkit.altairalabs.ai/v1alpha1",
+		Kind:       "Template",
+		Metadata: TemplateMetadata{
+			Name: "test-hook-error",
+		},
+		Spec: TemplateSpec{
+			Hooks: &HookSet{
+				PreCreate: []Hook{
+					{
+						Command: "echo {{.undefined syntax",
+						Message: "Hook with syntax error",
+					},
+				},
+			},
+			Files: []FileSpec{
+				{
+					Path:    "test.txt",
+					Content: "Test",
+				},
+			},
+		},
+	}
+
+	tempDir := t.TempDir()
+	loader := NewLoader("")
+	generator := NewGenerator(tmpl, loader)
+
+	config := &TemplateConfig{
+		ProjectName: "test",
+		OutputDir:   tempDir,
+		Variables:   map[string]interface{}{},
+		Template:    tmpl,
+	}
+
+	result, err := generator.Generate(config)
+	require.NoError(t, err)
+	// Hook errors should be warnings, not failures
+	assert.NotEmpty(t, result.Warnings)
+}
+
+func TestGenerator_Generate_HookConditionError(t *testing.T) {
+	tmpl := &Template{
+		APIVersion: "promptkit.altairalabs.ai/v1alpha1",
+		Kind:       "Template",
+		Metadata: TemplateMetadata{
+			Name: "test-hook-condition-error",
+		},
+		Spec: TemplateSpec{
+			Hooks: &HookSet{
+				PostCreate: []Hook{
+					{
+						Command:   "echo 'test'",
+						Condition: "{{.invalid condition syntax",
+					},
+				},
+			},
+			Files: []FileSpec{
+				{
+					Path:    "test.txt",
+					Content: "Test",
+				},
+			},
+		},
+	}
+
+	tempDir := t.TempDir()
+	loader := NewLoader("")
+	generator := NewGenerator(tmpl, loader)
+
+	config := &TemplateConfig{
+		ProjectName: "test",
+		OutputDir:   tempDir,
+		Variables:   map[string]interface{}{},
+		Template:    tmpl,
+	}
+
+	result, err := generator.Generate(config)
+	require.NoError(t, err)
+	// Hook condition errors should be warnings
+	assert.NotEmpty(t, result.Warnings)
+}
+
+func TestGenerator_GenerateSingleFile_RenderError(t *testing.T) {
+	tmpl := &Template{
+		APIVersion: "promptkit.altairalabs.ai/v1alpha1",
+		Kind:       "Template",
+		Metadata: TemplateMetadata{
+			Name: "test-render-error",
+		},
+		Spec: TemplateSpec{
+			Files: []FileSpec{
+				{
+					Path:     "test.txt",
+					Template: "builtin/nonexistent/template.txt",
+				},
+			},
+		},
+	}
+
+	tempDir := t.TempDir()
+	loader := NewLoader("")
+	generator := NewGenerator(tmpl, loader)
+
+	config := &TemplateConfig{
+		ProjectName: "test",
+		OutputDir:   tempDir,
+		Variables:   map[string]interface{}{},
+		Template:    tmpl,
+	}
+
+	result, err := generator.Generate(config)
+	require.NoError(t, err)
+	assert.False(t, result.Success)
+	assert.NotEmpty(t, result.Errors)
+}
+
+func TestLoader_ListBuiltIn_Error(t *testing.T) {
+	// Test with invalid base path
+	loader := NewLoader("/nonexistent/path")
+
+	templates, err := loader.ListBuiltIn()
+	require.NoError(t, err) // Should still work as it uses embedded FS
+	assert.NotEmpty(t, templates)
+}
+
+func TestGenerator_RenderTemplate_Error(t *testing.T) {
+	loader := NewLoader("")
+	tmpl := &Template{}
+	generator := NewGenerator(tmpl, loader)
+
+	// Test invalid template syntax
+	_, err := generator.renderTemplate("test", "{{.invalid syntax", map[string]interface{}{})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse template")
+}
