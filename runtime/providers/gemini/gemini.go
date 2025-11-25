@@ -408,8 +408,8 @@ func countPartsByType(parts []types.ContentPart, partType string) int {
 	return count
 }
 
-// getGeminiPricing returns pricing for Gemini models (input, output, cached per 1K tokens)
-func getGeminiPricing(model string) (inputPrice, outputPrice, cachedPrice float64) {
+// geminiPricing returns pricing for Gemini models (input, output, cached per 1K tokens)
+func geminiPricing(model string) (inputPrice, outputPrice, cachedPrice float64) {
 	// Define pricing constants
 	const (
 		proInput     = 0.00125
@@ -449,7 +449,7 @@ func (p *GeminiProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) ty
 	} else {
 		// Fallback to hardcoded pricing with warning
 		fmt.Printf("WARNING: No pricing configured for provider %s (model: %s), using fallback pricing\n", p.ID(), p.Model)
-		inputCostPer1K, outputCostPer1K, cachedCostPer1K = getGeminiPricing(p.Model)
+		inputCostPer1K, outputCostPer1K, cachedCostPer1K = geminiPricing(p.Model)
 	}
 
 	// Calculate costs

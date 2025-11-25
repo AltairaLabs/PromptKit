@@ -327,8 +327,8 @@ func (p *ClaudeProvider) Predict(ctx context.Context, req providers.PredictionRe
 	return predictResp, nil
 }
 
-// getClaudePricing returns pricing for Claude models (input, output, cached per 1K tokens)
-func getClaudePricing(model string) (inputPrice, outputPrice, cachedPrice float64) {
+// claudePricing returns pricing for Claude models (input, output, cached per 1K tokens)
+func claudePricing(model string) (inputPrice, outputPrice, cachedPrice float64) {
 	// Define pricing constants
 	const (
 		sonnetInput  = 0.003
@@ -373,7 +373,7 @@ func (p *ClaudeProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) ty
 	} else {
 		// Fallback to hardcoded pricing with warning
 		fmt.Printf("WARNING: No pricing configured for provider %s (model: %s), using fallback pricing\n", p.ID(), p.model)
-		inputCostPer1K, outputCostPer1K, cachedCostPer1K = getClaudePricing(p.model)
+		inputCostPer1K, outputCostPer1K, cachedCostPer1K = claudePricing(p.model)
 	}
 
 	// Calculate costs
