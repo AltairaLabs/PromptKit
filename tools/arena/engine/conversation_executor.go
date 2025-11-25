@@ -17,6 +17,8 @@ import (
 const (
 	// Error message for unsupported roles
 	errUnsupportedRole = "unsupported role: %s"
+	// Role constants
+	roleUser = "user"
 )
 
 // DefaultConversationExecutor implements ConversationExecutor interface
@@ -59,7 +61,7 @@ func (ce *DefaultConversationExecutor) executeWithoutStreaming(ctx context.Conte
 	// Execute each turn in the scenario
 	for turnIdx, scenarioTurn := range req.Scenario.Turns {
 		// Debug if assertions are specified on user turns (they only validate assistant responses)
-		if scenarioTurn.Role == "user" && len(scenarioTurn.Assertions) > 0 {
+		if scenarioTurn.Role == roleUser && len(scenarioTurn.Assertions) > 0 {
 			logger.Debug("Assertions on user turn will validate next assistant response",
 				"turn", turnIdx)
 		}
@@ -75,7 +77,7 @@ func (ce *DefaultConversationExecutor) executeWithoutStreaming(ctx context.Conte
 			turnReq.SelfPlayRole = scenarioTurn.Role
 			turnReq.SelfPlayPersona = scenarioTurn.Persona
 			err = ce.selfPlayExecutor.ExecuteTurn(ctx, turnReq)
-		} else if scenarioTurn.Role == "user" {
+		} else if scenarioTurn.Role == roleUser {
 			// Scripted user turn (non-streaming path)
 			err = ce.scriptedExecutor.ExecuteTurn(ctx, turnReq)
 		} else {
@@ -130,7 +132,7 @@ func (ce *DefaultConversationExecutor) executeStreamingTurn(ctx context.Context,
 
 // debugOnUserTurnAssertions logs debug message if assertions are specified on user turns
 func (ce *DefaultConversationExecutor) debugOnUserTurnAssertions(scenarioTurn config.TurnDefinition, turnIdx int) {
-	if scenarioTurn.Role == "user" && len(scenarioTurn.Assertions) > 0 {
+	if scenarioTurn.Role == roleUser && len(scenarioTurn.Assertions) > 0 {
 		logger.Debug("Assertions on user turn will validate next assistant response",
 			"turn", turnIdx)
 	}
@@ -196,7 +198,7 @@ func (ce *DefaultConversationExecutor) executeTurnByRole(ctx context.Context, tu
 		return ce.executeSelfPlayTurn(ctx, turnReq, scenarioTurn, shouldStream)
 	}
 
-	if scenarioTurn.Role == "user" {
+	if scenarioTurn.Role == roleUser {
 		return ce.executeScriptedTurn(ctx, turnReq, scenarioTurn, shouldStream)
 	}
 
@@ -340,7 +342,7 @@ func (ce *DefaultConversationExecutor) getStreamForRole(
 		return ce.selfPlayExecutor.ExecuteTurnStream(ctx, turnReq)
 	}
 
-	if scenarioTurn.Role == "user" {
+	if scenarioTurn.Role == roleUser {
 		turnReq.ScriptedContent = scenarioTurn.Content
 		return ce.scriptedExecutor.ExecuteTurnStream(ctx, turnReq)
 	}

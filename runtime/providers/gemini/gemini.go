@@ -115,8 +115,8 @@ func convertMessagesToGeminiContents(messages []types.Message) []geminiContent {
 	for _, msg := range messages {
 		role := msg.Role
 		// Gemini uses "user" and "model" roles
-		if role == "assistant" {
-			role = "model"
+		if role == roleAssistant {
+			role = roleModel
 		}
 
 		contents = append(contents, geminiContent{
@@ -184,11 +184,11 @@ func (p *GeminiProvider) handleGeminiFinishReason(finishReason string, predictRe
 	predictResp.Raw = respBody
 
 	switch finishReason {
-	case "MAX_TOKENS":
+	case finishReasonMaxTokens:
 		return predictResp, fmt.Errorf("gemini returned MAX_TOKENS error (this should not happen with reasonable limits)")
-	case "SAFETY":
+	case finishReasonSafety:
 		return predictResp, fmt.Errorf("response blocked by Gemini safety filters")
-	case "RECITATION":
+	case finishReasonRecitation:
 		return predictResp, fmt.Errorf("response blocked due to recitation concerns")
 	default:
 		return predictResp, fmt.Errorf("no content parts in response (finish reason: %s)", finishReason)

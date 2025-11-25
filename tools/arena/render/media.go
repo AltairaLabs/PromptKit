@@ -9,6 +9,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 )
 
+const divCloseTag = "</div>"
+
 // renderMediaSummaryBadge creates a compact badge showing media counts.
 // Returns empty string if no media content (only text).
 func renderMediaSummaryBadge(summary *types.MediaSummary) string {
@@ -42,7 +44,7 @@ func renderMediaSummaryBadge(summary *types.MediaSummary) string {
 
 	html := `<div class="media-summary-badge">`
 	html += strings.Join(badges, "")
-	html += `</div>`
+	html += divCloseTag
 
 	return html
 }
@@ -121,10 +123,10 @@ func renderMessageWithMedia(msg types.Message) string {
 		for _, item := range mediaSummary.MediaItems {
 			html += renderMediaItem(item)
 		}
-		html += "</div>"
+		html += divCloseTag
 	}
 
-	html += "</div>"
+	html += divCloseTag
 	return html
 }
 

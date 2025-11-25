@@ -123,7 +123,7 @@ func (r *JSONPromptRepository) searchForPrompt(taskType string) (string, error) 
 		}
 
 		ext := strings.ToLower(filepath.Ext(path))
-		if ext != ".json" {
+		if ext != jsonExt {
 			return nil
 		}
 
