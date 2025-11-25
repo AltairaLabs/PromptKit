@@ -2,125 +2,97 @@ apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Scenario
 metadata:
   name: image-validation
-  description: >
-    Demonstrates image format and dimension validation using media assertions.
-    Tests image_format and image_dimensions validators on assistant responses.
+  annotations:
+    description: 'Demonstrates image format and dimension validation using media assertions.
+      Tests image_format and image_dimensions validators on assistant responses.
+
+      '
 spec:
-  id: "image-validation"
+  id: image-validation
   task_type: media-analysis
-  
   turns:
-    # Turn 1: Generate an image and validate its format
-    - role: user
-      parts:
-        - type: text
-          text: "Generate a 100x100 pixel red square PNG image"
-      
-      assertions:
-        # Validate assistant response includes image content
-        - type: content_includes
-          params:
-            patterns:
-              - "image"
-        
-        # Validate image format is PNG
-        - type: image_format
-          params:
-            formats:
-              - png
-    
-    # Turn 2: Request JPEG image and validate format
-    - role: user
-      parts:
-        - type: text
-          text: "Convert that to JPEG format"
-      
-      assertions:
-        # Validate image format is JPEG (also accepts 'jpg')
-        - type: image_format
-          params:
-            formats:
-              - jpeg
-              - jpg
-    
-    # Turn 3: Request specific image dimensions
-    - role: user
-      parts:
-        - type: text
-          text: "Create a 1920x1080 wallpaper image"
-      
-      assertions:
-        # Validate exact dimensions
-        - type: image_dimensions
-          params:
-            width: 1920
-            height: 1080
-    
-    # Turn 4: Request image with minimum dimensions
-    - role: user
-      parts:
-        - type: text
-          text: "Generate a high-resolution landscape image"
-      
-      assertions:
-        # Validate minimum dimensions for high-res
-        - type: image_dimensions
-          params:
-            min_width: 1920
-            min_height: 1080
-    
-    # Turn 5: Request thumbnail with size constraints
-    - role: user
-      parts:
-        - type: text
-          text: "Create a thumbnail version"
-      
-      assertions:
-        # Validate thumbnail is within size range
-        - type: image_dimensions
-          params:
-            min_width: 100
-            max_width: 400
-            min_height: 100
-            max_height: 400
-    
-    # Turn 6: Multiple images with format validation
-    - role: user
-      parts:
-        - type: text
-          text: "Generate three images: one PNG, one JPEG, and one WebP"
-      
-      assertions:
-        # Validate all supported formats are present
-        - type: image_format
-          params:
-            formats:
-              - png
-              - jpeg
-              - jpg
-              - webp
-        
-        # Validate at least one image meets HD resolution
-        - type: image_dimensions
-          params:
-            min_width: 1280
-            min_height: 720
-    
-    # Turn 7: Combined format and dimension validation
-    - role: user
-      parts:
-        - type: text
-          text: "Create a WebP image in 4K resolution (3840x2160)"
-      
-      assertions:
-        # Validate WebP format
-        - type: image_format
-          params:
-            formats:
-              - webp
-        
-        # Validate 4K dimensions
-        - type: image_dimensions
-          params:
-            width: 3840
-            height: 2160
+  - role: user
+    parts:
+    - type: text
+      text: Generate a 100x100 pixel red square PNG image
+    assertions:
+    - type: content_includes
+      params:
+        patterns:
+        - image
+    - type: image_format
+      params:
+        formats:
+        - png
+  - role: user
+    parts:
+    - type: text
+      text: Convert that to JPEG format
+    assertions:
+    - type: image_format
+      params:
+        formats:
+        - jpeg
+        - jpg
+  - role: user
+    parts:
+    - type: text
+      text: Create a 1920x1080 wallpaper image
+    assertions:
+    - type: image_dimensions
+      params:
+        width: 1920
+        height: 1080
+  - role: user
+    parts:
+    - type: text
+      text: Generate a high-resolution landscape image
+    assertions:
+    - type: image_dimensions
+      params:
+        min_width: 1920
+        min_height: 1080
+  - role: user
+    parts:
+    - type: text
+      text: Create a thumbnail version
+    assertions:
+    - type: image_dimensions
+      params:
+        min_width: 100
+        max_width: 400
+        min_height: 100
+        max_height: 400
+  - role: user
+    parts:
+    - type: text
+      text: 'Generate three images: one PNG, one JPEG, and one WebP'
+    assertions:
+    - type: image_format
+      params:
+        formats:
+        - png
+        - jpeg
+        - jpg
+        - webp
+    - type: image_dimensions
+      params:
+        min_width: 1280
+        min_height: 720
+  - role: user
+    parts:
+    - type: text
+      text: Create a WebP image in 4K resolution (3840x2160)
+    assertions:
+    - type: image_format
+      params:
+        formats:
+        - webp
+    - type: image_dimensions
+      params:
+        width: 3840
+        height: 2160
+  description: 'Demonstrates image format and dimension validation using media assertions.
+    Tests image_format and image_dimensions validators on assistant responses.
+
+    '

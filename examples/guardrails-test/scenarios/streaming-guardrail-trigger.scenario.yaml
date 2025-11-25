@@ -2,26 +2,22 @@ apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Scenario
 metadata:
   name: streaming-guardrail-trigger
-  description: Test that guardrails work correctly in streaming mode - validator should trigger and interrupt stream
-
+  annotations:
+    description: Test that guardrails work correctly in streaming mode - validator
+      should trigger and interrupt stream
 spec:
-  id: "streaming-guardrail-trigger"
+  id: streaming-guardrail-trigger
   task_type: assistant
-  
-  # Use streaming mode to test real-time validation
   streaming: true
-  
-  # Temperature for response generation
-  temperature: 0.7
-  
   turns:
-    - role: user
-      content: "Tell me why our product is the best and use strong guarantees"
-      
-      assertions:
-        # Verify that banned_words validator triggered during streaming
-        - type: guardrail_triggered
-          params:
-            validator: banned_words
-            should_trigger: true
-          message: "Expected banned_words validator to trigger during streaming when strong guarantees are used"
+  - role: user
+    content: Tell me why our product is the best and use strong guarantees
+    assertions:
+    - type: guardrail_triggered
+      params:
+        validator: banned_words
+        should_trigger: true
+      message: Expected banned_words validator to trigger during streaming when strong
+        guarantees are used
+  description: Test that guardrails work correctly in streaming mode - validator should
+    trigger and interrupt stream
