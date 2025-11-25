@@ -77,10 +77,11 @@ jobs:
         gotestsum --junitfile test-results/coverage-pkg.xml --format testname -- -race -coverprofile=pkg/pkg-coverage.out ./pkg/...
         gotestsum --junitfile test-results/coverage-packc.xml --format testname -- -race -coverprofile=tools/packc/packc-coverage.out ./tools/packc/...
         gotestsum --junitfile test-results/coverage-inspect-state.xml --format testname -- -race -coverprofile=tools/inspect-state/inspect-state-coverage.out ./tools/inspect-state/...
+        gotestsum --junitfile test-results/coverage-schema-gen.xml --format testname -- -race -coverprofile=tools/schema-gen/schema-gen-coverage.out ./tools/schema-gen/...
         
         # Merge coverage files
         echo "mode: set" > coverage.out
-        grep -h -v "^mode:" runtime/runtime-coverage.out sdk/sdk-coverage.out tools/arena/arena-coverage.out pkg/pkg-coverage.out tools/packc/packc-coverage.out tools/inspect-state/inspect-state-coverage.out >> coverage.out 2>/dev/null || true
+        grep -h -v "^mode:" runtime/runtime-coverage.out sdk/sdk-coverage.out tools/arena/arena-coverage.out pkg/pkg-coverage.out tools/packc/packc-coverage.out tools/inspect-state/inspect-state-coverage.out tools/schema-gen/schema-gen-coverage.out >> coverage.out 2>/dev/null || true
         echo "Coverage report generated: coverage.out"
     
     - name: Publish Test Results  
@@ -104,6 +105,7 @@ jobs:
           pkg/pkg-coverage.out
           tools/packc/packc-coverage.out
           tools/inspect-state/inspect-state-coverage.out
+          tools/schema-gen/schema-gen-coverage.out
         retention-days: 5
   
   sonarcloud:
