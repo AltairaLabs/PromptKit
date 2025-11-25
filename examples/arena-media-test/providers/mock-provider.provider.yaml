@@ -1,0 +1,14 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: mock-media
+spec:
+  id: mock-media
+  type: mock
+  model: mock-media-model
+  additional_config:
+    mock_config: providers/mock-responses.yaml
+  defaults:
+    temperature: 0.7
+    max_tokens: 1000
+    top_p: 1.0

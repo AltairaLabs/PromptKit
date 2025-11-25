@@ -1,0 +1,20 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: search
+spec:
+  description: Search for information on the internet
+  input_schema:
+    type: object
+    properties:
+      query:
+        type: string
+        description: The search query
+    required:
+    - query
+  output_schema:
+    type: string
+  mode: mock
+  mock_result: Found 3 results for your query
+  name: search
+  timeout_ms: 5000

@@ -1,0 +1,17 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: mock-tool-simulation
+spec:
+  id: mock-tool-simulation
+  type: mock
+  model: mock-gpt-4o-mini
+  pricing:
+    input_cost_per_1k: 1.0e-05
+    output_cost_per_1k: 1.0e-05
+  defaults:
+    temperature: 0.7
+    max_tokens: 1500
+    top_p: 1.0
+  additional_config:
+    mock_config: mock-tool-scenarios.yaml

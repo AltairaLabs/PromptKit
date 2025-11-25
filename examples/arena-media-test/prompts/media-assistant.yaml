@@ -34,7 +34,7 @@ spec:
         - wav
         - ogg
         - flac
-      max_duration_seconds: 600
+      max_duration_sec: 600
     
     video:
       max_size_mb: 100
@@ -42,16 +42,4 @@ spec:
         - mp4
         - webm
         - mov
-      max_duration_seconds: 600
-      supported_resolutions:
-        - 480p
-        - 720p
-        - 1080p
-        - 4k
-
-  voice_profile:
-    tone: analytical
-    characteristics:
-      - detailed
-      - technical
-      - accurate
+      max_duration_sec: 600

@@ -79,10 +79,3 @@ spec:
 
   # Note: No max_length validator here - we want thorough analysis
   # Length constraints should be in scenarios if needed for specific tests
-  
-  voice_profile:
-    tone: analytical
-    characteristics:
-      - detailed
-      - objective
-      - technical

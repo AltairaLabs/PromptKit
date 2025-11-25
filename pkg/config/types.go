@@ -3,8 +3,18 @@ package config
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 )
+
+// ObjectMeta is a simplified metadata structure for PromptKit configs
+// Based on K8s ObjectMeta but with YAML-friendly tags and optional fields
+type ObjectMeta struct {
+	Name        string            `yaml:"name,omitempty" jsonschema:"title=Name,description=Name of the resource"`
+	Namespace   string            `yaml:"namespace,omitempty" jsonschema:"title=Namespace,description=Namespace for the resource"`
+	Labels      map[string]string `yaml:"labels,omitempty" jsonschema:"title=Labels,description=Key-value pairs for organizing resources"`
+	Annotations map[string]string `yaml:"annotations,omitempty" jsonschema:"title=Annotations,description=Additional metadata"`
+}
 
 // PromptConfigRef references a prompt builder configuration
 type PromptConfigRef struct {
@@ -15,6 +25,15 @@ type PromptConfigRef struct {
 
 // ArenaConfig represents the main Arena configuration in K8s-style manifest format
 type ArenaConfig struct {
+	APIVersion string     `yaml:"apiVersion"`
+	Kind       string     `yaml:"kind"`
+	Metadata   ObjectMeta `yaml:"metadata,omitempty"`
+	Spec       Config     `yaml:"spec"`
+}
+
+// ArenaConfigK8s represents the Arena configuration using full K8s ObjectMeta for unmarshaling
+// This is used internally for compatibility with k8s.io types
+type ArenaConfigK8s struct {
 	APIVersion string            `yaml:"apiVersion"`
 	Kind       string            `yaml:"kind"`
 	Metadata   metav1.ObjectMeta `yaml:"metadata,omitempty"`
@@ -157,17 +176,17 @@ type SelfPlayRoleGroup struct {
 
 // Defaults contains default configuration values
 type Defaults struct {
-	Temperature float32      `yaml:"temperature"`
-	MaxTokens   int          `yaml:"max_tokens"`
-	Seed        int          `yaml:"seed"`
-	Concurrency int          `yaml:"concurrency"`
-	Output      OutputConfig `yaml:"output"`
+	Temperature float32      `yaml:"temperature,omitempty"`
+	MaxTokens   int          `yaml:"max_tokens,omitempty"`
+	Seed        int          `yaml:"seed,omitempty"`
+	Concurrency int          `yaml:"concurrency,omitempty"`
+	Output      OutputConfig `yaml:"output,omitempty"`
 	// ConfigDir is the base directory for all config files (prompts, providers, scenarios, tools).
 	// If not set, defaults to the directory containing the main config file.
 	// If the main config file path is not known, defaults to current working directory.
-	ConfigDir string   `yaml:"config_dir"`
-	FailOn    []string `yaml:"fail_on"`
-	Verbose   bool     `yaml:"verbose"`
+	ConfigDir string   `yaml:"config_dir,omitempty"`
+	FailOn    []string `yaml:"fail_on,omitempty"`
+	Verbose   bool     `yaml:"verbose,omitempty"`
 
 	// Deprecated fields for backward compatibility (will be removed)
 	HTMLReport     string          `yaml:"html_report,omitempty"`
@@ -315,6 +334,14 @@ type ContextMetadata struct {
 
 // ScenarioConfig represents a Scenario in K8s-style manifest format
 type ScenarioConfig struct {
+	APIVersion string     `yaml:"apiVersion"`
+	Kind       string     `yaml:"kind"`
+	Metadata   ObjectMeta `yaml:"metadata,omitempty"`
+	Spec       Scenario   `yaml:"spec"`
+}
+
+// ScenarioConfigK8s is the K8s-compatible version for unmarshaling
+type ScenarioConfigK8s struct {
 	APIVersion string            `yaml:"apiVersion"`
 	Kind       string            `yaml:"kind"`
 	Metadata   metav1.ObjectMeta `yaml:"metadata,omitempty"`
@@ -413,8 +440,16 @@ type TurnMediaContent struct {
 	Caption          string `json:"caption,omitempty" yaml:"caption,omitempty"`                     // Optional caption/description
 }
 
-// ProviderConfig represents a Provider in K8s-style manifest format
+// ProviderConfig represents a Provider configuration in K8s-style manifest format
 type ProviderConfig struct {
+	APIVersion string     `yaml:"apiVersion"`
+	Kind       string     `yaml:"kind"`
+	Metadata   ObjectMeta `yaml:"metadata,omitempty"`
+	Spec       Provider   `yaml:"spec"`
+}
+
+// ProviderConfigK8s is the K8s-compatible version for unmarshaling
+type ProviderConfigK8s struct {
 	APIVersion string            `yaml:"apiVersion"`
 	Kind       string            `yaml:"kind"`
 	Metadata   metav1.ObjectMeta `yaml:"metadata,omitempty"`
@@ -426,13 +461,13 @@ type Provider struct {
 	ID               string                 `json:"id" yaml:"id"`
 	Type             string                 `json:"type" yaml:"type"`
 	Model            string                 `json:"model" yaml:"model"`
-	BaseURL          string                 `json:"base_url" yaml:"base_url"`
-	RateLimit        RateLimit              `json:"rate_limit" yaml:"rate_limit"`
-	Defaults         ProviderDefaults       `json:"defaults" yaml:"defaults"`
-	Pricing          Pricing                `json:"pricing" yaml:"pricing"`
-	PricingCorrectAt string                 `json:"pricing_correct_at" yaml:"pricing_correct_at"`
-	IncludeRawOutput bool                   `json:"include_raw_output" yaml:"include_raw_output"`                   // Include raw API requests in output for debugging
-	AdditionalConfig map[string]interface{} `json:"additional_config,omitempty" yaml:"additional_config,omitempty"` // Additional provider-specific configuration
+	BaseURL          string                 `json:"base_url,omitempty" yaml:"base_url,omitempty"`
+	RateLimit        RateLimit              `json:"rate_limit,omitempty" yaml:"rate_limit,omitempty"`
+	Defaults         ProviderDefaults       `json:"defaults,omitempty" yaml:"defaults,omitempty"`
+	Pricing          Pricing                `json:"pricing,omitempty" yaml:"pricing,omitempty"`
+	PricingCorrectAt string                 `json:"pricing_correct_at,omitempty" yaml:"pricing_correct_at,omitempty"`
+	IncludeRawOutput bool                   `json:"include_raw_output,omitempty" yaml:"include_raw_output,omitempty"` // Include raw API requests in output for debugging
+	AdditionalConfig map[string]interface{} `json:"additional_config,omitempty" yaml:"additional_config,omitempty"`   // Additional provider-specific configuration
 }
 
 // Pricing defines cost per 1K tokens for input and output
@@ -452,4 +487,51 @@ type ProviderDefaults struct {
 	Temperature float32 `json:"temperature" yaml:"temperature"`
 	TopP        float32 `json:"top_p" yaml:"top_p"`
 	MaxTokens   int     `json:"max_tokens" yaml:"max_tokens"`
+}
+
+// PromptConfigSchema represents a PromptConfig in K8s-style manifest format for schema generation
+type PromptConfigSchema struct {
+	APIVersion string            `yaml:"apiVersion"`
+	Kind       string            `yaml:"kind"`
+	Metadata   ObjectMeta        `yaml:"metadata,omitempty"`
+	Spec       prompt.PromptSpec `yaml:"spec"`
+}
+
+// ToolConfigSchema represents a Tool configuration for schema generation with simplified ObjectMeta
+type ToolConfigSchema struct {
+	APIVersion string     `yaml:"apiVersion"`
+	Kind       string     `yaml:"kind"`
+	Metadata   ObjectMeta `yaml:"metadata,omitempty"`
+	Spec       ToolSpec   `yaml:"spec"`
+}
+
+// ToolSpec represents a tool descriptor (re-exported from runtime/tools for schema generation)
+type ToolSpec struct {
+	Name         string      `json:"name" yaml:"name"`
+	Description  string      `json:"description" yaml:"description"`
+	InputSchema  interface{} `json:"input_schema" yaml:"input_schema"`   // JSON Schema Draft-07
+	OutputSchema interface{} `json:"output_schema" yaml:"output_schema"` // JSON Schema Draft-07
+	Mode         string      `json:"mode" yaml:"mode"`                   // "mock" | "live"
+	TimeoutMs    int         `json:"timeout_ms" yaml:"timeout_ms"`
+	MockResult   interface{} `json:"mock_result,omitempty" yaml:"mock_result,omitempty"`     // Static mock data
+	MockTemplate string      `json:"mock_template,omitempty" yaml:"mock_template,omitempty"` // Template for dynamic mocks
+	HTTPConfig   *HTTPConfig `json:"http,omitempty" yaml:"http,omitempty"`                   // Live HTTP configuration
+}
+
+// HTTPConfig defines configuration for live HTTP tool execution
+type HTTPConfig struct {
+	URL            string            `json:"url" yaml:"url"`
+	Method         string            `json:"method" yaml:"method"`
+	HeadersFromEnv []string          `json:"headers_from_env,omitempty" yaml:"headers_from_env,omitempty"`
+	TimeoutMs      int               `json:"timeout_ms" yaml:"timeout_ms"`
+	Redact         []string          `json:"redact,omitempty" yaml:"redact,omitempty"`
+	Headers        map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+}
+
+// PersonaConfigSchema represents a Persona configuration for schema generation with simplified ObjectMeta
+type PersonaConfigSchema struct {
+	APIVersion string          `yaml:"apiVersion"`
+	Kind       string          `yaml:"kind"`
+	Metadata   ObjectMeta      `yaml:"metadata,omitempty"`
+	Spec       UserPersonaPack `yaml:"spec"`
 }

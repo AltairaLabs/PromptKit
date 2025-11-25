@@ -1,0 +1,98 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+
+metadata:
+  name: memory-conversations
+
+spec:
+  id: "memory-conversations"
+  task_type: memory-assistant
+  description: Test conversational memory storage and retrieval with multiple turns
+  
+  turns:
+    # Turn 1-2: Basic introduction and name storage
+    - role: user
+      content: "Hi! My name is Alice and I'm a software engineer."
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["Alice", "software engineer", "nice to meet"]
+            message: "Should acknowledge introduction and remember basic information"
+    - role: user
+      content: "What's my name and what do I do?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["Alice", "software engineer"]
+            message: "Should recall stored name and profession"
+    
+    # Turn 3-4: Adding preferences
+    - role: user
+      content: "I love Python programming and I'm currently working on a web scraper project."
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["Python", "web scraper", "project"]
+            message: "Should acknowledge programming preferences and current project"
+    - role: user
+      content: "What programming language do I like?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["Python"]
+            message: "Should recall previously stored programming language preference"
+    
+    # Turn 5-6: Testing relationships
+    - role: user
+      content: "I work with my colleague Dana on an AI project called PromptKit."
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["Dana", "colleague", "PromptKit", "AI project"]
+            message: "Should acknowledge and store relationship and project information"
+    - role: user
+      content: "Who do I work with and on what project?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["Dana", "PromptKit"]
+            message: "Should recall colleague name and project"
+    
+    # Turn 7-8: Incremental information
+    - role: user
+      content: "I also specialize in data processing and API integrations."
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["data processing", "API integrations", "specialize"]
+            message: "Should acknowledge additional technical specializations"
+    - role: user
+      content: "Tell me everything you know about my technical skills."
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["Python", "data processing", "API integrations", "software engineer"]
+            message: "Should recall and summarize all previously stored technical information"
+    
+    # Turn 9-10: Search and recall
+    - role: user
+      content: "I enjoy hiking, reading sci-fi novels, and drinking good coffee in my free time."
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["hiking", "sci-fi", "coffee"]
+            message: "Should acknowledge and store hobby information (relaxed: only activities required)"
+    - role: user
+      content: "What are my hobbies?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["hiking", "sci-fi", "coffee"]
+            message: "Should recall all previously stored hobbies"
+  
+  # Require tool usage for memory operations
+  tool_policy:
+    tool_choice: required
+    max_tool_calls_per_turn: 10
+    max_total_tool_calls: 50
+

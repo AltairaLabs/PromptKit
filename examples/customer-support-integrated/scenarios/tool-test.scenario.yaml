@@ -1,0 +1,20 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: tool-test
+spec:
+  id: "tool-test"
+  description: "Simple scenario to test that tools are called and recorded"
+  task_type: "customer-support"
+  
+  # Tool usage policy
+  tool_policy:
+    tool_choice: auto
+    max_tool_calls_per_turn: 3
+    max_total_tool_calls: 10
+  
+  # Single turn with a clear need to call tools
+  turns:
+    - role: user
+      content: "Hi, I need to check my account status and recent orders. My email is jane.smith@acme.com"
+      assertions: []

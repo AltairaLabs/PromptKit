@@ -1,0 +1,311 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "$id": "https://promptkit.altairalabs.ai/schemas/v1alpha1/scenario.json",
+  "$defs": {
+    "AssertionConfig": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "params"
+      ]
+    },
+    "ContextMetadata": {
+      "properties": {
+        "domain": {
+          "type": "string"
+        },
+        "user_role": {
+          "type": "string"
+        },
+        "project_stage": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ContextPolicy": {
+      "properties": {
+        "token_budget": {
+          "type": "integer"
+        },
+        "reserve_for_output": {
+          "type": "integer"
+        },
+        "strategy": {
+          "type": "string"
+        },
+        "cache_breakpoints": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ObjectMeta": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "Name",
+          "description": "Name of the resource"
+        },
+        "namespace": {
+          "type": "string",
+          "title": "Namespace",
+          "description": "Namespace for the resource"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Labels",
+          "description": "Key-value pairs for organizing resources"
+        },
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Annotations",
+          "description": "Additional metadata"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Scenario": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "task_type": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "context_metadata": {
+          "$ref": "#/$defs/ContextMetadata"
+        },
+        "turns": {
+          "items": {
+            "$ref": "#/$defs/TurnDefinition"
+          },
+          "type": "array"
+        },
+        "context": {
+          "type": "object"
+        },
+        "constraints": {
+          "type": "object"
+        },
+        "tool_policy": {
+          "$ref": "#/$defs/ToolPolicy"
+        },
+        "providers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "streaming": {
+          "type": "boolean"
+        },
+        "context_policy": {
+          "$ref": "#/$defs/ContextPolicy"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "task_type",
+        "description",
+        "turns"
+      ]
+    },
+    "ToolPolicy": {
+      "properties": {
+        "tool_choice": {
+          "type": "string"
+        },
+        "max_tool_calls_per_turn": {
+          "type": "integer"
+        },
+        "max_total_tool_calls": {
+          "type": "integer"
+        },
+        "blocklist": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "tool_choice",
+        "max_tool_calls_per_turn",
+        "max_total_tool_calls"
+      ]
+    },
+    "TurnContentPart": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "media": {
+          "$ref": "#/$defs/TurnMediaContent"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
+    "TurnDefinition": {
+      "properties": {
+        "role": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "parts": {
+          "items": {
+            "$ref": "#/$defs/TurnContentPart"
+          },
+          "type": "array"
+        },
+        "persona": {
+          "type": "string"
+        },
+        "turns": {
+          "type": "integer"
+        },
+        "assistant_temp": {
+          "type": "number"
+        },
+        "user_temp": {
+          "type": "number"
+        },
+        "seed": {
+          "type": "integer"
+        },
+        "streaming": {
+          "type": "boolean"
+        },
+        "assertions": {
+          "items": {
+            "$ref": "#/$defs/AssertionConfig"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "role"
+      ]
+    },
+    "TurnMediaContent": {
+      "properties": {
+        "file_path": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "data": {
+          "type": "string"
+        },
+        "storage_reference": {
+          "type": "string"
+        },
+        "mime_type": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "caption": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "mime_type"
+      ]
+    }
+  },
+  "properties": {
+    "apiVersion": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/ObjectMeta"
+    },
+    "spec": {
+      "$ref": "#/$defs/Scenario"
+    },
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "description": "JSON Schema reference URL"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "apiVersion",
+    "kind",
+    "spec"
+  ],
+  "title": "PromptArena Scenario Configuration",
+  "description": "Scenario configuration for PromptArena test cases",
+  "examples": [
+    {
+      "apiVersion": "promptkit.altairalabs.ai/v1alpha1",
+      "kind": "Scenario",
+      "metadata": {
+        "name": "test-scenario"
+      },
+      "spec": {
+        "description": "Test scenario",
+        "id": "test-1",
+        "task_type": "general",
+        "turns": [
+          {
+            "content": "Hello",
+            "role": "user"
+          }
+        ]
+      }
+    }
+  ]
+}

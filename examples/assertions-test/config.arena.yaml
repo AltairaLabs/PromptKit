@@ -1,0 +1,43 @@
+$schema: https://promptkit.altairalabs.ai/schemas/latest/arena.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: assertions-test
+spec:
+  prompt_configs:
+    - id: assistant
+      file: prompts/assistant.yaml
+
+  providers:
+    - file: providers/gemini.provider.yaml
+    - file: providers/openai.provider.yaml
+
+  scenarios:
+    - file: scenarios/scripted-turns.scenario.yaml
+    - file: scenarios/self-play.scenario.yaml
+    - file: scenarios/tool-usage.scenario.yaml
+    - file: scenarios/json-validation.scenario.yaml
+
+  tools:
+    - file: tools/search.tool.yaml
+    - file: tools/calculate.tool.yaml
+
+    # Self-play configuration
+  self_play:
+    enabled: true
+    personas:
+      - file: personas/curious-learner.persona.yaml
+    roles:
+      - id: gemini-user
+        provider: openai-mini
+
+  defaults:
+    temperature: 0.5
+    max_tokens: 1000
+    seed: 42
+    concurrency: 3
+    output:
+      dir: out
+      formats: ["json", "html"]
+      html:
+        file: report.html

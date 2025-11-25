@@ -1,0 +1,40 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: image-analysis
+spec:
+  id: "image-analysis"
+  task_type: image-analysis
+  description: "Test image analysis with a single image"
+
+  turns:
+    - role: user
+      content: "What do you see in this image?"
+      # Note: Real multimodal would pass actual images
+      # These assertions work with text-based responses from vision models
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "image"
+              # Removed "see" - models may use "visible", "shows", "depicts" etc.
+        - type: min_length
+          params:
+            min_characters: 100
+        - type: max_length
+          params:
+            max_characters: 5000  # Allow for thorough, detailed analysis
+
+    - role: user
+      content: "Can you describe the colors and composition?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "color"
+        - type: min_length
+          params:
+            min_characters: 50
+        - type: max_length
+          params:
+            max_characters: 3000

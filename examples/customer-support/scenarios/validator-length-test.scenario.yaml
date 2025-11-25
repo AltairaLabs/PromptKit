@@ -1,0 +1,21 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: validator-length-test
+spec:
+  id: validator-length-test
+  description: "Test max_length validator by requesting a long response"
+  task_type: "support"
+  
+  turns:
+    - role: user
+      content: "Please write me a very detailed, comprehensive 500-word essay explaining all the features of your customer support system, including every tool you have access to, how each one works, what parameters they accept, when to use them, examples of usage, common edge cases, troubleshooting tips, and best practices for customer support agents. Make it extremely detailed and thorough."
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?s).{1,100}"
+            message: "Response should be truncated by max_length validator and be relatively short"
+        - type: content_includes
+          params:
+            patterns: ["support system", "features"]
+            message: "Should start responding to the request before being truncated"

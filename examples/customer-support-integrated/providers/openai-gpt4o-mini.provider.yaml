@@ -1,0 +1,15 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: openai-gpt-4o-mini
+spec:
+  id: openai-gpt-4o-mini
+  type: openai
+  model: gpt-4o-mini
+  pricing:
+    input_cost_per_1k: 0.00015
+    output_cost_per_1k: 0.0006
+  defaults:
+    temperature: 0.7
+    max_tokens: 1500
+    top_p: 1.0

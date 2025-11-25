@@ -1,0 +1,32 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: guardrails-test
+spec:
+  # Prompt configurations
+  prompt_configs:
+    - id: content-filter
+      file: prompts/content-filter.yaml
+
+  # Provider configurations
+  providers:
+    - file: providers/openai.provider.yaml
+
+  # Test scenarios
+  scenarios:
+    - file: scenarios/guardrail-should-trigger.scenario.yaml
+    - file: scenarios/guardrail-should-not-trigger.scenario.yaml
+    - file: scenarios/multiple-violations.scenario.yaml
+    - file: scenarios/streaming-length-trigger.scenario.yaml
+
+  # Default configuration
+  defaults:
+    temperature: 0.7
+    max_tokens: 150
+    seed: 42
+    output:
+      dir: out
+      formats: ["json", "html"]
+      html:
+        file: report.html
+

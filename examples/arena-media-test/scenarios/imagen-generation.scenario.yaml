@@ -1,0 +1,44 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: imagen-generation
+  annotations:
+    description: 'Tests Google Imagen 4.0 image generation with PNG format validation.
+      Imagen only generates PNG format images.
+
+      '
+spec:
+  id: imagen-generation
+  task_type: media-analysis
+  turns:
+  - role: user
+    parts:
+    - type: text
+      text: Generate an image of a sunset over mountains
+    assertions:
+    - type: content_includes
+      params:
+        patterns:
+        - image
+        - Generated
+    - type: image_format
+      params:
+        formats:
+        - png
+  - role: user
+    parts:
+    - type: text
+      text: Generate an image of a peaceful lake
+    assertions:
+    - type: image_format
+      params:
+        formats:
+        - png
+    - type: content_includes
+      params:
+        patterns:
+        - image
+  description: 'Tests Google Imagen 4.0 image generation with PNG format validation.
+    Imagen only generates PNG format images.
+
+    '

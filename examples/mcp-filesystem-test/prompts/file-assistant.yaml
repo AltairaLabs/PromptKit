@@ -6,6 +6,8 @@ metadata:
 
 spec:
   task_type: file-assistant
+  version: "v1.0.0"
+  description: "AI assistant with filesystem access capabilities"
   system_template: |
     You are a helpful AI assistant with filesystem access capabilities.
     

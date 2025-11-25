@@ -60,6 +60,9 @@ jobs:
     - name: Install dependencies
       run: make install
     
+    - name: Generate schemas for tests
+      run: make schemas-copy
+    
     - name: Install gotestsum
       run: go install gotest.tools/gotestsum@latest
     
@@ -74,10 +77,11 @@ jobs:
         gotestsum --junitfile test-results/coverage-pkg.xml --format testname -- -race -coverprofile=pkg/pkg-coverage.out ./pkg/...
         gotestsum --junitfile test-results/coverage-packc.xml --format testname -- -race -coverprofile=tools/packc/packc-coverage.out ./tools/packc/...
         gotestsum --junitfile test-results/coverage-inspect-state.xml --format testname -- -race -coverprofile=tools/inspect-state/inspect-state-coverage.out ./tools/inspect-state/...
+        gotestsum --junitfile test-results/coverage-schema-gen.xml --format testname -- -race -coverprofile=tools/schema-gen/schema-gen-coverage.out ./tools/schema-gen/...
         
         # Merge coverage files
         echo "mode: set" > coverage.out
-        grep -h -v "^mode:" runtime/runtime-coverage.out sdk/sdk-coverage.out tools/arena/arena-coverage.out pkg/pkg-coverage.out tools/packc/packc-coverage.out tools/inspect-state/inspect-state-coverage.out >> coverage.out 2>/dev/null || true
+        grep -h -v "^mode:" runtime/runtime-coverage.out sdk/sdk-coverage.out tools/arena/arena-coverage.out pkg/pkg-coverage.out tools/packc/packc-coverage.out tools/inspect-state/inspect-state-coverage.out tools/schema-gen/schema-gen-coverage.out >> coverage.out 2>/dev/null || true
         echo "Coverage report generated: coverage.out"
     
     - name: Publish Test Results  
@@ -101,6 +105,7 @@ jobs:
           pkg/pkg-coverage.out
           tools/packc/packc-coverage.out
           tools/inspect-state/inspect-state-coverage.out
+          tools/schema-gen/schema-gen-coverage.out
         retention-days: 5
   
   sonarcloud:
@@ -119,37 +124,6 @@ jobs:
       with:
         name: coverage-report
     
-    - name: Download lint reports
-      uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
-      with:
-        path: lint-reports
-        pattern: golangci-lint-report-*
-        merge-multiple: true
-    
-    - name: Combine lint reports
-      if: always()
-      run: |
-        echo "Combining golangci-lint reports for SonarCloud..."
-        mkdir -p lint-reports
-        # Create a combined JSON report with all issues
-        echo '{"Issues":[' > golangci-lint-report.json
-        FIRST=true
-        for report in lint-reports/golangci-lint-report-*.json; do
-          if [ -f "$report" ]; then
-            echo "Processing $report"
-            if [ "$FIRST" = true ]; then
-              FIRST=false
-              jq -r '.Issues[]' "$report" >> golangci-lint-report.json || echo "[]"
-            else
-              echo "," >> golangci-lint-report.json
-              jq -r '.Issues[]' "$report" >> golangci-lint-report.json || echo "[]"
-            fi
-          fi
-        done
-        echo ']}' >> golangci-lint-report.json
-        echo "Combined lint report created"
-        cat golangci-lint-report.json
-    
     - name: Verify coverage file
       run: |
         echo "Checking for coverage files..."
@@ -157,8 +131,6 @@ jobs:
         ls -la coverage.out 2>/dev/null || echo "coverage.out not found"
         echo "Coverage file size:"
         wc -l coverage.out 2>/dev/null || echo "Cannot read coverage.out"
-        echo "Lint report:"
-        ls -la golangci-lint-report.json 2>/dev/null || echo "golangci-lint-report.json not found"
     
     - name: SonarCloud Scan
       uses: SonarSource/sonarqube-scan-action@0303d6b62e310685c0e34d0b9cde218036885c4d # v5.0.0
@@ -204,14 +176,6 @@ jobs:
         only-new-issues: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    
-    - name: Upload lint report
-      if: always()
-      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
-      with:
-        name: golangci-lint-report-${{ strategy.job-index }}
-        path: ${{ matrix.module }}/golangci-lint-report-${{ strategy.job-index }}.json
-        retention-days: 5
   
   build:
     name: Build
@@ -248,7 +212,7 @@ jobs:
     - name: Test customer-support example
       run: |
         cd examples/customer-support
-        ../../bin/promptarena run \
+        ../../bin/promptarena run --config config.arena.yaml \
           --mock-provider \
           --mock-config mock-responses.yaml \
           --scenario customer-support-scenarios \
@@ -257,7 +221,7 @@ jobs:
     - name: Test multimodal-basics example
       run: |
         cd examples/multimodal-basics
-        ../../bin/promptarena run \
+        ../../bin/promptarena run --config config.arena.yaml \
           --mock-provider \
           --mock-config mock-responses.yaml \
           --formats json,junit,html,markdown
@@ -265,7 +229,7 @@ jobs:
     - name: Test variables-demo example
       run: |
         cd examples/variables-demo
-        ../../bin/promptarena run \
+        ../../bin/promptarena run --config config.arena.yaml \
           --mock-provider \
           --mock-config mock-config.yaml \
           --formats json,junit,html,markdown

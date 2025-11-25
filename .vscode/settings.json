@@ -19,5 +19,34 @@
         "**/vendor/**",
         "**/bin/**"
     ],
-    "sonarlint.testFilePattern": "**/*_test.go"
+    "sonarlint.testFilePattern": "**/*_test.go",
+    "yaml.schemas": {
+        "https://promptkit.altairalabs.ai/schemas/latest/arena.json": [
+            "examples/**/config.arena.yaml",
+            "examples/**/*.arena.yaml",
+            "examples/**/arena.yaml"
+        ],
+        "https://promptkit.altairalabs.ai/schemas/latest/scenario.json": [
+            "examples/**/*.scenario.yaml",
+            "examples/**/scenarios/*.yaml"
+        ],
+        "https://promptkit.altairalabs.ai/schemas/latest/provider.json": [
+            "examples/**/*.provider.yaml",
+            "examples/**/providers/*.yaml"
+        ],
+        "https://promptkit.altairalabs.ai/schemas/latest/promptconfig.json": [
+            "examples/**/*.prompt.yaml",
+            "examples/**/prompts/*.yaml"
+        ],
+        "https://promptkit.altairalabs.ai/schemas/latest/tool.json": [
+            "examples/**/*.tool.yaml",
+            "examples/**/tools/*.yaml"
+        ],
+        "https://promptkit.altairalabs.ai/schemas/latest/persona.json": [
+            "examples/**/*.persona.yaml",
+            "examples/**/personas/*.yaml"
+        ]
+    },
+    "yaml.schemaStore.enable": true,
+    "yaml.validate": true
 }

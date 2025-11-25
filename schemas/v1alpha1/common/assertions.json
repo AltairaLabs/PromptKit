@@ -1,0 +1,6 @@
+{
+  "$id": "https://promptkit.altairalabs.ai/schemas/v1alpha1/common/assertions.json",
+  "type": "object",
+  "title": "PromptArena Assertions",
+  "description": "Assertion types for PromptArena scenarios"
+}

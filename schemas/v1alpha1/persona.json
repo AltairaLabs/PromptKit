@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "$id": "https://promptkit.altairalabs.ai/schemas/v1alpha1/persona.json",
+  "$defs": {
+    "FragmentRef": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "required"
+      ]
+    },
+    "ObjectMeta": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "Name",
+          "description": "Name of the resource"
+        },
+        "namespace": {
+          "type": "string",
+          "title": "Namespace",
+          "description": "Namespace for the resource"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Labels",
+          "description": "Key-value pairs for organizing resources"
+        },
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Annotations",
+          "description": "Additional metadata"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "PersonaDefaults": {
+      "properties": {
+        "temperature": {
+          "type": "number"
+        },
+        "seed": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "temperature",
+        "seed"
+      ]
+    },
+    "PersonaStyle": {
+      "properties": {
+        "verbosity": {
+          "type": "string"
+        },
+        "challenge_level": {
+          "type": "string"
+        },
+        "friction_tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "verbosity",
+        "challenge_level",
+        "friction_tags"
+      ]
+    },
+    "UserPersonaPack": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "prompt_activity": {
+          "type": "string"
+        },
+        "fragments": {
+          "items": {
+            "$ref": "#/$defs/FragmentRef"
+          },
+          "type": "array"
+        },
+        "system_template": {
+          "type": "string"
+        },
+        "required_vars": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "optional_vars": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "system_prompt": {
+          "type": "string"
+        },
+        "goals": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "constraints": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "style": {
+          "$ref": "#/$defs/PersonaStyle"
+        },
+        "defaults": {
+          "$ref": "#/$defs/PersonaDefaults"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "description",
+        "goals",
+        "constraints",
+        "style",
+        "defaults"
+      ]
+    }
+  },
+  "properties": {
+    "apiVersion": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/ObjectMeta"
+    },
+    "spec": {
+      "$ref": "#/$defs/UserPersonaPack"
+    },
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "description": "JSON Schema reference URL"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "apiVersion",
+    "kind",
+    "spec"
+  ],
+  "title": "PromptKit Persona Configuration",
+  "description": "User persona configuration for self-play scenarios",
+  "examples": [
+    {
+      "apiVersion": "promptkit.altairalabs.ai/v1alpha1",
+      "kind": "Persona",
+      "metadata": {
+        "name": "customer-persona"
+      },
+      "spec": {
+        "id": "customer",
+        "provider": "gpt4"
+      }
+    }
+  ]
+}

@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "$id": "https://promptkit.altairalabs.ai/schemas/v1alpha1/tool.json",
+  "$defs": {
+    "HTTPConfig": {
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "headers_from_env": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "timeout_ms": {
+          "type": "integer"
+        },
+        "redact": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "url",
+        "method",
+        "timeout_ms"
+      ]
+    },
+    "ObjectMeta": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "Name",
+          "description": "Name of the resource"
+        },
+        "namespace": {
+          "type": "string",
+          "title": "Namespace",
+          "description": "Namespace for the resource"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Labels",
+          "description": "Key-value pairs for organizing resources"
+        },
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Annotations",
+          "description": "Additional metadata"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ToolSpec": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "input_schema": true,
+        "output_schema": true,
+        "mode": {
+          "type": "string"
+        },
+        "timeout_ms": {
+          "type": "integer"
+        },
+        "mock_result": true,
+        "mock_template": {
+          "type": "string"
+        },
+        "http": {
+          "$ref": "#/$defs/HTTPConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "description",
+        "input_schema",
+        "output_schema",
+        "mode",
+        "timeout_ms"
+      ]
+    }
+  },
+  "properties": {
+    "apiVersion": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/ObjectMeta"
+    },
+    "spec": {
+      "$ref": "#/$defs/ToolSpec"
+    },
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "description": "JSON Schema reference URL"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "apiVersion",
+    "kind",
+    "spec"
+  ],
+  "title": "PromptKit Tool Configuration",
+  "description": "Tool/function configuration for PromptKit",
+  "examples": [
+    {
+      "apiVersion": "promptkit.altairalabs.ai/v1alpha1",
+      "kind": "Tool",
+      "metadata": {
+        "name": "weather-tool"
+      },
+      "spec": {
+        "description": "Get current weather",
+        "mode": "mock",
+        "name": "get_weather"
+      }
+    }
+  ]
+}

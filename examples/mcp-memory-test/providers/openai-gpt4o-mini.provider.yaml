@@ -1,0 +1,18 @@
+apiVersion: promptkit.dev/v1
+kind: Provider
+metadata:
+  name: OpenAI GPT-4o Mini
+spec:
+  type: openai
+  model: gpt-4o-mini
+  base_url: https://api.openai.com/v1
+  include_raw_output: true
+  defaults:
+    temperature: 0.7
+    top_p: 1.0
+    max_tokens: 1000
+  pricing:
+    input_cost_per_1k: 0.00015
+    output_cost_per_1k: 0.0006
+  pricing_correct_at: '2024-07-18'
+  id: openai-gpt4o-mini

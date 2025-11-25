@@ -1,0 +1,85 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+
+metadata:
+  name: error-recovery
+
+spec:
+  id: "error-recovery"
+  task_type: file-assistant
+  description: Test error handling and recovery when tools fail
+  
+  turns:
+    # Turn 1-2: Try to read a non-existent file, then handle the error
+    - role: user
+      content: "Read the contents of the file 'nonexistent.txt' from the test_workspace directory."
+      assertions:
+        - type: tools_called
+          params:
+            tools: ["read_file"]
+            message: "Should attempt to use read_file tool"
+        - type: content_matches
+          params:
+            pattern: "(?i)(file.*not.*found|does.*not.*exist|cannot.*read|error.*reading)"
+            message: "Should report that file doesn't exist or cannot be read"
+    - role: user
+      content: "That file doesn't exist. Create it instead in the test_workspace directory with the content: 'This file was created after an error.'"
+      assertions:
+        - type: tools_called
+          params:
+            tools: ["write_file"]
+            message: "Should use write_file tool to create the file"
+        - type: content_includes
+          params:
+            patterns: ["created", "nonexistent.txt", "successfully"]
+            message: "Should confirm successful file creation after handling the error"
+
+    # Turn 3-4: Try to access outside allowed directory, then fix it
+    - role: user
+      content: "List the files in the directory '/etc' (this should fail due to permissions)."
+      assertions:
+        - type: tools_called
+          params:
+            tools: ["list_directory"]
+            message: "Should attempt to use list_directory tool"
+        - type: content_matches
+          params:
+            pattern: "(?i)(permission.*denied|access.*denied|cannot.*access|not.*allowed|error)"
+            message: "Should report permission error or access denial"
+    - role: user
+      content: "That didn't work. List the files in the test_workspace directory instead."
+      assertions:
+        - type: tools_called
+          params:
+            tools: ["list_directory"]
+            message: "Should use list_directory tool on allowed directory"
+        - type: content_includes
+          params:
+            patterns: ["test_workspace", "files"]
+            message: "Should successfully list files in the allowed directory"
+
+    # Turn 5-6: Try invalid operation, then do it correctly
+    - role: user
+      content: "Move the file 'nonexistent.txt' to 'moved.txt' in the test_workspace directory - wait, that file doesn't exist anymore since we just created it with a different name."
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(confusion|clarify|which.*file|created.*nonexistent)"
+            message: "Should acknowledge the confusion about file names and operations"
+    - role: user
+      content: "List all files in the test_workspace directory to see what's actually there."
+      assertions:
+        - type: tools_called
+          params:
+            tools: ["list_directory"]
+            message: "Should use list_directory tool to show current state"
+        - type: content_includes
+          params:
+            patterns: ["nonexistent.txt", "test_workspace"]
+            message: "Should show the file that was created in the current directory"
+  
+  # Require tool usage for filesystem operations
+  tool_policy:
+    tool_choice: required
+    max_tool_calls_per_turn: 5
+    max_total_tool_calls: 20

@@ -45,11 +45,3 @@ spec:
     - type: max_sentences
       params:
         max_sentences: 8
-
-  voice_profile:
-    tone: professional
-    characteristics:
-      - helpful
-      - empathetic
-      - clear
-      - patient

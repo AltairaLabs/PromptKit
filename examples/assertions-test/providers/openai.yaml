@@ -1,8 +1,0 @@
-
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Provider
-metadata:
-  name: openai-mini
-spec:
-  type: openai
-  model: gpt-4o-mini

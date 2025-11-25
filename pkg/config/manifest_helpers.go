@@ -33,3 +33,37 @@ func (c *ProviderConfig) GetName() string {
 func (c *ProviderConfig) SetID(id string) {
 	c.Spec.ID = id
 }
+
+// K8s manifest interface implementation for ScenarioConfigK8s
+func (c *ScenarioConfigK8s) GetAPIVersion() string {
+	return c.APIVersion
+}
+
+func (c *ScenarioConfigK8s) GetKind() string {
+	return c.Kind
+}
+
+func (c *ScenarioConfigK8s) GetName() string {
+	return c.Metadata.Name
+}
+
+func (c *ScenarioConfigK8s) SetID(id string) {
+	c.Spec.ID = id
+}
+
+// K8s manifest interface implementation for ProviderConfigK8s
+func (c *ProviderConfigK8s) GetAPIVersion() string {
+	return c.APIVersion
+}
+
+func (c *ProviderConfigK8s) GetKind() string {
+	return c.Kind
+}
+
+func (c *ProviderConfigK8s) GetName() string {
+	return c.Metadata.Name
+}
+
+func (c *ProviderConfigK8s) SetID(id string) {
+	c.Spec.ID = id
+}

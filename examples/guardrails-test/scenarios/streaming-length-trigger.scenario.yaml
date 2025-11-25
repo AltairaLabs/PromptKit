@@ -1,0 +1,24 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: streaming-length-trigger
+  annotations:
+    description: Test that length validator triggers during streaming and terminates
+      the stream
+spec:
+  id: streaming-length-trigger
+  task_type: assistant
+  streaming: true
+  turns:
+  - role: user
+    content: Write a detailed essay about the history of computing. Include multiple
+      paragraphs with lots of details.
+    assertions:
+    - type: guardrail_triggered
+      params:
+        validator: length
+        should_trigger: true
+      message: Expected length validator to trigger and terminate stream when response
+        exceeds 100 characters
+  description: Test that length validator triggers during streaming and terminates
+    the stream

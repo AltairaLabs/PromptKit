@@ -1,0 +1,571 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "$id": "https://promptkit.altairalabs.ai/schemas/v1alpha1/promptconfig.json",
+  "$defs": {
+    "AudioConfig": {
+      "properties": {
+        "max_size_mb": {
+          "type": "integer"
+        },
+        "allowed_formats": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "max_duration_sec": {
+          "type": "integer"
+        },
+        "require_metadata": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ChangelogEntry": {
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string"
+        },
+        "author": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "version",
+        "date",
+        "description"
+      ]
+    },
+    "CompilationInfo": {
+      "properties": {
+        "compiled_with": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "schema": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "compiled_with",
+        "created_at"
+      ]
+    },
+    "CostEstimate": {
+      "properties": {
+        "min_cost_usd": {
+          "type": "number"
+        },
+        "max_cost_usd": {
+          "type": "number"
+        },
+        "avg_cost_usd": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "min_cost_usd",
+        "max_cost_usd",
+        "avg_cost_usd"
+      ]
+    },
+    "ExampleContentPart": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "media": {
+          "$ref": "#/$defs/ExampleMedia"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
+    "ExampleMedia": {
+      "properties": {
+        "file_path": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "mime_type": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "caption": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "mime_type"
+      ]
+    },
+    "FragmentRef": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "required"
+      ]
+    },
+    "ImageConfig": {
+      "properties": {
+        "max_size_mb": {
+          "type": "integer"
+        },
+        "allowed_formats": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "default_detail": {
+          "type": "string"
+        },
+        "require_caption": {
+          "type": "boolean"
+        },
+        "max_images_per_msg": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "MediaConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "supported_types": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "image": {
+          "$ref": "#/$defs/ImageConfig"
+        },
+        "audio": {
+          "$ref": "#/$defs/AudioConfig"
+        },
+        "video": {
+          "$ref": "#/$defs/VideoConfig"
+        },
+        "examples": {
+          "items": {
+            "$ref": "#/$defs/MultimodalExample"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "enabled"
+      ]
+    },
+    "ModelOverride": {
+      "properties": {
+        "system_template": {
+          "type": "string"
+        },
+        "system_template_suffix": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ModelTestResultRef": {
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string"
+        },
+        "success_rate": {
+          "type": "number"
+        },
+        "avg_tokens": {
+          "type": "integer"
+        },
+        "avg_cost": {
+          "type": "number"
+        },
+        "avg_latency_ms": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "provider",
+        "model",
+        "date",
+        "success_rate"
+      ]
+    },
+    "MultimodalExample": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "parts": {
+          "items": {
+            "$ref": "#/$defs/ExampleContentPart"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "role",
+        "parts"
+      ]
+    },
+    "ObjectMeta": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "Name",
+          "description": "Name of the resource"
+        },
+        "namespace": {
+          "type": "string",
+          "title": "Namespace",
+          "description": "Namespace for the resource"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Labels",
+          "description": "Key-value pairs for organizing resources"
+        },
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Annotations",
+          "description": "Additional metadata"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "PerformanceMetrics": {
+      "properties": {
+        "avg_latency_ms": {
+          "type": "integer"
+        },
+        "p95_latency_ms": {
+          "type": "integer"
+        },
+        "avg_tokens": {
+          "type": "integer"
+        },
+        "success_rate": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "avg_latency_ms",
+        "p95_latency_ms",
+        "avg_tokens",
+        "success_rate"
+      ]
+    },
+    "PromptMetadata": {
+      "properties": {
+        "domain": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "cost_estimate": {
+          "$ref": "#/$defs/CostEstimate"
+        },
+        "performance": {
+          "$ref": "#/$defs/PerformanceMetrics"
+        },
+        "changelog": {
+          "items": {
+            "$ref": "#/$defs/ChangelogEntry"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "PromptSpec": {
+      "properties": {
+        "task_type": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "template_engine": {
+          "$ref": "#/$defs/TemplateEngineInfo"
+        },
+        "fragments": {
+          "items": {
+            "$ref": "#/$defs/FragmentRef"
+          },
+          "type": "array"
+        },
+        "system_template": {
+          "type": "string"
+        },
+        "variables": {
+          "items": {
+            "$ref": "#/$defs/VariableMetadata"
+          },
+          "type": "array"
+        },
+        "model_overrides": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ModelOverride"
+          },
+          "type": "object"
+        },
+        "allowed_tools": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "media": {
+          "$ref": "#/$defs/MediaConfig"
+        },
+        "validators": {
+          "items": {
+            "$ref": "#/$defs/ValidatorConfig"
+          },
+          "type": "array"
+        },
+        "tested_models": {
+          "items": {
+            "$ref": "#/$defs/ModelTestResultRef"
+          },
+          "type": "array"
+        },
+        "metadata": {
+          "$ref": "#/$defs/PromptMetadata"
+        },
+        "compilation": {
+          "$ref": "#/$defs/CompilationInfo"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "task_type",
+        "version",
+        "description",
+        "system_template"
+      ]
+    },
+    "TemplateEngineInfo": {
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "syntax": {
+          "type": "string"
+        },
+        "features": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "version",
+        "syntax"
+      ]
+    },
+    "ValidatorConfig": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "fail_on_violation": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "params"
+      ]
+    },
+    "VariableMetadata": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "default": true,
+        "description": {
+          "type": "string"
+        },
+        "example": true,
+        "validation": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "required"
+      ]
+    },
+    "VideoConfig": {
+      "properties": {
+        "max_size_mb": {
+          "type": "integer"
+        },
+        "allowed_formats": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "max_duration_sec": {
+          "type": "integer"
+        },
+        "require_metadata": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    }
+  },
+  "properties": {
+    "apiVersion": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/ObjectMeta"
+    },
+    "spec": {
+      "$ref": "#/$defs/PromptSpec"
+    },
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "description": "JSON Schema reference URL"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "apiVersion",
+    "kind",
+    "spec"
+  ],
+  "title": "PromptKit Prompt Configuration",
+  "description": "Prompt configuration for PromptKit",
+  "examples": [
+    {
+      "apiVersion": "promptkit.altairalabs.ai/v1alpha1",
+      "kind": "PromptConfig",
+      "metadata": {
+        "name": "customer-support"
+      },
+      "spec": {
+        "description": "Customer support assistant",
+        "system_template": "You are a helpful customer support assistant.",
+        "task_type": "support",
+        "version": "1.0.0"
+      }
+    }
+  ]
+}

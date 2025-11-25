@@ -1,17 +1,17 @@
 package policy_test
 
 import (
-"context"
-"encoding/json"
-"os"
-"path/filepath"
-"testing"
-"time"
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
 
-"github.com/AltairaLabs/PromptKit/runtime/storage"
-"github.com/AltairaLabs/PromptKit/runtime/storage/policy"
-"github.com/stretchr/testify/assert"
-"github.com/stretchr/testify/require"
+	"github.com/AltairaLabs/PromptKit/runtime/storage"
+	"github.com/AltairaLabs/PromptKit/runtime/storage/policy"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewTimeBasedPolicyHandler(t *testing.T) {
@@ -23,23 +23,23 @@ func TestTimeBasedPolicyHandler_RegisterPolicy(t *testing.T) {
 	handler := policy.NewTimeBasedPolicyHandler(1 * time.Minute)
 
 	t.Run("registers valid policy", func(t *testing.T) {
-p := policy.PolicyConfig{
-Name:        "delete-after-5min",
-Description: "Delete after 5 minutes",
-}
+		p := policy.PolicyConfig{
+			Name:        "delete-after-5min",
+			Description: "Delete after 5 minutes",
+		}
 
-err := handler.RegisterPolicy(p)
-assert.NoError(t, err)
-})
+		err := handler.RegisterPolicy(p)
+		assert.NoError(t, err)
+	})
 
 	t.Run("rejects invalid policy", func(t *testing.T) {
-p := policy.PolicyConfig{
-Name: "invalid-format",
-}
+		p := policy.PolicyConfig{
+			Name: "invalid-format",
+		}
 
-err := handler.RegisterPolicy(p)
-assert.Error(t, err)
-})
+		err := handler.RegisterPolicy(p)
+		assert.Error(t, err)
+	})
 }
 
 func TestTimeBasedPolicyHandler_ApplyPolicy(t *testing.T) {
@@ -47,7 +47,7 @@ func TestTimeBasedPolicyHandler_ApplyPolicy(t *testing.T) {
 	handler := policy.NewTimeBasedPolicyHandler(1 * time.Minute)
 
 	t.Run("applies valid policy", func(t *testing.T) {
-now := time.Now()
+		now := time.Now()
 		metadata := &storage.MediaMetadata{
 			PolicyName: "delete-after-5min",
 			Timestamp:  now,
@@ -59,7 +59,7 @@ now := time.Now()
 	})
 
 	t.Run("handles empty policy name", func(t *testing.T) {
-metadata := &storage.MediaMetadata{
+		metadata := &storage.MediaMetadata{
 			PolicyName: "",
 			Timestamp:  time.Now(),
 		}
@@ -69,7 +69,7 @@ metadata := &storage.MediaMetadata{
 	})
 
 	t.Run("fails on invalid policy name", func(t *testing.T) {
-metadata := &storage.MediaMetadata{
+		metadata := &storage.MediaMetadata{
 			PolicyName: "invalid-format",
 			Timestamp:  time.Now(),
 		}
@@ -84,7 +84,7 @@ func TestTimeBasedPolicyHandler_EnforcePolicy(t *testing.T) {
 	handler := policy.NewTimeBasedPolicyHandler(1 * time.Minute)
 
 	t.Run("deletes expired media", func(t *testing.T) {
-tempDir := t.TempDir()
+		tempDir := t.TempDir()
 
 		// Create a media file and .meta file with expired policy
 		mediaPath := filepath.Join(tempDir, "expired.jpg")
@@ -114,7 +114,7 @@ tempDir := t.TempDir()
 	})
 
 	t.Run("keeps non-expired media", func(t *testing.T) {
-tempDir := t.TempDir()
+		tempDir := t.TempDir()
 
 		// Create a media file and .meta file with non-expired policy
 		mediaPath := filepath.Join(tempDir, "active.jpg")
@@ -144,7 +144,7 @@ tempDir := t.TempDir()
 	})
 
 	t.Run("handles missing media file gracefully", func(t *testing.T) {
-tempDir := t.TempDir()
+		tempDir := t.TempDir()
 
 		// Create only .meta file (media file missing)
 		metadata := storage.MediaMetadata{
@@ -168,7 +168,7 @@ tempDir := t.TempDir()
 	})
 
 	t.Run("handles corrupt .meta file", func(t *testing.T) {
-tempDir := t.TempDir()
+		tempDir := t.TempDir()
 
 		// Create corrupt .meta file
 		metaPath := filepath.Join(tempDir, "corrupt.jpg.meta")

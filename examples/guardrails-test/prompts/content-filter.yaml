@@ -4,6 +4,7 @@ metadata:
   name: content-filter
 spec:
   task_type: "assistant"
+  version: "v1.0.0"
   description: "Content filter test prompt for guardrail assertion testing"
 
   system_template: |

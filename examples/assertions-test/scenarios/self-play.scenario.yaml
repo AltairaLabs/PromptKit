@@ -1,0 +1,29 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: self-play
+spec:
+  id: "self-play"
+  task_type: assistant
+  description: "Self-play conversation with content assertions on every turn"
+
+  turns:
+    # Turn 1: Initial prompt from human
+    - role: user
+      content: "Let's discuss the benefits of renewable energy. Start by mentioning solar power."
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "power"
+              - "solar"
+
+    # Turn 2-3: Self-play continues the conversation (2 conversational turns)
+    - role: gemini-user
+      persona: curious-learner
+      turns: 2
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)solar"
+            message: "Should mention solar in the follow-up turns."

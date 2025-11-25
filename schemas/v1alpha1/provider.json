@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "$id": "https://promptkit.altairalabs.ai/schemas/v1alpha1/provider.json",
+  "$defs": {
+    "ObjectMeta": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "Name",
+          "description": "Name of the resource"
+        },
+        "namespace": {
+          "type": "string",
+          "title": "Namespace",
+          "description": "Namespace for the resource"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Labels",
+          "description": "Key-value pairs for organizing resources"
+        },
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Annotations",
+          "description": "Additional metadata"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Pricing": {
+      "properties": {
+        "input_cost_per_1k": {
+          "type": "number"
+        },
+        "output_cost_per_1k": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "input_cost_per_1k",
+        "output_cost_per_1k"
+      ]
+    },
+    "Provider": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "base_url": {
+          "type": "string"
+        },
+        "rate_limit": {
+          "$ref": "#/$defs/RateLimit"
+        },
+        "defaults": {
+          "$ref": "#/$defs/ProviderDefaults"
+        },
+        "pricing": {
+          "$ref": "#/$defs/Pricing"
+        },
+        "pricing_correct_at": {
+          "type": "string"
+        },
+        "include_raw_output": {
+          "type": "boolean"
+        },
+        "additional_config": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "model"
+      ]
+    },
+    "ProviderDefaults": {
+      "properties": {
+        "temperature": {
+          "type": "number"
+        },
+        "top_p": {
+          "type": "number"
+        },
+        "max_tokens": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "temperature",
+        "top_p",
+        "max_tokens"
+      ]
+    },
+    "RateLimit": {
+      "properties": {
+        "rps": {
+          "type": "integer"
+        },
+        "burst": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "rps",
+        "burst"
+      ]
+    }
+  },
+  "properties": {
+    "apiVersion": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/ObjectMeta"
+    },
+    "spec": {
+      "$ref": "#/$defs/Provider"
+    },
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "description": "JSON Schema reference URL"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "apiVersion",
+    "kind",
+    "spec"
+  ],
+  "title": "PromptArena Provider Configuration",
+  "description": "Provider configuration for PromptArena LLM connections",
+  "examples": [
+    {
+      "apiVersion": "promptkit.altairalabs.ai/v1alpha1",
+      "kind": "Provider",
+      "metadata": {
+        "name": "openai-gpt4"
+      },
+      "spec": {
+        "defaults": {
+          "max_tokens": 2000,
+          "temperature": 0.7
+        },
+        "id": "gpt4",
+        "model": "gpt-4",
+        "type": "openai"
+      }
+    }
+  ]
+}

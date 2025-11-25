@@ -55,6 +55,11 @@ build-inspect-state: ## Build inspect-state utility
 	@cd tools/inspect-state && go build -o ../../bin/inspect-state .
 	@echo "inspect-state built successfully -> bin/inspect-state"
 
+build-schema-gen: ## Build schema-gen utility
+	@echo "Building schema-gen..."
+	@cd tools/schema-gen && go build -o ../../bin/schema-gen .
+	@echo "schema-gen built successfully -> bin/schema-gen"
+
 test: ## Run all tests
 	@echo "Testing runtime..."
 	@cd runtime && go test -v ./...
@@ -139,9 +144,12 @@ coverage: ## Generate test coverage report
 	@echo "Generating coverage for inspect-state..."
 	@cd tools/inspect-state && go test -coverprofile=inspect-state-coverage.out ./... || echo "No inspect-state test coverage"
 	@cd tools/inspect-state && go tool cover -func=inspect-state-coverage.out | grep "^total:" 2>/dev/null || echo "No inspect-state coverage data"
+	@echo "Generating coverage for schema-gen..."
+	@cd tools/schema-gen && go test -coverprofile=schema-gen-coverage.out ./... || echo "No schema-gen test coverage"
+	@cd tools/schema-gen && go tool cover -func=schema-gen-coverage.out | grep "^total:" 2>/dev/null || echo "No schema-gen coverage data"
 	@echo "Merging coverage files..."
 	@echo "mode: set" > coverage.out
-	@grep -h -v "^mode:" runtime/runtime-coverage.out sdk/sdk-coverage.out pkg/pkg-coverage.out tools/arena/arena-coverage.out tools/packc/packc-coverage.out tools/inspect-state/inspect-state-coverage.out >> coverage.out 2>/dev/null || true
+	@grep -h -v "^mode:" runtime/runtime-coverage.out sdk/sdk-coverage.out pkg/pkg-coverage.out tools/arena/arena-coverage.out tools/packc/packc-coverage.out tools/inspect-state/inspect-state-coverage.out tools/schema-gen/schema-gen-coverage.out >> coverage.out 2>/dev/null || true
 	@echo "Coverage report generated: coverage.out"
 
 lint: ## Run linters
@@ -185,6 +193,26 @@ install-tools-user: ## Install CLI tools to user PATH (~/.local/bin)
 	@echo "CLI tools installed to ~/.local/bin"
 	@echo "Make sure ~/.local/bin is in your PATH"
 
+schemas: build-schema-gen ## Generate JSON schemas (including latest refs)
+	@echo "Generating JSON schemas..."
+	@./bin/schema-gen
+
+schemas-check: build-schema-gen ## Check if schemas are up to date (for CI)
+	@echo "Checking if schemas are up to date..."
+	@./bin/schema-gen --check
+
+schemas-copy: schemas ## Copy schemas to docs/public for hosting
+	@echo "Copying schemas to docs/public/schemas..."
+	@mkdir -p docs/public/schemas
+	@cp -r schemas/* docs/public/schemas/
+	@echo "✓ Schemas copied to docs/public/schemas"
+	@echo ""
+	@echo "Schemas will be available at:"
+	@find docs/public/schemas -name "*.json" -type f | while read -r file; do \
+		rel_path=$$(echo $$file | sed 's|docs/public/schemas/||'); \
+		echo "  https://promptkit.altairalabs.ai/schemas/$$rel_path"; \
+	done
+
 clean: ## Clean build artifacts
 	@rm -rf bin/
 	@rm -f runtime/coverage.out
@@ -195,6 +223,7 @@ clean: ## Clean build artifacts
 	@rm -f tools/arena/promptarena
 	@rm -f tools/packc/packc
 	@rm -f tools/inspect-state/inspect-state
+	@rm -f tools/schema-gen/schema-gen
 	@echo "Cleaned build artifacts"
 
 # Documentation targets (Astro-based)
@@ -264,6 +293,7 @@ docs-build: ## Build complete documentation site
 	@echo "🏗️ Building documentation site..."
 	@$(MAKE) docs-api
 	@$(MAKE) docs-cli
+	@$(MAKE) schemas-copy
 	@echo "📝 Preparing example documentation..."
 	@./scripts/prepare-examples-docs.sh
 	@echo "🔨 Building Astro site..."

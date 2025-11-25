@@ -19,16 +19,43 @@ spec:
   version: v1.0.0
   description: Restaurant support prompt
   system_template: "You are a support assistant for {{restaurant_name}}, a {{cuisine_type}} restaurant."
-  required_vars:
-    - restaurant_name
-    - cuisine_type
-  optional_vars:
-    business_hours: "11 AM - 10 PM"
-    dress_code: "Smart casual"
 `
 	promptPath := filepath.Join(tmpDir, "restaurant-support.yaml")
 	if err := os.WriteFile(promptPath, []byte(promptContent), 0600); err != nil {
 		t.Fatalf("Failed to write test prompt config: %v", err)
+	}
+
+	// Create minimal test provider file
+	providerContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: test-provider
+spec:
+  id: test-provider
+  type: openai
+  model: gpt-4
+`
+	providerPath := filepath.Join(tmpDir, "test-provider.yaml")
+	if err := os.WriteFile(providerPath, []byte(providerContent), 0600); err != nil {
+		t.Fatalf("Failed to write test provider: %v", err)
+	}
+
+	// Create minimal test scenario file
+	scenarioContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: test-scenario
+spec:
+  id: test-scenario
+  task_type: test
+  description: Test scenario
+  turns:
+    - role: user
+      content: Hello
+`
+	scenarioPath := filepath.Join(tmpDir, "test-scenario.yaml")
+	if err := os.WriteFile(scenarioPath, []byte(scenarioContent), 0600); err != nil {
+		t.Fatalf("Failed to write test scenario: %v", err)
 	}
 
 	tests := []struct {
@@ -44,6 +71,12 @@ kind: Arena
 metadata:
   name: test-arena
 spec:
+  providers:
+    - file: test-provider.yaml
+  scenarios:
+    - file: test-scenario.yaml
+  defaults:
+    temperature: 0.7
   prompt_configs:
     - id: restaurant-support
       file: restaurant-support.yaml
@@ -68,6 +101,12 @@ kind: Arena
 metadata:
   name: test-arena
 spec:
+  providers:
+    - file: test-provider.yaml
+  scenarios:
+    - file: test-scenario.yaml
+  defaults:
+    temperature: 0.7
   prompt_configs:
     - id: restaurant-support
       file: restaurant-support.yaml
@@ -82,6 +121,12 @@ kind: Arena
 metadata:
   name: test-arena
 spec:
+  providers:
+    - file: test-provider.yaml
+  scenarios:
+    - file: test-scenario.yaml
+  defaults:
+    temperature: 0.7
   prompt_configs:
     - id: restaurant-support
       file: restaurant-support.yaml
@@ -151,14 +196,42 @@ spec:
   version: v1.0.0
   description: Product support prompt
   system_template: "Support for {{product_name}}"
-  required_vars:
-    - product_name
-  optional_vars:
-    support_hours: "9 AM - 5 PM"
 `
 	promptPath := filepath.Join(tmpDir, "product-support.yaml")
 	if err := os.WriteFile(promptPath, []byte(promptContent), 0600); err != nil {
 		t.Fatalf("Failed to write test prompt config: %v", err)
+	}
+
+	// Create minimal test provider and scenario files
+	providerContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: test-provider
+spec:
+  id: test-provider
+  type: openai
+  model: gpt-4
+`
+	providerPath := filepath.Join(tmpDir, "test-provider.yaml")
+	if err := os.WriteFile(providerPath, []byte(providerContent), 0600); err != nil {
+		t.Fatalf("Failed to write test provider: %v", err)
+	}
+
+	scenarioContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: test-scenario
+spec:
+  id: test-scenario
+  task_type: test
+  description: Test scenario
+  turns:
+    - role: user
+      content: Hello
+`
+	scenarioPath := filepath.Join(tmpDir, "test-scenario.yaml")
+	if err := os.WriteFile(scenarioPath, []byte(scenarioContent), 0600); err != nil {
+		t.Fatalf("Failed to write test scenario: %v", err)
 	}
 
 	arenaYAML := `apiVersion: promptkit.altairalabs.ai/v1alpha1
@@ -166,6 +239,12 @@ kind: Arena
 metadata:
   name: test-arena
 spec:
+  providers:
+    - file: test-provider.yaml
+  scenarios:
+    - file: test-scenario.yaml
+  defaults:
+    temperature: 0.7
   prompt_configs:
     - id: product-support
       file: product-support.yaml
@@ -221,8 +300,8 @@ metadata:
 spec:
   task_type: restaurant-support
   version: v1.0.0
+  description: Restaurant support prompt
   system_template: "{{restaurant_name}}"
-  required_vars: ["restaurant_name"]
 `
 	prompt1Path := filepath.Join(tmpDir, "restaurant.yaml")
 	if err := os.WriteFile(prompt1Path, []byte(prompt1Content), 0600); err != nil {
@@ -236,12 +315,44 @@ metadata:
 spec:
   task_type: product-support
   version: v1.0.0
+  description: Product support prompt
   system_template: "{{product_name}}"
-  required_vars: ["product_name"]
 `
 	prompt2Path := filepath.Join(tmpDir, "product.yaml")
 	if err := os.WriteFile(prompt2Path, []byte(prompt2Content), 0600); err != nil {
 		t.Fatalf("Failed to write prompt2: %v", err)
+	}
+
+	// Create minimal test provider and scenario files
+	providerContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: test-provider
+spec:
+  id: test-provider
+  type: openai
+  model: gpt-4
+`
+	providerPath := filepath.Join(tmpDir, "test-provider.yaml")
+	if err := os.WriteFile(providerPath, []byte(providerContent), 0600); err != nil {
+		t.Fatalf("Failed to write test provider: %v", err)
+	}
+
+	scenarioContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: test-scenario
+spec:
+  id: test-scenario
+  task_type: test
+  description: Test scenario
+  turns:
+    - role: user
+      content: Hello
+`
+	scenarioPath := filepath.Join(tmpDir, "test-scenario.yaml")
+	if err := os.WriteFile(scenarioPath, []byte(scenarioContent), 0600); err != nil {
+		t.Fatalf("Failed to write test scenario: %v", err)
 	}
 
 	arenaYAML := `apiVersion: promptkit.altairalabs.ai/v1alpha1
@@ -249,6 +360,12 @@ kind: Arena
 metadata:
   name: test-arena
 spec:
+  providers:
+    - file: test-provider.yaml
+  scenarios:
+    - file: test-scenario.yaml
+  defaults:
+    temperature: 0.7
   prompt_configs:
     - id: restaurant-support
       file: restaurant.yaml

@@ -1,0 +1,18 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: guardrail-should-not-trigger
+spec:
+  id: "guardrail-should-not-trigger"
+  task_type: assistant
+  description: "Test that clean input doesn't trigger guardrail"
+
+  turns:
+    - role: user
+      content: "Tell me about weather patterns"
+      assertions:
+        - type: guardrail_triggered
+          params:
+            validator: banned_words
+            should_trigger: false
+          message: "Expected banned_words validator not to trigger on clean input"

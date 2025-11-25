@@ -1,0 +1,60 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: restaurant-custom
+  labels:
+    category: restaurant
+    config: custom
+  annotations:
+    description: "Tests the restaurant bot with OVERRIDDEN variable values"
+spec:
+  id: "restaurant-custom"
+  task_type: restaurant-service-custom
+  description: |
+    This scenario tests the restaurant bot with CUSTOM variable values set in arena.yaml.
+    The restaurant-custom config overrides:
+    - restaurant_name: "Sushi Haven"
+    - cuisine_type: "Japanese"
+    - opening_hours: "12 PM - 11 PM, closed Mondays"
+    - dress_code: "Casual"
+
+  turns:
+    - role: user
+      content: "What's your restaurant called and what cuisine do you specialize in?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "Sushi Haven"
+              - "Japanese"
+            message: "Should mention overridden restaurant name (Sushi Haven) and cuisine (Japanese)"
+
+    - role: user
+      content: "When are you open?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "12"
+              - "11"
+              - "Monday"
+            message: "Should mention custom hours (12 PM - 11 PM, closed Mondays)"
+
+    - role: user
+      content: "What should I wear to dinner?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "casual"
+            case_sensitive: false
+            message: "Should mention overridden dress code (Casual)"
+
+    - role: user
+      content: "How do I make a reservation?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "(555) 123-4567"
+            message: "Phone number should still be the DEFAULT value (not overridden)"

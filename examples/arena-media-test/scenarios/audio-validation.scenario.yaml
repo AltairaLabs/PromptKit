@@ -1,0 +1,106 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: audio-validation
+  annotations:
+    description: 'Demonstrates audio format and duration validation using media assertions.
+      Tests audio_format and audio_duration validators on assistant responses.
+
+      '
+spec:
+  id: audio-validation
+  task_type: media-analysis
+  turns:
+  - role: user
+    parts:
+    - type: text
+      text: Generate a short audio clip of a bird chirping
+    assertions:
+    - type: content_includes
+      params:
+        patterns:
+        - audio
+    - type: audio_format
+      params:
+        formats:
+        - wav
+        - mp3
+  - role: user
+    parts:
+    - type: text
+      text: Convert that to MP3 format
+    assertions:
+    - type: audio_format
+      params:
+        formats:
+        - mp3
+        - mpeg
+  - role: user
+    parts:
+    - type: text
+      text: Create a 30-second audio clip
+    assertions:
+    - type: audio_duration
+      params:
+        min_seconds: 29
+        max_seconds: 31
+  - role: user
+    parts:
+    - type: text
+      text: Create a brief notification sound
+    assertions:
+    - type: audio_duration
+      params:
+        max_seconds: 5
+  - role: user
+    parts:
+    - type: text
+      text: Generate a 2-minute meditation soundtrack
+    assertions:
+    - type: audio_duration
+      params:
+        min_seconds: 120
+        max_seconds: 130
+  - role: user
+    parts:
+    - type: text
+      text: 'Create three audio files: WAV, MP3, and OGG formats'
+    assertions:
+    - type: audio_format
+      params:
+        formats:
+        - wav
+        - mp3
+        - ogg
+  - role: user
+    parts:
+    - type: text
+      text: Create a 10-second WAV audio sample
+    assertions:
+    - type: audio_format
+      params:
+        formats:
+        - wav
+    - type: audio_duration
+      params:
+        min_seconds: 9
+        max_seconds: 11
+  - role: user
+    parts:
+    - type: text
+      text: Generate a 5-minute podcast intro
+    assertions:
+    - type: audio_duration
+      params:
+        min_seconds: 290
+        max_seconds: 310
+    - type: audio_format
+      params:
+        formats:
+        - wav
+        - flac
+        - mp3
+  description: 'Demonstrates audio format and duration validation using media assertions.
+    Tests audio_format and audio_duration validators on assistant responses.
+
+    '

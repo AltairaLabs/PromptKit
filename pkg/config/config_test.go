@@ -18,9 +18,11 @@ metadata:
   name: test-scenario
 spec:
   id: scenario1
+  task_type: test
   description: Test scenario
   turns:
-    - user: "Hello"
+    - role: user
+      content: "Hello"
 `
 	scenarioPath := filepath.Join(tmpDir, "scenario1.yaml")
 	if err := os.WriteFile(scenarioPath, []byte(scenarioContent), 0600); err != nil {
@@ -33,16 +35,17 @@ kind: Provider
 metadata:
   name: provider1
 spec:
+  id: provider1
   type: openai
   model: gpt-4
   base_url: https://api.openai.com/v1
   defaults:
     temperature: 0.7
     top_p: 1.0
-    max_tokens: 100
+    max_tokens: 1000
   pricing:
-    input_cost_per_1k: 0.01
-    output_cost_per_1k: 0.02
+    input_cost_per_1k: 0.03
+    output_cost_per_1k: 0.06
 `
 	providerPath := filepath.Join(tmpDir, "provider1.yaml")
 	if err := os.WriteFile(providerPath, []byte(providerContent), 0600); err != nil {
@@ -137,7 +140,9 @@ kind: Scenario
 metadata:
   name: test-scenario
 spec:
+  id: test-scenario
   task_type: support
+  description: Test scenario for loading
   turns:
     - role: user
       content: "Hello"
@@ -179,6 +184,7 @@ kind: Provider
 metadata:
   name: provider1
 spec:
+  id: provider1
   type: openai
   model: gpt-4
   defaults:
@@ -307,9 +313,11 @@ metadata:
   name: test-scenario
 spec:
   id: scenario1
+  task_type: test
   description: Test scenario
   turns:
-    - user: "Hello"
+    - role: user
+      content: "Hello"
 `
 	scenarioPath := filepath.Join(tmpDir, "scenario1.yaml")
 	if err := os.WriteFile(scenarioPath, []byte(scenarioContent), 0600); err != nil {
@@ -322,16 +330,17 @@ kind: Provider
 metadata:
   name: provider1
 spec:
+  id: provider1
   type: openai
   model: gpt-4
   base_url: https://api.openai.com/v1
   defaults:
     temperature: 0.7
     top_p: 1.0
-    max_tokens: 100
+    max_tokens: 1000
   pricing:
-    input_cost_per_1k: 0.01
-    output_cost_per_1k: 0.02
+    input_cost_per_1k: 0.03
+    output_cost_per_1k: 0.06
 `
 	providerPath := filepath.Join(tmpDir, "provider1.yaml")
 	if err := os.WriteFile(providerPath, []byte(providerContent), 0600); err != nil {

@@ -8,6 +8,9 @@ bin/
 !npm/*/bin/
 dist/
 
+# Generated files
+schemas/
+
 # Test binary, built with `go test -c`
 *.test
 
@@ -69,6 +72,7 @@ docs/src/content/api/
 docs/src/content/arena/examples/
 docs/src/content/sdk/examples/
 docs/src/content/reference/*-cli.txt
+docs/public/schemas/
 
 # Jekyll backup (legacy)
 docs-jekyll-backup/

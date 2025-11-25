@@ -1,0 +1,43 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+
+metadata:
+  name: mcp-memory-test
+  annotations:
+    description: Test MCP integration with memory server
+
+spec:
+  # MCP Server Configuration
+  mcp_servers:
+    - name: memory
+      command: npx
+      args:
+        - "-y"
+        - "@modelcontextprotocol/server-memory"
+      env:
+        PATH: "Make sure node is on your path"
+ 
+  # Prompts
+  prompt_configs:
+    - id: assistant
+      file: prompts/assistant.yaml
+  
+  # Providers
+  providers:
+    - file: providers/openai-gpt4o-mini.provider.yaml
+  
+  # Scenarios
+  scenarios:
+    - file: scenarios/memory-test.scenario.yaml
+  
+  # Defaults
+  defaults:
+    temperature: 0.7
+    max_tokens: 1000
+    seed: 42
+    concurrency: 3
+    output:
+      dir: out
+      formats: ["json", "html"]
+      html:
+        file: report.html

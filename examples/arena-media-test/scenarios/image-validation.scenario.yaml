@@ -1,0 +1,98 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: image-validation
+  annotations:
+    description: 'Demonstrates image format and dimension validation using media assertions.
+      Tests image_format and image_dimensions validators on assistant responses.
+
+      '
+spec:
+  id: image-validation
+  task_type: media-analysis
+  turns:
+  - role: user
+    parts:
+    - type: text
+      text: Generate a 100x100 pixel red square PNG image
+    assertions:
+    - type: content_includes
+      params:
+        patterns:
+        - image
+    - type: image_format
+      params:
+        formats:
+        - png
+  - role: user
+    parts:
+    - type: text
+      text: Convert that to JPEG format
+    assertions:
+    - type: image_format
+      params:
+        formats:
+        - jpeg
+        - jpg
+  - role: user
+    parts:
+    - type: text
+      text: Create a 1920x1080 wallpaper image
+    assertions:
+    - type: image_dimensions
+      params:
+        width: 1920
+        height: 1080
+  - role: user
+    parts:
+    - type: text
+      text: Generate a high-resolution landscape image
+    assertions:
+    - type: image_dimensions
+      params:
+        min_width: 1920
+        min_height: 1080
+  - role: user
+    parts:
+    - type: text
+      text: Create a thumbnail version
+    assertions:
+    - type: image_dimensions
+      params:
+        min_width: 100
+        max_width: 400
+        min_height: 100
+        max_height: 400
+  - role: user
+    parts:
+    - type: text
+      text: 'Generate three images: one PNG, one JPEG, and one WebP'
+    assertions:
+    - type: image_format
+      params:
+        formats:
+        - png
+        - jpeg
+        - jpg
+        - webp
+    - type: image_dimensions
+      params:
+        min_width: 1280
+        min_height: 720
+  - role: user
+    parts:
+    - type: text
+      text: Create a WebP image in 4K resolution (3840x2160)
+    assertions:
+    - type: image_format
+      params:
+        formats:
+        - webp
+    - type: image_dimensions
+      params:
+        width: 3840
+        height: 2160
+  description: 'Demonstrates image format and dimension validation using media assertions.
+    Tests image_format and image_dimensions validators on assistant responses.
+
+    '

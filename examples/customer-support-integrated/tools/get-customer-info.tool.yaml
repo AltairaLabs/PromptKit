@@ -1,0 +1,40 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: get_customer_info
+spec:
+  description: Retrieve customer account details by email address
+  input_schema:
+    type: object
+    properties:
+      email:
+        type: string
+        description: Customer email address
+    required:
+    - email
+  output_schema:
+    type: object
+    properties:
+      customer_id:
+        type: string
+      name:
+        type: string
+      email:
+        type: string
+      account_created:
+        type: string
+      tier:
+        type: string
+        enum:
+        - basic
+        - premium
+        - enterprise
+  mode: mock
+  timeout_ms: 1000
+  mock_result:
+    customer_id: CUST-12345
+    name: John Doe
+    email: john.doe@example.com
+    account_created: '2023-01-15'
+    tier: premium
+  name: get_customer_info
