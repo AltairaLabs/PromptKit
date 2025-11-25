@@ -144,9 +144,12 @@ coverage: ## Generate test coverage report
 	@echo "Generating coverage for inspect-state..."
 	@cd tools/inspect-state && go test -coverprofile=inspect-state-coverage.out ./... || echo "No inspect-state test coverage"
 	@cd tools/inspect-state && go tool cover -func=inspect-state-coverage.out | grep "^total:" 2>/dev/null || echo "No inspect-state coverage data"
+	@echo "Generating coverage for schema-gen..."
+	@cd tools/schema-gen && go test -coverprofile=schema-gen-coverage.out ./... || echo "No schema-gen test coverage"
+	@cd tools/schema-gen && go tool cover -func=schema-gen-coverage.out | grep "^total:" 2>/dev/null || echo "No schema-gen coverage data"
 	@echo "Merging coverage files..."
 	@echo "mode: set" > coverage.out
-	@grep -h -v "^mode:" runtime/runtime-coverage.out sdk/sdk-coverage.out pkg/pkg-coverage.out tools/arena/arena-coverage.out tools/packc/packc-coverage.out tools/inspect-state/inspect-state-coverage.out >> coverage.out 2>/dev/null || true
+	@grep -h -v "^mode:" runtime/runtime-coverage.out sdk/sdk-coverage.out pkg/pkg-coverage.out tools/arena/arena-coverage.out tools/packc/packc-coverage.out tools/inspect-state/inspect-state-coverage.out tools/schema-gen/schema-gen-coverage.out >> coverage.out 2>/dev/null || true
 	@echo "Coverage report generated: coverage.out"
 
 lint: ## Run linters
