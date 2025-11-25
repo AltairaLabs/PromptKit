@@ -14,6 +14,14 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+const (
+	roleAssistant          = "assistant"
+	roleModel              = "model"
+	finishReasonMaxTokens  = "MAX_TOKENS"
+	finishReasonSafety     = "SAFETY"
+	finishReasonRecitation = "RECITATION"
+)
+
 // GetMultimodalCapabilities returns Gemini's multimodal support capabilities
 func (p *GeminiProvider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
 	// Gemini supports images, audio, and video
@@ -119,8 +127,8 @@ func convertMessageToGemini(msg types.Message) (geminiContent, error) {
 	if !msg.IsMultimodal() {
 		role := msg.Role
 		// Gemini uses "user" and "model" roles
-		if role == "assistant" {
-			role = "model"
+		if role == roleAssistant {
+			role = roleModel
 		}
 		return geminiContent{
 			Role:  role,
@@ -130,8 +138,8 @@ func convertMessageToGemini(msg types.Message) (geminiContent, error) {
 
 	// Handle multimodal messages with parts
 	role := msg.Role
-	if role == "assistant" {
-		role = "model"
+	if role == roleAssistant {
+		role = roleModel
 	}
 
 	var parts []geminiPart
@@ -325,11 +333,11 @@ func (p *GeminiProvider) parseGeminiResponse(respBody []byte) (*geminiResponse, 
 	if len(candidate.Content.Parts) == 0 {
 		// Handle different finish reasons
 		switch candidate.FinishReason {
-		case "MAX_TOKENS":
+		case finishReasonMaxTokens:
 			return nil, fmt.Errorf("max tokens limit reached")
-		case "SAFETY":
+		case finishReasonSafety:
 			return nil, fmt.Errorf("response blocked by safety filters")
-		case "RECITATION":
+		case finishReasonRecitation:
 			return nil, fmt.Errorf("response blocked due to recitation concerns")
 		default:
 			return nil, fmt.Errorf("no content parts in response (finish reason: %s)", candidate.FinishReason)

@@ -5,6 +5,14 @@ import (
 	"fmt"
 )
 
+const (
+	modeMock             = "mock"
+	modeLive             = "live"
+	modeMCP              = "mcp"
+	executorMockStatic   = "mock-static"
+	executorMockScripted = "mock-scripted"
+)
+
 // MockStaticExecutor executes tools using static mock data
 type MockStaticExecutor struct{}
 
@@ -15,12 +23,12 @@ func NewMockStaticExecutor() *MockStaticExecutor {
 
 // Name returns the executor name
 func (e *MockStaticExecutor) Name() string {
-	return "mock-static"
+	return executorMockStatic
 }
 
 // Execute executes a tool using static mock data
 func (e *MockStaticExecutor) Execute(descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
-	if descriptor.Mode != "mock" {
+	if descriptor.Mode != modeMock {
 		return nil, fmt.Errorf("static mock executor can only execute mock tools")
 	}
 
@@ -43,12 +51,12 @@ func NewMockScriptedExecutor() *MockScriptedExecutor {
 
 // Name returns the executor name
 func (e *MockScriptedExecutor) Name() string {
-	return "mock-scripted"
+	return executorMockScripted
 }
 
 // Execute executes a tool using templated mock data
 func (e *MockScriptedExecutor) Execute(descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
-	if descriptor.Mode != "mock" {
+	if descriptor.Mode != modeMock {
 		return nil, fmt.Errorf("scripted mock executor can only execute mock tools")
 	}
 

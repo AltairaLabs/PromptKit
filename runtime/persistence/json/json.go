@@ -15,6 +15,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
+const jsonExt = ".json"
+
 // Compile-time interface checks
 var (
 	_ persistence.PromptRepository = (*JSONPromptRepository)(nil)

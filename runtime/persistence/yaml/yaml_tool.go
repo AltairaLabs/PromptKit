@@ -13,6 +13,11 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
+const (
+	yamlExt = ".yaml"
+	ymlExt  = ".yml"
+)
+
 // Compile-time interface check
 var _ persistence.ToolRepository = (*YAMLToolRepository)(nil)
 
@@ -132,13 +137,11 @@ func (r *YAMLToolRepository) LoadDirectory(dirPath string) error {
 			return nil
 		}
 
-		// Only load YAML files
-		ext := strings.ToLower(filepath.Ext(path))
-		if ext != ".yaml" && ext != ".yml" {
-			return nil
-		}
-
-		// Try to load the tool
+	// Only load YAML files
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext != yamlExt && ext != ymlExt {
+		return nil
+	}		// Try to load the tool
 		if err := r.LoadToolFromFile(path); err != nil {
 			// Log error but continue processing other files
 			return nil

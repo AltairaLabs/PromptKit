@@ -26,12 +26,12 @@ func NewMCPExecutor(registry mcp.Registry) *MCPExecutor {
 
 // Name returns the executor name
 func (e *MCPExecutor) Name() string {
-	return "mcp"
+	return modeMCP
 }
 
 // Execute executes a tool using an MCP server
 func (e *MCPExecutor) Execute(descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
-	if descriptor.Mode != "mcp" {
+	if descriptor.Mode != modeMCP {
 		return nil, fmt.Errorf("MCP executor can only execute mcp tools")
 	}
 

@@ -15,6 +15,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+const roleUser = "user"
+
 // GeminiToolProvider extends GeminiProvider with tool support
 type GeminiToolProvider struct {
 	*GeminiProvider
@@ -164,7 +166,7 @@ func buildMessageParts(msg types.Message, pendingToolResults []map[string]interf
 	parts := make([]interface{}, 0)
 
 	// Add pending tool results first if this is a user message
-	if msg.Role == "user" {
+	if msg.Role == roleUser {
 		for _, tr := range pendingToolResults {
 			parts = append(parts, tr)
 		}
@@ -241,19 +243,19 @@ func (p *GeminiToolProvider) buildToolRequest(req providers.PredictionRequest, t
 			pendingToolResults = nil
 		}
 
-		parts := buildMessageParts(msg, pendingToolResults)
-		if msg.Role == "user" {
-			pendingToolResults = nil
-		}
+	parts := buildMessageParts(msg, pendingToolResults)
+	if msg.Role == roleUser {
+		pendingToolResults = nil
+	}
 
-		if len(parts) == 0 {
-			continue
-		}
+	if len(parts) == 0 {
+		continue
+	}
 
-		role := msg.Role
-		if role == "assistant" {
-			role = "model"
-		}
+	role := msg.Role
+	if role == "assistant" {
+		role = "model"
+	}
 
 		contents = append(contents, map[string]interface{}{
 			"role":  role,

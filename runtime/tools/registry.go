@@ -281,13 +281,13 @@ func (r *Registry) Execute(toolName string, args json.RawMessage) (*ToolResult, 
 	}
 
 	// Find appropriate executor
-	executorName := "mock-static"
-	if tool.Mode == "mcp" {
-		executorName = "mcp"
-	} else if tool.Mode == "live" {
+	executorName := executorMockStatic
+	if tool.Mode == modeMCP {
+		executorName = modeMCP
+	} else if tool.Mode == modeLive {
 		executorName = "http"
 	} else if tool.MockTemplate != "" {
-		executorName = "mock-scripted"
+		executorName = executorMockScripted
 	}
 
 	executor, exists := r.executors[executorName]
@@ -310,7 +310,7 @@ func (r *Registry) Execute(toolName string, args json.RawMessage) (*ToolResult, 
 
 	// Skip validation for MCP tools - MCP is a standard protocol with trusted responses
 	// MCP tool schemas often don't match actual response formats (strings vs objects)
-	if tool.Mode == "mcp" {
+	if tool.Mode == modeMCP {
 		return &ToolResult{
 			Name:      toolName,
 			Result:    result,
@@ -370,13 +370,13 @@ func (r *Registry) ExecuteAsync(toolName string, args json.RawMessage) (*ToolExe
 
 // getExecutorForTool finds the appropriate executor for a tool
 func (r *Registry) getExecutorForTool(tool *ToolDescriptor) (Executor, error) {
-	executorName := "mock-static"
-	if tool.Mode == "mcp" {
-		executorName = "mcp"
-	} else if tool.Mode == "live" {
+	executorName := executorMockStatic
+	if tool.Mode == modeMCP {
+		executorName = modeMCP
+	} else if tool.Mode == modeLive {
 		executorName = "http"
 	} else if tool.MockTemplate != "" {
-		executorName = "mock-scripted"
+		executorName = executorMockScripted
 	}
 
 	executor, exists := r.executors[executorName]
@@ -405,7 +405,7 @@ func (r *Registry) executeWithAsyncExecutor(asyncExecutor AsyncToolExecutor, too
 	}
 
 	// Skip validation for MCP tools
-	if tool.Mode == "mcp" {
+	if tool.Mode == modeMCP {
 		return result, nil
 	}
 
@@ -427,7 +427,7 @@ func (r *Registry) executeSyncFallback(executor Executor, tool *ToolDescriptor, 
 	}
 
 	// Skip validation for MCP tools
-	if tool.Mode == "mcp" {
+	if tool.Mode == modeMCP {
 		return &ToolExecutionResult{
 			Status:  ToolStatusComplete,
 			Content: result,
@@ -475,7 +475,7 @@ func (r *Registry) validateDescriptor(descriptor *ToolDescriptor) error {
 		return fmt.Errorf("output schema is required")
 	}
 
-	if descriptor.Mode != "mock" && descriptor.Mode != "live" && descriptor.Mode != "mcp" {
+	if descriptor.Mode != modeMock && descriptor.Mode != modeLive && descriptor.Mode != modeMCP {
 		return fmt.Errorf("mode must be 'mock', 'live', or 'mcp'")
 	}
 
