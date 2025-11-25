@@ -24,16 +24,19 @@ Learn the basics of PromptArena by creating and running your first LLM test.
 Choose your preferred installation method:
 
 **Option 1: Homebrew (Recommended)**
+
 ```bash
 brew install promptkit
 ```
 
 **Option 2: Go Install**
+
 ```bash
 go install github.com/AltairaLabs/PromptKit/tools/arena@latest
 ```
 
 **Verify installation:**
+
 ```bash
 promptarena --version
 ```
@@ -41,6 +44,28 @@ promptarena --version
 You should see the PromptArena version information.
 
 ## Step 2: Create Your Test Project
+
+**The Easy Way: Use the Template Generator**
+
+```bash
+# Create a complete test project in seconds
+promptarena init my-first-test --quick --provider openai
+
+# Navigate to your project
+cd my-first-test
+```
+
+That's it! The `init` command created everything you need:
+
+- ✅ Arena configuration (`arena.yaml`)
+- ✅ Prompt setup (`prompts/assistant.yaml`)
+- ✅ Provider configuration (`providers/openai.yaml`)
+- ✅ Sample test scenario (`scenarios/basic-test.yaml`)
+- ✅ Environment setup (`.env`)
+
+**The Manual Way: Create Files Step-by-Step**
+
+If you prefer to understand each component:
 
 ```bash
 # Create a new directory
@@ -53,7 +78,9 @@ mkdir -p prompts providers scenarios
 
 ## Step 3: Create a Prompt Configuration
 
-Create `prompts/greeter.yaml`:
+**If you used `promptarena init`:** You already have `prompts/assistant.yaml`. Feel free to edit it!
+
+**If creating manually:** Create `prompts/greeter.yaml`:
 
 ```yaml
 apiVersion: promptkit.altairalabs.ai/v1alpha1

@@ -1,0 +1,45 @@
+{{if eq .provider "mock"}}apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: mock
+
+spec:
+  id: mock-provider
+  provider: mock
+  config:
+    response: "This is a mock response for testing."
+    delay_ms: 100
+{{else if eq .provider "openai"}}apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: openai
+
+spec:
+  id: openai-gpt4
+  provider: openai
+  model: gpt-4o-mini
+  config:
+    api_key: ${OPENAI_API_KEY}
+{{else if eq .provider "anthropic"}}apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: anthropic
+
+spec:
+  id: anthropic-claude
+  provider: anthropic
+  model: claude-3-5-sonnet-20241022
+  config:
+    api_key: ${ANTHROPIC_API_KEY}
+{{else if eq .provider "google"}}apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: google
+
+spec:
+  id: google-gemini
+  provider: google
+  model: gemini-2.0-flash-exp
+  config:
+    api_key: ${GOOGLE_API_KEY}
+{{end}}

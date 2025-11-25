@@ -11,9 +11,24 @@ Learn how to create and structure test scenarios for LLM testing.
 
 Test scenarios define the conversation flows, expected behaviors, and validation criteria for your LLM applications. Each scenario is a YAML file in the PromptPack format.
 
-## Basic Scenario Structure
+## Quick Start with Templates
 
-Create a file `scenarios/basic-test.yaml`:
+The fastest way to create scenarios is using the project generator:
+
+```bash
+# Create a new test project with sample scenario
+promptarena init my-test --quick --provider mock
+
+# This generates scenarios/basic-test.yaml for you
+cd my-test
+cat scenarios/basic-test.yaml
+```
+
+The generated scenario includes working examples of assertions, multi-turn conversations, and best practices. Use it as a starting point and customize for your needs.
+
+## Manual Scenario Creation
+
+If you prefer to create scenarios from scratch or need custom structures, create a file `scenarios/basic-test.yaml`:
 
 ```yaml
 apiVersion: promptkit.altairalabs.ai/v1alpha1
@@ -329,7 +344,7 @@ spec:
 
 Structure your scenarios for maintainability:
 
-```
+```text
 scenarios/
 ├── customer-support/
 │   ├── basic-inquiries.yaml

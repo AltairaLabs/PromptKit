@@ -94,9 +94,36 @@ promptarena --help
 # Should display command usage and available commands
 ```
 
-## Initial Configuration
+## Create Your First Project
 
-Create a basic configuration file:
+After installation, use the project generator to get started instantly:
+
+```bash
+# Create a new test project with guided setup
+promptarena init my-llm-tests
+
+# Or use quick mode with defaults
+promptarena init my-llm-tests --quick --provider mock
+
+# Navigate to your project
+cd my-llm-tests
+
+# Run your first test
+promptarena run
+```
+
+The `init` command creates everything you need:
+
+- Arena configuration (`arena.yaml`)
+- Provider setup (`providers/`)
+- Sample test scenario (`scenarios/`)
+- Prompt configuration (`prompts/`)
+- Environment variables (`.env`)
+- README with next steps
+
+### Manual Configuration (Advanced)
+
+If you prefer to create files manually:
 
 ```bash
 # Create a test directory

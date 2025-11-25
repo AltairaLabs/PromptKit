@@ -11,9 +11,29 @@ Learn how to configure and manage LLM providers for testing.
 
 Providers define how PromptArena connects to different LLM services (OpenAI, Anthropic, Google, etc.). Each provider configuration specifies authentication, model selection, and default parameters.
 
-## Provider File Structure
+## Quick Start with Templates
 
-Create provider configurations in `providers/` directory:
+The easiest way to set up providers is using the project generator:
+
+```bash
+# Create project with OpenAI
+promptarena init my-test --quick --provider openai
+
+# Or choose during interactive setup
+promptarena init my-test
+# Select provider when prompted: openai, anthropic, google, or mock
+```
+
+This automatically creates a working provider configuration with:
+
+- Correct API version and schema
+- Recommended model defaults
+- Environment variable setup (.env file)
+- Ready-to-use configuration
+
+## Manual Provider Configuration
+
+For custom setups or advanced configurations, create provider files in `providers/` directory:
 
 ```yaml
 # providers/openai.yaml
@@ -382,5 +402,6 @@ promptarena run --concurrency 1  # Sequential execution
 ## Examples
 
 See working provider configurations in:
+
 - `examples/customer-support/providers/`
 - `examples/mcp-chatbot/providers/`

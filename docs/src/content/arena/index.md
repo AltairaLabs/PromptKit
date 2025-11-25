@@ -26,6 +26,8 @@ PromptArena is a powerful testing tool that helps you:
 
 ## Quick Start
 
+Get up and running in 60 seconds with the interactive project generator:
+
 ```bash
 # Install PromptKit (includes PromptArena)
 brew install promptkit
@@ -33,40 +35,42 @@ brew install promptkit
 # Or with Go
 go install github.com/AltairaLabs/PromptKit/tools/arena@latest
 
-# Create your first test
-cat > arena.yaml <<EOF
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Arena
-metadata:
-  name: my-first-test
+# Create a new test project instantly
+promptarena init my-test --quick
 
-spec:
-  providers:
-    - path: ./providers/openai.yaml
-  
-  scenarios:
-    - path: ./scenarios/greeting.yaml
-EOF
+# Choose your provider when prompted:
+#   • mock     - No API calls, instant testing
+#   • openai   - OpenAI GPT models
+#   • anthropic - Claude models
+#   • google   - Gemini models
 
-cat > scenarios/greeting.yaml <<EOF
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Scenario
-metadata:
-  name: basic-greeting
-
-spec:
-  turns:
-    - role: user
-      content: "Hello!"
-      assertions:
-        - type: content_not_empty
-          params:
-            message: "Should respond"
-EOF
-
-# Run the test
-./bin/promptarena run
+# Run your first test
+cd my-test
+promptarena run
 ```
+
+That's it! The `init` command creates:
+
+- ✅ Complete Arena configuration
+- ✅ Provider setup (ready to use)
+- ✅ Sample test scenario
+- ✅ Working prompt configuration
+- ✅ README with next steps
+
+### Need More Control?
+
+Use interactive mode for custom configuration:
+
+```bash
+promptarena init my-project
+# Answer prompts to customize:
+#   - Project name and description
+#   - Provider selection
+#   - System prompt customization
+#   - Test scenario setup
+```
+
+Or skip the wizard and create files manually (see below).
 
 **Next**: [Your First Arena Test Tutorial](/arena/tutorials/01-first-test/)
 

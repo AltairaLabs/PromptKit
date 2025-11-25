@@ -1,0 +1,69 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Template
+metadata:
+  name: quick-start
+  labels:
+    version: "1.0.0"
+  annotations:
+    description: "Minimal viable testing setup for rapid experimentation"
+    author: "AltairaLabs"
+    tags: "beginner,minimal,quick"
+    
+spec:
+  variables:
+    - name: project_name
+      description: "Project name"
+      type: string
+      default: "my-arena-tests"
+      required: true
+      prompt: "Project name"
+      
+    - name: provider
+      description: "LLM provider to use"
+      type: select
+      options: ["mock", "openai", "anthropic", "google"]
+      default: "mock"
+      prompt: "Which provider would you like to test"
+      
+    - name: include_env
+      description: "Create .env file for API keys"
+      type: boolean
+      default: true
+      
+  files:
+    - path: "arena.yaml"
+      template: "templates/arena.yaml.tmpl"
+      
+    - path: "prompts/assistant.yaml"
+      template: "templates/prompt.yaml.tmpl"
+      
+    - path: "providers/{{.provider}}.yaml"
+      template: "templates/provider.yaml.tmpl"
+      
+    - path: "scenarios/basic-test.yaml"
+      template: "templates/scenario.yaml.tmpl"
+      
+    - path: ".env"
+      template: "templates/env.tmpl"
+      condition: "{{.include_env}}"
+      
+    - path: ".gitignore"
+      content: |
+        .env
+        out/
+        *.log
+        
+    - path: "README.md"
+      template: "templates/readme.md.tmpl"
+      
+  examples:
+    scenarios:
+      - "Basic greeting test"
+      - "Simple Q&A"
+    providers:
+      - "mock"
+      - "openai"
+      
+  docs:
+    getting_started: "https://promptkit.altairalabs.ai/arena/tutorials/01-first-test"
+    api_reference: "https://promptkit.altairalabs.ai/arena/reference"
