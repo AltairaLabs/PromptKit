@@ -56,9 +56,9 @@ func newRegistry(repository ToolRepository) *Registry {
 
 	// Preload all tools from repository into cache if repository is provided
 	if repository != nil {
-		if toolNames, err := repository.ListTools(); err == nil {
+		if toolNames, _ := repository.ListTools(); toolNames != nil {
 			for _, name := range toolNames {
-				if tool, err := repository.LoadTool(name); err == nil && tool != nil {
+				if tool, _ := repository.LoadTool(name); tool != nil {
 					registry.tools[name] = tool
 				}
 			}
@@ -94,7 +94,7 @@ func (r *Registry) Get(name string) *ToolDescriptor {
 
 	// Try loading from repository if available
 	if r.repository != nil {
-		if tool, err := r.repository.LoadTool(name); err == nil && tool != nil {
+		if tool, _ := r.repository.LoadTool(name); tool != nil {
 			r.tools[name] = tool // Cache the loaded tool
 			return tool
 		}
@@ -107,7 +107,7 @@ func (r *Registry) Get(name string) *ToolDescriptor {
 func (r *Registry) List() []string {
 	// Try repository first for complete list
 	if r.repository != nil {
-		if names, err := r.repository.ListTools(); err == nil && len(names) > 0 {
+		if names, _ := r.repository.ListTools(); len(names) > 0 {
 			return names
 		}
 	}

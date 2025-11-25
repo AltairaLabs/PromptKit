@@ -660,7 +660,7 @@ func (r *Registry) populateDefaults(config *PromptConfig) {
 func (r *Registry) ListTaskTypes() []string {
 	// Try repository first for complete list
 	if r.repository != nil {
-		if taskTypes, err := r.repository.ListPrompts(); err == nil && len(taskTypes) > 0 {
+		if taskTypes, _ := r.repository.ListPrompts(); len(taskTypes) > 0 {
 			return taskTypes
 		}
 	}

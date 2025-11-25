@@ -329,7 +329,7 @@ func findRepoRoot() (string, error) {
 	}
 
 	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.work")); err == nil {
+		if info, _ := os.Stat(filepath.Join(dir, "go.work")); info != nil {
 			return dir, nil
 		}
 

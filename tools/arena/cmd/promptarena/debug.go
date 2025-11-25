@@ -56,7 +56,7 @@ func getConfigFile(cmd *cobra.Command) (string, error) {
 	}
 
 	// If config path is a directory, append arena.yaml
-	if info, err := os.Stat(configFile); err == nil && info.IsDir() {
+	if info, _ := os.Stat(configFile); info != nil && info.IsDir() {
 		configFile = filepath.Join(configFile, "arena.yaml")
 	}
 

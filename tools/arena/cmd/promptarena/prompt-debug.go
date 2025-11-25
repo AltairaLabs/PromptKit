@@ -133,7 +133,7 @@ func parseBoolFlags(cmd *cobra.Command, opts *promptDebugOptions) error {
 
 // normalizeConfigPath adjusts config path if it points to a directory
 func normalizeConfigPath(opts *promptDebugOptions) {
-	if info, err := os.Stat(opts.ConfigFile); err == nil && info.IsDir() {
+	if info, _ := os.Stat(opts.ConfigFile); info != nil && info.IsDir() {
 		opts.ConfigFile = filepath.Join(opts.ConfigFile, "arena.yaml")
 	}
 }

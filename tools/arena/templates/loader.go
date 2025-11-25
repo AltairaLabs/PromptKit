@@ -28,7 +28,7 @@ func NewLoader(cacheDir string) *Loader {
 // Load loads a template by name from any source
 func (l *Loader) Load(name string) (*Template, error) {
 	// Try built-in first
-	if tmpl, err := l.LoadBuiltIn(name); err == nil {
+	if tmpl, _ := l.LoadBuiltIn(name); tmpl != nil {
 		return tmpl, nil
 	}
 
