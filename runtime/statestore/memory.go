@@ -245,10 +245,10 @@ func deepCopyState(state *ConversationState) *ConversationState {
 		return nil
 	}
 
-	var copy ConversationState
-	if err := json.Unmarshal(data, &copy); err != nil {
+	var stateCopy ConversationState
+	if err := json.Unmarshal(data, &stateCopy); err != nil {
 		return nil
 	}
 
-	return &copy
+	return &stateCopy
 }

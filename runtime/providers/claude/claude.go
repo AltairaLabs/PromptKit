@@ -120,7 +120,8 @@ func (p *ClaudeProvider) convertMessagesToClaudeFormat(messages []types.Message)
 	claudeMessages := make([]claudeMessage, 0, len(messages))
 	minCharsForCaching := 2048 * 4 // ~8192 characters (Claude requires 2048 tokens minimum)
 
-	for i, msg := range messages {
+	for i := range messages {
+		msg := &messages[i]
 		contentBlock := claudeContentBlock{
 			Type: "text",
 			Text: msg.Content,
@@ -388,7 +389,8 @@ func (p *ClaudeProvider) PredictStream(ctx context.Context, req providers.Predic
 	// Convert messages to Claude format
 	messages := make([]claudeMessage, 0, len(req.Messages))
 
-	for _, msg := range req.Messages {
+	for i := range req.Messages {
+		msg := &req.Messages[i]
 		claudeMsg := claudeMessage{
 			Role: msg.Role,
 			Content: []claudeContentBlock{

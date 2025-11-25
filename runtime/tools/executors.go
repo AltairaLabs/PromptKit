@@ -102,21 +102,21 @@ func (e *MockScriptedExecutor) processTemplate(template string, args map[string]
 	return result
 }
 
-// replaceAll replaces all occurrences of old with new in s
-func replaceAll(s, old, new string) string {
+// replaceAll replaces all occurrences of old with newStr in s
+func replaceAll(s, old, newStr string) string {
 	// Simple string replacement implementation
 	for {
-		newStr := replace(s, old, new)
-		if newStr == s {
+		result := replace(s, old, newStr)
+		if result == s {
 			break
 		}
-		s = newStr
+		s = result
 	}
 	return s
 }
 
-// replace replaces the first occurrence of old with new in s
-func replace(s, old, new string) string {
+// replace replaces the first occurrence of old with newStr in s
+func replace(s, old, newStr string) string {
 	if old == "" {
 		return s
 	}
@@ -126,7 +126,7 @@ func replace(s, old, new string) string {
 		return s
 	}
 
-	return s[:index] + new + s[index+len(old):]
+	return s[:index] + newStr + s[index+len(old):]
 }
 
 // indexOf returns the index of the first occurrence of substr in s

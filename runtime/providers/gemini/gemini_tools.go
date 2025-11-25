@@ -243,19 +243,19 @@ func (p *GeminiToolProvider) buildToolRequest(req providers.PredictionRequest, t
 			pendingToolResults = nil
 		}
 
-	parts := buildMessageParts(msg, pendingToolResults)
-	if msg.Role == roleUser {
-		pendingToolResults = nil
-	}
+		parts := buildMessageParts(msg, pendingToolResults)
+		if msg.Role == roleUser {
+			pendingToolResults = nil
+		}
 
-	if len(parts) == 0 {
-		continue
-	}
+		if len(parts) == 0 {
+			continue
+		}
 
-	role := msg.Role
-	if role == "assistant" {
-		role = "model"
-	}
+		role := msg.Role
+		if role == "assistant" {
+			role = "model"
+		}
 
 		contents = append(contents, map[string]interface{}{
 			"role":  role,
