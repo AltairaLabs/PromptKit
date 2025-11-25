@@ -28,8 +28,8 @@ func NewBaseProvider(id string, includeRawOutput bool, client *http.Client) Base
 
 // NewBaseProviderWithAPIKey creates a BaseProvider and retrieves API key from environment
 // It tries the primary key first, then falls back to the secondary key if primary is empty.
-func NewBaseProviderWithAPIKey(id string, includeRawOutput bool, primaryKey, fallbackKey string) (BaseProvider, string) {
-	apiKey := os.Getenv(primaryKey)
+func NewBaseProviderWithAPIKey(id string, includeRawOutput bool, primaryKey, fallbackKey string) (provider BaseProvider, apiKey string) {
+	apiKey = os.Getenv(primaryKey)
 	if apiKey == "" {
 		apiKey = os.Getenv(fallbackKey)
 	}

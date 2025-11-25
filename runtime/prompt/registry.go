@@ -58,28 +58,28 @@ func (ap *AssembledPrompt) UsesTools() bool {
 
 // PromptConfig represents a YAML prompt configuration file in K8s-style manifest format
 type PromptConfig struct {
-	APIVersion string            `yaml:"apiVersion"`
-	Kind       string            `yaml:"kind"`
-	Metadata   metav1.ObjectMeta `yaml:"metadata,omitempty"`
-	Spec       PromptSpec        `yaml:"spec"`
+	APIVersion string            `yaml:"apiVersion" json:"apiVersion"`
+	Kind       string            `yaml:"kind" json:"kind"`
+	Metadata   metav1.ObjectMeta `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	Spec       PromptSpec        `yaml:"spec" json:"spec"`
 }
 
 // PromptSpec contains the actual prompt configuration
 type PromptSpec struct {
-	TaskType       string                   `yaml:"task_type"`
-	Version        string                   `yaml:"version"`
-	Description    string                   `yaml:"description"`
-	TemplateEngine *TemplateEngineInfo      `yaml:"template_engine,omitempty"` // Template engine configuration
-	Fragments      []FragmentRef            `yaml:"fragments,omitempty"`       // New: fragment assembly
-	SystemTemplate string                   `yaml:"system_template"`
-	Variables      []VariableMetadata       `yaml:"variables,omitempty"` // Variable definitions with rich metadata
-	ModelOverrides map[string]ModelOverride `yaml:"model_overrides,omitempty"`
-	AllowedTools   []string                 `yaml:"allowed_tools,omitempty"` // Tools this prompt can use
-	MediaConfig    *MediaConfig             `yaml:"media,omitempty"`         // Multimodal media configuration
-	Validators     []ValidatorConfig        `yaml:"validators,omitempty"`    // Validators/Guardrails for production runtime
-	TestedModels   []ModelTestResultRef     `yaml:"tested_models,omitempty"` // Model testing metadata
-	Metadata       *PromptMetadata          `yaml:"metadata,omitempty"`      // Additional metadata for pack format
-	Compilation    *CompilationInfo         `yaml:"compilation,omitempty"`   // Compilation information
+	TaskType       string                   `yaml:"task_type" json:"task_type"`
+	Version        string                   `yaml:"version" json:"version"`
+	Description    string                   `yaml:"description" json:"description"`
+	TemplateEngine *TemplateEngineInfo      `yaml:"template_engine,omitempty" json:"template_engine,omitempty"` // Template engine configuration
+	Fragments      []FragmentRef            `yaml:"fragments,omitempty" json:"fragments,omitempty"`             // New: fragment assembly
+	SystemTemplate string                   `yaml:"system_template" json:"system_template"`
+	Variables      []VariableMetadata       `yaml:"variables,omitempty" json:"variables,omitempty"` // Variable definitions with rich metadata
+	ModelOverrides map[string]ModelOverride `yaml:"model_overrides,omitempty" json:"model_overrides,omitempty"`
+	AllowedTools   []string                 `yaml:"allowed_tools,omitempty" json:"allowed_tools,omitempty"` // Tools this prompt can use
+	MediaConfig    *MediaConfig             `yaml:"media,omitempty" json:"media,omitempty"`                 // Multimodal media configuration
+	Validators     []ValidatorConfig        `yaml:"validators,omitempty" json:"validators,omitempty"`       // Validators/Guardrails for production runtime
+	TestedModels   []ModelTestResultRef     `yaml:"tested_models,omitempty" json:"tested_models,omitempty"` // Model testing metadata
+	Metadata       *PromptMetadata          `yaml:"metadata,omitempty" json:"metadata,omitempty"`           // Additional metadata for pack format
+	Compilation    *CompilationInfo         `yaml:"compilation,omitempty" json:"compilation,omitempty"`     // Compilation information
 }
 
 // ModelTestResultRef is a simplified reference to model test results
@@ -660,7 +660,7 @@ func (r *Registry) populateDefaults(config *PromptConfig) {
 func (r *Registry) ListTaskTypes() []string {
 	// Try repository first for complete list
 	if r.repository != nil {
-		if taskTypes, err := r.repository.ListPrompts(); err == nil && len(taskTypes) > 0 {
+		if taskTypes, _ := r.repository.ListPrompts(); len(taskTypes) > 0 {
 			return taskTypes
 		}
 	}

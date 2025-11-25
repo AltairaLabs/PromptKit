@@ -524,3 +524,110 @@ func TestImageDetailConstants(t *testing.T) {
 		t.Errorf("ImageDetailAuto = %q, want %q", ImageDetailAuto, "auto")
 	}
 }
+
+func TestValidateMultimodalRequest(t *testing.T) {
+	textContent := "Describe this image"
+	jpegData := "fake-image"
+
+	mockProvider := &mockMultimodalProvider{
+		mockProvider: mockProvider{id: "test-provider"},
+		capabilities: MultimodalCapabilities{
+			SupportsImages: true,
+			SupportsAudio:  false,
+			SupportsVideo:  false,
+			ImageFormats:   []string{"image/png", "image/jpeg"},
+			MaxImageSizeMB: 10,
+		},
+	}
+
+	tests := []struct {
+		name    string
+		req     PredictionRequest
+		wantErr bool
+	}{
+		{
+			name: "valid request with text only",
+			req: PredictionRequest{
+				Messages: []types.Message{
+					{Role: "user", Content: "Hello"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid request with supported image",
+			req: PredictionRequest{
+				Messages: []types.Message{
+					{
+						Role:    "user",
+						Content: "Describe this image",
+						Parts: []types.ContentPart{
+							{Type: "text", Text: &textContent},
+							{
+								Type: "image",
+								Media: &types.MediaContent{
+									MIMEType: "image/png",
+									Data:     &textContent,
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid request with unsupported audio",
+			req: PredictionRequest{
+				Messages: []types.Message{
+					{
+						Role:    "user",
+						Content: "Listen to this",
+						Parts: []types.ContentPart{
+							{
+								Type: "audio",
+								Media: &types.MediaContent{
+									MIMEType: "audio/wav",
+									Data:     &textContent,
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "multiple messages with mixed content",
+			req: PredictionRequest{
+				Messages: []types.Message{
+					{Role: "user", Content: "Hello"},
+					{Role: "assistant", Content: "Hi there"},
+					{
+						Role:    "user",
+						Content: "Look at this",
+						Parts: []types.ContentPart{
+							{
+								Type: "image",
+								Media: &types.MediaContent{
+									MIMEType: "image/jpeg",
+									Data:     &jpegData,
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateMultimodalRequest(mockProvider, tt.req)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateMultimodalRequest() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

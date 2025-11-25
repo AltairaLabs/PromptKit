@@ -129,8 +129,8 @@ func (m *MockProvider) Predict(ctx context.Context, req providers.PredictionRequ
 		}
 	} // Count tokens based on message length (rough approximation)
 	inputTokens := 0
-	for _, msg := range req.Messages {
-		inputTokens += len(msg.Content) / 4 // Rough approximation: ~4 chars per token
+	for i := range req.Messages {
+		inputTokens += len(req.Messages[i].Content) / 4 // Rough approximation: ~4 chars per token
 	}
 	if inputTokens == 0 {
 		inputTokens = 10
@@ -240,8 +240,8 @@ func (m *MockProvider) getStreamTurn(ctx context.Context, params MockResponsePar
 // calculateInputTokens estimates input tokens from messages
 func (m *MockProvider) calculateInputTokens(messages []types.Message) int {
 	inputTokens := 0
-	for _, msg := range messages {
-		inputTokens += len(msg.Content) / 4
+	for i := range messages {
+		inputTokens += len(messages[i].Content) / 4
 	}
 	if inputTokens == 0 {
 		inputTokens = 10
@@ -338,9 +338,8 @@ func generateContentSummary(parts []types.ContentPart) string {
 }
 
 // extractPartsAndCounts separates text parts and counts media types
-func extractPartsAndCounts(parts []types.ContentPart) ([]string, map[string]int) {
-	var textParts []string
-	mediaCounts := make(map[string]int)
+func extractPartsAndCounts(parts []types.ContentPart) (textParts []string, mediaCounts map[string]int) {
+	mediaCounts = make(map[string]int)
 
 	for _, part := range parts {
 		if part.Type == types.ContentTypeText && part.Text != nil {

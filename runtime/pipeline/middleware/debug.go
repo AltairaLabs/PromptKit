@@ -7,7 +7,10 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
+
+const timestampFormat = "2006-01-02T15:04:05.000Z"
 
 // debugMiddleware dumps execution context state at a specific pipeline stage
 type debugMiddleware struct {
@@ -132,58 +135,15 @@ func (m *debugMiddleware) createSnapshot(execCtx *pipeline.ExecutionContext) deb
 		SystemPrompt: execCtx.SystemPrompt,
 		Variables:    execCtx.Variables,
 		Metadata:     execCtx.Metadata,
-		CostInfo: costInfoSnapshot{
-			InputTokens:   execCtx.CostInfo.InputTokens,
-			OutputTokens:  execCtx.CostInfo.OutputTokens,
-			CachedTokens:  execCtx.CostInfo.CachedTokens,
-			InputCostUSD:  execCtx.CostInfo.InputCostUSD,
-			OutputCostUSD: execCtx.CostInfo.OutputCostUSD,
-			CachedCostUSD: execCtx.CostInfo.CachedCostUSD,
-			TotalCost:     execCtx.CostInfo.TotalCost,
-		},
+		CostInfo:     m.captureCostInfo(&execCtx.CostInfo),
 	}
 
 	// Capture allowed tools (just names)
 	snapshot.AllowedTools = execCtx.AllowedTools
 
 	// Capture messages (with truncation)
-	for _, msg := range execCtx.Messages {
-		msgSnap := messageSnapshot{
-			Role:             msg.Role,
-			ContentLen:       len(msg.Content),
-			ToolCallsCount:   len(msg.ToolCalls),
-			LatencyMs:        msg.LatencyMs,
-			ValidationsCount: len(msg.Validations),
-		}
-
-		// Preview first 100 chars
-		if len(msg.Content) > 0 {
-			preview := msg.Content
-			if len(preview) > 100 {
-				preview = preview[:100] + "..."
-			}
-			msgSnap.ContentPreview = preview
-		}
-
-		// Capture timestamp
-		if !msg.Timestamp.IsZero() {
-			msgSnap.Timestamp = msg.Timestamp.Format("2006-01-02T15:04:05.000Z")
-		}
-
-		// Capture cost info if present
-		if msg.CostInfo != nil {
-			msgSnap.CostInfo = &costInfoSnapshot{
-				InputTokens:   msg.CostInfo.InputTokens,
-				OutputTokens:  msg.CostInfo.OutputTokens,
-				CachedTokens:  msg.CostInfo.CachedTokens,
-				InputCostUSD:  msg.CostInfo.InputCostUSD,
-				OutputCostUSD: msg.CostInfo.OutputCostUSD,
-				CachedCostUSD: msg.CostInfo.CachedCostUSD,
-				TotalCost:     msg.CostInfo.TotalCost,
-			}
-		}
-
-		snapshot.Messages = append(snapshot.Messages, msgSnap)
+	for i := range execCtx.Messages {
+		snapshot.Messages = append(snapshot.Messages, m.captureMessage(&execCtx.Messages[i]))
 	}
 
 	// Capture tool results
@@ -213,10 +173,10 @@ func (m *debugMiddleware) createSnapshot(execCtx *pipeline.ExecutionContext) deb
 		LLMCallCount: len(execCtx.Trace.LLMCalls),
 	}
 	if !execCtx.Trace.StartedAt.IsZero() {
-		snapshot.TraceStats.StartedAt = execCtx.Trace.StartedAt.Format("2006-01-02T15:04:05.000Z")
+		snapshot.TraceStats.StartedAt = execCtx.Trace.StartedAt.Format(timestampFormat)
 	}
 	if execCtx.Trace.CompletedAt != nil && !execCtx.Trace.CompletedAt.IsZero() {
-		snapshot.TraceStats.CompletedAt = execCtx.Trace.CompletedAt.Format("2006-01-02T15:04:05.000Z")
+		snapshot.TraceStats.CompletedAt = execCtx.Trace.CompletedAt.Format(timestampFormat)
 		snapshot.TraceStats.Duration = execCtx.Trace.CompletedAt.Sub(execCtx.Trace.StartedAt).String()
 	}
 
@@ -226,4 +186,50 @@ func (m *debugMiddleware) createSnapshot(execCtx *pipeline.ExecutionContext) deb
 	}
 
 	return snapshot
+}
+
+// captureCostInfo creates a cost info snapshot from the execution context cost info
+func (m *debugMiddleware) captureCostInfo(costInfo *types.CostInfo) costInfoSnapshot {
+	return costInfoSnapshot{
+		InputTokens:   costInfo.InputTokens,
+		OutputTokens:  costInfo.OutputTokens,
+		CachedTokens:  costInfo.CachedTokens,
+		InputCostUSD:  costInfo.InputCostUSD,
+		OutputCostUSD: costInfo.OutputCostUSD,
+		CachedCostUSD: costInfo.CachedCostUSD,
+		TotalCost:     costInfo.TotalCost,
+	}
+}
+
+// captureMessage creates a message snapshot with content preview and metadata
+func (m *debugMiddleware) captureMessage(msg *types.Message) messageSnapshot {
+	msgSnap := messageSnapshot{
+		Role:             msg.Role,
+		ContentLen:       len(msg.Content),
+		ToolCallsCount:   len(msg.ToolCalls),
+		LatencyMs:        msg.LatencyMs,
+		ValidationsCount: len(msg.Validations),
+	}
+
+	// Preview first 100 chars
+	if msg.Content != "" {
+		preview := msg.Content
+		if len(preview) > 100 {
+			preview = preview[:100] + "..."
+		}
+		msgSnap.ContentPreview = preview
+	}
+
+	// Capture timestamp
+	if !msg.Timestamp.IsZero() {
+		msgSnap.Timestamp = msg.Timestamp.Format(timestampFormat)
+	}
+
+	// Capture cost info if present
+	if msg.CostInfo != nil {
+		costSnap := m.captureCostInfo(msg.CostInfo)
+		msgSnap.CostInfo = &costSnap
+	}
+
+	return msgSnap
 }

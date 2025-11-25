@@ -111,7 +111,7 @@ func NewImagePartFromURL(url string, detail *string) ContentPart {
 }
 
 // NewImagePartFromData creates a ContentPart with base64-encoded image data
-func NewImagePartFromData(base64Data string, mimeType string, detail *string) ContentPart {
+func NewImagePartFromData(base64Data, mimeType string, detail *string) ContentPart {
 	return ContentPart{
 		Type: ContentTypeImage,
 		Media: &MediaContent{
@@ -139,7 +139,7 @@ func NewAudioPart(filePath string) (ContentPart, error) {
 }
 
 // NewAudioPartFromData creates a ContentPart with base64-encoded audio data
-func NewAudioPartFromData(base64Data string, mimeType string) ContentPart {
+func NewAudioPartFromData(base64Data, mimeType string) ContentPart {
 	return ContentPart{
 		Type: ContentTypeAudio,
 		Media: &MediaContent{
@@ -166,7 +166,7 @@ func NewVideoPart(filePath string) (ContentPart, error) {
 }
 
 // NewVideoPartFromData creates a ContentPart with base64-encoded video data
-func NewVideoPartFromData(base64Data string, mimeType string) ContentPart {
+func NewVideoPartFromData(base64Data, mimeType string) ContentPart {
 	return ContentPart{
 		Type: ContentTypeVideo,
 		Media: &MediaContent{

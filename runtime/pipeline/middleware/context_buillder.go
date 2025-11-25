@@ -124,10 +124,10 @@ func countTokens(text string) int {
 // countMessagesTokens estimates total tokens for messages
 func countMessagesTokens(messages []types.Message) int {
 	total := 0
-	for _, msg := range messages {
-		total += countTokens(msg.Content)
+	for i := range messages {
+		total += countTokens(messages[i].Content)
 		// Add tokens for tool calls (rough estimate)
-		for _, tc := range msg.ToolCalls {
+		for _, tc := range messages[i].ToolCalls {
 			total += countTokens(string(tc.Args))
 		}
 	}

@@ -13,6 +13,7 @@ func StringPtr(s string) *string {
 }
 
 // LoadFileAsBase64 reads a file and returns its content as a base64-encoded string.
+//
 // Deprecated: Use MediaLoader.GetBase64Data instead for better functionality including
 // storage reference support, URL loading, and proper context handling.
 //

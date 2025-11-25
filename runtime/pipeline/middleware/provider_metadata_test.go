@@ -48,7 +48,7 @@ func TestBuildProviderRequest_MetadataCopy(t *testing.T) {
 			req := buildProviderRequest(execCtx, nil)
 
 			if tt.expectedMetadata == nil {
-				if req.Metadata != nil && len(req.Metadata) > 0 {
+				if len(req.Metadata) > 0 {
 					t.Errorf("Expected PredictionRequest.Metadata to be nil or empty, got %v", req.Metadata)
 				}
 			} else {

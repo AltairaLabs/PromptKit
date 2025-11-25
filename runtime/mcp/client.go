@@ -330,7 +330,7 @@ func (c *StdioClient) updateActivity() {
 }
 
 // sendRequestWithRetry sends a request with automatic retry on failure
-func (c *StdioClient) sendRequestWithRetry(ctx context.Context, method string, params interface{}, result interface{}) error {
+func (c *StdioClient) sendRequestWithRetry(ctx context.Context, method string, params, result interface{}) error {
 	var lastErr error
 
 	for attempt := 0; attempt <= c.options.MaxRetries; attempt++ {
@@ -367,7 +367,7 @@ func (c *StdioClient) sendRequestWithRetry(ctx context.Context, method string, p
 }
 
 // sendRequest sends a JSON-RPC request and waits for the response
-func (c *StdioClient) sendRequest(ctx context.Context, method string, params interface{}, result interface{}) error {
+func (c *StdioClient) sendRequest(ctx context.Context, method string, params, result interface{}) error {
 	id := c.nextID.Add(1)
 
 	// Marshal params

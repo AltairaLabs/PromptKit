@@ -5,6 +5,14 @@ import (
 	"fmt"
 )
 
+const (
+	modeMock             = "mock"
+	modeLive             = "live"
+	modeMCP              = "mcp"
+	executorMockStatic   = "mock-static"
+	executorMockScripted = "mock-scripted"
+)
+
 // MockStaticExecutor executes tools using static mock data
 type MockStaticExecutor struct{}
 
@@ -15,12 +23,12 @@ func NewMockStaticExecutor() *MockStaticExecutor {
 
 // Name returns the executor name
 func (e *MockStaticExecutor) Name() string {
-	return "mock-static"
+	return executorMockStatic
 }
 
 // Execute executes a tool using static mock data
 func (e *MockStaticExecutor) Execute(descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
-	if descriptor.Mode != "mock" {
+	if descriptor.Mode != modeMock {
 		return nil, fmt.Errorf("static mock executor can only execute mock tools")
 	}
 
@@ -43,12 +51,12 @@ func NewMockScriptedExecutor() *MockScriptedExecutor {
 
 // Name returns the executor name
 func (e *MockScriptedExecutor) Name() string {
-	return "mock-scripted"
+	return executorMockScripted
 }
 
 // Execute executes a tool using templated mock data
 func (e *MockScriptedExecutor) Execute(descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
-	if descriptor.Mode != "mock" {
+	if descriptor.Mode != modeMock {
 		return nil, fmt.Errorf("scripted mock executor can only execute mock tools")
 	}
 
@@ -94,21 +102,21 @@ func (e *MockScriptedExecutor) processTemplate(template string, args map[string]
 	return result
 }
 
-// replaceAll replaces all occurrences of old with new in s
-func replaceAll(s, old, new string) string {
+// replaceAll replaces all occurrences of old with newStr in s
+func replaceAll(s, old, newStr string) string {
 	// Simple string replacement implementation
 	for {
-		newStr := replace(s, old, new)
-		if newStr == s {
+		result := replace(s, old, newStr)
+		if result == s {
 			break
 		}
-		s = newStr
+		s = result
 	}
 	return s
 }
 
-// replace replaces the first occurrence of old with new in s
-func replace(s, old, new string) string {
+// replace replaces the first occurrence of old with newStr in s
+func replace(s, old, newStr string) string {
 	if old == "" {
 		return s
 	}
@@ -118,12 +126,12 @@ func replace(s, old, new string) string {
 		return s
 	}
 
-	return s[:index] + new + s[index+len(old):]
+	return s[:index] + newStr + s[index+len(old):]
 }
 
 // indexOf returns the index of the first occurrence of substr in s
 func indexOf(s, substr string) int {
-	if len(substr) == 0 {
+	if substr == "" {
 		return 0
 	}
 

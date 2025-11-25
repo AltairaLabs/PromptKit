@@ -156,31 +156,9 @@ func (s *RedisStore) Delete(ctx context.Context, id string) error {
 
 // List returns conversation IDs matching the given criteria.
 func (s *RedisStore) List(ctx context.Context, opts ListOptions) ([]string, error) {
-	var ids []string
-
-	if opts.UserID != "" {
-		// Get conversations for specific user from index
-		indexKey := s.userIndexKey(opts.UserID)
-		members, err := s.client.SMembers(ctx, indexKey).Result()
-		if err != nil && !errors.Is(err, redis.Nil) {
-			return nil, fmt.Errorf("redis smembers failed: %w", err)
-		}
-		ids = members
-	} else {
-		// Scan all conversation keys
-		pattern := s.conversationKey("*")
-		iter := s.client.Scan(ctx, 0, pattern, 0).Iterator()
-		for iter.Next(ctx) {
-			key := iter.Val()
-			// Extract conversation ID from key
-			id := s.extractIDFromKey(key)
-			if id != "" {
-				ids = append(ids, id)
-			}
-		}
-		if err := iter.Err(); err != nil {
-			return nil, fmt.Errorf("redis scan failed: %w", err)
-		}
+	ids, err := s.fetchConversationIDs(ctx, opts.UserID)
+	if err != nil {
+		return nil, err
 	}
 
 	// If sorting is requested, we need to load states to sort them
@@ -190,23 +168,61 @@ func (s *RedisStore) List(ctx context.Context, opts ListOptions) ([]string, erro
 		}
 	}
 
-	// Apply pagination
-	limit := opts.Limit
+	return s.applyPagination(ids, opts.Offset, opts.Limit), nil
+}
+
+// fetchConversationIDs retrieves conversation IDs for a user or all conversations
+func (s *RedisStore) fetchConversationIDs(ctx context.Context, userID string) ([]string, error) {
+	if userID != "" {
+		return s.fetchUserConversations(ctx, userID)
+	}
+	return s.scanAllConversations(ctx)
+}
+
+// fetchUserConversations gets conversations for a specific user from the index
+func (s *RedisStore) fetchUserConversations(ctx context.Context, userID string) ([]string, error) {
+	indexKey := s.userIndexKey(userID)
+	members, err := s.client.SMembers(ctx, indexKey).Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return nil, fmt.Errorf("redis smembers failed: %w", err)
+	}
+	return members, nil
+}
+
+// scanAllConversations scans all conversation keys in Redis
+func (s *RedisStore) scanAllConversations(ctx context.Context) ([]string, error) {
+	var ids []string
+	pattern := s.conversationKey("*")
+	iter := s.client.Scan(ctx, 0, pattern, 0).Iterator()
+	for iter.Next(ctx) {
+		key := iter.Val()
+		id := s.extractIDFromKey(key)
+		if id != "" {
+			ids = append(ids, id)
+		}
+	}
+	if err := iter.Err(); err != nil {
+		return nil, fmt.Errorf("redis scan failed: %w", err)
+	}
+	return ids, nil
+}
+
+// applyPagination applies offset and limit to the conversation ID list
+func (s *RedisStore) applyPagination(ids []string, offset, limit int) []string {
 	if limit == 0 {
 		limit = 100 // Default limit
 	}
 
-	start := opts.Offset
-	if start >= len(ids) {
-		return []string{}, nil
+	if offset >= len(ids) {
+		return []string{}
 	}
 
-	end := start + limit
+	end := offset + limit
 	if end > len(ids) {
 		end = len(ids)
 	}
 
-	return ids[start:end], nil
+	return ids[offset:end]
 }
 
 // conversationKey generates the Redis key for a conversation.
@@ -276,7 +292,7 @@ func (s *RedisStore) sortConversations(ctx context.Context, ids []string, sortBy
 		states = append(states, stateWithID{id: id, state: state})
 	}
 
-	ascending := strings.ToLower(sortOrder) == "asc"
+	ascending := strings.EqualFold(sortOrder, "asc")
 
 	// Sort states
 	sort.Slice(states, func(i, j int) bool {

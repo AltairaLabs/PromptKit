@@ -17,7 +17,7 @@ func NewMetadataBuilder(spec *PromptSpec) *MetadataBuilder {
 }
 
 // BuildPromptMetadata generates PromptMetadata from test execution results
-func (mb *MetadataBuilder) BuildPromptMetadata(domain string, language string, tags []string, testResults []TestResultSummary) *PromptMetadata {
+func (mb *MetadataBuilder) BuildPromptMetadata(domain, language string, tags []string, testResults []TestResultSummary) *PromptMetadata {
 	metadata := &PromptMetadata{
 		Domain:   domain,
 		Language: language,
@@ -123,7 +123,7 @@ type TestResultSummary struct {
 }
 
 // AggregateTestResults computes ModelTestResultRef from test execution summaries
-func AggregateTestResults(results []TestResultSummary, provider string, model string) *ModelTestResultRef {
+func AggregateTestResults(results []TestResultSummary, provider, model string) *ModelTestResultRef {
 	if len(results) == 0 {
 		return nil
 	}
@@ -193,7 +193,7 @@ func calculateP95Latency(results []TestResultSummary) int {
 }
 
 // AddChangelogEntry adds a new entry to the prompt's changelog
-func (mb *MetadataBuilder) AddChangelogEntry(version string, author string, description string) {
+func (mb *MetadataBuilder) AddChangelogEntry(version, author, description string) {
 	if mb.spec.Metadata == nil {
 		mb.spec.Metadata = &PromptMetadata{}
 	}
@@ -238,26 +238,44 @@ func ExtractVariablesFromTemplate(template string) []string {
 	vars := []string{}
 	varMap := make(map[string]bool)
 
-	// Simple extraction of {{variable}} patterns
-	for i := 0; i < len(template)-1; i++ {
-		if template[i] == '{' && template[i+1] == '{' {
-			// Find closing }}
-			j := i + 2
-			for j < len(template)-1 && !(template[j] == '}' && template[j+1] == '}') {
-				j++
+	i := 0
+	for i < len(template)-1 {
+		if isOpeningBrace(template, i) {
+			varName, nextPos := extractVariable(template, i)
+			if varName != "" && !varMap[varName] {
+				varMap[varName] = true
+				vars = append(vars, varName)
 			}
-			if j < len(template)-1 {
-				varName := template[i+2 : j]
-				if !varMap[varName] {
-					varMap[varName] = true
-					vars = append(vars, varName)
-				}
-				i = j + 1
-			}
+			i = nextPos
+		} else {
+			i++
 		}
 	}
 
 	return vars
+}
+
+func isOpeningBrace(template string, pos int) bool {
+	return template[pos] == '{' && template[pos+1] == '{'
+}
+
+func extractVariable(template string, startPos int) (varName string, nextPos int) {
+	closingPos := findClosingBrace(template, startPos+2)
+	if closingPos == -1 {
+		return "", startPos + 1
+	}
+
+	varName = template[startPos+2 : closingPos]
+	return varName, closingPos + 1
+}
+
+func findClosingBrace(template string, startPos int) int {
+	for j := startPos; j < len(template)-1; j++ {
+		if template[j] == '}' && template[j+1] == '}' {
+			return j
+		}
+	}
+	return -1
 }
 
 // ValidateMetadata checks that metadata fields are properly populated

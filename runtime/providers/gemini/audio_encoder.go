@@ -167,7 +167,7 @@ func (e *AudioEncoder) CreateChunks(ctx context.Context, pcmData []byte) ([]*typ
 }
 
 // ReadChunks reads audio from an io.Reader and creates chunks on-the-fly
-func (e *AudioEncoder) ReadChunks(ctx context.Context, reader io.Reader) (<-chan *types.MediaChunk, <-chan error) {
+func (e *AudioEncoder) ReadChunks(ctx context.Context, reader io.Reader) (chunkStream <-chan *types.MediaChunk, errStream <-chan error) {
 	chunkCh := make(chan *types.MediaChunk)
 	errCh := make(chan error, 1)
 

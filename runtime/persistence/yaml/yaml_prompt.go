@@ -91,7 +91,20 @@ func (r *YAMLPromptRepository) resolveFilePath(taskType string) (string, error) 
 
 // searchForPrompt searches for a YAML file matching the task type
 func (r *YAMLPromptRepository) searchForPrompt(taskType string) (string, error) {
-	// Search patterns for YAML files
+	// First try filename-based search
+	if foundFile := r.searchByFilename(taskType); foundFile != "" {
+		return foundFile, nil
+	}
+
+	// Then try content-based search
+	if foundFile := r.searchByContent(taskType); foundFile != "" {
+		return foundFile, nil
+	}
+
+	return "", fmt.Errorf("no YAML file found for task type: %s", taskType)
+}
+
+func (r *YAMLPromptRepository) searchByFilename(taskType string) string {
 	patterns := []string{
 		fmt.Sprintf("%s.yaml", taskType),
 		fmt.Sprintf("%s.yml", taskType),
@@ -99,7 +112,6 @@ func (r *YAMLPromptRepository) searchForPrompt(taskType string) (string, error) 
 		fmt.Sprintf("%s.v*.yml", taskType),
 	}
 
-	// Walk directory and match patterns
 	var foundFile string
 	_ = filepath.WalkDir(r.basePath, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -110,56 +122,58 @@ func (r *YAMLPromptRepository) searchForPrompt(taskType string) (string, error) 
 			matched, _ := filepath.Match(pattern, filepath.Base(path))
 			if matched {
 				foundFile = path
-				return filepath.SkipAll // Stop searching
+				return filepath.SkipAll
 			}
 		}
 		return nil
 	})
 
-	if foundFile != "" {
-		return foundFile, nil
-	}
+	return foundFile
+}
 
-	// If not found by filename, search by content (task_type field)
+func (r *YAMLPromptRepository) searchByContent(taskType string) string {
+	var foundFile string
 	_ = filepath.WalkDir(r.basePath, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
 
-		// Only check YAML files
-		ext := strings.ToLower(filepath.Ext(path))
-		if ext != ".yaml" && ext != ".yml" {
+		if !r.isYAMLFile(path) {
 			return nil
 		}
 
-		// Try to parse and extract task type
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-
-		var config prompt.PromptConfig
-		if err := yaml.Unmarshal(data, &config); err != nil {
-			return nil
-		}
-
-		if config.Spec.TaskType == taskType {
+		if r.hasMatchingTaskType(path, taskType) {
 			foundFile = path
-			return filepath.SkipAll // Stop searching
+			return filepath.SkipAll
 		}
 
 		return nil
 	})
 
-	if foundFile == "" {
-		return "", fmt.Errorf("no YAML file found for task type: %s", taskType)
+	return foundFile
+}
+
+func (r *YAMLPromptRepository) isYAMLFile(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	return ext == yamlExt || ext == ymlExt
+}
+
+func (r *YAMLPromptRepository) hasMatchingTaskType(path, taskType string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
 	}
 
-	return foundFile, nil
+	var config prompt.PromptConfig
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return false
+	}
+
+	return config.Spec.TaskType == taskType
 }
 
 // LoadFragment loads a fragment by name and optional path
-func (r *YAMLPromptRepository) LoadFragment(name string, relativePath string, baseDir string) (*prompt.Fragment, error) {
+func (r *YAMLPromptRepository) LoadFragment(name, relativePath, baseDir string) (*prompt.Fragment, error) {
 	// Determine fragment path
 	var fragmentPath string
 	if relativePath != "" {

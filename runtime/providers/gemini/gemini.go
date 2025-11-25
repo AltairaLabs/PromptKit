@@ -112,25 +112,24 @@ type geminiSafetyRating struct {
 // convertMessagesToGeminiContents converts provider messages to Gemini format
 func convertMessagesToGeminiContents(messages []types.Message) []geminiContent {
 	contents := make([]geminiContent, 0, len(messages))
-	for _, msg := range messages {
-		role := msg.Role
+	for i := range messages {
+		role := messages[i].Role
 		// Gemini uses "user" and "model" roles
-		if role == "assistant" {
-			role = "model"
+		if role == roleAssistant {
+			role = roleModel
 		}
 
 		contents = append(contents, geminiContent{
 			Role:  role,
-			Parts: []geminiPart{{Text: msg.Content}},
+			Parts: []geminiPart{{Text: messages[i].Content}},
 		})
 	}
 	return contents
 }
 
 // prepareGeminiRequest converts a predict request to Gemini format with defaults applied
-func (p *GeminiProvider) prepareGeminiRequest(req providers.PredictionRequest) ([]geminiContent, *geminiContent, float32, float32, int) {
+func (p *GeminiProvider) prepareGeminiRequest(req providers.PredictionRequest) (contents []geminiContent, systemInstruction *geminiContent, temperature, topP float32, maxTokens int) {
 	// Handle system message
-	var systemInstruction *geminiContent
 	if req.System != "" {
 		systemInstruction = &geminiContent{
 			Parts: []geminiPart{{Text: req.System}},
@@ -138,20 +137,20 @@ func (p *GeminiProvider) prepareGeminiRequest(req providers.PredictionRequest) (
 	}
 
 	// Convert conversation messages
-	contents := convertMessagesToGeminiContents(req.Messages)
+	contents = convertMessagesToGeminiContents(req.Messages)
 
-	// Apply provider defaults for zero values
-	temperature := req.Temperature
+	// Apply defaults
+	temperature = req.Temperature
 	if temperature == 0 {
 		temperature = p.Defaults.Temperature
 	}
 
-	topP := req.TopP
+	topP = req.TopP
 	if topP == 0 {
 		topP = p.Defaults.TopP
 	}
 
-	maxTokens := req.MaxTokens
+	maxTokens = req.MaxTokens
 	if maxTokens == 0 {
 		maxTokens = p.Defaults.MaxTokens
 	}
@@ -184,11 +183,11 @@ func (p *GeminiProvider) handleGeminiFinishReason(finishReason string, predictRe
 	predictResp.Raw = respBody
 
 	switch finishReason {
-	case "MAX_TOKENS":
+	case finishReasonMaxTokens:
 		return predictResp, fmt.Errorf("gemini returned MAX_TOKENS error (this should not happen with reasonable limits)")
-	case "SAFETY":
+	case finishReasonSafety:
 		return predictResp, fmt.Errorf("response blocked by Gemini safety filters")
-	case "RECITATION":
+	case finishReasonRecitation:
 		return predictResp, fmt.Errorf("response blocked due to recitation concerns")
 	default:
 		return predictResp, fmt.Errorf("no content parts in response (finish reason: %s)", finishReason)
@@ -409,6 +408,34 @@ func countPartsByType(parts []types.ContentPart, partType string) int {
 	return count
 }
 
+// geminiPricing returns pricing for Gemini models (input, output, cached per 1K tokens)
+func geminiPricing(model string) (inputPrice, outputPrice, cachedPrice float64) {
+	// Define pricing constants
+	const (
+		proInput     = 0.00125
+		proOutput    = 0.005
+		proCached    = 0.000625
+		flashInput   = 0.000075
+		flashOutput  = 0.0003
+		flashCached  = 0.0000375
+		geminiInput  = 0.0005
+		geminiOutput = 0.0015
+		geminiCached = 0.00025
+	)
+
+	switch model {
+	case "gemini-1.5-pro", "gemini-2.5-pro":
+		return proInput, proOutput, proCached
+	case "gemini-1.5-flash", "gemini-2.5-flash":
+		return flashInput, flashOutput, flashCached
+	case "gemini-pro":
+		return geminiInput, geminiOutput, geminiCached
+	default:
+		// Default to Gemini 1.5 Pro pricing for unknown models
+		return proInput, proOutput, proCached
+	}
+}
+
 // CalculateCost calculates detailed cost breakdown including optional cached tokens
 func (p *GeminiProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.CostInfo {
 	var inputCostPer1K, outputCostPer1K, cachedCostPer1K float64
@@ -422,26 +449,7 @@ func (p *GeminiProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) ty
 	} else {
 		// Fallback to hardcoded pricing with warning
 		fmt.Printf("WARNING: No pricing configured for provider %s (model: %s), using fallback pricing\n", p.ID(), p.Model)
-
-		switch p.Model {
-		case "gemini-1.5-pro", "gemini-2.5-pro":
-			inputCostPer1K = 0.00125   // $0.00125 per 1K input tokens
-			outputCostPer1K = 0.005    // $0.005 per 1K output tokens
-			cachedCostPer1K = 0.000625 // 50% of input cost
-		case "gemini-1.5-flash", "gemini-2.5-flash":
-			inputCostPer1K = 0.000075   // $0.000075 per 1K input tokens
-			outputCostPer1K = 0.0003    // $0.0003 per 1K output tokens
-			cachedCostPer1K = 0.0000375 // 50% of input cost
-		case "gemini-pro":
-			inputCostPer1K = 0.0005   // $0.0005 per 1K input tokens
-			outputCostPer1K = 0.0015  // $0.0015 per 1K output tokens
-			cachedCostPer1K = 0.00025 // 50% of input cost
-		default:
-			// Default to Gemini 1.5 Pro pricing for unknown models
-			inputCostPer1K = 0.00125
-			outputCostPer1K = 0.005
-			cachedCostPer1K = 0.000625
-		}
+		inputCostPer1K, outputCostPer1K, cachedCostPer1K = geminiPricing(p.Model)
 	}
 
 	// Calculate costs
@@ -500,7 +508,7 @@ func (p *GeminiProvider) PredictStream(ctx context.Context, req providers.Predic
 }
 
 // processGeminiStreamChunk processes a single chunk from the Gemini stream
-func (p *GeminiProvider) processGeminiStreamChunk(chunk geminiResponse, accumulated string, totalTokens int, outChan chan<- providers.StreamChunk) (string, int, bool) {
+func (p *GeminiProvider) processGeminiStreamChunk(chunk geminiResponse, accumulated string, totalTokens int, outChan chan<- providers.StreamChunk) (newAccumulated string, newTotalTokens int, shouldContinue bool) {
 	if len(chunk.Candidates) == 0 {
 		return accumulated, totalTokens, false
 	}

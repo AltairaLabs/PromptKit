@@ -79,10 +79,14 @@ func (wm *WebSocketManager) Connect(ctx context.Context) error {
 	// Connect
 	conn, resp, err := dialer.DialContext(ctx, wm.url, headers)
 	if err != nil {
-		if resp != nil {
+		if resp != nil && resp.Body != nil {
+			resp.Body.Close()
 			return fmt.Errorf("websocket dial failed (status %d): %w", resp.StatusCode, err)
 		}
 		return fmt.Errorf("websocket dial failed: %w", err)
+	}
+	if resp != nil && resp.Body != nil {
+		resp.Body.Close()
 	}
 
 	wm.conn = conn

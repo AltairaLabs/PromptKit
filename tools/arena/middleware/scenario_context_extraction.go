@@ -10,6 +10,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+const roleUser = "user"
+
 // ScenarioContextExtractionMiddleware extracts context using scenario metadata and conversation history.
 // This is designed for Arena use where rich scenario metadata is available.
 //
@@ -61,7 +63,7 @@ func buildContextSlot(scenario *config.Scenario, messages []types.Message) strin
 		contextParts = append(contextParts, scenario.Description)
 	}
 
-	if len(messages) > 0 && messages[0].Role == "user" && messages[0].Content != "" {
+	if len(messages) > 0 && messages[0].Role == roleUser && messages[0].Content != "" {
 		content := messages[0].Content
 		if len(content) > 150 {
 			content = content[:150] + "..."

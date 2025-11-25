@@ -327,10 +327,10 @@ func TestMakeGeminiHTTPRequest(t *testing.T) {
 				},
 			}
 
-			predictResp := providers.PredictionResponse{}
+			initialResp := providers.PredictionResponse{}
 			start := time.Now()
 
-			respBody, predictResp, err := provider.makeGeminiHTTPRequest(context.Background(), geminiReq, predictResp, start)
+			respBody, _, err := provider.makeGeminiHTTPRequest(context.Background(), geminiReq, initialResp, start)
 
 			if tt.wantErr {
 				require.Error(t, err)

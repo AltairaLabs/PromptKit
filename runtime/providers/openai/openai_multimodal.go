@@ -78,8 +78,8 @@ func (p *OpenAIProvider) convertMessagesToOpenAI(req providers.PredictionRequest
 	}
 
 	// Convert each message
-	for _, msg := range req.Messages {
-		converted, err := p.convertMessageToOpenAI(msg)
+	for i := range req.Messages {
+		converted, err := p.convertMessageToOpenAI(req.Messages[i])
 		if err != nil {
 			return nil, err
 		}

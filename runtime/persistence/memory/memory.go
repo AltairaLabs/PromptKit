@@ -42,7 +42,7 @@ func (r *MemoryPromptRepository) LoadPrompt(taskType string) (*prompt.PromptConf
 }
 
 // LoadFragment loads a fragment by name
-func (r *MemoryPromptRepository) LoadFragment(name string, relativePath string, baseDir string) (*prompt.Fragment, error) {
+func (r *MemoryPromptRepository) LoadFragment(name, relativePath, baseDir string) (*prompt.Fragment, error) {
 	fragment, ok := r.fragments[name]
 	if !ok {
 		return nil, fmt.Errorf("fragment not found: %s", name)

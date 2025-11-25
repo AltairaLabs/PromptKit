@@ -15,6 +15,11 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+const (
+	roleUser        = "user"
+	providerNameLog = "Gemini-Tools"
+)
+
 // GeminiToolProvider extends GeminiProvider with tool support
 type GeminiToolProvider struct {
 	*GeminiProvider
@@ -164,7 +169,7 @@ func buildMessageParts(msg types.Message, pendingToolResults []map[string]interf
 	parts := make([]interface{}, 0)
 
 	// Add pending tool results first if this is a user message
-	if msg.Role == "user" {
+	if msg.Role == roleUser {
 		for _, tr := range pendingToolResults {
 			parts = append(parts, tr)
 		}
@@ -226,14 +231,14 @@ func (p *GeminiToolProvider) buildToolRequest(req providers.PredictionRequest, t
 	contents := make([]map[string]interface{}, 0, len(req.Messages))
 	var pendingToolResults []map[string]interface{}
 
-	for _, msg := range req.Messages {
-		if msg.Role == "tool" {
-			pendingToolResults = append(pendingToolResults, processToolMessage(msg))
+	for i := range req.Messages {
+		if req.Messages[i].Role == "tool" {
+			pendingToolResults = append(pendingToolResults, processToolMessage(req.Messages[i]))
 			continue
 		}
 
 		// If we have pending tool results, add them as a user message before non-user messages
-		if len(pendingToolResults) > 0 && msg.Role != "user" {
+		if len(pendingToolResults) > 0 && req.Messages[i].Role != "user" {
 			contents = append(contents, map[string]interface{}{
 				"role":  "user",
 				"parts": pendingToolResults,
@@ -241,8 +246,8 @@ func (p *GeminiToolProvider) buildToolRequest(req providers.PredictionRequest, t
 			pendingToolResults = nil
 		}
 
-		parts := buildMessageParts(msg, pendingToolResults)
-		if msg.Role == "user" {
+		parts := buildMessageParts(req.Messages[i], pendingToolResults)
+		if req.Messages[i].Role == roleUser {
 			pendingToolResults = nil
 		}
 
@@ -250,7 +255,7 @@ func (p *GeminiToolProvider) buildToolRequest(req providers.PredictionRequest, t
 			continue
 		}
 
-		role := msg.Role
+		role := req.Messages[i].Role
 		if role == "assistant" {
 			role = "model"
 		}
@@ -389,7 +394,7 @@ func (p *GeminiToolProvider) makeRequest(ctx context.Context, request interface{
 	headers := map[string]string{
 		"Content-Type": "application/json",
 	}
-	logger.APIRequest("Gemini-Tools", "POST", url, headers, requestObj)
+	logger.APIRequest(providerNameLog, "POST", url, headers, requestObj)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(requestBytes))
 	if err != nil {
@@ -400,19 +405,19 @@ func (p *GeminiToolProvider) makeRequest(ctx context.Context, request interface{
 
 	resp, err := p.GetHTTPClient().Do(req)
 	if err != nil {
-		logger.APIResponse("Gemini-Tools", 0, "", err)
+		logger.APIResponse(providerNameLog, 0, "", err)
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		logger.APIResponse("Gemini-Tools", resp.StatusCode, "", err)
+		logger.APIResponse(providerNameLog, resp.StatusCode, "", err)
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	// Debug log the response
-	logger.APIResponse("Gemini-Tools", resp.StatusCode, string(respBytes), nil)
+	logger.APIResponse(providerNameLog, resp.StatusCode, string(respBytes), nil)
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBytes))

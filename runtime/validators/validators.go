@@ -113,7 +113,7 @@ func (v *MaxSentencesValidator) Validate(content string, params map[string]inter
 		return ValidationResult{Passed: true}
 	}
 
-	max, ok := maxSentences.(int)
+	maxCount, ok := maxSentences.(int)
 	if !ok {
 		return ValidationResult{Passed: true}
 	}
@@ -121,10 +121,10 @@ func (v *MaxSentencesValidator) Validate(content string, params map[string]inter
 	count := countSentences(content)
 
 	return ValidationResult{
-		Passed: count <= max,
+		Passed: count <= maxCount,
 		Details: map[string]interface{}{
 			"count": count,
-			"max":   max,
+			"max":   maxCount,
 		},
 	}
 }
@@ -252,25 +252,25 @@ func (v *LengthValidator) Validate(content string, params map[string]interface{}
 	result := ValidationResult{Passed: true, Details: map[string]interface{}{}}
 
 	if hasMaxChars {
-		if max, ok := maxChars.(int); ok {
+		if maxCharsValue, ok := maxChars.(int); ok {
 			charCount := len(content)
-			if charCount > max {
+			if charCount > maxCharsValue {
 				result.Passed = false
 			}
 			result.Details.(map[string]interface{})["character_count"] = charCount
-			result.Details.(map[string]interface{})["max_characters"] = max
+			result.Details.(map[string]interface{})["max_characters"] = maxCharsValue
 		}
 	}
 
 	if hasMaxTokens {
-		if max, ok := maxTokens.(int); ok {
+		if maxTokensValue, ok := maxTokens.(int); ok {
 			// Rough token estimation (1 token ≈ 4 characters)
 			tokenCount := len(content) / 4
-			if tokenCount > max {
+			if tokenCount > maxTokensValue {
 				result.Passed = false
 			}
 			result.Details.(map[string]interface{})["token_count"] = tokenCount
-			result.Details.(map[string]interface{})["max_tokens"] = max
+			result.Details.(map[string]interface{})["max_tokens"] = maxTokensValue
 		}
 	}
 
@@ -309,13 +309,13 @@ func checkCharacterLimit(chunk providers.StreamChunk, p map[string]interface{}) 
 		return nil
 	}
 
-	max, ok := maxChars.(int)
+	maxCharsLimit, ok := maxChars.(int)
 	if !ok {
 		return nil
 	}
 
 	charCount := len(chunk.Content)
-	if charCount > max {
+	if charCount > maxCharsLimit {
 		return &providers.ValidationAbortError{
 			Reason: "exceeded max_characters limit",
 			Chunk:  chunk,
@@ -332,7 +332,7 @@ func checkTokenLimit(chunk providers.StreamChunk, p map[string]interface{}) erro
 		return nil
 	}
 
-	max, ok := maxTokens.(int)
+	maxTokensLimit, ok := maxTokens.(int)
 	if !ok {
 		return nil
 	}
@@ -343,7 +343,7 @@ func checkTokenLimit(chunk providers.StreamChunk, p map[string]interface{}) erro
 		tokenCount = len(chunk.Content) / 4
 	}
 
-	if tokenCount > max {
+	if tokenCount > maxTokensLimit {
 		return &providers.ValidationAbortError{
 			Reason: "exceeded max_tokens limit",
 			Chunk:  chunk,

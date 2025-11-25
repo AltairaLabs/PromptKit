@@ -362,9 +362,9 @@ func generateHTML(data HTMLReportData) (string, error) {
 // getValidatorsFromMessage extracts validators from a message's validations array
 func getValidatorsFromMessage(msgOrMeta interface{}) map[string]interface{} {
 	// First try to extract from message.Validations
-	if jsonBytes, err := json.Marshal(msgOrMeta); err == nil {
+	if jsonBytes, _ := json.Marshal(msgOrMeta); jsonBytes != nil {
 		var msgMap map[string]interface{}
-		if err := json.Unmarshal(jsonBytes, &msgMap); err == nil {
+		if json.Unmarshal(jsonBytes, &msgMap) == nil {
 			// Check for validations array in the message
 			if validationsRaw, exists := msgMap["validations"]; exists {
 				if validations, ok := validationsRaw.([]interface{}); ok && len(validations) > 0 {
@@ -410,9 +410,9 @@ func getLegacyValidators(msgOrMeta interface{}) map[string]interface{} {
 // hasValidatorsInMessage checks if a message has validations
 func hasValidatorsInMessage(msgOrMeta interface{}) bool {
 	// First try to check message.Validations
-	if jsonBytes, err := json.Marshal(msgOrMeta); err == nil {
+	if jsonBytes, _ := json.Marshal(msgOrMeta); jsonBytes != nil {
 		var msgMap map[string]interface{}
-		if err := json.Unmarshal(jsonBytes, &msgMap); err == nil {
+		if json.Unmarshal(jsonBytes, &msgMap) == nil {
 			if validationsRaw, exists := msgMap["validations"]; exists {
 				if validations, ok := validationsRaw.([]interface{}); ok && len(validations) > 0 {
 					return true
@@ -637,9 +637,9 @@ func prettyJSON(v interface{}) string {
 	case string:
 		// Try to parse the string as JSON first
 		var jsonObj interface{}
-		if err := json.Unmarshal([]byte(val), &jsonObj); err == nil {
+		if json.Unmarshal([]byte(val), &jsonObj) == nil {
 			// It's valid JSON, format it nicely
-			if pretty, err := json.MarshalIndent(jsonObj, "", "  "); err == nil {
+			if pretty, _ := json.MarshalIndent(jsonObj, "", "  "); pretty != nil {
 				return string(pretty)
 			}
 		}
@@ -647,7 +647,7 @@ func prettyJSON(v interface{}) string {
 		return val
 	default:
 		// For other types (like the Args object), marshal to pretty JSON
-		if pretty, err := json.MarshalIndent(val, "", "  "); err == nil {
+		if pretty, _ := json.MarshalIndent(val, "", "  "); pretty != nil {
 			return string(pretty)
 		}
 		return fmt.Sprintf("%v", val)
@@ -667,7 +667,7 @@ func renderMarkdown(content string) template.HTML {
 // convertToJS converts a Go value to JSON for use in JavaScript
 func convertToJS(v interface{}) template.JS {
 	// Convert Go value to JSON for use in JavaScript
-	if jsonBytes, err := json.Marshal(v); err == nil {
+	if jsonBytes, _ := json.Marshal(v); jsonBytes != nil {
 		return template.JS(jsonBytes)
 	}
 	return template.JS("[]")

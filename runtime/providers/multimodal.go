@@ -95,7 +95,7 @@ func HasVideoSupport(p Provider) bool {
 }
 
 // IsFormatSupported checks if a provider supports a specific media format (MIME type)
-func IsFormatSupported(p Provider, contentType string, mimeType string) bool {
+func IsFormatSupported(p Provider, contentType, mimeType string) bool {
 	mp := GetMultimodalProvider(p)
 	if mp == nil {
 		return false
@@ -228,8 +228,8 @@ func (e *UnsupportedContentError) Error() string {
 // ValidateMultimodalRequest validates all messages in a predict request for multimodal compatibility
 // This is a helper function to reduce duplication across provider implementations
 func ValidateMultimodalRequest(p MultimodalSupport, req PredictionRequest) error {
-	for _, msg := range req.Messages {
-		if err := ValidateMultimodalMessage(p, msg); err != nil {
+	for i := range req.Messages {
+		if err := ValidateMultimodalMessage(p, req.Messages[i]); err != nil {
 			return err
 		}
 	}

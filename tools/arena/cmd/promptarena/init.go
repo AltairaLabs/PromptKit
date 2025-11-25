@@ -284,7 +284,7 @@ func promptForString(promptText string, v templates.Variable) (interface{}, erro
 
 func parseNumber(result string) (interface{}, error) {
 	var num float64
-	if _, err := fmt.Sscanf(result, "%f", &num); err == nil {
+	if n, _ := fmt.Sscanf(result, "%f", &num); n == 1 {
 		return num, nil
 	}
 	return result, nil

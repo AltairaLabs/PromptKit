@@ -24,6 +24,13 @@ const (
 	bearerPrefix                 = "Bearer "
 )
 
+// Default pricing constants (GPT-4o pricing used as fallback for unknown models)
+const (
+	defaultInputCostPer1K  = 0.0025
+	defaultOutputCostPer1K = 0.01
+	defaultCachedCostPer1K = 0.00125
+)
+
 // OpenAIProvider implements the Provider interface for OpenAI
 type OpenAIProvider struct {
 	providers.BaseProvider
@@ -105,8 +112,8 @@ func (p *OpenAIProvider) prepareOpenAIMessages(req providers.PredictionRequest) 
 	}
 
 	// Convert each message, handling both legacy text and multimodal Parts
-	for _, msg := range req.Messages {
-		converted, err := p.convertMessageToOpenAI(msg)
+	for i := range req.Messages {
+		converted, err := p.convertMessageToOpenAI(req.Messages[i])
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert message: %w", err)
 		}
@@ -117,18 +124,18 @@ func (p *OpenAIProvider) prepareOpenAIMessages(req providers.PredictionRequest) 
 }
 
 // applyRequestDefaults applies provider defaults to zero-valued request parameters
-func (p *OpenAIProvider) applyRequestDefaults(req providers.PredictionRequest) (float32, float32, int) {
-	temperature := req.Temperature
+func (p *OpenAIProvider) applyRequestDefaults(req providers.PredictionRequest) (temperature, topP float32, maxTokens int) {
+	temperature = req.Temperature
 	if temperature == 0 {
 		temperature = p.defaults.Temperature
 	}
 
-	topP := req.TopP
+	topP = req.TopP
 	if topP == 0 {
 		topP = p.defaults.TopP
 	}
 
-	maxTokens := req.MaxTokens
+	maxTokens = req.MaxTokens
 	if maxTokens == 0 {
 		maxTokens = p.defaults.MaxTokens
 	}
@@ -167,10 +174,6 @@ func (p *OpenAIProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) ty
 			inputCostPer1K = 0.03   // $0.03 per 1K input tokens
 			outputCostPer1K = 0.06  // $0.06 per 1K output tokens
 			cachedCostPer1K = 0.015 // $0.015 per 1K cached tokens (50% discount)
-		case "gpt-4o":
-			inputCostPer1K = 0.0025   // $0.0025 per 1K input tokens
-			outputCostPer1K = 0.01    // $0.01 per 1K output tokens
-			cachedCostPer1K = 0.00125 // $0.00125 per 1K cached tokens (50% discount)
 		case "gpt-4o-mini":
 			inputCostPer1K = 0.00015   // $0.00015 per 1K input tokens
 			outputCostPer1K = 0.0006   // $0.0006 per 1K output tokens
@@ -179,11 +182,13 @@ func (p *OpenAIProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) ty
 			inputCostPer1K = 0.0015   // $0.0015 per 1K input tokens
 			outputCostPer1K = 0.002   // $0.002 per 1K output tokens
 			cachedCostPer1K = 0.00075 // $0.00075 per 1K cached tokens (50% discount)
+		case "gpt-4o":
+			fallthrough // Use default GPT-4o pricing
 		default:
 			// Default to GPT-4o pricing for unknown models
-			inputCostPer1K = 0.0025
-			outputCostPer1K = 0.01
-			cachedCostPer1K = 0.00125
+			inputCostPer1K = defaultInputCostPer1K
+			outputCostPer1K = defaultOutputCostPer1K
+			cachedCostPer1K = defaultCachedCostPer1K
 		}
 	}
 

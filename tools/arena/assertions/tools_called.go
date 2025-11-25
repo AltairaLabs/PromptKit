@@ -5,6 +5,8 @@ import (
 	runtimeValidators "github.com/AltairaLabs/PromptKit/runtime/validators"
 )
 
+const roleAssistant = "assistant"
+
 // ToolsCalledValidator checks that expected tools were called in the response
 type ToolsCalledValidator struct {
 	expectedTools []string
@@ -109,7 +111,7 @@ func extractToolCallsFromTurnMessages(messages []types.Message) []types.MessageT
 		}
 
 		// Collect tool calls from assistant messages
-		if msg.Role == "assistant" {
+		if msg.Role == roleAssistant {
 			allToolCalls = append(allToolCalls, msg.ToolCalls...)
 		}
 	}

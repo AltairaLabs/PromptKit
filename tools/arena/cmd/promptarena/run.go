@@ -406,9 +406,8 @@ func applyConfigurationOverrides(cmd *cobra.Command, cfg *config.Config, params 
 
 	// Apply max_tokens override if provided
 	if cmd.Flags().Changed(flagMaxTokens) {
-		if maxTokens, err := cmd.Flags().GetInt(flagMaxTokens); err == nil {
-			cfg.Defaults.MaxTokens = maxTokens
-		}
+		maxTokens, _ := cmd.Flags().GetInt(flagMaxTokens)
+		cfg.Defaults.MaxTokens = maxTokens
 	}
 }
 

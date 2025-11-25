@@ -130,7 +130,7 @@ func (m *dynamicValidatorMiddleware) runValidations(
 	validatorList []validators.Validator,
 	validatorParams []map[string]interface{},
 	contentToValidate string,
-) ([]types.ValidationResult, []types.ValidationResult) {
+) (passed []types.ValidationResult, failed []types.ValidationResult) {
 	// Get streaming validation results from metadata (if any)
 	streamingResults, _ := execCtx.Metadata["_streaming_validation_results"].([]types.ValidationResult)
 	validationFailed, _ := execCtx.Metadata["_streaming_validation_failed"].(bool)

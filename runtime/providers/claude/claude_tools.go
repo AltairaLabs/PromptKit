@@ -15,6 +15,11 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+const (
+	roleUser      = "user"
+	roleAssistant = "assistant"
+)
+
 // ClaudeToolProvider extends ClaudeProvider with tool support
 type ClaudeToolProvider struct {
 	*ClaudeProvider
@@ -111,7 +116,7 @@ func buildClaudeMessageContent(msg types.Message, pendingToolResults []claudeToo
 	content := make([]interface{}, 0)
 
 	// Add pending tool results first if this is a user message
-	if msg.Role == "user" && len(pendingToolResults) > 0 {
+	if msg.Role == roleUser && len(pendingToolResults) > 0 {
 		for _, tr := range pendingToolResults {
 			content = append(content, tr)
 		}
@@ -126,7 +131,7 @@ func buildClaudeMessageContent(msg types.Message, pendingToolResults []claudeToo
 	}
 
 	// Add tool calls if this is an assistant message
-	if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+	if msg.Role == roleAssistant && len(msg.ToolCalls) > 0 {
 		for _, toolCall := range msg.ToolCalls {
 			content = append(content, claudeToolUse{
 				Type:  "tool_use",
@@ -181,13 +186,13 @@ func (p *ClaudeToolProvider) processMessageForTools(
 	tools interface{},
 ) ([]claudeToolMessage, []claudeToolResult) {
 	// If we have pending tool results and this is not a user message, create a user message for them
-	if len(pendingToolResults) > 0 && msg.Role != "user" {
+	if len(pendingToolResults) > 0 && msg.Role != roleUser {
 		messages = append(messages, flushPendingToolResults(pendingToolResults))
 		pendingToolResults = nil
 	}
 
 	content := buildClaudeMessageContent(msg, pendingToolResults)
-	if msg.Role == "user" {
+	if msg.Role == roleUser {
 		pendingToolResults = nil
 	}
 
@@ -201,7 +206,7 @@ func (p *ClaudeToolProvider) processMessageForTools(
 	}
 
 	// For caching: cache the first user message if tools are present and model supports caching
-	if p.supportsCaching() && msg.Role == "user" && len(messages) == 0 && tools != nil {
+	if p.supportsCaching() && msg.Role == roleUser && len(messages) == 0 && tools != nil {
 		claudeMsg.CacheControl = &claudeCacheControl{Type: "ephemeral"}
 	}
 
@@ -213,13 +218,14 @@ func (p *ClaudeToolProvider) buildToolRequest(req providers.PredictionRequest, t
 	messages := make([]claudeToolMessage, 0, len(req.Messages))
 	var pendingToolResults []claudeToolResult
 
-	for _, msg := range req.Messages {
+	for i := range req.Messages {
+		msg := &req.Messages[i]
 		if msg.Role == "tool" {
-			pendingToolResults = append(pendingToolResults, processClaudeToolResult(msg))
+			pendingToolResults = append(pendingToolResults, processClaudeToolResult(*msg))
 			continue
 		}
 
-		messages, pendingToolResults = p.processMessageForTools(msg, pendingToolResults, messages, tools)
+		messages, pendingToolResults = p.processMessageForTools(*msg, pendingToolResults, messages, tools)
 	}
 
 	// If there are still pending tool results at the end, add them as a final user message

@@ -53,7 +53,7 @@ func (e *RepositoryToolExecutor) Execute(descriptor *ToolDescriptor, args json.R
 	}
 
 	// Check if we have a repository response for this tool call
-	if repoResponse, err := e.getRepositoryResponse(descriptor.Name, argsMap); err == nil && repoResponse != nil {
+	if repoResponse, _ := e.getRepositoryResponse(descriptor.Name, argsMap); repoResponse != nil {
 		logger.Debug("RepositoryToolExecutor using repository response",
 			"tool_name", descriptor.Name,
 			"context_key", e.contextKey,
