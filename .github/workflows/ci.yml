@@ -124,49 +124,6 @@ jobs:
       with:
         name: coverage-report
     
-    - name: Download lint reports
-      uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
-      continue-on-error: true
-      with:
-        path: lint-reports
-        pattern: golangci-lint-report-*
-        merge-multiple: true
-    
-    - name: Combine lint reports
-      if: always()
-      run: |
-        echo "Combining golangci-lint reports for SonarCloud..."
-        mkdir -p lint-reports
-        
-        # Check if any reports exist
-        REPORT_COUNT=$(find lint-reports -name "golangci-lint-report.json" -type f 2>/dev/null | wc -l)
-        echo "Found $REPORT_COUNT lint report(s)"
-        
-        if [ "$REPORT_COUNT" -eq 0 ]; then
-          echo "No lint reports found, creating empty report"
-          echo '{"Issues":[]}' > golangci-lint-report.json
-        else
-          # Create a combined JSON report with all issues
-          echo '{"Issues":[' > golangci-lint-report.json
-          FIRST=true
-          
-          find lint-reports -name "golangci-lint-report.json" -type f | while read report; do
-            echo "Processing $report"
-            if [ "$FIRST" = true ]; then
-              FIRST=false
-              jq -r '.Issues[]' "$report" 2>/dev/null || echo "[]"
-            else
-              echo ","
-              jq -r '.Issues[]' "$report" 2>/dev/null || echo "[]"
-            fi
-          done >> golangci-lint-report.json
-          
-          echo ']}' >> golangci-lint-report.json
-          echo "Combined lint report created"
-        fi
-        
-        cat golangci-lint-report.json
-    
     - name: Verify coverage file
       run: |
         echo "Checking for coverage files..."
@@ -174,8 +131,6 @@ jobs:
         ls -la coverage.out 2>/dev/null || echo "coverage.out not found"
         echo "Coverage file size:"
         wc -l coverage.out 2>/dev/null || echo "Cannot read coverage.out"
-        echo "Lint report:"
-        ls -la golangci-lint-report.json 2>/dev/null || echo "golangci-lint-report.json not found"
     
     - name: SonarCloud Scan
       uses: SonarSource/sonarqube-scan-action@0303d6b62e310685c0e34d0b9cde218036885c4d # v5.0.0
@@ -217,19 +172,10 @@ jobs:
       with:
         version: v2.6.0
         working-directory: ${{ matrix.module }}
-        args: --out-format=json:golangci-lint-report.json,colored-line-number --issues-exit-code=0
+        args: --issues-exit-code=0
         only-new-issues: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    
-    - name: Upload lint report
-      if: always()
-      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
-      with:
-        name: golangci-lint-report-${{ strategy.job-index }}
-        path: ${{ matrix.module }}/golangci-lint-report.json
-        retention-days: 5
-        if-no-files-found: warn
   
   build:
     name: Build
