@@ -15,7 +15,7 @@ spec:
         description: Number of recent orders to retrieve
         default: 5
     required:
-      - email
+    - email
   output_schema:
     type: object
     properties:
@@ -30,7 +30,11 @@ spec:
               type: string
             status:
               type: string
-              enum: [pending, shipped, delivered, cancelled]
+              enum:
+              - pending
+              - shipped
+              - delivered
+              - cancelled
             total:
               type: number
             items:
@@ -41,13 +45,17 @@ spec:
   timeout_ms: 1000
   mock_result:
     orders:
-      - order_id: "ORD-2024-1234"
-        date: "2024-10-15"
-        status: "delivered"
-        total: 99.99
-        items: ["Product A", "Product B"]
-      - order_id: "ORD-2024-0987"
-        date: "2024-09-20"
-        status: "delivered"
-        total: 149.50
-        items: ["Product C"]
+    - order_id: ORD-2024-1234
+      date: '2024-10-15'
+      status: delivered
+      total: 99.99
+      items:
+      - Product A
+      - Product B
+    - order_id: ORD-2024-0987
+      date: '2024-09-20'
+      status: delivered
+      total: 149.5
+      items:
+      - Product C
+  name: get_order_history

@@ -11,18 +11,24 @@ spec:
         type: string
         description: The unique identifier for the order
     required:
-      - order_id
+    - order_id
   output_schema:
     type: object
     properties:
       status:
         type: string
-        enum: [pending, processing, shipped, delivered, cancelled]
+        enum:
+        - pending
+        - processing
+        - shipped
+        - delivered
+        - cancelled
       estimated_delivery:
         type: string
         format: date
   mode: mock
   timeout_ms: 2000
   mock_result:
-    status: "shipped"
-    estimated_delivery: "2025-10-25"
+    status: shipped
+    estimated_delivery: '2025-10-25'
+  name: get_order_status

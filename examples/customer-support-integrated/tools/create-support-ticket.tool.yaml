@@ -13,19 +13,28 @@ spec:
       issue_type:
         type: string
         description: Type of issue
-        enum: [billing, shipping, technical, account, other]
+        enum:
+        - billing
+        - shipping
+        - technical
+        - account
+        - other
       priority:
         type: string
         description: Priority level
-        enum: [low, medium, high, urgent]
+        enum:
+        - low
+        - medium
+        - high
+        - urgent
         default: medium
       description:
         type: string
         description: Detailed description of the issue
     required:
-      - email
-      - issue_type
-      - description
+    - email
+    - issue_type
+    - description
   output_schema:
     type: object
     properties:
@@ -33,12 +42,17 @@ spec:
         type: string
       status:
         type: string
-        enum: [open, assigned, resolved, closed]
+        enum:
+        - open
+        - assigned
+        - resolved
+        - closed
       created_at:
         type: string
   mode: mock
   timeout_ms: 1000
   mock_result:
-    ticket_id: "TICKET-98765"
-    status: "open"
-    created_at: "2024-10-23T10:30:00Z"
+    ticket_id: TICKET-98765
+    status: open
+    created_at: '2024-10-23T10:30:00Z'
+  name: create_support_ticket

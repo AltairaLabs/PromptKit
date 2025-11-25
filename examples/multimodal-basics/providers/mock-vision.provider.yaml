@@ -3,7 +3,7 @@ kind: Provider
 metadata:
   name: mock-vision
 spec:
-  id: "mock-vision"
+  id: mock-vision
   type: mock
   model: mock-multimodal-v1
   additional_config:
@@ -12,3 +12,4 @@ spec:
   defaults:
     temperature: 0.7
     max_tokens: 1500
+    top_p: 1.0

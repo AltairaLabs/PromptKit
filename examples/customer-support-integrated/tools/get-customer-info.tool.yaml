@@ -11,7 +11,7 @@ spec:
         type: string
         description: Customer email address
     required:
-      - email
+    - email
   output_schema:
     type: object
     properties:
@@ -25,12 +25,16 @@ spec:
         type: string
       tier:
         type: string
-        enum: [basic, premium, enterprise]
+        enum:
+        - basic
+        - premium
+        - enterprise
   mode: mock
   timeout_ms: 1000
   mock_result:
-    customer_id: "CUST-12345"
-    name: "John Doe"
-    email: "john.doe@example.com"
-    account_created: "2023-01-15"
-    tier: "premium"
+    customer_id: CUST-12345
+    name: John Doe
+    email: john.doe@example.com
+    account_created: '2023-01-15'
+    tier: premium
+  name: get_customer_info
