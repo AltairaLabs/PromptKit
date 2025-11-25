@@ -49,8 +49,7 @@ func ParsePolicyName(name string) (string, time.Duration, error) {
 
 	// Try "delete-after-Xmin" format
 	var minutes int
-	n, _ := fmt.Sscanf(name, "delete-after-%dmin", &minutes)
-	if n == 1 && fmt.Sprintf("delete-after-%dmin", minutes) == name {
+	if n, _ := fmt.Sscanf(name, "delete-after-%dmin", &minutes); n == 1 && fmt.Sprintf("delete-after-%dmin", minutes) == name { // NOSONAR: Parse failure handled by n==1 check
 		policyType = "delete-after"
 		duration = time.Duration(minutes) * time.Minute
 		return policyType, duration, nil
@@ -58,8 +57,7 @@ func ParsePolicyName(name string) (string, time.Duration, error) {
 
 	// Try "retain-Xhours" format
 	var hours int
-	n, _ = fmt.Sscanf(name, "retain-%dhours", &hours)
-	if n == 1 && fmt.Sprintf("retain-%dhours", hours) == name {
+	if n, _ := fmt.Sscanf(name, "retain-%dhours", &hours); n == 1 && fmt.Sprintf("retain-%dhours", hours) == name { // NOSONAR: Parse failure handled by n==1 check
 		policyType = "retain"
 		duration = time.Duration(hours) * time.Hour
 		return policyType, duration, nil
@@ -67,8 +65,7 @@ func ParsePolicyName(name string) (string, time.Duration, error) {
 
 	// Try "retain-Xdays" format
 	var days int
-	n, _ = fmt.Sscanf(name, "retain-%ddays", &days)
-	if n == 1 && fmt.Sprintf("retain-%ddays", days) == name {
+	if n, _ := fmt.Sscanf(name, "retain-%ddays", &days); n == 1 && fmt.Sprintf("retain-%ddays", days) == name { // NOSONAR: Parse failure handled by n==1 check
 		policyType = "retain"
 		duration = time.Duration(days) * 24 * time.Hour
 		return policyType, duration, nil

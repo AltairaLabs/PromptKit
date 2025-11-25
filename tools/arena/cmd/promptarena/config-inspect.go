@@ -38,7 +38,7 @@ func init() {
 }
 
 func runConfigInspect(cmd *cobra.Command, args []string) error {
-	configFile, _ := cmd.Flags().GetString("config")
+	configFile, _ := cmd.Flags().GetString("config") // NOSONAR: Flag existence is controlled by init(), error impossible
 
 	// If config path is a directory, append arena.yaml
 	if info, _ := os.Stat(configFile); info != nil && info.IsDir() {

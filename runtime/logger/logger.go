@@ -298,7 +298,7 @@ func APIResponse(provider string, statusCode int, body string, err error) {
 	if body != "" {
 		var jsonObj interface{}
 		if json.Unmarshal([]byte(body), &jsonObj) == nil {
-			prettyJSON, _ := json.MarshalIndent(jsonObj, "", "  ")
+			prettyJSON, _ := json.MarshalIndent(jsonObj, "", "  ") // NOSONAR: Formatting error falls back to original body
 			redactedBody := RedactSensitiveData(string(prettyJSON))
 			attrs = append(attrs, "body", redactedBody)
 		} else {

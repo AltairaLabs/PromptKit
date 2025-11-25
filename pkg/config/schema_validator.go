@@ -62,9 +62,12 @@ func findLocalSchemaPath(configType string) string {
 	}
 
 	for _, path := range possiblePaths {
-		if info, _ := os.Stat(path); info != nil {
-			absPath, _ := filepath.Abs(path)
-			return absPath
+		info, err := os.Stat(path)
+		if err == nil && info != nil {
+			if absPath, err := filepath.Abs(path); err == nil { // NOSONAR: Fallback to relative path if conversion fails
+				return absPath
+			}
+			return path // Fallback to relative path
 		}
 	}
 

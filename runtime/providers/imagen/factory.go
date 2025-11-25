@@ -20,12 +20,12 @@ func init() {
 
 		// Project ID and location are no longer required when using Gemini API endpoint
 		// Keep them for backwards compatibility but they're not used
-		projectID, _ := spec.AdditionalConfig["project_id"].(string)
+		projectID, _ := spec.AdditionalConfig["project_id"].(string) // NOSONAR: Type assertion failure returns empty string, handled below
 		if projectID == "" {
 			projectID = os.Getenv("GOOGLE_CLOUD_PROJECT")
 		}
 
-		location, _ := spec.AdditionalConfig["location"].(string)
+		location, _ := spec.AdditionalConfig["location"].(string) // NOSONAR: Type assertion failure returns empty string, handled below
 		if location == "" {
 			location = "us-central1"
 		}

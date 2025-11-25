@@ -421,7 +421,7 @@ func (p *ClaudeProvider) predictStreamWithContentsMultimodal(ctx context.Context
 
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(resp.Body) // NOSONAR: Read error results in empty body in error message
 		return nil, fmt.Errorf("claude api error (status %d): %s", resp.StatusCode, string(body))
 	}
 

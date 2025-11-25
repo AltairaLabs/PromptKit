@@ -72,7 +72,7 @@ type Pipeline struct {
 // NewPipeline creates a new pipeline with the given middleware.
 // Uses default runtime configuration.
 func NewPipeline(middleware ...Middleware) *Pipeline {
-	p, _ := NewPipelineWithConfigValidated(nil, middleware...)
+	p, _ := NewPipelineWithConfigValidated(nil, middleware...) // NOSONAR: nil config is always valid
 	return p
 }
 
@@ -81,7 +81,7 @@ func NewPipeline(middleware ...Middleware) *Pipeline {
 // Note: This function does not validate config values for backward compatibility.
 // Use NewPipelineWithConfigValidated for validation.
 func NewPipelineWithConfig(config *PipelineRuntimeConfig, middleware ...Middleware) *Pipeline {
-	p, _ := NewPipelineWithConfigValidated(config, middleware...)
+	p, _ := NewPipelineWithConfigValidated(config, middleware...) // NOSONAR: Backward compatibility - validation errors would break existing code
 	return p
 }
 

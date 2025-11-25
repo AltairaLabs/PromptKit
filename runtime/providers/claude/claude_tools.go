@@ -288,7 +288,7 @@ func parseToolCallsFromRawResponse(respBytes []byte) []types.MessageToolCall {
 		}
 
 		if input, ok := itemMap["input"]; ok {
-			inputBytes, _ := json.Marshal(input)
+			inputBytes, _ := json.Marshal(input) // NOSONAR: Marshal only errors on unsupported types, impossible with map[string]interface{}
 			toolCall.Args = json.RawMessage(inputBytes)
 		}
 

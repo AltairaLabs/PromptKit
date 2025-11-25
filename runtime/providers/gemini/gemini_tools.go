@@ -350,10 +350,9 @@ func (p *GeminiToolProvider) parseToolResponse(respBytes []byte, predictResp pro
 			}
 
 			if part.FunctionCall.Args != nil {
-				argsBytes, _ := json.Marshal(part.FunctionCall.Args)
+				argsBytes, _ := json.Marshal(part.FunctionCall.Args) // NOSONAR: Marshal only errors on unsupported types, impossible with map[string]interface{}
 				toolCall.Args = json.RawMessage(argsBytes)
 			}
-
 			toolCalls = append(toolCalls, toolCall)
 		}
 	}

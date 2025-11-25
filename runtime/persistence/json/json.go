@@ -117,8 +117,7 @@ func (r *JSONPromptRepository) searchByFilename(taskType string) string {
 		}
 
 		for _, pattern := range patterns {
-			matched, _ := filepath.Match(pattern, filepath.Base(path))
-			if matched {
+			if matched, _ := filepath.Match(pattern, filepath.Base(path)); matched { // NOSONAR: Pattern syntax is controlled and valid
 				foundFile = path
 				return filepath.SkipAll
 			}

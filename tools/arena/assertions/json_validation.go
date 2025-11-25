@@ -20,8 +20,8 @@ type IsValidJSONValidator struct {
 
 // NewIsValidJSONValidator creates a new is_valid_json validator
 func NewIsValidJSONValidator(params map[string]interface{}) runtimeValidators.Validator {
-	allowWrapped, _ := params["allow_wrapped"].(bool)
-	extractJSON, _ := params["extract_json"].(bool)
+	allowWrapped, _ := params["allow_wrapped"].(bool) // NOSONAR: Type assertion failure returns false (desired default)
+	extractJSON, _ := params["extract_json"].(bool)   // NOSONAR: Type assertion failure returns false (desired default)
 
 	return &IsValidJSONValidator{
 		allowWrapped: allowWrapped,
@@ -154,10 +154,10 @@ type JSONSchemaValidator struct {
 
 // NewJSONSchemaValidator creates a new json_schema validator
 func NewJSONSchemaValidator(params map[string]interface{}) runtimeValidators.Validator {
-	schema, _ := params["schema"].(map[string]interface{})
-	schemaFile, _ := params["schema_file"].(string)
-	allowWrapped, _ := params["allow_wrapped"].(bool)
-	extractJSON, _ := params["extract_json"].(bool)
+	schema, _ := params["schema"].(map[string]interface{}) // NOSONAR: Type assertion failure returns nil (desired default)
+	schemaFile, _ := params["schema_file"].(string)        // NOSONAR: Type assertion failure returns empty string (desired default)
+	allowWrapped, _ := params["allow_wrapped"].(bool)      // NOSONAR: Type assertion failure returns false (desired default)
+	extractJSON, _ := params["extract_json"].(bool)        // NOSONAR: Type assertion failure returns false (desired default)
 
 	return &JSONSchemaValidator{
 		schema:       schema,
@@ -256,16 +256,16 @@ type JSONPathValidator struct {
 // NewJSONPathValidator creates a new json_path validator
 func NewJSONPathValidator(params map[string]interface{}) runtimeValidators.Validator {
 	// Support both jmespath_expression (new) and expression (deprecated) for backward compatibility
-	jmespathExpression, _ := params["jmespath_expression"].(string)
+	jmespathExpression, _ := params["jmespath_expression"].(string) // NOSONAR: Type assertion failure returns empty string, validated below
 	if jmespathExpression == "" {
-		jmespathExpression, _ = params["expression"].(string)
+		jmespathExpression, _ = params["expression"].(string) // NOSONAR: Backward compatibility fallback
 	}
 	expected := params["expected"]
 	contains := params["contains"]
-	minResults, _ := params["min_results"].(int)
-	maxResults, _ := params["max_results"].(int)
-	allowWrapped, _ := params["allow_wrapped"].(bool)
-	extractJSON, _ := params["extract_json"].(bool)
+	minResults, _ := params["min_results"].(int)      // NOSONAR: Type assertion failure returns 0 (desired default)
+	maxResults, _ := params["max_results"].(int)      // NOSONAR: Type assertion failure returns 0 (desired default)
+	allowWrapped, _ := params["allow_wrapped"].(bool) // NOSONAR: Type assertion failure returns false (desired default)
+	extractJSON, _ := params["extract_json"].(bool)   // NOSONAR: Type assertion failure returns false (desired default)
 
 	var minVal, maxVal *float64
 	if val, ok := params["min"].(float64); ok {

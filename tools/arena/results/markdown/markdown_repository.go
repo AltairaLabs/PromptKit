@@ -702,7 +702,7 @@ func (r *MarkdownResultRepository) extractFailuresFromResults(results []interfac
 		if !ok {
 			continue
 		}
-		assertionType, _ := assertionData["type"].(string)
+		assertionType, _ := assertionData["type"].(string) // NOSONAR: Type assertion failure returns empty string, handled below
 		if assertionType == "" {
 			assertionType = fmt.Sprintf("assertion_%d", i)
 		}
