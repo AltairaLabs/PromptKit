@@ -159,7 +159,7 @@ func (r *YAMLPromptRepository) searchForPrompt(taskType string) (string, error) 
 }
 
 // LoadFragment loads a fragment by name and optional path
-func (r *YAMLPromptRepository) LoadFragment(name string, relativePath string, baseDir string) (*prompt.Fragment, error) {
+func (r *YAMLPromptRepository) LoadFragment(name, relativePath, baseDir string) (*prompt.Fragment, error) {
 	// Determine fragment path
 	var fragmentPath string
 	if relativePath != "" {

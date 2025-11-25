@@ -248,7 +248,7 @@ func (p *Pipeline) ExecuteWithOptions(opts *ExecutionOptions, role, content stri
 // The role and content parameters are used to create the initial user message.
 // If role is empty, no message is appended (useful for testing).
 // Returns the ExecutionResult containing messages, response, trace, and metadata.
-func (p *Pipeline) Execute(ctx context.Context, role string, content string) (*ExecutionResult, error) {
+func (p *Pipeline) Execute(ctx context.Context, role, content string) (*ExecutionResult, error) {
 	return p.ExecuteWithOptions(&ExecutionOptions{Context: ctx}, role, content)
 }
 

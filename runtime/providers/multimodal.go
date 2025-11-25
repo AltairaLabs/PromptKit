@@ -95,7 +95,7 @@ func HasVideoSupport(p Provider) bool {
 }
 
 // IsFormatSupported checks if a provider supports a specific media format (MIME type)
-func IsFormatSupported(p Provider, contentType string, mimeType string) bool {
+func IsFormatSupported(p Provider, contentType, mimeType string) bool {
 	mp := GetMultimodalProvider(p)
 	if mp == nil {
 		return false

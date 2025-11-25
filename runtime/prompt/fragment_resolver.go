@@ -64,7 +64,7 @@ func (fr *FragmentResolver) AssembleFragments(
 
 // LoadFragment loads a fragment from the repository with caching.
 // Uses name as cache key, or path if provided.
-func (fr *FragmentResolver) LoadFragment(name string, relativePath string, configFilePath string) (*Fragment, error) {
+func (fr *FragmentResolver) LoadFragment(name, relativePath, configFilePath string) (*Fragment, error) {
 	if fr.repository == nil {
 		return nil, fmt.Errorf("fragment resolver requires repository")
 	}

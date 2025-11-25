@@ -153,7 +153,7 @@ func (r *JSONPromptRepository) searchForPrompt(taskType string) (string, error) 
 }
 
 // LoadFragment loads a fragment by name
-func (r *JSONPromptRepository) LoadFragment(name string, relativePath string, baseDir string) (*prompt.Fragment, error) {
+func (r *JSONPromptRepository) LoadFragment(name, relativePath, baseDir string) (*prompt.Fragment, error) {
 	var fragmentPath string
 	if relativePath != "" {
 		fragmentPath = filepath.Join(baseDir, relativePath)

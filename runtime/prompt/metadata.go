@@ -17,7 +17,7 @@ func NewMetadataBuilder(spec *PromptSpec) *MetadataBuilder {
 }
 
 // BuildPromptMetadata generates PromptMetadata from test execution results
-func (mb *MetadataBuilder) BuildPromptMetadata(domain string, language string, tags []string, testResults []TestResultSummary) *PromptMetadata {
+func (mb *MetadataBuilder) BuildPromptMetadata(domain, language string, tags []string, testResults []TestResultSummary) *PromptMetadata {
 	metadata := &PromptMetadata{
 		Domain:   domain,
 		Language: language,
@@ -123,7 +123,7 @@ type TestResultSummary struct {
 }
 
 // AggregateTestResults computes ModelTestResultRef from test execution summaries
-func AggregateTestResults(results []TestResultSummary, provider string, model string) *ModelTestResultRef {
+func AggregateTestResults(results []TestResultSummary, provider, model string) *ModelTestResultRef {
 	if len(results) == 0 {
 		return nil
 	}
@@ -193,7 +193,7 @@ func calculateP95Latency(results []TestResultSummary) int {
 }
 
 // AddChangelogEntry adds a new entry to the prompt's changelog
-func (mb *MetadataBuilder) AddChangelogEntry(version string, author string, description string) {
+func (mb *MetadataBuilder) AddChangelogEntry(version, author, description string) {
 	if mb.spec.Metadata == nil {
 		mb.spec.Metadata = &PromptMetadata{}
 	}
