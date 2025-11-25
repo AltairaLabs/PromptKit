@@ -5,18 +5,16 @@ on:
     branches: [ main ]
     paths:
       - 'pkg/config/**'
-      - 'runtime/prompt/**'
-      - 'runtime/tools/**'
       - 'tools/schema-gen/**'
+      - 'schemas/**/*.json'
       - 'examples/**/*.yaml'
       - '.github/workflows/schemas.yml'
   pull_request:
     branches: [ main ]
     paths:
       - 'pkg/config/**'
-      - 'runtime/prompt/**'
-      - 'runtime/tools/**'
       - 'tools/schema-gen/**'
+      - 'schemas/**/*.json'
       - 'examples/**/*.yaml'
       - '.github/workflows/schemas.yml'
 
