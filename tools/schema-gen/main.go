@@ -277,23 +277,8 @@ func generateLatestSchemas(repoRoot string, schemaGens []struct {
 
 	// Generate main schema refs
 	for _, sg := range schemaGens {
-		ref := map[string]string{
-			"$ref": fmt.Sprintf("%s/%s/%s", baseURL, config.SchemaVersion, sg.filename),
-		}
-
-		data, err := json.MarshalIndent(ref, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to marshal latest ref for %s: %w", sg.filename, err)
-		}
-		data = append(data, '\n')
-
-		outputFile := filepath.Join(latestDir, sg.filename)
-		if err := os.WriteFile(outputFile, data, filePermissions); err != nil {
-			return fmt.Errorf("failed to write latest ref %s: %w", sg.filename, err)
-		}
-
-		if *verbose {
-			fmt.Printf("✓ Generated latest/%s -> %s/%s\n", sg.filename, config.SchemaVersion, sg.filename)
+		if err := generateSchemaRef(latestDir, baseURL, sg.filename, ""); err != nil {
+			return err
 		}
 	}
 
@@ -305,24 +290,33 @@ func generateLatestSchemas(repoRoot string, schemaGens []struct {
 
 	commonSchemas := []string{"metadata.json", "assertions.json", "media.json"}
 	for _, filename := range commonSchemas {
-		ref := map[string]string{
-			"$ref": fmt.Sprintf("%s/%s/common/%s", baseURL, config.SchemaVersion, filename),
+		if err := generateSchemaRef(commonLatestDir, baseURL, filename, "common/"); err != nil {
+			return err
 		}
+	}
 
-		data, err := json.MarshalIndent(ref, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to marshal latest ref for common/%s: %w", filename, err)
-		}
-		data = append(data, '\n')
+	return nil
+}
 
-		outputFile := filepath.Join(commonLatestDir, filename)
-		if err := os.WriteFile(outputFile, data, filePermissions); err != nil {
-			return fmt.Errorf("failed to write latest ref common/%s: %w", filename, err)
-		}
+// generateSchemaRef creates a JSON reference file pointing to a versioned schema
+func generateSchemaRef(outputDir, baseURL, filename, pathPrefix string) error {
+	ref := map[string]string{
+		"$ref": fmt.Sprintf("%s/%s/%s%s", baseURL, config.SchemaVersion, pathPrefix, filename),
+	}
 
-		if *verbose {
-			fmt.Printf("✓ Generated latest/common/%s -> %s/common/%s\n", filename, config.SchemaVersion, filename)
-		}
+	data, err := json.MarshalIndent(ref, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal latest ref for %s%s: %w", pathPrefix, filename, err)
+	}
+	data = append(data, '\n')
+
+	outputFile := filepath.Join(outputDir, filename)
+	if err := os.WriteFile(outputFile, data, filePermissions); err != nil {
+		return fmt.Errorf("failed to write latest ref %s%s: %w", pathPrefix, filename, err)
+	}
+
+	if *verbose {
+		fmt.Printf("✓ Generated latest/%s%s -> %s/%s%s\n", pathPrefix, filename, config.SchemaVersion, pathPrefix, filename)
 	}
 
 	return nil

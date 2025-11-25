@@ -10,6 +10,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const (
+	errInvalidToolDescriptor  = "invalid tool descriptor in %s: %w"
+	errResultValidationFailed = "result validation failed: %v"
+	msgToolCoercions          = "Tool %s: performed %d coercions\n"
+)
+
 // ToolRepository provides abstract access to tool descriptors (local interface to avoid import cycles)
 type ToolRepository interface {
 	LoadTool(name string) (*ToolDescriptor, error)
@@ -122,79 +128,103 @@ func (r *Registry) LoadToolFromBytes(filename string, data []byte) error {
 	ext := strings.ToLower(filepath.Ext(filename))
 
 	if ext == ".yaml" || ext == ".yml" {
-		// Try K8s-style manifest first - parse as generic structure then convert
-		var temp interface{}
-		if err := yaml.Unmarshal(data, &temp); err != nil {
-			return fmt.Errorf("failed to parse YAML tool file %s: %w", filename, err)
-		}
+		return r.loadYAMLTool(filename, data)
+	}
 
-		// Check if this looks like a K8s manifest
-		if tempMap, ok := temp.(map[string]interface{}); ok {
-			if apiVersion, hasAPI := tempMap["apiVersion"].(string); hasAPI && apiVersion != "" {
-				// This is a K8s manifest - convert to JSON then to our struct
-				jsonData, err := json.Marshal(temp)
-				if err != nil {
-					return fmt.Errorf("failed to convert K8s manifest to JSON for %s: %w", filename, err)
-				}
+	return r.loadJSONTool(filename, data)
+}
 
-				var toolConfig ToolConfig
-				if err := json.Unmarshal(jsonData, &toolConfig); err != nil {
-					return fmt.Errorf("failed to unmarshal K8s manifest %s: %w", filename, err)
-				}
+// loadYAMLTool loads a tool from YAML data
+func (r *Registry) loadYAMLTool(filename string, data []byte) error {
+	var temp interface{}
+	if err := yaml.Unmarshal(data, &temp); err != nil {
+		return fmt.Errorf("failed to parse YAML tool file %s: %w", filename, err)
+	}
 
-				// Validate K8s manifest structure
-				if toolConfig.Kind == "" {
-					return fmt.Errorf("tool config %s is missing kind", filename)
-				}
-				if toolConfig.Kind != "Tool" {
-					return fmt.Errorf("tool config %s has invalid kind: expected 'Tool', got '%s'", filename, toolConfig.Kind)
-				}
-				if toolConfig.Metadata.Name == "" {
-					return fmt.Errorf("tool config %s is missing metadata.name", filename)
-				}
-
-				// Use metadata.name as tool name (spec.name is not needed in K8s manifests)
-				toolConfig.Spec.Name = toolConfig.Metadata.Name
-
-				// Validate and store the tool
-				if err := r.validateDescriptor(&toolConfig.Spec); err != nil {
-					return fmt.Errorf("invalid tool descriptor in %s: %w", filename, err)
-				}
-
-				r.tools[toolConfig.Spec.Name] = &toolConfig.Spec
-				return nil
-			}
-
-			// Not a K8s manifest - fall back to legacy format
-			jsonData, err := json.Marshal(temp)
-			if err != nil {
-				return fmt.Errorf("failed to convert YAML to JSON for %s: %w", filename, err)
-			}
-
-			var descriptor ToolDescriptor
-			if err := json.Unmarshal(jsonData, &descriptor); err != nil {
-				return fmt.Errorf("failed to unmarshal converted JSON for %s: %w", filename, err)
-			}
-
-			if err := r.validateDescriptor(&descriptor); err != nil {
-				return fmt.Errorf("invalid tool descriptor in %s: %w", filename, err)
-			}
-
-			r.tools[descriptor.Name] = &descriptor
-			return nil
-		}
-
+	tempMap, ok := temp.(map[string]interface{})
+	if !ok {
 		return fmt.Errorf("invalid YAML structure in %s", filename)
 	}
 
-	// For JSON files, use direct JSON unmarshaling (legacy format only)
+	// Check if this looks like a K8s manifest
+	if apiVersion, hasAPI := tempMap["apiVersion"].(string); hasAPI && apiVersion != "" {
+		return r.loadK8sManifest(filename, temp)
+	}
+
+	// Not a K8s manifest - fall back to legacy format
+	return r.loadLegacyYAML(filename, temp)
+}
+
+// loadK8sManifest loads a K8s-style tool manifest
+func (r *Registry) loadK8sManifest(filename string, temp interface{}) error {
+	jsonData, err := json.Marshal(temp)
+	if err != nil {
+		return fmt.Errorf("failed to convert K8s manifest to JSON for %s: %w", filename, err)
+	}
+
+	var toolConfig ToolConfig
+	if err := json.Unmarshal(jsonData, &toolConfig); err != nil {
+		return fmt.Errorf("failed to unmarshal K8s manifest %s: %w", filename, err)
+	}
+
+	if err := r.validateK8sManifest(filename, &toolConfig); err != nil {
+		return err
+	}
+
+	// Use metadata.name as tool name (spec.name is not needed in K8s manifests)
+	toolConfig.Spec.Name = toolConfig.Metadata.Name
+
+	if err := r.validateDescriptor(&toolConfig.Spec); err != nil {
+		return fmt.Errorf(errInvalidToolDescriptor, filename, err)
+	}
+
+	r.tools[toolConfig.Spec.Name] = &toolConfig.Spec
+	return nil
+}
+
+// validateK8sManifest validates the structure of a K8s manifest
+func (r *Registry) validateK8sManifest(filename string, toolConfig *ToolConfig) error {
+	if toolConfig.Kind == "" {
+		return fmt.Errorf("tool config %s is missing kind", filename)
+	}
+	if toolConfig.Kind != "Tool" {
+		return fmt.Errorf("tool config %s has invalid kind: expected 'Tool', got '%s'", filename, toolConfig.Kind)
+	}
+	if toolConfig.Metadata.Name == "" {
+		return fmt.Errorf("tool config %s is missing metadata.name", filename)
+	}
+	return nil
+}
+
+// loadLegacyYAML loads a tool from legacy YAML format
+func (r *Registry) loadLegacyYAML(filename string, temp interface{}) error {
+	jsonData, err := json.Marshal(temp)
+	if err != nil {
+		return fmt.Errorf("failed to convert YAML to JSON for %s: %w", filename, err)
+	}
+
+	var descriptor ToolDescriptor
+	if err := json.Unmarshal(jsonData, &descriptor); err != nil {
+		return fmt.Errorf("failed to unmarshal converted JSON for %s: %w", filename, err)
+	}
+
+	if err := r.validateDescriptor(&descriptor); err != nil {
+		return fmt.Errorf(errInvalidToolDescriptor, filename, err)
+	}
+
+	r.tools[descriptor.Name] = &descriptor
+	return nil
+}
+
+// loadJSONTool loads a tool from JSON data
+func (r *Registry) loadJSONTool(filename string, data []byte) error {
 	var descriptor ToolDescriptor
 	if err := json.Unmarshal(data, &descriptor); err != nil {
 		return fmt.Errorf("failed to parse JSON tool file %s: %w", filename, err)
 	}
 
 	if err := r.validateDescriptor(&descriptor); err != nil {
-		return fmt.Errorf("invalid tool descriptor in %s: %w", filename, err)
+		return fmt.Errorf(errInvalidToolDescriptor, filename, err)
 	}
 
 	r.tools[descriptor.Name] = &descriptor
@@ -293,7 +323,7 @@ func (r *Registry) Execute(toolName string, args json.RawMessage) (*ToolResult, 
 	if err != nil {
 		return &ToolResult{
 			Name:      toolName,
-			Error:     fmt.Sprintf("result validation failed: %v", err),
+			Error:     fmt.Sprintf(errResultValidationFailed, err),
 			LatencyMs: latency,
 		}, nil
 	}
@@ -301,7 +331,7 @@ func (r *Registry) Execute(toolName string, args json.RawMessage) (*ToolResult, 
 	// Log coercions if any occurred
 	if len(coercions) > 0 {
 		// Could log coercions here for debugging
-		fmt.Printf("Tool %s: performed %d coercions\n", toolName, len(coercions))
+		fmt.Printf(msgToolCoercions, toolName, len(coercions))
 	}
 
 	return &ToolResult{
@@ -324,7 +354,22 @@ func (r *Registry) ExecuteAsync(toolName string, args json.RawMessage) (*ToolExe
 		return nil, err
 	}
 
-	// Find appropriate executor
+	executor, err := r.getExecutorForTool(tool)
+	if err != nil {
+		return nil, err
+	}
+
+	// Try async execution if supported
+	if asyncExecutor, ok := executor.(AsyncToolExecutor); ok {
+		return r.executeWithAsyncExecutor(asyncExecutor, tool, toolName, args)
+	}
+
+	// Fall back to synchronous execution
+	return r.executeSyncFallback(executor, tool, toolName, args)
+}
+
+// getExecutorForTool finds the appropriate executor for a tool
+func (r *Registry) getExecutorForTool(tool *ToolDescriptor) (Executor, error) {
 	executorName := "mock-static"
 	if tool.Mode == "mcp" {
 		executorName = "mcp"
@@ -338,55 +383,38 @@ func (r *Registry) ExecuteAsync(toolName string, args json.RawMessage) (*ToolExe
 	if !exists {
 		return nil, fmt.Errorf("executor %s not available", executorName)
 	}
+	return executor, nil
+}
 
-	// Check if executor implements AsyncToolExecutor
-	if asyncExecutor, ok := executor.(AsyncToolExecutor); ok {
-		// Execute with async support
-		start := getCurrentTimeMs()
-		result, err := asyncExecutor.ExecuteAsync(tool, args)
-		_ = getCurrentTimeMs() - start // Track latency but unused for now
+// executeWithAsyncExecutor executes a tool with async support
+func (r *Registry) executeWithAsyncExecutor(asyncExecutor AsyncToolExecutor, tool *ToolDescriptor, toolName string, args json.RawMessage) (*ToolExecutionResult, error) {
+	start := getCurrentTimeMs()
+	result, err := asyncExecutor.ExecuteAsync(tool, args)
+	_ = getCurrentTimeMs() - start // Track latency but unused for now
 
-		if err != nil {
-			return &ToolExecutionResult{
-				Status: ToolStatusFailed,
-				Error:  err.Error(),
-			}, nil
-		}
-
-		// For pending status, return as-is without validation
-		if result.Status == ToolStatusPending {
-			return result, nil
-		}
-
-		// For failed status, return as-is
-		if result.Status == ToolStatusFailed {
-			return result, nil
-		}
-
-		// For complete status, validate result (skip for MCP tools)
-		if tool.Mode == "mcp" {
-			return result, nil
-		}
-
-		validatedResult, coercions, err := r.validator.CoerceResult(tool, result.Content)
-		if err != nil {
-			return &ToolExecutionResult{
-				Status: ToolStatusFailed,
-				Error:  fmt.Sprintf("result validation failed: %v", err),
-			}, nil
-		}
-
-		if len(coercions) > 0 {
-			fmt.Printf("Tool %s: performed %d coercions\n", toolName, len(coercions))
-		}
-
+	if err != nil {
 		return &ToolExecutionResult{
-			Status:  ToolStatusComplete,
-			Content: validatedResult,
+			Status: ToolStatusFailed,
+			Error:  err.Error(),
 		}, nil
 	}
 
-	// Fall back to synchronous execution for non-async executors
+	// Return immediately for pending or failed status
+	if result.Status == ToolStatusPending || result.Status == ToolStatusFailed {
+		return result, nil
+	}
+
+	// Skip validation for MCP tools
+	if tool.Mode == "mcp" {
+		return result, nil
+	}
+
+	// result.Content is already json.RawMessage
+	return r.validateAndCoerceResult(tool, toolName, result.Content)
+}
+
+// executeSyncFallback executes a tool synchronously for non-async executors
+func (r *Registry) executeSyncFallback(executor Executor, tool *ToolDescriptor, toolName string, args json.RawMessage) (*ToolExecutionResult, error) {
 	start := getCurrentTimeMs()
 	result, err := executor.Execute(tool, args)
 	_ = getCurrentTimeMs() - start // Track latency but unused for now
@@ -406,17 +434,21 @@ func (r *Registry) ExecuteAsync(toolName string, args json.RawMessage) (*ToolExe
 		}, nil
 	}
 
-	// Validate and potentially coerce the result for non-MCP tools
-	validatedResult, coercions, err := r.validator.CoerceResult(tool, result)
+	return r.validateAndCoerceResult(tool, toolName, result)
+}
+
+// validateAndCoerceResult validates and coerces tool execution results
+func (r *Registry) validateAndCoerceResult(tool *ToolDescriptor, toolName string, content json.RawMessage) (*ToolExecutionResult, error) {
+	validatedResult, coercions, err := r.validator.CoerceResult(tool, content)
 	if err != nil {
 		return &ToolExecutionResult{
 			Status: ToolStatusFailed,
-			Error:  fmt.Sprintf("result validation failed: %v", err),
+			Error:  fmt.Sprintf(errResultValidationFailed, err),
 		}, nil
 	}
 
 	if len(coercions) > 0 {
-		fmt.Printf("Tool %s: performed %d coercions\n", toolName, len(coercions))
+		fmt.Printf(msgToolCoercions, toolName, len(coercions))
 	}
 
 	return &ToolExecutionResult{
