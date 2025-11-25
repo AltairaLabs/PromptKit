@@ -15,7 +15,10 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-const roleUser = "user"
+const (
+	roleUser        = "user"
+	providerNameLog = "Gemini-Tools"
+)
 
 // GeminiToolProvider extends GeminiProvider with tool support
 type GeminiToolProvider struct {
@@ -391,7 +394,7 @@ func (p *GeminiToolProvider) makeRequest(ctx context.Context, request interface{
 	headers := map[string]string{
 		"Content-Type": "application/json",
 	}
-	logger.APIRequest("Gemini-Tools", "POST", url, headers, requestObj)
+	logger.APIRequest(providerNameLog, "POST", url, headers, requestObj)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(requestBytes))
 	if err != nil {
@@ -402,19 +405,19 @@ func (p *GeminiToolProvider) makeRequest(ctx context.Context, request interface{
 
 	resp, err := p.GetHTTPClient().Do(req)
 	if err != nil {
-		logger.APIResponse("Gemini-Tools", 0, "", err)
+		logger.APIResponse(providerNameLog, 0, "", err)
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		logger.APIResponse("Gemini-Tools", resp.StatusCode, "", err)
+		logger.APIResponse(providerNameLog, resp.StatusCode, "", err)
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	// Debug log the response
-	logger.APIResponse("Gemini-Tools", resp.StatusCode, string(respBytes), nil)
+	logger.APIResponse(providerNameLog, resp.StatusCode, string(respBytes), nil)
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBytes))

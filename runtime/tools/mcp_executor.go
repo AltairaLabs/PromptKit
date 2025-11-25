@@ -10,6 +10,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 )
 
+const mcpToolSuccess = "✅ MCP Tool Success"
+
 // MCPExecutor executes tools using MCP (Model Context Protocol) servers
 type MCPExecutor struct {
 	registry mcp.Registry
@@ -35,74 +37,95 @@ func (e *MCPExecutor) Execute(descriptor *ToolDescriptor, args json.RawMessage) 
 		return nil, fmt.Errorf("MCP executor can only execute mcp tools")
 	}
 
-	// Log the tool call
 	logger.Info("🔧 MCP Tool Call", "tool", descriptor.Name, "args", string(args))
 
-	// Get the MCP client for this tool
+	response, err := e.callMCPTool(descriptor.Name, args)
+	if err != nil {
+		return nil, err
+	}
+
+	if response.IsError {
+		return nil, e.handleErrorResponse(descriptor.Name, response)
+	}
+
+	return e.formatSuccessResponse(descriptor.Name, response)
+}
+
+func (e *MCPExecutor) callMCPTool(toolName string, args json.RawMessage) (*mcp.ToolCallResponse, error) {
 	ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
 	defer cancel()
 
-	client, err := e.registry.GetClientForTool(ctx, descriptor.Name)
+	client, err := e.registry.GetClientForTool(ctx, toolName)
 	if err != nil {
-		logger.Error("❌ MCP Tool Failed", "tool", descriptor.Name, "error", err)
-		return nil, fmt.Errorf("failed to get MCP client for tool %s: %w", descriptor.Name, err)
+		logger.Error("❌ MCP Tool Failed", "tool", toolName, "error", err)
+		return nil, fmt.Errorf("failed to get MCP client for tool %s: %w", toolName, err)
 	}
 
-	// Call the tool via MCP
-	response, err := client.CallTool(ctx, descriptor.Name, args)
+	response, err := client.CallTool(ctx, toolName, args)
 	if err != nil {
-		logger.Error("❌ MCP Tool Failed", "tool", descriptor.Name, "error", err)
+		logger.Error("❌ MCP Tool Failed", "tool", toolName, "error", err)
 		return nil, fmt.Errorf("MCP tool call failed: %w", err)
 	}
 
-	// Check for tool errors - extract detailed error message
-	if response.IsError {
-		// Build detailed error message from response content
-		errorMsg := "MCP tool returned error"
-		if len(response.Content) > 0 {
-			for i, content := range response.Content {
-				if content.Text != "" {
-					if i == 0 {
-						errorMsg = content.Text
-					} else {
-						errorMsg += "; " + content.Text
-					}
-				}
-			}
-		}
-		logger.Error("❌ MCP Tool Error", "tool", descriptor.Name, "error", errorMsg)
-		return nil, fmt.Errorf("%s", errorMsg)
+	return response, nil
+}
+
+func (e *MCPExecutor) handleErrorResponse(toolName string, response *mcp.ToolCallResponse) error {
+	errorMsg := e.extractErrorMessage(response.Content)
+	logger.Error("❌ MCP Tool Error", "tool", toolName, "error", errorMsg)
+	return fmt.Errorf("%s", errorMsg)
+}
+
+func (e *MCPExecutor) extractErrorMessage(content []mcp.Content) string {
+	if len(content) == 0 {
+		return "MCP tool returned error"
 	}
 
-	// Extract text content from the response for the LLM
-	// MCP responses contain an array of content items, each with a type and text
+	var errorMsg string
+	for i, item := range content {
+		if item.Text != "" {
+			if i == 0 {
+				errorMsg = item.Text
+			} else {
+				errorMsg += "; " + item.Text
+			}
+		}
+	}
+
+	if errorMsg == "" {
+		return "MCP tool returned error"
+	}
+	return errorMsg
+}
+
+func (e *MCPExecutor) formatSuccessResponse(toolName string, response *mcp.ToolCallResponse) (json.RawMessage, error) {
 	if len(response.Content) == 0 {
-		// Empty response - return success message
-		logger.Info("✅ MCP Tool Success", "tool", descriptor.Name, "result", "empty (success)")
+		logger.Info(mcpToolSuccess, "tool", toolName, "result", "empty (success)")
 		return json.Marshal("Operation completed successfully")
 	}
 
-	// If single text content, return it directly
 	if len(response.Content) == 1 && response.Content[0].Type == "text" {
 		result := response.Content[0].Text
-		logger.Info("✅ MCP Tool Success", "tool", descriptor.Name, "result_length", len(result))
+		logger.Info(mcpToolSuccess, "tool", toolName, "result_length", len(result))
 		return json.Marshal(result)
 	}
 
-	// Multiple content items - concatenate them
-	var contentParts []string
-	for _, content := range response.Content {
-		if content.Type == "text" && content.Text != "" {
-			contentParts = append(contentParts, content.Text)
-		}
-	}
-
+	contentParts := e.extractTextContent(response.Content)
 	if len(contentParts) > 0 {
-		logger.Info("✅ MCP Tool Success", "tool", descriptor.Name, "content_parts", len(contentParts))
+		logger.Info(mcpToolSuccess, "tool", toolName, "content_parts", len(contentParts))
 		return json.Marshal(contentParts)
 	}
 
-	// Fallback - return the full response structure
-	logger.Info("✅ MCP Tool Success", "tool", descriptor.Name, "result_type", "structured")
+	logger.Info(mcpToolSuccess, "tool", toolName, "result_type", "structured")
 	return json.Marshal(response.Content)
+}
+
+func (e *MCPExecutor) extractTextContent(content []mcp.Content) []string {
+	var contentParts []string
+	for _, item := range content {
+		if item.Type == "text" && item.Text != "" {
+			contentParts = append(contentParts, item.Text)
+		}
+	}
+	return contentParts
 }

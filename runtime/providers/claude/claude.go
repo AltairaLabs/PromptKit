@@ -16,8 +16,10 @@ import (
 
 // HTTP constants
 const (
-	contentTypeHeader = "Content-Type"
-	applicationJSON   = "application/json"
+	contentTypeHeader     = "Content-Type"
+	applicationJSON       = "application/json"
+	anthropicVersionValue = "2023-06-01"
+	anthropicVersionKey   = "Anthropic-Version"
 )
 
 // ClaudeProvider implements the Provider interface for Anthropic Claude
@@ -195,14 +197,14 @@ func (p *ClaudeProvider) makeClaudeHTTPRequest(ctx context.Context, claudeReq cl
 		return nil, predictResp, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set(contentTypeHeader, applicationJSON)
 	httpReq.Header.Set("X-API-Key", p.apiKey)
-	httpReq.Header.Set("Anthropic-Version", "2023-06-01")
+	httpReq.Header.Set(anthropicVersionKey, anthropicVersionValue)
 
 	logger.APIRequest("Claude", "POST", url, map[string]string{
-		"Content-Type":      "application/json",
+		contentTypeHeader:   applicationJSON,
 		"X-API-Key":         "***",
-		"Anthropic-Version": "2023-06-01",
+		anthropicVersionKey: anthropicVersionValue,
 	}, claudeReq)
 
 	resp, err := p.GetHTTPClient().Do(httpReq)
@@ -325,6 +327,39 @@ func (p *ClaudeProvider) Predict(ctx context.Context, req providers.PredictionRe
 	return predictResp, nil
 }
 
+// getClaudePricing returns pricing for Claude models (input, output, cached per 1K tokens)
+func getClaudePricing(model string) (float64, float64, float64) {
+	// Define pricing constants
+	const (
+		sonnetInput  = 0.003
+		sonnetOutput = 0.015
+		sonnetCached = 0.0003
+		haikuInput   = 0.001
+		haikuOutput  = 0.005
+		haikuCached  = 0.0001
+		opusInput    = 0.015
+		opusOutput   = 0.075
+		opusCached   = 0.0015
+		haiku3Input  = 0.00025
+		haiku3Output = 0.00125
+		haiku3Cached = 0.000025
+	)
+
+	switch model {
+	case "claude-3-5-sonnet-20241022", "claude-3-5-sonnet-20240620", "claude-3-sonnet-20240229":
+		return sonnetInput, sonnetOutput, sonnetCached
+	case "claude-3-5-haiku-20241022":
+		return haikuInput, haikuOutput, haikuCached
+	case "claude-3-opus-20240229":
+		return opusInput, opusOutput, opusCached
+	case "claude-3-haiku-20240307":
+		return haiku3Input, haiku3Output, haiku3Cached
+	default:
+		// Default to Claude 3.5 Sonnet pricing for unknown models
+		return sonnetInput, sonnetOutput, sonnetCached
+	}
+}
+
 // CalculateCost calculates detailed cost breakdown including optional cached tokens
 func (p *ClaudeProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.CostInfo {
 	var inputCostPer1K, outputCostPer1K, cachedCostPer1K float64
@@ -338,34 +373,7 @@ func (p *ClaudeProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) ty
 	} else {
 		// Fallback to hardcoded pricing with warning
 		fmt.Printf("WARNING: No pricing configured for provider %s (model: %s), using fallback pricing\n", p.ID(), p.model)
-
-		switch p.model {
-		case "claude-3-5-sonnet-20241022", "claude-3-5-sonnet-20240620":
-			inputCostPer1K = 0.003   // $0.003 per 1K input tokens
-			outputCostPer1K = 0.015  // $0.015 per 1K output tokens
-			cachedCostPer1K = 0.0003 // $0.0003 per 1K cached tokens (10% of input cost)
-		case "claude-3-5-haiku-20241022":
-			inputCostPer1K = 0.001   // $0.001 per 1K input tokens
-			outputCostPer1K = 0.005  // $0.005 per 1K output tokens
-			cachedCostPer1K = 0.0001 // $0.0001 per 1K cached tokens (10% of input cost)
-		case "claude-3-opus-20240229":
-			inputCostPer1K = 0.015   // $0.015 per 1K input tokens
-			outputCostPer1K = 0.075  // $0.075 per 1K output tokens
-			cachedCostPer1K = 0.0015 // $0.0015 per 1K cached tokens (10% of input cost)
-		case "claude-3-sonnet-20240229":
-			inputCostPer1K = 0.003   // $0.003 per 1K input tokens
-			outputCostPer1K = 0.015  // $0.015 per 1K output tokens
-			cachedCostPer1K = 0.0003 // $0.0003 per 1K cached tokens (10% of input cost)
-		case "claude-3-haiku-20240307":
-			inputCostPer1K = 0.00025   // $0.00025 per 1K input tokens
-			outputCostPer1K = 0.00125  // $0.00125 per 1K output tokens
-			cachedCostPer1K = 0.000025 // $0.000025 per 1K cached tokens (10% of input cost)
-		default:
-			// Default to Claude 3.5 Sonnet pricing for unknown models
-			inputCostPer1K = 0.003
-			outputCostPer1K = 0.015
-			cachedCostPer1K = 0.0003
-		}
+		inputCostPer1K, outputCostPer1K, cachedCostPer1K = getClaudePricing(p.model)
 	}
 
 	// Calculate costs
@@ -449,9 +457,9 @@ func (p *ClaudeProvider) PredictStream(ctx context.Context, req providers.Predic
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set(contentTypeHeader, applicationJSON)
 	httpReq.Header.Set("x-api-key", p.apiKey)
-	httpReq.Header.Set("anthropic-version", "2023-06-01")
+	httpReq.Header.Set(anthropicVersionKey, anthropicVersionValue)
 	httpReq.Header.Set("Accept", "text/event-stream")
 
 	//nolint:bodyclose // body is closed in streamResponse goroutine

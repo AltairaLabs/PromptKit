@@ -65,65 +65,106 @@ func (r *YAMLToolRepository) LoadToolFromFile(filename string) error {
 		return fmt.Errorf("failed to read tool file %s: %w", filename, err)
 	}
 
-	// Try K8s-style manifest first - parse as generic structure then convert
+	temp, err := r.parseYAML(filename, data)
+	if err != nil {
+		return err
+	}
+
+	tempMap, ok := temp.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("invalid YAML structure in %s", filename)
+	}
+
+	// Try K8s manifest first, fall back to legacy format
+	if r.isK8sManifest(tempMap) {
+		return r.loadK8sManifest(filename, temp)
+	}
+
+	return r.loadLegacyTool(filename, temp)
+}
+
+func (r *YAMLToolRepository) parseYAML(filename string, data []byte) (interface{}, error) {
 	var temp interface{}
 	if err := yaml.Unmarshal(data, &temp); err != nil {
-		return fmt.Errorf("failed to parse YAML tool file %s: %w", filename, err)
+		return nil, fmt.Errorf("failed to parse YAML tool file %s: %w", filename, err)
+	}
+	return temp, nil
+}
+
+func (r *YAMLToolRepository) isK8sManifest(tempMap map[string]interface{}) bool {
+	apiVersion, hasAPI := tempMap["apiVersion"].(string)
+	return hasAPI && apiVersion != ""
+}
+
+func (r *YAMLToolRepository) loadK8sManifest(filename string, temp interface{}) error {
+	toolConfig, err := r.convertToToolConfig(filename, temp)
+	if err != nil {
+		return err
 	}
 
-	// Check if this looks like a K8s manifest
-	if tempMap, ok := temp.(map[string]interface{}); ok {
-		if apiVersion, hasAPI := tempMap["apiVersion"].(string); hasAPI && apiVersion != "" {
-			// This is a K8s manifest - convert to JSON then to our struct
-			jsonData, err := json.Marshal(temp)
-			if err != nil {
-				return fmt.Errorf("failed to convert K8s manifest to JSON for %s: %w", filename, err)
-			}
-
-			var toolConfig tools.ToolConfig
-			if err := json.Unmarshal(jsonData, &toolConfig); err != nil {
-				return fmt.Errorf("failed to unmarshal K8s manifest %s: %w", filename, err)
-			}
-
-			// Validate K8s manifest structure
-			if toolConfig.Kind == "" {
-				return fmt.Errorf("tool config %s is missing kind", filename)
-			}
-			if toolConfig.Kind != "Tool" {
-				return fmt.Errorf("tool config %s has invalid kind: expected 'Tool', got '%s'", filename, toolConfig.Kind)
-			}
-			if toolConfig.Metadata.Name == "" {
-				return fmt.Errorf("tool config %s is missing metadata.name", filename)
-			}
-
-			// Use metadata.name as tool name
-			toolConfig.Spec.Name = toolConfig.Metadata.Name
-
-			// Store the tool
-			r.tools[toolConfig.Spec.Name] = &toolConfig.Spec
-			return nil
-		}
-
-		// Not a K8s manifest - fall back to legacy format
-		jsonData, err := json.Marshal(temp)
-		if err != nil {
-			return fmt.Errorf("failed to convert YAML to JSON for %s: %w", filename, err)
-		}
-
-		var descriptor tools.ToolDescriptor
-		if err := json.Unmarshal(jsonData, &descriptor); err != nil {
-			return fmt.Errorf("failed to unmarshal converted JSON for %s: %w", filename, err)
-		}
-
-		if descriptor.Name == "" {
-			return fmt.Errorf("tool descriptor %s is missing name", filename)
-		}
-
-		r.tools[descriptor.Name] = &descriptor
-		return nil
+	if err := r.validateK8sManifest(filename, toolConfig); err != nil {
+		return err
 	}
 
-	return fmt.Errorf("invalid YAML structure in %s", filename)
+	// Use metadata.name as tool name
+	toolConfig.Spec.Name = toolConfig.Metadata.Name
+	r.tools[toolConfig.Spec.Name] = &toolConfig.Spec
+	return nil
+}
+
+func (r *YAMLToolRepository) convertToToolConfig(filename string, temp interface{}) (*tools.ToolConfig, error) {
+	jsonData, err := json.Marshal(temp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert K8s manifest to JSON for %s: %w", filename, err)
+	}
+
+	var toolConfig tools.ToolConfig
+	if err := json.Unmarshal(jsonData, &toolConfig); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal K8s manifest %s: %w", filename, err)
+	}
+
+	return &toolConfig, nil
+}
+
+func (r *YAMLToolRepository) validateK8sManifest(filename string, toolConfig *tools.ToolConfig) error {
+	if toolConfig.Kind == "" {
+		return fmt.Errorf("tool config %s is missing kind", filename)
+	}
+	if toolConfig.Kind != "Tool" {
+		return fmt.Errorf("tool config %s has invalid kind: expected 'Tool', got '%s'", filename, toolConfig.Kind)
+	}
+	if toolConfig.Metadata.Name == "" {
+		return fmt.Errorf("tool config %s is missing metadata.name", filename)
+	}
+	return nil
+}
+
+func (r *YAMLToolRepository) loadLegacyTool(filename string, temp interface{}) error {
+	descriptor, err := r.convertToDescriptor(filename, temp)
+	if err != nil {
+		return err
+	}
+
+	if descriptor.Name == "" {
+		return fmt.Errorf("tool descriptor %s is missing name", filename)
+	}
+
+	r.tools[descriptor.Name] = descriptor
+	return nil
+}
+
+func (r *YAMLToolRepository) convertToDescriptor(filename string, temp interface{}) (*tools.ToolDescriptor, error) {
+	jsonData, err := json.Marshal(temp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert YAML to JSON for %s: %w", filename, err)
+	}
+
+	var descriptor tools.ToolDescriptor
+	if err := json.Unmarshal(jsonData, &descriptor); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal converted JSON for %s: %w", filename, err)
+	}
+
+	return &descriptor, nil
 }
 
 // LoadDirectory recursively loads all YAML tool files from a directory

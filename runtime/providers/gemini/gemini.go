@@ -409,6 +409,34 @@ func countPartsByType(parts []types.ContentPart, partType string) int {
 	return count
 }
 
+// getGeminiPricing returns pricing for Gemini models (input, output, cached per 1K tokens)
+func getGeminiPricing(model string) (float64, float64, float64) {
+	// Define pricing constants
+	const (
+		proInput     = 0.00125
+		proOutput    = 0.005
+		proCached    = 0.000625
+		flashInput   = 0.000075
+		flashOutput  = 0.0003
+		flashCached  = 0.0000375
+		geminiInput  = 0.0005
+		geminiOutput = 0.0015
+		geminiCached = 0.00025
+	)
+
+	switch model {
+	case "gemini-1.5-pro", "gemini-2.5-pro":
+		return proInput, proOutput, proCached
+	case "gemini-1.5-flash", "gemini-2.5-flash":
+		return flashInput, flashOutput, flashCached
+	case "gemini-pro":
+		return geminiInput, geminiOutput, geminiCached
+	default:
+		// Default to Gemini 1.5 Pro pricing for unknown models
+		return proInput, proOutput, proCached
+	}
+}
+
 // CalculateCost calculates detailed cost breakdown including optional cached tokens
 func (p *GeminiProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.CostInfo {
 	var inputCostPer1K, outputCostPer1K, cachedCostPer1K float64
@@ -422,26 +450,7 @@ func (p *GeminiProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) ty
 	} else {
 		// Fallback to hardcoded pricing with warning
 		fmt.Printf("WARNING: No pricing configured for provider %s (model: %s), using fallback pricing\n", p.ID(), p.Model)
-
-		switch p.Model {
-		case "gemini-1.5-pro", "gemini-2.5-pro":
-			inputCostPer1K = 0.00125   // $0.00125 per 1K input tokens
-			outputCostPer1K = 0.005    // $0.005 per 1K output tokens
-			cachedCostPer1K = 0.000625 // 50% of input cost
-		case "gemini-1.5-flash", "gemini-2.5-flash":
-			inputCostPer1K = 0.000075   // $0.000075 per 1K input tokens
-			outputCostPer1K = 0.0003    // $0.0003 per 1K output tokens
-			cachedCostPer1K = 0.0000375 // 50% of input cost
-		case "gemini-pro":
-			inputCostPer1K = 0.0005   // $0.0005 per 1K input tokens
-			outputCostPer1K = 0.0015  // $0.0015 per 1K output tokens
-			cachedCostPer1K = 0.00025 // 50% of input cost
-		default:
-			// Default to Gemini 1.5 Pro pricing for unknown models
-			inputCostPer1K = 0.00125
-			outputCostPer1K = 0.005
-			cachedCostPer1K = 0.000625
-		}
+		inputCostPer1K, outputCostPer1K, cachedCostPer1K = getGeminiPricing(p.Model)
 	}
 
 	// Calculate costs
