@@ -60,6 +60,9 @@ jobs:
     - name: Install dependencies
       run: make install
     
+    - name: Generate schemas for tests
+      run: make schemas-copy
+    
     - name: Install gotestsum
       run: go install gotest.tools/gotestsum@latest
     
@@ -248,7 +251,7 @@ jobs:
     - name: Test customer-support example
       run: |
         cd examples/customer-support
-        ../../bin/promptarena run \
+        ../../bin/promptarena run config.arena.yaml \
           --mock-provider \
           --mock-config mock-responses.yaml \
           --scenario customer-support-scenarios \
@@ -257,7 +260,7 @@ jobs:
     - name: Test multimodal-basics example
       run: |
         cd examples/multimodal-basics
-        ../../bin/promptarena run \
+        ../../bin/promptarena run config.arena.yaml \
           --mock-provider \
           --mock-config mock-responses.yaml \
           --formats json,junit,html,markdown
@@ -265,7 +268,7 @@ jobs:
     - name: Test variables-demo example
       run: |
         cd examples/variables-demo
-        ../../bin/promptarena run \
+        ../../bin/promptarena run config.arena.yaml \
           --mock-provider \
           --mock-config mock-config.yaml \
           --formats json,junit,html,markdown
