@@ -102,6 +102,7 @@ func (fr *FragmentResolver) resolveVariables(text string, vars map[string]string
 }
 
 // GetUsedVars returns a list of variable names that had non-empty values
+//
 // Deprecated: Use template.GetUsedVars instead
 func GetUsedVars(vars map[string]string) []string {
 	return template.GetUsedVars(vars)

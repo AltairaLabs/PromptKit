@@ -83,10 +83,10 @@ func extractFromMessages(messages []types.Message, conversationID string) map[st
 	// Combine all message content
 	text := ""
 	userText := ""
-	for _, msg := range messages {
-		text += " " + msg.Content
-		if msg.Role == "user" {
-			userText += " " + msg.Content
+	for i := range messages {
+		text += " " + messages[i].Content
+		if messages[i].Role == "user" {
+			userText += " " + messages[i].Content
 		}
 	}
 

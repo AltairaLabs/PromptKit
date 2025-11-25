@@ -218,13 +218,14 @@ func (p *ClaudeToolProvider) buildToolRequest(req providers.PredictionRequest, t
 	messages := make([]claudeToolMessage, 0, len(req.Messages))
 	var pendingToolResults []claudeToolResult
 
-	for _, msg := range req.Messages {
+	for i := range req.Messages {
+		msg := &req.Messages[i]
 		if msg.Role == "tool" {
-			pendingToolResults = append(pendingToolResults, processClaudeToolResult(msg))
+			pendingToolResults = append(pendingToolResults, processClaudeToolResult(*msg))
 			continue
 		}
 
-		messages, pendingToolResults = p.processMessageForTools(msg, pendingToolResults, messages, tools)
+		messages, pendingToolResults = p.processMessageForTools(*msg, pendingToolResults, messages, tools)
 	}
 
 	// If there are still pending tool results at the end, add them as a final user message

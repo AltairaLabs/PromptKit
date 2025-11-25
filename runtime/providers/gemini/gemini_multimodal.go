@@ -98,10 +98,7 @@ func (p *GeminiProvider) PredictMultimodalStream(ctx context.Context, req provid
 
 // convertMessagesToGemini converts PromptKit messages to Gemini format
 // Handles both legacy text-only and new multimodal messages
-func convertMessagesToGemini(messages []types.Message, systemPrompt string) ([]geminiContent, *geminiContent, error) {
-	var contents []geminiContent
-	var systemInstruction *geminiContent
-
+func convertMessagesToGemini(messages []types.Message, systemPrompt string) (contents []geminiContent, systemInstruction *geminiContent, err error) {
 	// Handle system message
 	if systemPrompt != "" {
 		systemInstruction = &geminiContent{
@@ -110,8 +107,8 @@ func convertMessagesToGemini(messages []types.Message, systemPrompt string) ([]g
 	}
 
 	// Convert each message
-	for _, msg := range messages {
-		content, err := convertMessageToGemini(msg)
+	for i := range messages {
+		content, err := convertMessageToGemini(messages[i])
 		if err != nil {
 			return nil, nil, err
 		}

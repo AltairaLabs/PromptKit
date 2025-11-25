@@ -112,8 +112,8 @@ type geminiSafetyRating struct {
 // convertMessagesToGeminiContents converts provider messages to Gemini format
 func convertMessagesToGeminiContents(messages []types.Message) []geminiContent {
 	contents := make([]geminiContent, 0, len(messages))
-	for _, msg := range messages {
-		role := msg.Role
+	for i := range messages {
+		role := messages[i].Role
 		// Gemini uses "user" and "model" roles
 		if role == roleAssistant {
 			role = roleModel
@@ -121,16 +121,15 @@ func convertMessagesToGeminiContents(messages []types.Message) []geminiContent {
 
 		contents = append(contents, geminiContent{
 			Role:  role,
-			Parts: []geminiPart{{Text: msg.Content}},
+			Parts: []geminiPart{{Text: messages[i].Content}},
 		})
 	}
 	return contents
 }
 
 // prepareGeminiRequest converts a predict request to Gemini format with defaults applied
-func (p *GeminiProvider) prepareGeminiRequest(req providers.PredictionRequest) ([]geminiContent, *geminiContent, float32, float32, int) {
+func (p *GeminiProvider) prepareGeminiRequest(req providers.PredictionRequest) (contents []geminiContent, systemInstruction *geminiContent, temperature, topP float32, maxTokens int) {
 	// Handle system message
-	var systemInstruction *geminiContent
 	if req.System != "" {
 		systemInstruction = &geminiContent{
 			Parts: []geminiPart{{Text: req.System}},
@@ -138,20 +137,20 @@ func (p *GeminiProvider) prepareGeminiRequest(req providers.PredictionRequest) (
 	}
 
 	// Convert conversation messages
-	contents := convertMessagesToGeminiContents(req.Messages)
+	contents = convertMessagesToGeminiContents(req.Messages)
 
-	// Apply provider defaults for zero values
-	temperature := req.Temperature
+	// Apply defaults
+	temperature = req.Temperature
 	if temperature == 0 {
 		temperature = p.Defaults.Temperature
 	}
 
-	topP := req.TopP
+	topP = req.TopP
 	if topP == 0 {
 		topP = p.Defaults.TopP
 	}
 
-	maxTokens := req.MaxTokens
+	maxTokens = req.MaxTokens
 	if maxTokens == 0 {
 		maxTokens = p.Defaults.MaxTokens
 	}
@@ -410,7 +409,7 @@ func countPartsByType(parts []types.ContentPart, partType string) int {
 }
 
 // getGeminiPricing returns pricing for Gemini models (input, output, cached per 1K tokens)
-func getGeminiPricing(model string) (float64, float64, float64) {
+func getGeminiPricing(model string) (inputPrice, outputPrice, cachedPrice float64) {
 	// Define pricing constants
 	const (
 		proInput     = 0.00125
@@ -509,7 +508,7 @@ func (p *GeminiProvider) PredictStream(ctx context.Context, req providers.Predic
 }
 
 // processGeminiStreamChunk processes a single chunk from the Gemini stream
-func (p *GeminiProvider) processGeminiStreamChunk(chunk geminiResponse, accumulated string, totalTokens int, outChan chan<- providers.StreamChunk) (string, int, bool) {
+func (p *GeminiProvider) processGeminiStreamChunk(chunk geminiResponse, accumulated string, totalTokens int, outChan chan<- providers.StreamChunk) (newAccumulated string, newTotalTokens int, shouldContinue bool) {
 	if len(chunk.Candidates) == 0 {
 		return accumulated, totalTokens, false
 	}

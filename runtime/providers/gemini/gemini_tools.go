@@ -231,14 +231,14 @@ func (p *GeminiToolProvider) buildToolRequest(req providers.PredictionRequest, t
 	contents := make([]map[string]interface{}, 0, len(req.Messages))
 	var pendingToolResults []map[string]interface{}
 
-	for _, msg := range req.Messages {
-		if msg.Role == "tool" {
-			pendingToolResults = append(pendingToolResults, processToolMessage(msg))
+	for i := range req.Messages {
+		if req.Messages[i].Role == "tool" {
+			pendingToolResults = append(pendingToolResults, processToolMessage(req.Messages[i]))
 			continue
 		}
 
 		// If we have pending tool results, add them as a user message before non-user messages
-		if len(pendingToolResults) > 0 && msg.Role != "user" {
+		if len(pendingToolResults) > 0 && req.Messages[i].Role != "user" {
 			contents = append(contents, map[string]interface{}{
 				"role":  "user",
 				"parts": pendingToolResults,
@@ -246,8 +246,8 @@ func (p *GeminiToolProvider) buildToolRequest(req providers.PredictionRequest, t
 			pendingToolResults = nil
 		}
 
-		parts := buildMessageParts(msg, pendingToolResults)
-		if msg.Role == roleUser {
+		parts := buildMessageParts(req.Messages[i], pendingToolResults)
+		if req.Messages[i].Role == roleUser {
 			pendingToolResults = nil
 		}
 
@@ -255,7 +255,7 @@ func (p *GeminiToolProvider) buildToolRequest(req providers.PredictionRequest, t
 			continue
 		}
 
-		role := msg.Role
+		role := req.Messages[i].Role
 		if role == "assistant" {
 			role = "model"
 		}

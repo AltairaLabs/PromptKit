@@ -309,13 +309,13 @@ func checkCharacterLimit(chunk providers.StreamChunk, p map[string]interface{}) 
 		return nil
 	}
 
-	max, ok := maxChars.(int)
+	maxCharsLimit, ok := maxChars.(int)
 	if !ok {
 		return nil
 	}
 
 	charCount := len(chunk.Content)
-	if charCount > max {
+	if charCount > maxCharsLimit {
 		return &providers.ValidationAbortError{
 			Reason: "exceeded max_characters limit",
 			Chunk:  chunk,
@@ -332,7 +332,7 @@ func checkTokenLimit(chunk providers.StreamChunk, p map[string]interface{}) erro
 		return nil
 	}
 
-	max, ok := maxTokens.(int)
+	maxTokensLimit, ok := maxTokens.(int)
 	if !ok {
 		return nil
 	}
@@ -343,7 +343,7 @@ func checkTokenLimit(chunk providers.StreamChunk, p map[string]interface{}) erro
 		tokenCount = len(chunk.Content) / 4
 	}
 
-	if tokenCount > max {
+	if tokenCount > maxTokensLimit {
 		return &providers.ValidationAbortError{
 			Reason: "exceeded max_tokens limit",
 			Chunk:  chunk,

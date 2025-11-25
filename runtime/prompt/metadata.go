@@ -259,13 +259,13 @@ func isOpeningBrace(template string, pos int) bool {
 	return template[pos] == '{' && template[pos+1] == '{'
 }
 
-func extractVariable(template string, startPos int) (string, int) {
+func extractVariable(template string, startPos int) (varName string, nextPos int) {
 	closingPos := findClosingBrace(template, startPos+2)
 	if closingPos == -1 {
 		return "", startPos + 1
 	}
 
-	varName := template[startPos+2 : closingPos]
+	varName = template[startPos+2 : closingPos]
 	return varName, closingPos + 1
 }
 

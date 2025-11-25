@@ -151,8 +151,8 @@ func (m *MockToolProvider) generateMockCostInfo(inputTokens, outputTokens int) t
 // calculateInputTokens estimates input tokens from messages (rough approximation).
 func (m *MockToolProvider) calculateInputTokens(messages []types.Message) int {
 	tokenCount := 0
-	for _, msg := range messages {
-		tokenCount += len(msg.Content) / 4 // Rough approximation: ~4 chars per token
+	for i := range messages {
+		tokenCount += len(messages[i].Content) / 4 // Rough approximation: ~4 chars per token
 	}
 	if tokenCount == 0 {
 		tokenCount = 10
@@ -181,8 +181,8 @@ func (m *MockToolProvider) detectTurnFromConversation(req providers.PredictionRe
 
 	// Count tool result messages to detect if we've advanced past the initial turn
 	toolResultCount := 0
-	for _, msg := range req.Messages {
-		if msg.Role == "tool" {
+	for i := range req.Messages {
+		if req.Messages[i].Role == "tool" {
 			toolResultCount++
 		}
 	}

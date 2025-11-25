@@ -192,7 +192,7 @@ func (s *MemoryStore) removeFromUserIndex(userID, convID string) {
 // sortConversations sorts conversation IDs based on the specified criteria.
 // Must be called with read lock held.
 func (s *MemoryStore) sortConversations(ids []string, sortBy, sortOrder string) {
-	ascending := strings.ToLower(sortOrder) == "asc"
+	ascending := strings.EqualFold(sortOrder, "asc")
 
 	sort.Slice(ids, func(i, j int) bool {
 		state1, exists1 := s.states[ids[i]]

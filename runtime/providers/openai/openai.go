@@ -105,8 +105,8 @@ func (p *OpenAIProvider) prepareOpenAIMessages(req providers.PredictionRequest) 
 	}
 
 	// Convert each message, handling both legacy text and multimodal Parts
-	for _, msg := range req.Messages {
-		converted, err := p.convertMessageToOpenAI(msg)
+	for i := range req.Messages {
+		converted, err := p.convertMessageToOpenAI(req.Messages[i])
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert message: %w", err)
 		}
@@ -117,18 +117,18 @@ func (p *OpenAIProvider) prepareOpenAIMessages(req providers.PredictionRequest) 
 }
 
 // applyRequestDefaults applies provider defaults to zero-valued request parameters
-func (p *OpenAIProvider) applyRequestDefaults(req providers.PredictionRequest) (float32, float32, int) {
-	temperature := req.Temperature
+func (p *OpenAIProvider) applyRequestDefaults(req providers.PredictionRequest) (temperature, topP float32, maxTokens int) {
+	temperature = req.Temperature
 	if temperature == 0 {
 		temperature = p.defaults.Temperature
 	}
 
-	topP := req.TopP
+	topP = req.TopP
 	if topP == 0 {
 		topP = p.defaults.TopP
 	}
 
-	maxTokens := req.MaxTokens
+	maxTokens = req.MaxTokens
 	if maxTokens == 0 {
 		maxTokens = p.defaults.MaxTokens
 	}

@@ -276,7 +276,7 @@ func (s *RedisStore) sortConversations(ctx context.Context, ids []string, sortBy
 		states = append(states, stateWithID{id: id, state: state})
 	}
 
-	ascending := strings.ToLower(sortOrder) == "asc"
+	ascending := strings.EqualFold(sortOrder, "asc")
 
 	// Sort states
 	sort.Slice(states, func(i, j int) bool {

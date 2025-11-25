@@ -147,7 +147,8 @@ func (m *debugMiddleware) createSnapshot(execCtx *pipeline.ExecutionContext) deb
 	snapshot.AllowedTools = execCtx.AllowedTools
 
 	// Capture messages (with truncation)
-	for _, msg := range execCtx.Messages {
+	for i := range execCtx.Messages {
+		msg := &execCtx.Messages[i]
 		msgSnap := messageSnapshot{
 			Role:             msg.Role,
 			ContentLen:       len(msg.Content),
@@ -157,7 +158,7 @@ func (m *debugMiddleware) createSnapshot(execCtx *pipeline.ExecutionContext) deb
 		}
 
 		// Preview first 100 chars
-		if len(msg.Content) > 0 {
+		if msg.Content != "" {
 			preview := msg.Content
 			if len(preview) > 100 {
 				preview = preview[:100] + "..."

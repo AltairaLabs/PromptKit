@@ -414,7 +414,7 @@ func handleStreamCompletion(execCtx *pipeline.ExecutionContext, result *streamPr
 }
 
 // buildProviderTooling extracts the duplicated tool setup logic
-func buildProviderTooling(provider providers.Provider, toolRegistry *tools.Registry, execCtx *pipeline.ExecutionContext, policy *pipeline.ToolPolicy) (interface{}, string, error) {
+func buildProviderTooling(provider providers.Provider, toolRegistry *tools.Registry, execCtx *pipeline.ExecutionContext, policy *pipeline.ToolPolicy) (toolDefs interface{}, toolChoice string, err error) {
 	// Early returns for cases where we don't need tools
 	if toolRegistry == nil || len(execCtx.AllowedTools) == 0 {
 		return nil, "", nil
@@ -450,7 +450,7 @@ func buildProviderTooling(provider providers.Provider, toolRegistry *tools.Regis
 	}
 
 	// Set tool choice from policy, default to auto
-	toolChoice := "auto"
+	toolChoice = "auto"
 	if policy != nil && policy.ToolChoice != "" {
 		toolChoice = policy.ToolChoice
 	}
@@ -570,21 +570,21 @@ func buildProviderRequest(execCtx *pipeline.ExecutionContext, config *ProviderMi
 	providerMsgs := make([]types.Message, 0, len(execCtx.Messages))
 
 	// Skip system message since it goes in PredictionRequest.System
-	for _, msg := range execCtx.Messages {
-		if msg.Role == "system" {
+	for i := range execCtx.Messages {
+		if execCtx.Messages[i].Role == "system" {
 			continue
 		}
 
 		providerMsg := types.Message{
-			Role:      msg.Role,
-			Content:   msg.Content,
-			Parts:     msg.Parts,     // Preserve multimodal parts
-			ToolCalls: msg.ToolCalls, // Already []types.MessageToolCall
+			Role:      execCtx.Messages[i].Role,
+			Content:   execCtx.Messages[i].Content,
+			Parts:     execCtx.Messages[i].Parts,     // Preserve multimodal parts
+			ToolCalls: execCtx.Messages[i].ToolCalls, // Already []types.MessageToolCall
 		}
 
 		// Handle tool result messages (convert to legacy format)
-		if msg.Role == "tool" && msg.ToolResult != nil {
-			providerMsg.ToolResult = msg.ToolResult
+		if execCtx.Messages[i].Role == "tool" && execCtx.Messages[i].ToolResult != nil {
+			providerMsg.ToolResult = execCtx.Messages[i].ToolResult
 		}
 
 		providerMsgs = append(providerMsgs, providerMsg)
@@ -821,8 +821,8 @@ func estimateRequestTokens(req providers.PredictionRequest) int {
 	}
 
 	// Count message tokens
-	for _, msg := range req.Messages {
-		tokens += len(msg.Content) / 4
+	for i := range req.Messages {
+		tokens += len(req.Messages[i].Content) / 4
 	}
 
 	// Add some overhead for message formatting
@@ -857,8 +857,8 @@ func (m *providerMiddleware) StreamChunk(execCtx *pipeline.ExecutionContext, chu
 
 // isRequestMultimodal checks if any message in the request contains multimodal content
 func isRequestMultimodal(req providers.PredictionRequest) bool {
-	for _, msg := range req.Messages {
-		if msg.IsMultimodal() {
+	for i := range req.Messages {
+		if req.Messages[i].IsMultimodal() {
 			return true
 		}
 	}

@@ -131,7 +131,7 @@ func replace(s, old, newStr string) string {
 
 // indexOf returns the index of the first occurrence of substr in s
 func indexOf(s, substr string) int {
-	if len(substr) == 0 {
+	if substr == "" {
 		return 0
 	}
 

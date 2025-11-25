@@ -164,7 +164,7 @@ func (p *ClaudeProvider) createSystemBlocks(systemPrompt string) []claudeContent
 }
 
 // applyDefaults applies provider defaults to zero values in the request
-func (p *ClaudeProvider) applyDefaults(temperature, topP float32, maxTokens int) (float32, float32, int) {
+func (p *ClaudeProvider) applyDefaults(temperature, topP float32, maxTokens int) (finalTemp, finalTopP float32, finalMaxTokens int) {
 	if temperature == 0 {
 		temperature = p.defaults.Temperature
 	}
@@ -328,7 +328,7 @@ func (p *ClaudeProvider) Predict(ctx context.Context, req providers.PredictionRe
 }
 
 // getClaudePricing returns pricing for Claude models (input, output, cached per 1K tokens)
-func getClaudePricing(model string) (float64, float64, float64) {
+func getClaudePricing(model string) (inputPrice, outputPrice, cachedPrice float64) {
 	// Define pricing constants
 	const (
 		sonnetInput  = 0.003
@@ -490,7 +490,7 @@ func (p *ClaudeProvider) processClaudeContentDelta(event struct {
 		StopReason string       `json:"stop_reason"`
 		Usage      *claudeUsage `json:"usage,omitempty"`
 	} `json:"message,omitempty"`
-}, accumulated string, totalTokens int, outChan chan<- providers.StreamChunk) (string, int) {
+}, accumulated string, totalTokens int, outChan chan<- providers.StreamChunk) (newAccumulated string, newTotalTokens int) {
 	if event.Delta == nil || event.Delta.Type != "text_delta" {
 		return accumulated, totalTokens
 	}

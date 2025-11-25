@@ -149,8 +149,8 @@ func (p *OpenAIToolProvider) convertRequestMessagesToOpenAI(req providers.Predic
 	}
 
 	// Add conversation messages
-	for _, msg := range req.Messages {
-		openaiMsg := p.convertSingleMessageForTools(msg)
+	for i := range req.Messages {
+		openaiMsg := p.convertSingleMessageForTools(req.Messages[i])
 		messages = append(messages, openaiMsg)
 	}
 

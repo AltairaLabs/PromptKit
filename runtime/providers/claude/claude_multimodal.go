@@ -88,7 +88,8 @@ func (p *ClaudeProvider) convertMessagesToClaudeMultimodal(messages []types.Mess
 	claudeMessages := make([]claudeMessage, 0)
 	var systemBlocks []claudeContentBlockMultimodal
 
-	for _, msg := range messages {
+	for i := range messages {
+		msg := &messages[i]
 		// Handle system messages separately
 		if msg.Role == "system" {
 			systemBlocks = append(systemBlocks, claudeContentBlockMultimodal{
@@ -99,7 +100,7 @@ func (p *ClaudeProvider) convertMessagesToClaudeMultimodal(messages []types.Mess
 		}
 
 		// Convert multimodal message
-		claudeMsg, err := p.convertMessageToClaudeMultimodal(msg)
+		claudeMsg, err := p.convertMessageToClaudeMultimodal(*msg)
 		if err != nil {
 			return nil, nil, err
 		}
