@@ -11,9 +11,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// TestGeminiToolProvider_BuildRequestWithToolMessages tests that tool messages
+// TestToolProvider_BuildRequestWithToolMessages tests that tool messages
 // from conversation history are properly converted to Gemini's functionResponse format
-func TestGeminiToolProvider_BuildRequestWithToolMessages(t *testing.T) {
+func TestToolProvider_BuildRequestWithToolMessages(t *testing.T) {
 	// Track what gets sent to Gemini API
 	var capturedRequest map[string]interface{}
 
@@ -48,7 +48,7 @@ func TestGeminiToolProvider_BuildRequestWithToolMessages(t *testing.T) {
 	defer server.Close()
 
 	// Create provider
-	provider := NewGeminiToolProvider(
+	provider := NewToolProvider(
 		"test-gemini",
 		"gemini-2.0-flash-exp",
 		server.URL,
@@ -164,9 +164,9 @@ func TestGeminiToolProvider_BuildRequestWithToolMessages(t *testing.T) {
 	t.Logf("Request structure validated successfully")
 }
 
-// TestGeminiToolProvider_MultipleToolResultsGrouped tests that multiple consecutive
+// TestToolProvider_MultipleToolResultsGrouped tests that multiple consecutive
 // tool messages are grouped together in a single user message
-func TestGeminiToolProvider_MultipleToolResultsGrouped(t *testing.T) {
+func TestToolProvider_MultipleToolResultsGrouped(t *testing.T) {
 	var capturedRequest map[string]interface{}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -197,7 +197,7 @@ func TestGeminiToolProvider_MultipleToolResultsGrouped(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewGeminiToolProvider(
+	provider := NewToolProvider(
 		"test-gemini",
 		"gemini-2.0-flash-exp",
 		server.URL,

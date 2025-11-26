@@ -63,7 +63,7 @@ func TestConversationManager_CreateConversation(t *testing.T) {
 	}
 
 	// Create mock provider
-	mockProvider := mock.NewMockProvider("test-provider", "test-model", false)
+	mockProvider := mock.NewProvider("test-provider", "test-model", false)
 
 	// Create manager
 	manager, err := NewConversationManager(
@@ -139,7 +139,7 @@ func TestConversationManager_Send(t *testing.T) {
 	}
 
 	// Create mock provider with canned response
-	mockProvider := mock.NewMockProvider("test-provider", "test-model", false)
+	mockProvider := mock.NewProvider("test-provider", "test-model", false)
 
 	// Create manager
 	manager, err := NewConversationManager(
@@ -218,7 +218,7 @@ func TestConversationManager_GetConversation(t *testing.T) {
 	}
 
 	// Create mock provider
-	mockProvider := mock.NewMockProvider("test-provider", "test-model", false)
+	mockProvider := mock.NewProvider("test-provider", "test-model", false)
 
 	// Create shared state store
 	stateStore := statestore.NewMemoryStore()
@@ -307,7 +307,7 @@ func TestConversationManager_SendStream(t *testing.T) {
 	}
 
 	// Create mock provider that supports streaming
-	mockProvider := mock.NewMockProvider("test-provider", "test-model", false)
+	mockProvider := mock.NewProvider("test-provider", "test-model", false)
 
 	// Create manager
 	manager, err := NewConversationManager(
@@ -380,7 +380,7 @@ func TestConversationManager_SendStream(t *testing.T) {
 }
 
 func TestConversationManager_WithToolRegistry(t *testing.T) {
-	mockProvider := mock.NewMockProvider("test", "test-model", false)
+	mockProvider := mock.NewProvider("test", "test-model", false)
 	store := statestore.NewMemoryStore()
 
 	// Create empty tool registry
@@ -407,7 +407,7 @@ func TestConversationManager_WithToolRegistry(t *testing.T) {
 }
 
 func TestConversationManager_WithConfig(t *testing.T) {
-	mockProvider := mock.NewMockProvider("test", "test-model", false)
+	mockProvider := mock.NewProvider("test", "test-model", false)
 	store := statestore.NewMemoryStore()
 
 	config := ManagerConfig{

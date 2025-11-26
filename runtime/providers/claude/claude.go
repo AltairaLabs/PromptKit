@@ -24,7 +24,7 @@ const (
 )
 
 // ClaudeProvider implements the Provider interface for Anthropic Claude
-type ClaudeProvider struct {
+type Provider struct {
 	providers.BaseProvider
 	model    string
 	baseURL  string
@@ -33,10 +33,10 @@ type ClaudeProvider struct {
 }
 
 // NewClaudeProvider creates a new Claude provider
-func NewClaudeProvider(id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool) *ClaudeProvider {
+func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool) *Provider {
 	base, apiKey := providers.NewBaseProviderWithAPIKey(id, includeRawOutput, "ANTHROPIC_API_KEY", "CLAUDE_API_KEY")
 
-	return &ClaudeProvider{
+	return &Provider{
 		BaseProvider: base,
 		model:        model,
 		baseURL:      baseURL,
@@ -102,7 +102,7 @@ type claudeError struct {
 }
 
 // supportsCaching returns true if the model supports prompt caching
-func (p *ClaudeProvider) supportsCaching() bool {
+func (p *Provider) supportsCaching() bool {
 	// Claude 3.5 Haiku does not support prompt caching as of October 2024
 	// Only Claude 3.5 Sonnet and Claude 3 Opus support it
 	switch p.model {
@@ -119,7 +119,7 @@ func (p *ClaudeProvider) supportsCaching() bool {
 }
 
 // convertMessagesToClaudeFormat converts provider messages to Claude format with cache control
-func (p *ClaudeProvider) convertMessagesToClaudeFormat(messages []types.Message) []claudeMessage {
+func (p *Provider) convertMessagesToClaudeFormat(messages []types.Message) []claudeMessage {
 	claudeMessages := make([]claudeMessage, 0, len(messages))
 	minCharsForCaching := 2048 * 4 // ~8192 characters (Claude requires 2048 tokens minimum)
 
@@ -145,7 +145,7 @@ func (p *ClaudeProvider) convertMessagesToClaudeFormat(messages []types.Message)
 }
 
 // createSystemBlocks creates system content blocks with cache control if applicable
-func (p *ClaudeProvider) createSystemBlocks(systemPrompt string) []claudeContentBlock {
+func (p *Provider) createSystemBlocks(systemPrompt string) []claudeContentBlock {
 	if systemPrompt == "" {
 		return nil
 	}
@@ -165,7 +165,7 @@ func (p *ClaudeProvider) createSystemBlocks(systemPrompt string) []claudeContent
 }
 
 // applyDefaults applies provider defaults to zero values in the request
-func (p *ClaudeProvider) applyDefaults(temperature, topP float32, maxTokens int) (finalTemp, finalTopP float32, finalMaxTokens int) {
+func (p *Provider) applyDefaults(temperature, topP float32, maxTokens int) (finalTemp, finalTopP float32, finalMaxTokens int) {
 	if temperature == 0 {
 		temperature = p.defaults.Temperature
 	}
@@ -179,7 +179,7 @@ func (p *ClaudeProvider) applyDefaults(temperature, topP float32, maxTokens int)
 }
 
 // makeClaudeHTTPRequest sends the HTTP request to Claude API
-func (p *ClaudeProvider) makeClaudeHTTPRequest(ctx context.Context, claudeReq claudeRequest, predictResp providers.PredictionResponse, start time.Time) ([]byte, providers.PredictionResponse, error) {
+func (p *Provider) makeClaudeHTTPRequest(ctx context.Context, claudeReq claudeRequest, predictResp providers.PredictionResponse, start time.Time) ([]byte, providers.PredictionResponse, error) {
 	reqBody, err := json.Marshal(claudeReq)
 	if err != nil {
 		return nil, predictResp, fmt.Errorf("failed to marshal request: %w", err)
@@ -238,7 +238,7 @@ func (p *ClaudeProvider) makeClaudeHTTPRequest(ctx context.Context, claudeReq cl
 }
 
 // parseAndValidateClaudeResponse parses and validates the Claude API response
-func (p *ClaudeProvider) parseAndValidateClaudeResponse(respBody []byte, predictResp providers.PredictionResponse, start time.Time) (claudeResponse, string, providers.PredictionResponse, error) {
+func (p *Provider) parseAndValidateClaudeResponse(respBody []byte, predictResp providers.PredictionResponse, start time.Time) (claudeResponse, string, providers.PredictionResponse, error) {
 	var claudeResp claudeResponse
 	if err := providers.UnmarshalJSON(respBody, &claudeResp, &predictResp, start); err != nil {
 		return claudeResp, "", predictResp, err
@@ -273,7 +273,7 @@ func (p *ClaudeProvider) parseAndValidateClaudeResponse(respBody []byte, predict
 }
 
 // Predict sends a predict request to Claude
-func (p *ClaudeProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	start := time.Now()
 
 	// Convert messages to Claude format
@@ -362,7 +362,7 @@ func claudePricing(model string) (inputPrice, outputPrice, cachedPrice float64) 
 }
 
 // CalculateCost calculates detailed cost breakdown including optional cached tokens
-func (p *ClaudeProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.CostInfo {
+func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.CostInfo {
 	var inputCostPer1K, outputCostPer1K, cachedCostPer1K float64
 
 	// Use configured pricing if available
@@ -394,7 +394,7 @@ func (p *ClaudeProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) ty
 }
 
 // PredictStream streams a predict response from Claude
-func (p *ClaudeProvider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+func (p *Provider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	// Convert messages to Claude format
 	messages := make([]claudeMessage, 0, len(req.Messages))
 
@@ -481,7 +481,7 @@ func (p *ClaudeProvider) PredictStream(ctx context.Context, req providers.Predic
 }
 
 // processClaudeContentDelta handles content_block_delta events from Claude stream
-func (p *ClaudeProvider) processClaudeContentDelta(event struct {
+func (p *Provider) processClaudeContentDelta(event struct {
 	Type  string `json:"type"`
 	Delta *struct {
 		Type string `json:"type"`
@@ -511,7 +511,7 @@ func (p *ClaudeProvider) processClaudeContentDelta(event struct {
 }
 
 // processClaudeMessageStop handles message_stop events from Claude stream
-func (p *ClaudeProvider) processClaudeMessageStop(event struct {
+func (p *Provider) processClaudeMessageStop(event struct {
 	Type  string `json:"type"`
 	Delta *struct {
 		Type string `json:"type"`
@@ -550,7 +550,7 @@ func (p *ClaudeProvider) processClaudeMessageStop(event struct {
 }
 
 // streamResponse reads SSE stream from Claude and sends chunks
-func (p *ClaudeProvider) streamResponse(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
+func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
 	defer close(outChan)
 	defer body.Close()
 

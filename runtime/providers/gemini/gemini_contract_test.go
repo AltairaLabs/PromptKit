@@ -26,7 +26,7 @@ func TestGeminiProvider_Contract(t *testing.T) {
 	logger.SetVerbose(true)
 	defer logger.SetVerbose(false)
 
-	provider := NewGeminiProvider(
+	provider := NewProvider(
 		"gemini-test",
 		"gemini-1.5-flash",
 		"https://generativelanguage.googleapis.com/v1beta", // full base URL
@@ -43,8 +43,8 @@ func TestGeminiProvider_Contract(t *testing.T) {
 	t.Skip("Contract tests temporarily disabled during package restructuring")
 }
 
-// TestGeminiToolProvider_Contract tests the Gemini provider with tool support.
-func TestGeminiToolProvider_Contract(t *testing.T) {
+// TestToolProvider_Contract tests the Gemini provider with tool support.
+func TestToolProvider_Contract(t *testing.T) {
 	apiKey := os.Getenv("GEMINI_API_KEY")
 	if apiKey == "" {
 		t.Skip("Skipping Gemini tool contract tests - GEMINI_API_KEY not set")
@@ -54,7 +54,7 @@ func TestGeminiToolProvider_Contract(t *testing.T) {
 	logger.SetVerbose(true)
 	defer logger.SetVerbose(false)
 
-	provider := NewGeminiToolProvider(
+	provider := NewToolProvider(
 		"gemini-tool-test",
 		"gemini-1.5-flash",
 		"https://generativelanguage.googleapis.com/v1beta",
@@ -71,8 +71,8 @@ func TestGeminiToolProvider_Contract(t *testing.T) {
 	t.Skip("Contract tests temporarily disabled during package restructuring")
 }
 
-// TestGeminiToolProvider_PredictWithToolsLatency verifies the latency bug fix for Gemini.
-func TestGeminiToolProvider_PredictWithToolsLatency(t *testing.T) {
+// TestToolProvider_PredictWithToolsLatency verifies the latency bug fix for Gemini.
+func TestToolProvider_PredictWithToolsLatency(t *testing.T) {
 	apiKey := os.Getenv("GEMINI_API_KEY")
 	if apiKey == "" {
 		t.Skip("Skipping Gemini tool latency test - GEMINI_API_KEY not set")
@@ -82,7 +82,7 @@ func TestGeminiToolProvider_PredictWithToolsLatency(t *testing.T) {
 	logger.SetVerbose(true)
 	defer logger.SetVerbose(false)
 
-	provider := NewGeminiToolProvider(
+	provider := NewToolProvider(
 		"gemini-latency-test",
 		"gemini-1.5-flash",
 		"https://generativelanguage.googleapis.com/v1beta",

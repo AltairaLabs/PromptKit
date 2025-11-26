@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// TestPromptConfig_TaskType tests that PromptConfig uses task_type field
-func TestPromptConfig_TaskType(t *testing.T) {
+// TestConfig_TaskType tests that Config uses task_type field
+func TestConfig_TaskType(t *testing.T) {
 	// Create temp directory for test config
 	tmpDir := t.TempDir()
 	configFile := filepath.Join(tmpDir, "test-bot.yaml")
@@ -37,7 +37,7 @@ spec:
 		t.Fatalf("Failed to read config file: %v", err)
 	}
 
-	config, err := ParsePromptConfig(data)
+	config, err := ParseConfig(data)
 	if err != nil {
 		t.Fatalf("Failed to parse config: %v", err)
 	}
@@ -53,8 +53,8 @@ spec:
 	}
 }
 
-// TestPromptConfig_FindByTaskType tests that registry can find configs by task_type
-func TestPromptConfig_FindByTaskType(t *testing.T) {
+// TestConfig_FindByTaskType tests that registry can find configs by task_type
+func TestConfig_FindByTaskType(t *testing.T) {
 	// Create temp directory for test configs
 	tmpDir := t.TempDir()
 
@@ -84,7 +84,7 @@ spec:
 		t.Fatalf("Failed to read config file: %v", err)
 	}
 
-	config, err := ParsePromptConfig(data)
+	config, err := ParseConfig(data)
 	if err != nil {
 		t.Fatalf("Failed to parse config: %v", err)
 	}

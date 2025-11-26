@@ -16,14 +16,14 @@ import (
 )
 
 // OpenAIToolProvider extends OpenAIProvider with tool support
-type OpenAIToolProvider struct {
-	*OpenAIProvider
+type ToolProvider struct {
+	*Provider
 }
 
-// NewOpenAIToolProvider creates a new OpenAI provider with tool support
-func NewOpenAIToolProvider(id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool, additionalConfig map[string]interface{}) *OpenAIToolProvider {
-	return &OpenAIToolProvider{
-		OpenAIProvider: NewOpenAIProvider(id, model, baseURL, defaults, includeRawOutput),
+// NewToolProvider creates a new OpenAI provider with tool support
+func NewToolProvider(id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool, additionalConfig map[string]interface{}) *ToolProvider {
+	return &ToolProvider{
+		Provider: NewProvider(id, model, baseURL, defaults, includeRawOutput),
 	}
 }
 
@@ -51,7 +51,7 @@ type openAIFunctionCall struct {
 }
 
 // BuildTooling converts tool descriptors to OpenAI format
-func (p *OpenAIToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (interface{}, error) {
+func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (interface{}, error) {
 	if len(descriptors) == 0 {
 		return nil, nil
 	}
@@ -72,7 +72,7 @@ func (p *OpenAIToolProvider) BuildTooling(descriptors []*providers.ToolDescripto
 }
 
 // PredictWithTools performs a prediction request with tool support
-func (p *OpenAIToolProvider) PredictWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
+func (p *ToolProvider) PredictWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	// Track latency - START timing
 	start := time.Now()
 
@@ -111,7 +111,7 @@ func (p *OpenAIToolProvider) PredictWithTools(ctx context.Context, req providers
 }
 
 // buildToolRequest constructs the OpenAI API request with tools
-func (p *OpenAIToolProvider) buildToolRequest(req providers.PredictionRequest, tools interface{}, toolChoice string) map[string]interface{} {
+func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools interface{}, toolChoice string) map[string]interface{} {
 	messages := p.convertRequestMessagesToOpenAI(req)
 
 	// Build request
@@ -137,7 +137,7 @@ func (p *OpenAIToolProvider) buildToolRequest(req providers.PredictionRequest, t
 }
 
 // convertRequestMessagesToOpenAI converts all messages in a request to OpenAI format
-func (p *OpenAIToolProvider) convertRequestMessagesToOpenAI(req providers.PredictionRequest) []map[string]interface{} {
+func (p *ToolProvider) convertRequestMessagesToOpenAI(req providers.PredictionRequest) []map[string]interface{} {
 	messages := make([]map[string]interface{}, 0, len(req.Messages)+1)
 
 	// Add system message if present
@@ -158,7 +158,7 @@ func (p *OpenAIToolProvider) convertRequestMessagesToOpenAI(req providers.Predic
 }
 
 // convertSingleMessageForTools converts a single message to OpenAI format including tool metadata
-func (p *OpenAIToolProvider) convertSingleMessageForTools(msg types.Message) map[string]interface{} {
+func (p *ToolProvider) convertSingleMessageForTools(msg types.Message) map[string]interface{} {
 	// Convert message to OpenAI format (handles both legacy and multimodal)
 	convertedMsg, err := p.convertMessageToOpenAI(msg)
 	if err != nil {
@@ -191,7 +191,7 @@ func (p *OpenAIToolProvider) convertSingleMessageForTools(msg types.Message) map
 }
 
 // convertToolCallsToOpenAI converts ToolCalls to OpenAI format
-func (p *OpenAIToolProvider) convertToolCallsToOpenAI(toolCalls []types.MessageToolCall) []map[string]interface{} {
+func (p *ToolProvider) convertToolCallsToOpenAI(toolCalls []types.MessageToolCall) []map[string]interface{} {
 	result := make([]map[string]interface{}, len(toolCalls))
 	for i, tc := range toolCalls {
 		result[i] = map[string]interface{}{
@@ -207,7 +207,7 @@ func (p *OpenAIToolProvider) convertToolCallsToOpenAI(toolCalls []types.MessageT
 }
 
 // addToolChoiceToRequest adds tool_choice parameter based on the choice string
-func (p *OpenAIToolProvider) addToolChoiceToRequest(openaiReq map[string]interface{}, toolChoice string) {
+func (p *ToolProvider) addToolChoiceToRequest(openaiReq map[string]interface{}, toolChoice string) {
 	if toolChoice == "" || toolChoice == "auto" {
 		return
 	}
@@ -229,7 +229,7 @@ func (p *OpenAIToolProvider) addToolChoiceToRequest(openaiReq map[string]interfa
 }
 
 // parseToolResponse parses the OpenAI response and extracts tool calls
-func (p *OpenAIToolProvider) parseToolResponse(respBytes []byte) (providers.PredictionResponse, []types.MessageToolCall, error) {
+func (p *ToolProvider) parseToolResponse(respBytes []byte) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	var openaiResp struct {
 		Choices []struct {
 			Message struct {
@@ -263,7 +263,7 @@ func (p *OpenAIToolProvider) parseToolResponse(respBytes []byte) (providers.Pred
 	}
 
 	// Calculate cost breakdown
-	costBreakdown := p.OpenAIProvider.CalculateCost(openaiResp.Usage.PromptTokens, openaiResp.Usage.CompletionTokens, cachedTokens)
+	costBreakdown := p.Provider.CalculateCost(openaiResp.Usage.PromptTokens, openaiResp.Usage.CompletionTokens, cachedTokens)
 
 	resp := providers.PredictionResponse{
 		Content:  choice.Message.Content,
@@ -285,7 +285,7 @@ func (p *OpenAIToolProvider) parseToolResponse(respBytes []byte) (providers.Pred
 }
 
 // makeRequest makes an HTTP request to the OpenAI API
-func (p *OpenAIToolProvider) makeRequest(ctx context.Context, request interface{}) ([]byte, error) {
+func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]byte, error) {
 	reqBytes, err := json.Marshal(request)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
@@ -326,6 +326,6 @@ func (p *OpenAIToolProvider) makeRequest(ctx context.Context, request interface{
 
 func init() {
 	providers.RegisterProviderFactory("openai", func(spec providers.ProviderSpec) (providers.Provider, error) {
-		return NewOpenAIToolProvider(spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput, spec.AdditionalConfig), nil
+		return NewToolProvider(spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput, spec.AdditionalConfig), nil
 	})
 }

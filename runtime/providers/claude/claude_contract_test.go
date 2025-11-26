@@ -26,7 +26,7 @@ func TestClaudeProvider_Contract(t *testing.T) {
 	logger.SetVerbose(true)
 	defer logger.SetVerbose(false)
 
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"claude-test",
 		"claude-3-5-haiku-20241022",
 		"https://api.anthropic.com/v1", // full base URL
@@ -43,8 +43,8 @@ func TestClaudeProvider_Contract(t *testing.T) {
 	t.Skip("Contract tests temporarily disabled during package restructuring")
 }
 
-// TestClaudeToolProvider_Contract tests the Claude provider with tool support.
-func TestClaudeToolProvider_Contract(t *testing.T) {
+// TestToolProvider_Contract tests the Claude provider with tool support.
+func TestToolProvider_Contract(t *testing.T) {
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
 	if apiKey == "" {
 		t.Skip("Skipping Claude tool contract tests - ANTHROPIC_API_KEY not set")
@@ -54,7 +54,7 @@ func TestClaudeToolProvider_Contract(t *testing.T) {
 	logger.SetVerbose(true)
 	defer logger.SetVerbose(false)
 
-	provider := NewClaudeToolProvider(
+	provider := NewToolProvider(
 		"claude-tool-test",
 		"claude-3-5-haiku-20241022",
 		"https://api.anthropic.com/v1",
@@ -71,8 +71,8 @@ func TestClaudeToolProvider_Contract(t *testing.T) {
 	t.Skip("Contract tests temporarily disabled during package restructuring")
 }
 
-// TestClaudeToolProvider_PredictWithToolsLatency verifies the latency bug fix for Claude.
-func TestClaudeToolProvider_PredictWithToolsLatency(t *testing.T) {
+// TestToolProvider_PredictWithToolsLatency verifies the latency bug fix for Claude.
+func TestToolProvider_PredictWithToolsLatency(t *testing.T) {
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
 	if apiKey == "" {
 		t.Skip("Skipping Claude tool latency test - ANTHROPIC_API_KEY not set")
@@ -82,7 +82,7 @@ func TestClaudeToolProvider_PredictWithToolsLatency(t *testing.T) {
 	logger.SetVerbose(true)
 	defer logger.SetVerbose(false)
 
-	provider := NewClaudeToolProvider(
+	provider := NewToolProvider(
 		"claude-latency-test",
 		"claude-3-5-haiku-20241022",
 		"https://api.anthropic.com/v1",

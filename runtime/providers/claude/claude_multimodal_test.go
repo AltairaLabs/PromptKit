@@ -12,7 +12,7 @@ import (
 )
 
 func TestClaudeProvider_GetMultimodalCapabilities(t *testing.T) {
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		"https://api.anthropic.com/v1",
@@ -44,7 +44,7 @@ func TestClaudeProvider_GetMultimodalCapabilities(t *testing.T) {
 }
 
 func TestClaudeProvider_SupportsMultimodal(t *testing.T) {
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		"https://api.anthropic.com/v1",
@@ -58,7 +58,7 @@ func TestClaudeProvider_SupportsMultimodal(t *testing.T) {
 }
 
 func TestClaudeProvider_ConvertLegacyMessage(t *testing.T) {
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		"https://api.anthropic.com/v1",
@@ -86,7 +86,7 @@ func TestClaudeProvider_ConvertLegacyMessage(t *testing.T) {
 }
 
 func TestClaudeProvider_ConvertTextOnlyMultimodalMessage(t *testing.T) {
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		"https://api.anthropic.com/v1",
@@ -117,7 +117,7 @@ func TestClaudeProvider_ConvertTextOnlyMultimodalMessage(t *testing.T) {
 }
 
 func TestClaudeProvider_ConvertImageBase64Message(t *testing.T) {
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		"https://api.anthropic.com/v1",
@@ -149,7 +149,7 @@ func TestClaudeProvider_ConvertImageBase64Message(t *testing.T) {
 }
 
 func TestClaudeProvider_ConvertImageURLMessage(t *testing.T) {
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		"https://api.anthropic.com/v1",
@@ -177,7 +177,7 @@ func TestClaudeProvider_ConvertImageURLMessage(t *testing.T) {
 }
 
 func TestClaudeProvider_ConvertMultipleImages(t *testing.T) {
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		"https://api.anthropic.com/v1",
@@ -208,7 +208,7 @@ func TestClaudeProvider_ConvertMultipleImages(t *testing.T) {
 }
 
 func TestClaudeProvider_ConvertAudioReturnsError(t *testing.T) {
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		"https://api.anthropic.com/v1",
@@ -235,7 +235,7 @@ func TestClaudeProvider_ConvertAudioReturnsError(t *testing.T) {
 }
 
 func TestClaudeProvider_ConvertVideoReturnsError(t *testing.T) {
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		"https://api.anthropic.com/v1",
@@ -261,7 +261,7 @@ func TestClaudeProvider_ConvertVideoReturnsError(t *testing.T) {
 }
 
 func TestClaudeProvider_ConvertEmptyTextPart(t *testing.T) {
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		"https://api.anthropic.com/v1",
@@ -290,7 +290,7 @@ func TestClaudeProvider_ConvertEmptyTextPart(t *testing.T) {
 }
 
 func TestClaudeProvider_ConvertImageMissingMedia(t *testing.T) {
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		"https://api.anthropic.com/v1",
@@ -312,7 +312,7 @@ func TestClaudeProvider_ConvertImageMissingMedia(t *testing.T) {
 }
 
 func TestClaudeProvider_ConvertImageMissingDataSource(t *testing.T) {
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		"https://api.anthropic.com/v1",
@@ -344,7 +344,7 @@ func TestClaudeProvider_ConvertImageMissingDataSource(t *testing.T) {
 }
 
 func TestClaudeProvider_ValidateMultimodalMessage(t *testing.T) {
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		"https://api.anthropic.com/v1",
@@ -419,7 +419,7 @@ func TestClaudeProvider_ValidateMultimodalMessage(t *testing.T) {
 }
 
 func TestClaudeProvider_ConvertMessagesToClaudeMultimodal(t *testing.T) {
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		"https://api.anthropic.com/v1",
@@ -473,7 +473,7 @@ func TestClaudeProvider_ConvertMessagesToClaudeMultimodal(t *testing.T) {
 }
 
 func TestClaudeProvider_ImageFormatsSupported(t *testing.T) {
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		"https://api.anthropic.com/v1",
@@ -501,7 +501,7 @@ func TestClaudeProvider_ImageFormatsSupported(t *testing.T) {
 }
 
 func TestClaudeProvider_MixedMultimodal(t *testing.T) {
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		"https://api.anthropic.com/v1",
@@ -586,7 +586,7 @@ func TestClaudeProvider_ParseClaudeResponse(t *testing.T) {
 }
 
 func TestClaudeProvider_BuildClaudeMessage(t *testing.T) {
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		"https://api.anthropic.com/v1",
@@ -634,7 +634,7 @@ func TestClaudeProvider_BuildClaudeMessage(t *testing.T) {
 }
 
 func TestClaudeProvider_ConvertPartsToClaudeBlocks(t *testing.T) {
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		"https://api.anthropic.com/v1",
@@ -673,7 +673,7 @@ func TestClaudeProvider_StreamResponseMultimodal(t *testing.T) {
 	// This test verifies that streamResponseMultimodal calls the base streamResponse
 	// We can't fully test streaming without HTTP mocking, but we can verify the method exists
 	// and handles closed channels correctly
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		"https://api.anthropic.com/v1",
@@ -689,7 +689,7 @@ func TestClaudeProvider_StreamResponseMultimodal(t *testing.T) {
 }
 
 func TestClaudeProvider_ConvertImagePartToClaude_FilePath(t *testing.T) {
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		"https://api.anthropic.com/v1",
@@ -716,7 +716,7 @@ func TestClaudeProvider_ConvertImagePartToClaude_FilePath(t *testing.T) {
 }
 
 func TestClaudeProvider_ConvertSystemMessage(t *testing.T) {
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		"https://api.anthropic.com/v1",
@@ -755,7 +755,7 @@ func TestClaudeProvider_ConvertSystemMessage(t *testing.T) {
 }
 
 func TestClaudeProvider_PredictMultimodal_ValidationError(t *testing.T) {
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		"https://api.anthropic.com/v1",
@@ -782,7 +782,7 @@ func TestClaudeProvider_PredictMultimodal_ValidationError(t *testing.T) {
 }
 
 func TestClaudeProvider_PredictMultimodalStream_ValidationError(t *testing.T) {
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		"https://api.anthropic.com/v1",
@@ -857,11 +857,11 @@ func TestClaudeProvider_PredictWithContentsMultimodal_HTTPErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var provider *ClaudeProvider
+			var provider *Provider
 
 			if tt.name == "HTTP request creation error - invalid URL" {
 				// Use invalid URL with control characters to trigger request creation error
-				provider = NewClaudeProvider(
+				provider = NewProvider(
 					"test-claude",
 					"claude-3-5-sonnet-20241022",
 					"http://\x7f/invalid", // Invalid URL with control character
@@ -879,7 +879,7 @@ func TestClaudeProvider_PredictWithContentsMultimodal_HTTPErrors(t *testing.T) {
 					baseURL = server.URL
 				}
 
-				provider = NewClaudeProvider(
+				provider = NewProvider(
 					"test-claude",
 					"claude-3-5-sonnet-20241022",
 					baseURL,
@@ -951,7 +951,7 @@ func TestClaudeProvider_PredictStreamWithContentsMultimodal_HTTPErrors(t *testin
 				baseURL = server.URL
 			}
 
-			provider := NewClaudeProvider(
+			provider := NewProvider(
 				"test-claude",
 				"claude-3-5-sonnet-20241022",
 				baseURL,
@@ -990,7 +990,7 @@ func TestClaudeProvider_PredictWithContentsMultimodal_ReadBodyError(t *testing.T
 	}))
 	defer server.Close()
 
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		server.URL,
@@ -1019,7 +1019,7 @@ func TestClaudeProvider_PredictWithContentsMultimodal_ReadBodyError(t *testing.T
 }
 
 func TestClaudeProvider_BuildClaudeMessage_MarshalError(t *testing.T) {
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		"https://api.anthropic.com/v1",
@@ -1044,7 +1044,7 @@ func TestClaudeProvider_BuildClaudeMessage_MarshalError(t *testing.T) {
 }
 
 func TestClaudeProvider_ConvertMessagesToClaudeMultimodal_ConversionError(t *testing.T) {
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		"https://api.anthropic.com/v1",
@@ -1079,7 +1079,7 @@ func TestClaudeProvider_StreamResponseMultimodal_CloseBody(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		server.URL,
@@ -1123,7 +1123,7 @@ func TestClaudeProvider_ParseClaudeResponse_InvalidJSON(t *testing.T) {
 }
 
 func TestClaudeProvider_PredictWithContentsMultimodal_MarshalError(t *testing.T) {
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-claude",
 		"claude-3-5-sonnet-20241022",
 		"https://api.anthropic.com/v1",

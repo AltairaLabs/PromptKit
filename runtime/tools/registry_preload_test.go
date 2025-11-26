@@ -11,7 +11,7 @@ import (
 ) // TestNewRegistryWithRepository_Preloading tests that tools are preloaded from repository
 func TestNewRegistryWithRepository_Preloading(t *testing.T) {
 	// Create a memory repository and add tools directly
-	repo := memory.NewMemoryToolRepository()
+	repo := memory.NewToolRepository()
 
 	// Add test tools to repository
 	tool1 := &tools.ToolDescriptor{
@@ -40,7 +40,7 @@ func TestNewRegistryWithRepository_Preloading(t *testing.T) {
 // TestNewRegistryWithRepository_EmptyRepository tests preloading with empty repository
 func TestNewRegistryWithRepository_EmptyRepository(t *testing.T) {
 	// Create empty memory repository
-	repo := memory.NewMemoryToolRepository()
+	repo := memory.NewToolRepository()
 
 	// Create registry with empty repository
 	registry := tools.NewRegistryWithRepository(repo)
@@ -87,7 +87,7 @@ func TestNewRegistryWithRepository_RepositoryError(t *testing.T) {
 // TestRegistryPreloadingIntegration tests the complete flow of loading tools via repository
 func TestRegistryPreloadingIntegration(t *testing.T) {
 	// This mimics the flow in arena engine builder
-	repo := memory.NewMemoryToolRepository()
+	repo := memory.NewToolRepository()
 
 	// Simulate loading tool data from files (like arena does)
 	toolYAML := `
@@ -149,7 +149,7 @@ spec:
 
 // TestRegistryPreloading_MultipleTools tests preloading with multiple tools
 func TestRegistryPreloading_MultipleTools(t *testing.T) {
-	repo := memory.NewMemoryToolRepository()
+	repo := memory.NewToolRepository()
 
 	// Add multiple tools
 	for i := 0; i < 5; i++ {

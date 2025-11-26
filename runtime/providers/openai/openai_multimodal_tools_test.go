@@ -7,9 +7,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// TestOpenAIToolProvider_WithMultimodalMessages tests if tool calls work with multimodal messages
-func TestOpenAIToolProvider_WithMultimodalMessages(t *testing.T) {
-	toolProvider := NewOpenAIToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+// TestToolProvider_WithMultimodalMessages tests if tool calls work with multimodal messages
+func TestToolProvider_WithMultimodalMessages(t *testing.T) {
+	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
 
 	// Create a multimodal message with an image
 	imageURL := "https://example.com/chart.png"
@@ -85,32 +85,32 @@ func TestOpenAIToolProvider_WithMultimodalMessages(t *testing.T) {
 	t.Logf("Content type: %T", content)
 }
 
-// TestOpenAIToolProvider_MultimodalToolSupport checks if the interface is implemented
-func TestOpenAIToolProvider_MultimodalToolSupport(t *testing.T) {
-	toolProvider := NewOpenAIToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+// TestToolProvider_MultimodalToolSupport checks if the interface is implemented
+func TestToolProvider_MultimodalToolSupport(t *testing.T) {
+	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
 
 	// Check if it implements providers.MultimodalToolSupport interface
 	_, ok := interface{}(toolProvider).(providers.MultimodalToolSupport)
 	if !ok {
-		t.Error("OpenAIToolProvider should implement providers.MultimodalToolSupport interface")
+		t.Error("ToolProvider should implement providers.MultimodalToolSupport interface")
 		t.Log("    Missing: PredictMultimodalWithTools() method")
 	} else {
-		t.Log("✓ OpenAIToolProvider implements providers.MultimodalToolSupport interface")
+		t.Log("✓ ToolProvider implements providers.MultimodalToolSupport interface")
 	}
 
 	// Check if it at least implements providers.MultimodalSupport
 	_, ok = interface{}(toolProvider).(providers.MultimodalSupport)
 	if ok {
-		t.Log("✓ OpenAIToolProvider implements providers.MultimodalSupport interface")
+		t.Log("✓ ToolProvider implements providers.MultimodalSupport interface")
 		t.Log("    This means it inherits GetMultimodalCapabilities(), PredictMultimodal(), PredictMultimodalStream()")
 	} else {
-		t.Log("⚠️  OpenAIToolProvider does NOT implement providers.MultimodalSupport interface")
+		t.Log("⚠️  ToolProvider does NOT implement providers.MultimodalSupport interface")
 	}
 }
 
 // TestOpenAIProvider_InheritsMultimodal verifies base provider has multimodal support
 func TestOpenAIProvider_InheritsMultimodal(t *testing.T) {
-	baseProvider := NewOpenAIProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
+	baseProvider := NewProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
 
 	// Check if base provider implements providers.MultimodalSupport
 	_, ok := interface{}(baseProvider).(providers.MultimodalSupport)
@@ -118,20 +118,20 @@ func TestOpenAIProvider_InheritsMultimodal(t *testing.T) {
 		t.Fatal("OpenAIProvider should implement providers.MultimodalSupport interface")
 	}
 
-	toolProvider := NewOpenAIToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
 
-	// Since OpenAIToolProvider embeds *OpenAIProvider, it should inherit the interface
+	// Since ToolProvider embeds *Provider, it should inherit the interface
 	_, ok = interface{}(toolProvider).(providers.MultimodalSupport)
 	if !ok {
-		t.Fatal("OpenAIToolProvider should inherit providers.MultimodalSupport from OpenAIProvider")
+		t.Fatal("ToolProvider should inherit providers.MultimodalSupport from OpenAIProvider")
 	}
 
-	t.Log("✓ OpenAIToolProvider inherits providers.MultimodalSupport from OpenAIProvider")
+	t.Log("✓ ToolProvider inherits providers.MultimodalSupport from OpenAIProvider")
 }
 
-// TestOpenAIToolProvider_BuildToolRequestWithLegacyMessage tests backward compatibility
-func TestOpenAIToolProvider_BuildToolRequestWithLegacyMessage(t *testing.T) {
-	toolProvider := NewOpenAIToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+// TestToolProvider_BuildToolRequestWithLegacyMessage tests backward compatibility
+func TestToolProvider_BuildToolRequestWithLegacyMessage(t *testing.T) {
+	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
 
 	// Legacy text-only message
 	msg := types.Message{
@@ -161,9 +161,9 @@ func TestOpenAIToolProvider_BuildToolRequestWithLegacyMessage(t *testing.T) {
 	}
 }
 
-// TestOpenAIToolProvider_BuildToolRequestWithTools tests message conversion with actual tools
-func TestOpenAIToolProvider_BuildToolRequestWithTools(t *testing.T) {
-	toolProvider := NewOpenAIToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+// TestToolProvider_BuildToolRequestWithTools tests message conversion with actual tools
+func TestToolProvider_BuildToolRequestWithTools(t *testing.T) {
+	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
 
 	imageURL := "https://example.com/chart.png"
 	msg := types.Message{
@@ -216,9 +216,9 @@ func TestOpenAIToolProvider_BuildToolRequestWithTools(t *testing.T) {
 	}
 }
 
-// TestOpenAIToolProvider_BuildToolRequestWithToolCalls tests messages with tool call responses
-func TestOpenAIToolProvider_BuildToolRequestWithToolCalls(t *testing.T) {
-	toolProvider := NewOpenAIToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+// TestToolProvider_BuildToolRequestWithToolCalls tests messages with tool call responses
+func TestToolProvider_BuildToolRequestWithToolCalls(t *testing.T) {
+	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
 
 	// Message with tool calls
 	assistantMsg := types.Message{
@@ -269,9 +269,9 @@ func TestOpenAIToolProvider_BuildToolRequestWithToolCalls(t *testing.T) {
 	}
 }
 
-// TestOpenAIToolProvider_BuildToolRequestWithMultimodalAndToolResult tests complex scenario
-func TestOpenAIToolProvider_BuildToolRequestWithMultimodalAndToolResult(t *testing.T) {
-	toolProvider := NewOpenAIToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+// TestToolProvider_BuildToolRequestWithMultimodalAndToolResult tests complex scenario
+func TestToolProvider_BuildToolRequestWithMultimodalAndToolResult(t *testing.T) {
+	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
 
 	imageURL := "https://example.com/chart.png"
 
@@ -358,9 +358,9 @@ func TestOpenAIToolProvider_BuildToolRequestWithMultimodalAndToolResult(t *testi
 	t.Log("✓ Complex multimodal + tool conversation handled correctly")
 }
 
-// TestOpenAIToolProvider_MultimodalValidation tests validation before tool calls
-func TestOpenAIToolProvider_MultimodalValidation(t *testing.T) {
-	toolProvider := NewOpenAIToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+// TestToolProvider_MultimodalValidation tests validation before tool calls
+func TestToolProvider_MultimodalValidation(t *testing.T) {
+	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
 
 	// Create unsupported media type (audio)
 	audioFile := "/path/to/audio.mp3"

@@ -9,7 +9,7 @@ import (
 )
 
 func TestPrepareOpenAIMessages(t *testing.T) {
-	provider := NewOpenAIProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
 
 	tests := []struct {
 		name           string
@@ -192,7 +192,7 @@ func TestApplyRequestDefaults(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			provider := &OpenAIProvider{
+			provider := &Provider{
 				defaults: tt.defaults,
 			}
 
@@ -482,7 +482,7 @@ func TestCreateFinalStreamChunk(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			provider := &OpenAIProvider{
+			provider := &Provider{
 				model: "gpt-4o",
 				defaults: providers.ProviderDefaults{
 					Pricing: providers.Pricing{
@@ -540,7 +540,7 @@ func TestCreateFinalStreamChunk(t *testing.T) {
 
 func TestOpenAIHelpers_Integration(t *testing.T) {
 	t.Run("Full request preparation flow", func(t *testing.T) {
-		provider := &OpenAIProvider{
+		provider := &Provider{
 			model: "gpt-4o",
 			defaults: providers.ProviderDefaults{
 				Temperature: 0.7,
@@ -587,7 +587,7 @@ func TestOpenAIHelpers_Integration(t *testing.T) {
 	})
 
 	t.Run("Tool call streaming flow", func(t *testing.T) {
-		provider := &OpenAIProvider{
+		provider := &Provider{
 			model: "gpt-4o",
 			defaults: providers.ProviderDefaults{
 				Pricing: providers.Pricing{

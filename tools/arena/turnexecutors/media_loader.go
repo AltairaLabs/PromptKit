@@ -120,7 +120,7 @@ func loadFromStorageReference(
 		return nil, NewValidationError(index, contentType, ref, errStorageServiceMissing)
 	}
 
-	media, err := storageService.RetrieveMedia(ctx, storage.StorageReference(ref))
+	media, err := storageService.RetrieveMedia(ctx, storage.Reference(ref))
 	if err != nil {
 		return nil, NewFileError(index, contentType, ref, errStorageRetrieveFailed, err)
 	}

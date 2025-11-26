@@ -31,7 +31,7 @@ func TestDiagnostic_AudioModalityRawMessages(t *testing.T) {
 	fmt.Println("This will show ALL raw JSON from the API")
 	fmt.Println()
 
-	provider := NewGeminiProvider(
+	provider := NewProvider(
 		"gemini-diagnostic",
 		"gemini-2.0-flash-exp",
 		"https://generativelanguage.googleapis.com",

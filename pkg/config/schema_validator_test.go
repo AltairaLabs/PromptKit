@@ -169,7 +169,7 @@ spec:
 
 func TestValidatePromptConfig_Valid(t *testing.T) {
 	validPromptConfig := []byte(`
-apiVersion: promptkit.altairalabs.ai/v1alpha1
+apiVersion: promptkit.altaira.ai/v1alpha1
 kind: PromptConfig
 metadata:
   name: test-prompt

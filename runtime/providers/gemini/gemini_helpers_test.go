@@ -167,7 +167,7 @@ func TestPrepareGeminiRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			provider := &GeminiProvider{
+			provider := &Provider{
 				Defaults: tt.defaults,
 			}
 
@@ -207,7 +207,7 @@ func TestPrepareGeminiRequest(t *testing.T) {
 }
 
 func TestBuildGeminiRequest(t *testing.T) {
-	provider := &GeminiProvider{}
+	provider := &Provider{}
 
 	tests := []struct {
 		name              string
@@ -300,7 +300,7 @@ func TestBuildGeminiRequest(t *testing.T) {
 
 func TestGeminiHelpers_Integration(t *testing.T) {
 	t.Run("Full request preparation flow", func(t *testing.T) {
-		provider := &GeminiProvider{
+		provider := &Provider{
 			Defaults: providers.ProviderDefaults{
 				Temperature: 0.7,
 				TopP:        0.95,

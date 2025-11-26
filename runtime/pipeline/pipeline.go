@@ -28,9 +28,9 @@ const (
 	errValidationFailed       = "validation failed (%s): %s"
 )
 
-// PipelineRuntimeConfig defines runtime configuration options for pipeline execution.
+// RuntimeConfig defines runtime configuration options for pipeline execution.
 // All fields have sensible defaults and are optional.
-type PipelineRuntimeConfig struct {
+type RuntimeConfig struct {
 	// MaxConcurrentExecutions limits the number of concurrent pipeline executions.
 	// Default: 100
 	MaxConcurrentExecutions int
@@ -49,9 +49,9 @@ type PipelineRuntimeConfig struct {
 	GracefulShutdownTimeout time.Duration
 }
 
-// DefaultPipelineRuntimeConfig returns a PipelineRuntimeConfig with sensible default values.
-func DefaultPipelineRuntimeConfig() *PipelineRuntimeConfig {
-	return &PipelineRuntimeConfig{
+// DefaultRuntimeConfig returns a RuntimeConfig with sensible default values.
+func DefaultRuntimeConfig() *RuntimeConfig {
+	return &RuntimeConfig{
 		MaxConcurrentExecutions: 100,
 		StreamBufferSize:        100,
 		ExecutionTimeout:        30 * time.Second,
@@ -62,7 +62,7 @@ func DefaultPipelineRuntimeConfig() *PipelineRuntimeConfig {
 // Pipeline chains middleware together in sequence.
 type Pipeline struct {
 	middleware []Middleware
-	config     *PipelineRuntimeConfig
+	config     *RuntimeConfig
 	semaphore  *semaphore.Weighted
 	wg         sync.WaitGroup
 	shutdown   chan struct{}
@@ -81,7 +81,7 @@ func NewPipeline(middleware ...Middleware) *Pipeline {
 // If config is nil, uses default configuration.
 // Note: This function does not validate config values for backward compatibility.
 // Use NewPipelineWithConfigValidated for validation.
-func NewPipelineWithConfig(config *PipelineRuntimeConfig, middleware ...Middleware) *Pipeline {
+func NewPipelineWithConfig(config *RuntimeConfig, middleware ...Middleware) *Pipeline {
 	p, _ := NewPipelineWithConfigValidated(config, middleware...) // NOSONAR: Backward compatibility - validation errors would break existing code
 	return p
 }
@@ -90,9 +90,9 @@ func NewPipelineWithConfig(config *PipelineRuntimeConfig, middleware ...Middlewa
 // Returns an error if config contains invalid values (negative numbers).
 // If config is nil, uses default configuration.
 // If config has zero values for some fields, they are filled with defaults.
-func NewPipelineWithConfigValidated(config *PipelineRuntimeConfig, middleware ...Middleware) (*Pipeline, error) {
+func NewPipelineWithConfigValidated(config *RuntimeConfig, middleware ...Middleware) (*Pipeline, error) {
 	if config == nil {
-		config = DefaultPipelineRuntimeConfig()
+		config = DefaultRuntimeConfig()
 	} else {
 		// Validate negative values first (truly invalid)
 		if config.MaxConcurrentExecutions < 0 {
@@ -103,7 +103,7 @@ func NewPipelineWithConfigValidated(config *PipelineRuntimeConfig, middleware ..
 		}
 
 		// Merge with defaults for any zero values (zero means "not set, use default")
-		defaults := DefaultPipelineRuntimeConfig()
+		defaults := DefaultRuntimeConfig()
 		if config.MaxConcurrentExecutions == 0 {
 			config.MaxConcurrentExecutions = defaults.MaxConcurrentExecutions
 		}

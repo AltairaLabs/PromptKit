@@ -15,7 +15,7 @@ import (
 // It implements the ToolSupport interface to enable tool call simulation
 // while maintaining compatibility with the existing MockProvider API.
 type MockToolProvider struct {
-	*MockProvider
+	*Provider
 }
 
 // NewMockToolProvider creates a new mock provider with tool support.
@@ -29,26 +29,25 @@ func NewMockToolProvider(id, model string, includeRawOutput bool, additionalConf
 			if err != nil {
 				logger.Warn("failed to load mock config from %s: %w", mockConfigPath, err)
 				return &MockToolProvider{
-					MockProvider: NewMockProvider(id, model, includeRawOutput),
+					Provider: NewProvider(id, model, includeRawOutput),
 				}
 			}
 			return &MockToolProvider{
-				MockProvider: NewMockProviderWithRepository(id, model, includeRawOutput, repository),
+				Provider: NewProviderWithRepository(id, model, includeRawOutput, repository),
 			}
 		}
 	}
 
 	return &MockToolProvider{
-		MockProvider: NewMockProvider(id, model, includeRawOutput),
+		Provider: NewProvider(id, model, includeRawOutput),
 	}
-
 }
 
 // NewMockToolProviderWithRepository creates a mock provider with tool support
 // using a custom response repository for advanced scenarios.
 func NewMockToolProviderWithRepository(id, model string, includeRawOutput bool, repo MockResponseRepository) *MockToolProvider {
 	return &MockToolProvider{
-		MockProvider: NewMockProviderWithRepository(id, model, includeRawOutput, repo),
+		Provider: NewProviderWithRepository(id, model, includeRawOutput, repo),
 	}
 }
 

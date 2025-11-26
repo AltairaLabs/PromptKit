@@ -130,7 +130,7 @@ type RedisConfig struct {
 // PromptConfigData holds a loaded prompt configuration with its file path
 type PromptConfigData struct {
 	FilePath string            // relative to ConfigDir
-	Config   interface{}       // parsed prompt configuration (*prompt.PromptConfig at runtime)
+	Config   interface{}       // parsed prompt configuration (*prompt.Config at runtime)
 	TaskType string            // extracted from Config.Spec.TaskType
 	Vars     map[string]string // Variable overrides from arena.yaml
 }
@@ -494,7 +494,7 @@ type PromptConfigSchema struct {
 	APIVersion string            `yaml:"apiVersion"`
 	Kind       string            `yaml:"kind"`
 	Metadata   ObjectMeta        `yaml:"metadata,omitempty"`
-	Spec       prompt.PromptSpec `yaml:"spec"`
+	Spec       prompt.Spec `yaml:"spec"`
 }
 
 // ToolConfigSchema represents a Tool configuration for schema generation with simplified ObjectMeta

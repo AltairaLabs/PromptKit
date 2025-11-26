@@ -27,7 +27,7 @@ var (
 type JSONPromptRepository struct {
 	basePath       string
 	taskTypeToFile map[string]string
-	cache          map[string]*prompt.PromptConfig
+	cache          map[string]*prompt.Config
 }
 
 // NewJSONPromptRepository creates a JSON file-based prompt repository
@@ -38,12 +38,12 @@ func NewJSONPromptRepository(basePath string, taskTypeToFile map[string]string) 
 	return &JSONPromptRepository{
 		basePath:       basePath,
 		taskTypeToFile: taskTypeToFile,
-		cache:          make(map[string]*prompt.PromptConfig),
+		cache:          make(map[string]*prompt.Config),
 	}
 }
 
 // LoadPrompt loads a prompt configuration by task type
-func (r *JSONPromptRepository) LoadPrompt(taskType string) (*prompt.PromptConfig, error) {
+func (r *JSONPromptRepository) LoadPrompt(taskType string) (*prompt.Config, error) {
 	// Check cache
 	if cached, ok := r.cache[taskType]; ok {
 		return cached, nil
@@ -62,7 +62,7 @@ func (r *JSONPromptRepository) LoadPrompt(taskType string) (*prompt.PromptConfig
 	}
 
 	// Parse JSON
-	var config prompt.PromptConfig
+	var config prompt.Config
 	if err := json.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON: %w", err)
 	}
@@ -161,7 +161,7 @@ func (r *JSONPromptRepository) hasMatchingTaskType(path, taskType string) bool {
 		return false
 	}
 
-	var config prompt.PromptConfig
+	var config prompt.Config
 	if err := json.Unmarshal(data, &config); err != nil {
 		return false
 	}
@@ -218,7 +218,7 @@ func (r *JSONPromptRepository) ListPrompts() ([]string, error) {
 			return nil
 		}
 
-		var config prompt.PromptConfig
+		var config prompt.Config
 		if err := json.Unmarshal(data, &config); err != nil {
 			return nil
 		}
@@ -234,11 +234,11 @@ func (r *JSONPromptRepository) ListPrompts() ([]string, error) {
 }
 
 // SavePrompt saves a prompt configuration (not yet implemented)
-func (r *JSONPromptRepository) SavePrompt(config *prompt.PromptConfig) error {
+func (r *JSONPromptRepository) SavePrompt(config *prompt.Config) error {
 	return fmt.Errorf("not implemented")
 }
 
-func validatePromptConfig(config *prompt.PromptConfig) error {
+func validatePromptConfig(config *prompt.Config) error {
 	if config.APIVersion == "" {
 		return fmt.Errorf("missing apiVersion")
 	}

@@ -9,7 +9,7 @@ import (
 
 // PromptLoader interface abstracts the registry for testing
 type PromptLoader interface {
-	LoadConfig(taskType string) (*PromptConfig, error)
+	LoadConfig(taskType string) (*Config, error)
 	ListTaskTypes() []string
 }
 
@@ -78,7 +78,7 @@ type Pack struct {
 	Fragments map[string]string `json:"fragments,omitempty"` // Resolved fragments: name -> content
 
 	// Metadata
-	Metadata    *PromptMetadata  `json:"metadata,omitempty"`
+	Metadata    *Metadata        `json:"metadata,omitempty"`
 	Compilation *CompilationInfo `json:"compilation,omitempty"`
 }
 
@@ -135,7 +135,7 @@ type ParametersPack struct {
 	TopK        *int     `json:"top_k,omitempty"`
 }
 
-// PackCompiler compiles PromptConfig to Pack format
+// PackCompiler compiles Config to Pack format
 type PackCompiler struct {
 	loader       PromptLoader
 	timeProvider TimeProvider
@@ -298,8 +298,8 @@ func (pc *PackCompiler) addPromptToPack(pack *Pack, taskType string) error {
 	return nil
 }
 
-// createPackPrompt creates a PackPrompt from a PromptConfig
-func (pc *PackCompiler) createPackPrompt(config *PromptConfig) *PackPrompt {
+// createPackPrompt creates a PackPrompt from a Config
+func (pc *PackCompiler) createPackPrompt(config *Config) *PackPrompt {
 	return &PackPrompt{
 		ID:             config.Spec.TaskType,
 		Name:           config.Metadata.Name,
@@ -317,7 +317,7 @@ func (pc *PackCompiler) createPackPrompt(config *PromptConfig) *PackPrompt {
 }
 
 // collectFragments collects fragment references from config into pack
-func (pc *PackCompiler) collectFragments(pack *Pack, config *PromptConfig) {
+func (pc *PackCompiler) collectFragments(pack *Pack, config *Config) {
 	for _, fragRef := range config.Spec.Fragments {
 		if _, exists := pack.Fragments[fragRef.Name]; !exists {
 			pack.Fragments[fragRef.Name] = fmt.Sprintf("{{%s}}", fragRef.Name)

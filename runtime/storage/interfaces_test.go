@@ -12,34 +12,34 @@ import (
 
 // mockMediaStorageService is a mock implementation for testing
 type mockMediaStorageService struct {
-	storeFunc    func(ctx context.Context, content *types.MediaContent, metadata *storage.MediaMetadata) (storage.StorageReference, error)
-	retrieveFunc func(ctx context.Context, reference storage.StorageReference) (*types.MediaContent, error)
-	deleteFunc   func(ctx context.Context, reference storage.StorageReference) error
-	getURLFunc   func(ctx context.Context, reference storage.StorageReference, expiry time.Duration) (string, error)
+	storeFunc    func(ctx context.Context, content *types.MediaContent, metadata *storage.MediaMetadata) (storage.Reference, error)
+	retrieveFunc func(ctx context.Context, reference storage.Reference) (*types.MediaContent, error)
+	deleteFunc   func(ctx context.Context, reference storage.Reference) error
+	getURLFunc   func(ctx context.Context, reference storage.Reference, expiry time.Duration) (string, error)
 }
 
-func (m *mockMediaStorageService) StoreMedia(ctx context.Context, content *types.MediaContent, metadata *storage.MediaMetadata) (storage.StorageReference, error) {
+func (m *mockMediaStorageService) StoreMedia(ctx context.Context, content *types.MediaContent, metadata *storage.MediaMetadata) (storage.Reference, error) {
 	if m.storeFunc != nil {
 		return m.storeFunc(ctx, content, metadata)
 	}
 	return "", nil
 }
 
-func (m *mockMediaStorageService) RetrieveMedia(ctx context.Context, reference storage.StorageReference) (*types.MediaContent, error) {
+func (m *mockMediaStorageService) RetrieveMedia(ctx context.Context, reference storage.Reference) (*types.MediaContent, error) {
 	if m.retrieveFunc != nil {
 		return m.retrieveFunc(ctx, reference)
 	}
 	return nil, nil
 }
 
-func (m *mockMediaStorageService) DeleteMedia(ctx context.Context, reference storage.StorageReference) error {
+func (m *mockMediaStorageService) DeleteMedia(ctx context.Context, reference storage.Reference) error {
 	if m.deleteFunc != nil {
 		return m.deleteFunc(ctx, reference)
 	}
 	return nil
 }
 
-func (m *mockMediaStorageService) GetURL(ctx context.Context, reference storage.StorageReference, expiry time.Duration) (string, error) {
+func (m *mockMediaStorageService) GetURL(ctx context.Context, reference storage.Reference, expiry time.Duration) (string, error) {
 	if m.getURLFunc != nil {
 		return m.getURLFunc(ctx, reference, expiry)
 	}
@@ -67,31 +67,31 @@ func TestMediaStorageServiceInterface(t *testing.T) {
 	t.Run("StoreMedia interface", func(t *testing.T) {
 		called := false
 		mock := &mockMediaStorageService{
-			storeFunc: func(ctx context.Context, content *types.MediaContent, metadata *storage.MediaMetadata) (storage.StorageReference, error) {
+			storeFunc: func(ctx context.Context, content *types.MediaContent, metadata *storage.MediaMetadata) (storage.Reference, error) {
 				called = true
 				assert.NotNil(t, content)
 				assert.Equal(t, "test-run", metadata.RunID)
-				return storage.StorageReference("ref-123"), nil
+				return storage.Reference("ref-123"), nil
 			},
 		}
 
 		ref, err := mock.StoreMedia(ctx, content, &metadata)
 		assert.NoError(t, err)
 		assert.True(t, called)
-		assert.Equal(t, storage.StorageReference("ref-123"), ref)
+		assert.Equal(t, storage.Reference("ref-123"), ref)
 	})
 
 	t.Run("RetrieveMedia interface", func(t *testing.T) {
 		called := false
 		mock := &mockMediaStorageService{
-			retrieveFunc: func(ctx context.Context, reference storage.StorageReference) (*types.MediaContent, error) {
+			retrieveFunc: func(ctx context.Context, reference storage.Reference) (*types.MediaContent, error) {
 				called = true
-				assert.Equal(t, storage.StorageReference("ref-123"), reference)
+				assert.Equal(t, storage.Reference("ref-123"), reference)
 				return content, nil
 			},
 		}
 
-		retrieved, err := mock.RetrieveMedia(ctx, storage.StorageReference("ref-123"))
+		retrieved, err := mock.RetrieveMedia(ctx, storage.Reference("ref-123"))
 		assert.NoError(t, err)
 		assert.True(t, called)
 		assert.NotNil(t, retrieved)
@@ -100,14 +100,14 @@ func TestMediaStorageServiceInterface(t *testing.T) {
 	t.Run("DeleteMedia interface", func(t *testing.T) {
 		called := false
 		mock := &mockMediaStorageService{
-			deleteFunc: func(ctx context.Context, reference storage.StorageReference) error {
+			deleteFunc: func(ctx context.Context, reference storage.Reference) error {
 				called = true
-				assert.Equal(t, storage.StorageReference("ref-123"), reference)
+				assert.Equal(t, storage.Reference("ref-123"), reference)
 				return nil
 			},
 		}
 
-		err := mock.DeleteMedia(ctx, storage.StorageReference("ref-123"))
+		err := mock.DeleteMedia(ctx, storage.Reference("ref-123"))
 		assert.NoError(t, err)
 		assert.True(t, called)
 	})
@@ -115,15 +115,15 @@ func TestMediaStorageServiceInterface(t *testing.T) {
 	t.Run("GetURL interface", func(t *testing.T) {
 		called := false
 		mock := &mockMediaStorageService{
-			getURLFunc: func(ctx context.Context, reference storage.StorageReference, expiry time.Duration) (string, error) {
+			getURLFunc: func(ctx context.Context, reference storage.Reference, expiry time.Duration) (string, error) {
 				called = true
-				assert.Equal(t, storage.StorageReference("ref-123"), reference)
+				assert.Equal(t, storage.Reference("ref-123"), reference)
 				assert.Equal(t, 1*time.Hour, expiry)
 				return "file:///path/to/media.jpg", nil
 			},
 		}
 
-		url, err := mock.GetURL(ctx, storage.StorageReference("ref-123"), 1*time.Hour)
+		url, err := mock.GetURL(ctx, storage.Reference("ref-123"), 1*time.Hour)
 		assert.NoError(t, err)
 		assert.True(t, called)
 		assert.Equal(t, "file:///path/to/media.jpg", url)

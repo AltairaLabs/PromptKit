@@ -10,8 +10,8 @@ import (
 
 func TestPopulateDefaults_TemplateEngine(t *testing.T) {
 	registry := createTestRegistry()
-	config := &PromptConfig{
-		Spec: PromptSpec{
+	config := &Config{
+		Spec: Spec{
 			TaskType: "test",
 		},
 	}
@@ -31,8 +31,8 @@ func TestPopulateDefaults_TemplateEngine(t *testing.T) {
 
 func TestPopulateDefaults_Variables(t *testing.T) {
 	registry := createTestRegistry()
-	config := &PromptConfig{
-		Spec: PromptSpec{
+	config := &Config{
+		Spec: Spec{
 			TaskType: "test",
 			Variables: []VariableMetadata{
 				{Name: "name", Required: true, Type: "string"},
@@ -71,8 +71,8 @@ func TestPopulateDefaults_Variables(t *testing.T) {
 
 func TestPopulateDefaults_ValidatorFlags(t *testing.T) {
 	registry := createTestRegistry()
-	config := &PromptConfig{
-		Spec: PromptSpec{
+	config := &Config{
+		Spec: Spec{
 			TaskType: "test",
 			Validators: []ValidatorConfig{
 				{
@@ -159,7 +159,7 @@ spec:
 		t.Fatalf("Failed to read config file: %v", err)
 	}
 
-	config, err := ParsePromptConfig(data)
+	config, err := ParseConfig(data)
 	if err != nil {
 		t.Fatalf("Failed to parse config: %v", err)
 	}
@@ -187,7 +187,7 @@ spec:
 }
 
 func TestMetadataBuilder_BuildCompilationInfo(t *testing.T) {
-	spec := &PromptSpec{
+	spec := &Spec{
 		TaskType: "test",
 	}
 	builder := NewMetadataBuilder(spec)
@@ -286,7 +286,7 @@ func TestExtractVariablesFromTemplate(t *testing.T) {
 }
 
 func TestMetadataBuilder_SetMethods(t *testing.T) {
-	spec := &PromptSpec{
+	spec := &Spec{
 		TaskType: "test",
 	}
 	builder := NewMetadataBuilder(spec)
@@ -310,7 +310,7 @@ func TestMetadataBuilder_SetMethods(t *testing.T) {
 }
 
 func TestMetadataBuilder_AddChangelogEntry(t *testing.T) {
-	spec := &PromptSpec{
+	spec := &Spec{
 		TaskType: "test",
 	}
 	builder := NewMetadataBuilder(spec)

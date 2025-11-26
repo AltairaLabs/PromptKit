@@ -9,7 +9,7 @@ import (
 
 // TestNewRegistryWithRepository verifies the new constructor works
 func TestNewRegistryWithRepository(t *testing.T) {
-	repo := memory.NewMemoryPromptRepository()
+	repo := memory.NewPromptRepository()
 	registry := prompt.NewRegistryWithRepository(repo)
 
 	if registry == nil {
@@ -19,13 +19,13 @@ func TestNewRegistryWithRepository(t *testing.T) {
 
 // TestRegistry_LoadWithRepository tests loading prompts via repository
 func TestRegistry_LoadWithRepository(t *testing.T) {
-	repo := memory.NewMemoryPromptRepository()
+	repo := memory.NewPromptRepository()
 
 	// Register a test prompt
-	repo.RegisterPrompt("test-task", &prompt.PromptConfig{
+	repo.RegisterPrompt("test-task", &prompt.Config{
 		APIVersion: "promptkit.altairalabs.ai/v1alpha1",
-		Kind:       "PromptConfig",
-		Spec: prompt.PromptSpec{
+		Kind:       "Config",
+		Spec: prompt.Spec{
 			TaskType:       "test-task",
 			SystemTemplate: "You are a test assistant",
 			Variables:      []prompt.VariableMetadata{},
@@ -50,12 +50,12 @@ func TestRegistry_LoadWithRepository(t *testing.T) {
 
 // TestRegistry_LoadWithVars tests variable substitution
 func TestRegistry_LoadWithVars_WithRepository(t *testing.T) {
-	repo := memory.NewMemoryPromptRepository()
+	repo := memory.NewPromptRepository()
 
-	repo.RegisterPrompt("var-test", &prompt.PromptConfig{
+	repo.RegisterPrompt("var-test", &prompt.Config{
 		APIVersion: "promptkit.altairalabs.ai/v1alpha1",
-		Kind:       "PromptConfig",
-		Spec: prompt.PromptSpec{
+		Kind:       "Config",
+		Spec: prompt.Spec{
 			TaskType:       "var-test",
 			SystemTemplate: "Hello {{name}}, welcome to {{place}}!",
 			Variables: []prompt.VariableMetadata{
@@ -82,13 +82,13 @@ func TestRegistry_LoadWithVars_WithRepository(t *testing.T) {
 
 // TestRegistry_ListTaskTypes tests listing available task types
 func TestRegistry_ListTaskTypes_WithRepository(t *testing.T) {
-	repo := memory.NewMemoryPromptRepository()
+	repo := memory.NewPromptRepository()
 
-	repo.RegisterPrompt("task1", &prompt.PromptConfig{
-		Spec: prompt.PromptSpec{TaskType: "task1"},
+	repo.RegisterPrompt("task1", &prompt.Config{
+		Spec: prompt.Spec{TaskType: "task1"},
 	})
-	repo.RegisterPrompt("task2", &prompt.PromptConfig{
-		Spec: prompt.PromptSpec{TaskType: "task2"},
+	repo.RegisterPrompt("task2", &prompt.Config{
+		Spec: prompt.Spec{TaskType: "task2"},
 	})
 
 	registry := prompt.NewRegistryWithRepository(repo)
@@ -106,13 +106,13 @@ func TestRegistry_ListTaskTypes_WithRepository(t *testing.T) {
 
 // TestRegistry_RegisterConfig tests programmatic config registration
 func TestRegistry_RegisterConfig_WithRepository(t *testing.T) {
-	repo := memory.NewMemoryPromptRepository()
+	repo := memory.NewPromptRepository()
 	registry := prompt.NewRegistryWithRepository(repo)
 
-	config := &prompt.PromptConfig{
+	config := &prompt.Config{
 		APIVersion: "promptkit.altairalabs.ai/v1alpha1",
-		Kind:       "PromptConfig",
-		Spec: prompt.PromptSpec{
+		Kind:       "Config",
+		Spec: prompt.Spec{
 			TaskType:       "registered-task",
 			SystemTemplate: "Registered prompt",
 		},
@@ -135,10 +135,10 @@ func TestRegistry_RegisterConfig_WithRepository(t *testing.T) {
 
 // TestRegistry_LoadConfig tests loading raw config
 func TestRegistry_LoadConfig_WithRepository(t *testing.T) {
-	repo := memory.NewMemoryPromptRepository()
+	repo := memory.NewPromptRepository()
 
-	repo.RegisterPrompt("config-test", &prompt.PromptConfig{
-		Spec: prompt.PromptSpec{
+	repo.RegisterPrompt("config-test", &prompt.Config{
+		Spec: prompt.Spec{
 			TaskType:       "config-test",
 			SystemTemplate: "Test",
 			Version:        "v1.0.0",
@@ -159,7 +159,7 @@ func TestRegistry_LoadConfig_WithRepository(t *testing.T) {
 
 // TestRegistry_LoadNonexistent tests error handling for missing prompts
 func TestRegistry_LoadNonexistent_WithRepository(t *testing.T) {
-	repo := memory.NewMemoryPromptRepository()
+	repo := memory.NewPromptRepository()
 	registry := prompt.NewRegistryWithRepository(repo)
 
 	assembled := registry.Load("nonexistent")

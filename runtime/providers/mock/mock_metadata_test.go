@@ -57,7 +57,7 @@ func TestMockProvider_Metadata_Predict(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			provider := NewMockProvider("test-provider", "test-model", false)
+			provider := NewProvider("test-provider", "test-model", false)
 
 			req := providers.PredictionRequest{
 				Messages: []types.Message{
@@ -103,7 +103,7 @@ func TestMockProvider_Metadata_PredictStream(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			provider := NewMockProvider("test-provider", "test-model", false)
+			provider := NewProvider("test-provider", "test-model", false)
 
 			req := providers.PredictionRequest{
 				Messages: []types.Message{
@@ -141,7 +141,7 @@ func TestMockProvider_Metadata_PredictStream(t *testing.T) {
 }
 
 func TestMockProvider_HelperFunctions(t *testing.T) {
-	provider := NewMockProvider("test-provider", "test-model", false)
+	provider := NewProvider("test-provider", "test-model", false)
 
 	t.Run("buildMockResponseParams", func(t *testing.T) {
 		req := providers.PredictionRequest{
@@ -190,7 +190,7 @@ func TestMockProvider_HelperFunctions(t *testing.T) {
 }
 
 func TestMockProvider_CalculateCost(t *testing.T) {
-	provider := NewMockProvider("test-provider", "test-model", false)
+	provider := NewProvider("test-provider", "test-model", false)
 
 	tests := []struct {
 		name         string
@@ -230,7 +230,7 @@ func TestMockProvider_CalculateCost(t *testing.T) {
 }
 
 func TestMockProvider_Close(t *testing.T) {
-	provider := NewMockProvider("test-provider", "test-model", false)
+	provider := NewProvider("test-provider", "test-model", false)
 
 	err := provider.Close()
 	if err != nil {

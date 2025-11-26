@@ -27,7 +27,7 @@ func TestPipelineBuilder_WithMediaExternalization(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create mock provider
-	provider := mock.NewMockProvider("test-provider", "test-model", false)
+	provider := mock.NewProvider("test-provider", "test-model", false)
 
 	// Build pipeline with media externalization
 	builder := sdk.NewPipelineBuilder().
@@ -61,7 +61,7 @@ func TestConversationManager_WithMediaStorage(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create mock provider
-	provider := mock.NewMockProvider("test-provider", "test-model", false)
+	provider := mock.NewProvider("test-provider", "test-model", false)
 
 	// Create conversation manager with media storage
 	manager, err := sdk.NewConversationManager(
@@ -90,7 +90,7 @@ func TestConversationManager_MediaStorageConfig(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create mock provider
-	provider := mock.NewMockProvider("test-provider", "test-model", false)
+	provider := mock.NewProvider("test-provider", "test-model", false)
 
 	// Create conversation manager with custom media config
 	customConfig := sdk.ManagerConfig{

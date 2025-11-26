@@ -188,7 +188,7 @@ func TestMockProviderWithRepository(t *testing.T) {
 	repo.SetResponse("test-scenario", 1, "custom turn 1")
 
 	// Create mock provider with repository
-	provider := NewMockProviderWithRepository("test-provider", "test-model", false, repo)
+	provider := NewProviderWithRepository("test-provider", "test-model", false, repo)
 
 	if provider.ID() != "test-provider" {
 		t.Errorf("Expected provider ID 'test-provider', got %q", provider.ID())

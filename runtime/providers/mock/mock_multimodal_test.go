@@ -15,7 +15,7 @@ func TestMockProvider_MultimodalResponse_Image(t *testing.T) {
 	repo := NewInMemoryMockRepository("default text")
 
 	// Create mock provider
-	mockProvider := NewMockProviderWithRepository("test-provider", "test-model", false, repo)
+	mockProvider := NewProviderWithRepository("test-provider", "test-model", false, repo)
 
 	// Manually add a multimodal turn to the repository
 	// Since InMemoryMockRepository doesn't support structured turns yet,
@@ -275,7 +275,7 @@ scenarios:
 	repo, err := NewFileMockRepository(tmpfile)
 	require.NoError(t, err)
 
-	provider := NewMockProviderWithRepository("test-provider", "test-model", false, repo)
+	provider := NewProviderWithRepository("test-provider", "test-model", false, repo)
 
 	req := providers.PredictionRequest{
 		Messages: []types.Message{
@@ -316,7 +316,7 @@ scenarios:
 	repo, err := NewFileMockRepository(tmpfile)
 	require.NoError(t, err)
 
-	provider := NewMockProviderWithRepository("test-provider", "test-model", false, repo)
+	provider := NewProviderWithRepository("test-provider", "test-model", false, repo)
 
 	req := providers.PredictionRequest{
 		Messages: []types.Message{
@@ -355,7 +355,7 @@ scenarios:
 	repo, err := NewFileMockRepository(tmpfile)
 	require.NoError(t, err)
 
-	provider := NewMockProviderWithRepository("test-provider", "test-model", false, repo)
+	provider := NewProviderWithRepository("test-provider", "test-model", false, repo)
 
 	req := providers.PredictionRequest{
 		Messages: []types.Message{

@@ -31,7 +31,7 @@ type MediaStorageService interface {
 	//   - metadata: Metadata about the media for organization and policies
 	//
 	// Returns:
-	//   - StorageReference that can be used to retrieve the media
+	//   - Reference that can be used to retrieve the media
 	//   - Error if storage fails
 	//
 	// The implementation should:
@@ -39,7 +39,7 @@ type MediaStorageService interface {
 	//   - Store the media content durably
 	//   - Apply any configured policies (e.g., retention)
 	//   - Return a reference that uniquely identifies the stored media
-	StoreMedia(ctx context.Context, content *types.MediaContent, metadata *MediaMetadata) (StorageReference, error)
+	StoreMedia(ctx context.Context, content *types.MediaContent, metadata *MediaMetadata) (Reference, error)
 
 	// RetrieveMedia retrieves media content by its storage reference.
 	//
@@ -55,7 +55,7 @@ type MediaStorageService interface {
 	//   - Validate the reference
 	//   - Return MediaContent with FilePath pointing to the stored media
 	//   - NOT load the full media data into memory (caller can use GetBase64Data if needed)
-	RetrieveMedia(ctx context.Context, reference StorageReference) (*types.MediaContent, error)
+	RetrieveMedia(ctx context.Context, reference Reference) (*types.MediaContent, error)
 
 	// DeleteMedia deletes media content by its storage reference.
 	//
@@ -71,7 +71,7 @@ type MediaStorageService interface {
 	//   - Delete the media content if not referenced elsewhere (for dedup)
 	//   - Clean up any associated metadata
 	//   - Handle concurrent deletions safely
-	DeleteMedia(ctx context.Context, reference StorageReference) error
+	DeleteMedia(ctx context.Context, reference Reference) error
 
 	// GetURL returns a URL that can be used to access the media.
 	// For local storage, this returns a file:// URL.
@@ -85,7 +85,7 @@ type MediaStorageService interface {
 	// Returns:
 	//   - URL string that can be used to access the media
 	//   - Error if URL generation fails or reference is invalid
-	GetURL(ctx context.Context, reference StorageReference, expiry time.Duration) (string, error)
+	GetURL(ctx context.Context, reference Reference, expiry time.Duration) (string, error)
 }
 
 // PolicyHandler defines the interface for applying and enforcing storage policies.

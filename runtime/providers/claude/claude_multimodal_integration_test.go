@@ -93,7 +93,7 @@ func TestPredictMultimodal_Integration(t *testing.T) {
 
 			// Create provider with mock server URL
 			base := providers.NewBaseProvider("test", false, &http.Client{})
-			provider := &ClaudeProvider{
+			provider := &Provider{
 				BaseProvider: base,
 				model:        "claude-3-opus",
 				baseURL:      server.URL,
@@ -172,7 +172,7 @@ data: {"type":"message_stop","message":{"usage":{"input_tokens":50,"output_token
 
 		// Create provider with mock server URL
 		base := providers.NewBaseProvider("test", false, &http.Client{})
-		provider := &ClaudeProvider{
+		provider := &Provider{
 			BaseProvider: base,
 			model:        "claude-3-opus",
 			baseURL:      server.URL,

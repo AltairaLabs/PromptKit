@@ -29,8 +29,8 @@ func TestPredictWithTools_Integration(t *testing.T) {
 		}))
 		defer server.Close()
 
-		provider := &OpenAIToolProvider{
-			OpenAIProvider: &OpenAIProvider{
+		provider := &ToolProvider{
+			Provider: &Provider{
 				BaseProvider: providers.NewBaseProvider("test", false, &http.Client{}),
 				model:        "gpt-4",
 				baseURL:      server.URL,
@@ -72,8 +72,8 @@ func TestPredictWithTools_Integration(t *testing.T) {
 	})
 
 	t.Run("Tool validation with invalid request", func(t *testing.T) {
-		provider := &OpenAIToolProvider{
-			OpenAIProvider: &OpenAIProvider{
+		provider := &ToolProvider{
+			Provider: &Provider{
 				BaseProvider: providers.NewBaseProvider("test", false, &http.Client{}),
 				model:        "gpt-4",
 				baseURL:      "http://test",
@@ -93,8 +93,8 @@ func TestPredictWithTools_Integration(t *testing.T) {
 }
 
 func TestBuildTooling(t *testing.T) {
-	provider := &OpenAIToolProvider{
-		OpenAIProvider: &OpenAIProvider{},
+	provider := &ToolProvider{
+		Provider: &Provider{},
 	}
 
 	t.Run("Single tool descriptor", func(t *testing.T) {
@@ -185,8 +185,8 @@ func TestBuildTooling(t *testing.T) {
 }
 
 func TestConvertToolCallsMethod(t *testing.T) {
-	provider := &OpenAIToolProvider{
-		OpenAIProvider: &OpenAIProvider{},
+	provider := &ToolProvider{
+		Provider: &Provider{},
 	}
 
 	tests := []struct {
@@ -247,7 +247,7 @@ func TestToolProviderCreation(t *testing.T) {
 	t.Run("Creates tool provider with correct configuration", func(t *testing.T) {
 		t.Setenv("OPENAI_API_KEY", "test-key-123")
 
-		provider := NewOpenAIToolProvider("test-id", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{
+		provider := NewToolProvider("test-id", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{
 			Temperature: 0.7,
 		}, true, nil)
 
@@ -262,8 +262,8 @@ func TestToolProviderCreation(t *testing.T) {
 
 func TestPredictMultimodalWithTools(t *testing.T) {
 	t.Run("Validates multimodal message with unsupported content", func(t *testing.T) {
-		provider := &OpenAIToolProvider{
-			OpenAIProvider: &OpenAIProvider{
+		provider := &ToolProvider{
+			Provider: &Provider{
 				BaseProvider: providers.NewBaseProvider("test", false, &http.Client{}),
 				model:        "gpt-4o",
 				baseURL:      "http://test",
@@ -305,8 +305,8 @@ func TestPredictMultimodalWithTools(t *testing.T) {
 		}))
 		defer server.Close()
 
-		provider := &OpenAIToolProvider{
-			OpenAIProvider: &OpenAIProvider{
+		provider := &ToolProvider{
+			Provider: &Provider{
 				BaseProvider: providers.NewBaseProvider("test", false, &http.Client{}),
 				model:        "gpt-4o",
 				baseURL:      server.URL,

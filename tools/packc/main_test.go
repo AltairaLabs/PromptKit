@@ -34,8 +34,8 @@ func TestGetFragmentNames(t *testing.T) {
 
 func TestValidateMediaReferences(t *testing.T) {
 	t.Run("no media config", func(t *testing.T) {
-		config := &prompt.PromptConfig{
-			Spec: prompt.PromptSpec{
+		config := &prompt.Config{
+			Spec: prompt.Spec{
 				TaskType: "test",
 			},
 		}
@@ -44,8 +44,8 @@ func TestValidateMediaReferences(t *testing.T) {
 	})
 
 	t.Run("disabled media config", func(t *testing.T) {
-		config := &prompt.PromptConfig{
-			Spec: prompt.PromptSpec{
+		config := &prompt.Config{
+			Spec: prompt.Spec{
 				TaskType: "test",
 				MediaConfig: &prompt.MediaConfig{
 					Enabled: false,
@@ -57,8 +57,8 @@ func TestValidateMediaReferences(t *testing.T) {
 	})
 
 	t.Run("media config with URL references", func(t *testing.T) {
-		config := &prompt.PromptConfig{
-			Spec: prompt.PromptSpec{
+		config := &prompt.Config{
+			Spec: prompt.Spec{
 				TaskType: "test",
 				MediaConfig: &prompt.MediaConfig{
 					Enabled:        true,
@@ -86,8 +86,8 @@ func TestValidateMediaReferences(t *testing.T) {
 	})
 
 	t.Run("media config with missing file", func(t *testing.T) {
-		config := &prompt.PromptConfig{
-			Spec: prompt.PromptSpec{
+		config := &prompt.Config{
+			Spec: prompt.Spec{
 				TaskType: "test",
 				MediaConfig: &prompt.MediaConfig{
 					Enabled:        true,
@@ -122,8 +122,8 @@ func TestValidateMediaReferences(t *testing.T) {
 		err := os.WriteFile(testFile, []byte("test"), 0644)
 		require.NoError(t, err)
 
-		config := &prompt.PromptConfig{
-			Spec: prompt.PromptSpec{
+		config := &prompt.Config{
+			Spec: prompt.Spec{
 				TaskType: "test",
 				MediaConfig: &prompt.MediaConfig{
 					Enabled:        true,
@@ -307,7 +307,7 @@ func TestPrintFragments(t *testing.T) {
 func TestPrintMetadata(t *testing.T) {
 	t.Run("with metadata", func(t *testing.T) {
 		pack := &prompt.Pack{
-			Metadata: &prompt.PromptMetadata{
+			Metadata: &prompt.Metadata{
 				Domain:   "customer-support",
 				Language: "en",
 				Tags:     []string{"support", "predict"},

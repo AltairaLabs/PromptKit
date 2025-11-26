@@ -13,7 +13,7 @@ import (
 // PromptRepository provides abstract access to prompt configurations
 type PromptRepository interface {
 	// LoadPrompt loads a prompt configuration by task type
-	LoadPrompt(taskType string) (*prompt.PromptConfig, error)
+	LoadPrompt(taskType string) (*prompt.Config, error)
 
 	// LoadFragment loads a fragment by name and optional path
 	LoadFragment(name string, relativePath string, baseDir string) (*prompt.Fragment, error)
@@ -22,7 +22,7 @@ type PromptRepository interface {
 	ListPrompts() ([]string, error)
 
 	// SavePrompt saves a prompt configuration (for future write support)
-	SavePrompt(config *prompt.PromptConfig) error
+	SavePrompt(config *prompt.Config) error
 }
 
 // ToolRepository provides abstract access to tool descriptors

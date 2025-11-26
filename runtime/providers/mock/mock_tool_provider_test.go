@@ -19,7 +19,7 @@ func TestNewMockToolProvider(t *testing.T) {
 	assert.NotNil(t, provider)
 	assert.Equal(t, "test-id", provider.ID())
 	assert.IsType(t, &MockToolProvider{}, provider)
-	assert.IsType(t, &MockProvider{}, provider.MockProvider)
+	assert.IsType(t, &Provider{}, provider.Provider)
 }
 
 func TestNewMockToolProviderWithRepository(t *testing.T) {

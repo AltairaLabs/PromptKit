@@ -34,7 +34,7 @@ func TestConversationExecutor_DebugOnUserTurnAssertions(t *testing.T) {
 	mockTurnExec := &MockTurnExecutor{}
 
 	// Get test prompt registry (using memory repository)
-	memRepo := memory.NewMemoryPromptRepository()
+	memRepo := memory.NewPromptRepository()
 	promptReg := prompt.NewRegistryWithRepository(memRepo)
 
 	// Create executor
@@ -65,7 +65,7 @@ func TestConversationExecutor_DebugOnUserTurnAssertions(t *testing.T) {
 	}
 
 	// Create provider
-	provider := &openai.OpenAIProvider{}
+	provider := &openai.Provider{}
 
 	// Create config
 	cfg := &config.Config{

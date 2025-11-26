@@ -24,7 +24,7 @@ func TestToolRepositoryInterface(t *testing.T) {
 // Mock implementations for interface testing
 type mockPromptRepo struct{}
 
-func (m *mockPromptRepo) LoadPrompt(taskType string) (*prompt.PromptConfig, error) {
+func (m *mockPromptRepo) LoadPrompt(taskType string) (*prompt.Config, error) {
 	return nil, nil
 }
 
@@ -36,7 +36,7 @@ func (m *mockPromptRepo) ListPrompts() ([]string, error) {
 	return nil, nil
 }
 
-func (m *mockPromptRepo) SavePrompt(config *prompt.PromptConfig) error {
+func (m *mockPromptRepo) SavePrompt(config *prompt.Config) error {
 	return nil
 }
 

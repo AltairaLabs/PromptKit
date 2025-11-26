@@ -158,7 +158,7 @@ func (c *Config) loadPromptConfigs(configPath string) error {
 		}
 
 		// Parse configuration
-		promptConfig, err := prompt.ParsePromptConfig(data)
+		promptConfig, err := prompt.ParseConfig(data)
 		if err != nil {
 			return fmt.Errorf("failed to parse prompt %s: %w", ref.File, err)
 		}

@@ -156,7 +156,7 @@ func TestPredict_Integration(t *testing.T) {
 
 			// Create provider with mock server URL
 			base := providers.NewBaseProvider("test", false, &http.Client{})
-			provider := &ClaudeProvider{
+			provider := &Provider{
 				BaseProvider: base,
 				model:        "claude-3-opus",
 				baseURL:      server.URL,
@@ -240,7 +240,7 @@ data: {"type":"message_stop","message":{"usage":{"input_tokens":10,"output_token
 
 		// Create provider with mock server URL
 		base := providers.NewBaseProvider("test", false, &http.Client{})
-		provider := &ClaudeProvider{
+		provider := &Provider{
 			BaseProvider: base,
 			model:        "claude-3-opus",
 			baseURL:      server.URL,
@@ -309,7 +309,7 @@ func TestConvertMessagesToClaudeFormat(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			provider := &ClaudeProvider{
+			provider := &Provider{
 				model: "claude-3-5-sonnet-20241022", // Supports caching
 			}
 
@@ -366,7 +366,7 @@ func TestCreateSystemBlocks(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			provider := &ClaudeProvider{
+			provider := &Provider{
 				model: "claude-3-5-sonnet-20241022",
 			}
 
@@ -392,7 +392,7 @@ func TestCreateSystemBlocks(t *testing.T) {
 
 // TestApplyDefaults tests default value application
 func TestApplyDefaults(t *testing.T) {
-	provider := &ClaudeProvider{
+	provider := &Provider{
 		defaults: providers.ProviderDefaults{
 			Temperature: 0.7,
 			TopP:        0.9,
@@ -503,7 +503,7 @@ func TestCalculateCost(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			base := providers.NewBaseProvider("test", false, &http.Client{})
-			provider := &ClaudeProvider{
+			provider := &Provider{
 				BaseProvider: base,
 				model:        tt.model,
 			}
@@ -554,7 +554,7 @@ func TestMakeClaudeHTTPRequest(t *testing.T) {
 			defer server.Close()
 
 			base := providers.NewBaseProvider("test", false, &http.Client{})
-			provider := &ClaudeProvider{
+			provider := &Provider{
 				BaseProvider: base,
 				baseURL:      server.URL,
 				apiKey:       "test-key",
@@ -624,7 +624,7 @@ func TestParseAndValidateClaudeResponse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			provider := &ClaudeProvider{}
+			provider := &Provider{}
 
 			respBody, _ := json.Marshal(tt.response)
 			_, _, _, err := provider.parseAndValidateClaudeResponse(respBody, providers.PredictionResponse{}, time.Now())
@@ -643,7 +643,7 @@ func TestParseAndValidateClaudeResponse(t *testing.T) {
 
 // TestProcessClaudeContentDelta tests stream content delta processing
 func TestProcessClaudeContentDelta(t *testing.T) {
-	provider := &ClaudeProvider{}
+	provider := &Provider{}
 	outChan := make(chan providers.StreamChunk, 10)
 
 	event := struct {
@@ -680,7 +680,7 @@ func TestProcessClaudeContentDelta(t *testing.T) {
 
 // TestProcessClaudeMessageStop tests stream message stop processing
 func TestProcessClaudeMessageStop(t *testing.T) {
-	provider := &ClaudeProvider{
+	provider := &Provider{
 		defaults: providers.ProviderDefaults{
 			Pricing: providers.Pricing{
 				InputCostPer1K:  0.003,

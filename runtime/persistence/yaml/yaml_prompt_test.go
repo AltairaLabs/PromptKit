@@ -370,8 +370,8 @@ func TestYAMLPromptRepository_SavePrompt_NotImplemented(t *testing.T) {
 	tmpDir := t.TempDir()
 	repo := NewYAMLPromptRepository(tmpDir, nil)
 
-	config := &prompt.PromptConfig{
-		Spec: prompt.PromptSpec{
+	config := &prompt.Config{
+		Spec: prompt.Spec{
 			TaskType: "test",
 		},
 	}

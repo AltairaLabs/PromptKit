@@ -21,14 +21,14 @@ const (
 )
 
 // ClaudeToolProvider extends ClaudeProvider with tool support
-type ClaudeToolProvider struct {
-	*ClaudeProvider
+type ToolProvider struct {
+	*Provider
 }
 
-// NewClaudeToolProvider creates a new Claude provider with tool support
-func NewClaudeToolProvider(id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool) *ClaudeToolProvider {
-	return &ClaudeToolProvider{
-		ClaudeProvider: NewClaudeProvider(id, model, baseURL, defaults, includeRawOutput),
+// NewToolProvider creates a new Claude provider with tool support
+func NewToolProvider(id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool) *ToolProvider {
+	return &ToolProvider{
+		Provider: NewProvider(id, model, baseURL, defaults, includeRawOutput),
 	}
 }
 
@@ -64,7 +64,7 @@ type claudeTextContent struct {
 }
 
 // BuildTooling converts tool descriptors to Claude format
-func (p *ClaudeToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (interface{}, error) {
+func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (interface{}, error) {
 	if len(descriptors) == 0 {
 		return nil, nil
 	}
@@ -82,7 +82,7 @@ func (p *ClaudeToolProvider) BuildTooling(descriptors []*providers.ToolDescripto
 }
 
 // PredictWithTools performs a predict request with tool support
-func (p *ClaudeToolProvider) PredictWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
+func (p *ToolProvider) PredictWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	// Build Claude request with tools
 	claudeReq := p.buildToolRequest(req, tools, toolChoice)
 
@@ -179,7 +179,7 @@ func flushPendingToolResults(pendingToolResults []claudeToolResult) claudeToolMe
 }
 
 // processMessageForTools processes a single message and manages tool results
-func (p *ClaudeToolProvider) processMessageForTools(
+func (p *ToolProvider) processMessageForTools(
 	msg types.Message,
 	pendingToolResults []claudeToolResult,
 	messages []claudeToolMessage,
@@ -214,7 +214,7 @@ func (p *ClaudeToolProvider) processMessageForTools(
 	return messages, pendingToolResults
 }
 
-func (p *ClaudeToolProvider) buildToolRequest(req providers.PredictionRequest, tools interface{}, toolChoice string) map[string]interface{} {
+func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools interface{}, toolChoice string) map[string]interface{} {
 	messages := make([]claudeToolMessage, 0, len(req.Messages))
 	var pendingToolResults []claudeToolResult
 
@@ -298,7 +298,7 @@ func parseToolCallsFromRawResponse(respBytes []byte) []types.MessageToolCall {
 	return toolCalls
 }
 
-func (p *ClaudeToolProvider) parseToolResponse(respBytes []byte, predictResp providers.PredictionResponse) (providers.PredictionResponse, []types.MessageToolCall, error) {
+func (p *ToolProvider) parseToolResponse(respBytes []byte, predictResp providers.PredictionResponse) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	start := time.Now()
 
 	var resp claudeResponse
@@ -327,7 +327,7 @@ func (p *ClaudeToolProvider) parseToolResponse(respBytes []byte, predictResp pro
 	toolCalls := parseToolCallsFromRawResponse(respBytes)
 
 	// Calculate cost breakdown
-	costBreakdown := p.ClaudeProvider.CalculateCost(resp.Usage.InputTokens, resp.Usage.OutputTokens, resp.Usage.CacheReadInputTokens)
+	costBreakdown := p.Provider.CalculateCost(resp.Usage.InputTokens, resp.Usage.OutputTokens, resp.Usage.CacheReadInputTokens)
 
 	predictResp.Content = textContent
 	predictResp.CostInfo = &costBreakdown
@@ -338,7 +338,7 @@ func (p *ClaudeToolProvider) parseToolResponse(respBytes []byte, predictResp pro
 	return predictResp, toolCalls, nil
 }
 
-func (p *ClaudeToolProvider) makeRequest(ctx context.Context, request interface{}) ([]byte, error) {
+func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]byte, error) {
 	requestBytes, err := json.Marshal(request)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
@@ -384,6 +384,6 @@ func (p *ClaudeToolProvider) makeRequest(ctx context.Context, request interface{
 
 func init() {
 	providers.RegisterProviderFactory("claude", func(spec providers.ProviderSpec) (providers.Provider, error) {
-		return NewClaudeToolProvider(spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput), nil
+		return NewToolProvider(spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput), nil
 	})
 }

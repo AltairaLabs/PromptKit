@@ -38,7 +38,7 @@ data: [DONE]
 	}))
 	defer server.Close()
 
-	provider := openai.NewOpenAIProvider(
+	provider := openai.NewProvider(
 		"test",
 		"gpt-4o-mini",
 		server.URL,
@@ -99,7 +99,7 @@ data: {"type":"message_stop","message":{"stop_reason":"end_turn"}}
 	}))
 	defer server.Close()
 
-	provider := claude.NewClaudeProvider(
+	provider := claude.NewProvider(
 		"test",
 		"claude-3-5-haiku-20241022",
 		server.URL,
@@ -154,7 +154,7 @@ func TestGeminiStreamResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := gemini.NewGeminiProvider(
+	provider := gemini.NewProvider(
 		"test",
 		"gemini-2.0-flash-exp",
 		server.URL,
@@ -212,7 +212,7 @@ func TestStreamContextCancellation(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := openai.NewOpenAIProvider(
+	provider := openai.NewProvider(
 		"test",
 		"gpt-4o-mini",
 		server.URL,
@@ -252,7 +252,7 @@ func TestStreamHTTPError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := openai.NewOpenAIProvider(
+	provider := openai.NewProvider(
 		"test",
 		"gpt-4o-mini",
 		server.URL,
@@ -292,7 +292,7 @@ data: [DONE]
 	}))
 	defer server.Close()
 
-	provider := openai.NewOpenAIProvider(
+	provider := openai.NewProvider(
 		"test",
 		"gpt-4o-mini",
 		server.URL,
@@ -331,7 +331,7 @@ func TestStreamEmptyResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := openai.NewOpenAIProvider(
+	provider := openai.NewProvider(
 		"test",
 		"gpt-4o-mini",
 		server.URL,
@@ -384,7 +384,7 @@ data: [DONE]
 	}))
 	defer server.Close()
 
-	provider := openai.NewOpenAIProvider(
+	provider := openai.NewProvider(
 		"test",
 		"gpt-4o-mini",
 		server.URL,

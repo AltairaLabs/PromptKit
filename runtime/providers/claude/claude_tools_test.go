@@ -8,22 +8,22 @@ import (
 )
 
 // ============================================================================
-// NewClaudeToolProvider Tests
+// NewToolProvider Tests
 // ============================================================================
 
-func TestNewClaudeToolProvider(t *testing.T) {
+func TestNewToolProvider(t *testing.T) {
 	defaults := providers.ProviderDefaults{
 		Temperature: 0.7,
 		MaxTokens:   1000,
 	}
 
-	provider := NewClaudeToolProvider("test-claude", "claude-3-opus-20240229", "https://api.anthropic.com/v1", defaults, false)
+	provider := NewToolProvider("test-claude", "claude-3-opus-20240229", "https://api.anthropic.com/v1", defaults, false)
 
 	if provider == nil {
 		t.Fatal("Expected non-nil provider")
 	}
 
-	if provider.ClaudeProvider == nil {
+	if provider.Provider == nil {
 		t.Fatal("Expected non-nil ClaudeProvider")
 	}
 
@@ -37,7 +37,7 @@ func TestNewClaudeToolProvider(t *testing.T) {
 // ============================================================================
 
 func TestClaudeBuildTooling_Empty(t *testing.T) {
-	provider := NewClaudeToolProvider("test", "claude-3-opus", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewToolProvider("test", "claude-3-opus", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)
 
 	tools, err := provider.BuildTooling(nil)
 	if err != nil {
@@ -50,7 +50,7 @@ func TestClaudeBuildTooling_Empty(t *testing.T) {
 }
 
 func TestClaudeBuildTooling_SingleTool(t *testing.T) {
-	provider := NewClaudeToolProvider("test", "claude-3-opus", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewToolProvider("test", "claude-3-opus", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)
 
 	schema := json.RawMessage(`{"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}`)
 	descriptors := []*providers.ToolDescriptor{
@@ -94,7 +94,7 @@ func TestClaudeBuildTooling_SingleTool(t *testing.T) {
 }
 
 func TestClaudeBuildTooling_MultipleTools(t *testing.T) {
-	provider := NewClaudeToolProvider("test", "claude-3-opus", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewToolProvider("test", "claude-3-opus", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)
 
 	schema1 := json.RawMessage(`{"type": "object", "properties": {"query": {"type": "string"}}}`)
 	schema2 := json.RawMessage(`{"type": "object", "properties": {"code": {"type": "string"}}}`)
@@ -138,7 +138,7 @@ func TestClaudeBuildTooling_MultipleTools(t *testing.T) {
 }
 
 func TestClaudeBuildTooling_ComplexSchema(t *testing.T) {
-	provider := NewClaudeToolProvider("test", "claude-3-opus", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewToolProvider("test", "claude-3-opus", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)
 
 	schema := json.RawMessage(`{
 		"type": "object",
@@ -212,7 +212,7 @@ func TestClaudeBuildTooling_ComplexSchema(t *testing.T) {
 // ============================================================================
 
 func TestClaudeParseToolResponse_NoToolCalls(t *testing.T) {
-	provider := NewClaudeToolProvider("test", "claude-3-opus", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewToolProvider("test", "claude-3-opus", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)
 
 	responseJSON := `{
 		"id": "msg_123",
@@ -253,7 +253,7 @@ func TestClaudeParseToolResponse_NoToolCalls(t *testing.T) {
 }
 
 func TestClaudeParseToolResponse_WithToolCall(t *testing.T) {
-	provider := NewClaudeToolProvider("test", "claude-3-opus", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewToolProvider("test", "claude-3-opus", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)
 
 	responseJSON := `{
 		"id": "msg_123",
@@ -324,7 +324,7 @@ func TestClaudeParseToolResponse_WithToolCall(t *testing.T) {
 }
 
 func TestClaudeParseToolResponse_MultipleToolCalls(t *testing.T) {
-	provider := NewClaudeToolProvider("test", "claude-3-opus", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewToolProvider("test", "claude-3-opus", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)
 
 	responseJSON := `{
 		"id": "msg_123",
@@ -381,7 +381,7 @@ func TestClaudeParseToolResponse_MultipleToolCalls(t *testing.T) {
 }
 
 func TestClaudeParseToolResponse_MixedContent(t *testing.T) {
-	provider := NewClaudeToolProvider("test", "claude-3-opus", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewToolProvider("test", "claude-3-opus", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)
 
 	responseJSON := `{
 		"id": "msg_123",
@@ -431,7 +431,7 @@ func TestClaudeParseToolResponse_MixedContent(t *testing.T) {
 }
 
 func TestClaudeParseToolResponse_InvalidJSON(t *testing.T) {
-	provider := NewClaudeToolProvider("test", "claude-3-opus", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewToolProvider("test", "claude-3-opus", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)
 
 	responseJSON := `{invalid json`
 
@@ -442,7 +442,7 @@ func TestClaudeParseToolResponse_InvalidJSON(t *testing.T) {
 }
 
 func TestClaudeParseToolResponse_CachedTokens(t *testing.T) {
-	provider := NewClaudeToolProvider("test", "claude-3-opus", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewToolProvider("test", "claude-3-opus", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)
 
 	responseJSON := `{
 		"id": "msg_123",
@@ -488,7 +488,7 @@ func TestClaudeParseToolResponse_CachedTokens(t *testing.T) {
 }
 
 func TestClaudeParseToolResponse_EmptyContent(t *testing.T) {
-	provider := NewClaudeToolProvider("test", "claude-3-opus", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewToolProvider("test", "claude-3-opus", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)
 
 	responseJSON := `{
 		"id": "msg_123",

@@ -6,7 +6,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 )
 
-func TestNewClaudeProvider(t *testing.T) {
+func TestNewProvider(t *testing.T) {
 	defaults := providers.ProviderDefaults{
 		Temperature: 0.8,
 		TopP:        0.95,
@@ -17,7 +17,7 @@ func TestNewClaudeProvider(t *testing.T) {
 		},
 	}
 
-	provider := NewClaudeProvider("test-claude", "claude-3-5-sonnet-20241022", "https://api.anthropic.com", defaults, false)
+	provider := NewProvider("test-claude", "claude-3-5-sonnet-20241022", "https://api.anthropic.com", defaults, false)
 
 	if provider == nil {
 		t.Fatal("Expected non-nil provider")
@@ -44,7 +44,7 @@ func TestClaudeProvider_ID(t *testing.T) {
 	ids := []string{"claude-sonnet", "claude-haiku", "custom-claude"}
 
 	for _, id := range ids {
-		provider := NewClaudeProvider(id, "model", "url", providers.ProviderDefaults{}, false)
+		provider := NewProvider(id, "model", "url", providers.ProviderDefaults{}, false)
 		if provider.ID() != id {
 			t.Errorf("Expected ID '%s', got '%s'", id, provider.ID())
 		}
@@ -61,7 +61,7 @@ func TestClaudeProvider_Cost(t *testing.T) {
 		Pricing: pricing,
 	}
 
-	provider := NewClaudeProvider("test", "claude-3-5-sonnet-20241022", "url", defaults, false)
+	provider := NewProvider("test", "claude-3-5-sonnet-20241022", "url", defaults, false)
 
 	// Test with 1000 input and 1000 output tokens
 	breakdown := provider.CalculateCost(1000, 1000, 0)
@@ -82,7 +82,7 @@ func TestClaudeProvider_Cost_HaikuPricing(t *testing.T) {
 		Pricing: pricing,
 	}
 
-	provider := NewClaudeProvider("test", "claude-3-5-haiku-20241022", "url", defaults, false)
+	provider := NewProvider("test", "claude-3-5-haiku-20241022", "url", defaults, false)
 
 	breakdown := provider.CalculateCost(1000, 1000, 0)
 	expected := 0.001 + 0.005 // $0.006 total
@@ -102,7 +102,7 @@ func TestClaudeProvider_CostBreakdown(t *testing.T) {
 		Pricing: pricing,
 	}
 
-	provider := NewClaudeProvider("test", "claude-3-5-sonnet-20241022", "url", defaults, false)
+	provider := NewProvider("test", "claude-3-5-sonnet-20241022", "url", defaults, false)
 
 	breakdown := provider.CalculateCost(1000, 500, 0)
 
@@ -141,7 +141,7 @@ func TestClaudeProvider_CostBreakdownWithCachedTokens(t *testing.T) {
 		Pricing: pricing,
 	}
 
-	provider := NewClaudeProvider("test", "claude-3-5-sonnet-20241022", "url", defaults, false)
+	provider := NewProvider("test", "claude-3-5-sonnet-20241022", "url", defaults, false)
 
 	// 1000 input (total), 500 output, 200 cached
 	// Claude cached tokens cost 10% of input tokens
@@ -191,7 +191,7 @@ func TestClaudeProvider_CostBreakdown_ZeroTokens(t *testing.T) {
 		},
 	}
 
-	provider := NewClaudeProvider("test", "claude-3-5-sonnet-20241022", "url", defaults, false)
+	provider := NewProvider("test", "claude-3-5-sonnet-20241022", "url", defaults, false)
 
 	breakdown := provider.CalculateCost(0, 0, 0)
 
@@ -210,7 +210,7 @@ func TestClaudeProvider_DifferentModels(t *testing.T) {
 	}
 
 	for _, model := range models {
-		provider := NewClaudeProvider("test", model, "url", providers.ProviderDefaults{}, false)
+		provider := NewProvider("test", model, "url", providers.ProviderDefaults{}, false)
 		if provider.model != model {
 			t.Errorf("Model mismatch for %s", model)
 		}

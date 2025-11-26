@@ -10,7 +10,7 @@ import (
 )
 
 func TestGeminiProvider_ImplementsStreamInputSupport(t *testing.T) {
-	provider := NewGeminiProvider("test", "gemini-2.0-flash-exp", "https://api.test.com", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gemini-2.0-flash-exp", "https://api.test.com", providers.ProviderDefaults{}, false)
 
 	// Type assertion to ensure interface is implemented
 	_, ok := interface{}(provider).(providers.StreamInputSupport)
@@ -20,7 +20,7 @@ func TestGeminiProvider_ImplementsStreamInputSupport(t *testing.T) {
 }
 
 func TestGeminiProvider_SupportsStreamInput(t *testing.T) {
-	provider := NewGeminiProvider("test", "gemini-2.0-flash-exp", "https://api.test.com", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gemini-2.0-flash-exp", "https://api.test.com", providers.ProviderDefaults{}, false)
 
 	supported := provider.SupportsStreamInput()
 
@@ -43,7 +43,7 @@ func TestGeminiProvider_SupportsStreamInput(t *testing.T) {
 }
 
 func TestGeminiProvider_GetStreamingCapabilities(t *testing.T) {
-	provider := NewGeminiProvider("test", "gemini-2.0-flash-exp", "https://api.test.com", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gemini-2.0-flash-exp", "https://api.test.com", providers.ProviderDefaults{}, false)
 
 	caps := provider.GetStreamingCapabilities()
 
@@ -142,7 +142,7 @@ func TestGeminiProvider_GetStreamingCapabilities(t *testing.T) {
 }
 
 func TestGeminiProvider_CreateStreamSession_InvalidConfig(t *testing.T) {
-	provider := NewGeminiProvider("test", "gemini-2.0-flash-exp", "https://api.test.com", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gemini-2.0-flash-exp", "https://api.test.com", providers.ProviderDefaults{}, false)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -210,7 +210,7 @@ func TestGeminiProvider_CreateStreamSession_InvalidConfig(t *testing.T) {
 
 func TestGeminiProvider_CreateStreamSession_ValidConfig(t *testing.T) {
 	// Skip if no API key available (for CI/CD)
-	provider := NewGeminiProvider("test", "gemini-2.0-flash-exp", "https://api.test.com", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gemini-2.0-flash-exp", "https://api.test.com", providers.ProviderDefaults{}, false)
 	if provider.ApiKey == "" {
 		t.Skip("Skipping test: GEMINI_API_KEY not set")
 	}
@@ -252,7 +252,7 @@ func TestGeminiProvider_CreateStreamSession_ValidConfig(t *testing.T) {
 }
 
 func TestGeminiProvider_CreateStreamSession_ResponseModalities(t *testing.T) {
-	provider := NewGeminiProvider("test", "gemini-2.0-flash-exp", "https://api.test.com", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gemini-2.0-flash-exp", "https://api.test.com", providers.ProviderDefaults{}, false)
 	ctx := context.Background()
 
 	baseConfig := types.StreamingMediaConfig{
@@ -326,7 +326,7 @@ func TestGeminiProvider_CreateStreamSession_ResponseModalities(t *testing.T) {
 }
 
 func TestGeminiProvider_CreateStreamSession_EmptyConfig(t *testing.T) {
-	provider := NewGeminiProvider("test", "gemini-2.0-flash-exp", "https://api.test.com", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gemini-2.0-flash-exp", "https://api.test.com", providers.ProviderDefaults{}, false)
 	ctx := context.Background()
 
 	req := providers.StreamInputRequest{

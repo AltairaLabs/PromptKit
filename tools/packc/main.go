@@ -108,7 +108,7 @@ func compileCommand() {
 	}
 
 	// Create memory repository
-	memRepo := memory.NewMemoryPromptRepository()
+	memRepo := memory.NewPromptRepository()
 
 	// Register all pre-loaded prompt configs
 	for _, promptData := range cfg.LoadedPromptConfigs {
@@ -117,7 +117,7 @@ func compileCommand() {
 		}
 
 		// Type assert the config
-		promptConfig, ok := promptData.Config.(*prompt.PromptConfig)
+		promptConfig, ok := promptData.Config.(*prompt.Config)
 		if !ok {
 			fmt.Fprintf(os.Stderr, "Error: prompt config %s has invalid type\n", promptData.FilePath)
 			os.Exit(1)
@@ -142,7 +142,7 @@ func compileCommand() {
 	// Validate media references
 	configDir := filepath.Dir(*configFile)
 	for _, promptData := range cfg.LoadedPromptConfigs {
-		promptConfig, ok := promptData.Config.(*prompt.PromptConfig)
+		promptConfig, ok := promptData.Config.(*prompt.Config)
 		if !ok {
 			continue
 		}
@@ -204,7 +204,7 @@ func compilePromptCommand() {
 		os.Exit(1)
 	}
 
-	promptConfig, err := prompt.ParsePromptConfig(data)
+	promptConfig, err := prompt.ParseConfig(data)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error parsing prompt config: %v\n", err)
 		os.Exit(1)
@@ -223,7 +223,7 @@ func compilePromptCommand() {
 	}
 
 	// Create memory repository and register the prompt
-	memRepo := memory.NewMemoryPromptRepository()
+	memRepo := memory.NewPromptRepository()
 	if err := memRepo.SavePrompt(promptConfig); err != nil {
 		fmt.Fprintf(os.Stderr, "Error saving prompt to repository: %v\n", err)
 		os.Exit(1)
@@ -424,7 +424,7 @@ func getFragmentNames(fragments map[string]string) []string {
 }
 
 // validateMediaReferences checks if media files referenced in examples exist
-func validateMediaReferences(config *prompt.PromptConfig, baseDir string) []string {
+func validateMediaReferences(config *prompt.Config, baseDir string) []string {
 	var warnings []string
 
 	if config.Spec.MediaConfig == nil || !config.Spec.MediaConfig.Enabled {

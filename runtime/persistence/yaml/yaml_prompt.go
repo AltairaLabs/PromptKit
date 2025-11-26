@@ -23,7 +23,7 @@ var _ persistence.PromptRepository = (*YAMLPromptRepository)(nil)
 type YAMLPromptRepository struct {
 	basePath       string
 	taskTypeToFile map[string]string // Explicit mappings
-	cache          map[string]*prompt.PromptConfig
+	cache          map[string]*prompt.Config
 }
 
 // NewYAMLPromptRepository creates a YAML file-based prompt repository
@@ -36,12 +36,12 @@ func NewYAMLPromptRepository(basePath string, taskTypeToFile map[string]string) 
 	return &YAMLPromptRepository{
 		basePath:       basePath,
 		taskTypeToFile: taskTypeToFile,
-		cache:          make(map[string]*prompt.PromptConfig),
+		cache:          make(map[string]*prompt.Config),
 	}
 }
 
 // LoadPrompt loads a prompt configuration by task type
-func (r *YAMLPromptRepository) LoadPrompt(taskType string) (*prompt.PromptConfig, error) {
+func (r *YAMLPromptRepository) LoadPrompt(taskType string) (*prompt.Config, error) {
 	// Check cache
 	if cached, ok := r.cache[taskType]; ok {
 		return cached, nil
@@ -60,7 +60,7 @@ func (r *YAMLPromptRepository) LoadPrompt(taskType string) (*prompt.PromptConfig
 	}
 
 	// Parse YAML
-	var config prompt.PromptConfig
+	var config prompt.Config
 	if err := yaml.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse YAML: %w", err)
 	}
@@ -163,7 +163,7 @@ func (r *YAMLPromptRepository) hasMatchingTaskType(path, taskType string) bool {
 		return false
 	}
 
-	var config prompt.PromptConfig
+	var config prompt.Config
 	if err := yaml.Unmarshal(data, &config); err != nil {
 		return false
 	}
@@ -227,7 +227,7 @@ func (r *YAMLPromptRepository) ListPrompts() ([]string, error) {
 			return nil
 		}
 
-		var config prompt.PromptConfig
+		var config prompt.Config
 		if err := yaml.Unmarshal(data, &config); err != nil {
 			return nil
 		}
@@ -243,12 +243,12 @@ func (r *YAMLPromptRepository) ListPrompts() ([]string, error) {
 }
 
 // SavePrompt saves a prompt configuration (not yet implemented)
-func (r *YAMLPromptRepository) SavePrompt(config *prompt.PromptConfig) error {
+func (r *YAMLPromptRepository) SavePrompt(config *prompt.Config) error {
 	return fmt.Errorf("not implemented")
 }
 
 // validatePromptConfig validates the prompt configuration structure
-func validatePromptConfig(config *prompt.PromptConfig) error {
+func validatePromptConfig(config *prompt.Config) error {
 	if config.APIVersion == "" {
 		return fmt.Errorf("missing apiVersion")
 	}

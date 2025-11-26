@@ -12,7 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-func TestNewOpenAIProvider(t *testing.T) {
+func TestNewProvider(t *testing.T) {
 	defaults := providers.ProviderDefaults{
 		Temperature: 0.7,
 		TopP:        0.9,
@@ -23,7 +23,7 @@ func TestNewOpenAIProvider(t *testing.T) {
 		},
 	}
 
-	provider := NewOpenAIProvider("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false)
+	provider := NewProvider("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false)
 
 	if provider == nil {
 		t.Fatal("Expected non-nil provider")
@@ -50,7 +50,7 @@ func TestOpenAIProvider_ID(t *testing.T) {
 	ids := []string{"openai-gpt4", "openai-gpt-3.5", "custom-openai"}
 
 	for _, id := range ids {
-		provider := NewOpenAIProvider(id, "model", "url", providers.ProviderDefaults{}, false)
+		provider := NewProvider(id, "model", "url", providers.ProviderDefaults{}, false)
 		if provider.ID() != id {
 			t.Errorf("Expected ID '%s', got '%s'", id, provider.ID())
 		}
@@ -67,7 +67,7 @@ func TestOpenAIProvider_Cost(t *testing.T) {
 		Pricing: pricing,
 	}
 
-	provider := NewOpenAIProvider("test", "gpt-4", "url", defaults, false)
+	provider := NewProvider("test", "gpt-4", "url", defaults, false)
 
 	// Test with 1000 input and 1000 output tokens
 	breakdown := provider.CalculateCost(1000, 1000, 0)
@@ -88,7 +88,7 @@ func TestOpenAIProvider_Cost_LargeTokenCounts(t *testing.T) {
 		Pricing: pricing,
 	}
 
-	provider := NewOpenAIProvider("test", "gpt-4", "url", defaults, false)
+	provider := NewProvider("test", "gpt-4", "url", defaults, false)
 
 	// Test with 10,000 tokens
 	breakdown := provider.CalculateCost(10000, 5000, 0)
@@ -111,7 +111,7 @@ func TestOpenAIProvider_CostBreakdown(t *testing.T) {
 		Pricing: pricing,
 	}
 
-	provider := NewOpenAIProvider("test", "gpt-4", "url", defaults, false)
+	provider := NewProvider("test", "gpt-4", "url", defaults, false)
 
 	breakdown := provider.CalculateCost(1000, 500, 0)
 
@@ -150,7 +150,7 @@ func TestOpenAIProvider_CostBreakdownWithCachedTokens(t *testing.T) {
 		Pricing: pricing,
 	}
 
-	provider := NewOpenAIProvider("test", "gpt-4", "url", defaults, false)
+	provider := NewProvider("test", "gpt-4", "url", defaults, false)
 
 	// 1000 input (total), 500 output, 200 cached
 	// Cached tokens are subtracted from input tokens: 1000 - 200 = 800 regular input
@@ -198,7 +198,7 @@ func TestOpenAIProvider_CostBreakdown_ZeroTokens(t *testing.T) {
 		},
 	}
 
-	provider := NewOpenAIProvider("test", "gpt-4", "url", defaults, false)
+	provider := NewProvider("test", "gpt-4", "url", defaults, false)
 
 	breakdown := provider.CalculateCost(0, 0, 0)
 
@@ -239,7 +239,7 @@ func TestOpenAIProvider_DifferentModels(t *testing.T) {
 	models := []string{"gpt-4", "gpt-4-turbo", "gpt-3.5-turbo", "gpt-4o"}
 
 	for _, model := range models {
-		provider := NewOpenAIProvider("test", model, "url", providers.ProviderDefaults{}, false)
+		provider := NewProvider("test", model, "url", providers.ProviderDefaults{}, false)
 		if provider.model != model {
 			t.Errorf("Model mismatch for %s", model)
 		}
@@ -254,7 +254,7 @@ func TestOpenAIProvider_DifferentBaseURLs(t *testing.T) {
 	}
 
 	for _, url := range urls {
-		provider := NewOpenAIProvider("test", "gpt-4", url, providers.ProviderDefaults{}, false)
+		provider := NewProvider("test", "gpt-4", url, providers.ProviderDefaults{}, false)
 		if provider.baseURL != url {
 			t.Errorf("BaseURL mismatch for %s", url)
 		}
@@ -438,7 +438,7 @@ func TestPredict_Integration(t *testing.T) {
 		}))
 		defer server.Close()
 
-		provider := &OpenAIProvider{
+		provider := &Provider{
 			BaseProvider: providers.NewBaseProvider("test", false, nil),
 			model:        "gpt-4",
 			baseURL:      server.URL,
@@ -492,7 +492,7 @@ func TestPredict_Integration(t *testing.T) {
 		}))
 		defer server.Close()
 
-		provider := &OpenAIProvider{
+		provider := &Provider{
 			BaseProvider: providers.NewBaseProvider("test", false, nil),
 			model:        "gpt-4",
 			baseURL:      server.URL,
@@ -528,7 +528,7 @@ func TestPredict_Integration(t *testing.T) {
 		}))
 		defer server.Close()
 
-		provider := &OpenAIProvider{
+		provider := &Provider{
 			BaseProvider: providers.NewBaseProvider("test", false, nil),
 			model:        "gpt-4",
 			baseURL:      server.URL,
@@ -569,7 +569,7 @@ func TestPredict_Integration(t *testing.T) {
 		}))
 		defer server.Close()
 
-		provider := &OpenAIProvider{
+		provider := &Provider{
 			BaseProvider: providers.NewBaseProvider("test", false, nil),
 			model:        "gpt-4",
 			baseURL:      server.URL,
@@ -617,7 +617,7 @@ func TestPredictStream_Integration(t *testing.T) {
 		}))
 		defer server.Close()
 
-		provider := &OpenAIProvider{
+		provider := &Provider{
 			BaseProvider: providers.NewBaseProvider("test", false, &http.Client{}),
 			model:        "gpt-4",
 			baseURL:      server.URL,
@@ -678,7 +678,7 @@ func TestPredictStream_Integration(t *testing.T) {
 		}))
 		defer server.Close()
 
-		provider := &OpenAIProvider{
+		provider := &Provider{
 			BaseProvider: providers.NewBaseProvider("test", false, &http.Client{}),
 			model:        "gpt-4",
 			baseURL:      server.URL,
@@ -735,7 +735,7 @@ func TestPredictStream_Integration(t *testing.T) {
 		}))
 		defer server.Close()
 
-		provider := &OpenAIProvider{
+		provider := &Provider{
 			BaseProvider: providers.NewBaseProvider("test", false, &http.Client{}),
 			model:        "gpt-4",
 			baseURL:      server.URL,
@@ -824,7 +824,7 @@ func TestExtractContentString(t *testing.T) {
 }
 
 func TestSupportsStreaming(t *testing.T) {
-	provider := &OpenAIProvider{
+	provider := &Provider{
 		BaseProvider: providers.NewBaseProvider("test", false, nil),
 	}
 

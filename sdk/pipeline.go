@@ -29,14 +29,14 @@ import (
 //	result, err := pipe.Execute(ctx, "user", "Hello!")
 type PipelineBuilder struct {
 	middleware []pipeline.Middleware
-	config     *pipeline.PipelineRuntimeConfig
+	config     *pipeline.RuntimeConfig
 }
 
 // NewPipelineBuilder creates a new pipeline builder
 func NewPipelineBuilder() *PipelineBuilder {
 	return &PipelineBuilder{
 		middleware: []pipeline.Middleware{},
-		config:     pipeline.DefaultPipelineRuntimeConfig(),
+		config:     pipeline.DefaultRuntimeConfig(),
 	}
 }
 
@@ -101,7 +101,7 @@ func (pb *PipelineBuilder) WithMediaExternalization(storageService storage.Media
 }
 
 // WithConfig sets the pipeline runtime configuration
-func (pb *PipelineBuilder) WithConfig(config *pipeline.PipelineRuntimeConfig) *PipelineBuilder {
+func (pb *PipelineBuilder) WithConfig(config *pipeline.RuntimeConfig) *PipelineBuilder {
 	pb.config = config
 	return pb
 }

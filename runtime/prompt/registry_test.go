@@ -8,34 +8,34 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mockPromptRepository is a simple in-memory repository for testing
-type mockPromptRepository struct {
-	prompts   map[string]*PromptConfig
+// mockRepository is a simple in-memory repository for testing
+type mockRepository struct {
+	prompts   map[string]*Config
 	fragments map[string]*Fragment
 }
 
-func newMockPromptRepository() *mockPromptRepository {
-	return &mockPromptRepository{
-		prompts:   make(map[string]*PromptConfig),
+func newMockRepository() *mockRepository {
+	return &mockRepository{
+		prompts:   make(map[string]*Config),
 		fragments: make(map[string]*Fragment),
 	}
 }
 
-func (m *mockPromptRepository) LoadPrompt(taskType string) (*PromptConfig, error) {
+func (m *mockRepository) LoadPrompt(taskType string) (*Config, error) {
 	if prompt, ok := m.prompts[taskType]; ok {
 		return prompt, nil
 	}
 	return nil, fmt.Errorf("prompt not found: %s", taskType)
 }
 
-func (m *mockPromptRepository) LoadFragment(name string, relativePath string, baseDir string) (*Fragment, error) {
+func (m *mockRepository) LoadFragment(name string, relativePath string, baseDir string) (*Fragment, error) {
 	if fragment, ok := m.fragments[name]; ok {
 		return fragment, nil
 	}
 	return nil, fmt.Errorf("fragment not found: %s", name)
 }
 
-func (m *mockPromptRepository) ListPrompts() ([]string, error) {
+func (m *mockRepository) ListPrompts() ([]string, error) {
 	prompts := make([]string, 0, len(m.prompts))
 	for taskType := range m.prompts {
 		prompts = append(prompts, taskType)
@@ -43,7 +43,7 @@ func (m *mockPromptRepository) ListPrompts() ([]string, error) {
 	return prompts, nil
 }
 
-func (m *mockPromptRepository) SavePrompt(config *PromptConfig) error {
+func (m *mockRepository) SavePrompt(config *Config) error {
 	m.prompts[config.Spec.TaskType] = config
 	return nil
 }
@@ -52,7 +52,7 @@ func (m *mockPromptRepository) SavePrompt(config *PromptConfig) error {
 // This allows direct manipulation of cache fields for unit tests
 func createTestRegistry() *Registry {
 	return &Registry{
-		promptCache:      make(map[string]*PromptConfig),
+		promptCache:      make(map[string]*Config),
 		fragmentCache:    make(map[string]*Fragment),
 		fragmentResolver: &FragmentResolver{fragmentCache: make(map[string]*Fragment)},
 	}
@@ -60,17 +60,17 @@ func createTestRegistry() *Registry {
 
 // createTestRegistryWithRepo creates a registry with a mock repository for testing
 func createTestRegistryWithRepo() *Registry {
-	return NewRegistryWithRepository(newMockPromptRepository())
+	return NewRegistryWithRepository(newMockRepository())
 }
 
 func TestRegistry_GetAvailableTaskTypes(t *testing.T) {
 	t.Run("returns task types from cache", func(t *testing.T) {
 		reg := createTestRegistry()
-		reg.promptCache["task1"] = &PromptConfig{
-			Spec: PromptSpec{TaskType: "task1"},
+		reg.promptCache["task1"] = &Config{
+			Spec: Spec{TaskType: "task1"},
 		}
-		reg.promptCache["task2"] = &PromptConfig{
-			Spec: PromptSpec{TaskType: "task2"},
+		reg.promptCache["task2"] = &Config{
+			Spec: Spec{TaskType: "task2"},
 		}
 
 		taskTypes := reg.GetAvailableTaskTypes()
@@ -123,8 +123,8 @@ func TestRegistry_GetAvailableRegions(t *testing.T) {
 func TestRegistry_GetLoadedPrompts(t *testing.T) {
 	t.Run("returns loaded prompts", func(t *testing.T) {
 		reg := createTestRegistry()
-		reg.promptCache["prompt1"] = &PromptConfig{Spec: PromptSpec{TaskType: "prompt1"}}
-		reg.promptCache["prompt2"] = &PromptConfig{Spec: PromptSpec{TaskType: "prompt2"}}
+		reg.promptCache["prompt1"] = &Config{Spec: Spec{TaskType: "prompt1"}}
+		reg.promptCache["prompt2"] = &Config{Spec: Spec{TaskType: "prompt2"}}
 
 		prompts := reg.GetLoadedPrompts()
 		assert.Len(t, prompts, 2)
@@ -160,7 +160,7 @@ func TestRegistry_GetLoadedFragments(t *testing.T) {
 
 func TestRegistry_ClearCache(t *testing.T) {
 	reg := createTestRegistry()
-	reg.promptCache["task1"] = &PromptConfig{Spec: PromptSpec{TaskType: "task1"}}
+	reg.promptCache["task1"] = &Config{Spec: Spec{TaskType: "task1"}}
 	reg.fragmentCache["fragment1"] = &Fragment{Content: "test"}
 
 	reg.ClearCache()
@@ -184,8 +184,8 @@ func TestNewRegistryWithRepository(t *testing.T) {
 func TestRegistry_RegisterConfig(t *testing.T) {
 	reg := createTestRegistry()
 
-	config := &PromptConfig{
-		Spec: PromptSpec{
+	config := &Config{
+		Spec: Spec{
 			TaskType: "my_task",
 		},
 	}
@@ -203,8 +203,8 @@ func TestRegistry_ListTaskTypes(t *testing.T) {
 
 	t.Run("returns registered configs from cache", func(t *testing.T) {
 		// Use RegisterConfig to add to the promptCache
-		cfg1 := &PromptConfig{Spec: PromptSpec{TaskType: "task1"}}
-		cfg2 := &PromptConfig{Spec: PromptSpec{TaskType: "task2"}}
+		cfg1 := &Config{Spec: Spec{TaskType: "task1"}}
+		cfg2 := &Config{Spec: Spec{TaskType: "task2"}}
 
 		_ = reg.RegisterConfig("task1", cfg1)
 		_ = reg.RegisterConfig("task2", cfg2)
@@ -227,8 +227,8 @@ func TestRegistry_GetPromptInfo(t *testing.T) {
 		reg := createTestRegistryWithRepo()
 
 		// Register a config
-		cfg := &PromptConfig{
-			Spec: PromptSpec{
+		cfg := &Config{
+			Spec: Spec{
 				TaskType:    "test-task",
 				Version:     "1.0.0",
 				Description: "Test prompt",
@@ -251,7 +251,7 @@ func TestRegistry_GetPromptInfo(t *testing.T) {
 		}
 		_ = reg.RegisterConfig("test-task", cfg)
 
-		info, err := reg.GetPromptInfo("test-task")
+		info, err := reg.GetInfo("test-task")
 
 		require.NoError(t, err)
 		assert.Equal(t, "test-task", info.TaskType)
@@ -267,7 +267,7 @@ func TestRegistry_GetPromptInfo(t *testing.T) {
 	t.Run("returns error for non-existent task", func(t *testing.T) {
 		reg := createTestRegistryWithRepo()
 
-		info, err := reg.GetPromptInfo("non-existent-task")
+		info, err := reg.GetInfo("non-existent-task")
 
 		assert.Error(t, err)
 		assert.Nil(t, info)
@@ -282,15 +282,15 @@ func TestRegistry_PrepareVariables(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		config      *PromptConfig
+		config      *Config
 		vars        map[string]string
 		wantErr     bool
 		expectedLen int
 	}{
 		{
 			name: "valid required and optional vars",
-			config: &PromptConfig{
-				Spec: PromptSpec{
+			config: &Config{
+				Spec: Spec{
 					Variables: []VariableMetadata{
 						{Name: "var1", Required: true, Type: "string"},
 						{Name: "var2", Required: true, Type: "string"},
@@ -308,8 +308,8 @@ func TestRegistry_PrepareVariables(t *testing.T) {
 		},
 		{
 			name: "override optional vars",
-			config: &PromptConfig{
-				Spec: PromptSpec{
+			config: &Config{
+				Spec: Spec{
 					Variables: []VariableMetadata{
 						{Name: "var1", Required: true, Type: "string"},
 						{Name: "opt1", Required: false, Type: "string", Default: "default1"},
@@ -325,8 +325,8 @@ func TestRegistry_PrepareVariables(t *testing.T) {
 		},
 		{
 			name: "missing required var",
-			config: &PromptConfig{
-				Spec: PromptSpec{
+			config: &Config{
+				Spec: Spec{
 					Variables: []VariableMetadata{
 						{Name: "var1", Required: true, Type: "string"},
 						{Name: "var2", Required: true, Type: "string"},
@@ -361,14 +361,14 @@ func TestRegistry_ApplyModelOverrides(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		config         *PromptConfig
+		config         *Config
 		model          string
 		expectedResult string
 	}{
 		{
 			name: "no model specified",
-			config: &PromptConfig{
-				Spec: PromptSpec{
+			config: &Config{
+				Spec: Spec{
 					SystemTemplate: "base template",
 				},
 			},
@@ -377,8 +377,8 @@ func TestRegistry_ApplyModelOverrides(t *testing.T) {
 		},
 		{
 			name: "model with template override",
-			config: &PromptConfig{
-				Spec: PromptSpec{
+			config: &Config{
+				Spec: Spec{
 					SystemTemplate: "base template",
 					ModelOverrides: map[string]ModelOverride{
 						"gpt-4": {
@@ -392,8 +392,8 @@ func TestRegistry_ApplyModelOverrides(t *testing.T) {
 		},
 		{
 			name: "model with suffix override",
-			config: &PromptConfig{
-				Spec: PromptSpec{
+			config: &Config{
+				Spec: Spec{
 					SystemTemplate: "base template",
 					ModelOverrides: map[string]ModelOverride{
 						"gpt-4": {
@@ -407,8 +407,8 @@ func TestRegistry_ApplyModelOverrides(t *testing.T) {
 		},
 		{
 			name: "model with both template and suffix",
-			config: &PromptConfig{
-				Spec: PromptSpec{
+			config: &Config{
+				Spec: Spec{
 					SystemTemplate: "base template",
 					ModelOverrides: map[string]ModelOverride{
 						"gpt-4": {
@@ -423,8 +423,8 @@ func TestRegistry_ApplyModelOverrides(t *testing.T) {
 		},
 		{
 			name: "model without override uses base",
-			config: &PromptConfig{
-				Spec: PromptSpec{
+			config: &Config{
+				Spec: Spec{
 					SystemTemplate: "base template",
 					ModelOverrides: map[string]ModelOverride{
 						"gpt-4": {
@@ -451,14 +451,14 @@ func TestRegistry_MergeVars(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		config   *PromptConfig
+		config   *Config
 		vars     map[string]string
 		expected map[string]string
 	}{
 		{
 			name: "no optional vars",
-			config: &PromptConfig{
-				Spec: PromptSpec{
+			config: &Config{
+				Spec: Spec{
 					Variables: []VariableMetadata{},
 				},
 			},
@@ -471,8 +471,8 @@ func TestRegistry_MergeVars(t *testing.T) {
 		},
 		{
 			name: "optional vars with no overrides",
-			config: &PromptConfig{
-				Spec: PromptSpec{
+			config: &Config{
+				Spec: Spec{
 					Variables: []VariableMetadata{
 						{Name: "opt1", Required: false, Type: "string", Default: "default1"},
 						{Name: "opt2", Required: false, Type: "string", Default: "default2"},
@@ -490,8 +490,8 @@ func TestRegistry_MergeVars(t *testing.T) {
 		},
 		{
 			name: "override optional vars",
-			config: &PromptConfig{
-				Spec: PromptSpec{
+			config: &Config{
+				Spec: Spec{
 					Variables: []VariableMetadata{
 						{Name: "opt1", Required: false, Type: "string", Default: "default1"},
 						{Name: "opt2", Required: false, Type: "string", Default: "default2"},

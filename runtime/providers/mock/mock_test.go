@@ -55,7 +55,7 @@ func TestCreateProviderFromSpec_Mock(t *testing.T) {
 }
 
 func TestMockProvider_Predict(t *testing.T) {
-	provider := NewMockProvider("test-id", "test-model", false)
+	provider := NewProvider("test-id", "test-model", false)
 
 	ctx := context.Background()
 	req := providers.PredictionRequest{
@@ -88,7 +88,7 @@ func TestMockProvider_Predict(t *testing.T) {
 }
 
 func TestMockProvider_PredictStream(t *testing.T) {
-	provider := NewMockProvider("test-id", "test-model", false)
+	provider := NewProvider("test-id", "test-model", false)
 
 	ctx := context.Background()
 	req := providers.PredictionRequest{
@@ -125,7 +125,7 @@ func TestMockProvider_PredictStream(t *testing.T) {
 }
 
 func TestMockProvider_SupportsStreaming(t *testing.T) {
-	provider := NewMockProvider("test-id", "test-model", false)
+	provider := NewProvider("test-id", "test-model", false)
 
 	if !provider.SupportsStreaming() {
 		t.Error("Expected mock provider to support streaming")
@@ -152,7 +152,7 @@ func TestMockProvider_ShouldIncludeRawOutput(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			provider := NewMockProvider("test-id", "test-model", tt.includeRawOutput)
+			provider := NewProvider("test-id", "test-model", tt.includeRawOutput)
 			if provider.ShouldIncludeRawOutput() != tt.expectedInclude {
 				t.Errorf("Expected ShouldIncludeRawOutput to be %v, got %v",
 					tt.expectedInclude, provider.ShouldIncludeRawOutput())

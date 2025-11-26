@@ -68,8 +68,8 @@ func setupConversation() *sdk.Conversation {
 }
 
 // createProvider creates an OpenAI provider with default settings
-func createProvider() *openai.OpenAIProvider {
-	return openai.NewOpenAIProvider(
+func createProvider() *openai.Provider {
+	return openai.NewProvider(
 		"openai",
 		"gpt-4",
 		"",

@@ -17,19 +17,19 @@ func TestProvider_BasicMethods(t *testing.T) {
 	}{
 		{
 			name:     "MockProvider",
-			provider: mock.NewMockProvider("test", "test-model", false),
+			provider: mock.NewProvider("test", "test-model", false),
 		},
 		{
 			name:     "ClaudeProvider",
-			provider: claude.NewClaudeProvider("test-claude", "claude-3-opus", "fake-key", providers.ProviderDefaults{}, false),
+			provider: claude.NewProvider("test-claude", "claude-3-opus", "fake-key", providers.ProviderDefaults{}, false),
 		},
 		{
 			name:     "OpenAIProvider",
-			provider: openai.NewOpenAIProvider("test-openai", "gpt-4", "fake-key", providers.ProviderDefaults{}, false),
+			provider: openai.NewProvider("test-openai", "gpt-4", "fake-key", providers.ProviderDefaults{}, false),
 		},
 		{
 			name:     "GeminiProvider",
-			provider: gemini.NewGeminiProvider("test-gemini", "gemini-pro", "fake-key", providers.ProviderDefaults{}, false),
+			provider: gemini.NewProvider("test-gemini", "gemini-pro", "fake-key", providers.ProviderDefaults{}, false),
 		},
 	}
 

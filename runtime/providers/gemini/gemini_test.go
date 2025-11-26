@@ -6,7 +6,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 )
 
-func TestNewGeminiProvider(t *testing.T) {
+func TestNewProvider(t *testing.T) {
 	defaults := providers.ProviderDefaults{
 		Temperature: 0.9,
 		TopP:        0.95,
@@ -17,7 +17,7 @@ func TestNewGeminiProvider(t *testing.T) {
 		},
 	}
 
-	provider := NewGeminiProvider("test-gemini", "gemini-1.5-pro", "https://generativelanguage.googleapis.com", defaults, false)
+	provider := NewProvider("test-gemini", "gemini-1.5-pro", "https://generativelanguage.googleapis.com", defaults, false)
 
 	if provider == nil {
 		t.Fatal("Expected non-nil provider")
@@ -44,7 +44,7 @@ func TestGeminiProvider_ID(t *testing.T) {
 	ids := []string{"gemini-pro", "gemini-flash", "custom-gemini"}
 
 	for _, id := range ids {
-		provider := NewGeminiProvider(id, "model", "url", providers.ProviderDefaults{}, false)
+		provider := NewProvider(id, "model", "url", providers.ProviderDefaults{}, false)
 		if provider.ID() != id {
 			t.Errorf("Expected ID '%s', got '%s'", id, provider.ID())
 		}
@@ -61,7 +61,7 @@ func TestGeminiProvider_Cost(t *testing.T) {
 		Pricing: pricing,
 	}
 
-	provider := NewGeminiProvider("test", "gemini-1.5-pro", "url", defaults, false)
+	provider := NewProvider("test", "gemini-1.5-pro", "url", defaults, false)
 
 	// Test with 1000 input and 1000 output tokens
 	breakdown := provider.CalculateCost(1000, 1000, 0)
@@ -82,7 +82,7 @@ func TestGeminiProvider_Cost_FlashPricing(t *testing.T) {
 		Pricing: pricing,
 	}
 
-	provider := NewGeminiProvider("test", "gemini-1.5-flash", "url", defaults, false)
+	provider := NewProvider("test", "gemini-1.5-flash", "url", defaults, false)
 
 	breakdown := provider.CalculateCost(1000, 1000, 0)
 	expected := 0.000075 + 0.0003 // $0.000375 total
@@ -103,7 +103,7 @@ func TestGeminiProvider_CostBreakdown(t *testing.T) {
 		Pricing: pricing,
 	}
 
-	provider := NewGeminiProvider("test", "gemini-1.5-pro", "url", defaults, false)
+	provider := NewProvider("test", "gemini-1.5-pro", "url", defaults, false)
 
 	breakdown := provider.CalculateCost(1000, 500, 0)
 
@@ -142,7 +142,7 @@ func TestGeminiProvider_CostBreakdownWithCachedTokens(t *testing.T) {
 		Pricing: pricing,
 	}
 
-	provider := NewGeminiProvider("test", "gemini-1.5-pro", "url", defaults, false)
+	provider := NewProvider("test", "gemini-1.5-pro", "url", defaults, false)
 
 	// 1000 input (total), 500 output, 200 cached
 	// Gemini cached tokens cost 50% of input tokens
@@ -191,7 +191,7 @@ func TestGeminiProvider_CostBreakdown_ZeroTokens(t *testing.T) {
 		},
 	}
 
-	provider := NewGeminiProvider("test", "gemini-1.5-pro", "url", defaults, false)
+	provider := NewProvider("test", "gemini-1.5-pro", "url", defaults, false)
 
 	breakdown := provider.CalculateCost(0, 0, 0)
 
@@ -210,7 +210,7 @@ func TestGeminiProvider_DifferentModels(t *testing.T) {
 	}
 
 	for _, model := range models {
-		provider := NewGeminiProvider("test", model, "url", providers.ProviderDefaults{}, false)
+		provider := NewProvider("test", model, "url", providers.ProviderDefaults{}, false)
 		if provider.Model != model {
 			t.Errorf("Model mismatch for %s", model)
 		}

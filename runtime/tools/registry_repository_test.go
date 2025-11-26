@@ -10,7 +10,7 @@ import (
 
 // TestNewRegistryWithRepository verifies the new constructor works
 func TestNewRegistryWithRepository(t *testing.T) {
-	repo := memory.NewMemoryToolRepository()
+	repo := memory.NewToolRepository()
 	registry := tools.NewRegistryWithRepository(repo)
 
 	if registry == nil {
@@ -20,7 +20,7 @@ func TestNewRegistryWithRepository(t *testing.T) {
 
 // TestRegistry_GetWithRepository tests loading tools via repository
 func TestRegistry_GetWithRepository(t *testing.T) {
-	repo := memory.NewMemoryToolRepository()
+	repo := memory.NewToolRepository()
 
 	// Register a test tool
 	repo.RegisterTool("test-tool", &tools.ToolDescriptor{
@@ -47,7 +47,7 @@ func TestRegistry_GetWithRepository(t *testing.T) {
 
 // TestRegistry_ListWithRepository tests listing tools
 func TestRegistry_ListWithRepository(t *testing.T) {
-	repo := memory.NewMemoryToolRepository()
+	repo := memory.NewToolRepository()
 
 	repo.RegisterTool("tool1", &tools.ToolDescriptor{
 		Name:        "tool1",
@@ -84,7 +84,7 @@ func TestRegistry_ListWithRepository(t *testing.T) {
 
 // TestRegistry_RegisterWithRepository tests registering new tools
 func TestRegistry_RegisterWithRepository(t *testing.T) {
-	repo := memory.NewMemoryToolRepository()
+	repo := memory.NewToolRepository()
 	registry := tools.NewRegistryWithRepository(repo)
 
 	descriptor := &tools.ToolDescriptor{
@@ -111,7 +111,7 @@ func TestRegistry_RegisterWithRepository(t *testing.T) {
 
 // TestRegistry_GetNonexistent tests error handling for missing tools
 func TestRegistry_GetNonexistent_WithRepository(t *testing.T) {
-	repo := memory.NewMemoryToolRepository()
+	repo := memory.NewToolRepository()
 	registry := tools.NewRegistryWithRepository(repo)
 
 	tool := registry.Get("nonexistent")
@@ -122,7 +122,7 @@ func TestRegistry_GetNonexistent_WithRepository(t *testing.T) {
 
 // TestRegistry_CachingWithRepository verifies that tools are cached after first load
 func TestRegistry_CachingWithRepository(t *testing.T) {
-	repo := memory.NewMemoryToolRepository()
+	repo := memory.NewToolRepository()
 
 	repo.RegisterTool("cached-tool", &tools.ToolDescriptor{
 		Name:        "cached-tool",

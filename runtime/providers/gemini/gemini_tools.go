@@ -21,16 +21,16 @@ const (
 )
 
 // GeminiToolProvider extends GeminiProvider with tool support
-type GeminiToolProvider struct {
-	*GeminiProvider
+type ToolProvider struct {
+	*Provider
 	currentTools   interface{}                  // Store current tools for continuation
 	currentRequest *providers.PredictionRequest // Store current request context for continuation
 }
 
-// NewGeminiToolProvider creates a new Gemini provider with tool support
-func NewGeminiToolProvider(id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool) *GeminiToolProvider {
-	return &GeminiToolProvider{
-		GeminiProvider: NewGeminiProvider(id, model, baseURL, defaults, includeRawOutput),
+// NewToolProvider creates a new Gemini provider with tool support
+func NewToolProvider(id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool) *ToolProvider {
+	return &ToolProvider{
+		Provider: NewProvider(id, model, baseURL, defaults, includeRawOutput),
 	}
 }
 
@@ -81,7 +81,7 @@ type geminiToolResponse struct {
 }
 
 // BuildTooling converts tool descriptors to Gemini format
-func (p *GeminiToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (interface{}, error) {
+func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (interface{}, error) {
 	if len(descriptors) == 0 {
 		return nil, nil
 	}
@@ -101,7 +101,7 @@ func (p *GeminiToolProvider) BuildTooling(descriptors []*providers.ToolDescripto
 }
 
 // PredictWithTools performs a predict request with tool support
-func (p *GeminiToolProvider) PredictWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
+func (p *ToolProvider) PredictWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	logger.Debug("PredictWithTools called",
 		"toolChoice", toolChoice,
 		"messages", len(req.Messages))
@@ -226,7 +226,7 @@ func addToolConfig(request map[string]interface{}, tools interface{}, toolChoice
 	}
 }
 
-func (p *GeminiToolProvider) buildToolRequest(req providers.PredictionRequest, tools interface{}, toolChoice string) map[string]interface{} {
+func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools interface{}, toolChoice string) map[string]interface{} {
 	// Convert messages to Gemini format
 	contents := make([]map[string]interface{}, 0, len(req.Messages))
 	var pendingToolResults []map[string]interface{}
@@ -298,7 +298,7 @@ func (p *GeminiToolProvider) buildToolRequest(req providers.PredictionRequest, t
 	return request
 }
 
-func (p *GeminiToolProvider) parseToolResponse(respBytes []byte, predictResp providers.PredictionResponse) (providers.PredictionResponse, []types.MessageToolCall, error) {
+func (p *ToolProvider) parseToolResponse(respBytes []byte, predictResp providers.PredictionResponse) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	start := time.Now()
 
 	var resp geminiToolResponse
@@ -364,7 +364,7 @@ func (p *GeminiToolProvider) parseToolResponse(respBytes []byte, predictResp pro
 	}
 
 	// Calculate cost breakdown (Gemini doesn't support cached tokens yet)
-	costBreakdown := p.GeminiProvider.CalculateCost(tokensIn, tokensOut, 0)
+	costBreakdown := p.Provider.CalculateCost(tokensIn, tokensOut, 0)
 
 	predictResp.Content = textContent
 	predictResp.CostInfo = &costBreakdown
@@ -375,7 +375,7 @@ func (p *GeminiToolProvider) parseToolResponse(respBytes []byte, predictResp pro
 	return predictResp, toolCalls, nil
 }
 
-func (p *GeminiToolProvider) makeRequest(ctx context.Context, request interface{}) ([]byte, error) {
+func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]byte, error) {
 	requestBytes, err := json.Marshal(request)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
@@ -427,6 +427,6 @@ func (p *GeminiToolProvider) makeRequest(ctx context.Context, request interface{
 
 func init() {
 	providers.RegisterProviderFactory("gemini", func(spec providers.ProviderSpec) (providers.Provider, error) {
-		return NewGeminiToolProvider(spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput), nil
+		return NewToolProvider(spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput), nil
 	})
 }
