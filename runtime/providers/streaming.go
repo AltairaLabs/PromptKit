@@ -85,8 +85,3 @@ func IsValidationAbort(err error) bool {
 	_, ok := err.(*ValidationAbortError)
 	return ok
 }
-
-// ptr is a helper to get a pointer to a string
-func ptr(s string) *string {
-	return &s
-}

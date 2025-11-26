@@ -47,10 +47,7 @@ func DynamicValidatorMiddlewareWithSuppression(
 // and continues to the next middleware to persist results.
 func (m *dynamicValidatorMiddleware) Process(execCtx *pipeline.ExecutionContext, next func() error) error {
 	// Get validator configs from metadata (populated by PromptAssemblyMiddleware)
-	validatorList, validatorParams, shouldReturn, err := m.getValidators(execCtx)
-	if err != nil {
-		return err
-	}
+	validatorList, validatorParams, shouldReturn := m.getValidators(execCtx)
 	if shouldReturn {
 		// No validators configured, just continue to next middleware
 		return next()
@@ -67,7 +64,7 @@ func (m *dynamicValidatorMiddleware) Process(execCtx *pipeline.ExecutionContext,
 	// Validate the response and attach results to the message
 	// The provider has already run and created the assistant message before we got here
 
-	err = m.validateAndAttach(execCtx, validatorList, validatorParams)
+	err := m.validateAndAttach(execCtx, validatorList, validatorParams)
 
 	// Continue to next middleware (StateStore) which will persist the validation results
 	nextErr := next()
@@ -251,10 +248,7 @@ func (m *dynamicValidatorMiddleware) StreamChunk(
 	chunk *providers.StreamChunk,
 ) error {
 	// Get validator configs from metadata (set by PromptAssemblyMiddleware)
-	validatorList, validatorParams, shouldReturn, err := m.getValidators(execCtx)
-	if err != nil {
-		return err
-	}
+	validatorList, validatorParams, shouldReturn := m.getValidators(execCtx)
 	if shouldReturn {
 		return nil
 	}
@@ -266,6 +260,7 @@ func (m *dynamicValidatorMiddleware) StreamChunk(
 	contentBuffer = m.updateContentBuffer(execCtx, chunk, contentBuffer)
 
 	// Validate chunk with streaming validators
+	var err error
 	validationResults, err = m.validateStreamingChunk(
 		execCtx,
 		chunk,
@@ -399,12 +394,12 @@ func (m *dynamicValidatorMiddleware) recordSuccessfulValidations(
 
 func (m *dynamicValidatorMiddleware) getValidators(
 	execCtx *pipeline.ExecutionContext,
-) ([]validators.Validator, []map[string]interface{}, bool, error) {
+) ([]validators.Validator, []map[string]interface{}, bool) {
 	validatorConfigs, ok := execCtx.Metadata["validator_configs"].([]validators.ValidatorConfig)
 	if !ok || len(validatorConfigs) == 0 {
 		logger.Debug("No validator configs found in metadata, skipping validation")
 		// No validators configured
-		return nil, nil, true, nil
+		return nil, nil, true
 	}
 
 	// Check if we've already built the validator list (to avoid rebuilding on every chunk)
@@ -436,7 +431,7 @@ func (m *dynamicValidatorMiddleware) getValidators(
 	}
 
 	if len(validatorList) == 0 {
-		return nil, nil, true, nil
+		return nil, nil, true
 	}
-	return validatorList, validatorParams, false, nil
+	return validatorList, validatorParams, false
 }

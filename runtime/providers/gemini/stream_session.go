@@ -307,7 +307,7 @@ func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool) err
 }
 
 // buildClientMessage builds a realtime input message with media chunk
-func buildClientMessage(chunk types.MediaChunk, turnComplete bool) map[string]interface{} {
+func buildClientMessage(chunk types.MediaChunk, _ bool) map[string]interface{} {
 	// Encode binary PCM data as base64 for transmission
 	encoder := NewAudioEncoder()
 	base64Data, err := encoder.EncodePCM(chunk.Data)
