@@ -1,3 +1,4 @@
+// Package engine provides the core execution engine for PromptArena test runs.
 package engine
 
 import "time"

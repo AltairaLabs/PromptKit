@@ -1,11 +1,13 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -111,35 +113,75 @@ func TestObserver_NoObserver(t *testing.T) {
 }
 
 func TestObserver_Integration(t *testing.T) {
-	t.Skip("Integration test - requires full engine setup with mock provider")
+	// Full integration test with mock provider
+	tmpDir := t.TempDir()
+	
+	cfg := &config.Config{
+		Defaults: config.Defaults{
+			Verbose: false,
+		},
+	}
 
-	// This is a placeholder for a full integration test
-	// It would require:
-	// 1. Creating a test config with scenarios
-	// 2. Setting up mock provider
-	// 3. Creating engine
-	// 4. Setting observer
-	// 5. Running ExecuteRuns
-	// 6. Verifying observer callbacks
+	eng := newTestEngine(t, tmpDir, cfg)
+	defer eng.Close()
 
-	// Example structure:
-	// cfg := createTestConfig(t)
-	// eng := createTestEngine(t, cfg)
-	// obs := newMockObserver()
-	// eng.SetObserver(obs)
-	//
-	// plan := &RunPlan{
-	//     Combinations: []RunCombination{
-	//         {ScenarioID: "test1", ProviderID: "mock", Region: "us"},
-	//     },
-	// }
-	//
-	// _, err := eng.ExecuteRuns(context.Background(), plan, 1)
-	// require.NoError(t, err)
-	//
-	// obs.assertStarted(t, 1)
-	// obs.assertCompleted(t, 1)
-	// obs.assertFailed(t, 0)
+	// Add a test scenario
+	eng.scenarios = map[string]*config.Scenario{
+		"test-scenario": {
+			ID:       "test-scenario",
+			TaskType: "test",
+			Turns: []config.TurnDefinition{
+				{
+					Role:    "user",
+					Content: "Hello",
+				},
+			},
+		},
+	}
+
+	// Enable mock provider mode
+	err := eng.EnableMockProviderMode("")
+	require.NoError(t, err)
+
+	// Set up observer
+	obs := newMockObserver()
+	eng.SetObserver(obs)
+
+	// Create run plan with test scenario
+	plan := &RunPlan{
+		Combinations: []RunCombination{
+			{ScenarioID: "test-scenario", ProviderID: "mock", Region: "us"},
+		},
+	}
+
+	// Execute runs
+	ctx := context.Background()
+	runIDs, err := eng.ExecuteRuns(ctx, plan, 1)
+	require.NoError(t, err)
+	require.Len(t, runIDs, 1)
+
+	// Verify observer received callbacks
+	obs.assertStarted(t, 1)
+
+	// Check if the run completed or failed
+	obs.mu.Lock()
+	completed := len(obs.completed)
+	failed := len(obs.failed)
+	obs.mu.Unlock()
+
+	// Either completed or failed should be 1, but not both
+	assert.Equal(t, 1, completed+failed, "Expected exactly one completion or failure")
+
+	// Verify run details if completed
+	if completed == 1 {
+		obs.mu.Lock()
+		runID := obs.started[0]
+		run := obs.completed[runID]
+		obs.mu.Unlock()
+
+		assert.Greater(t, run.duration, time.Duration(0))
+		assert.GreaterOrEqual(t, run.cost, 0.0)
+	}
 }
 
 func TestObserver_ThreadSafety(t *testing.T) {
@@ -217,4 +259,63 @@ func TestObserver_MultipleFailures(t *testing.T) {
 	obs.assertStarted(t, 3)
 	obs.assertFailed(t, 3)
 	obs.assertCompleted(t, 0)
+}
+
+func TestObserver_Integration_FailureScenario(t *testing.T) {
+	// Test observer callbacks when run fails (missing provider)
+	tmpDir := t.TempDir()
+
+	cfg := &config.Config{
+		Defaults: config.Defaults{
+			Verbose: false,
+		},
+	}
+
+	eng := newTestEngine(t, tmpDir, cfg)
+	defer eng.Close()
+
+	// Add a test scenario
+	eng.scenarios = map[string]*config.Scenario{
+		"test-scenario": {
+			ID:       "test-scenario",
+			TaskType: "test",
+			Turns: []config.TurnDefinition{
+				{
+					Role:    "user",
+					Content: "Hello",
+				},
+			},
+		},
+	}
+
+	// Set up observer BEFORE execution (don't enable mock mode, so provider will fail)
+	obs := newMockObserver()
+	eng.SetObserver(obs)
+
+	// Create run plan with non-existent provider (will trigger failure path)
+	plan := &RunPlan{
+		Combinations: []RunCombination{
+			{ScenarioID: "test-scenario", ProviderID: "nonexistent-provider", Region: "us"},
+		},
+	}
+
+	// Execute runs (should fail but not error)
+	ctx := context.Background()
+	runIDs, err := eng.ExecuteRuns(ctx, plan, 1)
+	require.NoError(t, err)
+	require.Len(t, runIDs, 1)
+
+	// Verify observer received callbacks for failure
+	obs.assertStarted(t, 1)
+	obs.assertFailed(t, 1)
+	obs.assertCompleted(t, 0)
+
+	// Verify the failure was recorded
+	obs.mu.Lock()
+	runID := obs.started[0]
+	failErr := obs.failed[runID]
+	obs.mu.Unlock()
+
+	assert.NotNil(t, failErr)
+	assert.Contains(t, failErr.Error(), "provider not found")
 }
