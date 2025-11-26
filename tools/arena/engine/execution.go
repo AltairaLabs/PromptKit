@@ -157,6 +157,11 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 	startTime := time.Now()
 	runID := generateRunID(combo)
 
+	// Notify observer that run is starting
+	if e.observer != nil {
+		e.observer.OnRunStarted(runID, combo.ScenarioID, combo.ProviderID, combo.Region)
+	}
+
 	// Get Arena state store
 	arenaStore, ok := e.stateStore.(*statestore.ArenaStateStore)
 	if !ok {
@@ -178,6 +183,12 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 		if err := arenaStore.SaveMetadata(ctx, runID, metadata); err != nil {
 			return runID, fmt.Errorf("failed to save error metadata: %w", err)
 		}
+
+		// Notify observer of failure
+		if e.observer != nil {
+			e.observer.OnRunFailed(runID, fmt.Errorf("%s", errMsg))
+		}
+
 		return runID, nil
 	}
 
@@ -217,6 +228,10 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 
 	convResult := e.conversationExecutor.ExecuteConversation(ctx, req)
 
+	// Calculate duration and cost
+	duration := time.Since(startTime)
+	cost := convResult.Cost.TotalCost
+
 	// Save run metadata to StateStore
 	metadata := &statestore.RunMetadata{
 		RunID:      runID,
@@ -225,7 +240,7 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 		ProviderID: combo.ProviderID,
 		StartTime:  startTime,
 		EndTime:    time.Now(),
-		Duration:   time.Since(startTime),
+		Duration:   duration,
 		Error:      convResult.Error,
 		SelfPlay:   convResult.SelfPlay,
 		PersonaID:  convResult.PersonaID,
@@ -233,6 +248,15 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 
 	if err := arenaStore.SaveMetadata(ctx, runID, metadata); err != nil {
 		return runID, fmt.Errorf("failed to save run metadata: %w", err)
+	}
+
+	// Notify observer of completion or failure
+	if e.observer != nil {
+		if convResult.Error != "" {
+			e.observer.OnRunFailed(runID, fmt.Errorf("%s", convResult.Error))
+		} else {
+			e.observer.OnRunCompleted(runID, duration, cost)
+		}
 	}
 
 	return runID, nil
