@@ -77,14 +77,29 @@ linters:
       # - Non-idiomatic naming (e.g., functions starting with "Get" which is discouraged in Go)
       # - Go convention is to omit "Get" prefix: use Config() instead of GetConfig()
       # - See: https://go.dev/doc/effective_go#Getters
+      #
+      # Note: Some rules like "exported" catch stuttering (e.g., mock.MockProvider)
+      # which would require breaking API changes to fix. These are warnings for now
+      # and can be addressed in a future major version bump.
       rules:
         # Naming conventions including getter detection
         - name: var-naming
           severity: warning
           disabled: false
+          arguments:
+            - - "ID" # Accept ID as proper name
+              - "API"
+              - "HTTP"
+              - "JSON"
+              - "URL"
+              - "XML"
+              - "YAML"
         - name: exported
           severity: warning
           disabled: false
+          arguments:
+            - "checkPrivateReceivers"  # Check receiver names even for private methods
+            - "sayRepetitiveInsteadOfStutters"  # Use better wording in error messages
         # Add other useful revive rules
         - name: blank-imports
         - name: context-as-argument
