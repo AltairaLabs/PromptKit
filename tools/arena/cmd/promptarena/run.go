@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	bubbletea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/results/junit"
 	"github.com/AltairaLabs/PromptKit/tools/arena/results/markdown"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui"
 )
 
 // Flag name constants to avoid duplication
@@ -110,7 +112,8 @@ func init() {
 	// Execution settings
 	runCmd.Flags().IntP("concurrency", "j", 6, "Number of concurrent workers")
 	runCmd.Flags().StringP("out", "o", "out", "Output directory")
-	runCmd.Flags().Bool("ci", false, "CI mode (headless)")
+	runCmd.Flags().Bool("ci", false, "CI mode (disable TUI, simple logs)")
+	runCmd.Flags().Bool("simple", false, "Simple mode (alias for --ci)")
 	runCmd.Flags().Bool("html", false, "Generate HTML report (deprecated: use --format)")
 	runCmd.Flags().StringSlice("format", []string{}, "Output formats (json, junit, html, markdown) - defaults from config")
 	runCmd.Flags().StringSlice("formats", []string{}, "Output formats (json, junit, html, markdown) - alias for --format")
@@ -176,6 +179,7 @@ type RunParameters struct {
 	Concurrency    int
 	OutDir         string
 	CIMode         bool
+	SimpleMode     bool // Alias for CIMode
 	Verbose        bool
 	GenerateHTML   bool     // Deprecated: use OutputFormats
 	HTMLReportPath string   // Deprecated: use HTMLFile
@@ -185,6 +189,8 @@ type RunParameters struct {
 	MarkdownFile   string   // New: Markdown output file
 	MockProvider   bool     // Enable mock provider mode
 	MockConfig     string   // Path to mock provider configuration
+	ConfigFile     string   // Configuration file name for TUI display
+	TotalRuns      int      // Total number of runs for TUI progress
 }
 
 // loadConfiguration loads the configuration file and sets up viper
@@ -264,6 +270,13 @@ func extractBasicFlags(cmd *cobra.Command, params *RunParameters) error {
 	}
 	if params.CIMode, err = cmd.Flags().GetBool("ci"); err != nil {
 		return fmt.Errorf("failed to get ci flag: %w", err)
+	}
+	if params.SimpleMode, err = cmd.Flags().GetBool("simple"); err != nil {
+		return fmt.Errorf("failed to get simple flag: %w", err)
+	}
+	// If either --ci or --simple is set, disable TUI
+	if params.SimpleMode {
+		params.CIMode = true
 	}
 	if params.Verbose, err = cmd.Flags().GetBool("verbose"); err != nil {
 		return fmt.Errorf("failed to get verbose flag: %w", err)
@@ -464,21 +477,96 @@ func executeRuns(configFile string, params *RunParameters) ([]engine.RunResult, 
 		return nil, fmt.Errorf("failed to generate run plan: %w", err)
 	}
 
-	if !params.CIMode {
-		fmt.Printf("Generated %d run combinations\n", len(plan.Combinations))
-		fmt.Println("Starting execution...")
-		fmt.Println()
+	params.TotalRuns = len(plan.Combinations)
+
+	// Check if TUI should be used (not CI mode, terminal large enough)
+	useTUI := !params.CIMode
+	var tuiReason string
+	if useTUI {
+		_, _, supported, reason := tui.CheckTerminalSize()
+		if !supported {
+			useTUI = false
+			tuiReason = reason
+		}
 	}
 
-	// Execute runs
+	// Execute with TUI or simple mode
+	var runIDs []string
 	ctx := context.Background()
-	runIDs, err := eng.ExecuteRuns(ctx, plan, params.Concurrency)
+
+	if useTUI {
+		runIDs, err = executeWithTUI(ctx, eng, plan, params)
+	} else {
+		if tuiReason != "" {
+			fmt.Printf("TUI disabled: %s\n", tuiReason)
+		}
+		runIDs, err = executeSimple(ctx, eng, plan, params)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute runs: %w", err)
 	}
 
 	// Convert results from statestore format
 	return convertRunResults(ctx, eng, runIDs)
+}
+
+// executeWithTUI runs simulations with the TUI interface
+func executeWithTUI(ctx context.Context, eng *engine.Engine, plan *engine.RunPlan, params *RunParameters) ([]string, error) {
+	// Create TUI model
+	model := tui.NewModel(params.ConfigFile, params.TotalRuns)
+
+	// Create bubbletea program (needed for observer and log interceptor)
+	program := bubbletea.NewProgram(model, bubbletea.WithAltScreen())
+
+	// Create observer that bridges engine callbacks to bubbletea messages
+	observer := tui.NewObserver(program)
+	eng.SetObserver(observer)
+
+	// Log interceptor setup will be added in Phase 5 when integrating with the logger package
+	// For now, logs will display in stdout/stderr as normal (TUI uses alt screen)
+
+	// Start execution in background
+	errChan := make(chan error, 1)
+	idsChan := make(chan []string, 1)
+
+	go func() {
+		runIDs, err := eng.ExecuteRuns(ctx, plan, params.Concurrency)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		idsChan <- runIDs
+
+		// Build and send summary
+		// Note: We'll get htmlReport path from params after processResults
+		summary := model.BuildSummary(params.OutDir, "")
+		program.Send(tui.ShowSummaryMsg{Summary: summary})
+	}()
+
+	// Run the TUI (blocks until quit)
+	if _, tuiErr := program.Run(); tuiErr != nil {
+		return nil, fmt.Errorf("TUI error: %w", tuiErr)
+	}
+
+	// Check for execution errors
+	select {
+	case err := <-errChan:
+		return nil, err
+	case runIDs := <-idsChan:
+		return runIDs, nil
+	default:
+		return nil, fmt.Errorf("execution did not complete")
+	}
+}
+
+// executeSimple runs simulations with simple log output (CI mode)
+func executeSimple(ctx context.Context, eng *engine.Engine, plan *engine.RunPlan, params *RunParameters) ([]string, error) {
+	fmt.Printf("Generated %d run combinations\n", len(plan.Combinations))
+	fmt.Println("Starting execution...")
+	fmt.Println()
+
+	return eng.ExecuteRuns(ctx, plan, params.Concurrency)
 }
 
 // convertRunResults retrieves and converts run results from the statestore
