@@ -1,0 +1,145 @@
+# {{.project_name}}
+
+Content generation and creative writing testing project created with PromptArena.
+
+## Overview
+
+This project tests content creation capabilities including:
+- Blog post and article writing
+- Product descriptions and marketing copy
+- Social media content
+- Email campaigns
+- Creative storytelling
+
+## Getting Started
+
+### Prerequisites
+
+- PromptArena CLI installed
+{{range .providers}}{{if ne . "mock"}}- {{if eq . "openai"}}OpenAI{{else if eq . "anthropic"}}Anthropic{{else if eq . "google"}}Google{{end}} API key
+{{end}}{{end}}
+### Setup
+
+1. Configure your API keys in `.env` file:
+{{range .providers}}{{if eq . "openai"}}   - Get OpenAI key from: https://platform.openai.com/api-keys
+{{else if eq . "anthropic"}}   - Get Anthropic key from: https://console.anthropic.com/
+{{else if eq . "google"}}   - Get Google key from: https://aistudio.google.com/app/apikey
+{{end}}{{end}}
+2. Review and customize the scenarios in `scenarios/`
+
+3. Run the tests:
+   ```bash
+   promptarena run
+   ```
+
+## Project Structure
+
+```
+.
+├── arena.yaml                 # Main configuration
+├── prompts/
+│   ├── blog-writer.yaml       # Blog writing prompt
+│   └── marketing-copy.yaml    # Marketing copywriting prompt
+├── providers/                 # LLM provider configs
+{{range .providers}}│   ├── {{.}}.yaml
+{{end}}├── scenarios/                 # Test scenarios
+│   ├── blog-post.yaml
+│   ├── product-description.yaml
+│   └── social-media.yaml
+└── out/                       # Test results (generated)
+```
+
+## Scenarios
+
+### Blog Post (`scenarios/blog-post.yaml`)
+Tests engaging blog post creation with proper narrative structure.
+
+### Product Description (`scenarios/product-description.yaml`)
+Tests benefit-focused product copy with effective CTAs.
+
+### Social Media (`scenarios/social-media.yaml`)
+Tests concise, engaging social media content creation.
+
+## Customization
+
+### Adding Content Types
+
+Create new scenario files for specific content types:
+
+```yaml
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/scenario.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: email-campaign
+
+spec:
+  id: write-email
+  task_type: content
+  description: "Test email campaign creation"
+  
+  turns:
+    - role: user
+      content: "Write a welcome email for new subscribers"
+      assertions:
+        - type: contains_any
+          params:
+            values: ["welcome", "thank you"]
+```
+
+### Adjusting Tone and Style
+
+Edit prompt configurations to set specific:
+- `prompts/blog-writer.yaml` - Blog style and voice
+- `prompts/marketing-copy.yaml` - Marketing tone and approach
+
+## Running Tests
+
+```bash
+# Run all scenarios
+promptarena run
+
+# Run specific scenario
+promptarena run --scenario blog-post
+
+# Run with specific provider
+promptarena run --provider openai-gpt4
+
+# Use higher temperature for more creative output
+promptarena run --temperature 0.9
+```
+
+## Evaluating Content Quality
+
+Test different aspects:
+- **Tone consistency** - Does it match the brand voice?
+- **Engagement** - Is it compelling and interesting?
+- **Clarity** - Is the message clear?
+- **Call-to-action** - Are CTAs present and effective?
+- **Length** - Does it respect word limits?
+
+## Results
+
+Test results are saved to `out/`:
+- `results.json` - Detailed test results
+- `report.html` - Interactive HTML report
+
+## Next Steps
+
+- Add brand-specific style guidelines
+- Test different content formats (emails, whitepapers, case studies)
+- Create tone variations (formal, casual, technical)
+- Add A/B testing scenarios
+- Integrate with content management system
+
+## Resources
+
+- [PromptArena Documentation](https://promptkit.altairalabs.ai/arena/)
+- [Tutorial: First Test](https://promptkit.altairalabs.ai/arena/tutorials/01-first-test)
+- [Scenario Reference](https://promptkit.altairalabs.ai/arena/reference/scenario)
+
+## Support
+
+For questions or issues:
+- GitHub Issues: https://github.com/AltairaLabs/PromptKit/issues
+- Documentation: https://promptkit.altairalabs.ai

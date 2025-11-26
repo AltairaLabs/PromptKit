@@ -19,6 +19,7 @@ promptarena [command] [flags]
 
 | Command | Description |
 |---------|-------------|
+| `init` | Initialize a new Arena test project from template |
 | `run` | Run conversation simulations (main command) |
 | `config-inspect` | Inspect and validate configuration |
 | `debug` | Debug configuration and prompt loading |
@@ -31,6 +32,143 @@ promptarena [command] [flags]
 
 ```bash
 -h, --help         help for promptarena
+```
+
+---
+
+## `promptarena init`
+
+Initialize a new PromptArena test project from a built-in template.
+
+### Usage
+
+```bash
+promprarena init [directory] [flags]
+```
+
+### Flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--quick` | bool | `false` | Skip interactive prompts, use defaults |
+| `--provider` | string | - | Provider to configure (mock, openai, anthropic, google) |
+| `--template` | string | `basic-chatbot` | Template to use for initialization |
+| `--list-templates` | bool | `false` | List all available built-in templates |
+| `--var` | []string | - | Set template variables (key=value) |
+
+### Built-In Templates
+
+PromptArena includes 6 built-in templates:
+
+| Template | Files Generated | Description |
+|----------|-----------------|-------------|
+| `basic-chatbot` | 6 files | Simple conversational testing setup |
+| `customer-support` | 10 files | Support agent with KB search and order status tools |
+| `code-assistant` | 9 files | Code generation and review with separate prompts |
+| `content-generation` | 9 files | Creative content for blogs, products, social media |
+| `multimodal` | 7 files | Image analysis and vision testing |
+| `mcp-integration` | 7 files | MCP filesystem server integration |
+
+### Examples
+
+#### List Available Templates
+
+```bash
+# See all built-in templates
+promprarena init --list-templates
+```
+
+#### Quick Start
+
+```bash
+# Create project with defaults (basic-chatbot template)
+promprarena init my-test --quick
+
+# With specific provider
+promprarena init my-test --quick --provider openai
+
+# With specific template
+promprarena init my-test --quick --template customer-support --provider openai
+```
+
+#### Interactive Mode
+
+```bash
+# Interactive prompts guide you through setup
+promprarena init my-project
+```
+
+#### Template Variables
+
+```bash
+# Override template variables
+promprarena init my-test --quick --provider openai \
+  --var project_name="My Custom Project" \
+  --var description="Custom description" \
+  --var temperature=0.8
+```
+
+### What Gets Created
+
+Depending on the template, `init` creates:
+
+- `arena.yaml` - Main Arena configuration
+- `prompts/` - Prompt configurations
+- `providers/` - Provider configurations
+- `scenarios/` - Test scenarios
+- `tools/` - Tool definitions (customer-support template)
+- `.env` - Environment variables with API key placeholders
+- `.gitignore` - Ignores .env and output files
+- `README.md` - Project documentation and usage instructions
+
+### Template Comparison
+
+**basic-chatbot** (6 files):
+
+- Best for: Beginners, simple testing
+- Includes: 1 prompt, 1 provider, 1 basic scenario
+
+**customer-support** (10 files):
+
+- Best for: Support agent testing, tool calling
+- Includes: 1 prompt, 3 scenarios, 2 tools (KB search, order status)
+
+**code-assistant** (9 files):
+
+- Best for: Code generation workflows
+- Includes: 2 prompts (generator, reviewer), 3 scenarios
+- Temperature: 0.3 (deterministic)
+
+**content-generation** (9 files):
+
+- Best for: Marketing, creative writing
+- Includes: 2 prompts (blog, marketing), 3 scenarios
+- Temperature: 0.8 (creative)
+
+**multimodal** (7 files):
+
+- Best for: Vision AI, image analysis
+- Includes: 1 vision prompt, 2 scenarios with sample images
+
+**mcp-integration** (7 files):
+
+- Best for: MCP server testing, tool integration
+- Includes: 1 prompt, 2 scenarios, MCP filesystem server config
+
+### After Initialization
+
+```bash
+# Navigate to project
+cd my-test
+
+# Add your API key to .env
+echo "OPENAI_API_KEY=sk-..." >> .env
+
+# Run tests
+promprarena run
+
+# View results
+open out/report.html
 ```
 
 ---

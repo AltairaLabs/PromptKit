@@ -1,0 +1,93 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Template
+metadata:
+  name: customer-support
+  labels:
+    version: "1.0.0"
+  annotations:
+    description: "Customer support agent testing with multi-turn conversations and tool calling"
+    author: "AltairaLabs"
+    tags: "support,chatbot,beginner-friendly,production-ready"
+    
+spec:
+  variables:
+    - name: project_name
+      description: "Project name"
+      type: string
+      default: "customer-support-tests"
+      required: true
+      prompt: "Project name"
+      
+    - name: providers
+      description: "LLM providers to configure"
+      type: array
+      options: ["mock", "openai", "anthropic", "google"]
+      default: ["openai"]
+      prompt: "Which providers would you like to test"
+      
+    - name: include_tools
+      description: "Include tool/function calling examples"
+      type: boolean
+      default: true
+      prompt: "Include tool calling examples"
+      
+    - name: include_env
+      description: "Create .env file for API keys"
+      type: boolean
+      default: true
+      
+  files:
+    - path: "arena.yaml"
+      template: "templates/arena.yaml.tmpl"
+      
+    - path: "prompts/support-agent.yaml"
+      template: "templates/prompt.yaml.tmpl"
+      
+    - path: "providers/{{.provider}}.yaml"
+      template: "templates/provider.yaml.tmpl"
+      foreach: "providers"
+      
+    - path: "scenarios/basic-support.yaml"
+      template: "templates/scenario-basic.yaml.tmpl"
+      
+    - path: "scenarios/product-inquiry.yaml"
+      template: "templates/scenario-product.yaml.tmpl"
+      
+    - path: "scenarios/complaint-handling.yaml"
+      template: "templates/scenario-complaint.yaml.tmpl"
+      
+    - path: "tools/search-knowledge-base.yaml"
+      template: "templates/tool-kb.yaml.tmpl"
+      condition: "{{.include_tools}}"
+      
+    - path: "tools/check-order-status.yaml"
+      template: "templates/tool-order.yaml.tmpl"
+      condition: "{{.include_tools}}"
+      
+    - path: ".env"
+      template: "templates/env.tmpl"
+      condition: "{{.include_env}}"
+      
+    - path: ".gitignore"
+      content: |
+        .env
+        out/
+        *.log
+        .DS_Store
+        
+    - path: "README.md"
+      template: "templates/readme.md.tmpl"
+      
+  examples:
+    scenarios:
+      - "Basic greeting test"
+      - "Product inquiry"
+      - "Complaint handling"
+      - "Order status check"
+    providers:
+      - "openai"
+      - "anthropic"
+      
+  docs:
+    getting_started: "https://promptkit.altairalabs.ai/arena/tutorials/01-first-test"
+    api_reference: "https://promptkit.altairalabs.ai/arena/reference"

@@ -1,0 +1,37 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/tool.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: search-knowledge-base
+
+spec:
+  name: search_knowledge_base
+  description: "Search the company knowledge base for product information, policies, and FAQs"
+  
+  input_schema:
+    type: object
+    properties:
+      query:
+        type: string
+        description: "Search query"
+    required:
+      - query
+  
+  handler:
+    type: mock
+    config:
+      response: |
+        {
+          "results": [
+            {
+              "title": "Premium Subscription Features",
+              "content": "Premium subscription includes: unlimited access, priority support, advanced analytics, and API access.",
+              "relevance": 0.95
+            },
+            {
+              "title": "Pricing Plans",
+              "content": "Premium plan is $29/month or $290/year (save 16%). Enterprise plans available on request.",
+              "relevance": 0.87
+            }
+          ]
+        }

@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/scenario.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: mcp-multi-tool
+
+spec:
+  id: mcp-tool-chain
+  task_type: general
+  description: "Test multi-step tool usage and chaining"
+  
+  turns:
+    - role: user
+      content: "Create a file called 'test.txt' in /tmp with the content 'Hello from MCP', then read it back to confirm."
+      assertions:
+        - type: content_not_empty
+          params: {}
+          message: "Response should not be empty"
+        - type: tool_called
+          params:
+            tool_names: ["write_file", "create_file"]
+          message: "Should use file creation tool"
+        - type: contains_any
+          params:
+            values: ["Hello from MCP", "created", "written"]
+          message: "Should confirm file creation"

@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/scenario.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: product-inquiry
+
+spec:
+  id: product-question
+  task_type: support
+  description: "Customer asking about product features and availability"
+  
+  turns:
+    - role: user
+      content: "Do you have information about the premium subscription features?"
+      assertions:
+        - type: content_not_empty
+          params: {}
+          message: "Response should not be empty"
+{{if .include_tools}}        - type: tool_called
+          params:
+            tool_names: ["search_knowledge_base"]
+          message: "Should search knowledge base for product info"
+{{end}}
+    - role: user
+      content: "How much does it cost?"
+      assertions:
+        - type: content_not_empty
+          params: {}
+          message: "Response should not be empty"
+        - type: contains_any
+          params:
+            values: ["price", "cost", "subscription", "plan"]
+          message: "Response should address pricing"

@@ -1,0 +1,139 @@
+# {{.project_name}}
+
+Customer support agent testing project created with PromptArena.
+
+## Overview
+
+This project tests customer support interactions including:
+- Basic greeting and help scenarios
+- Product inquiries
+- Complaint handling
+{{if .include_tools}}- Tool calling for knowledge base search and order status checks
+{{end}}
+## Getting Started
+
+### Prerequisites
+
+- PromptArena CLI installed
+{{range .providers}}{{if ne . "mock"}}- {{if eq . "openai"}}OpenAI{{else if eq . "anthropic"}}Anthropic{{else if eq . "google"}}Google{{end}} API key
+{{end}}{{end}}
+### Setup
+
+1. Configure your API keys in `.env` file:
+{{range .providers}}{{if eq . "openai"}}   - Get OpenAI key from: https://platform.openai.com/api-keys
+{{else if eq . "anthropic"}}   - Get Anthropic key from: https://console.anthropic.com/
+{{else if eq . "google"}}   - Get Google key from: https://aistudio.google.com/app/apikey
+{{end}}{{end}}
+2. Review and customize the scenarios in `scenarios/`
+
+3. Run the tests:
+   ```bash
+   promptarena run
+   ```
+
+## Project Structure
+
+```
+.
+├── arena.yaml              # Main configuration
+├── prompts/
+│   └── support-agent.yaml  # Support agent prompt
+├── providers/              # LLM provider configs
+{{range .providers}}│   ├── {{.}}.yaml
+{{end}}├── scenarios/              # Test scenarios
+│   ├── basic-support.yaml
+│   ├── product-inquiry.yaml
+│   └── complaint-handling.yaml
+{{if .include_tools}}├── tools/                  # Tool definitions
+│   ├── search-knowledge-base.yaml
+│   └── check-order-status.yaml
+{{end}}└── out/                    # Test results (generated)
+```
+
+## Scenarios
+
+### Basic Support (`scenarios/basic-support.yaml`)
+Tests fundamental support interactions like greetings and login help.
+
+### Product Inquiry (`scenarios/product-inquiry.yaml`)
+Tests how the agent handles product questions{{if .include_tools}} using knowledge base search{{end}}.
+
+### Complaint Handling (`scenarios/complaint-handling.yaml`)
+Tests empathy and problem-solving with upset customers{{if .include_tools}}, including order status checks{{end}}.
+
+## Customization
+
+### Adding New Scenarios
+
+Create a new file in `scenarios/` following this structure:
+
+```yaml
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/scenario.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: your-scenario
+
+spec:
+  id: your-scenario-id
+  task_type: support
+  description: "Your scenario description"
+  
+  turns:
+    - role: user
+      content: "Customer message"
+      assertions:
+        - type: content_not_empty
+          params: {}
+```
+
+### Modifying the Support Agent
+
+Edit `prompts/support-agent.yaml` to adjust:
+- Tone and personality
+- Specific guidelines
+- Domain knowledge
+- Escalation criteria
+
+## Running Tests
+
+```bash
+# Run all scenarios
+promptarena run
+
+# Run specific scenario
+promptarena run --scenario basic-support
+
+# Run with specific provider
+promptarena run --provider openai-gpt4
+
+# Generate HTML report
+promptarena run --format html
+```
+
+## Results
+
+Test results are saved to `out/`:
+- `results.json` - Detailed test results
+- `report.html` - Interactive HTML report
+
+## Next Steps
+
+- Add more customer scenarios
+- Customize the support agent prompt
+- Add domain-specific tools
+- Integrate with your knowledge base
+- Set up CI/CD testing
+
+## Resources
+
+- [PromptArena Documentation](https://promptkit.altairalabs.ai/arena/)
+- [Tutorial: First Test](https://promptkit.altairalabs.ai/arena/tutorials/01-first-test)
+- [Scenario Reference](https://promptkit.altairalabs.ai/arena/reference/scenario)
+- [Tool Integration](https://promptkit.altairalabs.ai/arena/guides/tools)
+
+## Support
+
+For questions or issues:
+- GitHub Issues: https://github.com/AltairaLabs/PromptKit/issues
+- Documentation: https://promptkit.altairalabs.ai

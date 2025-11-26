@@ -1,0 +1,41 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/scenario.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: complaint-handling
+
+spec:
+  id: customer-complaint
+  task_type: support
+  description: "Handling an upset customer with a complaint"
+  
+  turns:
+    - role: user
+      content: "I'm very disappointed! My order is late and customer service hasn't responded."
+      assertions:
+        - type: content_not_empty
+          params: {}
+          message: "Response should not be empty"
+        - type: contains_any
+          params:
+            values: ["sorry", "apologize", "understand", "frustrating"]
+          message: "Response should show empathy"
+{{if .include_tools}}        - type: tool_called
+          params:
+            tool_names: ["check_order_status"]
+          message: "Should check order status"
+{{end}}
+    - role: user
+      content: "This is unacceptable! I want a refund."
+      assertions:
+        - type: content_not_empty
+          params: {}
+          message: "Response should not be empty"
+        - type: contains_any
+          params:
+            values: ["refund", "resolve", "solution", "help"]
+          message: "Response should address refund request"
+        - type: not_contains
+          params:
+            values: ["no", "cannot", "impossible"]
+          message: "Response should be solution-oriented, not dismissive"

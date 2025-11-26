@@ -1,0 +1,49 @@
+{{if eq .provider "mock"}}# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/provider.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: mock
+
+spec:
+  id: mock-provider
+  provider: mock
+  config:
+    response: "The image shows a sample scene with various objects. The composition includes clear lighting and good contrast."
+    delay_ms: 100
+{{else if eq .provider "openai"}}# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/provider.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: openai
+
+spec:
+  id: openai-gpt4-vision
+  provider: openai
+  model: gpt-4o-mini
+  config:
+    api_key: ${OPENAI_API_KEY}
+{{else if eq .provider "anthropic"}}# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/provider.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: anthropic
+
+spec:
+  id: anthropic-claude-vision
+  provider: anthropic
+  model: claude-3-5-sonnet-20241022
+  config:
+    api_key: ${ANTHROPIC_API_KEY}
+{{else if eq .provider "google"}}# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/provider.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: google
+
+spec:
+  id: google-gemini-vision
+  provider: google
+  model: gemini-2.0-flash-exp
+  config:
+    api_key: ${GOOGLE_API_KEY}
+{{end}}

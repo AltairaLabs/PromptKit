@@ -3,6 +3,7 @@ package templates
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -1105,4 +1106,227 @@ func TestGenerator_RenderTemplate_Error(t *testing.T) {
 	_, err := generator.renderTemplate("test", "{{.invalid syntax", map[string]interface{}{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to parse template")
+}
+
+// TestLoader_LoadBuiltIn_CustomerSupport tests loading the customer-support template
+func TestLoader_LoadBuiltIn_CustomerSupport(t *testing.T) {
+	loader := NewLoader("")
+
+	tmpl, err := loader.LoadBuiltIn("customer-support")
+	require.NoError(t, err)
+	assert.NotNil(t, tmpl)
+	assert.Equal(t, "promptkit.altairalabs.ai/v1alpha1", tmpl.APIVersion)
+	assert.Equal(t, "Template", tmpl.Kind)
+	assert.Equal(t, "customer-support", tmpl.Metadata.Name)
+
+	// Verify metadata
+	assert.Equal(t, "1.0.0", tmpl.Metadata.Labels["version"])
+	assert.NotEmpty(t, tmpl.Metadata.Annotations["description"])
+	assert.Contains(t, strings.ToLower(tmpl.Metadata.Annotations["description"]), "customer")
+	assert.Equal(t, "AltairaLabs", tmpl.Metadata.Annotations["author"])
+	assert.Contains(t, tmpl.Metadata.Annotations["tags"], "support")
+
+	// Verify variables
+	assert.NotEmpty(t, tmpl.Spec.Variables)
+	varNames := make(map[string]bool)
+	for _, v := range tmpl.Spec.Variables {
+		varNames[v.Name] = true
+	}
+	assert.True(t, varNames["project_name"], "should have project_name variable")
+	assert.True(t, varNames["providers"], "should have providers variable")
+	assert.True(t, varNames["include_tools"], "should have include_tools variable")
+
+	// Verify files - should have at least these
+	assert.NotEmpty(t, tmpl.Spec.Files)
+	filePaths := make(map[string]bool)
+	for _, f := range tmpl.Spec.Files {
+		filePaths[f.Path] = true
+	}
+	assert.True(t, filePaths["arena.yaml"], "should generate arena.yaml")
+	assert.True(t, filePaths["README.md"], "should generate README.md")
+
+	// Verify examples
+	assert.NotNil(t, tmpl.Spec.Examples)
+	assert.NotEmpty(t, tmpl.Spec.Examples.Scenarios)
+
+	// Verify docs
+	assert.NotNil(t, tmpl.Spec.Docs)
+	assert.NotEmpty(t, tmpl.Spec.Docs.GettingStarted)
+}
+
+// TestLoader_LoadBuiltIn_CodeAssistant tests loading the code-assistant template
+func TestLoader_LoadBuiltIn_CodeAssistant(t *testing.T) {
+	loader := NewLoader("")
+
+	tmpl, err := loader.LoadBuiltIn("code-assistant")
+	require.NoError(t, err)
+	assert.NotNil(t, tmpl)
+	assert.Equal(t, "promptkit.altairalabs.ai/v1alpha1", tmpl.APIVersion)
+	assert.Equal(t, "Template", tmpl.Kind)
+	assert.Equal(t, "code-assistant", tmpl.Metadata.Name)
+
+	// Verify metadata
+	assert.Equal(t, "1.0.0", tmpl.Metadata.Labels["version"])
+	assert.NotEmpty(t, tmpl.Metadata.Annotations["description"])
+	assert.Contains(t, strings.ToLower(tmpl.Metadata.Annotations["description"]), "code")
+	assert.Equal(t, "AltairaLabs", tmpl.Metadata.Annotations["author"])
+
+	// Verify variables
+	assert.NotEmpty(t, tmpl.Spec.Variables)
+	varNames := make(map[string]bool)
+	for _, v := range tmpl.Spec.Variables {
+		varNames[v.Name] = true
+	}
+	assert.True(t, varNames["project_name"], "should have project_name variable")
+	assert.True(t, varNames["providers"], "should have providers variable")
+	assert.True(t, varNames["languages"], "should have languages variable")
+
+	// Verify files
+	assert.NotEmpty(t, tmpl.Spec.Files)
+	filePaths := make(map[string]bool)
+	for _, f := range tmpl.Spec.Files {
+		filePaths[f.Path] = true
+	}
+	assert.True(t, filePaths["arena.yaml"], "should generate arena.yaml")
+	assert.True(t, filePaths["README.md"], "should generate README.md")
+}
+
+// TestLoader_LoadBuiltIn_ContentGeneration tests loading the content-generation template
+func TestLoader_LoadBuiltIn_ContentGeneration(t *testing.T) {
+	loader := NewLoader("")
+
+	tmpl, err := loader.LoadBuiltIn("content-generation")
+	require.NoError(t, err)
+	assert.NotNil(t, tmpl)
+	assert.Equal(t, "promptkit.altairalabs.ai/v1alpha1", tmpl.APIVersion)
+	assert.Equal(t, "Template", tmpl.Kind)
+	assert.Equal(t, "content-generation", tmpl.Metadata.Name)
+
+	// Verify metadata
+	assert.Equal(t, "1.0.0", tmpl.Metadata.Labels["version"])
+	assert.NotEmpty(t, tmpl.Metadata.Annotations["description"])
+	assert.Contains(t, strings.ToLower(tmpl.Metadata.Annotations["description"]), "content")
+	assert.Equal(t, "AltairaLabs", tmpl.Metadata.Annotations["author"])
+
+	// Verify variables
+	assert.NotEmpty(t, tmpl.Spec.Variables)
+	varNames := make(map[string]bool)
+	for _, v := range tmpl.Spec.Variables {
+		varNames[v.Name] = true
+	}
+	assert.True(t, varNames["project_name"], "should have project_name variable")
+	assert.True(t, varNames["providers"], "should have providers variable")
+	assert.True(t, varNames["content_types"], "should have content_types variable")
+
+	// Verify files
+	assert.NotEmpty(t, tmpl.Spec.Files)
+	filePaths := make(map[string]bool)
+	for _, f := range tmpl.Spec.Files {
+		filePaths[f.Path] = true
+	}
+	assert.True(t, filePaths["arena.yaml"], "should generate arena.yaml")
+	assert.True(t, filePaths["README.md"], "should generate README.md")
+}
+
+// TestLoader_LoadBuiltIn_Multimodal tests loading the multimodal template
+func TestLoader_LoadBuiltIn_Multimodal(t *testing.T) {
+	loader := NewLoader("")
+
+	tmpl, err := loader.LoadBuiltIn("multimodal")
+	require.NoError(t, err)
+	assert.NotNil(t, tmpl)
+	assert.Equal(t, "promptkit.altairalabs.ai/v1alpha1", tmpl.APIVersion)
+	assert.Equal(t, "Template", tmpl.Kind)
+	assert.Equal(t, "multimodal", tmpl.Metadata.Name)
+
+	// Verify metadata
+	assert.Equal(t, "1.0.0", tmpl.Metadata.Labels["version"])
+	assert.NotEmpty(t, tmpl.Metadata.Annotations["description"])
+	assert.Contains(t, strings.ToLower(tmpl.Metadata.Annotations["description"]), "multimodal")
+	assert.Equal(t, "AltairaLabs", tmpl.Metadata.Annotations["author"])
+
+	// Verify variables
+	assert.NotEmpty(t, tmpl.Spec.Variables)
+	varNames := make(map[string]bool)
+	for _, v := range tmpl.Spec.Variables {
+		varNames[v.Name] = true
+	}
+	assert.True(t, varNames["project_name"], "should have project_name variable")
+	assert.True(t, varNames["providers"], "should have providers variable")
+	assert.True(t, varNames["media_types"], "should have media_types variable")
+
+	// Verify files
+	assert.NotEmpty(t, tmpl.Spec.Files)
+	filePaths := make(map[string]bool)
+	for _, f := range tmpl.Spec.Files {
+		filePaths[f.Path] = true
+	}
+	assert.True(t, filePaths["arena.yaml"], "should generate arena.yaml")
+	assert.True(t, filePaths["README.md"], "should generate README.md")
+}
+
+// TestLoader_LoadBuiltIn_MCPIntegration tests loading the mcp-integration template
+func TestLoader_LoadBuiltIn_MCPIntegration(t *testing.T) {
+	loader := NewLoader("")
+
+	tmpl, err := loader.LoadBuiltIn("mcp-integration")
+	require.NoError(t, err)
+	assert.NotNil(t, tmpl)
+	assert.Equal(t, "promptkit.altairalabs.ai/v1alpha1", tmpl.APIVersion)
+	assert.Equal(t, "Template", tmpl.Kind)
+	assert.Equal(t, "mcp-integration", tmpl.Metadata.Name)
+
+	// Verify metadata
+	assert.Equal(t, "1.0.0", tmpl.Metadata.Labels["version"])
+	assert.NotEmpty(t, tmpl.Metadata.Annotations["description"])
+	assert.Contains(t, strings.ToLower(tmpl.Metadata.Annotations["description"]), "mcp")
+	assert.Equal(t, "AltairaLabs", tmpl.Metadata.Annotations["author"])
+
+	// Verify variables
+	assert.NotEmpty(t, tmpl.Spec.Variables)
+	varNames := make(map[string]bool)
+	for _, v := range tmpl.Spec.Variables {
+		varNames[v.Name] = true
+	}
+	assert.True(t, varNames["project_name"], "should have project_name variable")
+	assert.True(t, varNames["providers"], "should have providers variable")
+	assert.True(t, varNames["mcp_servers"], "should have mcp_servers variable")
+
+	// Verify files
+	assert.NotEmpty(t, tmpl.Spec.Files)
+	filePaths := make(map[string]bool)
+	for _, f := range tmpl.Spec.Files {
+		filePaths[f.Path] = true
+	}
+	assert.True(t, filePaths["arena.yaml"], "should generate arena.yaml")
+	assert.True(t, filePaths["README.md"], "should generate README.md")
+}
+
+// TestLoader_ListBuiltIn_AllTemplates tests that all expected templates are present
+func TestLoader_ListBuiltIn_AllTemplates(t *testing.T) {
+	loader := NewLoader("")
+
+	templates, err := loader.ListBuiltIn()
+	require.NoError(t, err)
+	assert.NotEmpty(t, templates)
+
+	// Build a map of template names
+	templateNames := make(map[string]bool)
+	for _, tmpl := range templates {
+		templateNames[tmpl.Name] = true
+	}
+
+	// Verify all expected templates exist
+	expectedTemplates := []string{
+		"quick-start",
+		"customer-support",
+		"code-assistant",
+		"content-generation",
+		"multimodal",
+		"mcp-integration",
+	}
+
+	for _, name := range expectedTemplates {
+		assert.True(t, templateNames[name], "template %s should be in the list", name)
+	}
 }

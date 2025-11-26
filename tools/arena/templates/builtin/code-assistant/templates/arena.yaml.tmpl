@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/arena.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: {{.project_name}}
+
+spec:
+  prompt_configs:
+    - id: code-generator
+      file: prompts/code-generator.yaml
+    - id: code-reviewer
+      file: prompts/code-reviewer.yaml
+
+  providers:
+    {{- range .providers}}
+    - file: providers/{{.}}.yaml
+    {{- end}}
+
+  scenarios:
+    - file: scenarios/code-generation.yaml
+    - file: scenarios/code-review.yaml
+    - file: scenarios/bug-fixing.yaml
+
+  defaults:
+    temperature: 0.3
+    max_tokens: 2000
+    seed: 42
+    concurrency: 1
+    output:
+      dir: out
+      formats: ["json", "html"]
