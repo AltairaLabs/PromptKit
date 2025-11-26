@@ -94,13 +94,13 @@ func TestParsePolicyName(t *testing.T) {
 func TestPolicyConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name      string
-		config    policy.PolicyConfig
+		config    policy.Config
 		wantError bool
 		errorMsg  string
 	}{
 		{
 			name: "valid delete-after policy",
-			config: policy.PolicyConfig{
+			config: policy.Config{
 				Name:        "delete-after-5min",
 				Description: "Delete after 5 minutes",
 			},
@@ -108,7 +108,7 @@ func TestPolicyConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "valid retain policy",
-			config: policy.PolicyConfig{
+			config: policy.Config{
 				Name:        "retain-30days",
 				Description: "Retain for 30 days",
 			},
@@ -116,7 +116,7 @@ func TestPolicyConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "empty name",
-			config: policy.PolicyConfig{
+			config: policy.Config{
 				Name: "",
 			},
 			wantError: true,
@@ -124,7 +124,7 @@ func TestPolicyConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "invalid name format",
-			config: policy.PolicyConfig{
+			config: policy.Config{
 				Name: "invalid-format",
 			},
 			wantError: true,
@@ -154,7 +154,7 @@ func TestPolicyMetadata(t *testing.T) {
 		now := time.Now()
 		expiresAt := now.Add(5 * time.Minute)
 
-		metadata := policy.PolicyMetadata{
+		metadata := policy.Metadata{
 			PolicyName: "delete-after-5min",
 			ExpiresAt:  &expiresAt,
 			CreatedAt:  now,
@@ -169,7 +169,7 @@ func TestPolicyMetadata(t *testing.T) {
 	t.Run("creates policy metadata without expiration", func(t *testing.T) {
 		now := time.Now()
 
-		metadata := policy.PolicyMetadata{
+		metadata := policy.Metadata{
 			PolicyName: "retain-forever",
 			ExpiresAt:  nil,
 			CreatedAt:  now,

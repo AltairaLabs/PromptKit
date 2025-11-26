@@ -20,7 +20,7 @@ const (
 	roleAssistant = "assistant"
 )
 
-// ClaudeToolProvider extends ClaudeProvider with tool support
+// ToolProvider extends ClaudeProvider with tool support
 type ToolProvider struct {
 	*Provider
 }

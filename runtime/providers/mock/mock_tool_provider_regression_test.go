@@ -14,9 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestMockToolProvider_ToolCallSimulation_Integration tests the complete tool call simulation
+// TestToolProvider_ToolCallSimulation_Integration tests the complete tool call simulation
 // workflow from YAML parsing to tool call generation to prevent regressions.
-func TestMockToolProvider_ToolCallSimulation_Integration(t *testing.T) {
+func TestToolProvider_ToolCallSimulation_Integration(t *testing.T) {
 	// Create a temporary YAML config file
 	configData := `
 scenarios:
@@ -54,8 +54,8 @@ default_response: "I don't have information for this scenario."
 	repo, err := NewFileMockRepository(configPath)
 	require.NoError(t, err)
 
-	// Create MockToolProvider
-	provider := NewMockToolProviderWithRepository("test-provider", "test-model", false, repo)
+	// Create ToolProvider
+	provider := NewToolProviderWithRepository("test-provider", "test-model", false, repo)
 
 	ctx := context.Background()
 
@@ -201,7 +201,7 @@ scenarios:
 	ctx := context.Background()
 
 	t.Run("Auto-detect tool_calls type", func(t *testing.T) {
-		params := MockResponseParams{
+		params := ResponseParams{
 			ScenarioID: "type-detection-test",
 			TurnNumber: 1,
 		}
@@ -214,7 +214,7 @@ scenarios:
 	})
 
 	t.Run("Explicit text response", func(t *testing.T) {
-		params := MockResponseParams{
+		params := ResponseParams{
 			ScenarioID: "type-detection-test",
 			TurnNumber: 2,
 		}
@@ -227,7 +227,7 @@ scenarios:
 	})
 
 	t.Run("Explicit type override", func(t *testing.T) {
-		params := MockResponseParams{
+		params := ResponseParams{
 			ScenarioID: "type-detection-test",
 			TurnNumber: 3,
 		}
@@ -241,7 +241,7 @@ scenarios:
 	})
 
 	t.Run("Mixed content - tool calls detected", func(t *testing.T) {
-		params := MockResponseParams{
+		params := ResponseParams{
 			ScenarioID: "type-detection-test",
 			TurnNumber: 4,
 		}
@@ -257,9 +257,9 @@ scenarios:
 	})
 }
 
-// TestMockToolProvider_ErrorHandling tests error conditions and edge cases
+// TestToolProvider_ErrorHandling tests error conditions and edge cases
 // to ensure robust behavior.
-func TestMockToolProvider_ErrorHandling(t *testing.T) {
+func TestToolProvider_ErrorHandling(t *testing.T) {
 	configData := `
 scenarios:
   error-test:
@@ -285,7 +285,7 @@ defaultResponse: "Fallback response"
 	repo, err := NewFileMockRepository(configPath)
 	require.NoError(t, err)
 
-	provider := NewMockToolProviderWithRepository("test-provider", "test-model", false, repo)
+	provider := NewToolProviderWithRepository("test-provider", "test-model", false, repo)
 	ctx := context.Background()
 
 	t.Run("Missing scenario - uses fallback", func(t *testing.T) {
@@ -348,9 +348,9 @@ defaultResponse: "Fallback response"
 	})
 }
 
-// TestMockToolProvider_BackwardCompatibility ensures that existing string-based
+// TestToolProvider_BackwardCompatibility ensures that existing string-based
 // mock responses still work alongside new tool call functionality.
-func TestMockToolProvider_BackwardCompatibility(t *testing.T) {
+func TestToolProvider_BackwardCompatibility(t *testing.T) {
 	configData := `
 # Old-style string responses
 scenarios:
@@ -382,7 +382,7 @@ defaultResponse: "Default fallback"
 	repo, err := NewFileMockRepository(configPath)
 	require.NoError(t, err)
 
-	provider := NewMockToolProviderWithRepository("test-provider", "test-model", false, repo)
+	provider := NewToolProviderWithRepository("test-provider", "test-model", false, repo)
 	ctx := context.Background()
 
 	t.Run("Old-style string responses work", func(t *testing.T) {

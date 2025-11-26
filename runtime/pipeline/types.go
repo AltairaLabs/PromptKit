@@ -261,7 +261,7 @@ type ToolPolicy struct {
 }
 
 // PipelineConfig represents the complete pipeline configuration for pack format
-type PipelineConfig struct {
+type Config struct {
 	Stages     []string           `json:"stages"`               // Pipeline stages in order (e.g., ["template", "provider", "validator"])
 	Middleware []MiddlewareConfig `json:"middleware,omitempty"` // Middleware configurations
 }

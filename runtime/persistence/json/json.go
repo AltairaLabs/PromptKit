@@ -19,23 +19,23 @@ const jsonExt = ".json"
 
 // Compile-time interface checks
 var (
-	_ persistence.PromptRepository = (*JSONPromptRepository)(nil)
-	_ persistence.ToolRepository   = (*JSONToolRepository)(nil)
+	_ persistence.PromptRepository = (*PromptRepository)(nil)
+	_ persistence.ToolRepository   = (*ToolRepository)(nil)
 )
 
 // JSONPromptRepository loads prompts from JSON files on disk
-type JSONPromptRepository struct {
+type PromptRepository struct {
 	basePath       string
 	taskTypeToFile map[string]string
 	cache          map[string]*prompt.Config
 }
 
 // NewJSONPromptRepository creates a JSON file-based prompt repository
-func NewJSONPromptRepository(basePath string, taskTypeToFile map[string]string) *JSONPromptRepository {
+func NewJSONPromptRepository(basePath string, taskTypeToFile map[string]string) *PromptRepository {
 	if taskTypeToFile == nil {
 		taskTypeToFile = make(map[string]string)
 	}
-	return &JSONPromptRepository{
+	return &PromptRepository{
 		basePath:       basePath,
 		taskTypeToFile: taskTypeToFile,
 		cache:          make(map[string]*prompt.Config),
@@ -43,7 +43,7 @@ func NewJSONPromptRepository(basePath string, taskTypeToFile map[string]string) 
 }
 
 // LoadPrompt loads a prompt configuration by task type
-func (r *JSONPromptRepository) LoadPrompt(taskType string) (*prompt.Config, error) {
+func (r *PromptRepository) LoadPrompt(taskType string) (*prompt.Config, error) {
 	// Check cache
 	if cached, ok := r.cache[taskType]; ok {
 		return cached, nil
@@ -77,7 +77,7 @@ func (r *JSONPromptRepository) LoadPrompt(taskType string) (*prompt.Config, erro
 	return &config, nil
 }
 
-func (r *JSONPromptRepository) resolveFilePath(taskType string) (string, error) {
+func (r *PromptRepository) resolveFilePath(taskType string) (string, error) {
 	// Check explicit mapping first
 	if filePath, ok := r.taskTypeToFile[taskType]; ok {
 		if !filepath.IsAbs(filePath) {
@@ -90,7 +90,7 @@ func (r *JSONPromptRepository) resolveFilePath(taskType string) (string, error) 
 	return r.searchForPrompt(taskType)
 }
 
-func (r *JSONPromptRepository) searchForPrompt(taskType string) (string, error) {
+func (r *PromptRepository) searchForPrompt(taskType string) (string, error) {
 	// First try filename-based search
 	if foundFile := r.searchByFilename(taskType); foundFile != "" {
 		return foundFile, nil
@@ -104,7 +104,7 @@ func (r *JSONPromptRepository) searchForPrompt(taskType string) (string, error) 
 	return "", fmt.Errorf("no JSON file found for task type: %s", taskType)
 }
 
-func (r *JSONPromptRepository) searchByFilename(taskType string) string {
+func (r *PromptRepository) searchByFilename(taskType string) string {
 	patterns := []string{
 		fmt.Sprintf("%s.json", taskType),
 		fmt.Sprintf("%s.v*.json", taskType),
@@ -128,7 +128,7 @@ func (r *JSONPromptRepository) searchByFilename(taskType string) string {
 	return foundFile
 }
 
-func (r *JSONPromptRepository) searchByContent(taskType string) string {
+func (r *PromptRepository) searchByContent(taskType string) string {
 	var foundFile string
 	_ = filepath.WalkDir(r.basePath, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -150,12 +150,12 @@ func (r *JSONPromptRepository) searchByContent(taskType string) string {
 	return foundFile
 }
 
-func (r *JSONPromptRepository) isJSONFile(path string) bool {
+func (r *PromptRepository) isJSONFile(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	return ext == jsonExt
 }
 
-func (r *JSONPromptRepository) hasMatchingTaskType(path, taskType string) bool {
+func (r *PromptRepository) hasMatchingTaskType(path, taskType string) bool {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return false
@@ -170,7 +170,7 @@ func (r *JSONPromptRepository) hasMatchingTaskType(path, taskType string) bool {
 }
 
 // LoadFragment loads a fragment by name
-func (r *JSONPromptRepository) LoadFragment(name, relativePath, baseDir string) (*prompt.Fragment, error) {
+func (r *PromptRepository) LoadFragment(name, relativePath, baseDir string) (*prompt.Fragment, error) {
 	var fragmentPath string
 	if relativePath != "" {
 		fragmentPath = filepath.Join(baseDir, relativePath)
@@ -193,7 +193,7 @@ func (r *JSONPromptRepository) LoadFragment(name, relativePath, baseDir string) 
 }
 
 // ListPrompts returns all available prompt task types
-func (r *JSONPromptRepository) ListPrompts() ([]string, error) {
+func (r *PromptRepository) ListPrompts() ([]string, error) {
 	taskTypes := []string{}
 
 	if len(r.taskTypeToFile) > 0 {
@@ -234,7 +234,7 @@ func (r *JSONPromptRepository) ListPrompts() ([]string, error) {
 }
 
 // SavePrompt saves a prompt configuration (not yet implemented)
-func (r *JSONPromptRepository) SavePrompt(config *prompt.Config) error {
+func (r *PromptRepository) SavePrompt(config *prompt.Config) error {
 	return fmt.Errorf("not implemented")
 }
 
@@ -252,21 +252,21 @@ func validatePromptConfig(config *prompt.Config) error {
 }
 
 // JSONToolRepository loads tools from JSON files on disk
-type JSONToolRepository struct {
+type ToolRepository struct {
 	basePath string
 	tools    map[string]*tools.ToolDescriptor
 }
 
 // NewJSONToolRepository creates a JSON file-based tool repository
-func NewJSONToolRepository(basePath string) *JSONToolRepository {
-	return &JSONToolRepository{
+func NewJSONToolRepository(basePath string) *ToolRepository {
+	return &ToolRepository{
 		basePath: basePath,
 		tools:    make(map[string]*tools.ToolDescriptor),
 	}
 }
 
 // LoadTool loads a tool descriptor by name
-func (r *JSONToolRepository) LoadTool(name string) (*tools.ToolDescriptor, error) {
+func (r *ToolRepository) LoadTool(name string) (*tools.ToolDescriptor, error) {
 	descriptor, ok := r.tools[name]
 	if !ok {
 		return nil, fmt.Errorf("tool not found: %s", name)
@@ -275,7 +275,7 @@ func (r *JSONToolRepository) LoadTool(name string) (*tools.ToolDescriptor, error
 }
 
 // ListTools returns all available tool names
-func (r *JSONToolRepository) ListTools() ([]string, error) {
+func (r *ToolRepository) ListTools() ([]string, error) {
 	names := make([]string, 0, len(r.tools))
 	for name := range r.tools {
 		names = append(names, name)
@@ -284,12 +284,12 @@ func (r *JSONToolRepository) ListTools() ([]string, error) {
 }
 
 // SaveTool saves a tool descriptor (not yet implemented)
-func (r *JSONToolRepository) SaveTool(descriptor *tools.ToolDescriptor) error {
+func (r *ToolRepository) SaveTool(descriptor *tools.ToolDescriptor) error {
 	return fmt.Errorf("not implemented")
 }
 
 // LoadToolFromFile loads a tool from a JSON file
-func (r *JSONToolRepository) LoadToolFromFile(filename string) error {
+func (r *ToolRepository) LoadToolFromFile(filename string) error {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return fmt.Errorf("failed to read tool file %s: %w", filename, err)
@@ -335,7 +335,7 @@ func (r *JSONToolRepository) LoadToolFromFile(filename string) error {
 }
 
 // LoadDirectory recursively loads all JSON tool files from a directory
-func (r *JSONToolRepository) LoadDirectory(dirPath string) error {
+func (r *ToolRepository) LoadDirectory(dirPath string) error {
 	return filepath.WalkDir(dirPath, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
@@ -352,6 +352,6 @@ func (r *JSONToolRepository) LoadDirectory(dirPath string) error {
 }
 
 // RegisterTool adds a tool descriptor directly
-func (r *JSONToolRepository) RegisterTool(name string, descriptor *tools.ToolDescriptor) {
+func (r *ToolRepository) RegisterTool(name string, descriptor *tools.ToolDescriptor) {
 	r.tools[name] = descriptor
 }

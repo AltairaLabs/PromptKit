@@ -18,7 +18,7 @@ import (
 // of expired media through background scanning.
 type TimeBasedPolicyHandler struct {
 	// policies maps policy names to their configurations
-	policies map[string]PolicyConfig
+	policies map[string]Config
 
 	// enforcementInterval is how often to scan for expired media
 	enforcementInterval time.Duration
@@ -33,7 +33,7 @@ type TimeBasedPolicyHandler struct {
 // NewTimeBasedPolicyHandler creates a new time-based policy handler.
 func NewTimeBasedPolicyHandler(enforcementInterval time.Duration) *TimeBasedPolicyHandler {
 	return &TimeBasedPolicyHandler{
-		policies:            make(map[string]PolicyConfig),
+		policies:            make(map[string]Config),
 		enforcementInterval: enforcementInterval,
 		stopCh:              make(chan struct{}),
 		doneCh:              make(chan struct{}),
@@ -41,7 +41,7 @@ func NewTimeBasedPolicyHandler(enforcementInterval time.Duration) *TimeBasedPoli
 }
 
 // RegisterPolicy adds a policy configuration to the handler.
-func (h *TimeBasedPolicyHandler) RegisterPolicy(policy PolicyConfig) error {
+func (h *TimeBasedPolicyHandler) RegisterPolicy(policy Config) error {
 	if err := policy.Validate(); err != nil {
 		return fmt.Errorf("invalid policy: %w", err)
 	}
@@ -173,7 +173,7 @@ func (h *TimeBasedPolicyHandler) Stop() {
 }
 
 // loadPolicyMetadata loads policy metadata from a .meta file.
-func (h *TimeBasedPolicyHandler) loadPolicyMetadata(metaPath string) (*PolicyMetadata, error) {
+func (h *TimeBasedPolicyHandler) loadPolicyMetadata(metaPath string) (*Metadata, error) {
 	data, err := os.ReadFile(metaPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read metadata file: %w", err)
@@ -199,7 +199,7 @@ func (h *TimeBasedPolicyHandler) loadPolicyMetadata(metaPath string) (*PolicyMet
 	// Calculate expiration time
 	expiresAt := mediaMetadata.Timestamp.Add(duration)
 
-	return &PolicyMetadata{
+	return &Metadata{
 		PolicyName: mediaMetadata.PolicyName,
 		ExpiresAt:  &expiresAt,
 		CreatedAt:  mediaMetadata.Timestamp,

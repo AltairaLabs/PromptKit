@@ -39,8 +39,8 @@ func TestMockProvider_MultimodalResponse_Image(t *testing.T) {
 	assert.NotEmpty(t, resp.Content)
 }
 
-func TestMockTurn_ToContentParts_TextOnly(t *testing.T) {
-	turn := &MockTurn{
+func TestTurn_ToContentParts_TextOnly(t *testing.T) {
+	turn := &Turn{
 		Type:    "text",
 		Content: "Hello, world!",
 	}
@@ -52,18 +52,18 @@ func TestMockTurn_ToContentParts_TextOnly(t *testing.T) {
 	assert.Equal(t, "Hello, world!", *parts[0].Text)
 }
 
-func TestMockTurn_ToContentParts_MultimodalImage(t *testing.T) {
-	turn := &MockTurn{
+func TestTurn_ToContentParts_MultimodalImage(t *testing.T) {
+	turn := &Turn{
 		Type:    "multimodal",
 		Content: "Here is an image",
-		Parts: []MockContentPart{
+		Parts: []ContentPart{
 			{
 				Type: "text",
 				Text: "Here is an image",
 			},
 			{
 				Type: "image",
-				ImageURL: &MockImageURL{
+				ImageURL: &ImageURL{
 					URL: "mock://test-image.png",
 				},
 				Metadata: map[string]interface{}{
@@ -100,17 +100,17 @@ func TestMockTurn_ToContentParts_MultimodalImage(t *testing.T) {
 	assert.Equal(t, 1080, *parts[1].Media.Height)
 }
 
-func TestMockTurn_ToContentParts_MultimodalAudio(t *testing.T) {
-	turn := &MockTurn{
+func TestTurn_ToContentParts_MultimodalAudio(t *testing.T) {
+	turn := &Turn{
 		Type: "multimodal",
-		Parts: []MockContentPart{
+		Parts: []ContentPart{
 			{
 				Type: "text",
 				Text: "Here is audio",
 			},
 			{
 				Type: "audio",
-				AudioURL: &MockAudioURL{
+				AudioURL: &AudioURL{
 					URL: "mock://test-audio.mp3",
 				},
 				Metadata: map[string]interface{}{
@@ -141,13 +141,13 @@ func TestMockTurn_ToContentParts_MultimodalAudio(t *testing.T) {
 	assert.Equal(t, 2, *parts[1].Media.Channels)
 }
 
-func TestMockTurn_ToContentParts_MultimodalVideo(t *testing.T) {
-	turn := &MockTurn{
+func TestTurn_ToContentParts_MultimodalVideo(t *testing.T) {
+	turn := &Turn{
 		Type: "multimodal",
-		Parts: []MockContentPart{
+		Parts: []ContentPart{
 			{
 				Type: "video",
-				VideoURL: &MockVideoURL{
+				VideoURL: &VideoURL{
 					URL: "mock://test-video.mp4",
 				},
 				Metadata: map[string]interface{}{
@@ -211,18 +211,18 @@ func TestInferMIMETypeFromURL(t *testing.T) {
 	}
 }
 
-func TestMockTurn_ToContentParts_Mixed(t *testing.T) {
+func TestTurn_ToContentParts_Mixed(t *testing.T) {
 	// Test a complex turn with multiple media types
-	turn := &MockTurn{
+	turn := &Turn{
 		Type: "multimodal",
-		Parts: []MockContentPart{
+		Parts: []ContentPart{
 			{
 				Type: "text",
 				Text: "Here's a mix of content:",
 			},
 			{
 				Type: "image",
-				ImageURL: &MockImageURL{
+				ImageURL: &ImageURL{
 					URL: "mock://photo.jpg",
 				},
 				Metadata: map[string]interface{}{
@@ -235,7 +235,7 @@ func TestMockTurn_ToContentParts_Mixed(t *testing.T) {
 			},
 			{
 				Type: "audio",
-				AudioURL: &MockAudioURL{
+				AudioURL: &AudioURL{
 					URL: "mock://sound.mp3",
 				},
 			},

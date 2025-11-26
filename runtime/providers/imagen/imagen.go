@@ -23,8 +23,8 @@ const (
 	costPerImage = 0.04
 )
 
-// ImagenProvider implements the Provider interface for Google's Imagen image generation
-type ImagenProvider struct {
+// Provider implements the Provider interface for Google's Imagen image generation
+type Provider struct {
 	providers.BaseProvider
 	Model      string
 	BaseURL    string
@@ -68,7 +68,7 @@ type imagenMetadata struct {
 }
 
 // ImagenConfig holds configuration for creating an Imagen provider
-type ImagenConfig struct {
+type Config struct {
 	ID               string
 	Model            string
 	BaseURL          string
@@ -79,8 +79,8 @@ type ImagenConfig struct {
 	Defaults         providers.ProviderDefaults
 }
 
-// NewImagenProvider creates a new Imagen provider
-func NewImagenProvider(config ImagenConfig) *ImagenProvider {
+// NewProvider creates a new Imagen provider
+func NewProvider(config Config) *Provider {
 	if config.BaseURL == "" {
 		config.BaseURL = defaultBaseURL
 	}
@@ -92,7 +92,7 @@ func NewImagenProvider(config ImagenConfig) *ImagenProvider {
 	}
 
 	httpClient := &http.Client{Timeout: defaultTimeout}
-	p := &ImagenProvider{
+	p := &Provider{
 		BaseProvider: providers.NewBaseProvider(config.ID, config.IncludeRawOutput, httpClient),
 		Model:        config.Model,
 		BaseURL:      config.BaseURL,
@@ -136,7 +136,7 @@ func extractPrompt(req providers.PredictionRequest) (string, error) {
 }
 
 // Predict generates images based on the last user message
-func (p *ImagenProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	start := time.Now()
 
 	prompt, err := extractPrompt(req)
@@ -239,7 +239,7 @@ func (p *ImagenProvider) Predict(ctx context.Context, req providers.PredictionRe
 }
 
 // CalculateCost calculates cost breakdown (simplified for Imagen)
-func (p *ImagenProvider) CalculateCost(inputTokens, outputTokens, cachedTokens int) types.CostInfo {
+func (p *Provider) CalculateCost(inputTokens, outputTokens, cachedTokens int) types.CostInfo {
 	return types.CostInfo{
 		InputTokens:  inputTokens,
 		OutputTokens: outputTokens,
@@ -248,7 +248,7 @@ func (p *ImagenProvider) CalculateCost(inputTokens, outputTokens, cachedTokens i
 }
 
 // PredictStream is not supported for image generation
-func (p *ImagenProvider) PredictStream(
+func (p *Provider) PredictStream(
 	ctx context.Context,
 	req providers.PredictionRequest,
 ) (<-chan providers.StreamChunk, error) {
@@ -256,11 +256,11 @@ func (p *ImagenProvider) PredictStream(
 }
 
 // SupportsStreaming returns false for Imagen
-func (p *ImagenProvider) SupportsStreaming() bool {
+func (p *Provider) SupportsStreaming() bool {
 	return false
 }
 
 // Close cleans up resources
-func (p *ImagenProvider) Close() error {
+func (p *Provider) Close() error {
 	return nil
 }

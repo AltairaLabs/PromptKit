@@ -18,8 +18,8 @@ const (
 	ErrSessionClosed = "session is closed"
 )
 
-// GeminiStreamSession implements StreamInputSession for Gemini Live API
-type GeminiStreamSession struct {
+// StreamSession implements StreamInputSession for Gemini Live API
+type StreamSession struct {
 	ws          *WebSocketManager
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -36,8 +36,8 @@ type StreamSessionConfig struct {
 	ResponseModalities []string // "TEXT" and/or "AUDIO"
 }
 
-// NewGeminiStreamSession creates a new streaming session
-func NewGeminiStreamSession(ctx context.Context, wsURL, apiKey string, config StreamSessionConfig) (*GeminiStreamSession, error) {
+// NewStreamSession creates a new streaming session
+func NewStreamSession(ctx context.Context, wsURL, apiKey string, config StreamSessionConfig) (*StreamSession, error) {
 	sessionCtx, cancel := context.WithCancel(ctx)
 
 	ws := NewWebSocketManager(wsURL, apiKey)
@@ -46,7 +46,7 @@ func NewGeminiStreamSession(ctx context.Context, wsURL, apiKey string, config St
 		return nil, fmt.Errorf("failed to connect: %w", err)
 	}
 
-	session := &GeminiStreamSession{
+	session := &StreamSession{
 		ws:         ws,
 		ctx:        sessionCtx,
 		cancel:     cancel,
@@ -112,7 +112,7 @@ func NewGeminiStreamSession(ctx context.Context, wsURL, apiKey string, config St
 }
 
 // SendChunk sends a media chunk to the server
-func (s *GeminiStreamSession) SendChunk(ctx context.Context, chunk *types.MediaChunk) error {
+func (s *StreamSession) SendChunk(ctx context.Context, chunk *types.MediaChunk) error {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -127,7 +127,7 @@ func (s *GeminiStreamSession) SendChunk(ctx context.Context, chunk *types.MediaC
 }
 
 // SendText sends a text message to the server and marks the turn as complete
-func (s *GeminiStreamSession) SendText(ctx context.Context, text string) error {
+func (s *StreamSession) SendText(ctx context.Context, text string) error {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -143,7 +143,7 @@ func (s *GeminiStreamSession) SendText(ctx context.Context, text string) error {
 }
 
 // CompleteTurn signals that the current turn is complete
-func (s *GeminiStreamSession) CompleteTurn(ctx context.Context) error {
+func (s *StreamSession) CompleteTurn(ctx context.Context) error {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -162,17 +162,17 @@ func (s *GeminiStreamSession) CompleteTurn(ctx context.Context) error {
 }
 
 // Response returns the channel for receiving responses
-func (s *GeminiStreamSession) Response() <-chan providers.StreamChunk {
+func (s *StreamSession) Response() <-chan providers.StreamChunk {
 	return s.responseCh
 }
 
 // Done returns a channel that's closed when the session ends
-func (s *GeminiStreamSession) Done() <-chan struct{} {
+func (s *StreamSession) Done() <-chan struct{} {
 	return s.ctx.Done()
 }
 
 // Close closes the session
-func (s *GeminiStreamSession) Close() error {
+func (s *StreamSession) Close() error {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -189,7 +189,7 @@ func (s *GeminiStreamSession) Close() error {
 }
 
 // Err returns the error that caused the session to close
-func (s *GeminiStreamSession) Error() error {
+func (s *StreamSession) Error() error {
 	select {
 	case err := <-s.errCh:
 		return err
@@ -199,7 +199,7 @@ func (s *GeminiStreamSession) Error() error {
 }
 
 // receiveLoop continuously receives messages from the WebSocket
-func (s *GeminiStreamSession) receiveLoop() {
+func (s *StreamSession) receiveLoop() {
 	defer close(s.responseCh)
 
 	for {
@@ -237,7 +237,7 @@ func (s *GeminiStreamSession) receiveLoop() {
 }
 
 // processServerMessage processes a message from the server
-func (s *GeminiStreamSession) processServerMessage(msg *ServerMessage) error {
+func (s *StreamSession) processServerMessage(msg *ServerMessage) error {
 	// Check for setup_complete
 	if msg.SetupComplete != nil {
 		return nil // Setup acknowledged
@@ -258,7 +258,7 @@ func (s *GeminiStreamSession) processServerMessage(msg *ServerMessage) error {
 }
 
 // processModelTurn processes a model turn from the server
-func (s *GeminiStreamSession) processModelTurn(turn *ModelTurn, turnComplete bool) error {
+func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool) error {
 	response := providers.StreamChunk{
 		Content: "",
 	}

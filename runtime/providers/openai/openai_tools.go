@@ -15,7 +15,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// OpenAIToolProvider extends OpenAIProvider with tool support
+// ToolProvider extends OpenAIProvider with tool support
 type ToolProvider struct {
 	*Provider
 }

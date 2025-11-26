@@ -23,7 +23,7 @@ const (
 	anthropicVersionKey   = "Anthropic-Version"
 )
 
-// ClaudeProvider implements the Provider interface for Anthropic Claude
+// Provider implements the Provider interface for Anthropic Claude
 type Provider struct {
 	providers.BaseProvider
 	model    string
@@ -32,7 +32,7 @@ type Provider struct {
 	defaults providers.ProviderDefaults
 }
 
-// NewClaudeProvider creates a new Claude provider
+// NewProvider creates a new Claude provider
 func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool) *Provider {
 	base, apiKey := providers.NewBaseProviderWithAPIKey(id, includeRawOutput, "ANTHROPIC_API_KEY", "CLAUDE_API_KEY")
 

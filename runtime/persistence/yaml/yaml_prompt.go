@@ -17,10 +17,10 @@ import (
 )
 
 // Compile-time interface check
-var _ persistence.PromptRepository = (*YAMLPromptRepository)(nil)
+var _ persistence.PromptRepository = (*PromptRepository)(nil)
 
 // YAMLPromptRepository loads prompts from YAML files on disk
-type YAMLPromptRepository struct {
+type PromptRepository struct {
 	basePath       string
 	taskTypeToFile map[string]string // Explicit mappings
 	cache          map[string]*prompt.Config
@@ -29,11 +29,11 @@ type YAMLPromptRepository struct {
 // NewYAMLPromptRepository creates a YAML file-based prompt repository
 // If taskTypeToFile mappings are provided, they will be used for lookups.
 // Otherwise, the repository will search the basePath directory.
-func NewYAMLPromptRepository(basePath string, taskTypeToFile map[string]string) *YAMLPromptRepository {
+func NewYAMLPromptRepository(basePath string, taskTypeToFile map[string]string) *PromptRepository {
 	if taskTypeToFile == nil {
 		taskTypeToFile = make(map[string]string)
 	}
-	return &YAMLPromptRepository{
+	return &PromptRepository{
 		basePath:       basePath,
 		taskTypeToFile: taskTypeToFile,
 		cache:          make(map[string]*prompt.Config),
@@ -41,7 +41,7 @@ func NewYAMLPromptRepository(basePath string, taskTypeToFile map[string]string) 
 }
 
 // LoadPrompt loads a prompt configuration by task type
-func (r *YAMLPromptRepository) LoadPrompt(taskType string) (*prompt.Config, error) {
+func (r *PromptRepository) LoadPrompt(taskType string) (*prompt.Config, error) {
 	// Check cache
 	if cached, ok := r.cache[taskType]; ok {
 		return cached, nil
@@ -76,7 +76,7 @@ func (r *YAMLPromptRepository) LoadPrompt(taskType string) (*prompt.Config, erro
 }
 
 // resolveFilePath finds the file path for a given task type
-func (r *YAMLPromptRepository) resolveFilePath(taskType string) (string, error) {
+func (r *PromptRepository) resolveFilePath(taskType string) (string, error) {
 	// Check explicit mapping first
 	if filePath, ok := r.taskTypeToFile[taskType]; ok {
 		if !filepath.IsAbs(filePath) {
@@ -90,7 +90,7 @@ func (r *YAMLPromptRepository) resolveFilePath(taskType string) (string, error) 
 }
 
 // searchForPrompt searches for a YAML file matching the task type
-func (r *YAMLPromptRepository) searchForPrompt(taskType string) (string, error) {
+func (r *PromptRepository) searchForPrompt(taskType string) (string, error) {
 	// First try filename-based search
 	if foundFile := r.searchByFilename(taskType); foundFile != "" {
 		return foundFile, nil
@@ -104,7 +104,7 @@ func (r *YAMLPromptRepository) searchForPrompt(taskType string) (string, error) 
 	return "", fmt.Errorf("no YAML file found for task type: %s", taskType)
 }
 
-func (r *YAMLPromptRepository) searchByFilename(taskType string) string {
+func (r *PromptRepository) searchByFilename(taskType string) string {
 	patterns := []string{
 		fmt.Sprintf("%s.yaml", taskType),
 		fmt.Sprintf("%s.yml", taskType),
@@ -130,7 +130,7 @@ func (r *YAMLPromptRepository) searchByFilename(taskType string) string {
 	return foundFile
 }
 
-func (r *YAMLPromptRepository) searchByContent(taskType string) string {
+func (r *PromptRepository) searchByContent(taskType string) string {
 	var foundFile string
 	_ = filepath.WalkDir(r.basePath, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -152,12 +152,12 @@ func (r *YAMLPromptRepository) searchByContent(taskType string) string {
 	return foundFile
 }
 
-func (r *YAMLPromptRepository) isYAMLFile(path string) bool {
+func (r *PromptRepository) isYAMLFile(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	return ext == yamlExt || ext == ymlExt
 }
 
-func (r *YAMLPromptRepository) hasMatchingTaskType(path, taskType string) bool {
+func (r *PromptRepository) hasMatchingTaskType(path, taskType string) bool {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return false
@@ -172,7 +172,7 @@ func (r *YAMLPromptRepository) hasMatchingTaskType(path, taskType string) bool {
 }
 
 // LoadFragment loads a fragment by name and optional path
-func (r *YAMLPromptRepository) LoadFragment(name, relativePath, baseDir string) (*prompt.Fragment, error) {
+func (r *PromptRepository) LoadFragment(name, relativePath, baseDir string) (*prompt.Fragment, error) {
 	// Determine fragment path
 	var fragmentPath string
 	if relativePath != "" {
@@ -198,7 +198,7 @@ func (r *YAMLPromptRepository) LoadFragment(name, relativePath, baseDir string) 
 }
 
 // ListPrompts returns all available prompt task types
-func (r *YAMLPromptRepository) ListPrompts() ([]string, error) {
+func (r *PromptRepository) ListPrompts() ([]string, error) {
 	taskTypes := []string{}
 
 	// If we have explicit mappings, use those
@@ -243,7 +243,7 @@ func (r *YAMLPromptRepository) ListPrompts() ([]string, error) {
 }
 
 // SavePrompt saves a prompt configuration (not yet implemented)
-func (r *YAMLPromptRepository) SavePrompt(config *prompt.Config) error {
+func (r *PromptRepository) SavePrompt(config *prompt.Config) error {
 	return fmt.Errorf("not implemented")
 }
 

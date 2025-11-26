@@ -20,7 +20,7 @@ const (
 	providerNameLog = "Gemini-Tools"
 )
 
-// GeminiToolProvider extends GeminiProvider with tool support
+// ToolProvider extends GeminiProvider with tool support
 type ToolProvider struct {
 	*Provider
 	currentTools   interface{}                  // Store current tools for continuation

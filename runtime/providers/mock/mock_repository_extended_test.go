@@ -28,7 +28,7 @@ scenarios:
 	ctx := context.Background()
 
 	// Test turn 1
-	params := MockResponseParams{
+	params := ResponseParams{
 		ScenarioID: "test-scenario",
 		TurnNumber: 1,
 	}
@@ -80,7 +80,7 @@ scenarios:
 	ctx := context.Background()
 
 	// Test tool call turn
-	params := MockResponseParams{
+	params := ResponseParams{
 		ScenarioID: "tool-scenario",
 		TurnNumber: 1,
 	}
@@ -136,7 +136,7 @@ scenarios:
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	params := MockResponseParams{
+	params := ResponseParams{
 		ScenarioID: "mixed-scenario",
 		TurnNumber: 1,
 	}
@@ -183,7 +183,7 @@ scenarios:
 	ctx := context.Background()
 
 	// Test specific turn
-	params := MockResponseParams{
+	params := ResponseParams{
 		ScenarioID: "test-scenario",
 		TurnNumber: 1,
 	}
@@ -312,7 +312,7 @@ scenarios:
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	params := MockResponseParams{
+	params := ResponseParams{
 		ScenarioID: "customer-support",
 		TurnNumber: 1,
 	}
@@ -355,7 +355,7 @@ func TestInMemoryMockRepository_GetTurn(t *testing.T) {
 
 	// Test default
 	ctx := context.Background()
-	params := MockResponseParams{}
+	params := ResponseParams{}
 
 	turn, err := repo.GetTurn(ctx, params)
 	require.NoError(t, err)
@@ -412,7 +412,7 @@ scenarios:
 	ctx := context.Background()
 
 	// Test GetResponse method (backward compatibility)
-	params := MockResponseParams{
+	params := ResponseParams{
 		ScenarioID: "test",
 		TurnNumber: 1,
 	}

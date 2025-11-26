@@ -76,7 +76,7 @@ func (p *Provider) CreateStreamSession(ctx context.Context, req *providers.Strea
 	}
 
 	// Create session with configuration
-	session, err := NewGeminiStreamSession(ctx, wsURL, p.ApiKey, config)
+	session, err := NewStreamSession(ctx, wsURL, p.ApiKey, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stream session: %w", err)
 	}

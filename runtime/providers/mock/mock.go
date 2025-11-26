@@ -11,19 +11,19 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// MockProvider is a provider implementation for testing and development.
+// Provider is a provider implementation for testing and development.
 // It returns mock responses without making any API calls, using a repository
 // pattern to source responses from various backends (files, memory, databases).
 //
-// MockProvider is designed to be reusable across different contexts:
+// Provider is designed to be reusable across different contexts:
 //   - Arena testing: scenario and turn-specific responses
 //   - SDK examples: simple deterministic responses
 //   - Unit tests: programmatic response configuration
 type Provider struct {
 	id                string
 	model             string
-	value             string                 // For backward compatibility with existing tests
-	repository        MockResponseRepository // Source of mock responses
+	value             string             // For backward compatibility with existing tests
+	repository        ResponseRepository // Source of mock responses
 	includeRawOutput  bool
 	supportsStreaming bool
 }
@@ -46,7 +46,7 @@ func NewProvider(id, model string, includeRawOutput bool) *Provider {
 
 // NewProviderWithRepository creates a mock provider with a custom response repository.
 // This allows for advanced scenarios like file-based or database-backed mock responses.
-func NewProviderWithRepository(id, model string, includeRawOutput bool, repo MockResponseRepository) *Provider {
+func NewProviderWithRepository(id, model string, includeRawOutput bool, repo ResponseRepository) *Provider {
 	return &Provider{
 		id:                id,
 		model:             model,
@@ -58,12 +58,12 @@ func NewProviderWithRepository(id, model string, includeRawOutput bool, repo Moc
 
 func init() {
 	providers.RegisterProviderFactory("mock", func(spec providers.ProviderSpec) (providers.Provider, error) {
-		// Use MockToolProvider by default as it's backward compatible with MockProvider
+		// Use ToolProvider by default as it's backward compatible with MockProvider
 		// and supports both tool calls and scenario-specific responses
-		if repo, ok := spec.AdditionalConfig["repository"].(MockResponseRepository); ok {
-			return NewMockToolProviderWithRepository(spec.ID, spec.Model, spec.IncludeRawOutput, repo), nil
+		if repo, ok := spec.AdditionalConfig["repository"].(ResponseRepository); ok {
+			return NewToolProviderWithRepository(spec.ID, spec.Model, spec.IncludeRawOutput, repo), nil
 		}
-		return NewMockToolProvider(spec.ID, spec.Model, spec.IncludeRawOutput, spec.AdditionalConfig), nil
+		return NewToolProvider(spec.ID, spec.Model, spec.IncludeRawOutput, spec.AdditionalConfig), nil
 	})
 }
 
@@ -75,7 +75,7 @@ func (m *Provider) ID() string {
 // Predict returns a mock response using the configured repository.
 func (m *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	// Try to get response from repository with scenario context
-	params := MockResponseParams{
+	params := ResponseParams{
 		ProviderID: m.id,
 		ModelName:  m.model,
 	}
@@ -171,7 +171,7 @@ func (m *Provider) PredictStream(ctx context.Context, req providers.PredictionRe
 
 // handleStreamRequest processes the stream request and sends the response
 func (m *Provider) handleStreamRequest(ctx context.Context, req providers.PredictionRequest, outChan chan<- providers.StreamChunk) {
-	params := m.buildMockResponseParams(req)
+	params := m.buildResponseParams(req)
 	m.logStreamRequest(params)
 
 	// Get structured turn response (supports multimodal content)
@@ -202,9 +202,9 @@ func (m *Provider) handleStreamRequest(ctx context.Context, req providers.Predic
 	outChan <- chunk
 }
 
-// buildMockResponseParams creates parameters for the mock response
-func (m *Provider) buildMockResponseParams(req providers.PredictionRequest) MockResponseParams {
-	params := MockResponseParams{
+// buildResponseParams creates parameters for the mock response
+func (m *Provider) buildResponseParams(req providers.PredictionRequest) ResponseParams {
+	params := ResponseParams{
 		ProviderID: m.id,
 		ModelName:  m.model,
 	}
@@ -223,7 +223,7 @@ func (m *Provider) buildMockResponseParams(req providers.PredictionRequest) Mock
 }
 
 // logStreamRequest logs debug information for the stream request
-func (m *Provider) logStreamRequest(params MockResponseParams) {
+func (m *Provider) logStreamRequest(params ResponseParams) {
 	logger.Debug("MockProvider PredictStream request",
 		"provider_id", m.id,
 		"model", m.model,
@@ -234,7 +234,7 @@ func (m *Provider) logStreamRequest(params MockResponseParams) {
 }
 
 // getStreamResponse gets the response text from repository or fallback value
-func (m *Provider) getStreamTurn(ctx context.Context, params MockResponseParams) (*MockTurn, error) {
+func (m *Provider) getStreamTurn(ctx context.Context, params ResponseParams) (*Turn, error) {
 	return m.repository.GetTurn(ctx, params)
 }
 

@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// PromptLoader interface abstracts the registry for testing
-type PromptLoader interface {
+// Loader interface abstracts the registry for testing
+type Loader interface {
 	LoadConfig(taskType string) (*Config, error)
 	ListTaskTypes() []string
 }
@@ -137,7 +137,7 @@ type ParametersPack struct {
 
 // PackCompiler compiles Config to Pack format
 type PackCompiler struct {
-	loader       PromptLoader
+	loader       Loader
 	timeProvider TimeProvider
 	fileWriter   FileWriter
 }
@@ -152,7 +152,7 @@ func NewPackCompiler(registry *Registry) *PackCompiler {
 }
 
 // NewPackCompilerWithDeps creates a pack compiler with injected dependencies (for testing)
-func NewPackCompilerWithDeps(loader PromptLoader, timeProvider TimeProvider, fileWriter FileWriter) *PackCompiler {
+func NewPackCompilerWithDeps(loader Loader, timeProvider TimeProvider, fileWriter FileWriter) *PackCompiler {
 	return &PackCompiler{
 		loader:       loader,
 		timeProvider: timeProvider,

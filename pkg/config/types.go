@@ -491,9 +491,9 @@ type ProviderDefaults struct {
 
 // PromptConfigSchema represents a PromptConfig in K8s-style manifest format for schema generation
 type PromptConfigSchema struct {
-	APIVersion string            `yaml:"apiVersion"`
-	Kind       string            `yaml:"kind"`
-	Metadata   ObjectMeta        `yaml:"metadata,omitempty"`
+	APIVersion string      `yaml:"apiVersion"`
+	Kind       string      `yaml:"kind"`
+	Metadata   ObjectMeta  `yaml:"metadata,omitempty"`
 	Spec       prompt.Spec `yaml:"spec"`
 }
 

@@ -175,7 +175,7 @@ func (e *Engine) Close() error {
 //
 // Returns an error if the mock configuration file cannot be loaded or parsed.
 func (e *Engine) EnableMockProviderMode(mockConfigPath string) error {
-	var repository mock.MockResponseRepository
+	var repository mock.ResponseRepository
 
 	// Create appropriate repository based on whether config file is provided
 	if mockConfigPath != "" {

@@ -11,42 +11,42 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// MockToolProvider extends MockProvider to support tool/function calling.
+// ToolProvider extends MockProvider to support tool/function calling.
 // It implements the ToolSupport interface to enable tool call simulation
 // while maintaining compatibility with the existing MockProvider API.
-type MockToolProvider struct {
+type ToolProvider struct {
 	*Provider
 }
 
-// NewMockToolProvider creates a new mock provider with tool support.
+// NewToolProvider creates a new mock provider with tool support.
 // This uses default in-memory responses for backward compatibility.
-func NewMockToolProvider(id, model string, includeRawOutput bool, additionalConfig map[string]interface{}) *MockToolProvider {
+func NewToolProvider(id, model string, includeRawOutput bool, additionalConfig map[string]interface{}) *ToolProvider {
 
 	if additionalConfig != nil {
 		if mockConfigPath, ok := additionalConfig["mock_config"].(string); ok && mockConfigPath != "" {
-			// Create file-based repository and use MockToolProvider for tool call simulation
+			// Create file-based repository and use ToolProvider for tool call simulation
 			repository, err := NewFileMockRepository(mockConfigPath)
 			if err != nil {
 				logger.Warn("failed to load mock config from %s: %w", mockConfigPath, err)
-				return &MockToolProvider{
+				return &ToolProvider{
 					Provider: NewProvider(id, model, includeRawOutput),
 				}
 			}
-			return &MockToolProvider{
+			return &ToolProvider{
 				Provider: NewProviderWithRepository(id, model, includeRawOutput, repository),
 			}
 		}
 	}
 
-	return &MockToolProvider{
+	return &ToolProvider{
 		Provider: NewProvider(id, model, includeRawOutput),
 	}
 }
 
-// NewMockToolProviderWithRepository creates a mock provider with tool support
+// NewToolProviderWithRepository creates a mock provider with tool support
 // using a custom response repository for advanced scenarios.
-func NewMockToolProviderWithRepository(id, model string, includeRawOutput bool, repo MockResponseRepository) *MockToolProvider {
-	return &MockToolProvider{
+func NewToolProviderWithRepository(id, model string, includeRawOutput bool, repo ResponseRepository) *ToolProvider {
+	return &ToolProvider{
 		Provider: NewProviderWithRepository(id, model, includeRawOutput, repo),
 	}
 }
@@ -54,8 +54,8 @@ func NewMockToolProviderWithRepository(id, model string, includeRawOutput bool, 
 // BuildTooling implements the ToolSupport interface.
 // For mock providers, we just return the tools as-is since we don't need
 // to transform them into a provider-specific format.
-func (m *MockToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (interface{}, error) {
-	logger.Debug("MockToolProvider BuildTooling",
+func (m *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (interface{}, error) {
+	logger.Debug("ToolProvider BuildTooling",
 		"provider_id", m.id,
 		"tool_count", len(descriptors))
 
@@ -66,8 +66,8 @@ func (m *MockToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor)
 // PredictWithTools implements the ToolSupport interface.
 // This method handles the initial predict request with tools available,
 // potentially returning tool calls based on the mock configuration.
-func (m *MockToolProvider) PredictWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
-	logger.Debug("MockToolProvider PredictWithTools",
+func (m *ToolProvider) PredictWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
+	logger.Debug("ToolProvider PredictWithTools",
 		"provider_id", m.id,
 		"tool_choice", toolChoice,
 		"message_count", len(req.Messages))
@@ -76,14 +76,14 @@ func (m *MockToolProvider) PredictWithTools(ctx context.Context, req providers.P
 	turnNumber := m.detectTurnFromConversation(req)
 
 	// Get mock turn from repository
-	params := MockResponseParams{
+	params := ResponseParams{
 		ScenarioID: m.getScenarioID(req),
 		TurnNumber: turnNumber,
 		ProviderID: m.id,
 		ModelName:  m.model,
 	}
 
-	logger.Debug("MockToolProvider PredictWithTools using turn",
+	logger.Debug("ToolProvider PredictWithTools using turn",
 		"provider_id", m.id,
 		"detected_turn", turnNumber,
 		"scenario_id", params.ScenarioID)
@@ -114,7 +114,7 @@ func (m *MockToolProvider) PredictWithTools(ctx context.Context, req providers.P
 			}
 		}
 
-		logger.Debug("MockToolProvider returning tool calls",
+		logger.Debug("ToolProvider returning tool calls",
 			"provider_id", m.id,
 			"tool_call_count", len(toolCalls))
 
@@ -126,7 +126,7 @@ func (m *MockToolProvider) PredictWithTools(ctx context.Context, req providers.P
 	}
 
 	// Otherwise return normal text response
-	logger.Debug("MockToolProvider returning text response",
+	logger.Debug("ToolProvider returning text response",
 		"provider_id", m.id,
 		"response_length", len(mockTurn.Content))
 
@@ -137,7 +137,7 @@ func (m *MockToolProvider) PredictWithTools(ctx context.Context, req providers.P
 }
 
 // generateMockCostInfo creates cost information for mock responses.
-func (m *MockToolProvider) generateMockCostInfo(inputTokens, outputTokens int) types.CostInfo {
+func (m *ToolProvider) generateMockCostInfo(inputTokens, outputTokens int) types.CostInfo {
 	return types.CostInfo{
 		InputTokens:   inputTokens,
 		OutputTokens:  outputTokens,
@@ -148,7 +148,7 @@ func (m *MockToolProvider) generateMockCostInfo(inputTokens, outputTokens int) t
 }
 
 // calculateInputTokens estimates input tokens from messages (rough approximation).
-func (m *MockToolProvider) calculateInputTokens(messages []types.Message) int {
+func (m *ToolProvider) calculateInputTokens(messages []types.Message) int {
 	tokenCount := 0
 	for i := range messages {
 		tokenCount += len(messages[i].Content) / 4 // Rough approximation: ~4 chars per token
@@ -160,7 +160,7 @@ func (m *MockToolProvider) calculateInputTokens(messages []types.Message) int {
 }
 
 // calculateOutputTokens estimates output tokens from response text (rough approximation).
-func (m *MockToolProvider) calculateOutputTokens(responseText string) int {
+func (m *ToolProvider) calculateOutputTokens(responseText string) int {
 	tokens := len(responseText) / 4
 	if tokens == 0 {
 		tokens = 20
@@ -169,7 +169,7 @@ func (m *MockToolProvider) calculateOutputTokens(responseText string) int {
 }
 
 // detectTurnFromConversation analyzes the conversation history to determine the current turn number
-func (m *MockToolProvider) detectTurnFromConversation(req providers.PredictionRequest) int {
+func (m *ToolProvider) detectTurnFromConversation(req providers.PredictionRequest) int {
 	// Start with base turn number from metadata
 	baseTurnNumber := 1
 	if req.Metadata != nil {
@@ -192,7 +192,7 @@ func (m *MockToolProvider) detectTurnFromConversation(req providers.PredictionRe
 		adjustedTurnNumber = baseTurnNumber + 1
 	}
 
-	logger.Debug("MockToolProvider turn detection",
+	logger.Debug("ToolProvider turn detection",
 		"provider_id", m.id,
 		"base_turn", baseTurnNumber,
 		"tool_result_count", toolResultCount,
@@ -202,7 +202,7 @@ func (m *MockToolProvider) detectTurnFromConversation(req providers.PredictionRe
 }
 
 // getScenarioID extracts the scenario ID from request metadata
-func (m *MockToolProvider) getScenarioID(req providers.PredictionRequest) string {
+func (m *ToolProvider) getScenarioID(req providers.PredictionRequest) string {
 	if req.Metadata != nil {
 		if sid, ok := req.Metadata["mock_scenario_id"].(string); ok {
 			return sid

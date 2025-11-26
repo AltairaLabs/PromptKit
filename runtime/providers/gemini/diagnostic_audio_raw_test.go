@@ -75,7 +75,7 @@ func TestDiagnostic_AudioModalityRawMessages(t *testing.T) {
 	fmt.Println()
 
 	// Cast to GeminiStreamSession so we can intercept raw messages
-	geminiSession, ok := session.(*GeminiStreamSession)
+	geminiSession, ok := session.(*StreamSession)
 	if !ok {
 		t.Fatal("Session is not a GeminiStreamSession")
 	}

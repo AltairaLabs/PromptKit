@@ -12,8 +12,8 @@ import (
 )
 
 // newTestProvider creates a test provider with default values
-func newTestProvider(id string) *ImagenProvider {
-	return NewImagenProvider(ImagenConfig{
+func newTestProvider(id string) *Provider {
+	return NewProvider(Config{
 		ID:               id,
 		Model:            "imagen-4.0-generate-001",
 		BaseURL:          "https://aiplatform.googleapis.com/v1",
@@ -29,12 +29,12 @@ func newTestProvider(id string) *ImagenProvider {
 // was hardcoded to "imagen" instead of using the ID from the config YAML.
 // This test ensures the provider respects the metadata.name field from the YAML config.
 //
-// Bug context: Originally, NewImagenProvider created an empty BaseProvider{}
+// Bug context: Originally, NewProvider created an empty BaseProvider{}
 // and had ID() method returning hardcoded "imagen". This caused providers
 // configured as "imagen-provider" in YAML to be registered as "imagen",
 // leading to "provider not found: imagen-provider" errors.
 //
-// Fix: Updated NewImagenProvider to use providers.NewBaseProvider(id, ...)
+// Fix: Updated NewProvider to use providers.NewBaseProvider(id, ...)
 // and removed the hardcoded ID() method, allowing BaseProvider.ID() to
 // return the correct value from spec.ID.
 func TestProviderIDNotHardcoded(t *testing.T) {
@@ -188,7 +188,7 @@ func TestProviderDefaults(t *testing.T) {
 		Temperature: 0.7,
 	}
 
-	provider := NewImagenProvider(ImagenConfig{
+	provider := NewProvider(Config{
 		ID:               "test-imagen",
 		Model:            "imagen-4.0-generate-001",
 		BaseURL:          "https://test.example.com",
@@ -218,7 +218,7 @@ func TestProviderFieldsInitialization(t *testing.T) {
 	location := "europe-west1"
 	includeRaw := true
 
-	provider := NewImagenProvider(ImagenConfig{
+	provider := NewProvider(Config{
 		ID:               id,
 		Model:            model,
 		BaseURL:          baseURL,
@@ -260,7 +260,7 @@ func TestProviderFieldsInitialization(t *testing.T) {
 
 // TestProviderDefaultValues ensures default values are applied when empty
 func TestProviderDefaultValues(t *testing.T) {
-	provider := NewImagenProvider(ImagenConfig{
+	provider := NewProvider(Config{
 		ID:               "test-id",
 		Model:            "", // empty model - should use default
 		BaseURL:          "", // empty baseURL - should use default
@@ -448,7 +448,7 @@ func stringPtr(s string) *string {
 
 // TestPredictErrorCases tests error handling in Predict method
 func TestPredictErrorCases(t *testing.T) {
-	provider := NewImagenProvider(ImagenConfig{
+	provider := NewProvider(Config{
 		ID:               "test-id",
 		Model:            "imagen-4.0-generate-001",
 		BaseURL:          "https://invalid-url-that-will-fail.example.com",
@@ -540,7 +540,7 @@ func TestPredictSuccess(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewImagenProvider(ImagenConfig{
+	provider := NewProvider(Config{
 		ID:               "test-id",
 		Model:            "imagen-4.0-generate-001",
 		BaseURL:          server.URL,
@@ -623,7 +623,7 @@ func TestPredictAPIError(t *testing.T) {
 			}))
 			defer server.Close()
 
-			provider := NewImagenProvider(ImagenConfig{
+			provider := NewProvider(Config{
 				ID:               "test-id",
 				Model:            "imagen-4.0-generate-001",
 				BaseURL:          server.URL,
@@ -666,7 +666,7 @@ func TestPredictEmptyPredictions(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewImagenProvider(ImagenConfig{
+	provider := NewProvider(Config{
 		ID:               "test-id",
 		Model:            "imagen-4.0-generate-001",
 		BaseURL:          server.URL,
@@ -703,7 +703,7 @@ func TestPredictInvalidJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewImagenProvider(ImagenConfig{
+	provider := NewProvider(Config{
 		ID:               "test-id",
 		Model:            "imagen-4.0-generate-001",
 		BaseURL:          server.URL,
@@ -754,7 +754,7 @@ func TestPredictLowLevelErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			server := tt.setupServer()
 
-			provider := NewImagenProvider(ImagenConfig{
+			provider := NewProvider(Config{
 				ID:               "test-id",
 				Model:            "imagen-4.0-generate-001",
 				BaseURL:          server.URL,

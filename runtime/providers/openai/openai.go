@@ -41,7 +41,7 @@ type Provider struct {
 	defaults providers.ProviderDefaults
 }
 
-// NewOpenAIProvider creates a new OpenAI provider
+// NewProvider creates a new OpenAI provider
 func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool) *Provider {
 	base, apiKey := providers.NewBaseProviderWithAPIKey(id, includeRawOutput, "OPENAI_API_KEY", "OPENAI_TOKEN")
 

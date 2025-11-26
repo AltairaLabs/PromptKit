@@ -23,7 +23,7 @@ const (
 	applicationJSON   = "application/json"
 )
 
-// GeminiProvider implements the Provider interface for Google Gemini
+// Provider implements the Provider interface for Google Gemini
 type Provider struct {
 	providers.BaseProvider
 	Model    string
@@ -32,7 +32,7 @@ type Provider struct {
 	Defaults providers.ProviderDefaults
 }
 
-// NewGeminiProvider creates a new Gemini provider
+// NewProvider creates a new Gemini provider
 func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool) *Provider {
 	base, apiKey := providers.NewBaseProviderWithAPIKey(id, includeRawOutput, "GEMINI_API_KEY", "GOOGLE_API_KEY")
 

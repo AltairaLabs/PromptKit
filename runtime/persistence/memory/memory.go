@@ -18,13 +18,13 @@ var (
 	_ persistence.ToolRepository   = (*ToolRepository)(nil)
 )
 
-// MemoryPromptRepository stores prompts in memory (for testing/SDK)
+// PromptRepository stores prompts in memory (for testing/SDK)
 type PromptRepository struct {
 	prompts   map[string]*prompt.Config
 	fragments map[string]*prompt.Fragment
 }
 
-// NewMemoryPromptRepository creates a new in-memory prompt repository
+// NewPromptRepository creates a new in-memory prompt repository
 func NewPromptRepository() *PromptRepository {
 	return &PromptRepository{
 		prompts:   make(map[string]*prompt.Config),
@@ -81,12 +81,12 @@ func (r *PromptRepository) RegisterFragment(name string, fragment *prompt.Fragme
 	r.fragments[name] = fragment
 }
 
-// MemoryToolRepository stores tools in memory (for testing/SDK)
+// ToolRepository stores tools in memory (for testing/SDK)
 type ToolRepository struct {
 	tools map[string]*tools.ToolDescriptor
 }
 
-// NewMemoryToolRepository creates a new in-memory tool repository
+// NewToolRepository creates a new in-memory tool repository
 func NewToolRepository() *ToolRepository {
 	return &ToolRepository{
 		tools: make(map[string]*tools.ToolDescriptor),

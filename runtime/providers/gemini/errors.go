@@ -27,19 +27,19 @@ var (
 )
 
 // GeminiAPIError represents an error from the Gemini API
-type GeminiAPIError struct {
+type APIError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 	Status  string `json:"status"`
 }
 
 // Error implements the error interface
-func (e *GeminiAPIError) Error() string {
+func (e *APIError) Error() string {
 	return fmt.Sprintf("gemini api error (code %d, status %s): %s", e.Code, e.Status, e.Message)
 }
 
 // IsRetryable returns true if the error can be retried
-func (e *GeminiAPIError) IsRetryable() bool {
+func (e *APIError) IsRetryable() bool {
 	// Retryable errors: temporary failures, rate limits, service unavailable
 	switch e.Code {
 	case 429: // Rate limit
@@ -54,22 +54,22 @@ func (e *GeminiAPIError) IsRetryable() bool {
 }
 
 // IsAuthError returns true if the error is authentication-related
-func (e *GeminiAPIError) IsAuthError() bool {
+func (e *APIError) IsAuthError() bool {
 	return e.Code == 401
 }
 
 // IsPolicyViolation returns true if the error is a content policy violation
-func (e *GeminiAPIError) IsPolicyViolation() bool {
+func (e *APIError) IsPolicyViolation() bool {
 	return e.Code == 400 && e.Status == "POLICY_VIOLATION"
 }
 
 // ErrorResponse wraps a GeminiAPIError in a message format
 type ErrorResponse struct {
-	Error *GeminiAPIError `json:"error"`
+	Error *APIError `json:"error"`
 }
 
 // ClassifyError converts an API error code to a standard error
-func ClassifyError(apiErr *GeminiAPIError) error {
+func ClassifyError(apiErr *APIError) error {
 	if apiErr == nil {
 		return nil
 	}
@@ -115,7 +115,7 @@ func DetermineRecoveryStrategy(err error) RecoveryStrategy {
 	}
 
 	// Check for known error types
-	var apiErr *GeminiAPIError
+	var apiErr *APIError
 	if errors.As(err, &apiErr) {
 		if apiErr.IsRetryable() {
 			return RecoveryWaitAndRetry
