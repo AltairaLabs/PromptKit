@@ -10,12 +10,20 @@ import (
 // It converts engine events into bubbletea messages that can be processed by the TUI Model.
 type Observer struct {
 	program *tea.Program
+	model   *Model // Used when program is nil (headless mode)
 }
 
 // NewObserver creates a new TUI observer that sends messages to the given bubbletea program.
 func NewObserver(program *tea.Program) *Observer {
 	return &Observer{
 		program: program,
+	}
+}
+
+// NewObserverWithModel creates an observer that updates the model directly (headless mode)
+func NewObserverWithModel(model *Model) *Observer {
+	return &Observer{
+		model: model,
 	}
 }
 
@@ -59,6 +67,16 @@ func (o *Observer) OnRunStarted(runID, scenario, provider, region string) {
 			Region:   region,
 			Time:     time.Now(),
 		})
+	} else if o.model != nil {
+		// Headless mode: update model directly
+		msg := RunStartedMsg{
+			RunID:    runID,
+			Scenario: scenario,
+			Provider: provider,
+			Region:   region,
+			Time:     time.Now(),
+		}
+		o.model.Update(msg)
 	}
 }
 
@@ -72,6 +90,15 @@ func (o *Observer) OnRunCompleted(runID string, duration time.Duration, cost flo
 			Cost:     cost,
 			Time:     time.Now(),
 		})
+	} else if o.model != nil {
+		// Headless mode: update model directly
+		msg := RunCompletedMsg{
+			RunID:    runID,
+			Duration: duration,
+			Cost:     cost,
+			Time:     time.Now(),
+		}
+		o.model.Update(msg)
 	}
 }
 
@@ -84,5 +111,13 @@ func (o *Observer) OnRunFailed(runID string, err error) {
 			Error: err,
 			Time:  time.Now(),
 		})
+	} else if o.model != nil {
+		// Headless mode: update model directly
+		msg := RunFailedMsg{
+			RunID: runID,
+			Error: err,
+			Time:  time.Now(),
+		}
+		o.model.Update(msg)
 	}
 }

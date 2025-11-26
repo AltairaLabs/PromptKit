@@ -623,7 +623,26 @@ func executeSimple(ctx context.Context, eng *engine.Engine, plan *engine.RunPlan
 	fmt.Println("Starting execution...")
 	fmt.Println()
 
-	return eng.ExecuteRuns(ctx, plan, params.Concurrency)
+	// Create TUI model to track execution (without displaying TUI)
+	model := tui.NewModel(params.ConfigFile, params.TotalRuns)
+
+	// Create observer that updates the model directly (headless mode)
+	observer := tui.NewObserverWithModel(model)
+
+	// Set engine observer to track progress
+	eng.SetObserver(observer)
+
+	runIDs, err := eng.ExecuteRuns(ctx, plan, params.Concurrency)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build and print summary after execution
+	summary := model.BuildSummary(params.OutDir, params.HTMLFile)
+	fmt.Println()
+	fmt.Println(tui.RenderSummaryCIMode(summary))
+
+	return runIDs, nil
 }
 
 // convertRunResults retrieves and converts run results from the statestore
@@ -671,33 +690,7 @@ func processResults(results []engine.RunResult, params *RunParameters, configFil
 		log.Printf("Warning: failed to save summary: %v", err)
 	}
 
-	// Display final summary and handle CI mode errors
-	return displayFinalSummary(params, results, successCount, errorCount)
-}
-
-// displayFinalSummary displays execution summary and handles CI mode errors
-func displayFinalSummary(params *RunParameters, results []engine.RunResult, successCount, errorCount int) error {
-	// Print summary
-	if !params.CIMode {
-		fmt.Printf("Execution complete!\n")
-		fmt.Printf("Total runs: %d\n", len(results))
-		fmt.Printf("Successful: %d\n", successCount)
-		fmt.Printf("Errors: %d\n", errorCount)
-		fmt.Printf("Results saved to: %s\n", params.OutDir)
-
-		// Show specific output files generated
-		if contains(params.OutputFormats, "junit") {
-			fmt.Printf("JUnit XML: %s\n", params.JUnitFile)
-		}
-		if contains(params.OutputFormats, "html") || params.GenerateHTML {
-			fmt.Printf("HTML Report: %s\n", params.HTMLFile)
-		}
-		if contains(params.OutputFormats, "markdown") {
-			fmt.Printf("Markdown Report: %s\n", params.MarkdownFile)
-		}
-	}
-
-	// Exit with error code if any runs failed and CI mode
+	// Handle CI mode errors
 	if errorCount > 0 && params.CIMode {
 		return fmt.Errorf("execution failed: %d runs had errors", errorCount)
 	}

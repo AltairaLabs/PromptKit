@@ -423,20 +423,3 @@ func TestDisplayRunInfo(t *testing.T) {
 		})
 	})
 }
-
-func TestDisplayFinalSummary(t *testing.T) {
-	results := []engine.RunResult{
-		{RunID: "run-001", Error: ""},
-		{RunID: "run-002", Error: "some error"},
-		{RunID: "run-003", Error: ""},
-	}
-
-	params := &RunParameters{
-		OutDir: t.TempDir(),
-	}
-
-	t.Run("displays summary without error", func(t *testing.T) {
-		err := displayFinalSummary(params, results, 2, 1)
-		assert.NoError(t, err)
-	})
-}
