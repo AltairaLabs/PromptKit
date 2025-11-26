@@ -483,10 +483,11 @@ func executeRuns(configFile string, params *RunParameters) ([]engine.RunResult, 
 	useTUI := !params.CIMode
 	var tuiReason string
 	if useTUI {
-		_, _, supported, reason := tui.CheckTerminalSize()
+		w, h, supported, reason := tui.CheckTerminalSize()
 		if !supported {
 			useTUI = false
 			tuiReason = reason
+			log.Printf("TUI disabled: %s (terminal size: %dx%d)", reason, w, h)
 		}
 	}
 

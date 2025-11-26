@@ -480,23 +480,25 @@ func tick() tea.Cmd {
 
 // CheckTerminalSize checks if the terminal is large enough for TUI mode
 func CheckTerminalSize() (width, height int, supported bool, reason string) {
-	fd := 0 // stdin
-	width, height, err := term.GetSize(fd)
-	if err != nil {
-		return 0, 0, false, fmt.Sprintf("unable to detect terminal size: %v", err)
+	// Try stdout first (fd 1), then stderr (fd 2), then stdin (fd 0)
+	// This ensures TUI works even when stdin/stdout are redirected
+	for _, fd := range []int{1, 2, 0} {
+		width, height, err := term.GetSize(fd)
+		if err == nil {
+			if width < MinTerminalWidth || height < MinTerminalHeight {
+				return width, height, false, fmt.Sprintf(
+					"terminal too small (%dx%d, minimum %dx%d required)",
+					width,
+					height,
+					MinTerminalWidth,
+					MinTerminalHeight,
+				)
+			}
+			return width, height, true, ""
+		}
 	}
 
-	if width < MinTerminalWidth || height < MinTerminalHeight {
-		return width, height, false, fmt.Sprintf(
-			"terminal too small (%dx%d, minimum %dx%d required)",
-			width,
-			height,
-			MinTerminalWidth,
-			MinTerminalHeight,
-		)
-	}
-
-	return width, height, true, ""
+	return 0, 0, false, "unable to detect terminal size (not a TTY)"
 }
 
 // BuildSummary creates a Summary from the current model state with output directory and HTML report path.
