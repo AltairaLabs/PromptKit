@@ -5,9 +5,12 @@ package tui
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"golang.org/x/term"
@@ -22,13 +25,14 @@ const (
 // Display constants
 const (
 	borderPadding       = 4
-	activeRunsHeight    = 10
-	maxLogLines         = 7
 	maxLogBufferSize    = 100
 	tickIntervalMs      = 500
 	durationPrecisionMs = 100
 	numberSeparator     = 1000
 	panelDivisor        = 2
+	bannerLines         = 2  // Banner + info line (separator counted separately)
+	bottomPanelPadding  = 4  // Border + padding
+	metricsBoxWidth     = 40 // Fixed width for metrics box
 )
 
 // Color constants
@@ -68,7 +72,9 @@ type Model struct {
 	totalTokens    int64
 	totalDuration  time.Duration
 
-	logs []LogEntry
+	logs          []LogEntry
+	logViewport   viewport.Model
+	viewportReady bool
 
 	isTUIMode      bool
 	fallbackReason string
@@ -117,36 +123,69 @@ func (m *Model) Init() tea.Cmd {
 	return tick()
 }
 
-// Update handles bubbletea messages and updates the model
+// Update processes bubbletea messages and updates the model state
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		m.mu.Lock()
 		m.width = msg.Width
 		m.height = msg.Height
+
+		// Initialize viewport on first size update
+		if !m.viewportReady {
+			m.initViewport()
+			m.viewportReady = true
+		}
+		m.mu.Unlock()
 		return m, nil
 
 	case tickMsg:
 		return m, tick()
 
 	case tea.KeyMsg:
-		if msg.Type == tea.KeyCtrlC {
+		// Check for quit keys first
+		switch msg.Type {
+		case tea.KeyCtrlC:
 			return m, tea.Quit
+		case tea.KeyRunes:
+			if len(msg.Runes) > 0 && msg.Runes[0] == 'q' {
+				return m, tea.Quit
+			}
+		}
+
+		// Let viewport handle scrolling keys (up/down arrows, pgup/pgdown, etc)
+		if m.viewportReady {
+			var cmd tea.Cmd
+			m.logViewport, cmd = m.logViewport.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+
+	case tea.MouseMsg:
+		// Let viewport handle mouse wheel scrolling
+		if m.viewportReady {
+			var cmd tea.Cmd
+			m.logViewport, cmd = m.logViewport.Update(msg)
+			return m, cmd
 		}
 		return m, nil
 
 	case RunStartedMsg:
+		m.mu.Lock()
 		m.handleRunStarted(&msg)
+		m.mu.Unlock()
 		return m, nil
 
 	case RunCompletedMsg:
+		m.mu.Lock()
 		m.handleRunCompleted(&msg)
+		m.mu.Unlock()
 		return m, nil
 
 	case RunFailedMsg:
+		m.mu.Lock()
 		m.handleRunFailed(&msg)
+		m.mu.Unlock()
 		return m, nil
 
 	case LogMsg:
@@ -155,7 +194,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ShowSummaryMsg:
 		m.handleShowSummary(&msg)
-		return m, tea.Quit
+		// Don't quit immediately - let user see summary and press Ctrl+C or 'q' to exit
+		return m, nil
 	}
 
 	return m, nil
@@ -247,6 +287,11 @@ func (m *Model) handleLogMsg(msg *LogMsg) {
 		Message:   msg.Message,
 	})
 	m.trimLogs()
+
+	// Auto-scroll viewport to bottom when new log arrives (only if viewport is ready)
+	if m.viewportReady {
+		m.logViewport.GotoBottom()
+	}
 }
 
 // handleShowSummary processes a show summary message and switches to summary view
@@ -279,21 +324,28 @@ func (m *Model) View() string {
 	elapsed := time.Since(m.startTime).Truncate(time.Second)
 
 	header := m.renderHeader(elapsed)
+	separator := lipgloss.NewStyle().Foreground(lipgloss.Color(colorGray)).Render(strings.Repeat("─", m.width))
 	activeRuns := m.renderActiveRuns()
 	metrics := m.renderMetrics()
 	logs := m.renderLogs()
 
 	bottomRow := lipgloss.JoinHorizontal(lipgloss.Top, metrics, logs)
 
-	return lipgloss.JoinVertical(lipgloss.Left, header, activeRuns, bottomRow)
+	// Add explicit newline at start to ensure header isn't cut off
+	return "\n" + lipgloss.JoinVertical(lipgloss.Left, header, separator, activeRuns, separator, bottomRow)
 }
 
 func (m *Model) renderHeader(elapsed time.Duration) string {
-	headerStyle := lipgloss.NewStyle().
+	// Banner style
+	bannerStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color(colorPurple)).
-		Background(lipgloss.Color(colorDarkBg)).
-		Padding(0, 2).
+		Align(lipgloss.Center).
+		Width(m.width)
+
+	infoStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(colorLightGray)).
+		Align(lipgloss.Center).
 		Width(m.width)
 
 	progressStyle := lipgloss.NewStyle().
@@ -303,19 +355,32 @@ func (m *Model) renderHeader(elapsed time.Duration) string {
 	timeStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(colorLightBlue))
 
+	banner := bannerStyle.Render("✨ PromptArena ✨")
 	progress := progressStyle.Render(fmt.Sprintf("[%d/%d Complete]", m.completedCount, m.totalRuns))
 	timeStr := timeStyle.Render(fmt.Sprintf("⏱  %s", formatDuration(elapsed)))
+	infoLine := infoStyle.Render(fmt.Sprintf("%s  •  %s  •  %s", filepath.Base(m.configFile), progress, timeStr))
 
-	headerText := fmt.Sprintf("PromptArena - %s    %s    %s", m.configFile, progress, timeStr)
-	return headerStyle.Render(headerText)
+	return lipgloss.JoinVertical(lipgloss.Left, banner, infoLine)
 }
 
 func (m *Model) renderActiveRuns() string {
+	// Calculate available height for bottom panels - match the calculation in renderLogs
+	availableHeight := m.height - bannerLines - 2
+	if availableHeight < 10 {
+		availableHeight = 10
+	}
+	// Active runs gets 60% of available space
+	activeRunsHeight := int(float64(availableHeight) * 0.6)
+	if activeRunsHeight < 8 {
+		activeRunsHeight = 8
+	}
+
 	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(colorIndigo)).
 		Padding(1).
-		Width(m.width - borderPadding)
+		Width(m.width - borderPadding).
+		MaxHeight(activeRunsHeight)
 
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
@@ -324,7 +389,12 @@ func (m *Model) renderActiveRuns() string {
 	title := titleStyle.Render(fmt.Sprintf("Active Runs (%d concurrent workers)", len(m.activeRuns)))
 	lines := []string{title, ""}
 
-	maxLines := m.height - activeRunsHeight
+	// Calculate max display lines (subtract title, padding, borders)
+	maxLines := activeRunsHeight - bottomPanelPadding - 2
+	if maxLines < 3 {
+		maxLines = 3
+	}
+
 	displayCount := len(m.activeRuns)
 	if displayCount > maxLines {
 		displayCount = maxLines
@@ -345,11 +415,20 @@ func (m *Model) renderActiveRuns() string {
 }
 
 func (m *Model) renderMetrics() string {
+	// Calculate available height to match logs box
+	availableHeight := m.height - bannerLines - 2
+	if availableHeight < 10 {
+		availableHeight = 10
+	}
+	activeRunsHeight := int(float64(availableHeight) * 0.6)
+	metricsHeight := availableHeight - activeRunsHeight
+
 	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(colorGreen)).
 		Padding(1).
-		Width((m.width / panelDivisor) - borderPadding)
+		Width(metricsBoxWidth).
+		MaxHeight(metricsHeight)
 
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colorEmerald))
 	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colorLightGray))
@@ -380,26 +459,61 @@ func (m *Model) renderMetrics() string {
 }
 
 func (m *Model) renderLogs() string {
+	// Calculate available height for bottom panels
+	availableHeight := m.height - bannerLines - 2
+	if availableHeight < 10 {
+		availableHeight = 10
+	}
+	// Split remaining space with active runs (active runs gets 60%, logs/metrics get 40%)
+	activeRunsHeight := int(float64(availableHeight) * 0.6)
+	logsHeight := availableHeight - activeRunsHeight
+
+	// Update viewport dimensions if needed
+	if m.viewportReady {
+		viewportHeight := logsHeight - bottomPanelPadding
+		if viewportHeight < 3 {
+			viewportHeight = 3
+		}
+		// Logs get remaining width after metrics box
+		logsWidth := m.width - metricsBoxWidth - borderPadding - 2
+		if logsWidth < 40 {
+			logsWidth = 40 // Minimum width
+		}
+		m.logViewport.Width = logsWidth - 2 // -2 for padding
+		m.logViewport.Height = viewportHeight
+
+		// Update viewport content with all logs
+		if len(m.logs) == 0 {
+			m.logViewport.SetContent("No logs yet...")
+		} else {
+			logLines := make([]string, len(m.logs))
+			for i, log := range m.logs {
+				logLines[i] = m.formatLogLine(log)
+			}
+			m.logViewport.SetContent(strings.Join(logLines, "\n"))
+		}
+	}
+
+	// Calculate logs box width (remaining space after metrics)
+	logsWidth := m.width - metricsBoxWidth - borderPadding - 2
+	if logsWidth < 40 {
+		logsWidth = 40 // Minimum width
+	}
+
 	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(colorLightBlue)).
 		Padding(1).
-		Width((m.width / panelDivisor) - borderPadding)
+		Width(logsWidth)
 
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colorSky))
-	lines := []string{titleStyle.Render("📝 Logs"), ""}
+	title := titleStyle.Render("📝 Logs (↑/↓ to scroll)")
 
-	startIdx := 0
-	if len(m.logs) > maxLogLines {
-		startIdx = len(m.logs) - maxLogLines
+	if !m.viewportReady {
+		return boxStyle.Render(title + "\n\nInitializing...")
 	}
 
-	for i := startIdx; i < len(m.logs); i++ {
-		log := m.logs[i]
-		lines = append(lines, m.formatLogLine(log))
-	}
-
-	return boxStyle.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	return boxStyle.Render(title + "\n" + m.logViewport.View())
 }
 
 func (m *Model) formatRunLine(run *RunInfo) string {
@@ -437,6 +551,27 @@ func (m *Model) formatRunLine(run *RunInfo) string {
 		)
 	}
 	return ""
+}
+
+// initViewport initializes the viewport for scrollable logs
+func (m *Model) initViewport() {
+	// Calculate initial dimensions
+	availableHeight := m.height - bannerLines - 2
+	if availableHeight < 10 {
+		availableHeight = 10
+	}
+	activeRunsHeight := int(float64(availableHeight) * 0.6)
+	logsHeight := availableHeight - activeRunsHeight
+	viewportHeight := logsHeight - bottomPanelPadding
+	if viewportHeight < 3 {
+		viewportHeight = 3
+	}
+
+	m.logViewport = viewport.New(
+		(m.width/panelDivisor)-borderPadding-2,
+		viewportHeight,
+	)
+	m.logViewport.SetContent("Waiting for logs...")
 }
 
 func (m *Model) formatLogLine(log LogEntry) string {
@@ -560,6 +695,14 @@ func (m *Model) BuildSummary(outputDir, htmlReport string) *Summary {
 // NewModel creates a new TUI model with the specified configuration file and total run count.
 func NewModel(configFile string, totalRuns int) *Model {
 	width, height, supported, reason := CheckTerminalSize()
+
+	// Ensure we always have minimum dimensions
+	if width < MinTerminalWidth {
+		width = MinTerminalWidth
+	}
+	if height < MinTerminalHeight {
+		height = MinTerminalHeight
+	}
 
 	return &Model{
 		configFile:     configFile,

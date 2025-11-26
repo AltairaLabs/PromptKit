@@ -21,17 +21,27 @@ type LogInterceptor struct {
 	originalHandler slog.Handler
 	program         *tea.Program
 	logFile         *os.File
+	suppressStderr  bool
+	logBuffer       []bufferedLog
 	mu              sync.Mutex
 }
 
-// NewLogInterceptor creates a log interceptor that sends logs to both the original handler and the TUI.
+// bufferedLog stores a log record for later writing
+type bufferedLog struct {
+	ctx    context.Context
+	record slog.Record
+}
+
+// NewLogInterceptor creates a log interceptor that sends logs to the TUI.
 // If logFilePath is not empty, logs will also be written to that file.
+// If suppressStderr is true, logs won't be sent to the original handler (useful for TUI mode).
 func NewLogInterceptor(
-	originalHandler slog.Handler, program *tea.Program, logFilePath string,
+	originalHandler slog.Handler, program *tea.Program, logFilePath string, suppressStderr bool,
 ) (*LogInterceptor, error) {
 	interceptor := &LogInterceptor{
 		originalHandler: originalHandler,
 		program:         program,
+		suppressStderr:  suppressStderr,
 	}
 
 	// Open log file if path provided
@@ -67,9 +77,16 @@ func (l *LogInterceptor) Enabled(ctx context.Context, level slog.Level) bool {
 //
 //nolint:gocritic // hugeParam: slog.Record must be passed by value to satisfy slog.Handler interface
 func (l *LogInterceptor) Handle(ctx context.Context, record slog.Record) error {
-	// Send to original handler (stderr)
-	if err := l.originalHandler.Handle(ctx, record); err != nil {
-		return err
+	// If stderr suppressed, buffer the log for later flushing
+	if l.suppressStderr {
+		l.mu.Lock()
+		l.logBuffer = append(l.logBuffer, bufferedLog{ctx: ctx, record: record})
+		l.mu.Unlock()
+	} else {
+		// Send to original handler (stderr) immediately
+		if err := l.originalHandler.Handle(ctx, record); err != nil {
+			return err
+		}
 	}
 
 	// Convert slog.Level to string
@@ -91,18 +108,13 @@ func (l *LogInterceptor) Handle(ctx context.Context, record slog.Record) error {
 		}()
 	}
 
-	// Write to file if configured
+	// Write to file if configured (use original handler to get full formatting)
 	if l.logFile != nil {
-		l.mu.Lock()
-		defer l.mu.Unlock()
-
-		// Format: 2006-01-02T15:04:05.000 [LEVEL] message
-		logLine := fmt.Sprintf("%s [%s] %s\n",
-			record.Time.Format("2006-01-02T15:04:05.000"),
-			levelStr,
-			record.Message)
-
-		if _, err := l.logFile.WriteString(logLine); err != nil {
+		// Create a text handler that writes to the log file with full formatting
+		fileHandler := slog.NewTextHandler(l.logFile, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		})
+		if err := fileHandler.Handle(ctx, record); err != nil {
 			return fmt.Errorf("failed to write to log file: %w", err)
 		}
 	}
@@ -116,6 +128,7 @@ func (l *LogInterceptor) WithAttrs(attrs []slog.Attr) slog.Handler {
 		originalHandler: l.originalHandler.WithAttrs(attrs),
 		program:         l.program,
 		logFile:         l.logFile,
+		suppressStderr:  l.suppressStderr,
 	}
 }
 
@@ -125,6 +138,7 @@ func (l *LogInterceptor) WithGroup(name string) slog.Handler {
 		originalHandler: l.originalHandler.WithGroup(name),
 		program:         l.program,
 		logFile:         l.logFile,
+		suppressStderr:  l.suppressStderr,
 	}
 }
 
@@ -133,6 +147,21 @@ type LogMsg struct {
 	Timestamp time.Time
 	Level     string
 	Message   string
+}
+
+// FlushBuffer writes all buffered logs to the original handler (stderr).
+// Call this after the TUI exits to show any logs that occurred during execution.
+func (l *LogInterceptor) FlushBuffer() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	for _, buffered := range l.logBuffer {
+		// Ignore errors during flush - best effort
+		_ = l.originalHandler.Handle(buffered.ctx, buffered.record)
+	}
+
+	// Clear the buffer
+	l.logBuffer = nil
 }
 
 // levelToString converts slog.Level to a readable string.

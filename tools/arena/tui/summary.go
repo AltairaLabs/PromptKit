@@ -13,6 +13,18 @@ const (
 	errorMarginLeft   = 2
 )
 
+// compactString removes excess whitespace and newlines from a string
+func compactString(s string) string {
+	// Replace newlines and multiple spaces with single space
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\t", " ")
+	// Collapse multiple spaces into one
+	for strings.Contains(s, "  ") {
+		s = strings.ReplaceAll(s, "  ", " ")
+	}
+	return strings.TrimSpace(s)
+}
+
 // Summary represents the final execution summary displayed after all runs complete
 type Summary struct {
 	TotalRuns      int
@@ -124,7 +136,9 @@ func RenderSummary(summary *Summary, width int) string {
 		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).MarginLeft(errorMarginLeft)
 		for _, errInfo := range summary.Errors {
 			runDesc := fmt.Sprintf("%s/%s/%s", errInfo.Scenario, errInfo.Provider, errInfo.Region)
-			sb.WriteString(errorStyle.Render(fmt.Sprintf("• %s: %s\n", runDesc, errInfo.Error)))
+			// Compact error message by removing extra whitespace and newlines
+			compactError := compactString(errInfo.Error)
+			sb.WriteString(errorStyle.Render(fmt.Sprintf("• %s: %s\n", runDesc, compactError)))
 		}
 	}
 
@@ -190,7 +204,9 @@ func RenderSummaryCIMode(summary *Summary) string {
 		sb.WriteString("\nErrors:\n")
 		for _, errInfo := range summary.Errors {
 			runDesc := fmt.Sprintf("%s/%s/%s", errInfo.Scenario, errInfo.Provider, errInfo.Region)
-			sb.WriteString(fmt.Sprintf("  • %s: %s\n", runDesc, errInfo.Error))
+			// Compact error message by removing extra whitespace and newlines
+			compactError := compactString(errInfo.Error)
+			sb.WriteString(fmt.Sprintf("  • %s: %s\n", runDesc, compactError))
 		}
 	}
 

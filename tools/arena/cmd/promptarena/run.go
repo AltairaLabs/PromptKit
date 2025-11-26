@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/results"
 	"github.com/AltairaLabs/PromptKit/tools/arena/results/html"
@@ -487,7 +489,13 @@ func executeRuns(configFile string, params *RunParameters) ([]engine.RunResult, 
 		if !supported {
 			useTUI = false
 			tuiReason = reason
-			log.Printf("TUI disabled: %s (terminal size: %dx%d)", reason, w, h)
+		}
+		if params.Verbose {
+			if supported {
+				log.Printf("TUI mode enabled (terminal size: %dx%d)", w, h)
+			} else {
+				log.Printf("TUI disabled: %s (terminal size: %dx%d)", reason, w, h)
+			}
 		}
 	}
 
@@ -496,9 +504,12 @@ func executeRuns(configFile string, params *RunParameters) ([]engine.RunResult, 
 	ctx := context.Background()
 
 	if useTUI {
+		if params.Verbose {
+			log.Printf("Starting TUI mode...")
+		}
 		runIDs, err = executeWithTUI(ctx, eng, plan, params)
 	} else {
-		if tuiReason != "" {
+		if tuiReason != "" && !params.CIMode {
 			fmt.Printf("TUI disabled: %s\n", tuiReason)
 		}
 		runIDs, err = executeSimple(ctx, eng, plan, params)
@@ -518,47 +529,92 @@ func executeWithTUI(ctx context.Context, eng *engine.Engine, plan *engine.RunPla
 	model := tui.NewModel(params.ConfigFile, params.TotalRuns)
 
 	// Create bubbletea program (needed for observer and log interceptor)
-	program := bubbletea.NewProgram(model, bubbletea.WithAltScreen())
+	program := bubbletea.NewProgram(
+		model,
+		bubbletea.WithAltScreen(),
+		bubbletea.WithMouseCellMotion(), // Enable mouse support for scrolling
+	)
 
 	// Create observer that bridges engine callbacks to bubbletea messages
 	observer := tui.NewObserver(program)
 	eng.SetObserver(observer)
 
-	// Log interceptor setup will be added in Phase 5 when integrating with the logger package
-	// For now, logs will display in stdout/stderr as normal (TUI uses alt screen)
+	// Setup log interceptor to capture logs in TUI
+	var logInterceptor *tui.LogInterceptor
+	var logFilePath string
+	if params.Verbose {
+		logFilePath = filepath.Join(params.OutDir, "promptarena.log")
+	}
+
+	// Get the current default logger handler and set level based on verbose flag
+	logLevel := slog.LevelInfo
+	if params.Verbose {
+		logLevel = slog.LevelDebug
+	}
+	currentHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: logLevel,
+	})
+
+	// Create interceptor - buffer stderr output to write after TUI exits
+	var err error
+	logInterceptor, err = tui.NewLogInterceptor(currentHandler, program, logFilePath, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create log interceptor: %w", err)
+	}
+	// Install the interceptor as the default logger
+	interceptedLogger := slog.New(logInterceptor)
+	slog.SetDefault(interceptedLogger)
+
+	// CRITICAL: Also replace runtime logger which is used by providers
+	// This is what actually captures the logs we're seeing
+	logger.DefaultLogger = interceptedLogger
 
 	// Start execution in background
-	errChan := make(chan error, 1)
-	idsChan := make(chan []string, 1)
+	var runIDs []string
+	var execErr error
+	doneChan := make(chan struct{})
 
 	go func() {
-		runIDs, err := eng.ExecuteRuns(ctx, plan, params.Concurrency)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		idsChan <- runIDs
-
-		// Build and send summary
-		// Note: We'll get htmlReport path from params after processResults
-		summary := model.BuildSummary(params.OutDir, "")
-		program.Send(tui.ShowSummaryMsg{Summary: summary})
+		defer close(doneChan)
+		runIDs, execErr = eng.ExecuteRuns(ctx, plan, params.Concurrency)
+		// Execution complete - user can quit TUI to see summary
 	}()
 
-	// Run the TUI (blocks until quit)
+	// Run the TUI (blocks until user quits with 'q' or Ctrl+C)
 	if _, tuiErr := program.Run(); tuiErr != nil {
 		return nil, fmt.Errorf("TUI error: %w", tuiErr)
 	}
 
-	// Check for execution errors
+	// Check if execution completed, but don't block - user might have quit early
 	select {
-	case err := <-errChan:
-		return nil, err
-	case runIDs := <-idsChan:
-		return runIDs, nil
+	case <-doneChan:
+		// Execution finished
 	default:
-		return nil, fmt.Errorf("execution did not complete")
+		// Still running, that's OK - user quit early
 	}
+
+	if execErr != nil {
+		return nil, execErr
+	}
+
+	// Flush buffered logs to stderr and close log file (if verbose mode)
+	if params.Verbose {
+		fmt.Fprintf(os.Stderr, "\n=== Execution Logs ===\n\n")
+
+		// Flush synchronously to ensure logs appear before summary
+		logInterceptor.FlushBuffer()
+		_ = logInterceptor.Close()
+
+		fmt.Fprintf(os.Stderr, "\nLogs also saved to: %s\n\n", logFilePath)
+	}
+
+	// Print summary to terminal after TUI exits (use CI mode for clean output)
+	if len(runIDs) > 0 {
+		summary := model.BuildSummary(params.OutDir, params.HTMLFile)
+		fmt.Println(tui.RenderSummaryCIMode(summary))
+	}
+
+	return runIDs, nil
 }
 
 // executeSimple runs simulations with simple log output (CI mode)

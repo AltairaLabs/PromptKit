@@ -18,7 +18,7 @@ func TestNewLogInterceptor(t *testing.T) {
 	program := &tea.Program{}
 
 	t.Run("without log file", func(t *testing.T) {
-		interceptor, err := NewLogInterceptor(handler, program, "")
+		interceptor, err := NewLogInterceptor(handler, program, "", false)
 		require.NoError(t, err)
 		assert.NotNil(t, interceptor)
 		assert.Nil(t, interceptor.logFile)
@@ -29,7 +29,7 @@ func TestNewLogInterceptor(t *testing.T) {
 		tmpDir := t.TempDir()
 		logPath := filepath.Join(tmpDir, "test.log")
 
-		interceptor, err := NewLogInterceptor(handler, program, logPath)
+		interceptor, err := NewLogInterceptor(handler, program, logPath, false)
 		require.NoError(t, err)
 		assert.NotNil(t, interceptor)
 		assert.NotNil(t, interceptor.logFile)
@@ -40,7 +40,7 @@ func TestNewLogInterceptor(t *testing.T) {
 	})
 
 	t.Run("invalid log file path", func(t *testing.T) {
-		interceptor, err := NewLogInterceptor(handler, program, "/nonexistent/dir/test.log")
+		interceptor, err := NewLogInterceptor(handler, program, "/nonexistent/dir/test.log", false)
 		assert.Error(t, err)
 		assert.Nil(t, interceptor)
 	})
@@ -51,7 +51,7 @@ func TestLogInterceptor_Close(t *testing.T) {
 	program := &tea.Program{}
 
 	t.Run("with no log file", func(t *testing.T) {
-		interceptor, err := NewLogInterceptor(handler, program, "")
+		interceptor, err := NewLogInterceptor(handler, program, "", false)
 		require.NoError(t, err)
 
 		err = interceptor.Close()
@@ -62,7 +62,7 @@ func TestLogInterceptor_Close(t *testing.T) {
 		tmpDir := t.TempDir()
 		logPath := filepath.Join(tmpDir, "test.log")
 
-		interceptor, err := NewLogInterceptor(handler, program, logPath)
+		interceptor, err := NewLogInterceptor(handler, program, logPath, false)
 		require.NoError(t, err)
 
 		err = interceptor.Close()
@@ -74,7 +74,7 @@ func TestLogInterceptor_Enabled(t *testing.T) {
 	handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})
 	program := &tea.Program{}
 
-	interceptor, err := NewLogInterceptor(handler, program, "")
+	interceptor, err := NewLogInterceptor(handler, program, "", false)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -95,7 +95,7 @@ func TestLogInterceptor_Handle(t *testing.T) {
 	handler := slog.NewTextHandler(os.Stderr, nil)
 
 	// Don't pass a program for this test - we're testing file writing
-	interceptor, err := NewLogInterceptor(handler, nil, logPath)
+	interceptor, err := NewLogInterceptor(handler, nil, logPath, false)
 	require.NoError(t, err)
 	defer interceptor.Close()
 
@@ -123,7 +123,7 @@ func TestLogInterceptor_WithAttrs(t *testing.T) {
 	handler := slog.NewTextHandler(os.Stderr, nil)
 	program := &tea.Program{}
 
-	interceptor, err := NewLogInterceptor(handler, program, "")
+	interceptor, err := NewLogInterceptor(handler, program, "", false)
 	require.NoError(t, err)
 
 	attrs := []slog.Attr{slog.String("key", "value")}
@@ -139,7 +139,7 @@ func TestLogInterceptor_WithGroup(t *testing.T) {
 	handler := slog.NewTextHandler(os.Stderr, nil)
 	program := &tea.Program{}
 
-	interceptor, err := NewLogInterceptor(handler, program, "")
+	interceptor, err := NewLogInterceptor(handler, program, "", false)
 	require.NoError(t, err)
 
 	newHandler := interceptor.WithGroup("test-group")

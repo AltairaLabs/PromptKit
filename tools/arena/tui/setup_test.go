@@ -19,7 +19,7 @@ func TestSetupLogger(t *testing.T) {
 		logger := slog.New(slog.NewTextHandler(&buf, nil))
 		program := &tea.Program{}
 
-		interceptor, err := SetupLogger(logger, program, "")
+		interceptor, err := SetupLogger(logger, program, "", false)
 		require.NoError(t, err)
 		assert.NotNil(t, interceptor)
 		assert.Nil(t, interceptor.logFile)
@@ -41,7 +41,7 @@ func TestSetupLogger(t *testing.T) {
 		logger := slog.New(slog.NewTextHandler(&buf, nil))
 		program := &tea.Program{}
 
-		interceptor, err := SetupLogger(logger, program, logPath)
+		interceptor, err := SetupLogger(logger, program, logPath, false)
 		require.NoError(t, err)
 		assert.NotNil(t, interceptor)
 		assert.NotNil(t, interceptor.logFile)
@@ -64,7 +64,7 @@ func TestSetupLogger(t *testing.T) {
 		logger := slog.New(slog.NewTextHandler(&buf, nil))
 		program := &tea.Program{}
 
-		interceptor, err := SetupLogger(logger, program, "/nonexistent/dir/test.log")
+		interceptor, err := SetupLogger(logger, program, "/nonexistent/dir/test.log", false)
 		assert.Error(t, err)
 		assert.Nil(t, interceptor)
 	})
@@ -75,7 +75,7 @@ func TestSetupLogger(t *testing.T) {
 		logger = logger.With("key", "value")
 		program := &tea.Program{}
 
-		interceptor, err := SetupLogger(logger, program, "")
+		interceptor, err := SetupLogger(logger, program, "", false)
 		require.NoError(t, err)
 		defer interceptor.Close()
 
@@ -89,7 +89,7 @@ func TestSetupLogger(t *testing.T) {
 		logger = logger.WithGroup("test-group")
 		program := &tea.Program{}
 
-		interceptor, err := SetupLogger(logger, program, "")
+		interceptor, err := SetupLogger(logger, program, "", false)
 		require.NoError(t, err)
 		defer interceptor.Close()
 
@@ -104,7 +104,7 @@ func TestSetupLogger(t *testing.T) {
 		}))
 		program := &tea.Program{}
 
-		interceptor, err := SetupLogger(logger, program, "")
+		interceptor, err := SetupLogger(logger, program, "", false)
 		require.NoError(t, err)
 		defer interceptor.Close()
 
