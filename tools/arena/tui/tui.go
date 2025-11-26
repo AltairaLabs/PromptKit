@@ -113,9 +113,106 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		return m, nil
+
+	case RunStartedMsg:
+		m.handleRunStarted(&msg)
+		return m, nil
+
+	case RunCompletedMsg:
+		m.handleRunCompleted(&msg)
+		return m, nil
+
+	case RunFailedMsg:
+		m.handleRunFailed(&msg)
+		return m, nil
 	}
 
 	return m, nil
+}
+
+// handleRunStarted processes a run started event from the observer.
+// Note: Called with mutex already locked by Update.
+func (m *Model) handleRunStarted(msg *RunStartedMsg) {
+	// Add to active runs
+	m.activeRuns = append(m.activeRuns, RunInfo{
+		RunID:     msg.RunID,
+		Scenario:  msg.Scenario,
+		Provider:  msg.Provider,
+		Region:    msg.Region,
+		Status:    StatusRunning,
+		StartTime: msg.Time,
+	})
+
+	// Log the event
+	m.logs = append(m.logs, LogEntry{
+		Timestamp: msg.Time,
+		Level:     "INFO",
+		Message:   fmt.Sprintf("Started: %s/%s/%s", msg.Provider, msg.Scenario, msg.Region),
+	})
+	m.trimLogs()
+}
+
+// handleRunCompleted processes a run completed event from the observer.
+// Note: Called with mutex already locked by Update.
+func (m *Model) handleRunCompleted(msg *RunCompletedMsg) {
+	// Find and update the run in activeRuns
+	for i := range m.activeRuns {
+		if m.activeRuns[i].RunID == msg.RunID {
+			m.activeRuns[i].Status = StatusCompleted
+			m.activeRuns[i].Duration = msg.Duration
+			m.activeRuns[i].Cost = msg.Cost
+			break
+		}
+	}
+
+	// Update metrics
+	m.completedCount++
+	m.successCount++
+	m.totalDuration += msg.Duration
+	m.totalCost += msg.Cost
+
+	// Log the event
+	m.logs = append(m.logs, LogEntry{
+		Timestamp: msg.Time,
+		Level:     "INFO",
+		Message:   fmt.Sprintf("Completed: %s (%.1fs, $%.4f)", msg.RunID, msg.Duration.Seconds(), msg.Cost),
+	})
+	m.trimLogs()
+
+	// Remove from active runs after a brief display (keep for visual feedback)
+	// In real usage, we'd use a timer, but for now keep completed runs visible
+}
+
+// handleRunFailed processes a run failed event from the observer.
+// Note: Called with mutex already locked by Update.
+func (m *Model) handleRunFailed(msg *RunFailedMsg) {
+	// Find and update the run in activeRuns
+	for i := range m.activeRuns {
+		if m.activeRuns[i].RunID == msg.RunID {
+			m.activeRuns[i].Status = StatusFailed
+			m.activeRuns[i].Error = msg.Error.Error()
+			break
+		}
+	}
+
+	// Update metrics
+	m.completedCount++
+	m.failedCount++
+
+	// Log the event
+	m.logs = append(m.logs, LogEntry{
+		Timestamp: msg.Time,
+		Level:     "ERROR",
+		Message:   fmt.Sprintf("Failed: %s - %v", msg.RunID, msg.Error),
+	})
+	m.trimLogs()
+}
+
+// trimLogs keeps the log buffer size within limits.
+func (m *Model) trimLogs() {
+	if len(m.logs) > maxLogBufferSize {
+		m.logs = m.logs[len(m.logs)-maxLogBufferSize:]
+	}
 }
 
 // View renders the TUI
