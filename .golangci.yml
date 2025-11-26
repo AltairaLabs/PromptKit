@@ -25,6 +25,7 @@ linters:
     - nakedret
     - noctx
     - nolintlint
+    - revive       # Go style checker - catches non-idiomatic names like Get* functions
     - rowserrcheck
     - staticcheck
     - unconvert
@@ -71,6 +72,40 @@ linters:
         - operation
         - return
         - assign
+    revive:
+      # Revive is a comprehensive Go style checker that catches various issues including:
+      # - Non-idiomatic naming (e.g., functions starting with "Get" which is discouraged in Go)
+      # - Go convention is to omit "Get" prefix: use Config() instead of GetConfig()
+      # - See: https://go.dev/doc/effective_go#Getters
+      rules:
+        # Naming conventions including getter detection
+        - name: var-naming
+          severity: warning
+          disabled: false
+        - name: exported
+          severity: warning
+          disabled: false
+        # Add other useful revive rules
+        - name: blank-imports
+        - name: context-as-argument
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: if-return
+        - name: increment-decrement
+        - name: var-declaration
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: indent-error-flow
+        - name: errorf
+        - name: empty-block
+        - name: superfluous-else
+        - name: unreachable-code
+        - name: redefines-builtin-id
   exclusions:
     paths:
       - vendor
@@ -97,6 +132,7 @@ linters:
           - staticcheck
           - govet
           - whitespace
+          - revive
       - path: 'test_.*\.go'
         linters:
           - mnd
@@ -113,6 +149,7 @@ linters:
           - staticcheck
           - govet
           - whitespace
+          - revive
       - path: 'cmd/'
         linters:
           - funlen
