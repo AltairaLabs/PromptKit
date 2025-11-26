@@ -31,6 +31,25 @@ const (
 	panelDivisor        = 2
 )
 
+// Color constants
+const (
+	colorPurple    = "#7C3AED"
+	colorDarkBg    = "#1E1E2E"
+	colorGreen     = "#10B981"
+	colorBlue      = "#3B82F6"
+	colorLightBlue = "#60A5FA"
+	colorRed       = "#EF4444"
+	colorAmber     = "#F59E0B"
+	colorYellow    = "#FBBF24"
+	colorGray      = "#6B7280"
+	colorLightGray = "#9CA3AF"
+	colorWhite     = "#F3F4F6"
+	colorIndigo    = "#6366F1"
+	colorViolet    = "#A78BFA"
+	colorEmerald   = "#34D399"
+	colorSky       = "#93C5FD"
+)
+
 // Model represents the bubbletea application state
 type Model struct {
 	mu sync.Mutex
@@ -270,26 +289,39 @@ func (m *Model) View() string {
 }
 
 func (m *Model) renderHeader(elapsed time.Duration) string {
-	style := lipgloss.NewStyle().
+	headerStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("12")).
-		Padding(0, 1)
+		Foreground(lipgloss.Color(colorPurple)).
+		Background(lipgloss.Color(colorDarkBg)).
+		Padding(0, 2).
+		Width(m.width)
 
-	progress := fmt.Sprintf("[%d/%d Complete]", m.completedCount, m.totalRuns)
-	timeStr := fmt.Sprintf("⏱ %s", formatDuration(elapsed))
+	progressStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(colorGreen)).
+		Bold(true)
 
-	return style.Render(
-		fmt.Sprintf("PromptArena - %s        %s %s", m.configFile, progress, timeStr),
-	)
+	timeStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(colorLightBlue))
+
+	progress := progressStyle.Render(fmt.Sprintf("[%d/%d Complete]", m.completedCount, m.totalRuns))
+	timeStr := timeStyle.Render(fmt.Sprintf("⏱  %s", formatDuration(elapsed)))
+
+	headerText := fmt.Sprintf("PromptArena - %s    %s    %s", m.configFile, progress, timeStr)
+	return headerStyle.Render(headerText)
 }
 
 func (m *Model) renderActiveRuns() string {
-	style := lipgloss.NewStyle().
+	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(colorIndigo)).
 		Padding(1).
 		Width(m.width - borderPadding)
 
-	title := fmt.Sprintf("Active Runs (%d concurrent workers)", len(m.activeRuns))
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color(colorViolet))
+
+	title := titleStyle.Render(fmt.Sprintf("Active Runs (%d concurrent workers)", len(m.activeRuns)))
 	lines := []string{title, ""}
 
 	maxLines := m.height - activeRunsHeight
@@ -305,17 +337,26 @@ func (m *Model) renderActiveRuns() string {
 
 	if len(m.activeRuns) > displayCount {
 		remaining := len(m.activeRuns) - displayCount
-		lines = append(lines, fmt.Sprintf("...and %d more", remaining))
+		moreStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colorGray)).Italic(true)
+		lines = append(lines, moreStyle.Render(fmt.Sprintf("...and %d more", remaining)))
 	}
 
-	return style.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	return boxStyle.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }
 
 func (m *Model) renderMetrics() string {
-	style := lipgloss.NewStyle().
+	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(colorGreen)).
 		Padding(1).
 		Width((m.width / panelDivisor) - borderPadding)
+
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colorEmerald))
+	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colorLightGray))
+	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colorWhite)).Bold(true)
+	successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colorGreen)).Bold(true)
+	errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colorRed)).Bold(true)
+	costStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colorYellow)).Bold(true)
 
 	avgDuration := time.Duration(0)
 	if m.completedCount > 0 {
@@ -323,27 +364,30 @@ func (m *Model) renderMetrics() string {
 	}
 
 	lines := []string{
-		"Metrics",
-		"────────────────────",
-		fmt.Sprintf("Completed:    %d/%d", m.completedCount, m.totalRuns),
-		fmt.Sprintf("Success:      %d", m.successCount),
-		fmt.Sprintf("Errors:       %d", m.failedCount),
-		fmt.Sprintf("Total Cost:   $%.4f", m.totalCost),
-		fmt.Sprintf("Total Tokens: %s", formatNumber(m.totalTokens)),
-		fmt.Sprintf("Avg Duration: %s", formatDuration(avgDuration)),
-		fmt.Sprintf("Workers:      %d/%d", len(m.activeRuns), len(m.activeRuns)),
+		titleStyle.Render("📊 Metrics"),
+		"",
+		fmt.Sprintf("%s %s", labelStyle.Render("Completed:"), valueStyle.Render(fmt.Sprintf("%d/%d", m.completedCount, m.totalRuns))),
+		fmt.Sprintf("%s %s", labelStyle.Render("Success:  "), successStyle.Render(fmt.Sprintf("%d", m.successCount))),
+		fmt.Sprintf("%s %s", labelStyle.Render("Errors:   "), errorStyle.Render(fmt.Sprintf("%d", m.failedCount))),
+		"",
+		fmt.Sprintf("%s %s", labelStyle.Render("Total Cost:  "), costStyle.Render(fmt.Sprintf("$%.4f", m.totalCost))),
+		fmt.Sprintf("%s %s", labelStyle.Render("Total Tokens:"), valueStyle.Render(formatNumber(m.totalTokens))),
+		fmt.Sprintf("%s %s", labelStyle.Render("Avg Duration:"), valueStyle.Render(formatDuration(avgDuration))),
+		fmt.Sprintf("%s %s", labelStyle.Render("Workers:     "), valueStyle.Render(fmt.Sprintf("%d", len(m.activeRuns)))),
 	}
 
-	return style.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	return boxStyle.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }
 
 func (m *Model) renderLogs() string {
-	style := lipgloss.NewStyle().
+	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(colorLightBlue)).
 		Padding(1).
 		Width((m.width / panelDivisor) - borderPadding)
 
-	lines := []string{"Logs", "──────────────────────────"}
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colorSky))
+	lines := []string{titleStyle.Render("📝 Logs"), ""}
 
 	startIdx := 0
 	if len(m.logs) > maxLogLines {
@@ -355,7 +399,7 @@ func (m *Model) renderLogs() string {
 		lines = append(lines, m.formatLogLine(log))
 	}
 
-	return style.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	return boxStyle.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }
 
 func (m *Model) formatRunLine(run *RunInfo) string {
@@ -365,13 +409,13 @@ func (m *Model) formatRunLine(run *RunInfo) string {
 	switch run.Status {
 	case StatusRunning:
 		status = "●"
-		statusColor = lipgloss.Color("12")
+		statusColor = lipgloss.Color(colorBlue) // Blue for running
 	case StatusCompleted:
 		status = "✓"
-		statusColor = lipgloss.Color("10")
+		statusColor = lipgloss.Color(colorGreen) // Green for success
 	case StatusFailed:
 		status = "✗"
-		statusColor = lipgloss.Color("9")
+		statusColor = lipgloss.Color(colorRed) // Red for failure
 	}
 
 	statusStyle := lipgloss.NewStyle().Foreground(statusColor)
@@ -399,15 +443,15 @@ func (m *Model) formatLogLine(log LogEntry) string {
 	var levelColor lipgloss.Color
 	switch log.Level {
 	case "INFO":
-		levelColor = lipgloss.Color("12")
+		levelColor = lipgloss.Color(colorBlue) // Blue
 	case "WARN":
-		levelColor = lipgloss.Color("11")
+		levelColor = lipgloss.Color(colorAmber) // Amber
 	case "ERROR":
-		levelColor = lipgloss.Color("9")
+		levelColor = lipgloss.Color(colorRed) // Red
 	case "DEBUG":
-		levelColor = lipgloss.Color("8")
+		levelColor = lipgloss.Color(colorGray) // Gray
 	default:
-		levelColor = lipgloss.Color("7")
+		levelColor = lipgloss.Color(colorLightGray) // Light gray
 	}
 
 	levelStyle := lipgloss.NewStyle().Foreground(levelColor)
