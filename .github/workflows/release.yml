@@ -404,19 +404,25 @@ jobs:
     - name: Verify installation
       env:
         VERSION: ${{ needs.validate.outputs.version }}
+      continue-on-error: true
       run: |
         echo "Testing arena installation..."
-        if go install "github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@$VERSION"; then
+        echo "Note: This may fail if modules haven't fully propagated to the Go proxy yet."
+        echo "Installation will still work once propagation completes (usually within a few minutes)."
+        echo ""
+        
+        if go install "github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@$VERSION" 2>&1; then
           echo "✓ Arena installation successful"
         else
-          echo "⚠ Arena installation needs more time"
+          echo "⚠ Arena installation needs more time to propagate"
         fi
         
+        echo ""
         echo "Testing packc installation..."
-        if go install "github.com/AltairaLabs/PromptKit/tools/packc@$VERSION"; then
+        if go install "github.com/AltairaLabs/PromptKit/tools/packc@$VERSION" 2>&1; then
           echo "✓ Packc installation successful"
         else
-          echo "⚠ Packc installation needs more time"
+          echo "⚠ Packc installation needs more time to propagate"
         fi
 
   create-release:
