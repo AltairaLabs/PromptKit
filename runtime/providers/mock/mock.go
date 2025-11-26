@@ -1,3 +1,4 @@
+// Package mock provides mock provider implementation for testing and development.
 package mock
 
 import (

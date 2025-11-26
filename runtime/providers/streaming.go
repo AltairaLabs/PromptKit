@@ -6,7 +6,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// Forward declare ExecutionResult to avoid circular import
+// ExecutionResult is a forward declaration to avoid circular import.
 type ExecutionResult interface{}
 
 // StreamChunk represents a batch of tokens with metadata

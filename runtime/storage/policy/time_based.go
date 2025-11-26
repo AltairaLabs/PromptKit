@@ -140,7 +140,9 @@ func (h *TimeBasedPolicyHandler) processMetaFile(metaPath string, now time.Time)
 	}
 
 	return true
-} // StartEnforcement starts a background goroutine that periodically enforces policies.
+}
+
+// StartEnforcement starts a background goroutine that periodically enforces policies.
 func (h *TimeBasedPolicyHandler) StartEnforcement(ctx context.Context, baseDir string) {
 	go func() {
 		defer close(h.doneCh)

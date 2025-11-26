@@ -22,6 +22,7 @@ type MultimodalCapabilities struct {
 // ImageDetail specifies the level of detail for image processing
 type ImageDetail string
 
+// Image detail levels for multimodal processing.
 const (
 	ImageDetailLow  ImageDetail = "low"  // Faster, less detailed analysis
 	ImageDetailHigh ImageDetail = "high" // Slower, more detailed analysis

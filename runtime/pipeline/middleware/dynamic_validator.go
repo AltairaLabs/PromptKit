@@ -47,7 +47,10 @@ func DynamicValidatorMiddlewareWithSuppression(
 // and continues to the next middleware to persist results.
 func (m *dynamicValidatorMiddleware) Process(execCtx *pipeline.ExecutionContext, next func() error) error {
 	// Get validator configs from metadata (populated by PromptAssemblyMiddleware)
-	validatorList, validatorParams, _, shouldReturn := m.getValidators(execCtx)
+	validatorList, validatorParams, shouldReturn, err := m.getValidators(execCtx)
+	if err != nil {
+		return err
+	}
 	if shouldReturn {
 		// No validators configured, just continue to next middleware
 		return next()
@@ -64,7 +67,7 @@ func (m *dynamicValidatorMiddleware) Process(execCtx *pipeline.ExecutionContext,
 	// Validate the response and attach results to the message
 	// The provider has already run and created the assistant message before we got here
 
-	err := m.validateAndAttach(execCtx, validatorList, validatorParams)
+	err = m.validateAndAttach(execCtx, validatorList, validatorParams)
 
 	// Continue to next middleware (StateStore) which will persist the validation results
 	nextErr := next()
@@ -248,9 +251,12 @@ func (m *dynamicValidatorMiddleware) StreamChunk(
 	chunk *providers.StreamChunk,
 ) error {
 	// Get validator configs from metadata (set by PromptAssemblyMiddleware)
-	validatorList, validatorParams, err, shouldReturn := m.getValidators(execCtx)
-	if shouldReturn {
+	validatorList, validatorParams, shouldReturn, err := m.getValidators(execCtx)
+	if err != nil {
 		return err
+	}
+	if shouldReturn {
+		return nil
 	}
 
 	// Get streaming state
@@ -393,12 +399,12 @@ func (m *dynamicValidatorMiddleware) recordSuccessfulValidations(
 
 func (m *dynamicValidatorMiddleware) getValidators(
 	execCtx *pipeline.ExecutionContext,
-) ([]validators.Validator, []map[string]interface{}, error, bool) {
+) ([]validators.Validator, []map[string]interface{}, bool, error) {
 	validatorConfigs, ok := execCtx.Metadata["validator_configs"].([]validators.ValidatorConfig)
 	if !ok || len(validatorConfigs) == 0 {
 		logger.Debug("No validator configs found in metadata, skipping validation")
 		// No validators configured
-		return nil, nil, nil, true
+		return nil, nil, true, nil
 	}
 
 	// Check if we've already built the validator list (to avoid rebuilding on every chunk)
@@ -430,7 +436,7 @@ func (m *dynamicValidatorMiddleware) getValidators(
 	}
 
 	if len(validatorList) == 0 {
-		return nil, nil, nil, true
+		return nil, nil, true, nil
 	}
-	return validatorList, validatorParams, nil, false
+	return validatorList, validatorParams, false, nil
 }

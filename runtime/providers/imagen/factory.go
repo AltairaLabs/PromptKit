@@ -1,3 +1,4 @@
+// Package imagen provides Google Imagen image generation provider integration.
 package imagen
 
 import (

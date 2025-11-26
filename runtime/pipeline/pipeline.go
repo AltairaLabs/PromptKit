@@ -1,3 +1,4 @@
+// Package pipeline provides orchestration for LLM request processing through middleware chains.
 package pipeline
 
 import (

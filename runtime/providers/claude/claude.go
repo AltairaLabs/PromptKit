@@ -1,3 +1,4 @@
+// Package claude provides Anthropic Claude LLM provider integration.
 package claude
 
 import (

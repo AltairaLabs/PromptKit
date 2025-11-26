@@ -380,7 +380,7 @@ type InlineData struct {
 	Data     string `json:"data,omitempty"`     // Base64 encoded
 }
 
-// Marshal methods for easier JSON serialization
+// UnmarshalJSON unmarshals ServerMessage from JSON with custom handling.
 func (s *ServerMessage) UnmarshalJSON(data []byte) error {
 	type Alias ServerMessage
 	aux := &struct {

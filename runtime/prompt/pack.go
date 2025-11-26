@@ -20,6 +20,7 @@ type TimeProvider interface {
 
 type realTimeProvider struct{}
 
+// Now returns the current time.
 func (r realTimeProvider) Now() time.Time {
 	return time.Now()
 }
@@ -31,7 +32,8 @@ type FileWriter interface {
 
 type realFileWriter struct{}
 
-func (r realFileWriter) WriteFile(path string, data []byte, perm os.FileMode) error {
+// WriteFile writes data to a file at the given path.
+func (w realFileWriter) WriteFile(path string, data []byte, perm os.FileMode) error {
 	return os.WriteFile(path, data, perm)
 }
 
