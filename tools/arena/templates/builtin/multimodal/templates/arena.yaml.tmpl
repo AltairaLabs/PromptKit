@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/arena.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: {{.project_name}}
+
+spec:
+  prompt_configs:
+    - id: vision-analyst
+      file: prompts/vision-analyst.yaml
+
+  providers:
+    {{- range .providers}}
+    - file: providers/{{.}}.yaml
+    {{- end}}
+
+  scenarios:
+    - file: scenarios/image-analysis.yaml
+    - file: scenarios/image-comparison.yaml
+
+  defaults:
+    temperature: 0.5
+    max_tokens: 1500
+    seed: 42
+    concurrency: 1
+    output:
+      dir: out
+      formats: ["json", "html"]

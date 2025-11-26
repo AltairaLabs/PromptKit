@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/scenario.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: mcp-basic
+
+spec:
+  id: mcp-single-tool
+  task_type: general
+  description: "Test basic MCP tool usage with a single tool call"
+  
+  turns:
+    - role: user
+      content: "List the files in the /tmp directory"
+      assertions:
+        - type: content_not_empty
+          params: {}
+          message: "Response should not be empty"
+        - type: tool_called
+          params:
+            tool_names: ["list_directory", "read_file"]
+          message: "Should use filesystem tools"

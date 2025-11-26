@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/scenario.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: blog-post
+
+spec:
+  id: write-blog-post
+  task_type: content
+  description: "Test blog post generation with engaging narrative"
+  
+  turns:
+    - role: user
+      content: "Write an engaging introduction for a blog post about the benefits of remote work. Target audience: mid-career professionals. Tone: professional but friendly."
+      assertions:
+        - type: content_not_empty
+          params: {}
+          message: "Response should not be empty"
+        - type: contains_any
+          params:
+            values: ["remote", "work", "benefit"]
+          message: "Should address the topic"
+        - type: min_tokens
+          params:
+            min: 50
+          message: "Introduction should be substantial"
+        - type: max_tokens
+          params:
+            max: 300
+          message: "Introduction should be concise"

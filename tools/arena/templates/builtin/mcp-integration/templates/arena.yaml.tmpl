@@ -1,0 +1,44 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/arena.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: {{.project_name}}
+
+spec:
+  prompt_configs:
+    - id: mcp-assistant
+      file: prompts/mcp-assistant.yaml
+
+  providers:
+    {{- range .providers}}
+    - file: providers/{{.}}.yaml
+    {{- end}}
+
+  scenarios:
+    - file: scenarios/mcp-basic.yaml
+    - file: scenarios/mcp-multi-tool.yaml
+
+  # Example MCP server configurations
+  # Uncomment and configure based on your needs
+  mcp_servers:
+    - name: filesystem
+      command: npx
+      args:
+        - "-y"
+        - "@modelcontextprotocol/server-filesystem"
+        - "/tmp"
+      
+    # - name: memory
+    #   command: npx
+    #   args:
+    #     - "-y"
+    #     - "@modelcontextprotocol/server-memory"
+
+  defaults:
+    temperature: 0.7
+    max_tokens: 2000
+    seed: 42
+    concurrency: 1
+    output:
+      dir: out
+      formats: ["json", "html"]

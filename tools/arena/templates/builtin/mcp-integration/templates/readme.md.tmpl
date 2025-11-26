@@ -1,0 +1,242 @@
+# {{.project_name}}
+
+MCP (Model Context Protocol) integration testing project created with PromptArena.
+
+## Overview
+
+This project tests AI agent capabilities with MCP server integration:
+- File system operations
+- Memory/state management
+- Web fetching and scraping
+- Tool chaining and workflows
+- Error handling
+
+## What is MCP?
+
+Model Context Protocol (MCP) is an open protocol that enables AI models to securely interact with external data sources and tools. MCP servers provide capabilities like:
+
+- **Filesystem**: Read/write files, list directories
+- **Memory**: Store and retrieve information across conversations
+- **Fetch**: Retrieve web content and APIs
+- **Puppeteer**: Browser automation
+- **Custom**: Your own tool implementations
+
+## Getting Started
+
+### Prerequisites
+
+- PromptArena CLI installed
+- Node.js and npm (for MCP servers)
+{{range .providers}}{{if ne . "mock"}}- {{if eq . "openai"}}OpenAI{{else if eq . "anthropic"}}Anthropic{{else if eq . "google"}}Google{{end}} API key
+{{end}}{{end}}
+### Setup
+
+1. Configure your API keys in `.env` file:
+{{range .providers}}{{if eq . "openai"}}   - Get OpenAI key from: https://platform.openai.com/api-keys
+{{else if eq . "anthropic"}}   - Get Anthropic key from: https://console.anthropic.com/
+{{else if eq . "google"}}   - Get Google key from: https://aistudio.google.com/app/apikey
+{{end}}{{end}}
+2. MCP servers are configured in `arena.yaml` - update paths as needed
+
+3. Run the tests:
+   ```bash
+   promptarena run
+   ```
+
+## Project Structure
+
+```
+.
+├── arena.yaml                 # Main configuration with MCP servers
+├── prompts/
+│   └── mcp-assistant.yaml     # MCP-aware assistant prompt
+├── providers/                 # LLM provider configs
+{{range .providers}}│   ├── {{.}}.yaml
+{{end}}├── scenarios/                 # Test scenarios
+│   ├── mcp-basic.yaml
+│   └── mcp-multi-tool.yaml
+└── out/                       # Test results (generated)
+```
+
+## Scenarios
+
+### Basic MCP Usage (`scenarios/mcp-basic.yaml`)
+Tests single tool usage with filesystem operations.
+
+### Multi-Tool Workflow (`scenarios/mcp-multi-tool.yaml`)
+Tests chaining multiple tool calls to accomplish complex tasks.
+
+## MCP Server Configuration
+
+### Built-in MCP Servers
+
+The template includes example configurations for common MCP servers:
+
+```yaml
+mcp_servers:
+  # Filesystem access
+  - name: filesystem
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-filesystem"
+      - "/tmp"  # Allowed directory
+  
+  # Memory/state management
+  - name: memory
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-memory"
+  
+  # Web fetching
+  - name: fetch
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-fetch"
+```
+
+### Custom MCP Servers
+
+You can add your own MCP servers:
+
+```yaml
+mcp_servers:
+  - name: my-custom-server
+    command: node
+    args:
+      - "path/to/your/mcp-server.js"
+    env:
+      API_KEY: ${CUSTOM_API_KEY}
+```
+
+## Testing MCP Integration
+
+### Test Single Tool Usage
+
+```yaml
+turns:
+  - role: user
+    content: "Read the contents of /tmp/test.txt"
+    assertions:
+      - type: tool_called
+        params:
+          tool_names: ["read_file"]
+```
+
+### Test Tool Chaining
+
+```yaml
+turns:
+  - role: user
+    content: "Create a file, write to it, then read it back"
+    assertions:
+      - type: tool_called
+        params:
+          tool_names: ["write_file", "read_file"]
+```
+
+### Test Error Handling
+
+```yaml
+turns:
+  - role: user
+    content: "Read a file that doesn't exist: /tmp/nonexistent.txt"
+    assertions:
+      - type: contains_any
+        params:
+          values: ["not found", "does not exist", "error"]
+```
+
+## Running Tests
+
+```bash
+# Run all scenarios
+promptarena run
+
+# Run specific scenario
+promptarena run --scenario mcp-basic
+
+# Run with specific provider
+promptarena run --provider openai-gpt4
+
+# Verbose output to see tool calls
+promptarena run --verbose
+```
+
+## Debugging MCP Issues
+
+### Check MCP Server Status
+
+Verify MCP servers are running:
+```bash
+# Check if filesystem server is accessible
+npx -y @modelcontextprotocol/server-filesystem /tmp
+```
+
+### Common Issues
+
+1. **Server not found**: Install MCP server packages
+   ```bash
+   npm install -g @modelcontextprotocol/server-filesystem
+   ```
+
+2. **Permission errors**: Check directory permissions for filesystem server
+
+3. **Tool not called**: Verify prompt instructs model to use tools
+
+## Customization
+
+### Adding New Scenarios
+
+Create custom test scenarios:
+
+```yaml
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/scenario.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: custom-workflow
+
+spec:
+  id: my-workflow
+  task_type: general
+  description: "Custom MCP workflow"
+  
+  turns:
+    - role: user
+      content: "Your custom task here"
+      assertions:
+        - type: tool_called
+          params:
+            tool_names: ["expected_tool"]
+```
+
+## Results
+
+Test results are saved to `out/`:
+- `results.json` - Detailed test results including tool calls
+- `report.html` - Interactive HTML report
+
+## Next Steps
+
+- Add more MCP server integrations
+- Test complex multi-step workflows
+- Add error recovery scenarios
+- Create domain-specific tool tests
+- Build automated workflow validation
+
+## Resources
+
+- [PromptArena Documentation](https://promptkit.altairalabs.ai/arena/)
+- [MCP Protocol Specification](https://modelcontextprotocol.io/)
+- [MCP Servers](https://github.com/modelcontextprotocol/servers)
+- [Tool Integration Guide](https://promptkit.altairalabs.ai/arena/guides/tools)
+
+## Support
+
+For questions or issues:
+- GitHub Issues: https://github.com/AltairaLabs/PromptKit/issues
+- Documentation: https://promptkit.altairalabs.ai
+- MCP Community: https://github.com/modelcontextprotocol

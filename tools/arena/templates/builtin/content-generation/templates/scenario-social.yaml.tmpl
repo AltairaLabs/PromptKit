@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/scenario.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: social-media
+
+spec:
+  id: write-social-media-post
+  task_type: content
+  description: "Test social media post creation with engagement focus"
+  
+  turns:
+    - role: user
+      content: "Create a LinkedIn post announcing our new AI-powered analytics feature. Make it engaging and include a question to encourage comments. Maximum 200 words."
+      assertions:
+        - type: content_not_empty
+          params: {}
+          message: "Response should not be empty"
+        - type: contains_any
+          params:
+            values: ["AI", "analytics", "feature"]
+          message: "Should announce the feature"
+        - type: contains_any
+          params:
+            values: ["?"]
+          message: "Should include a question"
+        - type: max_tokens
+          params:
+            max: 250
+          message: "Should respect word limit"

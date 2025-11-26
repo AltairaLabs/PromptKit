@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/scenario.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: image-comparison
+
+spec:
+  id: compare-images
+  task_type: vision
+  description: "Test image comparison capabilities"
+  
+  turns:
+    - role: user
+      content: "Compare these two images. What are the similarities and differences?"
+      media:
+        - type: image
+          source: url
+          url: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Cat03.jpg/240px-Cat03.jpg"
+        - type: image
+          source: url
+          url: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4d/Cat_November_2010-1a.jpg/240px-Cat_November_2010-1a.jpg"
+      assertions:
+        - type: content_not_empty
+          params: {}
+          message: "Response should not be empty"
+        - type: contains_any
+          params:
+            values: ["similar", "different", "both", "comparison"]
+          message: "Should compare the images"
+        - type: contains_any
+          params:
+            values: ["cat", "feline"]
+          message: "Should identify common elements"

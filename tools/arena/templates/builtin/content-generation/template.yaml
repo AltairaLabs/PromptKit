@@ -1,0 +1,89 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Template
+metadata:
+  name: content-generation
+  labels:
+    version: "1.0.0"
+  annotations:
+    description: "Creative content generation and writing assistant for various content types"
+    author: "AltairaLabs"
+    tags: "content,writing,creative,marketing"
+    
+spec:
+  variables:
+    - name: project_name
+      description: "Project name"
+      type: string
+      default: "content-generation-tests"
+      required: true
+      prompt: "Project name"
+      
+    - name: providers
+      description: "LLM providers to configure"
+      type: array
+      options: ["mock", "openai", "anthropic", "google"]
+      default: ["openai"]
+      prompt: "Which providers would you like to test"
+      
+    - name: content_types
+      description: "Types of content to generate"
+      type: array
+      options: ["blog", "social", "marketing", "technical", "creative"]
+      default: ["blog", "marketing"]
+      prompt: "Which content types"
+      
+    - name: include_env
+      description: "Create .env file for API keys"
+      type: boolean
+      default: true
+      
+  files:
+    - path: "arena.yaml"
+      template: "templates/arena.yaml.tmpl"
+      
+    - path: "prompts/blog-writer.yaml"
+      template: "templates/prompt-blog.yaml.tmpl"
+      
+    - path: "prompts/marketing-copy.yaml"
+      template: "templates/prompt-marketing.yaml.tmpl"
+      
+    - path: "providers/{{.provider}}.yaml"
+      template: "templates/provider.yaml.tmpl"
+      foreach: "providers"
+      
+    - path: "scenarios/blog-post.yaml"
+      template: "templates/scenario-blog.yaml.tmpl"
+      
+    - path: "scenarios/product-description.yaml"
+      template: "templates/scenario-product.yaml.tmpl"
+      
+    - path: "scenarios/social-media.yaml"
+      template: "templates/scenario-social.yaml.tmpl"
+      
+    - path: ".env"
+      template: "templates/env.tmpl"
+      condition: "{{.include_env}}"
+      
+    - path: ".gitignore"
+      content: |
+        .env
+        out/
+        *.log
+        .DS_Store
+        
+    - path: "README.md"
+      template: "templates/readme.md.tmpl"
+      
+  examples:
+    scenarios:
+      - "Blog post generation"
+      - "Product descriptions"
+      - "Social media posts"
+      - "Email campaigns"
+    providers:
+      - "openai"
+      - "anthropic"
+      
+  docs:
+    getting_started: "https://promptkit.altairalabs.ai/arena/tutorials/01-first-test"
+    api_reference: "https://promptkit.altairalabs.ai/arena/reference"

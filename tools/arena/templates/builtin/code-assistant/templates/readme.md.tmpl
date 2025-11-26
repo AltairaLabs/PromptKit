@@ -1,0 +1,135 @@
+# {{.project_name}}
+
+Code generation and review testing project created with PromptArena.
+
+## Overview
+
+This project tests code assistant capabilities including:
+- Code generation for various languages
+- Code review and quality assessment
+- Bug identification and fixing
+- Refactoring suggestions
+
+## Getting Started
+
+### Prerequisites
+
+- PromptArena CLI installed
+{{range .providers}}{{if ne . "mock"}}- {{if eq . "openai"}}OpenAI{{else if eq . "anthropic"}}Anthropic{{else if eq . "google"}}Google{{end}} API key
+{{end}}{{end}}
+### Setup
+
+1. Configure your API keys in `.env` file:
+{{range .providers}}{{if eq . "openai"}}   - Get OpenAI key from: https://platform.openai.com/api-keys
+{{else if eq . "anthropic"}}   - Get Anthropic key from: https://console.anthropic.com/
+{{else if eq . "google"}}   - Get Google key from: https://aistudio.google.com/app/apikey
+{{end}}{{end}}
+2. Review and customize the scenarios in `scenarios/`
+
+3. Run the tests:
+   ```bash
+   promptarena run
+   ```
+
+## Project Structure
+
+```
+.
+├── arena.yaml                 # Main configuration
+├── prompts/
+│   ├── code-generator.yaml    # Code generation prompt
+│   └── code-reviewer.yaml     # Code review prompt
+├── providers/                 # LLM provider configs
+{{range .providers}}│   ├── {{.}}.yaml
+{{end}}├── scenarios/                 # Test scenarios
+│   ├── code-generation.yaml
+│   ├── code-review.yaml
+│   └── bug-fixing.yaml
+└── out/                       # Test results (generated)
+```
+
+## Scenarios
+
+### Code Generation (`scenarios/code-generation.yaml`)
+Tests the ability to generate well-structured, documented code with error handling.
+
+### Code Review (`scenarios/code-review.yaml`)
+Tests code review capabilities, identifying issues and suggesting improvements.
+
+### Bug Fixing (`scenarios/bug-fixing.yaml`)
+Tests bug identification and fixing with proper validation.
+
+## Customization
+
+### Adding Language-Specific Tests
+
+Create new scenario files for specific languages:
+
+```yaml
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/scenario.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: javascript-async
+
+spec:
+  id: js-async-test
+  task_type: code
+  description: "Test async/await in JavaScript"
+  
+  turns:
+    - role: user
+      content: "Write a JavaScript function that fetches data from an API with error handling"
+      assertions:
+        - type: contains_any
+          params:
+            values: ["async", "await", "try", "catch"]
+```
+
+### Adjusting Code Style
+
+Edit the prompt configurations to enforce specific style guidelines:
+- `prompts/code-generator.yaml` - Generation preferences
+- `prompts/code-reviewer.yaml` - Review criteria
+
+## Running Tests
+
+```bash
+# Run all scenarios
+promptarena run
+
+# Run specific scenario
+promptarena run --scenario code-generation
+
+# Run with specific provider
+promptarena run --provider openai-gpt4
+
+# Test with lower temperature for more deterministic code
+promptarena run --temperature 0.1
+```
+
+## Results
+
+Test results are saved to `out/`:
+- `results.json` - Detailed test results
+- `report.html` - Interactive HTML report
+
+## Next Steps
+
+- Add language-specific test scenarios
+- Create tests for specific frameworks
+- Test advanced patterns (design patterns, algorithms)
+- Add performance benchmarking
+- Integrate with CI/CD for code quality gates
+
+## Resources
+
+- [PromptArena Documentation](https://promptkit.altairalabs.ai/arena/)
+- [Tutorial: First Test](https://promptkit.altairalabs.ai/arena/tutorials/01-first-test)
+- [Scenario Reference](https://promptkit.altairalabs.ai/arena/reference/scenario)
+
+## Support
+
+For questions or issues:
+- GitHub Issues: https://github.com/AltairaLabs/PromptKit/issues
+- Documentation: https://promptkit.altairalabs.ai

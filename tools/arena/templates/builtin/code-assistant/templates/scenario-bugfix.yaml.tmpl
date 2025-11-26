@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/scenario.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: bug-fixing
+
+spec:
+  id: fix-bug
+  task_type: code
+  description: "Test bug identification and fixing capabilities"
+  
+  turns:
+    - role: user
+      content: |
+        This code has a bug. Can you identify and fix it?
+        
+        def find_average(numbers):
+            total = 0
+            for num in numbers:
+                total += num
+            return total / len(numbers)
+      assertions:
+        - type: content_not_empty
+          params: {}
+          message: "Response should not be empty"
+        - type: contains_any
+          params:
+            values: ["empty", "zero", "ZeroDivisionError", "length"]
+          message: "Should identify the division by zero issue"
+        - type: contains_any
+          params:
+            values: ["if ", "check", "validate"]
+          message: "Should suggest proper validation"

@@ -1,0 +1,84 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Template
+metadata:
+  name: mcp-integration
+  labels:
+    version: "1.0.0"
+  annotations:
+    description: "MCP (Model Context Protocol) server integration and testing"
+    author: "AltairaLabs"
+    tags: "mcp,tools,integration,server"
+    
+spec:
+  variables:
+    - name: project_name
+      description: "Project name"
+      type: string
+      default: "mcp-integration-tests"
+      required: true
+      prompt: "Project name"
+      
+    - name: providers
+      description: "LLM providers to configure"
+      type: array
+      options: ["mock", "openai", "anthropic", "google"]
+      default: ["openai"]
+      prompt: "Which providers would you like to test"
+      
+    - name: mcp_servers
+      description: "MCP servers to include examples for"
+      type: array
+      options: ["filesystem", "memory", "fetch", "puppeteer", "custom"]
+      default: ["filesystem", "memory"]
+      prompt: "Which MCP server types"
+      
+    - name: include_env
+      description: "Create .env file for API keys"
+      type: boolean
+      default: true
+      
+  files:
+    - path: "arena.yaml"
+      template: "templates/arena.yaml.tmpl"
+      
+    - path: "prompts/mcp-assistant.yaml"
+      template: "templates/prompt.yaml.tmpl"
+      
+    - path: "providers/{{.provider}}.yaml"
+      template: "templates/provider.yaml.tmpl"
+      foreach: "providers"
+      
+    - path: "scenarios/mcp-basic.yaml"
+      template: "templates/scenario-basic.yaml.tmpl"
+      
+    - path: "scenarios/mcp-multi-tool.yaml"
+      template: "templates/scenario-multi.yaml.tmpl"
+      
+    - path: ".env"
+      template: "templates/env.tmpl"
+      condition: "{{.include_env}}"
+      
+    - path: ".gitignore"
+      content: |
+        .env
+        out/
+        *.log
+        .DS_Store
+        node_modules/
+        
+    - path: "README.md"
+      template: "templates/readme.md.tmpl"
+      
+  examples:
+    scenarios:
+      - "Single MCP tool usage"
+      - "Multi-tool workflows"
+      - "Error handling"
+      - "Tool chaining"
+    providers:
+      - "openai"
+      - "anthropic"
+      
+  docs:
+    getting_started: "https://promptkit.altairalabs.ai/arena/tutorials/01-first-test"
+    api_reference: "https://promptkit.altairalabs.ai/arena/reference"

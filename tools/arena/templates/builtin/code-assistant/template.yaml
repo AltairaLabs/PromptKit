@@ -1,0 +1,89 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Template
+metadata:
+  name: code-assistant
+  labels:
+    version: "1.0.0"
+  annotations:
+    description: "Code generation and review assistant for multiple programming languages"
+    author: "AltairaLabs"
+    tags: "code,development,review,generation"
+    
+spec:
+  variables:
+    - name: project_name
+      description: "Project name"
+      type: string
+      default: "code-assistant-tests"
+      required: true
+      prompt: "Project name"
+      
+    - name: providers
+      description: "LLM providers to configure"
+      type: array
+      options: ["mock", "openai", "anthropic", "google"]
+      default: ["openai"]
+      prompt: "Which providers would you like to test"
+      
+    - name: languages
+      description: "Programming languages to focus on"
+      type: array
+      options: ["python", "javascript", "go", "rust", "java", "typescript"]
+      default: ["python", "javascript"]
+      prompt: "Which programming languages"
+      
+    - name: include_env
+      description: "Create .env file for API keys"
+      type: boolean
+      default: true
+      
+  files:
+    - path: "arena.yaml"
+      template: "templates/arena.yaml.tmpl"
+      
+    - path: "prompts/code-generator.yaml"
+      template: "templates/prompt-generator.yaml.tmpl"
+      
+    - path: "prompts/code-reviewer.yaml"
+      template: "templates/prompt-reviewer.yaml.tmpl"
+      
+    - path: "providers/{{.provider}}.yaml"
+      template: "templates/provider.yaml.tmpl"
+      foreach: "providers"
+      
+    - path: "scenarios/code-generation.yaml"
+      template: "templates/scenario-generation.yaml.tmpl"
+      
+    - path: "scenarios/code-review.yaml"
+      template: "templates/scenario-review.yaml.tmpl"
+      
+    - path: "scenarios/bug-fixing.yaml"
+      template: "templates/scenario-bugfix.yaml.tmpl"
+      
+    - path: ".env"
+      template: "templates/env.tmpl"
+      condition: "{{.include_env}}"
+      
+    - path: ".gitignore"
+      content: |
+        .env
+        out/
+        *.log
+        .DS_Store
+        
+    - path: "README.md"
+      template: "templates/readme.md.tmpl"
+      
+  examples:
+    scenarios:
+      - "Function generation"
+      - "Code review"
+      - "Bug fixing"
+      - "Refactoring"
+    providers:
+      - "openai"
+      - "anthropic"
+      
+  docs:
+    getting_started: "https://promptkit.altairalabs.ai/arena/tutorials/01-first-test"
+    api_reference: "https://promptkit.altairalabs.ai/arena/reference"

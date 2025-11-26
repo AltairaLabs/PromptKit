@@ -1,0 +1,198 @@
+# {{.project_name}}
+
+Multimodal AI testing project created with PromptArena.
+
+## Overview
+
+This project tests multimodal AI capabilities including:
+- Image analysis and description
+- Object detection and identification
+- Image comparison
+- OCR and text extraction
+- Visual question answering
+
+## Getting Started
+
+### Prerequisites
+
+- PromptArena CLI installed
+- Multimodal-capable LLM API access:
+{{range .providers}}{{if eq . "openai"}}  - OpenAI GPT-4o (vision enabled)
+{{else if eq . "anthropic"}}  - Anthropic Claude 3+ (vision enabled)
+{{else if eq . "google"}}  - Google Gemini (vision enabled)
+{{end}}{{end}}
+### Setup
+
+1. Configure your API keys in `.env` file:
+{{range .providers}}{{if eq . "openai"}}   - Get OpenAI key from: https://platform.openai.com/api-keys
+{{else if eq . "anthropic"}}   - Get Anthropic key from: https://console.anthropic.com/
+{{else if eq . "google"}}   - Get Google key from: https://aistudio.google.com/app/apikey
+{{end}}{{end}}
+2. Add test images to the `media/` directory
+
+3. Run the tests:
+   ```bash
+   promptarena run
+   ```
+
+## Project Structure
+
+```
+.
+├── arena.yaml                 # Main configuration
+├── prompts/
+│   └── vision-analyst.yaml    # Vision analysis prompt
+├── providers/                 # LLM provider configs
+{{range .providers}}│   ├── {{.}}.yaml
+{{end}}├── scenarios/                 # Test scenarios
+│   ├── image-analysis.yaml
+│   └── image-comparison.yaml
+├── media/                     # Test media files (add your images here)
+│   └── README.md
+└── out/                       # Test results (generated)
+```
+
+## Scenarios
+
+### Image Analysis (`scenarios/image-analysis.yaml`)
+Tests detailed image description and object identification using a sample image.
+
+### Image Comparison (`scenarios/image-comparison.yaml`)
+Tests the ability to compare multiple images and identify similarities/differences.
+
+## Adding Your Own Images
+
+### From Local Files
+
+Update scenario to use local images:
+
+```yaml
+turns:
+  - role: user
+    content: "Describe this image."
+    media:
+      - type: image
+        source: file
+        path: "media/your-image.jpg"
+```
+
+### From URLs
+
+Use publicly accessible image URLs:
+
+```yaml
+turns:
+  - role: user
+    content: "Describe this image."
+    media:
+      - type: image
+        source: url
+        url: "https://example.com/image.jpg"
+```
+
+### From Base64
+
+Embed small images directly:
+
+```yaml
+turns:
+  - role: user
+    content: "Describe this image."
+    media:
+      - type: image
+        source: base64
+        data: "iVBORw0KGgoAAAANSUhEUg..."
+```
+
+## Customization
+
+### Adding Specific Tests
+
+Create custom scenarios for your use cases:
+
+```yaml
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/scenario.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: product-photos
+
+spec:
+  id: check-product-quality
+  task_type: vision
+  description: "Verify product photo quality"
+  
+  turns:
+    - role: user
+      content: "Is this product photo suitable for e-commerce? Check lighting, focus, and composition."
+      media:
+        - type: image
+          source: file
+          path: "media/product.jpg"
+      assertions:
+        - type: contains_any
+          params:
+            values: ["lighting", "focus", "quality"]
+```
+
+## Running Tests
+
+```bash
+# Run all scenarios
+promptarena run
+
+# Run specific scenario
+promptarena run --scenario image-analysis
+
+# Run with specific provider
+promptarena run --provider openai-gpt4-vision
+
+# Use lower temperature for more consistent analysis
+promptarena run --temperature 0.3
+```
+
+## Best Practices
+
+### Image Quality
+- Use high-resolution images (at least 512x512)
+- Ensure good lighting and clarity
+- Avoid overly compressed images
+
+### Testing Strategy
+- Test with diverse image types
+- Include edge cases (low light, busy scenes, etc.)
+- Verify consistent behavior across providers
+- Test different image formats (JPEG, PNG, WebP)
+
+### Assertions
+- Verify key objects are identified
+- Check for appropriate detail level
+- Ensure factual accuracy
+- Test for harmful content detection (if needed)
+
+## Results
+
+Test results are saved to `out/`:
+- `results.json` - Detailed test results
+- `report.html` - Interactive HTML report with image previews
+
+## Next Steps
+
+- Add domain-specific image tests (medical, satellite, etc.)
+- Test OCR with text-heavy images
+- Add video frame analysis
+- Test audio transcription (if supported)
+- Create automated quality checks for content moderation
+
+## Resources
+
+- [PromptArena Documentation](https://promptkit.altairalabs.ai/arena/)
+- [Multimodal Guide](https://promptkit.altairalabs.ai/arena/guides/multimodal)
+- [Scenario Reference](https://promptkit.altairalabs.ai/arena/reference/scenario)
+- [Media Support](https://promptkit.altairalabs.ai/arena/guides/media)
+
+## Support
+
+For questions or issues:
+- GitHub Issues: https://github.com/AltairaLabs/PromptKit/issues
+- Documentation: https://promptkit.altairalabs.ai

@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/tool.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: check-order-status
+
+spec:
+  name: check_order_status
+  description: "Check the status of a customer order by order ID or email"
+  
+  input_schema:
+    type: object
+    properties:
+      order_id:
+        type: string
+        description: "Order ID"
+      email:
+        type: string
+        description: "Customer email address"
+    required:
+      - email
+  
+  handler:
+    type: mock
+    config:
+      response: |
+        {
+          "order_id": "ORD-12345",
+          "status": "in_transit",
+          "tracking_number": "1Z999AA10123456784",
+          "estimated_delivery": "2025-11-28",
+          "items": [
+            {"name": "Premium Widget", "quantity": 1}
+          ],
+          "notes": "Package delayed due to weather conditions. New delivery date: Nov 28."
+        }

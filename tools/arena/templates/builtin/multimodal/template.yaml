@@ -1,0 +1,104 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Template
+metadata:
+  name: multimodal
+  labels:
+    version: "1.0.0"
+  annotations:
+    description: "Multimodal AI testing for image, audio, and video processing"
+    author: "AltairaLabs"
+    tags: "multimodal,vision,audio,image,video"
+    
+spec:
+  variables:
+    - name: project_name
+      description: "Project name"
+      type: string
+      default: "multimodal-tests"
+      required: true
+      prompt: "Project name"
+      
+    - name: providers
+      description: "LLM providers to configure (must support multimodal)"
+      type: array
+      options: ["mock", "openai", "anthropic", "google"]
+      default: ["openai"]
+      prompt: "Which providers would you like to test"
+      
+    - name: media_types
+      description: "Types of media to test"
+      type: array
+      options: ["image", "audio", "video"]
+      default: ["image"]
+      prompt: "Which media types"
+      
+    - name: include_env
+      description: "Create .env file for API keys"
+      type: boolean
+      default: true
+      
+  files:
+    - path: "arena.yaml"
+      template: "templates/arena.yaml.tmpl"
+      
+    - path: "prompts/vision-analyst.yaml"
+      template: "templates/prompt-vision.yaml.tmpl"
+      
+    - path: "providers/{{.provider}}.yaml"
+      template: "templates/provider.yaml.tmpl"
+      foreach: "providers"
+      
+    - path: "scenarios/image-analysis.yaml"
+      template: "templates/scenario-image.yaml.tmpl"
+      
+    - path: "scenarios/image-comparison.yaml"
+      template: "templates/scenario-comparison.yaml.tmpl"
+      
+    - path: "media/README.md"
+      content: |
+        # Media Files
+        
+        Place your test media files here:
+        - Images: .jpg, .png, .gif, .webp
+        - Audio: .mp3, .wav (if testing audio)
+        - Video: .mp4, .webm (if testing video)
+        
+        Example structure:
+        ```
+        media/
+        ├── sample-image.jpg
+        ├── product-photo.png
+        └── comparison-a.jpg
+        ```
+        
+    - path: ".env"
+      template: "templates/env.tmpl"
+      condition: "{{.include_env}}"
+      
+    - path: ".gitignore"
+      content: |
+        .env
+        out/
+        *.log
+        .DS_Store
+        media/*.jpg
+        media/*.png
+        !media/README.md
+        
+    - path: "README.md"
+      template: "templates/readme.md.tmpl"
+      
+  examples:
+    scenarios:
+      - "Image description"
+      - "Object detection"
+      - "Image comparison"
+      - "OCR and text extraction"
+    providers:
+      - "openai"
+      - "anthropic"
+      - "google"
+      
+  docs:
+    getting_started: "https://promptkit.altairalabs.ai/arena/tutorials/01-first-test"
+    api_reference: "https://promptkit.altairalabs.ai/arena/reference"

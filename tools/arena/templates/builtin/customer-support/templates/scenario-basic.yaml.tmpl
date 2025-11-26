@@ -1,0 +1,37 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/scenario.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: basic-support
+
+spec:
+  id: greeting-and-help
+  task_type: support
+  description: "Basic customer support interaction - greeting and general help"
+  
+  turns:
+    - role: user
+      content: "Hello, I need some help with my account."
+      assertions:
+        - type: content_not_empty
+          params: {}
+          message: "Response should not be empty"
+        - type: contains_any
+          params:
+            values: ["help", "assist", "support"]
+          message: "Response should acknowledge help request"
+        
+    - role: user
+      content: "I can't log in to my account."
+      assertions:
+        - type: content_not_empty
+          params: {}
+          message: "Response should not be empty"
+        - type: contains_any
+          params:
+            values: ["password", "reset", "email", "login"]
+          message: "Response should address login issues"
+        - type: max_tokens
+          params:
+            max: 200
+          message: "Response should be concise"

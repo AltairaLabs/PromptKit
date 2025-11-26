@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/scenario.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: product-description
+
+spec:
+  id: write-product-description
+  task_type: content
+  description: "Test product description with benefits focus"
+  
+  turns:
+    - role: user
+      content: "Write a compelling product description for wireless noise-cancelling headphones. Focus on benefits, not just features. Include a call-to-action."
+      assertions:
+        - type: content_not_empty
+          params: {}
+          message: "Response should not be empty"
+        - type: contains_any
+          params:
+            values: ["noise", "wireless", "headphone"]
+          message: "Should mention the product"
+        - type: contains_any
+          params:
+            values: ["buy", "order", "get", "shop", "purchase", "try"]
+          message: "Should include a call-to-action"
+        - type: not_contains
+          params:
+            values: ["feature 1", "feature 2", "bullet point"]
+          message: "Should be prose, not bullet points"

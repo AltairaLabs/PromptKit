@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/scenario.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: code-generation
+
+spec:
+  id: generate-function
+  task_type: code
+  description: "Test code generation capabilities"
+  
+  turns:
+    - role: user
+      content: "Write a Python function that calculates the factorial of a number using recursion. Include error handling for negative inputs."
+      assertions:
+        - type: content_not_empty
+          params: {}
+          message: "Response should not be empty"
+        - type: contains_any
+          params:
+            values: ["def ", "factorial"]
+          message: "Response should contain function definition"
+        - type: contains_any
+          params:
+            values: ["if ", "raise", "ValueError", "assert"]
+          message: "Response should include error handling"
+        - type: max_tokens
+          params:
+            max: 500
+          message: "Code should be concise"
