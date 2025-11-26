@@ -74,15 +74,16 @@ linters:
         - assign
     revive:
       # Revive is a comprehensive Go style checker that catches various issues including:
-      # - Non-idiomatic naming (e.g., functions starting with "Get" which is discouraged in Go)
-      # - Go convention is to omit "Get" prefix: use Config() instead of GetConfig()
-      # - See: https://go.dev/doc/effective_go#Getters
+      # - Stuttering type names (e.g., mock.MockProvider, prompt.PromptConfig)
+      # - Variable/constant/type naming conventions
+      # - Package naming issues
+      # - Exported symbols without documentation
       #
-      # Note: Some rules like "exported" catch stuttering (e.g., mock.MockProvider)
-      # which would require breaking API changes to fix. These are warnings for now
-      # and can be addressed in a future major version bump.
+      # Note: Revive does NOT catch "Get" prefix in function names (flagged by SonarQube)
+      # The get-return rule only verifies Get* functions return values, not naming style
+      # See: https://go.dev/doc/effective_go#Getters
       rules:
-        # Naming conventions including getter detection
+        # Naming conventions for variables, constants, and types
         - name: var-naming
           severity: warning
           disabled: false
