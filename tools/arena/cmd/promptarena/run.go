@@ -102,7 +102,7 @@ func init() {
 
 	// NOSONAR
 	// Configuration file
-	runCmd.Flags().StringP("config", "c", "arena.yaml", "Configuration file path") // NOSONAR
+	runCmd.Flags().StringP("config", "c", "config.arena.yaml", "Configuration file path") // NOSONAR
 
 	// Override flags
 	runCmd.Flags().StringSlice("region", []string{}, "Regions to run (e.g., us,uk,au)")
@@ -200,9 +200,9 @@ func loadConfiguration(cmd *cobra.Command) (string, *config.Config, error) {
 		return "", nil, fmt.Errorf("failed to get config flag: %w", err)
 	}
 
-	// If config path is a directory, append arena.yaml
+	// If config path is a directory, append config.arena.yaml
 	if info, statErr := os.Stat(configFile); statErr == nil && info.IsDir() {
-		configFile = filepath.Join(configFile, "arena.yaml")
+		configFile = filepath.Join(configFile, "config.arena.yaml")
 	}
 
 	// Load configuration
