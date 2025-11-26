@@ -53,6 +53,10 @@ type Model struct {
 
 	isTUIMode      bool
 	fallbackReason string
+
+	// Summary state
+	summary     *Summary
+	showSummary bool
 }
 
 // RunInfo tracks information about a single run
@@ -129,6 +133,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case LogMsg:
 		m.handleLogMsg(&msg)
 		return m, nil
+
+	case ShowSummaryMsg:
+		m.handleShowSummary(&msg)
+		return m, tea.Quit
 	}
 
 	return m, nil
@@ -222,6 +230,12 @@ func (m *Model) handleLogMsg(msg *LogMsg) {
 	m.trimLogs()
 }
 
+// handleShowSummary processes a show summary message and switches to summary view
+func (m *Model) handleShowSummary(msg *ShowSummaryMsg) {
+	m.summary = msg.Summary
+	m.showSummary = true
+}
+
 // trimLogs keeps the log buffer size within limits.
 func (m *Model) trimLogs() {
 	if len(m.logs) > maxLogBufferSize {
@@ -236,6 +250,11 @@ func (m *Model) View() string {
 
 	if !m.isTUIMode {
 		return ""
+	}
+
+	// Show summary if execution is complete
+	if m.showSummary && m.summary != nil {
+		return RenderSummary(m.summary, m.width)
 	}
 
 	elapsed := time.Since(m.startTime).Truncate(time.Second)
@@ -436,7 +455,63 @@ func CheckTerminalSize() (width, height int, supported bool, reason string) {
 	return width, height, true, ""
 }
 
-// NewModel creates a new TUI model
+// BuildSummary creates a Summary from the current model state with output directory and HTML report path.
+func (m *Model) BuildSummary(outputDir, htmlReport string) *Summary {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Calculate average duration
+	avgDuration := time.Duration(0)
+	if m.completedCount > 0 {
+		avgDuration = m.totalDuration / time.Duration(m.completedCount)
+	}
+
+	// Collect provider counts
+	providerCounts := make(map[string]int)
+	scenarioSet := make(map[string]bool)
+	regionSet := make(map[string]bool)
+	errors := make([]ErrorInfo, 0)
+
+	for i := range m.activeRuns {
+		run := &m.activeRuns[i]
+		providerCounts[run.Provider]++
+		scenarioSet[run.Scenario] = true
+		regionSet[run.Region] = true
+
+		if run.Status == StatusFailed {
+			errors = append(errors, ErrorInfo{
+				RunID:    run.RunID,
+				Scenario: run.Scenario,
+				Provider: run.Provider,
+				Region:   run.Region,
+				Error:    run.Error,
+			})
+		}
+	}
+
+	regions := make([]string, 0, len(regionSet))
+	for region := range regionSet {
+		regions = append(regions, region)
+	}
+
+	return &Summary{
+		TotalRuns:      m.totalRuns,
+		SuccessCount:   m.successCount,
+		FailedCount:    m.failedCount,
+		TotalCost:      m.totalCost,
+		TotalTokens:    m.totalTokens,
+		TotalDuration:  time.Since(m.startTime),
+		AvgDuration:    avgDuration,
+		ProviderCounts: providerCounts,
+		ScenarioCount:  len(scenarioSet),
+		Regions:        regions,
+		Errors:         errors,
+		OutputDir:      outputDir,
+		HTMLReport:     htmlReport,
+	}
+}
+
+// NewModel creates a new TUI model with the specified configuration file and total run count.
 func NewModel(configFile string, totalRuns int) *Model {
 	width, height, supported, reason := CheckTerminalSize()
 

@@ -43,6 +43,11 @@ type RunFailedMsg struct {
 	Time  time.Time
 }
 
+// ShowSummaryMsg is sent when execution completes and the final summary should be displayed
+type ShowSummaryMsg struct {
+	Summary *Summary
+}
+
 // OnRunStarted is called when a test run begins execution.
 // This method is goroutine-safe and converts the callback to a bubbletea message.
 func (o *Observer) OnRunStarted(runID, scenario, provider, region string) {
