@@ -154,14 +154,6 @@ func AggregateTestResults(results []TestResultSummary, provider, model string) *
 	}
 }
 
-// ConvertFromEngineResults converts engine RunResults to TestResultSummary
-// This is a helper to bridge between engine execution and metadata generation
-func ConvertFromEngineResults(engineResults []interface{}) []TestResultSummary {
-	// This will be implemented when we integrate with the engine
-	// For now, return empty slice
-	return []TestResultSummary{}
-}
-
 // calculateP95Latency computes the 95th percentile latency
 func calculateP95Latency(results []TestResultSummary) int {
 	if len(results) == 0 {
