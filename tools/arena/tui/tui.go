@@ -125,6 +125,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case RunFailedMsg:
 		m.handleRunFailed(&msg)
 		return m, nil
+
+	case LogMsg:
+		m.handleLogMsg(&msg)
+		return m, nil
 	}
 
 	return m, nil
@@ -204,6 +208,16 @@ func (m *Model) handleRunFailed(msg *RunFailedMsg) {
 		Timestamp: msg.Time,
 		Level:     "ERROR",
 		Message:   fmt.Sprintf("Failed: %s - %v", msg.RunID, msg.Error),
+	})
+	m.trimLogs()
+}
+
+// handleLogMsg processes a log message from the interceptor
+func (m *Model) handleLogMsg(msg *LogMsg) {
+	m.logs = append(m.logs, LogEntry{
+		Timestamp: msg.Timestamp,
+		Level:     msg.Level,
+		Message:   msg.Message,
 	})
 	m.trimLogs()
 }
