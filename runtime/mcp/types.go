@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 )
 
-// Protocol version (as of 2025-06-18)
+// ProtocolVersion defines the MCP protocol version (as of 2025-06-18).
 const ProtocolVersion = "2025-06-18"
 
 // JSONRPCMessage represents a JSON-RPC 2.0 message

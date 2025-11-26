@@ -7,15 +7,15 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
-func TestNewMemoryPromptRepository(t *testing.T) {
-	repo := NewMemoryPromptRepository()
+func TestNewPromptRepository(t *testing.T) {
+	repo := NewPromptRepository()
 	if repo == nil {
-		t.Fatal("NewMemoryPromptRepository() returned nil")
+		t.Fatal("NewPromptRepository() returned nil")
 	}
 }
 
 func TestMemoryPromptRepository_LoadPrompt_NotFound(t *testing.T) {
-	repo := NewMemoryPromptRepository()
+	repo := NewPromptRepository()
 	_, err := repo.LoadPrompt("nonexistent")
 	if err == nil {
 		t.Error("Expected error for nonexistent prompt, got nil")
@@ -23,10 +23,10 @@ func TestMemoryPromptRepository_LoadPrompt_NotFound(t *testing.T) {
 }
 
 func TestMemoryPromptRepository_RegisterAndLoadPrompt(t *testing.T) {
-	repo := NewMemoryPromptRepository()
+	repo := NewPromptRepository()
 
-	config := &prompt.PromptConfig{
-		Spec: prompt.PromptSpec{
+	config := &prompt.Config{
+		Spec: prompt.Spec{
 			TaskType:       "test-task",
 			SystemTemplate: "Test system prompt",
 		},
@@ -49,10 +49,10 @@ func TestMemoryPromptRepository_RegisterAndLoadPrompt(t *testing.T) {
 }
 
 func TestMemoryPromptRepository_SavePrompt(t *testing.T) {
-	repo := NewMemoryPromptRepository()
+	repo := NewPromptRepository()
 
-	config := &prompt.PromptConfig{
-		Spec: prompt.PromptSpec{
+	config := &prompt.Config{
+		Spec: prompt.Spec{
 			TaskType:       "save-test",
 			SystemTemplate: "Saved prompt",
 		},
@@ -74,7 +74,7 @@ func TestMemoryPromptRepository_SavePrompt(t *testing.T) {
 }
 
 func TestMemoryPromptRepository_ListPrompts_Empty(t *testing.T) {
-	repo := NewMemoryPromptRepository()
+	repo := NewPromptRepository()
 
 	prompts, err := repo.ListPrompts()
 	if err != nil {
@@ -87,16 +87,16 @@ func TestMemoryPromptRepository_ListPrompts_Empty(t *testing.T) {
 }
 
 func TestMemoryPromptRepository_ListPrompts_Multiple(t *testing.T) {
-	repo := NewMemoryPromptRepository()
+	repo := NewPromptRepository()
 
-	repo.RegisterPrompt("task1", &prompt.PromptConfig{
-		Spec: prompt.PromptSpec{TaskType: "task1"},
+	repo.RegisterPrompt("task1", &prompt.Config{
+		Spec: prompt.Spec{TaskType: "task1"},
 	})
-	repo.RegisterPrompt("task2", &prompt.PromptConfig{
-		Spec: prompt.PromptSpec{TaskType: "task2"},
+	repo.RegisterPrompt("task2", &prompt.Config{
+		Spec: prompt.Spec{TaskType: "task2"},
 	})
-	repo.RegisterPrompt("task3", &prompt.PromptConfig{
-		Spec: prompt.PromptSpec{TaskType: "task3"},
+	repo.RegisterPrompt("task3", &prompt.Config{
+		Spec: prompt.Spec{TaskType: "task3"},
 	})
 
 	prompts, err := repo.ListPrompts()
@@ -122,7 +122,7 @@ func TestMemoryPromptRepository_ListPrompts_Multiple(t *testing.T) {
 }
 
 func TestMemoryPromptRepository_LoadFragment_NotFound(t *testing.T) {
-	repo := NewMemoryPromptRepository()
+	repo := NewPromptRepository()
 
 	_, err := repo.LoadFragment("nonexistent", "", "")
 	if err == nil {
@@ -131,7 +131,7 @@ func TestMemoryPromptRepository_LoadFragment_NotFound(t *testing.T) {
 }
 
 func TestMemoryPromptRepository_RegisterAndLoadFragment(t *testing.T) {
-	repo := NewMemoryPromptRepository()
+	repo := NewPromptRepository()
 
 	fragment := &prompt.Fragment{
 		Content: "Fragment content",
@@ -149,15 +149,15 @@ func TestMemoryPromptRepository_RegisterAndLoadFragment(t *testing.T) {
 	}
 }
 
-func TestNewMemoryToolRepository(t *testing.T) {
-	repo := NewMemoryToolRepository()
+func TestNewToolRepository(t *testing.T) {
+	repo := NewToolRepository()
 	if repo == nil {
-		t.Fatal("NewMemoryToolRepository() returned nil")
+		t.Fatal("NewToolRepository() returned nil")
 	}
 }
 
 func TestMemoryToolRepository_LoadTool_NotFound(t *testing.T) {
-	repo := NewMemoryToolRepository()
+	repo := NewToolRepository()
 
 	_, err := repo.LoadTool("nonexistent")
 	if err == nil {
@@ -166,7 +166,7 @@ func TestMemoryToolRepository_LoadTool_NotFound(t *testing.T) {
 }
 
 func TestMemoryToolRepository_RegisterAndLoadTool(t *testing.T) {
-	repo := NewMemoryToolRepository()
+	repo := NewToolRepository()
 
 	descriptor := &tools.ToolDescriptor{
 		Name:        "test-tool",
@@ -190,7 +190,7 @@ func TestMemoryToolRepository_RegisterAndLoadTool(t *testing.T) {
 }
 
 func TestMemoryToolRepository_SaveTool(t *testing.T) {
-	repo := NewMemoryToolRepository()
+	repo := NewToolRepository()
 
 	descriptor := &tools.ToolDescriptor{
 		Name:        "save-test-tool",
@@ -213,7 +213,7 @@ func TestMemoryToolRepository_SaveTool(t *testing.T) {
 }
 
 func TestMemoryToolRepository_ListTools_Empty(t *testing.T) {
-	repo := NewMemoryToolRepository()
+	repo := NewToolRepository()
 
 	toolsList, err := repo.ListTools()
 	if err != nil {
@@ -226,7 +226,7 @@ func TestMemoryToolRepository_ListTools_Empty(t *testing.T) {
 }
 
 func TestMemoryToolRepository_ListTools_Multiple(t *testing.T) {
-	repo := NewMemoryToolRepository()
+	repo := NewToolRepository()
 
 	repo.RegisterTool("tool1", &tools.ToolDescriptor{Name: "tool1"})
 	repo.RegisterTool("tool2", &tools.ToolDescriptor{Name: "tool2"})

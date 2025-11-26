@@ -203,6 +203,36 @@
         "enabled"
       ]
     },
+    "Metadata": {
+      "properties": {
+        "domain": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "cost_estimate": {
+          "$ref": "#/$defs/CostEstimate"
+        },
+        "performance": {
+          "$ref": "#/$defs/PerformanceMetrics"
+        },
+        "changelog": {
+          "items": {
+            "$ref": "#/$defs/ChangelogEntry"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "ModelOverride": {
       "properties": {
         "system_template": {
@@ -330,37 +360,7 @@
         "success_rate"
       ]
     },
-    "PromptMetadata": {
-      "properties": {
-        "domain": {
-          "type": "string"
-        },
-        "language": {
-          "type": "string"
-        },
-        "tags": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "cost_estimate": {
-          "$ref": "#/$defs/CostEstimate"
-        },
-        "performance": {
-          "$ref": "#/$defs/PerformanceMetrics"
-        },
-        "changelog": {
-          "items": {
-            "$ref": "#/$defs/ChangelogEntry"
-          },
-          "type": "array"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object"
-    },
-    "PromptSpec": {
+    "Spec": {
       "properties": {
         "task_type": {
           "type": "string"
@@ -417,7 +417,7 @@
           "type": "array"
         },
         "metadata": {
-          "$ref": "#/$defs/PromptMetadata"
+          "$ref": "#/$defs/Metadata"
         },
         "compilation": {
           "$ref": "#/$defs/CompilationInfo"
@@ -536,7 +536,7 @@
       "$ref": "#/$defs/ObjectMeta"
     },
     "spec": {
-      "$ref": "#/$defs/PromptSpec"
+      "$ref": "#/$defs/Spec"
     },
     "$schema": {
       "type": "string",

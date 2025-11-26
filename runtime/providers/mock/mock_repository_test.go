@@ -17,7 +17,7 @@ func TestInMemoryMockRepository(t *testing.T) {
 	ctx := context.Background()
 
 	// Test default response
-	response, err := repo.GetResponse(ctx, MockResponseParams{
+	response, err := repo.GetResponse(ctx, ResponseParams{
 		ProviderID: "test-provider",
 		ModelName:  "test-model",
 	})
@@ -30,7 +30,7 @@ func TestInMemoryMockRepository(t *testing.T) {
 
 	// Set scenario-specific response
 	repo.SetResponse("scenario1", 0, "scenario1 default")
-	response, err = repo.GetResponse(ctx, MockResponseParams{
+	response, err = repo.GetResponse(ctx, ResponseParams{
 		ScenarioID: "scenario1",
 		ProviderID: "test-provider",
 	})
@@ -43,7 +43,7 @@ func TestInMemoryMockRepository(t *testing.T) {
 
 	// Set turn-specific response
 	repo.SetResponse("scenario1", 1, "turn 1 response")
-	response, err = repo.GetResponse(ctx, MockResponseParams{
+	response, err = repo.GetResponse(ctx, ResponseParams{
 		ScenarioID: "scenario1",
 		TurnNumber: 1,
 		ProviderID: "test-provider",
@@ -56,7 +56,7 @@ func TestInMemoryMockRepository(t *testing.T) {
 	}
 
 	// Test fallback to scenario default when turn not found
-	response, err = repo.GetResponse(ctx, MockResponseParams{
+	response, err = repo.GetResponse(ctx, ResponseParams{
 		ScenarioID: "scenario1",
 		TurnNumber: 99,
 		ProviderID: "test-provider",
@@ -98,7 +98,7 @@ scenarios:
 	ctx := context.Background()
 
 	// Test global default
-	response, err := repo.GetResponse(ctx, MockResponseParams{
+	response, err := repo.GetResponse(ctx, ResponseParams{
 		ProviderID: "test-provider",
 		ModelName:  "test-model",
 	})
@@ -110,7 +110,7 @@ scenarios:
 	}
 
 	// Test scenario default
-	response, err = repo.GetResponse(ctx, MockResponseParams{
+	response, err = repo.GetResponse(ctx, ResponseParams{
 		ScenarioID: "scenario1",
 		TurnNumber: 99, // Non-existent turn should fall back to scenario default
 		ProviderID: "test-provider",
@@ -123,7 +123,7 @@ scenarios:
 	}
 
 	// Test turn-specific response
-	response, err = repo.GetResponse(ctx, MockResponseParams{
+	response, err = repo.GetResponse(ctx, ResponseParams{
 		ScenarioID: "scenario1",
 		TurnNumber: 1,
 		ProviderID: "test-provider",
@@ -136,7 +136,7 @@ scenarios:
 	}
 
 	// Test scenario without default falls back to global
-	response, err = repo.GetResponse(ctx, MockResponseParams{
+	response, err = repo.GetResponse(ctx, ResponseParams{
 		ScenarioID: "scenario2",
 		TurnNumber: 99, // Non-existent turn
 		ProviderID: "test-provider",
@@ -149,7 +149,7 @@ scenarios:
 	}
 
 	// Test scenario2 turn1
-	response, err = repo.GetResponse(ctx, MockResponseParams{
+	response, err = repo.GetResponse(ctx, ResponseParams{
 		ScenarioID: "scenario2",
 		TurnNumber: 1,
 		ProviderID: "test-provider",
@@ -188,7 +188,7 @@ func TestMockProviderWithRepository(t *testing.T) {
 	repo.SetResponse("test-scenario", 1, "custom turn 1")
 
 	// Create mock provider with repository
-	provider := NewMockProviderWithRepository("test-provider", "test-model", false, repo)
+	provider := NewProviderWithRepository("test-provider", "test-model", false, repo)
 
 	if provider.ID() != "test-provider" {
 		t.Errorf("Expected provider ID 'test-provider', got %q", provider.ID())

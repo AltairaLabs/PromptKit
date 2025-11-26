@@ -391,7 +391,7 @@ func (p *Pack) CreateRegistry() (*prompt.Registry, error) {
 	}
 
 	// Create memory repository for in-memory prompt storage
-	memRepo := memory.NewMemoryPromptRepository()
+	memRepo := memory.NewPromptRepository()
 
 	// Convert SDK prompts to runtime PromptConfigs and register them
 	for taskType, sdkPrompt := range p.Prompts {
@@ -409,7 +409,7 @@ func (p *Pack) CreateRegistry() (*prompt.Registry, error) {
 }
 
 // convertToRuntimeConfig converts SDK Prompt format to runtime PromptConfig format
-func (p *Pack) convertToRuntimeConfig(taskType string, sdkPrompt *Prompt) *prompt.PromptConfig {
+func (p *Pack) convertToRuntimeConfig(taskType string, sdkPrompt *Prompt) *prompt.Config {
 	// Build variable metadata from SDK variables
 	varMetadata := make([]prompt.VariableMetadata, 0, len(sdkPrompt.Variables))
 	requiredVars := []string{}
@@ -473,10 +473,10 @@ func (p *Pack) convertToRuntimeConfig(taskType string, sdkPrompt *Prompt) *promp
 	}
 
 	// Build PromptConfig
-	return &prompt.PromptConfig{
+	return &prompt.Config{
 		APIVersion: "promptkit.altairalabs.ai/v1",
 		Kind:       "Prompt",
-		Spec: prompt.PromptSpec{
+		Spec: prompt.Spec{
 			TaskType:       taskType,
 			Version:        sdkPrompt.Version,
 			Description:    sdkPrompt.Description,

@@ -23,7 +23,7 @@
 //
 // Create a registry with a repository (config-first pattern):
 //
-//	repo := memory.NewPromptRepository()
+//	repo := memory.NewRepository()
 //	registry := prompt.NewRegistryWithRepository(repo)
 //	assembled := registry.LoadWithVars("task_type", vars, "gpt-4")
 //
@@ -56,16 +56,16 @@ func (ap *AssembledPrompt) UsesTools() bool {
 	return len(ap.AllowedTools) > 0
 }
 
-// PromptConfig represents a YAML prompt configuration file in K8s-style manifest format
-type PromptConfig struct {
+// Config represents a YAML prompt configuration file in K8s-style manifest format
+type Config struct {
 	APIVersion string            `yaml:"apiVersion" json:"apiVersion"`
 	Kind       string            `yaml:"kind" json:"kind"`
 	Metadata   metav1.ObjectMeta `yaml:"metadata,omitempty" json:"metadata,omitempty"`
-	Spec       PromptSpec        `yaml:"spec" json:"spec"`
+	Spec       Spec              `yaml:"spec" json:"spec"`
 }
 
-// PromptSpec contains the actual prompt configuration
-type PromptSpec struct {
+// Spec contains the actual prompt configuration
+type Spec struct {
 	TaskType       string                   `yaml:"task_type" json:"task_type"`
 	Version        string                   `yaml:"version" json:"version"`
 	Description    string                   `yaml:"description" json:"description"`
@@ -78,7 +78,7 @@ type PromptSpec struct {
 	MediaConfig    *MediaConfig             `yaml:"media,omitempty" json:"media,omitempty"`                 // Multimodal media configuration
 	Validators     []ValidatorConfig        `yaml:"validators,omitempty" json:"validators,omitempty"`       // Validators/Guardrails for production runtime
 	TestedModels   []ModelTestResultRef     `yaml:"tested_models,omitempty" json:"tested_models,omitempty"` // Model testing metadata
-	Metadata       *PromptMetadata          `yaml:"metadata,omitempty" json:"metadata,omitempty"`           // Additional metadata for pack format
+	Metadata       *Metadata                `yaml:"metadata,omitempty" json:"metadata,omitempty"`           // Additional metadata for pack format
 	Compilation    *CompilationInfo         `yaml:"compilation,omitempty" json:"compilation,omitempty"`     // Compilation information
 }
 
@@ -214,8 +214,8 @@ type VariableMetadata struct {
 	Validation  map[string]interface{} `yaml:"validation,omitempty" json:"validation,omitempty"`
 }
 
-// PromptMetadata contains additional metadata for the pack format
-type PromptMetadata struct {
+// Metadata contains additional metadata for the pack format
+type Metadata struct {
 	Domain       string              `yaml:"domain,omitempty"`        // Domain/category (e.g., "customer-support")
 	Language     string              `yaml:"language,omitempty"`      // Primary language (e.g., "en")
 	Tags         []string            `yaml:"tags,omitempty"`          // Tags for categorization
@@ -279,19 +279,19 @@ type ModelOverride struct {
 	SystemTemplateSuffix string `yaml:"system_template_suffix,omitempty"`
 }
 
-// PromptRepository interface defines methods for loading prompts (to avoid import cycles)
-// This should match persistence.PromptRepository interface
-type PromptRepository interface {
-	LoadPrompt(taskType string) (*PromptConfig, error)
+// Repository interface defines methods for loading prompts (to avoid import cycles)
+// This should match persistence.Repository interface
+type Repository interface {
+	LoadPrompt(taskType string) (*Config, error)
 	LoadFragment(name string, relativePath string, baseDir string) (*Fragment, error)
 	ListPrompts() ([]string, error)
-	SavePrompt(config *PromptConfig) error
+	SavePrompt(config *Config) error
 }
 
 // Registry manages prompt templates, versions, and variable substitution.
 type Registry struct {
-	repository       PromptRepository // Required repository for loading prompts
-	promptCache      map[string]*PromptConfig
+	repository       Repository // Required repository for loading prompts
+	promptCache      map[string]*Config
 	fragmentCache    map[string]*Fragment
 	fragmentResolver *FragmentResolver
 	templateRenderer *template.Renderer
@@ -300,10 +300,10 @@ type Registry struct {
 
 // NewRegistryWithRepository creates a registry with a repository (new preferred method).
 // This constructor uses the repository pattern for loading prompts, avoiding direct file I/O.
-func NewRegistryWithRepository(repository PromptRepository) *Registry {
+func NewRegistryWithRepository(repository Repository) *Registry {
 	return &Registry{
 		repository:       repository,
-		promptCache:      make(map[string]*PromptConfig),
+		promptCache:      make(map[string]*Config),
 		fragmentCache:    make(map[string]*Fragment),
 		fragmentResolver: NewFragmentResolverWithRepository(repository),
 		templateRenderer: template.NewRenderer(),
@@ -337,7 +337,7 @@ func (r *Registry) LoadWithVars(activity string, vars map[string]string, model s
 }
 
 // prepareVariables validates required vars, merges with defaults, and assembles fragments
-func (r *Registry) prepareVariables(config *PromptConfig, vars map[string]string, activity string) (map[string]string, error) {
+func (r *Registry) prepareVariables(config *Config, vars map[string]string, activity string) (map[string]string, error) {
 	// Validate required variables
 	if err := r.validateRequiredVars(config, vars); err != nil {
 		logger.Error("Prompt missing required vars for activity '%s': %v", activity, err)
@@ -363,7 +363,7 @@ func (r *Registry) prepareVariables(config *PromptConfig, vars map[string]string
 }
 
 // assembleFragmentVars assembles fragment variables
-func (r *Registry) assembleFragmentVars(config *PromptConfig, finalVars map[string]string, activity string) (map[string]string, error) {
+func (r *Registry) assembleFragmentVars(config *Config, finalVars map[string]string, activity string) (map[string]string, error) {
 	fragmentVars, err := r.fragmentResolver.AssembleFragments(config.Spec.Fragments, finalVars, "")
 	if err != nil {
 		logger.Error("Fragment assembly failed for activity '%s': %v", activity, err)
@@ -373,7 +373,7 @@ func (r *Registry) assembleFragmentVars(config *PromptConfig, finalVars map[stri
 }
 
 // applyModelOverrides applies model-specific template overrides
-func (r *Registry) applyModelOverrides(config *PromptConfig, model string) string {
+func (r *Registry) applyModelOverrides(config *Config, model string) string {
 	systemTemplate := config.Spec.SystemTemplate
 
 	if model == "" {
@@ -396,7 +396,7 @@ func (r *Registry) applyModelOverrides(config *PromptConfig, model string) strin
 }
 
 // renderAndAssemble renders the template and creates the final AssembledPrompt
-func (r *Registry) renderAndAssemble(config *PromptConfig, systemTemplate string, finalVars map[string]string, activity string) *AssembledPrompt {
+func (r *Registry) renderAndAssemble(config *Config, systemTemplate string, finalVars map[string]string, activity string) *AssembledPrompt {
 	// Render template with variables
 	assembledText, err := r.templateRenderer.Render(systemTemplate, finalVars)
 	if err != nil {
@@ -424,12 +424,12 @@ func (r *Registry) renderAndAssemble(config *PromptConfig, systemTemplate string
 	return &result
 }
 
-// ParsePromptConfig parses a prompt config from YAML data.
+// ParseConfig parses a prompt config from YAML data.
 // This is a package-level utility function for parsing prompt configs in the config layer.
 // The config layer should read files using os.ReadFile and pass the data to this function.
-// Returns the parsed PromptConfig or an error if parsing/validation fails.
-func ParsePromptConfig(data []byte) (*PromptConfig, error) {
-	var config PromptConfig
+// Returns the parsed Config or an error if parsing/validation fails.
+func ParseConfig(data []byte) (*Config, error) {
+	var config Config
 	if err := yaml.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse YAML: %w", err)
 	}
@@ -452,7 +452,7 @@ func ParsePromptConfig(data []byte) (*PromptConfig, error) {
 }
 
 // loadConfig loads a prompt configuration from the repository with caching
-func (r *Registry) loadConfig(activity string) (*PromptConfig, error) {
+func (r *Registry) loadConfig(activity string) (*Config, error) {
 	if r.repository == nil {
 		return nil, fmt.Errorf("registry requires repository")
 	}
@@ -483,7 +483,7 @@ func (r *Registry) loadConfig(activity string) (*PromptConfig, error) {
 }
 
 // validateRequiredVars ensures all required variables are provided
-func (r *Registry) validateRequiredVars(config *PromptConfig, vars map[string]string) error {
+func (r *Registry) validateRequiredVars(config *Config, vars map[string]string) error {
 	// Extract required variable names from Variables
 	requiredVars := []string{}
 	for _, v := range config.Spec.Variables {
@@ -495,7 +495,7 @@ func (r *Registry) validateRequiredVars(config *PromptConfig, vars map[string]st
 }
 
 // mergeVars combines provided vars with optional defaults from Variables
-func (r *Registry) mergeVars(config *PromptConfig, vars map[string]string) map[string]string {
+func (r *Registry) mergeVars(config *Config, vars map[string]string) map[string]string {
 	// Pre-allocate with known capacity for better performance
 	result := make(map[string]string, len(config.Spec.Variables)+len(vars))
 
@@ -572,12 +572,12 @@ func (r *Registry) ClearCache() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.promptCache = make(map[string]*PromptConfig)
+	r.promptCache = make(map[string]*Config)
 	r.fragmentCache = make(map[string]*Fragment)
 }
 
-// GetPromptInfo returns detailed information about a prompt configuration
-func (r *Registry) GetPromptInfo(taskType string) (*PromptInfo, error) {
+// GetInfo returns detailed information about a prompt configuration
+func (r *Registry) GetInfo(taskType string) (*Info, error) {
 	config, err := r.loadConfig(taskType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get prompt info: %w", err)
@@ -594,7 +594,7 @@ func (r *Registry) GetPromptInfo(taskType string) (*PromptInfo, error) {
 		}
 	}
 
-	return &PromptInfo{
+	return &Info{
 		TaskType:       config.Spec.TaskType,
 		Version:        config.Spec.Version,
 		Description:    config.Spec.Description,
@@ -606,8 +606,8 @@ func (r *Registry) GetPromptInfo(taskType string) (*PromptInfo, error) {
 	}, nil
 }
 
-// PromptInfo provides summary information about a prompt configuration
-type PromptInfo struct {
+// Info provides summary information about a prompt configuration
+type Info struct {
 	TaskType       string
 	Version        string
 	Description    string
@@ -631,7 +631,7 @@ func extractKeys[V any](m map[string]V) []string {
 }
 
 // populateDefaults fills in default values for optional fields in the config
-func (r *Registry) populateDefaults(config *PromptConfig) {
+func (r *Registry) populateDefaults(config *Config) {
 	// Set default template engine info if not specified
 	if config.Spec.TemplateEngine == nil {
 		config.Spec.TemplateEngine = &TemplateEngineInfo{
@@ -671,11 +671,11 @@ func (r *Registry) ListTaskTypes() []string {
 	return extractKeys(r.promptCache)
 }
 
-// RegisterConfig registers a PromptConfig directly into the registry.
+// RegisterConfig registers a Config directly into the registry.
 // This allows programmatic registration of prompts without requiring disk files.
 // Useful for loading prompts from compiled packs or other in-memory sources.
 // If a repository is configured, the config is persisted there as well.
-func (r *Registry) RegisterConfig(taskType string, config *PromptConfig) error {
+func (r *Registry) RegisterConfig(taskType string, config *Config) error {
 	if taskType == "" {
 		return fmt.Errorf("task_type cannot be empty")
 	}
@@ -724,6 +724,6 @@ func (r *Registry) GetLoadedFragments() []string {
 }
 
 // LoadConfig is deprecated: use loadConfig directly (internal use) or use Load/LoadWithVars
-func (r *Registry) LoadConfig(activity string) (*PromptConfig, error) {
+func (r *Registry) LoadConfig(activity string) (*Config, error) {
 	return r.loadConfig(activity)
 }

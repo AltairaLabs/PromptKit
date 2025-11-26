@@ -13,25 +13,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewMockToolProvider(t *testing.T) {
-	provider := NewMockToolProvider("test-id", "test-model", false, nil)
+func TestNewToolProvider(t *testing.T) {
+	provider := NewToolProvider("test-id", "test-model", false, nil)
 
 	assert.NotNil(t, provider)
 	assert.Equal(t, "test-id", provider.ID())
-	assert.IsType(t, &MockToolProvider{}, provider)
-	assert.IsType(t, &MockProvider{}, provider.MockProvider)
+	assert.IsType(t, &ToolProvider{}, provider)
+	assert.IsType(t, &Provider{}, provider.Provider)
 }
 
-func TestNewMockToolProviderWithRepository(t *testing.T) {
+func TestNewToolProviderWithRepository(t *testing.T) {
 	repo := NewInMemoryMockRepository("default response")
-	provider := NewMockToolProviderWithRepository("test-id", "test-model", false, repo)
+	provider := NewToolProviderWithRepository("test-id", "test-model", false, repo)
 
 	assert.NotNil(t, provider)
 	assert.Equal(t, "test-id", provider.ID())
 }
 
-func TestMockToolProvider_BuildTooling(t *testing.T) {
-	provider := NewMockToolProvider("test-id", "test-model", false, nil)
+func TestToolProvider_BuildTooling(t *testing.T) {
+	provider := NewToolProvider("test-id", "test-model", false, nil)
 
 	descriptors := []*providers.ToolDescriptor{
 		{
@@ -46,12 +46,12 @@ func TestMockToolProvider_BuildTooling(t *testing.T) {
 	assert.Equal(t, descriptors, result)
 }
 
-func TestMockToolProvider_PredictWithTools_TextResponse(t *testing.T) {
+func TestToolProvider_PredictWithTools_TextResponse(t *testing.T) {
 	// Create repository with text response
 	repo := NewInMemoryMockRepository("default")
 	repo.SetResponse("test-scenario", 1, "Hello from mock provider!")
 
-	provider := NewMockToolProviderWithRepository("test-id", "test-model", false, repo)
+	provider := NewToolProviderWithRepository("test-id", "test-model", false, repo)
 
 	req := providers.PredictionRequest{
 		Messages: []types.Message{
@@ -74,7 +74,7 @@ func TestMockToolProvider_PredictWithTools_TextResponse(t *testing.T) {
 	assert.Greater(t, resp.CostInfo.OutputTokens, 0)
 }
 
-func TestMockToolProvider_PredictWithTools_ToolCallResponse(t *testing.T) {
+func TestToolProvider_PredictWithTools_ToolCallResponse(t *testing.T) {
 	// Create a file repository with structured tool call response
 	configData := `
 scenarios:
@@ -101,7 +101,7 @@ scenarios:
 	repo, err := NewFileMockRepository(tempFile)
 	require.NoError(t, err)
 
-	provider := NewMockToolProviderWithRepository("test-id", "test-model", false, repo)
+	provider := NewToolProviderWithRepository("test-id", "test-model", false, repo)
 
 	req := providers.PredictionRequest{
 		Messages: []types.Message{
@@ -147,11 +147,11 @@ scenarios:
 	assert.Greater(t, resp.CostInfo.OutputTokens, 0)
 }
 
-func TestMockToolProvider_InvalidToolCallArgs(t *testing.T) {
+func TestToolProvider_InvalidToolCallArgs(t *testing.T) {
 	// Create repository with tool call arguments that contain unmarshalable data
 	// We'll use InMemoryMockRepository and create a mock turn with bad data directly
 	repo := NewInMemoryMockRepository("default")
-	provider := NewMockToolProviderWithRepository("test-id", "test-model", false, repo)
+	provider := NewToolProviderWithRepository("test-id", "test-model", false, repo)
 
 	// Create a mock that will return a turn with tool calls containing invalid data
 	// We'll simulate this by creating the turn structure directly in the repository
@@ -177,10 +177,10 @@ func TestMockToolProvider_InvalidToolCallArgs(t *testing.T) {
 	assert.Nil(t, toolCalls)
 }
 
-func TestMockToolProvider_NoScenarioFallback(t *testing.T) {
+func TestToolProvider_NoScenarioFallback(t *testing.T) {
 	// Test fallback behavior when no scenario is configured
 	repo := NewInMemoryMockRepository("Default fallback response")
-	provider := NewMockToolProviderWithRepository("test-id", "test-model", false, repo)
+	provider := NewToolProviderWithRepository("test-id", "test-model", false, repo)
 
 	req := providers.PredictionRequest{
 		Messages: []types.Message{
@@ -212,8 +212,8 @@ func cleanupTempFile(t *testing.T, filepath string) {
 
 // Tests for new turn detection functionality
 
-func TestMockToolProvider_DetectTurnFromConversation(t *testing.T) {
-	provider := NewMockToolProvider("test-id", "test-model", false, nil)
+func TestToolProvider_DetectTurnFromConversation(t *testing.T) {
+	provider := NewToolProvider("test-id", "test-model", false, nil)
 
 	tests := []struct {
 		name         string
@@ -304,8 +304,8 @@ func TestMockToolProvider_DetectTurnFromConversation(t *testing.T) {
 	}
 }
 
-func TestMockToolProvider_GetScenarioID(t *testing.T) {
-	provider := NewMockToolProvider("test-id", "test-model", false, nil)
+func TestToolProvider_GetScenarioID(t *testing.T) {
+	provider := NewToolProvider("test-id", "test-model", false, nil)
 
 	tests := []struct {
 		name        string
@@ -367,8 +367,8 @@ func TestMockToolProvider_GetScenarioID(t *testing.T) {
 	}
 }
 
-func TestMockToolProvider_GenerateMockCostInfo(t *testing.T) {
-	provider := NewMockToolProvider("test-id", "test-model", false, nil)
+func TestToolProvider_GenerateMockCostInfo(t *testing.T) {
+	provider := NewToolProvider("test-id", "test-model", false, nil)
 
 	tests := []struct {
 		name         string
@@ -409,8 +409,8 @@ func TestMockToolProvider_GenerateMockCostInfo(t *testing.T) {
 	}
 }
 
-func TestMockToolProvider_CalculateTokens(t *testing.T) {
-	provider := NewMockToolProvider("test-id", "test-model", false, nil)
+func TestToolProvider_CalculateTokens(t *testing.T) {
+	provider := NewToolProvider("test-id", "test-model", false, nil)
 
 	t.Run("calculateInputTokens", func(t *testing.T) {
 		tests := []struct {
@@ -493,7 +493,7 @@ func TestMockToolProvider_CalculateTokens(t *testing.T) {
 	})
 }
 
-func TestMockToolProvider_PredictWithTools_ConversationProgression(t *testing.T) {
+func TestToolProvider_PredictWithTools_ConversationProgression(t *testing.T) {
 	// Test the full conversation flow with turn detection
 	configData := `
 scenarios:
@@ -518,7 +518,7 @@ scenarios:
 	repo, err := NewFileMockRepository(tempFile)
 	require.NoError(t, err)
 
-	provider := NewMockToolProviderWithRepository("test-id", "test-model", false, repo)
+	provider := NewToolProviderWithRepository("test-id", "test-model", false, repo)
 
 	// Turn 1: Initial request - should return tool calls
 	req1 := providers.PredictionRequest{
@@ -559,7 +559,7 @@ scenarios:
 	assert.Nil(t, toolCalls2)
 }
 
-func TestMockToolProvider_ToolCallArgumentMarshalling(t *testing.T) {
+func TestToolProvider_ToolCallArgumentMarshalling(t *testing.T) {
 	// Test edge cases in tool call argument marshalling
 	configData := `
 scenarios:
@@ -586,7 +586,7 @@ scenarios:
 	repo, err := NewFileMockRepository(tempFile)
 	require.NoError(t, err)
 
-	provider := NewMockToolProviderWithRepository("test-id", "test-model", false, repo)
+	provider := NewToolProviderWithRepository("test-id", "test-model", false, repo)
 
 	req := providers.PredictionRequest{
 		Messages: []types.Message{

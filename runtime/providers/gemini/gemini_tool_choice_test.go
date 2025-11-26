@@ -8,10 +8,10 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// TestGeminiToolProvider_ToolChoiceMapping verifies that tool_choice values
+// TestToolProvider_ToolChoiceMapping verifies that tool_choice values
 // are correctly mapped to Gemini's function_calling_config modes.
 // This is critical to prevent infinite tool loops.
-func TestGeminiToolProvider_ToolChoiceMapping(t *testing.T) {
+func TestToolProvider_ToolChoiceMapping(t *testing.T) {
 	tests := []struct {
 		name         string
 		toolChoice   string
@@ -52,7 +52,7 @@ func TestGeminiToolProvider_ToolChoiceMapping(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			provider := NewGeminiToolProvider(
+			provider := NewToolProvider(
 				"test-gemini",
 				"gemini-2.0-flash-exp",
 				"https://test.example.com",

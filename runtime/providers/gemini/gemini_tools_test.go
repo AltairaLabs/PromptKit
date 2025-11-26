@@ -48,15 +48,15 @@ func TestGeminiToolResponseParsing(t *testing.T) {
 }`
 
 	// Create a Gemini tool provider
-	geminiProvider := NewGeminiProvider(
+	geminiProvider := NewProvider(
 		"test-gemini",
 		"gemini-2.5-flash",
 		"",
 		providers.ProviderDefaults{},
 		false,
 	)
-	provider := &GeminiToolProvider{
-		GeminiProvider: geminiProvider,
+	provider := &ToolProvider{
+		Provider: geminiProvider,
 	}
 
 	// Parse the response

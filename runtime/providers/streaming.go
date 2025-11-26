@@ -6,7 +6,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// Forward declare ExecutionResult to avoid circular import
+// ExecutionResult is a forward declaration to avoid circular import.
 type ExecutionResult interface{}
 
 // StreamChunk represents a batch of tokens with metadata
@@ -84,9 +84,4 @@ func (e *ValidationAbortError) Error() string {
 func IsValidationAbort(err error) bool {
 	_, ok := err.(*ValidationAbortError)
 	return ok
-}
-
-// ptr is a helper to get a pointer to a string
-func ptr(s string) *string {
-	return &s
 }

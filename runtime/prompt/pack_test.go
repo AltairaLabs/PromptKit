@@ -498,9 +498,9 @@ func (m *mockFileWriter) WriteFile(path string, data []byte, perm os.FileMode) e
 
 func TestPackCompiler_Compile(t *testing.T) {
 	// Create mock repository with test config
-	repo := newMockPromptRepository()
-	testConfig := &PromptConfig{
-		Spec: PromptSpec{
+	repo := newMockRepository()
+	testConfig := &Config{
+		Spec: Spec{
 			TaskType:       "test-task",
 			Version:        "1.0.0",
 			Description:    "Test prompt for compilation",
@@ -566,8 +566,8 @@ func TestPackCompiler_Compile(t *testing.T) {
 	})
 
 	t.Run("handles config with fragments", func(t *testing.T) {
-		configWithFragments := &PromptConfig{
-			Spec: PromptSpec{
+		configWithFragments := &Config{
+			Spec: Spec{
 				TaskType:    "task-with-fragments",
 				Version:     "1.0.0",
 				Description: "Task with fragments",
@@ -598,10 +598,10 @@ func TestPackCompiler_Compile(t *testing.T) {
 
 func TestPackCompiler_CompileFromRegistry(t *testing.T) {
 	// Create mock repository with multiple configs
-	repo := newMockPromptRepository()
+	repo := newMockRepository()
 
-	config1 := &PromptConfig{
-		Spec: PromptSpec{
+	config1 := &Config{
+		Spec: Spec{
 			TaskType:       "task1",
 			Version:        "1.0.0",
 			Description:    "First task",
@@ -614,8 +614,8 @@ func TestPackCompiler_CompileFromRegistry(t *testing.T) {
 		Metadata: metav1.ObjectMeta{Name: "Task One"},
 	}
 
-	config2 := &PromptConfig{
-		Spec: PromptSpec{
+	config2 := &Config{
+		Spec: Spec{
 			TaskType:       "task2",
 			Version:        "2.0.0",
 			Description:    "Second task",
@@ -668,7 +668,7 @@ func TestPackCompiler_CompileFromRegistry(t *testing.T) {
 	})
 
 	t.Run("returns error for empty registry", func(t *testing.T) {
-		emptyRepo := newMockPromptRepository()
+		emptyRepo := newMockRepository()
 		emptyRegistry := NewRegistryWithRepository(emptyRepo)
 		emptyCompiler := NewPackCompilerWithDeps(emptyRegistry, timeProvider, fileWriter)
 
@@ -682,9 +682,9 @@ func TestPackCompiler_CompileFromRegistry(t *testing.T) {
 
 func TestPackCompiler_CompileToFile(t *testing.T) {
 	// Create mock repository with test config
-	repo := newMockPromptRepository()
-	testConfig := &PromptConfig{
-		Spec: PromptSpec{
+	repo := newMockRepository()
+	testConfig := &Config{
+		Spec: Spec{
 			TaskType:       "test-task",
 			Version:        "1.0.0",
 			SystemTemplate: "Test template",

@@ -271,13 +271,6 @@ func (wm *WebSocketManager) Close() error {
 	return nil
 }
 
-// markDisconnected marks the connection as disconnected (called on errors)
-func (wm *WebSocketManager) markDisconnected() {
-	wm.mu.Lock()
-	defer wm.mu.Unlock()
-	wm.connected = false
-}
-
 // calculateBackoff calculates the backoff delay with exponential backoff and jitter
 func (wm *WebSocketManager) calculateBackoff(attempt int) time.Duration {
 	// Exponential backoff: baseDelay * 2^attempt

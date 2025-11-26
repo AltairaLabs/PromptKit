@@ -1,3 +1,4 @@
+// Package local provides local filesystem-based storage implementation.
 package local
 
 import (
@@ -79,7 +80,7 @@ func NewFileStore(config FileStoreConfig) (*FileStore, error) {
 }
 
 // StoreMedia implements MediaStorageService.StoreMedia
-func (fs *FileStore) StoreMedia(ctx context.Context, content *types.MediaContent, metadata *storage.MediaMetadata) (storage.StorageReference, error) {
+func (fs *FileStore) StoreMedia(ctx context.Context, content *types.MediaContent, metadata *storage.MediaMetadata) (storage.Reference, error) {
 	if err := content.Validate(); err != nil {
 		return "", fmt.Errorf("invalid media content: %w", err)
 	}
@@ -106,7 +107,7 @@ func (fs *FileStore) StoreMedia(ctx context.Context, content *types.MediaContent
 			fs.refCounts[existingPath]++
 			fs.refMu.Unlock()
 
-			return storage.StorageReference(existingPath), nil
+			return storage.Reference(existingPath), nil
 		}
 	}
 
@@ -147,11 +148,11 @@ func (fs *FileStore) StoreMedia(ctx context.Context, content *types.MediaContent
 		fmt.Printf("Warning: failed to store metadata: %v\n", err)
 	}
 
-	return storage.StorageReference(filePath), nil
+	return storage.Reference(filePath), nil
 }
 
 // RetrieveMedia implements MediaStorageService.RetrieveMedia
-func (fs *FileStore) RetrieveMedia(ctx context.Context, reference storage.StorageReference) (*types.MediaContent, error) {
+func (fs *FileStore) RetrieveMedia(ctx context.Context, reference storage.Reference) (*types.MediaContent, error) {
 	filePath := string(reference)
 
 	// Validate file exists and is readable
@@ -191,7 +192,7 @@ func (fs *FileStore) RetrieveMedia(ctx context.Context, reference storage.Storag
 }
 
 // DeleteMedia implements MediaStorageService.DeleteMedia
-func (fs *FileStore) DeleteMedia(ctx context.Context, reference storage.StorageReference) error {
+func (fs *FileStore) DeleteMedia(ctx context.Context, reference storage.Reference) error {
 	filePath := string(reference)
 
 	// Check reference count if deduplication is enabled
@@ -236,7 +237,7 @@ func (fs *FileStore) DeleteMedia(ctx context.Context, reference storage.StorageR
 }
 
 // GetURL implements MediaStorageService.GetURL
-func (fs *FileStore) GetURL(ctx context.Context, reference storage.StorageReference, expiry time.Duration) (string, error) {
+func (fs *FileStore) GetURL(ctx context.Context, reference storage.Reference, expiry time.Duration) (string, error) {
 	filePath := string(reference)
 
 	// Validate file exists

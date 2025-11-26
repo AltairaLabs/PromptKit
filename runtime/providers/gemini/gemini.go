@@ -23,8 +23,8 @@ const (
 	applicationJSON   = "application/json"
 )
 
-// GeminiProvider implements the Provider interface for Google Gemini
-type GeminiProvider struct {
+// Provider implements the Provider interface for Google Gemini
+type Provider struct {
 	providers.BaseProvider
 	Model    string
 	BaseURL  string
@@ -32,11 +32,11 @@ type GeminiProvider struct {
 	Defaults providers.ProviderDefaults
 }
 
-// NewGeminiProvider creates a new Gemini provider
-func NewGeminiProvider(id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool) *GeminiProvider {
+// NewProvider creates a new Gemini provider
+func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool) *Provider {
 	base, apiKey := providers.NewBaseProviderWithAPIKey(id, includeRawOutput, "GEMINI_API_KEY", "GOOGLE_API_KEY")
 
-	return &GeminiProvider{
+	return &Provider{
 		BaseProvider: base,
 		Model:        model,
 		BaseURL:      baseURL,
@@ -128,7 +128,7 @@ func convertMessagesToGeminiContents(messages []types.Message) []geminiContent {
 }
 
 // prepareGeminiRequest converts a predict request to Gemini format with defaults applied
-func (p *GeminiProvider) prepareGeminiRequest(req providers.PredictionRequest) (contents []geminiContent, systemInstruction *geminiContent, temperature, topP float32, maxTokens int) {
+func (p *Provider) prepareGeminiRequest(req providers.PredictionRequest) (contents []geminiContent, systemInstruction *geminiContent, temperature, topP float32, maxTokens int) {
 	// Handle system message
 	if req.System != "" {
 		systemInstruction = &geminiContent{
@@ -159,7 +159,7 @@ func (p *GeminiProvider) prepareGeminiRequest(req providers.PredictionRequest) (
 }
 
 // buildGeminiRequest creates a Gemini API request with standard safety settings
-func (p *GeminiProvider) buildGeminiRequest(contents []geminiContent, systemInstruction *geminiContent, temperature, topP float32, maxTokens int) geminiRequest {
+func (p *Provider) buildGeminiRequest(contents []geminiContent, systemInstruction *geminiContent, temperature, topP float32, maxTokens int) geminiRequest {
 	return geminiRequest{
 		Contents:          contents,
 		SystemInstruction: systemInstruction,
@@ -178,7 +178,7 @@ func (p *GeminiProvider) buildGeminiRequest(contents []geminiContent, systemInst
 }
 
 // handleGeminiFinishReason processes error finish reasons from Gemini responses
-func (p *GeminiProvider) handleGeminiFinishReason(finishReason string, predictResp providers.PredictionResponse, respBody []byte, start time.Time) (providers.PredictionResponse, error) {
+func (p *Provider) handleGeminiFinishReason(finishReason string, predictResp providers.PredictionResponse, respBody []byte, start time.Time) (providers.PredictionResponse, error) {
 	predictResp.Latency = time.Since(start)
 	predictResp.Raw = respBody
 
@@ -195,7 +195,7 @@ func (p *GeminiProvider) handleGeminiFinishReason(finishReason string, predictRe
 }
 
 // handleNoCandidatesError creates an appropriate error when no candidates are returned
-func (p *GeminiProvider) handleNoCandidatesError(geminiResp geminiResponse, predictResp providers.PredictionResponse, respBody []byte, start time.Time) (providers.PredictionResponse, error) {
+func (p *Provider) handleNoCandidatesError(geminiResp geminiResponse, predictResp providers.PredictionResponse, respBody []byte, start time.Time) (providers.PredictionResponse, error) {
 	predictResp.Latency = time.Since(start)
 	predictResp.Raw = respBody
 
@@ -223,7 +223,7 @@ func (p *GeminiProvider) handleNoCandidatesError(geminiResp geminiResponse, pred
 }
 
 // makeGeminiHTTPRequest sends the HTTP request to Gemini API
-func (p *GeminiProvider) makeGeminiHTTPRequest(ctx context.Context, geminiReq geminiRequest, predictResp providers.PredictionResponse, start time.Time) ([]byte, providers.PredictionResponse, error) {
+func (p *Provider) makeGeminiHTTPRequest(ctx context.Context, geminiReq geminiRequest, predictResp providers.PredictionResponse, start time.Time) ([]byte, providers.PredictionResponse, error) {
 	reqBody, err := json.Marshal(geminiReq)
 	if err != nil {
 		return nil, predictResp, fmt.Errorf("failed to marshal request: %w", err)
@@ -275,7 +275,7 @@ func (p *GeminiProvider) makeGeminiHTTPRequest(ctx context.Context, geminiReq ge
 }
 
 // parseAndValidateGeminiResponse parses and validates the Gemini API response
-func (p *GeminiProvider) parseAndValidateGeminiResponse(respBody []byte, predictResp providers.PredictionResponse, start time.Time) (geminiResponse, geminiCandidate, providers.PredictionResponse, error) {
+func (p *Provider) parseAndValidateGeminiResponse(respBody []byte, predictResp providers.PredictionResponse, start time.Time) (geminiResponse, geminiCandidate, providers.PredictionResponse, error) {
 	var geminiResp geminiResponse
 	if err := json.Unmarshal(respBody, &geminiResp); err != nil {
 		predictResp.Latency = time.Since(start)
@@ -306,7 +306,7 @@ func (p *GeminiProvider) parseAndValidateGeminiResponse(respBody []byte, predict
 }
 
 // Predict sends a predict request to Gemini
-func (p *GeminiProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	start := time.Now()
 
 	// Convert messages to Gemini format and apply defaults
@@ -437,7 +437,7 @@ func geminiPricing(model string) (inputPrice, outputPrice, cachedPrice float64) 
 }
 
 // CalculateCost calculates detailed cost breakdown including optional cached tokens
-func (p *GeminiProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.CostInfo {
+func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.CostInfo {
 	var inputCostPer1K, outputCostPer1K, cachedCostPer1K float64
 
 	// Use configured pricing if available
@@ -469,7 +469,7 @@ func (p *GeminiProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) ty
 }
 
 // PredictStream streams a predict response from Gemini
-func (p *GeminiProvider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+func (p *Provider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	// Convert messages to Gemini format and apply defaults
 	contents, systemInstruction, temperature, topP, maxTokens := p.prepareGeminiRequest(req)
 
@@ -508,7 +508,7 @@ func (p *GeminiProvider) PredictStream(ctx context.Context, req providers.Predic
 }
 
 // processGeminiStreamChunk processes a single chunk from the Gemini stream
-func (p *GeminiProvider) processGeminiStreamChunk(chunk geminiResponse, accumulated string, totalTokens int, outChan chan<- providers.StreamChunk) (newAccumulated string, newTotalTokens int, shouldContinue bool) {
+func (p *Provider) processGeminiStreamChunk(chunk geminiResponse, accumulated string, totalTokens int, outChan chan<- providers.StreamChunk) (newAccumulated string, newTotalTokens int, shouldContinue bool) {
 	if len(chunk.Candidates) == 0 {
 		return accumulated, totalTokens, false
 	}
@@ -556,7 +556,7 @@ func (p *GeminiProvider) processGeminiStreamChunk(chunk geminiResponse, accumula
 }
 
 // streamResponse reads JSON stream from Gemini and sends chunks
-func (p *GeminiProvider) streamResponse(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
+func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
 	defer close(outChan)
 	defer body.Close()
 

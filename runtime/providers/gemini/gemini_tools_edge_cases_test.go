@@ -9,7 +9,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-func TestGeminiToolProvider_BuildMessageParts_EmptyToolResults(t *testing.T) {
+func TestToolProvider_BuildMessageParts_EmptyToolResults(t *testing.T) {
 	msg := types.Message{
 		Role:    "user",
 		Content: "Hello",
@@ -21,7 +21,7 @@ func TestGeminiToolProvider_BuildMessageParts_EmptyToolResults(t *testing.T) {
 	}
 }
 
-func TestGeminiToolProvider_BuildMessageParts_WithToolResults(t *testing.T) {
+func TestToolProvider_BuildMessageParts_WithToolResults(t *testing.T) {
 	msg := types.Message{
 		Role:    "user",
 		Content: "Process result",
@@ -43,7 +43,7 @@ func TestGeminiToolProvider_BuildMessageParts_WithToolResults(t *testing.T) {
 	}
 }
 
-func TestGeminiToolProvider_BuildMessageParts_WithToolCalls(t *testing.T) {
+func TestToolProvider_BuildMessageParts_WithToolCalls(t *testing.T) {
 	msg := types.Message{
 		Role:    "assistant",
 		Content: "Let me check that",
@@ -63,7 +63,7 @@ func TestGeminiToolProvider_BuildMessageParts_WithToolCalls(t *testing.T) {
 	}
 }
 
-func TestGeminiToolProvider_ProcessToolMessage_EmptyName(t *testing.T) {
+func TestToolProvider_ProcessToolMessage_EmptyName(t *testing.T) {
 	msg := types.Message{
 		Role:    "tool",
 		Content: `{"result": "success"}`,
@@ -91,7 +91,7 @@ func TestGeminiToolProvider_ProcessToolMessage_EmptyName(t *testing.T) {
 	}
 }
 
-func TestGeminiToolProvider_ProcessToolMessage_StringContent(t *testing.T) {
+func TestToolProvider_ProcessToolMessage_StringContent(t *testing.T) {
 	msg := types.Message{
 		Role:    "tool",
 		Content: "plain string result",
@@ -112,7 +112,7 @@ func TestGeminiToolProvider_ProcessToolMessage_StringContent(t *testing.T) {
 	}
 }
 
-func TestGeminiToolProvider_ProcessToolMessage_PrimitiveContent(t *testing.T) {
+func TestToolProvider_ProcessToolMessage_PrimitiveContent(t *testing.T) {
 	msg := types.Message{
 		Role:    "tool",
 		Content: "42", // Numeric string
@@ -133,7 +133,7 @@ func TestGeminiToolProvider_ProcessToolMessage_PrimitiveContent(t *testing.T) {
 	}
 }
 
-func TestGeminiToolProvider_AddToolConfig_AutoMode(t *testing.T) {
+func TestToolProvider_AddToolConfig_AutoMode(t *testing.T) {
 	request := make(map[string]interface{})
 	tools := map[string]interface{}{"functions": []interface{}{}}
 
@@ -154,7 +154,7 @@ func TestGeminiToolProvider_AddToolConfig_AutoMode(t *testing.T) {
 	}
 }
 
-func TestGeminiToolProvider_AddToolConfig_RequiredMode(t *testing.T) {
+func TestToolProvider_AddToolConfig_RequiredMode(t *testing.T) {
 	request := make(map[string]interface{})
 	tools := map[string]interface{}{"functions": []interface{}{}}
 
@@ -168,7 +168,7 @@ func TestGeminiToolProvider_AddToolConfig_RequiredMode(t *testing.T) {
 	}
 }
 
-func TestGeminiToolProvider_AddToolConfig_AnyMode(t *testing.T) {
+func TestToolProvider_AddToolConfig_AnyMode(t *testing.T) {
 	request := make(map[string]interface{})
 	tools := map[string]interface{}{"functions": []interface{}{}}
 
@@ -182,7 +182,7 @@ func TestGeminiToolProvider_AddToolConfig_AnyMode(t *testing.T) {
 	}
 }
 
-func TestGeminiToolProvider_AddToolConfig_NoneMode(t *testing.T) {
+func TestToolProvider_AddToolConfig_NoneMode(t *testing.T) {
 	request := make(map[string]interface{})
 	tools := map[string]interface{}{"functions": []interface{}{}}
 
@@ -196,8 +196,8 @@ func TestGeminiToolProvider_AddToolConfig_NoneMode(t *testing.T) {
 	}
 }
 
-func TestGeminiToolProvider_ParseToolResponse_MaxTokensError(t *testing.T) {
-	provider := NewGeminiToolProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
+func TestToolProvider_ParseToolResponse_MaxTokensError(t *testing.T) {
+	provider := NewToolProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
 
 	// Response with MAX_TOKENS finish reason
 	respJSON := `{
@@ -217,8 +217,8 @@ func TestGeminiToolProvider_ParseToolResponse_MaxTokensError(t *testing.T) {
 	}
 }
 
-func TestGeminiToolProvider_ParseToolResponse_SafetyError(t *testing.T) {
-	provider := NewGeminiToolProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
+func TestToolProvider_ParseToolResponse_SafetyError(t *testing.T) {
+	provider := NewToolProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
 
 	respJSON := `{
 		"candidates": [{
@@ -237,8 +237,8 @@ func TestGeminiToolProvider_ParseToolResponse_SafetyError(t *testing.T) {
 	}
 }
 
-func TestGeminiToolProvider_ParseToolResponse_RecitationError(t *testing.T) {
-	provider := NewGeminiToolProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
+func TestToolProvider_ParseToolResponse_RecitationError(t *testing.T) {
+	provider := NewToolProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
 
 	respJSON := `{
 		"candidates": [{
@@ -257,8 +257,8 @@ func TestGeminiToolProvider_ParseToolResponse_RecitationError(t *testing.T) {
 	}
 }
 
-func TestGeminiToolProvider_ParseToolResponse_UnknownFinishReason(t *testing.T) {
-	provider := NewGeminiToolProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
+func TestToolProvider_ParseToolResponse_UnknownFinishReason(t *testing.T) {
+	provider := NewToolProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
 
 	respJSON := `{
 		"candidates": [{
@@ -273,8 +273,8 @@ func TestGeminiToolProvider_ParseToolResponse_UnknownFinishReason(t *testing.T) 
 	}
 }
 
-func TestGeminiToolProvider_MakeRequest_NoCachedTokens(t *testing.T) {
-	provider := NewGeminiToolProvider("test", "gemini-1.5-flash", "https://invalid.test", providers.ProviderDefaults{}, false)
+func TestToolProvider_MakeRequest_NoCachedTokens(t *testing.T) {
+	provider := NewToolProvider("test", "gemini-1.5-flash", "https://invalid.test", providers.ProviderDefaults{}, false)
 
 	request := map[string]interface{}{
 		"contents": []interface{}{},
@@ -287,8 +287,8 @@ func TestGeminiToolProvider_MakeRequest_NoCachedTokens(t *testing.T) {
 	}
 }
 
-func TestGeminiToolProvider_BuildToolRequest_EmptyMessages(t *testing.T) {
-	provider := NewGeminiToolProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
+func TestToolProvider_BuildToolRequest_EmptyMessages(t *testing.T) {
+	provider := NewToolProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
 
 	req := providers.PredictionRequest{
 		Messages:    []types.Message{},
@@ -310,8 +310,8 @@ func TestGeminiToolProvider_BuildToolRequest_EmptyMessages(t *testing.T) {
 	}
 }
 
-func TestGeminiToolProvider_BuildToolRequest_NilTools(t *testing.T) {
-	provider := NewGeminiToolProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
+func TestToolProvider_BuildToolRequest_NilTools(t *testing.T) {
+	provider := NewToolProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
 
 	req := providers.PredictionRequest{
 		Messages: []types.Message{

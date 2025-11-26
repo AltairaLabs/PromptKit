@@ -1,3 +1,4 @@
+// Package middleware provides pipeline middleware components for request processing.
 package middleware
 
 import (

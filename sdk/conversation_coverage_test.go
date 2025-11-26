@@ -26,7 +26,7 @@ func TestNewConversationManager_MissingProvider(t *testing.T) {
 
 // TestHandleStreamError_WithError covers error path (improves from 50%)
 func TestHandleStreamError_WithError(t *testing.T) {
-	mockProvider := mock.NewMockProvider("test", "model", false)
+	mockProvider := mock.NewProvider("test", "model", false)
 	manager, _ := NewConversationManager(WithProvider(mockProvider))
 
 	conv := &Conversation{
@@ -61,7 +61,7 @@ func TestHandleStreamError_WithError(t *testing.T) {
 
 // TestHandleToolCalls_MultipleToolCalls covers tool call path (improves from 50%)
 func TestHandleToolCalls_MultipleToolCalls(t *testing.T) {
-	mockProvider := mock.NewMockProvider("test", "model", false)
+	mockProvider := mock.NewProvider("test", "model", false)
 	manager, _ := NewConversationManager(WithProvider(mockProvider))
 
 	conv := &Conversation{
@@ -96,7 +96,7 @@ func TestHandleToolCalls_MultipleToolCalls(t *testing.T) {
 
 // TestHandleStreamCompletion_NoFinishReason covers false path (improves from 55.6%)
 func TestHandleStreamCompletion_NoFinishReason(t *testing.T) {
-	mockProvider := mock.NewMockProvider("test", "model", false)
+	mockProvider := mock.NewProvider("test", "model", false)
 	manager, _ := NewConversationManager(WithProvider(mockProvider))
 
 	conv := &Conversation{
@@ -119,7 +119,7 @@ func TestHandleStreamCompletion_NoFinishReason(t *testing.T) {
 
 // TestConvertToPendingToolsSlice_EmptyMetadata covers nil/empty cases (improves from 80%)
 func TestConvertToPendingToolsSlice_EmptyMetadata(t *testing.T) {
-	mockProvider := mock.NewMockProvider("test", "model", false)
+	mockProvider := mock.NewProvider("test", "model", false)
 	manager, _ := NewConversationManager(WithProvider(mockProvider))
 
 	conv := &Conversation{
@@ -151,7 +151,7 @@ func TestConvertToPendingToolsSlice_EmptyMetadata(t *testing.T) {
 
 // TestConvertInterfaceSliceToTools_AllInvalid covers error path (improves from 71.4%)
 func TestConvertInterfaceSliceToTools_AllInvalid(t *testing.T) {
-	mockProvider := mock.NewMockProvider("test", "model", false)
+	mockProvider := mock.NewProvider("test", "model", false)
 	manager, _ := NewConversationManager(WithProvider(mockProvider))
 
 	conv := &Conversation{
@@ -169,7 +169,7 @@ func TestConvertInterfaceSliceToTools_AllInvalid(t *testing.T) {
 
 // TestExtractValidationsFromResult_NoValidation covers nil path (improves from 83.3%)
 func TestExtractValidationsFromResult_NoValidation(t *testing.T) {
-	mockProvider := mock.NewMockProvider("test", "model", false)
+	mockProvider := mock.NewProvider("test", "model", false)
 	manager, _ := NewConversationManager(WithProvider(mockProvider))
 
 	conv := &Conversation{

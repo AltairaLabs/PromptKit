@@ -242,7 +242,7 @@ func TestFileStore_GetURL(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		url, err := fs.GetURL(ctx, storage.StorageReference("/nonexistent.jpg"), 1*time.Hour)
+		url, err := fs.GetURL(ctx, storage.Reference("/nonexistent.jpg"), 1*time.Hour)
 		assert.Error(t, err)
 		assert.Empty(t, url)
 		assert.Contains(t, err.Error(), "media not found")
@@ -407,7 +407,7 @@ func TestFileStore_ErrorCases(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		retrieved, err := fs.RetrieveMedia(ctx, storage.StorageReference("/nonexistent/file.jpg"))
+		retrieved, err := fs.RetrieveMedia(ctx, storage.Reference("/nonexistent/file.jpg"))
 		assert.Error(t, err)
 		assert.Nil(t, retrieved)
 		assert.Contains(t, err.Error(), "media not found")
@@ -421,7 +421,7 @@ func TestFileStore_ErrorCases(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		err = fs.DeleteMedia(ctx, storage.StorageReference("/nonexistent/file.jpg"))
+		err = fs.DeleteMedia(ctx, storage.Reference("/nonexistent/file.jpg"))
 		assert.NoError(t, err) // Should not error
 	})
 }
@@ -497,7 +497,7 @@ func TestFileStore_DedupReferenceCount(t *testing.T) {
 	}
 
 	// Store same content 3 times
-	refs := make([]storage.StorageReference, 3)
+	refs := make([]storage.Reference, 3)
 	for i := 0; i < 3; i++ {
 		metadata := storage.MediaMetadata{
 			RunID:      "run-" + string(rune('1'+i)),
@@ -759,7 +759,7 @@ func TestFileStore_SpecialCases(t *testing.T) {
 		require.NoError(t, err)
 
 		// Try to retrieve directory as media
-		_, err = fs.RetrieveMedia(ctx, storage.StorageReference(dirPath))
+		_, err = fs.RetrieveMedia(ctx, storage.Reference(dirPath))
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "directory")
 	})
@@ -805,7 +805,7 @@ func TestFileStore_SpecialCases(t *testing.T) {
 		require.NoError(t, err)
 
 		// Try to retrieve - should infer MIME type from extension
-		retrieved, err := fs.RetrieveMedia(ctx, storage.StorageReference(testFile))
+		retrieved, err := fs.RetrieveMedia(ctx, storage.Reference(testFile))
 		require.NoError(t, err)
 		assert.Equal(t, "image/jpeg", retrieved.MIMEType)
 		assert.Nil(t, retrieved.PolicyName)

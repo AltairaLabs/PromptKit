@@ -45,13 +45,13 @@ func TestNewPipeline(t *testing.T) {
 func TestNewPipelineWithConfig_ValidatesMaxConcurrentExecutions(t *testing.T) {
 	tests := []struct {
 		name        string
-		config      *PipelineRuntimeConfig
+		config      *RuntimeConfig
 		expectError bool
 		errorMsg    string
 	}{
 		{
 			name: "zero MaxConcurrentExecutions (filled with default)",
-			config: &PipelineRuntimeConfig{
+			config: &RuntimeConfig{
 				MaxConcurrentExecutions: 0,
 				StreamBufferSize:        100,
 			},
@@ -59,7 +59,7 @@ func TestNewPipelineWithConfig_ValidatesMaxConcurrentExecutions(t *testing.T) {
 		},
 		{
 			name: "negative MaxConcurrentExecutions",
-			config: &PipelineRuntimeConfig{
+			config: &RuntimeConfig{
 				MaxConcurrentExecutions: -5,
 				StreamBufferSize:        100,
 			},
@@ -68,7 +68,7 @@ func TestNewPipelineWithConfig_ValidatesMaxConcurrentExecutions(t *testing.T) {
 		},
 		{
 			name: "valid MaxConcurrentExecutions",
-			config: &PipelineRuntimeConfig{
+			config: &RuntimeConfig{
 				MaxConcurrentExecutions: 10,
 				StreamBufferSize:        100,
 			},
@@ -99,13 +99,13 @@ func TestNewPipelineWithConfig_ValidatesMaxConcurrentExecutions(t *testing.T) {
 func TestNewPipelineWithConfig_ValidatesStreamBufferSize(t *testing.T) {
 	tests := []struct {
 		name        string
-		config      *PipelineRuntimeConfig
+		config      *RuntimeConfig
 		expectError bool
 		errorMsg    string
 	}{
 		{
 			name: "zero StreamBufferSize (filled with default)",
-			config: &PipelineRuntimeConfig{
+			config: &RuntimeConfig{
 				MaxConcurrentExecutions: 10,
 				StreamBufferSize:        0,
 			},
@@ -113,7 +113,7 @@ func TestNewPipelineWithConfig_ValidatesStreamBufferSize(t *testing.T) {
 		},
 		{
 			name: "negative StreamBufferSize",
-			config: &PipelineRuntimeConfig{
+			config: &RuntimeConfig{
 				MaxConcurrentExecutions: 10,
 				StreamBufferSize:        -10,
 			},
@@ -122,7 +122,7 @@ func TestNewPipelineWithConfig_ValidatesStreamBufferSize(t *testing.T) {
 		},
 		{
 			name: "valid StreamBufferSize",
-			config: &PipelineRuntimeConfig{
+			config: &RuntimeConfig{
 				MaxConcurrentExecutions: 10,
 				StreamBufferSize:        50,
 			},
@@ -316,7 +316,7 @@ func TestPipeline_Execute_MiddlewareModifiesContext(t *testing.T) {
 func TestPipeline_ExecuteStream_ResourceCleanupOnCancelledContext(t *testing.T) {
 	// Test that semaphore acquisition happens inside goroutine, so cancelled
 	// contexts are handled gracefully without resource leaks
-	config := &PipelineRuntimeConfig{
+	config := &RuntimeConfig{
 		MaxConcurrentExecutions: 1, // Only allow one execution
 		StreamBufferSize:        10,
 	}
@@ -365,7 +365,7 @@ func TestPipeline_ExecuteStream_NoLeakOnPanic(t *testing.T) {
 	// semaphore.Acquire and go routine launch, resources could leak.
 	// The fix moves Acquire/wg.Add into the goroutine.
 
-	config := &PipelineRuntimeConfig{
+	config := &RuntimeConfig{
 		MaxConcurrentExecutions: 2,
 		StreamBufferSize:        10,
 	}

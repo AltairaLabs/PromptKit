@@ -187,16 +187,16 @@ func createTestPromptRegistry(t *testing.T) *prompt.Registry {
 	t.Helper()
 
 	// Create memory repository
-	memRepo := memory.NewMemoryPromptRepository()
+	memRepo := memory.NewPromptRepository()
 
 	// Create a minimal prompt config
-	config := &prompt.PromptConfig{
+	config := &prompt.Config{
 		APIVersion: "promptkit.altairalabs.ai/v1alpha1",
 		Kind:       "PromptConfig",
 		Metadata: metav1.ObjectMeta{
 			Name: "support",
 		},
-		Spec: prompt.PromptSpec{
+		Spec: prompt.Spec{
 			TaskType:       "support",
 			Version:        "v1.0.0",
 			Description:    "Test support prompt",

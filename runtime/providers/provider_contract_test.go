@@ -15,7 +15,7 @@ import (
 // Usage:
 //
 //	func TestOpenAIProviderContract(t *testing.T) {
-//	    provider := NewOpenAIProvider(...)
+//	    provider := NewProvider(...)
 //	    RunProviderContractTests(t, provider)
 //	}
 type ProviderContractTests struct {

@@ -175,7 +175,7 @@ func (e *Engine) Close() error {
 //
 // Returns an error if the mock configuration file cannot be loaded or parsed.
 func (e *Engine) EnableMockProviderMode(mockConfigPath string) error {
-	var repository mock.MockResponseRepository
+	var repository mock.ResponseRepository
 
 	// Create appropriate repository based on whether config file is provided
 	if mockConfigPath != "" {
@@ -194,7 +194,7 @@ func (e *Engine) EnableMockProviderMode(mockConfigPath string) error {
 
 	// Replace each provider with a MockToolProvider using the same ID for tool call simulation
 	for providerID, provider := range e.providers {
-		mockProvider := mock.NewMockToolProviderWithRepository(
+		mockProvider := mock.NewToolProviderWithRepository(
 			providerID,
 			provider.Model,
 			provider.IncludeRawOutput,

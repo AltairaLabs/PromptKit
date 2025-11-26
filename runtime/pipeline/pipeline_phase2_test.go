@@ -25,9 +25,9 @@ func (m *testMiddleware) StreamChunk(ctx *ExecutionContext, chunk *providers.Str
 	return nil
 }
 
-// TestDefaultPipelineRuntimeConfig verifies default configuration values
-func TestDefaultPipelineRuntimeConfig(t *testing.T) {
-	config := DefaultPipelineRuntimeConfig()
+// TestDefaultRuntimeConfig verifies default configuration values
+func TestDefaultRuntimeConfig(t *testing.T) {
+	config := DefaultRuntimeConfig()
 
 	assert.Equal(t, 100, config.MaxConcurrentExecutions)
 	assert.Equal(t, 100, config.StreamBufferSize)
@@ -49,7 +49,7 @@ func TestNewPipeline_WithDefaults(t *testing.T) {
 
 // TestNewPipelineWithConfig verifies custom configuration
 func TestNewPipelineWithConfig(t *testing.T) {
-	customConfig := &PipelineRuntimeConfig{
+	customConfig := &RuntimeConfig{
 		MaxConcurrentExecutions: 50,
 		StreamBufferSize:        200,
 		ExecutionTimeout:        15 * time.Second,
@@ -80,7 +80,7 @@ func TestPipeline_Execute_WithConcurrencyControl(t *testing.T) {
 
 // TestPipeline_ExecuteStream_WithBufferSize verifies streaming with configured buffer
 func TestPipeline_ExecuteStream_WithBufferSize(t *testing.T) {
-	customConfig := &PipelineRuntimeConfig{
+	customConfig := &RuntimeConfig{
 		MaxConcurrentExecutions: 10,
 		StreamBufferSize:        50,
 		ExecutionTimeout:        5 * time.Second,
@@ -149,7 +149,7 @@ func TestPipeline_ExecutionTimeout(t *testing.T) {
 	// Middleware that sleeps longer than timeout
 	slowMiddleware := &testMiddleware{}
 
-	customConfig := &PipelineRuntimeConfig{
+	customConfig := &RuntimeConfig{
 		MaxConcurrentExecutions: 10,
 		StreamBufferSize:        10,
 		ExecutionTimeout:        50 * time.Millisecond, // Short timeout
@@ -171,7 +171,7 @@ func TestPipeline_ExecutionTimeout(t *testing.T) {
 
 // TestPipeline_ConcurrentExecutions verifies multiple concurrent executions work
 func TestPipeline_ConcurrentExecutions(t *testing.T) {
-	customConfig := &PipelineRuntimeConfig{
+	customConfig := &RuntimeConfig{
 		MaxConcurrentExecutions: 5,
 		StreamBufferSize:        10,
 		ExecutionTimeout:        5 * time.Second,

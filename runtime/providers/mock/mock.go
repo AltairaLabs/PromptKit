@@ -1,3 +1,4 @@
+// Package mock provides mock provider implementation for testing and development.
 package mock
 
 import (
@@ -10,30 +11,30 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// MockProvider is a provider implementation for testing and development.
+// Provider is a provider implementation for testing and development.
 // It returns mock responses without making any API calls, using a repository
 // pattern to source responses from various backends (files, memory, databases).
 //
-// MockProvider is designed to be reusable across different contexts:
+// Provider is designed to be reusable across different contexts:
 //   - Arena testing: scenario and turn-specific responses
 //   - SDK examples: simple deterministic responses
 //   - Unit tests: programmatic response configuration
-type MockProvider struct {
+type Provider struct {
 	id                string
 	model             string
-	value             string                 // For backward compatibility with existing tests
-	repository        MockResponseRepository // Source of mock responses
+	value             string             // For backward compatibility with existing tests
+	repository        ResponseRepository // Source of mock responses
 	includeRawOutput  bool
 	supportsStreaming bool
 }
 
-// NewMockProvider creates a new mock provider with default in-memory responses.
+// NewProvider creates a new mock provider with default in-memory responses.
 // This constructor maintains backward compatibility with existing code.
-func NewMockProvider(id, model string, includeRawOutput bool) *MockProvider {
+func NewProvider(id, model string, includeRawOutput bool) *Provider {
 	response := fmt.Sprintf("Mock response from %s model %s", id, model)
 	repo := NewInMemoryMockRepository(response)
 
-	return &MockProvider{
+	return &Provider{
 		id:                id,
 		model:             model,
 		value:             response, // For backward compatibility
@@ -43,10 +44,10 @@ func NewMockProvider(id, model string, includeRawOutput bool) *MockProvider {
 	}
 }
 
-// NewMockProviderWithRepository creates a mock provider with a custom response repository.
+// NewProviderWithRepository creates a mock provider with a custom response repository.
 // This allows for advanced scenarios like file-based or database-backed mock responses.
-func NewMockProviderWithRepository(id, model string, includeRawOutput bool, repo MockResponseRepository) *MockProvider {
-	return &MockProvider{
+func NewProviderWithRepository(id, model string, includeRawOutput bool, repo ResponseRepository) *Provider {
+	return &Provider{
 		id:                id,
 		model:             model,
 		repository:        repo,
@@ -57,24 +58,24 @@ func NewMockProviderWithRepository(id, model string, includeRawOutput bool, repo
 
 func init() {
 	providers.RegisterProviderFactory("mock", func(spec providers.ProviderSpec) (providers.Provider, error) {
-		// Use MockToolProvider by default as it's backward compatible with MockProvider
+		// Use ToolProvider by default as it's backward compatible with MockProvider
 		// and supports both tool calls and scenario-specific responses
-		if repo, ok := spec.AdditionalConfig["repository"].(MockResponseRepository); ok {
-			return NewMockToolProviderWithRepository(spec.ID, spec.Model, spec.IncludeRawOutput, repo), nil
+		if repo, ok := spec.AdditionalConfig["repository"].(ResponseRepository); ok {
+			return NewToolProviderWithRepository(spec.ID, spec.Model, spec.IncludeRawOutput, repo), nil
 		}
-		return NewMockToolProvider(spec.ID, spec.Model, spec.IncludeRawOutput, spec.AdditionalConfig), nil
+		return NewToolProvider(spec.ID, spec.Model, spec.IncludeRawOutput, spec.AdditionalConfig), nil
 	})
 }
 
 // ID returns the provider ID.
-func (m *MockProvider) ID() string {
+func (m *Provider) ID() string {
 	return m.id
 }
 
 // Predict returns a mock response using the configured repository.
-func (m *MockProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+func (m *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	// Try to get response from repository with scenario context
-	params := MockResponseParams{
+	params := ResponseParams{
 		ProviderID: m.id,
 		ModelName:  m.model,
 	}
@@ -157,7 +158,7 @@ func (m *MockProvider) Predict(ctx context.Context, req providers.PredictionRequ
 }
 
 // PredictStream returns a mock streaming response using the configured repository.
-func (m *MockProvider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+func (m *Provider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	outChan := make(chan providers.StreamChunk, 1)
 
 	go func() {
@@ -169,8 +170,8 @@ func (m *MockProvider) PredictStream(ctx context.Context, req providers.Predicti
 }
 
 // handleStreamRequest processes the stream request and sends the response
-func (m *MockProvider) handleStreamRequest(ctx context.Context, req providers.PredictionRequest, outChan chan<- providers.StreamChunk) {
-	params := m.buildMockResponseParams(req)
+func (m *Provider) handleStreamRequest(ctx context.Context, req providers.PredictionRequest, outChan chan<- providers.StreamChunk) {
+	params := m.buildResponseParams(req)
 	m.logStreamRequest(params)
 
 	// Get structured turn response (supports multimodal content)
@@ -201,9 +202,9 @@ func (m *MockProvider) handleStreamRequest(ctx context.Context, req providers.Pr
 	outChan <- chunk
 }
 
-// buildMockResponseParams creates parameters for the mock response
-func (m *MockProvider) buildMockResponseParams(req providers.PredictionRequest) MockResponseParams {
-	params := MockResponseParams{
+// buildResponseParams creates parameters for the mock response
+func (m *Provider) buildResponseParams(req providers.PredictionRequest) ResponseParams {
+	params := ResponseParams{
 		ProviderID: m.id,
 		ModelName:  m.model,
 	}
@@ -222,7 +223,7 @@ func (m *MockProvider) buildMockResponseParams(req providers.PredictionRequest) 
 }
 
 // logStreamRequest logs debug information for the stream request
-func (m *MockProvider) logStreamRequest(params MockResponseParams) {
+func (m *Provider) logStreamRequest(params ResponseParams) {
 	logger.Debug("MockProvider PredictStream request",
 		"provider_id", m.id,
 		"model", m.model,
@@ -233,12 +234,12 @@ func (m *MockProvider) logStreamRequest(params MockResponseParams) {
 }
 
 // getStreamResponse gets the response text from repository or fallback value
-func (m *MockProvider) getStreamTurn(ctx context.Context, params MockResponseParams) (*MockTurn, error) {
+func (m *Provider) getStreamTurn(ctx context.Context, params ResponseParams) (*Turn, error) {
 	return m.repository.GetTurn(ctx, params)
 }
 
 // calculateInputTokens estimates input tokens from messages
-func (m *MockProvider) calculateInputTokens(messages []types.Message) int {
+func (m *Provider) calculateInputTokens(messages []types.Message) int {
 	inputTokens := 0
 	for i := range messages {
 		inputTokens += len(messages[i].Content) / 4
@@ -250,7 +251,7 @@ func (m *MockProvider) calculateInputTokens(messages []types.Message) int {
 }
 
 // calculateOutputTokens estimates output tokens from response text
-func (m *MockProvider) calculateOutputTokens(responseText string) int {
+func (m *Provider) calculateOutputTokens(responseText string) int {
 	outputTokens := len(responseText) / 4
 	if outputTokens == 0 {
 		outputTokens = 20
@@ -259,7 +260,7 @@ func (m *MockProvider) calculateOutputTokens(responseText string) int {
 }
 
 // createStreamChunk creates a stream chunk with the response and cost info
-func (m *MockProvider) createStreamChunk(responseText string, parts []types.ContentPart, inputTokens, outputTokens int) providers.StreamChunk {
+func (m *Provider) createStreamChunk(responseText string, parts []types.ContentPart, inputTokens, outputTokens int) providers.StreamChunk {
 	costInfo := &types.CostInfo{
 		InputTokens:   inputTokens,
 		OutputTokens:  outputTokens,
@@ -284,22 +285,22 @@ func (m *MockProvider) createStreamChunk(responseText string, parts []types.Cont
 }
 
 // SupportsStreaming indicates whether the provider supports streaming.
-func (m *MockProvider) SupportsStreaming() bool {
+func (m *Provider) SupportsStreaming() bool {
 	return m.supportsStreaming
 }
 
 // Close is a no-op for the mock provider.
-func (m *MockProvider) Close() error {
+func (m *Provider) Close() error {
 	return nil
 }
 
 // ShouldIncludeRawOutput returns whether raw API responses should be included.
-func (m *MockProvider) ShouldIncludeRawOutput() bool {
+func (m *Provider) ShouldIncludeRawOutput() bool {
 	return m.includeRawOutput
 }
 
 // CalculateCost calculates cost breakdown for given token counts.
-func (m *MockProvider) CalculateCost(inputTokens, outputTokens, cachedTokens int) types.CostInfo {
+func (m *Provider) CalculateCost(inputTokens, outputTokens, cachedTokens int) types.CostInfo {
 	// Mock provider uses simple fixed pricing
 	inputCostPer1K := 0.01
 	outputCostPer1K := 0.01

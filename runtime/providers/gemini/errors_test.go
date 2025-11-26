@@ -6,7 +6,7 @@ import (
 )
 
 func TestGeminiAPIError_Error(t *testing.T) {
-	err := &GeminiAPIError{
+	err := &APIError{
 		Code:    400,
 		Message: "Invalid audio format",
 		Status:  "INVALID_ARGUMENT",
@@ -34,7 +34,7 @@ func TestGeminiAPIError_IsRetryable(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := &GeminiAPIError{Code: tt.code}
+			err := &APIError{Code: tt.code}
 			if got := err.IsRetryable(); got != tt.want {
 				t.Errorf("IsRetryable() = %v, want %v", got, tt.want)
 			}
@@ -55,7 +55,7 @@ func TestGeminiAPIError_IsAuthError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := &GeminiAPIError{Code: tt.code}
+			err := &APIError{Code: tt.code}
 			if got := err.IsAuthError(); got != tt.want {
 				t.Errorf("IsAuthError() = %v, want %v", got, tt.want)
 			}
@@ -77,7 +77,7 @@ func TestGeminiAPIError_IsPolicyViolation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := &GeminiAPIError{Code: tt.code, Status: tt.status}
+			err := &APIError{Code: tt.code, Status: tt.status}
 			if got := err.IsPolicyViolation(); got != tt.want {
 				t.Errorf("IsPolicyViolation() = %v, want %v", got, tt.want)
 			}
@@ -88,7 +88,7 @@ func TestGeminiAPIError_IsPolicyViolation(t *testing.T) {
 func TestClassifyError(t *testing.T) {
 	tests := []struct {
 		name    string
-		apiErr  *GeminiAPIError
+		apiErr  *APIError
 		wantErr error
 		wantNil bool
 	}{
@@ -99,7 +99,7 @@ func TestClassifyError(t *testing.T) {
 		},
 		{
 			name: "policy violation",
-			apiErr: &GeminiAPIError{
+			apiErr: &APIError{
 				Code:    400,
 				Message: "Content blocked",
 				Status:  "POLICY_VIOLATION",
@@ -108,7 +108,7 @@ func TestClassifyError(t *testing.T) {
 		},
 		{
 			name: "invalid request",
-			apiErr: &GeminiAPIError{
+			apiErr: &APIError{
 				Code:    400,
 				Message: "Bad format",
 				Status:  "INVALID_ARGUMENT",
@@ -117,7 +117,7 @@ func TestClassifyError(t *testing.T) {
 		},
 		{
 			name: "authentication failed",
-			apiErr: &GeminiAPIError{
+			apiErr: &APIError{
 				Code:    401,
 				Message: "Invalid API key",
 				Status:  "UNAUTHENTICATED",
@@ -126,7 +126,7 @@ func TestClassifyError(t *testing.T) {
 		},
 		{
 			name: "rate limit",
-			apiErr: &GeminiAPIError{
+			apiErr: &APIError{
 				Code:    429,
 				Message: "Too many requests",
 				Status:  "RESOURCE_EXHAUSTED",
@@ -135,7 +135,7 @@ func TestClassifyError(t *testing.T) {
 		},
 		{
 			name: "service unavailable",
-			apiErr: &GeminiAPIError{
+			apiErr: &APIError{
 				Code:    503,
 				Message: "Service down",
 				Status:  "UNAVAILABLE",
@@ -199,17 +199,17 @@ func TestDetermineRecoveryStrategy(t *testing.T) {
 		},
 		{
 			name: "retryable API error",
-			err:  &GeminiAPIError{Code: 429},
+			err:  &APIError{Code: 429},
 			want: RecoveryWaitAndRetry,
 		},
 		{
 			name: "auth API error",
-			err:  &GeminiAPIError{Code: 401},
+			err:  &APIError{Code: 401},
 			want: RecoveryFailFast,
 		},
 		{
 			name: "policy API error",
-			err:  &GeminiAPIError{Code: 400, Status: "POLICY_VIOLATION"},
+			err:  &APIError{Code: 400, Status: "POLICY_VIOLATION"},
 			want: RecoveryFailFast,
 		},
 		{

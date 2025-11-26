@@ -19,24 +19,24 @@ const (
 )
 
 // Compile-time interface check
-var _ persistence.ToolRepository = (*YAMLToolRepository)(nil)
+var _ persistence.ToolRepository = (*ToolRepository)(nil)
 
 // YAMLToolRepository loads tools from YAML files on disk
-type YAMLToolRepository struct {
+type ToolRepository struct {
 	basePath string
 	tools    map[string]*tools.ToolDescriptor
 }
 
 // NewYAMLToolRepository creates a YAML file-based tool repository
-func NewYAMLToolRepository(basePath string) *YAMLToolRepository {
-	return &YAMLToolRepository{
+func NewYAMLToolRepository(basePath string) *ToolRepository {
+	return &ToolRepository{
 		basePath: basePath,
 		tools:    make(map[string]*tools.ToolDescriptor),
 	}
 }
 
 // LoadTool loads a tool descriptor by name
-func (r *YAMLToolRepository) LoadTool(name string) (*tools.ToolDescriptor, error) {
+func (r *ToolRepository) LoadTool(name string) (*tools.ToolDescriptor, error) {
 	descriptor, ok := r.tools[name]
 	if !ok {
 		return nil, fmt.Errorf("tool not found: %s", name)
@@ -45,7 +45,7 @@ func (r *YAMLToolRepository) LoadTool(name string) (*tools.ToolDescriptor, error
 }
 
 // ListTools returns all available tool names
-func (r *YAMLToolRepository) ListTools() ([]string, error) {
+func (r *ToolRepository) ListTools() ([]string, error) {
 	names := make([]string, 0, len(r.tools))
 	for name := range r.tools {
 		names = append(names, name)
@@ -54,12 +54,12 @@ func (r *YAMLToolRepository) ListTools() ([]string, error) {
 }
 
 // SaveTool saves a tool descriptor (not yet implemented)
-func (r *YAMLToolRepository) SaveTool(descriptor *tools.ToolDescriptor) error {
+func (r *ToolRepository) SaveTool(descriptor *tools.ToolDescriptor) error {
 	return fmt.Errorf("not implemented")
 }
 
 // LoadToolFromFile loads a tool from a YAML file and registers it
-func (r *YAMLToolRepository) LoadToolFromFile(filename string) error {
+func (r *ToolRepository) LoadToolFromFile(filename string) error {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return fmt.Errorf("failed to read tool file %s: %w", filename, err)
@@ -83,7 +83,7 @@ func (r *YAMLToolRepository) LoadToolFromFile(filename string) error {
 	return r.loadLegacyTool(filename, temp)
 }
 
-func (r *YAMLToolRepository) parseYAML(filename string, data []byte) (interface{}, error) {
+func (r *ToolRepository) parseYAML(filename string, data []byte) (interface{}, error) {
 	var temp interface{}
 	if err := yaml.Unmarshal(data, &temp); err != nil {
 		return nil, fmt.Errorf("failed to parse YAML tool file %s: %w", filename, err)
@@ -91,12 +91,12 @@ func (r *YAMLToolRepository) parseYAML(filename string, data []byte) (interface{
 	return temp, nil
 }
 
-func (r *YAMLToolRepository) isK8sManifest(tempMap map[string]interface{}) bool {
+func (r *ToolRepository) isK8sManifest(tempMap map[string]interface{}) bool {
 	apiVersion, hasAPI := tempMap["apiVersion"].(string)
 	return hasAPI && apiVersion != ""
 }
 
-func (r *YAMLToolRepository) loadK8sManifest(filename string, temp interface{}) error {
+func (r *ToolRepository) loadK8sManifest(filename string, temp interface{}) error {
 	toolConfig, err := r.convertToToolConfig(filename, temp)
 	if err != nil {
 		return err
@@ -112,7 +112,7 @@ func (r *YAMLToolRepository) loadK8sManifest(filename string, temp interface{}) 
 	return nil
 }
 
-func (r *YAMLToolRepository) convertToToolConfig(filename string, temp interface{}) (*tools.ToolConfig, error) {
+func (r *ToolRepository) convertToToolConfig(filename string, temp interface{}) (*tools.ToolConfig, error) {
 	jsonData, err := json.Marshal(temp)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert K8s manifest to JSON for %s: %w", filename, err)
@@ -126,7 +126,7 @@ func (r *YAMLToolRepository) convertToToolConfig(filename string, temp interface
 	return &toolConfig, nil
 }
 
-func (r *YAMLToolRepository) validateK8sManifest(filename string, toolConfig *tools.ToolConfig) error {
+func (r *ToolRepository) validateK8sManifest(filename string, toolConfig *tools.ToolConfig) error {
 	if toolConfig.Kind == "" {
 		return fmt.Errorf("tool config %s is missing kind", filename)
 	}
@@ -139,7 +139,7 @@ func (r *YAMLToolRepository) validateK8sManifest(filename string, toolConfig *to
 	return nil
 }
 
-func (r *YAMLToolRepository) loadLegacyTool(filename string, temp interface{}) error {
+func (r *ToolRepository) loadLegacyTool(filename string, temp interface{}) error {
 	descriptor, err := r.convertToDescriptor(filename, temp)
 	if err != nil {
 		return err
@@ -153,7 +153,7 @@ func (r *YAMLToolRepository) loadLegacyTool(filename string, temp interface{}) e
 	return nil
 }
 
-func (r *YAMLToolRepository) convertToDescriptor(filename string, temp interface{}) (*tools.ToolDescriptor, error) {
+func (r *ToolRepository) convertToDescriptor(filename string, temp interface{}) (*tools.ToolDescriptor, error) {
 	jsonData, err := json.Marshal(temp)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert YAML to JSON for %s: %w", filename, err)
@@ -168,7 +168,7 @@ func (r *YAMLToolRepository) convertToDescriptor(filename string, temp interface
 }
 
 // LoadDirectory recursively loads all YAML tool files from a directory
-func (r *YAMLToolRepository) LoadDirectory(dirPath string) error {
+func (r *ToolRepository) LoadDirectory(dirPath string) error {
 	return filepath.WalkDir(dirPath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -193,6 +193,6 @@ func (r *YAMLToolRepository) LoadDirectory(dirPath string) error {
 }
 
 // RegisterTool adds a tool descriptor directly to the repository
-func (r *YAMLToolRepository) RegisterTool(name string, descriptor *tools.ToolDescriptor) {
+func (r *ToolRepository) RegisterTool(name string, descriptor *tools.ToolDescriptor) {
 	r.tools[name] = descriptor
 }

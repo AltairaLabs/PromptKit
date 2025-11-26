@@ -33,11 +33,7 @@ func ValidateMediaConfig(config *MediaConfig) error {
 		return err
 	}
 
-	if err := validateExamples(config.Examples); err != nil {
-		return err
-	}
-
-	return nil
+	return validateExamples(config.Examples)
 }
 
 // validateSupportedTypes validates the list of supported media types

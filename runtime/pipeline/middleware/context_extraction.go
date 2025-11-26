@@ -20,6 +20,7 @@ import (
 
 type contextExtractionMiddleware struct{}
 
+// ContextExtractionMiddleware creates a middleware that extracts context variables from conversation history.
 func ContextExtractionMiddleware() pipeline.Middleware {
 	return &contextExtractionMiddleware{}
 }

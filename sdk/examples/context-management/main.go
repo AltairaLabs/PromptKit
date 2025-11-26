@@ -27,7 +27,7 @@ func main() {
 	}
 
 	// Create an OpenAI provider
-	provider := openai.NewOpenAIProvider(
+	provider := openai.NewProvider(
 		"openai",
 		"gpt-4o-mini",
 		"",

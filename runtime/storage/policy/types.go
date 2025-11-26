@@ -7,7 +7,7 @@ import (
 
 // PolicyConfig defines a retention policy for media storage.
 // Policies control how long media should be retained and when it should be deleted.
-type PolicyConfig struct {
+type Config struct {
 	// Name is a unique identifier for this policy (e.g., "delete-after-5min", "retain-30days")
 	Name string `json:"name" yaml:"name"`
 
@@ -20,7 +20,7 @@ type PolicyConfig struct {
 
 // PolicyMetadata stores policy information in .meta files alongside media.
 // This metadata is used by the enforcement system to determine when to delete files.
-type PolicyMetadata struct {
+type Metadata struct {
 	// PolicyName identifies the policy applied to this media
 	PolicyName string `json:"policy_name"`
 
@@ -75,7 +75,7 @@ func ParsePolicyName(name string) (string, time.Duration, error) {
 }
 
 // Validate checks if a policy configuration is valid.
-func (p *PolicyConfig) Validate() error {
+func (p *Config) Validate() error {
 	if p.Name == "" {
 		return fmt.Errorf("policy name cannot be empty")
 	}

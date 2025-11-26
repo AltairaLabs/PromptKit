@@ -9,7 +9,7 @@ import (
 )
 
 // Ensure GeminiProvider implements StreamInputSupport
-var _ providers.StreamInputSupport = (*GeminiProvider)(nil)
+var _ providers.StreamInputSupport = (*Provider)(nil)
 
 // CreateStreamSession creates a new bidirectional streaming session with Gemini Live API
 //
@@ -27,7 +27,7 @@ var _ providers.StreamInputSupport = (*GeminiProvider)(nil)
 //	}
 //
 // Audio responses will be delivered in the StreamChunk.Metadata["audio_data"] field as base64-encoded PCM.
-func (p *GeminiProvider) CreateStreamSession(ctx context.Context, req *providers.StreamInputRequest) (providers.StreamInputSession, error) {
+func (p *Provider) CreateStreamSession(ctx context.Context, req *providers.StreamInputRequest) (providers.StreamInputSession, error) {
 	// Validate configuration
 	if err := req.Config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid stream configuration: %w", err)
@@ -76,7 +76,7 @@ func (p *GeminiProvider) CreateStreamSession(ctx context.Context, req *providers
 	}
 
 	// Create session with configuration
-	session, err := NewGeminiStreamSession(ctx, wsURL, p.ApiKey, config)
+	session, err := NewStreamSession(ctx, wsURL, p.ApiKey, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stream session: %w", err)
 	}
@@ -88,12 +88,12 @@ func (p *GeminiProvider) CreateStreamSession(ctx context.Context, req *providers
 }
 
 // SupportsStreamInput returns the media types supported for streaming input
-func (p *GeminiProvider) SupportsStreamInput() []string {
+func (p *Provider) SupportsStreamInput() []string {
 	return []string{types.ContentTypeAudio}
 }
 
 // GetStreamingCapabilities returns detailed information about Gemini's streaming support
-func (p *GeminiProvider) GetStreamingCapabilities() providers.StreamingCapabilities {
+func (p *Provider) GetStreamingCapabilities() providers.StreamingCapabilities {
 	return providers.StreamingCapabilities{
 		SupportedMediaTypes: []string{types.ContentTypeAudio},
 		Audio: &providers.AudioStreamingCapabilities{

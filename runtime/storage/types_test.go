@@ -86,12 +86,12 @@ func TestOrganizationMode(t *testing.T) {
 
 func TestStorageReference(t *testing.T) {
 	t.Run("string conversion", func(t *testing.T) {
-		ref := storage.StorageReference("/path/to/media/file.jpg")
+		ref := storage.Reference("/path/to/media/file.jpg")
 		assert.Equal(t, "/path/to/media/file.jpg", string(ref))
 	})
 
 	t.Run("empty reference", func(t *testing.T) {
-		ref := storage.StorageReference("")
+		ref := storage.Reference("")
 		assert.Empty(t, string(ref))
 	})
 }

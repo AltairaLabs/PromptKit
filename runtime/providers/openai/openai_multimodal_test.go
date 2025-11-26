@@ -15,7 +15,7 @@ import (
 )
 
 func TestOpenAIProvider_GetMultimodalCapabilities(t *testing.T) {
-	provider := NewOpenAIProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
 
 	caps := provider.GetMultimodalCapabilities()
 
@@ -57,7 +57,7 @@ func TestOpenAIProvider_GetMultimodalCapabilities(t *testing.T) {
 }
 
 func TestOpenAIProvider_SupportsMultimodal(t *testing.T) {
-	provider := NewOpenAIProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
 
 	if !providers.SupportsMultimodal(provider) {
 		t.Error("Expected OpenAI provider to support multimodal")
@@ -77,7 +77,7 @@ func TestOpenAIProvider_SupportsMultimodal(t *testing.T) {
 }
 
 func TestOpenAIProvider_ConvertLegacyMessage(t *testing.T) {
-	provider := NewOpenAIProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
 
 	legacyMsg := types.Message{
 		Role:    "user",
@@ -104,7 +104,7 @@ func TestOpenAIProvider_ConvertLegacyMessage(t *testing.T) {
 }
 
 func TestOpenAIProvider_ConvertTextOnlyMultimodalMessage(t *testing.T) {
-	provider := NewOpenAIProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
 
 	msg := types.Message{
 		Role:  "user",
@@ -144,7 +144,7 @@ func TestOpenAIProvider_ConvertTextOnlyMultimodalMessage(t *testing.T) {
 }
 
 func TestOpenAIProvider_ConvertImageURLMessage(t *testing.T) {
-	provider := NewOpenAIProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
 
 	imageURL := "https://example.com/image.jpg"
 	msg := types.Message{
@@ -204,7 +204,7 @@ func TestOpenAIProvider_ConvertImageURLMessage(t *testing.T) {
 }
 
 func TestOpenAIProvider_ConvertImageBase64Message(t *testing.T) {
-	provider := NewOpenAIProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
 
 	base64Data := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
 	msg := types.Message{
@@ -247,7 +247,7 @@ func TestOpenAIProvider_ConvertImageBase64Message(t *testing.T) {
 }
 
 func TestOpenAIProvider_ConvertImageWithDetail(t *testing.T) {
-	provider := NewOpenAIProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
 
 	imageURL := "https://example.com/image.jpg"
 	detail := "high"
@@ -291,7 +291,7 @@ func TestOpenAIProvider_ConvertImageWithDetail(t *testing.T) {
 }
 
 func TestOpenAIProvider_ConvertMultipleImages(t *testing.T) {
-	provider := NewOpenAIProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
 
 	url1 := "https://example.com/image1.jpg"
 	url2 := "https://example.com/image2.jpg"
@@ -348,7 +348,7 @@ func TestOpenAIProvider_ConvertMultipleImages(t *testing.T) {
 }
 
 func TestOpenAIProvider_ConvertAudioReturnsError(t *testing.T) {
-	provider := NewOpenAIProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
 
 	audioFile := "/path/to/audio.mp3"
 	msg := types.Message{
@@ -376,7 +376,7 @@ func TestOpenAIProvider_ConvertAudioReturnsError(t *testing.T) {
 }
 
 func TestOpenAIProvider_ConvertVideoReturnsError(t *testing.T) {
-	provider := NewOpenAIProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
 
 	videoFile := "/path/to/video.mp4"
 	msg := types.Message{
@@ -399,7 +399,7 @@ func TestOpenAIProvider_ConvertVideoReturnsError(t *testing.T) {
 }
 
 func TestOpenAIProvider_ConvertEmptyTextPart(t *testing.T) {
-	provider := NewOpenAIProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
 
 	emptyText := ""
 	msg := types.Message{
@@ -429,7 +429,7 @@ func TestOpenAIProvider_ConvertEmptyTextPart(t *testing.T) {
 }
 
 func TestOpenAIProvider_ConvertImageMissingMedia(t *testing.T) {
-	provider := NewOpenAIProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
 
 	msg := types.Message{
 		Role: "user",
@@ -448,7 +448,7 @@ func TestOpenAIProvider_ConvertImageMissingMedia(t *testing.T) {
 }
 
 func TestOpenAIProvider_ConvertImageMissingDataSource(t *testing.T) {
-	provider := NewOpenAIProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
 
 	msg := types.Message{
 		Role: "user",
@@ -556,7 +556,7 @@ func TestExtractContentString_NilText(t *testing.T) {
 }
 
 func TestOpenAIProvider_ValidateMultimodalMessage(t *testing.T) {
-	provider := NewOpenAIProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
 
 	tests := []struct {
 		name        string
@@ -652,7 +652,7 @@ func TestOpenAIProvider_ValidateMultimodalMessage(t *testing.T) {
 }
 
 func TestOpenAIProvider_ConvertMessagesToOpenAI(t *testing.T) {
-	provider := NewOpenAIProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
 
 	req := providers.PredictionRequest{
 		System: "You are a helpful assistant.",
@@ -894,7 +894,7 @@ func TestPredictMultimodal_Integration(t *testing.T) {
 			defer server.Close()
 
 			// Create provider
-			provider := NewOpenAIProvider(
+			provider := NewProvider(
 				"test",
 				"gpt-4o",
 				server.URL,
@@ -994,7 +994,7 @@ func TestPredictMultimodalStream_Integration(t *testing.T) {
 			defer server.Close()
 
 			// Create provider
-			provider := NewOpenAIProvider(
+			provider := NewProvider(
 				"test",
 				"gpt-4o",
 				server.URL,
@@ -1088,7 +1088,7 @@ func TestPredictWithMessages_ErrorHandling(t *testing.T) {
 			}))
 			defer server.Close()
 
-			provider := NewOpenAIProvider(
+			provider := NewProvider(
 				"test",
 				"gpt-4o",
 				server.URL,
@@ -1133,7 +1133,7 @@ func TestPredictStreamWithMessages_Cancellation(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewOpenAIProvider("test", "gpt-4o", server.URL, providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gpt-4o", server.URL, providers.ProviderDefaults{}, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
@@ -1179,7 +1179,7 @@ func TestPredictStreamWithMessages_MalformedChunks(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewOpenAIProvider("test", "gpt-4o", server.URL, providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gpt-4o", server.URL, providers.ProviderDefaults{}, false)
 
 	streamChan, err := provider.PredictMultimodalStream(context.Background(), providers.PredictionRequest{
 		Messages: []types.Message{{Role: "user", Content: "test"}},

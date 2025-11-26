@@ -11,9 +11,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// TestClaudeToolProvider_BuildRequestWithToolMessages tests that tool messages
+// TestToolProvider_BuildRequestWithToolMessages tests that tool messages
 // from conversation history are properly converted to Claude's tool_result format
-func TestClaudeToolProvider_BuildRequestWithToolMessages(t *testing.T) {
+func TestToolProvider_BuildRequestWithToolMessages(t *testing.T) {
 	// Track what gets sent to Claude API
 	var capturedRequest map[string]interface{}
 
@@ -39,7 +39,7 @@ func TestClaudeToolProvider_BuildRequestWithToolMessages(t *testing.T) {
 	defer server.Close()
 
 	// Create provider
-	provider := NewClaudeToolProvider(
+	provider := NewToolProvider(
 		"test-haiku",
 		"claude-3-5-haiku-20241022",
 		server.URL,
@@ -155,9 +155,9 @@ func TestClaudeToolProvider_BuildRequestWithToolMessages(t *testing.T) {
 	t.Logf("Request structure validated successfully")
 }
 
-// TestClaudeToolProvider_MultipleToolResultsGrouped tests that multiple consecutive
+// TestToolProvider_MultipleToolResultsGrouped tests that multiple consecutive
 // tool messages are grouped together in a single user message
-func TestClaudeToolProvider_MultipleToolResultsGrouped(t *testing.T) {
+func TestToolProvider_MultipleToolResultsGrouped(t *testing.T) {
 	var capturedRequest map[string]interface{}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -179,7 +179,7 @@ func TestClaudeToolProvider_MultipleToolResultsGrouped(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewClaudeToolProvider(
+	provider := NewToolProvider(
 		"test-haiku",
 		"claude-3-5-haiku-20241022",
 		server.URL,

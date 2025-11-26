@@ -200,7 +200,7 @@ func buildPromptRegistry(cfg *config.Config) (*prompt.Registry, error) {
 	}
 
 	// Create memory repository
-	memRepo := memory.NewMemoryPromptRepository()
+	memRepo := memory.NewPromptRepository()
 
 	// Track task types for duplicate detection
 	taskTypeToID := make(map[string]string)
@@ -213,7 +213,7 @@ func buildPromptRegistry(cfg *config.Config) (*prompt.Registry, error) {
 		}
 
 		// Type assert the config (it was loaded as interface{} to avoid circular import)
-		promptConfig, ok := promptData.Config.(*prompt.PromptConfig)
+		promptConfig, ok := promptData.Config.(*prompt.Config)
 		if !ok {
 			return nil, fmt.Errorf("prompt config %s (ID: %s) has invalid type", promptData.FilePath, refID)
 		}
@@ -255,7 +255,7 @@ func buildPromptRegistry(cfg *config.Config) (*prompt.Registry, error) {
 // Returns nil if no tools are loaded.
 func buildToolRegistry(cfg *config.Config) (*tools.Registry, error) {
 	// Create memory repository
-	memRepo := memory.NewMemoryToolRepository()
+	memRepo := memory.NewToolRepository()
 
 	// Parse and register each tool from the loaded data
 	for _, toolData := range cfg.LoadedTools {

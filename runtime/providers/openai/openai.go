@@ -1,3 +1,4 @@
+// Package openai provides OpenAI LLM provider integration.
 package openai
 
 import (
@@ -32,7 +33,7 @@ const (
 )
 
 // OpenAIProvider implements the Provider interface for OpenAI
-type OpenAIProvider struct {
+type Provider struct {
 	providers.BaseProvider
 	model    string
 	baseURL  string
@@ -40,11 +41,11 @@ type OpenAIProvider struct {
 	defaults providers.ProviderDefaults
 }
 
-// NewOpenAIProvider creates a new OpenAI provider
-func NewOpenAIProvider(id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool) *OpenAIProvider {
+// NewProvider creates a new OpenAI provider
+func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool) *Provider {
 	base, apiKey := providers.NewBaseProviderWithAPIKey(id, includeRawOutput, "OPENAI_API_KEY", "OPENAI_TOKEN")
 
-	return &OpenAIProvider{
+	return &Provider{
 		BaseProvider: base,
 		model:        model,
 		baseURL:      baseURL,
@@ -102,7 +103,7 @@ type openAIError struct {
 }
 
 // prepareOpenAIMessages converts predict request messages to OpenAI format with system message
-func (p *OpenAIProvider) prepareOpenAIMessages(req providers.PredictionRequest) ([]openAIMessage, error) {
+func (p *Provider) prepareOpenAIMessages(req providers.PredictionRequest) ([]openAIMessage, error) {
 	messages := make([]openAIMessage, 0, len(req.Messages)+1)
 	if req.System != "" {
 		messages = append(messages, openAIMessage{
@@ -124,7 +125,7 @@ func (p *OpenAIProvider) prepareOpenAIMessages(req providers.PredictionRequest) 
 }
 
 // applyRequestDefaults applies provider defaults to zero-valued request parameters
-func (p *OpenAIProvider) applyRequestDefaults(req providers.PredictionRequest) (temperature, topP float32, maxTokens int) {
+func (p *Provider) applyRequestDefaults(req providers.PredictionRequest) (temperature, topP float32, maxTokens int) {
 	temperature = req.Temperature
 	if temperature == 0 {
 		temperature = p.defaults.Temperature
@@ -144,7 +145,7 @@ func (p *OpenAIProvider) applyRequestDefaults(req providers.PredictionRequest) (
 }
 
 // Predict sends a predict request to OpenAI
-func (p *OpenAIProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	// Convert messages to OpenAI format
 	messages, err := p.prepareOpenAIMessages(req)
 	if err != nil {
@@ -156,7 +157,7 @@ func (p *OpenAIProvider) Predict(ctx context.Context, req providers.PredictionRe
 }
 
 // CalculateCost calculates detailed cost breakdown including optional cached tokens
-func (p *OpenAIProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.CostInfo {
+func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.CostInfo {
 	var inputCostPer1K, outputCostPer1K, cachedCostPer1K float64
 
 	// Use configured pricing if available
@@ -209,7 +210,7 @@ func (p *OpenAIProvider) CalculateCost(tokensIn, tokensOut, cachedTokens int) ty
 }
 
 // PredictStream streams a predict response from OpenAI
-func (p *OpenAIProvider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+func (p *Provider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	// Convert messages to OpenAI format
 	messages, err := p.prepareOpenAIMessages(req)
 	if err != nil {
@@ -271,7 +272,7 @@ func processToolCallDeltas(accumulatedToolCalls *[]types.MessageToolCall, toolCa
 }
 
 // createFinalStreamChunk creates the final chunk with usage and cost information
-func (p *OpenAIProvider) createFinalStreamChunk(accumulated string, accumulatedToolCalls []types.MessageToolCall, totalTokens int, finishReason *string, usage *openAIUsage) providers.StreamChunk {
+func (p *Provider) createFinalStreamChunk(accumulated string, accumulatedToolCalls []types.MessageToolCall, totalTokens int, finishReason *string, usage *openAIUsage) providers.StreamChunk {
 	finalChunk := providers.StreamChunk{
 		Content:      accumulated,
 		ToolCalls:    accumulatedToolCalls,
@@ -295,7 +296,7 @@ func (p *OpenAIProvider) createFinalStreamChunk(accumulated string, accumulatedT
 }
 
 // streamResponse reads SSE stream from OpenAI and sends chunks
-func (p *OpenAIProvider) streamResponse(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
+func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
 	defer close(outChan)
 	defer body.Close()
 
@@ -428,7 +429,7 @@ func getTextFromPart(part interface{}) string {
 }
 
 // predictWithMessages is a refactored version of Predict that accepts pre-converted messages
-func (p *OpenAIProvider) predictWithMessages(ctx context.Context, req providers.PredictionRequest, messages []openAIMessage) (providers.PredictionResponse, error) {
+func (p *Provider) predictWithMessages(ctx context.Context, req providers.PredictionRequest, messages []openAIMessage) (providers.PredictionResponse, error) {
 	start := time.Now()
 
 	// Apply provider defaults for zero values
@@ -535,7 +536,7 @@ func (p *OpenAIProvider) predictWithMessages(ctx context.Context, req providers.
 }
 
 // predictStreamWithMessages is a refactored version of PredictStream that accepts pre-converted messages
-func (p *OpenAIProvider) predictStreamWithMessages(ctx context.Context, req providers.PredictionRequest, messages []openAIMessage) (<-chan providers.StreamChunk, error) {
+func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.PredictionRequest, messages []openAIMessage) (<-chan providers.StreamChunk, error) {
 	// Apply provider defaults for zero values
 	temperature, topP, maxTokens := p.applyRequestDefaults(req)
 

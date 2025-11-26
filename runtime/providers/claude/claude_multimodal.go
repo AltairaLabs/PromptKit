@@ -15,7 +15,7 @@ import (
 )
 
 // GetMultimodalCapabilities returns Claude's multimodal support capabilities
-func (p *ClaudeProvider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
+func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
 	// Claude supports images and PDFs, but not audio or video
 	return providers.MultimodalCapabilities{
 		SupportsImages: true,
@@ -52,7 +52,7 @@ type claudeContentBlockMultimodal struct {
 }
 
 // PredictMultimodal sends a multimodal predict request to Claude
-func (p *ClaudeProvider) PredictMultimodal(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+func (p *Provider) PredictMultimodal(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	// Validate multimodal messages
 	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
 		return providers.PredictionResponse{}, err
@@ -68,7 +68,7 @@ func (p *ClaudeProvider) PredictMultimodal(ctx context.Context, req providers.Pr
 }
 
 // PredictMultimodalStream sends a streaming multimodal predict request to Claude
-func (p *ClaudeProvider) PredictMultimodalStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+func (p *Provider) PredictMultimodalStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	// Validate multimodal messages
 	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
 		return nil, err
@@ -84,7 +84,7 @@ func (p *ClaudeProvider) PredictMultimodalStream(ctx context.Context, req provid
 }
 
 // convertMessagesToClaudeMultimodal converts PromptKit messages to Claude's multimodal format
-func (p *ClaudeProvider) convertMessagesToClaudeMultimodal(messages []types.Message) ([]claudeMessage, []claudeContentBlockMultimodal, error) {
+func (p *Provider) convertMessagesToClaudeMultimodal(messages []types.Message) ([]claudeMessage, []claudeContentBlockMultimodal, error) {
 	claudeMessages := make([]claudeMessage, 0)
 	var systemBlocks []claudeContentBlockMultimodal
 
@@ -112,7 +112,7 @@ func (p *ClaudeProvider) convertMessagesToClaudeMultimodal(messages []types.Mess
 }
 
 // convertMessageToClaudeMultimodal converts a single PromptKit message to Claude format
-func (p *ClaudeProvider) convertMessageToClaudeMultimodal(msg types.Message) (claudeMessage, error) {
+func (p *Provider) convertMessageToClaudeMultimodal(msg types.Message) (claudeMessage, error) {
 	var contentBlocks []interface{}
 
 	// Handle legacy string content
@@ -135,7 +135,7 @@ func (p *ClaudeProvider) convertMessageToClaudeMultimodal(msg types.Message) (cl
 }
 
 // convertPartsToClaudeBlocks converts content parts to Claude content blocks
-func (p *ClaudeProvider) convertPartsToClaudeBlocks(parts []types.ContentPart) ([]interface{}, error) {
+func (p *Provider) convertPartsToClaudeBlocks(parts []types.ContentPart) ([]interface{}, error) {
 	var contentBlocks []interface{}
 
 	for _, part := range parts {
@@ -170,7 +170,7 @@ func (p *ClaudeProvider) convertPartsToClaudeBlocks(parts []types.ContentPart) (
 }
 
 // buildClaudeMessage creates a claudeMessage from role and content blocks
-func (p *ClaudeProvider) buildClaudeMessage(role string, contentBlocks []interface{}) (claudeMessage, error) {
+func (p *Provider) buildClaudeMessage(role string, contentBlocks []interface{}) (claudeMessage, error) {
 	// Marshal to JSON to handle the mixed type array
 	contentJSON, err := json.Marshal(contentBlocks)
 	if err != nil {
@@ -191,7 +191,7 @@ func (p *ClaudeProvider) buildClaudeMessage(role string, contentBlocks []interfa
 }
 
 // convertImagePartToClaude converts an image part to Claude's format
-func (p *ClaudeProvider) convertImagePartToClaude(part types.ContentPart) (claudeContentBlockMultimodal, error) {
+func (p *Provider) convertImagePartToClaude(part types.ContentPart) (claudeContentBlockMultimodal, error) {
 	if part.Media == nil {
 		return claudeContentBlockMultimodal{}, fmt.Errorf("image part missing media data")
 	}
@@ -223,7 +223,7 @@ func (p *ClaudeProvider) convertImagePartToClaude(part types.ContentPart) (claud
 }
 
 // predictWithContentsMultimodal handles the actual API call with multimodal content
-func (p *ClaudeProvider) predictWithContentsMultimodal(ctx context.Context, messages []claudeMessage, system []claudeContentBlockMultimodal, temperature, topP float32, maxTokens int, seed *int) (providers.PredictionResponse, error) {
+func (p *Provider) predictWithContentsMultimodal(ctx context.Context, messages []claudeMessage, system []claudeContentBlockMultimodal, temperature, topP float32, maxTokens int, seed *int) (providers.PredictionResponse, error) {
 	start := time.Now()
 
 	// Apply provider defaults for zero values
@@ -367,7 +367,7 @@ func parseClaudeResponse(respBody []byte) (*claudeResponse, error) {
 }
 
 // predictStreamWithContentsMultimodal handles streaming API calls with multimodal content
-func (p *ClaudeProvider) predictStreamWithContentsMultimodal(ctx context.Context, messages []claudeMessage, system []claudeContentBlockMultimodal, temperature, topP float32, maxTokens int, seed *int) (<-chan providers.StreamChunk, error) {
+func (p *Provider) predictStreamWithContentsMultimodal(ctx context.Context, messages []claudeMessage, system []claudeContentBlockMultimodal, temperature, topP float32, maxTokens int, seed *int) (<-chan providers.StreamChunk, error) {
 	// Apply provider defaults
 	if temperature == 0 {
 		temperature = p.defaults.Temperature
@@ -433,7 +433,7 @@ func (p *ClaudeProvider) predictStreamWithContentsMultimodal(ctx context.Context
 }
 
 // streamResponseMultimodal processes the streaming response
-func (p *ClaudeProvider) streamResponseMultimodal(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
+func (p *Provider) streamResponseMultimodal(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
 	// Don't defer close here since streamResponse already closes the channel
 	defer body.Close()
 

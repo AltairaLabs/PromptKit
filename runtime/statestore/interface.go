@@ -1,3 +1,4 @@
+// Package statestore provides conversation state persistence and management.
 package statestore
 
 import (

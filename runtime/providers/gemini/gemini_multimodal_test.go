@@ -15,7 +15,7 @@ import (
 )
 
 func TestGeminiProvider_GetMultimodalCapabilities(t *testing.T) {
-	provider := NewGeminiProvider("test", "gemini-1.5-flash", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gemini-1.5-flash", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{}, false)
 
 	caps := provider.GetMultimodalCapabilities()
 
@@ -45,7 +45,7 @@ func TestGeminiProvider_GetMultimodalCapabilities(t *testing.T) {
 }
 
 func TestGeminiProvider_SupportsMultimodal(t *testing.T) {
-	provider := NewGeminiProvider("test", "gemini-1.5-flash", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gemini-1.5-flash", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{}, false)
 
 	if !providers.SupportsMultimodal(provider) {
 		t.Error("Expected Gemini provider to support multimodal")
@@ -286,7 +286,7 @@ func TestGeminiProvider_ConvertImageMissingDataSource(t *testing.T) {
 }
 
 func TestGeminiProvider_ValidateMultimodalMessage(t *testing.T) {
-	provider := NewGeminiProvider("test", "gemini-1.5-flash", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gemini-1.5-flash", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{}, false)
 
 	tests := []struct {
 		name        string
@@ -632,7 +632,7 @@ func TestPredictMultimodal_Integration(t *testing.T) {
 			}))
 			defer server.Close()
 
-			provider := NewGeminiProvider(
+			provider := NewProvider(
 				"test",
 				"gemini-2.0-flash",
 				server.URL,
@@ -732,7 +732,7 @@ func TestPredictMultimodalStream_Integration(t *testing.T) {
 			}))
 			defer server.Close()
 
-			provider := NewGeminiProvider(
+			provider := NewProvider(
 				"test",
 				"gemini-2.0-flash",
 				server.URL,
@@ -772,7 +772,7 @@ func TestPredictMultimodalStream_Integration(t *testing.T) {
 
 // TestPredictMultimodal_ValidationError tests validation error handling
 func TestPredictMultimodal_ValidationError(t *testing.T) {
-	provider := NewGeminiProvider(
+	provider := NewProvider(
 		"test",
 		"gemini-2.0-flash",
 		"https://test.example.com",
@@ -805,7 +805,7 @@ func TestPredictMultimodal_ValidationError(t *testing.T) {
 
 // TestPredictMultimodalStream_ValidationError tests streaming validation error handling
 func TestPredictMultimodalStream_ValidationError(t *testing.T) {
-	provider := NewGeminiProvider(
+	provider := NewProvider(
 		"test",
 		"gemini-2.0-flash",
 		"https://test.example.com",
@@ -878,7 +878,7 @@ func TestPredictWithContents_HTTPErrors(t *testing.T) {
 				defer server.Close()
 			}
 
-			provider := NewGeminiProvider(
+			provider := NewProvider(
 				"test",
 				"gemini-2.0-flash",
 				server.URL,
@@ -939,7 +939,7 @@ func TestPredictStreamWithContents_HTTPErrors(t *testing.T) {
 				defer server.Close()
 			}
 
-			provider := NewGeminiProvider(
+			provider := NewProvider(
 				"test",
 				"gemini-2.0-flash",
 				server.URL,
@@ -1075,7 +1075,7 @@ func TestConvertMediaMissingMediaField(t *testing.T) {
 
 // TestPredictWithContents_MarshalError tests JSON marshal error
 func TestPredictWithContents_MarshalError(t *testing.T) {
-	provider := NewGeminiProvider(
+	provider := NewProvider(
 		"test",
 		"gemini-2.0-flash",
 		"https://generativelanguage.googleapis.com/v1beta",
@@ -1099,7 +1099,7 @@ func TestPredictWithContents_MarshalError(t *testing.T) {
 
 // TestPredictStreamWithContents_MarshalError tests JSON marshal error in streaming
 func TestPredictStreamWithContents_MarshalError(t *testing.T) {
-	provider := NewGeminiProvider(
+	provider := NewProvider(
 		"test",
 		"gemini-2.0-flash",
 		"https://generativelanguage.googleapis.com/v1beta",
@@ -1121,7 +1121,7 @@ func TestPredictStreamWithContents_MarshalError(t *testing.T) {
 
 // TestParseGeminiResponse_EmptyCandidates tests empty candidates error
 func TestParseGeminiResponse_EmptyCandidates(t *testing.T) {
-	provider := NewGeminiProvider(
+	provider := NewProvider(
 		"test",
 		"gemini-2.0-flash",
 		"https://generativelanguage.googleapis.com/v1beta",
@@ -1138,7 +1138,7 @@ func TestParseGeminiResponse_EmptyCandidates(t *testing.T) {
 
 // TestParseGeminiResponse_PromptBlocked tests prompt feedback blocking
 func TestParseGeminiResponse_PromptBlocked(t *testing.T) {
-	provider := NewGeminiProvider(
+	provider := NewProvider(
 		"test",
 		"gemini-2.0-flash",
 		"https://generativelanguage.googleapis.com/v1beta",
@@ -1161,7 +1161,7 @@ func TestParseGeminiResponse_PromptBlocked(t *testing.T) {
 
 // TestParseGeminiResponse_MaxTokens tests MAX_TOKENS finish reason
 func TestParseGeminiResponse_MaxTokens(t *testing.T) {
-	provider := NewGeminiProvider(
+	provider := NewProvider(
 		"test",
 		"gemini-2.0-flash",
 		"https://generativelanguage.googleapis.com/v1beta",
@@ -1186,7 +1186,7 @@ func TestParseGeminiResponse_MaxTokens(t *testing.T) {
 
 // TestParseGeminiResponse_SafetyFilter tests SAFETY finish reason
 func TestParseGeminiResponse_SafetyFilter(t *testing.T) {
-	provider := NewGeminiProvider(
+	provider := NewProvider(
 		"test",
 		"gemini-2.0-flash",
 		"https://generativelanguage.googleapis.com/v1beta",
@@ -1211,7 +1211,7 @@ func TestParseGeminiResponse_SafetyFilter(t *testing.T) {
 
 // TestParseGeminiResponse_Recitation tests RECITATION finish reason
 func TestParseGeminiResponse_Recitation(t *testing.T) {
-	provider := NewGeminiProvider(
+	provider := NewProvider(
 		"test",
 		"gemini-2.0-flash",
 		"https://generativelanguage.googleapis.com/v1beta",
@@ -1236,7 +1236,7 @@ func TestParseGeminiResponse_Recitation(t *testing.T) {
 
 // TestParseGeminiResponse_UnknownFinishReason tests unknown finish reason
 func TestParseGeminiResponse_UnknownFinishReason(t *testing.T) {
-	provider := NewGeminiProvider(
+	provider := NewProvider(
 		"test",
 		"gemini-2.0-flash",
 		"https://generativelanguage.googleapis.com/v1beta",
@@ -1262,7 +1262,7 @@ func TestParseGeminiResponse_UnknownFinishReason(t *testing.T) {
 
 // TestParseGeminiResponse_InvalidJSON tests invalid JSON response
 func TestParseGeminiResponse_InvalidJSON(t *testing.T) {
-	provider := NewGeminiProvider(
+	provider := NewProvider(
 		"test",
 		"gemini-2.0-flash",
 		"https://generativelanguage.googleapis.com/v1beta",
@@ -1315,7 +1315,7 @@ func TestPredictWithContents_ReadBodyError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewGeminiProvider(
+	provider := NewProvider(
 		"test",
 		"gemini-2.0-flash",
 		server.URL,
@@ -1342,7 +1342,7 @@ func TestPredictWithContents_ReadBodyError(t *testing.T) {
 
 // TestPredictWithContents_InvalidURL tests invalid URL error
 func TestPredictWithContents_InvalidURL(t *testing.T) {
-	provider := NewGeminiProvider(
+	provider := NewProvider(
 		"test",
 		"gemini-2.0-flash",
 		"http://\x7f/invalid", // Invalid URL with control character

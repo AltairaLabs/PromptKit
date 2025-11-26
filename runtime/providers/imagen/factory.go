@@ -1,3 +1,4 @@
+// Package imagen provides Google Imagen image generation provider integration.
 package imagen
 
 import (
@@ -30,7 +31,7 @@ func init() {
 			location = "us-central1"
 		}
 
-		provider := NewImagenProvider(ImagenConfig{
+		provider := NewProvider(Config{
 			ID:               spec.ID,
 			Model:            spec.Model,
 			BaseURL:          spec.BaseURL,

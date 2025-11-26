@@ -25,6 +25,7 @@ linters:
     - nakedret
     - noctx
     - nolintlint
+    - revive       # Go style checker - catches non-idiomatic names like Get* functions
     - rowserrcheck
     - staticcheck
     - unconvert
@@ -71,6 +72,56 @@ linters:
         - operation
         - return
         - assign
+    revive:
+      # Revive is a comprehensive Go style checker that catches various issues including:
+      # - Stuttering type names (e.g., mock.MockProvider, prompt.PromptConfig)
+      # - Variable/constant/type naming conventions
+      # - Package naming issues
+      # - Exported symbols without documentation
+      #
+      # Note: Revive does NOT catch "Get" prefix in function names (flagged by SonarQube)
+      # The get-return rule only verifies Get* functions return values, not naming style
+      # See: https://go.dev/doc/effective_go#Getters
+      rules:
+        # Naming conventions for variables, constants, and types
+        - name: var-naming
+          severity: warning
+          disabled: false
+          arguments:
+            - - "ID" # Accept ID as proper name
+              - "API"
+              - "HTTP"
+              - "JSON"
+              - "URL"
+              - "XML"
+              - "YAML"
+        - name: exported
+          severity: warning
+          disabled: false
+          arguments:
+            - "checkPrivateReceivers"  # Check receiver names even for private methods
+            - "sayRepetitiveInsteadOfStutters"  # Use better wording in error messages
+        # Add other useful revive rules
+        - name: blank-imports
+        - name: context-as-argument
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: if-return
+        - name: increment-decrement
+        - name: var-declaration
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: indent-error-flow
+        - name: errorf
+        - name: empty-block
+        - name: superfluous-else
+        - name: unreachable-code
+        - name: redefines-builtin-id
   exclusions:
     paths:
       - vendor
@@ -97,6 +148,7 @@ linters:
           - staticcheck
           - govet
           - whitespace
+          - revive
       - path: 'test_.*\.go'
         linters:
           - mnd
@@ -113,6 +165,7 @@ linters:
           - staticcheck
           - govet
           - whitespace
+          - revive
       - path: 'cmd/'
         linters:
           - funlen

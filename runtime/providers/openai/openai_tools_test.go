@@ -8,22 +8,22 @@ import (
 )
 
 // ============================================================================
-// NewOpenAIToolProvider Tests
+// NewToolProvider Tests
 // ============================================================================
 
-func TestNewOpenAIToolProvider(t *testing.T) {
+func TestNewToolProvider(t *testing.T) {
 	defaults := providers.ProviderDefaults{
 		Temperature: 0.7,
 		MaxTokens:   1000,
 	}
 
-	provider := NewOpenAIToolProvider("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false, nil)
+	provider := NewToolProvider("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false, nil)
 
 	if provider == nil {
 		t.Fatal("Expected non-nil provider")
 	}
 
-	if provider.OpenAIProvider == nil {
+	if provider.Provider == nil {
 		t.Fatal("Expected non-nil OpenAIProvider")
 	}
 
@@ -37,7 +37,7 @@ func TestNewOpenAIToolProvider(t *testing.T) {
 // ============================================================================
 
 func TestOpenAIBuildTooling_Empty(t *testing.T) {
-	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
 
 	tools, err := provider.BuildTooling(nil)
 	if err != nil {
@@ -50,7 +50,7 @@ func TestOpenAIBuildTooling_Empty(t *testing.T) {
 }
 
 func TestOpenAIBuildTooling_SingleTool(t *testing.T) {
-	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
 
 	schema := json.RawMessage(`{"type": "object", "properties": {"query": {"type": "string"}}}`)
 	descriptors := []*providers.ToolDescriptor{
@@ -98,7 +98,7 @@ func TestOpenAIBuildTooling_SingleTool(t *testing.T) {
 }
 
 func TestOpenAIBuildTooling_MultipleTools(t *testing.T) {
-	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
 
 	schema1 := json.RawMessage(`{"type": "object", "properties": {"query": {"type": "string"}}}`)
 	schema2 := json.RawMessage(`{"type": "object", "properties": {"code": {"type": "string"}}}`)
@@ -142,7 +142,7 @@ func TestOpenAIBuildTooling_MultipleTools(t *testing.T) {
 }
 
 func TestOpenAIBuildTooling_ComplexSchema(t *testing.T) {
-	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
 
 	schema := json.RawMessage(`{
 		"type": "object",
@@ -200,7 +200,7 @@ func TestOpenAIBuildTooling_ComplexSchema(t *testing.T) {
 // ============================================================================
 
 func TestOpenAIParseToolResponse_NoToolCalls(t *testing.T) {
-	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
 
 	responseJSON := `{
 		"id": "predictcmpl-123",
@@ -245,7 +245,7 @@ func TestOpenAIParseToolResponse_NoToolCalls(t *testing.T) {
 }
 
 func TestOpenAIParseToolResponse_WithToolCalls(t *testing.T) {
-	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
 
 	responseJSON := `{
 		"id": "predictcmpl-123",
@@ -313,7 +313,7 @@ func TestOpenAIParseToolResponse_WithToolCalls(t *testing.T) {
 }
 
 func TestOpenAIParseToolResponse_MultipleToolCalls(t *testing.T) {
-	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
 
 	responseJSON := `{
 		"id": "predictcmpl-123",
@@ -378,7 +378,7 @@ func TestOpenAIParseToolResponse_MultipleToolCalls(t *testing.T) {
 }
 
 func TestOpenAIParseToolResponse_InvalidJSON(t *testing.T) {
-	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
 
 	responseJSON := `{invalid json`
 
@@ -389,7 +389,7 @@ func TestOpenAIParseToolResponse_InvalidJSON(t *testing.T) {
 }
 
 func TestOpenAIParseToolResponse_MissingFields(t *testing.T) {
-	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
 
 	responseJSON := `{
 		"id": "predictcmpl-123",
@@ -421,7 +421,7 @@ func TestOpenAIParseToolResponse_MissingFields(t *testing.T) {
 }
 
 func TestOpenAIParseToolResponse_CachedTokens(t *testing.T) {
-	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
 
 	responseJSON := `{
 		"id": "predictcmpl-123",
@@ -544,8 +544,8 @@ func TestOpenAIToolCallStructure(t *testing.T) {
 // addToolChoiceToRequest Tests
 // ============================================================================
 
-func TestOpenAIToolProvider_AddToolChoiceToRequest(t *testing.T) {
-	provider := NewOpenAIToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+func TestToolProvider_AddToolChoiceToRequest(t *testing.T) {
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
 
 	tests := []struct {
 		name       string

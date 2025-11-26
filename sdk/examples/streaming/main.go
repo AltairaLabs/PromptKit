@@ -20,7 +20,7 @@ func main() {
 	}
 
 	// Create provider
-	provider := openai.NewOpenAIProvider(
+	provider := openai.NewProvider(
 		"openai",
 		"gpt-4",
 		"", // Use default base URL

@@ -9,7 +9,7 @@ import (
 )
 
 // GetMultimodalCapabilities returns OpenAI's multimodal capabilities
-func (p *OpenAIProvider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
+func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
 	// OpenAI Vision API supports images
 	// Audio/video are not directly supported in the predict API (use Whisper separately)
 	return providers.MultimodalCapabilities{
@@ -31,7 +31,7 @@ func (p *OpenAIProvider) GetMultimodalCapabilities() providers.MultimodalCapabil
 }
 
 // PredictMultimodal performs a predict request with multimodal content
-func (p *OpenAIProvider) PredictMultimodal(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+func (p *Provider) PredictMultimodal(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	// Validate that messages are compatible with OpenAI's capabilities
 	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
 		return providers.PredictionResponse{}, err
@@ -48,7 +48,7 @@ func (p *OpenAIProvider) PredictMultimodal(ctx context.Context, req providers.Pr
 }
 
 // PredictMultimodalStream performs a streaming predict request with multimodal content
-func (p *OpenAIProvider) PredictMultimodalStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+func (p *Provider) PredictMultimodalStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	// Validate that messages are compatible with OpenAI's capabilities
 	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
 		return nil, err
@@ -66,7 +66,7 @@ func (p *OpenAIProvider) PredictMultimodalStream(ctx context.Context, req provid
 
 // convertMessagesToOpenAI converts PromptKit messages to OpenAI format
 // Handles both legacy text-only and new multimodal messages
-func (p *OpenAIProvider) convertMessagesToOpenAI(req providers.PredictionRequest) ([]openAIMessage, error) {
+func (p *Provider) convertMessagesToOpenAI(req providers.PredictionRequest) ([]openAIMessage, error) {
 	messages := make([]openAIMessage, 0, len(req.Messages)+1)
 
 	// Add system message if present
@@ -90,7 +90,7 @@ func (p *OpenAIProvider) convertMessagesToOpenAI(req providers.PredictionRequest
 }
 
 // convertMessageToOpenAI converts a single PromptKit message to OpenAI format
-func (p *OpenAIProvider) convertMessageToOpenAI(msg types.Message) (openAIMessage, error) {
+func (p *Provider) convertMessageToOpenAI(msg types.Message) (openAIMessage, error) {
 	// Handle legacy text-only messages
 	if !msg.IsMultimodal() {
 		return openAIMessage{
@@ -139,7 +139,7 @@ func (p *OpenAIProvider) convertMessageToOpenAI(msg types.Message) (openAIMessag
 }
 
 // convertImagePartToOpenAI converts an image ContentPart to OpenAI's format
-func (p *OpenAIProvider) convertImagePartToOpenAI(part types.ContentPart) (map[string]interface{}, error) {
+func (p *Provider) convertImagePartToOpenAI(part types.ContentPart) (map[string]interface{}, error) {
 	if part.Media == nil {
 		return nil, fmt.Errorf("image part missing media content")
 	}
@@ -175,9 +175,9 @@ func (p *OpenAIProvider) convertImagePartToOpenAI(part types.ContentPart) (map[s
 	return imagePart, nil
 }
 
-// PredictMultimodalWithTools implements providers.MultimodalToolSupport interface for OpenAIToolProvider
+// PredictMultimodalWithTools implements providers.MultimodalToolSupport interface for ToolProvider
 // This allows combining multimodal content (images) with tool calls in a single request
-func (p *OpenAIToolProvider) PredictMultimodalWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
+func (p *ToolProvider) PredictMultimodalWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	// Validate that all messages are compatible with OpenAI's capabilities
 	for i := range req.Messages {
 		if err := providers.ValidateMultimodalMessage(p, req.Messages[i]); err != nil {

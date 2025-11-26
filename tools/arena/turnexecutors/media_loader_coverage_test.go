@@ -22,12 +22,12 @@ type MockStorageService struct {
 	mock.Mock
 }
 
-func (m *MockStorageService) StoreMedia(ctx context.Context, media *types.MediaContent, metadata *storage.MediaMetadata) (storage.StorageReference, error) {
+func (m *MockStorageService) StoreMedia(ctx context.Context, media *types.MediaContent, metadata *storage.MediaMetadata) (storage.Reference, error) {
 	args := m.Called(ctx, media, metadata)
-	return args.Get(0).(storage.StorageReference), args.Error(1)
+	return args.Get(0).(storage.Reference), args.Error(1)
 }
 
-func (m *MockStorageService) RetrieveMedia(ctx context.Context, ref storage.StorageReference) (*types.MediaContent, error) {
+func (m *MockStorageService) RetrieveMedia(ctx context.Context, ref storage.Reference) (*types.MediaContent, error) {
 	args := m.Called(ctx, ref)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -35,12 +35,12 @@ func (m *MockStorageService) RetrieveMedia(ctx context.Context, ref storage.Stor
 	return args.Get(0).(*types.MediaContent), args.Error(1)
 }
 
-func (m *MockStorageService) DeleteMedia(ctx context.Context, ref storage.StorageReference) error {
+func (m *MockStorageService) DeleteMedia(ctx context.Context, ref storage.Reference) error {
 	args := m.Called(ctx, ref)
 	return args.Error(0)
 }
 
-func (m *MockStorageService) GetURL(ctx context.Context, ref storage.StorageReference, expiry time.Duration) (string, error) {
+func (m *MockStorageService) GetURL(ctx context.Context, ref storage.Reference, expiry time.Duration) (string, error) {
 	args := m.Called(ctx, ref, expiry)
 	return args.String(0), args.Error(1)
 }
@@ -57,7 +57,7 @@ func TestLoadFromStorageReference_Success(t *testing.T) {
 		MIMEType: "image/jpeg",
 	}
 
-	mockStorage.On("RetrieveMedia", ctx, storage.StorageReference(ref)).Return(expectedMedia, nil)
+	mockStorage.On("RetrieveMedia", ctx, storage.Reference(ref)).Return(expectedMedia, nil)
 
 	media, err := loadFromStorageReference(ctx, mockStorage, ref, "image", 0)
 
@@ -82,7 +82,7 @@ func TestLoadFromStorageReference_RetrievalError(t *testing.T) {
 	ctx := context.Background()
 	ref := "test-ref-123"
 
-	mockStorage.On("RetrieveMedia", ctx, storage.StorageReference(ref)).
+	mockStorage.On("RetrieveMedia", ctx, storage.Reference(ref)).
 		Return((*types.MediaContent)(nil), errors.New("storage failure"))
 
 	media, err := loadFromStorageReference(ctx, mockStorage, ref, "audio", 1)
@@ -103,7 +103,7 @@ func TestLoadFromStorageReference_NoData(t *testing.T) {
 		MIMEType: "video/mp4",
 	}
 
-	mockStorage.On("RetrieveMedia", ctx, storage.StorageReference(ref)).Return(emptyMedia, nil)
+	mockStorage.On("RetrieveMedia", ctx, storage.Reference(ref)).Return(emptyMedia, nil)
 
 	media, err := loadFromStorageReference(ctx, mockStorage, ref, "video", 2)
 
@@ -125,7 +125,7 @@ func TestConvertMediaPart_AudioFromStorage(t *testing.T) {
 		MIMEType: "audio/mp3",
 	}
 
-	mockStorage.On("RetrieveMedia", ctx, storage.StorageReference(ref)).Return(expectedMedia, nil)
+	mockStorage.On("RetrieveMedia", ctx, storage.Reference(ref)).Return(expectedMedia, nil)
 
 	turnPart := config.TurnContentPart{
 		Type: "audio",
@@ -169,7 +169,7 @@ func TestConvertMediaPart_VideoFromStorage(t *testing.T) {
 		MIMEType: "video/mp4",
 	}
 
-	mockStorage.On("RetrieveMedia", ctx, storage.StorageReference(ref)).Return(expectedMedia, nil)
+	mockStorage.On("RetrieveMedia", ctx, storage.Reference(ref)).Return(expectedMedia, nil)
 
 	turnPart := config.TurnContentPart{
 		Type: "video",
@@ -214,7 +214,7 @@ func TestConvertImagePart_StorageReference(t *testing.T) {
 		MIMEType: "image/png",
 	}
 
-	mockStorage.On("RetrieveMedia", ctx, storage.StorageReference(ref)).Return(expectedMedia, nil)
+	mockStorage.On("RetrieveMedia", ctx, storage.Reference(ref)).Return(expectedMedia, nil)
 
 	turnPart := config.TurnContentPart{
 		Type: "image",
@@ -485,7 +485,7 @@ func TestConvertTurnPartsToMessageParts_WithStorageService(t *testing.T) {
 		MIMEType: "image/jpeg",
 	}
 
-	mockStorage.On("RetrieveMedia", ctx, storage.StorageReference(ref)).Return(expectedMedia, nil)
+	mockStorage.On("RetrieveMedia", ctx, storage.Reference(ref)).Return(expectedMedia, nil)
 
 	turnParts := []config.TurnContentPart{
 		{Type: "text", Text: "Check this image:"},
@@ -511,7 +511,7 @@ func TestConvertTurnPartsToMessageParts_StorageError(t *testing.T) {
 	ctx := context.Background()
 	ref := "bad-ref"
 
-	mockStorage.On("RetrieveMedia", ctx, storage.StorageReference(ref)).
+	mockStorage.On("RetrieveMedia", ctx, storage.Reference(ref)).
 		Return((*types.MediaContent)(nil), errors.New("storage error"))
 
 	turnParts := []config.TurnContentPart{

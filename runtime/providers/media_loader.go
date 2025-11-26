@@ -98,7 +98,7 @@ func (ml *MediaLoader) loadFromStorage(ctx context.Context, ref string) (string,
 		return "", fmt.Errorf("storage service not configured but storage reference provided: %s", ref)
 	}
 
-	media, err := ml.storageService.RetrieveMedia(ctx, storage.StorageReference(ref))
+	media, err := ml.storageService.RetrieveMedia(ctx, storage.Reference(ref))
 	if err != nil {
 		return "", fmt.Errorf("failed to retrieve media from storage %s: %w", ref, err)
 	}

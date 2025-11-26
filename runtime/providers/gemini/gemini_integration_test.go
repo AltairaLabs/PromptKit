@@ -137,7 +137,7 @@ func TestPredict_Integration(t *testing.T) {
 			defer server.Close()
 
 			// Create provider
-			provider := NewGeminiProvider(
+			provider := NewProvider(
 				"test",
 				"gemini-2.0-flash",
 				server.URL,
@@ -239,7 +239,7 @@ func TestPredictStream_Integration(t *testing.T) {
 			defer server.Close()
 
 			// Create provider
-			provider := NewGeminiProvider(
+			provider := NewProvider(
 				"test",
 				"gemini-2.0-flash",
 				server.URL,
@@ -316,7 +316,7 @@ func TestMakeGeminiHTTPRequest(t *testing.T) {
 			}))
 			defer server.Close()
 
-			provider := NewGeminiProvider("test", "gemini-2.0-flash", server.URL, providers.ProviderDefaults{}, false)
+			provider := NewProvider("test", "gemini-2.0-flash", server.URL, providers.ProviderDefaults{}, false)
 
 			geminiReq := geminiRequest{
 				Contents: []geminiContent{{Parts: []geminiPart{{Text: "test"}}}},
@@ -379,7 +379,7 @@ func TestParseAndValidateGeminiResponse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			provider := NewGeminiProvider("test", "gemini-2.0-flash", "https://api.test", providers.ProviderDefaults{}, false)
+			provider := NewProvider("test", "gemini-2.0-flash", "https://api.test", providers.ProviderDefaults{}, false)
 
 			predictResp := providers.PredictionResponse{}
 			start := time.Now()
@@ -400,7 +400,7 @@ func TestParseAndValidateGeminiResponse(t *testing.T) {
 
 // TestHandleNoCandidatesError tests error handling for blocked prompts
 func TestHandleNoCandidatesError(t *testing.T) {
-	provider := NewGeminiProvider("test", "gemini-2.0-flash", "https://api.test", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gemini-2.0-flash", "https://api.test", providers.ProviderDefaults{}, false)
 
 	tests := []struct {
 		name        string
@@ -445,7 +445,7 @@ func TestHandleNoCandidatesError(t *testing.T) {
 
 // TestHandleGeminiFinishReason tests finish reason error handling
 func TestHandleGeminiFinishReason(t *testing.T) {
-	provider := NewGeminiProvider("test", "gemini-2.0-flash", "https://api.test", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gemini-2.0-flash", "https://api.test", providers.ProviderDefaults{}, false)
 
 	tests := []struct {
 		name         string
@@ -489,7 +489,7 @@ func TestHandleGeminiFinishReason(t *testing.T) {
 
 // TestProcessGeminiStreamChunk tests stream chunk processing
 func TestProcessGeminiStreamChunk(t *testing.T) {
-	provider := NewGeminiProvider("test", "gemini-2.0-flash", "https://api.test", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gemini-2.0-flash", "https://api.test", providers.ProviderDefaults{}, false)
 
 	tests := []struct {
 		name         string

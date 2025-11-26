@@ -11,7 +11,7 @@ import (
 
 // Test helper: creates a basic mock provider
 func createMockProvider(id string) providers.Provider {
-	return openai.NewOpenAIProvider(id, "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{
+	return openai.NewProvider(id, "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{
 		Temperature: 0.7,
 		MaxTokens:   1000,
 	}, false)

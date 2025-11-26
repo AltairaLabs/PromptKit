@@ -431,7 +431,7 @@ func TestJSONPromptRepository_SavePrompt_NotImplemented(t *testing.T) {
 	tmpDir := t.TempDir()
 	repo := NewJSONPromptRepository(tmpDir, nil)
 
-	config := &prompt.PromptConfig{}
+	config := &prompt.Config{}
 	err := repo.SavePrompt(config)
 	if err == nil {
 		t.Error("Expected 'not implemented' error, got nil")

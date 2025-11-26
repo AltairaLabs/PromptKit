@@ -8,17 +8,17 @@ import (
 
 // MetadataBuilder helps construct pack format metadata from prompt configs and test results
 type MetadataBuilder struct {
-	spec *PromptSpec
+	spec *Spec
 }
 
 // NewMetadataBuilder creates a new metadata builder for a prompt spec
-func NewMetadataBuilder(spec *PromptSpec) *MetadataBuilder {
+func NewMetadataBuilder(spec *Spec) *MetadataBuilder {
 	return &MetadataBuilder{spec: spec}
 }
 
-// BuildPromptMetadata generates PromptMetadata from test execution results
-func (mb *MetadataBuilder) BuildPromptMetadata(domain, language string, tags []string, testResults []TestResultSummary) *PromptMetadata {
-	metadata := &PromptMetadata{
+// BuildMetadata generates Metadata from test execution results
+func (mb *MetadataBuilder) BuildMetadata(domain, language string, tags []string, testResults []TestResultSummary) *Metadata {
+	metadata := &Metadata{
 		Domain:   domain,
 		Language: language,
 		Tags:     tags,
@@ -154,14 +154,6 @@ func AggregateTestResults(results []TestResultSummary, provider, model string) *
 	}
 }
 
-// ConvertFromEngineResults converts engine RunResults to TestResultSummary
-// This is a helper to bridge between engine execution and metadata generation
-func ConvertFromEngineResults(engineResults []interface{}) []TestResultSummary {
-	// This will be implemented when we integrate with the engine
-	// For now, return empty slice
-	return []TestResultSummary{}
-}
-
 // calculateP95Latency computes the 95th percentile latency
 func calculateP95Latency(results []TestResultSummary) int {
 	if len(results) == 0 {
@@ -195,7 +187,7 @@ func calculateP95Latency(results []TestResultSummary) int {
 // AddChangelogEntry adds a new entry to the prompt's changelog
 func (mb *MetadataBuilder) AddChangelogEntry(version, author, description string) {
 	if mb.spec.Metadata == nil {
-		mb.spec.Metadata = &PromptMetadata{}
+		mb.spec.Metadata = &Metadata{}
 	}
 
 	entry := ChangelogEntry{
@@ -211,7 +203,7 @@ func (mb *MetadataBuilder) AddChangelogEntry(version, author, description string
 // SetDomain sets the domain for the prompt metadata
 func (mb *MetadataBuilder) SetDomain(domain string) {
 	if mb.spec.Metadata == nil {
-		mb.spec.Metadata = &PromptMetadata{}
+		mb.spec.Metadata = &Metadata{}
 	}
 	mb.spec.Metadata.Domain = domain
 }
@@ -219,7 +211,7 @@ func (mb *MetadataBuilder) SetDomain(domain string) {
 // SetLanguage sets the language for the prompt metadata
 func (mb *MetadataBuilder) SetLanguage(language string) {
 	if mb.spec.Metadata == nil {
-		mb.spec.Metadata = &PromptMetadata{}
+		mb.spec.Metadata = &Metadata{}
 	}
 	mb.spec.Metadata.Language = language
 }
@@ -227,7 +219,7 @@ func (mb *MetadataBuilder) SetLanguage(language string) {
 // SetTags sets the tags for the prompt metadata
 func (mb *MetadataBuilder) SetTags(tags []string) {
 	if mb.spec.Metadata == nil {
-		mb.spec.Metadata = &PromptMetadata{}
+		mb.spec.Metadata = &Metadata{}
 	}
 	mb.spec.Metadata.Tags = tags
 }
@@ -303,7 +295,7 @@ func (mb *MetadataBuilder) ValidateMetadata() []string {
 // UpdateFromCostInfo updates cost estimate from types.CostInfo
 func (mb *MetadataBuilder) UpdateFromCostInfo(costs []types.CostInfo) {
 	if mb.spec.Metadata == nil {
-		mb.spec.Metadata = &PromptMetadata{}
+		mb.spec.Metadata = &Metadata{}
 	}
 
 	if len(costs) == 0 {

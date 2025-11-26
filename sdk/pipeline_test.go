@@ -12,7 +12,7 @@ import (
 
 func TestPipelineBuilder_Basic(t *testing.T) {
 	// Create mock provider
-	mockProvider := mock.NewMockProvider("test", "test-model", false)
+	mockProvider := mock.NewProvider("test", "test-model", false)
 
 	// Build pipeline with simple provider middleware (no tools)
 	pipe := NewPipelineBuilder().
@@ -44,7 +44,7 @@ func TestPipelineBuilder_Basic(t *testing.T) {
 }
 
 func TestPipelineBuilder_WithCustomMiddleware(t *testing.T) {
-	mockProvider := mock.NewMockProvider("test", "test-model", false)
+	mockProvider := mock.NewProvider("test", "test-model", false)
 
 	// Create custom middleware that modifies system prompt
 	customMiddleware := &testMiddleware{
@@ -74,9 +74,9 @@ func TestPipelineBuilder_WithCustomMiddleware(t *testing.T) {
 }
 
 func TestPipelineBuilder_WithConfig(t *testing.T) {
-	mockProvider := mock.NewMockProvider("test", "test-model", false)
+	mockProvider := mock.NewProvider("test", "test-model", false)
 
-	config := &pipeline.PipelineRuntimeConfig{
+	config := &pipeline.RuntimeConfig{
 		MaxConcurrentExecutions: 50,
 		ExecutionTimeout:        10 * time.Second,
 	}
@@ -98,7 +98,7 @@ func TestPipelineBuilder_WithConfig(t *testing.T) {
 }
 
 func TestPipelineBuilder_MultipleMiddleware(t *testing.T) {
-	mockProvider := mock.NewMockProvider("test", "test-model", false)
+	mockProvider := mock.NewProvider("test", "test-model", false)
 
 	middleware1 := &testMiddleware{name: "first"}
 	middleware2 := &testMiddleware{name: "second"}
@@ -156,7 +156,7 @@ func (m *testMiddleware) StreamChunk(execCtx *pipeline.ExecutionContext, chunk *
 }
 
 func TestPipelineBuilder_WithProvider(t *testing.T) {
-	mockProvider := mock.NewMockProvider("test", "test-model", false)
+	mockProvider := mock.NewProvider("test", "test-model", false)
 
 	// Build pipeline with WithProvider (includes tool support)
 	pipe := NewPipelineBuilder().
@@ -179,7 +179,7 @@ func TestPipelineBuilder_WithProvider(t *testing.T) {
 }
 
 func TestPipelineBuilder_WithTemplate(t *testing.T) {
-	mockProvider := mock.NewMockProvider("test", "test-model", false)
+	mockProvider := mock.NewProvider("test", "test-model", false)
 
 	// Build pipeline with template middleware
 	pipe := NewPipelineBuilder().

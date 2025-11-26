@@ -23,7 +23,7 @@ func TestOpenAIStreaming(t *testing.T) {
 		t.Skip("OPENAI_API_KEY not set")
 	}
 
-	provider := openai.NewOpenAIProvider(
+	provider := openai.NewProvider(
 		"openai-test",
 		"gpt-4o-mini",
 		"https://api.openai.com/v1",
@@ -89,7 +89,7 @@ func TestClaudeStreaming(t *testing.T) {
 		t.Skip("ANTHROPIC_API_KEY not set")
 	}
 
-	provider := claude.NewClaudeProvider(
+	provider := claude.NewProvider(
 		"claude-test",
 		"claude-3-5-haiku-20241022",
 		"https://api.anthropic.com",
@@ -155,7 +155,7 @@ func TestGeminiStreaming(t *testing.T) {
 		t.Skip("GEMINI_API_KEY not set")
 	}
 
-	provider := gemini.NewGeminiProvider(
+	provider := gemini.NewProvider(
 		"gemini-test",
 		"gemini-2.0-flash-exp",
 		"https://generativelanguage.googleapis.com",
@@ -218,9 +218,9 @@ func TestGeminiStreaming(t *testing.T) {
 
 func TestSupportsStreaming(t *testing.T) {
 	providers := []providers.Provider{
-		openai.NewOpenAIProvider("openai", "gpt-4o-mini", "https://api.openai.com/v1", providers.ProviderDefaults{}, false),
-		claude.NewClaudeProvider("claude", "claude-3-5-haiku-20241022", "https://api.anthropic.com", providers.ProviderDefaults{}, false),
-		gemini.NewGeminiProvider("gemini", "gemini-2.0-flash-exp", "https://generativelanguage.googleapis.com", providers.ProviderDefaults{}, false),
+		openai.NewProvider("openai", "gpt-4o-mini", "https://api.openai.com/v1", providers.ProviderDefaults{}, false),
+		claude.NewProvider("claude", "claude-3-5-haiku-20241022", "https://api.anthropic.com", providers.ProviderDefaults{}, false),
+		gemini.NewProvider("gemini", "gemini-2.0-flash-exp", "https://generativelanguage.googleapis.com", providers.ProviderDefaults{}, false),
 	}
 
 	for _, p := range providers {

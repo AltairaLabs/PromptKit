@@ -23,7 +23,7 @@ const (
 )
 
 // GetMultimodalCapabilities returns Gemini's multimodal support capabilities
-func (p *GeminiProvider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
+func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
 	// Gemini supports images, audio, and video
 	return providers.MultimodalCapabilities{
 		SupportsImages: true,
@@ -63,7 +63,7 @@ func (p *GeminiProvider) GetMultimodalCapabilities() providers.MultimodalCapabil
 }
 
 // PredictMultimodal performs a predict request with multimodal content
-func (p *GeminiProvider) PredictMultimodal(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+func (p *Provider) PredictMultimodal(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	// Validate that messages are compatible with Gemini's capabilities
 	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
 		return providers.PredictionResponse{}, err
@@ -80,7 +80,7 @@ func (p *GeminiProvider) PredictMultimodal(ctx context.Context, req providers.Pr
 }
 
 // PredictMultimodalStream performs a streaming predict request with multimodal content
-func (p *GeminiProvider) PredictMultimodalStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+func (p *Provider) PredictMultimodalStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	// Validate that messages are compatible with Gemini's capabilities
 	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
 		return nil, err
@@ -201,7 +201,7 @@ func convertMediaPartToGemini(part types.ContentPart) (geminiPart, error) {
 
 // predictWithContents is a helper method for both regular and multimodal predict
 // It's similar to Predict() but accepts pre-converted contents
-func (p *GeminiProvider) predictWithContents(ctx context.Context, contents []geminiContent, systemInstruction *geminiContent, temperature, topP float32, maxTokens int, seed *int) (providers.PredictionResponse, error) {
+func (p *Provider) predictWithContents(ctx context.Context, contents []geminiContent, systemInstruction *geminiContent, temperature, topP float32, maxTokens int, seed *int) (providers.PredictionResponse, error) {
 	start := time.Now()
 
 	// Apply provider defaults for zero values
@@ -308,7 +308,7 @@ func (p *GeminiProvider) predictWithContents(ctx context.Context, contents []gem
 }
 
 // parseGeminiResponse parses and validates a Gemini API response
-func (p *GeminiProvider) parseGeminiResponse(respBody []byte) (*geminiResponse, error) {
+func (p *Provider) parseGeminiResponse(respBody []byte) (*geminiResponse, error) {
 	var geminiResp geminiResponse
 	if err := json.Unmarshal(respBody, &geminiResp); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
@@ -345,7 +345,7 @@ func (p *GeminiProvider) parseGeminiResponse(respBody []byte) (*geminiResponse, 
 }
 
 // predictStreamWithContents is a helper method for both regular and multimodal streaming
-func (p *GeminiProvider) predictStreamWithContents(ctx context.Context, contents []geminiContent, systemInstruction *geminiContent, temperature, topP float32, maxTokens int, seed *int) (<-chan providers.StreamChunk, error) {
+func (p *Provider) predictStreamWithContents(ctx context.Context, contents []geminiContent, systemInstruction *geminiContent, temperature, topP float32, maxTokens int, seed *int) (<-chan providers.StreamChunk, error) {
 	// Apply provider defaults for zero values
 	if temperature == 0 {
 		temperature = p.Defaults.Temperature

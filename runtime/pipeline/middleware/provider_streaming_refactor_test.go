@@ -113,7 +113,7 @@ func TestProcessStreamChunks(t *testing.T) {
 // TestCalculateApproximateCost tests the approximate cost calculation helper
 func TestCalculateApproximateCost(t *testing.T) {
 	// Create a mock provider with nil repository (uses default responses)
-	mockProvider := mock.NewMockProvider("test-provider", "test-model", false)
+	mockProvider := mock.NewProvider("test-provider", "test-model", false)
 
 	// Create a Predict request
 	req := providers.PredictionRequest{
@@ -216,7 +216,7 @@ func strPtr(s string) *string {
 func TestExecuteStreamingRound(t *testing.T) {
 	// Create mock provider with in-memory repository
 	mockRepo := mock.NewInMemoryMockRepository("Test response")
-	mockProvider := mock.NewMockProviderWithRepository("test-provider", "test-model", false, mockRepo)
+	mockProvider := mock.NewProviderWithRepository("test-provider", "test-model", false, mockRepo)
 
 	// Create execution context
 	execCtx := &pipeline.ExecutionContext{
@@ -298,7 +298,7 @@ func TestExecuteStreaming(t *testing.T) {
 			name: "successful streaming without tools",
 			setupProvider: func() providers.Provider {
 				mockRepo := mock.NewInMemoryMockRepository("Test response")
-				return mock.NewMockProviderWithRepository("test-provider", "test-model", false, mockRepo)
+				return mock.NewProviderWithRepository("test-provider", "test-model", false, mockRepo)
 			},
 			setupRegistry: func() *tools.Registry {
 				return tools.NewRegistry()
@@ -313,7 +313,7 @@ func TestExecuteStreaming(t *testing.T) {
 			name: "streaming without tool registry",
 			setupProvider: func() providers.Provider {
 				mockRepo := mock.NewInMemoryMockRepository("Test response without tools")
-				return mock.NewMockProviderWithRepository("test-provider", "test-model", false, mockRepo)
+				return mock.NewProviderWithRepository("test-provider", "test-model", false, mockRepo)
 			},
 			setupRegistry: func() *tools.Registry {
 				return nil
@@ -328,7 +328,7 @@ func TestExecuteStreaming(t *testing.T) {
 			name: "streaming with empty messages",
 			setupProvider: func() providers.Provider {
 				mockRepo := mock.NewInMemoryMockRepository("Response to empty")
-				return mock.NewMockProviderWithRepository("test-provider", "test-model", false, mockRepo)
+				return mock.NewProviderWithRepository("test-provider", "test-model", false, mockRepo)
 			},
 			setupRegistry: func() *tools.Registry {
 				return tools.NewRegistry()
@@ -405,7 +405,7 @@ func TestHandleStreamInterruption(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create mock provider
 			mockRepo := mock.NewInMemoryMockRepository("Test response")
-			mockProvider := mock.NewMockProviderWithRepository("test-provider", "test-model", false, mockRepo)
+			mockProvider := mock.NewProviderWithRepository("test-provider", "test-model", false, mockRepo)
 
 			// Create execution context
 			execCtx := &pipeline.ExecutionContext{
@@ -562,7 +562,7 @@ func TestCreateErrorToolResult(t *testing.T) {
 func TestStreamChunk(t *testing.T) {
 	// Create mock provider
 	mockRepo := mock.NewInMemoryMockRepository("Test response")
-	mockProvider := mock.NewMockProviderWithRepository("test-provider", "test-model", false, mockRepo)
+	mockProvider := mock.NewProviderWithRepository("test-provider", "test-model", false, mockRepo)
 
 	// Create provider middleware
 	middleware := ProviderMiddleware(mockProvider, nil, nil, nil)

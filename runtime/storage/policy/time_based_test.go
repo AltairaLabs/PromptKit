@@ -23,7 +23,7 @@ func TestTimeBasedPolicyHandler_RegisterPolicy(t *testing.T) {
 	handler := policy.NewTimeBasedPolicyHandler(1 * time.Minute)
 
 	t.Run("registers valid policy", func(t *testing.T) {
-		p := policy.PolicyConfig{
+		p := policy.Config{
 			Name:        "delete-after-5min",
 			Description: "Delete after 5 minutes",
 		}
@@ -33,7 +33,7 @@ func TestTimeBasedPolicyHandler_RegisterPolicy(t *testing.T) {
 	})
 
 	t.Run("rejects invalid policy", func(t *testing.T) {
-		p := policy.PolicyConfig{
+		p := policy.Config{
 			Name: "invalid-format",
 		}
 

@@ -11,9 +11,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// TestGeminiToolProvider_ToolLoopDetection tests that tool results are properly
+// TestToolProvider_ToolLoopDetection tests that tool results are properly
 // sent to Gemini to prevent infinite loops
-func TestGeminiToolProvider_ToolLoopDetection(t *testing.T) {
+func TestToolProvider_ToolLoopDetection(t *testing.T) {
 	var requestCount int
 	var capturedRequests []map[string]interface{}
 
@@ -122,7 +122,7 @@ func TestGeminiToolProvider_ToolLoopDetection(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewGeminiToolProvider(
+	provider := NewToolProvider(
 		"test-gemini",
 		"gemini-2.0-flash-exp",
 		server.URL,

@@ -295,12 +295,12 @@ func TestIsMockProvider(t *testing.T) {
 	}{
 		{
 			name:     "MockProvider returns true",
-			provider: &mock.MockProvider{},
+			provider: &mock.Provider{},
 			want:     true,
 		},
 		{
 			name:     "MockToolProvider returns true",
-			provider: &mock.MockToolProvider{},
+			provider: &mock.Provider{},
 			want:     true,
 		},
 		{
@@ -325,20 +325,20 @@ type mockStore struct{}
 
 type mockMediaStorage struct{}
 
-func (m *mockMediaStorage) StoreMedia(ctx context.Context, content *types.MediaContent, metadata *storage.MediaMetadata) (storage.StorageReference, error) {
-	return storage.StorageReference("mock-uri"), nil
+func (m *mockMediaStorage) StoreMedia(ctx context.Context, content *types.MediaContent, metadata *storage.MediaMetadata) (storage.Reference, error) {
+	return storage.Reference("mock-uri"), nil
 }
 
-func (m *mockMediaStorage) RetrieveMedia(ctx context.Context, reference storage.StorageReference) (*types.MediaContent, error) {
+func (m *mockMediaStorage) RetrieveMedia(ctx context.Context, reference storage.Reference) (*types.MediaContent, error) {
 	mockPath := "mock-path"
 	return &types.MediaContent{FilePath: &mockPath}, nil
 }
 
-func (m *mockMediaStorage) DeleteMedia(ctx context.Context, reference storage.StorageReference) error {
+func (m *mockMediaStorage) DeleteMedia(ctx context.Context, reference storage.Reference) error {
 	return nil
 }
 
-func (m *mockMediaStorage) GetURL(ctx context.Context, reference storage.StorageReference, expiry time.Duration) (string, error) {
+func (m *mockMediaStorage) GetURL(ctx context.Context, reference storage.Reference, expiry time.Duration) (string, error) {
 	return "mock-url", nil
 }
 

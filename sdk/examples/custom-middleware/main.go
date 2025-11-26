@@ -95,7 +95,7 @@ func main() {
 	fmt.Println("=== Custom Middleware Example ===")
 
 	// Create mock provider (use real provider by setting OPENAI_API_KEY) // NOSONAR: Example comment
-	provider := mock.NewMockProvider("mock", "mock-model", false)
+	provider := mock.NewProvider("mock", "mock-model", false)
 
 	// Build pipeline with custom middleware
 	pipe := sdk.NewPipelineBuilder().

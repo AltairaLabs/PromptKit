@@ -9,7 +9,7 @@ import (
 )
 
 func TestGeminiProvider_ParseGeminiResponse_PromptBlocked(t *testing.T) {
-	provider := NewGeminiProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
 
 	respJSON := `{
 		"promptFeedback": {
@@ -29,7 +29,7 @@ func TestGeminiProvider_ParseGeminiResponse_PromptBlocked(t *testing.T) {
 }
 
 func TestGeminiProvider_ParseGeminiResponse_NoCandidates(t *testing.T) {
-	provider := NewGeminiProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
 
 	respJSON := `{
 		"candidates": []
@@ -46,7 +46,7 @@ func TestGeminiProvider_ParseGeminiResponse_NoCandidates(t *testing.T) {
 }
 
 func TestGeminiProvider_ParseGeminiResponse_MaxTokens(t *testing.T) {
-	provider := NewGeminiProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
 
 	respJSON := `{
 		"candidates": [{
@@ -66,7 +66,7 @@ func TestGeminiProvider_ParseGeminiResponse_MaxTokens(t *testing.T) {
 }
 
 func TestGeminiProvider_ParseGeminiResponse_Safety(t *testing.T) {
-	provider := NewGeminiProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
 
 	respJSON := `{
 		"candidates": [{
@@ -86,7 +86,7 @@ func TestGeminiProvider_ParseGeminiResponse_Safety(t *testing.T) {
 }
 
 func TestGeminiProvider_ParseGeminiResponse_Recitation(t *testing.T) {
-	provider := NewGeminiProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
 
 	respJSON := `{
 		"candidates": [{
@@ -106,7 +106,7 @@ func TestGeminiProvider_ParseGeminiResponse_Recitation(t *testing.T) {
 }
 
 func TestGeminiProvider_ParseGeminiResponse_UnknownFinishReason(t *testing.T) {
-	provider := NewGeminiProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
 
 	respJSON := `{
 		"candidates": [{
@@ -239,7 +239,7 @@ func TestGeminiProvider_ConvertMediaPartToGemini_FilePathError(t *testing.T) {
 }
 
 func TestGeminiProvider_BuildGeminiRequest(t *testing.T) {
-	provider := NewGeminiProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
+	provider := NewProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
 
 	contents := []geminiContent{
 		{

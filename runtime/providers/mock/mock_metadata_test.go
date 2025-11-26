@@ -57,7 +57,7 @@ func TestMockProvider_Metadata_Predict(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			provider := NewMockProvider("test-provider", "test-model", false)
+			provider := NewProvider("test-provider", "test-model", false)
 
 			req := providers.PredictionRequest{
 				Messages: []types.Message{
@@ -103,7 +103,7 @@ func TestMockProvider_Metadata_PredictStream(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			provider := NewMockProvider("test-provider", "test-model", false)
+			provider := NewProvider("test-provider", "test-model", false)
 
 			req := providers.PredictionRequest{
 				Messages: []types.Message{
@@ -141,9 +141,9 @@ func TestMockProvider_Metadata_PredictStream(t *testing.T) {
 }
 
 func TestMockProvider_HelperFunctions(t *testing.T) {
-	provider := NewMockProvider("test-provider", "test-model", false)
+	provider := NewProvider("test-provider", "test-model", false)
 
-	t.Run("buildMockResponseParams", func(t *testing.T) {
+	t.Run("buildResponseParams", func(t *testing.T) {
 		req := providers.PredictionRequest{
 			Messages: []types.Message{{Role: "user", Content: "test"}},
 			Metadata: map[string]interface{}{
@@ -152,19 +152,19 @@ func TestMockProvider_HelperFunctions(t *testing.T) {
 			},
 		}
 
-		params := provider.buildMockResponseParams(req)
+		params := provider.buildResponseParams(req)
 
 		if params.ProviderID != "test-provider" {
-			t.Errorf("buildMockResponseParams() ProviderID = %v, want test-provider", params.ProviderID)
+			t.Errorf("buildResponseParams() ProviderID = %v, want test-provider", params.ProviderID)
 		}
 		if params.ModelName != "test-model" {
-			t.Errorf("buildMockResponseParams() ModelName = %v, want test-model", params.ModelName)
+			t.Errorf("buildResponseParams() ModelName = %v, want test-model", params.ModelName)
 		}
 		if params.ScenarioID != "scenario-123" {
-			t.Errorf("buildMockResponseParams() ScenarioID = %v, want scenario-123", params.ScenarioID)
+			t.Errorf("buildResponseParams() ScenarioID = %v, want scenario-123", params.ScenarioID)
 		}
 		if params.TurnNumber != 5 {
-			t.Errorf("buildMockResponseParams() TurnNumber = %v, want 5", params.TurnNumber)
+			t.Errorf("buildResponseParams() TurnNumber = %v, want 5", params.TurnNumber)
 		}
 	})
 
@@ -190,7 +190,7 @@ func TestMockProvider_HelperFunctions(t *testing.T) {
 }
 
 func TestMockProvider_CalculateCost(t *testing.T) {
-	provider := NewMockProvider("test-provider", "test-model", false)
+	provider := NewProvider("test-provider", "test-model", false)
 
 	tests := []struct {
 		name         string
@@ -230,7 +230,7 @@ func TestMockProvider_CalculateCost(t *testing.T) {
 }
 
 func TestMockProvider_Close(t *testing.T) {
-	provider := NewMockProvider("test-provider", "test-model", false)
+	provider := NewProvider("test-provider", "test-model", false)
 
 	err := provider.Close()
 	if err != nil {

@@ -14,26 +14,26 @@ import (
 
 // Compile-time interface checks
 var (
-	_ persistence.PromptRepository = (*MemoryPromptRepository)(nil)
-	_ persistence.ToolRepository   = (*MemoryToolRepository)(nil)
+	_ persistence.PromptRepository = (*PromptRepository)(nil)
+	_ persistence.ToolRepository   = (*ToolRepository)(nil)
 )
 
-// MemoryPromptRepository stores prompts in memory (for testing/SDK)
-type MemoryPromptRepository struct {
-	prompts   map[string]*prompt.PromptConfig
+// PromptRepository stores prompts in memory (for testing/SDK)
+type PromptRepository struct {
+	prompts   map[string]*prompt.Config
 	fragments map[string]*prompt.Fragment
 }
 
-// NewMemoryPromptRepository creates a new in-memory prompt repository
-func NewMemoryPromptRepository() *MemoryPromptRepository {
-	return &MemoryPromptRepository{
-		prompts:   make(map[string]*prompt.PromptConfig),
+// NewPromptRepository creates a new in-memory prompt repository
+func NewPromptRepository() *PromptRepository {
+	return &PromptRepository{
+		prompts:   make(map[string]*prompt.Config),
 		fragments: make(map[string]*prompt.Fragment),
 	}
 }
 
 // LoadPrompt loads a prompt configuration by task type
-func (r *MemoryPromptRepository) LoadPrompt(taskType string) (*prompt.PromptConfig, error) {
+func (r *PromptRepository) LoadPrompt(taskType string) (*prompt.Config, error) {
 	config, ok := r.prompts[taskType]
 	if !ok {
 		return nil, fmt.Errorf("prompt not found: %s", taskType)
@@ -42,7 +42,7 @@ func (r *MemoryPromptRepository) LoadPrompt(taskType string) (*prompt.PromptConf
 }
 
 // LoadFragment loads a fragment by name
-func (r *MemoryPromptRepository) LoadFragment(name, relativePath, baseDir string) (*prompt.Fragment, error) {
+func (r *PromptRepository) LoadFragment(name, relativePath, baseDir string) (*prompt.Fragment, error) {
 	fragment, ok := r.fragments[name]
 	if !ok {
 		return nil, fmt.Errorf("fragment not found: %s", name)
@@ -51,7 +51,7 @@ func (r *MemoryPromptRepository) LoadFragment(name, relativePath, baseDir string
 }
 
 // ListPrompts returns all available prompt task types
-func (r *MemoryPromptRepository) ListPrompts() ([]string, error) {
+func (r *PromptRepository) ListPrompts() ([]string, error) {
 	taskTypes := make([]string, 0, len(r.prompts))
 	for taskType := range r.prompts {
 		taskTypes = append(taskTypes, taskType)
@@ -60,7 +60,7 @@ func (r *MemoryPromptRepository) ListPrompts() ([]string, error) {
 }
 
 // SavePrompt saves a prompt configuration
-func (r *MemoryPromptRepository) SavePrompt(config *prompt.PromptConfig) error {
+func (r *PromptRepository) SavePrompt(config *prompt.Config) error {
 	if config == nil {
 		return fmt.Errorf("config cannot be nil")
 	}
@@ -72,29 +72,29 @@ func (r *MemoryPromptRepository) SavePrompt(config *prompt.PromptConfig) error {
 }
 
 // RegisterPrompt adds a prompt to the in-memory store
-func (r *MemoryPromptRepository) RegisterPrompt(taskType string, config *prompt.PromptConfig) {
+func (r *PromptRepository) RegisterPrompt(taskType string, config *prompt.Config) {
 	r.prompts[taskType] = config
 }
 
 // RegisterFragment adds a fragment to the in-memory store
-func (r *MemoryPromptRepository) RegisterFragment(name string, fragment *prompt.Fragment) {
+func (r *PromptRepository) RegisterFragment(name string, fragment *prompt.Fragment) {
 	r.fragments[name] = fragment
 }
 
-// MemoryToolRepository stores tools in memory (for testing/SDK)
-type MemoryToolRepository struct {
+// ToolRepository stores tools in memory (for testing/SDK)
+type ToolRepository struct {
 	tools map[string]*tools.ToolDescriptor
 }
 
-// NewMemoryToolRepository creates a new in-memory tool repository
-func NewMemoryToolRepository() *MemoryToolRepository {
-	return &MemoryToolRepository{
+// NewToolRepository creates a new in-memory tool repository
+func NewToolRepository() *ToolRepository {
+	return &ToolRepository{
 		tools: make(map[string]*tools.ToolDescriptor),
 	}
 }
 
 // LoadTool loads a tool descriptor by name
-func (r *MemoryToolRepository) LoadTool(name string) (*tools.ToolDescriptor, error) {
+func (r *ToolRepository) LoadTool(name string) (*tools.ToolDescriptor, error) {
 	descriptor, ok := r.tools[name]
 	if !ok {
 		return nil, fmt.Errorf("tool not found: %s", name)
@@ -103,7 +103,7 @@ func (r *MemoryToolRepository) LoadTool(name string) (*tools.ToolDescriptor, err
 }
 
 // ListTools returns all available tool names
-func (r *MemoryToolRepository) ListTools() ([]string, error) {
+func (r *ToolRepository) ListTools() ([]string, error) {
 	names := make([]string, 0, len(r.tools))
 	for name := range r.tools {
 		names = append(names, name)
@@ -112,7 +112,7 @@ func (r *MemoryToolRepository) ListTools() ([]string, error) {
 }
 
 // SaveTool saves a tool descriptor
-func (r *MemoryToolRepository) SaveTool(descriptor *tools.ToolDescriptor) error {
+func (r *ToolRepository) SaveTool(descriptor *tools.ToolDescriptor) error {
 	if descriptor == nil {
 		return fmt.Errorf("descriptor cannot be nil")
 	}
@@ -124,6 +124,6 @@ func (r *MemoryToolRepository) SaveTool(descriptor *tools.ToolDescriptor) error 
 }
 
 // RegisterTool adds a tool to the in-memory store
-func (r *MemoryToolRepository) RegisterTool(name string, descriptor *tools.ToolDescriptor) {
+func (r *ToolRepository) RegisterTool(name string, descriptor *tools.ToolDescriptor) {
 	r.tools[name] = descriptor
 }

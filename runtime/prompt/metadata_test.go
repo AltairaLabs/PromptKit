@@ -5,13 +5,14 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
 )
 
 func TestPopulateDefaults_TemplateEngine(t *testing.T) {
 	registry := createTestRegistry()
-	config := &PromptConfig{
-		Spec: PromptSpec{
+	config := &Config{
+		Spec: Spec{
 			TaskType: "test",
 		},
 	}
@@ -31,8 +32,8 @@ func TestPopulateDefaults_TemplateEngine(t *testing.T) {
 
 func TestPopulateDefaults_Variables(t *testing.T) {
 	registry := createTestRegistry()
-	config := &PromptConfig{
-		Spec: PromptSpec{
+	config := &Config{
+		Spec: Spec{
 			TaskType: "test",
 			Variables: []VariableMetadata{
 				{Name: "name", Required: true, Type: "string"},
@@ -71,8 +72,8 @@ func TestPopulateDefaults_Variables(t *testing.T) {
 
 func TestPopulateDefaults_ValidatorFlags(t *testing.T) {
 	registry := createTestRegistry()
-	config := &PromptConfig{
-		Spec: PromptSpec{
+	config := &Config{
+		Spec: Spec{
 			TaskType: "test",
 			Validators: []ValidatorConfig{
 				{
@@ -159,7 +160,7 @@ spec:
 		t.Fatalf("Failed to read config file: %v", err)
 	}
 
-	config, err := ParsePromptConfig(data)
+	config, err := ParseConfig(data)
 	if err != nil {
 		t.Fatalf("Failed to parse config: %v", err)
 	}
@@ -187,7 +188,7 @@ spec:
 }
 
 func TestMetadataBuilder_BuildCompilationInfo(t *testing.T) {
-	spec := &PromptSpec{
+	spec := &Spec{
 		TaskType: "test",
 	}
 	builder := NewMetadataBuilder(spec)
@@ -286,31 +287,56 @@ func TestExtractVariablesFromTemplate(t *testing.T) {
 }
 
 func TestMetadataBuilder_SetMethods(t *testing.T) {
-	spec := &PromptSpec{
-		TaskType: "test",
-	}
-	builder := NewMetadataBuilder(spec)
+	t.Run("sets fields with nil metadata", func(t *testing.T) {
+		spec := &Spec{
+			TaskType: "test",
+		}
+		builder := NewMetadataBuilder(spec)
 
-	builder.SetDomain("customer-support")
-	builder.SetLanguage("en")
-	builder.SetTags([]string{"production", "v1"})
+		builder.SetDomain("customer-support")
+		builder.SetLanguage("en")
+		builder.SetTags([]string{"production", "v1"})
 
-	if spec.Metadata == nil {
-		t.Fatal("Metadata should be initialized")
-	}
-	if spec.Metadata.Domain != "customer-support" {
-		t.Errorf("Expected domain 'customer-support', got '%s'", spec.Metadata.Domain)
-	}
-	if spec.Metadata.Language != "en" {
-		t.Errorf("Expected language 'en', got '%s'", spec.Metadata.Language)
-	}
-	if len(spec.Metadata.Tags) != 2 {
-		t.Errorf("Expected 2 tags, got %d", len(spec.Metadata.Tags))
-	}
+		if spec.Metadata == nil {
+			t.Fatal("Metadata should be initialized")
+		}
+		if spec.Metadata.Domain != "customer-support" {
+			t.Errorf("Expected domain 'customer-support', got '%s'", spec.Metadata.Domain)
+		}
+		if spec.Metadata.Language != "en" {
+			t.Errorf("Expected language 'en', got '%s'", spec.Metadata.Language)
+		}
+		if len(spec.Metadata.Tags) != 2 {
+			t.Errorf("Expected 2 tags, got %d", len(spec.Metadata.Tags))
+		}
+	})
+
+	t.Run("sets fields with existing metadata", func(t *testing.T) {
+		spec := &Spec{
+			TaskType: "test",
+			Metadata: &Metadata{
+				Domain: "old-domain",
+			},
+		}
+		builder := NewMetadataBuilder(spec)
+
+		builder.SetLanguage("fr")
+		builder.SetTags([]string{"staging"})
+
+		if spec.Metadata.Domain != "old-domain" {
+			t.Errorf("Expected domain 'old-domain' to be preserved, got '%s'", spec.Metadata.Domain)
+		}
+		if spec.Metadata.Language != "fr" {
+			t.Errorf("Expected language 'fr', got '%s'", spec.Metadata.Language)
+		}
+		if len(spec.Metadata.Tags) != 1 {
+			t.Errorf("Expected 1 tag, got %d", len(spec.Metadata.Tags))
+		}
+	})
 }
 
 func TestMetadataBuilder_AddChangelogEntry(t *testing.T) {
-	spec := &PromptSpec{
+	spec := &Spec{
 		TaskType: "test",
 	}
 	builder := NewMetadataBuilder(spec)
@@ -359,4 +385,227 @@ func TestGetDefaultPipelineConfig(t *testing.T) {
 	if len(middleware) != 3 {
 		t.Errorf("Expected 3 middleware configs, got %d", len(middleware))
 	}
+}
+
+func TestMetadataBuilder_BuildMetadata(t *testing.T) {
+	spec := &Spec{
+		TaskType: "test",
+	}
+	builder := NewMetadataBuilder(spec)
+
+	t.Run("with test results", func(t *testing.T) {
+		results := []TestResultSummary{
+			{Success: true, Cost: 0.01, LatencyMs: 800, Tokens: 400},
+			{Success: true, Cost: 0.02, LatencyMs: 1000, Tokens: 500},
+			{Success: false, Cost: 0.015, LatencyMs: 900, Tokens: 450},
+			{Success: true, Cost: 0.03, LatencyMs: 1200, Tokens: 600},
+		}
+
+		metadata := builder.BuildMetadata("customer-support", "en", []string{"production", "v1"}, results)
+
+		if metadata.Domain != "customer-support" {
+			t.Errorf("Expected domain 'customer-support', got '%s'", metadata.Domain)
+		}
+		if metadata.Language != "en" {
+			t.Errorf("Expected language 'en', got '%s'", metadata.Language)
+		}
+		if len(metadata.Tags) != 2 {
+			t.Errorf("Expected 2 tags, got %d", len(metadata.Tags))
+		}
+
+		if metadata.CostEstimate == nil {
+			t.Fatal("Expected cost estimate")
+		}
+		if metadata.CostEstimate.MinCostUSD != 0.01 {
+			t.Errorf("Expected min cost 0.01, got %.2f", metadata.CostEstimate.MinCostUSD)
+		}
+		if metadata.CostEstimate.MaxCostUSD != 0.03 {
+			t.Errorf("Expected max cost 0.03, got %.2f", metadata.CostEstimate.MaxCostUSD)
+		}
+		expectedAvg := (0.01 + 0.02 + 0.015 + 0.03) / 4.0
+		if metadata.CostEstimate.AvgCostUSD != expectedAvg {
+			t.Errorf("Expected avg cost %.4f, got %.4f", expectedAvg, metadata.CostEstimate.AvgCostUSD)
+		}
+
+		if metadata.Performance == nil {
+			t.Fatal("Expected performance metrics")
+		}
+		expectedAvgLatency := (800 + 1000 + 900 + 1200) / 4
+		if metadata.Performance.AvgLatencyMs != expectedAvgLatency {
+			t.Errorf("Expected avg latency %d, got %d", expectedAvgLatency, metadata.Performance.AvgLatencyMs)
+		}
+		expectedAvgTokens := (400 + 500 + 450 + 600) / 4
+		if metadata.Performance.AvgTokens != expectedAvgTokens {
+			t.Errorf("Expected avg tokens %d, got %d", expectedAvgTokens, metadata.Performance.AvgTokens)
+		}
+		expectedSuccessRate := 3.0 / 4.0
+		if metadata.Performance.SuccessRate != expectedSuccessRate {
+			t.Errorf("Expected success rate %.2f, got %.2f", expectedSuccessRate, metadata.Performance.SuccessRate)
+		}
+		if metadata.Performance.P95LatencyMs != 1200 {
+			t.Errorf("Expected P95 latency 1200, got %d", metadata.Performance.P95LatencyMs)
+		}
+	})
+
+	t.Run("with empty test results", func(t *testing.T) {
+		metadata := builder.BuildMetadata("support", "en", []string{"test"}, []TestResultSummary{})
+
+		if metadata.Domain != "support" {
+			t.Errorf("Expected domain 'support', got '%s'", metadata.Domain)
+		}
+		if metadata.CostEstimate != nil {
+			t.Error("Expected nil cost estimate for empty results")
+		}
+		if metadata.Performance != nil {
+			t.Error("Expected nil performance metrics for empty results")
+		}
+	})
+}
+
+func TestCalculateP95Latency(t *testing.T) {
+	t.Run("with multiple values", func(t *testing.T) {
+		results := []TestResultSummary{
+			{LatencyMs: 100},
+			{LatencyMs: 200},
+			{LatencyMs: 300},
+			{LatencyMs: 400},
+			{LatencyMs: 500},
+			{LatencyMs: 600},
+			{LatencyMs: 700},
+			{LatencyMs: 800},
+			{LatencyMs: 900},
+			{LatencyMs: 1000},
+		}
+		p95 := calculateP95Latency(results)
+		// For 10 values, P95 should be at index 9 (95% of 10 = 9.5, rounded to 9)
+		if p95 != 1000 {
+			t.Errorf("Expected P95 latency 1000, got %d", p95)
+		}
+	})
+
+	t.Run("with single value", func(t *testing.T) {
+		results := []TestResultSummary{{LatencyMs: 500}}
+		p95 := calculateP95Latency(results)
+		if p95 != 500 {
+			t.Errorf("Expected P95 latency 500, got %d", p95)
+		}
+	})
+
+	t.Run("with empty results", func(t *testing.T) {
+		p95 := calculateP95Latency([]TestResultSummary{})
+		if p95 != 0 {
+			t.Errorf("Expected P95 latency 0 for empty results, got %d", p95)
+		}
+	})
+}
+
+func TestMetadataBuilder_ValidateMetadata(t *testing.T) {
+	t.Run("with no metadata", func(t *testing.T) {
+		spec := &Spec{TaskType: "test"}
+		builder := NewMetadataBuilder(spec)
+		warnings := builder.ValidateMetadata()
+		if len(warnings) != 1 {
+			t.Errorf("Expected 1 warning, got %d", len(warnings))
+		}
+		if warnings[0] != "no metadata defined" {
+			t.Errorf("Expected 'no metadata defined' warning, got '%s'", warnings[0])
+		}
+	})
+
+	t.Run("with complete metadata", func(t *testing.T) {
+		spec := &Spec{
+			TaskType: "test",
+			Metadata: &Metadata{
+				Domain:   "customer-support",
+				Language: "en",
+				Tags:     []string{"production"},
+			},
+		}
+		builder := NewMetadataBuilder(spec)
+		warnings := builder.ValidateMetadata()
+		if len(warnings) != 0 {
+			t.Errorf("Expected no warnings, got %d: %v", len(warnings), warnings)
+		}
+	})
+
+	t.Run("with incomplete metadata", func(t *testing.T) {
+		spec := &Spec{
+			TaskType: "test",
+			Metadata: &Metadata{
+				Domain: "customer-support",
+				// Missing language and tags
+			},
+		}
+		builder := NewMetadataBuilder(spec)
+		warnings := builder.ValidateMetadata()
+		if len(warnings) != 2 {
+			t.Errorf("Expected 2 warnings, got %d: %v", len(warnings), warnings)
+		}
+	})
+}
+
+func TestMetadataBuilder_UpdateFromCostInfo(t *testing.T) {
+	t.Run("with cost info", func(t *testing.T) {
+		spec := &Spec{TaskType: "test"}
+		builder := NewMetadataBuilder(spec)
+
+		costs := []types.CostInfo{
+			{InputCostUSD: 0.01, OutputCostUSD: 0.02},
+			{InputCostUSD: 0.015, OutputCostUSD: 0.025},
+			{InputCostUSD: 0.008, OutputCostUSD: 0.012},
+		}
+
+		builder.UpdateFromCostInfo(costs)
+
+		if spec.Metadata == nil {
+			t.Fatal("Metadata should be initialized")
+		}
+		if spec.Metadata.CostEstimate == nil {
+			t.Fatal("CostEstimate should be populated")
+		}
+
+		if spec.Metadata.CostEstimate.MinCostUSD != 0.02 {
+			t.Errorf("Expected min cost 0.02, got %.3f", spec.Metadata.CostEstimate.MinCostUSD)
+		}
+		if spec.Metadata.CostEstimate.MaxCostUSD != 0.04 {
+			t.Errorf("Expected max cost 0.04, got %.3f", spec.Metadata.CostEstimate.MaxCostUSD)
+		}
+	})
+
+	t.Run("with empty costs", func(t *testing.T) {
+		spec := &Spec{TaskType: "test"}
+		builder := NewMetadataBuilder(spec)
+
+		builder.UpdateFromCostInfo([]types.CostInfo{})
+
+		if spec.Metadata == nil {
+			t.Fatal("Metadata should be initialized")
+		}
+		if spec.Metadata.CostEstimate != nil {
+			t.Error("CostEstimate should be nil for empty costs")
+		}
+	})
+
+	t.Run("with existing metadata", func(t *testing.T) {
+		spec := &Spec{
+			TaskType: "test",
+			Metadata: &Metadata{
+				Domain: "existing-domain",
+			},
+		}
+		builder := NewMetadataBuilder(spec)
+
+		costs := []types.CostInfo{
+			{InputCostUSD: 0.01, OutputCostUSD: 0.01},
+		}
+
+		builder.UpdateFromCostInfo(costs)
+
+		if spec.Metadata.Domain != "existing-domain" {
+			t.Error("Existing metadata fields should be preserved")
+		}
+		if spec.Metadata.CostEstimate == nil {
+			t.Fatal("CostEstimate should be populated")
+		}
+	})
 }

@@ -47,7 +47,7 @@ spec:
 		t.Fatalf("Failed to read prompt file: %v", err)
 	}
 
-	var config PromptConfig
+	var config Config
 	if err := yaml.Unmarshal(data, &config); err != nil {
 		t.Fatalf("Failed to unmarshal prompt config: %v", err)
 	}
@@ -131,7 +131,7 @@ spec:
 		t.Fatalf("Failed to read config file: %v", err)
 	}
 
-	config, err := ParsePromptConfig(data)
+	config, err := ParseConfig(data)
 	if err != nil {
 		t.Fatalf("Failed to parse config: %v", err)
 	}

@@ -7,9 +7,9 @@ import (
 	"time"
 )
 
-// PromptLoader interface abstracts the registry for testing
-type PromptLoader interface {
-	LoadConfig(taskType string) (*PromptConfig, error)
+// Loader interface abstracts the registry for testing
+type Loader interface {
+	LoadConfig(taskType string) (*Config, error)
 	ListTaskTypes() []string
 }
 
@@ -20,6 +20,7 @@ type TimeProvider interface {
 
 type realTimeProvider struct{}
 
+// Now returns the current time.
 func (r realTimeProvider) Now() time.Time {
 	return time.Now()
 }
@@ -31,7 +32,8 @@ type FileWriter interface {
 
 type realFileWriter struct{}
 
-func (r realFileWriter) WriteFile(path string, data []byte, perm os.FileMode) error {
+// WriteFile writes data to a file at the given path.
+func (w realFileWriter) WriteFile(path string, data []byte, perm os.FileMode) error {
 	return os.WriteFile(path, data, perm)
 }
 
@@ -76,7 +78,7 @@ type Pack struct {
 	Fragments map[string]string `json:"fragments,omitempty"` // Resolved fragments: name -> content
 
 	// Metadata
-	Metadata    *PromptMetadata  `json:"metadata,omitempty"`
+	Metadata    *Metadata        `json:"metadata,omitempty"`
 	Compilation *CompilationInfo `json:"compilation,omitempty"`
 }
 
@@ -133,9 +135,9 @@ type ParametersPack struct {
 	TopK        *int     `json:"top_k,omitempty"`
 }
 
-// PackCompiler compiles PromptConfig to Pack format
+// PackCompiler compiles Config to Pack format
 type PackCompiler struct {
-	loader       PromptLoader
+	loader       Loader
 	timeProvider TimeProvider
 	fileWriter   FileWriter
 }
@@ -150,7 +152,7 @@ func NewPackCompiler(registry *Registry) *PackCompiler {
 }
 
 // NewPackCompilerWithDeps creates a pack compiler with injected dependencies (for testing)
-func NewPackCompilerWithDeps(loader PromptLoader, timeProvider TimeProvider, fileWriter FileWriter) *PackCompiler {
+func NewPackCompilerWithDeps(loader Loader, timeProvider TimeProvider, fileWriter FileWriter) *PackCompiler {
 	return &PackCompiler{
 		loader:       loader,
 		timeProvider: timeProvider,
@@ -296,8 +298,8 @@ func (pc *PackCompiler) addPromptToPack(pack *Pack, taskType string) error {
 	return nil
 }
 
-// createPackPrompt creates a PackPrompt from a PromptConfig
-func (pc *PackCompiler) createPackPrompt(config *PromptConfig) *PackPrompt {
+// createPackPrompt creates a PackPrompt from a Config
+func (pc *PackCompiler) createPackPrompt(config *Config) *PackPrompt {
 	return &PackPrompt{
 		ID:             config.Spec.TaskType,
 		Name:           config.Metadata.Name,
@@ -315,7 +317,7 @@ func (pc *PackCompiler) createPackPrompt(config *PromptConfig) *PackPrompt {
 }
 
 // collectFragments collects fragment references from config into pack
-func (pc *PackCompiler) collectFragments(pack *Pack, config *PromptConfig) {
+func (pc *PackCompiler) collectFragments(pack *Pack, config *Config) {
 	for _, fragRef := range config.Spec.Fragments {
 		if _, exists := pack.Fragments[fragRef.Name]; !exists {
 			pack.Fragments[fragRef.Name] = fmt.Sprintf("{{%s}}", fragRef.Name)

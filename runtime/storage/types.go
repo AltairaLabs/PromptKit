@@ -52,6 +52,6 @@ const (
 	OrganizationByRun OrganizationMode = "by-run"
 )
 
-// StorageReference is a reference to media stored in a backend.
+// Reference is a reference to media stored in a backend.
 // The format and meaning is backend-specific.
-type StorageReference string
+type Reference string

@@ -26,7 +26,7 @@ func TestOpenAIProvider_Contract(t *testing.T) {
 	logger.SetVerbose(true)
 	defer logger.SetVerbose(false)
 
-	provider := NewOpenAIProvider(
+	provider := NewProvider(
 		"openai-test",
 		"gpt-4o-mini",
 		"https://api.openai.com/v1", // full base URL
@@ -60,7 +60,7 @@ func TestOpenAIProvider_LatencyBugFix(t *testing.T) {
 	logger.SetVerbose(true)
 	defer logger.SetVerbose(false)
 
-	provider := NewOpenAIProvider(
+	provider := NewProvider(
 		"openai-latency-test",
 		"gpt-4o-mini",
 		"https://api.openai.com/v1", // full base URL
@@ -100,15 +100,15 @@ func TestOpenAIProvider_LatencyBugFix(t *testing.T) {
 	t.Logf("✓ Predict() correctly set Latency=%v (actual: %v)", resp.Latency, elapsed)
 }
 
-// TestOpenAIToolProvider_PredictWithToolsLatency is the CRITICAL test that proves
+// TestToolProvider_PredictWithToolsLatency is the CRITICAL test that proves
 // the production bug exists: PredictWithTools() returns Latency=0.
-func TestOpenAIToolProvider_PredictWithToolsLatency(t *testing.T) {
+func TestToolProvider_PredictWithToolsLatency(t *testing.T) {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
 		t.Skip("Skipping OpenAI tool latency test - OPENAI_API_KEY not set")
 	}
 
-	provider := NewOpenAIToolProvider(
+	provider := NewToolProvider(
 		"openai-tool-test",
 		"gpt-4o-mini",
 		"https://api.openai.com/v1",

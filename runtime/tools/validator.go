@@ -105,7 +105,7 @@ func (sv *SchemaValidator) CoerceResult(descriptor *ToolDescriptor, result json.
 	}
 
 	coercions := []Coercion{}
-	coerced := sv.coerceValue(data, &coercions, "")
+	coerced := sv.coerceValue(data, "")
 
 	// Re-marshal the coerced data
 	coercedBytes, err := json.Marshal(coerced)
@@ -129,7 +129,7 @@ type Coercion struct {
 }
 
 // coerceValue performs simple type coercions (e.g., number to string, string to number)
-func (sv *SchemaValidator) coerceValue(value interface{}, coercions *[]Coercion, path string) interface{} {
+func (sv *SchemaValidator) coerceValue(value interface{}, path string) interface{} {
 	switch v := value.(type) {
 	case map[string]interface{}:
 		result := make(map[string]interface{})
@@ -139,14 +139,14 @@ func (sv *SchemaValidator) coerceValue(value interface{}, coercions *[]Coercion,
 				childPath += "."
 			}
 			childPath += k
-			result[k] = sv.coerceValue(val, coercions, childPath)
+			result[k] = sv.coerceValue(val, childPath)
 		}
 		return result
 	case []interface{}:
 		result := make([]interface{}, len(v))
 		for i, val := range v {
 			childPath := fmt.Sprintf("%s[%d]", path, i)
-			result[i] = sv.coerceValue(val, coercions, childPath)
+			result[i] = sv.coerceValue(val, childPath)
 		}
 		return result
 	case float64:

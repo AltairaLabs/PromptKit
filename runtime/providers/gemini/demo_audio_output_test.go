@@ -35,7 +35,7 @@ func TestStreamingDemo_AudioAndTextOutput(t *testing.T) {
 	fmt.Println(separator + "\n")
 
 	// Create provider
-	provider := NewGeminiProvider(
+	provider := NewProvider(
 		"gemini-demo",
 		"gemini-2.0-flash-exp",
 		"https://generativelanguage.googleapis.com",
@@ -238,7 +238,7 @@ func TestStreamingDemo_AudioOutputOnly(t *testing.T) {
 	fmt.Println("🎵  GEMINI AUDIO-ONLY OUTPUT DEMO")
 	fmt.Println(separator + "\n")
 
-	provider := NewGeminiProvider(
+	provider := NewProvider(
 		"gemini-demo",
 		"gemini-2.0-flash-exp",
 		"https://generativelanguage.googleapis.com",

@@ -46,7 +46,7 @@ func TestClaudeProvider_CacheControlNotSentForHaiku(t *testing.T) {
 	defer os.Unsetenv("ANTHROPIC_API_KEY")
 
 	// Create provider with Haiku model
-	provider := NewClaudeProvider(
+	provider := NewProvider(
 		"test-haiku",
 		"claude-3-5-haiku-20241022",
 		server.URL,
@@ -106,8 +106,8 @@ func TestClaudeProvider_CacheControlNotSentForHaiku(t *testing.T) {
 	}
 }
 
-// TestClaudeToolProvider_CacheControlNotSentForHaiku tests the same for tool provider
-func TestClaudeToolProvider_CacheControlNotSentForHaiku(t *testing.T) {
+// TestToolProvider_CacheControlNotSentForHaiku tests the same for tool provider
+func TestToolProvider_CacheControlNotSentForHaiku(t *testing.T) {
 	// Create a test server that captures the request
 	var capturedRequest map[string]interface{}
 
@@ -139,7 +139,7 @@ func TestClaudeToolProvider_CacheControlNotSentForHaiku(t *testing.T) {
 	defer os.Unsetenv("ANTHROPIC_API_KEY")
 
 	// Create tool provider with Haiku model
-	provider := NewClaudeToolProvider(
+	provider := NewToolProvider(
 		"test-haiku",
 		"claude-3-5-haiku-20241022",
 		server.URL,
