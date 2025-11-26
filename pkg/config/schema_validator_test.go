@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -67,10 +69,34 @@ spec:
     - file: scenario.yaml
 `)
 
-	schemaDir := "../../docs/public/schemas/v1alpha1"
+	// Find the project root by looking for go.work file
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+
+	// Navigate up to find the project root (where go.work exists)
+	projectRoot := cwd
+	for {
+		if _, err := os.Stat(filepath.Join(projectRoot, "go.work")); err == nil {
+			break
+		}
+		parent := filepath.Dir(projectRoot)
+		if parent == projectRoot {
+			t.Skip("Cannot find project root (go.work not found)")
+			return
+		}
+		projectRoot = parent
+	}
+
+	schemaDir := filepath.Join(projectRoot, "docs", "public", "schemas", "v1alpha1")
+
+	// Verify schema directory exists before running test
+	if _, err := os.Stat(schemaDir); os.IsNotExist(err) {
+		t.Skipf("Schema directory not found at %s, skipping test", schemaDir)
+		return
+	}
 
 	// First validation - should cache the schema
-	_, err := ValidateWithLocalSchema(validConfig, ConfigTypeArena, schemaDir)
+	_, err = ValidateWithLocalSchema(validConfig, ConfigTypeArena, schemaDir)
 	require.NoError(t, err)
 
 	// Check that schema was cached

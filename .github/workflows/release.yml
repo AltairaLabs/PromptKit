@@ -108,6 +108,14 @@ jobs:
         go-version: '1.25.1'
         cache: false  # Disable cache since we use a workspace setup
     
+    - name: Install dependencies
+      if: ${{ !inputs.skip_tests }}
+      run: make install
+    
+    - name: Generate schemas for tests
+      if: ${{ !inputs.skip_tests }}
+      run: make schemas-copy
+    
     - name: Run tests
       if: ${{ !inputs.skip_tests }}
       run: |
