@@ -36,13 +36,21 @@ brew install promptkit
 go install github.com/AltairaLabs/PromptKit/tools/arena@latest
 
 # Create a new test project instantly
-promptarena init my-test --quick
+promprarena init my-test --quick
 
 # Choose your provider when prompted:
 #   • mock     - No API calls, instant testing
 #   • openai   - OpenAI GPT models
 #   • anthropic - Claude models
 #   • google   - Gemini models
+
+# Or use a built-in template for common use cases:
+#   • basic-chatbot       - Simple conversational testing
+#   • customer-support    - Support agent with tools
+#   • code-assistant      - Code generation & review
+#   • content-generation  - Creative content testing
+#   • multimodal          - Image/audio/video AI
+#   • mcp-integration     - MCP server testing
 
 # Run your first test
 cd my-test

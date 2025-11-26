@@ -16,7 +16,7 @@ Set up PromptArena on your system and verify the installation.
 
 <div class="code-example" markdown="1">
 ### [Use Project Templates](use-project-templates)
-Quickly scaffold new test projects with the `promptarena init` command.
+Quickly scaffold new test projects with the `promptarena init` command. Includes 6 built-in templates for common use cases like customer support, code generation, content creation, multimodal AI, and MCP integration.
 </div>
 
 <div class="code-example" markdown="1">

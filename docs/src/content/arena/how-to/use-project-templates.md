@@ -32,11 +32,32 @@ Quick mode uses sensible defaults and creates:
 - **.gitignore** - Ignores .env and temporary files
 - **README.md** - Project documentation and next steps
 
-### Provider Options
+## Available Built-In Templates
+
+PromptArena includes 6 built-in templates for common testing scenarios:
+
+| Template | Description | Use Case |
+|----------|-------------|----------|
+| `basic-chatbot` | Simple conversational testing | General purpose, beginners |
+| `customer-support` | Support agent with KB and order tools | Customer service testing |
+| `code-assistant` | Separate generator and reviewer prompts | Code generation workflows |
+| `content-generation` | Creative content for blogs, products, social | Marketing and content testing |
+| `multimodal` | Vision analysis with image inputs | Image/audio/video AI |
+| `mcp-integration` | MCP filesystem server configuration | Tool calling and MCP testing |
+
+### List Available Templates
+
+View all available templates:
+
+```bash
+promprarena init --list-templates
+```
+
+## Provider Options
 
 ```bash
 # Mock provider (no API required, great for testing)
-promptarena init my-test --quick --provider mock
+promprarena init my-test --quick --provider mock
 
 # OpenAI (GPT models)
 promptarena init my-test --quick --provider openai
