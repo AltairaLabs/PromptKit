@@ -1,21 +1,14 @@
 name: Deploy Documentation to GitHub Pages
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - 'docs/**'
-      - 'examples/**/README.md'
-      - 'sdk/examples/**/README.md'
-      - 'scripts/prepare-examples-docs.sh'
-      - '.github/workflows/docs.yml'
-      - 'Makefile'
-      - 'README.md'
-      - 'CONTRIBUTING.md'
-      - 'CODE_OF_CONDUCT.md'
-      - 'GOVERNANCE.md'
-      - 'SECURITY.md'
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual deployment'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -30,6 +23,20 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      - name: Log deployment trigger
+        env:
+          REASON: ${{ inputs.reason }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "📝 Manual deployment triggered"
+            if [ -n "$REASON" ]; then
+              echo "Reason: $REASON"
+            fi
+          elif [ "${{ github.event_name }}" = "release" ]; then
+            echo "🎉 Deploying documentation for release: $RELEASE_TAG"
+          fi
+      
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       
