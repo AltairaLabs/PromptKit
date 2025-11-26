@@ -21,7 +21,6 @@ type ToolProvider struct {
 // NewToolProvider creates a new mock provider with tool support.
 // This uses default in-memory responses for backward compatibility.
 func NewToolProvider(id, model string, includeRawOutput bool, additionalConfig map[string]interface{}) *ToolProvider {
-
 	if additionalConfig != nil {
 		if mockConfigPath, ok := additionalConfig["mock_config"].(string); ok && mockConfigPath != "" {
 			// Create file-based repository and use ToolProvider for tool call simulation
