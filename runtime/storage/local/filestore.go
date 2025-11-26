@@ -1,3 +1,4 @@
+// Package local provides local filesystem-based storage implementation.
 package local
 
 import (

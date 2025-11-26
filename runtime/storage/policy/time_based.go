@@ -1,3 +1,4 @@
+// Package policy provides storage retention and cleanup policy management.
 package policy
 
 import (

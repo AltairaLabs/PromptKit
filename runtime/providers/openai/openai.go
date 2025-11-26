@@ -1,3 +1,4 @@
+// Package openai provides OpenAI LLM provider integration.
 package openai
 
 import (
