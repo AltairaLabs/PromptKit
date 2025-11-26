@@ -115,7 +115,7 @@ func TestObserver_NoObserver(t *testing.T) {
 func TestObserver_Integration(t *testing.T) {
 	// Full integration test with mock provider
 	tmpDir := t.TempDir()
-	
+
 	cfg := &config.Config{
 		Defaults: config.Defaults{
 			Verbose: false,
