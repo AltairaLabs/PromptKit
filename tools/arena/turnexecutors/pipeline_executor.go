@@ -127,7 +127,7 @@ func buildMediaConfig(conversationID string, mediaStorage storage.MediaStorageSe
 // isMockProvider checks if provider is a mock type
 func isMockProvider(provider providers.Provider) bool {
 	_, isMock := provider.(*mock.Provider)
-	_, isMockTool := provider.(*mock.Provider)
+	_, isMockTool := provider.(*mock.ToolProvider)
 	return isMock || isMockTool
 }
 
