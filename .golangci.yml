@@ -14,7 +14,7 @@ linters:
     - gochecknoinits
     - goconst
     - gocritic
-    - gocyclo
+    - gocognit
     - goprintffuncname
     - gosec
     - govet        # includes shadow detection
@@ -36,7 +36,7 @@ linters:
     govet:
       enable:
         - shadow
-    gocyclo:
+    gocognit:
       min-complexity: 15
     goconst:
       min-len: 3
@@ -136,7 +136,7 @@ linters:
       - path: '_test\.go'
         linters:
           - mnd
-          - gocyclo
+          - gocognit
           - goconst
           - gosec
           - lll
@@ -153,7 +153,7 @@ linters:
         linters:
           - mnd
           - funlen
-          - gocyclo
+          - gocognit
           - goconst
           - gosec
           - lll
@@ -173,7 +173,7 @@ linters:
         linters:
           - mnd
           - funlen
-          - gocyclo
+          - gocognit
           - goconst
           - gosec
           - lll
