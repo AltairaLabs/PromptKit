@@ -49,73 +49,97 @@ func runSimulations(cmd *cobra.Command) error {
 // This function handles the decision between TUI and simple mode and manages the full execution lifecycle.
 // It is excluded from coverage testing as it requires real engine initialization and user interaction.
 func executeRuns(configFile string, params *RunParameters) ([]engine.RunResult, error) {
-	// Create engine and load all resources
-	eng, err := engine.NewEngineFromConfigFile(configFile)
+	// Create and configure engine
+	eng, plan, err := setupEngine(configFile, params)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create engine: %w", err)
-	}
-
-	// Apply mock provider override if requested
-	if params.MockProvider {
-		if err := eng.EnableMockProviderMode(params.MockConfig); err != nil {
-			return nil, fmt.Errorf("failed to enable mock provider mode: %w", err)
-		}
-		if !params.CIMode {
-			fmt.Println("Mock Provider Mode: ENABLED")
-			if params.MockConfig != "" {
-				fmt.Printf("Mock Config: %s\n", params.MockConfig)
-			}
-		}
-	}
-
-	// Generate run plan
-	plan, err := eng.GenerateRunPlan(params.Regions, params.Providers, params.Scenarios)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate run plan: %w", err)
+		return nil, err
 	}
 
 	params.TotalRuns = len(plan.Combinations)
 
-	// Check if TUI should be used (not CI mode, terminal large enough)
-	useTUI := !params.CIMode
-	var tuiReason string
-	if useTUI {
-		w, h, supported, reason := tui.CheckTerminalSize()
-		if !supported {
-			useTUI = false
-			tuiReason = reason
-		}
-		if params.Verbose {
-			if supported {
-				log.Printf("TUI mode enabled (terminal size: %dx%d)", w, h)
-			} else {
-				log.Printf("TUI disabled: %s (terminal size: %dx%d)", reason, w, h)
-			}
-		}
-	}
-
-	// Execute with TUI or simple mode
-	var runIDs []string
+	// Determine execution mode and run
 	ctx := context.Background()
-
-	if useTUI {
-		if params.Verbose {
-			log.Printf("Starting TUI mode...")
-		}
-		runIDs, err = executeWithTUI(ctx, eng, plan, params)
-	} else {
-		if tuiReason != "" && !params.CIMode {
-			fmt.Printf("TUI disabled: %s\n", tuiReason)
-		}
-		runIDs, err = executeSimple(ctx, eng, plan, params)
-	}
-
+	runIDs, err := executeWithMode(ctx, eng, plan, params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute runs: %w", err)
 	}
 
 	// Convert results from statestore format
 	return convertRunResults(ctx, eng, runIDs)
+}
+
+// setupEngine creates and configures the engine with mock provider if needed.
+func setupEngine(configFile string, params *RunParameters) (*engine.Engine, *engine.RunPlan, error) {
+	eng, err := engine.NewEngineFromConfigFile(configFile)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create engine: %w", err)
+	}
+
+	if err := configureMockProvider(eng, params); err != nil {
+		return nil, nil, err
+	}
+
+	plan, err := eng.GenerateRunPlan(params.Regions, params.Providers, params.Scenarios)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to generate run plan: %w", err)
+	}
+
+	return eng, plan, nil
+}
+
+// configureMockProvider enables mock provider mode if requested.
+func configureMockProvider(eng *engine.Engine, params *RunParameters) error {
+	if !params.MockProvider {
+		return nil
+	}
+
+	if err := eng.EnableMockProviderMode(params.MockConfig); err != nil {
+		return fmt.Errorf("failed to enable mock provider mode: %w", err)
+	}
+
+	if !params.CIMode {
+		fmt.Println("Mock Provider Mode: ENABLED")
+		if params.MockConfig != "" {
+			fmt.Printf("Mock Config: %s\n", params.MockConfig)
+		}
+	}
+
+	return nil
+}
+
+// executeWithMode determines whether to use TUI or simple mode and executes accordingly.
+func executeWithMode(ctx context.Context, eng *engine.Engine, plan *engine.RunPlan, params *RunParameters) ([]string, error) {
+	useTUI, tuiReason := shouldUseTUI(params)
+
+	if useTUI {
+		if params.Verbose {
+			log.Printf("Starting TUI mode...")
+		}
+		return executeWithTUI(ctx, eng, plan, params)
+	}
+
+	if tuiReason != "" && !params.CIMode {
+		fmt.Printf("TUI disabled: %s\n", tuiReason)
+	}
+	return executeSimple(ctx, eng, plan, params)
+}
+
+// shouldUseTUI determines if TUI mode should be used based on CI mode and terminal size.
+func shouldUseTUI(params *RunParameters) (useTUI bool, reason string) {
+	if params.CIMode {
+		return false, ""
+	}
+
+	w, h, supported, reason := tui.CheckTerminalSize()
+	if !supported {
+		return false, reason
+	}
+
+	if params.Verbose {
+		log.Printf("TUI mode enabled (terminal size: %dx%d)", w, h)
+	}
+
+	return true, ""
 }
 
 // executeWithTUI runs simulations with the TUI interface.
