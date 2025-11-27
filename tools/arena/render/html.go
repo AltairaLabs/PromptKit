@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/russross/blackfriday/v2"
 )
@@ -325,30 +326,33 @@ func generateScenarioGroups(results []engine.RunResult, scenarios []string) []Sc
 
 func generateHTML(data HTMLReportData) (string, error) {
 	tmpl := template.Must(template.New("report").Funcs(template.FuncMap{
-		"formatCost":           formatCost,
-		"formatDuration":       formatDuration,
-		"formatPercent":        formatPercent,
-		"statusClass":          getStatusClass,
-		"prettyJSON":           prettyJSON,
-		"renderMarkdown":       renderMarkdown,
-		"renderMessageContent": renderMessageContent,
-		"formatBytes":          formatBytesHTML,
-		"json":                 convertToJS,
-		"add":                  func(a, b int) int { return a + b },
-		"getAssertions":        getAssertions,
-		"getValidators":        getValidatorsFromMessage,
-		"assertionsPassed":     checkAssertionsPassed,
-		"validatorsPassed":     checkValidatorsPassed,
-		"hasAssertions":        hasAssertions,
-		"hasValidators":        hasValidatorsInMessage,
-		"getOK":                getOKFromResult,
-		"getDetails":           getDetailsFromResult,
-		"getMessage":           getMessage,
-		"hasMediaOutputs":      hasMediaOutputs,
-		"renderMediaOutputs":   renderMediaOutputs,
-		"hasAssertionResults":  hasAssertionResults,
-		"getAssertionResults":  getAssertionResults,
-		"getAssertionType":     getAssertionType,
+		"formatCost":                   formatCost,
+		"formatDuration":               formatDuration,
+		"formatPercent":                formatPercent,
+		"statusClass":                  getStatusClass,
+		"prettyJSON":                   prettyJSON,
+		"renderMarkdown":               renderMarkdown,
+		"renderMessageContent":         renderMessageContent,
+		"formatBytes":                  formatBytesHTML,
+		"json":                         convertToJS,
+		"add":                          func(a, b int) int { return a + b },
+		"getAssertions":                getAssertions,
+		"getValidators":                getValidatorsFromMessage,
+		"assertionsPassed":             checkAssertionsPassed,
+		"validatorsPassed":             checkValidatorsPassed,
+		"hasAssertions":                hasAssertions,
+		"hasValidators":                hasValidatorsInMessage,
+		"getOK":                        getOKFromResult,
+		"getDetails":                   getDetailsFromResult,
+		"getMessage":                   getMessage,
+		"hasMediaOutputs":              hasMediaOutputs,
+		"renderMediaOutputs":           renderMediaOutputs,
+		"hasAssertionResults":          hasAssertionResults,
+		"getAssertionResults":          getAssertionResults,
+		"getAssertionType":             getAssertionType,
+		"hasConversationAssertions":    hasConversationAssertions,
+		"conversationAssertionsPassed": conversationAssertionsPassed,
+		"renderConversationAssertions": renderConversationAssertions,
 	}).Parse(reportTemplate))
 
 	var buf strings.Builder
@@ -897,5 +901,151 @@ func renderMediaOutputs(outputs []engine.MediaOutput) template.HTML {
 	html.WriteString(`</div>`) // media-outputs-grid
 	html.WriteString(`</div>`) // media-outputs-section
 
+	return template.HTML(html.String())
+}
+
+// hasConversationAssertions checks if a result has conversation-level assertions.
+//
+//nolint:gocritic // hugeParam: template functions can't use pointers
+func hasConversationAssertions(result engine.RunResult) bool {
+	return len(result.ConversationAssertionResults) > 0
+}
+
+// conversationAssertionsPassed checks if all conversation assertions passed.
+func conversationAssertionsPassed(results []assertions.ConversationValidationResult) bool {
+	for _, r := range results {
+		if !r.Passed {
+			return false
+		}
+	}
+	return true
+}
+
+// renderConversationAssertions renders conversation-level assertions as an HTML table.
+func renderConversationAssertions(results []assertions.ConversationValidationResult) template.HTML {
+	if len(results) == 0 {
+		return ""
+	}
+
+	var html strings.Builder
+	html.WriteString(`<div class="conversation-assertions-section">`)
+	html.WriteString(`<div class="conversation-assertions-header">`)
+
+	// Count passed and failed
+	passed := 0
+	failed := 0
+	for _, r := range results {
+		if r.Passed {
+			passed++
+		} else {
+			failed++
+		}
+	}
+
+	statusClass := "passed"
+	statusIcon := "✓"
+	if failed > 0 {
+		statusClass = "failed"
+		statusIcon = "✗"
+	}
+
+	html.WriteString(fmt.Sprintf(
+		`<span class="conversation-assertions-badge %s">%s</span>`,
+		statusClass, statusIcon,
+	))
+	html.WriteString(`<span class="conversation-assertions-title">Conversation Assertions</span>`)
+	html.WriteString(fmt.Sprintf(
+		`<span class="conversation-assertions-count">%d passed, %d failed</span>`,
+		passed, failed,
+	))
+	html.WriteString(`</div>`)
+
+	// Render table
+	html.WriteString(`<table class="conversation-assertions-table">`)
+	html.WriteString(`<thead><tr>`)
+	html.WriteString(`<th>Assertion</th>`)
+	html.WriteString(`<th>Status</th>`)
+	html.WriteString(`<th>Message</th>`)
+	html.WriteString(`<th>Details</th>`)
+	html.WriteString(`</tr></thead>`)
+	html.WriteString(`<tbody>`)
+
+	for i, result := range results {
+		rowClass := "passed"
+		statusText := "Passed"
+		statusIcon := "✓"
+		if !result.Passed {
+			rowClass = "failed"
+			statusText = "Failed"
+			statusIcon = "✗"
+		}
+
+		// Assertion number/index (use index since we don't have explicit type in results)
+		html.WriteString(fmt.Sprintf(`<tr class=%q>`, rowClass))
+		html.WriteString(fmt.Sprintf(`<td class="assertion-index">Assertion #%d</td>`, i+1))
+
+		// Status column with icon
+		html.WriteString(fmt.Sprintf(
+			`<td class="assertion-status"><span class="status-icon %s">%s</span> %s</td>`,
+			rowClass, statusIcon, statusText,
+		))
+
+		// Message column
+		message := result.Message
+		if message == "" {
+			message = "—"
+		}
+		html.WriteString(fmt.Sprintf(`<td class="assertion-message">%s</td>`, template.HTMLEscapeString(message)))
+
+		// Details column
+		html.WriteString(`<td class="assertion-details">`)
+
+		// Show violations if any
+		if len(result.Violations) > 0 {
+			html.WriteString(fmt.Sprintf(
+				`<div class="violation-summary">%d violation(s)</div>`,
+				len(result.Violations),
+			))
+			html.WriteString(`<ul class="violations-list">`)
+			for _, v := range result.Violations {
+				html.WriteString(`<li>`)
+				html.WriteString(fmt.Sprintf(
+					`<span class="violation-turn">Turn %d:</span> %s`,
+					v.TurnIndex+1, template.HTMLEscapeString(v.Description),
+				))
+				if len(v.Evidence) > 0 {
+					evJSON, _ := json.MarshalIndent(v.Evidence, "", "  ")
+					html.WriteString(fmt.Sprintf(
+						`<pre class="violation-evidence">%s</pre>`,
+						template.HTMLEscapeString(string(evJSON)),
+					))
+				}
+				html.WriteString(`</li>`)
+			}
+			html.WriteString(`</ul>`)
+		}
+
+		// Show details if any
+		if len(result.Details) > 0 {
+			detailsJSON, _ := json.MarshalIndent(result.Details, "", "  ")
+			html.WriteString(fmt.Sprintf(
+				`<pre class="assertion-details-json">%s</pre>`,
+				template.HTMLEscapeString(string(detailsJSON)),
+			))
+		}
+
+		if len(result.Violations) == 0 && len(result.Details) == 0 {
+			html.WriteString(`—`)
+		}
+
+		html.WriteString(`</td>`)
+		html.WriteString(`</tr>`)
+	}
+
+	html.WriteString(`</tbody>`)
+	html.WriteString(`</table>`)
+	html.WriteString(`</div>`)
+
+	//nolint:gosec // G203: HTML generation is intentional for template rendering
 	return template.HTML(html.String())
 }

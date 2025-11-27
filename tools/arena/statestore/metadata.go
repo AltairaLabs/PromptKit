@@ -97,6 +97,9 @@ func (s *ArenaStateStore) GetResult(ctx context.Context, runID string) (*RunResu
 		UserRole:      arenaState.RunMetadata.UserRole,
 
 		MediaOutputs: mediaOutputs,
+
+		// Conversation-level assertions
+		ConversationAssertionResults: arenaState.RunMetadata.ConversationAssertionResults,
 	}
 
 	return result, nil

@@ -688,6 +688,171 @@
         
         .media-filepath {
             font-family: 'Courier New', monospace;
+        }
+        
+        /* Conversation Assertions Styles */
+        .conversation-assertions-section {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid #e2e8f0;
+        }
+        
+        .conversation-assertions-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #4a5568;
+        }
+        
+        .conversation-assertions-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 1.5rem;
+            height: 1.5rem;
+            border-radius: 50%;
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+        
+        .conversation-assertions-badge.passed {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        
+        .conversation-assertions-badge.failed {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        
+        .conversation-assertions-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #4a5568;
+        }
+        
+        .conversation-assertions-count {
+            font-size: 0.8rem;
+            color: #718096;
+            margin-left: auto;
+        }
+        
+        .conversation-assertions-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+        
+        .conversation-assertions-table thead th {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            padding: 0.5rem;
+            text-align: left;
+            font-weight: 600;
+            color: #4a5568;
+        }
+        
+        .conversation-assertions-table tbody td {
+            border: 1px solid #e2e8f0;
+            padding: 0.5rem;
+            vertical-align: top;
+        }
+        
+        .conversation-assertions-table tbody tr.passed {
+            background: #f0fdf4;
+        }
+        
+        .conversation-assertions-table tbody tr.failed {
+            background: #fef2f2;
+        }
+        
+        .assertion-index {
+            font-weight: 500;
+            color: #2d3748;
+        }
+        
+        .assertion-status {
+            white-space: nowrap;
+        }
+        
+        .assertion-status .status-icon {
+            display: inline-block;
+            width: 1.2rem;
+            height: 1.2rem;
+            line-height: 1.2rem;
+            text-align: center;
+            border-radius: 50%;
+            font-weight: bold;
+            font-size: 0.8rem;
+        }
+        
+        .assertion-status .status-icon.passed {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        
+        .assertion-status .status-icon.failed {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        
+        .assertion-message {
+            color: #2d3748;
+            line-height: 1.4;
+        }
+        
+        .assertion-details {
+            font-size: 0.8rem;
+        }
+        
+        .violation-summary {
+            font-weight: 600;
+            color: #991b1b;
+            margin-bottom: 0.25rem;
+        }
+        
+        .violations-list {
+            list-style: none;
+            padding-left: 0;
+            margin: 0.25rem 0;
+        }
+        
+        .violations-list li {
+            margin: 0.5rem 0;
+            padding: 0.5rem;
+            background: #fef2f2;
+            border-left: 3px solid #ef4444;
+            border-radius: 0.25rem;
+        }
+        
+        .violation-turn {
+            font-weight: 600;
+            color: #991b1b;
+        }
+        
+        .violation-evidence {
+            background: white;
+            border: 1px solid #fecaca;
+            border-radius: 0.25rem;
+            padding: 0.5rem;
+            margin-top: 0.5rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.75rem;
+            overflow-x: auto;
+        }
+        
+        .assertion-details-json {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.25rem;
+            padding: 0.5rem;
+            margin-top: 0.5rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.75rem;
+            overflow-x: auto;
             font-size: 0.75rem;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -1352,6 +1517,10 @@
                             
                             {{if hasMediaOutputs $result}}
                             {{renderMediaOutputs $result.MediaOutputs}}
+                            {{end}}
+                            
+                            {{if hasConversationAssertions $result}}
+                            {{renderConversationAssertions $result.ConversationAssertionResults}}
                             {{end}}
                             
                             {{if $result.Error}}
