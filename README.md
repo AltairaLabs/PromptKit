@@ -138,6 +138,66 @@ promptkit/
 - Structured logging
 - Tool execution framework
 
+## 🛠️ Development Setup
+
+### Prerequisites
+
+Before contributing, install these development tools:
+
+```bash
+# Install golangci-lint (linter)
+brew install golangci-lint
+# Or: https://golangci-lint.run/usage/install/
+
+# Install diff-cover (coverage analysis)
+pip install diff-cover
+# Or: pip3 install diff-cover
+```
+
+### Pre-commit Hooks
+
+We use pre-commit hooks to ensure code quality. The hooks run automatically before each commit and only check changed code (fast!).
+
+**Install the pre-commit hook:**
+
+```bash
+# Make the hook executable (one-time setup)
+chmod +x .git/hooks/pre-commit
+
+# Or use the install script
+./scripts/install-hooks.sh
+```
+
+**What the hook checks:**
+
+- ✅ Lints changed code only (via `golangci-lint --new-from-rev=HEAD`)
+- ✅ Runs tests on affected packages
+- ✅ Ensures ≥80% coverage on changed lines only
+- ✅ Fast execution (~10-30 seconds typically)
+
+**Bypassing the hook:**
+
+In rare cases when you need to commit without running checks:
+
+```bash
+git commit -m "fix: emergency hotfix [skip-pre-commit]"
+```
+
+**Manual verification:**
+
+Run the same checks manually:
+
+```bash
+# Run lint on changed code
+make lint-diff
+
+# Run coverage check on changed lines
+make test-coverage-diff
+
+# Run both (same as CI)
+make verify
+```
+
 ## 🤝 Contributing
 
 We welcome contributions! Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for details.

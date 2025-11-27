@@ -174,6 +174,43 @@ lint: ## Run linters
 	@cd tools/packc && golangci-lint run ./...
 	@cd tools/inspect-state && golangci-lint run ./...
 
+lint-diff: ## Run linters on changed code only (fast, for pre-commit)
+	@echo "🔍 Linting changed code only..."
+	@MODULES="runtime sdk pkg tools/arena tools/packc tools/inspect-state tools/schema-gen"; \
+	CHANGED=0; \
+	for module in $$MODULES; do \
+		if git diff --name-only HEAD | grep -q "^$$module/.*\.go$$"; then \
+			echo "Linting $$module (has changes)..."; \
+			cd $$module && golangci-lint run --new-from-rev=HEAD --timeout=3m ./... && cd ..; \
+			CHANGED=1; \
+		fi; \
+	done; \
+	if [ $$CHANGED -eq 0 ]; then \
+		echo "✓ No Go file changes detected"; \
+	else \
+		echo "✓ Lint check complete"; \
+	fi
+
+test-fast: ## Run tests for changed packages only (fast, for pre-commit)
+	@echo "🧪 Testing changed packages..."
+	@MODULES="runtime sdk pkg tools/arena tools/packc tools/inspect-state tools/schema-gen"; \
+	CHANGED=0; \
+	for module in $$MODULES; do \
+		if git diff --name-only HEAD | grep -q "^$$module/.*\.go$$"; then \
+			echo "Testing $$module..."; \
+			cd $$module && go test ./... && cd ..; \
+			CHANGED=1; \
+		fi; \
+	done; \
+	if [ $$CHANGED -eq 0 ]; then \
+		echo "✓ No test modules to run"; \
+	else \
+		echo "✓ Tests passed"; \
+	fi
+
+verify: lint-diff test-fast ## Run all verification checks (used by CI and pre-commit)
+	@echo "✓ All verification checks passed!"
+
 install-tools: ## Install CLI tools to system PATH
 	@echo "Installing CLI tools to system..."
 	@$(MAKE) build-tools

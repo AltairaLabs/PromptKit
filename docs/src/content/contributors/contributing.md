@@ -49,11 +49,12 @@ Signed-off-by: Your Name <your.email@example.com>
 2. **Create a feature branch**: `git checkout -b feature/your-feature-name`
 3. **Make your changes**
 4. **Write/update tests**
-5. **Run tests**: `make test`
-6. **Run linter**: `make lint`
-7. **Commit your changes**: Use clear, descriptive commit messages
-8. **Push to your fork**: `git push origin feature/your-feature-name`
-9. **Open a Pull Request**
+5. **Commit your changes**: Use clear, descriptive commit messages with `-s` flag for DCO
+6. **Pre-commit checks run automatically** (linting, tests, coverage on changed code)
+7. **Push to your fork**: `git push origin feature/your-feature-name`
+8. **Open a Pull Request**
+
+**Tip**: Run `make verify` before pushing to ensure CI will pass.
 
 ## Development Setup
 
@@ -61,6 +62,8 @@ Signed-off-by: Your Name <your.email@example.com>
 
 - Go 1.21 or later
 - Make (for build automation)
+- golangci-lint (for linting)
+- diff-cover (for coverage checks)
 
 ### Setup
 
@@ -72,12 +75,21 @@ cd PromptKit
 # Install dependencies
 make install
 
+# Install development tools
+brew install golangci-lint
+pip3 install diff-cover
+
+# Set up pre-commit hooks
+./scripts/install-hooks.sh
+
 # Run tests
 make test
 
 # Build all components
 make build
 ```
+
+See the [Pre-Commit Hooks](./pre-commit-hooks.md) guide for details on automated code quality checks.
 
 ### Project Structure
 
