@@ -134,7 +134,6 @@ func loadFromStorageReference(
 
 // mediaConversionConfig holds configuration for media conversion
 type mediaConversionConfig struct {
-	ctx            context.Context
 	turnPart       config.TurnContentPart
 	baseDir        string
 	httpLoader     *HTTPMediaLoader
@@ -146,6 +145,7 @@ type mediaConversionConfig struct {
 // convertMediaPart is a generic helper for converting media parts (audio/video)
 // It reduces code duplication by handling the common conversion logic
 func convertMediaPart(
+	ctx context.Context,
 	cfg mediaConversionConfig,
 	createPartFromData func(data, mimeType string) types.ContentPart,
 	loadFromFile func(filePath, baseDir string, idx int) (types.ContentPart, error),
@@ -156,7 +156,7 @@ func convertMediaPart(
 
 	// Handle storage reference (highest priority)
 	if cfg.turnPart.Media.StorageReference != "" {
-		media, err := loadFromStorageReference(cfg.ctx, cfg.storageService, cfg.turnPart.Media.StorageReference, cfg.contentType, cfg.index)
+		media, err := loadFromStorageReference(ctx, cfg.storageService, cfg.turnPart.Media.StorageReference, cfg.contentType, cfg.index)
 		if err != nil {
 			return types.ContentPart{}, err
 		}
@@ -177,7 +177,7 @@ func convertMediaPart(
 		if cfg.httpLoader == nil {
 			return types.ContentPart{}, NewValidationError(cfg.index, cfg.contentType, cfg.turnPart.Media.URL, errURLNoHTTPLoader)
 		}
-		data, mimeType, err := cfg.httpLoader.loadMediaFromURL(cfg.ctx, cfg.turnPart.Media.URL, cfg.contentType, cfg.index)
+		data, mimeType, err := cfg.httpLoader.loadMediaFromURL(ctx, cfg.turnPart.Media.URL, cfg.contentType, cfg.index)
 		if err != nil {
 			return types.ContentPart{}, err
 		}
@@ -273,7 +273,6 @@ func convertAudioPart(
 	index int,
 ) (types.ContentPart, error) {
 	cfg := mediaConversionConfig{
-		ctx:            ctx,
 		turnPart:       turnPart,
 		baseDir:        baseDir,
 		httpLoader:     httpLoader,
@@ -281,7 +280,7 @@ func convertAudioPart(
 		index:          index,
 		contentType:    "audio",
 	}
-	return convertMediaPart(cfg,
+	return convertMediaPart(ctx, cfg,
 		func(data, mimeType string) types.ContentPart {
 			return types.NewAudioPartFromData(data, mimeType)
 		},
@@ -301,7 +300,6 @@ func convertVideoPart(
 	index int,
 ) (types.ContentPart, error) {
 	cfg := mediaConversionConfig{
-		ctx:            ctx,
 		turnPart:       turnPart,
 		baseDir:        baseDir,
 		httpLoader:     httpLoader,
@@ -309,7 +307,7 @@ func convertVideoPart(
 		index:          index,
 		contentType:    "video",
 	}
-	return convertMediaPart(cfg,
+	return convertMediaPart(ctx, cfg,
 		func(data, mimeType string) types.ContentPart {
 			return types.NewVideoPartFromData(data, mimeType)
 		},

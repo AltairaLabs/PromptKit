@@ -100,7 +100,7 @@ func init() {
 
 	// NOSONAR
 	// Configuration file
-	runCmd.Flags().StringP("config", "c", "arena.yaml", "Configuration file path") // NOSONAR
+	runCmd.Flags().StringP("config", "c", "config.arena.yaml", "Configuration file path") // NOSONAR
 
 	// Override flags
 	runCmd.Flags().StringSlice("region", []string{}, "Regions to run (e.g., us,uk,au)")
@@ -110,7 +110,8 @@ func init() {
 	// Execution settings
 	runCmd.Flags().IntP("concurrency", "j", 6, "Number of concurrent workers")
 	runCmd.Flags().StringP("out", "o", "out", "Output directory")
-	runCmd.Flags().Bool("ci", false, "CI mode (headless)")
+	runCmd.Flags().Bool("ci", false, "CI mode (disable TUI, simple logs)")
+	runCmd.Flags().Bool("simple", false, "Simple mode (alias for --ci)")
 	runCmd.Flags().Bool("html", false, "Generate HTML report (deprecated: use --format)")
 	runCmd.Flags().StringSlice("format", []string{}, "Output formats (json, junit, html, markdown) - defaults from config")
 	runCmd.Flags().StringSlice("formats", []string{}, "Output formats (json, junit, html, markdown) - alias for --format")
@@ -142,31 +143,8 @@ func init() {
 	_ = viper.BindPFlag("roles", runCmd.Flags().Lookup("roles"))
 }
 
-func runSimulations(cmd *cobra.Command) error {
-	// Parse configuration and flags
-	configFile, cfg, err := loadConfiguration(cmd)
-	if err != nil {
-		return err
-	}
-
-	// Extract run parameters from flags
-	runParams, err := extractRunParameters(cmd, cfg)
-	if err != nil {
-		return err
-	}
-
-	// Display run information if not in CI mode
-	displayRunInfo(runParams, configFile)
-
-	// Execute the simulation runs
-	results, err := executeRuns(configFile, runParams)
-	if err != nil {
-		return err
-	}
-
-	// Process and save results
-	return processResults(results, runParams, configFile)
-}
+// NOTE: runSimulations, executeRuns, executeWithTUI, and executeSimple are defined in run_interactive.go
+// These functions are excluded from coverage testing as they involve interactive terminal operations.
 
 // RunParameters holds all the parameters for running simulations
 type RunParameters struct {
@@ -176,6 +154,7 @@ type RunParameters struct {
 	Concurrency    int
 	OutDir         string
 	CIMode         bool
+	SimpleMode     bool // Alias for CIMode
 	Verbose        bool
 	GenerateHTML   bool     // Deprecated: use OutputFormats
 	HTMLReportPath string   // Deprecated: use HTMLFile
@@ -185,6 +164,8 @@ type RunParameters struct {
 	MarkdownFile   string   // New: Markdown output file
 	MockProvider   bool     // Enable mock provider mode
 	MockConfig     string   // Path to mock provider configuration
+	ConfigFile     string   // Configuration file name for TUI display
+	TotalRuns      int      // Total number of runs for TUI progress
 }
 
 // loadConfiguration loads the configuration file and sets up viper
@@ -194,9 +175,9 @@ func loadConfiguration(cmd *cobra.Command) (string, *config.Config, error) {
 		return "", nil, fmt.Errorf("failed to get config flag: %w", err)
 	}
 
-	// If config path is a directory, append arena.yaml
+	// If config path is a directory, append config.arena.yaml
 	if info, statErr := os.Stat(configFile); statErr == nil && info.IsDir() {
-		configFile = filepath.Join(configFile, "arena.yaml")
+		configFile = filepath.Join(configFile, "config.arena.yaml")
 	}
 
 	// Load configuration
@@ -264,6 +245,13 @@ func extractBasicFlags(cmd *cobra.Command, params *RunParameters) error {
 	}
 	if params.CIMode, err = cmd.Flags().GetBool("ci"); err != nil {
 		return fmt.Errorf("failed to get ci flag: %w", err)
+	}
+	if params.SimpleMode, err = cmd.Flags().GetBool("simple"); err != nil {
+		return fmt.Errorf("failed to get simple flag: %w", err)
+	}
+	// If either --ci or --simple is set, disable TUI
+	if params.SimpleMode {
+		params.CIMode = true
 	}
 	if params.Verbose, err = cmd.Flags().GetBool("verbose"); err != nil {
 		return fmt.Errorf("failed to get verbose flag: %w", err)
@@ -437,50 +425,6 @@ func displayRunInfo(params *RunParameters, configFile string) {
 	fmt.Println()
 }
 
-// executeRuns creates the engine and executes all simulation runs
-func executeRuns(configFile string, params *RunParameters) ([]engine.RunResult, error) {
-	// Create engine and load all resources
-	eng, err := engine.NewEngineFromConfigFile(configFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create engine: %w", err)
-	}
-
-	// Apply mock provider override if requested
-	if params.MockProvider {
-		if err := eng.EnableMockProviderMode(params.MockConfig); err != nil {
-			return nil, fmt.Errorf("failed to enable mock provider mode: %w", err)
-		}
-		if !params.CIMode {
-			fmt.Println("Mock Provider Mode: ENABLED")
-			if params.MockConfig != "" {
-				fmt.Printf("Mock Config: %s\n", params.MockConfig)
-			}
-		}
-	}
-
-	// Generate run plan
-	plan, err := eng.GenerateRunPlan(params.Regions, params.Providers, params.Scenarios)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate run plan: %w", err)
-	}
-
-	if !params.CIMode {
-		fmt.Printf("Generated %d run combinations\n", len(plan.Combinations))
-		fmt.Println("Starting execution...")
-		fmt.Println()
-	}
-
-	// Execute runs
-	ctx := context.Background()
-	runIDs, err := eng.ExecuteRuns(ctx, plan, params.Concurrency)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute runs: %w", err)
-	}
-
-	// Convert results from statestore format
-	return convertRunResults(ctx, eng, runIDs)
-}
-
 // convertRunResults retrieves and converts run results from the statestore
 func convertRunResults(ctx context.Context, eng *engine.Engine, runIDs []string) ([]engine.RunResult, error) {
 	arenaStore, ok := eng.GetStateStore().(*statestore.ArenaStateStore)
@@ -526,33 +470,7 @@ func processResults(results []engine.RunResult, params *RunParameters, configFil
 		log.Printf("Warning: failed to save summary: %v", err)
 	}
 
-	// Display final summary and handle CI mode errors
-	return displayFinalSummary(params, results, successCount, errorCount)
-}
-
-// displayFinalSummary displays execution summary and handles CI mode errors
-func displayFinalSummary(params *RunParameters, results []engine.RunResult, successCount, errorCount int) error {
-	// Print summary
-	if !params.CIMode {
-		fmt.Printf("Execution complete!\n")
-		fmt.Printf("Total runs: %d\n", len(results))
-		fmt.Printf("Successful: %d\n", successCount)
-		fmt.Printf("Errors: %d\n", errorCount)
-		fmt.Printf("Results saved to: %s\n", params.OutDir)
-
-		// Show specific output files generated
-		if contains(params.OutputFormats, "junit") {
-			fmt.Printf("JUnit XML: %s\n", params.JUnitFile)
-		}
-		if contains(params.OutputFormats, "html") || params.GenerateHTML {
-			fmt.Printf("HTML Report: %s\n", params.HTMLFile)
-		}
-		if contains(params.OutputFormats, "markdown") {
-			fmt.Printf("Markdown Report: %s\n", params.MarkdownFile)
-		}
-	}
-
-	// Exit with error code if any runs failed and CI mode
+	// Handle CI mode errors
 	if errorCount > 0 && params.CIMode {
 		return fmt.Errorf("execution failed: %d runs had errors", errorCount)
 	}

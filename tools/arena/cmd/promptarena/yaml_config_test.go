@@ -162,6 +162,7 @@ func setupTestFlags(cmd *cobra.Command) {
 	cmd.Flags().IntP("concurrency", "j", 6, "Number of concurrent workers")
 	cmd.Flags().StringP("out", "o", "out", "Output directory")
 	cmd.Flags().Bool("ci", false, "CI mode")
+	cmd.Flags().Bool("simple", false, "Simple mode (alias for --ci)")
 	cmd.Flags().Bool("verbose", false, "Verbose mode")
 	cmd.Flags().Bool("mock-provider", false, "Use mock provider")
 	cmd.Flags().String("mock-config", "", "Mock config file")
