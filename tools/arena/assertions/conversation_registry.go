@@ -30,6 +30,8 @@ func NewConversationValidatorRegistry() *ConversationValidatorRegistry {
 	registry.Register("tools_not_called", NewToolsNotCalledConversationValidator)
 	registry.Register("tools_not_called_with_args", NewToolsNotCalledWithArgsConversationValidator)
 	registry.Register("content_not_includes", NewContentNotIncludesConversationValidator)
+	registry.Register("content_includes_any", NewContentIncludesAnyConversationValidator)
+	registry.Register("tool_calls_with_args", NewToolCallsWithArgsConversationValidator)
 
 	return registry
 }
