@@ -30,7 +30,11 @@ func (v *ToolsNotCalledWithArgsConversationValidator) ValidateConversation(
 	params map[string]interface{},
 ) ConversationValidationResult {
 	toolName, _ := params["tool_name"].(string)
-	fa, _ := params["forbidden_args"].(map[string]interface{})
+	forbiddenMap := buildForbiddenMap(params["forbidden_args"]) // arg -> set of forbidden values (as strings)
+
+	if len(forbiddenMap) == 0 {
+		return ConversationValidationResult{Passed: true, Message: "no forbidden tool args (none configured)"}
+	}
 
 	var violations []ConversationViolation
 
@@ -38,18 +42,14 @@ func (v *ToolsNotCalledWithArgsConversationValidator) ValidateConversation(
 		if toolName != "" && tc.ToolName != toolName {
 			continue
 		}
-		for argName, forbiddenVals := range fa {
-			actual, ok := tc.Arguments[argName]
-			if !ok {
-				continue
-			}
-			// normalize slice
-			values := asInterfaceSlice(forbiddenVals)
-			for _, fv := range values {
-				if fmt.Sprintf("%v", actual) == fmt.Sprintf("%v", fv) {
+
+		// Check only arguments that are forbidden for faster exit
+		for argName, actual := range tc.Arguments {
+			if forbiddenSet, found := forbiddenMap[argName]; found {
+				if isForbiddenValue(actual, forbiddenSet) {
 					violations = append(violations, ConversationViolation{
 						TurnIndex:   tc.TurnIndex,
-						Description: fmt.Sprintf("%s called with %s=%v", tc.ToolName, argName, fv),
+						Description: fmt.Sprintf("%s called with %s=%v", tc.ToolName, argName, actual),
 						Evidence: map[string]interface{}{
 							"tool":     tc.ToolName,
 							"argument": argName,
@@ -81,4 +81,27 @@ func asInterfaceSlice(v interface{}) []interface{} {
 	default:
 		return []interface{}{x}
 	}
+}
+
+// buildForbiddenMap converts the input parameter into a map of argument name -> set of forbidden values (stringified).
+func buildForbiddenMap(v interface{}) map[string]map[string]struct{} {
+	res := make(map[string]map[string]struct{})
+	m, ok := v.(map[string]interface{})
+	if !ok {
+		return res
+	}
+	for arg, rawVals := range m {
+		set := make(map[string]struct{})
+		for _, iv := range asInterfaceSlice(rawVals) {
+			set[fmt.Sprintf("%v", iv)] = struct{}{}
+		}
+		res[arg] = set
+	}
+	return res
+}
+
+// isForbiddenValue checks if actual matches any value in the provided set.
+func isForbiddenValue(actual interface{}, set map[string]struct{}) bool {
+	_, found := set[fmt.Sprintf("%v", actual)]
+	return found
 }

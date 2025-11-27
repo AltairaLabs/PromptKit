@@ -927,13 +927,23 @@ func renderConversationAssertions(results []assertions.ConversationValidationRes
 		return ""
 	}
 
-	var html strings.Builder
-	html.WriteString(`<div class="conversation-assertions-section">`)
-	html.WriteString(`<div class="conversation-assertions-header">`)
+	var b strings.Builder
+	b.WriteString(`<div class="conversation-assertions-section">`)
+	b.WriteString(renderConversationHeader(results))
+	b.WriteString(`<table class="conversation-assertions-table">`)
+	b.WriteString(`<thead><tr><th>Assertion</th><th>Status</th><th>Message</th><th>Details</th></tr></thead>`)
+	b.WriteString(`<tbody>`)
+	for i, r := range results {
+		b.WriteString(renderConversationRow(i, r))
+	}
+	b.WriteString(`</tbody></table></div>`)
+	//nolint:gosec // G203: HTML generation is intentional for template rendering
+	return template.HTML(b.String())
+}
 
-	// Count passed and failed
-	passed := 0
-	failed := 0
+// renderConversationHeader builds the header (badge, title, counts).
+func renderConversationHeader(results []assertions.ConversationValidationResult) string {
+	passed, failed := 0, 0
 	for _, r := range results {
 		if r.Passed {
 			passed++
@@ -941,111 +951,75 @@ func renderConversationAssertions(results []assertions.ConversationValidationRes
 			failed++
 		}
 	}
-
 	statusClass := "passed"
 	statusIcon := "✓"
 	if failed > 0 {
 		statusClass = "failed"
 		statusIcon = "✗"
 	}
+	var b strings.Builder
+	b.WriteString(`<div class="conversation-assertions-header">`)
+	b.WriteString(fmt.Sprintf(`<span class="conversation-assertions-badge %s">%s</span>`, statusClass, statusIcon))
+	b.WriteString(`<span class="conversation-assertions-title">Conversation Assertions</span>`)
+	b.WriteString(fmt.Sprintf(`<span class="conversation-assertions-count">%d passed, %d failed</span>`, passed, failed))
+	b.WriteString(`</div>`)
+	return b.String()
+}
 
-	html.WriteString(fmt.Sprintf(
-		`<span class="conversation-assertions-badge %s">%s</span>`,
-		statusClass, statusIcon,
-	))
-	html.WriteString(`<span class="conversation-assertions-title">Conversation Assertions</span>`)
-	html.WriteString(fmt.Sprintf(
-		`<span class="conversation-assertions-count">%d passed, %d failed</span>`,
-		passed, failed,
-	))
-	html.WriteString(`</div>`)
-
-	// Render table
-	html.WriteString(`<table class="conversation-assertions-table">`)
-	html.WriteString(`<thead><tr>`)
-	html.WriteString(`<th>Assertion</th>`)
-	html.WriteString(`<th>Status</th>`)
-	html.WriteString(`<th>Message</th>`)
-	html.WriteString(`<th>Details</th>`)
-	html.WriteString(`</tr></thead>`)
-	html.WriteString(`<tbody>`)
-
-	for i, result := range results {
-		rowClass := "passed"
-		statusText := "Passed"
-		statusIcon := "✓"
-		if !result.Passed {
-			rowClass = "failed"
-			statusText = "Failed"
-			statusIcon = "✗"
-		}
-
-		// Assertion number/index (use index since we don't have explicit type in results)
-		html.WriteString(fmt.Sprintf(`<tr class=%q>`, rowClass))
-		html.WriteString(fmt.Sprintf(`<td class="assertion-index">Assertion #%d</td>`, i+1))
-
-		// Status column with icon
-		html.WriteString(fmt.Sprintf(
-			`<td class="assertion-status"><span class="status-icon %s">%s</span> %s</td>`,
-			rowClass, statusIcon, statusText,
-		))
-
-		// Message column
-		message := result.Message
-		if message == "" {
-			message = "—"
-		}
-		html.WriteString(fmt.Sprintf(`<td class="assertion-message">%s</td>`, template.HTMLEscapeString(message)))
-
-		// Details column
-		html.WriteString(`<td class="assertion-details">`)
-
-		// Show violations if any
-		if len(result.Violations) > 0 {
-			html.WriteString(fmt.Sprintf(
-				`<div class="violation-summary">%d violation(s)</div>`,
-				len(result.Violations),
-			))
-			html.WriteString(`<ul class="violations-list">`)
-			for _, v := range result.Violations {
-				html.WriteString(`<li>`)
-				html.WriteString(fmt.Sprintf(
-					`<span class="violation-turn">Turn %d:</span> %s`,
-					v.TurnIndex+1, template.HTMLEscapeString(v.Description),
-				))
-				if len(v.Evidence) > 0 {
-					evJSON, _ := json.MarshalIndent(v.Evidence, "", "  ")
-					html.WriteString(fmt.Sprintf(
-						`<pre class="violation-evidence">%s</pre>`,
-						template.HTMLEscapeString(string(evJSON)),
-					))
-				}
-				html.WriteString(`</li>`)
-			}
-			html.WriteString(`</ul>`)
-		}
-
-		// Show details if any
-		if len(result.Details) > 0 {
-			detailsJSON, _ := json.MarshalIndent(result.Details, "", "  ")
-			html.WriteString(fmt.Sprintf(
-				`<pre class="assertion-details-json">%s</pre>`,
-				template.HTMLEscapeString(string(detailsJSON)),
-			))
-		}
-
-		if len(result.Violations) == 0 && len(result.Details) == 0 {
-			html.WriteString(`—`)
-		}
-
-		html.WriteString(`</td>`)
-		html.WriteString(`</tr>`)
+// renderConversationRow builds a single table row for a validation result.
+func renderConversationRow(index int, result assertions.ConversationValidationResult) string {
+	rowClass := "passed"
+	statusText := "Passed"
+	statusIcon := "✓"
+	if !result.Passed {
+		rowClass = "failed"
+		statusText = "Failed"
+		statusIcon = "✗"
 	}
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf(`<tr class=%q>`, rowClass))
+	b.WriteString(fmt.Sprintf(`<td class="assertion-index">Assertion #%d</td>`, index+1))
+	b.WriteString(`<td class="assertion-status">`)
+	b.WriteString(fmt.Sprintf(`<span class="status-icon %s">%s</span> `, rowClass, statusIcon))
+	b.WriteString(statusText)
+	b.WriteString(`</td>`)
+	msg := result.Message
+	if msg == "" {
+		msg = "—"
+	}
+	b.WriteString(fmt.Sprintf(`<td class="assertion-message">%s</td>`, template.HTMLEscapeString(msg)))
+	b.WriteString(`<td class="assertion-details">`)
+	b.WriteString(renderConversationDetails(result))
+	b.WriteString(`</td></tr>`)
+	return b.String()
+}
 
-	html.WriteString(`</tbody>`)
-	html.WriteString(`</table>`)
-	html.WriteString(`</div>`)
-
-	//nolint:gosec // G203: HTML generation is intentional for template rendering
-	return template.HTML(html.String())
+// renderConversationDetails renders violations and details JSON, or em dash.
+func renderConversationDetails(result assertions.ConversationValidationResult) string {
+	var b strings.Builder
+	if len(result.Violations) > 0 {
+		b.WriteString(fmt.Sprintf(`<div class="violation-summary">%d violation(s)</div>`, len(result.Violations)))
+		b.WriteString(`<ul class="violations-list">`)
+		for _, v := range result.Violations {
+			b.WriteString(`<li>`)
+			b.WriteString(fmt.Sprintf(`<span class="violation-turn">Turn %d:</span> `, v.TurnIndex+1))
+			b.WriteString(template.HTMLEscapeString(v.Description))
+			if len(v.Evidence) > 0 {
+				evJSON, _ := json.MarshalIndent(v.Evidence, "", "  ")
+				b.WriteString(fmt.Sprintf(`<pre class="violation-evidence">%s</pre>`, template.HTMLEscapeString(string(evJSON))))
+			}
+			b.WriteString(`</li>`)
+		}
+		b.WriteString(`</ul>`)
+	}
+	if len(result.Details) > 0 {
+		detailsJSON, _ := json.MarshalIndent(result.Details, "", "  ")
+		b.WriteString(`<pre class="assertion-details-json">`)
+		b.WriteString(template.HTMLEscapeString(string(detailsJSON)))
+		b.WriteString(`</pre>`)
+	}
+	if len(result.Violations) == 0 && len(result.Details) == 0 {
+		b.WriteString(`—`)
+	}
+	return b.String()
 }

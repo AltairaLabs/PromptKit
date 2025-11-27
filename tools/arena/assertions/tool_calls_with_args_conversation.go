@@ -30,41 +30,17 @@ func (v *ToolCallsWithArgsConversationValidator) ValidateConversation(
 	toolName, _ := params["tool_name"].(string)
 	reqArgs, _ := params["required_args"].(map[string]interface{})
 
+	if len(reqArgs) == 0 {
+		return ConversationValidationResult{Passed: true, Message: "no required args configured"}
+	}
+
 	var violations []ConversationViolation
 	for _, tc := range convCtx.ToolCalls {
 		if toolName != "" && tc.ToolName != toolName {
 			continue
 		}
-		for arg, expected := range reqArgs {
-			actual, ok := tc.Arguments[arg]
-			if !ok {
-				violations = append(violations, ConversationViolation{
-					TurnIndex:   tc.TurnIndex,
-					Description: "missing required argument",
-					Evidence: map[string]interface{}{
-						"tool":     tc.ToolName,
-						"argument": arg,
-						"args":     tc.Arguments,
-					},
-				})
-				continue
-			}
-			// If expected is nil, only presence is required
-			if expected != nil {
-				if asString(actual) != asString(expected) {
-					violations = append(violations, ConversationViolation{
-						TurnIndex:   tc.TurnIndex,
-						Description: "argument value mismatch",
-						Evidence: map[string]interface{}{
-							"tool":     tc.ToolName,
-							"argument": arg,
-							"expected": expected,
-							"actual":   actual,
-						},
-					})
-				}
-			}
-		}
+		// validate the call against required args
+		violations = append(violations, validateRequiredArgs(tc, reqArgs)...)
 	}
 
 	if len(violations) > 0 {
@@ -78,3 +54,39 @@ func (v *ToolCallsWithArgsConversationValidator) ValidateConversation(
 }
 
 func asString(v interface{}) string { return fmt.Sprintf("%v", v) }
+
+// validateRequiredArgs returns violations for a single tool call given required args.
+func validateRequiredArgs(tc ToolCallRecord, reqArgs map[string]interface{}) []ConversationViolation {
+	var vios []ConversationViolation
+	for arg, expected := range reqArgs {
+		actual, ok := tc.Arguments[arg]
+		if !ok {
+			vios = append(vios, ConversationViolation{
+				TurnIndex:   tc.TurnIndex,
+				Description: "missing required argument",
+				Evidence: map[string]interface{}{
+					"tool":     tc.ToolName,
+					"argument": arg,
+					"args":     tc.Arguments,
+				},
+			})
+			continue
+		}
+		if expected == nil { // only presence required
+			continue
+		}
+		if asString(actual) != asString(expected) {
+			vios = append(vios, ConversationViolation{
+				TurnIndex:   tc.TurnIndex,
+				Description: "argument value mismatch",
+				Evidence: map[string]interface{}{
+					"tool":     tc.ToolName,
+					"argument": arg,
+					"expected": expected,
+					"actual":   actual,
+				},
+			})
+		}
+	}
+	return vios
+}
