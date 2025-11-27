@@ -6,26 +6,26 @@ import (
 	"sync"
 )
 
-// ConversationValidatorFactory is a factory function that creates new validator instances.
-// Using factories allows validators to be stateless and thread-safe.
-type ConversationValidatorFactory func() ConversationValidator
+// ConversationAssertionFactory creates new evaluator instances for conversation assertions.
+// Using factories allows evaluators to be stateless and thread-safe.
+type ConversationAssertionFactory func() ConversationValidator
 
-// ConversationValidatorRegistry manages available conversation-level validators.
-// Provides registration and lookup of validators by type name.
+// ConversationAssertionRegistry manages available conversation-level assertions.
+// Provides registration and lookup of evaluators by type name.
 // Thread-safe for concurrent access.
-type ConversationValidatorRegistry struct {
-	validators map[string]ConversationValidatorFactory
+type ConversationAssertionRegistry struct {
+	validators map[string]ConversationAssertionFactory
 	mu         sync.RWMutex
 }
 
-// NewConversationValidatorRegistry creates a new registry with built-in validators.
-// Returns a registry pre-populated with all standard conversation validators.
-func NewConversationValidatorRegistry() *ConversationValidatorRegistry {
-	registry := &ConversationValidatorRegistry{
-		validators: make(map[string]ConversationValidatorFactory),
+// NewConversationAssertionRegistry creates a new registry with built-in assertions.
+// Returns a registry pre-populated with all standard conversation assertions.
+func NewConversationAssertionRegistry() *ConversationAssertionRegistry {
+	registry := &ConversationAssertionRegistry{
+		validators: make(map[string]ConversationAssertionFactory),
 	}
 
-	// Register built-in validators (Phase 2)
+	// Register built-in assertions (Phase 2)
 	registry.Register("tools_called", NewToolsCalledConversationValidator)
 	registry.Register("tools_not_called", NewToolsNotCalledConversationValidator)
 	registry.Register("tools_not_called_with_args", NewToolsNotCalledWithArgsConversationValidator)
@@ -36,15 +36,15 @@ func NewConversationValidatorRegistry() *ConversationValidatorRegistry {
 	return registry
 }
 
-// Register adds a validator factory to the registry.
-// The name must match the Type() returned by validators created by the factory.
+// Register adds an assertion factory to the registry.
+// The name must match the Type() returned by evaluators created by the factory.
 // Panics if name is empty or factory is nil.
-func (r *ConversationValidatorRegistry) Register(name string, factory ConversationValidatorFactory) {
+func (r *ConversationAssertionRegistry) Register(name string, factory ConversationAssertionFactory) {
 	if name == "" {
-		panic("conversation validator name cannot be empty")
+		panic("conversation assertion type name cannot be empty")
 	}
 	if factory == nil {
-		panic("conversation validator factory cannot be nil")
+		panic("conversation assertion factory cannot be nil")
 	}
 
 	r.mu.Lock()
@@ -53,22 +53,22 @@ func (r *ConversationValidatorRegistry) Register(name string, factory Conversati
 	r.validators[name] = factory
 }
 
-// Get retrieves a validator by name, creating a new instance via its factory.
-// Returns an error if the validator type is not registered.
-func (r *ConversationValidatorRegistry) Get(name string) (ConversationValidator, error) {
+// Get retrieves an evaluator by name, creating a new instance via its factory.
+// Returns an error if the assertion type is not registered.
+func (r *ConversationAssertionRegistry) Get(name string) (ConversationValidator, error) {
 	r.mu.RLock()
 	factory, ok := r.validators[name]
 	r.mu.RUnlock()
 
 	if !ok {
-		return nil, fmt.Errorf("unknown conversation validator type: %s", name)
+		return nil, fmt.Errorf("unknown conversation assertion type: %s", name)
 	}
 
 	return factory(), nil
 }
 
-// Has checks if a validator type is registered.
-func (r *ConversationValidatorRegistry) Has(name string) bool {
+// Has checks if an assertion type is registered.
+func (r *ConversationAssertionRegistry) Has(name string) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -76,9 +76,9 @@ func (r *ConversationValidatorRegistry) Has(name string) bool {
 	return ok
 }
 
-// Types returns a list of all registered validator type names.
+// Types returns a list of all registered assertion type names.
 // Useful for introspection and documentation.
-func (r *ConversationValidatorRegistry) Types() []string {
+func (r *ConversationAssertionRegistry) Types() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -89,9 +89,9 @@ func (r *ConversationValidatorRegistry) Types() []string {
 	return types
 }
 
-// ValidateConversation is a convenience function that evaluates a single assertion.
-// Looks up the validator, instantiates it, and runs validation.
-func (r *ConversationValidatorRegistry) ValidateConversation(
+// ValidateConversation evaluates a single conversation-level assertion.
+// Looks up the evaluator, instantiates it, and runs validation.
+func (r *ConversationAssertionRegistry) ValidateConversation(
 	ctx context.Context,
 	assertion ConversationAssertion,
 	convCtx *ConversationContext,
@@ -112,7 +112,7 @@ func (r *ConversationValidatorRegistry) ValidateConversation(
 
 // ValidateConversations evaluates multiple assertions against a conversation.
 // Returns results for all assertions, continuing even if some fail.
-func (r *ConversationValidatorRegistry) ValidateConversations(
+func (r *ConversationAssertionRegistry) ValidateConversations(
 	ctx context.Context,
 	assertions []ConversationAssertion,
 	convCtx *ConversationContext,

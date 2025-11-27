@@ -16,7 +16,7 @@ func (d *dummyConvValidator) ValidateConversation(ctx context.Context, convCtx *
 func newDummyFactory() ConversationValidator { return &dummyConvValidator{} }
 
 func TestConversationRegistry_RegisterAndGet(t *testing.T) {
-	r := NewConversationValidatorRegistry()
+	r := NewConversationAssertionRegistry()
 
 	// Ensure unknown returns error
 	if _, err := r.Get("not_registered"); err == nil {
@@ -42,7 +42,7 @@ func TestConversationRegistry_RegisterAndGet(t *testing.T) {
 }
 
 func TestConversationRegistry_TypesAndHas(t *testing.T) {
-	r := NewConversationValidatorRegistry()
+	r := NewConversationAssertionRegistry()
 	if r.Has("dummy_validator") {
 		t.Fatalf("should not have dummy before register")
 	}
