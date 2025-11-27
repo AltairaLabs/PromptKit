@@ -33,7 +33,15 @@ func (v *ToolsNotCalledWithArgsConversationValidator) ValidateConversation(
 	forbiddenMap := buildForbiddenMap(params["forbidden_args"]) // arg -> set of forbidden values (as strings)
 
 	if len(forbiddenMap) == 0 {
-		return ConversationValidationResult{Passed: true, Message: "no forbidden tool args (none configured)"}
+		return ConversationValidationResult{
+			Type:    v.Type(),
+			Passed:  true,
+			Message: "no forbidden tool args (none configured)",
+			Details: map[string]interface{}{
+				"tool_name":      toolName,
+				"forbidden_args": params["forbidden_args"],
+			},
+		}
 	}
 
 	var violations []ConversationViolation
@@ -63,9 +71,20 @@ func (v *ToolsNotCalledWithArgsConversationValidator) ValidateConversation(
 	}
 
 	if len(violations) > 0 {
-		return ConversationValidationResult{Passed: false, Message: "forbidden tool args detected", Violations: violations}
+		return ConversationValidationResult{
+			Type:       v.Type(),
+			Passed:     false,
+			Message:    "forbidden tool args detected",
+			Details:    map[string]interface{}{"tool_name": toolName, "forbidden_args": params["forbidden_args"]},
+			Violations: violations,
+		}
 	}
-	return ConversationValidationResult{Passed: true, Message: "no forbidden tool args"}
+	return ConversationValidationResult{
+		Type:    v.Type(),
+		Passed:  true,
+		Message: "no forbidden tool args",
+		Details: map[string]interface{}{"tool_name": toolName, "forbidden_args": params["forbidden_args"]},
+	}
 }
 
 func asInterfaceSlice(v interface{}) []interface{} {

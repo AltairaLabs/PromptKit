@@ -11,6 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
+	arenamiddleware "github.com/AltairaLabs/PromptKit/tools/arena/middleware"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 )
 
@@ -80,7 +81,7 @@ func (e *SelfPlayExecutor) generateUserMessage(
 		return types.Message{}, fmt.Errorf("failed to get content generator: %w", err)
 	}
 
-	execResult, err := contentGen.NextUserTurn(ctx, history)
+	execResult, err := contentGen.NextUserTurn(ctx, history, req.Scenario.ID)
 	if err != nil {
 		return types.Message{}, fmt.Errorf("failed to generate user turn: %w", err)
 	}
@@ -212,7 +213,7 @@ func (e *SelfPlayExecutor) generateUserMessageForStream(
 		return types.Message{}, err
 	}
 
-	execResult, err := contentGen.NextUserTurn(ctx, history)
+	execResult, err := contentGen.NextUserTurn(ctx, history, req.Scenario.ID)
 	if err != nil {
 		outChan <- MessageStreamChunk{Error: fmt.Errorf("failed to generate user turn: %w", err)}
 		return types.Message{}, err
@@ -332,17 +333,26 @@ func (e *SelfPlayExecutor) buildStreamingMiddlewares(req TurnRequest) []pipeline
 			Metadata:       req.StateStoreConfig.Metadata,
 		}
 		middlewares = append(middlewares, middleware.StateStoreLoadMiddleware(storeConfig))
+		// Compute authoritative turn indices right after loading state
+		middlewares = append(middlewares, arenamiddleware.TurnIndexMiddleware())
 	}
 
 	// Variable injection
 	middlewares = append(middlewares, &variableInjectionMiddleware{variables: baseVariables})
 
-	// Prompt, template, and provider middleware
+	// Prompt and template middleware
 	middlewares = append(middlewares,
 		middleware.PromptAssemblyMiddleware(req.PromptRegistry, req.TaskType, baseVariables),
 		middleware.TemplateMiddleware(),
-		middleware.ProviderMiddleware(req.Provider, nil, nil, providerConfig),
 	)
+
+	// Mock scenario context for mock providers (pre-provider)
+	if isMockProvider(req.Provider) {
+		middlewares = append(middlewares, arenamiddleware.MockScenarioContextMiddleware(req.Scenario))
+	}
+
+	// Provider middleware
+	middlewares = append(middlewares, middleware.ProviderMiddleware(req.Provider, nil, nil, providerConfig))
 
 	// Dynamic validator middleware with suppression
 	middlewares = append(middlewares,

@@ -214,6 +214,38 @@ func (r *JUnitResultRepository) convertTestCase(result *engine.RunResult) JUnitT
 		}
 	}
 
+	// Add conversation-level assertions as properties and potential failure
+	if result.ConversationAssertions.Total > 0 {
+		// Summary properties
+		passVal := "true"
+		if !result.ConversationAssertions.Passed {
+			passVal = "false"
+		}
+		props := []JUnitProperty{
+			{Name: "conversation_assertions.total", Value: fmt.Sprintf("%d", result.ConversationAssertions.Total)},
+			{Name: "conversation_assertions.failed", Value: fmt.Sprintf("%d", result.ConversationAssertions.Failed)},
+			{Name: "conversation_assertions.passed", Value: passVal},
+		}
+		testCase.Properties = append(testCase.Properties, props...)
+
+		// If any failed, attach a failure with messages
+		if !result.ConversationAssertions.Passed && testCase.Failure == nil && testCase.Error == nil {
+			var details strings.Builder
+			details.WriteString("Conversation assertions failed:\n")
+			for i := range result.ConversationAssertions.Results {
+				res := result.ConversationAssertions.Results[i]
+				if !res.Passed {
+					details.WriteString(fmt.Sprintf("  - %s\n", res.Message))
+				}
+			}
+			testCase.Failure = &JUnitFailure{
+				Message: "Conversation assertions failed",
+				Type:    "ConversationAssertionFailure",
+				Content: details.String(),
+			}
+		}
+	}
+
 	return testCase
 }
 

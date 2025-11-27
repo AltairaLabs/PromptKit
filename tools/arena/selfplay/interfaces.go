@@ -19,5 +19,5 @@ type Provider interface {
 // and produces user turns based on conversation history.
 // Returns the full pipeline ExecutionResult which includes trace data, costs, and metadata.
 type Generator interface {
-	NextUserTurn(ctx context.Context, history []types.Message) (*pipeline.ExecutionResult, error)
+	NextUserTurn(ctx context.Context, history []types.Message, scenarioID string) (*pipeline.ExecutionResult, error)
 }

@@ -45,7 +45,11 @@ func extractRegionFromPersonaID(personaID string) string {
 }
 
 // NextUserTurn generates a user message using the LLM through a pipeline
-func (cg *ContentGenerator) NextUserTurn(ctx context.Context, history []types.Message) (*pipeline.ExecutionResult, error) {
+func (cg *ContentGenerator) NextUserTurn(
+	ctx context.Context,
+	history []types.Message,
+	scenarioID string,
+) (*pipeline.ExecutionResult, error) {
 	if cg.provider == nil {
 		return nil, fmt.Errorf("ContentGenerator provider is nil - check self-play provider configuration")
 	}
@@ -79,6 +83,8 @@ func (cg *ContentGenerator) NextUserTurn(ctx context.Context, history []types.Me
 	middlewares := []pipeline.Middleware{
 		arenamiddleware.PersonaAssemblyMiddleware(cg.persona, region, baseVariables),
 		arenamiddleware.HistoryInjectionMiddleware(history),
+		// Inject scenario context for MockProvider using NEXT user turn (self-play only)
+		arenamiddleware.SelfPlayUserTurnContextMiddleware(&config.Scenario{ID: scenarioID}),
 		middleware.TemplateMiddleware(),
 		middleware.ProviderMiddleware(cg.provider, nil, nil, providerConfig),
 	}

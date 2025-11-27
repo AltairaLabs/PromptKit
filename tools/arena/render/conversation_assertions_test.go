@@ -99,8 +99,13 @@ func TestConversationAssertionsRendering(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create a RunResult with conversation assertions
 			result := engine.RunResult{
-				RunID:                        "test-run-1",
-				ConversationAssertionResults: tt.results,
+				RunID: "test-run-1",
+				ConversationAssertions: engine.AssertionsSummary{
+					Failed:  countFailures(tt.results),
+					Passed:  countFailures(tt.results) == 0 && len(tt.results) > 0,
+					Results: tt.results,
+					Total:   len(tt.results),
+				},
 			}
 
 			// Prepare report data with this result
@@ -145,8 +150,11 @@ func TestConversationAssertionsHelpers(t *testing.T) {
 			{
 				name: "has assertions",
 				result: engine.RunResult{
-					ConversationAssertionResults: []assertions.ConversationValidationResult{
-						{Passed: true},
+					ConversationAssertions: engine.AssertionsSummary{
+						Failed:  0,
+						Passed:  true,
+						Results: []assertions.ConversationValidationResult{{Passed: true}},
+						Total:   1,
 					},
 				},
 				expected: true,
@@ -209,4 +217,15 @@ func TestConversationAssertionsHelpers(t *testing.T) {
 			})
 		}
 	})
+}
+
+// countFailures is a small helper for tests to compute failures.
+func countFailures(results []assertions.ConversationValidationResult) int {
+	c := 0
+	for i := range results {
+		if !results[i].Passed {
+			c++
+		}
+	}
+	return c
 }

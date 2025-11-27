@@ -434,32 +434,44 @@ func (ce *DefaultConversationExecutor) buildResultFromStateStore(req Conversatio
 	}
 }
 
-// evaluateConversationAssertions aggregates scenario-level conversation assertions and evaluates them
+// evaluateConversationAssertions evaluates scenario-level conversation assertions after all turns complete
 func (ce *DefaultConversationExecutor) evaluateConversationAssertions(
 	req *ConversationRequest,
 	messages []types.Message,
 ) []asrt.ConversationValidationResult {
-	// Collect all conversation assertions from turns
+	// Collect conversation assertions from scenario (evaluated after conversation completes)
 	var assertions []asrt.ConversationAssertion
 	if req.Scenario != nil {
-		for i := range req.Scenario.Turns {
-			turn := &req.Scenario.Turns[i]
-			for j := range turn.ConversationAssertions {
-				a := turn.ConversationAssertions[j]
-				assertions = append(assertions, asrt.ConversationAssertion(a))
-			}
+		logger.Debug("Evaluating conversation assertions",
+			"scenario", req.Scenario.ID,
+			"assertion_count", len(req.Scenario.ConversationAssertions))
+		for i := range req.Scenario.ConversationAssertions {
+			a := req.Scenario.ConversationAssertions[i]
+			logger.Debug("Adding conversation assertion",
+				"type", a.Type,
+				"params", a.Params)
+			assertions = append(assertions, asrt.ConversationAssertion(a))
 		}
 	}
 
 	if len(assertions) == 0 {
+		logger.Debug("No conversation assertions to evaluate")
 		return nil
 	}
+
+	logger.Debug("Running conversation assertion validators", "count", len(assertions))
 
 	// Build conversation context from messages
 	convCtx := buildConversationContext(req, messages)
 
 	reg := asrt.NewConversationAssertionRegistry()
-	return reg.ValidateConversations(context.Background(), assertions, convCtx)
+	results := reg.ValidateConversations(context.Background(), assertions, convCtx)
+
+	logger.Debug("Conversation assertion results",
+		"result_count", len(results),
+		"results", results)
+
+	return results
 }
 
 // buildConversationContext constructs a conversation context from messages and request metadata

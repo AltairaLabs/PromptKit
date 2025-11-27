@@ -247,6 +247,9 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 		ConversationAssertionResults: convResult.ConversationAssertionResults,
 	}
 
+	fmt.Printf("[DEBUG] Saving metadata: runID=%s, conv_assertions_count=%d, results=%+v\n",
+		runID, len(convResult.ConversationAssertionResults), convResult.ConversationAssertionResults)
+
 	if err := arenaStore.SaveMetadata(ctx, runID, metadata); err != nil {
 		return runID, fmt.Errorf("failed to save run metadata: %w", err)
 	}

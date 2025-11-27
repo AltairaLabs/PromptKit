@@ -337,7 +337,7 @@ type MockContentGenerator struct {
 	message types.Message
 }
 
-func (m *MockContentGenerator) NextUserTurn(ctx context.Context, history []types.Message) (*pipeline.ExecutionResult, error) {
+func (m *MockContentGenerator) NextUserTurn(ctx context.Context, history []types.Message, scenarioID string) (*pipeline.ExecutionResult, error) {
 	return &pipeline.ExecutionResult{
 		Response: &pipeline.Response{
 			Content: m.message.Content,

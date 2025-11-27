@@ -17,6 +17,17 @@ spec:
     - Should mention Italian cuisine
     - Should state hours as "11 AM - 10 PM daily"
 
+  conversation_assertions:
+    - type: tools_not_called_with_args
+      params:
+        tool_name: "mock_tool"
+        forbidden_args:
+          mode:
+            - debug
+            - unsafe
+          limit:
+            - "0"
+
   turns:
     - role: user
       content: "Hi, what's your restaurant's name and what kind of food do you serve?"
@@ -28,8 +39,11 @@ spec:
               - "Italian"
             message: "Should mention restaurant name (TastyBites) and cuisine type (Italian) from default variables"
 
-    - role: user
-      content: "What are your hours?"
+    - role: assistant-selfplay
+      persona: selfplay-default
+      turns: 2
+      user_temp: 0.7
+      seed: 42
       assertions:
         - type: content_includes
           params:
@@ -37,13 +51,3 @@ spec:
               - "11"
               - "10"
             message: "Should mention opening hours from default variable (11 AM - 10 PM)"
-
-    - role: user
-      content: "What's the dress code?"
-      assertions:
-        - type: content_includes
-          params:
-            patterns:
-              - "smart casual"
-            case_sensitive: false
-            message: "Should mention dress code from default variable"

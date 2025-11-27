@@ -27,14 +27,30 @@ var SchemaValidationEnabled = true
 // SchemaLocalPath is the path to local schema files (relative to repo root)
 const SchemaLocalPath = "schemas/v1alpha1"
 
-// schemaCache caches compiled JSON schemas to avoid repeated HTTP requests
-var schemaCache = &schemaCacheStore{
-	schemas: make(map[string]*gojsonschema.Schema),
+// localSchemaDirIfRequested returns a local schema directory when
+// PROMPTKIT_SCHEMA_SOURCE=local is set. Returns empty string otherwise.
+func localSchemaDirIfRequested() string {
+	if os.Getenv("PROMPTKIT_SCHEMA_SOURCE") != "local" {
+		return ""
+	}
+	// Use discovery to find an existing local schema file, then use its directory
+	if p := findLocalSchemaPath(string(ConfigTypeArena)); p != "" {
+		return filepath.Dir(p)
+	}
+	if abs, err := filepath.Abs(SchemaLocalPath); err == nil {
+		return abs
+	}
+	return SchemaLocalPath
 }
 
 type schemaCacheStore struct {
 	mu      sync.RWMutex
 	schemas map[string]*gojsonschema.Schema
+}
+
+// schemaCache caches compiled JSON schemas to avoid repeated HTTP requests
+var schemaCache = &schemaCacheStore{
+	schemas: make(map[string]*gojsonschema.Schema),
 }
 
 // get retrieves a schema from the cache
@@ -151,6 +167,12 @@ func convertYAMLToJSON(yamlData []byte) ([]byte, error) {
 }
 
 func buildSchemaKey(configType ConfigType, schemaDir string) string {
+	// Prefer provided schemaDir, else environment-driven local directory
+	if schemaDir == "" {
+		if d := localSchemaDirIfRequested(); d != "" {
+			schemaDir = d
+		}
+	}
 	if schemaDir != "" {
 		return fmt.Sprintf("file://%s/%s.json", schemaDir, configType)
 	}
@@ -175,6 +197,13 @@ func loadOrGetCachedSchema(schemaKey string, configType ConfigType, schemaDir st
 }
 
 func loadSchema(schemaKey string, configType ConfigType, schemaDir string) (*gojsonschema.Schema, error) {
+	// If a local schema directory is requested via env, prefer that
+	if schemaDir == "" {
+		if d := localSchemaDirIfRequested(); d != "" {
+			schemaDir = d
+		}
+	}
+
 	schemaLoader := gojsonschema.NewReferenceLoader(schemaKey)
 	compiledSchema, err := gojsonschema.NewSchema(schemaLoader)
 

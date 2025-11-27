@@ -1322,6 +1322,13 @@
                                     <div class="turn-header">
                                         <div class="turn-role">{{$msg.Role}}</div>
                                         <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                            {{/* Show persona indicator for self-play user turns */}}
+                                            {{if and (eq $msg.Role "user") $result.PersonaID}}
+                                            <span class="ai-indicator" title="Self-Play Persona">
+                                                <span class="ai-icon">🤖</span>
+                                                <span class="persona-name">{{$result.PersonaID}}</span>
+                                            </span>
+                                            {{end}}
                                             {{if or $msg.LatencyMs $msg.CostInfo $hasRawRequest}}
                                             <span class="turn-metrics-badge" title="Turn {{add $msgIdx 1}} metrics">
                                                 {{if $msg.LatencyMs}}⏱️ {{$msg.LatencyMs}}ms{{end}}
@@ -1513,6 +1520,10 @@
                                     <div class="meta-label">Tokens</div>
                                     <div class="meta-value">{{$result.Cost.InputTokens}}+{{$result.Cost.OutputTokens}}</div>
                                 </div>
+                                <div class="meta-item">
+                                    <div class="meta-label">Turns</div>
+                                    <div class="meta-value">{{len $result.Messages}}</div>
+                                </div>
                             </div>
                             
                             {{if hasMediaOutputs $result}}
@@ -1520,7 +1531,7 @@
                             {{end}}
                             
                             {{if hasConversationAssertions $result}}
-                            {{renderConversationAssertions $result.ConversationAssertionResults}}
+                            {{renderConversationAssertions (getConversationAssertionResults $result)}}
                             {{end}}
                             
                             {{if $result.Error}}

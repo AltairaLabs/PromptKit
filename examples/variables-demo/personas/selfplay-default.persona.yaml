@@ -1,0 +1,9 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Persona
+metadata:
+  name: selfplay-default
+spec:
+  id: selfplay-default
+  system_prompt: |
+    You are a helpful assistant playing self-play.
+    Respond concisely and consistently with the restaurant variables.

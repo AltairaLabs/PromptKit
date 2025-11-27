@@ -470,6 +470,14 @@ type RunResult struct {
 	AssistantRole interface{} `json:"AssistantRole"` // Using interface{} to avoid circular import
 	UserRole      interface{} `json:"UserRole"`
 
-	// Conversation-level assertions evaluated after the conversation completes
-	ConversationAssertionResults []ConversationValidationResult `json:"conv_assertions_results,omitempty"`
+	// Conversation-level assertions evaluated after the conversation completes (summary format)
+	ConversationAssertions AssertionsSummary `json:"conversation_assertions,omitempty"`
+}
+
+// AssertionsSummary mirrors the turn-level assertions structure
+type AssertionsSummary struct {
+	Failed  int                            `json:"failed"`
+	Passed  bool                           `json:"passed"`
+	Results []ConversationValidationResult `json:"results"`
+	Total   int                            `json:"total"`
 }

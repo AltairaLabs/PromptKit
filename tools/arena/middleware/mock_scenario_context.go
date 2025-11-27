@@ -24,12 +24,20 @@ func MockScenarioContextMiddleware(scenario *config.Scenario) pipeline.Middlewar
 func (m *mockScenarioContextMiddleware) Process(execCtx *pipeline.ExecutionContext, next func() error) error {
 	// Add scenario context to the execution context metadata if we have scenario metadata
 	if m.scenario != nil && m.scenario.ID != "" {
-		// For turn numbering, we'll use the number of user messages in the current conversation
-		// as a simple proxy for turn number (since each user message represents a turn)
+		// Determine assistant turn number (user completed turns) from authoritative metadata if present
 		turnNumber := 0
-		for _, msg := range execCtx.Messages {
-			if msg.Role == "user" {
-				turnNumber++
+		if execCtx.Metadata != nil {
+			if v, ok := execCtx.Metadata["arena_user_completed_turns"].(int); ok {
+				turnNumber = v
+			}
+		}
+		// Fallback to counting user messages in execCtx if metadata not present
+		if turnNumber == 0 {
+			const roleUser = "user"
+			for i := range execCtx.Messages {
+				if execCtx.Messages[i].Role == roleUser {
+					turnNumber++
+				}
 			}
 		}
 

@@ -310,3 +310,26 @@ func TestMockScenarioContextMiddleware_CompleteScenario(t *testing.T) {
 	assert.Equal(t, 2, ctx.Metadata["mock_turn_number"]) // 2 user messages
 	assert.Equal(t, "12345", ctx.Metadata["request_id"]) // Preserved
 }
+
+func TestMockScenarioContextMiddleware_PrefersAuthoritativeCounters(t *testing.T) {
+	scenario := &config.Scenario{ID: "auth-counts"}
+	middleware := MockScenarioContextMiddleware(scenario)
+
+	// Messages would imply 1 completed user turn, but authoritative metadata says 5
+	ctx := &pipeline.ExecutionContext{
+		Messages: []types.Message{
+			{Role: "user", Content: "Hello"},
+		},
+		Metadata: map[string]interface{}{
+			"arena_user_completed_turns": 5,
+		},
+	}
+
+	err := middleware.Process(ctx, func() error { return nil })
+	require.NoError(t, err)
+
+	require.NotNil(t, ctx.Metadata)
+	assert.Equal(t, "auth-counts", ctx.Metadata["mock_scenario_id"])
+	// Should prefer authoritative completed user turns over counting messages
+	assert.Equal(t, 5, ctx.Metadata["mock_turn_number"])
+}

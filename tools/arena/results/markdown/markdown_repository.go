@@ -183,6 +183,11 @@ func (r *MarkdownResultRepository) generateMarkdownReport(runResults []engine.Ru
 		r.writeResultsMatrix(&content, runResults)
 	}
 
+	// Conversation assertions section (show when details enabled)
+	if r.config.IncludeDetails {
+		r.writeConversationAssertionsSection(&content, runResults)
+	}
+
 	// Failed tests details (if configured and have failures)
 	if r.config.ShowFailedTests && summary.Failed > 0 {
 		r.writeFailedTestsSection(&content, runResults)
@@ -351,10 +356,15 @@ func (r *MarkdownResultRepository) calculateMediaSize(media *types.MediaContent)
 
 // hasFailedAssertions checks if a result has any failed assertions
 func (r *MarkdownResultRepository) hasFailedAssertions(result *engine.RunResult) bool {
+	// Check per-message assertions
 	for _, msg := range result.Messages {
 		if r.messageHasFailedAssertions(&msg) {
 			return true
 		}
+	}
+	// Check conversation-level assertion summary
+	if result.ConversationAssertions.Total > 0 && !result.ConversationAssertions.Passed {
+		return true
 	}
 	return false
 }
@@ -510,13 +520,59 @@ func (r *MarkdownResultRepository) writeMediaOutputsSection(content *strings.Bui
 // writeResultsMatrix writes the detailed results matrix
 func (r *MarkdownResultRepository) writeResultsMatrix(content *strings.Builder, runResults []engine.RunResult) {
 	content.WriteString("## 🔍 Test Results\n\n")
-	content.WriteString("| Provider | Scenario | Region | Status | Duration | Guardrails | Assertions | Tools | Cost |\n")
-	content.WriteString("|----------|----------|--------|---------|-----------|------------|------------|-------|------|\n")
+	content.WriteString("| Provider | Scenario | Region | Status | Duration | Turns | Guardrails | Assertions | Tools | Cost |\n")
+	content.WriteString("|----------|----------|--------|---------|-----------|-------|------------|------------|-------|------|\n")
 
 	for _, result := range runResults {
 		r.writeResultRow(content, &result)
 	}
 
+	content.WriteString("\n")
+}
+
+// writeConversationAssertionsSection lists conversation-level assertions per run
+func (r *MarkdownResultRepository) writeConversationAssertionsSection(content *strings.Builder, runResults []engine.RunResult) {
+	if !hasAnyConversationAssertions(runResults) {
+		return
+	}
+	content.WriteString("## 🧩 Conversation Assertions\n\n")
+	for i := range runResults {
+		r.writeConversationAssertionRun(content, &runResults[i])
+	}
+}
+
+func hasAnyConversationAssertions(runResults []engine.RunResult) bool { // nolint:gocognit
+	for i := range runResults {
+		if runResults[i].ConversationAssertions.Total > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *MarkdownResultRepository) writeConversationAssertionRun(content *strings.Builder, result *engine.RunResult) { // nolint: gocognit
+	if result.ConversationAssertions.Total == 0 {
+		return
+	}
+	status := "✅ Passed"
+	if !result.ConversationAssertions.Passed {
+		status = "❌ Failed"
+	}
+	fmt.Fprintf(content, "### %s → %s (%s) — %s\n\n", result.ScenarioID, result.ProviderID, result.Region, status)
+	fmt.Fprintf(content, "- **Total Assertions**: %d\n", result.ConversationAssertions.Total)
+	if result.ConversationAssertions.Failed > 0 {
+		fmt.Fprintf(content, "- **Failed**: %d\n", result.ConversationAssertions.Failed)
+	}
+	content.WriteString("\n| Passed | Message |\n")
+	content.WriteString("|--------|---------|\n")
+	for i := range result.ConversationAssertions.Results {
+		res := result.ConversationAssertions.Results[i]
+		passIcon := "✅"
+		if !res.Passed {
+			passIcon = "❌"
+		}
+		fmt.Fprintf(content, "| %s | %s |\n", passIcon, res.Message)
+	}
 	content.WriteString("\n")
 }
 
@@ -560,30 +616,61 @@ func (r *MarkdownResultRepository) writeResultRow(content *strings.Builder, resu
 	// Format duration
 	duration := result.Duration.Truncate(time.Millisecond).String()
 
-	content.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",
+	turns := len(result.Messages)
+	fmt.Fprintf(content, "| %s | %s | %s | %s | %s | %d | %s | %s | %s | %s |\n",
 		result.ProviderID,
 		result.ScenarioID,
 		result.Region,
 		status,
 		duration,
+		turns,
 		hasGuardrails,
 		hasAssertions,
 		toolsUsed,
-		cost,
-	))
+		cost)
 }
 
 // countAssertions counts the number of assertions configured for a result
 func (r *MarkdownResultRepository) countAssertions(result *engine.RunResult) int {
 	count := 0
+	// Count per-message assertions
 	for _, msg := range result.Messages {
 		if msg.Meta != nil {
 			if assertions, ok := msg.Meta["assertions"]; ok {
 				if assertionMap, ok := assertions.(map[string]interface{}); ok {
-					count += len(assertionMap)
+					// New format: prefer explicit total or results length
+					if resultsArr, ok := assertionMap["results"].([]interface{}); ok {
+						count += len(resultsArr)
+						continue
+					}
+					if totalVal, ok := assertionMap["total"].(float64); ok { // JSON numbers decode to float64
+						count += int(totalVal)
+						continue
+					}
+					if totalInt, ok := assertionMap["total"].(int); ok {
+						count += totalInt
+						continue
+					}
+					// Legacy: count only assertion entries that look like maps with a passed field
+					legacyCount := 0
+					for _, v := range assertionMap {
+						if m, ok := v.(map[string]interface{}); ok {
+							if _, hasPassed := m["passed"]; hasPassed {
+								legacyCount++
+							}
+						}
+					}
+					if legacyCount > 0 {
+						count += legacyCount
+					}
 				}
 			}
 		}
+	}
+
+	// Include conversation-level assertions (new summary format)
+	if result.ConversationAssertions.Total > 0 {
+		count += result.ConversationAssertions.Total
 	}
 	return count
 }
@@ -665,6 +752,10 @@ func (r *MarkdownResultRepository) collectAssertionFailures(result *engine.RunRe
 		msgFailures := r.extractMessageAssertionFailures(&msg)
 		failures = append(failures, msgFailures...)
 	}
+
+	// Include conversation-level assertion failures
+	convFailures := r.extractConversationAssertionFailures(&result.ConversationAssertions)
+	failures = append(failures, convFailures...)
 
 	return failures
 }
@@ -750,6 +841,36 @@ func (r *MarkdownResultRepository) extractSingleAssertionFailure(assertionType s
 		Message: message,
 		Details: details,
 	}
+}
+
+// extractConversationAssertionFailures extracts failures from conversation-level assertions summary
+func (r *MarkdownResultRepository) extractConversationAssertionFailures(summary *engine.AssertionsSummary) []assertionFailure {
+	if summary == nil || summary.Total == 0 || len(summary.Results) == 0 {
+		return nil
+	}
+
+	var failures []assertionFailure
+	for i := range summary.Results {
+		res := summary.Results[i]
+		if res.Passed {
+			continue
+		}
+		typ := res.Type
+		if typ == "" {
+			typ = fmt.Sprintf("conversation_assertion_%d", i)
+		}
+		var detailsStr string
+		if res.Details != nil {
+			detailsStr = fmt.Sprintf("%v", res.Details)
+		}
+		failures = append(failures, assertionFailure{
+			Type:    typ,
+			Message: res.Message,
+			Details: detailsStr,
+		})
+	}
+
+	return failures
 }
 
 // writeAssertionFailure writes a single assertion failure

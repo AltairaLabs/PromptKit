@@ -59,12 +59,21 @@ spec:
   providers:
     - file: providers/openai-gpt4o-mini.provider.yaml
     - file: providers/mock-provider.provider.yaml
+    - file: providers/selfplay-mock.provider.yaml
 
   scenarios:
     - file: scenarios/restaurant-default.scenario.yaml
     - file: scenarios/restaurant-custom.scenario.yaml
     - file: scenarios/product-support.scenario.yaml
     - file: scenarios/product-enterprise.scenario.yaml
+
+  self_play:
+    enabled: true
+    personas:
+      - file: personas/selfplay-default.persona.yaml
+    roles:
+      - id: assistant-selfplay
+        provider: selfplay-mock
 
   defaults:
     temperature: 0.7

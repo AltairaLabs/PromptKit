@@ -322,7 +322,7 @@ func TestWriteResultsMatrix(t *testing.T) {
 	result := content.String()
 
 	assert.Contains(t, result, "## 🔍 Test Results")
-	assert.Contains(t, result, "| Provider | Scenario | Region | Status | Duration | Guardrails | Assertions | Tools | Cost |")
+	assert.Contains(t, result, "| Provider | Scenario | Region | Status | Duration | Turns | Guardrails | Assertions | Tools | Cost |")
 	assert.Contains(t, result, "| provider | scenario | us-east-1 | ✅ Pass |")
 }
 

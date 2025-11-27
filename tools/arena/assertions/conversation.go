@@ -75,6 +75,7 @@ type ConversationValidator interface {
 // ConversationValidationResult contains the outcome of a conversation-level assertion.
 // Provides structured details for debugging and reporting when assertions fail.
 type ConversationValidationResult struct {
+	Type    string                 `json:"type,omitempty"`    // Validator type (e.g., tools_not_called_with_args)
 	Passed  bool                   `json:"passed"`            // Whether the assertion passed
 	Message string                 `json:"message"`           // Human-readable result explanation
 	Details map[string]interface{} `json:"details,omitempty"` // Structured details for debugging

@@ -353,6 +353,9 @@ func generateHTML(data HTMLReportData) (string, error) {
 		"hasConversationAssertions":    hasConversationAssertions,
 		"conversationAssertionsPassed": conversationAssertionsPassed,
 		"renderConversationAssertions": renderConversationAssertions,
+		"getConversationAssertionResults": func(r engine.RunResult) []assertions.ConversationValidationResult {
+			return r.ConversationAssertions.Results
+		},
 	}).Parse(reportTemplate))
 
 	var buf strings.Builder
@@ -908,7 +911,7 @@ func renderMediaOutputs(outputs []engine.MediaOutput) template.HTML {
 //
 //nolint:gocritic // hugeParam: template functions can't use pointers
 func hasConversationAssertions(result engine.RunResult) bool {
-	return len(result.ConversationAssertionResults) > 0
+	return result.ConversationAssertions.Total > 0
 }
 
 // conversationAssertionsPassed checks if all conversation assertions passed.
@@ -931,7 +934,7 @@ func renderConversationAssertions(results []assertions.ConversationValidationRes
 	b.WriteString(`<div class="conversation-assertions-section">`)
 	b.WriteString(renderConversationHeader(results))
 	b.WriteString(`<table class="conversation-assertions-table">`)
-	b.WriteString(`<thead><tr><th>Assertion</th><th>Status</th><th>Message</th><th>Details</th></tr></thead>`)
+	b.WriteString(`<thead><tr><th>#</th><th>Type</th><th>Status</th><th>Message</th><th>Details</th></tr></thead>`)
 	b.WriteString(`<tbody>`)
 	for i, r := range results {
 		b.WriteString(renderConversationRow(i, r))
@@ -978,7 +981,13 @@ func renderConversationRow(index int, result assertions.ConversationValidationRe
 	}
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf(`<tr class=%q>`, rowClass))
-	b.WriteString(fmt.Sprintf(`<td class="assertion-index">Assertion #%d</td>`, index+1))
+	b.WriteString(fmt.Sprintf(`<td class="assertion-index">%d</td>`, index+1))
+	// Type column
+	atype := result.Type
+	if atype == "" {
+		atype = "—"
+	}
+	b.WriteString(fmt.Sprintf(`<td class="assertion-type">%s</td>`, template.HTMLEscapeString(atype)))
 	b.WriteString(`<td class="assertion-status">`)
 	b.WriteString(fmt.Sprintf(`<span class="status-icon %s">%s</span> `, rowClass, statusIcon))
 	b.WriteString(statusText)
@@ -997,6 +1006,9 @@ func renderConversationRow(index int, result assertions.ConversationValidationRe
 // renderConversationDetails renders violations and details JSON, or em dash.
 func renderConversationDetails(result assertions.ConversationValidationResult) string {
 	var b strings.Builder
+	// Wrap details in an expandable section
+	b.WriteString(`<details class="conversation-details"><summary>Show details</summary>`)
+	// Violations list
 	if len(result.Violations) > 0 {
 		b.WriteString(fmt.Sprintf(`<div class="violation-summary">%d violation(s)</div>`, len(result.Violations)))
 		b.WriteString(`<ul class="violations-list">`)
@@ -1012,6 +1024,7 @@ func renderConversationDetails(result assertions.ConversationValidationResult) s
 		}
 		b.WriteString(`</ul>`)
 	}
+	// Details JSON
 	if len(result.Details) > 0 {
 		detailsJSON, _ := json.MarshalIndent(result.Details, "", "  ")
 		b.WriteString(`<pre class="assertion-details-json">`)
@@ -1021,5 +1034,6 @@ func renderConversationDetails(result assertions.ConversationValidationResult) s
 	if len(result.Violations) == 0 && len(result.Details) == 0 {
 		b.WriteString(`—`)
 	}
+	b.WriteString(`</details>`)
 	return b.String()
 }

@@ -1,4 +1,9 @@
+.DEFAULT_GOAL := help
 .PHONY: help build build-tools build-arena build-packc build-inspect-state test test-tools test-race lint clean coverage install install-tools install-tools-user uninstall-tools
+ 
+# Route unknown targets to help
+.DEFAULT:
+	@$(MAKE) help
 # Uninstall CLI tools from system and user PATH
 uninstall-tools: ## Uninstall CLI tools from system and user PATH
 	@echo "Uninstalling CLI tools from /usr/local/bin and ~/.local/bin..."
