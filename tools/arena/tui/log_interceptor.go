@@ -22,14 +22,8 @@ type LogInterceptor struct {
 	program         *tea.Program
 	logFile         *os.File
 	suppressStderr  bool
-	logBuffer       []bufferedLog
+	logBuffer       []slog.Record
 	mu              sync.Mutex
-}
-
-// bufferedLog stores a log record for later writing
-type bufferedLog struct {
-	ctx    context.Context
-	record slog.Record
 }
 
 // NewLogInterceptor creates a log interceptor that sends logs to the TUI.
@@ -80,7 +74,7 @@ func (l *LogInterceptor) Handle(ctx context.Context, record slog.Record) error {
 	// If stderr suppressed, buffer the log for later flushing
 	if l.suppressStderr {
 		l.mu.Lock()
-		l.logBuffer = append(l.logBuffer, bufferedLog{ctx: ctx, record: record})
+		l.logBuffer = append(l.logBuffer, record)
 		l.mu.Unlock()
 	} else {
 		// Send to original handler (stderr) immediately
@@ -157,7 +151,8 @@ func (l *LogInterceptor) FlushBuffer() {
 
 	for i := range l.logBuffer {
 		// Ignore errors during flush - best effort
-		_ = l.originalHandler.Handle(l.logBuffer[i].ctx, l.logBuffer[i].record)
+		// Use background context since original context may be cancelled
+		_ = l.originalHandler.Handle(context.Background(), l.logBuffer[i])
 	}
 
 	// Clear the buffer

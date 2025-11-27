@@ -135,7 +135,6 @@ func TestConvertMediaPart_AudioFromStorage(t *testing.T) {
 	}
 
 	cfg := mediaConversionConfig{
-		ctx:            ctx,
 		turnPart:       turnPart,
 		baseDir:        "",
 		httpLoader:     nil,
@@ -144,7 +143,7 @@ func TestConvertMediaPart_AudioFromStorage(t *testing.T) {
 		contentType:    "audio",
 	}
 
-	part, err := convertMediaPart(cfg,
+	part, err := convertMediaPart(ctx, cfg,
 		func(data, mimeType string) types.ContentPart {
 			return types.NewAudioPartFromData(data, mimeType)
 		},
@@ -179,16 +178,15 @@ func TestConvertMediaPart_VideoFromStorage(t *testing.T) {
 	}
 
 	cfg := mediaConversionConfig{
-		ctx:            ctx,
 		turnPart:       turnPart,
 		baseDir:        "",
 		httpLoader:     nil,
 		storageService: mockStorage,
-		index:          1,
+		index:          0,
 		contentType:    "video",
 	}
 
-	part, err := convertMediaPart(cfg,
+	part, err := convertMediaPart(ctx, cfg,
 		func(data, mimeType string) types.ContentPart {
 			return types.NewVideoPartFromData(data, mimeType)
 		},
