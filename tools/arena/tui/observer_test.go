@@ -354,3 +354,128 @@ func TestObserver_Integration(t *testing.T) {
 		t.Fatal("Program didn't stop in time")
 	}
 }
+
+// Headless mode tests (for CI mode without TUI)
+
+func TestNewObserverWithModel(t *testing.T) {
+	m := NewModel("test.yaml", 10)
+	obs := NewObserverWithModel(m)
+
+	require.NotNil(t, obs)
+	assert.Nil(t, obs.program)
+	assert.Equal(t, m, obs.model)
+}
+
+func TestObserver_OnRunStarted_HeadlessMode(t *testing.T) {
+	m := NewModel("test.yaml", 10)
+	obs := NewObserverWithModel(m)
+
+	// Call observer method
+	obs.OnRunStarted("run-1", "scenario-1", "openai", "us-west-1")
+
+	// Verify model was updated
+	require.Equal(t, 1, len(m.activeRuns))
+	run := m.activeRuns[0]
+	assert.Equal(t, "run-1", run.RunID)
+	assert.Equal(t, "scenario-1", run.Scenario)
+	assert.Equal(t, "openai", run.Provider)
+	assert.Equal(t, "us-west-1", run.Region)
+	assert.Equal(t, StatusRunning, run.Status)
+}
+
+func TestObserver_OnRunCompleted_HeadlessMode(t *testing.T) {
+	m := NewModel("test.yaml", 10)
+	m.activeRuns = append(m.activeRuns, RunInfo{
+		RunID:     "run-1",
+		Scenario:  "test",
+		Provider:  "openai",
+		Status:    StatusRunning,
+		StartTime: time.Now(),
+	})
+
+	obs := NewObserverWithModel(m)
+
+	// Call observer method
+	obs.OnRunCompleted("run-1", 2*time.Second, 0.05)
+
+	// Verify model was updated
+	require.Equal(t, 1, len(m.activeRuns))
+	run := m.activeRuns[0]
+	assert.Equal(t, StatusCompleted, run.Status)
+	assert.Equal(t, 2*time.Second, run.Duration)
+	assert.Equal(t, 0.05, run.Cost)
+
+	assert.Equal(t, 1, m.completedCount)
+	assert.Equal(t, 1, m.successCount)
+	assert.Equal(t, 2*time.Second, m.totalDuration)
+	assert.Equal(t, 0.05, m.totalCost)
+}
+
+func TestObserver_OnRunFailed_HeadlessMode(t *testing.T) {
+	m := NewModel("test.yaml", 10)
+	m.activeRuns = append(m.activeRuns, RunInfo{
+		RunID:     "run-1",
+		Scenario:  "test",
+		Provider:  "openai",
+		Status:    StatusRunning,
+		StartTime: time.Now(),
+	})
+
+	obs := NewObserverWithModel(m)
+
+	// Call observer method
+	testErr := errors.New("connection timeout")
+	obs.OnRunFailed("run-1", testErr)
+
+	// Verify model was updated
+	require.Equal(t, 1, len(m.activeRuns))
+	run := m.activeRuns[0]
+	assert.Equal(t, StatusFailed, run.Status)
+	assert.Equal(t, "connection timeout", run.Error)
+
+	assert.Equal(t, 1, m.completedCount)
+	assert.Equal(t, 1, m.failedCount)
+}
+
+func TestObserver_HeadlessMode_MultipleRuns(t *testing.T) {
+	m := NewModel("test.yaml", 10)
+	obs := NewObserverWithModel(m)
+
+	// Start multiple runs
+	obs.OnRunStarted("run-1", "scenario-1", "openai", "us")
+	obs.OnRunStarted("run-2", "scenario-2", "claude", "eu")
+	obs.OnRunStarted("run-3", "scenario-3", "gemini", "us")
+
+	assert.Equal(t, 3, len(m.activeRuns))
+
+	// Complete some, fail others
+	obs.OnRunCompleted("run-1", 1*time.Second, 0.01)
+	obs.OnRunCompleted("run-2", 2*time.Second, 0.02)
+	obs.OnRunFailed("run-3", errors.New("timeout"))
+
+	// Verify metrics
+	assert.Equal(t, 3, m.completedCount)
+	assert.Equal(t, 2, m.successCount)
+	assert.Equal(t, 1, m.failedCount)
+	assert.Equal(t, 3*time.Second, m.totalDuration)
+	assert.Equal(t, 0.03, m.totalCost)
+
+	// Verify all runs have final status
+	for _, run := range m.activeRuns {
+		assert.NotEqual(t, StatusRunning, run.Status)
+	}
+}
+
+func TestObserver_NilProgramAndModel(t *testing.T) {
+	obs := &Observer{
+		program: nil,
+		model:   nil,
+	}
+
+	// Should not panic with both nil
+	assert.NotPanics(t, func() {
+		obs.OnRunStarted("run-1", "scenario-1", "openai", "us")
+		obs.OnRunCompleted("run-1", time.Second, 0.01)
+		obs.OnRunFailed("run-1", errors.New("test"))
+	})
+}

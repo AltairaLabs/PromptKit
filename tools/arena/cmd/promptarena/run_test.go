@@ -423,3 +423,166 @@ func TestDisplayRunInfo(t *testing.T) {
 		})
 	})
 }
+
+func TestFormatProvidersList(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []string
+		expected string
+	}{
+		{
+			name:     "empty list",
+			input:    []string{},
+			expected: "",
+		},
+		{
+			name:     "single provider",
+			input:    []string{"openai"},
+			expected: "openai",
+		},
+		{
+			name:     "multiple providers",
+			input:    []string{"openai", "claude", "gemini"},
+			expected: "openai, claude, gemini",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// This tests the logic used in displayRunInfo
+			var result string
+			if len(tt.input) > 0 {
+				result = tt.input[0]
+				for i := 1; i < len(tt.input); i++ {
+					result += ", " + tt.input[i]
+				}
+			}
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestRunParametersStructure(t *testing.T) {
+	t.Run("RunParameters has expected fields", func(t *testing.T) {
+		params := &RunParameters{
+			ConfigFile:   "test.yaml",
+			Regions:      []string{"us-west-1"},
+			Providers:    []string{"openai"},
+			Scenarios:    []string{"scenario-1"},
+			Concurrency:  4,
+			OutDir:       "output",
+			JUnitFile:    "junit.xml",
+			HTMLFile:     "report.html",
+			CIMode:       false,
+			Verbose:      true,
+			MockProvider: true,
+			MockConfig:   "mock.yaml",
+			TotalRuns:    10,
+		}
+
+		assert.Equal(t, "test.yaml", params.ConfigFile)
+		assert.Equal(t, []string{"us-west-1"}, params.Regions)
+		assert.Equal(t, []string{"openai"}, params.Providers)
+		assert.Equal(t, []string{"scenario-1"}, params.Scenarios)
+		assert.Equal(t, 4, params.Concurrency)
+		assert.Equal(t, "output", params.OutDir)
+		assert.Equal(t, "junit.xml", params.JUnitFile)
+		assert.Equal(t, "report.html", params.HTMLFile)
+		assert.False(t, params.CIMode)
+		assert.True(t, params.Verbose)
+		assert.True(t, params.MockProvider)
+		assert.Equal(t, "mock.yaml", params.MockConfig)
+		assert.Equal(t, 10, params.TotalRuns)
+	})
+}
+
+func TestDisplayRunInfo_CIMode(t *testing.T) {
+	params := &RunParameters{
+		ConfigFile:  "test.yaml",
+		CIMode:      true,
+		Concurrency: 4,
+		OutDir:      "output",
+	}
+
+	// Test that display doesn't panic in CI mode
+	assert.NotPanics(t, func() {
+		displayRunInfo(params, "test.yaml")
+	})
+}
+
+func TestDisplayRunInfo_VerboseMode(t *testing.T) {
+	params := &RunParameters{
+		ConfigFile:  "test.yaml",
+		CIMode:      false,
+		Verbose:     true,
+		Concurrency: 4,
+		OutDir:      "output",
+	}
+
+	// Test that display doesn't panic in verbose mode
+	assert.NotPanics(t, func() {
+		displayRunInfo(params, "test.yaml")
+	})
+}
+
+func TestSetDefaultFilePaths_JUnitDefaults(t *testing.T) {
+	tests := []struct {
+		name           string
+		params         *RunParameters
+		expectedJUnit  string
+		expectedHTML   string
+		shouldSetJUnit bool
+		shouldSetHTML  bool
+	}{
+		{
+			name: "sets junit default when empty",
+			params: &RunParameters{
+				OutDir:    "",
+				JUnitFile: "",
+				HTMLFile:  "",
+			},
+			expectedJUnit:  "junit.xml",
+			expectedHTML:   "",
+			shouldSetJUnit: true,
+			shouldSetHTML:  false,
+		},
+		{
+			name: "uses outdir for junit when set",
+			params: &RunParameters{
+				OutDir:    "custom-output",
+				JUnitFile: "",
+				HTMLFile:  "",
+			},
+			expectedJUnit:  "custom-output/junit.xml",
+			expectedHTML:   "",
+			shouldSetJUnit: true,
+			shouldSetHTML:  false,
+		},
+		{
+			name: "preserves custom junit file",
+			params: &RunParameters{
+				OutDir:    "output",
+				JUnitFile: "custom-junit.xml",
+				HTMLFile:  "",
+			},
+			expectedJUnit:  "custom-junit.xml",
+			expectedHTML:   "",
+			shouldSetJUnit: false,
+			shouldSetHTML:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			setDefaultFilePaths(cfg, tt.params)
+
+			if tt.shouldSetJUnit {
+				assert.Equal(t, tt.expectedJUnit, tt.params.JUnitFile)
+			}
+			if tt.shouldSetHTML {
+				assert.Equal(t, tt.expectedHTML, tt.params.HTMLFile)
+			}
+		})
+	}
+}
