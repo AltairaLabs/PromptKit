@@ -246,6 +246,12 @@ func TestModel_renderMetrics(t *testing.T) {
 
 func TestModel_renderLogs(t *testing.T) {
 	m := NewModel("test.yaml", 10)
+	m.width = 120
+	m.height = 40
+
+	// Initialize viewport
+	m.initViewport()
+	m.viewportReady = true
 
 	// Manually add logs
 	m.logs = append(m.logs, LogEntry{

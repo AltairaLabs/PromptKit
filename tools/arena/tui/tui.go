@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -75,6 +76,8 @@ type Model struct {
 	logs          []LogEntry
 	logViewport   viewport.Model
 	viewportReady bool
+	runsTable     table.Model
+	tableReady    bool
 
 	isTUIMode      bool
 	fallbackReason string
@@ -136,6 +139,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.initViewport()
 			m.viewportReady = true
 		}
+		// Initialize table on first size update
+		if !m.tableReady {
+			m.initRunsTable(10) // Start with reasonable default
+		}
 		m.mu.Unlock()
 		return m, nil
 
@@ -144,6 +151,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		// Check for quit keys first
+		//nolint:exhaustive // Only handling specific quit keys, other keys intentionally ignored
 		switch msg.Type {
 		case tea.KeyCtrlC:
 			return m, tea.Quit
@@ -151,6 +159,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(msg.Runes) > 0 && msg.Runes[0] == 'q' {
 				return m, tea.Quit
 			}
+		default:
+			// Other key types not handled
 		}
 
 		// Let viewport handle scrolling keys (up/down arrows, pgup/pgdown, etc)
@@ -321,18 +331,18 @@ func (m *Model) View() string {
 		return RenderSummary(m.summary, m.width)
 	}
 
+	if m.width == 0 || m.height == 0 {
+		return "Loading..."
+	}
+
 	elapsed := time.Since(m.startTime).Truncate(time.Second)
 
+	// Simple layout - let lipgloss handle sizing
 	header := m.renderHeader(elapsed)
-	separator := lipgloss.NewStyle().Foreground(lipgloss.Color(colorGray)).Render(strings.Repeat("─", m.width))
 	activeRuns := m.renderActiveRuns()
-	metrics := m.renderMetrics()
-	logs := m.renderLogs()
+	bottomRow := lipgloss.JoinHorizontal(lipgloss.Top, m.renderMetrics(), m.renderLogs())
 
-	bottomRow := lipgloss.JoinHorizontal(lipgloss.Top, metrics, logs)
-
-	// Add explicit newline at start to ensure header isn't cut off
-	return "\n" + lipgloss.JoinVertical(lipgloss.Left, header, separator, activeRuns, separator, bottomRow)
+	return lipgloss.JoinVertical(lipgloss.Left, header, "", activeRuns, "", bottomRow)
 }
 
 func (m *Model) renderHeader(elapsed time.Duration) string {
@@ -364,72 +374,39 @@ func (m *Model) renderHeader(elapsed time.Duration) string {
 }
 
 func (m *Model) renderActiveRuns() string {
-	// Calculate available height for bottom panels - match the calculation in renderLogs
-	availableHeight := m.height - bannerLines - 2
-	if availableHeight < 10 {
-		availableHeight = 10
-	}
-	// Active runs gets 60% of available space
-	activeRunsHeight := int(float64(availableHeight) * 0.6)
-	if activeRunsHeight < 8 {
-		activeRunsHeight = 8
+	// Initialize table on first render
+	if !m.tableReady {
+		m.initRunsTable(15) // Default reasonable height
 	}
 
-	boxStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(colorIndigo)).
-		Padding(1).
-		Width(m.width - borderPadding).
-		MaxHeight(activeRunsHeight)
+	// Update table rows with current active runs
+	m.updateRunsTable()
+
+	// Set table dimensions
+	tableHeight := (m.height - 10) / 2 // Roughly half the screen minus header/footer
+	if tableHeight < 5 {
+		tableHeight = 5
+	}
+	m.runsTable.SetHeight(tableHeight)
+	m.runsTable.SetWidth(m.width - 8)
 
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color(colorViolet))
 
-	title := titleStyle.Render(fmt.Sprintf("Active Runs (%d concurrent workers)", len(m.activeRuns)))
-	lines := []string{title, ""}
+	title := titleStyle.Render(fmt.Sprintf("📊 Active Runs (%d concurrent workers)", len(m.activeRuns)))
 
-	// Calculate max display lines (subtract title, padding, borders)
-	maxLines := activeRunsHeight - bottomPanelPadding - 2
-	if maxLines < 3 {
-		maxLines = 3
-	}
+	content := lipgloss.JoinVertical(lipgloss.Left, title, m.runsTable.View())
 
-	displayCount := len(m.activeRuns)
-	if displayCount > maxLines {
-		displayCount = maxLines
-	}
-
-	for i := 0; i < displayCount; i++ {
-		run := m.activeRuns[i]
-		lines = append(lines, m.formatRunLine(&run))
-	}
-
-	if len(m.activeRuns) > displayCount {
-		remaining := len(m.activeRuns) - displayCount
-		moreStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colorGray)).Italic(true)
-		lines = append(lines, moreStyle.Render(fmt.Sprintf("...and %d more", remaining)))
-	}
-
-	return boxStyle.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(colorIndigo)).
+		Padding(1, 2).
+		Width(m.width - 4).
+		Render(content)
 }
 
 func (m *Model) renderMetrics() string {
-	// Calculate available height to match logs box
-	availableHeight := m.height - bannerLines - 2
-	if availableHeight < 10 {
-		availableHeight = 10
-	}
-	activeRunsHeight := int(float64(availableHeight) * 0.6)
-	metricsHeight := availableHeight - activeRunsHeight
-
-	boxStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(colorGreen)).
-		Padding(1).
-		Width(metricsBoxWidth).
-		MaxHeight(metricsHeight)
-
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colorEmerald))
 	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colorLightGray))
 	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colorWhite)).Bold(true)
@@ -443,7 +420,7 @@ func (m *Model) renderMetrics() string {
 	}
 
 	lines := []string{
-		titleStyle.Render("📊 Metrics"),
+		titleStyle.Render("📈 Metrics"),
 		"",
 		fmt.Sprintf("%s %s", labelStyle.Render("Completed:"), valueStyle.Render(fmt.Sprintf("%d/%d", m.completedCount, m.totalRuns))),
 		fmt.Sprintf("%s %s", labelStyle.Render("Success:  "), successStyle.Render(fmt.Sprintf("%d", m.successCount))),
@@ -455,31 +432,29 @@ func (m *Model) renderMetrics() string {
 		fmt.Sprintf("%s %s", labelStyle.Render("Workers:     "), valueStyle.Render(fmt.Sprintf("%d", len(m.activeRuns)))),
 	}
 
-	return boxStyle.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(colorGreen)).
+		Padding(1, 2).
+		Width(40).
+		Render(content)
 }
 
 func (m *Model) renderLogs() string {
-	// Calculate available height for bottom panels
-	availableHeight := m.height - bannerLines - 2
-	if availableHeight < 10 {
-		availableHeight = 10
-	}
-	// Split remaining space with active runs (active runs gets 60%, logs/metrics get 40%)
-	activeRunsHeight := int(float64(availableHeight) * 0.6)
-	logsHeight := availableHeight - activeRunsHeight
-
-	// Update viewport dimensions if needed
+	// Update viewport dimensions
 	if m.viewportReady {
-		viewportHeight := logsHeight - bottomPanelPadding
-		if viewportHeight < 3 {
-			viewportHeight = 3
+		viewportHeight := (m.height - 15) / 2 // Roughly match metrics height
+		if viewportHeight < 5 {
+			viewportHeight = 5
 		}
-		// Logs get remaining width after metrics box
-		logsWidth := m.width - metricsBoxWidth - borderPadding - 2
-		if logsWidth < 40 {
-			logsWidth = 40 // Minimum width
+		viewportWidth := m.width - 50 // Leave room for metrics (40) + padding
+		if viewportWidth < 40 {
+			viewportWidth = 40
 		}
-		m.logViewport.Width = logsWidth - 2 // -2 for padding
+
+		m.logViewport.Width = viewportWidth
 		m.logViewport.Height = viewportHeight
 
 		// Update viewport content with all logs
@@ -494,26 +469,25 @@ func (m *Model) renderLogs() string {
 		}
 	}
 
-	// Calculate logs box width (remaining space after metrics)
-	logsWidth := m.width - metricsBoxWidth - borderPadding - 2
-	if logsWidth < 40 {
-		logsWidth = 40 // Minimum width
-	}
-
-	boxStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(colorLightBlue)).
-		Padding(1).
-		Width(logsWidth)
-
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colorSky))
 	title := titleStyle.Render("📝 Logs (↑/↓ to scroll)")
 
 	if !m.viewportReady {
-		return boxStyle.Render(title + "\n\nInitializing...")
+		content := lipgloss.JoinVertical(lipgloss.Left, title, "", "Initializing...")
+		return lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(colorLightBlue)).
+			Padding(1, 2).
+			Render(content)
 	}
 
-	return boxStyle.Render(title + "\n" + m.logViewport.View())
+	content := lipgloss.JoinVertical(lipgloss.Left, title, m.logViewport.View())
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(colorLightBlue)).
+		Padding(1, 2).
+		Render(content)
 }
 
 func (m *Model) formatRunLine(run *RunInfo) string {
@@ -555,23 +529,90 @@ func (m *Model) formatRunLine(run *RunInfo) string {
 
 // initViewport initializes the viewport for scrollable logs
 func (m *Model) initViewport() {
-	// Calculate initial dimensions
-	availableHeight := m.height - bannerLines - 2
-	if availableHeight < 10 {
-		availableHeight = 10
+	viewportHeight := (m.height - 15) / 2
+	if viewportHeight < 5 {
+		viewportHeight = 5
 	}
-	activeRunsHeight := int(float64(availableHeight) * 0.6)
-	logsHeight := availableHeight - activeRunsHeight
-	viewportHeight := logsHeight - bottomPanelPadding
-	if viewportHeight < 3 {
-		viewportHeight = 3
+	viewportWidth := m.width - 50
+	if viewportWidth < 40 {
+		viewportWidth = 40
 	}
 
-	m.logViewport = viewport.New(
-		(m.width/panelDivisor)-borderPadding-2,
-		viewportHeight,
-	)
+	m.logViewport = viewport.New(viewportWidth, viewportHeight)
 	m.logViewport.SetContent("Waiting for logs...")
+}
+
+// initRunsTable initializes the table for active runs
+func (m *Model) initRunsTable(height int) {
+	columns := []table.Column{
+		{Title: "Status", Width: 10},
+		{Title: "Provider", Width: 20},
+		{Title: "Scenario", Width: 30},
+		{Title: "Region", Width: 12},
+		{Title: "Duration", Width: 12},
+		{Title: "Cost", Width: 10},
+	}
+
+	t := table.New(
+		table.WithColumns(columns),
+		table.WithRows([]table.Row{}),
+		table.WithFocused(false),
+		table.WithHeight(height),
+	)
+
+	// Style the table
+	s := table.DefaultStyles()
+	s.Header = s.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color(colorIndigo)).
+		BorderBottom(true).
+		Bold(true).
+		Foreground(lipgloss.Color(colorViolet))
+	s.Selected = s.Selected.
+		Foreground(lipgloss.Color(colorWhite)).
+		Background(lipgloss.Color(colorIndigo)).
+		Bold(false)
+
+	t.SetStyles(s)
+	m.runsTable = t
+	m.tableReady = true
+}
+
+// updateRunsTable updates the table rows with current active runs
+func (m *Model) updateRunsTable() {
+	rows := make([]table.Row, 0, len(m.activeRuns))
+
+	for i := range m.activeRuns {
+		run := &m.activeRuns[i]
+
+		var status, duration, cost string
+		switch run.Status {
+		case StatusRunning:
+			status = "● Running"
+			elapsed := time.Since(run.StartTime).Truncate(time.Millisecond * durationPrecisionMs)
+			duration = formatDuration(elapsed)
+			cost = "-"
+		case StatusCompleted:
+			status = "✓ Done"
+			duration = formatDuration(run.Duration)
+			cost = fmt.Sprintf("$%.4f", run.Cost)
+		case StatusFailed:
+			status = "✗ Failed"
+			duration = "-"
+			cost = "-"
+		}
+
+		rows = append(rows, table.Row{
+			status,
+			run.Provider,
+			run.Scenario,
+			run.Region,
+			duration,
+			cost,
+		})
+	}
+
+	m.runsTable.SetRows(rows)
 }
 
 func (m *Model) formatLogLine(log LogEntry) string {

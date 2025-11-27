@@ -116,7 +116,9 @@ func TestLogInterceptor_Handle(t *testing.T) {
 	// Check log file was written
 	content, err := os.ReadFile(logPath)
 	require.NoError(t, err)
-	assert.Contains(t, string(content), "[INFO] test message")
+	// Check for timestamp format (new slog format)
+	assert.Contains(t, string(content), "level=INFO")
+	assert.Contains(t, string(content), "test message")
 }
 
 func TestLogInterceptor_WithAttrs(t *testing.T) {

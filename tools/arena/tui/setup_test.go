@@ -56,7 +56,9 @@ func TestSetupLogger(t *testing.T) {
 
 		content, err := os.ReadFile(logPath)
 		require.NoError(t, err)
-		assert.Contains(t, string(content), "[INFO] test message")
+		// Check for timestamp format (new slog format)
+		assert.Contains(t, string(content), "level=INFO")
+		assert.Contains(t, string(content), "test message")
 	})
 
 	t.Run("setup with invalid log file path", func(t *testing.T) {

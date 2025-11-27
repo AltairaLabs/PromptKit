@@ -155,9 +155,9 @@ func (l *LogInterceptor) FlushBuffer() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	for _, buffered := range l.logBuffer {
+	for i := range l.logBuffer {
 		// Ignore errors during flush - best effort
-		_ = l.originalHandler.Handle(buffered.ctx, buffered.record)
+		_ = l.originalHandler.Handle(l.logBuffer[i].ctx, l.logBuffer[i].record)
 	}
 
 	// Clear the buffer
