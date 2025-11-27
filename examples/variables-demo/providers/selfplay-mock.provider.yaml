@@ -1,9 +1,9 @@
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Provider
 metadata:
-  name: mock-provider
+  name: selfplay-mock
 spec:
-  id: mock-provider
+  id: selfplay-mock
   type: mock
   model: mock-model
   defaults:
@@ -11,4 +11,4 @@ spec:
     max_tokens: 1000
     top_p: 1.0
   additional_config:
-    mock_config: "mock-config.yaml"
+    mock_config: "mock-config-selfplay.yaml"

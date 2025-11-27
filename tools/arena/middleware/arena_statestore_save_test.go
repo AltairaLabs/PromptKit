@@ -618,3 +618,56 @@ func TestArenaStateStoreSaveMiddleware_SystemPromptTimestamp(t *testing.T) {
 			state.Messages[0].Timestamp, firstMessageTime)
 	}
 }
+
+func TestArenaStateStoreSaveMiddleware_PersistsTurnCounters(t *testing.T) {
+	arenaStore := statestore.NewArenaStateStore()
+
+	config := &pipeline.StateStoreConfig{
+		Store:          arenaStore,
+		ConversationID: "conv-counters-1",
+		UserID:         "user-1",
+	}
+
+	// Two user messages and one assistant message
+	execCtx := &pipeline.ExecutionContext{
+		Context: context.Background(),
+		Messages: []types.Message{
+			{Role: "user", Content: "Turn 1"},
+			{Role: "assistant", Content: "Resp 1"},
+			{Role: "user", Content: "Turn 2"},
+		},
+		Metadata: map[string]interface{}{},
+	}
+
+	// Compute counters then save
+	turnIndex := TurnIndexMiddleware()
+	err := turnIndex.Process(execCtx, func() error { return nil })
+	if err != nil {
+		t.Fatalf("TurnIndexMiddleware returned error: %v", err)
+	}
+
+	save := ArenaStateStoreSaveMiddleware(config)
+	err = save.Process(execCtx, func() error { return nil })
+	if err != nil {
+		t.Fatalf("ArenaStateStoreSaveMiddleware returned error: %v", err)
+	}
+
+	state, err := arenaStore.Load(context.Background(), "conv-counters-1")
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	// Verify counters persisted to state metadata
+	if got, ok := state.Metadata["arena_user_completed_turns"]; !ok || got != 2 {
+		t.Fatalf("expected arena_user_completed_turns=2, got %v (ok=%v)", got, ok)
+	}
+	if got, ok := state.Metadata["arena_user_next_turn"]; !ok || got != 3 {
+		t.Fatalf("expected arena_user_next_turn=3, got %v (ok=%v)", got, ok)
+	}
+	if got, ok := state.Metadata["arena_assistant_completed_turns"]; !ok || got != 1 {
+		t.Fatalf("expected arena_assistant_completed_turns=1, got %v (ok=%v)", got, ok)
+	}
+	if got, ok := state.Metadata["arena_assistant_next_turn"]; !ok || got != 2 {
+		t.Fatalf("expected arena_assistant_next_turn=2, got %v (ok=%v)", got, ok)
+	}
+}

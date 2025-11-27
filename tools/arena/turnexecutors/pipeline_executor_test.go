@@ -6,6 +6,10 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
 )
 
+// Note: mock provider detection covered in existing helpers test file
+
+// Merge with existing tests below in this file
+
 func TestConvertTruncationStrategy(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -3,12 +3,42 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/xeipuuv/gojsonschema"
 )
+
+func TestLocalSchemaDirIfRequested(t *testing.T) {
+	// Ensure unset env yields empty
+	_ = os.Unsetenv("PROMPTKIT_SCHEMA_SOURCE")
+	if d := localSchemaDirIfRequested(); d != "" {
+		t.Fatalf("expected empty dir when env not set, got %q", d)
+	}
+
+	// Set env to local and expect non-empty directory path
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	if d := localSchemaDirIfRequested(); d == "" {
+		t.Fatalf("expected non-empty dir when env=local")
+	}
+}
+
+func TestBuildSchemaKey_UsesFileWhenSchemaDirOrEnvSet(t *testing.T) {
+	// Explicit schemaDir
+	key := buildSchemaKey(ConfigTypeArena, "/tmp/schemas")
+	if !strings.HasPrefix(key, "file://") || !strings.Contains(key, "/tmp/schemas/arena.json") {
+		t.Fatalf("unexpected schema key with explicit dir: %q", key)
+	}
+
+	// Env-driven local directory
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	key2 := buildSchemaKey(ConfigTypeScenario, "")
+	if !strings.HasPrefix(key2, "file://") || !strings.HasSuffix(key2, "/scenario.json") {
+		t.Fatalf("expected file:// schema key from env, got %q", key2)
+	}
+}
 
 func TestValidateArenaConfig_Valid(t *testing.T) {
 	validConfig := []byte(`

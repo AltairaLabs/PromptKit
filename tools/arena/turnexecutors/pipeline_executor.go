@@ -154,6 +154,8 @@ func (e *PipelineExecutor) buildMiddleware(req TurnRequest, baseVariables map[st
 	// 0. StateStore Load middleware
 	if storeConfig := buildStateStoreConfig(req); storeConfig != nil {
 		pipelineMiddleware = append(pipelineMiddleware, middleware.StateStoreLoadMiddleware(storeConfig))
+		// 0a. Compute authoritative turn indices right after loading state
+		pipelineMiddleware = append(pipelineMiddleware, arenamiddleware.TurnIndexMiddleware())
 	}
 
 	// 1. Variable injection
@@ -168,17 +170,18 @@ func (e *PipelineExecutor) buildMiddleware(req TurnRequest, baseVariables map[st
 	// 4. Template middleware
 	pipelineMiddleware = append(pipelineMiddleware, middleware.TemplateMiddleware())
 
-	// 5. Context builder (if policy exists)
-	if contextPolicy := buildContextPolicy(req.Scenario); contextPolicy != nil {
-		pipelineMiddleware = append(pipelineMiddleware, middleware.ContextBuilderMiddleware(contextPolicy))
-	}
-
-	// 5a. Mock scenario context (for mock providers only)
+	// 4a. Mock scenario context (for mock providers only) - BEFORE context building/truncation
+	// This ensures turn-number calculation uses the full state-store history, not a truncated context.
 	if isMockProvider(req.Provider) {
-		logger.Debug("Adding MockScenarioContextMiddleware for mock provider", "scenario_id", req.Scenario.ID)
+		logger.Debug("Adding MockScenarioContextMiddleware (pre-context-builder)", "scenario_id", req.Scenario.ID)
 		pipelineMiddleware = append(pipelineMiddleware, arenamiddleware.MockScenarioContextMiddleware(req.Scenario))
 	} else {
 		logger.Debug("Provider is not a mock provider, skipping MockScenarioContextMiddleware", "provider_type", fmt.Sprintf("%T", req.Provider))
+	}
+
+	// 5. Context builder (if policy exists)
+	if contextPolicy := buildContextPolicy(req.Scenario); contextPolicy != nil {
+		pipelineMiddleware = append(pipelineMiddleware, middleware.ContextBuilderMiddleware(contextPolicy))
 	}
 
 	// 6. Provider middleware

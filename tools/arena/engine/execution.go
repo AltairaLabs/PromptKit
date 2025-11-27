@@ -234,17 +234,21 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 
 	// Save run metadata to StateStore
 	metadata := &statestore.RunMetadata{
-		RunID:      runID,
-		Region:     combo.Region,
-		ScenarioID: combo.ScenarioID,
-		ProviderID: combo.ProviderID,
-		StartTime:  startTime,
-		EndTime:    time.Now(),
-		Duration:   duration,
-		Error:      convResult.Error,
-		SelfPlay:   convResult.SelfPlay,
-		PersonaID:  convResult.PersonaID,
+		RunID:                        runID,
+		Region:                       combo.Region,
+		ScenarioID:                   combo.ScenarioID,
+		ProviderID:                   combo.ProviderID,
+		StartTime:                    startTime,
+		EndTime:                      time.Now(),
+		Duration:                     duration,
+		Error:                        convResult.Error,
+		SelfPlay:                     convResult.SelfPlay,
+		PersonaID:                    convResult.PersonaID,
+		ConversationAssertionResults: convResult.ConversationAssertionResults,
 	}
+
+	fmt.Printf("[DEBUG] Saving metadata: runID=%s, conv_assertions_count=%d, results=%+v\n",
+		runID, len(convResult.ConversationAssertionResults), convResult.ConversationAssertionResults)
 
 	if err := arenaStore.SaveMetadata(ctx, runID, metadata); err != nil {
 		return runID, fmt.Errorf("failed to save run metadata: %w", err)

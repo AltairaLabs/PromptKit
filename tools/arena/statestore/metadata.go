@@ -97,9 +97,30 @@ func (s *ArenaStateStore) GetResult(ctx context.Context, runID string) (*RunResu
 		UserRole:      arenaState.RunMetadata.UserRole,
 
 		MediaOutputs: mediaOutputs,
+
+		// Conversation-level assertions (summary)
+		ConversationAssertions: buildConversationAssertionsSummary(arenaState.RunMetadata.ConversationAssertionResults),
 	}
 
 	return result, nil
+}
+
+// buildConversationAssertionsSummary converts raw conversation assertion results into summary format
+func buildConversationAssertionsSummary(results []ConversationValidationResult) AssertionsSummary {
+	total := len(results)
+	failed := 0
+	for i := range results {
+		if !results[i].Passed {
+			failed++
+		}
+	}
+	passed := failed == 0 && total > 0
+	return AssertionsSummary{
+		Failed:  failed,
+		Passed:  passed,
+		Results: results,
+		Total:   total,
+	}
 }
 
 // DumpToJSON exports the arena state in the same format as Arena results

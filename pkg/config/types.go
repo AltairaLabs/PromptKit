@@ -4,7 +4,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
-	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
+	asrt "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 )
 
 // ObjectMeta is a simplified metadata structure for PromptKit configs
@@ -359,9 +359,14 @@ type Scenario struct {
 	Context         map[string]interface{} `json:"context,omitempty" yaml:"context,omitempty"`
 	Constraints     map[string]interface{} `json:"constraints,omitempty" yaml:"constraints,omitempty"`
 	ToolPolicy      *ToolPolicy            `json:"tool_policy,omitempty" yaml:"tool_policy,omitempty"`
-	Providers       []string               `json:"providers,omitempty" yaml:"providers,omitempty"`           // Optional: override which providers to test. If empty, uses all arena providers.
-	Streaming       bool                   `json:"streaming,omitempty" yaml:"streaming,omitempty"`           // Enable streaming for all turns by default
-	ContextPolicy   *ContextPolicy         `json:"context_policy,omitempty" yaml:"context_policy,omitempty"` // Context management for long conversations
+	// ProvidersOverride: If empty, uses all arena providers.
+	Providers []string `json:"providers,omitempty" yaml:"providers,omitempty"`
+	// Enable streaming for all turns by default.
+	Streaming bool `json:"streaming,omitempty" yaml:"streaming,omitempty"`
+	// Context management policy for long conversations.
+	ContextPolicy *ContextPolicy `json:"context_policy,omitempty" yaml:"context_policy,omitempty"`
+	// Assertions evaluated after the entire conversation completes.
+	ConversationAssertions []asrt.AssertionConfig `json:"conversation_assertions,omitempty" yaml:"conversation_assertions,omitempty"` //nolint:lll
 }
 
 // ShouldStreamTurn returns whether streaming should be used for a specific turn.
@@ -417,7 +422,7 @@ type TurnDefinition struct {
 	Streaming *bool `json:"streaming,omitempty" yaml:"streaming,omitempty"` // Override streaming for this turn
 
 	// Turn-level assertions (for testing only)
-	Assertions []assertions.AssertionConfig `json:"assertions,omitempty" yaml:"assertions,omitempty"`
+	Assertions []asrt.AssertionConfig `json:"assertions,omitempty" yaml:"assertions,omitempty"`
 }
 
 // TurnContentPart represents a content part in a scenario turn (simplified for YAML configuration)

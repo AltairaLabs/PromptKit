@@ -11,10 +11,67 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	arenaassertions "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+func TestEvaluateConversationAssertions_NoAssertions(t *testing.T) {
+	ce := &DefaultConversationExecutor{}
+	req := ConversationRequest{Scenario: &config.Scenario{ID: "sc"}}
+	msgs := []types.Message{{Role: "assistant", Content: "hello"}}
+
+	res := ce.evaluateConversationAssertions(&req, msgs)
+	if res != nil {
+		t.Fatalf("expected nil results when no conversation assertions present, got %v", res)
+	}
+}
+
+func TestEvaluateConversationAssertions_WithContentNotIncludes(t *testing.T) {
+	ce := &DefaultConversationExecutor{}
+	req := ConversationRequest{Scenario: &config.Scenario{ID: "sc", ConversationAssertions: []arenaassertions.AssertionConfig{
+		{Type: "content_not_includes", Params: map[string]interface{}{"patterns": []string{"forbidden"}}},
+	}}}
+
+	msgs := []types.Message{
+		{Role: "user", Content: "hi"},
+		{Role: "assistant", Content: "this has forbidden phrase"},
+	}
+
+	res := ce.evaluateConversationAssertions(&req, msgs)
+	if len(res) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(res))
+	}
+	if res[0].Passed {
+		t.Fatalf("expected assertion to fail due to forbidden content")
+	}
+
+	// Also verify buildConversationContext extracts tool calls safely when none present
+	_ = buildConversationContext(&req, msgs)
+}
+
+func TestBuildTurnRequest_Overrides(t *testing.T) {
+	ce := &DefaultConversationExecutor{}
+	temp := 0.7
+	maxT := 123
+	cfg := &config.Config{Defaults: config.Defaults{Temperature: 0, MaxTokens: 0, Seed: 42}}
+	req := ConversationRequest{Config: cfg, Region: "us", Scenario: &config.Scenario{TaskType: "task"}, Temperature: &temp, MaxTokens: &maxT}
+	tr := ce.buildTurnRequest(req, config.TurnDefinition{Role: "user"})
+
+	if tr.Temperature != temp || tr.MaxTokens != maxT {
+		t.Fatalf("expected overrides to apply: %+v", tr)
+	}
+}
+
+// Ensure ExecuteTurnByRole returns error on unsupported role (simple negative path)
+func TestExecuteTurnByRole_Unsupported(t *testing.T) {
+	ce := &DefaultConversationExecutor{}
+	err := ce.executeTurnByRole(context.Background(), turnexecutors.TurnRequest{}, config.TurnDefinition{Role: "assistant"}, false)
+	if err == nil {
+		t.Fatalf("expected error for unsupported role")
+	}
+}
 
 // createTestStateStore creates a MemoryStore for testing
 func createTestStateStore() statestore.Store {

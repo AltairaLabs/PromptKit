@@ -10,6 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 )
 
 // ErrNotFound is re-exported from runtime statestore
@@ -57,6 +58,9 @@ type RunMetadata struct {
 	// Optimizer/feedback metadata
 	UserFeedback *Feedback `json:"user_feedback,omitempty"`
 	SessionTags  []string  `json:"session_tags,omitempty"`
+
+	// Conversation-level assertions (evaluated after conversation completes)
+	ConversationAssertionResults []ConversationValidationResult `json:"conv_assertions_results,omitempty"`
 }
 
 // ValidationResult captures validation outcome for a turn
@@ -67,6 +71,10 @@ type ValidationResult struct {
 	Passed        bool                   `json:"passed"`
 	Details       map[string]interface{} `json:"details,omitempty"`
 }
+
+// ConversationValidationResult is an alias for assertions.ConversationValidationResult
+// to avoid import cycles and maintain clean separation between statestore and assertions.
+type ConversationValidationResult = assertions.ConversationValidationResult
 
 // ArenaConversationState extends runtimestore.ConversationState with Arena-specific telemetry
 // All telemetry is computed on-demand from the messages to avoid redundancy
@@ -461,4 +469,15 @@ type RunResult struct {
 	SessionTags   []string    `json:"SessionTags"`
 	AssistantRole interface{} `json:"AssistantRole"` // Using interface{} to avoid circular import
 	UserRole      interface{} `json:"UserRole"`
+
+	// Conversation-level assertions evaluated after the conversation completes (summary format)
+	ConversationAssertions AssertionsSummary `json:"conversation_assertions,omitempty"`
+}
+
+// AssertionsSummary mirrors the turn-level assertions structure
+type AssertionsSummary struct {
+	Failed  int                            `json:"failed"`
+	Passed  bool                           `json:"passed"`
+	Results []ConversationValidationResult `json:"results"`
+	Total   int                            `json:"total"`
 }

@@ -38,10 +38,16 @@ permissions:
   checks: write
   pull-requests: write
 
+env:
+  # Prefer local JSON Schemas during CI to avoid stale remote downloads
+  PROMPTKIT_SCHEMA_SOURCE: local
+
 jobs:
   test:
     name: Test & Coverage
     runs-on: ubuntu-latest
+    env:
+      PROMPTKIT_SCHEMA_SOURCE: local
     strategy:
       matrix:
         go-version: ['1.25.1']
@@ -198,6 +204,8 @@ jobs:
   test-arena-mock:
     name: Test Arena with Mock Provider
     runs-on: ubuntu-latest
+    env:
+      PROMPTKIT_SCHEMA_SOURCE: local
     
     steps:
     - name: Checkout code

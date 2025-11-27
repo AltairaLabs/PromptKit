@@ -1,7 +1,10 @@
 package engine
 
+// import block above
+
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -10,15 +13,14 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	asrt "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
 )
 
 const (
-	// Error message for unsupported roles
 	errUnsupportedRole = "unsupported role: %s"
-	// Role constants
-	roleUser = "user"
+	roleUser           = "user"
 )
 
 // DefaultConversationExecutor implements ConversationExecutor interface
@@ -417,14 +419,100 @@ func (ce *DefaultConversationExecutor) buildResultFromStateStore(req Conversatio
 	// Collect media outputs from assistant messages
 	mediaOutputs := CollectMediaOutputs(messages)
 
+	// Evaluate conversation-level assertions, if any
+	convAssertionResults := ce.evaluateConversationAssertions(&req, messages)
+
 	return &ConversationResult{
-		Messages:     messages,
-		Cost:         totalCost,
-		ToolStats:    toolStats,
-		Violations:   []types.ValidationError{},
-		SelfPlay:     isSelfPlay,
-		PersonaID:    personaID,
-		MediaOutputs: mediaOutputs,
+		Messages:                     messages,
+		Cost:                         totalCost,
+		ToolStats:                    toolStats,
+		Violations:                   []types.ValidationError{},
+		SelfPlay:                     isSelfPlay,
+		PersonaID:                    personaID,
+		MediaOutputs:                 mediaOutputs,
+		ConversationAssertionResults: convAssertionResults,
+	}
+}
+
+// evaluateConversationAssertions evaluates scenario-level conversation assertions after all turns complete
+func (ce *DefaultConversationExecutor) evaluateConversationAssertions(
+	req *ConversationRequest,
+	messages []types.Message,
+) []asrt.ConversationValidationResult {
+	// Collect conversation assertions from scenario (evaluated after conversation completes)
+	var assertions []asrt.ConversationAssertion
+	if req.Scenario != nil {
+		logger.Debug("Evaluating conversation assertions",
+			"scenario", req.Scenario.ID,
+			"assertion_count", len(req.Scenario.ConversationAssertions))
+		for i := range req.Scenario.ConversationAssertions {
+			a := req.Scenario.ConversationAssertions[i]
+			logger.Debug("Adding conversation assertion",
+				"type", a.Type,
+				"params", a.Params)
+			assertions = append(assertions, asrt.ConversationAssertion(a))
+		}
+	}
+
+	if len(assertions) == 0 {
+		logger.Debug("No conversation assertions to evaluate")
+		return nil
+	}
+
+	logger.Debug("Running conversation assertion validators", "count", len(assertions))
+
+	// Build conversation context from messages
+	convCtx := buildConversationContext(req, messages)
+
+	reg := asrt.NewConversationAssertionRegistry()
+	results := reg.ValidateConversations(context.Background(), assertions, convCtx)
+
+	logger.Debug("Conversation assertion results",
+		"result_count", len(results),
+		"results", results)
+
+	return results
+}
+
+// buildConversationContext constructs a conversation context from messages and request metadata
+func buildConversationContext(req *ConversationRequest, messages []types.Message) *asrt.ConversationContext {
+	// Extract tool calls across all assistant messages
+	var toolCalls []asrt.ToolCallRecord
+	for idx := range messages {
+		msg := messages[idx]
+		if len(msg.ToolCalls) == 0 {
+			continue
+		}
+		for _, tc := range msg.ToolCalls {
+			var args map[string]interface{}
+			if len(tc.Args) > 0 {
+				_ = json.Unmarshal(tc.Args, &args)
+			}
+			toolCalls = append(toolCalls, asrt.ToolCallRecord{
+				TurnIndex: idx,
+				ToolName:  tc.Name,
+				Arguments: args,
+				Result:    nil,
+				Error:     "",
+				Duration:  0,
+			})
+		}
+	}
+
+	meta := asrt.ConversationMetadata{
+		ScenarioID:     req.Scenario.ID,
+		PersonaID:      "",
+		Variables:      nil,
+		PromptConfigID: req.Scenario.TaskType,
+		ProviderID:     "",
+		TotalCost:      0,
+		TotalTokens:    0,
+	}
+
+	return &asrt.ConversationContext{
+		AllTurns:  messages,
+		ToolCalls: toolCalls,
+		Metadata:  meta,
 	}
 }
 

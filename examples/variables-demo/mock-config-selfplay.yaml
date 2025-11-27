@@ -1,0 +1,10 @@
+# Mock Provider Configuration for Self-Play
+# This defines responses for self-play user turns so assistant assertions can be validated.
+
+scenarios:
+  restaurant-default:
+    # Self-play user prompts to drive assistant responses
+    turns:
+      1: "Hi, what's your restaurant's name and what kind of food do you serve?"
+      2: "What are your hours?"
+      3: "What's the dress code?"

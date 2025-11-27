@@ -129,6 +129,12 @@
         },
         "context_policy": {
           "$ref": "#/$defs/ContextPolicy"
+        },
+        "conversation_assertions": {
+          "items": {
+            "$ref": "#/$defs/AssertionConfig"
+          },
+          "type": "array"
         }
       },
       "additionalProperties": false,

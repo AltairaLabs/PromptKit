@@ -500,6 +500,12 @@ func convertToEngineRunResult(sr *statestore.RunResult) engine.RunResult {
 		PersonaID:    sr.PersonaID,
 		UserFeedback: sr.UserFeedback,
 		SessionTags:  sr.SessionTags,
+		ConversationAssertions: engine.AssertionsSummary{
+			Failed:  countFailed(sr.ConversationAssertions.Results),
+			Passed:  sr.ConversationAssertions.Passed,
+			Results: sr.ConversationAssertions.Results,
+			Total:   sr.ConversationAssertions.Total,
+		},
 	}
 
 	// Convert AssistantRole from interface{} to *engine.SelfPlayRoleInfo
@@ -525,6 +531,17 @@ func convertToEngineRunResult(sr *statestore.RunResult) engine.RunResult {
 	}
 
 	return result
+}
+
+// countFailed returns the number of failed conversation assertions
+func countFailed(convResults []statestore.ConversationValidationResult) int {
+	failed := 0
+	for i := range convResults {
+		if !convResults[i].Passed {
+			failed++
+		}
+	}
+	return failed
 }
 
 // getStringFromMap safely extracts a string value from a map
