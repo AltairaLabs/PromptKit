@@ -190,14 +190,30 @@ func (r *JUnitResultRepository) convertTestCase(result *engine.RunResult) JUnitT
 	}
 
 	// Add metadata as system-out
-	if r.options.IncludeSystemOut {
-		metadata := r.buildMetadata(result)
-		if metadata != "" {
-			testCase.SystemOut = &JUnitOutput{Content: metadata}
-		}
-	}
+	r.addSystemOut(&testCase, result)
 
 	// Determine failure or error status
+	r.addErrorOrFailure(&testCase, result)
+
+	// Add conversation-level assertions as properties and potential failure
+	r.addConversationAssertions(&testCase, result)
+
+	return testCase
+}
+
+// addSystemOut adds system-out metadata to the test case if configured
+func (r *JUnitResultRepository) addSystemOut(testCase *JUnitTestCase, result *engine.RunResult) {
+	if !r.options.IncludeSystemOut {
+		return
+	}
+	metadata := r.buildMetadata(result)
+	if metadata != "" {
+		testCase.SystemOut = &JUnitOutput{Content: metadata}
+	}
+}
+
+// addErrorOrFailure determines and adds error or failure status to the test case
+func (r *JUnitResultRepository) addErrorOrFailure(testCase *JUnitTestCase, result *engine.RunResult) {
 	if result.Error != "" {
 		// Execution error
 		testCase.Error = &JUnitError{
@@ -205,7 +221,10 @@ func (r *JUnitResultRepository) convertTestCase(result *engine.RunResult) JUnitT
 			Type:    "ExecutionError",
 			Content: r.buildErrorDetails(result),
 		}
-	} else if len(result.Violations) > 0 {
+		return
+	}
+
+	if len(result.Violations) > 0 {
 		// Validation failures
 		testCase.Failure = &JUnitFailure{
 			Message: fmt.Sprintf("Validation failed: %d violation(s)", len(result.Violations)),
@@ -213,40 +232,47 @@ func (r *JUnitResultRepository) convertTestCase(result *engine.RunResult) JUnitT
 			Content: r.buildValidationDetails(result.Violations),
 		}
 	}
+}
 
-	// Add conversation-level assertions as properties and potential failure
-	if result.ConversationAssertions.Total > 0 {
-		// Summary properties
-		passVal := "true"
-		if !result.ConversationAssertions.Passed {
-			passVal = "false"
-		}
-		props := []JUnitProperty{
-			{Name: "conversation_assertions.total", Value: fmt.Sprintf("%d", result.ConversationAssertions.Total)},
-			{Name: "conversation_assertions.failed", Value: fmt.Sprintf("%d", result.ConversationAssertions.Failed)},
-			{Name: "conversation_assertions.passed", Value: passVal},
-		}
-		testCase.Properties = append(testCase.Properties, props...)
-
-		// If any failed, attach a failure with messages
-		if !result.ConversationAssertions.Passed && testCase.Failure == nil && testCase.Error == nil {
-			var details strings.Builder
-			details.WriteString("Conversation assertions failed:\n")
-			for i := range result.ConversationAssertions.Results {
-				res := result.ConversationAssertions.Results[i]
-				if !res.Passed {
-					details.WriteString(fmt.Sprintf("  - %s\n", res.Message))
-				}
-			}
-			testCase.Failure = &JUnitFailure{
-				Message: "Conversation assertions failed",
-				Type:    "ConversationAssertionFailure",
-				Content: details.String(),
-			}
-		}
+// addConversationAssertions adds conversation-level assertions as properties and potential failure
+func (r *JUnitResultRepository) addConversationAssertions(testCase *JUnitTestCase, result *engine.RunResult) {
+	if result.ConversationAssertions.Total == 0 {
+		return
 	}
 
-	return testCase
+	// Summary properties
+	passVal := "true"
+	if !result.ConversationAssertions.Passed {
+		passVal = "false"
+	}
+	props := []JUnitProperty{
+		{Name: "conversation_assertions.total", Value: fmt.Sprintf("%d", result.ConversationAssertions.Total)},
+		{Name: "conversation_assertions.failed", Value: fmt.Sprintf("%d", result.ConversationAssertions.Failed)},
+		{Name: "conversation_assertions.passed", Value: passVal},
+	}
+	testCase.Properties = append(testCase.Properties, props...)
+
+	// If any failed, attach a failure with messages (only if no other failure/error exists)
+	if !result.ConversationAssertions.Passed && testCase.Failure == nil && testCase.Error == nil {
+		testCase.Failure = r.buildConversationAssertionFailure(result)
+	}
+}
+
+// buildConversationAssertionFailure creates a JUnit failure for failed conversation assertions
+func (r *JUnitResultRepository) buildConversationAssertionFailure(result *engine.RunResult) *JUnitFailure {
+	var details strings.Builder
+	details.WriteString("Conversation assertions failed:\n")
+	for i := range result.ConversationAssertions.Results {
+		res := result.ConversationAssertions.Results[i]
+		if !res.Passed {
+			details.WriteString(fmt.Sprintf("  - %s\n", res.Message))
+		}
+	}
+	return &JUnitFailure{
+		Message: "Conversation assertions failed",
+		Type:    "ConversationAssertionFailure",
+		Content: details.String(),
+	}
 }
 
 // buildMetadata creates system-out content with Arena-specific metadata

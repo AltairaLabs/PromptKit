@@ -643,44 +643,71 @@ func (r *MarkdownResultRepository) countAssertions(result *engine.RunResult) int
 	count := 0
 	// Count per-message assertions
 	for _, msg := range result.Messages {
-		if msg.Meta != nil {
-			if assertions, ok := msg.Meta["assertions"]; ok {
-				if assertionMap, ok := assertions.(map[string]interface{}); ok {
-					// New format: prefer explicit total or results length
-					if resultsArr, ok := assertionMap["results"].([]interface{}); ok {
-						count += len(resultsArr)
-						continue
-					}
-					if totalVal, ok := assertionMap["total"].(float64); ok { // JSON numbers decode to float64
-						count += int(totalVal)
-						continue
-					}
-					if totalInt, ok := assertionMap["total"].(int); ok {
-						count += totalInt
-						continue
-					}
-					// Legacy: count only assertion entries that look like maps with a passed field
-					legacyCount := 0
-					for _, v := range assertionMap {
-						if m, ok := v.(map[string]interface{}); ok {
-							if _, hasPassed := m["passed"]; hasPassed {
-								legacyCount++
-							}
-						}
-					}
-					if legacyCount > 0 {
-						count += legacyCount
-					}
-				}
+		count += r.countMessageAssertions(&msg)
+	}
+
+	// Include conversation-level assertions
+	count += r.countConversationAssertions(result)
+	return count
+}
+
+// countMessageAssertions counts assertions in a single message
+func (r *MarkdownResultRepository) countMessageAssertions(msg *types.Message) int {
+	if msg.Meta == nil {
+		return 0
+	}
+
+	assertions, ok := msg.Meta["assertions"]
+	if !ok {
+		return 0
+	}
+
+	assertionMap, ok := assertions.(map[string]interface{})
+	if !ok {
+		return 0
+	}
+
+	return r.countFromAssertionMap(assertionMap)
+}
+
+// countFromAssertionMap extracts the assertion count from the map structure
+func (r *MarkdownResultRepository) countFromAssertionMap(assertionMap map[string]interface{}) int {
+	// New format: prefer explicit total or results length
+	if resultsArr, ok := assertionMap["results"].([]interface{}); ok {
+		return len(resultsArr)
+	}
+
+	if totalVal, ok := assertionMap["total"].(float64); ok { // JSON numbers decode to float64
+		return int(totalVal)
+	}
+
+	if totalInt, ok := assertionMap["total"].(int); ok {
+		return totalInt
+	}
+
+	// Legacy format: count assertion entries that look like maps with a passed field
+	return r.countLegacyAssertions(assertionMap)
+}
+
+// countLegacyAssertions counts assertions in the legacy format
+func (r *MarkdownResultRepository) countLegacyAssertions(assertionMap map[string]interface{}) int {
+	legacyCount := 0
+	for _, v := range assertionMap {
+		if m, ok := v.(map[string]interface{}); ok {
+			if _, hasPassed := m["passed"]; hasPassed {
+				legacyCount++
 			}
 		}
 	}
+	return legacyCount
+}
 
-	// Include conversation-level assertions (new summary format)
+// countConversationAssertions returns the count of conversation-level assertions
+func (r *MarkdownResultRepository) countConversationAssertions(result *engine.RunResult) int {
 	if result.ConversationAssertions.Total > 0 {
-		count += result.ConversationAssertions.Total
+		return result.ConversationAssertions.Total
 	}
-	return count
+	return 0
 }
 
 // writeFailedTestsSection writes detailed information about failed tests

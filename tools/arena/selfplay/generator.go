@@ -14,6 +14,8 @@ import (
 	arenamiddleware "github.com/AltairaLabs/PromptKit/tools/arena/middleware"
 )
 
+const selfPlayUserRole = "self-play user"
+
 // ContentGenerator generates user messages using an LLM
 type ContentGenerator struct {
 	provider providers.Provider
@@ -68,7 +70,14 @@ func (cg *ContentGenerator) NextUserTurn(
 	}
 
 	// Log the self-play user generation API call
-	logger.LLMCall(cg.provider.ID(), "self-play user", len(history), float64(cg.persona.Defaults.Temperature), "persona", cg.persona.ID)
+	logger.LLMCall(
+		cg.provider.ID(),
+		selfPlayUserRole,
+		len(history),
+		float64(cg.persona.Defaults.Temperature),
+		"persona",
+		cg.persona.ID,
+	)
 
 	// Build pipeline with standard middleware:
 	// 1. PersonaAssemblyMiddleware - assembles persona prompt with fragments/vars
@@ -94,17 +103,28 @@ func (cg *ContentGenerator) NextUserTurn(
 	// Execute pipeline with empty content (system prompt + history drives generation)
 	result, err := pl.Execute(ctx, "", "")
 	if err != nil {
-		logger.LLMError(cg.provider.ID(), "self-play user", err)
+		logger.LLMError(cg.provider.ID(), selfPlayUserRole, err)
 		return nil, fmt.Errorf("failed to generate user turn: %w", err)
 	}
 
 	// Log response
-	logger.LLMResponse(cg.provider.ID(), "self-play user", result.CostInfo.InputTokens, result.CostInfo.OutputTokens, result.CostInfo.TotalCost)
+	logger.LLMResponse(
+		cg.provider.ID(),
+		selfPlayUserRole,
+		result.CostInfo.InputTokens,
+		result.CostInfo.OutputTokens,
+		result.CostInfo.TotalCost,
+	)
 
 	// Validate the response (treat failures as warnings, not hard errors)
 	if result.Response != nil && result.Response.Content != "" {
 		if err := cg.validateUserResponse(result.Response.Content); err != nil {
-			logger.Warn("⚠️  User response validation warning", "provider", cg.provider.ID(), "role", "self-play user", "warning", err.Error())
+			logger.Warn(
+				"⚠️  User response validation warning",
+				"provider", cg.provider.ID(),
+				"role", selfPlayUserRole,
+				"warning", err.Error(),
+			)
 			// Add warning to metadata
 			if result.Metadata == nil {
 				result.Metadata = make(map[string]interface{})
