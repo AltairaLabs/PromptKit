@@ -332,9 +332,12 @@ func (e *SelfPlayExecutor) buildStreamingMiddlewares(req TurnRequest) []pipeline
 			UserID:         req.StateStoreConfig.UserID,
 			Metadata:       req.StateStoreConfig.Metadata,
 		}
-		middlewares = append(middlewares, middleware.StateStoreLoadMiddleware(storeConfig))
-		// Compute authoritative turn indices right after loading state
-		middlewares = append(middlewares, arenamiddleware.TurnIndexMiddleware())
+		middlewares = append(
+			middlewares,
+			middleware.StateStoreLoadMiddleware(storeConfig),
+			// Compute authoritative turn indices right after loading state
+			arenamiddleware.TurnIndexMiddleware(),
+		)
 	}
 
 	// Variable injection
@@ -351,11 +354,10 @@ func (e *SelfPlayExecutor) buildStreamingMiddlewares(req TurnRequest) []pipeline
 		middlewares = append(middlewares, arenamiddleware.MockScenarioContextMiddleware(req.Scenario))
 	}
 
-	// Provider middleware
-	middlewares = append(middlewares, middleware.ProviderMiddleware(req.Provider, nil, nil, providerConfig))
-
-	// Dynamic validator middleware with suppression
-	middlewares = append(middlewares,
+	// Provider + Dynamic validator middleware with suppression
+	middlewares = append(
+		middlewares,
+		middleware.ProviderMiddleware(req.Provider, nil, nil, providerConfig),
 		middleware.DynamicValidatorMiddlewareWithSuppression(validators.DefaultRegistry, true),
 	)
 

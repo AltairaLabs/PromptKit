@@ -19,32 +19,15 @@ func SelfPlayUserTurnContextMiddleware(scenario *config.Scenario) pipeline.Middl
 	return &selfPlayUserTurnContextMiddleware{scenario: scenario}
 }
 
+// Process implements pipeline.Middleware; adds next-turn self-play context metadata.
 func (m *selfPlayUserTurnContextMiddleware) Process(execCtx *pipeline.ExecutionContext, next func() error) error {
 	if m.scenario != nil && m.scenario.ID != "" {
 		if execCtx.Metadata == nil {
 			execCtx.Metadata = make(map[string]interface{})
 		}
 
-		// Prefer counters from TurnIndexMiddleware if present
-		var completedUserTurns, nextUserTurn int
-		if v, ok := execCtx.Metadata["arena_user_completed_turns"].(int); ok {
-			completedUserTurns = v
-		}
-		if v, ok := execCtx.Metadata["arena_user_next_turn"].(int); ok {
-			nextUserTurn = v
-		}
+		completedUserTurns, nextUserTurn := computeUserTurnCounts(execCtx)
 
-		// Fallback: compute from messages if missing
-		if completedUserTurns == 0 && nextUserTurn == 0 {
-			for _, msg := range execCtx.Messages {
-				if msg.Role == "user" {
-					completedUserTurns++
-				}
-			}
-			nextUserTurn = completedUserTurns + 1
-		}
-
-		// Clear, role-specific metadata
 		execCtx.Metadata["arena_user_completed_turns"] = completedUserTurns
 		execCtx.Metadata["arena_user_next_turn"] = nextUserTurn
 		execCtx.Metadata["arena_role"] = "self_play_user"
@@ -56,6 +39,33 @@ func (m *selfPlayUserTurnContextMiddleware) Process(execCtx *pipeline.ExecutionC
 	return next()
 }
 
-func (m *selfPlayUserTurnContextMiddleware) StreamChunk(execCtx *pipeline.ExecutionContext, chunk *providers.StreamChunk) error {
+// StreamChunk implements pipeline.Middleware; no-op for this middleware.
+func (m *selfPlayUserTurnContextMiddleware) StreamChunk(
+	execCtx *pipeline.ExecutionContext,
+	chunk *providers.StreamChunk,
+) error {
 	return nil
+}
+
+func computeUserTurnCounts(execCtx *pipeline.ExecutionContext) (int, int) { //nolint: gocritic
+	// Prefer counters from TurnIndexMiddleware if present
+	var completedUserTurns, nextUserTurn int
+	if v, ok := execCtx.Metadata["arena_user_completed_turns"].(int); ok {
+		completedUserTurns = v
+	}
+	if v, ok := execCtx.Metadata["arena_user_next_turn"].(int); ok {
+		nextUserTurn = v
+	}
+
+	// Fallback: compute from messages if missing
+	if completedUserTurns == 0 && nextUserTurn == 0 {
+		for i := range execCtx.Messages { // index-based to avoid copying values
+			if execCtx.Messages[i].Role == "user" {
+				completedUserTurns++
+			}
+		}
+		nextUserTurn = completedUserTurns + 1
+	}
+
+	return completedUserTurns, nextUserTurn
 }

@@ -520,8 +520,10 @@ func (r *MarkdownResultRepository) writeMediaOutputsSection(content *strings.Bui
 // writeResultsMatrix writes the detailed results matrix
 func (r *MarkdownResultRepository) writeResultsMatrix(content *strings.Builder, runResults []engine.RunResult) {
 	content.WriteString("## 🔍 Test Results\n\n")
-	content.WriteString("| Provider | Scenario | Region | Status | Duration | Turns | Guardrails | Assertions | Tools | Cost |\n")
-	content.WriteString("|----------|----------|--------|---------|-----------|-------|------------|------------|-------|------|\n")
+	content.WriteString("| Provider | Scenario | Region | Status | Duration | Turns | Guardrails | ")
+	content.WriteString("Assertions | Tools | Cost |\n")
+	content.WriteString("|----------|----------|--------|---------|-----------|-------|------------|-")
+	content.WriteString("-----------|-------|------|\n")
 
 	for _, result := range runResults {
 		r.writeResultRow(content, &result)
@@ -531,7 +533,10 @@ func (r *MarkdownResultRepository) writeResultsMatrix(content *strings.Builder, 
 }
 
 // writeConversationAssertionsSection lists conversation-level assertions per run
-func (r *MarkdownResultRepository) writeConversationAssertionsSection(content *strings.Builder, runResults []engine.RunResult) {
+func (r *MarkdownResultRepository) writeConversationAssertionsSection(
+	content *strings.Builder,
+	runResults []engine.RunResult,
+) {
 	if !hasAnyConversationAssertions(runResults) {
 		return
 	}
@@ -541,7 +546,7 @@ func (r *MarkdownResultRepository) writeConversationAssertionsSection(content *s
 	}
 }
 
-func hasAnyConversationAssertions(runResults []engine.RunResult) bool { // nolint:gocognit
+func hasAnyConversationAssertions(runResults []engine.RunResult) bool {
 	for i := range runResults {
 		if runResults[i].ConversationAssertions.Total > 0 {
 			return true
@@ -550,7 +555,10 @@ func hasAnyConversationAssertions(runResults []engine.RunResult) bool { // nolin
 	return false
 }
 
-func (r *MarkdownResultRepository) writeConversationAssertionRun(content *strings.Builder, result *engine.RunResult) { // nolint: gocognit
+func (r *MarkdownResultRepository) writeConversationAssertionRun(
+	content *strings.Builder,
+	result *engine.RunResult,
+) {
 	if result.ConversationAssertions.Total == 0 {
 		return
 	}
@@ -844,7 +852,9 @@ func (r *MarkdownResultRepository) extractSingleAssertionFailure(assertionType s
 }
 
 // extractConversationAssertionFailures extracts failures from conversation-level assertions summary
-func (r *MarkdownResultRepository) extractConversationAssertionFailures(summary *engine.AssertionsSummary) []assertionFailure {
+func (r *MarkdownResultRepository) extractConversationAssertionFailures(
+	summary *engine.AssertionsSummary,
+) []assertionFailure {
 	if summary == nil || summary.Total == 0 || len(summary.Results) == 0 {
 		return nil
 	}
