@@ -4,7 +4,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
-	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
+	asrt "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 )
 
 // ObjectMeta is a simplified metadata structure for PromptKit configs
@@ -417,7 +417,11 @@ type TurnDefinition struct {
 	Streaming *bool `json:"streaming,omitempty" yaml:"streaming,omitempty"` // Override streaming for this turn
 
 	// Turn-level assertions (for testing only)
-	Assertions []assertions.AssertionConfig `json:"assertions,omitempty" yaml:"assertions,omitempty"`
+	Assertions []asrt.AssertionConfig `json:"assertions,omitempty" yaml:"assertions,omitempty"`
+
+	// Conversation-level assertions (evaluated after all self-play turns complete)
+	// These allow cross-turn validation such as tool usage patterns, persona consistency, etc.
+	ConversationAssertions []asrt.AssertionConfig `json:"conversation_assertions,omitempty" yaml:"conversation_assertions,omitempty"` //nolint:lll // long struct tag
 }
 
 // TurnContentPart represents a content part in a scenario turn (simplified for YAML configuration)
