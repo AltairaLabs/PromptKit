@@ -38,6 +38,10 @@ permissions:
   checks: write
   pull-requests: write
 
+env:
+  # Prefer local JSON Schemas during CI to avoid stale remote downloads
+  PROMPTKIT_SCHEMA_SOURCE: local
+
 jobs:
   test:
     name: Test & Coverage
