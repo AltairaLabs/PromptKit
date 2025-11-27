@@ -25,10 +25,11 @@ func NewConversationValidatorRegistry() *ConversationValidatorRegistry {
 		validators: make(map[string]ConversationValidatorFactory),
 	}
 
-	// Register built-in validators will be added in Phase 2
-	// registry.Register("tools_called", NewToolsCalledConversationValidator)
-	// registry.Register("tools_not_called", NewToolsNotCalledConversationValidator)
-	// ... etc
+	// Register built-in validators (Phase 2)
+	registry.Register("tools_called", NewToolsCalledConversationValidator)
+	registry.Register("tools_not_called", NewToolsNotCalledConversationValidator)
+	registry.Register("tools_not_called_with_args", NewToolsNotCalledWithArgsConversationValidator)
+	registry.Register("content_not_includes", NewContentNotIncludesConversationValidator)
 
 	return registry
 }
