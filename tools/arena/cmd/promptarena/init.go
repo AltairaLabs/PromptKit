@@ -59,8 +59,10 @@ func init() {
 	initCmd.Flags().BoolVar(&initNoEnv, "no-env", false, "Skip .env file creation")
 	initCmd.Flags().StringVar(&initProvider, "provider", "", "Provider to configure (openai, anthropic, google, mock)")
 	initCmd.Flags().StringVar(&initOutputDir, "output", ".", "Output directory")
-	initCmd.Flags().StringVar(&initTemplateIndex, "template-index", templates.DefaultIndex, "Template index URL/path for remote templates")
-	initCmd.Flags().StringVar(&initTemplateCache, "template-cache", filepath.Join(os.TempDir(), "promptarena-templates"), "Cache directory for remote templates")
+	initCmd.Flags().StringVar(&initTemplateIndex, "template-index", templates.DefaultIndex,
+		"Template index URL/path for remote templates")
+	initCmd.Flags().StringVar(&initTemplateCache, "template-cache", filepath.Join(os.TempDir(), "promptarena-templates"),
+		"Cache directory for remote templates")
 }
 
 func runInit(cmd *cobra.Command, args []string) error {

@@ -123,7 +123,7 @@ var templatesRenderCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(templatesCmd)
 
-	templatesCmd.PersistentFlags().StringVar(&templateIndex, "index", templates.DefaultGitHubIndex,
+	templatesCmd.PersistentFlags().StringVar(&templateIndex, "index", templates.DefaultIndex,
 		"Path or URL to template index")
 	templatesCmd.PersistentFlags().StringVar(&templateCache, "cache-dir",
 		filepath.Join(os.TempDir(), "promptarena-templates"), "Template cache directory")

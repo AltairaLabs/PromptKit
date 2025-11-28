@@ -20,6 +20,9 @@ type Loader struct {
 
 // NewLoader creates a new template loader
 func NewLoader(cacheDir string) *Loader {
+	if cacheDir == "" {
+		cacheDir = filepath.Join(os.TempDir(), "promptarena-templates")
+	}
 	return &Loader{
 		cacheDir: cacheDir,
 	}
@@ -37,8 +40,11 @@ func (l *Loader) Load(name string) (*Template, error) {
 		return l.LoadFromFile(name)
 	}
 
-	// Try remote (future implementation)
-	// For now, return error
+	// Try remote registry (default index)
+	if tmpl, err := l.LoadFromRegistry(name); err == nil {
+		return tmpl, nil
+	}
+
 	return nil, fmt.Errorf("template not found: %s", name)
 }
 
@@ -117,6 +123,33 @@ func (l *Loader) ListBuiltIn() ([]TemplateInfo, error) {
 	}
 
 	return templates, nil
+}
+
+// LoadFromRegistry fetches a template using the default index and cache.
+func (l *Loader) LoadFromRegistry(ref string) (*Template, error) {
+	name, version := parseTemplateRef(ref)
+	index, err := LoadIndex(DefaultIndex)
+	if err != nil {
+		return nil, fmt.Errorf("load index: %w", err)
+	}
+	entry, err := index.FindEntry(name, version)
+	if err != nil {
+		return nil, err
+	}
+	path, err := FetchTemplate(entry, l.cacheDir)
+	if err != nil {
+		return nil, err
+	}
+	return l.LoadFromFile(path)
+}
+
+// parseTemplateRef splits "name@version" into name/version.
+func parseTemplateRef(ref string) (name, version string) {
+	parts := strings.Split(ref, "@")
+	if len(parts) == 2 { //nolint:mnd // ref format is name@version
+		return parts[0], parts[1]
+	}
+	return ref, ""
 }
 
 // ReadTemplateFile reads a template file from the built-in templates

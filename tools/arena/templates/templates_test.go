@@ -1,6 +1,8 @@
 package templates
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -838,6 +840,47 @@ spec:
 
 	_, err = loader.LoadFromFile(invalidTemplatePath)
 	assert.Error(t, err)
+}
+
+func TestLoader_LoadFromRegistry(t *testing.T) {
+	dir := t.TempDir()
+
+	tpl := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Template
+metadata:
+  name: remote
+spec:
+  files:
+    - path: README.md
+      content: "hi"
+`
+	tplPath := filepath.Join(dir, "template.yaml")
+	require.NoError(t, os.WriteFile(tplPath, []byte(tpl), 0o644))
+
+	index := `
+entries:
+  - name: remote
+    version: "1.0.0"
+    source: "` + tplPath + `"
+`
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/index.yaml":
+			_, _ = w.Write([]byte(index))
+		case "/template.yaml":
+			http.ServeFile(w, r, tplPath)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer s.Close()
+
+	DefaultIndex = s.URL + "/index.yaml"
+
+	loader := NewLoader(filepath.Join(dir, "cache"))
+	tmpl, err := loader.LoadFromRegistry("remote@1.0.0")
+	require.NoError(t, err)
+	assert.Equal(t, "remote", tmpl.Metadata.Name)
 }
 
 func TestLoader_Load_RemoteTemplate(t *testing.T) {

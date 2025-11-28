@@ -22,6 +22,9 @@ const (
 	DefaultGitHubIndex = "https://raw.githubusercontent.com/AltairaLabs/promptkit-templates/main/index.yaml"
 )
 
+// DefaultIndex is the index location used for remote loads (overridable in tests).
+var DefaultIndex = DefaultGitHubIndex
+
 // loadBytes loads a file from disk or HTTP.
 func loadBytes(location string) ([]byte, error) {
 	if strings.HasPrefix(location, "http://") || strings.HasPrefix(location, "https://") {
