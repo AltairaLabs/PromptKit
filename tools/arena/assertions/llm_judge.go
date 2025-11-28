@@ -139,7 +139,7 @@ func buildJudgeRequest(content string, params map[string]interface{}) providers.
 
 func parseJudgeVerdict(content string) llmJudgeResult {
 	var res llmJudgeResult
-	if err := json.Unmarshal([]byte(content), &res); err == nil {
+	if json.Unmarshal([]byte(content), &res) == nil {
 		return res
 	}
 	// naive fallback: check for passed true/false
