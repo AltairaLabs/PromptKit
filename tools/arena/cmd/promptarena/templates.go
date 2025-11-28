@@ -35,7 +35,9 @@ var templatesListCmd = &cobra.Command{
 			return err
 		}
 		for _, e := range idx.Entries {
-			fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\n", e.Name, e.Version, e.Description)
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\n", e.Name, e.Version, e.Description); err != nil {
+				return err
+			}
 		}
 		return nil
 	},
@@ -53,11 +55,13 @@ var templatesFetchCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		path, err := templates.FetchTemplate(*entry, templateCache)
+		path, err := templates.FetchTemplate(entry, templateCache)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Cached %s@%s at %s\n", entry.Name, entry.Version, path)
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Cached %s@%s at %s\n", entry.Name, entry.Version, path); err != nil {
+			return err
+		}
 		return nil
 	},
 }
@@ -91,16 +95,20 @@ var templatesRenderCmd = &cobra.Command{
 		if err := templates.RenderDryRun(pkg, templateValues, out); err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Rendered to %s\n", out)
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Rendered to %s\n", out); err != nil {
+			return err
+		}
 		return nil
 	},
 }
 
+//nolint:gochecknoinits // cobra command registration
 func init() {
 	rootCmd.AddCommand(templatesCmd)
 
-	templatesCmd.PersistentFlags().StringVar(&templateIndex, "index", "templates/index.yaml", "Path to template index")
-	templatesCmd.PersistentFlags().StringVar(&templateCache, "cache-dir", filepath.Join(os.TempDir(), "promptarena-templates"), "Template cache directory")
+	templatesCmd.PersistentFlags().StringVar(&templateIndex, "index", templates.DefaultGitHubIndex, "Path or URL to template index")
+	templatesCmd.PersistentFlags().StringVar(&templateCache, "cache-dir",
+		filepath.Join(os.TempDir(), "promptarena-templates"), "Template cache directory")
 
 	templatesCmd.AddCommand(templatesListCmd)
 	templatesCmd.AddCommand(templatesFetchCmd)
@@ -108,12 +116,15 @@ func init() {
 
 	templatesFetchCmd.Flags().StringVar(&templateName, "template", "", "Template name")
 	templatesFetchCmd.Flags().StringVar(&templateVersion, "version", "", "Template version")
-	templatesFetchCmd.MarkFlagRequired("template") //nolint:errcheck
+	if err := templatesFetchCmd.MarkFlagRequired("template"); err != nil {
+		panic(err)
+	}
 
 	templatesRenderCmd.Flags().StringVar(&templateName, "template", "", "Template name (cached)")
 	templatesRenderCmd.Flags().StringVar(&templateVersion, "version", "", "Template version (default latest)")
 	templatesRenderCmd.Flags().StringVar(&templateFile, "file", "", "Template file path (bypass cache)")
 	templatesRenderCmd.Flags().BoolVar(&dryRun, "dry-run", true, "Render to a temp/output dir without touching project")
-	templatesRenderCmd.Flags().StringToStringVar(&templateValues, "set", map[string]string{}, "Template variables (key=value)")
+	templatesRenderCmd.Flags().StringToStringVar(&templateValues, "set", map[string]string{},
+		"Template variables (key=value)")
 	templatesRenderCmd.Flags().StringVar(&outputDir, "out", "", "Output directory (defaults to temp)")
 }

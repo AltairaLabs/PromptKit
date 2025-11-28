@@ -5,12 +5,45 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/template"
 
 	"gopkg.in/yaml.v3"
 )
+
+const (
+	dirPerm  = 0o750
+	filePerm = 0o600
+	// DefaultGitHubIndex points to the community templates repo index.
+	DefaultGitHubIndex = "https://raw.githubusercontent.com/AltairaLabs/promptkit-templates/main/index.yaml"
+)
+
+// loadBytes loads a file from disk or HTTP.
+func loadBytes(location string) ([]byte, error) {
+	if strings.HasPrefix(location, "http://") || strings.HasPrefix(location, "https://") {
+		resp, err := http.Get(location) //nolint:gosec // location comes from user input/config
+		if err != nil {
+			return nil, fmt.Errorf("http get %s: %w", location, err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("http get %s: status %d", location, resp.StatusCode)
+		}
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("read http body: %w", err)
+		}
+		return data, nil
+	}
+	data, err := os.ReadFile(location) //nolint:gosec // path from user/config
+	if err != nil {
+		return nil, fmt.Errorf("read file %s: %w", location, err)
+	}
+	return data, nil
+}
 
 // IndexEntry describes a remote template.
 type IndexEntry struct {
@@ -42,13 +75,16 @@ type TemplatePackage struct {
 
 // LoadIndex loads an index from path.
 func LoadIndex(path string) (*Index, error) {
-	data, err := os.ReadFile(path)
+	data, err := loadBytes(path)
 	if err != nil {
-		return nil, fmt.Errorf("read index: %w", err)
+		return nil, fmt.Errorf("load index: %w", err)
 	}
 	var idx Index
 	if err := yaml.Unmarshal(data, &idx); err != nil {
 		return nil, fmt.Errorf("parse index: %w", err)
+	}
+	if len(idx.Entries) == 0 {
+		return nil, fmt.Errorf("index has no entries")
 	}
 	return &idx, nil
 }
@@ -66,12 +102,25 @@ func (idx *Index) FindEntry(name, version string) (*IndexEntry, error) {
 	return nil, fmt.Errorf("template %s@%s not found", name, version)
 }
 
+// validateChecksumBytes compares sha256 to expected hex checksum (if provided).
+func validateChecksumBytes(content []byte, expected string) error {
+	if expected == "" {
+		return nil
+	}
+	sum := sha256.Sum256(content)
+	sumHex := hex.EncodeToString(sum[:])
+	if sumHex != expected {
+		return fmt.Errorf("checksum mismatch: got %s want %s", sumHex, expected)
+	}
+	return nil
+}
+
 // ValidateChecksum compares file sha256 to expected hex checksum (if provided).
 func ValidateChecksum(path, expected string) error {
 	if expected == "" {
 		return nil
 	}
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // path is user-provided index entry
 	if err != nil {
 		return fmt.Errorf("open for checksum: %w", err)
 	}
@@ -88,23 +137,26 @@ func ValidateChecksum(path, expected string) error {
 }
 
 // FetchTemplate copies the template source into cacheDir/<name>/<version>/template.yaml.
-func FetchTemplate(entry IndexEntry, cacheDir string) (string, error) {
+func FetchTemplate(entry *IndexEntry, cacheDir string) (string, error) {
+	if entry == nil {
+		return "", fmt.Errorf("entry is nil")
+	}
 	if entry.Source == "" {
 		return "", fmt.Errorf("source missing for template %s", entry.Name)
 	}
-	if err := ValidateChecksum(entry.Source, entry.Checksum); err != nil {
+	data, err := loadBytes(entry.Source)
+	if err != nil {
+		return "", fmt.Errorf("load source: %w", err)
+	}
+	if err := validateChecksumBytes(data, entry.Checksum); err != nil {
 		return "", err
 	}
 	destDir := filepath.Join(cacheDir, entry.Name, entry.Version)
-	if err := os.MkdirAll(destDir, 0o755); err != nil {
+	if err := os.MkdirAll(destDir, dirPerm); err != nil {
 		return "", fmt.Errorf("create cache dir: %w", err)
 	}
 	dest := filepath.Join(destDir, "template.yaml")
-	data, err := os.ReadFile(entry.Source)
-	if err != nil {
-		return "", fmt.Errorf("read source: %w", err)
-	}
-	if err := os.WriteFile(dest, data, 0o644); err != nil {
+	if err := os.WriteFile(dest, data, filePerm); err != nil {
 		return "", fmt.Errorf("write cache: %w", err)
 	}
 	return dest, nil
@@ -112,7 +164,7 @@ func FetchTemplate(entry IndexEntry, cacheDir string) (string, error) {
 
 // LoadTemplatePackage loads a template package from path.
 func LoadTemplatePackage(path string) (*TemplatePackage, error) {
-	data, err := os.ReadFile(path)
+	data, err := loadBytes(path)
 	if err != nil {
 		return nil, fmt.Errorf("read template: %w", err)
 	}
@@ -128,7 +180,7 @@ func RenderDryRun(pkg *TemplatePackage, vars map[string]string, outDir string) e
 	if pkg == nil {
 		return fmt.Errorf("template package is nil")
 	}
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
+	if err := os.MkdirAll(outDir, dirPerm); err != nil {
 		return fmt.Errorf("make out dir: %w", err)
 	}
 	for _, f := range pkg.Files {
@@ -136,22 +188,24 @@ func RenderDryRun(pkg *TemplatePackage, vars map[string]string, outDir string) e
 			return fmt.Errorf("file path is empty")
 		}
 		destPath := filepath.Join(outDir, f.Path)
-		if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(destPath), dirPerm); err != nil {
 			return fmt.Errorf("make parent dirs: %w", err)
 		}
 		tmpl, err := template.New("file").Parse(f.Content)
 		if err != nil {
 			return fmt.Errorf("parse template %s: %w", f.Path, err)
 		}
-		fp, err := os.Create(destPath)
+		fp, err := os.Create(destPath) //nolint:gosec // destPath derived from template file path
 		if err != nil {
 			return fmt.Errorf("create file: %w", err)
 		}
 		if err := tmpl.Execute(fp, vars); err != nil {
-			fp.Close()
+			_ = fp.Close()
 			return fmt.Errorf("render %s: %w", f.Path, err)
 		}
-		fp.Close()
+		if err := fp.Close(); err != nil {
+			return fmt.Errorf("close file: %w", err)
+		}
 	}
 	return nil
 }

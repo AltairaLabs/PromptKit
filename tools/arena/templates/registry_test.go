@@ -1,6 +1,8 @@
 package templates
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -59,7 +61,7 @@ func TestFetchTemplate(t *testing.T) {
 	if err := os.WriteFile(src, []byte("files: []"), 0o644); err != nil {
 		t.Fatalf("write pkg: %v", err)
 	}
-	entry := IndexEntry{Name: "demo", Version: "1.0.0", Source: src}
+	entry := &IndexEntry{Name: "demo", Version: "1.0.0", Source: src}
 	dest, err := FetchTemplate(entry, filepath.Join(dir, "cache"))
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
@@ -87,5 +89,49 @@ func TestRenderDryRun(t *testing.T) {
 	}
 	if string(data) != "name: demo" {
 		t.Fatalf("unexpected render: %s", string(data))
+	}
+}
+
+func TestLoadIndexFromHTTP(t *testing.T) {
+	// simulate remote index
+	index := `
+entries:
+  - name: demo
+    version: "1.0.0"
+    description: remote
+    source: http://example.com/template.yaml
+`
+	tpl := `
+files:
+  - path: README.md
+    content: ok
+`
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/index.yaml":
+			_, _ = w.Write([]byte(index))
+		case "/template.yaml":
+			_, _ = w.Write([]byte(tpl))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer s.Close()
+
+	idx, err := LoadIndex(s.URL + "/index.yaml")
+	if err != nil {
+		t.Fatalf("load remote index: %v", err)
+	}
+	entry, err := idx.FindEntry("demo", "1.0.0")
+	if err != nil {
+		t.Fatalf("find entry: %v", err)
+	}
+	entry.Source = s.URL + "/template.yaml"
+	dest, err := FetchTemplate(entry, t.TempDir())
+	if err != nil {
+		t.Fatalf("fetch template: %v", err)
+	}
+	if dest == "" {
+		t.Fatalf("expected dest path")
 	}
 }
