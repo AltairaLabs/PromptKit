@@ -26,12 +26,13 @@ func (v *llmJudgeConversationValidator) ValidateConversation(
 	convCtx *ConversationContext,
 	params map[string]interface{},
 ) ConversationValidationResult {
+	params = cloneParamsWithMetadata(params, convCtx)
 	judgeSpec, err := selectConversationJudgeSpec(convCtx, params)
 	if err != nil {
 		return ConversationValidationResult{Passed: false, Message: err.Error()}
 	}
 
-	req := buildConversationJudgeRequest(convCtx, params)
+	req := buildConversationJudgeRequest(convCtx, params, judgeSpec.Model)
 	provider, err := providers.CreateProviderFromSpec(judgeSpec)
 	if err != nil {
 		return ConversationValidationResult{Passed: false, Message: fmt.Sprintf("create judge provider: %v", err)}
@@ -77,6 +78,7 @@ func selectConversationJudgeSpec(
 func buildConversationJudgeRequest(
 	convCtx *ConversationContext,
 	params map[string]interface{},
+	model string,
 ) providers.PredictionRequest {
 	criteria, _ := params["criteria"].(string)
 	rubric, _ := params["rubric"].(string)
@@ -89,6 +91,10 @@ func buildConversationJudgeRequest(
 	}
 
 	convText := formatConversation(convCtx.AllTurns)
+	if promptReq := buildPromptRequest(convText, criteria, rubric, convText, params, model); promptReq != nil {
+		return *promptReq
+	}
+
 	userBuilder := strings.Builder{}
 	if len(sections) > 0 {
 		userBuilder.WriteString(strings.Join(sections, "\n\n"))

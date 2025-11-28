@@ -7,6 +7,12 @@ spec:
     concurrency: 1
     verbose: true
 
+  prompt_configs:
+    - id: judge-simple
+      file: prompts/judge-simple.prompt.yaml
+    - id: judge-evidence
+      file: prompts/judge-evidence.prompt.yaml
+
   # Providers used by the main assistant (mock)
   providers:
     - file: providers/mock-assistant.yaml
@@ -21,7 +27,6 @@ spec:
       model: judge-model
   judge_defaults:
     prompt: judge-simple
-    prompt_registry: ./prompts
 
   scenarios:
     - file: scenarios/helpfulness.yaml

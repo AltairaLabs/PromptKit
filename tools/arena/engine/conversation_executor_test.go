@@ -49,7 +49,8 @@ func TestBuildConversationContext_IncludesExtras(t *testing.T) {
 		Config:   cfg,
 	}
 	msgs := []types.Message{{Role: "assistant", Content: "hi"}}
-	convCtx := buildConversationContext(&req, msgs)
+	promptRegistry := createTestPromptRegistry(t)
+	convCtx := buildConversationContext(&req, msgs, promptRegistry)
 	if convCtx.Metadata.Extras == nil {
 		t.Fatalf("expected extras to be populated")
 	}
@@ -82,7 +83,39 @@ func TestEvaluateConversationAssertions_WithContentNotIncludes(t *testing.T) {
 	}
 
 	// Also verify buildConversationContext extracts tool calls safely when none present
-	_ = buildConversationContext(&req, msgs)
+	_ = buildConversationContext(&req, msgs, createTestPromptRegistry(t))
+}
+
+func TestBuildConversationContext_IncludesPromptRegistry(t *testing.T) {
+	req := ConversationRequest{
+		Scenario: &config.Scenario{ID: "sc", TaskType: "task"},
+		Config:   &config.Config{},
+	}
+	reg := createTestPromptRegistry(t)
+	ctx := buildConversationContext(&req, []types.Message{}, reg)
+	if ctx.Metadata.Extras == nil {
+		t.Fatalf("expected extras")
+	}
+	if _, ok := ctx.Metadata.Extras["prompt_registry"]; !ok {
+		t.Fatalf("expected prompt_registry in extras")
+	}
+}
+
+func TestBuildTurnRequest_IncludesPromptRegistryMetadata(t *testing.T) {
+	reg := createTestPromptRegistry(t)
+	ce := &DefaultConversationExecutor{promptRegistry: reg}
+	cfg := &config.Config{Defaults: config.Defaults{Seed: 1}}
+	req := ConversationRequest{
+		Config:   cfg,
+		Scenario: &config.Scenario{TaskType: "task"},
+	}
+	tr := ce.buildTurnRequest(req, config.TurnDefinition{Role: "user"})
+	if tr.Metadata == nil {
+		t.Fatalf("expected metadata to be set")
+	}
+	if _, ok := tr.Metadata["prompt_registry"]; !ok {
+		t.Fatalf("expected prompt_registry in metadata")
+	}
 }
 
 func TestBuildTurnRequest_Overrides(t *testing.T) {
