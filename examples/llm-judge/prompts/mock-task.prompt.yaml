@@ -1,0 +1,11 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: mock-task
+spec:
+  task_type: mock-task
+  version: "1.0.0"
+  description: "Simple mock assistant prompt for judge demo"
+  system_template: |
+    You are a concise, helpful assistant. Answer briefly and clearly.
+  variables: []

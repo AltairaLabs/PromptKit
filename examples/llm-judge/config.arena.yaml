@@ -12,6 +12,8 @@ spec:
       file: prompts/judge-simple.prompt.yaml
     - id: judge-evidence
       file: prompts/judge-evidence.prompt.yaml
+    - id: mock-task
+      file: prompts/mock-task.prompt.yaml
 
   # Providers used by the main assistant (mock)
   providers:
