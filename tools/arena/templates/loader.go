@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -150,6 +151,30 @@ func parseTemplateRef(ref string) (name, version string) {
 		return parts[0], parts[1]
 	}
 	return ref, ""
+}
+
+// compareSemver compares two semver-ish strings (major.minor.patch), missing parts treated as 0.
+func compareSemver(a, b string) int {
+	split := func(v string) []int {
+		parts := strings.Split(v, ".")
+		out := []int{0, 0, 0}
+		for i := 0; i < len(parts) && i < 3; i++ {
+			n, _ := strconv.Atoi(parts[i])
+			out[i] = n
+		}
+		return out
+	}
+	va := split(a)
+	vb := split(b)
+	for i := 0; i < 3; i++ {
+		if va[i] > vb[i] {
+			return 1
+		}
+		if va[i] < vb[i] {
+			return -1
+		}
+	}
+	return 0
 }
 
 // ReadTemplateFile reads a template file from the built-in templates

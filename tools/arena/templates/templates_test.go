@@ -862,6 +862,9 @@ entries:
   - name: remote
     version: "1.0.0"
     source: "` + tplPath + `"
+  - name: remote
+    version: "1.1.0"
+    source: "` + tplPath + `"
 `
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -881,6 +884,10 @@ entries:
 	tmpl, err := loader.LoadFromRegistry("remote@1.0.0")
 	require.NoError(t, err)
 	assert.Equal(t, "remote", tmpl.Metadata.Name)
+
+	latest, err := loader.LoadFromRegistry("remote")
+	require.NoError(t, err)
+	assert.Equal(t, "remote", latest.Metadata.Name)
 }
 
 func TestLoader_Load_RemoteTemplate(t *testing.T) {

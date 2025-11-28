@@ -99,15 +99,35 @@ func LoadIndex(path string) (*Index, error) {
 
 // FindEntry finds an entry by name (and optional version).
 func (idx *Index) FindEntry(name, version string) (*IndexEntry, error) {
+	if version == "" || version == "latest" {
+		return idx.findLatest(name)
+	}
 	for i := range idx.Entries {
 		e := idx.Entries[i]
 		if e.Name == name {
-			if version == "" || e.Version == version {
+			if e.Version == version {
 				return &e, nil
 			}
 		}
 	}
 	return nil, fmt.Errorf("template %s@%s not found", name, version)
+}
+
+func (idx *Index) findLatest(name string) (*IndexEntry, error) {
+	var latest *IndexEntry
+	for i := range idx.Entries {
+		e := idx.Entries[i]
+		if e.Name != name {
+			continue
+		}
+		if latest == nil || compareSemver(e.Version, latest.Version) > 0 {
+			latest = &e
+		}
+	}
+	if latest == nil {
+		return nil, fmt.Errorf("template %s not found", name)
+	}
+	return latest, nil
 }
 
 // validateChecksumBytes compares sha256 to expected hex checksum (if provided).
