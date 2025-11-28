@@ -2,7 +2,6 @@ package assertions
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -44,7 +43,7 @@ func (v *llmJudgeConversationValidator) ValidateConversation(
 		return ConversationValidationResult{Passed: false, Message: fmt.Sprintf("judge predict failed: %v", err)}
 	}
 
-	verdict := parseConversationJudgeVerdict(resp.Content)
+	verdict := parseJudgeVerdict(resp.Content)
 	passed := verdict.Passed
 	if minScore, ok := params["min_score"].(float64); ok {
 		passed = passed && verdict.Score >= minScore
@@ -71,34 +70,8 @@ func selectConversationJudgeSpec(
 		return providers.ProviderSpec{}, fmt.Errorf("judge_targets missing; ensure config.judges is loaded")
 	}
 
-	if name, ok := params["judge"].(string); ok && name != "" {
-		if spec, found := targets[name]; found {
-			return spec, nil
-		}
-		return providers.ProviderSpec{}, fmt.Errorf("judge %s not found", name)
-	}
-
-	for _, spec := range targets {
-		return spec, nil
-	}
-	return providers.ProviderSpec{}, fmt.Errorf("no judge targets available")
-}
-
-func coerceJudgeTargets(raw interface{}) map[string]providers.ProviderSpec {
-	switch t := raw.(type) {
-	case map[string]providers.ProviderSpec:
-		return t
-	case map[string]interface{}:
-		out := make(map[string]providers.ProviderSpec, len(t))
-		for k, v := range t {
-			if spec, ok := v.(providers.ProviderSpec); ok {
-				out[k] = spec
-			}
-		}
-		return out
-	default:
-		return nil
-	}
+	name, _ := params["judge"].(string)
+	return selectJudgeFromTargets(targets, name)
 }
 
 func buildConversationJudgeRequest(
@@ -128,21 +101,4 @@ func buildConversationJudgeRequest(
 		System:   "You are an impartial judge. Respond with JSON {\"passed\":bool,\"score\":number,\"reasoning\":string}.",
 		Messages: []types.Message{{Role: "user", Content: userBuilder.String()}},
 	}
-}
-
-type convJudgeResult struct {
-	Passed    bool    `json:"passed"`
-	Reasoning string  `json:"reasoning"`
-	Score     float64 `json:"score"`
-}
-
-func parseConversationJudgeVerdict(content string) convJudgeResult {
-	var res convJudgeResult
-	if err := json.Unmarshal([]byte(content), &res); err == nil {
-		return res
-	}
-	lower := strings.ToLower(content)
-	res.Passed = strings.Contains(lower, "\"passed\":true") || strings.Contains(lower, "passed: true")
-	res.Reasoning = content
-	return res
 }

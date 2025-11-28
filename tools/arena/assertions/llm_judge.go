@@ -79,40 +79,13 @@ func (v *llmJudgeValidator) Validate(content string, params map[string]interface
 
 func selectJudgeSpec(params map[string]interface{}) (providers.ProviderSpec, error) {
 	meta, _ := params["_metadata"].(map[string]interface{})
-	rawTargets, ok := meta["judge_targets"]
-	if !ok {
+	targets := coerceJudgeTargets(meta["judge_targets"])
+	if len(targets) == 0 {
 		return providers.ProviderSpec{}, fmt.Errorf("judge_targets missing; ensure config.judges is loaded")
 	}
 
-	var targets map[string]providers.ProviderSpec
-	switch t := rawTargets.(type) {
-	case map[string]providers.ProviderSpec:
-		targets = t
-	case map[string]interface{}:
-		targets = make(map[string]providers.ProviderSpec, len(t))
-		for k, v := range t {
-			if spec, ok := v.(providers.ProviderSpec); ok {
-				targets[k] = spec
-			}
-		}
-	}
-
-	if len(targets) == 0 {
-		return providers.ProviderSpec{}, fmt.Errorf("no judge targets available")
-	}
-
-	if name, ok := params["judge"].(string); ok && name != "" {
-		if spec, found := targets[name]; found {
-			return spec, nil
-		}
-		return providers.ProviderSpec{}, fmt.Errorf("judge %s not found", name)
-	}
-
-	// Default: first target
-	for _, spec := range targets {
-		return spec, nil
-	}
-	return providers.ProviderSpec{}, fmt.Errorf("no judge targets available")
+	name, _ := params["judge"].(string)
+	return selectJudgeFromTargets(targets, name)
 }
 
 func buildJudgeRequest(content string, params map[string]interface{}) providers.PredictionRequest {
