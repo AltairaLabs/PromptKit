@@ -10,20 +10,18 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// Conversation-level LLM judge validator using judge targets from metadata.
-// Params:
-// - criteria or rubric
-// - judge (optional) -> name in metadata judge_targets
-// - min_score (optional)
-// - conversation_aware is implied (uses full ConversationContext)
+// NewLLMJudgeConversationValidator creates a conversation-level LLM judge validator.
+// Params include criteria/rubric, optional judge name (from metadata judge_targets), and min_score.
 func NewLLMJudgeConversationValidator() ConversationValidator {
 	return &llmJudgeConversationValidator{}
 }
 
 type llmJudgeConversationValidator struct{}
 
+// Type returns validator type name.
 func (v *llmJudgeConversationValidator) Type() string { return "llm_judge_conversation" }
 
+// ValidateConversation runs the judge provider across the full conversation context.
 func (v *llmJudgeConversationValidator) ValidateConversation(
 	ctx context.Context,
 	convCtx *ConversationContext,
@@ -39,7 +37,7 @@ func (v *llmJudgeConversationValidator) ValidateConversation(
 	if err != nil {
 		return ConversationValidationResult{Passed: false, Message: fmt.Sprintf("create judge provider: %v", err)}
 	}
-	defer provider.Close() // nolint: errcheck
+	defer provider.Close()
 
 	resp, err := provider.Predict(ctx, req)
 	if err != nil {
@@ -64,7 +62,10 @@ func (v *llmJudgeConversationValidator) ValidateConversation(
 	}
 }
 
-func selectConversationJudgeSpec(convCtx *ConversationContext, params map[string]interface{}) (providers.ProviderSpec, error) {
+func selectConversationJudgeSpec(
+	convCtx *ConversationContext,
+	params map[string]interface{},
+) (providers.ProviderSpec, error) {
 	targets := coerceJudgeTargets(convCtx.Metadata.Extras["judge_targets"])
 	if len(targets) == 0 {
 		return providers.ProviderSpec{}, fmt.Errorf("judge_targets missing; ensure config.judges is loaded")
@@ -100,7 +101,10 @@ func coerceJudgeTargets(raw interface{}) map[string]providers.ProviderSpec {
 	}
 }
 
-func buildConversationJudgeRequest(convCtx *ConversationContext, params map[string]interface{}) providers.PredictionRequest {
+func buildConversationJudgeRequest(
+	convCtx *ConversationContext,
+	params map[string]interface{},
+) providers.PredictionRequest {
 	criteria, _ := params["criteria"].(string)
 	rubric, _ := params["rubric"].(string)
 	var sections []string

@@ -313,6 +313,11 @@ func (r *JUnitResultRepository) buildMetadata(result *engine.RunResult) string {
 	return metadata.String()
 }
 
+const (
+	truncateReasonLimit = 120
+	truncateMinChars    = 3
+)
+
 func formatConversationAssertionDetails(details map[string]interface{}) string {
 	if len(details) == 0 {
 		return ""
@@ -322,19 +327,19 @@ func formatConversationAssertionDetails(details map[string]interface{}) string {
 		parts = append(parts, fmt.Sprintf("score=%v", score))
 	}
 	if reasoning, ok := details["reasoning"].(string); ok && reasoning != "" {
-		parts = append(parts, truncateReasoning(reasoning, 120))
+		parts = append(parts, truncateReasoning(reasoning, truncateReasonLimit))
 	}
 	return strings.Join(parts, " · ")
 }
 
-func truncateReasoning(s string, max int) string {
-	if len(s) <= max {
+func truncateReasoning(s string, limit int) string {
+	if len(s) <= limit {
 		return s
 	}
-	if max <= 3 {
-		return s[:max]
+	if limit <= truncateMinChars {
+		return s[:limit]
 	}
-	return s[:max-3] + "..."
+	return s[:limit-truncateMinChars] + "..."
 }
 
 // buildErrorDetails creates detailed error information for system-err

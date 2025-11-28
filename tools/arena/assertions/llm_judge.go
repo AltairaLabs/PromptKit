@@ -32,23 +32,37 @@ func NewLLMJudgeValidator(params map[string]interface{}) runtimeValidators.Valid
 
 type llmJudgeValidator struct{}
 
+// Validate runs the judge provider on a single assistant response.
 func (v *llmJudgeValidator) Validate(content string, params map[string]interface{}) runtimeValidators.ValidationResult {
 	judgeSpec, err := selectJudgeSpec(params)
 	if err != nil {
-		return runtimeValidators.ValidationResult{Passed: false, Details: map[string]interface{}{"error": err.Error()}}
+		return runtimeValidators.ValidationResult{
+			Passed:  false,
+			Details: map[string]interface{}{"error": err.Error()},
+		}
 	}
 
 	req := buildJudgeRequest(content, params)
 
 	provider, err := providers.CreateProviderFromSpec(judgeSpec)
 	if err != nil {
-		return runtimeValidators.ValidationResult{Passed: false, Details: map[string]interface{}{"error": fmt.Sprintf("create judge provider: %v", err)}}
+		return runtimeValidators.ValidationResult{
+			Passed: false,
+			Details: map[string]interface{}{
+				"error": fmt.Sprintf("create judge provider: %v", err),
+			},
+		}
 	}
-	defer provider.Close() // nolint: errcheck
+	defer provider.Close()
 
 	resp, err := provider.Predict(context.Background(), req)
 	if err != nil {
-		return runtimeValidators.ValidationResult{Passed: false, Details: map[string]interface{}{"error": fmt.Sprintf("judge predict failed: %v", err)}}
+		return runtimeValidators.ValidationResult{
+			Passed: false,
+			Details: map[string]interface{}{
+				"error": fmt.Sprintf("judge predict failed: %v", err),
+			},
+		}
 	}
 
 	verdict := parseJudgeVerdict(resp.Content)
@@ -157,14 +171,17 @@ func parseJudgeVerdict(content string) llmJudgeResult {
 	}
 	// naive fallback: check for passed true/false
 	lower := strings.ToLower(content)
-	res.Passed = strings.Contains(lower, `"passed":true`) || strings.Contains(lower, "passed\": true") || strings.Contains(lower, "passed: true")
+	res.Passed = strings.Contains(lower, `"passed":true`) ||
+		strings.Contains(lower, `passed": true`) ||
+		strings.Contains(lower, "passed: true")
 	res.Reasoning = content
 	return res
 }
 
 func formatConversation(msgs []types.Message) string {
 	var b strings.Builder
-	for _, m := range msgs {
+	for i := range msgs {
+		m := &msgs[i]
 		b.WriteString(m.Role)
 		b.WriteString(": ")
 		b.WriteString(m.GetContent())

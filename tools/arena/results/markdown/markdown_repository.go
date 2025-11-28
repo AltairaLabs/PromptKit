@@ -597,7 +597,7 @@ func formatConversationAssertionDetails(details map[string]interface{}) string {
 		parts = append(parts, fmt.Sprintf("score=%v", score))
 	}
 	if reasoning, ok := details["reasoning"].(string); ok && reasoning != "" {
-		parts = append(parts, truncate(reasoning, 120))
+		parts = append(parts, truncate(reasoning, truncateLimit))
 	}
 	if len(parts) == 0 {
 		return "-"
@@ -605,14 +605,19 @@ func formatConversationAssertionDetails(details map[string]interface{}) string {
 	return strings.Join(parts, " · ")
 }
 
-func truncate(s string, max int) string {
-	if len(s) <= max {
+const (
+	truncateLimit = 120
+	truncateMin   = 3
+)
+
+func truncate(s string, limit int) string {
+	if len(s) <= limit {
 		return s
 	}
-	if max <= 3 {
-		return s[:max]
+	if limit <= truncateMin {
+		return s[:limit]
 	}
-	return s[:max-3] + "..."
+	return s[:limit-truncateMin] + "..."
 }
 
 // writeResultRow writes a single result row in the matrix

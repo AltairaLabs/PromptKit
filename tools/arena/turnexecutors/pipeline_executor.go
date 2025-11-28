@@ -37,6 +37,7 @@ func (m *variableInjectionMiddleware) StreamChunk(execCtx *pipeline.ExecutionCon
 	return nil
 }
 
+// Process injects request metadata into the execution context.
 func (m *metadataInjectionMiddleware) Process(execCtx *pipeline.ExecutionContext, next func() error) error {
 	if len(m.metadata) == 0 {
 		return next()
@@ -50,7 +51,11 @@ func (m *metadataInjectionMiddleware) Process(execCtx *pipeline.ExecutionContext
 	return next()
 }
 
-func (m *metadataInjectionMiddleware) StreamChunk(execCtx *pipeline.ExecutionContext, chunk *providers.StreamChunk) error {
+// StreamChunk is a no-op for metadata injection.
+func (m *metadataInjectionMiddleware) StreamChunk(
+	execCtx *pipeline.ExecutionContext,
+	chunk *providers.StreamChunk,
+) error {
 	return nil
 }
 

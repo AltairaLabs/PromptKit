@@ -266,9 +266,9 @@ func deepCopyMap(src map[string]interface{}) map[string]interface{} {
 	if src == nil {
 		return nil
 	}
-	copy := make(map[string]interface{}, len(src))
+	dst := make(map[string]interface{}, len(src))
 	for k, v := range src {
-		copy[k] = v
+		dst[k] = v
 	}
-	return copy
+	return dst
 }

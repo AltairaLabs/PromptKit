@@ -266,7 +266,8 @@ func (c *Config) validateJudgeReferences() error {
 		}
 
 		if _, exists := c.LoadedProviders[judge.Provider]; !exists {
-			return fmt.Errorf("judge %s references unknown provider %s (must be defined in spec.providers)", judge.Name, judge.Provider)
+			return fmt.Errorf("judge %s references unknown provider %s (must be defined in spec.providers)",
+				judge.Name, judge.Provider)
 		}
 	}
 	return nil
@@ -277,7 +278,8 @@ func (c *Config) buildJudgeTargets() error {
 	for _, judge := range c.Judges {
 		provider, exists := c.LoadedProviders[judge.Provider]
 		if !exists {
-			return fmt.Errorf("judge %s references unknown provider %s (must be defined in spec.providers)", judge.Name, judge.Provider)
+			return fmt.Errorf("judge %s references unknown provider %s (must be defined in spec.providers)",
+				judge.Name, judge.Provider)
 		}
 
 		model := provider.Model
