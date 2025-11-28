@@ -3,6 +3,7 @@ package assertions
 import (
 	"fmt"
 
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 )
 
@@ -41,4 +42,24 @@ func selectJudgeFromTargets(targets map[string]providers.ProviderSpec, name stri
 		return spec, nil
 	}
 	return providers.ProviderSpec{}, fmt.Errorf("no judge targets available")
+}
+
+// cloneParamsWithMetadata clones params and injects metadata extras for validators that expect _metadata.
+func cloneParamsWithMetadata(params map[string]interface{}, convCtx *ConversationContext) map[string]interface{} {
+	out := make(map[string]interface{}, len(params)+1)
+	for k, v := range params {
+		out[k] = v
+	}
+	if convCtx != nil && convCtx.Metadata.Extras != nil {
+		out["_metadata"] = convCtx.Metadata.Extras
+	}
+	return out
+}
+
+// getPromptRegistryFromMeta fetches a prompt registry pointer if present.
+func getPromptRegistryFromMeta(meta map[string]interface{}) *prompt.Registry {
+	if reg, ok := meta["prompt_registry"].(*prompt.Registry); ok {
+		return reg
+	}
+	return nil
 }

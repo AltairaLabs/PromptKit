@@ -149,6 +149,9 @@ func (ce *DefaultConversationExecutor) buildTurnRequest(req ConversationRequest,
 		baseDir = req.Config.ConfigDir
 		attachJudgeMetadata(metadata, req.Config)
 	}
+	if ce.promptRegistry != nil {
+		metadata["prompt_registry"] = ce.promptRegistry
+	}
 	// Determine temperature: use override > config default (if set) > provider default (via 0)
 	temperature := float64(req.Config.Defaults.Temperature)
 	if req.Temperature != nil {
@@ -516,7 +519,7 @@ func (ce *DefaultConversationExecutor) evaluateConversationAssertions(
 	logger.Debug("Running conversation assertion validators", "count", len(assertions))
 
 	// Build conversation context from messages
-	convCtx := buildConversationContext(req, messages)
+	convCtx := buildConversationContext(req, messages, ce.promptRegistry)
 
 	reg := asrt.NewConversationAssertionRegistry()
 	results := reg.ValidateConversations(context.Background(), assertions, convCtx)
@@ -529,7 +532,11 @@ func (ce *DefaultConversationExecutor) evaluateConversationAssertions(
 }
 
 // buildConversationContext constructs a conversation context from messages and request metadata
-func buildConversationContext(req *ConversationRequest, messages []types.Message) *asrt.ConversationContext {
+func buildConversationContext(
+	req *ConversationRequest,
+	messages []types.Message,
+	promptRegistry *prompt.Registry,
+) *asrt.ConversationContext {
 	// Extract tool calls across all assistant messages
 	var toolCalls []asrt.ToolCallRecord
 	for idx := range messages {
@@ -563,7 +570,7 @@ func buildConversationContext(req *ConversationRequest, messages []types.Message
 		TotalTokens:    0,
 		Extras:         nil,
 	}
-	meta.Extras = buildMetadataExtras(req)
+	meta.Extras = buildMetadataExtras(req, promptRegistry)
 
 	return &asrt.ConversationContext{
 		AllTurns:  messages,
@@ -572,10 +579,13 @@ func buildConversationContext(req *ConversationRequest, messages []types.Message
 	}
 }
 
-func buildMetadataExtras(req *ConversationRequest) map[string]interface{} {
+func buildMetadataExtras(req *ConversationRequest, promptRegistry *prompt.Registry) map[string]interface{} {
 	extras := make(map[string]interface{})
 	if req.Config != nil {
 		attachJudgeMetadata(extras, req.Config)
+	}
+	if promptRegistry != nil {
+		extras["prompt_registry"] = promptRegistry
 	}
 	if len(extras) == 0 {
 		return nil

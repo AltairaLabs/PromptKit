@@ -3,6 +3,8 @@ package assertions
 import (
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -52,7 +54,7 @@ func TestLLMJudgeValidator_ConversationAware(t *testing.T) {
 		{Role: "assistant", Content: "Because it's calm."},
 	}
 	params := map[string]interface{}{
-		"criteria": "answer makes sense",
+		"criteria":           "answer makes sense",
 		"conversation_aware": true,
 		"_metadata": map[string]interface{}{
 			"judge_targets": map[string]providers.ProviderSpec{"default": spec},
@@ -94,5 +96,43 @@ func TestArenaRegistry_RegistersLLMJudge(t *testing.T) {
 	reg := NewArenaAssertionRegistry()
 	if _, ok := reg.Get("llm_judge"); !ok {
 		t.Fatalf("llm_judge not registered in arena registry")
+	}
+}
+
+func TestBuildJudgeRequest_UsesPromptRegistry(t *testing.T) {
+	repo := memory.NewPromptRepository()
+	cfg := &prompt.Config{
+		Spec: prompt.Spec{
+			TaskType:       "judge-template",
+			Version:        "1.0.0",
+			Description:    "test judge",
+			SystemTemplate: "SYS {{criteria}} {{response}}",
+			Variables: []prompt.VariableMetadata{
+				{Name: "criteria", Required: true},
+				{Name: "response", Required: true},
+			},
+		},
+	}
+	if err := repo.SavePrompt(cfg); err != nil {
+		t.Fatalf("failed to save prompt: %v", err)
+	}
+	reg := prompt.NewRegistryWithRepository(repo)
+
+	params := map[string]interface{}{
+		"criteria": "crit",
+		"_metadata": map[string]interface{}{
+			"prompt_registry": reg,
+			"judge_defaults": map[string]interface{}{
+				"prompt": "judge-template",
+			},
+		},
+	}
+
+	req := buildJudgeRequest("resp", params, "")
+	if req.System != "SYS crit resp" {
+		t.Fatalf("expected system prompt from registry, got: %s", req.System)
+	}
+	if len(req.Messages) != 1 || req.Messages[0].Role != "user" {
+		t.Fatalf("expected single user message")
 	}
 }

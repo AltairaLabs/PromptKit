@@ -1,0 +1,34 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: judge-evidence
+spec:
+  task_type: judge-evidence
+  version: "1.0.0"
+  description: "Evidence-focused judge that cites specific snippets"
+  system_template: |
+    You are an impartial judge. Respond with JSON {"passed":bool,"score":number,"reasoning":string,"evidence":[string]}.
+
+    CRITERIA OR RUBRIC:
+    {{criteria}}{{rubric}}
+
+    CONVERSATION:
+    {{conversation}}
+
+    RESPONSE:
+    {{response}}
+
+    Include specific evidence strings that support your reasoning.
+  variables:
+    - name: criteria
+      required: false
+      description: Criteria text (optional if rubric provided)
+    - name: rubric
+      required: false
+      description: Rubric text (optional if criteria provided)
+    - name: conversation
+      required: false
+      description: Full conversation transcript (optional)
+    - name: response
+      required: true
+      description: Assistant response being evaluated

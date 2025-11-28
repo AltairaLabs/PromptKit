@@ -1,0 +1,29 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: judge-simple
+spec:
+  task_type: judge-simple
+  version: "1.0.0"
+  description: "Simple criteria-based LLM judge returning pass/fail with score"
+  system_template: |
+    You are an impartial judge. Respond with JSON {"passed":bool,"score":number,"reasoning":string}.
+
+    CRITERIA:
+    {{criteria}}
+
+    CONVERSATION:
+    {{conversation}}
+
+    RESPONSE:
+    {{response}}
+  variables:
+    - name: criteria
+      required: true
+      description: Criteria to evaluate
+    - name: conversation
+      required: false
+      description: Full conversation transcript (optional)
+    - name: response
+      required: true
+      description: Assistant response being evaluated

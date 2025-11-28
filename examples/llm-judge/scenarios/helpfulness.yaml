@@ -16,6 +16,7 @@ spec:
             criteria: |
               Response gives clear, concise, actionable reset steps.
             judge: mock-judge
+            prompt: judge-evidence
             min_score: 0.8
           message: "Assistant response should be helpful and actionable"
 

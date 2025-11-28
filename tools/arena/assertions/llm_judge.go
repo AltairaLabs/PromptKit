@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	runtimeValidators "github.com/AltairaLabs/PromptKit/runtime/validators"
@@ -42,7 +43,7 @@ func (v *llmJudgeValidator) Validate(content string, params map[string]interface
 		}
 	}
 
-	req := buildJudgeRequest(content, params)
+	req := buildJudgeRequest(content, params, judgeSpec.Model)
 
 	provider, err := providers.CreateProviderFromSpec(judgeSpec)
 	if err != nil {
@@ -88,7 +89,7 @@ func selectJudgeSpec(params map[string]interface{}) (providers.ProviderSpec, err
 	return selectJudgeFromTargets(targets, name)
 }
 
-func buildJudgeRequest(content string, params map[string]interface{}) providers.PredictionRequest {
+func buildJudgeRequest(content string, params map[string]interface{}, model string) providers.PredictionRequest {
 	criteria, _ := params["criteria"].(string)
 	rubric, _ := params["rubric"].(string)
 	var sections []string
@@ -106,7 +107,22 @@ func buildJudgeRequest(content string, params map[string]interface{}) providers.
 		}
 	}
 
+	temp := float32(0.0)
+	if t, ok := params["temperature"].(float64); ok {
+		temp = float32(t)
+	}
+	maxTokens := 0
+	if mt, ok := params["max_tokens"].(int); ok {
+		maxTokens = mt
+	}
+
 	system := "You are an impartial judge. Respond with JSON {\"passed\":bool,\"score\":number,\"reasoning\":string}."
+	if promptReq := buildPromptRequest(content, criteria, rubric, contextMsg, params, model); promptReq != nil {
+		promptReq.Temperature = temp
+		promptReq.MaxTokens = maxTokens
+		return *promptReq
+	}
+
 	var userBuilder strings.Builder
 	if len(sections) > 0 {
 		userBuilder.WriteString(strings.Join(sections, "\n\n"))
@@ -120,21 +136,61 @@ func buildJudgeRequest(content string, params map[string]interface{}) providers.
 	userBuilder.WriteString("ASSISTANT RESPONSE:\n")
 	userBuilder.WriteString(content)
 
-	temp := float32(0.0)
-	if t, ok := params["temperature"].(float64); ok {
-		temp = float32(t)
-	}
-	maxTokens := 0
-	if mt, ok := params["max_tokens"].(int); ok {
-		maxTokens = mt
-	}
-
 	return providers.PredictionRequest{
 		System:      system,
 		Messages:    []types.Message{{Role: "user", Content: userBuilder.String()}},
 		Temperature: temp,
 		MaxTokens:   maxTokens,
 	}
+}
+
+// buildPromptRequest renders a prompt from the registry if available.
+func buildPromptRequest(
+	content, criteria, rubric, conversation string,
+	params map[string]interface{},
+	model string,
+) *providers.PredictionRequest {
+	registry := extractPromptRegistry(params)
+	promptName := selectJudgePromptName(params)
+	if registry == nil || promptName == "" {
+		return nil
+	}
+
+	vars := map[string]string{
+		"criteria":     criteria,
+		"rubric":       rubric,
+		"conversation": conversation,
+		"response":     content,
+	}
+
+	assembled := registry.LoadWithVars(promptName, vars, model)
+	if assembled == nil {
+		return nil
+	}
+
+	return &providers.PredictionRequest{
+		System:   assembled.SystemPrompt,
+		Messages: []types.Message{{Role: "user", Content: "Return the JSON verdict now."}},
+	}
+}
+
+// extractPromptRegistry returns a prompt registry from metadata if present.
+func extractPromptRegistry(params map[string]interface{}) *prompt.Registry {
+	meta, _ := params["_metadata"].(map[string]interface{})
+	return getPromptRegistryFromMeta(meta)
+}
+
+func selectJudgePromptName(params map[string]interface{}) string {
+	if promptName, ok := params["prompt"].(string); ok && promptName != "" {
+		return promptName
+	}
+	meta, _ := params["_metadata"].(map[string]interface{})
+	if defaults, ok := meta["judge_defaults"].(map[string]interface{}); ok {
+		if promptName, ok := defaults["prompt"].(string); ok && promptName != "" {
+			return promptName
+		}
+	}
+	return ""
 }
 
 func parseJudgeVerdict(content string) llmJudgeResult {
