@@ -5,6 +5,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 func TestLLMJudgeValidator_BasicPass(t *testing.T) {
@@ -35,6 +36,33 @@ func TestLLMJudgeValidator_MissingJudgeTargets(t *testing.T) {
 	res := validator.Validate("hi", map[string]interface{}{"criteria": "be nice"})
 	if res.Passed {
 		t.Fatalf("expected failure when judge targets missing")
+	}
+}
+
+func TestLLMJudgeValidator_ConversationAware(t *testing.T) {
+	repo := mock.NewInMemoryMockRepository(`{"passed":true,"score":0.5,"reasoning":"ok"}`)
+	spec := providers.ProviderSpec{
+		ID:               "mock-judge",
+		Type:             "mock",
+		Model:            "judge-model",
+		AdditionalConfig: map[string]interface{}{"repository": repo},
+	}
+	msgs := []types.Message{
+		{Role: "user", Content: "Why blue?"},
+		{Role: "assistant", Content: "Because it's calm."},
+	}
+	params := map[string]interface{}{
+		"criteria": "answer makes sense",
+		"conversation_aware": true,
+		"_metadata": map[string]interface{}{
+			"judge_targets": map[string]providers.ProviderSpec{"default": spec},
+		},
+		"_execution_context_messages": msgs,
+	}
+	validator := NewLLMJudgeValidator(nil)
+	result := validator.Validate("It is calm.", params)
+	if !result.Passed {
+		t.Fatalf("expected pass, got fail: %+v", result.Details)
 	}
 }
 

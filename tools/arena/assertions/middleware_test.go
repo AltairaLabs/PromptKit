@@ -486,6 +486,17 @@ func TestArenaAssertionMiddleware_SourceFieldFiltering(t *testing.T) {
 	if capturedTurnMessages[1].Content != "Current answer" {
 		t.Errorf("Expected second turn message to be 'Current answer', got %q", capturedTurnMessages[1].Content)
 	}
+
+	// Ensure metadata is copied, not aliased
+	params := (&assertionMiddleware{}).buildValidatorParams(assertions[0].Params, capturedTurnMessages, execCtx.Messages, map[string]interface{}{"foo": "bar"})
+	meta, ok := params["_metadata"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected _metadata map")
+	}
+	meta["foo"] = "baz"
+	if execCtx.Metadata != nil && execCtx.Metadata["foo"] == "baz" {
+		t.Fatalf("metadata should be copied, not aliased")
+	}
 }
 
 // testCaptureValidator captures turn messages for testing
