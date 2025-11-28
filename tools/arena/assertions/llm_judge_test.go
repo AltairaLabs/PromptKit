@@ -66,6 +66,29 @@ func TestLLMJudgeValidator_ConversationAware(t *testing.T) {
 	}
 }
 
+func TestLLMJudgeValidator_NamedJudgeNotFound(t *testing.T) {
+	spec := providers.ProviderSpec{ID: "mock-judge", Type: "mock", Model: "judge-model"}
+	params := map[string]interface{}{
+		"criteria": "be nice",
+		"judge":    "missing",
+		"_metadata": map[string]interface{}{
+			"judge_targets": map[string]providers.ProviderSpec{"default": spec},
+		},
+	}
+	validator := NewLLMJudgeValidator(nil)
+	res := validator.Validate("hi", params)
+	if res.Passed {
+		t.Fatalf("expected fail when named judge missing")
+	}
+}
+
+func TestParseJudgeVerdictFallback(t *testing.T) {
+	verdict := parseJudgeVerdict("passed: true")
+	if !verdict.Passed {
+		t.Fatalf("expected fallback parse to mark passed")
+	}
+}
+
 // Ensure the validator is registered in the arena registry
 func TestArenaRegistry_RegistersLLMJudge(t *testing.T) {
 	reg := NewArenaAssertionRegistry()
