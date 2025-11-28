@@ -1,0 +1,27 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: llm-judge-demo
+spec:
+  defaults:
+    concurrency: 1
+    verbose: true
+
+  # Providers used by the main assistant (mock)
+  providers:
+    - file: providers/mock-assistant.yaml
+      group: default
+    - file: providers/mock-judge.yaml
+      group: judge
+
+  # Judges map names to provider IDs and optional model overrides
+  judges:
+    - name: mock-judge
+      provider: mock-judge
+      model: judge-model
+  judge_defaults:
+    prompt: judge-simple
+    prompt_registry: ./prompts
+
+  scenarios:
+    - file: scenarios/helpfulness.yaml

@@ -265,7 +265,13 @@ func (r *JUnitResultRepository) buildConversationAssertionFailure(result *engine
 	for i := range result.ConversationAssertions.Results {
 		res := result.ConversationAssertions.Results[i]
 		if !res.Passed {
-			details.WriteString(fmt.Sprintf("  - %s\n", res.Message))
+			details.WriteString(fmt.Sprintf("  - %s", res.Message))
+			if len(res.Details) > 0 {
+				if msg := formatConversationAssertionDetails(res.Details); msg != "" {
+					details.WriteString(fmt.Sprintf(" (%s)", msg))
+				}
+			}
+			details.WriteString("\n")
 		}
 	}
 	return &JUnitFailure{
@@ -305,6 +311,30 @@ func (r *JUnitResultRepository) buildMetadata(result *engine.RunResult) string {
 	}
 
 	return metadata.String()
+}
+
+func formatConversationAssertionDetails(details map[string]interface{}) string {
+	if len(details) == 0 {
+		return ""
+	}
+	var parts []string
+	if score, ok := details["score"]; ok {
+		parts = append(parts, fmt.Sprintf("score=%v", score))
+	}
+	if reasoning, ok := details["reasoning"].(string); ok && reasoning != "" {
+		parts = append(parts, truncateReasoning(reasoning, 120))
+	}
+	return strings.Join(parts, " · ")
+}
+
+func truncateReasoning(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	if max <= 3 {
+		return s[:max]
+	}
+	return s[:max-3] + "..."
 }
 
 // buildErrorDetails creates detailed error information for system-err

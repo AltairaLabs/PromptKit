@@ -1,0 +1,5 @@
+defaultResponse: '{"passed": true, "score": 0.92, "reasoning": "Clear, concise, actionable steps"}'
+scenarios:
+  helpfulness-demo:
+    turns:
+      1: '{"passed": true, "score": 0.92, "reasoning": "Clear, concise, actionable steps"}'

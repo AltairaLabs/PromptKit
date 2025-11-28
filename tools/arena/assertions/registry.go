@@ -1,6 +1,9 @@
 package assertions
 
 import (
+	"context"
+
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 	runtimeValidators "github.com/AltairaLabs/PromptKit/runtime/validators"
 )
 
@@ -28,5 +31,31 @@ func NewArenaAssertionRegistry() *runtimeValidators.Registry {
 	registry.Register("video_duration", NewVideoDurationValidator)
 	registry.Register("video_resolution", NewVideoResolutionValidator)
 
+	// LLM judge validators
+	registry.Register("llm_judge", NewLLMJudgeValidator)
+	// Note: conversation-level validator registered in conversation registry
+
 	return registry
+}
+
+// conversationAdapter adapts a ConversationValidator to the turn-level Validator interface.
+// It expects _metadata and _execution_context_messages to be present in params.
+type conversationAdapter struct {
+	cv ConversationValidator
+}
+
+func (a conversationAdapter) Validate(content string, params map[string]interface{}) runtimeValidators.ValidationResult {
+	// Build a minimal ConversationContext from provided messages
+	msgs, _ := params["_execution_context_messages"].([]types.Message)
+	convCtx := &ConversationContext{
+		AllTurns: msgs,
+	}
+	res := a.cv.ValidateConversation(context.Background(), convCtx, params)
+	return runtimeValidators.ValidationResult{
+		Passed: res.Passed,
+		Details: map[string]interface{}{
+			"message": res.Message,
+			"details": res.Details,
+		},
+	}
 }

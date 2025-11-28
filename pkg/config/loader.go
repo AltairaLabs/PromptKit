@@ -39,9 +39,11 @@ func LoadConfig(filename string) (*Config, error) {
 	// Initialize loaded resource maps with appropriate capacity
 	cfg.LoadedPromptConfigs = make(map[string]*PromptConfigData, len(cfg.PromptConfigs))
 	cfg.LoadedProviders = make(map[string]*Provider, len(cfg.Providers))
+	cfg.LoadedJudges = make(map[string]*JudgeTarget, len(cfg.Judges))
 	cfg.LoadedScenarios = make(map[string]*Scenario, len(cfg.Scenarios))
 	cfg.LoadedTools = make([]ToolData, 0, len(cfg.Tools))
 	cfg.LoadedPersonas = make(map[string]*UserPersonaPack)
+	cfg.ProviderGroups = make(map[string]string)
 
 	// Load all resources
 	if err := cfg.loadPromptConfigs(filename); err != nil {
@@ -62,6 +64,14 @@ func LoadConfig(filename string) (*Config, error) {
 		if err := cfg.loadSelfPlayResources(filename); err != nil {
 			return nil, err
 		}
+	}
+
+	// Validate judge references against provider registry (mirrors self-play validation)
+	if err := cfg.validateJudgeReferences(); err != nil {
+		return nil, err
+	}
+	if err := cfg.buildJudgeTargets(); err != nil {
+		return nil, err
 	}
 
 	// Validate the loaded configuration (warnings only, doesn't fail)
@@ -196,6 +206,11 @@ func (c *Config) loadProviders(configPath string) error {
 			return fmt.Errorf("failed to load provider %s: %w", ref.File, err)
 		}
 		c.LoadedProviders[provider.ID] = provider
+		group := ref.Group
+		if group == "" {
+			group = "default"
+		}
+		c.ProviderGroups[provider.ID] = group
 	}
 	return nil
 }
@@ -240,5 +255,41 @@ func (c *Config) loadSelfPlayResources(configPath string) error {
 		}
 	}
 
+	return nil
+}
+
+// validateJudgeReferences ensures all judges reference known providers.
+func (c *Config) validateJudgeReferences() error {
+	for _, judge := range c.Judges {
+		if judge.Provider == "" {
+			return fmt.Errorf("judge %s must specify a provider", judge.Name)
+		}
+
+		if _, exists := c.LoadedProviders[judge.Provider]; !exists {
+			return fmt.Errorf("judge %s references unknown provider %s (must be defined in spec.providers)", judge.Name, judge.Provider)
+		}
+	}
+	return nil
+}
+
+// buildJudgeTargets resolves judge references to provider configs and effective models.
+func (c *Config) buildJudgeTargets() error {
+	for _, judge := range c.Judges {
+		provider, exists := c.LoadedProviders[judge.Provider]
+		if !exists {
+			return fmt.Errorf("judge %s references unknown provider %s (must be defined in spec.providers)", judge.Name, judge.Provider)
+		}
+
+		model := provider.Model
+		if judge.Model != "" {
+			model = judge.Model
+		}
+
+		c.LoadedJudges[judge.Name] = &JudgeTarget{
+			Name:     judge.Name,
+			Provider: provider,
+			Model:    model,
+		}
+	}
 	return nil
 }

@@ -41,6 +41,8 @@ func (v *ConfigValidator) Validate() error {
 	v.validateScenarios()
 	v.validatePersonas()
 	v.validateSelfPlay()
+	v.validateJudges()
+	v.validateJudgeDefaults()
 	v.validateCrossReferences()
 
 	if len(v.errors) > 0 {
@@ -100,7 +102,7 @@ func (v *ConfigValidator) validateProviders() {
 	}
 
 	seen := make(map[string]bool)
-	for _, provider := range v.config.Providers {
+	for i, provider := range v.config.Providers {
 		// Check for duplicate files
 		if seen[provider.File] {
 			v.warns = append(v.warns, fmt.Sprintf("duplicate provider file: %s", provider.File))
@@ -114,6 +116,11 @@ func (v *ConfigValidator) validateProviders() {
 		}
 		if _, err := os.Stat(checkPath); os.IsNotExist(err) {
 			v.errors = append(v.errors, fmt.Errorf("provider file not found: %s", provider.File))
+		}
+
+		// Default group if not set
+		if provider.Group == "" {
+			v.config.Providers[i].Group = "default"
 		}
 	}
 }
@@ -201,6 +208,40 @@ func (v *ConfigValidator) validateSelfPlay() {
 		}
 		// Note: Provider existence validation happens in loadSelfPlayResources
 		// after all providers are loaded
+	}
+}
+
+// validateJudges validates judge configuration (names, provider references)
+func (v *ConfigValidator) validateJudges() {
+	if len(v.config.Judges) == 0 {
+		return
+	}
+
+	seen := make(map[string]bool)
+	for _, judge := range v.config.Judges {
+		if judge.Name == "" {
+			v.errors = append(v.errors, fmt.Errorf("judge entry missing name"))
+		}
+		if seen[judge.Name] {
+			v.errors = append(v.errors, fmt.Errorf("duplicate judge name: %s", judge.Name))
+		}
+		seen[judge.Name] = true
+
+		if judge.Provider == "" {
+			v.errors = append(v.errors, fmt.Errorf("judge %s missing provider", judge.Name))
+		}
+		// Provider existence is enforced in loader via validateJudgeReferences after providers load
+	}
+}
+
+// validateJudgeDefaults validates judge default settings (optional)
+func (v *ConfigValidator) validateJudgeDefaults() {
+	if v.config.JudgeDefaults == nil {
+		return
+	}
+	// No required fields, but warn if prompt is empty when judge defaults are present
+	if v.config.JudgeDefaults.Prompt == "" {
+		v.warns = append(v.warns, "judge_defaults specified without a prompt")
 	}
 }
 

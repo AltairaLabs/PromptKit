@@ -1,0 +1,14 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: mock-judge
+spec:
+  id: mock-judge
+  type: mock
+  model: judge-model
+  defaults:
+    temperature: 0.0
+    top_p: 1.0
+    max_tokens: 128
+  additional_config:
+    mock_config: examples/llm-judge/mock-responses-judge.yaml

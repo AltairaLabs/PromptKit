@@ -119,10 +119,34 @@ func (e *Engine) getInitialProviders(scenario *config.Scenario, providerFilter [
 	if len(scenario.Providers) > 0 {
 		return scenario.Providers
 	}
-	if len(providerFilter) > 0 {
-		return providerFilter
+
+	group := scenario.ProviderGroup
+	if group == "" {
+		group = "default"
 	}
-	return e.providerRegistry.List()
+
+	var providers []string
+	for id := range e.providers {
+		refGroup := e.config.ProviderGroups[id]
+		if refGroup == "" {
+			refGroup = "default"
+		}
+		if refGroup == group {
+			providers = append(providers, id)
+		}
+	}
+
+	// Fallback to all providers if none matched
+	if len(providers) == 0 {
+		providers = e.providerRegistry.List()
+	}
+
+	// Apply global provider filter if provided
+	if len(providerFilter) > 0 {
+		return e.applyProviderFilter(providers, providerFilter)
+	}
+
+	return providers
 }
 
 // intersectProviders returns the intersection of scenario providers and filter

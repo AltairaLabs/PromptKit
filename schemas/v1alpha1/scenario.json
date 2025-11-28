@@ -124,6 +124,9 @@
           },
           "type": "array"
         },
+        "provider_group": {
+          "type": "string"
+        },
         "streaming": {
           "type": "boolean"
         },

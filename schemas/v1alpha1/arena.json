@@ -16,6 +16,15 @@
           },
           "type": "array"
         },
+        "judges": {
+          "items": {
+            "$ref": "#/$defs/JudgeRef"
+          },
+          "type": "array"
+        },
+        "judge_defaults": {
+          "$ref": "#/$defs/JudgeDefaults"
+        },
         "scenarios": {
           "items": {
             "$ref": "#/$defs/ScenarioRef"
@@ -122,6 +131,37 @@
       },
       "additionalProperties": false,
       "type": "object"
+    },
+    "JudgeDefaults": {
+      "properties": {
+        "prompt": {
+          "type": "string"
+        },
+        "prompt_registry": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "JudgeRef": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "provider"
+      ]
     },
     "MCPServerConfig": {
       "properties": {
@@ -310,6 +350,9 @@
     "ProviderRef": {
       "properties": {
         "file": {
+          "type": "string"
+        },
+        "group": {
           "type": "string"
         }
       },
