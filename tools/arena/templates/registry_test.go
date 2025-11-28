@@ -53,6 +53,11 @@ func TestValidateChecksum(t *testing.T) {
 	if err := ValidateChecksum(p, "deadbeef"); err == nil {
 		t.Fatalf("expected checksum mismatch")
 	}
+
+	// bytes validation
+	if err := validateChecksumBytes([]byte("hello"), sum); err != nil {
+		t.Fatalf("bytes checksum failed: %v", err)
+	}
 }
 
 func TestFetchTemplate(t *testing.T) {

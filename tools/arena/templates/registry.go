@@ -1,6 +1,7 @@
 package templates
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -24,7 +25,11 @@ const (
 // loadBytes loads a file from disk or HTTP.
 func loadBytes(location string) ([]byte, error) {
 	if strings.HasPrefix(location, "http://") || strings.HasPrefix(location, "https://") {
-		resp, err := http.Get(location) //nolint:gosec // location comes from user input/config
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, location, http.NoBody)
+		if err != nil {
+			return nil, fmt.Errorf("http request %s: %w", location, err)
+		}
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("http get %s: %w", location, err)
 		}

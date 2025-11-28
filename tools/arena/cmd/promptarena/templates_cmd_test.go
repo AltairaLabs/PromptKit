@@ -59,7 +59,12 @@ entries:
 	templatesRenderCmd.Flags().Set("template", "demo")
 	templatesRenderCmd.Flags().Set("version", "1.0.0")
 	templatesRenderCmd.Flags().Set("out", filepath.Join(dir, "out"))
-	templatesRenderCmd.Flags().Set("set", "name=world")
+	valsFile := filepath.Join(dir, "values.yaml")
+	if err := os.WriteFile(valsFile, []byte("name: world\n"), 0o644); err != nil {
+		t.Fatalf("write values: %v", err)
+	}
+
+	templatesRenderCmd.Flags().Set("values", valsFile)
 	if err := templatesRenderCmd.RunE(templatesRenderCmd, nil); err != nil {
 		t.Fatalf("render run: %v", err)
 	}
