@@ -119,10 +119,57 @@ func (e *Engine) getInitialProviders(scenario *config.Scenario, providerFilter [
 	if len(scenario.Providers) > 0 {
 		return scenario.Providers
 	}
-	if len(providerFilter) > 0 {
-		return providerFilter
+
+	group := scenario.ProviderGroup
+	if group == "" {
+		group = "default"
 	}
-	return e.providerRegistry.List()
+
+	var providers []string
+	for id := range e.providers {
+		refGroup := e.config.ProviderGroups[id]
+		if refGroup == "" {
+			refGroup = "default"
+		}
+		if refGroup == group {
+			providers = append(providers, id)
+		}
+	}
+
+	// Fallback to all providers if none matched
+	if len(providers) == 0 {
+		providers = e.providerRegistry.List()
+	}
+
+	// Apply global provider filter if provided
+	if len(providerFilter) > 0 {
+		// If no providers were discovered, honor the filter directly (test convenience)
+		if len(providers) == 0 {
+			return providerFilter
+		}
+		return e.applyProviderFilter(providers, providerFilter)
+	}
+
+	return providers
+}
+
+// applyProviderFilter filters providers by the provided list, preserving order from input slice.
+func (e *Engine) applyProviderFilter(providers, filter []string) []string {
+	if len(filter) == 0 {
+		return providers
+	}
+	filterSet := make(map[string]struct{}, len(filter))
+	for _, p := range filter {
+		filterSet[p] = struct{}{}
+	}
+
+	var filtered []string
+	for _, p := range providers {
+		if _, ok := filterSet[p]; ok {
+			filtered = append(filtered, p)
+		}
+	}
+	return filtered
 }
 
 // intersectProviders returns the intersection of scenario providers and filter

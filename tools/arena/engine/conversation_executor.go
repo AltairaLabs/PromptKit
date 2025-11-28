@@ -11,6 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	asrt "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
@@ -143,8 +144,10 @@ func (ce *DefaultConversationExecutor) debugOnUserTurnAssertions(scenarioTurn co
 // buildTurnRequest creates a TurnRequest from the conversation request and scenario turn
 func (ce *DefaultConversationExecutor) buildTurnRequest(req ConversationRequest, scenarioTurn config.TurnDefinition) turnexecutors.TurnRequest {
 	baseDir := ""
+	metadata := make(map[string]interface{})
 	if req.Config != nil {
 		baseDir = req.Config.ConfigDir
+		attachJudgeMetadata(metadata, req.Config)
 	}
 	// Determine temperature: use override > config default (if set) > provider default (via 0)
 	temperature := float64(req.Config.Defaults.Temperature)
@@ -191,6 +194,7 @@ func (ce *DefaultConversationExecutor) buildTurnRequest(req ConversationRequest,
 		ScriptedContent:  scenarioTurn.Content, // Legacy text content (for backward compatibility)
 		ScriptedParts:    scenarioTurn.Parts,   // Multimodal content parts (takes precedence over ScriptedContent)
 		Assertions:       scenarioTurn.Assertions,
+		Metadata:         metadata,
 	}
 }
 
@@ -406,6 +410,56 @@ func (ce *DefaultConversationExecutor) sendFinalStreamResult(req ConversationReq
 	}
 }
 
+// attachJudgeMetadata injects judge targets/defaults into metadata map as plain structs to avoid cycles.
+func attachJudgeMetadata(metadata map[string]interface{}, cfg *config.Config) {
+	if cfg == nil {
+		return
+	}
+	if len(cfg.LoadedJudges) > 0 {
+		targets := make(map[string]providers.ProviderSpec, len(cfg.LoadedJudges))
+		for name, jt := range cfg.LoadedJudges {
+			if jt == nil || jt.Provider == nil {
+				continue
+			}
+			targets[name] = providerSpecFromConfig(jt.Provider, jt.Model)
+		}
+		if len(targets) > 0 {
+			metadata["judge_targets"] = targets
+		}
+	}
+	if cfg.JudgeDefaults != nil {
+		metadata["judge_defaults"] = map[string]interface{}{
+			"prompt":          cfg.JudgeDefaults.Prompt,
+			"prompt_registry": cfg.JudgeDefaults.PromptRegistry,
+		}
+	}
+}
+
+// providerSpecFromConfig converts config.Provider to providers.ProviderSpec with optional model override.
+func providerSpecFromConfig(p *config.Provider, overrideModel string) providers.ProviderSpec {
+	model := p.Model
+	if overrideModel != "" {
+		model = overrideModel
+	}
+	return providers.ProviderSpec{
+		ID:               p.ID,
+		Type:             p.Type,
+		Model:            model,
+		BaseURL:          p.BaseURL,
+		IncludeRawOutput: p.IncludeRawOutput,
+		AdditionalConfig: p.AdditionalConfig,
+		Defaults: providers.ProviderDefaults{
+			Temperature: p.Defaults.Temperature,
+			TopP:        p.Defaults.TopP,
+			MaxTokens:   p.Defaults.MaxTokens,
+			Pricing: providers.Pricing{
+				InputCostPer1K:  p.Pricing.InputCostPer1K,
+				OutputCostPer1K: p.Pricing.OutputCostPer1K,
+			},
+		},
+	}
+}
+
 // buildResultFromStateStore loads the final conversation state from StateStore and builds the result
 func (ce *DefaultConversationExecutor) buildResultFromStateStore(req ConversationRequest) *ConversationResult {
 	_, messages, err := ce.loadMessagesFromStateStore(req)
@@ -507,13 +561,26 @@ func buildConversationContext(req *ConversationRequest, messages []types.Message
 		ProviderID:     "",
 		TotalCost:      0,
 		TotalTokens:    0,
+		Extras:         nil,
 	}
+	meta.Extras = buildMetadataExtras(req)
 
 	return &asrt.ConversationContext{
 		AllTurns:  messages,
 		ToolCalls: toolCalls,
 		Metadata:  meta,
 	}
+}
+
+func buildMetadataExtras(req *ConversationRequest) map[string]interface{} {
+	extras := make(map[string]interface{})
+	if req.Config != nil {
+		attachJudgeMetadata(extras, req.Config)
+	}
+	if len(extras) == 0 {
+		return nil
+	}
+	return extras
 }
 
 // loadMessagesFromStateStore loads messages from the state store

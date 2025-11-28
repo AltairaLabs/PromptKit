@@ -17,7 +17,10 @@ type assertionMiddleware struct {
 }
 
 // ArenaAssertionMiddleware creates middleware that validates assertions after LLM responses
-func ArenaAssertionMiddleware(registry *runtimeValidators.Registry, assertions []AssertionConfig) pipeline.Middleware {
+func ArenaAssertionMiddleware(
+	registry *runtimeValidators.Registry,
+	assertions []AssertionConfig,
+) pipeline.Middleware {
 	return &assertionMiddleware{
 		registry:   registry,
 		assertions: assertions,
@@ -57,7 +60,7 @@ func (m *assertionMiddleware) runAssertions(ctx *pipeline.ExecutionContext) []er
 	turnMessages := m.extractTurnMessages(ctx)
 
 	// Execute all assertions
-	results, errors := m.executeAssertions(lastAssistantMsg, turnMessages, ctx.Messages)
+	results, errors := m.executeAssertions(lastAssistantMsg, turnMessages, ctx.Messages, ctx.Metadata)
 
 	// Attach results to message metadata
 	m.attachResultsToMessage(lastAssistantMsg, results)
@@ -91,13 +94,14 @@ func (m *assertionMiddleware) executeAssertions(
 	lastAssistantMsg *types.Message,
 	turnMessages []types.Message,
 	allMessages []types.Message,
+	metadata map[string]interface{},
 ) (map[string]interface{}, []error) {
 	// Use array to preserve all assertion results (including multiple of same type)
 	results := make([]interface{}, 0, len(m.assertions))
 	var validationErrors []error
 
 	for i, assertionConfig := range m.assertions {
-		result, err := m.runSingleAssertion(assertionConfig, lastAssistantMsg, turnMessages, allMessages)
+		result, err := m.runSingleAssertion(assertionConfig, lastAssistantMsg, turnMessages, allMessages, metadata)
 		if err != nil {
 			logger.Debug("unknown assertion validator type", "type", assertionConfig.Type, "index", i)
 			continue
@@ -141,6 +145,7 @@ func (m *assertionMiddleware) runSingleAssertion(
 	lastAssistantMsg *types.Message,
 	turnMessages []types.Message,
 	allMessages []types.Message,
+	metadata map[string]interface{},
 ) (runtimeValidators.ValidationResult, error) {
 	// Create validator
 	factory, ok := m.registry.Get(assertionConfig.Type)
@@ -149,7 +154,7 @@ func (m *assertionMiddleware) runSingleAssertion(
 	}
 
 	// Prepare parameters with context
-	params := m.buildValidatorParams(assertionConfig.Params, turnMessages, allMessages)
+	params := m.buildValidatorParams(assertionConfig.Params, turnMessages, allMessages, metadata)
 	validator := factory(params)
 
 	// Execute validation
@@ -161,6 +166,7 @@ func (m *assertionMiddleware) buildValidatorParams(
 	configParams map[string]interface{},
 	turnMessages []types.Message,
 	allMessages []types.Message,
+	metadata map[string]interface{},
 ) map[string]interface{} {
 	params := make(map[string]interface{})
 
@@ -172,6 +178,9 @@ func (m *assertionMiddleware) buildValidatorParams(
 	// Add context parameters
 	params["_turn_messages"] = deepCloneMessages(turnMessages)
 	params["_execution_context_messages"] = deepCloneMessages(allMessages)
+	if metadata != nil {
+		params["_metadata"] = deepCopyMap(metadata)
+	}
 
 	// Add the last assistant message for media validators to access Parts
 	if len(turnMessages) > 0 {
@@ -250,4 +259,16 @@ func deepCloneMessages(messages []types.Message) []types.Message {
 	}
 
 	return cloned
+}
+
+// deepCopyMap shallow-copies a map with interface values (sufficient for metadata passthrough)
+func deepCopyMap(src map[string]interface{}) map[string]interface{} {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]interface{}, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
 }

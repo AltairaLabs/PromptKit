@@ -32,6 +32,7 @@ func NewConversationAssertionRegistry() *ConversationAssertionRegistry {
 	registry.Register("content_not_includes", NewContentNotIncludesConversationValidator)
 	registry.Register("content_includes_any", NewContentIncludesAnyConversationValidator)
 	registry.Register("tool_calls_with_args", NewToolCallsWithArgsConversationValidator)
+	registry.Register("llm_judge_conversation", NewLLMJudgeConversationValidator)
 
 	return registry
 }

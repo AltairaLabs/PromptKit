@@ -1,0 +1,29 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: helpfulness
+spec:
+  id: helpfulness-demo
+  task_type: mock-task
+  description: "Demonstrate turn- and conversation-level LLM judges with mock providers"
+  provider_group: default
+  turns:
+    - role: user
+      content: "How do I reset my device?"
+      assertions:
+        - type: llm_judge
+          params:
+            criteria: |
+              Response gives clear, concise, actionable reset steps.
+            judge: mock-judge
+            min_score: 0.8
+          message: "Assistant response should be helpful and actionable"
+
+  conversation_assertions:
+    - type: llm_judge_conversation
+      params:
+        judge: mock-judge
+        criteria: |
+          Across the conversation, the assistant should stay on-topic and give a usable answer.
+        min_score: 0.8
+      message: "Conversation should be helpful overall"

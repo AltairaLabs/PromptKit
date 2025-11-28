@@ -7,6 +7,7 @@ import (
 )
 
 func TestLoadConfig(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
 	// Create a temporary config file
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "test-config.yaml")
@@ -66,6 +67,14 @@ spec:
 
   providers:
     - file: provider1.yaml
+
+  judges:
+    - name: test-judge
+      provider: provider1
+      model: gpt-4o-mini
+  judge_defaults:
+    prompt: judge-simple-criteria
+    prompt_registry: ./prompts
 `
 
 	err := os.WriteFile(configPath, []byte(configContent), 0600)
@@ -96,6 +105,21 @@ spec:
 
 	if len(config.Providers) != 1 {
 		t.Errorf("Expected 1 provider, got %d", len(config.Providers))
+	}
+
+	if len(config.Judges) != 1 {
+		t.Errorf("Expected 1 judge, got %d", len(config.Judges))
+	}
+	if config.JudgeDefaults == nil || config.JudgeDefaults.Prompt != "judge-simple-criteria" {
+		t.Errorf("Expected judge defaults to be set")
+	}
+	if len(config.LoadedJudges) != 1 {
+		t.Errorf("Expected 1 loaded judge, got %d", len(config.LoadedJudges))
+	} else {
+		j := config.LoadedJudges["test-judge"]
+		if j == nil || j.Model != "gpt-4o-mini" {
+			t.Errorf("Expected loaded judge to resolve model override, got %#v", j)
+		}
 	}
 
 	// Verify loaded resources

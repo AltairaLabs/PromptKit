@@ -3,6 +3,7 @@ package turnexecutors
 import (
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
 )
 
@@ -203,5 +204,17 @@ func TestPipelineExecutor_BuildBaseVariables(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestMetadataInjectionMiddleware(t *testing.T) {
+	mw := &metadataInjectionMiddleware{metadata: map[string]interface{}{"foo": "bar"}}
+	ctx := &pipeline.ExecutionContext{}
+	err := mw.Process(ctx, func() error { return nil })
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if ctx.Metadata["foo"] != "bar" {
+		t.Fatalf("expected metadata to be injected")
 	}
 }

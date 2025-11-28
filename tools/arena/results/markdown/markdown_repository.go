@@ -571,17 +571,53 @@ func (r *MarkdownResultRepository) writeConversationAssertionRun(
 	if result.ConversationAssertions.Failed > 0 {
 		fmt.Fprintf(content, "- **Failed**: %d\n", result.ConversationAssertions.Failed)
 	}
-	content.WriteString("\n| Passed | Message |\n")
-	content.WriteString("|--------|---------|\n")
+	content.WriteString("\n| Passed | Message | Details |\n")
+	content.WriteString("|--------|---------|---------|\n")
 	for i := range result.ConversationAssertions.Results {
 		res := result.ConversationAssertions.Results[i]
 		passIcon := "✅"
 		if !res.Passed {
 			passIcon = "❌"
 		}
-		fmt.Fprintf(content, "| %s | %s |\n", passIcon, res.Message)
+		details := formatConversationAssertionDetails(res.Details)
+		fmt.Fprintf(content, "| %s | %s | %s |\n", passIcon, res.Message, details)
 	}
 	content.WriteString("\n")
+}
+
+// formatConversationAssertionDetails renders a concise summary for markdown tables.
+func formatConversationAssertionDetails(details map[string]interface{}) string {
+	if len(details) == 0 {
+		return "-"
+	}
+
+	// Prefer reasoning/score fields if present
+	var parts []string
+	if score, ok := details["score"]; ok {
+		parts = append(parts, fmt.Sprintf("score=%v", score))
+	}
+	if reasoning, ok := details["reasoning"].(string); ok && reasoning != "" {
+		parts = append(parts, truncate(reasoning, truncateLimit))
+	}
+	if len(parts) == 0 {
+		return "-"
+	}
+	return strings.Join(parts, " · ")
+}
+
+const (
+	truncateLimit = 120
+	truncateMin   = 3
+)
+
+func truncate(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	if limit <= truncateMin {
+		return s[:limit]
+	}
+	return s[:limit-truncateMin] + "..."
 }
 
 // writeResultRow writes a single result row in the matrix

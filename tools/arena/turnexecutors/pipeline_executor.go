@@ -23,12 +23,39 @@ type variableInjectionMiddleware struct {
 	variables map[string]string
 }
 
+// metadataInjectionMiddleware copies request metadata into the execution context.
+type metadataInjectionMiddleware struct {
+	metadata map[string]interface{}
+}
+
 func (m *variableInjectionMiddleware) Process(execCtx *pipeline.ExecutionContext, next func() error) error {
 	execCtx.Variables = m.variables
 	return next()
 }
 
 func (m *variableInjectionMiddleware) StreamChunk(execCtx *pipeline.ExecutionContext, chunk *providers.StreamChunk) error {
+	return nil
+}
+
+// Process injects request metadata into the execution context.
+func (m *metadataInjectionMiddleware) Process(execCtx *pipeline.ExecutionContext, next func() error) error {
+	if len(m.metadata) == 0 {
+		return next()
+	}
+	if execCtx.Metadata == nil {
+		execCtx.Metadata = make(map[string]interface{}, len(m.metadata))
+	}
+	for k, v := range m.metadata {
+		execCtx.Metadata[k] = v
+	}
+	return next()
+}
+
+// StreamChunk is a no-op for metadata injection.
+func (m *metadataInjectionMiddleware) StreamChunk(
+	execCtx *pipeline.ExecutionContext,
+	chunk *providers.StreamChunk,
+) error {
 	return nil
 }
 
@@ -160,6 +187,10 @@ func (e *PipelineExecutor) buildMiddleware(req TurnRequest, baseVariables map[st
 
 	// 1. Variable injection
 	pipelineMiddleware = append(pipelineMiddleware, &variableInjectionMiddleware{variables: baseVariables})
+	// 1a. Metadata injection (generic: pass through request metadata to execution context)
+	if len(req.Metadata) > 0 {
+		pipelineMiddleware = append(pipelineMiddleware, &metadataInjectionMiddleware{metadata: req.Metadata})
+	}
 
 	// 2. Prompt assembly
 	pipelineMiddleware = append(pipelineMiddleware, middleware.PromptAssemblyMiddleware(req.PromptRegistry, req.TaskType, baseVariables))
@@ -209,7 +240,8 @@ func (e *PipelineExecutor) buildMiddleware(req TurnRequest, baseVariables map[st
 	// 10. Assertion middleware
 	if len(req.Assertions) > 0 {
 		assertionRegistry := arenaassertions.NewArenaAssertionRegistry()
-		pipelineMiddleware = append(pipelineMiddleware, arenaassertions.ArenaAssertionMiddleware(assertionRegistry, req.Assertions))
+		pipelineMiddleware = append(pipelineMiddleware,
+			arenaassertions.ArenaAssertionMiddleware(assertionRegistry, req.Assertions))
 	}
 
 	return pipelineMiddleware

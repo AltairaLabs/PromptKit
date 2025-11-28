@@ -53,6 +53,7 @@ type ConversationMetadata struct {
 	ProviderID     string                 `json:"provider_id"`      // Which LLM provider was used
 	TotalCost      float64                `json:"total_cost"`       // Total cost in USD across all turns
 	TotalTokens    int                    `json:"total_tokens"`     // Total tokens used (input + output)
+	Extras         map[string]interface{} `json:"extras,omitempty"` // Additional metadata (e.g., judge targets/defaults)
 }
 
 // ConversationValidator evaluates assertions across entire conversations.

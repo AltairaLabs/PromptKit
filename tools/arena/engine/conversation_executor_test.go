@@ -28,6 +28,40 @@ func TestEvaluateConversationAssertions_NoAssertions(t *testing.T) {
 	}
 }
 
+func TestBuildConversationContext_IncludesExtras(t *testing.T) {
+	cfg := &config.Config{
+		ProviderGroups: map[string]string{"prov1": "judge"},
+		LoadedJudges: map[string]*config.JudgeTarget{
+			"judge1": {
+				Name: "judge1",
+				Provider: &config.Provider{
+					ID:    "prov1",
+					Type:  "mock",
+					Model: "judge-model",
+				},
+				Model: "judge-model",
+			},
+		},
+		JudgeDefaults: &config.JudgeDefaults{Prompt: "p", PromptRegistry: "./prompts"},
+	}
+	req := ConversationRequest{
+		Scenario: &config.Scenario{ID: "sc", TaskType: "task"},
+		Config:   cfg,
+	}
+	msgs := []types.Message{{Role: "assistant", Content: "hi"}}
+	convCtx := buildConversationContext(&req, msgs)
+	if convCtx.Metadata.Extras == nil {
+		t.Fatalf("expected extras to be populated")
+	}
+	targets, ok := convCtx.Metadata.Extras["judge_targets"]
+	if !ok {
+		t.Fatalf("expected judge_targets in extras")
+	}
+	if targets == nil {
+		t.Fatalf("judge_targets should not be nil")
+	}
+}
+
 func TestEvaluateConversationAssertions_WithContentNotIncludes(t *testing.T) {
 	ce := &DefaultConversationExecutor{}
 	req := ConversationRequest{Scenario: &config.Scenario{ID: "sc", ConversationAssertions: []arenaassertions.AssertionConfig{

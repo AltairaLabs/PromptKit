@@ -12,10 +12,10 @@ import (
 )
 
 func TestMarkdown_ConversationAssertionsSection(t *testing.T) {
-    tmp := t.TempDir()
-    repo := NewMarkdownResultRepository(tmp)
+	tmp := t.TempDir()
+	repo := NewMarkdownResultRepository(tmp)
 
-    rr := engine.RunResult{
+	rr := engine.RunResult{
         RunID:      "r1",
         ScenarioID: "scenario-A",
         ProviderID: "prov",
@@ -51,7 +51,34 @@ func TestMarkdown_ConversationAssertionsSection(t *testing.T) {
     if !strings.Contains(s, "Failed") {
         t.Fatalf("expected failed status for conversation assertions")
     }
-    if !strings.Contains(s, "forbidden content detected") {
-        t.Fatalf("expected assertion result rows in table")
-    }
+	if !strings.Contains(s, "forbidden content detected") {
+		t.Fatalf("expected assertion result rows in table")
+	}
+}
+
+func TestMarkdown_FormatConversationAssertionDetails(t *testing.T) {
+	tests := []struct {
+		name    string
+		details map[string]interface{}
+		want    string
+	}{
+		{"empty", map[string]interface{}{}, "-"},
+		{"scoreOnly", map[string]interface{}{"score": 0.9}, "score=0.9"},
+		{"reasoning", map[string]interface{}{"reasoning": "Clear and concise"}, "Clear and concise"},
+		{
+			name: "scoreReasonTruncate",
+			details: map[string]interface{}{
+				"score":     0.5,
+				"reasoning": "Long reasoning message that should be truncated because it exceeds the limit set by truncate function for markdown outputs.",
+			},
+			want: "score=0.5 · Long reasoning message that should be truncated because it exceeds the limit set by truncate function for markdown ou...",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := formatConversationAssertionDetails(tt.details); got != tt.want {
+				t.Fatalf("formatConversationAssertionDetails() = %q, want %q", got, tt.want)
+			}
+		})
+	}
 }

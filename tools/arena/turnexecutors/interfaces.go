@@ -67,6 +67,7 @@ type TurnRequest struct {
 	Temperature float64
 	MaxTokens   int
 	Seed        *int
+	Metadata    map[string]interface{} // Optional execution metadata (e.g., judge targets/defaults)
 
 	// Prompt assembly (moved to pipeline)
 	PromptRegistry *prompt.Registry

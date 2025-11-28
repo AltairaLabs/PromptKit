@@ -66,15 +66,26 @@ spec:
 
   # Provider configurations
   providers:
-    - file: providers/openai-gpt4o.yaml
-    - file: providers/claude-sonnet.yaml
-    - file: providers/gemini-flash.yaml
+    - file: providers/openai-gpt4o.yaml      # group defaults to "default"
+    - file: providers/claude-sonnet.yaml     # group defaults to "default"
+    - file: providers/gemini-flash.yaml      # group defaults to "default"
+    - file: providers/mock-judge.yaml        # group: judge (not used as assistant)
+      group: judge
 
   # Test scenarios
   scenarios:
     - file: scenarios/smoke-tests.yaml
     - file: scenarios/regression-tests.yaml
     - file: scenarios/edge-cases.yaml
+
+  # Optional: Judges (map judge name -> provider)
+  judges:
+    - name: mock-judge
+      provider: mock-judge
+      model: judge-model
+  judge_defaults:
+    prompt: judge-simple
+    prompt_registry: ./prompts
 
   # Optional: Tool definitions
   tools:
@@ -748,6 +759,13 @@ spec:
     output_per_1k: 0.0006           # Cost per 1K output tokens
     cached_per_1k: 0.00001          # Cost per 1K cached tokens (if supported)
 ```
+
+### Provider Groups and Judges
+
+- `providers[*].group` (optional): Logical group label; defaults to `default`.
+- `scenario.provider_group` (optional): Choose which provider group to use for assistant runs; defaults to `default`.
+- Put judge-only providers in a separate group (e.g., `group: judge`) so they are not used as assistants, while still referencing them from `spec.judges`.
+- `judges` / `judge_defaults` (optional): Map judge names to providers and set default judge prompt/registry for LLM-as-judge assertions.
 
 ### Provider Types
 

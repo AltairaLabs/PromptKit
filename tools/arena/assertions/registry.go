@@ -1,8 +1,6 @@
 package assertions
 
-import (
-	runtimeValidators "github.com/AltairaLabs/PromptKit/runtime/validators"
-)
+import runtimeValidators "github.com/AltairaLabs/PromptKit/runtime/validators"
 
 // NewArenaAssertionRegistry creates a new registry with arena-specific assertion validators
 func NewArenaAssertionRegistry() *runtimeValidators.Registry {
@@ -27,6 +25,10 @@ func NewArenaAssertionRegistry() *runtimeValidators.Registry {
 	registry.Register("audio_format", NewAudioFormatValidator)
 	registry.Register("video_duration", NewVideoDurationValidator)
 	registry.Register("video_resolution", NewVideoResolutionValidator)
+
+	// LLM judge validators
+	registry.Register("llm_judge", NewLLMJudgeValidator)
+	// Note: conversation-level validator registered in conversation registry
 
 	return registry
 }

@@ -164,6 +164,9 @@ func (e *ScriptedExecutor) buildStreamingMiddlewares(req TurnRequest) []pipeline
 
 	// Variable injection
 	middlewares = append(middlewares, &variableInjectionMiddleware{variables: baseVariables})
+	if len(req.Metadata) > 0 {
+		middlewares = append(middlewares, &metadataInjectionMiddleware{metadata: req.Metadata})
+	}
 
 	// Prompt, template, and provider middleware
 	middlewares = append(middlewares,

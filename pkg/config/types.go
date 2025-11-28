@@ -45,16 +45,21 @@ type Config struct {
 	// File references for YAML serialization
 	PromptConfigs []PromptConfigRef `yaml:"prompt_configs,omitempty"`
 	Providers     []ProviderRef     `yaml:"providers"`
+	Judges        []JudgeRef        `yaml:"judges,omitempty"`
+	JudgeDefaults *JudgeDefaults    `yaml:"judge_defaults,omitempty"`
 	Scenarios     []ScenarioRef     `yaml:"scenarios"`
 	Tools         []ToolRef         `yaml:"tools,omitempty"`
 	MCPServers    []MCPServerConfig `yaml:"mcp_servers,omitempty"`
 	StateStore    *StateStoreConfig `yaml:"state_store,omitempty"`
 	Defaults      Defaults          `yaml:"defaults"`
 	SelfPlay      *SelfPlayConfig   `yaml:"self_play,omitempty"`
+	// ProviderGroups maps provider ID to configured group (populated during load)
+	ProviderGroups map[string]string `yaml:"-" json:"-"`
 
 	// Loaded resources (populated by LoadConfig, not serialized)
 	LoadedPromptConfigs map[string]*PromptConfigData `yaml:"-" json:"-"` // taskType -> config
 	LoadedProviders     map[string]*Provider         `yaml:"-" json:"-"` // provider ID -> provider
+	LoadedJudges        map[string]*JudgeTarget      `yaml:"-" json:"-"` // judge name -> resolved target
 	LoadedScenarios     map[string]*Scenario         `yaml:"-" json:"-"` // scenario ID -> scenario
 	LoadedTools         []ToolData                   `yaml:"-" json:"-"` // list of tool data
 	LoadedPersonas      map[string]*UserPersonaPack  `yaml:"-" json:"-"` // persona ID -> persona
@@ -143,7 +148,23 @@ type ToolData struct {
 
 // ProviderRef references a provider configuration file
 type ProviderRef struct {
-	File string `yaml:"file"`
+	File  string `yaml:"file"`
+	Group string `yaml:"group,omitempty"`
+}
+
+// JudgeRef references a judge configuration mapped to a provider.
+// Mirrors self-play role/provider mapping to allow multiple judge targets.
+type JudgeRef struct {
+	Name     string `yaml:"name"`            // Judge identifier used in assertions
+	Provider string `yaml:"provider"`        // Provider ID reference (must exist in spec.providers)
+	Model    string `yaml:"model,omitempty"` // Optional model override for the judge
+}
+
+// JudgeTarget is a resolved judge reference with provider config and effective model.
+type JudgeTarget struct {
+	Name     string    // Judge identifier
+	Provider *Provider // Resolved provider config
+	Model    string    // Effective model (judge override or provider model)
 }
 
 // ScenarioRef references a scenario file
@@ -193,6 +214,12 @@ type Defaults struct {
 	OutDir         string          `yaml:"out_dir,omitempty"`
 	OutputFormats  []string        `yaml:"output_formats,omitempty"`
 	MarkdownConfig *MarkdownConfig `yaml:"markdown_config,omitempty"`
+}
+
+// JudgeDefaults configures default judge prompt selection.
+type JudgeDefaults struct {
+	Prompt         string `yaml:"prompt,omitempty"`
+	PromptRegistry string `yaml:"prompt_registry,omitempty"`
 }
 
 // OutputConfig contains configuration for all output formats
@@ -360,7 +387,8 @@ type Scenario struct {
 	Constraints     map[string]interface{} `json:"constraints,omitempty" yaml:"constraints,omitempty"`
 	ToolPolicy      *ToolPolicy            `json:"tool_policy,omitempty" yaml:"tool_policy,omitempty"`
 	// ProvidersOverride: If empty, uses all arena providers.
-	Providers []string `json:"providers,omitempty" yaml:"providers,omitempty"`
+	Providers     []string `json:"providers,omitempty" yaml:"providers,omitempty"`
+	ProviderGroup string   `json:"provider_group,omitempty" yaml:"provider_group,omitempty"`
 	// Enable streaming for all turns by default.
 	Streaming bool `json:"streaming,omitempty" yaml:"streaming,omitempty"`
 	// Context management policy for long conversations.

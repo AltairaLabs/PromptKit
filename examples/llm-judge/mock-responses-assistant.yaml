@@ -1,0 +1,9 @@
+defaultResponse: "Default mock reply"
+scenarios:
+  helpfulness-demo:
+    turns:
+      1: |
+        Sure, here's how to reset your device:
+        1) Hold the power button for 10 seconds
+        2) Wait for the LED to blink twice
+        3) Power on again

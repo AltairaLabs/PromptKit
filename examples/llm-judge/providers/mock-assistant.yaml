@@ -1,0 +1,14 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: mock-assistant
+spec:
+  id: mock-assistant
+  type: mock
+  model: mock-model
+  defaults:
+    temperature: 0.0
+    top_p: 1.0
+    max_tokens: 256
+  additional_config:
+    mock_config: examples/llm-judge/mock-responses-assistant.yaml
