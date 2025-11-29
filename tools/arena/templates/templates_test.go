@@ -317,6 +317,34 @@ func TestGenerator_RejectsAbsoluteSource(t *testing.T) {
 	assert.NotEmpty(t, res.Errors)
 }
 
+func TestGenerator_RejectsAbsoluteOutputPath(t *testing.T) {
+	tmpl := &Template{
+		APIVersion: "promptkit.altairalabs.ai/v1alpha1",
+		Kind:       "Template",
+		Metadata:   TemplateMetadata{Name: "bad-output"},
+		Spec: TemplateSpec{
+			Files: []FileSpec{
+				{
+					Path:    "/tmp/out.txt",
+					Content: "x",
+				},
+			},
+		},
+	}
+	tempDir := t.TempDir()
+	gen := NewGenerator(tmpl, NewLoader(""))
+	cfg := &TemplateConfig{
+		ProjectName: "proj",
+		OutputDir:   tempDir,
+		Variables:   map[string]interface{}{},
+		Template:    tmpl,
+	}
+	res, err := gen.Generate(cfg)
+	assert.NoError(t, err)
+	assert.False(t, res.Success)
+	assert.NotEmpty(t, res.Errors)
+}
+
 func TestGenerator_ExecutableFile(t *testing.T) {
 	tmpl := &Template{
 		APIVersion: "promptkit.altairalabs.ai/v1alpha1",
@@ -1524,4 +1552,28 @@ func TestRepoConfig_DefaultsAndResolve(t *testing.T) {
 	assert.Equal(t, "https://example.com/index.yaml", url)
 
 	assert.Equal(t, "file://local/index.yaml", ResolveIndex("file://local/index.yaml", cfgReloaded))
+}
+
+func TestRepoConfig_SaveAndLoad(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "repos.yaml")
+
+	cfg := &RepoConfig{}
+	cfg.Add("internal", "https://example.com/index.yaml")
+	require.NoError(t, cfg.Save(cfgPath))
+
+	reloaded, err := LoadRepoConfig(cfgPath)
+	require.NoError(t, err)
+	assert.Equal(t, "https://example.com/index.yaml", reloaded.Repos["internal"])
+	assert.Equal(t, DefaultGitHubIndex, reloaded.Repos[DefaultRepoName])
+}
+
+func TestDefaultCacheDirUsesUserCache(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", dir)
+	defaultCacheDir = "" // reset global
+
+	cacheDir := DefaultCacheDir()
+	assert.NotEmpty(t, cacheDir)
+	assert.False(t, strings.HasPrefix(cacheDir, os.TempDir()), "cache dir should prefer user cache over temp")
 }
