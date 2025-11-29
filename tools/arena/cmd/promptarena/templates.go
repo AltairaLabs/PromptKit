@@ -46,7 +46,7 @@ var templatesListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List templates from an index",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		indexPath, err := resolveIndexPath()
+		indexPath, repoNameResolved, err := resolveIndexPath()
 		if err != nil {
 			return err
 		}
@@ -55,14 +55,22 @@ var templatesListCmd = &cobra.Command{
 			return err
 		}
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), tabMinWidth, tabWidth, tabPadding, ' ', 0)
-		if _, err := fmt.Fprintln(w, "TEMPLATE\tVERSION\tDESCRIPTION"); err != nil {
+		if _, err := fmt.Fprintln(w, "REPO\tTEMPLATE\tVERSION\tDESCRIPTION"); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintln(w, "--------\t-------\t-----------"); err != nil {
+		if _, err := fmt.Fprintln(w, "----\t--------\t-------\t-----------"); err != nil {
 			return err
+		}
+		repoPrefix := "-"
+		if repoNameResolved != "" {
+			repoPrefix = repoNameResolved
 		}
 		for _, e := range idx.Spec.Entries {
-			if _, err := fmt.Fprintf(w, "%s\t%s\t%s\n", e.Name, e.Version, e.Description); err != nil {
+			name := e.Name
+			if repoNameResolved != "" {
+				name = fmt.Sprintf("%s/%s", repoNameResolved, e.Name)
+			}
+			if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", repoPrefix, name, e.Version, e.Description); err != nil {
 				return err
 			}
 		}
@@ -74,7 +82,7 @@ var templatesFetchCmd = &cobra.Command{
 	Use:   "fetch",
 	Short: "Fetch a template from an index into cache",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		indexPath, err := resolveIndexPath()
+		indexPath, _, err := resolveIndexPath()
 		if err != nil {
 			return err
 		}
@@ -101,7 +109,7 @@ var templatesUpdateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Update all templates from an index into cache",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		indexPath, err := resolveIndexPath()
+		indexPath, _, err := resolveIndexPath()
 		if err != nil {
 			return err
 		}
@@ -318,12 +326,19 @@ func mergeValues(base, override map[string]string) map[string]string {
 	return out
 }
 
-func resolveIndexPath() (string, error) {
+func resolveIndexPath() (indexPath, repoName string, err error) {
 	cfg, err := templates.LoadRepoConfig(repoConfigPath)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	return templates.ResolveIndex(templateIndex, cfg), nil
+	path := templates.ResolveIndex(templateIndex, cfg)
+	name := ""
+	if cfg != nil {
+		if _, ok := cfg.Repos[templateIndex]; ok {
+			name = templateIndex
+		}
+	}
+	return path, name, nil
 }
 
 var placeholderRegex = regexp.MustCompile(`{{\s*\.([a-zA-Z0-9_]+)\s*}}`)
