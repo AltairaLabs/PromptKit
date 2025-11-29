@@ -21,7 +21,7 @@ spec:
     - name: providers
       description: "LLM providers to configure"
       type: array
-      options: ["mock", "openai", "anthropic", "google"]
+      options: ["mock", "openai", "claude", "gemini"]
       default: ["openai"]
       prompt: "Which providers would you like to test"
       
@@ -77,7 +77,7 @@ spec:
       - "Tool chaining"
     providers:
       - "openai"
-      - "anthropic"
+      - "claude"
       
   docs:
     getting_started: "https://promptkit.altairalabs.ai/arena/tutorials/01-first-test"

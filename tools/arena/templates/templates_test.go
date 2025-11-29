@@ -239,7 +239,7 @@ func TestGenerator_ForEach(t *testing.T) {
 		ProjectName: "test",
 		OutputDir:   tempDir,
 		Variables: map[string]interface{}{
-			"providers": []string{"openai", "anthropic", "google"},
+			"providers": []string{"openai", "claude", "gemini"},
 		},
 		Template: tmpl,
 	}
@@ -250,7 +250,7 @@ func TestGenerator_ForEach(t *testing.T) {
 	assert.Len(t, result.FilesCreated, 3)
 
 	// Verify each file was created
-	for _, provider := range []string{"openai", "anthropic", "google"} {
+	for _, provider := range []string{"openai", "claude", "gemini"} {
 		filePath := filepath.Join(tempDir, "test", provider+".txt")
 		assert.FileExists(t, filePath)
 		content, err := os.ReadFile(filePath)
@@ -1419,6 +1419,31 @@ func TestLoader_ListBuiltIn_AllTemplates(t *testing.T) {
 
 	for _, name := range expectedTemplates {
 		assert.True(t, templateNames[name], "template %s should be in the list", name)
+	}
+}
+
+func TestBuiltInProviderOptionsAreSupported(t *testing.T) {
+	loader := NewLoader("")
+	infos, err := loader.ListBuiltIn()
+	require.NoError(t, err)
+
+	allowed := map[string]bool{
+		"mock":   true,
+		"openai": true,
+		"claude": true,
+		"gemini": true,
+	}
+
+	for _, info := range infos {
+		tmpl, err := loader.LoadBuiltIn(info.Name)
+		require.NoError(t, err)
+		for _, v := range tmpl.Spec.Variables {
+			if v.Name == "provider" || v.Name == "providers" {
+				for _, opt := range v.Options {
+					assert.True(t, allowed[opt], "template %s has unsupported provider option %s", info.Name, opt)
+				}
+			}
+		}
 	}
 }
 

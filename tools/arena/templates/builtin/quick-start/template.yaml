@@ -21,7 +21,7 @@ spec:
     - name: provider
       description: "LLM provider to use"
       type: select
-      options: ["mock", "openai", "anthropic", "google"]
+      options: ["mock", "openai", "claude", "gemini"]
       default: "mock"
       prompt: "Which provider would you like to test"
       

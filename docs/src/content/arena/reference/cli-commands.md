@@ -51,7 +51,7 @@ promprarena init [directory] [flags]
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--quick` | bool | `false` | Skip interactive prompts, use defaults |
-| `--provider` | string | - | Provider to configure (mock, openai, anthropic, google) |
+| `--provider` | string | - | Provider to configure (mock, openai, claude, gemini) |
 | `--template` | string | `quick-start` | Template to use for initialization |
 | `--list-templates` | bool | `false` | List all available built-in templates |
 | `--var` | []string | - | Set template variables (key=value) |
@@ -277,7 +277,7 @@ promptarena run --config my-arena.yaml
 
 ```bash
 # Run specific providers only
-promptarena run --provider openai,anthropic
+promptarena run --provider openai,claude
 
 # Run specific scenarios
 promptarena run --scenario basic-qa,edge-cases
@@ -718,7 +718,7 @@ promptarena config-inspect --verbose
 promptarena run --ci --format junit,json
 
 # Check specific providers
-promptarena run --ci --provider openai,anthropic --format junit
+promptarena run --ci --provider openai,claude --format junit
 ```
 
 ### Debugging
@@ -754,7 +754,7 @@ promptarena render out/index.json --output reports/latest.html
 promptarena run --format html,json
 
 # Test specific providers
-promptarena run --provider openai,anthropic,gemini --format html
+promptarena run --provider openai,claude,gemini --format html
 ```
 
 ---
