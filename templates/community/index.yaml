@@ -1,4 +1,4 @@
-apiVersion: v1
+apiVersion: promptkit.altairalabs.ai/v1
 kind: TemplateIndex
 spec:
   entries:

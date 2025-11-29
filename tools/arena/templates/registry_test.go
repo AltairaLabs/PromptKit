@@ -12,14 +12,16 @@ func TestLoadIndexAndFindEntry(t *testing.T) {
 	dir := t.TempDir()
 	indexPath := filepath.Join(dir, "index.yaml")
 	content := `
-apiVersion: v1
-entries:
-  - name: demo
-    version: "1.0.0"
-    description: sample
-    tags: [demo]
-    source: ./pkg.yaml
-    checksum: ""
+apiVersion: promptkit.altairalabs.ai/v1
+kind: TemplateIndex
+spec:
+  entries:
+    - name: demo
+      version: "1.0.0"
+      description: sample
+      tags: [demo]
+      source: ./pkg.yaml
+      checksum: ""
 `
 	if err := os.WriteFile(indexPath, []byte(content), 0o644); err != nil {
 		t.Fatalf("write index: %v", err)
@@ -101,12 +103,14 @@ func TestRenderDryRun(t *testing.T) {
 func TestLoadIndexFromHTTP(t *testing.T) {
 	// simulate remote index
 	index := `
-apiVersion: v1
-entries:
-  - name: demo
-    version: "1.0.0"
-    description: remote
-    source: http://example.com/template.yaml
+apiVersion: promptkit.altairalabs.ai/v1
+kind: TemplateIndex
+spec:
+  entries:
+    - name: demo
+      version: "1.0.0"
+      description: remote
+      source: http://example.com/template.yaml
 `
 	tpl := `
 files:

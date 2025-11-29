@@ -25,11 +25,13 @@ files:
 	// Index file
 	index := `
 apiVersion: v1
-entries:
-  - name: demo
-    version: "1.0.0"
-    description: sample
-    source: "` + tplPath + `"
+kind: TemplateIndex
+spec:
+  entries:
+    - name: demo
+      version: "1.0.0"
+      description: sample
+      source: "` + tplPath + `"
 `
 	indexPath := filepath.Join(dir, "index.yaml")
 	if err := os.WriteFile(indexPath, []byte(index), 0o644); err != nil {

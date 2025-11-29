@@ -40,7 +40,7 @@ var templatesListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		for _, e := range idx.Entries {
+		for _, e := range idx.Spec.Entries {
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\n", e.Name, e.Version, e.Description); err != nil {
 				return err
 			}
@@ -81,8 +81,8 @@ var templatesUpdateCmd = &cobra.Command{
 			return err
 		}
 		seen := 0
-		for i := range idx.Entries {
-			entry := &idx.Entries[i]
+		for i := range idx.Spec.Entries {
+			entry := &idx.Spec.Entries[i]
 			if _, err := templates.FetchTemplate(entry, templateCache); err != nil {
 				return fmt.Errorf("fetch %s@%s: %w", entry.Name, entry.Version, err)
 			}

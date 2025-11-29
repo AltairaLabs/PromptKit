@@ -65,13 +65,23 @@ type IndexEntry struct {
 	Author      string   `yaml:"author,omitempty"`
 }
 
-// Index lists available templates.
+// Index lists available templates using K8s-style metadata/spec.
 type Index struct {
-	APIVersion string       `yaml:"apiVersion"`
-	Entries    []IndexEntry `yaml:"entries"`
+	APIVersion string            `yaml:"apiVersion"`
+	Kind       string            `yaml:"kind"`
+	Metadata   map[string]string `yaml:"metadata,omitempty"`
+	Spec       IndexSpec         `yaml:"spec"`
 }
 
-const supportedIndexVersion = "v1"
+// IndexSpec holds template entries.
+type IndexSpec struct {
+	Entries []IndexEntry `yaml:"entries"`
+}
+
+const (
+	supportedIndexVersion     = "v1"
+	supportedIndexVersionFull = "promptkit.altairalabs.ai/v1"
+)
 
 // TemplateFile is a single file in a template package.
 type TemplateFile struct {
@@ -94,16 +104,23 @@ func LoadIndex(path string) (*Index, error) {
 	if err := yaml.Unmarshal(data, &idx); err != nil {
 		return nil, fmt.Errorf("parse index: %w", err)
 	}
-	if idx.APIVersion == "" {
-		return nil, fmt.Errorf("index missing apiVersion")
+	if idx.APIVersion == "" || idx.Kind == "" {
+		return nil, fmt.Errorf("index missing apiVersion or kind")
 	}
-	if idx.APIVersion != supportedIndexVersion {
+	if !isSupportedIndexVersion(idx.APIVersion) {
 		return nil, fmt.Errorf("unsupported index apiVersion %s", idx.APIVersion)
 	}
-	if len(idx.Entries) == 0 {
+	if strings.ToLower(idx.Kind) != "templateindex" {
+		return nil, fmt.Errorf("unsupported index kind %s", idx.Kind)
+	}
+	if len(idx.Spec.Entries) == 0 {
 		return nil, fmt.Errorf("index has no entries")
 	}
 	return &idx, nil
+}
+
+func isSupportedIndexVersion(v string) bool {
+	return v == supportedIndexVersion || v == supportedIndexVersionFull
 }
 
 // FindEntry finds an entry by name (and optional version).
@@ -111,8 +128,8 @@ func (idx *Index) FindEntry(name, version string) (*IndexEntry, error) {
 	if version == "" || version == "latest" {
 		return idx.findLatest(name)
 	}
-	for i := range idx.Entries {
-		e := idx.Entries[i]
+	for i := range idx.Spec.Entries {
+		e := idx.Spec.Entries[i]
 		if e.Name == name {
 			if e.Version == version {
 				return &e, nil
@@ -124,8 +141,8 @@ func (idx *Index) FindEntry(name, version string) (*IndexEntry, error) {
 
 func (idx *Index) findLatest(name string) (*IndexEntry, error) {
 	var latest *IndexEntry
-	for i := range idx.Entries {
-		e := idx.Entries[i]
+	for i := range idx.Spec.Entries {
+		e := idx.Spec.Entries[i]
 		if e.Name != name {
 			continue
 		}

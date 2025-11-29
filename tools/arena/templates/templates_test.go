@@ -858,13 +858,16 @@ spec:
 	require.NoError(t, os.WriteFile(tplPath, []byte(tpl), 0o644))
 
 	index := `
-entries:
-  - name: remote
-    version: "1.0.0"
-    source: "` + tplPath + `"
-  - name: remote
-    version: "1.1.0"
-    source: "` + tplPath + `"
+apiVersion: v1
+kind: TemplateIndex
+spec:
+  entries:
+    - name: remote
+      version: "1.0.0"
+      source: "` + tplPath + `"
+    - name: remote
+      version: "1.1.0"
+      source: "` + tplPath + `"
 `
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
