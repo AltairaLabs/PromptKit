@@ -72,6 +72,29 @@ var templatesFetchCmd = &cobra.Command{
 	},
 }
 
+var templatesUpdateCmd = &cobra.Command{
+	Use:   "update",
+	Short: "Update all templates from an index into cache",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		idx, err := templates.LoadIndex(templateIndex)
+		if err != nil {
+			return err
+		}
+		seen := 0
+		for i := range idx.Entries {
+			entry := &idx.Entries[i]
+			if _, err := templates.FetchTemplate(entry, templateCache); err != nil {
+				return fmt.Errorf("fetch %s@%s: %w", entry.Name, entry.Version, err)
+			}
+			seen++
+		}
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Updated %d templates\n", seen); err != nil {
+			return err
+		}
+		return nil
+	},
+}
+
 var templatesRenderCmd = &cobra.Command{
 	Use:   "render",
 	Short: "Render a cached template to an output directory (dry-run only)",
@@ -130,6 +153,7 @@ func init() {
 
 	templatesCmd.AddCommand(templatesListCmd)
 	templatesCmd.AddCommand(templatesFetchCmd)
+	templatesCmd.AddCommand(templatesUpdateCmd)
 	templatesCmd.AddCommand(templatesRenderCmd)
 
 	templatesFetchCmd.Flags().StringVar(&templateName, "template", "", "Template name")

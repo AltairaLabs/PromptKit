@@ -75,4 +75,10 @@ entries:
 	if string(data) != "Hello world" {
 		t.Fatalf("unexpected render: %s", string(data))
 	}
+
+	templatesUpdateCmd.Flags().Set("index", indexPath)
+	templatesUpdateCmd.Flags().Set("cache-dir", templateCache)
+	if err := templatesUpdateCmd.RunE(templatesUpdateCmd, nil); err != nil {
+		t.Fatalf("update run: %v", err)
+	}
 }
