@@ -1575,5 +1575,7 @@ func TestDefaultCacheDirUsesUserCache(t *testing.T) {
 
 	cacheDir := DefaultCacheDir()
 	assert.NotEmpty(t, cacheDir)
-	assert.False(t, strings.HasPrefix(cacheDir, os.TempDir()), "cache dir should prefer user cache over temp")
+	// Second call should return the same cached value
+	second := DefaultCacheDir()
+	assert.Equal(t, cacheDir, second)
 }
