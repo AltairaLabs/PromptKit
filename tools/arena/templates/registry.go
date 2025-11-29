@@ -67,8 +67,11 @@ type IndexEntry struct {
 
 // Index lists available templates.
 type Index struct {
-	Entries []IndexEntry `yaml:"entries"`
+	APIVersion string       `yaml:"apiVersion"`
+	Entries    []IndexEntry `yaml:"entries"`
 }
+
+const supportedIndexVersion = "v1"
 
 // TemplateFile is a single file in a template package.
 type TemplateFile struct {
@@ -90,6 +93,12 @@ func LoadIndex(path string) (*Index, error) {
 	var idx Index
 	if err := yaml.Unmarshal(data, &idx); err != nil {
 		return nil, fmt.Errorf("parse index: %w", err)
+	}
+	if idx.APIVersion == "" {
+		return nil, fmt.Errorf("index missing apiVersion")
+	}
+	if idx.APIVersion != supportedIndexVersion {
+		return nil, fmt.Errorf("unsupported index apiVersion %s", idx.APIVersion)
 	}
 	if len(idx.Entries) == 0 {
 		return nil, fmt.Errorf("index has no entries")

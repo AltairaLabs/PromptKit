@@ -24,6 +24,7 @@ files:
 
 	// Index file
 	index := `
+apiVersion: v1
 entries:
   - name: demo
     version: "1.0.0"

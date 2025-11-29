@@ -12,6 +12,7 @@ func TestLoadIndexAndFindEntry(t *testing.T) {
 	dir := t.TempDir()
 	indexPath := filepath.Join(dir, "index.yaml")
 	content := `
+apiVersion: v1
 entries:
   - name: demo
     version: "1.0.0"
@@ -100,6 +101,7 @@ func TestRenderDryRun(t *testing.T) {
 func TestLoadIndexFromHTTP(t *testing.T) {
 	// simulate remote index
 	index := `
+apiVersion: v1
 entries:
   - name: demo
     version: "1.0.0"
