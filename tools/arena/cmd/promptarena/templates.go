@@ -83,6 +83,10 @@ var templatesFetchCmd = &cobra.Command{
 	Use:   "fetch",
 	Short: "Fetch a template from an index into cache",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if repo, name := splitTemplateRef(templateName); repo != "" {
+			templateIndex = repo
+			templateName = name
+		}
 		indexPath, _, err := resolveIndexPath()
 		if err != nil {
 			return err
@@ -141,6 +145,10 @@ var templatesRenderCmd = &cobra.Command{
 		if src == "" {
 			if templateName == "" {
 				return fmt.Errorf("either --template or --file is required")
+			}
+			if repo, name := splitTemplateRef(templateName); repo != "" {
+				templateIndex = repo
+				templateName = name
 			}
 			if templateVersion == "" {
 				return fmt.Errorf("--version is required when rendering from cache")
@@ -347,6 +355,16 @@ func resolveIndexPath() (indexPath, repoName string, err error) {
 		}
 	}
 	return path, name, nil
+}
+
+// splitTemplateRef parses repo/template into repo + name. If no repo is present, repo is empty.
+func splitTemplateRef(ref string) (repo, name string) {
+	const maxParts = 2
+	parts := strings.SplitN(ref, "/", maxParts)
+	if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+		return parts[0], parts[1]
+	}
+	return "", ref
 }
 
 var placeholderRegex = regexp.MustCompile(`{{\s*\.([a-zA-Z0-9_]+)\s*}}`)

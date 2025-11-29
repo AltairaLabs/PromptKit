@@ -10,6 +10,7 @@ import (
 
 func TestTemplatesListAndFetchAndRender(t *testing.T) {
 	dir := t.TempDir()
+	repoConfigPath = filepath.Join(dir, "repos.yaml")
 
 	// Create template package
 	tplContent := `
@@ -38,9 +39,17 @@ spec:
 		t.Fatalf("write index: %v", err)
 	}
 
+	// Repo config with named entry
+	repoConfigContent := `
+repos:
+  local: "` + indexPath + `"
+`
+	if err := os.WriteFile(repoConfigPath, []byte(repoConfigContent), 0o644); err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
 	templateCache = filepath.Join(dir, "cache")
 	templateIndex = indexPath
-	repoConfigPath = filepath.Join(dir, "repos.yaml")
 
 	// List
 	buf := &bytes.Buffer{}
@@ -54,14 +63,14 @@ spec:
 	}
 
 	// Fetch
-	templatesFetchCmd.Flags().Set("template", "demo")
+	templatesFetchCmd.Flags().Set("template", "local/demo")
 	templatesFetchCmd.Flags().Set("version", "1.0.0")
 	if err := templatesFetchCmd.RunE(templatesFetchCmd, nil); err != nil {
 		t.Fatalf("fetch run: %v", err)
 	}
 
 	// Render from cache
-	templatesRenderCmd.Flags().Set("template", "demo")
+	templatesRenderCmd.Flags().Set("template", "local/demo")
 	templatesRenderCmd.Flags().Set("version", "1.0.0")
 	templatesRenderCmd.Flags().Set("out", filepath.Join(dir, "out"))
 	valsFile := filepath.Join(dir, "values.yaml")
