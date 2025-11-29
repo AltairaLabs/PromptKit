@@ -110,7 +110,7 @@ func LoadIndex(path string) (*Index, error) {
 	if !isSupportedIndexVersion(idx.APIVersion) {
 		return nil, fmt.Errorf("unsupported index apiVersion %s", idx.APIVersion)
 	}
-	if strings.ToLower(idx.Kind) != "templateindex" {
+	if !strings.EqualFold(idx.Kind, "TemplateIndex") {
 		return nil, fmt.Errorf("unsupported index kind %s", idx.Kind)
 	}
 	if len(idx.Spec.Entries) == 0 {

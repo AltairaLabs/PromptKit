@@ -66,6 +66,7 @@ func (l *Loader) LoadBuiltIn(name string) (*Template, error) {
 		return nil, fmt.Errorf("invalid template %s: %w", name, err)
 	}
 
+	tmpl.BaseDir = "" // built-ins resolve via embedded files
 	return &tmpl, nil
 }
 
@@ -85,6 +86,7 @@ func (l *Loader) LoadFromFile(path string) (*Template, error) {
 		return nil, fmt.Errorf("invalid template: %w", err)
 	}
 
+	tmpl.BaseDir = filepath.Dir(path)
 	return &tmpl, nil
 }
 
@@ -217,8 +219,8 @@ func (l *Loader) validate(tmpl *Template) error {
 		if f.Path == "" {
 			return fmt.Errorf("spec.files[%d].path is required", i)
 		}
-		if f.Template == "" && f.Content == "" {
-			return fmt.Errorf("spec.files[%d] must have either template or content", i)
+		if f.Template == "" && f.Content == "" && f.Source == "" {
+			return fmt.Errorf("spec.files[%d] must have either template, source or content", i)
 		}
 	}
 

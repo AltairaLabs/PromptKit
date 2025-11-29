@@ -1,9 +1,0 @@
-apiVersion: promptkit.altairalabs.ai/v1
-kind: TemplateIndex
-spec:
-  entries:
-    - name: basic-chatbot
-      version: "1.0.0"
-      description: Minimal chatbot template (mock provider)
-      source: templates/community/basic-chatbot/template.yaml
-      tags: [chatbot, mock]

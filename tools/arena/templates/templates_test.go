@@ -298,6 +298,44 @@ func TestGenerator_ExecutableFile(t *testing.T) {
 	assert.Equal(t, os.FileMode(0755), info.Mode().Perm())
 }
 
+func TestGenerator_SourceFileContent(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "snippet.txt")
+	require.NoError(t, os.WriteFile(sourcePath, []byte("Hello {{.name}}"), 0o644))
+
+	templateContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Template
+metadata:
+  name: source-test
+spec:
+  files:
+    - path: out.txt
+      source: snippet.txt
+`
+	templatePath := filepath.Join(dir, "template.yaml")
+	require.NoError(t, os.WriteFile(templatePath, []byte(templateContent), 0o644))
+
+	loader := NewLoader("")
+	tmpl, err := loader.LoadFromFile(templatePath)
+	require.NoError(t, err)
+
+	config := &TemplateConfig{
+		ProjectName: "proj",
+		OutputDir:   dir,
+		Variables:   map[string]interface{}{"name": "world"},
+		Template:    tmpl,
+	}
+
+	generator := NewGenerator(tmpl, loader)
+	result, err := generator.Generate(config)
+	require.NoError(t, err)
+	require.True(t, result.Success)
+
+	data, err := os.ReadFile(filepath.Join(dir, "proj", "out.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "Hello world", string(data))
+}
+
 func TestGenerator_Hooks(t *testing.T) {
 	tmpl := &Template{
 		APIVersion: "promptkit.altairalabs.ai/v1alpha1",
@@ -512,7 +550,7 @@ func TestLoader_Validate(t *testing.T) {
 				},
 			},
 			shouldError: true,
-			errorMsg:    "must have either template or content",
+			errorMsg:    "must have either template, source or content",
 		},
 	}
 

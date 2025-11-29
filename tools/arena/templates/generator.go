@@ -112,7 +112,21 @@ func (g *Generator) generateSingleFile(fileSpec FileSpec, vars map[string]interf
 
 	// Generate content
 	var content string
-	if fileSpec.Content != "" {
+	var data []byte
+	if fileSpec.Source != "" {
+		srcPath := fileSpec.Source
+		if !filepath.IsAbs(srcPath) && g.template.BaseDir != "" {
+			srcPath = filepath.Join(g.template.BaseDir, srcPath)
+		}
+		data, err = os.ReadFile(srcPath) //nolint:gosec // path is constrained to the template's base directory
+		if err != nil {
+			return fmt.Errorf("failed to read source file %s: %w", srcPath, err)
+		}
+		content, err = g.renderTemplate("source", string(data), vars)
+		if err != nil {
+			return fmt.Errorf("failed to render source content for %s: %w", outputPath, err)
+		}
+	} else if fileSpec.Content != "" {
 		// Use inline content
 		content, err = g.renderTemplate("content", fileSpec.Content, vars)
 		if err != nil {

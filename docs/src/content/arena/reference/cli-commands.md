@@ -19,7 +19,7 @@ promptarena [command] [flags]
 
 | Command | Description |
 |---------|-------------|
-| `init` | Initialize a new Arena test project from template |
+| `init` | Initialize a new Arena test project from template (built-in or remote) |
 | `run` | Run conversation simulations (main command) |
 | `config-inspect` | Inspect and validate configuration |
 | `debug` | Debug configuration and prompt loading |
@@ -55,6 +55,8 @@ promprarena init [directory] [flags]
 | `--template` | string | `basic-chatbot` | Template to use for initialization |
 | `--list-templates` | bool | `false` | List all available built-in templates |
 | `--var` | []string | - | Set template variables (key=value) |
+| `--template-index` | string | community index | Template index URL/path for remote templates |
+| `--template-cache` | string | temp dir | Cache directory for remote templates |
 
 ### Built-In Templates
 
@@ -76,6 +78,9 @@ PromptArena includes 6 built-in templates:
 ```bash
 # See all built-in templates
 promprarena init --list-templates
+
+# List remote templates (from the default index)
+promptarena templates list
 ```
 
 #### Quick Start
