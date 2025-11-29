@@ -108,7 +108,7 @@ func TestTemplatesRepoCommands(t *testing.T) {
 		t.Fatalf("repo list: %v", err)
 	}
 	output := buf.String()
-	if !strings.Contains(output, "local") || !strings.Contains(output, "example.com") {
+	if !strings.Contains(output, "REPO") || !strings.Contains(output, "local") || !strings.Contains(output, "example.com") {
 		t.Fatalf("unexpected list output: %s", output)
 	}
 

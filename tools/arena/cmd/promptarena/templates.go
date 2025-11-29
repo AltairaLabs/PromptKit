@@ -31,6 +31,12 @@ var (
 	repoURL         string
 )
 
+const (
+	tabMinWidth = 0
+	tabWidth    = 4
+	tabPadding  = 2
+)
+
 var templatesCmd = &cobra.Command{
 	Use:   "templates",
 	Short: "Manage PromptArena templates (list, fetch, render)",
@@ -48,12 +54,7 @@ var templatesListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		const (
-			minWidth = 0
-			tabWidth = 4
-			padding  = 2
-		)
-		w := tabwriter.NewWriter(cmd.OutOrStdout(), minWidth, tabWidth, padding, ' ', 0)
+		w := tabwriter.NewWriter(cmd.OutOrStdout(), tabMinWidth, tabWidth, tabPadding, ' ', 0)
 		if _, err := fmt.Fprintln(w, "TEMPLATE\tVERSION\tDESCRIPTION"); err != nil {
 			return err
 		}
@@ -183,12 +184,19 @@ var templatesRepoListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		w := tabwriter.NewWriter(cmd.OutOrStdout(), tabMinWidth, tabWidth, tabPadding, ' ', 0)
+		if _, err := fmt.Fprintln(w, "REPO\tURL"); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(w, "----\t---"); err != nil {
+			return err
+		}
 		for name, url := range cfg.Repos {
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\n", name, url); err != nil {
+			if _, err := fmt.Fprintf(w, "%s\t%s\n", name, url); err != nil {
 				return err
 			}
 		}
-		return nil
+		return w.Flush()
 	},
 }
 
