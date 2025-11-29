@@ -97,38 +97,19 @@ func (g *Generator) generateFile(fileSpec FileSpec, vars map[string]interface{},
 
 // generateSingleFile generates a single file
 func (g *Generator) generateSingleFile(fileSpec FileSpec, vars map[string]interface{}, result *GenerationResult) error {
-	// Render path template
-	outputPath, err := g.renderTemplate("path", fileSpec.Path, vars)
+	fullPath, outputPath, err := g.buildOutputPath(&fileSpec, vars, result.ProjectPath)
 	if err != nil {
-		return fmt.Errorf("failed to render path template: %w", err)
+		return err
 	}
-
-	fullPath := filepath.Join(result.ProjectPath, outputPath)
 
 	// Create parent directories
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
 		return fmt.Errorf("failed to create directory for %s: %w", outputPath, err)
 	}
 
-	// Generate content
-	var content string
-	if fileSpec.Content != "" {
-		// Use inline content
-		content, err = g.renderTemplate("content", fileSpec.Content, vars)
-		if err != nil {
-			return fmt.Errorf("failed to render inline content for %s: %w", outputPath, err)
-		}
-	} else if fileSpec.Template != "" {
-		// Load and render template file
-		templateData, err := g.loader.ReadTemplateFile(g.template.Metadata.Name, fileSpec.Template)
-		if err != nil {
-			return fmt.Errorf("failed to read template file %s: %w", fileSpec.Template, err)
-		}
-
-		content, err = g.renderTemplate(fileSpec.Template, string(templateData), vars)
-		if err != nil {
-			return fmt.Errorf("failed to render template %s: %w", fileSpec.Template, err)
-		}
+	content, err := g.resolveContent(&fileSpec, vars, outputPath)
+	if err != nil {
+		return err
 	}
 
 	// Write file
@@ -143,6 +124,82 @@ func (g *Generator) generateSingleFile(fileSpec FileSpec, vars map[string]interf
 
 	result.FilesCreated = append(result.FilesCreated, outputPath)
 	return nil
+}
+
+func (g *Generator) resolveSourcePath(src string) (string, error) {
+	if filepath.IsAbs(src) {
+		return "", fmt.Errorf("absolute source paths are not allowed: %s", src)
+	}
+	clean := filepath.Clean(src)
+	if g.template.BaseDir == "" {
+		return "", fmt.Errorf("source requires template base directory: %s", src)
+	}
+	resolved := filepath.Join(g.template.BaseDir, clean)
+	if !strings.HasPrefix(resolved, g.template.BaseDir+string(filepath.Separator)) && resolved != g.template.BaseDir {
+		return "", fmt.Errorf("source path escapes template directory: %s", src)
+	}
+	return resolved, nil
+}
+
+func (g *Generator) buildOutputPath(
+	fileSpec *FileSpec,
+	vars map[string]interface{},
+	projectPath string,
+) (fullPath, outputPath string, err error) {
+	outputPath, err = g.renderTemplate("path", fileSpec.Path, vars)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to render path template: %w", err)
+	}
+
+	cleanOutput := filepath.Clean(outputPath)
+	if filepath.IsAbs(cleanOutput) || strings.HasPrefix(cleanOutput, "..") {
+		return "", "", fmt.Errorf("invalid output path: %s", outputPath)
+	}
+
+	fullPath = filepath.Join(projectPath, cleanOutput)
+	if !strings.HasPrefix(fullPath, projectPath) {
+		return "", "", fmt.Errorf("output path escapes project directory: %s", outputPath)
+	}
+
+	return fullPath, outputPath, nil
+}
+
+func (g *Generator) resolveContent(fileSpec *FileSpec, vars map[string]interface{}, outputPath string) (string, error) {
+	switch {
+	case fileSpec.Source != "":
+		srcPath, readErr := g.resolveSourcePath(fileSpec.Source)
+		if readErr != nil {
+			return "", readErr
+		}
+		data, readErr := os.ReadFile(srcPath) //nolint:gosec // path already validated to stay under template base dir
+		if readErr != nil {
+			return "", fmt.Errorf("failed to read source file %s: %w", srcPath, readErr)
+		}
+		content, err := g.renderTemplate("source", string(data), vars)
+		if err != nil {
+			return "", fmt.Errorf("failed to render source content for %s: %w", outputPath, err)
+		}
+		return content, nil
+	case fileSpec.Content != "":
+		content, err := g.renderTemplate("content", fileSpec.Content, vars)
+		if err != nil {
+			return "", fmt.Errorf("failed to render inline content for %s: %w", outputPath, err)
+		}
+		return content, nil
+	case fileSpec.Template != "":
+		templateData, readErr := g.loader.ReadTemplateFile(g.template.Metadata.Name, fileSpec.Template)
+		if readErr != nil {
+			return "", fmt.Errorf("failed to read template file %s: %w", fileSpec.Template, readErr)
+		}
+
+		content, err := g.renderTemplate(fileSpec.Template, string(templateData), vars)
+		if err != nil {
+			return "", fmt.Errorf("failed to render template %s: %w", fileSpec.Template, err)
+		}
+		return content, nil
+	default:
+		return "", nil
+	}
 }
 
 // generateFileForEach generates multiple files by iterating over a variable

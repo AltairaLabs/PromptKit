@@ -19,7 +19,7 @@ promptarena [command] [flags]
 
 | Command | Description |
 |---------|-------------|
-| `init` | Initialize a new Arena test project from template |
+| `init` | Initialize a new Arena test project from template (built-in or remote) |
 | `run` | Run conversation simulations (main command) |
 | `config-inspect` | Inspect and validate configuration |
 | `debug` | Debug configuration and prompt loading |
@@ -51,10 +51,13 @@ promprarena init [directory] [flags]
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--quick` | bool | `false` | Skip interactive prompts, use defaults |
-| `--provider` | string | - | Provider to configure (mock, openai, anthropic, google) |
-| `--template` | string | `basic-chatbot` | Template to use for initialization |
+| `--provider` | string | - | Provider to configure (mock, openai, claude, gemini) |
+| `--template` | string | `quick-start` | Template to use for initialization |
 | `--list-templates` | bool | `false` | List all available built-in templates |
 | `--var` | []string | - | Set template variables (key=value) |
+| `--template-index` | string | `community` | Template repo name or index URL/path for remote templates |
+| `--repo-config` | string | user config | Template repo config file |
+| `--template-cache` | string | temp dir | Cache directory for remote templates |
 
 ### Built-In Templates
 
@@ -76,6 +79,16 @@ PromptArena includes 6 built-in templates:
 ```bash
 # See all built-in templates
 promprarena init --list-templates
+
+# List remote templates (from the default community repo)
+promptarena templates list
+
+# List remote templates from a named repo
+promptarena templates repo add --name internal --url https://example.com/index.yaml
+promptarena templates list --index internal
+
+# List using repo/template shorthand
+promptarena templates list --index community
 ```
 
 #### Quick Start
@@ -89,6 +102,10 @@ promprarena init my-test --quick --provider openai
 
 # With specific template
 promprarena init my-test --quick --template customer-support --provider openai
+
+# Render a remote template explicitly
+promptarena templates fetch --template community/basic-chatbot --version 1.0.0
+promptarena templates render --template community/basic-chatbot --version 1.0.0 --out ./out
 ```
 
 #### Interactive Mode
@@ -267,7 +284,7 @@ promptarena run --config my-arena.yaml
 
 ```bash
 # Run specific providers only
-promptarena run --provider openai,anthropic
+promptarena run --provider openai,claude
 
 # Run specific scenarios
 promptarena run --scenario basic-qa,edge-cases
@@ -708,7 +725,7 @@ promptarena config-inspect --verbose
 promptarena run --ci --format junit,json
 
 # Check specific providers
-promptarena run --ci --provider openai,anthropic --format junit
+promptarena run --ci --provider openai,claude --format junit
 ```
 
 ### Debugging
@@ -744,7 +761,7 @@ promptarena render out/index.json --output reports/latest.html
 promptarena run --format html,json
 
 # Test specific providers
-promptarena run --provider openai,anthropic,gemini --format html
+promptarena run --provider openai,claude,gemini --format html
 ```
 
 ---

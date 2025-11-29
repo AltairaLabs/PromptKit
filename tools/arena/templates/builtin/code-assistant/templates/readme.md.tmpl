@@ -15,14 +15,14 @@ This project tests code assistant capabilities including:
 ### Prerequisites
 
 - PromptArena CLI installed
-{{range .providers}}{{if ne . "mock"}}- {{if eq . "openai"}}OpenAI{{else if eq . "anthropic"}}Anthropic{{else if eq . "google"}}Google{{end}} API key
+{{range .providers}}{{if ne . "mock"}}- {{if eq . "openai"}}OpenAI{{else if eq . "claude"}}Claude{{else if eq . "gemini"}}Gemini{{end}} API key
 {{end}}{{end}}
 ### Setup
 
 1. Configure your API keys in `.env` file:
 {{range .providers}}{{if eq . "openai"}}   - Get OpenAI key from: https://platform.openai.com/api-keys
-{{else if eq . "anthropic"}}   - Get Anthropic key from: https://console.anthropic.com/
-{{else if eq . "google"}}   - Get Google key from: https://aistudio.google.com/app/apikey
+{{else if eq . "claude"}}   - Get Anthropic (Claude) key from: https://console.anthropic.com/
+{{else if eq . "gemini"}}   - Get Google (Gemini) key from: https://aistudio.google.com/app/apikey
 {{end}}{{end}}
 2. Review and customize the scenarios in `scenarios/`
 

@@ -48,5 +48,25 @@
         ]
     },
     "yaml.schemaStore.enable": true,
-    "yaml.validate": true
+    "yaml.validate": true,
+    "workbench.colorCustomizations": {
+        "activityBar.activeBackground": "#149f38",
+        "activityBar.background": "#149f38",
+        "activityBar.foreground": "#e7e7e7",
+        "activityBar.inactiveForeground": "#e7e7e799",
+        "activityBarBadge.background": "#d3c6f8",
+        "activityBarBadge.foreground": "#15202b",
+        "commandCenter.border": "#e7e7e799",
+        "sash.hoverBorder": "#149f38",
+        "statusBar.background": "#0e7228",
+        "statusBar.foreground": "#e7e7e7",
+        "statusBarItem.hoverBackground": "#149f38",
+        "statusBarItem.remoteBackground": "#0e7228",
+        "statusBarItem.remoteForeground": "#e7e7e7",
+        "titleBar.activeBackground": "#0e7228",
+        "titleBar.activeForeground": "#e7e7e7",
+        "titleBar.inactiveBackground": "#0e722899",
+        "titleBar.inactiveForeground": "#e7e7e799"
+    },
+    "peacock.color": "#0e7228"
 }

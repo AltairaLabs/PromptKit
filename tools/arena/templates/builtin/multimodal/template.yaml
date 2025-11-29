@@ -21,7 +21,7 @@ spec:
     - name: providers
       description: "LLM providers to configure (must support multimodal)"
       type: array
-      options: ["mock", "openai", "anthropic", "google"]
+      options: ["mock", "openai", "claude", "gemini"]
       default: ["openai"]
       prompt: "Which providers would you like to test"
       
@@ -96,8 +96,8 @@ spec:
       - "OCR and text extraction"
     providers:
       - "openai"
-      - "anthropic"
-      - "google"
+      - "claude"
+      - "gemini"
       
   docs:
     getting_started: "https://promptkit.altairalabs.ai/arena/tutorials/01-first-test"

@@ -1,6 +1,8 @@
 package templates
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -237,7 +239,7 @@ func TestGenerator_ForEach(t *testing.T) {
 		ProjectName: "test",
 		OutputDir:   tempDir,
 		Variables: map[string]interface{}{
-			"providers": []string{"openai", "anthropic", "google"},
+			"providers": []string{"openai", "claude", "gemini"},
 		},
 		Template: tmpl,
 	}
@@ -248,13 +250,99 @@ func TestGenerator_ForEach(t *testing.T) {
 	assert.Len(t, result.FilesCreated, 3)
 
 	// Verify each file was created
-	for _, provider := range []string{"openai", "anthropic", "google"} {
+	for _, provider := range []string{"openai", "claude", "gemini"} {
 		filePath := filepath.Join(tempDir, "test", provider+".txt")
 		assert.FileExists(t, filePath)
 		content, err := os.ReadFile(filePath)
 		require.NoError(t, err)
 		assert.Contains(t, string(content), provider)
 	}
+}
+
+func TestGenerator_RejectsPathTraversal(t *testing.T) {
+	tmpl := &Template{
+		APIVersion: "promptkit.altairalabs.ai/v1alpha1",
+		Kind:       "Template",
+		Metadata:   TemplateMetadata{Name: "bad-path"},
+		Spec: TemplateSpec{
+			Files: []FileSpec{
+				{
+					Path:    "../outside.txt",
+					Content: "bad",
+				},
+			},
+		},
+	}
+	tempDir := t.TempDir()
+	loader := NewLoader("")
+	gen := NewGenerator(tmpl, loader)
+	cfg := &TemplateConfig{
+		ProjectName: "proj",
+		OutputDir:   tempDir,
+		Variables:   map[string]interface{}{},
+		Template:    tmpl,
+	}
+	res, err := gen.Generate(cfg)
+	assert.NoError(t, err)
+	assert.False(t, res.Success)
+	assert.NotEmpty(t, res.Errors)
+}
+
+func TestGenerator_RejectsAbsoluteSource(t *testing.T) {
+	tmpl := &Template{
+		APIVersion: "promptkit.altairalabs.ai/v1alpha1",
+		Kind:       "Template",
+		Metadata:   TemplateMetadata{Name: "bad-source"},
+		Spec: TemplateSpec{
+			Files: []FileSpec{
+				{
+					Path:   "file.txt",
+					Source: "/tmp/evil",
+				},
+			},
+		},
+	}
+	tempDir := t.TempDir()
+	loader := NewLoader("")
+	gen := NewGenerator(tmpl, loader)
+	cfg := &TemplateConfig{
+		ProjectName: "proj",
+		OutputDir:   tempDir,
+		Variables:   map[string]interface{}{},
+		Template:    tmpl,
+	}
+	res, err := gen.Generate(cfg)
+	assert.NoError(t, err)
+	assert.False(t, res.Success)
+	assert.NotEmpty(t, res.Errors)
+}
+
+func TestGenerator_RejectsAbsoluteOutputPath(t *testing.T) {
+	tmpl := &Template{
+		APIVersion: "promptkit.altairalabs.ai/v1alpha1",
+		Kind:       "Template",
+		Metadata:   TemplateMetadata{Name: "bad-output"},
+		Spec: TemplateSpec{
+			Files: []FileSpec{
+				{
+					Path:    "/tmp/out.txt",
+					Content: "x",
+				},
+			},
+		},
+	}
+	tempDir := t.TempDir()
+	gen := NewGenerator(tmpl, NewLoader(""))
+	cfg := &TemplateConfig{
+		ProjectName: "proj",
+		OutputDir:   tempDir,
+		Variables:   map[string]interface{}{},
+		Template:    tmpl,
+	}
+	res, err := gen.Generate(cfg)
+	assert.NoError(t, err)
+	assert.False(t, res.Success)
+	assert.NotEmpty(t, res.Errors)
 }
 
 func TestGenerator_ExecutableFile(t *testing.T) {
@@ -294,6 +382,44 @@ func TestGenerator_ExecutableFile(t *testing.T) {
 	info, err := os.Stat(scriptPath)
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0755), info.Mode().Perm())
+}
+
+func TestGenerator_SourceFileContent(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "snippet.txt")
+	require.NoError(t, os.WriteFile(sourcePath, []byte("Hello {{.name}}"), 0o644))
+
+	templateContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Template
+metadata:
+  name: source-test
+spec:
+  files:
+    - path: out.txt
+      source: snippet.txt
+`
+	templatePath := filepath.Join(dir, "template.yaml")
+	require.NoError(t, os.WriteFile(templatePath, []byte(templateContent), 0o644))
+
+	loader := NewLoader("")
+	tmpl, err := loader.LoadFromFile(templatePath)
+	require.NoError(t, err)
+
+	config := &TemplateConfig{
+		ProjectName: "proj",
+		OutputDir:   dir,
+		Variables:   map[string]interface{}{"name": "world"},
+		Template:    tmpl,
+	}
+
+	generator := NewGenerator(tmpl, loader)
+	result, err := generator.Generate(config)
+	require.NoError(t, err)
+	require.True(t, result.Success)
+
+	data, err := os.ReadFile(filepath.Join(dir, "proj", "out.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "Hello world", string(data))
 }
 
 func TestGenerator_Hooks(t *testing.T) {
@@ -510,7 +636,7 @@ func TestLoader_Validate(t *testing.T) {
 				},
 			},
 			shouldError: true,
-			errorMsg:    "must have either template or content",
+			errorMsg:    "must have either template, source or content",
 		},
 	}
 
@@ -838,6 +964,57 @@ spec:
 
 	_, err = loader.LoadFromFile(invalidTemplatePath)
 	assert.Error(t, err)
+}
+
+func TestLoader_LoadFromRegistry(t *testing.T) {
+	dir := t.TempDir()
+
+	tpl := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Template
+metadata:
+  name: remote
+spec:
+  files:
+    - path: README.md
+      content: "hi"
+`
+	tplPath := filepath.Join(dir, "template.yaml")
+	require.NoError(t, os.WriteFile(tplPath, []byte(tpl), 0o644))
+
+	index := `
+apiVersion: v1
+kind: TemplateIndex
+spec:
+  entries:
+    - name: remote
+      version: "1.0.0"
+      source: "` + tplPath + `"
+    - name: remote
+      version: "1.1.0"
+      source: "` + tplPath + `"
+`
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/index.yaml":
+			_, _ = w.Write([]byte(index))
+		case "/template.yaml":
+			http.ServeFile(w, r, tplPath)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer s.Close()
+
+	DefaultIndex = s.URL + "/index.yaml"
+
+	loader := NewLoader(filepath.Join(dir, "cache"))
+	tmpl, err := loader.LoadFromRegistry("remote@1.0.0")
+	require.NoError(t, err)
+	assert.Equal(t, "remote", tmpl.Metadata.Name)
+
+	latest, err := loader.LoadFromRegistry("remote")
+	require.NoError(t, err)
+	assert.Equal(t, "remote", latest.Metadata.Name)
 }
 
 func TestLoader_Load_RemoteTemplate(t *testing.T) {
@@ -1329,4 +1506,92 @@ func TestLoader_ListBuiltIn_AllTemplates(t *testing.T) {
 	for _, name := range expectedTemplates {
 		assert.True(t, templateNames[name], "template %s should be in the list", name)
 	}
+}
+
+func TestBuiltInProviderOptionsAreSupported(t *testing.T) {
+	loader := NewLoader("")
+	infos, err := loader.ListBuiltIn()
+	require.NoError(t, err)
+
+	allowed := map[string]bool{
+		"mock":   true,
+		"openai": true,
+		"claude": true,
+		"gemini": true,
+	}
+
+	for _, info := range infos {
+		tmpl, err := loader.LoadBuiltIn(info.Name)
+		require.NoError(t, err)
+		for _, v := range tmpl.Spec.Variables {
+			if v.Name == "provider" || v.Name == "providers" {
+				for _, opt := range v.Options {
+					assert.True(t, allowed[opt], "template %s has unsupported provider option %s", info.Name, opt)
+				}
+			}
+		}
+	}
+}
+
+func TestRepoConfig_DefaultsAndResolve(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "repos.yaml")
+
+	cfg, err := LoadRepoConfig(cfgPath)
+	require.NoError(t, err)
+	assert.Equal(t, DefaultGitHubIndex, cfg.Repos[DefaultRepoName])
+
+	cfg.Add("custom", "https://example.com/index.yaml")
+	require.NoError(t, cfg.Save(cfgPath))
+
+	cfgReloaded, err := LoadRepoConfig(cfgPath)
+	require.NoError(t, err)
+	assert.Equal(t, "https://example.com/index.yaml", cfgReloaded.Repos["custom"])
+
+	url := ResolveIndex("custom", cfgReloaded)
+	assert.Equal(t, "https://example.com/index.yaml", url)
+
+	assert.Equal(t, "file://local/index.yaml", ResolveIndex("file://local/index.yaml", cfgReloaded))
+}
+
+func TestRepoConfig_SaveAndLoad(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "repos.yaml")
+
+	cfg := &RepoConfig{}
+	cfg.Add("internal", "https://example.com/index.yaml")
+	require.NoError(t, cfg.Save(cfgPath))
+
+	reloaded, err := LoadRepoConfig(cfgPath)
+	require.NoError(t, err)
+	assert.Equal(t, "https://example.com/index.yaml", reloaded.Repos["internal"])
+	assert.Equal(t, DefaultGitHubIndex, reloaded.Repos[DefaultRepoName])
+}
+
+func TestDefaultCacheDirUsesUserCache(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", dir)
+	defaultCacheDir = "" // reset global
+
+	cacheDir := DefaultCacheDir()
+	assert.NotEmpty(t, cacheDir)
+	// Second call should return the same cached value
+	second := DefaultCacheDir()
+	assert.Equal(t, cacheDir, second)
+}
+
+func TestDefaultRepoConfigPathEnvOverride(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "custom-repos.yaml")
+	t.Setenv("PROMPTARENA_REPO_CONFIG", tmp)
+	path := DefaultRepoConfigPath()
+	assert.Equal(t, tmp, path)
+}
+
+func TestDefaultRepoConfigPathUsesConfigHome(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	// Clear explicit override
+	t.Setenv("PROMPTARENA_REPO_CONFIG", "")
+	path := DefaultRepoConfigPath()
+	assert.True(t, strings.Contains(path, filepath.Join("promptarena", "templates")))
 }

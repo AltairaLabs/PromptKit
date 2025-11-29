@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -20,6 +21,9 @@ type Loader struct {
 
 // NewLoader creates a new template loader
 func NewLoader(cacheDir string) *Loader {
+	if cacheDir == "" {
+		cacheDir = DefaultCacheDir()
+	}
 	return &Loader{
 		cacheDir: cacheDir,
 	}
@@ -37,8 +41,11 @@ func (l *Loader) Load(name string) (*Template, error) {
 		return l.LoadFromFile(name)
 	}
 
-	// Try remote (future implementation)
-	// For now, return error
+	// Try remote registry (default index)
+	if tmpl, err := l.LoadFromRegistry(name); err == nil {
+		return tmpl, nil
+	}
+
 	return nil, fmt.Errorf("template not found: %s", name)
 }
 
@@ -59,6 +66,7 @@ func (l *Loader) LoadBuiltIn(name string) (*Template, error) {
 		return nil, fmt.Errorf("invalid template %s: %w", name, err)
 	}
 
+	tmpl.BaseDir = "" // built-ins resolve via embedded files
 	return &tmpl, nil
 }
 
@@ -78,6 +86,7 @@ func (l *Loader) LoadFromFile(path string) (*Template, error) {
 		return nil, fmt.Errorf("invalid template: %w", err)
 	}
 
+	tmpl.BaseDir = filepath.Dir(path)
 	return &tmpl, nil
 }
 
@@ -117,6 +126,57 @@ func (l *Loader) ListBuiltIn() ([]TemplateInfo, error) {
 	}
 
 	return templates, nil
+}
+
+// LoadFromRegistry fetches a template using the default index and cache.
+func (l *Loader) LoadFromRegistry(ref string) (*Template, error) {
+	name, version := parseTemplateRef(ref)
+	index, err := LoadIndex(DefaultIndex)
+	if err != nil {
+		return nil, fmt.Errorf("load index: %w", err)
+	}
+	entry, err := index.FindEntry(name, version)
+	if err != nil {
+		return nil, err
+	}
+	path, err := FetchTemplate(entry, l.cacheDir)
+	if err != nil {
+		return nil, err
+	}
+	return l.LoadFromFile(path)
+}
+
+// parseTemplateRef splits "name@version" into name/version.
+func parseTemplateRef(ref string) (name, version string) {
+	parts := strings.Split(ref, "@")
+	if len(parts) == 2 { //nolint:mnd // ref format is name@version
+		return parts[0], parts[1]
+	}
+	return ref, ""
+}
+
+// compareSemver compares two semver-ish strings (major.minor.patch), missing parts treated as 0.
+func compareSemver(a, b string) int {
+	split := func(v string) []int {
+		parts := strings.Split(v, ".")
+		out := []int{0, 0, 0}
+		for i := 0; i < len(parts) && i < 3; i++ {
+			n, _ := strconv.Atoi(parts[i])
+			out[i] = n
+		}
+		return out
+	}
+	va := split(a)
+	vb := split(b)
+	for i := 0; i < 3; i++ {
+		if va[i] > vb[i] {
+			return 1
+		}
+		if va[i] < vb[i] {
+			return -1
+		}
+	}
+	return 0
 }
 
 // ReadTemplateFile reads a template file from the built-in templates
@@ -159,8 +219,8 @@ func (l *Loader) validate(tmpl *Template) error {
 		if f.Path == "" {
 			return fmt.Errorf("spec.files[%d].path is required", i)
 		}
-		if f.Template == "" && f.Content == "" {
-			return fmt.Errorf("spec.files[%d] must have either template or content", i)
+		if f.Template == "" && f.Content == "" && f.Source == "" {
+			return fmt.Errorf("spec.files[%d] must have either template, source or content", i)
 		}
 	}
 

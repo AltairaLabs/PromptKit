@@ -22,28 +22,28 @@ spec:
   model: gpt-4o-mini
   config:
     api_key: ${OPENAI_API_KEY}
-{{else if eq .provider "anthropic"}}# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/provider.json
+{{else if eq .provider "claude"}}# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/provider.json
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Provider
 metadata:
-  name: anthropic
+  name: claude
 
 spec:
-  id: anthropic-claude-vision
-  provider: anthropic
+  id: claude-3-5-sonnet
+  provider: claude
   model: claude-3-5-sonnet-20241022
   config:
-    api_key: ${ANTHROPIC_API_KEY}
-{{else if eq .provider "google"}}# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/provider.json
+    api_key: ${CLAUDE_API_KEY}
+{{else if eq .provider "gemini"}}# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/provider.json
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Provider
 metadata:
-  name: google
+  name: gemini
 
 spec:
-  id: google-gemini-vision
-  provider: google
-  model: gemini-2.0-flash-exp
+  id: gemini-1.5-pro
+  provider: gemini
+  model: gemini-1.5-pro
   config:
-    api_key: ${GOOGLE_API_KEY}
+    api_key: ${GEMINI_API_KEY}
 {{end}}

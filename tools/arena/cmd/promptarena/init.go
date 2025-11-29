@@ -38,12 +38,15 @@ Examples:
 }
 
 var (
-	initTemplate  string
-	initQuick     bool
-	initNoGit     bool
-	initNoEnv     bool
-	initProvider  string
-	initOutputDir string
+	initTemplate      string
+	initQuick         bool
+	initNoGit         bool
+	initNoEnv         bool
+	initProvider      string
+	initOutputDir     string
+	initTemplateIndex string
+	initTemplateCache string
+	initRepoConfig    string
 )
 
 func init() {
@@ -55,6 +58,12 @@ func init() {
 	initCmd.Flags().BoolVar(&initNoEnv, "no-env", false, "Skip .env file creation")
 	initCmd.Flags().StringVar(&initProvider, "provider", "", "Provider to configure (openai, anthropic, google, mock)")
 	initCmd.Flags().StringVar(&initOutputDir, "output", ".", "Output directory")
+	initCmd.Flags().StringVar(&initTemplateIndex, "template-index", templates.DefaultRepoName,
+		"Template repo name or index URL/path for remote templates")
+	initCmd.Flags().StringVar(&initRepoConfig, "repo-config", templates.DefaultRepoConfigPath(),
+		"Template repo config file")
+	initCmd.Flags().StringVar(&initTemplateCache, "template-cache", templates.DefaultCacheDir(),
+		"Cache directory for remote templates")
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
@@ -62,7 +71,12 @@ func runInit(cmd *cobra.Command, args []string) error {
 	projectName := getProjectName(args)
 
 	// Load template
-	loader := templates.NewLoader("")
+	repoCfg, err := templates.LoadRepoConfig(initRepoConfig)
+	if err != nil {
+		return fmt.Errorf("load repo config: %w", err)
+	}
+	templates.DefaultIndex = templates.ResolveIndex(initTemplateIndex, repoCfg)
+	loader := templates.NewLoader(initTemplateCache)
 	tmpl, err := loader.Load(initTemplate)
 	if err != nil {
 		return fmt.Errorf("failed to load template %s: %w", initTemplate, err)

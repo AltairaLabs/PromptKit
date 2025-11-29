@@ -62,6 +62,7 @@ logs/
 tmp/
 temp/
 *.tmp
+.cache/
 docs/local-backlog/
 
 # Documentation (Astro)

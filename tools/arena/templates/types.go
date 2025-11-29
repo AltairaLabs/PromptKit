@@ -10,6 +10,7 @@ type Template struct {
 	Kind       string           `yaml:"kind" json:"kind"`
 	Metadata   TemplateMetadata `yaml:"metadata" json:"metadata"`
 	Spec       TemplateSpec     `yaml:"spec" json:"spec"`
+	BaseDir    string           `yaml:"-" json:"-"` // directory containing the template file (for source resolution)
 }
 
 // TemplateMetadata contains template identification and metadata
@@ -43,9 +44,11 @@ type Variable struct {
 
 // FileSpec defines a file to be generated from the template
 type FileSpec struct {
-	Path       string            `yaml:"path" json:"path"`
-	Template   string            `yaml:"template,omitempty" json:"template,omitempty"`
-	Content    string            `yaml:"content,omitempty" json:"content,omitempty"`
+	Path     string `yaml:"path" json:"path"`
+	Template string `yaml:"template,omitempty" json:"template,omitempty"`
+	Content  string `yaml:"content,omitempty" json:"content,omitempty"`
+	// Source is an external file path relative to the template directory
+	Source     string            `yaml:"source,omitempty" json:"source,omitempty"`
 	Condition  string            `yaml:"condition,omitempty" json:"condition,omitempty"`
 	ForEach    string            `yaml:"foreach,omitempty" json:"foreach,omitempty"`
 	Variables  map[string]string `yaml:"variables,omitempty" json:"variables,omitempty"`

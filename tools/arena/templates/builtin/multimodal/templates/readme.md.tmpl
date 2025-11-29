@@ -18,15 +18,15 @@ This project tests multimodal AI capabilities including:
 - PromptArena CLI installed
 - Multimodal-capable LLM API access:
 {{range .providers}}{{if eq . "openai"}}  - OpenAI GPT-4o (vision enabled)
-{{else if eq . "anthropic"}}  - Anthropic Claude 3+ (vision enabled)
-{{else if eq . "google"}}  - Google Gemini (vision enabled)
+{{else if eq . "claude"}}  - Anthropic Claude 3+ (vision enabled)
+{{else if eq . "gemini"}}  - Google Gemini (vision enabled)
 {{end}}{{end}}
 ### Setup
 
 1. Configure your API keys in `.env` file:
 {{range .providers}}{{if eq . "openai"}}   - Get OpenAI key from: https://platform.openai.com/api-keys
-{{else if eq . "anthropic"}}   - Get Anthropic key from: https://console.anthropic.com/
-{{else if eq . "google"}}   - Get Google key from: https://aistudio.google.com/app/apikey
+{{else if eq . "claude"}}   - Get Anthropic (Claude) key from: https://console.anthropic.com/
+{{else if eq . "gemini"}}   - Get Google (Gemini) key from: https://aistudio.google.com/app/apikey
 {{end}}{{end}}
 2. Add test images to the `media/` directory
 
