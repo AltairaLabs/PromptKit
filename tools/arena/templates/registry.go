@@ -9,8 +9,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/template"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -207,8 +209,9 @@ func DefaultCacheDir() string {
 		defaultCacheDir = tmp
 		return defaultCacheDir
 	}
-	// Last resort: deterministic temp dir.
-	defaultCacheDir = filepath.Join(os.TempDir(), "promptarena-templates")
+	// Last resort: non-deterministic temp dir under system temp.
+	suffix := strconv.FormatInt(time.Now().UnixNano(), 36)
+	defaultCacheDir = filepath.Join(os.TempDir(), "promptarena-templates-"+suffix)
 	return defaultCacheDir
 }
 

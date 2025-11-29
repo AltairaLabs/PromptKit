@@ -1579,3 +1579,19 @@ func TestDefaultCacheDirUsesUserCache(t *testing.T) {
 	second := DefaultCacheDir()
 	assert.Equal(t, cacheDir, second)
 }
+
+func TestDefaultRepoConfigPathEnvOverride(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "custom-repos.yaml")
+	t.Setenv("PROMPTARENA_REPO_CONFIG", tmp)
+	path := DefaultRepoConfigPath()
+	assert.Equal(t, tmp, path)
+}
+
+func TestDefaultRepoConfigPathUsesConfigHome(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	// Clear explicit override
+	t.Setenv("PROMPTARENA_REPO_CONFIG", "")
+	path := DefaultRepoConfigPath()
+	assert.True(t, strings.Contains(path, filepath.Join("promptarena", "templates")))
+}

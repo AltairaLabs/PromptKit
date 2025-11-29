@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -29,7 +31,8 @@ func DefaultRepoConfigPath() string {
 	}
 	configDir, err := os.UserConfigDir()
 	if err != nil || configDir == "" {
-		return filepath.Join(os.TempDir(), "promptarena", "templates", "repos.yaml")
+		suffix := strconv.FormatInt(time.Now().UnixNano(), 36)
+		return filepath.Join(os.TempDir(), "promptarena-templates-"+suffix, "repos.yaml")
 	}
 	return filepath.Join(configDir, "promptarena", "templates", "repos.yaml")
 }
