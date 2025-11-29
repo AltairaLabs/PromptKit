@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -148,6 +149,13 @@ var templatesRenderCmd = &cobra.Command{
 		}
 		pkg, err := templates.LoadTemplatePackage(src)
 		if err != nil {
+			// When rendering from cache and the template is missing, provide a helpful hint.
+			if templateFile == "" && errors.Is(err, os.ErrNotExist) {
+				msg := "template %s@%s not found in cache (%s). " +
+					"Run `promptarena templates fetch --template %s --version %s` first, " +
+					"or use --file to render a local template"
+				return fmt.Errorf(msg, templateName, templateVersion, src, templateName, templateVersion)
+			}
 			return err
 		}
 		fileVars, err := loadValuesFile(valuesFile)
