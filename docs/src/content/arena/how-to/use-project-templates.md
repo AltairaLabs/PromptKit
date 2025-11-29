@@ -50,8 +50,34 @@ PromptArena includes 6 built-in templates for common testing scenarios:
 View all available templates:
 
 ```bash
-promprarena init --list-templates
+promptarena init --list-templates
 ```
+
+## Community Templates (Remote)
+
+You can fetch templates from a community index (default points to the promptkit-templates repo).
+
+```bash
+# List remote templates (uses default index)
+promptarena templates list
+
+# Fetch a remote template into cache
+promptarena templates fetch --template basic-chatbot --version 1.0.0
+
+# Render a template to a temp/out directory
+promptarena templates render --template basic-chatbot --version 1.0.0 --values values.yaml --out ./out
+
+# Update all cached templates
+promptarena templates update
+
+# Init a project using a remote template
+promptarena init my-project --template basic-chatbot --template-index https://raw.githubusercontent.com/AltairaLabs/promptkit-templates/main/index.yaml
+```
+
+Flags:
+- `--index` / `--template-index`: override index URL/path
+- `--cache-dir` / `--template-cache`: override cache location
+- `--values`/`--set`: provide variables for render
 
 ## Provider Options
 
