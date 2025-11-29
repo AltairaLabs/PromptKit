@@ -1,3 +1,7 @@
+github.com/AltairaLabs/PromptKit/pkg v1.1.3 h1:zrspODsgVyluEF3UknGrP5ceA0leF0I+iiEhTMh3h28=
+github.com/AltairaLabs/PromptKit/pkg v1.1.3/go.mod h1:DCcKd9Tw5L39Z1WPuFNU13oHbelaTUDbVsSziHejFsw=
+github.com/AltairaLabs/PromptKit/runtime v1.1.3 h1:bgBGObmebU56Qwx259FX1ued/2SjU1hq30CmZnsgEek=
+github.com/AltairaLabs/PromptKit/runtime v1.1.3/go.mod h1:VWbER7YONNp5Lzs+dHM5aSV92C9Emf2E2BselsNW/zc=
 github.com/AltairaLabs/PromptKit/tools/arena v0.0.1 h1:goqOfnXVn0QB0K3ML9L4mTcfoKm4vRfCkW2ZfnTZTek=
 github.com/AltairaLabs/PromptKit/tools/arena v0.0.1/go.mod h1:dfnl5a/88iYWUocfqosw/Xae9GSRcDnuMoRYmMnem6A=
 github.com/Masterminds/semver/v3 v3.4.0 h1:Zog+i5UMtVoCU8oKka5P7i9q9HgrJeGzI9SA1Xbatp0=
@@ -93,6 +97,7 @@ gopkg.in/inf.v0 v0.9.1/go.mod h1:cWUDdTG/fYaXco+Dcufb5Vnc6Gp2YChqWtbxRZE0mXw=
 gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
 gopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
 k8s.io/apimachinery v0.34.2 h1:zQ12Uk3eMHPxrsbUJgNF8bTauTVR2WgqJsTmwTE/NW4=
+k8s.io/apimachinery v0.34.2/go.mod h1:/GwIlEcWuTX9zKIg2mbw0LRFIsXwrfoVxn+ef0X13lw=
 k8s.io/klog/v2 v2.130.1 h1:n9Xl7H1Xvksem4KFG4PYbdQCQxqc/tTUyrgXaOhHSzk=
 k8s.io/klog/v2 v2.130.1/go.mod h1:3Jpz1GvMt720eyJH1ckRHK1EDfpxISzJ7I9OYgaDtPE=
 k8s.io/utils v0.0.0-20250604170112-4c0f3b243397 h1:hwvWFiBzdWw1FhfY1FooPn3kzWuJ8tmbZBHi4zVsl1Y=

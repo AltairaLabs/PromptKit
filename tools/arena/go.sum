@@ -1,3 +1,7 @@
+github.com/AltairaLabs/PromptKit/pkg v1.1.3 h1:zrspODsgVyluEF3UknGrP5ceA0leF0I+iiEhTMh3h28=
+github.com/AltairaLabs/PromptKit/pkg v1.1.3/go.mod h1:DCcKd9Tw5L39Z1WPuFNU13oHbelaTUDbVsSziHejFsw=
+github.com/AltairaLabs/PromptKit/runtime v1.1.3 h1:bgBGObmebU56Qwx259FX1ued/2SjU1hq30CmZnsgEek=
+github.com/AltairaLabs/PromptKit/runtime v1.1.3/go.mod h1:VWbER7YONNp5Lzs+dHM5aSV92C9Emf2E2BselsNW/zc=
 github.com/Masterminds/semver/v3 v3.4.0 h1:Zog+i5UMtVoCU8oKka5P7i9q9HgrJeGzI9SA1Xbatp0=
 github.com/Masterminds/semver/v3 v3.4.0/go.mod h1:4V+yj/TJE1HU9XfppCwVMZq3I84lprf4nC11bSS5beM=
 github.com/alicebob/miniredis/v2 v2.35.0 h1:QwLphYqCEAo1eu1TqPRN2jgVMPBweeQcR21jeqDCONI=
