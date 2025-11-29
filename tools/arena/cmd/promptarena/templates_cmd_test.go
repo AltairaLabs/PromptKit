@@ -129,3 +129,51 @@ func TestTemplatesRepoCommands(t *testing.T) {
 		t.Fatalf("repo remove: %v", err)
 	}
 }
+
+func TestSplitTemplateRef(t *testing.T) {
+	repo, name := splitTemplateRef("community/basic-chatbot")
+	if repo != "community" || name != "basic-chatbot" {
+		t.Fatalf("expected repo/community split, got %s/%s", repo, name)
+	}
+	repo, name = splitTemplateRef("basic-chatbot")
+	if repo != "" || name != "basic-chatbot" {
+		t.Fatalf("expected bare name, got %s/%s", repo, name)
+	}
+}
+
+func TestResolveIndexPathWithRepoName(t *testing.T) {
+	dir := t.TempDir()
+	repoConfigPath = filepath.Join(dir, "repos.yaml")
+	templateIndex = "local"
+	cfg := `
+repos:
+  local: file:///tmp/index.yaml
+`
+	if err := os.WriteFile(repoConfigPath, []byte(cfg), 0o644); err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	path, repo, err := resolveIndexPath()
+	if err != nil {
+		t.Fatalf("resolve index: %v", err)
+	}
+	if repo != "local" || path != "file:///tmp/index.yaml" {
+		t.Fatalf("unexpected resolution: %s %s", repo, path)
+	}
+}
+
+func TestTemplatesRenderMissingCacheError(t *testing.T) {
+	dir := t.TempDir()
+	templateCache = filepath.Join(dir, "cache")
+	templateFile = ""
+	templateName = "missing"
+	templateVersion = "1.0.0"
+
+	err := templatesRenderCmd.RunE(templatesRenderCmd, nil)
+	if err == nil {
+		t.Fatalf("expected error for missing cache")
+	}
+	if !strings.Contains(err.Error(), "templates fetch") {
+		t.Fatalf("expected fetch hint in error, got: %v", err)
+	}
+}
