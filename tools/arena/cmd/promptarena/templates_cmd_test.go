@@ -40,6 +40,7 @@ spec:
 
 	templateCache = filepath.Join(dir, "cache")
 	templateIndex = indexPath
+	repoConfigPath = filepath.Join(dir, "repos.yaml")
 
 	// List
 	buf := &bytes.Buffer{}
@@ -83,5 +84,38 @@ spec:
 	templatesUpdateCmd.Flags().Set("cache-dir", templateCache)
 	if err := templatesUpdateCmd.RunE(templatesUpdateCmd, nil); err != nil {
 		t.Fatalf("update run: %v", err)
+	}
+}
+
+func TestTemplatesRepoCommands(t *testing.T) {
+	dir := t.TempDir()
+	repoConfigPath = filepath.Join(dir, "repos.yaml")
+
+	// Add repo
+	repoName = "local"
+	repoURL = "https://example.com/index.yaml"
+	buf := &bytes.Buffer{}
+	templatesRepoAddCmd.SetOut(buf)
+	if err := templatesRepoAddCmd.RunE(templatesRepoAddCmd, nil); err != nil {
+		t.Fatalf("repo add: %v", err)
+	}
+
+	// List repos
+	buf.Reset()
+	templatesRepoListCmd.SetOut(buf)
+	if err := templatesRepoListCmd.RunE(templatesRepoListCmd, nil); err != nil {
+		t.Fatalf("repo list: %v", err)
+	}
+	output := buf.String()
+	if !strings.Contains(output, "local") || !strings.Contains(output, "example.com") {
+		t.Fatalf("unexpected list output: %s", output)
+	}
+
+	// Remove repo
+	repoName = "local"
+	buf.Reset()
+	templatesRepoRemoveCmd.SetOut(buf)
+	if err := templatesRepoRemoveCmd.RunE(templatesRepoRemoveCmd, nil); err != nil {
+		t.Fatalf("repo remove: %v", err)
 	}
 }

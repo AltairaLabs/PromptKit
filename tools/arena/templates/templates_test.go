@@ -1421,3 +1421,24 @@ func TestLoader_ListBuiltIn_AllTemplates(t *testing.T) {
 		assert.True(t, templateNames[name], "template %s should be in the list", name)
 	}
 }
+
+func TestRepoConfig_DefaultsAndResolve(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "repos.yaml")
+
+	cfg, err := LoadRepoConfig(cfgPath)
+	require.NoError(t, err)
+	assert.Equal(t, DefaultGitHubIndex, cfg.Repos[DefaultRepoName])
+
+	cfg.Add("custom", "https://example.com/index.yaml")
+	require.NoError(t, cfg.Save(cfgPath))
+
+	cfgReloaded, err := LoadRepoConfig(cfgPath)
+	require.NoError(t, err)
+	assert.Equal(t, "https://example.com/index.yaml", cfgReloaded.Repos["custom"])
+
+	url := ResolveIndex("custom", cfgReloaded)
+	assert.Equal(t, "https://example.com/index.yaml", url)
+
+	assert.Equal(t, "file://local/index.yaml", ResolveIndex("file://local/index.yaml", cfgReloaded))
+}

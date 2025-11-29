@@ -25,6 +25,9 @@ var (
 	outputDir       string
 	valuesFile      string
 	promptMissing   bool
+	repoConfigPath  string
+	repoName        string
+	repoURL         string
 )
 
 var templatesCmd = &cobra.Command{
@@ -36,7 +39,11 @@ var templatesListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List templates from an index",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		idx, err := templates.LoadIndex(templateIndex)
+		indexPath, err := resolveIndexPath()
+		if err != nil {
+			return err
+		}
+		idx, err := templates.LoadIndex(indexPath)
 		if err != nil {
 			return err
 		}
@@ -53,7 +60,11 @@ var templatesFetchCmd = &cobra.Command{
 	Use:   "fetch",
 	Short: "Fetch a template from an index into cache",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		idx, err := templates.LoadIndex(templateIndex)
+		indexPath, err := resolveIndexPath()
+		if err != nil {
+			return err
+		}
+		idx, err := templates.LoadIndex(indexPath)
 		if err != nil {
 			return err
 		}
@@ -76,7 +87,11 @@ var templatesUpdateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Update all templates from an index into cache",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		idx, err := templates.LoadIndex(templateIndex)
+		indexPath, err := resolveIndexPath()
+		if err != nil {
+			return err
+		}
+		idx, err := templates.LoadIndex(indexPath)
 		if err != nil {
 			return err
 		}
@@ -142,12 +157,83 @@ var templatesRenderCmd = &cobra.Command{
 	},
 }
 
+var templatesRepoCmd = &cobra.Command{
+	Use:   "repo",
+	Short: "Manage template repositories",
+}
+
+var templatesRepoListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List configured template repositories",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := templates.LoadRepoConfig(repoConfigPath)
+		if err != nil {
+			return err
+		}
+		for name, url := range cfg.Repos {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\n", name, url); err != nil {
+				return err
+			}
+		}
+		return nil
+	},
+}
+
+var templatesRepoAddCmd = &cobra.Command{
+	Use:   "add",
+	Short: "Add or update a template repository",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if repoName == "" || repoURL == "" {
+			return fmt.Errorf("--name and --url are required")
+		}
+		cfg, err := templates.LoadRepoConfig(repoConfigPath)
+		if err != nil {
+			return err
+		}
+		cfg.Add(repoName, repoURL)
+		if err := cfg.Save(repoConfigPath); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Added repo %s -> %s\n", repoName, repoURL); err != nil {
+			return err
+		}
+		return nil
+	},
+}
+
+var templatesRepoRemoveCmd = &cobra.Command{
+	Use:   "remove",
+	Short: "Remove a template repository",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if repoName == "" {
+			return fmt.Errorf("--name is required")
+		}
+		cfg, err := templates.LoadRepoConfig(repoConfigPath)
+		if err != nil {
+			return err
+		}
+		if _, ok := cfg.Repos[repoName]; !ok {
+			return fmt.Errorf("repo %s not found", repoName)
+		}
+		cfg.Remove(repoName)
+		if err := cfg.Save(repoConfigPath); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Removed repo %s\n", repoName); err != nil {
+			return err
+		}
+		return nil
+	},
+}
+
 //nolint:gochecknoinits // cobra command registration
 func init() {
 	rootCmd.AddCommand(templatesCmd)
 
-	templatesCmd.PersistentFlags().StringVar(&templateIndex, "index", templates.DefaultIndex,
-		"Path or URL to template index")
+	templatesCmd.PersistentFlags().StringVar(&templateIndex, "index", templates.DefaultRepoName,
+		"Repo name or path/URL to template index")
+	templatesCmd.PersistentFlags().StringVar(&repoConfigPath, "repo-config", templates.DefaultRepoConfigPath(),
+		"Template repo config file")
 	templatesCmd.PersistentFlags().StringVar(&templateCache, "cache-dir",
 		filepath.Join(os.TempDir(), "promptarena-templates"), "Template cache directory")
 
@@ -155,6 +241,7 @@ func init() {
 	templatesCmd.AddCommand(templatesFetchCmd)
 	templatesCmd.AddCommand(templatesUpdateCmd)
 	templatesCmd.AddCommand(templatesRenderCmd)
+	templatesCmd.AddCommand(templatesRepoCmd)
 
 	templatesFetchCmd.Flags().StringVar(&templateName, "template", "", "Template name")
 	templatesFetchCmd.Flags().StringVar(&templateVersion, "version", "", "Template version")
@@ -171,6 +258,13 @@ func init() {
 	templatesRenderCmd.Flags().StringVar(&outputDir, "out", "", "Output directory (defaults to temp)")
 	templatesRenderCmd.Flags().StringVar(&valuesFile, "values", "", "YAML file with template variables")
 	templatesRenderCmd.Flags().BoolVar(&promptMissing, "prompt-missing", false, "Prompt for missing template variables")
+
+	templatesRepoCmd.AddCommand(templatesRepoListCmd)
+	templatesRepoCmd.AddCommand(templatesRepoAddCmd)
+	templatesRepoCmd.AddCommand(templatesRepoRemoveCmd)
+	templatesRepoAddCmd.Flags().StringVar(&repoName, "name", "", "Short name for the repo")
+	templatesRepoAddCmd.Flags().StringVar(&repoURL, "url", "", "Index URL for the repo")
+	templatesRepoRemoveCmd.Flags().StringVar(&repoName, "name", "", "Short name for the repo")
 }
 
 func loadValuesFile(path string) (map[string]string, error) {
@@ -201,6 +295,14 @@ func mergeValues(base, override map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+func resolveIndexPath() (string, error) {
+	cfg, err := templates.LoadRepoConfig(repoConfigPath)
+	if err != nil {
+		return "", err
+	}
+	return templates.ResolveIndex(templateIndex, cfg), nil
 }
 
 var placeholderRegex = regexp.MustCompile(`{{\s*\.([a-zA-Z0-9_]+)\s*}}`)

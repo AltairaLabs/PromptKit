@@ -52,10 +52,11 @@ promprarena init [directory] [flags]
 |------|------|---------|-------------|
 | `--quick` | bool | `false` | Skip interactive prompts, use defaults |
 | `--provider` | string | - | Provider to configure (mock, openai, anthropic, google) |
-| `--template` | string | `basic-chatbot` | Template to use for initialization |
+| `--template` | string | `quick-start` | Template to use for initialization |
 | `--list-templates` | bool | `false` | List all available built-in templates |
 | `--var` | []string | - | Set template variables (key=value) |
-| `--template-index` | string | community index | Template index URL/path for remote templates |
+| `--template-index` | string | `community` | Template repo name or index URL/path for remote templates |
+| `--repo-config` | string | user config | Template repo config file |
 | `--template-cache` | string | temp dir | Cache directory for remote templates |
 
 ### Built-In Templates
@@ -79,8 +80,12 @@ PromptArena includes 6 built-in templates:
 # See all built-in templates
 promprarena init --list-templates
 
-# List remote templates (from the default index)
+# List remote templates (from the default community repo)
 promptarena templates list
+
+# List remote templates from a named repo
+promptarena templates repo add --name internal --url https://example.com/index.yaml
+promptarena templates list --index internal
 ```
 
 #### Quick Start

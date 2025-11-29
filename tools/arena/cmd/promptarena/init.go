@@ -48,6 +48,7 @@ var (
 	initOutputDir     string
 	initTemplateIndex string
 	initTemplateCache string
+	initRepoConfig    string
 )
 
 func init() {
@@ -59,8 +60,10 @@ func init() {
 	initCmd.Flags().BoolVar(&initNoEnv, "no-env", false, "Skip .env file creation")
 	initCmd.Flags().StringVar(&initProvider, "provider", "", "Provider to configure (openai, anthropic, google, mock)")
 	initCmd.Flags().StringVar(&initOutputDir, "output", ".", "Output directory")
-	initCmd.Flags().StringVar(&initTemplateIndex, "template-index", templates.DefaultIndex,
-		"Template index URL/path for remote templates")
+	initCmd.Flags().StringVar(&initTemplateIndex, "template-index", templates.DefaultRepoName,
+		"Template repo name or index URL/path for remote templates")
+	initCmd.Flags().StringVar(&initRepoConfig, "repo-config", templates.DefaultRepoConfigPath(),
+		"Template repo config file")
 	initCmd.Flags().StringVar(&initTemplateCache, "template-cache", filepath.Join(os.TempDir(), "promptarena-templates"),
 		"Cache directory for remote templates")
 }
@@ -70,7 +73,11 @@ func runInit(cmd *cobra.Command, args []string) error {
 	projectName := getProjectName(args)
 
 	// Load template
-	templates.DefaultIndex = initTemplateIndex
+	repoCfg, err := templates.LoadRepoConfig(initRepoConfig)
+	if err != nil {
+		return fmt.Errorf("load repo config: %w", err)
+	}
+	templates.DefaultIndex = templates.ResolveIndex(initTemplateIndex, repoCfg)
 	loader := templates.NewLoader(initTemplateCache)
 	tmpl, err := loader.Load(initTemplate)
 	if err != nil {
