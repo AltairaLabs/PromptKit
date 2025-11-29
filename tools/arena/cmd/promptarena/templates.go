@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
@@ -47,12 +48,24 @@ var templatesListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		const (
+			minWidth = 0
+			tabWidth = 4
+			padding  = 2
+		)
+		w := tabwriter.NewWriter(cmd.OutOrStdout(), minWidth, tabWidth, padding, ' ', 0)
+		if _, err := fmt.Fprintln(w, "TEMPLATE\tVERSION\tDESCRIPTION"); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(w, "--------\t-------\t-----------"); err != nil {
+			return err
+		}
 		for _, e := range idx.Spec.Entries {
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\n", e.Name, e.Version, e.Description); err != nil {
+			if _, err := fmt.Fprintf(w, "%s\t%s\t%s\n", e.Name, e.Version, e.Description); err != nil {
 				return err
 			}
 		}
-		return nil
+		return w.Flush()
 	},
 }
 

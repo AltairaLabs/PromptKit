@@ -48,8 +48,9 @@ spec:
 	if err := templatesListCmd.RunE(templatesListCmd, nil); err != nil {
 		t.Fatalf("list run: %v", err)
 	}
-	if !strings.Contains(buf.String(), "demo") {
-		t.Fatalf("expected demo in list output")
+	out := buf.String()
+	if !strings.Contains(out, "TEMPLATE") || !strings.Contains(out, "VERSION") || !strings.Contains(out, "demo") {
+		t.Fatalf("expected demo in list output, got: %q", out)
 	}
 
 	// Fetch
