@@ -86,6 +86,9 @@ promptarena templates list
 # List remote templates from a named repo
 promptarena templates repo add --name internal --url https://example.com/index.yaml
 promptarena templates list --index internal
+
+# List using repo/template shorthand
+promptarena templates list --index community
 ```
 
 #### Quick Start
@@ -99,6 +102,10 @@ promprarena init my-test --quick --provider openai
 
 # With specific template
 promprarena init my-test --quick --template customer-support --provider openai
+
+# Render a remote template explicitly
+promptarena templates fetch --template community/basic-chatbot --version 1.0.0
+promptarena templates render --template community/basic-chatbot --version 1.0.0 --out ./out
 ```
 
 #### Interactive Mode
