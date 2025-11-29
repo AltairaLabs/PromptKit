@@ -236,13 +236,17 @@ jobs:
         wait $PID_SDK
         RESULT_SDK=$?
         
-        # Report overall status
+        # Report overall status (non-blocking - Go proxy can take time to propagate)
         if [ $RESULT_RUNTIME -eq 0 ] && [ $RESULT_PKG -eq 0 ] && [ $RESULT_SDK -eq 0 ]; then
           echo "✓ All modules are available on Go proxy"
         else
           echo "⚠ Some modules may need more time to propagate"
           echo "  This is normal and they will be available shortly"
+          echo "  Continuing with release process..."
         fi
+        
+        # Always succeed - Go proxy propagation shouldn't block the release
+        exit 0
 
   update-tools:
     name: Update and Tag Tools
@@ -285,6 +289,7 @@ jobs:
     - name: Update arena dependencies
       env:
         VERSION: ${{ needs.validate.outputs.version }}
+        GOPROXY: direct
       run: |
         echo "Updating tools/arena to use $VERSION..."
         cd tools/arena
@@ -298,8 +303,8 @@ jobs:
         go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
         go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/pkg
         
-        # Download the modules with retry logic
-        echo "Downloading dependencies..."
+        # Download the modules with retry logic (using direct access since Go proxy may not have indexed yet)
+        echo "Downloading dependencies directly from GitHub..."
         for i in {1..10}; do
           if go mod download 2>&1; then
             echo "✓ Downloaded dependencies"
@@ -324,6 +329,7 @@ jobs:
     - name: Update packc dependencies
       env:
         VERSION: ${{ needs.validate.outputs.version }}
+        GOPROXY: direct
       run: |
         echo "Updating tools/packc to use $VERSION..."
         cd tools/packc
@@ -337,8 +343,8 @@ jobs:
         go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
         go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/pkg
         
-        # Download the modules with retry logic
-        echo "Downloading dependencies..."
+        # Download the modules with retry logic (using direct access since Go proxy may not have indexed yet)
+        echo "Downloading dependencies directly from GitHub..."
         for i in {1..10}; do
           if go mod download 2>&1; then
             echo "✓ Downloaded dependencies"
