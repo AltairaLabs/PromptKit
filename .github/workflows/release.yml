@@ -57,10 +57,14 @@ jobs:
           exit 1
         fi
         
-        # Check if version already exists
+        # Check if version already exists (allow re-running tools-only releases)
         if git tag -l | grep -q "^$VERSION$\|^runtime/$VERSION$"; then
-          echo "::error::Version $VERSION already exists"
-          exit 1
+          if [ "${{ inputs.phase }}" = "tools-only" ]; then
+            echo "⚠ Version $VERSION already exists, but proceeding with tools-only release"
+          else
+            echo "::error::Version $VERSION already exists"
+            exit 1
+          fi
         fi
         
         # Get latest version and compare
