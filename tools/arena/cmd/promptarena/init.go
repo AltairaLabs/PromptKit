@@ -2,8 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/manifoldco/promptui"
@@ -64,7 +62,7 @@ func init() {
 		"Template repo name or index URL/path for remote templates")
 	initCmd.Flags().StringVar(&initRepoConfig, "repo-config", templates.DefaultRepoConfigPath(),
 		"Template repo config file")
-	initCmd.Flags().StringVar(&initTemplateCache, "template-cache", filepath.Join(os.TempDir(), "promptarena-templates"),
+	initCmd.Flags().StringVar(&initTemplateCache, "template-cache", templates.DefaultCacheDir(),
 		"Cache directory for remote templates")
 }
 

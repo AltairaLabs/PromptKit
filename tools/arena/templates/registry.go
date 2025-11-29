@@ -24,6 +24,7 @@ const (
 
 // DefaultIndex is the index location used for remote loads (overridable in tests).
 var DefaultIndex = DefaultGitHubIndex
+var defaultCacheDir string
 
 // loadBytes loads a file from disk or HTTP.
 func loadBytes(location string) ([]byte, error) {
@@ -188,6 +189,27 @@ func ValidateChecksum(path, expected string) error {
 		return fmt.Errorf("checksum mismatch: got %s want %s", sum, expected)
 	}
 	return nil
+}
+
+// DefaultCacheDir returns the default cache directory, preferring the user cache dir.
+func DefaultCacheDir() string {
+	if defaultCacheDir != "" {
+		return defaultCacheDir
+	}
+	cacheDir, err := os.UserCacheDir()
+	if err == nil && cacheDir != "" {
+		defaultCacheDir = filepath.Join(cacheDir, "promptarena", "templates")
+		return defaultCacheDir
+	}
+	// Fallback: create a unique temp dir to avoid predictable shared paths.
+	tmp, err := os.MkdirTemp("", "promptarena-templates-")
+	if err == nil {
+		defaultCacheDir = tmp
+		return defaultCacheDir
+	}
+	// Last resort: deterministic temp dir.
+	defaultCacheDir = filepath.Join(os.TempDir(), "promptarena-templates")
+	return defaultCacheDir
 }
 
 // FetchTemplate copies the template source into cacheDir/<name>/<version>/template.yaml.

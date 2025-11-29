@@ -279,8 +279,8 @@ func init() {
 		"Repo name or path/URL to template index")
 	templatesCmd.PersistentFlags().StringVar(&repoConfigPath, "repo-config", templates.DefaultRepoConfigPath(),
 		"Template repo config file")
-	templatesCmd.PersistentFlags().StringVar(&templateCache, "cache-dir",
-		filepath.Join(os.TempDir(), "promptarena-templates"), "Template cache directory")
+	templatesCmd.PersistentFlags().StringVar(&templateCache, "cache-dir", templates.DefaultCacheDir(),
+		"Template cache directory")
 
 	templatesCmd.AddCommand(templatesListCmd)
 	templatesCmd.AddCommand(templatesFetchCmd)

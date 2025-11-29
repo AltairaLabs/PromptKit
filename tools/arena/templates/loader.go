@@ -22,7 +22,7 @@ type Loader struct {
 // NewLoader creates a new template loader
 func NewLoader(cacheDir string) *Loader {
 	if cacheDir == "" {
-		cacheDir = filepath.Join(os.TempDir(), "promptarena-templates")
+		cacheDir = DefaultCacheDir()
 	}
 	return &Loader{
 		cacheDir: cacheDir,
