@@ -42,6 +42,71 @@ spec:
 	}
 }
 
+func TestLoadIndexValidationFailures(t *testing.T) {
+	dir := t.TempDir()
+	// missing kind/apiVersion
+	bad := `spec: { entries: [] }`
+	p := filepath.Join(dir, "bad.yaml")
+	if err := os.WriteFile(p, []byte(bad), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, err := LoadIndex(p); err == nil {
+		t.Fatalf("expected error for missing fields")
+	}
+
+	// wrong version
+	wrong := `apiVersion: v2\nkind: TemplateIndex\nspec: { entries: [{name: a, version: "1.0.0", source: ./x}]}`
+	p2 := filepath.Join(dir, "wrong.yaml")
+	if err := os.WriteFile(p2, []byte(wrong), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, err := LoadIndex(p2); err == nil {
+		t.Fatalf("expected error for unsupported version")
+	}
+
+	// wrong kind
+	wrongKind := `apiVersion: promptkit.altairalabs.ai/v1\nkind: NotIndex\nspec: { entries: [{name: a, version: "1.0.0", source: ./x}]}`
+	p3 := filepath.Join(dir, "wrongkind.yaml")
+	if err := os.WriteFile(p3, []byte(wrongKind), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, err := LoadIndex(p3); err == nil {
+		t.Fatalf("expected error for wrong kind")
+	}
+
+	// empty entries
+	empty := `apiVersion: promptkit.altairalabs.ai/v1\nkind: TemplateIndex\nspec: { entries: [] }`
+	p4 := filepath.Join(dir, "empty.yaml")
+	if err := os.WriteFile(p4, []byte(empty), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, err := LoadIndex(p4); err == nil {
+		t.Fatalf("expected error for empty entries")
+	}
+}
+
+func TestLoadBytesHTTPNon200(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	}))
+	defer s.Close()
+	if _, err := LoadIndex(s.URL); err == nil {
+		t.Fatalf("expected error on non-200")
+	}
+}
+
+func TestFetchTemplateChecksumMismatch(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "pkg.yaml")
+	if err := os.WriteFile(src, []byte("files: []"), 0o644); err != nil {
+		t.Fatalf("write pkg: %v", err)
+	}
+	entry := &IndexEntry{Name: "demo", Version: "1.0.0", Source: src, Checksum: "deadbeef"}
+	if _, err := FetchTemplate(entry, filepath.Join(dir, "cache")); err == nil {
+		t.Fatalf("expected checksum mismatch error")
+	}
+}
+
 func TestValidateChecksum(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "file.txt")
@@ -76,6 +141,15 @@ func TestFetchTemplate(t *testing.T) {
 	}
 	if _, err := os.Stat(dest); err != nil {
 		t.Fatalf("cached file missing: %v", err)
+	}
+}
+
+func TestDefaultCacheDirCreatesPath(t *testing.T) {
+	// Reset package-level cache dir
+	defaultCacheDir = ""
+	dir := DefaultCacheDir()
+	if dir == "" {
+		t.Fatalf("expected default cache dir")
 	}
 }
 

@@ -9,7 +9,6 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
@@ -387,30 +386,6 @@ func extractPlaceholders(pkg *templates.TemplatePackage) []string {
 }
 
 func promptForMissing(vars map[string]string, pkg *templates.TemplatePackage) (map[string]string, error) {
-	if pkg == nil {
-		return vars, nil
-	}
-	keys := extractPlaceholders(pkg)
-	out := make(map[string]string, len(vars)+len(keys))
-	for k, v := range vars {
-		out[k] = v
-	}
-	for _, k := range keys {
-		if _, ok := out[k]; ok {
-			continue
-		}
-		p := promptui.Prompt{
-			Label:     fmt.Sprintf("Value for %s", k),
-			AllowEdit: true,
-		}
-		val, err := p.Run()
-		if err != nil {
-			if err == promptui.ErrInterrupt {
-				return nil, fmt.Errorf("prompt canceled")
-			}
-			return nil, fmt.Errorf("prompt for %s: %w", k, err)
-		}
-		out[k] = strings.TrimSpace(val)
-	}
-	return out, nil
+	// Delegate to interactive implementation to simplify coverage management.
+	return promptForMissingInteractive(vars, pkg)
 }
