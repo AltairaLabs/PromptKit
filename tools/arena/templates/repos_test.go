@@ -1,6 +1,7 @@
 package templates
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -67,4 +68,42 @@ func TestEnsureDefaultsCreatesMap(t *testing.T) {
 	if len(cfg.Repos) == 0 {
 		t.Fatalf("repos map not initialized")
 	}
+}
+
+func TestLoadRepoConfig_ParseError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	badFile := filepath.Join(dir, "bad.yaml")
+	data := []byte("repos: [invalid")
+	if err := writeFile(badFile, data); err != nil {
+		t.Fatalf("write bad file: %v", err)
+	}
+	if _, err := LoadRepoConfig(badFile); err == nil {
+		t.Fatalf("expected parse error")
+	}
+}
+
+func TestDefaultRepoConfigPath_EnvOverride(t *testing.T) {
+	testPath := "/custom/path/repos.yaml"
+	oldEnv := os.Getenv("PROMPTARENA_REPO_CONFIG")
+	os.Setenv("PROMPTARENA_REPO_CONFIG", testPath)
+	defer os.Setenv("PROMPTARENA_REPO_CONFIG", oldEnv)
+	path := DefaultRepoConfigPath()
+	if path != testPath {
+		t.Errorf("DefaultRepoConfigPath with env = %s, want %s", path, testPath)
+	}
+}
+
+func TestRepoConfig_RemoveResetsDefaults(t *testing.T) {
+	t.Parallel()
+	cfg := &RepoConfig{Repos: map[string]string{"test": "http://test.com"}}
+	cfg.Remove("test")
+	// Defaults should be re-added
+	if _, ok := cfg.Repos[DefaultRepoName]; !ok {
+		t.Fatalf("defaults not restored after Remove")
+	}
+}
+
+func writeFile(path string, data []byte) error {
+	return os.WriteFile(path, data, 0o600)
 }
