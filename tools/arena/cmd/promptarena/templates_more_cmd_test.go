@@ -12,8 +12,8 @@ import (
 
 // Covers: templatesUpdateCmd error when a fetch fails, templatesRenderCmd missing version error,
 // loadValuesFile parse error and mergeValues behavior via render.
+// Note: These tests modify global flags and cannot run in parallel.
 func TestTemplates_Update_FetchError(t *testing.T) {
-	t.Parallel()
 	tmp := t.TempDir()
 	// Create an index with a single entry pointing to a non-existent source.
 	idxPath := filepath.Join(tmp, "index.yaml")
@@ -31,7 +31,6 @@ func TestTemplates_Update_FetchError(t *testing.T) {
 }
 
 func TestTemplates_Render_MissingVersionFromCache(t *testing.T) {
-	t.Parallel()
 	templateName = "repo/name"
 	templateVersion = ""
 	templateCache = t.TempDir()
@@ -107,7 +106,6 @@ func TestExtractPlaceholders_MultipleKeys(t *testing.T) {
 }
 
 func TestResolveIndexPath_RepoMapping(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "repos.yaml")
 	repoConfigPath = cfgPath
@@ -127,7 +125,6 @@ func TestResolveIndexPath_RepoMapping(t *testing.T) {
 }
 
 func TestTemplates_List_OutputFormatting(t *testing.T) {
-	t.Parallel()
 	tmp := t.TempDir()
 	idxPath := filepath.Join(tmp, "index.yaml")
 	idxContent := `apiVersion: promptkit.altairalabs.ai/v1
