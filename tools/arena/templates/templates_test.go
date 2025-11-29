@@ -259,6 +259,64 @@ func TestGenerator_ForEach(t *testing.T) {
 	}
 }
 
+func TestGenerator_RejectsPathTraversal(t *testing.T) {
+	tmpl := &Template{
+		APIVersion: "promptkit.altairalabs.ai/v1alpha1",
+		Kind:       "Template",
+		Metadata:   TemplateMetadata{Name: "bad-path"},
+		Spec: TemplateSpec{
+			Files: []FileSpec{
+				{
+					Path:    "../outside.txt",
+					Content: "bad",
+				},
+			},
+		},
+	}
+	tempDir := t.TempDir()
+	loader := NewLoader("")
+	gen := NewGenerator(tmpl, loader)
+	cfg := &TemplateConfig{
+		ProjectName: "proj",
+		OutputDir:   tempDir,
+		Variables:   map[string]interface{}{},
+		Template:    tmpl,
+	}
+	res, err := gen.Generate(cfg)
+	assert.NoError(t, err)
+	assert.False(t, res.Success)
+	assert.NotEmpty(t, res.Errors)
+}
+
+func TestGenerator_RejectsAbsoluteSource(t *testing.T) {
+	tmpl := &Template{
+		APIVersion: "promptkit.altairalabs.ai/v1alpha1",
+		Kind:       "Template",
+		Metadata:   TemplateMetadata{Name: "bad-source"},
+		Spec: TemplateSpec{
+			Files: []FileSpec{
+				{
+					Path:   "file.txt",
+					Source: "/tmp/evil",
+				},
+			},
+		},
+	}
+	tempDir := t.TempDir()
+	loader := NewLoader("")
+	gen := NewGenerator(tmpl, loader)
+	cfg := &TemplateConfig{
+		ProjectName: "proj",
+		OutputDir:   tempDir,
+		Variables:   map[string]interface{}{},
+		Template:    tmpl,
+	}
+	res, err := gen.Generate(cfg)
+	assert.NoError(t, err)
+	assert.False(t, res.Success)
+	assert.NotEmpty(t, res.Errors)
+}
+
 func TestGenerator_ExecutableFile(t *testing.T) {
 	tmpl := &Template{
 		APIVersion: "promptkit.altairalabs.ai/v1alpha1",
