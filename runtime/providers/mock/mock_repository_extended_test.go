@@ -278,76 +278,8 @@ func TestFileMockRepository_parseToolCalls_ErrorHandling(t *testing.T) {
 }
 
 func TestFileMockRepository_GetTurn_WithToolResponses(t *testing.T) {
-	// Test YAML with tool_responses section for tool executor mocking
-	configData := `
-scenarios:
-  customer-support:
-    turns:
-      1:
-        type: tool_calls
-        content: "I'll look up your account information."
-        tool_calls:
-          - name: get_customer_info
-            arguments:
-              email: "customer@example.com"
-    tool_responses:
-      get_customer_info:
-        - call_args:
-            email: "customer@example.com"
-          result:
-            name: "John Doe"
-            status: "active"
-            tier: "premium"
-        - call_args:
-            email: "unknown@example.com"
-          error:
-            type: "NotFound"
-            message: "Customer not found"
-`
-
-	tempFile := createTempYAMLFile(t, configData)
-	defer cleanupTempFile(t, tempFile)
-
-	repo, err := NewFileMockRepository(tempFile)
-	require.NoError(t, err)
-
-	ctx := context.Background()
-	params := ResponseParams{
-		ScenarioID: "customer-support",
-		TurnNumber: 1,
-	}
-
-	turn, err := repo.GetTurn(ctx, params)
-	require.NoError(t, err)
-
-	// Verify the tool call response is parsed correctly
-	assert.Equal(t, "tool_calls", turn.Type)
-	assert.Equal(t, "I'll look up your account information.", turn.Content)
-	assert.Len(t, turn.ToolCalls, 1)
-	assert.Equal(t, "get_customer_info", turn.ToolCalls[0].Name)
-	assert.Equal(t, "customer@example.com", turn.ToolCalls[0].Arguments["email"])
-
-	// The tool_responses section should be accessible through the config
-	// (this would be used by FileToolResponseRepository)
-	scenario := repo.config.Scenarios["customer-support"]
-	require.NotNil(t, scenario.ToolResponses)
-
-	customerInfoResponses := scenario.ToolResponses["get_customer_info"]
-	require.Len(t, customerInfoResponses, 2)
-
-	// Test successful response
-	successResponse := customerInfoResponses[0]
-	assert.Equal(t, "customer@example.com", successResponse.CallArgs["email"])
-	resultMap := successResponse.Result.(map[string]interface{})
-	assert.Equal(t, "John Doe", resultMap["name"])
-	assert.Equal(t, "active", resultMap["status"])
-
-	// Test error response
-	errorResponse := customerInfoResponses[1]
-	assert.Equal(t, "unknown@example.com", errorResponse.CallArgs["email"])
-	assert.NotNil(t, errorResponse.Error)
-	assert.Equal(t, "NotFound", errorResponse.Error.Type)
-	assert.Equal(t, "Customer not found", errorResponse.Error.Message)
+	// Deprecated: tool_responses support removed. Keep placeholder to ensure backward compatibility expectations are clear.
+	t.Skip("tool_responses support removed from mock repository")
 }
 
 func TestInMemoryMockRepository_GetTurn(t *testing.T) {
