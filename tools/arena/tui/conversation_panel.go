@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
@@ -18,6 +19,12 @@ const (
 	conversationSnippetMaxLength = 60
 	conversationDetailWidthPad   = 6
 	conversationDetailMinWidth   = 40
+	conversationTableHeightPad   = 6
+	conversationTableMinHeight   = 6
+	conversationDetailMinHeight  = 6
+	conversationColNumWidth      = 4
+	conversationColRoleWidth     = 10
+	conversationContentPadding   = 20
 )
 
 func (m *Model) renderConversationView(run *RunInfo) string {
@@ -41,11 +48,15 @@ func (m *Model) renderConversationView(run *RunInfo) string {
 		m.selectedTurnIdx = len(res.Messages) - 1
 	}
 
+	m.ensureConversationTable(res)
+	m.updateConversationTable(res)
+	m.updateConversationDetail(res)
+
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colorSky))
 	title := titleStyle.Render("🧭 Conversation")
 
-	list := m.renderTurnList(res, m.selectedTurnIdx)
-	detail := m.renderTurnDetail(res, m.selectedTurnIdx)
+	list := m.convTable.View()
+	detail := m.convDetail.View()
 
 	content := lipgloss.JoinHorizontal(lipgloss.Top, list, strings.Repeat(" ", conversationPanelGap), detail)
 
@@ -54,30 +65,6 @@ func (m *Model) renderConversationView(run *RunInfo) string {
 		BorderForeground(lipgloss.Color(colorLightBlue)).
 		Padding(conversationPanelPadding, conversationPanelHorizontal).
 		Render(lipgloss.JoinVertical(lipgloss.Left, title, content))
-}
-
-func (m *Model) renderTurnList(res *statestore.RunResult, selectedIdx int) string {
-	rows := make([]string, 0, len(res.Messages))
-	for i := range res.Messages {
-		msg := &res.Messages[i]
-		snippet := truncateString(msg.GetContent(), conversationSnippetMaxLength)
-		line := fmt.Sprintf("%2d. %-9s %s", i+1, msg.Role, snippet)
-		if i == selectedIdx {
-			line = lipgloss.NewStyle().
-				Foreground(lipgloss.Color(colorWhite)).
-				Background(lipgloss.Color(colorIndigo)).
-				Padding(0, 1).
-				Render(line)
-		}
-		rows = append(rows, line)
-	}
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(colorGray)).
-		Width(conversationListWidth).
-		Padding(1, 1).
-		Render(strings.Join(rows, "\n"))
 }
 
 func (m *Model) renderTurnDetail(res *statestore.RunResult, idx int) string {
@@ -97,9 +84,9 @@ func (m *Model) renderTurnDetail(res *statestore.RunResult, idx int) string {
 		lines = append(lines, fmt.Sprintf("Error: %s", msg.ToolResult.Error))
 	}
 
-	content := msg.GetContent()
-	if content != "" {
-		lines = append(lines, "", "Message:", content)
+	msgContent := msg.GetContent()
+	if msgContent != "" {
+		lines = append(lines, "", "Message:", msgContent)
 	}
 
 	if len(msg.Validations) > 0 {
@@ -118,10 +105,97 @@ func (m *Model) renderTurnDetail(res *statestore.RunResult, idx int) string {
 		width = conversationDetailMinWidth
 	}
 
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(colorGray)).
-		Width(width).
-		Padding(1, 1).
-		Render(strings.Join(lines, "\n"))
+	height := m.height - conversationTableHeightPad
+	if height < conversationDetailMinHeight {
+		height = conversationDetailMinHeight
+	}
+
+	content := strings.Join(lines, "\n")
+	m.convDetail.Width = width
+	m.convDetail.Height = height
+	m.convDetail.SetContent(content)
+	m.convDetailReady = true
+	return m.convDetail.View()
+}
+
+func (m *Model) ensureConversationTable(res *statestore.RunResult) {
+	if m.convTableReady && m.lastConvRunID == res.RunID {
+		return
+	}
+
+	columns := []table.Column{
+		{Title: "#", Width: conversationColNumWidth},
+		{Title: "Role", Width: conversationColRoleWidth},
+		{Title: "Content", Width: conversationListWidth - conversationContentPadding},
+	}
+
+	t := table.New(
+		table.WithColumns(columns),
+		table.WithFocused(true),
+	)
+
+	style := table.DefaultStyles()
+	style.Header = style.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderBottom(true).
+		BorderForeground(lipgloss.Color(colorIndigo)).
+		Bold(true)
+	style.Selected = style.Selected.
+		Foreground(lipgloss.Color(colorWhite)).
+		Background(lipgloss.Color(colorIndigo)).
+		Bold(true)
+	t.SetStyles(style)
+
+	m.convTable = t
+	m.convTableReady = true
+	m.convFocus = focusConversationTurns
+	m.convTable.Focus()
+	m.lastConvRunID = res.RunID
+}
+
+func (m *Model) updateConversationTable(res *statestore.RunResult) {
+	if !m.convTableReady {
+		return
+	}
+
+	height := m.height - conversationTableHeightPad
+	if height < conversationTableMinHeight {
+		height = conversationTableMinHeight
+	}
+
+	m.convTable.SetHeight(height)
+	m.convTable.SetWidth(conversationListWidth)
+
+	rows := make([]table.Row, 0, len(res.Messages))
+	for i := range res.Messages {
+		msg := &res.Messages[i]
+		snippet := truncateString(msg.GetContent(), conversationSnippetMaxLength)
+		rows = append(rows, table.Row{
+			fmt.Sprintf("%d", i+1),
+			msg.Role,
+			snippet,
+		})
+	}
+	m.convTable.SetRows(rows)
+	if m.selectedTurnIdx >= len(rows) {
+		m.selectedTurnIdx = len(rows) - 1
+	}
+	if m.selectedTurnIdx < 0 {
+		m.selectedTurnIdx = 0
+	}
+	m.convTable.GotoBottom()
+	m.convTable.SetCursor(m.selectedTurnIdx)
+}
+
+func (m *Model) updateConversationDetail(res *statestore.RunResult) {
+	if len(res.Messages) == 0 {
+		return
+	}
+	if m.selectedTurnIdx < 0 {
+		m.selectedTurnIdx = 0
+	}
+	if m.selectedTurnIdx >= len(res.Messages) {
+		m.selectedTurnIdx = len(res.Messages) - 1
+	}
+	m.renderTurnDetail(res, m.selectedTurnIdx)
 }
