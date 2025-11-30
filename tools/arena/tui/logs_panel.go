@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -20,7 +21,21 @@ const (
 )
 
 func (m *Model) renderLogs() string {
-	m.updateLogViewport()
+	selected := m.selectedRun()
+	showResult := selected != nil &&
+		(selected.Status == StatusCompleted || selected.Status == StatusFailed) &&
+		m.stateStore != nil
+
+	if showResult && !m.viewportReady {
+		m.initViewport()
+		m.viewportReady = true
+	}
+
+	if showResult {
+		m.updateResultViewport(selected)
+	} else {
+		m.updateLogViewport()
+	}
 
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colorSky))
 	title := titleStyle.Render("📝 Logs (↑/↓ to scroll, 's' summary)")
@@ -28,10 +43,6 @@ func (m *Model) renderLogs() string {
 	borderColor := lipgloss.Color(colorLightBlue)
 	if m.activePane != paneLogs {
 		borderColor = lipgloss.Color(colorGray)
-	}
-
-	if res := m.renderSelectedResultIfAvailable(borderColor, title); res != "" {
-		return res
 	}
 
 	if !m.viewportReady {
@@ -50,22 +61,6 @@ func (m *Model) renderLogs() string {
 		BorderForeground(borderColor).
 		Padding(logsPaddingVertical, logsPaddingHorizontal).
 		Render(content)
-}
-
-func (m *Model) renderSelectedResultIfAvailable(borderColor lipgloss.Color, title string) string {
-	selected := m.selectedRun()
-	if selected == nil || m.stateStore == nil {
-		return ""
-	}
-	if selected.Status != StatusCompleted && selected.Status != StatusFailed {
-		return ""
-	}
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(borderColor).
-		Padding(logsPaddingVertical, logsPaddingHorizontal).
-		Render(lipgloss.JoinVertical(lipgloss.Left, title, m.renderSelectedResult(selected)))
 }
 
 func (m *Model) updateLogViewport() {
@@ -98,6 +93,63 @@ func (m *Model) updateLogViewport() {
 		}
 		m.logViewport.SetContent(strings.Join(logLines, "\n"))
 	}
+}
+
+func (m *Model) updateResultViewport(run *RunInfo) {
+	viewportHeight := m.height / logsHeightDivisor // Leave room for header + active runs
+	if viewportHeight < logsMinHeight {
+		viewportHeight = logsMinHeight
+	}
+	viewportWidth := m.width - logsWidthPadding // Leave room for metrics (40) + padding
+	if viewportWidth < logsMinWidth {
+		viewportWidth = logsMinWidth
+	}
+
+	m.logViewport.Width = viewportWidth
+	m.logViewport.Height = viewportHeight
+
+	if m.stateStore == nil {
+		m.logViewport.SetContent("No state store attached.")
+		return
+	}
+
+	res, err := m.stateStore.GetResult(context.Background(), run.RunID)
+	if err != nil {
+		m.logViewport.SetContent(fmt.Sprintf("Failed to load result: %v", err))
+		return
+	}
+
+	lines := []string{
+		fmt.Sprintf("Run: %s", res.RunID),
+		fmt.Sprintf("Scenario: %s", res.ScenarioID),
+		fmt.Sprintf("Provider: %s", res.ProviderID),
+		fmt.Sprintf("Region: %s", res.Region),
+		fmt.Sprintf("Status: %s", statusString(run.Status)),
+		fmt.Sprintf("Duration: %s", formatDuration(res.Duration)),
+		fmt.Sprintf("Cost: $%.4f", res.Cost.TotalCost),
+		fmt.Sprintf("Assertions: %d total, %d failed", res.ConversationAssertions.Total, res.ConversationAssertions.Failed),
+	}
+
+	for _, r := range res.ConversationAssertions.Results {
+		state := "PASS"
+		if !r.Passed {
+			state = "FAIL"
+		}
+		line := fmt.Sprintf("[%s] %s", state, r.Message)
+		if r.Type != "" {
+			line = fmt.Sprintf("[%s] %s - %s", state, r.Type, r.Message)
+		}
+		lines = append(lines, line)
+		for _, v := range r.Violations {
+			lines = append(lines, fmt.Sprintf("  • turn %d: %s", v.TurnIndex+1, v.Description))
+		}
+	}
+
+	if res.Error != "" {
+		lines = append(lines, fmt.Sprintf("Error: %s", res.Error))
+	}
+
+	m.logViewport.SetContent(strings.Join(lines, "\n"))
 }
 
 func (m *Model) formatLogLine(log LogEntry) string {
