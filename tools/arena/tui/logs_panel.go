@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -26,7 +27,13 @@ func (m *Model) renderLogs() string {
 		m.stateStore != nil
 
 	if showResult {
-		return m.renderConversationView(selected)
+		res, err := m.stateStore.GetResult(context.Background(), selected.RunID)
+		if err != nil {
+			return fmt.Sprintf("Failed to load result: %v", err)
+		}
+		m.convPane.SetDimensions(m.width, m.height)
+		m.convPane.SetData(selected.RunID, res)
+		return m.convPane.View(res)
 	}
 
 	m.updateLogViewport()

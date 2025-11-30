@@ -69,13 +69,6 @@ const (
 	paneLogs
 )
 
-type conversationFocus int
-
-const (
-	focusConversationTurns conversationFocus = iota
-	focusConversationDetail
-)
-
 // runResultStore is a minimal interface to retrieve run results from the state store.
 type runResultStore interface {
 	GetResult(ctx context.Context, runID string) (*statestore.RunResult, error)
@@ -117,16 +110,9 @@ type Model struct {
 	stateStore runResultStore
 
 	activePane pane
-	convFocus  conversationFocus
 
 	// Conversation view state
-	convTable       table.Model
-	convTableReady  bool
-	convDetail      viewport.Model
-	convDetailReady bool
-	lastConvRunID   string
-
-	selectedTurnIdx int
+	convPane ConversationPane
 }
 
 // RunInfo tracks information about a single run
@@ -221,10 +207,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for i := range m.activeRuns {
 				m.activeRuns[i].Selected = false
 			}
-			m.selectedTurnIdx = 0
-			m.convFocus = focusConversationTurns
-			m.convTableReady = false
-			m.convDetailReady = false
+			m.convPane.Reset()
 			return m, nil
 		}
 
@@ -240,29 +223,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Conversation focus and scrolling
 		if m.activePane == paneLogs && m.selectedRun() != nil && m.stateStore != nil {
-			if msg.Type == tea.KeyTab {
-				if m.convFocus == focusConversationTurns {
-					m.convFocus = focusConversationDetail
-					m.convTable.Blur()
-				} else {
-					m.convFocus = focusConversationTurns
-					m.convTable.Focus()
-				}
-				return m, nil
-			}
-
-			if m.convFocus == focusConversationTurns && m.convTableReady {
-				var cmd tea.Cmd
-				m.convTable, cmd = m.convTable.Update(msg)
-				m.selectedTurnIdx = m.convTable.Cursor()
-				return m, cmd
-			}
-
-			if m.convFocus == focusConversationDetail && m.convDetailReady {
-				var cmd tea.Cmd
-				m.convDetail, cmd = m.convDetail.Update(msg)
-				return m, cmd
-			}
+			newPane, cmd := m.convPane.Update(msg)
+			m.convPane = newPane
+			return m, cmd
 		}
 
 		// Enter toggles selection on a run row
@@ -275,7 +238,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.activeRuns[idx].Selected = !targetSelected
 				if m.activeRuns[idx].Selected {
-					m.selectedTurnIdx = 0
+					m.convPane.Reset()
 				}
 			}
 			return m, nil
@@ -706,17 +669,17 @@ func NewModel(configFile string, totalRuns int) *Model {
 	}
 
 	return &Model{
-		configFile:      configFile,
-		totalRuns:       totalRuns,
-		startTime:       time.Now(),
-		activeRuns:      make([]RunInfo, 0),
-		logs:            make([]LogEntry, 0, maxLogBufferSize),
-		width:           width,
-		height:          height,
-		isTUIMode:       supported,
-		fallbackReason:  reason,
-		viewMode:        viewLogs,
-		selectedTurnIdx: 0,
+		configFile:     configFile,
+		totalRuns:      totalRuns,
+		startTime:      time.Now(),
+		activeRuns:     make([]RunInfo, 0),
+		logs:           make([]LogEntry, 0, maxLogBufferSize),
+		width:          width,
+		height:         height,
+		isTUIMode:      supported,
+		fallbackReason: reason,
+		viewMode:       viewLogs,
+		convPane:       NewConversationPane(),
 	}
 }
 

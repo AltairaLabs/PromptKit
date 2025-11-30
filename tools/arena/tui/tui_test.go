@@ -664,3 +664,11 @@ func TestRun_NotSupported(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "notty")
 }
+
+func TestEscapeClearsSelection(t *testing.T) {
+	m := NewModel("test.yaml", 1)
+	m.activeRuns = []RunInfo{{RunID: "run-1", Selected: true}}
+	msg := tea.KeyMsg{Type: tea.KeyEsc}
+	m.Update(msg)
+	assert.Nil(t, m.selectedRun())
+}
