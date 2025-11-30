@@ -32,7 +32,7 @@ func (m *Model) renderLogs() string {
 			return fmt.Sprintf("Failed to load result: %v", err)
 		}
 		m.convPane.SetDimensions(m.width, m.height)
-		m.convPane.SetData(selected.RunID, res)
+		m.convPane.SetData(selected, res)
 		return m.convPane.View(res)
 	}
 

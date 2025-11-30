@@ -31,7 +31,7 @@ func TestConversationPane_ViewAndNavigation(t *testing.T) {
 		},
 	}
 
-	pane.SetData("run-1", res)
+	pane.SetData(&RunInfo{RunID: "run-1", Scenario: "scn", Provider: "prov"}, res)
 	down := tea.KeyMsg{Type: tea.KeyDown}
 	newPane, _ := pane.Update(down)
 	out := newPane.View(res)
@@ -52,11 +52,11 @@ func TestConversationPane_Reset(t *testing.T) {
 			{Role: "user", Content: "hello"},
 		},
 	}
-	pane.SetData("run-1", res)
+	pane.SetData(&RunInfo{RunID: "run-1"}, res)
 	assert.NotEmpty(t, pane.View(res))
 
 	pane.Reset()
-	pane.SetData("run-1", nil)
+	pane.SetData(&RunInfo{RunID: "run-1"}, nil)
 	out := pane.View(&statestore.RunResult{Messages: []types.Message{}})
 	assert.Contains(t, out, "No conversation")
 }

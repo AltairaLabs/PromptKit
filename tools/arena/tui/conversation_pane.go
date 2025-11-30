@@ -52,6 +52,9 @@ type ConversationPane struct {
 	lastRunID       string
 	width           int
 	height          int
+
+	scenario string
+	provider string
 }
 
 // NewConversationPane creates an empty conversation pane with defaults.
@@ -80,15 +83,17 @@ func (c *ConversationPane) SetDimensions(width, height int) {
 }
 
 // SetData hydrates the pane with a run and result.
-func (c *ConversationPane) SetData(runID string, res *statestore.RunResult) {
+func (c *ConversationPane) SetData(run *RunInfo, res *statestore.RunResult) {
 	if res == nil {
 		c.Reset()
 		return
 	}
 
-	c.ensureTable(runID)
+	c.ensureTable(run.RunID)
 	c.updateTable(res)
 	c.updateDetail(res)
+	c.scenario = run.Scenario
+	c.provider = run.Provider
 }
 
 func (c *ConversationPane) ensureTable(runID string) {
@@ -173,7 +178,18 @@ func (c *ConversationPane) View(res *statestore.RunResult) string {
 	c.updateDetail(res)
 
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colorSky))
-	title := titleStyle.Render("🧭 Conversation")
+	titleText := "🧭 Conversation"
+	if c.scenario != "" || c.provider != "" {
+		parts := []string{}
+		if c.scenario != "" {
+			parts = append(parts, c.scenario)
+		}
+		if c.provider != "" {
+			parts = append(parts, c.provider)
+		}
+		titleText = fmt.Sprintf("%s • %s", titleText, strings.Join(parts, " / "))
+	}
+	title := titleStyle.Render(titleText)
 
 	content := lipgloss.JoinHorizontal(
 		lipgloss.Top,
