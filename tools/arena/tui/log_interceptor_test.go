@@ -223,3 +223,40 @@ func TestModel_handleLogMsg_trimming(t *testing.T) {
 	// Should be trimmed to maxLogBufferSize
 	assert.Equal(t, maxLogBufferSize, len(m.logs))
 }
+
+type capturingHandler struct {
+	records []slog.Record
+}
+
+func (h *capturingHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (h *capturingHandler) Handle(ctx context.Context, r slog.Record) error {
+	h.records = append(h.records, r)
+	return nil
+}
+func (h *capturingHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *capturingHandler) WithGroup(string) slog.Handler      { return h }
+
+func TestLogInterceptor_FlushBuffer(t *testing.T) {
+	handler := &capturingHandler{}
+	interceptor, err := NewLogInterceptor(handler, nil, "", true)
+	require.NoError(t, err)
+
+	record := slog.Record{
+		Time:    time.Now(),
+		Message: "buffered",
+		Level:   slog.LevelDebug,
+	}
+	err = interceptor.Handle(context.Background(), record)
+	require.NoError(t, err)
+
+	// Should be buffered, not forwarded yet
+	assert.Len(t, handler.records, 0)
+
+	interceptor.FlushBuffer()
+	assert.Len(t, handler.records, 1)
+	assert.Equal(t, "buffered", handler.records[0].Message)
+
+	// Second flush should be no-op
+	interceptor.FlushBuffer()
+	assert.Len(t, handler.records, 1)
+}

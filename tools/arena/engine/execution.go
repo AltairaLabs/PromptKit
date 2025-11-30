@@ -259,6 +259,7 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 		Config:   e.config,
 		Region:   combo.Region,
 		RunID:    runID,
+		Observer: e.observer,
 	}
 
 	// Always configure StateStore (always enabled now)

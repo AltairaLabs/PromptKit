@@ -40,6 +40,9 @@ type Summary struct {
 	Errors         []ErrorInfo
 	OutputDir      string
 	HTMLReport     string
+
+	AssertionTotal  int
+	AssertionFailed int
 }
 
 // ErrorInfo represents a failed run with details
@@ -90,6 +93,19 @@ func RenderSummary(summary *Summary, width int) string {
 	sb.WriteString(failStyle.Render(fmt.Sprintf("%d (%.1f%%)\n", summary.FailedCount, percentMultiplier-successRate)))
 
 	sb.WriteString("\n")
+
+	if summary.AssertionTotal > 0 {
+		sb.WriteString(labelStyle.Render("Assertions:      "))
+		sb.WriteString(valueStyle.Render(fmt.Sprintf("%d total\n", summary.AssertionTotal)))
+		if summary.AssertionFailed > 0 {
+			sb.WriteString(labelStyle.Render("Assertions Fail: "))
+			sb.WriteString(failStyle.Render(fmt.Sprintf("%d\n", summary.AssertionFailed)))
+		} else {
+			sb.WriteString(labelStyle.Render("Assertions Pass: "))
+			sb.WriteString(successStyle.Render("all passed\n"))
+		}
+		sb.WriteString("\n")
+	}
 
 	// Cost and performance
 	sb.WriteString(labelStyle.Render("Total Cost:       "))

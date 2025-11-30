@@ -13,6 +13,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
+	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui"
 )
 
@@ -149,6 +150,9 @@ func shouldUseTUI(params *RunParameters) (useTUI bool, reason string) {
 func executeWithTUI(ctx context.Context, eng *engine.Engine, plan *engine.RunPlan, params *RunParameters) ([]string, error) {
 	// Create TUI model
 	model := tui.NewModel(params.ConfigFile, params.TotalRuns)
+	if arenaStore, ok := eng.GetStateStore().(*statestore.ArenaStateStore); ok {
+		model.SetStateStore(arenaStore)
+	}
 
 	// Create bubbletea program (needed for observer and log interceptor)
 	program := bubbletea.NewProgram(
@@ -243,6 +247,9 @@ func executeSimple(ctx context.Context, eng *engine.Engine, plan *engine.RunPlan
 
 	// Create TUI model to track execution (without displaying TUI)
 	model := tui.NewModel(params.ConfigFile, params.TotalRuns)
+	if arenaStore, ok := eng.GetStateStore().(*statestore.ArenaStateStore); ok {
+		model.SetStateStore(arenaStore)
+	}
 
 	// Create observer that updates the model directly (headless mode)
 	observer := tui.NewObserverWithModel(model)

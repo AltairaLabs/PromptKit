@@ -18,6 +18,7 @@ type mockObserver struct {
 	started    []string
 	completed  map[string]observedRun
 	failed     map[string]error
+	turns      []string
 	startOrder []string
 }
 
@@ -61,6 +62,18 @@ func (m *mockObserver) OnRunFailed(runID string, err error) {
 	defer m.mu.Unlock()
 
 	m.failed[runID] = err
+}
+
+func (m *mockObserver) OnTurnStarted(runID string, turnIdx int, role string, scenario string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.turns = append(m.turns, fmt.Sprintf("%s-start-%d-%s", runID, turnIdx, role))
+}
+
+func (m *mockObserver) OnTurnCompleted(runID string, turnIdx int, role string, scenario string, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.turns = append(m.turns, fmt.Sprintf("%s-done-%d-%s", runID, turnIdx, role))
 }
 
 func (m *mockObserver) assertStarted(t *testing.T, expectedCount int) {
