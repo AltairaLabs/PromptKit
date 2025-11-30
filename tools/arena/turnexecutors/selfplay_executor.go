@@ -315,6 +315,13 @@ func (e *SelfPlayExecutor) executeStreamingPipeline(
 // buildStreamingMiddlewares constructs the middleware chain for streaming
 func (e *SelfPlayExecutor) buildStreamingMiddlewares(req TurnRequest) []pipeline.Middleware {
 	baseVariables := buildBaseVariables(req.Region)
+	mergedVars := map[string]string{}
+	for k, v := range baseVariables {
+		mergedVars[k] = v
+	}
+	for k, v := range req.PromptVars {
+		mergedVars[k] = v
+	}
 
 	providerConfig := &middleware.ProviderMiddlewareConfig{
 		MaxTokens:   req.MaxTokens,
@@ -341,11 +348,16 @@ func (e *SelfPlayExecutor) buildStreamingMiddlewares(req TurnRequest) []pipeline
 	}
 
 	// Variable injection
-	middlewares = append(middlewares, &variableInjectionMiddleware{variables: baseVariables})
-
+	extraMiddlewares := []pipeline.Middleware{
+		&variableInjectionMiddleware{variables: mergedVars},
+	}
+	if len(req.Metadata) > 0 {
+		extraMiddlewares = append(extraMiddlewares, &metadataInjectionMiddleware{metadata: req.Metadata})
+	}
+	middlewares = append(middlewares, extraMiddlewares...)
 	// Prompt and template middleware
 	middlewares = append(middlewares,
-		middleware.PromptAssemblyMiddleware(req.PromptRegistry, req.TaskType, baseVariables),
+		middleware.PromptAssemblyMiddleware(req.PromptRegistry, req.TaskType, mergedVars),
 		middleware.TemplateMiddleware(),
 	)
 
