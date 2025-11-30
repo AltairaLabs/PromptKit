@@ -183,77 +183,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tick()
 
 	case tea.KeyMsg:
-		// Check for quit keys first
-		//nolint:exhaustive // Only handling specific quit keys, other keys intentionally ignored
-		switch msg.Type {
-		case tea.KeyCtrlC:
-			return m, tea.Quit
-		case tea.KeyRunes:
-			if len(msg.Runes) > 0 && msg.Runes[0] == 'q' {
-				return m, tea.Quit
-			}
-		default:
-			// Other key types not handled
-		}
-
-		// Escape deselects a conversation and returns to main view
-		if msg.Type == tea.KeyEsc && m.currentPage == pageConversation {
-			for i := range m.activeRuns {
-				m.activeRuns[i].Selected = false
-			}
-			m.convPane.Reset()
-			m.currentPage = pageMain
-			m.activePane = paneRuns
-			return m, nil
-		}
-
-		if m.currentPage == pageMain {
-			// Tab switches focus between runs table and logs
-			if msg.Type == tea.KeyTab {
-				if m.activePane == paneRuns {
-					m.activePane = paneLogs
-				} else {
-					m.activePane = paneRuns
-				}
-				return m, nil
-			}
-
-			// Enter toggles selection on a run row and moves to conversation page
-			if msg.Type == tea.KeyEnter && m.activePane == paneRuns && m.tableReady {
-				idx := m.runsTable.Cursor()
-				if idx >= 0 && idx < len(m.activeRuns) {
-					targetSelected := m.activeRuns[idx].Selected
-					for i := range m.activeRuns {
-						m.activeRuns[i].Selected = false
-					}
-					m.activeRuns[idx].Selected = !targetSelected
-					if m.activeRuns[idx].Selected {
-						m.convPane.Reset()
-						m.currentPage = pageConversation
-					}
-				}
-				return m, nil
-			}
-
-			if m.activePane == paneRuns && m.tableReady {
-				var cmd tea.Cmd
-				m.runsTable, cmd = m.runsTable.Update(msg)
-				return m, cmd
-			}
-
-			// Let viewport handle scrolling keys (up/down arrows, pgup/pgdown, etc)
-			if m.viewportReady {
-				var cmd tea.Cmd
-				m.logViewport, cmd = m.logViewport.Update(msg)
-				return m, cmd
-			}
-			return m, nil
-		}
-
-		// Conversation page key handling
-		newPane, cmd := m.convPane.Update(msg)
-		m.convPane = newPane
-		return m, cmd
+		return m.handleKeyMsg(msg)
 
 	case tea.MouseMsg:
 		// Let viewport handle mouse wheel scrolling
@@ -550,6 +480,89 @@ func (m *Model) renderSummaryPane() string {
 		width = summaryMinWidth
 	}
 	return RenderSummary(summary, width)
+}
+
+func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Check for quit keys first
+	//nolint:exhaustive // Only handling specific quit keys
+	switch msg.Type {
+	case tea.KeyCtrlC:
+		return m, tea.Quit
+	case tea.KeyRunes:
+		if len(msg.Runes) > 0 && msg.Runes[0] == 'q' {
+			return m, tea.Quit
+		}
+	default:
+	}
+
+	// Escape deselects a conversation and returns to main view
+	if msg.Type == tea.KeyEsc && m.currentPage == pageConversation {
+		m.deselectRuns()
+		m.convPane.Reset()
+		m.currentPage = pageMain
+		m.activePane = paneRuns
+		return m, nil
+	}
+
+	if m.currentPage == pageMain {
+		return m.handleMainPageKey(msg)
+	}
+
+	// Conversation page key handling
+	newPane, cmd := m.convPane.Update(msg)
+	m.convPane = newPane
+	return m, cmd
+}
+
+func (m *Model) handleMainPageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyTab {
+		if m.activePane == paneRuns {
+			m.activePane = paneLogs
+		} else {
+			m.activePane = paneRuns
+		}
+		return m, nil
+	}
+
+	if msg.Type == tea.KeyEnter && m.activePane == paneRuns && m.tableReady {
+		m.toggleSelection()
+		return m, nil
+	}
+
+	if m.activePane == paneRuns && m.tableReady {
+		var cmd tea.Cmd
+		m.runsTable, cmd = m.runsTable.Update(msg)
+		return m, cmd
+	}
+
+	if m.viewportReady {
+		var cmd tea.Cmd
+		m.logViewport, cmd = m.logViewport.Update(msg)
+		return m, cmd
+	}
+
+	return m, nil
+}
+
+func (m *Model) toggleSelection() {
+	idx := m.runsTable.Cursor()
+	if idx < 0 || idx >= len(m.activeRuns) {
+		return
+	}
+
+	targetSelected := m.activeRuns[idx].Selected
+	m.deselectRuns()
+	m.activeRuns[idx].Selected = !targetSelected
+	if m.activeRuns[idx].Selected {
+		m.convPane.Reset()
+		m.currentPage = pageConversation
+	}
+}
+
+func (m *Model) deselectRuns() {
+	for i := range m.activeRuns {
+		m.activeRuns[i].Selected = false
+	}
 }
 
 // BuildSummary creates a Summary from the current model state with output directory and HTML report path.
