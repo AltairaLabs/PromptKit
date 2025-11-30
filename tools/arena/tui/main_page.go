@@ -9,10 +9,17 @@ type MainPage struct{}
 
 // Render builds the main page body.
 func (MainPage) Render(m *Model) string {
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
+	top := lipgloss.JoinHorizontal(
+		lipgloss.Top,
 		m.renderActiveRuns(),
-		"",
-		m.renderLogs(),
+		m.renderResultPane(),
 	)
+
+	bottom := lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		m.renderLogs(),
+		m.renderSummaryPane(),
+	)
+
+	return lipgloss.JoinVertical(lipgloss.Left, top, "", bottom)
 }

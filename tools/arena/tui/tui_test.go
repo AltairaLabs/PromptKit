@@ -663,3 +663,37 @@ func TestEscapeClearsSelection(t *testing.T) {
 	m.Update(msg)
 	assert.Nil(t, m.selectedRun())
 }
+
+func TestMainPageShowsResultAndSummary(t *testing.T) {
+	m := NewModel("test.yaml", 1)
+	m.width = 120
+	m.height = 40
+	m.activeRuns = []RunInfo{{
+		RunID:     "run-1",
+		Scenario:  "scn",
+		Provider:  "prov",
+		Region:    "us",
+		Status:    StatusCompleted,
+		StartTime: time.Now(),
+	}}
+	m.stateStore = &mockRunResultStore{
+		result: &statestore.RunResult{
+			RunID:      "run-1",
+			ScenarioID: "scn",
+			ProviderID: "prov",
+			Region:     "us",
+			Duration:   2 * time.Second,
+			Cost: types.CostInfo{
+				TotalCost:    1.0,
+				InputTokens:  10,
+				OutputTokens: 5,
+			},
+			ConversationAssertions: statestore.AssertionsSummary{Total: 1},
+		},
+	}
+
+	page := MainPage{}
+	out := page.Render(m)
+	assert.Contains(t, out, "Run:")
+	assert.Contains(t, out, "Summary")
+}

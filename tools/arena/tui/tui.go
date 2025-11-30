@@ -34,6 +34,8 @@ const (
 	bannerLines         = 2  // Banner + info line (separator counted separately)
 	bottomPanelPadding  = 4  // Border + padding
 	metricsBoxWidth     = 40 // Fixed width for metrics box
+	summaryWidthDivisor = 2
+	summaryMinWidth     = 40
 )
 
 // Color constants
@@ -511,6 +513,43 @@ func (m *Model) renderConversationPage() string {
 	m.convPane.SetDimensions(m.width, m.height)
 	m.convPane.SetData(selected, res)
 	return m.convPane.View(res)
+}
+
+func (m *Model) currentRunForDetail() *RunInfo {
+	if sel := m.selectedRun(); sel != nil {
+		return sel
+	}
+	if m.tableReady {
+		idx := m.runsTable.Cursor()
+		if idx >= 0 && idx < len(m.activeRuns) {
+			return &m.activeRuns[idx]
+		}
+	}
+	if len(m.activeRuns) > 0 {
+		return &m.activeRuns[0]
+	}
+	return nil
+}
+
+func (m *Model) renderResultPane() string {
+	run := m.currentRunForDetail()
+	if run == nil {
+		return ""
+	}
+	return m.renderSelectedResult(run)
+}
+
+func (m *Model) renderSummaryPane() string {
+	summary := m.BuildSummary("", "")
+	if summary == nil {
+		return ""
+	}
+	// Allocate roughly half the width for summary.
+	width := m.width / summaryWidthDivisor
+	if width < summaryMinWidth {
+		width = summaryMinWidth
+	}
+	return RenderSummary(summary, width)
 }
 
 // BuildSummary creates a Summary from the current model state with output directory and HTML report path.
