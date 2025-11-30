@@ -9,6 +9,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+const (
+	headerProgressBarWidth = 12
+)
+
 func (m *Model) renderHeader(elapsed time.Duration) string {
 	// Banner style
 	bannerStyle := lipgloss.NewStyle().
@@ -39,7 +43,7 @@ func (m *Model) renderHeader(elapsed time.Duration) string {
 	}
 
 	banner := bannerStyle.Render("✨ PromptArena ✨")
-	progressBar := buildProgressBar(m.completedCount, m.totalRuns, 12)
+	progressBar := buildProgressBar(m.completedCount, m.totalRuns, headerProgressBarWidth)
 	progress := progressStyle.Render(fmt.Sprintf("[%s %d/%d]", progressBar, m.completedCount, m.totalRuns))
 	timeStr := timeStyle.Render(fmt.Sprintf("⏱  %s", formatDuration(elapsed)))
 

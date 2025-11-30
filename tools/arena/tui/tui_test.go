@@ -295,7 +295,7 @@ func TestRenderLogs_SelectedResultBranch(t *testing.T) {
 func TestRenderSelectedResult_Error(t *testing.T) {
 	m := NewModel("test.yaml", 1)
 	m.stateStore = &mockRunResultStore{err: fmt.Errorf("boom")}
-	res := m.renderSelectedResult(RunInfo{RunID: "run-1"})
+	res := m.renderSelectedResult(&RunInfo{RunID: "run-1"})
 	assert.Contains(t, res, "Failed to load result")
 }
 
@@ -516,67 +516,6 @@ func TestModel_renderLogs(t *testing.T) {
 
 	assert.Contains(t, logs, "Logs")
 	assert.Contains(t, logs, "Test log message")
-}
-
-func TestModel_formatRunLine_Running(t *testing.T) {
-	m := NewModel("test.yaml", 10)
-
-	run := RunInfo{
-		RunID:     "run-1",
-		Scenario:  "test",
-		Provider:  "openai",
-		Region:    "us-west-1",
-		Status:    StatusRunning,
-		StartTime: time.Now().Add(-2 * time.Second),
-	}
-
-	m.width = 120
-	line := m.formatRunLine(&run)
-	// Format is [status] provider/scenario/region  ⏱ duration
-	assert.Contains(t, line, "test")
-	assert.Contains(t, line, "openai")
-	assert.Contains(t, line, "us-west-1")
-}
-
-func TestModel_formatRunLine_Completed(t *testing.T) {
-	m := NewModel("test.yaml", 10)
-
-	run := RunInfo{
-		RunID:     "run-1",
-		Scenario:  "test",
-		Provider:  "openai",
-		Status:    StatusCompleted,
-		Duration:  5 * time.Second,
-		Cost:      0.05,
-		StartTime: time.Now().Add(-5 * time.Second),
-	}
-
-	m.width = 120
-	line := m.formatRunLine(&run)
-	// Format is [status] provider/scenario/region  ⏱ duration $cost
-	assert.Contains(t, line, "test")
-	assert.Contains(t, line, "openai")
-	assert.Contains(t, line, "$0.0500")
-}
-
-func TestModel_formatRunLine_Failed(t *testing.T) {
-	m := NewModel("test.yaml", 10)
-
-	run := RunInfo{
-		RunID:     "run-1",
-		Scenario:  "test",
-		Provider:  "openai",
-		Status:    StatusFailed,
-		Error:     "connection timeout",
-		StartTime: time.Now().Add(-1 * time.Second),
-	}
-
-	m.width = 120
-	line := m.formatRunLine(&run)
-	// Format shows provider/scenario and ERROR keyword (actual error is in separate section or truncated)
-	assert.Contains(t, line, "test")
-	assert.Contains(t, line, "openai")
-	assert.Contains(t, line, "ERROR")
 }
 
 func TestModel_formatLogLine(t *testing.T) {

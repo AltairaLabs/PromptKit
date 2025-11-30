@@ -8,33 +8,19 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+const (
+	logsHeightDivisor     = 3
+	logsMinHeight         = 5
+	logsWidthPadding      = 50
+	logsMinWidth          = 40
+	logsViewportOffset    = 15
+	logsViewportDivisor   = 2
+	logsPaddingVertical   = 1
+	logsPaddingHorizontal = 2
+)
+
 func (m *Model) renderLogs() string {
-	// Update viewport dimensions
-	if m.viewportReady {
-		viewportHeight := m.height / 3 // Leave room for header + active runs
-		if viewportHeight < 5 {
-			viewportHeight = 5
-		}
-		viewportWidth := m.width - 50 // Leave room for metrics (40) + padding
-		if viewportWidth < 40 {
-			viewportWidth = 40
-		}
-
-		m.logViewport.Width = viewportWidth
-		m.logViewport.Height = viewportHeight
-
-		if m.viewMode == viewSummary && m.summary != nil {
-			m.logViewport.SetContent("Summary view (press 'l' to view logs)")
-		} else if len(m.logs) == 0 {
-			m.logViewport.SetContent("No logs yet...")
-		} else {
-			logLines := make([]string, len(m.logs))
-			for i, log := range m.logs {
-				logLines[i] = m.formatLogLine(log)
-			}
-			m.logViewport.SetContent(strings.Join(logLines, "\n"))
-		}
-	}
+	m.updateLogViewport()
 
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colorSky))
 	title := titleStyle.Render("📝 Logs (↑/↓ to scroll, 's' summary)")
@@ -44,12 +30,8 @@ func (m *Model) renderLogs() string {
 		borderColor = lipgloss.Color(colorGray)
 	}
 
-	if selected := m.selectedRun(); selected != nil && (selected.Status == StatusCompleted || selected.Status == StatusFailed) && m.stateStore != nil {
-		return lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(borderColor).
-			Padding(1, 2).
-			Render(lipgloss.JoinVertical(lipgloss.Left, title, m.renderSelectedResult(*selected)))
+	if res := m.renderSelectedResultIfAvailable(borderColor, title); res != "" {
+		return res
 	}
 
 	if !m.viewportReady {
@@ -57,7 +39,7 @@ func (m *Model) renderLogs() string {
 		return lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(borderColor).
-			Padding(1, 2).
+			Padding(logsPaddingVertical, logsPaddingHorizontal).
 			Render(content)
 	}
 
@@ -66,8 +48,56 @@ func (m *Model) renderLogs() string {
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderColor).
-		Padding(1, 2).
+		Padding(logsPaddingVertical, logsPaddingHorizontal).
 		Render(content)
+}
+
+func (m *Model) renderSelectedResultIfAvailable(borderColor lipgloss.Color, title string) string {
+	selected := m.selectedRun()
+	if selected == nil || m.stateStore == nil {
+		return ""
+	}
+	if selected.Status != StatusCompleted && selected.Status != StatusFailed {
+		return ""
+	}
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(borderColor).
+		Padding(logsPaddingVertical, logsPaddingHorizontal).
+		Render(lipgloss.JoinVertical(lipgloss.Left, title, m.renderSelectedResult(selected)))
+}
+
+func (m *Model) updateLogViewport() {
+	// Update viewport dimensions
+	if !m.viewportReady {
+		return
+	}
+
+	viewportHeight := m.height / logsHeightDivisor // Leave room for header + active runs
+	if viewportHeight < logsMinHeight {
+		viewportHeight = logsMinHeight
+	}
+	viewportWidth := m.width - logsWidthPadding // Leave room for metrics (40) + padding
+	if viewportWidth < logsMinWidth {
+		viewportWidth = logsMinWidth
+	}
+
+	m.logViewport.Width = viewportWidth
+	m.logViewport.Height = viewportHeight
+
+	switch {
+	case m.viewMode == viewSummary && m.summary != nil:
+		m.logViewport.SetContent("Summary view (press 'l' to view logs)")
+	case len(m.logs) == 0:
+		m.logViewport.SetContent("No logs yet...")
+	default:
+		logLines := make([]string, len(m.logs))
+		for i, log := range m.logs {
+			logLines[i] = m.formatLogLine(log)
+		}
+		m.logViewport.SetContent(strings.Join(logLines, "\n"))
+	}
 }
 
 func (m *Model) formatLogLine(log LogEntry) string {
@@ -91,13 +121,13 @@ func (m *Model) formatLogLine(log LogEntry) string {
 
 // initViewport initializes the viewport for scrollable logs
 func (m *Model) initViewport() {
-	viewportHeight := (m.height - 15) / 2
-	if viewportHeight < 5 {
-		viewportHeight = 5
+	viewportHeight := (m.height - logsViewportOffset) / logsViewportDivisor
+	if viewportHeight < logsMinHeight {
+		viewportHeight = logsMinHeight
 	}
-	viewportWidth := m.width - 50
-	if viewportWidth < 40 {
-		viewportWidth = 40
+	viewportWidth := m.width - logsWidthPadding
+	if viewportWidth < logsMinWidth {
+		viewportWidth = logsMinWidth
 	}
 
 	m.logViewport = viewport.New(viewportWidth, viewportHeight)

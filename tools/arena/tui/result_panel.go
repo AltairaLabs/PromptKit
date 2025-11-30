@@ -7,6 +7,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+const (
+	resultPaddingVertical   = 1
+	resultPaddingHorizontal = 2
+)
+
 // selectedRun returns the first selected run, if any.
 func (m *Model) selectedRun() *RunInfo {
 	for i := range m.activeRuns {
@@ -18,7 +23,7 @@ func (m *Model) selectedRun() *RunInfo {
 }
 
 // renderSelectedResult renders a result summary for a selected run from the state store.
-func (m *Model) renderSelectedResult(run RunInfo) string {
+func (m *Model) renderSelectedResult(run *RunInfo) string {
 	if m.stateStore == nil {
 		return "No state store attached."
 	}
@@ -38,7 +43,11 @@ func (m *Model) renderSelectedResult(run RunInfo) string {
 	}
 
 	if res.ConversationAssertions.Total > 0 {
-		assertLine := fmt.Sprintf("Assertions: %d total, %d failed", res.ConversationAssertions.Total, res.ConversationAssertions.Failed)
+		assertLine := fmt.Sprintf(
+			"Assertions: %d total, %d failed",
+			res.ConversationAssertions.Total,
+			res.ConversationAssertions.Failed,
+		)
 		lines = append(lines, assertLine)
 	}
 
@@ -50,7 +59,7 @@ func (m *Model) renderSelectedResult(run RunInfo) string {
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(colorGray)).
-		Padding(1, 2).
+		Padding(resultPaddingVertical, resultPaddingHorizontal).
 		Render(content)
 }
 

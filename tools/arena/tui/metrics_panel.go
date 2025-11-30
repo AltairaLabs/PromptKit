@@ -7,6 +7,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+const (
+	metricsPanelWidth        = 40
+	metricsPaddingVertical   = 1
+	metricsPaddingHorizontal = 2
+)
+
 func (m *Model) renderMetrics() string {
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colorEmerald))
 	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colorLightGray))
@@ -23,7 +29,11 @@ func (m *Model) renderMetrics() string {
 	lines := []string{
 		titleStyle.Render("📈 Metrics"),
 		"",
-		fmt.Sprintf("%s %s", labelStyle.Render("Completed:"), valueStyle.Render(fmt.Sprintf("%d/%d", m.completedCount, m.totalRuns))),
+		fmt.Sprintf(
+			"%s %s",
+			labelStyle.Render("Completed:"),
+			valueStyle.Render(fmt.Sprintf("%d/%d", m.completedCount, m.totalRuns)),
+		),
 		fmt.Sprintf("%s %s", labelStyle.Render("Success:  "), successStyle.Render(fmt.Sprintf("%d", m.successCount))),
 		fmt.Sprintf("%s %s", labelStyle.Render("Errors:   "), errorStyle.Render(fmt.Sprintf("%d", m.failedCount))),
 		"",
@@ -37,7 +47,7 @@ func (m *Model) renderMetrics() string {
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(colorGreen)).
-		Padding(1, 2).
-		Width(40).
+		Padding(metricsPaddingVertical, metricsPaddingHorizontal).
+		Width(metricsPanelWidth).
 		Render(content)
 }

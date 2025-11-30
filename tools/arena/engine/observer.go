@@ -56,9 +56,9 @@ type ExecutionObserver interface {
 
 	// OnTurnStarted is called when a turn begins execution.
 	// turnIndex is zero-based.
-	OnTurnStarted(runID string, turnIndex int, role string, scenario string)
+	OnTurnStarted(runID string, turnIndex int, role, scenario string)
 
 	// OnTurnCompleted is called when a turn finishes (success or error).
 	// err is nil on success.
-	OnTurnCompleted(runID string, turnIndex int, role string, scenario string, err error)
+	OnTurnCompleted(runID string, turnIndex int, role, scenario string, err error)
 }

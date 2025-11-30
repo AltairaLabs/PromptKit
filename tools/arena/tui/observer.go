@@ -142,7 +142,7 @@ func (o *Observer) OnRunFailed(runID string, err error) {
 }
 
 // OnTurnStarted is called when a turn starts.
-func (o *Observer) OnTurnStarted(runID string, turnIdx int, role string, scenario string) {
+func (o *Observer) OnTurnStarted(runID string, turnIdx int, role, scenario string) {
 	msg := TurnStartedMsg{
 		RunID:     runID,
 		TurnIndex: turnIdx,
@@ -158,7 +158,7 @@ func (o *Observer) OnTurnStarted(runID string, turnIdx int, role string, scenari
 }
 
 // OnTurnCompleted is called when a turn finishes.
-func (o *Observer) OnTurnCompleted(runID string, turnIdx int, role string, scenario string, err error) {
+func (o *Observer) OnTurnCompleted(runID string, turnIdx int, role, scenario string, err error) {
 	msg := TurnCompletedMsg{
 		RunID:     runID,
 		TurnIndex: turnIdx,

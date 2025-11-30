@@ -64,13 +64,13 @@ func (m *mockObserver) OnRunFailed(runID string, err error) {
 	m.failed[runID] = err
 }
 
-func (m *mockObserver) OnTurnStarted(runID string, turnIdx int, role string, scenario string) {
+func (m *mockObserver) OnTurnStarted(runID string, turnIdx int, role, scenario string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.turns = append(m.turns, fmt.Sprintf("%s-start-%d-%s", runID, turnIdx, role))
 }
 
-func (m *mockObserver) OnTurnCompleted(runID string, turnIdx int, role string, scenario string, err error) {
+func (m *mockObserver) OnTurnCompleted(runID string, turnIdx int, role, scenario string, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.turns = append(m.turns, fmt.Sprintf("%s-done-%d-%s", runID, turnIdx, role))

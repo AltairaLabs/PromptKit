@@ -467,8 +467,16 @@ func (m *Model) View() string {
 	header := m.renderHeader(elapsed)
 	activeRuns := m.renderActiveRuns()
 	var bottomRow string
-	if selected := m.selectedRun(); selected != nil && (selected.Status == StatusCompleted || selected.Status == StatusFailed) && m.stateStore != nil {
-		bottomRow = lipgloss.JoinHorizontal(lipgloss.Top, m.renderMetrics(), m.renderSelectedResult(*selected))
+	selected := m.selectedRun()
+	hasResult := selected != nil &&
+		(selected.Status == StatusCompleted || selected.Status == StatusFailed) &&
+		m.stateStore != nil
+	if hasResult {
+		bottomRow = lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			m.renderMetrics(),
+			m.renderSelectedResult(selected),
+		)
 	} else {
 		bottomRow = lipgloss.JoinHorizontal(lipgloss.Top, m.renderMetrics(), m.renderLogs())
 	}

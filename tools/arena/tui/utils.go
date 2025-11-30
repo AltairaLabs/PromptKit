@@ -8,6 +8,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+const (
+	ellipsisMinThreshold = 3
+	ellipsisLength       = 3
+)
+
 func formatDuration(d time.Duration) string {
 	if d < time.Second {
 		return fmt.Sprintf("%dms", d.Milliseconds())
@@ -26,13 +31,13 @@ func truncateString(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
-	if maxLen <= 3 {
+	if maxLen <= ellipsisMinThreshold {
 		return s[:maxLen]
 	}
-	return s[:maxLen-3] + "..."
+	return s[:maxLen-ellipsisLength] + "..."
 }
 
-func buildProgressBar(done, total int, width int) string {
+func buildProgressBar(done, total, width int) string {
 	if total == 0 || width <= 0 {
 		return strings.Repeat(".", width)
 	}

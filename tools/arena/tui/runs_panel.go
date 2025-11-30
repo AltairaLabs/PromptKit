@@ -8,22 +8,39 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+const (
+	defaultRunsTableHeight     = 15
+	runsTableHeightDivisor     = 3
+	runsTableMinHeight         = 5
+	runsTableWidthPadding      = 8
+	runsPanelPadding           = 2
+	runsPanelHorizontalPadding = runsPanelPadding * 2
+	statusColWidth             = 10
+	providerColWidth           = 20
+	scenarioColWidth           = 30
+	regionColWidth             = 12
+	durationColWidth           = 12
+	costColWidth               = 10
+	notesColWidth              = 24
+	errorNoteMaxLen            = 40
+)
+
 func (m *Model) renderActiveRuns() string {
 	// Initialize table on first render
 	if !m.tableReady {
-		m.initRunsTable(15) // Default reasonable height
+		m.initRunsTable(defaultRunsTableHeight)
 	}
 
 	// Update table rows with current active runs
 	m.updateRunsTable()
 
 	// Set table dimensions
-	tableHeight := m.height / 3 // Keep headroom for header + logs
-	if tableHeight < 5 {
-		tableHeight = 5
+	tableHeight := m.height / runsTableHeightDivisor
+	if tableHeight < runsTableMinHeight {
+		tableHeight = runsTableMinHeight
 	}
 	m.runsTable.SetHeight(tableHeight)
-	m.runsTable.SetWidth(m.width - 8)
+	m.runsTable.SetWidth(m.width - runsTableWidthPadding)
 	if m.activePane == paneRuns {
 		m.runsTable.Focus()
 	} else {
@@ -46,21 +63,21 @@ func (m *Model) renderActiveRuns() string {
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderColor).
-		Padding(1, 2).
-		Width(m.width - 4).
+		Padding(1, runsPanelPadding).
+		Width(m.width - runsPanelHorizontalPadding).
 		Render(content)
 }
 
 // initRunsTable initializes the table for active runs
 func (m *Model) initRunsTable(height int) {
 	columns := []table.Column{
-		{Title: "Status", Width: 10},
-		{Title: "Provider", Width: 20},
-		{Title: "Scenario", Width: 30},
-		{Title: "Region", Width: 12},
-		{Title: "Duration", Width: 12},
-		{Title: "Cost", Width: 10},
-		{Title: "Notes", Width: 24},
+		{Title: "Status", Width: statusColWidth},
+		{Title: "Provider", Width: providerColWidth},
+		{Title: "Scenario", Width: scenarioColWidth},
+		{Title: "Region", Width: regionColWidth},
+		{Title: "Duration", Width: durationColWidth},
+		{Title: "Cost", Width: costColWidth},
+		{Title: "Notes", Width: notesColWidth},
 	}
 
 	t := table.New(
@@ -113,7 +130,7 @@ func (m *Model) updateRunsTable() {
 			status = "✗ Failed"
 			duration = "-"
 			cost = "-"
-			notes = truncateString(run.Error, 40)
+			notes = truncateString(run.Error, errorNoteMaxLen)
 		}
 
 		if run.Selected {
@@ -132,41 +149,4 @@ func (m *Model) updateRunsTable() {
 	}
 
 	m.runsTable.SetRows(rows)
-}
-
-func (m *Model) formatRunLine(run *RunInfo) string {
-	var status string
-	var statusColor lipgloss.Color
-
-	switch run.Status {
-	case StatusRunning:
-		status = "●"
-		statusColor = lipgloss.Color(colorBlue) // Blue for running
-	case StatusCompleted:
-		status = "✓"
-		statusColor = lipgloss.Color(colorGreen) // Green for success
-	case StatusFailed:
-		status = "✗"
-		statusColor = lipgloss.Color(colorRed) // Red for failure
-	}
-
-	statusStyle := lipgloss.NewStyle().Foreground(statusColor)
-	runInfo := fmt.Sprintf("%s/%s/%s", run.Provider, run.Scenario, run.Region)
-
-	switch run.Status {
-	case StatusRunning:
-		elapsed := time.Since(run.StartTime).Truncate(time.Millisecond * durationPrecisionMs)
-		return fmt.Sprintf("[%s] %-40s ⏱ %s", statusStyle.Render(status), runInfo, formatDuration(elapsed))
-	case StatusFailed:
-		return fmt.Sprintf("[%s] %-40s ERROR", statusStyle.Render(status), runInfo)
-	case StatusCompleted:
-		return fmt.Sprintf(
-			"[%s] %-40s ⏱ %s  $%.4f",
-			statusStyle.Render(status),
-			runInfo,
-			formatDuration(run.Duration),
-			run.Cost,
-		)
-	}
-	return ""
 }

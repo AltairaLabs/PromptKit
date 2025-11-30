@@ -147,13 +147,17 @@ func (ce *DefaultConversationExecutor) debugOnUserTurnAssertions(scenarioTurn co
 	}
 }
 
-func (ce *DefaultConversationExecutor) notifyTurnStarted(observer ExecutionObserver, runID string, turnIdx int, role string, scenarioID string) {
+func (ce *DefaultConversationExecutor) notifyTurnStarted(
+	observer ExecutionObserver, runID string, turnIdx int, role, scenarioID string,
+) {
 	if observer != nil {
 		observer.OnTurnStarted(runID, turnIdx, role, scenarioID)
 	}
 }
 
-func (ce *DefaultConversationExecutor) notifyTurnCompleted(observer ExecutionObserver, runID string, turnIdx int, role string, scenarioID string, err error) {
+func (ce *DefaultConversationExecutor) notifyTurnCompleted(
+	observer ExecutionObserver, runID string, turnIdx int, role, scenarioID string, err error,
+) {
 	if observer != nil {
 		observer.OnTurnCompleted(runID, turnIdx, role, scenarioID, err)
 	}
