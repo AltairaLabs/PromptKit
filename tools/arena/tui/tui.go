@@ -110,6 +110,8 @@ type Model struct {
 	stateStore runResultStore
 
 	activePane pane
+
+	selectedTurnIdx int
 }
 
 // RunInfo tracks information about a single run
@@ -209,6 +211,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Navigate conversation turns when viewing results
+		if m.activePane == paneLogs && m.selectedRun() != nil && m.stateStore != nil {
+			//nolint:exhaustive // only handle up/down navigation for conversation view
+			switch msg.Type {
+			case tea.KeyUp:
+				if m.selectedTurnIdx > 0 {
+					m.selectedTurnIdx--
+				}
+				return m, nil
+			case tea.KeyDown:
+				m.selectedTurnIdx++
+				return m, nil
+			}
+		}
+
 		// Enter toggles selection on a run row
 		if msg.Type == tea.KeyEnter && m.activePane == paneRuns && m.tableReady {
 			idx := m.runsTable.Cursor()
@@ -218,6 +235,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.activeRuns[i].Selected = false
 				}
 				m.activeRuns[idx].Selected = !targetSelected
+				if m.activeRuns[idx].Selected {
+					m.selectedTurnIdx = 0
+				}
 			}
 			return m, nil
 		}
@@ -465,11 +485,26 @@ func (m *Model) View() string {
 	elapsed := time.Since(m.startTime).Truncate(time.Second)
 
 	header := m.renderHeader(elapsed)
-	activeRuns := m.renderActiveRuns()
-	bottomRow := lipgloss.JoinHorizontal(lipgloss.Top, m.renderMetrics(), m.renderLogs())
+	activeRuns := m.renderTopRow()
+	bottomRow := m.renderBottomRow()
 	footer := m.renderFooter()
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, "", activeRuns, "", bottomRow, footer)
+}
+
+func (m *Model) renderTopRow() string {
+	if m.totalRuns > 0 && (m.completedCount+m.failedCount == m.totalRuns) {
+		return lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			m.renderActiveRuns(),
+			m.renderMetrics(),
+		)
+	}
+	return m.renderActiveRuns()
+}
+
+func (m *Model) renderBottomRow() string {
+	return m.renderLogs()
 }
 
 // BuildSummary creates a Summary from the current model state with output directory and HTML report path.
@@ -632,16 +667,17 @@ func NewModel(configFile string, totalRuns int) *Model {
 	}
 
 	return &Model{
-		configFile:     configFile,
-		totalRuns:      totalRuns,
-		startTime:      time.Now(),
-		activeRuns:     make([]RunInfo, 0),
-		logs:           make([]LogEntry, 0, maxLogBufferSize),
-		width:          width,
-		height:         height,
-		isTUIMode:      supported,
-		fallbackReason: reason,
-		viewMode:       viewLogs,
+		configFile:      configFile,
+		totalRuns:       totalRuns,
+		startTime:       time.Now(),
+		activeRuns:      make([]RunInfo, 0),
+		logs:            make([]LogEntry, 0, maxLogBufferSize),
+		width:           width,
+		height:          height,
+		isTUIMode:       supported,
+		fallbackReason:  reason,
+		viewMode:        viewLogs,
+		selectedTurnIdx: 0,
 	}
 }
 

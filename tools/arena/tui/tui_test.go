@@ -157,6 +157,10 @@ func TestModel_View_SelectedRunShowsResult(t *testing.T) {
 			ProviderID: "prov",
 			Region:     "us",
 			Duration:   2 * time.Second,
+			Messages: []types.Message{
+				{Role: "user", Content: "hello"},
+				{Role: "assistant", Content: "hi there"},
+			},
 			Cost: types.CostInfo{
 				TotalCost:    1.23,
 				InputTokens:  10,
@@ -170,8 +174,9 @@ func TestModel_View_SelectedRunShowsResult(t *testing.T) {
 	}
 
 	view := m.View()
-	assert.Contains(t, view, "Run: run-1")
-	assert.Contains(t, view, "Assertions: 2 total")
+	assert.Contains(t, view, "Conversation")
+	assert.Contains(t, view, "hello")
+	assert.Contains(t, view, "assistant")
 }
 
 func TestModel_BuildSummary_FromStateStore(t *testing.T) {
@@ -183,7 +188,11 @@ func TestModel_BuildSummary_FromStateStore(t *testing.T) {
 			ScenarioID: "scn",
 			ProviderID: "prov",
 			Region:     "us",
-			Duration:   2 * time.Second,
+			Messages: []types.Message{
+				{Role: "user", Content: "hello"},
+				{Role: "assistant", Content: "hi"},
+			},
+			Duration: 2 * time.Second,
 			Cost: types.CostInfo{
 				TotalCost:    2.5,
 				InputTokens:  10,
@@ -278,6 +287,10 @@ func TestRenderLogs_SelectedResultBranch(t *testing.T) {
 			ScenarioID: "scn",
 			ProviderID: "prov",
 			Region:     "us",
+			Messages: []types.Message{
+				{Role: "user", Content: "hello"},
+				{Role: "assistant", Content: "hi there"},
+			},
 			Cost: types.CostInfo{
 				TotalCost:    1.0,
 				InputTokens:  1,
@@ -287,9 +300,8 @@ func TestRenderLogs_SelectedResultBranch(t *testing.T) {
 		},
 	}
 	out := m.renderLogs()
-	assert.Contains(t, out, "run-1")
-	assert.Contains(t, out, "Scenario: scn")
-	assert.Contains(t, out, "Assertions: 1 total")
+	assert.Contains(t, out, "Conversation")
+	assert.Contains(t, out, "assistant")
 }
 
 func TestRenderSelectedResult_Error(t *testing.T) {
@@ -297,6 +309,16 @@ func TestRenderSelectedResult_Error(t *testing.T) {
 	m.stateStore = &mockRunResultStore{err: fmt.Errorf("boom")}
 	res := m.renderSelectedResult(&RunInfo{RunID: "run-1"})
 	assert.Contains(t, res, "Failed to load result")
+}
+
+func TestRenderTopRow_ShowsMetricsWhenDone(t *testing.T) {
+	m := NewModel("test.yaml", 2)
+	m.completedCount = 2
+	m.totalRuns = 2
+	m.width = 120
+	m.height = 40
+	out := m.renderTopRow()
+	assert.Contains(t, out, "Metrics")
 }
 
 func TestHandleTurnEvents(t *testing.T) {
