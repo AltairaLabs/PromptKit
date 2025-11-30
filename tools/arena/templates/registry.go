@@ -261,36 +261,10 @@ func LoadTemplatePackage(path string) (*TemplatePackage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read template: %w", err)
 	}
-	dir := filepath.Dir(path)
+	baseDir := filepath.Dir(path)
 
-	var cr templateCR
-	if err := yaml.Unmarshal(data, &cr); err == nil && len(cr.Spec.Files) > 0 {
-		pkg := &TemplatePackage{}
-		for _, f := range cr.Spec.Files {
-			content := f.Content
-			if content == "" && f.Source != "" {
-				src := f.Source
-				if !strings.HasPrefix(src, "http://") && !strings.HasPrefix(src, "https://") && !filepath.IsAbs(src) {
-					src = filepath.Join(dir, src)
-				}
-				bytes, err := loadBytes(src)
-				if err != nil {
-					return nil, fmt.Errorf("load source %s: %w", src, err)
-				}
-				content = string(bytes)
-			}
-			if f.Path == "" {
-				return nil, fmt.Errorf("template file path is empty")
-			}
-			pkg.Files = append(pkg.Files, TemplateFile{
-				Path:    f.Path,
-				Content: content,
-			})
-		}
-		if len(pkg.Files) == 0 {
-			return nil, fmt.Errorf("template has no files")
-		}
-		return pkg, nil
+	if pkg, handled, err := tryParseTemplateCR(data, baseDir); handled {
+		return pkg, err
 	}
 
 	var pkg TemplatePackage
@@ -301,6 +275,49 @@ func LoadTemplatePackage(path string) (*TemplatePackage, error) {
 		return nil, fmt.Errorf("template has no files")
 	}
 	return &pkg, nil
+}
+
+func tryParseTemplateCR(data []byte, baseDir string) (*TemplatePackage, bool, error) {
+	var cr templateCR
+	if err := yaml.Unmarshal(data, &cr); err != nil {
+		return nil, false, nil
+	}
+	if len(cr.Spec.Files) == 0 {
+		return nil, true, fmt.Errorf("template has no files")
+	}
+
+	pkg := &TemplatePackage{}
+	for _, f := range cr.Spec.Files {
+		if f.Path == "" {
+			return nil, true, fmt.Errorf("template file path is empty")
+		}
+		content, err := resolveTemplateContent(f, baseDir)
+		if err != nil {
+			return nil, true, err
+		}
+		pkg.Files = append(pkg.Files, TemplateFile{
+			Path:    f.Path,
+			Content: content,
+		})
+	}
+	return pkg, true, nil
+}
+
+func resolveTemplateContent(f TemplateFile, baseDir string) (string, error) {
+	if f.Content != "" || f.Source == "" {
+		return f.Content, nil
+	}
+
+	src := f.Source
+	if !strings.HasPrefix(src, "http://") && !strings.HasPrefix(src, "https://") && !filepath.IsAbs(src) {
+		src = filepath.Join(baseDir, src)
+	}
+
+	bytes, err := loadBytes(src)
+	if err != nil {
+		return "", fmt.Errorf("load source %s: %w", src, err)
+	}
+	return string(bytes), nil
 }
 
 // RenderDryRun renders the package with vars and writes to outDir.

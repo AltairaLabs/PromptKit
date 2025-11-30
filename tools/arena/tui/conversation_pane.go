@@ -250,28 +250,7 @@ func (c *ConversationPane) updateDetail(res *statestore.RunResult) {
 	}
 
 	msg := res.Messages[c.selectedTurnIdx]
-	lines := []string{c.renderDetailHeader(res, c.selectedTurnIdx, &msg), ""}
-	if len(msg.ToolCalls) > 0 {
-		lines = append(lines, fmt.Sprintf("Tool Calls: %d", len(msg.ToolCalls)))
-		for _, tc := range msg.ToolCalls {
-			lines = append(lines, fmt.Sprintf("  • %s", tc.Name))
-			if len(tc.Args) > 0 {
-				lines = append(lines, indentBlock(formatJSON(string(tc.Args)), conversationArgsIndent))
-			}
-		}
-	}
-	if msg.ToolResult != nil && msg.ToolResult.Name != "" {
-		lines = append(lines, fmt.Sprintf("Tool Result: %s", msg.ToolResult.Name))
-		if msg.ToolResult.Content != "" {
-			lines = append(lines, indentBlock(formatJSON(msg.ToolResult.Content), conversationResultIndent))
-		}
-	}
-	if msg.ToolResult != nil && msg.ToolResult.Error != "" {
-		lines = append(lines, fmt.Sprintf("Error: %s", msg.ToolResult.Error))
-	}
-
-	c.appendContentLines(&lines, &msg)
-	c.appendValidationLines(&lines, &msg)
+	lines := c.buildDetailLines(res, &msg)
 
 	width := c.width - conversationListWidth - conversationPanelGap - conversationDetailWidthPad
 	if width < conversationDetailMinWidth {
@@ -289,6 +268,43 @@ func (c *ConversationPane) updateDetail(res *statestore.RunResult) {
 	c.detail.Height = height
 	c.detail.SetContent(content)
 	c.detailReady = true
+}
+
+func (c *ConversationPane) buildDetailLines(res *statestore.RunResult, msg *types.Message) []string {
+	lines := []string{c.renderDetailHeader(res, c.selectedTurnIdx, msg), ""}
+	c.appendToolCallLines(&lines, msg)
+	c.appendToolResultLines(&lines, msg)
+
+	c.appendContentLines(&lines, msg)
+	c.appendValidationLines(&lines, msg)
+	return lines
+}
+
+func (c *ConversationPane) appendToolCallLines(lines *[]string, msg *types.Message) {
+	if len(msg.ToolCalls) == 0 {
+		return
+	}
+	*lines = append(*lines, fmt.Sprintf("Tool Calls: %d", len(msg.ToolCalls)))
+	for _, tc := range msg.ToolCalls {
+		*lines = append(*lines, fmt.Sprintf("  • %s", tc.Name))
+		if len(tc.Args) > 0 {
+			*lines = append(*lines, indentBlock(formatJSON(string(tc.Args)), conversationArgsIndent))
+		}
+	}
+}
+
+func (c *ConversationPane) appendToolResultLines(lines *[]string, msg *types.Message) {
+	if msg.ToolResult == nil || msg.ToolResult.Name == "" {
+		return
+	}
+
+	*lines = append(*lines, fmt.Sprintf("Tool Result: %s", msg.ToolResult.Name))
+	if msg.ToolResult.Content != "" {
+		*lines = append(*lines, indentBlock(formatJSON(msg.ToolResult.Content), conversationResultIndent))
+	}
+	if msg.ToolResult.Error != "" {
+		*lines = append(*lines, fmt.Sprintf("Error: %s", msg.ToolResult.Error))
+	}
 }
 
 func (c *ConversationPane) appendContentLines(lines *[]string, msg *types.Message) {

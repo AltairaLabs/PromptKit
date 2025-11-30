@@ -25,12 +25,10 @@ const (
 
 // Display constants
 const (
-	borderPadding       = 4
 	maxLogBufferSize    = 100
 	tickIntervalMs      = 500
 	durationPrecisionMs = 100
 	numberSeparator     = 1000
-	panelDivisor        = 2
 	bannerLines         = 2  // Banner + info line (separator counted separately)
 	bottomPanelPadding  = 4  // Border + padding
 	metricsBoxWidth     = 40 // Fixed width for metrics box
@@ -71,8 +69,8 @@ const (
 	pageConversation
 )
 
-// runResultStore is a minimal interface to retrieve run results from the state store.
-type runResultStore interface {
+// runResultStorer is a minimal interface to retrieve run results from the state store.
+type runResultStorer interface {
 	GetResult(ctx context.Context, runID string) (*statestore.RunResult, error)
 }
 
@@ -107,7 +105,7 @@ type Model struct {
 	summary     *Summary
 	showSummary bool
 
-	stateStore runResultStore
+	stateStore runResultStorer
 
 	activePane pane
 
@@ -740,7 +738,7 @@ func NewModel(configFile string, totalRuns int) *Model {
 }
 
 // SetStateStore attaches a state store for building summaries from run results.
-func (m *Model) SetStateStore(store runResultStore) {
+func (m *Model) SetStateStore(store runResultStorer) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.stateStore = store
