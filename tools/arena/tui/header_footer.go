@@ -59,6 +59,14 @@ func (m *Model) renderHeader(elapsed time.Duration) string {
 
 func (m *Model) renderFooter() string {
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colorLightGray)).Italic(true)
-	items := []string{"q: quit", "tab: focus runs/logs", "l: logs", "s: summary", "enter: select result"}
+	items := []string{"q: quit"}
+
+	if m.selectedRun() != nil && m.stateStore != nil {
+		items = append(items, "esc: back", "tab: focus runs/logs/conv", "↑/↓: navigate")
+	} else {
+		items = append(items, "tab: focus runs/logs")
+	}
+
+	items = append(items, "l: logs", "s: summary", "enter: select result")
 	return helpStyle.Render(strings.Join(items, "  •  "))
 }

@@ -216,6 +216,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Other key types not handled
 		}
 
+		// Escape deselects a conversation and returns to main view
+		if msg.Type == tea.KeyEsc && m.selectedRun() != nil {
+			for i := range m.activeRuns {
+				m.activeRuns[i].Selected = false
+			}
+			m.selectedTurnIdx = 0
+			m.convFocus = focusConversationTurns
+			m.convTableReady = false
+			m.convDetailReady = false
+			return m, nil
+		}
+
 		// Tab switches focus between runs table and logs
 		if msg.Type == tea.KeyTab {
 			if m.activePane == paneRuns {
