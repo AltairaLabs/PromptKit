@@ -9,6 +9,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -432,6 +433,207 @@ func (m *MockStreamingProvider) CalculateCost(inputTokens, outputTokens, cachedT
 	}
 }
 
+// TestExecuteConversation_StreamingPath ensures the streaming path is exercised.
+func TestExecuteConversation_StreamingPath(t *testing.T) {
+	mockExecutor := &MockStreamingTurnExecutor{
+		chunks: []mockChunk{
+			{Delta: "hi", TokenCount: 1, FinishReason: strPtr("stop")},
+		},
+	}
+
+	executor := NewDefaultConversationExecutor(
+		mockExecutor,
+		nil,
+		nil,
+		createTestPromptRegistry(t),
+	)
+
+	scenario := &config.Scenario{
+		ID:        "streaming-scenario",
+		TaskType:  "support",
+		Streaming: true,
+		Turns: []config.TurnDefinition{
+			{Role: "user", Content: "Hello?"},
+		},
+	}
+
+	req := ConversationRequest{
+		Region:   "us",
+		Scenario: scenario,
+		Provider: &MockStreamingProvider{},
+		Config: &config.Config{
+			Defaults: config.Defaults{Verbose: false},
+		},
+		StateStoreConfig: &StateStoreConfig{
+			Store:  createTestStateStore(),
+			UserID: "user1",
+		},
+		ConversationID: "streaming-path",
+	}
+
+	result := executor.ExecuteConversation(context.Background(), req)
+	require.NotNil(t, result)
+	require.False(t, result.Failed, "streaming execution should succeed")
+	require.Equal(t, 1, mockExecutor.callCount, "streaming executor should be invoked once")
+}
+
 func strPtr(s string) *string {
 	return &s
+}
+
+type countingExecutor struct {
+	execCalls   int
+	streamCalls int
+}
+
+func (c *countingExecutor) ExecuteTurn(ctx context.Context, req turnexecutors.TurnRequest) error {
+	c.execCalls++
+	return nil
+}
+
+func (c *countingExecutor) ExecuteTurnStream(ctx context.Context, req turnexecutors.TurnRequest) (<-chan turnexecutors.MessageStreamChunk, error) {
+	c.streamCalls++
+	ch := make(chan turnexecutors.MessageStreamChunk)
+	close(ch)
+	return ch, nil
+}
+
+func TestExecuteConversation_SelfPlayTurnNonStreaming(t *testing.T) {
+	selfPlayExec := &countingExecutor{}
+
+	// Build self-play registry with a single role/provider/persona
+	providerReg := providers.NewRegistry()
+	mockProvider, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+		ID:     "mock-selfplay",
+		Type:   "mock",
+		Model:  "mock-model",
+		Defaults: providers.ProviderDefaults{
+			Temperature: 0.1,
+			MaxTokens:   32,
+			TopP:        1.0,
+		},
+	})
+	require.NoError(t, err)
+	providerReg.Register(mockProvider)
+
+	roleMap := map[string]string{"operator": "mock-selfplay"}
+	personas := map[string]*config.UserPersonaPack{
+		"plant-operator": {
+			ID:          "plant-operator",
+			SystemPrompt: "You are an operator.",
+			Defaults: config.PersonaDefaults{
+				Temperature: 0.7,
+			},
+		},
+	}
+	roles := []config.SelfPlayRoleGroup{
+		{ID: "operator", Provider: "mock-selfplay"},
+	}
+	selfPlayRegistry := selfplay.NewRegistry(providerReg, roleMap, personas, roles)
+
+	executor := NewDefaultConversationExecutor(
+		&MockStreamingTurnExecutor{}, // scripted executor (unused here)
+		selfPlayExec,
+		selfPlayRegistry,
+		createTestPromptRegistry(t),
+	)
+
+	scenario := &config.Scenario{
+		ID:       "selfplay-scenario",
+		TaskType: "support",
+		Turns: []config.TurnDefinition{
+			{Role: "operator", Persona: "plant-operator"},
+		},
+	}
+
+	req := ConversationRequest{
+		Region:   "us",
+		Scenario: scenario,
+		Provider: mockProvider,
+		Config: &config.Config{
+			Defaults: config.Defaults{Verbose: false},
+			SelfPlay: &config.SelfPlayConfig{Enabled: true},
+		},
+		StateStoreConfig: &StateStoreConfig{
+			Store:  createTestStateStore(),
+			UserID: "user1",
+		},
+		ConversationID: "selfplay-conv",
+	}
+
+	result := executor.ExecuteConversation(context.Background(), req)
+	require.NotNil(t, result)
+	require.False(t, result.Failed)
+	require.Equal(t, 1, selfPlayExec.execCalls)
+	require.Equal(t, 0, selfPlayExec.streamCalls)
+}
+
+func TestExecuteConversation_SelfPlayTurnStreaming(t *testing.T) {
+	selfPlayExec := &countingExecutor{}
+
+	providerReg := providers.NewRegistry()
+	mockProvider, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+		ID:     "mock-selfplay",
+		Type:   "mock",
+		Model:  "mock-model",
+		Defaults: providers.ProviderDefaults{
+			Temperature: 0.1,
+			MaxTokens:   32,
+			TopP:        1.0,
+		},
+	})
+	require.NoError(t, err)
+	providerReg.Register(mockProvider)
+
+	roleMap := map[string]string{"operator": "mock-selfplay"}
+	personas := map[string]*config.UserPersonaPack{
+		"plant-operator": {
+			ID:           "plant-operator",
+			SystemPrompt: "You are an operator.",
+			Defaults: config.PersonaDefaults{
+				Temperature: 0.7,
+			},
+		},
+	}
+	roles := []config.SelfPlayRoleGroup{
+		{ID: "operator", Provider: "mock-selfplay"},
+	}
+	selfPlayRegistry := selfplay.NewRegistry(providerReg, roleMap, personas, roles)
+
+	executor := NewDefaultConversationExecutor(
+		&MockStreamingTurnExecutor{}, // scripted executor (unused here)
+		selfPlayExec,
+		selfPlayRegistry,
+		createTestPromptRegistry(t),
+	)
+
+	scenario := &config.Scenario{
+		ID:        "selfplay-streaming-scenario",
+		TaskType:  "support",
+		Streaming: true,
+		Turns: []config.TurnDefinition{
+			{Role: "operator", Persona: "plant-operator"},
+		},
+	}
+
+	req := ConversationRequest{
+		Region:   "us",
+		Scenario: scenario,
+		Provider: mockProvider,
+		Config: &config.Config{
+			Defaults: config.Defaults{Verbose: false},
+			SelfPlay: &config.SelfPlayConfig{Enabled: true},
+		},
+		StateStoreConfig: &StateStoreConfig{
+			Store:  createTestStateStore(),
+			UserID: "user1",
+		},
+		ConversationID: "selfplay-conv-stream",
+	}
+
+	result := executor.ExecuteConversation(context.Background(), req)
+	require.NotNil(t, result)
+	require.False(t, result.Failed)
+	require.Equal(t, 0, selfPlayExec.execCalls)
+	require.Equal(t, 1, selfPlayExec.streamCalls)
 }

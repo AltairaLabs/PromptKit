@@ -82,8 +82,8 @@ func TestMockScenarioContextMiddleware_TurnNumberCalculation(t *testing.T) {
 			messages: []types.Message{
 				{Role: "assistant", Content: "Response"},
 			},
-			expectedTurnNum: 0,
-			description:     "No user messages means turn 0",
+			expectedTurnNum: 2,
+			description:     "Assistant message implies we are advancing to next turn",
 		},
 		{
 			name:            "no messages",

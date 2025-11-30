@@ -3,6 +3,7 @@ package turnexecutors
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,6 +17,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
+
+func newLocalServer(t *testing.T, handler http.Handler) *httptest.Server {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("unable to start test server listener: %v", err)
+	}
+	server := httptest.NewUnstartedServer(handler)
+	server.Listener = l
+	server.Start()
+	return server
+}
 
 // MockStorageService for testing storage reference scenarios
 type MockStorageService struct {
@@ -234,11 +247,18 @@ func TestConvertImagePart_StorageReference(t *testing.T) {
 
 func TestConvertImagePart_URLWithHTTPLoader(t *testing.T) {
 	// Create a test server that returns fake image data
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/jpeg")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("fake image data"))
-	}))
+	})
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("unable to start test server listener: %v", err)
+	}
+	server := httptest.NewUnstartedServer(handler)
+	server.Listener = l
+	server.Start()
 	defer server.Close()
 
 	httpLoader := NewHTTPMediaLoader(5*time.Second, 10*1024*1024)
@@ -296,41 +316,56 @@ func TestHTTPMediaLoader_UnsupportedScheme(t *testing.T) {
 
 func TestHTTPMediaLoader_ContextCancelled(t *testing.T) {
 	// Create a server that delays response
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(2 * time.Second)
 		w.WriteHeader(http.StatusOK)
-	}))
+	})
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("unable to start test server listener: %v", err)
+	}
+	server := httptest.NewUnstartedServer(handler)
+	server.Listener = l
+	server.Start()
 	defer server.Close()
 
 	httpLoader := NewHTTPMediaLoader(5*time.Second, 10*1024*1024)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	_, _, err := httpLoader.loadMediaFromURL(ctx, server.URL, "image", 0)
+	_, _, err = httpLoader.loadMediaFromURL(ctx, server.URL, "image", 0)
 
 	assert.Error(t, err)
 }
 
 func TestHTTPMediaLoader_NonOKStatus(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-	}))
+	})
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("unable to start test server listener: %v", err)
+	}
+	server := httptest.NewUnstartedServer(handler)
+	server.Listener = l
+	server.Start()
 	defer server.Close()
 
 	httpLoader := NewHTTPMediaLoader(5*time.Second, 10*1024*1024)
 	ctx := context.Background()
 
-	_, _, err := httpLoader.loadMediaFromURL(ctx, server.URL, "image", 0)
+	_, _, err = httpLoader.loadMediaFromURL(ctx, server.URL, "image", 0)
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "HTTP 404")
 }
 
 func TestHTTPMediaLoader_ContentLengthExceedsLimit(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", "20000000") // 20MB
 		w.WriteHeader(http.StatusOK)
-	}))
+	})
+	server := newLocalServer(t, handler)
 	defer server.Close()
 
 	httpLoader := NewHTTPMediaLoader(5*time.Second, 10*1024*1024) // 10MB limit
@@ -343,7 +378,7 @@ func TestHTTPMediaLoader_ContentLengthExceedsLimit(t *testing.T) {
 }
 
 func TestHTTPMediaLoader_BodyExceedsLimit(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		// Write more than the limit
 		largeData := make([]byte, 11*1024*1024) // 11MB
@@ -361,7 +396,7 @@ func TestHTTPMediaLoader_BodyExceedsLimit(t *testing.T) {
 }
 
 func TestHTTPMediaLoader_ContentTypeFromHeader(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Set explicit Content-Type that overrides URL extension
 		w.Header().Set("Content-Type", "audio/wav")
 		w.WriteHeader(http.StatusOK)
@@ -382,7 +417,7 @@ func TestHTTPMediaLoader_ContentTypeFromHeader(t *testing.T) {
 
 func TestHTTPMediaLoader_MaxRedirects(t *testing.T) {
 	redirectCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		redirectCount++
 		if redirectCount <= 11 { // More than 10 redirects
 			http.Redirect(w, r, "/redirect", http.StatusFound)
@@ -530,7 +565,7 @@ func TestConvertTurnPartsToMessageParts_StorageError(t *testing.T) {
 
 // Test audio/video URL loading
 func TestConvertAudioPart_FromURL(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "audio/mpeg")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("fake audio data"))
@@ -556,7 +591,7 @@ func TestConvertAudioPart_FromURL(t *testing.T) {
 }
 
 func TestConvertVideoPart_FromURL(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "video/mp4")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("fake video data"))

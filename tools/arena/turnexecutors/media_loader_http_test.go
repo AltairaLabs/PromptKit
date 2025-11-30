@@ -21,7 +21,7 @@ func TestHTTPMediaLoader_Success(t *testing.T) {
 	base64Expected := base64.StdEncoding.EncodeToString(imageData)
 
 	// Create mock HTTP server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/jpeg")
 		w.WriteHeader(http.StatusOK)
 		w.Write(imageData)
@@ -49,7 +49,7 @@ func TestHTTPMediaLoader_Success(t *testing.T) {
 // TestHTTPMediaLoader_404Error tests handling of 404 errors
 func TestHTTPMediaLoader_404Error(t *testing.T) {
 	// Create mock HTTP server that returns 404
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer server.Close()
@@ -71,7 +71,7 @@ func TestHTTPMediaLoader_404Error(t *testing.T) {
 // TestHTTPMediaLoader_Timeout tests timeout handling
 func TestHTTPMediaLoader_Timeout(t *testing.T) {
 	// Create mock HTTP server with slow response
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(2 * time.Second) // Longer than timeout
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -95,7 +95,7 @@ func TestHTTPMediaLoader_Timeout(t *testing.T) {
 // TestHTTPMediaLoader_ContextCancellation tests context cancellation
 func TestHTTPMediaLoader_ContextCancellation(t *testing.T) {
 	// Create mock HTTP server with slow response
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(2 * time.Second)
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -125,7 +125,7 @@ func TestHTTPMediaLoader_FileSizeLimit(t *testing.T) {
 	largeData := make([]byte, 2*1024) // 2KB
 
 	// Create mock HTTP server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/jpeg")
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(largeData)))
 		w.WriteHeader(http.StatusOK)
@@ -161,7 +161,7 @@ func TestHTTPMediaLoader_FileSizeLimitWithoutContentLength(t *testing.T) {
 	largeData := make([]byte, 2*1024) // 2KB
 
 	// Create mock HTTP server without Content-Length
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Don't set Content-Length header
 		w.WriteHeader(http.StatusOK)
 		w.Write(largeData)
@@ -206,7 +206,7 @@ func TestHTTPMediaLoader_MIMETypeFromHeader(t *testing.T) {
 	imageData := []byte("fake-image-data")
 
 	// Create mock HTTP server with Content-Type
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
 		w.WriteHeader(http.StatusOK)
 		w.Write(imageData)
@@ -231,7 +231,7 @@ func TestHTTPMediaLoader_MIMETypeFromURL(t *testing.T) {
 
 	// Create mock HTTP server - httptest sets a default Content-Type, so we accept either
 	// the httptest default or detection from URL
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// httptest.Server sets "text/plain; charset=utf-8" by default
 		// In real scenarios, servers without Content-Type would return empty string
 		w.WriteHeader(http.StatusOK)
@@ -262,7 +262,7 @@ func TestHTTPMediaLoader_RedirectHandling(t *testing.T) {
 	base64Expected := base64.StdEncoding.EncodeToString(imageData)
 
 	// Create final target server
-	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	targetServer := newLocalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/jpeg")
 		w.WriteHeader(http.StatusOK)
 		w.Write(imageData)
@@ -270,7 +270,7 @@ func TestHTTPMediaLoader_RedirectHandling(t *testing.T) {
 	defer targetServer.Close()
 
 	// Create redirect server
-	redirectServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	redirectServer := newLocalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, targetServer.URL, http.StatusFound)
 	}))
 	defer redirectServer.Close()
@@ -295,7 +295,7 @@ func TestHTTPMediaLoader_RedirectHandling(t *testing.T) {
 func TestHTTPMediaLoader_TooManyRedirects(t *testing.T) {
 	// Create server that redirects to itself (infinite loop)
 	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server = newLocalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, server.URL, http.StatusFound)
 	}))
 	defer server.Close()
@@ -318,7 +318,7 @@ func TestConvertTurnPartsToMessageParts_ImageFromURLWithLoader(t *testing.T) {
 	base64Expected := base64.StdEncoding.EncodeToString(imageData)
 
 	// Create mock HTTP server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/jpeg")
 		w.WriteHeader(http.StatusOK)
 		w.Write(imageData)
@@ -373,7 +373,7 @@ func TestConvertTurnPartsToMessageParts_AudioFromURLWithLoader(t *testing.T) {
 	base64Expected := base64.StdEncoding.EncodeToString(audioData)
 
 	// Create mock HTTP server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "audio/mpeg")
 		w.WriteHeader(http.StatusOK)
 		w.Write(audioData)
@@ -427,7 +427,7 @@ func TestConvertTurnPartsToMessageParts_VideoFromURLWithLoader(t *testing.T) {
 	base64Expected := base64.StdEncoding.EncodeToString(videoData)
 
 	// Create mock HTTP server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "video/mp4")
 		w.WriteHeader(http.StatusOK)
 		w.Write(videoData)

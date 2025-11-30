@@ -56,6 +56,11 @@ func (m *mockScenarioContextMiddleware) determineTurnNumber(execCtx *pipeline.Ex
 		return turnNumber
 	}
 
+	// Next prefer assistant message count to advance after tool results
+	if turnNumber := m.countAssistantMessages(execCtx); turnNumber > 0 {
+		return turnNumber
+	}
+
 	// Fallback to counting user messages
 	return m.countUserMessages(execCtx)
 }
@@ -71,6 +76,21 @@ func (m *mockScenarioContextMiddleware) getTurnNumberFromMetadata(execCtx *pipel
 	}
 
 	return 0
+}
+
+// countAssistantMessages counts assistant messages and returns next turn index.
+func (m *mockScenarioContextMiddleware) countAssistantMessages(execCtx *pipeline.ExecutionContext) int {
+	const roleAssistant = "assistant"
+	count := 0
+	for i := range execCtx.Messages {
+		if execCtx.Messages[i].Role == roleAssistant {
+			count++
+		}
+	}
+	if count == 0 {
+		return 0
+	}
+	return count + 1
 }
 
 // countUserMessages counts the number of user messages in the execution context
