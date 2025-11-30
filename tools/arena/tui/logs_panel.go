@@ -83,8 +83,6 @@ func (m *Model) updateLogViewport() {
 	m.logViewport.Height = viewportHeight
 
 	switch {
-	case m.viewMode == viewSummary && m.summary != nil:
-		m.logViewport.SetContent("Summary view (press 'l' to view logs)")
 	case len(m.logs) == 0:
 		m.logViewport.SetContent("No logs yet...")
 	default:

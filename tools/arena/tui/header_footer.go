@@ -61,12 +61,12 @@ func (m *Model) renderFooter() string {
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colorLightGray)).Italic(true)
 	items := []string{"q: quit"}
 
-	if m.selectedRun() != nil && m.stateStore != nil {
-		items = append(items, "esc: back", "tab: focus runs/logs/conv", "↑/↓: navigate")
+	if m.currentPage == pageConversation {
+		items = append(items, "esc: back", "tab: focus turns/detail", "↑/↓: navigate")
 	} else {
-		items = append(items, "tab: focus runs/logs")
+		items = append(items, "tab: focus runs/logs", "enter: open conversation")
 	}
 
-	items = append(items, "l: logs", "s: summary", "enter: select result")
+	items = append(items, "enter: select")
 	return helpStyle.Render(strings.Join(items, "  •  "))
 }

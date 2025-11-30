@@ -311,16 +311,6 @@ func TestRenderSelectedResult_Error(t *testing.T) {
 	assert.Contains(t, res, "Failed to load result")
 }
 
-func TestRenderTopRow_ShowsMetricsWhenDone(t *testing.T) {
-	m := NewModel("test.yaml", 2)
-	m.completedCount = 2
-	m.totalRuns = 2
-	m.width = 120
-	m.height = 40
-	out := m.renderTopRow()
-	assert.Contains(t, out, "Metrics")
-}
-
 func TestHandleTurnEvents(t *testing.T) {
 	m := NewModel("test.yaml", 1)
 	m.activeRuns = []RunInfo{{RunID: "run-1"}}
@@ -668,6 +658,7 @@ func TestRun_NotSupported(t *testing.T) {
 func TestEscapeClearsSelection(t *testing.T) {
 	m := NewModel("test.yaml", 1)
 	m.activeRuns = []RunInfo{{RunID: "run-1", Selected: true}}
+	m.currentPage = pageConversation
 	msg := tea.KeyMsg{Type: tea.KeyEsc}
 	m.Update(msg)
 	assert.Nil(t, m.selectedRun())

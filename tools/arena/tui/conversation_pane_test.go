@@ -18,20 +18,27 @@ func TestConversationPane_ViewAndNavigation(t *testing.T) {
 		RunID: "run-1",
 		Messages: []types.Message{
 			{Role: "user", Content: "hello"},
-			{Role: "assistant", Content: "hi there"},
+			{
+				Role: "assistant", Content: "hi there",
+				ToolCalls: []types.MessageToolCall{
+					{Name: "list_devices", Args: []byte(`{"customer_id":"acme"}`)},
+				},
+				ToolResult: &types.MessageToolResult{
+					Name:    "list_devices",
+					Content: `{"devices":[1,2]}`,
+				},
+			},
 		},
 	}
 
 	pane.SetData("run-1", res)
-	out := pane.View(res)
-	assert.Contains(t, out, "Conversation")
-	assert.Contains(t, out, "user")
-
-	// Move selection down
 	down := tea.KeyMsg{Type: tea.KeyDown}
 	newPane, _ := pane.Update(down)
-	out2 := newPane.View(res)
-	assert.Contains(t, out2, "Turn: 2")
+	out := newPane.View(res)
+	assert.Contains(t, out, "Conversation")
+	assert.Contains(t, out, "list_devices")
+	assert.Contains(t, out, "customer_id")
+	assert.Contains(t, out, "Turn: 2")
 }
 
 func TestConversationPane_Reset(t *testing.T) {

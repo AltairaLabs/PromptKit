@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -34,6 +36,8 @@ const (
 	conversationColNumWidth      = 4
 	conversationColRoleWidth     = 10
 	conversationContentPadding   = 20
+	conversationArgsIndent       = 4
+	conversationResultIndent     = 2
 )
 
 // ConversationPane encapsulates the conversation view state (table + detail).
@@ -236,9 +240,18 @@ func (c *ConversationPane) updateDetail(res *statestore.RunResult) {
 	}
 	if len(msg.ToolCalls) > 0 {
 		lines = append(lines, fmt.Sprintf("Tool Calls: %d", len(msg.ToolCalls)))
+		for _, tc := range msg.ToolCalls {
+			lines = append(lines, fmt.Sprintf("  • %s", tc.Name))
+			if len(tc.Args) > 0 {
+				lines = append(lines, indentBlock(formatJSON(string(tc.Args)), conversationArgsIndent))
+			}
+		}
 	}
 	if msg.ToolResult != nil && msg.ToolResult.Name != "" {
 		lines = append(lines, fmt.Sprintf("Tool Result: %s", msg.ToolResult.Name))
+		if msg.ToolResult.Content != "" {
+			lines = append(lines, indentBlock(formatJSON(msg.ToolResult.Content), conversationResultIndent))
+		}
 	}
 	if msg.ToolResult != nil && msg.ToolResult.Error != "" {
 		lines = append(lines, fmt.Sprintf("Error: %s", msg.ToolResult.Error))
@@ -283,4 +296,21 @@ func (c *ConversationPane) appendValidationLines(lines *[]string, msg *types.Mes
 		}
 		*lines = append(*lines, fmt.Sprintf("  • [%s] %s", status, v.ValidatorType))
 	}
+}
+
+func formatJSON(raw string) string {
+	var buf bytes.Buffer
+	if err := json.Indent(&buf, []byte(raw), "", "  "); err == nil {
+		return buf.String()
+	}
+	return raw
+}
+
+func indentBlock(text string, spaces int) string {
+	prefix := strings.Repeat(" ", spaces)
+	lines := strings.Split(text, "\n")
+	for i := range lines {
+		lines[i] = prefix + lines[i]
+	}
+	return strings.Join(lines, "\n")
 }

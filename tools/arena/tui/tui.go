@@ -55,18 +55,18 @@ const (
 	colorSky       = "#93C5FD"
 )
 
-type viewMode int
-
-const (
-	viewLogs viewMode = iota
-	viewSummary
-)
-
 type pane int
 
 const (
 	paneRuns pane = iota
 	paneLogs
+)
+
+type page int
+
+const (
+	pageMain page = iota
+	pageConversation
 )
 
 // runResultStore is a minimal interface to retrieve run results from the state store.
@@ -105,14 +105,14 @@ type Model struct {
 	summary     *Summary
 	showSummary bool
 
-	viewMode viewMode
-
 	stateStore runResultStore
 
 	activePane pane
 
 	// Conversation view state
 	convPane ConversationPane
+
+	currentPage page
 }
 
 // RunInfo tracks information about a single run
@@ -190,73 +190,68 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(msg.Runes) > 0 && msg.Runes[0] == 'q' {
 				return m, tea.Quit
 			}
-			if len(msg.Runes) > 0 && msg.Runes[0] == 'l' {
-				m.viewMode = viewLogs
-				return m, nil
-			}
-			if len(msg.Runes) > 0 && msg.Runes[0] == 's' && m.summary != nil {
-				m.viewMode = viewSummary
-				return m, nil
-			}
 		default:
 			// Other key types not handled
 		}
 
 		// Escape deselects a conversation and returns to main view
-		if msg.Type == tea.KeyEsc && m.selectedRun() != nil {
+		if msg.Type == tea.KeyEsc && m.currentPage == pageConversation {
 			for i := range m.activeRuns {
 				m.activeRuns[i].Selected = false
 			}
 			m.convPane.Reset()
+			m.currentPage = pageMain
+			m.activePane = paneRuns
 			return m, nil
 		}
 
-		// Tab switches focus between runs table and logs
-		if msg.Type == tea.KeyTab {
-			if m.activePane == paneRuns {
-				m.activePane = paneLogs
-			} else {
-				m.activePane = paneRuns
+		if m.currentPage == pageMain {
+			// Tab switches focus between runs table and logs
+			if msg.Type == tea.KeyTab {
+				if m.activePane == paneRuns {
+					m.activePane = paneLogs
+				} else {
+					m.activePane = paneRuns
+				}
+				return m, nil
+			}
+
+			// Enter toggles selection on a run row and moves to conversation page
+			if msg.Type == tea.KeyEnter && m.activePane == paneRuns && m.tableReady {
+				idx := m.runsTable.Cursor()
+				if idx >= 0 && idx < len(m.activeRuns) {
+					targetSelected := m.activeRuns[idx].Selected
+					for i := range m.activeRuns {
+						m.activeRuns[i].Selected = false
+					}
+					m.activeRuns[idx].Selected = !targetSelected
+					if m.activeRuns[idx].Selected {
+						m.convPane.Reset()
+						m.currentPage = pageConversation
+					}
+				}
+				return m, nil
+			}
+
+			if m.activePane == paneRuns && m.tableReady {
+				var cmd tea.Cmd
+				m.runsTable, cmd = m.runsTable.Update(msg)
+				return m, cmd
+			}
+
+			// Let viewport handle scrolling keys (up/down arrows, pgup/pgdown, etc)
+			if m.viewportReady {
+				var cmd tea.Cmd
+				m.logViewport, cmd = m.logViewport.Update(msg)
+				return m, cmd
 			}
 			return m, nil
 		}
 
-		// Conversation focus and scrolling
-		if m.activePane == paneLogs && m.selectedRun() != nil && m.stateStore != nil {
-			newPane, cmd := m.convPane.Update(msg)
-			m.convPane = newPane
-			return m, cmd
-		}
-
-		// Enter toggles selection on a run row
-		if msg.Type == tea.KeyEnter && m.activePane == paneRuns && m.tableReady {
-			idx := m.runsTable.Cursor()
-			if idx >= 0 && idx < len(m.activeRuns) {
-				targetSelected := m.activeRuns[idx].Selected
-				for i := range m.activeRuns {
-					m.activeRuns[i].Selected = false
-				}
-				m.activeRuns[idx].Selected = !targetSelected
-				if m.activeRuns[idx].Selected {
-					m.convPane.Reset()
-				}
-			}
-			return m, nil
-		}
-
-		if m.activePane == paneRuns && m.tableReady {
-			var cmd tea.Cmd
-			m.runsTable, cmd = m.runsTable.Update(msg)
-			return m, cmd
-		}
-
-		// Let viewport handle scrolling keys (up/down arrows, pgup/pgdown, etc)
-		if m.viewportReady {
-			var cmd tea.Cmd
-			m.logViewport, cmd = m.logViewport.Update(msg)
-			return m, cmd
-		}
-		return m, nil
+		// Conversation page key handling
+		newPane, cmd := m.convPane.Update(msg)
+		m.convPane = newPane
+		return m, cmd
 
 	case tea.MouseMsg:
 		// Let viewport handle mouse wheel scrolling
@@ -456,7 +451,6 @@ func (m *Model) handleLogMsg(msg *LogMsg) {
 func (m *Model) handleShowSummary(msg *ShowSummaryMsg) {
 	m.summary = msg.Summary
 	m.showSummary = true
-	m.viewMode = viewSummary
 }
 
 // trimLogs keeps the log buffer size within limits.
@@ -476,7 +470,7 @@ func (m *Model) View() string {
 	}
 
 	// Show summary if execution is complete
-	if m.showSummary && m.summary != nil && (m.viewMode == viewSummary || m.viewMode == viewLogs) {
+	if m.showSummary && m.summary != nil {
 		return RenderSummary(m.summary, m.width)
 	}
 
@@ -487,26 +481,36 @@ func (m *Model) View() string {
 	elapsed := time.Since(m.startTime).Truncate(time.Second)
 
 	header := m.renderHeader(elapsed)
-	activeRuns := m.renderTopRow()
-	bottomRow := m.renderBottomRow()
+	var body string
+	switch m.currentPage {
+	case pageConversation:
+		body = m.renderConversationPage()
+	case pageMain:
+		body = lipgloss.JoinVertical(lipgloss.Left, m.renderActiveRuns(), "", m.renderLogs())
+	default:
+		body = lipgloss.JoinVertical(lipgloss.Left, m.renderActiveRuns(), "", m.renderLogs())
+	}
+
 	footer := m.renderFooter()
 
-	return lipgloss.JoinVertical(lipgloss.Left, header, "", activeRuns, "", bottomRow, footer)
+	return lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", footer)
 }
 
-func (m *Model) renderTopRow() string {
-	if m.totalRuns > 0 && (m.completedCount+m.failedCount == m.totalRuns) {
-		return lipgloss.JoinHorizontal(
-			lipgloss.Top,
-			m.renderActiveRuns(),
-			m.renderMetrics(),
-		)
+func (m *Model) renderConversationPage() string {
+	selected := m.selectedRun()
+	if selected == nil {
+		return "Select a run to view the conversation."
 	}
-	return m.renderActiveRuns()
-}
-
-func (m *Model) renderBottomRow() string {
-	return m.renderLogs()
+	if m.stateStore == nil {
+		return "No state store attached."
+	}
+	res, err := m.stateStore.GetResult(context.Background(), selected.RunID)
+	if err != nil {
+		return fmt.Sprintf("Failed to load result: %v", err)
+	}
+	m.convPane.SetDimensions(m.width, m.height)
+	m.convPane.SetData(selected.RunID, res)
+	return m.convPane.View(res)
 }
 
 // BuildSummary creates a Summary from the current model state with output directory and HTML report path.
@@ -678,8 +682,8 @@ func NewModel(configFile string, totalRuns int) *Model {
 		height:         height,
 		isTUIMode:      supported,
 		fallbackReason: reason,
-		viewMode:       viewLogs,
 		convPane:       NewConversationPane(),
+		currentPage:    pageMain,
 	}
 }
 
