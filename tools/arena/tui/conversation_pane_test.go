@@ -38,7 +38,9 @@ func TestConversationPane_ViewAndNavigation(t *testing.T) {
 	assert.Contains(t, out, "Conversation")
 	assert.Contains(t, out, "list_devices")
 	assert.Contains(t, out, "customer_id")
-	assert.Contains(t, out, "Turn: 2")
+	assert.Contains(t, out, "Turn 2")
+	assert.Contains(t, out, "Tokens:")
+	assert.Contains(t, out, "scroll")
 }
 
 func TestConversationPane_Reset(t *testing.T) {

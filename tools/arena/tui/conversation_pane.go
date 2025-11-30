@@ -234,10 +234,7 @@ func (c *ConversationPane) updateDetail(res *statestore.RunResult) {
 	}
 
 	msg := res.Messages[c.selectedTurnIdx]
-	lines := []string{
-		fmt.Sprintf("Turn: %d", c.selectedTurnIdx+1),
-		fmt.Sprintf("Role: %s", msg.Role),
-	}
+	lines := []string{c.renderDetailHeader(res, c.selectedTurnIdx, &msg), ""}
 	if len(msg.ToolCalls) > 0 {
 		lines = append(lines, fmt.Sprintf("Tool Calls: %d", len(msg.ToolCalls)))
 		for _, tc := range msg.ToolCalls {
@@ -270,7 +267,8 @@ func (c *ConversationPane) updateDetail(res *statestore.RunResult) {
 		height = conversationDetailMinHeight
 	}
 
-	content := strings.Join(lines, "\n")
+	footer := c.renderDetailFooter()
+	content := strings.Join(append(lines, "", footer), "\n")
 	c.detail.Width = width
 	c.detail.Height = height
 	c.detail.SetContent(content)
@@ -313,4 +311,30 @@ func indentBlock(text string, spaces int) string {
 		lines[i] = prefix + lines[i]
 	}
 	return strings.Join(lines, "\n")
+}
+
+func (c *ConversationPane) renderDetailHeader(res *statestore.RunResult, idx int, msg *types.Message) string {
+	totalTokens := res.Cost.InputTokens + res.Cost.OutputTokens
+	header := fmt.Sprintf(
+		"Turn %d • Role: %s • Tokens: %d/%d (total %d) • Cost: $%.4f • Duration: %s",
+		idx+1,
+		msg.Role,
+		res.Cost.InputTokens,
+		res.Cost.OutputTokens,
+		totalTokens,
+		res.Cost.TotalCost,
+		formatDuration(res.Duration),
+	)
+
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(colorIndigo)).
+		Bold(true).
+		Render(header)
+}
+
+func (c *ConversationPane) renderDetailFooter() string {
+	footer := "↑/↓ scroll • tab focus • esc back"
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(colorLightGray)).
+		Render(footer)
 }
