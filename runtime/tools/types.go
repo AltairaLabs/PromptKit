@@ -35,9 +35,15 @@ type ToolDescriptor struct {
 	OutputSchema json.RawMessage `json:"output_schema" yaml:"output_schema"` // JSON Schema Draft-07
 	Mode         string          `json:"mode" yaml:"mode"`                   // "mock" | "live"
 	TimeoutMs    int             `json:"timeout_ms" yaml:"timeout_ms"`
-	MockResult   json.RawMessage `json:"mock_result,omitempty" yaml:"mock_result,omitempty"`     // Static mock data
-	MockTemplate string          `json:"mock_template,omitempty" yaml:"mock_template,omitempty"` // Template for dynamic mocks
-	HTTPConfig   *HTTPConfig     `json:"http,omitempty" yaml:"http,omitempty"`                   // Live HTTP configuration
+
+	// Static mock data (in-memory)
+	MockResult json.RawMessage `json:"mock_result,omitempty" yaml:"mock_result,omitempty"`
+	// Template for dynamic mocks (inline or file)
+	MockTemplate     string `json:"mock_template,omitempty" yaml:"mock_template,omitempty"`
+	MockResultFile   string `json:"mock_result_file,omitempty" yaml:"mock_result_file,omitempty"`
+	MockTemplateFile string `json:"mock_template_file,omitempty" yaml:"mock_template_file,omitempty"`
+
+	HTTPConfig *HTTPConfig `json:"http,omitempty" yaml:"http,omitempty"` // Live HTTP configuration
 }
 
 // HTTPConfig defines configuration for live HTTP tool execution

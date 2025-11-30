@@ -2,6 +2,7 @@ package tools_test
 
 import (
 	"encoding/json"
+	"os"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -72,6 +73,49 @@ func TestMockExecutors(t *testing.T) {
 
 	if resultMap["result"] != "static response" {
 		t.Errorf("Expected 'static response', got '%v'", resultMap["result"])
+	}
+
+	// Test static execution from file
+	file := t.TempDir() + "/mock.json"
+	if err := os.WriteFile(file, []byte(`{"result":"file response"}`), 0o600); err != nil {
+		t.Fatalf("failed to write mock file: %v", err)
+	}
+	descFile := &tools.ToolDescriptor{
+		Name:           "fileTool",
+		Mode:           "mock",
+		MockResultFile: file,
+	}
+	result, err = staticExec.Execute(descFile, args)
+	if err != nil {
+		t.Fatalf("Static file execution failed: %v", err)
+	}
+	if err := json.Unmarshal(result, &resultMap); err != nil {
+		t.Fatalf("Failed to parse file result: %v", err)
+	}
+	if resultMap["result"] != "file response" {
+		t.Errorf("Expected 'file response', got '%v'", resultMap["result"])
+	}
+
+	// Test scripted execution with template file
+	tmplFile := t.TempDir() + "/tmpl.tmpl"
+	if err := os.WriteFile(tmplFile, []byte(`{"greeting":"Hello {{.name}}"}`), 0o600); err != nil {
+		t.Fatalf("failed to write template file: %v", err)
+	}
+	descTmpl := &tools.ToolDescriptor{
+		Name:             "tmplTool",
+		Mode:             "mock",
+		MockTemplateFile: tmplFile,
+	}
+	scriptedArgs := json.RawMessage(`{"name":"Alice"}`)
+	result, err = scriptedExec.Execute(descTmpl, scriptedArgs)
+	if err != nil {
+		t.Fatalf("Scripted file execution failed: %v", err)
+	}
+	if err := json.Unmarshal(result, &resultMap); err != nil {
+		t.Fatalf("Failed to parse template result: %v", err)
+	}
+	if resultMap["greeting"] != "Hello Alice" {
+		t.Errorf("Expected 'Hello Alice', got '%v'", resultMap["greeting"])
 	}
 }
 
