@@ -282,6 +282,10 @@ func tryParseTemplateCR(data []byte, baseDir string) (*TemplatePackage, bool, er
 	if err := yaml.Unmarshal(data, &cr); err != nil {
 		return nil, false, nil
 	}
+	// Only treat as a Template CR if required top-level fields are present
+	if cr.APIVersion == "" || cr.Kind == "" {
+		return nil, false, nil
+	}
 	if len(cr.Spec.Files) == 0 {
 		return nil, true, fmt.Errorf("template has no files")
 	}

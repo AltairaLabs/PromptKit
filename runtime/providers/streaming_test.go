@@ -3,6 +3,7 @@ package providers_test
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,8 +20,9 @@ func ptr(s string) *string {
 }
 
 func TestOpenAIStreaming(t *testing.T) {
-	if os.Getenv("OPENAI_API_KEY") == "" {
-		t.Skip("OPENAI_API_KEY not set")
+	// Only run live streaming tests when explicitly enabled to avoid CI flakiness
+	if os.Getenv("OPENAI_API_KEY") == "" || os.Getenv("RUN_LIVE_STREAMING") != "1" {
+		t.Skip("live streaming disabled (set OPENAI_API_KEY and RUN_LIVE_STREAMING=1 to enable)")
 	}
 
 	provider := openai.NewProvider(
@@ -47,6 +49,11 @@ func TestOpenAIStreaming(t *testing.T) {
 
 	stream, err := provider.PredictStream(ctx, req)
 	if err != nil {
+		// Gracefully skip quota/rate limit conditions common in CI
+		if strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "rate limit") || strings.Contains(err.Error(), "quota") {
+			t.Skipf("skipping due to API limit: %v", err)
+			return
+		}
 		t.Fatalf("PredictStream failed: %v", err)
 	}
 
@@ -85,8 +92,8 @@ func TestOpenAIStreaming(t *testing.T) {
 }
 
 func TestClaudeStreaming(t *testing.T) {
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		t.Skip("ANTHROPIC_API_KEY not set")
+	if os.Getenv("ANTHROPIC_API_KEY") == "" || os.Getenv("RUN_LIVE_STREAMING") != "1" {
+		t.Skip("live streaming disabled (set ANTHROPIC_API_KEY and RUN_LIVE_STREAMING=1 to enable)")
 	}
 
 	provider := claude.NewProvider(
@@ -113,6 +120,10 @@ func TestClaudeStreaming(t *testing.T) {
 
 	stream, err := provider.PredictStream(ctx, req)
 	if err != nil {
+		if strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "rate limit") || strings.Contains(err.Error(), "quota") {
+			t.Skipf("skipping due to API limit: %v", err)
+			return
+		}
 		t.Fatalf("PredictStream failed: %v", err)
 	}
 
@@ -151,8 +162,8 @@ func TestClaudeStreaming(t *testing.T) {
 }
 
 func TestGeminiStreaming(t *testing.T) {
-	if os.Getenv("GEMINI_API_KEY") == "" {
-		t.Skip("GEMINI_API_KEY not set")
+	if os.Getenv("GEMINI_API_KEY") == "" || os.Getenv("RUN_LIVE_STREAMING") != "1" {
+		t.Skip("live streaming disabled (set GEMINI_API_KEY and RUN_LIVE_STREAMING=1 to enable)")
 	}
 
 	provider := gemini.NewProvider(
@@ -179,6 +190,10 @@ func TestGeminiStreaming(t *testing.T) {
 
 	stream, err := provider.PredictStream(ctx, req)
 	if err != nil {
+		if strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "rate limit") || strings.Contains(err.Error(), "quota") {
+			t.Skipf("skipping due to API limit: %v", err)
+			return
+		}
 		t.Fatalf("PredictStream failed: %v", err)
 	}
 
