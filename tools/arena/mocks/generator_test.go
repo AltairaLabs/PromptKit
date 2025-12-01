@@ -84,3 +84,28 @@ func TestWriteFiles_MergePerScenario(t *testing.T) {
 	assert.Equal(t, "new response", hist.Turns[1].Response)
 	assert.Equal(t, "extra turn", hist.Turns[2].Response)
 }
+
+func TestWriteFiles_DefaultResponseAndDryRunPerScenario(t *testing.T) {
+	file := File{
+		Scenarios: map[string]ScenarioTurnHistory{
+			"demo": {
+				Turns: map[int]TurnTemplate{
+					1: {Response: "hi"},
+				},
+			},
+		},
+	}
+
+	outputs, err := WriteFiles(file, WriteOptions{
+		OutputPath:      "outdir",
+		PerScenario:     true,
+		DefaultResponse: "fallback",
+		DryRun:          true,
+	})
+	require.NoError(t, err)
+	require.Len(t, outputs, 1)
+
+	content := outputs["outdir/demo.yaml"]
+	assert.Contains(t, string(content), "defaultResponse: fallback")
+	assert.Contains(t, string(content), "demo:")
+}
