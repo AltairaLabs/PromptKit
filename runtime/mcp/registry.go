@@ -55,9 +55,22 @@ func (r *RegistryImpl) RegisterServer(config ServerConfig) error {
 
 // GetClient returns an active client for the given server name
 func (r *RegistryImpl) GetClient(ctx context.Context, serverName string) (Client, error) {
+	// Check if client exists and is alive
+	if client, err := r.tryGetExistingClient(serverName); err != nil {
+		return nil, err
+	} else if client != nil {
+		return client, nil
+	}
+
+	// Create new client with write lock
+	return r.createNewClient(ctx, serverName)
+}
+
+// tryGetExistingClient attempts to return an existing alive client
+func (r *RegistryImpl) tryGetExistingClient(serverName string) (Client, error) {
 	r.mu.RLock()
 	client, exists := r.clients[serverName]
-	config, hasConfig := r.servers[serverName]
+	_, hasConfig := r.servers[serverName]
 	closed := r.closed
 	r.mu.RUnlock()
 
@@ -74,7 +87,11 @@ func (r *RegistryImpl) GetClient(ctx context.Context, serverName string) (Client
 		return client, nil
 	}
 
-	// Need to create a new client
+	return nil, nil // No existing client, need to create new one
+}
+
+// createNewClient creates and initializes a new client
+func (r *RegistryImpl) createNewClient(ctx context.Context, serverName string) (Client, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -82,6 +99,8 @@ func (r *RegistryImpl) GetClient(ctx context.Context, serverName string) (Client
 	if client, exists := r.clients[serverName]; exists && client.IsAlive() {
 		return client, nil
 	}
+
+	config := r.servers[serverName]
 
 	// Create and initialize new client
 	newClient := NewStdioClient(config)
@@ -138,12 +157,7 @@ func (r *RegistryImpl) ListServers() []string {
 
 // ListAllTools returns all tools from all connected servers
 func (r *RegistryImpl) ListAllTools(ctx context.Context) (map[string][]Tool, error) {
-	r.mu.RLock()
-	serverNames := make([]string, 0, len(r.servers))
-	for name := range r.servers {
-		serverNames = append(serverNames, name)
-	}
-	r.mu.RUnlock()
+	serverNames := r.getServerNames()
 
 	result := make(map[string][]Tool)
 	var mu sync.Mutex
@@ -155,34 +169,7 @@ func (r *RegistryImpl) ListAllTools(ctx context.Context) (map[string][]Tool, err
 		wg.Add(1)
 		go func(serverName string) {
 			defer wg.Done()
-
-			client, err := r.GetClient(ctx, serverName)
-			if err != nil {
-				mu.Lock()
-				if firstErr == nil {
-					firstErr = fmt.Errorf("failed to get client for %s: %w", serverName, err)
-				}
-				mu.Unlock()
-				return
-			}
-
-			tools, err := client.ListTools(ctx)
-			if err != nil {
-				mu.Lock()
-				if firstErr == nil {
-					firstErr = fmt.Errorf("failed to list tools for %s: %w", serverName, err)
-				}
-				mu.Unlock()
-				return
-			}
-
-			mu.Lock()
-			result[serverName] = tools
-			// Update tool index
-			for _, tool := range tools {
-				r.toolIndex[tool.Name] = serverName
-			}
-			mu.Unlock()
+			r.fetchServerTools(ctx, serverName, result, &mu, &firstErr)
 		}(name)
 	}
 
@@ -193,6 +180,55 @@ func (r *RegistryImpl) ListAllTools(ctx context.Context) (map[string][]Tool, err
 	}
 
 	return result, nil
+}
+
+// getServerNames returns a copy of all registered server names
+func (r *RegistryImpl) getServerNames() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	serverNames := make([]string, 0, len(r.servers))
+	for name := range r.servers {
+		serverNames = append(serverNames, name)
+	}
+	return serverNames
+}
+
+// fetchServerTools fetches tools from a server and updates the result map
+func (r *RegistryImpl) fetchServerTools(ctx context.Context, serverName string, result map[string][]Tool, mu *sync.Mutex, firstErr *error) {
+	client, err := r.GetClient(ctx, serverName)
+	if err != nil {
+		r.recordError(mu, firstErr, fmt.Errorf("failed to get client for %s: %w", serverName, err))
+		return
+	}
+
+	tools, err := client.ListTools(ctx)
+	if err != nil {
+		r.recordError(mu, firstErr, fmt.Errorf("failed to list tools for %s: %w", serverName, err))
+		return
+	}
+
+	r.updateToolsResult(serverName, tools, result, mu)
+}
+
+// recordError records the first error encountered
+func (r *RegistryImpl) recordError(mu *sync.Mutex, firstErr *error, err error) {
+	mu.Lock()
+	defer mu.Unlock()
+	if *firstErr == nil {
+		*firstErr = err
+	}
+}
+
+// updateToolsResult updates the result map and tool index
+func (r *RegistryImpl) updateToolsResult(serverName string, tools []Tool, result map[string][]Tool, mu *sync.Mutex) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	result[serverName] = tools
+	for _, tool := range tools {
+		r.toolIndex[tool.Name] = serverName
+	}
 }
 
 // Close shuts down all MCP servers and connections

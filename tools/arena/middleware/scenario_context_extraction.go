@@ -95,22 +95,7 @@ func extractFromScenario(scenario *config.Scenario, messages []types.Message) ma
 		}
 	}
 
-	// Fall back to extraction from scenario + messages
-	if domain == "" {
-		text := strings.ToLower(scenario.ID + " " + scenario.Description)
-		for _, msg := range messages {
-			text += " " + strings.ToLower(msg.Content)
-		}
-		domain = extractDomainFromText(text)
-	}
-
-	if userRole == "" {
-		text := strings.ToLower(scenario.ID + " " + scenario.Description)
-		for _, msg := range messages {
-			text += " " + strings.ToLower(msg.Content)
-		}
-		userRole = extractRoleFromText(text)
-	}
+	// No fallback analysis: if scenario doesn't specify, leave empty
 
 	contextSlot := buildContextSlot(scenario, messages)
 

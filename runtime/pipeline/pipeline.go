@@ -177,27 +177,44 @@ func (p *Pipeline) ExecuteWithOptions(opts *ExecutionOptions, role, content stri
 		ctx = context.Background()
 	}
 
+	// Setup and execute with role/content message
+	internalCtx, cancel, err := p.setupExecution(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer p.cleanupExecution(cancel)
+
+	// Append the new message to the conversation (if role is provided)
+	if role != "" {
+		internalCtx.Messages = append(internalCtx.Messages, types.Message{
+			Role:    role,
+			Content: content,
+		})
+	}
+
+	return p.executeAndBuildResult(internalCtx)
+}
+
+// setupExecution handles common setup for both sync execution methods
+func (p *Pipeline) setupExecution(ctx context.Context, opts *ExecutionOptions) (*ExecutionContext, context.CancelFunc, error) {
 	// Check if shutting down
 	if p.isShuttingDown() {
-		return nil, ErrPipelineShuttingDown
+		return nil, nil, ErrPipelineShuttingDown
 	}
 
 	// Acquire semaphore for concurrency control
 	if err := p.semaphore.Acquire(ctx, 1); err != nil {
-		return nil, fmt.Errorf(errFailedToAcquireSlot, err)
+		return nil, nil, fmt.Errorf(errFailedToAcquireSlot, err)
 	}
-	defer p.semaphore.Release(1)
 
 	// Track execution for graceful shutdown
 	p.wg.Add(1)
-	defer p.wg.Done()
 
 	// Apply execution timeout if configured
 	execCtx := ctx
 	var cancel context.CancelFunc
 	if p.config.ExecutionTimeout > 0 {
 		execCtx, cancel = context.WithTimeout(ctx, p.config.ExecutionTimeout)
-		defer cancel()
 	}
 
 	// Create fresh internal execution context
@@ -216,14 +233,20 @@ func (p *Pipeline) ExecuteWithOptions(opts *ExecutionOptions, role, content stri
 		},
 	}
 
-	// Append the new message to the conversation (if role is provided)
-	if role != "" {
-		internalCtx.Messages = append(internalCtx.Messages, types.Message{
-			Role:    role,
-			Content: content,
-		})
-	}
+	return internalCtx, cancel, nil
+}
 
+// cleanupExecution handles cleanup after execution
+func (p *Pipeline) cleanupExecution(cancel context.CancelFunc) {
+	p.semaphore.Release(1)
+	p.wg.Done()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// executeAndBuildResult executes the middleware chain and builds the result
+func (p *Pipeline) executeAndBuildResult(internalCtx *ExecutionContext) (*ExecutionResult, error) {
 	// Execute the middleware chain
 	start := time.Now()
 	if internalCtx.EventEmitter != nil {
@@ -312,88 +335,17 @@ func (p *Pipeline) executeWithMessageInternal(opts *ExecutionOptions, message ty
 		ctx = context.Background()
 	}
 
-	// Check if shutting down
-	if p.isShuttingDown() {
-		return nil, ErrPipelineShuttingDown
+	// Setup and execute with complete message
+	internalCtx, cancel, err := p.setupExecution(ctx, opts)
+	if err != nil {
+		return nil, err
 	}
-
-	// Acquire semaphore for concurrency control
-	if err := p.semaphore.Acquire(ctx, 1); err != nil {
-		return nil, fmt.Errorf(errFailedToAcquireSlot, err)
-	}
-	defer p.semaphore.Release(1)
-
-	// Track execution for graceful shutdown
-	p.wg.Add(1)
-	defer p.wg.Done()
-
-	// Apply execution timeout if configured
-	execCtx := ctx
-	var cancel context.CancelFunc
-	if p.config.ExecutionTimeout > 0 {
-		execCtx, cancel = context.WithTimeout(ctx, p.config.ExecutionTimeout)
-		defer cancel()
-	}
-
-	// Create fresh internal execution context
-	internalCtx := &ExecutionContext{
-		Context:        execCtx,
-		RunID:          opts.RunID,
-		SessionID:      opts.SessionID,
-		ConversationID: opts.ConversationID,
-		EventEmitter:   opts.EventEmitter,
-		Messages:       []types.Message{},
-		Metadata:       make(map[string]interface{}),
-		Trace: ExecutionTrace{
-			LLMCalls:  []LLMCall{},
-			Events:    []TraceEvent{},
-			StartedAt: time.Now(),
-		},
-	}
+	defer p.cleanupExecution(cancel)
 
 	// Append the complete message to the conversation
 	internalCtx.Messages = append(internalCtx.Messages, message)
 
-	// Execute the middleware chain
-	start := time.Now()
-	if internalCtx.EventEmitter != nil {
-		internalCtx.EventEmitter.PipelineStarted(len(p.middleware))
-	}
-
-	err := p.executeChain(internalCtx, 0)
-	duration := time.Since(start)
-
-	// Mark execution as complete
-	now := time.Now()
-	internalCtx.Trace.CompletedAt = &now
-
-	// Use the first error encountered (if any) for reporting
-	if internalCtx.Error != nil {
-		err = internalCtx.Error
-	}
-
-	if internalCtx.EventEmitter != nil {
-		if err != nil {
-			internalCtx.EventEmitter.PipelineFailed(err, duration)
-		} else {
-			internalCtx.EventEmitter.PipelineCompleted(
-				duration,
-				internalCtx.CostInfo.TotalCost,
-				internalCtx.CostInfo.InputTokens,
-				internalCtx.CostInfo.OutputTokens,
-				len(internalCtx.Messages),
-			)
-		}
-	}
-
-	// Return immutable result
-	return &ExecutionResult{
-		Messages: internalCtx.Messages,
-		Response: internalCtx.Response,
-		Trace:    internalCtx.Trace,
-		CostInfo: internalCtx.CostInfo,
-		Metadata: internalCtx.Metadata,
-	}, err
+	return p.executeAndBuildResult(internalCtx)
 }
 
 // ExecuteStream runs the pipeline in streaming mode, returning a channel of stream chunks.

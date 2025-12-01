@@ -20,6 +20,11 @@ coverage.out
 coverage.html
 lcov.info
 
+# SonarQube analysis files
+sonar-issues.txt
+sonar-report.json
+golangci-lint-report.json
+
 # Go workspace file
 go.work.sum
 

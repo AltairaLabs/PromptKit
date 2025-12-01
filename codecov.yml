@@ -44,6 +44,7 @@ flags:
 
 ignore:
   - "**/*_test.go"
+  - "**/*_interactive.go"
   - "examples/"
   - "docs/"
   - "scripts/"

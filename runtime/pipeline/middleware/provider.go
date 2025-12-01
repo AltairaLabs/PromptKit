@@ -645,30 +645,12 @@ func executeToolCalls(execCtx *pipeline.ExecutionContext, toolRegistry *tools.Re
 	var pendingToolInfos []interface{} // Store pending tool info for metadata
 
 	for _, call := range toolCalls {
-		if execCtx.EventEmitter != nil {
-			execCtx.EventEmitter.ToolCallStarted(call.Name, call.ID, nil)
-		}
-
-		start := time.Now()
-		result, pendingInfo, err := executeToolCall(execCtx, toolRegistry, policy, call)
+		result, pendingInfo, err := executeAndEmitToolCall(execCtx, toolRegistry, policy, call)
 		if err != nil {
-			if execCtx.EventEmitter != nil {
-				execCtx.EventEmitter.ToolCallFailed(call.Name, call.ID, err, time.Since(start))
-			}
 			return nil, err
 		}
 
 		results = append(results, result)
-		if execCtx.EventEmitter != nil {
-			status := "success"
-			if pendingInfo != nil {
-				status = "pending"
-			} else if result.Error != "" {
-				status = "error"
-			}
-			execCtx.EventEmitter.ToolCallCompleted(call.Name, call.ID, time.Since(start), status)
-		}
-
 		if pendingInfo != nil {
 			pendingToolInfos = append(pendingToolInfos, pendingInfo)
 		}
@@ -678,6 +660,34 @@ func executeToolCalls(execCtx *pipeline.ExecutionContext, toolRegistry *tools.Re
 	storePendingToolInfos(execCtx, pendingToolInfos)
 
 	return results, nil
+}
+
+// executeAndEmitToolCall executes a single tool call with event emission
+func executeAndEmitToolCall(execCtx *pipeline.ExecutionContext, toolRegistry *tools.Registry, policy *pipeline.ToolPolicy, call types.MessageToolCall) (types.MessageToolResult, interface{}, error) {
+	if execCtx.EventEmitter != nil {
+		execCtx.EventEmitter.ToolCallStarted(call.Name, call.ID, nil)
+	}
+
+	start := time.Now()
+	result, pendingInfo, err := executeToolCall(execCtx, toolRegistry, policy, call)
+	if err != nil {
+		if execCtx.EventEmitter != nil {
+			execCtx.EventEmitter.ToolCallFailed(call.Name, call.ID, err, time.Since(start))
+		}
+		return types.MessageToolResult{}, nil, err
+	}
+
+	if execCtx.EventEmitter != nil {
+		status := "success"
+		if pendingInfo != nil {
+			status = "pending"
+		} else if result.Error != "" {
+			status = "error"
+		}
+		execCtx.EventEmitter.ToolCallCompleted(call.Name, call.ID, time.Since(start), status)
+	}
+
+	return result, pendingInfo, nil
 }
 
 // executeToolCall executes a single tool call and returns the result
