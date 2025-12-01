@@ -43,31 +43,11 @@ func BuildScenarioFromResult(result engine.RunResult) (ScenarioTurnHistory, erro
 			continue
 		}
 
-		turn := TurnTemplate{}
-
-		if len(msg.ToolCalls) > 0 {
-			toolCalls, err := convertToolCalls(msg.ToolCalls)
-			if err != nil {
-				return ScenarioTurnHistory{}, fmt.Errorf("turn %d: %w", turnNumber, err)
-			}
-			turn.ToolCalls = toolCalls
+		turn, ok, err := buildTurnFromMessage(&msg)
+		if err != nil {
+			return ScenarioTurnHistory{}, fmt.Errorf("turn %d: %w", turnNumber, err)
 		}
-
-		content := msg.GetContent()
-		if content != "" {
-			turn.Response = content
-		}
-
-		if len(msg.Parts) > 0 {
-			parts, err := convertContentParts(msg.Parts)
-			if err != nil {
-				return ScenarioTurnHistory{}, fmt.Errorf("turn %d: %w", turnNumber, err)
-			}
-			turn.Parts = parts
-		}
-
-		// Skip empty assistant turns (no tool calls, no response, no parts)
-		if turn.Response == "" && len(turn.ToolCalls) == 0 && len(turn.Parts) == 0 {
+		if !ok {
 			continue
 		}
 
@@ -78,6 +58,37 @@ func BuildScenarioFromResult(result engine.RunResult) (ScenarioTurnHistory, erro
 	return ScenarioTurnHistory{
 		Turns: turns,
 	}, nil
+}
+
+func buildTurnFromMessage(msg *types.Message) (TurnTemplate, bool, error) {
+	turn := TurnTemplate{}
+
+	if len(msg.ToolCalls) > 0 {
+		toolCalls, err := convertToolCalls(msg.ToolCalls)
+		if err != nil {
+			return TurnTemplate{}, false, err
+		}
+		turn.ToolCalls = toolCalls
+	}
+
+	content := msg.GetContent()
+	if content != "" {
+		turn.Response = content
+	}
+
+	if len(msg.Parts) > 0 {
+		parts, err := convertContentParts(msg.Parts)
+		if err != nil {
+			return TurnTemplate{}, false, err
+		}
+		turn.Parts = parts
+	}
+
+	if turn.Response == "" && len(turn.ToolCalls) == 0 && len(turn.Parts) == 0 {
+		return TurnTemplate{}, false, nil
+	}
+
+	return turn, true, nil
 }
 
 // BuildFile merges multiple RunResults into a mock config File grouped by ScenarioID.
@@ -130,54 +141,65 @@ func convertToolCalls(calls []types.MessageToolCall) ([]mock.ToolCall, error) {
 	return out, nil
 }
 
-func convertContentParts(parts []types.ContentPart) ([]mock.ContentPart, error) { //nolint:gocognit
+func convertContentParts(parts []types.ContentPart) ([]mock.ContentPart, error) {
 	out := make([]mock.ContentPart, 0, len(parts))
-	for _, p := range parts {
-		switch p.Type {
-		case types.ContentTypeText:
-			if p.Text == nil {
-				continue
-			}
-			out = append(out, mock.ContentPart{
-				Type: types.ContentTypeText,
-				Text: *p.Text,
-			})
-		case types.ContentTypeImage:
-			if p.Media == nil || p.Media.URL == nil {
-				continue
-			}
-			out = append(out, mock.ContentPart{
-				Type: types.ContentTypeImage,
-				ImageURL: &mock.ImageURL{
-					URL:    *p.Media.URL,
-					Detail: p.Media.Detail,
-				},
-			})
-		case types.ContentTypeAudio:
-			if p.Media == nil || p.Media.URL == nil {
-				continue
-			}
-			out = append(out, mock.ContentPart{
-				Type: types.ContentTypeAudio,
-				AudioURL: &mock.AudioURL{
-					URL: *p.Media.URL,
-				},
-			})
-		case types.ContentTypeVideo:
-			if p.Media == nil || p.Media.URL == nil {
-				continue
-			}
-			out = append(out, mock.ContentPart{
-				Type: types.ContentTypeVideo,
-				VideoURL: &mock.VideoURL{
-					URL: *p.Media.URL,
-				},
-			})
-		default:
-			return nil, fmt.Errorf("unsupported content part type: %s", p.Type)
+	for i := range parts {
+		part := parts[i]
+		converted, ok, err := convertSinglePart(part)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			out = append(out, converted)
 		}
 	}
 	return out, nil
+}
+
+func convertSinglePart(p types.ContentPart) (mock.ContentPart, bool, error) {
+	switch p.Type {
+	case types.ContentTypeText:
+		if p.Text == nil {
+			return mock.ContentPart{}, false, nil
+		}
+		return mock.ContentPart{
+			Type: types.ContentTypeText,
+			Text: *p.Text,
+		}, true, nil
+	case types.ContentTypeImage:
+		if p.Media == nil || p.Media.URL == nil {
+			return mock.ContentPart{}, false, nil
+		}
+		return mock.ContentPart{
+			Type: types.ContentTypeImage,
+			ImageURL: &mock.ImageURL{
+				URL:    *p.Media.URL,
+				Detail: p.Media.Detail,
+			},
+		}, true, nil
+	case types.ContentTypeAudio:
+		if p.Media == nil || p.Media.URL == nil {
+			return mock.ContentPart{}, false, nil
+		}
+		return mock.ContentPart{
+			Type: types.ContentTypeAudio,
+			AudioURL: &mock.AudioURL{
+				URL: *p.Media.URL,
+			},
+		}, true, nil
+	case types.ContentTypeVideo:
+		if p.Media == nil || p.Media.URL == nil {
+			return mock.ContentPart{}, false, nil
+		}
+		return mock.ContentPart{
+			Type: types.ContentTypeVideo,
+			VideoURL: &mock.VideoURL{
+				URL: *p.Media.URL,
+			},
+		}, true, nil
+	default:
+		return mock.ContentPart{}, false, fmt.Errorf("unsupported content part type: %s", p.Type)
+	}
 }
 
 func sortTurns(history ScenarioTurnHistory) ScenarioTurnHistory {

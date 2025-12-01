@@ -117,62 +117,27 @@ func init() { //nolint:gochecknoinits
 	)
 }
 
-//nolint:gocognit
 func loadRunResults(inputPath string, scenarioFilter, providerFilter []string) ([]engine.RunResult, error) {
-	info, err := os.Stat(inputPath)
+	files, err := collectJSONFiles(inputPath)
 	if err != nil {
-		return nil, fmt.Errorf("input: %w", err)
-	}
-
-	var files []string
-	if info.IsDir() {
-		entries, err := os.ReadDir(inputPath)
-		if err != nil {
-			return nil, fmt.Errorf("read dir: %w", err)
-		}
-		for _, e := range entries {
-			if e.IsDir() {
-				continue
-			}
-			if strings.HasSuffix(e.Name(), ".json") {
-				files = append(files, filepath.Join(inputPath, e.Name()))
-			}
-		}
-	} else {
-		files = append(files, inputPath)
-	}
-
-	if len(files) == 0 {
-		return nil, fmt.Errorf("no JSON result files found at %s", inputPath)
+		return nil, err
 	}
 
 	scenarioAllow := toSet(scenarioFilter)
 	providerAllow := toSet(providerFilter)
 
-	var results []engine.RunResult
+	results := make([]engine.RunResult, 0, len(files))
 	for _, path := range files {
-		data, err := os.ReadFile(path) //nolint:gosec // reading known result files
+		res, ok, err := parseRun(path)
 		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", path, err)
+			return nil, err
 		}
-		var res engine.RunResult
-		if err := json.Unmarshal(data, &res); err != nil {
-			// Skip files that are not run results (e.g., index.json)
+		if !ok {
 			continue
 		}
-
-		if res.RunID == "" || res.ScenarioID == "" || res.ProviderID == "" {
-			// Likely not a run file (skip silently)
+		if !matchesFilters(&res, scenarioAllow, providerAllow) {
 			continue
 		}
-
-		if len(scenarioAllow) > 0 && !scenarioAllow[res.ScenarioID] {
-			continue
-		}
-		if len(providerAllow) > 0 && !providerAllow[res.ProviderID] {
-			continue
-		}
-
 		results = append(results, res)
 	}
 
@@ -192,4 +157,61 @@ func toSet(items []string) map[string]bool {
 		set[item] = true
 	}
 	return set
+}
+
+func collectJSONFiles(inputPath string) ([]string, error) {
+	info, err := os.Stat(inputPath)
+	if err != nil {
+		return nil, fmt.Errorf("input: %w", err)
+	}
+
+	if !info.IsDir() {
+		return []string{inputPath}, nil
+	}
+
+	entries, err := os.ReadDir(inputPath)
+	if err != nil {
+		return nil, fmt.Errorf("read dir: %w", err)
+	}
+
+	var files []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if strings.HasSuffix(e.Name(), ".json") {
+			files = append(files, filepath.Join(inputPath, e.Name()))
+		}
+	}
+
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no JSON result files found at %s", inputPath)
+	}
+
+	return files, nil
+}
+
+func parseRun(path string) (engine.RunResult, bool, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // reading known result files
+	if err != nil {
+		return engine.RunResult{}, false, fmt.Errorf("read %s: %w", path, err)
+	}
+	var res engine.RunResult
+	if err := json.Unmarshal(data, &res); err != nil {
+		return engine.RunResult{}, false, nil
+	}
+	if res.RunID == "" || res.ScenarioID == "" || res.ProviderID == "" {
+		return engine.RunResult{}, false, nil
+	}
+	return res, true, nil
+}
+
+func matchesFilters(res *engine.RunResult, scenarioAllow, providerAllow map[string]bool) bool {
+	if len(scenarioAllow) > 0 && !scenarioAllow[res.ScenarioID] {
+		return false
+	}
+	if len(providerAllow) > 0 && !providerAllow[res.ProviderID] {
+		return false
+	}
+	return true
 }

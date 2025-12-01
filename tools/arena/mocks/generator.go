@@ -87,44 +87,56 @@ func writePerScenario(file File, opts WriteOptions) (map[string][]byte, error) {
 
 	results := make(map[string][]byte)
 
-	scenarioNames := make([]string, 0, len(file.Scenarios))
-	for name := range file.Scenarios {
-		scenarioNames = append(scenarioNames, name)
-	}
-	sort.Strings(scenarioNames)
-
-	for _, name := range scenarioNames {
-		scenarioOnly := File{
-			DefaultResponse: file.DefaultResponse,
-			Scenarios: map[string]ScenarioTurnHistory{
-				name: file.Scenarios[name],
-			},
-		}
-
+	for _, name := range sortedScenarioNames(file.Scenarios) {
 		outPath := filepath.Join(opts.OutputPath, fmt.Sprintf("%s.yaml", name))
-
-		if opts.Merge {
-			base, err := loadFileIfExists(outPath)
-			if err != nil {
-				return nil, err
-			}
-			scenarioOnly = mergeFiles(base, scenarioOnly)
-		}
-
-		yamlBytes, err := renderYAML(scenarioOnly)
+		yamlBytes, err := renderScenarioFile(outPath, file, name, opts)
 		if err != nil {
 			return nil, err
-		}
-
-		if !opts.DryRun {
-			if err := os.WriteFile(outPath, yamlBytes, filePerm); err != nil {
-				return nil, fmt.Errorf("failed to write %s: %w", outPath, err)
-			}
 		}
 		results[outPath] = yamlBytes
 	}
 
 	return results, nil
+}
+
+func sortedScenarioNames(scenarios map[string]ScenarioTurnHistory) []string {
+	names := make([]string, 0, len(scenarios))
+	for name := range scenarios {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func renderScenarioFile(outPath string, file File, name string, opts WriteOptions) ([]byte, error) {
+	scenarioOnly := File{
+		DefaultResponse: file.DefaultResponse,
+		Scenarios: map[string]ScenarioTurnHistory{
+			name: file.Scenarios[name],
+		},
+	}
+
+	if opts.Merge {
+		base, err := loadFileIfExists(outPath)
+		if err != nil {
+			return nil, err
+		}
+		scenarioOnly = mergeFiles(base, scenarioOnly)
+	}
+
+	yamlBytes, err := renderYAML(scenarioOnly)
+	if err != nil {
+		return nil, err
+	}
+
+	if opts.DryRun {
+		return yamlBytes, nil
+	}
+
+	if err := os.WriteFile(outPath, yamlBytes, filePerm); err != nil {
+		return nil, fmt.Errorf("failed to write %s: %w", outPath, err)
+	}
+	return yamlBytes, nil
 }
 
 // mergeFiles overlays newFile onto base. New scenarios/turns override existing ones.
