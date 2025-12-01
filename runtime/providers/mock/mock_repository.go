@@ -93,22 +93,6 @@ type ScenarioConfig struct {
 	// Turn-specific responses keyed by turn number (1-indexed)
 	// Supports both simple string responses (backward compatibility) and structured Turn responses
 	Turns map[int]interface{} `yaml:"turns,omitempty"`
-
-	// Tool execution responses for repository-backed tool mocking
-	ToolResponses map[string][]ToolResponse `yaml:"tool_responses,omitempty"`
-}
-
-// MockToolResponse represents a configured response for tool execution.
-type ToolResponse struct {
-	CallArgs map[string]interface{} `yaml:"call_args"`        // Match these arguments
-	Result   interface{}            `yaml:"result,omitempty"` // Return this result
-	Error    *ToolError             `yaml:"error,omitempty"`  // Or return this error
-}
-
-// ToolError represents an error response for tool execution.
-type ToolError struct {
-	Type    string `yaml:"type"`    // Error type/category
-	Message string `yaml:"message"` // Error message
 }
 
 // FileMockRepository loads mock responses from a YAML configuration file.

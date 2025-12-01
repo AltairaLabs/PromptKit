@@ -169,15 +169,29 @@ func (m *ToolProvider) calculateOutputTokens(responseText string) int {
 
 // detectTurnFromConversation analyzes the conversation history to determine the current turn number
 func (m *ToolProvider) detectTurnFromConversation(req providers.PredictionRequest) int {
-	// Start with base turn number from metadata
-	baseTurnNumber := 1
+	// Start with base turn number from metadata (if provided)
+	baseTurnNumber := 0
 	if req.Metadata != nil {
 		if turn, ok := req.Metadata["mock_turn_number"].(int); ok {
 			baseTurnNumber = turn
 		}
 	}
 
-	// Count tool result messages to detect if we've advanced past the initial turn
+	// Also derive from assistant messages (each assistant reply advances a turn)
+	assistantMsgs := 0
+	for i := range req.Messages {
+		if req.Messages[i].Role == "assistant" {
+			assistantMsgs++
+		}
+	}
+	if assistantMsgs > baseTurnNumber {
+		baseTurnNumber = assistantMsgs
+	}
+	if baseTurnNumber < 1 {
+		baseTurnNumber = 1
+	}
+
+	// Count tool result messages to detect continuation
 	toolResultCount := 0
 	for i := range req.Messages {
 		if req.Messages[i].Role == "tool" {
@@ -185,7 +199,6 @@ func (m *ToolProvider) detectTurnFromConversation(req providers.PredictionReques
 		}
 	}
 
-	// If we have tool results, we're in a continuation turn
 	adjustedTurnNumber := baseTurnNumber
 	if toolResultCount > 0 {
 		adjustedTurnNumber = baseTurnNumber + 1

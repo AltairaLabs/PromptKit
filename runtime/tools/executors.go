@@ -1,8 +1,12 @@
 package tools
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"text/template"
 )
 
 const (
@@ -37,6 +41,15 @@ func (e *MockStaticExecutor) Execute(descriptor *ToolDescriptor, args json.RawMe
 		return descriptor.MockResult, nil
 	}
 
+	// Load mock result from file if specified
+	if descriptor.MockResultFile != "" {
+		data, err := os.ReadFile(filepath.Clean(descriptor.MockResultFile))
+		if err != nil {
+			return nil, fmt.Errorf("failed to read mock_result_file for tool %s: %w", descriptor.Name, err)
+		}
+		return json.RawMessage(data), nil
+	}
+
 	// Generate a basic mock response if no mock_result is specified
 	return json.RawMessage(`{"result": "mock response"}`), nil
 }
@@ -60,7 +73,17 @@ func (e *MockScriptedExecutor) Execute(descriptor *ToolDescriptor, args json.Raw
 		return nil, fmt.Errorf("scripted mock executor can only execute mock tools")
 	}
 
-	if descriptor.MockTemplate == "" {
+	// Choose template source
+	tmpl := descriptor.MockTemplate
+	if tmpl == "" && descriptor.MockTemplateFile != "" {
+		data, err := os.ReadFile(filepath.Clean(descriptor.MockTemplateFile))
+		if err != nil {
+			return nil, fmt.Errorf("failed to read mock_template_file for tool %s: %w", descriptor.Name, err)
+		}
+		tmpl = string(data)
+	}
+
+	if tmpl == "" {
 		return nil, fmt.Errorf("no mock template specified for tool %s", descriptor.Name)
 	}
 
@@ -70,8 +93,11 @@ func (e *MockScriptedExecutor) Execute(descriptor *ToolDescriptor, args json.Raw
 		return nil, fmt.Errorf("failed to parse arguments for templating: %w", err)
 	}
 
-	// Simple template processing - replace {{.field}} with values
-	result := e.processTemplate(descriptor.MockTemplate, argsMap)
+	// Render template using text/template for basic conditional logic
+	result, err := e.processTemplate(tmpl, argsMap)
+	if err != nil {
+		return nil, fmt.Errorf("failed to render mock template for tool %s: %w", descriptor.Name, err)
+	}
 
 	// Try to parse as JSON to validate
 	var jsonResult interface{}
@@ -85,61 +111,15 @@ func (e *MockScriptedExecutor) Execute(descriptor *ToolDescriptor, args json.Raw
 	return json.Marshal(jsonResult)
 }
 
-// processTemplate performs simple template substitution
-func (e *MockScriptedExecutor) processTemplate(template string, args map[string]interface{}) string {
-	result := template
-
-	// Simple replacement of {{.field}} patterns
-	for key, value := range args {
-		placeholder := fmt.Sprintf("{{ .%s }}", key)
-		if valueStr, ok := value.(string); ok {
-			result = replaceAll(result, placeholder, valueStr)
-		} else {
-			result = replaceAll(result, placeholder, fmt.Sprintf("%v", value))
-		}
+// processTemplate renders a Go text/template with provided arguments.
+func (e *MockScriptedExecutor) processTemplate(tmpl string, args map[string]interface{}) (string, error) {
+	t, err := template.New("mock").Option("missingkey=zero").Parse(tmpl)
+	if err != nil {
+		return "", err
 	}
-
-	return result
-}
-
-// replaceAll replaces all occurrences of old with newStr in s
-func replaceAll(s, old, newStr string) string {
-	// Simple string replacement implementation
-	for {
-		result := replace(s, old, newStr)
-		if result == s {
-			break
-		}
-		s = result
+	var out bytes.Buffer
+	if err := t.Execute(&out, args); err != nil {
+		return "", err
 	}
-	return s
-}
-
-// replace replaces the first occurrence of old with newStr in s
-func replace(s, old, newStr string) string {
-	if old == "" {
-		return s
-	}
-
-	index := indexOf(s, old)
-	if index == -1 {
-		return s
-	}
-
-	return s[:index] + newStr + s[index+len(old):]
-}
-
-// indexOf returns the index of the first occurrence of substr in s
-func indexOf(s, substr string) int {
-	if substr == "" {
-		return 0
-	}
-
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
-	}
-
-	return -1
+	return out.String(), nil
 }

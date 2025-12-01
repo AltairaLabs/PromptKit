@@ -56,6 +56,25 @@ type ShowSummaryMsg struct {
 	Summary *Summary
 }
 
+// TurnStartedMsg is sent when a turn starts.
+type TurnStartedMsg struct {
+	RunID     string
+	TurnIndex int
+	Role      string
+	Scenario  string
+	Time      time.Time
+}
+
+// TurnCompletedMsg is sent when a turn completes.
+type TurnCompletedMsg struct {
+	RunID     string
+	TurnIndex int
+	Role      string
+	Scenario  string
+	Error     error
+	Time      time.Time
+}
+
 // OnRunStarted is called when a test run begins execution.
 // This method is goroutine-safe and converts the callback to a bubbletea message.
 func (o *Observer) OnRunStarted(runID, scenario, provider, region string) {
@@ -118,6 +137,39 @@ func (o *Observer) OnRunFailed(runID string, err error) {
 			Error: err,
 			Time:  time.Now(),
 		}
+		o.model.Update(msg)
+	}
+}
+
+// OnTurnStarted is called when a turn starts.
+func (o *Observer) OnTurnStarted(runID string, turnIdx int, role, scenario string) {
+	msg := TurnStartedMsg{
+		RunID:     runID,
+		TurnIndex: turnIdx,
+		Role:      role,
+		Scenario:  scenario,
+		Time:      time.Now(),
+	}
+	if o.program != nil {
+		o.program.Send(msg)
+	} else if o.model != nil {
+		o.model.Update(msg)
+	}
+}
+
+// OnTurnCompleted is called when a turn finishes.
+func (o *Observer) OnTurnCompleted(runID string, turnIdx int, role, scenario string, err error) {
+	msg := TurnCompletedMsg{
+		RunID:     runID,
+		TurnIndex: turnIdx,
+		Role:      role,
+		Scenario:  scenario,
+		Error:     err,
+		Time:      time.Now(),
+	}
+	if o.program != nil {
+		o.program.Send(msg)
+	} else if o.model != nil {
 		o.model.Update(msg)
 	}
 }

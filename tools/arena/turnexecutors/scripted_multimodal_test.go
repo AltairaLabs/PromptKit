@@ -2,7 +2,6 @@ package turnexecutors
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -39,7 +38,7 @@ func TestScriptedExecutor_BuildUserMessage_LegacyTextContent(t *testing.T) {
 func TestScriptedExecutor_BuildUserMessage_MultimodalParts(t *testing.T) {
 	// Create a mock HTTP server for the image
 	imageData := []byte("fake-image-data")
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLocalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/jpeg")
 		w.WriteHeader(http.StatusOK)
 		w.Write(imageData)

@@ -63,6 +63,9 @@ type ConversationRequest struct {
 	// State management
 	StateStoreConfig *StateStoreConfig // Optional state store configuration
 	ConversationID   string            // Conversation identifier for state persistence
+
+	// Optional observer for fine-grained progress (turn events, etc.)
+	Observer ExecutionObserver
 }
 
 // StateStoreConfig wraps the pipeline StateStore configuration for Arena

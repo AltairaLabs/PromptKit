@@ -53,4 +53,12 @@ type ExecutionObserver interface {
 	//   - runID: Unique identifier for this run
 	//   - err: Error that caused the failure
 	OnRunFailed(runID string, err error)
+
+	// OnTurnStarted is called when a turn begins execution.
+	// turnIndex is zero-based.
+	OnTurnStarted(runID string, turnIndex int, role, scenario string)
+
+	// OnTurnCompleted is called when a turn finishes (success or error).
+	// err is nil on success.
+	OnTurnCompleted(runID string, turnIndex int, role, scenario string, err error)
 }

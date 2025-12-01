@@ -5,8 +5,6 @@ package tui
 import (
 	"context"
 	"fmt"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +13,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"golang.org/x/term"
+
+	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
 // Terminal size requirements
@@ -25,15 +25,15 @@ const (
 
 // Display constants
 const (
-	borderPadding       = 4
 	maxLogBufferSize    = 100
 	tickIntervalMs      = 500
 	durationPrecisionMs = 100
 	numberSeparator     = 1000
-	panelDivisor        = 2
 	bannerLines         = 2  // Banner + info line (separator counted separately)
 	bottomPanelPadding  = 4  // Border + padding
 	metricsBoxWidth     = 40 // Fixed width for metrics box
+	summaryWidthDivisor = 2
+	summaryMinWidth     = 40
 )
 
 // Color constants
@@ -54,6 +54,25 @@ const (
 	colorEmerald   = "#34D399"
 	colorSky       = "#93C5FD"
 )
+
+type pane int
+
+const (
+	paneRuns pane = iota
+	paneLogs
+)
+
+type page int
+
+const (
+	pageMain page = iota
+	pageConversation
+)
+
+// runResultStorer is a minimal interface to retrieve run results from the state store.
+type runResultStorer interface {
+	GetResult(ctx context.Context, runID string) (*statestore.RunResult, error)
+}
 
 // Model represents the bubbletea application state
 type Model struct {
@@ -85,19 +104,31 @@ type Model struct {
 	// Summary state
 	summary     *Summary
 	showSummary bool
+
+	stateStore runResultStorer
+
+	activePane pane
+
+	// Conversation view state
+	convPane ConversationPane
+
+	currentPage page
 }
 
 // RunInfo tracks information about a single run
 type RunInfo struct {
-	RunID     string
-	Scenario  string
-	Provider  string
-	Region    string
-	Status    RunStatus
-	Duration  time.Duration
-	Cost      float64
-	Error     string
-	StartTime time.Time
+	RunID            string
+	Scenario         string
+	Provider         string
+	Region           string
+	Status           RunStatus
+	Duration         time.Duration
+	Cost             float64
+	Error            string
+	StartTime        time.Time
+	CurrentTurnIndex int
+	CurrentTurnRole  string
+	Selected         bool
 }
 
 // RunStatus represents the current state of a run
@@ -150,26 +181,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tick()
 
 	case tea.KeyMsg:
-		// Check for quit keys first
-		//nolint:exhaustive // Only handling specific quit keys, other keys intentionally ignored
-		switch msg.Type {
-		case tea.KeyCtrlC:
-			return m, tea.Quit
-		case tea.KeyRunes:
-			if len(msg.Runes) > 0 && msg.Runes[0] == 'q' {
-				return m, tea.Quit
-			}
-		default:
-			// Other key types not handled
-		}
-
-		// Let viewport handle scrolling keys (up/down arrows, pgup/pgdown, etc)
-		if m.viewportReady {
-			var cmd tea.Cmd
-			m.logViewport, cmd = m.logViewport.Update(msg)
-			return m, cmd
-		}
-		return m, nil
+		return m.handleKeyMsg(msg)
 
 	case tea.MouseMsg:
 		// Let viewport handle mouse wheel scrolling
@@ -195,6 +207,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case RunFailedMsg:
 		m.mu.Lock()
 		m.handleRunFailed(&msg)
+		m.mu.Unlock()
+		return m, nil
+
+	case TurnStartedMsg:
+		m.mu.Lock()
+		m.handleTurnStarted(&msg)
+		m.mu.Unlock()
+		return m, nil
+
+	case TurnCompletedMsg:
+		m.mu.Lock()
+		m.handleTurnCompleted(&msg)
 		m.mu.Unlock()
 		return m, nil
 
@@ -242,6 +266,8 @@ func (m *Model) handleRunCompleted(msg *RunCompletedMsg) {
 			m.activeRuns[i].Status = StatusCompleted
 			m.activeRuns[i].Duration = msg.Duration
 			m.activeRuns[i].Cost = msg.Cost
+			m.activeRuns[i].CurrentTurnRole = ""
+			m.activeRuns[i].CurrentTurnIndex = 0
 			break
 		}
 	}
@@ -261,7 +287,6 @@ func (m *Model) handleRunCompleted(msg *RunCompletedMsg) {
 	m.trimLogs()
 
 	// Remove from active runs after a brief display (keep for visual feedback)
-	// In real usage, we'd use a timer, but for now keep completed runs visible
 }
 
 // handleRunFailed processes a run failed event from the observer.
@@ -272,6 +297,8 @@ func (m *Model) handleRunFailed(msg *RunFailedMsg) {
 		if m.activeRuns[i].RunID == msg.RunID {
 			m.activeRuns[i].Status = StatusFailed
 			m.activeRuns[i].Error = msg.Error.Error()
+			m.activeRuns[i].CurrentTurnRole = ""
+			m.activeRuns[i].CurrentTurnIndex = 0
 			break
 		}
 	}
@@ -285,6 +312,52 @@ func (m *Model) handleRunFailed(msg *RunFailedMsg) {
 		Timestamp: msg.Time,
 		Level:     "ERROR",
 		Message:   fmt.Sprintf("Failed: %s - %v", msg.RunID, msg.Error),
+	})
+	m.trimLogs()
+}
+
+// handleTurnStarted updates the run with turn information.
+func (m *Model) handleTurnStarted(msg *TurnStartedMsg) {
+	for i := range m.activeRuns {
+		if m.activeRuns[i].RunID == msg.RunID {
+			m.activeRuns[i].CurrentTurnRole = msg.Role
+			m.activeRuns[i].CurrentTurnIndex = msg.TurnIndex
+			break
+		}
+	}
+
+	m.logs = append(m.logs, LogEntry{
+		Timestamp: msg.Time,
+		Level:     "INFO",
+		Message:   fmt.Sprintf("Turn %d (%s) started: %s", msg.TurnIndex+1, msg.Role, msg.RunID),
+	})
+	m.trimLogs()
+}
+
+// handleTurnCompleted updates the run when a turn finishes.
+func (m *Model) handleTurnCompleted(msg *TurnCompletedMsg) {
+	for i := range m.activeRuns {
+		if m.activeRuns[i].RunID == msg.RunID {
+			m.activeRuns[i].CurrentTurnRole = msg.Role
+			m.activeRuns[i].CurrentTurnIndex = msg.TurnIndex
+			if msg.Error != nil {
+				m.activeRuns[i].Error = msg.Error.Error()
+			}
+			break
+		}
+	}
+
+	level := "INFO"
+	text := fmt.Sprintf("Turn %d (%s) completed: %s", msg.TurnIndex+1, msg.Role, msg.RunID)
+	if msg.Error != nil {
+		level = "ERROR"
+		text = fmt.Sprintf("Turn %d (%s) failed: %s - %v", msg.TurnIndex+1, msg.Role, msg.RunID, msg.Error)
+	}
+
+	m.logs = append(m.logs, LogEntry{
+		Timestamp: msg.Time,
+		Level:     level,
+		Message:   text,
 	})
 	m.trimLogs()
 }
@@ -337,350 +410,168 @@ func (m *Model) View() string {
 
 	elapsed := time.Since(m.startTime).Truncate(time.Second)
 
-	// Simple layout - let lipgloss handle sizing
 	header := m.renderHeader(elapsed)
-	activeRuns := m.renderActiveRuns()
-	bottomRow := lipgloss.JoinHorizontal(lipgloss.Top, m.renderMetrics(), m.renderLogs())
-
-	return lipgloss.JoinVertical(lipgloss.Left, header, "", activeRuns, "", bottomRow)
-}
-
-func (m *Model) renderHeader(elapsed time.Duration) string {
-	// Banner style
-	bannerStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color(colorPurple)).
-		Align(lipgloss.Center).
-		Width(m.width)
-
-	infoStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colorLightGray)).
-		Align(lipgloss.Center).
-		Width(m.width)
-
-	progressStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colorGreen)).
-		Bold(true)
-
-	timeStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colorLightBlue))
-
-	banner := bannerStyle.Render("✨ PromptArena ✨")
-	progress := progressStyle.Render(fmt.Sprintf("[%d/%d Complete]", m.completedCount, m.totalRuns))
-	timeStr := timeStyle.Render(fmt.Sprintf("⏱  %s", formatDuration(elapsed)))
-	infoLine := infoStyle.Render(fmt.Sprintf("%s  •  %s  •  %s", filepath.Base(m.configFile), progress, timeStr))
-
-	return lipgloss.JoinVertical(lipgloss.Left, banner, infoLine)
-}
-
-func (m *Model) renderActiveRuns() string {
-	// Initialize table on first render
-	if !m.tableReady {
-		m.initRunsTable(15) // Default reasonable height
-	}
-
-	// Update table rows with current active runs
-	m.updateRunsTable()
-
-	// Set table dimensions
-	tableHeight := (m.height - 10) / 2 // Roughly half the screen minus header/footer
-	if tableHeight < 5 {
-		tableHeight = 5
-	}
-	m.runsTable.SetHeight(tableHeight)
-	m.runsTable.SetWidth(m.width - 8)
-
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color(colorViolet))
-
-	title := titleStyle.Render(fmt.Sprintf("📊 Active Runs (%d concurrent workers)", len(m.activeRuns)))
-
-	content := lipgloss.JoinVertical(lipgloss.Left, title, m.runsTable.View())
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(colorIndigo)).
-		Padding(1, 2).
-		Width(m.width - 4).
-		Render(content)
-}
-
-func (m *Model) renderMetrics() string {
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colorEmerald))
-	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colorLightGray))
-	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colorWhite)).Bold(true)
-	successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colorGreen)).Bold(true)
-	errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colorRed)).Bold(true)
-	costStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colorYellow)).Bold(true)
-
-	avgDuration := time.Duration(0)
-	if m.completedCount > 0 {
-		avgDuration = m.totalDuration / time.Duration(m.completedCount)
-	}
-
-	lines := []string{
-		titleStyle.Render("📈 Metrics"),
-		"",
-		fmt.Sprintf("%s %s", labelStyle.Render("Completed:"), valueStyle.Render(fmt.Sprintf("%d/%d", m.completedCount, m.totalRuns))),
-		fmt.Sprintf("%s %s", labelStyle.Render("Success:  "), successStyle.Render(fmt.Sprintf("%d", m.successCount))),
-		fmt.Sprintf("%s %s", labelStyle.Render("Errors:   "), errorStyle.Render(fmt.Sprintf("%d", m.failedCount))),
-		"",
-		fmt.Sprintf("%s %s", labelStyle.Render("Total Cost:  "), costStyle.Render(fmt.Sprintf("$%.4f", m.totalCost))),
-		fmt.Sprintf("%s %s", labelStyle.Render("Total Tokens:"), valueStyle.Render(formatNumber(m.totalTokens))),
-		fmt.Sprintf("%s %s", labelStyle.Render("Avg Duration:"), valueStyle.Render(formatDuration(avgDuration))),
-		fmt.Sprintf("%s %s", labelStyle.Render("Workers:     "), valueStyle.Render(fmt.Sprintf("%d", len(m.activeRuns)))),
-	}
-
-	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(colorGreen)).
-		Padding(1, 2).
-		Width(40).
-		Render(content)
-}
-
-func (m *Model) renderLogs() string {
-	// Update viewport dimensions
-	if m.viewportReady {
-		viewportHeight := (m.height - 15) / 2 // Roughly match metrics height
-		if viewportHeight < 5 {
-			viewportHeight = 5
-		}
-		viewportWidth := m.width - 50 // Leave room for metrics (40) + padding
-		if viewportWidth < 40 {
-			viewportWidth = 40
-		}
-
-		m.logViewport.Width = viewportWidth
-		m.logViewport.Height = viewportHeight
-
-		// Update viewport content with all logs
-		if len(m.logs) == 0 {
-			m.logViewport.SetContent("No logs yet...")
-		} else {
-			logLines := make([]string, len(m.logs))
-			for i, log := range m.logs {
-				logLines[i] = m.formatLogLine(log)
-			}
-			m.logViewport.SetContent(strings.Join(logLines, "\n"))
-		}
-	}
-
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colorSky))
-	title := titleStyle.Render("📝 Logs (↑/↓ to scroll)")
-
-	if !m.viewportReady {
-		content := lipgloss.JoinVertical(lipgloss.Left, title, "", "Initializing...")
-		return lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(colorLightBlue)).
-			Padding(1, 2).
-			Render(content)
-	}
-
-	content := lipgloss.JoinVertical(lipgloss.Left, title, m.logViewport.View())
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(colorLightBlue)).
-		Padding(1, 2).
-		Render(content)
-}
-
-func (m *Model) formatRunLine(run *RunInfo) string {
-	var status string
-	var statusColor lipgloss.Color
-
-	switch run.Status {
-	case StatusRunning:
-		status = "●"
-		statusColor = lipgloss.Color(colorBlue) // Blue for running
-	case StatusCompleted:
-		status = "✓"
-		statusColor = lipgloss.Color(colorGreen) // Green for success
-	case StatusFailed:
-		status = "✗"
-		statusColor = lipgloss.Color(colorRed) // Red for failure
-	}
-
-	statusStyle := lipgloss.NewStyle().Foreground(statusColor)
-	runInfo := fmt.Sprintf("%s/%s/%s", run.Provider, run.Scenario, run.Region)
-
-	switch run.Status {
-	case StatusRunning:
-		elapsed := time.Since(run.StartTime).Truncate(time.Millisecond * durationPrecisionMs)
-		return fmt.Sprintf("[%s] %-40s ⏱ %s", statusStyle.Render(status), runInfo, formatDuration(elapsed))
-	case StatusFailed:
-		return fmt.Sprintf("[%s] %-40s ERROR", statusStyle.Render(status), runInfo)
-	case StatusCompleted:
-		return fmt.Sprintf(
-			"[%s] %-40s ⏱ %s  $%.4f",
-			statusStyle.Render(status),
-			runInfo,
-			formatDuration(run.Duration),
-			run.Cost,
-		)
-	}
-	return ""
-}
-
-// initViewport initializes the viewport for scrollable logs
-func (m *Model) initViewport() {
-	viewportHeight := (m.height - 15) / 2
-	if viewportHeight < 5 {
-		viewportHeight = 5
-	}
-	viewportWidth := m.width - 50
-	if viewportWidth < 40 {
-		viewportWidth = 40
-	}
-
-	m.logViewport = viewport.New(viewportWidth, viewportHeight)
-	m.logViewport.SetContent("Waiting for logs...")
-}
-
-// initRunsTable initializes the table for active runs
-func (m *Model) initRunsTable(height int) {
-	columns := []table.Column{
-		{Title: "Status", Width: 10},
-		{Title: "Provider", Width: 20},
-		{Title: "Scenario", Width: 30},
-		{Title: "Region", Width: 12},
-		{Title: "Duration", Width: 12},
-		{Title: "Cost", Width: 10},
-	}
-
-	t := table.New(
-		table.WithColumns(columns),
-		table.WithRows([]table.Row{}),
-		table.WithFocused(false),
-		table.WithHeight(height),
-	)
-
-	// Style the table
-	s := table.DefaultStyles()
-	s.Header = s.Header.
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color(colorIndigo)).
-		BorderBottom(true).
-		Bold(true).
-		Foreground(lipgloss.Color(colorViolet))
-	s.Selected = s.Selected.
-		Foreground(lipgloss.Color(colorWhite)).
-		Background(lipgloss.Color(colorIndigo)).
-		Bold(false)
-
-	t.SetStyles(s)
-	m.runsTable = t
-	m.tableReady = true
-}
-
-// updateRunsTable updates the table rows with current active runs
-func (m *Model) updateRunsTable() {
-	rows := make([]table.Row, 0, len(m.activeRuns))
-
-	for i := range m.activeRuns {
-		run := &m.activeRuns[i]
-
-		var status, duration, cost string
-		switch run.Status {
-		case StatusRunning:
-			status = "● Running"
-			elapsed := time.Since(run.StartTime).Truncate(time.Millisecond * durationPrecisionMs)
-			duration = formatDuration(elapsed)
-			cost = "-"
-		case StatusCompleted:
-			status = "✓ Done"
-			duration = formatDuration(run.Duration)
-			cost = fmt.Sprintf("$%.4f", run.Cost)
-		case StatusFailed:
-			status = "✗ Failed"
-			duration = "-"
-			cost = "-"
-		}
-
-		rows = append(rows, table.Row{
-			status,
-			run.Provider,
-			run.Scenario,
-			run.Region,
-			duration,
-			cost,
-		})
-	}
-
-	m.runsTable.SetRows(rows)
-}
-
-func (m *Model) formatLogLine(log LogEntry) string {
-	var levelColor lipgloss.Color
-	switch log.Level {
-	case "INFO":
-		levelColor = lipgloss.Color(colorBlue) // Blue
-	case "WARN":
-		levelColor = lipgloss.Color(colorAmber) // Amber
-	case "ERROR":
-		levelColor = lipgloss.Color(colorRed) // Red
-	case "DEBUG":
-		levelColor = lipgloss.Color(colorGray) // Gray
+	var body string
+	switch m.currentPage {
+	case pageConversation:
+		body = m.renderConversationPage()
+	case pageMain:
+		body = lipgloss.JoinVertical(lipgloss.Left, m.renderActiveRuns(), "", m.renderLogs())
 	default:
-		levelColor = lipgloss.Color(colorLightGray) // Light gray
+		body = lipgloss.JoinVertical(lipgloss.Left, m.renderActiveRuns(), "", m.renderLogs())
 	}
 
-	levelStyle := lipgloss.NewStyle().Foreground(levelColor)
-	return fmt.Sprintf("[%s] %s", levelStyle.Render(log.Level), log.Message)
+	footer := m.renderFooter()
+
+	return lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", footer)
 }
 
-func formatDuration(d time.Duration) string {
-	if d < time.Second {
-		return fmt.Sprintf("%dms", d.Milliseconds())
+func (m *Model) renderConversationPage() string {
+	selected := m.selectedRun()
+	if selected == nil {
+		return "Select a run to view the conversation."
 	}
-	return d.Truncate(time.Millisecond * durationPrecisionMs).String()
-}
-
-func formatNumber(n int64) string {
-	if n < numberSeparator {
-		return fmt.Sprintf("%d", n)
+	if m.stateStore == nil {
+		return "No state store attached."
 	}
-	return fmt.Sprintf("%s,%03d", formatNumber(n/numberSeparator), n%numberSeparator)
+	res, err := m.stateStore.GetResult(context.Background(), selected.RunID)
+	if err != nil {
+		return fmt.Sprintf("Failed to load result: %v", err)
+	}
+	m.convPane.SetDimensions(m.width, m.height)
+	m.convPane.SetData(selected, res)
+	return m.convPane.View(res)
 }
 
-func tick() tea.Cmd {
-	return tea.Tick(time.Millisecond*tickIntervalMs, func(t time.Time) tea.Msg {
-		return tickMsg(t)
-	})
-}
-
-// CheckTerminalSize checks if the terminal is large enough for TUI mode
-func CheckTerminalSize() (width, height int, supported bool, reason string) {
-	// Try stdout first (fd 1), then stderr (fd 2), then stdin (fd 0)
-	// This ensures TUI works even when stdin/stdout are redirected
-	for _, fd := range []int{1, 2, 0} {
-		width, height, err := term.GetSize(fd)
-		if err == nil {
-			if width < MinTerminalWidth || height < MinTerminalHeight {
-				return width, height, false, fmt.Sprintf(
-					"terminal too small (%dx%d, minimum %dx%d required)",
-					width,
-					height,
-					MinTerminalWidth,
-					MinTerminalHeight,
-				)
-			}
-			return width, height, true, ""
+func (m *Model) currentRunForDetail() *RunInfo {
+	if sel := m.selectedRun(); sel != nil {
+		return sel
+	}
+	if m.tableReady {
+		idx := m.runsTable.Cursor()
+		if idx >= 0 && idx < len(m.activeRuns) {
+			return &m.activeRuns[idx]
 		}
 	}
+	if len(m.activeRuns) > 0 {
+		return &m.activeRuns[0]
+	}
+	return nil
+}
 
-	return 0, 0, false, "unable to detect terminal size (not a TTY)"
+func (m *Model) renderResultPane() string {
+	run := m.currentRunForDetail()
+	if run == nil {
+		return ""
+	}
+	return m.renderSelectedResult(run)
+}
+
+func (m *Model) renderSummaryPane() string {
+	summary := m.BuildSummary("", "")
+	if summary == nil {
+		return ""
+	}
+	// Allocate roughly half the width for summary.
+	width := m.width / summaryWidthDivisor
+	if width < summaryMinWidth {
+		width = summaryMinWidth
+	}
+	return RenderSummary(summary, width)
+}
+
+func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Check for quit keys first
+	//nolint:exhaustive // Only handling specific quit keys
+	switch msg.Type {
+	case tea.KeyCtrlC:
+		return m, tea.Quit
+	case tea.KeyRunes:
+		if len(msg.Runes) > 0 && msg.Runes[0] == 'q' {
+			return m, tea.Quit
+		}
+	default:
+	}
+
+	// Escape deselects a conversation and returns to main view
+	if msg.Type == tea.KeyEsc && m.currentPage == pageConversation {
+		m.deselectRuns()
+		m.convPane.Reset()
+		m.currentPage = pageMain
+		m.activePane = paneRuns
+		return m, nil
+	}
+
+	if m.currentPage == pageMain {
+		return m.handleMainPageKey(msg)
+	}
+
+	// Conversation page key handling
+	newPane, cmd := m.convPane.Update(msg)
+	m.convPane = newPane
+	return m, cmd
+}
+
+func (m *Model) handleMainPageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyTab {
+		if m.activePane == paneRuns {
+			m.activePane = paneLogs
+		} else {
+			m.activePane = paneRuns
+		}
+		return m, nil
+	}
+
+	if msg.Type == tea.KeyEnter && m.activePane == paneRuns && m.tableReady {
+		m.toggleSelection()
+		return m, nil
+	}
+
+	if m.activePane == paneRuns && m.tableReady {
+		var cmd tea.Cmd
+		m.runsTable, cmd = m.runsTable.Update(msg)
+		return m, cmd
+	}
+
+	if m.viewportReady {
+		var cmd tea.Cmd
+		m.logViewport, cmd = m.logViewport.Update(msg)
+		return m, cmd
+	}
+
+	return m, nil
+}
+
+func (m *Model) toggleSelection() {
+	idx := m.runsTable.Cursor()
+	if idx < 0 || idx >= len(m.activeRuns) {
+		return
+	}
+
+	targetSelected := m.activeRuns[idx].Selected
+	m.deselectRuns()
+	m.activeRuns[idx].Selected = !targetSelected
+	if m.activeRuns[idx].Selected {
+		m.convPane.Reset()
+		m.currentPage = pageConversation
+	}
+}
+
+func (m *Model) deselectRuns() {
+	for i := range m.activeRuns {
+		m.activeRuns[i].Selected = false
+	}
 }
 
 // BuildSummary creates a Summary from the current model state with output directory and HTML report path.
 func (m *Model) BuildSummary(outputDir, htmlReport string) *Summary {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// If a state store is available, try to reconstruct results for richer summary
+	if m.stateStore != nil && len(m.activeRuns) > 0 {
+		return m.buildSummaryFromStateStore(outputDir, htmlReport)
+	}
 
 	// Calculate average duration
 	avgDuration := time.Duration(0)
@@ -733,6 +624,92 @@ func (m *Model) BuildSummary(outputDir, htmlReport string) *Summary {
 	}
 }
 
+// buildSummaryFromStateStore builds summary using persisted run results (assertions, tool stats).
+func (m *Model) buildSummaryFromStateStore(outputDir, htmlReport string) *Summary {
+	ctx := context.Background()
+
+	totalRuns := len(m.activeRuns)
+	success := 0
+	failed := 0
+	var totalCost float64
+	var totalTokens int64
+	var totalDuration time.Duration
+	providerCounts := make(map[string]int)
+	scenarioSet := make(map[string]bool)
+	regionSet := make(map[string]bool)
+	errors := make([]ErrorInfo, 0)
+	assertTotal := 0
+	assertFailed := 0
+
+	for i := range m.activeRuns {
+		run := &m.activeRuns[i]
+		res, err := m.stateStore.GetResult(ctx, run.RunID)
+		if err != nil {
+			errors = append(errors, ErrorInfo{
+				RunID:    run.RunID,
+				Scenario: run.Scenario,
+				Provider: run.Provider,
+				Region:   run.Region,
+				Error:    err.Error(),
+			})
+			failed++
+			continue
+		}
+
+		providerCounts[res.ProviderID]++
+		scenarioSet[res.ScenarioID] = true
+		regionSet[res.Region] = true
+
+		totalCost += res.Cost.TotalCost
+		totalTokens += int64(res.Cost.InputTokens + res.Cost.OutputTokens + res.Cost.CachedTokens)
+		totalDuration += res.Duration
+
+		if res.Error != "" {
+			failed++
+			errors = append(errors, ErrorInfo{
+				RunID:    res.RunID,
+				Scenario: res.ScenarioID,
+				Provider: res.ProviderID,
+				Region:   res.Region,
+				Error:    res.Error,
+			})
+		} else {
+			success++
+		}
+
+		assertTotal += res.ConversationAssertions.Total
+		assertFailed += res.ConversationAssertions.Failed
+	}
+
+	regions := make([]string, 0, len(regionSet))
+	for region := range regionSet {
+		regions = append(regions, region)
+	}
+
+	avgDuration := time.Duration(0)
+	if success+failed > 0 {
+		avgDuration = totalDuration / time.Duration(success+failed)
+	}
+
+	return &Summary{
+		TotalRuns:       totalRuns,
+		SuccessCount:    success,
+		FailedCount:     failed,
+		TotalCost:       totalCost,
+		TotalTokens:     totalTokens,
+		TotalDuration:   totalDuration,
+		AvgDuration:     avgDuration,
+		ProviderCounts:  providerCounts,
+		ScenarioCount:   len(scenarioSet),
+		Regions:         regions,
+		Errors:          errors,
+		OutputDir:       outputDir,
+		HTMLReport:      htmlReport,
+		AssertionTotal:  assertTotal,
+		AssertionFailed: assertFailed,
+	}
+}
+
 // NewModel creates a new TUI model with the specified configuration file and total run count.
 func NewModel(configFile string, totalRuns int) *Model {
 	width, height, supported, reason := CheckTerminalSize()
@@ -755,7 +732,16 @@ func NewModel(configFile string, totalRuns int) *Model {
 		height:         height,
 		isTUIMode:      supported,
 		fallbackReason: reason,
+		convPane:       NewConversationPane(),
+		currentPage:    pageMain,
 	}
+}
+
+// SetStateStore attaches a state store for building summaries from run results.
+func (m *Model) SetStateStore(store runResultStorer) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.stateStore = store
 }
 
 // Run starts the TUI application
@@ -781,4 +767,27 @@ func Run(ctx context.Context, model *Model) error {
 	case err := <-errCh:
 		return err
 	}
+}
+
+// CheckTerminalSize checks if the terminal is large enough for TUI mode
+func CheckTerminalSize() (width, height int, supported bool, reason string) {
+	// Try stdout first (fd 1), then stderr (fd 2), then stdin (fd 0)
+	// This ensures TUI works even when stdin/stdout are redirected
+	for _, fd := range []int{1, 2, 0} {
+		width, height, err := term.GetSize(fd)
+		if err == nil {
+			if width < MinTerminalWidth || height < MinTerminalHeight {
+				return width, height, false, fmt.Sprintf(
+					"terminal too small (%dx%d, minimum %dx%d required)",
+					width,
+					height,
+					MinTerminalWidth,
+					MinTerminalHeight,
+				)
+			}
+			return width, height, true, ""
+		}
+	}
+
+	return 0, 0, false, "unable to detect terminal size (not a TTY)"
 }

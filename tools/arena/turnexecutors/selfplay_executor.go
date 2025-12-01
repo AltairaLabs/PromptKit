@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
@@ -76,12 +77,14 @@ func (e *SelfPlayExecutor) generateUserMessage(
 	req TurnRequest,
 	history []types.Message,
 ) (types.Message, error) {
+	filteredHistory := filterOutToolMessages(history)
+
 	contentGen, err := e.contentProvider.GetContentGenerator(req.SelfPlayRole, req.SelfPlayPersona)
 	if err != nil {
 		return types.Message{}, fmt.Errorf("failed to get content generator: %w", err)
 	}
 
-	execResult, err := contentGen.NextUserTurn(ctx, history, req.Scenario.ID)
+	execResult, err := contentGen.NextUserTurn(ctx, filteredHistory, req.Scenario.ID)
 	if err != nil {
 		return types.Message{}, fmt.Errorf("failed to generate user turn: %w", err)
 	}
@@ -207,13 +210,16 @@ func (e *SelfPlayExecutor) generateUserMessageForStream(
 	history []types.Message,
 	outChan chan<- MessageStreamChunk,
 ) (types.Message, error) {
+	// Tool role messages are not valid input for LLM chat APIs; drop them before generation.
+	filteredHistory := filterOutToolMessages(history)
+
 	contentGen, err := e.contentProvider.GetContentGenerator(req.SelfPlayRole, req.SelfPlayPersona)
 	if err != nil {
 		outChan <- MessageStreamChunk{Error: fmt.Errorf("failed to get content generator: %w", err)}
 		return types.Message{}, err
 	}
 
-	execResult, err := contentGen.NextUserTurn(ctx, history, req.Scenario.ID)
+	execResult, err := contentGen.NextUserTurn(ctx, filteredHistory, req.Scenario.ID)
 	if err != nil {
 		outChan <- MessageStreamChunk{Error: fmt.Errorf("failed to generate user turn: %w", err)}
 		return types.Message{}, err
@@ -260,6 +266,21 @@ func (e *SelfPlayExecutor) buildUserMessage(
 	}
 
 	return userMessage
+}
+
+// filterOutToolMessages removes tool role messages from history to avoid invalid provider payloads.
+func filterOutToolMessages(messages []types.Message) []types.Message {
+	if len(messages) == 0 {
+		return messages
+	}
+	filtered := make([]types.Message, 0, len(messages))
+	for i := range messages {
+		if strings.EqualFold(messages[i].Role, "tool") {
+			continue
+		}
+		filtered = append(filtered, messages[i])
+	}
+	return filtered
 }
 
 // handleNonStreamingProvider handles providers that don't support streaming
@@ -312,9 +333,44 @@ func (e *SelfPlayExecutor) executeStreamingPipeline(
 	e.forwardStreamChunks(streamChan, messages, outChan)
 }
 
+// stripToolMessagesMiddleware removes tool role messages before calling the self-play provider.
+func stripToolMessagesMiddleware() pipeline.Middleware {
+	return &stripToolMessages{}
+}
+
+type stripToolMessages struct{}
+
+// Process removes tool-role messages before passing execution to the provider.
+func (m *stripToolMessages) Process(execCtx *pipeline.ExecutionContext, next func() error) error {
+	if len(execCtx.Messages) == 0 {
+		return next()
+	}
+	filtered := make([]types.Message, 0, len(execCtx.Messages))
+	for i := range execCtx.Messages {
+		if strings.EqualFold(execCtx.Messages[i].Role, "tool") {
+			continue
+		}
+		filtered = append(filtered, execCtx.Messages[i])
+	}
+	execCtx.Messages = filtered
+	return next()
+}
+
+// StreamChunk is a no-op to satisfy the middleware interface.
+func (m *stripToolMessages) StreamChunk(execCtx *pipeline.ExecutionContext, chunk *providers.StreamChunk) error {
+	return nil
+}
+
 // buildStreamingMiddlewares constructs the middleware chain for streaming
 func (e *SelfPlayExecutor) buildStreamingMiddlewares(req TurnRequest) []pipeline.Middleware {
 	baseVariables := buildBaseVariables(req.Region)
+	mergedVars := map[string]string{}
+	for k, v := range baseVariables {
+		mergedVars[k] = v
+	}
+	for k, v := range req.PromptVars {
+		mergedVars[k] = v
+	}
 
 	providerConfig := &middleware.ProviderMiddlewareConfig{
 		MaxTokens:   req.MaxTokens,
@@ -341,12 +397,18 @@ func (e *SelfPlayExecutor) buildStreamingMiddlewares(req TurnRequest) []pipeline
 	}
 
 	// Variable injection
-	middlewares = append(middlewares, &variableInjectionMiddleware{variables: baseVariables})
-
+	extraMiddlewares := []pipeline.Middleware{
+		&variableInjectionMiddleware{variables: mergedVars},
+	}
+	if len(req.Metadata) > 0 {
+		extraMiddlewares = append(extraMiddlewares, &metadataInjectionMiddleware{metadata: req.Metadata})
+	}
+	middlewares = append(middlewares, extraMiddlewares...)
 	// Prompt and template middleware
 	middlewares = append(middlewares,
-		middleware.PromptAssemblyMiddleware(req.PromptRegistry, req.TaskType, baseVariables),
+		middleware.PromptAssemblyMiddleware(req.PromptRegistry, req.TaskType, mergedVars),
 		middleware.TemplateMiddleware(),
+		stripToolMessagesMiddleware(), // Do not send tool messages to self-play user LLMs
 	)
 
 	// Mock scenario context for mock providers (pre-provider)

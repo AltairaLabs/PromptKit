@@ -286,7 +286,7 @@ func (r *Registry) Execute(toolName string, args json.RawMessage) (*ToolResult, 
 		executorName = modeMCP
 	} else if tool.Mode == modeLive {
 		executorName = "http"
-	} else if tool.MockTemplate != "" {
+	} else if tool.MockTemplate != "" || tool.MockTemplateFile != "" {
 		executorName = executorMockScripted
 	}
 
@@ -375,7 +375,7 @@ func (r *Registry) getExecutorForTool(tool *ToolDescriptor) (Executor, error) {
 		executorName = modeMCP
 	} else if tool.Mode == modeLive {
 		executorName = "http"
-	} else if tool.MockTemplate != "" {
+	} else if tool.MockTemplate != "" || tool.MockTemplateFile != "" {
 		executorName = executorMockScripted
 	}
 

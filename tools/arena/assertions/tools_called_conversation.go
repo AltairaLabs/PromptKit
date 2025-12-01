@@ -2,6 +2,7 @@ package assertions
 
 import (
 	"context"
+	"strings"
 )
 
 // ToolsCalledConversationValidator checks that specific tools were called
@@ -42,7 +43,13 @@ func (v *ToolsCalledConversationValidator) ValidateConversation(
 
 	// Find missing tools w.r.t minCalls
 	var missing []string
+	requirements := make([]map[string]interface{}, 0, len(required))
 	for _, name := range required {
+		requirements = append(requirements, map[string]interface{}{
+			"tool":          name,
+			"calls":         counts[name],
+			"requiredCalls": minCalls,
+		})
 		if counts[name] < minCalls {
 			missing = append(missing, name)
 		}
@@ -51,12 +58,10 @@ func (v *ToolsCalledConversationValidator) ValidateConversation(
 	if len(missing) > 0 {
 		return ConversationValidationResult{
 			Passed:  false,
-			Message: "missing required tools",
+			Message: "missing required tools: " + strings.Join(missing, ", "),
 			Details: map[string]interface{}{
-				"required":  required,
-				"min_calls": minCalls,
-				"counts":    counts,
-				"missing":   missing,
+				"requirements": requirements,
+				"counts":       counts,
 			},
 		}
 	}
@@ -64,6 +69,9 @@ func (v *ToolsCalledConversationValidator) ValidateConversation(
 	return ConversationValidationResult{
 		Passed:  true,
 		Message: "all required tools were called",
-		Details: map[string]interface{}{"counts": counts},
+		Details: map[string]interface{}{
+			"requirements": requirements,
+			"counts":       counts,
+		},
 	}
 }

@@ -2,6 +2,7 @@ package tools_test
 
 import (
 	"encoding/json"
+	"os"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -73,6 +74,147 @@ func TestMockExecutors(t *testing.T) {
 	if resultMap["result"] != "static response" {
 		t.Errorf("Expected 'static response', got '%v'", resultMap["result"])
 	}
+
+	// Test static execution from file
+	file := t.TempDir() + "/mock.json"
+	if err := os.WriteFile(file, []byte(`{"result":"file response"}`), 0o600); err != nil {
+		t.Fatalf("failed to write mock file: %v", err)
+	}
+	descFile := &tools.ToolDescriptor{
+		Name:           "fileTool",
+		Mode:           "mock",
+		MockResultFile: file,
+	}
+	result, err = staticExec.Execute(descFile, args)
+	if err != nil {
+		t.Fatalf("Static file execution failed: %v", err)
+	}
+	if err := json.Unmarshal(result, &resultMap); err != nil {
+		t.Fatalf("Failed to parse file result: %v", err)
+	}
+	if resultMap["result"] != "file response" {
+		t.Errorf("Expected 'file response', got '%v'", resultMap["result"])
+	}
+
+	// Test scripted execution with template file
+	tmplFile := t.TempDir() + "/tmpl.tmpl"
+	if err := os.WriteFile(tmplFile, []byte(`{"greeting":"Hello {{.name}}"}`), 0o600); err != nil {
+		t.Fatalf("failed to write template file: %v", err)
+	}
+	descTmpl := &tools.ToolDescriptor{
+		Name:             "tmplTool",
+		Mode:             "mock",
+		MockTemplateFile: tmplFile,
+	}
+	scriptedArgs := json.RawMessage(`{"name":"Alice"}`)
+	result, err = scriptedExec.Execute(descTmpl, scriptedArgs)
+	if err != nil {
+		t.Fatalf("Scripted file execution failed: %v", err)
+	}
+	if err := json.Unmarshal(result, &resultMap); err != nil {
+		t.Fatalf("Failed to parse template result: %v", err)
+	}
+	if resultMap["greeting"] != "Hello Alice" {
+		t.Errorf("Expected 'Hello Alice', got '%v'", resultMap["greeting"])
+	}
+
+	t.Run("inline template beats file", func(t *testing.T) {
+		file := t.TempDir() + "/tmpl.tmpl"
+		if err := os.WriteFile(file, []byte(`{"greeting":"Hello File"}`), 0o600); err != nil {
+			t.Fatalf("failed to write template file: %v", err)
+		}
+		descInline := &tools.ToolDescriptor{
+			Name:             "inlineWins",
+			Mode:             "mock",
+			MockTemplate:     `{"greeting":"Hello {{.name}} from inline"}`,
+			MockTemplateFile: file,
+		}
+		result, err := scriptedExec.Execute(descInline, scriptedArgs)
+		if err != nil {
+			t.Fatalf("Inline template execution failed: %v", err)
+		}
+		if err := json.Unmarshal(result, &resultMap); err != nil {
+			t.Fatalf("Failed to parse inline template result: %v", err)
+		}
+		if resultMap["greeting"] != "Hello Alice from inline" {
+			t.Errorf("Expected inline template to win, got '%v'", resultMap["greeting"])
+		}
+	})
+
+	t.Run("non-JSON template wraps as result", func(t *testing.T) {
+		descText := &tools.ToolDescriptor{
+			Name:         "textTmpl",
+			Mode:         "mock",
+			MockTemplate: "hello {{.name}}",
+		}
+		result, err := scriptedExec.Execute(descText, scriptedArgs)
+		if err != nil {
+			t.Fatalf("Text template execution failed: %v", err)
+		}
+		if err := json.Unmarshal(result, &resultMap); err != nil {
+			t.Fatalf("Failed to parse wrapped text result: %v", err)
+		}
+		if resultMap["result"] != "hello Alice" {
+			t.Errorf("Expected wrapped text result, got '%v'", resultMap["result"])
+		}
+	})
+}
+
+func TestMockExecutorErrors(t *testing.T) {
+	scriptedExec := tools.NewMockScriptedExecutor()
+	args := json.RawMessage(`{"name":"Bob"}`)
+
+	t.Run("missing template", func(t *testing.T) {
+		desc := &tools.ToolDescriptor{Name: "noTemplate", Mode: "mock"}
+		if _, err := scriptedExec.Execute(desc, args); err == nil {
+			t.Fatalf("expected error for missing template")
+		}
+	})
+
+	t.Run("bad template parse", func(t *testing.T) {
+		desc := &tools.ToolDescriptor{
+			Name:         "badTmpl",
+			Mode:         "mock",
+			MockTemplate: "{{ .name ", // malformed
+		}
+		if _, err := scriptedExec.Execute(desc, args); err == nil {
+			t.Fatalf("expected template parse error")
+		}
+	})
+
+	t.Run("bad template file read", func(t *testing.T) {
+		desc := &tools.ToolDescriptor{
+			Name:             "missingFile",
+			Mode:             "mock",
+			MockTemplateFile: "/does/not/exist.tmpl",
+		}
+		if _, err := scriptedExec.Execute(desc, args); err == nil {
+			t.Fatalf("expected file read error")
+		}
+	})
+
+	t.Run("bad json args", func(t *testing.T) {
+		desc := &tools.ToolDescriptor{
+			Name:         "tmpl",
+			Mode:         "mock",
+			MockTemplate: `{"hello":"{{.name}}"}`,
+		}
+		if _, err := scriptedExec.Execute(desc, json.RawMessage(`{"name":`)); err == nil {
+			t.Fatalf("expected arg parse error")
+		}
+	})
+
+	t.Run("missing mock result file", func(t *testing.T) {
+		staticExec := tools.NewMockStaticExecutor()
+		desc := &tools.ToolDescriptor{
+			Name:           "missingFile",
+			Mode:           "mock",
+			MockResultFile: "/does/not/exist.json",
+		}
+		if _, err := staticExec.Execute(desc, nil); err == nil {
+			t.Fatalf("expected missing file error")
+		}
+	})
 }
 
 func TestSchemaValidator(t *testing.T) {

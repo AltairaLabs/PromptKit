@@ -25,6 +25,13 @@ func compactString(s string) string {
 	return strings.TrimSpace(s)
 }
 
+func formatLine(label, value string, labelStyle, valueStyle *lipgloss.Style) string {
+	const labelWidth = 16
+	lbl := labelStyle.Render(fmt.Sprintf("%-*s", labelWidth, label))
+	val := valueStyle.Render(value)
+	return fmt.Sprintf("%s %s\n", lbl, val)
+}
+
 // Summary represents the final execution summary displayed after all runs complete
 type Summary struct {
 	TotalRuns      int
@@ -40,6 +47,9 @@ type Summary struct {
 	Errors         []ErrorInfo
 	OutputDir      string
 	HTMLReport     string
+
+	AssertionTotal  int
+	AssertionFailed int
 }
 
 // ErrorInfo represents a failed run with details
@@ -59,7 +69,6 @@ func RenderSummary(summary *Summary, width int) string {
 	headerStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("12")).
-		Width(width).
 		Align(lipgloss.Center)
 
 	sb.WriteString(headerStyle.Render("╔═════════════════════════════════════════════════════════════╗"))
@@ -80,32 +89,46 @@ func RenderSummary(summary *Summary, width int) string {
 	successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
 	failStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 
-	sb.WriteString(labelStyle.Render("Total Runs:       "))
-	sb.WriteString(valueStyle.Render(fmt.Sprintf("%d\n", summary.TotalRuns)))
-
-	sb.WriteString(labelStyle.Render("Successful:       "))
-	sb.WriteString(successStyle.Render(fmt.Sprintf("%d (%.1f%%)\n", summary.SuccessCount, successRate)))
-
-	sb.WriteString(labelStyle.Render("Failed:           "))
-	sb.WriteString(failStyle.Render(fmt.Sprintf("%d (%.1f%%)\n", summary.FailedCount, percentMultiplier-successRate)))
-
+	sb.WriteString(formatLine(
+		"Total Runs:",
+		fmt.Sprintf("%d", summary.TotalRuns),
+		&labelStyle,
+		&valueStyle,
+	))
+	sb.WriteString(formatLine(
+		"Successful:",
+		fmt.Sprintf("%d (%.1f%%)", summary.SuccessCount, successRate),
+		&labelStyle,
+		&successStyle,
+	))
+	sb.WriteString(formatLine(
+		"Failed:",
+		fmt.Sprintf("%d (%.1f%%)", summary.FailedCount, percentMultiplier-successRate),
+		&labelStyle,
+		&failStyle,
+	))
 	sb.WriteString("\n")
+
+	if summary.AssertionTotal > 0 {
+		sb.WriteString(formatLine("Assertions:", fmt.Sprintf("%d total", summary.AssertionTotal), &labelStyle, &valueStyle))
+		if summary.AssertionFailed > 0 {
+			sb.WriteString(formatLine("Assertions Fail:", fmt.Sprintf("%d", summary.AssertionFailed), &labelStyle, &failStyle))
+		} else {
+			sb.WriteString(formatLine("Assertions Pass:", "all passed", &labelStyle, &successStyle))
+		}
+		sb.WriteString("\n")
+	}
 
 	// Cost and performance
-	sb.WriteString(labelStyle.Render("Total Cost:       "))
-	sb.WriteString(valueStyle.Render(fmt.Sprintf("$%.4f\n", summary.TotalCost)))
-
-	sb.WriteString(labelStyle.Render("Total Tokens:     "))
-	sb.WriteString(valueStyle.Render(formatNumber(summary.TotalTokens)))
-	sb.WriteString("\n")
-
-	sb.WriteString(labelStyle.Render("Total Duration:   "))
-	sb.WriteString(valueStyle.Render(formatDuration(summary.TotalDuration)))
-	sb.WriteString("\n")
-
-	sb.WriteString(labelStyle.Render("Avg Duration:     "))
-	sb.WriteString(valueStyle.Render(formatDuration(summary.AvgDuration)))
-	sb.WriteString(" per run\n")
+	sb.WriteString(formatLine("Total Cost:", fmt.Sprintf("$%.4f", summary.TotalCost), &labelStyle, &valueStyle))
+	sb.WriteString(formatLine("Total Tokens:", formatNumber(summary.TotalTokens), &labelStyle, &valueStyle))
+	sb.WriteString(formatLine("Total Duration:", formatDuration(summary.TotalDuration), &labelStyle, &valueStyle))
+	sb.WriteString(formatLine(
+		"Avg Duration:",
+		fmt.Sprintf("%s per run", formatDuration(summary.AvgDuration)),
+		&labelStyle,
+		&valueStyle,
+	))
 
 	sb.WriteString("\n")
 
@@ -115,18 +138,13 @@ func RenderSummary(summary *Summary, width int) string {
 		for provider, count := range summary.ProviderCounts {
 			providerList = append(providerList, fmt.Sprintf("%s (%d)", provider, count))
 		}
-		sb.WriteString(labelStyle.Render("Providers:        "))
-		sb.WriteString(valueStyle.Render(strings.Join(providerList, ", ")))
-		sb.WriteString("\n")
+		sb.WriteString(formatLine("Providers:", strings.Join(providerList, ", "), &labelStyle, &valueStyle))
 	}
 
-	sb.WriteString(labelStyle.Render("Scenarios:        "))
-	sb.WriteString(valueStyle.Render(fmt.Sprintf("%d scenarios\n", summary.ScenarioCount)))
+	sb.WriteString(formatLine("Scenarios:", fmt.Sprintf("%d scenarios", summary.ScenarioCount), &labelStyle, &valueStyle))
 
 	if len(summary.Regions) > 0 {
-		sb.WriteString(labelStyle.Render("Regions:          "))
-		sb.WriteString(valueStyle.Render(strings.Join(summary.Regions, ", ")))
-		sb.WriteString("\n")
+		sb.WriteString(formatLine("Regions:", strings.Join(summary.Regions, ", "), &labelStyle, &valueStyle))
 	}
 
 	// Errors
@@ -144,14 +162,10 @@ func RenderSummary(summary *Summary, width int) string {
 
 	// Output info
 	sb.WriteString("\n")
-	sb.WriteString(labelStyle.Render("Results saved to: "))
-	sb.WriteString(valueStyle.Render(summary.OutputDir))
-	sb.WriteString("\n")
+	sb.WriteString(formatLine("Results saved to:", summary.OutputDir, &labelStyle, &valueStyle))
 
 	if summary.HTMLReport != "" {
-		sb.WriteString(labelStyle.Render("HTML Report:      "))
-		sb.WriteString(valueStyle.Render(summary.HTMLReport))
-		sb.WriteString("\n")
+		sb.WriteString(formatLine("HTML Report:", summary.HTMLReport, &labelStyle, &valueStyle))
 	}
 
 	return sb.String()

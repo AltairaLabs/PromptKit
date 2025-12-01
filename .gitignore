@@ -48,7 +48,7 @@ tools/arena/integration-test/**/*.json
 tools/arena/integration-test/**/*.html
 tools/arena/integration-test/**/*.xml
 tools/arena/promptarena
-
+iot-maintenance-demo/
 
 # Logs
 *.log

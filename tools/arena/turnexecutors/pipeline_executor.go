@@ -178,28 +178,40 @@ func convertTruncationStrategy(strategy string) middleware.TruncationStrategy {
 func (e *PipelineExecutor) buildMiddleware(req TurnRequest, baseVariables map[string]string) []pipeline.Middleware {
 	var pipelineMiddleware []pipeline.Middleware
 
+	// Merge prompt vars into base variables so prompt assembly has required values.
+	mergedVars := map[string]string{}
+	for k, v := range baseVariables {
+		mergedVars[k] = v
+	}
+	for k, v := range req.PromptVars {
+		mergedVars[k] = v
+	}
+
 	// 0. StateStore Load middleware
 	if storeConfig := buildStateStoreConfig(req); storeConfig != nil {
-		pipelineMiddleware = append(pipelineMiddleware, middleware.StateStoreLoadMiddleware(storeConfig))
 		// 0a. Compute authoritative turn indices right after loading state
-		pipelineMiddleware = append(pipelineMiddleware, arenamiddleware.TurnIndexMiddleware())
+		pipelineMiddleware = append(pipelineMiddleware,
+			middleware.StateStoreLoadMiddleware(storeConfig),
+			arenamiddleware.TurnIndexMiddleware(),
+		)
 	}
 
 	// 1. Variable injection
-	pipelineMiddleware = append(pipelineMiddleware, &variableInjectionMiddleware{variables: baseVariables})
+	injection := []pipeline.Middleware{
+		&variableInjectionMiddleware{variables: mergedVars},
+	}
 	// 1a. Metadata injection (generic: pass through request metadata to execution context)
 	if len(req.Metadata) > 0 {
-		pipelineMiddleware = append(pipelineMiddleware, &metadataInjectionMiddleware{metadata: req.Metadata})
+		injection = append(injection, &metadataInjectionMiddleware{metadata: req.Metadata})
 	}
+	pipelineMiddleware = append(pipelineMiddleware, injection...)
 
-	// 2. Prompt assembly
-	pipelineMiddleware = append(pipelineMiddleware, middleware.PromptAssemblyMiddleware(req.PromptRegistry, req.TaskType, baseVariables))
-
-	// 3. Context extraction
-	pipelineMiddleware = append(pipelineMiddleware, arenamiddleware.ScenarioContextExtractionMiddleware(req.Scenario))
-
-	// 4. Template middleware
-	pipelineMiddleware = append(pipelineMiddleware, middleware.TemplateMiddleware())
+	// 2-4. Prompt assembly, context extraction, template middleware
+	pipelineMiddleware = append(pipelineMiddleware,
+		middleware.PromptAssemblyMiddleware(req.PromptRegistry, req.TaskType, mergedVars),
+		arenamiddleware.ScenarioContextExtractionMiddleware(req.Scenario),
+		middleware.TemplateMiddleware(),
+	)
 
 	// 4a. Mock scenario context (for mock providers only) - BEFORE context building/truncation
 	// This ensures turn-number calculation uses the full state-store history, not a truncated context.
