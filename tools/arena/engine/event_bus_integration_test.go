@@ -15,7 +15,7 @@ import (
 
 func TestEventBus_PushesRunLifecycleToTUI(t *testing.T) {
 	t.Skip("Integration test with async event delivery - flaky due to goroutine timing")
-	
+
 	tmpDir := t.TempDir()
 	cfg := &config.Config{
 		Defaults: config.Defaults{
