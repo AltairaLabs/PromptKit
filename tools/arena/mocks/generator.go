@@ -63,10 +63,10 @@ func writeSingle(file File, opts WriteOptions) (map[string][]byte, error) {
 	}
 
 	if !opts.DryRun {
-		if err := os.MkdirAll(filepath.Dir(outPath), dirPerm); err != nil { //nolint:gosec // writable output directory
+		if err := os.MkdirAll(filepath.Dir(outPath), dirPerm); err != nil {
 			return nil, fmt.Errorf("failed to create output dir: %w", err)
 		}
-		if err := os.WriteFile(outPath, yamlBytes, filePerm); err != nil { //nolint:gosec // expected user-controlled output file
+		if err := os.WriteFile(outPath, yamlBytes, filePerm); err != nil {
 			return nil, fmt.Errorf("failed to write %s: %w", outPath, err)
 		}
 	}
@@ -80,7 +80,7 @@ func writePerScenario(file File, opts WriteOptions) (map[string][]byte, error) {
 	}
 
 	if !opts.DryRun {
-		if err := os.MkdirAll(opts.OutputPath, dirPerm); err != nil { //nolint:gosec // writable output directory
+		if err := os.MkdirAll(opts.OutputPath, dirPerm); err != nil {
 			return nil, fmt.Errorf("failed to create output dir: %w", err)
 		}
 	}
@@ -117,7 +117,7 @@ func writePerScenario(file File, opts WriteOptions) (map[string][]byte, error) {
 		}
 
 		if !opts.DryRun {
-			if err := os.WriteFile(outPath, yamlBytes, filePerm); err != nil { //nolint:gosec // expected user-controlled output file
+			if err := os.WriteFile(outPath, yamlBytes, filePerm); err != nil {
 				return nil, fmt.Errorf("failed to write %s: %w", outPath, err)
 			}
 		}

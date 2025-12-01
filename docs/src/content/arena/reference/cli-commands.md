@@ -21,6 +21,7 @@ promptarena [command] [flags]
 |---------|-------------|
 | `init` | Initialize a new Arena test project from template (built-in or remote) |
 | `run` | Run conversation simulations (main command) |
+| `mocks` | Generate mock provider responses from Arena JSON results |
 | `config-inspect` | Inspect and validate configuration |
 | `debug` | Debug configuration and prompt loading |
 | `prompt-debug` | Debug and test prompt generation |
@@ -186,6 +187,60 @@ promprarena run
 
 # View results
 open out/report.html
+```
+
+---
+
+## `promptarena mocks generate`
+
+Generate mock provider YAML from recorded Arena JSON results so you can replay conversations without calling real LLMs.
+
+### Usage
+
+```bash
+promptarena mocks generate [flags]
+```
+
+### Flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--input, -i` | string | `out` | Arena JSON result file or directory containing `*.json` runs |
+| `--output, -o` | string | `providers/mock-generated.yaml` | Output file path or directory (when `--per-scenario` is set) |
+| `--per-scenario` | bool | `false` | Write one YAML file per scenario (in `--output` directory) |
+| `--merge` | bool | `false` | Merge with existing mock file(s) instead of overwriting |
+| `--scenario` | []string | - | Only include specified scenario IDs |
+| `--provider` | []string | - | Only include specified provider IDs |
+| `--dry-run` | bool | `false` | Print generated YAML instead of writing files |
+| `--default-response` | string | - | Set `defaultResponse` when not present |
+
+### Examples
+
+Generate a consolidated mock file from the latest runs:
+
+```bash
+promptarena mocks generate \
+  --input out \
+  --scenario hardware-faults \
+  --provider openai-gpt4o \
+  --output providers/mock-generated.yaml \
+  --merge
+```
+
+Write one file per scenario:
+
+```bash
+promptarena mocks generate \
+  --input out \
+  --per-scenario \
+  --output providers/responses \
+  --merge
+```
+
+Preview without writing:
+
+```bash
+promptarena mocks generate --input out --dry-run
 ```
 
 ---
