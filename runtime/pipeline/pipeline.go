@@ -196,7 +196,10 @@ func (p *Pipeline) ExecuteWithOptions(opts *ExecutionOptions, role, content stri
 }
 
 // setupExecution handles common setup for both sync execution methods
-func (p *Pipeline) setupExecution(ctx context.Context, opts *ExecutionOptions) (*ExecutionContext, context.CancelFunc, error) {
+func (p *Pipeline) setupExecution(
+	ctx context.Context,
+	opts *ExecutionOptions,
+) (*ExecutionContext, context.CancelFunc, error) {
 	// Check if shutting down
 	if p.isShuttingDown() {
 		return nil, nil, ErrPipelineShuttingDown

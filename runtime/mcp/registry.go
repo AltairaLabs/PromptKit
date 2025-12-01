@@ -162,18 +162,27 @@ func (r *RegistryImpl) ListAllTools(ctx context.Context) (map[string][]Tool, err
 	result := make(map[string][]Tool)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	var firstErr error
+	errChan := make(chan error, len(serverNames))
 
 	// Query all servers in parallel
 	for _, name := range serverNames {
 		wg.Add(1)
 		go func(serverName string) {
 			defer wg.Done()
-			r.fetchServerTools(ctx, serverName, result, &mu, &firstErr)
+			r.fetchServerTools(ctx, serverName, result, &mu, errChan)
 		}(name)
 	}
 
 	wg.Wait()
+	close(errChan)
+
+	// Collect first error if any
+	var firstErr error
+	for err := range errChan {
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
 
 	if firstErr != nil && len(result) == 0 {
 		return nil, firstErr
@@ -195,29 +204,26 @@ func (r *RegistryImpl) getServerNames() []string {
 }
 
 // fetchServerTools fetches tools from a server and updates the result map
-func (r *RegistryImpl) fetchServerTools(ctx context.Context, serverName string, result map[string][]Tool, mu *sync.Mutex, firstErr *error) {
+func (r *RegistryImpl) fetchServerTools(
+	ctx context.Context,
+	serverName string,
+	result map[string][]Tool,
+	mu *sync.Mutex,
+	errChan chan<- error,
+) {
 	client, err := r.GetClient(ctx, serverName)
 	if err != nil {
-		r.recordError(mu, firstErr, fmt.Errorf("failed to get client for %s: %w", serverName, err))
+		errChan <- fmt.Errorf("failed to get client for %s: %w", serverName, err)
 		return
 	}
 
 	tools, err := client.ListTools(ctx)
 	if err != nil {
-		r.recordError(mu, firstErr, fmt.Errorf("failed to list tools for %s: %w", serverName, err))
+		errChan <- fmt.Errorf("failed to list tools for %s: %w", serverName, err)
 		return
 	}
 
 	r.updateToolsResult(serverName, tools, result, mu)
-}
-
-// recordError records the first error encountered
-func (r *RegistryImpl) recordError(mu *sync.Mutex, firstErr *error, err error) {
-	mu.Lock()
-	defer mu.Unlock()
-	if *firstErr == nil {
-		*firstErr = err
-	}
 }
 
 // updateToolsResult updates the result map and tool index

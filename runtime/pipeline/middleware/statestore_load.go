@@ -59,7 +59,10 @@ func (m *stateStoreLoadMiddleware) loadAndApplyState(execCtx *pipeline.Execution
 }
 
 // applyStateToContext prepends loaded messages to execution context
-func (m *stateStoreLoadMiddleware) applyStateToContext(execCtx *pipeline.ExecutionContext, state *statestore.ConversationState) {
+func (m *stateStoreLoadMiddleware) applyStateToContext(
+	execCtx *pipeline.ExecutionContext,
+	state *statestore.ConversationState,
+) {
 	// If conversation exists, prepend history to messages
 	if state != nil && len(state.Messages) > 0 {
 		// Mark all loaded messages with Source="statestore"

@@ -11,8 +11,13 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 )
 
+const (
+	minArgsForCommand  = 2
+	minArgsWithPackArg = 3
+)
+
 func main() {
-	if len(os.Args) < 2 {
+	if len(os.Args) < minArgsForCommand {
 		printUsage()
 		os.Exit(1)
 	}
@@ -87,7 +92,10 @@ func compileCommand() {
 	outputFile := fs.String("output", "", "Output pack file path")
 	packID := fs.String("id", "", "Pack ID (e.g., 'customer-support')")
 
-	fs.Parse(os.Args[2:])
+	if err := fs.Parse(os.Args[2:]); err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
+		os.Exit(1)
+	}
 
 	if *outputFile == "" || *packID == "" {
 		fmt.Fprintln(os.Stderr, "Error: --output and --id are required")
@@ -150,7 +158,10 @@ func compilePromptCommand() {
 	promptFile := fs.String("prompt", "", "Path to prompt YAML file")
 	outputFile := fs.String("output", "", "Output pack file path")
 
-	fs.Parse(os.Args[2:])
+	if err := fs.Parse(os.Args[2:]); err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
+		os.Exit(1)
+	}
 
 	if *promptFile == "" || *outputFile == "" {
 		fmt.Fprintln(os.Stderr, "Error: --prompt and --output are required")
@@ -210,7 +221,7 @@ func compilePromptCommand() {
 }
 
 func validateCommand() {
-	if len(os.Args) < 3 {
+	if len(os.Args) < minArgsWithPackArg {
 		fmt.Fprintln(os.Stderr, "Error: pack file path required")
 		fmt.Fprintln(os.Stderr, "Usage: packc validate <pack-file>")
 		os.Exit(1)
@@ -240,7 +251,7 @@ func validateCommand() {
 }
 
 func inspectCommand() {
-	if len(os.Args) < 3 {
+	if len(os.Args) < minArgsWithPackArg {
 		fmt.Fprintln(os.Stderr, "Error: pack file path required")
 		fmt.Fprintln(os.Stderr, "Usage: packc inspect <pack-file>")
 		os.Exit(1)

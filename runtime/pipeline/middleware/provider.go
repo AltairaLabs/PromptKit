@@ -663,7 +663,12 @@ func executeToolCalls(execCtx *pipeline.ExecutionContext, toolRegistry *tools.Re
 }
 
 // executeAndEmitToolCall executes a single tool call with event emission
-func executeAndEmitToolCall(execCtx *pipeline.ExecutionContext, toolRegistry *tools.Registry, policy *pipeline.ToolPolicy, call types.MessageToolCall) (types.MessageToolResult, interface{}, error) {
+func executeAndEmitToolCall(
+	execCtx *pipeline.ExecutionContext,
+	toolRegistry *tools.Registry,
+	policy *pipeline.ToolPolicy,
+	call types.MessageToolCall,
+) (types.MessageToolResult, interface{}, error) {
 	if execCtx.EventEmitter != nil {
 		execCtx.EventEmitter.ToolCallStarted(call.Name, call.ID, nil)
 	}
