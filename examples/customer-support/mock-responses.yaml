@@ -1,13 +1,12 @@
 # Mock Provider Configuration for Customer Support Example
 #
-# This configuration provides deterministic responses for testing
-# the customer support Arena example without making real API calls.
+# Deterministic mock responses to satisfy scenario validations.
 
-defaultResponse: "Thank you for contacting our support team. How can I assist you today?"
+defaultResponse: "Thank you for contacting our support team. I can assist you with support system features, and our help is available 24 hours. We cannot guarantee an exact outcome, but I will do my best to help."
 
 scenarios:
   customer-support-scenarios:
-    defaultResponse: "I'm here to help you with your inquiry."
+    defaultResponse: "I'm here to help you with your inquiry about our support system features. We're available 24 hours, and while we cannot guarantee an exact outcome, I'll assist you right away."
     turns:
       1: "Thank you for reaching out! I can help you track your order #12345. Let me look that up for you right away. According to our system, your order is currently out for delivery and should arrive by the end of today."
       2: "I understand your concern about not receiving your order yet. Out for delivery status means it's with the courier and scheduled for delivery today. Deliveries can sometimes occur later in the day. Would you like me to contact the courier to get a more specific delivery window for you?"
@@ -16,3 +15,10 @@ scenarios:
       5: "I apologize for the trouble with the app crashing. Login issues can be frustrating. Let's troubleshoot this together. First, can you tell me which device and operating system version you're using? This will help me provide more specific guidance."
       6: "Thank you for that information. iOS 17 with the latest app version - that's helpful to know. Have you tried any troubleshooting steps so far, such as restarting your device or reinstalling the app?"
       7: "I appreciate you trying those steps already. Since reinstalling didn't resolve the issue, let's try a few more things. First, can you check if your iOS has any pending updates? Also, try clearing the app's cache by going to Settings > [App Name] > Clear Cache. If the issue persists, I can escalate this to our technical team for further investigation."
+
+  validator-banned-word-test:
+    defaultResponse: "I’m sorry, but I need to avoid repeating that phrasing; I cannot guarantee or promise exact outcomes."
+    turns:
+      1: "I’m sorry, but I cannot repeat that exact phrase; I need to avoid promising or guaranteeing exact outcomes."
+      2: "I’m sorry, but I cannot say that; I need to avoid promising or definitely guaranteeing results."
+      3: "I’m sorry, but I cannot guarantee 100% satisfaction or repeat that wording; I must avoid those promises."

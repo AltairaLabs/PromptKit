@@ -504,9 +504,9 @@ func TestExecuteConversation_SelfPlayTurnNonStreaming(t *testing.T) {
 	// Build self-play registry with a single role/provider/persona
 	providerReg := providers.NewRegistry()
 	mockProvider, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
-		ID:     "mock-selfplay",
-		Type:   "mock",
-		Model:  "mock-model",
+		ID:    "mock-selfplay",
+		Type:  "mock",
+		Model: "mock-model",
 		Defaults: providers.ProviderDefaults{
 			Temperature: 0.1,
 			MaxTokens:   32,
@@ -519,7 +519,7 @@ func TestExecuteConversation_SelfPlayTurnNonStreaming(t *testing.T) {
 	roleMap := map[string]string{"operator": "mock-selfplay"}
 	personas := map[string]*config.UserPersonaPack{
 		"plant-operator": {
-			ID:          "plant-operator",
+			ID:           "plant-operator",
 			SystemPrompt: "You are an operator.",
 			Defaults: config.PersonaDefaults{
 				Temperature: 0.7,
@@ -573,9 +573,9 @@ func TestExecuteConversation_SelfPlayTurnStreaming(t *testing.T) {
 
 	providerReg := providers.NewRegistry()
 	mockProvider, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
-		ID:     "mock-selfplay",
-		Type:   "mock",
-		Model:  "mock-model",
+		ID:    "mock-selfplay",
+		Type:  "mock",
+		Model: "mock-model",
 		Defaults: providers.ProviderDefaults{
 			Temperature: 0.1,
 			MaxTokens:   32,

@@ -377,7 +377,7 @@ sonar-scan: ## Run SonarScanner locally (requires SONAR_TOKEN env var for CLI au
 		exit 1; \
 	fi
 	@sonar-scanner \
-		-Dsonar.projectKey=AltairaLabs_promptkit-public \
+		-Dsonar.projectKey=AltairaLabs_PromptKit \
 		-Dsonar.organization=altairalabs \
 		-Dsonar.sources=. \
 		-Dsonar.host.url=https://sonarcloud.io \

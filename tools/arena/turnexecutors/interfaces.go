@@ -22,6 +22,7 @@ import (
 	"context"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -90,6 +91,10 @@ type TurnRequest struct {
 
 	// Assertions to validate after turn execution
 	Assertions []assertions.AssertionConfig
+
+	// Observability
+	EventBus *events.EventBus
+	RunID    string
 }
 
 // StateStoreConfig wraps the state store configuration for turn executors

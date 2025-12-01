@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
@@ -59,6 +60,9 @@ type ConversationRequest struct {
 	// For distributed execution and tracing (v0.2.0+)
 	RunID    string            // Unique identifier for this run
 	Metadata map[string]string // Additional metadata for debugging/tracing
+
+	// Event bus for runtime/TUI events
+	EventBus *events.EventBus
 
 	// State management
 	StateStoreConfig *StateStoreConfig // Optional state store configuration

@@ -182,3 +182,12 @@ func TestEngine_GenerateCombinations_EmptyInputs(t *testing.T) {
 		})
 	}
 }
+
+func TestEngine_IntersectProviders(t *testing.T) {
+	e := &Engine{}
+	scenarioProviders := []string{"p1", "p2", "p3"}
+	filter := []string{"p2", "p3", "p4"}
+
+	got := e.intersectProviders(scenarioProviders, filter)
+	require.Equal(t, []string{"p2", "p3"}, got)
+}

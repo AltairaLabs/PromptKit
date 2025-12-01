@@ -47,6 +47,10 @@ func (m *stateStoreLoadMiddleware) Process(execCtx *pipeline.ExecutionContext, n
 				state.Messages[i].Source = "statestore"
 			}
 			execCtx.Messages = append(state.Messages, execCtx.Messages...)
+
+			if execCtx.EventEmitter != nil {
+				execCtx.EventEmitter.StateLoaded(m.config.ConversationID, len(state.Messages))
+			}
 		}
 
 		// Store conversation metadata for other middleware

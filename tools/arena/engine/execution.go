@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
@@ -204,6 +205,7 @@ func (e *Engine) intersectProviders(scenarioProviders, providerFilter []string) 
 func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, error) {
 	startTime := time.Now()
 	runID := generateRunID(combo)
+	runEmitter := e.createRunEmitter(runID, combo)
 
 	// Notify observer that run is starting
 	if e.observer != nil {
@@ -218,26 +220,7 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 
 	// Helper to save error metadata
 	saveError := func(errMsg string) (string, error) {
-		metadata := &statestore.RunMetadata{
-			RunID:      runID,
-			Region:     combo.Region,
-			ScenarioID: combo.ScenarioID,
-			ProviderID: combo.ProviderID,
-			StartTime:  startTime,
-			EndTime:    time.Now(),
-			Duration:   time.Since(startTime),
-			Error:      errMsg,
-		}
-		if err := arenaStore.SaveMetadata(ctx, runID, metadata); err != nil {
-			return runID, fmt.Errorf("failed to save error metadata: %w", err)
-		}
-
-		// Notify observer of failure
-		if e.observer != nil {
-			e.observer.OnRunFailed(runID, fmt.Errorf("%s", errMsg))
-		}
-
-		return runID, nil
+		return e.saveRunError(ctx, arenaStore, combo, runID, startTime, errMsg, runEmitter)
 	}
 
 	// Get scenario
@@ -259,6 +242,7 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 		Config:   e.config,
 		Region:   combo.Region,
 		RunID:    runID,
+		EventBus: e.eventBus,
 		Observer: e.observer,
 	}
 
@@ -282,39 +266,145 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 	cost := convResult.Cost.TotalCost
 
 	// Save run metadata to StateStore
+	if err := e.saveRunMetadata(ctx, arenaStore, combo, convResult, runID, startTime, duration); err != nil {
+		return runID, fmt.Errorf("failed to save run metadata: %w", err)
+	}
+
+	e.notifyRunCompletion(runEmitter, convResult, runID, duration, cost)
+
+	return runID, nil
+}
+
+func (e *Engine) createRunEmitter(runID string, combo RunCombination) *events.Emitter {
+	if e.eventBus == nil {
+		return nil
+	}
+	emitter := events.NewEmitter(e.eventBus, runID, "", runID)
+	emitter.EmitCustom(
+		events.EventType("arena.run.started"),
+		"ArenaEngine",
+		"run_started",
+		map[string]interface{}{
+			"scenario": combo.ScenarioID,
+			"provider": combo.ProviderID,
+			"region":   combo.Region,
+		},
+		fmt.Sprintf("Run %s started", runID),
+	)
+	return emitter
+}
+
+func (e *Engine) saveRunError(
+	ctx context.Context,
+	store *statestore.ArenaStateStore,
+	combo RunCombination,
+	runID string,
+	start time.Time,
+	errMsg string,
+	runEmitter *events.Emitter,
+) (string, error) {
+	metadata := &statestore.RunMetadata{
+		RunID:      runID,
+		Region:     combo.Region,
+		ScenarioID: combo.ScenarioID,
+		ProviderID: combo.ProviderID,
+		StartTime:  start,
+		EndTime:    time.Now(),
+		Duration:   time.Since(start),
+		Error:      errMsg,
+	}
+	if err := store.SaveMetadata(ctx, runID, metadata); err != nil {
+		return runID, fmt.Errorf("failed to save error metadata: %w", err)
+	}
+
+	if e.observer != nil {
+		e.observer.OnRunFailed(runID, fmt.Errorf("%s", errMsg))
+	}
+	if runEmitter != nil {
+		runEmitter.EmitCustom(
+			events.EventType("arena.run.failed"),
+			"ArenaEngine",
+			"run_failed",
+			map[string]interface{}{
+				"error": errMsg,
+			},
+			fmt.Sprintf("Run %s failed", runID),
+		)
+	}
+
+	return runID, nil
+}
+
+func (e *Engine) saveRunMetadata(
+	ctx context.Context,
+	store *statestore.ArenaStateStore,
+	combo RunCombination,
+	result *ConversationResult,
+	runID string,
+	start time.Time,
+	duration time.Duration,
+) error {
 	metadata := &statestore.RunMetadata{
 		RunID:                        runID,
 		Region:                       combo.Region,
 		ScenarioID:                   combo.ScenarioID,
 		ProviderID:                   combo.ProviderID,
-		StartTime:                    startTime,
+		StartTime:                    start,
 		EndTime:                      time.Now(),
 		Duration:                     duration,
-		Error:                        convResult.Error,
-		SelfPlay:                     convResult.SelfPlay,
-		PersonaID:                    convResult.PersonaID,
-		ConversationAssertionResults: convResult.ConversationAssertionResults,
+		Error:                        result.Error,
+		SelfPlay:                     result.SelfPlay,
+		PersonaID:                    result.PersonaID,
+		ConversationAssertionResults: result.ConversationAssertionResults,
 	}
 
 	logger.Debug("Saving run metadata",
 		"runID", runID,
-		"conv_assertions_count", len(convResult.ConversationAssertionResults),
-		"conv_assertions_results", convResult.ConversationAssertionResults)
+		"conv_assertions_count", len(result.ConversationAssertionResults),
+		"conv_assertions_results", result.ConversationAssertionResults)
 
-	if err := arenaStore.SaveMetadata(ctx, runID, metadata); err != nil {
-		return runID, fmt.Errorf("failed to save run metadata: %w", err)
-	}
+	return store.SaveMetadata(ctx, runID, metadata)
+}
 
-	// Notify observer of completion or failure
+func (e *Engine) notifyRunCompletion(
+	runEmitter *events.Emitter,
+	result *ConversationResult,
+	runID string,
+	duration time.Duration,
+	cost float64,
+) {
 	if e.observer != nil {
-		if convResult.Error != "" {
-			e.observer.OnRunFailed(runID, fmt.Errorf("%s", convResult.Error))
+		if result.Error != "" {
+			e.observer.OnRunFailed(runID, fmt.Errorf("%s", result.Error))
 		} else {
 			e.observer.OnRunCompleted(runID, duration, cost)
 		}
 	}
-
-	return runID, nil
+	if runEmitter == nil {
+		return
+	}
+	if result.Error != "" {
+		runEmitter.EmitCustom(
+			events.EventType("arena.run.failed"),
+			"ArenaEngine",
+			"run_failed",
+			map[string]interface{}{
+				"error": result.Error,
+			},
+			fmt.Sprintf("Run %s failed", runID),
+		)
+		return
+	}
+	runEmitter.EmitCustom(
+		events.EventType("arena.run.completed"),
+		"ArenaEngine",
+		"run_completed",
+		map[string]interface{}{
+			"duration": duration,
+			"cost":     cost,
+		},
+		fmt.Sprintf("Run %s completed", runID),
+	)
 }
 
 // generateRunID creates a unique run ID for a combination

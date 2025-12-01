@@ -12,6 +12,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 )
 
+const outputFilePerm = 0o600
+
 const version = "v0.1.0"
 
 const warningFormat = "  - %s\n"
@@ -100,38 +102,9 @@ func compileCommand() {
 		os.Exit(1)
 	}
 
-	// Load arena config
-	cfg, err := config.LoadConfig(*configFile)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading arena config: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Create memory repository
-	memRepo := memory.NewPromptRepository()
-
-	// Register all pre-loaded prompt configs
-	for _, promptData := range cfg.LoadedPromptConfigs {
-		if promptData.Config == nil {
-			continue
-		}
-
-		// Type assert the config
-		promptConfig, ok := promptData.Config.(*prompt.Config)
-		if !ok {
-			fmt.Fprintf(os.Stderr, "Error: prompt config %s has invalid type\n", promptData.FilePath)
-			os.Exit(1)
-		}
-
-		if err := memRepo.SavePrompt(promptConfig); err != nil {
-			fmt.Fprintf(os.Stderr, "Error registering prompt %s: %v\n", promptData.FilePath, err)
-			os.Exit(1)
-		}
-	}
-
-	// Create registry with memory repository
+	cfg := mustLoadConfig(*configFile)
+	memRepo := buildMemoryRepo(cfg)
 	registry := prompt.NewRegistryWithRepository(memRepo)
-
 	if registry == nil {
 		fmt.Fprintln(os.Stderr, "No prompt configs found in arena.yaml")
 		os.Exit(1)
@@ -139,22 +112,8 @@ func compileCommand() {
 
 	fmt.Printf("Loaded %d prompt configs from memory repository\n", len(cfg.LoadedPromptConfigs))
 
-	// Validate media references
 	configDir := filepath.Dir(*configFile)
-	for _, promptData := range cfg.LoadedPromptConfigs {
-		promptConfig, ok := promptData.Config.(*prompt.Config)
-		if !ok {
-			continue
-		}
-
-		warnings := validateMediaReferences(promptConfig, configDir)
-		if len(warnings) > 0 {
-			fmt.Printf("⚠ Media validation warnings for %s:\n", promptConfig.Spec.TaskType)
-			for _, w := range warnings {
-				fmt.Printf(warningFormat, w)
-			}
-		}
-	}
+	validateLoadedMedia(cfg, configDir)
 
 	compiler := prompt.NewPackCompiler(registry)
 
@@ -175,13 +134,62 @@ func compileCommand() {
 	}
 
 	// Write to file
-	if err := os.WriteFile(*outputFile, data, 0644); err != nil {
+	if err := os.WriteFile(*outputFile, data, outputFilePerm); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to write pack file: %v\n", err)
 		os.Exit(1)
 	}
 
 	fmt.Printf("✓ Pack compiled successfully: %s\n", *outputFile)
 	fmt.Printf("  Contains %d prompts: %v\n", len(pack.Prompts), pack.ListPrompts())
+}
+
+func mustLoadConfig(configFile string) *config.Config {
+	cfg, err := config.LoadConfig(configFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading arena config: %v\n", err)
+		os.Exit(1)
+	}
+	return cfg
+}
+
+func buildMemoryRepo(cfg *config.Config) *memory.PromptRepository {
+	memRepo := memory.NewPromptRepository()
+
+	for _, promptData := range cfg.LoadedPromptConfigs {
+		if promptData.Config == nil {
+			continue
+		}
+
+		promptConfig, ok := promptData.Config.(*prompt.Config)
+		if !ok {
+			fmt.Fprintf(os.Stderr, "Error: prompt config %s has invalid type\n", promptData.FilePath)
+			os.Exit(1)
+		}
+
+		if err := memRepo.SavePrompt(promptConfig); err != nil {
+			fmt.Fprintf(os.Stderr, "Error registering prompt %s: %v\n", promptData.FilePath, err)
+			os.Exit(1)
+		}
+	}
+
+	return memRepo
+}
+
+func validateLoadedMedia(cfg *config.Config, configDir string) {
+	for _, promptData := range cfg.LoadedPromptConfigs {
+		promptConfig, ok := promptData.Config.(*prompt.Config)
+		if !ok {
+			continue
+		}
+
+		warnings := validateMediaReferences(promptConfig, configDir)
+		if len(warnings) > 0 {
+			fmt.Printf("⚠ Media validation warnings for %s:\n", promptConfig.Spec.TaskType)
+			for _, w := range warnings {
+				fmt.Printf(warningFormat, w)
+			}
+		}
+	}
 }
 
 func compilePromptCommand() {
