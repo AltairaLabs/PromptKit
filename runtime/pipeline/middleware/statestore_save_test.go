@@ -247,3 +247,19 @@ func TestStateStoreSaveMiddleware_PreservesExecutionError(t *testing.T) {
 		t.Error("expected state to be saved")
 	}
 }
+
+func TestStateStoreSaveMiddleware_StreamChunk(t *testing.T) {
+	// StateStoreSaveMiddleware should not modify stream chunks
+	config := &pipeline.StateStoreConfig{
+		Store:          statestore.NewMemoryStore(),
+		ConversationID: "test",
+	}
+
+	middleware := StateStoreSaveMiddleware(config)
+	execCtx := &pipeline.ExecutionContext{}
+
+	err := middleware.StreamChunk(execCtx, nil)
+	if err != nil {
+		t.Errorf("StreamChunk() error = %v, want nil", err)
+	}
+}

@@ -180,3 +180,123 @@ func TestExecutionContext_InterruptStream(t *testing.T) {
 	assert.True(t, ctx.StreamInterrupted)
 	assert.Equal(t, "rate limit exceeded", ctx.InterruptReason)
 }
+
+func TestExecutionContext_PendingToolCalls(t *testing.T) {
+	ctx := &ExecutionContext{}
+
+	// Initially no pending tool calls
+	assert.False(t, ctx.HasPendingToolCalls())
+	assert.Nil(t, ctx.GetPendingToolCall("nonexistent"))
+
+	// Add a pending tool call
+	toolCall1 := types.MessageToolCall{
+		ID:   "call-1",
+		Name: "search",
+	}
+	ctx.AddPendingToolCall(toolCall1)
+
+	assert.True(t, ctx.HasPendingToolCalls())
+	assert.Len(t, ctx.PendingToolCalls, 1)
+
+	// Retrieve the tool call
+	retrieved := ctx.GetPendingToolCall("call-1")
+	assert.NotNil(t, retrieved)
+	assert.Equal(t, "call-1", retrieved.ID)
+	assert.Equal(t, "search", retrieved.Name)
+
+	// Add another tool call
+	toolCall2 := types.MessageToolCall{
+		ID:   "call-2",
+		Name: "calculator",
+	}
+	ctx.AddPendingToolCall(toolCall2)
+	assert.Len(t, ctx.PendingToolCalls, 2)
+
+	// Remove a tool call
+	removed := ctx.RemovePendingToolCall("call-1")
+	assert.True(t, removed)
+	assert.Len(t, ctx.PendingToolCalls, 1)
+	assert.Nil(t, ctx.GetPendingToolCall("call-1"))
+	assert.NotNil(t, ctx.GetPendingToolCall("call-2"))
+
+	// Try to remove non-existent tool call
+	removed = ctx.RemovePendingToolCall("nonexistent")
+	assert.False(t, removed)
+	assert.Len(t, ctx.PendingToolCalls, 1)
+
+	// Clear all pending tool calls
+	ctx.ClearPendingToolCalls()
+	assert.False(t, ctx.HasPendingToolCalls())
+	assert.Len(t, ctx.PendingToolCalls, 0)
+}
+
+func TestExecutionContext_IsStreaming(t *testing.T) {
+	ctx := &ExecutionContext{
+		StreamMode: false,
+	}
+	assert.False(t, ctx.IsStreaming())
+
+	ctx.StreamMode = true
+	assert.True(t, ctx.IsStreaming())
+}
+
+func TestExecutionContext_RecordLLMCall(t *testing.T) {
+	ctx := &ExecutionContext{
+		Messages: []types.Message{
+			{Role: "user", Content: "Hello"},
+		},
+	}
+
+	startTime := time.Now()
+	duration := 100 * time.Millisecond
+	response := &Response{
+		Content: "Hi there",
+	}
+	costInfo := &types.CostInfo{
+		InputTokens:  10,
+		OutputTokens: 20,
+		TotalCost:    0.001,
+	}
+
+	// Record an LLM call
+	ctx.RecordLLMCall(false, response, startTime, duration, costInfo, nil)
+
+	assert.Len(t, ctx.Trace.LLMCalls, 1)
+	llmCall := ctx.Trace.LLMCalls[0]
+	assert.Equal(t, 1, llmCall.Sequence)
+	assert.Equal(t, 1, llmCall.MessageIndex) // Current length before append
+	assert.Equal(t, response, llmCall.Response)
+	assert.Equal(t, startTime, llmCall.StartedAt)
+	assert.Equal(t, duration, llmCall.Duration)
+	assert.Equal(t, 10, llmCall.Cost.InputTokens)
+	assert.Equal(t, 20, llmCall.Cost.OutputTokens)
+	assert.Equal(t, 0.001, llmCall.Cost.TotalCost)
+
+	// Record another call
+	ctx.RecordLLMCall(false, response, startTime, duration, costInfo, nil)
+	assert.Len(t, ctx.Trace.LLMCalls, 2)
+	assert.Equal(t, 2, ctx.Trace.LLMCalls[1].Sequence)
+}
+
+func TestExecutionContext_RecordLLMCall_DisableTrace(t *testing.T) {
+	ctx := &ExecutionContext{}
+
+	// Record with tracing disabled
+	ctx.RecordLLMCall(true, &Response{Content: "test"}, time.Now(), time.Second, nil, nil)
+
+	// Should not record anything
+	assert.Len(t, ctx.Trace.LLMCalls, 0)
+}
+
+func TestExecutionContext_RecordLLMCall_NilCostInfo(t *testing.T) {
+	ctx := &ExecutionContext{}
+
+	// Record with nil cost info
+	ctx.RecordLLMCall(false, &Response{Content: "test"}, time.Now(), time.Second, nil, nil)
+
+	assert.Len(t, ctx.Trace.LLMCalls, 1)
+	// Cost should be zero-initialized
+	assert.Equal(t, 0, ctx.Trace.LLMCalls[0].Cost.InputTokens)
+	assert.Equal(t, 0, ctx.Trace.LLMCalls[0].Cost.OutputTokens)
+	assert.Equal(t, 0.0, ctx.Trace.LLMCalls[0].Cost.TotalCost)
+}

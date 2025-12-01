@@ -200,3 +200,81 @@ func TestRegistry_RefreshAllToolIndices_Empty(t *testing.T) {
 	err := registry.refreshAllToolIndices(context.Background())
 	assert.NoError(t, err)
 }
+
+func TestRegistry_GetServerNames(t *testing.T) {
+	registry := NewRegistry()
+
+	// Empty registry
+	names := registry.getServerNames()
+	assert.Empty(t, names)
+
+	// Add servers
+	_ = registry.RegisterServer(ServerConfig{Name: "server1", Command: "echo"})
+	_ = registry.RegisterServer(ServerConfig{Name: "server2", Command: "cat"})
+	_ = registry.RegisterServer(ServerConfig{Name: "server3", Command: "ls"})
+
+	names = registry.getServerNames()
+	assert.Len(t, names, 3)
+	assert.Contains(t, names, "server1")
+	assert.Contains(t, names, "server2")
+	assert.Contains(t, names, "server3")
+}
+
+func TestRegistry_TryGetExistingClient_NotRegistered(t *testing.T) {
+	registry := NewRegistry()
+
+	client, err := registry.tryGetExistingClient("non-existent")
+	assert.Error(t, err)
+	assert.Nil(t, client)
+	assert.Contains(t, err.Error(), "not registered")
+}
+
+func TestRegistry_TryGetExistingClient_AfterClose(t *testing.T) {
+	registry := NewRegistry()
+
+	_ = registry.RegisterServer(ServerConfig{Name: "test", Command: "echo"})
+	registry.Close()
+
+	client, err := registry.tryGetExistingClient("test")
+	assert.Error(t, err)
+	assert.Nil(t, client)
+	assert.Contains(t, err.Error(), "closed")
+}
+
+func TestServerConfigData_Conversion(t *testing.T) {
+	// Test that ServerConfigData can be converted to ServerConfig
+	data := ServerConfigData{
+		Name:    "test-server",
+		Command: "echo",
+		Args:    []string{"hello", "world"},
+		Env:     map[string]string{"KEY": "value"},
+	}
+
+	config := ServerConfig(data)
+
+	assert.Equal(t, "test-server", config.Name)
+	assert.Equal(t, "echo", config.Command)
+	assert.Equal(t, []string{"hello", "world"}, config.Args)
+	assert.Equal(t, map[string]string{"KEY": "value"}, config.Env)
+}
+
+func TestNewRegistryWithServers_EmptyList(t *testing.T) {
+	registry, err := NewRegistryWithServers([]ServerConfigData{})
+	require.NoError(t, err)
+	require.NotNil(t, registry)
+
+	servers := registry.ListServers()
+	assert.Empty(t, servers)
+}
+
+func TestNewRegistryWithServers_DuplicateNames(t *testing.T) {
+	configs := []ServerConfigData{
+		{Name: "server1", Command: "echo"},
+		{Name: "server1", Command: "cat"}, // Duplicate name
+	}
+
+	registry, err := NewRegistryWithServers(configs)
+	assert.Error(t, err)
+	assert.Nil(t, registry)
+	assert.Contains(t, err.Error(), "already registered")
+}
