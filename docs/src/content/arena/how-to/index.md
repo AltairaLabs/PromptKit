@@ -41,6 +41,11 @@ Test quickly and cost-free with mock providers instead of real LLM APIs.
 Use assertions and custom validators to verify LLM response quality.
 </div>
 
+<div class="code-example" markdown="1">
+### [Generate Mock Responses from Arena Results](generate-mock-responses-from-arena)
+Turn recorded Arena runs into mock provider YAML for deterministic, cost-free replays.
+</div>
+
 ## Automation
 
 <div class="code-example" markdown="1">

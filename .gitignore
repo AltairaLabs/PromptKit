@@ -63,6 +63,7 @@ tmp/
 temp/
 *.tmp
 .cache/
+.gocache/
 docs/local-backlog/
 
 # Documentation (Astro)
