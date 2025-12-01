@@ -72,7 +72,7 @@ func (ce *DefaultConversationExecutor) executeWithoutStreaming(
 ) *ConversationResult {
 	// Execute each turn in the scenario
 	for turnIdx, scenarioTurn := range req.Scenario.Turns {
-		ce.notifyTurnStarted(req.Observer, emitter, req.RunID, turnIdx, scenarioTurn.Role, req.Scenario.ID)
+		ce.notifyTurnStarted(emitter, turnIdx, scenarioTurn.Role, req.Scenario.ID)
 		// Debug if assertions are specified on user turns (they only validate assistant responses)
 		if scenarioTurn.Role == roleUser && len(scenarioTurn.Assertions) > 0 {
 			logger.Debug("Assertions on user turn will validate next assistant response",
@@ -102,7 +102,7 @@ func (ce *DefaultConversationExecutor) executeWithoutStreaming(
 				"turn", turnIdx,
 				"role", scenarioTurn.Role,
 				"error", err)
-			ce.notifyTurnCompleted(req.Observer, emitter, req.RunID, turnIdx, scenarioTurn.Role, req.Scenario.ID, err)
+			ce.notifyTurnCompleted(emitter, turnIdx, scenarioTurn.Role, req.Scenario.ID, err)
 
 			// Load messages from StateStore (they were saved before validation failed)
 			result := ce.buildResultFromStateStore(*req)
@@ -111,7 +111,7 @@ func (ce *DefaultConversationExecutor) executeWithoutStreaming(
 			return result
 		}
 
-		ce.notifyTurnCompleted(req.Observer, emitter, req.RunID, turnIdx, scenarioTurn.Role, req.Scenario.ID, nil)
+		ce.notifyTurnCompleted(emitter, turnIdx, scenarioTurn.Role, req.Scenario.ID, nil)
 		logger.Debug("Turn completed",
 			"turn", turnIdx,
 			"role", scenarioTurn.Role)
@@ -128,14 +128,14 @@ func (ce *DefaultConversationExecutor) executeWithStreaming(
 	emitter *events.Emitter,
 ) *ConversationResult {
 	for turnIdx, scenarioTurn := range req.Scenario.Turns {
-		ce.notifyTurnStarted(req.Observer, emitter, req.RunID, turnIdx, scenarioTurn.Role, req.Scenario.ID)
+		ce.notifyTurnStarted(emitter, turnIdx, scenarioTurn.Role, req.Scenario.ID)
 		err := ce.executeStreamingTurn(ctx, *req, turnIdx, scenarioTurn)
 		if err != nil {
-			ce.notifyTurnCompleted(req.Observer, emitter, req.RunID, turnIdx, scenarioTurn.Role, req.Scenario.ID, err)
+			ce.notifyTurnCompleted(emitter, turnIdx, scenarioTurn.Role, req.Scenario.ID, err)
 			return ce.handleTurnExecutionError(*req, err, turnIdx, scenarioTurn)
 		}
 
-		ce.notifyTurnCompleted(req.Observer, emitter, req.RunID, turnIdx, scenarioTurn.Role, req.Scenario.ID, nil)
+		ce.notifyTurnCompleted(emitter, turnIdx, scenarioTurn.Role, req.Scenario.ID, nil)
 		ce.logTurnCompletion(turnIdx, scenarioTurn, req.Scenario.ShouldStreamTurn(turnIdx))
 	}
 
@@ -161,11 +161,8 @@ func (ce *DefaultConversationExecutor) debugOnUserTurnAssertions(scenarioTurn co
 }
 
 func (ce *DefaultConversationExecutor) notifyTurnStarted(
-	observer ExecutionObserver, emitter *events.Emitter, runID string, turnIdx int, role, scenarioID string,
+	emitter *events.Emitter, turnIdx int, role, scenarioID string,
 ) {
-	if observer != nil {
-		observer.OnTurnStarted(runID, turnIdx, role, scenarioID)
-	}
 	if emitter != nil {
 		emitter.EmitCustom(
 			events.EventType("arena.turn.started"),
@@ -182,11 +179,8 @@ func (ce *DefaultConversationExecutor) notifyTurnStarted(
 }
 
 func (ce *DefaultConversationExecutor) notifyTurnCompleted(
-	observer ExecutionObserver, emitter *events.Emitter, runID string, turnIdx int, role, scenarioID string, err error,
+	emitter *events.Emitter, turnIdx int, role, scenarioID string, err error,
 ) {
-	if observer != nil {
-		observer.OnTurnCompleted(runID, turnIdx, role, scenarioID, err)
-	}
 	if emitter != nil {
 		eventType := events.EventType("arena.turn.completed")
 		eventName := "turn_completed"

@@ -744,6 +744,34 @@ func (m *Model) SetStateStore(store runResultStorer) {
 	m.stateStore = store
 }
 
+// CompletedCount returns the number of completed runs (success + failure).
+// Safe for concurrent use.
+func (m *Model) CompletedCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.completedCount
+}
+
+// ActiveRuns returns a snapshot of active runs for inspection or testing.
+// Safe for concurrent use.
+func (m *Model) ActiveRuns() []RunInfo {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cpy := make([]RunInfo, len(m.activeRuns))
+	copy(cpy, m.activeRuns)
+	return cpy
+}
+
+// Logs returns a snapshot of the current log entries.
+// Safe for concurrent use.
+func (m *Model) Logs() []LogEntry {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cpy := make([]LogEntry, len(m.logs))
+	copy(cpy, m.logs)
+	return cpy
+}
+
 // Run starts the TUI application
 func Run(ctx context.Context, model *Model) error {
 	if !model.isTUIMode {

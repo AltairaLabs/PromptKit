@@ -207,11 +207,6 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 	runID := generateRunID(combo)
 	runEmitter := e.createRunEmitter(runID, combo)
 
-	// Notify observer that run is starting
-	if e.observer != nil {
-		e.observer.OnRunStarted(runID, combo.ScenarioID, combo.ProviderID, combo.Region)
-	}
-
 	// Get Arena state store
 	arenaStore, ok := e.stateStore.(*statestore.ArenaStateStore)
 	if !ok {
@@ -243,7 +238,6 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 		Region:   combo.Region,
 		RunID:    runID,
 		EventBus: e.eventBus,
-		Observer: e.observer,
 	}
 
 	// Always configure StateStore (always enabled now)
@@ -317,9 +311,6 @@ func (e *Engine) saveRunError(
 		return runID, fmt.Errorf("failed to save error metadata: %w", err)
 	}
 
-	if e.observer != nil {
-		e.observer.OnRunFailed(runID, fmt.Errorf("%s", errMsg))
-	}
 	if runEmitter != nil {
 		runEmitter.EmitCustom(
 			events.EventType("arena.run.failed"),
@@ -373,13 +364,6 @@ func (e *Engine) notifyRunCompletion(
 	duration time.Duration,
 	cost float64,
 ) {
-	if e.observer != nil {
-		if result.Error != "" {
-			e.observer.OnRunFailed(runID, fmt.Errorf("%s", result.Error))
-		} else {
-			e.observer.OnRunCompleted(runID, duration, cost)
-		}
-	}
 	if runEmitter == nil {
 		return
 	}

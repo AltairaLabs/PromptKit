@@ -28,8 +28,8 @@ func TestConversationExecutorEmitsTurnEventsToBus(t *testing.T) {
 	})
 
 	ce := &DefaultConversationExecutor{}
-	ce.notifyTurnStarted(nil, emitter, "run-1", 0, "user", "scenario-1")
-	ce.notifyTurnCompleted(nil, emitter, "run-1", 0, "user", "scenario-1", nil)
+	ce.notifyTurnStarted(emitter, 0, "user", "scenario-1")
+	ce.notifyTurnCompleted(emitter, 0, "user", "scenario-1", nil)
 
 	done := make(chan struct{})
 	go func() {
@@ -64,7 +64,7 @@ func TestConversationExecutorEmitsFailureEvent(t *testing.T) {
 	})
 
 	ce := &DefaultConversationExecutor{}
-	ce.notifyTurnCompleted(nil, emitter, "run-2", 0, "user", "scenario-2", assertErr{})
+	ce.notifyTurnCompleted(emitter, 0, "user", "scenario-2", assertErr{})
 
 	done := make(chan struct{})
 	go func() {

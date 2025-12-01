@@ -56,8 +56,7 @@ type Engine struct {
 	providers            map[string]*config.Provider
 	personas             map[string]*config.UserPersonaPack
 	conversationExecutor ConversationExecutor
-	observer             ExecutionObserver // Optional observer for execution events (can be nil)
-	eventBus             *events.EventBus  // Optional event bus for runtime/TUI events
+	eventBus             *events.EventBus // Optional event bus for runtime/TUI events
 }
 
 // NewEngineFromConfigFile creates a new simulation engine from a configuration file.
@@ -166,20 +165,6 @@ func (e *Engine) Close() error {
 	}
 
 	return nil
-}
-
-// SetObserver sets an execution observer to receive real-time progress callbacks.
-// The observer will be notified when runs start, complete, or fail.
-//
-// Observer methods are called from worker goroutines and must be thread-safe.
-// Pass nil to disable observation.
-//
-// Example:
-//
-//	engine.SetObserver(&MyTUIObserver{})
-//	engine.ExecuteRuns(ctx, plan, concurrency)
-func (e *Engine) SetObserver(observer ExecutionObserver) {
-	e.observer = observer
 }
 
 // SetEventBus configures the shared event bus used for runtime and TUI observability.
