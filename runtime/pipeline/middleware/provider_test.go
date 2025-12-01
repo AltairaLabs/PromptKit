@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -575,4 +576,435 @@ func TestProviderMiddleware_SetsTimestamp(t *testing.T) {
 		"Assistant message timestamp should be before or equal to execution end time")
 
 	mockProvider.AssertExpectations(t)
+}
+
+// TestCallProviderWithoutTools_RegularContent tests provider call with regular text content
+func TestCallProviderWithoutTools_RegularContent(t *testing.T) {
+	t.Parallel()
+
+	mockProvider := new(MockProvider)
+	ctx := context.Background()
+
+	messages := []types.Message{
+		{Role: "user", Content: "test"},
+	}
+
+	req := providers.PredictionRequest{
+		Messages:    messages,
+		MaxTokens:   100,
+		Temperature: 0.7,
+	}
+
+	expectedResp := providers.PredictionResponse{Content: "response"}
+	mockProvider.On("Predict", ctx, req).Return(expectedResp, nil)
+
+	resp, err := callProviderWithoutTools(ctx, mockProvider, req)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "response", resp.Content)
+	mockProvider.AssertExpectations(t)
+}
+
+// TestCallProviderWithoutTools_MultimodalWithSupport tests multimodal provider with multimodal content
+func TestCallProviderWithoutTools_MultimodalWithSupport(t *testing.T) {
+	t.Parallel()
+
+	mockProvider := &MockMultimodalProvider{}
+	ctx := context.Background()
+
+	url := "data:image/png;base64,abc"
+	messages := []types.Message{
+		{
+			Role:    "user",
+			Content: "",
+			Parts: []types.ContentPart{
+				{Type: "text", Text: stringPtr("test")},
+				{Type: "image", Media: &types.MediaContent{URL: &url, MIMEType: "image/png"}},
+			},
+		},
+	}
+
+	req := providers.PredictionRequest{
+		Messages:    messages,
+		MaxTokens:   100,
+		Temperature: 0.7,
+	}
+
+	expectedResp := providers.PredictionResponse{Content: "multimodal response"}
+	mockProvider.On("PredictMultimodal", ctx, req).Return(expectedResp, nil)
+
+	resp, err := callProviderWithoutTools(ctx, mockProvider, req)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "multimodal response", resp.Content)
+	mockProvider.AssertExpectations(t)
+}
+
+// TestCallProviderWithoutTools_MultimodalFallback tests regular provider falls back to Predict for multimodal
+func TestCallProviderWithoutTools_MultimodalFallback(t *testing.T) {
+	t.Parallel()
+
+	mockProvider := new(MockProvider)
+	ctx := context.Background()
+
+	url := "data:image/png;base64,abc"
+	messages := []types.Message{
+		{
+			Role:    "user",
+			Content: "",
+			Parts: []types.ContentPart{
+				{Type: "text", Text: stringPtr("test")},
+				{Type: "image", Media: &types.MediaContent{URL: &url, MIMEType: "image/png"}},
+			},
+		},
+	}
+
+	req := providers.PredictionRequest{
+		Messages:    messages,
+		MaxTokens:   100,
+		Temperature: 0.7,
+	}
+
+	expectedResp := providers.PredictionResponse{Content: "regular response"}
+	mockProvider.On("Predict", ctx, req).Return(expectedResp, nil)
+
+	resp, err := callProviderWithoutTools(ctx, mockProvider, req)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "regular response", resp.Content)
+	mockProvider.AssertExpectations(t)
+}
+
+// stringPtr returns a pointer to a string
+func stringPtr(s string) *string {
+	return &s
+}
+
+// TestExecuteAndEmitToolCall_Events tests event emission during tool execution
+func TestExecuteAndEmitToolCall_Events(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		toolName        string
+		toolResult      *tools.ToolExecutionResult
+		toolErr         error
+		expectStarted   bool
+		expectCompleted bool
+		expectFailed    bool
+		expectedStatus  string
+	}{
+		{
+			name:            "successful tool execution",
+			toolName:        "test_tool",
+			toolResult:      &tools.ToolExecutionResult{Status: tools.ToolStatusComplete, Content: json.RawMessage(`"success"`)},
+			expectStarted:   true,
+			expectCompleted: true,
+			expectFailed:    false,
+			expectedStatus:  "success",
+		},
+		{
+			name:            "tool returns error in result",
+			toolName:        "test_tool",
+			toolResult:      &tools.ToolExecutionResult{Status: tools.ToolStatusFailed, Error: "execution failed"},
+			expectStarted:   true,
+			expectCompleted: true,
+			expectFailed:    false,
+			expectedStatus:  "error",
+		},
+		{
+			name:            "pending tool execution",
+			toolName:        "test_tool",
+			toolResult:      &tools.ToolExecutionResult{Status: tools.ToolStatusPending, PendingInfo: &tools.PendingToolInfo{Message: "pending"}},
+			expectStarted:   true,
+			expectCompleted: true,
+			expectFailed:    false,
+			expectedStatus:  "pending",
+		},
+		{
+			name:            "tool with error result",
+			toolName:        "test_tool",
+			toolResult:      &tools.ToolExecutionResult{Status: tools.ToolStatusFailed, Error: "tool error"},
+			expectStarted:   true,
+			expectCompleted: true,
+			expectFailed:    false,
+			expectedStatus:  "error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup tool registry
+			registry := tools.NewRegistry()
+			if tt.toolResult != nil {
+				descriptor := &tools.ToolDescriptor{
+					Name:         tt.toolName,
+					Description:  "test tool",
+					Mode:         "mock",
+					InputSchema:  json.RawMessage(`{"type":"object"}`),
+					OutputSchema: json.RawMessage(`{"type":"object"}`),
+					MockResult:   json.RawMessage(`{"result":"success"}`),
+				}
+				err := registry.Register(descriptor)
+				require.NoError(t, err)
+				registry.RegisterExecutor(&MockToolExecutor{result: tt.toolResult, err: tt.toolErr})
+			}
+
+			// Setup event bus and emitter to verify events are fired
+			bus := events.NewEventBus()
+			emitter := events.NewEmitter(bus, "test-run", "test-session", "test-conv")
+
+			var capturedEvents []*events.Event
+			bus.SubscribeAll(func(event *events.Event) {
+				capturedEvents = append(capturedEvents, event)
+			})
+
+			execCtx := &pipeline.ExecutionContext{
+				EventEmitter: emitter,
+				Messages:     []types.Message{},
+			}
+
+			call := types.MessageToolCall{
+				ID:   "call-1",
+				Name: tt.toolName,
+				Args: json.RawMessage(`{}`),
+			}
+
+			// Execute
+			_, _, err := executeAndEmitToolCall(execCtx, registry, nil, call)
+
+			// Verify
+			if tt.toolErr != nil {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+
+			// Wait for async event publication
+			time.Sleep(50 * time.Millisecond)
+
+			// Verify events were emitted
+			if tt.expectStarted {
+				found := false
+				for _, e := range capturedEvents {
+					if e.Type == events.EventToolCallStarted {
+						found = true
+						break
+					}
+				}
+				assert.True(t, found, "Expected ToolCallStarted event")
+			}
+			if tt.expectCompleted {
+				found := false
+				for _, e := range capturedEvents {
+					if e.Type == events.EventToolCallCompleted {
+						found = true
+						break
+					}
+				}
+				assert.True(t, found, "Expected ToolCallCompleted event")
+			}
+			if tt.expectFailed {
+				found := false
+				for _, e := range capturedEvents {
+					if e.Type == events.EventToolCallFailed {
+						found = true
+						break
+					}
+				}
+				assert.True(t, found, "Expected ToolCallFailed event")
+			}
+		})
+	}
+}
+
+// TestExecuteAndEmitToolCall_NoEventEmitter tests execution without event emitter
+func TestExecuteAndEmitToolCall_NoEventEmitter(t *testing.T) {
+	t.Parallel()
+
+	registry := tools.NewRegistry()
+	descriptor := &tools.ToolDescriptor{
+		Name:         "test_tool",
+		Description:  "test tool",
+		Mode:         "mock",
+		InputSchema:  json.RawMessage(`{"type":"object"}`),
+		OutputSchema: json.RawMessage(`{"type":"object"}`),
+		MockResult:   json.RawMessage(`{"result":"success"}`),
+	}
+	err := registry.Register(descriptor)
+	require.NoError(t, err)
+
+	execCtx := &pipeline.ExecutionContext{
+		EventEmitter: nil, // No emitter
+		Messages:     []types.Message{},
+	}
+
+	call := types.MessageToolCall{
+		ID:   "call-1",
+		Name: "test_tool",
+		Args: json.RawMessage(`{}`),
+	}
+
+	// Should not panic without event emitter
+	result, _, err := executeAndEmitToolCall(execCtx, registry, nil, call)
+	assert.NoError(t, err)
+	assert.Equal(t, "call-1", result.ID)
+}
+
+// TestFormatToolResult tests tool result formatting
+func TestFormatToolResult(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    interface{}
+		expected string
+	}{
+		{
+			name:     "string value",
+			input:    "hello world",
+			expected: "hello world",
+		},
+		{
+			name:     "integer value",
+			input:    42,
+			expected: "42",
+		},
+		{
+			name:     "int64 value",
+			input:    int64(12345),
+			expected: "12345",
+		},
+		{
+			name:     "float64 value",
+			input:    3.14,
+			expected: "3.14",
+		},
+		{
+			name:     "boolean true",
+			input:    true,
+			expected: "true",
+		},
+		{
+			name:     "boolean false",
+			input:    false,
+			expected: "false",
+		},
+		{
+			name:     "nil value",
+			input:    nil,
+			expected: "<nil>",
+		},
+		{
+			name:     "map value",
+			input:    map[string]interface{}{"key": "value", "num": 123},
+			expected: `{"key":"value","num":123}`,
+		},
+		{
+			name:     "slice value",
+			input:    []string{"a", "b", "c"},
+			expected: `["a","b","c"]`,
+		},
+		{
+			name:     "struct value",
+			input:    struct{ Name string }{"test"},
+			expected: `{"Name":"test"}`,
+		},
+		{
+			name:     "empty map",
+			input:    map[string]interface{}{},
+			expected: `{}`,
+		},
+		{
+			name:     "empty slice",
+			input:    []string{},
+			expected: `[]`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatToolResult(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// MockMultimodalProvider implements both Provider and MultimodalSupport
+type MockMultimodalProvider struct {
+	mock.Mock
+}
+
+func (m *MockMultimodalProvider) ID() string {
+	return "mock-multimodal"
+}
+
+func (m *MockMultimodalProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+	args := m.Called(ctx, req)
+	return args.Get(0).(providers.PredictionResponse), args.Error(1)
+}
+
+func (m *MockMultimodalProvider) PredictMultimodal(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+	args := m.Called(ctx, req)
+	return args.Get(0).(providers.PredictionResponse), args.Error(1)
+}
+
+func (m *MockMultimodalProvider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
+	return providers.MultimodalCapabilities{
+		SupportsImages: true,
+		SupportsAudio:  true,
+		SupportsVideo:  true,
+	}
+}
+
+func (m *MockMultimodalProvider) PredictMultimodalStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+	return nil, nil
+}
+
+func (m *MockMultimodalProvider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(<-chan providers.StreamChunk), args.Error(1)
+}
+
+func (m *MockMultimodalProvider) SupportsStreaming() bool {
+	return false
+}
+
+func (m *MockMultimodalProvider) ShouldIncludeRawOutput() bool {
+	return false
+}
+
+func (m *MockMultimodalProvider) Close() error {
+	return nil
+}
+
+func (m *MockMultimodalProvider) CalculateCost(inputTokens, outputTokens, cachedTokens int) types.CostInfo {
+	return types.CostInfo{}
+}
+
+// MockToolExecutor implements tools.AsyncToolExecutor interface
+type MockToolExecutor struct {
+	result *tools.ToolExecutionResult
+	err    error
+}
+
+func (m *MockToolExecutor) Name() string {
+	return "mock-test"
+}
+
+func (m *MockToolExecutor) Execute(descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.result.Content, nil
+}
+
+func (m *MockToolExecutor) ExecuteAsync(descriptor *tools.ToolDescriptor, args json.RawMessage) (*tools.ToolExecutionResult, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.result, nil
 }
