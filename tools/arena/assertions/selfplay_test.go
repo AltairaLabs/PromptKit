@@ -29,7 +29,7 @@ func TestRoleIntegrityValidator_Validate(t *testing.T) {
 			name:       "contains 'step 1:'",
 			content:    "Step 1: First, you should check your settings",
 			wantPassed: false,
-			wantLen:    1,
+			wantLen:    2, // Matches both "step 1:" and "first, you should"
 		},
 		{
 			name:       "contains 'as an ai'",
