@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -949,8 +950,11 @@ func TestDynamicValidator_WithEventEmitter(t *testing.T) {
 	emitter := events.NewEmitter(bus, "test-run", "test-session", "test-conv")
 
 	var capturedEvents []*events.Event
+	var eventsMutex sync.Mutex
 	bus.SubscribeAll(func(event *events.Event) {
+		eventsMutex.Lock()
 		capturedEvents = append(capturedEvents, event)
+		eventsMutex.Unlock()
 	})
 
 	// Create execution context with EventEmitter
@@ -979,13 +983,17 @@ func TestDynamicValidator_WithEventEmitter(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Assert: Events were captured
-	if len(capturedEvents) == 0 {
+	eventsMutex.Lock()
+	numEvents := len(capturedEvents)
+	eventsMutex.Unlock()
+	if numEvents == 0 {
 		t.Error("Expected events to be emitted")
 	}
 
 	// Assert: ValidationStarted and ValidationPassed events were emitted
 	foundStarted := false
 	foundPassed := false
+	eventsMutex.Lock()
 	for _, event := range capturedEvents {
 		if event.Type == events.EventValidationStarted {
 			foundStarted = true
@@ -1003,6 +1011,7 @@ func TestDynamicValidator_WithEventEmitter(t *testing.T) {
 			foundPassed = true
 		}
 	}
+	eventsMutex.Unlock()
 
 	if !foundStarted {
 		t.Error("Expected ValidationStarted event")
@@ -1039,8 +1048,11 @@ func TestDynamicValidator_WithEventEmitter_StreamingValidator(t *testing.T) {
 	emitter := events.NewEmitter(bus, "test-run", "test-session", "test-conv")
 
 	var capturedEvents []*events.Event
+	var eventsMutex sync.Mutex
 	bus.SubscribeAll(func(event *events.Event) {
+		eventsMutex.Lock()
 		capturedEvents = append(capturedEvents, event)
+		eventsMutex.Unlock()
 	})
 
 	// Create execution context with streaming mode
@@ -1071,6 +1083,7 @@ func TestDynamicValidator_WithEventEmitter_StreamingValidator(t *testing.T) {
 
 	// Assert: ValidationStarted event was emitted with type "streaming"
 	foundStreaming := false
+	eventsMutex.Lock()
 	for _, event := range capturedEvents {
 		if event.Type == events.EventValidationStarted {
 			data := event.Data.(events.ValidationStartedData)
@@ -1080,6 +1093,7 @@ func TestDynamicValidator_WithEventEmitter_StreamingValidator(t *testing.T) {
 			}
 		}
 	}
+	eventsMutex.Unlock()
 
 	if !foundStreaming {
 		t.Error("Expected validatorType to be 'streaming' for streaming validator")

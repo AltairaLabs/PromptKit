@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
@@ -755,8 +756,11 @@ func TestExecuteAndEmitToolCall_Events(t *testing.T) {
 			emitter := events.NewEmitter(bus, "test-run", "test-session", "test-conv")
 
 			var capturedEvents []*events.Event
+			var eventsMutex sync.Mutex
 			bus.SubscribeAll(func(event *events.Event) {
+				eventsMutex.Lock()
 				capturedEvents = append(capturedEvents, event)
+				eventsMutex.Unlock()
 			})
 
 			execCtx := &pipeline.ExecutionContext{
@@ -784,6 +788,7 @@ func TestExecuteAndEmitToolCall_Events(t *testing.T) {
 			time.Sleep(50 * time.Millisecond)
 
 			// Verify events were emitted
+			eventsMutex.Lock()
 			if tt.expectStarted {
 				found := false
 				for _, e := range capturedEvents {
@@ -814,6 +819,7 @@ func TestExecuteAndEmitToolCall_Events(t *testing.T) {
 				}
 				assert.True(t, found, "Expected ToolCallFailed event")
 			}
+			eventsMutex.Unlock()
 		})
 	}
 }
