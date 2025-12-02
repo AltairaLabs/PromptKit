@@ -52,7 +52,7 @@ assertions:
 
 #### `content_includes`
 
-Checks that the response contains specific text (case-insensitive).
+Checks that the response contains specific text patterns (case-insensitive).
 
 **Use Cases**:
 - Verify specific keywords appear
@@ -60,7 +60,7 @@ Checks that the response contains specific text (case-insensitive).
 - Ensure acknowledgment phrases are present
 
 **Parameters**:
-- `text` (string): Text that must appear in response
+- `patterns` (array of strings): Text patterns that must appear in response (all patterns must be found)
 
 **Example**:
 ```yaml
@@ -291,12 +291,14 @@ Verifies that specific tools were NOT invoked in the response.
 
 ---
 
-#### `tools_called_with`
+#### `tool_calls_with_args` (Conversation-Level)
 
-Verifies that a tool was called with specific arguments.
+Verifies that a tool was called with specific arguments across the entire conversation.
+
+**Note**: This is a **conversation-level assertion**, used in the `conversation_assertions` field of a scenario, not in turn-level assertions.
 
 **Use Cases**:
-- Validate argument passing
+- Validate argument passing across conversation
 - Check parameter extraction from user input
 - Ensure correct tool configuration
 
@@ -306,10 +308,18 @@ Verifies that a tool was called with specific arguments.
 
 **Example**:
 ```yaml
-- role: user
-  content: "What's the weather in San Francisco?"
-  assertions:
-    - type: tools_called_with
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: tool-args-test
+spec:
+  task_type: test
+  description: "Test tool arguments"
+  turns:
+    - role: user
+      content: "What's the weather in San Francisco?"
+  conversation_assertions:
+    - type: tool_calls_with_args
       params:
         tool: get_weather
         expected_args:
@@ -320,23 +330,14 @@ Verifies that a tool was called with specific arguments.
 **Partial Match**:
 ```yaml
 # Only check specific args, ignore others
-- type: tools_called_with
-  params:
-    tool: search_products
-    expected_args:
-      category: "electronics"
+conversation_assertions:
+  - type: tool_calls_with_args
+    params:
+      tool: search_products
+      expected_args:
+        category: "electronics"
+        message: "Should search in electronics category"
       # Ignores other args like limit, sort, etc.
-```
-
-**Exact Match**:
-```yaml
-- type: tools_called_with
-  params:
-    tool: get_weather
-    expected_args:
-      location: "San Francisco"
-      units: "celsius"
-    exact: true  # All args must match exactly
 ```
 
 **Failure Details**:

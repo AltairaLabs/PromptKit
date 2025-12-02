@@ -186,29 +186,36 @@ assertions:
 
 #### String Length
 
-Validate response length:
+Validate response length using regex patterns:
 
 ```yaml
-# Exact length
+# Exact length (100 characters)
 assertions:
-  - type: length
-    value: 100
+  - type: content_matches
+    params:
+      pattern: "^.{100}$"
+      message: "Response must be exactly 100 characters"
 
-# Range
+# Range (50-200 characters)
 assertions:
-  - type: length_range
-    min: 50
-    max: 200
+  - type: content_matches
+    params:
+      pattern: "^.{50,200}$"
+      message: "Response must be 50-200 characters"
 
-# Maximum (conciseness test)
+# Maximum (conciseness test - up to 150 chars)
 assertions:
-  - type: max_length
-    value: 150
+  - type: content_matches
+    params:
+      pattern: "^.{1,150}$"
+      message: "Response must be at most 150 characters"
 
-# Minimum (completeness test)
+# Minimum (completeness test - at least 50 chars)
 assertions:
-  - type: min_length
-    value: 50
+  - type: content_matches
+    params:
+      pattern: "^.{50,}$"
+      message: "Response must be at least 50 characters"
 ```
 
 **Use when:**
@@ -278,19 +285,22 @@ Validate JSON structure:
 # Valid JSON
 assertions:
   - type: is_valid_json
-    value: true
+    params:
+      message: "Response must be valid JSON"
 
 # JSON with schema
 assertions:
   - type: json_schema
-    schema:
-      type: object
-      properties:
-        name:
-          type: string
-        age:
-          type: integer
-      required: [name, age]
+    params:
+      schema:
+        type: object
+        properties:
+          name:
+            type: string
+          age:
+            type: integer
+        required: [name, age]
+      message: "Response must match schema"
 ```
 
 **Use when:**
@@ -357,41 +367,52 @@ turns:
 
 #### Format Compliance
 
-Validate specific formats:
+Validate specific formats using pattern matching:
 
 ```yaml
 assertions:
-  # Markdown
-  - type: format
-    value: markdown
+  # Markdown (check for markdown syntax)
+  - type: content_matches
+    params:
+      pattern: "(^#{1,6} |\*\*|\*|`|\[.*\]\(.*\))"
+      message: "Response should contain markdown formatting"
   
-  # HTML
-  - type: format
-    value: html
+  # HTML (check for HTML tags)
+  - type: content_matches
+    params:
+      pattern: "<[^>]+>"
+      message: "Response should contain HTML tags"
   
-  # Code block
-  - type: contains_code_block
-    language: python
+  # Code block (check for code fence)
+  - type: content_matches
+    params:
+      pattern: "```python[\\s\\S]*?```"
+      message: "Response should contain Python code block"
 ```
 
 ### Negative Validation
 
-Test what should NOT appear:
+Test what should NOT appear using negative lookahead patterns:
 
 ```yaml
 assertions:
-  # Must not contain
-  - type: not_contains
-    value: ["inappropriate", "offensive", "harmful"]
+  # Must not contain specific words (use negative lookahead)
+  - type: content_matches
+    params:
+      pattern: "^(?!.*(inappropriate|offensive|harmful)).*$"
+      message: "Response must not contain inappropriate content"
   
-  # Must not match pattern
-  - type: not_regex
-    value: "\\b(password|secret|api[_-]?key)\\b"
+  # Must not match sensitive data pattern
+  - type: content_matches
+    params:
+      pattern: "^(?!.*\\b(password|secret|api[_-]?key)\\b).*$"
+      message: "Response must not contain sensitive data keywords"
   
-  # Must not be too similar
-  - type: not_similar_to
-    baseline: "Known bad response"
-    threshold: 0.7
+  # For conversation-level "not contains" checks
+  # Use conversation-level assertion:
+  # - type: content_not_includes
+  #   params:
+  #     patterns: ["inappropriate", "offensive"]
 ```
 
 **Use when:**
@@ -447,16 +468,18 @@ spec:
       - role: user
         content: "My name is Alice"
         assertions:
-          - type: acknowledges_name
-            value: true
+          - type: content_includes
+            params:
+              patterns: ["Alice"]
+              message: "Should acknowledge the name"
       
       - role: user
         content: "What's my name?"
         assertions:
           - type: content_includes
             params:
-              patterns: "Alice"
-value: true
+              patterns: ["Alice"]
+              message: "Should remember the name"
 ```
 
 **Validation types:**
@@ -484,23 +507,35 @@ Layer validations from basic to advanced:
 ```yaml
 assertions:
   # Base: Basic presence
-  - type: not_empty
-    value: true
+  - type: content_matches
+    params:
+      pattern: ".+"
+      message: "Response must not be empty"
   
   # Level 2: Content presence
   - type: content_includes
     params:
       patterns: ["required", "terms"]
+      message: "Must contain required terms"
   
   # Level 3: Structure
   - type: is_valid_json
-    value: true
+    params:
+      message: "Response must be valid JSON"
   
   # Level 4: Semantics
+  - type: llm_judge
+    params:
+      criteria: "Response is semantically appropriate for the query"
+      judge_provider: "openai/gpt-4o-mini"
+      message: "Must be semantically appropriate"
   
   # Level 5: Business logic
-  - type: custom
-    validator: business_rules_check
+  - type: llm_judge
+    params:
+      criteria: "Response follows business rules and policies"
+      judge_provider: "openai/gpt-4o-mini"
+      message: "Must follow business rules"
 ```
 
 **Benefits:**
@@ -579,26 +614,28 @@ spec:
       - role: user
         content: "Start order"
         assertions:
-          - type: state
-            value: "order_started"
+          - type: content_includes
+            params:
+              patterns: ["order", "started"]
+              message: "Should indicate order started"
       
       # Turn 2: Validate state progression
       - role: user
         content: "Add item"
         assertions:
-          - type: state
-            value: "items_added"
-value: true
+          - type: content_includes
+            params:
+              patterns: ["item", "added"]
+              message: "Should confirm item added"
       
       # Turn 3: Validate completion
       - role: user
         content: "Checkout"
         assertions:
-          - type: state
-            value: "order_complete"
           - type: content_includes
             params:
-              patterns: ["total", "confirmation"]
+              patterns: ["order", "complete", "total", "confirmation"]
+              message: "Should confirm order completion"
 ```
 
 ## Advanced Techniques
@@ -628,53 +665,73 @@ def check_business_hours(response: str, timezone: str) -> bool:
     return 9 <= time.hour < 17  # 9 AM - 5 PM
 ```
 
-### Composite Assertions
+### Multiple Assertions
 
-Combine multiple checks:
+Combine multiple checks (all must pass):
 
 ```yaml
 assertions:
-  - type: composite
-    operator: AND
-    assertions:
-      - type: content_includes
-        params:
-          patterns: "key_term"
-      - type: length_range
-        min: 50
-        max: 200
-      - type: sentiment
-        value: positive
+  # All of these assertions must pass (implicit AND)
+  - type: content_includes
+    params:
+      patterns: ["key_term"]
+      message: "Must contain key term"
+  
+  - type: content_matches
+    params:
+      pattern: "^.{50,200}$"
+      message: "Must be 50-200 characters"
+  
+  - type: llm_judge
+    params:
+      criteria: "Response has a positive tone"
+      judge_provider: "openai/gpt-4o-mini"
+      message: "Response should be positive"
 
-  - type: composite
-    operator: OR
-    assertions:
-      - type: content_includes
-        params:
-          patterns: "option1"
-      - type: content_includes
-        params:
-          patterns: "option2"
+  # For OR logic, use regex alternation:
+  - type: content_matches
+    params:
+      pattern: "(option1|option2)"
+      message: "Must contain option1 OR option2"
 ```
 
-### Contextual Validation
+### Context-Aware Validation
 
-Validate based on context:
+Validate based on context using separate scenarios:
 
 ```yaml
-assertions:
-  - type: contextual
-    if:
-      variable: "${user_tier}"
-      equals: "premium"
-    then:
-      - type: content_includes
-        params:
-          patterns: "priority support"
-    else:
-      - type: content_includes
-        params:
-          patterns: "standard support"
+# Note: Arena doesn't support conditional assertions.
+# Instead, create separate scenarios for different contexts:
+
+# Scenario 1: Premium users
+- name: premium_user_support
+  context:
+    variables:
+      user_tier: "premium"
+  turns:
+    - role: user
+      content: "I need help"
+    - role: assistant
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["priority support"]
+            message: "Premium users should get priority support"
+
+# Scenario 2: Standard users
+- name: standard_user_support
+  context:
+    variables:
+      user_tier: "standard"
+  turns:
+    - role: user
+      content: "I need help"
+    - role: assistant
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["standard support"]
+            message: "Standard users should get standard support"
 ```
 
 ### Statistical Validation
@@ -692,13 +749,9 @@ spec:
   description: "Statistical Test"
   
     runs: 10  # Run 10 times
-    assertions:
-      # Pass if >= 80% contain term
-      - type: statistical
-        assertion:
-          type: content_includes
-          value: "key_term"
-        pass_rate: 0.8
+    # Note: Statistical validation would require running the scenario multiple times
+    # and checking aggregate results. Arena doesn't have built-in statistical
+    # validation, but you can run scenarios multiple times and analyze results.
 ```
 
 ## Best Practices
@@ -755,27 +808,38 @@ validation_tests:
 assertions:
   - type: content_includes
     params:
-      patterns: "refund policy"
-    failure_message: "Response must include refund policy details"
+      patterns: ["refund policy"]
+      message: "Response must include refund policy details"
   
-  - type: not_contains
-    value: ["offensive", "inappropriate"]
-    failure_message: "Response contains inappropriate language"
+  - type: content_matches
+    params:
+      pattern: "^(?!.*(offensive|inappropriate)).*$"
+      message: "Response must not contain inappropriate language"
 ```
 
 ### 4. Balance Precision and Recall
 
 ```yaml
-# High precision (few false positives)
+# High precision (few false positives) - exact pattern
 assertions:
+  - type: content_matches
+    params:
+      pattern: "^The specific answer is: [A-Z]$"
+      message: "Must match exact format"
 
-# High recall (few false negatives)
+# High recall (few false negatives) - matches any option
 assertions:
-  - type: contains_any
-    value: ["answer1", "answer2", "answer3"]
+  - type: content_matches
+    params:
+      pattern: "(answer1|answer2|answer3)"
+      message: "Must contain at least one answer"
 
-# Balanced
+# Balanced - specific but flexible
 assertions:
+  - type: content_includes
+    params:
+      patterns: ["answer", "option"]
+      message: "Must discuss answer or option"
 ```
 
 ### 5. Document Validation Intent
@@ -785,18 +849,19 @@ assertions:
   # Validate core requirement
   - type: content_includes
     params:
-      patterns: "Paris"
-    reason: "Must correctly identify capital"
+      patterns: ["Paris"]
+      message: "Must correctly identify capital"
   
   # Validate safety
-  - type: not_contains
-    value: ["offensive"]
-    reason: "Must maintain appropriate tone"
+  - type: content_matches
+    params:
+      pattern: "^(?!.*offensive).*$"
+      message: "Must maintain appropriate tone"
   
   # Validate format
   - type: is_valid_json
-    value: true
-    reason: "Output must be parseable JSON"
+    params:
+      message: "Output must be parseable JSON"
 ```
 
 ## Common Pitfalls
@@ -819,15 +884,21 @@ assertions:
 ```yaml
 # ❌ Too loose
 assertions:
-  - type: not_empty
+  - type: content_matches
+    params:
+      pattern: ".+"
+      message: "Must not be empty"
 
 # ✅ Adequately constrained
 assertions:
   - type: content_includes
     params:
       patterns: ["Paris", "France"]
-  - type: min_length
-    value: 10
+      message: "Must mention Paris and France"
+  - type: content_matches
+    params:
+      pattern: "^.{10,}$"
+      message: "Must be at least 10 characters"
 ```
 
 ### Brittle Assertions
@@ -835,14 +906,17 @@ assertions:
 ```yaml
 # ❌ Breaks with minor changes
 assertions:
-  - type: starts_with
-    value: "The answer is"
+  - type: content_matches
+    params:
+      pattern: "^The answer is"
+      message: "Must start with exact phrase"
 
 # ✅ Robust to variation
 assertions:
   - type: content_includes
     params:
-      patterns: "answer"
+      patterns: ["answer"]
+      message: "Must mention answer"
 ```
 
 ### Missing Negative Tests
@@ -853,11 +927,14 @@ assertions:
   # Must have
   - type: content_includes
     params:
-      patterns: "correct_info"
+      patterns: ["correct_info"]
+      message: "Must contain correct information"
   
-  # Must not have
-  - type: not_contains
-    value: ["incorrect", "harmful"]
+  # Must not have (use negative lookahead)
+  - type: content_matches
+    params:
+      pattern: "^(?!.*(incorrect|harmful)).*$"
+      message: "Must not contain incorrect or harmful content"
 ```
 
 ## Validation Checklist
