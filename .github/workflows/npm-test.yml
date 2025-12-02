@@ -68,14 +68,12 @@ jobs:
           echo "Testing in: $TEMP_DIR"
           
           # Test init
-          ./bin/promptarena init customer-support --dir "$TEMP_DIR/test-project" --quick
-          cd "$TEMP_DIR/test-project"
-          
-          # List templates
-          ../../bin/promptarena templates list
+          cd "$TEMP_DIR"
+          ../../bin/promptarena init test-project --quick
+          cd test-project
           
           # Validate config
-          ../../bin/promptarena validate arena.yaml --schema-only
+          ../../../bin/promptarena validate arena.yaml --schema-only
           
           echo "✅ Getting Started flow works!"
       
@@ -140,5 +138,8 @@ jobs:
           
           # Test that binary works
           npx promptarena templates list
+          
+          # Test that binary works (just check it runs)
+          npx promptarena --help > /dev/null
           
           echo "✅ Package installation works!"
