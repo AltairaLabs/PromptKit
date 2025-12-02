@@ -223,11 +223,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case LogMsg:
+		m.mu.Lock()
 		m.handleLogMsg(&msg)
+		m.mu.Unlock()
 		return m, nil
 
 	case ShowSummaryMsg:
+		m.mu.Lock()
 		m.handleShowSummary(&msg)
+		m.mu.Unlock()
 		// Don't quit immediately - let user see summary and press Ctrl+C or 'q' to exit
 		return m, nil
 	}

@@ -216,7 +216,10 @@ func TestEventAdapter_Subscribe(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// Verify the event was received by checking logs
-	if len(model.logs) == 0 {
+	model.mu.Lock()
+	logCount := len(model.logs)
+	model.mu.Unlock()
+	if logCount == 0 {
 		t.Error("expected adapter to receive event after subscription")
 	}
 }
