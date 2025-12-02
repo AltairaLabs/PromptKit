@@ -1,0 +1,145 @@
+name: Test npm Packages
+
+on:
+  pull_request:
+    paths:
+      - 'npm/**'
+      - 'tools/arena/**'
+      - '.github/workflows/npm-test.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'npm/**'
+      - 'tools/arena/**'
+
+permissions:
+  contents: read
+
+jobs:
+  test-promptarena-init:
+    name: Test promptarena Getting Started
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node-version: [18, 20]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'tools/arena/go.mod'
+          cache-dependency-path: 'tools/arena/go.sum'
+      
+      - name: Build promptarena binary
+        run: |
+          cd tools/arena
+          go build -o ../../bin/promptarena ./cmd/promptarena
+      
+      - name: Copy binary to npm package
+        shell: bash
+        run: |
+          mkdir -p npm/promptarena/bin
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            cp bin/promptarena.exe npm/promptarena/promptarena.exe || cp bin/promptarena npm/promptarena/promptarena
+          else
+            cp bin/promptarena npm/promptarena/promptarena
+            chmod +x npm/promptarena/promptarena
+          fi
+      
+      - name: Test init command
+        working-directory: npm/promptarena
+        run: npm run test:init
+      
+      - name: Test Getting Started flow (with mock provider)
+        shell: bash
+        run: |
+          # Create temp directory
+          TEMP_DIR=$(mktemp -d)
+          echo "Testing in: $TEMP_DIR"
+          
+          # Test init
+          ./bin/promptarena init customer-support --dir "$TEMP_DIR/test-project"
+          cd "$TEMP_DIR/test-project"
+          
+          # List templates
+          ../../bin/promptarena templates
+          
+          # Validate config
+          ../../bin/promptarena validate --schema-only
+          
+          echo "✅ Getting Started flow works!"
+      
+      - name: Test with actual run (mock provider)
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == '20'
+        shell: bash
+        run: |
+          # Use the mock provider example which doesn't need API keys
+          cd examples/mock-config-example.yaml
+          ../../bin/promptarena run --config mock-config-example.yaml
+          
+          # Verify output was generated
+          if [ ! -f "out/report.html" ]; then
+            echo "❌ Expected report.html to be generated"
+            exit 1
+          fi
+          
+          echo "✅ Mock provider test passed!"
+
+  test-package-installation:
+    name: Test npm package installation
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'tools/arena/go.mod'
+          cache-dependency-path: 'tools/arena/go.sum'
+      
+      - name: Build and pack npm package
+        run: |
+          # Build binary
+          cd tools/arena
+          go build -o ../../bin/promptarena ./cmd/promptarena
+          cd ../..
+          
+          # Copy to npm package
+          cp bin/promptarena npm/promptarena/promptarena
+          chmod +x npm/promptarena/promptarena
+          
+          # Create tarball
+          cd npm/promptarena
+          npm pack
+      
+      - name: Test local installation
+        run: |
+          # Create test directory
+          mkdir -p /tmp/npm-install-test
+          cd /tmp/npm-install-test
+          
+          # Install from tarball
+          npm install $GITHUB_WORKSPACE/npm/promptarena/*.tgz
+          
+          # Test that binary works
+          npx promptarena --version
+          npx promptarena templates
+          
+          echo "✅ Package installation works!"

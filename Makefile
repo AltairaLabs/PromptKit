@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help build build-tools build-arena build-packc build-inspect-state test test-tools test-race lint clean coverage install install-tools install-tools-user uninstall-tools
+.PHONY: help build build-tools build-arena build-packc build-inspect-state test test-tools test-race lint clean coverage install install-tools install-tools-user uninstall-tools test-npm-init test-getting-started
  
 # Route unknown targets to help
 .DEFAULT:
@@ -81,6 +81,36 @@ test-tools: ## Run CLI tool tests (where applicable)
 	@cd tools/packc && go test -v ./... || echo "PackC tests completed"
 	@echo "Testing inspect-state..."
 	@cd tools/inspect-state && go test -v ./... || echo "Inspect-state tests completed"
+
+test-npm-init: build-arena ## Test npm package Getting Started flow
+	@echo "Testing npm promptarena Getting Started flow..."
+	@cd npm/promptarena && npm run test:init
+
+test-getting-started: build-arena ## Test complete Getting Started workflow from README
+	@echo "🚀 Testing Complete Getting Started Workflow"
+	@echo ""
+	@TEMP_DIR=$$(mktemp -d); \
+	trap "rm -rf $$TEMP_DIR" EXIT; \
+	echo "📁 Using temp directory: $$TEMP_DIR"; \
+	echo ""; \
+	echo "Step 1: promptarena templates"; \
+	./bin/promptarena templates || exit 1; \
+	echo ""; \
+	echo "Step 2: promptarena init customer-support"; \
+	./bin/promptarena init customer-support --output "$$TEMP_DIR" --quick || exit 1; \
+	echo ""; \
+	echo "Step 3: cd customer-support"; \
+	cd "$$TEMP_DIR/customer-support" || exit 1; \
+	echo ""; \
+	echo "Step 4: promptarena validate arena.yaml --schema-only (without API keys)"; \
+	$(CURDIR)/bin/promptarena validate arena.yaml --schema-only || exit 1; \
+	echo ""; \
+	echo "✅ All Getting Started steps completed successfully!"; \
+	echo ""; \
+	echo "📖 Users can now run:"; \
+	echo "   export OPENAI_API_KEY=your-key"; \
+	echo "   promptarena run"; \
+	echo "   open out/report.html"
 
 test-race: ## Run tests with race detector
 	@echo "Testing runtime with race detector..."
