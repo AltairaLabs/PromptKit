@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -56,6 +57,9 @@ type ExecutionContext struct {
 
 	// Internal: handler for processing chunks through middleware (set by Pipeline)
 	streamChunkHandler func(*providers.StreamChunk) error
+
+	// Optional event emission
+	EventEmitter *events.Emitter
 }
 
 // InterruptStream interrupts the stream with the given reason.
@@ -382,4 +386,7 @@ type ExecutionOptions struct {
 
 	// Context for cancellation and timeouts (if nil, uses context.Background())
 	Context context.Context
+
+	// EventEmitter enables runtime event emission; if nil, events are disabled.
+	EventEmitter *events.Emitter
 }

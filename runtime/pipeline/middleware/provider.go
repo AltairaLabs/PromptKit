@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -125,6 +126,10 @@ func executeNonStreamingRound(execCtx *pipeline.ExecutionContext, provider provi
 	// Build provider request
 	req := buildProviderRequest(execCtx, config)
 
+	if execCtx.EventEmitter != nil {
+		execCtx.EventEmitter.ProviderCallStarted(provider.ID(), "", len(execCtx.Messages), len(execCtx.Tools))
+	}
+
 	// Determine tool choice for this round
 	currentToolChoice := tooling.toolChoice
 	if round > 1 {
@@ -137,7 +142,24 @@ func executeNonStreamingRound(execCtx *pipeline.ExecutionContext, provider provi
 	duration := time.Since(startTime)
 
 	if callErr != nil {
+		if execCtx.EventEmitter != nil {
+			execCtx.EventEmitter.ProviderCallFailed(provider.ID(), "", callErr, duration)
+		}
 		return false, fmt.Errorf("provider middleware: generation failed: %w", callErr)
+	}
+
+	if execCtx.EventEmitter != nil && resp.CostInfo != nil {
+		execCtx.EventEmitter.ProviderCallCompleted(&events.ProviderCallCompletedData{
+			Provider:      provider.ID(),
+			Model:         "",
+			Duration:      duration,
+			InputTokens:   resp.CostInfo.InputTokens,
+			OutputTokens:  resp.CostInfo.OutputTokens,
+			CachedTokens:  resp.CostInfo.CachedTokens,
+			Cost:          resp.CostInfo.TotalCost,
+			FinishReason:  "",
+			ToolCallCount: len(resp.ToolCalls),
+		})
 	}
 
 	// Process response and update context
@@ -623,13 +645,12 @@ func executeToolCalls(execCtx *pipeline.ExecutionContext, toolRegistry *tools.Re
 	var pendingToolInfos []interface{} // Store pending tool info for metadata
 
 	for _, call := range toolCalls {
-		result, pendingInfo, err := executeToolCall(execCtx, toolRegistry, policy, call)
+		result, pendingInfo, err := executeAndEmitToolCall(execCtx, toolRegistry, policy, call)
 		if err != nil {
 			return nil, err
 		}
 
 		results = append(results, result)
-
 		if pendingInfo != nil {
 			pendingToolInfos = append(pendingToolInfos, pendingInfo)
 		}
@@ -639,6 +660,39 @@ func executeToolCalls(execCtx *pipeline.ExecutionContext, toolRegistry *tools.Re
 	storePendingToolInfos(execCtx, pendingToolInfos)
 
 	return results, nil
+}
+
+// executeAndEmitToolCall executes a single tool call with event emission
+func executeAndEmitToolCall(
+	execCtx *pipeline.ExecutionContext,
+	toolRegistry *tools.Registry,
+	policy *pipeline.ToolPolicy,
+	call types.MessageToolCall,
+) (types.MessageToolResult, interface{}, error) {
+	if execCtx.EventEmitter != nil {
+		execCtx.EventEmitter.ToolCallStarted(call.Name, call.ID, nil)
+	}
+
+	start := time.Now()
+	result, pendingInfo, err := executeToolCall(execCtx, toolRegistry, policy, call)
+	if err != nil {
+		if execCtx.EventEmitter != nil {
+			execCtx.EventEmitter.ToolCallFailed(call.Name, call.ID, err, time.Since(start))
+		}
+		return types.MessageToolResult{}, nil, err
+	}
+
+	if execCtx.EventEmitter != nil {
+		status := "success"
+		if pendingInfo != nil {
+			status = "pending"
+		} else if result.Error != "" {
+			status = "error"
+		}
+		execCtx.EventEmitter.ToolCallCompleted(call.Name, call.ID, time.Since(start), status)
+	}
+
+	return result, pendingInfo, nil
 }
 
 // executeToolCall executes a single tool call and returns the result

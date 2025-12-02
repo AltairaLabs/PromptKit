@@ -11,8 +11,8 @@ import (
 
 func TestCreateProviderImpl_MockProvider(t *testing.T) {
 	providerCfg := &config.Provider{
-		ID:   "mock-assistant",
-		Type: "mock",
+		ID:    "mock-assistant",
+		Type:  "mock",
 		Model: "mock-model",
 		Defaults: config.ProviderDefaults{
 			Temperature: 0.1,
@@ -34,8 +34,8 @@ func TestBuildEngineComponents_MinimalConfig(t *testing.T) {
 	cfg := &config.Config{
 		LoadedProviders: map[string]*config.Provider{
 			"mock-assistant": {
-				ID:   "mock-assistant",
-				Type: "mock",
+				ID:    "mock-assistant",
+				Type:  "mock",
 				Model: "mock-model",
 				Defaults: config.ProviderDefaults{
 					Temperature: 0.1,

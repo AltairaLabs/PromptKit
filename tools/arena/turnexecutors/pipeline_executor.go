@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
@@ -289,7 +290,17 @@ func (e *PipelineExecutor) Execute(
 	logger.LLMCall(req.Provider.ID(), "assistant", 1, req.Temperature, "max_tokens", req.MaxTokens)
 
 	// Execute pipeline
-	_, err := p.ExecuteWithMessage(ctx, userMessage)
+	var emitter *events.Emitter
+	if req.EventBus != nil {
+		emitter = events.NewEmitter(req.EventBus, req.RunID, "", req.ConversationID)
+	}
+
+	_, err := p.ExecuteWithMessageOptions(&pipeline.ExecutionOptions{
+		Context:        ctx,
+		RunID:          req.RunID,
+		ConversationID: req.ConversationID,
+		EventEmitter:   emitter,
+	}, userMessage)
 	if err != nil {
 		return e.handleExecutionError(req.Provider, err)
 	}

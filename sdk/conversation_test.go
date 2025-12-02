@@ -618,3 +618,144 @@ func TestConversation_BuildContinueResponse(t *testing.T) {
 		t.Errorf("expected latency 250ms, got %d", response.LatencyMs)
 	}
 }
+
+func TestConversation_Continue(t *testing.T) {
+	// Create a test pack
+	tmpDir := t.TempDir()
+	packPath := filepath.Join(tmpDir, "test.pack.json")
+
+	packData := map[string]interface{}{
+		"id":      "test-pack",
+		"name":    "Test Pack",
+		"version": "1.0.0",
+		"template_engine": map[string]interface{}{
+			"version": "v1",
+			"syntax":  "{{variable}}",
+		},
+		"prompts": map[string]interface{}{
+			"assistant": map[string]interface{}{
+				"id":              "assistant",
+				"name":            "Assistant",
+				"version":         "1.0.0",
+				"system_template": "You are a helpful assistant.",
+				"parameters": map[string]interface{}{
+					"temperature": 0.7,
+				},
+			},
+		},
+	}
+
+	data, err := json.MarshalIndent(packData, "", "  ")
+	if err != nil {
+		t.Fatalf("Failed to marshal pack data: %v", err)
+	}
+	if err := os.WriteFile(packPath, data, 0600); err != nil {
+		t.Fatalf("Failed to write pack file: %v", err)
+	}
+
+	// Create mock provider
+	mockProvider := mock.NewProvider("test-provider", "test-model", false)
+
+	// Create manager with state store
+	stateStore := statestore.NewMemoryStore()
+	manager, err := NewConversationManager(
+		WithProvider(mockProvider),
+		WithStateStore(stateStore),
+	)
+	if err != nil {
+		t.Fatalf("failed to create manager: %v", err)
+	}
+
+	// Load pack
+	pack, err := manager.LoadPack(packPath)
+	if err != nil {
+		t.Fatalf("failed to load pack: %v", err)
+	}
+
+	// Create conversation
+	ctx := context.Background()
+	conv, err := manager.CreateConversation(ctx, pack, ConversationConfig{
+		UserID:     "user123",
+		PromptName: "assistant",
+	})
+	if err != nil {
+		t.Fatalf("failed to create conversation: %v", err)
+	}
+
+	// Simulate a conversation state with a tool result message
+	// (This happens after tool execution in a real scenario)
+	conv.state.Messages = []types.Message{
+		{Role: "user", Content: "Do something"},
+		{Role: "assistant", Content: "", ToolCalls: []types.MessageToolCall{{ID: "call1"}}},
+		{Role: "tool", ToolResult: &types.MessageToolResult{ID: "call1", Content: "tool executed"}},
+	}
+
+	// Call Continue - this should execute the pipeline with the tool result
+	response, err := conv.Continue(ctx)
+	if err != nil {
+		t.Fatalf("Continue() failed: %v", err)
+	}
+
+	if response == nil {
+		t.Fatal("expected non-nil response")
+	}
+
+	// Mock provider should have generated a response
+	if response.Content == "" {
+		t.Error("expected non-empty content")
+	}
+
+	// Verify state was updated with the assistant response
+	if len(conv.state.Messages) < 4 {
+		t.Errorf("expected at least 4 messages after Continue(), got %d", len(conv.state.Messages))
+	}
+
+	// Last message should be the assistant response
+	lastMsg := conv.state.Messages[len(conv.state.Messages)-1]
+	if lastMsg.Role != "assistant" {
+		t.Errorf("expected last message role 'assistant', got '%s'", lastMsg.Role)
+	}
+}
+
+func TestConversation_ContinueErrors(t *testing.T) {
+	t.Run("no_messages", func(t *testing.T) {
+		conv := &Conversation{
+			state: &statestore.ConversationState{
+				Messages: []types.Message{},
+			},
+			manager: &ConversationManager{
+				stateStore: statestore.NewMemoryStore(),
+			},
+		}
+
+		_, err := conv.Continue(context.Background())
+		if err == nil {
+			t.Error("expected error for no messages")
+		}
+		if !strings.Contains(err.Error(), "no messages") {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("wrong_last_role", func(t *testing.T) {
+		conv := &Conversation{
+			state: &statestore.ConversationState{
+				Messages: []types.Message{
+					{Role: "user", Content: "hello"},
+					{Role: "assistant", Content: "hi"},
+				},
+			},
+			manager: &ConversationManager{
+				stateStore: statestore.NewMemoryStore(),
+			},
+		}
+
+		_, err := conv.Continue(context.Background())
+		if err == nil {
+			t.Error("expected error for wrong last role")
+		}
+		if !strings.Contains(err.Error(), "must be a tool result") {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+}

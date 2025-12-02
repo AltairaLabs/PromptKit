@@ -25,10 +25,14 @@ Practical, task-focused guides for common SDK operations.
 - **[Handle Tool Calls](handle-tool-calls)** - Process LLM tool requests
 - **[Human-in-the-Loop](hitl-workflows)** - Implement approval workflows
 
+## Observability & Monitoring
+
+- **[Monitor Pipeline Events](monitor-events)** - Track execution with the event system
+- **[Custom Middleware](custom-middleware)** - Add observability and metrics
+
 ## Advanced Topics
 
 - **[Configure Media Storage](configure-media-storage)** - Optimize memory for media
-- **[Custom Middleware](custom-middleware)** - Add observability and metrics
 - **[Error Handling](error-handling)** - Handle failures gracefully
 - **[Configure Context](configure-context)** - Manage token budgets
 - **[Test Applications](test-sdk-apps)** - Unit and integration testing

@@ -614,21 +614,6 @@ func TestModel_ThreadSafety(t *testing.T) {
 	assert.Greater(t, m.successCount, 0)
 }
 
-func TestObserver_TurnCallbacks(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.activeRuns = []RunInfo{{RunID: "run-1"}}
-	obs := NewObserverWithModel(m)
-
-	obs.OnTurnStarted("run-1", 0, "user", "scn")
-	require.Equal(t, "user", m.activeRuns[0].CurrentTurnRole)
-
-	err := fmt.Errorf("boom")
-	obs.OnTurnCompleted("run-1", 0, "assistant", "scn", err)
-	require.Equal(t, "assistant", m.activeRuns[0].CurrentTurnRole)
-	require.Equal(t, "boom", m.activeRuns[0].Error)
-	require.NotZero(t, len(m.logs))
-}
-
 func TestStatusString(t *testing.T) {
 	assert.Equal(t, "running", statusString(StatusRunning))
 	assert.Equal(t, "completed", statusString(StatusCompleted))

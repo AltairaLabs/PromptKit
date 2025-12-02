@@ -223,11 +223,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case LogMsg:
+		m.mu.Lock()
 		m.handleLogMsg(&msg)
+		m.mu.Unlock()
 		return m, nil
 
 	case ShowSummaryMsg:
+		m.mu.Lock()
 		m.handleShowSummary(&msg)
+		m.mu.Unlock()
 		// Don't quit immediately - let user see summary and press Ctrl+C or 'q' to exit
 		return m, nil
 	}
@@ -742,6 +746,34 @@ func (m *Model) SetStateStore(store runResultStorer) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.stateStore = store
+}
+
+// CompletedCount returns the number of completed runs (success + failure).
+// Safe for concurrent use.
+func (m *Model) CompletedCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.completedCount
+}
+
+// ActiveRuns returns a snapshot of active runs for inspection or testing.
+// Safe for concurrent use.
+func (m *Model) ActiveRuns() []RunInfo {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cpy := make([]RunInfo, len(m.activeRuns))
+	copy(cpy, m.activeRuns)
+	return cpy
+}
+
+// Logs returns a snapshot of the current log entries.
+// Safe for concurrent use.
+func (m *Model) Logs() []LogEntry {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cpy := make([]LogEntry, len(m.logs))
+	copy(cpy, m.logs)
+	return cpy
 }
 
 // Run starts the TUI application

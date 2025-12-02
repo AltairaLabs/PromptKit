@@ -14,6 +14,7 @@ import (
 	arenaassertions "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -26,6 +27,17 @@ func TestEvaluateConversationAssertions_NoAssertions(t *testing.T) {
 	if res != nil {
 		t.Fatalf("expected nil results when no conversation assertions present, got %v", res)
 	}
+}
+
+func TestConversationExecutor_HandleTurnExecutionError(t *testing.T) {
+	ce := &DefaultConversationExecutor{}
+	req := ConversationRequest{
+		Scenario: &config.Scenario{},
+	}
+	result := ce.handleTurnExecutionError(req, assertErr{}, 0, config.TurnDefinition{Role: "user"})
+
+	require.True(t, result.Failed)
+	require.Equal(t, "failed", result.Error)
 }
 
 func TestBuildConversationContext_IncludesExtras(t *testing.T) {

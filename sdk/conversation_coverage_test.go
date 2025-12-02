@@ -1,14 +1,22 @@
 package sdk
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -184,4 +192,140 @@ func TestExtractValidationsFromResult_NoValidation(t *testing.T) {
 	if validations != nil {
 		t.Errorf("expected nil validations, got %+v", validations)
 	}
+}
+
+func TestGetEmitter_NilBus(t *testing.T) {
+	mockProvider := mock.NewProvider("test", "model", false)
+	manager, _ := NewConversationManager(WithProvider(mockProvider))
+
+	conv := &Conversation{
+		manager:  manager,
+		state:    &statestore.ConversationState{},
+		eventBus: nil,
+	}
+
+	emitter := conv.getEmitter()
+	assert.Nil(t, emitter)
+}
+
+func TestGetEmitter_WithBus(t *testing.T) {
+	mockProvider := mock.NewProvider("test", "model", false)
+	bus := events.NewEventBus()
+	manager, _ := NewConversationManager(WithProvider(mockProvider), WithEventBus(bus))
+
+	conv := &Conversation{
+		id:       "conv-1",
+		userID:   "user-1",
+		manager:  manager,
+		state:    &statestore.ConversationState{},
+		eventBus: bus,
+	}
+
+	emitter := conv.getEmitter()
+	assert.NotNil(t, emitter)
+}
+
+func TestAddEventListener_CreatesEventBus(t *testing.T) {
+	mockProvider := mock.NewProvider("test", "model", false)
+	manager, _ := NewConversationManager(WithProvider(mockProvider))
+
+	conv := &Conversation{
+		id:       "conv-1",
+		userID:   "user-1",
+		manager:  manager,
+		state:    &statestore.ConversationState{},
+		eventBus: nil,
+	}
+
+	conv.AddEventListener(func(e *events.Event) {
+		// Event listener callback
+	})
+
+	assert.NotNil(t, conv.eventBus, "event bus should be created")
+	assert.NotNil(t, conv.manager.eventBus, "manager event bus should be set")
+}
+
+func TestBuildMiddlewarePipeline_WithMediaStorage(t *testing.T) {
+	mockProvider := mock.NewProvider("test", "model", false)
+	mockStorage := &mockMediaStorage{}
+
+	manager, err := NewConversationManager(
+		WithProvider(mockProvider),
+		WithMediaStorage(mockStorage),
+		WithConfig(ManagerConfig{
+			EnableMediaExternalization: true,
+			MediaSizeThresholdKB:       100,
+			MediaDefaultPolicy:         "retain",
+		}),
+	)
+	require.NoError(t, err)
+
+	conv := &Conversation{
+		id:      "conv-1",
+		userID:  "user-1",
+		manager: manager,
+		state: &statestore.ConversationState{
+			Metadata: map[string]interface{}{
+				"run_id":     "run-1",
+				"session_id": "session-1",
+			},
+		},
+		registry:   &prompt.Registry{},
+		promptName: "test",
+		prompt: &Prompt{
+			Parameters: &Parameters{
+				MaxTokens:   100,
+				Temperature: 0.7,
+			},
+		},
+	}
+
+	middleware := conv.buildMiddlewarePipeline()
+	assert.NotNil(t, middleware)
+	assert.Greater(t, len(middleware), 0)
+}
+
+func TestBuildMiddlewarePipeline_WithoutMediaStorage(t *testing.T) {
+	mockProvider := mock.NewProvider("test", "model", false)
+
+	manager, err := NewConversationManager(WithProvider(mockProvider))
+	require.NoError(t, err)
+
+	conv := &Conversation{
+		id:         "conv-1",
+		userID:     "user-1",
+		manager:    manager,
+		state:      &statestore.ConversationState{},
+		registry:   &prompt.Registry{},
+		promptName: "test",
+		prompt: &Prompt{
+			Parameters: &Parameters{
+				MaxTokens:   100,
+				Temperature: 0.7,
+			},
+		},
+	}
+
+	middleware := conv.buildMiddlewarePipeline()
+	assert.NotNil(t, middleware)
+	assert.Greater(t, len(middleware), 0)
+}
+
+// mockMediaStorage implements storage.MediaStorageService for testing
+type mockMediaStorage struct{}
+
+func (m *mockMediaStorage) StoreMedia(ctx context.Context, content *types.MediaContent, metadata *storage.MediaMetadata) (storage.Reference, error) {
+	return storage.Reference("test-ref-1"), nil
+}
+
+func (m *mockMediaStorage) RetrieveMedia(ctx context.Context, ref storage.Reference) (*types.MediaContent, error) {
+	return &types.MediaContent{}, nil
+}
+
+func (m *mockMediaStorage) DeleteMedia(ctx context.Context, ref storage.Reference) error {
+	return nil
+}
+
+func (m *mockMediaStorage) GetURL(ctx context.Context, ref storage.Reference, expiry time.Duration) (string, error) {
+	return fmt.Sprintf("file:///tmp/%s", string(ref)), nil
 }

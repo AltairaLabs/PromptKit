@@ -135,7 +135,7 @@ coverage: ## Generate test coverage report
 	@cd runtime && go test -coverprofile=runtime-coverage.out ./...
 	@cd runtime && go tool cover -func=runtime-coverage.out | grep "^total:" || echo "No runtime coverage data"
 	@echo "Generating coverage for SDK..."
-	@cd sdk && go test -coverprofile=sdk-coverage.out ./...
+	@cd sdk && go test -coverpkg=github.com/AltairaLabs/PromptKit/sdk -coverprofile=sdk-coverage.out ./...
 	@cd sdk && go tool cover -func=sdk-coverage.out | grep "^total:" || echo "No SDK coverage data"
 	@echo "Generating coverage for pkg..."
 	@cd pkg && go test -coverprofile=pkg-coverage.out ./... || echo "No pkg test coverage"
@@ -152,6 +152,14 @@ coverage: ## Generate test coverage report
 	@echo "Generating coverage for schema-gen..."
 	@cd tools/schema-gen && go test -coverprofile=schema-gen-coverage.out ./... || echo "No schema-gen test coverage"
 	@cd tools/schema-gen && go tool cover -func=schema-gen-coverage.out | grep "^total:" 2>/dev/null || echo "No schema-gen coverage data"
+	@echo "Copying coverage files to root for SonarCloud..."
+	@cp runtime/runtime-coverage.out runtime-coverage.out 2>/dev/null || true
+	@cp sdk/sdk-coverage.out sdk-coverage.out 2>/dev/null || true
+	@cp pkg/pkg-coverage.out pkg-coverage.out 2>/dev/null || true
+	@cp tools/arena/arena-coverage.out arena-coverage.out 2>/dev/null || true
+	@cp tools/packc/packc-coverage.out packc-coverage.out 2>/dev/null || true
+	@cp tools/inspect-state/inspect-state-coverage.out inspect-state-coverage.out 2>/dev/null || true
+	@cp tools/schema-gen/schema-gen-coverage.out schema-gen-coverage.out 2>/dev/null || true
 	@echo "Merging coverage files..."
 	@echo "mode: set" > coverage.out
 	@grep -h -v "^mode:" runtime/runtime-coverage.out sdk/sdk-coverage.out pkg/pkg-coverage.out tools/arena/arena-coverage.out tools/packc/packc-coverage.out tools/inspect-state/inspect-state-coverage.out tools/schema-gen/schema-gen-coverage.out >> coverage.out 2>/dev/null || true
@@ -313,15 +321,15 @@ docs-cli: ## Generate CLI documentation and man pages
 	@./bin/packc --help > docs/src/content/reference/packc-cli.txt 2>/dev/null || echo "PackC CLI help captured"
 	@echo "✅ CLI documentation generated"
 
-docs-validate: ## Validate documentation links and formatting
-	@echo "🔍 Validating documentation..."
+docs-validate: ## Validate and auto-fix documentation formatting
+	@echo "🔍 Validating and fixing documentation..."
 	@find docs/src/content -name "*.md" -type f | while read file; do \
 		echo "Checking $$file..."; \
 		if command -v markdownlint >/dev/null 2>&1; then \
-			markdownlint "$$file" || true; \
+			markdownlint --fix "$$file" 2>/dev/null || true; \
 		fi; \
 	done
-	@echo "✅ Documentation validation complete"
+	@echo "✅ Documentation validation complete (auto-fixed)"
 
 docs-check-links: docs-build ## Check for broken links in built documentation
 	@echo "🔗 Checking for broken links..."
@@ -368,7 +376,27 @@ sonar-install: ## Install SonarScanner locally
 		echo "Please install SonarScanner manually: https://docs.sonarqube.org/latest/analysis/scan/sonarscanner/"; \
 	fi
 
-sonar-scan: ## Run SonarScanner locally (requires SONAR_TOKEN env var for CLI authentication)
+sonar-deps: ## Install dependencies for SonarQube analysis (jq for parsing results)
+	@echo "📦 Checking SonarQube dependencies..."
+	@if ! command -v jq >/dev/null 2>&1; then \
+		echo "Installing jq for parsing SonarQube results..."; \
+		if command -v brew >/dev/null 2>&1; then \
+			brew install jq; \
+		elif command -v apt-get >/dev/null 2>&1; then \
+			sudo apt-get install -y jq; \
+		elif command -v yum >/dev/null 2>&1; then \
+			sudo yum install -y jq; \
+		else \
+			echo "⚠️  Could not install jq automatically. Please install it manually:"; \
+			echo "  macOS: brew install jq"; \
+			echo "  Linux: sudo apt-get install jq  OR  sudo yum install jq"; \
+			exit 1; \
+		fi; \
+	else \
+		echo "✅ jq is already installed"; \
+	fi
+
+sonar-scan: sonar-deps ## Run SonarScanner locally (requires SONAR_TOKEN env var for CLI authentication)
 	@echo "📊 Running SonarScanner analysis..."
 	@if [ -z "$(SONAR_TOKEN)" ]; then \
 		echo "❌ SONAR_TOKEN environment variable is required for local CLI scanning"; \
@@ -376,13 +404,33 @@ sonar-scan: ## Run SonarScanner locally (requires SONAR_TOKEN env var for CLI au
 		echo "ℹ️  Note: CI/CD via GitHub Actions doesn't need a token for public repos"; \
 		exit 1; \
 	fi
-	@sonar-scanner \
-		-Dsonar.projectKey=AltairaLabs_promptkit-public \
+	@BRANCH=$$(git rev-parse --abbrev-ref HEAD); \
+	echo "📍 Current branch: $$BRANCH"; \
+	sonar-scanner \
+		-Dsonar.projectKey=AltairaLabs_PromptKit \
 		-Dsonar.organization=altairalabs \
 		-Dsonar.sources=. \
 		-Dsonar.host.url=https://sonarcloud.io \
-		-Dsonar.login=$(SONAR_TOKEN) \
+		-Dsonar.token=$(SONAR_TOKEN) \
 		-Dsonar.go.coverage.reportPaths=coverage.out \
-		-Dsonar.exclusions="**/*_test.go,**/vendor/**,**/bin/**,**/docs/**"
+		-Dsonar.exclusions="**/*_test.go,**/vendor/**,**/bin/**,**/docs/**" \
+		-Dsonar.scanner.dumpToFile=sonar-report.json
+	@echo ""
+	@echo "📋 Fetching issues from SonarCloud (main branch)..."
+	@sleep 5
+	@curl -s -u $(SONAR_TOKEN): \
+		"https://sonarcloud.io/api/issues/search?componentKeys=AltairaLabs_PromptKit&resolved=false&severities=CRITICAL,MAJOR" \
+		| jq -r '.issues[] | "\(.component):\(.line // 1):1: [\(.severity)] \(.message) (\(.rule))"' \
+		> sonar-issues.txt 2>/dev/null || echo "⚠️  Could not fetch issues"
+	@if [ -f sonar-issues.txt ] && [ -s sonar-issues.txt ]; then \
+		echo ""; \
+		echo "🔍 SonarQube Issues (CRITICAL & MAJOR):"; \
+		echo ""; \
+		cat sonar-issues.txt; \
+		echo ""; \
+		echo "💡 Issues saved to sonar-issues.txt (compatible with VS Code Problems panel)"; \
+	else \
+		echo "✅ No critical or major issues found!"; \
+	fi
 
 sonar-quick: coverage sonar-scan ## Generate coverage and run Sonar analysis in one command

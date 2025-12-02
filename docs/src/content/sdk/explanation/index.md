@@ -12,6 +12,7 @@ Deep-dive documentation explaining SDK architecture, design decisions, and conce
 - **[SDK Architecture](architecture)** - Overall SDK design and component relationships
 - **[Pipeline Architecture](pipeline-architecture)** - How request processing pipelines work
 - **[State Management](state-management)** - State persistence design and patterns
+- **[Observability & Events](observability)** - How the event system provides visibility
 
 ## Design Decisions
 

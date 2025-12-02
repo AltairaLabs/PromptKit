@@ -11,6 +11,7 @@ import (
 	bubbletea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
@@ -161,9 +162,11 @@ func executeWithTUI(ctx context.Context, eng *engine.Engine, plan *engine.RunPla
 		bubbletea.WithMouseCellMotion(), // Enable mouse support for scrolling
 	)
 
-	// Create observer that bridges engine callbacks to bubbletea messages
-	observer := tui.NewObserver(program)
-	eng.SetObserver(observer)
+	// Create event bus and adapter for TUI updates
+	eventBus := events.NewEventBus()
+	eng.SetEventBus(eventBus)
+	adapter := tui.NewEventAdapter(program)
+	adapter.Subscribe(eventBus)
 
 	// Setup log interceptor to capture logs in TUI
 	var logInterceptor *tui.LogInterceptor
@@ -251,11 +254,10 @@ func executeSimple(ctx context.Context, eng *engine.Engine, plan *engine.RunPlan
 		model.SetStateStore(arenaStore)
 	}
 
-	// Create observer that updates the model directly (headless mode)
-	observer := tui.NewObserverWithModel(model)
-
-	// Set engine observer to track progress
-	eng.SetObserver(observer)
+	eventBus := events.NewEventBus()
+	eng.SetEventBus(eventBus)
+	adapter := tui.NewEventAdapterWithModel(model)
+	adapter.Subscribe(eventBus)
 
 	runIDs, err := eng.ExecuteRuns(ctx, plan, params.Concurrency)
 	if err != nil {

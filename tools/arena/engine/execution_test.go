@@ -7,6 +7,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 )
 
 func TestEngine_ResolveRegions(t *testing.T) {
@@ -181,4 +183,140 @@ func TestEngine_GenerateCombinations_EmptyInputs(t *testing.T) {
 			assert.Equal(t, tt.expectedCount, len(result))
 		})
 	}
+}
+
+func TestEngine_IntersectProviders(t *testing.T) {
+	e := &Engine{}
+	scenarioProviders := []string{"p1", "p2", "p3"}
+	filter := []string{"p2", "p3", "p4"}
+
+	got := e.intersectProviders(scenarioProviders, filter)
+	require.Equal(t, []string{"p2", "p3"}, got)
+}
+
+func TestEngine_ApplyProviderFilter(t *testing.T) {
+	e := &Engine{}
+
+	t.Run("empty filter returns all", func(t *testing.T) {
+		providers := []string{"p1", "p2", "p3"}
+		result := e.applyProviderFilter(providers, []string{})
+		assert.Equal(t, providers, result)
+	})
+
+	t.Run("filter matches subset", func(t *testing.T) {
+		providers := []string{"p1", "p2", "p3"}
+		filter := []string{"p1", "p3"}
+		result := e.applyProviderFilter(providers, filter)
+		assert.Equal(t, []string{"p1", "p3"}, result)
+	})
+
+	t.Run("filter with no matches", func(t *testing.T) {
+		providers := []string{"p1", "p2"}
+		filter := []string{"p3", "p4"}
+		result := e.applyProviderFilter(providers, filter)
+		assert.Empty(t, result)
+	})
+}
+
+func TestEngine_GetInitialProviders(t *testing.T) {
+	p1 := &config.Provider{ID: "p1"}
+	p2 := &config.Provider{ID: "p2"}
+	p3 := &config.Provider{ID: "p3"}
+
+	e := &Engine{
+		providers: map[string]*config.Provider{
+			"p1": p1,
+			"p2": p2,
+			"p3": p3,
+		},
+		config: &config.Config{
+			ProviderGroups: map[string]string{
+				"p1": "group-a",
+				"p2": "group-a",
+				"p3": "group-b",
+			},
+		},
+		providerRegistry: providers.NewRegistry(),
+	}
+
+	// Add providers to registry
+	mockProv1 := mock.NewProvider("p1", "model", false)
+	mockProv2 := mock.NewProvider("p2", "model", false)
+	mockProv3 := mock.NewProvider("p3", "model", false)
+	e.providerRegistry.Register(mockProv1)
+	e.providerRegistry.Register(mockProv2)
+	e.providerRegistry.Register(mockProv3)
+
+	t.Run("scenario with explicit providers", func(t *testing.T) {
+		scenario := &config.Scenario{
+			Providers: []string{"p1", "p2"},
+		}
+		result := e.getInitialProviders(scenario, nil)
+		assert.Equal(t, []string{"p1", "p2"}, result)
+	})
+
+	t.Run("scenario with provider group", func(t *testing.T) {
+		scenario := &config.Scenario{
+			ProviderGroup: "group-a",
+		}
+		result := e.getInitialProviders(scenario, nil)
+		assert.Contains(t, result, "p1")
+		assert.Contains(t, result, "p2")
+		assert.NotContains(t, result, "p3")
+	})
+
+	t.Run("scenario with filter", func(t *testing.T) {
+		scenario := &config.Scenario{}
+		filter := []string{"p1"}
+		result := e.getInitialProviders(scenario, filter)
+		assert.Equal(t, []string{"p1"}, result)
+	})
+}
+
+func TestEngine_ResolveProvidersForScenario(t *testing.T) {
+	e := &Engine{
+		providerRegistry: providers.NewRegistry(),
+	}
+
+	mockProv1 := mock.NewProvider("p1", "model", false)
+	mockProv2 := mock.NewProvider("p2", "model", false)
+	mockProv3 := mock.NewProvider("p3", "model", false)
+	e.providerRegistry.Register(mockProv1)
+	e.providerRegistry.Register(mockProv2)
+	e.providerRegistry.Register(mockProv3)
+
+	t.Run("scenario providers with filter intersection", func(t *testing.T) {
+		scenario := &config.Scenario{
+			Providers: []string{"p1", "p2", "p3"},
+		}
+		filter := []string{"p2", "p3"}
+		result := e.resolveProvidersForScenario(scenario, filter)
+		assert.Equal(t, []string{"p2", "p3"}, result)
+	})
+
+	t.Run("scenario providers without filter", func(t *testing.T) {
+		scenario := &config.Scenario{
+			Providers: []string{"p1", "p2"},
+		}
+		result := e.resolveProvidersForScenario(scenario, nil)
+		assert.Equal(t, []string{"p1", "p2"}, result)
+	})
+}
+
+// mockProviderRegistry for testing
+type mockProviderRegistry struct {
+	providers []string
+}
+
+func (m *mockProviderRegistry) List() []string {
+	return m.providers
+}
+
+func (m *mockProviderRegistry) Get(id string) (interface{}, bool) {
+	for _, p := range m.providers {
+		if p == id {
+			return nil, true
+		}
+	}
+	return nil, false
 }

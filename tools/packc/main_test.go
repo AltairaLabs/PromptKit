@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
 	"github.com/stretchr/testify/assert"
@@ -396,6 +397,119 @@ func TestPrintPromptValidators(t *testing.T) {
 		p := &prompt.PackPrompt{}
 		printPromptValidators(p)
 	})
+}
+
+func TestPrintPromptsFunction(t *testing.T) {
+	t.Run("with prompts", func(t *testing.T) {
+		pack := &prompt.Pack{
+			Prompts: map[string]*prompt.PackPrompt{
+				"task1": {
+					ID:          "task1",
+					Name:        "Task 1",
+					Description: "First task",
+				},
+				"task2": {
+					ID:          "task2",
+					Name:        "Task 2",
+					Description: "Second task",
+				},
+			},
+		}
+		printPrompts(pack)
+	})
+
+	t.Run("no prompts", func(t *testing.T) {
+		pack := &prompt.Pack{}
+		printPrompts(pack)
+	})
+}
+
+func TestMustLoadConfig_Error(t *testing.T) {
+	// Test that the underlying function returns error for nonexistent file
+	_, err := config.LoadConfig("nonexistent-file.yaml")
+	assert.Error(t, err)
+}
+
+func TestBuildMemoryRepo(t *testing.T) {
+	cfg := &config.Config{
+		LoadedPromptConfigs: map[string]*config.PromptConfigData{
+			"test": {
+				FilePath: "test.yaml",
+				Config: &prompt.Config{
+					APIVersion: "promptkit.altairalabs.ai/v1alpha1",
+					Kind:       "Config",
+					Spec: prompt.Spec{
+						TaskType:       "test",
+						SystemTemplate: "Test prompt",
+					},
+				},
+			},
+		},
+	}
+
+	repo := buildMemoryRepo(cfg)
+	assert.NotNil(t, repo)
+
+	// Verify prompt was registered
+	cfg2, err := repo.LoadPrompt("test")
+	require.NoError(t, err)
+	assert.Equal(t, "test", cfg2.Spec.TaskType)
+}
+
+func TestBuildMemoryRepo_InvalidConfig(t *testing.T) {
+	// This would cause os.Exit in real code, but we test the logic
+	cfg := &config.Config{
+		LoadedPromptConfigs: map[string]*config.PromptConfigData{
+			"test": {
+				FilePath: "test.yaml",
+				Config:   nil, // nil config should be skipped
+			},
+		},
+	}
+
+	repo := buildMemoryRepo(cfg)
+	assert.NotNil(t, repo)
+}
+
+func TestValidateLoadedMedia(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.jpg")
+	err := os.WriteFile(testFile, []byte("test"), 0644)
+	require.NoError(t, err)
+
+	cfg := &config.Config{
+		LoadedPromptConfigs: map[string]*config.PromptConfigData{
+			"test": {
+				FilePath: "test.yaml",
+				Config: &prompt.Config{
+					Spec: prompt.Spec{
+						TaskType: "test",
+						MediaConfig: &prompt.MediaConfig{
+							Enabled:        true,
+							SupportedTypes: []string{"image"},
+							Examples: []prompt.MultimodalExample{
+								{
+									Name: "example",
+									Role: "user",
+									Parts: []prompt.ExampleContentPart{
+										{
+											Media: &prompt.ExampleMedia{
+												FilePath: "test.jpg",
+												MIMEType: "image/jpeg",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Should not panic
+	validateLoadedMedia(cfg, tmpDir)
 }
 
 func TestPrintPromptTestedModels(t *testing.T) {

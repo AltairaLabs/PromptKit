@@ -66,6 +66,9 @@ func (m *contextBuilderMiddleware) Process(execCtx *pipeline.ExecutionContext, n
 	available -= systemTokens
 
 	if available <= 0 {
+		if execCtx.EventEmitter != nil {
+			execCtx.EventEmitter.TokenBudgetExceeded(systemTokens, m.policy.TokenBudget, systemTokens)
+		}
 		return fmt.Errorf("token budget too small: need at least %d for system prompt", systemTokens)
 	}
 
@@ -74,6 +77,9 @@ func (m *contextBuilderMiddleware) Process(execCtx *pipeline.ExecutionContext, n
 
 	// If under budget, no truncation needed
 	if currentTokens <= available {
+		if execCtx.EventEmitter != nil {
+			execCtx.EventEmitter.ContextBuilt(len(execCtx.Messages), currentTokens, m.policy.TokenBudget, false)
+		}
 		return next()
 	}
 
@@ -90,6 +96,10 @@ func (m *contextBuilderMiddleware) Process(execCtx *pipeline.ExecutionContext, n
 		execCtx.Metadata["context_original_count"] = originalCount
 		execCtx.Metadata["context_truncated_count"] = len(truncated)
 		execCtx.Metadata["context_dropped_count"] = originalCount - len(truncated)
+
+		if execCtx.EventEmitter != nil {
+			execCtx.EventEmitter.ContextBuilt(len(truncated), countMessagesTokens(truncated), m.policy.TokenBudget, true)
+		}
 	}
 
 	// Replace messages with truncated version

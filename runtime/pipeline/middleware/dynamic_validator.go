@@ -153,12 +153,32 @@ func (m *dynamicValidatorMiddleware) runValidations(
 			continue
 		}
 
+		start := time.Now()
+		if execCtx.EventEmitter != nil {
+			execCtx.EventEmitter.ValidationStarted(validatorName(validator), validatorType(validator))
+		}
+
 		result := m.executeValidator(validator, contentToValidate, validatorParams[i])
 		validationResults = append(validationResults, result)
 
 		if !result.Passed {
 			logger.Warn("Validation failed", "validator", result.ValidatorType, "details", result.Details)
 			failedValidations = append(failedValidations, result)
+			if execCtx.EventEmitter != nil {
+				execCtx.EventEmitter.ValidationFailed(
+					validatorName(validator),
+					validatorType(validator),
+					fmt.Errorf("%v", result.Details),
+					time.Since(start),
+					nil,
+				)
+			}
+		} else if execCtx.EventEmitter != nil {
+			execCtx.EventEmitter.ValidationPassed(
+				validatorName(validator),
+				validatorType(validator),
+				time.Since(start),
+			)
 		}
 	}
 
@@ -434,4 +454,15 @@ func (m *dynamicValidatorMiddleware) getValidators(
 		return nil, nil, true
 	}
 	return validatorList, validatorParams, false
+}
+
+func validatorName(v validators.Validator) string {
+	return fmt.Sprintf("%T", v)
+}
+
+func validatorType(v validators.Validator) string {
+	if sv, ok := v.(validators.StreamingValidator); ok && sv.SupportsStreaming() {
+		return "streaming"
+	}
+	return "validation"
 }

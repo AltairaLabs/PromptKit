@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
@@ -40,6 +41,7 @@ type ConversationManager struct {
 	stateStore   statestore.Store
 	toolRegistry *tools.Registry
 	mediaStorage storage.MediaStorageService
+	eventBus     *events.EventBus
 
 	// Configuration
 	config ManagerConfig
@@ -92,6 +94,7 @@ type Conversation struct {
 	manager       *ConversationManager
 	registry      *prompt.Registry                 // Prompt registry for middleware pipeline
 	contextPolicy *middleware.ContextBuilderPolicy // Token budget policy
+	eventBus      *events.EventBus
 
 	// State
 	state *statestore.ConversationState
@@ -225,6 +228,14 @@ func WithMediaStorage(storageService storage.MediaStorageService) ManagerOption 
 	}
 }
 
+// WithEventBus sets a shared event bus for conversation event listeners.
+func WithEventBus(bus *events.EventBus) ManagerOption {
+	return func(cm *ConversationManager) error {
+		cm.eventBus = bus
+		return nil
+	}
+}
+
 // LoadPack loads a PromptPack from a file
 func (cm *ConversationManager) LoadPack(packPath string) (*Pack, error) {
 	return cm.packManager.LoadPack(packPath)
@@ -325,6 +336,7 @@ func (cm *ConversationManager) CreateConversation(ctx context.Context, pack *Pac
 		registry:      registry,
 		contextPolicy: config.ContextPolicy,
 		state:         state,
+		eventBus:      cm.eventBus,
 	}
 
 	// Register conversation
@@ -382,6 +394,7 @@ func (cm *ConversationManager) GetConversation(
 		registry:      registry,
 		contextPolicy: nil, // Context policy can be loaded from metadata when persistence layer supports it
 		state:         state,
+		eventBus:      cm.eventBus,
 	}
 
 	// Register conversation
@@ -402,11 +415,18 @@ func (c *Conversation) Send(ctx context.Context, userMessage string, opts ...Sen
 
 	// Create pipeline
 	p := pipeline.NewPipeline(pipelineMiddleware...)
+	emitter := c.getEmitter()
 
 	// Execute pipeline with user message
 	// The pipeline will automatically handle loading state, adding the message, executing LLM, and saving state
 	start := time.Now()
-	result, err := p.Execute(ctx, "user", userMessage)
+	result, err := p.ExecuteWithOptions(&pipeline.ExecutionOptions{
+		Context:        ctx,
+		RunID:          c.id,
+		SessionID:      c.userID,
+		ConversationID: c.id,
+		EventEmitter:   emitter,
+	}, "user", userMessage)
 	if err != nil {
 		return nil, fmt.Errorf("pipeline execution error: %w", err)
 	}
@@ -463,7 +483,8 @@ func (c *Conversation) executeStreamingPipeline(ctx context.Context, userMessage
 	pipelineMiddleware := c.buildMiddlewarePipeline()
 	p := pipeline.NewPipeline(pipelineMiddleware...)
 
-	streamChan, err := p.ExecuteStream(ctx, "user", userMessage)
+	emitter := c.getEmitter()
+	streamChan, err := p.ExecuteStreamWithEvents(ctx, "user", userMessage, emitter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start streaming: %w", err)
 	}
@@ -716,7 +737,13 @@ func (c *Conversation) executeContinuePipeline(ctx context.Context, lastMsg type
 	p := pipeline.NewPipeline(pipelineMiddleware...)
 	start := time.Now()
 
-	result, err := p.ExecuteWithMessage(ctx, lastMsg)
+	result, err := p.ExecuteWithMessageOptions(&pipeline.ExecutionOptions{
+		Context:        ctx,
+		RunID:          c.id,
+		SessionID:      c.userID,
+		ConversationID: c.id,
+		EventEmitter:   c.getEmitter(),
+	}, lastMsg)
 	if err != nil {
 		return nil, 0, fmt.Errorf("pipeline execution error: %w", err)
 	}
@@ -767,6 +794,27 @@ func (c *Conversation) GetID() string {
 // GetUserID returns the user ID
 func (c *Conversation) GetUserID() string {
 	return c.userID
+}
+
+// AddEventListener subscribes to runtime events emitted during conversation execution.
+func (c *Conversation) AddEventListener(listener events.Listener) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.eventBus == nil {
+		c.eventBus = events.NewEventBus()
+		if c.manager != nil && c.manager.eventBus == nil {
+			c.manager.eventBus = c.eventBus
+		}
+	}
+	c.eventBus.SubscribeAll(listener)
+}
+
+func (c *Conversation) getEmitter() *events.Emitter {
+	if c.eventBus == nil {
+		return nil
+	}
+	return events.NewEmitter(c.eventBus, c.id, c.userID, c.id)
 }
 
 // Helper functions

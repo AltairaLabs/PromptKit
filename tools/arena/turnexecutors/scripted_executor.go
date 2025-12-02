@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -129,7 +130,12 @@ func (e *ScriptedExecutor) executeStreamingPipeline(
 	middlewares := e.buildStreamingMiddlewares(req)
 	pl := pipeline.NewPipeline(middlewares...)
 
-	streamChan, streamErr := pl.ExecuteStream(ctx, userMessage.Role, userMessage.Content)
+	var emitter *events.Emitter
+	if req.EventBus != nil {
+		emitter = events.NewEmitter(req.EventBus, req.RunID, "", req.ConversationID)
+	}
+
+	streamChan, streamErr := pl.ExecuteStreamWithEvents(ctx, userMessage.Role, userMessage.Content, emitter)
 	if streamErr != nil {
 		outChan <- MessageStreamChunk{Error: streamErr}
 		return

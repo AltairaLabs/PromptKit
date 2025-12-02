@@ -49,6 +49,10 @@ func (m *stateStoreSaveMiddleware) Process(execCtx *pipeline.ExecutionContext, n
 		return fmt.Errorf("state store save: failed to save state: %w", saveErr)
 	}
 
+	if execCtx.EventEmitter != nil {
+		execCtx.EventEmitter.StateSaved(m.config.ConversationID, len(execCtx.Messages))
+	}
+
 	return err // Return the original error from next() if any
 }
 

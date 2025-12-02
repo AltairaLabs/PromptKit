@@ -2,8 +2,11 @@ package middleware
 
 import (
 	"context"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -919,5 +922,180 @@ func TestDynamicValidator_SuppressWithMultipleFailures(t *testing.T) {
 		if result.Passed {
 			t.Errorf("Expected validation result %d to show failure", i)
 		}
+	}
+}
+
+// TestDynamicValidator_WithEventEmitter tests that validatorName and validatorType are called correctly
+func TestDynamicValidator_WithEventEmitter(t *testing.T) {
+	// Setup mock validator
+	mockVal := &mockValidator{failOn: ""}
+
+	// Setup validator registry
+	registry := validators.NewRegistry()
+	registry.Register("mock", func(params map[string]interface{}) validators.Validator { return mockVal })
+
+	// Setup validator configs
+	validatorConfigs := []validators.ValidatorConfig{
+		{
+			Type:   "mock",
+			Params: map[string]interface{}{},
+		},
+	}
+
+	// Create middleware with validators
+	middleware := DynamicValidatorMiddleware(registry)
+
+	// Setup event bus and emitter to capture events
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "test-run", "test-session", "test-conv")
+
+	var capturedEvents []*events.Event
+	var eventsMutex sync.Mutex
+	bus.SubscribeAll(func(event *events.Event) {
+		eventsMutex.Lock()
+		capturedEvents = append(capturedEvents, event)
+		eventsMutex.Unlock()
+	})
+
+	// Create execution context with EventEmitter
+	execCtx := &pipeline.ExecutionContext{
+		Context:      context.Background(),
+		EventEmitter: emitter,
+		Metadata: map[string]interface{}{
+			"validator_configs": validatorConfigs,
+		},
+		Messages: []types.Message{
+			{Role: "assistant", Content: "test response"},
+		},
+	}
+
+	// Execute
+	err := middleware.Process(execCtx, func() error {
+		return nil
+	})
+
+	// Assert: No error
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	// Wait for async event publication
+	time.Sleep(50 * time.Millisecond)
+
+	// Assert: Events were captured
+	eventsMutex.Lock()
+	numEvents := len(capturedEvents)
+	eventsMutex.Unlock()
+	if numEvents == 0 {
+		t.Error("Expected events to be emitted")
+	}
+
+	// Assert: ValidationStarted and ValidationPassed events were emitted
+	foundStarted := false
+	foundPassed := false
+	eventsMutex.Lock()
+	for _, event := range capturedEvents {
+		if event.Type == events.EventValidationStarted {
+			foundStarted = true
+			data := event.Data.(events.ValidationStartedData)
+			// validatorName returns type string like "*middleware.mockValidator"
+			if data.ValidatorName == "" {
+				t.Error("Expected validator name to be set")
+			}
+			// validatorType returns "validation" for non-streaming validators
+			if data.ValidatorType != "validation" {
+				t.Errorf("Expected validator type 'validation', got '%s'", data.ValidatorType)
+			}
+		}
+		if event.Type == events.EventValidationPassed {
+			foundPassed = true
+		}
+	}
+	eventsMutex.Unlock()
+
+	if !foundStarted {
+		t.Error("Expected ValidationStarted event")
+	}
+	if !foundPassed {
+		t.Error("Expected ValidationPassed event")
+	}
+}
+
+// TestDynamicValidator_WithEventEmitter_StreamingValidator tests validatorType with streaming validator
+func TestDynamicValidator_WithEventEmitter_StreamingValidator(t *testing.T) {
+	// Setup streaming validator
+	streamingVal := &mockStreamingValidator{
+		mockValidator: mockValidator{failOn: ""},
+	}
+
+	// Setup validator registry
+	registry := validators.NewRegistry()
+	registry.Register("streaming", func(params map[string]interface{}) validators.Validator { return streamingVal })
+
+	// Setup validator configs
+	validatorConfigs := []validators.ValidatorConfig{
+		{
+			Type:   "streaming",
+			Params: map[string]interface{}{},
+		},
+	}
+
+	// Create middleware
+	middleware := DynamicValidatorMiddleware(registry)
+
+	// Setup event bus and emitter
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "test-run", "test-session", "test-conv")
+
+	var capturedEvents []*events.Event
+	var eventsMutex sync.Mutex
+	bus.SubscribeAll(func(event *events.Event) {
+		eventsMutex.Lock()
+		capturedEvents = append(capturedEvents, event)
+		eventsMutex.Unlock()
+	})
+
+	// Create execution context with streaming mode
+	execCtx := &pipeline.ExecutionContext{
+		Context:      context.Background(),
+		EventEmitter: emitter,
+		StreamMode:   false, // Non-streaming mode - validator is still streaming-capable
+		Metadata: map[string]interface{}{
+			"validator_configs": validatorConfigs,
+		},
+		Messages: []types.Message{
+			{Role: "assistant", Content: "test response"},
+		},
+	}
+
+	// Execute
+	err := middleware.Process(execCtx, func() error {
+		return nil
+	})
+
+	// Assert: No error
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	// Wait for async event publication
+	time.Sleep(50 * time.Millisecond)
+
+	// Assert: ValidationStarted event was emitted with type "streaming"
+	foundStreaming := false
+	eventsMutex.Lock()
+	for _, event := range capturedEvents {
+		if event.Type == events.EventValidationStarted {
+			data := event.Data.(events.ValidationStartedData)
+			// validatorType returns "streaming" for streaming validators
+			if data.ValidatorType == "streaming" {
+				foundStreaming = true
+			}
+		}
+	}
+	eventsMutex.Unlock()
+
+	if !foundStreaming {
+		t.Error("Expected validatorType to be 'streaming' for streaming validator")
 	}
 }
