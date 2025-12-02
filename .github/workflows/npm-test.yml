@@ -85,8 +85,10 @@ jobs:
         shell: bash
         run: |
           # Use the mock provider example which doesn't need API keys
-          cd examples/mock-config-example.yaml
-          ../../bin/promptarena run --config mock-config-example.yaml
+          EXAMPLE_DIR="$GITHUB_WORKSPACE/examples/mock-config-example"
+          BINARY_PATH="$GITHUB_WORKSPACE/bin/promptarena"
+          cd "$EXAMPLE_DIR"
+          "$BINARY_PATH" run --config mock-config-example.yaml
           
           # Verify output was generated
           if [ ! -f "out/report.html" ]; then
