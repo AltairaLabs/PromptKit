@@ -68,14 +68,14 @@ jobs:
           echo "Testing in: $TEMP_DIR"
           
           # Test init
-          ./bin/promptarena init customer-support --dir "$TEMP_DIR/test-project"
+          ./bin/promptarena init customer-support --dir "$TEMP_DIR/test-project" --quick
           cd "$TEMP_DIR/test-project"
           
           # List templates
-          ../../bin/promptarena templates
+          ../../bin/promptarena templates list
           
           # Validate config
-          ../../bin/promptarena validate --schema-only
+          ../../bin/promptarena validate arena.yaml --schema-only
           
           echo "✅ Getting Started flow works!"
       
@@ -139,7 +139,6 @@ jobs:
           npm install $GITHUB_WORKSPACE/npm/promptarena/*.tgz
           
           # Test that binary works
-          npx promptarena --version
-          npx promptarena templates
+          npx promptarena templates list
           
           echo "✅ Package installation works!"

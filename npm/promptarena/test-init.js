@@ -64,7 +64,7 @@ async function testInitCommand() {
     console.log('\n1. Running: promptarena init customer-support');
     const { stdout: initOutput } = await runCommand(
       'node',
-      [join(process.cwd(), 'bin', 'promptarena.js'), 'init', 'customer-support'],
+      [join(process.cwd(), 'bin', 'promptarena.js'), 'init', 'customer-support', '--quick'],
       tempDir
     );
     console.log(initOutput);
@@ -74,20 +74,20 @@ async function testInitCommand() {
     console.log(`✓ Project initialized at ${projectDir}`);
 
     // Step 2: Test validate command (dry run without API calls)
-    console.log('\n2. Running: promptarena validate');
+    console.log('\n2. Running: promptarena validate arena.yaml');
     const { stdout: validateOutput } = await runCommand(
       'node',
-      [join(process.cwd(), 'bin', 'promptarena.js'), 'validate', '--schema-only'],
+      [join(process.cwd(), 'bin', 'promptarena.js'), 'validate', 'arena.yaml', '--schema-only'],
       projectDir
     );
     console.log(validateOutput);
     console.log('✓ Configuration validated successfully');
 
     // Step 3: Test templates list
-    console.log('\n3. Running: promptarena templates');
+    console.log('\n3. Running: promptarena templates list');
     const { stdout: templatesOutput } = await runCommand(
       'node',
-      [join(process.cwd(), 'bin', 'promptarena.js'), 'templates'],
+      [join(process.cwd(), 'bin', 'promptarena.js'), 'templates', 'list'],
       tempDir
     );
     console.log(templatesOutput);
