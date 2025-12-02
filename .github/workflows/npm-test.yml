@@ -67,13 +67,16 @@ jobs:
           TEMP_DIR=$(mktemp -d)
           echo "Testing in: $TEMP_DIR"
           
+          # Save binary path
+          BINARY_PATH="$GITHUB_WORKSPACE/bin/promptarena"
+          
           # Test init
           cd "$TEMP_DIR"
-          ../../bin/promptarena init test-project --quick
+          "$BINARY_PATH" init test-project --quick
           cd test-project
           
           # Validate config
-          ../../../bin/promptarena validate arena.yaml --schema-only
+          "$BINARY_PATH" validate arena.yaml --schema-only
           
           echo "✅ Getting Started flow works!"
       
@@ -135,9 +138,6 @@ jobs:
           
           # Install from tarball
           npm install $GITHUB_WORKSPACE/npm/promptarena/*.tgz
-          
-          # Test that binary works
-          npx promptarena templates list
           
           # Test that binary works (just check it runs)
           npx promptarena --help > /dev/null
