@@ -75,16 +75,16 @@ func TestLoadValuesFile_Empty(t *testing.T) {
 
 func TestSplitTemplateRef_WithAndWithoutRepo(t *testing.T) {
 	t.Parallel()
-	repo, name := splitTemplateRef("myrepo/mytemplate")
+	repo, name := templates.SplitTemplateRef("myrepo/mytemplate")
 	if repo != "myrepo" || name != "mytemplate" {
 		t.Fatalf("splitTemplateRef with repo: got (%s, %s)", repo, name)
 	}
-	repo2, name2 := splitTemplateRef("justname")
+	repo2, name2 := templates.SplitTemplateRef("justname")
 	if repo2 != "" || name2 != "justname" {
 		t.Fatalf("splitTemplateRef without repo: got (%s, %s)", repo2, name2)
 	}
 	// Edge: empty parts
-	repo3, name3 := splitTemplateRef("/name")
+	repo3, name3 := templates.SplitTemplateRef("/name")
 	if repo3 != "" || name3 != "/name" {
 		t.Fatalf("splitTemplateRef with leading slash: got (%s, %s)", repo3, name3)
 	}

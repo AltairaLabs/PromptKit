@@ -9,11 +9,11 @@ import (
 func TestFetchTemplate_Errors(t *testing.T) {
 	t.Parallel()
 	// nil entry
-	if _, err := FetchTemplate(nil, t.TempDir()); err == nil {
+	if _, err := FetchTemplate(nil, t.TempDir(), "", "test"); err == nil {
 		t.Fatalf("expected error for nil entry")
 	}
 	// missing source
-	_, err := FetchTemplate(&IndexEntry{Name: "x", Version: "1.0.0"}, t.TempDir())
+	_, err := FetchTemplate(&IndexEntry{Name: "x", Version: "1.0.0"}, t.TempDir(), "", "test")
 	if err == nil {
 		t.Fatalf("expected error for missing source")
 	}

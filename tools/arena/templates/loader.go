@@ -17,6 +17,7 @@ var builtinTemplates embed.FS
 // Loader handles loading templates from various sources
 type Loader struct {
 	cacheDir string
+	repo     Repository // repository to use for registry lookups
 }
 
 // NewLoader creates a new template loader
@@ -26,23 +27,49 @@ func NewLoader(cacheDir string) *Loader {
 	}
 	return &Loader{
 		cacheDir: cacheDir,
+		repo: Repository{
+			Type: RepositoryTypeRemoteGit,
+			URL:  DefaultIndex,
+		},
+	}
+}
+
+// NewLoaderWithRepo creates a new template loader with a specific repository
+func NewLoaderWithRepo(cacheDir string, repo Repository) *Loader {
+	if cacheDir == "" {
+		cacheDir = DefaultCacheDir()
+	}
+	return &Loader{
+		cacheDir: cacheDir,
+		repo:     repo,
 	}
 }
 
 // Load loads a template by name from any source
 func (l *Loader) Load(name string) (*Template, error) {
-	// Try built-in first
-	if tmpl, _ := l.LoadBuiltIn(name); tmpl != nil {
+	// Strip repo prefix if present (e.g., "community/template" -> "template")
+	// The repo prefix is used to select the index, but the template name in the index
+	// doesn't include the repo prefix
+	templateName := name
+	if idx := strings.Index(name, "/"); idx > 0 {
+		// Check if this looks like a repo prefix (not a file path)
+		if !strings.HasPrefix(name, "./") && !strings.HasPrefix(name, "/") {
+			templateName = name[idx+1:]
+		}
+	}
+
+	// Try built-in first (use stripped name)
+	if tmpl, _ := l.LoadBuiltIn(templateName); tmpl != nil {
 		return tmpl, nil
 	}
 
-	// Try local file
-	if strings.HasPrefix(name, "./") || strings.HasPrefix(name, "/") {
-		return l.LoadFromFile(name)
+	// Try local file or directory (use original name for file paths)
+	if strings.HasPrefix(name, "./") || strings.HasPrefix(name, "/") || strings.HasPrefix(name, "../") {
+		return l.LoadFromPath(name)
 	}
 
-	// Try remote registry (default index)
-	if tmpl, err := l.LoadFromRegistry(name); err == nil {
+	// Try remote registry (use stripped name)
+	if tmpl, err := l.LoadFromRegistryWithRepo(templateName, l.repo); err == nil {
 		return tmpl, nil
 	}
 
@@ -68,6 +95,27 @@ func (l *Loader) LoadBuiltIn(name string) (*Template, error) {
 
 	tmpl.BaseDir = "" // built-ins resolve via embedded files
 	return &tmpl, nil
+}
+
+// LoadFromPath loads a template from a file path or directory path
+// If path is a directory, it looks for template.yaml inside it
+func (l *Loader) LoadFromPath(path string) (*Template, error) {
+	// Check if path is a directory
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to access path: %w", err)
+	}
+
+	templatePath := path
+	if info.IsDir() {
+		// Look for template.yaml in the directory
+		templatePath = filepath.Join(path, "template.yaml")
+		if _, err := os.Stat(templatePath); err != nil {
+			return nil, fmt.Errorf("template.yaml not found in directory %s: %w", path, err)
+		}
+	}
+
+	return l.LoadFromFile(templatePath)
 }
 
 // LoadFromFile loads a template from a file path
@@ -130,8 +178,13 @@ func (l *Loader) ListBuiltIn() ([]TemplateInfo, error) {
 
 // LoadFromRegistry fetches a template using the default index and cache.
 func (l *Loader) LoadFromRegistry(ref string) (*Template, error) {
+	return l.LoadFromRegistryWithRepo(ref, Repository{Type: RepositoryTypeRemoteGit, URL: DefaultIndex})
+}
+
+// LoadFromRegistryWithRepo fetches a template using a specific repository.
+func (l *Loader) LoadFromRegistryWithRepo(ref string, repo Repository) (*Template, error) {
 	name, version := parseTemplateRef(ref)
-	index, err := LoadIndex(DefaultIndex)
+	index, err := LoadIndex(repo.URL)
 	if err != nil {
 		return nil, fmt.Errorf("load index: %w", err)
 	}
@@ -139,11 +192,49 @@ func (l *Loader) LoadFromRegistry(ref string) (*Template, error) {
 	if err != nil {
 		return nil, err
 	}
-	path, err := FetchTemplate(entry, l.cacheDir)
+	// Derive repo name from the loader's repo field
+	// For backwards compatibility, use a hash of the URL if no repo name is available
+	var repoName string
+	// Try to find a short name for this repo from config
+	// For now, use a simple hash-based approach
+	if repo.Type == RepositoryTypeLocal {
+		repoName = "local"
+	} else {
+		repoName = "community" // default for remote
+	}
+	path, err := FetchTemplate(entry, l.cacheDir, repo.URL, repoName)
 	if err != nil {
 		return nil, err
 	}
-	return l.LoadFromFile(path)
+	tmpl, err := l.LoadFromFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set BaseURL or BaseDir based on repository type
+	if repo.Type == RepositoryTypeLocal {
+		// For local repos, resolve source paths relative to the index directory
+		resolvedSource := resolveSource(entry.Source, repo.URL)
+		// Extract the directory containing the template
+		if strings.HasSuffix(resolvedSource, "/template.yaml") {
+			tmpl.BaseDir = resolvedSource[:len(resolvedSource)-len("template.yaml")]
+		} else if strings.HasSuffix(resolvedSource, "/template.yml") {
+			tmpl.BaseDir = resolvedSource[:len(resolvedSource)-len("template.yml")]
+		} else {
+			// Fallback: use the parent directory of the resolved source
+			tmpl.BaseDir = filepath.Dir(resolvedSource) + "/"
+		}
+	} else {
+		// Remote git repo - set BaseURL for HTTP fetching
+		resolvedSource := resolveSource(entry.Source, repo.URL)
+		if strings.HasPrefix(resolvedSource, "http://") || strings.HasPrefix(resolvedSource, "https://") {
+			// Extract base URL from the resolved source URL
+			baseURL := resolvedSource[:strings.LastIndex(resolvedSource, "/")+1]
+			tmpl.BaseURL = baseURL
+		}
+	}
+
+	return tmpl, nil
 }
 
 // parseTemplateRef splits "name@version" into name/version.

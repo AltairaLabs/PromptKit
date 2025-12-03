@@ -2,7 +2,10 @@ package templates
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,49 +31,100 @@ func NewGenerator(tmpl *Template, loader *Loader) *Generator {
 // Generate generates a project from the template
 func (g *Generator) Generate(config *TemplateConfig) (*GenerationResult, error) {
 	startTime := time.Now()
-	result := &GenerationResult{
+	result := g.initializeResult(config)
+	g.config = config
+
+	if err := g.createProjectDirectory(result); err != nil {
+		result.Duration = time.Since(startTime)
+		return result, err
+	}
+
+	g.runPreCreateHooks(result, config.Variables)
+	g.printVerboseHeader()
+	g.generateFiles(result, config)
+	g.runPostCreateHooks(result, config.Variables)
+
+	result.Duration = time.Since(startTime)
+	result.Success = len(result.Errors) == 0
+
+	return result, nil
+}
+
+func (g *Generator) initializeResult(config *TemplateConfig) *GenerationResult {
+	return &GenerationResult{
 		Success:      false,
 		ProjectPath:  filepath.Join(config.OutputDir, config.ProjectName),
 		FilesCreated: []string{},
 		Errors:       []error{},
 		Warnings:     []string{},
 	}
+}
 
-	g.config = config
-
-	// Create project directory
+func (g *Generator) createProjectDirectory(result *GenerationResult) error {
 	if err := os.MkdirAll(result.ProjectPath, 0755); err != nil {
 		result.Errors = append(result.Errors, fmt.Errorf("failed to create project directory: %w", err))
-		result.Duration = time.Since(startTime)
-		return result, err
+		return err
 	}
+	return nil
+}
 
-	// Run pre-create hooks
+func (g *Generator) runPreCreateHooks(result *GenerationResult, vars map[string]interface{}) {
 	if g.template.Spec.Hooks != nil {
-		if err := g.runHooks(g.template.Spec.Hooks.PreCreate, config.Variables); err != nil {
+		if err := g.runHooks(g.template.Spec.Hooks.PreCreate, vars); err != nil {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("pre-create hook warning: %v", err))
 		}
 	}
+}
 
-	// Generate files
-	for _, fileSpec := range g.template.Spec.Files {
-		if err := g.generateFile(fileSpec, config.Variables, result); err != nil {
-			result.Errors = append(result.Errors, err)
-			// Continue generating other files
-		}
-	}
-
-	// Run post-create hooks
+func (g *Generator) runPostCreateHooks(result *GenerationResult, vars map[string]interface{}) {
 	if g.template.Spec.Hooks != nil {
-		if err := g.runHooks(g.template.Spec.Hooks.PostCreate, config.Variables); err != nil {
+		if err := g.runHooks(g.template.Spec.Hooks.PostCreate, vars); err != nil {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("post-create hook warning: %v", err))
 		}
 	}
+}
 
-	result.Duration = time.Since(startTime)
-	result.Success = len(result.Errors) == 0
+func (g *Generator) printVerboseHeader() {
+	if !g.config.Verbose {
+		return
+	}
+	fmt.Printf("\nGenerating %d files from template...\n", len(g.template.Spec.Files))
+	switch {
+	case g.template.BaseDir != "":
+		fmt.Printf("Template base directory: %s\n", g.template.BaseDir)
+	case g.template.BaseURL != "":
+		fmt.Printf("Template base URL: %s\n", g.template.BaseURL)
+	default:
+		fmt.Printf("Template type: built-in\n")
+	}
+	fmt.Println()
+}
 
-	return result, nil
+func (g *Generator) generateFiles(result *GenerationResult, config *TemplateConfig) {
+	for i := range g.template.Spec.Files {
+		g.generateFileWithProgress(i, &g.template.Spec.Files[i], config.Variables, result)
+	}
+}
+
+func (g *Generator) generateFileWithProgress(
+	index int,
+	fileSpec *FileSpec,
+	vars map[string]interface{},
+	result *GenerationResult,
+) {
+	if g.config.Verbose {
+		fmt.Printf("[%d/%d] Processing: %s\n", index+1, len(g.template.Spec.Files), fileSpec.Path)
+	}
+
+	err := g.generateFile(*fileSpec, vars, result)
+	if err != nil {
+		if g.config.Verbose {
+			fmt.Printf("  ❌ Error: %v\n", err)
+		}
+		result.Errors = append(result.Errors, err)
+	} else if g.config.Verbose {
+		fmt.Printf("  ✓ Created\n")
+	}
 }
 
 // generateFile generates a single file from a file specification
@@ -82,6 +136,9 @@ func (g *Generator) generateFile(fileSpec FileSpec, vars map[string]interface{},
 			return fmt.Errorf("failed to evaluate condition for %s: %w", fileSpec.Path, err)
 		}
 		if !shouldCreate {
+			if g.config.Verbose {
+				fmt.Printf("  ⊘ Skipped (condition evaluated to false)\n")
+			}
 			return nil // Skip this file
 		}
 	}
@@ -135,7 +192,9 @@ func (g *Generator) resolveSourcePath(src string) (string, error) {
 		return "", fmt.Errorf("source requires template base directory: %s", src)
 	}
 	resolved := filepath.Join(g.template.BaseDir, clean)
-	if !strings.HasPrefix(resolved, g.template.BaseDir+string(filepath.Separator)) && resolved != g.template.BaseDir {
+	// Normalize BaseDir for comparison (remove trailing slash if present)
+	baseDir := strings.TrimSuffix(g.template.BaseDir, string(filepath.Separator))
+	if !strings.HasPrefix(resolved, baseDir+string(filepath.Separator)) && resolved != baseDir {
 		return "", fmt.Errorf("source path escapes template directory: %s", src)
 	}
 	return resolved, nil
@@ -167,39 +226,105 @@ func (g *Generator) buildOutputPath(
 func (g *Generator) resolveContent(fileSpec *FileSpec, vars map[string]interface{}, outputPath string) (string, error) {
 	switch {
 	case fileSpec.Source != "":
-		srcPath, readErr := g.resolveSourcePath(fileSpec.Source)
-		if readErr != nil {
-			return "", readErr
-		}
-		data, readErr := os.ReadFile(srcPath) //nolint:gosec // path already validated to stay under template base dir
-		if readErr != nil {
-			return "", fmt.Errorf("failed to read source file %s: %w", srcPath, readErr)
-		}
-		content, err := g.renderTemplate("source", string(data), vars)
-		if err != nil {
-			return "", fmt.Errorf("failed to render source content for %s: %w", outputPath, err)
-		}
-		return content, nil
+		return g.resolveSourceContent(fileSpec, vars, outputPath)
 	case fileSpec.Content != "":
-		content, err := g.renderTemplate("content", fileSpec.Content, vars)
-		if err != nil {
-			return "", fmt.Errorf("failed to render inline content for %s: %w", outputPath, err)
-		}
-		return content, nil
+		return g.resolveInlineContent(fileSpec, vars, outputPath)
 	case fileSpec.Template != "":
-		templateData, readErr := g.loader.ReadTemplateFile(g.template.Metadata.Name, fileSpec.Template)
-		if readErr != nil {
-			return "", fmt.Errorf("failed to read template file %s: %w", fileSpec.Template, readErr)
-		}
-
-		content, err := g.renderTemplate(fileSpec.Template, string(templateData), vars)
-		if err != nil {
-			return "", fmt.Errorf("failed to render template %s: %w", fileSpec.Template, err)
-		}
-		return content, nil
+		return g.resolveTemplateContent(fileSpec, vars)
 	default:
 		return "", nil
 	}
+}
+
+func (g *Generator) resolveSourceContent(
+	fileSpec *FileSpec, vars map[string]interface{}, outputPath string,
+) (string, error) {
+	if g.config.Verbose {
+		fmt.Printf("  Reading source file: %s\n", fileSpec.Source)
+	}
+
+	data, err := g.readSourceData(fileSpec.Source)
+	if err != nil {
+		return "", err
+	}
+
+	content, err := g.renderTemplate("source", string(data), vars)
+	if err != nil {
+		return "", fmt.Errorf("failed to render source content for %s: %w", outputPath, err)
+	}
+	return content, nil
+}
+
+func (g *Generator) readSourceData(source string) ([]byte, error) {
+	if g.template.BaseURL != "" {
+		return g.fetchRemoteSource(source)
+	}
+	return g.readLocalSource(source)
+}
+
+func (g *Generator) fetchRemoteSource(source string) ([]byte, error) {
+	sourceURL := g.template.BaseURL + source
+	if g.config.Verbose {
+		fmt.Printf("  Fetching from URL: %s\n", sourceURL)
+	}
+	data, err := fetchURL(sourceURL)
+	if err != nil {
+		if g.config.Verbose {
+			fmt.Printf("  Failed to fetch URL: %v\n", err)
+		}
+		return nil, fmt.Errorf("failed to fetch source file %s: %w", sourceURL, err)
+	}
+	return data, nil
+}
+
+func (g *Generator) readLocalSource(source string) ([]byte, error) {
+	srcPath, err := g.resolveSourcePath(source)
+	if err != nil {
+		if g.config.Verbose {
+			fmt.Printf("  Failed to resolve source path: %v\n", err)
+		}
+		return nil, err
+	}
+	if g.config.Verbose {
+		fmt.Printf("  Resolved to: %s\n", srcPath)
+	}
+	data, err := os.ReadFile(srcPath) //nolint:gosec // path already validated to stay under template base dir
+	if err != nil {
+		if g.config.Verbose {
+			fmt.Printf("  Failed to read file: %v\n", err)
+		}
+		return nil, fmt.Errorf("failed to read source file %s: %w", srcPath, err)
+	}
+	return data, nil
+}
+
+func (g *Generator) resolveInlineContent(
+	fileSpec *FileSpec, vars map[string]interface{}, outputPath string,
+) (string, error) {
+	if g.config.Verbose {
+		fmt.Printf("  Using inline content (%d bytes)\n", len(fileSpec.Content))
+	}
+	content, err := g.renderTemplate("content", fileSpec.Content, vars)
+	if err != nil {
+		return "", fmt.Errorf("failed to render inline content for %s: %w", outputPath, err)
+	}
+	return content, nil
+}
+
+func (g *Generator) resolveTemplateContent(fileSpec *FileSpec, vars map[string]interface{}) (string, error) {
+	if g.config.Verbose {
+		fmt.Printf("  Using template file: %s\n", fileSpec.Template)
+	}
+	templateData, err := g.loader.ReadTemplateFile(g.template.Metadata.Name, fileSpec.Template)
+	if err != nil {
+		return "", fmt.Errorf("failed to read template file %s: %w", fileSpec.Template, err)
+	}
+
+	content, err := g.renderTemplate(fileSpec.Template, string(templateData), vars)
+	if err != nil {
+		return "", fmt.Errorf("failed to render template %s: %w", fileSpec.Template, err)
+	}
+	return content, nil
 }
 
 // generateFileForEach generates multiple files by iterating over a variable
@@ -306,4 +431,29 @@ func (g *Generator) runHooks(hooks []Hook, vars map[string]interface{}) error {
 	}
 
 	return nil
+}
+
+// fetchURL fetches content from a URL
+func fetchURL(url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("http status %d", resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	return data, nil
 }

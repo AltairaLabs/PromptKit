@@ -47,6 +47,7 @@ var (
 	initTemplateIndex string
 	initTemplateCache string
 	initRepoConfig    string
+	initVerbose       bool
 )
 
 func init() {
@@ -58,6 +59,7 @@ func init() {
 	initCmd.Flags().BoolVar(&initNoEnv, "no-env", false, "Skip .env file creation")
 	initCmd.Flags().StringVar(&initProvider, "provider", "", "Provider to configure (openai, anthropic, google, mock)")
 	initCmd.Flags().StringVar(&initOutputDir, "output", ".", "Output directory")
+	initCmd.Flags().BoolVar(&initVerbose, "verbose", false, "Show detailed generation progress")
 	initCmd.Flags().StringVar(&initTemplateIndex, "template-index", templates.DefaultRepoName,
 		"Template repo name or index URL/path for remote templates")
 	initCmd.Flags().StringVar(&initRepoConfig, "repo-config", templates.DefaultRepoConfigPath(),
@@ -75,8 +77,12 @@ func runInit(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("load repo config: %w", err)
 	}
-	templates.DefaultIndex = templates.ResolveIndex(initTemplateIndex, repoCfg)
-	loader := templates.NewLoader(initTemplateCache)
+
+	// Resolve repository for the template
+	resolver := templates.NewRepoResolver(repoCfg)
+	repo, _ := resolver.ResolveRepoForTemplate(initTemplate, initTemplateIndex)
+
+	loader := templates.NewLoaderWithRepo(initTemplateCache, repo)
 	tmpl, err := loader.Load(initTemplate)
 	if err != nil {
 		return fmt.Errorf("failed to load template %s: %w", initTemplate, err)
@@ -126,6 +132,7 @@ func collectConfiguration(cmd *cobra.Command, tmpl *templates.Template, projectN
 		OutputDir:   initOutputDir,
 		Variables:   make(map[string]interface{}),
 		Template:    tmpl,
+		Verbose:     initVerbose,
 	}
 
 	config.Variables["project_name"] = projectName
