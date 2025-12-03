@@ -3,12 +3,10 @@ package tui
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/charmbracelet/bubbles/viewport"
-	"github.com/charmbracelet/lipgloss"
 
-	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/views"
 )
 
 const (
@@ -45,30 +43,9 @@ func (m *Model) renderLogs() string {
 
 	m.updateLogViewport()
 
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(theme.ColorSky))
-	title := titleStyle.Render("📝 Logs (↑/↓ to scroll, 's' summary)")
-
-	borderColor := lipgloss.Color(theme.ColorLightBlue)
-	if m.activePane != paneLogs {
-		borderColor = theme.BorderColorUnfocused()
-	}
-
-	if !m.viewportReady {
-		content := lipgloss.JoinVertical(lipgloss.Left, title, "", "Initializing...")
-		return lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(borderColor).
-			Padding(logsPaddingVertical, logsPaddingHorizontal).
-			Render(content)
-	}
-
-	content := lipgloss.JoinVertical(lipgloss.Left, title, m.logViewport.View())
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(borderColor).
-		Padding(logsPaddingVertical, logsPaddingHorizontal).
-		Render(content)
+	// Use new LogsView for rendering
+	logsView := views.NewLogsView(m.activePane == paneLogs)
+	return logsView.Render(&m.logViewport, m.viewportReady)
 }
 
 func (m *Model) updateLogViewport() {
@@ -89,35 +66,20 @@ func (m *Model) updateLogViewport() {
 	m.logViewport.Width = viewportWidth
 	m.logViewport.Height = viewportHeight
 
-	switch {
-	case len(m.logs) == 0:
-		m.logViewport.SetContent("No logs yet...")
-	default:
-		logLines := make([]string, len(m.logs))
-		for i, log := range m.logs {
-			logLines[i] = m.formatLogLine(log)
+	// Convert logs to format expected by views.FormatLogLines
+	viewLogs := make([]views.LogEntry, len(m.logs))
+	for i := range m.logs {
+		viewLogs[i] = views.LogEntry{
+			Level:   m.logs[i].Level,
+			Message: m.logs[i].Message,
 		}
-		m.logViewport.SetContent(strings.Join(logLines, "\n"))
 	}
+	m.logViewport.SetContent(views.FormatLogLines(viewLogs))
 }
 
+// formatLogLine delegates to views.FormatLogLine for consistency
 func (m *Model) formatLogLine(log LogEntry) string {
-	var levelColor lipgloss.Color
-	switch log.Level {
-	case "INFO":
-		levelColor = lipgloss.Color(theme.ColorInfo) // Blue
-	case "WARN":
-		levelColor = lipgloss.Color(theme.ColorWarning) // Amber
-	case "ERROR":
-		levelColor = lipgloss.Color(theme.ColorError) // Red
-	case "DEBUG":
-		levelColor = lipgloss.Color(theme.ColorGray) // Gray
-	default:
-		levelColor = lipgloss.Color(theme.ColorLightGray) // Light gray
-	}
-
-	levelStyle := lipgloss.NewStyle().Foreground(levelColor)
-	return fmt.Sprintf("[%s] %s", levelStyle.Render(log.Level), log.Message)
+	return views.FormatLogLine(log.Level, log.Message)
 }
 
 // initViewport initializes the viewport for scrollable logs

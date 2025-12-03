@@ -27,6 +27,9 @@ const (
 	errorNoteMaxLen            = 40
 )
 
+// renderActiveRuns renders the active runs table panel.
+// Note: This maintains stateful bubbletea table integration (selection, focus, cursor).
+// For stateless rendering, see views.RunsTableView.
 func (m *Model) renderActiveRuns() string {
 	// Initialize table on first render
 	if !m.tableReady {
@@ -36,29 +39,28 @@ func (m *Model) renderActiveRuns() string {
 	// Update table rows with current active runs
 	m.updateRunsTable()
 
-	// Set table dimensions
+	// Set table dimensions based on available space
 	tableHeight := m.height / runsTableHeightDivisor
 	if tableHeight < runsTableMinHeight {
 		tableHeight = runsTableMinHeight
 	}
 	m.runsTable.SetHeight(tableHeight)
 	m.runsTable.SetWidth(m.width - runsTableWidthPadding)
+
+	// Update focus state
 	if m.activePane == paneRuns {
 		m.runsTable.Focus()
 	} else {
 		m.runsTable.Blur()
 	}
 
-	// Note: We keep the old table implementation here for now since it's already
-	// integrated with the Model's interactive state. The new RunsTableView is
-	// available for future refactoring or non-interactive rendering.
+	// Render with appropriate border styling
 	borderColor := theme.BorderColorUnfocused()
 	if m.activePane == paneRuns {
 		borderColor = lipgloss.Color(theme.ColorWhite)
 	}
 
 	titleStyle := theme.TitleStyle
-
 	title := titleStyle.Render(fmt.Sprintf("📊 Active Runs (%d concurrent workers)", len(m.activeRuns)))
 
 	content := lipgloss.JoinVertical(lipgloss.Left, title, m.runsTable.View())
