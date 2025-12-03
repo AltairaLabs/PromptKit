@@ -1595,3 +1595,446 @@ func TestDefaultRepoConfigPathUsesConfigHome(t *testing.T) {
 	path := DefaultRepoConfigPath()
 	assert.True(t, strings.Contains(path, filepath.Join("promptarena", "templates")))
 }
+
+func TestGenerator_InitializeResult(t *testing.T) {
+	loader := NewLoader("")
+	tmpl := &Template{}
+	generator := NewGenerator(tmpl, loader)
+
+	config := &TemplateConfig{
+		OutputDir:   "/tmp",
+		ProjectName: "test-project",
+		Variables:   map[string]interface{}{"key": "value"},
+	}
+
+	result := generator.initializeResult(config)
+
+	assert.NotNil(t, result)
+	assert.Equal(t, filepath.Join("/tmp", "test-project"), result.ProjectPath)
+	assert.False(t, result.Success)
+	assert.Empty(t, result.FilesCreated)
+	assert.Empty(t, result.Errors)
+	assert.Empty(t, result.Warnings)
+	assert.Zero(t, result.Duration)
+}
+
+func TestGenerator_CreateProjectDirectory(t *testing.T) {
+	loader := NewLoader("")
+	tmpl := &Template{}
+	generator := NewGenerator(tmpl, loader)
+
+	// Use temp directory
+	tempDir := t.TempDir()
+	config := &TemplateConfig{
+		OutputDir:   tempDir,
+		ProjectName: "test-project",
+	}
+	result := generator.initializeResult(config)
+
+	err := generator.createProjectDirectory(result)
+	assert.NoError(t, err)
+
+	// Check directory was created
+	projectPath := filepath.Join(tempDir, "test-project")
+	assert.DirExists(t, projectPath)
+}
+
+func TestGenerator_RunPreCreateHooks(t *testing.T) {
+	loader := NewLoader("")
+	tmpl := &Template{
+		Spec: TemplateSpec{
+			Hooks: &HookSet{
+				PreCreate: []Hook{
+					{Command: "echo pre-create", Message: "Running pre-create hook"},
+				},
+			},
+		},
+	}
+	generator := NewGenerator(tmpl, loader)
+
+	result := &GenerationResult{}
+	vars := map[string]interface{}{}
+
+	// Should not panic
+	generator.runPreCreateHooks(result, vars)
+}
+
+func TestGenerator_RunPostCreateHooks(t *testing.T) {
+	loader := NewLoader("")
+	tmpl := &Template{
+		Spec: TemplateSpec{
+			Hooks: &HookSet{
+				PostCreate: []Hook{
+					{Command: "echo post-create", Message: "Running post-create hook"},
+				},
+			},
+		},
+	}
+	generator := NewGenerator(tmpl, loader)
+
+	result := &GenerationResult{}
+	vars := map[string]interface{}{}
+
+	// Should not panic
+	generator.runPostCreateHooks(result, vars)
+}
+
+func TestGenerator_PrintVerboseHeader(t *testing.T) {
+	loader := NewLoader("")
+	tmpl := &Template{
+		Spec: TemplateSpec{
+			Files: []FileSpec{
+				{Path: "file1.txt"},
+				{Path: "file2.txt"},
+			},
+		},
+		BaseDir: "/some/dir",
+	}
+	generator := NewGenerator(tmpl, loader)
+
+	config := &TemplateConfig{Verbose: true}
+	generator.config = config
+
+	// Should not panic - just prints to stdout
+	generator.printVerboseHeader()
+}
+
+func TestGenerator_GenerateFiles(t *testing.T) {
+	loader := NewLoader("")
+	tmpl := &Template{
+		Spec: TemplateSpec{
+			Files: []FileSpec{
+				{
+					Path:    "test.txt",
+					Content: "Hello {{.name}}",
+				},
+			},
+		},
+	}
+	generator := NewGenerator(tmpl, loader)
+
+	tempDir := t.TempDir()
+	config := &TemplateConfig{
+		OutputDir:   tempDir,
+		ProjectName: "test-project",
+		Variables:   map[string]interface{}{"name": "World"},
+		Verbose:     false,
+	}
+	result := generator.initializeResult(config)
+
+	// Create project directory first
+	require.NoError(t, generator.createProjectDirectory(result))
+
+	// Set config in generator
+	generator.config = config
+
+	generator.generateFiles(result, config)
+
+	assert.Len(t, result.FilesCreated, 1)
+	assert.Contains(t, result.FilesCreated[0], "test.txt")
+}
+
+func TestGenerator_ResolveSourcePath(t *testing.T) {
+	loader := NewLoader("")
+	tmpl := &Template{
+		BaseDir: "/base/dir",
+	}
+	generator := NewGenerator(tmpl, loader)
+
+	tests := []struct {
+		name      string
+		src       string
+		expected  string
+		shouldErr bool
+	}{
+		{
+			name:     "valid relative path",
+			src:      "subdir/file.txt",
+			expected: "/base/dir/subdir/file.txt",
+		},
+		{
+			name:      "absolute path should fail",
+			src:       "/absolute/path",
+			shouldErr: true,
+		},
+		{
+			name:      "path traversal should fail",
+			src:       "../../../etc/passwd",
+			shouldErr: true,
+		},
+		{
+			name:      "no base dir should fail",
+			src:       "file.txt",
+			shouldErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.name == "no base dir should fail" {
+				// Temporarily remove base dir
+				origBaseDir := tmpl.BaseDir
+				tmpl.BaseDir = ""
+				defer func() { tmpl.BaseDir = origBaseDir }()
+			}
+
+			result, err := generator.resolveSourcePath(tt.src)
+			if tt.shouldErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestGenerator_BuildOutputPath(t *testing.T) {
+	loader := NewLoader("")
+	tmpl := &Template{}
+	generator := NewGenerator(tmpl, loader)
+
+	projectPath := "/project/dir"
+	fileSpec := &FileSpec{
+		Path: "subdir/{{.name}}.txt",
+	}
+	vars := map[string]interface{}{"name": "test"}
+
+	fullPath, outputPath, err := generator.buildOutputPath(fileSpec, vars, projectPath)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "subdir/test.txt", outputPath)
+	assert.Equal(t, "/project/dir/subdir/test.txt", fullPath)
+}
+
+func TestGenerator_BuildOutputPath_Invalid(t *testing.T) {
+	loader := NewLoader("")
+	tmpl := &Template{}
+	generator := NewGenerator(tmpl, loader)
+
+	projectPath := "/project/dir"
+
+	tests := []struct {
+		name      string
+		path      string
+		shouldErr bool
+	}{
+		{
+			name:      "absolute path",
+			path:      "/absolute/path.txt",
+			shouldErr: true,
+		},
+		{
+			name:      "path traversal",
+			path:      "../outside.txt",
+			shouldErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fileSpec := &FileSpec{Path: tt.path}
+			vars := map[string]interface{}{}
+
+			_, _, err := generator.buildOutputPath(fileSpec, vars, projectPath)
+			assert.Error(t, err)
+		})
+	}
+}
+
+func TestGenerator_ResolveContent(t *testing.T) {
+	loader := NewLoader("")
+	tmpl := &Template{}
+	generator := NewGenerator(tmpl, loader)
+	generator.config = &TemplateConfig{Verbose: false} // Set config to avoid nil pointer
+
+	tests := []struct {
+		name       string
+		fileSpec   FileSpec
+		vars       map[string]interface{}
+		outputPath string
+		shouldErr  bool
+	}{
+		{
+			name: "inline content",
+			fileSpec: FileSpec{
+				Content: "Hello {{.name}}",
+			},
+			vars:       map[string]interface{}{"name": "World"},
+			outputPath: "test.txt",
+		},
+		{
+			name: "template content",
+			fileSpec: FileSpec{
+				Template: "template.txt",
+			},
+			vars:       map[string]interface{}{},
+			outputPath: "test.txt",
+			shouldErr:  true, // No loader configured
+		},
+		{
+			name: "source content",
+			fileSpec: FileSpec{
+				Source: "source.txt",
+			},
+			vars:       map[string]interface{}{},
+			outputPath: "test.txt",
+			shouldErr:  true, // No base dir configured
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			content, err := generator.resolveContent(&tt.fileSpec, tt.vars, tt.outputPath)
+			if tt.shouldErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.NotEmpty(t, content)
+			}
+		})
+	}
+}
+
+func TestGenerator_FetchRemoteSource(t *testing.T) {
+	// Create a test server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("remote content"))
+	}))
+	defer server.Close()
+
+	loader := NewLoader("")
+	tmpl := &Template{
+		BaseURL: server.URL + "/",
+	}
+	generator := NewGenerator(tmpl, loader)
+	generator.config = &TemplateConfig{Verbose: false}
+
+	data, err := generator.fetchRemoteSource("test.txt")
+	assert.NoError(t, err)
+	assert.Equal(t, []byte("remote content"), data)
+}
+
+func TestGenerator_FetchRemoteSource_Error(t *testing.T) {
+	loader := NewLoader("")
+	tmpl := &Template{
+		BaseURL: "http://localhost:99999/", // Invalid port
+	}
+	generator := NewGenerator(tmpl, loader)
+	generator.config = &TemplateConfig{Verbose: false}
+
+	_, err := generator.fetchRemoteSource("test.txt")
+	assert.Error(t, err)
+}
+
+func TestGenerator_EvaluateConditionExtended(t *testing.T) {
+	loader := NewLoader("")
+	tmpl := &Template{}
+	generator := NewGenerator(tmpl, loader)
+
+	tests := []struct {
+		name      string
+		condition string
+		vars      map[string]interface{}
+		expected  bool
+		shouldErr bool
+	}{
+		{
+			name:      "explicit true",
+			condition: "true",
+			vars:      map[string]interface{}{},
+			expected:  true,
+		},
+		{
+			name:      "explicit false",
+			condition: "false",
+			vars:      map[string]interface{}{},
+			expected:  false,
+		},
+		{
+			name:      "1 as true",
+			condition: "1",
+			vars:      map[string]interface{}{},
+			expected:  true,
+		},
+		{
+			name:      "yes as true",
+			condition: "yes",
+			vars:      map[string]interface{}{},
+			expected:  true,
+		},
+		{
+			name:      "0 as false",
+			condition: "0",
+			vars:      map[string]interface{}{},
+			expected:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := generator.evaluateCondition(tt.condition, tt.vars)
+			if tt.shouldErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestGenerator_RunHooks(t *testing.T) {
+	loader := NewLoader("")
+	tmpl := &Template{}
+	generator := NewGenerator(tmpl, loader)
+
+	hooks := []Hook{
+		{
+			Command: "echo 'test command'",
+			Message: "Test hook message",
+		},
+		{
+			Command:   "echo 'conditional command'",
+			Message:   "Conditional hook",
+			Condition: "false", // Should be skipped
+		},
+	}
+
+	vars := map[string]interface{}{}
+
+	// Should not panic - hooks are logged but not executed
+	err := generator.runHooks(hooks, vars)
+	assert.NoError(t, err)
+}
+
+func TestFetchURL(t *testing.T) {
+	// Create a test server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("test content"))
+	}))
+	defer server.Close()
+
+	data, err := fetchURL(server.URL)
+	assert.NoError(t, err)
+	assert.Equal(t, []byte("test content"), data)
+}
+
+func TestFetchURL_Error(t *testing.T) {
+	_, err := fetchURL("http://localhost:99999/") // Invalid port
+	assert.Error(t, err)
+}
+
+func TestFetchURL_HTTPError(t *testing.T) {
+	// Create a test server that returns 404
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	_, err := fetchURL(server.URL)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "http status 404")
+}
