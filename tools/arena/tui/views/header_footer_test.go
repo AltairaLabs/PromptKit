@@ -73,7 +73,7 @@ func TestHeaderFooterView_RenderFooter_MainPage(t *testing.T) {
 	assert.Contains(t, output, "q: quit")
 	assert.Contains(t, output, "tab: focus runs/logs")
 	assert.Contains(t, output, "enter: open conversation")
-	assert.Contains(t, output, "enter: select")
+	assert.Contains(t, output, "↑/↓: navigate")
 
 	// Should NOT have conversation-specific help
 	assert.NotContains(t, output, "esc: back")
@@ -89,7 +89,6 @@ func TestHeaderFooterView_RenderFooter_ConversationPage(t *testing.T) {
 	assert.Contains(t, output, "esc: back")
 	assert.Contains(t, output, "tab: focus turns/detail")
 	assert.Contains(t, output, "↑/↓: navigate")
-	assert.Contains(t, output, "enter: select")
 
 	// Should NOT have main page help
 	assert.NotContains(t, output, "tab: focus runs/logs")

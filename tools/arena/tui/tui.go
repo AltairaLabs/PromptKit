@@ -398,8 +398,28 @@ func (m *Model) renderMainPage(contentHeight int) string {
 		focusedPanel = "logs"
 	}
 
+	// Get result data for highlighted run (cursor position)
+	var resultData *panels.ResultPanelData
+	if m.stateStore != nil && m.mainPage != nil {
+		table := m.mainPage.RunsPanel().Table()
+		idx := table.Cursor()
+		if idx >= 0 && idx < len(m.activeRuns) {
+			highlighted := &m.activeRuns[idx]
+			ctx := m.ctx
+			if ctx == nil {
+				ctx = context.Background()
+			}
+			if res, err := m.stateStore.GetResult(ctx, highlighted.RunID); err == nil {
+				resultData = &panels.ResultPanelData{
+					Result: res,
+					Status: views.RunStatus(highlighted.Status),
+				}
+			}
+		}
+	}
+
 	m.mainPage.SetDimensions(m.width, contentHeight)
-	m.mainPage.SetData(runs, logs, focusedPanel)
+	m.mainPage.SetData(runs, logs, focusedPanel, resultData)
 	return m.mainPage.Render()
 }
 

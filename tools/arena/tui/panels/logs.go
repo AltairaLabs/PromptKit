@@ -62,7 +62,14 @@ func (p *LogsPanel) Update(logs []LogEntry, width, height int) {
 	if viewportHeight < logsMinHeight {
 		viewportHeight = logsMinHeight
 	}
-	viewportWidth := width - logsWidthPadding
+
+	// Calculate viewport width: account for view chrome (border + padding + title)
+	// The view calculates chrome as (2 * logsPaddingHorizontal) + 1
+	// We also need to account for border (2) and padding on both sides (2 * 1)
+	// Total chrome: border (2) + padding (2) + title height accounted in height calc
+	//nolint:mnd // Chrome width calculation
+	viewChromeWidth := 2 + 2 + 1 // border + padding + adjustment
+	viewportWidth := width - viewChromeWidth
 	if viewportWidth < logsMinWidth {
 		viewportWidth = logsMinWidth
 	}

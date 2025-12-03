@@ -95,7 +95,7 @@ func TestResultPanel_Basic(t *testing.T) {
 	panel.Update(100, 30)
 
 	// Test empty
-	view := panel.View(nil, 0, false)
+	view := panel.View(nil)
 	assert.NotEmpty(t, view)
 	assert.Contains(t, view, "No run selected")
 }

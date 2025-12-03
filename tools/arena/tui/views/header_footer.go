@@ -82,10 +82,9 @@ func (v *HeaderFooterView) RenderFooter(isConversationPage bool) string {
 	if isConversationPage {
 		items = append(items, "esc: back", "tab: focus turns/detail", "↑/↓: navigate")
 	} else {
-		items = append(items, "tab: focus runs/logs", "enter: open conversation")
+		items = append(items, "tab: focus runs/logs", "enter: open conversation", "↑/↓: navigate")
 	}
 
-	items = append(items, "enter: select")
 	return helpStyle.Render(strings.Join(items, "  •  "))
 }
 

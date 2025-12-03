@@ -23,7 +23,7 @@ func TestMainPage_Basic(t *testing.T) {
 
 	// Basic smoke test
 	page.SetDimensions(100, 30)
-	page.SetData(runs, logs, "runs")
+	page.SetData(runs, logs, "runs", nil)
 	view := page.Render()
 	assert.NotEmpty(t, view)
 	assert.Contains(t, view, "Active Runs")
