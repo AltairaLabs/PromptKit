@@ -92,7 +92,10 @@ func (l *LogInterceptor) Handle(ctx context.Context, record slog.Record) error {
 		// Use recover to handle potential panics from bubbletea
 		func() {
 			defer func() {
-				_ = recover() // Ignore panics from Send
+				if r := recover(); r != nil {
+					// Log panic to stderr instead of silently ignoring
+					fmt.Fprintf(os.Stderr, "panic sending log to TUI: %v\n", r)
+				}
 			}()
 			l.program.Send(LogMsg{
 				Timestamp: record.Time,

@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
 )
 
 const (
@@ -17,24 +19,24 @@ func (m *Model) renderHeader(elapsed time.Duration) string {
 	// Banner style
 	bannerStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color(colorPurple)).
+		Foreground(lipgloss.Color(theme.ColorPrimary)).
 		Align(lipgloss.Center).
 		Width(m.width)
 
 	infoStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colorLightGray)).
+		Foreground(lipgloss.Color(theme.ColorLightGray)).
 		Align(lipgloss.Center).
 		Width(m.width)
 
 	progressStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colorGreen)).
+		Foreground(lipgloss.Color(theme.ColorSuccess)).
 		Bold(true)
 
 	timeStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colorLightBlue))
+		Foreground(lipgloss.Color(theme.ColorLightBlue))
 
 	tagStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colorAmber)).
+		Foreground(lipgloss.Color(theme.ColorWarning)).
 		Bold(true)
 
 	mockTag := ""
@@ -45,7 +47,7 @@ func (m *Model) renderHeader(elapsed time.Duration) string {
 	banner := bannerStyle.Render("✨ PromptArena ✨")
 	progressBar := buildProgressBar(m.completedCount, m.totalRuns, headerProgressBarWidth)
 	progress := progressStyle.Render(fmt.Sprintf("[%s %d/%d]", progressBar, m.completedCount, m.totalRuns))
-	timeStr := timeStyle.Render(fmt.Sprintf("⏱  %s", formatDuration(elapsed)))
+	timeStr := timeStyle.Render(fmt.Sprintf("⏱  %s", theme.FormatDuration(elapsed)))
 
 	parts := []string{filepath.Base(m.configFile), progress, timeStr}
 	if mockTag != "" {
@@ -58,7 +60,7 @@ func (m *Model) renderHeader(elapsed time.Duration) string {
 }
 
 func (m *Model) renderFooter() string {
-	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colorLightGray)).Italic(true)
+	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.ColorLightGray)).Italic(true)
 	items := []string{"q: quit"}
 
 	if m.currentPage == pageConversation {

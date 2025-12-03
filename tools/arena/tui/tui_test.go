@@ -235,22 +235,6 @@ func TestRenderLogs_NoViewport(t *testing.T) {
 	assert.Contains(t, out, "Initializing")
 }
 
-func TestRenderMetrics_Content(t *testing.T) {
-	m := NewModel("test.yaml", 3)
-	m.completedCount = 2
-	m.successCount = 1
-	m.failedCount = 1
-	m.totalCost = 1.23
-	m.totalTokens = 1234
-	m.totalDuration = 4 * time.Second
-
-	out := m.renderMetrics()
-	assert.Contains(t, out, "Completed:")
-	assert.Contains(t, out, "Errors")
-	assert.Contains(t, out, "$1.2300")
-	assert.Contains(t, out, "1,234")
-}
-
 func TestRenderActiveRuns_Notes(t *testing.T) {
 	m := NewModel("test.yaml", 1)
 	m.width = 150 // ensure all columns, including Notes, render
@@ -377,51 +361,12 @@ func TestSelectedRunHelper(t *testing.T) {
 }
 
 func TestUtilsHelpers(t *testing.T) {
-	assert.Equal(t, "1,234", formatNumber(1234))
-	assert.Equal(t, "abcd...", truncateString("abcdefgh", 7))
+	// Test buildProgressBar (the only remaining util function)
 	bar := buildProgressBar(1, 4, 4)
 	assert.NotEmpty(t, bar)
-}
 
-func TestFormatDuration(t *testing.T) {
-	tests := []struct {
-		name     string
-		duration time.Duration
-		want     string
-	}{
-		{"zero", 0, "0ms"},
-		{"milliseconds", 500 * time.Millisecond, "500ms"},
-		{"seconds", 2 * time.Second, "2s"},
-		{"minutes", 65 * time.Second, "1m5s"},
-		{"hours", 3725 * time.Second, "1h2m5s"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := formatDuration(tt.duration)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
-func TestFormatNumber(t *testing.T) {
-	tests := []struct {
-		name string
-		num  int64
-		want string
-	}{
-		{"zero", 0, "0"},
-		{"small", 999, "999"},
-		{"thousand", 1000, "1,000"},
-		{"million", 1234567, "1,234,567"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := formatNumber(tt.num)
-			assert.Equal(t, tt.want, got)
-		})
-	}
+	bar = buildProgressBar(0, 0, 10)
+	assert.Len(t, bar, 10)
 }
 
 func TestTick(t *testing.T) {
@@ -488,24 +433,6 @@ func TestModel_renderActiveRuns_Empty(t *testing.T) {
 	assert.Contains(t, runs, "Active Runs")
 	// When empty, shows worker count
 	assert.Contains(t, runs, "0 concurrent workers")
-}
-
-func TestModel_renderMetrics(t *testing.T) {
-	m := NewModel("test.yaml", 10)
-	m.completedCount = 5
-	m.successCount = 4
-	m.failedCount = 1
-	m.totalCost = 0.25
-	m.totalTokens = 5000
-	m.totalDuration = 10 * time.Second
-
-	m.width = 100
-	metrics := m.renderMetrics()
-
-	assert.Contains(t, metrics, "Metrics")
-	assert.Contains(t, metrics, "5/10") // Completed count
-	assert.Contains(t, metrics, "$0.2500")
-	assert.Contains(t, metrics, "5,000")
 }
 
 func TestModel_renderLogs(t *testing.T) {

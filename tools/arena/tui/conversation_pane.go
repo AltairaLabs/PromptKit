@@ -13,6 +13,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
 )
 
 type conversationFocus int
@@ -41,6 +42,7 @@ const (
 )
 
 // ConversationPane encapsulates the conversation view state (table + detail).
+// All methods assume the caller holds Model.mu for thread safety.
 type ConversationPane struct {
 	focus       conversationFocus
 	table       table.Model
@@ -66,6 +68,7 @@ func NewConversationPane() ConversationPane {
 }
 
 // Reset clears state, used when leaving the conversation view.
+// Caller must hold Model.mu.
 func (c *ConversationPane) Reset() {
 	c.tableReady = false
 	c.detailReady = false
@@ -77,15 +80,24 @@ func (c *ConversationPane) Reset() {
 }
 
 // SetDimensions sets layout constraints.
+// Caller must hold Model.mu.
 func (c *ConversationPane) SetDimensions(width, height int) {
 	c.width = width
 	c.height = height
 }
 
 // SetData hydrates the pane with a run and result.
+// Caller must hold Model.mu.
 func (c *ConversationPane) SetData(run *RunInfo, res *statestore.RunResult) {
 	if res == nil {
-		c.Reset()
+		// Reset without lock since we already hold it
+		c.tableReady = false
+		c.detailReady = false
+		c.selectedTurnIdx = 0
+		c.lastRunID = ""
+		c.table = table.Model{}
+		c.detail = viewport.Model{}
+		c.focus = focusConversationTurns
 		return
 	}
 
@@ -116,11 +128,11 @@ func (c *ConversationPane) ensureTable(runID string) {
 	style.Header = style.Header.
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderBottom(true).
-		BorderForeground(lipgloss.Color(colorIndigo)).
+		BorderForeground(theme.BorderColorFocused()).
 		Bold(true)
 	style.Selected = style.Selected.
-		Foreground(lipgloss.Color(colorWhite)).
-		Background(lipgloss.Color(colorIndigo)).
+		Foreground(lipgloss.Color(theme.ColorWhite)).
+		Background(theme.BorderColorFocused()).
 		Bold(true)
 	t.SetStyles(style)
 
@@ -132,6 +144,7 @@ func (c *ConversationPane) ensureTable(runID string) {
 }
 
 // Update handles key/scroll input for the conversation pane.
+// Caller must hold Model.mu.
 func (c *ConversationPane) Update(msg tea.Msg) (ConversationPane, tea.Cmd) {
 	if !c.tableReady && !c.detailReady {
 		return *c, nil
@@ -165,6 +178,7 @@ func (c *ConversationPane) Update(msg tea.Msg) (ConversationPane, tea.Cmd) {
 }
 
 // View renders the conversation pane.
+// Caller must hold Model.mu.
 func (c *ConversationPane) View(res *statestore.RunResult) string {
 	if res == nil {
 		return "No conversation available."
@@ -177,7 +191,7 @@ func (c *ConversationPane) View(res *statestore.RunResult) string {
 	c.updateTable(res)
 	c.updateDetail(res)
 
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colorSky))
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(theme.ColorSky))
 	titleText := "🧭 Conversation"
 	if c.scenario != "" || c.provider != "" {
 		parts := []string{}
@@ -200,11 +214,13 @@ func (c *ConversationPane) View(res *statestore.RunResult) string {
 
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(colorLightBlue)).
+		BorderForeground(lipgloss.Color(theme.ColorLightBlue)).
 		Padding(conversationPanelPadding, conversationPanelHorizontal).
 		Render(lipgloss.JoinVertical(lipgloss.Left, title, content))
 }
 
+// updateTable updates the conversation table with messages from result.
+// Caller must hold c.mu.
 func (c *ConversationPane) updateTable(res *statestore.RunResult) {
 	if !c.tableReady {
 		return
@@ -221,7 +237,7 @@ func (c *ConversationPane) updateTable(res *statestore.RunResult) {
 	rows := make([]table.Row, 0, len(res.Messages))
 	for i := range res.Messages {
 		msg := &res.Messages[i]
-		snippet := truncateString(msg.GetContent(), conversationSnippetMaxLength)
+		snippet := theme.TruncateString(msg.GetContent(), conversationSnippetMaxLength)
 		rows = append(rows, table.Row{
 			fmt.Sprintf("%d", i+1),
 			msg.Role,
@@ -238,6 +254,8 @@ func (c *ConversationPane) updateTable(res *statestore.RunResult) {
 	c.table.SetCursor(c.selectedTurnIdx)
 }
 
+// updateDetail updates the detail viewport with the currently selected turn.
+// Caller must hold c.mu.
 func (c *ConversationPane) updateDetail(res *statestore.RunResult) {
 	if len(res.Messages) == 0 {
 		return
@@ -355,11 +373,11 @@ func (c *ConversationPane) renderDetailHeader(res *statestore.RunResult, idx int
 		res.Cost.OutputTokens,
 		totalTokens,
 		res.Cost.TotalCost,
-		formatDuration(res.Duration),
+		theme.FormatDuration(res.Duration),
 	)
 
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colorIndigo)).
+		Foreground(theme.BorderColorFocused()).
 		Bold(true).
 		Render(header)
 }
@@ -367,6 +385,6 @@ func (c *ConversationPane) renderDetailHeader(res *statestore.RunResult, idx int
 func (c *ConversationPane) renderDetailFooter() string {
 	footer := "↑/↓ scroll • tab focus • esc back"
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colorLightGray)).
+		Foreground(lipgloss.Color(theme.ColorLightGray)).
 		Render(footer)
 }

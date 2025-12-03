@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
 )
 
 const (
@@ -121,11 +123,11 @@ func RenderSummary(summary *Summary, width int) string {
 
 	// Cost and performance
 	sb.WriteString(formatLine("Total Cost:", fmt.Sprintf("$%.4f", summary.TotalCost), &labelStyle, &valueStyle))
-	sb.WriteString(formatLine("Total Tokens:", formatNumber(summary.TotalTokens), &labelStyle, &valueStyle))
-	sb.WriteString(formatLine("Total Duration:", formatDuration(summary.TotalDuration), &labelStyle, &valueStyle))
+	sb.WriteString(formatLine("Total Tokens:", theme.FormatNumber(summary.TotalTokens), &labelStyle, &valueStyle))
+	sb.WriteString(formatLine("Total Duration:", theme.FormatDuration(summary.TotalDuration), &labelStyle, &valueStyle))
 	sb.WriteString(formatLine(
 		"Avg Duration:",
-		fmt.Sprintf("%s per run", formatDuration(summary.AvgDuration)),
+		fmt.Sprintf("%s per run", theme.FormatDuration(summary.AvgDuration)),
 		&labelStyle,
 		&valueStyle,
 	))
@@ -193,9 +195,9 @@ func RenderSummaryCIMode(summary *Summary) string {
 
 	// Cost and performance
 	sb.WriteString(fmt.Sprintf("Total Cost:       $%.4f\n", summary.TotalCost))
-	sb.WriteString(fmt.Sprintf("Total Tokens:     %s\n", formatNumber(summary.TotalTokens)))
-	sb.WriteString(fmt.Sprintf("Total Duration:   %s\n", formatDuration(summary.TotalDuration)))
-	sb.WriteString(fmt.Sprintf("Avg Duration:     %s per run\n", formatDuration(summary.AvgDuration)))
+	sb.WriteString(fmt.Sprintf("Total Tokens:     %s\n", theme.FormatNumber(summary.TotalTokens)))
+	sb.WriteString(fmt.Sprintf("Total Duration:   %s\n", theme.FormatDuration(summary.TotalDuration)))
+	sb.WriteString(fmt.Sprintf("Avg Duration:     %s per run\n", theme.FormatDuration(summary.AvgDuration)))
 	sb.WriteString("\n")
 
 	// Provider breakdown

@@ -7,6 +7,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
 )
 
 const (
@@ -26,8 +28,13 @@ func (m *Model) renderLogs() string {
 		(selected.Status == StatusCompleted || selected.Status == StatusFailed) &&
 		m.stateStore != nil
 
+	ctx := m.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	if showResult {
-		res, err := m.stateStore.GetResult(context.Background(), selected.RunID)
+		res, err := m.stateStore.GetResult(ctx, selected.RunID)
 		if err != nil {
 			return fmt.Sprintf("Failed to load result: %v", err)
 		}
@@ -38,12 +45,12 @@ func (m *Model) renderLogs() string {
 
 	m.updateLogViewport()
 
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colorSky))
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(theme.ColorSky))
 	title := titleStyle.Render("📝 Logs (↑/↓ to scroll, 's' summary)")
 
-	borderColor := lipgloss.Color(colorLightBlue)
+	borderColor := lipgloss.Color(theme.ColorLightBlue)
 	if m.activePane != paneLogs {
-		borderColor = lipgloss.Color(colorGray)
+		borderColor = theme.BorderColorUnfocused()
 	}
 
 	if !m.viewportReady {
@@ -98,15 +105,15 @@ func (m *Model) formatLogLine(log LogEntry) string {
 	var levelColor lipgloss.Color
 	switch log.Level {
 	case "INFO":
-		levelColor = lipgloss.Color(colorBlue) // Blue
+		levelColor = lipgloss.Color(theme.ColorInfo) // Blue
 	case "WARN":
-		levelColor = lipgloss.Color(colorAmber) // Amber
+		levelColor = lipgloss.Color(theme.ColorWarning) // Amber
 	case "ERROR":
-		levelColor = lipgloss.Color(colorRed) // Red
+		levelColor = lipgloss.Color(theme.ColorError) // Red
 	case "DEBUG":
-		levelColor = lipgloss.Color(colorGray) // Gray
+		levelColor = lipgloss.Color(theme.ColorGray) // Gray
 	default:
-		levelColor = lipgloss.Color(colorLightGray) // Light gray
+		levelColor = lipgloss.Color(theme.ColorLightGray) // Light gray
 	}
 
 	levelStyle := lipgloss.NewStyle().Foreground(levelColor)

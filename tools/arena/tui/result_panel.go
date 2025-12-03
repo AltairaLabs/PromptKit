@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
 )
 
 const (
@@ -27,7 +29,11 @@ func (m *Model) renderSelectedResult(run *RunInfo) string {
 	if m.stateStore == nil {
 		return "No state store attached."
 	}
-	res, err := m.stateStore.GetResult(context.Background(), run.RunID)
+	ctx := m.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	res, err := m.stateStore.GetResult(ctx, run.RunID)
 	if err != nil {
 		return fmt.Sprintf("Failed to load result: %v", err)
 	}
@@ -38,7 +44,7 @@ func (m *Model) renderSelectedResult(run *RunInfo) string {
 		fmt.Sprintf("Provider: %s", res.ProviderID),
 		fmt.Sprintf("Region: %s", res.Region),
 		fmt.Sprintf("Status: %s", statusString(run.Status)),
-		fmt.Sprintf("Duration: %s", formatDuration(res.Duration)),
+		fmt.Sprintf("Duration: %s", theme.FormatDuration(res.Duration)),
 		fmt.Sprintf("Cost: $%.4f", res.Cost.TotalCost),
 	}
 
@@ -58,7 +64,7 @@ func (m *Model) renderSelectedResult(run *RunInfo) string {
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(colorGray)).
+		BorderForeground(theme.BorderColorUnfocused()).
 		Padding(resultPaddingVertical, resultPaddingHorizontal).
 		Render(content)
 }

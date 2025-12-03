@@ -217,7 +217,6 @@ func TestModel_BuildSummary(t *testing.T) {
 	m.successCount = 2
 	m.failedCount = 1
 	m.totalCost = 0.03
-	m.totalTokens = 1500
 	m.totalDuration = 5 * time.Second
 	m.mu.Unlock()
 
@@ -227,8 +226,8 @@ func TestModel_BuildSummary(t *testing.T) {
 	assert.Equal(t, 2, summary.SuccessCount)
 	assert.Equal(t, 1, summary.FailedCount)
 	assert.Equal(t, 0.03, summary.TotalCost)
-	assert.Equal(t, int64(1500), summary.TotalTokens)
-	assert.Equal(t, 2, summary.ScenarioCount) // scenario-1 and scenario-2
+	assert.Equal(t, int64(0), summary.TotalTokens) // Tokens only available via statestore
+	assert.Equal(t, 2, summary.ScenarioCount)      // scenario-1 and scenario-2
 	assert.Equal(t, 3, len(summary.ProviderCounts))
 	assert.Equal(t, 1, summary.ProviderCounts["openai"])
 	assert.Equal(t, 1, summary.ProviderCounts["claude"])
@@ -272,55 +271,21 @@ func TestModel_BuildSummary_ZeroCompleted(t *testing.T) {
 	assert.Equal(t, time.Duration(0), summary.AvgDuration)
 }
 
-func TestModel_HandleShowSummary(t *testing.T) {
-	m := NewModel("test-config.yaml", 10)
-
-	summary := &Summary{
-		TotalRuns:    10,
-		SuccessCount: 10,
-		FailedCount:  0,
-	}
-
-	msg := &ShowSummaryMsg{Summary: summary}
-
-	m.mu.Lock()
-	m.handleShowSummary(msg)
-	m.mu.Unlock()
-
-	assert.True(t, m.showSummary)
-	assert.Equal(t, summary, m.summary)
-}
-
 func TestModel_View_WithSummary(t *testing.T) {
 	m := NewModel("test-config.yaml", 10)
 
-	summary := &Summary{
-		TotalRuns:      10,
-		SuccessCount:   10,
-		FailedCount:    0,
-		TotalCost:      0.5,
-		TotalTokens:    5000,
-		TotalDuration:  30 * time.Second,
-		AvgDuration:    3 * time.Second,
-		ProviderCounts: map[string]int{"openai": 10},
-		ScenarioCount:  5,
-		Regions:        []string{"us"},
-		Errors:         []ErrorInfo{},
-		OutputDir:      "out/",
-	}
-
 	m.mu.Lock()
 	m.isTUIMode = true // Ensure TUI mode is enabled for this test
-	m.showSummary = true
-	m.summary = summary
+	m.width = 100
+	m.height = 40
 	m.mu.Unlock()
 
 	view := m.View()
 
-	// Should render summary, not the regular TUI view
-	assert.Contains(t, view, "Run Summary")
-	assert.Contains(t, view, "Total Runs:")
-	assert.NotContains(t, view, "Active Runs") // Regular view element
+	// Should render the regular TUI view (summary display was removed)
+	// The view should not be empty or "Loading..."
+	assert.NotEmpty(t, view)
+	assert.NotEqual(t, "Loading...", view)
 }
 
 func TestRenderSummary_MultipleErrors(t *testing.T) {

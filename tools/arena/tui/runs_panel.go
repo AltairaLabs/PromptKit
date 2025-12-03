@@ -6,6 +6,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
 )
 
 const (
@@ -47,14 +49,12 @@ func (m *Model) renderActiveRuns() string {
 		m.runsTable.Blur()
 	}
 
-	borderColor := lipgloss.Color(colorIndigo)
+	borderColor := theme.BorderColorUnfocused()
 	if m.activePane == paneRuns {
-		borderColor = lipgloss.Color(colorWhite)
+		borderColor = lipgloss.Color(theme.ColorWhite)
 	}
 
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color(colorViolet))
+	titleStyle := theme.TitleStyle
 
 	title := titleStyle.Render(fmt.Sprintf("📊 Active Runs (%d concurrent workers)", len(m.activeRuns)))
 
@@ -91,13 +91,13 @@ func (m *Model) initRunsTable(height int) {
 	s := table.DefaultStyles()
 	s.Header = s.Header.
 		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color(colorIndigo)).
+		BorderForeground(theme.BorderColorFocused()).
 		BorderBottom(true).
 		Bold(true).
-		Foreground(lipgloss.Color(colorViolet))
+		Foreground(lipgloss.Color(theme.ColorViolet))
 	s.Selected = s.Selected.
-		Foreground(lipgloss.Color(colorWhite)).
-		Background(lipgloss.Color(colorIndigo)).
+		Foreground(lipgloss.Color(theme.ColorWhite)).
+		Background(theme.BorderColorFocused()).
 		Bold(false)
 
 	t.SetStyles(s)
@@ -116,21 +116,21 @@ func (m *Model) updateRunsTable() {
 		switch run.Status {
 		case StatusRunning:
 			status = "● Running"
-			elapsed := time.Since(run.StartTime).Truncate(time.Millisecond * durationPrecisionMs)
-			duration = formatDuration(elapsed)
+			elapsed := time.Since(run.StartTime)
+			duration = theme.FormatDuration(elapsed)
 			cost = "-"
 			if run.CurrentTurnRole != "" {
 				notes = fmt.Sprintf("turn %d: %s", run.CurrentTurnIndex+1, run.CurrentTurnRole)
 			}
 		case StatusCompleted:
 			status = "✓ Done"
-			duration = formatDuration(run.Duration)
-			cost = fmt.Sprintf("$%.4f", run.Cost)
+			duration = theme.FormatDuration(run.Duration)
+			cost = theme.FormatCost(run.Cost)
 		case StatusFailed:
 			status = "✗ Failed"
 			duration = "-"
 			cost = "-"
-			notes = truncateString(run.Error, errorNoteMaxLen)
+			notes = theme.TruncateString(run.Error, errorNoteMaxLen)
 		}
 
 		if run.Selected {

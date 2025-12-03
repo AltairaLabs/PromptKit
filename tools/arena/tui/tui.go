@@ -27,8 +27,6 @@ const (
 const (
 	maxLogBufferSize    = 100
 	tickIntervalMs      = 500
-	durationPrecisionMs = 100
-	numberSeparator     = 1000
 	bannerLines         = 2  // Banner + info line (separator counted separately)
 	bottomPanelPadding  = 4  // Border + padding
 	metricsBoxWidth     = 40 // Fixed width for metrics box
@@ -37,24 +35,6 @@ const (
 )
 
 // Color constants
-const (
-	colorPurple    = "#7C3AED"
-	colorDarkBg    = "#1E1E2E"
-	colorGreen     = "#10B981"
-	colorBlue      = "#3B82F6"
-	colorLightBlue = "#60A5FA"
-	colorRed       = "#EF4444"
-	colorAmber     = "#F59E0B"
-	colorYellow    = "#FBBF24"
-	colorGray      = "#6B7280"
-	colorLightGray = "#9CA3AF"
-	colorWhite     = "#F3F4F6"
-	colorIndigo    = "#6366F1"
-	colorViolet    = "#A78BFA"
-	colorEmerald   = "#34D399"
-	colorSky       = "#93C5FD"
-)
-
 type pane int
 
 const (
@@ -89,7 +69,6 @@ type Model struct {
 	successCount   int
 	failedCount    int
 	totalCost      float64
-	totalTokens    int64
 	totalDuration  time.Duration
 
 	logs          []LogEntry
@@ -101,11 +80,8 @@ type Model struct {
 	isTUIMode      bool
 	fallbackReason string
 
-	// Summary state
-	summary     *Summary
-	showSummary bool
-
 	stateStore runResultStorer
+	ctx        context.Context // Context for statestore operations
 
 	activePane pane
 
@@ -226,13 +202,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mu.Lock()
 		m.handleLogMsg(&msg)
 		m.mu.Unlock()
-		return m, nil
-
-	case ShowSummaryMsg:
-		m.mu.Lock()
-		m.handleShowSummary(&msg)
-		m.mu.Unlock()
-		// Don't quit immediately - let user see summary and press Ctrl+C or 'q' to exit
 		return m, nil
 	}
 
@@ -381,12 +350,6 @@ func (m *Model) handleLogMsg(msg *LogMsg) {
 	}
 }
 
-// handleShowSummary processes a show summary message and switches to summary view
-func (m *Model) handleShowSummary(msg *ShowSummaryMsg) {
-	m.summary = msg.Summary
-	m.showSummary = true
-}
-
 // trimLogs keeps the log buffer size within limits.
 func (m *Model) trimLogs() {
 	if len(m.logs) > maxLogBufferSize {
@@ -403,11 +366,6 @@ func (m *Model) View() string {
 		return ""
 	}
 
-	// Show summary if execution is complete
-	if m.showSummary && m.summary != nil {
-		return RenderSummary(m.summary, m.width)
-	}
-
 	if m.width == 0 || m.height == 0 {
 		return "Loading..."
 	}
@@ -420,9 +378,9 @@ func (m *Model) View() string {
 	case pageConversation:
 		body = m.renderConversationPage()
 	case pageMain:
-		body = lipgloss.JoinVertical(lipgloss.Left, m.renderActiveRuns(), "", m.renderLogs())
+		body = MainPage{}.Render(m)
 	default:
-		body = lipgloss.JoinVertical(lipgloss.Left, m.renderActiveRuns(), "", m.renderLogs())
+		body = MainPage{}.Render(m)
 	}
 
 	footer := m.renderFooter()
@@ -438,7 +396,11 @@ func (m *Model) renderConversationPage() string {
 	if m.stateStore == nil {
 		return "No state store attached."
 	}
-	res, err := m.stateStore.GetResult(context.Background(), selected.RunID)
+	ctx := m.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	res, err := m.stateStore.GetResult(ctx, selected.RunID)
 	if err != nil {
 		return fmt.Sprintf("Failed to load result: %v", err)
 	}
@@ -472,7 +434,7 @@ func (m *Model) renderResultPane() string {
 }
 
 func (m *Model) renderSummaryPane() string {
-	summary := m.BuildSummary("", "")
+	summary := m.buildSummary("", "")
 	if summary == nil {
 		return ""
 	}
@@ -568,10 +530,15 @@ func (m *Model) deselectRuns() {
 }
 
 // BuildSummary creates a Summary from the current model state with output directory and HTML report path.
+// Thread-safe for external callers.
 func (m *Model) BuildSummary(outputDir, htmlReport string) *Summary {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.buildSummary(outputDir, htmlReport)
+}
 
+// buildSummary is the internal implementation. Caller must hold m.mu.
+func (m *Model) buildSummary(outputDir, htmlReport string) *Summary {
 	// If a state store is available, try to reconstruct results for richer summary
 	if m.stateStore != nil && len(m.activeRuns) > 0 {
 		return m.buildSummaryFromStateStore(outputDir, htmlReport)
@@ -616,7 +583,7 @@ func (m *Model) BuildSummary(outputDir, htmlReport string) *Summary {
 		SuccessCount:   m.successCount,
 		FailedCount:    m.failedCount,
 		TotalCost:      m.totalCost,
-		TotalTokens:    m.totalTokens,
+		TotalTokens:    0, // Tokens only available via statestore
 		TotalDuration:  time.Since(m.startTime),
 		AvgDuration:    avgDuration,
 		ProviderCounts: providerCounts,
@@ -630,7 +597,10 @@ func (m *Model) BuildSummary(outputDir, htmlReport string) *Summary {
 
 // buildSummaryFromStateStore builds summary using persisted run results (assertions, tool stats).
 func (m *Model) buildSummaryFromStateStore(outputDir, htmlReport string) *Summary {
-	ctx := context.Background()
+	ctx := m.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
 	totalRuns := len(m.activeRuns)
 	success := 0
@@ -736,6 +706,7 @@ func NewModel(configFile string, totalRuns int) *Model {
 		height:         height,
 		isTUIMode:      supported,
 		fallbackReason: reason,
+		ctx:            context.Background(),
 		convPane:       NewConversationPane(),
 		currentPage:    pageMain,
 	}
