@@ -4,14 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/charmbracelet/lipgloss"
-
-	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
-)
-
-const (
-	resultPaddingVertical   = 1
-	resultPaddingHorizontal = 2
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/views"
 )
 
 // selectedRun returns the first selected run, if any.
@@ -38,46 +31,22 @@ func (m *Model) renderSelectedResult(run *RunInfo) string {
 		return fmt.Sprintf("Failed to load result: %v", err)
 	}
 
-	lines := []string{
-		fmt.Sprintf("Run: %s", res.RunID),
-		fmt.Sprintf("Scenario: %s", res.ScenarioID),
-		fmt.Sprintf("Provider: %s", res.ProviderID),
-		fmt.Sprintf("Region: %s", res.Region),
-		fmt.Sprintf("Status: %s", statusString(run.Status)),
-		fmt.Sprintf("Duration: %s", theme.FormatDuration(res.Duration)),
-		fmt.Sprintf("Cost: $%.4f", res.Cost.TotalCost),
-	}
-
-	if res.ConversationAssertions.Total > 0 {
-		assertLine := fmt.Sprintf(
-			"Assertions: %d total, %d failed",
-			res.ConversationAssertions.Total,
-			res.ConversationAssertions.Failed,
-		)
-		lines = append(lines, assertLine)
-	}
-
-	if res.Error != "" {
-		lines = append(lines, fmt.Sprintf("Error: %s", res.Error))
-	}
-
-	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(theme.BorderColorUnfocused()).
-		Padding(resultPaddingVertical, resultPaddingHorizontal).
-		Render(content)
+	// Use new ResultView
+	resultView := views.NewResultView()
+	viewStatus := convertRunStatusToViewStatus(run.Status)
+	return resultView.Render(res, viewStatus)
 }
 
-func statusString(status RunStatus) string {
+// convertRunStatusToViewStatus converts TUI RunStatus to views.RunStatus
+func convertRunStatusToViewStatus(status RunStatus) views.RunStatus {
 	switch status {
 	case StatusRunning:
-		return "running"
+		return views.StatusRunning
 	case StatusCompleted:
-		return "completed"
+		return views.StatusCompleted
 	case StatusFailed:
-		return "failed"
+		return views.StatusFailed
 	default:
-		return "unknown"
+		return views.StatusRunning
 	}
 }

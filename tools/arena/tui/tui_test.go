@@ -13,6 +13,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/views"
 )
 
 func TestNewModel(t *testing.T) {
@@ -329,15 +330,17 @@ func TestHandleRunLifecycle(t *testing.T) {
 }
 
 func TestRenderHeaderFooter(t *testing.T) {
+	// Test via View() which now uses HeaderFooterView internally
 	m := NewModel("test.yaml", 2)
 	m.width = 100
-	out := m.renderHeader(2 * time.Second)
-	assert.Contains(t, out, "test.yaml")
-	assert.Contains(t, out, "PromptArena")
-
-	footer := m.renderFooter()
-	assert.Contains(t, footer, "tab")
-	assert.Contains(t, footer, "enter")
+	m.height = 40
+	m.isTUIMode = true
+	m.initViewport()
+	view := m.View()
+	assert.Contains(t, view, "test.yaml")
+	assert.Contains(t, view, "PromptArena")
+	assert.Contains(t, view, "tab")
+	assert.Contains(t, view, "enter")
 }
 
 func TestRenderLogs_WithViewport(t *testing.T) {
@@ -361,12 +364,10 @@ func TestSelectedRunHelper(t *testing.T) {
 }
 
 func TestUtilsHelpers(t *testing.T) {
-	// Test buildProgressBar (the only remaining util function)
-	bar := buildProgressBar(1, 4, 4)
-	assert.NotEmpty(t, bar)
-
-	bar = buildProgressBar(0, 0, 10)
-	assert.Len(t, bar, 10)
+	// buildProgressBar has been moved to views/header_footer.go
+	// and is tested in views/header_footer_test.go
+	// This test is kept for backwards compatibility
+	assert.True(t, true)
 }
 
 func TestTick(t *testing.T) {
@@ -394,14 +395,16 @@ func TestCheckTerminalSize(t *testing.T) {
 }
 
 func TestModel_renderHeader(t *testing.T) {
+	// Test header via View() which uses HeaderFooterView internally
 	m := NewModel("test.yaml", 10)
+	m.width = 120
+	m.height = 40
+	m.isTUIMode = true
 	m.completedCount = 5
-
-	header := m.renderHeader(30 * time.Second)
-
-	assert.Contains(t, header, "PromptArena")
-	assert.Contains(t, header, "5/10")
-	assert.Contains(t, header, "30")
+	m.initViewport()
+	view := m.View()
+	assert.Contains(t, view, "PromptArena")
+	assert.Contains(t, view, "5/10")
 }
 
 func TestModel_renderActiveRuns(t *testing.T) {
@@ -542,10 +545,11 @@ func TestModel_ThreadSafety(t *testing.T) {
 }
 
 func TestStatusString(t *testing.T) {
-	assert.Equal(t, "running", statusString(StatusRunning))
-	assert.Equal(t, "completed", statusString(StatusCompleted))
-	assert.Equal(t, "failed", statusString(StatusFailed))
-	assert.Equal(t, "unknown", statusString(RunStatus(99)))
+	// Status string formatting is now tested in views/result_test.go
+	// This test verifies the conversion function
+	assert.Equal(t, views.StatusRunning, convertRunStatusToViewStatus(StatusRunning))
+	assert.Equal(t, views.StatusCompleted, convertRunStatusToViewStatus(StatusCompleted))
+	assert.Equal(t, views.StatusFailed, convertRunStatusToViewStatus(StatusFailed))
 }
 
 func TestSetStateStore(t *testing.T) {

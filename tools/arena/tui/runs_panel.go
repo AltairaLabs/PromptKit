@@ -49,6 +49,9 @@ func (m *Model) renderActiveRuns() string {
 		m.runsTable.Blur()
 	}
 
+	// Note: We keep the old table implementation here for now since it's already
+	// integrated with the Model's interactive state. The new RunsTableView is
+	// available for future refactoring or non-interactive rendering.
 	borderColor := theme.BorderColorUnfocused()
 	if m.activePane == paneRuns {
 		borderColor = lipgloss.Color(theme.ColorWhite)

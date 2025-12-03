@@ -15,6 +15,8 @@ import (
 	"golang.org/x/term"
 
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/viewmodels"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/views"
 )
 
 // Terminal size requirements
@@ -372,7 +374,10 @@ func (m *Model) View() string {
 
 	elapsed := time.Since(m.startTime).Truncate(time.Second)
 
-	header := m.renderHeader(elapsed)
+	// Use new HeaderFooterView
+	headerView := views.NewHeaderFooterView(m.width)
+	header := headerView.RenderHeader(m.configFile, m.completedCount, m.totalRuns, elapsed)
+
 	var body string
 	switch m.currentPage {
 	case pageConversation:
@@ -383,7 +388,8 @@ func (m *Model) View() string {
 		body = MainPage{}.Render(m)
 	}
 
-	footer := m.renderFooter()
+	// Use new HeaderFooterView
+	footer := headerView.RenderFooter(m.currentPage == pageConversation)
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", footer)
 }
@@ -443,7 +449,11 @@ func (m *Model) renderSummaryPane() string {
 	if width < summaryMinWidth {
 		width = summaryMinWidth
 	}
-	return RenderSummary(summary, width)
+	// Convert old Summary to new SummaryData and use SummaryView
+	summaryData := convertSummaryToData(summary)
+	summaryVM := viewmodels.NewSummaryViewModel(summaryData)
+	summaryView := views.NewSummaryView(width, false)
+	return summaryView.Render(summaryVM)
 }
 
 func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -772,6 +782,35 @@ func Run(ctx context.Context, model *Model) error {
 	}
 }
 
+// Summary represents the final execution summary displayed after all runs complete
+type Summary struct {
+	TotalRuns      int
+	SuccessCount   int
+	FailedCount    int
+	TotalCost      float64
+	TotalTokens    int64
+	TotalDuration  time.Duration
+	AvgDuration    time.Duration
+	ProviderCounts map[string]int
+	ScenarioCount  int
+	Regions        []string
+	Errors         []ErrorInfo
+	OutputDir      string
+	HTMLReport     string
+
+	AssertionTotal  int
+	AssertionFailed int
+}
+
+// ErrorInfo represents a failed run with details
+type ErrorInfo struct {
+	RunID    string
+	Scenario string
+	Provider string
+	Region   string
+	Error    string
+}
+
 // CheckTerminalSize checks if the terminal is large enough for TUI mode
 func CheckTerminalSize() (width, height int, supported bool, reason string) {
 	// Try stdout first (fd 1), then stderr (fd 2), then stdin (fd 0)
@@ -793,4 +832,65 @@ func CheckTerminalSize() (width, height int, supported bool, reason string) {
 	}
 
 	return 0, 0, false, "unable to detect terminal size (not a TTY)"
+}
+
+// RenderSummary renders the final summary screen for TUI mode
+func RenderSummary(summary *Summary, width int) string {
+	summaryData := convertSummaryToData(summary)
+	summaryVM := viewmodels.NewSummaryViewModel(summaryData)
+	summaryView := views.NewSummaryView(width, false)
+	return summaryView.Render(summaryVM)
+}
+
+// RenderSummaryCIMode renders the summary in plain text for CI/non-TUI environments
+func RenderSummaryCIMode(summary *Summary) string {
+	const ciModeWidth = 80
+	summaryData := convertSummaryToData(summary)
+	summaryVM := viewmodels.NewSummaryViewModel(summaryData)
+	summaryView := views.NewSummaryView(ciModeWidth, true)
+	return summaryView.Render(summaryVM)
+}
+
+// convertSummaryToData converts old Summary struct to new SummaryData for viewmodels
+func convertSummaryToData(summary *Summary) *viewmodels.SummaryData {
+	// Convert provider counts to provider stats
+	providerStats := make(map[string]viewmodels.ProviderStat)
+	for provider, count := range summary.ProviderCounts {
+		providerStats[provider] = viewmodels.ProviderStat{
+			Runs:   count,
+			Tokens: 0, // Tokens not available in old Summary
+		}
+	}
+
+	// Convert errors to new ErrorInfo format
+	errors := make([]viewmodels.ErrorInfo, len(summary.Errors))
+	for i, errInfo := range summary.Errors {
+		errors[i] = viewmodels.ErrorInfo{
+			RunID:    errInfo.RunID,
+			Scenario: errInfo.Scenario,
+			Provider: errInfo.Provider,
+			Region:   errInfo.Region,
+			Error:    errInfo.Error,
+		}
+	}
+
+	return &viewmodels.SummaryData{
+		TotalRuns:       summary.TotalRuns,
+		CompletedRuns:   summary.SuccessCount,
+		FailedRuns:      summary.FailedCount,
+		TotalTokens:     summary.TotalTokens,
+		TotalCost:       summary.TotalCost,
+		TotalDuration:   summary.TotalDuration,
+		AvgDuration:     summary.AvgDuration,
+		ProviderStats:   providerStats,
+		ProviderCosts:   make(map[string]float64), // Not available in old Summary
+		FailuresByError: make(map[string]int),     // Not available in old Summary
+		ScenarioCount:   summary.ScenarioCount,
+		Regions:         summary.Regions,
+		Errors:          errors,
+		OutputDir:       summary.OutputDir,
+		HTMLReport:      summary.HTMLReport,
+		AssertionTotal:  summary.AssertionTotal,
+		AssertionFailed: summary.AssertionFailed,
+	}
 }
