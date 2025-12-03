@@ -232,3 +232,212 @@ func TestSummaryViewModel_CompleteScenario(t *testing.T) {
 	assert.Len(t, vm.GetProviderCosts(), 2)
 	assert.Len(t, vm.GetFailuresByError(), 2)
 }
+
+func TestGetFormattedTotalRuns(t *testing.T) {
+	data := SummaryData{TotalRuns: 42}
+	vm := NewSummaryViewModel(&data)
+	assert.Equal(t, "42", vm.GetFormattedTotalRuns())
+}
+
+func TestGetFormattedSuccessful(t *testing.T) {
+	data := SummaryData{TotalRuns: 10, CompletedRuns: 8}
+	vm := NewSummaryViewModel(&data)
+	result := vm.GetFormattedSuccessful()
+	assert.Contains(t, result, "8")
+	assert.Contains(t, result, "80.0%")
+}
+
+func TestGetFormattedFailed(t *testing.T) {
+	data := SummaryData{TotalRuns: 10, FailedRuns: 2}
+	vm := NewSummaryViewModel(&data)
+	result := vm.GetFormattedFailed()
+	assert.Contains(t, result, "2")
+	assert.Contains(t, result, "20.0%")
+}
+
+func TestGetFormattedAvgDurationWithSuffix(t *testing.T) {
+	data := SummaryData{AvgDuration: 3 * time.Second}
+	vm := NewSummaryViewModel(&data)
+	result := vm.GetFormattedAvgDurationWithSuffix()
+	assert.Contains(t, result, "per run")
+	assert.Contains(t, result, "3s")
+}
+
+func TestHasAssertions(t *testing.T) {
+	dataWithAssertions := SummaryData{AssertionTotal: 10}
+	vmWith := NewSummaryViewModel(&dataWithAssertions)
+	assert.True(t, vmWith.HasAssertions())
+
+	dataWithoutAssertions := SummaryData{AssertionTotal: 0}
+	vmWithout := NewSummaryViewModel(&dataWithoutAssertions)
+	assert.False(t, vmWithout.HasAssertions())
+}
+
+func TestHasFailedAssertions(t *testing.T) {
+	dataWithFailed := SummaryData{AssertionFailed: 5}
+	vmWith := NewSummaryViewModel(&dataWithFailed)
+	assert.True(t, vmWith.HasFailedAssertions())
+
+	dataWithoutFailed := SummaryData{AssertionFailed: 0}
+	vmWithout := NewSummaryViewModel(&dataWithoutFailed)
+	assert.False(t, vmWithout.HasFailedAssertions())
+}
+
+func TestGetFormattedAssertionTotal(t *testing.T) {
+	data := SummaryData{AssertionTotal: 25}
+	vm := NewSummaryViewModel(&data)
+	assert.Equal(t, "25 total", vm.GetFormattedAssertionTotal())
+}
+
+func TestGetFormattedAssertionFailed(t *testing.T) {
+	data := SummaryData{AssertionFailed: 3}
+	vm := NewSummaryViewModel(&data)
+	assert.Equal(t, "3", vm.GetFormattedAssertionFailed())
+}
+
+func TestHasProviders(t *testing.T) {
+	dataWith := SummaryData{
+		ProviderStats: map[string]ProviderStat{"openai": {Runs: 5}},
+	}
+	vmWith := NewSummaryViewModel(&dataWith)
+	assert.True(t, vmWith.HasProviders())
+
+	dataWithout := SummaryData{ProviderStats: map[string]ProviderStat{}}
+	vmWithout := NewSummaryViewModel(&dataWithout)
+	assert.False(t, vmWithout.HasProviders())
+}
+
+func TestGetFormattedProviders(t *testing.T) {
+	data := SummaryData{
+		ProviderStats: map[string]ProviderStat{
+			"openai": {Runs: 5, Tokens: 1000},
+			"claude": {Runs: 3, Tokens: 500},
+		},
+	}
+	vm := NewSummaryViewModel(&data)
+	result := vm.GetFormattedProviders()
+	assert.Contains(t, result, "openai")
+	assert.Contains(t, result, "claude")
+	assert.Contains(t, result, "(5)")
+	assert.Contains(t, result, "(3)")
+}
+
+func TestGetFormattedScenarios(t *testing.T) {
+	data := SummaryData{ScenarioCount: 7}
+	vm := NewSummaryViewModel(&data)
+	assert.Equal(t, "7 scenarios", vm.GetFormattedScenarios())
+}
+
+func TestHasRegions(t *testing.T) {
+	dataWith := SummaryData{Regions: []string{"us-east-1", "eu-west-1"}}
+	vmWith := NewSummaryViewModel(&dataWith)
+	assert.True(t, vmWith.HasRegions())
+
+	dataWithout := SummaryData{Regions: []string{}}
+	vmWithout := NewSummaryViewModel(&dataWithout)
+	assert.False(t, vmWithout.HasRegions())
+}
+
+func TestGetFormattedRegions(t *testing.T) {
+	data := SummaryData{Regions: []string{"us-east-1", "eu-west-1", "ap-south-1"}}
+	vm := NewSummaryViewModel(&data)
+	result := vm.GetFormattedRegions()
+	assert.Contains(t, result, "us-east-1")
+	assert.Contains(t, result, "eu-west-1")
+	assert.Contains(t, result, "ap-south-1")
+}
+
+func TestHasErrors(t *testing.T) {
+	dataWith := SummaryData{
+		Errors: []ErrorInfo{{RunID: "r1", Error: "timeout"}},
+	}
+	vmWith := NewSummaryViewModel(&dataWith)
+	assert.True(t, vmWith.HasErrors())
+
+	dataWithout := SummaryData{Errors: []ErrorInfo{}}
+	vmWithout := NewSummaryViewModel(&dataWithout)
+	assert.False(t, vmWithout.HasErrors())
+}
+
+func TestGetFormattedErrors(t *testing.T) {
+	data := SummaryData{
+		Errors: []ErrorInfo{
+			{
+				RunID:    "run1",
+				Scenario: "test-scenario",
+				Provider: "openai",
+				Region:   "us-east-1",
+				Error:    "Connection    timeout\nRetry failed",
+			},
+		},
+	}
+	vm := NewSummaryViewModel(&data)
+	errors := vm.GetFormattedErrors()
+	assert.Len(t, errors, 1)
+	assert.Contains(t, errors[0], "test-scenario/openai/us-east-1")
+	assert.Contains(t, errors[0], "Connection timeout Retry failed")
+	assert.NotContains(t, errors[0], "\n")
+}
+
+func TestGetOutputDir(t *testing.T) {
+	data := SummaryData{OutputDir: "/tmp/results"}
+	vm := NewSummaryViewModel(&data)
+	assert.Equal(t, "/tmp/results", vm.GetOutputDir())
+}
+
+func TestHasHTMLReport(t *testing.T) {
+	dataWith := SummaryData{HTMLReport: "/tmp/report.html"}
+	vmWith := NewSummaryViewModel(&dataWith)
+	assert.True(t, vmWith.HasHTMLReport())
+
+	dataWithout := SummaryData{HTMLReport: ""}
+	vmWithout := NewSummaryViewModel(&dataWithout)
+	assert.False(t, vmWithout.HasHTMLReport())
+}
+
+func TestGetHTMLReport(t *testing.T) {
+	data := SummaryData{HTMLReport: "/tmp/report.html"}
+	vm := NewSummaryViewModel(&data)
+	assert.Equal(t, "/tmp/report.html", vm.GetHTMLReport())
+}
+
+func TestCompactString(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "with newlines",
+			input:    "Hello\nWorld\nTest",
+			expected: "Hello World Test",
+		},
+		{
+			name:     "with tabs",
+			input:    "Hello\tWorld\tTest",
+			expected: "Hello World Test",
+		},
+		{
+			name:     "with multiple spaces",
+			input:    "Hello    World     Test",
+			expected: "Hello World Test",
+		},
+		{
+			name:     "mixed whitespace",
+			input:    "Hello\n\t  World   \n  Test  ",
+			expected: "Hello World Test",
+		},
+		{
+			name:     "already compact",
+			input:    "Hello World Test",
+			expected: "Hello World Test",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+result := compactString(tt.input)
+assert.Equal(t, tt.expected, result)
+})
+	}
+}
