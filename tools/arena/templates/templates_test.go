@@ -1539,19 +1539,19 @@ func TestRepoConfig_DefaultsAndResolve(t *testing.T) {
 
 	cfg, err := LoadRepoConfig(cfgPath)
 	require.NoError(t, err)
-	assert.Equal(t, DefaultGitHubIndex, cfg.Repos[DefaultRepoName])
+	assert.Equal(t, DefaultGitHubIndex, cfg.Repos[DefaultRepoName].URL)
 
 	cfg.Add("custom", "https://example.com/index.yaml")
 	require.NoError(t, cfg.Save(cfgPath))
 
 	cfgReloaded, err := LoadRepoConfig(cfgPath)
 	require.NoError(t, err)
-	assert.Equal(t, "https://example.com/index.yaml", cfgReloaded.Repos["custom"])
+	assert.Equal(t, "https://example.com/index.yaml", cfgReloaded.Repos["custom"].URL)
 
 	url := ResolveIndex("custom", cfgReloaded)
-	assert.Equal(t, "https://example.com/index.yaml", url)
+	assert.Equal(t, "https://example.com/index.yaml", url.URL)
 
-	assert.Equal(t, "file://local/index.yaml", ResolveIndex("file://local/index.yaml", cfgReloaded))
+	assert.Equal(t, "file://local/index.yaml", ResolveIndex("file://local/index.yaml", cfgReloaded).URL)
 }
 
 func TestRepoConfig_SaveAndLoad(t *testing.T) {
@@ -1564,8 +1564,8 @@ func TestRepoConfig_SaveAndLoad(t *testing.T) {
 
 	reloaded, err := LoadRepoConfig(cfgPath)
 	require.NoError(t, err)
-	assert.Equal(t, "https://example.com/index.yaml", reloaded.Repos["internal"])
-	assert.Equal(t, DefaultGitHubIndex, reloaded.Repos[DefaultRepoName])
+	assert.Equal(t, "https://example.com/index.yaml", reloaded.Repos["internal"].URL)
+	assert.Equal(t, DefaultGitHubIndex, reloaded.Repos[DefaultRepoName].URL)
 }
 
 func TestDefaultCacheDirUsesUserCache(t *testing.T) {
