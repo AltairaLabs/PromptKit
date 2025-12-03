@@ -13,6 +13,14 @@ import (
 
 const (
 	resultPadding = 2
+
+	// Type column constraints
+	maxTypeLen      = 25
+	typeEllipsisLen = 22
+
+	// Details column constraints
+	maxDetailsLen      = 45
+	detailsEllipsisLen = 42
 )
 
 // ResultPanelData contains the data needed to render the result panel
@@ -100,82 +108,78 @@ func (p *ResultPanel) Update(width, height int) {
 }
 
 // View renders the result panel
-//
-//nolint:gocognit // Complex rendering logic
 func (p *ResultPanel) View(data *ResultPanelData) string {
 	if !p.ready {
 		return "Loading..."
 	}
 
-	borderColor := theme.BorderColorUnfocused()
-	titleStyle := theme.TitleStyle
-
-	// Build table rows
-	var rows []table.Row
-	var summaryText string
-
-	if data == nil || data.Result == nil {
-		summaryText = "No run selected"
-	} else {
-		res := data.Result
-		if res.ConversationAssertions.Total == 0 {
-			summaryText = "No assertions"
-		} else {
-			summaryText = fmt.Sprintf("📋 Assertions (%d/%d passed)",
-				res.ConversationAssertions.Total-res.ConversationAssertions.Failed,
-				res.ConversationAssertions.Total,
-			)
-
-			// Build table rows from assertions
-			for _, result := range res.ConversationAssertions.Results {
-				status := "✓"
-				if !result.Passed {
-					status = "✗"
-				}
-
-				// Truncate type name to fit
-				const maxTypeLen = 25
-				const typeEllipsisLen = 22
-				typeName := result.Type
-				if len(typeName) > maxTypeLen {
-					typeName = typeName[:typeEllipsisLen] + "..."
-				}
-
-				// Build details: message + violations
-				details := result.Message
-				if len(result.Violations) > 0 {
-					if details != "" {
-						details += " | "
-					}
-					details += fmt.Sprintf("%d violation(s)", len(result.Violations))
-				}
-
-				// Truncate details to fit column
-				const maxDetailsLen = 45
-				const detailsEllipsisLen = 42
-				if len(details) > maxDetailsLen {
-					details = details[:detailsEllipsisLen] + "..."
-				}
-
-				rows = append(rows, table.Row{
-					status,
-					typeName,
-					details,
-				})
-			}
-		}
-	}
-
+	rows, summaryText := p.buildTableContent(data)
 	p.table.SetRows(rows)
 
-	title := titleStyle.Render(summaryText)
+	title := theme.TitleStyle.Render(summaryText)
 	content := lipgloss.JoinVertical(lipgloss.Left, title, p.table.View())
 
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(borderColor).
+		BorderForeground(theme.BorderColorUnfocused()).
 		Padding(1, resultPadding).
 		Render(content)
+}
+
+// buildTableContent creates table rows and summary text from result data
+func (p *ResultPanel) buildTableContent(data *ResultPanelData) (rows []table.Row, summaryText string) {
+	if data == nil || data.Result == nil {
+		return []table.Row{}, "No run selected"
+	}
+
+	res := data.Result
+	if res.ConversationAssertions.Total == 0 {
+		return []table.Row{}, "No assertions"
+	}
+
+	summaryText = fmt.Sprintf("📋 Assertions (%d/%d passed)",
+		res.ConversationAssertions.Total-res.ConversationAssertions.Failed,
+		res.ConversationAssertions.Total,
+	)
+
+	for _, result := range res.ConversationAssertions.Results {
+		rows = append(rows, p.buildAssertionRow(result))
+	}
+
+	return rows, summaryText
+}
+
+// buildAssertionRow creates a table row for a single assertion result
+func (p *ResultPanel) buildAssertionRow(result statestore.ConversationValidationResult) table.Row {
+	status := "✓"
+	if !result.Passed {
+		status = "✗"
+	}
+
+	typeName := truncateString(result.Type, maxTypeLen, typeEllipsisLen)
+	details := buildDetailsText(result)
+
+	return table.Row{status, typeName, details}
+}
+
+// buildDetailsText creates the details column text from message and violations
+func buildDetailsText(result statestore.ConversationValidationResult) string {
+	details := result.Message
+	if len(result.Violations) > 0 {
+		if details != "" {
+			details += " | "
+		}
+		details += fmt.Sprintf("%d violation(s)", len(result.Violations))
+	}
+	return truncateString(details, maxDetailsLen, detailsEllipsisLen)
+}
+
+// truncateString truncates a string to maxLen, adding ellipsis if needed
+func truncateString(s string, maxLen, ellipsisLen int) string {
+	if len(s) > maxLen {
+		return s[:ellipsisLen] + "..."
+	}
+	return s
 }
 
 // Table returns the underlying table for key handling
