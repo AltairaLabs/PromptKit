@@ -12,7 +12,7 @@ import (
 
 const (
 	logsPaddingVertical   = 1
-	logsPaddingHorizontal = 2
+	logsPaddingHorizontal = 1
 )
 
 // LogEntry represents a single log line
@@ -34,7 +34,7 @@ func NewLogsView(focused bool) *LogsView {
 }
 
 // Render renders the logs panel
-func (v *LogsView) Render(vp *viewport.Model, ready bool) string {
+func (v *LogsView) Render(vp *viewport.Model, ready bool, width int) string {
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(theme.ColorSky))
 	title := titleStyle.Render("📝 Logs (↑/↓ to scroll, 's' summary)")
 
@@ -50,7 +50,15 @@ func (v *LogsView) Render(vp *viewport.Model, ready bool) string {
 		content = lipgloss.JoinVertical(lipgloss.Left, title, vp.View())
 	}
 
+	// Account for chrome: horizontal padding (2 * logsPaddingHorizontal) + 1 for border adjustment
+	chromeWidth := (2 * logsPaddingHorizontal) + 1
+	innerWidth := width - chromeWidth
+	if innerWidth < 0 {
+		innerWidth = 0
+	}
+
 	return lipgloss.NewStyle().
+		Width(innerWidth).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderColor).
 		Padding(logsPaddingVertical, logsPaddingHorizontal).

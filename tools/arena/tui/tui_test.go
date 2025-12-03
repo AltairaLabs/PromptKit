@@ -3,7 +3,6 @@ package tui
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -13,7 +12,6 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
-	"github.com/AltairaLabs/PromptKit/tools/arena/tui/views"
 )
 
 func TestNewModel(t *testing.T) {
@@ -139,6 +137,7 @@ func TestModel_View_SelectedRunShowsResult(t *testing.T) {
 	m.width = 120
 	m.height = 40
 	m.isTUIMode = true
+	m.currentPage = pageConversation // Switch to conversation page
 
 	m.activeRuns = []RunInfo{
 		{
@@ -229,72 +228,7 @@ func TestModel_BuildSummary_FromStateStoreError(t *testing.T) {
 	assert.Len(t, summary.Errors, 1)
 }
 
-func TestRenderLogs_NoViewport(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.viewportReady = false
-	out := m.renderLogs()
-	assert.Contains(t, out, "Initializing")
-}
-
-func TestRenderActiveRuns_Notes(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.width = 150 // ensure all columns, including Notes, render
-	m.height = 30
-	m.isTUIMode = true
-	m.activeRuns = []RunInfo{{
-		RunID:            "run-1",
-		Scenario:         "scn",
-		Provider:         "prov",
-		Status:           StatusRunning,
-		StartTime:        time.Now(),
-		CurrentTurnIndex: 1,
-		CurrentTurnRole:  "assistant",
-	}}
-	out := m.renderActiveRuns()
-	assert.Contains(t, out, "turn 2: assistant")
-}
-
-func TestRenderLogs_SelectedResultBranch(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.width = 100
-	m.height = 30
-	m.activeRuns = []RunInfo{{
-		RunID:     "run-1",
-		Status:    StatusCompleted,
-		Selected:  true,
-		Scenario:  "scn",
-		Provider:  "prov",
-		StartTime: time.Now(),
-	}}
-	m.stateStore = &mockRunResultStore{
-		result: &statestore.RunResult{
-			RunID:      "run-1",
-			ScenarioID: "scn",
-			ProviderID: "prov",
-			Region:     "us",
-			Messages: []types.Message{
-				{Role: "user", Content: "hello"},
-				{Role: "assistant", Content: "hi there"},
-			},
-			Cost: types.CostInfo{
-				TotalCost:    1.0,
-				InputTokens:  1,
-				OutputTokens: 1,
-			},
-			ConversationAssertions: statestore.AssertionsSummary{Total: 1},
-		},
-	}
-	out := m.renderLogs()
-	assert.Contains(t, out, "Conversation")
-	assert.Contains(t, out, "assistant")
-}
-
-func TestRenderSelectedResult_Error(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.stateStore = &mockRunResultStore{err: fmt.Errorf("boom")}
-	res := m.renderSelectedResult(&RunInfo{RunID: "run-1"})
-	assert.Contains(t, res, "Failed to load result")
-}
+// Tests for old render methods removed - now handled by panels/pages tests
 
 func TestHandleTurnEvents(t *testing.T) {
 	m := NewModel("test.yaml", 1)
@@ -335,23 +269,11 @@ func TestRenderHeaderFooter(t *testing.T) {
 	m.width = 100
 	m.height = 40
 	m.isTUIMode = true
-	m.initViewport()
 	view := m.View()
 	assert.Contains(t, view, "test.yaml")
 	assert.Contains(t, view, "PromptArena")
 	assert.Contains(t, view, "tab")
 	assert.Contains(t, view, "enter")
-}
-
-func TestRenderLogs_WithViewport(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.width = 120
-	m.height = 40
-	m.viewportReady = true
-	m.initViewport()
-	m.logs = []LogEntry{{Level: "INFO", Message: "hello"}}
-	out := m.renderLogs()
-	assert.Contains(t, out, "hello")
 }
 
 func TestSelectedRunHelper(t *testing.T) {
@@ -401,100 +323,12 @@ func TestModel_renderHeader(t *testing.T) {
 	m.height = 40
 	m.isTUIMode = true
 	m.completedCount = 5
-	m.initViewport()
 	view := m.View()
 	assert.Contains(t, view, "PromptArena")
 	assert.Contains(t, view, "5/10")
 }
 
-func TestModel_renderActiveRuns(t *testing.T) {
-	m := NewModel("test.yaml", 10)
-	m.width = 120
-
-	m.activeRuns = append(m.activeRuns, RunInfo{
-		RunID:     "run-1",
-		Scenario:  "test-scenario",
-		Provider:  "openai",
-		Status:    StatusRunning,
-		StartTime: time.Now().Add(-2 * time.Second),
-	})
-
-	runs := m.renderActiveRuns()
-
-	assert.Contains(t, runs, "Active Runs")
-	assert.Contains(t, runs, "1 concurrent workers")
-	// The actual run details may be truncated due to height constraints
-	assert.NotEmpty(t, runs)
-}
-
-func TestModel_renderActiveRuns_Empty(t *testing.T) {
-	m := NewModel("test.yaml", 10)
-	m.width = 100
-
-	runs := m.renderActiveRuns()
-
-	assert.Contains(t, runs, "Active Runs")
-	// When empty, shows worker count
-	assert.Contains(t, runs, "0 concurrent workers")
-}
-
-func TestModel_renderLogs(t *testing.T) {
-	m := NewModel("test.yaml", 10)
-	m.width = 120
-	m.height = 40
-
-	// Initialize viewport
-	m.initViewport()
-	m.viewportReady = true
-
-	// Manually add logs
-	m.logs = append(m.logs, LogEntry{
-		Timestamp: time.Now(),
-		Level:     "INFO",
-		Message:   "Test log message",
-	})
-
-	logs := m.renderLogs()
-
-	assert.Contains(t, logs, "Logs")
-	assert.Contains(t, logs, "Test log message")
-}
-
-func TestModel_formatLogLine(t *testing.T) {
-	m := NewModel("test.yaml", 10)
-
-	log := LogEntry{
-		Timestamp: time.Now(),
-		Level:     "INFO",
-		Message:   "Test message",
-	}
-
-	line := m.formatLogLine(log)
-	assert.Contains(t, line, "INFO")
-	assert.Contains(t, line, "Test message")
-
-	unknown := LogEntry{Timestamp: time.Now(), Level: "OTHER", Message: "fallback"}
-	fallback := m.formatLogLine(unknown)
-	assert.Contains(t, fallback, "OTHER")
-	assert.Contains(t, fallback, "fallback")
-}
-
-func TestModel_formatLogLine_LongMessage(t *testing.T) {
-	m := NewModel("test.yaml", 10)
-	m.width = 100
-
-	longMessage := strings.Repeat("This is a long message. ", 20)
-	log := LogEntry{
-		Timestamp: time.Now(),
-		Level:     "ERROR",
-		Message:   longMessage,
-	}
-
-	line := m.formatLogLine(log)
-	assert.Contains(t, line, "ERROR")
-	// Line should be truncated
-	assert.Less(t, len(line), len(longMessage)+50)
-}
+// Old render tests removed - now handled by panels/views tests
 
 func TestRunStatus_Constants(t *testing.T) {
 	// Verify the status constants exist and are distinct
@@ -544,13 +378,7 @@ func TestModel_ThreadSafety(t *testing.T) {
 	assert.Greater(t, m.successCount, 0)
 }
 
-func TestStatusString(t *testing.T) {
-	// Status string formatting is now tested in views/result_test.go
-	// This test verifies the conversion function
-	assert.Equal(t, views.StatusRunning, convertRunStatusToViewStatus(StatusRunning))
-	assert.Equal(t, views.StatusCompleted, convertRunStatusToViewStatus(StatusCompleted))
-	assert.Equal(t, views.StatusFailed, convertRunStatusToViewStatus(StatusFailed))
-}
+// TestStatusString removed - status conversion tested in views/result_test.go
 
 func TestSetStateStore(t *testing.T) {
 	m := NewModel("test.yaml", 1)
@@ -580,36 +408,4 @@ func TestEscapeClearsSelection(t *testing.T) {
 	assert.Nil(t, m.selectedRun())
 }
 
-func TestMainPageShowsResultAndSummary(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.width = 120
-	m.height = 40
-	m.activeRuns = []RunInfo{{
-		RunID:     "run-1",
-		Scenario:  "scn",
-		Provider:  "prov",
-		Region:    "us",
-		Status:    StatusCompleted,
-		StartTime: time.Now(),
-	}}
-	m.stateStore = &mockRunResultStore{
-		result: &statestore.RunResult{
-			RunID:      "run-1",
-			ScenarioID: "scn",
-			ProviderID: "prov",
-			Region:     "us",
-			Duration:   2 * time.Second,
-			Cost: types.CostInfo{
-				TotalCost:    1.0,
-				InputTokens:  10,
-				OutputTokens: 5,
-			},
-			ConversationAssertions: statestore.AssertionsSummary{Total: 1},
-		},
-	}
-
-	page := MainPage{}
-	out := page.Render(m)
-	assert.Contains(t, out, "Run:")
-	assert.Contains(t, out, "Summary")
-}
+// TestMainPageShowsResultAndSummary removed - now tested via View() and pages/main_test.go

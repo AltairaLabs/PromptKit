@@ -21,7 +21,7 @@ func TestLogsView_Render_NotReady(t *testing.T) {
 	view := NewLogsView(true)
 	vp := viewport.New(80, 20)
 
-	output := view.Render(&vp, false)
+	output := view.Render(&vp, false, 100)
 
 	assert.Contains(t, output, "📝 Logs")
 	assert.Contains(t, output, "Initializing...")
@@ -32,7 +32,7 @@ func TestLogsView_Render_Ready(t *testing.T) {
 	vp := viewport.New(80, 20)
 	vp.SetContent("Test log content")
 
-	output := view.Render(&vp, true)
+	output := view.Render(&vp, true, 100)
 
 	assert.Contains(t, output, "📝 Logs")
 	assert.Contains(t, output, "Test log content")
@@ -44,8 +44,8 @@ func TestLogsView_Render_Focused(t *testing.T) {
 	vp := viewport.New(80, 20)
 	vp.SetContent("Test content")
 
-	outputFocused := viewFocused.Render(&vp, true)
-	outputUnfocused := viewUnfocused.Render(&vp, true)
+	outputFocused := viewFocused.Render(&vp, true, 100)
+	outputUnfocused := viewUnfocused.Render(&vp, true, 100)
 
 	// Both should contain the content and title
 	assert.Contains(t, outputFocused, "Test content")

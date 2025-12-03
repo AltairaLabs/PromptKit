@@ -8,13 +8,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/bubbles/table"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"golang.org/x/term"
 
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/logging"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/pages"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/panels"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/viewmodels"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/views"
 )
@@ -73,11 +74,7 @@ type Model struct {
 	totalCost      float64
 	totalDuration  time.Duration
 
-	logs          []LogEntry
-	logViewport   viewport.Model
-	viewportReady bool
-	runsTable     table.Model
-	tableReady    bool
+	logs []LogEntry
 
 	isTUIMode      bool
 	fallbackReason string
@@ -87,8 +84,9 @@ type Model struct {
 
 	activePane pane
 
-	// Conversation view state
-	convPane ConversationPane
+	// Page components
+	mainPage         *pages.MainPage
+	conversationPage *pages.ConversationPage
 
 	currentPage page
 }
@@ -142,16 +140,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mu.Lock()
 		m.width = msg.Width
 		m.height = msg.Height
-
-		// Initialize viewport on first size update
-		if !m.viewportReady {
-			m.initViewport()
-			m.viewportReady = true
-		}
-		// Initialize table on first size update
-		if !m.tableReady {
-			m.initRunsTable(10) // Start with reasonable default
-		}
 		m.mu.Unlock()
 		return m, nil
 
@@ -162,12 +150,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKeyMsg(msg)
 
 	case tea.MouseMsg:
-		// Let viewport handle mouse wheel scrolling
-		if m.viewportReady {
-			var cmd tea.Cmd
-			m.logViewport, cmd = m.logViewport.Update(msg)
-			return m, cmd
-		}
+		// Mouse handling can be added to panels if needed
 		return m, nil
 
 	case RunStartedMsg:
@@ -200,7 +183,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mu.Unlock()
 		return m, nil
 
-	case LogMsg:
+	case logging.Msg:
 		m.mu.Lock()
 		m.handleLogMsg(&msg)
 		m.mu.Unlock()
@@ -338,7 +321,7 @@ func (m *Model) handleTurnCompleted(msg *TurnCompletedMsg) {
 }
 
 // handleLogMsg processes a log message from the interceptor
-func (m *Model) handleLogMsg(msg *LogMsg) {
+func (m *Model) handleLogMsg(msg *logging.Msg) {
 	m.logs = append(m.logs, LogEntry{
 		Timestamp: msg.Timestamp,
 		Level:     msg.Level,
@@ -346,9 +329,9 @@ func (m *Model) handleLogMsg(msg *LogMsg) {
 	})
 	m.trimLogs()
 
-	// Auto-scroll viewport to bottom when new log arrives (only if viewport is ready)
-	if m.viewportReady {
-		m.logViewport.GotoBottom()
+	// Auto-scroll handled by LogsPanel
+	if m.mainPage != nil {
+		m.mainPage.LogsPanel().GotoBottom()
 	}
 }
 
@@ -374,6 +357,13 @@ func (m *Model) View() string {
 
 	elapsed := time.Since(m.startTime).Truncate(time.Second)
 
+	// Calculate available height for content area
+	// Subtract: header (2) + footer (1) + separators around body (2) = 5 lines
+	contentHeight := m.height - 5
+	if contentHeight < 15 {
+		contentHeight = 15 // Minimum usable height
+	}
+
 	// Use new HeaderFooterView
 	headerView := views.NewHeaderFooterView(m.width)
 	header := headerView.RenderHeader(m.configFile, m.completedCount, m.totalRuns, elapsed)
@@ -381,11 +371,11 @@ func (m *Model) View() string {
 	var body string
 	switch m.currentPage {
 	case pageConversation:
-		body = m.renderConversationPage()
+		body = m.renderConversationPage(contentHeight)
 	case pageMain:
-		body = MainPage{}.Render(m)
+		body = m.renderMainPage(contentHeight)
 	default:
-		body = MainPage{}.Render(m)
+		body = m.renderMainPage(contentHeight)
 	}
 
 	// Use new HeaderFooterView
@@ -394,7 +384,26 @@ func (m *Model) View() string {
 	return lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", footer)
 }
 
-func (m *Model) renderConversationPage() string {
+func (m *Model) renderMainPage(contentHeight int) string {
+	// Convert model data to panel format
+	runs := m.convertToRunInfos()
+	logs := m.convertToLogEntries()
+
+	// Determine focused panel
+	focusedPanel := ""
+	switch m.activePane {
+	case paneRuns:
+		focusedPanel = "runs"
+	case paneLogs:
+		focusedPanel = "logs"
+	}
+
+	m.mainPage.SetDimensions(m.width, contentHeight)
+	m.mainPage.SetData(runs, logs, focusedPanel)
+	return m.mainPage.Render()
+}
+
+func (m *Model) renderConversationPage(contentHeight int) string {
 	selected := m.selectedRun()
 	if selected == nil {
 		return "Select a run to view the conversation."
@@ -410,17 +419,53 @@ func (m *Model) renderConversationPage() string {
 	if err != nil {
 		return fmt.Sprintf("Failed to load result: %v", err)
 	}
-	m.convPane.SetDimensions(m.width, m.height)
-	m.convPane.SetData(selected, res)
-	return m.convPane.View(res)
+
+	m.conversationPage.SetDimensions(m.width, contentHeight)
+	m.conversationPage.SetData(selected.RunID, selected.Scenario, selected.Provider, res)
+	return m.conversationPage.Render()
+}
+
+// convertToRunInfos converts model's activeRuns to panel RunInfo format
+func (m *Model) convertToRunInfos() []panels.RunInfo {
+	runs := make([]panels.RunInfo, len(m.activeRuns))
+	for i := range m.activeRuns {
+		runs[i] = panels.RunInfo{
+			RunID:            m.activeRuns[i].RunID,
+			Scenario:         m.activeRuns[i].Scenario,
+			Provider:         m.activeRuns[i].Provider,
+			Region:           m.activeRuns[i].Region,
+			Status:           panels.RunStatus(m.activeRuns[i].Status),
+			Duration:         m.activeRuns[i].Duration,
+			Cost:             m.activeRuns[i].Cost,
+			Error:            m.activeRuns[i].Error,
+			StartTime:        m.activeRuns[i].StartTime,
+			CurrentTurnIndex: m.activeRuns[i].CurrentTurnIndex,
+			CurrentTurnRole:  m.activeRuns[i].CurrentTurnRole,
+			Selected:         m.activeRuns[i].Selected,
+		}
+	}
+	return runs
+}
+
+// convertToLogEntries converts model's logs to panel LogEntry format
+func (m *Model) convertToLogEntries() []panels.LogEntry {
+	logs := make([]panels.LogEntry, len(m.logs))
+	for i := range m.logs {
+		logs[i] = panels.LogEntry{
+			Level:   m.logs[i].Level,
+			Message: m.logs[i].Message,
+		}
+	}
+	return logs
 }
 
 func (m *Model) currentRunForDetail() *RunInfo {
 	if sel := m.selectedRun(); sel != nil {
 		return sel
 	}
-	if m.tableReady {
-		idx := m.runsTable.Cursor()
+	if m.mainPage != nil {
+		table := m.mainPage.RunsPanel().Table()
+		idx := table.Cursor()
 		if idx >= 0 && idx < len(m.activeRuns) {
 			return &m.activeRuns[idx]
 		}
@@ -429,31 +474,6 @@ func (m *Model) currentRunForDetail() *RunInfo {
 		return &m.activeRuns[0]
 	}
 	return nil
-}
-
-func (m *Model) renderResultPane() string {
-	run := m.currentRunForDetail()
-	if run == nil {
-		return ""
-	}
-	return m.renderSelectedResult(run)
-}
-
-func (m *Model) renderSummaryPane() string {
-	summary := m.buildSummary("", "")
-	if summary == nil {
-		return ""
-	}
-	// Allocate roughly half the width for summary.
-	width := m.width / summaryWidthDivisor
-	if width < summaryMinWidth {
-		width = summaryMinWidth
-	}
-	// Convert old Summary to new SummaryData and use SummaryView
-	summaryData := convertSummaryToData(summary)
-	summaryVM := viewmodels.NewSummaryViewModel(summaryData)
-	summaryView := views.NewSummaryView(width, false)
-	return summaryView.Render(summaryVM)
 }
 
 func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -472,7 +492,7 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Escape deselects a conversation and returns to main view
 	if msg.Type == tea.KeyEsc && m.currentPage == pageConversation {
 		m.deselectRuns()
-		m.convPane.Reset()
+		m.conversationPage.Reset()
 		m.currentPage = pageMain
 		m.activePane = paneRuns
 		return m, nil
@@ -483,8 +503,7 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Conversation page key handling
-	newPane, cmd := m.convPane.Update(msg)
-	m.convPane = newPane
+	cmd := m.conversationPage.Update(msg)
 	return m, cmd
 }
 
@@ -492,26 +511,30 @@ func (m *Model) handleMainPageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.KeyTab {
 		if m.activePane == paneRuns {
 			m.activePane = paneLogs
+			m.mainPage.RunsPanel().SetFocus(false)
 		} else {
 			m.activePane = paneRuns
+			m.mainPage.RunsPanel().SetFocus(true)
 		}
 		return m, nil
 	}
 
-	if msg.Type == tea.KeyEnter && m.activePane == paneRuns && m.tableReady {
+	if msg.Type == tea.KeyEnter && m.activePane == paneRuns {
 		m.toggleSelection()
 		return m, nil
 	}
 
-	if m.activePane == paneRuns && m.tableReady {
+	if m.activePane == paneRuns {
 		var cmd tea.Cmd
-		m.runsTable, cmd = m.runsTable.Update(msg)
+		table := m.mainPage.RunsPanel().Table()
+		*table, cmd = table.Update(msg)
 		return m, cmd
 	}
 
-	if m.viewportReady {
+	if m.activePane == paneLogs {
 		var cmd tea.Cmd
-		m.logViewport, cmd = m.logViewport.Update(msg)
+		viewport := m.mainPage.LogsPanel().Viewport()
+		*viewport, cmd = viewport.Update(msg)
 		return m, cmd
 	}
 
@@ -519,7 +542,8 @@ func (m *Model) handleMainPageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) toggleSelection() {
-	idx := m.runsTable.Cursor()
+	table := m.mainPage.RunsPanel().Table()
+	idx := table.Cursor()
 	if idx < 0 || idx >= len(m.activeRuns) {
 		return
 	}
@@ -528,7 +552,7 @@ func (m *Model) toggleSelection() {
 	m.deselectRuns()
 	m.activeRuns[idx].Selected = !targetSelected
 	if m.activeRuns[idx].Selected {
-		m.convPane.Reset()
+		m.conversationPage.Reset()
 		m.currentPage = pageConversation
 	}
 }
@@ -537,6 +561,15 @@ func (m *Model) deselectRuns() {
 	for i := range m.activeRuns {
 		m.activeRuns[i].Selected = false
 	}
+}
+
+func (m *Model) selectedRun() *RunInfo {
+	for i := range m.activeRuns {
+		if m.activeRuns[i].Selected {
+			return &m.activeRuns[i]
+		}
+	}
+	return nil
 }
 
 // BuildSummary creates a Summary from the current model state with output directory and HTML report path.
@@ -707,18 +740,20 @@ func NewModel(configFile string, totalRuns int) *Model {
 	}
 
 	return &Model{
-		configFile:     configFile,
-		totalRuns:      totalRuns,
-		startTime:      time.Now(),
-		activeRuns:     make([]RunInfo, 0),
-		logs:           make([]LogEntry, 0, maxLogBufferSize),
-		width:          width,
-		height:         height,
-		isTUIMode:      supported,
-		fallbackReason: reason,
-		ctx:            context.Background(),
-		convPane:       NewConversationPane(),
-		currentPage:    pageMain,
+		configFile:       configFile,
+		totalRuns:        totalRuns,
+		startTime:        time.Now(),
+		activeRuns:       make([]RunInfo, 0),
+		logs:             make([]LogEntry, 0, maxLogBufferSize),
+		width:            width,
+		height:           height,
+		isTUIMode:        supported,
+		fallbackReason:   reason,
+		ctx:              context.Background(),
+		mainPage:         pages.NewMainPage(),
+		conversationPage: pages.NewConversationPage(),
+		currentPage:      pageMain,
+		activePane:       paneRuns,
 	}
 }
 

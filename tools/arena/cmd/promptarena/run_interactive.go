@@ -16,6 +16,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/logging"
 )
 
 // runSimulations is the main entry point for the run command.
@@ -169,7 +170,7 @@ func executeWithTUI(ctx context.Context, eng *engine.Engine, plan *engine.RunPla
 	adapter.Subscribe(eventBus)
 
 	// Setup log interceptor to capture logs in TUI
-	var logInterceptor *tui.LogInterceptor
+	var logInterceptor *logging.Interceptor
 	var logFilePath string
 	if params.Verbose {
 		logFilePath = filepath.Join(params.OutDir, "promptarena.log")
@@ -186,7 +187,7 @@ func executeWithTUI(ctx context.Context, eng *engine.Engine, plan *engine.RunPla
 
 	// Create interceptor - buffer stderr output to write after TUI exits
 	var err error
-	logInterceptor, err = tui.NewLogInterceptor(currentHandler, program, logFilePath, true)
+	logInterceptor, err = logging.NewInterceptor(currentHandler, program, logFilePath, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create log interceptor: %w", err)
 	}

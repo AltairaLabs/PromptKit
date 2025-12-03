@@ -1,4 +1,5 @@
-package tui
+// Package logging provides log interception functionality for the TUI.
+package logging
 
 import (
 	"context"
@@ -15,9 +16,9 @@ const (
 	logFilePermissions = 0600 // Read/write for owner only
 )
 
-// LogInterceptor wraps an slog.Handler to intercept log messages and send them to the TUI.
+// Interceptor wraps an slog.Handler to intercept log messages and send them to the TUI.
 // It also optionally writes logs to a file in verbose mode.
-type LogInterceptor struct {
+type Interceptor struct {
 	originalHandler slog.Handler
 	program         *tea.Program
 	logFile         *os.File
@@ -26,13 +27,13 @@ type LogInterceptor struct {
 	mu              sync.Mutex
 }
 
-// NewLogInterceptor creates a log interceptor that sends logs to the TUI.
+// NewInterceptor creates a log interceptor that sends logs to the TUI.
 // If logFilePath is not empty, logs will also be written to that file.
 // If suppressStderr is true, logs won't be sent to the original handler (useful for TUI mode).
-func NewLogInterceptor(
+func NewInterceptor(
 	originalHandler slog.Handler, program *tea.Program, logFilePath string, suppressStderr bool,
-) (*LogInterceptor, error) {
-	interceptor := &LogInterceptor{
+) (*Interceptor, error) {
+	interceptor := &Interceptor{
 		originalHandler: originalHandler,
 		program:         program,
 		suppressStderr:  suppressStderr,
@@ -52,7 +53,7 @@ func NewLogInterceptor(
 }
 
 // Close closes the log file if one was opened.
-func (l *LogInterceptor) Close() error {
+func (l *Interceptor) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -63,14 +64,14 @@ func (l *LogInterceptor) Close() error {
 }
 
 // Enabled reports whether the handler handles records at the given level.
-func (l *LogInterceptor) Enabled(ctx context.Context, level slog.Level) bool {
+func (l *Interceptor) Enabled(ctx context.Context, level slog.Level) bool {
 	return l.originalHandler.Enabled(ctx, level)
 }
 
 // Handle processes a log record by sending it to the TUI and optionally writing to file.
 //
 //nolint:gocritic // hugeParam: slog.Record must be passed by value to satisfy slog.Handler interface
-func (l *LogInterceptor) Handle(ctx context.Context, record slog.Record) error {
+func (l *Interceptor) Handle(ctx context.Context, record slog.Record) error {
 	// If stderr suppressed, buffer the log for later flushing
 	if l.suppressStderr {
 		l.mu.Lock()
@@ -97,7 +98,7 @@ func (l *LogInterceptor) Handle(ctx context.Context, record slog.Record) error {
 					fmt.Fprintf(os.Stderr, "panic sending log to TUI: %v\n", r)
 				}
 			}()
-			l.program.Send(LogMsg{
+			l.program.Send(Msg{
 				Timestamp: record.Time,
 				Level:     levelStr,
 				Message:   record.Message,
@@ -120,8 +121,8 @@ func (l *LogInterceptor) Handle(ctx context.Context, record slog.Record) error {
 }
 
 // WithAttrs returns a new handler with additional attributes.
-func (l *LogInterceptor) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return &LogInterceptor{
+func (l *Interceptor) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &Interceptor{
 		originalHandler: l.originalHandler.WithAttrs(attrs),
 		program:         l.program,
 		logFile:         l.logFile,
@@ -130,8 +131,8 @@ func (l *LogInterceptor) WithAttrs(attrs []slog.Attr) slog.Handler {
 }
 
 // WithGroup returns a new handler with an additional group.
-func (l *LogInterceptor) WithGroup(name string) slog.Handler {
-	return &LogInterceptor{
+func (l *Interceptor) WithGroup(name string) slog.Handler {
+	return &Interceptor{
 		originalHandler: l.originalHandler.WithGroup(name),
 		program:         l.program,
 		logFile:         l.logFile,
@@ -139,8 +140,8 @@ func (l *LogInterceptor) WithGroup(name string) slog.Handler {
 	}
 }
 
-// LogMsg is a bubbletea message sent when a log entry is intercepted.
-type LogMsg struct {
+// Msg is a bubbletea message sent when a log entry is intercepted.
+type Msg struct {
 	Timestamp time.Time
 	Level     string
 	Message   string
@@ -148,7 +149,7 @@ type LogMsg struct {
 
 // FlushBuffer writes all buffered logs to the original handler (stderr).
 // Call this after the TUI exits to show any logs that occurred during execution.
-func (l *LogInterceptor) FlushBuffer() {
+func (l *Interceptor) FlushBuffer() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
