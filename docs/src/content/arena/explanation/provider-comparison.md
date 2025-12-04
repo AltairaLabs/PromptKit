@@ -120,15 +120,23 @@ spec:
     providers: [claude-sonnet]
     assertions:
       # Expect more verbose responses
-      - type: min_length
-        value: 100
+      - type: content_matches
+        params:
+          pattern: "^.{100,}$"
+          message: "Should be at least 100 characters"
       
       # Excellent at context retention
-value: true
+      - type: content_includes
+        params:
+          patterns: ["context", "previous"]
+          message: "Should reference context"
       
       # Strong safety filtering
-      - type: tone
-        value: appropriate
+      - type: llm_judge
+        params:
+          criteria: "Response has appropriate tone"
+          judge_provider: "openai/gpt-4o-mini"
+          message: "Must be appropriate"
 ```
 
 ### Google (Gemini Series)
@@ -243,14 +251,17 @@ Response length varies significantly:
 **Accommodate variation:**
 ```yaml
 assertions:
-  # Instead of exact length
-  - type: length_range
-    min: 50
-    max: 500
+  # Instead of exact length (use regex)
+  - type: content_matches
+    params:
+      pattern: "^.{50,500}$"
+      message: "Should be 50-500 characters"
   
   # Focus on content completeness
-  - type: contains_all
-    value: ["point1", "point2", "point3"]
+  - type: content_includes
+    params:
+      patterns: ["point1", "point2", "point3"]
+      message: "Must cover all key points"
 ```
 
 ### Tone and Personality
@@ -288,12 +299,18 @@ Error debugging steps:
 ```yaml
 assertions:
   # Not provider-specific phrases
-  - type: tone
-    value: helpful
+  - type: llm_judge
+    params:
+      criteria: "Response is helpful and constructive"
+      judge_provider: "openai/gpt-4o-mini"
+      message: "Must be helpful"
   
   # Not exact wording
-  - type: sentiment
-    value: supportive
+  - type: llm_judge
+    params:
+      criteria: "Response is supportive and encouraging"
+      judge_provider: "openai/gpt-4o-mini"
+      message: "Must be supportive"
 ```
 
 ## Performance Characteristics
@@ -409,10 +426,17 @@ turns:
       - role: user
         content: "What's the weather in Paris?"
         assertions:
-          - type: tool_called
-            value: "get_weather"
-          - type: tool_args_accurate
-            value: true
+          - type: tools_called
+            params:
+              tools: ["get_weather"]
+              message: "Should call weather tool"
+    conversation_assertions:
+      - type: tool_calls_with_args
+        params:
+          tool: "get_weather"
+          expected_args:
+            location: "Paris"
+          message: "Should pass correct location"
 
 # Claude: Good
 # Gemini: Good (Google AI Studio format)
@@ -484,9 +508,12 @@ spec:
           - type: content_includes
             params:
               patterns: ["refund", "policy", "days"]
-          - type: sentiment
-            value: helpful
-max_seconds: 5
+              message: "Must mention refund policy details"
+          - type: llm_judge
+            params:
+              criteria: "Response is helpful and informative"
+              judge_provider: "openai/gpt-4o-mini"
+              message: "Must be helpful"
 ```
 
 ### Provider-Specific Tests
@@ -499,8 +526,10 @@ turns:
   - name: "Function Calling"
     providers: [openai-gpt4o]
     assertions:
-      - type: tool_called
-        value: "specific_function"
+      - type: tools_called
+        params:
+          tools: ["specific_function"]
+          message: "Should call the specific function"
 
 # Claude: Long context
 turns:
@@ -558,13 +587,19 @@ assertions:
   - type: content_includes
     params:
       patterns: ["key", "terms"]
-  - type: sentiment
-    value: appropriate
+      message: "Must contain key terms"
+  - type: llm_judge
+    params:
+      criteria: "Response is appropriate for the context"
+      judge_provider: "openai/gpt-4o-mini"
+      message: "Must be appropriate"
 
 # ❌ Avoid: Provider-specific expectations
 assertions:
-  - type: starts_with
-    value: "Here are 3"  # Too OpenAI-specific
+  - type: content_matches
+    params:
+      pattern: "^Here are 3"
+      message: "Exact phrase - too OpenAI-specific"
 ```
 
 ### 2. Normalize for Comparison

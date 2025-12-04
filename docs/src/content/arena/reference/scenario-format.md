@@ -96,23 +96,41 @@ spec:
 PromptArena extends standard assertions with testing-specific validators:
 
 ```yaml
+# Turn-level assertions
 assertions:
   # Content validation
   - type: content_includes
   - type: content_matches
-  - type: content_length
   
   # Tool usage validation
   - type: tools_called
-  - type: tools_called_with
+  - type: tools_not_called
   
-  # Multimodal validation (v1.1)
+  # JSON validation
+  - type: is_valid_json
+  - type: json_schema
+  - type: json_path
+  
+  # Multimodal validation
   - type: image_format
   - type: image_dimensions
   - type: audio_format
   - type: audio_duration
   - type: video_resolution
   - type: video_duration
+  
+  # LLM Judge
+  - type: llm_judge
+
+# Conversation-level assertions (in conversation_assertions field)
+conversation_assertions:
+  - type: tools_called
+  - type: tools_not_called
+  - type: tool_calls_with_args
+  - type: tools_not_called_with_args
+  - type: content_includes_any
+  - type: content_not_includes
+  - type: llm_judge_conversation
 ```
 
 See the [Assertions Guide](./assertions) for complete documentation.

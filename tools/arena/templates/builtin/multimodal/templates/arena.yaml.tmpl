@@ -7,16 +7,16 @@ metadata:
 spec:
   prompt_configs:
     - id: vision-analyst
-      file: prompts/vision-analyst.yaml
+      file: prompts/vision-analyst.prompt.yaml
 
   providers:
     {{- range .providers}}
-    - file: providers/{{.}}.yaml
+    - file: providers/{{.}}.provider.yaml
     {{- end}}
 
   scenarios:
-    - file: scenarios/image-analysis.yaml
-    - file: scenarios/image-comparison.yaml
+    - file: scenarios/image-analysis.scenario.yaml
+    - file: scenarios/image-comparison.scenario.yaml
 
   defaults:
     temperature: 0.5

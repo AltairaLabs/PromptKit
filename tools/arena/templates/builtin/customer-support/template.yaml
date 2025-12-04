@@ -37,30 +37,30 @@ spec:
       default: true
       
   files:
-    - path: "arena.yaml"
+    - path: "config.arena.yaml"
       template: "templates/arena.yaml.tmpl"
       
-    - path: "prompts/support-agent.yaml"
+    - path: "prompts/support-agent.prompt.yaml"
       template: "templates/prompt.yaml.tmpl"
       
-    - path: "providers/{{.provider}}.yaml"
+    - path: "providers/{{.provider}}.provider.yaml"
       template: "templates/provider.yaml.tmpl"
       foreach: "providers"
       
-    - path: "scenarios/basic-support.yaml"
+    - path: "scenarios/basic-support.scenario.yaml"
       template: "templates/scenario-basic.yaml.tmpl"
       
-    - path: "scenarios/product-inquiry.yaml"
+    - path: "scenarios/product-inquiry.scenario.yaml"
       template: "templates/scenario-product.yaml.tmpl"
       
-    - path: "scenarios/complaint-handling.yaml"
+    - path: "scenarios/complaint-handling.scenario.yaml"
       template: "templates/scenario-complaint.yaml.tmpl"
       
-    - path: "tools/search-knowledge-base.yaml"
+    - path: "tools/search-knowledge-base.tool.yaml"
       template: "templates/tool-kb.yaml.tmpl"
       condition: "{{.include_tools}}"
       
-    - path: "tools/check-order-status.yaml"
+    - path: "tools/check-order-status.tool.yaml"
       template: "templates/tool-order.yaml.tmpl"
       condition: "{{.include_tools}}"
       

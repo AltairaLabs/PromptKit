@@ -11,14 +11,17 @@ spec:
   
   turns:
     - role: user
-      content: "Compare these two images. What are the similarities and differences?"
-      media:
+      parts:
+        - type: text
+          text: "Compare these two images. What are the similarities and differences?"
         - type: image
-          source: url
-          url: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Cat03.jpg/240px-Cat03.jpg"
+          media:
+            url: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Cat03.jpg/240px-Cat03.jpg"
+            mime_type: image/jpeg
         - type: image
-          source: url
-          url: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4d/Cat_November_2010-1a.jpg/240px-Cat_November_2010-1a.jpg"
+          media:
+            url: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4d/Cat_November_2010-1a.jpg/240px-Cat_November_2010-1a.jpg"
+            mime_type: image/jpeg
       assertions:
         - type: content_not_empty
           params: {}

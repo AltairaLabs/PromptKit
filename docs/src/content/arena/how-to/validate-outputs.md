@@ -134,13 +134,15 @@ spec:
           params:
             tools: ["get_weather"]
             message: "Should call weather tool"
-        
-        - type: tools_called_with
-          params:
-            tool: "get_weather"
-            expected_args:
-              location: "Paris"
-            message: "Should pass Paris as location"
+  
+  # Conversation-level assertion to check tool arguments
+  conversation_assertions:
+    - type: tool_calls_with_args
+      params:
+        tool: "get_weather"
+        expected_args:
+          location: "Paris"
+        message: "Should pass Paris as location"
 ```
 
 #### Context Retention
@@ -345,11 +347,16 @@ turns:
       - type: content_includes
         params:
           patterns: ["thank you", "help"]
-      - type: sentiment
-        value: positive
-      - type: max_length
-        value: 500
-max_seconds: 2
+          message: "Must be helpful"
+      - type: llm_judge
+        params:
+          criteria: "Response has positive sentiment"
+          judge_provider: "openai/gpt-4o-mini"
+          message: "Must be positive"
+      - type: content_matches
+        params:
+          pattern: "^.{1,500}$"
+          message: "Must be under 500 characters"
     # All assertions must pass
 ```
 
@@ -387,22 +394,35 @@ Start with basic assertions, add complexity:
 
 ```yaml
 # Level 1: Basic structure
-- type: response_received
-- type: not_empty
+- type: content_matches
+  params:
+    pattern: ".+"
+    message: "Must not be empty"
 
 # Level 2: Content presence
 - type: content_includes
-  value: "customer service"
+  params:
+    patterns: ["customer service"]
+    message: "Must mention customer service"
 
 # Level 3: Quality checks
-- type: sentiment
-  value: positive
-- type: tone
-  value: professional
+- type: llm_judge
+  params:
+    criteria: "Response has positive sentiment"
+    judge_provider: "openai/gpt-4o-mini"
+    message: "Must be positive"
+- type: llm_judge
+  params:
+    criteria: "Response maintains professional tone"
+    judge_provider: "openai/gpt-4o-mini"
+    message: "Must be professional"
 
 # Level 4: Custom business logic
-- type: custom
-  validator: brand_compliance
+- type: llm_judge
+  params:
+    criteria: "Response complies with brand guidelines"
+    judge_provider: "openai/gpt-4o-mini"
+    message: "Must meet brand compliance"
 ```
 
 ### Quality Gates
@@ -505,28 +525,47 @@ Example JSON output:
 
 ```yaml
 # Structure first
-- type: valid_json
-- type: not_empty
+- type: is_valid_json
+  params:
+    message: "Must be valid JSON"
+- type: content_matches
+  params:
+    pattern: ".+"
+    message: "Must not be empty"
 
 # Then content
 - type: content_includes
-  value: "expected data"
+  params:
+    patterns: ["expected data"]
+    message: "Must contain expected data"
 
 # Finally quality
-- type: custom
-  validator: business_rules
+- type: llm_judge
+  params:
+    criteria: "Response follows business rules and policies"
+    judge_provider: "openai/gpt-4o-mini"
+    message: "Must follow business rules"
 ```
 
 ### 2. Balance Strictness
 
 ```yaml
 # Too strict (brittle)
+- type: content_matches
+  params:
+    pattern: "^Thank you for contacting AcmeCorp support\\.$"
+    message: "Exact match required"
 
 # Better (flexible)
 - type: content_includes
-  value: ["thank", "AcmeCorp", "support"]
-- type: sentiment
-  value: positive
+  params:
+    patterns: ["thank", "AcmeCorp", "support"]
+    message: "Must acknowledge support contact"
+- type: llm_judge
+  params:
+    criteria: "Response has positive sentiment"
+    judge_provider: "openai/gpt-4o-mini"
+    message: "Must be positive"
 ```
 
 ### 3. Meaningful Error Messages

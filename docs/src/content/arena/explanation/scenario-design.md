@@ -244,8 +244,10 @@ metadata:
       - role: user
         content: "Hello <script>alert('test')</script>"
         assertions:
-          - type: not_contains
-            value: "<script>"
+          - type: content_matches
+            params:
+              pattern: "^(?!.*<script>).*$"
+              message: "Must not echo script tags"
   
   # Multiple languages
   - name: "Non-English Input"
@@ -254,8 +256,11 @@ metadata:
       - role: user
         content: "¿Cuáles son sus horas?"
         assertions:
-          - type: language
-            value: ["es", "en"]
+          - type: llm_judge
+            params:
+              criteria: "Response is in Spanish or English"
+              judge_provider: "openai/gpt-4o-mini"
+              message: "Must respond in appropriate language"
 ```
 
 ## Scenario Organization
@@ -386,25 +391,39 @@ Apply multiple validation levels:
 ```yaml
 assertions:
   # Layer 1: Structure
-  - type: response_received
-  - type: not_empty
-  - type: max_length
-    value: 500
+  - type: content_matches
+    params:
+      pattern: ".+"
+      message: "Response must not be empty"
+  - type: content_matches
+    params:
+      pattern: "^.{1,500}$"
+      message: "Response must be under 500 characters"
   
   # Layer 2: Content
   - type: content_includes
     params:
-      patterns: "key information"
+      patterns: ["key information"]
+      message: "Must contain key information"
   
   # Layer 3: Quality
-  - type: sentiment
-    value: positive
-  - type: tone
-    value: professional
+  - type: llm_judge
+    params:
+      criteria: "Response has positive sentiment"
+      judge_provider: "openai/gpt-4o-mini"
+      message: "Must be positive"
+  - type: llm_judge
+    params:
+      criteria: "Response maintains professional tone"
+      judge_provider: "openai/gpt-4o-mini"
+      message: "Must be professional"
   
   # Layer 4: Business Logic
-  - type: custom
-    validator: brand_compliance
+  - type: llm_judge
+    params:
+      criteria: "Response complies with brand guidelines"
+      judge_provider: "openai/gpt-4o-mini"
+      message: "Must meet brand compliance"
 ```
 
 ### Assertion Specificity Spectrum
@@ -437,17 +456,24 @@ Test what should NOT happen:
 
 ```yaml
 assertions:
-  # Should not mention competitors
-  - type: not_contains
-    value: ["CompetitorA", "CompetitorB"]
+  # Should not mention competitors (negative lookahead)
+  - type: content_matches
+    params:
+      pattern: "^(?!.*(CompetitorA|CompetitorB)).*$"
+      message: "Must not mention competitors"
   
   # Should not be negative
-  - type: sentiment
-    value_not: negative
+  - type: llm_judge
+    params:
+      criteria: "Response does not have negative sentiment"
+      judge_provider: "openai/gpt-4o-mini"
+      message: "Must not be negative"
   
   # Should not use inappropriate language
-  - type: custom
-    validator: content_safety
+  - type: content_matches
+    params:
+      pattern: "^(?!.*(inappropriate|offensive)).*$"
+      message: "Must not contain inappropriate language"
 ```
 
 ## Multi-Turn Design
@@ -501,8 +527,11 @@ spec:
       - role: user
         content: "Found it in spam, thank you!"
         assertions:
-          - type: sentiment
-            value: positive
+          - type: llm_judge
+            params:
+              criteria: "Response acknowledges resolution positively"
+              judge_provider: "openai/gpt-4o-mini"
+              message: "Must have positive sentiment"
 ```
 
 ### State Transitions
@@ -565,8 +594,11 @@ turns:
       - role: user
         content: "That solved it, thanks!"
         assertions:
-          - type: sentiment
-            value: positive
+          - type: llm_judge
+            params:
+              criteria: "Response shows customer satisfaction"
+              judge_provider: "openai/gpt-4o-mini"
+              message: "Must have positive sentiment"
   
   # Path B: Customer needs escalation
 turns:
@@ -689,10 +721,16 @@ templates:
     context:
       department: "support"
     assertions: &support_expected
-      - type: tone
-        value: helpful
-      - type: sentiment
-        value: positive
+      - type: llm_judge
+        params:
+          criteria: "Response is helpful and supportive"
+          judge_provider: "openai/gpt-4o-mini"
+          message: "Must be helpful"
+      - type: llm_judge
+        params:
+          criteria: "Response has positive sentiment"
+          judge_provider: "openai/gpt-4o-mini"
+          message: "Must be positive"
 
 # Inherit template
 turns:
@@ -724,13 +762,28 @@ turns:
 ### ❌ Flaky Assertions
 
 ```yaml
-# Unreliable tests
+# Unreliable tests - too rigid
 assertions:
-  - type: regex
-    value: "^Exactly this format$"  # LLMs vary formatting
+  - type: content_matches
+    params:
+      pattern: "^Exactly this format$"
+      message: "Exact format required - LLMs vary formatting"
 ```
 
 **Fix:** Use flexible assertions
+```yaml
+# Better - flexible validation
+assertions:
+  - type: content_includes
+    params:
+      patterns: ["key", "terms"]
+      message: "Must contain key terms"
+  - type: llm_judge
+    params:
+      criteria: "Response follows expected format generally"
+      judge_provider: "openai/gpt-4o-mini"
+      message: "Should follow general format"
+```
 
 ### ❌ Missing Context
 

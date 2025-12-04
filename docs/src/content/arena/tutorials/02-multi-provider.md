@@ -365,7 +365,7 @@ spec:
     - role: user
       content: "Return user info as JSON with name and email"
       assertions:
-        - type: valid_json
+        - type: is_valid_json
           params:
             message: "Response should be valid JSON"
 ```

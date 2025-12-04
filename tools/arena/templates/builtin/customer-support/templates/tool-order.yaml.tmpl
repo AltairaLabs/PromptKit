@@ -20,17 +20,31 @@ spec:
     required:
       - email
   
-  handler:
-    type: mock
-    config:
-      response: |
-        {
-          "order_id": "ORD-12345",
-          "status": "in_transit",
-          "tracking_number": "1Z999AA10123456784",
-          "estimated_delivery": "2025-11-28",
-          "items": [
-            {"name": "Premium Widget", "quantity": 1}
-          ],
-          "notes": "Package delayed due to weather conditions. New delivery date: Nov 28."
-        }
+  output_schema:
+    type: object
+    properties:
+      order_id:
+        type: string
+      status:
+        type: string
+      tracking_number:
+        type: string
+      estimated_delivery:
+        type: string
+      items:
+        type: array
+        items:
+          type: object
+      notes:
+        type: string
+  
+  mode: mock
+  mock_result:
+    order_id: "ORD-12345"
+    status: "in_transit"
+    tracking_number: "1Z999AA10123456784"
+    estimated_delivery: "2025-11-28"
+    items:
+      - name: "Premium Widget"
+        quantity: 1
+    notes: "Package delayed due to weather conditions. New delivery date: Nov 28."

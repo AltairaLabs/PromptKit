@@ -38,26 +38,26 @@ spec:
       default: true
       
   files:
-    - path: "arena.yaml"
+    - path: "config.arena.yaml"
       template: "templates/arena.yaml.tmpl"
       
-    - path: "prompts/code-generator.yaml"
+    - path: "prompts/code-generator.prompt.yaml"
       template: "templates/prompt-generator.yaml.tmpl"
       
-    - path: "prompts/code-reviewer.yaml"
+    - path: "prompts/code-reviewer.prompt.yaml"
       template: "templates/prompt-reviewer.yaml.tmpl"
       
-    - path: "providers/{{.provider}}.yaml"
+    - path: "providers/{{.provider}}.provider.yaml"
       template: "templates/provider.yaml.tmpl"
       foreach: "providers"
       
-    - path: "scenarios/code-generation.yaml"
+    - path: "scenarios/code-generation.scenario.yaml"
       template: "templates/scenario-generation.yaml.tmpl"
       
-    - path: "scenarios/code-review.yaml"
+    - path: "scenarios/code-review.scenario.yaml"
       template: "templates/scenario-review.yaml.tmpl"
       
-    - path: "scenarios/bug-fixing.yaml"
+    - path: "scenarios/bug-fixing.scenario.yaml"
       template: "templates/scenario-bugfix.yaml.tmpl"
       
     - path: ".env"

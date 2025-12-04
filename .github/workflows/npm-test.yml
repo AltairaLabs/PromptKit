@@ -1,0 +1,124 @@
+name: Test npm Packages
+
+on:
+  pull_request:
+    paths:
+      - 'npm/**'
+      - 'tools/arena/**'
+      - '.github/workflows/npm-test.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'npm/**'
+      - 'tools/arena/**'
+
+permissions:
+  contents: read
+
+jobs:
+  test-promptarena-init:
+    name: Test promptarena Getting Started
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node-version: [18, 20]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'tools/arena/go.mod'
+          cache-dependency-path: 'tools/arena/go.sum'
+      
+      - name: Build promptarena binary
+        shell: bash
+        run: |
+          mkdir -p bin
+          cd tools/arena
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            go build -o ../../bin/promptarena.exe ./cmd/promptarena
+          else
+            go build -o ../../bin/promptarena ./cmd/promptarena
+          fi
+      
+      - name: Copy binary to npm package
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            # On Windows, Go builds with .exe extension
+            cp bin/promptarena.exe npm/promptarena/promptarena.exe
+          else
+            cp bin/promptarena npm/promptarena/promptarena
+            chmod +x npm/promptarena/promptarena
+          fi
+      
+      - name: Test init command
+        working-directory: npm/promptarena
+        run: npm run test:init
+      
+      - name: Test Getting Started flow
+        shell: bash
+        run: make test-getting-started
+      
+      - name: Test all built-in templates
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == '20'
+        shell: bash
+        run: make test-templates
+
+  test-package-installation:
+    name: Test npm package installation
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'tools/arena/go.mod'
+          cache-dependency-path: 'tools/arena/go.sum'
+      
+      - name: Build and pack npm package
+        run: |
+          # Build binary
+          cd tools/arena
+          go build -o ../../bin/promptarena ./cmd/promptarena
+          cd ../..
+          
+          # Copy to npm package
+          cp bin/promptarena npm/promptarena/promptarena
+          chmod +x npm/promptarena/promptarena
+          
+          # Create tarball
+          cd npm/promptarena
+          npm pack
+      
+      - name: Test local installation
+        run: |
+          # Create test directory
+          mkdir -p /tmp/npm-install-test
+          cd /tmp/npm-install-test
+          
+          # Install from tarball
+          npm install $GITHUB_WORKSPACE/npm/promptarena/*.tgz
+          
+          # Test that binary works (just check it runs)
+          npx promptarena --help > /dev/null
+          
+          echo "✅ Package installation works!"

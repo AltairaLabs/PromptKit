@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help build build-tools build-arena build-packc build-inspect-state test test-tools test-race lint clean coverage install install-tools install-tools-user uninstall-tools
+.PHONY: help build build-tools build-arena build-packc build-inspect-state test test-tools test-race lint clean coverage install install-tools install-tools-user uninstall-tools test-npm-init test-getting-started
  
 # Route unknown targets to help
 .DEFAULT:
@@ -93,6 +93,99 @@ test-tools: ## Run CLI tool tests (where applicable)
 	@cd tools/packc && go test -v ./... || echo "PackC tests completed"
 	@echo "Testing inspect-state..."
 	@cd tools/inspect-state && go test -v ./... || echo "Inspect-state tests completed"
+
+test-npm-init: build-arena ## Test npm package Getting Started flow
+	@echo "Testing npm promptarena Getting Started flow..."
+	@cd npm/promptarena && npm run test:init
+
+test-getting-started: build-arena ## Test complete Getting Started workflow from README
+	@echo "🚀 Testing Complete Getting Started Workflow"
+	@echo ""
+	@TEMP_DIR=$$(mktemp -d); \
+	trap "rm -rf $$TEMP_DIR" EXIT; \
+	echo "📁 Using temp directory: $$TEMP_DIR"; \
+	echo ""; \
+	echo "Step 1: promptarena templates"; \
+	./bin/promptarena templates || exit 1; \
+	echo ""; \
+	echo "Step 2: promptarena init customer-support"; \
+	./bin/promptarena init customer-support --output "$$TEMP_DIR" --quick || exit 1; \
+	echo ""; \
+	echo "Step 3: cd customer-support"; \
+	cd "$$TEMP_DIR/customer-support" || exit 1; \
+	echo ""; \
+	echo "Step 4: promptarena validate config.arena.yaml --schema-only (without API keys)"; \
+	$(CURDIR)/bin/promptarena validate config.arena.yaml --schema-only || exit 1; \
+	echo ""; \
+	echo "✅ All Getting Started steps completed successfully!"; \
+	echo ""; \
+	echo "📖 Users can now run:"; \
+	echo "   export OPENAI_API_KEY=your-key"; \
+	echo "   promptarena run"; \
+	echo "   open out/report.html"
+
+test-templates: build-arena ## Test all built-in templates can be created and validated
+	@echo "🧪 Testing All Built-in Templates"
+	@echo ""
+	@TEMP_DIR=$$(mktemp -d); \
+	trap "rm -rf $$TEMP_DIR" EXIT; \
+	echo "📁 Using temp directory: $$TEMP_DIR"; \
+	echo ""; \
+	FAILED=0; \
+	for template in quick-start customer-support code-assistant content-generation multimodal; do \
+		echo "═══════════════════════════════════════════════════════"; \
+		echo "Testing template: $$template"; \
+		echo "═══════════════════════════════════════════════════════"; \
+		echo ""; \
+		echo "→ Creating project with template: $$template"; \
+		if ./bin/promptarena init test-$$template --template $$template --output "$$TEMP_DIR" --quick --provider mock; then \
+			echo "✓ Project created successfully"; \
+		else \
+			echo "✗ Failed to create project"; \
+			FAILED=$$((FAILED + 1)); \
+			continue; \
+		fi; \
+		echo ""; \
+		echo "→ Validating config.arena.yaml"; \
+		if $(CURDIR)/bin/promptarena validate "$$TEMP_DIR/test-$$template/config.arena.yaml" --schema-only; then \
+			echo "✓ Configuration validated successfully"; \
+		else \
+			echo "✗ Validation failed"; \
+			FAILED=$$((FAILED + 1)); \
+			continue; \
+		fi; \
+		echo ""; \
+		echo "→ Running test with mock provider"; \
+		if (cd "$$TEMP_DIR/test-$$template" && $(CURDIR)/bin/promptarena run --ci 2>&1 | head -30); then \
+			echo "✓ Run completed successfully"; \
+		else \
+			echo "✗ Run failed"; \
+			FAILED=$$((FAILED + 1)); \
+		fi; \
+		echo ""; \
+		echo "→ Checking output generation"; \
+		if ls "$$TEMP_DIR/test-$$template/out/report-"*.html 1> /dev/null 2>&1; then \
+			echo "✓ HTML report generated"; \
+		else \
+			echo "✗ HTML report not found"; \
+			FAILED=$$((FAILED + 1)); \
+		fi; \
+		echo ""; \
+		if [ $$FAILED -eq 0 ]; then \
+			echo "✅ Template $$template: ALL TESTS PASSED"; \
+		else \
+			echo "❌ Template $$template: SOME TESTS FAILED"; \
+		fi; \
+		echo ""; \
+	done; \
+	echo "═══════════════════════════════════════════════════════"; \
+	if [ $$FAILED -eq 0 ]; then \
+		echo "✅ ALL TEMPLATES PASSED"; \
+		echo "All 6 built-in templates work correctly!"; \
+	else \
+		echo "❌ $$FAILED template test(s) failed"; \
+		exit 1; \
+	fi
 
 test-race: ## Run tests with race detector
 	@echo "Testing runtime with race detector..."

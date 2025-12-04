@@ -36,16 +36,27 @@ Instead of testing for exact outputs, test for desired behaviors:
 ```yaml
 # ❌ Brittle: Exact match
 assertions:
+  - type: content_matches
+    params:
+      pattern: "^Thank you for contacting AcmeCorp support\\.$"
+      message: "Exact wording required"
 
 # ✅ Robust: Behavior validation
 assertions:
   - type: content_includes
     params:
       patterns: ["thank", "AcmeCorp", "support"]
-  - type: tone
-    value: professional
-  - type: sentiment
-    value: positive
+      message: "Must acknowledge contact"
+  - type: llm_judge
+    params:
+      criteria: "Response has a professional tone"
+      judge_provider: "openai/gpt-4o-mini"
+      message: "Must be professional"
+  - type: llm_judge
+    params:
+      criteria: "Response has a positive sentiment"
+      judge_provider: "openai/gpt-4o-mini"
+      message: "Must be positive"
 ```
 
 **Why:** LLMs generate varied responses. Testing behavior allows flexibility while ensuring quality.
@@ -63,18 +74,25 @@ LLM quality isn't binary (pass/fail). It's multi-dimensional:
 
 ```yaml
 assertions:
-  - type: contains           # Correctness
-    value: "30-day return"
+  - type: content_includes   # Correctness
+    params:
+      patterns: ["30-day return"]
+      message: "Must mention return policy"
   
-  - type: sentiment          # Tone
-    value: helpful
+  - type: llm_judge          # Tone
+    params:
+      criteria: "Response is helpful and supportive"
+      judge_provider: "openai/gpt-4o-mini"
+      message: "Must be helpful"
   
-  - type: not_contains       # Safety
-    value: ["offensive", "inappropriate"]
+  - type: content_matches    # Safety (negative lookahead)
+    params:
+      pattern: "^(?!.*(offensive|inappropriate)).*$"
+      message: "Must not contain inappropriate content"
 
-    value: true
-
-    max_seconds: 2
+  - type: is_valid_json      # Format
+    params:
+      message: "Response must be valid JSON"
 ```
 
 ### 3. Comparative Testing
@@ -125,8 +143,12 @@ turns:
           - type: content_includes
             params:
               patterns: ["help", "guide", "steps"]
-          - type: tone
-            value: beginner-friendly
+              message: "Must provide helpful guidance"
+          - type: llm_judge
+            params:
+              criteria: "Response is beginner-friendly and easy to understand"
+              judge_provider: "openai/gpt-4o-mini"
+              message: "Must be beginner-friendly"
 ```
 
 ### 5. Failure is Data
@@ -191,31 +213,47 @@ Start simple, add complexity:
 ```yaml
 # Level 1: Structural
 assertions:
-  - type: response_received
-  - type: not_empty
-  - type: valid_format
+  - type: content_matches
+    params:
+      pattern: ".+"
+      message: "Response must not be empty"
+  - type: is_valid_json  # If expecting JSON
+    params:
+      message: "Must be valid JSON"
 
 # Level 2: Content
 assertions:
   - type: content_includes
     params:
-      patterns: "key information"
-  - type: min_length
-    value: 50
+      patterns: ["key information"]
+      message: "Must contain key information"
+  - type: content_matches
+    params:
+      pattern: "^.{50,}$"
+      message: "Must be at least 50 characters"
 
 # Level 3: Quality
 assertions:
-  - type: sentiment
-    value: appropriate
-  - type: tone
-    value: professional
+  - type: llm_judge
+    params:
+      criteria: "Response has appropriate sentiment and tone for the context"
+      judge_provider: "openai/gpt-4o-mini"
+      message: "Must have appropriate quality"
+  - type: llm_judge
+    params:
+      criteria: "Response maintains a professional tone"
+      judge_provider: "openai/gpt-4o-mini"
+      message: "Must be professional"
 
 # Level 4: Custom Business Logic
+# Note: Custom validators would need to be implemented as extensions
+# For now, use pattern matching or LLM judge for business rules
 assertions:
-  - type: custom
-    validator: brand_compliance
-  - type: custom
-    validator: legal_safety
+  - type: llm_judge
+    params:
+      criteria: "Response complies with brand guidelines and voice"
+      judge_provider: "openai/gpt-4o-mini"
+      message: "Must meet brand compliance"
 ```
 
 ## Design Decisions
@@ -269,9 +307,13 @@ Instead of code, use declarations:
 assertions:
   - type: content_includes
     params:
-      patterns: "customer service"
-  - type: sentiment
-    value: positive
+      patterns: ["customer service"]
+      message: "Must mention customer service"
+  - type: llm_judge
+    params:
+      criteria: "Response has positive sentiment"
+      judge_provider: "openai/gpt-4o-mini"
+      message: "Must be positive"
 
 # vs. Imperative (traditional)
 # assert "customer service" in response
@@ -309,6 +351,10 @@ promptarena run --provider openai-gpt4o-mini
 ```yaml
 # Too rigid
 assertions:
+  - type: content_matches
+    params:
+      pattern: "^Thank you for contacting support\\. Our business hours are 9am-5pm\\.$"
+      message: "Exact match required"
 ```
 
 **Problem**: Brittle. Any wording change breaks the test.
@@ -319,8 +365,12 @@ assertions:
   - type: content_includes
     params:
       patterns: ["thank", "support", "business hours"]
-  - type: tone
-    value: professional
+      message: "Must acknowledge support contact"
+  - type: llm_judge
+    params:
+      criteria: "Response has a professional tone"
+      judge_provider: "openai/gpt-4o-mini"
+      message: "Must be professional"
 ```
 
 ### ❌ Under-Specification
@@ -328,7 +378,10 @@ assertions:
 ```yaml
 # Too loose
 assertions:
-  - type: response_received
+  - type: content_matches
+    params:
+      pattern: ".+"
+      message: "Must not be empty"
 ```
 
 **Problem**: Accepts any garbage output.
@@ -336,14 +389,23 @@ assertions:
 **Better:**
 ```yaml
 assertions:
-  - type: response_received
+  - type: content_matches
+    params:
+      pattern: ".+"
+      message: "Must not be empty"
   - type: content_includes
     params:
-      patterns: "relevant keywords"
-  - type: min_length
-    value: 50
-  - type: sentiment
-    value: appropriate
+      patterns: ["relevant", "keywords"]
+      message: "Must contain relevant content"
+  - type: content_matches
+    params:
+      pattern: "^.{50,}$"
+      message: "Must be at least 50 characters"
+  - type: llm_judge
+    params:
+      criteria: "Response is appropriate and helpful for the context"
+      judge_provider: "openai/gpt-4o-mini"
+      message: "Must be appropriate"
 ```
 
 ### ❌ Flaky Tests
@@ -351,8 +413,10 @@ assertions:
 ```yaml
 # Assumes specific response structure
 assertions:
-  - type: regex
-    value: "^Hello.*\nHow can I help\?$"
+  - type: content_matches
+    params:
+      pattern: "^Hello.*\\nHow can I help\\?$"
+      message: "Exact format required"
 ```
 
 **Problem**: LLMs vary formatting.
@@ -363,32 +427,50 @@ assertions:
   - type: content_includes
     params:
       patterns: ["hello", "help"]
-  - type: sentiment
-    value: welcoming
+      message: "Must greet and offer help"
+  - type: llm_judge
+    params:
+      criteria: "Response has a welcoming tone"
+      judge_provider: "openai/gpt-4o-mini"
+      message: "Must be welcoming"
 ```
 
 ### ❌ Testing Implementation, Not Behavior
 
 ```yaml
-# Tests how, not what
+# Tests how, not what - too implementation-focused
 assertions:
-  - type: tool_called
-    value: "calculate"
-  - type: tool_args
-    value: {operation: "multiply", x: 2, y: 2}
+  - type: tools_called
+    params:
+      tools: ["calculate"]
+      message: "Must use calculator tool"
+
+conversation_assertions:
+  - type: tool_calls_with_args
+    params:
+      tool: "calculate"
+      expected_args:
+        operation: "multiply"
+        x: 2
+        y: 2
+      message: "Must pass exact args"
 ```
 
-**Problem**: Couples test to implementation.
+**Problem**: Couples test to implementation details.
 
 **Better:**
 ```yaml
-# Tests outcome
+# Tests outcome - focuses on behavior
 assertions:
   - type: content_includes
     params:
-      patterns: "4"
-  - type: correctness
-    expected_result: "4"
+      patterns: ["4"]
+      message: "Must provide correct answer"
+  - type: llm_judge
+    params:
+      criteria: "Response correctly states that 2 times 2 equals 4"
+      judge_provider: "openai/gpt-4o-mini"
+      message: "Must be factually correct"
 ```
 
 ## Quality Metrics

@@ -31,16 +31,16 @@ spec:
       default: true
       
   files:
-    - path: "arena.yaml"
+    - path: "config.arena.yaml"
       template: "templates/arena.yaml.tmpl"
       
-    - path: "prompts/assistant.yaml"
+    - path: "prompts/assistant.prompt.yaml"
       template: "templates/prompt.yaml.tmpl"
       
-    - path: "providers/{{.provider}}.yaml"
+    - path: "providers/{{.provider}}.provider.yaml"
       template: "templates/provider.yaml.tmpl"
       
-    - path: "scenarios/basic-test.yaml"
+    - path: "scenarios/basic-test.scenario.yaml"
       template: "templates/scenario.yaml.tmpl"
       
     - path: ".env"

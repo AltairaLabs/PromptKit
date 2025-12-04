@@ -11,11 +11,13 @@ spec:
   
   turns:
     - role: user
-      content: "Describe this image in detail."
-      media:
+      parts:
+        - type: text
+          text: "Describe this image in detail."
         - type: image
-          source: url
-          url: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Cat03.jpg/240px-Cat03.jpg"
+          media:
+            url: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Cat03.jpg/240px-Cat03.jpg"
+            mime_type: image/jpeg
       assertions:
         - type: content_not_empty
           params: {}
