@@ -41,6 +41,7 @@ jobs:
           cache-dependency-path: 'tools/arena/go.sum'
       
       - name: Build promptarena binary
+        shell: bash
         run: |
           cd tools/arena
           go build -o ../../bin/promptarena ./cmd/promptarena
