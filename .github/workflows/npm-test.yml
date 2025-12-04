@@ -43,8 +43,13 @@ jobs:
       - name: Build promptarena binary
         shell: bash
         run: |
+          mkdir -p bin
           cd tools/arena
-          go build -o ../../bin/promptarena ./cmd/promptarena
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            go build -o ../../bin/promptarena.exe ./cmd/promptarena
+          else
+            go build -o ../../bin/promptarena ./cmd/promptarena
+          fi
       
       - name: Copy binary to npm package
         shell: bash
