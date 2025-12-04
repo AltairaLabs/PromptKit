@@ -272,7 +272,9 @@ func compareSemver(a, b string) int {
 
 // ReadTemplateFile reads a template file from the built-in templates
 func (l *Loader) ReadTemplateFile(templateName, filePath string) ([]byte, error) {
-	fullPath := filepath.Join("builtin", templateName, filePath)
+	// embed.FS always uses forward slashes, regardless of OS
+	// We must use path.Join or manual string concatenation, not filepath.Join
+	fullPath := "builtin/" + templateName + "/" + filePath
 	data, err := builtinTemplates.ReadFile(fullPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read template file %s: %w", filePath, err)
