@@ -11,8 +11,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/AltairaLabs/PromptKit/tools/arena/results"
-	"github.com/AltairaLabs/PromptKit/tools/arena/results/filesystem"
+	"github.com/AltairaLabs/PromptKit/tools/arena/reader"
+	"github.com/AltairaLabs/PromptKit/tools/arena/reader/filesystem"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
@@ -21,8 +21,8 @@ type FileBrowserPage struct {
 	width      int
 	height     int
 	filePicker filepicker.Model
-	reader     results.ResultReader
-	metadata   []results.ResultMetadata
+	reader     reader.ResultReader
+	metadata   []reader.ResultMetadata
 	selected   *statestore.RunResult
 	err        error
 	loading    bool
@@ -82,7 +82,7 @@ func (p *FileBrowserPage) loadMetadata() tea.Msg {
 
 // fileBrowserMetadataMsg is sent when metadata is loaded
 type fileBrowserMetadataMsg struct {
-	metadata []results.ResultMetadata
+	metadata []reader.ResultMetadata
 }
 
 // fileBrowserErrorMsg is sent when an error occurs
@@ -204,6 +204,9 @@ func (p *FileBrowserPage) Render() string {
 		sections = append(sections, p.renderResultPreview())
 	}
 
+	// Key legend at bottom
+	sections = append(sections, p.renderKeyLegend())
+
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
 }
 
@@ -252,6 +255,28 @@ func (p *FileBrowserPage) SelectedResult() *statestore.RunResult {
 }
 
 // GetMetadata returns the loaded metadata
-func (p *FileBrowserPage) GetMetadata() []results.ResultMetadata {
+func (p *FileBrowserPage) GetMetadata() []reader.ResultMetadata {
 	return p.metadata
+}
+
+// renderKeyLegend renders the key binding help at the bottom
+func (p *FileBrowserPage) renderKeyLegend() string {
+	legendStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("240")).
+		Background(lipgloss.Color("235")).
+		Padding(0, 1)
+
+	keyStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("12")).
+		Bold(true)
+
+	helpItems := []string{
+		keyStyle.Render("↑/↓ j/k") + " navigate",
+		keyStyle.Render("←/→ h/l") + " back/open",
+		keyStyle.Render("enter") + " select file",
+		keyStyle.Render("g/G") + " top/bottom",
+		keyStyle.Render("q/ctrl+c") + " quit",
+	}
+
+	return legendStyle.Render(strings.Join(helpItems, " • "))
 }

@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/AltairaLabs/PromptKit/tools/arena/results"
+	"github.com/AltairaLabs/PromptKit/tools/arena/reader"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
@@ -69,7 +69,7 @@ func TestFileBrowserPage_UpdateWithMetadata(t *testing.T) {
 
 	// Create a metadata message
 	msg := fileBrowserMetadataMsg{
-		metadata: []results.ResultMetadata{
+		metadata: []reader.ResultMetadata{
 			{RunID: "run-1", Scenario: "test"},
 		},
 	}
@@ -112,7 +112,7 @@ func TestFileBrowserPage_GetMetadata(t *testing.T) {
 	tmpDir := t.TempDir()
 	page := NewFileBrowserPage(tmpDir)
 
-	page.metadata = []results.ResultMetadata{
+	page.metadata = []reader.ResultMetadata{
 		{RunID: "run-1"},
 		{RunID: "run-2"},
 	}
@@ -236,7 +236,7 @@ func TestFileBrowserPage_RenderWithMetadata(t *testing.T) {
 	page.loading = false
 
 	// Add metadata
-	page.metadata = []results.ResultMetadata{
+	page.metadata = []reader.ResultMetadata{
 		{RunID: "run-1"},
 		{RunID: "run-2"},
 	}
@@ -251,7 +251,7 @@ func TestFileBrowserPage_RenderWithNoMetadata(t *testing.T) {
 	page := NewFileBrowserPage(tmpDir)
 	page.SetDimensions(100, 50)
 	page.loading = false
-	page.metadata = []results.ResultMetadata{}
+	page.metadata = []reader.ResultMetadata{}
 
 	view := page.Render()
 	assert.Contains(t, view, "Browse Results")
@@ -312,4 +312,34 @@ func TestFileBrowserPage_LoadMetadata(t *testing.T) {
 	assert.True(t, ok)
 	assert.Len(t, metaMsg.metadata, 1)
 	assert.Equal(t, "test-456", metaMsg.metadata[0].RunID)
+}
+
+func TestFileBrowserPage_RenderKeyLegend(t *testing.T) {
+	tmpDir := t.TempDir()
+	page := NewFileBrowserPage(tmpDir)
+	page.SetDimensions(100, 50)
+	page.loading = false
+
+	legend := page.renderKeyLegend()
+
+	// Verify key legend contains essential keys
+	assert.Contains(t, legend, "navigate")
+	assert.Contains(t, legend, "back/open")
+	assert.Contains(t, legend, "select file")
+	assert.Contains(t, legend, "quit")
+	assert.Contains(t, legend, "q/ctrl+c")
+}
+
+func TestFileBrowserPage_RenderIncludesKeyLegend(t *testing.T) {
+	tmpDir := t.TempDir()
+	page := NewFileBrowserPage(tmpDir)
+	page.SetDimensions(100, 50)
+	page.loading = false
+	page.metadata = []reader.ResultMetadata{}
+
+	view := page.Render()
+
+	// Verify the full render includes the key legend
+	assert.Contains(t, view, "quit")
+	assert.Contains(t, view, "navigate")
 }
