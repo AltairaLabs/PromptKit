@@ -1,15 +1,15 @@
-package results
+package reader
 
 import (
-"testing"
-"time"
+	"testing"
+	"time"
 
-"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestResultMetadata_MatchesFilter(t *testing.T) {
 	baseTime := time.Date(2025, 12, 1, 12, 0, 0, 0, time.UTC)
-	
+
 	tests := []struct {
 		name     string
 		metadata ResultMetadata
@@ -176,9 +176,9 @@ func TestResultMetadata_MatchesFilter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-result := tt.metadata.MatchesFilter(&tt.filter)
-assert.Equal(t, tt.expected, result)
-})
+			result := tt.metadata.MatchesFilter(&tt.filter)
+			assert.Equal(t, tt.expected, result)
+		})
 	}
 }
 
@@ -223,9 +223,9 @@ func TestContains(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-result := contains(tt.slice, tt.item)
-assert.Equal(t, tt.expected, result)
-})
+			result := contains(tt.slice, tt.item)
+			assert.Equal(t, tt.expected, result)
+		})
 	}
 }
 

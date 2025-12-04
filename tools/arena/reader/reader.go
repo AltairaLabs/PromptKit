@@ -1,5 +1,5 @@
-// Package results provides abstract result output and retrieval layer for Arena.
-package results
+// Package reader provides abstract result reading interfaces for Arena.
+package reader
 
 import (
 	"time"

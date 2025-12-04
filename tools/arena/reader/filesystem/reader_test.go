@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/AltairaLabs/PromptKit/tools/arena/results"
+	readerpkg "github.com/AltairaLabs/PromptKit/tools/arena/reader"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
@@ -259,7 +259,7 @@ func TestFilesystemResultReader_FilterResults(t *testing.T) {
 	reader := NewFilesystemResultReader(tmpDir)
 
 	t.Run("filter by scenario", func(t *testing.T) {
-		filter := &results.ResultFilter{Scenarios: []string{"scenario-A"}}
+		filter := &readerpkg.ResultFilter{Scenarios: []string{"scenario-A"}}
 		filtered, err := reader.FilterResults(filter)
 
 		require.NoError(t, err)
@@ -267,7 +267,7 @@ func TestFilesystemResultReader_FilterResults(t *testing.T) {
 	})
 
 	t.Run("filter by status", func(t *testing.T) {
-		filter := &results.ResultFilter{Status: []string{"success"}}
+		filter := &readerpkg.ResultFilter{Status: []string{"success"}}
 		filtered, err := reader.FilterResults(filter)
 
 		require.NoError(t, err)
@@ -275,7 +275,7 @@ func TestFilesystemResultReader_FilterResults(t *testing.T) {
 	})
 
 	t.Run("filter by provider", func(t *testing.T) {
-		filter := &results.ResultFilter{Providers: []string{"openai"}}
+		filter := &readerpkg.ResultFilter{Providers: []string{"openai"}}
 		filtered, err := reader.FilterResults(filter)
 
 		require.NoError(t, err)

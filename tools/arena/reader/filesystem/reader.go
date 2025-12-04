@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/AltairaLabs/PromptKit/tools/arena/results"
+	"github.com/AltairaLabs/PromptKit/tools/arena/reader"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
@@ -31,8 +31,8 @@ func NewFilesystemResultReader(baseDir string) *FilesystemResultReader {
 }
 
 // ListResults scans directory and returns metadata for all JSON result files
-func (r *FilesystemResultReader) ListResults() ([]results.ResultMetadata, error) {
-	var metadata []results.ResultMetadata
+func (r *FilesystemResultReader) ListResults() ([]reader.ResultMetadata, error) {
+	var metadata []reader.ResultMetadata
 
 	err := filepath.Walk(r.baseDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -64,10 +64,10 @@ func (r *FilesystemResultReader) ListResults() ([]results.ResultMetadata, error)
 }
 
 // extractMetadata extracts metadata from a result file
-func (r *FilesystemResultReader) extractMetadata(path string) (results.ResultMetadata, error) {
+func (r *FilesystemResultReader) extractMetadata(path string) (reader.ResultMetadata, error) {
 	data, err := os.ReadFile(path) // #nosec G304 -- path is from filepath.Walk within baseDir
 	if err != nil {
-		return results.ResultMetadata{}, fmt.Errorf("failed to read file: %w", err)
+		return reader.ResultMetadata{}, fmt.Errorf("failed to read file: %w", err)
 	}
 
 	var partial struct {
@@ -82,7 +82,7 @@ func (r *FilesystemResultReader) extractMetadata(path string) (results.ResultMet
 	}
 
 	if err := json.Unmarshal(data, &partial); err != nil {
-		return results.ResultMetadata{}, fmt.Errorf("failed to parse JSON: %w", err)
+		return reader.ResultMetadata{}, fmt.Errorf("failed to parse JSON: %w", err)
 	}
 
 	status := "success"
@@ -90,7 +90,7 @@ func (r *FilesystemResultReader) extractMetadata(path string) (results.ResultMet
 		status = "failed"
 	}
 
-	return results.ResultMetadata{
+	return reader.ResultMetadata{
 		RunID:    partial.RunID,
 		Scenario: partial.ScenarioID,
 		Provider: partial.ProviderID,
@@ -208,13 +208,13 @@ func (r *FilesystemResultReader) SupportsFiltering() bool {
 }
 
 // FilterResults returns filtered result metadata using client-side filtering
-func (r *FilesystemResultReader) FilterResults(filter *results.ResultFilter) ([]results.ResultMetadata, error) {
+func (r *FilesystemResultReader) FilterResults(filter *reader.ResultFilter) ([]reader.ResultMetadata, error) {
 	allMetadata, err := r.ListResults()
 	if err != nil {
 		return nil, err
 	}
 
-	filtered := make([]results.ResultMetadata, 0)
+	filtered := make([]reader.ResultMetadata, 0)
 	for i := range allMetadata {
 		if allMetadata[i].MatchesFilter(filter) {
 			filtered = append(filtered, allMetadata[i])
