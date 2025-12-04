@@ -270,7 +270,12 @@ func TestFileBrowserPage_UpdateWithResult(t *testing.T) {
 	updatedPage := model.(*FileBrowserPage)
 
 	assert.Equal(t, result, updatedPage.selected)
-	assert.Nil(t, cmd)
+	assert.NotNil(t, cmd, "Expected command to emit ViewResultMsg")
+
+	// Execute the command to verify it returns ViewResultMsg
+	viewMsg := cmd()
+	assert.IsType(t, ViewResultMsg{}, viewMsg)
+	assert.Equal(t, result, viewMsg.(ViewResultMsg).Result)
 }
 
 func TestFileBrowserPage_UpdateCtrlC(t *testing.T) {

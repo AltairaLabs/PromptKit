@@ -95,6 +95,11 @@ type fileBrowserResultMsg struct {
 	result *statestore.RunResult
 }
 
+// ViewResultMsg is sent to parent TUI when user wants to view a result in detail
+type ViewResultMsg struct {
+	Result *statestore.RunResult
+}
+
 // SetDimensions updates the page dimensions
 func (p *FileBrowserPage) SetDimensions(width, height int) {
 	p.width = width
@@ -117,7 +122,10 @@ func (p *FileBrowserPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case fileBrowserResultMsg:
 		p.selected = msg.result
-		return p, nil
+		// Emit ViewResultMsg to signal parent TUI to switch to conversation view
+		return p, func() tea.Msg {
+			return ViewResultMsg{Result: msg.result}
+		}
 
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -168,12 +176,24 @@ func (p *FileBrowserPage) Render() string {
 		errorStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("9")).
 			Bold(true)
+		helpStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("8")).
+			Italic(true)
+
+		errorMsg := fmt.Sprintf("Error: %v", p.err)
+		if strings.Contains(p.err.Error(), "parse") || strings.Contains(p.err.Error(), "unmarshal") {
+			helpMsg := helpStyle.Render(
+				"This file doesn't contain valid Arena result data.\nPlease select a different file.",
+			)
+			errorMsg = "Invalid JSON file\n\n" + helpMsg
+		}
+
 		return lipgloss.NewStyle().
 			Width(p.width).
 			Height(p.height).
 			AlignHorizontal(lipgloss.Center).
 			AlignVertical(lipgloss.Center).
-			Render(errorStyle.Render(fmt.Sprintf("Error: %v", p.err)))
+			Render(errorStyle.Render(errorMsg))
 	}
 
 	// Build the view
