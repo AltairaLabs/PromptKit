@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/logging"
 )
 
 func TestEventAdapterHandlesRunLifecycle(t *testing.T) {
@@ -381,13 +382,13 @@ func TestEventAdapter_SendMethods(t *testing.T) {
 	t.Run("send with program", func(t *testing.T) {
 		adapter := NewEventAdapter(nil)
 		// Should not panic with nil program
-		adapter.send(LogMsg{Message: "test"})
+		adapter.send(logging.Msg{Message: "test"})
 	})
 
 	t.Run("send with model", func(t *testing.T) {
 		model := NewModel("cfg", 1)
 		adapter := NewEventAdapterWithModel(model)
-		adapter.send(LogMsg{Level: "INFO", Message: "test message"})
+		adapter.send(logging.Msg{Level: "INFO", Message: "test message"})
 		if len(model.logs) == 0 {
 			t.Error("expected log message to be added to model")
 		}
@@ -396,7 +397,7 @@ func TestEventAdapter_SendMethods(t *testing.T) {
 	t.Run("send with neither", func(t *testing.T) {
 		adapter := &EventAdapter{}
 		// Should not panic
-		adapter.send(LogMsg{Message: "test"})
+		adapter.send(logging.Msg{Message: "test"})
 	})
 }
 

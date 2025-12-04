@@ -8,13 +8,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/bubbles/table"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"golang.org/x/term"
 
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/logging"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/pages"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/panels"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/viewmodels"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/views"
 )
 
 // Terminal size requirements
@@ -27,8 +30,6 @@ const (
 const (
 	maxLogBufferSize    = 100
 	tickIntervalMs      = 500
-	durationPrecisionMs = 100
-	numberSeparator     = 1000
 	bannerLines         = 2  // Banner + info line (separator counted separately)
 	bottomPanelPadding  = 4  // Border + padding
 	metricsBoxWidth     = 40 // Fixed width for metrics box
@@ -37,24 +38,6 @@ const (
 )
 
 // Color constants
-const (
-	colorPurple    = "#7C3AED"
-	colorDarkBg    = "#1E1E2E"
-	colorGreen     = "#10B981"
-	colorBlue      = "#3B82F6"
-	colorLightBlue = "#60A5FA"
-	colorRed       = "#EF4444"
-	colorAmber     = "#F59E0B"
-	colorYellow    = "#FBBF24"
-	colorGray      = "#6B7280"
-	colorLightGray = "#9CA3AF"
-	colorWhite     = "#F3F4F6"
-	colorIndigo    = "#6366F1"
-	colorViolet    = "#A78BFA"
-	colorEmerald   = "#34D399"
-	colorSky       = "#93C5FD"
-)
-
 type pane int
 
 const (
@@ -89,28 +72,21 @@ type Model struct {
 	successCount   int
 	failedCount    int
 	totalCost      float64
-	totalTokens    int64
 	totalDuration  time.Duration
 
-	logs          []LogEntry
-	logViewport   viewport.Model
-	viewportReady bool
-	runsTable     table.Model
-	tableReady    bool
+	logs []LogEntry
 
 	isTUIMode      bool
 	fallbackReason string
 
-	// Summary state
-	summary     *Summary
-	showSummary bool
-
 	stateStore runResultStorer
+	ctx        context.Context // Context for statestore operations
 
 	activePane pane
 
-	// Conversation view state
-	convPane ConversationPane
+	// Page components
+	mainPage         *pages.MainPage
+	conversationPage *pages.ConversationPage
 
 	currentPage page
 }
@@ -164,16 +140,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mu.Lock()
 		m.width = msg.Width
 		m.height = msg.Height
-
-		// Initialize viewport on first size update
-		if !m.viewportReady {
-			m.initViewport()
-			m.viewportReady = true
-		}
-		// Initialize table on first size update
-		if !m.tableReady {
-			m.initRunsTable(10) // Start with reasonable default
-		}
 		m.mu.Unlock()
 		return m, nil
 
@@ -184,12 +150,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKeyMsg(msg)
 
 	case tea.MouseMsg:
-		// Let viewport handle mouse wheel scrolling
-		if m.viewportReady {
-			var cmd tea.Cmd
-			m.logViewport, cmd = m.logViewport.Update(msg)
-			return m, cmd
-		}
+		// Mouse handling can be added to panels if needed
 		return m, nil
 
 	case RunStartedMsg:
@@ -222,17 +183,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mu.Unlock()
 		return m, nil
 
-	case LogMsg:
+	case logging.Msg:
 		m.mu.Lock()
 		m.handleLogMsg(&msg)
 		m.mu.Unlock()
-		return m, nil
-
-	case ShowSummaryMsg:
-		m.mu.Lock()
-		m.handleShowSummary(&msg)
-		m.mu.Unlock()
-		// Don't quit immediately - let user see summary and press Ctrl+C or 'q' to exit
 		return m, nil
 	}
 
@@ -367,7 +321,7 @@ func (m *Model) handleTurnCompleted(msg *TurnCompletedMsg) {
 }
 
 // handleLogMsg processes a log message from the interceptor
-func (m *Model) handleLogMsg(msg *LogMsg) {
+func (m *Model) handleLogMsg(msg *logging.Msg) {
 	m.logs = append(m.logs, LogEntry{
 		Timestamp: msg.Timestamp,
 		Level:     msg.Level,
@@ -375,16 +329,10 @@ func (m *Model) handleLogMsg(msg *LogMsg) {
 	})
 	m.trimLogs()
 
-	// Auto-scroll viewport to bottom when new log arrives (only if viewport is ready)
-	if m.viewportReady {
-		m.logViewport.GotoBottom()
+	// Auto-scroll handled by LogsPanel
+	if m.mainPage != nil {
+		m.mainPage.LogsPanel().GotoBottom()
 	}
-}
-
-// handleShowSummary processes a show summary message and switches to summary view
-func (m *Model) handleShowSummary(msg *ShowSummaryMsg) {
-	m.summary = msg.Summary
-	m.showSummary = true
 }
 
 // trimLogs keeps the log buffer size within limits.
@@ -403,34 +351,79 @@ func (m *Model) View() string {
 		return ""
 	}
 
-	// Show summary if execution is complete
-	if m.showSummary && m.summary != nil {
-		return RenderSummary(m.summary, m.width)
-	}
-
 	if m.width == 0 || m.height == 0 {
 		return "Loading..."
 	}
 
 	elapsed := time.Since(m.startTime).Truncate(time.Second)
 
-	header := m.renderHeader(elapsed)
+	// Calculate available height for content area
+	// Subtract: header (2) + footer (1) + separators around body (2) = 5 lines
+	contentHeight := m.height - 5
+	if contentHeight < 15 {
+		contentHeight = 15 // Minimum usable height
+	}
+
+	// Use new HeaderFooterView
+	headerView := views.NewHeaderFooterView(m.width)
+	header := headerView.RenderHeader(m.configFile, m.completedCount, m.totalRuns, elapsed)
+
 	var body string
 	switch m.currentPage {
 	case pageConversation:
-		body = m.renderConversationPage()
+		body = m.renderConversationPage(contentHeight)
 	case pageMain:
-		body = lipgloss.JoinVertical(lipgloss.Left, m.renderActiveRuns(), "", m.renderLogs())
+		body = m.renderMainPage(contentHeight)
 	default:
-		body = lipgloss.JoinVertical(lipgloss.Left, m.renderActiveRuns(), "", m.renderLogs())
+		body = m.renderMainPage(contentHeight)
 	}
 
-	footer := m.renderFooter()
+	// Use new HeaderFooterView
+	footer := headerView.RenderFooter(m.currentPage == pageConversation)
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", footer)
 }
 
-func (m *Model) renderConversationPage() string {
+func (m *Model) renderMainPage(contentHeight int) string {
+	// Convert model data to panel format
+	runs := m.convertToRunInfos()
+	logs := m.convertToLogEntries()
+
+	// Determine focused panel
+	focusedPanel := ""
+	switch m.activePane {
+	case paneRuns:
+		focusedPanel = "runs"
+	case paneLogs:
+		focusedPanel = "logs"
+	}
+
+	// Get result data for highlighted run (cursor position)
+	var resultData *panels.ResultPanelData
+	if m.stateStore != nil && m.mainPage != nil {
+		table := m.mainPage.RunsPanel().Table()
+		idx := table.Cursor()
+		if idx >= 0 && idx < len(m.activeRuns) {
+			highlighted := &m.activeRuns[idx]
+			ctx := m.ctx
+			if ctx == nil {
+				ctx = context.Background()
+			}
+			if res, err := m.stateStore.GetResult(ctx, highlighted.RunID); err == nil {
+				resultData = &panels.ResultPanelData{
+					Result: res,
+					Status: views.RunStatus(highlighted.Status),
+				}
+			}
+		}
+	}
+
+	m.mainPage.SetDimensions(m.width, contentHeight)
+	m.mainPage.SetData(runs, logs, focusedPanel, resultData)
+	return m.mainPage.Render()
+}
+
+func (m *Model) renderConversationPage(contentHeight int) string {
 	selected := m.selectedRun()
 	if selected == nil {
 		return "Select a run to view the conversation."
@@ -438,21 +431,61 @@ func (m *Model) renderConversationPage() string {
 	if m.stateStore == nil {
 		return "No state store attached."
 	}
-	res, err := m.stateStore.GetResult(context.Background(), selected.RunID)
+	ctx := m.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	res, err := m.stateStore.GetResult(ctx, selected.RunID)
 	if err != nil {
 		return fmt.Sprintf("Failed to load result: %v", err)
 	}
-	m.convPane.SetDimensions(m.width, m.height)
-	m.convPane.SetData(selected, res)
-	return m.convPane.View(res)
+
+	m.conversationPage.SetDimensions(m.width, contentHeight)
+	m.conversationPage.SetData(selected.RunID, selected.Scenario, selected.Provider, res)
+	return m.conversationPage.Render()
+}
+
+// convertToRunInfos converts model's activeRuns to panel RunInfo format
+func (m *Model) convertToRunInfos() []panels.RunInfo {
+	runs := make([]panels.RunInfo, len(m.activeRuns))
+	for i := range m.activeRuns {
+		runs[i] = panels.RunInfo{
+			RunID:            m.activeRuns[i].RunID,
+			Scenario:         m.activeRuns[i].Scenario,
+			Provider:         m.activeRuns[i].Provider,
+			Region:           m.activeRuns[i].Region,
+			Status:           panels.RunStatus(m.activeRuns[i].Status),
+			Duration:         m.activeRuns[i].Duration,
+			Cost:             m.activeRuns[i].Cost,
+			Error:            m.activeRuns[i].Error,
+			StartTime:        m.activeRuns[i].StartTime,
+			CurrentTurnIndex: m.activeRuns[i].CurrentTurnIndex,
+			CurrentTurnRole:  m.activeRuns[i].CurrentTurnRole,
+			Selected:         m.activeRuns[i].Selected,
+		}
+	}
+	return runs
+}
+
+// convertToLogEntries converts model's logs to panel LogEntry format
+func (m *Model) convertToLogEntries() []panels.LogEntry {
+	logs := make([]panels.LogEntry, len(m.logs))
+	for i := range m.logs {
+		logs[i] = panels.LogEntry{
+			Level:   m.logs[i].Level,
+			Message: m.logs[i].Message,
+		}
+	}
+	return logs
 }
 
 func (m *Model) currentRunForDetail() *RunInfo {
 	if sel := m.selectedRun(); sel != nil {
 		return sel
 	}
-	if m.tableReady {
-		idx := m.runsTable.Cursor()
+	if m.mainPage != nil {
+		table := m.mainPage.RunsPanel().Table()
+		idx := table.Cursor()
 		if idx >= 0 && idx < len(m.activeRuns) {
 			return &m.activeRuns[idx]
 		}
@@ -461,27 +494,6 @@ func (m *Model) currentRunForDetail() *RunInfo {
 		return &m.activeRuns[0]
 	}
 	return nil
-}
-
-func (m *Model) renderResultPane() string {
-	run := m.currentRunForDetail()
-	if run == nil {
-		return ""
-	}
-	return m.renderSelectedResult(run)
-}
-
-func (m *Model) renderSummaryPane() string {
-	summary := m.BuildSummary("", "")
-	if summary == nil {
-		return ""
-	}
-	// Allocate roughly half the width for summary.
-	width := m.width / summaryWidthDivisor
-	if width < summaryMinWidth {
-		width = summaryMinWidth
-	}
-	return RenderSummary(summary, width)
 }
 
 func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -500,7 +512,7 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Escape deselects a conversation and returns to main view
 	if msg.Type == tea.KeyEsc && m.currentPage == pageConversation {
 		m.deselectRuns()
-		m.convPane.Reset()
+		m.conversationPage.Reset()
 		m.currentPage = pageMain
 		m.activePane = paneRuns
 		return m, nil
@@ -511,8 +523,7 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Conversation page key handling
-	newPane, cmd := m.convPane.Update(msg)
-	m.convPane = newPane
+	cmd := m.conversationPage.Update(msg)
 	return m, cmd
 }
 
@@ -520,26 +531,30 @@ func (m *Model) handleMainPageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.KeyTab {
 		if m.activePane == paneRuns {
 			m.activePane = paneLogs
+			m.mainPage.RunsPanel().SetFocus(false)
 		} else {
 			m.activePane = paneRuns
+			m.mainPage.RunsPanel().SetFocus(true)
 		}
 		return m, nil
 	}
 
-	if msg.Type == tea.KeyEnter && m.activePane == paneRuns && m.tableReady {
+	if msg.Type == tea.KeyEnter && m.activePane == paneRuns {
 		m.toggleSelection()
 		return m, nil
 	}
 
-	if m.activePane == paneRuns && m.tableReady {
+	if m.activePane == paneRuns {
 		var cmd tea.Cmd
-		m.runsTable, cmd = m.runsTable.Update(msg)
+		table := m.mainPage.RunsPanel().Table()
+		*table, cmd = table.Update(msg)
 		return m, cmd
 	}
 
-	if m.viewportReady {
+	if m.activePane == paneLogs {
 		var cmd tea.Cmd
-		m.logViewport, cmd = m.logViewport.Update(msg)
+		viewport := m.mainPage.LogsPanel().Viewport()
+		*viewport, cmd = viewport.Update(msg)
 		return m, cmd
 	}
 
@@ -547,7 +562,8 @@ func (m *Model) handleMainPageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) toggleSelection() {
-	idx := m.runsTable.Cursor()
+	table := m.mainPage.RunsPanel().Table()
+	idx := table.Cursor()
 	if idx < 0 || idx >= len(m.activeRuns) {
 		return
 	}
@@ -556,7 +572,7 @@ func (m *Model) toggleSelection() {
 	m.deselectRuns()
 	m.activeRuns[idx].Selected = !targetSelected
 	if m.activeRuns[idx].Selected {
-		m.convPane.Reset()
+		m.conversationPage.Reset()
 		m.currentPage = pageConversation
 	}
 }
@@ -567,11 +583,25 @@ func (m *Model) deselectRuns() {
 	}
 }
 
+func (m *Model) selectedRun() *RunInfo {
+	for i := range m.activeRuns {
+		if m.activeRuns[i].Selected {
+			return &m.activeRuns[i]
+		}
+	}
+	return nil
+}
+
 // BuildSummary creates a Summary from the current model state with output directory and HTML report path.
+// Thread-safe for external callers.
 func (m *Model) BuildSummary(outputDir, htmlReport string) *Summary {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.buildSummary(outputDir, htmlReport)
+}
 
+// buildSummary is the internal implementation. Caller must hold m.mu.
+func (m *Model) buildSummary(outputDir, htmlReport string) *Summary {
 	// If a state store is available, try to reconstruct results for richer summary
 	if m.stateStore != nil && len(m.activeRuns) > 0 {
 		return m.buildSummaryFromStateStore(outputDir, htmlReport)
@@ -616,7 +646,7 @@ func (m *Model) BuildSummary(outputDir, htmlReport string) *Summary {
 		SuccessCount:   m.successCount,
 		FailedCount:    m.failedCount,
 		TotalCost:      m.totalCost,
-		TotalTokens:    m.totalTokens,
+		TotalTokens:    0, // Tokens only available via statestore
 		TotalDuration:  time.Since(m.startTime),
 		AvgDuration:    avgDuration,
 		ProviderCounts: providerCounts,
@@ -630,7 +660,10 @@ func (m *Model) BuildSummary(outputDir, htmlReport string) *Summary {
 
 // buildSummaryFromStateStore builds summary using persisted run results (assertions, tool stats).
 func (m *Model) buildSummaryFromStateStore(outputDir, htmlReport string) *Summary {
-	ctx := context.Background()
+	ctx := m.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
 	totalRuns := len(m.activeRuns)
 	success := 0
@@ -727,17 +760,20 @@ func NewModel(configFile string, totalRuns int) *Model {
 	}
 
 	return &Model{
-		configFile:     configFile,
-		totalRuns:      totalRuns,
-		startTime:      time.Now(),
-		activeRuns:     make([]RunInfo, 0),
-		logs:           make([]LogEntry, 0, maxLogBufferSize),
-		width:          width,
-		height:         height,
-		isTUIMode:      supported,
-		fallbackReason: reason,
-		convPane:       NewConversationPane(),
-		currentPage:    pageMain,
+		configFile:       configFile,
+		totalRuns:        totalRuns,
+		startTime:        time.Now(),
+		activeRuns:       make([]RunInfo, 0),
+		logs:             make([]LogEntry, 0, maxLogBufferSize),
+		width:            width,
+		height:           height,
+		isTUIMode:        supported,
+		fallbackReason:   reason,
+		ctx:              context.Background(),
+		mainPage:         pages.NewMainPage(),
+		conversationPage: pages.NewConversationPage(),
+		currentPage:      pageMain,
+		activePane:       paneRuns,
 	}
 }
 
@@ -801,6 +837,35 @@ func Run(ctx context.Context, model *Model) error {
 	}
 }
 
+// Summary represents the final execution summary displayed after all runs complete
+type Summary struct {
+	TotalRuns      int
+	SuccessCount   int
+	FailedCount    int
+	TotalCost      float64
+	TotalTokens    int64
+	TotalDuration  time.Duration
+	AvgDuration    time.Duration
+	ProviderCounts map[string]int
+	ScenarioCount  int
+	Regions        []string
+	Errors         []ErrorInfo
+	OutputDir      string
+	HTMLReport     string
+
+	AssertionTotal  int
+	AssertionFailed int
+}
+
+// ErrorInfo represents a failed run with details
+type ErrorInfo struct {
+	RunID    string
+	Scenario string
+	Provider string
+	Region   string
+	Error    string
+}
+
 // CheckTerminalSize checks if the terminal is large enough for TUI mode
 func CheckTerminalSize() (width, height int, supported bool, reason string) {
 	// Try stdout first (fd 1), then stderr (fd 2), then stdin (fd 0)
@@ -822,4 +887,65 @@ func CheckTerminalSize() (width, height int, supported bool, reason string) {
 	}
 
 	return 0, 0, false, "unable to detect terminal size (not a TTY)"
+}
+
+// RenderSummary renders the final summary screen for TUI mode
+func RenderSummary(summary *Summary, width int) string {
+	summaryData := convertSummaryToData(summary)
+	summaryVM := viewmodels.NewSummaryViewModel(summaryData)
+	summaryView := views.NewSummaryView(width, false)
+	return summaryView.Render(summaryVM)
+}
+
+// RenderSummaryCIMode renders the summary in plain text for CI/non-TUI environments
+func RenderSummaryCIMode(summary *Summary) string {
+	const ciModeWidth = 80
+	summaryData := convertSummaryToData(summary)
+	summaryVM := viewmodels.NewSummaryViewModel(summaryData)
+	summaryView := views.NewSummaryView(ciModeWidth, true)
+	return summaryView.Render(summaryVM)
+}
+
+// convertSummaryToData converts old Summary struct to new SummaryData for viewmodels
+func convertSummaryToData(summary *Summary) *viewmodels.SummaryData {
+	// Convert provider counts to provider stats
+	providerStats := make(map[string]viewmodels.ProviderStat)
+	for provider, count := range summary.ProviderCounts {
+		providerStats[provider] = viewmodels.ProviderStat{
+			Runs:   count,
+			Tokens: 0, // Tokens not available in old Summary
+		}
+	}
+
+	// Convert errors to new ErrorInfo format
+	errors := make([]viewmodels.ErrorInfo, len(summary.Errors))
+	for i, errInfo := range summary.Errors {
+		errors[i] = viewmodels.ErrorInfo{
+			RunID:    errInfo.RunID,
+			Scenario: errInfo.Scenario,
+			Provider: errInfo.Provider,
+			Region:   errInfo.Region,
+			Error:    errInfo.Error,
+		}
+	}
+
+	return &viewmodels.SummaryData{
+		TotalRuns:       summary.TotalRuns,
+		CompletedRuns:   summary.SuccessCount,
+		FailedRuns:      summary.FailedCount,
+		TotalTokens:     summary.TotalTokens,
+		TotalCost:       summary.TotalCost,
+		TotalDuration:   summary.TotalDuration,
+		AvgDuration:     summary.AvgDuration,
+		ProviderStats:   providerStats,
+		ProviderCosts:   make(map[string]float64), // Not available in old Summary
+		FailuresByError: make(map[string]int),     // Not available in old Summary
+		ScenarioCount:   summary.ScenarioCount,
+		Regions:         summary.Regions,
+		Errors:          errors,
+		OutputDir:       summary.OutputDir,
+		HTMLReport:      summary.HTMLReport,
+		AssertionTotal:  summary.AssertionTotal,
+		AssertionFailed: summary.AssertionFailed,
+	}
 }

@@ -1,10 +1,12 @@
-package tui
+package views
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
 )
 
 const (
@@ -12,33 +14,36 @@ const (
 	resultPaddingHorizontal = 2
 )
 
-// selectedRun returns the first selected run, if any.
-func (m *Model) selectedRun() *RunInfo {
-	for i := range m.activeRuns {
-		if m.activeRuns[i].Selected {
-			return &m.activeRuns[i]
-		}
-	}
-	return nil
+// RunStatus represents the status of a run
+type RunStatus int
+
+// Run status constants
+const (
+	// StatusRunning indicates a run is currently executing
+	StatusRunning RunStatus = iota
+	// StatusCompleted indicates a run finished successfully
+	StatusCompleted
+	// StatusFailed indicates a run encountered an error
+	StatusFailed
+)
+
+// ResultView renders a detailed result for a completed run
+type ResultView struct{}
+
+// NewResultView creates a new result view
+func NewResultView() *ResultView {
+	return &ResultView{}
 }
 
-// renderSelectedResult renders a result summary for a selected run from the state store.
-func (m *Model) renderSelectedResult(run *RunInfo) string {
-	if m.stateStore == nil {
-		return "No state store attached."
-	}
-	res, err := m.stateStore.GetResult(context.Background(), run.RunID)
-	if err != nil {
-		return fmt.Sprintf("Failed to load result: %v", err)
-	}
-
+// Render renders the result details
+func (v *ResultView) Render(res *statestore.RunResult, status RunStatus) string {
 	lines := []string{
 		fmt.Sprintf("Run: %s", res.RunID),
 		fmt.Sprintf("Scenario: %s", res.ScenarioID),
 		fmt.Sprintf("Provider: %s", res.ProviderID),
 		fmt.Sprintf("Region: %s", res.Region),
-		fmt.Sprintf("Status: %s", statusString(run.Status)),
-		fmt.Sprintf("Duration: %s", formatDuration(res.Duration)),
+		fmt.Sprintf("Status: %s", formatStatus(status)),
+		fmt.Sprintf("Duration: %s", theme.FormatDuration(res.Duration)),
 		fmt.Sprintf("Cost: $%.4f", res.Cost.TotalCost),
 	}
 
@@ -58,12 +63,12 @@ func (m *Model) renderSelectedResult(run *RunInfo) string {
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(colorGray)).
+		BorderForeground(theme.BorderColorUnfocused()).
 		Padding(resultPaddingVertical, resultPaddingHorizontal).
 		Render(content)
 }
 
-func statusString(status RunStatus) string {
+func formatStatus(status RunStatus) string {
 	switch status {
 	case StatusRunning:
 		return "running"

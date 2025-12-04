@@ -1,4 +1,4 @@
-package tui
+package logging
 
 import (
 	"context"
@@ -13,12 +13,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewLogInterceptor(t *testing.T) {
+func TestNewInterceptor(t *testing.T) {
 	handler := slog.NewTextHandler(os.Stderr, nil)
 	program := &tea.Program{}
 
 	t.Run("without log file", func(t *testing.T) {
-		interceptor, err := NewLogInterceptor(handler, program, "", false)
+		interceptor, err := NewInterceptor(handler, program, "", false)
 		require.NoError(t, err)
 		assert.NotNil(t, interceptor)
 		assert.Nil(t, interceptor.logFile)
@@ -29,7 +29,7 @@ func TestNewLogInterceptor(t *testing.T) {
 		tmpDir := t.TempDir()
 		logPath := filepath.Join(tmpDir, "test.log")
 
-		interceptor, err := NewLogInterceptor(handler, program, logPath, false)
+		interceptor, err := NewInterceptor(handler, program, logPath, false)
 		require.NoError(t, err)
 		assert.NotNil(t, interceptor)
 		assert.NotNil(t, interceptor.logFile)
@@ -40,18 +40,18 @@ func TestNewLogInterceptor(t *testing.T) {
 	})
 
 	t.Run("invalid log file path", func(t *testing.T) {
-		interceptor, err := NewLogInterceptor(handler, program, "/nonexistent/dir/test.log", false)
+		interceptor, err := NewInterceptor(handler, program, "/nonexistent/dir/test.log", false)
 		assert.Error(t, err)
 		assert.Nil(t, interceptor)
 	})
 }
 
-func TestLogInterceptor_Close(t *testing.T) {
+func TestInterceptor_Close(t *testing.T) {
 	handler := slog.NewTextHandler(os.Stderr, nil)
 	program := &tea.Program{}
 
 	t.Run("with no log file", func(t *testing.T) {
-		interceptor, err := NewLogInterceptor(handler, program, "", false)
+		interceptor, err := NewInterceptor(handler, program, "", false)
 		require.NoError(t, err)
 
 		err = interceptor.Close()
@@ -62,7 +62,7 @@ func TestLogInterceptor_Close(t *testing.T) {
 		tmpDir := t.TempDir()
 		logPath := filepath.Join(tmpDir, "test.log")
 
-		interceptor, err := NewLogInterceptor(handler, program, logPath, false)
+		interceptor, err := NewInterceptor(handler, program, logPath, false)
 		require.NoError(t, err)
 
 		err = interceptor.Close()
@@ -70,11 +70,11 @@ func TestLogInterceptor_Close(t *testing.T) {
 	})
 }
 
-func TestLogInterceptor_Enabled(t *testing.T) {
+func TestInterceptor_Enabled(t *testing.T) {
 	handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})
 	program := &tea.Program{}
 
-	interceptor, err := NewLogInterceptor(handler, program, "", false)
+	interceptor, err := NewInterceptor(handler, program, "", false)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -88,21 +88,20 @@ func TestLogInterceptor_Enabled(t *testing.T) {
 	assert.False(t, interceptor.Enabled(ctx, slog.LevelDebug))
 }
 
-func TestLogInterceptor_Handle(t *testing.T) {
+func TestInterceptor_Handle(t *testing.T) {
 	tmpDir := t.TempDir()
 	logPath := filepath.Join(tmpDir, "test.log")
 
 	handler := slog.NewTextHandler(os.Stderr, nil)
-
 	// Don't pass a program for this test - we're testing file writing
-	interceptor, err := NewLogInterceptor(handler, nil, logPath, false)
+	interceptor, err := NewInterceptor(handler, nil, logPath, false)
 	require.NoError(t, err)
 	defer interceptor.Close()
 
 	ctx := context.Background()
-	now := time.Now()
 
 	// Create a log record
+	now := time.Now()
 	record := slog.Record{
 		Time:    now,
 		Message: "test message",
@@ -116,16 +115,17 @@ func TestLogInterceptor_Handle(t *testing.T) {
 	// Check log file was written
 	content, err := os.ReadFile(logPath)
 	require.NoError(t, err)
+
 	// Check for timestamp format (new slog format)
 	assert.Contains(t, string(content), "level=INFO")
 	assert.Contains(t, string(content), "test message")
 }
 
-func TestLogInterceptor_WithAttrs(t *testing.T) {
+func TestInterceptor_WithAttrs(t *testing.T) {
 	handler := slog.NewTextHandler(os.Stderr, nil)
 	program := &tea.Program{}
 
-	interceptor, err := NewLogInterceptor(handler, program, "", false)
+	interceptor, err := NewInterceptor(handler, program, "", false)
 	require.NoError(t, err)
 
 	attrs := []slog.Attr{slog.String("key", "value")}
@@ -133,22 +133,22 @@ func TestLogInterceptor_WithAttrs(t *testing.T) {
 
 	assert.NotNil(t, newHandler)
 	// Type assertion
-	_, ok := newHandler.(*LogInterceptor)
+	_, ok := newHandler.(*Interceptor)
 	assert.True(t, ok)
 }
 
-func TestLogInterceptor_WithGroup(t *testing.T) {
+func TestInterceptor_WithGroup(t *testing.T) {
 	handler := slog.NewTextHandler(os.Stderr, nil)
 	program := &tea.Program{}
 
-	interceptor, err := NewLogInterceptor(handler, program, "", false)
+	interceptor, err := NewInterceptor(handler, program, "", false)
 	require.NoError(t, err)
 
 	newHandler := interceptor.WithGroup("test-group")
 
 	assert.NotNil(t, newHandler)
 	// Type assertion
-	_, ok := newHandler.(*LogInterceptor)
+	_, ok := newHandler.(*Interceptor)
 	assert.True(t, ok)
 }
 
@@ -172,9 +172,10 @@ func TestLevelToString(t *testing.T) {
 	}
 }
 
-func TestLogMsg(t *testing.T) {
+func TestMsg(t *testing.T) {
 	now := time.Now()
-	msg := LogMsg{
+
+	msg := Msg{
 		Timestamp: now,
 		Level:     "INFO",
 		Message:   "test message",
@@ -185,60 +186,25 @@ func TestLogMsg(t *testing.T) {
 	assert.Equal(t, "test message", msg.Message)
 }
 
-func TestModel_handleLogMsg(t *testing.T) {
-	m := NewModel("test-pack", 1)
-	now := time.Now()
-
-	msg := &LogMsg{
-		Timestamp: now,
-		Level:     "INFO",
-		Message:   "test log message",
-	}
-
-	m.mu.Lock()
-	m.handleLogMsg(msg)
-	m.mu.Unlock()
-
-	assert.Len(t, m.logs, 1)
-	assert.Equal(t, now, m.logs[0].Timestamp)
-	assert.Equal(t, "INFO", m.logs[0].Level)
-	assert.Equal(t, "test log message", m.logs[0].Message)
-}
-
-func TestModel_handleLogMsg_trimming(t *testing.T) {
-	m := NewModel("test-pack", 1)
-
-	// Add more logs than maxLogBufferSize
-	for i := 0; i < maxLogBufferSize+50; i++ {
-		msg := &LogMsg{
-			Timestamp: time.Now(),
-			Level:     "INFO",
-			Message:   "test",
-		}
-		m.mu.Lock()
-		m.handleLogMsg(msg)
-		m.mu.Unlock()
-	}
-
-	// Should be trimmed to maxLogBufferSize
-	assert.Equal(t, maxLogBufferSize, len(m.logs))
-}
-
 type capturingHandler struct {
 	records []slog.Record
 }
 
 func (h *capturingHandler) Enabled(context.Context, slog.Level) bool { return true }
+
 func (h *capturingHandler) Handle(ctx context.Context, r slog.Record) error {
 	h.records = append(h.records, r)
 	return nil
 }
-func (h *capturingHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
-func (h *capturingHandler) WithGroup(string) slog.Handler      { return h }
 
-func TestLogInterceptor_FlushBuffer(t *testing.T) {
+func (h *capturingHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+
+func (h *capturingHandler) WithGroup(string) slog.Handler { return h }
+
+func TestInterceptor_FlushBuffer(t *testing.T) {
 	handler := &capturingHandler{}
-	interceptor, err := NewLogInterceptor(handler, nil, "", true)
+
+	interceptor, err := NewInterceptor(handler, nil, "", true)
 	require.NoError(t, err)
 
 	record := slog.Record{
@@ -246,6 +212,7 @@ func TestLogInterceptor_FlushBuffer(t *testing.T) {
 		Message: "buffered",
 		Level:   slog.LevelDebug,
 	}
+
 	err = interceptor.Handle(context.Background(), record)
 	require.NoError(t, err)
 
@@ -253,10 +220,11 @@ func TestLogInterceptor_FlushBuffer(t *testing.T) {
 	assert.Len(t, handler.records, 0)
 
 	interceptor.FlushBuffer()
+
+	// Second flush should be no-op
 	assert.Len(t, handler.records, 1)
 	assert.Equal(t, "buffered", handler.records[0].Message)
 
-	// Second flush should be no-op
 	interceptor.FlushBuffer()
 	assert.Len(t, handler.records, 1)
 }

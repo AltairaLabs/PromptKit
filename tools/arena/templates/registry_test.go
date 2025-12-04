@@ -102,7 +102,7 @@ func TestFetchTemplateChecksumMismatch(t *testing.T) {
 		t.Fatalf("write pkg: %v", err)
 	}
 	entry := &IndexEntry{Name: "demo", Version: "1.0.0", Source: src, Checksum: "deadbeef"}
-	if _, err := FetchTemplate(entry, filepath.Join(dir, "cache")); err == nil {
+	if _, err := FetchTemplate(entry, filepath.Join(dir, "cache"), "", "test"); err == nil {
 		t.Fatalf("expected checksum mismatch error")
 	}
 }
@@ -135,7 +135,7 @@ func TestFetchTemplate(t *testing.T) {
 		t.Fatalf("write pkg: %v", err)
 	}
 	entry := &IndexEntry{Name: "demo", Version: "1.0.0", Source: src}
-	dest, err := FetchTemplate(entry, filepath.Join(dir, "cache"))
+	dest, err := FetchTemplate(entry, filepath.Join(dir, "cache"), "", "test")
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
@@ -212,7 +212,7 @@ files:
 		t.Fatalf("find entry: %v", err)
 	}
 	entry.Source = s.URL + "/template.yaml"
-	dest, err := FetchTemplate(entry, t.TempDir())
+	dest, err := FetchTemplate(entry, t.TempDir(), "", "test")
 	if err != nil {
 		t.Fatalf("fetch template: %v", err)
 	}

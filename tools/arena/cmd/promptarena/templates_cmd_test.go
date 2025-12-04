@@ -66,7 +66,8 @@ func TestTemplatesFetch_LocalIndex(t *testing.T) {
 	if err := cmd.RunE(cmd, []string{}); err != nil {
 		t.Fatalf("fetch run: %v", err)
 	}
-	cached := filepath.Join(templateCache, "demo", "1.0.0", "template.yaml")
+	// Cache path now includes repo name
+	cached := filepath.Join(templateCache, "local", "demo", "1.0.0", "template.yaml")
 	if _, err := os.Stat(cached); err != nil {
 		t.Fatalf("cached file missing: %v", err)
 	}
@@ -285,16 +286,18 @@ func TestTemplatesUpdateMultipleAndListFormatting(t *testing.T) {
 	}
 
 	// Update should fetch both entries
+	templateIndex = "local"                     // Set the global variable directly
+	templateCache = filepath.Join(dir, "cache") // Ensure cache is set
 	templatesUpdateCmd.Flags().Set("index", "local")
 	templatesUpdateCmd.Flags().Set("cache-dir", templateCache)
 	if err := templatesUpdateCmd.RunE(templatesUpdateCmd, nil); err != nil {
 		t.Fatalf("update run: %v", err)
 	}
-	// Verify both cached
-	if _, err := os.Stat(filepath.Join(templateCache, "alpha", "1.0.0", "template.yaml")); err != nil {
+	// Verify both cached - cache path now includes repo name
+	if _, err := os.Stat(filepath.Join(templateCache, "local", "alpha", "1.0.0", "template.yaml")); err != nil {
 		t.Fatalf("alpha missing: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(templateCache, "beta", "2.0.0", "template.yaml")); err != nil {
+	if _, err := os.Stat(filepath.Join(templateCache, "local", "beta", "2.0.0", "template.yaml")); err != nil {
 		t.Fatalf("beta missing: %v", err)
 	}
 
@@ -353,11 +356,11 @@ func TestTemplatesRenderMergeValuesAndSet(t *testing.T) {
 }
 
 func TestSplitTemplateRef(t *testing.T) {
-	repo, name := splitTemplateRef("community/basic-chatbot")
+	repo, name := templates.SplitTemplateRef("community/basic-chatbot")
 	if repo != "community" || name != "basic-chatbot" {
 		t.Fatalf("expected repo/community split, got %s/%s", repo, name)
 	}
-	repo, name = splitTemplateRef("basic-chatbot")
+	repo, name = templates.SplitTemplateRef("basic-chatbot")
 	if repo != "" || name != "basic-chatbot" {
 		t.Fatalf("expected bare name, got %s/%s", repo, name)
 	}

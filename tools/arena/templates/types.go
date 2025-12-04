@@ -11,6 +11,7 @@ type Template struct {
 	Metadata   TemplateMetadata `yaml:"metadata" json:"metadata"`
 	Spec       TemplateSpec     `yaml:"spec" json:"spec"`
 	BaseDir    string           `yaml:"-" json:"-"` // directory containing the template file (for source resolution)
+	BaseURL    string           `yaml:"-" json:"-"` // base URL for remote templates (for source resolution)
 }
 
 // TemplateMetadata contains template identification and metadata
@@ -95,6 +96,7 @@ type TemplateConfig struct {
 	OutputDir   string
 	Variables   map[string]interface{}
 	Template    *Template
+	Verbose     bool // Enable detailed logging
 }
 
 // GenerationResult contains the result of template generation

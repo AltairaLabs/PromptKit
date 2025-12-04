@@ -10,11 +10,11 @@ import (
 )
 
 func TestSplitTemplateRef_Additional(t *testing.T) {
-	repo, name := splitTemplateRef("community/basic-app")
+	repo, name := templates.SplitTemplateRef("community/basic-app")
 	if repo != "community" || name != "basic-app" {
 		t.Fatalf("unexpected split: %s %s", repo, name)
 	}
-	repo, name = splitTemplateRef("solo")
+	repo, name = templates.SplitTemplateRef("solo")
 	if repo != "" || name != "solo" {
 		t.Fatalf("unexpected split no repo: %s %s", repo, name)
 	}
@@ -60,7 +60,7 @@ func TestMergeValuesOverridesEmptyAndAddsNew(t *testing.T) {
 }
 
 func TestSplitTemplateRefMalformed(t *testing.T) {
-	repo, name := splitTemplateRef("bad/")
+	repo, name := templates.SplitTemplateRef("bad/")
 	if repo != "" || name != "bad/" {
 		t.Fatalf("unexpected handling of malformed ref: %s/%s", repo, name)
 	}
