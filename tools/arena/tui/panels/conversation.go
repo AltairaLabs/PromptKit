@@ -1,4 +1,5 @@
-package tui
+// Package panels provides reusable panel components for the TUI.
+package panels
 
 import (
 	"bytes"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
 )
 
 type conversationFocus int
@@ -40,8 +42,8 @@ const (
 	conversationResultIndent     = 2
 )
 
-// ConversationPane encapsulates the conversation view state (table + detail).
-type ConversationPane struct {
+// ConversationPanel encapsulates the conversation view state (table + detail).
+type ConversationPanel struct {
 	focus       conversationFocus
 	table       table.Model
 	tableReady  bool
@@ -55,18 +57,19 @@ type ConversationPane struct {
 
 	scenario string
 	provider string
+	res      *statestore.RunResult
 }
 
-// NewConversationPane creates an empty conversation pane with defaults.
-func NewConversationPane() ConversationPane {
-	return ConversationPane{
+// NewConversationPanel creates an empty conversation panel with defaults.
+func NewConversationPanel() *ConversationPanel {
+	return &ConversationPanel{
 		focus:           focusConversationTurns,
 		selectedTurnIdx: 0,
 	}
 }
 
 // Reset clears state, used when leaving the conversation view.
-func (c *ConversationPane) Reset() {
+func (c *ConversationPanel) Reset() {
 	c.tableReady = false
 	c.detailReady = false
 	c.selectedTurnIdx = 0
@@ -77,26 +80,34 @@ func (c *ConversationPane) Reset() {
 }
 
 // SetDimensions sets layout constraints.
-func (c *ConversationPane) SetDimensions(width, height int) {
+func (c *ConversationPanel) SetDimensions(width, height int) {
 	c.width = width
 	c.height = height
 }
 
-// SetData hydrates the pane with a run and result.
-func (c *ConversationPane) SetData(run *RunInfo, res *statestore.RunResult) {
+// SetData hydrates the panel with a run and result.
+func (c *ConversationPanel) SetData(runID, scenario, provider string, res *statestore.RunResult) {
 	if res == nil {
-		c.Reset()
+		c.tableReady = false
+		c.detailReady = false
+		c.selectedTurnIdx = 0
+		c.lastRunID = ""
+		c.table = table.Model{}
+		c.detail = viewport.Model{}
+		c.focus = focusConversationTurns
+		c.res = nil
 		return
 	}
 
-	c.ensureTable(run.RunID)
+	c.res = res
+	c.ensureTable(runID)
 	c.updateTable(res)
 	c.updateDetail(res)
-	c.scenario = run.Scenario
-	c.provider = run.Provider
+	c.scenario = scenario
+	c.provider = provider
 }
 
-func (c *ConversationPane) ensureTable(runID string) {
+func (c *ConversationPanel) ensureTable(runID string) {
 	if c.tableReady && c.lastRunID == runID {
 		return
 	}
@@ -116,11 +127,11 @@ func (c *ConversationPane) ensureTable(runID string) {
 	style.Header = style.Header.
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderBottom(true).
-		BorderForeground(lipgloss.Color(colorIndigo)).
+		BorderForeground(theme.BorderColorFocused()).
 		Bold(true)
 	style.Selected = style.Selected.
-		Foreground(lipgloss.Color(colorWhite)).
-		Background(lipgloss.Color(colorIndigo)).
+		Foreground(lipgloss.Color(theme.ColorWhite)).
+		Background(theme.BorderColorFocused()).
 		Bold(true)
 	t.SetStyles(style)
 
@@ -131,10 +142,10 @@ func (c *ConversationPane) ensureTable(runID string) {
 	c.lastRunID = runID
 }
 
-// Update handles key/scroll input for the conversation pane.
-func (c *ConversationPane) Update(msg tea.Msg) (ConversationPane, tea.Cmd) {
+// Update handles key/scroll input for the conversation panel.
+func (c *ConversationPanel) Update(msg tea.Msg) tea.Cmd {
 	if !c.tableReady && !c.detailReady {
-		return *c, nil
+		return nil
 	}
 
 	if km, ok := msg.(tea.KeyMsg); ok && km.Type == tea.KeyTab {
@@ -145,39 +156,39 @@ func (c *ConversationPane) Update(msg tea.Msg) (ConversationPane, tea.Cmd) {
 			c.focus = focusConversationTurns
 			c.table.Focus()
 		}
-		return *c, nil
+		return nil
 	}
 
 	if c.focus == focusConversationTurns && c.tableReady {
 		var cmd tea.Cmd
 		c.table, cmd = c.table.Update(msg)
 		c.selectedTurnIdx = c.table.Cursor()
-		return *c, cmd
+		return cmd
 	}
 
 	if c.focus == focusConversationDetail && c.detailReady {
 		var cmd tea.Cmd
 		c.detail, cmd = c.detail.Update(msg)
-		return *c, cmd
+		return cmd
 	}
 
-	return *c, nil
+	return nil
 }
 
-// View renders the conversation pane.
-func (c *ConversationPane) View(res *statestore.RunResult) string {
-	if res == nil {
+// View renders the conversation panel.
+func (c *ConversationPanel) View() string {
+	if c.res == nil {
 		return "No conversation available."
 	}
 
-	if len(res.Messages) == 0 {
+	if len(c.res.Messages) == 0 {
 		return "No conversation recorded."
 	}
 
-	c.updateTable(res)
-	c.updateDetail(res)
+	c.updateTable(c.res)
+	c.updateDetail(c.res)
 
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colorSky))
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(theme.ColorSky))
 	titleText := "🧭 Conversation"
 	if c.scenario != "" || c.provider != "" {
 		parts := []string{}
@@ -200,12 +211,13 @@ func (c *ConversationPane) View(res *statestore.RunResult) string {
 
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(colorLightBlue)).
+		BorderForeground(lipgloss.Color(theme.ColorLightBlue)).
 		Padding(conversationPanelPadding, conversationPanelHorizontal).
 		Render(lipgloss.JoinVertical(lipgloss.Left, title, content))
 }
 
-func (c *ConversationPane) updateTable(res *statestore.RunResult) {
+// updateTable updates the conversation table with messages from result.
+func (c *ConversationPanel) updateTable(res *statestore.RunResult) {
 	if !c.tableReady {
 		return
 	}
@@ -221,7 +233,7 @@ func (c *ConversationPane) updateTable(res *statestore.RunResult) {
 	rows := make([]table.Row, 0, len(res.Messages))
 	for i := range res.Messages {
 		msg := &res.Messages[i]
-		snippet := truncateString(msg.GetContent(), conversationSnippetMaxLength)
+		snippet := theme.TruncateString(msg.GetContent(), conversationSnippetMaxLength)
 		rows = append(rows, table.Row{
 			fmt.Sprintf("%d", i+1),
 			msg.Role,
@@ -238,7 +250,8 @@ func (c *ConversationPane) updateTable(res *statestore.RunResult) {
 	c.table.SetCursor(c.selectedTurnIdx)
 }
 
-func (c *ConversationPane) updateDetail(res *statestore.RunResult) {
+// updateDetail updates the detail viewport with the currently selected turn.
+func (c *ConversationPanel) updateDetail(res *statestore.RunResult) {
 	if len(res.Messages) == 0 {
 		return
 	}
@@ -270,7 +283,7 @@ func (c *ConversationPane) updateDetail(res *statestore.RunResult) {
 	c.detailReady = true
 }
 
-func (c *ConversationPane) buildDetailLines(res *statestore.RunResult, msg *types.Message) []string {
+func (c *ConversationPanel) buildDetailLines(res *statestore.RunResult, msg *types.Message) []string {
 	lines := []string{c.renderDetailHeader(res, c.selectedTurnIdx, msg), ""}
 	c.appendToolCallLines(&lines, msg)
 	c.appendToolResultLines(&lines, msg)
@@ -280,7 +293,7 @@ func (c *ConversationPane) buildDetailLines(res *statestore.RunResult, msg *type
 	return lines
 }
 
-func (c *ConversationPane) appendToolCallLines(lines *[]string, msg *types.Message) {
+func (c *ConversationPanel) appendToolCallLines(lines *[]string, msg *types.Message) {
 	if len(msg.ToolCalls) == 0 {
 		return
 	}
@@ -293,7 +306,7 @@ func (c *ConversationPane) appendToolCallLines(lines *[]string, msg *types.Messa
 	}
 }
 
-func (c *ConversationPane) appendToolResultLines(lines *[]string, msg *types.Message) {
+func (c *ConversationPanel) appendToolResultLines(lines *[]string, msg *types.Message) {
 	if msg.ToolResult == nil || msg.ToolResult.Name == "" {
 		return
 	}
@@ -307,14 +320,14 @@ func (c *ConversationPane) appendToolResultLines(lines *[]string, msg *types.Mes
 	}
 }
 
-func (c *ConversationPane) appendContentLines(lines *[]string, msg *types.Message) {
+func (c *ConversationPanel) appendContentLines(lines *[]string, msg *types.Message) {
 	msgContent := msg.GetContent()
 	if msgContent != "" {
 		*lines = append(*lines, "", "Message:", msgContent)
 	}
 }
 
-func (c *ConversationPane) appendValidationLines(lines *[]string, msg *types.Message) {
+func (c *ConversationPanel) appendValidationLines(lines *[]string, msg *types.Message) {
 	if len(msg.Validations) == 0 {
 		return
 	}
@@ -345,7 +358,7 @@ func indentBlock(text string, spaces int) string {
 	return strings.Join(lines, "\n")
 }
 
-func (c *ConversationPane) renderDetailHeader(res *statestore.RunResult, idx int, msg *types.Message) string {
+func (c *ConversationPanel) renderDetailHeader(res *statestore.RunResult, idx int, msg *types.Message) string {
 	totalTokens := res.Cost.InputTokens + res.Cost.OutputTokens
 	header := fmt.Sprintf(
 		"Turn %d • Role: %s • Tokens: %d/%d (total %d) • Cost: $%.4f • Duration: %s",
@@ -355,18 +368,18 @@ func (c *ConversationPane) renderDetailHeader(res *statestore.RunResult, idx int
 		res.Cost.OutputTokens,
 		totalTokens,
 		res.Cost.TotalCost,
-		formatDuration(res.Duration),
+		theme.FormatDuration(res.Duration),
 	)
 
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colorIndigo)).
+		Foreground(theme.BorderColorFocused()).
 		Bold(true).
 		Render(header)
 }
 
-func (c *ConversationPane) renderDetailFooter() string {
+func (c *ConversationPanel) renderDetailFooter() string {
 	footer := "↑/↓ scroll • tab focus • esc back"
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colorLightGray)).
+		Foreground(lipgloss.Color(theme.ColorLightGray)).
 		Render(footer)
 }

@@ -13,7 +13,7 @@ func TestLoadRepoConfigMissingCreatesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if cfg.Repos[DefaultRepoName] != DefaultGitHubIndex {
+	if cfg.Repos[DefaultRepoName].URL != DefaultGitHubIndex {
 		t.Fatalf("default repo missing: %#v", cfg.Repos)
 	}
 }
@@ -42,14 +42,14 @@ func TestRepoConfigAddRemoveSave(t *testing.T) {
 }
 
 func TestResolveIndex(t *testing.T) {
-	cfg := &RepoConfig{Repos: map[string]string{"foo": "https://x/y.yaml"}}
-	if got := ResolveIndex("foo", cfg); got != "https://x/y.yaml" {
-		t.Fatalf("resolve short failed: %s", got)
+	cfg := &RepoConfig{Repos: map[string]Repository{"foo": {Type: RepositoryTypeRemoteGit, URL: "https://x/y.yaml"}}}
+	if got := ResolveIndex("foo", cfg); got.URL != "https://x/y.yaml" {
+		t.Fatalf("resolve short failed: %s", got.URL)
 	}
-	if got := ResolveIndex("https://z/index.yaml", cfg); got != "https://z/index.yaml" {
-		t.Fatalf("resolve passthrough failed: %s", got)
+	if got := ResolveIndex("https://z/index.yaml", cfg); got.URL != "https://z/index.yaml" {
+		t.Fatalf("resolve passthrough failed: %s", got.URL)
 	}
-	if got := ResolveIndex("", cfg); got == "" {
+	if got := ResolveIndex("", cfg); got.URL == "" {
 		t.Fatalf("empty resolve returned empty")
 	}
 }
@@ -96,7 +96,7 @@ func TestDefaultRepoConfigPath_EnvOverride(t *testing.T) {
 
 func TestRepoConfig_RemoveResetsDefaults(t *testing.T) {
 	t.Parallel()
-	cfg := &RepoConfig{Repos: map[string]string{"test": "http://test.com"}}
+	cfg := &RepoConfig{Repos: map[string]Repository{"test": {Type: RepositoryTypeRemoteGit, URL: "http://test.com"}}}
 	cfg.Remove("test")
 	// Defaults should be re-added
 	if _, ok := cfg.Repos[DefaultRepoName]; !ok {

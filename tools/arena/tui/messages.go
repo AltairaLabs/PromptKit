@@ -26,11 +26,6 @@ type RunFailedMsg struct {
 	Time  time.Time
 }
 
-// ShowSummaryMsg is sent when execution completes and the final summary should be displayed.
-type ShowSummaryMsg struct {
-	Summary *Summary
-}
-
 // TurnStartedMsg is sent when a turn starts.
 type TurnStartedMsg struct {
 	RunID     string

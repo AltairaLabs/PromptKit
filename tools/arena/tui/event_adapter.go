@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/logging"
 )
 
 // EventAdapter converts runtime events to bubbletea messages.
@@ -144,7 +145,7 @@ func (a *EventAdapter) HandleEvent(event *events.Event) {
 }
 
 func (a *EventAdapter) logf(level string, event *events.Event, format string, args ...interface{}) tea.Msg {
-	return LogMsg{
+	return logging.Msg{
 		Timestamp: event.Timestamp,
 		Level:     level,
 		Message:   fmt.Sprintf(format, args...),

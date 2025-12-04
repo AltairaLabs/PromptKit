@@ -100,6 +100,7 @@ func (r *ConversationAssertionRegistry) ValidateConversation(
 	validator, err := r.Get(assertion.Type)
 	if err != nil {
 		return ConversationValidationResult{
+			Type:    assertion.Type,
 			Passed:  false,
 			Message: fmt.Sprintf("Failed to load validator: %v", err),
 			Details: map[string]interface{}{
@@ -108,7 +109,14 @@ func (r *ConversationAssertionRegistry) ValidateConversation(
 		}
 	}
 
-	return validator.ValidateConversation(ctx, convCtx, assertion.Params)
+	result := validator.ValidateConversation(ctx, convCtx, assertion.Params)
+	// Ensure Type field is always populated from the assertion config
+	result.Type = assertion.Type
+	// Use custom message from assertion config if provided
+	if assertion.Message != "" {
+		result.Message = assertion.Message
+	}
+	return result
 }
 
 // ValidateConversations evaluates multiple assertions against a conversation.

@@ -4,9 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
-	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -46,11 +44,17 @@ var templatesListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List templates from an index",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		indexPath, repoNameResolved, err := resolveIndexPath()
+		cfg, err := templates.LoadRepoConfig(repoConfigPath)
 		if err != nil {
 			return err
 		}
-		idx, err := templates.LoadIndex(indexPath)
+		repo := templates.ResolveIndex(templateIndex, cfg)
+		repoNameResolved := templateIndex
+		if repoNameResolved == "" {
+			repoNameResolved = templates.DefaultRepoName
+		}
+
+		idx, err := templates.LoadIndex(repo.URL)
 		if err != nil {
 			return err
 		}
@@ -82,23 +86,24 @@ var templatesFetchCmd = &cobra.Command{
 	Use:   "fetch",
 	Short: "Fetch a template from an index into cache",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if repo, name := splitTemplateRef(templateName); repo != "" {
-			templateIndex = repo
-			templateName = name
-		}
-		indexPath, _, err := resolveIndexPath()
+		cfg, err := templates.LoadRepoConfig(repoConfigPath)
 		if err != nil {
 			return err
 		}
-		idx, err := templates.LoadIndex(indexPath)
+		resolver := templates.NewRepoResolver(cfg)
+		ref, err := resolver.ParseTemplateRef(templateName, templateIndex)
 		if err != nil {
 			return err
 		}
-		entry, err := idx.FindEntry(templateName, templateVersion)
+		idx, err := templates.LoadIndex(ref.Repository.URL)
 		if err != nil {
 			return err
 		}
-		path, err := templates.FetchTemplate(entry, templateCache)
+		entry, err := idx.FindEntry(ref.TemplateName, templateVersion)
+		if err != nil {
+			return err
+		}
+		path, err := templates.FetchTemplate(entry, templateCache, ref.Repository.URL, ref.RepoName)
 		if err != nil {
 			return err
 		}
@@ -113,18 +118,23 @@ var templatesUpdateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Update all templates from an index into cache",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		indexPath, _, err := resolveIndexPath()
+		cfg, err := templates.LoadRepoConfig(repoConfigPath)
 		if err != nil {
 			return err
 		}
-		idx, err := templates.LoadIndex(indexPath)
+		repo := templates.ResolveIndex(templateIndex, cfg)
+		updateRepoName := templateIndex
+		if updateRepoName == "" {
+			updateRepoName = templates.DefaultRepoName
+		}
+		idx, err := templates.LoadIndex(repo.URL)
 		if err != nil {
 			return err
 		}
 		seen := 0
 		for i := range idx.Spec.Entries {
 			entry := &idx.Spec.Entries[i]
-			if _, err := templates.FetchTemplate(entry, templateCache); err != nil {
+			if _, err := templates.FetchTemplate(entry, templateCache, repo.URL, updateRepoName); err != nil {
 				return fmt.Errorf("fetch %s@%s: %w", entry.Name, entry.Version, err)
 			}
 			seen++
@@ -145,14 +155,20 @@ var templatesRenderCmd = &cobra.Command{
 			if templateName == "" {
 				return fmt.Errorf("either --template or --file is required")
 			}
-			if repo, name := splitTemplateRef(templateName); repo != "" {
-				templateIndex = repo
-				templateName = name
-			}
 			if templateVersion == "" {
 				return fmt.Errorf("--version is required when rendering from cache")
 			}
-			src = filepath.Join(templateCache, templateName, templateVersion, "template.yaml")
+			cfg, err := templates.LoadRepoConfig(repoConfigPath)
+			if err != nil {
+				return err
+			}
+			resolver := templates.NewRepoResolver(cfg)
+			ref, err := resolver.ParseTemplateRef(templateName+"@"+templateVersion, templateIndex)
+			if err != nil {
+				return err
+			}
+			src = resolver.GetCachePath(templateCache, ref)
+			templateName = ref.TemplateName // Update for error message
 		}
 		pkg, err := templates.LoadTemplatePackage(src)
 		if err != nil {
@@ -208,14 +224,14 @@ var templatesRepoListCmd = &cobra.Command{
 			return err
 		}
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), tabMinWidth, tabWidth, tabPadding, ' ', 0)
-		if _, err := fmt.Fprintln(w, "REPO\tURL"); err != nil {
+		if _, err := fmt.Fprintln(w, "REPO\tTYPE\tURL"); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintln(w, "----\t---"); err != nil {
+		if _, err := fmt.Fprintln(w, "----\t----\t---"); err != nil {
 			return err
 		}
-		for name, url := range cfg.Repos {
-			if _, err := fmt.Fprintf(w, "%s\t%s\n", name, url); err != nil {
+		for name, repo := range cfg.Repos {
+			if _, err := fmt.Fprintf(w, "%s\t%s\t%s\n", name, repo.Type, repo.URL); err != nil {
 				return err
 			}
 		}
@@ -339,31 +355,6 @@ func mergeValues(base, override map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
-}
-
-func resolveIndexPath() (indexPath, repoName string, err error) {
-	cfg, err := templates.LoadRepoConfig(repoConfigPath)
-	if err != nil {
-		return "", "", err
-	}
-	path := templates.ResolveIndex(templateIndex, cfg)
-	name := ""
-	if cfg != nil {
-		if _, ok := cfg.Repos[templateIndex]; ok {
-			name = templateIndex
-		}
-	}
-	return path, name, nil
-}
-
-// splitTemplateRef parses repo/template into repo + name. If no repo is present, repo is empty.
-func splitTemplateRef(ref string) (repo, name string) {
-	const maxParts = 2
-	parts := strings.SplitN(ref, "/", maxParts)
-	if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-		return parts[0], parts[1]
-	}
-	return "", ref
 }
 
 var placeholderRegex = regexp.MustCompile(`{{\s*\.([a-zA-Z0-9_]+)\s*}}`)

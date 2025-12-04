@@ -22,15 +22,46 @@ const (
 	filePerm = 0o600
 	// DefaultGitHubIndex points to the community templates repo index.
 	DefaultGitHubIndex = "https://raw.githubusercontent.com/AltairaLabs/promptkit-templates/main/index.yaml"
+
+	httpPrefix  = "http://"
+	httpsPrefix = "https://"
 )
 
 // DefaultIndex is the index location used for remote loads (overridable in tests).
 var DefaultIndex = DefaultGitHubIndex
 var defaultCacheDir string
 
+// isHTTPURL checks if a path is an HTTP or HTTPS URL
+func isHTTPURL(path string) bool {
+	return strings.HasPrefix(path, httpPrefix) || strings.HasPrefix(path, httpsPrefix)
+}
+
+// resolveSource resolves a source path relative to an index location.
+// If source is absolute (URL or absolute path), returns it unchanged.
+// If source is relative, resolves it relative to the index base.
+func resolveSource(source, indexPath string) string {
+	// Absolute URLs are returned as-is
+	if isHTTPURL(source) {
+		return source
+	}
+	// Absolute file paths are returned as-is
+	if filepath.IsAbs(source) {
+		return source
+	}
+	// Relative paths need to be resolved
+	if isHTTPURL(indexPath) {
+		// For HTTP index, resolve relative to the base URL
+		baseURL := indexPath[:strings.LastIndex(indexPath, "/")+1]
+		return baseURL + source
+	}
+	// For file index, resolve relative to the directory
+	baseDir := filepath.Dir(indexPath)
+	return filepath.Join(baseDir, source)
+}
+
 // loadBytes loads a file from disk or HTTP.
 func loadBytes(location string) ([]byte, error) {
-	if strings.HasPrefix(location, "http://") || strings.HasPrefix(location, "https://") {
+	if isHTTPURL(location) {
 		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, location, http.NoBody)
 		if err != nil {
 			return nil, fmt.Errorf("http request %s: %w", location, err)
@@ -230,21 +261,25 @@ func DefaultCacheDir() string {
 }
 
 // FetchTemplate copies the template source into cacheDir/<name>/<version>/template.yaml.
-func FetchTemplate(entry *IndexEntry, cacheDir string) (string, error) {
+// indexPath is used to resolve relative source paths.
+func FetchTemplate(entry *IndexEntry, cacheDir, indexPath, repoName string) (string, error) {
 	if entry == nil {
 		return "", fmt.Errorf("entry is nil")
 	}
 	if entry.Source == "" {
 		return "", fmt.Errorf("source missing for template %s", entry.Name)
 	}
-	data, err := loadBytes(entry.Source)
+	// Resolve relative source paths relative to the index location
+	source := resolveSource(entry.Source, indexPath)
+	data, err := loadBytes(source)
 	if err != nil {
 		return "", fmt.Errorf("load source: %w", err)
 	}
 	if err := validateChecksumBytes(data, entry.Checksum); err != nil {
 		return "", err
 	}
-	destDir := filepath.Join(cacheDir, entry.Name, entry.Version)
+	// Include repo name in cache path to prevent collisions
+	destDir := filepath.Join(cacheDir, repoName, entry.Name, entry.Version)
 	if err := os.MkdirAll(destDir, dirPerm); err != nil {
 		return "", fmt.Errorf("create cache dir: %w", err)
 	}
@@ -313,7 +348,7 @@ func resolveTemplateContent(f TemplateFile, baseDir string) (string, error) {
 	}
 
 	src := f.Source
-	if !strings.HasPrefix(src, "http://") && !strings.HasPrefix(src, "https://") && !filepath.IsAbs(src) {
+	if !isHTTPURL(src) && !filepath.IsAbs(src) {
 		src = filepath.Join(baseDir, src)
 	}
 
