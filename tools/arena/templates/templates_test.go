@@ -758,8 +758,8 @@ func TestGenerator_TemplateFromFile(t *testing.T) {
 	assert.True(t, result.Success)
 	assert.NotEmpty(t, result.FilesCreated)
 
-	// Verify arena.yaml was created from template
-	arenaPath := filepath.Join(tempDir, "test-project", "arena.yaml")
+	// Verify config.arena.yaml was created from template
+	arenaPath := filepath.Join(tempDir, "test-project", "config.arena.yaml")
 	assert.FileExists(t, arenaPath)
 
 	content, err := os.ReadFile(arenaPath)
@@ -1319,7 +1319,7 @@ func TestLoader_LoadBuiltIn_CustomerSupport(t *testing.T) {
 	for _, f := range tmpl.Spec.Files {
 		filePaths[f.Path] = true
 	}
-	assert.True(t, filePaths["arena.yaml"], "should generate arena.yaml")
+	assert.True(t, filePaths["config.arena.yaml"], "should generate config.arena.yaml")
 	assert.True(t, filePaths["README.md"], "should generate README.md")
 
 	// Verify examples
@@ -1364,7 +1364,7 @@ func TestLoader_LoadBuiltIn_CodeAssistant(t *testing.T) {
 	for _, f := range tmpl.Spec.Files {
 		filePaths[f.Path] = true
 	}
-	assert.True(t, filePaths["arena.yaml"], "should generate arena.yaml")
+	assert.True(t, filePaths["config.arena.yaml"], "should generate config.arena.yaml")
 	assert.True(t, filePaths["README.md"], "should generate README.md")
 }
 
@@ -1401,7 +1401,7 @@ func TestLoader_LoadBuiltIn_ContentGeneration(t *testing.T) {
 	for _, f := range tmpl.Spec.Files {
 		filePaths[f.Path] = true
 	}
-	assert.True(t, filePaths["arena.yaml"], "should generate arena.yaml")
+	assert.True(t, filePaths["config.arena.yaml"], "should generate config.arena.yaml")
 	assert.True(t, filePaths["README.md"], "should generate README.md")
 }
 
@@ -1438,7 +1438,7 @@ func TestLoader_LoadBuiltIn_Multimodal(t *testing.T) {
 	for _, f := range tmpl.Spec.Files {
 		filePaths[f.Path] = true
 	}
-	assert.True(t, filePaths["arena.yaml"], "should generate arena.yaml")
+	assert.True(t, filePaths["config.arena.yaml"], "should generate config.arena.yaml")
 	assert.True(t, filePaths["README.md"], "should generate README.md")
 }
 
@@ -1475,7 +1475,7 @@ func TestLoader_LoadBuiltIn_MCPIntegration(t *testing.T) {
 	for _, f := range tmpl.Spec.Files {
 		filePaths[f.Path] = true
 	}
-	assert.True(t, filePaths["arena.yaml"], "should generate arena.yaml")
+	assert.True(t, filePaths["config.arena.yaml"], "should generate config.arena.yaml")
 	assert.True(t, filePaths["README.md"], "should generate README.md")
 }
 

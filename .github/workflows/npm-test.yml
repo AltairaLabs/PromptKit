@@ -48,9 +48,9 @@ jobs:
       - name: Copy binary to npm package
         shell: bash
         run: |
-          mkdir -p npm/promptarena/bin
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            cp bin/promptarena.exe npm/promptarena/promptarena.exe || cp bin/promptarena npm/promptarena/promptarena
+            # On Windows, Go builds with .exe extension
+            cp bin/promptarena.exe npm/promptarena/promptarena.exe
           else
             cp bin/promptarena npm/promptarena/promptarena
             chmod +x npm/promptarena/promptarena
