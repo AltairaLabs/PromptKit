@@ -7,19 +7,19 @@ metadata:
 spec:
   prompt_configs:
     - id: code-generator
-      file: prompts/code-generator.yaml
+      file: prompts/code-generator.prompt.yaml
     - id: code-reviewer
-      file: prompts/code-reviewer.yaml
+      file: prompts/code-reviewer.prompt.yaml
 
   providers:
     {{- range .providers}}
-    - file: providers/{{.}}.yaml
+    - file: providers/{{.}}.provider.yaml
     {{- end}}
 
   scenarios:
-    - file: scenarios/code-generation.yaml
-    - file: scenarios/code-review.yaml
-    - file: scenarios/bug-fixing.yaml
+    - file: scenarios/code-generation.scenario.yaml
+    - file: scenarios/code-review.scenario.yaml
+    - file: scenarios/bug-fixing.scenario.yaml
 
   defaults:
     temperature: 0.3

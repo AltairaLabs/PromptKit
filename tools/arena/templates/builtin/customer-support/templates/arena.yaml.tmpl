@@ -7,21 +7,21 @@ metadata:
 spec:
   prompt_configs:
     - id: support-agent
-      file: prompts/support-agent.yaml
+      file: prompts/support-agent.prompt.yaml
 
   providers:
     {{- range .providers}}
-    - file: providers/{{.}}.yaml
+    - file: providers/{{.}}.provider.yaml
     {{- end}}
 
   scenarios:
-    - file: scenarios/basic-support.yaml
-    - file: scenarios/product-inquiry.yaml
-    - file: scenarios/complaint-handling.yaml
+    - file: scenarios/basic-support.scenario.yaml
+    - file: scenarios/product-inquiry.scenario.yaml
+    - file: scenarios/complaint-handling.scenario.yaml
 {{if .include_tools}}
   tools:
-    - file: tools/search-knowledge-base.yaml
-    - file: tools/check-order-status.yaml
+    - file: tools/search-knowledge-base.tool.yaml
+    - file: tools/check-order-status.tool.yaml
 {{end}}
   defaults:
     temperature: 0.7

@@ -7,16 +7,16 @@ metadata:
 spec:
   prompt_configs:
     - id: mcp-assistant
-      file: prompts/mcp-assistant.yaml
+      file: prompts/mcp-assistant.prompt.yaml
 
   providers:
     {{- range .providers}}
-    - file: providers/{{.}}.yaml
+    - file: providers/{{.}}.provider.yaml
     {{- end}}
 
   scenarios:
-    - file: scenarios/mcp-basic.yaml
-    - file: scenarios/mcp-multi-tool.yaml
+    - file: scenarios/mcp-basic.scenario.yaml
+    - file: scenarios/mcp-multi-tool.scenario.yaml
 
   # Example MCP server configurations
   # Uncomment and configure based on your needs

@@ -84,15 +84,20 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == '20'
         shell: bash
         run: |
-          # Use the mock provider example which doesn't need API keys
-          EXAMPLE_DIR="$GITHUB_WORKSPACE/examples/mock-config-example"
+          # Test running the project created by init
+          TEMP_DIR=$(mktemp -d)
           BINARY_PATH="$GITHUB_WORKSPACE/bin/promptarena"
-          cd "$EXAMPLE_DIR"
-          "$BINARY_PATH" run --config mock-config-example.yaml
           
-          # Verify output was generated
-          if [ ! -f "out/report.html" ]; then
-            echo "❌ Expected report.html to be generated"
+          cd "$TEMP_DIR"
+          "$BINARY_PATH" init test-project --quick
+          cd test-project
+          
+          # Run the project
+          "$BINARY_PATH" run --ci
+          
+          # Verify output was generated (report file has timestamp, so check for any HTML file)
+          if ! ls out/report-*.html 1> /dev/null 2>&1; then
+            echo "❌ Expected HTML report to be generated in out/"
             exit 1
           fi
           

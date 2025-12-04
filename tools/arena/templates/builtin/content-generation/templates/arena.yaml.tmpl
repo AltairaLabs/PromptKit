@@ -7,19 +7,19 @@ metadata:
 spec:
   prompt_configs:
     - id: blog-writer
-      file: prompts/blog-writer.yaml
+      file: prompts/blog-writer.prompt.yaml
     - id: marketing-copy
-      file: prompts/marketing-copy.yaml
+      file: prompts/marketing-copy.prompt.yaml
 
   providers:
     {{- range .providers}}
-    - file: providers/{{.}}.yaml
+    - file: providers/{{.}}.provider.yaml
     {{- end}}
 
   scenarios:
-    - file: scenarios/blog-post.yaml
-    - file: scenarios/product-description.yaml
-    - file: scenarios/social-media.yaml
+    - file: scenarios/blog-post.scenario.yaml
+    - file: scenarios/product-description.scenario.yaml
+    - file: scenarios/social-media.scenario.yaml
 
   defaults:
     temperature: 0.8

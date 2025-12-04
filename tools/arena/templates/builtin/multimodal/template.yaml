@@ -38,20 +38,20 @@ spec:
       default: true
       
   files:
-    - path: "arena.yaml"
+    - path: "config.arena.yaml"
       template: "templates/arena.yaml.tmpl"
       
-    - path: "prompts/vision-analyst.yaml"
+    - path: "prompts/vision-analyst.prompt.yaml"
       template: "templates/prompt-vision.yaml.tmpl"
       
-    - path: "providers/{{.provider}}.yaml"
+    - path: "providers/{{.provider}}.provider.yaml"
       template: "templates/provider.yaml.tmpl"
       foreach: "providers"
       
-    - path: "scenarios/image-analysis.yaml"
+    - path: "scenarios/image-analysis.scenario.yaml"
       template: "templates/scenario-image.yaml.tmpl"
       
-    - path: "scenarios/image-comparison.yaml"
+    - path: "scenarios/image-comparison.scenario.yaml"
       template: "templates/scenario-comparison.yaml.tmpl"
       
     - path: "media/README.md"

@@ -38,26 +38,26 @@ spec:
       default: true
       
   files:
-    - path: "arena.yaml"
+    - path: "config.arena.yaml"
       template: "templates/arena.yaml.tmpl"
       
-    - path: "prompts/blog-writer.yaml"
+    - path: "prompts/blog-writer.prompt.yaml"
       template: "templates/prompt-blog.yaml.tmpl"
       
-    - path: "prompts/marketing-copy.yaml"
+    - path: "prompts/marketing-copy.prompt.yaml"
       template: "templates/prompt-marketing.yaml.tmpl"
       
-    - path: "providers/{{.provider}}.yaml"
+    - path: "providers/{{.provider}}.provider.yaml"
       template: "templates/provider.yaml.tmpl"
       foreach: "providers"
       
-    - path: "scenarios/blog-post.yaml"
+    - path: "scenarios/blog-post.scenario.yaml"
       template: "templates/scenario-blog.yaml.tmpl"
       
-    - path: "scenarios/product-description.yaml"
+    - path: "scenarios/product-description.scenario.yaml"
       template: "templates/scenario-product.yaml.tmpl"
       
-    - path: "scenarios/social-media.yaml"
+    - path: "scenarios/social-media.scenario.yaml"
       template: "templates/scenario-social.yaml.tmpl"
       
     - path: ".env"
