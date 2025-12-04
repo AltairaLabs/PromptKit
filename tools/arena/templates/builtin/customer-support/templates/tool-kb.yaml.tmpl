@@ -17,21 +17,27 @@ spec:
     required:
       - query
   
-  handler:
-    type: mock
-    config:
-      response: |
-        {
-          "results": [
-            {
-              "title": "Premium Subscription Features",
-              "content": "Premium subscription includes: unlimited access, priority support, advanced analytics, and API access.",
-              "relevance": 0.95
-            },
-            {
-              "title": "Pricing Plans",
-              "content": "Premium plan is $29/month or $290/year (save 16%). Enterprise plans available on request.",
-              "relevance": 0.87
-            }
-          ]
-        }
+  output_schema:
+    type: object
+    properties:
+      results:
+        type: array
+        items:
+          type: object
+          properties:
+            title:
+              type: string
+            content:
+              type: string
+            relevance:
+              type: number
+  
+  mode: mock
+  mock_result:
+    results:
+      - title: "Premium Subscription Features"
+        content: "Premium subscription includes: unlimited access, priority support, advanced analytics, and API access."
+        relevance: 0.95
+      - title: "Pricing Plans"
+        content: "Premium plan is $29/month or $290/year (save 16%). Enterprise plans available on request."
+        relevance: 0.87

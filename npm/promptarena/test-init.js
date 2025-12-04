@@ -74,10 +74,10 @@ async function testInitCommand() {
     console.log(`✓ Project initialized at ${projectDir}`);
 
     // Step 2: Test validate command (dry run without API calls)
-    console.log('\n2. Running: promptarena validate arena.yaml');
+    console.log('\n2. Running: promptarena validate config.arena.yaml');
     const { stdout: validateOutput } = await runCommand(
       'node',
-      [join(process.cwd(), 'bin', 'promptarena.js'), 'validate', 'arena.yaml', '--schema-only'],
+      [join(process.cwd(), 'bin', 'promptarena.js'), 'validate', 'config.arena.yaml', '--schema-only'],
       projectDir
     );
     console.log(validateOutput);

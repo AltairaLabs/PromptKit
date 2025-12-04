@@ -60,48 +60,14 @@ jobs:
         working-directory: npm/promptarena
         run: npm run test:init
       
-      - name: Test Getting Started flow (with mock provider)
+      - name: Test Getting Started flow
         shell: bash
-        run: |
-          # Create temp directory
-          TEMP_DIR=$(mktemp -d)
-          echo "Testing in: $TEMP_DIR"
-          
-          # Save binary path
-          BINARY_PATH="$GITHUB_WORKSPACE/bin/promptarena"
-          
-          # Test init
-          cd "$TEMP_DIR"
-          "$BINARY_PATH" init test-project --quick
-          cd test-project
-          
-          # Validate config
-          "$BINARY_PATH" validate arena.yaml --schema-only
-          
-          echo "✅ Getting Started flow works!"
+        run: make test-getting-started
       
-      - name: Test with actual run (mock provider)
+      - name: Test all built-in templates
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == '20'
         shell: bash
-        run: |
-          # Test running the project created by init
-          TEMP_DIR=$(mktemp -d)
-          BINARY_PATH="$GITHUB_WORKSPACE/bin/promptarena"
-          
-          cd "$TEMP_DIR"
-          "$BINARY_PATH" init test-project --quick
-          cd test-project
-          
-          # Run the project
-          "$BINARY_PATH" run --ci
-          
-          # Verify output was generated (report file has timestamp, so check for any HTML file)
-          if ! ls out/report-*.html 1> /dev/null 2>&1; then
-            echo "❌ Expected HTML report to be generated in out/"
-            exit 1
-          fi
-          
-          echo "✅ Mock provider test passed!"
+        run: make test-templates
 
   test-package-installation:
     name: Test npm package installation
