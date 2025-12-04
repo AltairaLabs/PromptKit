@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -27,7 +28,7 @@ const (
 const (
 	conversationListWidth        = 40
 	conversationPanelPadding     = 1
-	conversationPanelGap         = 2
+	conversationPanelGap         = 1
 	conversationPanelHorizontal  = 2
 	conversationSnippetMaxLength = 60
 	conversationDetailWidthPad   = 6
@@ -40,6 +41,9 @@ const (
 	conversationContentPadding   = 20
 	conversationArgsIndent       = 4
 	conversationResultIndent     = 2
+	scrollPercentThreshold       = 0.01
+	scrollPercentMultiplier      = 100
+	markdownExtraWidthPadding    = 4
 )
 
 // ConversationPanel encapsulates the conversation view state (table + detail).
@@ -58,6 +62,11 @@ type ConversationPanel struct {
 	scenario string
 	provider string
 	res      *statestore.RunResult
+
+	// Cache for glamour rendering
+	renderer         *glamour.TermRenderer
+	renderedCache    map[int]string // map[turnIndex]renderedContent
+	lastContentWidth int
 }
 
 // NewConversationPanel creates an empty conversation panel with defaults.
@@ -65,6 +74,7 @@ func NewConversationPanel() *ConversationPanel {
 	return &ConversationPanel{
 		focus:           focusConversationTurns,
 		selectedTurnIdx: 0,
+		renderedCache:   make(map[int]string),
 	}
 }
 
@@ -77,6 +87,9 @@ func (c *ConversationPanel) Reset() {
 	c.table = table.Model{}
 	c.detail = viewport.Model{}
 	c.focus = focusConversationTurns
+	c.renderedCache = make(map[int]string)
+	c.renderer = nil
+	c.lastContentWidth = 0
 }
 
 // SetDimensions sets layout constraints.
@@ -148,22 +161,39 @@ func (c *ConversationPanel) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	}
 
-	if km, ok := msg.(tea.KeyMsg); ok && km.Type == tea.KeyTab {
-		if c.focus == focusConversationTurns {
-			c.focus = focusConversationDetail
-			c.table.Blur()
-		} else {
-			c.focus = focusConversationTurns
-			c.table.Focus()
-		}
+	if cmd := c.handleKeyMsg(msg); cmd != nil {
+		return cmd
+	}
+
+	return c.updateFocusedPanel(msg)
+}
+
+func (c *ConversationPanel) handleKeyMsg(msg tea.Msg) tea.Cmd {
+	km, ok := msg.(tea.KeyMsg)
+	if !ok {
 		return nil
 	}
 
+	switch km.String() {
+	case "right", "l":
+		if c.focus == focusConversationTurns {
+			c.focus = focusConversationDetail
+			c.table.Blur()
+			return tea.Batch()
+		}
+	case "left", "h":
+		if c.focus == focusConversationDetail {
+			c.focus = focusConversationTurns
+			c.table.Focus()
+			return tea.Batch()
+		}
+	}
+	return nil
+}
+
+func (c *ConversationPanel) updateFocusedPanel(msg tea.Msg) tea.Cmd {
 	if c.focus == focusConversationTurns && c.tableReady {
-		var cmd tea.Cmd
-		c.table, cmd = c.table.Update(msg)
-		c.selectedTurnIdx = c.table.Cursor()
-		return cmd
+		return c.updateTablePanel(msg)
 	}
 
 	if c.focus == focusConversationDetail && c.detailReady {
@@ -173,6 +203,19 @@ func (c *ConversationPanel) Update(msg tea.Msg) tea.Cmd {
 	}
 
 	return nil
+}
+
+func (c *ConversationPanel) updateTablePanel(msg tea.Msg) tea.Cmd {
+	oldCursor := c.selectedTurnIdx
+	var cmd tea.Cmd
+	c.table, cmd = c.table.Update(msg)
+	c.selectedTurnIdx = c.table.Cursor()
+
+	// Reset viewport scroll position when cursor moves to a new message
+	if oldCursor != c.selectedTurnIdx && c.detailReady {
+		c.detail.GotoTop()
+	}
+	return cmd
 }
 
 // View renders the conversation panel.
@@ -188,8 +231,26 @@ func (c *ConversationPanel) View() string {
 	c.updateTable(c.res)
 	c.updateDetail(c.res)
 
+	title := c.buildTitle()
+	tableView := c.buildTableView()
+	detailView := c.buildDetailView()
+
+	content := lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		tableView,
+		strings.Repeat(" ", conversationPanelGap),
+		detailView,
+	)
+
+	return lipgloss.NewStyle().
+		Padding(conversationPanelPadding, conversationPanelHorizontal).
+		Render(lipgloss.JoinVertical(lipgloss.Left, title, content))
+}
+
+func (c *ConversationPanel) buildTitle() string {
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(theme.ColorSky))
 	titleText := "🧭 Conversation"
+
 	if c.scenario != "" || c.provider != "" {
 		parts := []string{}
 		if c.scenario != "" {
@@ -200,20 +261,91 @@ func (c *ConversationPanel) View() string {
 		}
 		titleText = fmt.Sprintf("%s • %s", titleText, strings.Join(parts, " / "))
 	}
-	title := titleStyle.Render(titleText)
 
-	content := lipgloss.JoinHorizontal(
-		lipgloss.Top,
-		c.table.View(),
-		strings.Repeat(" ", conversationPanelGap),
-		c.detail.View(),
-	)
+	return titleStyle.Render(titleText)
+}
+
+func (c *ConversationPanel) getBorderColors() (tableBorderColor, detailBorderColor lipgloss.Color) {
+	tableBorderColor = theme.BorderColorUnfocused()
+	detailBorderColor = theme.BorderColorUnfocused()
+
+	switch c.focus {
+	case focusConversationTurns:
+		tableBorderColor = theme.BorderColorFocused()
+	case focusConversationDetail:
+		detailBorderColor = theme.BorderColorFocused()
+	}
+
+	return
+}
+
+func (c *ConversationPanel) buildTableView() string {
+	tableBorderColor, _ := c.getBorderColors()
 
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(theme.ColorLightBlue)).
-		Padding(conversationPanelPadding, conversationPanelHorizontal).
-		Render(lipgloss.JoinVertical(lipgloss.Left, title, content))
+		BorderForeground(tableBorderColor).
+		Render(c.table.View())
+}
+
+func (c *ConversationPanel) buildDetailView() string {
+	_, detailBorderColor := c.getBorderColors()
+	detailContent := c.detail.View()
+
+	if c.detailReady {
+		detailContent = c.addScrollIndicators(detailContent)
+	}
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(detailBorderColor).
+		Render(detailContent)
+}
+
+func (c *ConversationPanel) addScrollIndicators(content string) string {
+	isScrollable := c.detail.TotalLineCount() > c.detail.Height
+	if !isScrollable {
+		return content
+	}
+
+	scrollPercent := c.detail.ScrollPercent()
+	viewLines := strings.Split(content, "\n")
+	if len(viewLines) == 0 {
+		return content
+	}
+
+	viewportWidth := c.calculateViewportWidth()
+	indicatorStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.ColorLightGray)).
+		Italic(true)
+
+	// Add top indicator if not at top
+	if scrollPercent > scrollPercentThreshold {
+		topIndicator := indicatorStyle.Render(fmt.Sprintf("[↑ %.0f%%]", scrollPercent*scrollPercentMultiplier))
+		viewLines[0] = lipgloss.NewStyle().
+			Width(viewportWidth).
+			Align(lipgloss.Right).
+			Render(topIndicator)
+	}
+
+	// Add bottom indicator if not at bottom
+	if scrollPercent < 0.99 && len(viewLines) > 1 {
+		bottomIndicator := indicatorStyle.Render(fmt.Sprintf("[↓ %.0f%%]", scrollPercent*scrollPercentMultiplier))
+		viewLines[len(viewLines)-1] = lipgloss.NewStyle().
+			Width(viewportWidth).
+			Align(lipgloss.Right).
+			Render(bottomIndicator)
+	}
+
+	return strings.Join(viewLines, "\n")
+}
+
+func (c *ConversationPanel) calculateViewportWidth() int {
+	viewportWidth := c.width - conversationListWidth - conversationPanelGap - conversationDetailWidthPad
+	if viewportWidth < conversationDetailMinWidth {
+		viewportWidth = conversationDetailMinWidth
+	}
+	return viewportWidth
 }
 
 // updateTable updates the conversation table with messages from result.
@@ -275,8 +407,7 @@ func (c *ConversationPanel) updateDetail(res *statestore.RunResult) {
 		height = conversationDetailMinHeight
 	}
 
-	footer := c.renderDetailFooter()
-	content := strings.Join(append(lines, "", footer), "\n")
+	content := strings.Join(lines, "\n")
 	c.detail.Width = width
 	c.detail.Height = height
 	c.detail.SetContent(content)
@@ -284,61 +415,128 @@ func (c *ConversationPanel) updateDetail(res *statestore.RunResult) {
 }
 
 func (c *ConversationPanel) buildDetailLines(res *statestore.RunResult, msg *types.Message) []string {
-	lines := []string{c.renderDetailHeader(res, c.selectedTurnIdx, msg), ""}
-	c.appendToolCallLines(&lines, msg)
-	c.appendToolResultLines(&lines, msg)
+	// Build markdown content
+	var md strings.Builder
 
-	c.appendContentLines(&lines, msg)
-	c.appendValidationLines(&lines, msg)
+	// Add header (not markdown, keep styled)
+	header := c.renderDetailHeader(res, c.selectedTurnIdx, msg)
+
+	// Build markdown content for the body
+	c.appendToolCallsMarkdown(&md, msg)
+	c.appendToolResultMarkdown(&md, msg)
+	c.appendContentMarkdown(&md, msg)
+	c.appendValidationsMarkdown(&md, msg)
+
+	// Render the markdown content
+	renderedBody := c.renderMarkdown(md.String())
+
+	// Combine header with rendered body
+	lines := []string{header, ""}
+	if renderedBody != "" {
+		lines = append(lines, renderedBody)
+	}
 	return lines
 }
 
-func (c *ConversationPanel) appendToolCallLines(lines *[]string, msg *types.Message) {
+func (c *ConversationPanel) renderMarkdown(content string) string {
+	if content == "" {
+		return ""
+	}
+
+	// Calculate available width
+	contentWidth := c.width - conversationListWidth - conversationPanelGap -
+		conversationDetailWidthPad - markdownExtraWidthPadding
+	if contentWidth < conversationDetailMinWidth {
+		contentWidth = conversationDetailMinWidth
+	}
+
+	// Check cache
+	if cached, ok := c.renderedCache[c.selectedTurnIdx]; ok && c.lastContentWidth == contentWidth {
+		return cached
+	}
+
+	// Create or recreate renderer if width changed
+	if c.renderer == nil || c.lastContentWidth != contentWidth {
+		r, err := glamour.NewTermRenderer(
+			glamour.WithStylePath("dark"),
+			glamour.WithWordWrap(contentWidth),
+		)
+		if err == nil {
+			c.renderer = r
+			c.lastContentWidth = contentWidth
+			c.renderedCache = make(map[int]string)
+		}
+	}
+
+	// Try to render with glamour
+	if c.renderer != nil {
+		renderedContent, err := c.renderer.Render(content)
+		if err == nil {
+			renderedContent = strings.TrimSpace(renderedContent)
+			c.renderedCache[c.selectedTurnIdx] = renderedContent
+			return renderedContent
+		}
+	}
+
+	// Fallback to plain content
+	return content
+}
+
+func (c *ConversationPanel) appendToolCallsMarkdown(md *strings.Builder, msg *types.Message) {
 	if len(msg.ToolCalls) == 0 {
 		return
 	}
-	*lines = append(*lines, fmt.Sprintf("Tool Calls: %d", len(msg.ToolCalls)))
-	for _, tc := range msg.ToolCalls {
-		*lines = append(*lines, fmt.Sprintf("  • %s", tc.Name))
+	fmt.Fprintf(md, "## 🔧 Tool Calls (%d)\n\n", len(msg.ToolCalls))
+	for i, tc := range msg.ToolCalls {
+		fmt.Fprintf(md, "### %d. %s\n\n", i+1, tc.Name)
 		if len(tc.Args) > 0 {
-			*lines = append(*lines, indentBlock(formatJSON(string(tc.Args)), conversationArgsIndent))
+			md.WriteString("```json\n")
+			md.WriteString(formatJSON(string(tc.Args)))
+			md.WriteString("\n```\n\n")
 		}
 	}
 }
 
-func (c *ConversationPanel) appendToolResultLines(lines *[]string, msg *types.Message) {
+func (c *ConversationPanel) appendToolResultMarkdown(md *strings.Builder, msg *types.Message) {
 	if msg.ToolResult == nil || msg.ToolResult.Name == "" {
 		return
 	}
 
-	*lines = append(*lines, fmt.Sprintf("Tool Result: %s", msg.ToolResult.Name))
+	fmt.Fprintf(md, "## ✅ Tool Result: %s\n\n", msg.ToolResult.Name)
 	if msg.ToolResult.Content != "" {
-		*lines = append(*lines, indentBlock(formatJSON(msg.ToolResult.Content), conversationResultIndent))
+		md.WriteString("```json\n")
+		md.WriteString(formatJSON(msg.ToolResult.Content))
+		md.WriteString("\n```\n\n")
 	}
 	if msg.ToolResult.Error != "" {
-		*lines = append(*lines, fmt.Sprintf("Error: %s", msg.ToolResult.Error))
+		fmt.Fprintf(md, "**Error:** %s\n\n", msg.ToolResult.Error)
 	}
 }
 
-func (c *ConversationPanel) appendContentLines(lines *[]string, msg *types.Message) {
+func (c *ConversationPanel) appendContentMarkdown(md *strings.Builder, msg *types.Message) {
 	msgContent := msg.GetContent()
-	if msgContent != "" {
-		*lines = append(*lines, "", "Message:", msgContent)
+	if msgContent == "" {
+		return
 	}
+
+	md.WriteString("## 💬 Message\n\n")
+	md.WriteString(msgContent)
+	md.WriteString("\n\n")
 }
 
-func (c *ConversationPanel) appendValidationLines(lines *[]string, msg *types.Message) {
+func (c *ConversationPanel) appendValidationsMarkdown(md *strings.Builder, msg *types.Message) {
 	if len(msg.Validations) == 0 {
 		return
 	}
-	*lines = append(*lines, "", "Validations:")
+	md.WriteString("## 🔍 Validations\n\n")
 	for _, v := range msg.Validations {
-		status := "PASS"
-		if !v.Passed {
-			status = "FAIL"
+		if v.Passed {
+			fmt.Fprintf(md, "- ✅ **PASS** - %s\n", v.ValidatorType)
+		} else {
+			fmt.Fprintf(md, "- ❌ **FAIL** - %s\n", v.ValidatorType)
 		}
-		*lines = append(*lines, fmt.Sprintf("  • [%s] %s", status, v.ValidatorType))
 	}
+	md.WriteString("\n")
 }
 
 func formatJSON(raw string) string {
@@ -347,15 +545,6 @@ func formatJSON(raw string) string {
 		return buf.String()
 	}
 	return raw
-}
-
-func indentBlock(text string, spaces int) string {
-	prefix := strings.Repeat(" ", spaces)
-	lines := strings.Split(text, "\n")
-	for i := range lines {
-		lines[i] = prefix + lines[i]
-	}
-	return strings.Join(lines, "\n")
 }
 
 func (c *ConversationPanel) renderDetailHeader(res *statestore.RunResult, idx int, msg *types.Message) string {
@@ -375,11 +564,4 @@ func (c *ConversationPanel) renderDetailHeader(res *statestore.RunResult, idx in
 		Foreground(theme.BorderColorFocused()).
 		Bold(true).
 		Render(header)
-}
-
-func (c *ConversationPanel) renderDetailFooter() string {
-	footer := "↑/↓ scroll • tab focus • esc back"
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.ColorLightGray)).
-		Render(footer)
 }

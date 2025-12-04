@@ -4,6 +4,7 @@ package pages
 import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/panels"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/views"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -42,4 +43,13 @@ func (p *ConversationPage) Update(msg tea.Msg) tea.Cmd {
 // Render renders the conversation page
 func (p *ConversationPage) Render() string {
 	return p.panel.View()
+}
+
+// GetKeyBindings returns the key bindings for this page
+func (p *ConversationPage) GetKeyBindings() []views.KeyBinding {
+	return []views.KeyBinding{
+		{Keys: "↑/↓", Description: "navigate"},
+		{Keys: "←/→ h/l", Description: "switch pane"},
+		{Keys: "esc", Description: "back"},
+	}
 }

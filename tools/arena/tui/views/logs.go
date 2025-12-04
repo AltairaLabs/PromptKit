@@ -36,11 +36,11 @@ func NewLogsView(focused bool) *LogsView {
 // Render renders the logs panel
 func (v *LogsView) Render(vp *viewport.Model, ready bool, width int) string {
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(theme.ColorSky))
-	title := titleStyle.Render("📝 Logs")
+	title := titleStyle.Render("Logs")
 
-	borderColor := lipgloss.Color(theme.ColorLightBlue)
-	if !v.focused {
-		borderColor = theme.BorderColorUnfocused()
+	borderColor := theme.BorderColorUnfocused()
+	if v.focused {
+		borderColor = theme.BorderColorFocused()
 	}
 
 	var content string

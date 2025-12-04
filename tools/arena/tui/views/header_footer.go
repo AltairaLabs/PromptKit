@@ -11,6 +11,12 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
 )
 
+// KeyBinding represents a keyboard shortcut with description
+type KeyBinding struct {
+	Keys        string // e.g., "↑/↓ j/k", "enter", "q/ctrl+c"
+	Description string // e.g., "navigate", "select file", "quit"
+}
+
 const (
 	headerProgressBarWidth = 12
 )
@@ -74,18 +80,23 @@ func (v *HeaderFooterView) RenderHeader(
 	return lipgloss.JoinVertical(lipgloss.Left, banner, infoLine)
 }
 
-// RenderFooter renders the bottom help text
-func (v *HeaderFooterView) RenderFooter(isConversationPage bool) string {
-	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.ColorLightGray)).Italic(true)
-	items := []string{"q: quit"}
+// RenderFooter renders the bottom help text with dynamic key bindings
+func (v *HeaderFooterView) RenderFooter(keyBindings []KeyBinding) string {
+	legendStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("240")).
+		Background(lipgloss.Color("235")).
+		Padding(0, 1)
 
-	if isConversationPage {
-		items = append(items, "esc: back", "tab: focus turns/detail", "↑/↓: navigate")
-	} else {
-		items = append(items, "tab: focus runs/logs", "enter: open conversation", "↑/↓: navigate")
+	keyStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("12")).
+		Bold(true)
+
+	var helpItems []string
+	for _, kb := range keyBindings {
+		helpItems = append(helpItems, keyStyle.Render(kb.Keys)+" "+kb.Description)
 	}
 
-	return helpStyle.Render(strings.Join(items, "  •  "))
+	return legendStyle.Render(strings.Join(helpItems, " • "))
 }
 
 // buildProgressBar creates a text-based progress bar

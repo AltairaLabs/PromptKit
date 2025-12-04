@@ -9,7 +9,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"golang.org/x/term"
 
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
@@ -43,6 +42,7 @@ type pane int
 const (
 	paneRuns pane = iota
 	paneLogs
+	paneResult
 )
 
 type page int
@@ -351,37 +351,47 @@ func (m *Model) View() string {
 		return ""
 	}
 
-	if m.width == 0 || m.height == 0 {
-		return "Loading..."
-	}
-
 	elapsed := time.Since(m.startTime).Truncate(time.Second)
 
-	// Calculate available height for content area
-	// Subtract: header (2) + footer (1) + separators around body (2) = 5 lines
-	contentHeight := m.height - 5
-	if contentHeight < 15 {
-		contentHeight = 15 // Minimum usable height
+	// Get key bindings based on current page
+	var keyBindings []views.KeyBinding
+	if m.currentPage == pageConversation {
+		keyBindings = []views.KeyBinding{
+			{Keys: "q", Description: "quit"},
+			{Keys: "esc", Description: "back"},
+			{Keys: "tab", Description: "focus turns/detail"},
+			{Keys: "↑/↓", Description: "navigate"},
+		}
+	} else {
+		keyBindings = []views.KeyBinding{
+			{Keys: "q", Description: "quit"},
+			{Keys: "tab", Description: "cycle focus"},
+			{Keys: "enter", Description: "open conversation"},
+			{Keys: "↑/↓", Description: "navigate/scroll"},
+		}
 	}
 
-	// Use new HeaderFooterView
-	headerView := views.NewHeaderFooterView(m.width)
-	header := headerView.RenderHeader(m.configFile, m.completedCount, m.totalRuns, elapsed)
-
-	var body string
-	switch m.currentPage {
-	case pageConversation:
-		body = m.renderConversationPage(contentHeight)
-	case pageMain:
-		body = m.renderMainPage(contentHeight)
-	default:
-		body = m.renderMainPage(contentHeight)
-	}
-
-	// Use new HeaderFooterView
-	footer := headerView.RenderFooter(m.currentPage == pageConversation)
-
-	return lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", footer)
+	return views.RenderWithChrome(
+		views.ChromeConfig{
+			Width:          m.width,
+			Height:         m.height,
+			ConfigFile:     m.configFile,
+			CompletedCount: m.completedCount,
+			TotalRuns:      m.totalRuns,
+			Elapsed:        elapsed,
+			KeyBindings:    keyBindings,
+		},
+		func(contentHeight int) string {
+			switch m.currentPage {
+			case pageConversation:
+				return m.renderConversationPage(contentHeight)
+			case pageMain:
+				return m.renderMainPage(contentHeight)
+			default:
+				return m.renderMainPage(contentHeight)
+			}
+		},
+	)
 }
 
 func (m *Model) renderMainPage(contentHeight int) string {
@@ -396,6 +406,8 @@ func (m *Model) renderMainPage(contentHeight int) string {
 		focusedPanel = "runs"
 	case paneLogs:
 		focusedPanel = "logs"
+	case paneResult:
+		focusedPanel = "result"
 	}
 
 	// Get result data for highlighted run (cursor position)
@@ -529,11 +541,29 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) handleMainPageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.KeyTab {
-		if m.activePane == paneRuns {
+		switch m.activePane {
+		case paneRuns:
 			m.activePane = paneLogs
+			m.mainPage.SetFocusedPanel("logs")
 			m.mainPage.RunsPanel().SetFocus(false)
-		} else {
+			if m.mainPage.LogsPanel() != nil {
+				m.mainPage.LogsPanel().SetFocus(true)
+			}
+		case paneLogs:
+			m.activePane = paneResult
+			m.mainPage.SetFocusedPanel("result")
+			if m.mainPage.LogsPanel() != nil {
+				m.mainPage.LogsPanel().SetFocus(false)
+			}
+			if m.mainPage.ResultPanel() != nil {
+				m.mainPage.ResultPanel().SetFocus(true)
+			}
+		case paneResult:
 			m.activePane = paneRuns
+			m.mainPage.SetFocusedPanel("runs")
+			if m.mainPage.ResultPanel() != nil {
+				m.mainPage.ResultPanel().SetFocus(false)
+			}
 			m.mainPage.RunsPanel().SetFocus(true)
 		}
 		return m, nil
@@ -555,6 +585,17 @@ func (m *Model) handleMainPageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		viewport := m.mainPage.LogsPanel().Viewport()
 		*viewport, cmd = viewport.Update(msg)
+		return m, cmd
+	}
+
+	if m.activePane == paneResult {
+		var cmd tea.Cmd
+		if m.mainPage.ResultPanel() != nil {
+			viewport := m.mainPage.ResultPanel().Viewport()
+			if viewport != nil {
+				*viewport, cmd = viewport.Update(msg)
+			}
+		}
 		return m, cmd
 	}
 

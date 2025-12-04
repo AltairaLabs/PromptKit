@@ -50,33 +50,47 @@ func (p *MainPage) SetData(runs []panels.RunInfo, logs []panels.LogEntry, focuse
 //
 //nolint:mnd // Layout calculation constants
 func (p *MainPage) Render() string {
-	// The runs panel calculates its table height as height/3 and adds chrome
-	// (title + border + padding). So actual runs panel height ≈ (height/3) + chrome
-	// We need to give the bottom panels the remaining space
-	runsTableHeight := p.height / 3
-	runsPanelChrome := 0 // title + border + padding
-	runsActualHeight := runsTableHeight + runsPanelChrome
-	bottomHeight := (p.height - runsActualHeight) + 8 // Add 4 lines for bottom panels
-	if bottomHeight < 10 {
-		bottomHeight = 10
+	// Minimum heights for proper display
+	const minBottomHeight = 10
+	const runsPanelChrome = 5 // border (2) + padding (2) + title (1)
+	const minRunsTableHeight = 3
+
+	// Calculate desired runs table height (height/3) but ensure bottom panels get their minimum first
+	desiredRunsTableHeight := p.height / 3
+	maxRunsActualHeight := p.height - minBottomHeight
+	maxRunsTableHeight := maxRunsActualHeight - runsPanelChrome
+
+	// Use the smaller of desired or max available, but at least the minimum
+	runsTableHeight := desiredRunsTableHeight
+	if runsTableHeight > maxRunsTableHeight {
+		runsTableHeight = maxRunsTableHeight
+	}
+	if runsTableHeight < minRunsTableHeight {
+		runsTableHeight = minRunsTableHeight
 	}
 
-	// Update runs panel with full width
-	p.runsPanel.Update(p.runs, p.width, p.height)
+	runsActualHeight := runsTableHeight + runsPanelChrome
+	bottomHeight := p.height - runsActualHeight
+	if bottomHeight < minBottomHeight {
+		bottomHeight = minBottomHeight
+	}
 
-	// Calculate 60/40 split for logs and result
-	logsWidth := int(float64(p.width) * 0.6)
+	// Update runs panel with calculated height (not full height)
+	p.runsPanel.Update(p.runs, p.width, runsActualHeight)
+
+	// Calculate 50/50 split for logs and result
+	logsWidth := p.width / 2
 	resultWidth := p.width - logsWidth
 
 	// Update bottom panels with split dimensions and allocated height
 	p.logsPanel.Update(p.logs, logsWidth, bottomHeight)
 	p.resultPanel.Update(resultWidth, bottomHeight)
 
-	// Build bottom row with logs (60%) and result (40%) side by side
+	// Build bottom row with logs (50%) and result (50%) side by side
 	bottomRow := lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		p.logsPanel.View(p.focusedPanel == "logs"),
-		p.resultPanel.View(p.result),
+		p.resultPanel.View(p.result, p.focusedPanel == "result"),
 	)
 
 	// Stack runs on top and logs/result on bottom
@@ -100,4 +114,9 @@ func (p *MainPage) LogsPanel() *panels.LogsPanel {
 // ResultPanel returns the result panel for direct access (e.g., viewport scrolling)
 func (p *MainPage) ResultPanel() *panels.ResultPanel {
 	return p.resultPanel
+}
+
+// SetFocusedPanel updates which panel has focus
+func (p *MainPage) SetFocusedPanel(panel string) {
+	p.focusedPanel = panel
 }
