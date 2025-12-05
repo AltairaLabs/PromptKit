@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
 	"github.com/AltairaLabs/PromptKit/tools/arena/reader/filesystem"
@@ -52,6 +53,13 @@ const (
 	focusPanelResult = "result"
 )
 
+// Error overlay styling constants
+const (
+	errorOverlayPaddingHorizontal = 2
+	errorOverlayBorderPadding     = 4
+	errorOverlayMaxWidth          = 80
+)
+
 // viewerTUI manages navigation between file browser and conversation view
 type viewerTUI struct {
 	currentPage      page
@@ -62,6 +70,7 @@ type viewerTUI struct {
 	loadedResults    []*statestore.RunResult // Store loaded results for selection
 	lastCursorIndex  int                     // Track cursor position for result pane updates
 	mainPageFocus    string                  // Track which panel has focus on main page ("runs", "logs", "result")
+	lastError        error                   // Store last error for display
 	resultsDir       string
 	width            int
 	height           int
@@ -90,146 +99,245 @@ func (m *viewerTUI) Init() tea.Cmd {
 func (m *viewerTUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		return m, nil
-
+		return m.handleWindowSize(msg)
 	case pages.FileSelectedMsg:
-		// File selected - clear navigation stack and load result
-		m.pageStack = []page{} // Clear navigation history for new file
-		cmd := m.loadAndViewResult(msg.RunID, msg.Path)
-		return m, cmd
-
+		return m.handleFileSelected(msg)
 	case resultLoadedMsg:
-		// Result loaded successfully - switch to conversation view
-		result := msg.result.(*statestore.RunResult)
-		m.navigateTo(pageConversation)
-		m.conversationPage.SetData(
-			result.RunID,
-			result.ScenarioID,
-			result.ProviderID,
-			result,
-		)
-		return m, nil
-
+		return m.handleResultLoaded(msg)
 	case summaryLoadedMsg:
-		// Summary loaded - switch to main page and trigger results loading
-		m.navigateTo(pageMain)
-		// Set initial empty state while loading
-		m.mainPage.SetData([]panels.RunInfo{}, []panels.LogEntry{}, focusPanelRuns, nil)
-		// Extract run IDs from summary and trigger async loading
-		cmd := m.loadResultsFromSummary(msg.summary, msg.resultsDir)
-		return m, cmd
-
+		return m.handleSummaryLoaded(msg)
 	case resultsLoadedMsg:
-		// All results loaded - populate main page
-		m.loadedResults = msg.results // Store for selection
-		_ = m.convertResultsToViewData(msg.results)
-		// Update result pane with first result
-		m.updateResultPane(0)
-		return m, nil
-
+		return m.handleResultsLoaded(msg)
 	case resultLoadErrorMsg:
-		// TODO: Display error in UI
-		return m, nil
-
+		return m.handleResultLoadError(msg)
 	case tea.KeyMsg:
-		// Handle quit on all pages
-		if msg.String() == "q" || msg.String() == "ctrl+c" {
-			return m, tea.Quit
-		}
+		return m.handleKeyMsg(msg)
+	}
 
-		// Handle Tab on main page to cycle focus
-		if m.currentPage == pageMain && msg.String() == "tab" && m.mainPage != nil {
-			switch m.mainPageFocus {
-			case focusPanelRuns:
-				m.mainPageFocus = focusPanelLogs
-				m.mainPage.SetFocusedPanel(focusPanelLogs)
-				if m.mainPage.LogsPanel() != nil {
-					m.mainPage.LogsPanel().SetFocus(true)
-				}
-				if m.mainPage.RunsPanel() != nil {
-					m.mainPage.RunsPanel().SetFocus(false)
-				}
-			case focusPanelLogs:
-				m.mainPageFocus = focusPanelResult
-				m.mainPage.SetFocusedPanel(focusPanelResult)
-				if m.mainPage.ResultPanel() != nil {
-					m.mainPage.ResultPanel().SetFocus(true)
-				}
-				if m.mainPage.LogsPanel() != nil {
-					m.mainPage.LogsPanel().SetFocus(false)
-				}
-			case focusPanelResult:
-				m.mainPageFocus = focusPanelRuns
-				m.mainPage.SetFocusedPanel(focusPanelRuns)
-				if m.mainPage.RunsPanel() != nil {
-					m.mainPage.RunsPanel().SetFocus(true)
-				}
-				if m.mainPage.ResultPanel() != nil {
-					m.mainPage.ResultPanel().SetFocus(false)
-				}
-			}
-			return m, nil
-		}
+	// Forward message to current page
+	return m.forwardToCurrentPage(msg)
+}
 
-		// Handle Enter on main page to open conversation
-		if m.currentPage == pageMain && msg.String() == "enter" {
-			return m.handleRunSelection()
-		}
+// handleWindowSize updates dimensions
+func (m *viewerTUI) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
+	m.width = msg.Width
+	m.height = msg.Height
+	return m, nil
+}
 
-		// Handle ESC to go back in navigation stack
-		if msg.String() == "esc" && len(m.pageStack) > 0 {
-			return m.navigateBack()
-		}
-	} // Forward message to current page
+// handleFileSelected loads the selected file
+func (m *viewerTUI) handleFileSelected(msg pages.FileSelectedMsg) (tea.Model, tea.Cmd) {
+	m.pageStack = []page{} // Clear navigation history for new file
+	cmd := m.loadAndViewResult(msg.RunID, msg.Path)
+	return m, cmd
+}
+
+// handleResultLoaded switches to conversation view with loaded result
+func (m *viewerTUI) handleResultLoaded(msg resultLoadedMsg) (tea.Model, tea.Cmd) {
+	result := msg.result.(*statestore.RunResult)
+	m.navigateTo(pageConversation)
+	m.conversationPage.SetData(
+		result.RunID,
+		result.ScenarioID,
+		result.ProviderID,
+		result,
+	)
+	return m, nil
+}
+
+// handleSummaryLoaded switches to main page and triggers results loading
+func (m *viewerTUI) handleSummaryLoaded(msg summaryLoadedMsg) (tea.Model, tea.Cmd) {
+	m.navigateTo(pageMain)
+	m.mainPage.SetData([]panels.RunInfo{}, []panels.LogEntry{}, focusPanelRuns, nil)
+	cmd := m.loadResultsFromSummary(msg.summary, msg.resultsDir)
+	return m, cmd
+}
+
+// handleResultsLoaded populates main page with loaded results
+func (m *viewerTUI) handleResultsLoaded(msg resultsLoadedMsg) (tea.Model, tea.Cmd) {
+	m.loadedResults = msg.results
+	m.lastError = nil // Clear any previous errors
+	_ = m.convertResultsToViewData(msg.results)
+	m.updateResultPane(0)
+	return m, nil
+}
+
+// handleResultLoadError stores error for display
+func (m *viewerTUI) handleResultLoadError(msg resultLoadErrorMsg) (tea.Model, tea.Cmd) {
+	m.lastError = msg.err
+	// Stay on current page and let View() display the error
+	return m, nil
+}
+
+// handleKeyMsg processes keyboard input
+func (m *viewerTUI) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+
+	// If error is displayed, any key dismisses it
+	if m.lastError != nil {
+		m.lastError = nil
+		return m, nil
+	}
+
+	// Global quit
+	if key == "q" || key == "ctrl+c" {
+		return m, tea.Quit
+	}
+
+	// Tab on main page cycles focus
+	if m.currentPage == pageMain && key == "tab" {
+		return m.cycleFocus()
+	}
+
+	// Enter on main page opens conversation
+	if m.currentPage == pageMain && key == "enter" {
+		return m.handleRunSelection()
+	}
+
+	// ESC goes back
+	if key == "esc" && len(m.pageStack) > 0 {
+		return m.navigateBack()
+	}
+
+	// Forward to current page
+	return m.forwardToCurrentPage(msg)
+}
+
+// cycleFocus cycles through panel focus on main page
+func (m *viewerTUI) cycleFocus() (tea.Model, tea.Cmd) {
+	if m.mainPage == nil {
+		return m, nil
+	}
+
+	nextFocus := map[string]string{
+		focusPanelRuns:   focusPanelLogs,
+		focusPanelLogs:   focusPanelResult,
+		focusPanelResult: focusPanelRuns,
+	}
+
+	m.mainPageFocus = nextFocus[m.mainPageFocus]
+	m.mainPage.SetFocusedPanel(m.mainPageFocus)
+	m.updatePanelFocus()
+	return m, nil
+}
+
+// updatePanelFocus updates focus state for all panels
+func (m *viewerTUI) updatePanelFocus() {
+	if m.mainPage == nil {
+		return
+	}
+
+	// Set focus for each panel
+	if panel := m.mainPage.RunsPanel(); panel != nil {
+		panel.SetFocus(m.mainPageFocus == focusPanelRuns)
+	}
+	if panel := m.mainPage.LogsPanel(); panel != nil {
+		panel.SetFocus(m.mainPageFocus == focusPanelLogs)
+	}
+	if panel := m.mainPage.ResultPanel(); panel != nil {
+		panel.SetFocus(m.mainPageFocus == focusPanelResult)
+	}
+}
+
+// forwardToCurrentPage forwards messages to the active page
+func (m *viewerTUI) forwardToCurrentPage(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
+
 	switch m.currentPage {
 	case pageFileBrowser:
 		_, cmd = m.fileBrowserPage.Update(msg)
 	case pageConversation:
 		cmd = m.conversationPage.Update(msg)
 	case pageMain:
-		// Forward message to focused panel
-		if m.mainPage != nil {
-			switch m.mainPageFocus {
-			case "runs":
-				if m.mainPage.RunsPanel() != nil {
-					table := m.mainPage.RunsPanel().Table()
-					if table != nil {
-						oldCursor := table.Cursor()
-						*table, cmd = table.Update(msg)
-						newCursor := table.Cursor()
-
-						// Update result pane if cursor moved
-						if oldCursor != newCursor {
-							m.updateResultPane(newCursor)
-						}
-					}
-				}
-			case "logs":
-				if m.mainPage.LogsPanel() != nil {
-					viewport := m.mainPage.LogsPanel().Viewport()
-					if viewport != nil {
-						*viewport, cmd = viewport.Update(msg)
-					}
-				}
-			case "result":
-				if m.mainPage.ResultPanel() != nil {
-					viewport := m.mainPage.ResultPanel().Viewport()
-					if viewport != nil {
-						*viewport, cmd = viewport.Update(msg)
-					}
-				}
-			}
-		}
+		cmd = m.updateMainPage(msg)
 	}
 
 	return m, cmd
 }
 
+// updateMainPage updates the focused panel on main page
+func (m *viewerTUI) updateMainPage(msg tea.Msg) tea.Cmd {
+	if m.mainPage == nil {
+		return nil
+	}
+
+	switch m.mainPageFocus {
+	case focusPanelRuns:
+		return m.updateRunsPanel(msg)
+	case focusPanelLogs:
+		return m.updateLogsPanel(msg)
+	case focusPanelResult:
+		return m.updateResultPanel(msg)
+	}
+
+	return nil
+}
+
+// updateRunsPanel updates the runs panel and tracks cursor changes
+func (m *viewerTUI) updateRunsPanel(msg tea.Msg) tea.Cmd {
+	panel := m.mainPage.RunsPanel()
+	if panel == nil {
+		return nil
+	}
+
+	table := panel.Table()
+	if table == nil {
+		return nil
+	}
+
+	oldCursor := table.Cursor()
+	var cmd tea.Cmd
+	*table, cmd = table.Update(msg)
+	newCursor := table.Cursor()
+
+	if oldCursor != newCursor {
+		m.updateResultPane(newCursor)
+	}
+
+	return cmd
+}
+
+// updateLogsPanel updates the logs panel viewport
+func (m *viewerTUI) updateLogsPanel(msg tea.Msg) tea.Cmd {
+	panel := m.mainPage.LogsPanel()
+	if panel == nil {
+		return nil
+	}
+
+	viewport := panel.Viewport()
+	if viewport == nil {
+		return nil
+	}
+
+	var cmd tea.Cmd
+	*viewport, cmd = viewport.Update(msg)
+	return cmd
+}
+
+// updateResultPanel updates the result panel viewport
+func (m *viewerTUI) updateResultPanel(msg tea.Msg) tea.Cmd {
+	panel := m.mainPage.ResultPanel()
+	if panel == nil {
+		return nil
+	}
+
+	viewport := panel.Viewport()
+	if viewport == nil {
+		return nil
+	}
+
+	var cmd tea.Cmd
+	*viewport, cmd = viewport.Update(msg)
+	return cmd
+}
+
 // View renders the current page with consistent header and footer using shared chrome
 func (m *viewerTUI) View() string {
+	// If there's an error, display it as an overlay
+	if m.lastError != nil {
+		return m.renderErrorOverlay()
+	}
+
 	// Get key bindings from current page
 	var keyBindings []views.KeyBinding
 	switch m.currentPage {
@@ -474,4 +582,29 @@ func (m *viewerTUI) convertResultsToViewData(results []*statestore.RunResult) []
 		}
 	}
 	return runs
+}
+
+// renderErrorOverlay renders an error message overlay
+func (m *viewerTUI) renderErrorOverlay() string {
+	errorStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("9")).
+		Padding(1, errorOverlayPaddingHorizontal).
+		Width(m.width - errorOverlayBorderPadding).
+		MaxWidth(errorOverlayMaxWidth)
+
+	title := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("9")).
+		Render("Error")
+
+	message := fmt.Sprintf("%s\n\n%s\n\nPress any key to continue", title, m.lastError.Error())
+
+	return lipgloss.Place(
+		m.width,
+		m.height,
+		lipgloss.Center,
+		lipgloss.Center,
+		errorStyle.Render(message),
+	)
 }
