@@ -10,7 +10,7 @@ PromptKit uses pre-commit hooks to maintain code quality. The hooks run automati
 
 ```bash
 # Install required tools
-brew install golangci-lint
+brew install golangci-lint gosec
 pip3 install diff-cover
 
 # Enable the hook (one-time)
@@ -25,11 +25,12 @@ Or use the installation script:
 
 ## What Gets Checked
 
-The pre-commit hook runs three checks:
+The pre-commit hook runs four checks:
 
 1. **Linting** - Only on changed Go files using `golangci-lint --new-from-rev=HEAD`
-2. **Tests** - Only for packages with changes
-3. **Coverage** - Requires ≥80% test coverage on changed lines only (via `diff-cover`)
+2. **Security** - Security scanning with `gosec` on changed code (if installed)
+3. **Tests** - Only for packages with changes
+4. **Coverage** - Requires ≥80% test coverage on changed lines only (via `diff-cover`)
 
 **Speed**: Typically 15-35 seconds (vs. 2-4 minutes for full repo checks)
 
@@ -98,6 +99,9 @@ chmod +x .git/hooks/pre-commit
 ```bash
 # golangci-lint
 brew install golangci-lint
+
+# gosec (security scanner)
+brew install gosec
 
 # diff-cover
 pip3 install diff-cover

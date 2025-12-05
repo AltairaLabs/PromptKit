@@ -541,31 +541,7 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) handleMainPageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.KeyTab {
-		switch m.activePane {
-		case paneRuns:
-			m.activePane = paneLogs
-			m.mainPage.SetFocusedPanel("logs")
-			m.mainPage.RunsPanel().SetFocus(false)
-			if m.mainPage.LogsPanel() != nil {
-				m.mainPage.LogsPanel().SetFocus(true)
-			}
-		case paneLogs:
-			m.activePane = paneResult
-			m.mainPage.SetFocusedPanel("result")
-			if m.mainPage.LogsPanel() != nil {
-				m.mainPage.LogsPanel().SetFocus(false)
-			}
-			if m.mainPage.ResultPanel() != nil {
-				m.mainPage.ResultPanel().SetFocus(true)
-			}
-		case paneResult:
-			m.activePane = paneRuns
-			m.mainPage.SetFocusedPanel("runs")
-			if m.mainPage.ResultPanel() != nil {
-				m.mainPage.ResultPanel().SetFocus(false)
-			}
-			m.mainPage.RunsPanel().SetFocus(true)
-		}
+		m.cycleFocusedPane()
 		return m, nil
 	}
 
@@ -574,32 +550,94 @@ func (m *Model) handleMainPageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if m.activePane == paneRuns {
-		var cmd tea.Cmd
-		table := m.mainPage.RunsPanel().Table()
-		*table, cmd = table.Update(msg)
-		return m, cmd
-	}
+	cmd := m.delegateKeyToActivePane(msg)
+	return m, cmd
+}
 
-	if m.activePane == paneLogs {
-		var cmd tea.Cmd
-		viewport := m.mainPage.LogsPanel().Viewport()
-		*viewport, cmd = viewport.Update(msg)
-		return m, cmd
+// cycleFocusedPane cycles through panes: runs -> logs -> result -> runs
+func (m *Model) cycleFocusedPane() {
+	switch m.activePane {
+	case paneRuns:
+		m.setFocusToLogsPane()
+	case paneLogs:
+		m.setFocusToResultPane()
+	case paneResult:
+		m.setFocusToRunsPane()
 	}
+}
 
-	if m.activePane == paneResult {
-		var cmd tea.Cmd
-		if m.mainPage.ResultPanel() != nil {
-			viewport := m.mainPage.ResultPanel().Viewport()
-			if viewport != nil {
-				*viewport, cmd = viewport.Update(msg)
-			}
+// setFocusToRunsPane sets focus to the runs panel
+func (m *Model) setFocusToRunsPane() {
+	m.activePane = paneRuns
+	m.mainPage.SetFocusedPanel("runs")
+	if m.mainPage.ResultPanel() != nil {
+		m.mainPage.ResultPanel().SetFocus(false)
+	}
+	m.mainPage.RunsPanel().SetFocus(true)
+}
+
+// setFocusToLogsPane sets focus to the logs panel
+func (m *Model) setFocusToLogsPane() {
+	m.activePane = paneLogs
+	m.mainPage.SetFocusedPanel("logs")
+	m.mainPage.RunsPanel().SetFocus(false)
+	if m.mainPage.LogsPanel() != nil {
+		m.mainPage.LogsPanel().SetFocus(true)
+	}
+}
+
+// setFocusToResultPane sets focus to the result panel
+func (m *Model) setFocusToResultPane() {
+	m.activePane = paneResult
+	m.mainPage.SetFocusedPanel("result")
+	if m.mainPage.LogsPanel() != nil {
+		m.mainPage.LogsPanel().SetFocus(false)
+	}
+	if m.mainPage.ResultPanel() != nil {
+		m.mainPage.ResultPanel().SetFocus(true)
+	}
+}
+
+// delegateKeyToActivePane forwards key events to the currently active panel
+func (m *Model) delegateKeyToActivePane(msg tea.KeyMsg) tea.Cmd {
+	switch m.activePane {
+	case paneRuns:
+		return m.handleRunsPaneKey(msg)
+	case paneLogs:
+		return m.handleLogsPaneKey(msg)
+	case paneResult:
+		return m.handleResultPaneKey(msg)
+	default:
+		return nil
+	}
+}
+
+// handleRunsPaneKey handles key events for the runs panel
+func (m *Model) handleRunsPaneKey(msg tea.KeyMsg) tea.Cmd {
+	var cmd tea.Cmd
+	table := m.mainPage.RunsPanel().Table()
+	*table, cmd = table.Update(msg)
+	return cmd
+}
+
+// handleLogsPaneKey handles key events for the logs panel
+func (m *Model) handleLogsPaneKey(msg tea.KeyMsg) tea.Cmd {
+	var cmd tea.Cmd
+	viewport := m.mainPage.LogsPanel().Viewport()
+	*viewport, cmd = viewport.Update(msg)
+	return cmd
+}
+
+// handleResultPaneKey handles key events for the result panel
+func (m *Model) handleResultPaneKey(msg tea.KeyMsg) tea.Cmd {
+	var cmd tea.Cmd
+	if m.mainPage.ResultPanel() != nil {
+		viewport := m.mainPage.ResultPanel().Viewport()
+		if viewport != nil {
+			*viewport, cmd = viewport.Update(msg)
 		}
-		return m, cmd
 	}
-
-	return m, nil
+	return cmd
 }
 
 func (m *Model) toggleSelection() {

@@ -291,6 +291,8 @@ lint: ## Run linters
 	@cd tools/arena && golangci-lint run ./...
 	@cd tools/packc && golangci-lint run ./...
 	@cd tools/inspect-state && golangci-lint run ./...
+	@echo "Running gosec security scanner..."
+	@$(MAKE) security-scan
 
 lint-diff: ## Run linters on changed code only (fast, for pre-commit)
 	@echo "🔍 Linting changed code only..."
@@ -307,6 +309,30 @@ lint-diff: ## Run linters on changed code only (fast, for pre-commit)
 		echo "✓ No Go file changes detected"; \
 	else \
 		echo "✓ Lint check complete"; \
+		echo "🔒 Running security scan on changed code..."; \
+		$(MAKE) security-scan-diff; \
+	fi
+
+security-scan: ## Run gosec security scanner on all code
+	@if command -v gosec >/dev/null 2>&1; then \
+		echo "🔒 Running security scan..."; \
+		gosec -quiet -fmt=text ./runtime/... ./sdk/... ./pkg/... ./tools/...; \
+	else \
+		echo "⚠️  gosec not installed. Install with: brew install gosec"; \
+		echo "   Or visit: https://github.com/securego/gosec"; \
+	fi
+
+security-scan-diff: ## Run gosec on changed code only (for pre-commit)
+	@if command -v gosec >/dev/null 2>&1; then \
+		MODULES="runtime sdk pkg tools/arena tools/packc tools/inspect-state tools/schema-gen"; \
+		for module in $$MODULES; do \
+			if git diff --name-only HEAD | grep -q "^$$module/.*\.go$$"; then \
+				echo "Security scan: $$module"; \
+				gosec -quiet -fmt=text ./$$module/... 2>&1 | grep -v "Golang errors" || true; \
+			fi; \
+		done; \
+	else \
+		echo "⚠️  gosec not installed (optional for pre-commit)"; \
 	fi
 
 test-fast: ## Run tests for changed packages only (fast, for pre-commit)

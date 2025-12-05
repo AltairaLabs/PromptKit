@@ -1,0 +1,192 @@
+# Dependabot configuration for PromptKit
+# Automatically creates PRs for dependency updates across multiple ecosystems
+# See: https://docs.github.com/en/code-security/dependabot
+
+version: 2
+updates:
+  # Go modules - Main runtime
+  - package-ecosystem: "gomod"
+    directory: "/runtime"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "go"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+  # Go modules - SDK
+  - package-ecosystem: "gomod"
+    directory: "/sdk"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "go"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+  # Go modules - pkg
+  - package-ecosystem: "gomod"
+    directory: "/pkg"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "go"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+  # Go modules - promptarena tool
+  - package-ecosystem: "gomod"
+    directory: "/tools/arena"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "go"
+      - "tools"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+  # Go modules - packc tool
+  - package-ecosystem: "gomod"
+    directory: "/tools/packc"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "go"
+      - "tools"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+  # Go modules - inspect-state tool
+  - package-ecosystem: "gomod"
+    directory: "/tools/inspect-state"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "go"
+      - "tools"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+  # Go modules - schema-gen tool
+  - package-ecosystem: "gomod"
+    directory: "/tools/schema-gen"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "go"
+      - "tools"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+  # npm - Documentation site (Astro)
+  - package-ecosystem: "npm"
+    directory: "/docs"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "npm"
+      - "documentation"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+  # npm - promptarena package
+  - package-ecosystem: "npm"
+    directory: "/npm/promptarena"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "npm"
+      - "package"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+  # npm - packc package
+  - package-ecosystem: "npm"
+    directory: "/npm/packc"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "npm"
+      - "package"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+  # Docker - arena development
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+  # GitHub Actions workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
