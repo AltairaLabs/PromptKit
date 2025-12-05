@@ -7,6 +7,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // stateStoreLoadMiddleware loads conversation history from StateStore.
@@ -63,6 +64,13 @@ func (m *stateStoreLoadMiddleware) applyStateToContext(
 	execCtx *pipeline.ExecutionContext,
 	state *statestore.ConversationState,
 ) {
+	// The last message in execCtx.Messages is the new user message that triggered this pipeline
+	var userMessage *types.Message
+	if len(execCtx.Messages) > 0 {
+		userMessage = &execCtx.Messages[len(execCtx.Messages)-1]
+	}
+
+	historyLen := 0
 	// If conversation exists, prepend history to messages
 	if state != nil && len(state.Messages) > 0 {
 		// Mark all loaded messages with Source="statestore"
@@ -70,10 +78,17 @@ func (m *stateStoreLoadMiddleware) applyStateToContext(
 			state.Messages[i].Source = "statestore"
 		}
 		execCtx.Messages = append(state.Messages, execCtx.Messages...)
+		historyLen = len(state.Messages)
 
 		if execCtx.EventEmitter != nil {
-			execCtx.EventEmitter.StateLoaded(m.config.ConversationID, len(state.Messages))
+			execCtx.EventEmitter.StateLoaded(m.config.ConversationID, historyLen)
 		}
+	}
+
+	// Emit message.created event for the new user message (with correct index after prepending history)
+	if execCtx.EventEmitter != nil && userMessage != nil {
+		actualIndex := historyLen // User message is at index historyLen (0-based, right after history)
+		execCtx.EventEmitter.MessageCreated(userMessage.Role, userMessage.GetContent(), actualIndex, nil, nil)
 	}
 }
 

@@ -174,6 +174,9 @@ func TestModel_View_SelectedRunShowsResult(t *testing.T) {
 		},
 	}
 
+	// Initialize conversation data (normally done in toggleSelection)
+	m.initializeConversationData(&m.activeRuns[0])
+
 	view := m.View()
 	assert.Contains(t, view, "Conversation")
 	assert.Contains(t, view, "hello")
@@ -590,11 +593,16 @@ func TestRenderConversationPage_LoadError(t *testing.T) {
 	m.width = 100
 	m.height = 30
 	m.isTUIMode = true
-	m.activeRuns = []RunInfo{{RunID: "run-1", Selected: true}}
+	m.activeRuns = []RunInfo{{RunID: "run-1", Scenario: "test", Provider: "openai", Selected: true}}
 	m.stateStore = &mockRunResultStore{err: fmt.Errorf("load failed")}
 
+	// Initialize conversation (normally done in toggleSelection)
+	m.initializeConversationData(&m.activeRuns[0])
+
 	body := m.renderConversationPage(25)
-	assert.Contains(t, body, "Failed to load result")
+	// When result doesn't exist (e.g., run in progress), show waiting message
+	// Real-time events will populate it as messages arrive
+	assert.Contains(t, body, "Waiting for conversation to start")
 }
 
 func TestView_SmallHeight(t *testing.T) {

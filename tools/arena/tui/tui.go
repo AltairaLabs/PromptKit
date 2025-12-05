@@ -4,6 +4,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -11,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"golang.org/x/term"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/logging"
@@ -90,6 +92,13 @@ type Model struct {
 	conversationPage *pages.ConversationPage
 
 	currentPage page
+
+	// Cache of system prompts by conversation ID for when user navigates to conversation page
+	systemPrompts map[string]string
+
+	// Cache of messages by conversation ID for running conversations
+	// This allows real-time message accumulation regardless of which page is displayed
+	conversationMessages map[string][]types.Message
 }
 
 // RunInfo tracks information about a single run
@@ -196,6 +205,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mu.Unlock()
 		return m, nil
 
+	case ConversationStartedMsg:
+		m.mu.Lock()
+		m.handleConversationStarted(&msg)
+		m.mu.Unlock()
+		return m, nil
+
 	case logging.Msg:
 		m.mu.Lock()
 		m.handleLogMsg(&msg)
@@ -257,6 +272,15 @@ func (m *Model) handleRunCompleted(msg *RunCompletedMsg) {
 	})
 	m.trimLogs()
 
+	// Clean up cached messages for this run (state store now has the data)
+	if m.conversationMessages != nil {
+		delete(m.conversationMessages, msg.RunID)
+	}
+	// Also clean up system prompt cache
+	if m.systemPrompts != nil {
+		delete(m.systemPrompts, msg.RunID)
+	}
+
 	// Remove from active runs after a brief display (keep for visual feedback)
 }
 
@@ -285,6 +309,14 @@ func (m *Model) handleRunFailed(msg *RunFailedMsg) {
 		Message:   fmt.Sprintf("Failed: %s - %v", msg.RunID, msg.Error),
 	})
 	m.trimLogs()
+
+	// Clean up cached messages for this run
+	if m.conversationMessages != nil {
+		delete(m.conversationMessages, msg.RunID)
+	}
+	if m.systemPrompts != nil {
+		delete(m.systemPrompts, msg.RunID)
+	}
 }
 
 // handleTurnStarted updates the run with turn information.
@@ -335,24 +367,112 @@ func (m *Model) handleTurnCompleted(msg *TurnCompletedMsg) {
 
 // handleMessageCreated processes a message.created event for real-time conversation updates
 func (m *Model) handleMessageCreated(msg *MessageCreatedMsg) {
-	// Only update the conversation panel if we're currently viewing a conversation
-	if m.conversationPage != nil {
-		panel := m.conversationPage.Panel()
-		if panel != nil {
-			// Match by conversation ID if available, otherwise update any active conversation
-			newMsg := types.Message{
-				Role:      msg.Role,
-				Content:   msg.Content,
-				Timestamp: msg.Time,
+	logger.Debug("MessageCreatedMsg received",
+		"conversationID", msg.ConversationID,
+		"role", msg.Role,
+		"index", msg.Index,
+		"currentPage", m.currentPage)
+
+	// Convert message data to types.Message
+	var toolCalls []types.MessageToolCall
+	for _, tc := range msg.ToolCalls {
+		toolCalls = append(toolCalls, types.MessageToolCall{
+			ID:   tc.ID,
+			Name: tc.Name,
+			Args: json.RawMessage(tc.Args),
+		})
+	}
+	var toolResult *types.MessageToolResult
+	if msg.ToolResult != nil {
+		toolResult = &types.MessageToolResult{
+			ID:        msg.ToolResult.ID,
+			Name:      msg.ToolResult.Name,
+			Content:   msg.ToolResult.Content,
+			Error:     msg.ToolResult.Error,
+			LatencyMs: msg.ToolResult.LatencyMs,
+		}
+	}
+	newMsg := types.Message{
+		Role:       msg.Role,
+		Content:    msg.Content,
+		Timestamp:  msg.Time,
+		ToolCalls:  toolCalls,
+		ToolResult: toolResult,
+	}
+
+	// Always cache the message for this conversation (regardless of current page/selection)
+	if m.conversationMessages == nil {
+		m.conversationMessages = make(map[string][]types.Message)
+	}
+	m.conversationMessages[msg.ConversationID] = append(m.conversationMessages[msg.ConversationID], newMsg)
+	logger.Debug("Message cached",
+		"conversationID", msg.ConversationID,
+		"totalCached", len(m.conversationMessages[msg.ConversationID]))
+
+	// Also update the panel if we're viewing this conversation
+	if m.currentPage == pageConversation {
+		selected := m.selectedRun()
+		if selected != nil && selected.RunID == msg.ConversationID {
+			if m.conversationPage != nil {
+				panel := m.conversationPage.Panel()
+				if panel != nil {
+					panel.AppendMessage(&newMsg)
+					logger.Debug("Message appended to conversation panel",
+						"toolCalls", len(toolCalls),
+						"hasToolResult", toolResult != nil)
+				}
 			}
-			panel.AppendMessage(&newMsg)
 		}
 	}
 }
 
+// handleConversationStarted processes a conversation.started event to set the system prompt
+func (m *Model) handleConversationStarted(msg *ConversationStartedMsg) {
+	logger.Debug("ConversationStartedMsg received",
+		"conversationID", msg.ConversationID)
+
+	// Store the system prompt for this conversation so it can be displayed
+	// when the user navigates to the conversation page
+	if m.conversationPage != nil {
+		panel := m.conversationPage.Panel()
+		if panel != nil && !panel.HasSystemPrompt() {
+			// Check if this is for the currently selected run
+			selected := m.selectedRun()
+			if selected != nil && selected.RunID == msg.ConversationID {
+				newMsg := types.Message{
+					Role:      "system",
+					Content:   msg.SystemPrompt,
+					Timestamp: msg.Time,
+				}
+				panel.PrependSystemPrompt(&newMsg)
+				logger.Debug("System prompt set from conversation.started event")
+			}
+		}
+	}
+
+	// Also store in a map for later use when user navigates to conversation page
+	if m.systemPrompts == nil {
+		m.systemPrompts = make(map[string]string)
+	}
+	m.systemPrompts[msg.ConversationID] = msg.SystemPrompt
+}
+
 // handleMessageUpdated processes a message.updated event for cost/latency updates
 func (m *Model) handleMessageUpdated(msg *MessageUpdatedMsg) {
-	// Only update the conversation panel if we're currently viewing a conversation
+	logger.Debug("MessageUpdatedMsg received",
+		"conversationID", msg.ConversationID,
+		"index", msg.Index)
+
+	// Only update if we're viewing the conversation page and the message is for the selected run
+	if m.currentPage != pageConversation {
+		return
+	}
+
+	selected := m.selectedRun()
+	if selected == nil || selected.RunID != msg.ConversationID {
+		return
+	}
+
 	if m.conversationPage != nil {
 		panel := m.conversationPage.Panel()
 		if panel != nil {
@@ -489,18 +609,74 @@ func (m *Model) renderConversationPage(contentHeight int) string {
 	if m.stateStore == nil {
 		return "No state store attached."
 	}
-	ctx := m.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	res, err := m.stateStore.GetResult(ctx, selected.RunID)
-	if err != nil {
-		return fmt.Sprintf("Failed to load result: %v", err)
+
+	// Just set dimensions and render - data was initialized in toggleSelection
+	m.conversationPage.SetDimensions(m.width, contentHeight)
+	return m.conversationPage.Render()
+}
+
+// initializeConversationData loads initial conversation data when switching to conversation page
+func (m *Model) initializeConversationData(run *RunInfo) {
+	res := m.getConversationResult(run)
+	m.conversationPage.SetData(run.RunID, run.Scenario, run.Provider, res)
+	m.applySystemPromptFromCache(run.RunID)
+}
+
+// getConversationResult returns the conversation result for display.
+// For running conversations, uses cached messages from real-time events.
+// For completed runs, loads from state store with fallback to cache.
+func (m *Model) getConversationResult(run *RunInfo) *statestore.RunResult {
+	// For running conversations, use cached messages
+	if run.Status == StatusRunning {
+		return m.resultFromCache(run.RunID)
 	}
 
-	m.conversationPage.SetDimensions(m.width, contentHeight)
-	m.conversationPage.SetData(selected.RunID, selected.Scenario, selected.Provider, res)
-	return m.conversationPage.Render()
+	// For completed runs, try state store first
+	if m.stateStore != nil {
+		ctx := m.ctx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		if res, err := m.stateStore.GetResult(ctx, run.RunID); err == nil {
+			return res
+		}
+		logger.Debug("Could not load from state store, using cached messages", "runID", run.RunID)
+	}
+
+	// Fall back to cached messages
+	return m.resultFromCache(run.RunID)
+}
+
+// resultFromCache creates a RunResult from cached messages for a conversation.
+func (m *Model) resultFromCache(runID string) *statestore.RunResult {
+	messages := []types.Message{}
+	if m.conversationMessages != nil {
+		if cached, ok := m.conversationMessages[runID]; ok {
+			messages = cached
+		}
+	}
+	return &statestore.RunResult{Messages: messages}
+}
+
+// applySystemPromptFromCache prepends cached system prompt to the conversation panel if available.
+func (m *Model) applySystemPromptFromCache(runID string) {
+	if m.systemPrompts == nil {
+		return
+	}
+	systemPrompt, ok := m.systemPrompts[runID]
+	if !ok {
+		return
+	}
+	panel := m.conversationPage.Panel()
+	if panel == nil || panel.HasSystemPrompt() {
+		return
+	}
+	newMsg := types.Message{
+		Role:    "system",
+		Content: systemPrompt,
+	}
+	panel.PrependSystemPrompt(&newMsg)
+	logger.Debug("System prompt set from cache during initialization")
 }
 
 // convertToRunInfos converts model's activeRuns to panel RunInfo format
@@ -699,6 +875,9 @@ func (m *Model) toggleSelection() {
 	if m.activeRuns[idx].Selected {
 		m.conversationPage.Reset()
 		m.currentPage = pageConversation
+
+		// Initialize conversation data when switching to conversation page
+		m.initializeConversationData(&m.activeRuns[idx])
 	}
 }
 
@@ -885,20 +1064,22 @@ func NewModel(configFile string, totalRuns int) *Model {
 	}
 
 	return &Model{
-		configFile:       configFile,
-		totalRuns:        totalRuns,
-		startTime:        time.Now(),
-		activeRuns:       make([]RunInfo, 0),
-		logs:             make([]LogEntry, 0, maxLogBufferSize),
-		width:            width,
-		height:           height,
-		isTUIMode:        supported,
-		fallbackReason:   reason,
-		ctx:              context.Background(),
-		mainPage:         pages.NewMainPage(),
-		conversationPage: pages.NewConversationPage(),
-		currentPage:      pageMain,
-		activePane:       paneRuns,
+		configFile:           configFile,
+		totalRuns:            totalRuns,
+		startTime:            time.Now(),
+		activeRuns:           make([]RunInfo, 0),
+		logs:                 make([]LogEntry, 0, maxLogBufferSize),
+		width:                width,
+		height:               height,
+		isTUIMode:            supported,
+		fallbackReason:       reason,
+		ctx:                  context.Background(),
+		mainPage:             pages.NewMainPage(),
+		conversationPage:     pages.NewConversationPage(),
+		currentPage:          pageMain,
+		activePane:           paneRuns,
+		systemPrompts:        make(map[string]string),
+		conversationMessages: make(map[string][]types.Message),
 	}
 }
 

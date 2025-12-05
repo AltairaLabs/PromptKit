@@ -137,17 +137,39 @@ func (a *EventAdapter) HandleEvent(event *events.Event) {
 			Time:      event.Timestamp,
 		}
 	case events.EventMessageCreated:
-		if data, ok := event.Data.(*events.MessageCreatedData); ok {
+		if data, ok := event.Data.(events.MessageCreatedData); ok {
+			// Map tool calls
+			var toolCalls []MessageToolCall
+			for _, tc := range data.ToolCalls {
+				toolCalls = append(toolCalls, MessageToolCall{
+					ID:   tc.ID,
+					Name: tc.Name,
+					Args: tc.Args,
+				})
+			}
+			// Map tool result
+			var toolResult *MessageToolResult
+			if data.ToolResult != nil {
+				toolResult = &MessageToolResult{
+					ID:        data.ToolResult.ID,
+					Name:      data.ToolResult.Name,
+					Content:   data.ToolResult.Content,
+					Error:     data.ToolResult.Error,
+					LatencyMs: data.ToolResult.LatencyMs,
+				}
+			}
 			msg = MessageCreatedMsg{
 				ConversationID: event.ConversationID,
 				Role:           data.Role,
 				Content:        data.Content,
 				Index:          data.Index,
+				ToolCalls:      toolCalls,
+				ToolResult:     toolResult,
 				Time:           event.Timestamp,
 			}
 		}
 	case events.EventMessageUpdated:
-		if data, ok := event.Data.(*events.MessageUpdatedData); ok {
+		if data, ok := event.Data.(events.MessageUpdatedData); ok {
 			msg = MessageUpdatedMsg{
 				ConversationID: event.ConversationID,
 				Index:          data.Index,
@@ -155,6 +177,14 @@ func (a *EventAdapter) HandleEvent(event *events.Event) {
 				InputTokens:    data.InputTokens,
 				OutputTokens:   data.OutputTokens,
 				TotalCost:      data.TotalCost,
+				Time:           event.Timestamp,
+			}
+		}
+	case events.EventConversationStarted:
+		if data, ok := event.Data.(events.ConversationStartedData); ok {
+			msg = ConversationStartedMsg{
+				ConversationID: event.ConversationID,
+				SystemPrompt:   data.SystemPrompt,
 				Time:           event.Timestamp,
 			}
 		}

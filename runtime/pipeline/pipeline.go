@@ -346,6 +346,8 @@ func (p *Pipeline) executeWithMessageInternal(opts *ExecutionOptions, message ty
 	defer p.cleanupExecution(cancel)
 
 	// Append the complete message to the conversation
+	// Note: message.created event is emitted by StateStoreLoadMiddleware after history is prepended
+	// so the index is correct
 	internalCtx.Messages = append(internalCtx.Messages, message)
 
 	return p.executeAndBuildResult(internalCtx)

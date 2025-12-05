@@ -166,13 +166,17 @@ func TestConversationPanel_View_NilResult(t *testing.T) {
 
 func TestConversationPanel_View_EmptyMessages(t *testing.T) {
 	panel := NewConversationPanel()
+	panel.SetDimensions(100, 50)
 	panel.res = &statestore.RunResult{
 		Messages: []types.Message{},
 	}
+	panel.ensureTable("test-run")
 
 	view := panel.View()
 
-	assert.Contains(t, view, "No conversation recorded")
+	// Should show two-panel layout with waiting message
+	assert.Contains(t, view, "Waiting for conversation to start")
+	assert.Contains(t, view, "🧭 Conversation")
 }
 
 func TestConversationPanel_View_WithMessages(t *testing.T) {

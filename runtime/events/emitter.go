@@ -243,11 +243,18 @@ func (e *Emitter) EmitCustom(
 }
 
 // MessageCreated emits the message.created event.
-func (e *Emitter) MessageCreated(role, content string, index int) {
+func (e *Emitter) MessageCreated(
+	role, content string,
+	index int,
+	toolCalls []MessageToolCall,
+	toolResult *MessageToolResult,
+) {
 	e.emit(EventMessageCreated, MessageCreatedData{
-		Role:    role,
-		Content: content,
-		Index:   index,
+		Role:       role,
+		Content:    content,
+		Index:      index,
+		ToolCalls:  toolCalls,
+		ToolResult: toolResult,
 	})
 }
 
@@ -259,5 +266,12 @@ func (e *Emitter) MessageUpdated(index int, latencyMs int64, inputTokens, output
 		InputTokens:  inputTokens,
 		OutputTokens: outputTokens,
 		TotalCost:    totalCost,
+	})
+}
+
+// ConversationStarted emits the conversation.started event with the system prompt.
+func (e *Emitter) ConversationStarted(systemPrompt string) {
+	e.emit(EventConversationStarted, ConversationStartedData{
+		SystemPrompt: systemPrompt,
 	})
 }

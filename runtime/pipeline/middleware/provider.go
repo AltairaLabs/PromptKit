@@ -544,7 +544,7 @@ func checkToolCallLimit(numCalls int, policy *pipeline.ToolPolicy) error {
 func addToolResultMessages(execCtx *pipeline.ExecutionContext, toolResults []types.MessageToolResult) {
 	for _, result := range toolResults {
 		toolMsg := types.Message{
-			Role:      "user",
+			Role:      "tool",
 			Content:   result.Content, // Set for provider processing
 			Timestamp: time.Now(),
 			ToolResult: &types.MessageToolResult{
@@ -920,7 +920,30 @@ func emitMessageCreatedEvent(execCtx *pipeline.ExecutionContext, msg *types.Mess
 	}
 
 	index := len(execCtx.Messages) - 1 // Index of the message just added
-	execCtx.EventEmitter.MessageCreated(msg.Role, msg.GetContent(), index)
+
+	// Convert tool calls to event format
+	var eventToolCalls []events.MessageToolCall
+	for _, tc := range msg.ToolCalls {
+		eventToolCalls = append(eventToolCalls, events.MessageToolCall{
+			ID:   tc.ID,
+			Name: tc.Name,
+			Args: string(tc.Args),
+		})
+	}
+
+	// Convert tool result to event format
+	var eventToolResult *events.MessageToolResult
+	if msg.ToolResult != nil {
+		eventToolResult = &events.MessageToolResult{
+			ID:        msg.ToolResult.ID,
+			Name:      msg.ToolResult.Name,
+			Content:   msg.ToolResult.Content,
+			Error:     msg.ToolResult.Error,
+			LatencyMs: msg.ToolResult.LatencyMs,
+		}
+	}
+
+	execCtx.EventEmitter.MessageCreated(msg.Role, msg.GetContent(), index, eventToolCalls, eventToolResult)
 }
 
 // emitMessageUpdatedEvent emits a message.updated event for cost/latency updates
