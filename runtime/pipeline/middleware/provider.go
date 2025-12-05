@@ -537,7 +537,7 @@ func addToolResultMessages(execCtx *pipeline.ExecutionContext, toolResults []typ
 	for _, result := range toolResults {
 		toolMsg := types.Message{
 			Role:      "tool",
-			Content:   result.Content,
+			Content:   result.Content, // Set for provider processing
 			Timestamp: time.Now(),
 			ToolResult: &types.MessageToolResult{
 				ID:        result.ID,

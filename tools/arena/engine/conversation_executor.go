@@ -89,7 +89,19 @@ func (ce *DefaultConversationExecutor) executeWithoutStreaming(
 			// Self-play turn (LLM-generated user message)
 			turnReq.SelfPlayRole = scenarioTurn.Role
 			turnReq.SelfPlayPersona = scenarioTurn.Persona
-			err = ce.selfPlayExecutor.ExecuteTurn(ctx, turnReq)
+
+			// Execute multiple self-play turns if specified
+			turnsToExecute := scenarioTurn.Turns
+			if turnsToExecute == 0 {
+				turnsToExecute = 1 // Default to 1 turn if not specified
+			}
+
+			for i := 0; i < turnsToExecute; i++ {
+				err = ce.selfPlayExecutor.ExecuteTurn(ctx, turnReq)
+				if err != nil {
+					break
+				}
+			}
 		} else if scenarioTurn.Role == roleUser {
 			// Scripted user turn (non-streaming path)
 			err = ce.scriptedExecutor.ExecuteTurn(ctx, turnReq)
@@ -129,7 +141,21 @@ func (ce *DefaultConversationExecutor) executeWithStreaming(
 ) *ConversationResult {
 	for turnIdx, scenarioTurn := range req.Scenario.Turns {
 		ce.notifyTurnStarted(emitter, turnIdx, scenarioTurn.Role, req.Scenario.ID)
-		err := ce.executeStreamingTurn(ctx, *req, turnIdx, scenarioTurn)
+
+		// Execute multiple self-play turns if specified
+		turnsToExecute := 1
+		if ce.isSelfPlayRole(scenarioTurn.Role) && scenarioTurn.Turns > 0 {
+			turnsToExecute = scenarioTurn.Turns
+		}
+
+		var err error
+		for i := 0; i < turnsToExecute; i++ {
+			err = ce.executeStreamingTurn(ctx, *req, turnIdx, scenarioTurn)
+			if err != nil {
+				break
+			}
+		}
+
 		if err != nil {
 			ce.notifyTurnCompleted(emitter, turnIdx, scenarioTurn.Role, req.Scenario.ID, err)
 			return ce.handleTurnExecutionError(*req, err, turnIdx, scenarioTurn)

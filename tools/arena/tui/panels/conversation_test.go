@@ -619,6 +619,12 @@ func TestConversationPanel_RenderDetailHeader(t *testing.T) {
 
 	msg := &types.Message{
 		Role: "assistant",
+		CostInfo: &types.CostInfo{
+			InputTokens:  100,
+			OutputTokens: 200,
+			TotalCost:    0.015,
+		},
+		LatencyMs: 2000,
 	}
 
 	header := panel.renderDetailHeader(result, 0, msg)

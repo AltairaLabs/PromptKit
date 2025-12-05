@@ -247,9 +247,17 @@ jobs:
           --mock-config mock-config.yaml \
           --formats json,junit,html,markdown
     
+    - name: Test assertions-test example (includes self-play multi-turn)
+      run: |
+        cd examples/assertions-test
+        ../../bin/promptarena run --config config.arena.yaml \
+          --mock-provider \
+          --mock-config mock-responses.yaml \
+          --formats json,junit,html,markdown
+    
     - name: Verify outputs were generated
       run: |
-        EXAMPLES=("customer-support" "multimodal-basics" "variables-demo")
+        EXAMPLES=("customer-support" "multimodal-basics" "variables-demo" "assertions-test")
         
         for example in "${EXAMPLES[@]}"; do
           echo "=== Verifying $example ==="

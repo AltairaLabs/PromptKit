@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -519,6 +520,12 @@ func (c *ConversationPanel) appendContentMarkdown(md *strings.Builder, msg *type
 		return
 	}
 
+	// Skip content section for tool result messages to avoid duplication
+	// (tool result content is already shown in the Tool Result section)
+	if msg.ToolResult != nil {
+		return
+	}
+
 	md.WriteString("## 💬 Message\n\n")
 	md.WriteString(msgContent)
 	md.WriteString("\n\n")
@@ -548,17 +555,32 @@ func formatJSON(raw string) string {
 }
 
 func (c *ConversationPanel) renderDetailHeader(res *statestore.RunResult, idx int, msg *types.Message) string {
-	totalTokens := res.Cost.InputTokens + res.Cost.OutputTokens
-	header := fmt.Sprintf(
-		"Turn %d • Role: %s • Tokens: %d/%d (total %d) • Cost: $%.4f • Duration: %s",
-		idx+1,
-		msg.Role,
-		res.Cost.InputTokens,
-		res.Cost.OutputTokens,
-		totalTokens,
-		res.Cost.TotalCost,
-		theme.FormatDuration(res.Duration),
-	)
+	// Build header parts dynamically
+	parts := []string{
+		fmt.Sprintf("Turn %d", idx+1),
+		fmt.Sprintf("Role: %s", msg.Role),
+	}
+
+	// Add persona for self-play user turns
+	if msg.Role == "user" && res.PersonaID != "" {
+		parts = append(parts, fmt.Sprintf("🤖 %s", res.PersonaID))
+	}
+
+	// Add per-message metrics if available
+	if msg.CostInfo != nil {
+		totalTokens := msg.CostInfo.InputTokens + msg.CostInfo.OutputTokens
+		parts = append(parts,
+			fmt.Sprintf("Tokens: %d→%d (%d total)", msg.CostInfo.InputTokens, msg.CostInfo.OutputTokens, totalTokens),
+			fmt.Sprintf("Cost: $%.4f", msg.CostInfo.TotalCost))
+	}
+
+	// Add latency if available
+	if msg.LatencyMs > 0 {
+		latency := time.Duration(msg.LatencyMs) * time.Millisecond
+		parts = append(parts, fmt.Sprintf("Duration: %s", theme.FormatDuration(latency)))
+	}
+
+	header := strings.Join(parts, " • ")
 
 	return lipgloss.NewStyle().
 		Foreground(theme.BorderColorFocused()).

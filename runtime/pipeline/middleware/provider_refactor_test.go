@@ -380,18 +380,18 @@ func TestAddToolResultMessages(t *testing.T) {
 		// Check first tool message
 		toolMsg1 := execCtx.Messages[1]
 		assert.Equal(t, "tool", toolMsg1.Role)
-		assert.Equal(t, "result1", toolMsg1.Content)
 		assert.Equal(t, "pipeline", toolMsg1.Source)
 		require.NotNil(t, toolMsg1.ToolResult)
 		assert.Equal(t, "call1", toolMsg1.ToolResult.ID)
 		assert.Equal(t, "tool1", toolMsg1.ToolResult.Name)
+		assert.Equal(t, "result1", toolMsg1.ToolResult.Content)
 		assert.Equal(t, int64(100), toolMsg1.ToolResult.LatencyMs)
 
 		// Check second tool message
 		toolMsg2 := execCtx.Messages[2]
 		assert.Equal(t, "tool", toolMsg2.Role)
-		assert.Equal(t, "result2", toolMsg2.Content)
 		require.NotNil(t, toolMsg2.ToolResult)
+		assert.Equal(t, "result2", toolMsg2.ToolResult.Content)
 		assert.Equal(t, "error2", toolMsg2.ToolResult.Error)
 	})
 
