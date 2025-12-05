@@ -472,8 +472,13 @@
         .tool-call-header {
             display: flex;
             align-items: center;
-            margin-bottom: 0.75rem;
             font-size: 0.9rem;
+            cursor: pointer;
+            user-select: none;
+        }
+        
+        .tool-call-header:hover {
+            opacity: 0.8;
         }
         
         .tool-call-name {
@@ -491,11 +496,28 @@
             font-size: 0.8rem;
         }
         
+        .tool-call-toggle {
+            margin-left: auto;
+            color: #718096;
+            font-size: 0.8rem;
+            transition: transform 0.2s;
+        }
+        
+        .tool-call-toggle.expanded {
+            transform: rotate(90deg);
+        }
+        
         .tool-call-args {
             background: #f1f5f9;
             border: 1px solid #cbd5e0;
             border-radius: 4px;
             padding: 0.75rem;
+            margin-top: 0.75rem;
+            display: none;
+        }
+        
+        .tool-call-args.expanded {
+            display: block;
         }
         
         .tool-call-args-label {
@@ -516,8 +538,59 @@
         .tool-response {
             background: #f7fafc;
             border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 1rem;
+        }
+        
+        .tool-response-header {
+            display: flex;
+            align-items: center;
+            font-size: 0.9rem;
+            cursor: pointer;
+            user-select: none;
+        }
+        
+        .tool-response-header:hover {
+            opacity: 0.8;
+        }
+        
+        .tool-response-name {
+            background: #ed8936;
+            color: white;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-weight: 600;
+            margin-right: 0.5rem;
+        }
+        
+        .tool-response-id {
+            color: #718096;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8rem;
+        }
+        
+        .tool-response-toggle {
+            margin-left: auto;
+            color: #718096;
+            font-size: 0.8rem;
+            transition: transform 0.2s;
+        }
+        
+        .tool-response-toggle.expanded {
+            transform: rotate(90deg);
+        }
+        
+        .tool-response-content {
+            background: #fffaf0;
+            border: 1px solid #fbd38d;
             border-radius: 4px;
             padding: 0.75rem;
+            margin-top: 0.75rem;
+            display: none;
+        }
+        
+        .tool-response-content.expanded {
+            display: block;
         }
         
         .tool-response-label {
@@ -853,10 +926,8 @@
             font-family: 'Courier New', monospace;
             font-size: 0.75rem;
             overflow-x: auto;
-            font-size: 0.75rem;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+            white-space: pre-wrap;
+            word-wrap: break-word;
         }
         
         .error-message {
@@ -1449,16 +1520,17 @@
                                     {{end}}
                                     {{if $msg.ToolCalls}}
                                     <div class="tool-calls">
-                                        {{range $msg.ToolCalls}}
+                                        {{range $toolIdx, $toolCall := $msg.ToolCalls}}
                                         <div class="tool-call">
-                                            <div class="tool-call-header">
-                                                <span class="tool-call-name">{{.Name}}</span>
-                                                <span class="tool-call-id">{{.ID}}</span>
+                                            <div class="tool-call-header" onclick="toggleToolContent(this)">
+                                                <span class="tool-call-name">{{$toolCall.Name}}</span>
+                                                <span class="tool-call-id">{{$toolCall.ID}}</span>
+                                                <span class="tool-call-toggle">▶</span>
                                             </div>
-                                            {{if .Args}}
+                                            {{if $toolCall.Args}}
                                             <div class="tool-call-args">
                                                 <div class="tool-call-args-label">Arguments:</div>
-                                                <div class="json-content">{{prettyJSON .Args}}</div>
+                                                <div class="json-content">{{prettyJSON $toolCall.Args}}</div>
                                             </div>
                                             {{end}}
                                         </div>
@@ -1480,8 +1552,19 @@
                                     {{end}}
                                     {{if eq $msg.Role "tool"}}
                                     <div class="tool-response">
-                                        <div class="tool-response-label">Response:</div>
-                                        <div class="json-content">{{prettyJSON $msg.Content}}</div>
+                                        <div class="tool-response-header" onclick="toggleToolResponse(this)">
+                                            {{if $msg.ToolResult}}
+                                            <span class="tool-response-name">{{$msg.ToolResult.Name}}</span>
+                                            <span class="tool-response-id">{{$msg.ToolResult.ID}}</span>
+                                            {{else}}
+                                            <span class="tool-response-name">Tool Response</span>
+                                            {{end}}
+                                            <span class="tool-response-toggle">▶</span>
+                                        </div>
+                                        <div class="tool-response-content">
+                                            <div class="tool-response-label">Response:</div>
+                                            <div class="json-content">{{prettyJSON $msg.Content}}</div>
+                                        </div>
                                     </div>
                                     {{if $msg.ToolResult}}
                                     {{if $msg.ToolResult.Error}}
@@ -1626,6 +1709,30 @@
             const section = document.getElementById(validationId);
             if (section) {
                 section.classList.toggle('expanded');
+            }
+        }
+
+        function toggleToolContent(header) {
+            const toolCall = header.closest('.tool-call');
+            const args = toolCall.querySelector('.tool-call-args');
+            const toggle = header.querySelector('.tool-call-toggle');
+            if (args) {
+                args.classList.toggle('expanded');
+            }
+            if (toggle) {
+                toggle.classList.toggle('expanded');
+            }
+        }
+
+        function toggleToolResponse(header) {
+            const response = header.closest('.tool-response');
+            const content = response.querySelector('.tool-response-content');
+            const toggle = header.querySelector('.tool-response-toggle');
+            if (content) {
+                content.classList.toggle('expanded');
+            }
+            if (toggle) {
+                toggle.classList.toggle('expanded');
             }
         }
 
