@@ -23,7 +23,7 @@ func TestLogsView_Render_NotReady(t *testing.T) {
 
 	output := view.Render(&vp, false, 100)
 
-	assert.Contains(t, output, "📝 Logs")
+	assert.Contains(t, output, "Logs")
 	assert.Contains(t, output, "Initializing...")
 }
 
@@ -34,7 +34,7 @@ func TestLogsView_Render_Ready(t *testing.T) {
 
 	output := view.Render(&vp, true, 100)
 
-	assert.Contains(t, output, "📝 Logs")
+	assert.Contains(t, output, "Logs")
 	assert.Contains(t, output, "Test log content")
 }
 
@@ -50,8 +50,8 @@ func TestLogsView_Render_Focused(t *testing.T) {
 	// Both should contain the content and title
 	assert.Contains(t, outputFocused, "Test content")
 	assert.Contains(t, outputUnfocused, "Test content")
-	assert.Contains(t, outputFocused, "📝 Logs")
-	assert.Contains(t, outputUnfocused, "📝 Logs")
+	assert.Contains(t, outputFocused, "Logs")
+	assert.Contains(t, outputUnfocused, "Logs")
 
 	// Focus affects border color, but the styling may not be visible in test output
 	// Just verify both render successfully

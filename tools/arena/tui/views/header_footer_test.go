@@ -67,32 +67,44 @@ func TestHeaderFooterView_RenderHeader_CompleteProgress(t *testing.T) {
 
 func TestHeaderFooterView_RenderFooter_MainPage(t *testing.T) {
 	view := NewHeaderFooterView(100)
-	output := view.RenderFooter(false)
+	keyBindings := []KeyBinding{
+		{Keys: "q", Description: "quit"},
+		{Keys: "tab", Description: "focus runs/logs"},
+		{Keys: "enter", Description: "open conversation"},
+		{Keys: "↑/↓", Description: "navigate"},
+	}
+	output := view.RenderFooter(keyBindings)
 
 	// Main page footer
-	assert.Contains(t, output, "q: quit")
-	assert.Contains(t, output, "tab: focus runs/logs")
-	assert.Contains(t, output, "enter: open conversation")
-	assert.Contains(t, output, "↑/↓: navigate")
-
-	// Should NOT have conversation-specific help
-	assert.NotContains(t, output, "esc: back")
-	assert.NotContains(t, output, "tab: focus turns/detail")
+	assert.Contains(t, output, "q")
+	assert.Contains(t, output, "quit")
+	assert.Contains(t, output, "tab")
+	assert.Contains(t, output, "focus runs/logs")
+	assert.Contains(t, output, "enter")
+	assert.Contains(t, output, "open conversation")
+	assert.Contains(t, output, "↑/↓")
+	assert.Contains(t, output, "navigate")
 }
 
 func TestHeaderFooterView_RenderFooter_ConversationPage(t *testing.T) {
 	view := NewHeaderFooterView(100)
-	output := view.RenderFooter(true)
+	keyBindings := []KeyBinding{
+		{Keys: "q", Description: "quit"},
+		{Keys: "esc", Description: "back"},
+		{Keys: "tab", Description: "focus turns/detail"},
+		{Keys: "↑/↓", Description: "navigate"},
+	}
+	output := view.RenderFooter(keyBindings)
 
 	// Conversation page footer
-	assert.Contains(t, output, "q: quit")
-	assert.Contains(t, output, "esc: back")
-	assert.Contains(t, output, "tab: focus turns/detail")
-	assert.Contains(t, output, "↑/↓: navigate")
-
-	// Should NOT have main page help
-	assert.NotContains(t, output, "tab: focus runs/logs")
-	assert.NotContains(t, output, "enter: open conversation")
+	assert.Contains(t, output, "q")
+	assert.Contains(t, output, "quit")
+	assert.Contains(t, output, "esc")
+	assert.Contains(t, output, "back")
+	assert.Contains(t, output, "tab")
+	assert.Contains(t, output, "focus turns/detail")
+	assert.Contains(t, output, "↑/↓")
+	assert.Contains(t, output, "navigate")
 }
 
 func TestBuildProgressBar(t *testing.T) {

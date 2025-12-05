@@ -38,11 +38,11 @@ func TestConversationPanel_ViewAndNavigation(t *testing.T) {
 	_ = panel.Update(down)
 	out := panel.View()
 	assert.Contains(t, out, "Conversation")
-	assert.Contains(t, out, "list_devices")
+	assert.Contains(t, out, "devices") // Part of tool name (ANSI codes may split words)
 	assert.Contains(t, out, "customer_id")
 	assert.Contains(t, out, "Turn 2")
 	assert.Contains(t, out, "Tokens:")
-	assert.Contains(t, out, "scroll")
+	assert.Contains(t, out, "Tool Calls")
 }
 
 func TestConversationPanel_Reset(t *testing.T) {
@@ -132,7 +132,7 @@ func TestResultPanel_Basic(t *testing.T) {
 	panel.Update(100, 30)
 
 	// Test empty
-	view := panel.View(nil)
+	view := panel.View(nil, false)
 	assert.NotEmpty(t, view)
 	assert.Contains(t, view, "No run selected")
 
@@ -145,7 +145,7 @@ func TestResultPanel_Basic(t *testing.T) {
 			},
 		},
 	}
-	view = panel.View(data)
+	view = panel.View(data, false)
 	assert.Contains(t, view, "No assertions")
 
 	// Test with passing assertions
@@ -170,7 +170,7 @@ func TestResultPanel_Basic(t *testing.T) {
 			},
 		},
 	}
-	view = panel.View(data)
+	view = panel.View(data, false)
 	assert.Contains(t, view, "2/2 passed")
 	assert.Contains(t, view, "✓")
 
@@ -198,7 +198,7 @@ func TestResultPanel_Basic(t *testing.T) {
 			},
 		},
 	}
-	view = panel.View(data)
+	view = panel.View(data, false)
 	assert.Contains(t, view, "1/2 passed")
 	assert.Contains(t, view, "✗")
 	// The ellipsis shows as "…" in the rendered view
@@ -220,7 +220,7 @@ func TestResultPanel_Basic(t *testing.T) {
 			},
 		},
 	}
-	view = panel.View(data)
+	view = panel.View(data, false)
 	// The ellipsis character shows as "…" in lipgloss rendering
 	assert.Contains(t, view, "…")
 
@@ -240,12 +240,12 @@ func TestResultPanel_Basic(t *testing.T) {
 			},
 		},
 	}
-	view = panel.View(data)
+	view = panel.View(data, false)
 	assert.Contains(t, view, "…")
 
 	// Test not ready state
 	newPanel := NewResultPanel()
-	view = newPanel.View(nil)
+	view = newPanel.View(nil, false)
 	assert.Equal(t, "Loading...", view)
 
 	// Test table accessor
@@ -271,7 +271,7 @@ func TestResultPanel_Update_MultipleTimes(t *testing.T) {
 
 	// Very small height
 	panel.Update(100, 3)
-	view := panel.View(nil)
+	view := panel.View(nil, false)
 	assert.NotEmpty(t, view)
 	assert.Contains(t, view, "No run selected")
 }
@@ -306,10 +306,9 @@ func TestResultPanel_WithAssertions(t *testing.T) {
 		},
 	}
 
-	view := panel.View(data)
+	view := panel.View(data, false)
 	assert.NotEmpty(t, view)
-	assert.Contains(t, view, "Assertions")
-	assert.Contains(t, view, "1/2")
+	assert.Contains(t, view, "1/2 passed")
 	assert.Contains(t, view, "content_includes")
 	assert.Contains(t, view, "tools_called")
 }
@@ -327,7 +326,7 @@ func TestResultPanel_NoAssertions(t *testing.T) {
 		},
 	}
 
-	view := panel.View(data)
+	view := panel.View(data, false)
 	assert.NotEmpty(t, view)
 	assert.Contains(t, view, "No assertions")
 }
@@ -356,7 +355,7 @@ func TestResultPanel_TruncatesLongText(t *testing.T) {
 		},
 	}
 
-	view := panel.View(data)
+	view := panel.View(data, false)
 	assert.NotEmpty(t, view)
 	// Just verify it renders without error - truncation is visible in the output
 	assert.Contains(t, view, "this_is_a_very_long")

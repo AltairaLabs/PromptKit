@@ -57,8 +57,11 @@ func (p *LogsPanel) Update(logs []LogEntry, width, height int) {
 		return
 	}
 
-	// Update dimensions
-	viewportHeight := height / logsHeightDivisor
+	// Calculate viewport dimensions based on allocated height
+	// Height passed in is the full panel height, need to account for:
+	// border (2) + padding (2) + title (1) = 5 lines of chrome
+	const logsPanelChrome = 5
+	viewportHeight := height - logsPanelChrome
 	if viewportHeight < logsMinHeight {
 		viewportHeight = logsMinHeight
 	}
@@ -105,4 +108,9 @@ func (p *LogsPanel) GotoBottom() {
 	if p.ready {
 		p.viewport.GotoBottom()
 	}
+}
+
+// SetFocus sets the focus state of the panel
+func (p *LogsPanel) SetFocus(focused bool) {
+	// LogsPanel doesn't have interactive focus, but we keep this for consistency
 }

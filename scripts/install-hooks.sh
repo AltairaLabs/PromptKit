@@ -59,6 +59,16 @@ else
     echo "  Or visit: https://golangci-lint.run/usage/install/"
 fi
 
+# Check for gosec (optional but recommended)
+if command -v gosec &> /dev/null; then
+    GOSEC_VERSION=$(gosec -version 2>/dev/null | head -1 || echo "unknown")
+    echo -e "${GREEN}✓${NC} gosec is installed ($GOSEC_VERSION)"
+else
+    echo -e "${YELLOW}⚠${NC} gosec is not installed (optional, recommended)"
+    echo "  Install with: brew install gosec"
+    echo "  Or visit: https://github.com/securego/gosec"
+fi
+
 # Check for diff-cover
 if command -v diff-cover &> /dev/null; then
     DIFFCOVER_VERSION=$(diff-cover --version 2>&1 | head -n1 || echo "unknown")

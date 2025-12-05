@@ -55,8 +55,9 @@ PromptKit implements several security measures to protect users:
 
 ### Code Security
 
-- **Static Analysis**: Automated security scanning of all code changes
-- **Dependency Scanning**: Regular checks for known vulnerabilities in dependencies
+- **Static Analysis**: Automated security scanning with [gosec](https://github.com/securego/gosec) on all code changes
+- **Dependency Scanning**: Automated vulnerability scanning with [Dependabot](https://github.com/dependabot) for Go modules, npm packages, Docker images, and GitHub Actions
+- **Code Quality**: Comprehensive linting with golangci-lint and SonarQube integration
 - **Code Review**: All changes require review before merging
 - **Signed Releases**: All releases are signed and checksummed
 
@@ -69,10 +70,11 @@ PromptKit implements several security measures to protect users:
 
 ### Infrastructure Security
 
-- **Secure Development**: Development follows secure coding practices
+- **Secure Development**: Development follows secure coding practices with pre-commit security checks
 - **CI/CD Security**: Build pipelines use secure practices and isolated environments
 - **Access Controls**: Multi-factor authentication and role-based access controls
-- **Regular Updates**: Dependencies and infrastructure are regularly updated
+- **Automated Updates**: Dependabot automatically creates PRs for dependency updates weekly
+- **Regular Reviews**: Security updates are prioritized and reviewed promptly
 
 ## Security Considerations for Users
 
@@ -157,10 +159,32 @@ Security updates are distributed through:
 - **Security Advisories**: GitHub security advisories for critical issues
 - **Documentation**: Updated security documentation and guidelines
 - **Community Channels**: Announcements in community forums and discussions
+## Automated Security Tools
+
+PromptKit uses the following automated security tools:
+
+- **[gosec](https://github.com/securego/gosec)**: Go security scanner that inspects source code for security problems
+  - Runs locally via `make security-scan` or `make security-scan-diff`
+  - Integrated into pre-commit hooks for changed code
+  - Checks for common security issues like SQL injection, command injection, weak crypto, etc.
+
+- **[Dependabot](https://github.com/dependabot)**: Automated dependency updates and vulnerability scanning
+  - Monitors all Go modules, npm packages, Docker images, and GitHub Actions
+  - Creates pull requests for security updates and version bumps
+  - Runs weekly on Mondays at 09:00 UTC
+
+- **[golangci-lint](https://golangci-lint.run/)**: Comprehensive Go linter including staticcheck
+  - Includes gosec as one of its enabled linters
+  - Runs on all PRs and pre-commit hooks
+
+- **[SonarQube](https://www.sonarsource.com/products/sonarqube/)**: Code quality and security analysis
+  - Integrated with CI/CD pipeline
+  - Provides detailed security vulnerability reports
 
 ---
 
-**Last Updated**: November 1, 2025  
+**Last Updated**: December 5, 2025  
+**Next Review**: March 5, 20265  
 **Next Review**: February 1, 2026
 
 For questions about this security policy, contact: [security@altairalabs.ai](mailto:security@altairalabs.ai)

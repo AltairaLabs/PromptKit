@@ -934,10 +934,15 @@ func TestHandleMainPageKey_TabSwitchingWithFocus(t *testing.T) {
 	updatedM := updated.(*Model)
 	assert.Equal(t, paneLogs, updatedM.activePane)
 
-	// Tab again switches back to runs
+	// Tab again switches to result
 	updated2, _ := updatedM.Update(tabMsg)
 	updatedM2 := updated2.(*Model)
-	assert.Equal(t, paneRuns, updatedM2.activePane)
+	assert.Equal(t, paneResult, updatedM2.activePane)
+
+	// Tab third time switches back to runs
+	updated3, _ := updatedM2.Update(tabMsg)
+	updatedM3 := updated3.(*Model)
+	assert.Equal(t, paneRuns, updatedM3.activePane)
 }
 
 func TestHandleMainPageKey_EnterToggleSelection(t *testing.T) {

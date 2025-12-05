@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
@@ -13,7 +14,7 @@ import (
 const (
 	defaultRunsTableHeight     = 15
 	runsTableHeightDivisor     = 3
-	runsTableMinHeight         = 5
+	runsTableMinHeight         = 1
 	runsTableWidthPadding      = 8
 	runsPanelPadding           = 2
 	runsPanelHorizontalPadding = runsPanelPadding * 2
@@ -26,6 +27,7 @@ const (
 	costColWidth     = 10
 	notesColWidth    = 24
 	errorNoteMaxLen  = 40
+	viewportWidthPad = 6 // border (2) + padding (4)
 )
 
 // RunStatus represents the status of a run
@@ -56,8 +58,9 @@ type RunInfo struct {
 
 // RunsPanel manages the active runs table display
 type RunsPanel struct {
-	table table.Model
-	ready bool
+	table    table.Model
+	viewport viewport.Model
+	ready    bool
 }
 
 // NewRunsPanel creates a new runs panel
@@ -148,12 +151,23 @@ func (p *RunsPanel) Update(runs []RunInfo, width, height int) {
 	p.table.SetRows(rows)
 
 	// Update dimensions
-	tableHeight := height / runsTableHeightDivisor
+	// Height is the full panel height, subtract chrome to get table height
+	// border (2) + padding (2) + title (1) = 5 lines of chrome
+	const runsPanelChrome = 5
+	tableHeight := height - runsPanelChrome
 	if tableHeight < runsTableMinHeight {
 		tableHeight = runsTableMinHeight
 	}
 	p.table.SetHeight(tableHeight)
 	p.table.SetWidth(width - runsTableWidthPadding)
+
+	// Update viewport dimensions
+	// Account for border (2) and padding (4) in width calculation
+	viewportWidth := width - viewportWidthPad
+	// Viewport height should be tableHeight + 1 for title
+	viewportHeight := tableHeight + 1
+	p.viewport.Width = viewportWidth
+	p.viewport.Height = viewportHeight
 
 	// Update focus
 	// Note: focus is now managed externally via View's focused parameter
@@ -163,18 +177,22 @@ func (p *RunsPanel) Update(runs []RunInfo, width, height int) {
 func (p *RunsPanel) View(focused bool) string {
 	borderColor := theme.BorderColorUnfocused()
 	if focused {
-		borderColor = lipgloss.Color(theme.ColorWhite)
+		borderColor = theme.BorderColorFocused()
 	}
 
 	titleStyle := theme.TitleStyle
 	title := titleStyle.Render("📊 Active Runs")
 
 	content := lipgloss.JoinVertical(lipgloss.Left, title, p.table.View())
+
+	// Set viewport content and render
+	p.viewport.SetContent(content)
+
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderColor).
 		Padding(1, runsPanelPadding).
-		Render(content)
+		Render(p.viewport.View())
 }
 
 // Table returns the underlying table for key handling
