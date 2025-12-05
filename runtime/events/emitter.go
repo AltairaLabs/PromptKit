@@ -241,3 +241,23 @@ func (e *Emitter) EmitCustom(
 		Message:        message,
 	})
 }
+
+// MessageCreated emits the message.created event.
+func (e *Emitter) MessageCreated(role, content string, index int) {
+	e.emit(EventMessageCreated, MessageCreatedData{
+		Role:    role,
+		Content: content,
+		Index:   index,
+	})
+}
+
+// MessageUpdated emits the message.updated event.
+func (e *Emitter) MessageUpdated(index int, latencyMs int64, inputTokens, outputTokens int, totalCost float64) {
+	e.emit(EventMessageUpdated, MessageUpdatedData{
+		Index:        index,
+		LatencyMs:    latencyMs,
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+		TotalCost:    totalCost,
+	})
+}

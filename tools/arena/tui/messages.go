@@ -44,3 +44,23 @@ type TurnCompletedMsg struct {
 	Error     error
 	Time      time.Time
 }
+
+// MessageCreatedMsg is sent when a message is created during execution.
+type MessageCreatedMsg struct {
+	ConversationID string
+	Role           string
+	Content        string
+	Index          int
+	Time           time.Time
+}
+
+// MessageUpdatedMsg is sent when a message is updated with cost/latency info.
+type MessageUpdatedMsg struct {
+	ConversationID string
+	Index          int
+	LatencyMs      int64
+	InputTokens    int
+	OutputTokens   int
+	TotalCost      float64
+	Time           time.Time
+}

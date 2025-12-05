@@ -121,6 +121,27 @@ func (c *ConversationPanel) SetData(runID, scenario, provider string, res *state
 	c.provider = provider
 }
 
+// AppendMessage adds a new message to the conversation in real-time
+func (c *ConversationPanel) AppendMessage(msg *types.Message) {
+	if c.res == nil {
+		return
+	}
+	c.res.Messages = append(c.res.Messages, *msg)
+	// Invalidate render cache since we added a message
+	c.renderedCache = make(map[int]string)
+}
+
+// UpdateMessageMetadata updates cost/latency for a message
+func (c *ConversationPanel) UpdateMessageMetadata(index int, latencyMs int64, costInfo types.CostInfo) {
+	if c.res == nil || index < 0 || index >= len(c.res.Messages) {
+		return
+	}
+	c.res.Messages[index].LatencyMs = latencyMs
+	c.res.Messages[index].CostInfo = &costInfo
+	// Invalidate cache for this specific message
+	delete(c.renderedCache, index)
+}
+
 func (c *ConversationPanel) ensureTable(runID string) {
 	if c.tableReady && c.lastRunID == runID {
 		return

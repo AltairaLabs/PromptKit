@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"golang.org/x/term"
 
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/logging"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/pages"
@@ -183,6 +184,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mu.Unlock()
 		return m, nil
 
+	case MessageCreatedMsg:
+		m.mu.Lock()
+		m.handleMessageCreated(&msg)
+		m.mu.Unlock()
+		return m, nil
+
+	case MessageUpdatedMsg:
+		m.mu.Lock()
+		m.handleMessageUpdated(&msg)
+		m.mu.Unlock()
+		return m, nil
+
 	case logging.Msg:
 		m.mu.Lock()
 		m.handleLogMsg(&msg)
@@ -318,6 +331,39 @@ func (m *Model) handleTurnCompleted(msg *TurnCompletedMsg) {
 		Message:   text,
 	})
 	m.trimLogs()
+}
+
+// handleMessageCreated processes a message.created event for real-time conversation updates
+func (m *Model) handleMessageCreated(msg *MessageCreatedMsg) {
+	// Only update the conversation panel if we're currently viewing a conversation
+	if m.conversationPage != nil {
+		panel := m.conversationPage.Panel()
+		if panel != nil {
+			// Match by conversation ID if available, otherwise update any active conversation
+			newMsg := types.Message{
+				Role:      msg.Role,
+				Content:   msg.Content,
+				Timestamp: msg.Time,
+			}
+			panel.AppendMessage(&newMsg)
+		}
+	}
+}
+
+// handleMessageUpdated processes a message.updated event for cost/latency updates
+func (m *Model) handleMessageUpdated(msg *MessageUpdatedMsg) {
+	// Only update the conversation panel if we're currently viewing a conversation
+	if m.conversationPage != nil {
+		panel := m.conversationPage.Panel()
+		if panel != nil {
+			costInfo := types.CostInfo{
+				InputTokens:  msg.InputTokens,
+				OutputTokens: msg.OutputTokens,
+				TotalCost:    msg.TotalCost,
+			}
+			panel.UpdateMessageMetadata(msg.Index, msg.LatencyMs, costInfo)
+		}
+	}
 }
 
 // handleLogMsg processes a log message from the interceptor

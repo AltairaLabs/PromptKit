@@ -52,6 +52,11 @@ const (
 
 	// EventStreamInterrupted marks a stream interruption.
 	EventStreamInterrupted EventType = "stream.interrupted"
+
+	// EventMessageCreated marks message creation.
+	EventMessageCreated EventType = "message.created"
+	// EventMessageUpdated marks message update (e.g., cost/latency after completion).
+	EventMessageUpdated EventType = "message.updated"
 )
 
 // EventData is a marker interface for event payloads.
@@ -250,4 +255,22 @@ type CustomEventData struct {
 	EventName      string
 	Data           map[string]interface{}
 	Message        string
+}
+
+// MessageCreatedData contains data for message creation events.
+type MessageCreatedData struct {
+	baseEventData
+	Role    string
+	Content string
+	Index   int // Position in conversation history
+}
+
+// MessageUpdatedData contains data for message update events.
+type MessageUpdatedData struct {
+	baseEventData
+	Index        int // Position in conversation history
+	LatencyMs    int64
+	InputTokens  int
+	OutputTokens int
+	TotalCost    float64
 }

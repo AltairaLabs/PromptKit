@@ -136,6 +136,28 @@ func (a *EventAdapter) HandleEvent(event *events.Event) {
 			Error:     readError(event.Data, "error"),
 			Time:      event.Timestamp,
 		}
+	case events.EventMessageCreated:
+		if data, ok := event.Data.(*events.MessageCreatedData); ok {
+			msg = MessageCreatedMsg{
+				ConversationID: event.ConversationID,
+				Role:           data.Role,
+				Content:        data.Content,
+				Index:          data.Index,
+				Time:           event.Timestamp,
+			}
+		}
+	case events.EventMessageUpdated:
+		if data, ok := event.Data.(*events.MessageUpdatedData); ok {
+			msg = MessageUpdatedMsg{
+				ConversationID: event.ConversationID,
+				Index:          data.Index,
+				LatencyMs:      data.LatencyMs,
+				InputTokens:    data.InputTokens,
+				OutputTokens:   data.OutputTokens,
+				TotalCost:      data.TotalCost,
+				Time:           event.Timestamp,
+			}
+		}
 	default:
 		// Ignore events we don't map yet
 		return
