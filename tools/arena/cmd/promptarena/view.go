@@ -33,47 +33,8 @@ func init() {
 	rootCmd.AddCommand(viewCmd)
 }
 
-func runView(cmd *cobra.Command, args []string) error {
-	// Determine results directory
-	resultsDir := "."
-	if len(args) > 0 {
-		resultsDir = args[0]
-	}
-
-	// Resolve to absolute path
-	absPath, err := filepath.Abs(resultsDir)
-	if err != nil {
-		return fmt.Errorf("failed to resolve path: %w", err)
-	}
-
-	// Check if directory exists
-	info, err := os.Stat(absPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("directory does not exist: %s", absPath)
-		}
-		return fmt.Errorf("failed to access directory: %w", err)
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("path is not a directory: %s", absPath)
-	}
-
-	// Create and run the multi-page viewer TUI
-	viewer := newViewerTUI(absPath)
-
-	// Create the bubbletea program
-	p := tea.NewProgram(
-		viewer,
-		tea.WithAltScreen(),
-	)
-
-	// Run the program
-	if _, err := p.Run(); err != nil {
-		return fmt.Errorf("failed to run TUI: %w", err)
-	}
-
-	return nil
-}
+// NOTE: runView is defined in view_interactive.go
+// This function is excluded from coverage testing as it involves interactive terminal operations.
 
 // page constants for the viewer TUI
 type page int
