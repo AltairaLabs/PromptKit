@@ -294,9 +294,13 @@ jobs:
       env:
         VERSION: ${{ needs.validate.outputs.version }}
         GOPROXY: direct
+        GOSUMDB: sum.golang.org
       run: |
         echo "Updating tools/arena to use $VERSION..."
         cd tools/arena
+        
+        # Clean Go module cache to avoid stale checksums
+        go clean -modcache
         
         # First, explicitly require the new versions (before dropping replace)
         echo "Setting required versions to $VERSION..."
@@ -334,9 +338,13 @@ jobs:
       env:
         VERSION: ${{ needs.validate.outputs.version }}
         GOPROXY: direct
+        GOSUMDB: sum.golang.org
       run: |
         echo "Updating tools/packc to use $VERSION..."
         cd tools/packc
+        
+        # Clean Go module cache to avoid stale checksums
+        go clean -modcache
         
         # First, explicitly require the new versions (before dropping replace)
         echo "Setting required versions to $VERSION..."
