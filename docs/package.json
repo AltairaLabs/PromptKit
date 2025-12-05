@@ -18,7 +18,7 @@
     "astro": "^5.16.4",
     "fuse.js": "^7.1.0",
     "gray-matter": "^4.0.3",
-    "mermaid": "^11.12.1",
+    "mermaid": "^11.12.2",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
     "rehype-mermaid": "^3.0.0"
