@@ -293,90 +293,40 @@ jobs:
     - name: Update arena dependencies
       env:
         VERSION: ${{ needs.validate.outputs.version }}
-        GOPROXY: direct
-        GOSUMDB: sum.golang.org
       run: |
         echo "Updating tools/arena to use $VERSION..."
         cd tools/arena
         
-        # Clean Go module cache to avoid stale checksums
-        go clean -modcache
-        
-        # First, explicitly require the new versions (before dropping replace)
+        # Update go.mod to require new versions
         echo "Setting required versions to $VERSION..."
         go mod edit -require="github.com/AltairaLabs/PromptKit/runtime@$VERSION"
         go mod edit -require="github.com/AltairaLabs/PromptKit/pkg@$VERSION"
         
-        # Now remove local replace directives
+        # Remove local replace directives
         go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
         go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/pkg
         
-        # Download the modules with retry logic (using direct access since Go proxy may not have indexed yet)
-        echo "Downloading dependencies directly from GitHub..."
-        for i in {1..10}; do
-          if go mod download 2>&1; then
-            echo "✓ Downloaded dependencies"
-            break
-          fi
-          if [ $i -eq 10 ]; then
-            echo "::error::Failed to download dependencies after 10 attempts"
-            exit 1
-          fi
-          echo "  Attempt $i/10 failed, waiting 30s..."
-          sleep 30
-        done
-        
-        go mod tidy
-        
-        echo "Building arena..."
-        go build -v ./...
-        
         cd ../..
-        echo "✓ Updated arena to $VERSION"
+        echo "✓ Updated arena go.mod to $VERSION"
     
     - name: Update packc dependencies
       env:
         VERSION: ${{ needs.validate.outputs.version }}
-        GOPROXY: direct
-        GOSUMDB: sum.golang.org
       run: |
         echo "Updating tools/packc to use $VERSION..."
         cd tools/packc
         
-        # Clean Go module cache to avoid stale checksums
-        go clean -modcache
-        
-        # First, explicitly require the new versions (before dropping replace)
+        # Update go.mod to require new versions
         echo "Setting required versions to $VERSION..."
         go mod edit -require="github.com/AltairaLabs/PromptKit/runtime@$VERSION"
         go mod edit -require="github.com/AltairaLabs/PromptKit/pkg@$VERSION"
         
-        # Now remove local replace directives
+        # Remove local replace directives
         go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
         go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/pkg
         
-        # Download the modules with retry logic (using direct access since Go proxy may not have indexed yet)
-        echo "Downloading dependencies directly from GitHub..."
-        for i in {1..10}; do
-          if go mod download 2>&1; then
-            echo "✓ Downloaded dependencies"
-            break
-          fi
-          if [ $i -eq 10 ]; then
-            echo "::error::Failed to download dependencies after 10 attempts"
-            exit 1
-          fi
-          echo "  Attempt $i/10 failed, waiting 30s..."
-          sleep 30
-        done
-        
-        go mod tidy
-        
-        echo "Building packc..."
-        go build -v ./...
-        
         cd ../..
-        echo "✓ Updated packc to $VERSION"
+        echo "✓ Updated packc go.mod to $VERSION"
     
     - name: Commit changes
       env:

@@ -8,7 +8,7 @@ replace github.com/AltairaLabs/PromptKit/pkg => ../../pkg
 
 require (
 	github.com/AltairaLabs/PromptKit/pkg v0.0.0
-	github.com/AltairaLabs/PromptKit/runtime v0.0.1
+	github.com/AltairaLabs/PromptKit/runtime v1.1.3
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/glamour v0.10.0
