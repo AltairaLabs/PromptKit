@@ -36,70 +36,181 @@ func (a *EventAdapter) Subscribe(bus *events.EventBus) {
 
 // HandleEvent converts runtime events into TUI messages.
 func (a *EventAdapter) HandleEvent(event *events.Event) {
-	var msg tea.Msg
+	msg := a.mapEvent(event)
+	if msg != nil {
+		a.send(msg)
+	}
+}
 
+// mapEvent converts a runtime event to a TUI message.
+func (a *EventAdapter) mapEvent(event *events.Event) tea.Msg { //nolint:gocyclo // switch on event types
 	switch event.Type { //nolint:exhaustive // only map TUI-relevant events
 	case events.EventProviderCallStarted:
-		msg = a.logf("INFO", event, "Provider call started: %s %s", providerName(event), providerModel(event))
+		return a.logf("INFO", event, "Provider call started: %s %s", providerName(event), providerModel(event))
 	case events.EventProviderCallCompleted:
-		if data, ok := event.Data.(*events.ProviderCallCompletedData); ok {
-			msg = a.logf("INFO", event, "Provider call completed: %s %s (%.2fs, cost $%.4f)",
-				providerName(event),
-				providerModel(event),
-				data.Duration.Seconds(),
-				data.Cost)
-		}
+		return a.handleProviderCallCompleted(event)
 	case events.EventProviderCallFailed:
-		msg = a.logf("ERROR", event, "Provider call failed: %s %s (%v)",
-			providerName(event),
-			providerModel(event),
-			eventError(event))
+		return a.logf("ERROR", event, "Provider call failed: %s %s (%v)",
+			providerName(event), providerModel(event), eventError(event))
 	case events.EventMiddlewareStarted:
-		msg = a.logf("INFO", event, "Middleware started: %s", middlewareName(event))
+		return a.logf("INFO", event, "Middleware started: %s", middlewareName(event))
 	case events.EventMiddlewareCompleted:
-		if data, ok := event.Data.(events.MiddlewareCompletedData); ok {
-			msg = a.logf("INFO", event, "Middleware completed: %s (%.2fs)", data.Name, data.Duration.Seconds())
-		}
+		return a.handleMiddlewareCompleted(event)
 	case events.EventMiddlewareFailed:
-		msg = a.logf("ERROR", event, "Middleware failed: %s (%v)", middlewareName(event), eventError(event))
+		return a.logf("ERROR", event, "Middleware failed: %s (%v)", middlewareName(event), eventError(event))
 	case events.EventToolCallStarted:
-		msg = a.logf("INFO", event, "Tool call started: %s", toolName(event))
+		return a.logf("INFO", event, "Tool call started: %s", toolName(event))
 	case events.EventToolCallCompleted:
-		msg = a.logf("INFO", event, "Tool call completed: %s", toolName(event))
+		return a.logf("INFO", event, "Tool call completed: %s", toolName(event))
 	case events.EventToolCallFailed:
-		msg = a.logf("ERROR", event, "Tool call failed: %s (%v)", toolName(event), eventError(event))
+		return a.logf("ERROR", event, "Tool call failed: %s (%v)", toolName(event), eventError(event))
 	case events.EventValidationStarted:
-		msg = a.logf("INFO", event, "Validation started: %s", validationName(event))
+		return a.logf("INFO", event, "Validation started: %s", validationName(event))
 	case events.EventValidationPassed:
-		msg = a.logf("INFO", event, "Validation passed: %s", validationName(event))
+		return a.logf("INFO", event, "Validation passed: %s", validationName(event))
 	case events.EventValidationFailed:
-		msg = a.logf("ERROR", event, "Validation failed: %s (%v)", validationName(event), eventError(event))
+		return a.logf("ERROR", event, "Validation failed: %s (%v)", validationName(event), eventError(event))
 	case events.EventContextBuilt:
-		if data, ok := event.Data.(events.ContextBuiltData); ok {
-			msg = a.logf("INFO", event, "Context built (%d msgs, %d tokens)%s",
-				data.MessageCount,
-				data.TokenCount,
-				ternary(data.Truncated, " [truncated]", ""))
-		}
+		return a.handleContextBuilt(event)
 	case events.EventTokenBudgetExceeded:
-		if data, ok := event.Data.(events.TokenBudgetExceededData); ok {
-			msg = a.logf("ERROR", event, "Token budget exceeded: need %d, budget %d, excess %d",
-				data.RequiredTokens,
-				data.Budget,
-				data.Excess)
-		}
+		return a.handleTokenBudgetExceeded(event)
 	case events.EventStateLoaded:
-		if data, ok := event.Data.(events.StateLoadedData); ok {
-			msg = a.logf("INFO", event, "State loaded: %s (%d messages)", data.ConversationID, data.MessageCount)
-		}
+		return a.handleStateLoaded(event)
 	case events.EventStateSaved:
-		if data, ok := event.Data.(events.StateSavedData); ok {
-			msg = a.logf("INFO", event, "State saved: %s (%d messages)", data.ConversationID, data.MessageCount)
-		}
+		return a.handleStateSaved(event)
 	case events.EventStreamInterrupted:
-		msg = a.logf("ERROR", event, "Stream interrupted: %s", readString(event.Data, "reason"))
+		return a.logf("ERROR", event, "Stream interrupted: %s", readString(event.Data, "reason"))
+	case events.EventMessageCreated:
+		return a.handleMessageCreated(event)
+	case events.EventMessageUpdated:
+		return a.handleMessageUpdated(event)
+	case events.EventConversationStarted:
+		return a.handleConversationStarted(event)
+	default:
+		return a.handleArenaEvents(event)
+	}
+}
+
+func (a *EventAdapter) handleProviderCallCompleted(event *events.Event) tea.Msg {
+	data, ok := event.Data.(*events.ProviderCallCompletedData)
+	if !ok {
+		return nil
+	}
+	return a.logf("INFO", event, "Provider call completed: %s %s (%.2fs, cost $%.4f)",
+		providerName(event), providerModel(event), data.Duration.Seconds(), data.Cost)
+}
+
+func (a *EventAdapter) handleMiddlewareCompleted(event *events.Event) tea.Msg {
+	data, ok := event.Data.(events.MiddlewareCompletedData)
+	if !ok {
+		return nil
+	}
+	return a.logf("INFO", event, "Middleware completed: %s (%.2fs)", data.Name, data.Duration.Seconds())
+}
+
+func (a *EventAdapter) handleContextBuilt(event *events.Event) tea.Msg {
+	data, ok := event.Data.(events.ContextBuiltData)
+	if !ok {
+		return nil
+	}
+	return a.logf("INFO", event, "Context built (%d msgs, %d tokens)%s",
+		data.MessageCount, data.TokenCount, ternary(data.Truncated, " [truncated]", ""))
+}
+
+func (a *EventAdapter) handleTokenBudgetExceeded(event *events.Event) tea.Msg {
+	data, ok := event.Data.(events.TokenBudgetExceededData)
+	if !ok {
+		return nil
+	}
+	return a.logf("ERROR", event, "Token budget exceeded: need %d, budget %d, excess %d",
+		data.RequiredTokens, data.Budget, data.Excess)
+}
+
+func (a *EventAdapter) handleStateLoaded(event *events.Event) tea.Msg {
+	data, ok := event.Data.(events.StateLoadedData)
+	if !ok {
+		return nil
+	}
+	return a.logf("INFO", event, "State loaded: %s (%d messages)", data.ConversationID, data.MessageCount)
+}
+
+func (a *EventAdapter) handleStateSaved(event *events.Event) tea.Msg {
+	data, ok := event.Data.(events.StateSavedData)
+	if !ok {
+		return nil
+	}
+	return a.logf("INFO", event, "State saved: %s (%d messages)", data.ConversationID, data.MessageCount)
+}
+
+func (a *EventAdapter) handleMessageCreated(event *events.Event) tea.Msg {
+	data, ok := event.Data.(events.MessageCreatedData)
+	if !ok {
+		return nil
+	}
+	// Map tool calls
+	var toolCalls []MessageToolCall
+	for _, tc := range data.ToolCalls {
+		toolCalls = append(toolCalls, MessageToolCall{
+			ID:   tc.ID,
+			Name: tc.Name,
+			Args: tc.Args,
+		})
+	}
+	// Map tool result
+	var toolResult *MessageToolResult
+	if data.ToolResult != nil {
+		toolResult = &MessageToolResult{
+			ID:        data.ToolResult.ID,
+			Name:      data.ToolResult.Name,
+			Content:   data.ToolResult.Content,
+			Error:     data.ToolResult.Error,
+			LatencyMs: data.ToolResult.LatencyMs,
+		}
+	}
+	return MessageCreatedMsg{
+		ConversationID: event.ConversationID,
+		Role:           data.Role,
+		Content:        data.Content,
+		Index:          data.Index,
+		ToolCalls:      toolCalls,
+		ToolResult:     toolResult,
+		Time:           event.Timestamp,
+	}
+}
+
+func (a *EventAdapter) handleMessageUpdated(event *events.Event) tea.Msg {
+	data, ok := event.Data.(events.MessageUpdatedData)
+	if !ok {
+		return nil
+	}
+	return MessageUpdatedMsg{
+		ConversationID: event.ConversationID,
+		Index:          data.Index,
+		LatencyMs:      data.LatencyMs,
+		InputTokens:    data.InputTokens,
+		OutputTokens:   data.OutputTokens,
+		TotalCost:      data.TotalCost,
+		Time:           event.Timestamp,
+	}
+}
+
+func (a *EventAdapter) handleConversationStarted(event *events.Event) tea.Msg {
+	data, ok := event.Data.(events.ConversationStartedData)
+	if !ok {
+		return nil
+	}
+	return ConversationStartedMsg{
+		ConversationID: event.ConversationID,
+		SystemPrompt:   data.SystemPrompt,
+		Time:           event.Timestamp,
+	}
+}
+
+// handleArenaEvents handles arena-specific custom events.
+func (a *EventAdapter) handleArenaEvents(event *events.Event) tea.Msg {
+	switch event.Type {
 	case events.EventType("arena.run.started"):
-		msg = RunStartedMsg{
+		return RunStartedMsg{
 			RunID:    event.RunID,
 			Scenario: readString(event.Data, "scenario"),
 			Provider: readString(event.Data, "provider"),
@@ -107,20 +218,20 @@ func (a *EventAdapter) HandleEvent(event *events.Event) {
 			Time:     event.Timestamp,
 		}
 	case events.EventType("arena.run.completed"):
-		msg = RunCompletedMsg{
+		return RunCompletedMsg{
 			RunID:    event.RunID,
 			Duration: readDuration(event.Data, "duration"),
 			Cost:     readFloat(event.Data, "cost"),
 			Time:     event.Timestamp,
 		}
 	case events.EventType("arena.run.failed"):
-		msg = RunFailedMsg{
+		return RunFailedMsg{
 			RunID: event.RunID,
 			Error: readError(event.Data, "error"),
 			Time:  event.Timestamp,
 		}
 	case events.EventType("arena.turn.started"):
-		msg = TurnStartedMsg{
+		return TurnStartedMsg{
 			RunID:     event.RunID,
 			TurnIndex: readInt(event.Data, "turn_index"),
 			Role:      readString(event.Data, "role"),
@@ -128,7 +239,7 @@ func (a *EventAdapter) HandleEvent(event *events.Event) {
 			Time:      event.Timestamp,
 		}
 	case events.EventType("arena.turn.completed"), events.EventType("arena.turn.failed"):
-		msg = TurnCompletedMsg{
+		return TurnCompletedMsg{
 			RunID:     event.RunID,
 			TurnIndex: readInt(event.Data, "turn_index"),
 			Role:      readString(event.Data, "role"),
@@ -136,64 +247,9 @@ func (a *EventAdapter) HandleEvent(event *events.Event) {
 			Error:     readError(event.Data, "error"),
 			Time:      event.Timestamp,
 		}
-	case events.EventMessageCreated:
-		if data, ok := event.Data.(events.MessageCreatedData); ok {
-			// Map tool calls
-			var toolCalls []MessageToolCall
-			for _, tc := range data.ToolCalls {
-				toolCalls = append(toolCalls, MessageToolCall{
-					ID:   tc.ID,
-					Name: tc.Name,
-					Args: tc.Args,
-				})
-			}
-			// Map tool result
-			var toolResult *MessageToolResult
-			if data.ToolResult != nil {
-				toolResult = &MessageToolResult{
-					ID:        data.ToolResult.ID,
-					Name:      data.ToolResult.Name,
-					Content:   data.ToolResult.Content,
-					Error:     data.ToolResult.Error,
-					LatencyMs: data.ToolResult.LatencyMs,
-				}
-			}
-			msg = MessageCreatedMsg{
-				ConversationID: event.ConversationID,
-				Role:           data.Role,
-				Content:        data.Content,
-				Index:          data.Index,
-				ToolCalls:      toolCalls,
-				ToolResult:     toolResult,
-				Time:           event.Timestamp,
-			}
-		}
-	case events.EventMessageUpdated:
-		if data, ok := event.Data.(events.MessageUpdatedData); ok {
-			msg = MessageUpdatedMsg{
-				ConversationID: event.ConversationID,
-				Index:          data.Index,
-				LatencyMs:      data.LatencyMs,
-				InputTokens:    data.InputTokens,
-				OutputTokens:   data.OutputTokens,
-				TotalCost:      data.TotalCost,
-				Time:           event.Timestamp,
-			}
-		}
-	case events.EventConversationStarted:
-		if data, ok := event.Data.(events.ConversationStartedData); ok {
-			msg = ConversationStartedMsg{
-				ConversationID: event.ConversationID,
-				SystemPrompt:   data.SystemPrompt,
-				Time:           event.Timestamp,
-			}
-		}
 	default:
-		// Ignore events we don't map yet
-		return
+		return nil
 	}
-
-	a.send(msg)
 }
 
 func (a *EventAdapter) logf(level string, event *events.Event, format string, args ...interface{}) tea.Msg {

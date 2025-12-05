@@ -73,41 +73,9 @@ func (ce *DefaultConversationExecutor) executeWithoutStreaming(
 	// Execute each turn in the scenario
 	for turnIdx, scenarioTurn := range req.Scenario.Turns {
 		ce.notifyTurnStarted(emitter, turnIdx, scenarioTurn.Role, req.Scenario.ID)
-		// Debug if assertions are specified on user turns (they only validate assistant responses)
-		if scenarioTurn.Role == roleUser && len(scenarioTurn.Assertions) > 0 {
-			logger.Debug("Assertions on user turn will validate next assistant response",
-				"turn", turnIdx)
-		}
+		ce.debugOnUserTurnAssertions(scenarioTurn, turnIdx)
 
-		// Build turn request using the shared builder function
-		turnReq := ce.buildTurnRequest(*req, scenarioTurn)
-
-		var err error
-
-		// Choose executor based on role
-		if ce.isSelfPlayRole(scenarioTurn.Role) {
-			// Self-play turn (LLM-generated user message)
-			turnReq.SelfPlayRole = scenarioTurn.Role
-			turnReq.SelfPlayPersona = scenarioTurn.Persona
-
-			// Execute multiple self-play turns if specified
-			turnsToExecute := scenarioTurn.Turns
-			if turnsToExecute == 0 {
-				turnsToExecute = 1 // Default to 1 turn if not specified
-			}
-
-			for i := 0; i < turnsToExecute; i++ {
-				err = ce.selfPlayExecutor.ExecuteTurn(ctx, turnReq)
-				if err != nil {
-					break
-				}
-			}
-		} else if scenarioTurn.Role == roleUser {
-			// Scripted user turn (non-streaming path)
-			err = ce.scriptedExecutor.ExecuteTurn(ctx, turnReq)
-		} else {
-			err = fmt.Errorf(errUnsupportedRole, scenarioTurn.Role)
-		}
+		err := ce.executeNonStreamingTurn(ctx, req, scenarioTurn)
 
 		if err != nil {
 			logger.Error("Turn execution failed",
@@ -131,6 +99,47 @@ func (ce *DefaultConversationExecutor) executeWithoutStreaming(
 
 	// Load final conversation state from StateStore
 	return ce.buildResultFromStateStore(*req)
+}
+
+// executeNonStreamingTurn executes a single turn without streaming
+func (ce *DefaultConversationExecutor) executeNonStreamingTurn(
+	ctx context.Context,
+	req *ConversationRequest,
+	scenarioTurn config.TurnDefinition,
+) error {
+	turnReq := ce.buildTurnRequest(*req, scenarioTurn)
+
+	if ce.isSelfPlayRole(scenarioTurn.Role) {
+		return ce.executeNonStreamingSelfPlayTurn(ctx, turnReq, scenarioTurn)
+	}
+
+	if scenarioTurn.Role == roleUser {
+		return ce.scriptedExecutor.ExecuteTurn(ctx, turnReq)
+	}
+
+	return fmt.Errorf(errUnsupportedRole, scenarioTurn.Role)
+}
+
+// executeNonStreamingSelfPlayTurn executes self-play turns without streaming
+func (ce *DefaultConversationExecutor) executeNonStreamingSelfPlayTurn(
+	ctx context.Context,
+	turnReq turnexecutors.TurnRequest,
+	scenarioTurn config.TurnDefinition,
+) error {
+	turnReq.SelfPlayRole = scenarioTurn.Role
+	turnReq.SelfPlayPersona = scenarioTurn.Persona
+
+	turnsToExecute := scenarioTurn.Turns
+	if turnsToExecute == 0 {
+		turnsToExecute = 1
+	}
+
+	for i := 0; i < turnsToExecute; i++ {
+		if err := ce.selfPlayExecutor.ExecuteTurn(ctx, turnReq); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // executeWithStreaming runs conversation with streaming enabled, using per-turn overrides
