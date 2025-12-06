@@ -29,6 +29,12 @@ func TestConversationPanel_ViewAndNavigation(t *testing.T) {
 					Name:    "list_devices",
 					Content: `{"devices":[1,2]}`,
 				},
+				CostInfo: &types.CostInfo{
+					InputTokens:  50,
+					OutputTokens: 100,
+					TotalCost:    0.005,
+				},
+				LatencyMs: 1000,
 			},
 		},
 	}

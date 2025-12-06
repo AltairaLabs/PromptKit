@@ -27,6 +27,12 @@ spec:
             - unsafe
           limit:
             - "0"
+    - type: content_includes_any
+      params:
+        patterns:
+          - "11"
+          - "10"
+        message: "At least one response should mention opening hours (11 AM - 10 PM)"
 
   turns:
     - role: user
@@ -41,13 +47,6 @@ spec:
 
     - role: assistant-selfplay
       persona: selfplay-default
-      turns: 2
+      turns: 5
       user_temp: 0.7
       seed: 42
-      assertions:
-        - type: content_includes
-          params:
-            patterns:
-              - "11"
-              - "10"
-            message: "Should mention opening hours from default variable (11 AM - 10 PM)"

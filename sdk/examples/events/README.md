@@ -61,6 +61,10 @@ Common event types include:
 - `provider.call.started` - LLM API call begins
 - `provider.call.completed` - LLM API call succeeds
 - `provider.call.failed` - LLM API call fails
+- `conversation.started` - New conversation started
+- `message.created` - Message added to conversation
+- `message.updated` - Message metadata updated (cost, latency)
+- `stream.interrupted` - Stream was interrupted
 
 ## Use Cases
 

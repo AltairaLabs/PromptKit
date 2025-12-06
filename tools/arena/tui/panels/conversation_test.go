@@ -166,13 +166,17 @@ func TestConversationPanel_View_NilResult(t *testing.T) {
 
 func TestConversationPanel_View_EmptyMessages(t *testing.T) {
 	panel := NewConversationPanel()
+	panel.SetDimensions(100, 50)
 	panel.res = &statestore.RunResult{
 		Messages: []types.Message{},
 	}
+	panel.ensureTable("test-run")
 
 	view := panel.View()
 
-	assert.Contains(t, view, "No conversation recorded")
+	// Should show two-panel layout with waiting message
+	assert.Contains(t, view, "Waiting for conversation to start")
+	assert.Contains(t, view, "🧭 Conversation")
 }
 
 func TestConversationPanel_View_WithMessages(t *testing.T) {
@@ -619,6 +623,12 @@ func TestConversationPanel_RenderDetailHeader(t *testing.T) {
 
 	msg := &types.Message{
 		Role: "assistant",
+		CostInfo: &types.CostInfo{
+			InputTokens:  100,
+			OutputTokens: 200,
+			TotalCost:    0.015,
+		},
+		LatencyMs: 2000,
 	}
 
 	header := panel.renderDetailHeader(result, 0, msg)
@@ -849,4 +859,218 @@ func TestConversationPanel_UpdateFocusedPanel_NoFocus(t *testing.T) {
 	cmd := panel.updateFocusedPanel(msg)
 
 	assert.Nil(t, cmd)
+}
+
+func TestConversationPanel_HasSystemPrompt_NoResult(t *testing.T) {
+	panel := NewConversationPanel()
+	panel.res = nil
+
+	result := panel.HasSystemPrompt()
+
+	assert.False(t, result)
+}
+
+func TestConversationPanel_HasSystemPrompt_EmptyMessages(t *testing.T) {
+	panel := NewConversationPanel()
+	panel.res = &statestore.RunResult{
+		Messages: []types.Message{},
+	}
+
+	result := panel.HasSystemPrompt()
+
+	assert.False(t, result)
+}
+
+func TestConversationPanel_HasSystemPrompt_WithSystemPrompt(t *testing.T) {
+	panel := NewConversationPanel()
+	panel.res = &statestore.RunResult{
+		Messages: []types.Message{
+			{Role: "system", Content: "You are helpful"},
+			{Role: "user", Content: "Hello"},
+		},
+	}
+
+	result := panel.HasSystemPrompt()
+
+	assert.True(t, result)
+}
+
+func TestConversationPanel_HasSystemPrompt_NoSystemPrompt(t *testing.T) {
+	panel := NewConversationPanel()
+	panel.res = &statestore.RunResult{
+		Messages: []types.Message{
+			{Role: "user", Content: "Hello"},
+			{Role: "assistant", Content: "Hi there"},
+		},
+	}
+
+	result := panel.HasSystemPrompt()
+
+	assert.False(t, result)
+}
+
+func TestConversationPanel_PrependSystemPrompt_NoResult(t *testing.T) {
+	panel := NewConversationPanel()
+	panel.res = nil
+
+	// Should not panic
+	panel.PrependSystemPrompt(&types.Message{Role: "system", Content: "Test"})
+}
+
+func TestConversationPanel_PrependSystemPrompt(t *testing.T) {
+	panel := NewConversationPanel()
+	panel.SetDimensions(100, 50)
+
+	result := &statestore.RunResult{
+		RunID: "run-123",
+		Messages: []types.Message{
+			{Role: "user", Content: "Hello"},
+		},
+		Cost:     types.CostInfo{},
+		Duration: time.Second,
+	}
+	panel.SetData("run-123", "scenario", "provider", result)
+	panel.selectedTurnIdx = 0
+
+	systemMsg := &types.Message{Role: "system", Content: "You are a helpful assistant"}
+	panel.PrependSystemPrompt(systemMsg)
+
+	// Verify system message is first
+	assert.Equal(t, 2, len(panel.res.Messages))
+	assert.Equal(t, "system", panel.res.Messages[0].Role)
+	assert.Equal(t, "You are a helpful assistant", panel.res.Messages[0].Content)
+	// selectedTurnIdx should be incremented since we prepended
+	assert.Equal(t, 1, panel.selectedTurnIdx)
+}
+
+func TestConversationPanel_PrependSystemPrompt_NegativeIndex(t *testing.T) {
+	panel := NewConversationPanel()
+	panel.SetDimensions(100, 50)
+
+	result := &statestore.RunResult{
+		RunID: "run-123",
+		Messages: []types.Message{
+			{Role: "user", Content: "Hello"},
+		},
+		Cost:     types.CostInfo{},
+		Duration: time.Second,
+	}
+	panel.SetData("run-123", "scenario", "provider", result)
+	panel.selectedTurnIdx = -1 // Negative index
+
+	systemMsg := &types.Message{Role: "system", Content: "You are a helpful assistant"}
+	panel.PrependSystemPrompt(systemMsg)
+
+	// updateTable clamps selectedTurnIdx to valid range, so it won't stay -1
+	// After prepending, messages are [system, user] so valid indices are 0 or 1
+	// The clamping in updateTable will set it to 0
+	assert.GreaterOrEqual(t, panel.selectedTurnIdx, 0)
+}
+
+func TestConversationPanel_AppendMessage_NoResult(t *testing.T) {
+	panel := NewConversationPanel()
+	panel.res = nil
+
+	// Should not panic
+	panel.AppendMessage(&types.Message{Role: "user", Content: "Test"})
+}
+
+func TestConversationPanel_AppendMessage(t *testing.T) {
+	panel := NewConversationPanel()
+	panel.SetDimensions(100, 50)
+
+	result := &statestore.RunResult{
+		RunID: "run-123",
+		Messages: []types.Message{
+			{Role: "user", Content: "Hello"},
+		},
+		Cost:     types.CostInfo{},
+		Duration: time.Second,
+	}
+	panel.SetData("run-123", "scenario", "provider", result)
+
+	newMsg := &types.Message{Role: "assistant", Content: "Hi there!"}
+	panel.AppendMessage(newMsg)
+
+	// Verify message was appended
+	assert.Equal(t, 2, len(panel.res.Messages))
+	assert.Equal(t, "assistant", panel.res.Messages[1].Role)
+	assert.Equal(t, "Hi there!", panel.res.Messages[1].Content)
+}
+
+func TestConversationPanel_AppendMessage_AutoAdvance(t *testing.T) {
+	panel := NewConversationPanel()
+	panel.SetDimensions(100, 50)
+
+	result := &statestore.RunResult{
+		RunID: "run-123",
+		Messages: []types.Message{
+			{Role: "user", Content: "First"},
+			{Role: "assistant", Content: "Second"},
+		},
+		Cost:     types.CostInfo{},
+		Duration: time.Second,
+	}
+	panel.SetData("run-123", "scenario", "provider", result)
+	// Set cursor to last message
+	panel.selectedTurnIdx = 1
+
+	newMsg := &types.Message{Role: "user", Content: "Third"}
+	panel.AppendMessage(newMsg)
+
+	// Should auto-advance to new message since we were viewing the previous last
+	assert.Equal(t, 2, panel.selectedTurnIdx)
+}
+
+func TestConversationPanel_UpdateMessageMetadata_NoResult(t *testing.T) {
+	panel := NewConversationPanel()
+	panel.res = nil
+
+	// Should not panic
+	panel.UpdateMessageMetadata(0, 100, types.CostInfo{TotalCost: 0.001})
+}
+
+func TestConversationPanel_UpdateMessageMetadata_InvalidIndex(t *testing.T) {
+	panel := NewConversationPanel()
+	panel.res = &statestore.RunResult{
+		Messages: []types.Message{
+			{Role: "user", Content: "Hello"},
+		},
+	}
+
+	// Should not panic with negative index
+	panel.UpdateMessageMetadata(-1, 100, types.CostInfo{TotalCost: 0.001})
+
+	// Should not panic with out of bounds index
+	panel.UpdateMessageMetadata(5, 100, types.CostInfo{TotalCost: 0.001})
+}
+
+func TestConversationPanel_UpdateMessageMetadata(t *testing.T) {
+	panel := NewConversationPanel()
+	panel.SetDimensions(100, 50)
+	panel.renderedCache = map[int]string{0: "cached content"}
+
+	result := &statestore.RunResult{
+		RunID: "run-123",
+		Messages: []types.Message{
+			{Role: "user", Content: "Hello"},
+			{Role: "assistant", Content: "Hi there!"},
+		},
+		Cost:     types.CostInfo{},
+		Duration: time.Second,
+	}
+	panel.SetData("run-123", "scenario", "provider", result)
+
+	costInfo := types.CostInfo{
+		InputTokens:  10,
+		OutputTokens: 20,
+		TotalCost:    0.001,
+	}
+	panel.UpdateMessageMetadata(0, 150, costInfo)
+
+	// Verify metadata was updated
+	assert.Equal(t, int64(150), panel.res.Messages[0].LatencyMs)
+	assert.NotNil(t, panel.res.Messages[0].CostInfo)
+	assert.Equal(t, 10, panel.res.Messages[0].CostInfo.InputTokens)
+	assert.Equal(t, 0.001, panel.res.Messages[0].CostInfo.TotalCost)
 }

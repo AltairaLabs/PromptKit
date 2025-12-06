@@ -31,6 +31,12 @@ func (m *templateMiddleware) Process(execCtx *pipeline.ExecutionContext, next fu
 	// Store assembled prompt (used by ProviderMiddleware as the System field)
 	execCtx.Prompt = prompt
 
+	// Emit conversation.started event with system prompt only on first turn
+	// (when Messages array is empty or only has one user message)
+	if execCtx.EventEmitter != nil && prompt != "" && len(execCtx.Messages) <= 1 {
+		execCtx.EventEmitter.ConversationStarted(prompt)
+	}
+
 	// Note: We do NOT add system prompt to Messages array.
 	// The ProviderMiddleware will extract it from execCtx.Prompt and pass it
 	// to the provider's System field (for Claude) or handle it appropriately

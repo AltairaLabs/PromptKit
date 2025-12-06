@@ -7,6 +7,9 @@ scenarios:
       1: "Hello! Welcome to TastyBites, your favorite Italian restaurant! We serve authentic Italian cuisine with fresh ingredients. We're open from 11 AM to 10 PM daily. How can I help you today?"
       2: "We're open daily from 11 AM to 10 PM. Feel free to stop by anytime during those hours!"
       3: "Our dress code is smart casual. We want you to feel comfortable while maintaining a refined atmosphere."
+      4: "Yes, we do take reservations! You can call us at (555) 123-4567 or book online through our website."
+      5: "Our most popular dishes include the homemade lasagna, wood-fired margherita pizza, and our signature tiramisu for dessert."
+      6: "We offer both dine-in and takeout options. For takeout, you can order online or call ahead, and we'll have your order ready for pickup."
 
   restaurant-custom:
     turns:

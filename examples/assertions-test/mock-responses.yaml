@@ -13,17 +13,28 @@ scenarios:
       2: "Python is a high-level, interpreted programming language known for its simple syntax and versatility. Python programming is widely used for web development, data science, artificial intelligence, automation, and many other applications."
 
   self-play:
-    defaultResponse: "I'm ready to discuss renewable energy and environmental topics."
+    defaultResponse: "I'm ready to discuss renewable energy and solar power."
     turns:
       1: "Renewable energy sources like solar power are crucial for our sustainable future. Solar energy harnesses the power of the sun through photovoltaic cells and can significantly reduce our dependence on fossil fuels while providing clean electricity."
-      2: "Wind energy is another excellent renewable source that converts wind motion into electricity. These renewable technologies are becoming more efficient and cost-effective each year."
-      3: "Hydroelectric power uses flowing water to generate clean energy, while geothermal systems tap into the Earth's natural heat. All these renewable energy sources help reduce carbon emissions."
+      2: "Solar technology has advanced dramatically in recent years, making solar panels more efficient and affordable. The cost of solar installation has dropped by over 80% in the last decade, making solar power accessible to more homeowners and businesses."
+      3: "Beyond rooftop solar panels, we're seeing innovations in solar farms and community solar projects. Solar energy combined with battery storage is revolutionizing how we think about clean energy infrastructure."
 
   tool-usage:
     defaultResponse: "I'm ready to help and can use various tools as needed."
     turns:
-      1: "I'll search for information about renewable energy for you. Let me use the search tool to find the latest data and research on this important topic."
-      2: "Now let me calculate the potential energy savings from solar panel installation. I'll use the calculator tool to determine the estimated annual energy production and cost benefits for a typical residential solar system."
+      # Turn 1: Tool calls for the first user message
+      1:
+        tool_calls:
+          - name: "search"
+            arguments:
+              query: "AI artificial intelligence"
+          - name: "calculate"
+            arguments:
+              expression: "15 * 3"
+      # Turn 2: Response after tool execution with results
+      2: "Based on the search results, I found information about AI - artificial intelligence is transforming many industries. I also calculated 15 * 3 = 42."
+      # Turn 3: Response to the second user message (no tools)
+      3: "2 + 2 equals 4. That's a simple arithmetic calculation that I can answer directly without using any tools."
 
   json-validation:
     defaultResponse: "I'm ready to generate structured JSON data as requested."

@@ -1,0 +1,18 @@
+# Combined Mock Provider Configuration for LLM Judge Example
+# Contains responses for both assistant and judge providers
+
+defaultResponse: '{"passed": true, "score": 0.85, "reasoning": "Default judge response", "evidence": []}'
+
+scenarios:
+  helpfulness:
+    turns:
+      # Turn 1: Assistant response to "How do I reset my device?"
+      1: |
+        Sure, here's how to reset your device:
+        1) Hold the power button for 10 seconds
+        2) Wait for the LED to blink twice
+        3) Power on again
+      # Turn 2: Judge evaluation (JSON format for llm_judge assertion)
+      2: '{"passed": true, "score": 0.92, "reasoning": "Clear, concise, actionable steps provided for device reset.", "evidence": ["Hold the power button for 10 seconds", "Wait for the LED to blink twice", "Power on again"]}'
+      # Turn 3: Conversation-level judge evaluation
+      3: '{"passed": true, "score": 0.90, "reasoning": "The assistant provided helpful, on-topic information throughout the conversation.", "evidence": ["Provided step-by-step reset instructions", "Response was actionable and clear"]}'

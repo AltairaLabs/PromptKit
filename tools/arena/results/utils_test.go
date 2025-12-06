@@ -72,6 +72,14 @@ func TestSummaryBuilder_BuildSummary_WithResults(t *testing.T) {
 			Duration:   2500 * time.Millisecond,
 			Error:      "",                                                                                      // Success
 			Violations: []types.ValidationError{{Type: "test", Tool: "validator", Detail: "validation failed"}}, // But has violations
+			Messages: []types.Message{{
+				Meta: map[string]interface{}{
+					"assertions": map[string]interface{}{
+						"passed": false, // Assertions failed, so this should count as a failure
+						"total":  1,
+					},
+				},
+			}},
 		},
 	}
 
@@ -104,17 +112,62 @@ func TestSummaryBuilder_BuildSummary_WithResults(t *testing.T) {
 
 func TestCountResultsByStatus(t *testing.T) {
 	testResults := []engine.RunResult{
-		{Error: "", Violations: []types.ValidationError{}},                            // Success
-		{Error: "test error", Violations: []types.ValidationError{}},                  // Failure - error
-		{Error: "", Violations: []types.ValidationError{{Type: "test"}}},              // Failure - violations
+		{Error: "", Violations: []types.ValidationError{}},           // Success - no error, no violations
+		{Error: "test error", Violations: []types.ValidationError{}}, // Failure - error
+		{
+			// Failure - violations with failing assertions
+			Error:      "",
+			Violations: []types.ValidationError{{Type: "test"}},
+			Messages: []types.Message{{
+				Meta: map[string]interface{}{
+					"assertions": map[string]interface{}{
+						"passed": false,
+						"total":  1,
+					},
+				},
+			}},
+		},
 		{Error: "another error", Violations: []types.ValidationError{{Type: "test"}}}, // Failure - both
-		{Error: "", Violations: []types.ValidationError{}},                            // Success
+		{Error: "", Violations: []types.ValidationError{}},                            // Success - no error, no violations
 	}
 
 	passed, failed := results.CountResultsByStatus(testResults)
 
 	assert.Equal(t, 2, passed)
 	assert.Equal(t, 3, failed)
+}
+
+func TestCountResultsByStatus_ViolationsWithPassingAssertions(t *testing.T) {
+	// Tests the guardrail scenario: violations exist but assertions passed (guardrail_triggered)
+	testResults := []engine.RunResult{
+		{
+			// Success - violations exist but all assertions passed (expected guardrail trigger)
+			Error:      "",
+			Violations: []types.ValidationError{{Type: "banned_words"}},
+			Messages: []types.Message{{
+				Meta: map[string]interface{}{
+					"assertions": map[string]interface{}{
+						"passed": true,
+						"total":  1,
+					},
+				},
+			}},
+		},
+		{
+			// Success - violations with passing conversation-level assertions
+			Error:      "",
+			Violations: []types.ValidationError{{Type: "length"}},
+			ConversationAssertions: engine.AssertionsSummary{
+				Passed: true,
+				Total:  1,
+			},
+		},
+	}
+
+	passed, failed := results.CountResultsByStatus(testResults)
+
+	assert.Equal(t, 2, passed)
+	assert.Equal(t, 0, failed)
 }
 
 func TestCalculatePerformanceMetrics(t *testing.T) {

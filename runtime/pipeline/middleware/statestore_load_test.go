@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -221,5 +222,32 @@ func TestStateStoreLoadMiddleware_SetsSourceField(t *testing.T) {
 	// Last message should have empty Source (not set by load middleware)
 	if execCtx.Messages[2].Source != "" {
 		t.Errorf("message[2] (new message) Source = %q, want empty string", execCtx.Messages[2].Source)
+	}
+}
+
+func TestStateStoreLoadMiddleware_StreamChunk_NoOp(t *testing.T) {
+	config := &pipeline.StateStoreConfig{
+		Store:          statestore.NewMemoryStore(),
+		ConversationID: "test-conv",
+	}
+
+	middleware := StateStoreLoadMiddleware(config)
+	mw := middleware.(*stateStoreLoadMiddleware)
+
+	execCtx := &pipeline.ExecutionContext{
+		Context:  context.Background(),
+		Messages: []types.Message{{Role: "user", Content: "test"}},
+	}
+
+	chunk := &providers.StreamChunk{
+		Content:      "test content",
+		FinishReason: nil,
+	}
+
+	// StreamChunk should be a no-op and return nil
+	err := mw.StreamChunk(execCtx, chunk)
+
+	if err != nil {
+		t.Errorf("expected nil error, got: %v", err)
 	}
 }

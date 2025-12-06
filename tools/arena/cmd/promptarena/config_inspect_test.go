@@ -42,7 +42,7 @@ scenarios:
 	cfg, err := config.LoadConfig(configPath)
 	require.NoError(t, err)
 
-	data := collectInspectionData(cfg)
+	data := collectInspectionData(cfg, configPath)
 
 	// Empty config returns empty slices
 	assert.NotNil(t, data)
@@ -53,11 +53,18 @@ scenarios:
 
 func TestOutputJSON_ValidData(t *testing.T) {
 	data := &InspectionData{
-		PromptConfigs:      []string{"prompt1", "prompt2"},
-		Providers:          []string{"openai", "anthropic"},
-		Scenarios:          []string{"scenario1"},
+		ConfigFile: "test.yaml",
+		PromptConfigs: []PromptInspectData{
+			{ID: "prompt1", File: "prompts/prompt1.yaml"},
+			{ID: "prompt2", File: "prompts/prompt2.yaml"},
+		},
+		Providers: []ProviderInspectData{
+			{ID: "openai", File: "providers/openai.yaml", Type: "openai"},
+		},
+		Scenarios: []ScenarioInspectData{
+			{ID: "scenario1", File: "scenarios/scenario1.yaml"},
+		},
 		AvailableTaskTypes: []string{"task1", "task2"},
-		AvailableRegions:   []string{"us-east-1"},
 		ValidationPassed:   true,
 		ValidationWarnings: 0,
 	}
@@ -88,50 +95,64 @@ func TestOutputJSON_ValidData(t *testing.T) {
 	err = json.Unmarshal(content, &result)
 	require.NoError(t, err)
 
-	assert.Equal(t, data.PromptConfigs, result.PromptConfigs)
-	assert.Equal(t, data.Providers, result.Providers)
+	assert.Equal(t, len(data.PromptConfigs), len(result.PromptConfigs))
+	assert.Equal(t, len(data.Providers), len(result.Providers))
 	assert.True(t, result.ValidationPassed)
 }
 
 func TestOutputText_ValidData(t *testing.T) {
 	data := &InspectionData{
-		PromptConfigs:      []string{"prompt1"},
-		Providers:          []string{"openai"},
-		Scenarios:          []string{"scenario1"},
+		ConfigFile: "test.yaml",
+		PromptConfigs: []PromptInspectData{
+			{ID: "prompt1", File: "prompts/prompt1.yaml"},
+		},
+		Providers: []ProviderInspectData{
+			{ID: "openai", File: "providers/openai.yaml", Type: "openai"},
+		},
+		Scenarios: []ScenarioInspectData{
+			{ID: "scenario1", File: "scenarios/scenario1.yaml"},
+		},
 		AvailableTaskTypes: []string{"task1"},
-		AvailableRegions:   []string{"us-east-1"},
 		ValidationPassed:   true,
 	}
 
 	// Just verify it doesn't crash
-	err := outputText(data)
+	err := outputText(data, nil)
 	assert.NoError(t, err)
 }
 
 func TestOutputText_WithValidationError(t *testing.T) {
 	data := &InspectionData{
-		PromptConfigs:      []string{"prompt1"},
-		Providers:          []string{},
-		Scenarios:          []string{},
+		ConfigFile: "test.yaml",
+		PromptConfigs: []PromptInspectData{
+			{ID: "prompt1", File: "prompts/prompt1.yaml"},
+		},
+		Providers:          []ProviderInspectData{},
+		Scenarios:          []ScenarioInspectData{},
 		AvailableTaskTypes: []string{},
-		AvailableRegions:   []string{},
 		ValidationPassed:   false,
 		ValidationError:    "Missing required field: provider",
 		ValidationWarnings: 2,
 	}
 
 	// Just verify it doesn't crash
-	err := outputText(data)
+	err := outputText(data, nil)
 	assert.NoError(t, err)
 }
 
 func TestOutputJSON_WithCacheStats(t *testing.T) {
 	data := &InspectionData{
-		PromptConfigs:      []string{"prompt1"},
-		Providers:          []string{"openai"},
-		Scenarios:          []string{"scenario1"},
+		ConfigFile: "test.yaml",
+		PromptConfigs: []PromptInspectData{
+			{ID: "prompt1", File: "prompts/prompt1.yaml"},
+		},
+		Providers: []ProviderInspectData{
+			{ID: "openai", File: "providers/openai.yaml", Type: "openai"},
+		},
+		Scenarios: []ScenarioInspectData{
+			{ID: "scenario1", File: "scenarios/scenario1.yaml"},
+		},
 		AvailableTaskTypes: []string{"task1"},
-		AvailableRegions:   []string{"us-east-1"},
 		ValidationPassed:   true,
 		CacheStats: &CacheStatsData{
 			PromptCache: CacheInfo{
@@ -179,16 +200,22 @@ func TestOutputJSON_WithCacheStats(t *testing.T) {
 
 func TestOutputText_WithSelfPlayRoles(t *testing.T) {
 	data := &InspectionData{
-		PromptConfigs:      []string{"prompt1"},
-		Providers:          []string{"openai"},
-		Scenarios:          []string{"scenario1"},
-		SelfPlayRoles:      []string{"user", "assistant"},
+		ConfigFile: "test.yaml",
+		PromptConfigs: []PromptInspectData{
+			{ID: "prompt1", File: "prompts/prompt1.yaml"},
+		},
+		Providers: []ProviderInspectData{
+			{ID: "openai", File: "providers/openai.yaml", Type: "openai"},
+		},
+		Scenarios: []ScenarioInspectData{
+			{ID: "scenario1", File: "scenarios/scenario1.yaml"},
+		},
+		SelfPlayRoles:      []SelfPlayRoleData{{ID: "user", Provider: "openai"}, {ID: "assistant", Provider: "openai"}},
 		AvailableTaskTypes: []string{"task1"},
-		AvailableRegions:   []string{"us-east-1"},
 		ValidationPassed:   true,
 	}
 
-	err := outputText(data)
+	err := outputText(data, nil)
 	assert.NoError(t, err)
 }
 

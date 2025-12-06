@@ -403,18 +403,18 @@ func TestFileBrowserPage_HandleEnterKey_DirectoryNavigation(t *testing.T) {
 
 	// Call handleEnterKey with a different path (directory)
 	msg := tea.KeyMsg{Type: tea.KeyEnter}
-	
+
 	// Store old path for comparison
 	savedPath := page.filePicker.Path
-	
+
 	// The function should detect it's a directory and return the command
 	cmd := page.handleEnterKey(msg)
-	
+
 	// Verify the path was a directory
 	info, err := os.Stat(savedPath)
 	assert.NoError(t, err)
 	assert.True(t, info.IsDir())
-	
+
 	_ = cmd
 	_ = oldPath
 }
@@ -435,18 +435,18 @@ func TestFileBrowserPage_HandleEnterKey_FileSelection(t *testing.T) {
 	// Call handleEnterKey
 	msg := tea.KeyMsg{Type: tea.KeyEnter}
 	cmd := page.handleEnterKey(msg)
-	
+
 	// Execute the command to get the message
 	if cmd != nil {
 		result := cmd()
-		
+
 		// Should be a FileSelectedMsg
 		if fileMsg, ok := result.(FileSelectedMsg); ok {
 			assert.Equal(t, "test-result", fileMsg.RunID)
 			assert.Equal(t, testFile, fileMsg.Path)
 		}
 	}
-	
+
 	_ = oldPath
 }
 
@@ -458,22 +458,22 @@ func TestFileBrowserPage_HandleEnterKey_StatError(t *testing.T) {
 	testFile := filepath.Join(tmpDir, "temp.json")
 	err := os.WriteFile(testFile, []byte(`{}`), 0644)
 	assert.NoError(t, err)
-	
+
 	// Set the path
 	page.filePicker.Path = testFile
-	
+
 	// Delete the file to cause stat error
 	err = os.Remove(testFile)
 	assert.NoError(t, err)
-	
+
 	// Now simulate the path being different (to trigger the stat check)
 	oldPath := ""
 	page.filePicker.Path = testFile
-	
+
 	// Manually check what would happen
 	info, err := os.Stat(page.filePicker.Path)
 	assert.Error(t, err)
 	assert.Nil(t, info)
-	
+
 	_ = oldPath
 }

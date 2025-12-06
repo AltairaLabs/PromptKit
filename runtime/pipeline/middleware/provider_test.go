@@ -1014,3 +1014,209 @@ func (m *MockToolExecutor) ExecuteAsync(descriptor *tools.ToolDescriptor, args j
 	}
 	return m.result, nil
 }
+
+func TestEmitMessageCreatedEvent_NilEmitter(t *testing.T) {
+	execCtx := &pipeline.ExecutionContext{
+		Messages: []types.Message{
+			{Role: "user", Content: "test"},
+		},
+		EventEmitter: nil,
+	}
+
+	msg := &types.Message{Role: "assistant", Content: "response"}
+
+	// Should not panic
+	emitMessageCreatedEvent(execCtx, msg)
+}
+
+func TestEmitMessageCreatedEvent_WithToolCalls(t *testing.T) {
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "run-1", "session-1", "conv-1")
+
+	var receivedEvent *events.Event
+	done := make(chan struct{})
+	bus.Subscribe(events.EventMessageCreated, func(e *events.Event) {
+		receivedEvent = e
+		close(done)
+	})
+
+	execCtx := &pipeline.ExecutionContext{
+		Messages: []types.Message{
+			{Role: "user", Content: "test"},
+		},
+		EventEmitter: emitter,
+	}
+
+	msg := &types.Message{
+		Role:    "assistant",
+		Content: "I'll check the weather",
+		ToolCalls: []types.MessageToolCall{
+			{
+				ID:   "call-1",
+				Name: "get_weather",
+				Args: json.RawMessage(`{"location":"NYC"}`),
+			},
+		},
+	}
+	// Add message to context
+	execCtx.Messages = append(execCtx.Messages, *msg)
+
+	emitMessageCreatedEvent(execCtx, msg)
+
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("timeout waiting for event")
+	}
+
+	require.NotNil(t, receivedEvent)
+	data, ok := receivedEvent.Data.(events.MessageCreatedData)
+	require.True(t, ok)
+
+	assert.Equal(t, "assistant", data.Role)
+	assert.Equal(t, "I'll check the weather", data.Content)
+	assert.Len(t, data.ToolCalls, 1)
+	assert.Equal(t, "get_weather", data.ToolCalls[0].Name)
+}
+
+func TestEmitMessageCreatedEvent_WithToolResult(t *testing.T) {
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "run-1", "session-1", "conv-1")
+
+	var receivedEvent *events.Event
+	done := make(chan struct{})
+	bus.Subscribe(events.EventMessageCreated, func(e *events.Event) {
+		receivedEvent = e
+		close(done)
+	})
+
+	execCtx := &pipeline.ExecutionContext{
+		Messages: []types.Message{
+			{Role: "user", Content: "test"},
+		},
+		EventEmitter: emitter,
+	}
+
+	msg := &types.Message{
+		Role: "tool",
+		ToolResult: &types.MessageToolResult{
+			ID:        "call-1",
+			Name:      "get_weather",
+			Content:   `{"temp": 72}`,
+			LatencyMs: 150,
+		},
+	}
+	execCtx.Messages = append(execCtx.Messages, *msg)
+
+	emitMessageCreatedEvent(execCtx, msg)
+
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("timeout waiting for event")
+	}
+
+	require.NotNil(t, receivedEvent)
+	data, ok := receivedEvent.Data.(events.MessageCreatedData)
+	require.True(t, ok)
+
+	assert.Equal(t, "tool", data.Role)
+	require.NotNil(t, data.ToolResult)
+	assert.Equal(t, "get_weather", data.ToolResult.Name)
+	assert.Equal(t, `{"temp": 72}`, data.ToolResult.Content)
+	assert.Equal(t, int64(150), data.ToolResult.LatencyMs)
+}
+
+func TestEmitMessageUpdatedEvent_NilEmitter(t *testing.T) {
+	execCtx := &pipeline.ExecutionContext{
+		EventEmitter: nil,
+	}
+
+	costInfo := &types.CostInfo{
+		InputTokens:  10,
+		OutputTokens: 20,
+		TotalCost:    0.001,
+	}
+
+	// Should not panic
+	emitMessageUpdatedEvent(execCtx, 0, 100, costInfo)
+}
+
+func TestEmitMessageUpdatedEvent_NilCostInfo(t *testing.T) {
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "run-1", "session-1", "conv-1")
+
+	eventCount := 0
+	bus.Subscribe(events.EventMessageUpdated, func(e *events.Event) {
+		eventCount++
+	})
+
+	execCtx := &pipeline.ExecutionContext{
+		EventEmitter: emitter,
+	}
+
+	// Should not emit event with nil cost info
+	emitMessageUpdatedEvent(execCtx, 0, 100, nil)
+
+	time.Sleep(50 * time.Millisecond)
+	assert.Equal(t, 0, eventCount)
+}
+
+func TestEmitMessageUpdatedEvent_Success(t *testing.T) {
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "run-1", "session-1", "conv-1")
+
+	var receivedEvent *events.Event
+	done := make(chan struct{})
+	bus.Subscribe(events.EventMessageUpdated, func(e *events.Event) {
+		receivedEvent = e
+		close(done)
+	})
+
+	execCtx := &pipeline.ExecutionContext{
+		EventEmitter: emitter,
+	}
+
+	costInfo := &types.CostInfo{
+		InputTokens:  100,
+		OutputTokens: 50,
+		TotalCost:    0.0025,
+	}
+
+	emitMessageUpdatedEvent(execCtx, 2, 200, costInfo)
+
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("timeout waiting for event")
+	}
+
+	require.NotNil(t, receivedEvent)
+	data, ok := receivedEvent.Data.(events.MessageUpdatedData)
+	require.True(t, ok)
+
+	assert.Equal(t, 2, data.Index)
+	assert.Equal(t, int64(200), data.LatencyMs)
+	assert.Equal(t, 100, data.InputTokens)
+	assert.Equal(t, 50, data.OutputTokens)
+	assert.Equal(t, 0.0025, data.TotalCost)
+}
+
+func TestProviderMiddleware_StreamChunk_NoOp(t *testing.T) {
+	mockProvider := new(MockProvider)
+	middleware := ProviderMiddleware(mockProvider, nil, nil, nil)
+	mw := middleware.(*providerMiddleware)
+
+	execCtx := &pipeline.ExecutionContext{
+		Messages: []types.Message{{Role: "user", Content: "test"}},
+	}
+
+	chunk := &providers.StreamChunk{
+		Content:      "test content",
+		FinishReason: nil,
+	}
+
+	err := mw.StreamChunk(execCtx, chunk)
+
+	assert.NoError(t, err)
+}

@@ -66,7 +66,7 @@ func TestLLMJudgeConversationValidator_MinScore(t *testing.T) {
 	}
 	v := NewLLMJudgeConversationValidator()
 	res := v.ValidateConversation(context.Background(), conv, map[string]interface{}{
-		"criteria": "be polite",
+		"criteria":  "be polite",
 		"min_score": 0.8,
 	})
 	if res.Passed {
