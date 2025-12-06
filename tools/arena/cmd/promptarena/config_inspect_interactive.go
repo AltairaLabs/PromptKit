@@ -24,7 +24,8 @@ var configInspectCmd = &cobra.Command{
 tools, personas, and validates cross-references.
 
 Use --verbose to see detailed contents of each configuration file.
-Use --section to focus on specific parts (prompts, providers, scenarios, tools, personas).`,
+Use --section to focus on specific parts.
+Use --short/-s for quick validation-only output.`,
 	RunE: runConfigInspect,
 }
 
@@ -67,6 +68,7 @@ var (
 	inspectVerbose bool
 	inspectStats   bool
 	inspectSection string
+	inspectShort   bool
 )
 
 func init() {
@@ -78,11 +80,18 @@ func init() {
 		"Show detailed information including file contents")
 	configInspectCmd.Flags().BoolVar(&inspectStats, "stats", false, "Show cache statistics")
 	configInspectCmd.Flags().StringVar(&inspectSection, "section", "",
-		"Focus on specific section: prompts, providers, scenarios, tools, personas, judges")
+		"Focus on specific section: prompts, providers, scenarios, tools, selfplay, judges, defaults, validation")
+	configInspectCmd.Flags().BoolVarP(&inspectShort, "short", "s", false,
+		"Show only validation results (shortcut for --section validation)")
 }
 
 func runConfigInspect(cmd *cobra.Command, args []string) error {
 	configFile, _ := cmd.Flags().GetString("config") // NOSONAR: Flag existence is controlled by init(), error impossible
+
+	// Apply --short flag as --section validation
+	if inspectShort && inspectSection == "" {
+		inspectSection = "validation"
+	}
 
 	// If config path is a directory, append arena.yaml
 	if info, _ := os.Stat(configFile); info != nil && info.IsDir() {
@@ -767,26 +776,30 @@ func printBanner(configFile string) {
 
 // sectionVisibility tracks which sections should be displayed
 type sectionVisibility struct {
-	all       bool
-	prompts   bool
-	providers bool
-	scenarios bool
-	tools     bool
-	personas  bool
-	judges    bool
+	all        bool
+	prompts    bool
+	providers  bool
+	scenarios  bool
+	tools      bool
+	selfplay   bool
+	judges     bool
+	defaults   bool
+	validation bool
 }
 
 // getSectionVisibility determines which sections to show based on inspectSection flag
 func getSectionVisibility() sectionVisibility {
 	showAll := inspectSection == ""
 	return sectionVisibility{
-		all:       showAll,
-		prompts:   showAll || inspectSection == "prompts",
-		providers: showAll || inspectSection == "providers",
-		scenarios: showAll || inspectSection == "scenarios",
-		tools:     showAll || inspectSection == "tools",
-		personas:  showAll || inspectSection == "personas",
-		judges:    showAll || inspectSection == "judges",
+		all:        showAll,
+		prompts:    showAll || inspectSection == "prompts",
+		providers:  showAll || inspectSection == "providers",
+		scenarios:  showAll || inspectSection == "scenarios",
+		tools:      showAll || inspectSection == "tools",
+		selfplay:   showAll || inspectSection == "selfplay" || inspectSection == "personas",
+		judges:     showAll || inspectSection == "judges",
+		defaults:   showAll || inspectSection == "defaults",
+		validation: showAll || inspectSection == "validation",
 	}
 }
 
@@ -811,7 +824,7 @@ func printConfigSections(data *InspectionData, vis sectionVisibility) {
 	if vis.tools && len(data.Tools) > 0 {
 		printToolsSection(data)
 	}
-	if vis.personas && len(data.Personas) > 0 {
+	if vis.selfplay && (len(data.Personas) > 0 || len(data.SelfPlayRoles) > 0) {
 		printPersonasSection(data)
 	}
 	if vis.judges && len(data.Judges) > 0 {
@@ -821,10 +834,10 @@ func printConfigSections(data *InspectionData, vis sectionVisibility) {
 
 // printSummarySections prints the summary sections (defaults, validation, cache)
 func printSummarySections(data *InspectionData, vis sectionVisibility) {
-	if vis.all && data.Defaults != nil {
+	if vis.defaults && data.Defaults != nil {
 		printDefaultsSection(data)
 	}
-	if vis.all {
+	if vis.validation {
 		printValidationSection(data)
 	}
 	if inspectStats && data.CacheStats != nil {

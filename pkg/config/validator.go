@@ -274,7 +274,7 @@ func (v *ConfigValidator) validateJudgeDefaults() {
 
 // validateCrossReferences validates references between components
 func (v *ConfigValidator) validateCrossReferences() {
-	promptIDs := v.getPromptConfigIDs()
+	taskTypes := v.getPromptTaskTypes()
 
 	// Validate scenario task_type references
 	for _, scenarioConfig := range v.config.Scenarios {
@@ -284,8 +284,8 @@ func (v *ConfigValidator) validateCrossReferences() {
 			continue
 		}
 
-		// Check task_type exists
-		if scenario.TaskType != "" && !promptIDs[scenario.TaskType] {
+		// Check task_type exists in loaded prompt configs
+		if scenario.TaskType != "" && !taskTypes[scenario.TaskType] {
 			err := fmt.Errorf("scenario %s references unknown task_type: %s",
 				scenarioConfig.File, scenario.TaskType)
 			v.errors = append(v.errors, err)
@@ -302,6 +302,17 @@ func (v *ConfigValidator) getPromptConfigIDs() map[string]bool {
 		}
 	}
 	return ids
+}
+
+// getPromptTaskTypes returns all task_types from loaded prompt configs
+func (v *ConfigValidator) getPromptTaskTypes() map[string]bool {
+	taskTypes := make(map[string]bool)
+	for _, pcData := range v.config.LoadedPromptConfigs {
+		if pcData != nil && pcData.TaskType != "" {
+			taskTypes[pcData.TaskType] = true
+		}
+	}
+	return taskTypes
 }
 
 // validateToolUsage checks that tools are properly connected to prompts
