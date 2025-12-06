@@ -210,7 +210,7 @@ func TestOutputText_WithSelfPlayRoles(t *testing.T) {
 		Scenarios: []ScenarioInspectData{
 			{ID: "scenario1", File: "scenarios/scenario1.yaml"},
 		},
-		SelfPlayRoles:      []string{"user", "assistant"},
+		SelfPlayRoles:      []SelfPlayRoleData{{ID: "user", Provider: "openai"}, {ID: "assistant", Provider: "openai"}},
 		AvailableTaskTypes: []string{"task1"},
 		ValidationPassed:   true,
 	}

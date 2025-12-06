@@ -36,6 +36,30 @@ const (
 	maxGoalsDisplayed   = 3
 	maxGoalLength       = 50
 	percentMultiplier   = 100
+
+	// Label constants for display output
+	labelFile        = "  File: "
+	labelDesc        = "  Desc: "
+	labelModel       = "  Model: "
+	labelTemperature = "  Temperature: "
+	labelMaxTok      = "  Max Tokens: "
+	labelTaskType    = "  Task Type: "
+	labelTask        = "  Task: "
+	labelVersion     = "  Version: "
+	labelVariables   = "  Variables: "
+	labelTools       = "  Tools: "
+	labelValidators  = "  Validators: "
+	labelMedia       = "  Media: "
+	labelMode        = "  Mode: "
+	labelParams      = "  Params: "
+	labelTimeout     = "  Timeout: "
+	labelFeatures    = "  Features: "
+	labelFlags       = "  Flags: "
+	labelProviders   = "  Providers: "
+	labelGoals       = "  Goals:"
+
+	// Format strings
+	entriesFormat = "%d entries"
 )
 
 var (
@@ -119,7 +143,7 @@ type InspectionData struct {
 	Tools                    []ToolInspectData     `json:"tools,omitempty"`
 	Personas                 []PersonaInspectData  `json:"personas,omitempty"`
 	Judges                   []JudgeInspectData    `json:"judges,omitempty"`
-	SelfPlayRoles            []string              `json:"self_play_roles,omitempty"`
+	SelfPlayRoles            []SelfPlayRoleData    `json:"self_play_roles,omitempty"`
 	SelfPlayEnabled          bool                  `json:"self_play_enabled"`
 	AvailableTaskTypes       []string              `json:"available_task_types"`
 	Defaults                 *DefaultsInspectData  `json:"defaults,omitempty"`
@@ -156,13 +180,14 @@ type PromptInspectData struct {
 
 // ProviderInspectData contains detailed provider configuration info
 type ProviderInspectData struct {
-	ID          string  `json:"id"`
-	File        string  `json:"file"`
-	Type        string  `json:"type,omitempty"`
-	Model       string  `json:"model,omitempty"`
-	Group       string  `json:"group,omitempty"`
-	Temperature float32 `json:"temperature,omitempty"`
-	MaxTokens   int     `json:"max_tokens,omitempty"`
+	ID          string   `json:"id"`
+	File        string   `json:"file"`
+	Type        string   `json:"type,omitempty"`
+	Model       string   `json:"model,omitempty"`
+	Group       string   `json:"group,omitempty"`
+	Temperature float32  `json:"temperature,omitempty"`
+	MaxTokens   int      `json:"max_tokens,omitempty"`
+	UsedBy      []string `json:"used_by,omitempty"` // What uses this provider (e.g., "judge:quality", "role:user")
 }
 
 // ScenarioInspectData contains detailed scenario configuration info
@@ -198,6 +223,8 @@ type PersonaInspectData struct {
 	File        string   `json:"file"`
 	Description string   `json:"description,omitempty"`
 	Goals       []string `json:"goals,omitempty"`
+	RoleID      string   `json:"role_id,omitempty"`  // Self-play role ID using this persona
+	Provider    string   `json:"provider,omitempty"` // Provider assigned to this role
 }
 
 // JudgeInspectData contains detailed judge configuration info
@@ -205,6 +232,13 @@ type JudgeInspectData struct {
 	Name     string `json:"name"`
 	Provider string `json:"provider"`
 	Model    string `json:"model,omitempty"`
+}
+
+// SelfPlayRoleData contains detailed self-play role configuration info
+type SelfPlayRoleData struct {
+	ID       string `json:"id"`
+	Provider string `json:"provider"`
+	Persona  string `json:"persona,omitempty"` // Persona used by this role (from scenarios)
 }
 
 // DefaultsInspectData contains arena defaults
@@ -299,6 +333,9 @@ func populatePromptDetails(promptData *PromptInspectData, cfg *config.Config, pr
 
 // collectProviders extracts provider configuration details
 func collectProviders(cfg *config.Config) []ProviderInspectData {
+	// Build a map of provider usage
+	providerUsage := buildProviderUsageMap(cfg)
+
 	var providers []ProviderInspectData
 	for _, p := range cfg.Providers {
 		providerData := ProviderInspectData{
@@ -306,8 +343,79 @@ func collectProviders(cfg *config.Config) []ProviderInspectData {
 			Group: p.Group,
 		}
 		populateProviderDetails(&providerData, cfg, p.File)
+		// Skip providers that couldn't be loaded (no ID means no data)
+		if providerData.ID == "" {
+			continue
+		}
+		if usage, ok := providerUsage[providerData.ID]; ok {
+			providerData.UsedBy = usage
+		}
 		providers = append(providers, providerData)
 	}
+
+	// Add any judge providers not already in the list
+	providers = appendJudgeProviders(providers, cfg, providerUsage)
+
+	return providers
+}
+
+// buildProviderUsageMap builds a map of provider ID to what uses it
+func buildProviderUsageMap(cfg *config.Config) map[string][]string {
+	usage := make(map[string][]string)
+
+	// Track judge usage
+	for _, j := range cfg.Judges {
+		if j.Provider != "" {
+			usage[j.Provider] = append(usage[j.Provider], "judge:"+j.Name)
+		}
+	}
+
+	// Track self-play role usage
+	if cfg.SelfPlay != nil {
+		for _, role := range cfg.SelfPlay.Roles {
+			if role.Provider != "" {
+				usage[role.Provider] = append(usage[role.Provider], "role:"+role.ID)
+			}
+		}
+	}
+
+	return usage
+}
+
+// appendJudgeProviders adds judge providers that aren't already in the providers list
+func appendJudgeProviders(
+	providers []ProviderInspectData,
+	cfg *config.Config,
+	usage map[string][]string,
+) []ProviderInspectData {
+	existingIDs := make(map[string]bool)
+	for _, p := range providers {
+		existingIDs[p.ID] = true
+	}
+
+	// Check for judge providers not in the main provider list
+	for _, j := range cfg.Judges {
+		if j.Provider == "" || existingIDs[j.Provider] {
+			continue
+		}
+		// Try to find this provider in LoadedProviders
+		if loaded, ok := cfg.LoadedProviders[j.Provider]; ok && loaded != nil {
+			providerData := ProviderInspectData{
+				ID:          loaded.ID,
+				Type:        loaded.Type,
+				Model:       loaded.Model,
+				Group:       "judge",
+				Temperature: loaded.Defaults.Temperature,
+				MaxTokens:   loaded.Defaults.MaxTokens,
+			}
+			if u, ok := usage[j.Provider]; ok {
+				providerData.UsedBy = u
+			}
+			providers = append(providers, providerData)
+			existingIDs[j.Provider] = true
+		}
+	}
+
 	return providers
 }
 
@@ -464,16 +572,42 @@ func collectJudges(cfg *config.Config) []JudgeInspectData {
 	return judges
 }
 
-// collectSelfPlayRoles extracts self-play role IDs
-func collectSelfPlayRoles(cfg *config.Config) []string {
+// collectSelfPlayRoles extracts self-play role configuration
+func collectSelfPlayRoles(cfg *config.Config) []SelfPlayRoleData {
 	if cfg.SelfPlay == nil {
 		return nil
 	}
-	var roles []string
+
+	// Build role -> persona mapping from scenarios
+	rolePersonaMap := buildRolePersonaMap(cfg)
+
+	var roles []SelfPlayRoleData
 	for _, role := range cfg.SelfPlay.Roles {
-		roles = append(roles, role.ID)
+		roleData := SelfPlayRoleData{
+			ID:       role.ID,
+			Provider: role.Provider,
+		}
+		if persona, ok := rolePersonaMap[role.ID]; ok {
+			roleData.Persona = persona
+		}
+		roles = append(roles, roleData)
 	}
 	return roles
+}
+
+// buildRolePersonaMap scans scenarios to find which personas are used by which roles
+func buildRolePersonaMap(cfg *config.Config) map[string]string {
+	rolePersona := make(map[string]string)
+	for _, scenario := range cfg.LoadedScenarios {
+		for i := range scenario.Turns {
+			turn := &scenario.Turns[i]
+			if turn.Persona != "" && turn.Role != "user" && turn.Role != "assistant" {
+				// This is a self-play turn with a persona
+				rolePersona[turn.Role] = turn.Persona
+			}
+		}
+	}
+	return rolePersona
 }
 
 // collectDefaults extracts default configuration values
@@ -706,9 +840,9 @@ func buildPromptLines(p *PromptInspectData) []string {
 	lines := []string{highlightStyle.Render(p.ID)}
 
 	if p.TaskType != "" {
-		lines = append(lines, labelStyle.Render("  Task Type: ")+tagStyle.Render(p.TaskType))
+		lines = append(lines, labelStyle.Render(labelTaskType)+tagStyle.Render(p.TaskType))
 	}
-	lines = append(lines, labelStyle.Render("  File: ")+dimStyle.Render(p.File))
+	lines = append(lines, labelStyle.Render(labelFile)+dimStyle.Render(p.File))
 
 	if inspectVerbose {
 		lines = append(lines, buildPromptVerboseLines(p)...)
@@ -721,25 +855,25 @@ func buildPromptVerboseLines(p *PromptInspectData) []string {
 	var lines []string
 	if p.Description != "" {
 		desc := truncateInspectString(p.Description, maxDescLengthPrompt)
-		lines = append(lines, labelStyle.Render("  Desc: ")+valueStyle.Render(desc))
+		lines = append(lines, labelStyle.Render(labelDesc)+valueStyle.Render(desc))
 	}
 	if p.Version != "" {
-		lines = append(lines, labelStyle.Render("  Version: ")+valueStyle.Render(p.Version))
+		lines = append(lines, labelStyle.Render(labelVersion)+valueStyle.Render(p.Version))
 	}
 	if len(p.Variables) > 0 {
-		lines = append(lines, labelStyle.Render("  Variables: ")+tagStyle.Render(strings.Join(p.Variables, ", ")))
+		lines = append(lines, labelStyle.Render(labelVariables)+tagStyle.Render(strings.Join(p.Variables, ", ")))
 		for k, v := range p.VariableValues {
 			lines = append(lines, dimStyle.Render("    "+k+": ")+valueStyle.Render(v))
 		}
 	}
 	if len(p.AllowedTools) > 0 {
-		lines = append(lines, labelStyle.Render("  Tools: ")+valueStyle.Render(strings.Join(p.AllowedTools, ", ")))
+		lines = append(lines, labelStyle.Render(labelTools)+valueStyle.Render(strings.Join(p.AllowedTools, ", ")))
 	}
 	if len(p.Validators) > 0 {
-		lines = append(lines, labelStyle.Render("  Validators: ")+valueStyle.Render(strings.Join(p.Validators, ", ")))
+		lines = append(lines, labelStyle.Render(labelValidators)+valueStyle.Render(strings.Join(p.Validators, ", ")))
 	}
 	if p.HasMedia {
-		lines = append(lines, labelStyle.Render("  Media: ")+successStyle.Render("✓ enabled"))
+		lines = append(lines, labelStyle.Render(labelMedia)+successStyle.Render("✓ enabled"))
 	}
 	return lines
 }
@@ -793,15 +927,15 @@ func buildProviderLines(p *ProviderInspectData) []string {
 	lines := []string{headerLine}
 
 	if p.Model != "" {
-		lines = append(lines, labelStyle.Render("  Model: ")+valueStyle.Render(p.Model))
+		lines = append(lines, labelStyle.Render(labelModel)+valueStyle.Render(p.Model))
 	}
 	if inspectVerbose {
-		lines = append(lines, labelStyle.Render("  File: ")+dimStyle.Render(p.File))
+		lines = append(lines, labelStyle.Render(labelFile)+dimStyle.Render(p.File))
 		if p.Temperature > 0 {
-			lines = append(lines, labelStyle.Render("  Temperature: ")+valueStyle.Render(fmt.Sprintf("%.2f", p.Temperature)))
+			lines = append(lines, labelStyle.Render(labelTemperature)+valueStyle.Render(fmt.Sprintf("%.2f", p.Temperature)))
 		}
 		if p.MaxTokens > 0 {
-			lines = append(lines, labelStyle.Render("  Max Tokens: ")+valueStyle.Render(fmt.Sprintf("%d", p.MaxTokens)))
+			lines = append(lines, labelStyle.Render(labelMaxTok)+valueStyle.Render(fmt.Sprintf("%d", p.MaxTokens)))
 		}
 	}
 	return lines
@@ -826,7 +960,7 @@ func buildScenarioLines(s *ScenarioInspectData) []string {
 		headerLine += dimStyle.Render(" [") + tagStyle.Render(s.Mode) + dimStyle.Render("]")
 	}
 
-	infoLine := labelStyle.Render("  Task: ") + valueStyle.Render(s.TaskType)
+	infoLine := labelStyle.Render(labelTask) + valueStyle.Render(s.TaskType)
 	infoLine += dimStyle.Render(" • ") + labelStyle.Render("Turns: ") + valueStyle.Render(fmt.Sprintf("%d", s.TurnCount))
 
 	lines := []string{headerLine, infoLine}
@@ -839,20 +973,20 @@ func buildScenarioLines(s *ScenarioInspectData) []string {
 // buildScenarioVerboseLines builds verbose detail lines for a scenario
 func buildScenarioVerboseLines(s *ScenarioInspectData) []string {
 	var lines []string
-	lines = append(lines, labelStyle.Render("  File: ")+dimStyle.Render(s.File))
+	lines = append(lines, labelStyle.Render(labelFile)+dimStyle.Render(s.File))
 
 	if s.Description != "" {
 		desc := truncateInspectString(s.Description, maxDescLength)
-		lines = append(lines, labelStyle.Render("  Desc: ")+valueStyle.Render(desc))
+		lines = append(lines, labelStyle.Render(labelDesc)+valueStyle.Render(desc))
 	}
 
 	flags := buildScenarioFlags(s)
 	if len(flags) > 0 {
-		lines = append(lines, labelStyle.Render("  Flags: ")+strings.Join(flags, " "))
+		lines = append(lines, labelStyle.Render(labelFlags)+strings.Join(flags, " "))
 	}
 
 	if len(s.Providers) > 0 {
-		lines = append(lines, labelStyle.Render("  Providers: ")+valueStyle.Render(strings.Join(s.Providers, ", ")))
+		lines = append(lines, labelStyle.Render(labelProviders)+valueStyle.Render(strings.Join(s.Providers, ", ")))
 	}
 	return lines
 }
@@ -898,11 +1032,11 @@ func buildToolLines(t *ToolInspectData) []string {
 	lines = append(lines, highlightStyle.Render(header))
 
 	if t.Mode != "" {
-		lines = append(lines, labelStyle.Render("  Mode: ")+tagStyle.Render(getToolModeDisplay(t.Mode)))
+		lines = append(lines, labelStyle.Render(labelMode)+tagStyle.Render(getToolModeDisplay(t.Mode)))
 	}
 
 	if t.Name != "" {
-		lines = append(lines, labelStyle.Render("  File: ")+dimStyle.Render(filepath.Base(t.File)))
+		lines = append(lines, labelStyle.Render(labelFile)+dimStyle.Render(filepath.Base(t.File)))
 	}
 
 	if inspectVerbose {
@@ -928,13 +1062,13 @@ func buildToolVerboseLines(t *ToolInspectData) []string {
 	var lines []string
 	if t.Description != "" {
 		desc := truncateInspectString(t.Description, maxDescLength)
-		lines = append(lines, labelStyle.Render("  Desc: ")+valueStyle.Render(desc))
+		lines = append(lines, labelStyle.Render(labelDesc)+valueStyle.Render(desc))
 	}
 	if len(t.InputParams) > 0 {
-		lines = append(lines, labelStyle.Render("  Params: ")+tagStyle.Render(strings.Join(t.InputParams, ", ")))
+		lines = append(lines, labelStyle.Render(labelParams)+tagStyle.Render(strings.Join(t.InputParams, ", ")))
 	}
 	if t.TimeoutMs > 0 {
-		lines = append(lines, labelStyle.Render("  Timeout: ")+valueStyle.Render(fmt.Sprintf("%dms", t.TimeoutMs)))
+		lines = append(lines, labelStyle.Render(labelTimeout)+valueStyle.Render(fmt.Sprintf("%dms", t.TimeoutMs)))
 	}
 
 	var flags []string
@@ -945,17 +1079,40 @@ func buildToolVerboseLines(t *ToolInspectData) []string {
 		flags = append(flags, "HTTP")
 	}
 	if len(flags) > 0 {
-		lines = append(lines, labelStyle.Render("  Features: ")+dimStyle.Render(strings.Join(flags, ", ")))
+		lines = append(lines, labelStyle.Render(labelFeatures)+dimStyle.Render(strings.Join(flags, ", ")))
 	}
 	return lines
 }
 
 func printPersonasSection(data *InspectionData) {
-	fmt.Println(sectionHeaderStyle.Render(fmt.Sprintf(" 🎭 Personas (%d) ", len(data.Personas))))
+	// Combined Self-Play section showing personas and roles together
+	header := fmt.Sprintf(" 🎭 Self-Play (%d personas, %d roles) ", len(data.Personas), len(data.SelfPlayRoles))
+	fmt.Println(sectionHeaderStyle.Render(header))
 	fmt.Println()
 
-	for _, p := range data.Personas {
-		lines := buildPersonaLines(&p)
+	// Show personas
+	if len(data.Personas) > 0 {
+		fmt.Println(labelStyle.Render("Personas:"))
+		for _, p := range data.Personas {
+			lines := buildPersonaLines(&p)
+			fmt.Println(boxStyle.Render(strings.Join(lines, "\n")))
+		}
+	}
+
+	// Show self-play roles
+	if len(data.SelfPlayRoles) > 0 {
+		fmt.Println(labelStyle.Render("Roles:"))
+		var lines []string
+		for _, role := range data.SelfPlayRoles {
+			line := highlightStyle.Render(role.ID)
+			if role.Persona != "" {
+				line += dimStyle.Render(" (") + valueStyle.Render(role.Persona) + dimStyle.Render(")")
+			}
+			if role.Provider != "" {
+				line += dimStyle.Render(" → ") + valueStyle.Render(role.Provider)
+			}
+			lines = append(lines, line)
+		}
 		fmt.Println(boxStyle.Render(strings.Join(lines, "\n")))
 	}
 	fmt.Println()
@@ -968,10 +1125,10 @@ func buildPersonaLines(p *PersonaInspectData) []string {
 	if inspectVerbose {
 		if p.Description != "" {
 			desc := truncateInspectString(p.Description, maxDescLength)
-			lines = append(lines, labelStyle.Render("  Desc: ")+valueStyle.Render(desc))
+			lines = append(lines, labelStyle.Render(labelDesc)+valueStyle.Render(desc))
 		}
 		if len(p.Goals) > 0 {
-			lines = append(lines, labelStyle.Render("  Goals:"))
+			lines = append(lines, labelStyle.Render(labelGoals))
 			lines = append(lines, buildGoalLines(p.Goals)...)
 		}
 	}
@@ -1152,7 +1309,7 @@ func printCacheStatistics(cacheStats *CacheStatsData) {
 
 	var lines []string
 
-	promptCacheEntry := fmt.Sprintf("%d entries", cacheStats.PromptCache.Size)
+	promptCacheEntry := fmt.Sprintf(entriesFormat, cacheStats.PromptCache.Size)
 	lines = append(lines, labelStyle.Render("Prompt Cache: ")+valueStyle.Render(promptCacheEntry))
 	if inspectVerbose && len(cacheStats.PromptCache.Entries) > 0 {
 		for _, entry := range cacheStats.PromptCache.Entries {
@@ -1160,11 +1317,11 @@ func printCacheStatistics(cacheStats *CacheStatsData) {
 		}
 	}
 
-	fragmentCacheEntry := fmt.Sprintf("%d entries", cacheStats.FragmentCache.Size)
+	fragmentCacheEntry := fmt.Sprintf(entriesFormat, cacheStats.FragmentCache.Size)
 	lines = append(lines, labelStyle.Render("Fragment Cache: ")+valueStyle.Render(fragmentCacheEntry))
 
 	if cacheStats.SelfPlayCache.Size > 0 {
-		selfPlayEntry := fmt.Sprintf("%d entries", cacheStats.SelfPlayCache.Size)
+		selfPlayEntry := fmt.Sprintf(entriesFormat, cacheStats.SelfPlayCache.Size)
 		lines = append(lines, labelStyle.Render("Self-Play Cache: ")+valueStyle.Render(selfPlayEntry))
 		if cacheStats.SelfPlayCache.HitRate > 0 {
 			hitRate := cacheStats.SelfPlayCache.HitRate * percentMultiplier
