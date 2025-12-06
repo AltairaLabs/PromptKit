@@ -498,24 +498,33 @@ func collectTools(cfg *config.Config) []ToolInspectData {
 	return tools
 }
 
+// toolManifestMetadata represents the metadata section of a tool manifest
+type toolManifestMetadata struct {
+	Name string `yaml:"name"`
+}
+
+// toolInputSchema represents the input schema for a tool
+type toolInputSchema struct {
+	Properties map[string]interface{} `yaml:"properties"`
+	Required   []string               `yaml:"required"`
+}
+
+// toolManifestSpec represents the spec section of a tool manifest
+type toolManifestSpec struct {
+	Name         string          `yaml:"name"`
+	Description  string          `yaml:"description"`
+	Mode         string          `yaml:"mode"`
+	TimeoutMs    int             `yaml:"timeout_ms"`
+	InputSchema  toolInputSchema `yaml:"input_schema"`
+	MockResult   interface{}     `yaml:"mock_result"`
+	MockTemplate string          `yaml:"mock_template"`
+	HTTP         interface{}     `yaml:"http"`
+}
+
 // toolManifest represents the structure of a tool YAML file
 type toolManifest struct {
-	Metadata struct {
-		Name string `yaml:"name"`
-	} `yaml:"metadata"`
-	Spec struct {
-		Name        string `yaml:"name"`
-		Description string `yaml:"description"`
-		Mode        string `yaml:"mode"`
-		TimeoutMs   int    `yaml:"timeout_ms"`
-		InputSchema struct {
-			Properties map[string]interface{} `yaml:"properties"`
-			Required   []string               `yaml:"required"`
-		} `yaml:"input_schema"`
-		MockResult   interface{} `yaml:"mock_result"`
-		MockTemplate string      `yaml:"mock_template"`
-		HTTP         interface{} `yaml:"http"`
-	} `yaml:"spec"`
+	Metadata toolManifestMetadata `yaml:"metadata"`
+	Spec     toolManifestSpec     `yaml:"spec"`
 }
 
 // parseToolManifest parses tool YAML data into ToolInspectData
