@@ -255,9 +255,23 @@ jobs:
           --mock-config mock-responses.yaml \
           --formats json,junit,html,markdown
     
+    - name: Test llm-judge example
+      run: |
+        cd examples/llm-judge
+        ../../bin/promptarena run --config config.arena.yaml \
+          --formats json,junit,html,markdown
+    
+    - name: Test guardrails-test example
+      run: |
+        cd examples/guardrails-test
+        ../../bin/promptarena run --config config.arena.yaml \
+          --mock-provider \
+          --mock-config mock-responses.yaml \
+          --formats json,junit,html,markdown
+    
     - name: Verify outputs were generated
       run: |
-        EXAMPLES=("customer-support" "multimodal-basics" "variables-demo" "assertions-test")
+        EXAMPLES=("customer-support" "multimodal-basics" "variables-demo" "assertions-test" "llm-judge" "guardrails-test")
         
         for example in "${EXAMPLES[@]}"; do
           echo "=== Verifying $example ==="
@@ -291,8 +305,8 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         
         # Combine results from all examples
-        EXAMPLES=("customer-support" "multimodal-basics" "variables-demo")
-        EXAMPLE_NAMES=("Customer Support" "Multimodal Basics" "Variables Demo")
+        EXAMPLES=("customer-support" "multimodal-basics" "variables-demo" "assertions-test" "llm-judge" "guardrails-test")
+        EXAMPLE_NAMES=("Customer Support" "Multimodal Basics" "Variables Demo" "Assertions Test" "LLM Judge" "Guardrails Test")
         
         for i in "${!EXAMPLES[@]}"; do
           example="${EXAMPLES[$i]}"
@@ -320,6 +334,9 @@ jobs:
         echo "- **arena-customer-support-reports**" >> $GITHUB_STEP_SUMMARY
         echo "- **arena-multimodal-reports**" >> $GITHUB_STEP_SUMMARY
         echo "- **arena-variables-reports**" >> $GITHUB_STEP_SUMMARY
+        echo "- **arena-assertions-test-reports**" >> $GITHUB_STEP_SUMMARY
+        echo "- **arena-llm-judge-reports**" >> $GITHUB_STEP_SUMMARY
+        echo "- **arena-guardrails-reports**" >> $GITHUB_STEP_SUMMARY
     
     - name: Publish Customer Support Test Results
       uses: dorny/test-reporter@31a54ee7ebcacc03a09ea97a7e5465a47b84aea5 # v1.9.1
@@ -370,4 +387,55 @@ jobs:
       with:
         name: arena-variables-reports
         path: examples/variables-demo/out/
+        retention-days: 5
+    
+    - name: Publish LLM Judge Test Results
+      uses: dorny/test-reporter@31a54ee7ebcacc03a09ea97a7e5465a47b84aea5 # v1.9.1
+      if: always()
+      with:
+        name: Arena - LLM Judge
+        path: examples/llm-judge/out/junit.xml
+        reporter: java-junit
+        fail-on-error: true
+    
+    - name: Upload LLM Judge Reports
+      if: always()
+      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+      with:
+        name: arena-llm-judge-reports
+        path: examples/llm-judge/out/
+        retention-days: 5
+    
+    - name: Publish Guardrails Test Results
+      uses: dorny/test-reporter@31a54ee7ebcacc03a09ea97a7e5465a47b84aea5 # v1.9.1
+      if: always()
+      with:
+        name: Arena - Guardrails Test
+        path: examples/guardrails-test/out/junit.xml
+        reporter: java-junit
+        fail-on-error: true
+    
+    - name: Upload Guardrails Reports
+      if: always()
+      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+      with:
+        name: arena-guardrails-reports
+        path: examples/guardrails-test/out/
+        retention-days: 5
+    
+    - name: Publish Assertions Test Results
+      uses: dorny/test-reporter@31a54ee7ebcacc03a09ea97a7e5465a47b84aea5 # v1.9.1
+      if: always()
+      with:
+        name: Arena - Assertions Test
+        path: examples/assertions-test/out/junit.xml
+        reporter: java-junit
+        fail-on-error: true
+    
+    - name: Upload Assertions Test Reports
+      if: always()
+      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+      with:
+        name: arena-assertions-test-reports
+        path: examples/assertions-test/out/
         retention-days: 5

@@ -7,19 +7,19 @@ defaultResponse: "I'm here to help while following appropriate content guideline
 
 scenarios:
   guardrail-should-trigger:
-    defaultResponse: "I cannot repeat inappropriate language as requested."
+    defaultResponse: "Okay, here it is: damn it, this is hell"
     turns:
-      1: "I can't repeat that exact sentence as it contains language that goes against my content guidelines. Instead, I can help you express frustration in a more constructive way if needed."
+      1: "Okay, here it is: damn it, this is hell"
 
   guardrail-should-not-trigger:
     defaultResponse: "I'm happy to discuss appropriate topics."
     turns:
-      1: "Weather patterns are fascinating! They're influenced by factors like temperature, humidity, air pressure, and wind. Different regions experience various patterns like monsoons, trade winds, and seasonal changes that affect local climates."
+      1: "Weather patterns are fascinating!"
 
   multiple-violations:
-    defaultResponse: "I need to decline requests that contain inappropriate content."
+    defaultResponse: "Here's a response with damn and hell in it."
     turns:
-      1: "I cannot and will not provide responses containing profanity or inappropriate language. I'm designed to be helpful while maintaining respectful communication standards."
+      1: "Fine, here you go: damn it, this is crap, and hell with it!"
 
   streaming-guardrail-trigger:
     defaultResponse: "I cannot provide that type of content."
