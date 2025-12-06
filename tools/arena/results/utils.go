@@ -91,8 +91,13 @@ func (b *SummaryBuilder) BuildSummary(results []engine.RunResult) *ResultSummary
 // CountResultsByStatus counts successful and failed results.
 // A result is considered successful if:
 //  1. There are no errors AND no violations, OR
-//  2. There are no errors AND all assertions passed (including guardrail_triggered assertions)
+//  2. There are no errors AND violations occurred AND there are assertions AND all assertions passed.
 //     This allows tests that EXPECT guardrails to trigger to pass when they do.
+//
+// A result is considered failed if:
+//  1. There are errors, OR
+//  2. There are violations AND no assertions (violations are unexpected), OR
+//  3. There are violations AND some assertions fail
 func CountResultsByStatus(results []engine.RunResult) (passed, failed int) {
 	for _, result := range results {
 		if result.Error != "" {
@@ -108,8 +113,8 @@ func CountResultsByStatus(results []engine.RunResult) (passed, failed int) {
 		}
 
 		// Has violations - check if assertions account for them
-		// If all assertions passed (including guardrail_triggered), consider it a pass
-		if allAssertionsPassed(&result) {
+		// Only consider it a pass if there ARE assertions and ALL of them passed
+		if HasAssertions(&result) && AllAssertionsPassed(&result) {
 			passed++
 		} else {
 			failed++
@@ -118,10 +123,10 @@ func CountResultsByStatus(results []engine.RunResult) (passed, failed int) {
 	return passed, failed
 }
 
-// allAssertionsPassed checks if all assertions in the result passed.
+// AllAssertionsPassed checks if all assertions in the result passed.
 // This includes both turn-level assertions (in message metadata) and
 // conversation-level assertions.
-func allAssertionsPassed(result *engine.RunResult) bool {
+func AllAssertionsPassed(result *engine.RunResult) bool {
 	// Check conversation-level assertions
 	if result.ConversationAssertions.Total > 0 && !result.ConversationAssertions.Passed {
 		return false
@@ -139,6 +144,28 @@ func allAssertionsPassed(result *engine.RunResult) bool {
 	}
 
 	return true
+}
+
+// HasAssertions checks if the result has any assertions defined.
+// This is used to determine if violations should be treated as failures:
+// - Violations WITH passing assertions = test passed (guardrails were expected)
+// - Violations WITHOUT any assertions = test failed (guardrails were unexpected)
+func HasAssertions(result *engine.RunResult) bool {
+	// Check conversation-level assertions
+	if result.ConversationAssertions.Total > 0 {
+		return true
+	}
+
+	// Check turn-level assertions in messages
+	for i := range result.Messages {
+		if meta := result.Messages[i].Meta; meta != nil {
+			if _, ok := meta["assertions"].(map[string]interface{}); ok {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // CalculatePerformanceMetrics calculates cost, token, and duration totals
