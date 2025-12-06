@@ -261,14 +261,17 @@ jobs:
         ../../bin/promptarena run --config config.arena.yaml \
           --formats json,junit,html,markdown
     
-    # Note: guardrails-test is excluded from CI because it intentionally triggers guardrails
-    # which the Arena framework treats as test failures. The guardrail_triggered assertion
-    # cannot be evaluated because the pipeline fails first. This is a known limitation.
-    # See examples/guardrails-test/README.md for manual testing instructions.
+    - name: Test guardrails-test example
+      run: |
+        cd examples/guardrails-test
+        ../../bin/promptarena run --config config.arena.yaml \
+          --mock-provider \
+          --mock-config mock-responses.yaml \
+          --formats json,junit,html,markdown
     
     - name: Verify outputs were generated
       run: |
-        EXAMPLES=("customer-support" "multimodal-basics" "variables-demo" "assertions-test" "llm-judge")
+        EXAMPLES=("customer-support" "multimodal-basics" "variables-demo" "assertions-test" "llm-judge" "guardrails-test")
         
         for example in "${EXAMPLES[@]}"; do
           echo "=== Verifying $example ==="
@@ -302,8 +305,8 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         
         # Combine results from all examples
-        EXAMPLES=("customer-support" "multimodal-basics" "variables-demo" "assertions-test" "llm-judge")
-        EXAMPLE_NAMES=("Customer Support" "Multimodal Basics" "Variables Demo" "Assertions Test" "LLM Judge")
+        EXAMPLES=("customer-support" "multimodal-basics" "variables-demo" "assertions-test" "llm-judge" "guardrails-test")
+        EXAMPLE_NAMES=("Customer Support" "Multimodal Basics" "Variables Demo" "Assertions Test" "LLM Judge" "Guardrails Test")
         
         for i in "${!EXAMPLES[@]}"; do
           example="${EXAMPLES[$i]}"
@@ -333,6 +336,7 @@ jobs:
         echo "- **arena-variables-reports**" >> $GITHUB_STEP_SUMMARY
         echo "- **arena-assertions-test-reports**" >> $GITHUB_STEP_SUMMARY
         echo "- **arena-llm-judge-reports**" >> $GITHUB_STEP_SUMMARY
+        echo "- **arena-guardrails-reports**" >> $GITHUB_STEP_SUMMARY
     
     - name: Publish Customer Support Test Results
       uses: dorny/test-reporter@31a54ee7ebcacc03a09ea97a7e5465a47b84aea5 # v1.9.1
@@ -400,6 +404,23 @@ jobs:
       with:
         name: arena-llm-judge-reports
         path: examples/llm-judge/out/
+        retention-days: 5
+    
+    - name: Publish Guardrails Test Results
+      uses: dorny/test-reporter@31a54ee7ebcacc03a09ea97a7e5465a47b84aea5 # v1.9.1
+      if: always()
+      with:
+        name: Arena - Guardrails Test
+        path: examples/guardrails-test/out/junit.xml
+        reporter: java-junit
+        fail-on-error: true
+    
+    - name: Upload Guardrails Reports
+      if: always()
+      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+      with:
+        name: arena-guardrails-reports
+        path: examples/guardrails-test/out/
         retention-days: 5
     
     - name: Publish Assertions Test Results

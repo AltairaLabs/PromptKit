@@ -88,16 +88,57 @@ func (b *SummaryBuilder) BuildSummary(results []engine.RunResult) *ResultSummary
 	}
 }
 
-// CountResultsByStatus counts successful and failed results
+// CountResultsByStatus counts successful and failed results.
+// A result is considered successful if:
+//  1. There are no errors AND no violations, OR
+//  2. There are no errors AND all assertions passed (including guardrail_triggered assertions)
+//     This allows tests that EXPECT guardrails to trigger to pass when they do.
 func CountResultsByStatus(results []engine.RunResult) (passed, failed int) {
 	for _, result := range results {
-		if result.Error == "" && len(result.Violations) == 0 {
+		if result.Error != "" {
+			// Any error = failed
+			failed++
+			continue
+		}
+
+		if len(result.Violations) == 0 {
+			// No violations = passed
+			passed++
+			continue
+		}
+
+		// Has violations - check if assertions account for them
+		// If all assertions passed (including guardrail_triggered), consider it a pass
+		if allAssertionsPassed(&result) {
 			passed++
 		} else {
 			failed++
 		}
 	}
 	return passed, failed
+}
+
+// allAssertionsPassed checks if all assertions in the result passed.
+// This includes both turn-level assertions (in message metadata) and
+// conversation-level assertions.
+func allAssertionsPassed(result *engine.RunResult) bool {
+	// Check conversation-level assertions
+	if result.ConversationAssertions.Total > 0 && !result.ConversationAssertions.Passed {
+		return false
+	}
+
+	// Check turn-level assertions in messages
+	for i := range result.Messages {
+		if meta := result.Messages[i].Meta; meta != nil {
+			if assertions, ok := meta["assertions"].(map[string]interface{}); ok {
+				if passed, ok := assertions["passed"].(bool); ok && !passed {
+					return false
+				}
+			}
+		}
+	}
+
+	return true
 }
 
 // CalculatePerformanceMetrics calculates cost, token, and duration totals
