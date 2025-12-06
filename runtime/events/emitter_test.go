@@ -119,3 +119,176 @@ func TestEmitterHandlesNilBus(t *testing.T) {
 	// Should not panic even without a bus.
 	emitter.PipelineStarted(1)
 }
+
+func TestEmitterHandlesNilEmitter(t *testing.T) {
+	t.Parallel()
+
+	var emitter *Emitter
+	// Should not panic when emitter is nil
+	emitter.PipelineStarted(1)
+	emitter.MessageCreated("user", "hello", 0, nil, nil)
+	emitter.MessageUpdated(0, 100, 10, 20, 0.001)
+	emitter.ConversationStarted("system prompt")
+}
+
+func TestEmitter_MessageCreated(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-mc", "session-mc", "conv-mc")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	bus.Subscribe(EventMessageCreated, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	toolCalls := []MessageToolCall{
+		{Name: "test_tool", Args: `{"key":"value"}`},
+	}
+	emitter.MessageCreated("assistant", "Hello!", 1, toolCalls, nil)
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for message.created event")
+	}
+
+	if got.RunID != "run-mc" || got.SessionID != "session-mc" || got.ConversationID != "conv-mc" {
+		t.Fatalf("unexpected context: %+v", got)
+	}
+
+	data, ok := got.Data.(MessageCreatedData)
+	if !ok {
+		t.Fatalf("unexpected data type: %T", got.Data)
+	}
+
+	if data.Role != "assistant" || data.Content != "Hello!" || data.Index != 1 {
+		t.Fatalf("unexpected data: %+v", data)
+	}
+	if len(data.ToolCalls) != 1 || data.ToolCalls[0].Name != "test_tool" {
+		t.Fatalf("unexpected tool calls: %+v", data.ToolCalls)
+	}
+}
+
+func TestEmitter_MessageCreated_WithToolResult(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-tr", "session-tr", "conv-tr")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	bus.Subscribe(EventMessageCreated, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	toolResult := &MessageToolResult{
+		Name:    "weather_tool",
+		Content: `{"temp": 72}`,
+	}
+	emitter.MessageCreated("tool", "", 2, nil, toolResult)
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for message.created event with tool result")
+	}
+
+	data, ok := got.Data.(MessageCreatedData)
+	if !ok {
+		t.Fatalf("unexpected data type: %T", got.Data)
+	}
+
+	if data.Role != "tool" || data.Index != 2 {
+		t.Fatalf("unexpected data: %+v", data)
+	}
+	if data.ToolResult == nil || data.ToolResult.Name != "weather_tool" {
+		t.Fatalf("unexpected tool result: %+v", data.ToolResult)
+	}
+}
+
+func TestEmitter_MessageUpdated(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-mu", "session-mu", "conv-mu")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	bus.Subscribe(EventMessageUpdated, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	emitter.MessageUpdated(3, 150, 100, 50, 0.0025)
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for message.updated event")
+	}
+
+	if got.RunID != "run-mu" {
+		t.Fatalf("unexpected run ID: %s", got.RunID)
+	}
+
+	data, ok := got.Data.(MessageUpdatedData)
+	if !ok {
+		t.Fatalf("unexpected data type: %T", got.Data)
+	}
+
+	if data.Index != 3 || data.LatencyMs != 150 || data.InputTokens != 100 || data.OutputTokens != 50 {
+		t.Fatalf("unexpected data: %+v", data)
+	}
+	if data.TotalCost != 0.0025 {
+		t.Fatalf("unexpected total cost: %f", data.TotalCost)
+	}
+}
+
+func TestEmitter_ConversationStarted(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-cs", "session-cs", "conv-cs")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	bus.Subscribe(EventConversationStarted, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	emitter.ConversationStarted("You are a helpful AI assistant.")
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for conversation.started event")
+	}
+
+	if got.RunID != "run-cs" || got.SessionID != "session-cs" || got.ConversationID != "conv-cs" {
+		t.Fatalf("unexpected context: %+v", got)
+	}
+
+	data, ok := got.Data.(ConversationStartedData)
+	if !ok {
+		t.Fatalf("unexpected data type: %T", got.Data)
+	}
+
+	if data.SystemPrompt != "You are a helpful AI assistant." {
+		t.Fatalf("unexpected system prompt: %s", data.SystemPrompt)
+	}
+}
+
+func TestEmitter_ProviderCallCompleted_NilData(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-pcc", "session-pcc", "conv-pcc")
+
+	// Should not panic when data is nil
+	emitter.ProviderCallCompleted(nil)
+}
