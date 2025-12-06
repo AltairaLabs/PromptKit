@@ -5,7 +5,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/logging"
 )
 
@@ -554,5 +558,340 @@ func TestEventAdapter_NameExtraction(t *testing.T) {
 				t.Errorf("expected validation name '%s', got '%s'", tc.expectedName, name)
 			}
 		}
+	})
+}
+
+// Tests for handleMessageCreated
+func TestEventAdapter_HandleMessageCreated(t *testing.T) {
+	t.Parallel()
+
+	adapter := NewEventAdapter(nil)
+
+	t.Run("basic message", func(t *testing.T) {
+		evt := &events.Event{
+			Type:           events.EventMessageCreated,
+			ConversationID: "conv-1",
+			Timestamp:      time.Now(),
+			Data: events.MessageCreatedData{
+				Role:    "assistant",
+				Content: "Hello, how can I help?",
+				Index:   0,
+			},
+		}
+
+		msg := adapter.handleMessageCreated(evt)
+		require.NotNil(t, msg)
+
+		createdMsg, ok := msg.(MessageCreatedMsg)
+		require.True(t, ok)
+		assert.Equal(t, "conv-1", createdMsg.ConversationID)
+		assert.Equal(t, "assistant", createdMsg.Role)
+		assert.Equal(t, "Hello, how can I help?", createdMsg.Content)
+		assert.Equal(t, 0, createdMsg.Index)
+	})
+
+	t.Run("with tool calls", func(t *testing.T) {
+		evt := &events.Event{
+			Type:           events.EventMessageCreated,
+			ConversationID: "conv-1",
+			Timestamp:      time.Now(),
+			Data: events.MessageCreatedData{
+				Role:    "assistant",
+				Content: "",
+				Index:   1,
+				ToolCalls: []events.MessageToolCall{
+					{ID: "call-1", Name: "get_weather", Args: `{"city": "NYC"}`},
+					{ID: "call-2", Name: "get_time", Args: `{"zone": "EST"}`},
+				},
+			},
+		}
+
+		msg := adapter.handleMessageCreated(evt)
+		require.NotNil(t, msg)
+
+		createdMsg, ok := msg.(MessageCreatedMsg)
+		require.True(t, ok)
+		require.Len(t, createdMsg.ToolCalls, 2)
+		assert.Equal(t, "get_weather", createdMsg.ToolCalls[0].Name)
+		assert.Equal(t, "get_time", createdMsg.ToolCalls[1].Name)
+	})
+
+	t.Run("with tool result", func(t *testing.T) {
+		evt := &events.Event{
+			Type:           events.EventMessageCreated,
+			ConversationID: "conv-1",
+			Timestamp:      time.Now(),
+			Data: events.MessageCreatedData{
+				Role:    "tool",
+				Content: "",
+				Index:   2,
+				ToolResult: &events.MessageToolResult{
+					ID:        "call-1",
+					Name:      "get_weather",
+					Content:   `{"temp": 72, "conditions": "sunny"}`,
+					LatencyMs: 150,
+				},
+			},
+		}
+
+		msg := adapter.handleMessageCreated(evt)
+		require.NotNil(t, msg)
+
+		createdMsg, ok := msg.(MessageCreatedMsg)
+		require.True(t, ok)
+		require.NotNil(t, createdMsg.ToolResult)
+		assert.Equal(t, "get_weather", createdMsg.ToolResult.Name)
+		assert.Equal(t, int64(150), createdMsg.ToolResult.LatencyMs)
+	})
+
+	t.Run("with tool result error", func(t *testing.T) {
+		evt := &events.Event{
+			Type:           events.EventMessageCreated,
+			ConversationID: "conv-1",
+			Timestamp:      time.Now(),
+			Data: events.MessageCreatedData{
+				Role:    "tool",
+				Content: "",
+				Index:   2,
+				ToolResult: &events.MessageToolResult{
+					ID:    "call-1",
+					Name:  "get_weather",
+					Error: "API rate limit exceeded",
+				},
+			},
+		}
+
+		msg := adapter.handleMessageCreated(evt)
+		require.NotNil(t, msg)
+
+		createdMsg, ok := msg.(MessageCreatedMsg)
+		require.True(t, ok)
+		require.NotNil(t, createdMsg.ToolResult)
+		assert.Equal(t, "API rate limit exceeded", createdMsg.ToolResult.Error)
+	})
+
+	t.Run("wrong data type returns nil", func(t *testing.T) {
+		evt := &events.Event{
+			Type:           events.EventMessageCreated,
+			ConversationID: "conv-1",
+			Timestamp:      time.Now(),
+			Data:           events.PipelineStartedData{}, // Wrong type
+		}
+
+		msg := adapter.handleMessageCreated(evt)
+		assert.Nil(t, msg)
+	})
+}
+
+// Tests for handleMessageUpdated
+func TestEventAdapter_HandleMessageUpdated(t *testing.T) {
+	t.Parallel()
+
+	adapter := NewEventAdapter(nil)
+
+	t.Run("basic update", func(t *testing.T) {
+		evt := &events.Event{
+			Type:           events.EventMessageUpdated,
+			ConversationID: "conv-1",
+			Timestamp:      time.Now(),
+			Data: events.MessageUpdatedData{
+				Index:        0,
+				LatencyMs:    500,
+				InputTokens:  100,
+				OutputTokens: 50,
+				TotalCost:    0.015,
+			},
+		}
+
+		msg := adapter.handleMessageUpdated(evt)
+		require.NotNil(t, msg)
+
+		updatedMsg, ok := msg.(MessageUpdatedMsg)
+		require.True(t, ok)
+		assert.Equal(t, "conv-1", updatedMsg.ConversationID)
+		assert.Equal(t, 0, updatedMsg.Index)
+		assert.Equal(t, int64(500), updatedMsg.LatencyMs)
+		assert.Equal(t, 100, updatedMsg.InputTokens)
+		assert.Equal(t, 50, updatedMsg.OutputTokens)
+		assert.Equal(t, 0.015, updatedMsg.TotalCost)
+	})
+
+	t.Run("wrong data type returns nil", func(t *testing.T) {
+		evt := &events.Event{
+			Type:           events.EventMessageUpdated,
+			ConversationID: "conv-1",
+			Timestamp:      time.Now(),
+			Data:           events.PipelineStartedData{}, // Wrong type
+		}
+
+		msg := adapter.handleMessageUpdated(evt)
+		assert.Nil(t, msg)
+	})
+}
+
+// Tests for handleConversationStarted
+func TestEventAdapter_HandleConversationStarted(t *testing.T) {
+	t.Parallel()
+
+	adapter := NewEventAdapter(nil)
+
+	t.Run("basic conversation started", func(t *testing.T) {
+		evt := &events.Event{
+			Type:           events.EventConversationStarted,
+			ConversationID: "conv-1",
+			Timestamp:      time.Now(),
+			Data: events.ConversationStartedData{
+				SystemPrompt: "You are a helpful AI assistant.",
+			},
+		}
+
+		msg := adapter.handleConversationStarted(evt)
+		require.NotNil(t, msg)
+
+		startedMsg, ok := msg.(ConversationStartedMsg)
+		require.True(t, ok)
+		assert.Equal(t, "conv-1", startedMsg.ConversationID)
+		assert.Equal(t, "You are a helpful AI assistant.", startedMsg.SystemPrompt)
+	})
+
+	t.Run("empty system prompt", func(t *testing.T) {
+		evt := &events.Event{
+			Type:           events.EventConversationStarted,
+			ConversationID: "conv-2",
+			Timestamp:      time.Now(),
+			Data: events.ConversationStartedData{
+				SystemPrompt: "",
+			},
+		}
+
+		msg := adapter.handleConversationStarted(evt)
+		require.NotNil(t, msg)
+
+		startedMsg, ok := msg.(ConversationStartedMsg)
+		require.True(t, ok)
+		assert.Equal(t, "", startedMsg.SystemPrompt)
+	})
+
+	t.Run("wrong data type returns nil", func(t *testing.T) {
+		evt := &events.Event{
+			Type:           events.EventConversationStarted,
+			ConversationID: "conv-1",
+			Timestamp:      time.Now(),
+			Data:           events.PipelineStartedData{}, // Wrong type
+		}
+
+		msg := adapter.handleConversationStarted(evt)
+		assert.Nil(t, msg)
+	})
+}
+
+// Tests for mapEvent with new event types
+func TestEventAdapter_MapEvent_NewEventTypes(t *testing.T) {
+	t.Parallel()
+
+	adapter := NewEventAdapter(nil)
+
+	t.Run("message created event", func(t *testing.T) {
+		evt := &events.Event{
+			Type:           events.EventMessageCreated,
+			ConversationID: "conv-1",
+			Timestamp:      time.Now(),
+			Data: events.MessageCreatedData{
+				Role:    "assistant",
+				Content: "Hello",
+				Index:   0,
+			},
+		}
+
+		msg := adapter.mapEvent(evt)
+		require.NotNil(t, msg)
+		_, ok := msg.(MessageCreatedMsg)
+		assert.True(t, ok)
+	})
+
+	t.Run("message updated event", func(t *testing.T) {
+		evt := &events.Event{
+			Type:           events.EventMessageUpdated,
+			ConversationID: "conv-1",
+			Timestamp:      time.Now(),
+			Data: events.MessageUpdatedData{
+				Index:        0,
+				LatencyMs:    100,
+				InputTokens:  50,
+				OutputTokens: 25,
+				TotalCost:    0.01,
+			},
+		}
+
+		msg := adapter.mapEvent(evt)
+		require.NotNil(t, msg)
+		_, ok := msg.(MessageUpdatedMsg)
+		assert.True(t, ok)
+	})
+
+	t.Run("conversation started event", func(t *testing.T) {
+		evt := &events.Event{
+			Type:           events.EventConversationStarted,
+			ConversationID: "conv-1",
+			Timestamp:      time.Now(),
+			Data: events.ConversationStartedData{
+				SystemPrompt: "You are helpful.",
+			},
+		}
+
+		msg := adapter.mapEvent(evt)
+		require.NotNil(t, msg)
+		_, ok := msg.(ConversationStartedMsg)
+		assert.True(t, ok)
+	})
+}
+
+// Test HandleEvent integration with new event types
+func TestEventAdapter_HandleEvent_NewEventTypes(t *testing.T) {
+	t.Parallel()
+
+	model := NewModel("cfg", 1)
+	adapter := NewEventAdapterWithModel(model)
+
+	t.Run("message created flows to model", func(t *testing.T) {
+		model.conversationMessages = make(map[string][]types.Message)
+
+		evt := &events.Event{
+			Type:           events.EventMessageCreated,
+			ConversationID: "run-1",
+			Timestamp:      time.Now(),
+			Data: events.MessageCreatedData{
+				Role:    "user",
+				Content: "Hello",
+				Index:   0,
+			},
+		}
+
+		adapter.HandleEvent(evt)
+
+		// Message should be cached in model
+		model.mu.Lock()
+		defer model.mu.Unlock()
+		assert.Len(t, model.conversationMessages["run-1"], 1)
+	})
+
+	t.Run("conversation started flows to model", func(t *testing.T) {
+		model.systemPrompts = make(map[string]string)
+
+		evt := &events.Event{
+			Type:           events.EventConversationStarted,
+			ConversationID: "run-2",
+			Timestamp:      time.Now(),
+			Data: events.ConversationStartedData{
+				SystemPrompt: "You are a helpful assistant.",
+			},
+		}
+
+		adapter.HandleEvent(evt)
+
+		// System prompt should be cached in model
+		model.mu.Lock()
+		defer model.mu.Unlock()
+		assert.Equal(t, "You are a helpful assistant.", model.systemPrompts["run-2"])
 	})
 }

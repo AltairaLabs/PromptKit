@@ -1092,3 +1092,428 @@ func TestBuildSummaryFromStateStore_WithContext(t *testing.T) {
 	assert.Equal(t, 3, summary.AssertionTotal)
 	assert.Equal(t, 1, summary.AssertionFailed)
 }
+
+// Test for accessor methods (CompletedCount, ActiveRuns, Logs)
+func TestModel_CompletedCount(t *testing.T) {
+	m := NewModel("test.yaml", 5)
+	m.completedCount = 3
+
+	count := m.CompletedCount()
+	assert.Equal(t, 3, count)
+}
+
+func TestModel_ActiveRuns(t *testing.T) {
+	m := NewModel("test.yaml", 5)
+	m.activeRuns = []RunInfo{
+		{RunID: "run-1", Scenario: "scn1"},
+		{RunID: "run-2", Scenario: "scn2"},
+	}
+
+	runs := m.ActiveRuns()
+	require.Len(t, runs, 2)
+	assert.Equal(t, "run-1", runs[0].RunID)
+	assert.Equal(t, "run-2", runs[1].RunID)
+
+	// Verify it's a copy (modifying returned slice doesn't affect model)
+	runs[0].RunID = "modified"
+	assert.Equal(t, "run-1", m.activeRuns[0].RunID)
+}
+
+func TestModel_Logs(t *testing.T) {
+	m := NewModel("test.yaml", 5)
+	m.logs = []LogEntry{
+		{Level: "INFO", Message: "msg1"},
+		{Level: "ERROR", Message: "msg2"},
+	}
+
+	logs := m.Logs()
+	require.Len(t, logs, 2)
+	assert.Equal(t, "INFO", logs[0].Level)
+	assert.Equal(t, "ERROR", logs[1].Level)
+
+	// Verify it's a copy (modifying returned slice doesn't affect model)
+	logs[0].Message = "modified"
+	assert.Equal(t, "msg1", m.logs[0].Message)
+}
+
+// Tests for handleMessageCreated
+func TestHandleMessageCreated(t *testing.T) {
+	m := NewModel("test.yaml", 1)
+	m.currentPage = pageConversation
+	m.activeRuns = []RunInfo{{RunID: "run-1", Selected: true, Status: StatusRunning}}
+
+	// Initialize conversation messages map
+	m.conversationMessages = make(map[string][]types.Message)
+
+	msg := MessageCreatedMsg{
+		ConversationID: "run-1",
+		Role:           "assistant",
+		Content:        "Hello, how can I help?",
+		Index:          0,
+		Time:           time.Now(),
+	}
+
+	m.handleMessageCreated(&msg)
+
+	// Check message was cached
+	assert.Len(t, m.conversationMessages["run-1"], 1)
+	assert.Equal(t, "assistant", m.conversationMessages["run-1"][0].Role)
+	assert.Equal(t, "Hello, how can I help?", m.conversationMessages["run-1"][0].Content)
+}
+
+func TestHandleMessageCreated_WithToolCalls(t *testing.T) {
+	m := NewModel("test.yaml", 1)
+	m.currentPage = pageConversation
+	m.activeRuns = []RunInfo{{RunID: "run-1", Selected: true, Status: StatusRunning}}
+	m.conversationMessages = make(map[string][]types.Message)
+
+	msg := MessageCreatedMsg{
+		ConversationID: "run-1",
+		Role:           "assistant",
+		Content:        "",
+		Index:          0,
+		ToolCalls: []MessageToolCall{
+			{ID: "call-1", Name: "get_weather", Args: `{"city": "NYC"}`},
+		},
+		Time: time.Now(),
+	}
+
+	m.handleMessageCreated(&msg)
+
+	assert.Len(t, m.conversationMessages["run-1"], 1)
+	assert.Len(t, m.conversationMessages["run-1"][0].ToolCalls, 1)
+	assert.Equal(t, "get_weather", m.conversationMessages["run-1"][0].ToolCalls[0].Name)
+}
+
+func TestHandleMessageCreated_WithToolResult(t *testing.T) {
+	m := NewModel("test.yaml", 1)
+	m.currentPage = pageConversation
+	m.activeRuns = []RunInfo{{RunID: "run-1", Selected: true, Status: StatusRunning}}
+	m.conversationMessages = make(map[string][]types.Message)
+
+	msg := MessageCreatedMsg{
+		ConversationID: "run-1",
+		Role:           "tool",
+		Content:        "",
+		Index:          1,
+		ToolResult: &MessageToolResult{
+			ID:        "call-1",
+			Name:      "get_weather",
+			Content:   `{"temp": 72}`,
+			LatencyMs: 100,
+		},
+		Time: time.Now(),
+	}
+
+	m.handleMessageCreated(&msg)
+
+	assert.Len(t, m.conversationMessages["run-1"], 1)
+	assert.NotNil(t, m.conversationMessages["run-1"][0].ToolResult)
+	assert.Equal(t, "get_weather", m.conversationMessages["run-1"][0].ToolResult.Name)
+}
+
+func TestHandleMessageCreated_DifferentConversation(t *testing.T) {
+	m := NewModel("test.yaml", 1)
+	m.currentPage = pageConversation
+	m.activeRuns = []RunInfo{{RunID: "run-1", Selected: true, Status: StatusRunning}}
+	m.conversationMessages = make(map[string][]types.Message)
+
+	// Message for a different conversation
+	msg := MessageCreatedMsg{
+		ConversationID: "run-2",
+		Role:           "user",
+		Content:        "different conversation",
+		Index:          0,
+		Time:           time.Now(),
+	}
+
+	m.handleMessageCreated(&msg)
+
+	// Should still be cached even though not currently selected
+	assert.Len(t, m.conversationMessages["run-2"], 1)
+}
+
+// Tests for handleConversationStarted
+func TestHandleConversationStarted(t *testing.T) {
+	m := NewModel("test.yaml", 1)
+	m.systemPrompts = make(map[string]string)
+
+	msg := ConversationStartedMsg{
+		ConversationID: "run-1",
+		SystemPrompt:   "You are a helpful assistant.",
+		Time:           time.Now(),
+	}
+
+	m.handleConversationStarted(&msg)
+
+	// Check system prompt was cached
+	assert.Equal(t, "You are a helpful assistant.", m.systemPrompts["run-1"])
+}
+
+func TestHandleConversationStarted_WithSelectedRun(t *testing.T) {
+	m := NewModel("test.yaml", 1)
+	m.currentPage = pageConversation
+	m.activeRuns = []RunInfo{{RunID: "run-1", Selected: true, Status: StatusRunning}}
+	m.systemPrompts = make(map[string]string)
+
+	msg := ConversationStartedMsg{
+		ConversationID: "run-1",
+		SystemPrompt:   "You are a helpful assistant.",
+		Time:           time.Now(),
+	}
+
+	m.handleConversationStarted(&msg)
+
+	assert.Equal(t, "You are a helpful assistant.", m.systemPrompts["run-1"])
+}
+
+// Tests for handleMessageUpdated
+func TestHandleMessageUpdated(t *testing.T) {
+	m := NewModel("test.yaml", 1)
+	m.currentPage = pageConversation
+	m.activeRuns = []RunInfo{{RunID: "run-1", Selected: true, Status: StatusRunning}}
+
+	msg := MessageUpdatedMsg{
+		ConversationID: "run-1",
+		Index:          0,
+		LatencyMs:      500,
+		InputTokens:    100,
+		OutputTokens:   50,
+		TotalCost:      0.01,
+		Time:           time.Now(),
+	}
+
+	// Should not panic even without conversation page initialized
+	m.handleMessageUpdated(&msg)
+}
+
+func TestHandleMessageUpdated_WrongPage(t *testing.T) {
+	m := NewModel("test.yaml", 1)
+	m.currentPage = pageMain // Not on conversation page
+	m.activeRuns = []RunInfo{{RunID: "run-1", Selected: true, Status: StatusRunning}}
+
+	msg := MessageUpdatedMsg{
+		ConversationID: "run-1",
+		Index:          0,
+		LatencyMs:      500,
+		InputTokens:    100,
+		OutputTokens:   50,
+		TotalCost:      0.01,
+		Time:           time.Now(),
+	}
+
+	// Should early return without processing
+	m.handleMessageUpdated(&msg)
+}
+
+func TestHandleMessageUpdated_DifferentConversation(t *testing.T) {
+	m := NewModel("test.yaml", 1)
+	m.currentPage = pageConversation
+	m.activeRuns = []RunInfo{{RunID: "run-1", Selected: true, Status: StatusRunning}}
+
+	msg := MessageUpdatedMsg{
+		ConversationID: "run-2", // Different from selected
+		Index:          0,
+		LatencyMs:      500,
+		InputTokens:    100,
+		OutputTokens:   50,
+		TotalCost:      0.01,
+		Time:           time.Now(),
+	}
+
+	// Should early return without processing
+	m.handleMessageUpdated(&msg)
+}
+
+// Tests for applySystemPromptFromCache
+func TestApplySystemPromptFromCache(t *testing.T) {
+	m := NewModel("test.yaml", 1)
+	m.systemPrompts = map[string]string{
+		"run-1": "You are a helpful assistant.",
+	}
+	m.conversationPage.Reset() // Reset panel state
+
+	// No panic expected
+	m.applySystemPromptFromCache("run-1")
+}
+
+func TestApplySystemPromptFromCache_NoCache(t *testing.T) {
+	m := NewModel("test.yaml", 1)
+	m.systemPrompts = nil
+
+	// Should early return without panic
+	m.applySystemPromptFromCache("run-1")
+}
+
+func TestApplySystemPromptFromCache_NotInCache(t *testing.T) {
+	m := NewModel("test.yaml", 1)
+	m.systemPrompts = map[string]string{
+		"run-2": "Different prompt",
+	}
+
+	// Should early return without panic
+	m.applySystemPromptFromCache("run-1")
+}
+
+// Tests for handleResultPaneKey
+func TestHandleResultPaneKey(t *testing.T) {
+	m := NewModel("test.yaml", 1)
+	m.width = 120
+	m.height = 40
+	m.isTUIMode = true
+	m.activePane = paneResult
+	m.activeRuns = []RunInfo{{RunID: "run-1", Scenario: "scn", Provider: "prov", Status: StatusCompleted}}
+
+	m.stateStore = &mockRunResultStore{
+		result: &statestore.RunResult{
+			RunID:      "run-1",
+			ScenarioID: "scn",
+			ProviderID: "prov",
+			Messages:   []types.Message{{Role: "user", Content: "hello"}},
+		},
+	}
+
+	// Initialize the main page with data
+	m.mainPage.SetDimensions(m.width, m.height-10)
+	runs := m.convertToRunInfos()
+	logs := m.convertToLogEntries()
+	m.mainPage.SetData(runs, logs, "result", nil)
+
+	msg := tea.KeyMsg{Type: tea.KeyDown}
+	cmd := m.handleResultPaneKey(msg)
+	// May return nil if result panel is not initialized with data
+	_ = cmd
+}
+
+func TestHandleResultPaneKey_NilResultPanel(t *testing.T) {
+	m := NewModel("test.yaml", 1)
+	m.activePane = paneResult
+
+	msg := tea.KeyMsg{Type: tea.KeyDown}
+	cmd := m.handleResultPaneKey(msg)
+	assert.Nil(t, cmd)
+}
+
+// Tests for delegateKeyToActivePane - result pane path
+func TestDelegateKeyToActivePane_ResultPane(t *testing.T) {
+	m := NewModel("test.yaml", 1)
+	m.activePane = paneResult
+
+	msg := tea.KeyMsg{Type: tea.KeyDown}
+	cmd := m.delegateKeyToActivePane(msg)
+	// Result pane handler should be called
+	_ = cmd
+}
+
+// Tests for getConversationResult - cache fallback path
+func TestGetConversationResult_RunningUsesCache(t *testing.T) {
+	m := NewModel("test.yaml", 1)
+	m.conversationMessages = map[string][]types.Message{
+		"run-1": {{Role: "user", Content: "cached message"}},
+	}
+
+	run := &RunInfo{RunID: "run-1", Status: StatusRunning}
+	result := m.getConversationResult(run)
+
+	require.NotNil(t, result)
+	require.Len(t, result.Messages, 1)
+	assert.Equal(t, "cached message", result.Messages[0].Content)
+}
+
+func TestGetConversationResult_CompletedUsesStateStore(t *testing.T) {
+	m := NewModel("test.yaml", 1)
+	m.stateStore = &mockRunResultStore{
+		result: &statestore.RunResult{
+			RunID:    "run-1",
+			Messages: []types.Message{{Role: "user", Content: "from store"}},
+		},
+	}
+
+	run := &RunInfo{RunID: "run-1", Status: StatusCompleted}
+	result := m.getConversationResult(run)
+
+	require.NotNil(t, result)
+	require.Len(t, result.Messages, 1)
+	assert.Equal(t, "from store", result.Messages[0].Content)
+}
+
+func TestGetConversationResult_CompletedFallsBackToCache(t *testing.T) {
+	m := NewModel("test.yaml", 1)
+	m.stateStore = &mockRunResultStore{err: fmt.Errorf("not found")}
+	m.conversationMessages = map[string][]types.Message{
+		"run-1": {{Role: "user", Content: "cached fallback"}},
+	}
+
+	run := &RunInfo{RunID: "run-1", Status: StatusCompleted}
+	result := m.getConversationResult(run)
+
+	require.NotNil(t, result)
+	require.Len(t, result.Messages, 1)
+	assert.Equal(t, "cached fallback", result.Messages[0].Content)
+}
+
+// Test for resultFromCache with empty cache
+func TestResultFromCache_Empty(t *testing.T) {
+	m := NewModel("test.yaml", 1)
+	m.conversationMessages = nil
+
+	result := m.resultFromCache("run-1")
+	require.NotNil(t, result)
+	assert.Empty(t, result.Messages)
+}
+
+// Tests for Update with new message types
+func TestUpdate_MessageCreatedMsg(t *testing.T) {
+	m := NewModel("test.yaml", 1)
+	m.conversationMessages = make(map[string][]types.Message)
+
+	msg := MessageCreatedMsg{
+		ConversationID: "run-1",
+		Role:           "user",
+		Content:        "Hello",
+		Index:          0,
+		Time:           time.Now(),
+	}
+
+	updatedModel, cmd := m.Update(msg)
+	assert.Nil(t, cmd)
+
+	updated := updatedModel.(*Model)
+	assert.Len(t, updated.conversationMessages["run-1"], 1)
+}
+
+func TestUpdate_MessageUpdatedMsg(t *testing.T) {
+	m := NewModel("test.yaml", 1)
+	m.currentPage = pageMain // Not on conversation page
+
+	msg := MessageUpdatedMsg{
+		ConversationID: "run-1",
+		Index:          0,
+		LatencyMs:      500,
+		InputTokens:    100,
+		OutputTokens:   50,
+		TotalCost:      0.01,
+		Time:           time.Now(),
+	}
+
+	updatedModel, cmd := m.Update(msg)
+	assert.Nil(t, cmd)
+	assert.NotNil(t, updatedModel)
+}
+
+func TestUpdate_ConversationStartedMsg(t *testing.T) {
+	m := NewModel("test.yaml", 1)
+	m.systemPrompts = make(map[string]string)
+
+	msg := ConversationStartedMsg{
+		ConversationID: "run-1",
+		SystemPrompt:   "You are helpful.",
+		Time:           time.Now(),
+	}
+
+	updatedModel, cmd := m.Update(msg)
+	assert.Nil(t, cmd)
+
+	updated := updatedModel.(*Model)
+	assert.Equal(t, "You are helpful.", updated.systemPrompts["run-1"])
+}
