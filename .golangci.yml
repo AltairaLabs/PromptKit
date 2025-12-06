@@ -169,6 +169,8 @@ linters:
       - path: 'cmd/'
         linters:
           - funlen
+          - gochecknoinits  # cobra CLI tools require init() for command registration
+          - revive  # package-comments check not applicable to cmd/main packages
       - path: 'examples/'
         linters:
           - mnd

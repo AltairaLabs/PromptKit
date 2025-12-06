@@ -6,12 +6,26 @@ import (
 	"path/filepath"
 )
 
+// ValidationCheck represents a single validation check result
+type ValidationCheck struct {
+	Name    string   // Name of the check (e.g., "Prompt configs exist")
+	Passed  bool     // Whether the check passed
+	Issues  []string // List of specific issues if failed
+	Warning bool     // Whether this is a warning (not an error)
+}
+
+// ValidationResult contains structured validation results
+type ValidationResult struct {
+	Checks []ValidationCheck
+}
+
 // ConfigValidator validates configuration consistency and references
 type ConfigValidator struct {
 	config     *Config
 	configPath string // path to the config file for resolving relative paths
 	errors     []error
 	warns      []string
+	checks     []ValidationCheck // structured check results
 }
 
 // NewConfigValidator creates a new configuration validator
@@ -20,6 +34,7 @@ func NewConfigValidator(cfg *Config) *ConfigValidator {
 		config: cfg,
 		errors: make([]error, 0),
 		warns:  make([]string, 0),
+		checks: make([]ValidationCheck, 0),
 	}
 }
 
@@ -31,6 +46,7 @@ func NewConfigValidatorWithPath(cfg *Config, configPath string) *ConfigValidator
 		configPath: configPath,
 		errors:     make([]error, 0),
 		warns:      make([]string, 0),
+		checks:     make([]ValidationCheck, 0),
 	}
 }
 
@@ -44,6 +60,8 @@ func (v *ConfigValidator) Validate() error {
 	v.validateJudges()
 	v.validateJudgeDefaults()
 	v.validateCrossReferences()
+	v.validateToolUsage()
+	v.validateTaskTypeUsage()
 
 	if len(v.errors) > 0 {
 		return fmt.Errorf("configuration validation failed with %d errors: %v", len(v.errors), v.errors)
@@ -54,6 +72,15 @@ func (v *ConfigValidator) Validate() error {
 // GetWarnings returns all validation warnings
 func (v *ConfigValidator) GetWarnings() []string {
 	return v.warns
+}
+
+// GetErrors returns all validation errors as strings
+func (v *ConfigValidator) GetErrors() []string {
+	var errStrings []string
+	for _, err := range v.errors {
+		errStrings = append(errStrings, err.Error())
+	}
+	return errStrings
 }
 
 // validatePromptConfigs validates prompt configuration entries
@@ -259,7 +286,9 @@ func (v *ConfigValidator) validateCrossReferences() {
 
 		// Check task_type exists
 		if scenario.TaskType != "" && !promptIDs[scenario.TaskType] {
-			v.errors = append(v.errors, fmt.Errorf("scenario %s references unknown task_type: %s", scenarioConfig.File, scenario.TaskType))
+			err := fmt.Errorf("scenario %s references unknown task_type: %s",
+				scenarioConfig.File, scenario.TaskType)
+			v.errors = append(v.errors, err)
 		}
 	}
 }
@@ -273,4 +302,157 @@ func (v *ConfigValidator) getPromptConfigIDs() map[string]bool {
 		}
 	}
 	return ids
+}
+
+// validateToolUsage checks that tools are properly connected to prompts
+func (v *ConfigValidator) validateToolUsage() {
+	definedTools := v.getDefinedToolNames()
+	allowedTools := v.getAllowedToolNames()
+
+	check := v.buildToolUsageCheck(definedTools, allowedTools)
+	if len(check.Issues) > 0 || check.Passed {
+		v.checks = append(v.checks, check)
+	}
+}
+
+// getDefinedToolNames returns all tool names defined in the config
+func (v *ConfigValidator) getDefinedToolNames() map[string]bool {
+	definedTools := make(map[string]bool)
+	for _, t := range v.config.LoadedTools {
+		baseName := filepath.Base(t.FilePath)
+		definedTools[baseName] = true
+	}
+	return definedTools
+}
+
+// getAllowedToolNames returns all tool names allowed by prompts
+func (v *ConfigValidator) getAllowedToolNames() map[string]bool {
+	allowedTools := make(map[string]bool)
+	for _, pc := range v.config.LoadedPromptConfigs {
+		if pc != nil && pc.Config != nil {
+			if promptCfg, ok := pc.Config.(interface{ GetAllowedTools() []string }); ok {
+				for _, tool := range promptCfg.GetAllowedTools() {
+					allowedTools[tool] = true
+				}
+			}
+		}
+	}
+	return allowedTools
+}
+
+// buildToolUsageCheck builds the validation check for tool usage
+func (v *ConfigValidator) buildToolUsageCheck(definedTools, allowedTools map[string]bool) ValidationCheck {
+	check := ValidationCheck{
+		Name:   "Tools are used by prompts",
+		Passed: true,
+	}
+	for toolFile := range definedTools {
+		used := false
+		for allowedTool := range allowedTools {
+			if allowedTool != "" {
+				used = true
+				break
+			}
+		}
+		if !used && len(allowedTools) == 0 {
+			check.Passed = false
+			check.Warning = true
+			issue := fmt.Sprintf("tool %s is defined but no prompts allow any tools", toolFile)
+			check.Issues = append(check.Issues, issue)
+		}
+	}
+	return check
+}
+
+// validateTaskTypeUsage checks task_type connections between prompts and scenarios
+func (v *ConfigValidator) validateTaskTypeUsage() {
+	taskTypeToPrompts := v.getTaskTypeToPromptMapping()
+	usedTaskTypes := v.getUsedTaskTypes()
+
+	v.checkDuplicateTaskTypes(taskTypeToPrompts)
+	v.checkUnusedTaskTypes(taskTypeToPrompts, usedTaskTypes)
+	v.checkMissingTaskTypes(taskTypeToPrompts, usedTaskTypes)
+}
+
+// getTaskTypeToPromptMapping returns a map of task types to prompt IDs
+func (v *ConfigValidator) getTaskTypeToPromptMapping() map[string][]string {
+	taskTypeToPrompts := make(map[string][]string)
+	for id, pc := range v.config.LoadedPromptConfigs {
+		if pc != nil && pc.Config != nil {
+			if promptCfg, ok := pc.Config.(interface{ GetTaskType() string }); ok {
+				taskType := promptCfg.GetTaskType()
+				if taskType != "" {
+					taskTypeToPrompts[taskType] = append(taskTypeToPrompts[taskType], id)
+				}
+			}
+		}
+	}
+	return taskTypeToPrompts
+}
+
+// getUsedTaskTypes returns task types referenced by scenarios
+func (v *ConfigValidator) getUsedTaskTypes() map[string]bool {
+	usedTaskTypes := make(map[string]bool)
+	for _, scenario := range v.config.LoadedScenarios {
+		if scenario != nil && scenario.TaskType != "" {
+			usedTaskTypes[scenario.TaskType] = true
+		}
+	}
+	return usedTaskTypes
+}
+
+// checkDuplicateTaskTypes checks for multiple prompts with the same task type
+func (v *ConfigValidator) checkDuplicateTaskTypes(taskTypeToPrompts map[string][]string) {
+	check := ValidationCheck{
+		Name:   "Unique task types per prompt",
+		Passed: true,
+	}
+	for taskType, prompts := range taskTypeToPrompts {
+		if len(prompts) > 1 {
+			check.Passed = false
+			issue := fmt.Sprintf("task_type '%s' is defined by multiple prompts: %v", taskType, prompts)
+			check.Issues = append(check.Issues, issue)
+		}
+	}
+	v.checks = append(v.checks, check)
+}
+
+// checkUnusedTaskTypes checks for prompt task types not used in any scenario
+func (v *ConfigValidator) checkUnusedTaskTypes(taskTypeToPrompts map[string][]string, usedTaskTypes map[string]bool) {
+	check := ValidationCheck{
+		Name:    "Prompt task types used in scenarios",
+		Passed:  true,
+		Warning: true,
+	}
+	for taskType, prompts := range taskTypeToPrompts {
+		if !usedTaskTypes[taskType] {
+			check.Passed = false
+			issue := fmt.Sprintf("task_type '%s' (from %v) is not used by any scenario", taskType, prompts)
+			check.Issues = append(check.Issues, issue)
+		}
+	}
+	if len(check.Issues) > 0 {
+		v.checks = append(v.checks, check)
+	}
+}
+
+// checkMissingTaskTypes checks for scenarios referencing non-existent task types
+func (v *ConfigValidator) checkMissingTaskTypes(taskTypeToPrompts map[string][]string, usedTaskTypes map[string]bool) {
+	check := ValidationCheck{
+		Name:   "Scenario task types exist",
+		Passed: true,
+	}
+	for taskType := range usedTaskTypes {
+		if _, exists := taskTypeToPrompts[taskType]; !exists {
+			check.Passed = false
+			issue := fmt.Sprintf("scenario references task_type '%s' which has no matching prompt", taskType)
+			check.Issues = append(check.Issues, issue)
+		}
+	}
+	v.checks = append(v.checks, check)
+}
+
+// GetChecks returns the structured validation checks
+func (v *ConfigValidator) GetChecks() []ValidationCheck {
+	return v.checks
 }

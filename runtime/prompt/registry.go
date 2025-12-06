@@ -64,6 +64,16 @@ type Config struct {
 	Spec       Spec              `yaml:"spec" json:"spec"`
 }
 
+// GetTaskType returns the task type from the prompt config
+func (c *Config) GetTaskType() string {
+	return c.Spec.TaskType
+}
+
+// GetAllowedTools returns the allowed tools from the prompt config
+func (c *Config) GetAllowedTools() []string {
+	return c.Spec.AllowedTools
+}
+
 // Spec contains the actual prompt configuration
 type Spec struct {
 	TaskType       string                   `yaml:"task_type" json:"task_type"`
