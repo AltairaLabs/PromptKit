@@ -441,7 +441,7 @@ promptarena run --seed 12345 --provider openai
 
 ## `promptarena config-inspect`
 
-Inspect and validate arena configuration, showing all loaded resources and validating cross-references.
+Inspect and validate arena configuration, showing all loaded resources and validating cross-references. This command provides a rich, styled display of your configuration with validation results.
 
 ### Usage
 
@@ -455,7 +455,9 @@ promptarena config-inspect [flags]
 |------|------|---------|-------------|
 | `-c, --config` | string | `arena.yaml` | Configuration file path |
 | `--format` | string | `text` | Output format: text, json |
-| `--verbose` | bool | `false` | Show detailed information |
+| `-s, --short` | bool | `false` | Show only validation results (shortcut for `--section validation`) |
+| `--section` | string | - | Focus on specific section: prompts, providers, scenarios, tools, selfplay, judges, defaults, validation |
+| `--verbose` | bool | `false` | Show detailed information including file contents |
 | `--stats` | bool | `false` | Show cache statistics |
 
 ### Examples
@@ -467,8 +469,18 @@ promptarena config-inspect
 # Inspect specific config file
 promptarena config-inspect --config staging-arena.yaml
 
-# Verbose output with details
+# Verbose output with full details
 promptarena config-inspect --verbose
+
+# Quick validation check only
+promptarena config-inspect --short
+# or
+promptarena config-inspect -s
+
+# Focus on specific section
+promptarena config-inspect --section providers
+promptarena config-inspect --section selfplay
+promptarena config-inspect --section validation
 
 # JSON output for programmatic use
 promptarena config-inspect --format json
@@ -477,41 +489,88 @@ promptarena config-inspect --format json
 promptarena config-inspect --stats
 ```
 
+### Sections
+
+The `--section` flag allows focusing on specific parts of the configuration:
+
+| Section | Description |
+|---------|-------------|
+| `prompts` | Prompt configurations with task types, variables, validators |
+| `providers` | Provider details organized by group (default, judge, selfplay) |
+| `scenarios` | Scenario details with turn counts and assertion summaries |
+| `tools` | Tool definitions with modes, parameters, timeouts |
+| `selfplay` | Self-play configuration including personas and roles |
+| `judges` | Judge configurations for LLM-as-judge validators |
+| `defaults` | Default settings (temperature, max tokens, concurrency) |
+| `validation` | Validation results and connectivity checks |
+
 ### Output
 
-The command displays:
-- Loaded prompt configurations
-- Configured providers
-- Available scenarios
-- Tool definitions
-- MCP server configurations
-- Cross-reference validation results
+The command displays styled boxes with:
+- Loaded prompt configurations with task types, variables, and validators
+- Configured providers organized by group (default, judge, selfplay)
+- Available scenarios with turn counts and assertion summaries
+- Tool definitions with modes and parameters
+- Self-play roles with persona associations
+- Judge configurations
+- Default settings
+- Cross-reference validation results with connectivity checks
 
 **Example Output**:
 
 ```
-Configuration: arena.yaml
+✨ PromptArena Configuration Inspector ✨
 
-Prompt Configs:
-  ✓ support (prompts/support-bot.yaml)
-  ✓ creative (prompts/content-gen.yaml)
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ Configuration: arena.yaml                                                    │
+╰──────────────────────────────────────────────────────────────────────────────╯
 
-Providers:
-  ✓ openai-gpt4o-mini (providers/openai.yaml)
-  ✓ claude-3-5-sonnet (providers/claude.yaml)
+  📋 Prompt Configs (2)
 
-Scenarios:
-  ✓ basic-qa (scenarios/qa.yaml) [task_type: support]
-  ✓ tool-calling (scenarios/tools.yaml) [task_type: support]
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ troubleshooter-v2                                                            │
+│   Task Type: troubleshooting                                                 │
+│   File: prompts/troubleshooter-v2.prompt.yaml                                │
+╰──────────────────────────────────────────────────────────────────────────────╯
 
-Tools:
-  ✓ get_weather (tools/weather.yaml) [mode: live]
-  ✓ search_db (tools/database.yaml) [mode: mock]
+  🔌 Providers (3)
 
-Validation:
-  ✓ All scenario task_types match prompt configs
-  ✓ All provider references valid
-  ✓ All tool references valid
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ [default]                                                                    │
+│   openai-gpt4o: gpt-4o (temp: 0.70, max: 1000)                               │
+│                                                                              │
+│ [judge]                                                                      │
+│   judge-provider: gpt-4o-mini (temp: 0.00, max: 500)                         │
+│                                                                              │
+│ [selfplay]                                                                   │
+│   mock-selfplay: mock-model (temp: 0.80, max: 1000)                          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+  🎭 Self-Play (2 personas, 2 roles)
+
+Personas:
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ red-team-attacker                                                            │
+│ plant-operator                                                               │
+╰──────────────────────────────────────────────────────────────────────────────╯
+Roles:
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ attacker (red-team-attacker) → openai-gpt4o                                  │
+│ operator (plant-operator) → openai-gpt4o                                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+  ✅ Validation
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✓ Configuration is valid                                                     │
+│                                                                              │
+│ Connectivity Checks:                                                         │
+│   ☑ Tools are used by prompts                                                │
+│   ☑ Unique task types per prompt                                             │
+│   ☑ Scenario task types exist                                                │
+│   ☑ Allowed tools are defined                                                │
+│   ☑ Self-play roles have valid providers                                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
 ---
