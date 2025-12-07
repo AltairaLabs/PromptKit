@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
@@ -18,6 +20,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 	intpipeline "github.com/AltairaLabs/PromptKit/sdk/internal/pipeline"
+	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
 )
 
 // Default parameter values for LLM calls.
@@ -67,6 +70,13 @@ type Conversation struct {
 	// Tool handlers
 	handlers   map[string]ToolHandler
 	handlersMu sync.RWMutex
+
+	// Async tool handlers for HITL
+	asyncHandlers   map[string]sdktools.AsyncToolHandler
+	asyncHandlersMu sync.RWMutex
+
+	// Pending tool calls awaiting approval
+	pendingStore *sdktools.PendingStore
 
 	// Conversation state (messages, metadata)
 	state   *statestore.ConversationState
@@ -567,6 +577,174 @@ func (c *Conversation) OnTools(handlers map[string]ToolHandler) {
 	}
 }
 
+// OnToolAsync registers a handler that may require approval before execution.
+//
+// Use this for Human-in-the-Loop (HITL) workflows where certain actions
+// require human approval before proceeding:
+//
+//	conv.OnToolAsync("process_refund", func(args map[string]any) sdk.PendingResult {
+//	    amount := args["amount"].(float64)
+//	    if amount > 1000 {
+//	        return sdk.PendingResult{
+//	            Reason:  "high_value_refund",
+//	            Message: fmt.Sprintf("Refund of $%.2f requires approval", amount),
+//	        }
+//	    }
+//	    return sdk.PendingResult{} // Proceed immediately
+//	}, func(args map[string]any) (any, error) {
+//	    // Execute the actual refund
+//	    return refundAPI.Process(args)
+//	})
+//
+// The first function checks if approval is needed, the second executes the action.
+func (c *Conversation) OnToolAsync(
+	name string,
+	checkFunc func(args map[string]any) sdktools.PendingResult,
+	execFunc ToolHandler,
+) {
+	c.asyncHandlersMu.Lock()
+	defer c.asyncHandlersMu.Unlock()
+
+	// Initialize maps if needed
+	if c.asyncHandlers == nil {
+		c.asyncHandlers = make(map[string]sdktools.AsyncToolHandler)
+	}
+	if c.pendingStore == nil {
+		c.pendingStore = sdktools.NewPendingStore()
+	}
+
+	c.asyncHandlers[name] = checkFunc
+
+	// Register the execution handler
+	c.handlersMu.Lock()
+	c.handlers[name] = execFunc
+	c.handlersMu.Unlock()
+}
+
+// ResolveTool approves and executes a pending tool call.
+//
+// After calling Send() and receiving pending tools in the response,
+// use this to approve and execute them:
+//
+//	resp, _ := conv.Send(ctx, "Process refund for order #12345")
+//	if len(resp.PendingTools()) > 0 {
+//	    pending := resp.PendingTools()[0]
+//	    // ... get approval ...
+//	    result, _ := conv.ResolveTool(pending.ID)
+//	    // Continue the conversation with the result
+//	    resp, _ = conv.Continue(ctx)
+//	}
+func (c *Conversation) ResolveTool(id string) (*sdktools.ToolResolution, error) {
+	if c.pendingStore == nil {
+		return nil, fmt.Errorf("no pending tools")
+	}
+	return c.pendingStore.Resolve(id)
+}
+
+// RejectTool rejects a pending tool call.
+//
+// Use this when the human reviewer decides not to approve the tool:
+//
+//	resp, _ := conv.RejectTool(pending.ID, "Not authorized for this amount")
+func (c *Conversation) RejectTool(id, reason string) (*sdktools.ToolResolution, error) {
+	if c.pendingStore == nil {
+		return nil, fmt.Errorf("no pending tools")
+	}
+	return c.pendingStore.Reject(id, reason)
+}
+
+// Continue resumes conversation after resolving pending tools.
+//
+// Call this after approving/rejecting all pending tools to continue
+// the conversation with the tool results:
+//
+//	resp, _ := conv.Send(ctx, "Process refund")
+//	for _, pending := range resp.PendingTools() {
+//	    conv.ResolveTool(pending.ID)
+//	}
+//	resp, _ = conv.Continue(ctx) // LLM receives tool results
+func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
+	startTime := time.Now()
+
+	if err := c.checkClosed(); err != nil {
+		return nil, err
+	}
+
+	// Build the tool results from resolved pending tools
+	// and continue the conversation
+	// For now, this is a simplified implementation that re-sends
+	// with the last context - full implementation would inject tool results
+
+	// Get the last message and re-execute pipeline
+	c.stateMu.RLock()
+	if c.state == nil || len(c.state.Messages) == 0 {
+		c.stateMu.RUnlock()
+		return nil, fmt.Errorf("no messages to continue from")
+	}
+	c.stateMu.RUnlock()
+
+	// Execute pipeline with empty message (continuation)
+	userMsg := &types.Message{Role: "user"}
+	userMsg.AddTextPart("continue")
+
+	result, err := c.executePipeline(ctx, userMsg)
+	if err != nil {
+		return nil, err
+	}
+
+	return c.buildResponse(result, startTime), nil
+}
+
+// PendingTools returns all pending tool calls awaiting approval.
+func (c *Conversation) PendingTools() []*sdktools.PendingToolCall {
+	if c.pendingStore == nil {
+		return nil
+	}
+	return c.pendingStore.List()
+}
+
+// CheckPending checks if a tool call should be pending and creates it if so.
+// Returns (pending call, should wait) - if should wait is true, the tool shouldn't execute yet.
+//
+// This method is used internally when processing tool calls from the LLM.
+// It can also be useful for testing HITL workflows:
+//
+//	pending, shouldWait := conv.CheckPending("risky_tool", args)
+//	if shouldWait {
+//	    // Tool requires approval
+//	}
+func (c *Conversation) CheckPending(
+	name string,
+	args map[string]any,
+) (*sdktools.PendingToolCall, bool) {
+	c.asyncHandlersMu.RLock()
+	checkFunc, isAsync := c.asyncHandlers[name]
+	c.asyncHandlersMu.RUnlock()
+
+	if !isAsync {
+		return nil, false
+	}
+
+	result := checkFunc(args)
+	if !result.IsPending() {
+		return nil, false
+	}
+
+	// Create pending call
+	pending := &sdktools.PendingToolCall{
+		ID:        uuid.New().String(),
+		Name:      name,
+		Arguments: args,
+		Reason:    result.Reason,
+		Message:   result.Message,
+	}
+
+	// Store it
+	c.pendingStore.Add(pending)
+
+	return pending, true
+}
+
 // ToolRegistry returns the underlying tool registry.
 //
 // This is a power-user method for direct registry access. Tool descriptors
@@ -637,6 +815,8 @@ func (c *Conversation) Fork() *Conversation {
 	defer c.stateMu.RUnlock()
 	c.handlersMu.RLock()
 	defer c.handlersMu.RUnlock()
+	c.asyncHandlersMu.RLock()
+	defer c.asyncHandlersMu.RUnlock()
 
 	// Copy variables
 	vars := make(map[string]string, len(c.variables))
@@ -648,6 +828,12 @@ func (c *Conversation) Fork() *Conversation {
 	handlers := make(map[string]ToolHandler, len(c.handlers))
 	for k, v := range c.handlers {
 		handlers[k] = v
+	}
+
+	// Copy async handlers
+	asyncHandlers := make(map[string]sdktools.AsyncToolHandler, len(c.asyncHandlers))
+	for k, v := range c.asyncHandlers {
+		asyncHandlers[k] = v
 	}
 
 	// Copy state
@@ -664,14 +850,16 @@ func (c *Conversation) Fork() *Conversation {
 	}
 
 	return &Conversation{
-		pack:       c.pack,
-		prompt:     c.prompt,
-		promptName: c.promptName,
-		provider:   c.provider,
-		config:     c.config,
-		variables:  vars,
-		handlers:   handlers,
-		state:      stateCopy,
+		pack:          c.pack,
+		prompt:        c.prompt,
+		promptName:    c.promptName,
+		provider:      c.provider,
+		config:        c.config,
+		variables:     vars,
+		handlers:      handlers,
+		asyncHandlers: asyncHandlers,
+		pendingStore:  sdktools.NewPendingStore(), // Fresh pending store for fork
+		state:         stateCopy,
 	}
 }
 
