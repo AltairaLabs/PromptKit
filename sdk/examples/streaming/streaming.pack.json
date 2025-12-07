@@ -1,0 +1,21 @@
+{
+  "id": "streaming-example",
+  "version": "1.0.0",
+  "description": "Example demonstrating streaming responses",
+  "provider": {
+    "name": "openai",
+    "model": "gpt-4o-mini",
+    "base_url": "https://api.openai.com/v1",
+    "env_var": "OPENAI_API_KEY"
+  },
+  "prompts": {
+    "storyteller": {
+      "id": "storyteller",
+      "system_template": "You are a creative storyteller. Keep your responses concise but engaging.",
+      "parameters": {
+        "temperature": 0.9,
+        "max_tokens": 500
+      }
+    }
+  }
+}

@@ -623,6 +623,76 @@ func (c *Conversation) OnTools(handlers map[string]ToolHandler) {
 	}
 }
 
+// OnToolHTTP registers a tool that makes HTTP requests.
+//
+// This is a convenience method for tools that call external APIs:
+//
+//	conv.OnToolHTTP("create_ticket", sdktools.NewHTTPToolConfig(
+//	    "https://api.tickets.example.com/tickets",
+//	    sdktools.WithMethod("POST"),
+//	    sdktools.WithHeader("Authorization", "Bearer "+apiKey),
+//	    sdktools.WithTimeout(5000),
+//	))
+//
+// The tool arguments from the LLM are serialized to JSON and sent as the
+// request body. The response is parsed and returned to the LLM.
+func (c *Conversation) OnToolHTTP(name string, config *sdktools.HTTPToolConfig) {
+	c.handlersMu.Lock()
+	defer c.handlersMu.Unlock()
+	c.handlers[name] = config.Handler()
+}
+
+// OnToolExecutor registers a custom executor for tools.
+//
+// Use this when you need full control over tool execution or want to use
+// a runtime executor directly:
+//
+//	executor := &MyCustomExecutor{}
+//	conv.OnToolExecutor("custom_tool", executor)
+//
+// The executor must implement the runtime/tools.Executor interface.
+func (c *Conversation) OnToolExecutor(name string, executor tools.Executor) {
+	c.handlersMu.Lock()
+	defer c.handlersMu.Unlock()
+	c.handlers[name] = func(args map[string]any) (any, error) {
+		// Convert args to JSON for the executor
+		argsJSON, err := json.Marshal(args)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal args: %w", err)
+		}
+
+		// Get tool descriptor from pack
+		packTool := c.pack.GetTool(name)
+		if packTool == nil {
+			return nil, fmt.Errorf("tool %q not found in pack", name)
+		}
+
+		paramsJSON, err := json.Marshal(packTool.Parameters)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal tool schema: %w", err)
+		}
+
+		desc := &tools.ToolDescriptor{
+			Name:        packTool.Name,
+			Description: packTool.Description,
+			InputSchema: paramsJSON,
+		}
+
+		// Execute
+		result, err := executor.Execute(desc, argsJSON)
+		if err != nil {
+			return nil, err
+		}
+
+		// Parse result
+		var parsed any
+		if err := json.Unmarshal(result, &parsed); err != nil {
+			return string(result), nil
+		}
+		return parsed, nil
+	}
+}
+
 // OnToolAsync registers a handler that may require approval before execution.
 //
 // Use this for Human-in-the-Loop (HITL) workflows where certain actions

@@ -70,8 +70,12 @@ func OnTyped[T any](conv ToolRegistrar, name string, handler TypedHandler[T]) {
 // ToolRegistrar is the interface for registering tool handlers.
 // This is implemented by [sdk.Conversation].
 type ToolRegistrar interface {
-	OnTool(name string, handler func(args map[string]any) (any, error))
+	OnTool(name string, handler ToolHandler)
 }
+
+// ToolHandler is a function type for tool handlers.
+// This mirrors the definition in the main sdk package.
+type ToolHandler = func(args map[string]any) (any, error)
 
 // mapToStruct converts a map[string]any to a struct using reflection.
 // It looks for "map" struct tags or uses lowercase field names.

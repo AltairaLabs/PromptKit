@@ -1,0 +1,41 @@
+{
+  "id": "hitl-example",
+  "version": "1.0.0",
+  "description": "Example demonstrating Human-in-the-Loop approval",
+  "provider": {
+    "name": "openai",
+    "model": "gpt-4o-mini",
+    "base_url": "https://api.openai.com/v1",
+    "env_var": "OPENAI_API_KEY"
+  },
+  "prompts": {
+    "refund_agent": {
+      "id": "refund_agent",
+      "system_template": "You are a customer support agent handling refund requests. Use the process_refund tool to process refund requests. Always be polite and helpful."
+    }
+  },
+  "tools": {
+    "process_refund": {
+      "name": "process_refund",
+      "description": "Process a refund for a customer order",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "The order ID to refund"
+          },
+          "amount": {
+            "type": "number",
+            "description": "The refund amount in dollars"
+          },
+          "reason": {
+            "type": "string",
+            "description": "The reason for the refund"
+          }
+        },
+        "required": ["order_id", "amount", "reason"]
+      }
+    }
+  }
+}

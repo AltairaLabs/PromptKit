@@ -1,0 +1,17 @@
+{
+  "id": "hello-example",
+  "version": "1.0.0",
+  "description": "Simple hello world example",
+  "provider": {
+    "name": "openai",
+    "model": "gpt-4o-mini",
+    "base_url": "https://api.openai.com/v1",
+    "env_var": "OPENAI_API_KEY"
+  },
+  "prompts": {
+    "chat": {
+      "id": "chat",
+      "system_template": "You are a friendly assistant. The user's name is {{user_name}}. Greet them warmly and remember their name throughout the conversation."
+    }
+  }
+}

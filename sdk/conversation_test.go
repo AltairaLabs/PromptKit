@@ -2,15 +2,18 @@ package sdk
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 	intpipeline "github.com/AltairaLabs/PromptKit/sdk/internal/pipeline"
+	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -537,4 +540,88 @@ func TestCheckClosed(t *testing.T) {
 		err := conv.checkClosed()
 		assert.Equal(t, ErrConversationClosed, err)
 	})
+}
+
+func TestOnToolHTTP(t *testing.T) {
+	t.Run("registers HTTP handler", func(t *testing.T) {
+		conv := newTestConversation()
+		cfg := sdktools.NewHTTPToolConfig("https://api.example.com/test",
+			sdktools.WithMethod("POST"),
+		)
+		conv.OnToolHTTP("http_tool", cfg)
+
+		conv.handlersMu.RLock()
+		_, exists := conv.handlers["http_tool"]
+		conv.handlersMu.RUnlock()
+
+		assert.True(t, exists)
+	})
+}
+
+func TestOnToolExecutor(t *testing.T) {
+	t.Run("registers custom executor", func(t *testing.T) {
+		conv := newTestConversation()
+		// Add a tool to the pack so the executor can find it
+		conv.pack = &pack.Pack{
+			Tools: map[string]*pack.Tool{
+				"custom_tool": {
+					Name:        "custom_tool",
+					Description: "Test tool",
+					Parameters: map[string]any{
+						"type":       "object",
+						"properties": map[string]any{},
+					},
+				},
+			},
+		}
+
+		executor := &mockExecutor{
+			name:   "custom",
+			result: []byte(`{"status": "ok"}`),
+		}
+		conv.OnToolExecutor("custom_tool", executor)
+
+		conv.handlersMu.RLock()
+		handler, exists := conv.handlers["custom_tool"]
+		conv.handlersMu.RUnlock()
+
+		assert.True(t, exists)
+
+		// Test the handler
+		result, err := handler(map[string]any{"input": "test"})
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+	})
+
+	t.Run("returns error if tool not in pack", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.pack = &pack.Pack{} // Empty pack
+
+		executor := &mockExecutor{
+			name:   "custom",
+			result: []byte(`{}`),
+		}
+		conv.OnToolExecutor("missing_tool", executor)
+
+		conv.handlersMu.RLock()
+		handler := conv.handlers["missing_tool"]
+		conv.handlersMu.RUnlock()
+
+		_, err := handler(map[string]any{})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found in pack")
+	})
+}
+
+// mockExecutor is a test executor
+type mockExecutor struct {
+	name   string
+	result []byte
+	err    error
+}
+
+func (m *mockExecutor) Name() string { return m.name }
+
+func (m *mockExecutor) Execute(descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
+	return m.result, m.err
 }
