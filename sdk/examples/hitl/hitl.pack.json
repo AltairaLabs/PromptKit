@@ -11,7 +11,8 @@
   "prompts": {
     "refund_agent": {
       "id": "refund_agent",
-      "system_template": "You are a customer support agent handling refund requests. Use the process_refund tool to process refund requests. Always be polite and helpful."
+      "system_template": "You are a customer support agent handling refund requests. Use the process_refund tool to process refund requests. Always be polite and helpful.",
+      "tools": ["process_refund"]
     }
   },
   "tools": {
