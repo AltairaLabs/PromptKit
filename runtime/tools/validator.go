@@ -21,6 +21,11 @@ func NewSchemaValidator() *SchemaValidator {
 
 // ValidateArgs validates tool arguments against the input schema
 func (sv *SchemaValidator) ValidateArgs(descriptor *ToolDescriptor, args json.RawMessage) error {
+	// Skip validation if no input schema is defined
+	if len(descriptor.InputSchema) == 0 {
+		return nil
+	}
+
 	schema, err := sv.getSchema(string(descriptor.InputSchema))
 	if err != nil {
 		return fmt.Errorf("invalid input schema for tool %s: %w", descriptor.Name, err)
@@ -49,6 +54,11 @@ func (sv *SchemaValidator) ValidateArgs(descriptor *ToolDescriptor, args json.Ra
 
 // ValidateResult validates tool result against the output schema
 func (sv *SchemaValidator) ValidateResult(descriptor *ToolDescriptor, result json.RawMessage) error {
+	// Skip validation if no output schema is defined
+	if len(descriptor.OutputSchema) == 0 {
+		return nil
+	}
+
 	schema, err := sv.getSchema(string(descriptor.OutputSchema))
 	if err != nil {
 		return fmt.Errorf("invalid output schema for tool %s: %w", descriptor.Name, err)

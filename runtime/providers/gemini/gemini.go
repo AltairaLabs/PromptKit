@@ -127,19 +127,8 @@ func convertMessagesToGeminiContents(messages []types.Message) []geminiContent {
 	return contents
 }
 
-// prepareGeminiRequest converts a predict request to Gemini format with defaults applied
-func (p *Provider) prepareGeminiRequest(req providers.PredictionRequest) (contents []geminiContent, systemInstruction *geminiContent, temperature, topP float32, maxTokens int) {
-	// Handle system message
-	if req.System != "" {
-		systemInstruction = &geminiContent{
-			Parts: []geminiPart{{Text: req.System}},
-		}
-	}
-
-	// Convert conversation messages
-	contents = convertMessagesToGeminiContents(req.Messages)
-
-	// Apply defaults
+// applyRequestDefaults applies provider defaults to zero-valued request parameters
+func (p *Provider) applyRequestDefaults(req providers.PredictionRequest) (temperature, topP float32, maxTokens int) {
 	temperature = req.Temperature
 	if temperature == 0 {
 		temperature = p.Defaults.Temperature
@@ -154,6 +143,29 @@ func (p *Provider) prepareGeminiRequest(req providers.PredictionRequest) (conten
 	if maxTokens == 0 {
 		maxTokens = p.Defaults.MaxTokens
 	}
+
+	return temperature, topP, maxTokens
+}
+
+// prepareGeminiRequest converts a predict request to Gemini format with defaults applied
+func (p *Provider) prepareGeminiRequest(req providers.PredictionRequest) (
+	contents []geminiContent,
+	systemInstruction *geminiContent,
+	temperature, topP float32,
+	maxTokens int,
+) {
+	// Handle system message
+	if req.System != "" {
+		systemInstruction = &geminiContent{
+			Parts: []geminiPart{{Text: req.System}},
+		}
+	}
+
+	// Convert conversation messages
+	contents = convertMessagesToGeminiContents(req.Messages)
+
+	// Apply defaults using the shared method
+	temperature, topP, maxTokens = p.applyRequestDefaults(req)
 
 	return contents, systemInstruction, temperature, topP, maxTokens
 }

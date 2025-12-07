@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // ============================================================================
@@ -604,6 +605,100 @@ func TestToolProvider_AddToolChoiceToRequest(t *testing.T) {
 				if string(gotJSON) != string(wantJSON) {
 					t.Errorf("Expected tool_choice %s, got %s", wantJSON, gotJSON)
 				}
+			}
+		})
+	}
+}
+
+// ============================================================================
+// BuildToolRequest Defaults Tests
+// ============================================================================
+
+func TestOpenAIToolProvider_BuildToolRequest_AppliesDefaults(t *testing.T) {
+	tests := []struct {
+		name              string
+		reqTemp           float32
+		reqTopP           float32
+		reqMaxTokens      int
+		defaultTemp       float32
+		defaultTopP       float32
+		defaultMaxTokens  int
+		expectedTemp      float32
+		expectedTopP      float32
+		expectedMaxTokens int
+	}{
+		{
+			name:              "Uses request values when provided",
+			reqTemp:           0.8,
+			reqTopP:           0.95,
+			reqMaxTokens:      500,
+			defaultTemp:       0.7,
+			defaultTopP:       0.9,
+			defaultMaxTokens:  1000,
+			expectedTemp:      0.8,
+			expectedTopP:      0.95,
+			expectedMaxTokens: 500,
+		},
+		{
+			name:              "Falls back to defaults for zero values",
+			reqTemp:           0,
+			reqTopP:           0,
+			reqMaxTokens:      0,
+			defaultTemp:       0.7,
+			defaultTopP:       0.9,
+			defaultMaxTokens:  2000,
+			expectedTemp:      0.7,
+			expectedTopP:      0.9,
+			expectedMaxTokens: 2000,
+		},
+		{
+			name:              "Mixed values - some request, some defaults",
+			reqTemp:           0.6,
+			reqTopP:           0,
+			reqMaxTokens:      1500,
+			defaultTemp:       0.5,
+			defaultTopP:       0.92,
+			defaultMaxTokens:  1000,
+			expectedTemp:      0.6,
+			expectedTopP:      0.92,
+			expectedMaxTokens: 1500,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			provider := NewToolProvider(
+				"test",
+				"gpt-4",
+				"https://api.openai.com/v1",
+				providers.ProviderDefaults{
+					Temperature: tt.defaultTemp,
+					TopP:        tt.defaultTopP,
+					MaxTokens:   tt.defaultMaxTokens,
+				},
+				false,
+				nil,
+			)
+
+			req := providers.PredictionRequest{
+				Temperature: tt.reqTemp,
+				TopP:        tt.reqTopP,
+				MaxTokens:   tt.reqMaxTokens,
+				Messages:    []types.Message{{Role: "user", Content: "Hello"}},
+			}
+
+			request := provider.buildToolRequest(req, nil, "")
+
+			if temp, ok := request["temperature"].(float32); !ok || temp != tt.expectedTemp {
+				t.Errorf("Expected temperature %.2f, got %v", tt.expectedTemp, request["temperature"])
+			}
+
+			if topP, ok := request["top_p"].(float32); !ok || topP != tt.expectedTopP {
+				t.Errorf("Expected top_p %.2f, got %v", tt.expectedTopP, request["top_p"])
+			}
+
+			if maxTokens, ok := request["max_tokens"].(int); !ok || maxTokens != tt.expectedMaxTokens {
+				t.Errorf("Expected max_tokens %d, got %v", tt.expectedMaxTokens, request["max_tokens"])
 			}
 		})
 	}

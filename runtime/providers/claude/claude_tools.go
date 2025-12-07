@@ -233,12 +233,15 @@ func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools i
 		messages = append(messages, flushPendingToolResults(pendingToolResults))
 	}
 
+	// Apply defaults to zero-valued request parameters
+	temperature, topP, maxTokens := p.applyDefaults(req.Temperature, req.TopP, req.MaxTokens)
+
 	request := map[string]interface{}{
 		"model":       p.model,
-		"max_tokens":  req.MaxTokens,
+		"max_tokens":  maxTokens,
 		"messages":    messages,
-		"temperature": req.Temperature,
-		"top_p":       req.TopP,
+		"temperature": temperature,
+		"top_p":       topP,
 	}
 
 	if req.System != "" {

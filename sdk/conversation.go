@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -268,6 +269,39 @@ func (cm *ConversationManager) CreateConversation(ctx context.Context, pack *Pac
 	registry, err := pack.CreateRegistry()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create registry from pack: %w", err)
+	}
+
+	// Register pack tool schemas into tool registry
+	// This ensures tools have proper InputSchema for LLM function calling
+	// Users only need to provide executors - tool definitions come from pack
+	if cm.toolRegistry != nil && len(pack.Tools) > 0 {
+		for _, tool := range pack.Tools {
+			// Convert Parameters map to JSON for InputSchema
+			var inputSchema json.RawMessage
+			if tool.Parameters != nil {
+				schemaBytes, schemaErr := json.Marshal(tool.Parameters)
+				if schemaErr != nil {
+					return nil, fmt.Errorf("failed to marshal tool schema for %s: %w", tool.Name, schemaErr)
+				}
+				inputSchema = schemaBytes
+			}
+
+			// Check if tool already exists in registry
+			if existing, _ := cm.toolRegistry.GetTool(tool.Name); existing != nil {
+				// Update existing tool with schema from pack
+				existing.Description = tool.Description
+				existing.InputSchema = inputSchema
+			} else {
+				// Register new tool from pack
+				if regErr := cm.toolRegistry.Register(&tools.ToolDescriptor{
+					Name:        tool.Name,
+					Description: tool.Description,
+					InputSchema: inputSchema,
+				}); regErr != nil {
+					return nil, fmt.Errorf("failed to register tool %s: %w", tool.Name, regErr)
+				}
+			}
+		}
 	}
 
 	// Convert variables to string map for middleware

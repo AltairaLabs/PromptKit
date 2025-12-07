@@ -274,12 +274,15 @@ func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools i
 		})
 	}
 
+	// Apply defaults to zero-valued request parameters
+	temperature, topP, maxTokens := p.applyRequestDefaults(req)
+
 	request := map[string]interface{}{
 		"contents": contents,
 		"generationConfig": map[string]interface{}{
-			"temperature":     req.Temperature,
-			"topP":            req.TopP,
-			"maxOutputTokens": req.MaxTokens,
+			"temperature":     temperature,
+			"topP":            topP,
+			"maxOutputTokens": maxTokens,
 		},
 	}
 

@@ -446,20 +446,38 @@ func handleStreamCompletion(execCtx *pipeline.ExecutionContext, result *streamPr
 // buildProviderTooling extracts the duplicated tool setup logic
 func buildProviderTooling(provider providers.Provider, toolRegistry *tools.Registry, execCtx *pipeline.ExecutionContext, policy *pipeline.ToolPolicy) (toolDefs interface{}, toolChoice string, err error) {
 	// Early returns for cases where we don't need tools
-	if toolRegistry == nil || len(execCtx.AllowedTools) == 0 {
+	if toolRegistry == nil {
+		logger.Debug("buildProviderTooling: toolRegistry is nil")
 		return nil, "", nil
 	}
+	if len(execCtx.AllowedTools) == 0 {
+		logger.Debug("buildProviderTooling: no AllowedTools in execCtx")
+		return nil, "", nil
+	}
+
+	logger.Debug("buildProviderTooling: looking up tools",
+		"allowed_tools", execCtx.AllowedTools,
+		"registry_tools_count", len(toolRegistry.GetTools()))
 
 	// Get only the allowed tools from the registry
 	allowedToolDescriptors, err := toolRegistry.GetToolsByNames(execCtx.AllowedTools)
 	// If some tools are not found, silently continue without tool support
-	if err != nil || len(allowedToolDescriptors) == 0 {
+	if err != nil {
+		logger.Debug("buildProviderTooling: GetToolsByNames error", "error", err)
 		return nil, "", nil
 	}
+	if len(allowedToolDescriptors) == 0 {
+		logger.Debug("buildProviderTooling: no matching tools found in registry")
+		return nil, "", nil
+	}
+
+	logger.Debug("buildProviderTooling: found tools", "count", len(allowedToolDescriptors))
 
 	// Check if provider supports tools
 	toolSupport, ok := provider.(providers.ToolSupport)
 	if !ok {
+		logger.Warn("buildProviderTooling: provider does not support tools - tools will not be available",
+			"hint", "Did you mean to use a ToolProvider? (e.g., openai.NewToolProvider instead of openai.NewProvider)")
 		return nil, "", nil
 	}
 
@@ -476,6 +494,7 @@ func buildProviderTooling(provider providers.Provider, toolRegistry *tools.Regis
 
 	providerTools, err := toolSupport.BuildTooling(providerToolDescriptors)
 	if err != nil {
+		logger.Debug("buildProviderTooling: BuildTooling failed", "error", err)
 		return nil, "", fmt.Errorf("failed to build tools: %w", err)
 	}
 
