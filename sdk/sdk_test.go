@@ -66,9 +66,9 @@ func TestResolvePackPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-path := tt.path
-if tt.setup != nil {
-path = tt.setup()
+			path := tt.path
+			if tt.setup != nil {
+				path = tt.setup()
 			}
 
 			result, err := resolvePackPath(path)
@@ -114,60 +114,60 @@ func TestOpenWithValidPack(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("prompt not found", func(t *testing.T) {
-// Set up fake API key
-os.Setenv("OPENAI_API_KEY", "test-key")
-defer os.Unsetenv("OPENAI_API_KEY")
+		// Set up fake API key
+		os.Setenv("OPENAI_API_KEY", "test-key")
+		defer os.Unsetenv("OPENAI_API_KEY")
 
-_, err := Open(packFile, "nonexistent")
-assert.Error(t, err)
-assert.Contains(t, err.Error(), "not found")
+		_, err := Open(packFile, "nonexistent")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
 	})
 
 	t.Run("option error", func(t *testing.T) {
-_, err := Open(packFile, "main", func(c *config) error {
-return assert.AnError
-})
-assert.Error(t, err)
-})
+		_, err := Open(packFile, "main", func(c *config) error {
+			return assert.AnError
+		})
+		assert.Error(t, err)
+	})
 
 	t.Run("no provider configured", func(t *testing.T) {
-// Clear all API keys
-os.Unsetenv("OPENAI_API_KEY")
-os.Unsetenv("ANTHROPIC_API_KEY")
-os.Unsetenv("GOOGLE_API_KEY")
-os.Unsetenv("GEMINI_API_KEY")
+		// Clear all API keys
+		os.Unsetenv("OPENAI_API_KEY")
+		os.Unsetenv("ANTHROPIC_API_KEY")
+		os.Unsetenv("GOOGLE_API_KEY")
+		os.Unsetenv("GEMINI_API_KEY")
 
-_, err := Open(packFile, "main")
-assert.Error(t, err)
-assert.Contains(t, err.Error(), "provider")
+		_, err := Open(packFile, "main")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "provider")
 	})
 
 	t.Run("success with API key", func(t *testing.T) {
-os.Setenv("OPENAI_API_KEY", "test-key")
-defer os.Unsetenv("OPENAI_API_KEY")
+		os.Setenv("OPENAI_API_KEY", "test-key")
+		defer os.Unsetenv("OPENAI_API_KEY")
 
-conv, err := Open(packFile, "main")
-require.NoError(t, err)
-assert.NotNil(t, conv)
-assert.Equal(t, "main", conv.promptName)
-})
+		conv, err := Open(packFile, "main")
+		require.NoError(t, err)
+		assert.NotNil(t, conv)
+		assert.Equal(t, "main", conv.promptName)
+	})
 
 	t.Run("success with provided API key", func(t *testing.T) {
-os.Unsetenv("OPENAI_API_KEY")
+		os.Unsetenv("OPENAI_API_KEY")
 
-conv, err := Open(packFile, "main", WithAPIKey("my-api-key"))
-require.NoError(t, err)
-assert.NotNil(t, conv)
-})
+		conv, err := Open(packFile, "main", WithAPIKey("my-api-key"))
+		require.NoError(t, err)
+		assert.NotNil(t, conv)
+	})
 
 	t.Run("success with model override", func(t *testing.T) {
-os.Setenv("OPENAI_API_KEY", "test-key")
-defer os.Unsetenv("OPENAI_API_KEY")
+		os.Setenv("OPENAI_API_KEY", "test-key")
+		defer os.Unsetenv("OPENAI_API_KEY")
 
-conv, err := Open(packFile, "main", WithModel("gpt-4o"))
-require.NoError(t, err)
-assert.NotNil(t, conv)
-})
+		conv, err := Open(packFile, "main", WithModel("gpt-4o"))
+		require.NoError(t, err)
+		assert.NotNil(t, conv)
+	})
 }
 
 func TestOpenWithVariableDefaults(t *testing.T) {
@@ -218,9 +218,9 @@ func TestResumeWithStateStore(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("no state store returns error", func(t *testing.T) {
-_, err := Resume("conv-123", packFile, "main")
-assert.Error(t, err)
-})
+		_, err := Resume("conv-123", packFile, "main")
+		assert.Error(t, err)
+	})
 }
 
 // mockStore implements statestore.Store for testing
@@ -267,13 +267,13 @@ func TestResumeWithMockStateStore(t *testing.T) {
 	defer os.Unsetenv("OPENAI_API_KEY")
 
 	t.Run("conversation not found", func(t *testing.T) {
-store := newMockStore()
+		store := newMockStore()
 		_, err := Resume("nonexistent", packFile, "main", WithStateStore(store))
 		assert.ErrorIs(t, err, ErrConversationNotFound)
 	})
 
 	t.Run("state load error", func(t *testing.T) {
-store := newMockStore()
+		store := newMockStore()
 		store.loadErr = errors.New("storage failure")
 		_, err := Resume("conv-123", packFile, "main", WithStateStore(store))
 		assert.Error(t, err)
@@ -281,7 +281,7 @@ store := newMockStore()
 	})
 
 	t.Run("successful resume", func(t *testing.T) {
-store := newMockStore()
+		store := newMockStore()
 		// Save a conversation state
 		store.conversations["conv-123"] = &statestore.ConversationState{
 			ID: "conv-123",
@@ -294,20 +294,20 @@ store := newMockStore()
 	})
 
 	t.Run("resume with option error", func(t *testing.T) {
-store := newMockStore()
+		store := newMockStore()
 		store.conversations["conv-123"] = &statestore.ConversationState{
 			ID: "conv-123",
 		}
 
 		_, err := Resume("conv-123", packFile, "main",
-WithStateStore(store),
-func(c *config) error { return errors.New("option error") },
-)
+			WithStateStore(store),
+			func(c *config) error { return errors.New("option error") },
+		)
 		assert.Error(t, err)
 	})
 
 	t.Run("resume with invalid pack", func(t *testing.T) {
-store := newMockStore()
+		store := newMockStore()
 		store.conversations["conv-123"] = &statestore.ConversationState{
 			ID: "conv-123",
 		}

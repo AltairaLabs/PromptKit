@@ -2,15 +2,28 @@ package sdk
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 	"sync"
+	"time"
 
+	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/template"
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
+	intpipeline "github.com/AltairaLabs/PromptKit/sdk/internal/pipeline"
+)
+
+// Default parameter values for LLM calls.
+const (
+	defaultMaxTokens   = 4096
+	defaultTemperature = 0.7
 )
 
 // Conversation represents an active LLM conversation.
@@ -112,14 +125,40 @@ type ToolHandlerCtx func(ctx context.Context, args map[string]any) (any, error)
 //   - Handles tool calls if tools are defined
 //   - Persists state if a state store is configured
 func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption) (*Response, error) {
-	c.mu.RLock()
-	if c.closed {
-		c.mu.RUnlock()
-		return nil, ErrConversationClosed
-	}
-	c.mu.RUnlock()
+	startTime := time.Now()
 
-	// Build message
+	if err := c.checkClosed(); err != nil {
+		return nil, err
+	}
+
+	// Build user message from input
+	userMsg, err := c.buildUserMessage(message, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build and execute pipeline
+	result, err := c.executePipeline(ctx, userMsg)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build response
+	return c.buildResponse(result, startTime), nil
+}
+
+// checkClosed returns an error if the conversation is closed.
+func (c *Conversation) checkClosed() error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.closed {
+		return ErrConversationClosed
+	}
+	return nil
+}
+
+// buildUserMessage creates a user message from the input.
+func (c *Conversation) buildUserMessage(message any, opts []SendOption) (*types.Message, error) {
 	var userMsg *types.Message
 	switch m := message.(type) {
 	case string:
@@ -139,29 +178,242 @@ func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption
 		}
 	}
 
-	// Add any additional content parts from options
-	// Note: parts are converted to ContentPart when the pipeline processes them
-	// For now we store them in a placeholder for future implementation
-	_ = sendCfg.parts
+	// Add content parts from options to the message
+	if err := c.applyContentParts(userMsg, sendCfg.parts); err != nil {
+		return nil, fmt.Errorf("failed to apply content parts: %w", err)
+	}
 
+	return userMsg, nil
+}
+
+// executePipeline builds and executes the LLM pipeline.
+func (c *Conversation) executePipeline(
+	ctx context.Context,
+	userMsg *types.Message,
+) (*rtpipeline.ExecutionResult, error) {
 	// Get current variables for template substitution
+	vars := c.getVariables()
+
+	// Render system prompt with variables
+	renderer := template.NewRenderer()
+	systemPrompt, err := renderer.Render(c.prompt.SystemTemplate, vars)
+	if err != nil {
+		return nil, fmt.Errorf("failed to render system prompt: %w", err)
+	}
+
+	// Build tool registry from handlers
+	toolRegistry, toolDescriptors := c.buildToolRegistry()
+
+	// Build pipeline
+	pipelineCfg := &intpipeline.Config{
+		Provider:     c.provider,
+		ToolRegistry: toolRegistry,
+		SystemPrompt: systemPrompt,
+		Tools:        toolDescriptors,
+		MaxTokens:    defaultMaxTokens,
+		Temperature:  defaultTemperature,
+	}
+
+	// Apply parameters from prompt if available
+	c.applyPromptParameters(pipelineCfg)
+
+	pipe, err := intpipeline.Build(pipelineCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build pipeline: %w", err)
+	}
+
+	// Add user message to history
+	c.addMessageToHistory(userMsg)
+
+	// Execute pipeline
+	execOpts := &rtpipeline.ExecutionOptions{
+		Context:        ctx,
+		ConversationID: c.id,
+	}
+
+	result, err := pipe.ExecuteWithMessageOptions(execOpts, *userMsg)
+	if err != nil {
+		return nil, fmt.Errorf("pipeline execution failed: %w", err)
+	}
+
+	// Add assistant response to history
+	c.addAssistantResponse(result)
+
+	return result, nil
+}
+
+// getVariables returns a copy of the current variables.
+func (c *Conversation) getVariables() map[string]string {
 	c.varMu.RLock()
+	defer c.varMu.RUnlock()
 	vars := make(map[string]string, len(c.variables))
 	for k, v := range c.variables {
 		vars[k] = v
 	}
-	c.varMu.RUnlock()
+	return vars
+}
 
-	// TODO: Build and execute pipeline
-	// For now, return a placeholder response
-	_ = vars
-	_ = userMsg
+// applyPromptParameters applies parameters from the prompt to the pipeline config.
+func (c *Conversation) applyPromptParameters(cfg *intpipeline.Config) {
+	if c.prompt.Parameters == nil {
+		return
+	}
+	if c.prompt.Parameters.MaxTokens != nil {
+		cfg.MaxTokens = *c.prompt.Parameters.MaxTokens
+	}
+	if c.prompt.Parameters.Temperature != nil {
+		cfg.Temperature = float32(*c.prompt.Parameters.Temperature)
+	}
+}
 
-	return &Response{
-		message: &types.Message{
-			Role: "assistant",
-		},
-	}, fmt.Errorf("Send not yet implemented")
+// addMessageToHistory adds a message to the conversation history.
+func (c *Conversation) addMessageToHistory(msg *types.Message) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	if c.state == nil {
+		c.state = &statestore.ConversationState{
+			ID:       c.id,
+			Messages: []types.Message{},
+		}
+	}
+	c.state.Messages = append(c.state.Messages, *msg)
+}
+
+// addAssistantResponse adds the assistant's response to history.
+func (c *Conversation) addAssistantResponse(result *rtpipeline.ExecutionResult) {
+	if result.Response == nil {
+		return
+	}
+	assistantMsg := types.Message{
+		Role:     "assistant",
+		Content:  result.Response.Content,
+		CostInfo: &result.CostInfo,
+	}
+	c.stateMu.Lock()
+	c.state.Messages = append(c.state.Messages, assistantMsg)
+	c.stateMu.Unlock()
+}
+
+// buildResponse creates a Response from the pipeline result.
+func (c *Conversation) buildResponse(result *rtpipeline.ExecutionResult, startTime time.Time) *Response {
+	var assistantMsg *types.Message
+	if result.Response != nil {
+		assistantMsg = &types.Message{
+			Role:     "assistant",
+			Content:  result.Response.Content,
+			CostInfo: &result.CostInfo,
+		}
+	}
+
+	resp := &Response{
+		message:  assistantMsg,
+		duration: time.Since(startTime),
+	}
+
+	// Extract tool calls from response if present
+	if result.Response != nil && len(result.Response.ToolCalls) > 0 {
+		resp.toolCalls = make([]types.MessageToolCall, len(result.Response.ToolCalls))
+		for i, tc := range result.Response.ToolCalls {
+			resp.toolCalls[i] = types.MessageToolCall{
+				ID:   tc.ID,
+				Name: tc.Name,
+				Args: tc.Args,
+			}
+		}
+	}
+
+	// Extract validation results from the assistant message in history
+	// The DynamicValidatorMiddleware adds validations to the last assistant message
+	for i := len(result.Messages) - 1; i >= 0; i-- {
+		if result.Messages[i].Role == "assistant" && len(result.Messages[i].Validations) > 0 {
+			resp.validations = result.Messages[i].Validations
+			break
+		}
+	}
+
+	return resp
+}
+
+// applyContentParts adds content parts from send options to the message.
+func (c *Conversation) applyContentParts(msg *types.Message, parts []any) error {
+	for _, part := range parts {
+		switch p := part.(type) {
+		case imageFilePart:
+			if err := msg.AddImagePart(p.path, p.detail); err != nil {
+				return fmt.Errorf("failed to add image from file: %w", err)
+			}
+		case imageURLPart:
+			msg.AddImagePartFromURL(p.url, p.detail)
+		case imageDataPart:
+			// Convert raw bytes to base64
+			base64Data := encodeBase64(p.data)
+			contentPart := types.NewImagePartFromData(base64Data, p.mimeType, p.detail)
+			msg.AddPart(contentPart)
+		case audioFilePart:
+			if err := msg.AddAudioPart(p.path); err != nil {
+				return fmt.Errorf("failed to add audio from file: %w", err)
+			}
+		case filePart:
+			// For generic files, add as text with filename context
+			msg.AddTextPart(fmt.Sprintf("[File: %s]\n%s", p.name, string(p.data)))
+		default:
+			return fmt.Errorf("unknown content part type: %T", part)
+		}
+	}
+	return nil
+}
+
+// encodeBase64 encodes raw bytes to base64 string.
+func encodeBase64(data []byte) string {
+	return base64Encoding.EncodeToString(data)
+}
+
+var base64Encoding = base64.StdEncoding
+
+// buildToolRegistry creates a tool registry from registered handlers.
+func (c *Conversation) buildToolRegistry() (*tools.Registry, []*tools.ToolDescriptor) {
+	c.handlersMu.RLock()
+	defer c.handlersMu.RUnlock()
+
+	if len(c.handlers) == 0 {
+		return nil, nil
+	}
+
+	registry := tools.NewRegistry()
+	var descriptors []*tools.ToolDescriptor
+
+	// Get tool definitions from pack
+	for name, handler := range c.handlers {
+		packTool := c.pack.GetTool(name)
+		if packTool == nil {
+			// Tool not in pack - skip (or we could error)
+			continue
+		}
+
+		// Convert pack tool parameters to JSON
+		paramsJSON, err := json.Marshal(packTool.Parameters)
+		if err != nil {
+			continue
+		}
+
+		// Create descriptor
+		desc := &tools.ToolDescriptor{
+			Name:        packTool.Name,
+			Description: packTool.Description,
+			InputSchema: paramsJSON,
+			Mode:        "local", // SDK handlers are always local
+		}
+		descriptors = append(descriptors, desc)
+
+		// Register executor adapter
+		adapter := &handlerAdapter{
+			name:    name,
+			handler: handler,
+		}
+		registry.RegisterExecutor(adapter)
+	}
+
+	return registry, descriptors
 }
 
 // Stream sends a message and returns a channel of response chunks.
@@ -452,4 +704,38 @@ func (c *Conversation) ID() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.id
+}
+
+// handlerAdapter adapts an SDK ToolHandler to the runtime's tools.Executor interface.
+type handlerAdapter struct {
+	name    string
+	handler ToolHandler
+}
+
+// Name returns the tool name.
+func (a *handlerAdapter) Name() string {
+	return a.name
+}
+
+// Execute runs the handler with the given arguments.
+func (a *handlerAdapter) Execute(descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
+	// Parse args to map
+	var argsMap map[string]any
+	if err := json.Unmarshal(args, &argsMap); err != nil {
+		return nil, fmt.Errorf("failed to parse tool arguments: %w", err)
+	}
+
+	// Call handler
+	result, err := a.handler(argsMap)
+	if err != nil {
+		return nil, err
+	}
+
+	// Serialize result
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize tool result: %w", err)
+	}
+
+	return resultJSON, nil
 }
