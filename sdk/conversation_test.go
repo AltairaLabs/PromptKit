@@ -6,6 +6,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
@@ -259,6 +260,14 @@ func TestConversationID(t *testing.T) {
 	conv.id = "test-id-123"
 
 	assert.Equal(t, "test-id-123", conv.ID())
+}
+
+func TestConversationEventBus(t *testing.T) {
+	conv := newTestConversation()
+	conv.eventBus = events.NewEventBus()
+
+	bus := conv.EventBus()
+	assert.NotNil(t, bus)
 }
 
 func TestConversationToolRegistry(t *testing.T) {

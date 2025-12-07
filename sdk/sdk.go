@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
@@ -75,6 +76,9 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 		handlers:   make(map[string]ToolHandler),
 	}
 
+	// Initialize event bus (use provided or create new)
+	initEventBus(conv, cfg)
+
 	// Initialize MCP registry if configured
 	if err := initMCPRegistry(conv, cfg); err != nil {
 		return nil, err
@@ -131,6 +135,15 @@ func resolveProvider(cfg *config) (providers.Provider, error) {
 		return nil, fmt.Errorf("failed to detect provider: %w", err)
 	}
 	return detected, nil
+}
+
+// initEventBus initializes the conversation's event bus.
+func initEventBus(conv *Conversation, cfg *config) {
+	if cfg.eventBus != nil {
+		conv.eventBus = cfg.eventBus
+	} else {
+		conv.eventBus = events.NewEventBus()
+	}
 }
 
 // initMCPRegistry initializes the MCP registry if servers are configured.

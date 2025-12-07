@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -81,6 +82,9 @@ type Conversation struct {
 
 	// MCP registry for managing MCP servers
 	mcpRegistry mcp.Registry
+
+	// Event bus for observability
+	eventBus *events.EventBus
 
 	// Conversation state (messages, metadata)
 	state   *statestore.ConversationState
@@ -941,6 +945,20 @@ func (c *Conversation) ID() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.id
+}
+
+// EventBus returns the conversation's event bus for observability.
+//
+// Use this to subscribe to runtime events like tool calls, validations,
+// and provider requests:
+//
+//	conv.EventBus().Subscribe(events.EventToolCallStarted, func(e *events.Event) {
+//	    log.Printf("Tool call: %s", e.Data.(*events.ToolCallStartedData).ToolName)
+//	})
+//
+// For convenience methods, see the [hooks] package.
+func (c *Conversation) EventBus() *events.EventBus {
+	return c.eventBus
 }
 
 // handlerAdapter adapts an SDK ToolHandler to the runtime's tools.Executor interface.

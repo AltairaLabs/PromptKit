@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -253,16 +254,16 @@ func (m *mockStore) Load(_ context.Context, id string) (*statestore.Conversation
 // mockProvider implements providers.Provider for testing
 type mockProvider struct{}
 
-func (m *mockProvider) ID() string     { return "mock" }
+func (m *mockProvider) ID() string { return "mock" }
 func (m *mockProvider) Predict(_ context.Context, _ providers.PredictionRequest) (providers.PredictionResponse, error) {
 	return providers.PredictionResponse{}, nil
 }
 func (m *mockProvider) PredictStream(_ context.Context, _ providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	return nil, nil
 }
-func (m *mockProvider) SupportsStreaming() bool     { return false }
+func (m *mockProvider) SupportsStreaming() bool      { return false }
 func (m *mockProvider) ShouldIncludeRawOutput() bool { return false }
-func (m *mockProvider) Close() error                { return nil }
+func (m *mockProvider) Close() error                 { return nil }
 func (m *mockProvider) CalculateCost(_, _, _ int) types.CostInfo {
 	return types.CostInfo{}
 }
@@ -441,5 +442,22 @@ func TestApplyDefaultVariables(t *testing.T) {
 		assert.Equal(t, "default1", conv.variables["var1"])
 		assert.Empty(t, conv.variables["var2"])
 		assert.Equal(t, "default3", conv.variables["var3"])
+	})
+}
+
+func TestInitEventBus(t *testing.T) {
+	t.Run("creates new bus when not provided", func(t *testing.T) {
+		conv := &Conversation{}
+		cfg := &config{}
+		initEventBus(conv, cfg)
+		assert.NotNil(t, conv.eventBus)
+	})
+
+	t.Run("uses provided bus", func(t *testing.T) {
+		conv := &Conversation{}
+		bus := events.NewEventBus()
+		cfg := &config{eventBus: bus}
+		initEventBus(conv, cfg)
+		assert.Equal(t, bus, conv.eventBus)
 	})
 }
