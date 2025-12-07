@@ -1,7 +1,6 @@
 go 1.25.1
 
 use (
-	./examples/my-demo-project/sdk-demo
 	./pkg
 	./runtime
 	./sdk
