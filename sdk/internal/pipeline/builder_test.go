@@ -1,21 +1,38 @@
 package pipeline
 
 import (
-	"encoding/json"
-	"errors"
 	"testing"
 
-	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+// createTestRegistry creates a prompt registry with a test prompt.
+func createTestRegistry(taskType string) *prompt.Registry {
+	repo := memory.NewPromptRepository()
+	repo.RegisterPrompt(taskType, &prompt.Config{
+		APIVersion: "promptkit.io/v1alpha1",
+		Kind:       "Prompt",
+		Spec: prompt.Spec{
+			TaskType:       taskType,
+			SystemTemplate: "You are a helpful assistant.",
+			AllowedTools:   []string{"get_weather"},
+		},
+	})
+	return prompt.NewRegistryWithRepository(repo)
+}
+
 func TestBuild(t *testing.T) {
-	t.Run("minimal config", func(t *testing.T) {
+	t.Run("minimal config with prompt registry", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+
 		cfg := &Config{
-			SystemPrompt: "You are helpful.",
+			PromptRegistry: registry,
+			TaskType:       "chat",
 		}
 
 		pipe, err := Build(cfg)
@@ -24,10 +41,13 @@ func TestBuild(t *testing.T) {
 	})
 
 	t.Run("with token parameters", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+
 		cfg := &Config{
-			SystemPrompt: "You are helpful.",
-			MaxTokens:    2048,
-			Temperature:  0.5,
+			PromptRegistry: registry,
+			TaskType:       "chat",
+			MaxTokens:      2048,
+			Temperature:    0.5,
 		}
 
 		pipe, err := Build(cfg)
@@ -36,11 +56,29 @@ func TestBuild(t *testing.T) {
 	})
 
 	t.Run("with tool registry", func(t *testing.T) {
-		registry := tools.NewRegistry()
+		promptRegistry := createTestRegistry("chat")
+		toolRegistry := tools.NewRegistry()
 
 		cfg := &Config{
-			SystemPrompt: "You are helpful.",
-			ToolRegistry: registry,
+			PromptRegistry: promptRegistry,
+			TaskType:       "chat",
+			ToolRegistry:   toolRegistry,
+		}
+
+		pipe, err := Build(cfg)
+		require.NoError(t, err)
+		assert.NotNil(t, pipe)
+	})
+
+	t.Run("with variables", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+
+		cfg := &Config{
+			PromptRegistry: registry,
+			TaskType:       "chat",
+			Variables: map[string]string{
+				"user_name": "Alice",
+			},
 		}
 
 		pipe, err := Build(cfg)
@@ -49,99 +87,23 @@ func TestBuild(t *testing.T) {
 	})
 
 	t.Run("with all options", func(t *testing.T) {
-		registry := tools.NewRegistry()
+		promptRegistry := createTestRegistry("chat")
+		toolRegistry := tools.NewRegistry()
 
 		cfg := &Config{
-			SystemPrompt: "You are a helpful assistant.",
-			MaxTokens:    4096,
-			Temperature:  0.7,
-			ToolRegistry: registry,
+			PromptRegistry: promptRegistry,
+			TaskType:       "chat",
+			MaxTokens:      4096,
+			Temperature:    0.7,
+			ToolRegistry:   toolRegistry,
+			Variables: map[string]string{
+				"user_name": "Alice",
+			},
 		}
 
 		pipe, err := Build(cfg)
 		require.NoError(t, err)
 		assert.NotNil(t, pipe)
-	})
-
-	t.Run("with tool descriptors", func(t *testing.T) {
-		schema := json.RawMessage(`{
-			"type": "object",
-			"properties": {
-				"location": {
-					"type": "string",
-					"description": "The city name"
-				}
-			}
-		}`)
-
-		toolDesc := &tools.ToolDescriptor{
-			Name:        "get_weather",
-			Description: "Get weather for a location",
-			InputSchema: schema,
-		}
-
-		cfg := &Config{
-			SystemPrompt: "You are helpful.",
-			Tools:        []*tools.ToolDescriptor{toolDesc},
-		}
-
-		pipe, err := Build(cfg)
-		require.NoError(t, err)
-		assert.NotNil(t, pipe)
-	})
-}
-
-func TestSystemPromptMiddleware(t *testing.T) {
-	t.Run("creates middleware with system prompt", func(t *testing.T) {
-		m := &SystemPromptMiddleware{
-			SystemPrompt: "You are a helpful assistant.",
-		}
-		assert.Equal(t, "You are a helpful assistant.", m.SystemPrompt)
-	})
-
-	t.Run("process sets system prompt on context", func(t *testing.T) {
-		m := &SystemPromptMiddleware{
-			SystemPrompt: "Test system prompt",
-		}
-
-		// Create mock execution context
-		execCtx := &rtpipeline.ExecutionContext{}
-
-		// Call Process
-		nextCalled := false
-		err := m.Process(execCtx, func() error {
-			nextCalled = true
-			// Verify system prompt was set
-			assert.Equal(t, "Test system prompt", execCtx.SystemPrompt)
-			return nil
-		})
-
-		require.NoError(t, err)
-		assert.True(t, nextCalled)
-	})
-
-	t.Run("process propagates next error", func(t *testing.T) {
-		m := &SystemPromptMiddleware{
-			SystemPrompt: "Test",
-		}
-
-		execCtx := &rtpipeline.ExecutionContext{}
-		expectedErr := errors.New("next error")
-
-		err := m.Process(execCtx, func() error {
-			return expectedErr
-		})
-
-		assert.Equal(t, expectedErr, err)
-	})
-
-	t.Run("stream chunk is no-op", func(t *testing.T) {
-		m := &SystemPromptMiddleware{
-			SystemPrompt: "Test",
-		}
-
-		err := m.StreamChunk(nil, nil)
-		assert.NoError(t, err)
 	})
 }
 
@@ -154,10 +116,13 @@ func TestConfig(t *testing.T) {
 	})
 
 	t.Run("temperature boundaries", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+
 		// Temperature 0 is valid
 		cfg := &Config{
-			SystemPrompt: "Test",
-			Temperature:  0.0,
+			PromptRegistry: registry,
+			TaskType:       "chat",
+			Temperature:    0.0,
 		}
 		pipe, err := Build(cfg)
 		require.NoError(t, err)
@@ -171,13 +136,15 @@ func TestConfig(t *testing.T) {
 	})
 
 	t.Run("with validator registry and configs", func(t *testing.T) {
+		promptRegistry := createTestRegistry("chat")
 		validatorRegistry := validators.NewRegistry()
 		validatorConfigs := []validators.ValidatorConfig{
 			{Type: "banned_words", Params: map[string]interface{}{"words": []string{"test"}}},
 		}
 
 		cfg := &Config{
-			SystemPrompt:      "Test",
+			PromptRegistry:    promptRegistry,
+			TaskType:          "chat",
 			ValidatorRegistry: validatorRegistry,
 			ValidatorConfigs:  validatorConfigs,
 		}
@@ -188,13 +155,15 @@ func TestConfig(t *testing.T) {
 	})
 
 	t.Run("with suppressed validation errors", func(t *testing.T) {
+		promptRegistry := createTestRegistry("chat")
 		validatorRegistry := validators.NewRegistry()
 		validatorConfigs := []validators.ValidatorConfig{
 			{Type: "banned_words", Params: map[string]interface{}{"words": []string{"test"}}},
 		}
 
 		cfg := &Config{
-			SystemPrompt:             "Test",
+			PromptRegistry:           promptRegistry,
+			TaskType:                 "chat",
 			ValidatorRegistry:        validatorRegistry,
 			ValidatorConfigs:         validatorConfigs,
 			SuppressValidationErrors: true,

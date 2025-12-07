@@ -6,6 +6,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
 // Pack represents a loaded prompt pack.
@@ -161,4 +165,81 @@ func (p *Pack) ListTools() []string {
 		names = append(names, name)
 	}
 	return names
+}
+
+// ToPromptRegistry creates a prompt.Registry from the pack.
+// This allows the SDK to use the same PromptAssemblyMiddleware as Arena.
+func (p *Pack) ToPromptRegistry() *prompt.Registry {
+	repo := memory.NewPromptRepository()
+
+	// Convert each pack prompt to a prompt.Config and register it
+	for taskType, packPrompt := range p.Prompts {
+		cfg := packPrompt.ToPromptConfig(taskType)
+		repo.RegisterPrompt(taskType, cfg)
+	}
+
+	// Register fragments if any
+	for name, content := range p.Fragments {
+		repo.RegisterFragment(name, &prompt.Fragment{
+			Type:    "text",
+			Content: content,
+		})
+	}
+
+	return prompt.NewRegistryWithRepository(repo)
+}
+
+// ToPromptConfig converts a pack Prompt to a prompt.Config.
+func (pr *Prompt) ToPromptConfig(taskType string) *prompt.Config {
+	cfg := &prompt.Config{
+		APIVersion: "promptkit.io/v1alpha1",
+		Kind:       "Prompt",
+		Spec: prompt.Spec{
+			TaskType:       taskType,
+			Version:        pr.Version,
+			Description:    pr.Description,
+			SystemTemplate: pr.SystemTemplate,
+			AllowedTools:   pr.Tools,
+		},
+	}
+
+	// Convert variables
+	if len(pr.Variables) > 0 {
+		cfg.Spec.Variables = make([]prompt.VariableMetadata, len(pr.Variables))
+		for i, v := range pr.Variables {
+			cfg.Spec.Variables[i] = prompt.VariableMetadata{
+				Name:        v.Name,
+				Type:        v.Type,
+				Description: v.Description,
+				Required:    v.Required,
+				Default:     v.Default,
+			}
+		}
+	}
+
+	return cfg
+}
+
+// ToToolRepository creates a memory.ToolRepository from the pack.
+// This allows the SDK to use the same tools.Registry as Arena.
+func (p *Pack) ToToolRepository() *memory.ToolRepository {
+	repo := memory.NewToolRepository()
+
+	// Register all tools from the pack
+	for name, tool := range p.Tools {
+		paramsJSON, err := json.Marshal(tool.Parameters)
+		if err != nil {
+			continue
+		}
+
+		desc := &tools.ToolDescriptor{
+			Name:        name,
+			Description: tool.Description,
+			InputSchema: paramsJSON,
+			Mode:        "local",
+		}
+		_ = repo.SaveTool(desc)
+	}
+
+	return repo
 }

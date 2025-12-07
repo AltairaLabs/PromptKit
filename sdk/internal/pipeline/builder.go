@@ -2,12 +2,26 @@
 package pipeline
 
 import (
+	"fmt"
+	"os"
+
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
 )
+
+// debugLogTruncateLen is the max length for system prompt debug output.
+const debugLogTruncateLen = 200
+
+// debugLogf prints debug output if SDK_DEBUG is set.
+func debugLogf(format string, args ...any) {
+	if os.Getenv("SDK_DEBUG") != "" {
+		fmt.Fprintf(os.Stderr, "[SDK DEBUG] "+format+"\n", args...)
+	}
+}
 
 // Config holds configuration for building a pipeline.
 type Config struct {
@@ -17,11 +31,14 @@ type Config struct {
 	// ToolRegistry for tool execution (optional)
 	ToolRegistry *tools.Registry
 
-	// SystemPrompt is the rendered system prompt
-	SystemPrompt string
+	// PromptRegistry for loading prompts (required for PromptAssemblyMiddleware)
+	PromptRegistry *prompt.Registry
 
-	// Tools available to the LLM (optional)
-	Tools []*tools.ToolDescriptor
+	// TaskType is the prompt ID/task type to load from the registry
+	TaskType string
+
+	// Variables for template substitution
+	Variables map[string]string
 
 	// ToolPolicy for tool usage constraints (optional)
 	ToolPolicy *rtpipeline.ToolPolicy
@@ -51,7 +68,7 @@ type Config struct {
 // Build creates a pipeline with the appropriate middleware chain.
 //
 // The pipeline is structured as follows:
-//  1. SystemPromptMiddleware - Set the system prompt on context
+//  1. PromptAssemblyMiddleware - Load and assemble the prompt from registry
 //  2. ProviderMiddleware - LLM call with tool execution
 //  3. DynamicValidatorMiddleware - Validate responses (if configured)
 //
@@ -59,12 +76,20 @@ type Config struct {
 func Build(cfg *Config) (*rtpipeline.Pipeline, error) {
 	var middlewares []rtpipeline.Middleware
 
-	// 1. System prompt middleware
-	middlewares = append(middlewares, &SystemPromptMiddleware{
-		SystemPrompt: cfg.SystemPrompt,
-	})
+	// Debug: log configuration
+	debugLogf("Building pipeline for taskType=%q", cfg.TaskType)
+	debugLogf("Variables: %v", cfg.Variables)
+	debugLogf("PromptRegistry: %v", cfg.PromptRegistry != nil)
+	debugLogf("ToolRegistry: %v", cfg.ToolRegistry != nil)
 
-	// 2. Provider middleware for LLM calls with tool support
+	// 1. Prompt assembly middleware - loads prompt, sets system prompt and allowed tools
+	// 2. Debug middleware to log the assembled prompt (only active when SDK_DEBUG is set)
+	middlewares = append(middlewares,
+		middleware.PromptAssemblyMiddleware(cfg.PromptRegistry, cfg.TaskType, cfg.Variables),
+		&debugMiddleware{},
+	)
+
+	// 3. Provider middleware for LLM calls with tool support
 	if cfg.Provider != nil {
 		providerConfig := &middleware.ProviderMiddlewareConfig{
 			MaxTokens:   cfg.MaxTokens,
@@ -79,7 +104,7 @@ func Build(cfg *Config) (*rtpipeline.Pipeline, error) {
 		))
 	}
 
-	// 3. Validation middleware (if configured)
+	// 4. Validation middleware (if configured)
 	if cfg.ValidatorRegistry != nil && len(cfg.ValidatorConfigs) > 0 {
 		middlewares = append(middlewares, middleware.DynamicValidatorMiddlewareWithSuppression(
 			cfg.ValidatorRegistry,
@@ -91,18 +116,24 @@ func Build(cfg *Config) (*rtpipeline.Pipeline, error) {
 	return rtpipeline.NewPipelineWithConfigValidated(nil, middlewares...)
 }
 
-// SystemPromptMiddleware sets the system prompt on the execution context.
-type SystemPromptMiddleware struct {
-	SystemPrompt string
-}
+// debugMiddleware logs execution context for debugging when SDK_DEBUG is set.
+type debugMiddleware struct{}
 
-// Process implements pipeline.Middleware.
-func (m *SystemPromptMiddleware) Process(ctx *rtpipeline.ExecutionContext, next func() error) error {
-	ctx.SystemPrompt = m.SystemPrompt
+// Process logs the execution context state for debugging.
+func (m *debugMiddleware) Process(execCtx *rtpipeline.ExecutionContext, next func() error) error {
+	debugLogf("After PromptAssembly:")
+	debugLogf("  SystemPrompt length: %d", len(execCtx.SystemPrompt))
+	if len(execCtx.SystemPrompt) > debugLogTruncateLen {
+		debugLogf("  SystemPrompt (first %d): %s...", debugLogTruncateLen, execCtx.SystemPrompt[:debugLogTruncateLen])
+	} else {
+		debugLogf("  SystemPrompt: %s", execCtx.SystemPrompt)
+	}
+	debugLogf("  AllowedTools: %v", execCtx.AllowedTools)
+	debugLogf("  Variables: %v", execCtx.Variables)
 	return next()
 }
 
-// StreamChunk implements pipeline.Middleware (no-op for this middleware).
-func (m *SystemPromptMiddleware) StreamChunk(_ *rtpipeline.ExecutionContext, _ *providers.StreamChunk) error {
+// StreamChunk is a no-op for debug middleware.
+func (m *debugMiddleware) StreamChunk(_ *rtpipeline.ExecutionContext, _ *providers.StreamChunk) error {
 	return nil
 }

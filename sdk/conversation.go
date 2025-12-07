@@ -15,9 +15,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
-	"github.com/AltairaLabs/PromptKit/runtime/template"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
@@ -57,9 +57,11 @@ const (
 //	fmt.Println(resp.Text())  // "Your name is Alice"
 type Conversation struct {
 	// Pack and prompt configuration
-	pack       *pack.Pack
-	prompt     *pack.Prompt
-	promptName string
+	pack           *pack.Pack
+	prompt         *pack.Prompt
+	promptName     string
+	promptRegistry *prompt.Registry // Registry for PromptAssemblyMiddleware
+	toolRegistry   *tools.Registry  // Registry for tools (pre-populated from pack)
 
 	// Provider for LLM calls
 	provider providers.Provider
@@ -214,24 +216,18 @@ func (c *Conversation) executePipeline(
 	// Get current variables for template substitution
 	vars := c.getVariables()
 
-	// Render system prompt with variables
-	renderer := template.NewRenderer()
-	systemPrompt, err := renderer.Render(c.prompt.SystemTemplate, vars)
-	if err != nil {
-		return nil, fmt.Errorf("failed to render system prompt: %w", err)
-	}
+	// Build tool registry (registers executors for handlers)
+	toolRegistry := c.buildToolRegistry()
 
-	// Build tool registry from handlers
-	toolRegistry, toolDescriptors := c.buildToolRegistry()
-
-	// Build pipeline
+	// Build pipeline using PromptAssemblyMiddleware (same as Arena)
 	pipelineCfg := &intpipeline.Config{
-		Provider:     c.provider,
-		ToolRegistry: toolRegistry,
-		SystemPrompt: systemPrompt,
-		Tools:        toolDescriptors,
-		MaxTokens:    defaultMaxTokens,
-		Temperature:  defaultTemperature,
+		Provider:       c.provider,
+		ToolRegistry:   toolRegistry,
+		PromptRegistry: c.promptRegistry,
+		TaskType:       c.promptName,
+		Variables:      vars,
+		MaxTokens:      defaultMaxTokens,
+		Temperature:    defaultTemperature,
 	}
 
 	// Apply parameters from prompt if available
@@ -390,88 +386,51 @@ func encodeBase64(data []byte) string {
 
 var base64Encoding = base64.StdEncoding
 
-// buildToolRegistry creates a tool registry from registered handlers.
-func (c *Conversation) buildToolRegistry() (*tools.Registry, []*tools.ToolDescriptor) {
+// buildToolRegistry returns the tool registry with executors registered for user-provided handlers.
+// The registry is pre-populated with tool descriptors from the pack.
+func (c *Conversation) buildToolRegistry() *tools.Registry {
 	c.handlersMu.RLock()
 	defer c.handlersMu.RUnlock()
 
-	// Check if there's anything to build
-	if len(c.handlers) == 0 && c.mcpRegistry == nil {
-		return nil, nil
-	}
+	// Register a single "local" executor that dispatches to the right handler.
+	// This is needed because tools in the pack have Mode: "local", and the registry
+	// looks up executors by mode name, not by tool name.
+	localExec := &localExecutor{handlers: c.handlers}
+	c.toolRegistry.RegisterExecutor(localExec)
 
-	registry := tools.NewRegistry()
-	var descriptors []*tools.ToolDescriptor
+	// Register MCP tool executors
+	c.registerMCPExecutors()
 
-	// Register local handlers from pack
-	descriptors = c.registerLocalHandlers(registry, descriptors)
-
-	// Register MCP tools
-	descriptors = c.registerMCPTools(registry, descriptors)
-
-	return registry, descriptors
+	return c.toolRegistry
 }
 
-// registerLocalHandlers registers tool handlers defined in the pack.
-func (c *Conversation) registerLocalHandlers(
-	registry *tools.Registry,
-	descriptors []*tools.ToolDescriptor,
-) []*tools.ToolDescriptor {
-	for name, handler := range c.handlers {
-		packTool := c.pack.GetTool(name)
-		if packTool == nil {
-			continue
-		}
-
-		paramsJSON, err := json.Marshal(packTool.Parameters)
-		if err != nil {
-			continue
-		}
-
-		desc := &tools.ToolDescriptor{
-			Name:        packTool.Name,
-			Description: packTool.Description,
-			InputSchema: paramsJSON,
-			Mode:        "local",
-		}
-		descriptors = append(descriptors, desc)
-
-		adapter := &handlerAdapter{name: name, handler: handler}
-		registry.RegisterExecutor(adapter)
-	}
-	return descriptors
-}
-
-// registerMCPTools registers tools from MCP servers.
-func (c *Conversation) registerMCPTools(
-	registry *tools.Registry,
-	descriptors []*tools.ToolDescriptor,
-) []*tools.ToolDescriptor {
+// registerMCPExecutors registers executors for MCP tools.
+func (c *Conversation) registerMCPExecutors() {
 	if c.mcpRegistry == nil {
-		return descriptors
+		return
 	}
 
 	ctx := context.Background()
 	mcpTools, err := c.mcpRegistry.ListAllTools(ctx)
 	if err != nil {
-		return descriptors
+		return
 	}
 
 	for _, serverTools := range mcpTools {
 		for _, tool := range serverTools {
+			// Register the MCP tool in the registry if not already present
 			desc := &tools.ToolDescriptor{
 				Name:        tool.Name,
 				Description: tool.Description,
 				InputSchema: tool.InputSchema,
 				Mode:        "mcp",
 			}
-			descriptors = append(descriptors, desc)
+			_ = c.toolRegistry.Register(desc)
 
 			adapter := &mcpHandlerAdapter{name: tool.Name, registry: c.mcpRegistry}
-			registry.RegisterExecutor(adapter)
+			c.toolRegistry.RegisterExecutor(adapter)
 		}
 	}
-	return descriptors
 }
 
 // Stream sends a message and returns a channel of response chunks.
@@ -548,24 +507,18 @@ func (c *Conversation) buildStreamPipeline() (*rtpipeline.Pipeline, error) {
 	// Get current variables for template substitution
 	vars := c.getVariables()
 
-	// Render system prompt with variables
-	renderer := template.NewRenderer()
-	systemPrompt, err := renderer.Render(c.prompt.SystemTemplate, vars)
-	if err != nil {
-		return nil, fmt.Errorf("failed to render system prompt: %w", err)
-	}
+	// Build tool registry (registers executors for handlers)
+	toolRegistry := c.buildToolRegistry()
 
-	// Build tool registry from handlers
-	toolRegistry, toolDescriptors := c.buildToolRegistry()
-
-	// Build pipeline
+	// Build pipeline using PromptAssemblyMiddleware (same as Arena)
 	pipelineCfg := &intpipeline.Config{
-		Provider:     c.provider,
-		ToolRegistry: toolRegistry,
-		SystemPrompt: systemPrompt,
-		Tools:        toolDescriptors,
-		MaxTokens:    defaultMaxTokens,
-		Temperature:  defaultTemperature,
+		Provider:       c.provider,
+		ToolRegistry:   toolRegistry,
+		PromptRegistry: c.promptRegistry,
+		TaskType:       c.promptName,
+		Variables:      vars,
+		MaxTokens:      defaultMaxTokens,
+		Temperature:    defaultTemperature,
 	}
 
 	// Apply parameters from prompt if available
@@ -1287,6 +1240,45 @@ func (c *Conversation) ID() string {
 // For convenience methods, see the [hooks] package.
 func (c *Conversation) EventBus() *events.EventBus {
 	return c.eventBus
+}
+
+// localExecutor is a tool executor for locally-handled tools (Mode: "local").
+// It dispatches to the appropriate ToolHandler based on the tool name.
+type localExecutor struct {
+	handlers map[string]ToolHandler
+}
+
+// Name returns "local" to match the Mode on tools in the pack.
+func (e *localExecutor) Name() string {
+	return "local"
+}
+
+// Execute dispatches to the appropriate handler based on tool name.
+func (e *localExecutor) Execute(descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
+	handler, ok := e.handlers[descriptor.Name]
+	if !ok {
+		return nil, fmt.Errorf("no handler registered for tool: %s", descriptor.Name)
+	}
+
+	// Parse args to map
+	var argsMap map[string]any
+	if err := json.Unmarshal(args, &argsMap); err != nil {
+		return nil, fmt.Errorf("failed to parse tool arguments: %w", err)
+	}
+
+	// Call handler
+	result, err := handler(argsMap)
+	if err != nil {
+		return nil, err
+	}
+
+	// Serialize result
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize tool result: %w", err)
+	}
+
+	return resultJSON, nil
 }
 
 // handlerAdapter adapts an SDK ToolHandler to the runtime's tools.Executor interface.

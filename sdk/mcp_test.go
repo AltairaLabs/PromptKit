@@ -252,12 +252,14 @@ func TestBuildToolRegistryWithMCP(t *testing.T) {
 		}
 		conv.mcpRegistry = mockRegistry
 
-		registry, descriptors := conv.buildToolRegistry()
+		registry := conv.buildToolRegistry()
 
 		assert.NotNil(t, registry)
-		require.Len(t, descriptors, 1)
-		assert.Equal(t, "mcp_tool", descriptors[0].Name)
-		assert.Equal(t, "mcp", descriptors[0].Mode)
+		// MCP tool should be registered
+		tool, err := registry.GetTool("mcp_tool")
+		assert.NoError(t, err)
+		assert.Equal(t, "mcp_tool", tool.Name)
+		assert.Equal(t, "mcp", tool.Mode)
 	})
 
 	t.Run("combines local and MCP tools", func(t *testing.T) {
@@ -271,6 +273,9 @@ func TestBuildToolRegistryWithMCP(t *testing.T) {
 				Parameters:  map[string]any{"type": "object"},
 			},
 		}
+		// Reinitialize toolRegistry with the local tool
+		conv.toolRegistry = tools.NewRegistryWithRepository(conv.pack.ToToolRepository())
+
 		conv.OnTool("local_tool", func(args map[string]any) (any, error) {
 			return "result", nil
 		})
@@ -286,25 +291,18 @@ func TestBuildToolRegistryWithMCP(t *testing.T) {
 		}
 		conv.mcpRegistry = mockRegistry
 
-		registry, descriptors := conv.buildToolRegistry()
+		registry := conv.buildToolRegistry()
 
 		assert.NotNil(t, registry)
-		require.Len(t, descriptors, 2)
 
-		// Find tools by name
-		var localFound, mcpFound bool
-		for _, d := range descriptors {
-			if d.Name == "local_tool" {
-				localFound = true
-				assert.Equal(t, "local", d.Mode)
-			}
-			if d.Name == "mcp_tool" {
-				mcpFound = true
-				assert.Equal(t, "mcp", d.Mode)
-			}
-		}
-		assert.True(t, localFound, "local_tool not found")
-		assert.True(t, mcpFound, "mcp_tool not found")
+		// Verify both tools are in registry
+		localTool, err := registry.GetTool("local_tool")
+		assert.NoError(t, err)
+		assert.Equal(t, "local_tool", localTool.Name)
+
+		mcpTool, err := registry.GetTool("mcp_tool")
+		assert.NoError(t, err)
+		assert.Equal(t, "mcp_tool", mcpTool.Name)
 	})
 }
 

@@ -18,18 +18,21 @@ import (
 )
 
 func newTestConversation() *Conversation {
-	return &Conversation{
-		pack: &pack.Pack{
-			ID: "test-pack",
-			Prompts: map[string]*pack.Prompt{
-				"chat": {ID: "chat", SystemTemplate: "You are helpful."},
-			},
+	p := &pack.Pack{
+		ID: "test-pack",
+		Prompts: map[string]*pack.Prompt{
+			"chat": {ID: "chat", SystemTemplate: "You are helpful."},
 		},
-		prompt:     &pack.Prompt{ID: "chat", SystemTemplate: "You are helpful."},
-		promptName: "chat",
-		config:     &config{},
-		variables:  make(map[string]string),
-		handlers:   make(map[string]ToolHandler),
+	}
+	return &Conversation{
+		pack:           p,
+		prompt:         &pack.Prompt{ID: "chat", SystemTemplate: "You are helpful."},
+		promptName:     "chat",
+		promptRegistry: p.ToPromptRegistry(),
+		toolRegistry:   tools.NewRegistryWithRepository(p.ToToolRepository()),
+		config:         &config{},
+		variables:      make(map[string]string),
+		handlers:       make(map[string]ToolHandler),
 	}
 }
 
@@ -348,26 +351,14 @@ func TestApplyContentParts(t *testing.T) {
 }
 
 func TestBuildToolRegistry(t *testing.T) {
-	t.Run("no handlers returns nil", func(t *testing.T) {
+	t.Run("returns registry from pack", func(t *testing.T) {
 		conv := newTestConversation()
-		registry, descriptors := conv.buildToolRegistry()
-		assert.Nil(t, registry)
-		assert.Nil(t, descriptors)
-	})
-
-	t.Run("handler without pack tool is skipped", func(t *testing.T) {
-		conv := newTestConversation()
-		conv.OnTool("unknown_tool", func(args map[string]any) (any, error) {
-			return nil, nil
-		})
-
-		registry, descriptors := conv.buildToolRegistry()
-		// Registry created but no descriptors since tool not in pack
+		registry := conv.buildToolRegistry()
+		// Registry is always created (from pack), even with no handlers
 		assert.NotNil(t, registry)
-		assert.Len(t, descriptors, 0)
 	})
 
-	t.Run("handler with pack tool creates descriptor", func(t *testing.T) {
+	t.Run("handler registers executor", func(t *testing.T) {
 		conv := newTestConversation()
 		conv.pack.Tools = map[string]*pack.Tool{
 			"test_tool": {
@@ -381,15 +372,20 @@ func TestBuildToolRegistry(t *testing.T) {
 				},
 			},
 		}
+		// Reinitialize toolRegistry with the new tool
+		conv.toolRegistry = tools.NewRegistryWithRepository(conv.pack.ToToolRepository())
 
 		conv.OnTool("test_tool", func(args map[string]any) (any, error) {
 			return "result", nil
 		})
 
-		registry, descriptors := conv.buildToolRegistry()
+		registry := conv.buildToolRegistry()
 		assert.NotNil(t, registry)
-		assert.Len(t, descriptors, 1)
-		assert.Equal(t, "test_tool", descriptors[0].Name)
+
+		// Verify tool is in registry
+		tool, err := registry.GetTool("test_tool")
+		assert.NoError(t, err)
+		assert.Equal(t, "test_tool", tool.Name)
 	})
 }
 

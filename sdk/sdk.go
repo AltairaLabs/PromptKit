@@ -9,6 +9,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/provider"
 )
@@ -67,13 +68,15 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 
 	// Create conversation
 	conv := &Conversation{
-		pack:       p,
-		prompt:     prompt,
-		promptName: promptName,
-		provider:   prov,
-		config:     cfg,
-		variables:  make(map[string]string),
-		handlers:   make(map[string]ToolHandler),
+		pack:           p,
+		prompt:         prompt,
+		promptName:     promptName,
+		promptRegistry: p.ToPromptRegistry(),                                  // Create registry for PromptAssemblyMiddleware
+		toolRegistry:   tools.NewRegistryWithRepository(p.ToToolRepository()), // Create registry with pack tools
+		provider:       prov,
+		config:         cfg,
+		variables:      make(map[string]string),
+		handlers:       make(map[string]ToolHandler),
 	}
 
 	// Initialize event bus (use provided or create new)
