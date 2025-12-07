@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/AltairaLabs/PromptKit/runtime/mcp"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/provider"
 )
@@ -45,45 +47,21 @@ import (
 // The promptName must match a prompt ID defined in the pack's "prompts" section.
 func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 	// Apply options to build configuration
-	cfg := &config{
-		promptName: promptName,
-	}
-	for _, opt := range opts {
-		if err := opt(cfg); err != nil {
-			return nil, fmt.Errorf("failed to apply option: %w", err)
-		}
-	}
-
-	// Resolve pack path
-	absPath, err := resolvePackPath(packPath)
+	cfg, err := applyOptions(promptName, opts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve pack path: %w", err)
+		return nil, err
 	}
 
-	// Load pack
-	p, err := pack.Load(absPath)
+	// Load and validate pack
+	p, prompt, err := loadAndValidatePack(packPath, promptName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load pack: %w", err)
+		return nil, err
 	}
 
-	// Validate prompt exists in pack
-	prompt, ok := p.Prompts[promptName]
-	if !ok {
-		available := make([]string, 0, len(p.Prompts))
-		for name := range p.Prompts {
-			available = append(available, name)
-		}
-		return nil, fmt.Errorf("prompt %q not found in pack (available: %v)", promptName, available)
-	}
-
-	// Auto-detect or use provided provider
-	prov := cfg.provider
-	if prov == nil {
-		detected, err := provider.Detect(cfg.apiKey, cfg.model)
-		if err != nil {
-			return nil, fmt.Errorf("failed to detect provider: %w", err)
-		}
-		prov = detected
+	// Resolve provider
+	prov, err := resolveProvider(cfg)
+	if err != nil {
+		return nil, err
 	}
 
 	// Create conversation
@@ -97,14 +75,89 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 		handlers:   make(map[string]ToolHandler),
 	}
 
+	// Initialize MCP registry if configured
+	if err := initMCPRegistry(conv, cfg); err != nil {
+		return nil, err
+	}
+
 	// Apply default variables from prompt
+	applyDefaultVariables(conv, prompt)
+
+	return conv, nil
+}
+
+// applyOptions applies the configuration options.
+func applyOptions(promptName string, opts []Option) (*config, error) {
+	cfg := &config{promptName: promptName}
+	for _, opt := range opts {
+		if err := opt(cfg); err != nil {
+			return nil, fmt.Errorf("failed to apply option: %w", err)
+		}
+	}
+	return cfg, nil
+}
+
+// loadAndValidatePack loads the pack and validates the prompt exists.
+func loadAndValidatePack(packPath, promptName string) (*pack.Pack, *pack.Prompt, error) {
+	absPath, err := resolvePackPath(packPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to resolve pack path: %w", err)
+	}
+
+	p, err := pack.Load(absPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to load pack: %w", err)
+	}
+
+	prompt, ok := p.Prompts[promptName]
+	if !ok {
+		available := make([]string, 0, len(p.Prompts))
+		for name := range p.Prompts {
+			available = append(available, name)
+		}
+		return nil, nil, fmt.Errorf("prompt %q not found in pack (available: %v)", promptName, available)
+	}
+
+	return p, prompt, nil
+}
+
+// resolveProvider auto-detects or uses the configured provider.
+func resolveProvider(cfg *config) (providers.Provider, error) {
+	if cfg.provider != nil {
+		return cfg.provider, nil
+	}
+	detected, err := provider.Detect(cfg.apiKey, cfg.model)
+	if err != nil {
+		return nil, fmt.Errorf("failed to detect provider: %w", err)
+	}
+	return detected, nil
+}
+
+// initMCPRegistry initializes the MCP registry if servers are configured.
+func initMCPRegistry(conv *Conversation, cfg *config) error {
+	if len(cfg.mcpServers) == 0 {
+		return nil
+	}
+
+	registry := mcp.NewRegistry()
+	conv.mcpRegistry = registry
+
+	for _, serverCfg := range cfg.mcpServers {
+		if err := registry.RegisterServer(serverCfg); err != nil {
+			_ = registry.Close()
+			return fmt.Errorf("failed to register MCP server %q: %w", serverCfg.Name, err)
+		}
+	}
+	return nil
+}
+
+// applyDefaultVariables sets default variable values from the prompt.
+func applyDefaultVariables(conv *Conversation, prompt *pack.Prompt) {
 	for _, v := range prompt.Variables {
 		if v.Default != "" {
 			conv.variables[v.Name] = v.Default
 		}
 	}
-
-	return conv, nil
 }
 
 // Resume loads an existing conversation from state storage.

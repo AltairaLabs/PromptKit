@@ -7,7 +7,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -247,6 +250,23 @@ func (m *mockStore) Load(_ context.Context, id string) (*statestore.Conversation
 	return m.conversations[id], nil
 }
 
+// mockProvider implements providers.Provider for testing
+type mockProvider struct{}
+
+func (m *mockProvider) ID() string     { return "mock" }
+func (m *mockProvider) Predict(_ context.Context, _ providers.PredictionRequest) (providers.PredictionResponse, error) {
+	return providers.PredictionResponse{}, nil
+}
+func (m *mockProvider) PredictStream(_ context.Context, _ providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+	return nil, nil
+}
+func (m *mockProvider) SupportsStreaming() bool     { return false }
+func (m *mockProvider) ShouldIncludeRawOutput() bool { return false }
+func (m *mockProvider) Close() error                { return nil }
+func (m *mockProvider) CalculateCost(_, _, _ int) types.CostInfo {
+	return types.CostInfo{}
+}
+
 func TestResumeWithMockStateStore(t *testing.T) {
 	// Create a valid pack file
 	dir := t.TempDir()
@@ -314,5 +334,112 @@ func TestResumeWithMockStateStore(t *testing.T) {
 
 		_, err := Resume("conv-123", "/nonexistent/pack.json", "main", WithStateStore(store))
 		assert.Error(t, err)
+	})
+}
+
+func TestApplyOptions(t *testing.T) {
+	t.Run("empty options", func(t *testing.T) {
+		cfg, err := applyOptions("test-prompt", nil)
+		require.NoError(t, err)
+		assert.Equal(t, "test-prompt", cfg.promptName)
+	})
+
+	t.Run("with valid options", func(t *testing.T) {
+		cfg, err := applyOptions("test-prompt", []Option{
+			WithModel("gpt-4"),
+			WithAPIKey("test-key"),
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "gpt-4", cfg.model)
+		assert.Equal(t, "test-key", cfg.apiKey)
+	})
+
+	t.Run("with error option", func(t *testing.T) {
+		_, err := applyOptions("test-prompt", []Option{
+			func(c *config) error { return errors.New("test error") },
+		})
+		assert.Error(t, err)
+	})
+}
+
+func TestLoadAndValidatePack(t *testing.T) {
+	// Create a valid pack file
+	dir := t.TempDir()
+	packFile := filepath.Join(dir, "test.pack.json")
+	packContent := `{
+		"name": "test-pack",
+		"version": "v1",
+		"prompts": {
+			"main": {
+				"system_template": "You are helpful."
+			}
+		}
+	}`
+	err := os.WriteFile(packFile, []byte(packContent), 0644)
+	require.NoError(t, err)
+
+	t.Run("valid pack and prompt", func(t *testing.T) {
+		p, prompt, err := loadAndValidatePack(packFile, "main")
+		require.NoError(t, err)
+		assert.NotNil(t, p)
+		assert.NotNil(t, prompt)
+	})
+
+	t.Run("nonexistent pack", func(t *testing.T) {
+		_, _, err := loadAndValidatePack("/nonexistent.pack.json", "main")
+		assert.Error(t, err)
+	})
+
+	t.Run("nonexistent prompt", func(t *testing.T) {
+		_, _, err := loadAndValidatePack(packFile, "nonexistent")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+}
+
+func TestResolveProviderHelper(t *testing.T) {
+	t.Run("with provided provider", func(t *testing.T) {
+		mock := &mockProvider{}
+		cfg := &config{provider: mock}
+		prov, err := resolveProvider(cfg)
+		require.NoError(t, err)
+		assert.Equal(t, mock, prov)
+	})
+
+	t.Run("auto-detect with api key", func(t *testing.T) {
+		cfg := &config{apiKey: "test-key"}
+		prov, err := resolveProvider(cfg)
+		require.NoError(t, err)
+		assert.NotNil(t, prov)
+	})
+}
+
+func TestInitMCPRegistry(t *testing.T) {
+	t.Run("no servers configured", func(t *testing.T) {
+		conv := &Conversation{}
+		cfg := &config{}
+		err := initMCPRegistry(conv, cfg)
+		require.NoError(t, err)
+		assert.Nil(t, conv.mcpRegistry)
+	})
+}
+
+func TestApplyDefaultVariables(t *testing.T) {
+	t.Run("applies defaults", func(t *testing.T) {
+		conv := &Conversation{
+			variables: make(map[string]string),
+		}
+		prompt := &pack.Prompt{
+			Variables: []pack.Variable{
+				{Name: "var1", Default: "default1"},
+				{Name: "var2", Default: ""},
+				{Name: "var3", Default: "default3"},
+			},
+		}
+		applyDefaultVariables(conv, prompt)
+
+		assert.Equal(t, "default1", conv.variables["var1"])
+		assert.Empty(t, conv.variables["var2"])
+		assert.Equal(t, "default3", conv.variables["var3"])
 	})
 }

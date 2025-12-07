@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
@@ -77,6 +78,9 @@ type Conversation struct {
 
 	// Pending tool calls awaiting approval
 	pendingStore *sdktools.PendingStore
+
+	// MCP registry for managing MCP servers
+	mcpRegistry mcp.Registry
 
 	// Conversation state (messages, metadata)
 	state   *statestore.ConversationState
@@ -385,45 +389,83 @@ func (c *Conversation) buildToolRegistry() (*tools.Registry, []*tools.ToolDescri
 	c.handlersMu.RLock()
 	defer c.handlersMu.RUnlock()
 
-	if len(c.handlers) == 0 {
+	// Check if there's anything to build
+	if len(c.handlers) == 0 && c.mcpRegistry == nil {
 		return nil, nil
 	}
 
 	registry := tools.NewRegistry()
 	var descriptors []*tools.ToolDescriptor
 
-	// Get tool definitions from pack
+	// Register local handlers from pack
+	descriptors = c.registerLocalHandlers(registry, descriptors)
+
+	// Register MCP tools
+	descriptors = c.registerMCPTools(registry, descriptors)
+
+	return registry, descriptors
+}
+
+// registerLocalHandlers registers tool handlers defined in the pack.
+func (c *Conversation) registerLocalHandlers(
+	registry *tools.Registry,
+	descriptors []*tools.ToolDescriptor,
+) []*tools.ToolDescriptor {
 	for name, handler := range c.handlers {
 		packTool := c.pack.GetTool(name)
 		if packTool == nil {
-			// Tool not in pack - skip (or we could error)
 			continue
 		}
 
-		// Convert pack tool parameters to JSON
 		paramsJSON, err := json.Marshal(packTool.Parameters)
 		if err != nil {
 			continue
 		}
 
-		// Create descriptor
 		desc := &tools.ToolDescriptor{
 			Name:        packTool.Name,
 			Description: packTool.Description,
 			InputSchema: paramsJSON,
-			Mode:        "local", // SDK handlers are always local
+			Mode:        "local",
 		}
 		descriptors = append(descriptors, desc)
 
-		// Register executor adapter
-		adapter := &handlerAdapter{
-			name:    name,
-			handler: handler,
-		}
+		adapter := &handlerAdapter{name: name, handler: handler}
 		registry.RegisterExecutor(adapter)
 	}
+	return descriptors
+}
 
-	return registry, descriptors
+// registerMCPTools registers tools from MCP servers.
+func (c *Conversation) registerMCPTools(
+	registry *tools.Registry,
+	descriptors []*tools.ToolDescriptor,
+) []*tools.ToolDescriptor {
+	if c.mcpRegistry == nil {
+		return descriptors
+	}
+
+	ctx := context.Background()
+	mcpTools, err := c.mcpRegistry.ListAllTools(ctx)
+	if err != nil {
+		return descriptors
+	}
+
+	for _, serverTools := range mcpTools {
+		for _, tool := range serverTools {
+			desc := &tools.ToolDescriptor{
+				Name:        tool.Name,
+				Description: tool.Description,
+				InputSchema: tool.InputSchema,
+				Mode:        "mcp",
+			}
+			descriptors = append(descriptors, desc)
+
+			adapter := &mcpHandlerAdapter{name: tool.Name, registry: c.mcpRegistry}
+			registry.RegisterExecutor(adapter)
+		}
+	}
+	return descriptors
 }
 
 // Stream sends a message and returns a channel of response chunks.
@@ -876,6 +918,13 @@ func (c *Conversation) Close() error {
 	}
 	c.closed = true
 
+	// Close MCP registry if present
+	if c.mcpRegistry != nil {
+		if err := c.mcpRegistry.Close(); err != nil {
+			return fmt.Errorf("failed to close MCP registry: %w", err)
+		}
+	}
+
 	// Save state if we have a state store
 	if c.config.stateStore != nil && c.state != nil {
 		ctx := context.Background()
@@ -923,6 +972,61 @@ func (a *handlerAdapter) Execute(descriptor *tools.ToolDescriptor, args json.Raw
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize tool result: %w", err)
+	}
+
+	return resultJSON, nil
+}
+
+// mcpHandlerAdapter adapts MCP tool calls to the runtime's tools.Executor interface.
+type mcpHandlerAdapter struct {
+	name     string
+	registry mcp.Registry
+}
+
+// Name returns the tool name.
+func (a *mcpHandlerAdapter) Name() string {
+	return a.name
+}
+
+// Execute runs the MCP tool with the given arguments.
+func (a *mcpHandlerAdapter) Execute(descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
+	ctx := context.Background()
+
+	// Get client for this tool
+	client, err := a.registry.GetClientForTool(ctx, a.name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get MCP client for tool %q: %w", a.name, err)
+	}
+
+	// Call the tool
+	resp, err := client.CallTool(ctx, a.name, args)
+	if err != nil {
+		return nil, fmt.Errorf("MCP tool call failed: %w", err)
+	}
+
+	// Check for tool error
+	if resp.IsError {
+		errMsg := "MCP tool returned error"
+		if len(resp.Content) > 0 && resp.Content[0].Text != "" {
+			errMsg = resp.Content[0].Text
+		}
+		return nil, fmt.Errorf("%s", errMsg)
+	}
+
+	// Extract text content from response
+	var result any
+	if len(resp.Content) == 1 && resp.Content[0].Type == "text" {
+		// Single text response - return as-is
+		result = resp.Content[0].Text
+	} else {
+		// Multiple content items - return as array
+		result = resp.Content
+	}
+
+	// Serialize result
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize MCP tool result: %w", err)
 	}
 
 	return resultJSON, nil

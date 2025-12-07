@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -36,6 +37,9 @@ type config struct {
 	validationMode     ValidationMode
 	disabledValidators []string
 	strictValidation   bool
+
+	// MCP configuration
+	mcpServers []mcp.ServerConfig
 }
 
 // Option configures a Conversation.
@@ -234,6 +238,98 @@ func WithDisabledValidators(names ...string) Option {
 func WithStrictValidation() Option {
 	return func(c *config) error {
 		c.strictValidation = true
+		return nil
+	}
+}
+
+// WithMCP adds an MCP (Model Context Protocol) server for tool execution.
+//
+// MCP servers provide external tools that can be called by the LLM.
+// The server is started automatically when the conversation opens and
+// stopped when the conversation is closed.
+//
+// Basic usage:
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "assistant",
+//	    sdk.WithMCP("filesystem", "npx", "@modelcontextprotocol/server-filesystem", "/path"),
+//	)
+//
+// With environment variables:
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "assistant",
+//	    sdk.WithMCP("github", "npx", "@modelcontextprotocol/server-github").
+//	        WithEnv("GITHUB_TOKEN", os.Getenv("GITHUB_TOKEN")),
+//	)
+//
+// Multiple servers:
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "assistant",
+//	    sdk.WithMCP("filesystem", "npx", "@modelcontextprotocol/server-filesystem", "/path"),
+//	    sdk.WithMCP("memory", "npx", "@modelcontextprotocol/server-memory"),
+//	)
+func WithMCP(name, command string, args ...string) Option {
+	return func(c *config) error {
+		c.mcpServers = append(c.mcpServers, mcp.ServerConfig{
+			Name:    name,
+			Command: command,
+			Args:    args,
+		})
+		return nil
+	}
+}
+
+// MCPServerBuilder provides a fluent interface for configuring MCP servers.
+type MCPServerBuilder struct {
+	config mcp.ServerConfig
+}
+
+// NewMCPServer creates a new MCP server configuration builder.
+//
+//	server := sdk.NewMCPServer("github", "npx", "@modelcontextprotocol/server-github").
+//	    WithEnv("GITHUB_TOKEN", os.Getenv("GITHUB_TOKEN"))
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "assistant",
+//	    sdk.WithMCPServer(server),
+//	)
+func NewMCPServer(name, command string, args ...string) *MCPServerBuilder {
+	return &MCPServerBuilder{
+		config: mcp.ServerConfig{
+			Name:    name,
+			Command: command,
+			Args:    args,
+			Env:     make(map[string]string),
+		},
+	}
+}
+
+// WithEnv adds an environment variable to the MCP server.
+func (b *MCPServerBuilder) WithEnv(key, value string) *MCPServerBuilder {
+	b.config.Env[key] = value
+	return b
+}
+
+// WithArgs appends additional arguments to the MCP server command.
+func (b *MCPServerBuilder) WithArgs(args ...string) *MCPServerBuilder {
+	b.config.Args = append(b.config.Args, args...)
+	return b
+}
+
+// Build returns the configured server config.
+func (b *MCPServerBuilder) Build() mcp.ServerConfig {
+	return b.config
+}
+
+// WithMCPServer adds a pre-configured MCP server.
+//
+//	server := sdk.NewMCPServer("github", "npx", "@modelcontextprotocol/server-github").
+//	    WithEnv("GITHUB_TOKEN", os.Getenv("GITHUB_TOKEN"))
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "assistant",
+//	    sdk.WithMCPServer(server),
+//	)
+func WithMCPServer(builder *MCPServerBuilder) Option {
+	return func(c *config) error {
+		c.mcpServers = append(c.mcpServers, builder.Build())
 		return nil
 	}
 }
