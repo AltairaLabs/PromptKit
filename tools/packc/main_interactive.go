@@ -9,6 +9,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
 const (
@@ -120,8 +121,14 @@ func compileCommand() {
 
 	fmt.Printf("Compiling %d prompts into pack '%s'...\n", len(cfg.PromptConfigs), *packID)
 
-	// Compile all prompts into a single pack
-	pack, err := compiler.CompileFromRegistry(*packID, fmt.Sprintf("packc-%s", version))
+	// Parse tools from loaded tool data (per PromptPack spec Section 9)
+	parsedTools := parseToolsFromConfig(cfg)
+	if len(parsedTools) > 0 {
+		fmt.Printf("Including %d tool definitions in pack\n", len(parsedTools))
+	}
+
+	// Compile all prompts into a single pack with tool definitions
+	pack, err := compiler.CompileFromRegistryWithParsedTools(*packID, fmt.Sprintf("packc-%s", version), parsedTools)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Compilation failed: %v\n", err)
 		os.Exit(1)
@@ -142,6 +149,13 @@ func compileCommand() {
 
 	fmt.Printf("✓ Pack compiled successfully: %s\n", *outputFile)
 	fmt.Printf("  Contains %d prompts: %v\n", len(pack.Prompts), pack.ListPrompts())
+	if len(pack.Tools) > 0 {
+		toolNames := make([]string, 0, len(pack.Tools))
+		for name := range pack.Tools {
+			toolNames = append(toolNames, name)
+		}
+		fmt.Printf("  Contains %d tools: %v\n", len(pack.Tools), toolNames)
+	}
 }
 
 func mustLoadConfig(configFile string) *config.Config {
@@ -273,4 +287,37 @@ func inspectCommand() {
 	printCompilationInfo(pack)
 
 	fmt.Println()
+}
+
+// parseToolsFromConfig parses raw tool YAML data from config into ParsedTool structs
+// Uses the tools.Registry which handles YAML→JSON conversion properly
+func parseToolsFromConfig(cfg *config.Config) []prompt.ParsedTool {
+	var result []prompt.ParsedTool
+
+	if len(cfg.LoadedTools) == 0 {
+		return result
+	}
+
+	// Create a temporary registry to parse tools
+	registry := tools.NewRegistry()
+
+	for _, td := range cfg.LoadedTools {
+		// Use registry's LoadToolFromBytes which handles YAML→JSON properly
+		if err := registry.LoadToolFromBytes(td.FilePath, td.Data); err != nil {
+			// Log warning but continue - tool may be invalid or not a tool file
+			fmt.Fprintf(os.Stderr, "Warning: skipping tool %s: %v\n", td.FilePath, err)
+			continue
+		}
+	}
+
+	// Extract parsed tools from registry
+	for name, tool := range registry.GetTools() {
+		result = append(result, prompt.ParsedTool{
+			Name:        name,
+			Description: tool.Description,
+			InputSchema: tool.InputSchema,
+		})
+	}
+
+	return result
 }

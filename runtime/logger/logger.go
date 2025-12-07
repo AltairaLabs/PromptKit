@@ -27,9 +27,24 @@ var (
 )
 
 func init() {
-	// Initialize with text handler writing to stderr at info level by default
+	// Check LOG_LEVEL environment variable
+	level := slog.LevelInfo
+	if envLevel := os.Getenv("LOG_LEVEL"); envLevel != "" {
+		switch strings.ToLower(envLevel) {
+		case "debug":
+			level = slog.LevelDebug
+		case "info":
+			level = slog.LevelInfo
+		case "warn", "warning":
+			level = slog.LevelWarn
+		case "error":
+			level = slog.LevelError
+		}
+	}
+
+	// Initialize with text handler writing to stderr
 	handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: level,
 	})
 	DefaultLogger = slog.New(handler)
 }

@@ -74,12 +74,24 @@ type Pack struct {
 	// Prompts - Map of task_type -> PackPrompt
 	Prompts map[string]*PackPrompt `json:"prompts"`
 
+	// Tools - Map of tool_name -> PackTool (per PromptPack spec Section 9)
+	// Tools are defined at pack level and referenced by name in prompts
+	Tools map[string]*PackTool `json:"tools,omitempty"`
+
 	// Shared fragments (can be referenced by any prompt)
 	Fragments map[string]string `json:"fragments,omitempty"` // Resolved fragments: name -> content
 
 	// Metadata
 	Metadata    *Metadata        `json:"metadata,omitempty"`
 	Compilation *CompilationInfo `json:"compilation,omitempty"`
+}
+
+// PackTool represents a tool definition in the pack (per PromptPack spec Section 9)
+// Tools are defined at pack level and referenced by prompts via the tools array
+type PackTool struct {
+	Name        string      `json:"name"`        // Tool function name (required)
+	Description string      `json:"description"` // Tool description (required)
+	Parameters  interface{} `json:"parameters"`  // JSON Schema for input parameters (required)
 }
 
 // PackPrompt represents a single prompt configuration within a pack
@@ -269,6 +281,138 @@ func (pc *PackCompiler) CompileFromRegistry(packID, compilerVersion string) (*Pa
 	return pack, nil
 }
 
+// ToolData holds raw tool configuration data for compilation
+type ToolData struct {
+	FilePath string
+	Data     []byte
+}
+
+// ParsedTool holds pre-parsed tool information for compilation
+// Use this when YAML parsing happens in the calling package
+type ParsedTool struct {
+	Name        string
+	Description string
+	InputSchema json.RawMessage
+}
+
+// CompileFromRegistryWithTools compiles ALL prompts from the registry into a single Pack
+// and includes tool definitions from the provided tool data.
+// This method satisfies PromptPack spec Section 9 which requires tools to be defined
+// at pack level with name, description, and parameters.
+func (pc *PackCompiler) CompileFromRegistryWithTools(
+	packID, compilerVersion string,
+	toolData []ToolData,
+) (*Pack, error) {
+	// First compile prompts
+	pack, err := pc.CompileFromRegistry(packID, compilerVersion)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse and add tools to the pack
+	if len(toolData) > 0 {
+		pack.Tools = make(map[string]*PackTool)
+		for _, td := range toolData {
+			tool, err := parseToolData(td.Data)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse tool from %s: %w", td.FilePath, err)
+			}
+			if tool != nil {
+				pack.Tools[tool.Name] = tool
+			}
+		}
+	}
+
+	return pack, nil
+}
+
+// CompileFromRegistryWithParsedTools compiles ALL prompts from the registry into a single Pack
+// and includes pre-parsed tool definitions. Use this when YAML parsing happens externally.
+func (pc *PackCompiler) CompileFromRegistryWithParsedTools(
+	packID, compilerVersion string,
+	parsedTools []ParsedTool,
+) (*Pack, error) {
+	// First compile prompts
+	pack, err := pc.CompileFromRegistry(packID, compilerVersion)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add pre-parsed tools to the pack
+	if len(parsedTools) > 0 {
+		pack.Tools = make(map[string]*PackTool)
+		for _, pt := range parsedTools {
+			pack.Tools[pt.Name] = ConvertToolToPackTool(pt.Name, pt.Description, pt.InputSchema)
+		}
+	}
+
+	return pack, nil
+}
+
+// parseToolData parses raw YAML tool data into a PackTool
+func parseToolData(data []byte) (*PackTool, error) {
+	// Parse as a generic K8s-style config first
+	var raw struct {
+		APIVersion string `yaml:"apiVersion" json:"apiVersion"`
+		Kind       string `yaml:"kind" json:"kind"`
+		Spec       struct {
+			Name        string          `yaml:"name" json:"name"`
+			Description string          `yaml:"description" json:"description"`
+			InputSchema json.RawMessage `yaml:"input_schema" json:"input_schema"`
+		} `yaml:"spec" json:"spec"`
+	}
+
+	if err := parseYAMLConfig(data, &raw); err != nil {
+		return nil, fmt.Errorf("failed to parse tool YAML: %w", err)
+	}
+
+	if raw.Kind != "Tool" {
+		return nil, nil // Not a tool, skip
+	}
+
+	// Convert input_schema to parameters
+	var params interface{}
+	if len(raw.Spec.InputSchema) > 0 {
+		if err := json.Unmarshal(raw.Spec.InputSchema, &params); err != nil {
+			return nil, fmt.Errorf("failed to parse input_schema as JSON: %w", err)
+		}
+	}
+
+	return &PackTool{
+		Name:        raw.Spec.Name,
+		Description: raw.Spec.Description,
+		Parameters:  params,
+	}, nil
+}
+
+// parseYAMLConfig is a helper to parse YAML without importing yaml package directly
+// This uses JSON as intermediate format since yaml struct tags include json fallback
+func parseYAMLConfig(data []byte, v interface{}) error {
+	// Try to parse as JSON first (some configs may be JSON)
+	if err := json.Unmarshal(data, v); err == nil {
+		return nil
+	}
+
+	// For YAML, we need to convert via the standard library approach
+	// Since we can't import yaml here without circular deps, we use a workaround
+	// The actual yaml parsing happens in the caller (packc main)
+	return fmt.Errorf("YAML parsing not available in this package, use ConvertToolToPackTool instead")
+}
+
+// ConvertToolToPackTool converts a tool descriptor to a PackTool
+// This is the preferred method when tool parsing happens externally
+func ConvertToolToPackTool(name, description string, inputSchema json.RawMessage) *PackTool {
+	var params interface{}
+	if len(inputSchema) > 0 {
+		_ = json.Unmarshal(inputSchema, &params)
+	}
+	return &PackTool{
+		Name:        name,
+		Description: description,
+		Parameters:  params,
+	}
+}
+
 // createEmptyPack creates a new empty pack structure
 func (pc *PackCompiler) createEmptyPack(packID string, promptCount int) *Pack {
 	return &Pack{
@@ -277,6 +421,7 @@ func (pc *PackCompiler) createEmptyPack(packID string, promptCount int) *Pack {
 		Version:     "v1.0.0",
 		Description: fmt.Sprintf("Pack containing %d prompts", promptCount),
 		Prompts:     make(map[string]*PackPrompt),
+		Tools:       make(map[string]*PackTool),
 		Fragments:   make(map[string]string),
 	}
 }

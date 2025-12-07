@@ -95,6 +95,7 @@ type Conversation struct {
 	registry      *prompt.Registry                 // Prompt registry for middleware pipeline
 	contextPolicy *middleware.ContextBuilderPolicy // Token budget policy
 	eventBus      *events.EventBus
+	baseVariables map[string]string // Template variables for prompt assembly
 
 	// State
 	state *statestore.ConversationState
@@ -319,6 +320,7 @@ func (cm *ConversationManager) CreateConversation(ctx context.Context, pack *Pac
 		state.Metadata = make(map[string]interface{})
 	}
 	state.Metadata["prompt_name"] = config.PromptName
+	state.Metadata["base_variables"] = baseVariables
 
 	// Save initial state
 	if err := cm.stateStore.Save(ctx, state); err != nil {
@@ -337,6 +339,7 @@ func (cm *ConversationManager) CreateConversation(ctx context.Context, pack *Pac
 		contextPolicy: config.ContextPolicy,
 		state:         state,
 		eventBus:      cm.eventBus,
+		baseVariables: baseVariables,
 	}
 
 	// Register conversation
@@ -383,6 +386,20 @@ func (cm *ConversationManager) GetConversation(
 		return nil, fmt.Errorf("failed to create registry from pack: %w", err)
 	}
 
+	// Restore baseVariables from metadata
+	baseVariables := make(map[string]string)
+	switch vars := state.Metadata["base_variables"].(type) {
+	case map[string]string:
+		baseVariables = vars
+	case map[string]interface{}:
+		// Handle JSON unmarshaling which produces map[string]interface{}
+		for k, v := range vars {
+			if s, ok := v.(string); ok {
+				baseVariables[k] = s
+			}
+		}
+	}
+
 	// Create conversation
 	conv := &Conversation{
 		id:            conversationID,
@@ -395,6 +412,7 @@ func (cm *ConversationManager) GetConversation(
 		contextPolicy: nil, // Context policy can be loaded from metadata when persistence layer supports it
 		state:         state,
 		eventBus:      cm.eventBus,
+		baseVariables: baseVariables,
 	}
 
 	// Register conversation
@@ -833,11 +851,11 @@ func (c *Conversation) buildMiddlewarePipeline() []pipeline.Middleware {
 	pipelineMiddleware = append(pipelineMiddleware, middleware.StateStoreLoadMiddleware(storeConfig))
 
 	// 2. Prompt assembly - loads prompt config and populates SystemPrompt + AllowedTools
-	baseVariables := make(map[string]string)
-	pipelineMiddleware = append(pipelineMiddleware, middleware.PromptAssemblyMiddleware(c.registry, c.promptName, baseVariables))
-
 	// 3. Template middleware - substitutes variables in system prompt
-	pipelineMiddleware = append(pipelineMiddleware, middleware.TemplateMiddleware())
+	pipelineMiddleware = append(pipelineMiddleware,
+		middleware.PromptAssemblyMiddleware(c.registry, c.promptName, c.baseVariables),
+		middleware.TemplateMiddleware(),
+	)
 
 	// 4. Context builder middleware - manages token budget and truncation (if policy configured)
 	if c.contextPolicy != nil {
@@ -845,9 +863,10 @@ func (c *Conversation) buildMiddlewarePipeline() []pipeline.Middleware {
 	}
 
 	// 5. Provider middleware - executes LLM
-	providerConfig := &middleware.ProviderMiddlewareConfig{
-		MaxTokens:   c.prompt.Parameters.MaxTokens,
-		Temperature: float32(c.prompt.Parameters.Temperature),
+	providerConfig := &middleware.ProviderMiddlewareConfig{}
+	if c.prompt.Parameters != nil {
+		providerConfig.MaxTokens = c.prompt.Parameters.MaxTokens
+		providerConfig.Temperature = float32(c.prompt.Parameters.Temperature)
 	}
 
 	// Tool policy from prompt if configured
