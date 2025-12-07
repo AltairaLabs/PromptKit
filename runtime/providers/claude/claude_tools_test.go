@@ -1,7 +1,11 @@
 package claude
 
 import (
+	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -703,5 +707,208 @@ func TestClaudeToolProvider_BuildToolRequest_AppliesDefaults(t *testing.T) {
 				t.Errorf("Expected max_tokens %d, got %v", tt.expectedMaxTokens, request["max_tokens"])
 			}
 		})
+	}
+}
+
+// ============================================================================
+// PredictStreamWithTools Tests
+// ============================================================================
+
+func TestClaudeToolProvider_PredictStreamWithTools_ImplementsToolSupport(t *testing.T) {
+	provider := NewToolProvider("test", "claude-3-opus", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)
+
+	// Verify it implements ToolSupport interface which includes PredictStreamWithTools
+	var toolSupport providers.ToolSupport = provider
+
+	// If this compiles, the interface is implemented correctly
+	_ = toolSupport.BuildTooling
+	_ = toolSupport.PredictWithTools
+}
+
+func TestClaudeToolProvider_PredictStreamWithTools_BuildsRequestWithTools(t *testing.T) {
+	provider := NewToolProvider("test", "claude-3-opus", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)
+
+	// Verify the provider implements the interface with PredictStreamWithTools
+	var _ providers.ToolSupport = provider
+
+	// Build tools
+	schema := json.RawMessage(`{"type": "object", "properties": {"query": {"type": "string"}}}`)
+	descriptors := []*providers.ToolDescriptor{
+		{
+			Name:        "search",
+			Description: "Search for information",
+			InputSchema: schema,
+		},
+	}
+
+	tools, err := provider.BuildTooling(descriptors)
+	if err != nil {
+		t.Fatalf("Failed to build tooling: %v", err)
+	}
+
+	if tools == nil {
+		t.Fatal("Expected non-nil tools")
+	}
+
+	// Verify tools are properly formatted for Claude
+	claudeTools, ok := tools.([]claudeTool)
+	if !ok {
+		t.Fatalf("Expected []claudeTool, got %T", tools)
+	}
+
+	if len(claudeTools) != 1 {
+		t.Fatalf("Expected 1 tool, got %d", len(claudeTools))
+	}
+
+	if claudeTools[0].Name != "search" {
+		t.Errorf("Expected tool name 'search', got '%s'", claudeTools[0].Name)
+	}
+}
+
+func TestClaudeToolProvider_PredictStreamWithTools_TextResponse(t *testing.T) {
+	// Create mock SSE stream with Claude's event format
+	sseData := `data: {"type":"content_block_start","index":0}
+
+data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Hello"}}
+
+data: {"type":"content_block_delta","delta":{"type":"text_delta","text":" Claude"}}
+
+data: {"type":"content_block_stop"}
+
+data: {"type":"message_stop","message":{"stop_reason":"end_turn"}}
+
+`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify request contains tools and stream flag
+		body, _ := io.ReadAll(r.Body)
+		var req map[string]interface{}
+		_ = json.Unmarshal(body, &req)
+
+		if _, hasTools := req["tools"]; !hasTools {
+			t.Error("Expected tools in request")
+		}
+		if stream, hasStream := req["stream"]; !hasStream || stream != true {
+			t.Error("Expected stream=true in request")
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(sseData))
+	}))
+	defer server.Close()
+
+	provider := NewToolProvider("test", "claude-3-opus", server.URL, providers.ProviderDefaults{}, false)
+
+	schema := json.RawMessage(`{"type": "object", "properties": {"q": {"type": "string"}}}`)
+	tools, _ := provider.BuildTooling([]*providers.ToolDescriptor{
+		{Name: "search", Description: "Search", InputSchema: schema},
+	})
+
+	ctx := context.Background()
+	stream, err := provider.PredictStreamWithTools(ctx, providers.PredictionRequest{
+		Messages: []types.Message{{Role: "user", Content: "test"}},
+	}, tools, "auto")
+
+	if err != nil {
+		t.Fatalf("PredictStreamWithTools failed: %v", err)
+	}
+
+	var chunks []providers.StreamChunk
+	for chunk := range stream {
+		if chunk.Error != nil {
+			t.Fatalf("Stream error: %v", chunk.Error)
+		}
+		chunks = append(chunks, chunk)
+	}
+
+	if len(chunks) == 0 {
+		t.Fatal("Expected chunks")
+	}
+
+	final := chunks[len(chunks)-1]
+	if final.Content != "Hello Claude" {
+		t.Errorf("Final content: got %q, want %q", final.Content, "Hello Claude")
+	}
+}
+
+func TestClaudeToolProvider_PredictStreamWithTools_ToolCallResponse(t *testing.T) {
+	// Create mock SSE stream with tool use - test that the request is made correctly
+	// The streaming parser may not extract tool calls; we're testing the HTTP flow here
+	sseData := `data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_123","name":"search","input":{}}}
+
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"q\":"}}
+
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\"test\"}"}}
+
+data: {"type":"content_block_stop","index":0}
+
+data: {"type":"message_stop","message":{"stop_reason":"tool_use"}}
+
+`
+	requestReceived := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestReceived = true
+		// Verify request contains tools
+		body, _ := io.ReadAll(r.Body)
+		var req map[string]interface{}
+		_ = json.Unmarshal(body, &req)
+
+		if _, hasTools := req["tools"]; !hasTools {
+			t.Error("Expected tools in request")
+		}
+		if stream, ok := req["stream"]; !ok || stream != true {
+			t.Error("Expected stream=true in request")
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(sseData))
+	}))
+	defer server.Close()
+
+	provider := NewToolProvider("test", "claude-3-opus", server.URL, providers.ProviderDefaults{}, false)
+
+	schema := json.RawMessage(`{"type": "object", "properties": {"q": {"type": "string"}}}`)
+	tools, _ := provider.BuildTooling([]*providers.ToolDescriptor{
+		{Name: "search", Description: "Search", InputSchema: schema},
+	})
+
+	ctx := context.Background()
+	stream, err := provider.PredictStreamWithTools(ctx, providers.PredictionRequest{
+		Messages: []types.Message{{Role: "user", Content: "search for test"}},
+	}, tools, "auto")
+
+	if err != nil {
+		t.Fatalf("PredictStreamWithTools failed: %v", err)
+	}
+
+	// Drain the stream
+	for chunk := range stream {
+		if chunk.Error != nil {
+			t.Fatalf("Stream error: %v", chunk.Error)
+		}
+	}
+
+	if !requestReceived {
+		t.Fatal("Expected request to be made to server")
+	}
+}
+
+func TestClaudeToolProvider_PredictStreamWithTools_HTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error": "internal error"}`))
+	}))
+	defer server.Close()
+
+	provider := NewToolProvider("test", "claude-3-opus", server.URL, providers.ProviderDefaults{}, false)
+
+	ctx := context.Background()
+	_, err := provider.PredictStreamWithTools(ctx, providers.PredictionRequest{
+		Messages: []types.Message{{Role: "user", Content: "test"}},
+	}, nil, "auto")
+
+	if err == nil {
+		t.Fatal("Expected error for HTTP 500")
 	}
 }

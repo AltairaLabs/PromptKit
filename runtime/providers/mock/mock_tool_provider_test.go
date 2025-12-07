@@ -631,3 +631,151 @@ scenarios:
 	assert.Equal(t, 3.14, objectField["nested_number"])
 	assert.Equal(t, false, objectField["nested_bool"])
 }
+
+// ============================================================================
+// PredictStreamWithTools Tests
+// ============================================================================
+
+func TestToolProvider_PredictStreamWithTools_TextResponse(t *testing.T) {
+	// Create repository with text response
+	repo := NewInMemoryMockRepository("default")
+	repo.SetResponse("stream-test", 1, "Hello from streaming mock!")
+
+	provider := NewToolProviderWithRepository("test-id", "test-model", false, repo)
+
+	req := providers.PredictionRequest{
+		Messages: []types.Message{
+			{Role: "user", Content: "Hello"},
+		},
+		Metadata: map[string]interface{}{
+			"mock_scenario_id": "stream-test",
+			"mock_turn_number": 1,
+		},
+	}
+
+	ctx := context.Background()
+	streamChan, err := provider.PredictStreamWithTools(ctx, req, nil, "auto")
+
+	require.NoError(t, err)
+	require.NotNil(t, streamChan)
+
+	// Collect all chunks
+	var chunks []providers.StreamChunk
+	for chunk := range streamChan {
+		chunks = append(chunks, chunk)
+	}
+
+	// Should have at least 2 chunks (content chunks + final chunk)
+	assert.GreaterOrEqual(t, len(chunks), 2)
+
+	// Final chunk should have finish reason
+	finalChunk := chunks[len(chunks)-1]
+	assert.NotNil(t, finalChunk.FinishReason)
+	assert.Equal(t, "stop", *finalChunk.FinishReason)
+
+	// Final chunk should have cost info
+	assert.NotNil(t, finalChunk.CostInfo)
+}
+
+func TestToolProvider_PredictStreamWithTools_ToolCallResponse(t *testing.T) {
+	configData := `
+scenarios:
+  stream-tool-test:
+    turns:
+      1:
+        type: tool_calls
+        content: "I'll search for that."
+        tool_calls:
+          - name: search
+            arguments:
+              query: "test query"
+`
+
+	tempFile := createTempYAMLFile(t, configData)
+	defer cleanupTempFile(t, tempFile)
+
+	repo, err := NewFileMockRepository(tempFile)
+	require.NoError(t, err)
+
+	provider := NewToolProviderWithRepository("test-id", "test-model", false, repo)
+
+	req := providers.PredictionRequest{
+		Messages: []types.Message{
+			{Role: "user", Content: "Search for something"},
+		},
+		Metadata: map[string]interface{}{
+			"mock_scenario_id": "stream-tool-test",
+			"mock_turn_number": 1,
+		},
+	}
+
+	ctx := context.Background()
+	streamChan, err := provider.PredictStreamWithTools(ctx, req, nil, "auto")
+
+	require.NoError(t, err)
+	require.NotNil(t, streamChan)
+
+	// Collect all chunks
+	var chunks []providers.StreamChunk
+	for chunk := range streamChan {
+		chunks = append(chunks, chunk)
+	}
+
+	// Final chunk should have tool calls
+	finalChunk := chunks[len(chunks)-1]
+	assert.NotNil(t, finalChunk.FinishReason)
+	assert.Equal(t, "tool_calls", *finalChunk.FinishReason)
+	assert.Len(t, finalChunk.ToolCalls, 1)
+	assert.Equal(t, "search", finalChunk.ToolCalls[0].Name)
+}
+
+func TestToolProvider_PredictStreamWithTools_StreamsContentInChunks(t *testing.T) {
+	// Create a response with enough content to be chunked
+	longContent := "This is a longer response that should be split into multiple chunks during streaming simulation."
+	repo := NewInMemoryMockRepository("default")
+	repo.SetResponse("chunk-test", 1, longContent)
+
+	provider := NewToolProviderWithRepository("test-id", "test-model", false, repo)
+
+	req := providers.PredictionRequest{
+		Messages: []types.Message{
+			{Role: "user", Content: "Give me a long response"},
+		},
+		Metadata: map[string]interface{}{
+			"mock_scenario_id": "chunk-test",
+			"mock_turn_number": 1,
+		},
+	}
+
+	ctx := context.Background()
+	streamChan, err := provider.PredictStreamWithTools(ctx, req, nil, "auto")
+
+	require.NoError(t, err)
+
+	// Collect chunks and verify they build up the content
+	var lastContent string
+	chunkCount := 0
+	for chunk := range streamChan {
+		chunkCount++
+		if chunk.Content != "" {
+			lastContent = chunk.Content
+		}
+	}
+
+	// Should have multiple chunks
+	assert.Greater(t, chunkCount, 1, "Expected multiple chunks for streaming")
+
+	// Final accumulated content should match original
+	assert.Equal(t, longContent, lastContent)
+}
+
+func TestToolProvider_PredictStreamWithTools_ImplementsToolSupport(t *testing.T) {
+	provider := NewToolProvider("test-id", "test-model", false, nil)
+
+	// Verify it implements ToolSupport interface which includes PredictStreamWithTools
+	var toolSupport providers.ToolSupport = provider
+
+	// If this compiles, the interface is implemented correctly
+	_ = toolSupport.BuildTooling
+	_ = toolSupport.PredictWithTools
+}

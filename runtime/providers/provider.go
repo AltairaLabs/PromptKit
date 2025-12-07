@@ -92,4 +92,12 @@ type ToolSupport interface {
 
 	// PredictWithTools performs a predict request with tool support
 	PredictWithTools(ctx context.Context, req PredictionRequest, tools interface{}, toolChoice string) (PredictionResponse, []types.MessageToolCall, error)
+
+	// PredictStreamWithTools performs a streaming predict request with tool support
+	PredictStreamWithTools(
+		ctx context.Context,
+		req PredictionRequest,
+		tools interface{},
+		toolChoice string,
+	) (<-chan StreamChunk, error)
 }

@@ -1,7 +1,11 @@
 package openai
 
 import (
+	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -701,5 +705,210 @@ func TestOpenAIToolProvider_BuildToolRequest_AppliesDefaults(t *testing.T) {
 				t.Errorf("Expected max_tokens %d, got %v", tt.expectedMaxTokens, request["max_tokens"])
 			}
 		})
+	}
+}
+
+// ============================================================================
+// PredictStreamWithTools Tests
+// ============================================================================
+
+func TestToolProvider_PredictStreamWithTools_BuildsRequestWithTools(t *testing.T) {
+	// This test verifies that PredictStreamWithTools properly includes tools in the request
+	// We can't test the actual streaming without a mock server, but we can verify the method exists
+	// and has the correct signature
+
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+
+	// Verify the provider implements the interface with PredictStreamWithTools
+	var _ providers.ToolSupport = provider
+
+	// Build tools
+	schema := json.RawMessage(`{"type": "object", "properties": {"query": {"type": "string"}}}`)
+	descriptors := []*providers.ToolDescriptor{
+		{
+			Name:        "search",
+			Description: "Search for information",
+			InputSchema: schema,
+		},
+	}
+
+	tools, err := provider.BuildTooling(descriptors)
+	if err != nil {
+		t.Fatalf("Failed to build tooling: %v", err)
+	}
+
+	if tools == nil {
+		t.Fatal("Expected non-nil tools")
+	}
+
+	// Verify tools are properly formatted for OpenAI
+	openAITools, ok := tools.([]openAITool)
+	if !ok {
+		t.Fatalf("Expected []openAITool, got %T", tools)
+	}
+
+	if len(openAITools) != 1 {
+		t.Fatalf("Expected 1 tool, got %d", len(openAITools))
+	}
+
+	if openAITools[0].Function.Name != "search" {
+		t.Errorf("Expected tool name 'search', got '%s'", openAITools[0].Function.Name)
+	}
+}
+
+func TestToolProvider_PredictStreamWithTools_ImplementsToolSupport(t *testing.T) {
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+
+	// Verify it implements ToolSupport interface which now includes PredictStreamWithTools
+	var toolSupport providers.ToolSupport = provider
+
+	// Verify the methods exist (compile-time check via interface)
+	_ = toolSupport.BuildTooling
+	_ = toolSupport.PredictWithTools
+	// PredictStreamWithTools is part of the interface, so if this compiles, it's implemented
+}
+
+func TestToolProvider_PredictStreamWithTools_TextResponse(t *testing.T) {
+	// Create mock SSE stream with tool-aware response
+	sseData := `data: {"choices":[{"delta":{"content":"Hello"}}]}
+
+data: {"choices":[{"delta":{"content":" world"}}]}
+
+data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}
+
+data: [DONE]
+
+`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify request contains tools
+		body, _ := io.ReadAll(r.Body)
+		var req map[string]interface{}
+		_ = json.Unmarshal(body, &req)
+
+		if _, hasTools := req["tools"]; !hasTools {
+			t.Error("Expected tools in request")
+		}
+		if _, hasStream := req["stream"]; !hasStream {
+			t.Error("Expected stream in request")
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(sseData))
+	}))
+	defer server.Close()
+
+	provider := NewToolProvider("test", "gpt-4", server.URL, providers.ProviderDefaults{}, false, nil)
+
+	schema := json.RawMessage(`{"type": "object", "properties": {"q": {"type": "string"}}}`)
+	tools, _ := provider.BuildTooling([]*providers.ToolDescriptor{
+		{Name: "search", Description: "Search", InputSchema: schema},
+	})
+
+	ctx := context.Background()
+	stream, err := provider.PredictStreamWithTools(ctx, providers.PredictionRequest{
+		Messages: []types.Message{{Role: "user", Content: "test"}},
+	}, tools, "auto")
+
+	if err != nil {
+		t.Fatalf("PredictStreamWithTools failed: %v", err)
+	}
+
+	var chunks []providers.StreamChunk
+	for chunk := range stream {
+		if chunk.Error != nil {
+			t.Fatalf("Stream error: %v", chunk.Error)
+		}
+		chunks = append(chunks, chunk)
+	}
+
+	if len(chunks) == 0 {
+		t.Fatal("Expected chunks")
+	}
+
+	final := chunks[len(chunks)-1]
+	if final.Content != "Hello world" {
+		t.Errorf("Final content: got %q, want %q", final.Content, "Hello world")
+	}
+}
+
+func TestToolProvider_PredictStreamWithTools_ToolCallResponse(t *testing.T) {
+	// Create mock SSE stream with tool call
+	sseData := `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_123","type":"function","function":{"name":"search","arguments":""}}]}}]}
+
+data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"q\":"}}]}}]}
+
+data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"test\"}"}}]}}]}
+
+data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":15,"completion_tokens":10}}
+
+data: [DONE]
+
+`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(sseData))
+	}))
+	defer server.Close()
+
+	provider := NewToolProvider("test", "gpt-4", server.URL, providers.ProviderDefaults{}, false, nil)
+
+	schema := json.RawMessage(`{"type": "object", "properties": {"q": {"type": "string"}}}`)
+	tools, _ := provider.BuildTooling([]*providers.ToolDescriptor{
+		{Name: "search", Description: "Search", InputSchema: schema},
+	})
+
+	ctx := context.Background()
+	stream, err := provider.PredictStreamWithTools(ctx, providers.PredictionRequest{
+		Messages: []types.Message{{Role: "user", Content: "search for test"}},
+	}, tools, "auto")
+
+	if err != nil {
+		t.Fatalf("PredictStreamWithTools failed: %v", err)
+	}
+
+	var chunks []providers.StreamChunk
+	for chunk := range stream {
+		if chunk.Error != nil {
+			t.Fatalf("Stream error: %v", chunk.Error)
+		}
+		chunks = append(chunks, chunk)
+	}
+
+	if len(chunks) == 0 {
+		t.Fatal("Expected chunks")
+	}
+
+	final := chunks[len(chunks)-1]
+	if final.FinishReason == nil || *final.FinishReason != "tool_calls" {
+		t.Errorf("Expected finish_reason=tool_calls, got %v", final.FinishReason)
+	}
+
+	if len(final.ToolCalls) != 1 {
+		t.Fatalf("Expected 1 tool call, got %d", len(final.ToolCalls))
+	}
+
+	if final.ToolCalls[0].Name != "search" {
+		t.Errorf("Expected tool name 'search', got '%s'", final.ToolCalls[0].Name)
+	}
+}
+
+func TestToolProvider_PredictStreamWithTools_HTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error": "internal error"}`))
+	}))
+	defer server.Close()
+
+	provider := NewToolProvider("test", "gpt-4", server.URL, providers.ProviderDefaults{}, false, nil)
+
+	ctx := context.Background()
+	_, err := provider.PredictStreamWithTools(ctx, providers.PredictionRequest{
+		Messages: []types.Message{{Role: "user", Content: "test"}},
+	}, nil, "auto")
+
+	if err == nil {
+		t.Fatal("Expected error for HTTP 500")
 	}
 }

@@ -385,6 +385,53 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]
 	return respBytes, nil
 }
 
+// PredictStreamWithTools performs a streaming predict request with tool support
+func (p *ToolProvider) PredictStreamWithTools(
+	ctx context.Context,
+	req providers.PredictionRequest,
+	tools interface{},
+	toolChoice string,
+) (<-chan providers.StreamChunk, error) {
+	// Build Claude request with tools
+	claudeReq := p.buildToolRequest(req, tools, toolChoice)
+
+	// Add streaming flag
+	claudeReq["stream"] = true
+
+	requestBytes, err := json.Marshal(claudeReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	url := p.baseURL + "/messages"
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(requestBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("x-api-key", p.apiKey)
+	httpReq.Header.Set("anthropic-version", "2023-06-01")
+	httpReq.Header.Set("Accept", "text/event-stream")
+
+	resp, err := p.GetHTTPClient().Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	outChan := make(chan providers.StreamChunk)
+	go p.streamResponse(ctx, resp.Body, outChan)
+
+	return outChan, nil
+}
+
 func init() {
 	providers.RegisterProviderFactory("claude", func(spec providers.ProviderSpec) (providers.Provider, error) {
 		return NewToolProvider(spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput), nil

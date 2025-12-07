@@ -525,3 +525,11 @@ func (m *MockProviderWithTools) PredictWithTools(ctx context.Context, req provid
 	args := m.Called(ctx, req, tooling, toolChoice)
 	return args.Get(0).(providers.PredictionResponse), args.Get(1).([]types.MessageToolCall), args.Error(2)
 }
+
+func (m *MockProviderWithTools) PredictStreamWithTools(ctx context.Context, req providers.PredictionRequest, tooling interface{}, toolChoice string) (<-chan providers.StreamChunk, error) {
+	args := m.Called(ctx, req, tooling, toolChoice)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(<-chan providers.StreamChunk), args.Error(1)
+}
