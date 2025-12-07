@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### SDK v2 - Pack-First Architecture
+A complete rewrite of the Go SDK with a pack-first architecture that reduces boilerplate by ~80%.
+
+**New Features:**
+- **Pack-First Design**: Load prompts directly from pack files - no manual configuration
+- **Simplified API**: 5 lines for hello world vs 30+ in v1
+- **Enhanced Variables**: SetVar/GetVar with type safety and concurrent access
+- **Streaming Support**: Built-in streaming with customizable handlers
+- **Tool System**: Multiple executor types (function, HTTP, MCP)
+- **Human-in-the-Loop (HITL)**: Configurable approval workflows for sensitive operations
+- **MCP Integration**: Model Context Protocol support via runtime
+- **Observability**: EventBus integration with hooks package for monitoring
+- **Validation**: Automatic pack validation with detailed error reporting
+
+**New Packages:**
+- `sdk/hooks` - Event subscription and observability
+- `sdk/tools` - HTTP executor and tool utilities
+- `sdk/internal/packloader` - Pack file loading and caching
+
+**Examples:**
+- `sdk/examples/hello` - Basic conversation
+- `sdk/examples/tools` - Tool registration and execution
+- `sdk/examples/streaming` - Token-by-token streaming
+- `sdk/examples/hitl` - Human-in-the-loop approval
+
+**Migration:**
+See [SDK Migration Guide](docs/sdk-migration.md) for detailed before/after examples.
+
 #### TUI Real-Time Updates
 - Real-time conversation updates in TUI with message caching
 - Streaming token visualization during LLM responses

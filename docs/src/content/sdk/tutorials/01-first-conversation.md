@@ -5,14 +5,14 @@ order: 1
 ---
 # Tutorial 1: Your First Conversation
 
-Build a simple chatbot in 5 minutes using the PromptKit SDK.
+Build a chatbot in 5 lines of code using the PromptKit SDK v2.
 
 ## What You'll Learn
 
-- Initialize the SDK with a provider
-- Create a PromptPack
-- Start a conversation
-- Send and receive messages
+- Open a conversation from a pack file
+- Send messages and receive responses
+- Use template variables
+- Multi-turn conversations
 
 ## Prerequisites
 
@@ -33,22 +33,21 @@ Install the SDK:
 
 ```bash
 go get github.com/AltairaLabs/PromptKit/sdk
-go get github.com/AltairaLabs/PromptKit/runtime/providers
 ```
 
 ## Step 2: Create a PromptPack
 
-Create `assistant.pack.json`:
+Create `hello.pack.json`:
 
 ```json
 {
   "version": "1.0",
   "prompts": {
-    "assistant": {
-      "name": "assistant",
+    "chat": {
+      "name": "chat",
       "description": "A helpful AI assistant",
-      "system_prompt": "You are a helpful AI assistant. Be concise and friendly.",
-      "model_config": {
+      "system_template": "You are a helpful AI assistant. Be concise and friendly. The user's name is {{user_name}}.",
+      "parameters": {
         "temperature": 0.7,
         "max_tokens": 1000
       }
@@ -70,56 +69,34 @@ import (
     "context"
     "fmt"
     "log"
-    "os"
 
     "github.com/AltairaLabs/PromptKit/sdk"
-    "github.com/AltairaLabs/PromptKit/runtime/providers"
 )
 
 func main() {
+    // Open a conversation from a pack file
+    conv, err := sdk.Open("./hello.pack.json", "chat")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer conv.Close()
+
+    // Set template variables (optional)
+    conv.SetVar("user_name", "World")
+
+    // Send a message and get a response
     ctx := context.Background()
-
-    // 1. Create provider
-    apiKey := os.Getenv("OPENAI_API_KEY")
-    if apiKey == "" {
-        log.Fatal("OPENAI_API_KEY not set")
-    }
-    
-    provider := providers.NewOpenAIProvider(apiKey, "gpt-4o-mini", false)
-
-    // 2. Create conversation manager
-    manager, err := sdk.NewConversationManager(
-        sdk.WithProvider(provider),
-    )
+    resp, err := conv.Send(ctx, "Hello!")
     if err != nil {
-        log.Fatalf("Failed to create manager: %v", err)
+        log.Fatal(err)
     }
 
-    // 3. Load pack
-    pack, err := manager.LoadPack("./assistant.pack.json")
-    if err != nil {
-        log.Fatalf("Failed to load pack: %v", err)
-    }
-
-    // 4. Create conversation
-    conv, err := manager.NewConversation(ctx, pack, sdk.ConversationConfig{
-        UserID:     "user123",
-        PromptName: "assistant",
-    })
-    if err != nil {
-        log.Fatalf("Failed to create conversation: %v", err)
-    }
-
-    // 5. Send message
-    response, err := conv.Send(ctx, "Hello! What can you help me with?")
-    if err != nil {
-        log.Fatalf("Failed to send message: %v", err)
-    }
-
-    // 6. Display response
-    fmt.Println("Assistant:", response.Content)
+    // Print the response
+    fmt.Println(resp.Text())
 }
 ```
+
+That's it! **5 lines of functional code** (excluding error handling).
 
 ## Step 4: Run Your Chatbot
 
@@ -138,66 +115,90 @@ go run main.go
 You should see:
 
 ```
-Assistant: Hello! I'm here to help you with various tasks...
+Hello World! How can I help you today?
 ```
 
 🎉 **Congratulations!** You've built your first chatbot.
 
 ## Understanding the Code
 
-Let's break down what each part does:
-
-### 1. Provider
+### sdk.Open()
 
 ```go
-provider := providers.NewOpenAIProvider(apiKey, "gpt-4o-mini", false)
+conv, err := sdk.Open("./hello.pack.json", "chat")
 ```
 
-The provider handles communication with the LLM API. PromptKit supports:
-- OpenAI (GPT-4, GPT-3.5)
-- Anthropic (Claude)
-- Google (Gemini)
+- First argument: path to your pack file
+- Second argument: prompt name from the pack
+- Returns a `Conversation` ready to use
 
-### 2. Conversation Manager
+### conv.SetVar()
 
 ```go
-manager, err := sdk.NewConversationManager(
-    sdk.WithProvider(provider),
+conv.SetVar("user_name", "World")
+```
+
+Sets template variables that are substituted into the system prompt.
+
+### conv.Send()
+
+```go
+resp, err := conv.Send(ctx, "Hello!")
+```
+
+Sends a message and returns the response. The conversation context is maintained automatically.
+
+### resp.Text()
+
+```go
+fmt.Println(resp.Text())
+```
+
+Gets the text content from the response.
+
+## Multi-Turn Conversations
+
+The SDK automatically maintains conversation history:
+
+```go
+// Turn 1
+resp1, _ := conv.Send(ctx, "My name is Alice")
+fmt.Println(resp1.Text())  // "Nice to meet you, Alice!"
+
+// Turn 2 - context is remembered
+resp2, _ := conv.Send(ctx, "What's my name?")
+fmt.Println(resp2.Text())  // "Your name is Alice."
+```
+
+## Configuration Options
+
+### Open with Options
+
+```go
+conv, err := sdk.Open("./hello.pack.json", "chat",
+    sdk.WithModel("gpt-4o"),
+    sdk.WithTemperature(0.9),
 )
 ```
 
-The manager orchestrates conversations and applies your configuration.
+### Different Providers
 
-### 3. PromptPack
+The pack file can specify different providers:
 
-```go
-pack, err := manager.LoadPack("./assistant.pack.json")
+```json
+{
+  "version": "1.0",
+  "provider": {
+    "name": "anthropic",
+    "model": "claude-3-5-sonnet-20241022"
+  },
+  "prompts": { ... }
+}
 ```
 
-Packs define prompt templates, model configuration, and behavior.
+## Interactive Chat Loop
 
-### 4. Conversation
-
-```go
-conv, err := manager.NewConversation(ctx, pack, sdk.ConversationConfig{
-    UserID:     "user123",
-    PromptName: "assistant",
-})
-```
-
-Each conversation maintains its own message history and state.
-
-### 5. Send Message
-
-```go
-response, err := conv.Send(ctx, "Hello!")
-```
-
-`Send()` processes your message through the pipeline and returns the LLM's response.
-
-## Adding More Interactions
-
-Make it interactive with a simple loop:
+Make it interactive:
 
 ```go
 package main
@@ -211,178 +212,55 @@ import (
     "strings"
 
     "github.com/AltairaLabs/PromptKit/sdk"
-    "github.com/AltairaLabs/PromptKit/runtime/providers"
 )
 
 func main() {
+    conv, err := sdk.Open("./hello.pack.json", "chat")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer conv.Close()
+
     ctx := context.Background()
-
-    // Setup (same as before)
-    apiKey := os.Getenv("OPENAI_API_KEY")
-    provider := providers.NewOpenAIProvider(apiKey, "gpt-4o-mini", false)
-    
-    manager, err := sdk.NewConversationManager(
-        sdk.WithProvider(provider),
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    pack, err := manager.LoadPack("./assistant.pack.json")
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    conv, err := manager.NewConversation(ctx, pack, sdk.ConversationConfig{
-        UserID:     "user123",
-        PromptName: "assistant",
-    })
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    // Interactive loop
     scanner := bufio.NewScanner(os.Stdin)
-    fmt.Println("Chatbot ready! Type your messages (or 'quit' to exit)")
-    fmt.Println()
-
+    
+    fmt.Println("Chat ready! Type 'quit' to exit.")
     for {
         fmt.Print("You: ")
         if !scanner.Scan() {
             break
         }
-
-        message := strings.TrimSpace(scanner.Text())
-        if message == "" {
-            continue
-        }
-        if message == "quit" {
-            fmt.Println("Goodbye!")
+        
+        msg := strings.TrimSpace(scanner.Text())
+        if msg == "quit" {
             break
         }
-
-        // Send message
-        response, err := conv.Send(ctx, message)
+        
+        resp, err := conv.Send(ctx, msg)
         if err != nil {
-            fmt.Printf("Error: %v\n", err)
+            log.Printf("Error: %v", err)
             continue
         }
-
-        // Display response
-        fmt.Printf("Assistant: %s\n\n", response.Content)
+        
+        fmt.Printf("Assistant: %s\n\n", resp.Text())
     }
 }
 ```
-
-Run it:
-
-```bash
-go run main.go
-```
-
-Try a conversation:
-
-```
-Chatbot ready! Type your messages (or 'quit' to exit)
-
-You: What's the capital of France?
-Assistant: The capital of France is Paris.
-
-You: Tell me an interesting fact about it
-Assistant: The Eiffel Tower was originally intended to be temporary...
-
-You: quit
-Goodbye!
-```
-
-## Trying Different Providers
-
-### Anthropic (Claude)
-
-```go
-provider := providers.NewAnthropicProvider(apiKey, "claude-3-5-sonnet-20241022", false)
-```
-
-### Google (Gemini)
-
-```go
-provider := providers.NewGeminiProvider(apiKey, "gemini-1.5-pro", false)
-```
-
-Just change the provider - everything else stays the same!
-
-## Customizing Your Assistant
-
-Modify `assistant.pack.json` to change behavior:
-
-```json
-{
-  "version": "1.0",
-  "prompts": {
-    "pirate": {
-      "name": "pirate",
-      "description": "A pirate assistant",
-      "system_prompt": "You are a pirate captain. Speak like a pirate and give advice about sailing.",
-      "model_config": {
-        "temperature": 0.9,
-        "max_tokens": 500
-      }
-    }
-  }
-}
-```
-
-Update the prompt name:
-
-```go
-conv, err := manager.NewConversation(ctx, pack, sdk.ConversationConfig{
-    UserID:     "user123",
-    PromptName: "pirate",  // Changed
-})
-```
-
-## Common Issues
-
-### "OPENAI_API_KEY not set"
-
-Set your environment variable:
-
-```bash
-export OPENAI_API_KEY="sk-..."
-```
-
-### "Failed to load pack"
-
-Check that `assistant.pack.json` exists in the current directory:
-
-```bash
-ls -la assistant.pack.json
-```
-
-### "Failed to send message"
-
-Check your API key is valid and you have credits available.
 
 ## What You've Learned
 
-✅ Initialize the SDK with a provider  
-✅ Create and load a PromptPack  
-✅ Create conversations  
-✅ Send messages and receive responses  
-✅ Build an interactive chatbot  
-✅ Customize assistant behavior  
+✅ Open conversations with `sdk.Open()`  
+✅ Set template variables with `SetVar()`  
+✅ Send messages with `Send()`  
+✅ Multi-turn conversation context  
+✅ Configuration options  
 
 ## Next Steps
 
-Continue to [Tutorial 2: Streaming Responses](02-streaming-responses) to learn how to implement real-time streaming for better UX.
+- **[Tutorial 2: Streaming](02-streaming-responses)** - Real-time responses
+- **[Tutorial 3: Tools](03-tool-integration)** - Add function calling
+- **[How-To: Send Messages](../how-to/send-messages)** - Advanced messaging
 
-## Complete Code
+## Complete Example
 
-The complete code for this tutorial is available at:
-- [examples/sdk-basics](../../../examples/sdk-basics/)
-
-## Further Reading
-
-- [How to Initialize the SDK](../how-to/initialize)
-- [How to Send Messages](../how-to/send-messages)
-- [ConversationManager Reference](../reference/conversation-manager)
+See the full example at `sdk/examples/hello/`.

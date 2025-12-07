@@ -1,418 +1,197 @@
 ---
-title: Observability & Events
+title: Observability
 docType: explanation
-order: 6
+order: 2
 ---
+# Observability
 
-# Observability & Events
+Understanding the event system in SDK v2.
 
-Understanding how the event system provides observability into PromptKit pipeline execution.
+## Overview
 
-## Why Events?
+SDK v2 uses an event-based observability system through the `hooks` package. Events are emitted at key points during execution, allowing you to monitor, debug, and audit your applications.
 
-Traditional LLM SDKs provide limited visibility into execution. You send a request, get a response, and have no insight into what happened in between. This makes debugging, monitoring, and optimization difficult.
-
-PromptKit's event system solves this by emitting detailed events for every stage of execution:
-
-- **What** happened (event type)
-- **When** it happened (timestamp)
-- **Where** it happened (middleware, provider)
-- **How long** it took (duration)
-- **What it cost** (tokens, API costs)
-- **Why it failed** (errors, validation violations)
-
-## Events vs. Streaming
-
-It's important to distinguish between two separate concepts:
-
-### Content Streaming
-
-Content streaming forwards LLM response chunks as they arrive:
+## Event Types
 
 ```go
-ch, _ := conv.SendStream(ctx, "Tell me a story")
-for event := range ch {
-    fmt.Print(event.Chunk.Text)  // Real-time text output
-}
+const (
+    EventSend       = "send"        // Message sent
+    EventResponse   = "response"    // Response received
+    EventToolCall   = "tool_call"   // Tool invoked
+    EventToolResult = "tool_result" // Tool returned
+    EventError      = "error"       // Error occurred
+    EventStream     = "stream"      // Stream chunk
+)
 ```
 
-**Purpose**: Display responses to users in real-time
+## Event Flow
 
-### Event System
+```
+conv.Send(ctx, "Hello")
+        │
+        ▼
+   EventSend ─────────► Subscriber
+        │
+        ▼
+   Provider Call
+        │
+        ▼
+   EventResponse ─────► Subscriber
+        │
+        │ (if tool call)
+        ├────────────────┐
+        │                ▼
+        │          EventToolCall ──► Subscriber
+        │                │
+        │          Handler executes
+        │                │
+        │          EventToolResult ─► Subscriber
+        │                │
+        └────────────────┘
+        │
+        ▼
+   Return Response
+```
 
-The event system provides execution metadata:
+## Subscribing to Events
 
 ```go
-conv.AddEventListener(func(e *events.Event) {
-    fmt.Printf("[%s] %s took %s\n", e.Type, middleware, duration)
+import "github.com/AltairaLabs/PromptKit/sdk/hooks"
+
+conv.Subscribe(hooks.EventSend, func(e hooks.Event) {
+    log.Printf("Sent: %v", e.Data["message"])
 })
 ```
 
-**Purpose**: Observe, monitor, debug, and integrate with observability platforms
-
-**Key Difference**: Content streaming is about getting LLM output. Events are about understanding execution flow and performance.
-
-## Event Categories
-
-### Lifecycle Events
-
-Track the overall pipeline lifecycle:
-
-```
-pipeline.started → middleware chain → pipeline.completed
-```
-
-These events bookend execution and provide summary metrics:
-- Total duration
-- Total cost
-- Token counts
-- Message counts
-
-### Middleware Events
-
-Each middleware emits its own lifecycle:
-
-```
-middleware.started → processing → middleware.completed
-```
-
-This visibility helps identify:
-- Which middleware is slow
-- Which middleware is failing
-- Where in the chain errors occur
-
-### Provider Events
-
-Provider events capture LLM API interactions:
-
-```
-provider.call.started → API call → provider.call.completed
-```
-
-These events include critical metrics:
-- API latency
-- Token usage (input, output, cached)
-- Estimated cost
-- Finish reason
-- Tool call counts
-
-### Domain Events
-
-Specialized events for specific operations:
-
-- **Tool Events**: Track tool execution
-- **Validation Events**: Monitor constraint violations
-- **Context Events**: Track token budget management
-- **State Events**: Monitor persistence operations
-
-## Event Flow Architecture
-
-```
-┌─────────────────────────────────────────────────┐
-│          Application Code                       │
-│  conversation.Send(ctx, "Hello")                │
-└───────────────────┬─────────────────────────────┘
-                    │
-┌───────────────────▼─────────────────────────────┐
-│          Pipeline Execution                      │
-│  ┌──────────────────────────────────────────┐  │
-│  │  Middleware 1: Context Builder           │  │
-│  │    → EmitMiddlewareStarted              │  │
-│  │    → process()                          │  │
-│  │    → EmitMiddlewareCompleted            │  │
-│  └──────────────────────────────────────────┘  │
-│  ┌──────────────────────────────────────────┐  │
-│  │  Middleware 2: Provider Call             │  │
-│  │    → EmitProviderCallStarted            │  │
-│  │    → callAPI()                          │  │
-│  │    → EmitProviderCallCompleted          │  │
-│  └──────────────────────────────────────────┘  │
-└───────────────────┬─────────────────────────────┘
-                    │ Events published to bus
-┌───────────────────▼─────────────────────────────┐
-│              Event Bus (Pub/Sub)                 │
-│  ┌─────────────────────────────────────────┐    │
-│  │  Thread-safe event distribution         │    │
-│  │  Async delivery to all listeners        │    │
-│  └─────────────────────────────────────────┘    │
-└─────┬─────────────────┬─────────────────┬───────┘
-      │                 │                 │
-      ▼                 ▼                 ▼
-┌───────────┐    ┌──────────┐    ┌──────────────┐
-│ Arena TUI │    │ Metrics  │    │ Your Listener│
-│ (Monitor) │    │ Collector│    │   (Custom)   │
-└───────────┘    └──────────┘    └──────────────┘
-```
-
-## Design Decisions
-
-### Asynchronous Delivery
-
-Events are delivered asynchronously so listeners don't block pipeline execution:
+## Event Structure
 
 ```go
-func (eb *EventBus) Publish(event Event) {
-    // Execute listeners in goroutines
-    go func() {
-        for _, listener := range listeners {
-            listener(event)  // Async
-        }
-    }()
+type Event struct {
+    Type      string         // Event type (EventSend, etc.)
+    Timestamp time.Time      // When the event occurred
+    Data      map[string]any // Event-specific data
 }
 ```
 
-**Tradeoff**: Listeners can't prevent pipeline execution, but they also don't slow it down.
+## Event Data
 
-### Lightweight Payloads
-
-Events contain metrics and metadata, not full message content:
+### EventSend
 
 ```go
-type ProviderCallCompletedData struct {
-    Provider     string        // "openai"
-    Model        string        // "gpt-4"
-    Duration     time.Duration // 1.2s
-    InputTokens  int          // 150
-    OutputTokens int          // 200
-    Cost         float64      // 0.0042
-    // NOT: full request/response payloads
-}
+e.Data["message"]  // The message sent
 ```
 
-**Tradeoff**: Can't reconstruct full conversation from events, but events remain memory-efficient.
-
-### Fail-Safe
-
-Listener panics are caught to prevent cascading failures:
+### EventResponse
 
 ```go
-func safeInvoke(listener Listener, event Event) {
-    defer func() {
-        if r := recover(); r != nil {
-            // Log but don't crash
-        }
-    }()
-    listener(event)
-}
+e.Data["text"]     // Response text
+e.Data["tokens"]   // Token count (if available)
 ```
 
-**Tradeoff**: Buggy listeners won't crash the application, but failures may go unnoticed if not logged.
-
-### Opt-In
-
-Events are only emitted if an `EventEmitter` is provided:
+### EventToolCall
 
 ```go
-if ctx.EventEmitter != nil {
-    ctx.EventEmitter.EmitMiddlewareStarted(...)
-}
+e.Data["tool"]     // Tool name
+e.Data["args"]     // Tool arguments
 ```
 
-**Tradeoff**: Zero overhead when not used, but requires explicit opt-in.
-
-## Common Patterns
-
-### Aggregation Pattern
-
-Aggregate events for summary metrics:
+### EventToolResult
 
 ```go
-type Stats struct {
-    PipelineCount    int
-    SuccessCount     int
-    FailureCount     int
-    TotalCost        float64
-    TotalDuration    time.Duration
-}
-
-stats := &Stats{}
-
-bus.Subscribe(events.EventPipelineCompleted, func(e events.Event) {
-    data := e.Data.(events.PipelineCompletedData)
-    stats.PipelineCount++
-    stats.SuccessCount++
-    stats.TotalCost += data.TotalCost
-    stats.TotalDuration += data.Duration
-})
-
-bus.Subscribe(events.EventPipelineFailed, func(e events.Event) {
-    stats.PipelineCount++
-    stats.FailureCount++
-})
+e.Data["tool"]     // Tool name
+e.Data["result"]   // Tool result
 ```
 
-### Filtering Pattern
-
-Filter events based on conditions:
+### EventError
 
 ```go
-// Only log expensive calls
-bus.Subscribe(events.EventProviderCallCompleted, func(e events.Event) {
-    data := e.Data.(events.ProviderCallCompletedData)
-    if data.Cost > 0.10 {  // > 10 cents
-        log.Warnf("Expensive call: $%.2f (%d tokens)", data.Cost, data.OutputTokens)
+e.Data["error"]    // The error
+```
+
+## Use Cases
+
+### Logging
+
+```go
+func attachLogger(conv *sdk.Conversation) {
+    events := []string{
+        hooks.EventSend,
+        hooks.EventResponse,
+        hooks.EventToolCall,
+        hooks.EventError,
     }
-})
-
-// Only track slow middleware
-bus.Subscribe(events.EventMiddlewareCompleted, func(e events.Event) {
-    data := e.Data.(events.MiddlewareCompletedData)
-    if data.Duration > 1*time.Second {
-        metrics.RecordSlow(data.Name, data.Duration)
-    }
-})
-```
-
-### Correlation Pattern
-
-Correlate events by conversation:
-
-```go
-type ConversationTrace map[string][]events.Event
-
-traces := make(ConversationTrace)
-var mu sync.Mutex
-
-bus.SubscribeAll(func(e events.Event) {
-    mu.Lock()
-    defer mu.Unlock()
     
-    traces[e.ConversationID] = append(traces[e.ConversationID], e)
-})
-
-// Later: analyze specific conversation
-func analyzeConversation(id string) {
-    mu.Lock()
-    defer mu.Unlock()
-    
-    events := traces[id]
-    fmt.Printf("Conversation %s had %d events\n", id, len(events))
-    
-    for _, e := range events {
-        fmt.Printf("  [%s] %s\n", e.Timestamp, e.Type)
+    for _, event := range events {
+        name := event
+        conv.Subscribe(name, func(e hooks.Event) {
+            log.Printf("[%s] %s: %v",
+                e.Timestamp.Format("15:04:05"),
+                name,
+                e.Data,
+            )
+        })
     }
 }
 ```
 
-### Alerting Pattern
-
-Trigger alerts based on events:
+### Metrics
 
 ```go
-// Alert on repeated failures
-failureCount := make(map[string]int)
-
-bus.Subscribe(events.EventMiddlewareFailed, func(e events.Event) {
-    data := e.Data.(events.MiddlewareFailedData)
-    
-    failureCount[data.Name]++
-    
-    if failureCount[data.Name] > 5 {
-        alert.Send(fmt.Sprintf("Middleware %s failing repeatedly", data.Name))
-    }
-})
-
-// Alert on budget exhaustion
-bus.Subscribe(events.EventTokenBudgetExceeded, func(e events.Event) {
-    data := e.Data.(events.TokenBudgetExceededData)
-    alert.Send(fmt.Sprintf("Token budget exceeded by %d tokens", data.Excess))
-})
-```
-
-## Comparison with Other Approaches
-
-### vs. Logging
-
-**Logging**: Unstructured text output
-```go
-log.Printf("Pipeline started for conversation %s", id)
-```
-
-**Events**: Structured, typed data
-```go
-emitter.EmitPipelineStarted(middlewareCount)
-// → Event{Type: "pipeline.started", Data: {MiddlewareCount: 5}}
-```
-
-**When to use events**: Real-time monitoring, metrics collection, programmatic analysis  
-**When to use logging**: Human-readable debugging, audit trails
-
-### vs. Metrics
-
-**Metrics**: Aggregated counters/gauges
-```go
-metrics.Incr("pipeline.executions")
-```
-
-**Events**: Individual execution details
-```go
-// Events can be aggregated into metrics
-bus.SubscribeAll(func(e events.Event) {
-    metrics.Incr(fmt.Sprintf("events.%s", e.Type))
-})
-```
-
-**When to use events**: Detailed observability, debugging  
-**When to use metrics**: Dashboards, alerting, trending
-
-### vs. Tracing
-
-**Tracing (OpenTelemetry)**: Distributed request tracking across services
-
-**Events**: Pipeline-internal observability
-
-**Complementary**: Events can be converted to trace spans:
-```go
-bus.Subscribe(events.EventMiddlewareStarted, func(e events.Event) {
-    span := tracer.StartSpan(fmt.Sprintf("middleware.%s", data.Name))
-    // ... store span for later completion
-})
-
-bus.Subscribe(events.EventMiddlewareCompleted, func(e events.Event) {
-    // ... finish corresponding span
-})
-```
-
-## Migration from Observer Pattern
-
-Prior to the event system, PromptArena used an observer pattern:
-
-```go
-// Old: Observer pattern (deprecated)
-type Observer interface {
-    OnRunStarted(runID string)
-    OnRunCompleted(runID string, result *Result)
-    OnRunFailed(runID string, err error)
+type Metrics struct {
+    Messages  int64
+    ToolCalls int64
+    Errors    int64
+    mu        sync.Mutex
 }
 
-engine.SetObserver(observer)
+func (m *Metrics) Attach(conv *sdk.Conversation) {
+    conv.Subscribe(hooks.EventSend, func(e hooks.Event) {
+        m.mu.Lock()
+        m.Messages++
+        m.mu.Unlock()
+    })
+    
+    conv.Subscribe(hooks.EventToolCall, func(e hooks.Event) {
+        m.mu.Lock()
+        m.ToolCalls++
+        m.mu.Unlock()
+    })
+    
+    conv.Subscribe(hooks.EventError, func(e hooks.Event) {
+        m.mu.Lock()
+        m.Errors++
+        m.mu.Unlock()
+    })
+}
 ```
 
-**Problems**:
-- Tightly coupled to Arena
-- No SDK access
-- No pipeline visibility
-- Fixed interface (not extensible)
-
-The event system replaced this with:
+### Debugging
 
 ```go
-// New: Event bus (current)
-bus := events.NewEventBus()
-bus.Subscribe(events.EventPipelineStarted, func(e events.Event) {
-    // Handle event
-})
+func enableDebug(conv *sdk.Conversation) {
+    conv.Subscribe(hooks.EventSend, func(e hooks.Event) {
+        fmt.Printf("📤 SEND: %v\n", e.Data)
+    })
+    
+    conv.Subscribe(hooks.EventResponse, func(e hooks.Event) {
+        fmt.Printf("📥 RESPONSE\n")
+    })
+    
+    conv.Subscribe(hooks.EventToolCall, func(e hooks.Event) {
+        fmt.Printf("🔧 TOOL: %s(%v)\n", e.Data["tool"], e.Data["args"])
+    })
+    
+    conv.Subscribe(hooks.EventError, func(e hooks.Event) {
+        fmt.Printf("❌ ERROR: %v\n", e.Data["error"])
+    })
+}
 ```
 
-**Benefits**:
-- Decoupled (pub/sub)
-- Available in SDK
-- Full pipeline visibility
-- Extensible (custom events)
+## Thread Safety
+
+Event handlers are called synchronously on the goroutine that triggered the event. Use appropriate synchronization if handlers access shared state.
 
 ## See Also
 
-- [Event System Architecture](../../architecture/runtime-events)
 - [How-To: Monitor Events](../how-to/monitor-events)
-- [Pipeline Architecture](../../architecture/runtime-pipeline)
-- [Example: Event Monitoring](../examples/events/)
+- [Tutorial 6: Observability](../tutorials/06-media-storage)

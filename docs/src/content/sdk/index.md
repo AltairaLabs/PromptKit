@@ -1,25 +1,26 @@
 ---
-title: PromptKit SDK
-description: Production-ready Go library for building robust LLM applications
+title: PromptKit SDK v2
+description: Pack-first Go SDK for building LLM applications with minimal boilerplate
 docType: guide
 order: 4
 ---
-# 🚀 PromptKit SDK
+# 🚀 PromptKit SDK v2
 
-**Production-ready Go library for building robust LLM applications**
+**Pack-first Go SDK that reduces boilerplate by ~80%**
 
 ---
 
 ## What is the PromptKit SDK?
 
-The SDK is a comprehensive Go library that helps you:
+The SDK v2 is a complete rewrite with a **pack-first architecture** that dramatically simplifies LLM application development:
 
-- **Build conversational AI** with type-safe, production-ready code
-- **Load PromptPacks** tested with Arena and compiled with PackC
-- **Manage state** with Redis, Postgres, or in-memory storage
-- **Handle streaming** responses with elegant APIs
-- **Abstract providers** to switch between OpenAI, Anthropic, Google seamlessly
-- **Add middleware** for logging, filtering, and custom processing
+- **5 lines to hello world** - Open a pack, send a message, done
+- **Pack-first design** - Load prompts tested with Arena, compiled with PackC
+- **Built-in tools** - Register handlers with `OnTool`, auto JSON serialization
+- **Streaming support** - Channel-based streaming with `Stream()`
+- **Human-in-the-Loop** - Approval workflows for sensitive operations
+- **Type-safe variables** - `SetVar`/`GetVar` with concurrent access
+- **Observability** - EventBus integration for monitoring
 
 ---
 
@@ -37,258 +38,232 @@ import (
 )
 
 func main() {
-    ctx := context.Background()
-
-    config := &sdk.Config{
-        Provider: "openai",
-        Model:    "gpt-4",
-    }
-
-    manager, err := sdk.NewConversationManager(ctx, config)
+    // Open a conversation from a pack file
+    conv, err := sdk.Open("./hello.pack.json", "chat")
     if err != nil {
         log.Fatal(err)
     }
-    defer manager.Close()
+    defer conv.Close()
 
-    conv, _ := manager.NewConversation(ctx, "my-bot")
-    response, _ := conv.SendMessage(ctx, "Hello!")
+    // Send a message and get a response
+    resp, _ := conv.Send(context.Background(), "Hello!")
+    fmt.Println(resp.Text())
+}
+```
+
+That's it. Five lines of functional code.
+
+---
+
+## Core API
+
+### Opening Conversations
+
+```go
+// Open from a pack file with a specific prompt
+conv, err := sdk.Open("./myapp.pack.json", "assistant")
+
+// Open with options
+conv, err := sdk.Open("./myapp.pack.json", "assistant",
+    sdk.WithModel("gpt-4o"),
+    sdk.WithTemperature(0.7),
+)
+```
+
+### Sending Messages
+
+```go
+// Simple send
+resp, err := conv.Send(ctx, "What's the weather?")
+fmt.Println(resp.Text())
+
+// Multi-turn conversations (context is maintained)
+resp1, _ := conv.Send(ctx, "My name is Alice")
+resp2, _ := conv.Send(ctx, "What's my name?") // "Alice"
+```
+
+### Template Variables
+
+```go
+// Set variables for prompt templates
+conv.SetVar("user_name", "Alice")
+conv.SetVar("context", map[string]any{"role": "admin"})
+
+// Get variables
+name := conv.GetVar("user_name")
+
+// Bulk operations
+conv.SetVars(map[string]any{
+    "user_name": "Alice",
+    "language":  "en",
+})
+```
+
+---
+
+## Tool Handling
+
+Register handlers that the LLM can call:
+
+```go
+conv.OnTool("get_weather", func(args map[string]any) (any, error) {
+    city := args["city"].(string)
     
-    fmt.Println(response)
-}
-```
-
-**Next**: [Build Your First Chatbot Tutorial](/sdk/tutorials/01-first-chatbot/)
-
----
-
-## Documentation by Type
-
-### 📚 Tutorials (Learn by Doing)
-
-Step-by-step guides that teach you the SDK through building real applications:
-
-1. [Your First Chatbot](/sdk/tutorials/01-first-chatbot/) - Build in 15 minutes
-2. [Conversation State](/sdk/tutorials/02-conversation-state/) - Manage context
-3. [Tool Integration](/sdk/tutorials/03-tool-integration/) - Add function calling
-4. [Custom Middleware](/sdk/tutorials/04-custom-middleware/) - Extend the pipeline
-5. [State Persistence](/sdk/tutorials/05-state-persistence/) - Redis and Postgres
-6. [Production Deployment](/sdk/tutorials/06-production-deployment/) - Deploy at scale
-
-### 🔧 How-To Guides (Accomplish Specific Tasks)
-
-Focused guides for specific SDK tasks:
-
-- [Installation](/sdk/how-to/installation/) - Add SDK to your project
-- [Load PromptPacks](/sdk/how-to/load-promptpacks/) - Use compiled prompts
-- [Manage Conversations](/sdk/how-to/manage-conversations/) - Conversation lifecycle
-- [Implement Tools](/sdk/how-to/implement-tools/) - MCP and custom tools
-- [Add Middleware](/sdk/how-to/add-middleware/) - Custom processing
-- [Configure State](/sdk/how-to/configure-state/) - State management options
-- [Configure Media Storage](/sdk/how-to/configure-media-storage/) - Optimize memory for media
-- [Handle Streaming](/sdk/how-to/handle-streaming/) - Real-time responses
-- [Error Handling](/sdk/how-to/error-handling/) - Robust error management
-- [Deploy to Production](/sdk/how-to/deploy-production/) - Deployment patterns
-
-### 💡 Explanation (Understand the Concepts)
-
-Deep dives into SDK architecture and design:
-
-- [Conversation Lifecycle](/sdk/explanation/conversation-lifecycle/) - How conversations work
-- [Pipeline Architecture](/sdk/explanation/pipeline-architecture/) - Request/response flow
-- [Middleware System](/sdk/explanation/middleware-system/) - Processing layers
-- [State Management](/sdk/explanation/state-management/) - Persistence patterns
-- [Provider Abstraction](/sdk/explanation/provider-abstraction/) - Multi-provider support
-
-### 📖 Reference (Look Up Details)
-
-Complete API documentation:
-
-- [ConversationManager](/sdk/reference/api/conversation-manager/) - Core conversation API
-- [PipelineBuilder](/sdk/reference/api/pipeline-builder/) - Build custom pipelines
-- [PackLoader](/sdk/reference/api/pack-loader/) - Load PromptPacks
-- [ToolRegistry](/sdk/reference/api/tool-registry/) - Register and manage tools
-- [StateStore](/sdk/reference/api/state-store/) - State storage operations
-- [SDK Configuration](/sdk/reference/configuration/sdk-config/) - Config options
-- [Provider Configuration](/sdk/reference/configuration/provider-config/) - Provider setup
-
----
-
-## Key Features
-
-### PromptPack Integration
-
-Load pre-tested, compiled prompts:
-
-```go
-pack, _ := sdk.LoadPromptPack("./customer-support.pack.json")
-config := &sdk.Config{
-    Provider: "openai",
-    Pack:     pack,
-}
-conv, _ := manager.NewConversationWithPrompt(ctx, "support-greeting")
-```
-
-### Media Storage
-
-Automatic externalization for images, audio, and video:
-
-```go
-import "github.com/AltairaLabs/PromptKit/runtime/storage/local"
-
-fileStore := local.NewFileStore(local.FileStoreConfig{
-    BaseDir:             "./media",
-    EnableDeduplication: true,
+    // Return any JSON-serializable value
+    return map[string]any{
+        "city":        city,
+        "temperature": 22.5,
+        "conditions":  "Sunny",
+    }, nil
 })
 
-manager, _ := sdk.NewConversationManager(
-    sdk.WithProvider(provider),
-    sdk.WithMediaStorage(fileStore),
-)
-
-// Large media automatically stored to disk, reducing memory by 70-90%
+// The LLM can now call this tool
+resp, _ := conv.Send(ctx, "What's the weather in London?")
 ```
 
-### State Persistence
+### HTTP Tools
 
-Multiple storage backends:
+For external API calls:
 
 ```go
-// Redis
-config.StateStore = &sdk.RedisStateStore{
-    Addr: "localhost:6379",
-}
+import "github.com/AltairaLabs/PromptKit/sdk/tools"
 
-// Postgres
-config.StateStore = &sdk.PostgresStateStore{
-    ConnString: "postgres://...",
-}
-
-// In-memory
-config.StateStore = &sdk.InMemoryStateStore{}
+conv.OnToolHTTP("stock_price", &tools.HTTPToolConfig{
+    BaseURL: "https://api.stocks.example.com",
+    Method:  "GET",
+    Path:    "/v1/price",
+    Headers: map[string]string{"Authorization": "Bearer " + apiKey},
+})
 ```
 
-### Streaming Support
+---
+
+## Streaming
 
 Real-time response streaming:
 
 ```go
-stream, _ := conv.SendMessageStream(ctx, "Tell me a story")
-for chunk := range stream {
-    fmt.Print(chunk)
+// Channel-based streaming
+for chunk := range conv.Stream(ctx, "Tell me a story") {
+    if chunk.Error != nil {
+        log.Printf("Error: %v", chunk.Error)
+        break
+    }
+    if chunk.Type == sdk.ChunkDone {
+        break
+    }
+    fmt.Print(chunk.Text)
 }
-```
-
-### Middleware Pipeline
-
-Custom processing layers:
-
-```go
-config.Middleware = []sdk.Middleware{
-    sdk.LoggingMiddleware(),
-    sdk.RateLimitMiddleware(100),
-    sdk.MetricsMiddleware(metrics),
-    MyCustomMiddleware(),
-}
-```
-
-### Provider Abstraction
-
-Switch providers without code changes:
-
-```go
-// OpenAI
-config.Provider = "openai"
-
-// Anthropic
-config.Provider = "anthropic"
-
-// Google
-config.Provider = "google"
 ```
 
 ---
 
-## Use Cases
+## Human-in-the-Loop (HITL)
 
-### For Application Developers
+Approval workflows for sensitive operations:
 
-- Build production chatbots
-- Integrate LLMs into existing apps
-- Manage complex conversation flows
-- Handle tool calling and function execution
+```go
+import "github.com/AltairaLabs/PromptKit/sdk/tools"
 
-### For Backend Engineers
+conv.OnToolAsync(
+    "process_refund",
+    // Check if approval is needed
+    func(args map[string]any) tools.PendingResult {
+        amount := args["amount"].(float64)
+        if amount > 100 {
+            return tools.PendingResult{
+                Reason:  "high_value",
+                Message: fmt.Sprintf("$%.2f refund requires approval", amount),
+            }
+        }
+        return tools.PendingResult{} // Auto-approve
+    },
+    // Execute after approval
+    func(args map[string]any) (any, error) {
+        return map[string]any{"status": "completed"}, nil
+    },
+)
 
-- Deploy scalable LLM services
-- Implement state persistence
-- Add monitoring and observability
-- Handle errors and retries gracefully
+// Handle pending approvals
+resp, _ := conv.Send(ctx, "Refund $150 for order #123")
+for _, pending := range resp.PendingTools() {
+    fmt.Printf("Pending: %s - %s\n", pending.Name, pending.Message)
+    
+    // Approve or reject
+    result, _ := conv.ResolveTool(pending.ID)  // Approve
+    // result, _ := conv.RejectTool(pending.ID, "Not authorized")  // Reject
+}
+```
 
-### For DevOps Engineers
+---
 
-- Deploy SDK-based services
-- Configure for different environments
-- Monitor performance and costs
-- Scale horizontally
+## Observability
+
+Monitor events with hooks:
+
+```go
+import "github.com/AltairaLabs/PromptKit/sdk/hooks"
+
+// Subscribe to events
+conv.Subscribe(hooks.EventSend, func(e hooks.Event) {
+    fmt.Printf("Sending: %s\n", e.Data["message"])
+})
+
+conv.Subscribe(hooks.EventToolCall, func(e hooks.Event) {
+    fmt.Printf("Tool called: %s\n", e.Data["tool"])
+})
+```
+
+---
+
+## Error Handling
+
+```go
+resp, err := conv.Send(ctx, input)
+if err != nil {
+    switch {
+    case errors.Is(err, sdk.ErrPackNotFound):
+        // Pack file doesn't exist
+    case errors.Is(err, sdk.ErrPromptNotFound):
+        // Prompt ID not in pack
+    case errors.Is(err, sdk.ErrProviderError):
+        // LLM provider error
+    case errors.Is(err, sdk.ErrToolNotRegistered):
+        // Tool handler missing
+    default:
+        log.Printf("Unexpected error: %v", err)
+    }
+}
+```
 
 ---
 
 ## Examples
 
-Real-world SDK applications:
+Working examples are available in the `sdk/examples/` directory:
 
-- [Basic Chat](/sdk/examples/basic-chat/) - Simple chatbot implementation
-- [Custom Middleware](/sdk/examples/custom-middleware/) - Extend the pipeline
-- [Tool Integration](/sdk/examples/tool-integration/) - MCP tool usage
-- [State Persistence](/sdk/examples/state-persistence/) - Redis state management
-- [Streaming Responses](/sdk/examples/streaming/) - Real-time streaming
+- **[hello](/sdk/examples/hello/)** - Basic conversation in 5 lines
+- **[tools](/sdk/examples/tools/)** - Tool registration and execution
+- **[streaming](/sdk/examples/streaming/)** - Real-time response streaming
+- **[hitl](/sdk/examples/hitl/)** - Human-in-the-loop approval workflows
 
 ---
 
-## Production Patterns
+## Migration from v1
 
-### Error Handling
+If you're upgrading from SDK v1, see the [Migration Guide](/docs/sdk-migration/) for detailed before/after examples.
 
-```go
-response, err := conv.SendMessage(ctx, input)
-if err != nil {
-    switch {
-    case errors.Is(err, sdk.ErrRateLimited):
-        // Retry with backoff
-    case errors.Is(err, sdk.ErrInvalidRequest):
-        // Handle invalid input
-    default:
-        // Log and report
-    }
-}
-```
-
-### Graceful Shutdown
-
-```go
-defer func() {
-    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-    defer cancel()
-    manager.Close(ctx)
-}()
-```
-
-### Configuration Management
-
-```go
-config := &sdk.Config{
-    Provider: os.Getenv("LLM_PROVIDER"),
-    Model:    os.Getenv("LLM_MODEL"),
-    APIKey:   os.Getenv("LLM_API_KEY"),
-    Timeout:  30 * time.Second,
-}
-```
+Key changes:
+- `NewConversationManager()` → `sdk.Open()`
+- `SendMessage()` → `Send()`
+- `SendMessageStream()` → `Stream()`
+- Manual tool registration → `OnTool()`
 
 ---
 
 ## Getting Help
 
-- **Quick Start**: [Getting Started Guide](/getting-started/app-developer/)
+- **Migration Guide**: [SDK Migration Guide](/docs/sdk-migration/)
 - **Questions**: [GitHub Discussions](https://github.com/AltairaLabs/PromptKit/discussions)
 - **Issues**: [Report a Bug](https://github.com/AltairaLabs/PromptKit/issues)
 - **Examples**: [SDK Examples](/sdk/examples/)

@@ -3,102 +3,289 @@ title: SDK Reference
 docType: reference
 order: 1
 ---
-# SDK API Reference
+# SDK v2 API Reference
 
-Complete reference documentation for the PromptKit SDK Go API.
+Complete reference documentation for the PromptKit SDK v2 API.
 
 ## Overview
 
-The SDK provides two API levels for building LLM applications:
+The SDK v2 provides a pack-first API that reduces boilerplate by ~80%.
 
-### High-Level API
+## Core Functions
 
-For common use cases with minimal boilerplate:
+### sdk.Open
 
-- **[ConversationManager](conversation-manager)** - Manage multi-turn conversations
-- **[Conversation](conversation)** - Individual conversation instances
-- **[PackManager](pack-manager)** - Load and manage PromptPacks
-
-### Low-Level API
-
-For advanced customization and control:
-
-- **[PipelineBuilder](pipeline-builder)** - Build custom pipelines
-- **[ToolRegistry](tool-registry)** - Register and manage tools
-- **[Middleware](middleware)** - Custom middleware interfaces
-
-### Core Types
-
-Shared types and structures:
-
-- **[Pack Format](pack-format)** - PromptPack JSON structure
-- **[Types](types)** - Core type definitions
-- **[Errors](errors)** - Error types and handling
-
-## Quick Reference
-
-### ConversationManager
+Opens a conversation from a pack file.
 
 ```go
-// Create manager
-manager, _ := sdk.NewConversationManager(
-    sdk.WithProvider(provider),
-    sdk.WithStateStore(stateStore),
-    sdk.WithToolRegistry(registry),
-)
+func Open(packPath string, promptName string, opts ...Option) (*Conversation, error)
+```
 
-// Load pack
-pack, _ := manager.LoadPack("./support.pack.json")
+**Parameters:**
+- `packPath` - Path to the .pack.json file
+- `promptName` - Name of the prompt from the pack
+- `opts` - Optional configuration options
 
-// Create conversation
-conv, _ := manager.NewConversation(ctx, pack, sdk.ConversationConfig{
-    UserID:     "user123",
-    PromptName: "support",
-    Variables:  map[string]interface{}{"role": "agent"},
-})
+**Returns:**
+- `*Conversation` - Ready-to-use conversation
+- `error` - Error if pack or prompt not found
 
-// Send message
-resp, _ := conv.Send(ctx, "Hello")
+**Example:**
+```go
+conv, err := sdk.Open("./app.pack.json", "assistant")
+```
 
-// Stream message
-ch, _ := conv.SendStream(ctx, "Tell me a story")
-for event := range ch {
-    fmt.Print(event.Chunk.Text)
+## Options
+
+### WithModel
+
+Override the model.
+
+```go
+sdk.WithModel("gpt-4o")
+```
+
+### WithTemperature
+
+Override temperature.
+
+```go
+sdk.WithTemperature(0.8)
+```
+
+### WithMaxTokens
+
+Override max tokens.
+
+```go
+sdk.WithMaxTokens(2000)
+```
+
+## Conversation Type
+
+### Send
+
+Send a message and get a response.
+
+```go
+func (c *Conversation) Send(ctx context.Context, message any) (*Response, error)
+```
+
+### Stream
+
+Stream a response.
+
+```go
+func (c *Conversation) Stream(ctx context.Context, message string) <-chan StreamChunk
+```
+
+### SetVar
+
+Set a template variable.
+
+```go
+func (c *Conversation) SetVar(key string, value any)
+```
+
+### GetVar
+
+Get a template variable.
+
+```go
+func (c *Conversation) GetVar(key string) any
+```
+
+### SetVars
+
+Set multiple variables.
+
+```go
+func (c *Conversation) SetVars(vars map[string]any)
+```
+
+### OnTool
+
+Register a tool handler.
+
+```go
+func (c *Conversation) OnTool(name string, handler ToolHandler)
+```
+
+### OnToolCtx
+
+Register a tool handler with context.
+
+```go
+func (c *Conversation) OnToolCtx(name string, handler ToolHandlerCtx)
+```
+
+### OnTools
+
+Register multiple tool handlers.
+
+```go
+func (c *Conversation) OnTools(handlers map[string]ToolHandler)
+```
+
+### OnToolAsync
+
+Register a tool with approval workflow.
+
+```go
+func (c *Conversation) OnToolAsync(name string, check CheckFunc, execute ToolHandler)
+```
+
+### OnToolHTTP
+
+Register an HTTP tool.
+
+```go
+func (c *Conversation) OnToolHTTP(name string, config *tools.HTTPToolConfig)
+```
+
+### Subscribe
+
+Subscribe to events.
+
+```go
+func (c *Conversation) Subscribe(event string, handler func(hooks.Event))
+```
+
+### Messages
+
+Get conversation history.
+
+```go
+func (c *Conversation) Messages() []types.Message
+```
+
+### Clear
+
+Clear conversation history.
+
+```go
+func (c *Conversation) Clear()
+```
+
+### Fork
+
+Create an isolated copy.
+
+```go
+func (c *Conversation) Fork() *Conversation
+```
+
+### Close
+
+Close the conversation.
+
+```go
+func (c *Conversation) Close() error
+```
+
+### ID
+
+Get conversation ID.
+
+```go
+func (c *Conversation) ID() string
+```
+
+### ResolveTool
+
+Approve a pending tool.
+
+```go
+func (c *Conversation) ResolveTool(id string) (*ToolResult, error)
+```
+
+### RejectTool
+
+Reject a pending tool.
+
+```go
+func (c *Conversation) RejectTool(id string, reason string) (*ToolResult, error)
+```
+
+## Response Type
+
+### Text
+
+Get response text.
+
+```go
+func (r *Response) Text() string
+```
+
+### HasToolCalls
+
+Check for tool calls.
+
+```go
+func (r *Response) HasToolCalls() bool
+```
+
+### ToolCalls
+
+Get tool calls.
+
+```go
+func (r *Response) ToolCalls() []ToolCall
+```
+
+### PendingTools
+
+Get pending approvals.
+
+```go
+func (r *Response) PendingTools() []PendingTool
+```
+
+## StreamChunk Type
+
+```go
+type StreamChunk struct {
+    Type  ChunkType // ChunkText, ChunkToolCall, ChunkDone
+    Text  string    // Text content
+    Error error     // Error if any
 }
 ```
 
-### PipelineBuilder
+### ChunkType Constants
 
 ```go
-// Build custom pipeline
-pipe := sdk.NewPipelineBuilder().
-    WithMiddleware(&MyMiddleware{}).
-    WithTemplate().
-    WithProvider(provider, registry, toolPolicy).
-    Build()
-
-// Execute
-result, _ := pipe.Execute(ctx, "user", "Hello!")
+const (
+    ChunkText     ChunkType = "text"
+    ChunkToolCall ChunkType = "tool_call"
+    ChunkDone     ChunkType = "done"
+)
 ```
 
-### PackManager
+## Handler Types
+
+### ToolHandler
 
 ```go
-// Load pack
-pm := sdk.NewPackManager()
-pack, _ := pm.LoadPack("./prompts.pack.json")
+type ToolHandler func(args map[string]any) (any, error)
+```
 
-// Get prompt
-prompt, _ := pack.GetPrompt("support")
+### ToolHandlerCtx
 
-// List prompts
-names := pack.ListPrompts()
+```go
+type ToolHandlerCtx func(ctx context.Context, args map[string]any) (any, error)
+```
 
-// Get tools
-tools := pack.GetTools()
+## Error Types
 
-// Create registry
-registry := pack.CreateRegistry()
+```go
+var (
+    ErrPackNotFound       = errors.New("pack file not found")
+    ErrPromptNotFound     = errors.New("prompt not found in pack")
+    ErrInvalidPack        = errors.New("invalid pack format")
+    ErrProviderError      = errors.New("provider error")
+    ErrConversationClosed = errors.New("conversation closed")
+    ErrToolNotRegistered  = errors.New("tool not registered")
+)
 ```
 
 ## Package Import
@@ -106,238 +293,13 @@ registry := pack.CreateRegistry()
 ```go
 import (
     "github.com/AltairaLabs/PromptKit/sdk"
-    "github.com/AltairaLabs/PromptKit/runtime/providers"
-    "github.com/AltairaLabs/PromptKit/runtime/statestore"
-    "github.com/AltairaLabs/PromptKit/runtime/tools"
+    "github.com/AltairaLabs/PromptKit/sdk/hooks"
+    "github.com/AltairaLabs/PromptKit/sdk/tools"
 )
 ```
 
-## API Documentation
+## See Also
 
-### By Category
-
-**Conversation Management:**
-- [ConversationManager](conversation-manager) - High-level conversation API
-- [Conversation](conversation) - Conversation instance methods
-- [SendOptions](types.md#sendoptions) - Configure message sending
-- [Response](types.md#response) - Conversation response type
-
-**PromptPack Management:**
-- [PackManager](pack-manager) - Load and validate packs
-- [Pack](pack-format) - Pack structure
-- [Prompt](pack-format.md#prompt) - Prompt configuration
-- [Tool](pack-format.md#tool) - Tool definition
-
-**Pipeline Construction:**
-- [PipelineBuilder](pipeline-builder) - Build pipelines
-- [Middleware](middleware) - Custom middleware
-- [ToolRegistry](tool-registry) - Tool registration
-
-**Configuration:**
-- [ManagerConfig](conversation-manager.md#managerconfig) - Manager settings
-- [ConversationConfig](conversation.md#conversationconfig) - Conversation settings
-- [ContextBuilderPolicy](types.md#contextbuilderpolicy) - Context management
-
-**State Management:**
-- [StateStore](types.md#statestore) - State persistence interface
-- [ConversationState](types.md#conversationstate) - State structure
-
-**Error Handling:**
-- [Error Types](errors) - SDK error types
-- [Error Helpers](errors.md#helpers) - Error utilities
-
-## Common Patterns
-
-### Pattern: Simple Conversation
-
-```go
-func simpleConversation() {
-    provider := providers.NewOpenAIProvider("key", "gpt-4o-mini", false)
-    
-    manager, _ := sdk.NewConversationManager(
-        sdk.WithProvider(provider),
-    )
-    
-    pack, _ := manager.LoadPack("./support.pack.json")
-    
-    conv, _ := manager.NewConversation(ctx, pack, sdk.ConversationConfig{
-        UserID:     "user123",
-        PromptName: "support",
-    })
-    
-    resp, _ := conv.Send(ctx, "How can I return an item?")
-    fmt.Println(resp.Content)
-}
-```
-
-### Pattern: Streaming with Tools
-
-```go
-func streamingWithTools() {
-    registry := sdk.NewToolRegistry()
-    registry.Register("search", searchTool)
-    
-    manager, _ := sdk.NewConversationManager(
-        sdk.WithProvider(provider),
-        sdk.WithToolRegistry(registry),
-    )
-    
-    pack, _ := manager.LoadPack("./assistant.pack.json")
-    conv, _ := manager.NewConversation(ctx, pack, config)
-    
-    ch, _ := conv.SendStream(ctx, "Search for latest news")
-    for event := range ch {
-        if event.Chunk != nil {
-            fmt.Print(event.Chunk.Text)
-        }
-        if event.Error != nil {
-            log.Printf("Error: %v", event.Error)
-        }
-    }
-}
-```
-
-### Pattern: Custom Pipeline
-
-```go
-func customPipeline() {
-    pipe := sdk.NewPipelineBuilder().
-        WithMiddleware(&MetricsMiddleware{}).
-        WithMiddleware(&LoggingMiddleware{}).
-        WithTemplate().
-        WithProvider(provider, registry, nil).
-        Build()
-    
-    result, _ := pipe.Execute(ctx, "user", "Hello!")
-    fmt.Println(result.Response.Content)
-}
-```
-
-### Pattern: Persistent State
-
-```go
-func persistentState() {
-    redisStore := statestore.NewRedisStore(redisClient)
-    
-    manager, _ := sdk.NewConversationManager(
-        sdk.WithProvider(provider),
-        sdk.WithStateStore(redisStore),
-    )
-    
-    // State automatically persisted to Redis
-    conv, _ := manager.NewConversation(ctx, pack, config)
-    resp, _ := conv.Send(ctx, "Remember: my name is Alice")
-    
-    // Later: retrieve conversation
-    retrieved, _ := manager.GetConversation(ctx, conv.ID())
-    resp2, _ := retrieved.Send(ctx, "What's my name?")
-    // Should reference "Alice" from previous turn
-}
-```
-
-## Thread Safety
-
-All SDK types are thread-safe for concurrent use:
-
-- **ConversationManager**: Safe for multiple goroutines
-- **Conversation**: Safe for concurrent message sends
-- **Pack**: Read-only after load, safe to share
-- **PackManager**: Thread-safe pack management
-
-```go
-// Safe concurrent usage
-manager, _ := sdk.NewConversationManager(...)
-pack, _ := manager.LoadPack("./prompts.pack.json")
-
-// Multiple goroutines can create conversations
-var wg sync.WaitGroup
-for i := 0; i < 10; i++ {
-    wg.Add(1)
-    go func(id int) {
-        defer wg.Done()
-        conv, _ := manager.NewConversation(ctx, pack, config)
-        resp, _ := conv.Send(ctx, "Hello")
-    }(i)
-}
-wg.Wait()
-```
-
-## Performance Considerations
-
-### Memory Management
-
-```go
-// Reuse packs across conversations
-pack, _ := manager.LoadPack("./prompts.pack.json")
-
-// Create multiple conversations from same pack (efficient)
-for i := 0; i < 100; i++ {
-    conv, _ := manager.NewConversation(ctx, pack, config)
-    // Use conversation...
-}
-```
-
-### Connection Pooling
-
-```go
-// StateStore handles connection pooling internally
-redisStore := statestore.NewRedisStore(redisClient) // Pooled
-
-// Provider manages HTTP client pooling
-provider := providers.NewOpenAIProvider(...) // Pooled
-```
-
-### Context Management
-
-```go
-// Configure token budget for context
-conv, _ := manager.NewConversation(ctx, pack, sdk.ConversationConfig{
-    ContextPolicy: &middleware.ContextBuilderPolicy{
-        MaxInputTokens: 8000,  // Limit context size
-        Strategy:       middleware.StrategyTruncateOldest,
-    },
-})
-```
-
-## Error Handling
-
-```go
-// Check for specific error types
-resp, err := conv.Send(ctx, "Hello")
-if err != nil {
-    if sdk.IsRetryableError(err) {
-        // Retry logic
-        resp, err = conv.Send(ctx, "Hello")
-    } else if sdk.IsTemporaryError(err) {
-        // Wait and retry
-        time.Sleep(time.Second)
-        resp, err = conv.Send(ctx, "Hello")
-    } else {
-        // Fatal error
-        return err
-    }
-}
-```
-
-## Versioning
-
-The SDK follows semantic versioning:
-
-```go
-import "github.com/AltairaLabs/PromptKit/sdk"
-
-// Current version
-version := sdk.Version // "1.0.0"
-```
-
-Compatible with:
-- PromptPack format v1.0+
-- Runtime pipeline v1.0+
-- PackC compiler v1.0+
-
-## Next Steps
-
-- **[ConversationManager Reference](conversation-manager)** - Start with high-level API
-- **[How-To Guides](../how-to/)** - Task-focused guides
-- **[Tutorials](../tutorials/)** - Step-by-step learning
-- **[Go Package Documentation](https://pkg.go.dev/github.com/AltairaLabs/PromptKit/sdk)** - Full API docs
+- [Tutorials](../tutorials/)
+- [How-To Guides](../how-to/)
+- [Examples](/sdk/examples/)

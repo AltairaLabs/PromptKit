@@ -5,29 +5,120 @@ order: 4
 ---
 # SDK Explanation
 
-Deep-dive documentation explaining SDK architecture, design decisions, and concepts.
+Deep-dive documentation explaining SDK v2 architecture and design.
 
 ## Architecture
 
-- **[SDK Architecture](architecture)** - Overall SDK design and component relationships
-- **[Pipeline Architecture](pipeline-architecture)** - How request processing pipelines work
-- **[State Management](state-management)** - State persistence design and patterns
-- **[Observability & Events](observability)** - How the event system provides visibility
+- **[SDK Architecture](architecture)** - Pack-first design and components
+- **[Observability](observability)** - Event system and monitoring
 
-## Design Decisions
+## Design Philosophy
 
-- **[API Design Philosophy](api-design)** - Why the SDK works the way it does
-- **[PromptPack Format](promptpack-format)** - Design rationale for pack structure
-- **[Provider Abstraction](provider-abstraction)** - Multi-provider support design
+### Pack-First Architecture
 
-## Best Practices
+SDK v2 is built around the pack file as the single source of truth:
 
-- **[Error Handling Patterns](error-handling)** - Robust error handling strategies
-- **[Performance Optimization](performance)** - Tips for optimal SDK usage
-- **[Testing Strategies](testing-strategies)** - How to test SDK-based applications
+```
+┌─────────────────┐
+│   Pack File     │  ← Configuration, prompts, tools
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│   sdk.Open()    │  ← Load and validate
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Conversation   │  ← Ready to use
+└─────────────────┘
+```
+
+### Why Pack-First?
+
+1. **Reduced Boilerplate** - No manual provider/manager setup
+2. **Tested Configuration** - Packs are validated by Arena
+3. **Portable** - Same pack works across environments
+4. **Versioned** - Pack files are version controlled
+
+### Before (v1)
+
+```go
+provider := providers.NewOpenAIProvider(apiKey, model, false)
+manager, _ := sdk.NewConversationManager(sdk.WithProvider(provider))
+pack, _ := manager.LoadPack("./pack.json")
+conv, _ := manager.NewConversation(ctx, pack, sdk.ConversationConfig{
+    UserID:     "user123",
+    PromptName: "chat",
+})
+resp, _ := conv.Send(ctx, "Hello")
+```
+
+### After (v2)
+
+```go
+conv, _ := sdk.Open("./pack.json", "chat")
+defer conv.Close()
+resp, _ := conv.Send(ctx, "Hello")
+```
+
+## Key Concepts
+
+### Conversation Lifecycle
+
+1. **Open** - `sdk.Open()` loads pack, creates conversation
+2. **Configure** - `SetVar()`, `OnTool()` setup
+3. **Use** - `Send()`, `Stream()` interactions
+4. **Close** - `Close()` cleanup
+
+### Tool Execution
+
+Tools are registered with handlers:
+
+```
+LLM Request
+    │
+    ▼
+Tool Call Decision
+    │
+    ▼
+Handler Lookup
+    │
+    ├─► OnTool handler → Execute immediately
+    │
+    └─► OnToolAsync handler
+            │
+            ├─► Auto-approve → Execute
+            │
+            └─► Pending → Wait for ResolveTool/RejectTool
+```
+
+### Event System
+
+Events flow through the hooks package:
+
+```
+Send() ─────► EventSend
+    │
+    ▼
+Provider Call
+    │
+    ▼
+Response ───► EventResponse
+    │
+    ├─► Tool Call ───► EventToolCall
+    │       │
+    │       ▼
+    │   Handler
+    │       │
+    │       ▼
+    │   EventToolResult
+    │
+    └─► Error ───► EventError
+```
 
 ## See Also
 
-- [SDK Tutorials](../tutorials/) - Learn by building
-- [SDK How-To Guides](../how-to/) - Task-focused guides
-- [SDK Reference](../reference/) - API documentation
+- [Tutorials](../tutorials/)
+- [How-To Guides](../how-to/)
+- [API Reference](../reference/)

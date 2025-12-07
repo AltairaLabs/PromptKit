@@ -22,13 +22,15 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 	intpipeline "github.com/AltairaLabs/PromptKit/sdk/internal/pipeline"
+	streamPkg "github.com/AltairaLabs/PromptKit/sdk/stream"
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
 )
 
 // Default parameter values for LLM calls.
 const (
-	defaultMaxTokens   = 4096
-	defaultTemperature = 0.7
+	defaultMaxTokens        = 4096
+	defaultTemperature      = 0.7
+	streamChannelBufferSize = 100 // Buffer size for streaming channels
 )
 
 // Conversation represents an active LLM conversation.
@@ -487,25 +489,281 @@ func (c *Conversation) registerMCPTools(
 // The channel is closed when the response is complete or an error occurs.
 // The final chunk (Type == ChunkDone) contains the complete Response.
 func (c *Conversation) Stream(ctx context.Context, message any, opts ...SendOption) <-chan StreamChunk {
-	ch := make(chan StreamChunk)
+	ch := make(chan StreamChunk, streamChannelBufferSize)
 
 	go func() {
 		defer close(ch)
+		startTime := time.Now()
 
-		// For now, fall back to Send and emit as single chunk
-		resp, err := c.Send(ctx, message, opts...)
+		if err := c.checkClosed(); err != nil {
+			ch <- StreamChunk{Error: err}
+			return
+		}
+
+		// Build user message from input
+		userMsg, err := c.buildUserMessage(message, opts)
 		if err != nil {
 			ch <- StreamChunk{Error: err}
 			return
 		}
 
-		ch <- StreamChunk{
-			Type:    ChunkDone,
-			Message: resp,
+		// Execute streaming pipeline
+		err = c.executeStreamingPipeline(ctx, userMsg, ch, startTime)
+		if err != nil {
+			ch <- StreamChunk{Error: err}
 		}
 	}()
 
 	return ch
+}
+
+// executeStreamingPipeline builds and executes the LLM pipeline in streaming mode.
+func (c *Conversation) executeStreamingPipeline(
+	ctx context.Context,
+	userMsg *types.Message,
+	outCh chan<- StreamChunk,
+	startTime time.Time,
+) error {
+	// Build and start streaming pipeline
+	pipe, err := c.buildStreamPipeline()
+	if err != nil {
+		return err
+	}
+
+	// Add user message to history
+	c.addMessageToHistory(userMsg)
+
+	// Execute streaming pipeline
+	streamCh, err := pipe.ExecuteStreamWithMessage(ctx, *userMsg)
+	if err != nil {
+		return fmt.Errorf("pipeline streaming failed: %w", err)
+	}
+
+	// Process stream and finalize
+	return c.processAndFinalizeStream(streamCh, outCh, startTime)
+}
+
+// buildStreamPipeline creates the pipeline for streaming execution.
+func (c *Conversation) buildStreamPipeline() (*rtpipeline.Pipeline, error) {
+	// Get current variables for template substitution
+	vars := c.getVariables()
+
+	// Render system prompt with variables
+	renderer := template.NewRenderer()
+	systemPrompt, err := renderer.Render(c.prompt.SystemTemplate, vars)
+	if err != nil {
+		return nil, fmt.Errorf("failed to render system prompt: %w", err)
+	}
+
+	// Build tool registry from handlers
+	toolRegistry, toolDescriptors := c.buildToolRegistry()
+
+	// Build pipeline
+	pipelineCfg := &intpipeline.Config{
+		Provider:     c.provider,
+		ToolRegistry: toolRegistry,
+		SystemPrompt: systemPrompt,
+		Tools:        toolDescriptors,
+		MaxTokens:    defaultMaxTokens,
+		Temperature:  defaultTemperature,
+	}
+
+	// Apply parameters from prompt if available
+	c.applyPromptParameters(pipelineCfg)
+
+	pipe, err := intpipeline.Build(pipelineCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build pipeline: %w", err)
+	}
+
+	return pipe, nil
+}
+
+// streamState tracks state during stream processing.
+type streamState struct {
+	accumulatedContent string
+	lastToolCalls      []types.MessageToolCall
+	finalResult        *rtpipeline.ExecutionResult
+}
+
+// processAndFinalizeStream handles the streaming response and emits the final chunk.
+func (c *Conversation) processAndFinalizeStream(
+	streamCh <-chan providers.StreamChunk,
+	outCh chan<- StreamChunk,
+	startTime time.Time,
+) error {
+	state := &streamState{}
+
+	// Process all stream chunks
+	if err := c.processStreamChunks(streamCh, outCh, state); err != nil {
+		return err
+	}
+
+	// Build response from accumulated data
+	resp := c.buildStreamingResponse(state.finalResult, state.accumulatedContent, state.lastToolCalls, startTime)
+
+	// Add assistant response to history
+	c.finalizeStreamHistory(state)
+
+	// Emit final ChunkDone with complete response
+	outCh <- StreamChunk{
+		Type:    ChunkDone,
+		Message: resp,
+	}
+
+	return nil
+}
+
+// processStreamChunks processes provider chunks and emits SDK chunks.
+func (c *Conversation) processStreamChunks(
+	streamCh <-chan providers.StreamChunk,
+	outCh chan<- StreamChunk,
+	state *streamState,
+) error {
+	for chunk := range streamCh {
+		if chunk.Error != nil {
+			return chunk.Error
+		}
+
+		c.emitStreamChunk(&chunk, outCh, state)
+	}
+	return nil
+}
+
+// emitStreamChunk converts a provider chunk to SDK chunk(s) and updates state.
+func (c *Conversation) emitStreamChunk(
+	chunk *providers.StreamChunk,
+	outCh chan<- StreamChunk,
+	state *streamState,
+) {
+	// Emit text delta
+	if chunk.Delta != "" {
+		state.accumulatedContent += chunk.Delta
+		outCh <- StreamChunk{Type: ChunkText, Text: chunk.Delta}
+	}
+
+	// Emit media delta
+	if chunk.MediaDelta != nil {
+		outCh <- StreamChunk{Type: ChunkMedia, Media: chunk.MediaDelta}
+	}
+
+	// Emit new tool calls
+	if len(chunk.ToolCalls) > len(state.lastToolCalls) {
+		for i := len(state.lastToolCalls); i < len(chunk.ToolCalls); i++ {
+			outCh <- StreamChunk{Type: ChunkToolCall, ToolCall: &chunk.ToolCalls[i]}
+		}
+		state.lastToolCalls = chunk.ToolCalls
+	}
+
+	// Capture final result
+	if chunk.FinishReason != nil {
+		if result, ok := chunk.FinalResult.(*rtpipeline.ExecutionResult); ok {
+			state.finalResult = result
+		}
+	}
+}
+
+// finalizeStreamHistory adds the assistant response to history after streaming.
+func (c *Conversation) finalizeStreamHistory(state *streamState) {
+	if state.finalResult != nil {
+		c.addAssistantResponse(state.finalResult)
+	} else {
+		// No final result from pipeline, create one from accumulated content
+		assistantMsg := types.Message{
+			Role:    "assistant",
+			Content: state.accumulatedContent,
+		}
+		c.stateMu.Lock()
+		c.state.Messages = append(c.state.Messages, assistantMsg)
+		c.stateMu.Unlock()
+	}
+}
+
+// buildStreamingResponse creates a Response from streaming data.
+func (c *Conversation) buildStreamingResponse(
+	result *rtpipeline.ExecutionResult,
+	content string,
+	toolCalls []types.MessageToolCall,
+	startTime time.Time,
+) *Response {
+	resp := &Response{
+		duration: time.Since(startTime),
+	}
+
+	// Use result data if available
+	if result != nil && result.Response != nil {
+		resp.message = &types.Message{
+			Role:     "assistant",
+			Content:  result.Response.Content,
+			CostInfo: &result.CostInfo,
+		}
+
+		if len(result.Response.ToolCalls) > 0 {
+			resp.toolCalls = result.Response.ToolCalls
+		}
+
+		// Extract validations
+		for i := len(result.Messages) - 1; i >= 0; i-- {
+			if result.Messages[i].Role == "assistant" && len(result.Messages[i].Validations) > 0 {
+				resp.validations = result.Messages[i].Validations
+				break
+			}
+		}
+	} else {
+		// Build from accumulated streaming data
+		resp.message = &types.Message{
+			Role:    "assistant",
+			Content: content,
+		}
+		if len(toolCalls) > 0 {
+			resp.toolCalls = toolCalls
+		}
+	}
+
+	return resp
+}
+
+// StreamRaw returns a channel of streaming chunks for use with the stream package.
+// This is a lower-level API that returns stream.Chunk types.
+//
+// Most users should use [Conversation.Stream] instead.
+// StreamRaw is useful when working with [stream.Process] or [stream.CollectText].
+//
+//	err := stream.Process(ctx, conv, "Hello", func(chunk stream.Chunk) error {
+//	    fmt.Print(chunk.Text)
+//	    return nil
+//	})
+func (c *Conversation) StreamRaw(ctx context.Context, message any) (<-chan streamPkg.Chunk, error) {
+	ch := make(chan streamPkg.Chunk, streamChannelBufferSize)
+
+	go func() {
+		defer close(ch)
+
+		for sdkChunk := range c.Stream(ctx, message) {
+			// Convert SDK StreamChunk to stream.Chunk
+			chunk := streamPkg.Chunk{
+				Error: sdkChunk.Error,
+			}
+
+			switch sdkChunk.Type {
+			case ChunkText:
+				chunk.Type = streamPkg.ChunkText
+				chunk.Text = sdkChunk.Text
+			case ChunkToolCall:
+				chunk.Type = streamPkg.ChunkToolCall
+				chunk.ToolCall = sdkChunk.ToolCall
+			case ChunkMedia:
+				chunk.Type = streamPkg.ChunkMedia
+				chunk.Media = sdkChunk.Media
+			case ChunkDone:
+				chunk.Done = true
+			}
+
+			ch <- chunk
+		}
+	}()
+
+	return ch, nil
 }
 
 // SetVar sets a single template variable.
