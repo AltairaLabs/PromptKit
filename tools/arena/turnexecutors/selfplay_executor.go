@@ -425,7 +425,8 @@ func (e *SelfPlayExecutor) buildStreamingMiddlewares(req TurnRequest) []pipeline
 	// Provider + Dynamic validator middleware with suppression
 	middlewares = append(
 		middlewares,
-		middleware.ProviderMiddleware(req.Provider, nil, nil, providerConfig),
+		middleware.ProviderMiddleware(
+			req.Provider, e.pipelineExecutor.toolRegistry, buildToolPolicy(req.Scenario), providerConfig),
 		middleware.DynamicValidatorMiddlewareWithSuppression(validators.DefaultRegistry, true),
 	)
 

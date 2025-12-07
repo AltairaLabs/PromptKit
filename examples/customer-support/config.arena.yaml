@@ -15,6 +15,7 @@ spec:
   scenarios:
     - file: scenarios/support-conversations.scenario.yaml
     - file: scenarios/streaming-demo.scenario.yaml
+    - file: scenarios/streaming-tools-demo.scenario.yaml
     - file: scenarios/validator-test.scenario.yaml
     - file: scenarios/validator-banned-word-test.scenario.yaml
     - file: scenarios/validator-length-test.scenario.yaml

@@ -26,6 +26,13 @@ spec:
     - Acknowledge customer frustration
     - Offer alternatives when direct solution isn't possible
     - End with "Is there anything else I can help you with?"
+    
+    Available tools:
+    - get_order_status: Retrieve the status of a customer order by order ID
+
+  # Tools this prompt can use
+  allowed_tools:
+    - get_order_status
 
   # Validators/Guardrails (enforced at runtime in SDK)
   validators:
