@@ -77,6 +77,51 @@ build-schema-gen: ## Build schema-gen utility
 	@cd tools/schema-gen && go build -o ../../bin/schema-gen .
 	@echo "schema-gen built successfully -> bin/schema-gen"
 
+build-arena-linux: ## Build promptarena for Linux (for Docker demo)
+	@echo "Building promptarena for Linux..."
+	@GOOS=linux GOARCH=amd64 go build -C tools/arena -o ../../bin/promptarena-linux ./cmd/promptarena
+	@echo "promptarena-linux built successfully -> bin/promptarena-linux"
+
+build-packc-linux: ## Build packc for Linux (for Docker demo)
+	@echo "Building packc for Linux..."
+	@GOOS=linux GOARCH=amd64 go build -C tools/packc -o ../../bin/packc-linux .
+	@echo "packc-linux built successfully -> bin/packc-linux"
+
+demo-build: build-arena-linux build-packc-linux ## Build Docker image for demo recording
+	@echo "Building demo recording container..."
+	@docker build -t promptarena-demo -f Dockerfile.demo .
+	@echo "Demo container built: promptarena-demo"
+
+demo-run: ## Run demo recording container (mounts examples and recordings dirs)
+	@mkdir -p recordings
+	@if [ -f .env.demo ]; then \
+		echo "Loading API keys from .env.demo..."; \
+		docker run -it --rm \
+			-v $(PWD)/examples:/demo \
+			-v $(PWD)/recordings:/recordings \
+			--env-file .env.demo \
+			promptarena-demo; \
+	else \
+		echo "No .env.demo found - running without API keys (mock mode only)"; \
+		docker run -it --rm \
+			-v $(PWD)/examples:/demo \
+			-v $(PWD)/recordings:/recordings \
+			promptarena-demo; \
+	fi
+	@echo "Recording saved to recordings/"
+
+demo-env: ## Create .env.demo template for API keys
+	@if [ -f .env.demo ]; then \
+		echo ".env.demo already exists - not overwriting"; \
+	else \
+		echo "# API keys for demo recording (gitignored)" > .env.demo; \
+		echo "# These are passed to Docker and never appear in recordings" >> .env.demo; \
+		echo "OPENAI_API_KEY=" >> .env.demo; \
+		echo "ANTHROPIC_API_KEY=" >> .env.demo; \
+		echo "GOOGLE_API_KEY=" >> .env.demo; \
+		echo "Created .env.demo - add your API keys"; \
+	fi
+
 test: ## Run all tests
 	@echo "Testing runtime..."
 	@cd runtime && go test -v ./...

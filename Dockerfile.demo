@@ -1,0 +1,72 @@
+# Dockerfile for recording asciinema demos with promptarena
+# Usage:
+#   docker build -t promptarena-demo -f Dockerfile.demo .
+#   docker run -it --rm \
+#     -v $(pwd)/examples/iot-maintenance-demo:/demo \
+#     -v $(pwd)/recordings:/recordings \
+#     --env-file .env.demo \
+#     promptarena-demo
+#
+# Create .env.demo with your API keys (gitignored):
+#   OPENAI_API_KEY=sk-...
+#   ANTHROPIC_API_KEY=sk-ant-...
+#
+# Inside container:
+#   asciinema rec /recordings/iot-demo.cast
+#   # run your demo commands...
+#   exit  # to stop recording
+#
+# NOTE: API keys are passed via --env-file and never appear in recordings
+# because asciinema only captures terminal output, not environment variables.
+
+FROM golang:1.25-alpine
+
+# Install dependencies including Node.js/npm for showing install steps
+RUN apk add --no-cache \
+    bash \
+    ncurses \
+    python3 \
+    py3-pip \
+    nodejs \
+    npm \
+    git \
+    curl \
+    && pip3 install --break-system-packages asciinema
+
+# Set clean, minimal prompt
+ENV PS1='\[\e[35m\]promptkit\[\e[0m\]:\[\e[32m\]\w\[\e[0m\]$ '
+ENV TERM=xterm-256color
+ENV COLORTERM=truecolor
+
+# Disable shell history for clean recordings
+ENV HISTFILE=/dev/null
+
+# Prevent env command from showing API keys in recordings
+# by using a wrapper that filters sensitive output
+RUN echo '#!/bin/bash\n/usr/bin/env "$@" | grep -v "_API_KEY\|_SECRET\|_TOKEN"' > /usr/local/bin/env-safe && \
+    chmod +x /usr/local/bin/env-safe
+
+# Copy promptarena binary (built for linux/amd64)
+# Build with: GOOS=linux GOARCH=amd64 go build -o bin/promptarena-linux ./tools/arena
+COPY bin/promptarena-linux /usr/local/bin/promptarena
+RUN chmod +x /usr/local/bin/promptarena
+
+# Copy packc binary (built for linux/amd64)
+# Build with: GOOS=linux GOARCH=amd64 go build -o bin/packc-linux ./tools/packc
+COPY bin/packc-linux /usr/local/bin/packc
+RUN chmod +x /usr/local/bin/packc
+
+# Copy local Go modules so SDK demos use local code instead of fetching from internet
+COPY go.work /promptkit/go.work
+COPY sdk /promptkit/sdk
+COPY runtime /promptkit/runtime
+COPY pkg /promptkit/pkg
+
+# Set working directory
+WORKDIR /demo
+
+# Create recordings directory
+RUN mkdir -p /recordings
+
+# Default shell
+CMD ["bash"]

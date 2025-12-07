@@ -225,11 +225,16 @@ func (r *JUnitResultRepository) addErrorOrFailure(testCase *JUnitTestCase, resul
 	}
 
 	if len(result.Violations) > 0 {
-		// Validation failures
-		testCase.Failure = &JUnitFailure{
-			Message: fmt.Sprintf("Validation failed: %d violation(s)", len(result.Violations)),
-			Type:    "ValidationError",
-			Content: r.buildValidationDetails(result.Violations),
+		// Only report violations as failures if assertions didn't expect them
+		// - No assertions = violations are unexpected = failure
+		// - Some assertions fail = failure
+		// - All assertions pass = violations were expected = not a failure
+		if !results.HasAssertions(result) || !results.AllAssertionsPassed(result) {
+			testCase.Failure = &JUnitFailure{
+				Message: fmt.Sprintf("Validation failed: %d violation(s)", len(result.Violations)),
+				Type:    "ValidationError",
+				Content: r.buildValidationDetails(result.Violations),
+			}
 		}
 	}
 }

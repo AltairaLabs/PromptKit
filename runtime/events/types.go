@@ -52,6 +52,14 @@ const (
 
 	// EventStreamInterrupted marks a stream interruption.
 	EventStreamInterrupted EventType = "stream.interrupted"
+
+	// EventMessageCreated marks message creation.
+	EventMessageCreated EventType = "message.created"
+	// EventMessageUpdated marks message update (e.g., cost/latency after completion).
+	EventMessageUpdated EventType = "message.updated"
+
+	// EventConversationStarted marks the start of a new conversation.
+	EventConversationStarted EventType = "conversation.started"
 )
 
 // EventData is a marker interface for event payloads.
@@ -250,4 +258,46 @@ type CustomEventData struct {
 	EventName      string
 	Data           map[string]interface{}
 	Message        string
+}
+
+// MessageToolCall represents a tool call in a message event (mirrors runtime/types.MessageToolCall).
+type MessageToolCall struct {
+	ID   string `json:"id"`   // Unique identifier for this tool call
+	Name string `json:"name"` // Name of the tool to invoke
+	Args string `json:"args"` // JSON-encoded tool arguments as string
+}
+
+// MessageToolResult represents a tool result in a message event (mirrors runtime/types.MessageToolResult).
+type MessageToolResult struct {
+	ID        string `json:"id"`                   // References the MessageToolCall.ID
+	Name      string `json:"name"`                 // Tool name that was executed
+	Content   string `json:"content"`              // Result content
+	Error     string `json:"error,omitempty"`      // Error message if tool failed
+	LatencyMs int64  `json:"latency_ms,omitempty"` // Tool execution latency
+}
+
+// MessageCreatedData contains data for message creation events.
+type MessageCreatedData struct {
+	baseEventData
+	Role       string
+	Content    string
+	Index      int                // Position in conversation history
+	ToolCalls  []MessageToolCall  // Tool calls requested by assistant (if any)
+	ToolResult *MessageToolResult // Tool result for tool messages (if any)
+}
+
+// MessageUpdatedData contains data for message update events.
+type MessageUpdatedData struct {
+	baseEventData
+	Index        int // Position in conversation history
+	LatencyMs    int64
+	InputTokens  int
+	OutputTokens int
+	TotalCost    float64
+}
+
+// ConversationStartedData contains data for conversation start events.
+type ConversationStartedData struct {
+	baseEventData
+	SystemPrompt string // The assembled system prompt for this conversation
 }

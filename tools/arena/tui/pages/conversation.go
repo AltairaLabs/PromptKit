@@ -53,3 +53,8 @@ func (p *ConversationPage) GetKeyBindings() []views.KeyBinding {
 		{Keys: "esc", Description: "back"},
 	}
 }
+
+// Panel returns the underlying conversation panel for direct access
+func (p *ConversationPage) Panel() *panels.ConversationPanel {
+	return p.panel
+}

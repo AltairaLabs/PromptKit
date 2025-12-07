@@ -134,7 +134,7 @@ func (r *Registry) LoadToolFromBytes(filename string, data []byte) error {
 	return r.loadJSONTool(filename, data)
 }
 
-// loadYAMLTool loads a tool from YAML data
+// loadYAMLTool loads a tool from YAML data (K8s manifest format required)
 func (r *Registry) loadYAMLTool(filename string, data []byte) error {
 	var temp interface{}
 	if err := yaml.Unmarshal(data, &temp); err != nil {
@@ -146,13 +146,12 @@ func (r *Registry) loadYAMLTool(filename string, data []byte) error {
 		return fmt.Errorf("invalid YAML structure in %s", filename)
 	}
 
-	// Check if this looks like a K8s manifest
-	if apiVersion, hasAPI := tempMap["apiVersion"].(string); hasAPI && apiVersion != "" {
-		return r.loadK8sManifest(filename, temp)
+	// Require K8s manifest format
+	if _, hasAPI := tempMap["apiVersion"].(string); !hasAPI {
+		return fmt.Errorf("tool file %s must use K8s manifest format (apiVersion, kind, metadata, spec)", filename)
 	}
 
-	// Not a K8s manifest - fall back to legacy format
-	return r.loadLegacyYAML(filename, temp)
+	return r.loadK8sManifest(filename, temp)
 }
 
 // loadK8sManifest loads a K8s-style tool manifest
@@ -193,26 +192,6 @@ func (r *Registry) validateK8sManifest(filename string, toolConfig *ToolConfig) 
 	if toolConfig.Metadata.Name == "" {
 		return fmt.Errorf("tool config %s is missing metadata.name", filename)
 	}
-	return nil
-}
-
-// loadLegacyYAML loads a tool from legacy YAML format
-func (r *Registry) loadLegacyYAML(filename string, temp interface{}) error {
-	jsonData, err := json.Marshal(temp)
-	if err != nil {
-		return fmt.Errorf("failed to convert YAML to JSON for %s: %w", filename, err)
-	}
-
-	var descriptor ToolDescriptor
-	if err := json.Unmarshal(jsonData, &descriptor); err != nil {
-		return fmt.Errorf("failed to unmarshal converted JSON for %s: %w", filename, err)
-	}
-
-	if err := r.validateDescriptor(&descriptor); err != nil {
-		return fmt.Errorf(errInvalidToolDescriptor, filename, err)
-	}
-
-	r.tools[descriptor.Name] = &descriptor
 	return nil
 }
 
@@ -280,19 +259,10 @@ func (r *Registry) Execute(toolName string, args json.RawMessage) (*ToolResult, 
 		return nil, err
 	}
 
-	// Find appropriate executor
-	executorName := executorMockStatic
-	if tool.Mode == modeMCP {
-		executorName = modeMCP
-	} else if tool.Mode == modeLive {
-		executorName = "http"
-	} else if tool.MockTemplate != "" || tool.MockTemplateFile != "" {
-		executorName = executorMockScripted
-	}
-
-	executor, exists := r.executors[executorName]
-	if !exists {
-		return nil, fmt.Errorf("executor %s not available", executorName)
+	// Find appropriate executor using shared logic
+	executor, err := r.getExecutorForTool(tool)
+	if err != nil {
+		return nil, err
 	}
 
 	// Execute the tool
@@ -368,20 +338,35 @@ func (r *Registry) ExecuteAsync(toolName string, args json.RawMessage) (*ToolExe
 	return r.executeSyncFallback(executor, tool, toolName, args)
 }
 
-// getExecutorForTool finds the appropriate executor for a tool
+// getExecutorForTool finds the appropriate executor for a tool.
+// Priority order:
+// 1. Built-in mode mapping (mock, live, mcp) for backwards compatibility
+// 2. If tool.Mode matches a registered executor name, use it (enables custom executors)
 func (r *Registry) getExecutorForTool(tool *ToolDescriptor) (Executor, error) {
-	executorName := executorMockStatic
-	if tool.Mode == modeMCP {
-		executorName = modeMCP
-	} else if tool.Mode == modeLive {
+	var executorName string
+
+	// First, handle built-in modes with their established mappings
+	switch tool.Mode {
+	case modeMock, "": // Empty mode defaults to mock behavior
+		// Check for templated mock first
+		if tool.MockTemplate != "" || tool.MockTemplateFile != "" {
+			executorName = executorMockScripted
+		} else {
+			executorName = executorMockStatic
+		}
+	case modeLive:
 		executorName = "http"
-	} else if tool.MockTemplate != "" || tool.MockTemplateFile != "" {
-		executorName = executorMockScripted
+	case modeMCP:
+		executorName = modeMCP
+	default:
+		// For non-built-in modes, use Mode as the executor name directly
+		// This enables custom executors by setting Mode to the executor's name
+		executorName = tool.Mode
 	}
 
 	executor, exists := r.executors[executorName]
 	if !exists {
-		return nil, fmt.Errorf("executor %s not available", executorName)
+		return nil, fmt.Errorf("executor %s not available for tool %s", executorName, tool.Name)
 	}
 	return executor, nil
 }
@@ -475,8 +460,12 @@ func (r *Registry) validateDescriptor(descriptor *ToolDescriptor) error {
 		return fmt.Errorf("output schema is required")
 	}
 
-	if descriptor.Mode != modeMock && descriptor.Mode != modeLive && descriptor.Mode != modeMCP {
-		return fmt.Errorf("mode must be 'mock', 'live', or 'mcp'")
+	// Mode must be empty (defaults to mock), a built-in mode, or a registered executor name
+	isBuiltinMode := descriptor.Mode == "" || descriptor.Mode == modeMock ||
+		descriptor.Mode == modeLive || descriptor.Mode == modeMCP
+	_, isRegisteredExecutor := r.executors[descriptor.Mode]
+	if !isBuiltinMode && !isRegisteredExecutor {
+		return fmt.Errorf("mode must be 'mock', 'live', 'mcp', or a registered executor name")
 	}
 
 	if descriptor.TimeoutMs <= 0 {
@@ -498,21 +487,4 @@ func (r *Registry) validateDescriptor(descriptor *ToolDescriptor) error {
 // getCurrentTimeMs returns current time in milliseconds
 func getCurrentTimeMs() int64 {
 	return time.Now().UnixNano() / int64(time.Millisecond)
-}
-
-// ToolData holds raw tool configuration data with file path
-type ToolData struct {
-	FilePath string
-	Data     []byte
-}
-
-// LoadToolsFromData loads tool descriptors from a slice of ToolData.
-// Returns error if any tool fails to load.
-func (r *Registry) LoadToolsFromData(tools []ToolData) error {
-	for _, toolData := range tools {
-		if err := r.LoadToolFromBytes(toolData.FilePath, toolData.Data); err != nil {
-			return fmt.Errorf("failed to load tool %s: %w", toolData.FilePath, err)
-		}
-	}
-	return nil
 }

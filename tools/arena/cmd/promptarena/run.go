@@ -407,8 +407,12 @@ func displayRunInfo(params *RunParameters, configFile string) {
 
 	fmt.Printf("Running Altaira Prompt Arena\n")
 	fmt.Printf("Config: %s\n", configFile)
-	fmt.Printf("Regions: %s\n", strings.Join(params.Regions, ", "))
-	fmt.Printf("Providers: %s\n", strings.Join(params.Providers, ", "))
+	if len(params.Regions) > 0 {
+		fmt.Printf("Regions: %s\n", strings.Join(params.Regions, ", "))
+	}
+	if len(params.Providers) > 0 {
+		fmt.Printf("Providers: %s\n", strings.Join(params.Providers, ", "))
+	}
 	fmt.Printf("Scenarios: %s\n", strings.Join(params.Scenarios, ", "))
 	fmt.Printf("Concurrency: %d\n", params.Concurrency)
 	fmt.Printf("Output: %s\n", params.OutDir)

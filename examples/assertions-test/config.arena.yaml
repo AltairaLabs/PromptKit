@@ -11,6 +11,7 @@ spec:
   providers:
     - file: providers/gemini.provider.yaml
     - file: providers/openai.provider.yaml
+    - file: providers/selfplay-mock.provider.yaml
 
   scenarios:
     - file: scenarios/scripted-turns.scenario.yaml
@@ -29,7 +30,7 @@ spec:
       - file: personas/curious-learner.persona.yaml
     roles:
       - id: gemini-user
-        provider: openai-mini
+        provider: selfplay-mock
 
   defaults:
     temperature: 0.5

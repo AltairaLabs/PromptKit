@@ -222,6 +222,7 @@ type MediaItemSummary struct {
 // This enhances the output by:
 // 1. Populating the Content field with a human-readable summary when Parts exist
 // 2. Adding a MediaSummary field for observability of multimodal content
+// 3. Omitting Content field when ToolResult is present to avoid duplication
 func (m Message) MarshalJSON() ([]byte, error) {
 	// Create a type alias to avoid infinite recursion
 	type MessageAlias Message
@@ -230,8 +231,10 @@ func (m Message) MarshalJSON() ([]byte, error) {
 	aux := struct {
 		MessageAlias
 		MediaSummary *MediaSummary `json:"media_summary,omitempty"`
+		Content      string        `json:"content,omitempty"` // Override to control omission
 	}{
 		MessageAlias: MessageAlias(m),
+		Content:      m.Content, // Default to actual content
 	}
 
 	// If Parts exist and Content is empty, populate content with summary
@@ -244,7 +247,28 @@ func (m Message) MarshalJSON() ([]byte, error) {
 		aux.MediaSummary = m.getMediaSummary()
 	}
 
+	// If ToolResult is present, omit Content to avoid duplication
+	if m.ToolResult != nil {
+		aux.Content = "" // Empty string with omitempty will omit the field
+	}
+
 	return json.Marshal(aux)
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for Message.
+// After unmarshaling, if ToolResult is present, copy its Content to Message.Content
+// for provider compatibility (providers expect Content field to be populated).
+func (m *Message) UnmarshalJSON(data []byte) error {
+	type MessageAlias Message
+	aux := (*MessageAlias)(m)
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	// If tool result is present but Content is empty, copy from ToolResult
+	if m.ToolResult != nil && m.Content == "" {
+		m.Content = m.ToolResult.Content
+	}
+	return nil
 }
 
 // getContentSummary returns a human-readable summary of the message content.

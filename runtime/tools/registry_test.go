@@ -496,3 +496,232 @@ func TestValidateDescriptor_InvalidSchema(t *testing.T) {
 		t.Error("LoadToolFromBytes should fail with invalid schema")
 	}
 }
+
+// mockCustomExecutor implements Executor for testing custom executor routing
+type mockCustomExecutor struct {
+	name   string
+	result json.RawMessage
+}
+
+func (m *mockCustomExecutor) Name() string {
+	return m.name
+}
+
+func (m *mockCustomExecutor) Execute(descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
+	return m.result, nil
+}
+
+// TestGetExecutorForTool_CustomExecutor verifies that custom executors can be used via Mode
+func TestGetExecutorForTool_CustomExecutor(t *testing.T) {
+	registry := tools.NewRegistry()
+
+	// Register a custom executor
+	customExec := &mockCustomExecutor{
+		name:   "my-custom-executor",
+		result: json.RawMessage(`{"source": "custom"}`),
+	}
+	registry.RegisterExecutor(customExec)
+
+	// Register a tool that uses the custom executor by setting Mode to the executor name
+	descriptor := &tools.ToolDescriptor{
+		Name:         "custom_tool",
+		Description:  "Tool using custom executor",
+		InputSchema:  json.RawMessage(`{"type": "object", "properties": {"input": {"type": "string"}}}`),
+		OutputSchema: json.RawMessage(`{"type": "object", "properties": {"source": {"type": "string"}}}`),
+		Mode:         "my-custom-executor", // Use executor name as mode
+		TimeoutMs:    1000,
+	}
+
+	err := registry.Register(descriptor)
+	if err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
+
+	// Execute should route to our custom executor
+	result, err := registry.Execute("custom_tool", json.RawMessage(`{"input": "test"}`))
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	if result.Error != "" {
+		t.Errorf("Expected no error, got '%s'", result.Error)
+	}
+
+	// Verify the result came from our custom executor
+	var resultData map[string]interface{}
+	if err := json.Unmarshal(result.Result, &resultData); err != nil {
+		t.Fatalf("Failed to unmarshal result: %v", err)
+	}
+
+	if resultData["source"] != "custom" {
+		t.Errorf("Expected source 'custom', got '%v'", resultData["source"])
+	}
+}
+
+// TestGetExecutorForTool_BuiltInModes verifies built-in modes still work
+func TestGetExecutorForTool_BuiltInModes(t *testing.T) {
+	registry := tools.NewRegistry()
+
+	tests := []struct {
+		name         string
+		mode         string
+		mockResult   json.RawMessage
+		mockTemplate string
+		expectError  bool
+	}{
+		{
+			name:       "mock mode with static result",
+			mode:       "mock",
+			mockResult: json.RawMessage(`{"result": "static"}`),
+		},
+		{
+			name:       "empty mode defaults to mock",
+			mode:       "",
+			mockResult: json.RawMessage(`{"result": "default"}`),
+		},
+		{
+			name:         "mock mode with template",
+			mode:         "mock",
+			mockTemplate: `{"result": "templated"}`,
+		},
+		{
+			name:        "live mode without http executor",
+			mode:        "live",
+			expectError: true, // http executor not registered by default
+		},
+		{
+			name:        "mcp mode without mcp executor",
+			mode:        "mcp",
+			expectError: true, // mcp executor not registered by default
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			descriptor := &tools.ToolDescriptor{
+				Name:         "test_tool_" + tt.mode,
+				Description:  "Test tool",
+				InputSchema:  json.RawMessage(`{"type": "object"}`),
+				OutputSchema: json.RawMessage(`{"type": "object", "properties": {"result": {"type": "string"}}}`),
+				Mode:         tt.mode,
+				MockResult:   tt.mockResult,
+				MockTemplate: tt.mockTemplate,
+				TimeoutMs:    1000,
+			}
+
+			err := registry.Register(descriptor)
+			if err != nil {
+				t.Fatalf("Register failed: %v", err)
+			}
+
+			_, err = registry.Execute(descriptor.Name, json.RawMessage(`{}`))
+			if tt.expectError && err == nil {
+				t.Error("Expected error but got none")
+			}
+			if !tt.expectError && err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// TestGetExecutorForTool_UnknownModeNoExecutor verifies error for unknown mode without matching executor
+func TestGetExecutorForTool_UnknownModeNoExecutor(t *testing.T) {
+	registry := tools.NewRegistry()
+
+	// Register a tool with an unknown mode (no matching executor)
+	// Note: Register doesn't validate mode, validation happens at execution time
+	descriptor := &tools.ToolDescriptor{
+		Name:         "unknown_mode_tool",
+		Description:  "Tool with unknown mode",
+		InputSchema:  json.RawMessage(`{"type": "object"}`),
+		OutputSchema: json.RawMessage(`{"type": "object"}`),
+		Mode:         "nonexistent-executor",
+		TimeoutMs:    1000,
+	}
+
+	err := registry.Register(descriptor)
+	if err != nil {
+		t.Fatalf("Register should succeed: %v", err)
+	}
+
+	// Execution should fail because no executor matches the mode
+	_, err = registry.Execute("unknown_mode_tool", json.RawMessage(`{}`))
+	if err == nil {
+		t.Fatal("Expected error when executing tool with unknown mode")
+	}
+
+	expectedMsg := "executor nonexistent-executor not available for tool unknown_mode_tool"
+	if err.Error() != expectedMsg {
+		t.Errorf("Expected error '%s', got '%s'", expectedMsg, err.Error())
+	}
+}
+
+// TestExecuteAsync_CustomExecutor verifies ExecuteAsync works with custom executors
+func TestExecuteAsync_CustomExecutor(t *testing.T) {
+	registry := tools.NewRegistry()
+
+	// Register a custom async executor
+	asyncExec := &mockAsyncCustomExecutor{
+		name:   "my-async-executor",
+		status: tools.ToolStatusComplete,
+		result: json.RawMessage(`{"async": true}`),
+	}
+	registry.RegisterExecutor(asyncExec)
+
+	// Register a tool that uses the custom executor
+	descriptor := &tools.ToolDescriptor{
+		Name:         "async_custom_tool",
+		Description:  "Tool using custom async executor",
+		InputSchema:  json.RawMessage(`{"type": "object"}`),
+		OutputSchema: json.RawMessage(`{"type": "object", "properties": {"async": {"type": "boolean"}}}`),
+		Mode:         "my-async-executor",
+		TimeoutMs:    1000,
+	}
+
+	err := registry.Register(descriptor)
+	if err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
+
+	// ExecuteAsync should route to our custom executor
+	result, err := registry.ExecuteAsync("async_custom_tool", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("ExecuteAsync failed: %v", err)
+	}
+
+	if result.Status != tools.ToolStatusComplete {
+		t.Errorf("Expected status Complete, got %v", result.Status)
+	}
+
+	var resultData map[string]interface{}
+	if err := json.Unmarshal(result.Content, &resultData); err != nil {
+		t.Fatalf("Failed to unmarshal result: %v", err)
+	}
+
+	if resultData["async"] != true {
+		t.Errorf("Expected async=true, got %v", resultData["async"])
+	}
+}
+
+// mockAsyncCustomExecutor implements AsyncToolExecutor for testing
+type mockAsyncCustomExecutor struct {
+	name   string
+	status tools.ToolExecutionStatus
+	result json.RawMessage
+}
+
+func (m *mockAsyncCustomExecutor) Name() string {
+	return m.name
+}
+
+func (m *mockAsyncCustomExecutor) Execute(descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
+	return m.result, nil
+}
+
+func (m *mockAsyncCustomExecutor) ExecuteAsync(descriptor *tools.ToolDescriptor, args json.RawMessage) (*tools.ToolExecutionResult, error) {
+	return &tools.ToolExecutionResult{
+		Status:  m.status,
+		Content: m.result,
+	}, nil
+}

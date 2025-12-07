@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -120,6 +121,61 @@ func (c *ConversationPanel) SetData(runID, scenario, provider string, res *state
 	c.provider = provider
 }
 
+// HasSystemPrompt checks if the conversation already has a system prompt message
+func (c *ConversationPanel) HasSystemPrompt() bool {
+	if c.res == nil || len(c.res.Messages) == 0 {
+		return false
+	}
+	return c.res.Messages[0].Role == "system"
+}
+
+// PrependSystemPrompt adds a system prompt as the first message in the conversation
+func (c *ConversationPanel) PrependSystemPrompt(msg *types.Message) {
+	if c.res == nil {
+		return
+	}
+	// Prepend by creating new slice with system message first
+	c.res.Messages = append([]types.Message{*msg}, c.res.Messages...)
+	// Invalidate render cache
+	c.renderedCache = make(map[int]string)
+	// Rebuild table
+	c.updateTable(c.res)
+	// Adjust selected index since we prepended
+	if c.selectedTurnIdx >= 0 {
+		c.selectedTurnIdx++
+	}
+	c.updateDetail(c.res)
+}
+
+// AppendMessage adds a new message to the conversation in real-time
+func (c *ConversationPanel) AppendMessage(msg *types.Message) {
+	if c.res == nil {
+		return
+	}
+	c.res.Messages = append(c.res.Messages, *msg)
+	// Invalidate render cache since we added a message
+	c.renderedCache = make(map[int]string)
+	// Rebuild table to show the new message
+	c.updateTable(c.res)
+	// Update detail view if we're viewing the last message
+	if c.selectedTurnIdx == len(c.res.Messages)-2 {
+		// Auto-advance to new message if we were viewing the previous last message
+		c.selectedTurnIdx = len(c.res.Messages) - 1
+	}
+	c.updateDetail(c.res)
+}
+
+// UpdateMessageMetadata updates cost/latency for a message
+func (c *ConversationPanel) UpdateMessageMetadata(index int, latencyMs int64, costInfo types.CostInfo) {
+	if c.res == nil || index < 0 || index >= len(c.res.Messages) {
+		return
+	}
+	c.res.Messages[index].LatencyMs = latencyMs
+	c.res.Messages[index].CostInfo = &costInfo
+	// Invalidate cache for this specific message
+	delete(c.renderedCache, index)
+}
+
 func (c *ConversationPanel) ensureTable(runID string) {
 	if c.tableReady && c.lastRunID == runID {
 		return
@@ -224,8 +280,9 @@ func (c *ConversationPanel) View() string {
 		return "No conversation available."
 	}
 
+	// Always show two-panel layout, even with no messages
 	if len(c.res.Messages) == 0 {
-		return "No conversation recorded."
+		return c.buildEmptyConversationView()
 	}
 
 	c.updateTable(c.res)
@@ -234,6 +291,65 @@ func (c *ConversationPanel) View() string {
 	title := c.buildTitle()
 	tableView := c.buildTableView()
 	detailView := c.buildDetailView()
+
+	content := lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		tableView,
+		strings.Repeat(" ", conversationPanelGap),
+		detailView,
+	)
+
+	return lipgloss.NewStyle().
+		Padding(conversationPanelPadding, conversationPanelHorizontal).
+		Render(lipgloss.JoinVertical(lipgloss.Left, title, content))
+}
+
+// buildEmptyConversationView renders the two-panel layout with empty table and waiting message
+func (c *ConversationPanel) buildEmptyConversationView() string {
+	title := c.buildTitle()
+
+	// Build empty table view
+	tableBorderColor := theme.BorderColorFocused()
+	if c.focus != focusConversationTurns {
+		tableBorderColor = theme.BorderColorUnfocused()
+	}
+
+	emptyTableContent := c.table.View()
+	tableView := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(tableBorderColor).
+		Render(emptyTableContent)
+
+	// Build detail view with waiting message
+	detailBorderColor := theme.BorderColorUnfocused()
+	if c.focus == focusConversationDetail {
+		detailBorderColor = theme.BorderColorFocused()
+	}
+
+	width := c.width - conversationListWidth - conversationPanelGap - conversationDetailWidthPad
+	if width < conversationDetailMinWidth {
+		width = conversationDetailMinWidth
+	}
+
+	height := c.height - conversationTableHeightPad
+	if height < conversationDetailMinHeight {
+		height = conversationDetailMinHeight
+	}
+
+	waitingMessage := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.ColorLightGray)).
+		Italic(true).
+		Width(width).
+		Height(height).
+		Align(lipgloss.Center, lipgloss.Center).
+		Render("Waiting for conversation to start...")
+
+	detailView := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(detailBorderColor).
+		Width(width).
+		Height(height).
+		Render(waitingMessage)
 
 	content := lipgloss.JoinHorizontal(
 		lipgloss.Top,
@@ -365,7 +481,23 @@ func (c *ConversationPanel) updateTable(res *statestore.RunResult) {
 	rows := make([]table.Row, 0, len(res.Messages))
 	for i := range res.Messages {
 		msg := &res.Messages[i]
-		snippet := theme.TruncateString(msg.GetContent(), conversationSnippetMaxLength)
+		var snippet string
+
+		// Handle tool result messages - show tool name instead of JSON
+		if msg.ToolResult != nil {
+			toolName := msg.ToolResult.Name
+			if toolName == "" {
+				toolName = "unknown"
+			}
+			snippet = fmt.Sprintf("[%s result]", toolName)
+		} else if msg.Role == "assistant" && len(msg.ToolCalls) > 0 && msg.GetContent() == "" {
+			// Assistant message with only tool calls (no text content)
+			snippet = fmt.Sprintf("[Tool Calls (%d)]", len(msg.ToolCalls))
+		} else {
+			// Regular message content
+			snippet = theme.TruncateString(msg.GetContent(), conversationSnippetMaxLength)
+		}
+
 		rows = append(rows, table.Row{
 			fmt.Sprintf("%d", i+1),
 			msg.Role,
@@ -519,6 +651,12 @@ func (c *ConversationPanel) appendContentMarkdown(md *strings.Builder, msg *type
 		return
 	}
 
+	// Skip content section for tool result messages to avoid duplication
+	// (tool result content is already shown in the Tool Result section)
+	if msg.ToolResult != nil {
+		return
+	}
+
 	md.WriteString("## 💬 Message\n\n")
 	md.WriteString(msgContent)
 	md.WriteString("\n\n")
@@ -548,17 +686,32 @@ func formatJSON(raw string) string {
 }
 
 func (c *ConversationPanel) renderDetailHeader(res *statestore.RunResult, idx int, msg *types.Message) string {
-	totalTokens := res.Cost.InputTokens + res.Cost.OutputTokens
-	header := fmt.Sprintf(
-		"Turn %d • Role: %s • Tokens: %d/%d (total %d) • Cost: $%.4f • Duration: %s",
-		idx+1,
-		msg.Role,
-		res.Cost.InputTokens,
-		res.Cost.OutputTokens,
-		totalTokens,
-		res.Cost.TotalCost,
-		theme.FormatDuration(res.Duration),
-	)
+	// Build header parts dynamically
+	parts := []string{
+		fmt.Sprintf("Turn %d", idx+1),
+		fmt.Sprintf("Role: %s", msg.Role),
+	}
+
+	// Add persona for self-play user turns
+	if msg.Role == "user" && res.PersonaID != "" {
+		parts = append(parts, fmt.Sprintf("🤖 %s", res.PersonaID))
+	}
+
+	// Add per-message metrics if available
+	if msg.CostInfo != nil {
+		totalTokens := msg.CostInfo.InputTokens + msg.CostInfo.OutputTokens
+		parts = append(parts,
+			fmt.Sprintf("Tokens: %d→%d (%d total)", msg.CostInfo.InputTokens, msg.CostInfo.OutputTokens, totalTokens),
+			fmt.Sprintf("Cost: $%.4f", msg.CostInfo.TotalCost))
+	}
+
+	// Add latency if available
+	if msg.LatencyMs > 0 {
+		latency := time.Duration(msg.LatencyMs) * time.Millisecond
+		parts = append(parts, fmt.Sprintf("Duration: %s", theme.FormatDuration(latency)))
+	}
+
+	header := strings.Join(parts, " • ")
 
 	return lipgloss.NewStyle().
 		Foreground(theme.BorderColorFocused()).

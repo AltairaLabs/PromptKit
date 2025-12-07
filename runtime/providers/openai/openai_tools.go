@@ -114,13 +114,16 @@ func (p *ToolProvider) PredictWithTools(ctx context.Context, req providers.Predi
 func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools interface{}, toolChoice string) map[string]interface{} {
 	messages := p.convertRequestMessagesToOpenAI(req)
 
+	// Apply defaults to zero-valued request parameters
+	temperature, topP, maxTokens := p.applyRequestDefaults(req)
+
 	// Build request
 	openaiReq := map[string]interface{}{
 		"model":       p.model,
 		"messages":    messages,
-		"temperature": req.Temperature,
-		"top_p":       req.TopP,
-		"max_tokens":  req.MaxTokens,
+		"temperature": temperature,
+		"top_p":       topP,
+		"max_tokens":  maxTokens,
 	}
 
 	if req.Seed != nil {

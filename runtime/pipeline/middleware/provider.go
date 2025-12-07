@@ -232,6 +232,8 @@ func processNonStreamingResponse(execCtx *pipeline.ExecutionContext, resp *provi
 	// Add assistant message to conversation history
 	assistantMsg := createAssistantMessage(resp.Content, resp.Parts, convertToolCalls(resp.ToolCalls), resp.CostInfo, resp.Latency)
 	execCtx.Messages = append(execCtx.Messages, assistantMsg)
+	emitMessageCreatedEvent(execCtx, &assistantMsg)
+	emitMessageUpdatedEvent(execCtx, len(execCtx.Messages)-1, resp.Latency.Milliseconds(), resp.CostInfo)
 
 	// Process tool calls (if any) and determine if we need another round
 	return processToolCallRound(execCtx, toolRegistry, policy, resp.ToolCalls)
@@ -375,6 +377,8 @@ func handleStreamInterruption(execCtx *pipeline.ExecutionContext, provider provi
 		},
 	}
 	execCtx.Messages = append(execCtx.Messages, assistantMsg)
+	emitMessageCreatedEvent(execCtx, &assistantMsg)
+	emitMessageUpdatedEvent(execCtx, len(execCtx.Messages)-1, duration.Milliseconds(), approxCost)
 
 	return nil
 }
@@ -414,6 +418,8 @@ func handleStreamCompletion(execCtx *pipeline.ExecutionContext, result *streamPr
 			}
 		}
 		execCtx.Messages = append(execCtx.Messages, assistantMsg)
+		emitMessageCreatedEvent(execCtx, &assistantMsg)
+		emitMessageUpdatedEvent(execCtx, len(execCtx.Messages)-1, duration.Milliseconds(), costInfo)
 
 		return false, nil // No more rounds needed
 	}
@@ -430,6 +436,8 @@ func handleStreamCompletion(execCtx *pipeline.ExecutionContext, result *streamPr
 		}
 	}
 	execCtx.Messages = append(execCtx.Messages, assistantMsg)
+	emitMessageCreatedEvent(execCtx, &assistantMsg)
+	emitMessageUpdatedEvent(execCtx, len(execCtx.Messages)-1, duration.Milliseconds(), costInfo)
 
 	// Process tool calls and determine if we need another round
 	return processToolCallRound(execCtx, toolRegistry, policy, result.toolCalls)
@@ -438,20 +446,38 @@ func handleStreamCompletion(execCtx *pipeline.ExecutionContext, result *streamPr
 // buildProviderTooling extracts the duplicated tool setup logic
 func buildProviderTooling(provider providers.Provider, toolRegistry *tools.Registry, execCtx *pipeline.ExecutionContext, policy *pipeline.ToolPolicy) (toolDefs interface{}, toolChoice string, err error) {
 	// Early returns for cases where we don't need tools
-	if toolRegistry == nil || len(execCtx.AllowedTools) == 0 {
+	if toolRegistry == nil {
+		logger.Debug("buildProviderTooling: toolRegistry is nil")
 		return nil, "", nil
 	}
+	if len(execCtx.AllowedTools) == 0 {
+		logger.Debug("buildProviderTooling: no AllowedTools in execCtx")
+		return nil, "", nil
+	}
+
+	logger.Debug("buildProviderTooling: looking up tools",
+		"allowed_tools", execCtx.AllowedTools,
+		"registry_tools_count", len(toolRegistry.GetTools()))
 
 	// Get only the allowed tools from the registry
 	allowedToolDescriptors, err := toolRegistry.GetToolsByNames(execCtx.AllowedTools)
 	// If some tools are not found, silently continue without tool support
-	if err != nil || len(allowedToolDescriptors) == 0 {
+	if err != nil {
+		logger.Debug("buildProviderTooling: GetToolsByNames error", "error", err)
 		return nil, "", nil
 	}
+	if len(allowedToolDescriptors) == 0 {
+		logger.Debug("buildProviderTooling: no matching tools found in registry")
+		return nil, "", nil
+	}
+
+	logger.Debug("buildProviderTooling: found tools", "count", len(allowedToolDescriptors))
 
 	// Check if provider supports tools
 	toolSupport, ok := provider.(providers.ToolSupport)
 	if !ok {
+		logger.Warn("buildProviderTooling: provider does not support tools - tools will not be available",
+			"hint", "Did you mean to use a ToolProvider? (e.g., openai.NewToolProvider instead of openai.NewProvider)")
 		return nil, "", nil
 	}
 
@@ -468,6 +494,7 @@ func buildProviderTooling(provider providers.Provider, toolRegistry *tools.Regis
 
 	providerTools, err := toolSupport.BuildTooling(providerToolDescriptors)
 	if err != nil {
+		logger.Debug("buildProviderTooling: BuildTooling failed", "error", err)
 		return nil, "", fmt.Errorf("failed to build tools: %w", err)
 	}
 
@@ -537,7 +564,7 @@ func addToolResultMessages(execCtx *pipeline.ExecutionContext, toolResults []typ
 	for _, result := range toolResults {
 		toolMsg := types.Message{
 			Role:      "tool",
-			Content:   result.Content,
+			Content:   result.Content, // Set for provider processing
 			Timestamp: time.Now(),
 			ToolResult: &types.MessageToolResult{
 				ID:        result.ID,
@@ -549,6 +576,9 @@ func addToolResultMessages(execCtx *pipeline.ExecutionContext, toolResults []typ
 			Source: "pipeline",
 		}
 		execCtx.Messages = append(execCtx.Messages, toolMsg)
+		emitMessageCreatedEvent(execCtx, &toolMsg)
+		// Tool result messages don't have cost, only latency in the tool result struct
+		emitMessageUpdatedEvent(execCtx, len(execCtx.Messages)-1, result.LatencyMs, nil)
 	}
 }
 
@@ -900,6 +930,48 @@ func calculateApproximateCost(provider providers.Provider, req providers.Predict
 	costBreakdown := provider.CalculateCost(approxInputTokens, approxOutputTokens, 0)
 
 	return &costBreakdown
+}
+
+// emitMessageCreatedEvent emits a message.created event for the newly added message
+func emitMessageCreatedEvent(execCtx *pipeline.ExecutionContext, msg *types.Message) {
+	if execCtx.EventEmitter == nil {
+		return
+	}
+
+	index := len(execCtx.Messages) - 1 // Index of the message just added
+
+	// Convert tool calls to event format
+	var eventToolCalls []events.MessageToolCall
+	for _, tc := range msg.ToolCalls {
+		eventToolCalls = append(eventToolCalls, events.MessageToolCall{
+			ID:   tc.ID,
+			Name: tc.Name,
+			Args: string(tc.Args),
+		})
+	}
+
+	// Convert tool result to event format
+	var eventToolResult *events.MessageToolResult
+	if msg.ToolResult != nil {
+		eventToolResult = &events.MessageToolResult{
+			ID:        msg.ToolResult.ID,
+			Name:      msg.ToolResult.Name,
+			Content:   msg.ToolResult.Content,
+			Error:     msg.ToolResult.Error,
+			LatencyMs: msg.ToolResult.LatencyMs,
+		}
+	}
+
+	execCtx.EventEmitter.MessageCreated(msg.Role, msg.GetContent(), index, eventToolCalls, eventToolResult)
+}
+
+// emitMessageUpdatedEvent emits a message.updated event for cost/latency updates
+func emitMessageUpdatedEvent(execCtx *pipeline.ExecutionContext, index int, latencyMs int64, costInfo *types.CostInfo) {
+	if execCtx.EventEmitter == nil || costInfo == nil {
+		return
+	}
+
+	execCtx.EventEmitter.MessageUpdated(index, latencyMs, costInfo.InputTokens, costInfo.OutputTokens, costInfo.TotalCost)
 }
 
 // StreamChunk is a no-op for provider middleware as it generates chunks rather than processing them.

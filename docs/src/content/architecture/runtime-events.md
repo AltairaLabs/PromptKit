@@ -118,6 +118,19 @@ Events are organized into several categories:
 - `state.loaded` - Conversation state loaded
 - `state.saved` - Conversation state saved
 
+#### Streaming
+
+- `stream.interrupted` - Stream was interrupted (includes reason)
+
+#### Conversation Lifecycle
+
+- `conversation.started` - New conversation started (includes assembled system prompt)
+
+#### Message Events
+
+- `message.created` - New message added to conversation (includes role, content, index, tool calls/results)
+- `message.updated` - Message metadata updated (includes latency, token counts, cost after completion)
+
 #### Custom Events
 
 Middleware can emit custom events for domain-specific observability:
