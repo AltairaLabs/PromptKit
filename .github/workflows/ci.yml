@@ -100,7 +100,7 @@ jobs:
         fail-on-error: false
     
     - name: Upload coverage artifacts
-      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+      uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
       with:
         name: coverage-report
         path: |
@@ -367,7 +367,7 @@ jobs:
     
     - name: Upload Customer Support Reports
       if: always()
-      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+      uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
       with:
         name: arena-customer-support-reports
         path: examples/customer-support/out/
@@ -375,7 +375,7 @@ jobs:
     
     - name: Upload Multimodal Reports
       if: always()
-      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+      uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
       with:
         name: arena-multimodal-reports
         path: examples/multimodal-basics/out/
@@ -383,7 +383,7 @@ jobs:
     
     - name: Upload Variables Reports
       if: always()
-      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+      uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
       with:
         name: arena-variables-reports
         path: examples/variables-demo/out/
@@ -400,7 +400,7 @@ jobs:
     
     - name: Upload LLM Judge Reports
       if: always()
-      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+      uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
       with:
         name: arena-llm-judge-reports
         path: examples/llm-judge/out/
@@ -417,7 +417,7 @@ jobs:
     
     - name: Upload Guardrails Reports
       if: always()
-      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+      uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
       with:
         name: arena-guardrails-reports
         path: examples/guardrails-test/out/
@@ -434,7 +434,7 @@ jobs:
     
     - name: Upload Assertions Test Reports
       if: always()
-      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+      uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
       with:
         name: arena-assertions-test-reports
         path: examples/assertions-test/out/
