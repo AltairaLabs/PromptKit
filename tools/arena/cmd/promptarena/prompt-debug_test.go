@@ -213,7 +213,7 @@ func TestParsePromptDebugFlags(t *testing.T) {
 			cmd := &cobra.Command{}
 
 			// Add flags to command
-			cmd.Flags().StringP("config", "c", "arena.yaml", "Configuration file path")
+			cmd.Flags().StringP("config", "c", "config.arena.yaml", "Configuration file path")
 			cmd.Flags().StringP("scenario", "", "", "Scenario file path")
 			cmd.Flags().StringP("region", "r", "", "Region for prompt generation")
 			cmd.Flags().StringP("task-type", "t", "", "Task type for prompt generation")
@@ -264,7 +264,7 @@ func TestParsePromptDebugFlags(t *testing.T) {
 
 func TestParseStringFlags(t *testing.T) {
 	cmd := &cobra.Command{}
-	cmd.Flags().StringP("config", "c", "arena.yaml", "Configuration file path")
+	cmd.Flags().StringP("config", "c", "config.arena.yaml", "Configuration file path")
 	cmd.Flags().StringP("scenario", "", "", "Scenario file path")
 	cmd.Flags().StringP("region", "r", "", "Region for prompt generation")
 	cmd.Flags().StringP("task-type", "t", "", "Task type for prompt generation")

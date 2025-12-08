@@ -570,3 +570,64 @@ func TestPrintPrompts(t *testing.T) {
 	}
 	printPrompts(pack)
 }
+
+func TestSanitizePackID(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "lowercase conversion",
+			input:    "MyProject",
+			expected: "myproject",
+		},
+		{
+			name:     "spaces to dashes",
+			input:    "my project name",
+			expected: "my-project-name",
+		},
+		{
+			name:     "remove special characters",
+			input:    "my_project!@#$%",
+			expected: "myproject",
+		},
+		{
+			name:     "mixed case with spaces and special chars",
+			input:    "Customer Support Bot!",
+			expected: "customer-support-bot",
+		},
+		{
+			name:     "multiple consecutive dashes",
+			input:    "my---project",
+			expected: "my-project",
+		},
+		{
+			name:     "trim leading/trailing dashes",
+			input:    "-my-project-",
+			expected: "my-project",
+		},
+		{
+			name:     "already valid id",
+			input:    "customer-support",
+			expected: "customer-support",
+		},
+		{
+			name:     "numbers preserved",
+			input:    "project123",
+			expected: "project123",
+		},
+		{
+			name:     "complex mixed input",
+			input:    "  My Cool Project (v2.0)  ",
+			expected: "my-cool-project-v20",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sanitizePackID(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

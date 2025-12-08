@@ -781,7 +781,7 @@ PromptArena respects the following environment variables:
 | `OPENAI_API_KEY` | OpenAI API authentication |
 | `ANTHROPIC_API_KEY` | Anthropic API authentication |
 | `GOOGLE_API_KEY` | Google AI API authentication |
-| `PROMPTARENA_CONFIG` | Default configuration file (overrides `arena.yaml`) |
+| `PROMPTARENA_CONFIG` | Default configuration file (overrides `config.arena.yaml`) |
 | `PROMPTARENA_OUTPUT` | Default output directory (overrides `out`) |
 
 ### Example
@@ -882,7 +882,7 @@ promptarena run --provider openai,claude,gemini --format html
 
 ## Configuration File
 
-PromptArena uses a YAML configuration file (default: `arena.yaml`). See the [Configuration Reference](../promptarena/config-reference) for complete documentation.
+PromptArena uses a YAML configuration file (default: `config.arena.yaml`). See the [Configuration Reference](../promptarena/config-reference) for complete documentation.
 
 ### Basic Structure
 

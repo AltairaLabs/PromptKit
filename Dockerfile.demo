@@ -24,13 +24,14 @@ FROM golang:1.25-alpine
 # Install dependencies including Node.js/npm for showing install steps
 RUN apk add --no-cache \
     bash \
+    bash-completion \
+    curl \
+    git \
     ncurses \
-    python3 \
-    py3-pip \
     nodejs \
     npm \
-    git \
-    curl \
+    py3-pip \
+    python3 \
     && pip3 install --break-system-packages asciinema
 
 # Set clean, minimal prompt
@@ -49,12 +50,20 @@ RUN echo '#!/bin/bash\n/usr/bin/env "$@" | grep -v "_API_KEY\|_SECRET\|_TOKEN"' 
 # Copy promptarena binary (built for linux/amd64)
 # Build with: GOOS=linux GOARCH=amd64 go build -o bin/promptarena-linux ./tools/arena
 COPY bin/promptarena-linux /usr/local/bin/promptarena
-RUN chmod +x /usr/local/bin/promptarena
 
 # Copy packc binary (built for linux/amd64)
 # Build with: GOOS=linux GOARCH=amd64 go build -o bin/packc-linux ./tools/packc
 COPY bin/packc-linux /usr/local/bin/packc
-RUN chmod +x /usr/local/bin/packc
+
+# Set up shell completions for bash and install bash-completion
+RUN chmod +x /usr/local/bin/promptarena && \
+    chmod +x /usr/local/bin/packc && \
+    mkdir -p /etc/bash_completion.d && \
+    promptarena completion bash > /etc/bash_completion.d/promptarena && \
+    packc completion bash > /etc/bash_completion.d/packc && \
+    echo 'source /etc/profile.d/bash_completion.sh' >> /root/.bashrc && \
+    echo 'source /etc/bash_completion.d/promptarena' >> /root/.bashrc && \
+    echo 'source /etc/bash_completion.d/packc' >> /root/.bashrc
 
 # Copy local Go modules so SDK demos use local code instead of fetching from internet
 COPY go.work /promptkit/go.work

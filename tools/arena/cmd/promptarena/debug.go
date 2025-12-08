@@ -24,7 +24,7 @@ func init() {
 	rootCmd.AddCommand(debugCmd)
 
 	// Configuration file
-	debugCmd.Flags().StringP("config", "c", "arena.yaml", "Configuration file path")
+	debugCmd.Flags().StringP("config", "c", "config.arena.yaml", "Configuration file path")
 }
 
 func runDebug(cmd *cobra.Command) error {

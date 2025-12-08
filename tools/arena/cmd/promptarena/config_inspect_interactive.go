@@ -74,7 +74,7 @@ var (
 func init() {
 	rootCmd.AddCommand(configInspectCmd)
 
-	configInspectCmd.Flags().StringP("config", "c", "arena.yaml", "Configuration file path")
+	configInspectCmd.Flags().StringP("config", "c", "config.arena.yaml", "Configuration file path")
 	configInspectCmd.Flags().StringVar(&inspectFormat, "format", "text", "Output format: text, json")
 	configInspectCmd.Flags().BoolVar(&inspectVerbose, "verbose", false,
 		"Show detailed information including file contents")
@@ -83,6 +83,8 @@ func init() {
 		"Focus on specific section: prompts, providers, scenarios, tools, selfplay, judges, defaults, validation")
 	configInspectCmd.Flags().BoolVarP(&inspectShort, "short", "s", false,
 		"Show only validation results (shortcut for --section validation)")
+
+	// Note: RegisterConfigInspectCompletions is called from completion_interactive.go init()
 }
 
 func runConfigInspect(cmd *cobra.Command, args []string) error {

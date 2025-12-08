@@ -7,14 +7,15 @@ replace github.com/AltairaLabs/PromptKit/pkg => ../../pkg
 replace github.com/AltairaLabs/PromptKit/runtime => ../../runtime
 
 require (
-	github.com/AltairaLabs/PromptKit/pkg v1.1.3
-	github.com/AltairaLabs/PromptKit/runtime v1.1.3
+	github.com/AltairaLabs/PromptKit/pkg v1.1.4
+	github.com/AltairaLabs/PromptKit/runtime v1.1.4
+	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.11.1
 	github.com/xeipuuv/gojsonschema v1.2.0
 )
 
 require (
-	github.com/AltairaLabs/PromptKit/tools/arena v1.1.3 // indirect
+	github.com/AltairaLabs/PromptKit/tools/arena v1.1.4 // indirect
 	github.com/Masterminds/semver/v3 v3.4.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect

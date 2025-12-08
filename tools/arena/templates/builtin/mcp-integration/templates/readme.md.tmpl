@@ -36,7 +36,7 @@ Model Context Protocol (MCP) is an open protocol that enables AI models to secur
 {{else if eq . "claude"}}   - Get Anthropic (Claude) key from: https://console.anthropic.com/
 {{else if eq . "gemini"}}   - Get Google (Gemini) key from: https://aistudio.google.com/app/apikey
 {{end}}{{end}}
-2. MCP servers are configured in `arena.yaml` - update paths as needed
+2. MCP servers are configured in `config.arena.yaml` - update paths as needed
 
 3. Run the tests:
    ```bash
@@ -47,7 +47,7 @@ Model Context Protocol (MCP) is an open protocol that enables AI models to secur
 
 ```
 .
-├── arena.yaml                 # Main configuration with MCP servers
+├── config.arena.yaml          # Main configuration with MCP servers
 ├── prompts/
 │   └── mcp-assistant.yaml     # MCP-aware assistant prompt
 ├── providers/                 # LLM provider configs

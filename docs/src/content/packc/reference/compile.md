@@ -26,7 +26,7 @@ This is the primary command for building production packs that contain multiple 
 **`--config <path>`**
 - Path to the arena.yaml configuration file
 - This file lists all prompts to include in the pack
-- Default: `arena.yaml`
+- Default: `config.arena.yaml`
 
 **`--output <path>`**
 - Path where the compiled pack file will be written
