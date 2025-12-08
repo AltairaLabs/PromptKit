@@ -897,7 +897,7 @@ func (c *Conversation) OnToolExecutor(name string, executor tools.Executor) {
 
 		// Parse result
 		var parsed any
-		if err := json.Unmarshal(result, &parsed); err != nil {
+		if json.Unmarshal(result, &parsed) != nil {
 			return string(result), nil
 		}
 		return parsed, nil
@@ -1078,13 +1078,12 @@ func (c *Conversation) CheckPending(
 // are loaded from the pack; this allows inspecting them or registering
 // custom executors.
 //
-//	registry := conv.ToolRegistry()
+//	registry := conv.ToolRegistry().(*tools.Registry)
 //	for _, desc := range registry.Descriptors() {
 //	    fmt.Printf("Tool: %s\n", desc.Name)
 //	}
-func (c *Conversation) ToolRegistry() interface{} {
-	// TODO: Return the actual registry when pipeline is built
-	return nil
+func (c *Conversation) ToolRegistry() *tools.Registry {
+	return c.toolRegistry
 }
 
 // Messages returns the conversation history.

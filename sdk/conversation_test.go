@@ -278,8 +278,8 @@ func TestConversationEventBus(t *testing.T) {
 
 func TestConversationToolRegistry(t *testing.T) {
 	conv := newTestConversation()
-	// Currently returns nil - placeholder
-	assert.Nil(t, conv.ToolRegistry())
+	// Returns the actual tool registry
+	assert.NotNil(t, conv.ToolRegistry())
 }
 
 func TestConversationStream(t *testing.T) {
@@ -620,4 +620,80 @@ func (m *mockExecutor) Name() string { return m.name }
 
 func (m *mockExecutor) Execute(descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
 	return m.result, m.err
+}
+
+func TestLocalExecutorExecute(t *testing.T) {
+	t.Run("successful execution", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.OnTool("add", func(args map[string]any) (any, error) {
+			a := args["a"].(float64)
+			b := args["b"].(float64)
+			return map[string]float64{"sum": a + b}, nil
+		})
+
+		// Get the localExecutor from the toolRegistry
+		executor := &localExecutor{
+			handlers: conv.handlers,
+		}
+
+		descriptor := &tools.ToolDescriptor{Name: "add"}
+		args := json.RawMessage(`{"a": 1, "b": 2}`)
+
+		result, err := executor.Execute(descriptor, args)
+		assert.NoError(t, err)
+
+		var parsed map[string]float64
+		err = json.Unmarshal(result, &parsed)
+		assert.NoError(t, err)
+		assert.Equal(t, float64(3), parsed["sum"])
+	})
+
+	t.Run("handler not found", func(t *testing.T) {
+		executor := &localExecutor{
+			handlers: make(map[string]ToolHandler),
+		}
+
+		descriptor := &tools.ToolDescriptor{Name: "unknown"}
+		args := json.RawMessage(`{}`)
+
+		_, err := executor.Execute(descriptor, args)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no handler registered")
+	})
+
+	t.Run("invalid args JSON", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.OnTool("test", func(args map[string]any) (any, error) {
+			return "ok", nil
+		})
+
+		executor := &localExecutor{
+			handlers: conv.handlers,
+		}
+
+		descriptor := &tools.ToolDescriptor{Name: "test"}
+		args := json.RawMessage(`{invalid json}`)
+
+		_, err := executor.Execute(descriptor, args)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to parse tool arguments")
+	})
+
+	t.Run("handler returns error", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.OnTool("failing", func(args map[string]any) (any, error) {
+			return nil, errors.New("handler failed")
+		})
+
+		executor := &localExecutor{
+			handlers: conv.handlers,
+		}
+
+		descriptor := &tools.ToolDescriptor{Name: "failing"}
+		args := json.RawMessage(`{}`)
+
+		_, err := executor.Execute(descriptor, args)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "handler failed")
+	})
 }

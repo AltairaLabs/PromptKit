@@ -355,7 +355,7 @@ func (c *HTTPToolConfig) executeHandler(executor *HTTPExecutor, args map[string]
 
 	// Parse the result back to a Go value
 	var parsed any
-	if err := json.Unmarshal(result, &parsed); err != nil {
+	if json.Unmarshal(result, &parsed) != nil {
 		return string(result), nil
 	}
 	return parsed, nil
