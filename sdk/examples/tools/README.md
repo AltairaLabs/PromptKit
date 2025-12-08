@@ -1,6 +1,6 @@
 # Tools Example
 
-Function calling with SDK v2.
+Function calling with the PromptKit SDK.
 
 ## What You'll Learn
 

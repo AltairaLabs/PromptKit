@@ -5,10 +5,9 @@ import (
 	"fmt"
 
 	"github.com/xeipuuv/gojsonschema"
-)
 
-// PromptPackSchemaURL is the JSON Schema URL for validating PromptPack files.
-const PromptPackSchemaURL = "https://promptpack.org/schema/latest/promptpack.schema.json"
+	"github.com/AltairaLabs/PromptKit/runtime/prompt/schema"
+)
 
 // SchemaValidationError represents a schema validation error with details.
 type SchemaValidationError struct {
@@ -23,9 +22,22 @@ func (e *SchemaValidationError) Error() string {
 }
 
 // ValidateAgainstSchema validates pack JSON data against the PromptPack schema.
+// It uses the $schema URL from the pack if present, otherwise uses the embedded schema.
+// The PROMPTKIT_SCHEMA_SOURCE environment variable can override this behavior:
+//   - "local": Always use embedded schema (default, for offline support)
+//   - "remote": Always fetch from URL
+//   - file path: Load schema from local file
+//
 // Returns nil if validation passes, or a SchemaValidationError with details.
 func ValidateAgainstSchema(data []byte) error {
-	schemaLoader := gojsonschema.NewReferenceLoader(PromptPackSchemaURL)
+	// Extract $schema from the pack to support versioned schemas
+	packSchemaURL := schema.ExtractSchemaURL(data)
+
+	schemaLoader, err := schema.GetSchemaLoader(packSchemaURL)
+	if err != nil {
+		return fmt.Errorf("failed to load schema: %w", err)
+	}
+
 	documentLoader := gojsonschema.NewBytesLoader(data)
 
 	result, err := gojsonschema.Validate(schemaLoader, documentLoader)

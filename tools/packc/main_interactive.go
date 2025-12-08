@@ -87,7 +87,15 @@ Examples:
   packc inspect packs/support.json`)
 }
 
-func compileCommand() {
+// compileFlags holds the parsed flags for the compile command.
+type compileFlags struct {
+	configFile string
+	outputFile string
+	packID     string
+}
+
+// parseCompileFlags parses and validates compile command flags.
+func parseCompileFlags() compileFlags {
 	fs := flag.NewFlagSet("compile", flag.ExitOnError)
 	configFile := fs.String("config", "arena.yaml", "Path to arena.yaml file")
 	outputFile := fs.String("output", "", "Output pack file path")
@@ -104,44 +112,15 @@ func compileCommand() {
 		os.Exit(1)
 	}
 
-	cfg := mustLoadConfig(*configFile)
-	memRepo := buildMemoryRepo(cfg)
-	registry := prompt.NewRegistryWithRepository(memRepo)
-	if registry == nil {
-		fmt.Fprintln(os.Stderr, "No prompt configs found in arena.yaml")
-		os.Exit(1)
+	return compileFlags{
+		configFile: *configFile,
+		outputFile: *outputFile,
+		packID:     *packID,
 	}
+}
 
-	fmt.Printf("Loaded %d prompt configs from memory repository\n", len(cfg.LoadedPromptConfigs))
-
-	configDir := filepath.Dir(*configFile)
-	validateLoadedMedia(cfg, configDir)
-
-	compiler := prompt.NewPackCompiler(registry)
-
-	fmt.Printf("Compiling %d prompts into pack '%s'...\n", len(cfg.PromptConfigs), *packID)
-
-	// Parse tools from loaded tool data (per PromptPack spec Section 9)
-	parsedTools := parseToolsFromConfig(cfg)
-	if len(parsedTools) > 0 {
-		fmt.Printf("Including %d tool definitions in pack\n", len(parsedTools))
-	}
-
-	// Compile all prompts into a single pack with tool definitions
-	pack, err := compiler.CompileFromRegistryWithParsedTools(*packID, fmt.Sprintf("packc-%s", version), parsedTools)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Compilation failed: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Marshal to JSON with indentation
-	data, err := json.MarshalIndent(pack, "", "  ")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to marshal pack: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Validate against PromptPack schema
+// validateAndWritePack validates the pack against schema and writes it to the output file.
+func validateAndWritePack(data []byte, outputFile string) {
 	fmt.Printf("Validating pack against schema...\n")
 	validationResult, err := ValidatePackAgainstSchema(data)
 	if err != nil {
@@ -157,13 +136,15 @@ func compileCommand() {
 		fmt.Printf("✓ Pack validated against schema\n")
 	}
 
-	// Write to file
-	if err := os.WriteFile(*outputFile, data, outputFilePerm); err != nil {
+	if err := os.WriteFile(outputFile, data, outputFilePerm); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to write pack file: %v\n", err)
 		os.Exit(1)
 	}
+}
 
-	fmt.Printf("✓ Pack compiled successfully: %s\n", *outputFile)
+// printPackSummary prints a summary of the compiled pack.
+func printPackSummary(pack *prompt.Pack, outputFile string) {
+	fmt.Printf("✓ Pack compiled successfully: %s\n", outputFile)
 	fmt.Printf("  Contains %d prompts: %v\n", len(pack.Prompts), pack.ListPrompts())
 	if len(pack.Tools) > 0 {
 		toolNames := make([]string, 0, len(pack.Tools))
@@ -172,6 +153,50 @@ func compileCommand() {
 		}
 		fmt.Printf("  Contains %d tools: %v\n", len(pack.Tools), toolNames)
 	}
+}
+
+func compileCommand() {
+	flags := parseCompileFlags()
+
+	cfg := mustLoadConfig(flags.configFile)
+	memRepo := buildMemoryRepo(cfg)
+	registry := prompt.NewRegistryWithRepository(memRepo)
+	if registry == nil {
+		fmt.Fprintln(os.Stderr, "No prompt configs found in arena.yaml")
+		os.Exit(1)
+	}
+
+	fmt.Printf("Loaded %d prompt configs from memory repository\n", len(cfg.LoadedPromptConfigs))
+
+	configDir := filepath.Dir(flags.configFile)
+	validateLoadedMedia(cfg, configDir)
+
+	compiler := prompt.NewPackCompiler(registry)
+
+	fmt.Printf("Compiling %d prompts into pack '%s'...\n", len(cfg.PromptConfigs), flags.packID)
+
+	// Parse tools from loaded tool data (per PromptPack spec Section 9)
+	parsedTools := parseToolsFromConfig(cfg)
+	if len(parsedTools) > 0 {
+		fmt.Printf("Including %d tool definitions in pack\n", len(parsedTools))
+	}
+
+	// Compile all prompts into a single pack with tool definitions
+	pack, err := compiler.CompileFromRegistryWithParsedTools(flags.packID, fmt.Sprintf("packc-%s", version), parsedTools)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Compilation failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Marshal to JSON with indentation
+	data, err := json.MarshalIndent(pack, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to marshal pack: %v\n", err)
+		os.Exit(1)
+	}
+
+	validateAndWritePack(data, flags.outputFile)
+	printPackSummary(pack, flags.outputFile)
 }
 
 func mustLoadConfig(configFile string) *config.Config {

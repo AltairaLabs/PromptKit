@@ -1,4 +1,4 @@
-// Package main demonstrates tool handling with SDK v2.
+// Package main demonstrates tool handling with the PromptKit SDK.
 //
 // This example shows:
 //   - Defining tools in the pack file

@@ -5,7 +5,7 @@ import (
 
 	"github.com/xeipuuv/gojsonschema"
 
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/prompt/schema"
 )
 
 // PackSchemaValidationResult contains the result of schema validation
@@ -14,11 +14,21 @@ type PackSchemaValidationResult struct {
 	Errors []string
 }
 
-// ValidatePackAgainstSchema validates the compiled pack JSON against the PromptPack schema
+// ValidatePackAgainstSchema validates the compiled pack JSON against the PromptPack schema.
+// It uses the $schema URL from the pack if present, otherwise uses the embedded schema.
+// The PROMPTKIT_SCHEMA_SOURCE environment variable can override this behavior:
+//   - "local": Always use embedded schema (default, for offline support)
+//   - "remote": Always fetch from URL
+//   - file path: Load schema from local file
 func ValidatePackAgainstSchema(packJSON []byte) (*PackSchemaValidationResult, error) {
-	schemaURL := prompt.PromptPackSchemaURL
+	// Extract $schema from the pack to support versioned schemas
+	packSchemaURL := schema.ExtractSchemaURL(packJSON)
 
-	schemaLoader := gojsonschema.NewReferenceLoader(schemaURL)
+	schemaLoader, err := schema.GetSchemaLoader(packSchemaURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load schema: %w", err)
+	}
+
 	documentLoader := gojsonschema.NewBytesLoader(packJSON)
 
 	result, err := gojsonschema.Validate(schemaLoader, documentLoader)

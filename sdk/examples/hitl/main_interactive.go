@@ -1,4 +1,4 @@
-// Package main demonstrates Human-in-the-Loop (HITL) tool approval with SDK v2.
+// Package main demonstrates Human-in-the-Loop (HITL) tool approval with the PromptKit SDK.
 //
 // This example shows:
 //   - Using OnToolAsync for tools requiring approval

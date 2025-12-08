@@ -1,0 +1,23 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "multimodal-example",
+  "name": "Multimodal Example",
+  "version": "1.0.0",
+  "description": "Example demonstrating multimodal (vision) capabilities with streaming",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "vision-analyst": {
+      "id": "vision-analyst",
+      "name": "Vision Analyst",
+      "version": "1.0.0",
+      "system_template": "You are an expert visual analyst. When shown images, provide detailed, accurate descriptions and analysis. Be thorough but concise. If you cannot see an image or it fails to load, let the user know.",
+      "parameters": {
+        "temperature": 0.7,
+        "max_tokens": 1024
+      }
+    }
+  }
+}

@@ -1,6 +1,6 @@
 # Hello World Example
 
-The simplest SDK v2 example - open a conversation and send a message.
+The simplest SDK example - open a conversation and send a message.
 
 ## What You'll Learn
 

@@ -1,4 +1,4 @@
-// Package main demonstrates the simplest SDK v2 usage.
+// Package main demonstrates the simplest PromptKit SDK usage.
 //
 // This example shows:
 //   - Opening a conversation from a pack file

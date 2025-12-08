@@ -1,6 +1,6 @@
 # Streaming Example
 
-Real-time response streaming with SDK v2.
+Real-time response streaming with the PromptKit SDK.
 
 ## What You'll Learn
 

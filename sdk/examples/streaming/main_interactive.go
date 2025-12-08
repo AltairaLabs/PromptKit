@@ -1,4 +1,4 @@
-// Package main demonstrates streaming responses with SDK v2.
+// Package main demonstrates streaming responses with the PromptKit SDK.
 //
 // This example shows:
 //   - Using Stream() for real-time response streaming

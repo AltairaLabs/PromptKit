@@ -1,6 +1,6 @@
 # Human-in-the-Loop (HITL) Example
 
-Approval workflows for sensitive operations with SDK v2.
+Approval workflows for sensitive operations with the PromptKit SDK.
 
 ## What You'll Learn
 

@@ -1,0 +1,1192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "title": "PromptPack Specification",
+  "description": "Schema for packaging, testing, and running multi-prompt conversational systems with multimodal support",
+  "version": "1.1.0",
+  "type": "object",
+  "required": ["id", "name", "version", "template_engine", "prompts"],
+  "additionalProperties": false,
+  
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference for validation and IDE support",
+      "default": "https://promptpack.org/schema/v1/promptpack.schema.json",
+      "examples": ["https://promptpack.org/schema/v1/promptpack.schema.json"]
+    },
+    
+    "id": {
+      "type": "string",
+      "description": "Unique identifier for the pack. Used for referencing and caching. Should be lowercase with hyphens.",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "minLength": 1,
+      "maxLength": 100,
+      "examples": ["customer-support", "sales-assistant", "technical-help"]
+    },
+    
+    "name": {
+      "type": "string",
+      "description": "Human-readable name for the pack. Displayed in UIs and documentation.",
+      "minLength": 1,
+      "maxLength": 200,
+      "examples": ["Customer Support Pack", "Sales Assistant", "Technical Support"]
+    },
+    
+    "version": {
+      "type": "string",
+      "description": "Pack version following Semantic Versioning 2.0.0 (MAJOR.MINOR.PATCH). Can optionally include 'v' prefix. Use MAJOR for breaking changes, MINOR for new features, PATCH for bug fixes. This version tracks the pack as a whole, while individual prompts can have independent versions.",
+      "pattern": "^v?(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+      "examples": ["1.0.0", "v2.1.3", "1.0.0-alpha", "2.0.0-beta.1+build.123"]
+    },
+    
+    "description": {
+      "type": "string",
+      "description": "Detailed description of the pack's purpose, use cases, and contents. Supports markdown formatting.",
+      "maxLength": 5000,
+      "examples": ["Complete customer support prompt pack with multiple task types for handling support, sales, and technical inquiries"]
+    },
+    
+    "template_engine": {
+      "type": "object",
+      "description": "Template engine configuration shared across all prompts in the pack. Defines how variables are substituted and fragments are resolved.",
+      "required": ["version", "syntax"],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "string",
+          "description": "Template engine version. Use 'v1' for the current stable version.",
+          "examples": ["v1", "v2"]
+        },
+        "syntax": {
+          "type": "string",
+          "description": "Variable substitution syntax pattern. Defines how variables appear in templates.",
+          "examples": ["{{variable}}", "${variable}", "{variable}"]
+        },
+        "features": {
+          "type": "array",
+          "description": "Optional list of supported template features beyond basic substitution.",
+          "items": {
+            "type": "string",
+            "enum": ["basic_substitution", "fragments", "conditionals", "loops", "filters"]
+          },
+          "examples": [["basic_substitution", "fragments"]]
+        }
+      }
+    },
+    
+    "prompts": {
+      "type": "object",
+      "description": "Map of task_type to prompt configuration. Each key is a task type (e.g., 'support', 'sales') and each value is a complete prompt definition. A pack must contain at least one prompt.",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/Prompt"
+      },
+      "examples": [{
+        "support": {
+          "id": "support",
+          "name": "Support Bot",
+          "version": "1.0.0",
+          "system_template": "You are a helpful assistant."
+        }
+      }]
+    },
+    
+    "fragments": {
+      "type": "object",
+      "description": "Shared template fragments that can be referenced by any prompt in the pack. Fragments are reusable text blocks resolved at compile time. Keys are fragment names, values are fragment content.",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "examples": [{
+        "customer_context": "Customer: {{customer_name}}\\nIssue: {{issue}}",
+        "greeting": "Hello! How can I help you today?"
+      }]
+    },
+    
+    "tools": {
+      "type": "object",
+      "description": "Tool definitions that can be referenced by prompts. Tools enable the LLM to call external functions. Keys are tool names, values are tool specifications following the JSON Schema for function calling.",
+      "additionalProperties": {
+        "$ref": "#/$defs/Tool"
+      }
+    },
+    
+    "metadata": {
+      "type": "object",
+      "description": "Optional pack-level metadata for categorization, discovery, and operational planning.",
+      "additionalProperties": true,
+      "properties": {
+        "domain": {
+          "type": "string",
+          "description": "Domain or category for this pack",
+          "examples": ["customer-service", "healthcare", "finance"]
+        },
+        "language": {
+          "type": "string",
+          "description": "Primary language code (ISO 639-1)",
+          "pattern": "^[a-z]{2}$",
+          "examples": ["en", "es", "fr"]
+        },
+        "tags": {
+          "type": "array",
+          "description": "Tags for categorization and discovery",
+          "items": {
+            "type": "string"
+          },
+          "examples": [["support", "sales", "technical"]]
+        },
+        "cost_estimate": {
+          "type": "object",
+          "description": "Cost estimation for using this pack",
+          "properties": {
+            "min_cost_usd": {
+              "type": "number",
+              "description": "Minimum cost per execution in USD",
+              "minimum": 0
+            },
+            "max_cost_usd": {
+              "type": "number",
+              "description": "Maximum cost per execution in USD",
+              "minimum": 0
+            },
+            "avg_cost_usd": {
+              "type": "number",
+              "description": "Average cost per execution in USD",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    
+    "compilation": {
+      "type": "object",
+      "description": "Information about when and how this pack was compiled. Generated automatically by the packc compiler.",
+      "required": ["compiled_with", "created_at", "schema"],
+      "properties": {
+        "compiled_with": {
+          "type": "string",
+          "description": "Version of the packc compiler used to create this pack",
+          "examples": ["packc-v0.1.0", "packc-v1.2.3"]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the pack was compiled",
+          "examples": ["2025-10-31T12:00:00Z"]
+        },
+        "schema": {
+          "type": "string",
+          "description": "Pack format schema version used",
+          "examples": ["v1", "v2"]
+        },
+        "source": {
+          "type": "string",
+          "description": "Optional source configuration file path",
+          "examples": ["arena.yaml", "config/prompts.yaml"]
+        }
+      }
+    }
+  },
+  
+  "$defs": {
+    "Prompt": {
+      "type": "object",
+      "description": "A single prompt configuration within a pack. Each prompt represents a specific task type (e.g., 'support', 'sales') with its own template, variables, tools, and validation rules. Prompts within a pack can evolve independently with their own version numbers.",
+      "required": ["id", "name", "version", "system_template"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for this prompt, typically matching the task_type key",
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "examples": ["support", "sales", "technical_support"]
+        },
+        
+        "name": {
+          "type": "string",
+          "description": "Human-readable name for this prompt",
+          "minLength": 1,
+          "examples": ["Support Bot", "Sales Assistant"]
+        },
+        
+        "description": {
+          "type": "string",
+          "description": "Detailed description of this prompt's purpose and behavior",
+          "examples": ["General customer support assistant for handling inquiries"]
+        },
+        
+        "version": {
+          "type": "string",
+          "description": "Prompt version following Semantic Versioning 2.0.0. Independent from pack version, allowing individual prompts to evolve separately.",
+          "pattern": "^v?(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+          "examples": ["1.0.0", "v2.1.0", "1.5.2-beta"]
+        },
+        
+        "system_template": {
+          "type": "string",
+          "description": "The system prompt template. Use template syntax (e.g., {{variable}}) for variable substitution. This is the core instruction that guides the LLM's behavior.",
+          "minLength": 1,
+          "examples": [
+            "You are a {{role}} assistant for {{company}}.\\n\\nProvide helpful, professional support.",
+            "You are an expert in {{domain}}. Help users with {{task_description}}."
+          ]
+        },
+        
+        "variables": {
+          "type": "array",
+          "description": "Variable definitions for this prompt. Variables are placeholders in the template that are replaced with actual values at runtime.",
+          "items": {
+            "$ref": "#/$defs/Variable"
+          }
+        },
+        
+        "tools": {
+          "type": "array",
+          "description": "List of tool names that this prompt is allowed to use. Tools must be defined in the pack-level 'tools' object.",
+          "items": {
+            "type": "string"
+          },
+          "examples": [["lookup_order", "create_ticket"], ["search_products", "get_pricing"]]
+        },
+        
+        "tool_policy": {
+          "$ref": "#/$defs/ToolPolicy",
+          "description": "Policy governing how tools can be used by this prompt"
+        },
+        
+        "pipeline": {
+          "$ref": "#/$defs/PipelineConfig",
+          "description": "Pipeline configuration defining processing stages and middleware"
+        },
+        
+        "parameters": {
+          "$ref": "#/$defs/Parameters",
+          "description": "LLM generation parameters like temperature and max_tokens"
+        },
+        
+        "validators": {
+          "type": "array",
+          "description": "Validation rules (guardrails) applied to LLM responses",
+          "items": {
+            "$ref": "#/$defs/Validator"
+          }
+        },
+        
+        "tested_models": {
+          "type": "array",
+          "description": "Model testing results documenting which models have been tested with this prompt and their performance",
+          "items": {
+            "$ref": "#/$defs/TestedModel"
+          }
+        },
+        
+        "model_overrides": {
+          "type": "object",
+          "description": "Model-specific template modifications. Keys are model names (e.g., 'claude-3-opus', 'gpt-4'), values are override configurations.",
+          "additionalProperties": {
+            "$ref": "#/$defs/ModelOverride"
+          }
+        },
+        
+        "media": {
+          "$ref": "#/$defs/MediaConfig",
+          "description": "Multimodal content configuration for this prompt. Defines supported media types and validation rules."
+        }
+      }
+    },
+    
+    "Variable": {
+      "type": "object",
+      "description": "A template variable definition with type information and validation rules. Variables are replaced with actual values when the prompt is rendered.",
+      "required": ["name", "type", "required"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Variable name used in templates (e.g., {{name}})",
+          "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$",
+          "examples": ["role", "company", "customer_name"]
+        },
+        
+        "type": {
+          "type": "string",
+          "description": "Data type of the variable",
+          "enum": ["string", "number", "boolean", "object", "array"],
+          "examples": ["string", "number"]
+        },
+        
+        "required": {
+          "type": "boolean",
+          "description": "Whether this variable must be provided. Required variables without values will cause an error."
+        },
+        
+        "default": {
+          "description": "Default value used when variable is not provided. Cannot be set if required is true.",
+          "examples": ["TechCo", 42, true, {"key": "value"}]
+        },
+        
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of the variable's purpose",
+          "examples": ["The role of the assistant", "Customer's account ID"]
+        },
+        
+        "example": {
+          "description": "Example value showing expected format and content",
+          "examples": ["support agent", "12345", "john@example.com"]
+        },
+        
+        "validation": {
+          "type": "object",
+          "description": "Validation rules applied to the variable value at runtime",
+          "additionalProperties": false,
+          "properties": {
+            "pattern": {
+              "type": "string",
+              "description": "Regular expression pattern (for string types)",
+              "examples": ["^[a-zA-Z\\\\s]+$", "^\\\\d{5}$", "^[a-z0-9._%+-]+@[a-z0-9.-]+\\\\.[a-z]{2,}$"]
+            },
+            "min_length": {
+              "type": "integer",
+              "description": "Minimum string length (for string types)",
+              "minimum": 0,
+              "examples": [3, 10]
+            },
+            "max_length": {
+              "type": "integer",
+              "description": "Maximum string length (for string types)",
+              "minimum": 1,
+              "examples": [50, 1000]
+            },
+            "minimum": {
+              "type": "number",
+              "description": "Minimum numeric value (for number types)",
+              "examples": [0, 1, 100]
+            },
+            "maximum": {
+              "type": "number",
+              "description": "Maximum numeric value (for number types)",
+              "examples": [100, 1000]
+            },
+            "enum": {
+              "type": "array",
+              "description": "List of allowed values",
+              "items": {},
+              "examples": [["low", "medium", "high"], [1, 2, 3]]
+            }
+          }
+        }
+      }
+    },
+    
+    "Tool": {
+      "type": "object",
+      "description": "A tool definition following OpenAI's function calling format. Tools enable the LLM to call external functions to retrieve data or perform actions.",
+      "required": ["name", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Tool name used for referencing and calling",
+          "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$",
+          "examples": ["lookup_order", "create_ticket", "search_database"]
+        },
+        
+        "description": {
+          "type": "string",
+          "description": "Clear description of what the tool does. The LLM uses this to decide when to call the tool.",
+          "minLength": 1,
+          "examples": [
+            "Look up order details by order ID",
+            "Create a support ticket with title, description, and priority"
+          ]
+        },
+        
+        "parameters": {
+          "type": "object",
+          "description": "JSON Schema defining the tool's parameters. Follows JSON Schema specification.",
+          "required": ["type", "properties"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["object"],
+              "description": "Must be 'object' for tool parameters"
+            },
+            "properties": {
+              "type": "object",
+              "description": "Parameter definitions",
+              "additionalProperties": {
+                "type": "object"
+              }
+            },
+            "required": {
+              "type": "array",
+              "description": "List of required parameter names",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    
+    "ToolPolicy": {
+      "type": "object",
+      "description": "Governance policy for tool usage. Controls when and how tools can be called by the LLM.",
+      "additionalProperties": false,
+      "properties": {
+        "tool_choice": {
+          "type": "string",
+          "description": "'auto' lets the LLM decide when to use tools, 'required' forces tool use, 'none' disables tools",
+          "enum": ["auto", "required", "none"],
+          "default": "auto",
+          "examples": ["auto", "required"]
+        },
+        
+        "max_rounds": {
+          "type": "integer",
+          "description": "Maximum number of LLM → tool → LLM cycles allowed per turn",
+          "minimum": 1,
+          "default": 5,
+          "examples": [3, 5, 10]
+        },
+        
+        "max_tool_calls_per_turn": {
+          "type": "integer",
+          "description": "Maximum number of tool calls allowed in a single turn",
+          "minimum": 1,
+          "default": 10,
+          "examples": [1, 5, 10]
+        },
+        
+        "blocklist": {
+          "type": "array",
+          "description": "List of tool names that are not allowed for this prompt (overrides tools list)",
+          "items": {
+            "type": "string"
+          },
+          "examples": [["dangerous_tool", "delete_data"]]
+        }
+      }
+    },
+    
+    "PipelineConfig": {
+      "type": "object",
+      "description": "Pipeline configuration defining the processing stages and middleware applied to prompts and responses",
+      "required": ["stages"],
+      "additionalProperties": false,
+      "properties": {
+        "stages": {
+          "type": "array",
+          "description": "Ordered list of pipeline stages. Common stages: 'template', 'provider', 'validator'",
+          "items": {
+            "type": "string"
+          },
+          "examples": [["template", "provider", "validator"]]
+        },
+        
+        "middleware": {
+          "type": "array",
+          "description": "Middleware components with their configurations. Applied in order during pipeline execution.",
+          "items": {
+            "$ref": "#/$defs/MiddlewareConfig"
+          }
+        }
+      }
+    },
+    
+    "MiddlewareConfig": {
+      "type": "object",
+      "description": "Configuration for a single middleware component in the pipeline",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Middleware type identifier",
+          "examples": ["template", "provider", "validator", "custom"]
+        },
+        
+        "config": {
+          "type": "object",
+          "description": "Type-specific configuration for the middleware",
+          "additionalProperties": true
+        }
+      }
+    },
+    
+    "Parameters": {
+      "type": "object",
+      "description": "LLM generation parameters controlling the model's behavior and output characteristics",
+      "additionalProperties": false,
+      "properties": {
+        "temperature": {
+          "type": "number",
+          "description": "Sampling temperature (0-2). Higher values make output more random, lower values more deterministic.",
+          "minimum": 0,
+          "maximum": 2,
+          "examples": [0.7, 1.0]
+        },
+        
+        "max_tokens": {
+          "type": "integer",
+          "description": "Maximum number of tokens to generate in the response",
+          "minimum": 1,
+          "examples": [100, 1000, 4000]
+        },
+        
+        "top_p": {
+          "type": "number",
+          "description": "Nucleus sampling parameter (0-1). Alternative to temperature for controlling randomness.",
+          "minimum": 0,
+          "maximum": 1,
+          "examples": [0.9, 1.0]
+        },
+        
+        "top_k": {
+          "type": ["integer", "null"],
+          "description": "Top-k sampling parameter. Limits to top K tokens. Null means no limit.",
+          "minimum": 1,
+          "examples": [40, 100, null]
+        },
+        
+        "frequency_penalty": {
+          "type": "number",
+          "description": "Penalty for token frequency (-2 to 2). Positive values reduce repetition.",
+          "minimum": -2,
+          "maximum": 2,
+          "examples": [0, 0.5]
+        },
+        
+        "presence_penalty": {
+          "type": "number",
+          "description": "Penalty for token presence (-2 to 2). Positive values encourage new topics.",
+          "minimum": -2,
+          "maximum": 2,
+          "examples": [0, 0.5]
+        }
+      }
+    },
+    
+    "Validator": {
+      "type": "object",
+      "description": "A validation rule (guardrail) applied to LLM responses. Validators can check content, length, format, and other constraints to ensure response quality and safety.",
+      "required": ["type", "enabled"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Type of validation to perform",
+          "enum": [
+            "banned_words",
+            "max_length",
+            "min_length",
+            "regex_match",
+            "json_schema",
+            "sentiment",
+            "toxicity",
+            "pii_detection",
+            "custom"
+          ],
+          "examples": ["banned_words", "max_length"]
+        },
+        
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether this validator is active. Allows temporarily disabling validators without removing them."
+        },
+        
+        "fail_on_violation": {
+          "type": "boolean",
+          "description": "If true, validation failures cause an error. If false, violations are logged but allowed.",
+          "default": false
+        },
+        
+        "params": {
+          "type": "object",
+          "description": "Validator-specific parameters",
+          "additionalProperties": true,
+          "examples": [
+            {"words": ["inappropriate", "banned"]},
+            {"max_characters": 1000, "max_tokens": 250}
+          ]
+        }
+      }
+    },
+    
+    "TestedModel": {
+      "type": "object",
+      "description": "Testing results for a specific model. Documents which models have been tested with this prompt and their performance metrics.",
+      "required": ["provider", "model", "date"],
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "type": "string",
+          "description": "LLM provider name",
+          "examples": ["openai", "anthropic", "azure", "bedrock"]
+        },
+        
+        "model": {
+          "type": "string",
+          "description": "Specific model identifier",
+          "examples": ["gpt-4", "gpt-3.5-turbo", "claude-3-opus", "claude-3-sonnet"]
+        },
+        
+        "date": {
+          "type": "string",
+          "format": "date",
+          "description": "Date when the model was tested (YYYY-MM-DD)",
+          "examples": ["2025-10-31", "2025-12-01"]
+        },
+        
+        "success_rate": {
+          "type": "number",
+          "description": "Success rate (0-1) from test runs",
+          "minimum": 0,
+          "maximum": 1,
+          "examples": [0.95, 0.87]
+        },
+        
+        "avg_tokens": {
+          "type": "number",
+          "description": "Average number of tokens used per response",
+          "minimum": 0,
+          "examples": [150, 500]
+        },
+        
+        "avg_cost": {
+          "type": "number",
+          "description": "Average cost per execution in USD",
+          "minimum": 0,
+          "examples": [0.0045, 0.012]
+        },
+        
+        "avg_latency_ms": {
+          "type": "number",
+          "description": "Average response latency in milliseconds",
+          "minimum": 0,
+          "examples": [1200, 3500]
+        },
+        
+        "notes": {
+          "type": "string",
+          "description": "Additional notes about model performance or observations"
+        }
+      }
+    },
+    
+    "ModelOverride": {
+      "type": "object",
+      "description": "Model-specific template modifications. Allows customizing prompts for specific models without changing the base template.",
+      "additionalProperties": false,
+      "properties": {
+        "system_template_prefix": {
+          "type": "string",
+          "description": "Text prepended to the system template for this model",
+          "examples": ["<thinking>\\n", "[Task]\\n"]
+        },
+        
+        "system_template_suffix": {
+          "type": "string",
+          "description": "Text appended to the system template for this model",
+          "examples": ["\\n\\nBe concise and direct.", "\\n</thinking>"]
+        },
+        
+        "system_template": {
+          "type": "string",
+          "description": "Complete replacement system template for this model (overrides the base template entirely)"
+        },
+        
+        "parameters": {
+          "$ref": "#/$defs/Parameters",
+          "description": "Model-specific parameter overrides"
+        }
+      }
+    },
+    
+    "MediaConfig": {
+      "type": "object",
+      "description": "Configuration for multimodal content support. Defines which media types are supported and their validation rules. Well-known types (image, audio, video, document) have specific config schemas. Custom types use GenericMediaTypeConfig.",
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether multimodal content is enabled for this prompt"
+        },
+        
+        "supported_types": {
+          "type": "array",
+          "description": "List of supported media types for this prompt. Common types include: image, audio, video, document, model3d, archive. Custom types are allowed - each type should have a corresponding configuration object (e.g., 'foo' type requires a 'foo' field with GenericMediaTypeConfig or a specific schema).",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "examples": [["image"], ["image", "audio"], ["image", "audio", "video"], ["document", "image"], ["model3d", "document"]]
+        },
+        
+        "image": {
+          "$ref": "#/$defs/ImageConfig",
+          "description": "Image-specific configuration and constraints"
+        },
+        
+        "audio": {
+          "$ref": "#/$defs/AudioConfig",
+          "description": "Audio-specific configuration and constraints"
+        },
+        
+        "video": {
+          "$ref": "#/$defs/VideoConfig",
+          "description": "Video-specific configuration and constraints"
+        },
+        
+        "document": {
+          "$ref": "#/$defs/DocumentConfig",
+          "description": "Document-specific configuration and constraints (PDFs, CAD files, spreadsheets, etc.)"
+        },
+        
+        "examples": {
+          "type": "array",
+          "description": "Example multimodal messages showing how to use media with this prompt",
+          "items": {
+            "$ref": "#/$defs/MultimodalExample"
+          }
+        }
+      },
+      "patternProperties": {
+        "^[a-z0-9_]+$": {
+          "oneOf": [
+            {"$ref": "#/$defs/ImageConfig"},
+            {"$ref": "#/$defs/AudioConfig"},
+            {"$ref": "#/$defs/VideoConfig"},
+            {"$ref": "#/$defs/DocumentConfig"},
+            {"$ref": "#/$defs/GenericMediaTypeConfig"}
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    
+    "ImageConfig": {
+      "type": "object",
+      "description": "Configuration and validation rules for image content",
+      "additionalProperties": false,
+      "properties": {
+        "max_size_mb": {
+          "type": "integer",
+          "description": "Maximum file size in megabytes",
+          "minimum": 1,
+          "examples": [10, 20]
+        },
+        
+        "allowed_formats": {
+          "type": "array",
+          "description": "List of allowed image formats",
+          "items": {
+            "type": "string",
+            "enum": ["jpeg", "jpg", "png", "webp", "gif", "bmp"]
+          },
+          "examples": [["jpeg", "png", "webp"]]
+        },
+        
+        "default_detail": {
+          "type": "string",
+          "description": "Default detail level for image processing. 'low' uses fewer tokens, 'high' provides more detail, 'auto' lets the model decide.",
+          "enum": ["low", "high", "auto"],
+          "default": "auto",
+          "examples": ["high", "auto"]
+        },
+        
+        "require_caption": {
+          "type": "boolean",
+          "description": "Whether image captions are required",
+          "default": false
+        },
+        
+        "max_images_per_msg": {
+          "type": "integer",
+          "description": "Maximum number of images allowed per message",
+          "minimum": 1,
+          "examples": [1, 5, 10]
+        }
+      }
+    },
+    
+    "AudioConfig": {
+      "type": "object",
+      "description": "Configuration and validation rules for audio content",
+      "additionalProperties": false,
+      "properties": {
+        "max_size_mb": {
+          "type": "integer",
+          "description": "Maximum file size in megabytes",
+          "minimum": 1,
+          "examples": [25, 50]
+        },
+        
+        "allowed_formats": {
+          "type": "array",
+          "description": "List of allowed audio formats",
+          "items": {
+            "type": "string",
+            "enum": ["mp3", "wav", "opus", "flac", "m4a", "aac"]
+          },
+          "examples": [["mp3", "wav", "opus"]]
+        },
+        
+        "max_duration_sec": {
+          "type": "integer",
+          "description": "Maximum audio duration in seconds",
+          "minimum": 1,
+          "examples": [300, 600]
+        },
+        
+        "require_metadata": {
+          "type": "boolean",
+          "description": "Whether audio metadata (title, description) is required",
+          "default": false
+        }
+      }
+    },
+    
+    "VideoConfig": {
+      "type": "object",
+      "description": "Configuration and validation rules for video content",
+      "additionalProperties": false,
+      "properties": {
+        "max_size_mb": {
+          "type": "integer",
+          "description": "Maximum file size in megabytes",
+          "minimum": 1,
+          "examples": [100, 200]
+        },
+        
+        "allowed_formats": {
+          "type": "array",
+          "description": "List of allowed video formats",
+          "items": {
+            "type": "string",
+            "enum": ["mp4", "webm", "mov", "avi", "mkv"]
+          },
+          "examples": [["mp4", "webm"]]
+        },
+        
+        "max_duration_sec": {
+          "type": "integer",
+          "description": "Maximum video duration in seconds",
+          "minimum": 1,
+          "examples": [600, 1200]
+        },
+        
+        "require_metadata": {
+          "type": "boolean",
+          "description": "Whether video metadata (title, description) is required",
+          "default": false
+        }
+      }
+    },
+    
+    "DocumentConfig": {
+      "type": "object",
+      "description": "Configuration and validation rules for document content (PDFs, CAD files, spreadsheets, etc.)",
+      "additionalProperties": false,
+      "properties": {
+        "max_size_mb": {
+          "type": "integer",
+          "description": "Maximum file size in megabytes",
+          "minimum": 1,
+          "examples": [50, 100]
+        },
+        
+        "allowed_formats": {
+          "type": "array",
+          "description": "List of allowed document formats",
+          "items": {
+            "type": "string"
+          },
+          "examples": [["pdf", "docx"], ["pdf", "step", "dwg"], ["csv", "xlsx", "ods"]]
+        },
+        
+        "max_pages": {
+          "type": "integer",
+          "description": "Maximum number of pages/sheets for paginated documents",
+          "minimum": 1,
+          "examples": [50, 100]
+        },
+        
+        "require_metadata": {
+          "type": "boolean",
+          "description": "Whether document metadata (title, author, description) is required",
+          "default": false
+        },
+        
+        "extraction_mode": {
+          "type": "string",
+          "description": "How to extract content from documents. 'text' extracts text only, 'structured' preserves formatting, 'raw' keeps original binary format.",
+          "enum": ["text", "structured", "raw"],
+          "default": "text",
+          "examples": ["text", "structured"]
+        }
+      }
+    },
+    
+    "GenericMediaTypeConfig": {
+      "type": "object",
+      "description": "Generic configuration for custom media types. Use this for types not covered by specific configs (ImageConfig, AudioConfig, etc.). Provides common validation properties that apply to most media types.",
+      "additionalProperties": true,
+      "properties": {
+        "max_size_mb": {
+          "type": "integer",
+          "description": "Maximum file size in megabytes",
+          "minimum": 1,
+          "examples": [10, 50, 100]
+        },
+        
+        "allowed_formats": {
+          "type": "array",
+          "description": "List of allowed file formats/extensions",
+          "items": {
+            "type": "string"
+          },
+          "examples": [["obj", "fbx", "gltf"], ["zip", "tar"], ["stl", "ply"]]
+        },
+        
+        "require_metadata": {
+          "type": "boolean",
+          "description": "Whether metadata is required for this media type",
+          "default": false
+        },
+        
+        "validation_params": {
+          "type": "object",
+          "description": "Custom validation parameters specific to this media type. Structure depends on the type.",
+          "additionalProperties": true,
+          "examples": [
+            {"max_vertices": 100000, "require_textures": false},
+            {"compression": "gzip", "max_entries": 1000}
+          ]
+        }
+      }
+    },
+    
+    "MultimodalExample": {
+      "type": "object",
+      "description": "Example multimodal message demonstrating how to use media content with a prompt",
+      "required": ["name", "role", "parts"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name identifying this example",
+          "examples": ["image-analysis", "audio-transcription"]
+        },
+        
+        "description": {
+          "type": "string",
+          "description": "Description of what this example demonstrates"
+        },
+        
+        "role": {
+          "type": "string",
+          "description": "Message role (typically 'user' or 'assistant')",
+          "enum": ["user", "assistant", "system"],
+          "examples": ["user"]
+        },
+        
+        "parts": {
+          "type": "array",
+          "description": "Message content parts (text and/or media)",
+          "items": {
+            "$ref": "#/$defs/ContentPart"
+          },
+          "minItems": 1
+        }
+      }
+    },
+    
+    "ContentPart": {
+      "type": "object",
+      "description": "A single content part within a multimodal message. Can be text or media.",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Type of content part. Common types include: text, image, audio, video, document. Custom types are allowed for extensibility.",
+          "pattern": "^[a-z0-9_]+$",
+          "examples": ["text", "image", "audio", "document"]
+        },
+        
+        "text": {
+          "type": "string",
+          "description": "Text content (required when type is 'text')",
+          "examples": ["What's in this image?", "Describe the scene"]
+        },
+        
+        "media": {
+          "$ref": "#/$defs/MediaReference",
+          "description": "Media reference (required when type is 'image', 'audio', or 'video')"
+        }
+      }
+    },
+    
+    "MediaReference": {
+      "type": "object",
+      "description": "Reference to a media file. Supports three loading methods: file path, URL, or base64 data.",
+      "required": ["mime_type"],
+      "additionalProperties": false,
+      "properties": {
+        "file_path": {
+          "type": "string",
+          "description": "Path to media file (relative to pack or absolute). Validated at compile time.",
+          "examples": ["images/photo.jpg", "./media/audio.mp3"]
+        },
+        
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL to media file. Must be publicly accessible or require authentication.",
+          "examples": ["https://example.com/image.jpg", "https://cdn.example.com/video.mp4"]
+        },
+        
+        "base64": {
+          "type": "string",
+          "description": "Base64-encoded media data. Use for small files or when embedding is preferred.",
+          "examples": ["iVBORw0KGgoAAAANSUhEUgAAAAUA..."]
+        },
+        
+        "mime_type": {
+          "type": "string",
+          "description": "MIME type of the media file",
+          "examples": ["image/jpeg", "image/png", "audio/mp3", "video/mp4"]
+        },
+        
+        "detail": {
+          "type": "string",
+          "description": "Detail level for image processing (images only). Overrides default_detail from ImageConfig.",
+          "enum": ["low", "high", "auto"],
+          "examples": ["high"]
+        },
+        
+        "caption": {
+          "type": "string",
+          "description": "Caption or description for the media",
+          "examples": ["Product photo", "Customer's voice recording"]
+        }
+      }
+    }
+  },
+  
+  "examples": [
+    {
+      "$schema": "https://promptpack.org/schema/v1/promptpack.schema.json",
+      "id": "customer-support",
+      "name": "Customer Support Pack",
+      "version": "1.0.0",
+      "description": "Complete customer support prompt pack with multiple task types",
+      "template_engine": {
+        "version": "v1",
+        "syntax": "{{variable}}",
+        "features": ["basic_substitution", "fragments"]
+      },
+      "prompts": {
+        "support": {
+          "id": "support",
+          "name": "Support Bot",
+          "description": "General customer support assistant",
+          "version": "1.0.0",
+          "system_template": "You are a {{role}} assistant for {{company}}.",
+          "variables": [
+            {
+              "name": "role",
+              "type": "string",
+              "required": true,
+              "description": "The role of the assistant",
+              "example": "support agent"
+            }
+          ],
+          "tools": ["lookup_order"],
+          "parameters": {
+            "temperature": 0.7,
+            "max_tokens": 1500
+          }
+        }
+      },
+      "tools": {
+        "lookup_order": {
+          "name": "lookup_order",
+          "description": "Look up order details by order ID",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "order_id": {
+                "type": "string",
+                "description": "The order ID to look up"
+              }
+            },
+            "required": ["order_id"]
+          }
+        }
+      }
+    },
+    {
+      "$schema": "https://promptpack.org/schema/v1/promptpack.schema.json",
+      "id": "image-analyzer",
+      "name": "Image Analysis Pack",
+      "version": "1.0.0",
+      "description": "Multimodal pack for analyzing images with vision models",
+      "template_engine": {
+        "version": "v1",
+        "syntax": "{{variable}}",
+        "features": ["basic_substitution"]
+      },
+      "prompts": {
+        "analyze": {
+          "id": "analyze",
+          "name": "Image Analyzer",
+          "description": "Analyzes images and provides detailed descriptions",
+          "version": "1.0.0",
+          "system_template": "You are an expert image analyst. Provide detailed, accurate descriptions of images.",
+          "parameters": {
+            "temperature": 0.7,
+            "max_tokens": 1000
+          },
+          "media": {
+            "enabled": true,
+            "supported_types": ["image"],
+            "image": {
+              "max_size_mb": 20,
+              "allowed_formats": ["jpeg", "png", "webp"],
+              "default_detail": "high",
+              "max_images_per_msg": 5
+            },
+            "examples": [
+              {
+                "name": "simple-image-analysis",
+                "description": "Basic image analysis with a single photo",
+                "role": "user",
+                "parts": [
+                  {
+                    "type": "text",
+                    "text": "What's in this image?"
+                  },
+                  {
+                    "type": "image",
+                    "media": {
+                      "file_path": "examples/photo.jpg",
+                      "mime_type": "image/jpeg",
+                      "detail": "high",
+                      "caption": "Sample photo for analysis"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
