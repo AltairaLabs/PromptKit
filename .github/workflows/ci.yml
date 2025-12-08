@@ -178,7 +178,7 @@ jobs:
           tools/inspect-state/go.sum
     
     - name: Run golangci-lint in ${{ matrix.module }}
-      uses: golangci/golangci-lint-action@v7
+      uses: golangci/golangci-lint-action@v9
       with:
         version: v2.6.0
         working-directory: ${{ matrix.module }}
