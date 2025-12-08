@@ -26,7 +26,9 @@ tools, personas, and validates cross-references.
 Use --verbose to see detailed contents of each configuration file.
 Use --section to focus on specific parts.
 Use --short/-s for quick validation-only output.`,
-	RunE: runConfigInspect,
+	RunE:          runConfigInspect,
+	SilenceUsage:  true, // Don't show usage on error - keeps output clean
+	SilenceErrors: true, // We handle errors ourselves with cleaner messages
 }
 
 const (
@@ -84,7 +86,8 @@ func init() {
 	configInspectCmd.Flags().BoolVarP(&inspectShort, "short", "s", false,
 		"Show only validation results (shortcut for --section validation)")
 
-	// Note: RegisterConfigInspectCompletions is called from completion_interactive.go init()
+	// Register dynamic completions (must be after flags are defined)
+	RegisterConfigInspectCompletions()
 }
 
 func runConfigInspect(cmd *cobra.Command, args []string) error {
@@ -103,7 +106,8 @@ func runConfigInspect(cmd *cobra.Command, args []string) error {
 	// Load configuration directly
 	cfg, err := config.LoadConfig(configFile)
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return fmt.Errorf("'%s' is not a valid arena config file\n\nRun 'promptarena validate %s' for details",
+			configFile, configFile)
 	}
 
 	// Collect inspection data

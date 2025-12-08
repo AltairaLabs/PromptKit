@@ -141,6 +141,9 @@ func init() {
 	_ = viper.BindPFlag("seed", runCmd.Flags().Lookup("seed"))
 	_ = viper.BindPFlag("selfplay", runCmd.Flags().Lookup("selfplay"))
 	_ = viper.BindPFlag("roles", runCmd.Flags().Lookup("roles"))
+
+	// Register dynamic completions (must be after flags are defined)
+	RegisterRunCompletions()
 }
 
 // NOTE: runSimulations, executeRuns, executeWithTUI, and executeSimple are defined in run_interactive.go

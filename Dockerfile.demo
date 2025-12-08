@@ -42,11 +42,6 @@ ENV COLORTERM=truecolor
 # Disable shell history for clean recordings
 ENV HISTFILE=/dev/null
 
-# Prevent env command from showing API keys in recordings
-# by using a wrapper that filters sensitive output
-RUN echo '#!/bin/bash\n/usr/bin/env "$@" | grep -v "_API_KEY\|_SECRET\|_TOKEN"' > /usr/local/bin/env-safe && \
-    chmod +x /usr/local/bin/env-safe
-
 # Copy promptarena binary (built for linux/amd64)
 # Build with: GOOS=linux GOARCH=amd64 go build -o bin/promptarena-linux ./tools/arena
 COPY bin/promptarena-linux /usr/local/bin/promptarena
@@ -55,15 +50,26 @@ COPY bin/promptarena-linux /usr/local/bin/promptarena
 # Build with: GOOS=linux GOARCH=amd64 go build -o bin/packc-linux ./tools/packc
 COPY bin/packc-linux /usr/local/bin/packc
 
-# Set up shell completions for bash and install bash-completion
-RUN chmod +x /usr/local/bin/promptarena && \
+# Set up shell environment:
+# - Disable terminal bell (audible and visible)
+# - Create env-safe wrapper to filter API keys from output
+# - Configure bash completions for login shells
+# Note: Alpine sources /etc/profile.d/*.sh for login shells
+RUN echo 'set bell-style none' >> /etc/inputrc && \
+    echo '#!/bin/bash\n/usr/bin/env "$@" | grep -v "_API_KEY\|_SECRET\|_TOKEN"' > /usr/local/bin/env-safe && \
+    chmod +x /usr/local/bin/env-safe && \
+    chmod +x /usr/local/bin/promptarena && \
     chmod +x /usr/local/bin/packc && \
-    mkdir -p /etc/bash_completion.d && \
+    mkdir -p /etc/bash_completion.d /recordings && \
     promptarena completion bash > /etc/bash_completion.d/promptarena && \
     packc completion bash > /etc/bash_completion.d/packc && \
-    echo 'source /etc/profile.d/bash_completion.sh' >> /root/.bashrc && \
-    echo 'source /etc/bash_completion.d/promptarena' >> /root/.bashrc && \
-    echo 'source /etc/bash_completion.d/packc' >> /root/.bashrc
+    echo '#!/bin/bash' > /etc/profile.d/completions.sh && \
+    echo '[ -f /usr/share/bash-completion/bash_completion ] && \
+        source /usr/share/bash-completion/bash_completion' \
+        >> /etc/profile.d/completions.sh && \
+    echo 'source /etc/bash_completion.d/promptarena' >> /etc/profile.d/completions.sh && \
+    echo 'source /etc/bash_completion.d/packc' >> /etc/profile.d/completions.sh && \
+    chmod +x /etc/profile.d/completions.sh
 
 # Copy local Go modules so SDK demos use local code instead of fetching from internet
 COPY go.work /promptkit/go.work
@@ -73,9 +79,6 @@ COPY pkg /promptkit/pkg
 
 # Set working directory
 WORKDIR /demo
-
-# Create recordings directory
-RUN mkdir -p /recordings
 
 # Default shell
 CMD ["bash"]

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,16 +9,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/templates"
 )
 
 func init() {
 	rootCmd.AddCommand(completionCmd)
-
-	// Register completions for all commands with dynamic completion support
-	// These must be called after the commands are defined and added to root
-	RegisterRunCompletions()
-	RegisterConfigInspectCompletions()
-	RegisterInitCompletions()
 }
 
 var completionCmd = &cobra.Command{
@@ -220,7 +216,7 @@ func RegisterConfigInspectCompletions() {
 // RegisterInitCompletions registers dynamic completion functions for the init command.
 // This must be called after initCmd flags are initialized.
 func RegisterInitCompletions() {
-	// Static completion for --template flag
+	// Dynamic completion for --template flag that reads from built-in and community templates
 	_ = initCmd.RegisterFlagCompletionFunc("template", completeTemplates)
 
 	// Static completion for --provider flag
@@ -228,23 +224,87 @@ func RegisterInitCompletions() {
 }
 
 // completeTemplates provides dynamic completion for init template names
-func completeTemplates(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	// Built-in templates
-	builtinTemplates := []string{
-		"quick-start",
-		"customer-support",
-		"code-assistant",
-		"multimodal",
-		"mcp-integration",
-	}
-
+// It reads from built-in templates and community repo templates
+func completeTemplates(
+	cmd *cobra.Command,
+	_ []string,
+	toComplete string,
+) ([]string, cobra.ShellCompDirective) {
 	var matches []string
-	for _, t := range builtinTemplates {
-		if toComplete == "" || strings.HasPrefix(t, toComplete) {
-			matches = append(matches, t)
+
+	// Load built-in templates
+	matches = append(matches, collectBuiltinTemplates(toComplete)...)
+
+	// Load community/remote templates from repos config
+	matches = append(matches, collectRepoTemplates(cmd, toComplete)...)
+
+	return matches, cobra.ShellCompDirectiveNoFileComp
+}
+
+// collectBuiltinTemplates returns matching built-in template names
+func collectBuiltinTemplates(toComplete string) []string {
+	var matches []string
+	loader := templates.NewLoader("")
+	builtinList, err := loader.ListBuiltIn()
+	if err != nil {
+		return matches
+	}
+	for _, t := range builtinList {
+		if toComplete == "" || strings.HasPrefix(t.Name, toComplete) {
+			matches = append(matches, formatTemplateCompletion(t.Name, t.Description))
 		}
 	}
-	return matches, cobra.ShellCompDirectiveNoFileComp
+	return matches
+}
+
+// collectRepoTemplates returns matching templates from configured repos
+func collectRepoTemplates(cmd *cobra.Command, toComplete string) []string {
+	var matches []string
+	repoConfigPath, _ := cmd.Flags().GetString("repo-config")
+	if repoConfigPath == "" {
+		repoConfigPath = templates.DefaultRepoConfigPath()
+	}
+
+	repoCfg, err := templates.LoadRepoConfig(repoConfigPath)
+	if err != nil {
+		return matches
+	}
+
+	for repoName, repo := range repoCfg.Repos {
+		matches = append(matches, collectRepoIndexTemplates(repoName, repo.URL, toComplete)...)
+	}
+	return matches
+}
+
+// collectRepoIndexTemplates returns matching templates from a single repo index
+func collectRepoIndexTemplates(repoName, repoURL, toComplete string) []string {
+	var matches []string
+	index, err := templates.LoadIndex(repoURL)
+	if err != nil {
+		return matches
+	}
+	for _, entry := range index.Spec.Entries {
+		fullName := fmt.Sprintf("%s/%s", repoName, entry.Name)
+		if matchesTemplatePrefix(fullName, entry.Name, toComplete) {
+			matches = append(matches, formatTemplateCompletion(fullName, entry.Description))
+		}
+	}
+	return matches
+}
+
+// matchesTemplatePrefix checks if template name matches the completion prefix
+func matchesTemplatePrefix(fullName, shortName, toComplete string) bool {
+	return toComplete == "" ||
+		strings.HasPrefix(fullName, toComplete) ||
+		strings.HasPrefix(shortName, toComplete)
+}
+
+// formatTemplateCompletion formats a template name with optional description for shell completion
+func formatTemplateCompletion(name, description string) string {
+	if description != "" {
+		return fmt.Sprintf("%s\t%s", name, description)
+	}
+	return name
 }
 
 // completeFormats provides completion for output format options
