@@ -16,8 +16,10 @@ import (
 )
 
 const (
-	roleUser      = "user"
-	roleAssistant = "assistant"
+	roleUser        = "user"
+	roleAssistant   = "assistant"
+	apiKeyHeader    = "x-api-key"
+	providerNameLog = "Claude-Tools"
 )
 
 // ToolProvider extends ClaudeProvider with tool support
@@ -350,10 +352,10 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]
 	// Construct the full messages endpoint URL
 	url := p.baseURL + "/messages"
 
-	logger.APIRequest("Claude-Tools", "POST", url, map[string]string{
-		"Content-Type":      "application/json",
-		"x-api-key":         "***",
-		"anthropic-version": "2023-06-01",
+	logger.APIRequest(providerNameLog, "POST", url, map[string]string{
+		contentTypeHeader:   applicationJSON,
+		apiKeyHeader:        "***",
+		anthropicVersionKey: anthropicVersionValue,
 	}, request)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(requestBytes))
@@ -361,9 +363,9 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", p.apiKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set(contentTypeHeader, applicationJSON)
+	req.Header.Set(apiKeyHeader, p.apiKey)
+	req.Header.Set(anthropicVersionKey, anthropicVersionValue)
 
 	resp, err := p.GetHTTPClient().Do(req)
 	if err != nil {
@@ -376,7 +378,7 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
-	logger.APIResponse("Claude-Tools", resp.StatusCode, string(respBytes), nil)
+	logger.APIResponse(providerNameLog, resp.StatusCode, string(respBytes), nil)
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBytes))
@@ -410,9 +412,9 @@ func (p *ToolProvider) PredictStreamWithTools(
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("x-api-key", p.apiKey)
-	httpReq.Header.Set("anthropic-version", "2023-06-01")
+	httpReq.Header.Set(contentTypeHeader, applicationJSON)
+	httpReq.Header.Set(apiKeyHeader, p.apiKey)
+	httpReq.Header.Set(anthropicVersionKey, anthropicVersionValue)
 	httpReq.Header.Set("Accept", "text/event-stream")
 
 	resp, err := p.GetHTTPClient().Do(httpReq)

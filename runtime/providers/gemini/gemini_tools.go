@@ -394,7 +394,7 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]
 		requestObj = string(requestBytes)
 	}
 	headers := map[string]string{
-		"Content-Type": "application/json",
+		contentTypeHeader: applicationJSON,
 	}
 	logger.APIRequest(providerNameLog, "POST", url, headers, requestObj)
 
@@ -403,7 +403,7 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(contentTypeHeader, applicationJSON)
 
 	resp, err := p.GetHTTPClient().Do(req)
 	if err != nil {
@@ -454,7 +454,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set(contentTypeHeader, applicationJSON)
 
 	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
