@@ -1,16 +1,18 @@
 {
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
   "id": "hitl-example",
+  "name": "HITL Example",
   "version": "1.0.0",
   "description": "Example demonstrating Human-in-the-Loop approval",
-  "provider": {
-    "name": "openai",
-    "model": "gpt-4o-mini",
-    "base_url": "https://api.openai.com/v1",
-    "env_var": "OPENAI_API_KEY"
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
   },
   "prompts": {
     "refund_agent": {
       "id": "refund_agent",
+      "name": "Refund Agent",
+      "version": "1.0.0",
       "system_template": "You are a customer support agent handling refund requests. Use the process_refund tool to process refund requests. Always be polite and helpful.",
       "tools": ["process_refund"]
     }

@@ -12,6 +12,13 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
+// LoadOptions configures pack loading behavior.
+type LoadOptions struct {
+	// SkipSchemaValidation disables JSON schema validation during load.
+	// Default is false (validation enabled).
+	SkipSchemaValidation bool
+}
+
 // Pack represents a loaded prompt pack.
 // This is the SDK's view of a pack, optimized for runtime use.
 type Pack struct {
@@ -95,7 +102,15 @@ type Validator struct {
 }
 
 // Load loads a pack from a JSON file.
-func Load(path string) (*Pack, error) {
+// By default, the pack is validated against the PromptPack JSON schema.
+// Use LoadOptions to customize behavior.
+func Load(path string, opts ...LoadOptions) (*Pack, error) {
+	// Merge options (last wins)
+	var options LoadOptions
+	for _, opt := range opts {
+		options = opt
+	}
+
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve path: %w", err)
@@ -107,6 +122,13 @@ func Load(path string) (*Pack, error) {
 			return nil, fmt.Errorf("pack not found: %s", absPath)
 		}
 		return nil, fmt.Errorf("failed to read pack: %w", err)
+	}
+
+	// Validate against schema unless skipped
+	if !options.SkipSchemaValidation {
+		if validationErr := ValidateAgainstSchema(data); validationErr != nil {
+			return nil, validationErr
+		}
 	}
 
 	pack, err := Parse(data)

@@ -141,6 +141,22 @@ func compileCommand() {
 		os.Exit(1)
 	}
 
+	// Validate against PromptPack schema
+	fmt.Printf("Validating pack against schema...\n")
+	validationResult, err := ValidatePackAgainstSchema(data)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "⚠ Schema validation could not be performed: %v\n", err)
+		// Continue anyway - schema might not be available
+	} else if !validationResult.Valid {
+		fmt.Fprintf(os.Stderr, "⚠ Pack failed schema validation:\n")
+		for _, validationErr := range validationResult.Errors {
+			fmt.Fprintf(os.Stderr, "  - %s\n", validationErr)
+		}
+		os.Exit(1)
+	} else {
+		fmt.Printf("✓ Pack validated against schema\n")
+	}
+
 	// Write to file
 	if err := os.WriteFile(*outputFile, data, outputFilePerm); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to write pack file: %v\n", err)
@@ -245,6 +261,29 @@ func validateCommand() {
 
 	fmt.Printf("Validating pack: %s\n", packFile)
 
+	// Read the pack file for schema validation
+	packData, err := os.ReadFile(packFile) //nolint:gosec // packFile is from command line args
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading pack file: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Validate against PromptPack schema
+	fmt.Printf("Validating against PromptPack schema...\n")
+	schemaResult, err := ValidatePackAgainstSchema(packData)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "⚠ Schema validation could not be performed: %v\n", err)
+	} else if !schemaResult.Valid {
+		fmt.Fprintf(os.Stderr, "✗ Pack failed schema validation:\n")
+		for _, validationErr := range schemaResult.Errors {
+			fmt.Fprintf(os.Stderr, "  - %s\n", validationErr)
+		}
+		os.Exit(1)
+	} else {
+		fmt.Printf("✓ Schema validation passed\n")
+	}
+
+	// Load and validate pack structure
 	pack, err := prompt.LoadPack(packFile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading pack: %v\n", err)
@@ -254,7 +293,7 @@ func validateCommand() {
 	warnings := pack.Validate()
 
 	if len(warnings) == 0 {
-		fmt.Println("✓ Pack is valid")
+		fmt.Println("✓ Pack structure is valid")
 	} else {
 		fmt.Printf("⚠ Pack has %d warnings:\n", len(warnings))
 		for _, w := range warnings {

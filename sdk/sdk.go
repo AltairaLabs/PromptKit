@@ -55,7 +55,7 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 	}
 
 	// Load and validate pack
-	p, prompt, err := loadAndValidatePack(packPath, promptName)
+	p, prompt, err := loadAndValidatePack(packPath, promptName, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -105,13 +105,18 @@ func applyOptions(promptName string, opts []Option) (*config, error) {
 }
 
 // loadAndValidatePack loads the pack and validates the prompt exists.
-func loadAndValidatePack(packPath, promptName string) (*pack.Pack, *pack.Prompt, error) {
+func loadAndValidatePack(packPath, promptName string, cfg *config) (*pack.Pack, *pack.Prompt, error) {
 	absPath, err := resolvePackPath(packPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to resolve pack path: %w", err)
 	}
 
-	p, err := pack.Load(absPath)
+	// Build load options
+	loadOpts := pack.LoadOptions{
+		SkipSchemaValidation: cfg.skipSchemaValidation,
+	}
+
+	p, err := pack.Load(absPath, loadOpts)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load pack: %w", err)
 	}

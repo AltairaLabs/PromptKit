@@ -197,18 +197,18 @@ type ExampleMedia struct {
 // ValidatorConfig extends validators.ValidatorConfig with prompt-pack specific fields
 type ValidatorConfig struct {
 	// Embed base config (Type, Params)
-	validators.ValidatorConfig `yaml:",inline"`
+	validators.ValidatorConfig `yaml:",inline" json:",inline"`
 	// Enable/disable validator (default: true)
-	Enabled *bool `yaml:"enabled,omitempty"`
+	Enabled *bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 	// Fail execution on violation (default: true)
-	FailOnViolation *bool `yaml:"fail_on_violation,omitempty"`
+	FailOnViolation *bool `yaml:"fail_on_violation,omitempty" json:"fail_on_violation,omitempty"`
 }
 
 // TemplateEngineInfo describes the template engine used for variable substitution
 type TemplateEngineInfo struct {
-	Version  string   `yaml:"version"`            // Template engine version (e.g., "v1")
-	Syntax   string   `yaml:"syntax"`             // Template syntax (e.g., "{{variable}}")
-	Features []string `yaml:"features,omitempty"` // Supported features (e.g., "conditionals", "loops")
+	Version  string   `yaml:"version" json:"version"`                       // Template engine version (e.g., "v1")
+	Syntax   string   `yaml:"syntax" json:"syntax"`                         // Template syntax (e.g., "{{variable}}")
+	Features []string `yaml:"features,omitempty" json:"features,omitempty"` // Supported features
 }
 
 // VariableMetadata contains enhanced metadata for a variable
@@ -259,9 +259,9 @@ type ChangelogEntry struct {
 
 // CompilationInfo contains information about prompt compilation
 type CompilationInfo struct {
-	CompiledWith string `yaml:"compiled_with"`    // Compiler version
-	CreatedAt    string `yaml:"created_at"`       // Timestamp (RFC3339)
-	Schema       string `yaml:"schema,omitempty"` // Pack schema version (e.g., "v1")
+	CompiledWith string `yaml:"compiled_with" json:"compiled_with"`       // Compiler version
+	CreatedAt    string `yaml:"created_at" json:"created_at"`             // Timestamp (RFC3339)
+	Schema       string `yaml:"schema,omitempty" json:"schema,omitempty"` // Pack schema version (e.g., "v1")
 }
 
 // FragmentRef references a prompt fragment for assembly

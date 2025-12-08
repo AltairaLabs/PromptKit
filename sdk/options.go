@@ -34,9 +34,10 @@ type config struct {
 	truncationStrategy string
 
 	// Validation behavior
-	validationMode     ValidationMode
-	disabledValidators []string
-	strictValidation   bool
+	validationMode       ValidationMode
+	disabledValidators   []string
+	strictValidation     bool
+	skipSchemaValidation bool
 
 	// MCP configuration
 	mcpServers []mcp.ServerConfig
@@ -238,6 +239,22 @@ func WithDisabledValidators(names ...string) Option {
 func WithStrictValidation() Option {
 	return func(c *config) error {
 		c.strictValidation = true
+		return nil
+	}
+}
+
+// WithSkipSchemaValidation disables JSON schema validation during pack loading.
+//
+// By default, packs are validated against the PromptPack JSON schema to ensure
+// they are well-formed. Use this option to skip validation, for example when
+// loading legacy packs or during development.
+//
+//	conv, _ := sdk.Open("./legacy.pack.json", "assistant",
+//	    sdk.WithSkipSchemaValidation(),
+//	)
+func WithSkipSchemaValidation() Option {
+	return func(c *config) error {
+		c.skipSchemaValidation = true
 		return nil
 	}
 }

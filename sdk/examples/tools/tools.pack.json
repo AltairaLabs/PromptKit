@@ -1,16 +1,18 @@
 {
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
   "id": "tools-example",
+  "name": "Tools Example",
   "version": "1.0.0",
   "description": "Example demonstrating tool usage",
-  "provider": {
-    "name": "openai",
-    "model": "gpt-4o-mini",
-    "base_url": "https://api.openai.com/v1",
-    "env_var": "OPENAI_API_KEY"
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
   },
   "prompts": {
     "assistant": {
       "id": "assistant",
+      "name": "Assistant",
+      "version": "1.0.0",
       "system_template": "You are a helpful assistant with access to tools. Use the available tools to answer user questions accurately.",
       "tools": ["get_weather", "get_time"]
     }

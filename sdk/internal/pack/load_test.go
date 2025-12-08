@@ -1,24 +1,24 @@
 package pack
 
 import (
-"os"
-"path/filepath"
-"testing"
+	"os"
+	"path/filepath"
+	"testing"
 
-"github.com/stretchr/testify/assert"
-"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoad(t *testing.T) {
 	t.Run("non-existent file", func(t *testing.T) {
-_, err := Load("/non/existent/path.pack.json")
-assert.Error(t, err)
-assert.Contains(t, err.Error(), "pack not found")
+		_, err := Load("/non/existent/path.pack.json")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "pack not found")
 	})
 
 	t.Run("valid pack file", func(t *testing.T) {
-// Create a temp file
-dir := t.TempDir()
+		// Create a temp file
+		dir := t.TempDir()
 		packPath := filepath.Join(dir, "test.pack.json")
 		data := []byte(`{
 			"id": "test-pack",
@@ -33,15 +33,16 @@ dir := t.TempDir()
 		}`)
 		require.NoError(t, os.WriteFile(packPath, data, 0644))
 
-		p, err := Load(packPath)
+		// Skip schema validation for minimal test fixtures
+		p, err := Load(packPath, LoadOptions{SkipSchemaValidation: true})
 		require.NoError(t, err)
 		assert.Equal(t, "test-pack", p.ID)
 		assert.Equal(t, packPath, p.FilePath)
 	})
 
 	t.Run("relative path", func(t *testing.T) {
-// Create a temp file in current directory
-dir := t.TempDir()
+		// Create a temp file in current directory
+		dir := t.TempDir()
 		packPath := filepath.Join(dir, "rel.pack.json")
 		data := []byte(`{"id": "rel", "prompts": {"p": {"id": "p", "system_template": "test"}}}`)
 		require.NoError(t, os.WriteFile(packPath, data, 0644))
@@ -51,15 +52,29 @@ dir := t.TempDir()
 		_ = os.Chdir(dir)
 		defer func() { _ = os.Chdir(oldWd) }()
 
-		p, err := Load("rel.pack.json")
+		// Skip schema validation for minimal test fixtures
+		p, err := Load("rel.pack.json", LoadOptions{SkipSchemaValidation: true})
 		require.NoError(t, err)
 		assert.Equal(t, "rel", p.ID)
+	})
+
+	t.Run("schema validation failure by default", func(t *testing.T) {
+		// Create an invalid pack file (missing required fields)
+		dir := t.TempDir()
+		packPath := filepath.Join(dir, "invalid.pack.json")
+		data := []byte(`{"id": "invalid", "prompts": {}}`)
+		require.NoError(t, os.WriteFile(packPath, data, 0644))
+
+		// Load without options - schema validation should fail
+		_, err := Load(packPath)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "schema validation failed")
 	})
 }
 
 func TestParse(t *testing.T) {
 	t.Run("valid pack", func(t *testing.T) {
-data := []byte(`{
+		data := []byte(`{
 			"id": "test-pack",
 			"name": "Test Pack",
 			"version": "1.0.0",
@@ -75,39 +90,39 @@ data := []byte(`{
 			}
 		}`)
 
-p, err := Parse(data)
-require.NoError(t, err)
-assert.Equal(t, "test-pack", p.ID)
-assert.Equal(t, "Test Pack", p.Name)
-assert.Equal(t, "1.0.0", p.Version)
-assert.Equal(t, "A test pack", p.Description)
-assert.Len(t, p.Prompts, 1)
+		p, err := Parse(data)
+		require.NoError(t, err)
+		assert.Equal(t, "test-pack", p.ID)
+		assert.Equal(t, "Test Pack", p.Name)
+		assert.Equal(t, "1.0.0", p.Version)
+		assert.Equal(t, "A test pack", p.Description)
+		assert.Len(t, p.Prompts, 1)
 
-prompt := p.GetPrompt("chat")
-require.NotNil(t, prompt)
-assert.Equal(t, "chat", prompt.ID)
-assert.Equal(t, "You are a helpful assistant.", prompt.SystemTemplate)
-})
+		prompt := p.GetPrompt("chat")
+		require.NotNil(t, prompt)
+		assert.Equal(t, "chat", prompt.ID)
+		assert.Equal(t, "You are a helpful assistant.", prompt.SystemTemplate)
+	})
 
 	t.Run("empty prompts", func(t *testing.T) {
-data := []byte(`{"id": "test-pack", "prompts": {}}`)
-_, err := Parse(data)
-assert.Error(t, err)
-assert.Contains(t, err.Error(), "no prompts")
+		data := []byte(`{"id": "test-pack", "prompts": {}}`)
+		_, err := Parse(data)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no prompts")
 	})
 
 	t.Run("missing prompts", func(t *testing.T) {
-data := []byte(`{"id": "test-pack"}`)
-_, err := Parse(data)
-assert.Error(t, err)
-assert.Contains(t, err.Error(), "no prompts")
+		data := []byte(`{"id": "test-pack"}`)
+		_, err := Parse(data)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no prompts")
 	})
 
 	t.Run("invalid JSON", func(t *testing.T) {
-data := []byte(`{invalid json}`)
-_, err := Parse(data)
-assert.Error(t, err)
-assert.Contains(t, err.Error(), "failed to parse")
+		data := []byte(`{invalid json}`)
+		_, err := Parse(data)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to parse")
 	})
 }
 
@@ -372,6 +387,92 @@ func TestPackGetNonExistent(t *testing.T) {
 
 	assert.Nil(t, p.GetPrompt("nonexistent"))
 	assert.Nil(t, p.GetTool("nonexistent"))
+}
+
+func TestToPromptRegistry(t *testing.T) {
+	data := []byte(`{
+		"id": "test",
+		"prompts": {
+			"chat": {
+				"id": "chat",
+				"version": "1.0.0",
+				"description": "A chat prompt",
+				"system_template": "You are helpful.",
+				"variables": [
+					{"name": "topic", "type": "string", "required": true}
+				]
+			}
+		},
+		"fragments": {
+			"greeting": "Hello!"
+		}
+	}`)
+
+	p, err := Parse(data)
+	require.NoError(t, err)
+
+	registry := p.ToPromptRegistry()
+	assert.NotNil(t, registry)
+
+	// Check that the prompt was registered
+	taskTypes := registry.ListTaskTypes()
+	assert.Contains(t, taskTypes, "chat")
+}
+
+func TestToPromptConfig(t *testing.T) {
+	pr := &Prompt{
+		ID:             "test",
+		Name:           "Test Prompt",
+		Version:        "1.0.0",
+		Description:    "A test prompt",
+		SystemTemplate: "Hello {{name}}",
+		Tools:          []string{"tool1", "tool2"},
+		Variables: []Variable{
+			{Name: "name", Type: "string", Required: true, Description: "User name"},
+		},
+	}
+
+	cfg := pr.ToPromptConfig("test-task")
+	assert.Equal(t, "promptkit.io/v1alpha1", cfg.APIVersion)
+	assert.Equal(t, "Prompt", cfg.Kind)
+	assert.Equal(t, "test-task", cfg.Spec.TaskType)
+	assert.Equal(t, "1.0.0", cfg.Spec.Version)
+	assert.Equal(t, "A test prompt", cfg.Spec.Description)
+	assert.Equal(t, "Hello {{name}}", cfg.Spec.SystemTemplate)
+	assert.Equal(t, []string{"tool1", "tool2"}, cfg.Spec.AllowedTools)
+	assert.Len(t, cfg.Spec.Variables, 1)
+	assert.Equal(t, "name", cfg.Spec.Variables[0].Name)
+}
+
+func TestToToolRepository(t *testing.T) {
+	data := []byte(`{
+		"id": "test",
+		"prompts": {"chat": {"id": "chat", "system_template": "Test"}},
+		"tools": {
+			"search": {
+				"name": "search",
+				"description": "Search the web",
+				"parameters": {
+					"type": "object",
+					"properties": {
+						"query": {"type": "string"}
+					}
+				}
+			}
+		}
+	}`)
+
+	p, err := Parse(data)
+	require.NoError(t, err)
+
+	repo := p.ToToolRepository()
+	assert.NotNil(t, repo)
+
+	// Check that the tool was registered
+	tool, err := repo.LoadTool("search")
+	require.NoError(t, err)
+	assert.Equal(t, "search", tool.Name)
+	assert.Equal(t, "Search the web", tool.Description)
 }
 
 func TestPackListToolsEmpty(t *testing.T) {

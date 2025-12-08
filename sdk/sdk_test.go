@@ -122,13 +122,13 @@ func TestOpenWithValidPack(t *testing.T) {
 		os.Setenv("OPENAI_API_KEY", "test-key")
 		defer os.Unsetenv("OPENAI_API_KEY")
 
-		_, err := Open(packFile, "nonexistent")
+		_, err := Open(packFile, "nonexistent", WithSkipSchemaValidation())
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})
 
 	t.Run("option error", func(t *testing.T) {
-		_, err := Open(packFile, "main", func(c *config) error {
+		_, err := Open(packFile, "main", WithSkipSchemaValidation(), func(c *config) error {
 			return assert.AnError
 		})
 		assert.Error(t, err)
@@ -141,7 +141,7 @@ func TestOpenWithValidPack(t *testing.T) {
 		os.Unsetenv("GOOGLE_API_KEY")
 		os.Unsetenv("GEMINI_API_KEY")
 
-		_, err := Open(packFile, "main")
+		_, err := Open(packFile, "main", WithSkipSchemaValidation())
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "provider")
 	})
@@ -150,7 +150,7 @@ func TestOpenWithValidPack(t *testing.T) {
 		os.Setenv("OPENAI_API_KEY", "test-key")
 		defer os.Unsetenv("OPENAI_API_KEY")
 
-		conv, err := Open(packFile, "main")
+		conv, err := Open(packFile, "main", WithSkipSchemaValidation())
 		require.NoError(t, err)
 		assert.NotNil(t, conv)
 		assert.Equal(t, "main", conv.promptName)
@@ -159,7 +159,7 @@ func TestOpenWithValidPack(t *testing.T) {
 	t.Run("success with provided API key", func(t *testing.T) {
 		os.Unsetenv("OPENAI_API_KEY")
 
-		conv, err := Open(packFile, "main", WithAPIKey("my-api-key"))
+		conv, err := Open(packFile, "main", WithSkipSchemaValidation(), WithAPIKey("my-api-key"))
 		require.NoError(t, err)
 		assert.NotNil(t, conv)
 	})
@@ -168,7 +168,7 @@ func TestOpenWithValidPack(t *testing.T) {
 		os.Setenv("OPENAI_API_KEY", "test-key")
 		defer os.Unsetenv("OPENAI_API_KEY")
 
-		conv, err := Open(packFile, "main", WithModel("gpt-4o"))
+		conv, err := Open(packFile, "main", WithSkipSchemaValidation(), WithModel("gpt-4o"))
 		require.NoError(t, err)
 		assert.NotNil(t, conv)
 	})
@@ -197,7 +197,7 @@ func TestOpenWithVariableDefaults(t *testing.T) {
 	os.Setenv("OPENAI_API_KEY", "test-key")
 	defer os.Unsetenv("OPENAI_API_KEY")
 
-	conv, err := Open(packFile, "main")
+	conv, err := Open(packFile, "main", WithSkipSchemaValidation())
 	require.NoError(t, err)
 
 	// Check that defaults were applied
@@ -289,14 +289,14 @@ func TestResumeWithMockStateStore(t *testing.T) {
 
 	t.Run("conversation not found", func(t *testing.T) {
 		store := newMockStore()
-		_, err := Resume("nonexistent", packFile, "main", WithStateStore(store))
+		_, err := Resume("nonexistent", packFile, "main", WithSkipSchemaValidation(), WithStateStore(store))
 		assert.ErrorIs(t, err, ErrConversationNotFound)
 	})
 
 	t.Run("state load error", func(t *testing.T) {
 		store := newMockStore()
 		store.loadErr = errors.New("storage failure")
-		_, err := Resume("conv-123", packFile, "main", WithStateStore(store))
+		_, err := Resume("conv-123", packFile, "main", WithSkipSchemaValidation(), WithStateStore(store))
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "storage failure")
 	})
@@ -308,7 +308,7 @@ func TestResumeWithMockStateStore(t *testing.T) {
 			ID: "conv-123",
 		}
 
-		conv, err := Resume("conv-123", packFile, "main", WithStateStore(store))
+		conv, err := Resume("conv-123", packFile, "main", WithSkipSchemaValidation(), WithStateStore(store))
 		require.NoError(t, err)
 		assert.NotNil(t, conv)
 		assert.Equal(t, "conv-123", conv.ID())
@@ -321,6 +321,7 @@ func TestResumeWithMockStateStore(t *testing.T) {
 		}
 
 		_, err := Resume("conv-123", packFile, "main",
+			WithSkipSchemaValidation(),
 			WithStateStore(store),
 			func(c *config) error { return errors.New("option error") },
 		)
@@ -333,7 +334,7 @@ func TestResumeWithMockStateStore(t *testing.T) {
 			ID: "conv-123",
 		}
 
-		_, err := Resume("conv-123", "/nonexistent/pack.json", "main", WithStateStore(store))
+		_, err := Resume("conv-123", "/nonexistent/pack.json", "main", WithSkipSchemaValidation(), WithStateStore(store))
 		assert.Error(t, err)
 	})
 }
@@ -379,20 +380,23 @@ func TestLoadAndValidatePack(t *testing.T) {
 	err := os.WriteFile(packFile, []byte(packContent), 0644)
 	require.NoError(t, err)
 
+	// Config with schema validation skipped (test fixtures aren't schema-compliant)
+	cfg := &config{skipSchemaValidation: true}
+
 	t.Run("valid pack and prompt", func(t *testing.T) {
-		p, prompt, err := loadAndValidatePack(packFile, "main")
+		p, prompt, err := loadAndValidatePack(packFile, "main", cfg)
 		require.NoError(t, err)
 		assert.NotNil(t, p)
 		assert.NotNil(t, prompt)
 	})
 
 	t.Run("nonexistent pack", func(t *testing.T) {
-		_, _, err := loadAndValidatePack("/nonexistent.pack.json", "main")
+		_, _, err := loadAndValidatePack("/nonexistent.pack.json", "main", cfg)
 		assert.Error(t, err)
 	})
 
 	t.Run("nonexistent prompt", func(t *testing.T) {
-		_, _, err := loadAndValidatePack(packFile, "nonexistent")
+		_, _, err := loadAndValidatePack(packFile, "nonexistent", cfg)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})
