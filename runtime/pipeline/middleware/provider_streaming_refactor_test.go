@@ -230,8 +230,16 @@ func TestExecuteStreamingRound(t *testing.T) {
 		},
 	}
 
+	// Create empty tooling config (no tools)
+	tooling := toolingConfig{
+		providerTools: nil,
+		toolChoice:    "",
+		registry:      nil,
+		policy:        nil,
+	}
+
 	// Execute streaming round
-	hasMore, err := executeStreamingRound(execCtx, mockProvider, nil, nil, nil)
+	hasMore, err := executeStreamingRound(execCtx, mockProvider, tooling, "auto", nil)
 
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)

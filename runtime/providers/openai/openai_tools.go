@@ -327,6 +327,55 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]
 	return respBytes, nil
 }
 
+// PredictStreamWithTools performs a streaming predict request with tool support
+func (p *ToolProvider) PredictStreamWithTools(
+	ctx context.Context,
+	req providers.PredictionRequest,
+	tools interface{},
+	toolChoice string,
+) (<-chan providers.StreamChunk, error) {
+	// Build OpenAI request with tools (same as non-streaming)
+	openaiReq := p.buildToolRequest(req, tools, toolChoice)
+
+	// Add streaming options
+	openaiReq["stream"] = true
+	openaiReq["stream_options"] = map[string]interface{}{
+		"include_usage": true,
+	}
+
+	reqBody, err := json.Marshal(openaiReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Make HTTP request
+	url := p.baseURL + openAIPredictCompletionsPath
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(reqBody))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	httpReq.Header.Set(contentTypeHeader, applicationJSON)
+	httpReq.Header.Set(authorizationHeader, bearerPrefix+p.apiKey)
+	httpReq.Header.Set("Accept", "text/event-stream")
+
+	resp, err := p.GetHTTPClient().Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+
+	if err := providers.CheckHTTPError(resp); err != nil {
+		_ = resp.Body.Close()
+		return nil, err
+	}
+
+	outChan := make(chan providers.StreamChunk)
+
+	go p.streamResponse(ctx, resp.Body, outChan)
+
+	return outChan, nil
+}
+
 func init() {
 	providers.RegisterProviderFactory("openai", func(spec providers.ProviderSpec) (providers.Provider, error) {
 		return NewToolProvider(spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput, spec.AdditionalConfig), nil

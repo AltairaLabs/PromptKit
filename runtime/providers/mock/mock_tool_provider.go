@@ -222,3 +222,54 @@ func (m *ToolProvider) getScenarioID(req providers.PredictionRequest) string {
 	}
 	return ""
 }
+
+// PredictStreamWithTools performs a streaming predict request with tool support.
+// For mock providers, this delegates to PredictWithTools and wraps the response in chunks.
+func (m *ToolProvider) PredictStreamWithTools(
+	ctx context.Context,
+	req providers.PredictionRequest,
+	tools interface{},
+	toolChoice string,
+) (<-chan providers.StreamChunk, error) {
+	// Get the non-streaming response
+	resp, toolCalls, err := m.PredictWithTools(ctx, req, tools, toolChoice)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create a channel and send the response as chunks
+	outChan := make(chan providers.StreamChunk)
+
+	go func() {
+		defer close(outChan)
+
+		// Send content in chunks (simulate streaming)
+		content := resp.Content
+		chunkSize := 20 // Characters per chunk
+
+		for i := 0; i < len(content); i += chunkSize {
+			end := i + chunkSize
+			if end > len(content) {
+				end = len(content)
+			}
+			outChan <- providers.StreamChunk{
+				Delta:   content[i:end],
+				Content: content[:end],
+			}
+		}
+
+		// Send final chunk with tool calls and finish reason
+		finishReason := "stop"
+		if len(toolCalls) > 0 {
+			finishReason = "tool_calls"
+		}
+		outChan <- providers.StreamChunk{
+			Content:      content,
+			ToolCalls:    toolCalls,
+			FinishReason: &finishReason,
+			CostInfo:     resp.CostInfo,
+		}
+	}()
+
+	return outChan, nil
+}

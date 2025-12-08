@@ -40,7 +40,13 @@ linters:
       min-complexity: 15
     goconst:
       min-len: 3
-      min-occurrences: 3
+      min-occurrences: 2
+      ignore-string-values:
+        - "POST"
+        - "GET"
+        - "PUT"
+        - "DELETE"
+        - "PATCH"
     misspell:
       locale: US
     lll:

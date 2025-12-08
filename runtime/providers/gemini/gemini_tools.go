@@ -394,7 +394,7 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]
 		requestObj = string(requestBytes)
 	}
 	headers := map[string]string{
-		"Content-Type": "application/json",
+		contentTypeHeader: applicationJSON,
 	}
 	logger.APIRequest(providerNameLog, "POST", url, headers, requestObj)
 
@@ -403,7 +403,7 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(contentTypeHeader, applicationJSON)
 
 	resp, err := p.GetHTTPClient().Do(req)
 	if err != nil {
@@ -426,6 +426,51 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]
 	}
 
 	return respBytes, nil
+}
+
+// PredictStreamWithTools performs a streaming predict request with tool support
+func (p *ToolProvider) PredictStreamWithTools(
+	ctx context.Context,
+	req providers.PredictionRequest,
+	tools interface{},
+	toolChoice string,
+) (<-chan providers.StreamChunk, error) {
+	// Build Gemini request with tools
+	geminiReq := p.buildToolRequest(req, tools, toolChoice)
+
+	requestBytes, err := json.Marshal(geminiReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Use streamGenerateContent endpoint
+	url := fmt.Sprintf(
+		"%s/models/%s:streamGenerateContent?alt=sse&key=%s",
+		p.BaseURL, p.Model, p.ApiKey,
+	)
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(requestBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	httpReq.Header.Set(contentTypeHeader, applicationJSON)
+
+	resp, err := p.GetHTTPClient().Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	outChan := make(chan providers.StreamChunk)
+	go p.streamResponse(ctx, resp.Body, outChan)
+
+	return outChan, nil
 }
 
 func init() {

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "streaming-example",
+  "name": "Streaming Example",
+  "version": "1.0.0",
+  "description": "Example demonstrating streaming responses",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "storyteller": {
+      "id": "storyteller",
+      "name": "Storyteller",
+      "version": "1.0.0",
+      "system_template": "You are a creative storyteller. Keep your responses concise but engaging.",
+      "parameters": {
+        "temperature": 0.9,
+        "max_tokens": 500
+      }
+    }
+  }
+}

@@ -246,6 +246,20 @@ func executeStreaming(execCtx *pipeline.ExecutionContext, provider providers.Pro
 		return errors.New("provider middleware: provider does not support streaming")
 	}
 
+	// Build tools for provider (if available) - same as non-streaming
+	providerTools, toolChoice, err := buildProviderTooling(provider, toolRegistry, execCtx, policy)
+	if err != nil {
+		return fmt.Errorf("provider middleware: %w", err)
+	}
+
+	// Bundle tool-related configuration
+	tooling := toolingConfig{
+		providerTools: providerTools,
+		toolChoice:    toolChoice,
+		registry:      toolRegistry,
+		policy:        policy,
+	}
+
 	// Multi-round execution loop for tool calls
 	round := 0
 
@@ -257,8 +271,14 @@ func executeStreaming(execCtx *pipeline.ExecutionContext, provider providers.Pro
 			return err
 		}
 
+		// Determine tool choice for this round
+		currentToolChoice := tooling.toolChoice
+		if round > 1 {
+			currentToolChoice = "auto"
+		}
+
 		// Execute one streaming round
-		hasMoreRounds, err := executeStreamingRound(execCtx, provider, toolRegistry, policy, config)
+		hasMoreRounds, err := executeStreamingRound(execCtx, provider, tooling, currentToolChoice, config)
 		if err != nil {
 			return err
 		}
@@ -273,13 +293,30 @@ func executeStreaming(execCtx *pipeline.ExecutionContext, provider providers.Pro
 }
 
 // executeStreamingRound executes a single round of streaming
-func executeStreamingRound(execCtx *pipeline.ExecutionContext, provider providers.Provider, toolRegistry *tools.Registry, policy *pipeline.ToolPolicy, config *ProviderMiddlewareConfig) (bool, error) {
+func executeStreamingRound(
+	execCtx *pipeline.ExecutionContext,
+	provider providers.Provider,
+	tooling toolingConfig,
+	toolChoice string,
+	config *ProviderMiddlewareConfig,
+) (bool, error) {
 	// Build provider request
 	req := buildProviderRequest(execCtx, config)
 
-	// Call provider streaming
+	// Call provider streaming - with or without tools
 	startTime := time.Now()
-	stream, err := provider.PredictStream(execCtx.Context, req)
+	var stream <-chan providers.StreamChunk
+	var err error
+
+	if tooling.providerTools != nil {
+		// Use streaming with tools
+		toolSupport := provider.(providers.ToolSupport)
+		stream, err = toolSupport.PredictStreamWithTools(execCtx.Context, req, tooling.providerTools, toolChoice)
+	} else {
+		// Use regular streaming without tools
+		stream, err = provider.PredictStream(execCtx.Context, req)
+	}
+
 	if err != nil {
 		return false, fmt.Errorf("provider middleware: streaming failed: %w", err)
 	}
@@ -298,7 +335,7 @@ func executeStreamingRound(execCtx *pipeline.ExecutionContext, provider provider
 	}
 
 	// Handle completed streams
-	return handleStreamCompletion(execCtx, streamResult, duration, toolRegistry, policy, config)
+	return handleStreamCompletion(execCtx, streamResult, duration, tooling.registry, tooling.policy, config)
 }
 
 // streamProcessResult holds the results of processing stream chunks

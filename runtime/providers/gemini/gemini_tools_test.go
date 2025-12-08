@@ -1,7 +1,11 @@
 package gemini
 
 import (
+	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -313,5 +317,189 @@ func TestGeminiProvider_ApplyRequestDefaults(t *testing.T) {
 				t.Errorf("Expected maxTokens %d, got %d", tt.expectedMaxTokens, maxTokens)
 			}
 		})
+	}
+}
+
+// ============================================================================
+// PredictStreamWithTools Tests
+// ============================================================================
+
+func TestGeminiToolProvider_PredictStreamWithTools_ImplementsToolSupport(t *testing.T) {
+	geminiProvider := NewProvider("test", "gemini-2.0-flash", "", providers.ProviderDefaults{}, false)
+	provider := &ToolProvider{Provider: geminiProvider}
+
+	// Verify it implements ToolSupport interface which includes PredictStreamWithTools
+	var toolSupport providers.ToolSupport = provider
+
+	// If this compiles, the interface is implemented correctly
+	_ = toolSupport.BuildTooling
+	_ = toolSupport.PredictWithTools
+}
+
+func TestGeminiToolProvider_PredictStreamWithTools_BuildsRequestWithTools(t *testing.T) {
+	geminiProvider := NewProvider("test", "gemini-2.0-flash", "", providers.ProviderDefaults{}, false)
+	provider := &ToolProvider{Provider: geminiProvider}
+
+	// Verify the provider implements the interface with PredictStreamWithTools
+	var _ providers.ToolSupport = provider
+
+	// Build tools
+	schema := json.RawMessage(`{"type": "object", "properties": {"query": {"type": "string"}}}`)
+	descriptors := []*providers.ToolDescriptor{
+		{
+			Name:        "search",
+			Description: "Search for information",
+			InputSchema: schema,
+		},
+	}
+
+	tools, err := provider.BuildTooling(descriptors)
+	if err != nil {
+		t.Fatalf("Failed to build tooling: %v", err)
+	}
+
+	if tools == nil {
+		t.Fatal("Expected non-nil tools")
+	}
+
+	// Verify tools are properly formatted for Gemini
+	geminiToolDecl, ok := tools.(geminiToolDeclaration)
+	if !ok {
+		t.Fatalf("Expected geminiToolDeclaration, got %T", tools)
+	}
+
+	if len(geminiToolDecl.FunctionDeclarations) != 1 {
+		t.Fatalf("Expected 1 function declaration, got %d", len(geminiToolDecl.FunctionDeclarations))
+	}
+
+	if geminiToolDecl.FunctionDeclarations[0].Name != "search" {
+		t.Errorf("Expected function name 'search', got '%s'", geminiToolDecl.FunctionDeclarations[0].Name)
+	}
+}
+
+func TestGeminiToolProvider_PredictStreamWithTools_TextResponse(t *testing.T) {
+	// Gemini returns a JSON array (not SSE format)
+	jsonResponse := `[{"candidates":[{"content":{"parts":[{"text":"Hello"}],"role":"model"}}]},{"candidates":[{"content":{"parts":[{"text":" Gemini"}],"role":"model"},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":5}}]`
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify request contains tools
+		body, _ := io.ReadAll(r.Body)
+		var req map[string]interface{}
+		_ = json.Unmarshal(body, &req)
+
+		if _, hasTools := req["tools"]; !hasTools {
+			t.Error("Expected tools in request")
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(jsonResponse))
+	}))
+	defer server.Close()
+
+	geminiProvider := NewProvider("test", "gemini-2.0-flash", server.URL, providers.ProviderDefaults{}, false)
+	provider := &ToolProvider{Provider: geminiProvider}
+
+	schema := json.RawMessage(`{"type": "object", "properties": {"q": {"type": "string"}}}`)
+	tools, _ := provider.BuildTooling([]*providers.ToolDescriptor{
+		{Name: "search", Description: "Search", InputSchema: schema},
+	})
+
+	ctx := context.Background()
+	stream, err := provider.PredictStreamWithTools(ctx, providers.PredictionRequest{
+		Messages: []types.Message{{Role: "user", Content: "test"}},
+	}, tools, "auto")
+
+	if err != nil {
+		t.Fatalf("PredictStreamWithTools failed: %v", err)
+	}
+
+	var chunks []providers.StreamChunk
+	for chunk := range stream {
+		if chunk.Error != nil {
+			t.Fatalf("Stream error: %v", chunk.Error)
+		}
+		chunks = append(chunks, chunk)
+	}
+
+	if len(chunks) == 0 {
+		t.Fatal("Expected chunks")
+	}
+
+	final := chunks[len(chunks)-1]
+	if final.Content != "Hello Gemini" {
+		t.Errorf("Final content: got %q, want %q", final.Content, "Hello Gemini")
+	}
+}
+
+func TestGeminiToolProvider_PredictStreamWithTools_ToolCallResponse(t *testing.T) {
+	// Gemini returns a JSON array with function call - test that the request is made correctly
+	// The streaming parser may not extract tool calls; we're testing the HTTP flow here
+	jsonResponse := `[{"candidates":[{"content":{"parts":[{"functionCall":{"name":"search","args":{"q":"test"}}}],"role":"model"},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":15,"candidatesTokenCount":10}}]`
+
+	requestReceived := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestReceived = true
+		// Verify request contains tools
+		body, _ := io.ReadAll(r.Body)
+		var req map[string]interface{}
+		_ = json.Unmarshal(body, &req)
+
+		if _, hasTools := req["tools"]; !hasTools {
+			t.Error("Expected tools in request")
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(jsonResponse))
+	}))
+	defer server.Close()
+
+	geminiProvider := NewProvider("test", "gemini-2.0-flash", server.URL, providers.ProviderDefaults{}, false)
+	provider := &ToolProvider{Provider: geminiProvider}
+
+	schema := json.RawMessage(`{"type": "object", "properties": {"q": {"type": "string"}}}`)
+	tools, _ := provider.BuildTooling([]*providers.ToolDescriptor{
+		{Name: "search", Description: "Search", InputSchema: schema},
+	})
+
+	ctx := context.Background()
+	stream, err := provider.PredictStreamWithTools(ctx, providers.PredictionRequest{
+		Messages: []types.Message{{Role: "user", Content: "search for test"}},
+	}, tools, "auto")
+
+	if err != nil {
+		t.Fatalf("PredictStreamWithTools failed: %v", err)
+	}
+
+	// Drain the stream
+	for chunk := range stream {
+		if chunk.Error != nil {
+			t.Fatalf("Stream error: %v", chunk.Error)
+		}
+	}
+
+	if !requestReceived {
+		t.Fatal("Expected request to be made to server")
+	}
+}
+
+func TestGeminiToolProvider_PredictStreamWithTools_HTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error": "internal error"}`))
+	}))
+	defer server.Close()
+
+	geminiProvider := NewProvider("test", "gemini-2.0-flash", server.URL, providers.ProviderDefaults{}, false)
+	provider := &ToolProvider{Provider: geminiProvider}
+
+	ctx := context.Background()
+	_, err := provider.PredictStreamWithTools(ctx, providers.PredictionRequest{
+		Messages: []types.Message{{Role: "user", Content: "test"}},
+	}, nil, "auto")
+
+	if err == nil {
+		t.Fatal("Expected error for HTTP 500")
 	}
 }

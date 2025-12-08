@@ -185,7 +185,8 @@ func (e *ScriptedExecutor) buildStreamingMiddlewares(req TurnRequest) []pipeline
 	middlewares = append(middlewares,
 		middleware.PromptAssemblyMiddleware(req.PromptRegistry, req.TaskType, mergedVars),
 		middleware.TemplateMiddleware(),
-		middleware.ProviderMiddleware(req.Provider, nil, nil, providerConfig),
+		middleware.ProviderMiddleware(
+			req.Provider, e.pipelineExecutor.toolRegistry, buildToolPolicy(req.Scenario), providerConfig),
 	)
 
 	// Media externalization middleware

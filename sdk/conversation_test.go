@@ -3,759 +3,697 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
-	"path/filepath"
-	"strings"
 	"testing"
-	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
+	intpipeline "github.com/AltairaLabs/PromptKit/sdk/internal/pipeline"
+	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
+	"github.com/stretchr/testify/assert"
 )
 
-const (
-	testPromptSupport = "support"
-)
-
-func TestConversationManager_CreateConversation(t *testing.T) {
-	// Create a test pack
-	tmpDir := t.TempDir()
-	packPath := filepath.Join(tmpDir, "test.pack.json")
-
-	packData := map[string]interface{}{
-		"id":      "test-pack",
-		"name":    "Test Pack",
-		"version": "1.0.0",
-		"template_engine": map[string]interface{}{
-			"version": "v1",
-			"syntax":  "{{variable}}",
+func newTestConversation() *Conversation {
+	p := &pack.Pack{
+		ID: "test-pack",
+		Prompts: map[string]*pack.Prompt{
+			"chat": {ID: "chat", SystemTemplate: "You are helpful."},
 		},
-		"prompts": map[string]interface{}{
-			testPromptSupport: map[string]interface{}{
-				"id":              testPromptSupport,
-				"name":            "Support Bot",
-				"version":         "1.0.0",
-				"system_template": "You are a {{role}} assistant.",
-				"variables": []map[string]interface{}{
-					{
-						"name":     "role",
-						"type":     "string",
-						"required": true,
+	}
+	return &Conversation{
+		pack:           p,
+		prompt:         &pack.Prompt{ID: "chat", SystemTemplate: "You are helpful."},
+		promptName:     "chat",
+		promptRegistry: p.ToPromptRegistry(),
+		toolRegistry:   tools.NewRegistryWithRepository(p.ToToolRepository()),
+		config:         &config{},
+		variables:      make(map[string]string),
+		handlers:       make(map[string]ToolHandler),
+	}
+}
+
+func TestConversationSetVar(t *testing.T) {
+	conv := newTestConversation()
+
+	conv.SetVar("name", "Alice")
+	assert.Equal(t, "Alice", conv.GetVar("name"))
+
+	conv.SetVar("name", "Bob")
+	assert.Equal(t, "Bob", conv.GetVar("name"))
+}
+
+func TestConversationSetVars(t *testing.T) {
+	conv := newTestConversation()
+
+	conv.SetVars(map[string]any{
+		"name": "Alice",
+		"age":  30,
+		"tier": "premium",
+	})
+
+	assert.Equal(t, "Alice", conv.GetVar("name"))
+	assert.Equal(t, "30", conv.GetVar("age"))
+	assert.Equal(t, "premium", conv.GetVar("tier"))
+}
+
+func TestConversationSetVarsFromEnv(t *testing.T) {
+	conv := newTestConversation()
+
+	// Set test env vars
+	_ = os.Setenv("TEST_SDK_NAME", "TestUser")
+	_ = os.Setenv("TEST_SDK_VALUE", "123")
+	defer func() {
+		_ = os.Unsetenv("TEST_SDK_NAME")
+		_ = os.Unsetenv("TEST_SDK_VALUE")
+	}()
+
+	conv.SetVarsFromEnv("TEST_SDK_")
+
+	assert.Equal(t, "TestUser", conv.GetVar("name"))
+	assert.Equal(t, "123", conv.GetVar("value"))
+}
+
+func TestConversationGetVarNotSet(t *testing.T) {
+	conv := newTestConversation()
+	assert.Equal(t, "", conv.GetVar("nonexistent"))
+}
+
+func TestConversationOnTool(t *testing.T) {
+	conv := newTestConversation()
+
+	called := false
+	conv.OnTool("test_tool", func(args map[string]any) (any, error) {
+		called = true
+		return "result", nil
+	})
+
+	// Verify handler was registered
+	conv.handlersMu.RLock()
+	handler, ok := conv.handlers["test_tool"]
+	conv.handlersMu.RUnlock()
+
+	assert.True(t, ok)
+	assert.NotNil(t, handler)
+
+	// Call the handler
+	result, err := handler(map[string]any{})
+	assert.NoError(t, err)
+	assert.Equal(t, "result", result)
+	assert.True(t, called)
+}
+
+func TestConversationOnToolCtx(t *testing.T) {
+	conv := newTestConversation()
+
+	var receivedCtx context.Context
+	conv.OnToolCtx("ctx_tool", func(ctx context.Context, args map[string]any) (any, error) {
+		receivedCtx = ctx
+		return "ctx_result", nil
+	})
+
+	// Verify handler was registered (wrapped)
+	conv.handlersMu.RLock()
+	handler, ok := conv.handlers["ctx_tool"]
+	conv.handlersMu.RUnlock()
+
+	assert.True(t, ok)
+	result, err := handler(map[string]any{})
+	assert.NoError(t, err)
+	assert.Equal(t, "ctx_result", result)
+	assert.NotNil(t, receivedCtx)
+}
+
+func TestConversationOnTools(t *testing.T) {
+	conv := newTestConversation()
+
+	conv.OnTools(map[string]ToolHandler{
+		"tool1": func(args map[string]any) (any, error) { return "r1", nil },
+		"tool2": func(args map[string]any) (any, error) { return "r2", nil },
+	})
+
+	conv.handlersMu.RLock()
+	assert.Len(t, conv.handlers, 2)
+	_, ok1 := conv.handlers["tool1"]
+	_, ok2 := conv.handlers["tool2"]
+	conv.handlersMu.RUnlock()
+
+	assert.True(t, ok1)
+	assert.True(t, ok2)
+}
+
+func TestConversationMessages(t *testing.T) {
+	conv := newTestConversation()
+
+	// No state - should return nil
+	assert.Nil(t, conv.Messages())
+
+	// With state
+	conv.state = &statestore.ConversationState{
+		Messages: []types.Message{
+			{Role: "user"},
+			{Role: "assistant"},
+		},
+	}
+
+	msgs := conv.Messages()
+	assert.Len(t, msgs, 2)
+
+	// Verify it's a copy
+	msgs[0].Role = "modified"
+	assert.Equal(t, "user", conv.state.Messages[0].Role)
+}
+
+func TestConversationClear(t *testing.T) {
+	conv := newTestConversation()
+	conv.state = &statestore.ConversationState{
+		Messages:   []types.Message{{Role: "user"}},
+		TokenCount: 100,
+	}
+
+	conv.Clear()
+
+	assert.Nil(t, conv.state.Messages)
+	assert.Equal(t, 0, conv.state.TokenCount)
+}
+
+func TestConversationClearNilState(t *testing.T) {
+	conv := newTestConversation()
+	// Should not panic with nil state
+	conv.Clear()
+}
+
+func TestConversationFork(t *testing.T) {
+	conv := newTestConversation()
+	conv.SetVar("name", "Alice")
+	conv.OnTool("tool1", func(args map[string]any) (any, error) { return nil, nil })
+	conv.state = &statestore.ConversationState{
+		ID:         "original",
+		Messages:   []types.Message{{Role: "user"}},
+		TokenCount: 50,
+	}
+
+	fork := conv.Fork()
+
+	// Verify fork has same data
+	assert.Equal(t, "Alice", fork.GetVar("name"))
+	fork.handlersMu.RLock()
+	_, hasHandler := fork.handlers["tool1"]
+	fork.handlersMu.RUnlock()
+	assert.True(t, hasHandler)
+
+	// Verify fork state is independent
+	assert.Contains(t, fork.state.ID, "fork")
+	assert.Len(t, fork.Messages(), 1)
+
+	// Modify fork - original should be unchanged
+	fork.SetVar("name", "Bob")
+	assert.Equal(t, "Alice", conv.GetVar("name"))
+	assert.Equal(t, "Bob", fork.GetVar("name"))
+}
+
+func TestConversationClose(t *testing.T) {
+	conv := newTestConversation()
+
+	err := conv.Close()
+	assert.NoError(t, err)
+	assert.True(t, conv.closed)
+
+	// Second close should be no-op
+	err = conv.Close()
+	assert.NoError(t, err)
+}
+
+func TestConversationSendWhenClosed(t *testing.T) {
+	conv := newTestConversation()
+	_ = conv.Close()
+
+	_, err := conv.Send(context.Background(), "hello")
+	assert.Error(t, err)
+	assert.Equal(t, ErrConversationClosed, err)
+}
+
+func TestConversationSendMessageTypes(t *testing.T) {
+	conv := newTestConversation()
+
+	t.Run("string message", func(t *testing.T) {
+		// Without a provider, Send should still work but return empty response
+		resp, err := conv.Send(context.Background(), "hello")
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+	})
+
+	t.Run("types.Message", func(t *testing.T) {
+		msg := &types.Message{Role: "user"}
+		msg.AddTextPart("hello")
+		resp, err := conv.Send(context.Background(), msg)
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+	})
+
+	t.Run("invalid type", func(t *testing.T) {
+		_, err := conv.Send(context.Background(), 123)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "must be string or *types.Message")
+	})
+}
+
+func TestConversationID(t *testing.T) {
+	conv := newTestConversation()
+	conv.id = "test-id-123"
+
+	assert.Equal(t, "test-id-123", conv.ID())
+}
+
+func TestConversationEventBus(t *testing.T) {
+	conv := newTestConversation()
+	conv.eventBus = events.NewEventBus()
+
+	bus := conv.EventBus()
+	assert.NotNil(t, bus)
+}
+
+func TestConversationToolRegistry(t *testing.T) {
+	conv := newTestConversation()
+	// Returns the actual tool registry
+	assert.NotNil(t, conv.ToolRegistry())
+}
+
+func TestConversationStream(t *testing.T) {
+	conv := newTestConversation()
+
+	ch := conv.Stream(context.Background(), "hello")
+	chunk := <-ch
+
+	// Stream falls back to Send, which works without a provider
+	// but returns an empty response
+	assert.NoError(t, chunk.Error)
+	assert.Equal(t, ChunkDone, chunk.Type)
+}
+
+func TestApplyContentParts(t *testing.T) {
+	conv := newTestConversation()
+	autoDetail := "auto"
+
+	t.Run("image URL part", func(t *testing.T) {
+		msg := &types.Message{Role: "user"}
+		parts := []any{
+			imageURLPart{url: "https://example.com/image.jpg", detail: &autoDetail},
+		}
+
+		err := conv.applyContentParts(msg, parts)
+		assert.NoError(t, err)
+		assert.Len(t, msg.Parts, 1)
+	})
+
+	t.Run("image data part", func(t *testing.T) {
+		msg := &types.Message{Role: "user"}
+		parts := []any{
+			imageDataPart{data: []byte("fake-image-data"), mimeType: "image/png", detail: &autoDetail},
+		}
+
+		err := conv.applyContentParts(msg, parts)
+		assert.NoError(t, err)
+		assert.Len(t, msg.Parts, 1)
+	})
+
+	t.Run("file part", func(t *testing.T) {
+		msg := &types.Message{Role: "user"}
+		parts := []any{
+			filePart{name: "test.txt", data: []byte("file content")},
+		}
+
+		err := conv.applyContentParts(msg, parts)
+		assert.NoError(t, err)
+		assert.Len(t, msg.Parts, 1)
+	})
+
+	t.Run("unknown part type", func(t *testing.T) {
+		msg := &types.Message{Role: "user"}
+		parts := []any{
+			struct{ unknown string }{unknown: "type"},
+		}
+
+		err := conv.applyContentParts(msg, parts)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "unknown content part type")
+	})
+
+	t.Run("empty parts", func(t *testing.T) {
+		msg := &types.Message{Role: "user"}
+		err := conv.applyContentParts(msg, []any{})
+		assert.NoError(t, err)
+		assert.Len(t, msg.Parts, 0)
+	})
+}
+
+func TestBuildToolRegistry(t *testing.T) {
+	t.Run("returns registry from pack", func(t *testing.T) {
+		conv := newTestConversation()
+		registry := conv.buildToolRegistry()
+		// Registry is always created (from pack), even with no handlers
+		assert.NotNil(t, registry)
+	})
+
+	t.Run("handler registers executor", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.pack.Tools = map[string]*pack.Tool{
+			"test_tool": {
+				Name:        "test_tool",
+				Description: "A test tool",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"input": map[string]any{"type": "string"},
 					},
 				},
-				"parameters": map[string]interface{}{
-					"temperature": 0.7,
-					"max_tokens":  1500,
-				},
 			},
-		},
-	}
-
-	data, err := json.MarshalIndent(packData, "", "  ")
-	if err != nil {
-		t.Fatalf("Failed to marshal pack data: %v", err)
-	}
-	if err := os.WriteFile(packPath, data, 0600); err != nil {
-		t.Fatalf("Failed to write pack file: %v", err)
-	}
-
-	// Create mock provider
-	mockProvider := mock.NewProvider("test-provider", "test-model", false)
-
-	// Create manager
-	manager, err := NewConversationManager(
-		WithProvider(mockProvider),
-	)
-	if err != nil {
-		t.Fatalf("failed to create manager: %v", err)
-	}
-
-	// Load pack
-	pack, err := manager.LoadPack(packPath)
-	if err != nil {
-		t.Fatalf("failed to load pack: %v", err)
-	}
-
-	// Create conversation
-	ctx := context.Background()
-	conv, err := manager.CreateConversation(ctx, pack, ConversationConfig{
-		UserID:     "user123",
-		PromptName: testPromptSupport,
-		Variables: map[string]interface{}{
-			"role": "customer support",
-		},
-	})
-	if err != nil {
-		t.Fatalf("failed to create conversation: %v", err)
-	}
-
-	if conv.GetUserID() != "user123" {
-		t.Errorf("expected user ID 'user123', got '%s'", conv.GetUserID())
-	}
-
-	if conv.promptName != testPromptSupport {
-		t.Errorf("expected prompt name '%s', got '%s'", testPromptSupport, conv.promptName)
-	}
-
-	// Verify system prompt was interpolated
-	if conv.state.SystemPrompt != "You are a customer support assistant." {
-		t.Errorf("unexpected system prompt: %s", conv.state.SystemPrompt)
-	}
-}
-
-func TestConversationManager_Send(t *testing.T) {
-	// Create a test pack
-	tmpDir := t.TempDir()
-	packPath := filepath.Join(tmpDir, "test.pack.json")
-
-	packData := map[string]interface{}{
-		"id":      "test-pack",
-		"name":    "Test Pack",
-		"version": "1.0.0",
-		"template_engine": map[string]interface{}{
-			"version": "v1",
-		},
-		"prompts": map[string]interface{}{
-			"predict": map[string]interface{}{
-				"id":              "predict",
-				"system_template": "You are a helpful assistant.",
-				"parameters": map[string]interface{}{
-					"temperature": 0.7,
-					"max_tokens":  1500,
-				},
-			},
-		},
-	}
-
-	data, err := json.MarshalIndent(packData, "", "  ")
-	if err != nil {
-		t.Fatalf("Failed to marshal pack data: %v", err)
-	}
-	if err := os.WriteFile(packPath, data, 0600); err != nil {
-		t.Fatalf("Failed to write pack file: %v", err)
-	}
-
-	// Create mock provider with canned response
-	mockProvider := mock.NewProvider("test-provider", "test-model", false)
-
-	// Create manager
-	manager, err := NewConversationManager(
-		WithProvider(mockProvider),
-	)
-	if err != nil {
-		t.Fatalf("failed to create manager: %v", err)
-	}
-
-	// Load pack and create conversation
-	pack, _ := manager.LoadPack(packPath)
-	ctx := context.Background()
-	conv, err := manager.CreateConversation(ctx, pack, ConversationConfig{
-		UserID:     "user123",
-		PromptName: "predict",
-	})
-	if err != nil {
-		t.Fatalf("failed to create conversation: %v", err)
-	}
-
-	// Send message
-	resp, err := conv.Send(ctx, "Hello!")
-	if err != nil {
-		t.Fatalf("failed to send message: %v", err)
-	}
-
-	if resp.Content == "" {
-		t.Error("expected non-empty response content")
-	}
-
-	// Verify message history
-	history := conv.GetHistory()
-	if len(history) != 2 {
-		t.Errorf("expected 2 messages in history, got %d", len(history))
-	}
-
-	if history[0].Role != "user" {
-		t.Errorf("expected first message role 'user', got '%s'", history[0].Role)
-	}
-
-	if history[1].Role != "assistant" {
-		t.Errorf("expected second message role 'assistant', got '%s'", history[1].Role)
-	}
-}
-
-func TestConversationManager_GetConversation(t *testing.T) {
-	// Create a test pack
-	tmpDir := t.TempDir()
-	packPath := filepath.Join(tmpDir, "test.pack.json")
-
-	packData := map[string]interface{}{
-		"id":      "test-pack",
-		"name":    "Test Pack",
-		"version": "1.0.0",
-		"template_engine": map[string]interface{}{
-			"version": "v1",
-		},
-		"prompts": map[string]interface{}{
-			"predict": map[string]interface{}{
-				"id":              "predict",
-				"system_template": "You are helpful.",
-				"parameters": map[string]interface{}{
-					"temperature": 0.7,
-					"max_tokens":  1500,
-				},
-			},
-		},
-	}
-
-	data, err := json.MarshalIndent(packData, "", "  ")
-	if err != nil {
-		t.Fatalf("Failed to marshal pack data: %v", err)
-	}
-	if err := os.WriteFile(packPath, data, 0600); err != nil {
-		t.Fatalf("Failed to write pack file: %v", err)
-	}
-
-	// Create mock provider
-	mockProvider := mock.NewProvider("test-provider", "test-model", false)
-
-	// Create shared state store
-	stateStore := statestore.NewMemoryStore()
-
-	// Create manager
-	manager, err := NewConversationManager(
-		WithProvider(mockProvider),
-		WithStateStore(stateStore),
-	)
-	if err != nil {
-		t.Fatalf("failed to create manager: %v", err)
-	}
-
-	// Load pack and create conversation
-	pack, _ := manager.LoadPack(packPath)
-	ctx := context.Background()
-
-	// Create conversation with metadata including prompt_name
-	conv, err := manager.CreateConversation(ctx, pack, ConversationConfig{
-		UserID:     "user123",
-		PromptName: "predict",
-		Metadata: map[string]interface{}{
-			"prompt_name": "predict",
-		},
-	})
-	if err != nil {
-		t.Fatalf("failed to create conversation: %v", err)
-	}
-
-	conversationID := conv.GetID()
-
-	// Create a new manager (simulating restart) with SAME state store
-	manager2, _ := NewConversationManager(
-		WithProvider(mockProvider),
-		WithStateStore(stateStore), // Use same store
-	)
-
-	// Load the conversation
-	loadedConv, err := manager2.GetConversation(ctx, conversationID, pack)
-	if err != nil {
-		t.Fatalf("failed to load conversation: %v", err)
-	}
-
-	if loadedConv.GetID() != conversationID {
-		t.Errorf("expected conversation ID '%s', got '%s'", conversationID, loadedConv.GetID())
-	}
-
-	if loadedConv.GetUserID() != "user123" {
-		t.Errorf("expected user ID 'user123', got '%s'", loadedConv.GetUserID())
-	}
-}
-
-func TestConversationManager_SendStream(t *testing.T) {
-	// Create a test pack
-	tmpDir := t.TempDir()
-	packPath := filepath.Join(tmpDir, "test.pack.json")
-
-	packData := map[string]interface{}{
-		"id":      "test-pack",
-		"name":    "Test Pack",
-		"version": "1.0.0",
-		"template_engine": map[string]interface{}{
-			"version": "v1",
-			"syntax":  "{{variable}}",
-		},
-		"prompts": map[string]interface{}{
-			"assistant": map[string]interface{}{
-				"id":              "assistant",
-				"name":            "Assistant",
-				"version":         "1.0.0",
-				"system_template": "You are a helpful assistant.",
-				"parameters": map[string]interface{}{
-					"temperature": 0.7,
-					"max_tokens":  100,
-				},
-			},
-		},
-	}
-
-	data, err := json.MarshalIndent(packData, "", "  ")
-	if err != nil {
-		t.Fatalf("Failed to marshal pack data: %v", err)
-	}
-	if err := os.WriteFile(packPath, data, 0600); err != nil {
-		t.Fatalf("Failed to write pack file: %v", err)
-	}
-
-	// Create mock provider that supports streaming
-	mockProvider := mock.NewProvider("test-provider", "test-model", false)
-
-	// Create manager
-	manager, err := NewConversationManager(
-		WithProvider(mockProvider),
-	)
-	if err != nil {
-		t.Fatalf("failed to create manager: %v", err)
-	}
-
-	// Load pack
-	pack, err := manager.LoadPack(packPath)
-	if err != nil {
-		t.Fatalf("failed to load pack: %v", err)
-	}
-
-	// Create conversation
-	ctx := context.Background()
-	conv, err := manager.CreateConversation(ctx, pack, ConversationConfig{
-		UserID:     "user123",
-		PromptName: "assistant",
-	})
-	if err != nil {
-		t.Fatalf("failed to create conversation: %v", err)
-	}
-
-	// Send streaming message
-	streamChan, err := conv.SendStream(ctx, "Hello, can you help me?")
-	if err != nil {
-		t.Fatalf("failed to start streaming: %v", err)
-	}
-
-	// Collect events
-	var contentParts []string
-	var finalResp *Response
-	var hadError bool
-	var gotDone bool
-
-	for event := range streamChan {
-		switch event.Type {
-		case "content":
-			contentParts = append(contentParts, event.Content)
-		case "error":
-			t.Logf("received error event: %v", event.Error)
-			hadError = true
-		case "done":
-			gotDone = true
-			finalResp = event.Final
 		}
-	}
+		// Reinitialize toolRegistry with the new tool
+		conv.toolRegistry = tools.NewRegistryWithRepository(conv.pack.ToToolRepository())
 
-	// Verify we got a done event
-	if !gotDone && !hadError {
-		t.Error("expected to receive done event")
-	}
+		conv.OnTool("test_tool", func(args map[string]any) (any, error) {
+			return "result", nil
+		})
 
-	// If we got content, verify it's not empty
-	if len(contentParts) > 0 {
-		fullContent := ""
-		for _, part := range contentParts {
-			fullContent += part
+		registry := conv.buildToolRegistry()
+		assert.NotNil(t, registry)
+
+		// Verify tool is in registry
+		tool, err := registry.GetTool("test_tool")
+		assert.NoError(t, err)
+		assert.Equal(t, "test_tool", tool.Name)
+	})
+}
+
+func TestGetVariables(t *testing.T) {
+	conv := newTestConversation()
+	conv.SetVar("key1", "value1")
+	conv.SetVar("key2", "value2")
+
+	vars := conv.getVariables()
+
+	assert.Equal(t, "value1", vars["key1"])
+	assert.Equal(t, "value2", vars["key2"])
+
+	// Verify it's a copy
+	vars["key1"] = "modified"
+	assert.Equal(t, "value1", conv.GetVar("key1"))
+}
+
+func TestApplyPromptParameters(t *testing.T) {
+	t.Run("no parameters", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.prompt.Parameters = nil
+
+		cfg := &intpipeline.Config{
+			MaxTokens:   100,
+			Temperature: 0.5,
 		}
-		t.Logf("received content: %s", fullContent)
-	}
 
-	// Note: finalResp may be nil if mock provider doesn't set FinalResult properly
-	// This is acceptable for a basic streaming test
-	if finalResp != nil {
-		t.Logf("final response - tokens: %d, cost: $%.4f", finalResp.TokensUsed, finalResp.Cost)
-	}
+		conv.applyPromptParameters(cfg)
+		assert.Equal(t, 100, cfg.MaxTokens)
+		assert.Equal(t, float32(0.5), cfg.Temperature)
+	})
+
+	t.Run("with max tokens", func(t *testing.T) {
+		conv := newTestConversation()
+		maxTokens := 2048
+		conv.prompt.Parameters = &pack.Parameters{
+			MaxTokens: &maxTokens,
+		}
+
+		cfg := &intpipeline.Config{
+			MaxTokens:   100,
+			Temperature: 0.5,
+		}
+
+		conv.applyPromptParameters(cfg)
+		assert.Equal(t, 2048, cfg.MaxTokens)
+		assert.Equal(t, float32(0.5), cfg.Temperature)
+	})
+
+	t.Run("with temperature", func(t *testing.T) {
+		conv := newTestConversation()
+		temp := 0.9
+		conv.prompt.Parameters = &pack.Parameters{
+			Temperature: &temp,
+		}
+
+		cfg := &intpipeline.Config{
+			MaxTokens:   100,
+			Temperature: 0.5,
+		}
+
+		conv.applyPromptParameters(cfg)
+		assert.Equal(t, 100, cfg.MaxTokens)
+		assert.Equal(t, float32(0.9), cfg.Temperature)
+	})
 }
 
-func TestConversationManager_WithToolRegistry(t *testing.T) {
-	mockProvider := mock.NewProvider("test", "test-model", false)
-	store := statestore.NewMemoryStore()
+func TestAddMessageToHistory(t *testing.T) {
+	conv := newTestConversation()
 
-	// Create empty tool registry
-	registry := &tools.Registry{}
+	msg := &types.Message{Role: "user"}
+	msg.AddTextPart("Hello")
 
-	// Create manager with tool registry option
-	manager, err := NewConversationManager(
-		WithProvider(mockProvider),
-		WithStateStore(store),
-		WithToolRegistry(registry),
-	)
+	conv.addMessageToHistory(msg)
 
-	if err != nil {
-		t.Fatalf("failed to create manager: %v", err)
-	}
-
-	if manager.toolRegistry == nil {
-		t.Error("expected tool registry to be set")
-	}
-
-	if manager.toolRegistry != registry {
-		t.Error("expected tool registry to match provided registry")
-	}
+	assert.NotNil(t, conv.state)
+	assert.Len(t, conv.state.Messages, 1)
+	assert.Equal(t, "user", conv.state.Messages[0].Role)
 }
 
-func TestConversationManager_WithConfig(t *testing.T) {
-	mockProvider := mock.NewProvider("test", "test-model", false)
-	store := statestore.NewMemoryStore()
-
-	config := ManagerConfig{
-		MaxConcurrentExecutions: 10,
-		EnableMetrics:           true,
-	}
-
-	// Create manager with config option
-	manager, err := NewConversationManager(
-		WithProvider(mockProvider),
-		WithStateStore(store),
-		WithConfig(config),
-	)
-
-	if err != nil {
-		t.Fatalf("failed to create manager: %v", err)
-	}
-
-	if manager.config.MaxConcurrentExecutions != 10 {
-		t.Errorf("expected max concurrent executions 10, got %d", manager.config.MaxConcurrentExecutions)
-	}
-
-	if !manager.config.EnableMetrics {
-		t.Error("expected metrics to be enabled")
-	}
+func TestEncodeBase64(t *testing.T) {
+	data := []byte("hello world")
+	encoded := encodeBase64(data)
+	assert.Equal(t, "aGVsbG8gd29ybGQ=", encoded)
 }
 
-func TestConversation_StreamHelpers_UpdateStateFromStreamResult(t *testing.T) {
-	conv := &Conversation{
-		state: &statestore.ConversationState{
-			Messages: []types.Message{{Role: "user", Content: "test"}},
-		},
-	}
+func TestHandlerAdapter(t *testing.T) {
+	t.Run("name returns handler name", func(t *testing.T) {
+		adapter := &handlerAdapter{
+			name:    "test_handler",
+			handler: func(args map[string]any) (any, error) { return nil, nil },
+		}
+		assert.Equal(t, "test_handler", adapter.Name())
+	})
 
-	result := &pipeline.ExecutionResult{
-		Messages: []types.Message{
-			{Role: "user", Content: "test"},
-			{Role: "assistant", Content: "response"},
-		},
-	}
-
-	conv.updateStateFromStreamResult(result)
-
-	if len(conv.state.Messages) != 2 {
-		t.Errorf("expected 2 messages, got %d", len(conv.state.Messages))
-	}
-	if conv.state.Messages[1].Role != "assistant" {
-		t.Errorf("expected assistant role, got %s", conv.state.Messages[1].Role)
-	}
-}
-
-func TestConversation_StreamHelpers_BuildStreamResponse(t *testing.T) {
-	conv := &Conversation{}
-
-	result := &pipeline.ExecutionResult{
-		Response: &pipeline.Response{
-			Role:    "assistant",
-			Content: "Hello",
-			ToolCalls: []types.MessageToolCall{
-				{ID: "call1", Name: "tool1"},
-			},
-		},
-		CostInfo: types.CostInfo{
-			InputTokens:  10,
-			OutputTokens: 20,
-			TotalCost:    0.001,
-		},
-	}
-
-	start := time.Now().Add(-100 * time.Millisecond)
-	response := conv.buildStreamResponse(result, "Hello", start)
-
-	if response.Content != "Hello" {
-		t.Errorf("expected content 'Hello', got '%s'", response.Content)
-	}
-	if response.TokensUsed != 30 {
-		t.Errorf("expected 30 tokens, got %d", response.TokensUsed)
-	}
-	if response.Cost != 0.001 {
-		t.Errorf("expected cost 0.001, got %f", response.Cost)
-	}
-	if response.LatencyMs < 90 {
-		t.Errorf("expected latency >= 90ms, got %d", response.LatencyMs)
-	}
-	if len(response.ToolCalls) != 1 {
-		t.Errorf("expected 1 tool call, got %d", len(response.ToolCalls))
-	}
-}
-
-func TestConversation_ContinueHelpers(t *testing.T) {
-	t.Run("validateContinuePreconditions_empty", func(t *testing.T) {
-		conv := &Conversation{
-			state: &statestore.ConversationState{
-				Messages: []types.Message{},
+	t.Run("execute calls handler", func(t *testing.T) {
+		called := false
+		adapter := &handlerAdapter{
+			name: "test",
+			handler: func(args map[string]any) (any, error) {
+				called = true
+				return map[string]string{"result": "success"}, nil
 			},
 		}
 
-		_, err := conv.validateContinuePreconditions()
-		if err == nil {
-			t.Error("expected error for empty messages")
-		}
-		if !strings.Contains(err.Error(), "no messages") {
-			t.Errorf("unexpected error: %v", err)
-		}
+		result, err := adapter.Execute(nil, []byte(`{"input": "test"}`))
+		assert.NoError(t, err)
+		assert.True(t, called)
+		assert.Contains(t, string(result), "success")
 	})
 
-	t.Run("validateContinuePreconditions_wrongRole", func(t *testing.T) {
-		conv := &Conversation{
-			state: &statestore.ConversationState{
-				Messages: []types.Message{
-					{Role: "user", Content: "hello"},
+	t.Run("execute returns handler error", func(t *testing.T) {
+		adapter := &handlerAdapter{
+			name: "test",
+			handler: func(args map[string]any) (any, error) {
+				return nil, errors.New("handler error")
+			},
+		}
+
+		_, err := adapter.Execute(nil, []byte(`{}`))
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "handler error")
+	})
+
+	t.Run("execute returns parse error", func(t *testing.T) {
+		adapter := &handlerAdapter{
+			name:    "test",
+			handler: func(args map[string]any) (any, error) { return nil, nil },
+		}
+
+		_, err := adapter.Execute(nil, []byte(`invalid json`))
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to parse")
+	})
+}
+
+func TestCheckClosed(t *testing.T) {
+	t.Run("returns nil when not closed", func(t *testing.T) {
+		conv := newTestConversation()
+		err := conv.checkClosed()
+		assert.NoError(t, err)
+	})
+
+	t.Run("returns error when closed", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.closed = true
+		err := conv.checkClosed()
+		assert.Equal(t, ErrConversationClosed, err)
+	})
+}
+
+func TestOnToolHTTP(t *testing.T) {
+	t.Run("registers HTTP handler", func(t *testing.T) {
+		conv := newTestConversation()
+		cfg := sdktools.NewHTTPToolConfig("https://api.example.com/test",
+			sdktools.WithMethod("POST"),
+		)
+		conv.OnToolHTTP("http_tool", cfg)
+
+		conv.handlersMu.RLock()
+		_, exists := conv.handlers["http_tool"]
+		conv.handlersMu.RUnlock()
+
+		assert.True(t, exists)
+	})
+}
+
+func TestOnToolExecutor(t *testing.T) {
+	t.Run("registers custom executor", func(t *testing.T) {
+		conv := newTestConversation()
+		// Add a tool to the pack so the executor can find it
+		conv.pack = &pack.Pack{
+			Tools: map[string]*pack.Tool{
+				"custom_tool": {
+					Name:        "custom_tool",
+					Description: "Test tool",
+					Parameters: map[string]any{
+						"type":       "object",
+						"properties": map[string]any{},
+					},
 				},
 			},
 		}
 
-		_, err := conv.validateContinuePreconditions()
-		if err == nil {
-			t.Error("expected error for wrong role")
+		executor := &mockExecutor{
+			name:   "custom",
+			result: []byte(`{"status": "ok"}`),
 		}
-		if !strings.Contains(err.Error(), "must be a tool result") {
-			t.Errorf("unexpected error: %v", err)
-		}
+		conv.OnToolExecutor("custom_tool", executor)
+
+		conv.handlersMu.RLock()
+		handler, exists := conv.handlers["custom_tool"]
+		conv.handlersMu.RUnlock()
+
+		assert.True(t, exists)
+
+		// Test the handler
+		result, err := handler(map[string]any{"input": "test"})
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
 	})
 
-	t.Run("validateContinuePreconditions_success", func(t *testing.T) {
-		conv := &Conversation{
-			state: &statestore.ConversationState{
-				Messages: []types.Message{
-					{Role: "user", Content: "hello"},
-					{Role: "assistant", ToolCalls: []types.MessageToolCall{{ID: "call1"}}},
-					{Role: "tool", ToolResult: &types.MessageToolResult{ID: "call1", Content: "result"}},
-				},
-			},
-		}
+	t.Run("returns error if tool not in pack", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.pack = &pack.Pack{} // Empty pack
 
-		msg, err := conv.validateContinuePreconditions()
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
+		executor := &mockExecutor{
+			name:   "custom",
+			result: []byte(`{}`),
 		}
-		if msg.Role != "tool" {
-			t.Errorf("expected tool role, got %s", msg.Role)
-		}
+		conv.OnToolExecutor("missing_tool", executor)
+
+		conv.handlersMu.RLock()
+		handler := conv.handlers["missing_tool"]
+		conv.handlersMu.RUnlock()
+
+		_, err := handler(map[string]any{})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found in pack")
 	})
 }
 
-func TestConversation_UpdateStateAfterContinue(t *testing.T) {
-	conv := &Conversation{
-		state: &statestore.ConversationState{
-			Messages: []types.Message{{Role: "user", Content: "test"}},
-			Metadata: map[string]interface{}{
-				"pending_tools": []interface{}{"tool1"},
-				"other_key":     "value",
-			},
-		},
-	}
-
-	result := &pipeline.ExecutionResult{
-		Messages: []types.Message{
-			{Role: "user", Content: "test"},
-			{Role: "assistant", Content: "done"},
-		},
-	}
-
-	conv.updateStateAfterContinue(result)
-
-	if len(conv.state.Messages) != 2 {
-		t.Errorf("expected 2 messages, got %d", len(conv.state.Messages))
-	}
-	if _, exists := conv.state.Metadata["pending_tools"]; exists {
-		t.Error("expected pending_tools to be cleared")
-	}
-	if conv.state.Metadata["other_key"] != "value" {
-		t.Error("expected other metadata to be preserved")
-	}
+// mockExecutor is a test executor
+type mockExecutor struct {
+	name   string
+	result []byte
+	err    error
 }
 
-func TestConversation_BuildContinueResponse(t *testing.T) {
-	conv := &Conversation{}
+func (m *mockExecutor) Name() string { return m.name }
 
-	result := &pipeline.ExecutionResult{
-		Response: &pipeline.Response{
-			Content: "Completed",
-		},
-		CostInfo: types.CostInfo{
-			InputTokens:  5,
-			OutputTokens: 15,
-			TotalCost:    0.0005,
-		},
-		Messages: []types.Message{
-			{Role: "user", Content: "test"},
-			{Role: "assistant", Content: "Completed"},
-		},
-	}
-
-	latency := 250 * time.Millisecond
-	response := conv.buildContinueResponse(result, latency)
-
-	if response.Content != "Completed" {
-		t.Errorf("expected content 'Completed', got '%s'", response.Content)
-	}
-	if response.TokensUsed != 20 {
-		t.Errorf("expected 20 tokens, got %d", response.TokensUsed)
-	}
-	if response.Cost != 0.0005 {
-		t.Errorf("expected cost 0.0005, got %f", response.Cost)
-	}
-	if response.LatencyMs != 250 {
-		t.Errorf("expected latency 250ms, got %d", response.LatencyMs)
-	}
+func (m *mockExecutor) Execute(descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
+	return m.result, m.err
 }
 
-func TestConversation_Continue(t *testing.T) {
-	// Create a test pack
-	tmpDir := t.TempDir()
-	packPath := filepath.Join(tmpDir, "test.pack.json")
+func TestLocalExecutorExecute(t *testing.T) {
+	t.Run("successful execution", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.OnTool("add", func(args map[string]any) (any, error) {
+			a := args["a"].(float64)
+			b := args["b"].(float64)
+			return map[string]float64{"sum": a + b}, nil
+		})
 
-	packData := map[string]interface{}{
-		"id":      "test-pack",
-		"name":    "Test Pack",
-		"version": "1.0.0",
-		"template_engine": map[string]interface{}{
-			"version": "v1",
-			"syntax":  "{{variable}}",
-		},
-		"prompts": map[string]interface{}{
-			"assistant": map[string]interface{}{
-				"id":              "assistant",
-				"name":            "Assistant",
-				"version":         "1.0.0",
-				"system_template": "You are a helpful assistant.",
-				"parameters": map[string]interface{}{
-					"temperature": 0.7,
-				},
-			},
-		},
-	}
-
-	data, err := json.MarshalIndent(packData, "", "  ")
-	if err != nil {
-		t.Fatalf("Failed to marshal pack data: %v", err)
-	}
-	if err := os.WriteFile(packPath, data, 0600); err != nil {
-		t.Fatalf("Failed to write pack file: %v", err)
-	}
-
-	// Create mock provider
-	mockProvider := mock.NewProvider("test-provider", "test-model", false)
-
-	// Create manager with state store
-	stateStore := statestore.NewMemoryStore()
-	manager, err := NewConversationManager(
-		WithProvider(mockProvider),
-		WithStateStore(stateStore),
-	)
-	if err != nil {
-		t.Fatalf("failed to create manager: %v", err)
-	}
-
-	// Load pack
-	pack, err := manager.LoadPack(packPath)
-	if err != nil {
-		t.Fatalf("failed to load pack: %v", err)
-	}
-
-	// Create conversation
-	ctx := context.Background()
-	conv, err := manager.CreateConversation(ctx, pack, ConversationConfig{
-		UserID:     "user123",
-		PromptName: "assistant",
-	})
-	if err != nil {
-		t.Fatalf("failed to create conversation: %v", err)
-	}
-
-	// Simulate a conversation state with a tool result message
-	// (This happens after tool execution in a real scenario)
-	conv.state.Messages = []types.Message{
-		{Role: "user", Content: "Do something"},
-		{Role: "assistant", Content: "", ToolCalls: []types.MessageToolCall{{ID: "call1"}}},
-		{Role: "tool", ToolResult: &types.MessageToolResult{ID: "call1", Content: "tool executed"}},
-	}
-
-	// Call Continue - this should execute the pipeline with the tool result
-	response, err := conv.Continue(ctx)
-	if err != nil {
-		t.Fatalf("Continue() failed: %v", err)
-	}
-
-	if response == nil {
-		t.Fatal("expected non-nil response")
-	}
-
-	// Mock provider should have generated a response
-	if response.Content == "" {
-		t.Error("expected non-empty content")
-	}
-
-	// Verify state was updated with the assistant response
-	if len(conv.state.Messages) < 4 {
-		t.Errorf("expected at least 4 messages after Continue(), got %d", len(conv.state.Messages))
-	}
-
-	// Last message should be the assistant response
-	lastMsg := conv.state.Messages[len(conv.state.Messages)-1]
-	if lastMsg.Role != "assistant" {
-		t.Errorf("expected last message role 'assistant', got '%s'", lastMsg.Role)
-	}
-}
-
-func TestConversation_ContinueErrors(t *testing.T) {
-	t.Run("no_messages", func(t *testing.T) {
-		conv := &Conversation{
-			state: &statestore.ConversationState{
-				Messages: []types.Message{},
-			},
-			manager: &ConversationManager{
-				stateStore: statestore.NewMemoryStore(),
-			},
+		// Get the localExecutor from the toolRegistry
+		executor := &localExecutor{
+			handlers: conv.handlers,
 		}
 
-		_, err := conv.Continue(context.Background())
-		if err == nil {
-			t.Error("expected error for no messages")
-		}
-		if !strings.Contains(err.Error(), "no messages") {
-			t.Errorf("unexpected error: %v", err)
-		}
+		descriptor := &tools.ToolDescriptor{Name: "add"}
+		args := json.RawMessage(`{"a": 1, "b": 2}`)
+
+		result, err := executor.Execute(descriptor, args)
+		assert.NoError(t, err)
+
+		var parsed map[string]float64
+		err = json.Unmarshal(result, &parsed)
+		assert.NoError(t, err)
+		assert.Equal(t, float64(3), parsed["sum"])
 	})
 
-	t.Run("wrong_last_role", func(t *testing.T) {
-		conv := &Conversation{
-			state: &statestore.ConversationState{
-				Messages: []types.Message{
-					{Role: "user", Content: "hello"},
-					{Role: "assistant", Content: "hi"},
-				},
-			},
-			manager: &ConversationManager{
-				stateStore: statestore.NewMemoryStore(),
-			},
+	t.Run("handler not found", func(t *testing.T) {
+		executor := &localExecutor{
+			handlers: make(map[string]ToolHandler),
 		}
 
-		_, err := conv.Continue(context.Background())
-		if err == nil {
-			t.Error("expected error for wrong last role")
+		descriptor := &tools.ToolDescriptor{Name: "unknown"}
+		args := json.RawMessage(`{}`)
+
+		_, err := executor.Execute(descriptor, args)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no handler registered")
+	})
+
+	t.Run("invalid args JSON", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.OnTool("test", func(args map[string]any) (any, error) {
+			return "ok", nil
+		})
+
+		executor := &localExecutor{
+			handlers: conv.handlers,
 		}
-		if !strings.Contains(err.Error(), "must be a tool result") {
-			t.Errorf("unexpected error: %v", err)
+
+		descriptor := &tools.ToolDescriptor{Name: "test"}
+		args := json.RawMessage(`{invalid json}`)
+
+		_, err := executor.Execute(descriptor, args)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to parse tool arguments")
+	})
+
+	t.Run("handler returns error", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.OnTool("failing", func(args map[string]any) (any, error) {
+			return nil, errors.New("handler failed")
+		})
+
+		executor := &localExecutor{
+			handlers: conv.handlers,
 		}
+
+		descriptor := &tools.ToolDescriptor{Name: "failing"}
+		args := json.RawMessage(`{}`)
+
+		_, err := executor.Execute(descriptor, args)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "handler failed")
 	})
 }

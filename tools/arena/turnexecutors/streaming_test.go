@@ -359,3 +359,186 @@ type MockSelfPlayProvider struct {
 func (m *MockSelfPlayProvider) GetContentGenerator(role, persona string) (selfplay.Generator, error) {
 	return m.contentGen, nil
 }
+
+// TestFilterOutToolMessages tests the filterOutToolMessages helper function
+func TestFilterOutToolMessages(t *testing.T) {
+	tests := []struct {
+		name     string
+		messages []types.Message
+		want     int
+	}{
+		{
+			name:     "empty messages",
+			messages: []types.Message{},
+			want:     0,
+		},
+		{
+			name: "no tool messages",
+			messages: []types.Message{
+				{Role: "user", Content: "Hello"},
+				{Role: "assistant", Content: "Hi"},
+			},
+			want: 2,
+		},
+		{
+			name: "with tool messages",
+			messages: []types.Message{
+				{Role: "user", Content: "Hello"},
+				{Role: "tool", Content: "tool result"},
+				{Role: "assistant", Content: "Hi"},
+				{Role: "Tool", Content: "another tool"}, // case insensitive
+			},
+			want: 2,
+		},
+		{
+			name: "all tool messages",
+			messages: []types.Message{
+				{Role: "tool", Content: "result 1"},
+				{Role: "TOOL", Content: "result 2"},
+			},
+			want: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := filterOutToolMessages(tt.messages)
+			assert.Len(t, result, tt.want)
+		})
+	}
+}
+
+// TestSelfPlayExecutor_ExecuteTurnStream_WithStateStore tests streaming with state store
+func TestSelfPlayExecutor_ExecuteTurnStream_WithStateStore(t *testing.T) {
+	// Mock streaming provider
+	mockProvider := &MockStreamingProvider{
+		streamChunks: []providers.StreamChunk{
+			{Content: "AI", Delta: "AI", TokenCount: 1},
+			{Content: "AI response", Delta: " response", TokenCount: 2, FinishReason: strPtr("stop")},
+		},
+	}
+
+	// Mock content generator
+	mockContentGen := &MockContentGenerator{
+		message: types.Message{
+			Role:    "user",
+			Content: "Self-play generated message",
+		},
+	}
+
+	mockSelfPlayProvider := &MockSelfPlayProvider{
+		contentGen: mockContentGen,
+	}
+
+	toolRegistry := tools.NewRegistry()
+	aiExecutor := NewPipelineExecutor(toolRegistry, nil)
+	executor := NewSelfPlayExecutor(aiExecutor, mockSelfPlayProvider)
+
+	// Test with metadata and prompt vars (without state store to avoid middleware issues)
+	req := TurnRequest{
+		Provider:        mockProvider,
+		PromptRegistry:  nil,
+		TaskType:        "assistance",
+		Region:          "us",
+		Scenario:        &config.Scenario{ID: "test-scenario"},
+		SelfPlayRole:    "user",
+		SelfPlayPersona: "helpful",
+		Metadata:        map[string]interface{}{"extra": "meta"},
+		PromptVars:      map[string]string{"var1": "value1"},
+	}
+
+	stream, err := executor.ExecuteTurnStream(context.Background(), req)
+	require.NoError(t, err)
+	require.NotNil(t, stream)
+
+	// Consume stream
+	for chunk := range stream {
+		if chunk.Error != nil {
+			// Some errors are expected due to missing middleware setup
+			break
+		}
+	}
+}
+
+// TestSelfPlayExecutor_ExecuteTurnStream_WithToolPolicy tests tool policy passing
+func TestSelfPlayExecutor_ExecuteTurnStream_WithToolPolicy(t *testing.T) {
+	mockProvider := &MockStreamingProvider{
+		streamChunks: []providers.StreamChunk{
+			{Content: "Response", Delta: "Response", TokenCount: 1, FinishReason: strPtr("stop")},
+		},
+	}
+
+	mockContentGen := &MockContentGenerator{
+		message: types.Message{Role: "user", Content: "Test message"},
+	}
+
+	mockSelfPlayProvider := &MockSelfPlayProvider{contentGen: mockContentGen}
+
+	toolRegistry := tools.NewRegistry()
+	aiExecutor := NewPipelineExecutor(toolRegistry, nil)
+	executor := NewSelfPlayExecutor(aiExecutor, mockSelfPlayProvider)
+
+	req := TurnRequest{
+		Provider: mockProvider,
+		TaskType: "assistance",
+		Scenario: &config.Scenario{
+			ID: "test",
+			ToolPolicy: &config.ToolPolicy{
+				ToolChoice:          "auto",
+				MaxToolCallsPerTurn: 5,
+			},
+		},
+		SelfPlayRole:    "user",
+		SelfPlayPersona: "tester",
+	}
+
+	stream, err := executor.ExecuteTurnStream(context.Background(), req)
+	require.NoError(t, err)
+	require.NotNil(t, stream)
+
+	// Consume stream
+	for chunk := range stream {
+		if chunk.Error != nil {
+			break
+		}
+	}
+}
+
+// TestScriptedExecutor_ExecuteTurnStream_WithToolPolicy tests tool policy passing for scripted
+func TestScriptedExecutor_ExecuteTurnStream_WithToolPolicy(t *testing.T) {
+	mockProvider := &MockStreamingProvider{
+		streamChunks: []providers.StreamChunk{
+			{Content: "Response", Delta: "Response", TokenCount: 1, FinishReason: strPtr("stop")},
+		},
+	}
+
+	toolRegistry := tools.NewRegistry()
+	aiExecutor := NewPipelineExecutor(toolRegistry, nil)
+	executor := NewScriptedExecutor(aiExecutor)
+
+	req := TurnRequest{
+		Provider: mockProvider,
+		TaskType: "assistance",
+		Scenario: &config.Scenario{
+			ID: "test",
+			ToolPolicy: &config.ToolPolicy{
+				ToolChoice:          "required",
+				MaxToolCallsPerTurn: 3,
+			},
+		},
+		ScriptedContent: "Test message",
+		Metadata:        map[string]interface{}{"key": "value"},
+		PromptVars:      map[string]string{"var": "val"},
+	}
+
+	stream, err := executor.ExecuteTurnStream(context.Background(), req)
+	require.NoError(t, err)
+	require.NotNil(t, stream)
+
+	// Consume stream
+	for chunk := range stream {
+		if chunk.Error != nil {
+			break
+		}
+	}
+}

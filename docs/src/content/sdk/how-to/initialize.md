@@ -1,122 +1,122 @@
 ---
-title: Initialize the SDK
+title: Open a Conversation
 docType: how-to
 order: 1
 ---
-# How to Initialize the SDK
+# How to Open a Conversation
 
-Learn how to set up the PromptKit SDK in your Go application.
+Learn how to start using the SDK v2 with `sdk.Open()`.
 
-## Prerequisites
-
-```bash
-go get github.com/AltairaLabs/PromptKit/sdk
-```
-
-## Basic Initialization
-
-### Step 1: Import Packages
+## Basic Usage
 
 ```go
-import (
-    "context"
-    "log"
-    
-    "github.com/AltairaLabs/PromptKit/sdk"
-    "github.com/AltairaLabs/PromptKit/runtime/providers"
-)
-```
+import "github.com/AltairaLabs/PromptKit/sdk"
 
-### Step 2: Create Provider
-
-Choose your LLM provider:
-
-**OpenAI:**
-
-```go
-provider := providers.NewOpenAIProvider(
-    "your-api-key",  // API key
-    "gpt-4o-mini",   // Model name
-    false,           // Streaming (handled by SDK)
-)
-```
-
-**Anthropic (Claude):**
-
-```go
-provider := providers.NewAnthropicProvider(
-    "your-api-key",
-    "claude-3-5-sonnet-20241022",
-    false,
-)
-```
-
-**Google (Gemini):**
-
-```go
-provider := providers.NewGoogleProvider(
-    "your-api-key",
-    "gemini-1.5-flash",
-    false,
-)
-```
-
-### Step 3: Create Manager
-
-```go
-manager, err := sdk.NewConversationManager(
-    sdk.WithProvider(provider),
-)
+conv, err := sdk.Open("./app.pack.json", "assistant")
 if err != nil {
     log.Fatal(err)
 }
+defer conv.Close()
 ```
 
-## Configuration Options
+## Parameters
 
-### With State Persistence
+### Pack Path
 
-Use Redis or Postgres for production:
+First argument is the path to your pack file:
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/statestore"
+// Relative path
+conv, _ := sdk.Open("./prompts/app.pack.json", "chat")
 
-// Redis
-redisStore := statestore.NewRedisStore(redisClient)
+// Absolute path
+conv, _ := sdk.Open("/etc/myapp/prompts.pack.json", "chat")
+```
 
-manager, _ := sdk.NewConversationManager(
-    sdk.WithProvider(provider),
-    sdk.WithStateStore(redisStore),
+### Prompt Name
+
+Second argument is the prompt name from your pack:
+
+```go
+// Pack contains: prompts.assistant, prompts.support, prompts.sales
+conv, _ := sdk.Open("./app.pack.json", "assistant")
+conv, _ := sdk.Open("./app.pack.json", "support")
+conv, _ := sdk.Open("./app.pack.json", "sales")
+```
+
+## Options
+
+### Override Model
+
+```go
+conv, _ := sdk.Open("./app.pack.json", "chat",
+    sdk.WithModel("gpt-4o"),
 )
 ```
 
-### With Tool Support
-
-Enable function calling:
+### Override Temperature
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/tools"
-
-registry := tools.NewRegistry()
-// Register tools later
-
-manager, _ := sdk.NewConversationManager(
-    sdk.WithProvider(provider),
-    sdk.WithToolRegistry(registry),
+conv, _ := sdk.Open("./app.pack.json", "chat",
+    sdk.WithTemperature(0.9),
 )
 ```
 
-### With Custom Configuration
+### Multiple Options
 
 ```go
-manager, _ := sdk.NewConversationManager(
-    sdk.WithProvider(provider),
-    sdk.WithConfig(sdk.ManagerConfig{
-        MaxConcurrentExecutions: 20,
-        DefaultTimeout:          45 * time.Second,
-        EnableMetrics:           true,
-    }),
+conv, _ := sdk.Open("./app.pack.json", "chat",
+    sdk.WithModel("gpt-4o"),
+    sdk.WithTemperature(0.8),
+    sdk.WithMaxTokens(2000),
 )
+```
+
+## Environment Variables
+
+The SDK uses these environment variables:
+
+```bash
+# Provider API keys (one required)
+export OPENAI_API_KEY="sk-..."
+export ANTHROPIC_API_KEY="sk-ant-..."
+export GOOGLE_API_KEY="..."
+
+# Optional: Default model
+export PROMPTKIT_MODEL="gpt-4o-mini"
+```
+
+## Error Handling
+
+```go
+conv, err := sdk.Open("./app.pack.json", "chat")
+if err != nil {
+    switch {
+    case errors.Is(err, sdk.ErrPackNotFound):
+        log.Fatal("Pack file not found")
+    case errors.Is(err, sdk.ErrPromptNotFound):
+        log.Fatal("Prompt not in pack")
+    case errors.Is(err, sdk.ErrInvalidPack):
+        log.Fatal("Pack file is invalid")
+    default:
+        log.Fatalf("Failed to open: %v", err)
+    }
+}
+defer conv.Close()
+```
+
+## Always Close
+
+Always close conversations when done:
+
+```go
+conv, err := sdk.Open("./app.pack.json", "chat")
+if err != nil {
+    log.Fatal(err)
+}
+defer conv.Close()  // Important!
+
+// Use conversation...
 ```
 
 ## Complete Example
@@ -128,373 +128,36 @@ import (
     "context"
     "fmt"
     "log"
-    "os"
 
     "github.com/AltairaLabs/PromptKit/sdk"
-    "github.com/AltairaLabs/PromptKit/runtime/providers"
 )
 
 func main() {
-    // 1. Create provider
-    provider := providers.NewOpenAIProvider(
-        os.Getenv("OPENAI_API_KEY"),
-        "gpt-4o-mini",
-        false,
-    )
-
-    // 2. Create manager
-    manager, err := sdk.NewConversationManager(
-        sdk.WithProvider(provider),
+    // Open conversation
+    conv, err := sdk.Open("./app.pack.json", "assistant",
+        sdk.WithModel("gpt-4o"),
     )
     if err != nil {
         log.Fatal(err)
     }
+    defer conv.Close()
 
-    // 3. Load pack
-    pack, err := manager.LoadPack("./prompts.pack.json")
-    if err != nil {
-        log.Fatal(err)
-    }
+    // Set variables
+    conv.SetVar("user_name", "Alice")
 
-    // 4. Create conversation
+    // Send message
     ctx := context.Background()
-    conv, err := manager.NewConversation(ctx, pack, sdk.ConversationConfig{
-        UserID:     "user123",
-        PromptName: "assistant",
-    })
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    // 5. Send message
     resp, err := conv.Send(ctx, "Hello!")
     if err != nil {
         log.Fatal(err)
     }
 
-    fmt.Printf("Response: %s\n", resp.Content)
+    fmt.Println(resp.Text())
 }
 ```
-
-## Environment Variables
-
-### Managing API Keys
-
-Never hardcode API keys:
-
-```go
-// ✅ Good: Use environment variables
-provider := providers.NewOpenAIProvider(
-    os.Getenv("OPENAI_API_KEY"),
-    "gpt-4o-mini",
-    false,
-)
-
-// ❌ Bad: Hardcoded
-provider := providers.NewOpenAIProvider(
-    "sk-1234567890...",  // Never do this!
-    "gpt-4o-mini",
-    false,
-)
-```
-
-### .env File
-
-Create `.env` file:
-
-```bash
-OPENAI_API_KEY=sk-your-key-here
-ANTHROPIC_API_KEY=sk-ant-your-key
-GOOGLE_API_KEY=your-google-key
-```
-
-Load with [godotenv](https://github.com/joho/godotenv):
-
-```go
-import "github.com/joho/godotenv"
-
-func init() {
-    godotenv.Load()
-}
-```
-
-## Application Structure
-
-### Recommended Pattern
-
-Initialize SDK once, reuse throughout application:
-
-```go
-package main
-
-import (
-    "github.com/AltairaLabs/PromptKit/sdk"
-    "github.com/AltairaLabs/PromptKit/runtime/providers"
-)
-
-var (
-    manager *sdk.ConversationManager
-    pack    *sdk.Pack
-)
-
-func init() {
-    // Initialize provider
-    provider := providers.NewOpenAIProvider(
-        os.Getenv("OPENAI_API_KEY"),
-        "gpt-4o-mini",
-        false,
-    )
-
-    // Initialize manager (reuse across requests)
-    var err error
-    manager, err = sdk.NewConversationManager(
-        sdk.WithProvider(provider),
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    // Load pack (reuse across conversations)
-    pack, err = manager.LoadPack("./prompts.pack.json")
-    if err != nil {
-        log.Fatal(err)
-    }
-}
-
-func handleRequest(userID, message string) (string, error) {
-    ctx := context.Background()
-    
-    // Create conversation (per user/session)
-    conv, err := manager.NewConversation(ctx, pack, sdk.ConversationConfig{
-        UserID:     userID,
-        PromptName: "assistant",
-    })
-    if err != nil {
-        return "", err
-    }
-
-    // Send message
-    resp, err := conv.Send(ctx, message)
-    if err != nil {
-        return "", err
-    }
-
-    return resp.Content, nil
-}
-```
-
-## Web Server Integration
-
-### HTTP Handler Example
-
-```go
-package main
-
-import (
-    "encoding/json"
-    "net/http"
-    
-    "github.com/AltairaLabs/PromptKit/sdk"
-)
-
-var manager *sdk.ConversationManager
-var pack *sdk.Pack
-
-func main() {
-    // Initialize SDK (once)
-    initSDK()
-    
-    // Register handlers
-    http.HandleFunc("/chat", chatHandler)
-    
-    http.ListenAndServe(":8080", nil)
-}
-
-func chatHandler(w http.ResponseWriter, r *http.Request) {
-    var req struct {
-        UserID  string `json:"user_id"`
-        Message string `json:"message"`
-    }
-    
-    json.NewDecoder(r.Body).Decode(&req)
-    
-    // Create conversation
-    conv, err := manager.NewConversation(r.Context(), pack, sdk.ConversationConfig{
-        UserID:     req.UserID,
-        PromptName: "assistant",
-    })
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-    
-    // Send message
-    resp, err := conv.Send(r.Context(), req.Message)
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-    
-    // Return response
-    json.NewEncoder(w).Encode(map[string]interface{}{
-        "content": resp.Content,
-        "cost":    resp.Cost,
-    })
-}
-
-func initSDK() {
-    provider := providers.NewOpenAIProvider(
-        os.Getenv("OPENAI_API_KEY"),
-        "gpt-4o-mini",
-        false,
-    )
-    
-    var err error
-    manager, err = sdk.NewConversationManager(
-        sdk.WithProvider(provider),
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    pack, err = manager.LoadPack("./prompts.pack.json")
-    if err != nil {
-        log.Fatal(err)
-    }
-}
-```
-
-## Production Configuration
-
-### Complete Production Setup
-
-```go
-func initProductionSDK() (*sdk.ConversationManager, *sdk.Pack, error) {
-    // 1. Provider with retry logic
-    provider := providers.NewOpenAIProvider(
-        os.Getenv("OPENAI_API_KEY"),
-        "gpt-4o",
-        false,
-    )
-
-    // 2. Redis state store
-    redisClient := redis.NewClient(&redis.Options{
-        Addr:     os.Getenv("REDIS_ADDR"),
-        Password: os.Getenv("REDIS_PASSWORD"),
-        DB:       0,
-    })
-    redisStore := statestore.NewRedisStore(redisClient)
-
-    // 3. Tool registry
-    registry := tools.NewRegistry()
-    registerTools(registry) // Your tool registration
-
-    // 4. Create manager with full configuration
-    manager, err := sdk.NewConversationManager(
-        sdk.WithProvider(provider),
-        sdk.WithStateStore(redisStore),
-        sdk.WithToolRegistry(registry),
-        sdk.WithConfig(sdk.ManagerConfig{
-            MaxConcurrentExecutions: 100,
-            DefaultTimeout:          60 * time.Second,
-            EnableMetrics:           true,
-        }),
-    )
-    if err != nil {
-        return nil, nil, err
-    }
-
-    // 5. Load pack
-    pack, err := manager.LoadPack("./prompts.pack.json")
-    if err != nil {
-        return nil, nil, err
-    }
-
-    return manager, pack, nil
-}
-```
-
-## Common Mistakes
-
-### ❌ Creating Manager Per Request
-
-```go
-// DON'T DO THIS
-func handleRequest(w http.ResponseWriter, r *http.Request) {
-    // Creating new manager for each request is expensive!
-    manager, _ := sdk.NewConversationManager(...)
-    pack, _ := manager.LoadPack(...)
-    // ...
-}
-```
-
-### ✅ Reuse Manager and Pack
-
-```go
-// DO THIS INSTEAD
-var manager *sdk.ConversationManager
-var pack *sdk.Pack
-
-func init() {
-    // Create once
-    manager, _ = sdk.NewConversationManager(...)
-    pack, _ = manager.LoadPack(...)
-}
-
-func handleRequest(w http.ResponseWriter, r *http.Request) {
-    // Reuse manager and pack
-    conv, _ := manager.NewConversation(...)
-    // ...
-}
-```
-
-## Troubleshooting
-
-### Provider Not Working
-
-```go
-// Test provider directly
-resp, err := provider.SendMessage(ctx, "user", "Hello", nil)
-if err != nil {
-    log.Printf("Provider error: %v", err)
-    // Check API key, model name, network
-}
-```
-
-### Pack Not Loading
-
-```go
-pack, err := manager.LoadPack("./prompts.pack.json")
-if err != nil {
-    log.Printf("Pack error: %v", err)
-    // Check file path, JSON format, pack validity
-}
-
-// Verify pack contents
-prompts := pack.ListPrompts()
-log.Printf("Available prompts: %v", prompts)
-```
-
-### State Not Persisting
-
-```go
-// Verify state store connection
-store := statestore.NewRedisStore(redisClient)
-err := redisClient.Ping(ctx).Err()
-if err != nil {
-    log.Printf("Redis connection failed: %v", err)
-}
-```
-
-## Next Steps
-
-- **[Load PromptPacks](load-packs)** - Load and validate packs
-- **[Create Conversations](create-conversations)** - Start conversations
-- **[Send Messages](send-messages)** - Send and receive messages
-- **[Tutorial: First Application](../tutorials/01-first-app)** - Build complete app
 
 ## See Also
 
-- [ConversationManager Reference](../reference/conversation-manager)
-- [Provider Documentation](https://github.com/AltairaLabs/PromptKit/tree/main/runtime/providers)
-- [StateStore Documentation](https://github.com/AltairaLabs/PromptKit/tree/main/runtime/statestore)
+- [Send Messages](send-messages)
+- [Register Tools](register-tools)
+- [Tutorial 1: First Conversation](../tutorials/01-first-conversation)

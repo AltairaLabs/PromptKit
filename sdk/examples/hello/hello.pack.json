@@ -1,0 +1,27 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "hello-example",
+  "name": "Hello Example",
+  "version": "1.0.0",
+  "description": "Simple hello world example",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "chat": {
+      "id": "chat",
+      "name": "Chat",
+      "version": "1.0.0",
+      "system_template": "You are a friendly assistant. The user's name is {{user_name}}. Greet them warmly and remember their name throughout the conversation.",
+      "variables": [
+        {
+          "name": "user_name",
+          "type": "string",
+          "required": true,
+          "description": "The user's name"
+        }
+      ]
+    }
+  }
+}

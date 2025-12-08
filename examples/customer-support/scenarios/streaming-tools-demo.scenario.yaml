@@ -1,0 +1,79 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: streaming-tools-demo
+spec:
+  id: streaming-tools-demo
+  task_type: support
+  description: "Demonstrates streaming with tool calls - responses stream while tools are invoked"
+  
+  # Enable streaming for all turns
+  streaming: true
+  
+  turns:
+    # Turn 1: User asks about order - should trigger tool call while streaming
+    - role: user
+      content: "Hi! Can you check the status of my order #ORD-98765?"
+      assertions:
+        - type: tools_called
+          params:
+            tools:
+              - get_order_status
+            message: "Should call get_order_status tool to retrieve order information"
+        - type: content_matches
+          params:
+            pattern: "(?i)(order|status|shipped|delivery|help)"
+            message: "Response should acknowledge order inquiry"
+    
+    # Turn 2: Follow-up question about the order
+    - role: user
+      content: "When is it expected to arrive?"
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(delivery|arrive|expect|date|shipping)"
+            message: "Should address delivery timeline"
+    
+    # Turn 3: Another order check - demonstrates tool being called again
+    - role: user
+      content: "I also have order #ORD-11111, can you check that one too?"
+      assertions:
+        - type: tools_called
+          params:
+            tools:
+              - get_order_status
+            message: "Should call get_order_status for the second order"
+        - type: content_matches
+          params:
+            pattern: "(?i)(order|status|check|help)"
+            message: "Should acknowledge second order request"
+    
+    # Turn 4: General question (no tool call needed)
+    - role: user
+      content: "What's your return policy if the items don't fit?"
+      streaming: true
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(return|policy|days|refund|exchange)"
+            message: "Should explain return policy"
+
+  context:
+    goal: "demonstrate streaming responses with tool invocation"
+    timeline: "immediate"
+    experience_level: "customer"
+
+  context_metadata:
+    domain: "customer support"
+
+  constraints:
+    max_sentences: 6
+    required_themes:
+      - "helpful"
+      - "accurate"
+
+  # Force tool usage for this demo
+  tool_policy:
+    tool_choice: required
+    max_tool_calls_per_turn: 3
+    max_total_tool_calls: 10

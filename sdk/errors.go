@@ -1,47 +1,130 @@
 package sdk
 
-import (
-	"errors"
-	"fmt"
-)
+import "errors"
 
-// Common error types for better error handling
+// Sentinel errors for common failure cases.
 var (
-	ErrPackNotFound     = errors.New("pack not found")
-	ErrPromptNotFound   = errors.New("prompt not found")
-	ErrInvalidConfig    = errors.New("invalid configuration")
-	ErrProviderFailed   = errors.New("provider request failed")
-	ErrValidationFailed = errors.New("validation failed")
+	// ErrConversationClosed is returned when Send or Stream is called on a closed conversation.
+	ErrConversationClosed = errors.New("conversation is closed")
+
+	// ErrConversationNotFound is returned by Resume when the conversation ID doesn't exist.
+	ErrConversationNotFound = errors.New("conversation not found")
+
+	// ErrNoStateStore is returned by Resume when no state store is configured.
+	ErrNoStateStore = errors.New("no state store configured")
+
+	// ErrPromptNotFound is returned when the specified prompt doesn't exist in the pack.
+	ErrPromptNotFound = errors.New("prompt not found in pack")
+
+	// ErrPackNotFound is returned when the pack file doesn't exist.
+	ErrPackNotFound = errors.New("pack file not found")
+
+	// ErrProviderNotDetected is returned when no provider could be auto-detected.
+	ErrProviderNotDetected = errors.New("could not detect provider: no API keys found in environment")
+
+	// ErrToolNotRegistered is returned when the LLM calls a tool that has no handler.
+	ErrToolNotRegistered = errors.New("tool handler not registered")
+
+	// ErrToolNotInPack is returned when trying to register a handler for a tool not in the pack.
+	ErrToolNotInPack = errors.New("tool not defined in pack")
 )
 
-// Error wrapping utilities for consistent error handling
+// ValidationError represents a validation failure.
+type ValidationError struct {
+	// ValidatorType is the type of validator that failed (e.g., "banned_words").
+	ValidatorType string
 
-// WrapPackError wraps an error with pack context information.
-func WrapPackError(err error, packPath string) error {
-	return fmt.Errorf("pack error (%s): %w", packPath, err)
+	// Message describes what validation rule was violated.
+	Message string
+
+	// Details contains validator-specific information about the failure.
+	Details map[string]any
 }
 
-// WrapProviderError wraps an error with provider context information.
-func WrapProviderError(err error, provider string) error {
-	return fmt.Errorf("provider error (%s): %w", provider, err)
+// Error implements the error interface.
+func (e *ValidationError) Error() string {
+	return "validation failed: " + e.ValidatorType + ": " + e.Message
 }
 
-// WrapValidationError wraps an error with validation context information.
-func WrapValidationError(err error, validator string) error {
-	return fmt.Errorf("validation error (%s): %w", validator, err)
-}
-
-// IsTemporaryError checks if an error is temporary and should be retried.
-func IsTemporaryError(err error) bool {
-	// Check for common temporary error patterns
-	if errors.Is(err, ErrProviderFailed) {
-		return true
+// AsValidationError checks if an error is a ValidationError and returns it.
+//
+//	resp, err := conv.Send(ctx, message)
+//	if err != nil {
+//	    if vErr, ok := sdk.AsValidationError(err); ok {
+//	        fmt.Printf("Validation failed: %s\n", vErr.ValidatorType)
+//	    }
+//	}
+func AsValidationError(err error) (*ValidationError, bool) {
+	var vErr *ValidationError
+	if errors.As(err, &vErr) {
+		return vErr, true
 	}
-	// Add more patterns as needed
-	return false
+	return nil, false
 }
 
-// IsRetryableError determines if an operation should be retried.
-func IsRetryableError(err error) bool {
-	return IsTemporaryError(err)
+// PackError represents an error loading or parsing a pack file.
+type PackError struct {
+	// Path is the pack file path.
+	Path string
+
+	// Cause is the underlying error.
+	Cause error
+}
+
+// Error implements the error interface.
+func (e *PackError) Error() string {
+	return "failed to load pack " + e.Path + ": " + e.Cause.Error()
+}
+
+// Unwrap returns the underlying error.
+func (e *PackError) Unwrap() error {
+	return e.Cause
+}
+
+// ProviderError represents an error from the LLM provider.
+type ProviderError struct {
+	// Provider name (e.g., "openai", "anthropic").
+	Provider string
+
+	// StatusCode is the HTTP status code if available.
+	StatusCode int
+
+	// Message is the error message from the provider.
+	Message string
+
+	// Cause is the underlying error.
+	Cause error
+}
+
+// Error implements the error interface.
+func (e *ProviderError) Error() string {
+	msg := "provider " + e.Provider + " error"
+	if e.StatusCode > 0 {
+		msg += " (" + string(rune(e.StatusCode)) + ")"
+	}
+	return msg + ": " + e.Message
+}
+
+// Unwrap returns the underlying error.
+func (e *ProviderError) Unwrap() error {
+	return e.Cause
+}
+
+// ToolError represents an error executing a tool.
+type ToolError struct {
+	// ToolName is the name of the tool that failed.
+	ToolName string
+
+	// Cause is the underlying error from the tool handler.
+	Cause error
+}
+
+// Error implements the error interface.
+func (e *ToolError) Error() string {
+	return "tool " + e.ToolName + " failed: " + e.Cause.Error()
+}
+
+// Unwrap returns the underlying error.
+func (e *ToolError) Unwrap() error {
+	return e.Cause
 }

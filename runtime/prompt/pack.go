@@ -7,6 +7,9 @@ import (
 	"time"
 )
 
+// PromptPackSchemaURL is the JSON Schema URL for validating PromptPack files
+const PromptPackSchemaURL = "https://promptpack.org/schema/latest/promptpack.schema.json"
+
 // Loader interface abstracts the registry for testing
 type Loader interface {
 	LoadConfig(taskType string) (*Config, error)
@@ -62,6 +65,9 @@ func (w realFileWriter) WriteFile(path string, data []byte, perm os.FileMode) er
 //
 // See sdk/pack.go for the corresponding SDK-side documentation.
 type Pack struct {
+	// Schema reference for validation
+	Schema string `json:"$schema,omitempty"` // JSON Schema URL for validation
+
 	// Identity
 	ID          string `json:"id"`          // Pack ID (e.g., "customer-support")
 	Name        string `json:"name"`        // Human-readable name
@@ -416,6 +422,7 @@ func ConvertToolToPackTool(name, description string, inputSchema json.RawMessage
 // createEmptyPack creates a new empty pack structure
 func (pc *PackCompiler) createEmptyPack(packID string, promptCount int) *Pack {
 	return &Pack{
+		Schema:      PromptPackSchemaURL,
 		ID:          packID,
 		Name:        packID,
 		Version:     "v1.0.0",
@@ -445,13 +452,22 @@ func (pc *PackCompiler) addPromptToPack(pack *Pack, taskType string) error {
 
 // createPackPrompt creates a PackPrompt from a Config
 func (pc *PackCompiler) createPackPrompt(config *Config) *PackPrompt {
+	// Ensure all variables have a type (default to "string" per PromptPack spec)
+	variables := make([]VariableMetadata, len(config.Spec.Variables))
+	for i, v := range config.Spec.Variables {
+		variables[i] = v
+		if variables[i].Type == "" {
+			variables[i].Type = "string"
+		}
+	}
+
 	return &PackPrompt{
 		ID:             config.Spec.TaskType,
 		Name:           config.Metadata.Name,
 		Description:    config.Spec.Description,
 		Version:        config.Spec.Version,
 		SystemTemplate: config.Spec.SystemTemplate,
-		Variables:      config.Spec.Variables,
+		Variables:      variables,
 		Tools:          config.Spec.AllowedTools,
 		Validators:     config.Spec.Validators,
 		MediaConfig:    config.Spec.MediaConfig,
