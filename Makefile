@@ -122,6 +122,67 @@ demo-env: ## Create .env.demo template for API keys
 		echo "Created .env.demo - add your API keys"; \
 	fi
 
+demo-vhs: ## Record all VHS demo GIFs locally (requires: brew install vhs)
+	@echo "Recording VHS demo GIFs..."
+	@mkdir -p recordings/gifs
+	@command -v vhs >/dev/null 2>&1 || { echo "VHS not found. Install with: brew install vhs"; exit 1; }
+	@for tape in recordings/tapes/*.tape; do \
+		echo "Recording $$tape..."; \
+		vhs "$$tape"; \
+	done
+	@echo "GIFs saved to recordings/gifs/"
+
+demo-vhs-single: ## Record a single VHS tape locally (usage: make demo-vhs-single TAPE=01-install)
+	@command -v vhs >/dev/null 2>&1 || { echo "VHS not found. Install with: brew install vhs"; exit 1; }
+	@mkdir -p recordings/gifs
+	@if [ -z "$(TAPE)" ]; then \
+		echo "Usage: make demo-vhs-single TAPE=01-install"; \
+		echo "Available tapes:"; \
+		ls -1 recordings/tapes/*.tape 2>/dev/null | xargs -I{} basename {} .tape; \
+		exit 1; \
+	fi
+	@vhs recordings/tapes/$(TAPE).tape
+	@echo "GIF saved to recordings/gifs/"
+
+demo-vhs-docker: ## Record all VHS demo GIFs in Docker (clean environment)
+	@echo "Recording VHS demo GIFs in Docker..."
+	@mkdir -p recordings/gifs
+	@if [ -f .env.demo ]; then \
+		docker run --rm \
+			-v $(PWD)/examples:/demo \
+			-v $(PWD)/recordings:/recordings \
+			--env-file .env.demo \
+			promptarena-demo record-all; \
+	else \
+		docker run --rm \
+			-v $(PWD)/examples:/demo \
+			-v $(PWD)/recordings:/recordings \
+			promptarena-demo record-all; \
+	fi
+	@echo "GIFs saved to recordings/gifs/"
+
+demo-vhs-docker-single: ## Record a single VHS tape in Docker (usage: make demo-vhs-docker-single TAPE=01-install)
+	@mkdir -p recordings/gifs
+	@if [ -z "$(TAPE)" ]; then \
+		echo "Usage: make demo-vhs-docker-single TAPE=01-install"; \
+		echo "Available tapes:"; \
+		ls -1 recordings/tapes/*.tape 2>/dev/null | xargs -I{} basename {} .tape; \
+		exit 1; \
+	fi
+	@if [ -f .env.demo ]; then \
+		docker run --rm \
+			-v $(PWD)/examples:/demo \
+			-v $(PWD)/recordings:/recordings \
+			--env-file .env.demo \
+			promptarena-demo vhs /recordings/tapes/$(TAPE).tape; \
+	else \
+		docker run --rm \
+			-v $(PWD)/examples:/demo \
+			-v $(PWD)/recordings:/recordings \
+			promptarena-demo vhs /recordings/tapes/$(TAPE).tape; \
+	fi
+	@echo "GIF saved to recordings/gifs/"
+
 test: ## Run all tests
 	@echo "Testing runtime..."
 	@cd runtime && go test -v ./...

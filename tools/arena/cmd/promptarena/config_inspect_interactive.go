@@ -78,7 +78,7 @@ func init() {
 
 	configInspectCmd.Flags().StringP("config", "c", "config.arena.yaml", "Configuration file path")
 	configInspectCmd.Flags().StringVar(&inspectFormat, "format", "text", "Output format: text, json")
-	configInspectCmd.Flags().BoolVar(&inspectVerbose, "verbose", false,
+	configInspectCmd.Flags().BoolVarP(&inspectVerbose, "verbose", "v", false,
 		"Show detailed information including file contents")
 	configInspectCmd.Flags().BoolVar(&inspectStats, "stats", false, "Show cache statistics")
 	configInspectCmd.Flags().StringVar(&inspectSection, "section", "",

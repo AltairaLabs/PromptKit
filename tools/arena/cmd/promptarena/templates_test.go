@@ -4,10 +4,57 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 
 	"github.com/AltairaLabs/PromptKit/tools/arena/templates"
 )
+
+// TestTemplateCommandDefinitions verifies that all template commands have correct metadata.
+// This ensures command names, aliases, and descriptions are properly configured.
+func TestTemplateCommandDefinitions(t *testing.T) {
+	tests := []struct {
+		name    string
+		cmd     interface{ Use() string }
+		use     string
+		short   string
+		aliases []string
+	}{
+		{"templatesCmd", cmdWrapper{templatesCmd}, "templates", "Manage PromptArena templates (list, fetch, render)", []string{"template"}},
+		{"templatesListCmd", cmdWrapper{templatesListCmd}, "list", "List templates from an index", nil},
+		{"templatesFetchCmd", cmdWrapper{templatesFetchCmd}, "fetch", "Fetch a template from an index into cache", nil},
+		{"templatesUpdateCmd", cmdWrapper{templatesUpdateCmd}, "update", "Update all templates from an index into cache", nil},
+		{"templatesRenderCmd", cmdWrapper{templatesRenderCmd}, "render", "Render a cached template to an output directory (dry-run only)", nil},
+		{"templatesRepoCmd", cmdWrapper{templatesRepoCmd}, "repo", "Manage template repositories", nil},
+		{"templatesRepoListCmd", cmdWrapper{templatesRepoListCmd}, "list", "List configured template repositories", nil},
+		{"templatesRepoAddCmd", cmdWrapper{templatesRepoAddCmd}, "add", "Add or update a template repository", nil},
+		{"templatesRepoRemoveCmd", cmdWrapper{templatesRepoRemoveCmd}, "remove", "Remove a template repository", nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := tt.cmd.(cmdWrapper)
+			if w.cmd.Use != tt.use {
+				t.Errorf("Use = %q, want %q", w.cmd.Use, tt.use)
+			}
+			if w.cmd.Short != tt.short {
+				t.Errorf("Short = %q, want %q", w.cmd.Short, tt.short)
+			}
+			if !reflect.DeepEqual(w.cmd.Aliases, tt.aliases) {
+				t.Errorf("Aliases = %v, want %v", w.cmd.Aliases, tt.aliases)
+			}
+		})
+	}
+}
+
+// cmdWrapper wraps cobra.Command to satisfy interface in table test
+type cmdWrapper struct {
+	cmd *cobra.Command
+}
+
+func (c cmdWrapper) Use() string { return c.cmd.Use }
 
 func TestSplitTemplateRef_Additional(t *testing.T) {
 	repo, name := templates.SplitTemplateRef("community/basic-app")
@@ -177,5 +224,187 @@ func TestResolveIndexPath_CustomNamePassthrough(t *testing.T) {
 	}
 	if repoName != "myrepo" || path != "https://example.com/index.yaml" {
 		t.Fatalf("unexpected: repo=%s path=%s", repoName, path)
+	}
+}
+
+func TestRunTemplatesRepoAdd_MissingFlags(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "repos.yaml")
+	repoConfigPath = cfgPath
+	cfg := &templates.RepoConfig{}
+	if err := cfg.Save(cfgPath); err != nil {
+		t.Fatalf("save cfg: %v", err)
+	}
+
+	// Test missing --name
+	repoName = ""
+	repoURL = "https://example.com"
+	err := runTemplatesRepoAdd(templatesRepoAddCmd, nil)
+	if err == nil || err.Error() != "--name and --url are required" {
+		t.Fatalf("expected --name and --url error, got: %v", err)
+	}
+
+	// Test missing --url
+	repoName = "test"
+	repoURL = ""
+	err = runTemplatesRepoAdd(templatesRepoAddCmd, nil)
+	if err == nil || err.Error() != "--name and --url are required" {
+		t.Fatalf("expected --name and --url error, got: %v", err)
+	}
+}
+
+func TestRunTemplatesRepoRemove_MissingName(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "repos.yaml")
+	repoConfigPath = cfgPath
+	cfg := &templates.RepoConfig{}
+	if err := cfg.Save(cfgPath); err != nil {
+		t.Fatalf("save cfg: %v", err)
+	}
+
+	repoName = ""
+	err := runTemplatesRepoRemove(templatesRepoRemoveCmd, nil)
+	if err == nil || err.Error() != "--name is required" {
+		t.Fatalf("expected --name error, got: %v", err)
+	}
+}
+
+func TestRunTemplatesRepoRemove_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "repos.yaml")
+	repoConfigPath = cfgPath
+	cfg := &templates.RepoConfig{}
+	if err := cfg.Save(cfgPath); err != nil {
+		t.Fatalf("save cfg: %v", err)
+	}
+
+	repoName = "nonexistent"
+	err := runTemplatesRepoRemove(templatesRepoRemoveCmd, nil)
+	if err == nil || err.Error() != "repo nonexistent not found" {
+		t.Fatalf("expected repo not found error, got: %v", err)
+	}
+}
+
+func TestRunTemplatesRender_MissingFlags(t *testing.T) {
+	// Test missing both --template and --file
+	templateFile = ""
+	templateName = ""
+	err := runTemplatesRender(templatesRenderCmd, nil)
+	if err == nil || err.Error() != "either --template or --file is required" {
+		t.Fatalf("expected either --template or --file error, got: %v", err)
+	}
+
+	// Test missing --version when using --template
+	templateFile = ""
+	templateName = "test"
+	templateVersion = ""
+	err = runTemplatesRender(templatesRenderCmd, nil)
+	if err == nil || err.Error() != "--version is required when rendering from cache" {
+		t.Fatalf("expected --version error, got: %v", err)
+	}
+}
+
+func TestRunTemplatesRepoList_WithRepos(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "repos.yaml")
+	repoConfigPath = cfgPath
+	cfg := &templates.RepoConfig{}
+	cfg.Add("repo1", "https://example.com/1")
+	cfg.Add("repo2", "https://example.com/2")
+	if err := cfg.Save(cfgPath); err != nil {
+		t.Fatalf("save cfg: %v", err)
+	}
+
+	// Execute through the command to get output
+	buf := new(strings.Builder)
+	templatesRepoListCmd.SetOut(buf)
+	err := runTemplatesRepoList(templatesRepoListCmd, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "repo1") || !strings.Contains(out, "repo2") {
+		t.Fatalf("expected repos in output, got: %s", out)
+	}
+}
+
+func TestRunTemplatesRepoAdd_Success(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "repos.yaml")
+	repoConfigPath = cfgPath
+	cfg := &templates.RepoConfig{}
+	if err := cfg.Save(cfgPath); err != nil {
+		t.Fatalf("save cfg: %v", err)
+	}
+
+	repoName = "newrepo"
+	repoURL = "https://example.com/index.yaml"
+	buf := new(strings.Builder)
+	templatesRepoAddCmd.SetOut(buf)
+	err := runTemplatesRepoAdd(templatesRepoAddCmd, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(buf.String(), "Added repo newrepo") {
+		t.Fatalf("expected confirmation, got: %s", buf.String())
+	}
+}
+
+func TestRunTemplatesRepoRemove_Success(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "repos.yaml")
+	repoConfigPath = cfgPath
+	cfg := &templates.RepoConfig{}
+	cfg.Add("todelete", "https://example.com")
+	if err := cfg.Save(cfgPath); err != nil {
+		t.Fatalf("save cfg: %v", err)
+	}
+
+	repoName = "todelete"
+	buf := new(strings.Builder)
+	templatesRepoRemoveCmd.SetOut(buf)
+	err := runTemplatesRepoRemove(templatesRepoRemoveCmd, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(buf.String(), "Removed repo todelete") {
+		t.Fatalf("expected confirmation, got: %s", buf.String())
+	}
+}
+
+func TestRunTemplatesList_EmptyRepoName(t *testing.T) {
+	// Test with empty templateIndex - this should use DefaultRepoName
+	dir := t.TempDir()
+	indexPath := filepath.Join(dir, "index.yaml")
+	indexContent := `apiVersion: promptkit.altairalabs.ai/v1
+kind: TemplateIndex
+spec:
+  entries:
+    - name: demo
+      version: "1.0.0"
+      description: "Test demo"
+      source: ./demo.yaml`
+	if err := os.WriteFile(indexPath, []byte(indexContent), 0o600); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+
+	cfgPath := filepath.Join(dir, "repos.yaml")
+	repoConfigPath = cfgPath
+	cfg := &templates.RepoConfig{}
+	cfg.Add(templates.DefaultRepoName, indexPath) // Use file path directly
+	if err := cfg.Save(cfgPath); err != nil {
+		t.Fatalf("save cfg: %v", err)
+	}
+
+	templateIndex = "" // Empty - should use default
+	buf := new(strings.Builder)
+	templatesListCmd.SetOut(buf)
+	err := runTemplatesList(templatesListCmd, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "demo") {
+		t.Fatalf("expected demo in output, got: %s", out)
 	}
 }

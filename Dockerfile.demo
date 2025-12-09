@@ -1,46 +1,74 @@
-# Dockerfile for recording asciinema demos with promptarena
+# Dockerfile for recording demos with promptarena
+# Supports: VHS (GIF), asciinema (.cast)
+#
 # Usage:
+#   make demo-build          # Build container
+#   make demo-run            # Interactive shell
+#   make demo-vhs-docker     # Record all VHS tapes
+#
+# Or manually:
 #   docker build -t promptarena-demo -f Dockerfile.demo .
 #   docker run -it --rm \
-#     -v $(pwd)/examples/iot-maintenance-demo:/demo \
+#     -v $(pwd)/examples:/demo \
 #     -v $(pwd)/recordings:/recordings \
 #     --env-file .env.demo \
 #     promptarena-demo
 #
-# Create .env.demo with your API keys (gitignored):
-#   OPENAI_API_KEY=sk-...
-#   ANTHROPIC_API_KEY=sk-ant-...
-#
 # Inside container:
-#   asciinema rec /recordings/iot-demo.cast
-#   # run your demo commands...
-#   exit  # to stop recording
+#   vhs /recordings/tapes/01-install.tape   # Record single tape
+#   record-all                               # Record all tapes
+#   asciinema rec /recordings/my-demo.cast  # Interactive recording
 #
 # NOTE: API keys are passed via --env-file and never appear in recordings
-# because asciinema only captures terminal output, not environment variables.
 
 FROM golang:1.25-alpine
 
-# Install dependencies including Node.js/npm for showing install steps
+# Install dependencies, fonts, and VHS in a single layer
+# - System packages and tools
+# - JetBrains Mono Nerd Font for terminal icons
+# - Noto Color Emoji for full emoji support in Chromium
+# - VHS (Charmbracelet) for GIF recording
 RUN apk add --no-cache \
     bash \
     bash-completion \
+    chromium \
     curl \
+    ffmpeg \
+    font-jetbrains-mono \
+    font-noto-emoji \
+    fontconfig \
     git \
     ncurses \
     nodejs \
     npm \
     py3-pip \
     python3 \
-    && pip3 install --break-system-packages asciinema
+    ttyd \
+    && pip3 install --break-system-packages asciinema \
+    && fc-cache -f \
+    # Install JetBrains Mono Nerd Font for icons in terminal recordings
+    && mkdir -p /usr/share/fonts/nerd-fonts \
+    && curl -fsSL https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/JetBrainsMono.tar.xz \
+    | tar -xJ -C /usr/share/fonts/nerd-fonts \
+    && curl -fsSL https://github.com/googlefonts/noto-emoji/raw/main/fonts/NotoColorEmoji.ttf \
+    -o /usr/share/fonts/nerd-fonts/NotoColorEmoji.ttf \
+    && fc-cache -f \
+    # Install VHS (Charmbracelet) for GIF recording
+    && curl -fsSL https://github.com/charmbracelet/vhs/releases/download/v0.10.0/vhs_0.10.0_Linux_x86_64.tar.gz \
+    | tar -xz --strip-components=1 -C /usr/local/bin vhs_0.10.0_Linux_x86_64/vhs \
+    && chmod +x /usr/local/bin/vhs
 
-# Set clean, minimal prompt
-ENV PS1='\[\e[35m\]promptkit\[\e[0m\]:\[\e[32m\]\w\[\e[0m\]$ '
+# Set clean, minimal prompt (just colored $)
+ENV PS1='\[\e[35m\]$\[\e[0m\] '
 ENV TERM=xterm-256color
 ENV COLORTERM=truecolor
 
 # Disable shell history for clean recordings
 ENV HISTFILE=/dev/null
+
+# VHS uses chromium for rendering
+ENV CHROME_PATH=/usr/bin/chromium-browser
+ENV VHS_NO_SANDBOX=true
 
 # Copy promptarena binary (built for linux/amd64)
 # Build with: GOOS=linux GOARCH=amd64 go build -o bin/promptarena-linux ./tools/arena
@@ -54,13 +82,14 @@ COPY bin/packc-linux /usr/local/bin/packc
 # - Disable terminal bell (audible and visible)
 # - Create env-safe wrapper to filter API keys from output
 # - Configure bash completions for login shells
+# - Add record-all helper script for VHS
 # Note: Alpine sources /etc/profile.d/*.sh for login shells
 RUN echo 'set bell-style none' >> /etc/inputrc && \
     echo '#!/bin/bash\n/usr/bin/env "$@" | grep -v "_API_KEY\|_SECRET\|_TOKEN"' > /usr/local/bin/env-safe && \
     chmod +x /usr/local/bin/env-safe && \
     chmod +x /usr/local/bin/promptarena && \
     chmod +x /usr/local/bin/packc && \
-    mkdir -p /etc/bash_completion.d /recordings && \
+    mkdir -p /etc/bash_completion.d /recordings/gifs && \
     promptarena completion bash > /etc/bash_completion.d/promptarena && \
     packc completion bash > /etc/bash_completion.d/packc && \
     echo '#!/bin/bash' > /etc/profile.d/completions.sh && \
@@ -69,7 +98,15 @@ RUN echo 'set bell-style none' >> /etc/inputrc && \
         >> /etc/profile.d/completions.sh && \
     echo 'source /etc/bash_completion.d/promptarena' >> /etc/profile.d/completions.sh && \
     echo 'source /etc/bash_completion.d/packc' >> /etc/profile.d/completions.sh && \
-    chmod +x /etc/profile.d/completions.sh
+    chmod +x /etc/profile.d/completions.sh && \
+    echo '#!/bin/bash' > /usr/local/bin/record-all && \
+    echo 'echo "Recording all VHS tapes..."' >> /usr/local/bin/record-all && \
+    echo 'for tape in /recordings/tapes/*.tape; do' >> /usr/local/bin/record-all && \
+    echo '  echo "Recording $tape..."' >> /usr/local/bin/record-all && \
+    echo '  vhs "$tape" || echo "Failed: $tape"' >> /usr/local/bin/record-all && \
+    echo 'done' >> /usr/local/bin/record-all && \
+    echo 'echo "Done! GIFs saved to /recordings/gifs/"' >> /usr/local/bin/record-all && \
+    chmod +x /usr/local/bin/record-all
 
 # Copy local Go modules so SDK demos use local code instead of fetching from internet
 COPY go.work /promptkit/go.work

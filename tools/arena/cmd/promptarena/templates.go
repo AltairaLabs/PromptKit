@@ -36,178 +36,204 @@ const (
 )
 
 var templatesCmd = &cobra.Command{
-	Use:   "templates",
-	Short: "Manage PromptArena templates (list, fetch, render)",
+	Use:     "templates",
+	Aliases: []string{"template"},
+	Short:   "Manage PromptArena templates (list, fetch, render)",
 }
 
 var templatesListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List templates from an index",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := templates.LoadRepoConfig(repoConfigPath)
-		if err != nil {
-			return err
-		}
-		repo := templates.ResolveIndex(templateIndex, cfg)
-		repoNameResolved := templateIndex
-		if repoNameResolved == "" {
-			repoNameResolved = templates.DefaultRepoName
-		}
+	RunE:  runTemplatesList,
+}
 
-		idx, err := templates.LoadIndex(repo.URL)
-		if err != nil {
-			return err
-		}
-		w := tabwriter.NewWriter(cmd.OutOrStdout(), tabMinWidth, tabWidth, tabPadding, ' ', 0)
-		if _, err := fmt.Fprintln(w, "REPO\tTEMPLATE\tVERSION\tDESCRIPTION"); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintln(w, "----\t--------\t-------\t-----------"); err != nil {
-			return err
-		}
-		repoPrefix := "-"
+func runTemplatesList(cmd *cobra.Command, _ []string) error {
+	cfg, err := templates.LoadRepoConfig(repoConfigPath)
+	if err != nil {
+		return err
+	}
+	repo := templates.ResolveIndex(templateIndex, cfg)
+	repoNameResolved := templateIndex
+	if repoNameResolved == "" {
+		repoNameResolved = templates.DefaultRepoName
+	}
+
+	idx, err := templates.LoadIndex(repo.URL)
+	if err != nil {
+		return err
+	}
+	w := tabwriter.NewWriter(cmd.OutOrStdout(), tabMinWidth, tabWidth, tabPadding, ' ', 0)
+	if _, err := fmt.Fprintln(w, "REPO\tTEMPLATE\tVERSION\tDESCRIPTION"); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(w, "----\t--------\t-------\t-----------"); err != nil {
+		return err
+	}
+	repoPrefix := "-"
+	if repoNameResolved != "" {
+		repoPrefix = repoNameResolved
+	}
+	for i := range idx.Spec.Entries {
+		e := &idx.Spec.Entries[i]
+		name := e.Name
 		if repoNameResolved != "" {
-			repoPrefix = repoNameResolved
+			name = fmt.Sprintf("%s/%s", repoNameResolved, e.Name)
 		}
-		for _, e := range idx.Spec.Entries {
-			name := e.Name
-			if repoNameResolved != "" {
-				name = fmt.Sprintf("%s/%s", repoNameResolved, e.Name)
-			}
-			if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", repoPrefix, name, e.Version, e.Description); err != nil {
-				return err
-			}
+		if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", repoPrefix, name, e.Version, e.Description); err != nil {
+			return err
 		}
-		return w.Flush()
-	},
+	}
+	return w.Flush()
 }
 
 var templatesFetchCmd = &cobra.Command{
 	Use:   "fetch",
 	Short: "Fetch a template from an index into cache",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := templates.LoadRepoConfig(repoConfigPath)
-		if err != nil {
-			return err
-		}
-		resolver := templates.NewRepoResolver(cfg)
-		ref, err := resolver.ParseTemplateRef(templateName, templateIndex)
-		if err != nil {
-			return err
-		}
-		idx, err := templates.LoadIndex(ref.Repository.URL)
-		if err != nil {
-			return err
-		}
-		entry, err := idx.FindEntry(ref.TemplateName, templateVersion)
-		if err != nil {
-			return err
-		}
-		path, err := templates.FetchTemplate(entry, templateCache, ref.Repository.URL, ref.RepoName)
-		if err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Cached %s@%s at %s\n", entry.Name, entry.Version, path); err != nil {
-			return err
-		}
-		return nil
-	},
+	RunE:  runTemplatesFetch,
+}
+
+func runTemplatesFetch(cmd *cobra.Command, _ []string) error {
+	cfg, err := templates.LoadRepoConfig(repoConfigPath)
+	if err != nil {
+		return err
+	}
+	resolver := templates.NewRepoResolver(cfg)
+	ref, err := resolver.ParseTemplateRef(templateName, templateIndex)
+	if err != nil {
+		return err
+	}
+	idx, err := templates.LoadIndex(ref.Repository.URL)
+	if err != nil {
+		return err
+	}
+	entry, err := idx.FindEntry(ref.TemplateName, templateVersion)
+	if err != nil {
+		return err
+	}
+	path, err := templates.FetchTemplate(entry, templateCache, ref.Repository.URL, ref.RepoName)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Cached %s@%s at %s\n", entry.Name, entry.Version, path); err != nil {
+		return err
+	}
+	return nil
 }
 
 var templatesUpdateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Update all templates from an index into cache",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := templates.LoadRepoConfig(repoConfigPath)
-		if err != nil {
-			return err
+	RunE:  runTemplatesUpdate,
+}
+
+func runTemplatesUpdate(cmd *cobra.Command, _ []string) error {
+	cfg, err := templates.LoadRepoConfig(repoConfigPath)
+	if err != nil {
+		return err
+	}
+	repo := templates.ResolveIndex(templateIndex, cfg)
+	updateRepoName := templateIndex
+	if updateRepoName == "" {
+		updateRepoName = templates.DefaultRepoName
+	}
+	idx, err := templates.LoadIndex(repo.URL)
+	if err != nil {
+		return err
+	}
+	seen := 0
+	for i := range idx.Spec.Entries {
+		entry := &idx.Spec.Entries[i]
+		if _, err := templates.FetchTemplate(entry, templateCache, repo.URL, updateRepoName); err != nil {
+			return fmt.Errorf("fetch %s@%s: %w", entry.Name, entry.Version, err)
 		}
-		repo := templates.ResolveIndex(templateIndex, cfg)
-		updateRepoName := templateIndex
-		if updateRepoName == "" {
-			updateRepoName = templates.DefaultRepoName
-		}
-		idx, err := templates.LoadIndex(repo.URL)
-		if err != nil {
-			return err
-		}
-		seen := 0
-		for i := range idx.Spec.Entries {
-			entry := &idx.Spec.Entries[i]
-			if _, err := templates.FetchTemplate(entry, templateCache, repo.URL, updateRepoName); err != nil {
-				return fmt.Errorf("fetch %s@%s: %w", entry.Name, entry.Version, err)
-			}
-			seen++
-		}
-		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Updated %d templates\n", seen); err != nil {
-			return err
-		}
-		return nil
-	},
+		seen++
+	}
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Updated %d templates\n", seen); err != nil {
+		return err
+	}
+	return nil
 }
 
 var templatesRenderCmd = &cobra.Command{
 	Use:   "render",
 	Short: "Render a cached template to an output directory (dry-run only)",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		src := templateFile
-		if src == "" {
-			if templateName == "" {
-				return fmt.Errorf("either --template or --file is required")
-			}
-			if templateVersion == "" {
-				return fmt.Errorf("--version is required when rendering from cache")
-			}
-			cfg, err := templates.LoadRepoConfig(repoConfigPath)
-			if err != nil {
-				return err
-			}
-			resolver := templates.NewRepoResolver(cfg)
-			ref, err := resolver.ParseTemplateRef(templateName+"@"+templateVersion, templateIndex)
-			if err != nil {
-				return err
-			}
-			src = resolver.GetCachePath(templateCache, ref)
-			templateName = ref.TemplateName // Update for error message
-		}
-		pkg, err := templates.LoadTemplatePackage(src)
+	RunE:  runTemplatesRender,
+}
+
+func resolveTemplateSource() (string, error) {
+	if templateFile != "" {
+		return templateFile, nil
+	}
+	if templateName == "" {
+		return "", fmt.Errorf("either --template or --file is required")
+	}
+	if templateVersion == "" {
+		return "", fmt.Errorf("--version is required when rendering from cache")
+	}
+	cfg, err := templates.LoadRepoConfig(repoConfigPath)
+	if err != nil {
+		return "", err
+	}
+	resolver := templates.NewRepoResolver(cfg)
+	ref, err := resolver.ParseTemplateRef(templateName+"@"+templateVersion, templateIndex)
+	if err != nil {
+		return "", err
+	}
+	templateName = ref.TemplateName // Update for error message
+	return resolver.GetCachePath(templateCache, ref), nil
+}
+
+func wrapCacheMissError(src string, err error) error {
+	if templateFile != "" || !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return fmt.Errorf(
+		"template %s@%s not found in cache (%s). "+
+			"Run `promptarena templates fetch --template %s --version %s` first, "+
+			"or use --file to render a local template",
+		templateName, templateVersion, src, templateName, templateVersion)
+}
+
+func resolveOutputDir() (string, error) {
+	if outputDir != "" {
+		return outputDir, nil
+	}
+	tmp, err := os.MkdirTemp("", "promptarena-template-*")
+	if err != nil {
+		return "", fmt.Errorf("create temp dir: %w", err)
+	}
+	return tmp, nil
+}
+
+func runTemplatesRender(cmd *cobra.Command, _ []string) error {
+	src, err := resolveTemplateSource()
+	if err != nil {
+		return err
+	}
+	pkg, err := templates.LoadTemplatePackage(src)
+	if err != nil {
+		return wrapCacheMissError(src, err)
+	}
+	fileVars, err := loadValuesFile(valuesFile)
+	if err != nil {
+		return err
+	}
+	templateValues = mergeValues(fileVars, templateValues)
+	if promptMissing {
+		templateValues, err = promptForMissing(templateValues, pkg)
 		if err != nil {
-			// When rendering from cache and the template is missing, provide a helpful hint.
-			if templateFile == "" && errors.Is(err, os.ErrNotExist) {
-				msg := "template %s@%s not found in cache (%s). " +
-					"Run `promptarena templates fetch --template %s --version %s` first, " +
-					"or use --file to render a local template"
-				return fmt.Errorf(msg, templateName, templateVersion, src, templateName, templateVersion)
-			}
 			return err
 		}
-		fileVars, err := loadValuesFile(valuesFile)
-		if err != nil {
-			return err
-		}
-		templateValues = mergeValues(fileVars, templateValues)
-		if promptMissing {
-			templateValues, err = promptForMissing(templateValues, pkg)
-			if err != nil {
-				return err
-			}
-		}
-		out := outputDir
-		if out == "" {
-			tmp, err := os.MkdirTemp("", "promptarena-template-*")
-			if err != nil {
-				return fmt.Errorf("create temp dir: %w", err)
-			}
-			out = tmp
-		}
-		if err := templates.RenderDryRun(pkg, templateValues, out); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Rendered to %s\n", out); err != nil {
-			return err
-		}
-		return nil
-	},
+	}
+	out, err := resolveOutputDir()
+	if err != nil {
+		return err
+	}
+	if renderErr := templates.RenderDryRun(pkg, templateValues, out); renderErr != nil {
+		return renderErr
+	}
+	_, err = fmt.Fprintf(cmd.OutOrStdout(), "Rendered to %s\n", out)
+	return err
 }
 
 var templatesRepoCmd = &cobra.Command{
@@ -218,72 +244,78 @@ var templatesRepoCmd = &cobra.Command{
 var templatesRepoListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List configured template repositories",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := templates.LoadRepoConfig(repoConfigPath)
-		if err != nil {
+	RunE:  runTemplatesRepoList,
+}
+
+func runTemplatesRepoList(cmd *cobra.Command, _ []string) error {
+	cfg, err := templates.LoadRepoConfig(repoConfigPath)
+	if err != nil {
+		return err
+	}
+	w := tabwriter.NewWriter(cmd.OutOrStdout(), tabMinWidth, tabWidth, tabPadding, ' ', 0)
+	if _, err := fmt.Fprintln(w, "REPO\tTYPE\tURL"); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(w, "----\t----\t---"); err != nil {
+		return err
+	}
+	for name, repo := range cfg.Repos {
+		if _, err := fmt.Fprintf(w, "%s\t%s\t%s\n", name, repo.Type, repo.URL); err != nil {
 			return err
 		}
-		w := tabwriter.NewWriter(cmd.OutOrStdout(), tabMinWidth, tabWidth, tabPadding, ' ', 0)
-		if _, err := fmt.Fprintln(w, "REPO\tTYPE\tURL"); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintln(w, "----\t----\t---"); err != nil {
-			return err
-		}
-		for name, repo := range cfg.Repos {
-			if _, err := fmt.Fprintf(w, "%s\t%s\t%s\n", name, repo.Type, repo.URL); err != nil {
-				return err
-			}
-		}
-		return w.Flush()
-	},
+	}
+	return w.Flush()
 }
 
 var templatesRepoAddCmd = &cobra.Command{
 	Use:   "add",
 	Short: "Add or update a template repository",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if repoName == "" || repoURL == "" {
-			return fmt.Errorf("--name and --url are required")
-		}
-		cfg, err := templates.LoadRepoConfig(repoConfigPath)
-		if err != nil {
-			return err
-		}
-		cfg.Add(repoName, repoURL)
-		if err := cfg.Save(repoConfigPath); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Added repo %s -> %s\n", repoName, repoURL); err != nil {
-			return err
-		}
-		return nil
-	},
+	RunE:  runTemplatesRepoAdd,
+}
+
+func runTemplatesRepoAdd(cmd *cobra.Command, _ []string) error {
+	if repoName == "" || repoURL == "" {
+		return fmt.Errorf("--name and --url are required")
+	}
+	cfg, err := templates.LoadRepoConfig(repoConfigPath)
+	if err != nil {
+		return err
+	}
+	cfg.Add(repoName, repoURL)
+	if err := cfg.Save(repoConfigPath); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Added repo %s -> %s\n", repoName, repoURL); err != nil {
+		return err
+	}
+	return nil
 }
 
 var templatesRepoRemoveCmd = &cobra.Command{
 	Use:   "remove",
 	Short: "Remove a template repository",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if repoName == "" {
-			return fmt.Errorf("--name is required")
-		}
-		cfg, err := templates.LoadRepoConfig(repoConfigPath)
-		if err != nil {
-			return err
-		}
-		if _, ok := cfg.Repos[repoName]; !ok {
-			return fmt.Errorf("repo %s not found", repoName)
-		}
-		cfg.Remove(repoName)
-		if err := cfg.Save(repoConfigPath); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Removed repo %s\n", repoName); err != nil {
-			return err
-		}
-		return nil
-	},
+	RunE:  runTemplatesRepoRemove,
+}
+
+func runTemplatesRepoRemove(cmd *cobra.Command, _ []string) error {
+	if repoName == "" {
+		return fmt.Errorf("--name is required")
+	}
+	cfg, err := templates.LoadRepoConfig(repoConfigPath)
+	if err != nil {
+		return err
+	}
+	if _, ok := cfg.Repos[repoName]; !ok {
+		return fmt.Errorf("repo %s not found", repoName)
+	}
+	cfg.Remove(repoName)
+	if err := cfg.Save(repoConfigPath); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Removed repo %s\n", repoName); err != nil {
+		return err
+	}
+	return nil
 }
 
 //nolint:gochecknoinits // cobra command registration
