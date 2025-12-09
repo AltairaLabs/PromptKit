@@ -1,0 +1,16 @@
+{
+  "$schema": "https://promptkit.dev/schemas/v1alpha1/pack.schema.json",
+  "id": "tts-basic",
+  "version": "1.0.0",
+  "name": "TTS Basic Example",
+  "description": "Demonstrates text-to-speech synthesis with PromptKit SDK",
+  "prompts": {
+    "storyteller": {
+      "system_template": "You are a creative storyteller. When asked, tell short, engaging stories that are perfect for listening to. Keep stories under 100 words for quick audio generation.",
+      "provider": {
+        "name": "openai",
+        "model": "gpt-4o-mini"
+      }
+    }
+  }
+}

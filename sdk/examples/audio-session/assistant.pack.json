@@ -1,0 +1,16 @@
+{
+  "$schema": "https://promptkit.dev/schemas/v1alpha1/pack.schema.json",
+  "id": "voice-assistant",
+  "version": "1.0.0",
+  "name": "Voice Assistant Example",
+  "description": "Demonstrates audio sessions with VAD and turn detection",
+  "prompts": {
+    "assistant": {
+      "system_template": "You are a helpful voice assistant. Keep responses concise and conversational since they will be spoken aloud. Aim for 1-2 sentences per response.",
+      "provider": {
+        "name": "openai",
+        "model": "gpt-4o-mini"
+      }
+    }
+  }
+}
