@@ -1,0 +1,77 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "variables-demo",
+  "name": "Variables Demo",
+  "version": "1.0.0",
+  "description": "Demonstrates dynamic variable providers in PromptKit SDK",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "assistant": {
+      "id": "assistant",
+      "name": "Context-Aware Assistant",
+      "version": "1.0.0",
+      "system_template": "You are a helpful assistant with REAL-TIME context awareness. You have access to live, accurate information that is injected into your context.\n\n## CURRENT TIME (ACCURATE - USE THIS!)\nThe following time values are ACCURATE and REAL. When asked about time, USE THESE VALUES:\n- Current time: {{current_time}}\n- Today's date: {{current_date}} ({{current_weekday}})\n- Current hour: {{current_hour}}:00\n- Month: {{current_month}} {{current_year}}\n\n## User Profile\n- User ID: {{user_id}}\n- Language: {{user_language}}\n- Preferred response style: {{response_style}}\n- Expertise level: {{user_expertise}}\n\n## IMPORTANT INSTRUCTIONS\n1. When asked about time or date, ALWAYS use the values above - they are accurate and real-time.\n2. Respond in the user's preferred style ({{response_style}}).\n3. Tailor explanations to their expertise level ({{user_expertise}}).\n4. Be concise but helpful.",
+      "variables": [
+        {
+          "name": "current_time",
+          "type": "string",
+          "required": false,
+          "default": "unknown",
+          "description": "Current timestamp (from TimeProvider)"
+        },
+        {
+          "name": "current_date",
+          "type": "string",
+          "required": false,
+          "default": "unknown",
+          "description": "Current date (from TimeProvider)"
+        },
+        {
+          "name": "current_weekday",
+          "type": "string",
+          "required": false,
+          "default": "unknown",
+          "description": "Current day of week (from TimeProvider)"
+        },
+        {
+          "name": "current_hour",
+          "type": "string",
+          "required": false,
+          "default": "unknown",
+          "description": "Current hour 0-23 (from TimeProvider)"
+        },
+        {
+          "name": "user_id",
+          "type": "string",
+          "required": false,
+          "default": "anonymous",
+          "description": "User identifier (from UserContextProvider)"
+        },
+        {
+          "name": "user_language",
+          "type": "string",
+          "required": false,
+          "default": "English",
+          "description": "User's preferred language"
+        },
+        {
+          "name": "response_style",
+          "type": "string",
+          "required": false,
+          "default": "professional",
+          "description": "How to style responses"
+        },
+        {
+          "name": "user_expertise",
+          "type": "string",
+          "required": false,
+          "default": "intermediate",
+          "description": "User's expertise level"
+        }
+      ]
+    }
+  }
+}

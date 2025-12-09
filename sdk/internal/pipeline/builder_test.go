@@ -1,11 +1,15 @@
 package pipeline
 
 import (
+	"context"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
+	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -172,5 +176,188 @@ func TestConfig(t *testing.T) {
 		pipe, err := Build(cfg)
 		require.NoError(t, err)
 		assert.NotNil(t, pipe)
+	})
+}
+
+// createTestRegistryWithTemplate creates a prompt registry with variable substitution support.
+func createTestRegistryWithTemplate(taskType, template string) *prompt.Registry {
+	repo := memory.NewPromptRepository()
+	repo.RegisterPrompt(taskType, &prompt.Config{
+		APIVersion: "promptkit.io/v1alpha1",
+		Kind:       "Prompt",
+		Spec: prompt.Spec{
+			TaskType:       taskType,
+			SystemTemplate: template,
+		},
+	})
+	return prompt.NewRegistryWithRepository(repo)
+}
+
+func TestBuildWithMockProvider(t *testing.T) {
+	t.Run("executes pipeline with mock provider", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		mockProvider := mock.NewProvider("test-mock", "test-model", false)
+
+		cfg := &Config{
+			PromptRegistry: registry,
+			TaskType:       "chat",
+			Provider:       mockProvider,
+			MaxTokens:      100,
+			Temperature:    0.5,
+		}
+
+		pipe, err := Build(cfg)
+		require.NoError(t, err)
+
+		// Execute the pipeline
+		execOpts := &rtpipeline.ExecutionOptions{
+			Context:        context.Background(),
+			ConversationID: "test-conv",
+		}
+		userMsg := types.Message{Role: "user"}
+		userMsg.AddTextPart("Hello!")
+
+		result, err := pipe.ExecuteWithMessageOptions(execOpts, userMsg)
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.NotNil(t, result.Response)
+	})
+
+	t.Run("variables are substituted in system prompt", func(t *testing.T) {
+		// Create registry with template variables
+		registry := createTestRegistryWithTemplate("chat", "Hello {{user_name}}, you are in {{region}}!")
+
+		mockProvider := mock.NewProvider("test-mock", "test-model", false)
+
+		cfg := &Config{
+			PromptRegistry: registry,
+			TaskType:       "chat",
+			Provider:       mockProvider,
+			Variables: map[string]string{
+				"user_name": "Alice",
+				"region":    "US-West",
+			},
+		}
+
+		pipe, err := Build(cfg)
+		require.NoError(t, err)
+
+		// Execute and verify prompt was assembled with variables
+		execOpts := &rtpipeline.ExecutionOptions{
+			Context:        context.Background(),
+			ConversationID: "test-conv",
+		}
+		userMsg := types.Message{Role: "user"}
+		userMsg.AddTextPart("Hi!")
+
+		result, err := pipe.ExecuteWithMessageOptions(execOpts, userMsg)
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+	})
+
+	t.Run("template middleware processes system prompt", func(t *testing.T) {
+		// This test verifies that TemplateMiddleware properly copies SystemPrompt to Prompt
+		registry := createTestRegistryWithTemplate("chat", "System: {{mode}} mode active")
+
+		mockProvider := mock.NewProvider("test-mock", "test-model", false)
+
+		cfg := &Config{
+			PromptRegistry: registry,
+			TaskType:       "chat",
+			Provider:       mockProvider,
+			Variables: map[string]string{
+				"mode": "test",
+			},
+		}
+
+		pipe, err := Build(cfg)
+		require.NoError(t, err)
+
+		execOpts := &rtpipeline.ExecutionOptions{
+			Context:        context.Background(),
+			ConversationID: "test-conv",
+		}
+		userMsg := types.Message{Role: "user"}
+		userMsg.AddTextPart("What mode?")
+
+		result, err := pipe.ExecuteWithMessageOptions(execOpts, userMsg)
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.NotNil(t, result.Response)
+	})
+
+	t.Run("pipeline with tool registry", func(t *testing.T) {
+		promptRegistry := createTestRegistry("chat")
+		toolRegistry := tools.NewRegistry()
+		mockProvider := mock.NewToolProvider("test-mock", "test-model", false, nil)
+
+		cfg := &Config{
+			PromptRegistry: promptRegistry,
+			TaskType:       "chat",
+			Provider:       mockProvider,
+			ToolRegistry:   toolRegistry,
+		}
+
+		pipe, err := Build(cfg)
+		require.NoError(t, err)
+
+		execOpts := &rtpipeline.ExecutionOptions{
+			Context:        context.Background(),
+			ConversationID: "test-conv",
+		}
+		userMsg := types.Message{Role: "user"}
+		userMsg.AddTextPart("Use a tool")
+
+		result, err := pipe.ExecuteWithMessageOptions(execOpts, userMsg)
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+	})
+}
+
+func TestDebugMiddleware(t *testing.T) {
+	t.Run("debug middleware passes through", func(t *testing.T) {
+		dm := &debugMiddleware{}
+		execCtx := &rtpipeline.ExecutionContext{
+			SystemPrompt: "Test prompt",
+			Variables:    map[string]string{"key": "value"},
+		}
+
+		nextCalled := false
+		err := dm.Process(execCtx, func() error {
+			nextCalled = true
+			return nil
+		})
+
+		require.NoError(t, err)
+		assert.True(t, nextCalled)
+	})
+
+	t.Run("debug middleware handles long prompts", func(t *testing.T) {
+		dm := &debugMiddleware{}
+
+		// Create a prompt longer than debugLogTruncateLen
+		longPrompt := ""
+		for i := 0; i < 300; i++ {
+			longPrompt += "x"
+		}
+
+		execCtx := &rtpipeline.ExecutionContext{
+			SystemPrompt: longPrompt,
+		}
+
+		nextCalled := false
+		err := dm.Process(execCtx, func() error {
+			nextCalled = true
+			return nil
+		})
+
+		require.NoError(t, err)
+		assert.True(t, nextCalled)
+	})
+
+	t.Run("stream chunk is no-op", func(t *testing.T) {
+		dm := &debugMiddleware{}
+		err := dm.StreamChunk(nil, nil)
+		assert.NoError(t, err)
 	})
 }

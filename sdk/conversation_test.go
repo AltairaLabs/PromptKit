@@ -88,6 +88,95 @@ func TestConversationGetVarNotSet(t *testing.T) {
 	assert.Equal(t, "", conv.GetVar("nonexistent"))
 }
 
+// testVariableProvider is a mock provider for testing
+type testVariableProvider struct {
+	name string
+	vars map[string]string
+	err  error
+}
+
+func (p *testVariableProvider) Name() string { return p.name }
+func (p *testVariableProvider) Provide(ctx context.Context) (map[string]string, error) {
+	return p.vars, p.err
+}
+
+func TestConversationGetVariablesWithProviders(t *testing.T) {
+	t.Run("no providers returns static vars only", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.SetVar("static_var", "static_value")
+
+		vars := conv.getVariablesWithProviders(context.Background())
+
+		assert.Equal(t, "static_value", vars["static_var"])
+		assert.Equal(t, 1, len(vars))
+	})
+
+	t.Run("provider vars are included", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.SetVar("static_var", "static_value")
+		conv.config.variableProviders = append(conv.config.variableProviders,
+			&testVariableProvider{
+				name: "test",
+				vars: map[string]string{"provider_var": "provider_value"},
+			},
+		)
+
+		vars := conv.getVariablesWithProviders(context.Background())
+
+		assert.Equal(t, "static_value", vars["static_var"])
+		assert.Equal(t, "provider_value", vars["provider_var"])
+	})
+
+	t.Run("provider vars override static vars", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.SetVar("key", "static")
+		conv.config.variableProviders = append(conv.config.variableProviders,
+			&testVariableProvider{
+				name: "test",
+				vars: map[string]string{"key": "from_provider"},
+			},
+		)
+
+		vars := conv.getVariablesWithProviders(context.Background())
+
+		assert.Equal(t, "from_provider", vars["key"])
+	})
+
+	t.Run("later providers override earlier providers", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.config.variableProviders = append(conv.config.variableProviders,
+			&testVariableProvider{
+				name: "first",
+				vars: map[string]string{"key": "first_value"},
+			},
+			&testVariableProvider{
+				name: "second",
+				vars: map[string]string{"key": "second_value"},
+			},
+		)
+
+		vars := conv.getVariablesWithProviders(context.Background())
+
+		assert.Equal(t, "second_value", vars["key"])
+	})
+
+	t.Run("provider errors are ignored", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.SetVar("static_var", "value")
+		conv.config.variableProviders = append(conv.config.variableProviders,
+			&testVariableProvider{
+				name: "failing",
+				err:  errors.New("provider error"),
+			},
+		)
+
+		// Should not panic and should return static vars
+		vars := conv.getVariablesWithProviders(context.Background())
+
+		assert.Equal(t, "value", vars["static_var"])
+	})
+}
+
 func TestConversationOnTool(t *testing.T) {
 	conv := newTestConversation()
 
@@ -919,8 +1008,8 @@ func (m *convMockVAD) Reset() {}
 
 // convMockTurnDetector implements audio.TurnDetector for testing
 type convMockTurnDetector struct {
-	complete    bool
-	userSpeak   bool
+	complete  bool
+	userSpeak bool
 }
 
 func (m *convMockTurnDetector) Name() string { return "mock-turn-detector" }

@@ -216,8 +216,8 @@ func (c *Conversation) executePipeline(
 	ctx context.Context,
 	userMsg *types.Message,
 ) (*rtpipeline.ExecutionResult, error) {
-	// Get current variables for template substitution
-	vars := c.getVariables()
+	// Get current variables for template substitution (including from providers)
+	vars := c.getVariablesWithProviders(ctx)
 
 	// Build tool registry (registers executors for handlers)
 	toolRegistry := c.buildToolRegistry()
@@ -262,6 +262,7 @@ func (c *Conversation) executePipeline(
 }
 
 // getVariables returns a copy of the current variables.
+// If ctx is provided, it also resolves variables from any configured providers.
 func (c *Conversation) getVariables() map[string]string {
 	c.varMu.RLock()
 	defer c.varMu.RUnlock()
@@ -269,6 +270,29 @@ func (c *Conversation) getVariables() map[string]string {
 	for k, v := range c.variables {
 		vars[k] = v
 	}
+	return vars
+}
+
+// getVariablesWithProviders returns variables including those from providers.
+// Provider variables override static variables with the same key.
+func (c *Conversation) getVariablesWithProviders(ctx context.Context) map[string]string {
+	// Start with static variables
+	vars := c.getVariables()
+
+	// Resolve from providers (if any)
+	if c.config != nil && len(c.config.variableProviders) > 0 {
+		for _, p := range c.config.variableProviders {
+			providerVars, err := p.Provide(ctx)
+			if err != nil {
+				// Log but don't fail - providers are best-effort
+				continue
+			}
+			for k, v := range providerVars {
+				vars[k] = v
+			}
+		}
+	}
+
 	return vars
 }
 

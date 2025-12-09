@@ -83,9 +83,11 @@ func Build(cfg *Config) (*rtpipeline.Pipeline, error) {
 	debugLogf("ToolRegistry: %v", cfg.ToolRegistry != nil)
 
 	// 1. Prompt assembly middleware - loads prompt, sets system prompt and allowed tools
-	// 2. Debug middleware to log the assembled prompt (only active when SDK_DEBUG is set)
+	// 2. Template middleware - copies SystemPrompt to Prompt (for ProviderMiddleware)
+	// 3. Debug middleware to log the assembled prompt (only active when SDK_DEBUG is set)
 	middlewares = append(middlewares,
 		middleware.PromptAssemblyMiddleware(cfg.PromptRegistry, cfg.TaskType, cfg.Variables),
+		middleware.TemplateMiddleware(),
 		&debugMiddleware{},
 	)
 
