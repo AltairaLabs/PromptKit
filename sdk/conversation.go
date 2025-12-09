@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"sync"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
@@ -19,6 +21,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 	intpipeline "github.com/AltairaLabs/PromptKit/sdk/internal/pipeline"
@@ -1367,4 +1370,215 @@ func (a *mcpHandlerAdapter) Execute(descriptor *tools.ToolDescriptor, args json.
 	}
 
 	return resultJSON, nil
+}
+
+// OpenAudioSession creates a bidirectional audio streaming session.
+//
+// Requires a provider that implements StreamInputSupport (e.g., Gemini).
+// Returns an audio.Session with VAD and turn detection if configured.
+//
+//	session, err := conv.OpenAudioSession(ctx)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	defer session.Close()
+//
+//	// Send audio chunks
+//	for chunk := range audioSource {
+//	    session.SendChunk(ctx, chunk)
+//	}
+//
+//	// Listen for responses
+//	for chunk := range session.Response() {
+//	    // Handle streaming audio response
+//	}
+func (c *Conversation) OpenAudioSession(ctx context.Context, opts ...AudioSessionOption) (*audio.Session, error) {
+	if err := c.checkClosed(); err != nil {
+		return nil, err
+	}
+
+	// Check provider supports streaming input
+	streamProvider, ok := c.provider.(providers.StreamInputSupport)
+	if !ok {
+		return nil, ErrProviderNotStreamCapable
+	}
+
+	// Apply session options
+	cfg := &audioSessionConfig{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	// Use conversation-level turn detector if not overridden
+	turnDetector := cfg.turnDetector
+	if turnDetector == nil {
+		turnDetector = c.config.turnDetector
+	}
+
+	// Build system message from prompt
+	systemMsg := c.buildSystemMessage()
+
+	// Create streaming session request
+	req := &providers.StreamInputRequest{
+		SystemMsg: systemMsg,
+	}
+
+	// Create underlying stream session
+	underlying, err := streamProvider.CreateStreamSession(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create stream session: %w", err)
+	}
+
+	// Wrap with audio session for VAD and turn detection
+	sessionCfg := audio.SessionConfig{
+		VAD:                  cfg.vad,
+		TurnDetector:         turnDetector,
+		InterruptionStrategy: cfg.interruptionStrategy,
+		AutoCompleteTurn:     cfg.autoCompleteTurn,
+	}
+
+	session, err := audio.NewSession(underlying, sessionCfg)
+	if err != nil {
+		// Close underlying session on error
+		_ = underlying.Close()
+		return nil, fmt.Errorf("failed to create audio session: %w", err)
+	}
+
+	return session, nil
+}
+
+// SpeakResponse converts a text response to audio using the configured TTS service.
+//
+// Requires WithTTS() to be configured when opening the conversation.
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "voice",
+//	    sdk.WithTTS(tts.NewOpenAI(os.Getenv("OPENAI_API_KEY"))),
+//	)
+//
+//	resp, _ := conv.Send(ctx, "Tell me a joke")
+//	audioReader, _ := conv.SpeakResponse(ctx, resp)
+//	defer audioReader.Close()
+//
+//	io.Copy(speaker, audioReader)
+func (c *Conversation) SpeakResponse(ctx context.Context, resp *Response, opts ...TTSOption) (io.ReadCloser, error) {
+	if err := c.checkClosed(); err != nil {
+		return nil, err
+	}
+
+	if c.config.ttsService == nil {
+		return nil, ErrNoTTSConfigured
+	}
+
+	// Get response text
+	text := resp.Text()
+	if text == "" {
+		return nil, tts.ErrEmptyText
+	}
+
+	// Apply TTS options
+	cfg := &ttsConfig{
+		speed: 1.0, // Default speed
+	}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	// Build synthesis config
+	synthConfig := tts.SynthesisConfig{
+		Voice:    cfg.voice,
+		Format:   cfg.format,
+		Speed:    cfg.speed,
+		Pitch:    cfg.pitch,
+		Language: cfg.language,
+		Model:    cfg.model,
+	}
+
+	return c.config.ttsService.Synthesize(ctx, text, synthConfig)
+}
+
+// SpeakResponseStream converts a text response to streaming audio.
+//
+// Requires WithTTS() configured with a StreamingService provider.
+// Returns a channel of audio chunks for lower latency playback.
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "voice",
+//	    sdk.WithTTS(tts.NewCartesia(os.Getenv("CARTESIA_API_KEY"))),
+//	)
+//
+//	resp, _ := conv.Send(ctx, "Tell me a story")
+//	chunks, _ := conv.SpeakResponseStream(ctx, resp)
+//
+//	for chunk := range chunks {
+//	    if chunk.Error != nil {
+//	        log.Fatal(chunk.Error)
+//	    }
+//	    playAudio(chunk.Data)
+//	}
+func (c *Conversation) SpeakResponseStream(
+	ctx context.Context, resp *Response, opts ...TTSOption,
+) (<-chan tts.AudioChunk, error) {
+	if err := c.checkClosed(); err != nil {
+		return nil, err
+	}
+
+	if c.config.ttsService == nil {
+		return nil, ErrNoTTSConfigured
+	}
+
+	// Check if TTS service supports streaming
+	streamingTTS, ok := c.config.ttsService.(tts.StreamingService)
+	if !ok {
+		return nil, fmt.Errorf("TTS service %q does not support streaming", c.config.ttsService.Name())
+	}
+
+	// Get response text
+	text := resp.Text()
+	if text == "" {
+		return nil, tts.ErrEmptyText
+	}
+
+	// Apply TTS options
+	cfg := &ttsConfig{
+		speed: 1.0, // Default speed
+	}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	// Build synthesis config
+	synthConfig := tts.SynthesisConfig{
+		Voice:    cfg.voice,
+		Format:   cfg.format,
+		Speed:    cfg.speed,
+		Pitch:    cfg.pitch,
+		Language: cfg.language,
+		Model:    cfg.model,
+	}
+
+	return streamingTTS.SynthesizeStream(ctx, text, synthConfig)
+}
+
+// buildSystemMessage constructs the system message from the prompt template.
+func (c *Conversation) buildSystemMessage() string {
+	if c.prompt == nil || c.prompt.SystemTemplate == "" {
+		return ""
+	}
+
+	// Get variables for substitution
+	c.varMu.RLock()
+	vars := make(map[string]string, len(c.variables))
+	for k, v := range c.variables {
+		vars[k] = v
+	}
+	c.varMu.RUnlock()
+
+	// Simple variable substitution for now
+	// Full template processing happens in the pipeline
+	result := c.prompt.SystemTemplate
+	for k, v := range vars {
+		result = strings.ReplaceAll(result, "{{"+k+"}}", v)
+		result = strings.ReplaceAll(result, "{{ "+k+" }}", v)
+	}
+
+	return result
 }

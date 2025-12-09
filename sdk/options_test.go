@@ -1,9 +1,15 @@
 package sdk
 
 import (
-"testing"
+	"context"
+	"io"
+	"testing"
 
-"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/assert"
+
+	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/tts"
 )
 
 func TestWithModel(t *testing.T) {
@@ -59,8 +65,8 @@ func TestWithTruncation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-opt := WithTruncation(tt.strategy)
-cfg := &config{}
+			opt := WithTruncation(tt.strategy)
+			cfg := &config{}
 			err := opt(cfg)
 			assert.NoError(t, err)
 			assert.Equal(t, tt.want, cfg.truncationStrategy)
@@ -81,8 +87,8 @@ func TestWithValidationMode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-opt := WithValidationMode(tt.mode)
-cfg := &config{}
+			opt := WithValidationMode(tt.mode)
+			cfg := &config{}
 			err := opt(cfg)
 			assert.NoError(t, err)
 			assert.Equal(t, tt.want, cfg.validationMode)
@@ -112,58 +118,58 @@ func TestWithStrictValidation(t *testing.T) {
 
 func TestSendOptions(t *testing.T) {
 	t.Run("WithImageFile", func(t *testing.T) {
-opt := WithImageFile("/path/to/image.png")
-assert.NotNil(t, opt)
+		opt := WithImageFile("/path/to/image.png")
+		assert.NotNil(t, opt)
 
-cfg := &sendConfig{}
+		cfg := &sendConfig{}
 		err := opt(cfg)
 		assert.NoError(t, err)
 		assert.Equal(t, 1, len(cfg.parts))
 	})
 
 	t.Run("WithImageURL", func(t *testing.T) {
-opt := WithImageURL("https://example.com/image.png")
-assert.NotNil(t, opt)
+		opt := WithImageURL("https://example.com/image.png")
+		assert.NotNil(t, opt)
 
-cfg := &sendConfig{}
+		cfg := &sendConfig{}
 		err := opt(cfg)
 		assert.NoError(t, err)
 		assert.Equal(t, 1, len(cfg.parts))
 	})
 
 	t.Run("WithImageData", func(t *testing.T) {
-data := []byte("fake image data")
-opt := WithImageData(data, "image/png")
-assert.NotNil(t, opt)
+		data := []byte("fake image data")
+		opt := WithImageData(data, "image/png")
+		assert.NotNil(t, opt)
 
-cfg := &sendConfig{}
+		cfg := &sendConfig{}
 		err := opt(cfg)
 		assert.NoError(t, err)
 		assert.Equal(t, 1, len(cfg.parts))
 	})
 
 	t.Run("WithAudioFile", func(t *testing.T) {
-opt := WithAudioFile("/path/to/audio.mp3")
-assert.NotNil(t, opt)
+		opt := WithAudioFile("/path/to/audio.mp3")
+		assert.NotNil(t, opt)
 
-cfg := &sendConfig{}
+		cfg := &sendConfig{}
 		err := opt(cfg)
 		assert.NoError(t, err)
 		assert.Equal(t, 1, len(cfg.parts))
 	})
 
 	t.Run("WithFile", func(t *testing.T) {
-opt := WithFile("doc.pdf", []byte("pdf content"))
-assert.NotNil(t, opt)
+		opt := WithFile("doc.pdf", []byte("pdf content"))
+		assert.NotNil(t, opt)
 
-cfg := &sendConfig{}
+		cfg := &sendConfig{}
 		err := opt(cfg)
 		assert.NoError(t, err)
 		assert.Equal(t, 1, len(cfg.parts))
 	})
 
 	t.Run("multiple parts", func(t *testing.T) {
-cfg := &sendConfig{}
+		cfg := &sendConfig{}
 		_ = WithImageFile("/image1.png")(cfg)
 		_ = WithImageFile("/image2.png")(cfg)
 		_ = WithAudioFile("/audio.mp3")(cfg)
@@ -241,3 +247,112 @@ func TestWithImageDataWithDetail(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(cfg.parts))
 }
+
+func TestWithVariableProvider(t *testing.T) {
+	// Create a mock provider
+	provider := &mockVariableProvider{name: "test"}
+
+	opt := WithVariableProvider(provider)
+	assert.NotNil(t, opt)
+
+	cfg := &config{}
+	err := opt(cfg)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(cfg.variableProviders))
+	assert.Equal(t, "test", cfg.variableProviders[0].Name())
+}
+
+func TestWithVariableProviderMultiple(t *testing.T) {
+	provider1 := &mockVariableProvider{name: "time"}
+	provider2 := &mockVariableProvider{name: "state"}
+
+	cfg := &config{}
+	_ = WithVariableProvider(provider1)(cfg)
+	_ = WithVariableProvider(provider2)(cfg)
+
+	assert.Equal(t, 2, len(cfg.variableProviders))
+	assert.Equal(t, "time", cfg.variableProviders[0].Name())
+	assert.Equal(t, "state", cfg.variableProviders[1].Name())
+}
+
+func TestWithTTS(t *testing.T) {
+	service := &mockTTSService{name: "openai"}
+
+	opt := WithTTS(service)
+	assert.NotNil(t, opt)
+
+	cfg := &config{}
+	err := opt(cfg)
+	assert.NoError(t, err)
+	assert.NotNil(t, cfg.ttsService)
+	assert.Equal(t, "openai", cfg.ttsService.Name())
+}
+
+func TestWithTurnDetector(t *testing.T) {
+	detector := &mockTurnDetector{name: "silence"}
+
+	opt := WithTurnDetector(detector)
+	assert.NotNil(t, opt)
+
+	cfg := &config{}
+	err := opt(cfg)
+	assert.NoError(t, err)
+	assert.NotNil(t, cfg.turnDetector)
+	assert.Equal(t, "silence", cfg.turnDetector.Name())
+}
+
+// Mock types for testing
+
+type mockVariableProvider struct {
+	name string
+}
+
+func (m *mockVariableProvider) Name() string {
+	return m.name
+}
+
+func (m *mockVariableProvider) Provide(_ context.Context, _ *statestore.ConversationState) (map[string]string, error) {
+	return nil, nil
+}
+
+type mockTTSService struct {
+	name string
+}
+
+func (m *mockTTSService) Name() string {
+	return m.name
+}
+
+func (m *mockTTSService) Synthesize(_ context.Context, _ string, _ tts.SynthesisConfig) (io.ReadCloser, error) {
+	return nil, nil
+}
+
+func (m *mockTTSService) SupportedVoices() []tts.Voice {
+	return nil
+}
+
+func (m *mockTTSService) SupportedFormats() []tts.AudioFormat {
+	return nil
+}
+
+type mockTurnDetector struct {
+	name string
+}
+
+func (m *mockTurnDetector) Name() string {
+	return m.name
+}
+
+func (m *mockTurnDetector) ProcessAudio(_ context.Context, _ []byte) (bool, error) {
+	return false, nil
+}
+
+func (m *mockTurnDetector) ProcessVADState(_ context.Context, _ audio.VADState) (bool, error) {
+	return false, nil
+}
+
+func (m *mockTurnDetector) IsUserSpeaking() bool {
+	return false
+}
+
+func (m *mockTurnDetector) Reset() {}

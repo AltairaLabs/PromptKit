@@ -1,11 +1,14 @@
 package sdk
 
 import (
+	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/tts"
+	"github.com/AltairaLabs/PromptKit/runtime/variables"
 )
 
 // config holds the configuration for a conversation.
@@ -41,6 +44,15 @@ type config struct {
 
 	// MCP configuration
 	mcpServers []mcp.ServerConfig
+
+	// Variable providers for dynamic variable resolution
+	variableProviders []variables.Provider
+
+	// TTS configuration
+	ttsService tts.Service
+
+	// Audio session configuration
+	turnDetector audio.TurnDetector
 }
 
 // Option configures a Conversation.
@@ -347,6 +359,51 @@ func (b *MCPServerBuilder) Build() mcp.ServerConfig {
 func WithMCPServer(builder *MCPServerBuilder) Option {
 	return func(c *config) error {
 		c.mcpServers = append(c.mcpServers, builder.Build())
+		return nil
+	}
+}
+
+// WithVariableProvider adds a variable provider for dynamic variable resolution.
+//
+// Variables are resolved before each Send() and merged with static variables.
+// Later providers in the chain override earlier ones with the same key.
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "support",
+//	    sdk.WithVariableProvider(variables.Time()),
+//	    sdk.WithVariableProvider(variables.State()),
+//	)
+func WithVariableProvider(p variables.Provider) Option {
+	return func(c *config) error {
+		c.variableProviders = append(c.variableProviders, p)
+		return nil
+	}
+}
+
+// WithTTS configures text-to-speech for audio responses.
+//
+// When configured, use [Conversation.SpeakResponse] to convert text responses to audio.
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "voice",
+//	    sdk.WithTTS(tts.NewOpenAI(os.Getenv("OPENAI_API_KEY"))),
+//	)
+func WithTTS(service tts.Service) Option {
+	return func(c *config) error {
+		c.ttsService = service
+		return nil
+	}
+}
+
+// WithTurnDetector configures turn detection for audio sessions.
+//
+// Turn detectors determine when a user has finished speaking.
+// Use with [Conversation.OpenAudioSession] for voice AI applications.
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "voice",
+//	    sdk.WithTurnDetector(audio.NewSilenceDetector(500 * time.Millisecond)),
+//	)
+func WithTurnDetector(detector audio.TurnDetector) Option {
+	return func(c *config) error {
+		c.turnDetector = detector
 		return nil
 	}
 }
