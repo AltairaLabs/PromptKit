@@ -7,6 +7,20 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 )
 
+// mockStateStore is a test helper that implements statestore.Store
+type mockStateStore struct {
+	state *statestore.ConversationState
+	err   error
+}
+
+func (m *mockStateStore) Save(_ context.Context, _ *statestore.ConversationState) error {
+	return nil
+}
+
+func (m *mockStateStore) Load(_ context.Context, _ string) (*statestore.ConversationState, error) {
+	return m.state, m.err
+}
+
 func TestStateProvider_Name(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -15,12 +29,12 @@ func TestStateProvider_Name(t *testing.T) {
 	}{
 		{
 			name:     "default name",
-			provider: NewStateProvider(),
+			provider: NewStateProvider(nil, "test"),
 			want:     "state",
 		},
 		{
 			name:     "with prefix",
-			provider: NewStatePrefixProvider("user_", false),
+			provider: NewStatePrefixProvider(nil, "test", "user_", false),
 			want:     "state[user_]",
 		},
 	}
@@ -36,32 +50,37 @@ func TestStateProvider_Name(t *testing.T) {
 
 func TestStateProvider_Provide(t *testing.T) {
 	tests := []struct {
-		name     string
-		provider *StateProvider
-		state    *statestore.ConversationState
-		want     map[string]string
-		wantErr  bool
+		name    string
+		store   *mockStateStore
+		prefix  string
+		strip   bool
+		want    map[string]string
+		wantErr bool
 	}{
 		{
-			name:     "nil state returns nil",
-			provider: NewStateProvider(),
-			state:    nil,
-			want:     nil,
+			name:  "nil store returns nil",
+			store: nil,
+			want:  nil,
 		},
 		{
-			name:     "nil metadata returns nil",
-			provider: NewStateProvider(),
-			state:    &statestore.ConversationState{},
-			want:     nil,
+			name:  "nil state returns nil",
+			store: &mockStateStore{state: nil},
+			want:  nil,
 		},
 		{
-			name:     "extracts all metadata",
-			provider: NewStateProvider(),
-			state: &statestore.ConversationState{
-				Metadata: map[string]interface{}{
-					"user_name": "Alice",
-					"user_id":   123,
-					"active":    true,
+			name:  "nil metadata returns nil",
+			store: &mockStateStore{state: &statestore.ConversationState{}},
+			want:  nil,
+		},
+		{
+			name: "extracts all metadata",
+			store: &mockStateStore{
+				state: &statestore.ConversationState{
+					Metadata: map[string]interface{}{
+						"user_name": "Alice",
+						"user_id":   123,
+						"active":    true,
+					},
 				},
 			},
 			want: map[string]string{
@@ -71,44 +90,52 @@ func TestStateProvider_Provide(t *testing.T) {
 			},
 		},
 		{
-			name:     "filters by prefix",
-			provider: NewStatePrefixProvider("user_", false),
-			state: &statestore.ConversationState{
-				Metadata: map[string]interface{}{
-					"user_name":    "Alice",
-					"user_id":      123,
-					"session_type": "chat",
+			name: "filters by prefix",
+			store: &mockStateStore{
+				state: &statestore.ConversationState{
+					Metadata: map[string]interface{}{
+						"user_name":    "Alice",
+						"user_id":      123,
+						"session_type": "chat",
+					},
 				},
 			},
+			prefix: "user_",
 			want: map[string]string{
 				"user_name": "Alice",
 				"user_id":   "123",
 			},
 		},
 		{
-			name:     "strips prefix when configured",
-			provider: NewStatePrefixProvider("user_", true),
-			state: &statestore.ConversationState{
-				Metadata: map[string]interface{}{
-					"user_name":    "Alice",
-					"user_id":      123,
-					"session_type": "chat",
+			name: "strips prefix when configured",
+			store: &mockStateStore{
+				state: &statestore.ConversationState{
+					Metadata: map[string]interface{}{
+						"user_name":    "Alice",
+						"user_id":      123,
+						"session_type": "chat",
+					},
 				},
 			},
+			prefix: "user_",
+			strip:  true,
 			want: map[string]string{
 				"name": "Alice",
 				"id":   "123",
 			},
 		},
 		{
-			name:     "empty prefix includes all",
-			provider: NewStatePrefixProvider("", true),
-			state: &statestore.ConversationState{
-				Metadata: map[string]interface{}{
-					"key1": "value1",
-					"key2": "value2",
+			name: "empty prefix includes all",
+			store: &mockStateStore{
+				state: &statestore.ConversationState{
+					Metadata: map[string]interface{}{
+						"key1": "value1",
+						"key2": "value2",
+					},
 				},
 			},
+			prefix: "",
+			strip:  true,
 			want: map[string]string{
 				"key1": "value1",
 				"key2": "value2",
@@ -118,7 +145,14 @@ func TestStateProvider_Provide(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := tt.provider.Provide(context.Background(), tt.state)
+			var provider *StateProvider
+			if tt.prefix != "" || tt.strip {
+				provider = NewStatePrefixProvider(tt.store, "test-conv", tt.prefix, tt.strip)
+			} else {
+				provider = NewStateProvider(tt.store, "test-conv")
+			}
+
+			got, err := provider.Provide(context.Background())
 			if (err != nil) != tt.wantErr {
 				t.Errorf("StateProvider.Provide() error = %v, wantErr %v", err, tt.wantErr)
 				return

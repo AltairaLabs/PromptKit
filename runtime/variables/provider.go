@@ -5,19 +5,19 @@ package variables
 
 import (
 	"context"
-
-	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 )
 
 // Provider resolves variables dynamically at runtime.
 // Variables returned override static variables with the same key.
 // Providers are called before template rendering to inject dynamic context.
+//
+// Providers that need access to conversation state (like StateProvider)
+// should receive it via constructor injection rather than through Provide().
 type Provider interface {
 	// Name returns the provider identifier (for logging/debugging)
 	Name() string
 
 	// Provide returns variables to inject into template context.
 	// Called before each template render.
-	// The state parameter may be nil if no conversation state exists.
-	Provide(ctx context.Context, state *statestore.ConversationState) (map[string]string, error)
+	Provide(ctx context.Context) (map[string]string, error)
 }

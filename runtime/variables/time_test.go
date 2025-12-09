@@ -4,8 +4,6 @@ import (
 	"context"
 	"testing"
 	"time"
-
-	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 )
 
 func TestTimeProvider_Name(t *testing.T) {
@@ -66,7 +64,7 @@ func TestTimeProvider_Provide(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := tt.provider.Provide(context.Background(), nil)
+			got, err := tt.provider.Provide(context.Background())
 			if err != nil {
 				t.Errorf("TimeProvider.Provide() error = %v", err)
 				return
@@ -81,25 +79,18 @@ func TestTimeProvider_Provide(t *testing.T) {
 	}
 }
 
-func TestTimeProvider_IgnoresState(t *testing.T) {
+func TestTimeProvider_NoExternalDeps(t *testing.T) {
 	fixedTime := time.Date(2024, time.January, 15, 14, 30, 0, 0, time.UTC)
 	p := NewTimeProvider().WithNowFunc(func() time.Time { return fixedTime })
 
-	// Provider should work regardless of state
-	state := &statestore.ConversationState{
-		ID: "test",
-		Metadata: map[string]interface{}{
-			"some": "data",
-		},
-	}
-
-	got, err := p.Provide(context.Background(), state)
+	// Provider works without any external dependencies
+	got, err := p.Provide(context.Background())
 	if err != nil {
 		t.Errorf("TimeProvider.Provide() error = %v", err)
 		return
 	}
 
-	if got["current_year"] != "2024" {
-		t.Errorf("TimeProvider.Provide() should work with state, got year = %v", got["current_year"])
+	if got["current_time"] != "2024-01-15T14:30:00Z" {
+		t.Errorf("TimeProvider.Provide()[current_time] = %v, want %v", got["current_time"], "2024-01-15T14:30:00Z")
 	}
 }

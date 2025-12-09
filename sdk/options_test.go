@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
-	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 )
 
@@ -311,7 +310,7 @@ func (m *mockVariableProvider) Name() string {
 	return m.name
 }
 
-func (m *mockVariableProvider) Provide(_ context.Context, _ *statestore.ConversationState) (map[string]string, error) {
+func (m *mockVariableProvider) Provide(_ context.Context) (map[string]string, error) {
 	return nil, nil
 }
 

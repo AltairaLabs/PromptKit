@@ -3,8 +3,6 @@ package variables
 import (
 	"context"
 	"fmt"
-
-	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 )
 
 // ChainProvider composes multiple providers into a single provider.
@@ -28,11 +26,11 @@ func (c *ChainProvider) Name() string {
 
 // Provide calls all chained providers and merges their results.
 // Returns an error if any provider fails.
-func (c *ChainProvider) Provide(ctx context.Context, state *statestore.ConversationState) (map[string]string, error) {
+func (c *ChainProvider) Provide(ctx context.Context) (map[string]string, error) {
 	result := make(map[string]string)
 
 	for _, p := range c.providers {
-		vars, err := p.Provide(ctx, state)
+		vars, err := p.Provide(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("provider %s failed: %w", p.Name(), err)
 		}

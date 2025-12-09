@@ -3,8 +3,6 @@ package variables
 import (
 	"context"
 	"time"
-
-	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 )
 
 // TimeProvider provides current time and date variables.
@@ -51,7 +49,7 @@ func (p *TimeProvider) Name() string {
 //   - current_month: Full month name (e.g., "January")
 //   - current_weekday: Full weekday name (e.g., "Monday")
 //   - current_hour: Hour in 24-hour format (00-23)
-func (p *TimeProvider) Provide(ctx context.Context, state *statestore.ConversationState) (map[string]string, error) {
+func (p *TimeProvider) Provide(ctx context.Context) (map[string]string, error) {
 	now := p.now()
 
 	if p.Location != nil {

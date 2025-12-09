@@ -22,12 +22,12 @@ func (m *mockVariableProvider) Name() string {
 	return m.name
 }
 
-func (m *mockVariableProvider) Provide(ctx context.Context, state *statestore.ConversationState) (map[string]string, error) {
+func (m *mockVariableProvider) Provide(ctx context.Context) (map[string]string, error) {
 	m.called = true
 	return m.vars, m.err
 }
 
-// mockStore is a test helper for state store
+// mockStateStore is a test helper for state store
 type mockStateStore struct {
 	state *statestore.ConversationState
 	err   error
@@ -42,7 +42,7 @@ func (m *mockStateStore) Save(ctx context.Context, state *statestore.Conversatio
 }
 
 func TestVariableProviderMiddleware_NoProviders(t *testing.T) {
-	middleware := VariableProviderMiddleware(nil)
+	middleware := VariableProviderMiddleware()
 
 	execCtx := &pipeline.ExecutionContext{
 		Context:   context.Background(),
@@ -75,7 +75,7 @@ func TestVariableProviderMiddleware_SingleProvider(t *testing.T) {
 		},
 	}
 
-	middleware := VariableProviderMiddleware(nil, provider)
+	middleware := VariableProviderMiddleware(provider)
 
 	execCtx := &pipeline.ExecutionContext{
 		Context:   context.Background(),
@@ -108,7 +108,7 @@ func TestVariableProviderMiddleware_MultipleProviders(t *testing.T) {
 		vars: map[string]string{"key2": "second_value"},
 	}
 
-	middleware := VariableProviderMiddleware(nil, provider1, provider2)
+	middleware := VariableProviderMiddleware(provider1, provider2)
 
 	execCtx := &pipeline.ExecutionContext{
 		Context:   context.Background(),
@@ -134,7 +134,7 @@ func TestVariableProviderMiddleware_ProviderOverridesExisting(t *testing.T) {
 		vars: map[string]string{"key": "provider_value"},
 	}
 
-	middleware := VariableProviderMiddleware(nil, provider)
+	middleware := VariableProviderMiddleware(provider)
 
 	execCtx := &pipeline.ExecutionContext{
 		Context:   context.Background(),
@@ -161,7 +161,7 @@ func TestVariableProviderMiddleware_LaterProviderOverridesEarlier(t *testing.T) 
 		vars: map[string]string{"key": "second_value"},
 	}
 
-	middleware := VariableProviderMiddleware(nil, provider1, provider2)
+	middleware := VariableProviderMiddleware(provider1, provider2)
 
 	execCtx := &pipeline.ExecutionContext{
 		Context:   context.Background(),
@@ -184,7 +184,7 @@ func TestVariableProviderMiddleware_ProviderError(t *testing.T) {
 		err:  errors.New("provider error"),
 	}
 
-	middleware := VariableProviderMiddleware(nil, provider)
+	middleware := VariableProviderMiddleware(provider)
 
 	execCtx := &pipeline.ExecutionContext{
 		Context:   context.Background(),
@@ -215,14 +215,10 @@ func TestVariableProviderMiddleware_WithStateStore(t *testing.T) {
 		},
 	}
 
-	config := &pipeline.StateStoreConfig{
-		Store:          store,
-		ConversationID: "conv-123",
-	}
+	// With the new design, state store is injected via constructor
+	provider := variables.NewStateProvider(store, "conv-123")
 
-	provider := variables.NewStateProvider()
-
-	middleware := VariableProviderMiddleware(config, provider)
+	middleware := VariableProviderMiddleware(provider)
 
 	execCtx := &pipeline.ExecutionContext{
 		Context:   context.Background(),
@@ -244,39 +240,39 @@ func TestVariableProviderMiddleware_StateStoreError(t *testing.T) {
 		err: errors.New("store error"),
 	}
 
-	config := &pipeline.StateStoreConfig{
-		Store:          store,
-		ConversationID: "conv-123",
-	}
+	// StateProvider with a failing store handles errors gracefully (returns nil, nil)
+	stateProvider := variables.NewStateProvider(store, "conv-123")
 
-	provider := &mockVariableProvider{
+	// Also add a regular provider to verify it still works
+	regularProvider := &mockVariableProvider{
 		name: "test",
 		vars: map[string]string{"key": "value"},
 	}
 
-	middleware := VariableProviderMiddleware(config, provider)
+	middleware := VariableProviderMiddleware(stateProvider, regularProvider)
 
 	execCtx := &pipeline.ExecutionContext{
 		Context:   context.Background(),
 		Variables: nil,
 	}
 
-	// State store error should not fail the middleware, just pass nil state
+	// State store errors are handled gracefully by StateProvider (returns nil, nil)
+	// so the middleware continues to process other providers
 	err := middleware.Process(execCtx, func() error { return nil })
 
 	if err != nil {
-		t.Errorf("state store error should not fail middleware: %v", err)
+		t.Errorf("state store error should be handled gracefully: %v", err)
 	}
-	if !provider.called {
-		t.Error("provider should still be called")
+	if !regularProvider.called {
+		t.Error("regular provider should still be called")
 	}
 	if execCtx.Variables["key"] != "value" {
-		t.Error("provider values should still be set")
+		t.Error("regular provider values should still be set")
 	}
 }
 
 func TestVariableProviderMiddleware_StreamChunk(t *testing.T) {
-	middleware := VariableProviderMiddleware(nil)
+	middleware := VariableProviderMiddleware()
 
 	execCtx := &pipeline.ExecutionContext{
 		Context: context.Background(),
