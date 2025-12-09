@@ -3,6 +3,7 @@ package tools
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/xeipuuv/gojsonschema"
 )
@@ -10,6 +11,7 @@ import (
 // SchemaValidator handles JSON schema validation for tool inputs and outputs
 type SchemaValidator struct {
 	cache map[string]*gojsonschema.Schema
+	mu    sync.RWMutex
 }
 
 // NewSchemaValidator creates a new schema validator
@@ -87,17 +89,30 @@ func (sv *SchemaValidator) ValidateResult(descriptor *ToolDescriptor, result jso
 
 // getSchema retrieves or compiles a JSON schema
 func (sv *SchemaValidator) getSchema(schemaJSON string) (*gojsonschema.Schema, error) {
+	// First check with read lock
+	sv.mu.RLock()
 	if schema, exists := sv.cache[schemaJSON]; exists {
+		sv.mu.RUnlock()
 		return schema, nil
 	}
+	sv.mu.RUnlock()
 
+	// Compile schema outside of lock
 	schemaLoader := gojsonschema.NewStringLoader(schemaJSON)
 	schema, err := gojsonschema.NewSchema(schemaLoader)
 	if err != nil {
 		return nil, err
 	}
 
+	// Write to cache with write lock
+	sv.mu.Lock()
+	// Double-check in case another goroutine added it
+	if existing, exists := sv.cache[schemaJSON]; exists {
+		sv.mu.Unlock()
+		return existing, nil
+	}
 	sv.cache[schemaJSON] = schema
+	sv.mu.Unlock()
 	return schema, nil
 }
 
