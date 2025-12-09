@@ -26,7 +26,9 @@ tools, personas, and validates cross-references.
 Use --verbose to see detailed contents of each configuration file.
 Use --section to focus on specific parts.
 Use --short/-s for quick validation-only output.`,
-	RunE: runConfigInspect,
+	RunE:          runConfigInspect,
+	SilenceUsage:  true, // Don't show usage on error - keeps output clean
+	SilenceErrors: true, // We handle errors ourselves with cleaner messages
 }
 
 const (
@@ -74,15 +76,18 @@ var (
 func init() {
 	rootCmd.AddCommand(configInspectCmd)
 
-	configInspectCmd.Flags().StringP("config", "c", "arena.yaml", "Configuration file path")
+	configInspectCmd.Flags().StringP("config", "c", "config.arena.yaml", "Configuration file path")
 	configInspectCmd.Flags().StringVar(&inspectFormat, "format", "text", "Output format: text, json")
-	configInspectCmd.Flags().BoolVar(&inspectVerbose, "verbose", false,
+	configInspectCmd.Flags().BoolVarP(&inspectVerbose, "verbose", "v", false,
 		"Show detailed information including file contents")
 	configInspectCmd.Flags().BoolVar(&inspectStats, "stats", false, "Show cache statistics")
 	configInspectCmd.Flags().StringVar(&inspectSection, "section", "",
 		"Focus on specific section: prompts, providers, scenarios, tools, selfplay, judges, defaults, validation")
 	configInspectCmd.Flags().BoolVarP(&inspectShort, "short", "s", false,
 		"Show only validation results (shortcut for --section validation)")
+
+	// Register dynamic completions (must be after flags are defined)
+	RegisterConfigInspectCompletions()
 }
 
 func runConfigInspect(cmd *cobra.Command, args []string) error {
@@ -101,7 +106,8 @@ func runConfigInspect(cmd *cobra.Command, args []string) error {
 	// Load configuration directly
 	cfg, err := config.LoadConfig(configFile)
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return fmt.Errorf("'%s' is not a valid arena config file\n\nRun 'promptarena validate %s' for details",
+			configFile, configFile)
 	}
 
 	// Collect inspection data

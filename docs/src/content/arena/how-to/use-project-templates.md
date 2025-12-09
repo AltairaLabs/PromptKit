@@ -24,7 +24,7 @@ promptarena init my-test --quick --provider openai
 
 Quick mode uses sensible defaults and creates:
 
-- **arena.yaml** - Main configuration with your project name
+- **config.arena.yaml** - Main configuration with your project name
 - **prompts/assistant.yaml** - Basic prompt configuration
 - **providers/{provider}.yaml** - Provider configuration for your chosen LLM
 - **scenarios/basic-test.yaml** - Sample test scenario with assertions
@@ -142,7 +142,7 @@ promptarena init my-test \
 ### 1. Arena Configuration
 
 ```yaml
-# arena.yaml
+# config.arena.yaml
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Arena
 metadata:
@@ -269,7 +269,7 @@ Begin with quick mode to understand the structure:
 ```bash
 promptarena init learning --quick --provider mock
 cd learning
-cat arena.yaml prompts/assistant.yaml scenarios/basic-test.yaml
+cat config.arena.yaml prompts/assistant.yaml scenarios/basic-test.yaml
 ```
 
 ### 2. Use Mock Provider for Development
@@ -339,7 +339,7 @@ tree .
 # ├── .env
 # ├── .gitignore
 # ├── README.md
-# ├── arena.yaml
+# ├── config.arena.yaml
 # ├── prompts/
 # │   └── assistant.yaml
 # ├── providers/

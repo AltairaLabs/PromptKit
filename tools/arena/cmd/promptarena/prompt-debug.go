@@ -27,7 +27,7 @@ func init() {
 	rootCmd.AddCommand(promptDebugCmd)
 
 	// Configuration
-	promptDebugCmd.Flags().StringP("config", "c", "arena.yaml", "Configuration file path")
+	promptDebugCmd.Flags().StringP("config", "c", "config.arena.yaml", "Configuration file path")
 	promptDebugCmd.Flags().StringP("scenario", "", "", "Scenario file path to load task_type and context from")
 
 	// Prompt parameters

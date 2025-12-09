@@ -15,6 +15,11 @@ Set up PromptArena on your system and verify the installation.
 </div>
 
 <div class="code-example" markdown="1">
+### [Configure Shell Completions](shell-completions)
+Enable tab completion for commands, flags, and dynamic values like scenarios and providers.
+</div>
+
+<div class="code-example" markdown="1">
 ### [Use Project Templates](use-project-templates)
 Quickly scaffold new test projects with the `promptarena init` command. Includes 6 built-in templates for common use cases like customer support, code generation, content creation, multimodal AI, and MCP integration.
 </div>

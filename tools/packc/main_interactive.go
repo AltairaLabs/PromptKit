@@ -2,10 +2,13 @@ package main
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
+
+	"github.com/spf13/pflag"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
@@ -34,6 +37,8 @@ func main() {
 		validateCommand()
 	case "inspect":
 		inspectCommand()
+	case "completion":
+		completionCommand()
 	case "version":
 		fmt.Printf("packc %s\n", version)
 	case "help", "--help", "-h":
@@ -55,36 +60,45 @@ Usage:
   packc inspect <pack-file>       Display pack information
   packc version                   Show version
   packc help                      Show this help
+  packc completion <shell>        Generate shell completion script (bash, zsh, fish, powershell)
 
 Compile Command (main):
-  packc compile --config <arena.yaml> --output <pack-file> --id <pack-id>
+  packc compile [-c <arena.yaml>] [-o <pack-file>] [--id <pack-id>]
 
   Options:
-    --config      Path to arena.yaml file (required)
-    --output      Output pack file path (required)
-    --id          Pack ID (e.g., "customer-support") (required)
+    -c, --config  Path to arena.yaml file (default: config.arena.yaml)
+    -o, --output  Output pack file path (default: {id}.pack.json)
+        --id      Pack ID (default: current folder name, sanitized)
 
 Compile Prompt Command (single prompt):
-  packc compile-prompt --prompt <yaml-file> --output <json-file> [--config-dir <dir>]
+  packc compile-prompt -p <yaml-file> -o <json-file>
 
   Options:
-    --prompt      Path to prompt YAML file (required)
-    --tools       Path to tools directory (optional)
-    --output      Output pack file path (required)
-    --config-dir  Base directory for config files (default: current directory)
+    -p, --prompt  Path to prompt YAML file (required)
+    -o, --output  Output pack file path (required)
 
 Examples:
-  # Compile all prompts into single pack (most common)
-  packc compile --config arena.yaml --output packs/customer-support-pack.json --id customer-support
+  # Compile using all defaults (config.arena.yaml, folder name as id)
+  packc compile
+
+  # Compile with custom config
+  packc compile -c arena.yaml
+
+  # Compile with all options specified
+  packc compile -c arena.yaml -o packs/customer-support-pack.json --id customer-support
 
   # Compile single prompt
-  packc compile-prompt --prompt prompts/support.yaml --output packs/support.json
+  packc compile-prompt -p prompts/support.yaml -o packs/support.json
 
   # Validate a pack
   packc validate packs/support.json
 
   # Inspect a pack
-  packc inspect packs/support.json`)
+  packc inspect packs/support.json
+
+  # Generate shell completions
+  packc completion bash >> ~/.bashrc
+  packc completion zsh >> ~/.zshrc`)
 }
 
 // compileFlags holds the parsed flags for the compile command.
@@ -94,28 +108,60 @@ type compileFlags struct {
 	packID     string
 }
 
+// sanitizePackID converts a folder name to a valid pack ID.
+// It converts to lowercase, replaces spaces with dashes, and removes special characters.
+func sanitizePackID(name string) string {
+	// Convert to lowercase
+	result := strings.ToLower(name)
+	// Replace spaces with dashes
+	result = strings.ReplaceAll(result, " ", "-")
+	// Remove all characters except alphanumeric and dashes
+	reg := regexp.MustCompile(`[^a-z0-9-]`)
+	result = reg.ReplaceAllString(result, "")
+	// Clean up multiple consecutive dashes
+	reg = regexp.MustCompile(`-+`)
+	result = reg.ReplaceAllString(result, "-")
+	// Trim leading/trailing dashes
+	result = strings.Trim(result, "-")
+	return result
+}
+
+// getDefaultPackID returns a default pack ID based on the current directory name.
+func getDefaultPackID() string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "pack"
+	}
+	return sanitizePackID(filepath.Base(cwd))
+}
+
 // parseCompileFlags parses and validates compile command flags.
 func parseCompileFlags() compileFlags {
-	fs := flag.NewFlagSet("compile", flag.ExitOnError)
-	configFile := fs.String("config", "arena.yaml", "Path to arena.yaml file")
-	outputFile := fs.String("output", "", "Output pack file path")
-	packID := fs.String("id", "", "Pack ID (e.g., 'customer-support')")
+	fs := pflag.NewFlagSet("compile", pflag.ExitOnError)
+	configFile := fs.StringP("config", "c", "config.arena.yaml", "Path to arena.yaml file")
+	outputFile := fs.StringP("output", "o", "", "Output pack file path (default: {id}.pack.json)")
+	packID := fs.String("id", "", "Pack ID (default: current folder name, sanitized)")
 
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
 		os.Exit(1)
 	}
 
-	if *outputFile == "" || *packID == "" {
-		fmt.Fprintln(os.Stderr, "Error: --output and --id are required")
-		fs.Usage()
-		os.Exit(1)
+	// Apply smart defaults
+	resolvedID := *packID
+	if resolvedID == "" {
+		resolvedID = getDefaultPackID()
+	}
+
+	resolvedOutput := *outputFile
+	if resolvedOutput == "" {
+		resolvedOutput = resolvedID + ".pack.json"
 	}
 
 	return compileFlags{
 		configFile: *configFile,
-		outputFile: *outputFile,
-		packID:     *packID,
+		outputFile: resolvedOutput,
+		packID:     resolvedID,
 	}
 }
 
@@ -209,9 +255,9 @@ func mustLoadConfig(configFile string) *config.Config {
 }
 
 func compilePromptCommand() {
-	fs := flag.NewFlagSet("compile-prompt", flag.ExitOnError)
-	promptFile := fs.String("prompt", "", "Path to prompt YAML file")
-	outputFile := fs.String("output", "", "Output pack file path")
+	fs := pflag.NewFlagSet("compile-prompt", pflag.ExitOnError)
+	promptFile := fs.StringP("prompt", "p", "", "Path to prompt YAML file")
+	outputFile := fs.StringP("output", "o", "", "Output pack file path")
 
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
@@ -385,3 +431,193 @@ func parseToolsFromConfig(cfg *config.Config) []prompt.ParsedTool {
 
 	return result
 }
+
+func completionCommand() {
+	if len(os.Args) < minArgsWithPackArg {
+		fmt.Fprintln(os.Stderr, "Error: shell type required (bash, zsh, fish, powershell)")
+		fmt.Fprintln(os.Stderr, "Usage: packc completion <shell>")
+		os.Exit(1)
+	}
+
+	shell := os.Args[2]
+
+	switch shell {
+	case "bash":
+		fmt.Print(bashCompletion)
+	case "zsh":
+		fmt.Print(zshCompletion)
+	case "fish":
+		fmt.Print(fishCompletion)
+	case "powershell":
+		fmt.Print(powershellCompletion)
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown shell: %s\n", shell)
+		fmt.Fprintln(os.Stderr, "Supported shells: bash, zsh, fish, powershell")
+		os.Exit(1)
+	}
+}
+
+const bashCompletion = `# packc bash completion
+_packc_completions() {
+    local cur prev commands
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    commands="compile compile-prompt validate inspect version help completion"
+
+    if [[ ${COMP_CWORD} -eq 1 ]]; then
+        COMPREPLY=($(compgen -W "${commands}" -- "${cur}"))
+        return 0
+    fi
+
+    case "${prev}" in
+        compile)
+            COMPREPLY=($(compgen -W "-c --config -o --output --id" -- "${cur}"))
+            ;;
+        compile-prompt)
+            COMPREPLY=($(compgen -W "-p --prompt -o --output" -- "${cur}"))
+            ;;
+        -c|--config)
+            COMPREPLY=($(compgen -f -X '!*.yaml' -- "${cur}"))
+            ;;
+        -o|--output)
+            COMPREPLY=($(compgen -f -X '!*.json' -- "${cur}"))
+            ;;
+        -p|--prompt)
+            COMPREPLY=($(compgen -f -X '!*.yaml' -- "${cur}"))
+            ;;
+        validate|inspect)
+            COMPREPLY=($(compgen -f -X '!*.json' -- "${cur}"))
+            ;;
+        completion)
+            COMPREPLY=($(compgen -W "bash zsh fish powershell" -- "${cur}"))
+            ;;
+    esac
+}
+complete -F _packc_completions packc
+`
+
+const zshCompletion = `#compdef packc
+
+_packc() {
+    local -a commands
+    commands=(
+        'compile:Compile ALL prompts from arena.yaml into a single pack'
+        'compile-prompt:Compile a single prompt to pack format'
+        'validate:Validate a pack file'
+        'inspect:Display pack information'
+        'version:Show version'
+        'help:Show help'
+        'completion:Generate shell completion script'
+    )
+
+    _arguments -C \
+        '1: :->command' \
+        '*: :->args'
+
+    case $state in
+        command)
+            _describe 'command' commands
+            ;;
+        args)
+            case $words[2] in
+                compile)
+                    _arguments \
+                        '-c[Path to arena.yaml file]:config file:_files -g "*.yaml"' \
+                        '--config[Path to arena.yaml file]:config file:_files -g "*.yaml"' \
+                        '-o[Output pack file path]:output file:_files -g "*.json"' \
+                        '--output[Output pack file path]:output file:_files -g "*.json"' \
+                        '--id[Pack ID]:pack id:'
+                    ;;
+                compile-prompt)
+                    _arguments \
+                        '-p[Path to prompt YAML file]:prompt file:_files -g "*.yaml"' \
+                        '--prompt[Path to prompt YAML file]:prompt file:_files -g "*.yaml"' \
+                        '-o[Output pack file path]:output file:_files -g "*.json"' \
+                        '--output[Output pack file path]:output file:_files -g "*.json"'
+                    ;;
+                validate|inspect)
+                    _arguments '*:pack file:_files -g "*.json"'
+                    ;;
+                completion)
+                    _arguments '1:shell:(bash zsh fish powershell)'
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+_packc "$@"
+`
+
+const fishCompletion = `# packc fish completion
+complete -c packc -f
+
+# Commands
+complete -c packc -n '__fish_use_subcommand' -a 'compile' -d 'Compile ALL prompts from arena.yaml into a single pack'
+complete -c packc -n '__fish_use_subcommand' -a 'compile-prompt' -d 'Compile a single prompt to pack format'
+complete -c packc -n '__fish_use_subcommand' -a 'validate' -d 'Validate a pack file'
+complete -c packc -n '__fish_use_subcommand' -a 'inspect' -d 'Display pack information'
+complete -c packc -n '__fish_use_subcommand' -a 'version' -d 'Show version'
+complete -c packc -n '__fish_use_subcommand' -a 'help' -d 'Show help'
+complete -c packc -n '__fish_use_subcommand' -a 'completion' -d 'Generate shell completion script'
+
+# compile options
+complete -c packc -n '__fish_seen_subcommand_from compile' -s c -l config -d 'Path to arena.yaml file' -r -F
+complete -c packc -n '__fish_seen_subcommand_from compile' -s o -l output -d 'Output pack file path' -r -F
+complete -c packc -n '__fish_seen_subcommand_from compile' -l id -d 'Pack ID' -r
+
+# compile-prompt options
+complete -c packc -n '__fish_seen_subcommand_from compile-prompt' -s p -l prompt -d 'Path to prompt YAML file' -r -F
+complete -c packc -n '__fish_seen_subcommand_from compile-prompt' -s o -l output -d 'Output pack file path' -r -F
+
+# completion shells
+complete -c packc -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish powershell'
+`
+
+const powershellCompletion = `# packc PowerShell completion
+Register-ArgumentCompleter -Native -CommandName packc -ScriptBlock {
+    param($wordToComplete, $commandAst, $cursorPosition)
+
+    $commands = @{
+        'compile' = 'Compile ALL prompts from arena.yaml into a single pack'
+        'compile-prompt' = 'Compile a single prompt to pack format'
+        'validate' = 'Validate a pack file'
+        'inspect' = 'Display pack information'
+        'version' = 'Show version'
+        'help' = 'Show help'
+        'completion' = 'Generate shell completion script'
+    }
+
+    $elements = $commandAst.CommandElements
+    $command = $null
+    if ($elements.Count -gt 1) {
+        $command = $elements[1].Extent.Text
+    }
+
+    if ($elements.Count -eq 1 -or ($elements.Count -eq 2 -and $wordToComplete -eq $command)) {
+        $commands.Keys | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+            [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $commands[$_])
+        }
+        return
+    }
+
+    switch ($command) {
+        'compile' {
+            $opts = @('-c', '--config', '-o', '--output', '--id')
+            $opts | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterName', $_)
+            }
+        }
+        'compile-prompt' {
+            @('-p', '--prompt', '-o', '--output') | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterName', $_)
+            }
+        }
+        'completion' {
+            @('bash', 'zsh', 'fish', 'powershell') | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+            }
+        }
+    }
+}
+`

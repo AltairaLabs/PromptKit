@@ -15,7 +15,7 @@ The easiest way to use PromptArena, especially if you're working in a JavaScript
 
 ```bash
 # Use without installation (recommended for trying it out)
-npx @altairalabs/promptarena run -c arena.yaml
+npx @altairalabs/promptarena run -c config.arena.yaml
 
 # Install globally
 npm install -g @altairalabs/promptarena
@@ -34,8 +34,8 @@ npm install --save-dev @altairalabs/promptarena
 ```json
 {
   "scripts": {
-    "test:prompts": "promptarena run -c ./tests/arena.yaml",
-    "test:watch": "promptarena run -c ./tests/arena.yaml --watch"
+    "test:prompts": "promptarena run -c ./tests/config.arena.yaml",
+    "test:watch": "promptarena run -c ./tests/config.arena.yaml --watch"
   },
   "devDependencies": {
     "@altairalabs/promptarena": "^0.0.1"
@@ -94,6 +94,23 @@ promptarena --help
 # Should display command usage and available commands
 ```
 
+## Enable Shell Completions (Optional)
+
+Enable tab completion for commands, flags, and dynamic values:
+
+```bash
+# Bash
+promptarena completion bash > ~/.local/share/bash-completion/completions/promptarena
+
+# Zsh
+promptarena completion zsh > ~/.zsh/completions/_promptarena
+
+# Fish
+promptarena completion fish > ~/.config/fish/completions/promptarena.fish
+```
+
+See [Configure Shell Completions](shell-completions) for detailed setup instructions.
+
 ## Create Your First Project
 
 After installation, use the project generator to get started instantly:
@@ -114,7 +131,7 @@ promptarena run
 
 The `init` command creates everything you need:
 
-- Arena configuration (`arena.yaml`)
+- Arena configuration (`config.arena.yaml`)
 - Provider setup (`providers/`)
 - Sample test scenario (`scenarios/`)
 - Prompt configuration (`prompts/`)
@@ -131,7 +148,7 @@ mkdir my-llm-tests
 cd my-llm-tests
 
 # Create a minimal config file
-cat > arena.yaml << 'EOF'
+cat > config.arena.yaml << 'EOF'
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Arena
 metadata:

@@ -1,215 +1,105 @@
 # PromptKit
 
-<!-- Build & Quality Badges -->
 [![CI](https://github.com/AltairaLabs/PromptKit/workflows/CI/badge.svg)](https://github.com/AltairaLabs/PromptKit/actions/workflows/ci.yml)
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=AltairaLabs_PromptKit&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=AltairaLabs_PromptKit)
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=AltairaLabs_PromptKit&metric=coverage)](https://sonarcloud.io/summary/new_code?id=AltairaLabs_PromptKit)
 [![Go Report Card](https://goreportcard.com/badge/github.com/AltairaLabs/PromptKit)](https://goreportcard.com/report/github.com/AltairaLabs/PromptKit)
-
-<!-- Security & Compliance Badges -->
-[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=AltairaLabs_PromptKit&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=AltairaLabs_PromptKit)
-[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=AltairaLabs_PromptKit&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=AltairaLabs_PromptKit)
-[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=AltairaLabs_PromptKit&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=AltairaLabs_PromptKit)
-
-
-<!-- Version & Distribution Badges -->
 [![Go Reference](https://pkg.go.dev/badge/github.com/AltairaLabs/PromptKit.svg)](https://pkg.go.dev/github.com/AltairaLabs/PromptKit)
-
-<!-- License Badges -->
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-> **Professional LLM Testing & Production Deployment Framework**
 
-PromptKit is an open-source framework for testing, optimizing, and deploying LLM-based applications with confidence.
+**Test, red-team, and deploy LLM applications with confidence.**
 
-## 🎯 What is PromptKit?
-
-PromptKit provides two main components:
-
-- **PromptKit Arena** - A comprehensive testing framework for LLM conversations, prompts, and tool usage
-- **PromptKit SDK** - A production-ready library for deploying LLM applications
-
-## 🚀 Quick Start
-
-### Installation
-
-#### Option 1: Install from source
+## Install
 
 ```bash
-# Clone the repository
-git clone https://github.com/AltairaLabs/PromptKit.git
-cd PromptKit
-
-# Build and install tools locally
+git clone https://github.com/AltairaLabs/PromptKit.git && cd PromptKit
 make install-tools-user
-
-# Or install to system PATH (may require sudo)
-make install-tools
 ```
 
-#### Option 2: Build individual tools
+## Quick Start
+
+### 1. Create a project
 
 ```bash
-# Clone the repository
-git clone https://github.com/AltairaLabs/PromptKit.git
-cd PromptKit
-
-# Build just arena
-cd tools/arena && go build -o promptarena ./cmd/promptarena
-
-# Or build just packc
-cd tools/packc && go build -o packc .
+promptarena init my-project --template iot-maintenance-demo
+cd my-project
 ```
 
-**Note:** Tools arena and packc are now independently buildable with no cross-dependencies. Direct installation via `go install` is not supported due to the monorepo structure with replace directives for shared internal packages (`runtime` and `pkg`).
+![init project](recordings/gifs/02-init-project.gif)
 
-### Arena - Test Your LLM Applications
+### 2. Inspect configuration
 
 ```bash
-# Run tests across multiple providers
-promptarena run -c examples/customer-support 
-
-# View HTML report
-open out/report.html
+promptarena config-inspect
 ```
 
-### SDK - Deploy to Production
+![config overview](recordings/gifs/03-config-overview.gif)
 
-```go
-import (
-    "github.com/AltairaLabs/PromptKit/sdk"
-    "github.com/AltairaLabs/PromptKit/runtime/providers"
-)
+### 3. Run a test scenario
 
-// Create a conversation engine
-engine := sdk.NewEngine(sdk.Config{
-    Provider: providers.NewOpenAIProvider("gpt-4", ...),
-    Prompts:  sdk.LoadPrompts("./prompts"),
-})
-
-// Execute conversations
-result, err := engine.Chat(ctx, userMessage)
+```bash
+promptarena run --scenario scenarios/hardware-faults.scenario.yaml
 ```
 
-## 📦 Repository Structure
+![run scenario](recordings/gifs/05-run-scenario.gif)
 
-This is a monorepo containing multiple tools and libraries:
+### 4. Red-team security testing
 
-```text
+```bash
+promptarena run --scenario scenarios/redteam-selfplay.scenario.yaml
+```
+
+![redteam test](recordings/gifs/06-redteam-test.gif)
+
+### 5. Review results
+
+```bash
+promptarena view
+```
+
+![view conversation](recordings/gifs/07-view-conversation.gif)
+
+### 6. Deploy with the SDK
+
+Compile prompts and run in your Go application:
+
+```bash
+packc compile -c config.arena.yaml -o app.pack.json
+```
+
+![sdk demo](recordings/gifs/08-sdk-demo.gif)
+
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| **Multi-Provider** | OpenAI, Anthropic, Google Gemini, Azure OpenAI |
+| **MCP Integration** | Native Model Context Protocol for real tool execution |
+| **Self-Play Testing** | AI personas for adversarial and user simulation |
+| **Red-Team** | Security testing with prompt injection detection |
+| **Tool Validation** | Mock or live tool call verification |
+| **SDK Deployment** | Compile prompts to portable packs for production |
+
+## Repository Structure
+
+```
 promptkit/
-├── tools/
-│   ├── arena/          # PromptKit Arena - Testing framework
-│   └── packc/          # Pack Compiler - Prompt packaging tool
-├── sdk/                # PromptKit SDK - Production library
-├── runtime/            # Runtime components and shared libraries
-├── pkg/                # Shared packages
-├── examples/           # Example scenarios and configs
-└── docs/               # Documentation
+├── tools/arena/     # PromptKit Arena CLI
+├── tools/packc/     # Pack Compiler CLI
+├── sdk/             # Production SDK
+├── runtime/         # Shared runtime
+├── examples/        # Example projects
+└── docs/            # Documentation
 ```
 
-## ✨ Features
+## Contributing
 
-### Multi-Provider Support
+See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
-- **OpenAI** (GPT-4, GPT-3.5)
-- **Anthropic** (Claude 3 Opus, Sonnet, Haiku)
-- **Google** (Gemini Pro, Ultra)
-- Easy to add custom providers
+## License
 
-### MCP Integration
-
-- **Native Model Context Protocol support** - Connect to any MCP-compliant tool server
-- **Real tool execution** - Test with actual tools, not mocks
-- **Multi-server** - Use memory, filesystem, databases, and custom tools simultaneously
-- **Auto-discovery** - Tools are automatically discovered from connected servers
-
-### Testing Capabilities
-
-- Multi-turn conversation testing
-- Provider comparison matrices
-- Tool/function calling validation with real MCP tools
-- Self-play testing with AI personas
-- Cost and latency tracking
-
-### Production Ready
-
-- Type-safe configuration
-- Comprehensive error handling
-- Context propagation
-- Structured logging
-- Tool execution framework
-
-## 🛠️ Development Setup
-
-### Prerequisites
-
-Before contributing, install these development tools:
-
-```bash
-# Install golangci-lint (linter)
-brew install golangci-lint
-# Or: https://golangci-lint.run/usage/install/
-
-# Install diff-cover (coverage analysis)
-pip install diff-cover
-# Or: pip3 install diff-cover
-```
-
-### Pre-commit Hooks
-
-We use pre-commit hooks to ensure code quality. The hooks run automatically before each commit and only check changed code (fast!).
-
-**Install the pre-commit hook:**
-
-```bash
-# Make the hook executable (one-time setup)
-chmod +x .git/hooks/pre-commit
-
-# Or use the install script
-./scripts/install-hooks.sh
-```
-
-**What the hook checks:**
-
-- ✅ Lints changed code only (via `golangci-lint --new-from-rev=HEAD`)
-- ✅ Runs tests on affected packages
-- ✅ Ensures ≥80% coverage on changed lines only
-- ✅ Fast execution (~10-30 seconds typically)
-
-**Bypassing the hook:**
-
-In rare cases when you need to commit without running checks:
-
-```bash
-git commit -m "fix: emergency hotfix [skip-pre-commit]"
-```
-
-**Manual verification:**
-
-Run the same checks manually:
-
-```bash
-# Run lint on changed code
-make lint-diff
-
-# Run coverage check on changed lines
-make test-coverage-diff
-
-# Run both (same as CI)
-make verify
-```
-
-## 🤝 Contributing
-
-We welcome contributions! Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for details.
-
-## 📄 License
-
-Apache License 2.0 - See [LICENSE](./LICENSE) for details.
-
-## 🏢 About AltairaLabs
-
-PromptKit is built and maintained by [AltairaLabs.ai](https://altairalabs.ai), a company focused on making LLM development more reliable and production-ready.
+Apache 2.0 - See [LICENSE](./LICENSE).
 
 ---
 
-Built with ❤️ by the AltairaLabs team
+Built by [AltairaLabs.ai](https://altairalabs.ai)

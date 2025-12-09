@@ -66,6 +66,9 @@ func init() {
 		"Template repo config file")
 	initCmd.Flags().StringVar(&initTemplateCache, "template-cache", templates.DefaultCacheDir(),
 		"Cache directory for remote templates")
+
+	// Register dynamic completions (must be after flags are defined)
+	RegisterInitCompletions()
 }
 
 func runInit(cmd *cobra.Command, args []string) error {

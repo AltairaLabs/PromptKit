@@ -28,7 +28,7 @@ PromptKit Pack Compiler - Compile and validate prompt configurations.
 ```bash
 npm install -g @altairalabs/packc
 # or
-npx @altairalabs/packc compile -c arena.yaml
+npx @altairalabs/packc compile -c config.arena.yaml
 ```
 
 **Use for:**
@@ -48,7 +48,7 @@ The fastest way to try PromptKit tools:
 npx @altairalabs/promptarena run -c examples/customer-support
 
 # Compile prompts
-npx @altairalabs/packc compile -c arena.yaml
+npx @altairalabs/packc compile -c config.arena.yaml
 ```
 
 ### Global Installation
@@ -77,8 +77,8 @@ Then add to `package.json`:
 {
   "scripts": {
     "test:prompts": "promptarena run -c ./tests/arena-config",
-    "build:prompts": "packc compile -c ./prompts/arena.yaml",
-    "validate:prompts": "packc validate -c ./prompts/arena.yaml"
+    "build:prompts": "packc compile -c ./prompts/config.arena.yaml",
+    "validate:prompts": "packc validate -c ./prompts/config.arena.yaml"
   }
 }
 ```
@@ -130,10 +130,10 @@ All packages support:
   run: npm install -g @altairalabs/promptarena @altairalabs/packc
 
 - name: Validate prompts
-  run: packc validate -c config/arena.yaml
+  run: packc validate -c config/config.arena.yaml
 
 - name: Run tests
-  run: promptarena run -c config/arena.yaml
+  run: promptarena run -c config/config.arena.yaml
   env:
     OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 ```
@@ -158,8 +158,8 @@ npx @altairalabs/promptarena run -c tests/edge-cases.yaml
   },
   "scripts": {
     "test": "npm run test:prompts && npm run test:unit",
-    "test:prompts": "promptarena run -c ./config/arena.yaml",
-    "build": "packc compile -c ./config/arena.yaml && next build"
+    "test:prompts": "promptarena run -c ./config/config.arena.yaml",
+    "build": "packc compile -c ./config/config.arena.yaml && next build"
   }
 }
 ```

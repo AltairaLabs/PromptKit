@@ -118,6 +118,23 @@ Usage: packc <command> [options]
 /Users/yourname/go/bin/packc
 ```
 
+## Enable Shell Completions (Optional)
+
+Enable tab completion for commands and flags:
+
+```bash
+# Bash
+packc completion bash > ~/.local/share/bash-completion/completions/packc
+
+# Zsh
+packc completion zsh > ~/.zsh/completions/_packc
+
+# Fish
+packc completion fish > ~/.config/fish/completions/packc.fish
+```
+
+See [Configure Shell Completions](/arena/how-to/shell-completions) for detailed setup instructions.
+
 ## Add to PATH
 
 If `packc` is not found, add Go's bin directory to your PATH:
