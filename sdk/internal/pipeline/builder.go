@@ -2,9 +2,7 @@
 package pipeline
 
 import (
-	"fmt"
-	"os"
-
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
@@ -15,13 +13,6 @@ import (
 
 // debugLogTruncateLen is the max length for system prompt debug output.
 const debugLogTruncateLen = 200
-
-// debugLogf prints debug output if SDK_DEBUG is set.
-func debugLogf(format string, args ...any) {
-	if os.Getenv("SDK_DEBUG") != "" {
-		fmt.Fprintf(os.Stderr, "[SDK DEBUG] "+format+"\n", args...)
-	}
-}
 
 // Config holds configuration for building a pipeline.
 type Config struct {
@@ -77,14 +68,15 @@ func Build(cfg *Config) (*rtpipeline.Pipeline, error) {
 	var middlewares []rtpipeline.Middleware
 
 	// Debug: log configuration
-	debugLogf("Building pipeline for taskType=%q", cfg.TaskType)
-	debugLogf("Variables: %v", cfg.Variables)
-	debugLogf("PromptRegistry: %v", cfg.PromptRegistry != nil)
-	debugLogf("ToolRegistry: %v", cfg.ToolRegistry != nil)
+	logger.Debug("Building pipeline",
+		"taskType", cfg.TaskType,
+		"variables", cfg.Variables,
+		"hasPromptRegistry", cfg.PromptRegistry != nil,
+		"hasToolRegistry", cfg.ToolRegistry != nil)
 
 	// 1. Prompt assembly middleware - loads prompt, sets system prompt and allowed tools
 	// 2. Template middleware - copies SystemPrompt to Prompt (for ProviderMiddleware)
-	// 3. Debug middleware to log the assembled prompt (only active when SDK_DEBUG is set)
+	// 3. Debug middleware to log the assembled prompt
 	middlewares = append(middlewares,
 		middleware.PromptAssemblyMiddleware(cfg.PromptRegistry, cfg.TaskType, cfg.Variables),
 		middleware.TemplateMiddleware(),
@@ -118,20 +110,24 @@ func Build(cfg *Config) (*rtpipeline.Pipeline, error) {
 	return rtpipeline.NewPipelineWithConfigValidated(nil, middlewares...)
 }
 
-// debugMiddleware logs execution context for debugging when SDK_DEBUG is set.
+// debugMiddleware logs execution context for debugging.
 type debugMiddleware struct{}
 
 // Process logs the execution context state for debugging.
 func (m *debugMiddleware) Process(execCtx *rtpipeline.ExecutionContext, next func() error) error {
-	debugLogf("After PromptAssembly:")
-	debugLogf("  SystemPrompt length: %d", len(execCtx.SystemPrompt))
 	if len(execCtx.SystemPrompt) > debugLogTruncateLen {
-		debugLogf("  SystemPrompt (first %d): %s...", debugLogTruncateLen, execCtx.SystemPrompt[:debugLogTruncateLen])
+		logger.Debug("After PromptAssembly",
+			"systemPromptLength", len(execCtx.SystemPrompt),
+			"systemPromptPreview", execCtx.SystemPrompt[:debugLogTruncateLen]+"...",
+			"allowedTools", execCtx.AllowedTools,
+			"variables", execCtx.Variables)
 	} else {
-		debugLogf("  SystemPrompt: %s", execCtx.SystemPrompt)
+		logger.Debug("After PromptAssembly",
+			"systemPromptLength", len(execCtx.SystemPrompt),
+			"systemPrompt", execCtx.SystemPrompt,
+			"allowedTools", execCtx.AllowedTools,
+			"variables", execCtx.Variables)
 	}
-	debugLogf("  AllowedTools: %v", execCtx.AllowedTools)
-	debugLogf("  Variables: %v", execCtx.Variables)
 	return next()
 }
 
