@@ -251,6 +251,23 @@ func (m *mockStore) Load(_ context.Context, id string) (*statestore.Conversation
 	return m.conversations[id], nil
 }
 
+func (m *mockStore) Fork(_ context.Context, sourceID, newID string) error {
+	source, exists := m.conversations[sourceID]
+	if !exists {
+		return statestore.ErrNotFound
+	}
+	// Create a copy
+	forked := &statestore.ConversationState{
+		ID:         newID,
+		UserID:     source.UserID,
+		Messages:   append([]types.Message{}, source.Messages...),
+		TokenCount: source.TokenCount,
+		Metadata:   source.Metadata,
+	}
+	m.conversations[newID] = forked
+	return nil
+}
+
 // mockProvider implements providers.Provider for testing
 type mockProvider struct{}
 
@@ -432,7 +449,7 @@ func TestInitMCPRegistry(t *testing.T) {
 func TestApplyDefaultVariables(t *testing.T) {
 	t.Run("applies defaults", func(t *testing.T) {
 		conv := &Conversation{
-			variables: make(map[string]string),
+			config: &config{},
 		}
 		prompt := &pack.Prompt{
 			Variables: []pack.Variable{
@@ -443,25 +460,26 @@ func TestApplyDefaultVariables(t *testing.T) {
 		}
 		applyDefaultVariables(conv, prompt)
 
-		assert.Equal(t, "default1", conv.variables["var1"])
-		assert.Empty(t, conv.variables["var2"])
-		assert.Equal(t, "default3", conv.variables["var3"])
+		// Variables are now stored in config.initialVariables, not directly in conversation
+		assert.Equal(t, "default1", conv.config.initialVariables["var1"])
+		assert.Empty(t, conv.config.initialVariables["var2"])
+		assert.Equal(t, "default3", conv.config.initialVariables["var3"])
 	})
 }
 
 func TestInitEventBus(t *testing.T) {
 	t.Run("creates new bus when not provided", func(t *testing.T) {
-		conv := &Conversation{}
+		conv := &Conversation{config: &config{}}
 		cfg := &config{}
 		initEventBus(conv, cfg)
-		assert.NotNil(t, conv.eventBus)
+		assert.NotNil(t, cfg.eventBus)
 	})
 
-	t.Run("uses provided bus", func(t *testing.T) {
-		conv := &Conversation{}
+	t.Run("uses provided event bus", func(t *testing.T) {
+		conv := &Conversation{config: &config{}}
 		bus := events.NewEventBus()
 		cfg := &config{eventBus: bus}
 		initEventBus(conv, cfg)
-		assert.Equal(t, bus, conv.eventBus)
+		assert.Equal(t, bus, cfg.eventBus)
 	})
 }

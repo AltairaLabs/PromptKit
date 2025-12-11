@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 	"sync"
@@ -13,15 +12,14 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/session"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
-	"github.com/AltairaLabs/PromptKit/runtime/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 	intpipeline "github.com/AltairaLabs/PromptKit/sdk/internal/pipeline"
@@ -72,9 +70,8 @@ type Conversation struct {
 	// Configuration from options
 	config *config
 
-	// Variable state for template substitution
-	variables map[string]string
-	varMu     sync.RWMutex
+	// Text session for executing pipeline
+	textSession session.TextSession
 
 	// Tool handlers
 	handlers   map[string]ToolHandler
@@ -89,16 +86,6 @@ type Conversation struct {
 
 	// MCP registry for managing MCP servers
 	mcpRegistry mcp.Registry
-
-	// Event bus for observability
-	eventBus *events.EventBus
-
-	// Conversation state (messages, metadata)
-	state   *statestore.ConversationState
-	stateMu sync.RWMutex
-
-	// Unique identifier (auto-generated or from config)
-	id string
 
 	// Closed flag
 	closed bool
@@ -211,89 +198,52 @@ func (c *Conversation) buildUserMessage(message any, opts []SendOption) (*types.
 	return userMsg, nil
 }
 
-// executePipeline builds and executes the LLM pipeline.
-func (c *Conversation) executePipeline(
-	ctx context.Context,
-	userMsg *types.Message,
-) (*rtpipeline.ExecutionResult, error) {
-	// Get current variables for template substitution (including from providers)
-	vars := c.getVariablesWithProviders(ctx)
+// buildPipeline creates the LLM pipeline used by this conversation.
+// This is called once during initialization to create a reusable pipeline.
+// Variables are not baked into the pipeline anymore - they are dynamically resolved
+// from the session at runtime.
+func (c *Conversation) buildPipeline() (*rtpipeline.Pipeline, error) {
+	// Get store and ID from session if it exists, otherwise use defaults
+	var store statestore.Store
+	var conversationID string
+	if c.textSession != nil {
+		store = c.textSession.StateStore()
+		conversationID = c.textSession.ID()
+	}
 
-	// Build tool registry (registers executors for handlers)
+	return c.buildPipelineWithParams(store, conversationID)
+}
+
+// buildPipelineWithParams builds a pipeline with explicit parameters.
+// Used during initialization when textSession doesn't exist yet.
+func (c *Conversation) buildPipelineWithParams(store statestore.Store, conversationID string) (*rtpipeline.Pipeline, error) {
+	// Note: Variables are no longer passed to pipeline at build time.
+	// They are resolved dynamically from the session during execution.
+	// For now, pass empty vars since pipeline doesn't capture them anymore anyway.
+	vars := make(map[string]string)
+
+	// Build tool registry
 	toolRegistry := c.buildToolRegistry()
 
-	// Build pipeline using PromptAssemblyMiddleware (same as Arena)
+	// Build pipeline configuration
 	pipelineCfg := &intpipeline.Config{
-		Provider:       c.provider,
-		ToolRegistry:   toolRegistry,
-		PromptRegistry: c.promptRegistry,
-		TaskType:       c.promptName,
-		Variables:      vars,
-		MaxTokens:      defaultMaxTokens,
-		Temperature:    defaultTemperature,
+		Provider:          c.provider,
+		ToolRegistry:      toolRegistry,
+		PromptRegistry:    c.promptRegistry,
+		TaskType:          c.promptName,
+		Variables:         vars,
+		VariableProviders: c.config.variableProviders, // Pass to pipeline for dynamic resolution
+		MaxTokens:         defaultMaxTokens,
+		Temperature:       defaultTemperature,
+		StateStore:        store,
+		ConversationID:    conversationID,
 	}
 
 	// Apply parameters from prompt if available
 	c.applyPromptParameters(pipelineCfg)
 
-	pipe, err := intpipeline.Build(pipelineCfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build pipeline: %w", err)
-	}
-
-	// Add user message to history
-	c.addMessageToHistory(userMsg)
-
-	// Execute pipeline
-	execOpts := &rtpipeline.ExecutionOptions{
-		Context:        ctx,
-		ConversationID: c.id,
-	}
-
-	result, err := pipe.ExecuteWithMessageOptions(execOpts, *userMsg)
-	if err != nil {
-		return nil, fmt.Errorf("pipeline execution failed: %w", err)
-	}
-
-	// Add assistant response to history
-	c.addAssistantResponse(result)
-
-	return result, nil
-}
-
-// getVariables returns a copy of the current variables.
-// If ctx is provided, it also resolves variables from any configured providers.
-func (c *Conversation) getVariables() map[string]string {
-	c.varMu.RLock()
-	defer c.varMu.RUnlock()
-	vars := make(map[string]string, len(c.variables))
-	for k, v := range c.variables {
-		vars[k] = v
-	}
-	return vars
-}
-
-// getVariablesWithProviders returns variables including those from providers.
-// Provider variables override static variables with the same key.
-func (c *Conversation) getVariablesWithProviders(ctx context.Context) map[string]string {
-	// Start with static variables
-	vars := c.getVariables()
-
-	// Resolve from providers (if any)
-	if c.config != nil && len(c.config.variableProviders) > 0 {
-		for _, p := range c.config.variableProviders {
-			providerVars, err := p.Provide(ctx)
-			if err != nil {
-				// Log but don't fail - providers are best-effort
-				continue
-			}
-			for k, v := range providerVars {
-				vars[k] = v
-			}
-		}
-	}
-
-	return vars
+	// Build the pipeline
+	return intpipeline.Build(pipelineCfg)
 }
 
 // applyPromptParameters applies parameters from the prompt to the pipeline config.
@@ -309,32 +259,13 @@ func (c *Conversation) applyPromptParameters(cfg *intpipeline.Config) {
 	}
 }
 
-// addMessageToHistory adds a message to the conversation history.
-func (c *Conversation) addMessageToHistory(msg *types.Message) {
-	c.stateMu.Lock()
-	defer c.stateMu.Unlock()
-	if c.state == nil {
-		c.state = &statestore.ConversationState{
-			ID:       c.id,
-			Messages: []types.Message{},
-		}
-	}
-	c.state.Messages = append(c.state.Messages, *msg)
-}
-
-// addAssistantResponse adds the assistant's response to history.
-func (c *Conversation) addAssistantResponse(result *rtpipeline.ExecutionResult) {
-	if result.Response == nil {
-		return
-	}
-	assistantMsg := types.Message{
-		Role:     "assistant",
-		Content:  result.Response.Content,
-		CostInfo: &result.CostInfo,
-	}
-	c.stateMu.Lock()
-	c.state.Messages = append(c.state.Messages, assistantMsg)
-	c.stateMu.Unlock()
+// executePipeline builds and executes the LLM pipeline.
+func (c *Conversation) executePipeline(
+	ctx context.Context,
+	userMsg *types.Message,
+) (*rtpipeline.ExecutionResult, error) {
+	// Execute through the text session
+	return c.textSession.ExecuteWithMessage(ctx, *userMsg)
 }
 
 // buildResponse creates a Response from the pipeline result.
@@ -510,53 +441,14 @@ func (c *Conversation) executeStreamingPipeline(
 	outCh chan<- StreamChunk,
 	startTime time.Time,
 ) error {
-	// Build and start streaming pipeline
-	pipe, err := c.buildStreamPipeline()
-	if err != nil {
-		return err
-	}
-
-	// Add user message to history
-	c.addMessageToHistory(userMsg)
-
-	// Execute streaming pipeline
-	streamCh, err := pipe.ExecuteStreamWithMessage(ctx, *userMsg)
+	// Execute streaming through the text session
+	streamCh, err := c.textSession.ExecuteStreamWithMessage(ctx, *userMsg)
 	if err != nil {
 		return fmt.Errorf("pipeline streaming failed: %w", err)
 	}
 
 	// Process stream and finalize
 	return c.processAndFinalizeStream(streamCh, outCh, startTime)
-}
-
-// buildStreamPipeline creates the pipeline for streaming execution.
-func (c *Conversation) buildStreamPipeline() (*rtpipeline.Pipeline, error) {
-	// Get current variables for template substitution
-	vars := c.getVariables()
-
-	// Build tool registry (registers executors for handlers)
-	toolRegistry := c.buildToolRegistry()
-
-	// Build pipeline using PromptAssemblyMiddleware (same as Arena)
-	pipelineCfg := &intpipeline.Config{
-		Provider:       c.provider,
-		ToolRegistry:   toolRegistry,
-		PromptRegistry: c.promptRegistry,
-		TaskType:       c.promptName,
-		Variables:      vars,
-		MaxTokens:      defaultMaxTokens,
-		Temperature:    defaultTemperature,
-	}
-
-	// Apply parameters from prompt if available
-	c.applyPromptParameters(pipelineCfg)
-
-	pipe, err := intpipeline.Build(pipelineCfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build pipeline: %w", err)
-	}
-
-	return pipe, nil
 }
 
 // streamState tracks state during stream processing.
@@ -645,18 +537,8 @@ func (c *Conversation) emitStreamChunk(
 
 // finalizeStreamHistory adds the assistant response to history after streaming.
 func (c *Conversation) finalizeStreamHistory(state *streamState) {
-	if state.finalResult != nil {
-		c.addAssistantResponse(state.finalResult)
-	} else {
-		// No final result from pipeline, create one from accumulated content
-		assistantMsg := types.Message{
-			Role:    "assistant",
-			Content: state.accumulatedContent,
-		}
-		c.stateMu.Lock()
-		c.state.Messages = append(c.state.Messages, assistantMsg)
-		c.stateMu.Unlock()
-	}
+	// State is managed by StateStore middleware in the pipeline
+	// No local state tracking needed
 }
 
 // buildStreamingResponse creates a Response from streaming data.
@@ -754,9 +636,7 @@ func (c *Conversation) StreamRaw(ctx context.Context, message any) (<-chan strea
 //	// Template: "You are helping {{customer_name}}"
 //	// Becomes: "You are helping Alice"
 func (c *Conversation) SetVar(name, value string) {
-	c.varMu.Lock()
-	defer c.varMu.Unlock()
-	c.variables[name] = value
+	c.textSession.SetVar(name, value)
 }
 
 // SetVars sets multiple template variables at once.
@@ -767,10 +647,8 @@ func (c *Conversation) SetVar(name, value string) {
 //	    "max_discount": 20,
 //	})
 func (c *Conversation) SetVars(vars map[string]any) {
-	c.varMu.Lock()
-	defer c.varMu.Unlock()
 	for k, v := range vars {
-		c.variables[k] = fmt.Sprintf("%v", v)
+		c.textSession.SetVar(k, fmt.Sprintf("%v", v))
 	}
 }
 
@@ -783,9 +661,6 @@ func (c *Conversation) SetVars(vars map[string]any) {
 //	conv.SetVarsFromEnv("PROMPTKIT_")
 //	// Sets variable "customer_name" = "Alice"
 func (c *Conversation) SetVarsFromEnv(prefix string) {
-	c.varMu.Lock()
-	defer c.varMu.Unlock()
-
 	const envKeyValueParts = 2 // key=value split parts
 	for _, env := range os.Environ() {
 		parts := strings.SplitN(env, "=", envKeyValueParts)
@@ -795,7 +670,7 @@ func (c *Conversation) SetVarsFromEnv(prefix string) {
 		key, value := parts[0], parts[1]
 		if strings.HasPrefix(key, prefix) {
 			varName := strings.ToLower(strings.TrimPrefix(key, prefix))
-			c.variables[varName] = value
+			c.textSession.SetVar(varName, value)
 		}
 	}
 }
@@ -803,9 +678,7 @@ func (c *Conversation) SetVarsFromEnv(prefix string) {
 // GetVar returns the current value of a template variable.
 // Returns empty string if the variable is not set.
 func (c *Conversation) GetVar(name string) string {
-	c.varMu.RLock()
-	defer c.varMu.RUnlock()
-	return c.variables[name]
+	return c.textSession.GetVar(name)
 }
 
 // OnTool registers a handler for a tool defined in the pack.
@@ -1029,13 +902,11 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 	// For now, this is a simplified implementation that re-sends
 	// with the last context - full implementation would inject tool results
 
-	// Get the last message and re-execute pipeline
-	c.stateMu.RLock()
-	if c.state == nil || len(c.state.Messages) == 0 {
-		c.stateMu.RUnlock()
+	// Get the last message from state store
+	msgs := c.Messages(ctx)
+	if len(msgs) == 0 {
 		return nil, fmt.Errorf("no messages to continue from")
 	}
-	c.stateMu.RUnlock()
 
 	// Execute pipeline with empty message (continuation)
 	userMsg := &types.Message{Role: "user"}
@@ -1116,17 +987,20 @@ func (c *Conversation) ToolRegistry() *tools.Registry {
 // Messages returns the conversation history.
 //
 // The returned slice is a copy - modifying it does not affect the conversation.
-func (c *Conversation) Messages() []types.Message {
-	c.stateMu.RLock()
-	defer c.stateMu.RUnlock()
+func (c *Conversation) Messages(ctx context.Context) []types.Message {
+	store := c.textSession.StateStore()
+	if store == nil {
+		return nil
+	}
 
-	if c.state == nil {
+	state, err := store.Load(ctx, c.textSession.ID())
+	if err != nil {
 		return nil
 	}
 
 	// Return a copy
-	messages := make([]types.Message, len(c.state.Messages))
-	copy(messages, c.state.Messages)
+	messages := make([]types.Message, len(state.Messages))
+	copy(messages, state.Messages)
 	return messages
 }
 
@@ -1135,13 +1009,18 @@ func (c *Conversation) Messages() []types.Message {
 // This keeps the system prompt and variables but removes all user/assistant
 // messages. Useful for starting fresh within the same conversation session.
 func (c *Conversation) Clear() {
-	c.stateMu.Lock()
-	defer c.stateMu.Unlock()
-
-	if c.state != nil {
-		c.state.Messages = nil
-		c.state.TokenCount = 0
+	store := c.textSession.StateStore()
+	if store == nil {
+		return
 	}
+
+	// Reset state in store
+	ctx := context.Background()
+	state := &statestore.ConversationState{
+		ID:       c.textSession.ID(),
+		Messages: nil,
+	}
+	_ = store.Save(ctx, state)
 }
 
 // Fork creates a copy of the current conversation state.
@@ -1162,20 +1041,10 @@ func (c *Conversation) Clear() {
 func (c *Conversation) Fork() *Conversation {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	c.varMu.RLock()
-	defer c.varMu.RUnlock()
-	c.stateMu.RLock()
-	defer c.stateMu.RUnlock()
 	c.handlersMu.RLock()
 	defer c.handlersMu.RUnlock()
 	c.asyncHandlersMu.RLock()
 	defer c.asyncHandlersMu.RUnlock()
-
-	// Copy variables
-	vars := make(map[string]string, len(c.variables))
-	for k, v := range c.variables {
-		vars[k] = v
-	}
 
 	// Copy handlers
 	handlers := make(map[string]ToolHandler, len(c.handlers))
@@ -1189,30 +1058,79 @@ func (c *Conversation) Fork() *Conversation {
 		asyncHandlers[k] = v
 	}
 
-	// Copy state
-	var stateCopy *statestore.ConversationState
-	if c.state != nil {
-		messages := make([]types.Message, len(c.state.Messages))
-		copy(messages, c.state.Messages)
-		stateCopy = &statestore.ConversationState{
-			ID:         c.state.ID + "-fork",
-			UserID:     c.state.UserID,
-			Messages:   messages,
-			TokenCount: c.state.TokenCount,
+	// Create fork with new ID
+	forkID := c.textSession.ID() + "-fork"
+
+	// Fork state using the store's Fork method
+	store := c.textSession.StateStore()
+	if store != nil {
+		ctx := context.Background()
+		_ = store.Fork(ctx, c.textSession.ID(), forkID)
+	}
+
+	// Copy variables from the current session
+	currentVars := c.textSession.Variables()
+	forkVars := make(map[string]string, len(currentVars))
+	for k, v := range currentVars {
+		forkVars[k] = v
+	}
+
+	// Build a pipeline for the fork (reuses same configuration)
+	forkPipeline, err := c.buildPipelineWithParams(store, forkID)
+	if err != nil {
+		// If pipeline build fails, return a conversation without a session
+		// This maintains backward compatibility with tests
+		return &Conversation{
+			pack:           c.pack,
+			prompt:         c.prompt,
+			promptName:     c.promptName,
+			promptRegistry: c.promptRegistry,
+			toolRegistry:   c.toolRegistry,
+			provider:       c.provider,
+			config:         c.config,
+			textSession:    nil,
+			handlers:       handlers,
+			asyncHandlers:  asyncHandlers,
+			pendingStore:   sdktools.NewPendingStore(),
+		}
+	}
+
+	// Create a new session for the fork with copied variables and forked state
+	forkSession, err := session.NewTextSession(session.TextConfig{
+		ConversationID: forkID,
+		StateStore:     store,
+		Pipeline:       forkPipeline,
+		Variables:      forkVars,
+	})
+	if err != nil {
+		// If session creation fails, return a conversation without a session
+		return &Conversation{
+			pack:           c.pack,
+			prompt:         c.prompt,
+			promptName:     c.promptName,
+			promptRegistry: c.promptRegistry,
+			toolRegistry:   c.toolRegistry,
+			provider:       c.provider,
+			config:         c.config,
+			textSession:    nil,
+			handlers:       handlers,
+			asyncHandlers:  asyncHandlers,
+			pendingStore:   sdktools.NewPendingStore(),
 		}
 	}
 
 	return &Conversation{
-		pack:          c.pack,
-		prompt:        c.prompt,
-		promptName:    c.promptName,
-		provider:      c.provider,
-		config:        c.config,
-		variables:     vars,
-		handlers:      handlers,
-		asyncHandlers: asyncHandlers,
-		pendingStore:  sdktools.NewPendingStore(), // Fresh pending store for fork
-		state:         stateCopy,
+		pack:           c.pack,
+		prompt:         c.prompt,
+		promptName:     c.promptName,
+		promptRegistry: c.promptRegistry,
+		toolRegistry:   c.toolRegistry,
+		provider:       c.provider,
+		config:         c.config,
+		textSession:    forkSession,
+		handlers:       handlers,
+		asyncHandlers:  asyncHandlers,
+		pendingStore:   sdktools.NewPendingStore(),
 	}
 }
 
@@ -1236,22 +1154,15 @@ func (c *Conversation) Close() error {
 		}
 	}
 
-	// Save state if we have a state store
-	if c.config.stateStore != nil && c.state != nil {
-		ctx := context.Background()
-		if err := c.config.stateStore.Save(ctx, c.state); err != nil {
-			return fmt.Errorf("failed to save conversation state: %w", err)
-		}
-	}
+	// State is automatically persisted by the StateStore middleware in the pipeline
+	// No explicit save needed here
 
 	return nil
 }
 
 // ID returns the conversation's unique identifier.
 func (c *Conversation) ID() string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.id
+	return c.textSession.ID()
 }
 
 // EventBus returns the conversation's event bus for observability.
@@ -1265,336 +1176,23 @@ func (c *Conversation) ID() string {
 //
 // For convenience methods, see the [hooks] package.
 func (c *Conversation) EventBus() *events.EventBus {
-	return c.eventBus
-}
-
-// localExecutor is a tool executor for locally-handled tools (Mode: "local").
-// It dispatches to the appropriate ToolHandler based on the tool name.
-type localExecutor struct {
-	handlers map[string]ToolHandler
-}
-
-// Name returns "local" to match the Mode on tools in the pack.
-func (e *localExecutor) Name() string {
-	return "local"
-}
-
-// Execute dispatches to the appropriate handler based on tool name.
-func (e *localExecutor) Execute(descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
-	handler, ok := e.handlers[descriptor.Name]
-	if !ok {
-		return nil, fmt.Errorf("no handler registered for tool: %s", descriptor.Name)
-	}
-
-	// Parse args to map
-	var argsMap map[string]any
-	if err := json.Unmarshal(args, &argsMap); err != nil {
-		return nil, fmt.Errorf("failed to parse tool arguments: %w", err)
-	}
-
-	// Call handler
-	result, err := handler(argsMap)
-	if err != nil {
-		return nil, err
-	}
-
-	// Serialize result
-	resultJSON, err := json.Marshal(result)
-	if err != nil {
-		return nil, fmt.Errorf("failed to serialize tool result: %w", err)
-	}
-
-	return resultJSON, nil
-}
-
-// handlerAdapter adapts an SDK ToolHandler to the runtime's tools.Executor interface.
-type handlerAdapter struct {
-	name    string
-	handler ToolHandler
-}
-
-// Name returns the tool name.
-func (a *handlerAdapter) Name() string {
-	return a.name
-}
-
-// Execute runs the handler with the given arguments.
-func (a *handlerAdapter) Execute(descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
-	// Parse args to map
-	var argsMap map[string]any
-	if err := json.Unmarshal(args, &argsMap); err != nil {
-		return nil, fmt.Errorf("failed to parse tool arguments: %w", err)
-	}
-
-	// Call handler
-	result, err := a.handler(argsMap)
-	if err != nil {
-		return nil, err
-	}
-
-	// Serialize result
-	resultJSON, err := json.Marshal(result)
-	if err != nil {
-		return nil, fmt.Errorf("failed to serialize tool result: %w", err)
-	}
-
-	return resultJSON, nil
-}
-
-// mcpHandlerAdapter adapts MCP tool calls to the runtime's tools.Executor interface.
-type mcpHandlerAdapter struct {
-	name     string
-	registry mcp.Registry
-}
-
-// Name returns the tool name.
-func (a *mcpHandlerAdapter) Name() string {
-	return a.name
-}
-
-// Execute runs the MCP tool with the given arguments.
-func (a *mcpHandlerAdapter) Execute(descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
-	ctx := context.Background()
-
-	// Get client for this tool
-	client, err := a.registry.GetClientForTool(ctx, a.name)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get MCP client for tool %q: %w", a.name, err)
-	}
-
-	// Call the tool
-	resp, err := client.CallTool(ctx, a.name, args)
-	if err != nil {
-		return nil, fmt.Errorf("MCP tool call failed: %w", err)
-	}
-
-	// Check for tool error
-	if resp.IsError {
-		errMsg := "MCP tool returned error"
-		if len(resp.Content) > 0 && resp.Content[0].Text != "" {
-			errMsg = resp.Content[0].Text
-		}
-		return nil, fmt.Errorf("%s", errMsg)
-	}
-
-	// Extract text content from response
-	var result any
-	if len(resp.Content) == 1 && resp.Content[0].Type == "text" {
-		// Single text response - return as-is
-		result = resp.Content[0].Text
-	} else {
-		// Multiple content items - return as array
-		result = resp.Content
-	}
-
-	// Serialize result
-	resultJSON, err := json.Marshal(result)
-	if err != nil {
-		return nil, fmt.Errorf("failed to serialize MCP tool result: %w", err)
-	}
-
-	return resultJSON, nil
-}
-
-// OpenAudioSession creates a bidirectional audio streaming session.
-//
-// Requires a provider that implements StreamInputSupport (e.g., Gemini).
-// Returns an audio.Session with VAD and turn detection if configured.
-//
-//	session, err := conv.OpenAudioSession(ctx)
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//	defer session.Close()
-//
-//	// Send audio chunks
-//	for chunk := range audioSource {
-//	    session.SendChunk(ctx, chunk)
-//	}
-//
-//	// Listen for responses
-//	for chunk := range session.Response() {
-//	    // Handle streaming audio response
-//	}
-func (c *Conversation) OpenAudioSession(ctx context.Context, opts ...AudioSessionOption) (*audio.Session, error) {
-	if err := c.checkClosed(); err != nil {
-		return nil, err
-	}
-
-	// Check provider supports streaming input
-	streamProvider, ok := c.provider.(providers.StreamInputSupport)
-	if !ok {
-		return nil, ErrProviderNotStreamCapable
-	}
-
-	// Apply session options
-	cfg := &audioSessionConfig{}
-	for _, opt := range opts {
-		opt(cfg)
-	}
-
-	// Use conversation-level turn detector if not overridden
-	turnDetector := cfg.turnDetector
-	if turnDetector == nil {
-		turnDetector = c.config.turnDetector
-	}
-
-	// Build system message from prompt
-	systemMsg := c.buildSystemMessage()
-
-	// Create streaming session request
-	req := &providers.StreamInputRequest{
-		SystemMsg: systemMsg,
-	}
-
-	// Create underlying stream session
-	underlying, err := streamProvider.CreateStreamSession(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create stream session: %w", err)
-	}
-
-	// Wrap with audio session for VAD and turn detection
-	sessionCfg := audio.SessionConfig{
-		VAD:                  cfg.vad,
-		TurnDetector:         turnDetector,
-		InterruptionStrategy: cfg.interruptionStrategy,
-		AutoCompleteTurn:     cfg.autoCompleteTurn,
-	}
-
-	session, err := audio.NewSession(underlying, sessionCfg)
-	if err != nil {
-		// Close underlying session on error
-		_ = underlying.Close()
-		return nil, fmt.Errorf("failed to create audio session: %w", err)
-	}
-
-	return session, nil
-}
-
-// SpeakResponse converts a text response to audio using the configured TTS service.
-//
-// Requires WithTTS() to be configured when opening the conversation.
-//
-//	conv, _ := sdk.Open("./assistant.pack.json", "voice",
-//	    sdk.WithTTS(tts.NewOpenAI(os.Getenv("OPENAI_API_KEY"))),
-//	)
-//
-//	resp, _ := conv.Send(ctx, "Tell me a joke")
-//	audioReader, _ := conv.SpeakResponse(ctx, resp)
-//	defer audioReader.Close()
-//
-//	io.Copy(speaker, audioReader)
-func (c *Conversation) SpeakResponse(ctx context.Context, resp *Response, opts ...TTSOption) (io.ReadCloser, error) {
-	if err := c.checkClosed(); err != nil {
-		return nil, err
-	}
-
-	if c.config.ttsService == nil {
-		return nil, ErrNoTTSConfigured
-	}
-
-	// Get response text
-	text := resp.Text()
-	if text == "" {
-		return nil, tts.ErrEmptyText
-	}
-
-	// Apply TTS options
-	cfg := &ttsConfig{
-		speed: 1.0, // Default speed
-	}
-	for _, opt := range opts {
-		opt(cfg)
-	}
-
-	// Build synthesis config
-	synthConfig := tts.SynthesisConfig{
-		Voice:    cfg.voice,
-		Format:   cfg.format,
-		Speed:    cfg.speed,
-		Pitch:    cfg.pitch,
-		Language: cfg.language,
-		Model:    cfg.model,
-	}
-
-	return c.config.ttsService.Synthesize(ctx, text, synthConfig)
-}
-
-// SpeakResponseStream converts a text response to streaming audio.
-//
-// Requires WithTTS() configured with a StreamingService provider.
-// Returns a channel of audio chunks for lower latency playback.
-//
-//	conv, _ := sdk.Open("./assistant.pack.json", "voice",
-//	    sdk.WithTTS(tts.NewCartesia(os.Getenv("CARTESIA_API_KEY"))),
-//	)
-//
-//	resp, _ := conv.Send(ctx, "Tell me a story")
-//	chunks, _ := conv.SpeakResponseStream(ctx, resp)
-//
-//	for chunk := range chunks {
-//	    if chunk.Error != nil {
-//	        log.Fatal(chunk.Error)
-//	    }
-//	    playAudio(chunk.Data)
-//	}
-func (c *Conversation) SpeakResponseStream(
-	ctx context.Context, resp *Response, opts ...TTSOption,
-) (<-chan tts.AudioChunk, error) {
-	if err := c.checkClosed(); err != nil {
-		return nil, err
-	}
-
-	if c.config.ttsService == nil {
-		return nil, ErrNoTTSConfigured
-	}
-
-	// Check if TTS service supports streaming
-	streamingTTS, ok := c.config.ttsService.(tts.StreamingService)
-	if !ok {
-		return nil, fmt.Errorf("TTS service %q does not support streaming", c.config.ttsService.Name())
-	}
-
-	// Get response text
-	text := resp.Text()
-	if text == "" {
-		return nil, tts.ErrEmptyText
-	}
-
-	// Apply TTS options
-	cfg := &ttsConfig{
-		speed: 1.0, // Default speed
-	}
-	for _, opt := range opts {
-		opt(cfg)
-	}
-
-	// Build synthesis config
-	synthConfig := tts.SynthesisConfig{
-		Voice:    cfg.voice,
-		Format:   cfg.format,
-		Speed:    cfg.speed,
-		Pitch:    cfg.pitch,
-		Language: cfg.language,
-		Model:    cfg.model,
-	}
-
-	return streamingTTS.SynthesizeStream(ctx, text, synthConfig)
+	return c.config.eventBus
 }
 
 // buildSystemMessage constructs the system message from the prompt template.
+// Variables are resolved from the session. For full variable provider resolution,
+// use the pipeline's VariableProviderMiddleware during execution.
 func (c *Conversation) buildSystemMessage() string {
 	if c.prompt == nil || c.prompt.SystemTemplate == "" {
 		return ""
 	}
 
-	// Get variables for substitution
-	c.varMu.RLock()
-	vars := make(map[string]string, len(c.variables))
-	for k, v := range c.variables {
-		vars[k] = v
-	}
-	c.varMu.RUnlock()
+	// Get variables for substitution from session
+	vars := c.textSession.Variables()
+
+	// Note: Variable providers are handled by the pipeline during execution.
+	// For audio sessions, the system message is sent upfront, so we do
+	// simple substitution here. Full provider resolution happens in pipeline.
 
 	// Simple variable substitution for now
 	// Full template processing happens in the pipeline

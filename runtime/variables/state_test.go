@@ -21,6 +21,10 @@ func (m *mockStateStore) Load(_ context.Context, _ string) (*statestore.Conversa
 	return m.state, m.err
 }
 
+func (m *mockStateStore) Fork(_ context.Context, _, _ string) error {
+	return nil
+}
+
 func TestStateProvider_Name(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -41,6 +41,10 @@ func (m *mockStateStore) Save(ctx context.Context, state *statestore.Conversatio
 	return nil
 }
 
+func (m *mockStateStore) Fork(_ context.Context, _, _ string) error {
+	return nil
+}
+
 func TestVariableProviderMiddleware_NoProviders(t *testing.T) {
 	middleware := VariableProviderMiddleware()
 
