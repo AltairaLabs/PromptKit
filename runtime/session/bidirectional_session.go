@@ -7,21 +7,34 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// bidirectionalSession implements BidirectionalSession by wrapping a provider's StreamInputSession.
+// bidirectionalSession implements BidirectionalSession with Pipeline integration.
+// It manages streaming input/output through the Pipeline middleware chain.
 type bidirectionalSession struct {
 	id              string
 	store           statestore.Store
 	providerSession providers.StreamInputSession
+	pipeline        *pipeline.Pipeline
 	variables       map[string]string
 	varsMu          sync.RWMutex
 	closeMu         sync.Mutex
 	closed          bool
+
+	// Streaming channels for Pipeline integration
+	streamInput  chan providers.StreamChunk // Input chunks sent to VAD middleware
+	streamOutput chan providers.StreamChunk // Output chunks from Pipeline
+
+	// Pipeline execution control
+	executionStarted bool
+	executionMu      sync.Mutex
 }
+
+const streamBufferSize = 100 // Size of buffered channels for streaming
 
 // newBidirectionalSession creates a new bidirectional session implementation.
 func newBidirectionalSession(cfg *BidirectionalConfig) (*bidirectionalSession, error) {
@@ -31,8 +44,8 @@ func newBidirectionalSession(cfg *BidirectionalConfig) (*bidirectionalSession, e
 	if cfg.StateStore == nil {
 		cfg.StateStore = statestore.NewMemoryStore()
 	}
-	if cfg.ProviderSession == nil {
-		return nil, fmt.Errorf("provider session is required")
+	if cfg.Pipeline == nil && cfg.ProviderSession == nil {
+		return nil, fmt.Errorf("either Pipeline or ProviderSession is required")
 	}
 
 	// Initialize conversation state if it doesn't exist
@@ -57,12 +70,21 @@ func newBidirectionalSession(cfg *BidirectionalConfig) (*bidirectionalSession, e
 		}
 	}
 
-	return &bidirectionalSession{
+	sess := &bidirectionalSession{
 		id:              cfg.ConversationID,
 		store:           cfg.StateStore,
 		providerSession: cfg.ProviderSession,
+		pipeline:        cfg.Pipeline,
 		variables:       variables,
-	}, nil
+	}
+
+	// If using Pipeline mode, create streaming channels
+	if cfg.Pipeline != nil {
+		sess.streamInput = make(chan providers.StreamChunk, streamBufferSize)
+		sess.streamOutput = make(chan providers.StreamChunk, streamBufferSize)
+	}
+
+	return sess, nil
 }
 
 // ID returns the unique session identifier.
@@ -70,8 +92,9 @@ func (s *bidirectionalSession) ID() string {
 	return s.id
 }
 
-// SendChunk sends a chunk to the provider session.
-// Input chunks should populate MediaDelta for media or Content for text.
+// SendChunk sends a chunk to the session.
+// In Pipeline mode: sends to StreamInput channel for VAD middleware
+// In Provider mode: sends directly to provider session
 func (s *bidirectionalSession) SendChunk(ctx context.Context, chunk *providers.StreamChunk) error {
 	s.closeMu.Lock()
 	if s.closed {
@@ -84,6 +107,30 @@ func (s *bidirectionalSession) SendChunk(ctx context.Context, chunk *providers.S
 		return fmt.Errorf("chunk cannot be nil")
 	}
 
+	// Pipeline mode: send to StreamInput for VAD middleware
+	if s.pipeline != nil {
+		// Start Pipeline execution on first chunk
+		s.executionMu.Lock()
+		if !s.executionStarted {
+			s.executionStarted = true
+			s.executionMu.Unlock()
+
+			// Start Pipeline execution in background
+			go s.executePipeline(ctx)
+		} else {
+			s.executionMu.Unlock()
+		}
+
+		// Send chunk to VAD middleware via StreamInput
+		select {
+		case s.streamInput <- *chunk:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	// Provider mode: send directly to provider
 	// Handle media chunk
 	if chunk.MediaDelta != nil {
 		return s.sendMediaChunk(ctx, chunk)
@@ -140,11 +187,49 @@ func (s *bidirectionalSession) SendText(ctx context.Context, text string) error 
 	}
 	s.closeMu.Unlock()
 
+	// Pipeline mode
+	if s.pipeline != nil {
+		chunk := &providers.StreamChunk{
+			Content: text,
+		}
+		return s.SendChunk(ctx, chunk)
+	}
+
+	// Provider mode
 	return s.providerSession.SendText(ctx, text)
 }
 
-// Response returns the response channel from the provider session.
+// executePipeline runs the Pipeline with StreamInput/StreamOutput channels.
+// This is called once when the first chunk is received.
+func (s *bidirectionalSession) executePipeline(ctx context.Context) {
+	// Execute Pipeline with pre-configured channels
+	// The VAD middleware will block reading from streamInput until turn complete
+	// The Provider middleware will stream to streamOutput
+	// The TTS middleware will add audio via StreamChunk hook
+	err := s.pipeline.ExecuteStreamWithInput(ctx, s.streamInput, s.streamOutput)
+
+	if err != nil {
+		// If failed to start, send error and close
+		finishReason := "error"
+		select {
+		case s.streamOutput <- providers.StreamChunk{
+			Error:        err,
+			FinishReason: &finishReason,
+		}:
+		default:
+		}
+		close(s.streamOutput)
+	}
+	// Note: streamOutput will be closed automatically by Pipeline when execution completes
+}
+
+// Response returns the response channel.
+// In Pipeline mode: returns StreamOutput from Pipeline
+// In Provider mode: returns provider's response channel
 func (s *bidirectionalSession) Response() <-chan providers.StreamChunk {
+	if s.pipeline != nil {
+		return s.streamOutput
+	}
 	return s.providerSession.Response()
 }
 
@@ -158,16 +243,39 @@ func (s *bidirectionalSession) Close() error {
 	}
 
 	s.closed = true
+
+	// Pipeline mode: close input channel
+	if s.pipeline != nil {
+		close(s.streamInput)
+		return nil
+	}
+
+	// Provider mode: close provider session
 	return s.providerSession.Close()
 }
 
 // Done returns a channel that's closed when the session ends.
 func (s *bidirectionalSession) Done() <-chan struct{} {
+	if s.pipeline != nil {
+		// In Pipeline mode, create done channel that closes when output closes
+		done := make(chan struct{})
+		go func() {
+			// Wait for all output to be consumed
+			for range s.streamOutput { //nolint:revive // intentionally draining channel
+			}
+			close(done)
+		}()
+		return done
+	}
 	return s.providerSession.Done()
 }
 
-// Error returns any error from the provider session.
+// Error returns any error from the session.
 func (s *bidirectionalSession) Error() error {
+	if s.pipeline != nil {
+		// In Pipeline mode, errors are sent as chunks
+		return nil
+	}
 	return s.providerSession.Error()
 }
 

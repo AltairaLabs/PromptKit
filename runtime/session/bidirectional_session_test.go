@@ -92,10 +92,10 @@ func TestNewBidirectionalSession(t *testing.T) {
 		assert.NotNil(t, session.StateStore())
 	})
 
-	t.Run("requires provider session", func(t *testing.T) {
+	t.Run("requires provider session or pipeline", func(t *testing.T) {
 		_, err := NewBidirectionalSession(&BidirectionalConfig{})
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "provider session is required")
+		assert.Contains(t, err.Error(), "either Pipeline or ProviderSession is required")
 	})
 }
 

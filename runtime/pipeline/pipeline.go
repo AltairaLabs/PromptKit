@@ -580,6 +580,78 @@ func (p *Pipeline) ExecuteStreamWithMessage(
 	return internalCtx.StreamOutput, nil
 }
 
+// ExecuteStreamWithInput runs the pipeline with pre-configured StreamInput and StreamOutput channels.
+// This method is useful for bidirectional streaming sessions where the input comes from an external
+// channel (e.g., real-time audio from a client) rather than from a pre-populated message.
+//
+// The streamInput channel should be populated by the caller with incoming chunks (e.g., audio data).
+// The streamOutput channel will receive chunks from the pipeline (e.g., text and audio responses).
+//
+// The caller is responsible for:
+// - Sending chunks to streamInput
+// - Reading chunks from streamOutput
+// - Closing streamInput when done sending
+//
+// The pipeline will automatically close streamOutput when execution completes.
+// Returns an error if the pipeline is shutting down or if semaphore acquisition fails.
+func (p *Pipeline) ExecuteStreamWithInput(
+	ctx context.Context,
+	streamInput chan providers.StreamChunk,
+	streamOutput chan providers.StreamChunk,
+) error {
+	// Check if shutting down
+	if p.isShuttingDown() {
+		return ErrPipelineShuttingDown
+	}
+
+	// Apply execution timeout if configured
+	execCtx, cancel := p.applyExecutionTimeout(ctx)
+
+	// Create execution context with pre-configured channels
+	streamChunkHandler := p.createStreamChunkHandlerForContext(streamOutput)
+
+	internalCtx := &ExecutionContext{
+		Context:            execCtx,
+		Messages:           []types.Message{},
+		Metadata:           make(map[string]interface{}),
+		Trace:              ExecutionTrace{StartedAt: time.Now(), LLMCalls: []LLMCall{}, Events: []TraceEvent{}},
+		StreamMode:         true,
+		Response:           &Response{},
+		StreamInput:        streamInput,
+		StreamOutput:       streamOutput,
+		streamChunkHandler: streamChunkHandler,
+	}
+
+	// Execute pipeline in background
+	go p.executeStreamBackground(internalCtx, cancel)
+
+	return nil
+}
+
+// createStreamChunkHandlerForContext creates a chunk handler for a specific output channel
+func (p *Pipeline) createStreamChunkHandlerForContext(
+	streamOutput chan providers.StreamChunk,
+) func(*providers.StreamChunk) error {
+	return func(chunk *providers.StreamChunk) error {
+		// Create a temporary context just to run middleware hooks
+		tempCtx := &ExecutionContext{
+			StreamOutput: streamOutput,
+		}
+
+		// Run all middleware StreamChunk hooks
+		for _, m := range p.middleware {
+			if err := m.StreamChunk(tempCtx, chunk); err != nil {
+				return err
+			}
+			// Check if middleware interrupted the stream
+			if tempCtx.StreamInterrupted {
+				return nil
+			}
+		}
+		return nil
+	}
+}
+
 // executeChain executes the middleware chain using the Process(ctx, next) pattern.
 // Each middleware explicitly calls next() to continue the chain.
 func (p *Pipeline) executeChain(execCtx *ExecutionContext, index int) error {
