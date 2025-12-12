@@ -1,5 +1,12 @@
 # Streaming Audio Example
 
+> ⚠️ **STATUS: WORK IN PROGRESS**  
+> This example uses SDK APIs (`OpenRawStreamSession`, `OpenAudioSession`) that are not yet implemented.  
+> See `sdk/conversation_audio.go` for TODOs regarding BidirectionalSession integration.  
+>   
+> **For a working streaming audio example**, see: [`examples/pipeline-streaming-audio/`](../../../examples/pipeline-streaming-audio/)  
+> which uses the runtime Pipeline + BidirectionalSession APIs directly.
+
 This example demonstrates **true bidirectional audio streaming** using PromptKit's `OpenAudioSession()` API with Gemini's Live API.
 
 ## Architecture
