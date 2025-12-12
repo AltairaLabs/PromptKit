@@ -1,10 +1,10 @@
-# Pipeline Streaming Audio Example
+# Pipeline Streaming Audio Integration Test
 
-This example demonstrates the new **Pipeline-based streaming architecture** with VAD (Voice Activity Detection) and TTS (Text-to-Speech) integrated as middleware.
+This integration test validates the **Pipeline-based streaming architecture** with VAD (Voice Activity Detection) and TTS (Text-to-Speech) integrated as middleware.
 
-## What's New
+## What This Tests
 
-This example showcases the **StreamInput architecture** where:
+This test validates the **StreamInput architecture** where:
 - **Input chunks** flow through `StreamInput` channel → VAD middleware → Pipeline
 - **Output chunks** flow through Pipeline → TTS middleware → `StreamOutput` channel
 - **Symmetric streaming**: both input and output are chunk-based, processed through middleware

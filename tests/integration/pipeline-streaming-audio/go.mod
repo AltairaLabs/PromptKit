@@ -1,8 +1,8 @@
-module github.com/AltairaLabs/PromptKit/examples/pipeline-streaming-audio
+module github.com/AltairaLabs/PromptKit/tests/integration/pipeline-streaming-audio
 
 go 1.25.1
 
-replace github.com/AltairaLabs/PromptKit/runtime => ../../runtime
+replace github.com/AltairaLabs/PromptKit/runtime => ../../../runtime
 
 require github.com/AltairaLabs/PromptKit/runtime v0.0.0-00010101000000-000000000000
 
