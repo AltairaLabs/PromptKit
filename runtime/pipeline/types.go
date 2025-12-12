@@ -48,6 +48,7 @@ type ExecutionContext struct {
 
 	// Streaming support
 	StreamMode        bool                       // If true, use streaming execution
+	StreamInput       chan providers.StreamChunk // Input channel for streaming chunks (used by VAD middleware)
 	StreamOutput      chan providers.StreamChunk // Output channel for streaming chunks
 	StreamInterrupted bool                       // Set to true by middleware to stop streaming
 	InterruptReason   string                     // Reason for interruption
