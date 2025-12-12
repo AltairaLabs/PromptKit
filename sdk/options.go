@@ -48,6 +48,9 @@ type config struct {
 	// Variable providers for dynamic variable resolution
 	variableProviders []variables.Provider
 
+	// Initial variables from prompt defaults
+	initialVariables map[string]string
+
 	// TTS configuration
 	ttsService tts.Service
 

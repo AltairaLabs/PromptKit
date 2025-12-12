@@ -173,8 +173,9 @@ func TestConcurrentMessagesAccess(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			ctx := context.Background()
 			for j := 0; j < 100; j++ {
-				_ = conv.Messages()
+				_ = conv.Messages(ctx)
 				time.Sleep(time.Microsecond)
 			}
 		}()
@@ -185,9 +186,7 @@ func TestConcurrentMessagesAccess(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for j := 0; j < 100; j++ {
-			conv.varMu.Lock()
-			conv.variables["counter"] = string(rune('0' + j))
-			conv.varMu.Unlock()
+			conv.SetVar("counter", string(rune('0'+j)))
 			time.Sleep(time.Microsecond)
 		}
 	}()

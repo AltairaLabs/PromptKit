@@ -6,9 +6,13 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/google/uuid"
+
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/session"
+	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/provider"
@@ -75,8 +79,17 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 		toolRegistry:   tools.NewRegistryWithRepository(p.ToToolRepository()), // Create registry with pack tools
 		provider:       prov,
 		config:         cfg,
-		variables:      make(map[string]string),
 		handlers:       make(map[string]ToolHandler),
+	}
+
+	// Apply default variables from prompt BEFORE initializing session
+	// This ensures defaults are available when creating the session
+	applyDefaultVariables(conv, prompt)
+
+	// Initialize internal memory store for conversation history
+	// This is used by StateStoreLoad/Save middleware in the pipeline
+	if err := initInternalStateStore(conv, cfg); err != nil {
+		return nil, err
 	}
 
 	// Initialize event bus (use provided or create new)
@@ -86,9 +99,6 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 	if err := initMCPRegistry(conv, cfg); err != nil {
 		return nil, err
 	}
-
-	// Apply default variables from prompt
-	applyDefaultVariables(conv, prompt)
 
 	return conv, nil
 }
@@ -148,10 +158,59 @@ func resolveProvider(cfg *config) (providers.Provider, error) {
 // initEventBus initializes the conversation's event bus.
 func initEventBus(conv *Conversation, cfg *config) {
 	if cfg.eventBus != nil {
-		conv.eventBus = cfg.eventBus
+		cfg.eventBus = cfg.eventBus
 	} else {
-		conv.eventBus = events.NewEventBus()
+		cfg.eventBus = events.NewEventBus()
 	}
+	// EventBus is stored in config and accessed via c.config.eventBus
+}
+
+// initInternalStateStore initializes the internal state store for conversation history.
+// If a state store is provided via options, use that. Otherwise, create a MemoryStore.
+// This enables the StateStoreLoad/Save middleware to manage conversation history.
+// Also generates a unique conversation ID if not already set.
+// Finally, creates a TextSession wrapping a pre-configured pipeline.
+func initInternalStateStore(conv *Conversation, cfg *config) error {
+	var store statestore.Store
+	if cfg.stateStore != nil {
+		// User provided a state store (e.g., Redis for persistence)
+		store = cfg.stateStore
+	} else {
+		// Create internal memory store for this conversation
+		store = statestore.NewMemoryStore()
+	}
+
+	// Generate conversation ID if not already set via options
+	conversationID := cfg.conversationID
+	if conversationID == "" {
+		conversationID = uuid.New().String()
+	}
+
+	// Get initial variables from config (includes prompt defaults)
+	initialVars := cfg.initialVariables
+	if initialVars == nil {
+		initialVars = make(map[string]string)
+	}
+
+	// Build pipeline once during initialization (note: pipeline doesn't capture variables anymore)
+	pipeline, err := conv.buildPipelineWithParams(store, conversationID)
+	if err != nil {
+		return fmt.Errorf("failed to build pipeline: %w", err)
+	}
+
+	// Create text session wrapping the pipeline
+	textSession, err := session.NewTextSession(session.TextConfig{
+		ConversationID: conversationID,
+		StateStore:     store,
+		Pipeline:       pipeline,
+		Variables:      initialVars,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create text session: %w", err)
+	}
+
+	conv.textSession = textSession
+	return nil
 }
 
 // initMCPRegistry initializes the MCP registry if servers are configured.
@@ -174,9 +233,17 @@ func initMCPRegistry(conv *Conversation, cfg *config) error {
 
 // applyDefaultVariables sets default variable values from the prompt.
 func applyDefaultVariables(conv *Conversation, prompt *pack.Prompt) {
+	// This is called before session is created, so we need to track these
+	// temporarily. The session will be initialized with these variables later.
 	for _, v := range prompt.Variables {
 		if v.Default != "" {
-			conv.variables[v.Name] = v.Default
+			// Store in a temporary map until session is created
+			if conv.config != nil && conv.config.initialVariables == nil {
+				conv.config.initialVariables = make(map[string]string)
+			}
+			if conv.config != nil {
+				conv.config.initialVariables[v.Name] = v.Default
+			}
 		}
 	}
 }
@@ -223,14 +290,14 @@ func Resume(conversationID, packPath, promptName string, opts ...Option) (*Conve
 	}
 
 	// Open conversation with the loaded state
-	conv, err := Open(packPath, promptName, opts...)
+	// Add WithConversationID to preserve the original ID
+	optsWithID := append(opts, WithConversationID(conversationID))
+	conv, err := Open(packPath, promptName, optsWithID...)
 	if err != nil {
 		return nil, err
 	}
 
-	// Restore state
-	conv.state = state
-	conv.id = conversationID
+	// The session now has the correct conversation ID from WithConversationID option
 
 	return conv, nil
 }

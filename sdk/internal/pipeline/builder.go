@@ -7,8 +7,10 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
+	"github.com/AltairaLabs/PromptKit/runtime/variables"
 )
 
 // debugLogTruncateLen is the max length for system prompt debug output.
@@ -30,6 +32,9 @@ type Config struct {
 
 	// Variables for template substitution
 	Variables map[string]string
+
+	// VariableProviders for dynamic variable resolution (optional)
+	VariableProviders []variables.Provider
 
 	// ToolPolicy for tool usage constraints (optional)
 	ToolPolicy *rtpipeline.ToolPolicy
@@ -54,14 +59,23 @@ type Config struct {
 
 	// Temperature for LLM response
 	Temperature float32
+
+	// StateStore for conversation history persistence (optional)
+	// When provided, StateStoreLoad/Save middleware will be added to the pipeline
+	StateStore statestore.Store
+
+	// ConversationID for state store operations
+	ConversationID string
 }
 
 // Build creates a pipeline with the appropriate middleware chain.
 //
 // The pipeline is structured as follows:
-//  1. PromptAssemblyMiddleware - Load and assemble the prompt from registry
-//  2. ProviderMiddleware - LLM call with tool execution
-//  3. DynamicValidatorMiddleware - Validate responses (if configured)
+//  1. StateStoreLoadMiddleware - Load conversation history (if state store configured)
+//  2. PromptAssemblyMiddleware - Load and assemble the prompt from registry
+//  3. ProviderMiddleware - LLM call with tool execution
+//  4. DynamicValidatorMiddleware - Validate responses (if configured)
+//  5. StateStoreSaveMiddleware - Save conversation state (if state store configured)
 //
 // This matches the runtime pipeline used by Arena.
 func Build(cfg *Config) (*rtpipeline.Pipeline, error) {
@@ -72,18 +86,34 @@ func Build(cfg *Config) (*rtpipeline.Pipeline, error) {
 		"taskType", cfg.TaskType,
 		"variables", cfg.Variables,
 		"hasPromptRegistry", cfg.PromptRegistry != nil,
-		"hasToolRegistry", cfg.ToolRegistry != nil)
+		"hasToolRegistry", cfg.ToolRegistry != nil,
+		"hasStateStore", cfg.StateStore != nil)
 
-	// 1. Prompt assembly middleware - loads prompt, sets system prompt and allowed tools
-	// 2. Template middleware - copies SystemPrompt to Prompt (for ProviderMiddleware)
-	// 3. Debug middleware to log the assembled prompt
+	// 1. State store load middleware - loads conversation history FIRST
+	var stateStoreConfig *rtpipeline.StateStoreConfig
+	if cfg.StateStore != nil {
+		stateStoreConfig = &rtpipeline.StateStoreConfig{
+			Store:          cfg.StateStore,
+			ConversationID: cfg.ConversationID,
+		}
+		middlewares = append(middlewares, middleware.StateStoreLoadMiddleware(stateStoreConfig))
+	}
+
+	// 2. Variable provider middleware - resolves dynamic variables BEFORE prompt assembly
+	if len(cfg.VariableProviders) > 0 {
+		middlewares = append(middlewares, middleware.VariableProviderMiddleware(cfg.VariableProviders...))
+	}
+
+	// 3. Prompt assembly middleware - loads prompt, sets system prompt and allowed tools
+	// 4. Template middleware - copies SystemPrompt to Prompt (for ProviderMiddleware)
+	// 5. Debug middleware to log the assembled prompt
 	middlewares = append(middlewares,
 		middleware.PromptAssemblyMiddleware(cfg.PromptRegistry, cfg.TaskType, cfg.Variables),
 		middleware.TemplateMiddleware(),
 		&debugMiddleware{},
 	)
 
-	// 3. Provider middleware for LLM calls with tool support
+	// 5. Provider middleware for LLM calls with tool support
 	if cfg.Provider != nil {
 		providerConfig := &middleware.ProviderMiddlewareConfig{
 			MaxTokens:   cfg.MaxTokens,
@@ -98,12 +128,17 @@ func Build(cfg *Config) (*rtpipeline.Pipeline, error) {
 		))
 	}
 
-	// 4. Validation middleware (if configured)
+	// 6. Validation middleware (if configured)
 	if cfg.ValidatorRegistry != nil && len(cfg.ValidatorConfigs) > 0 {
 		middlewares = append(middlewares, middleware.DynamicValidatorMiddlewareWithSuppression(
 			cfg.ValidatorRegistry,
 			cfg.SuppressValidationErrors,
 		))
+	}
+
+	// 7. State store save middleware - saves conversation state LAST
+	if stateStoreConfig != nil {
+		middlewares = append(middlewares, middleware.StateStoreSaveMiddleware(stateStoreConfig))
 	}
 
 	// Create pipeline with default config

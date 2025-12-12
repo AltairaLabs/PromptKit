@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -17,6 +18,35 @@ import (
 const (
 	ErrSessionClosed = "session is closed"
 )
+
+// sliceContains checks if a string slice contains a value
+func sliceContains(slice []string, val string) bool {
+	for _, s := range slice {
+		if s == val {
+			return true
+		}
+	}
+	return false
+}
+
+// truncateInlineData recursively truncates large data fields for logging
+func truncateInlineData(v interface{}) {
+	switch val := v.(type) {
+	case map[string]interface{}:
+		// Check for inlineData.data
+		if data, ok := val["data"].(string); ok && len(data) > 100 {
+			val["data"] = fmt.Sprintf("[%d bytes base64]", len(data))
+		}
+		// Recurse into all values
+		for _, child := range val {
+			truncateInlineData(child)
+		}
+	case []interface{}:
+		for _, item := range val {
+			truncateInlineData(item)
+		}
+	}
+}
 
 // StreamSession implements StreamInputSession for Gemini Live API
 type StreamSession struct {
@@ -34,6 +64,7 @@ type StreamSession struct {
 type StreamSessionConfig struct {
 	Model              string   // Model name (will be prefixed with "models/" automatically)
 	ResponseModalities []string // "TEXT" and/or "AUDIO"
+	SystemInstruction  string   // System prompt/instruction for the model
 }
 
 // NewStreamSession creates a new streaming session
@@ -71,13 +102,40 @@ func NewStreamSession(ctx context.Context, wsURL, apiKey string, config StreamSe
 
 	// Send initial setup message (required by Gemini Live API)
 	// Per docs: first message must be BidiGenerateContentSetup
-	setupMsg := map[string]interface{}{
-		"setup": map[string]interface{}{
-			"model": modelPath,
-			"generationConfig": map[string]interface{}{
-				"responseModalities": modalities,
+	generationConfig := map[string]interface{}{
+		"responseModalities": modalities,
+	}
+
+	// Add speech config for audio responses
+	if sliceContains(modalities, "AUDIO") {
+		generationConfig["speechConfig"] = map[string]interface{}{
+			"voiceConfig": map[string]interface{}{
+				"prebuiltVoiceConfig": map[string]interface{}{
+					"voiceName": "Puck", // Default voice
+				},
 			},
-		},
+		}
+	}
+
+	setupContent := map[string]interface{}{
+		"model":            modelPath,
+		"generationConfig": generationConfig,
+		// Enable transcription of both input (user) and output (model) audio
+		"inputAudioTranscription":  map[string]interface{}{},
+		"outputAudioTranscription": map[string]interface{}{},
+	}
+
+	// Add system instruction if provided
+	if config.SystemInstruction != "" {
+		setupContent["systemInstruction"] = map[string]interface{}{
+			"parts": []map[string]interface{}{
+				{"text": config.SystemInstruction},
+			},
+		}
+	}
+
+	setupMsg := map[string]interface{}{
+		"setup": setupContent,
 	}
 	if err := ws.Send(setupMsg); err != nil {
 		ws.Close()
@@ -207,8 +265,9 @@ func (s *StreamSession) receiveLoop() {
 		case <-s.ctx.Done():
 			return
 		default:
-			var serverMsg ServerMessage
-			if err := s.ws.Receive(s.ctx, &serverMsg); err != nil {
+			// First receive as raw JSON to see what we're getting
+			var rawMsg json.RawMessage
+			if err := s.ws.Receive(s.ctx, &rawMsg); err != nil {
 				// Check if session was closed
 				s.mu.Lock()
 				closed := s.closed
@@ -222,6 +281,35 @@ func (s *StreamSession) receiveLoop() {
 					}
 				}
 				return
+			}
+
+			// Parse into ServerMessage
+			var serverMsg ServerMessage
+			if err := json.Unmarshal(rawMsg, &serverMsg); err != nil {
+				select {
+				case s.errCh <- fmt.Errorf("failed to parse server message: %w", err):
+				default:
+				}
+				continue
+			}
+
+			// Log raw message for debugging (truncate audio data but show structure)
+			if logger.DefaultLogger != nil {
+				// Parse into generic map to see full structure
+				var logMsg map[string]interface{}
+				json.Unmarshal(rawMsg, &logMsg)
+
+				// Build summary of what's in the message
+				var keys []string
+				for k := range logMsg {
+					keys = append(keys, k)
+				}
+
+				// Truncate inlineData.data but keep everything else
+				truncateInlineData(logMsg)
+
+				logBytes, _ := json.MarshalIndent(logMsg, "", "  ")
+				logger.DefaultLogger.Debug("Gemini message", "keys", keys, "content", string(logBytes))
 			}
 
 			// Process server message
@@ -243,11 +331,76 @@ func (s *StreamSession) processServerMessage(msg *ServerMessage) error {
 		return nil // Setup acknowledged
 	}
 
+	// Handle tool calls
+	if msg.ToolCall != nil {
+		// TODO: Implement tool call handling
+		return nil
+	}
+
 	if msg.ServerContent == nil {
 		return nil
 	}
 
 	content := msg.ServerContent
+
+	// Handle interruption - user started speaking while model was responding
+	if content.Interrupted {
+		response := providers.StreamChunk{
+			Interrupted: true,
+		}
+		select {
+		case s.responseCh <- response:
+		case <-s.ctx.Done():
+			return s.ctx.Err()
+		}
+		return nil
+	}
+
+	// Handle input transcription (what user said)
+	if content.InputTranscription != nil && content.InputTranscription.Text != "" {
+		response := providers.StreamChunk{
+			Metadata: map[string]interface{}{
+				"type":          "input_transcription",
+				"transcription": content.InputTranscription.Text,
+				"turn_complete": content.TurnComplete,
+			},
+		}
+		select {
+		case s.responseCh <- response:
+		case <-s.ctx.Done():
+			return s.ctx.Err()
+		}
+	}
+
+	// Handle output transcription (what model said - text version of audio)
+	if content.OutputTranscription != nil && content.OutputTranscription.Text != "" {
+		response := providers.StreamChunk{
+			Delta: content.OutputTranscription.Text,
+			Metadata: map[string]interface{}{
+				"type":          "output_transcription",
+				"turn_complete": content.TurnComplete,
+			},
+		}
+		select {
+		case s.responseCh <- response:
+		case <-s.ctx.Done():
+			return s.ctx.Err()
+		}
+	}
+
+	// Handle turn complete without model turn (e.g., after interruption)
+	if content.TurnComplete && content.ModelTurn == nil {
+		finishReason := "complete"
+		response := providers.StreamChunk{
+			FinishReason: &finishReason,
+		}
+		select {
+		case s.responseCh <- response:
+		case <-s.ctx.Done():
+			return s.ctx.Err()
+		}
+		return nil
+	}
 
 	// Process model turn
 	if content.ModelTurn != nil {
@@ -347,20 +500,42 @@ func buildTextMessage(text string, turnComplete bool) map[string]interface{} {
 	}
 }
 
-// ServerMessage represents a message from the Gemini server
+// ServerMessage represents a message from the Gemini server (BidiGenerateContentServerMessage)
 type ServerMessage struct {
 	SetupComplete *SetupComplete `json:"setupComplete,omitempty"`
 	ServerContent *ServerContent `json:"serverContent,omitempty"`
+	ToolCall      *ToolCallMsg   `json:"toolCall,omitempty"`
+	// Note: usageMetadata and other fields omitted for now
 }
 
 // SetupComplete indicates setup is complete (empty object per docs)
 type SetupComplete struct{}
 
-// ServerContent represents the server content
+// ToolCallMsg represents a tool call from the model
+type ToolCallMsg struct {
+	FunctionCalls []FunctionCall `json:"functionCalls,omitempty"`
+}
+
+// FunctionCall represents a function call
+type FunctionCall struct {
+	Name string                 `json:"name,omitempty"`
+	ID   string                 `json:"id,omitempty"`
+	Args map[string]interface{} `json:"args,omitempty"`
+}
+
+// ServerContent represents the server content (BidiGenerateContentServerContent)
 type ServerContent struct {
-	ModelTurn    *ModelTurn `json:"modelTurn,omitempty"`
-	TurnComplete bool       `json:"turnComplete,omitempty"`
-	Interrupted  bool       `json:"interrupted,omitempty"`
+	ModelTurn           *ModelTurn     `json:"modelTurn,omitempty"`
+	TurnComplete        bool           `json:"turnComplete,omitempty"`
+	GenerationComplete  bool           `json:"generationComplete,omitempty"`
+	Interrupted         bool           `json:"interrupted,omitempty"`
+	InputTranscription  *Transcription `json:"inputTranscription,omitempty"`  // User speech transcription
+	OutputTranscription *Transcription `json:"outputTranscription,omitempty"` // Model speech transcription
+}
+
+// Transcription represents audio transcription (BidiGenerateContentTranscription)
+type Transcription struct {
+	Text string `json:"text,omitempty"`
 }
 
 // ModelTurn represents a model response turn

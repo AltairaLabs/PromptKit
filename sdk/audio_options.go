@@ -3,6 +3,7 @@ package sdk
 import (
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // audioSessionConfig holds configuration for an audio session.
@@ -11,6 +12,8 @@ type audioSessionConfig struct {
 	turnDetector         audio.TurnDetector
 	interruptionStrategy audio.InterruptionStrategy
 	autoCompleteTurn     bool
+	mediaConfig          *types.StreamingMediaConfig
+	responseModalities   []string // e.g., ["TEXT"], ["AUDIO"], or ["TEXT", "AUDIO"]
 }
 
 // AudioSessionOption configures an audio session.
@@ -70,6 +73,58 @@ func WithInterruptionStrategy(strategy audio.InterruptionStrategy) AudioSessionO
 func WithAutoCompleteTurn() AudioSessionOption {
 	return func(c *audioSessionConfig) {
 		c.autoCompleteTurn = true
+	}
+}
+
+// WithAudioConfig sets the streaming media configuration for the session.
+//
+// If not specified, a default audio config (16kHz, mono, 16-bit PCM) is used.
+//
+//	session, _ := conv.OpenAudioSession(ctx,
+//	    sdk.WithAudioConfig(types.StreamingMediaConfig{
+//	        Type:       types.ContentTypeAudio,
+//	        SampleRate: 16000,
+//	        Channels:   1,
+//	        BitDepth:   16,
+//	        Encoding:   "pcm_linear16",
+//	    }),
+//	)
+func WithAudioConfig(config types.StreamingMediaConfig) AudioSessionOption {
+	return func(c *audioSessionConfig) {
+		c.mediaConfig = &config
+	}
+}
+
+// WithAudioResponse configures the session to return audio responses.
+//
+// By default, sessions return text responses only. Use this option to
+// receive audio responses from the model for true voice-to-voice interaction.
+//
+//	session, _ := conv.OpenAudioSession(ctx,
+//	    sdk.WithAudioResponse(),  // Audio only
+//	)
+//
+// For both text and audio responses:
+//
+//	session, _ := conv.OpenAudioSession(ctx,
+//	    sdk.WithResponseModalities("TEXT", "AUDIO"),
+//	)
+func WithAudioResponse() AudioSessionOption {
+	return func(c *audioSessionConfig) {
+		c.responseModalities = []string{"AUDIO"}
+	}
+}
+
+// WithResponseModalities sets which response types to receive from the model.
+//
+// Valid modalities: "TEXT", "AUDIO"
+//
+//	session, _ := conv.OpenAudioSession(ctx,
+//	    sdk.WithResponseModalities("TEXT", "AUDIO"),  // Both text and audio
+//	)
+func WithResponseModalities(modalities ...string) AudioSessionOption {
+	return func(c *audioSessionConfig) {
+		c.responseModalities = modalities
 	}
 }
 

@@ -51,7 +51,8 @@ func (p *Provider) CreateStreamSession(ctx context.Context, req *providers.Strea
 
 	// Configure session with model and response modalities
 	config := StreamSessionConfig{
-		Model: p.Model,
+		Model:             p.Model,
+		SystemInstruction: req.SystemMsg, // Pass system prompt to Gemini
 	}
 
 	// Check metadata for response modalities configuration
