@@ -28,8 +28,42 @@ type TextSession interface {
 }
 
 // BidirectionalSession manages bidirectional streaming conversations.
+// Uses providers.StreamChunk for BOTH input and output for API symmetry.
 type BidirectionalSession interface {
-	Connect(ctx context.Context, providerSession providers.StreamInputSession) error
+	// Identity
+	ID() string
+
+	// SendChunk sends a chunk to the session (populate MediaDelta for media, Content for text).
+	// This method is thread-safe and can be called from multiple goroutines.
+	SendChunk(ctx context.Context, chunk *providers.StreamChunk) error
+
+	// SendText is a convenience method for sending text directly.
+	SendText(ctx context.Context, text string) error
+
+	// Response returns a receive-only channel for streaming responses.
+	// The channel emits StreamChunks containing LLM responses (text, media, tool calls, etc).
+	Response() <-chan providers.StreamChunk
+
+	// Close ends the streaming session and releases resources.
+	Close() error
+
+	// Done returns a channel that's closed when the session ends.
+	Done() <-chan struct{}
+
+	// Error returns any error that occurred during the session.
+	Error() error
+
+	// StateStore returns the session's state store for persistence.
+	StateStore() statestore.Store
+
+	// Variables returns the current session variables for template substitution.
+	Variables() map[string]string
+
+	// SetVar sets a session variable.
+	SetVar(name, value string)
+
+	// GetVar retrieves a session variable.
+	GetVar(name string) (string, bool)
 }
 
 // TextConfig configures a TextSession.
@@ -49,6 +83,11 @@ type BidirectionalConfig struct {
 	StateStore     statestore.Store
 	Pipeline       *pipeline.Pipeline
 	Metadata       map[string]interface{}
+	Variables      map[string]string // Initial variables for template substitution
+
+	// ProviderSession is the underlying provider streaming session.
+	// This handles the actual communication with the LLM provider.
+	ProviderSession providers.StreamInputSession
 }
 
 // NewTextSession creates a new text session.
@@ -57,6 +96,6 @@ func NewTextSession(cfg TextConfig) (TextSession, error) {
 }
 
 // NewBidirectionalSession creates a new bidirectional streaming session.
-func NewBidirectionalSession(cfg BidirectionalConfig) (BidirectionalSession, error) {
+func NewBidirectionalSession(cfg *BidirectionalConfig) (BidirectionalSession, error) {
 	return newBidirectionalSession(cfg)
 }
