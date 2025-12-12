@@ -87,9 +87,9 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 
 	t.Run("executes pipeline when chunk is sent", func(t *testing.T) {
 		// Create pipeline with mock provider
-		provider := mock.NewProviderWithRepository("mock", "mock-model", false, 
+		provider := mock.NewProviderWithRepository("mock", "mock-model", false,
 			mock.NewInMemoryMockRepository("Hello from mock provider"))
-		
+
 		providerMw := middleware.ProviderMiddleware(provider, tools.NewRegistry(), nil, &middleware.ProviderMiddlewareConfig{})
 		p := pipeline.NewPipeline(providerMw)
 
@@ -123,7 +123,7 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 				}
 				receivedChunks++
 				t.Logf("Received chunk %d: delta=%s, finish=%v, error=%v", receivedChunks, chunk.Delta, chunk.FinishReason, chunk.Error)
-				
+
 				// Break if final chunk
 				if chunk.FinishReason != nil || chunk.Error != nil {
 					done = true

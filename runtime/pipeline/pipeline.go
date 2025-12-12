@@ -635,6 +635,7 @@ func (p *Pipeline) createStreamChunkHandlerForContext(
 	return func(chunk *providers.StreamChunk) error {
 		// Create a temporary context just to run middleware hooks
 		tempCtx := &ExecutionContext{
+			StreamMode:   true, // Enable streaming mode so middleware knows to process chunks
 			StreamOutput: streamOutput,
 		}
 

@@ -13,9 +13,9 @@ import (
 
 // Mock TTS service for testing
 type mockTTSService struct {
-	audio    []byte
-	mimeType string
-	err      error
+	audio     []byte
+	mimeType  string
+	err       error
 	callCount int
 }
 
