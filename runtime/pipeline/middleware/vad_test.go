@@ -365,8 +365,10 @@ func TestVADMiddleware_SkipsNonAudioChunks(t *testing.T) {
 	}
 	transcriber := &mockTranscriber{text: "Audio only"}
 	config := VADConfig{
-		Threshold:       0.3,
-		SilenceDuration: 50 * time.Millisecond,
+		Threshold:         0.3,
+		SilenceDuration:   50 * time.Millisecond,
+		MaxTurnDuration:   5 * time.Second, // Prevent immediate turn completion
+		MinSpeechDuration: 10 * time.Millisecond,
 	}
 	middleware := NewVADMiddleware(vad, transcriber, config)
 

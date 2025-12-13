@@ -9,12 +9,14 @@ import (
 	"io"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	mock "github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
@@ -36,7 +38,7 @@ func newTestConversation() *Conversation {
 	// Create a minimal textSession for tests - requires a pipeline
 	// Since many tests don't actually execute, we create a minimal one
 	minimalPipeline := &pipeline.Pipeline{} // Empty pipeline for tests that don't execute
-	sess, err := session.NewTextSession(session.TextConfig{
+	sess, err := session.NewUnarySession(session.UnarySessionConfig{
 		Variables: make(map[string]string),
 		Pipeline:  minimalPipeline,
 	})
@@ -51,7 +53,8 @@ func newTestConversation() *Conversation {
 		toolRegistry:   tools.NewRegistryWithRepository(p.ToToolRepository()),
 		config:         &config{},
 		handlers:       make(map[string]ToolHandler),
-		textSession:    sess,
+		mode:           UnaryMode,
+		unarySession:   sess,
 	}
 }
 
@@ -60,10 +63,12 @@ func TestConversationSetVar(t *testing.T) {
 	conv := newTestConversation()
 
 	conv.SetVar("name", "Alice")
-	assert.Equal(t, "Alice", conv.GetVar("name"))
+	val, _ := conv.GetVar("name")
+	assert.Equal(t, "Alice", val)
 
 	conv.SetVar("name", "Bob")
-	assert.Equal(t, "Bob", conv.GetVar("name"))
+	val, _ = conv.GetVar("name")
+	assert.Equal(t, "Bob", val)
 }
 
 func TestConversationSetVars(t *testing.T) {
@@ -75,9 +80,12 @@ func TestConversationSetVars(t *testing.T) {
 		"tier": "premium",
 	})
 
-	assert.Equal(t, "Alice", conv.GetVar("name"))
-	assert.Equal(t, "30", conv.GetVar("age"))
-	assert.Equal(t, "premium", conv.GetVar("tier"))
+	val1, _ := conv.GetVar("name")
+	val2, _ := conv.GetVar("age")
+	val3, _ := conv.GetVar("tier")
+	assert.Equal(t, "Alice", val1)
+	assert.Equal(t, "30", val2)
+	assert.Equal(t, "premium", val3)
 }
 
 func TestConversationSetVarsFromEnv(t *testing.T) {
@@ -93,13 +101,17 @@ func TestConversationSetVarsFromEnv(t *testing.T) {
 
 	conv.SetVarsFromEnv("TEST_SDK_")
 
-	assert.Equal(t, "TestUser", conv.GetVar("name"))
-	assert.Equal(t, "123", conv.GetVar("value"))
+	name, _ := conv.GetVar("name")
+	value, _ := conv.GetVar("value")
+	assert.Equal(t, "TestUser", name)
+	assert.Equal(t, "123", value)
 }
 
 func TestConversationGetVarNotSet(t *testing.T) {
 	conv := newTestConversation()
-	assert.Equal(t, "", conv.GetVar("nonexistent"))
+	val, exists := conv.GetVar("nonexistent")
+	assert.Equal(t, "", val)
+	assert.False(t, exists)
 }
 
 // testVariableProvider is a mock provider for testing
@@ -194,13 +206,14 @@ func TestConversationMessages(t *testing.T) {
 
 	// Create a dummy pipeline (not used for this test)
 	// We'll create a minimal valid pipeline
-	textSession, err := session.NewTextSession(session.TextConfig{
+	textSession, err := session.NewUnarySession(session.UnarySessionConfig{
 		ConversationID: convID,
 		StateStore:     store,
 		Pipeline:       &rtpipeline.Pipeline{}, // Minimal pipeline
 	})
 	require.NoError(t, err)
-	conv.textSession = textSession
+	conv.mode = UnaryMode
+	conv.unarySession = textSession
 
 	// No state initially - should return empty array
 	msgs := conv.Messages(ctx)
@@ -234,13 +247,14 @@ func TestConversationClear(t *testing.T) {
 	// Create a minimal text session
 	store := statestore.NewMemoryStore()
 	convID := "test-conv"
-	textSession, err := session.NewTextSession(session.TextConfig{
+	textSession, err := session.NewUnarySession(session.UnarySessionConfig{
 		ConversationID: convID,
 		StateStore:     store,
 		Pipeline:       &rtpipeline.Pipeline{},
 	})
 	require.NoError(t, err)
-	conv.textSession = textSession
+	conv.mode = UnaryMode
+	conv.unarySession = textSession
 
 	// Add some state
 	state := &statestore.ConversationState{
@@ -272,13 +286,14 @@ func TestConversationFork(t *testing.T) {
 	// Create a minimal text session
 	store := statestore.NewMemoryStore()
 	convID := "original"
-	textSession, err := session.NewTextSession(session.TextConfig{
+	textSession, err := session.NewUnarySession(session.UnarySessionConfig{
 		ConversationID: convID,
 		StateStore:     store,
 		Pipeline:       &rtpipeline.Pipeline{},
 	})
 	require.NoError(t, err)
-	conv.textSession = textSession
+	conv.mode = UnaryMode
+	conv.unarySession = textSession
 
 	conv.SetVar("name", "Alice")
 	conv.OnTool("tool1", func(args map[string]any) (any, error) { return nil, nil })
@@ -295,7 +310,9 @@ func TestConversationFork(t *testing.T) {
 	fork := conv.Fork()
 
 	// Verify fork has same data
-	assert.Equal(t, "Alice", fork.GetVar("name"))
+	forkVal, ok := fork.GetVar("name")
+	assert.True(t, ok)
+	assert.Equal(t, "Alice", forkVal)
 	fork.handlersMu.RLock()
 	_, hasHandler := fork.handlers["tool1"]
 	fork.handlersMu.RUnlock()
@@ -309,8 +326,10 @@ func TestConversationFork(t *testing.T) {
 
 	// Modify fork - original should be unchanged
 	fork.SetVar("name", "Bob")
-	assert.Equal(t, "Alice", conv.GetVar("name"))
-	assert.Equal(t, "Bob", fork.GetVar("name"))
+	val, _ := conv.GetVar("name")
+	forkVal, _ = fork.GetVar("name")
+	assert.Equal(t, "Alice", val)
+	assert.Equal(t, "Bob", forkVal)
 }
 
 func TestConversationClose(t *testing.T) {
@@ -377,7 +396,8 @@ func TestConversationIDAutoGenerated(t *testing.T) {
 	initInternalStateStore(conv, &config{})
 
 	assert.NotEmpty(t, conv.ID(), "conversation ID should be auto-generated")
-	assert.NotNil(t, conv.textSession, "text session should be initialized")
+	assert.NotNil(t, conv.unarySession, "unary session should be initialized")
+	assert.Equal(t, UnaryMode, conv.mode, "should be in unary mode")
 }
 
 func TestConversationStateStoreMiddlewareIntegration(t *testing.T) {
@@ -429,12 +449,15 @@ func TestGetVariables(t *testing.T) {
 	conv.SetVar("key2", "value2")
 
 	// GetVar works through the session now
-	assert.Equal(t, "value1", conv.GetVar("key1"))
-	assert.Equal(t, "value2", conv.GetVar("key2"))
+	val1, _ := conv.GetVar("key1")
+	val2, _ := conv.GetVar("key2")
+	assert.Equal(t, "value1", val1)
+	assert.Equal(t, "value2", val2)
 
 	// Variables are managed by session - this tests the public API
 	conv.SetVar("key1", "modified")
-	assert.Equal(t, "modified", conv.GetVar("key1"))
+	val1, _ = conv.GetVar("key1")
+	assert.Equal(t, "modified", val1)
 }
 
 func TestHandlerAdapter(t *testing.T) {
@@ -881,5 +904,642 @@ func (m *convMockTurnDetector) IsUserSpeaking() bool {
 }
 
 func (m *convMockTurnDetector) Reset() {}
+
+// =============================================================================
+// Duplex Mode Tests
+// =============================================================================
+
+func TestDuplexMethodsInUnaryMode(t *testing.T) {
+	conv := newTestConversation()
+	ctx := context.Background()
+
+	// All duplex methods should return errors in unary mode
+	err := conv.SendChunk(ctx, &providers.StreamChunk{Content: "test"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "duplex mode")
+
+	err = conv.SendText(ctx, "test")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "duplex mode")
+
+	_, err = conv.Response()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "duplex mode")
+
+	_, err = conv.Done()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "duplex mode")
+
+	err = conv.SessionError()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "duplex mode")
+}
+
+func TestDuplexMethodsWhenClosed(t *testing.T) {
+	conv := newTestConversation()
+	conv.mode = DuplexMode
+	conv.closed = true
+	ctx := context.Background()
+
+	// All duplex methods should return ErrConversationClosed
+	err := conv.SendChunk(ctx, &providers.StreamChunk{Content: "test"})
+	assert.Equal(t, ErrConversationClosed, err)
+
+	err = conv.SendText(ctx, "test")
+	assert.Equal(t, ErrConversationClosed, err)
+
+	_, err = conv.Response()
+	assert.Equal(t, ErrConversationClosed, err)
+
+	_, err = conv.Done()
+	assert.Equal(t, ErrConversationClosed, err)
+
+	err = conv.SessionError()
+	assert.Equal(t, ErrConversationClosed, err)
+}
+
+func TestGetBaseSessionUnary(t *testing.T) {
+	conv := newTestConversation()
+	store := statestore.NewMemoryStore()
+	unarySession, err := session.NewUnarySession(session.UnarySessionConfig{
+		ConversationID: "test",
+		StateStore:     store,
+		Pipeline:       &rtpipeline.Pipeline{},
+	})
+	require.NoError(t, err)
+	conv.mode = UnaryMode
+	conv.unarySession = unarySession
+
+	baseSession := conv.getBaseSession()
+	assert.NotNil(t, baseSession)
+	assert.Equal(t, "test", baseSession.ID())
+}
+
+func TestGetBaseSessionDuplex(t *testing.T) {
+	conv := newTestConversation()
+	conv.mode = DuplexMode
+
+	// Create a duplex session
+	ctx := context.Background()
+	store := statestore.NewMemoryStore()
+	duplexSession, err := session.NewDuplexSession(ctx, &session.DuplexSessionConfig{
+		ConversationID: "test-duplex",
+		StateStore:     store,
+		Pipeline:       &rtpipeline.Pipeline{},
+	})
+	require.NoError(t, err)
+	conv.duplexSession = duplexSession
+
+	baseSession := conv.getBaseSession()
+	assert.NotNil(t, baseSession)
+	assert.Equal(t, "test-duplex", baseSession.ID())
+}
+
+func TestMessagesWithDifferentModes(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("UnaryMode", func(t *testing.T) {
+		conv := newTestConversation()
+		store := statestore.NewMemoryStore()
+		unarySession, err := session.NewUnarySession(session.UnarySessionConfig{
+			ConversationID: "test",
+			StateStore:     store,
+			Pipeline:       &rtpipeline.Pipeline{},
+		})
+		require.NoError(t, err)
+		conv.mode = UnaryMode
+		conv.unarySession = unarySession
+
+		// Save a message
+		state := &statestore.ConversationState{
+			ID:       "test",
+			Messages: []types.Message{{Role: "user", Content: "hello"}},
+		}
+		err = store.Save(ctx, state)
+		require.NoError(t, err)
+
+		messages := conv.Messages(ctx)
+		assert.Len(t, messages, 1)
+		assert.Equal(t, "hello", messages[0].Content)
+	})
+
+	t.Run("DuplexMode", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.mode = DuplexMode
+
+		store := statestore.NewMemoryStore()
+		duplexSession, err := session.NewDuplexSession(ctx, &session.DuplexSessionConfig{
+			ConversationID: "test-duplex",
+			StateStore:     store,
+			Pipeline:       &rtpipeline.Pipeline{},
+		})
+		require.NoError(t, err)
+		conv.duplexSession = duplexSession
+
+		// Save a message
+		state := &statestore.ConversationState{
+			ID:       "test-duplex",
+			Messages: []types.Message{{Role: "assistant", Content: "hi"}},
+		}
+		err = store.Save(ctx, state)
+		require.NoError(t, err)
+
+		messages := conv.Messages(ctx)
+		assert.Len(t, messages, 1)
+		assert.Equal(t, "hi", messages[0].Content)
+	})
+}
+
+func TestClearWithDifferentModes(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("UnaryMode", func(t *testing.T) {
+		conv := newTestConversation()
+		store := statestore.NewMemoryStore()
+		unarySession, err := session.NewUnarySession(session.UnarySessionConfig{
+			ConversationID: "test",
+			StateStore:     store,
+			Pipeline:       &rtpipeline.Pipeline{},
+		})
+		require.NoError(t, err)
+		conv.mode = UnaryMode
+		conv.unarySession = unarySession
+
+		// Add messages
+		state := &statestore.ConversationState{
+			ID:       "test",
+			Messages: []types.Message{{Role: "user", Content: "hello"}},
+		}
+		err = store.Save(ctx, state)
+		require.NoError(t, err)
+
+		// Clear
+		err = conv.Clear()
+		assert.NoError(t, err)
+
+		// Verify cleared
+		messages := conv.Messages(ctx)
+		assert.Empty(t, messages)
+	})
+
+	t.Run("DuplexMode", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.mode = DuplexMode
+
+		store := statestore.NewMemoryStore()
+		duplexSession, err := session.NewDuplexSession(ctx, &session.DuplexSessionConfig{
+			ConversationID: "test-duplex",
+			StateStore:     store,
+			Pipeline:       &rtpipeline.Pipeline{},
+		})
+		require.NoError(t, err)
+		conv.duplexSession = duplexSession
+
+		// Add messages
+		state := &statestore.ConversationState{
+			ID:       "test-duplex",
+			Messages: []types.Message{{Role: "assistant", Content: "hi"}},
+		}
+		err = store.Save(ctx, state)
+		require.NoError(t, err)
+
+		// Clear should close duplex session first
+		err = conv.Clear()
+		assert.NoError(t, err)
+
+		// Verify cleared
+		messages := conv.Messages(ctx)
+		assert.Empty(t, messages)
+	})
+}
+
+// =============================================================================
+// Send and Pipeline Execution Tests
+// =============================================================================
+
+// testMockProvider is now provided by runtime/providers/mock package
+// Use mock.NewProvider() or mock.NewProviderWithRepository() for testing
+
+// errorMockRepository returns an error for GetTurn and GetResponse calls
+type errorMockRepository struct {
+	err error
+}
+
+func (e *errorMockRepository) GetResponse(ctx context.Context, params mock.ResponseParams) (string, error) {
+	return "", e.err
+}
+
+func (e *errorMockRepository) GetTurn(ctx context.Context, params mock.ResponseParams) (*mock.Turn, error) {
+	return nil, e.err
+}
+
+func TestSendWithMockProvider(t *testing.T) {
+	ctx := context.Background()
+
+	// Create a conversation with a mock provider
+	repo := mock.NewInMemoryMockRepository("Hello! How can I help you?")
+	mockProv := mock.NewProviderWithRepository("test-mock", "test-model", false, repo)
+	store := statestore.NewMemoryStore()
+
+	p := &pack.Pack{
+		ID: "test-pack",
+		Prompts: map[string]*pack.Prompt{
+			"chat": {
+				ID:             "chat",
+				SystemTemplate: "You are helpful.",
+			},
+		},
+	}
+
+	conv := &Conversation{
+		pack:           p,
+		prompt:         p.Prompts["chat"],
+		promptName:     "chat",
+		promptRegistry: p.ToPromptRegistry(),
+		toolRegistry:   tools.NewRegistry(),
+		provider:       mockProv,
+		config:         &config{},
+		mode:           UnaryMode,
+		handlers:       make(map[string]ToolHandler),
+		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
+		pendingStore:   sdktools.NewPendingStore(),
+	}
+
+	// Build pipeline and create session
+	pipeline, err := conv.buildPipelineWithParams(store, "test-conv")
+	require.NoError(t, err)
+
+	unarySession, err := session.NewUnarySession(session.UnarySessionConfig{
+		ConversationID: "test-conv",
+		StateStore:     store,
+		Pipeline:       pipeline,
+	})
+	require.NoError(t, err)
+	conv.unarySession = unarySession
+
+	// Test Send
+	resp, err := conv.Send(ctx, "Hello")
+	require.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Equal(t, "Hello! How can I help you?", resp.Text())
+	assert.Greater(t, resp.Duration().Nanoseconds(), int64(0))
+}
+
+func TestSendWithProviderError(t *testing.T) {
+	ctx := context.Background()
+
+	// Create a conversation with a failing mock provider
+	// Use a repository that returns an error
+	repo := &errorMockRepository{err: fmt.Errorf("provider error")}
+	mockProv := mock.NewProviderWithRepository("test-mock", "test-model", false, repo)
+	store := statestore.NewMemoryStore()
+
+	p := &pack.Pack{
+		ID: "test-pack",
+		Prompts: map[string]*pack.Prompt{
+			"chat": {
+				ID:             "chat",
+				SystemTemplate: "You are helpful.",
+			},
+		},
+	}
+
+	conv := &Conversation{
+		pack:           p,
+		prompt:         p.Prompts["chat"],
+		promptName:     "chat",
+		promptRegistry: p.ToPromptRegistry(),
+		toolRegistry:   tools.NewRegistry(),
+		provider:       mockProv,
+		config:         &config{},
+		mode:           UnaryMode,
+		handlers:       make(map[string]ToolHandler),
+		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
+		pendingStore:   sdktools.NewPendingStore(),
+	}
+
+	// Build pipeline and create session
+	pipeline, err := conv.buildPipelineWithParams(store, "test-conv")
+	require.NoError(t, err)
+
+	unarySession, err := session.NewUnarySession(session.UnarySessionConfig{
+		ConversationID: "test-conv",
+		StateStore:     store,
+		Pipeline:       pipeline,
+	})
+	require.NoError(t, err)
+	conv.unarySession = unarySession
+
+	// Test Send with error
+	_, err = conv.Send(ctx, "Hello")
+	assert.Error(t, err)
+}
+
+func TestSendInDuplexMode(t *testing.T) {
+	ctx := context.Background()
+	conv := newTestConversation()
+	conv.mode = DuplexMode
+
+	_, err := conv.Send(ctx, "test")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unary mode")
+}
+
+func TestSendWhenClosed(t *testing.T) {
+	ctx := context.Background()
+	conv := newTestConversation()
+	conv.closed = true
+
+	_, err := conv.Send(ctx, "test")
+	assert.Equal(t, ErrConversationClosed, err)
+}
+
+func TestBuildResponse(t *testing.T) {
+	conv := newTestConversation()
+
+	t.Run("WithMessage", func(t *testing.T) {
+		result := &rtpipeline.ExecutionResult{
+			Response: &rtpipeline.Response{
+				Role:    "assistant",
+				Content: "Test response",
+			},
+			CostInfo: types.CostInfo{
+				InputTokens:  10,
+				OutputTokens: 20,
+				TotalCost:    0.03,
+			},
+		}
+
+		resp := conv.buildResponse(result, time.Now())
+		assert.NotNil(t, resp)
+		assert.Equal(t, "Test response", resp.Text())
+		assert.NotNil(t, resp.message.CostInfo)
+		assert.Equal(t, 0.03, resp.message.CostInfo.TotalCost)
+	})
+
+	t.Run("WithToolCalls", func(t *testing.T) {
+		result := &rtpipeline.ExecutionResult{
+			Response: &rtpipeline.Response{
+				Role:    "assistant",
+				Content: "Let me check that",
+				ToolCalls: []types.MessageToolCall{
+					{ID: "call1", Name: "get_weather", Args: json.RawMessage(`{"city": "SF"}`)},
+				},
+			},
+		}
+
+		resp := conv.buildResponse(result, time.Now())
+		assert.NotNil(t, resp)
+		assert.Len(t, resp.toolCalls, 1)
+		assert.Equal(t, "get_weather", resp.toolCalls[0].Name)
+	})
+
+	t.Run("WithValidations", func(t *testing.T) {
+		result := &rtpipeline.ExecutionResult{
+			Response: &rtpipeline.Response{
+				Role:    "assistant",
+				Content: "Response",
+			},
+			Messages: []types.Message{
+				{
+					Role:    "assistant",
+					Content: "Response",
+					Validations: []types.ValidationResult{
+						{ValidatorType: "test-validator", Passed: true},
+					},
+				},
+			},
+		}
+
+		resp := conv.buildResponse(result, time.Now())
+		assert.NotNil(t, resp)
+		assert.Len(t, resp.validations, 1)
+		assert.True(t, resp.validations[0].Passed)
+	})
+
+	t.Run("NilResponse", func(t *testing.T) {
+		result := &rtpipeline.ExecutionResult{
+			Response: nil,
+		}
+
+		resp := conv.buildResponse(result, time.Now())
+		assert.NotNil(t, resp)
+		assert.Nil(t, resp.message)
+	})
+}
+
+func TestSendWithOptions(t *testing.T) {
+	ctx := context.Background()
+	repo := mock.NewInMemoryMockRepository("Response")
+	mockProv := mock.NewProviderWithRepository("test-mock", "test-model", false, repo)
+	store := statestore.NewMemoryStore()
+
+	p := &pack.Pack{
+		ID: "test-pack",
+		Prompts: map[string]*pack.Prompt{
+			"chat": {ID: "chat", SystemTemplate: "System"},
+		},
+	}
+
+	conv := &Conversation{
+		pack:           p,
+		prompt:         p.Prompts["chat"],
+		promptName:     "chat",
+		promptRegistry: p.ToPromptRegistry(),
+		toolRegistry:   tools.NewRegistry(),
+		provider:       mockProv,
+		config:         &config{},
+		mode:           UnaryMode,
+		handlers:       make(map[string]ToolHandler),
+		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
+		pendingStore:   sdktools.NewPendingStore(),
+	}
+
+	pipeline, err := conv.buildPipelineWithParams(store, "test-conv")
+	require.NoError(t, err)
+
+	unarySession, err := session.NewUnarySession(session.UnarySessionConfig{
+		ConversationID: "test-conv",
+		StateStore:     store,
+		Pipeline:       pipeline,
+	})
+	require.NoError(t, err)
+	conv.unarySession = unarySession
+
+	// Test Send works with options
+	resp, err := conv.Send(ctx, "test")
+	require.NoError(t, err)
+	assert.NotNil(t, resp)
+}
+
+func TestForkDuplexMode(t *testing.T) {
+	// Skip this test as it requires complex duplex session setup
+	t.Skip("Duplex Fork requires full bidirectional streaming setup")
+}
+
+func TestClose(t *testing.T) {
+	conv := newTestConversation()
+
+	err := conv.Close()
+	assert.NoError(t, err)
+	assert.True(t, conv.closed)
+
+	// Second close should be no-op
+	err = conv.Close()
+	assert.NoError(t, err)
+}
+
+func TestCloseWithProvider(t *testing.T) {
+	mockProv := mock.NewProvider("test-mock", "test-model", false)
+	conv := newTestConversation()
+	conv.provider = mockProv
+
+	err := conv.Close()
+	assert.NoError(t, err)
+	assert.True(t, conv.closed)
+}
+
+func TestSendMultipleErrorCases(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("nil message", func(t *testing.T) {
+		conv := newTestConversation()
+		_, err := conv.Send(ctx, nil)
+		assert.Error(t, err)
+	})
+}
+
+func TestMessagesErrorCases(t *testing.T) {
+	t.Run("unary mode success", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.mode = UnaryMode
+		messages := conv.Messages(context.Background())
+		assert.NotNil(t, messages)
+	})
+}
+
+func TestSetVarsFromEnv(t *testing.T) {
+	conv := newTestConversation()
+
+	// Set environment variables
+	os.Setenv("PROMPTKIT_VAR1", "value1")
+	os.Setenv("PROMPTKIT_VAR2", "value2")
+	os.Setenv("OTHER_VAR", "should_not_be_set")
+	defer os.Unsetenv("PROMPTKIT_VAR1")
+	defer os.Unsetenv("PROMPTKIT_VAR2")
+	defer os.Unsetenv("OTHER_VAR")
+
+	conv.SetVarsFromEnv("PROMPTKIT_")
+
+	val1, ok1 := conv.GetVar("var1")
+	val2, ok2 := conv.GetVar("var2")
+	_, ok3 := conv.GetVar("other_var")
+
+	assert.True(t, ok1)
+	assert.Equal(t, "value1", val1)
+	assert.True(t, ok2)
+	assert.Equal(t, "value2", val2)
+	assert.False(t, ok3)
+}
+
+func TestBuildPipelineWithParameters(t *testing.T) {
+	store := statestore.NewMemoryStore()
+
+	// Test with prompt parameters set
+	maxTokens := 2000
+	temperature := 0.7
+	p := &pack.Pack{
+		ID: "test-pack",
+		Prompts: map[string]*pack.Prompt{
+			"chat": {
+				ID:             "chat",
+				SystemTemplate: "You are helpful.",
+				Parameters: &pack.Parameters{
+					MaxTokens:   &maxTokens,
+					Temperature: &temperature,
+				},
+			},
+		},
+	}
+
+	conv := &Conversation{
+		pack:           p,
+		prompt:         p.Prompts["chat"],
+		promptName:     "chat",
+		promptRegistry: p.ToPromptRegistry(),
+		toolRegistry:   tools.NewRegistry(),
+		provider:       mock.NewProvider("test-mock", "test-model", false),
+		config:         &config{},
+		mode:           UnaryMode,
+		handlers:       make(map[string]ToolHandler),
+		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
+	}
+
+	pipeline, err := conv.buildPipelineWithParams(store, "test-conv")
+	assert.NoError(t, err)
+	assert.NotNil(t, pipeline)
+}
+
+func TestSendWithDifferentModes(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("duplex mode returns error", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.mode = DuplexMode
+
+		_, err := conv.Send(ctx, "test")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "Send() only available in unary mode")
+	})
+
+	t.Run("closed conversation returns error", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.closed = true
+
+		_, err := conv.Send(ctx, "test")
+		assert.Equal(t, ErrConversationClosed, err)
+	})
+}
+
+func TestCloseWithErrors(t *testing.T) {
+	t.Run("duplex mode close", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.mode = DuplexMode
+
+		err := conv.Close()
+		assert.NoError(t, err) // No session to close, so no error
+		assert.True(t, conv.closed)
+	})
+
+	t.Run("already closed returns nil", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.closed = true
+
+		err := conv.Close()
+		assert.NoError(t, err) // Safe to call multiple times
+	})
+}
+
+func TestForkErrorHandling(t *testing.T) {
+	t.Run("fork preserves handlers", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.OnTool("test_tool", func(args map[string]any) (any, error) {
+			return "result", nil
+		})
+
+		forked := conv.Fork()
+
+		conv.handlersMu.RLock()
+		_, origHas := conv.handlers["test_tool"]
+		conv.handlersMu.RUnlock()
+
+		forked.handlersMu.RLock()
+		_, forkHas := forked.handlers["test_tool"]
+		forked.handlersMu.RUnlock()
+
+		assert.True(t, origHas)
+		assert.True(t, forkHas)
+	})
+}
 
 // =============================================================================

@@ -9,29 +9,40 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// TextSession manages text-based conversations.
-type TextSession interface {
+// BaseSession represents core session capabilities shared by all session types.
+type BaseSession interface {
+	// Identity
+	ID() string
+
+	// Variable management for template substitution
+	Variables() map[string]string
+	SetVar(name, value string)
+	GetVar(name string) (string, bool)
+
+	// State management - encapsulates StateStore access
+	Messages(ctx context.Context) ([]types.Message, error)
+	Clear(ctx context.Context) error
+}
+
+// UnarySession manages unary (request/response) conversations with multimodal support.
+type UnarySession interface {
+	BaseSession
+
 	// Execution methods
 	Execute(ctx context.Context, role, content string) (*pipeline.ExecutionResult, error)
 	ExecuteWithMessage(ctx context.Context, message types.Message) (*pipeline.ExecutionResult, error)
 	ExecuteStream(ctx context.Context, role, content string) (<-chan providers.StreamChunk, error)
 	ExecuteStreamWithMessage(ctx context.Context, message types.Message) (<-chan providers.StreamChunk, error)
 
-	// Variable management
-	SetVar(name, value string)
-	GetVar(name string) string
-	Variables() map[string]string
-
-	// Accessors
-	ID() string
-	StateStore() statestore.Store
+	// ForkSession creates a new session that is a fork of this one.
+	// The new session will have an independent copy of the conversation state.
+	ForkSession(ctx context.Context, forkID string, pipeline *pipeline.Pipeline) (UnarySession, error)
 }
 
 // DuplexSession manages bidirectional streaming conversations.
 // Uses providers.StreamChunk for BOTH input and output for API symmetry.
 type DuplexSession interface {
-	// Identity
-	ID() string
+	BaseSession
 
 	// SendChunk sends a chunk to the session (populate MediaDelta for media, Content for text).
 	// This method is thread-safe and can be called from multiple goroutines.
@@ -53,22 +64,21 @@ type DuplexSession interface {
 	// Error returns any error that occurred during the session.
 	Error() error
 
-	// StateStore returns the session's state store for persistence.
-	StateStore() statestore.Store
-
-	// Variables returns the current session variables for template substitution.
-	Variables() map[string]string
-
-	// SetVar sets a session variable.
-	SetVar(name, value string)
-
-	// GetVar retrieves a session variable.
-	GetVar(name string) (string, bool)
+	// ForkSession creates a new session that is a fork of this one.
+	// The new session will have an independent copy of the conversation state.
+	// For duplex sessions, the fork is not connected to any streams - the consumer
+	// must connect streams before using it.
+	ForkSession(
+		ctx context.Context,
+		forkID string,
+		pipeline *pipeline.Pipeline,
+		provider providers.StreamInputSupport,
+	) (DuplexSession, error)
 }
 
-// TextConfig configures a TextSession.
+// UnarySessionConfig configures a TextSession.
 // StateStore should match what's configured in the Pipeline middleware.
-type TextConfig struct {
+type UnarySessionConfig struct {
 	ConversationID string
 	UserID         string
 	StateStore     statestore.Store // Must match Pipeline's StateStore middleware

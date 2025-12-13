@@ -24,7 +24,7 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 		p := pipeline.NewPipeline(providerMw)
 
 		// Create session
-		session, err := newDuplexSession(ctx, &DuplexSessionConfig{
+		session, err := NewDuplexSession(ctx, &DuplexSessionConfig{
 			Pipeline: p,
 		})
 		require.NoError(t, err)
@@ -45,7 +45,7 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 		p := pipeline.NewPipeline(providerMw)
 
 		// Create session
-		session, err := newDuplexSession(ctx, &DuplexSessionConfig{
+		session, err := NewDuplexSession(ctx, &DuplexSessionConfig{
 			Pipeline: p,
 		})
 		require.NoError(t, err)
@@ -65,7 +65,7 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 		p := pipeline.NewPipeline(providerMw)
 
 		// Create session
-		session, err := newDuplexSession(ctx, &DuplexSessionConfig{
+		session, err := NewDuplexSession(ctx, &DuplexSessionConfig{
 			Pipeline: p,
 		})
 		require.NoError(t, err)
@@ -96,7 +96,7 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 		p := pipeline.NewPipeline(providerMw)
 
 		// Create session
-		session, err := newDuplexSession(ctx, &DuplexSessionConfig{
+		session, err := NewDuplexSession(ctx, &DuplexSessionConfig{
 			Pipeline: p,
 		})
 		require.NoError(t, err)

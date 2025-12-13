@@ -39,11 +39,9 @@ type duplexSession struct {
 //nolint:unused // Used by tests
 const streamBufferSize = 100 // Size of buffered channels for streaming
 
-// newDuplexSession creates a bidirectional session from a config.
+// NewDuplexSession creates a bidirectional session from a config.
 // Either Pipeline or Provider must be provided.
-//
-//nolint:unused // Used by tests
-func newDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSession, error) {
+func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSession, error) {
 	if cfg.Pipeline == nil && cfg.Provider == nil {
 		return nil, fmt.Errorf("either Pipeline or Provider is required")
 	}
@@ -352,11 +350,6 @@ func (s *duplexSession) Error() error {
 	return s.providerSession.Error()
 }
 
-// StateStore returns the session's state store.
-func (s *duplexSession) StateStore() statestore.Store {
-	return s.store
-}
-
 // Variables returns a copy of the current variables.
 func (s *duplexSession) Variables() map[string]string {
 	s.varsMu.RLock()
@@ -382,4 +375,54 @@ func (s *duplexSession) GetVar(name string) (string, bool) {
 	defer s.varsMu.RUnlock()
 	val, ok := s.variables[name]
 	return val, ok
+}
+
+// Messages implements BaseSession.
+func (s *duplexSession) Messages(ctx context.Context) ([]types.Message, error) {
+	state, err := s.store.Load(ctx, s.id)
+	if err != nil {
+		return nil, err
+	}
+	return state.Messages, nil
+}
+
+// Clear implements BaseSession.
+func (s *duplexSession) Clear(ctx context.Context) error {
+	state := &statestore.ConversationState{
+		ID:       s.id,
+		Messages: nil,
+	}
+	return s.store.Save(ctx, state)
+}
+
+// ForkSession implements DuplexSession.
+func (s *duplexSession) ForkSession(
+	ctx context.Context,
+	forkID string,
+	pipelineArg *pipeline.Pipeline,
+	provider providers.StreamInputSupport,
+) (DuplexSession, error) {
+	// Fork the state in the store
+	if err := s.store.Fork(ctx, s.id, forkID); err != nil {
+		return nil, fmt.Errorf("failed to fork state: %w", err)
+	}
+
+	// Copy variables
+	s.varsMu.RLock()
+	forkVars := make(map[string]string, len(s.variables))
+	for k, v := range s.variables {
+		forkVars[k] = v
+	}
+	s.varsMu.RUnlock()
+
+	// Create new duplex session without connecting streams
+	// Consumer is responsible for connecting streams
+	return NewDuplexSession(ctx, &DuplexSessionConfig{
+		ConversationID: forkID,
+		StateStore:     s.store,
+		Pipeline:       pipelineArg,
+		Provider:       provider,
+		Config:         nil, // No provider session - consumer connects streams
+		Variables:      forkVars,
+	})
 }

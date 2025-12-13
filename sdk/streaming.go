@@ -95,6 +95,11 @@ func (c *Conversation) Stream(ctx context.Context, message any, opts ...SendOpti
 		startTime := time.Now()
 
 		c.mu.RLock()
+		if c.mode != UnaryMode {
+			c.mu.RUnlock()
+			ch <- StreamChunk{Error: fmt.Errorf("Stream() only available in unary mode; use OpenDuplex() for duplex streaming")}
+			return
+		}
 		if c.closed {
 			c.mu.RUnlock()
 			ch <- StreamChunk{Error: ErrConversationClosed}
@@ -182,8 +187,8 @@ func (c *Conversation) executeStreamingPipeline(
 	outCh chan<- StreamChunk,
 	startTime time.Time,
 ) error {
-	// Execute streaming through the text session
-	streamCh, err := c.textSession.ExecuteStreamWithMessage(ctx, *userMsg)
+	// Execute streaming through the unary session (only called from Stream which checks mode)
+	streamCh, err := c.unarySession.ExecuteStreamWithMessage(ctx, *userMsg)
 	if err != nil {
 		return fmt.Errorf("pipeline streaming failed: %w", err)
 	}

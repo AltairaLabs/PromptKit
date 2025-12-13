@@ -3,26 +3,23 @@ package sdk
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/session"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 	intpipeline "github.com/AltairaLabs/PromptKit/sdk/internal/pipeline"
+	"github.com/AltairaLabs/PromptKit/sdk/session"
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
 )
 
@@ -31,6 +28,16 @@ const (
 	defaultMaxTokens        = 4096
 	defaultTemperature      = 0.7
 	streamChannelBufferSize = 100 // Buffer size for streaming channels
+)
+
+// SessionMode represents the conversation's session mode.
+type SessionMode int
+
+const (
+	// UnaryMode for request/response conversations.
+	UnaryMode SessionMode = iota
+	// DuplexMode for bidirectional streaming conversations.
+	DuplexMode
 )
 
 // Conversation represents an active LLM conversation.
@@ -69,8 +76,12 @@ type Conversation struct {
 	// Configuration from options
 	config *config
 
-	// Text session for executing pipeline
-	textSession session.TextSession
+	// Session management - mode-based approach
+	mode SessionMode
+
+	// Union: exactly one is populated based on mode
+	unarySession  session.UnarySession
+	duplexSession session.DuplexSession
 
 	// Tool handlers
 	handlers   map[string]ToolHandler
@@ -139,6 +150,10 @@ func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption
 	startTime := time.Now()
 
 	c.mu.RLock()
+	if c.mode != UnaryMode {
+		c.mu.RUnlock()
+		return nil, fmt.Errorf("Send() only available in unary mode; use OpenDuplex() for duplex streaming")
+	}
 	if c.closed {
 		c.mu.RUnlock()
 		return nil, ErrConversationClosed
@@ -248,8 +263,8 @@ func (c *Conversation) executePipeline(
 	ctx context.Context,
 	userMsg *types.Message,
 ) (*rtpipeline.ExecutionResult, error) {
-	// Execute through the text session
-	return c.textSession.ExecuteWithMessage(ctx, *userMsg)
+	// Execute through the unary session (only called from Send which checks mode)
+	return c.unarySession.ExecuteWithMessage(ctx, *userMsg)
 }
 
 // buildResponse creates a Response from the pipeline result.
@@ -292,33 +307,93 @@ func (c *Conversation) buildResponse(result *rtpipeline.ExecutionResult, startTi
 	return resp
 }
 
-// registerMCPExecutors registers executors for MCP tools.
-func (c *Conversation) registerMCPExecutors() {
-	if c.mcpRegistry == nil {
-		return
+// getBaseSession returns the active session as BaseSession.
+func (c *Conversation) getBaseSession() session.BaseSession {
+	if c.mode == UnaryMode {
+		return c.unarySession
+	}
+	return c.duplexSession
+}
+
+// SendChunk sends a streaming chunk in duplex mode.
+// Only available when the conversation was opened with OpenDuplex().
+func (c *Conversation) SendChunk(ctx context.Context, chunk *providers.StreamChunk) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.mode != DuplexMode {
+		return fmt.Errorf("SendChunk() only available in duplex mode; use OpenDuplex()")
+	}
+	if c.closed {
+		return ErrConversationClosed
 	}
 
-	ctx := context.Background()
-	mcpTools, err := c.mcpRegistry.ListAllTools(ctx)
-	if err != nil {
-		return
+	return c.duplexSession.SendChunk(ctx, chunk)
+}
+
+// SendText sends text in duplex mode.
+// Only available when the conversation was opened with OpenDuplex().
+func (c *Conversation) SendText(ctx context.Context, text string) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.mode != DuplexMode {
+		return fmt.Errorf("SendText() only available in duplex mode; use OpenDuplex()")
+	}
+	if c.closed {
+		return ErrConversationClosed
 	}
 
-	for _, serverTools := range mcpTools {
-		for _, tool := range serverTools {
-			// Register the MCP tool in the registry if not already present
-			desc := &tools.ToolDescriptor{
-				Name:        tool.Name,
-				Description: tool.Description,
-				InputSchema: tool.InputSchema,
-				Mode:        "mcp",
-			}
-			_ = c.toolRegistry.Register(desc)
+	return c.duplexSession.SendText(ctx, text)
+}
 
-			adapter := &mcpHandlerAdapter{name: tool.Name, registry: c.mcpRegistry}
-			c.toolRegistry.RegisterExecutor(adapter)
-		}
+// Response returns the response channel for duplex streaming.
+// Only available when the conversation was opened with OpenDuplex().
+func (c *Conversation) Response() (<-chan providers.StreamChunk, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.mode != DuplexMode {
+		return nil, fmt.Errorf("Response() only available in duplex mode; use OpenDuplex()")
 	}
+	if c.closed {
+		return nil, ErrConversationClosed
+	}
+
+	return c.duplexSession.Response(), nil
+}
+
+// Done returns a channel that's closed when the duplex session ends.
+// Only available when the conversation was opened with OpenDuplex().
+func (c *Conversation) Done() (<-chan struct{}, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.mode != DuplexMode {
+		return nil, fmt.Errorf("Done() only available in duplex mode; use OpenDuplex()")
+	}
+	if c.closed {
+		return nil, ErrConversationClosed
+	}
+
+	return c.duplexSession.Done(), nil
+}
+
+// SessionError returns any error from the duplex session.
+// Only available when the conversation was opened with OpenDuplex().
+// Note: This is named SessionError to avoid conflict with the Error interface method.
+func (c *Conversation) SessionError() error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.mode != DuplexMode {
+		return fmt.Errorf("SessionError() only available in duplex mode")
+	}
+	if c.closed {
+		return ErrConversationClosed
+	}
+
+	return c.duplexSession.Error()
 }
 
 // SetVar sets a single template variable.
@@ -329,7 +404,7 @@ func (c *Conversation) registerMCPExecutors() {
 //	// Template: "You are helping {{customer_name}}"
 //	// Becomes: "You are helping Alice"
 func (c *Conversation) SetVar(name, value string) {
-	c.textSession.SetVar(name, value)
+	c.getBaseSession().SetVar(name, value)
 }
 
 // SetVars sets multiple template variables at once.
@@ -340,8 +415,9 @@ func (c *Conversation) SetVar(name, value string) {
 //	    "max_discount": 20,
 //	})
 func (c *Conversation) SetVars(vars map[string]any) {
+	sess := c.getBaseSession()
 	for k, v := range vars {
-		c.textSession.SetVar(k, fmt.Sprintf("%v", v))
+		sess.SetVar(k, fmt.Sprintf("%v", v))
 	}
 }
 
@@ -363,360 +439,46 @@ func (c *Conversation) SetVarsFromEnv(prefix string) {
 		key, value := parts[0], parts[1]
 		if strings.HasPrefix(key, prefix) {
 			varName := strings.ToLower(strings.TrimPrefix(key, prefix))
-			c.textSession.SetVar(varName, value)
+			c.getBaseSession().SetVar(varName, value)
 		}
 	}
 }
 
 // GetVar returns the current value of a template variable.
-// Returns empty string if the variable is not set.
-func (c *Conversation) GetVar(name string) string {
-	return c.textSession.GetVar(name)
-}
-
-// OnTool registers a handler for a tool defined in the pack.
-//
-// The tool name must match a tool defined in the pack's tools section.
-// When the LLM calls the tool, your handler receives the parsed arguments
-// and returns a result.
-//
-//	conv.OnTool("get_weather", func(args map[string]any) (any, error) {
-//	    city := args["city"].(string)
-//	    return weatherAPI.GetCurrent(city)
-//	})
-//
-// The handler's return value is automatically serialized to JSON and sent
-// back to the LLM as the tool result.
-func (c *Conversation) OnTool(name string, handler ToolHandler) {
-	c.handlersMu.Lock()
-	defer c.handlersMu.Unlock()
-	c.handlers[name] = handler
-}
-
-// OnToolCtx registers a context-aware handler for a tool.
-//
-// Use this when your tool implementation needs the request context
-// for cancellation, deadlines, or tracing:
-//
-//	conv.OnToolCtx("search_db", func(ctx context.Context, args map[string]any) (any, error) {
-//	    return db.SearchWithContext(ctx, args["query"].(string))
-//	})
-func (c *Conversation) OnToolCtx(name string, handler ToolHandlerCtx) {
-	c.handlersMu.Lock()
-	defer c.handlersMu.Unlock()
-	// Wrap ToolHandlerCtx as ToolHandler (context will be injected at call time)
-	c.handlers[name] = func(args map[string]any) (any, error) {
-		// Note: This wrapper will be replaced with proper context injection
-		// when the pipeline is built
-		return handler(context.Background(), args)
-	}
-}
-
-// OnTools registers multiple tool handlers at once.
-//
-//	conv.OnTools(map[string]sdk.ToolHandler{
-//	    "get_weather":   getWeatherHandler,
-//	    "search_docs":   searchDocsHandler,
-//	    "send_email":    sendEmailHandler,
-//	})
-func (c *Conversation) OnTools(handlers map[string]ToolHandler) {
-	c.handlersMu.Lock()
-	defer c.handlersMu.Unlock()
-	for name, handler := range handlers {
-		c.handlers[name] = handler
-	}
-}
-
-// OnToolHTTP registers a tool that makes HTTP requests.
-//
-// This is a convenience method for tools that call external APIs:
-//
-//	conv.OnToolHTTP("create_ticket", sdktools.NewHTTPToolConfig(
-//	    "https://api.tickets.example.com/tickets",
-//	    sdktools.WithMethod("POST"),
-//	    sdktools.WithHeader("Authorization", "Bearer "+apiKey),
-//	    sdktools.WithTimeout(5000),
-//	))
-//
-// The tool arguments from the LLM are serialized to JSON and sent as the
-// request body. The response is parsed and returned to the LLM.
-func (c *Conversation) OnToolHTTP(name string, config *sdktools.HTTPToolConfig) {
-	c.handlersMu.Lock()
-	defer c.handlersMu.Unlock()
-	c.handlers[name] = config.Handler()
-}
-
-// OnToolExecutor registers a custom executor for tools.
-//
-// Use this when you need full control over tool execution or want to use
-// a runtime executor directly:
-//
-//	executor := &MyCustomExecutor{}
-//	conv.OnToolExecutor("custom_tool", executor)
-//
-// The executor must implement the runtime/tools.Executor interface.
-func (c *Conversation) OnToolExecutor(name string, executor tools.Executor) {
-	c.handlersMu.Lock()
-	defer c.handlersMu.Unlock()
-	c.handlers[name] = func(args map[string]any) (any, error) {
-		// Convert args to JSON for the executor
-		argsJSON, err := json.Marshal(args)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal args: %w", err)
-		}
-
-		// Get tool descriptor from pack
-		packTool := c.pack.GetTool(name)
-		if packTool == nil {
-			return nil, fmt.Errorf("tool %q not found in pack", name)
-		}
-
-		paramsJSON, err := json.Marshal(packTool.Parameters)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal tool schema: %w", err)
-		}
-
-		desc := &tools.ToolDescriptor{
-			Name:        packTool.Name,
-			Description: packTool.Description,
-			InputSchema: paramsJSON,
-		}
-
-		// Execute
-		result, err := executor.Execute(desc, argsJSON)
-		if err != nil {
-			return nil, err
-		}
-
-		// Parse result
-		var parsed any
-		if json.Unmarshal(result, &parsed) != nil {
-			return string(result), nil
-		}
-		return parsed, nil
-	}
-}
-
-// OnToolAsync registers a handler that may require approval before execution.
-//
-// Use this for Human-in-the-Loop (HITL) workflows where certain actions
-// require human approval before proceeding:
-//
-//	conv.OnToolAsync("process_refund", func(args map[string]any) sdk.PendingResult {
-//	    amount := args["amount"].(float64)
-//	    if amount > 1000 {
-//	        return sdk.PendingResult{
-//	            Reason:  "high_value_refund",
-//	            Message: fmt.Sprintf("Refund of $%.2f requires approval", amount),
-//	        }
-//	    }
-//	    return sdk.PendingResult{} // Proceed immediately
-//	}, func(args map[string]any) (any, error) {
-//	    // Execute the actual refund
-//	    return refundAPI.Process(args)
-//	})
-//
-// The first function checks if approval is needed, the second executes the action.
-func (c *Conversation) OnToolAsync(
-	name string,
-	checkFunc func(args map[string]any) sdktools.PendingResult,
-	execFunc ToolHandler,
-) {
-	c.asyncHandlersMu.Lock()
-	defer c.asyncHandlersMu.Unlock()
-
-	// Initialize maps if needed
-	if c.asyncHandlers == nil {
-		c.asyncHandlers = make(map[string]sdktools.AsyncToolHandler)
-	}
-	if c.pendingStore == nil {
-		c.pendingStore = sdktools.NewPendingStore()
-	}
-
-	c.asyncHandlers[name] = checkFunc
-
-	// Register the execution handler
-	c.handlersMu.Lock()
-	c.handlers[name] = execFunc
-	c.handlersMu.Unlock()
-}
-
-// ResolveTool approves and executes a pending tool call.
-//
-// After calling Send() and receiving pending tools in the response,
-// use this to approve and execute them:
-//
-//	resp, _ := conv.Send(ctx, "Process refund for order #12345")
-//	if len(resp.PendingTools()) > 0 {
-//	    pending := resp.PendingTools()[0]
-//	    // ... get approval ...
-//	    result, _ := conv.ResolveTool(pending.ID)
-//	    // Continue the conversation with the result
-//	    resp, _ = conv.Continue(ctx)
-//	}
-func (c *Conversation) ResolveTool(id string) (*sdktools.ToolResolution, error) {
-	if c.pendingStore == nil {
-		return nil, fmt.Errorf("no pending tools")
-	}
-	return c.pendingStore.Resolve(id)
-}
-
-// RejectTool rejects a pending tool call.
-//
-// Use this when the human reviewer decides not to approve the tool:
-//
-//	resp, _ := conv.RejectTool(pending.ID, "Not authorized for this amount")
-func (c *Conversation) RejectTool(id, reason string) (*sdktools.ToolResolution, error) {
-	if c.pendingStore == nil {
-		return nil, fmt.Errorf("no pending tools")
-	}
-	return c.pendingStore.Reject(id, reason)
-}
-
-// Continue resumes conversation after resolving pending tools.
-//
-// Call this after approving/rejecting all pending tools to continue
-// the conversation with the tool results:
-//
-//	resp, _ := conv.Send(ctx, "Process refund")
-//	for _, pending := range resp.PendingTools() {
-//	    conv.ResolveTool(pending.ID)
-//	}
-//	resp, _ = conv.Continue(ctx) // LLM receives tool results
-func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
-	startTime := time.Now()
-
-	c.mu.RLock()
-	if c.closed {
-		c.mu.RUnlock()
-		return nil, ErrConversationClosed
-	}
-	c.mu.RUnlock()
-
-	// Build the tool results from resolved pending tools
-	// and continue the conversation
-	// For now, this is a simplified implementation that re-sends
-	// with the last context - full implementation would inject tool results
-
-	// Get the last message from state store
-	msgs := c.Messages(ctx)
-	if len(msgs) == 0 {
-		return nil, fmt.Errorf("no messages to continue from")
-	}
-
-	// Execute pipeline with empty message (continuation)
-	userMsg := &types.Message{Role: "user"}
-	userMsg.AddTextPart("continue")
-
-	result, err := c.executePipeline(ctx, userMsg)
-	if err != nil {
-		return nil, err
-	}
-
-	return c.buildResponse(result, startTime), nil
-}
-
-// PendingTools returns all pending tool calls awaiting approval.
-func (c *Conversation) PendingTools() []*sdktools.PendingToolCall {
-	if c.pendingStore == nil {
-		return nil
-	}
-	return c.pendingStore.List()
-}
-
-// CheckPending checks if a tool call should be pending and creates it if so.
-// Returns (pending call, should wait) - if should wait is true, the tool shouldn't execute yet.
-//
-// This method is used internally when processing tool calls from the LLM.
-// It can also be useful for testing HITL workflows:
-//
-//	pending, shouldWait := conv.CheckPending("risky_tool", args)
-//	if shouldWait {
-//	    // Tool requires approval
-//	}
-func (c *Conversation) CheckPending(
-	name string,
-	args map[string]any,
-) (*sdktools.PendingToolCall, bool) {
-	c.asyncHandlersMu.RLock()
-	checkFunc, isAsync := c.asyncHandlers[name]
-	c.asyncHandlersMu.RUnlock()
-
-	if !isAsync {
-		return nil, false
-	}
-
-	result := checkFunc(args)
-	if !result.IsPending() {
-		return nil, false
-	}
-
-	// Create pending call
-	pending := &sdktools.PendingToolCall{
-		ID:        uuid.New().String(),
-		Name:      name,
-		Arguments: args,
-		Reason:    result.Reason,
-		Message:   result.Message,
-	}
-
-	// Store it
-	c.pendingStore.Add(pending)
-
-	return pending, true
-}
-
-// ToolRegistry returns the underlying tool registry.
-//
-// This is a power-user method for direct registry access. Tool descriptors
-// are loaded from the pack; this allows inspecting them or registering
-// custom executors.
-//
-//	registry := conv.ToolRegistry().(*tools.Registry)
-//	for _, desc := range registry.Descriptors() {
-//	    fmt.Printf("Tool: %s\n", desc.Name)
-//	}
-func (c *Conversation) ToolRegistry() *tools.Registry {
-	return c.toolRegistry
+// Returns empty string and false if the variable is not set.
+func (c *Conversation) GetVar(name string) (string, bool) {
+	return c.getBaseSession().GetVar(name)
 }
 
 // Messages returns the conversation history.
 //
 // The returned slice is a copy - modifying it does not affect the conversation.
 func (c *Conversation) Messages(ctx context.Context) []types.Message {
-	store := c.textSession.StateStore()
-	if store == nil {
-		return nil
-	}
-
-	state, err := store.Load(ctx, c.textSession.ID())
+	messages, err := c.getBaseSession().Messages(ctx)
 	if err != nil {
 		return nil
 	}
 
 	// Return a copy
-	messages := make([]types.Message, len(state.Messages))
-	copy(messages, state.Messages)
-	return messages
+	result := make([]types.Message, len(messages))
+	copy(result, messages)
+	return result
 }
 
 // Clear removes all messages from the conversation history.
 //
 // This keeps the system prompt and variables but removes all user/assistant
 // messages. Useful for starting fresh within the same conversation session.
-func (c *Conversation) Clear() {
-	store := c.textSession.StateStore()
-	if store == nil {
-		return
+// In duplex mode, this will close the session first if actively streaming.
+func (c *Conversation) Clear() error {
+	ctx := context.Background()
+
+	// For duplex mode, close the session first
+	if c.mode == DuplexMode && c.duplexSession != nil {
+		_ = c.duplexSession.Close()
 	}
 
-	// Reset state in store
-	ctx := context.Background()
-	state := &statestore.ConversationState{
-		ID:       c.textSession.ID(),
-		Messages: nil,
-	}
-	_ = store.Save(ctx, state)
+	return c.getBaseSession().Clear(ctx)
 }
 
 // Fork creates a copy of the current conversation state.
@@ -735,87 +497,47 @@ func (c *Conversation) Clear() {
 // The forked conversation is completely independent - changes to one
 // do not affect the other.
 func (c *Conversation) Fork() *Conversation {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	c.handlersMu.RLock()
-	defer c.handlersMu.RUnlock()
-	c.asyncHandlersMu.RLock()
-	defer c.asyncHandlersMu.RUnlock()
+	// Need write lock because buildPipelineWithParams mutates shared tool registry
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
+	c.handlersMu.RLock()
 	// Copy handlers
 	handlers := make(map[string]ToolHandler, len(c.handlers))
 	for k, v := range c.handlers {
 		handlers[k] = v
 	}
+	c.handlersMu.RUnlock()
 
+	c.asyncHandlersMu.RLock()
 	// Copy async handlers
 	asyncHandlers := make(map[string]sdktools.AsyncToolHandler, len(c.asyncHandlers))
 	for k, v := range c.asyncHandlers {
 		asyncHandlers[k] = v
 	}
+	c.asyncHandlersMu.RUnlock()
 
 	// Create fork with new ID
-	forkID := c.textSession.ID() + "-fork"
+	sess := c.getBaseSession()
+	forkID := sess.ID() + "-fork"
 
-	// Fork state using the store's Fork method
-	store := c.textSession.StateStore()
-	if store != nil {
-		ctx := context.Background()
-		_ = store.Fork(ctx, c.textSession.ID(), forkID)
+	// Build a new pipeline for the fork
+	var store statestore.Store
+	if c.config != nil && c.config.stateStore != nil {
+		store = c.config.stateStore
+	} else {
+		// Session is using internal memory store - it will be reused by ForkSession
+		store = nil
 	}
 
-	// Copy variables from the current session
-	currentVars := c.textSession.Variables()
-	forkVars := make(map[string]string, len(currentVars))
-	for k, v := range currentVars {
-		forkVars[k] = v
-	}
-
-	// Build a pipeline for the fork (reuses same configuration)
-	forkPipeline, err := c.buildPipelineWithParams(store, forkID)
+	ctx := context.Background()
+	pipeline, err := c.buildPipelineWithParams(store, forkID)
 	if err != nil {
-		// If pipeline build fails, return a conversation without a session
-		// This maintains backward compatibility with tests
-		return &Conversation{
-			pack:           c.pack,
-			prompt:         c.prompt,
-			promptName:     c.promptName,
-			promptRegistry: c.promptRegistry,
-			toolRegistry:   c.toolRegistry,
-			provider:       c.provider,
-			config:         c.config,
-			textSession:    nil,
-			handlers:       handlers,
-			asyncHandlers:  asyncHandlers,
-			pendingStore:   sdktools.NewPendingStore(),
-		}
+		return nil
 	}
 
-	// Create a new session for the fork with copied variables and forked state
-	forkSession, err := session.NewTextSession(session.TextConfig{
-		ConversationID: forkID,
-		StateStore:     store,
-		Pipeline:       forkPipeline,
-		Variables:      forkVars,
-	})
-	if err != nil {
-		// If session creation fails, return a conversation without a session
-		return &Conversation{
-			pack:           c.pack,
-			prompt:         c.prompt,
-			promptName:     c.promptName,
-			promptRegistry: c.promptRegistry,
-			toolRegistry:   c.toolRegistry,
-			provider:       c.provider,
-			config:         c.config,
-			textSession:    nil,
-			handlers:       handlers,
-			asyncHandlers:  asyncHandlers,
-			pendingStore:   sdktools.NewPendingStore(),
-		}
-	}
-
-	return &Conversation{
+	// Create the forked conversation
+	fork := &Conversation{
 		pack:           c.pack,
 		prompt:         c.prompt,
 		promptName:     c.promptName,
@@ -823,11 +545,38 @@ func (c *Conversation) Fork() *Conversation {
 		toolRegistry:   c.toolRegistry,
 		provider:       c.provider,
 		config:         c.config,
-		textSession:    forkSession,
+		mode:           c.mode,
 		handlers:       handlers,
 		asyncHandlers:  asyncHandlers,
 		pendingStore:   sdktools.NewPendingStore(),
+		mcpRegistry:    c.mcpRegistry, // Share MCP registry
 	}
+
+	// Fork the session based on current mode
+	switch c.mode {
+	case UnaryMode:
+		forkSession, err := c.unarySession.ForkSession(ctx, forkID, pipeline)
+		if err != nil {
+			return nil
+		}
+		fork.unarySession = forkSession
+
+	case DuplexMode:
+		// For duplex mode, create session but don't connect streams
+		// Consumer is responsible for hooking up streams to the forked conversation
+		streamProvider, ok := c.provider.(providers.StreamInputSupport)
+		if !ok {
+			return nil // Provider doesn't support streaming
+		}
+
+		forkSession, err := c.duplexSession.ForkSession(ctx, forkID, pipeline, streamProvider)
+		if err != nil {
+			return nil
+		}
+		fork.duplexSession = forkSession
+	}
+
+	return fork
 }
 
 // Close releases resources associated with the conversation.
@@ -842,6 +591,13 @@ func (c *Conversation) Close() error {
 		return nil
 	}
 	c.closed = true
+
+	// Close duplex session if in duplex mode
+	if c.mode == DuplexMode && c.duplexSession != nil {
+		if err := c.duplexSession.Close(); err != nil {
+			return fmt.Errorf("failed to close duplex session: %w", err)
+		}
+	}
 
 	// Close MCP registry if present
 	if c.mcpRegistry != nil {
@@ -858,7 +614,7 @@ func (c *Conversation) Close() error {
 
 // ID returns the conversation's unique identifier.
 func (c *Conversation) ID() string {
-	return c.textSession.ID()
+	return c.getBaseSession().ID()
 }
 
 // EventBus returns the conversation's event bus for observability.

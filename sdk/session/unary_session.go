@@ -13,7 +13,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-type textSession struct {
+type unarySession struct {
 	id        string
 	store     statestore.Store
 	pipeline  *pipeline.Pipeline
@@ -21,8 +21,8 @@ type textSession struct {
 	mu        sync.RWMutex
 }
 
-// NewTextSession creates a new text session.
-func NewTextSession(cfg TextConfig) (TextSession, error) {
+// NewUnarySession creates a new unary session.
+func NewUnarySession(cfg UnarySessionConfig) (UnarySession, error) {
 	if cfg.ConversationID == "" {
 		cfg.ConversationID = uuid.New().String()
 	}
@@ -46,7 +46,7 @@ func NewTextSession(cfg TextConfig) (TextSession, error) {
 		}
 	}
 
-	return &textSession{
+	return &unarySession{
 		id:        cfg.ConversationID,
 		store:     cfg.StateStore,
 		pipeline:  cfg.Pipeline,
@@ -55,12 +55,12 @@ func NewTextSession(cfg TextConfig) (TextSession, error) {
 }
 
 // ID implements TextSession.
-func (s *textSession) ID() string {
+func (s *unarySession) ID() string {
 	return s.id
 }
 
 // Execute implements TextSession.
-func (s *textSession) Execute(ctx context.Context, role, content string) (*pipeline.ExecutionResult, error) {
+func (s *unarySession) Execute(ctx context.Context, role, content string) (*pipeline.ExecutionResult, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.pipeline.Execute(ctx, role, content)
@@ -69,7 +69,7 @@ func (s *textSession) Execute(ctx context.Context, role, content string) (*pipel
 // ExecuteWithMessage implements TextSession.
 //
 //nolint:gocritic // Interface signature cannot be changed
-func (s *textSession) ExecuteWithMessage(
+func (s *unarySession) ExecuteWithMessage(
 	ctx context.Context,
 	message types.Message,
 ) (*pipeline.ExecutionResult, error) {
@@ -79,7 +79,7 @@ func (s *textSession) ExecuteWithMessage(
 }
 
 // ExecuteStream implements TextSession.
-func (s *textSession) ExecuteStream(ctx context.Context, role, content string) (<-chan providers.StreamChunk, error) {
+func (s *unarySession) ExecuteStream(ctx context.Context, role, content string) (<-chan providers.StreamChunk, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.pipeline.ExecuteStream(ctx, role, content)
@@ -88,7 +88,7 @@ func (s *textSession) ExecuteStream(ctx context.Context, role, content string) (
 // ExecuteStreamWithMessage implements TextSession.
 //
 //nolint:gocritic // Interface signature cannot be changed
-func (s *textSession) ExecuteStreamWithMessage(
+func (s *unarySession) ExecuteStreamWithMessage(
 	ctx context.Context,
 	message types.Message,
 ) (<-chan providers.StreamChunk, error) {
@@ -99,7 +99,7 @@ func (s *textSession) ExecuteStreamWithMessage(
 }
 
 // SetVar sets a template variable that will be available for substitution.
-func (s *textSession) SetVar(name, value string) {
+func (s *unarySession) SetVar(name, value string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.variables == nil {
@@ -109,14 +109,15 @@ func (s *textSession) SetVar(name, value string) {
 }
 
 // GetVar retrieves the value of a template variable.
-func (s *textSession) GetVar(name string) string {
+func (s *unarySession) GetVar(name string) (string, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.variables[name]
+	val, ok := s.variables[name]
+	return val, ok
 }
 
 // Variables returns a copy of all template variables.
-func (s *textSession) Variables() map[string]string {
+func (s *unarySession) Variables() map[string]string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	vars := make(map[string]string, len(s.variables))
@@ -126,7 +127,48 @@ func (s *textSession) Variables() map[string]string {
 	return vars
 }
 
-// StateStore returns the session's state store.
-func (s *textSession) StateStore() statestore.Store {
-	return s.store
+// Messages implements BaseSession.
+func (s *unarySession) Messages(ctx context.Context) ([]types.Message, error) {
+	state, err := s.store.Load(ctx, s.id)
+	if err != nil {
+		return nil, err
+	}
+	return state.Messages, nil
+}
+
+// Clear implements BaseSession.
+func (s *unarySession) Clear(ctx context.Context) error {
+	state := &statestore.ConversationState{
+		ID:       s.id,
+		Messages: nil,
+	}
+	return s.store.Save(ctx, state)
+}
+
+// ForkSession implements UnarySession.
+func (s *unarySession) ForkSession(
+	ctx context.Context,
+	forkID string,
+	pipelineArg *pipeline.Pipeline,
+) (UnarySession, error) {
+	// Fork the state in the store
+	if err := s.store.Fork(ctx, s.id, forkID); err != nil {
+		return nil, fmt.Errorf("failed to fork state: %w", err)
+	}
+
+	// Copy variables
+	s.mu.RLock()
+	forkVars := make(map[string]string, len(s.variables))
+	for k, v := range s.variables {
+		forkVars[k] = v
+	}
+	s.mu.RUnlock()
+
+	// Create new session with forked state
+	return &unarySession{
+		id:        forkID,
+		store:     s.store,
+		pipeline:  pipelineArg,
+		variables: forkVars,
+	}, nil
 }

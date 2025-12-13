@@ -201,8 +201,10 @@ func TestOpenWithVariableDefaults(t *testing.T) {
 	require.NoError(t, err)
 
 	// Check that defaults were applied
-	assert.Equal(t, "World", conv.GetVar("name"))
-	assert.Equal(t, "Hi", conv.GetVar("greeting"))
+	val1, _ := conv.GetVar("name")
+	val2, _ := conv.GetVar("greeting")
+	assert.Equal(t, "World", val1)
+	assert.Equal(t, "Hi", val2)
 }
 
 func TestResumeWithStateStore(t *testing.T) {

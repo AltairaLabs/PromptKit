@@ -199,17 +199,18 @@ func initInternalStateStore(conv *Conversation, cfg *config) error {
 	}
 
 	// Create text session wrapping the pipeline
-	textSession, err := session.NewTextSession(session.TextConfig{
+	unarySession, err := session.NewUnarySession(session.UnarySessionConfig{
 		ConversationID: conversationID,
 		StateStore:     store,
 		Pipeline:       pipeline,
 		Variables:      initialVars,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to create text session: %w", err)
+		return fmt.Errorf("failed to create unary session: %w", err)
 	}
 
-	conv.textSession = textSession
+	conv.mode = UnaryMode
+	conv.unarySession = unarySession
 	return nil
 }
 
