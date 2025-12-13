@@ -15,6 +15,8 @@ import (
 
 // TestBidirectionalSession_PipelineMode tests the Pipeline mode
 func TestBidirectionalSession_PipelineMode(t *testing.T) {
+	ctx := context.Background()
+
 	t.Run("returns streamOutput in Pipeline mode", func(t *testing.T) {
 		// Create minimal pipeline with mock provider
 		provider := mock.NewProvider("mock", "mock-model", false)
@@ -22,7 +24,7 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 		p := pipeline.NewPipeline(providerMw)
 
 		// Create session
-		session, err := NewBidirectionalSession(&BidirectionalConfig{
+		session, err := newDuplexSession(ctx, &DuplexSessionConfig{
 			Pipeline: p,
 		})
 		require.NoError(t, err)
@@ -43,7 +45,7 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 		p := pipeline.NewPipeline(providerMw)
 
 		// Create session
-		session, err := NewBidirectionalSession(&BidirectionalConfig{
+		session, err := newDuplexSession(ctx, &DuplexSessionConfig{
 			Pipeline: p,
 		})
 		require.NoError(t, err)
@@ -63,7 +65,7 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 		p := pipeline.NewPipeline(providerMw)
 
 		// Create session
-		session, err := NewBidirectionalSession(&BidirectionalConfig{
+		session, err := newDuplexSession(ctx, &DuplexSessionConfig{
 			Pipeline: p,
 		})
 		require.NoError(t, err)
@@ -94,7 +96,7 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 		p := pipeline.NewPipeline(providerMw)
 
 		// Create session
-		session, err := NewBidirectionalSession(&BidirectionalConfig{
+		session, err := newDuplexSession(ctx, &DuplexSessionConfig{
 			Pipeline: p,
 		})
 		require.NoError(t, err)

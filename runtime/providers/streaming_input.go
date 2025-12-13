@@ -75,21 +75,16 @@ type StreamInputSession interface {
 	Done() <-chan struct{}
 }
 
-// StreamInputRequest configures a new streaming input session.
-// Note: System prompts and initial context are handled by the pipeline,
-// not by the provider. This request only contains media configuration
-// and provider-specific metadata.
-type StreamInputRequest struct {
-	// Config specifies the media streaming configuration
+// StreamingInputConfig configures a new streaming input session.
+// Note: System prompts, model parameters (temperature, max tokens, etc.) are
+// configured at the provider level, not per-session. This only contains
+// session-specific media configuration and provider metadata.
+type StreamingInputConfig struct {
+	// Config specifies the media streaming configuration (codec, sample rate, etc.)
 	Config types.StreamingMediaConfig `json:"config"`
 
-	// Temperature controls randomness in responses (0.0 to 2.0)
-	Temperature float32 `json:"temperature,omitempty"`
-
-	// MaxTokens limits the response length
-	MaxTokens int `json:"max_tokens,omitempty"`
-
-	// Metadata contains provider-specific configuration
+	// Metadata contains provider-specific session configuration
+	// Example: {"response_modalities": ["TEXT", "AUDIO"]} for Gemini
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
 }
 
@@ -102,7 +97,7 @@ type StreamInputSupport interface {
 	// CreateStreamSession creates a new bidirectional streaming session.
 	// The session remains active until Close() is called or an error occurs.
 	// Returns an error if the provider doesn't support the requested media type.
-	CreateStreamSession(ctx context.Context, req *StreamInputRequest) (StreamInputSession, error)
+	CreateStreamSession(ctx context.Context, req *StreamingInputConfig) (StreamInputSession, error)
 
 	// SupportsStreamInput returns the media types supported for streaming input.
 	// Common values: types.ContentTypeAudio, types.ContentTypeVideo
@@ -199,6 +194,6 @@ func (r VideoResolution) String() string {
 }
 
 // Validate checks if the StreamInputRequest is valid
-func (r *StreamInputRequest) Validate() error {
+func (r *StreamingInputConfig) Validate() error {
 	return r.Config.Validate()
 }

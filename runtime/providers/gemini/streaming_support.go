@@ -27,7 +27,10 @@ var _ providers.StreamInputSupport = (*Provider)(nil)
 //	}
 //
 // Audio responses will be delivered in the StreamChunk.Metadata["audio_data"] field as base64-encoded PCM.
-func (p *Provider) CreateStreamSession(ctx context.Context, req *providers.StreamInputRequest) (providers.StreamInputSession, error) {
+func (p *Provider) CreateStreamSession(
+	ctx context.Context,
+	req *providers.StreamingInputConfig,
+) (providers.StreamInputSession, error) {
 	// Validate configuration
 	if err := req.Config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid stream configuration: %w", err)

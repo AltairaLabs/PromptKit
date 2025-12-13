@@ -1,3 +1,5 @@
+// Package session provides session abstractions for managing conversations.
+// Sessions wrap pipelines and provide convenient APIs for text and duplex streaming interactions.
 package session
 
 import (
@@ -13,9 +15,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// bidirectionalSession implements BidirectionalSession with Pipeline integration.
+// duplexSession implements BidirectionalSession with Pipeline integration.
 // It manages streaming input/output through the Pipeline middleware chain.
-type bidirectionalSession struct {
+type duplexSession struct {
 	id              string
 	store           statestore.Store
 	providerSession providers.StreamInputSession
@@ -34,13 +36,16 @@ type bidirectionalSession struct {
 	executionMu      sync.Mutex
 }
 
+//nolint:unused // Used by tests
 const streamBufferSize = 100 // Size of buffered channels for streaming
 
-// NewBidirectionalSession creates a bidirectional session from a config.
-// Either Pipeline or ProviderSession must be provided.
-func NewBidirectionalSession(cfg *BidirectionalConfig) (BidirectionalSession, error) {
-	if cfg.Pipeline == nil && cfg.ProviderSession == nil {
-		return nil, fmt.Errorf("either Pipeline or ProviderSession is required")
+// newDuplexSession creates a bidirectional session from a config.
+// Either Pipeline or Provider must be provided.
+//
+//nolint:unused // Used by tests
+func newDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSession, error) {
+	if cfg.Pipeline == nil && cfg.Provider == nil {
+		return nil, fmt.Errorf("either Pipeline or Provider is required")
 	}
 
 	conversationID := cfg.ConversationID
@@ -73,18 +78,31 @@ func NewBidirectionalSession(cfg *BidirectionalConfig) (BidirectionalSession, er
 		vars[k] = v
 	}
 
-	sess := &bidirectionalSession{
-		id:              conversationID,
-		store:           store,
-		providerSession: cfg.ProviderSession,
-		pipeline:        cfg.Pipeline,
-		variables:       vars,
+	sess := &duplexSession{
+		id:        conversationID,
+		store:     store,
+		pipeline:  cfg.Pipeline,
+		variables: vars,
 	}
 
 	// Initialize channels if Pipeline mode
 	if cfg.Pipeline != nil {
 		sess.streamInput = make(chan providers.StreamChunk, streamBufferSize)
 		sess.streamOutput = make(chan providers.StreamChunk, streamBufferSize)
+	} else {
+		// Provider mode: create provider session
+		if cfg.Provider == nil {
+			return nil, fmt.Errorf("provider is required for provider mode")
+		}
+		request := cfg.Config
+		if request == nil {
+			request = &providers.StreamingInputConfig{}
+		}
+		providerSession, err := cfg.Provider.CreateStreamSession(ctx, request)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create provider session: %w", err)
+		}
+		sess.providerSession = providerSession
 	}
 
 	return sess, nil
@@ -97,9 +115,9 @@ func NewBidirectionalSessionFromProvider(
 	conversationID string,
 	store statestore.Store,
 	provider providers.StreamInputSupport,
-	request *providers.StreamInputRequest,
+	request *providers.StreamingInputConfig,
 	variables map[string]string,
-) (BidirectionalSession, error) {
+) (DuplexSession, error) {
 	// Create the provider session internally
 	providerSession, err := provider.CreateStreamSession(ctx, request)
 	if err != nil {
@@ -132,7 +150,7 @@ func NewBidirectionalSessionFromProvider(
 		vars[k] = v
 	}
 
-	sess := &bidirectionalSession{
+	sess := &duplexSession{
 		id:              conversationID,
 		store:           store,
 		providerSession: providerSession,
@@ -143,14 +161,14 @@ func NewBidirectionalSessionFromProvider(
 }
 
 // ID returns the unique session identifier.
-func (s *bidirectionalSession) ID() string {
+func (s *duplexSession) ID() string {
 	return s.id
 }
 
 // SendChunk sends a chunk to the session.
 // In Pipeline mode: sends to StreamInput channel for VAD middleware
 // In Provider mode: sends directly to provider session
-func (s *bidirectionalSession) SendChunk(ctx context.Context, chunk *providers.StreamChunk) error {
+func (s *duplexSession) SendChunk(ctx context.Context, chunk *providers.StreamChunk) error {
 	s.closeMu.Lock()
 	if s.closed {
 		s.closeMu.Unlock()
@@ -200,7 +218,7 @@ func (s *bidirectionalSession) SendChunk(ctx context.Context, chunk *providers.S
 }
 
 // sendMediaChunk handles sending media chunks to the provider.
-func (s *bidirectionalSession) sendMediaChunk(ctx context.Context, chunk *providers.StreamChunk) error {
+func (s *duplexSession) sendMediaChunk(ctx context.Context, chunk *providers.StreamChunk) error {
 	// Extract data from MediaContent
 	var data []byte
 	if chunk.MediaDelta.Data != nil {
@@ -225,7 +243,7 @@ func (s *bidirectionalSession) sendMediaChunk(ctx context.Context, chunk *provid
 }
 
 // sendTextChunk handles sending text chunks to the provider.
-func (s *bidirectionalSession) sendTextChunk(ctx context.Context, chunk *providers.StreamChunk) error {
+func (s *duplexSession) sendTextChunk(ctx context.Context, chunk *providers.StreamChunk) error {
 	text := chunk.Content
 	if text == "" {
 		text = chunk.Delta
@@ -234,7 +252,7 @@ func (s *bidirectionalSession) sendTextChunk(ctx context.Context, chunk *provide
 }
 
 // SendText is a convenience method for sending text.
-func (s *bidirectionalSession) SendText(ctx context.Context, text string) error {
+func (s *duplexSession) SendText(ctx context.Context, text string) error {
 	s.closeMu.Lock()
 	if s.closed {
 		s.closeMu.Unlock()
@@ -256,7 +274,7 @@ func (s *bidirectionalSession) SendText(ctx context.Context, text string) error 
 
 // executePipeline runs the Pipeline with StreamInput/StreamOutput channels.
 // This is called once when the first chunk is received.
-func (s *bidirectionalSession) executePipeline(ctx context.Context) {
+func (s *duplexSession) executePipeline(ctx context.Context) {
 	// Execute Pipeline with pre-configured channels
 	// The VAD middleware will block reading from streamInput until turn complete
 	// The Provider middleware will stream to streamOutput
@@ -281,7 +299,7 @@ func (s *bidirectionalSession) executePipeline(ctx context.Context) {
 // Response returns the response channel.
 // In Pipeline mode: returns StreamOutput from Pipeline
 // In Provider mode: returns provider's response channel
-func (s *bidirectionalSession) Response() <-chan providers.StreamChunk {
+func (s *duplexSession) Response() <-chan providers.StreamChunk {
 	if s.pipeline != nil {
 		return s.streamOutput
 	}
@@ -289,7 +307,7 @@ func (s *bidirectionalSession) Response() <-chan providers.StreamChunk {
 }
 
 // Close ends the session.
-func (s *bidirectionalSession) Close() error {
+func (s *duplexSession) Close() error {
 	s.closeMu.Lock()
 	defer s.closeMu.Unlock()
 
@@ -310,7 +328,7 @@ func (s *bidirectionalSession) Close() error {
 }
 
 // Done returns a channel that's closed when the session ends.
-func (s *bidirectionalSession) Done() <-chan struct{} {
+func (s *duplexSession) Done() <-chan struct{} {
 	if s.pipeline != nil {
 		// In Pipeline mode, create done channel that closes when output closes
 		done := make(chan struct{})
@@ -326,7 +344,7 @@ func (s *bidirectionalSession) Done() <-chan struct{} {
 }
 
 // Error returns any error from the session.
-func (s *bidirectionalSession) Error() error {
+func (s *duplexSession) Error() error {
 	if s.pipeline != nil {
 		// In Pipeline mode, errors are sent as chunks
 		return nil
@@ -335,12 +353,12 @@ func (s *bidirectionalSession) Error() error {
 }
 
 // StateStore returns the session's state store.
-func (s *bidirectionalSession) StateStore() statestore.Store {
+func (s *duplexSession) StateStore() statestore.Store {
 	return s.store
 }
 
 // Variables returns a copy of the current variables.
-func (s *bidirectionalSession) Variables() map[string]string {
+func (s *duplexSession) Variables() map[string]string {
 	s.varsMu.RLock()
 	defer s.varsMu.RUnlock()
 
@@ -352,14 +370,14 @@ func (s *bidirectionalSession) Variables() map[string]string {
 }
 
 // SetVar sets a session variable.
-func (s *bidirectionalSession) SetVar(name, value string) {
+func (s *duplexSession) SetVar(name, value string) {
 	s.varsMu.Lock()
 	defer s.varsMu.Unlock()
 	s.variables[name] = value
 }
 
 // GetVar retrieves a session variable.
-func (s *bidirectionalSession) GetVar(name string) (string, bool) {
+func (s *duplexSession) GetVar(name string) (string, bool) {
 	s.varsMu.RLock()
 	defer s.varsMu.RUnlock()
 	val, ok := s.variables[name]

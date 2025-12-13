@@ -10,12 +10,12 @@ import (
 func TestStreamInputRequest_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
-		req     StreamInputRequest
+		req     StreamingInputConfig
 		wantErr bool
 	}{
 		{
 			name: "valid audio request",
-			req: StreamInputRequest{
+			req: StreamingInputConfig{
 				Config: types.StreamingMediaConfig{
 					Type:       types.ContentTypeAudio,
 					ChunkSize:  8192,
@@ -28,7 +28,7 @@ func TestStreamInputRequest_Validate(t *testing.T) {
 		},
 		{
 			name: "valid video request",
-			req: StreamInputRequest{
+			req: StreamingInputConfig{
 				Config: types.StreamingMediaConfig{
 					Type:      types.ContentTypeVideo,
 					ChunkSize: 32768,
@@ -41,7 +41,7 @@ func TestStreamInputRequest_Validate(t *testing.T) {
 		},
 		{
 			name: "invalid config",
-			req: StreamInputRequest{
+			req: StreamingInputConfig{
 				Config: types.StreamingMediaConfig{
 					Type:      types.ContentTypeAudio,
 					ChunkSize: -1, // Invalid

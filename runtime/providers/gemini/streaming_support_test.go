@@ -196,7 +196,7 @@ func TestGeminiProvider_CreateStreamSession_InvalidConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := providers.StreamInputRequest{
+			req := providers.StreamingInputConfig{
 				Config: tt.config,
 			}
 
@@ -226,7 +226,7 @@ func TestGeminiProvider_CreateStreamSession_ValidConfig(t *testing.T) {
 		Encoding:   "pcm_linear16",
 	}
 
-	req := providers.StreamInputRequest{
+	req := providers.StreamingInputConfig{
 		Config: config,
 	}
 
@@ -303,7 +303,7 @@ func TestGeminiProvider_CreateStreamSession_ResponseModalities(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := providers.StreamInputRequest{
+			req := providers.StreamingInputConfig{
 				Config:   baseConfig,
 				Metadata: tt.metadata,
 			}
@@ -328,7 +328,7 @@ func TestGeminiProvider_CreateStreamSession_EmptyConfig(t *testing.T) {
 	provider := NewProvider("test", "gemini-2.0-flash-exp", "https://api.test.com", providers.ProviderDefaults{}, false)
 	ctx := context.Background()
 
-	req := providers.StreamInputRequest{
+	req := providers.StreamingInputConfig{
 		Config: types.StreamingMediaConfig{
 			// Empty config
 		},

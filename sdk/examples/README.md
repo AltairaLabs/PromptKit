@@ -15,7 +15,7 @@ Demonstrates streaming text-to-speech through the Pipeline.
 - Real-time audio generation during streaming
 
 ### 🗣️ [voice-chat](./voice-chat/)
-Demonstrates bidirectional voice conversation through the Pipeline.
+Demonstrates voice conversation through the Pipeline.
 - VAD (Voice Activity Detection)
 - Turn detection
 - TTS responses

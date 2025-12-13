@@ -27,9 +27,9 @@ type TextSession interface {
 	StateStore() statestore.Store
 }
 
-// BidirectionalSession manages bidirectional streaming conversations.
+// DuplexSession manages bidirectional streaming conversations.
 // Uses providers.StreamChunk for BOTH input and output for API symmetry.
-type BidirectionalSession interface {
+type DuplexSession interface {
 	// Identity
 	ID() string
 
@@ -67,22 +67,27 @@ type BidirectionalSession interface {
 }
 
 // TextConfig configures a TextSession.
+// StateStore should match what's configured in the Pipeline middleware.
 type TextConfig struct {
 	ConversationID string
 	UserID         string
-	StateStore     statestore.Store
+	StateStore     statestore.Store // Must match Pipeline's StateStore middleware
 	Pipeline       *pipeline.Pipeline
 	Metadata       map[string]interface{}
 	Variables      map[string]string // Initial variables for template substitution
 }
 
-// BidirectionalConfig configures a BidirectionalSession.
-type BidirectionalConfig struct {
-	ConversationID  string
-	UserID          string
-	StateStore      statestore.Store
-	Pipeline        *pipeline.Pipeline
-	ProviderSession providers.StreamInputSession // Direct provider session (alternative to Pipeline)
-	Metadata        map[string]interface{}
-	Variables       map[string]string // Initial variables for template substitution
+// DuplexSessionConfig configures a DuplexSession.
+// DuplexSession always uses Pipeline. For duplex sessions, a provider streaming session
+// is created first using Provider and Config, then that session is used with the Pipeline.
+// StateStore should match what's configured in the Pipeline middleware.
+type DuplexSessionConfig struct {
+	ConversationID string
+	UserID         string
+	StateStore     statestore.Store                // Must match Pipeline's StateStore middleware
+	Pipeline       *pipeline.Pipeline              // Pipeline to execute (always required)
+	Provider       providers.StreamInputSupport    // Provider for creating the streaming session
+	Config         *providers.StreamingInputConfig // Configuration for creating provider session
+	Metadata       map[string]interface{}
+	Variables      map[string]string // Initial variables for template substitution
 }

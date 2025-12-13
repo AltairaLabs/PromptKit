@@ -58,13 +58,16 @@ type ProviderDefaults struct {
 // Provider interface defines the contract for predict providers
 type Provider interface {
 	ID() string
+
 	Predict(ctx context.Context, req PredictionRequest) (PredictionResponse, error)
 
 	// Streaming support
 	PredictStream(ctx context.Context, req PredictionRequest) (<-chan StreamChunk, error)
+
 	SupportsStreaming() bool
 
 	ShouldIncludeRawOutput() bool
+
 	Close() error // Close cleans up provider resources (e.g., HTTP connections)
 
 	// CalculateCost calculates cost breakdown for given token counts

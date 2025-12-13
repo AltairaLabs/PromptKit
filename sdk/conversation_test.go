@@ -15,12 +15,12 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/session"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
+	"github.com/AltairaLabs/PromptKit/sdk/session"
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -715,7 +715,7 @@ func (m *mockStreamProvider) CalculateCost(_, _, _ int) types.CostInfo {
 	return types.CostInfo{}
 }
 
-func (m *mockStreamProvider) CreateStreamSession(_ context.Context, _ *providers.StreamInputRequest) (providers.StreamInputSession, error) {
+func (m *mockStreamProvider) CreateStreamSession(_ context.Context, _ *providers.StreamingInputConfig) (providers.StreamInputSession, error) {
 	if m.sessionErr != nil {
 		return nil, m.sessionErr
 	}
