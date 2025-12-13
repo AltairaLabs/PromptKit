@@ -1,0 +1,23 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "duplex-streaming-example",
+  "name": "Duplex Streaming Example",
+  "version": "1.0.0",
+  "description": "Example demonstrating bidirectional streaming with Gemini",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "assistant": {
+      "id": "assistant",
+      "name": "Voice Assistant",
+      "version": "1.0.0",
+      "system_template": "You are a helpful voice assistant. Respond naturally and conversationally to audio input.",
+      "parameters": {
+        "temperature": 0.8,
+        "max_tokens": 1000
+      }
+    }
+  }
+}
