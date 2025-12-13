@@ -100,7 +100,7 @@ func TestBidirectionalSession_Response(t *testing.T) {
 		require.NotNil(t, mockSession)
 
 		go func() {
-			mockSession.EmitChunk(providers.StreamChunk{
+			mockSession.EmitChunk(&providers.StreamChunk{
 				Content: "Hello",
 			})
 			mockSession.Close()
@@ -287,7 +287,7 @@ func TestBidirectionalSession_AllMethods(t *testing.T) {
 		require.NotNil(t, mockSession)
 
 		go func() {
-			mockSession.EmitChunk(providers.StreamChunk{Content: "response"})
+			mockSession.EmitChunk(&providers.StreamChunk{Content: "response"})
 			mockSession.Close()
 		}()
 

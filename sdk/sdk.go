@@ -16,6 +16,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/provider"
 	"github.com/AltairaLabs/PromptKit/sdk/session"
+	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
 )
 
 // Open loads a pack file and creates a new conversation for the specified prompt.
@@ -80,6 +81,8 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 		provider:       prov,
 		config:         cfg,
 		handlers:       make(map[string]ToolHandler),
+		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
+		pendingStore:   sdktools.NewPendingStore(),
 	}
 
 	// Apply default variables from prompt BEFORE initializing session
@@ -93,6 +96,94 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 	}
 
 	// Initialize event bus (use provided or create new)
+	initEventBus(conv, cfg)
+
+	// Initialize MCP registry if configured
+	if err := initMCPRegistry(conv, cfg); err != nil {
+		return nil, err
+	}
+
+	return conv, nil
+}
+
+// OpenDuplex loads a pack file and creates a new duplex streaming conversation for the specified prompt.
+//
+// This creates a conversation in duplex mode for bidirectional streaming interactions.
+// Use this when you need real-time streaming input/output with the LLM.
+//
+// Basic usage:
+//
+//	conv, err := sdk.OpenDuplex("./assistant.pack.json", "chat")
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	defer conv.Close()
+//
+//	// Send streaming input
+//	go func() {
+//	    conv.SendText(ctx, "Hello, ")
+//	    conv.SendText(ctx, "how are you?")
+//	}()
+//
+//	// Receive streaming output
+//	respCh, _ := conv.Response()
+//	for chunk := range respCh {
+//	    fmt.Print(chunk.Content)
+//	}
+//
+// The provider must support streaming input (implement providers.StreamInputSupport).
+// Currently supported providers: Gemini with certain models.
+func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, error) {
+	// Apply options to build configuration
+	cfg, err := applyOptions(promptName, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	// Load and validate pack
+	p, prompt, err := loadAndValidatePack(packPath, promptName, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	// Resolve provider
+	prov, err := resolveProvider(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	// Verify provider supports streaming input
+	streamProvider, ok := prov.(providers.StreamInputSupport)
+	if !ok {
+		return nil, fmt.Errorf(
+			"provider %T does not support duplex streaming (must implement providers.StreamInputSupport)",
+			prov,
+		)
+	}
+
+	// Create conversation
+	conv := &Conversation{
+		pack:           p,
+		prompt:         prompt,
+		promptName:     promptName,
+		promptRegistry: p.ToPromptRegistry(),
+		toolRegistry:   tools.NewRegistryWithRepository(p.ToToolRepository()),
+		provider:       prov,
+		config:         cfg,
+		handlers:       make(map[string]ToolHandler),
+		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
+		pendingStore:   sdktools.NewPendingStore(),
+	}
+
+	// Apply default variables from prompt BEFORE initializing session
+	applyDefaultVariables(conv, prompt)
+
+	// Initialize duplex session
+	if err := initDuplexSession(conv, cfg, streamProvider); err != nil {
+		return nil, err
+	}
+
+	// Initialize event bus
 	initEventBus(conv, cfg)
 
 	// Initialize MCP registry if configured
@@ -211,6 +302,50 @@ func initInternalStateStore(conv *Conversation, cfg *config) error {
 
 	conv.mode = UnaryMode
 	conv.unarySession = unarySession
+	return nil
+}
+
+// initDuplexSession initializes a duplex streaming session.
+func initDuplexSession(conv *Conversation, cfg *config, streamProvider providers.StreamInputSupport) error {
+	var store statestore.Store
+	if cfg.stateStore != nil {
+		store = cfg.stateStore
+	} else {
+		store = statestore.NewMemoryStore()
+	}
+
+	// Generate conversation ID if not already set via options
+	conversationID := cfg.conversationID
+	if conversationID == "" {
+		conversationID = uuid.New().String()
+	}
+
+	// Get initial variables from config
+	initialVars := cfg.initialVariables
+	if initialVars == nil {
+		initialVars = make(map[string]string)
+	}
+
+	// Build pipeline once during initialization
+	pipeline, err := conv.buildPipelineWithParams(store, conversationID)
+	if err != nil {
+		return fmt.Errorf("failed to build pipeline: %w", err)
+	}
+
+	// Create duplex session
+	duplexSession, err := session.NewDuplexSession(context.Background(), &session.DuplexSessionConfig{
+		ConversationID: conversationID,
+		StateStore:     store,
+		Pipeline:       pipeline,
+		Provider:       streamProvider,
+		Variables:      initialVars,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create duplex session: %w", err)
+	}
+
+	conv.mode = DuplexMode
+	conv.duplexSession = duplexSession
 	return nil
 }
 

@@ -485,3 +485,112 @@ func TestInitEventBus(t *testing.T) {
 		assert.Equal(t, bus, cfg.eventBus)
 	})
 }
+
+func TestOpenDuplex(t *testing.T) {
+	// Create a valid pack file
+	dir := t.TempDir()
+	packFile := filepath.Join(dir, "test.pack.json")
+	packContent := `{
+		"name": "test-pack",
+		"version": "v1",
+		"prompts": {
+			"main": {
+				"system_template": "You are a helpful assistant."
+			}
+		}
+	}`
+	err := os.WriteFile(packFile, []byte(packContent), 0644)
+	require.NoError(t, err)
+
+	t.Run("fails with non-streaming provider", func(t *testing.T) {
+		// Use a regular provider that doesn't support streaming input
+		mockProv := &mockProvider{}
+		_, err := OpenDuplex(packFile, "main",
+			WithProvider(mockProv),
+			WithSkipSchemaValidation(),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "does not support duplex streaming")
+	})
+
+	t.Run("succeeds with streaming provider", func(t *testing.T) {
+		// Use a provider that supports streaming input
+		mockProv := &mockStreamingProvider{}
+		conv, err := OpenDuplex(packFile, "main",
+			WithProvider(mockProv),
+			WithSkipSchemaValidation(),
+		)
+		require.NoError(t, err)
+		assert.NotNil(t, conv)
+		assert.Equal(t, DuplexMode, conv.mode)
+		assert.NotNil(t, conv.duplexSession)
+		assert.Nil(t, conv.unarySession)
+		defer conv.Close()
+	})
+
+	t.Run("fails with invalid pack", func(t *testing.T) {
+		mockProv := &mockStreamingProvider{}
+		_, err := OpenDuplex("/nonexistent.pack.json", "main",
+			WithProvider(mockProv),
+		)
+		assert.Error(t, err)
+	})
+
+	t.Run("fails with non-existent prompt", func(t *testing.T) {
+		mockProv := &mockStreamingProvider{}
+		_, err := OpenDuplex(packFile, "nonexistent",
+			WithProvider(mockProv),
+			WithSkipSchemaValidation(),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+}
+
+// mockStreamingProvider implements providers.StreamInputSupport for testing
+type mockStreamingProvider struct {
+	mockProvider
+}
+
+func (m *mockStreamingProvider) CreateStreamSession(ctx context.Context, cfg *providers.StreamingInputConfig) (providers.StreamInputSession, error) {
+	return &mockStreamSession{}, nil
+}
+
+func (m *mockStreamingProvider) SupportsStreamInput() []string {
+	return []string{types.ContentTypeAudio}
+}
+
+func (m *mockStreamingProvider) GetStreamingCapabilities() providers.StreamingCapabilities {
+	return providers.StreamingCapabilities{}
+}
+
+// mockStreamSession implements providers.StreamInputSession
+type mockStreamSession struct{}
+
+func (m *mockStreamSession) SendChunk(ctx context.Context, chunk *types.MediaChunk) error {
+	return nil
+}
+
+func (m *mockStreamSession) SendText(ctx context.Context, text string) error {
+	return nil
+}
+
+func (m *mockStreamSession) Response() <-chan providers.StreamChunk {
+	ch := make(chan providers.StreamChunk)
+	close(ch)
+	return ch
+}
+
+func (m *mockStreamSession) Close() error {
+	return nil
+}
+
+func (m *mockStreamSession) Done() <-chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}
+
+func (m *mockStreamSession) Error() error {
+	return nil
+}
