@@ -20,7 +20,8 @@ type textSession struct {
 	mu        sync.RWMutex
 }
 
-func newTextSession(cfg TextConfig) (*textSession, error) {
+// NewTextSession creates a new text session.
+func NewTextSession(cfg TextConfig) (TextSession, error) {
 	if cfg.ConversationID == "" {
 		cfg.ConversationID = uuid.New().String()
 	}

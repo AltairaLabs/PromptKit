@@ -83,6 +83,11 @@ func saveToStateStore(execCtx *pipeline.ExecutionContext, store statestore.Store
 	state.Messages = make([]types.Message, len(execCtx.Messages))
 	copy(state.Messages, execCtx.Messages)
 
+	// Ensure Metadata is initialized
+	if state.Metadata == nil {
+		state.Metadata = make(map[string]interface{})
+	}
+
 	// Copy execution metadata (overwrites state metadata)
 	for k, v := range execCtx.Metadata {
 		state.Metadata[k] = v

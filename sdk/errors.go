@@ -27,13 +27,6 @@ var (
 
 	// ErrToolNotInPack is returned when trying to register a handler for a tool not in the pack.
 	ErrToolNotInPack = errors.New("tool not defined in pack")
-
-	// ErrNoTTSConfigured is returned when SpeakResponse is called without TTS configured.
-	ErrNoTTSConfigured = errors.New("no TTS service configured: use WithTTS option")
-
-	// ErrProviderNotStreamCapable is returned when OpenAudioSession is called
-	// with a provider that doesn't support streaming input.
-	ErrProviderNotStreamCapable = errors.New("provider does not support streaming input")
 )
 
 // ValidationError represents a validation failure.

@@ -50,9 +50,10 @@ func (p *Provider) CreateStreamSession(ctx context.Context, req *providers.Strea
 	wsURL := "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
 
 	// Configure session with model and response modalities
+	// Note: SystemInstruction should be sent via SendText() after session creation,
+	// assembled by the pipeline, not passed through StreamInputRequest
 	config := StreamSessionConfig{
-		Model:             p.Model,
-		SystemInstruction: req.SystemMsg, // Pass system prompt to Gemini
+		Model: p.Model,
 	}
 
 	// Check metadata for response modalities configuration
@@ -81,9 +82,6 @@ func (p *Provider) CreateStreamSession(ctx context.Context, req *providers.Strea
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stream session: %w", err)
 	}
-
-	// Note: System messages and initial text would be sent via SendText() after creation
-	// The Gemini Live API doesn't have a separate setup phase for these
 
 	return session, nil
 }

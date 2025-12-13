@@ -51,10 +51,10 @@ type config struct {
 	// Initial variables from prompt defaults
 	initialVariables map[string]string
 
-	// TTS configuration
+	// TTS configuration for Pipeline middleware
 	ttsService tts.Service
 
-	// Audio session configuration
+	// Audio session configuration for Pipeline middleware
 	turnDetector audio.TurnDetector
 }
 
@@ -382,9 +382,9 @@ func WithVariableProvider(p variables.Provider) Option {
 	}
 }
 
-// WithTTS configures text-to-speech for audio responses.
+// WithTTS configures text-to-speech for the Pipeline.
 //
-// When configured, use [Conversation.SpeakResponse] to convert text responses to audio.
+// TTS is applied via Pipeline middleware during streaming responses.
 //
 //	conv, _ := sdk.Open("./assistant.pack.json", "voice",
 //	    sdk.WithTTS(tts.NewOpenAI(os.Getenv("OPENAI_API_KEY"))),
@@ -396,10 +396,9 @@ func WithTTS(service tts.Service) Option {
 	}
 }
 
-// WithTurnDetector configures turn detection for audio sessions.
+// WithTurnDetector configures turn detection for the Pipeline.
 //
-// Turn detectors determine when a user has finished speaking.
-// Use with [Conversation.OpenAudioSession] for voice AI applications.
+// Turn detectors determine when a user has finished speaking in audio sessions.
 //
 //	conv, _ := sdk.Open("./assistant.pack.json", "voice",
 //	    sdk.WithTurnDetector(audio.NewSilenceDetector(500 * time.Millisecond)),

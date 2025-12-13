@@ -227,8 +227,7 @@ func TestGeminiProvider_CreateStreamSession_ValidConfig(t *testing.T) {
 	}
 
 	req := providers.StreamInputRequest{
-		Config:    config,
-		SystemMsg: "You are a helpful voice assistant",
+		Config: config,
 	}
 
 	session, err := provider.CreateStreamSession(ctx, &req)

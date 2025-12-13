@@ -78,24 +78,11 @@ type TextConfig struct {
 
 // BidirectionalConfig configures a BidirectionalSession.
 type BidirectionalConfig struct {
-	ConversationID string
-	UserID         string
-	StateStore     statestore.Store
-	Pipeline       *pipeline.Pipeline
-	Metadata       map[string]interface{}
-	Variables      map[string]string // Initial variables for template substitution
-
-	// ProviderSession is the underlying provider streaming session.
-	// This handles the actual communication with the LLM provider.
-	ProviderSession providers.StreamInputSession
-}
-
-// NewTextSession creates a new text session.
-func NewTextSession(cfg TextConfig) (TextSession, error) {
-	return newTextSession(cfg)
-}
-
-// NewBidirectionalSession creates a new bidirectional streaming session.
-func NewBidirectionalSession(cfg *BidirectionalConfig) (BidirectionalSession, error) {
-	return newBidirectionalSession(cfg)
+	ConversationID  string
+	UserID          string
+	StateStore      statestore.Store
+	Pipeline        *pipeline.Pipeline
+	ProviderSession providers.StreamInputSession // Direct provider session (alternative to Pipeline)
+	Metadata        map[string]interface{}
+	Variables       map[string]string // Initial variables for template substitution
 }

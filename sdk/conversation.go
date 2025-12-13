@@ -23,7 +23,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 	intpipeline "github.com/AltairaLabs/PromptKit/sdk/internal/pipeline"
-	streamPkg "github.com/AltairaLabs/PromptKit/sdk/stream"
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
 )
 
@@ -139,38 +138,14 @@ type ToolHandlerCtx func(ctx context.Context, args map[string]any) (any, error)
 func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption) (*Response, error) {
 	startTime := time.Now()
 
-	if err := c.checkClosed(); err != nil {
-		return nil, err
+	c.mu.RLock()
+	if c.closed {
+		c.mu.RUnlock()
+		return nil, ErrConversationClosed
 	}
+	c.mu.RUnlock()
 
 	// Build user message from input
-	userMsg, err := c.buildUserMessage(message, opts)
-	if err != nil {
-		return nil, err
-	}
-
-	// Build and execute pipeline
-	result, err := c.executePipeline(ctx, userMsg)
-	if err != nil {
-		return nil, err
-	}
-
-	// Build response
-	return c.buildResponse(result, startTime), nil
-}
-
-// checkClosed returns an error if the conversation is closed.
-func (c *Conversation) checkClosed() error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	if c.closed {
-		return ErrConversationClosed
-	}
-	return nil
-}
-
-// buildUserMessage creates a user message from the input.
-func (c *Conversation) buildUserMessage(message any, opts []SendOption) (*types.Message, error) {
 	var userMsg *types.Message
 	switch m := message.(type) {
 	case string:
@@ -191,27 +166,37 @@ func (c *Conversation) buildUserMessage(message any, opts []SendOption) (*types.
 	}
 
 	// Add content parts from options to the message
-	if err := c.applyContentParts(userMsg, sendCfg.parts); err != nil {
-		return nil, fmt.Errorf("failed to apply content parts: %w", err)
+	for _, part := range sendCfg.parts {
+		switch p := part.(type) {
+		case imageFilePart:
+			if err := userMsg.AddImagePart(p.path, p.detail); err != nil {
+				return nil, fmt.Errorf("failed to add image from file: %w", err)
+			}
+		case imageURLPart:
+			userMsg.AddImagePartFromURL(p.url, p.detail)
+		case imageDataPart:
+			base64Data := base64.StdEncoding.EncodeToString(p.data)
+			contentPart := types.NewImagePartFromData(base64Data, p.mimeType, p.detail)
+			userMsg.AddPart(contentPart)
+		case audioFilePart:
+			if err := userMsg.AddAudioPart(p.path); err != nil {
+				return nil, fmt.Errorf("failed to add audio from file: %w", err)
+			}
+		case filePart:
+			userMsg.AddTextPart(fmt.Sprintf("[File: %s]\n%s", p.name, string(p.data)))
+		default:
+			return nil, fmt.Errorf("unknown content part type: %T", part)
+		}
 	}
 
-	return userMsg, nil
-}
-
-// buildPipeline creates the LLM pipeline used by this conversation.
-// This is called once during initialization to create a reusable pipeline.
-// Variables are not baked into the pipeline anymore - they are dynamically resolved
-// from the session at runtime.
-func (c *Conversation) buildPipeline() (*rtpipeline.Pipeline, error) {
-	// Get store and ID from session if it exists, otherwise use defaults
-	var store statestore.Store
-	var conversationID string
-	if c.textSession != nil {
-		store = c.textSession.StateStore()
-		conversationID = c.textSession.ID()
+	// Build and execute pipeline
+	result, err := c.executePipeline(ctx, userMsg)
+	if err != nil {
+		return nil, err
 	}
 
-	return c.buildPipelineWithParams(store, conversationID)
+	// Build response
+	return c.buildResponse(result, startTime), nil
 }
 
 // buildPipelineWithParams builds a pipeline with explicit parameters.
@@ -223,7 +208,12 @@ func (c *Conversation) buildPipelineWithParams(store statestore.Store, conversat
 	vars := make(map[string]string)
 
 	// Build tool registry
-	toolRegistry := c.buildToolRegistry()
+	c.handlersMu.RLock()
+	localExec := &localExecutor{handlers: c.handlers}
+	c.toolRegistry.RegisterExecutor(localExec)
+	c.registerMCPExecutors()
+	toolRegistry := c.toolRegistry
+	c.handlersMu.RUnlock()
 
 	// Build pipeline configuration
 	pipelineCfg := &intpipeline.Config{
@@ -240,23 +230,17 @@ func (c *Conversation) buildPipelineWithParams(store statestore.Store, conversat
 	}
 
 	// Apply parameters from prompt if available
-	c.applyPromptParameters(pipelineCfg)
+	if c.prompt.Parameters != nil {
+		if c.prompt.Parameters.MaxTokens != nil {
+			pipelineCfg.MaxTokens = *c.prompt.Parameters.MaxTokens
+		}
+		if c.prompt.Parameters.Temperature != nil {
+			pipelineCfg.Temperature = float32(*c.prompt.Parameters.Temperature)
+		}
+	}
 
 	// Build the pipeline
 	return intpipeline.Build(pipelineCfg)
-}
-
-// applyPromptParameters applies parameters from the prompt to the pipeline config.
-func (c *Conversation) applyPromptParameters(cfg *intpipeline.Config) {
-	if c.prompt.Parameters == nil {
-		return
-	}
-	if c.prompt.Parameters.MaxTokens != nil {
-		cfg.MaxTokens = *c.prompt.Parameters.MaxTokens
-	}
-	if c.prompt.Parameters.Temperature != nil {
-		cfg.Temperature = float32(*c.prompt.Parameters.Temperature)
-	}
 }
 
 // executePipeline builds and executes the LLM pipeline.
@@ -308,60 +292,6 @@ func (c *Conversation) buildResponse(result *rtpipeline.ExecutionResult, startTi
 	return resp
 }
 
-// applyContentParts adds content parts from send options to the message.
-func (c *Conversation) applyContentParts(msg *types.Message, parts []any) error {
-	for _, part := range parts {
-		switch p := part.(type) {
-		case imageFilePart:
-			if err := msg.AddImagePart(p.path, p.detail); err != nil {
-				return fmt.Errorf("failed to add image from file: %w", err)
-			}
-		case imageURLPart:
-			msg.AddImagePartFromURL(p.url, p.detail)
-		case imageDataPart:
-			// Convert raw bytes to base64
-			base64Data := encodeBase64(p.data)
-			contentPart := types.NewImagePartFromData(base64Data, p.mimeType, p.detail)
-			msg.AddPart(contentPart)
-		case audioFilePart:
-			if err := msg.AddAudioPart(p.path); err != nil {
-				return fmt.Errorf("failed to add audio from file: %w", err)
-			}
-		case filePart:
-			// For generic files, add as text with filename context
-			msg.AddTextPart(fmt.Sprintf("[File: %s]\n%s", p.name, string(p.data)))
-		default:
-			return fmt.Errorf("unknown content part type: %T", part)
-		}
-	}
-	return nil
-}
-
-// encodeBase64 encodes raw bytes to base64 string.
-func encodeBase64(data []byte) string {
-	return base64Encoding.EncodeToString(data)
-}
-
-var base64Encoding = base64.StdEncoding
-
-// buildToolRegistry returns the tool registry with executors registered for user-provided handlers.
-// The registry is pre-populated with tool descriptors from the pack.
-func (c *Conversation) buildToolRegistry() *tools.Registry {
-	c.handlersMu.RLock()
-	defer c.handlersMu.RUnlock()
-
-	// Register a single "local" executor that dispatches to the right handler.
-	// This is needed because tools in the pack have Mode: "local", and the registry
-	// looks up executors by mode name, not by tool name.
-	localExec := &localExecutor{handlers: c.handlers}
-	c.toolRegistry.RegisterExecutor(localExec)
-
-	// Register MCP tool executors
-	c.registerMCPExecutors()
-
-	return c.toolRegistry
-}
-
 // registerMCPExecutors registers executors for MCP tools.
 func (c *Conversation) registerMCPExecutors() {
 	if c.mcpRegistry == nil {
@@ -389,243 +319,6 @@ func (c *Conversation) registerMCPExecutors() {
 			c.toolRegistry.RegisterExecutor(adapter)
 		}
 	}
-}
-
-// Stream sends a message and returns a channel of response chunks.
-//
-// Use this for real-time streaming of LLM responses:
-//
-//	for chunk := range conv.Stream(ctx, "Tell me a story") {
-//	    if chunk.Error != nil {
-//	        log.Printf("Error: %v", chunk.Error)
-//	        break
-//	    }
-//	    fmt.Print(chunk.Text)
-//	}
-//
-// The channel is closed when the response is complete or an error occurs.
-// The final chunk (Type == ChunkDone) contains the complete Response.
-func (c *Conversation) Stream(ctx context.Context, message any, opts ...SendOption) <-chan StreamChunk {
-	ch := make(chan StreamChunk, streamChannelBufferSize)
-
-	go func() {
-		defer close(ch)
-		startTime := time.Now()
-
-		if err := c.checkClosed(); err != nil {
-			ch <- StreamChunk{Error: err}
-			return
-		}
-
-		// Build user message from input
-		userMsg, err := c.buildUserMessage(message, opts)
-		if err != nil {
-			ch <- StreamChunk{Error: err}
-			return
-		}
-
-		// Execute streaming pipeline
-		err = c.executeStreamingPipeline(ctx, userMsg, ch, startTime)
-		if err != nil {
-			ch <- StreamChunk{Error: err}
-		}
-	}()
-
-	return ch
-}
-
-// executeStreamingPipeline builds and executes the LLM pipeline in streaming mode.
-func (c *Conversation) executeStreamingPipeline(
-	ctx context.Context,
-	userMsg *types.Message,
-	outCh chan<- StreamChunk,
-	startTime time.Time,
-) error {
-	// Execute streaming through the text session
-	streamCh, err := c.textSession.ExecuteStreamWithMessage(ctx, *userMsg)
-	if err != nil {
-		return fmt.Errorf("pipeline streaming failed: %w", err)
-	}
-
-	// Process stream and finalize
-	return c.processAndFinalizeStream(streamCh, outCh, startTime)
-}
-
-// streamState tracks state during stream processing.
-type streamState struct {
-	accumulatedContent string
-	lastToolCalls      []types.MessageToolCall
-	finalResult        *rtpipeline.ExecutionResult
-}
-
-// processAndFinalizeStream handles the streaming response and emits the final chunk.
-func (c *Conversation) processAndFinalizeStream(
-	streamCh <-chan providers.StreamChunk,
-	outCh chan<- StreamChunk,
-	startTime time.Time,
-) error {
-	state := &streamState{}
-
-	// Process all stream chunks
-	if err := c.processStreamChunks(streamCh, outCh, state); err != nil {
-		return err
-	}
-
-	// Build response from accumulated data
-	resp := c.buildStreamingResponse(state.finalResult, state.accumulatedContent, state.lastToolCalls, startTime)
-
-	// Add assistant response to history
-	c.finalizeStreamHistory(state)
-
-	// Emit final ChunkDone with complete response
-	outCh <- StreamChunk{
-		Type:    ChunkDone,
-		Message: resp,
-	}
-
-	return nil
-}
-
-// processStreamChunks processes provider chunks and emits SDK chunks.
-func (c *Conversation) processStreamChunks(
-	streamCh <-chan providers.StreamChunk,
-	outCh chan<- StreamChunk,
-	state *streamState,
-) error {
-	for chunk := range streamCh {
-		if chunk.Error != nil {
-			return chunk.Error
-		}
-
-		c.emitStreamChunk(&chunk, outCh, state)
-	}
-	return nil
-}
-
-// emitStreamChunk converts a provider chunk to SDK chunk(s) and updates state.
-func (c *Conversation) emitStreamChunk(
-	chunk *providers.StreamChunk,
-	outCh chan<- StreamChunk,
-	state *streamState,
-) {
-	// Emit text delta
-	if chunk.Delta != "" {
-		state.accumulatedContent += chunk.Delta
-		outCh <- StreamChunk{Type: ChunkText, Text: chunk.Delta}
-	}
-
-	// Emit media delta
-	if chunk.MediaDelta != nil {
-		outCh <- StreamChunk{Type: ChunkMedia, Media: chunk.MediaDelta}
-	}
-
-	// Emit new tool calls
-	if len(chunk.ToolCalls) > len(state.lastToolCalls) {
-		for i := len(state.lastToolCalls); i < len(chunk.ToolCalls); i++ {
-			outCh <- StreamChunk{Type: ChunkToolCall, ToolCall: &chunk.ToolCalls[i]}
-		}
-		state.lastToolCalls = chunk.ToolCalls
-	}
-
-	// Capture final result
-	if chunk.FinishReason != nil {
-		if result, ok := chunk.FinalResult.(*rtpipeline.ExecutionResult); ok {
-			state.finalResult = result
-		}
-	}
-}
-
-// finalizeStreamHistory adds the assistant response to history after streaming.
-func (c *Conversation) finalizeStreamHistory(state *streamState) {
-	// State is managed by StateStore middleware in the pipeline
-	// No local state tracking needed
-}
-
-// buildStreamingResponse creates a Response from streaming data.
-func (c *Conversation) buildStreamingResponse(
-	result *rtpipeline.ExecutionResult,
-	content string,
-	toolCalls []types.MessageToolCall,
-	startTime time.Time,
-) *Response {
-	resp := &Response{
-		duration: time.Since(startTime),
-	}
-
-	// Use result data if available
-	if result != nil && result.Response != nil {
-		resp.message = &types.Message{
-			Role:     "assistant",
-			Content:  result.Response.Content,
-			CostInfo: &result.CostInfo,
-		}
-
-		if len(result.Response.ToolCalls) > 0 {
-			resp.toolCalls = result.Response.ToolCalls
-		}
-
-		// Extract validations
-		for i := len(result.Messages) - 1; i >= 0; i-- {
-			if result.Messages[i].Role == "assistant" && len(result.Messages[i].Validations) > 0 {
-				resp.validations = result.Messages[i].Validations
-				break
-			}
-		}
-	} else {
-		// Build from accumulated streaming data
-		resp.message = &types.Message{
-			Role:    "assistant",
-			Content: content,
-		}
-		if len(toolCalls) > 0 {
-			resp.toolCalls = toolCalls
-		}
-	}
-
-	return resp
-}
-
-// StreamRaw returns a channel of streaming chunks for use with the stream package.
-// This is a lower-level API that returns stream.Chunk types.
-//
-// Most users should use [Conversation.Stream] instead.
-// StreamRaw is useful when working with [stream.Process] or [stream.CollectText].
-//
-//	err := stream.Process(ctx, conv, "Hello", func(chunk stream.Chunk) error {
-//	    fmt.Print(chunk.Text)
-//	    return nil
-//	})
-func (c *Conversation) StreamRaw(ctx context.Context, message any) (<-chan streamPkg.Chunk, error) {
-	ch := make(chan streamPkg.Chunk, streamChannelBufferSize)
-
-	go func() {
-		defer close(ch)
-
-		for sdkChunk := range c.Stream(ctx, message) {
-			// Convert SDK StreamChunk to stream.Chunk
-			chunk := streamPkg.Chunk{
-				Error: sdkChunk.Error,
-			}
-
-			switch sdkChunk.Type {
-			case ChunkText:
-				chunk.Type = streamPkg.ChunkText
-				chunk.Text = sdkChunk.Text
-			case ChunkToolCall:
-				chunk.Type = streamPkg.ChunkToolCall
-				chunk.ToolCall = sdkChunk.ToolCall
-			case ChunkMedia:
-				chunk.Type = streamPkg.ChunkMedia
-				chunk.Media = sdkChunk.Media
-			case ChunkDone:
-				chunk.Done = true
-			}
-
-			ch <- chunk
-		}
-	}()
-
-	return ch, nil
 }
 
 // SetVar sets a single template variable.
@@ -893,9 +586,12 @@ func (c *Conversation) RejectTool(id, reason string) (*sdktools.ToolResolution, 
 func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 	startTime := time.Now()
 
-	if err := c.checkClosed(); err != nil {
-		return nil, err
+	c.mu.RLock()
+	if c.closed {
+		c.mu.RUnlock()
+		return nil, ErrConversationClosed
 	}
+	c.mu.RUnlock()
 
 	// Build the tool results from resolved pending tools
 	// and continue the conversation
@@ -1177,30 +873,4 @@ func (c *Conversation) ID() string {
 // For convenience methods, see the [hooks] package.
 func (c *Conversation) EventBus() *events.EventBus {
 	return c.config.eventBus
-}
-
-// buildSystemMessage constructs the system message from the prompt template.
-// Variables are resolved from the session. For full variable provider resolution,
-// use the pipeline's VariableProviderMiddleware during execution.
-func (c *Conversation) buildSystemMessage() string {
-	if c.prompt == nil || c.prompt.SystemTemplate == "" {
-		return ""
-	}
-
-	// Get variables for substitution from session
-	vars := c.textSession.Variables()
-
-	// Note: Variable providers are handled by the pipeline during execution.
-	// For audio sessions, the system message is sent upfront, so we do
-	// simple substitution here. Full provider resolution happens in pipeline.
-
-	// Simple variable substitution for now
-	// Full template processing happens in the pipeline
-	result := c.prompt.SystemTemplate
-	for k, v := range vars {
-		result = strings.ReplaceAll(result, "{{"+k+"}}", v)
-		result = strings.ReplaceAll(result, "{{ "+k+" }}", v)
-	}
-
-	return result
 }

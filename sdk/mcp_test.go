@@ -252,7 +252,13 @@ func TestBuildToolRegistryWithMCP(t *testing.T) {
 		}
 		conv.mcpRegistry = mockRegistry
 
-		registry := conv.buildToolRegistry()
+		// Call registerMCPExecutors to register MCP tools
+		conv.handlersMu.Lock()
+		localExec := &localExecutor{handlers: conv.handlers}
+		conv.toolRegistry.RegisterExecutor(localExec)
+		conv.registerMCPExecutors()
+		conv.handlersMu.Unlock()
+		registry := conv.ToolRegistry()
 
 		assert.NotNil(t, registry)
 		// MCP tool should be registered
@@ -291,7 +297,13 @@ func TestBuildToolRegistryWithMCP(t *testing.T) {
 		}
 		conv.mcpRegistry = mockRegistry
 
-		registry := conv.buildToolRegistry()
+		// Call registerMCPExecutors to register MCP tools
+		conv.handlersMu.Lock()
+		localExec := &localExecutor{handlers: conv.handlers}
+		conv.toolRegistry.RegisterExecutor(localExec)
+		conv.registerMCPExecutors()
+		conv.handlersMu.Unlock()
+		registry := conv.ToolRegistry()
 
 		assert.NotNil(t, registry)
 

@@ -36,52 +36,107 @@ type bidirectionalSession struct {
 
 const streamBufferSize = 100 // Size of buffered channels for streaming
 
-// newBidirectionalSession creates a new bidirectional session implementation.
-func newBidirectionalSession(cfg *BidirectionalConfig) (*bidirectionalSession, error) {
-	if cfg.ConversationID == "" {
-		cfg.ConversationID = uuid.New().String()
-	}
-	if cfg.StateStore == nil {
-		cfg.StateStore = statestore.NewMemoryStore()
-	}
+// NewBidirectionalSession creates a bidirectional session from a config.
+// Either Pipeline or ProviderSession must be provided.
+func NewBidirectionalSession(cfg *BidirectionalConfig) (BidirectionalSession, error) {
 	if cfg.Pipeline == nil && cfg.ProviderSession == nil {
 		return nil, fmt.Errorf("either Pipeline or ProviderSession is required")
 	}
 
+	conversationID := cfg.ConversationID
+	if conversationID == "" {
+		conversationID = uuid.New().String()
+	}
+
+	store := cfg.StateStore
+	if store == nil {
+		store = statestore.NewMemoryStore()
+	}
+
 	// Initialize conversation state if it doesn't exist
-	_, err := cfg.StateStore.Load(context.Background(), cfg.ConversationID)
+	_, err := store.Load(context.Background(), conversationID)
 	if err != nil {
 		initialState := &statestore.ConversationState{
-			ID:       cfg.ConversationID,
+			ID:       conversationID,
 			UserID:   cfg.UserID,
 			Messages: []types.Message{},
 			Metadata: cfg.Metadata,
 		}
-		if err := cfg.StateStore.Save(context.Background(), initialState); err != nil {
+		if err := store.Save(context.Background(), initialState); err != nil {
 			return nil, fmt.Errorf("failed to initialize conversation state: %w", err)
 		}
 	}
 
 	// Initialize variables
-	variables := make(map[string]string)
-	if cfg.Variables != nil {
-		for k, v := range cfg.Variables {
-			variables[k] = v
-		}
+	vars := make(map[string]string)
+	for k, v := range cfg.Variables {
+		vars[k] = v
 	}
 
 	sess := &bidirectionalSession{
-		id:              cfg.ConversationID,
-		store:           cfg.StateStore,
+		id:              conversationID,
+		store:           store,
 		providerSession: cfg.ProviderSession,
 		pipeline:        cfg.Pipeline,
-		variables:       variables,
+		variables:       vars,
 	}
 
-	// If using Pipeline mode, create streaming channels
+	// Initialize channels if Pipeline mode
 	if cfg.Pipeline != nil {
 		sess.streamInput = make(chan providers.StreamChunk, streamBufferSize)
 		sess.streamOutput = make(chan providers.StreamChunk, streamBufferSize)
+	}
+
+	return sess, nil
+}
+
+// NewBidirectionalSessionFromProvider creates a bidirectional session from a provider.
+// This is the only public constructor - it creates the provider session internally.
+func NewBidirectionalSessionFromProvider(
+	ctx context.Context,
+	conversationID string,
+	store statestore.Store,
+	provider providers.StreamInputSupport,
+	request *providers.StreamInputRequest,
+	variables map[string]string,
+) (BidirectionalSession, error) {
+	// Create the provider session internally
+	providerSession, err := provider.CreateStreamSession(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+
+	// Generate conversation ID if not provided
+	if conversationID == "" {
+		conversationID = uuid.New().String()
+	}
+	if store == nil {
+		store = statestore.NewMemoryStore()
+	}
+
+	// Initialize conversation state if it doesn't exist
+	_, err = store.Load(context.Background(), conversationID)
+	if err != nil {
+		initialState := &statestore.ConversationState{
+			ID:       conversationID,
+			Messages: []types.Message{},
+		}
+		if err := store.Save(context.Background(), initialState); err != nil {
+			return nil, fmt.Errorf("failed to initialize conversation state: %w", err)
+		}
+	}
+
+	// Initialize variables
+	vars := make(map[string]string)
+	for k, v := range variables {
+		vars[k] = v
+	}
+
+	sess := &bidirectionalSession{
+		id:              conversationID,
+		store:           store,
+		providerSession: providerSession,
+		variables:       vars,
 	}
 
 	return sess, nil

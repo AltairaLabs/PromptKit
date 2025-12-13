@@ -23,7 +23,6 @@ func TestStreamInputRequest_Validate(t *testing.T) {
 					Encoding:   "pcm",
 					Channels:   1,
 				},
-				SystemMsg: "You are a helpful assistant",
 			},
 			wantErr: false,
 		},

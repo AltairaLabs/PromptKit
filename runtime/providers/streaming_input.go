@@ -21,7 +21,6 @@ import (
 //	        Encoding:   "pcm",
 //	        Channels:   1,
 //	    },
-//	    SystemMsg: "You are a helpful voice assistant",
 //	})
 //	if err != nil {
 //	    return err
@@ -77,16 +76,12 @@ type StreamInputSession interface {
 }
 
 // StreamInputRequest configures a new streaming input session.
+// Note: System prompts and initial context are handled by the pipeline,
+// not by the provider. This request only contains media configuration
+// and provider-specific metadata.
 type StreamInputRequest struct {
 	// Config specifies the media streaming configuration
 	Config types.StreamingMediaConfig `json:"config"`
-
-	// SystemMsg is the system message for the conversation
-	SystemMsg string `json:"system_msg,omitempty"`
-
-	// InitialText is optional text to send before streaming starts
-	// This can be used to provide initial context or instructions
-	InitialText string `json:"initial_text,omitempty"`
 
 	// Temperature controls randomness in responses (0.0 to 2.0)
 	Temperature float32 `json:"temperature,omitempty"`

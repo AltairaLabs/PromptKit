@@ -80,7 +80,7 @@ func TestVADMiddleware_BlocksUntilTurnComplete(t *testing.T) {
 	// Create StreamInput channel and send chunks
 	streamInput := make(chan providers.StreamChunk, 10)
 	audioChunk := []byte{1, 2, 3, 4}
-	
+
 	// Send chunks in background (simulating user speaking)
 	go func() {
 		for i := 0; i < 6; i++ {
@@ -210,7 +210,7 @@ func TestVADMiddleware_TranscriptionError(t *testing.T) {
 			streamInput <- providers.StreamChunk{
 				MediaDelta: &types.MediaContent{
 					MIMEType: types.MIMETypeAudioWAV,
-					Data: func() *string { s := string([]byte{1, 2, 3}); return &s }(),
+					Data:     func() *string { s := string([]byte{1, 2, 3}); return &s }(),
 				},
 			}
 			time.Sleep(30 * time.Millisecond)
@@ -245,7 +245,7 @@ func TestVADMiddleware_VADError(t *testing.T) {
 	streamInput <- providers.StreamChunk{
 		MediaDelta: &types.MediaContent{
 			MIMEType: types.MIMETypeAudioWAV,
-			Data: func() *string { s := string([]byte{1, 2, 3}); return &s }(),
+			Data:     func() *string { s := string([]byte{1, 2, 3}); return &s }(),
 		},
 	}
 	close(streamInput)
@@ -274,7 +274,7 @@ func TestVADMiddleware_MaxTurnDuration(t *testing.T) {
 	config := VADConfig{
 		Threshold:       0.3,
 		MaxTurnDuration: 200 * time.Millisecond, // Force completion quickly
-		SilenceDuration: 1 * time.Second,         // High to prevent early completion
+		SilenceDuration: 1 * time.Second,        // High to prevent early completion
 	}
 	middleware := NewVADMiddleware(vad, transcriber, config)
 
@@ -284,7 +284,7 @@ func TestVADMiddleware_MaxTurnDuration(t *testing.T) {
 			streamInput <- providers.StreamChunk{
 				MediaDelta: &types.MediaContent{
 					MIMEType: types.MIMETypeAudioWAV,
-					Data: func() *string { s := string([]byte{1, 2, 3}); return &s }(),
+					Data:     func() *string { s := string([]byte{1, 2, 3}); return &s }(),
 				},
 			}
 			time.Sleep(50 * time.Millisecond)
@@ -346,7 +346,7 @@ func TestVADMiddleware_ContextCancellation(t *testing.T) {
 			streamInput <- providers.StreamChunk{
 				MediaDelta: &types.MediaContent{
 					MIMEType: types.MIMETypeAudioWAV,
-					Data: func() *string { s := string([]byte{1, 2, 3}); return &s }(),
+					Data:     func() *string { s := string([]byte{1, 2, 3}); return &s }(),
 				},
 			}
 			time.Sleep(50 * time.Millisecond)
@@ -361,7 +361,7 @@ func TestVADMiddleware_ContextCancellation(t *testing.T) {
 
 func TestVADMiddleware_SkipsNonAudioChunks(t *testing.T) {
 	vad := &mockVADAnalyzer{
-		scores: []float64{0.8, 0.2, 0.2}, // Speech then silence
+		scores: []float64{0.8, 0.8, 0.2, 0.2}, // Speech then silence
 	}
 	transcriber := &mockTranscriber{text: "Audio only"}
 	config := VADConfig{
@@ -377,11 +377,11 @@ func TestVADMiddleware_SkipsNonAudioChunks(t *testing.T) {
 			Delta: "This is text",
 		}
 		// Send audio chunks
-		for i := 0; i < 3; i++ {
+		for i := 0; i < 4; i++ {
 			streamInput <- providers.StreamChunk{
 				MediaDelta: &types.MediaContent{
 					MIMEType: types.MIMETypeAudioWAV,
-					Data: func() *string { s := string([]byte{1, 2, 3}); return &s }(),
+					Data:     func() *string { s := string([]byte{1, 2, 3}); return &s }(),
 				},
 			}
 			time.Sleep(30 * time.Millisecond)
@@ -455,7 +455,7 @@ func TestVADMiddleware_EmptyTranscription(t *testing.T) {
 			streamInput <- providers.StreamChunk{
 				MediaDelta: &types.MediaContent{
 					MIMEType: types.MIMETypeAudioWAV,
-					Data: func() *string { s := string([]byte{1, 2, 3}); return &s }(),
+					Data:     func() *string { s := string([]byte{1, 2, 3}); return &s }(),
 				},
 			}
 			time.Sleep(30 * time.Millisecond)

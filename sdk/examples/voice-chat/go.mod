@@ -1,10 +1,12 @@
-module github.com/AltairaLabs/PromptKit/tests/integration/pipeline-streaming-audio
+module voice-chat
 
 go 1.25.1
 
-replace github.com/AltairaLabs/PromptKit/runtime => ../../../runtime
-
-require github.com/AltairaLabs/PromptKit/runtime v0.0.0-00010101000000-000000000000
+require (
+	github.com/AltairaLabs/PromptKit/runtime v0.0.0
+	github.com/AltairaLabs/PromptKit/sdk v0.0.0-00010101000000-000000000000
+	github.com/gordonklaus/portaudio v0.0.0-20230709114228-aafa478834f5
+)
 
 require (
 	github.com/Masterminds/semver/v3 v3.4.0 // indirect
@@ -14,8 +16,8 @@ require (
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/kr/text v0.2.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/redis/go-redis/v9 v9.17.2 // indirect
@@ -35,4 +37,9 @@ require (
 	sigs.k8s.io/json v0.0.0-20241014173422-cfa47c3a1cc8 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
+)
+
+replace (
+	github.com/AltairaLabs/PromptKit/runtime => ../../../runtime
+	github.com/AltairaLabs/PromptKit/sdk => ../..
 )
