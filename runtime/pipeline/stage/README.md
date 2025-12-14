@@ -229,14 +229,37 @@ result, err := pipeline.ExecuteSync(ctx, elements...)
    - Per-stage timing information
    - GetTraceInfo() helper function
 
+### ✅ Completed (Phase 6b: Utility Stages) - Dec 14, 2024
+
+**Package**: `runtime/pipeline/stage/`
+**File**: `stages_utilities.go` (612 LOC)
+**Commit**: `7509d76` - feat(pipeline): implement Phase 6b - 5 utility stages for complete middleware parity
+
+**Implemented Stages**:
+- ✅ `DebugStage` - Pipeline debugging with JSON snapshot logging
+- ✅ `TemplateStage` - Variable substitution ({{variable}} → value)
+- ✅ `VariableProviderStage` - Dynamic variable resolution from providers
+- ✅ `MediaExternalizerStage` - External media storage for large content
+- ✅ `ContextBuilderStage` - Token budget management with truncation strategies
+
+**Features**:
+- All 5 remaining middleware now have stage equivalents
+- Channel-based communication with proper cleanup
+- Context cancellation support
+- Metadata propagation throughout pipeline
+- Configurable behavior (thresholds, policies, strategies)
+
+**Status**: Phase 6b complete. All middleware have stage equivalents.
+**Lines Added**: ~612 LOC in stages_utilities.go
+
 ### 📊 Implementation Statistics
 
-- **Total LOC**: 3,621 lines across 12 files
-- **Stages Implemented**: 15+ production stages (core, streaming, advanced, utilities)
+- **Total LOC**: 4,233 lines across 13 files
+- **Stages Implemented**: 20+ production stages (core, streaming, advanced, utilities)
 - **Test Status**: All existing pipeline tests pass
 - **Backward Compatibility**: ✅ Verified with 5 CI examples (50 test scenarios)
-- **TODOs Remaining**: 0 in stage package
-- **Commits**: 7 commits across all 5 phases
+- **TODOs Remaining**: 2 (embedding-based relevance, LLM summarization in ContextBuilderStage)
+- **Commits**: 8 commits across all phases
 
 ### 🎯 Future Enhancements (Optional)
 
