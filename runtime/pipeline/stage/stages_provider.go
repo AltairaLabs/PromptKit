@@ -389,9 +389,6 @@ func (s *ProviderStage) buildProviderTools(allowedTools []string) (interface{}, 
 		return nil, "", nil
 	}
 
-	// TODO: Complete tool policy handling
-	// The ToolPolicy structure needs to be verified for correct field names
-
 	// Check if provider supports tools
 	toolProvider, ok := s.provider.(providers.ToolSupport)
 	if !ok {
@@ -421,12 +418,11 @@ func (s *ProviderStage) buildProviderTools(allowedTools []string) (interface{}, 
 		return nil, "", fmt.Errorf("failed to build tools: %w", err)
 	}
 
-	// Determine tool choice
-	toolChoice := "auto"
-	// TODO: Handle tool policy for required tool use
-	// if s.toolPolicy != nil && s.toolPolicy.RequireToolUse {
-	//     toolChoice = "required"
-	// }
+	// Determine tool choice from policy
+	toolChoice := "auto" // default
+	if s.toolPolicy != nil && s.toolPolicy.ToolChoice != "" {
+		toolChoice = s.toolPolicy.ToolChoice
+	}
 
 	return providerTools, toolChoice, nil
 }

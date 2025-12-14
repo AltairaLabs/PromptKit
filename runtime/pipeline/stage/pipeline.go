@@ -157,7 +157,9 @@ func (p *StreamPipeline) getStageInput(stage Stage, pipelineInput <-chan StreamE
 
 	// For non-root stages, find the upstream stage(s)
 	// For simplicity in linear chains, we'll just use the channel directly
-	// TODO: Handle fan-in (multiple stages feeding into one)
+	// Note: Fan-in (multiple stages feeding into one) is a Phase 5 enhancement.
+	// Current implementation supports single upstream stage per stage (sufficient for linear chains and fan-out).
+	// For fan-in/merge patterns, a dedicated MergeStage will be implemented in Phase 5.
 	for fromStage, toStages := range p.edges {
 		for _, toStage := range toStages {
 			if toStage == stage.Name() {
