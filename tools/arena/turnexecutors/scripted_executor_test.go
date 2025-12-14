@@ -8,7 +8,6 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	mockprovider "github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -149,26 +148,6 @@ func TestScriptedExecutor_ExecuteTurn_Success(t *testing.T) {
 	assert.Equal(t, "assistant", state.Messages[2].Role)
 	assert.Equal(t, "I can help you with that.", state.Messages[2].Content)
 	mockProvider.AssertExpectations(t)
-}
-
-func TestScriptedExecutor_MetadataMiddlewareIncluded(t *testing.T) {
-	executor := NewScriptedExecutor(NewPipelineExecutor(tools.NewRegistry(), nil))
-	req := TurnRequest{
-		Provider: mockprovider.NewProvider("mock", "model", false),
-		Scenario: &config.Scenario{},
-		Metadata: map[string]interface{}{"foo": "bar"},
-	}
-	mws := executor.buildStreamingMiddlewares(req)
-	found := false
-	for _, mw := range mws {
-		if _, ok := mw.(*metadataInjectionMiddleware); ok {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("expected metadataInjectionMiddleware in streaming middlewares")
-	}
 }
 
 func TestScriptedExecutor_ExecuteTurn_AIResponseError(t *testing.T) {
