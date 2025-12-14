@@ -95,6 +95,38 @@ func (e *Emitter) MiddlewareFailed(name string, index int, err error, duration t
 	})
 }
 
+// StageStarted emits the stage.started event (for streaming architecture).
+func (e *Emitter) StageStarted(name string, index int, stageType interface{}) {
+	stageTypeStr := ""
+	if st, ok := stageType.(interface{ String() string }); ok {
+		stageTypeStr = st.String()
+	}
+	e.emit(EventStageStarted, StageStartedData{
+		Name:      name,
+		Index:     index,
+		StageType: stageTypeStr,
+	})
+}
+
+// StageCompleted emits the stage.completed event (for streaming architecture).
+func (e *Emitter) StageCompleted(name string, index int, duration time.Duration) {
+	e.emit(EventStageCompleted, StageCompletedData{
+		Name:     name,
+		Index:    index,
+		Duration: duration,
+	})
+}
+
+// StageFailed emits the stage.failed event (for streaming architecture).
+func (e *Emitter) StageFailed(name string, index int, err error, duration time.Duration) {
+	e.emit(EventStageFailed, StageFailedData{
+		Name:     name,
+		Index:    index,
+		Error:    err,
+		Duration: duration,
+	})
+}
+
 // ProviderCallStarted emits the provider.call.started event.
 func (e *Emitter) ProviderCallStarted(provider, model string, messageCount, toolCount int) {
 	e.emit(EventProviderCallStarted, ProviderCallStartedData{
