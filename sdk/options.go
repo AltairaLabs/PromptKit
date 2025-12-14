@@ -56,6 +56,11 @@ type config struct {
 
 	// Audio session configuration for Pipeline middleware
 	turnDetector audio.TurnDetector
+
+	// Streaming configuration for duplex mode
+	// If set: ASM mode (audio streaming model with continuous bidirectional streaming)
+	// If nil: VAD mode (voice activity detection with turn-based streaming)
+	streamingConfig *providers.StreamingInputConfig
 }
 
 // Option configures a Conversation.
@@ -406,6 +411,29 @@ func WithTTS(service tts.Service) Option {
 func WithTurnDetector(detector audio.TurnDetector) Option {
 	return func(c *config) error {
 		c.turnDetector = detector
+		return nil
+	}
+}
+
+// WithStreamingConfig configures streaming for duplex mode.
+// When set, enables ASM (Audio Streaming Model) mode with continuous bidirectional streaming.
+// When nil (default), uses VAD (Voice Activity Detection) mode with turn-based streaming.
+//
+// ASM mode is for models with native bidirectional audio support (e.g., gemini-2.0-flash-exp).
+// VAD mode is for standard text-based models with audio transcription.
+//
+// Example for ASM mode:
+//
+//	conv, _ := sdk.OpenDuplex("./assistant.pack.json", "voice-chat",
+//	    sdk.WithStreamingConfig(&providers.StreamingInputConfig{
+//	        Type:       types.ContentTypeAudio,
+//	        SampleRate: 16000,
+//	        Channels:   1,
+//	    }),
+//	)
+func WithStreamingConfig(streamingConfig *providers.StreamingInputConfig) Option {
+	return func(c *config) error {
+		c.streamingConfig = streamingConfig
 		return nil
 	}
 }

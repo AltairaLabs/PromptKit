@@ -1,11 +1,11 @@
 package provider
 
 import (
-"os"
-"testing"
+	"os"
+	"testing"
 
-"github.com/stretchr/testify/assert"
-"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDetectInfo(t *testing.T) {
@@ -22,23 +22,23 @@ func TestDetectInfo(t *testing.T) {
 	}()
 
 	t.Run("no keys set", func(t *testing.T) {
-_ = os.Unsetenv("OPENAI_API_KEY")
-_ = os.Unsetenv("ANTHROPIC_API_KEY")
-_ = os.Unsetenv("GOOGLE_API_KEY")
-_ = os.Unsetenv("GEMINI_API_KEY")
+		_ = os.Unsetenv("OPENAI_API_KEY")
+		_ = os.Unsetenv("ANTHROPIC_API_KEY")
+		_ = os.Unsetenv("GOOGLE_API_KEY")
+		_ = os.Unsetenv("GEMINI_API_KEY")
 
-info := detectInfo()
+		info := detectInfo()
 		assert.Nil(t, info)
 	})
 
 	t.Run("openai key set", func(t *testing.T) {
-_ = os.Unsetenv("OPENAI_API_KEY")
-_ = os.Unsetenv("ANTHROPIC_API_KEY")
-_ = os.Unsetenv("GOOGLE_API_KEY")
-_ = os.Unsetenv("GEMINI_API_KEY")
-_ = os.Setenv("OPENAI_API_KEY", "sk-test-key")
+		_ = os.Unsetenv("OPENAI_API_KEY")
+		_ = os.Unsetenv("ANTHROPIC_API_KEY")
+		_ = os.Unsetenv("GOOGLE_API_KEY")
+		_ = os.Unsetenv("GEMINI_API_KEY")
+		_ = os.Setenv("OPENAI_API_KEY", "sk-test-key")
 
-info := detectInfo()
+		info := detectInfo()
 		require.NotNil(t, info)
 		assert.Equal(t, "openai", info.Name)
 		assert.Equal(t, "sk-test-key", info.APIKey)
@@ -46,13 +46,13 @@ info := detectInfo()
 	})
 
 	t.Run("anthropic key set", func(t *testing.T) {
-_ = os.Unsetenv("OPENAI_API_KEY")
-_ = os.Unsetenv("ANTHROPIC_API_KEY")
-_ = os.Unsetenv("GOOGLE_API_KEY")
-_ = os.Unsetenv("GEMINI_API_KEY")
-_ = os.Setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+		_ = os.Unsetenv("OPENAI_API_KEY")
+		_ = os.Unsetenv("ANTHROPIC_API_KEY")
+		_ = os.Unsetenv("GOOGLE_API_KEY")
+		_ = os.Unsetenv("GEMINI_API_KEY")
+		_ = os.Setenv("ANTHROPIC_API_KEY", "sk-ant-test")
 
-info := detectInfo()
+		info := detectInfo()
 		require.NotNil(t, info)
 		assert.Equal(t, "anthropic", info.Name)
 		assert.Equal(t, "sk-ant-test", info.APIKey)
@@ -60,13 +60,13 @@ info := detectInfo()
 	})
 
 	t.Run("google key set", func(t *testing.T) {
-_ = os.Unsetenv("OPENAI_API_KEY")
-_ = os.Unsetenv("ANTHROPIC_API_KEY")
-_ = os.Unsetenv("GOOGLE_API_KEY")
-_ = os.Unsetenv("GEMINI_API_KEY")
-_ = os.Setenv("GOOGLE_API_KEY", "google-key")
+		_ = os.Unsetenv("OPENAI_API_KEY")
+		_ = os.Unsetenv("ANTHROPIC_API_KEY")
+		_ = os.Unsetenv("GOOGLE_API_KEY")
+		_ = os.Unsetenv("GEMINI_API_KEY")
+		_ = os.Setenv("GOOGLE_API_KEY", "google-key")
 
-info := detectInfo()
+		info := detectInfo()
 		require.NotNil(t, info)
 		assert.Equal(t, "gemini", info.Name)
 		assert.Equal(t, "google-key", info.APIKey)
@@ -74,24 +74,24 @@ info := detectInfo()
 	})
 
 	t.Run("gemini key set", func(t *testing.T) {
-_ = os.Unsetenv("OPENAI_API_KEY")
-_ = os.Unsetenv("ANTHROPIC_API_KEY")
-_ = os.Unsetenv("GOOGLE_API_KEY")
-_ = os.Unsetenv("GEMINI_API_KEY")
-_ = os.Setenv("GEMINI_API_KEY", "gemini-key")
+		_ = os.Unsetenv("OPENAI_API_KEY")
+		_ = os.Unsetenv("ANTHROPIC_API_KEY")
+		_ = os.Unsetenv("GOOGLE_API_KEY")
+		_ = os.Unsetenv("GEMINI_API_KEY")
+		_ = os.Setenv("GEMINI_API_KEY", "gemini-key")
 
-info := detectInfo()
+		info := detectInfo()
 		require.NotNil(t, info)
 		assert.Equal(t, "gemini", info.Name)
 		assert.Equal(t, "gemini-key", info.APIKey)
 	})
 
 	t.Run("openai takes priority", func(t *testing.T) {
-_ = os.Setenv("OPENAI_API_KEY", "openai-key")
-_ = os.Setenv("ANTHROPIC_API_KEY", "anthropic-key")
-_ = os.Setenv("GOOGLE_API_KEY", "google-key")
+		_ = os.Setenv("OPENAI_API_KEY", "openai-key")
+		_ = os.Setenv("ANTHROPIC_API_KEY", "anthropic-key")
+		_ = os.Setenv("GOOGLE_API_KEY", "google-key")
 
-info := detectInfo()
+		info := detectInfo()
 		require.NotNil(t, info)
 		assert.Equal(t, "openai", info.Name)
 	})
@@ -109,106 +109,108 @@ func TestDetect(t *testing.T) {
 	}()
 
 	t.Run("no keys and no apiKey", func(t *testing.T) {
-_ = os.Unsetenv("OPENAI_API_KEY")
-_ = os.Unsetenv("ANTHROPIC_API_KEY")
-_ = os.Unsetenv("GOOGLE_API_KEY")
+		_ = os.Unsetenv("OPENAI_API_KEY")
+		_ = os.Unsetenv("ANTHROPIC_API_KEY")
+		_ = os.Unsetenv("GOOGLE_API_KEY")
+		_ = os.Unsetenv("GEMINI_API_KEY")
 
-_, err := Detect("", "")
-assert.Error(t, err)
-assert.Contains(t, err.Error(), "no provider detected")
+		_, err := Detect("", "")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no provider detected")
 	})
 
 	t.Run("apiKey provided defaults to openai", func(t *testing.T) {
-_ = os.Unsetenv("OPENAI_API_KEY")
-_ = os.Unsetenv("ANTHROPIC_API_KEY")
-_ = os.Unsetenv("GOOGLE_API_KEY")
+		_ = os.Unsetenv("OPENAI_API_KEY")
+		_ = os.Unsetenv("ANTHROPIC_API_KEY")
+		_ = os.Unsetenv("GOOGLE_API_KEY")
+		_ = os.Unsetenv("GEMINI_API_KEY")
 
-prov, err := Detect("my-api-key", "")
-require.NoError(t, err)
-assert.NotNil(t, prov)
-assert.Equal(t, "openai", prov.ID())
+		prov, err := Detect("my-api-key", "")
+		require.NoError(t, err)
+		assert.NotNil(t, prov)
+		assert.Equal(t, "openai", prov.ID())
 	})
 
 	t.Run("model override", func(t *testing.T) {
-_ = os.Setenv("OPENAI_API_KEY", "test-key")
+		_ = os.Setenv("OPENAI_API_KEY", "test-key")
 
-prov, err := Detect("", "gpt-4-turbo")
-require.NoError(t, err)
-assert.NotNil(t, prov)
-})
+		prov, err := Detect("", "gpt-4-turbo")
+		require.NoError(t, err)
+		assert.NotNil(t, prov)
+	})
 
 	t.Run("openai provider", func(t *testing.T) {
-_ = os.Unsetenv("ANTHROPIC_API_KEY")
-_ = os.Unsetenv("GOOGLE_API_KEY")
-_ = os.Setenv("OPENAI_API_KEY", "sk-test")
+		_ = os.Unsetenv("ANTHROPIC_API_KEY")
+		_ = os.Unsetenv("GOOGLE_API_KEY")
+		_ = os.Setenv("OPENAI_API_KEY", "sk-test")
 
-prov, err := Detect("", "")
-require.NoError(t, err)
-assert.NotNil(t, prov)
-assert.Equal(t, "openai", prov.ID())
+		prov, err := Detect("", "")
+		require.NoError(t, err)
+		assert.NotNil(t, prov)
+		assert.Equal(t, "openai", prov.ID())
 	})
 
 	t.Run("anthropic provider", func(t *testing.T) {
-_ = os.Unsetenv("OPENAI_API_KEY")
-_ = os.Unsetenv("GOOGLE_API_KEY")
-_ = os.Setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+		_ = os.Unsetenv("OPENAI_API_KEY")
+		_ = os.Unsetenv("GOOGLE_API_KEY")
+		_ = os.Setenv("ANTHROPIC_API_KEY", "sk-ant-test")
 
-prov, err := Detect("", "")
-require.NoError(t, err)
-assert.NotNil(t, prov)
-assert.Equal(t, "anthropic", prov.ID())
+		prov, err := Detect("", "")
+		require.NoError(t, err)
+		assert.NotNil(t, prov)
+		assert.Equal(t, "anthropic", prov.ID())
 	})
 
 	t.Run("gemini provider", func(t *testing.T) {
-_ = os.Unsetenv("OPENAI_API_KEY")
-_ = os.Unsetenv("ANTHROPIC_API_KEY")
-_ = os.Setenv("GOOGLE_API_KEY", "google-key")
+		_ = os.Unsetenv("OPENAI_API_KEY")
+		_ = os.Unsetenv("ANTHROPIC_API_KEY")
+		_ = os.Setenv("GOOGLE_API_KEY", "google-key")
 
-prov, err := Detect("", "")
-require.NoError(t, err)
-assert.NotNil(t, prov)
-assert.Equal(t, "gemini", prov.ID())
+		prov, err := Detect("", "")
+		require.NoError(t, err)
+		assert.NotNil(t, prov)
+		assert.Equal(t, "gemini", prov.ID())
 	})
 }
 
 func TestCreateProvider(t *testing.T) {
 	t.Run("openai", func(t *testing.T) {
-info := &Info{Name: "openai", APIKey: "test", Model: "gpt-4o"}
+		info := &Info{Name: "openai", APIKey: "test", Model: "gpt-4o"}
 		prov, err := createProvider(info)
 		require.NoError(t, err)
 		assert.Equal(t, "openai", prov.ID())
 	})
 
 	t.Run("anthropic", func(t *testing.T) {
-info := &Info{Name: "anthropic", APIKey: "test", Model: "claude-3-opus"}
+		info := &Info{Name: "anthropic", APIKey: "test", Model: "claude-3-opus"}
 		prov, err := createProvider(info)
 		require.NoError(t, err)
 		assert.Equal(t, "anthropic", prov.ID())
 	})
 
 	t.Run("gemini", func(t *testing.T) {
-info := &Info{Name: "gemini", APIKey: "test", Model: "gemini-1.5-pro"}
+		info := &Info{Name: "gemini", APIKey: "test", Model: "gemini-1.5-pro"}
 		prov, err := createProvider(info)
 		require.NoError(t, err)
 		assert.Equal(t, "gemini", prov.ID())
 	})
 
 	t.Run("google alias", func(t *testing.T) {
-info := &Info{Name: "google", APIKey: "test", Model: "gemini-1.5-pro"}
+		info := &Info{Name: "google", APIKey: "test", Model: "gemini-1.5-pro"}
 		prov, err := createProvider(info)
 		require.NoError(t, err)
 		assert.Equal(t, "gemini", prov.ID())
 	})
 
 	t.Run("unsupported provider", func(t *testing.T) {
-info := &Info{Name: "unknown", APIKey: "test", Model: "model"}
+		info := &Info{Name: "unknown", APIKey: "test", Model: "model"}
 		_, err := createProvider(info)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported provider")
 	})
 
 	t.Run("case insensitive", func(t *testing.T) {
-info := &Info{Name: "OpenAI", APIKey: "test", Model: "gpt-4o"}
+		info := &Info{Name: "OpenAI", APIKey: "test", Model: "gpt-4o"}
 		prov, err := createProvider(info)
 		require.NoError(t, err)
 		assert.Equal(t, "openai", prov.ID())

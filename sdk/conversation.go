@@ -216,7 +216,11 @@ func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption
 
 // buildPipelineWithParams builds a pipeline with explicit parameters.
 // Used during initialization when textSession doesn't exist yet.
-func (c *Conversation) buildPipelineWithParams(store statestore.Store, conversationID string) (*rtpipeline.Pipeline, error) {
+func (c *Conversation) buildPipelineWithParams(
+	store statestore.Store,
+	conversationID string,
+	streamInputSession providers.StreamInputSession,
+) (*rtpipeline.Pipeline, error) {
 	// Note: Variables are no longer passed to pipeline at build time.
 	// They are resolved dynamically from the session during execution.
 	// For now, pass empty vars since pipeline doesn't capture them anymore anyway.
@@ -232,16 +236,17 @@ func (c *Conversation) buildPipelineWithParams(store statestore.Store, conversat
 
 	// Build pipeline configuration
 	pipelineCfg := &intpipeline.Config{
-		Provider:          c.provider,
-		ToolRegistry:      toolRegistry,
-		PromptRegistry:    c.promptRegistry,
-		TaskType:          c.promptName,
-		Variables:         vars,
-		VariableProviders: c.config.variableProviders, // Pass to pipeline for dynamic resolution
-		MaxTokens:         defaultMaxTokens,
-		Temperature:       defaultTemperature,
-		StateStore:        store,
-		ConversationID:    conversationID,
+		Provider:           c.provider,
+		ToolRegistry:       toolRegistry,
+		PromptRegistry:     c.promptRegistry,
+		TaskType:           c.promptName,
+		Variables:          vars,
+		VariableProviders:  c.config.variableProviders, // Pass to pipeline for dynamic resolution
+		MaxTokens:          defaultMaxTokens,
+		Temperature:        defaultTemperature,
+		StateStore:         store,
+		ConversationID:     conversationID,
+		StreamInputSession: streamInputSession, // Pass session for duplex mode
 	}
 
 	// Apply parameters from prompt if available
@@ -531,7 +536,7 @@ func (c *Conversation) Fork() *Conversation {
 	}
 
 	ctx := context.Background()
-	pipeline, err := c.buildPipelineWithParams(store, forkID)
+	pipeline, err := c.buildPipelineWithParams(store, forkID, nil)
 	if err != nil {
 		return nil
 	}
@@ -562,14 +567,19 @@ func (c *Conversation) Fork() *Conversation {
 		fork.unarySession = forkSession
 
 	case DuplexMode:
-		// For duplex mode, create session but don't connect streams
-		// Consumer is responsible for hooking up streams to the forked conversation
-		streamProvider, ok := c.provider.(providers.StreamInputSupport)
-		if !ok {
-			return nil // Provider doesn't support streaming
+		// For duplex mode, create pipeline builder for the fork
+		// The builder will be called by the session with the appropriate provider and session
+		pipelineBuilder := func(
+			ctx context.Context,
+			provider providers.Provider,
+			providerSession providers.StreamInputSession,
+			convID string,
+			stateStore statestore.Store,
+		) (*rtpipeline.Pipeline, error) {
+			return fork.buildPipelineWithParams(stateStore, convID, providerSession)
 		}
 
-		forkSession, err := c.duplexSession.ForkSession(ctx, forkID, pipeline, streamProvider)
+		forkSession, err := c.duplexSession.ForkSession(ctx, forkID, pipelineBuilder)
 		if err != nil {
 			return nil
 		}

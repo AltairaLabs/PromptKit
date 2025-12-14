@@ -17,19 +17,24 @@ import (
 
 // duplexSession implements BidirectionalSession with Pipeline integration.
 // It manages streaming input/output through the Pipeline middleware chain.
+//
+// Two modes:
+// - ASM mode: Creates persistent providerSession, one long-running pipeline execution
+// - VAD mode: No providerSession, VAD triggers multiple pipeline executions with one-shot calls
 type duplexSession struct {
 	id              string
 	store           statestore.Store
-	providerSession providers.StreamInputSession
 	pipeline        *pipeline.Pipeline
+	provider        providers.Provider           // Provider for LLM calls
+	providerSession providers.StreamInputSession // nil for VAD mode, set for ASM mode
 	variables       map[string]string
 	varsMu          sync.RWMutex
 	closeMu         sync.Mutex
 	closed          bool
 
-	// Streaming channels for Pipeline integration
-	streamInput  chan providers.StreamChunk // Input chunks sent to VAD middleware
-	streamOutput chan providers.StreamChunk // Output chunks from Pipeline
+	// Streaming channels - always present for continuous input/output
+	streamInput  chan providers.StreamChunk // Consumer sends chunks here
+	streamOutput chan providers.StreamChunk // Consumer receives chunks here
 
 	// Pipeline execution control
 	executionStarted bool
@@ -40,10 +45,23 @@ type duplexSession struct {
 const streamBufferSize = 100 // Size of buffered channels for streaming
 
 // NewDuplexSession creates a bidirectional session from a config.
-// Either Pipeline or Provider must be provided.
+// PipelineBuilder and Provider are required.
+//
+// If Config is provided (ASM mode):
+//   - Creates persistent provider session (provider must support StreamInputSupport)
+//   - Calls PipelineBuilder with provider and session
+//   - Single long-running pipeline execution
+//
+// If Config is nil (VAD mode):
+//   - No provider session created
+//   - Calls PipelineBuilder with provider and nil session
+//   - VAD middleware triggers multiple pipeline executions
 func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSession, error) {
-	if cfg.Pipeline == nil && cfg.Provider == nil {
-		return nil, fmt.Errorf("either Pipeline or Provider is required")
+	if cfg.PipelineBuilder == nil {
+		return nil, fmt.Errorf("pipeline builder is required")
+	}
+	if cfg.Provider == nil {
+		return nil, fmt.Errorf("provider is required")
 	}
 
 	conversationID := cfg.ConversationID
@@ -70,89 +88,48 @@ func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSess
 		}
 	}
 
+	// Conditionally create provider session for ASM mode
+	var providerSession providers.StreamInputSession
+	if cfg.Config != nil {
+		// ASM mode: provider must support streaming
+		streamProvider, ok := cfg.Provider.(providers.StreamInputSupport)
+		if !ok {
+			return nil, fmt.Errorf("provider must implement StreamInputSupport for ASM mode")
+		}
+		providerSession, err = streamProvider.CreateStreamSession(ctx, cfg.Config)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create provider session: %w", err)
+		}
+	}
+
+	// Build pipeline with provider and session (session is nil for VAD mode)
+	builtPipeline, err := cfg.PipelineBuilder(ctx, cfg.Provider, providerSession, conversationID, store)
+	if err != nil {
+		if providerSession != nil {
+			_ = providerSession.Close()
+		}
+		return nil, fmt.Errorf("failed to build pipeline: %w", err)
+	}
+
 	// Initialize variables
 	vars := make(map[string]string)
 	for k, v := range cfg.Variables {
 		vars[k] = v
 	}
 
-	sess := &duplexSession{
-		id:        conversationID,
-		store:     store,
-		pipeline:  cfg.Pipeline,
-		variables: vars,
-	}
-
-	// Initialize channels if Pipeline mode
-	if cfg.Pipeline != nil {
-		sess.streamInput = make(chan providers.StreamChunk, streamBufferSize)
-		sess.streamOutput = make(chan providers.StreamChunk, streamBufferSize)
-	} else {
-		// Provider mode: create provider session
-		if cfg.Provider == nil {
-			return nil, fmt.Errorf("provider is required for provider mode")
-		}
-		request := cfg.Config
-		if request == nil {
-			request = &providers.StreamingInputConfig{}
-		}
-		providerSession, err := cfg.Provider.CreateStreamSession(ctx, request)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create provider session: %w", err)
-		}
-		sess.providerSession = providerSession
-	}
-
-	return sess, nil
-}
-
-// NewBidirectionalSessionFromProvider creates a bidirectional session from a provider.
-// This is the only public constructor - it creates the provider session internally.
-func NewBidirectionalSessionFromProvider(
-	ctx context.Context,
-	conversationID string,
-	store statestore.Store,
-	provider providers.StreamInputSupport,
-	request *providers.StreamingInputConfig,
-	variables map[string]string,
-) (DuplexSession, error) {
-	// Create the provider session internally
-	providerSession, err := provider.CreateStreamSession(ctx, request)
-	if err != nil {
-		return nil, err
-	}
-
-	// Generate conversation ID if not provided
-	if conversationID == "" {
-		conversationID = uuid.New().String()
-	}
-	if store == nil {
-		store = statestore.NewMemoryStore()
-	}
-
-	// Initialize conversation state if it doesn't exist
-	_, err = store.Load(context.Background(), conversationID)
-	if err != nil {
-		initialState := &statestore.ConversationState{
-			ID:       conversationID,
-			Messages: []types.Message{},
-		}
-		if err := store.Save(context.Background(), initialState); err != nil {
-			return nil, fmt.Errorf("failed to initialize conversation state: %w", err)
-		}
-	}
-
-	// Initialize variables
-	vars := make(map[string]string)
-	for k, v := range variables {
-		vars[k] = v
-	}
+	// Create streaming channels for continuous input/output
+	streamInput := make(chan providers.StreamChunk, streamBufferSize)
+	streamOutput := make(chan providers.StreamChunk, streamBufferSize)
 
 	sess := &duplexSession{
 		id:              conversationID,
 		store:           store,
-		providerSession: providerSession,
+		pipeline:        builtPipeline,
+		provider:        cfg.Provider,
+		providerSession: providerSession, // nil for VAD mode, set for ASM mode
 		variables:       vars,
+		streamInput:     streamInput,
+		streamOutput:    streamOutput,
 	}
 
 	return sess, nil
@@ -163,9 +140,7 @@ func (s *duplexSession) ID() string {
 	return s.id
 }
 
-// SendChunk sends a chunk to the session.
-// In Pipeline mode: sends to StreamInput channel for VAD middleware
-// In Provider mode: sends directly to provider session
+// SendChunk sends a chunk to the session via the Pipeline.
 func (s *duplexSession) SendChunk(ctx context.Context, chunk *providers.StreamChunk) error {
 	s.closeMu.Lock()
 	if s.closed {
@@ -178,75 +153,25 @@ func (s *duplexSession) SendChunk(ctx context.Context, chunk *providers.StreamCh
 		return fmt.Errorf("chunk cannot be nil")
 	}
 
-	// Pipeline mode: send to StreamInput for VAD middleware
-	if s.pipeline != nil {
-		// Start Pipeline execution on first chunk
-		s.executionMu.Lock()
-		if !s.executionStarted {
-			s.executionStarted = true
-			s.executionMu.Unlock()
+	// Start Pipeline execution on first chunk
+	s.executionMu.Lock()
+	if !s.executionStarted {
+		s.executionStarted = true
+		s.executionMu.Unlock()
 
-			// Start Pipeline execution in background
-			go s.executePipeline(ctx)
-		} else {
-			s.executionMu.Unlock()
-		}
-
-		// Send chunk to VAD middleware via StreamInput
-		select {
-		case s.streamInput <- *chunk:
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+		// Start Pipeline execution in background
+		go s.executePipeline(ctx)
+	} else {
+		s.executionMu.Unlock()
 	}
 
-	// Provider mode: send directly to provider
-	// Handle media chunk
-	if chunk.MediaDelta != nil {
-		return s.sendMediaChunk(ctx, chunk)
+	// Send chunk to Pipeline via StreamInput
+	select {
+	case s.streamInput <- *chunk:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-
-	// Handle text chunk
-	if chunk.Content != "" || chunk.Delta != "" {
-		return s.sendTextChunk(ctx, chunk)
-	}
-
-	return fmt.Errorf("chunk must contain either MediaDelta or Content/Delta")
-}
-
-// sendMediaChunk handles sending media chunks to the provider.
-func (s *duplexSession) sendMediaChunk(ctx context.Context, chunk *providers.StreamChunk) error {
-	// Extract data from MediaContent
-	var data []byte
-	if chunk.MediaDelta.Data != nil {
-		data = []byte(*chunk.MediaDelta.Data)
-	}
-
-	// Convert Metadata to map[string]string for MediaChunk
-	metadata := make(map[string]string)
-	if chunk.Metadata != nil {
-		for k, v := range chunk.Metadata {
-			if str, ok := v.(string); ok {
-				metadata[k] = str
-			}
-		}
-	}
-
-	mediaChunk := &types.MediaChunk{
-		Data:     data,
-		Metadata: metadata,
-	}
-	return s.providerSession.SendChunk(ctx, mediaChunk)
-}
-
-// sendTextChunk handles sending text chunks to the provider.
-func (s *duplexSession) sendTextChunk(ctx context.Context, chunk *providers.StreamChunk) error {
-	text := chunk.Content
-	if text == "" {
-		text = chunk.Delta
-	}
-	return s.providerSession.SendText(ctx, text)
 }
 
 // SendText is a convenience method for sending text.
@@ -258,25 +183,17 @@ func (s *duplexSession) SendText(ctx context.Context, text string) error {
 	}
 	s.closeMu.Unlock()
 
-	// Pipeline mode
-	if s.pipeline != nil {
-		chunk := &providers.StreamChunk{
-			Content: text,
-		}
-		return s.SendChunk(ctx, chunk)
+	chunk := &providers.StreamChunk{
+		Content: text,
 	}
-
-	// Provider mode
-	return s.providerSession.SendText(ctx, text)
+	return s.SendChunk(ctx, chunk)
 }
 
 // executePipeline runs the Pipeline with StreamInput/StreamOutput channels.
 // This is called once when the first chunk is received.
 func (s *duplexSession) executePipeline(ctx context.Context) {
 	// Execute Pipeline with pre-configured channels
-	// The VAD middleware will block reading from streamInput until turn complete
-	// The Provider middleware will stream to streamOutput
-	// The TTS middleware will add audio via StreamChunk hook
+	// Pipeline middleware processes chunks from streamInput and writes to streamOutput
 	err := s.pipeline.ExecuteStreamWithInput(ctx, s.streamInput, s.streamOutput)
 
 	if err != nil {
@@ -294,14 +211,9 @@ func (s *duplexSession) executePipeline(ctx context.Context) {
 	// Note: streamOutput will be closed automatically by Pipeline when execution completes
 }
 
-// Response returns the response channel.
-// In Pipeline mode: returns StreamOutput from Pipeline
-// In Provider mode: returns provider's response channel
+// Response returns the response channel from the Pipeline.
 func (s *duplexSession) Response() <-chan providers.StreamChunk {
-	if s.pipeline != nil {
-		return s.streamOutput
-	}
-	return s.providerSession.Response()
+	return s.streamOutput
 }
 
 // Close ends the session.
@@ -314,40 +226,33 @@ func (s *duplexSession) Close() error {
 	}
 
 	s.closed = true
+	close(s.streamInput)
 
-	// Pipeline mode: close input channel
-	if s.pipeline != nil {
-		close(s.streamInput)
-		return nil
+	// Close provider session if it exists (ASM mode)
+	if s.providerSession != nil {
+		return s.providerSession.Close()
 	}
 
-	// Provider mode: close provider session
-	return s.providerSession.Close()
+	return nil
 }
 
 // Done returns a channel that's closed when the session ends.
 func (s *duplexSession) Done() <-chan struct{} {
-	if s.pipeline != nil {
-		// In Pipeline mode, create done channel that closes when output closes
-		done := make(chan struct{})
-		go func() {
-			// Wait for all output to be consumed
-			for range s.streamOutput { //nolint:revive // intentionally draining channel
-			}
-			close(done)
-		}()
-		return done
-	}
-	return s.providerSession.Done()
+	// Create done channel that closes when output closes
+	done := make(chan struct{})
+	go func() {
+		// Wait for all output to be consumed
+		for range s.streamOutput { //nolint:revive // intentionally draining channel
+		}
+		close(done)
+	}()
+	return done
 }
 
 // Error returns any error from the session.
+// In Pipeline mode, errors are sent as chunks in the response stream.
 func (s *duplexSession) Error() error {
-	if s.pipeline != nil {
-		// In Pipeline mode, errors are sent as chunks
-		return nil
-	}
-	return s.providerSession.Error()
+	return nil
 }
 
 // Variables returns a copy of the current variables.
@@ -399,8 +304,7 @@ func (s *duplexSession) Clear(ctx context.Context) error {
 func (s *duplexSession) ForkSession(
 	ctx context.Context,
 	forkID string,
-	pipelineArg *pipeline.Pipeline,
-	provider providers.StreamInputSupport,
+	pipelineBuilder PipelineBuilder,
 ) (DuplexSession, error) {
 	// Fork the state in the store
 	if err := s.store.Fork(ctx, s.id, forkID); err != nil {
@@ -415,14 +319,12 @@ func (s *duplexSession) ForkSession(
 	}
 	s.varsMu.RUnlock()
 
-	// Create new duplex session without connecting streams
-	// Consumer is responsible for connecting streams
+	// Create new duplex session with the builder
 	return NewDuplexSession(ctx, &DuplexSessionConfig{
-		ConversationID: forkID,
-		StateStore:     s.store,
-		Pipeline:       pipelineArg,
-		Provider:       provider,
-		Config:         nil, // No provider session - consumer connects streams
-		Variables:      forkVars,
+		ConversationID:  forkID,
+		StateStore:      s.store,
+		PipelineBuilder: pipelineBuilder,
+		Provider:        s.provider,
+		Variables:       forkVars,
 	})
 }

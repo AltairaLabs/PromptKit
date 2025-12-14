@@ -206,14 +206,19 @@ func TestConversationMessages(t *testing.T) {
 
 	// Create a dummy pipeline (not used for this test)
 	// We'll create a minimal valid pipeline
-	textSession, err := session.NewUnarySession(session.UnarySessionConfig{
-		ConversationID: convID,
-		StateStore:     store,
-		Pipeline:       &rtpipeline.Pipeline{}, // Minimal pipeline
+	provider := mock.NewProvider("test", "test-model", false)
+	pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*rtpipeline.Pipeline, error) {
+		return &rtpipeline.Pipeline{}, nil
+	}
+	duplexSession, err := session.NewDuplexSession(ctx, &session.DuplexSessionConfig{
+		ConversationID:  convID,
+		StateStore:      store,
+		PipelineBuilder: pipelineBuilder,
+		Provider:        provider,
 	})
 	require.NoError(t, err)
-	conv.mode = UnaryMode
-	conv.unarySession = textSession
+	conv.mode = DuplexMode
+	conv.duplexSession = duplexSession
 
 	// No state initially - should return empty array
 	msgs := conv.Messages(ctx)
@@ -247,14 +252,19 @@ func TestConversationClear(t *testing.T) {
 	// Create a minimal text session
 	store := statestore.NewMemoryStore()
 	convID := "test-conv"
-	textSession, err := session.NewUnarySession(session.UnarySessionConfig{
-		ConversationID: convID,
-		StateStore:     store,
-		Pipeline:       &rtpipeline.Pipeline{},
+	provider := mock.NewProvider("test", "test-model", false)
+	pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*rtpipeline.Pipeline, error) {
+		return &rtpipeline.Pipeline{}, nil
+	}
+	duplexSession, err := session.NewDuplexSession(ctx, &session.DuplexSessionConfig{
+		ConversationID:  convID,
+		StateStore:      store,
+		PipelineBuilder: pipelineBuilder,
+		Provider:        provider,
 	})
 	require.NoError(t, err)
-	conv.mode = UnaryMode
-	conv.unarySession = textSession
+	conv.mode = DuplexMode
+	conv.duplexSession = duplexSession
 
 	// Add some state
 	state := &statestore.ConversationState{
@@ -286,14 +296,19 @@ func TestConversationFork(t *testing.T) {
 	// Create a minimal text session
 	store := statestore.NewMemoryStore()
 	convID := "original"
-	textSession, err := session.NewUnarySession(session.UnarySessionConfig{
-		ConversationID: convID,
-		StateStore:     store,
-		Pipeline:       &rtpipeline.Pipeline{},
+	provider := mock.NewProvider("test", "test-model", false)
+	pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*rtpipeline.Pipeline, error) {
+		return &rtpipeline.Pipeline{}, nil
+	}
+	duplexSession, err := session.NewDuplexSession(ctx, &session.DuplexSessionConfig{
+		ConversationID:  convID,
+		StateStore:      store,
+		PipelineBuilder: pipelineBuilder,
+		Provider:        provider,
 	})
 	require.NoError(t, err)
-	conv.mode = UnaryMode
-	conv.unarySession = textSession
+	conv.mode = DuplexMode
+	conv.duplexSession = duplexSession
 
 	conv.SetVar("name", "Alice")
 	conv.OnTool("tool1", func(args map[string]any) (any, error) { return nil, nil })
@@ -961,14 +976,19 @@ func TestDuplexMethodsWhenClosed(t *testing.T) {
 func TestGetBaseSessionUnary(t *testing.T) {
 	conv := newTestConversation()
 	store := statestore.NewMemoryStore()
-	unarySession, err := session.NewUnarySession(session.UnarySessionConfig{
-		ConversationID: "test",
-		StateStore:     store,
-		Pipeline:       &rtpipeline.Pipeline{},
+	provider := mock.NewProvider("test", "test-model", false)
+	pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*rtpipeline.Pipeline, error) {
+		return &rtpipeline.Pipeline{}, nil
+	}
+	duplexSession, err := session.NewDuplexSession(context.Background(), &session.DuplexSessionConfig{
+		ConversationID:  "test",
+		StateStore:      store,
+		PipelineBuilder: pipelineBuilder,
+		Provider:        provider,
 	})
 	require.NoError(t, err)
-	conv.mode = UnaryMode
-	conv.unarySession = unarySession
+	conv.mode = DuplexMode
+	conv.duplexSession = duplexSession
 
 	baseSession := conv.getBaseSession()
 	assert.NotNil(t, baseSession)
@@ -982,10 +1002,15 @@ func TestGetBaseSessionDuplex(t *testing.T) {
 	// Create a duplex session
 	ctx := context.Background()
 	store := statestore.NewMemoryStore()
+	provider := mock.NewProvider("test", "test-model", false)
+	pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*rtpipeline.Pipeline, error) {
+		return &rtpipeline.Pipeline{}, nil
+	}
 	duplexSession, err := session.NewDuplexSession(ctx, &session.DuplexSessionConfig{
-		ConversationID: "test-duplex",
-		StateStore:     store,
-		Pipeline:       &rtpipeline.Pipeline{},
+		ConversationID:  "test-duplex",
+		StateStore:      store,
+		PipelineBuilder: pipelineBuilder,
+		Provider:        provider,
 	})
 	require.NoError(t, err)
 	conv.duplexSession = duplexSession
@@ -1001,14 +1026,19 @@ func TestMessagesWithDifferentModes(t *testing.T) {
 	t.Run("UnaryMode", func(t *testing.T) {
 		conv := newTestConversation()
 		store := statestore.NewMemoryStore()
-		unarySession, err := session.NewUnarySession(session.UnarySessionConfig{
-			ConversationID: "test",
-			StateStore:     store,
-			Pipeline:       &rtpipeline.Pipeline{},
+		provider := mock.NewProvider("test", "test-model", false)
+		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*rtpipeline.Pipeline, error) {
+			return &rtpipeline.Pipeline{}, nil
+		}
+		duplexSession, err := session.NewDuplexSession(ctx, &session.DuplexSessionConfig{
+			ConversationID:  "test",
+			StateStore:      store,
+			PipelineBuilder: pipelineBuilder,
+			Provider:        provider,
 		})
 		require.NoError(t, err)
-		conv.mode = UnaryMode
-		conv.unarySession = unarySession
+		conv.mode = DuplexMode
+		conv.duplexSession = duplexSession
 
 		// Save a message
 		state := &statestore.ConversationState{
@@ -1028,10 +1058,15 @@ func TestMessagesWithDifferentModes(t *testing.T) {
 		conv.mode = DuplexMode
 
 		store := statestore.NewMemoryStore()
+		provider := mock.NewProvider("test", "test-model", false)
+		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*rtpipeline.Pipeline, error) {
+			return &rtpipeline.Pipeline{}, nil
+		}
 		duplexSession, err := session.NewDuplexSession(ctx, &session.DuplexSessionConfig{
-			ConversationID: "test-duplex",
-			StateStore:     store,
-			Pipeline:       &rtpipeline.Pipeline{},
+			ConversationID:  "test-duplex",
+			StateStore:      store,
+			PipelineBuilder: pipelineBuilder,
+			Provider:        provider,
 		})
 		require.NoError(t, err)
 		conv.duplexSession = duplexSession
@@ -1056,14 +1091,19 @@ func TestClearWithDifferentModes(t *testing.T) {
 	t.Run("UnaryMode", func(t *testing.T) {
 		conv := newTestConversation()
 		store := statestore.NewMemoryStore()
-		unarySession, err := session.NewUnarySession(session.UnarySessionConfig{
-			ConversationID: "test",
-			StateStore:     store,
-			Pipeline:       &rtpipeline.Pipeline{},
+		provider := mock.NewProvider("test", "test-model", false)
+		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*rtpipeline.Pipeline, error) {
+			return &rtpipeline.Pipeline{}, nil
+		}
+		duplexSession, err := session.NewDuplexSession(ctx, &session.DuplexSessionConfig{
+			ConversationID:  "test",
+			StateStore:      store,
+			PipelineBuilder: pipelineBuilder,
+			Provider:        provider,
 		})
 		require.NoError(t, err)
-		conv.mode = UnaryMode
-		conv.unarySession = unarySession
+		conv.mode = DuplexMode
+		conv.duplexSession = duplexSession
 
 		// Add messages
 		state := &statestore.ConversationState{
@@ -1087,10 +1127,15 @@ func TestClearWithDifferentModes(t *testing.T) {
 		conv.mode = DuplexMode
 
 		store := statestore.NewMemoryStore()
+		provider := mock.NewProvider("test", "test-model", false)
+		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*rtpipeline.Pipeline, error) {
+			return &rtpipeline.Pipeline{}, nil
+		}
 		duplexSession, err := session.NewDuplexSession(ctx, &session.DuplexSessionConfig{
-			ConversationID: "test-duplex",
-			StateStore:     store,
-			Pipeline:       &rtpipeline.Pipeline{},
+			ConversationID:  "test-duplex",
+			StateStore:      store,
+			PipelineBuilder: pipelineBuilder,
+			Provider:        provider,
 		})
 		require.NoError(t, err)
 		conv.duplexSession = duplexSession
@@ -1166,7 +1211,7 @@ func TestSendWithMockProvider(t *testing.T) {
 	}
 
 	// Build pipeline and create session
-	pipeline, err := conv.buildPipelineWithParams(store, "test-conv")
+	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil)
 	require.NoError(t, err)
 
 	unarySession, err := session.NewUnarySession(session.UnarySessionConfig{
@@ -1219,7 +1264,7 @@ func TestSendWithProviderError(t *testing.T) {
 	}
 
 	// Build pipeline and create session
-	pipeline, err := conv.buildPipelineWithParams(store, "test-conv")
+	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil)
 	require.NoError(t, err)
 
 	unarySession, err := session.NewUnarySession(session.UnarySessionConfig{
@@ -1355,7 +1400,7 @@ func TestSendWithOptions(t *testing.T) {
 		pendingStore:   sdktools.NewPendingStore(),
 	}
 
-	pipeline, err := conv.buildPipelineWithParams(store, "test-conv")
+	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil)
 	require.NoError(t, err)
 
 	unarySession, err := session.NewUnarySession(session.UnarySessionConfig{
@@ -1475,7 +1520,7 @@ func TestBuildPipelineWithParameters(t *testing.T) {
 		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
 	}
 
-	pipeline, err := conv.buildPipelineWithParams(store, "test-conv")
+	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil)
 	assert.NoError(t, err)
 	assert.NotNil(t, pipeline)
 }

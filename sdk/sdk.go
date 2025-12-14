@@ -10,6 +10,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
+	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -284,7 +285,8 @@ func initInternalStateStore(conv *Conversation, cfg *config) error {
 	}
 
 	// Build pipeline once during initialization (note: pipeline doesn't capture variables anymore)
-	pipeline, err := conv.buildPipelineWithParams(store, conversationID)
+	// No StreamInputSession for unary mode
+	pipeline, err := conv.buildPipelineWithParams(store, conversationID, nil)
 	if err != nil {
 		return fmt.Errorf("failed to build pipeline: %w", err)
 	}
@@ -326,19 +328,34 @@ func initDuplexSession(conv *Conversation, cfg *config, streamProvider providers
 		initialVars = make(map[string]string)
 	}
 
-	// Build pipeline once during initialization
-	pipeline, err := conv.buildPipelineWithParams(store, conversationID)
-	if err != nil {
-		return fmt.Errorf("failed to build pipeline: %w", err)
+	// Create pipeline builder closure that captures conversation context
+	pipelineBuilder := func(
+		ctx context.Context,
+		provider providers.Provider,
+		providerSession providers.StreamInputSession,
+		convID string,
+		stateStore statestore.Store,
+	) (*rtpipeline.Pipeline, error) {
+		// Build pipeline using conversation's existing logic
+		return conv.buildPipelineWithParams(stateStore, convID, providerSession)
 	}
 
-	// Create duplex session
+	// Mode is determined by cfg.streamingConfig:
+	// - If set: ASM mode (creates provider session, continuous streaming)
+	// - If nil: VAD mode (no provider session, turn-based streaming)
+	var streamConfig *providers.StreamingInputConfig
+	if cfg.streamingConfig != nil {
+		streamConfig = cfg.streamingConfig
+	}
+
+	// Create duplex session with builder
 	duplexSession, err := session.NewDuplexSession(context.Background(), &session.DuplexSessionConfig{
-		ConversationID: conversationID,
-		StateStore:     store,
-		Pipeline:       pipeline,
-		Provider:       streamProvider,
-		Variables:      initialVars,
+		ConversationID:  conversationID,
+		StateStore:      store,
+		PipelineBuilder: pipelineBuilder,
+		Provider:        streamProvider,
+		Config:          streamConfig, // nil for VAD mode, set for ASM mode
+		Variables:       initialVars,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create duplex session: %w", err)

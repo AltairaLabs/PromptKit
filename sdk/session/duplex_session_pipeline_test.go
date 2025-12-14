@@ -7,7 +7,9 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,12 +22,15 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 	t.Run("returns streamOutput in Pipeline mode", func(t *testing.T) {
 		// Create minimal pipeline with mock provider
 		provider := mock.NewProvider("mock", "mock-model", false)
-		providerMw := middleware.ProviderMiddleware(provider, tools.NewRegistry(), nil, &middleware.ProviderMiddlewareConfig{})
-		p := pipeline.NewPipeline(providerMw)
+		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*pipeline.Pipeline, error) {
+			providerMw := middleware.ProviderMiddleware(provider, tools.NewRegistry(), nil, &middleware.ProviderMiddlewareConfig{})
+			return pipeline.NewPipeline(providerMw), nil
+		}
 
 		// Create session
 		session, err := NewDuplexSession(ctx, &DuplexSessionConfig{
-			Pipeline: p,
+			PipelineBuilder: pipelineBuilder,
+			Provider:        provider,
 		})
 		require.NoError(t, err)
 
@@ -41,12 +46,15 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 	t.Run("Error() returns nil in Pipeline mode", func(t *testing.T) {
 		// Create minimal pipeline
 		provider := mock.NewProvider("mock", "mock-model", false)
-		providerMw := middleware.ProviderMiddleware(provider, tools.NewRegistry(), nil, &middleware.ProviderMiddlewareConfig{})
-		p := pipeline.NewPipeline(providerMw)
+		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*pipeline.Pipeline, error) {
+			providerMw := middleware.ProviderMiddleware(provider, tools.NewRegistry(), nil, &middleware.ProviderMiddlewareConfig{})
+			return pipeline.NewPipeline(providerMw), nil
+		}
 
 		// Create session
 		session, err := NewDuplexSession(ctx, &DuplexSessionConfig{
-			Pipeline: p,
+			PipelineBuilder: pipelineBuilder,
+			Provider:        provider,
 		})
 		require.NoError(t, err)
 
@@ -61,12 +69,15 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 	t.Run("Close() closes streamInput in Pipeline mode", func(t *testing.T) {
 		// Create minimal pipeline
 		provider := mock.NewProvider("mock", "mock-model", false)
-		providerMw := middleware.ProviderMiddleware(provider, tools.NewRegistry(), nil, &middleware.ProviderMiddlewareConfig{})
-		p := pipeline.NewPipeline(providerMw)
+		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*pipeline.Pipeline, error) {
+			providerMw := middleware.ProviderMiddleware(provider, tools.NewRegistry(), nil, &middleware.ProviderMiddlewareConfig{})
+			return pipeline.NewPipeline(providerMw), nil
+		}
 
 		// Create session
 		session, err := NewDuplexSession(ctx, &DuplexSessionConfig{
-			Pipeline: p,
+			PipelineBuilder: pipelineBuilder,
+			Provider:        provider,
 		})
 		require.NoError(t, err)
 
@@ -92,12 +103,15 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 		provider := mock.NewProviderWithRepository("mock", "mock-model", false,
 			mock.NewInMemoryMockRepository("Hello from mock provider"))
 
-		providerMw := middleware.ProviderMiddleware(provider, tools.NewRegistry(), nil, &middleware.ProviderMiddlewareConfig{})
-		p := pipeline.NewPipeline(providerMw)
+		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*pipeline.Pipeline, error) {
+			providerMw := middleware.ProviderMiddleware(provider, tools.NewRegistry(), nil, &middleware.ProviderMiddlewareConfig{})
+			return pipeline.NewPipeline(providerMw), nil
+		}
 
 		// Create session
 		session, err := NewDuplexSession(ctx, &DuplexSessionConfig{
-			Pipeline: p,
+			PipelineBuilder: pipelineBuilder,
+			Provider:        provider,
 		})
 		require.NoError(t, err)
 

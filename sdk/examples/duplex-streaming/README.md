@@ -4,6 +4,7 @@ This example demonstrates bidirectional streaming using `OpenDuplex()` with the 
 
 ## Features
 
+- **Interactive Voice Mode**: Real-time audio capture from microphone with voice activity detection
 - Real-time bidirectional streaming
 - Text and audio chunk streaming
 - Response handling with streaming chunks
@@ -13,6 +14,8 @@ This example demonstrates bidirectional streaming using `OpenDuplex()` with the 
 
 - Gemini API key with Live API access enabled
 - Model: `gemini-2.0-flash-exp` (supports streaming input)
+- **Microphone** (for interactive voice mode)
+- **PortAudio library** (for audio capture)
 
 **Note:** The Gemini Live API is currently in preview and requires special access. If you encounter authentication errors, visit https://ai.google.dev/ to request Live API access.
 
@@ -23,23 +26,80 @@ This example demonstrates bidirectional streaming using `OpenDuplex()` with the 
 export GEMINI_API_KEY=your-key-here
 ```
 
-2. Run the example:
+2. Install PortAudio (for audio capture):
 ```bash
-go run .
+# macOS
+brew install portaudio
+
+# Ubuntu/Debian
+sudo apt-get install portaudio19-dev
+
+# Fedora
+sudo dnf install portaudio-devel
 ```
 
-## What It Does
+3. Run the example:
+```bash
+# Interactive voice mode (default)
+go run .
 
-The example demonstrates three scenarios:
+# Text streaming only
+go run . text
 
-1. **Text Streaming**: Send a text message and receive a streaming response
-2. **Multiple Chunks**: Build up a message by sending multiple text chunks
-3. **Audio Support**: Framework for sending audio chunks (commented out)
+# Multiple chunks example
+go run . chunks
+```
+
+## Modes
+
+The example supports three modes:
+
+1. **interactive** (default): Real-time voice input via microphone
+   - Captures audio from your microphone continuously
+   - Streams audio chunks to Gemini in real-time (bidirectional)
+   - Receives and plays audio responses through speakers
+   - Also displays text transcription for debugging
+
+2. **text**: Text streaming example
+   - Sends a text message
+   - Receives streaming response
+
+3. **chunks**: Multiple chunk sending
+   - Sends message in multiple chunks
+   - Demonstrates incremental content building
 
 ## API Usage
 
+### Interactive Audio Mode
+
 ```go
-// Open a duplex streaming conversation
+// Open duplex conversation
+conv, err := sdk.OpenDuplex("./duplex.pack.json", "assistant")
+
+// Send audio chunk
+audioData := string(pcmBytes) // PCM16 audio data
+chunk := &providers.StreamChunk{
+    MediaDelta: &types.MediaContent{
+        MIMEType: types.MIMETypeAudioWAV,
+        Data:     &audioData,
+    },
+}
+conv.SendChunk(ctx, chunk)
+
+// Receive streaming responses
+respCh, _ := conv.Response()
+for chunk := range respCh {
+    fmt.Print(chunk.Delta)
+    if chunk.FinishReason != nil {
+        break
+    }
+}
+```
+
+### Text Streaming
+
+```go
+// Open duplex conversation
 conv, err := sdk.OpenDuplex(
     "./duplex.pack.json",
     "assistant",
@@ -56,12 +116,26 @@ respCh, _ := conv.Response()
 
 // Receive streaming responses
 for chunk := range respCh {
-    fmt.Print(chunk.Content)
-    if chunk.Done {
+    fmt.Print(chunk.Delta)
+    if chunk.FinishReason != nil {
         break
     }
 }
 ```
+
+## How It Works
+
+### Interactive Voice Mode
+
+1. **Audio Capture**: Uses PortAudio to capture microphone input at 16kHz mono PCM16
+2. **Continuous Streaming**: Audio is streamed continuously to Gemini Live API (no turn detection)
+3. **Bidirectional Audio**: Gemini ASM model streams audio responses back in real-time
+4. **Audio Playback**: Responses are played through speakers at 24kHz
+5. **Text Display**: Text transcription also shown for debugging
+
+Visual feedback during capture:
+- `█` = Audio detected (high energy)
+- `░` = Low/no audio
 
 ## OpenDuplex vs Stream
 

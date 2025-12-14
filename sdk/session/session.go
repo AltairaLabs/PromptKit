@@ -66,13 +66,10 @@ type DuplexSession interface {
 
 	// ForkSession creates a new session that is a fork of this one.
 	// The new session will have an independent copy of the conversation state.
-	// For duplex sessions, the fork is not connected to any streams - the consumer
-	// must connect streams before using it.
 	ForkSession(
 		ctx context.Context,
 		forkID string,
-		pipeline *pipeline.Pipeline,
-		provider providers.StreamInputSupport,
+		pipelineBuilder PipelineBuilder,
 	) (DuplexSession, error)
 }
 
@@ -87,17 +84,46 @@ type UnarySessionConfig struct {
 	Variables      map[string]string // Initial variables for template substitution
 }
 
+// PipelineBuilder creates a Pipeline for a DuplexSession.
+// This is typically a closure created in SDK that captures configuration.
+//
+// For ASM mode: session will be non-nil, builder creates pipeline with provider middleware that uses it.
+// For VAD mode: session will be nil, builder creates pipeline with VAD/TTS and provider middleware for one-shot calls.
+type PipelineBuilder func(
+	ctx context.Context,
+	provider providers.Provider, // Provider for making LLM calls (required)
+	session providers.StreamInputSession, // nil for VAD mode, set for ASM mode
+	conversationID string,
+	store statestore.Store,
+) (*pipeline.Pipeline, error)
+
 // DuplexSessionConfig configures a DuplexSession.
-// DuplexSession always uses Pipeline. For duplex sessions, a provider streaming session
-// is created first using Provider and Config, then that session is used with the Pipeline.
+//
+// PipelineBuilder and Provider are required.
+// PipelineBuilder is typically a closure created in SDK that captures configuration.
+//
+// Two modes based on Config field:
+//
+// ASM Mode (Config provided):
+//   - DuplexSession creates persistent provider session
+//   - Calls PipelineBuilder with provider and session
+//   - Builder creates pipeline with provider middleware that uses the session
+//   - Single long-running pipeline execution for continuous streaming
+//
+// VAD Mode (Config nil):
+//   - No provider session created
+//   - Calls PipelineBuilder with provider and nil session
+//   - Builder creates pipeline with VAD middleware and provider middleware for one-shot calls
+//   - Multiple pipeline executions, one per detected turn
+//
 // StateStore should match what's configured in the Pipeline middleware.
 type DuplexSessionConfig struct {
-	ConversationID string
-	UserID         string
-	StateStore     statestore.Store                // Must match Pipeline's StateStore middleware
-	Pipeline       *pipeline.Pipeline              // Pipeline to execute (always required)
-	Provider       providers.StreamInputSupport    // Provider for creating the streaming session
-	Config         *providers.StreamingInputConfig // Configuration for creating provider session
-	Metadata       map[string]interface{}
-	Variables      map[string]string // Initial variables for template substitution
+	ConversationID  string
+	UserID          string
+	StateStore      statestore.Store                // StateStore for conversation history
+	PipelineBuilder PipelineBuilder                 // Function to build pipeline (required, typically a closure from SDK)
+	Provider        providers.Provider              // Provider for LLM calls (required)
+	Config          *providers.StreamingInputConfig // For ASM mode: streaming config. For VAD mode: nil
+	Metadata        map[string]interface{}
+	Variables       map[string]string // Initial variables for template substitution
 }

@@ -66,6 +66,10 @@ type Config struct {
 
 	// ConversationID for state store operations
 	ConversationID string
+
+	// StreamInputSession for duplex streaming (ASM mode) (optional)
+	// When provided, DuplexProviderMiddleware will be used instead of regular ProviderMiddleware
+	StreamInputSession providers.StreamInputSession
 }
 
 // Build creates a pipeline with the appropriate middleware chain.
@@ -120,12 +124,22 @@ func Build(cfg *Config) (*rtpipeline.Pipeline, error) {
 			Temperature: cfg.Temperature,
 		}
 
-		middlewares = append(middlewares, middleware.ProviderMiddleware(
-			cfg.Provider,
-			cfg.ToolRegistry,
-			cfg.ToolPolicy,
-			providerConfig,
-		))
+		// Use DuplexProviderMiddleware for ASM mode (WebSocket streaming)
+		// Use regular ProviderMiddleware for text/VAD mode (HTTP API)
+		if cfg.StreamInputSession != nil {
+			logger.Debug("Using DuplexProviderMiddleware for ASM mode")
+			middlewares = append(middlewares, middleware.DuplexProviderMiddleware(
+				cfg.StreamInputSession,
+				providerConfig,
+			))
+		} else {
+			middlewares = append(middlewares, middleware.ProviderMiddleware(
+				cfg.Provider,
+				cfg.ToolRegistry,
+				cfg.ToolPolicy,
+				providerConfig,
+			))
+		}
 	}
 
 	// 6. Validation middleware (if configured)
