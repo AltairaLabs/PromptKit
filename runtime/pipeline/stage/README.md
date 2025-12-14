@@ -309,6 +309,164 @@ pipeline := stage.NewPipelineBuilder().
 
 The adapter handles all translation between ExecutionContext and StreamElements.
 
+## Migrating from Deprecated Middleware Interface
+
+**Note**: The `pipeline.Middleware` interface is deprecated as of Phase 3 and will be removed in the next major version.
+
+### Quick Migration (Recommended for Compatibility)
+
+Use `MiddlewareAdapter` to wrap existing middleware without any code changes:
+
+```go
+// Before (deprecated)
+pipeline := pipeline.NewPipeline(
+    promptMiddleware,
+    providerMiddleware,
+    validationMiddleware,
+)
+
+// After (using stage architecture with adapters)
+stagePipeline := stage.NewPipelineBuilder().
+    Chain(
+        stage.WrapMiddleware("prompt", promptMiddleware),
+        stage.WrapMiddleware("provider", providerMiddleware),
+        stage.WrapMiddleware("validation", validationMiddleware),
+    ).
+    Build()
+```
+
+**Benefits**: Zero code changes, maintains backward compatibility
+
+**Limitations**: Doesn't get full streaming benefits (elements are accumulated)
+
+### Full Migration (Recommended for Performance)
+
+Convert middleware to native stages for true streaming execution:
+
+```go
+// Before: Middleware that implements Process() and StreamChunk()
+type MyMiddleware struct {}
+
+func (m *MyMiddleware) Process(ctx *pipeline.ExecutionContext, next func() error) error {
+    // Transform messages
+    ctx.Messages = append(ctx.Messages, types.Message{...})
+    return next()
+}
+
+func (m *MyMiddleware) StreamChunk(ctx *pipeline.ExecutionContext, chunk *providers.StreamChunk) error {
+    // Optional: intercept streaming chunks
+    return nil
+}
+
+// After: Native Stage implementation
+type MyStage struct {
+    stage.BaseStage
+}
+
+func NewMyStage() *MyStage {
+    return &MyStage{
+        BaseStage: stage.NewBaseStage("my_stage", stage.StageTypeTransform),
+    }
+}
+
+func (s *MyStage) Process(ctx context.Context, input <-chan stage.StreamElement, output chan<- stage.StreamElement) error {
+    defer close(output)
+
+    for elem := range input {
+        // Transform elements
+        if elem.Message != nil {
+            // Modify message
+        }
+
+        select {
+        case output <- elem:
+        case <-ctx.Done():
+            return ctx.Err()
+        }
+    }
+
+    return nil
+}
+```
+
+**Benefits**:
+- True streaming with lower latency
+- Concurrent execution
+- Better testability
+- Clearer data flow
+
+**Migration Checklist**:
+1. ✅ Replace `pipeline.Middleware` with `stage.Stage`
+2. ✅ Change `Process(ctx *pipeline.ExecutionContext, next func() error)` to `Process(ctx context.Context, input <-chan stage.StreamElement, output chan<- stage.StreamElement)`
+3. ✅ Replace shared `ExecutionContext` access with channel-based element passing
+4. ✅ Remove `StreamChunk()` method (use channel-based streaming instead)
+5. ✅ Add `defer close(output)` at the start of Process
+6. ✅ Handle context cancellation with `select { case <-ctx.Done(): }`
+7. ✅ Test with both streaming and synchronous execution
+
+### Common Migration Patterns
+
+#### Pattern 1: Message Transformation
+
+```go
+// Middleware: Accumulates all messages before processing
+func (m *MyMiddleware) Process(ctx *ExecutionContext, next func() error) error {
+    ctx.Messages = transform(ctx.Messages)
+    return next()
+}
+
+// Stage: Transforms each message as it arrives
+func (s *MyStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
+    defer close(output)
+    for elem := range input {
+        if elem.Message != nil {
+            elem.Message = transform(elem.Message)
+        }
+        output <- elem
+    }
+    return nil
+}
+```
+
+#### Pattern 2: State Access via Metadata
+
+```go
+// Middleware: Shared context state
+ctx.SystemPrompt = "..."
+ctx.AllowedTools = []string{...}
+
+// Stage: Metadata propagation
+elem.Metadata["system_prompt"] = "..."
+elem.Metadata["allowed_tools"] = []string{...}
+```
+
+#### Pattern 3: Error Handling
+
+```go
+// Middleware: Return error to stop chain
+if err != nil {
+    return err
+}
+
+// Stage: Send error element
+if err != nil {
+    output <- stage.NewErrorElement(err)
+    return err
+}
+```
+
+### Deprecation Timeline
+
+- **Now (Phase 3)**: `Middleware` interface marked deprecated
+- **Next Minor Version**: Documentation moved to legacy section
+- **Next Major Version**: `Middleware` interface removed
+
+### Need Help?
+
+- See [example_test.go](./example_test.go) for complete stage examples
+- Read [PIPELINE_STREAMING_ARCHITECTURE_PROPOSAL.md](../../../../docs/local-backlog/PIPELINE_STREAMING_ARCHITECTURE_PROPOSAL.md) for architecture details
+- Check existing stage implementations in [stages_core.go](./stages_core.go) for reference patterns
+
 ## Architecture Benefits
 
 1. **True Streaming**: Elements flow through as soon as they're ready, no accumulation

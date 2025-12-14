@@ -180,6 +180,11 @@ func (ctx *ExecutionContext) IsStreaming() bool {
 
 // Middleware defines the execution interface for pipeline steps.
 //
+// Deprecated: Middleware is deprecated in favor of the new Stage-based streaming architecture.
+// Use github.com/AltairaLabs/PromptKit/runtime/pipeline/stage.Stage instead.
+// For migration guidance, see runtime/pipeline/stage/README.md.
+// Middleware will be removed in the next major version.
+//
 // Middleware executes in a nested chain where each middleware explicitly calls next()
 // to continue the pipeline. This makes the execution flow clear and explicit.
 //
@@ -224,6 +229,10 @@ type Middleware interface {
 	// StreamChunk is called for each chunk during streaming execution (if StreamMode is true).
 	// Middleware can inspect, validate, or modify chunks. Return an error or call ctx.InterruptStream()
 	// to stop streaming. Most middleware should return nil (no-op).
+	//
+	// Deprecated: StreamChunk is deprecated as part of the Middleware interface deprecation.
+	// Use the Stage-based streaming architecture instead, which provides true streaming execution
+	// through channels. See runtime/pipeline/stage/README.md for migration guidance.
 	StreamChunk(ctx *ExecutionContext, chunk *providers.StreamChunk) error
 }
 
