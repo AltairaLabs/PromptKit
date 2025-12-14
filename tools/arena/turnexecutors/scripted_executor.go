@@ -257,7 +257,35 @@ func (e *ScriptedExecutor) forwardStageElements(
 			return
 		}
 
-		// Collect assistant messages
+		// Handle streaming chunks (from ProviderStage)
+		if elem.Metadata != nil {
+			// Check if this is a streaming chunk with delta
+			if delta, ok := elem.Metadata["delta"].(string); ok && delta != "" {
+				// This is a streaming chunk
+				var finishReason *string
+				if fr, ok := elem.Metadata["finish_reason"].(string); ok {
+					finishReason = &fr
+				}
+
+				var tokenCount int
+				if tc, ok := elem.Metadata["token_count"].(int); ok {
+					tokenCount = tc
+				}
+
+				outChan <- MessageStreamChunk{
+					Messages:     messages,
+					Delta:        delta,
+					MessageIndex: assistantIndex,
+					TokenCount:   tokenCount,
+					FinishReason: finishReason,
+				}
+
+				// Continue processing - we'll get the final complete message next
+				continue
+			}
+		}
+
+		// Collect assistant messages (final complete message)
 		if elem.Message != nil && elem.Message.Role == "assistant" {
 			assistantMsg = *elem.Message
 			messages = e.updateMessagesList(messages, assistantMsg, assistantIndex)

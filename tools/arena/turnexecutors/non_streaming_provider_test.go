@@ -57,8 +57,8 @@ func TestScriptedExecutor_HandleNonStreamingProvider_Error(t *testing.T) {
 		if chunk.Error == nil {
 			t.Error("Expected error in channel, got nil")
 		}
-		// Error message includes the pipeline wrapper
-		expectedSubstring := "generation failed"
+		// Error message includes provider failure
+		expectedSubstring := "provider call failed"
 		if !strings.Contains(chunk.Error.Error(), expectedSubstring) {
 			t.Errorf("Expected error to contain '%s', got: %v", expectedSubstring, chunk.Error)
 		}
