@@ -361,3 +361,223 @@ func TestDebugMiddleware(t *testing.T) {
 		assert.NoError(t, err)
 	})
 }
+
+// TestBuildStagePipeline tests the stage-based pipeline builder
+func TestBuildStagePipeline(t *testing.T) {
+	t.Run("builds stage pipeline when UseStages is true", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		mockProvider := mock.NewProvider("test-mock", "test-model", false)
+
+		cfg := &Config{
+			PromptRegistry: registry,
+			TaskType:       "chat",
+			Provider:       mockProvider,
+			UseStages:      true,
+		}
+
+		pipe, err := Build(cfg)
+		require.NoError(t, err)
+		assert.NotNil(t, pipe)
+	})
+
+	t.Run("falls back to middleware when duplex session provided", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		mockSession := mock.NewMockStreamSession()
+
+		cfg := &Config{
+			PromptRegistry:     registry,
+			TaskType:           "chat",
+			StreamInputSession: mockSession,
+			UseStages:          true, // Request stages but should fall back
+		}
+
+		pipe, err := Build(cfg)
+		require.NoError(t, err)
+		assert.NotNil(t, pipe)
+	})
+
+	t.Run("stage pipeline executes successfully", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		mockProvider := mock.NewProvider("test-mock", "test-model", false)
+
+		cfg := &Config{
+			PromptRegistry: registry,
+			TaskType:       "chat",
+			Provider:       mockProvider,
+			UseStages:      true,
+			MaxTokens:      100,
+			Temperature:    0.7,
+		}
+
+		pipe, err := Build(cfg)
+		require.NoError(t, err)
+
+		// Execute the pipeline
+		execOpts := &rtpipeline.ExecutionOptions{
+			Context:        context.Background(),
+			ConversationID: "test-conv",
+		}
+		userMsg := types.Message{Role: "user"}
+		userMsg.AddTextPart("Hello from stages!")
+
+		result, err := pipe.ExecuteWithMessageOptions(execOpts, userMsg)
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.NotNil(t, result.Response)
+	})
+
+	t.Run("stage pipeline with variables", func(t *testing.T) {
+		registry := createTestRegistryWithTemplate("chat", "Hello {{user_name}}!")
+		mockProvider := mock.NewProvider("test-mock", "test-model", false)
+
+		cfg := &Config{
+			PromptRegistry: registry,
+			TaskType:       "chat",
+			Provider:       mockProvider,
+			UseStages:      true,
+			Variables: map[string]string{
+				"user_name": "Bob",
+			},
+		}
+
+		pipe, err := Build(cfg)
+		require.NoError(t, err)
+
+		execOpts := &rtpipeline.ExecutionOptions{
+			Context:        context.Background(),
+			ConversationID: "test-conv",
+		}
+		userMsg := types.Message{Role: "user"}
+		userMsg.AddTextPart("Hi!")
+
+		result, err := pipe.ExecuteWithMessageOptions(execOpts, userMsg)
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+	})
+
+	t.Run("stage pipeline with validators", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		mockProvider := mock.NewProvider("test-mock", "test-model", false)
+		validatorRegistry := validators.NewRegistry()
+		validatorConfigs := []validators.ValidatorConfig{
+			{Type: "banned_words", Params: map[string]interface{}{"words": []string{"test"}}},
+		}
+
+		cfg := &Config{
+			PromptRegistry:    registry,
+			TaskType:          "chat",
+			Provider:          mockProvider,
+			UseStages:         true,
+			ValidatorRegistry: validatorRegistry,
+			ValidatorConfigs:  validatorConfigs,
+		}
+
+		pipe, err := Build(cfg)
+		require.NoError(t, err)
+		assert.NotNil(t, pipe)
+	})
+
+	t.Run("stage pipeline without provider", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+
+		cfg := &Config{
+			PromptRegistry: registry,
+			TaskType:       "chat",
+			UseStages:      true,
+		}
+
+		pipe, err := Build(cfg)
+		require.NoError(t, err)
+		assert.NotNil(t, pipe)
+	})
+}
+
+// TestStreamPipelineAdapter tests the middleware adapter for stage pipelines
+func TestStreamPipelineAdapter(t *testing.T) {
+	t.Run("adapter converts execution context", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		mockProvider := mock.NewProvider("test-mock", "test-model", false)
+
+		cfg := &Config{
+			PromptRegistry: registry,
+			TaskType:       "chat",
+			Provider:       mockProvider,
+			UseStages:      true,
+		}
+
+		pipe, err := Build(cfg)
+		require.NoError(t, err)
+
+		// Execute to test the adapter
+		execOpts := &rtpipeline.ExecutionOptions{
+			Context:        context.Background(),
+			ConversationID: "test-conv",
+		}
+		userMsg := types.Message{Role: "user"}
+		userMsg.AddTextPart("Test adapter")
+
+		result, err := pipe.ExecuteWithMessageOptions(execOpts, userMsg)
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.NotNil(t, result.Response)
+		assert.Equal(t, "assistant", result.Response.Role)
+	})
+
+	t.Run("adapter handles metadata", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		mockProvider := mock.NewProvider("test-mock", "test-model", false)
+
+		cfg := &Config{
+			PromptRegistry: registry,
+			TaskType:       "chat",
+			Provider:       mockProvider,
+			UseStages:      true,
+			Variables: map[string]string{
+				"test_key": "test_value",
+			},
+		}
+
+		pipe, err := Build(cfg)
+		require.NoError(t, err)
+
+		execOpts := &rtpipeline.ExecutionOptions{
+			Context:        context.Background(),
+			ConversationID: "test-conv",
+		}
+		userMsg := types.Message{Role: "user"}
+		userMsg.AddTextPart("Test metadata")
+
+		result, err := pipe.ExecuteWithMessageOptions(execOpts, userMsg)
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+	})
+
+	t.Run("adapter preserves messages", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		mockProvider := mock.NewProvider("test-mock", "test-model", false)
+
+		cfg := &Config{
+			PromptRegistry: registry,
+			TaskType:       "chat",
+			Provider:       mockProvider,
+			UseStages:      true,
+		}
+
+		pipe, err := Build(cfg)
+		require.NoError(t, err)
+
+		execOpts := &rtpipeline.ExecutionOptions{
+			Context:        context.Background(),
+			ConversationID: "test-conv",
+		}
+		userMsg := types.Message{Role: "user"}
+		userMsg.AddTextPart("Preserve me")
+
+		result, err := pipe.ExecuteWithMessageOptions(execOpts, userMsg)
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.NotNil(t, result.Response)
+		// Response should have content from the mock provider
+		assert.NotEmpty(t, result.Response.Content)
+	})
+}
