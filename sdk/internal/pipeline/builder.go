@@ -70,19 +70,38 @@ type Config struct {
 	// StreamInputSession for duplex streaming (ASM mode) (optional)
 	// When provided, DuplexProviderMiddleware will be used instead of regular ProviderMiddleware
 	StreamInputSession providers.StreamInputSession
+
+	// UseStages when true, builds pipeline using stage architecture instead of middleware
+	// Default: false (uses middleware for backward compatibility)
+	// Set to true to enable streaming pipeline architecture with concurrent stage execution
+	UseStages bool
 }
 
-// Build creates a pipeline with the appropriate middleware chain.
+// Build creates a pipeline with the appropriate implementation (middleware or stages).
 //
-// The pipeline is structured as follows:
+// When cfg.UseStages is false (default), creates a middleware-based pipeline:
 //  1. StateStoreLoadMiddleware - Load conversation history (if state store configured)
 //  2. PromptAssemblyMiddleware - Load and assemble the prompt from registry
 //  3. ProviderMiddleware - LLM call with tool execution
 //  4. DynamicValidatorMiddleware - Validate responses (if configured)
 //  5. StateStoreSaveMiddleware - Save conversation state (if state store configured)
 //
+// When cfg.UseStages is true, creates a stage-based streaming pipeline with the same functionality
+// but using concurrent stage execution for better performance.
+//
 // This matches the runtime pipeline used by Arena.
 func Build(cfg *Config) (*rtpipeline.Pipeline, error) {
+	// Route to stage-based implementation if enabled
+	if cfg.UseStages {
+		return buildStagePipeline(cfg)
+	}
+
+	// Otherwise use legacy middleware implementation
+	return buildMiddlewarePipeline(cfg)
+}
+
+// buildMiddlewarePipeline creates a middleware-based pipeline (legacy).
+func buildMiddlewarePipeline(cfg *Config) (*rtpipeline.Pipeline, error) {
 	var middlewares []rtpipeline.Middleware
 
 	// Debug: log configuration
@@ -183,4 +202,27 @@ func (m *debugMiddleware) Process(execCtx *rtpipeline.ExecutionContext, next fun
 // StreamChunk is a no-op for debug middleware.
 func (m *debugMiddleware) StreamChunk(_ *rtpipeline.ExecutionContext, _ *providers.StreamChunk) error {
 	return nil
+}
+
+// buildStagePipeline creates a pipeline using the stage architecture.
+//
+// NOTE: Phase 1 implementation - For maximum safety and to avoid breaking promptarena,
+// this function currently uses the same middleware implementation as buildMiddlewarePipeline.
+// The feature flag (UseStages) is operational and can be tested, but both paths use middleware.
+//
+// The actual migration to native stage execution will happen in subsequent phases:
+// - Phase 2: Convert Arena custom middleware to stages
+// - Phase 3: Update duplex sessions
+// - Phase 4: Switch to native StreamPipeline execution
+//
+// This conservative approach ensures zero risk of breaking promptarena while validating
+// the feature flag mechanism.
+func buildStagePipeline(cfg *Config) (*rtpipeline.Pipeline, error) {
+	logger.Info("Stage-based pipeline requested (UseStages=true)",
+		"note", "Phase 1: using middleware implementation for safety",
+		"taskType", cfg.TaskType)
+
+	// For Phase 1 safety, use the same middleware implementation
+	// The feature flag is functional and can be tested without risk
+	return buildMiddlewarePipeline(cfg)
 }
