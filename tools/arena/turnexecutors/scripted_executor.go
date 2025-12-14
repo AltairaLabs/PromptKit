@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
@@ -111,7 +111,7 @@ func (e *ScriptedExecutor) handleNonStreamingProvider(
 	return true
 }
 
-// executeStreamingPipeline builds and executes the streaming pipeline
+// executeStreamingPipeline builds and executes the streaming stage pipeline
 func (e *ScriptedExecutor) executeStreamingPipeline(
 	ctx context.Context,
 	req TurnRequest,
@@ -126,27 +126,40 @@ func (e *ScriptedExecutor) executeStreamingPipeline(
 
 	messages := []types.Message{userMessage}
 
-	// Build and execute pipeline
-	middlewares := e.buildStreamingMiddlewares(req)
-	pl := pipeline.NewPipeline(middlewares...)
-
-	var emitter *events.Emitter
-	if req.EventBus != nil {
-		emitter = events.NewEmitter(req.EventBus, req.RunID, "", req.ConversationID)
+	// Build and execute stage pipeline
+	pl, err := e.buildStreamingStages(req)
+	if err != nil {
+		outChan <- MessageStreamChunk{Error: fmt.Errorf("failed to build streaming pipeline: %w", err)}
+		return
 	}
 
-	streamChan, streamErr := pl.ExecuteStreamWithEvents(ctx, userMessage.Role, userMessage.Content, emitter)
+	// Create input element
+	inputElem := stage.StreamElement{
+		Message: &userMessage,
+		Metadata: map[string]interface{}{
+			"run_id":          req.RunID,
+			"conversation_id": req.ConversationID,
+		},
+	}
+
+	// Create input channel
+	inputChan := make(chan stage.StreamElement, 1)
+	inputChan <- inputElem
+	close(inputChan)
+
+	// Execute pipeline (returns streaming output channel)
+	outputChan, streamErr := pl.Execute(ctx, inputChan)
 	if streamErr != nil {
 		outChan <- MessageStreamChunk{Error: streamErr}
 		return
 	}
 
-	// Forward stream chunks
-	e.forwardStreamChunks(streamChan, messages, outChan)
+	// Convert stage stream to provider chunks
+	e.forwardStageElements(outputChan, messages, outChan)
 }
 
-// buildStreamingMiddlewares constructs the middleware chain for streaming
-func (e *ScriptedExecutor) buildStreamingMiddlewares(req TurnRequest) []pipeline.Middleware {
+// buildStreamingStages constructs the stage pipeline for streaming
+func (e *ScriptedExecutor) buildStreamingStages(req TurnRequest) (*stage.StreamPipeline, error) {
 	baseVariables := buildBaseVariables(req.Region)
 	mergedVars := map[string]string{}
 	for k, v := range baseVariables {
@@ -156,15 +169,10 @@ func (e *ScriptedExecutor) buildStreamingMiddlewares(req TurnRequest) []pipeline
 		mergedVars[k] = v
 	}
 
-	providerConfig := &middleware.ProviderMiddlewareConfig{
-		MaxTokens:   req.MaxTokens,
-		Temperature: float32(req.Temperature),
-		Seed:        req.Seed,
-	}
+	builder := stage.NewPipelineBuilder()
+	var stages []stage.Stage
 
-	var middlewares []pipeline.Middleware
-
-	// StateStore Load middleware
+	// StateStore Load stage
 	if req.StateStoreConfig != nil && req.StateStoreConfig.Store != nil {
 		storeConfig := &pipeline.StateStoreConfig{
 			Store:          req.StateStoreConfig.Store,
@@ -172,24 +180,30 @@ func (e *ScriptedExecutor) buildStreamingMiddlewares(req TurnRequest) []pipeline
 			UserID:         req.StateStoreConfig.UserID,
 			Metadata:       req.StateStoreConfig.Metadata,
 		}
-		middlewares = append(middlewares, middleware.StateStoreLoadMiddleware(storeConfig))
+		stages = append(stages, stage.NewStateStoreLoadStage(storeConfig))
 	}
 
 	// Variable injection
-	middlewares = append(middlewares, &variableInjectionMiddleware{variables: mergedVars})
+	stages = append(stages, stage.WrapMiddleware("variable_injection", &variableInjectionMiddleware{variables: mergedVars}))
 	if len(req.Metadata) > 0 {
-		middlewares = append(middlewares, &metadataInjectionMiddleware{metadata: req.Metadata})
+		stages = append(stages, stage.WrapMiddleware("metadata_injection", &metadataInjectionMiddleware{metadata: req.Metadata}))
 	}
 
-	// Prompt, template, and provider middleware
-	middlewares = append(middlewares,
-		middleware.PromptAssemblyMiddleware(req.PromptRegistry, req.TaskType, mergedVars),
-		middleware.TemplateMiddleware(),
-		middleware.ProviderMiddleware(
+	// Prompt, template, and provider stages
+	providerConfig := &stage.ProviderConfig{
+		MaxTokens:   req.MaxTokens,
+		Temperature: float32(req.Temperature),
+		Seed:        req.Seed,
+	}
+
+	stages = append(stages,
+		stage.NewPromptAssemblyStage(req.PromptRegistry, req.TaskType, mergedVars),
+		stage.NewTemplateStage(),
+		stage.NewProviderStage(
 			req.Provider, e.pipelineExecutor.toolRegistry, buildToolPolicy(req.Scenario), providerConfig),
 	)
 
-	// Media externalization middleware
+	// Media externalization stage
 	if e.pipelineExecutor.mediaStorage != nil {
 		mediaConfig := &middleware.MediaExternalizerConfig{
 			Enabled:         true,
@@ -199,15 +213,13 @@ func (e *ScriptedExecutor) buildStreamingMiddlewares(req TurnRequest) []pipeline
 			RunID:           req.ConversationID,
 			ConversationID:  req.ConversationID,
 		}
-		middlewares = append(middlewares, middleware.MediaExternalizerMiddleware(mediaConfig))
+		stages = append(stages, stage.WrapMiddleware("media_externalizer", middleware.MediaExternalizerMiddleware(mediaConfig)))
 	}
 
-	// Dynamic validator middleware with suppression
-	middlewares = append(middlewares,
-		middleware.DynamicValidatorMiddlewareWithSuppression(validators.DefaultRegistry, true),
-	)
+	// Dynamic validator stage
+	stages = append(stages, stage.NewValidationStage(validators.DefaultRegistry, true))
 
-	// StateStore Save middleware
+	// StateStore Save stage
 	if req.StateStoreConfig != nil && req.StateStoreConfig.Store != nil {
 		storeConfig := &pipeline.StateStoreConfig{
 			Store:          req.StateStoreConfig.Store,
@@ -215,17 +227,60 @@ func (e *ScriptedExecutor) buildStreamingMiddlewares(req TurnRequest) []pipeline
 			UserID:         req.StateStoreConfig.UserID,
 			Metadata:       req.StateStoreConfig.Metadata,
 		}
-		middlewares = append(middlewares, middleware.StateStoreSaveMiddleware(storeConfig))
+		stages = append(stages, stage.NewStateStoreSaveStage(storeConfig))
 	}
 
-	// Assertion middleware - validates turn-level assertions from scenario config
-	// Listed after StateStore so assertions run first (middleware executes in reverse order)
+	// Assertion stage - validates turn-level assertions from scenario config
 	if len(req.Assertions) > 0 {
 		assertionRegistry := arenaassertions.NewArenaAssertionRegistry()
-		middlewares = append(middlewares, arenaassertions.ArenaAssertionMiddleware(assertionRegistry, req.Assertions))
+		stages = append(stages, stage.WrapMiddleware("arena_assertions",
+			arenaassertions.ArenaAssertionMiddleware(assertionRegistry, req.Assertions)))
 	}
 
-	return middlewares
+	return builder.Chain(stages...).Build()
+}
+
+// forwardStageElements forwards stage elements from pipeline to output channel
+func (e *ScriptedExecutor) forwardStageElements(
+	outputChan <-chan stage.StreamElement,
+	messages []types.Message,
+	outChan chan<- MessageStreamChunk,
+) {
+	assistantIndex := 1
+	var assistantMsg types.Message
+	assistantMsg.Role = "assistant"
+
+	for elem := range outputChan {
+		// Check for error
+		if elem.Error != nil {
+			outChan <- MessageStreamChunk{Messages: messages, Error: elem.Error}
+			return
+		}
+
+		// Collect assistant messages
+		if elem.Message != nil && elem.Message.Role == "assistant" {
+			assistantMsg = *elem.Message
+			messages = e.updateMessagesList(messages, assistantMsg, assistantIndex)
+
+			// Extract finish reason from metadata if available
+			var finishReason *string
+			if elem.Metadata != nil {
+				if fr, ok := elem.Metadata["finish_reason"].(string); ok {
+					finishReason = &fr
+				}
+			}
+
+			outChan <- MessageStreamChunk{
+				Messages:     messages,
+				MessageIndex: assistantIndex,
+				FinishReason: finishReason,
+			}
+
+			if finishReason != nil {
+				break
+			}
+		}
+	}
 }
 
 // forwardStreamChunks forwards stream chunks from pipeline to output channel
