@@ -2,9 +2,12 @@
 package pipeline
 
 import (
+	"fmt"
+
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
@@ -204,25 +207,211 @@ func (m *debugMiddleware) StreamChunk(_ *rtpipeline.ExecutionContext, _ *provide
 	return nil
 }
 
-// buildStagePipeline creates a pipeline using the stage architecture.
+// buildStagePipeline creates a pipeline using the stage architecture with streaming support.
 //
-// NOTE: Phase 1 implementation - For maximum safety and to avoid breaking promptarena,
-// this function currently uses the same middleware implementation as buildMiddlewarePipeline.
-// The feature flag (UseStages) is operational and can be tested, but both paths use middleware.
+// Builds a stage-based pipeline that provides the same functionality as middleware but with:
+// - Native streaming support via StreamElements
+// - Concurrent stage execution for better performance
+// - Consistent architecture with Arena test execution
 //
-// The actual migration to native stage execution will happen in subsequent phases:
-// - Phase 2: Convert Arena custom middleware to stages
-// - Phase 3: Update duplex sessions
-// - Phase 4: Switch to native StreamPipeline execution
+// Stage order:
+//  1. StateStoreLoadStage - Load conversation history (if configured)
+//  2. VariableProviderMiddleware - Dynamic variable resolution (if configured, wrapped as stage)
+//  3. PromptAssemblyStage - Load and assemble prompt from registry
+//  4. TemplateStage - Prepare system prompt for provider
+//  5. ProviderStage - LLM call with streaming support and tool execution
+//  6. ValidationStage - Validate responses (if configured)
+//  7. StateStoreSaveStage - Save conversation state (if configured)
 //
-// This conservative approach ensures zero risk of breaking promptarena while validating
-// the feature flag mechanism.
+// Note: DuplexProviderMiddleware (WebSocket streaming) is not yet supported with stages.
+// Use middleware mode for duplex sessions.
 func buildStagePipeline(cfg *Config) (*rtpipeline.Pipeline, error) {
-	logger.Info("Stage-based pipeline requested (UseStages=true)",
-		"note", "Phase 1: using middleware implementation for safety",
-		"taskType", cfg.TaskType)
+	logger.Info("Building stage-based pipeline (UseStages=true)",
+		"taskType", cfg.TaskType,
+		"hasStateStore", cfg.StateStore != nil,
+		"hasToolRegistry", cfg.ToolRegistry != nil)
 
-	// For Phase 1 safety, use the same middleware implementation
-	// The feature flag is functional and can be tested without risk
-	return buildMiddlewarePipeline(cfg)
+	// Duplex streaming not yet supported with stages
+	if cfg.StreamInputSession != nil {
+		logger.Warn("DuplexProviderMiddleware not supported with stages, falling back to middleware",
+			"taskType", cfg.TaskType)
+		return buildMiddlewarePipeline(cfg)
+	}
+
+	// Create stage pipeline builder
+	builder := stage.NewPipelineBuilder()
+
+	var stages []stage.Stage
+
+	// 1. State store load stage - loads conversation history FIRST
+	var stateStoreConfig *rtpipeline.StateStoreConfig
+	if cfg.StateStore != nil {
+		stateStoreConfig = &rtpipeline.StateStoreConfig{
+			Store:          cfg.StateStore,
+			ConversationID: cfg.ConversationID,
+		}
+		stages = append(stages, stage.NewStateStoreLoadStage(stateStoreConfig))
+	}
+
+	// 2. Variable provider middleware - wrap as stage if configured
+	if len(cfg.VariableProviders) > 0 {
+		stages = append(stages, stage.WrapMiddleware("variable_providers",
+			middleware.VariableProviderMiddleware(cfg.VariableProviders...)))
+	}
+
+	// 3. Prompt assembly stage - loads prompt, sets system prompt and allowed tools
+	stages = append(stages, stage.NewPromptAssemblyStage(
+		cfg.PromptRegistry,
+		cfg.TaskType,
+		cfg.Variables,
+	))
+
+	// 4. Template stage - prepares system prompt for provider
+	stages = append(stages, stage.NewTemplateStage())
+
+	// 5. Provider stage - LLM calls with streaming and tool support
+	if cfg.Provider != nil {
+		providerConfig := &stage.ProviderConfig{
+			MaxTokens:   cfg.MaxTokens,
+			Temperature: cfg.Temperature,
+		}
+		stages = append(stages, stage.NewProviderStage(
+			cfg.Provider,
+			cfg.ToolRegistry,
+			cfg.ToolPolicy,
+			providerConfig,
+		))
+	}
+
+	// 6. Validation stage - validate responses if configured
+	if cfg.ValidatorRegistry != nil && len(cfg.ValidatorConfigs) > 0 {
+		stages = append(stages, stage.NewValidationStage(
+			cfg.ValidatorRegistry,
+			cfg.SuppressValidationErrors,
+		))
+	}
+
+	// 7. State store save stage - saves conversation state LAST
+	if stateStoreConfig != nil {
+		stages = append(stages, stage.NewStateStoreSaveStage(stateStoreConfig))
+	}
+
+	// Build the StreamPipeline
+	streamPipeline, err := builder.Chain(stages...).Build()
+	if err != nil {
+		return nil, fmt.Errorf("failed to build stage pipeline: %w", err)
+	}
+
+	// Create a stage-based execution adapter
+	// The SDK session code will need to be updated to detect and use this properly
+	// For now, store the StreamPipeline in a wrapper
+	return wrapStreamPipeline(streamPipeline), nil
+}
+
+// wrapStreamPipeline wraps a StreamPipeline to work with SDK's Pipeline interface.
+// This is a bridge solution until SDK fully migrates to stage-based execution.
+func wrapStreamPipeline(sp *stage.StreamPipeline) *rtpipeline.Pipeline {
+	// Create a pipeline that uses a special middleware adapter
+	// The adapter will convert between middleware ExecutionContext and stage StreamElements
+	adapter := &streamPipelineMiddlewareAdapter{streamPipeline: sp}
+
+	// Build a pipeline with just this one middleware that delegates to stages
+	pipeline, _ := rtpipeline.NewPipelineWithConfigValidated(nil, adapter)
+	return pipeline
+}
+
+// streamPipelineMiddlewareAdapter bridges middleware execution to stage execution.
+type streamPipelineMiddlewareAdapter struct {
+	streamPipeline *stage.StreamPipeline
+}
+
+// Process converts middleware ExecutionContext to StreamElement, executes stages, and converts back.
+func (a *streamPipelineMiddlewareAdapter) Process(execCtx *rtpipeline.ExecutionContext, next func() error) error {
+	// TODO: Get proper context from pipeline execution
+	// For now, use background context - this will be fixed when we have full SDK integration
+	ctx := execCtx.Context
+	if ctx == nil {
+		return fmt.Errorf("execution context missing from pipeline")
+	}
+
+	// Convert ExecutionContext to StreamElement for stage input
+	inputElem := executionContextToStreamElement(execCtx)
+
+	// Execute the stage pipeline synchronously
+	result, err := a.streamPipeline.ExecuteSync(ctx, inputElem)
+	if err != nil {
+		return err
+	}
+
+	// Convert output ExecutionResult back to ExecutionContext
+	executionResultToExecutionContext(result, execCtx)
+
+	// Skip calling next() since stages already did all the work
+	return nil
+}
+
+// StreamChunk is not used since stages handle streaming internally.
+func (a *streamPipelineMiddlewareAdapter) StreamChunk(execCtx *rtpipeline.ExecutionContext, chunk *providers.StreamChunk) error {
+	return nil
+}
+
+// executionContextToStreamElement converts middleware ExecutionContext to stage StreamElement.
+func executionContextToStreamElement(execCtx *rtpipeline.ExecutionContext) stage.StreamElement {
+	elem := stage.StreamElement{
+		Metadata: make(map[string]interface{}),
+	}
+
+	// Get the user message from the execution context's Messages list
+	// The last message in the list should be the user message
+	if len(execCtx.Messages) > 0 {
+		userMsg := execCtx.Messages[len(execCtx.Messages)-1]
+		elem.Message = &userMsg
+	}
+
+	// Copy metadata
+	if execCtx.Metadata != nil {
+		for k, v := range execCtx.Metadata {
+			elem.Metadata[k] = v
+		}
+	}
+
+	// Copy execution context fields as metadata
+	if execCtx.SystemPrompt != "" {
+		elem.Metadata["system_prompt"] = execCtx.SystemPrompt
+	}
+	if len(execCtx.AllowedTools) > 0 {
+		elem.Metadata["allowed_tools"] = execCtx.AllowedTools
+	}
+	if len(execCtx.Variables) > 0 {
+		elem.Metadata["variables"] = execCtx.Variables
+	}
+
+	return elem
+}
+
+// executionResultToExecutionContext converts stage ExecutionResult back to ExecutionContext.
+func executionResultToExecutionContext(result *stage.ExecutionResult, execCtx *rtpipeline.ExecutionContext) {
+	// Extract the final response from the result and convert to pipeline Response
+	if result.Response != nil {
+		execCtx.Response = &rtpipeline.Response{
+			Role:      result.Response.Role,
+			Content:   result.Response.Content,
+			ToolCalls: result.Response.ToolCalls,
+		}
+	}
+
+	// Extract metadata
+	if result.Metadata != nil {
+		if execCtx.Metadata == nil {
+			execCtx.Metadata = make(map[string]interface{})
+		}
+		for k, v := range result.Metadata {
+			execCtx.Metadata[k] = v
+		}
+	}
+
+	// Update messages if present
+	if len(result.Messages) > 0 {
+		execCtx.Messages = result.Messages
+	}
 }
