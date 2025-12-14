@@ -91,7 +91,7 @@ func TestSelfPlayExecutor_LoadHistory_Error(t *testing.T) {
 		},
 	}
 
-	_, err := executor.loadHistory(context.Background(), req)
+	_, err := executor.loadHistory(context.Background(), &req)
 	if err == nil {
 		t.Error("Expected error from loadHistory, got nil")
 	}
@@ -114,7 +114,7 @@ func TestSelfPlayExecutor_LoadHistory_NotFound(t *testing.T) {
 		},
 	}
 
-	history, err := executor.loadHistory(context.Background(), req)
+	history, err := executor.loadHistory(context.Background(), &req)
 	if err != nil {
 		t.Errorf("Expected no error for ErrNotFound, got: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestSelfPlayExecutor_LoadHistory_NoStateStore(t *testing.T) {
 		StateStoreConfig: nil,
 	}
 
-	history, err := executor.loadHistory(context.Background(), req)
+	history, err := executor.loadHistory(context.Background(), &req)
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestSelfPlayExecutor_GenerateUserMessage_Error(t *testing.T) {
 		Scenario:        &config.Scenario{ID: "test-scenario"},
 	}
 
-	_, err := executor.generateUserMessage(context.Background(), req, nil)
+	_, err := executor.generateUserMessage(context.Background(), &req, nil)
 	if err == nil {
 		t.Error("Expected error from generateUserMessage, got nil")
 	}
@@ -193,7 +193,7 @@ func TestSelfPlayExecutor_GenerateUserMessage_NoContent(t *testing.T) {
 		Scenario:        &config.Scenario{ID: "test-scenario"},
 	}
 
-	_, err := executor.generateUserMessage(context.Background(), req, nil)
+	_, err := executor.generateUserMessage(context.Background(), &req, nil)
 	if err == nil {
 		t.Error("Expected error for empty content, got nil")
 	}
@@ -218,7 +218,7 @@ func TestSelfPlayExecutor_LoadHistoryForStream_Error(t *testing.T) {
 
 	outChan := make(chan MessageStreamChunk, 1)
 
-	history, err := executor.loadHistoryForStream(context.Background(), req, outChan)
+	history, err := executor.loadHistoryForStream(context.Background(), &req, outChan)
 
 	// Should have sent error to channel
 	select {
@@ -258,7 +258,7 @@ func TestSelfPlayExecutor_GenerateUserMessageForStream_Error(t *testing.T) {
 
 	outChan := make(chan MessageStreamChunk, 1)
 
-	_, err := executor.generateUserMessageForStream(context.Background(), req, nil, outChan)
+	_, err := executor.generateUserMessageForStream(context.Background(), &req, nil, outChan)
 
 	// Should have sent error to channel
 	select {

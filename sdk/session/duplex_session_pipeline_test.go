@@ -6,11 +6,10 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,8 +22,13 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 		// Create minimal pipeline with mock provider
 		provider := mock.NewProvider("mock", "mock-model", false)
 		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*pipeline.Pipeline, error) {
-			providerMw := middleware.ProviderMiddleware(provider, tools.NewRegistry(), nil, &middleware.ProviderMiddlewareConfig{})
-			return pipeline.NewPipeline(providerMw), nil
+			providerStage := stage.NewProviderStage(provider, nil, nil, nil)
+			builder := stage.NewPipelineBuilder()
+			sp, err := builder.Chain(providerStage).Build()
+			if err != nil {
+				return nil, err
+			}
+			return wrapStreamPipelineForTest(sp), nil
 		}
 
 		// Create session
@@ -47,8 +51,13 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 		// Create minimal pipeline
 		provider := mock.NewProvider("mock", "mock-model", false)
 		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*pipeline.Pipeline, error) {
-			providerMw := middleware.ProviderMiddleware(provider, tools.NewRegistry(), nil, &middleware.ProviderMiddlewareConfig{})
-			return pipeline.NewPipeline(providerMw), nil
+			providerStage := stage.NewProviderStage(provider, nil, nil, nil)
+			builder := stage.NewPipelineBuilder()
+			sp, err := builder.Chain(providerStage).Build()
+			if err != nil {
+				return nil, err
+			}
+			return wrapStreamPipelineForTest(sp), nil
 		}
 
 		// Create session
@@ -70,8 +79,13 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 		// Create minimal pipeline
 		provider := mock.NewProvider("mock", "mock-model", false)
 		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*pipeline.Pipeline, error) {
-			providerMw := middleware.ProviderMiddleware(provider, tools.NewRegistry(), nil, &middleware.ProviderMiddlewareConfig{})
-			return pipeline.NewPipeline(providerMw), nil
+			providerStage := stage.NewProviderStage(provider, nil, nil, nil)
+			builder := stage.NewPipelineBuilder()
+			sp, err := builder.Chain(providerStage).Build()
+			if err != nil {
+				return nil, err
+			}
+			return wrapStreamPipelineForTest(sp), nil
 		}
 
 		// Create session
@@ -104,8 +118,13 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 			mock.NewInMemoryMockRepository("Hello from mock provider"))
 
 		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*pipeline.Pipeline, error) {
-			providerMw := middleware.ProviderMiddleware(provider, tools.NewRegistry(), nil, &middleware.ProviderMiddlewareConfig{})
-			return pipeline.NewPipeline(providerMw), nil
+			providerStage := stage.NewProviderStage(provider, nil, nil, nil)
+			builder := stage.NewPipelineBuilder()
+			sp, err := builder.Chain(providerStage).Build()
+			if err != nil {
+				return nil, err
+			}
+			return wrapStreamPipelineForTest(sp), nil
 		}
 
 		// Create session

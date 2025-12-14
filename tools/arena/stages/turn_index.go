@@ -27,7 +27,7 @@ func NewTurnIndexStage() *TurnIndexStage {
 
 // Process computes role-specific turn counters and enriches elements with metadata.
 //
-//nolint:lll // Channel signature cannot be shortened
+//nolint:gocognit,lll // Turn index calculation with multiple role types is complex
 func (s *TurnIndexStage) Process(ctx context.Context, input <-chan stage.StreamElement, output chan<- stage.StreamElement) error {
 	defer close(output)
 
@@ -62,21 +62,21 @@ func (s *TurnIndexStage) Process(ctx context.Context, input <-chan stage.StreamE
 	}
 
 	// Second pass: enrich all elements with turn metadata and forward
-	for _, elem := range elements {
-		if elem.Metadata == nil {
-			elem.Metadata = make(map[string]interface{})
+	for i := range elements {
+		if elements[i].Metadata == nil {
+			elements[i].Metadata = make(map[string]interface{})
 		}
 
 		// Add turn metadata to element (idempotent - won't overwrite if already set)
 		for key, value := range turnMetadata {
-			if _, exists := elem.Metadata[key]; !exists {
-				elem.Metadata[key] = value
+			if _, exists := elements[i].Metadata[key]; !exists {
+				elements[i].Metadata[key] = value
 			}
 		}
 
 		// Forward element
 		select {
-		case output <- elem:
+		case output <- elements[i]:
 		case <-ctx.Done():
 			return ctx.Err()
 		}

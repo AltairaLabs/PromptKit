@@ -6,11 +6,28 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
 	arenaassertions "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
+	arenastages "github.com/AltairaLabs/PromptKit/tools/arena/stages"
+)
+
+const (
+	// finishReasonStop is the standard finish reason for successful completion
+	finishReasonStop = "stop"
+
+	// roleAssistant is the standard role for assistant messages
+	roleAssistant = "assistant"
+
+	// httpLoaderTimeout is the timeout for HTTP media requests
+	httpLoaderTimeout = 30 * time.Second
+
+	// httpLoaderMaxSize is the maximum file size for HTTP media (50MB)
+	httpLoaderMaxSize = 50 * 1024 * 1024
+
+	// mediaExternalizerThresholdKB is the size threshold for media externalization
+	mediaExternalizerThresholdKB = 100
 )
 
 // ScriptedExecutor executes turns where the user message is scripted (predefined)
@@ -24,19 +41,21 @@ func NewScriptedExecutor(pipelineExecutor *PipelineExecutor) *ScriptedExecutor {
 }
 
 // ExecuteTurn executes a scripted turn (user message from scenario + AI response)
+//
+//nolint:gocritic // Public API - changing to pointer would break callers
 func (e *ScriptedExecutor) ExecuteTurn(ctx context.Context, req TurnRequest) error {
 	// Build user message from scripted content or parts
-	userMessage, err := e.buildUserMessage(req)
+	userMessage, err := e.buildUserMessage(&req)
 	if err != nil {
 		return err
 	}
 
 	// Execute through pipeline (messages saved to StateStore)
-	return e.pipelineExecutor.Execute(ctx, req, userMessage)
+	return e.pipelineExecutor.Execute(ctx, &req, &userMessage)
 }
 
 // buildUserMessage creates a user message from either ScriptedContent or ScriptedParts
-func (e *ScriptedExecutor) buildUserMessage(req TurnRequest) (types.Message, error) {
+func (e *ScriptedExecutor) buildUserMessage(req *TurnRequest) (types.Message, error) {
 	userMessage := types.Message{
 		Role:      "user",
 		Timestamp: time.Now(),
@@ -47,8 +66,8 @@ func (e *ScriptedExecutor) buildUserMessage(req TurnRequest) (types.Message, err
 		// Use the base directory from the request (resolved from config directory)
 		baseDir := req.BaseDir
 
-		// Create HTTP loader for URL-based media (30 second timeout, 50MB max)
-		httpLoader := NewHTTPMediaLoader(30*time.Second, 50*1024*1024)
+		// Create HTTP loader for URL-based media
+		httpLoader := NewHTTPMediaLoader(httpLoaderTimeout, httpLoaderMaxSize)
 
 		parts, err := ConvertTurnPartsToMessageParts(context.Background(), req.ScriptedParts, baseDir, httpLoader, nil)
 		if err != nil {
@@ -64,6 +83,8 @@ func (e *ScriptedExecutor) buildUserMessage(req TurnRequest) (types.Message, err
 }
 
 // ExecuteTurnStream executes a scripted turn with streaming
+//
+//nolint:gocritic // Public API - changing to pointer would break callers
 func (e *ScriptedExecutor) ExecuteTurnStream(
 	ctx context.Context,
 	req TurnRequest,
@@ -74,12 +95,12 @@ func (e *ScriptedExecutor) ExecuteTurnStream(
 		defer close(outChan)
 
 		// Handle non-streaming providers
-		if e.handleNonStreamingProvider(ctx, req, outChan) {
+		if e.handleNonStreamingProvider(ctx, &req, outChan) {
 			return
 		}
 
 		// Execute streaming pipeline
-		e.executeStreamingPipeline(ctx, req, outChan)
+		e.executeStreamingPipeline(ctx, &req, outChan)
 	}()
 
 	return outChan, nil
@@ -89,20 +110,20 @@ func (e *ScriptedExecutor) ExecuteTurnStream(
 // Returns true if handled (caller should return)
 func (e *ScriptedExecutor) handleNonStreamingProvider(
 	ctx context.Context,
-	req TurnRequest,
+	req *TurnRequest,
 	outChan chan<- MessageStreamChunk,
 ) bool {
 	if req.Provider.SupportsStreaming() {
 		return false
 	}
 
-	err := e.ExecuteTurn(ctx, req)
+	err := e.ExecuteTurn(ctx, *req)
 	if err != nil {
 		outChan <- MessageStreamChunk{Error: err}
 		return true
 	}
 
-	finishReason := "stop"
+	finishReason := finishReasonStop
 	outChan <- MessageStreamChunk{
 		Messages:     []types.Message{},
 		FinishReason: &finishReason,
@@ -113,7 +134,7 @@ func (e *ScriptedExecutor) handleNonStreamingProvider(
 // executeStreamingPipeline builds and executes the streaming stage pipeline
 func (e *ScriptedExecutor) executeStreamingPipeline(
 	ctx context.Context,
-	req TurnRequest,
+	req *TurnRequest,
 	outChan chan<- MessageStreamChunk,
 ) {
 	// Build user message from scripted content or parts
@@ -158,7 +179,7 @@ func (e *ScriptedExecutor) executeStreamingPipeline(
 }
 
 // buildStreamingStages constructs the stage pipeline for streaming
-func (e *ScriptedExecutor) buildStreamingStages(req TurnRequest) (*stage.StreamPipeline, error) {
+func (e *ScriptedExecutor) buildStreamingStages(req *TurnRequest) (*stage.StreamPipeline, error) {
 	baseVariables := buildBaseVariables(req.Region)
 	mergedVars := map[string]string{}
 	for k, v := range baseVariables {
@@ -183,12 +204,29 @@ func (e *ScriptedExecutor) buildStreamingStages(req TurnRequest) (*stage.StreamP
 	}
 
 	// Variable injection
-	stages = append(stages, stage.WrapMiddleware("variable_injection", &variableInjectionMiddleware{variables: mergedVars}))
+	stages = append(stages, arenastages.NewVariableInjectionStage(mergedVars))
 	if len(req.Metadata) > 0 {
-		stages = append(stages, stage.WrapMiddleware("metadata_injection", &metadataInjectionMiddleware{metadata: req.Metadata}))
+		stages = append(stages, arenastages.NewMetadataInjectionStage(req.Metadata))
 	}
 
-	// Prompt, template, and provider stages
+	// Prompt assembly, context extraction, and template stages
+	stages = append(stages,
+		stage.NewPromptAssemblyStage(req.PromptRegistry, req.TaskType, mergedVars),
+		arenastages.NewScenarioContextExtractionStage(req.Scenario),
+		stage.NewTemplateStage(),
+	)
+
+	// Mock scenario context (for mock providers only)
+	if isMockProvider(req.Provider) {
+		stages = append(stages, arenastages.NewMockScenarioContextStage(req.Scenario))
+	}
+
+	// Context builder (if policy exists)
+	if contextPolicy := buildContextPolicy(req.Scenario); contextPolicy != nil {
+		stages = append(stages, stage.NewContextBuilderStage(contextPolicy))
+	}
+
+	// Provider stage
 	providerConfig := &stage.ProviderConfig{
 		MaxTokens:   req.MaxTokens,
 		Temperature: float32(req.Temperature),
@@ -196,29 +234,33 @@ func (e *ScriptedExecutor) buildStreamingStages(req TurnRequest) (*stage.StreamP
 	}
 
 	stages = append(stages,
-		stage.NewPromptAssemblyStage(req.PromptRegistry, req.TaskType, mergedVars),
-		stage.NewTemplateStage(),
 		stage.NewProviderStage(
 			req.Provider, e.pipelineExecutor.toolRegistry, buildToolPolicy(req.Scenario), providerConfig),
 	)
 
 	// Media externalization stage
 	if e.pipelineExecutor.mediaStorage != nil {
-		mediaConfig := &middleware.MediaExternalizerConfig{
+		mediaConfig := &stage.MediaExternalizerConfig{
 			Enabled:         true,
 			StorageService:  e.pipelineExecutor.mediaStorage,
-			SizeThresholdKB: 100,
+			SizeThresholdKB: mediaExternalizerThresholdKB,
 			DefaultPolicy:   "retain",
 			RunID:           req.ConversationID,
 			ConversationID:  req.ConversationID,
 		}
-		stages = append(stages, stage.WrapMiddleware("media_externalizer", middleware.MediaExternalizerMiddleware(mediaConfig)))
+		stages = append(stages, stage.NewMediaExternalizerStage(mediaConfig))
 	}
 
 	// Dynamic validator stage
 	stages = append(stages, stage.NewValidationStage(validators.DefaultRegistry, true))
 
-	// StateStore Save stage
+	// Assertion stage - must run before state store save
+	if len(req.Assertions) > 0 {
+		assertionRegistry := arenaassertions.NewArenaAssertionRegistry()
+		stages = append(stages, arenastages.NewArenaAssertionStage(assertionRegistry, req.Assertions))
+	}
+
+	// Arena state store save - saves messages with assertion metadata
 	if req.StateStoreConfig != nil && req.StateStoreConfig.Store != nil {
 		storeConfig := &pipeline.StateStoreConfig{
 			Store:          req.StateStoreConfig.Store,
@@ -226,20 +268,15 @@ func (e *ScriptedExecutor) buildStreamingStages(req TurnRequest) (*stage.StreamP
 			UserID:         req.StateStoreConfig.UserID,
 			Metadata:       req.StateStoreConfig.Metadata,
 		}
-		stages = append(stages, stage.NewStateStoreSaveStage(storeConfig))
-	}
-
-	// Assertion stage - validates turn-level assertions from scenario config
-	if len(req.Assertions) > 0 {
-		assertionRegistry := arenaassertions.NewArenaAssertionRegistry()
-		stages = append(stages, stage.WrapMiddleware("arena_assertions",
-			arenaassertions.ArenaAssertionMiddleware(assertionRegistry, req.Assertions)))
+		stages = append(stages, arenastages.NewArenaStateStoreSaveStage(storeConfig))
 	}
 
 	return builder.Chain(stages...).Build()
 }
 
 // forwardStageElements forwards stage elements from pipeline to output channel
+//
+//nolint:gocognit // Stream element forwarding with message type handling is complex
 func (e *ScriptedExecutor) forwardStageElements(
 	outputChan <-chan stage.StreamElement,
 	messages []types.Message,
@@ -247,7 +284,7 @@ func (e *ScriptedExecutor) forwardStageElements(
 ) {
 	assistantIndex := 1
 	var assistantMsg types.Message
-	assistantMsg.Role = "assistant"
+	assistantMsg.Role = roleAssistant
 
 	for elem := range outputChan {
 		// Check for error
@@ -256,11 +293,38 @@ func (e *ScriptedExecutor) forwardStageElements(
 			return
 		}
 
-		// Handle streaming chunks (from ProviderStage)
+		// Check for final message elements first (they have Message set)
+		// These may also have delta metadata from the provider, so we check Message before delta
+		if elem.Message != nil {
+			if elem.Message.Role == roleAssistant {
+				assistantMsg = *elem.Message
+				messages = e.updateMessagesList(messages, &assistantMsg, assistantIndex)
+
+				// Extract finish reason from metadata if available
+				var finishReason *string
+				if elem.Metadata != nil {
+					if fr, ok := elem.Metadata["finish_reason"].(string); ok {
+						finishReason = &fr
+					}
+				}
+
+				outChan <- MessageStreamChunk{
+					Messages:     messages,
+					MessageIndex: assistantIndex,
+					FinishReason: finishReason,
+				}
+
+				if finishReason != nil {
+					break
+				}
+			}
+			// Skip other message types (e.g., user messages that flow through)
+			continue
+		}
+
+		// Handle streaming chunks (from ProviderStage) - no Message, just delta in metadata
 		if elem.Metadata != nil {
-			// Check if this is a streaming chunk with delta
 			if delta, ok := elem.Metadata["delta"].(string); ok && delta != "" {
-				// This is a streaming chunk
 				var finishReason *string
 				if fr, ok := elem.Metadata["finish_reason"].(string); ok {
 					finishReason = &fr
@@ -278,33 +342,6 @@ func (e *ScriptedExecutor) forwardStageElements(
 					TokenCount:   tokenCount,
 					FinishReason: finishReason,
 				}
-
-				// Continue processing - we'll get the final complete message next
-				continue
-			}
-		}
-
-		// Collect assistant messages (final complete message)
-		if elem.Message != nil && elem.Message.Role == "assistant" {
-			assistantMsg = *elem.Message
-			messages = e.updateMessagesList(messages, assistantMsg, assistantIndex)
-
-			// Extract finish reason from metadata if available
-			var finishReason *string
-			if elem.Metadata != nil {
-				if fr, ok := elem.Metadata["finish_reason"].(string); ok {
-					finishReason = &fr
-				}
-			}
-
-			outChan <- MessageStreamChunk{
-				Messages:     messages,
-				MessageIndex: assistantIndex,
-				FinishReason: finishReason,
-			}
-
-			if finishReason != nil {
-				break
 			}
 		}
 	}
@@ -313,12 +350,12 @@ func (e *ScriptedExecutor) forwardStageElements(
 // updateMessagesList updates the messages list with current assistant message
 func (e *ScriptedExecutor) updateMessagesList(
 	messages []types.Message,
-	assistantMsg types.Message,
+	assistantMsg *types.Message,
 	assistantIndex int,
 ) []types.Message {
 	if len(messages) == assistantIndex {
-		return append(messages, assistantMsg)
+		return append(messages, *assistantMsg)
 	}
-	messages[assistantIndex] = assistantMsg
+	messages[assistantIndex] = *assistantMsg
 	return messages
 }

@@ -8,11 +8,9 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
-	arenamiddleware "github.com/AltairaLabs/PromptKit/tools/arena/middleware"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	arenastages "github.com/AltairaLabs/PromptKit/tools/arena/stages"
 )
@@ -32,25 +30,27 @@ func NewSelfPlayExecutor(pipelineExecutor *PipelineExecutor, contentProvider sel
 }
 
 // ExecuteTurn executes a self-play turn (LLM-generated user message + AI response)
+//
+//nolint:gocritic // Public API - changing to pointer would break callers
 func (e *SelfPlayExecutor) ExecuteTurn(ctx context.Context, req TurnRequest) error {
 	// Load history from StateStore if configured
-	history, err := e.loadHistory(ctx, req)
+	history, err := e.loadHistory(ctx, &req)
 	if err != nil {
 		return err
 	}
 
 	// Generate user message using LLM
-	userMessage, err := e.generateUserMessage(ctx, req, history)
+	userMessage, err := e.generateUserMessage(ctx, &req, history)
 	if err != nil {
 		return err
 	}
 
 	// Execute AI response through the pipeline
-	return e.pipelineExecutor.Execute(ctx, req, userMessage)
+	return e.pipelineExecutor.Execute(ctx, &req, &userMessage)
 }
 
 // loadHistory loads conversation history from StateStore
-func (e *SelfPlayExecutor) loadHistory(ctx context.Context, req TurnRequest) ([]types.Message, error) {
+func (e *SelfPlayExecutor) loadHistory(ctx context.Context, req *TurnRequest) ([]types.Message, error) {
 	if req.StateStoreConfig == nil || req.ConversationID == "" {
 		return nil, nil
 	}
@@ -75,7 +75,7 @@ func (e *SelfPlayExecutor) loadHistory(ctx context.Context, req TurnRequest) ([]
 // generateUserMessage generates a user message using the content provider
 func (e *SelfPlayExecutor) generateUserMessage(
 	ctx context.Context,
-	req TurnRequest,
+	req *TurnRequest,
 	history []types.Message,
 ) (types.Message, error) {
 	filteredHistory := filterOutToolMessages(history)
@@ -99,7 +99,7 @@ func (e *SelfPlayExecutor) generateUserMessage(
 
 // buildUserMessageFromResult constructs a user message from execution result
 func (e *SelfPlayExecutor) buildUserMessageFromResult(
-	req TurnRequest,
+	req *TurnRequest,
 	execResult *pipeline.ExecutionResult,
 ) types.Message {
 	selfPlayMeta := e.buildSelfPlayMetadata(req, execResult)
@@ -122,7 +122,7 @@ func (e *SelfPlayExecutor) buildUserMessageFromResult(
 
 // buildSelfPlayMetadata creates metadata for self-play execution
 func (e *SelfPlayExecutor) buildSelfPlayMetadata(
-	req TurnRequest,
+	req *TurnRequest,
 	execResult *pipeline.ExecutionResult,
 ) map[string]interface{} {
 	meta := map[string]interface{}{
@@ -141,6 +141,8 @@ func (e *SelfPlayExecutor) buildSelfPlayMetadata(
 }
 
 // ExecuteTurnStream executes a self-play turn with streaming
+//
+//nolint:gocritic // Public API - changing to pointer would break callers
 func (e *SelfPlayExecutor) ExecuteTurnStream(
 	ctx context.Context,
 	req TurnRequest,
@@ -151,24 +153,24 @@ func (e *SelfPlayExecutor) ExecuteTurnStream(
 		defer close(outChan)
 
 		// Load history from StateStore if configured
-		history, err := e.loadHistoryForStream(ctx, req, outChan)
+		history, err := e.loadHistoryForStream(ctx, &req, outChan)
 		if err != nil {
 			return // Error already sent to channel
 		}
 
 		// Generate user message using LLM
-		userMessage, err := e.generateUserMessageForStream(ctx, req, history, outChan)
+		userMessage, err := e.generateUserMessageForStream(ctx, &req, history, outChan)
 		if err != nil {
 			return // Error already sent to channel
 		}
 
 		// Handle non-streaming providers
-		if e.handleNonStreamingProvider(ctx, req, userMessage, outChan) {
+		if e.handleNonStreamingProvider(ctx, &req, &userMessage, outChan) {
 			return
 		}
 
 		// Execute streaming pipeline
-		e.executeStreamingPipeline(ctx, req, userMessage, outChan)
+		e.executeStreamingPipeline(ctx, &req, &userMessage, outChan)
 	}()
 
 	return outChan, nil
@@ -177,7 +179,7 @@ func (e *SelfPlayExecutor) ExecuteTurnStream(
 // loadHistoryForStream loads conversation history from StateStore
 func (e *SelfPlayExecutor) loadHistoryForStream(
 	ctx context.Context,
-	req TurnRequest,
+	req *TurnRequest,
 	outChan chan<- MessageStreamChunk,
 ) ([]types.Message, error) {
 	if req.StateStoreConfig == nil || req.ConversationID == "" {
@@ -207,7 +209,7 @@ func (e *SelfPlayExecutor) loadHistoryForStream(
 // generateUserMessageForStream generates the user message for self-play
 func (e *SelfPlayExecutor) generateUserMessageForStream(
 	ctx context.Context,
-	req TurnRequest,
+	req *TurnRequest,
 	history []types.Message,
 	outChan chan<- MessageStreamChunk,
 ) (types.Message, error) {
@@ -237,7 +239,7 @@ func (e *SelfPlayExecutor) generateUserMessageForStream(
 
 // buildUserMessage constructs a user message from execution result
 func (e *SelfPlayExecutor) buildUserMessage(
-	req TurnRequest,
+	req *TurnRequest,
 	execResult *pipeline.ExecutionResult,
 ) types.Message {
 	userMessage := types.Message{
@@ -288,22 +290,22 @@ func filterOutToolMessages(messages []types.Message) []types.Message {
 // Returns true if handled (caller should return)
 func (e *SelfPlayExecutor) handleNonStreamingProvider(
 	ctx context.Context,
-	req TurnRequest,
-	userMessage types.Message,
+	req *TurnRequest,
+	userMessage *types.Message,
 	outChan chan<- MessageStreamChunk,
 ) bool {
 	if req.Provider.SupportsStreaming() {
 		return false
 	}
 
-	messages := []types.Message{userMessage}
+	messages := []types.Message{*userMessage}
 	err := e.pipelineExecutor.Execute(ctx, req, userMessage)
 	if err != nil {
 		outChan <- MessageStreamChunk{Messages: messages, Error: err}
 		return true
 	}
 
-	finishReason := "stop"
+	finishReason := finishReasonStop
 	outChan <- MessageStreamChunk{
 		Messages:     []types.Message{},
 		FinishReason: &finishReason,
@@ -314,14 +316,14 @@ func (e *SelfPlayExecutor) handleNonStreamingProvider(
 // executeStreamingPipeline builds and executes the streaming stage pipeline
 func (e *SelfPlayExecutor) executeStreamingPipeline(
 	ctx context.Context,
-	req TurnRequest,
-	userMessage types.Message,
+	req *TurnRequest,
+	userMessage *types.Message,
 	outChan chan<- MessageStreamChunk,
 ) {
-	messages := []types.Message{userMessage}
+	messages := []types.Message{*userMessage}
 
 	// Build and execute stage pipeline
-	pl, err := e.buildStreamingStages(&req)
+	pl, err := e.buildStreamingStages(req)
 	if err != nil {
 		outChan <- MessageStreamChunk{Messages: messages, Error: fmt.Errorf("failed to build streaming pipeline: %w", err)}
 		return
@@ -329,7 +331,7 @@ func (e *SelfPlayExecutor) executeStreamingPipeline(
 
 	// Create input element
 	inputElem := stage.StreamElement{
-		Message: &userMessage,
+		Message: userMessage,
 		Metadata: map[string]interface{}{
 			"run_id":          req.RunID,
 			"conversation_id": req.ConversationID,
@@ -350,34 +352,6 @@ func (e *SelfPlayExecutor) executeStreamingPipeline(
 
 	// Convert stage stream to provider chunks
 	e.forwardStageElements(outputChan, messages, outChan)
-}
-
-// stripToolMessagesMiddleware removes tool role messages before calling the self-play provider.
-func stripToolMessagesMiddleware() pipeline.Middleware {
-	return &stripToolMessages{}
-}
-
-type stripToolMessages struct{}
-
-// Process removes tool-role messages before passing execution to the provider.
-func (m *stripToolMessages) Process(execCtx *pipeline.ExecutionContext, next func() error) error {
-	if len(execCtx.Messages) == 0 {
-		return next()
-	}
-	filtered := make([]types.Message, 0, len(execCtx.Messages))
-	for i := range execCtx.Messages {
-		if strings.EqualFold(execCtx.Messages[i].Role, "tool") {
-			continue
-		}
-		filtered = append(filtered, execCtx.Messages[i])
-	}
-	execCtx.Messages = filtered
-	return next()
-}
-
-// StreamChunk is a no-op to satisfy the middleware interface.
-func (m *stripToolMessages) StreamChunk(execCtx *pipeline.ExecutionContext, chunk *providers.StreamChunk) error {
-	return nil
 }
 
 // buildStreamingStages constructs the stage pipeline for streaming
@@ -409,24 +383,21 @@ func (e *SelfPlayExecutor) buildStreamingStages(req *TurnRequest) (*stage.Stream
 	}
 
 	// Variable injection
-	stages = append(stages,
-		stage.WrapMiddleware("variable_injection", &variableInjectionMiddleware{variables: mergedVars}))
+	stages = append(stages, arenastages.NewVariableInjectionStage(mergedVars))
 	if len(req.Metadata) > 0 {
-		stages = append(stages,
-			stage.WrapMiddleware("metadata_injection", &metadataInjectionMiddleware{metadata: req.Metadata}))
+		stages = append(stages, arenastages.NewMetadataInjectionStage(req.Metadata))
 	}
 
 	// Prompt, template, and strip tool messages
 	stages = append(stages,
 		stage.NewPromptAssemblyStage(req.PromptRegistry, req.TaskType, mergedVars),
 		stage.NewTemplateStage(),
-		stage.WrapMiddleware("strip_tool_messages", stripToolMessagesMiddleware()),
+		arenastages.NewStripToolMessagesStage(),
 	)
 
 	// Mock scenario context for mock providers (pre-provider)
 	if isMockProvider(req.Provider) {
-		stages = append(stages, stage.WrapMiddleware("mock_scenario_context",
-			arenamiddleware.MockScenarioContextMiddleware(req.Scenario)))
+		stages = append(stages, arenastages.NewMockScenarioContextStage(req.Scenario))
 	}
 
 	// Provider + Dynamic validator stages
@@ -457,7 +428,7 @@ func (e *SelfPlayExecutor) buildStreamingStages(req *TurnRequest) (*stage.Stream
 
 // forwardStageElements forwards stage elements from pipeline to output channel
 //
-//nolint:gocognit,goconst // Stream processing logic is inherently complex; assistant role used locally
+//nolint:gocognit // Stream processing logic is inherently complex
 func (e *SelfPlayExecutor) forwardStageElements(
 	outputChan <-chan stage.StreamElement,
 	messages []types.Message,
@@ -465,7 +436,7 @@ func (e *SelfPlayExecutor) forwardStageElements(
 ) {
 	assistantIndex := 1
 	var assistantMsg types.Message
-	assistantMsg.Role = "assistant"
+	assistantMsg.Role = roleAssistant
 
 	for elem := range outputChan {
 		// Check for error
@@ -475,9 +446,9 @@ func (e *SelfPlayExecutor) forwardStageElements(
 		}
 
 		// Collect assistant messages
-		if elem.Message != nil && elem.Message.Role == "assistant" {
+		if elem.Message != nil && elem.Message.Role == roleAssistant {
 			assistantMsg = *elem.Message
-			messages = e.updateMessagesList(messages, assistantMsg, assistantIndex)
+			messages = e.updateMessagesList(messages, &assistantMsg, assistantIndex)
 
 			// Extract finish reason from metadata if available
 			var finishReason *string
@@ -500,73 +471,15 @@ func (e *SelfPlayExecutor) forwardStageElements(
 	}
 }
 
-// forwardStreamChunks forwards stream chunks from pipeline to output channel
-func (e *SelfPlayExecutor) forwardStreamChunks(
-	streamChan <-chan providers.StreamChunk,
-	messages []types.Message,
-	outChan chan<- MessageStreamChunk,
-) {
-	assistantIndex := 1
-	var assistantMsg types.Message
-	assistantMsg.Role = "assistant"
-
-	for chunk := range streamChan {
-		if chunk.Error != nil {
-			outChan <- MessageStreamChunk{Messages: messages, Error: chunk.Error}
-			return
-		}
-
-		if chunk.FinalResult != nil {
-			break
-		}
-
-		assistantMsg = e.updateAssistantMessage(assistantMsg, chunk)
-		messages = e.updateMessagesList(messages, assistantMsg, assistantIndex)
-
-		outChan <- MessageStreamChunk{
-			Messages:     messages,
-			Delta:        chunk.Delta,
-			MessageIndex: assistantIndex,
-			TokenCount:   chunk.TokenCount,
-			FinishReason: chunk.FinishReason,
-		}
-
-		if chunk.FinishReason != nil {
-			break
-		}
-	}
-}
-
-// updateAssistantMessage updates assistant message with chunk data
-func (e *SelfPlayExecutor) updateAssistantMessage(
-	msg types.Message,
-	chunk providers.StreamChunk,
-) types.Message {
-	msg.Content = chunk.Content
-
-	if len(chunk.ToolCalls) > 0 {
-		msg.ToolCalls = make([]types.MessageToolCall, len(chunk.ToolCalls))
-		for i, tc := range chunk.ToolCalls {
-			msg.ToolCalls[i] = types.MessageToolCall{
-				ID:   tc.ID,
-				Name: tc.Name,
-				Args: tc.Args,
-			}
-		}
-	}
-
-	return msg
-}
-
 // updateMessagesList updates the messages list with current assistant message
 func (e *SelfPlayExecutor) updateMessagesList(
 	messages []types.Message,
-	assistantMsg types.Message,
+	assistantMsg *types.Message,
 	assistantIndex int,
 ) []types.Message {
 	if len(messages) == assistantIndex {
-		return append(messages, assistantMsg)
+		return append(messages, *assistantMsg)
 	}
-	messages[assistantIndex] = assistantMsg
+	messages[assistantIndex] = *assistantMsg
 	return messages
 }

@@ -86,6 +86,7 @@ func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement,
 			}
 			if toolsList, ok := elem.Metadata["allowed_tools"].([]string); ok {
 				allowedTools = toolsList
+				logger.Debug("ProviderStage received allowed_tools", "tools", allowedTools, "count", len(allowedTools))
 			}
 			// Merge all metadata
 			for k, v := range elem.Metadata {
@@ -93,6 +94,12 @@ func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement,
 			}
 		}
 	}
+
+	logger.Debug("ProviderStage accumulated input",
+		"messages", len(messages),
+		"allowed_tools", allowedTools,
+		"mock_scenario_id", metadata["mock_scenario_id"],
+		"mock_turn_number", metadata["mock_turn_number"])
 
 	// Check if provider supports streaming
 	if s.provider.SupportsStreaming() {
@@ -107,6 +114,10 @@ func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement,
 		for i := range responseMessages {
 			elem := NewMessageElement(&responseMessages[i])
 			elem.Metadata = metadata
+
+			logger.Debug("ProviderStage emitting response message",
+				"role", responseMessages[i].Role,
+				"has_validator_configs", metadata["validator_configs"] != nil)
 
 			select {
 			case output <- elem:
@@ -167,7 +178,7 @@ func (s *ProviderStage) executeMultiRound(
 		}
 
 		// Execute one round
-		response, hasToolCalls, err := s.executeRound(ctx, messages, systemPrompt, providerTools, toolChoice, round)
+		response, hasToolCalls, err := s.executeRound(ctx, messages, systemPrompt, providerTools, toolChoice, round, metadata)
 		if err != nil {
 			return messages, err
 		}
@@ -262,6 +273,7 @@ func (s *ProviderStage) executeRound(
 	providerTools interface{},
 	toolChoice string,
 	round int,
+	metadata map[string]interface{},
 ) (types.Message, bool, error) {
 	// Build provider request
 	req := providers.PredictionRequest{
@@ -270,6 +282,7 @@ func (s *ProviderStage) executeRound(
 		MaxTokens:   s.config.MaxTokens,
 		Temperature: s.config.Temperature,
 		Seed:        s.config.Seed,
+		Metadata:    metadata,
 	}
 
 	logger.Debug("Provider round starting",
@@ -333,11 +346,6 @@ func (s *ProviderStage) executeStreamingRound(
 	output chan<- StreamElement,
 	metadata map[string]interface{},
 ) (types.Message, bool, error) {
-	// TODO: Add support for tools in streaming (PredictStreamWithTools)
-	// For now, toolChoice and providerTools are accepted but not used
-	_ = toolChoice
-	_ = providerTools
-
 	// Build provider request
 	req := providers.PredictionRequest{
 		System:      systemPrompt,
@@ -345,6 +353,7 @@ func (s *ProviderStage) executeStreamingRound(
 		MaxTokens:   s.config.MaxTokens,
 		Temperature: s.config.Temperature,
 		Seed:        s.config.Seed,
+		Metadata:    metadata,
 	}
 
 	logger.Debug("Provider streaming round starting",
@@ -354,8 +363,22 @@ func (s *ProviderStage) executeStreamingRound(
 
 	startTime := time.Now()
 
-	// Call PredictStream
-	streamChan, err := s.provider.PredictStream(ctx, req)
+	// Call streaming provider (with or without tools)
+	var streamChan <-chan providers.StreamChunk
+	var err error
+
+	if providerTools != nil {
+		// Use tool-aware streaming interface
+		toolProvider, ok := s.provider.(providers.ToolSupport)
+		if !ok {
+			return types.Message{}, false, errors.New("provider does not support tools")
+		}
+		streamChan, err = toolProvider.PredictStreamWithTools(ctx, req, providerTools, toolChoice)
+	} else {
+		// Regular streaming prediction
+		streamChan, err = s.provider.PredictStream(ctx, req)
+	}
+
 	if err != nil {
 		logger.Error("Provider stream failed", "error", err)
 		return types.Message{}, false, fmt.Errorf("provider stream failed: %w", err)

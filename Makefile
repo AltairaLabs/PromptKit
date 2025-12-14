@@ -298,14 +298,14 @@ test-ci-examples: build-arena ## Test all CI pipeline examples with mock data
 	@echo ""
 	@FAILED=0; \
 	EXAMPLES=( \
-		"customer-support:mock-responses.yaml" \
-		"multimodal-basics:mock-responses.yaml" \
-		"variables-demo:mock-config.yaml" \
-		"assertions-test:mock-responses.yaml" \
-		"guardrails-test:mock-responses.yaml" \
+		"customer-support:mock-responses.yaml:customer-support-scenarios" \
+		"multimodal-basics:mock-responses.yaml:" \
+		"variables-demo:mock-config.yaml:" \
+		"assertions-test:mock-responses.yaml:" \
+		"guardrails-test:mock-responses.yaml:" \
 	); \
 	for example_config in "$${EXAMPLES[@]}"; do \
-		IFS=':' read -r example mock_file <<< "$$example_config"; \
+		IFS=':' read -r example mock_file scenario_name <<< "$$example_config"; \
 		echo "═══════════════════════════════════════════════════════"; \
 		echo "Testing example: $$example"; \
 		echo "═══════════════════════════════════════════════════════"; \
@@ -317,15 +317,20 @@ test-ci-examples: build-arena ## Test all CI pipeline examples with mock data
 			continue; \
 		fi; \
 		echo "→ Running with mock provider (mock-config: $$mock_file)"; \
-		if cd "examples/$$example" && ../../bin/promptarena run --config config.arena.yaml --mock-provider --mock-config "$$mock_file" --ci --formats json 2>&1 | head -50; then \
+		SCENARIO_FLAG=""; \
+		if [ -n "$$scenario_name" ]; then \
+			SCENARIO_FLAG="--scenario $$scenario_name"; \
+		fi; \
+		cd "examples/$$example" && ../../bin/promptarena run --config config.arena.yaml --mock-provider --mock-config "$$mock_file" $$SCENARIO_FLAG --ci --formats json 2>&1 | head -50; \
+		EXIT_CODE=$${PIPESTATUS[0]}; \
+		cd ../..; \
+		if [ $$EXIT_CODE -eq 0 ]; then \
 			echo ""; \
 			echo "✓ Example $$example completed"; \
-			cd ../..; \
 		else \
 			echo ""; \
-			echo "✗ Example $$example failed"; \
+			echo "✗ Example $$example failed (exit code: $$EXIT_CODE)"; \
 			FAILED=$$((FAILED + 1)); \
-			cd ../..; \
 		fi; \
 		echo ""; \
 	done; \

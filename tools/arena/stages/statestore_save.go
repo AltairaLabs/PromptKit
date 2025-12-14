@@ -31,7 +31,7 @@ func NewArenaStateStoreSaveStage(config *pipeline.StateStoreConfig) *ArenaStateS
 
 // Process collects all messages and saves them with telemetry to Arena state store.
 //
-//nolint:lll // Channel signature cannot be shortened
+//nolint:gocognit,lll // Stream processing with state store operations is inherently complex
 func (s *ArenaStateStoreSaveStage) Process(ctx context.Context, input <-chan stage.StreamElement, output chan<- stage.StreamElement) error {
 	defer close(output)
 
@@ -107,6 +107,8 @@ func (s *ArenaStateStoreSaveStage) Process(ctx context.Context, input <-chan sta
 }
 
 // saveToArenaStateStore saves conversation state with telemetry.
+//
+//nolint:gocognit // State store save with telemetry tracking is complex
 func (s *ArenaStateStoreSaveStage) saveToArenaStateStore(
 	ctx context.Context,
 	arenaStore *statestore.ArenaStateStore,

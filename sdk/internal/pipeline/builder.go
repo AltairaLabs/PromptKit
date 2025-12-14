@@ -6,7 +6,6 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -16,9 +15,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/variables"
 )
 
-// debugLogTruncateLen is the max length for system prompt debug output.
-const debugLogTruncateLen = 200
-
 // Config holds configuration for building a pipeline.
 type Config struct {
 	// Provider for LLM calls
@@ -27,7 +23,7 @@ type Config struct {
 	// ToolRegistry for tool execution (optional)
 	ToolRegistry *tools.Registry
 
-	// PromptRegistry for loading prompts (required for PromptAssemblyMiddleware)
+	// PromptRegistry for loading prompts (required for PromptAssemblyStage)
 	PromptRegistry *prompt.Registry
 
 	// TaskType is the prompt ID/task type to load from the registry
@@ -64,180 +60,44 @@ type Config struct {
 	Temperature float32
 
 	// StateStore for conversation history persistence (optional)
-	// When provided, StateStoreLoad/Save middleware will be added to the pipeline
+	// When provided, StateStoreLoad/Save stages will be added to the pipeline
 	StateStore statestore.Store
 
 	// ConversationID for state store operations
 	ConversationID string
 
 	// StreamInputSession for duplex streaming (ASM mode) (optional)
-	// When provided, DuplexProviderMiddleware will be used instead of regular ProviderMiddleware
+	// When provided, DuplexProviderStage will be used instead of regular ProviderStage
 	StreamInputSession providers.StreamInputSession
 
-	// UseStages when true, builds pipeline using stage architecture instead of middleware
-	// Default: false (uses middleware for backward compatibility)
-	// Set to true to enable streaming pipeline architecture with concurrent stage execution
+	// UseStages is deprecated and ignored - stages are always used.
+	// This field is kept for backward compatibility but has no effect.
 	UseStages bool
 }
 
-// Build creates a pipeline with the appropriate implementation (middleware or stages).
-//
-// When cfg.UseStages is false (default), creates a middleware-based pipeline:
-//  1. StateStoreLoadMiddleware - Load conversation history (if state store configured)
-//  2. PromptAssemblyMiddleware - Load and assemble the prompt from registry
-//  3. ProviderMiddleware - LLM call with tool execution
-//  4. DynamicValidatorMiddleware - Validate responses (if configured)
-//  5. StateStoreSaveMiddleware - Save conversation state (if state store configured)
-//
-// When cfg.UseStages is true, creates a stage-based streaming pipeline with the same functionality
-// but using concurrent stage execution for better performance.
-//
-// This matches the runtime pipeline used by Arena.
-func Build(cfg *Config) (*rtpipeline.Pipeline, error) {
-	// Route to stage-based implementation if enabled
-	if cfg.UseStages {
-		return buildStagePipeline(cfg)
-	}
-
-	// Otherwise use legacy middleware implementation
-	return buildMiddlewarePipeline(cfg)
-}
-
-// buildMiddlewarePipeline creates a middleware-based pipeline (legacy).
-func buildMiddlewarePipeline(cfg *Config) (*rtpipeline.Pipeline, error) {
-	//nolint:staticcheck // Middleware is deprecated but used for backward compatibility
-	var middlewares []rtpipeline.Middleware
-
-	// Debug: log configuration
-	logger.Debug("Building pipeline",
-		"taskType", cfg.TaskType,
-		"variables", cfg.Variables,
-		"hasPromptRegistry", cfg.PromptRegistry != nil,
-		"hasToolRegistry", cfg.ToolRegistry != nil,
-		"hasStateStore", cfg.StateStore != nil)
-
-	// 1. State store load middleware - loads conversation history FIRST
-	var stateStoreConfig *rtpipeline.StateStoreConfig
-	if cfg.StateStore != nil {
-		stateStoreConfig = &rtpipeline.StateStoreConfig{
-			Store:          cfg.StateStore,
-			ConversationID: cfg.ConversationID,
-		}
-		middlewares = append(middlewares, middleware.StateStoreLoadMiddleware(stateStoreConfig))
-	}
-
-	// 2. Variable provider middleware - resolves dynamic variables BEFORE prompt assembly
-	if len(cfg.VariableProviders) > 0 {
-		middlewares = append(middlewares, middleware.VariableProviderMiddleware(cfg.VariableProviders...))
-	}
-
-	// 3. Prompt assembly middleware - loads prompt, sets system prompt and allowed tools
-	// 4. Template middleware - copies SystemPrompt to Prompt (for ProviderMiddleware)
-	// 5. Debug middleware to log the assembled prompt
-	middlewares = append(middlewares,
-		middleware.PromptAssemblyMiddleware(cfg.PromptRegistry, cfg.TaskType, cfg.Variables),
-		middleware.TemplateMiddleware(),
-		&debugMiddleware{},
-	)
-
-	// 5. Provider middleware for LLM calls with tool support
-	if cfg.Provider != nil {
-		providerConfig := &middleware.ProviderMiddlewareConfig{
-			MaxTokens:   cfg.MaxTokens,
-			Temperature: cfg.Temperature,
-		}
-
-		// Use DuplexProviderMiddleware for ASM mode (WebSocket streaming)
-		// Use regular ProviderMiddleware for text/VAD mode (HTTP API)
-		if cfg.StreamInputSession != nil {
-			logger.Debug("Using DuplexProviderMiddleware for ASM mode")
-			middlewares = append(middlewares, middleware.DuplexProviderMiddleware(
-				cfg.StreamInputSession,
-				providerConfig,
-			))
-		} else {
-			middlewares = append(middlewares, middleware.ProviderMiddleware(
-				cfg.Provider,
-				cfg.ToolRegistry,
-				cfg.ToolPolicy,
-				providerConfig,
-			))
-		}
-	}
-
-	// 6. Validation middleware (if configured)
-	if cfg.ValidatorRegistry != nil && len(cfg.ValidatorConfigs) > 0 {
-		middlewares = append(middlewares, middleware.DynamicValidatorMiddlewareWithSuppression(
-			cfg.ValidatorRegistry,
-			cfg.SuppressValidationErrors,
-		))
-	}
-
-	// 7. State store save middleware - saves conversation state LAST
-	if stateStoreConfig != nil {
-		middlewares = append(middlewares, middleware.StateStoreSaveMiddleware(stateStoreConfig))
-	}
-
-	// Create pipeline with default config
-	return rtpipeline.NewPipelineWithConfigValidated(nil, middlewares...)
-}
-
-// debugMiddleware logs execution context for debugging.
-type debugMiddleware struct{}
-
-// Process logs the execution context state for debugging.
-func (m *debugMiddleware) Process(execCtx *rtpipeline.ExecutionContext, next func() error) error {
-	if len(execCtx.SystemPrompt) > debugLogTruncateLen {
-		logger.Debug("After PromptAssembly",
-			"systemPromptLength", len(execCtx.SystemPrompt),
-			"systemPromptPreview", execCtx.SystemPrompt[:debugLogTruncateLen]+"...",
-			"allowedTools", execCtx.AllowedTools,
-			"variables", execCtx.Variables)
-	} else {
-		logger.Debug("After PromptAssembly",
-			"systemPromptLength", len(execCtx.SystemPrompt),
-			"systemPrompt", execCtx.SystemPrompt,
-			"allowedTools", execCtx.AllowedTools,
-			"variables", execCtx.Variables)
-	}
-	return next()
-}
-
-// StreamChunk is a no-op for debug middleware.
-func (m *debugMiddleware) StreamChunk(_ *rtpipeline.ExecutionContext, _ *providers.StreamChunk) error {
-	return nil
-}
-
-// buildStagePipeline creates a pipeline using the stage architecture with streaming support.
-//
-// Builds a stage-based pipeline that provides the same functionality as middleware but with:
-// - Native streaming support via StreamElements
-// - Concurrent stage execution for better performance
-// - Consistent architecture with Arena test execution
+// Build creates a stage-based streaming pipeline.
 //
 // Stage order:
 //  1. StateStoreLoadStage - Load conversation history (if configured)
-//  2. VariableProviderMiddleware - Dynamic variable resolution (if configured, wrapped as stage)
+//  2. VariableProviderStage - Dynamic variable resolution (if configured)
 //  3. PromptAssemblyStage - Load and assemble prompt from registry
 //  4. TemplateStage - Prepare system prompt for provider
-//  5. ProviderStage - LLM call with streaming support and tool execution
+//  5. ProviderStage/DuplexProviderStage - LLM call with streaming support
 //  6. ValidationStage - Validate responses (if configured)
 //  7. StateStoreSaveStage - Save conversation state (if configured)
 //
-// Note: DuplexProviderMiddleware (WebSocket streaming) is not yet supported with stages.
-// Use middleware mode for duplex sessions.
+// This matches the runtime pipeline used by Arena.
+func Build(cfg *Config) (*rtpipeline.Pipeline, error) {
+	return buildStagePipeline(cfg)
+}
+
+// buildStagePipeline creates a pipeline using the stage architecture with streaming support.
 func buildStagePipeline(cfg *Config) (*rtpipeline.Pipeline, error) {
-	logger.Info("Building stage-based pipeline (UseStages=true)",
+	logger.Info("Building stage-based pipeline",
 		"taskType", cfg.TaskType,
 		"hasStateStore", cfg.StateStore != nil,
-		"hasToolRegistry", cfg.ToolRegistry != nil)
-
-	// Duplex streaming not yet supported with stages
-	if cfg.StreamInputSession != nil {
-		logger.Warn("DuplexProviderMiddleware not supported with stages, falling back to middleware",
-			"taskType", cfg.TaskType)
-		return buildMiddlewarePipeline(cfg)
-	}
+		"hasToolRegistry", cfg.ToolRegistry != nil,
+		"hasDuplexSession", cfg.StreamInputSession != nil)
 
 	// Create stage pipeline builder
 	builder := stage.NewPipelineBuilder()
@@ -254,10 +114,9 @@ func buildStagePipeline(cfg *Config) (*rtpipeline.Pipeline, error) {
 		stages = append(stages, stage.NewStateStoreLoadStage(stateStoreConfig))
 	}
 
-	// 2. Variable provider middleware - wrap as stage if configured
+	// 2. Variable provider stage - resolves dynamic variables
 	if len(cfg.VariableProviders) > 0 {
-		stages = append(stages, stage.WrapMiddleware("variable_providers",
-			middleware.VariableProviderMiddleware(cfg.VariableProviders...)))
+		stages = append(stages, stage.NewVariableProviderStage(cfg.VariableProviders...))
 	}
 
 	// 3. Prompt assembly stage - loads prompt, sets system prompt and allowed tools
@@ -268,7 +127,12 @@ func buildStagePipeline(cfg *Config) (*rtpipeline.Pipeline, error) {
 	)
 
 	// 5. Provider stage - LLM calls with streaming and tool support
-	if cfg.Provider != nil {
+	// Use DuplexProviderStage for ASM mode (WebSocket streaming)
+	// Use regular ProviderStage for text/VAD mode (HTTP API)
+	if cfg.StreamInputSession != nil {
+		logger.Debug("Using DuplexProviderStage for ASM mode")
+		stages = append(stages, stage.NewDuplexProviderStage(cfg.StreamInputSession))
+	} else if cfg.Provider != nil {
 		providerConfig := &stage.ProviderConfig{
 			MaxTokens:   cfg.MaxTokens,
 			Temperature: cfg.Temperature,
@@ -300,20 +164,13 @@ func buildStagePipeline(cfg *Config) (*rtpipeline.Pipeline, error) {
 		return nil, fmt.Errorf("failed to build stage pipeline: %w", err)
 	}
 
-	// Create a stage-based execution adapter
-	// The SDK session code will need to be updated to detect and use this properly
-	// For now, store the StreamPipeline in a wrapper
+	// Wrap for SDK compatibility
 	return wrapStreamPipeline(streamPipeline), nil
 }
 
 // wrapStreamPipeline wraps a StreamPipeline to work with SDK's Pipeline interface.
-// This is a bridge solution until SDK fully migrates to stage-based execution.
 func wrapStreamPipeline(sp *stage.StreamPipeline) *rtpipeline.Pipeline {
-	// Create a pipeline that uses a special middleware adapter
-	// The adapter will convert between middleware ExecutionContext and stage StreamElements
 	adapter := &streamPipelineMiddlewareAdapter{streamPipeline: sp}
-
-	// Build a pipeline with just this one middleware that delegates to stages
 	pipeline, _ := rtpipeline.NewPipelineWithConfigValidated(nil, adapter)
 	return pipeline
 }
@@ -325,8 +182,6 @@ type streamPipelineMiddlewareAdapter struct {
 
 // Process converts middleware ExecutionContext to StreamElement, executes stages, and converts back.
 func (a *streamPipelineMiddlewareAdapter) Process(execCtx *rtpipeline.ExecutionContext, next func() error) error {
-	// TODO: Get proper context from pipeline execution
-	// For now, use background context - this will be fixed when we have full SDK integration
 	ctx := execCtx.Context
 	if ctx == nil {
 		return fmt.Errorf("execution context missing from pipeline")
@@ -344,14 +199,13 @@ func (a *streamPipelineMiddlewareAdapter) Process(execCtx *rtpipeline.ExecutionC
 	// Convert output ExecutionResult back to ExecutionContext
 	executionResultToExecutionContext(result, execCtx)
 
-	// Skip calling next() since stages already did all the work
 	return nil
 }
 
 // StreamChunk is not used since stages handle streaming internally.
 func (a *streamPipelineMiddlewareAdapter) StreamChunk(
-	execCtx *rtpipeline.ExecutionContext,
-	chunk *providers.StreamChunk,
+	_ *rtpipeline.ExecutionContext,
+	_ *providers.StreamChunk,
 ) error {
 	return nil
 }
@@ -363,7 +217,6 @@ func executionContextToStreamElement(execCtx *rtpipeline.ExecutionContext) stage
 	}
 
 	// Get the user message from the execution context's Messages list
-	// The last message in the list should be the user message
 	if len(execCtx.Messages) > 0 {
 		userMsg := execCtx.Messages[len(execCtx.Messages)-1]
 		elem.Message = &userMsg
@@ -392,7 +245,6 @@ func executionContextToStreamElement(execCtx *rtpipeline.ExecutionContext) stage
 
 // executionResultToExecutionContext converts stage ExecutionResult back to ExecutionContext.
 func executionResultToExecutionContext(result *stage.ExecutionResult, execCtx *rtpipeline.ExecutionContext) {
-	// Extract the final response from the result and convert to pipeline Response
 	if result.Response != nil {
 		execCtx.Response = &rtpipeline.Response{
 			Role:      result.Response.Role,
@@ -401,7 +253,6 @@ func executionResultToExecutionContext(result *stage.ExecutionResult, execCtx *r
 		}
 	}
 
-	// Extract metadata
 	if result.Metadata != nil {
 		if execCtx.Metadata == nil {
 			execCtx.Metadata = make(map[string]interface{})
@@ -411,7 +262,6 @@ func executionResultToExecutionContext(result *stage.ExecutionResult, execCtx *r
 		}
 	}
 
-	// Update messages if present
 	if len(result.Messages) > 0 {
 		execCtx.Messages = result.Messages
 	}

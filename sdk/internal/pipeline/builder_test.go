@@ -314,54 +314,6 @@ func TestBuildWithMockProvider(t *testing.T) {
 	})
 }
 
-func TestDebugMiddleware(t *testing.T) {
-	t.Run("debug middleware passes through", func(t *testing.T) {
-		dm := &debugMiddleware{}
-		execCtx := &rtpipeline.ExecutionContext{
-			SystemPrompt: "Test prompt",
-			Variables:    map[string]string{"key": "value"},
-		}
-
-		nextCalled := false
-		err := dm.Process(execCtx, func() error {
-			nextCalled = true
-			return nil
-		})
-
-		require.NoError(t, err)
-		assert.True(t, nextCalled)
-	})
-
-	t.Run("debug middleware handles long prompts", func(t *testing.T) {
-		dm := &debugMiddleware{}
-
-		// Create a prompt longer than debugLogTruncateLen
-		longPrompt := ""
-		for i := 0; i < 300; i++ {
-			longPrompt += "x"
-		}
-
-		execCtx := &rtpipeline.ExecutionContext{
-			SystemPrompt: longPrompt,
-		}
-
-		nextCalled := false
-		err := dm.Process(execCtx, func() error {
-			nextCalled = true
-			return nil
-		})
-
-		require.NoError(t, err)
-		assert.True(t, nextCalled)
-	})
-
-	t.Run("stream chunk is no-op", func(t *testing.T) {
-		dm := &debugMiddleware{}
-		err := dm.StreamChunk(nil, nil)
-		assert.NoError(t, err)
-	})
-}
-
 // TestBuildStagePipeline tests the stage-based pipeline builder
 func TestBuildStagePipeline(t *testing.T) {
 	t.Run("builds stage pipeline when UseStages is true", func(t *testing.T) {

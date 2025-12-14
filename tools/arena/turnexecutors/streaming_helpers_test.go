@@ -45,7 +45,7 @@ func TestScriptedExecutor_UpdateMessagesList(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := executor.updateMessagesList(tt.messages, tt.assistantMsg, tt.assistantIndex)
+			got := executor.updateMessagesList(tt.messages, &tt.assistantMsg, tt.assistantIndex)
 
 			if len(got) != tt.wantLength {
 				t.Errorf("messages length = %d, want %d", len(got), tt.wantLength)
@@ -97,7 +97,7 @@ func TestSelfPlayExecutor_UpdateMessagesList(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := executor.updateMessagesList(tt.messages, tt.assistantMsg, tt.assistantIndex)
+			got := executor.updateMessagesList(tt.messages, &tt.assistantMsg, tt.assistantIndex)
 
 			if len(got) != tt.wantLength {
 				t.Errorf("messages length = %d, want %d", len(got), tt.wantLength)

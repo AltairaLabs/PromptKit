@@ -140,19 +140,40 @@ func NewValidationStage(registry *validators.Registry, suppressExceptions bool) 
 func (s *ValidationStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
 	defer close(output)
 
-	// Accumulate messages to find assistant response
+	// Accumulate messages and metadata
 	var elements []StreamElement
 	var lastAssistantElem *StreamElement
+	metadata := make(map[string]interface{})
 
 	for elem := range input {
 		elements = append(elements, elem)
+
+		// Track last assistant message
 		if elem.Message != nil && elem.Message.Role == "assistant" {
 			lastAssistantElem = &elements[len(elements)-1]
+		}
+
+		// Accumulate metadata from all elements
+		for k, v := range elem.Metadata {
+			metadata[k] = v
 		}
 	}
 
 	// Validate if we have an assistant message and validators configured
 	if lastAssistantElem != nil && lastAssistantElem.Message != nil {
+		// Merge accumulated metadata onto assistant element
+		if lastAssistantElem.Metadata == nil {
+			lastAssistantElem.Metadata = make(map[string]interface{})
+		}
+		for k, v := range metadata {
+			lastAssistantElem.Metadata[k] = v
+		}
+
+		logger.Debug("ValidationStage found assistant message to validate",
+			"has_content", lastAssistantElem.Message.Content != "",
+			"has_metadata", lastAssistantElem.Metadata != nil,
+			"has_validator_configs", lastAssistantElem.Metadata != nil && lastAssistantElem.Metadata["validator_configs"] != nil)
+
 		if err := s.validateElement(ctx, lastAssistantElem); err != nil {
 			// Emit error element if validation failed and exceptions not suppressed
 			if !s.suppressValidationExceptions {
@@ -201,10 +222,24 @@ func (s *ValidationStage) validateElement(ctx context.Context, elem *StreamEleme
 	logger.Debug("Validating response", "validators", len(validatorList), "content_length", len(contentToValidate))
 
 	// Run validations
-	results := make([]validators.ValidationResult, 0, len(validatorList))
+	results := make([]types.ValidationResult, 0, len(validatorList))
 	for i, validator := range validatorList {
 		result := validator.Validate(contentToValidate, validatorParams[i])
-		results = append(results, result)
+
+		// Convert to types.ValidationResult with ValidatorType
+		var details map[string]interface{}
+		if result.Details != nil {
+			if detailsMap, ok := result.Details.(map[string]interface{}); ok {
+				details = detailsMap
+			}
+		}
+
+		validationResult := types.ValidationResult{
+			Passed:        result.Passed,
+			Details:       details,
+			ValidatorType: validatorConfigs[i].Type,
+		}
+		results = append(results, validationResult)
 
 		logger.Debug("Validation result",
 			"validator_type", validatorConfigs[i].Type,
@@ -214,8 +249,13 @@ func (s *ValidationStage) validateElement(ctx context.Context, elem *StreamEleme
 	// Attach results to metadata
 	elem.Metadata["validation_results"] = results
 
+	// Also attach to message for arena assertions to access
+	if elem.Message != nil {
+		elem.Message.Validations = results
+	}
+
 	// Check for failures
-	if hasValidationFailures(results) {
+	if !s.suppressValidationExceptions && hasValidationFailures(results) {
 		return fmt.Errorf("validation failed: %d validators found issues", countFailures(results))
 	}
 
@@ -240,7 +280,7 @@ func (s *ValidationStage) buildValidators(configs []validators.ValidatorConfig) 
 	return validatorList, validatorParams
 }
 
-func hasValidationFailures(results []validators.ValidationResult) bool {
+func hasValidationFailures(results []types.ValidationResult) bool {
 	for _, result := range results {
 		if !result.Passed {
 			return true
@@ -249,7 +289,7 @@ func hasValidationFailures(results []validators.ValidationResult) bool {
 	return false
 }
 
-func countFailures(results []validators.ValidationResult) int {
+func countFailures(results []types.ValidationResult) int {
 	count := 0
 	for _, result := range results {
 		if !result.Passed {
