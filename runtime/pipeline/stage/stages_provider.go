@@ -2,6 +2,7 @@ package stage
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -17,12 +18,11 @@ const (
 	defaultMaxRounds = 10
 )
 
-// TODO: Complete provider stage implementation
-// Current status: Basic structure in place, needs:
-// - Correct tool registry usage (GetTool returns (Tool, error))
-// - Correct tool policy field access
-// - Tool execution integration
-// For now, use MiddlewareAdapter with ProviderMiddleware as a working alternative.
+// ProviderStage implementation notes:
+// - ✅ Multi-round tool execution with automatic tool result handling
+// - ✅ Synchronous tool execution via toolRegistry.ExecuteAsync()
+// - ⚠️ Limited async/pending tool support (no ExecutionContext for tracking)
+// - Note: For full async tool support with approval workflows, use MiddlewareAdapter
 
 // ProviderStage executes LLM calls and handles tool execution.
 // This is the request/response mode implementation.
@@ -251,37 +251,137 @@ func (s *ProviderStage) executeToolCalls(ctx context.Context, toolCalls []types.
 	results := make([]types.Message, 0, len(toolCalls))
 
 	for _, toolCall := range toolCalls {
-		_, err := s.toolRegistry.GetTool(toolCall.Name)
-		if err != nil {
-			// Create error result for unknown tool
+		// Check if tool is blocked by policy
+		if s.toolPolicy != nil && isToolBlocked(toolCall.Name, s.toolPolicy.Blocklist) {
 			results = append(results, types.Message{
 				Role: "tool",
 				ToolResult: &types.MessageToolResult{
 					ID:      toolCall.ID,
 					Name:    toolCall.Name,
-					Content: "",
-					Error:   fmt.Sprintf("Unknown tool '%s'", toolCall.Name),
+					Content: fmt.Sprintf("Tool %s is blocked by policy", toolCall.Name),
+					Error:   fmt.Sprintf("Tool %s is blocked by policy", toolCall.Name),
 				},
 			})
 			continue
 		}
 
-		// TODO: Execute tool - need to integrate with ToolExecutor
-		// The tool registry returns ToolDescriptor, but we need an execution mechanism
-		// For now, return not implemented error
+		// Execute tool via registry (handles both sync and async tools)
+		asyncResult, err := s.toolRegistry.ExecuteAsync(toolCall.Name, toolCall.Args)
+		if err != nil {
+			// Tool not found or execution setup failed
+			results = append(results, types.Message{
+				Role: "tool",
+				ToolResult: &types.MessageToolResult{
+					ID:      toolCall.ID,
+					Name:    toolCall.Name,
+					Content: fmt.Sprintf("Error: %v", err),
+					Error:   err.Error(),
+				},
+			})
+			continue
+		}
+
+		// Convert tool execution result to message
+		result := s.handleToolResult(toolCall, asyncResult)
 		results = append(results, types.Message{
-			Role: "tool",
-			ToolResult: &types.MessageToolResult{
-				ID:        toolCall.ID,
-				Name:      toolCall.Name,
-				Content:   "",
-				Error:     "Tool execution not yet implemented in ProviderStage - use MiddlewareAdapter with ProviderMiddleware",
-				LatencyMs: 0,
-			},
+			Role:       "tool",
+			ToolResult: &result,
 		})
 	}
 
 	return results, nil
+}
+
+// handleToolResult converts tool execution result to MessageToolResult
+func (s *ProviderStage) handleToolResult(
+	call types.MessageToolCall,
+	asyncResult *tools.ToolExecutionResult,
+) types.MessageToolResult {
+	switch asyncResult.Status {
+	case tools.ToolStatusPending:
+		// Tool requires approval - for stages we don't have ExecutionContext for tracking pending tools
+		// Return a message indicating approval is needed
+		pendingMsg := asyncResult.PendingInfo.Message
+		if pendingMsg == "" {
+			pendingMsg = fmt.Sprintf("Tool %s requires approval", call.Name)
+		}
+		logger.Warn("Tool requires approval in ProviderStage - pending tool support not yet implemented",
+			"tool", call.Name, "call_id", call.ID)
+		return types.MessageToolResult{
+			ID:   call.ID,
+			Name: call.Name,
+			Content: pendingMsg + " (Note: Async tool support in stages is limited - " +
+				"consider using MiddlewareAdapter for full async support)",
+			Error: "",
+		}
+
+	case tools.ToolStatusFailed:
+		return types.MessageToolResult{
+			ID:      call.ID,
+			Name:    call.Name,
+			Content: fmt.Sprintf("Tool execution failed: %s", asyncResult.Error),
+			Error:   asyncResult.Error,
+		}
+
+	case tools.ToolStatusComplete:
+		// Tool completed successfully
+		content := string(asyncResult.Content)
+
+		// Try to format nicely if it's JSON
+		var resultValue interface{}
+		if err := json.Unmarshal(asyncResult.Content, &resultValue); err == nil {
+			content = formatToolResult(resultValue)
+		}
+
+		return types.MessageToolResult{
+			ID:      call.ID,
+			Name:    call.Name,
+			Content: content,
+			Error:   "",
+		}
+
+	default:
+		return types.MessageToolResult{
+			ID:      call.ID,
+			Name:    call.Name,
+			Content: fmt.Sprintf("Unknown tool status: %v", asyncResult.Status),
+			Error:   fmt.Sprintf("Unknown tool status: %v", asyncResult.Status),
+		}
+	}
+}
+
+// isToolBlocked checks if a tool is in the blocklist
+func isToolBlocked(toolName string, blocklist []string) bool {
+	for _, blocked := range blocklist {
+		if blocked == toolName {
+			return true
+		}
+	}
+	return false
+}
+
+// formatToolResult formats tool result for display
+func formatToolResult(value interface{}) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case map[string]interface{}:
+		// Pretty print JSON objects
+		bytes, err := json.MarshalIndent(v, "", "  ")
+		if err != nil {
+			return fmt.Sprintf("%v", v)
+		}
+		return string(bytes)
+	case []interface{}:
+		// Pretty print JSON arrays
+		bytes, err := json.MarshalIndent(v, "", "  ")
+		if err != nil {
+			return fmt.Sprintf("%v", v)
+		}
+		return string(bytes)
+	default:
+		return fmt.Sprintf("%v", v)
+	}
 }
 
 func (s *ProviderStage) buildProviderTools(allowedTools []string) (interface{}, string, error) {
