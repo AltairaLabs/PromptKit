@@ -287,3 +287,213 @@ func TestProviderStage_MessageTimestamps(t *testing.T) {
 		}
 	}
 }
+
+// =============================================================================
+// Helper Function Tests
+// =============================================================================
+
+func TestIsToolBlocked(t *testing.T) {
+	tests := []struct {
+		name      string
+		toolName  string
+		blocklist []string
+		expected  bool
+	}{
+		{
+			name:      "empty blocklist",
+			toolName:  "some_tool",
+			blocklist: []string{},
+			expected:  false,
+		},
+		{
+			name:      "tool not in blocklist",
+			toolName:  "allowed_tool",
+			blocklist: []string{"blocked_tool"},
+			expected:  false,
+		},
+		{
+			name:      "tool in blocklist",
+			toolName:  "blocked_tool",
+			blocklist: []string{"blocked_tool"},
+			expected:  true,
+		},
+		{
+			name:      "tool in middle of blocklist",
+			toolName:  "tool2",
+			blocklist: []string{"tool1", "tool2", "tool3"},
+			expected:  true,
+		},
+		{
+			name:      "nil blocklist",
+			toolName:  "some_tool",
+			blocklist: nil,
+			expected:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isToolBlocked(tt.toolName, tt.blocklist)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestFormatToolResult(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    interface{}
+		expected string
+	}{
+		{
+			name:     "string value",
+			input:    "simple string",
+			expected: "simple string",
+		},
+		{
+			name:     "map value",
+			input:    map[string]interface{}{"key": "value"},
+			expected: "{\n  \"key\": \"value\"\n}",
+		},
+		{
+			name:     "array value",
+			input:    []interface{}{"a", "b"},
+			expected: "[\n  \"a\",\n  \"b\"\n]",
+		},
+		{
+			name:     "number value",
+			input:    42,
+			expected: "42",
+		},
+		{
+			name:     "boolean value",
+			input:    true,
+			expected: "true",
+		},
+		{
+			name:     "nil value",
+			input:    nil,
+			expected: "<nil>",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatToolResult(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestNewProviderStage_NilConfig(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+
+	// Should not panic with nil config
+	stage := NewProviderStage(provider, nil, nil, nil)
+
+	assert.NotNil(t, stage)
+	assert.NotNil(t, stage.config) // Should create default config
+}
+
+func TestNewProviderStage_WithConfig(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+	seed := 42
+
+	config := &ProviderConfig{
+		MaxTokens:    500,
+		Temperature:  0.9,
+		Seed:         &seed,
+		DisableTrace: true,
+	}
+
+	stage := NewProviderStage(provider, nil, nil, config)
+
+	assert.NotNil(t, stage)
+	assert.Equal(t, 500, stage.config.MaxTokens)
+	assert.Equal(t, float32(0.9), stage.config.Temperature)
+	assert.Equal(t, &seed, stage.config.Seed)
+	assert.True(t, stage.config.DisableTrace)
+}
+
+func TestProviderStage_NonStreamingMode(t *testing.T) {
+	// Create mock provider WITHOUT streaming support
+	provider := mock.NewProvider("test-provider", "test-model", true) // disableStreaming=true
+
+	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{
+		MaxTokens:   100,
+		Temperature: 0.7,
+	})
+
+	input := make(chan StreamElement, 1)
+	userMsg := types.Message{
+		Role:    "user",
+		Content: "Test message",
+	}
+	elem := NewMessageElement(&userMsg)
+	elem.Metadata["system_prompt"] = "You are a helpful assistant"
+	input <- elem
+	close(input)
+
+	output := make(chan StreamElement, 10)
+	ctx := context.Background()
+	err := stage.Process(ctx, input, output)
+
+	require.NoError(t, err)
+
+	// Collect output
+	var elements []StreamElement
+	for elem := range output {
+		elements = append(elements, elem)
+	}
+
+	// Should have at least one response
+	require.Greater(t, len(elements), 0)
+
+	// Verify that we got a final message with assistant role
+	foundAssistant := false
+	for _, elem := range elements {
+		if elem.Message != nil && elem.Message.Role == "assistant" {
+			foundAssistant = true
+			break
+		}
+	}
+	assert.True(t, foundAssistant, "should have assistant message in output")
+}
+
+func TestProviderStage_MockScenarioMetadata(t *testing.T) {
+	provider := mock.NewProvider("test-provider", "test-model", false)
+	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{})
+
+	input := make(chan StreamElement, 1)
+	userMsg := types.Message{
+		Role:    "user",
+		Content: "Test",
+	}
+	elem := NewMessageElement(&userMsg)
+	elem.Metadata["system_prompt"] = "System"
+	elem.Metadata["mock_scenario_id"] = "test-scenario"
+	elem.Metadata["mock_turn_number"] = 1
+	input <- elem
+	close(input)
+
+	output := make(chan StreamElement, 10)
+	ctx := context.Background()
+	err := stage.Process(ctx, input, output)
+
+	require.NoError(t, err)
+
+	// Collect output
+	var elements []StreamElement
+	for elem := range output {
+		elements = append(elements, elem)
+	}
+	assert.Greater(t, len(elements), 0)
+}
+
+func TestProviderStage_BaseStageProperties(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+	stage := NewProviderStage(provider, nil, nil, nil)
+
+	assert.Equal(t, "provider", stage.Name())
+	assert.Equal(t, StageTypeGenerate, stage.Type())
+}
