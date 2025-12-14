@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help build build-tools build-arena build-packc build-inspect-state test test-tools test-race lint clean coverage install install-tools install-tools-user uninstall-tools test-npm-init test-getting-started
+.PHONY: help build build-tools build-arena build-packc build-inspect-state test test-tools test-race lint clean coverage install install-tools install-tools-user uninstall-tools test-npm-init test-getting-started test-templates test-ci-examples
  
 # Route unknown targets to help
 .DEFAULT:
@@ -290,6 +290,51 @@ test-templates: build-arena ## Test all built-in templates can be created and va
 		echo "All 6 built-in templates work correctly!"; \
 	else \
 		echo "❌ $$FAILED template test(s) failed"; \
+		exit 1; \
+	fi
+
+test-ci-examples: build-arena ## Test all CI pipeline examples with mock data
+	@echo "🧪 Testing CI Pipeline Examples"
+	@echo ""
+	@FAILED=0; \
+	EXAMPLES=( \
+		"customer-support:mock-responses.yaml" \
+		"multimodal-basics:mock-responses.yaml" \
+		"variables-demo:mock-config.yaml" \
+		"assertions-test:mock-responses.yaml" \
+		"guardrails-test:mock-responses.yaml" \
+	); \
+	for example_config in "$${EXAMPLES[@]}"; do \
+		IFS=':' read -r example mock_file <<< "$$example_config"; \
+		echo "═══════════════════════════════════════════════════════"; \
+		echo "Testing example: $$example"; \
+		echo "═══════════════════════════════════════════════════════"; \
+		echo ""; \
+		if [ ! -d "examples/$$example" ]; then \
+			echo "✗ Example directory not found: examples/$$example"; \
+			FAILED=$$((FAILED + 1)); \
+			echo ""; \
+			continue; \
+		fi; \
+		echo "→ Running with mock provider (mock-config: $$mock_file)"; \
+		if cd "examples/$$example" && ../../bin/promptarena run --config config.arena.yaml --mock-provider --mock-config "$$mock_file" --ci --formats json 2>&1 | head -50; then \
+			echo ""; \
+			echo "✓ Example $$example completed"; \
+			cd ../..; \
+		else \
+			echo ""; \
+			echo "✗ Example $$example failed"; \
+			FAILED=$$((FAILED + 1)); \
+			cd ../..; \
+		fi; \
+		echo ""; \
+	done; \
+	echo "═══════════════════════════════════════════════════════"; \
+	if [ $$FAILED -eq 0 ]; then \
+		echo "✅ ALL CI EXAMPLES PASSED"; \
+		echo "All $${#EXAMPLES[@]} CI pipeline examples work with mock data!"; \
+	else \
+		echo "❌ $$FAILED CI example(s) failed"; \
 		exit 1; \
 	fi
 
