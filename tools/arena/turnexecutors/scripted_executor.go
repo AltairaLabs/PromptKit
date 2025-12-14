@@ -8,7 +8,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
 	arenaassertions "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
@@ -309,64 +308,6 @@ func (e *ScriptedExecutor) forwardStageElements(
 			}
 		}
 	}
-}
-
-// forwardStreamChunks forwards stream chunks from pipeline to output channel
-func (e *ScriptedExecutor) forwardStreamChunks(
-	streamChan <-chan providers.StreamChunk,
-	messages []types.Message,
-	outChan chan<- MessageStreamChunk,
-) {
-	assistantIndex := 1
-	var assistantMsg types.Message
-	assistantMsg.Role = "assistant"
-
-	for chunk := range streamChan {
-		if chunk.Error != nil {
-			outChan <- MessageStreamChunk{Messages: messages, Error: chunk.Error}
-			return
-		}
-
-		if chunk.FinalResult != nil {
-			break
-		}
-
-		assistantMsg = e.updateAssistantMessage(assistantMsg, chunk)
-		messages = e.updateMessagesList(messages, assistantMsg, assistantIndex)
-
-		outChan <- MessageStreamChunk{
-			Messages:     messages,
-			Delta:        chunk.Delta,
-			MessageIndex: assistantIndex,
-			TokenCount:   chunk.TokenCount,
-			FinishReason: chunk.FinishReason,
-		}
-
-		if chunk.FinishReason != nil {
-			break
-		}
-	}
-}
-
-// updateAssistantMessage updates assistant message with chunk data
-func (e *ScriptedExecutor) updateAssistantMessage(
-	msg types.Message,
-	chunk providers.StreamChunk,
-) types.Message {
-	msg.Content = chunk.Content
-
-	if len(chunk.ToolCalls) > 0 {
-		msg.ToolCalls = make([]types.MessageToolCall, len(chunk.ToolCalls))
-		for i, tc := range chunk.ToolCalls {
-			msg.ToolCalls[i] = types.MessageToolCall{
-				ID:   tc.ID,
-				Name: tc.Name,
-				Args: tc.Args,
-			}
-		}
-	}
-
-	return msg
 }
 
 // updateMessagesList updates the messages list with current assistant message

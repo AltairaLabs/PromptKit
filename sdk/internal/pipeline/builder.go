@@ -105,6 +105,7 @@ func Build(cfg *Config) (*rtpipeline.Pipeline, error) {
 
 // buildMiddlewarePipeline creates a middleware-based pipeline (legacy).
 func buildMiddlewarePipeline(cfg *Config) (*rtpipeline.Pipeline, error) {
+	//nolint:staticcheck // Middleware is deprecated but used for backward compatibility
 	var middlewares []rtpipeline.Middleware
 
 	// Debug: log configuration
@@ -260,14 +261,11 @@ func buildStagePipeline(cfg *Config) (*rtpipeline.Pipeline, error) {
 	}
 
 	// 3. Prompt assembly stage - loads prompt, sets system prompt and allowed tools
-	stages = append(stages, stage.NewPromptAssemblyStage(
-		cfg.PromptRegistry,
-		cfg.TaskType,
-		cfg.Variables,
-	))
-
 	// 4. Template stage - prepares system prompt for provider
-	stages = append(stages, stage.NewTemplateStage())
+	stages = append(stages,
+		stage.NewPromptAssemblyStage(cfg.PromptRegistry, cfg.TaskType, cfg.Variables),
+		stage.NewTemplateStage(),
+	)
 
 	// 5. Provider stage - LLM calls with streaming and tool support
 	if cfg.Provider != nil {
@@ -351,7 +349,10 @@ func (a *streamPipelineMiddlewareAdapter) Process(execCtx *rtpipeline.ExecutionC
 }
 
 // StreamChunk is not used since stages handle streaming internally.
-func (a *streamPipelineMiddlewareAdapter) StreamChunk(execCtx *rtpipeline.ExecutionContext, chunk *providers.StreamChunk) error {
+func (a *streamPipelineMiddlewareAdapter) StreamChunk(
+	execCtx *rtpipeline.ExecutionContext,
+	chunk *providers.StreamChunk,
+) error {
 	return nil
 }
 

@@ -62,8 +62,6 @@ func NewProviderStage(
 }
 
 // Process executes the LLM provider call and handles tool execution.
-//
-//nolint:lll,gocognit // Channel signature cannot be shortened, complexity inherent to provider logic
 func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
 	defer close(output)
 
@@ -86,8 +84,8 @@ func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement,
 			if sp, ok := elem.Metadata["system_prompt"].(string); ok {
 				systemPrompt = sp
 			}
-			if tools, ok := elem.Metadata["allowed_tools"].([]string); ok {
-				allowedTools = tools
+			if toolsList, ok := elem.Metadata["allowed_tools"].([]string); ok {
+				allowedTools = toolsList
 			}
 			// Merge all metadata
 			for k, v := range elem.Metadata {
@@ -140,7 +138,6 @@ func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement,
 	return nil
 }
 
-//nolint:gocognit // Complexity inherent to multi-round tool execution
 func (s *ProviderStage) executeMultiRound(
 	ctx context.Context,
 	messages []types.Message,
