@@ -5,10 +5,10 @@ import (
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
@@ -17,6 +17,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
 	arenaassertions "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	arenamiddleware "github.com/AltairaLabs/PromptKit/tools/arena/middleware"
+	arenastages "github.com/AltairaLabs/PromptKit/tools/arena/stages"
 )
 
 // variableInjectionMiddleware injects variables into the execution context
@@ -260,6 +261,101 @@ func (e *PipelineExecutor) buildMiddleware(req TurnRequest, baseVariables map[st
 	return pipelineMiddleware
 }
 
+// buildStagePipeline constructs a stage-based pipeline for execution.
+// This replaces the middleware chain with streaming stages for better performance.
+func (e *PipelineExecutor) buildStagePipeline(req TurnRequest, baseVariables map[string]string) (*stage.StreamPipeline, error) {
+	builder := stage.NewPipelineBuilder()
+
+	// Merge prompt vars into base variables
+	mergedVars := map[string]string{}
+	for k, v := range baseVariables {
+		mergedVars[k] = v
+	}
+	for k, v := range req.PromptVars {
+		mergedVars[k] = v
+	}
+
+	var stages []stage.Stage
+
+	// 0. State store load + turn index
+	if storeConfig := buildStateStoreConfig(req); storeConfig != nil {
+		stages = append(stages,
+			stage.NewStateStoreLoadStage(storeConfig),
+			arenastages.NewTurnIndexStage(),
+		)
+	}
+
+	// 1. Variable and metadata injection - wrap as stages
+	stages = append(stages, stage.WrapMiddleware("variable_injection", &variableInjectionMiddleware{variables: mergedVars}))
+	if len(req.Metadata) > 0 {
+		stages = append(stages, stage.WrapMiddleware("metadata_injection", &metadataInjectionMiddleware{metadata: req.Metadata}))
+	}
+
+	// 2-4. Prompt assembly, context extraction, template
+	stages = append(stages,
+		stage.NewPromptAssemblyStage(req.PromptRegistry, req.TaskType, mergedVars),
+		stage.WrapMiddleware("scenario_context_extraction", arenamiddleware.ScenarioContextExtractionMiddleware(req.Scenario)),
+		stage.NewTemplateStage(),
+	)
+
+	// 4a. Mock scenario context (for mock providers only)
+	if isMockProvider(req.Provider) {
+		logger.Debug("Adding MockScenarioContext stage", "scenario_id", req.Scenario.ID)
+		stages = append(stages, stage.WrapMiddleware("mock_scenario_context", arenamiddleware.MockScenarioContextMiddleware(req.Scenario)))
+	}
+
+	// 5. Context builder (if policy exists)
+	if mwPolicy := buildContextPolicy(req.Scenario); mwPolicy != nil {
+		// Convert middleware policy to stage policy
+		stagePolicy := &stage.ContextBuilderPolicy{
+			TokenBudget:      mwPolicy.TokenBudget,
+			ReserveForOutput: mwPolicy.ReserveForOutput,
+			Strategy:         stage.TruncationStrategy(mwPolicy.Strategy),
+			CacheBreakpoints: mwPolicy.CacheBreakpoints,
+		}
+		stages = append(stages, stage.NewContextBuilderStage(stagePolicy))
+	}
+
+	// 6. Provider stage
+	mwProviderConfig := buildProviderConfig(req)
+	stageProviderConfig := &stage.ProviderConfig{
+		MaxTokens:    mwProviderConfig.MaxTokens,
+		Temperature:  mwProviderConfig.Temperature,
+		Seed:         mwProviderConfig.Seed,
+		DisableTrace: mwProviderConfig.DisableTrace,
+	}
+	stages = append(stages, stage.NewProviderStage(
+		req.Provider,
+		e.toolRegistry,
+		buildToolPolicy(req.Scenario),
+		stageProviderConfig,
+	))
+
+	// 7. Media externalization (if configured)
+	if mediaConfig := buildMediaConfig(req.ConversationID, e.mediaStorage); mediaConfig != nil {
+		stages = append(stages, stage.WrapMiddleware("media_externalizer", middleware.MediaExternalizerMiddleware(mediaConfig)))
+	}
+
+	// 8. Dynamic validator
+	stages = append(stages, stage.NewValidationStage(validators.DefaultRegistry, true))
+
+	// 9. Arena state store save
+	if req.StateStoreConfig != nil && req.ConversationID != "" {
+		storeConfig := buildStateStoreConfig(req)
+		stages = append(stages, arenastages.NewArenaStateStoreSaveStage(storeConfig))
+	}
+
+	// 10. Assertion middleware (wrap as stage)
+	if len(req.Assertions) > 0 {
+		assertionRegistry := arenaassertions.NewArenaAssertionRegistry()
+		stages = append(stages, stage.WrapMiddleware("arena_assertions",
+			arenaassertions.ArenaAssertionMiddleware(assertionRegistry, req.Assertions)))
+	}
+
+	// Chain all stages together
+	return builder.Chain(stages...).Build()
+}
+
 // handleExecutionError processes pipeline execution errors
 func (e *PipelineExecutor) handleExecutionError(provider providers.Provider, err error) error {
 	if valErr, ok := err.(*pipeline.ValidationError); ok {
@@ -281,30 +377,31 @@ func (e *PipelineExecutor) Execute(
 	req TurnRequest,
 	userMessage types.Message,
 ) error {
-	// Build base variables and middleware chain
+	// Build base variables and stage pipeline
 	baseVariables := buildBaseVariables(req.Region)
-	pipelineMiddleware := e.buildMiddleware(req, baseVariables)
-	p := pipeline.NewPipeline(pipelineMiddleware...)
+	p, err := e.buildStagePipeline(req, baseVariables)
+	if err != nil {
+		return fmt.Errorf("failed to build stage pipeline: %w", err)
+	}
 
 	// Log the call
 	logger.LLMCall(req.Provider.ID(), "assistant", 1, req.Temperature, "max_tokens", req.MaxTokens)
 
-	// Execute pipeline
-	var emitter *events.Emitter
-	if req.EventBus != nil {
-		emitter = events.NewEmitter(req.EventBus, req.RunID, "", req.ConversationID)
+	// Create input element from user message
+	inputElem := stage.StreamElement{
+		Message: &userMessage,
+		Metadata: map[string]interface{}{
+			"run_id":          req.RunID,
+			"conversation_id": req.ConversationID,
+		},
 	}
 
-	_, err := p.ExecuteWithMessageOptions(&pipeline.ExecutionOptions{
-		Context:        ctx,
-		RunID:          req.RunID,
-		ConversationID: req.ConversationID,
-		EventEmitter:   emitter,
-	}, userMessage)
+	// Execute pipeline synchronously
+	_, err = p.ExecuteSync(ctx, inputElem)
 	if err != nil {
 		return e.handleExecutionError(req.Provider, err)
 	}
 
-	logger.Debug("Pipeline execution completed successfully")
+	logger.Debug("Stage pipeline execution completed successfully")
 	return nil
 }
