@@ -339,17 +339,17 @@ func (e *PipelineExecutor) buildStagePipeline(req TurnRequest, baseVariables map
 	// 8. Dynamic validator
 	stages = append(stages, stage.NewValidationStage(validators.DefaultRegistry, true))
 
-	// 9. Arena state store save
-	if req.StateStoreConfig != nil && req.ConversationID != "" {
-		storeConfig := buildStateStoreConfig(req)
-		stages = append(stages, arenastages.NewArenaStateStoreSaveStage(storeConfig))
-	}
-
-	// 10. Assertion middleware (wrap as stage)
+	// 9. Assertion middleware (wrap as stage) - must run before state store save
 	if len(req.Assertions) > 0 {
 		assertionRegistry := arenaassertions.NewArenaAssertionRegistry()
 		stages = append(stages, stage.WrapMiddleware("arena_assertions",
 			arenaassertions.ArenaAssertionMiddleware(assertionRegistry, req.Assertions)))
+	}
+
+	// 10. Arena state store save - saves messages with assertion metadata
+	if req.StateStoreConfig != nil && req.ConversationID != "" {
+		storeConfig := buildStateStoreConfig(req)
+		stages = append(stages, arenastages.NewArenaStateStoreSaveStage(storeConfig))
 	}
 
 	// Chain all stages together

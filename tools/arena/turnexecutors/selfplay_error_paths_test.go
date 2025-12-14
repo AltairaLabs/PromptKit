@@ -33,6 +33,11 @@ func (m *MockStateStore) Save(ctx context.Context, state *statestore.Conversatio
 	return args.Error(0)
 }
 
+func (m *MockStateStore) Fork(ctx context.Context, sourceID, newID string) error {
+	args := m.Called(ctx, sourceID, newID)
+	return args.Error(0)
+}
+
 func (m *MockStateStore) Delete(ctx context.Context, id string) error {
 	args := m.Called(ctx, id)
 	return args.Error(0)

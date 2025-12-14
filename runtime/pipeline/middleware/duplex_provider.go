@@ -49,8 +49,8 @@ func (m *duplexProviderMiddleware) Process(execCtx *pipeline.ExecutionContext, n
 	ctx := execCtx.Context
 	startTime := time.Now()
 
-	// Ensure StreamOutput is closed when done
-	defer close(execCtx.StreamOutput)
+	// Note: StreamOutput will be closed by the pipeline, not by this middleware
+	// This prevents double-close panics
 
 	// Channel to signal when input forwarding is done
 	inputDone := make(chan error, 1)
