@@ -9,14 +9,14 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// duplexSession implements BidirectionalSession with Pipeline integration.
-// It manages streaming input/output through the Pipeline middleware chain.
+// duplexSession implements BidirectionalSession with stage-based StreamPipeline.
+// It manages streaming input/output through the stage pipeline.
 //
 // Two modes:
 // - ASM mode: Creates persistent providerSession, one long-running pipeline execution
@@ -24,7 +24,7 @@ import (
 type duplexSession struct {
 	id              string
 	store           statestore.Store
-	pipeline        *pipeline.Pipeline
+	pipeline        *stage.StreamPipeline
 	provider        providers.Provider           // Provider for LLM calls
 	providerSession providers.StreamInputSession // nil for VAD mode, set for ASM mode
 	variables       map[string]string
@@ -32,8 +32,10 @@ type duplexSession struct {
 	closeMu         sync.Mutex
 	closed          bool
 
-	// Streaming channels - always present for continuous input/output
-	streamInput  chan providers.StreamChunk // Consumer sends chunks here
+	// Internal pipeline channel (stage.StreamElement)
+	stageInput chan stage.StreamElement // Feeds converted elements to pipeline
+
+	// External API channel (providers.StreamChunk)
 	streamOutput chan providers.StreamChunk // Consumer receives chunks here
 
 	// Pipeline execution control
@@ -117,8 +119,10 @@ func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSess
 		vars[k] = v
 	}
 
-	// Create streaming channels for continuous input/output
-	streamInput := make(chan providers.StreamChunk, streamBufferSize)
+	// Create streaming channels
+	// stageInput feeds stage.StreamElement to the pipeline
+	// streamOutput receives providers.StreamChunk for the external API
+	stageInput := make(chan stage.StreamElement, streamBufferSize)
 	streamOutput := make(chan providers.StreamChunk, streamBufferSize)
 
 	sess := &duplexSession{
@@ -128,7 +132,7 @@ func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSess
 		provider:        cfg.Provider,
 		providerSession: providerSession, // nil for VAD mode, set for ASM mode
 		variables:       vars,
-		streamInput:     streamInput,
+		stageInput:      stageInput,
 		streamOutput:    streamOutput,
 	}
 
@@ -141,6 +145,7 @@ func (s *duplexSession) ID() string {
 }
 
 // SendChunk sends a chunk to the session via the Pipeline.
+// Converts providers.StreamChunk to stage.StreamElement at the boundary.
 func (s *duplexSession) SendChunk(ctx context.Context, chunk *providers.StreamChunk) error {
 	s.closeMu.Lock()
 	if s.closed {
@@ -165,9 +170,12 @@ func (s *duplexSession) SendChunk(ctx context.Context, chunk *providers.StreamCh
 		s.executionMu.Unlock()
 	}
 
-	// Send chunk to Pipeline via StreamInput
+	// Convert StreamChunk to StreamElement at the boundary
+	elem := streamChunkToStreamElement(chunk)
+
+	// Send converted element to Pipeline
 	select {
-	case s.streamInput <- *chunk:
+	case s.stageInput <- elem:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -189,15 +197,15 @@ func (s *duplexSession) SendText(ctx context.Context, text string) error {
 	return s.SendChunk(ctx, chunk)
 }
 
-// executePipeline runs the Pipeline with StreamInput/StreamOutput channels.
+// executePipeline runs the stage pipeline with streaming input/output.
 // This is called once when the first chunk is received.
+// Converts stage.StreamElement output to providers.StreamChunk at the boundary.
 func (s *duplexSession) executePipeline(ctx context.Context) {
-	// Execute Pipeline with pre-configured channels
-	// Pipeline middleware processes chunks from streamInput and writes to streamOutput
-	err := s.pipeline.ExecuteStreamWithInput(ctx, s.streamInput, s.streamOutput)
+	defer close(s.streamOutput)
 
+	// Start the stage pipeline with our input channel
+	stageOutput, err := s.pipeline.Execute(ctx, s.stageInput)
 	if err != nil {
-		// If failed to start, send error and close
 		finishReason := "error"
 		select {
 		case s.streamOutput <- providers.StreamChunk{
@@ -206,9 +214,32 @@ func (s *duplexSession) executePipeline(ctx context.Context) {
 		}:
 		default:
 		}
-		close(s.streamOutput)
+		return
 	}
-	// Note: streamOutput will be closed automatically by Pipeline when execution completes
+
+	// Forward stage output to streamOutput, converting StreamElement to StreamChunk
+	for {
+		select {
+		case <-ctx.Done():
+			errChunk := providers.StreamChunk{Error: ctx.Err()}
+			select {
+			case s.streamOutput <- errChunk:
+			default:
+			}
+			return
+		case elem, ok := <-stageOutput:
+			if !ok {
+				// Stage pipeline finished
+				return
+			}
+			chunk := streamElementToStreamChunk(&elem)
+			select {
+			case s.streamOutput <- chunk:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
 }
 
 // Response returns the response channel from the Pipeline.
@@ -226,7 +257,7 @@ func (s *duplexSession) Close() error {
 	}
 
 	s.closed = true
-	close(s.streamInput)
+	close(s.stageInput)
 
 	// Close provider session if it exists (ASM mode)
 	if s.providerSession != nil {
@@ -327,4 +358,72 @@ func (s *duplexSession) ForkSession(
 		Provider:        s.provider,
 		Variables:       forkVars,
 	})
+}
+
+// streamChunkToStreamElement converts a providers.StreamChunk to stage.StreamElement.
+// This is the boundary conversion for input data.
+func streamChunkToStreamElement(chunk *providers.StreamChunk) stage.StreamElement {
+	elem := stage.StreamElement{
+		Metadata: make(map[string]interface{}),
+	}
+
+	// Convert audio data from MediaDelta to Audio
+	if chunk.MediaDelta != nil && chunk.MediaDelta.Data != nil {
+		audioData := []byte(*chunk.MediaDelta.Data)
+		const defaultSampleRate = 16000 // Default for speech
+		elem.Audio = &stage.AudioData{
+			Samples:    audioData,
+			SampleRate: defaultSampleRate, // Default, could be extracted from metadata
+			Format:     stage.AudioFormatPCM16,
+		}
+	}
+
+	// Convert text content
+	if chunk.Delta != "" {
+		elem.Text = &chunk.Delta
+	} else if chunk.Content != "" {
+		elem.Text = &chunk.Content
+	}
+
+	// Copy metadata
+	if chunk.Metadata != nil {
+		for k, v := range chunk.Metadata {
+			elem.Metadata[k] = v
+		}
+	}
+
+	return elem
+}
+
+// streamElementToStreamChunk converts a stage.StreamElement to providers.StreamChunk.
+// This is the boundary conversion for output data.
+func streamElementToStreamChunk(elem *stage.StreamElement) providers.StreamChunk {
+	chunk := providers.StreamChunk{}
+
+	// Convert audio data from Audio to MediaDelta
+	if elem.Audio != nil && len(elem.Audio.Samples) > 0 {
+		audioStr := string(elem.Audio.Samples)
+		chunk.MediaDelta = &types.MediaContent{
+			MIMEType: types.MIMETypeAudioWAV,
+			Data:     &audioStr,
+		}
+	}
+
+	// Convert text content
+	if elem.Text != nil && *elem.Text != "" {
+		chunk.Delta = *elem.Text
+		chunk.Content = *elem.Text
+	}
+
+	// Handle errors
+	if elem.Error != nil {
+		chunk.Error = elem.Error
+	}
+
+	// Copy metadata
+	if elem.Metadata != nil {
+		chunk.Metadata = elem.Metadata
+	}
+
+	return chunk
 }

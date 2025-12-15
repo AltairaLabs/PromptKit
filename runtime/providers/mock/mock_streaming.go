@@ -122,6 +122,28 @@ func (m *MockStreamSession) SendText(ctx context.Context, text string) error {
 	return nil
 }
 
+// SendSystemContext implements StreamInputSession.SendSystemContext.
+// Unlike SendText, this does NOT trigger a response from the model.
+func (m *MockStreamSession) SendSystemContext(ctx context.Context, text string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.closeCalled {
+		return errors.New("session closed")
+	}
+	if m.sendTextErr != nil {
+		return m.sendTextErr
+	}
+
+	// Store system context separately or with texts (for testing verification)
+	m.texts = append(m.texts, "[CONTEXT] "+text)
+
+	// Note: Unlike SendText, we do NOT emit auto-response for system context
+	// because system context should not trigger immediate responses
+
+	return nil
+}
+
 // Response implements StreamInputSession.Response.
 func (m *MockStreamSession) Response() <-chan providers.StreamChunk {
 	return m.responses
@@ -183,10 +205,16 @@ func (m *MockStreamSession) emitAutoResponse() {
 	} else {
 		// Emit simple text response
 		finishReason := "stop"
-		m.responses <- providers.StreamChunk{
+		chunk := providers.StreamChunk{
 			Content:      m.responseText,
 			Delta:        m.responseText,
 			FinishReason: &finishReason,
+		}
+		select {
+		case m.responses <- chunk:
+			// Sent successfully
+		default:
+			// Channel full or closed - this shouldn't happen with buffered channel
 		}
 	}
 }

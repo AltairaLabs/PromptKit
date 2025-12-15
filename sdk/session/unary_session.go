@@ -94,8 +94,9 @@ func (s *unarySession) ExecuteStreamWithMessage(
 ) (<-chan providers.StreamChunk, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	// TODO: Add ExecuteStreamWithMessage to pipeline
-	return s.pipeline.ExecuteStream(ctx, message.Role, message.Content)
+	// Extract text content from Parts or Content field
+	content := types.ExtractTextContent(message)
+	return s.pipeline.ExecuteStream(ctx, message.Role, content)
 }
 
 // SetVar sets a template variable that will be available for substitution.

@@ -7,6 +7,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -528,8 +529,123 @@ func TestStreamPipelineAdapter(t *testing.T) {
 		result, err := pipe.ExecuteWithMessageOptions(execOpts, userMsg)
 		require.NoError(t, err)
 		assert.NotNil(t, result)
+	})
+
+	t.Run("adapter with streaming provider exercises processStreaming", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		// Create a streaming provider to exercise processStreaming code path
+		mockProvider := mock.NewProvider("test-mock", "test-model", true)
+
+		cfg := &Config{
+			PromptRegistry: registry,
+			TaskType:       "chat",
+			Provider:       mockProvider,
+			UseStages:      true,
+		}
+
+		pipe, err := Build(cfg)
+		require.NoError(t, err)
+
+		execOpts := &rtpipeline.ExecutionOptions{
+			Context:        context.Background(),
+			ConversationID: "test-conv",
+		}
+		userMsg := types.Message{Role: "user"}
+		userMsg.AddTextPart("Test streaming")
+
+		// Execute - this should trigger processStreaming
+		result, err := pipe.ExecuteWithMessageOptions(execOpts, userMsg)
+		require.NoError(t, err)
+		assert.NotNil(t, result)
 		assert.NotNil(t, result.Response)
-		// Response should have content from the mock provider
 		assert.NotEmpty(t, result.Response.Content)
+	})
+
+	t.Run("adapter StreamChunk is called in streaming mode", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		mockProvider := mock.NewProvider("test-mock", "test-model", true)
+
+		cfg := &Config{
+			PromptRegistry: registry,
+			TaskType:       "chat",
+			Provider:       mockProvider,
+			UseStages:      true,
+		}
+
+		pipe, err := Build(cfg)
+		require.NoError(t, err)
+
+		// Use ExecuteStream to trigger streaming mode
+		stream, err := pipe.ExecuteStream(context.Background(), "user", "Stream test")
+		require.NoError(t, err)
+		assert.NotNil(t, stream)
+
+		// Consume stream to trigger processStreaming
+		var chunks []providers.StreamChunk
+		for chunk := range stream {
+			chunks = append(chunks, chunk)
+		}
+		
+		// Should have received at least one chunk
+		assert.NotEmpty(t, chunks)
+	})
+	
+	t.Run("adapter handles streaming mode", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		mockProvider := mock.NewProvider("test-mock", "test-model", true) // Streaming enabled
+
+		cfg := &Config{
+			PromptRegistry: registry,
+			TaskType:       "chat",
+			Provider:       mockProvider,
+			UseStages:      true,
+		}
+
+		pipe, err := Build(cfg)
+		require.NoError(t, err)
+
+		execOpts := &rtpipeline.ExecutionOptions{
+			Context:        context.Background(),
+			ConversationID: "test-conv",
+		}
+		userMsg := types.Message{Role: "user"}
+		userMsg.AddTextPart("Test streaming")
+
+		result, err := pipe.ExecuteWithMessageOptions(execOpts, userMsg)
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.NotNil(t, result.Response)
+		assert.NotEmpty(t, result.Response.Content)
+	})
+}
+
+
+func TestBuildStreamPipeline(t *testing.T) {
+	t.Run("builds stream pipeline successfully", func(t *testing.T) {
+registry := createTestRegistry("chat")
+
+cfg := &Config{
+			PromptRegistry: registry,
+			TaskType:       "chat",
+		}
+		
+		pipeline, err := BuildStreamPipeline(cfg)
+		require.NoError(t, err)
+		assert.NotNil(t, pipeline)
+	})
+	
+	t.Run("builds stream pipeline with duplex session", func(t *testing.T) {
+registry := createTestRegistry("chat")
+mockSession := mock.NewMockStreamSession()
+		
+		cfg := &Config{
+			PromptRegistry:     registry,
+			TaskType:           "chat",
+			StreamInputSession: mockSession,
+		}
+		
+		pipeline, err := BuildStreamPipeline(cfg)
+		require.NoError(t, err)
+		assert.NotNil(t, pipeline)
 	})
 }

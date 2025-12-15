@@ -15,6 +15,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	mock "github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
@@ -207,8 +208,10 @@ func TestConversationMessages(t *testing.T) {
 	// Create a dummy pipeline (not used for this test)
 	// We'll create a minimal valid pipeline
 	provider := mock.NewProvider("test", "test-model", false)
-	pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*rtpipeline.Pipeline, error) {
-		return &rtpipeline.Pipeline{}, nil
+	pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
+		// Return a minimal stage pipeline with provider stage for test
+		providerStage := stage.NewProviderStage(provider, nil, nil, nil)
+		return stage.NewPipelineBuilder().Chain(providerStage).Build()
 	}
 	duplexSession, err := session.NewDuplexSession(ctx, &session.DuplexSessionConfig{
 		ConversationID:  convID,
@@ -253,8 +256,10 @@ func TestConversationClear(t *testing.T) {
 	store := statestore.NewMemoryStore()
 	convID := "test-conv"
 	provider := mock.NewProvider("test", "test-model", false)
-	pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*rtpipeline.Pipeline, error) {
-		return &rtpipeline.Pipeline{}, nil
+	pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
+		// Return a minimal stage pipeline with provider stage for test
+		providerStage := stage.NewProviderStage(provider, nil, nil, nil)
+		return stage.NewPipelineBuilder().Chain(providerStage).Build()
 	}
 	duplexSession, err := session.NewDuplexSession(ctx, &session.DuplexSessionConfig{
 		ConversationID:  convID,
@@ -297,8 +302,10 @@ func TestConversationFork(t *testing.T) {
 	store := statestore.NewMemoryStore()
 	convID := "original"
 	provider := mock.NewProvider("test", "test-model", false)
-	pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*rtpipeline.Pipeline, error) {
-		return &rtpipeline.Pipeline{}, nil
+	pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
+		// Return a minimal stage pipeline with provider stage for test
+		providerStage := stage.NewProviderStage(provider, nil, nil, nil)
+		return stage.NewPipelineBuilder().Chain(providerStage).Build()
 	}
 	duplexSession, err := session.NewDuplexSession(ctx, &session.DuplexSessionConfig{
 		ConversationID:  convID,
@@ -423,7 +430,7 @@ func TestConversationStateStoreMiddlewareIntegration(t *testing.T) {
 	initInternalStateStore(conv, &config{}) // This sets up both store and ID
 
 	// Use existing mockStreamProvider (no extra setup needed)
-	conv.provider = &mockStreamProvider{}
+	conv.config.provider = &mockStreamProvider{}
 
 	ctx := context.Background()
 	resp, err := conv.Send(ctx, "Hello")
@@ -977,8 +984,10 @@ func TestGetBaseSessionUnary(t *testing.T) {
 	conv := newTestConversation()
 	store := statestore.NewMemoryStore()
 	provider := mock.NewProvider("test", "test-model", false)
-	pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*rtpipeline.Pipeline, error) {
-		return &rtpipeline.Pipeline{}, nil
+	pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
+		// Return a minimal stage pipeline with provider stage for test
+		providerStage := stage.NewProviderStage(provider, nil, nil, nil)
+		return stage.NewPipelineBuilder().Chain(providerStage).Build()
 	}
 	duplexSession, err := session.NewDuplexSession(context.Background(), &session.DuplexSessionConfig{
 		ConversationID:  "test",
@@ -1003,8 +1012,10 @@ func TestGetBaseSessionDuplex(t *testing.T) {
 	ctx := context.Background()
 	store := statestore.NewMemoryStore()
 	provider := mock.NewProvider("test", "test-model", false)
-	pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*rtpipeline.Pipeline, error) {
-		return &rtpipeline.Pipeline{}, nil
+	pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
+		// Return a minimal stage pipeline with provider stage for test
+		providerStage := stage.NewProviderStage(provider, nil, nil, nil)
+		return stage.NewPipelineBuilder().Chain(providerStage).Build()
 	}
 	duplexSession, err := session.NewDuplexSession(ctx, &session.DuplexSessionConfig{
 		ConversationID:  "test-duplex",
@@ -1027,8 +1038,10 @@ func TestMessagesWithDifferentModes(t *testing.T) {
 		conv := newTestConversation()
 		store := statestore.NewMemoryStore()
 		provider := mock.NewProvider("test", "test-model", false)
-		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*rtpipeline.Pipeline, error) {
-			return &rtpipeline.Pipeline{}, nil
+		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
+			// Return a minimal stage pipeline with provider stage for test
+			providerStage := stage.NewProviderStage(provider, nil, nil, nil)
+			return stage.NewPipelineBuilder().Chain(providerStage).Build()
 		}
 		duplexSession, err := session.NewDuplexSession(ctx, &session.DuplexSessionConfig{
 			ConversationID:  "test",
@@ -1059,8 +1072,10 @@ func TestMessagesWithDifferentModes(t *testing.T) {
 
 		store := statestore.NewMemoryStore()
 		provider := mock.NewProvider("test", "test-model", false)
-		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*rtpipeline.Pipeline, error) {
-			return &rtpipeline.Pipeline{}, nil
+		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
+			// Return a minimal stage pipeline with provider stage for test
+			providerStage := stage.NewProviderStage(provider, nil, nil, nil)
+			return stage.NewPipelineBuilder().Chain(providerStage).Build()
 		}
 		duplexSession, err := session.NewDuplexSession(ctx, &session.DuplexSessionConfig{
 			ConversationID:  "test-duplex",
@@ -1092,8 +1107,10 @@ func TestClearWithDifferentModes(t *testing.T) {
 		conv := newTestConversation()
 		store := statestore.NewMemoryStore()
 		provider := mock.NewProvider("test", "test-model", false)
-		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*rtpipeline.Pipeline, error) {
-			return &rtpipeline.Pipeline{}, nil
+		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
+			// Return a minimal stage pipeline with provider stage for test
+			providerStage := stage.NewProviderStage(provider, nil, nil, nil)
+			return stage.NewPipelineBuilder().Chain(providerStage).Build()
 		}
 		duplexSession, err := session.NewDuplexSession(ctx, &session.DuplexSessionConfig{
 			ConversationID:  "test",
@@ -1128,8 +1145,10 @@ func TestClearWithDifferentModes(t *testing.T) {
 
 		store := statestore.NewMemoryStore()
 		provider := mock.NewProvider("test", "test-model", false)
-		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*rtpipeline.Pipeline, error) {
-			return &rtpipeline.Pipeline{}, nil
+		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
+			// Return a minimal stage pipeline with provider stage for test
+			providerStage := stage.NewProviderStage(provider, nil, nil, nil)
+			return stage.NewPipelineBuilder().Chain(providerStage).Build()
 		}
 		duplexSession, err := session.NewDuplexSession(ctx, &session.DuplexSessionConfig{
 			ConversationID:  "test-duplex",
@@ -1202,8 +1221,7 @@ func TestSendWithMockProvider(t *testing.T) {
 		promptName:     "chat",
 		promptRegistry: p.ToPromptRegistry(),
 		toolRegistry:   tools.NewRegistry(),
-		provider:       mockProv,
-		config:         &config{},
+		config:         &config{provider: mockProv},
 		mode:           UnaryMode,
 		handlers:       make(map[string]ToolHandler),
 		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
@@ -1258,8 +1276,7 @@ func TestSendWithProviderError(t *testing.T) {
 		promptName:     "chat",
 		promptRegistry: p.ToPromptRegistry(),
 		toolRegistry:   tools.NewRegistry(),
-		provider:       mockProv,
-		config:         &config{},
+		config:         &config{provider: mockProv},
 		mode:           UnaryMode,
 		handlers:       make(map[string]ToolHandler),
 		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
@@ -1395,8 +1412,7 @@ func TestSendWithOptions(t *testing.T) {
 		promptName:     "chat",
 		promptRegistry: p.ToPromptRegistry(),
 		toolRegistry:   tools.NewRegistry(),
-		provider:       mockProv,
-		config:         &config{},
+		config:         &config{provider: mockProv},
 		mode:           UnaryMode,
 		handlers:       make(map[string]ToolHandler),
 		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
@@ -1440,7 +1456,7 @@ func TestClose(t *testing.T) {
 func TestCloseWithProvider(t *testing.T) {
 	mockProv := mock.NewProvider("test-mock", "test-model", false)
 	conv := newTestConversation()
-	conv.provider = mockProv
+	conv.config.provider = mockProv
 
 	err := conv.Close()
 	assert.NoError(t, err)
@@ -1516,8 +1532,7 @@ func TestBuildPipelineWithParameters(t *testing.T) {
 		promptName:     "chat",
 		promptRegistry: p.ToPromptRegistry(),
 		toolRegistry:   tools.NewRegistry(),
-		provider:       mock.NewProvider("test-mock", "test-model", false),
-		config:         &config{},
+		config:         &config{provider: mock.NewProvider("test-mock", "test-model", false)},
 		mode:           UnaryMode,
 		handlers:       make(map[string]ToolHandler),
 		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),

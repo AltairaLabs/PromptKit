@@ -20,64 +20,40 @@ import (
 // Mock implementations are now in runtime/providers/mock package
 // Use mock.NewStreamingProvider() for duplex session testing
 
-// Helper function to create a simple pipeline builder for tests.
-// For duplex mode, creates a middleware that forwards chunks to the provider session.
-func testPipelineBuilder(_ context.Context, _ providers.Provider, ps providers.StreamInputSession, _ string, _ statestore.Store) (*pipeline.Pipeline, error) {
+// Helper function to create a simple stage pipeline builder for tests.
+// Returns *stage.StreamPipeline for duplex sessions to use directly.
+func testPipelineBuilder(_ context.Context, p providers.Provider, ps providers.StreamInputSession, _ string, _ statestore.Store) (*stage.StreamPipeline, error) {
+	// Build a stage pipeline with DuplexProviderStage for ASM mode
+	pipelineConfig := stage.DefaultPipelineConfig()
+	pipelineConfig.ExecutionTimeout = 0 // Disable timeout for duplex tests
+	builder := stage.NewPipelineBuilderWithConfig(pipelineConfig)
+
+	var stages []stage.Stage
 	if ps != nil {
-		// Duplex mode - create middleware that forwards to provider session
-		mw := &testDuplexMiddleware{session: ps}
-		return pipeline.NewPipeline(mw), nil
+		// Duplex mode - use DuplexProviderStage
+		stages = append(stages, stage.NewDuplexProviderStage(ps))
+	} else if p != nil {
+		// VAD mode or non-streaming - use ProviderStage
+		stages = append(stages, stage.NewProviderStage(p, nil, nil, nil))
+	} else {
+		// Fallback - create a pass-through stage
+		stages = append(stages, &testNoOpStage{})
 	}
-	// Regular mode - return empty pipeline
-	return pipeline.NewPipeline(), nil
+	// Build and return the stage pipeline
+	return builder.Chain(stages...).Build()
 }
 
-// testDuplexMiddleware forwards chunks between pipeline and provider session.
-type testDuplexMiddleware struct {
-	session providers.StreamInputSession
-}
+// testNoOpStage is a minimal stage that does nothing (for tests that don't need execution).
+type testNoOpStage struct{}
 
-func (m *testDuplexMiddleware) Process(execCtx *pipeline.ExecutionContext, next func() error) error {
-	ctx := execCtx.Context
-	if ctx == nil {
-		ctx = context.Background()
+func (s *testNoOpStage) Name() string { return "test-noop" }
+
+func (s *testNoOpStage) Type() stage.StageType { return stage.StageTypeTransform }
+
+func (s *testNoOpStage) Process(ctx context.Context, in <-chan stage.StreamElement, out chan<- stage.StreamElement) error {
+	for elem := range in {
+		out <- elem
 	}
-
-	// Start goroutine to forward input chunks to provider session
-	go func() {
-		for chunk := range execCtx.StreamInput {
-			if chunk.MediaDelta != nil && chunk.MediaDelta.Data != nil {
-				mediaChunk := &types.MediaChunk{
-					Data: []byte(*chunk.MediaDelta.Data),
-				}
-				_ = m.session.SendChunk(ctx, mediaChunk)
-			}
-			if chunk.Content != "" {
-				_ = m.session.SendText(ctx, chunk.Content)
-			}
-		}
-	}()
-
-	// Forward responses from provider session to output
-	go func() {
-		defer func() {
-			// Recover from sending on closed channel
-			_ = recover()
-		}()
-		responseChan := m.session.Response()
-		for chunk := range responseChan {
-			select {
-			case execCtx.StreamOutput <- chunk:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-
-	return next()
-}
-
-func (m *testDuplexMiddleware) StreamChunk(_ *pipeline.ExecutionContext, _ *providers.StreamChunk) error {
 	return nil
 }
 

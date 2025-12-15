@@ -10,7 +10,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
-	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -66,8 +66,8 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 		return nil, err
 	}
 
-	// Resolve provider
-	prov, err := resolveProvider(cfg)
+	// Resolve provider and store in config
+	_, err = resolveProvider(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +79,6 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 		promptName:     promptName,
 		promptRegistry: p.ToPromptRegistry(),                                  // Create registry for PromptAssemblyMiddleware
 		toolRegistry:   tools.NewRegistryWithRepository(p.ToToolRepository()), // Create registry with pack tools
-		provider:       prov,
 		config:         cfg,
 		handlers:       make(map[string]ToolHandler),
 		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
@@ -169,7 +168,6 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 		promptName:     promptName,
 		promptRegistry: p.ToPromptRegistry(),
 		toolRegistry:   tools.NewRegistryWithRepository(p.ToToolRepository()),
-		provider:       prov,
 		config:         cfg,
 		handlers:       make(map[string]ToolHandler),
 		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
@@ -236,6 +234,7 @@ func loadAndValidatePack(packPath, promptName string, cfg *config) (*pack.Pack, 
 }
 
 // resolveProvider auto-detects or uses the configured provider.
+// Stores the resolved provider in cfg.provider for later use.
 func resolveProvider(cfg *config) (providers.Provider, error) {
 	if cfg.provider != nil {
 		return cfg.provider, nil
@@ -244,6 +243,7 @@ func resolveProvider(cfg *config) (providers.Provider, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to detect provider: %w", err)
 	}
+	cfg.provider = detected
 	return detected, nil
 }
 
@@ -329,15 +329,16 @@ func initDuplexSession(conv *Conversation, cfg *config, streamProvider providers
 	}
 
 	// Create pipeline builder closure that captures conversation context
+	// Returns *stage.StreamPipeline directly for duplex sessions
 	pipelineBuilder := func(
 		ctx context.Context,
 		provider providers.Provider,
 		providerSession providers.StreamInputSession,
 		convID string,
 		stateStore statestore.Store,
-	) (*rtpipeline.Pipeline, error) {
-		// Build pipeline using conversation's existing logic
-		return conv.buildPipelineWithParams(stateStore, convID, providerSession)
+	) (*stage.StreamPipeline, error) {
+		// Build stage pipeline directly (not wrapped) for duplex sessions
+		return conv.buildStreamPipelineWithParams(stateStore, convID, providerSession)
 	}
 
 	// Mode is determined by cfg.streamingConfig:

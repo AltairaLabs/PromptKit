@@ -370,22 +370,34 @@ func (s *TTSStage) shouldSynthesize(text string) bool {
 // It forwards elements from input to the provider's WebSocket session and
 // forwards responses from the session to output.
 //
+// System Prompt Handling:
+// The first element received may contain a system prompt in metadata["system_prompt"].
+// This is sent to the session via SendText() before processing audio/text content.
+// For Gemini Live API, this becomes the initial context for the conversation.
+//
 // This is a Bidirectional stage: input elements ⟷ WebSocket session ⟷ output elements
 type DuplexProviderStage struct {
 	BaseStage
-	session providers.StreamInputSession
+	session          providers.StreamInputSession
+	systemPromptSent bool
 }
 
 // NewDuplexProviderStage creates a new duplex provider stage.
 func NewDuplexProviderStage(session providers.StreamInputSession) *DuplexProviderStage {
 	return &DuplexProviderStage{
-		BaseStage: NewBaseStage("duplex_provider", StageTypeBidirectional),
-		session:   session,
+		BaseStage:        NewBaseStage("duplex_provider", StageTypeBidirectional),
+		session:          session,
+		systemPromptSent: false,
 	}
 }
 
 // Process implements the Stage interface.
 // Handles bidirectional streaming between input channel and WebSocket session.
+//
+// For duplex streaming (Gemini Live API), this runs until:
+// - Context is canceled (user stops the session)
+// - Session response channel is closed (server ends session)
+// - Input channel is closed (upstream ends)
 func (s *DuplexProviderStage) Process(
 	ctx context.Context,
 	input <-chan StreamElement,
@@ -399,23 +411,35 @@ func (s *DuplexProviderStage) Process(
 
 	logger.Debug("DuplexProviderStage: starting bidirectional streaming")
 
+	// Create cancellable context for input forwarding
+	// This allows us to stop input forwarding when response forwarding ends
+	inputCtx, cancelInput := context.WithCancel(ctx)
+	defer cancelInput()
+
 	// Channel to signal when input forwarding is done
 	inputDone := make(chan error, 1)
 
 	// Start input forwarding goroutine
-	go s.forwardInputElements(ctx, input, inputDone)
+	go s.forwardInputElements(inputCtx, input, inputDone)
 
 	// Forward responses from session to output (blocks until complete)
 	responseErr := s.forwardResponseElements(ctx, output)
 
-	// Wait for input forwarding to complete
+	// Cancel input forwarding context to signal the goroutine to stop
+	cancelInput()
+
+	// Wait for input forwarding to complete with a short grace period
+	// The goroutine should exit quickly since we canceled its context
+	const gracePeriod = 100 * time.Millisecond
 	select {
 	case inputErr := <-inputDone:
-		if inputErr != nil && responseErr == nil {
+		// Don't override response error with context.Canceled from our cancellation
+		if inputErr != nil && !errors.Is(inputErr, context.Canceled) && responseErr == nil {
 			responseErr = inputErr
 		}
-	case <-time.After(1 * time.Second):
-		logger.Warn("DuplexProviderStage: timeout waiting for input forwarding to complete")
+	case <-time.After(gracePeriod):
+		// Very short timeout - goroutine should have exited by now
+		logger.Debug("DuplexProviderStage: input forwarding cleanup completed")
 	}
 
 	return responseErr
@@ -445,6 +469,20 @@ func (s *DuplexProviderStage) forwardInputElements(
 
 // sendElementToSession sends a single element to the WebSocket session.
 func (s *DuplexProviderStage) sendElementToSession(ctx context.Context, elem *StreamElement) {
+	// Check for system prompt in metadata (sent once at the start)
+	if !s.systemPromptSent && elem.Metadata != nil {
+		if systemPrompt, ok := elem.Metadata["system_prompt"].(string); ok && systemPrompt != "" {
+			logger.Debug("DuplexProviderStage: sending system prompt as context (no turn_complete)",
+				"promptLength", len(systemPrompt))
+			// Use SendSystemContext to send prompt WITHOUT triggering a response
+			// This allows the system prompt to be applied before audio input starts
+			if err := s.session.SendSystemContext(ctx, systemPrompt); err != nil {
+				logger.Error("DuplexProviderStage: failed to send system prompt", "error", err)
+			}
+			s.systemPromptSent = true
+		}
+	}
+
 	if elem.Audio != nil && len(elem.Audio.Samples) > 0 {
 		s.sendAudioElement(ctx, elem)
 	} else if elem.Text != nil && *elem.Text != "" {
@@ -479,6 +517,11 @@ func (s *DuplexProviderStage) sendTextElement(ctx context.Context, elem *StreamE
 }
 
 // forwardResponseElements forwards responses from session to output channel.
+// For duplex streaming (Gemini Live API), this runs until:
+// - Context is canceled
+// - Session response channel is closed
+// Note: We do NOT exit on FinishReason/turnComplete - that's just a turn
+// boundary in Gemini Live API, not end of session.
 func (s *DuplexProviderStage) forwardResponseElements(
 	ctx context.Context,
 	output chan<- StreamElement,
@@ -499,8 +542,10 @@ func (s *DuplexProviderStage) forwardResponseElements(
 				return err
 			}
 
-			if s.isFinished(&chunk) {
-				return nil
+			// Log turn completions but DON'T exit - keep session running
+			// Gemini Live API's turnComplete is a turn marker, not end of session
+			if chunk.FinishReason != nil && *chunk.FinishReason != "" {
+				logger.Debug("DuplexProviderStage: turn completed", "reason", *chunk.FinishReason)
 			}
 		}
 	}
@@ -566,11 +611,3 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 	return elem
 }
 
-// isFinished checks if the chunk indicates streaming is complete.
-func (s *DuplexProviderStage) isFinished(chunk *providers.StreamChunk) bool {
-	if chunk.FinishReason != nil && *chunk.FinishReason != "" {
-		logger.Debug("DuplexProviderStage: streaming finished", "reason", *chunk.FinishReason)
-		return true
-	}
-	return false
-}

@@ -12,6 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
@@ -70,10 +71,7 @@ type Conversation struct {
 	promptRegistry *prompt.Registry // Registry for PromptAssemblyMiddleware
 	toolRegistry   *tools.Registry  // Registry for tools (pre-populated from pack)
 
-	// Provider for LLM calls
-	provider providers.Provider
-
-	// Configuration from options
+	// Configuration from options (includes provider)
 	config *config
 
 	// Session management - mode-based approach
@@ -214,17 +212,20 @@ func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption
 	return c.buildResponse(result, startTime), nil
 }
 
-// buildPipelineWithParams builds a pipeline with explicit parameters.
-// Used during initialization when textSession doesn't exist yet.
+// buildPipelineWithParams builds a wrapped pipeline with explicit parameters.
+// Used during initialization for unary sessions.
 func (c *Conversation) buildPipelineWithParams(
 	store statestore.Store,
 	conversationID string,
 	streamInputSession providers.StreamInputSession,
 ) (*rtpipeline.Pipeline, error) {
-	// Note: Variables are no longer passed to pipeline at build time.
-	// They are resolved dynamically from the session during execution.
-	// For now, pass empty vars since pipeline doesn't capture them anymore anyway.
+	// Get initial variables from config (required for prompt template resolution)
 	vars := make(map[string]string)
+	if c.config != nil && c.config.initialVariables != nil {
+		for k, v := range c.config.initialVariables {
+			vars[k] = v
+		}
+	}
 
 	// Build tool registry
 	c.handlersMu.RLock()
@@ -236,7 +237,7 @@ func (c *Conversation) buildPipelineWithParams(
 
 	// Build pipeline configuration
 	pipelineCfg := &intpipeline.Config{
-		Provider:           c.provider,
+		Provider:           c.config.provider,
 		ToolRegistry:       toolRegistry,
 		PromptRegistry:     c.promptRegistry,
 		TaskType:           c.promptName,
@@ -261,6 +262,60 @@ func (c *Conversation) buildPipelineWithParams(
 
 	// Build the pipeline
 	return intpipeline.Build(pipelineCfg)
+}
+
+// buildStreamPipelineWithParams builds a stage pipeline directly for duplex sessions.
+// Returns *stage.StreamPipeline which DuplexSession uses directly without wrapping.
+//
+//nolint:dupl // Similar to buildPipelineWithParams but serves different purpose
+func (c *Conversation) buildStreamPipelineWithParams(
+	store statestore.Store,
+	conversationID string,
+	streamInputSession providers.StreamInputSession,
+) (*stage.StreamPipeline, error) {
+	// Get initial variables from config (required for prompt template resolution)
+	vars := make(map[string]string)
+	if c.config != nil && c.config.initialVariables != nil {
+		for k, v := range c.config.initialVariables {
+			vars[k] = v
+		}
+	}
+
+	// Build tool registry
+	c.handlersMu.RLock()
+	localExec := &localExecutor{handlers: c.handlers}
+	c.toolRegistry.RegisterExecutor(localExec)
+	c.registerMCPExecutors()
+	toolRegistry := c.toolRegistry
+	c.handlersMu.RUnlock()
+
+	// Build pipeline configuration
+	pipelineCfg := &intpipeline.Config{
+		Provider:           c.config.provider,
+		ToolRegistry:       toolRegistry,
+		PromptRegistry:     c.promptRegistry,
+		TaskType:           c.promptName,
+		Variables:          vars,
+		VariableProviders:  c.config.variableProviders,
+		MaxTokens:          defaultMaxTokens,
+		Temperature:        defaultTemperature,
+		StateStore:         store,
+		ConversationID:     conversationID,
+		StreamInputSession: streamInputSession,
+	}
+
+	// Apply parameters from prompt if available
+	if c.prompt.Parameters != nil {
+		if c.prompt.Parameters.MaxTokens != nil {
+			pipelineCfg.MaxTokens = *c.prompt.Parameters.MaxTokens
+		}
+		if c.prompt.Parameters.Temperature != nil {
+			pipelineCfg.Temperature = float32(*c.prompt.Parameters.Temperature)
+		}
+	}
+
+	// Build the stage pipeline directly (for duplex sessions)
+	return intpipeline.BuildStreamPipeline(pipelineCfg)
 }
 
 // executePipeline builds and executes the LLM pipeline.
@@ -548,7 +603,6 @@ func (c *Conversation) Fork() *Conversation {
 		promptName:     c.promptName,
 		promptRegistry: c.promptRegistry,
 		toolRegistry:   c.toolRegistry,
-		provider:       c.provider,
 		config:         c.config,
 		mode:           c.mode,
 		handlers:       handlers,
@@ -568,15 +622,15 @@ func (c *Conversation) Fork() *Conversation {
 
 	case DuplexMode:
 		// For duplex mode, create pipeline builder for the fork
-		// The builder will be called by the session with the appropriate provider and session
+		// Returns *stage.StreamPipeline directly for duplex sessions
 		pipelineBuilder := func(
 			ctx context.Context,
 			provider providers.Provider,
 			providerSession providers.StreamInputSession,
 			convID string,
 			stateStore statestore.Store,
-		) (*rtpipeline.Pipeline, error) {
-			return fork.buildPipelineWithParams(stateStore, convID, providerSession)
+		) (*stage.StreamPipeline, error) {
+			return fork.buildStreamPipelineWithParams(stateStore, convID, providerSession)
 		}
 
 		forkSession, err := c.duplexSession.ForkSession(ctx, forkID, pipelineBuilder)

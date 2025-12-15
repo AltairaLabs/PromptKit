@@ -55,11 +55,12 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 }
 
 // executeBackground runs the pipeline execution in a background goroutine.
+// It starts all stages as goroutines and collects output CONCURRENTLY with stage execution
+// to support streaming/duplex stages that run indefinitely.
 //
 //nolint:lll // Channel signature cannot be shortened
 func (p *StreamPipeline) executeBackground(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement, cancel context.CancelFunc) {
 	defer func() {
-		close(output)
 		p.wg.Done()
 		if cancel != nil {
 			cancel()
@@ -86,6 +87,15 @@ func (p *StreamPipeline) executeBackground(ctx context.Context, input <-chan Str
 		go p.runStage(ctx, stage, stageInput, stageOutput, &stageWg, stageErrors)
 	}
 
+	// Start collecting output from leaf stages CONCURRENTLY with stage execution
+	// This is critical for streaming/duplex stages that produce output while running
+	outputDone := make(chan struct{})
+	go func() {
+		p.collectOutput(channels, output)
+		close(output) // Close output after all leaf stage outputs are collected
+		close(outputDone)
+	}()
+
 	// Wait for all stages to complete
 	go func() {
 		stageWg.Wait()
@@ -100,6 +110,9 @@ func (p *StreamPipeline) executeBackground(ctx context.Context, input <-chan Str
 		}
 	}
 
+	// Wait for output collection to complete
+	<-outputDone
+
 	duration := time.Since(start)
 
 	// Emit completion event
@@ -111,13 +124,8 @@ func (p *StreamPipeline) executeBackground(ctx context.Context, input <-chan Str
 		}
 	}
 
-	// Collect output from leaf stages
-	p.collectOutput(channels, output)
-
-	// If there was an error, send error element
-	if firstError != nil {
-		output <- NewErrorElement(firstError)
-	}
+	// Note: Error element is now sent via collectOutput if the leaf stage emits it
+	// This is cleaner than appending after output is closed
 }
 
 // createChannels creates all inter-stage channels based on the DAG topology.

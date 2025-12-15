@@ -401,30 +401,29 @@ func (s *ProviderStage) executeStreamingRound(
 			toolCalls = chunk.ToolCalls
 		}
 
-		// Emit streaming element with delta
-		elem := StreamElement{
-			Timestamp: timeNow(),
-			Priority:  PriorityNormal,
-			Metadata:  make(map[string]interface{}),
-		}
+		// Emit streaming element with delta text
+		if chunk.Delta != "" {
+			elem := NewTextElement(chunk.Delta)
+			elem.Timestamp = timeNow()
+			elem.Priority = PriorityNormal
 
-		// Copy metadata
-		for k, v := range metadata {
-			elem.Metadata[k] = v
-		}
+			// Copy metadata
+			for k, v := range metadata {
+				elem.Metadata[k] = v
+			}
 
-		// Add chunk-specific metadata
-		elem.Metadata["delta"] = chunk.Delta
-		elem.Metadata["token_count"] = chunk.TokenCount
-		if chunk.FinishReason != nil {
-			elem.Metadata["finish_reason"] = *chunk.FinishReason
-		}
+			// Add chunk-specific metadata
+			elem.Metadata["token_count"] = chunk.TokenCount
+			if chunk.FinishReason != nil {
+				elem.Metadata["finish_reason"] = *chunk.FinishReason
+			}
 
-		// Emit the chunk element
-		select {
-		case output <- elem:
-		case <-ctx.Done():
-			return types.Message{}, false, ctx.Err()
+			// Emit the chunk element
+			select {
+			case output <- elem:
+			case <-ctx.Done():
+				return types.Message{}, false, ctx.Err()
+			}
 		}
 	}
 

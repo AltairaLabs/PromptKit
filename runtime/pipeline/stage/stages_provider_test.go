@@ -47,17 +47,15 @@ func TestProviderStage_StreamingMode(t *testing.T) {
 	// Should have received streaming chunks + final message
 	require.Greater(t, len(elements), 0, "should receive at least one element")
 
-	// Check for streaming deltas in metadata
-	foundDelta := false
+	// Check for streaming text elements (deltas)
+	foundTextElement := false
 	for _, elem := range elements {
-		if elem.Metadata != nil {
-			if _, ok := elem.Metadata["delta"]; ok {
-				foundDelta = true
-				break
-			}
+		if elem.Text != nil && *elem.Text != "" {
+			foundTextElement = true
+			break
 		}
 	}
-	assert.True(t, foundDelta, "should have streaming delta in metadata")
+	assert.True(t, foundTextElement, "should have streaming text elements")
 
 	// Last element should be complete message
 	lastElem := elements[len(elements)-1]

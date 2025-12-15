@@ -387,6 +387,33 @@ func WithVariableProvider(p variables.Provider) Option {
 	}
 }
 
+// WithVariables sets initial variables for template substitution.
+//
+// These variables are available immediately when the conversation opens,
+// before any messages are sent. Use this for variables that must be set
+// before the first LLM call (e.g., in streaming/ASM mode).
+//
+// Variables set here override prompt defaults but can be further modified
+// via conv.SetVar() for subsequent messages.
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "assistant",
+//	    sdk.WithVariables(map[string]string{
+//	        "user_name": "Alice",
+//	        "language": "en",
+//	    }),
+//	)
+func WithVariables(vars map[string]string) Option {
+	return func(c *config) error {
+		if c.initialVariables == nil {
+			c.initialVariables = make(map[string]string)
+		}
+		for k, v := range vars {
+			c.initialVariables[k] = v
+		}
+		return nil
+	}
+}
+
 // WithTTS configures text-to-speech for the Pipeline.
 //
 // TTS is applied via Pipeline middleware during streaming responses.

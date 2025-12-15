@@ -2,6 +2,7 @@
 package pipeline
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
@@ -11,6 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
 	"github.com/AltairaLabs/PromptKit/runtime/variables"
 )
@@ -75,7 +77,8 @@ type Config struct {
 	UseStages bool
 }
 
-// Build creates a stage-based streaming pipeline.
+// Build creates a stage-based streaming pipeline wrapped for SDK compatibility.
+// Use BuildStreamPipeline for duplex sessions that need direct stage pipeline access.
 //
 // Stage order:
 //  1. StateStoreLoadStage - Load conversation history (if configured)
@@ -91,16 +94,32 @@ func Build(cfg *Config) (*rtpipeline.Pipeline, error) {
 	return buildStagePipeline(cfg)
 }
 
-// buildStagePipeline creates a pipeline using the stage architecture with streaming support.
-func buildStagePipeline(cfg *Config) (*rtpipeline.Pipeline, error) {
+// BuildStreamPipeline creates a stage-based streaming pipeline directly.
+// This is used by DuplexSession which manages streaming at the session level.
+func BuildStreamPipeline(cfg *Config) (*stage.StreamPipeline, error) {
+	return buildStreamPipelineInternal(cfg)
+}
+
+// buildStreamPipelineInternal creates a stage pipeline directly without wrapping.
+// Used by DuplexSession which handles streaming at the session level.
+func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 	logger.Info("Building stage-based pipeline",
 		"taskType", cfg.TaskType,
 		"hasStateStore", cfg.StateStore != nil,
 		"hasToolRegistry", cfg.ToolRegistry != nil,
 		"hasDuplexSession", cfg.StreamInputSession != nil)
 
-	// Create stage pipeline builder
-	builder := stage.NewPipelineBuilder()
+	// Create stage pipeline builder with appropriate config
+	var builder *stage.PipelineBuilder
+	if cfg.StreamInputSession != nil {
+		// For duplex streaming (ASM mode), disable execution timeout
+		// since the session runs indefinitely until user ends it
+		pipelineConfig := stage.DefaultPipelineConfig()
+		pipelineConfig.ExecutionTimeout = 0 // Disable timeout for duplex
+		builder = stage.NewPipelineBuilderWithConfig(pipelineConfig)
+	} else {
+		builder = stage.NewPipelineBuilder()
+	}
 
 	var stages []stage.Stage
 
@@ -158,30 +177,41 @@ func buildStagePipeline(cfg *Config) (*rtpipeline.Pipeline, error) {
 		stages = append(stages, stage.NewStateStoreSaveStage(stateStoreConfig))
 	}
 
-	// Build the StreamPipeline
+	// Build and return the StreamPipeline directly
 	streamPipeline, err := builder.Chain(stages...).Build()
 	if err != nil {
 		return nil, fmt.Errorf("failed to build stage pipeline: %w", err)
 	}
 
-	// Wrap for SDK compatibility
+	return streamPipeline, nil
+}
+
+// buildStagePipeline creates a pipeline wrapped for SDK compatibility (unary mode).
+func buildStagePipeline(cfg *Config) (*rtpipeline.Pipeline, error) {
+	streamPipeline, err := buildStreamPipelineInternal(cfg)
+	if err != nil {
+		return nil, err
+	}
 	return wrapStreamPipeline(streamPipeline), nil
 }
 
-// wrapStreamPipeline wraps a StreamPipeline to work with SDK's Pipeline interface.
+// wrapStreamPipeline wraps a StreamPipeline for SDK's unary Pipeline interface.
+// Note: Duplex sessions use BuildStreamPipeline and manage streaming directly.
 func wrapStreamPipeline(sp *stage.StreamPipeline) *rtpipeline.Pipeline {
 	adapter := &streamPipelineMiddlewareAdapter{streamPipeline: sp}
 	pipeline, _ := rtpipeline.NewPipelineWithConfigValidated(nil, adapter)
 	return pipeline
 }
 
-// streamPipelineMiddlewareAdapter bridges middleware execution to stage execution.
+// streamPipelineMiddlewareAdapter bridges unary middleware execution to stage execution.
+// Duplex streaming is handled directly by DuplexSession using StreamPipeline.Execute().
 type streamPipelineMiddlewareAdapter struct {
 	streamPipeline *stage.StreamPipeline
 }
 
 // Process converts middleware ExecutionContext to StreamElement, executes stages, and converts back.
-func (a *streamPipelineMiddlewareAdapter) Process(execCtx *rtpipeline.ExecutionContext, next func() error) error {
+// Supports both unary and streaming modes.
+func (a *streamPipelineMiddlewareAdapter) Process(execCtx *rtpipeline.ExecutionContext, _ func() error) error {
 	ctx := execCtx.Context
 	if ctx == nil {
 		return fmt.Errorf("execution context missing from pipeline")
@@ -190,7 +220,12 @@ func (a *streamPipelineMiddlewareAdapter) Process(execCtx *rtpipeline.ExecutionC
 	// Convert ExecutionContext to StreamElement for stage input
 	inputElem := executionContextToStreamElement(execCtx)
 
-	// Execute the stage pipeline synchronously
+	// For streaming mode, use Execute and emit chunks as they arrive
+	if execCtx.StreamMode {
+		return a.processStreaming(ctx, &inputElem, execCtx)
+	}
+
+	// Unary mode: execute synchronously
 	result, err := a.streamPipeline.ExecuteSync(ctx, inputElem)
 	if err != nil {
 		return err
@@ -198,6 +233,81 @@ func (a *streamPipelineMiddlewareAdapter) Process(execCtx *rtpipeline.ExecutionC
 
 	// Convert output ExecutionResult back to ExecutionContext
 	executionResultToExecutionContext(result, execCtx)
+
+	return nil
+}
+
+// processStreaming handles streaming execution by emitting chunks as they arrive.
+func (a *streamPipelineMiddlewareAdapter) processStreaming(
+	ctx context.Context,
+	inputElem *stage.StreamElement,
+	execCtx *rtpipeline.ExecutionContext,
+) error {
+	// Create input channel with the element
+	inputChan := make(chan stage.StreamElement, 1)
+	inputChan <- *inputElem
+	close(inputChan)
+
+	// Execute as stream
+	outputChan, err := a.streamPipeline.Execute(ctx, inputChan)
+	if err != nil {
+		return err
+	}
+
+	// Process output elements - emit text chunks and accumulate result
+	var accumulatedContent string
+	var messages []types.Message
+	var response *stage.Response
+
+	for elem := range outputChan {
+		// Handle errors
+		if elem.Error != nil {
+			return elem.Error
+		}
+
+		// Emit text chunks for streaming
+		if elem.Text != nil && *elem.Text != "" {
+			accumulatedContent += *elem.Text
+			// Emit the chunk through the execution context
+			chunk := providers.StreamChunk{
+				Delta:   *elem.Text,
+				Content: accumulatedContent,
+			}
+			execCtx.EmitStreamChunk(chunk)
+		}
+
+		// Collect messages
+		if elem.Message != nil {
+			messages = append(messages, *elem.Message)
+			// Track assistant response
+			if elem.Message.Role == "assistant" {
+				response = &stage.Response{
+					Role:    elem.Message.Role,
+					Content: elem.Message.Content,
+					Parts:   elem.Message.Parts,
+				}
+			}
+		}
+	}
+
+	// Set final response from accumulated data
+	if response != nil {
+		execCtx.Response = &rtpipeline.Response{
+			Role:      response.Role,
+			Content:   response.Content,
+			ToolCalls: response.ToolCalls,
+		}
+	} else if accumulatedContent != "" {
+		// If we only got text chunks without a final message, create response from accumulated text
+		execCtx.Response = &rtpipeline.Response{
+			Role:    "assistant",
+			Content: accumulatedContent,
+		}
+	}
+
+	if len(messages) > 0 {
+		execCtx.Messages = messages
+	}
 
 	return nil
 }
