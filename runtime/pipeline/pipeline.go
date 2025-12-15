@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"golang.org/x/sync/semaphore"
@@ -22,11 +21,9 @@ var (
 
 // Error message format strings
 const (
-	errFailedToAcquireSlot    = "failed to acquire execution slot: %w"
-	errShutdownTimeout        = "shutdown timeout after %v"
-	errMiddlewareChainBroken  = "Middleware did not call next() - chain is broken"
-	errMiddlewareMultipleNext = "Middleware called next() multiple times"
-	errValidationFailed       = "validation failed (%s): %s"
+	errFailedToAcquireSlot = "failed to acquire execution slot: %w"
+	errShutdownTimeout     = "shutdown timeout after %v"
+	errValidationFailed    = "validation failed (%s): %s"
 )
 
 // RuntimeConfig defines runtime configuration options for pipeline execution.
@@ -660,16 +657,8 @@ func (p *Pipeline) executeChain(execCtx *ExecutionContext, index int) error {
 		return nil // End of chain
 	}
 
-	// Track if next() was called
-	nextCalled := false
-	nextCalledMultipleTimes := false
-
-	// Create monitored next function for this middleware
+	// Create next function for this middleware
 	next := func() error {
-		if nextCalled {
-			nextCalledMultipleTimes = true
-		}
-		nextCalled = true
 		return p.executeChain(execCtx, index+1)
 	}
 
@@ -690,24 +679,6 @@ func (p *Pipeline) executeChain(execCtx *ExecutionContext, index int) error {
 		} else {
 			execCtx.EventEmitter.MiddlewareCompleted(middlewareName, index, duration)
 		}
-	}
-
-	// Check for common middleware mistakes and log warnings
-	if !nextCalled && err == nil && index < len(p.middleware)-1 {
-		// Middleware didn't call next() and didn't return an error
-		// Only warn if ShortCircuit flag is not set (intentional short-circuits are fine)
-		if !execCtx.ShortCircuit {
-			logger.Warn(errMiddlewareChainBroken,
-				"middleware", middlewareName,
-				"position", index)
-		}
-	}
-
-	if nextCalledMultipleTimes {
-		// Middleware called next() multiple times
-		logger.Warn(errMiddlewareMultipleNext,
-			"middleware", middlewareName,
-			"position", index)
 	}
 
 	// Capture first error

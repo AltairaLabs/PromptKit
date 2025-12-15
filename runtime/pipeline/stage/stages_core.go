@@ -55,6 +55,9 @@ func (s *PromptAssemblyStage) Process(ctx context.Context, input <-chan StreamEl
 			elem.Metadata["system_prompt"] = assembled.SystemPrompt
 			elem.Metadata["allowed_tools"] = assembled.AllowedTools
 			elem.Metadata["base_variables"] = s.baseVariables
+			// Set variables for TemplateStage to use for substitution
+			// VariableProviderStage (if present) can override/extend these
+			elem.Metadata["variables"] = s.baseVariables
 
 			// Store validator configs for dynamic validator stage
 			if len(assembled.Validators) > 0 {

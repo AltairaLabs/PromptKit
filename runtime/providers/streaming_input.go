@@ -82,12 +82,13 @@ type StreamInputSession interface {
 }
 
 // StreamingInputConfig configures a new streaming input session.
-// Note: System prompts, model parameters (temperature, max tokens, etc.) are
-// configured at the provider level, not per-session. This only contains
-// session-specific media configuration and provider metadata.
 type StreamingInputConfig struct {
 	// Config specifies the media streaming configuration (codec, sample rate, etc.)
 	Config types.StreamingMediaConfig `json:"config"`
+
+	// SystemInstruction is the system prompt to configure the model's behavior.
+	// For Gemini Live API, this is included in the setup message.
+	SystemInstruction string `json:"system_instruction,omitempty"`
 
 	// Metadata contains provider-specific session configuration
 	// Example: {"response_modalities": ["TEXT", "AUDIO"]} for Gemini

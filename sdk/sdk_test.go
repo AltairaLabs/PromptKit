@@ -467,6 +467,32 @@ func TestApplyDefaultVariables(t *testing.T) {
 		assert.Empty(t, conv.config.initialVariables["var2"])
 		assert.Equal(t, "default3", conv.config.initialVariables["var3"])
 	})
+
+	t.Run("does not overwrite user-provided values", func(t *testing.T) {
+		conv := &Conversation{
+			config: &config{
+				initialVariables: map[string]string{
+					"var1": "user-value1",
+					"var3": "user-value3",
+				},
+			},
+		}
+		prompt := &pack.Prompt{
+			Variables: []pack.Variable{
+				{Name: "var1", Default: "default1"},
+				{Name: "var2", Default: "default2"},
+				{Name: "var3", Default: "default3"},
+			},
+		}
+		applyDefaultVariables(conv, prompt)
+
+		// User-provided values should NOT be overwritten
+		assert.Equal(t, "user-value1", conv.config.initialVariables["var1"])
+		// Default should be applied for missing variable
+		assert.Equal(t, "default2", conv.config.initialVariables["var2"])
+		// User-provided values should NOT be overwritten
+		assert.Equal(t, "user-value3", conv.config.initialVariables["var3"])
+	})
 }
 
 func TestInitEventBus(t *testing.T) {

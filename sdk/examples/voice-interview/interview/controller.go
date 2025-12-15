@@ -156,6 +156,16 @@ func (c *Controller) Start(ctx context.Context) error {
 		go c.processWebcamFrames()
 	}
 
+	// In ASM mode, trigger the model to introduce itself and start the interview
+	// This sends a text prompt that makes the model speak first
+	if c.config.Mode == ModeASM {
+		fmt.Println("[ASM] Triggering model to start the interview...")
+		if err := c.conv.TriggerStart(c.ctx, "Please introduce yourself and begin the interview now."); err != nil {
+			fmt.Printf("[ASM] Warning: failed to trigger start: %v\n", err)
+			// Don't fail - the interview can still work when user speaks first
+		}
+	}
+
 	return nil
 }
 

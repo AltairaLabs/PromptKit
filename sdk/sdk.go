@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -19,6 +20,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/sdk/session"
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
 )
+
+// debugSnippetMaxLen is the max length for debug log snippets.
+const debugSnippetMaxLen = 200
 
 // Open loads a pack file and creates a new conversation for the specified prompt.
 //
@@ -347,6 +351,28 @@ func initDuplexSession(conv *Conversation, cfg *config, streamProvider providers
 	var streamConfig *providers.StreamingInputConfig
 	if cfg.streamingConfig != nil {
 		streamConfig = cfg.streamingConfig
+
+		// For ASM mode, load and set the system instruction from prompt registry
+		// Gemini Live API requires system instruction in the setup message
+		if streamConfig.SystemInstruction == "" && conv.promptRegistry != nil {
+			logger.Debug("Loading system instruction with variables",
+				"promptName", conv.promptName,
+				"varCount", len(initialVars),
+				"topic", initialVars["topic"])
+			assembled := conv.promptRegistry.LoadWithVars(conv.promptName, initialVars, "")
+			if assembled != nil && assembled.SystemPrompt != "" {
+				streamConfig.SystemInstruction = assembled.SystemPrompt
+				// Log first N chars of system prompt for debugging
+				snippet := assembled.SystemPrompt
+				if len(snippet) > debugSnippetMaxLen {
+					snippet = snippet[:debugSnippetMaxLen] + "..."
+				}
+				logger.Debug("Set system instruction for ASM session",
+					"promptName", conv.promptName,
+					"length", len(assembled.SystemPrompt),
+					"snippet", snippet)
+			}
+		}
 	}
 
 	// Create duplex session with builder
@@ -386,6 +412,7 @@ func initMCPRegistry(conv *Conversation, cfg *config) error {
 }
 
 // applyDefaultVariables sets default variable values from the prompt.
+// Only sets defaults for variables that weren't already provided via WithVariables.
 func applyDefaultVariables(conv *Conversation, prompt *pack.Prompt) {
 	// This is called before session is created, so we need to track these
 	// temporarily. The session will be initialized with these variables later.
@@ -396,7 +423,10 @@ func applyDefaultVariables(conv *Conversation, prompt *pack.Prompt) {
 				conv.config.initialVariables = make(map[string]string)
 			}
 			if conv.config != nil {
-				conv.config.initialVariables[v.Name] = v.Default
+				// Only set default if user didn't provide a value
+				if _, exists := conv.config.initialVariables[v.Name]; !exists {
+					conv.config.initialVariables[v.Name] = v.Default
+				}
 			}
 		}
 	}

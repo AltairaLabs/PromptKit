@@ -430,6 +430,31 @@ func (c *Conversation) SendText(ctx context.Context, text string) error {
 	return c.duplexSession.SendText(ctx, text)
 }
 
+// TriggerStart sends a text message to make the model initiate the conversation.
+// Use this in ASM mode when you want the model to speak first (e.g., introducing itself).
+// Only available when the conversation was opened with OpenDuplex().
+//
+// Example:
+//
+//	conv, _ := sdk.OpenDuplex("./assistant.pack.json", "interviewer", ...)
+//	// Start processing responses first
+//	go processResponses(conv.Response())
+//	// Trigger the model to begin
+//	conv.TriggerStart(ctx, "Please introduce yourself and begin the interview.")
+func (c *Conversation) TriggerStart(ctx context.Context, message string) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.mode != DuplexMode {
+		return fmt.Errorf("TriggerStart() only available in duplex mode; use OpenDuplex()")
+	}
+	if c.closed {
+		return ErrConversationClosed
+	}
+
+	return c.duplexSession.SendText(ctx, message)
+}
+
 // Response returns the response channel for duplex streaming.
 // Only available when the conversation was opened with OpenDuplex().
 func (c *Conversation) Response() (<-chan providers.StreamChunk, error) {
