@@ -5,705 +5,866 @@ order: 2
 ---
 # Pipeline Reference
 
-The Pipeline component chains middleware together for LLM execution.
+The Pipeline component chains stages together for streaming LLM execution.
 
 ## Overview
 
-The Pipeline executes middleware in sequence, passing an `ExecutionContext` through the chain. It supports:
+The Pipeline executes stages concurrently via goroutines, passing `StreamElement` objects through channels. It supports:
 
-- **Non-streaming execution**: Complete responses
-- **Streaming execution**: Real-time chunk processing  
-- **Concurrency control**: Limit concurrent executions
-- **Graceful shutdown**: Wait for in-flight executions
-- **Timeout management**: Per-execution deadlines
+- **Streaming execution**: True streaming with elements flowing as produced
+- **Concurrent stages**: Each stage runs in its own goroutine
+- **Backpressure**: Channel-based flow control
+- **Graceful shutdown**: Wait for all stages to complete
+- **Multiple modes**: Text, VAD, and ASM pipeline configurations
 
 ## Core Types
 
-### Pipeline
+### StreamElement
 
 ```go
-type Pipeline struct {
-    middleware []Middleware
-    config     *PipelineRuntimeConfig
-    semaphore  *semaphore.Weighted
-    wg         sync.WaitGroup
-    shutdown   chan struct{}
-    shutdownMu sync.RWMutex
-    isShutdown bool
+type StreamElement struct {
+    // Content (at most one is typically set)
+    Text      *string
+    Audio     *AudioData
+    Video     *VideoData
+    Image     *ImageData
+    Message   *types.Message
+    ToolCall  *types.ToolCall
+    Parts     []types.ContentPart
+
+    // Metadata for inter-stage communication
+    Metadata  map[string]interface{}
+
+    // Control and priority
+    Priority  Priority  // Low, Normal, High, Critical
+    Error     error
+    Timestamp time.Time
 }
 ```
 
-Main pipeline execution engine that chains middleware.
+The fundamental unit of data flowing through the pipeline.
 
-### PipelineRuntimeConfig
+### AudioData
 
 ```go
-type PipelineRuntimeConfig struct {
-    MaxConcurrentExecutions int           // Default: 100
-    StreamBufferSize        int           // Default: 100
-    ExecutionTimeout        time.Duration // Default: 30s
-    GracefulShutdownTimeout time.Duration // Default: 10s
+type AudioData struct {
+    Samples    []byte
+    SampleRate int
+    Channels   int
+    Format     AudioFormat  // AudioFormatPCM16, AudioFormatPCM32, etc.
 }
 ```
 
-Runtime configuration for pipeline behavior.
+Audio content for speech stages.
 
-### ExecutionContext
+### Stage
 
 ```go
-type ExecutionContext struct {
-    Context      context.Context
-    
-    // State (mutable by middleware)
-    SystemPrompt     string
-    Variables        map[string]string
-    AllowedTools     []string
-    Messages         []types.Message
-    Tools            []types.ToolDef
-    ToolResults      []types.MessageToolResult
-    PendingToolCalls []types.MessageToolCall
-    Prompt           string
-    
-    // Output
-    Trace       ExecutionTrace
-    Response    *Response
-    RawResponse interface{}
-    Error       error
-    
-    // Metadata
-    Metadata map[string]interface{}
-    CostInfo types.CostInfo
-    
-    // Streaming
-    StreamMode        bool
-    StreamOutput      chan providers.StreamChunk
-    StreamInterrupted bool
-    InterruptReason   string
-    
-    // Control
-    ShortCircuit bool
+type Stage interface {
+    Name() string
+    Type() StageType
+    Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
 }
 ```
 
-Execution state passed through middleware chain.
+Interface for all pipeline stages.
 
-### ExecutionResult
-
-```go
-type ExecutionResult struct {
-    Messages []types.Message
-    Response *Response
-    Trace    ExecutionTrace
-    CostInfo types.CostInfo
-    Metadata map[string]interface{}
-}
-```
-
-Result of pipeline execution.
-
-### Middleware
+### StageType
 
 ```go
-type Middleware interface {
-    Process(execCtx *ExecutionContext, next func() error) error
-    StreamChunk(execCtx *ExecutionContext, chunk *providers.StreamChunk) error
-}
-```
+type StageType int
 
-Interface for pipeline middleware.
-
-## Constructor Functions
-
-### NewPipeline
-
-```go
-func NewPipeline(middleware ...Middleware) *Pipeline
-```
-
-Creates pipeline with default configuration.
-
-**Example**:
-```go
-pipe := pipeline.NewPipeline(
-    middleware.ProviderMiddleware(provider, nil, nil, config),
+const (
+    StageTypeTransform    StageType = iota  // 1:1 or 1:N transformation
+    StageTypeAccumulate                      // N:1 accumulation
+    StageTypeGenerate                        // 0:N generation
+    StageTypeSink                            // N:0 terminal
+    StageTypeBidirectional                   // Full duplex
 )
 ```
 
-### NewPipelineWithConfig
+Classification of stage behavior.
+
+### Priority
 
 ```go
-func NewPipelineWithConfig(
-    config *PipelineRuntimeConfig,
-    middleware ...Middleware,
-) *Pipeline
+type Priority int
+
+const (
+    PriorityLow      Priority = iota
+    PriorityNormal
+    PriorityHigh
+    PriorityCritical
+)
 ```
 
-Creates pipeline with custom configuration.
+Element priority for QoS-aware scheduling.
 
-**Example**:
-```go
-config := &pipeline.PipelineRuntimeConfig{
-    MaxConcurrentExecutions: 50,
-    ExecutionTimeout:        60 * time.Second,
-}
-
-pipe := pipeline.NewPipelineWithConfig(config, middleware...)
-```
-
-### NewPipelineWithConfigValidated
+### StreamPipeline
 
 ```go
-func NewPipelineWithConfigValidated(
-    config *PipelineRuntimeConfig,
-    middleware ...Middleware,
-) (*Pipeline, error)
-```
-
-Creates pipeline with validation. Returns error for invalid config values.
-
-**Example**:
-```go
-pipe, err := pipeline.NewPipelineWithConfigValidated(config, middleware...)
-if err != nil {
-    log.Fatalf("Invalid config: %v", err)
+type StreamPipeline struct {
+    stages []Stage
+    config *PipelineConfig
 }
 ```
 
-### DefaultPipelineRuntimeConfig
+Executable pipeline of connected stages.
+
+### PipelineConfig
 
 ```go
-func DefaultPipelineRuntimeConfig() *PipelineRuntimeConfig
+type PipelineConfig struct {
+    ChannelBufferSize       int           // Default: 16
+    ExecutionTimeout        time.Duration // Default: 30s
+    GracefulShutdownTimeout time.Duration // Default: 10s
+    PriorityQueue           bool          // Enable priority scheduling
+    Metrics                 bool          // Enable per-stage metrics
+    Tracing                 bool          // Enable distributed tracing
+}
+```
+
+Pipeline runtime configuration.
+
+## Constructor Functions
+
+### NewPipelineBuilder
+
+```go
+func NewPipelineBuilder() *PipelineBuilder
+```
+
+Creates a new pipeline builder with default configuration.
+
+**Example**:
+```go
+pipeline := stage.NewPipelineBuilder().
+    Chain(
+        stage.NewProviderStage(provider, nil, nil, config),
+    ).
+    Build()
+```
+
+### NewPipelineBuilderWithConfig
+
+```go
+func NewPipelineBuilderWithConfig(config *PipelineConfig) *PipelineBuilder
+```
+
+Creates a pipeline builder with custom configuration.
+
+**Example**:
+```go
+config := stage.DefaultPipelineConfig().
+    WithChannelBufferSize(32).
+    WithMetrics(true)
+
+pipeline := stage.NewPipelineBuilderWithConfig(config).
+    Chain(stages...).
+    Build()
+```
+
+### DefaultPipelineConfig
+
+```go
+func DefaultPipelineConfig() *PipelineConfig
 ```
 
 Returns default configuration.
 
 **Example**:
 ```go
-config := pipeline.DefaultPipelineRuntimeConfig()
-config.MaxConcurrentExecutions = 200  // Override defaults
+config := stage.DefaultPipelineConfig()
+config.ChannelBufferSize = 32  // Override defaults
 ```
 
-## Execution Methods
+## PipelineConfig Methods
+
+### WithChannelBufferSize
+
+```go
+func (c *PipelineConfig) WithChannelBufferSize(size int) *PipelineConfig
+```
+
+Sets the buffer size for inter-stage channels.
+
+### WithExecutionTimeout
+
+```go
+func (c *PipelineConfig) WithExecutionTimeout(timeout time.Duration) *PipelineConfig
+```
+
+Sets maximum execution time per pipeline run.
+
+### WithGracefulShutdownTimeout
+
+```go
+func (c *PipelineConfig) WithGracefulShutdownTimeout(timeout time.Duration) *PipelineConfig
+```
+
+Sets timeout for graceful shutdown.
+
+### WithPriorityQueue
+
+```go
+func (c *PipelineConfig) WithPriorityQueue(enabled bool) *PipelineConfig
+```
+
+Enables priority-based element scheduling.
+
+### WithMetrics
+
+```go
+func (c *PipelineConfig) WithMetrics(enabled bool) *PipelineConfig
+```
+
+Enables per-stage metrics collection.
+
+### WithTracing
+
+```go
+func (c *PipelineConfig) WithTracing(enabled bool) *PipelineConfig
+```
+
+Enables distributed tracing support.
+
+## PipelineBuilder Methods
+
+### Chain
+
+```go
+func (b *PipelineBuilder) Chain(stages ...Stage) *PipelineBuilder
+```
+
+Adds stages in sequence.
+
+**Example**:
+```go
+pipeline := stage.NewPipelineBuilder().
+    Chain(
+        stage.NewStateStoreLoadStage(stateConfig),
+        stage.NewPromptAssemblyStage(registry, task, vars),
+        stage.NewProviderStage(provider, tools, policy, config),
+        stage.NewStateStoreSaveStage(stateConfig),
+    ).
+    Build()
+```
+
+### Branch
+
+```go
+func (b *PipelineBuilder) Branch(from string, to ...string) *PipelineBuilder
+```
+
+Creates branching from one stage to multiple destinations.
+
+**Example**:
+```go
+pipeline := stage.NewPipelineBuilder().
+    Chain(
+        stage.NewProviderStage(provider, tools, policy, config),
+    ).
+    Branch("provider", "tts", "logger").
+    Build()
+```
+
+### Build
+
+```go
+func (b *PipelineBuilder) Build() *StreamPipeline
+```
+
+Constructs the final pipeline. Validates DAG structure.
+
+## StreamPipeline Methods
 
 ### Execute
 
 ```go
-func (p *Pipeline) Execute(
-    ctx context.Context,
-    role string,
-    content string,
-) (*ExecutionResult, error)
-```
-
-Executes pipeline in non-streaming mode.
-
-**Parameters**:
-- `ctx`: Context for cancellation/timeout
-- `role`: Message role (`"user"`, `"assistant"`, `"system"`)
-- `content`: Message content (empty role skips message append)
-
-**Returns**: Complete execution result
-
-**Example**:
-```go
-result, err := pipe.Execute(ctx, "user", "Hello!")
-if err != nil {
-    return err
-}
-
-fmt.Println(result.Response.Content)
-fmt.Printf("Cost: $%.6f\n", result.CostInfo.TotalCost)
-```
-
-### ExecuteStream
-
-```go
-func (p *Pipeline) ExecuteStream(
-    ctx context.Context,
-    role string,
-    content string,
-) (<-chan providers.StreamChunk, error)
+func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement) (<-chan StreamElement, error)
 ```
 
 Executes pipeline in streaming mode.
 
 **Parameters**:
 - `ctx`: Context for cancellation/timeout
-- `role`: Message role
-- `content`: Message content
+- `input`: Channel of input elements
 
-**Returns**: Channel of stream chunks
+**Returns**: Channel of output elements
 
 **Example**:
 ```go
-streamChan, err := pipe.ExecuteStream(ctx, "user", "Write a story")
+// Create input
+input := make(chan stage.StreamElement, 1)
+msg := types.Message{Role: "user"}
+msg.AddTextPart("Hello!")
+input <- stage.NewMessageElement(msg)
+close(input)
+
+// Execute
+output, err := pipeline.Execute(ctx, input)
 if err != nil {
     return err
 }
 
-for chunk := range streamChan {
-    if chunk.Error != nil {
-        log.Printf("Stream error: %v\n", chunk.Error)
-        break
+// Process output
+for elem := range output {
+    if elem.Text != nil {
+        fmt.Print(*elem.Text)
     }
-    
-    if chunk.Delta != "" {
-        fmt.Print(chunk.Delta)  // Print incremental text
-    }
-    
-    if chunk.FinalResult != nil {
-        // Stream complete
-        fmt.Printf("\n\nTokens: %d\n", chunk.FinalResult.CostInfo.InputTokens)
+    if elem.Error != nil {
+        log.Printf("Error: %v", elem.Error)
     }
 }
 ```
 
-### ExecuteWithMessage
+### ExecuteSync
 
 ```go
-func (p *Pipeline) ExecuteWithMessage(
-    ctx context.Context,
-    message types.Message,
-) (*ExecutionResult, error)
+func (p *StreamPipeline) ExecuteSync(ctx context.Context, elements ...StreamElement) (*ExecutionResult, error)
 ```
 
-Executes pipeline with pre-constructed message.
+Executes pipeline synchronously, collecting all output.
 
 **Parameters**:
-- `ctx`: Context
-- `message`: Complete message object (multimodal, tool calls, etc.)
+- `ctx`: Context for cancellation/timeout
+- `elements`: Input elements
 
-**Returns**: Execution result
-
-**Example**:
-```go
-msg := types.Message{
-    Role:    "user",
-    Content: "Describe this image",
-    Parts: []types.ContentPart{
-        {Type: "image", ImageURL: &types.ImageURL{URL: "data:image/jpeg;base64,..."}},
-    },
-}
-
-result, err := pipe.ExecuteWithMessage(ctx, msg)
-```
-
-### ExecuteStreamWithMessage
-
-```go
-func (p *Pipeline) ExecuteStreamWithMessage(
-    ctx context.Context,
-    message types.Message,
-) (<-chan providers.StreamChunk, error)
-```
-
-Streaming execution with pre-constructed message.
+**Returns**: Collected execution result
 
 **Example**:
 ```go
-streamChan, err := pipe.ExecuteStreamWithMessage(ctx, multimodalMsg)
-for chunk := range streamChan {
-    // Process chunks
-}
-```
+msg := types.Message{Role: "user"}
+msg.AddTextPart("What is 2+2?")
+elem := stage.NewMessageElement(msg)
 
-## Lifecycle Methods
+result, err := pipeline.ExecuteSync(ctx, elem)
+if err != nil {
+    return err
+}
+
+fmt.Printf("Response: %s\n", result.Response.GetTextContent())
+```
 
 ### Shutdown
 
 ```go
-func (p *Pipeline) Shutdown(ctx context.Context) error
+func (p *StreamPipeline) Shutdown(timeout time.Duration) error
 ```
 
-Gracefully shuts down pipeline, waiting for in-flight executions.
+Gracefully shuts down pipeline.
 
 **Parameters**:
-- `ctx`: Context with timeout (uses `GracefulShutdownTimeout` if no deadline)
+- `timeout`: Maximum time to wait for stages to complete
 
 **Returns**: Error if shutdown times out
 
 **Example**:
 ```go
-// Graceful shutdown
-ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-defer cancel()
+defer pipeline.Shutdown(10 * time.Second)
+```
 
-if err := pipe.Shutdown(ctx); err != nil {
-    log.Printf("Shutdown error: %v", err)
+## StreamElement Constructor Functions
+
+### NewTextElement
+
+```go
+func NewTextElement(text string) StreamElement
+```
+
+Creates element with text content.
+
+### NewMessageElement
+
+```go
+func NewMessageElement(msg types.Message) StreamElement
+```
+
+Creates element with message content.
+
+### NewAudioElement
+
+```go
+func NewAudioElement(audio *AudioData) StreamElement
+```
+
+Creates element with audio content.
+
+### NewErrorElement
+
+```go
+func NewErrorElement(err error) StreamElement
+```
+
+Creates element representing an error.
+
+### NewElementWithMetadata
+
+```go
+func NewElementWithMetadata(metadata map[string]interface{}) StreamElement
+```
+
+Creates element with only metadata.
+
+## Built-In Stages
+
+### Core Stages
+
+#### StateStoreLoadStage
+
+```go
+func NewStateStoreLoadStage(config *StateStoreConfig) *StateStoreLoadStage
+```
+
+Loads conversation history from persistent storage.
+
+**Configuration**:
+```go
+config := &pipeline.StateStoreConfig{
+    Store:          stateStore,
+    ConversationID: "session-123",
 }
 ```
 
-## ExecutionContext Methods
-
-### InterruptStream
+#### StateStoreSaveStage
 
 ```go
-func (ctx *ExecutionContext) InterruptStream(reason string)
+func NewStateStoreSaveStage(config *StateStoreConfig) *StateStoreSaveStage
 ```
 
-Stops streaming execution.
+Saves conversation state after processing.
 
-**Example**:
+#### PromptAssemblyStage
+
 ```go
-func (v *CustomValidator) StreamChunk(
-    execCtx *pipeline.ExecutionContext,
-    chunk *providers.StreamChunk,
-) error {
-    if detectBannedContent(chunk.Delta) {
-        execCtx.InterruptStream("banned content detected")
-        return errors.New("content policy violation")
+func NewPromptAssemblyStage(registry *prompt.Registry, taskType string, variables map[string]string) *PromptAssemblyStage
+```
+
+Loads and assembles prompts from registry.
+
+**Sets metadata**:
+- `system_prompt`: Assembled system prompt
+- `allowed_tools`: Tools allowed for this prompt
+- `validators`: Validator configurations
+
+#### TemplateStage
+
+```go
+func NewTemplateStage() *TemplateStage
+```
+
+Processes `{{variable}}` substitution in content.
+
+#### ValidationStage
+
+```go
+func NewValidationStage(registry *validators.Registry, config *ValidationConfig) *ValidationStage
+```
+
+Validates content against registered validators.
+
+**Configuration**:
+```go
+config := &stage.ValidationConfig{
+    FailOnError:     true,
+    SuppressErrors:  false,
+}
+```
+
+#### ProviderStage
+
+```go
+func NewProviderStage(
+    provider providers.Provider,
+    toolRegistry *tools.Registry,
+    toolPolicy *ToolPolicy,
+    config *ProviderConfig,
+) *ProviderStage
+```
+
+Executes LLM calls with streaming and tool support.
+
+**Configuration**:
+```go
+config := &stage.ProviderConfig{
+    MaxTokens:   1500,
+    Temperature: 0.7,
+    Seed:        &seed,
+}
+```
+
+**Tool Policy**:
+```go
+policy := &pipeline.ToolPolicy{
+    BlockedTools: []string{"dangerous_tool"},
+    ToolChoice:   "auto",  // "auto", "none", "required", or specific tool name
+}
+```
+
+### Streaming/Speech Stages
+
+#### AudioTurnStage
+
+```go
+func NewAudioTurnStage(config AudioTurnConfig) (*AudioTurnStage, error)
+```
+
+VAD-based turn detection and audio accumulation.
+
+**Configuration**:
+```go
+config := stage.AudioTurnConfig{
+    SilenceDuration:   800 * time.Millisecond,
+    MinSpeechDuration: 200 * time.Millisecond,
+    MaxTurnDuration:   30 * time.Second,
+    SampleRate:        16000,
+}
+```
+
+#### STTStage
+
+```go
+func NewSTTStage(service stt.Service, config STTStageConfig) *STTStage
+```
+
+Speech-to-text transcription.
+
+**Configuration**:
+```go
+config := stage.STTStageConfig{
+    Language:      "en",
+    SkipEmpty:     true,
+    MinAudioBytes: 1600,  // 50ms at 16kHz
+}
+```
+
+#### TTSStage
+
+```go
+func NewTTSStage(service tts.Service, config TTSConfig) *TTSStage
+```
+
+Text-to-speech synthesis.
+
+**Configuration**:
+```go
+config := stage.TTSConfig{
+    Voice: "alloy",
+    Speed: 1.0,
+}
+```
+
+#### TTSStageWithInterruption
+
+```go
+func NewTTSStageWithInterruption(
+    service tts.Service,
+    handler *audio.InterruptionHandler,
+    config TTSConfig,
+) *TTSStageWithInterruption
+```
+
+TTS with barge-in/interruption support.
+
+#### DuplexProviderStage
+
+```go
+func NewDuplexProviderStage(session providers.StreamInputSession) *DuplexProviderStage
+```
+
+Bidirectional WebSocket streaming for native audio LLMs.
+
+#### VADAccumulatorStage
+
+```go
+func NewVADAccumulatorStage(config VADConfig) *VADAccumulatorStage
+```
+
+Audio buffering with voice activity detection.
+
+### Advanced Stages
+
+#### RouterStage
+
+```go
+func NewRouterStage(routeFunc func(StreamElement) string, outputs map[string]chan<- StreamElement) *RouterStage
+```
+
+Dynamic routing based on element content.
+
+#### MergeStage
+
+```go
+func NewMergeStage(inputs ...<-chan StreamElement) *MergeStage
+```
+
+Combines multiple input streams.
+
+#### MetricsStage
+
+```go
+func NewMetricsStage(inner Stage) *MetricsStage
+```
+
+Wraps a stage to collect performance metrics.
+
+**Metrics collected**:
+- Latency (min/max/avg)
+- Throughput (elements/sec)
+- Error count
+
+#### TracingStage
+
+```go
+func NewTracingStage(inner Stage, tracer Tracer) *TracingStage
+```
+
+Adds distributed tracing to a stage.
+
+### Utility Stages
+
+#### DebugStage
+
+```go
+func NewDebugStage(output io.Writer) *DebugStage
+```
+
+Logs all elements as JSON for debugging.
+
+#### VariableProviderStage
+
+```go
+func NewVariableProviderStage(providers []variables.Provider) *VariableProviderStage
+```
+
+Resolves variables from multiple sources.
+
+#### MediaExternalizerStage
+
+```go
+func NewMediaExternalizerStage(storage MediaStorage, config MediaExternalizerConfig) *MediaExternalizerStage
+```
+
+Uploads large media to external storage.
+
+#### ContextBuilderStage
+
+```go
+func NewContextBuilderStage(config ContextBuilderConfig) *ContextBuilderStage
+```
+
+Manages token budget with truncation strategies.
+
+**Configuration**:
+```go
+config := stage.ContextBuilderConfig{
+    TokenBudget:        4000,
+    TruncationStrategy: "sliding_window",  // or "summarize"
+}
+```
+
+## BaseStage
+
+Base implementation for custom stages:
+
+```go
+type BaseStage struct {
+    name      string
+    stageType StageType
+}
+
+func NewBaseStage(name string, stageType StageType) BaseStage
+func (s *BaseStage) Name() string
+func (s *BaseStage) Type() StageType
+```
+
+**Example custom stage**:
+```go
+type MyStage struct {
+    stage.BaseStage
+    config MyConfig
+}
+
+func NewMyStage(config MyConfig) *MyStage {
+    return &MyStage{
+        BaseStage: stage.NewBaseStage("my_stage", stage.StageTypeTransform),
+        config:    config,
+    }
+}
+
+func (s *MyStage) Process(ctx context.Context, input <-chan stage.StreamElement, output chan<- stage.StreamElement) error {
+    defer close(output)
+
+    for elem := range input {
+        // Transform element
+        if elem.Text != nil {
+            upper := strings.ToUpper(*elem.Text)
+            elem.Text = &upper
+        }
+
+        select {
+        case output <- elem:
+        case <-ctx.Done():
+            return ctx.Err()
+        }
     }
     return nil
 }
 ```
 
-### Tool Call Management
-
-```go
-func (ctx *ExecutionContext) AddPendingToolCall(toolCall types.MessageToolCall)
-func (ctx *ExecutionContext) HasPendingToolCalls() bool
-func (ctx *ExecutionContext) GetPendingToolCall(id string) *types.MessageToolCall
-func (ctx *ExecutionContext) RemovePendingToolCall(id string) bool
-func (ctx *ExecutionContext) ClearPendingToolCalls()
-```
-
-Manage pending tool calls for human-in-the-loop scenarios.
-
-**Example**:
-```go
-// Add pending tool call
-execCtx.AddPendingToolCall(types.MessageToolCall{
-    ID:   "call_123",
-    Name: "approve_payment",
-    Arguments: json.RawMessage(`{"amount": 1000}`),
-})
-
-// Check for pending calls
-if execCtx.HasPendingToolCalls() {
-    // Pause execution, wait for human approval
-}
-
-// Complete tool call
-if call := execCtx.GetPendingToolCall("call_123"); call != nil {
-    result := processApproval(call)
-    execCtx.RemovePendingToolCall("call_123")
-}
-```
-
-## Configuration
-
-### Runtime Configuration
-
-```go
-config := &pipeline.PipelineRuntimeConfig{
-    // Limit concurrent executions (prevents provider overload)
-    MaxConcurrentExecutions: 100,
-    
-    // Stream buffer size (tune for throughput vs memory)
-    StreamBufferSize: 100,
-    
-    // Per-execution timeout (0 = no timeout)
-    ExecutionTimeout: 30 * time.Second,
-    
-    // Shutdown grace period
-    GracefulShutdownTimeout: 10 * time.Second,
-}
-```
-
-**Tuning Guidelines**:
-
-- **MaxConcurrentExecutions**: Set based on provider rate limits
-  - OpenAI: 3,500 RPM → ~58 concurrent for 30s requests
-  - Anthropic: 4,000 RPM → ~66 concurrent
-  - Consider lower values for stability
-
-- **StreamBufferSize**: Balance memory vs throughput
-  - 100 = ~100 chunks buffered (~10KB typical)
-  - Increase for fast consumers
-  - Decrease for memory-constrained environments
-
-- **ExecutionTimeout**: Set based on expected response time
-  - Short requests (simple Q&A): 10-20s
-  - Long requests (code generation): 60-120s
-  - Tool-heavy requests: 120-300s
-
-- **GracefulShutdownTimeout**: Allow time for cleanup
-  - Simple pipelines: 5-10s
-  - Complex pipelines with tools: 30-60s
-
-### Execution Configuration
-
-Passed via middleware (see [Middleware Reference](middleware)):
-
-```go
-config := &middleware.ProviderMiddlewareConfig{
-    MaxTokens:    1500,
-    Temperature:  0.7,
-    Seed:         &seed,
-    DisableTrace: false,
-}
-
-pipe := pipeline.NewPipeline(
-    middleware.ProviderMiddleware(provider, toolRegistry, toolPolicy, config),
-)
-```
-
 ## Error Handling
 
-### Common Errors
+### Error Elements
+
+Send errors as elements for downstream handling:
 
 ```go
-var (
-    ErrPipelineShuttingDown = errors.New("pipeline is shutting down")
-)
-```
-
-### Error Patterns
-
-**Timeout Error**:
-```go
-result, err := pipe.Execute(ctx, "user", "Hello")
-if errors.Is(err, context.DeadlineExceeded) {
-    log.Println("Execution timeout")
+if err := validate(elem); err != nil {
+    output <- stage.NewErrorElement(err)
+    continue
 }
 ```
 
-**Shutdown Error**:
+### Fatal Errors
+
+Return error to stop the pipeline:
+
 ```go
-result, err := pipe.Execute(ctx, "user", "Hello")
-if errors.Is(err, pipeline.ErrPipelineShuttingDown) {
-    log.Println("Pipeline shutting down, reject new requests")
+if err := criticalOperation(); err != nil {
+    return err  // Pipeline stops
 }
 ```
 
-**Middleware Errors**:
+### Context Cancellation
+
+Always check for cancellation:
+
 ```go
-result, err := pipe.Execute(ctx, "user", "Hello")
-if err != nil {
-    // Check execution context for detailed error
-    if result != nil && result.Trace.Events != nil {
-        for _, event := range result.Trace.Events {
-            if event.Type == "error" {
-                log.Printf("Middleware error: %v", event.Details)
-            }
-        }
-    }
+select {
+case output <- elem:
+case <-ctx.Done():
+    return ctx.Err()
 }
 ```
 
-### Partial Results
+## Metadata Keys
 
-Pipeline may return partial results on error:
+Standard metadata keys used by built-in stages:
 
-```go
-result, err := pipe.Execute(ctx, "user", "Hello")
-if err != nil {
-    // Check if we got any messages before failure
-    if result != nil && len(result.Messages) > 0 {
-        log.Printf("Partial execution: %d messages received", len(result.Messages))
-        
-        // You can still access trace, cost info, etc.
-        log.Printf("Cost before error: $%.6f", result.CostInfo.TotalCost)
-    }
-}
-```
+| Key | Type | Set By | Used By |
+|-----|------|--------|---------|
+| `system_prompt` | `string` | PromptAssemblyStage | ProviderStage |
+| `allowed_tools` | `[]string` | PromptAssemblyStage | ProviderStage |
+| `validators` | `[]ValidatorConfig` | PromptAssemblyStage | ValidationStage |
+| `variables` | `map[string]string` | VariableProviderStage | TemplateStage |
+| `conversation_id` | `string` | StateStoreLoadStage | StateStoreSaveStage |
+| `from_history` | `bool` | StateStoreLoadStage | - |
+| `validation_results` | `[]ValidationResult` | ValidationStage | - |
+| `cost_info` | `types.CostInfo` | ProviderStage | - |
+| `latency_ms` | `int64` | ProviderStage | - |
+
+## Configuration Tuning
+
+### Channel Buffer Size
+
+| Use Case | Recommended | Notes |
+|----------|-------------|-------|
+| Low latency | 4-8 | Minimize buffering |
+| High throughput | 32-64 | Allow producer ahead |
+| Memory constrained | 8-16 | Balance |
+
+### Timeout Settings
+
+| Pipeline Type | Execution Timeout | Shutdown Timeout |
+|---------------|-------------------|------------------|
+| Simple chat | 30s | 5s |
+| Tool-heavy | 120s | 30s |
+| Voice (VAD) | 300s | 10s |
+| Voice (ASM) | 600s | 15s |
 
 ## Examples
 
-### Basic Pipeline
+### Text Pipeline
 
 ```go
-// Create provider
-provider := openai.NewOpenAIProvider(
-    "openai",
-    "gpt-4o-mini",
-    "",
-    openai.DefaultProviderDefaults(),
-    false,
-)
-
-// Build pipeline
-pipe := pipeline.NewPipeline(
-    middleware.ProviderMiddleware(provider, nil, nil, &middleware.ProviderMiddlewareConfig{
-        MaxTokens:   1500,
-        Temperature: 0.7,
-    }),
-)
+pipeline := stage.NewPipelineBuilder().
+    Chain(
+        stage.NewStateStoreLoadStage(stateConfig),
+        stage.NewPromptAssemblyStage(registry, "chat", vars),
+        stage.NewTemplateStage(),
+        stage.NewProviderStage(provider, tools, policy, config),
+        stage.NewStateStoreSaveStage(stateConfig),
+    ).
+    Build()
 
 // Execute
-ctx := context.Background()
-result, err := pipe.Execute(ctx, "user", "What is 2+2?")
-if err != nil {
-    log.Fatal(err)
-}
+msg := types.Message{Role: "user"}
+msg.AddTextPart("Hello!")
+input := make(chan stage.StreamElement, 1)
+input <- stage.NewMessageElement(msg)
+close(input)
 
-fmt.Printf("Response: %s\n", result.Response.Content)
-fmt.Printf("Tokens: %d input, %d output\n", 
-    result.CostInfo.InputTokens,
-    result.CostInfo.OutputTokens)
-```
-
-### With Template Middleware
-
-```go
-pipe := pipeline.NewPipeline(
-    middleware.TemplateMiddleware(),  // Process 
-    middleware.ProviderMiddleware(provider, nil, nil, config),
-)
-
-// System prompt with variables
-execCtx := &pipeline.ExecutionContext{
-    SystemPrompt: "You are a  assistant helping with .",
-    Variables: map[string]string{
-        "role":  "helpful",
-        "topic": "programming",
-    },
+output, _ := pipeline.Execute(ctx, input)
+for elem := range output {
+    if elem.Text != nil {
+        fmt.Print(*elem.Text)
+    }
 }
 ```
 
-### With Validators
+### VAD Voice Pipeline
 
 ```go
-pipe := pipeline.NewPipeline(
-    middleware.ProviderMiddleware(provider, nil, nil, config),
-    middleware.ValidatorMiddleware([]validators.Validator{
-        validators.NewBannedWordsValidator([]string{"inappropriate"}),
-        validators.NewLengthValidator(10, 500),
-    }),
-)
+pipeline := stage.NewPipelineBuilder().
+    Chain(
+        stage.NewAudioTurnStage(vadConfig),
+        stage.NewSTTStage(sttService, sttConfig),
+        stage.NewStateStoreLoadStage(stateConfig),
+        stage.NewPromptAssemblyStage(registry, task, vars),
+        stage.NewProviderStage(provider, tools, policy, providerConfig),
+        stage.NewStateStoreSaveStage(stateConfig),
+        stage.NewTTSStageWithInterruption(ttsService, handler, ttsConfig),
+    ).
+    Build()
+
+// Feed audio chunks
+for audioChunk := range microphoneStream {
+    input <- stage.NewAudioElement(&stage.AudioData{
+        Samples:    audioChunk,
+        SampleRate: 16000,
+        Format:     stage.AudioFormatPCM16,
+    })
+}
 ```
 
-### Production Pipeline
+### ASM Duplex Pipeline
 
 ```go
-// Configure runtime
-config := &pipeline.PipelineRuntimeConfig{
-    MaxConcurrentExecutions: 50,
-    ExecutionTimeout:        60 * time.Second,
-    GracefulShutdownTimeout: 15 * time.Second,
-}
+session, _ := gemini.NewStreamSession(ctx, endpoint, apiKey, streamConfig)
 
-// Build middleware stack
-pipe := pipeline.NewPipelineWithConfig(config,
-    middleware.TemplateMiddleware(),
-    middleware.ProviderMiddleware(provider, toolRegistry, toolPolicy, providerConfig),
-    middleware.ValidatorMiddleware(validators),
-    middleware.StateStoreMiddleware(stateStore),
-)
-
-// Setup graceful shutdown
-ctx, cancel := context.WithCancel(context.Background())
-defer cancel()
-
-go func() {
-    <-shutdownSignal
-    cancel()
-    pipe.Shutdown(context.Background())
-}()
-
-// Execute with timeout
-execCtx, execCancel := context.WithTimeout(ctx, 30*time.Second)
-defer execCancel()
-
-result, err := pipe.Execute(execCtx, "user", "Hello")
+pipeline := stage.NewPipelineBuilder().
+    Chain(
+        stage.NewStateStoreLoadStage(stateConfig),
+        stage.NewPromptAssemblyStage(registry, task, vars),
+        stage.NewDuplexProviderStage(session),
+        stage.NewStateStoreSaveStage(stateConfig),
+    ).
+    Build()
 ```
 
 ## Best Practices
 
-### 1. Resource Management
-
-```go
-// Always shutdown pipeline
-defer pipe.Shutdown(context.Background())
-
-// Always close providers
-defer provider.Close()
-```
-
-### 2. Context Handling
-
-```go
-// Use timeout contexts
-ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-defer cancel()
-
-result, err := pipe.Execute(ctx, "user", "Hello")
-```
-
-### 3. Streaming Cleanup
-
-```go
-// Always drain streaming channels
-streamChan, err := pipe.ExecuteStream(ctx, "user", "Hello")
-if err != nil {
-    return err
-}
-
-for chunk := range streamChan {
-    if chunk.Error != nil {
-        log.Printf("Stream error: %v", chunk.Error)
-        break  // Channel will be closed by pipeline
-    }
-    processChunk(chunk)
-}
-```
-
-### 4. Concurrency Tuning
-
-```go
-// Calculate based on provider limits
-// Example: OpenAI 3,500 RPM, 30s avg response
-maxConcurrent := (3500 / 60) * 30  // ~1,750 concurrent
-
-// But be conservative
-config.MaxConcurrentExecutions = 100  // Leave headroom
-```
-
-### 5. Error Recovery
-
-```go
-// Implement retry logic at application level
-func executeWithRetry(pipe *pipeline.Pipeline, ctx context.Context, msg string) (*pipeline.ExecutionResult, error) {
-    for i := 0; i < 3; i++ {
-        result, err := pipe.Execute(ctx, "user", msg)
-        if err == nil {
-            return result, nil
-        }
-        
-        if errors.Is(err, pipeline.ErrPipelineShuttingDown) {
-            return nil, err  // Don't retry shutdown
-        }
-        
-        time.Sleep(time.Duration(i+1) * time.Second)
-    }
-    return nil, fmt.Errorf("max retries exceeded")
-}
-```
-
-## Performance Considerations
-
-### Memory
-
-- Fresh `ExecutionContext` per call prevents contamination
-- Large conversation histories increase memory usage
-- Stream buffer size affects memory: 100 chunks ≈ 10KB typical
-
-### Throughput
-
-- Non-streaming: ~50-100 executions/sec (provider-dependent)
-- Streaming: ~10% overhead vs non-streaming
-- Concurrent executions limited by `MaxConcurrentExecutions`
-
-### Latency
-
-- Non-streaming: Wait for complete response
-- Streaming: First chunk in ~200-500ms (TTFT)
-- Middleware overhead: ~1-5ms per middleware
+1. **Always close output channels**: Use `defer close(output)` at start of Process
+2. **Check context cancellation**: Use select with `ctx.Done()`
+3. **Use metadata for state**: Pass data between stages via metadata
+4. **Handle errors gracefully**: Decide between error elements and fatal returns
+5. **Order stages correctly**: State load → Prompt assembly → Provider → State save
+6. **Clean up resources**: Use `defer pipeline.Shutdown(timeout)`
 
 ## See Also
 
-- [Middleware Reference](middleware) - Available middleware
+- [Stage Design](../explanation/stage-design) - Stage architecture
+- [Pipeline Architecture](../explanation/pipeline-architecture) - How pipelines work
+- [Configure Pipeline](../how-to/configure-pipeline) - Configuration guide
 - [Provider Reference](providers) - LLM providers
 - [Types Reference](types) - Data structures
-- [Pipeline How-To](../how-to/configure-pipeline) - Configuration guide
-- [Pipeline Explanation](../explanation/pipeline-architecture) - Architecture details

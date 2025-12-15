@@ -3,412 +3,617 @@ title: Runtime Pipeline
 docType: guide
 order: 2
 ---
-The PromptKit runtime pipeline is a middleware-based execution engine that processes LLM interactions through a composable chain of processing stages. This architecture provides flexibility, extensibility, and clear separation of concerns.
+The PromptKit runtime pipeline is a stage-based streaming execution engine that processes LLM interactions through a composable DAG (Directed Acyclic Graph) of processing stages. This architecture provides flexibility, extensibility, true streaming execution, and concurrent processing.
 
 ## Overview
 
-The pipeline system is inspired by the middleware pattern found in web frameworks, applying it to LLM interaction workflows. Each middleware component has a specific responsibility and can modify the request, process it, delegate to the next middleware, and post-process the response.
+The pipeline system uses a reactive streams pattern where data flows through stages as `StreamElement` objects. Each stage runs in its own goroutine and communicates via channels, enabling true streaming with backpressure support.
 
 ```mermaid
 graph TB
-    subgraph "Pipeline Execution Flow"
-        Request["Incoming Request"]
-        MW1["Middleware 1<br/>Context Extraction"]
-        MW2["Middleware 2<br/>Template Rendering"]
-        MW3["Middleware 3<br/>Prompt Assembly"]
-        MW4["Middleware 4<br/>Provider Call"]
-        MW5["Middleware 5<br/>State Save"]
-        Response["Response"]
+    subgraph "Stage Pipeline Execution"
+        Input["Input Element"]
+        S1["Stage 1<br/>StateStoreLoad"]
+        S2["Stage 2<br/>PromptAssembly"]
+        S3["Stage 3<br/>Template"]
+        S4["Stage 4<br/>Provider"]
+        S5["Stage 5<br/>Validation"]
+        S6["Stage 6<br/>StateStoreSave"]
+        Output["Output Element"]
     end
 
-    Request --> MW1
-    MW1 --> MW2
-    MW2 --> MW3
-    MW3 --> MW4
-    MW4 --> MW5
-    MW5 --> Response
+    Input --> S1
+    S1 --> S2
+    S2 --> S3
+    S3 --> S4
+    S4 --> S5
+    S5 --> S6
+    S6 --> Output
 
-    style MW4 fill:#f9f,stroke:#333,stroke-width:3px
+    style S4 fill:#f9f,stroke:#333,stroke-width:3px
 ```
 
-## Core Components
+## Core Concepts
 
-### Pipeline
+### StreamElement
 
-The `Pipeline` type coordinates middleware execution and manages concurrency. It provides:
-
-- **Middleware Chain Execution**: Processes each middleware in sequence
-- **Concurrency Control**: Limits concurrent pipeline executions using semaphores
-- **Graceful Shutdown**: Waits for in-flight executions to complete
-- **Execution Timeouts**: Prevents runaway executions
-- **Stream Management**: Handles both streaming and non-streaming modes
-
-**Key Configuration:**
-- `MaxConcurrentExecutions`: Limits concurrent pipeline runs (default: 100)
-- `StreamBufferSize`: Buffer size for streaming channels (default: 100)
-- `ExecutionTimeout`: Maximum execution duration (default: 30s)
-- `GracefulShutdownTimeout`: Shutdown wait time (default: 10s)
-
-### ExecutionContext
-
-The `ExecutionContext` carries state through the middleware chain:
+The fundamental unit of data flowing through the pipeline. Each element can carry multiple content types:
 
 ```go
-type ExecutionContext struct {
-    Context              context.Context
-    Messages             []types.Message
-    ResponseMessage      *types.Message
-    StreamMode           bool
-    StreamOutput         chan types.StreamChunk
-    AllowedTools         []string
-    Metadata             map[string]interface{}
-    // ... additional fields
+type StreamElement struct {
+    // Content types (mutually optional)
+    Text     *string
+    Audio    *AudioData
+    Video    *VideoData
+    Image    *ImageData
+    Message  *types.Message
+    ToolCall *types.ToolCall
+    Parts    []types.ContentPart
+
+    // Metadata for passing state between stages
+    Metadata map[string]interface{}
+
+    // Priority for QoS-aware scheduling
+    Priority Priority  // Low, Normal, High, Critical
+
+    // Control signals
+    Error     error
+    Timestamp time.Time
 }
 ```
 
-This context object is passed through the entire pipeline, allowing middleware to:
-- Read incoming messages
-- Add metadata
-- Control tool usage
-- Write streaming responses
-- Store intermediate state
-
-### Middleware Interface
+Helper functions for creating elements:
 
 ```go
-type Middleware interface {
-    Process(execCtx *ExecutionContext, next func() error) error
+textElem := stage.NewTextElement("Hello")
+msgElem := stage.NewMessageElement(types.Message{Role: "user", Content: "Hello"})
+audioElem := stage.NewAudioElement(&stage.AudioData{
+    Samples:    audioBytes,
+    SampleRate: 16000,
+    Format:     stage.AudioFormatPCM16,
+})
+errorElem := stage.NewErrorElement(err)
+```
+
+### Stage Interface
+
+A stage is a processing unit that transforms streaming elements:
+
+```go
+type Stage interface {
+    Name() string
+    Type() StageType
+    Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
 }
 ```
 
-Each middleware must:
-1. Perform its preprocessing logic
-2. Call `next()` exactly once to continue the chain
-3. Perform any post-processing after `next()` returns
-4. Return any errors that occurred
+**Stage Types:**
+- `Transform`: 1:1 or 1:N transformation (validation, enrichment)
+- `Accumulate`: N:1 accumulation (VAD buffering, message collection)
+- `Generate`: 0:N generation (LLM streaming, TTS)
+- `Sink`: N:0 terminal stage (state store save, metrics)
+- `Bidirectional`: Full duplex (WebSocket session)
 
-## Standard Middleware Components
+Each stage:
+- Runs in its own goroutine
+- Receives elements from input channel
+- Sends processed elements to output channel
+- Must close output channel when done
 
-### 1. Context Extraction Middleware
+### PipelineBuilder
 
-**Purpose**: Extracts and enriches execution context from incoming requests.
+Constructs the pipeline DAG using a fluent API:
 
-**Responsibilities**:
-- Parse request metadata
-- Extract allowed tools from configuration
-- Set up tracing and debugging context
-- Initialize execution state
+```go
+pipeline := stage.NewPipelineBuilder().
+    Chain(
+        stage.NewStateStoreLoadStage(stateConfig),
+        stage.NewPromptAssemblyStage(registry, taskType, vars),
+        stage.NewProviderStage(provider, toolRegistry, toolPolicy, config),
+        stage.NewStateStoreSaveStage(stateConfig),
+    ).
+    Build()
+```
 
-**Location**: `runtime/pipeline/middleware/context_extraction.go`
+### StreamPipeline
 
-### 2. Template Middleware
+The executable pipeline that:
+- Manages goroutine lifecycle
+- Creates channels between stages
+- Handles errors and shutdown
+- Emits events for observability
 
-**Purpose**: Renders template variables in message content.
+```go
+// Streaming execution
+output, err := pipeline.Execute(ctx, input)
+for elem := range output {
+    // Process elements as they arrive
+}
 
-**Responsibilities**:
-- Process template variables in messages
-- Apply template context
-- Handle template errors gracefully
+// Synchronous execution (convenience wrapper)
+result, err := pipeline.ExecuteSync(ctx, elements...)
+```
 
-**Location**: `runtime/pipeline/middleware/template.go`
+## Standard Stages
 
-### 3. Prompt Assembly Middleware
+### Core Stages
 
-**Purpose**: Assembles prompts from fragments and applies configuration.
+#### 1. StateStoreLoadStage
 
-**Responsibilities**:
-- Load prompt configurations
-- Resolve prompt fragments
-- Merge system prompts with user messages
-- Apply versioning rules
+**Purpose**: Loads conversation history from persistent storage.
 
-**Location**: `runtime/pipeline/middleware/prompt_assembly.go`
+**Behavior**:
+- Retrieves previous messages for the conversation ID
+- Marks historical messages with `from_history` metadata
+- Prepends history to current conversation
 
-### 4. Provider Middleware
+**Configuration**:
+```go
+stateConfig := &pipeline.StateStoreConfig{
+    Store:          stateStore,
+    ConversationID: "session-123",
+}
+loadStage := stage.NewStateStoreLoadStage(stateConfig)
+```
 
-**Purpose**: Executes LLM calls and handles tool execution loops.
+#### 2. PromptAssemblyStage
 
-**Responsibilities**:
-- Call the configured LLM provider
-- Handle streaming and non-streaming modes
-- Execute tool calls in multi-round interactions
-- Track latency and token usage
-- Handle provider errors and retries
+**Purpose**: Loads and assembles prompts from the registry with variable substitution.
 
-**Location**: `runtime/pipeline/middleware/provider.go`
+**Behavior**:
+- Loads prompt configuration by task type
+- Applies variable substitution to templates
+- Extracts validator configurations
+- Sets `system_prompt` and `allowed_tools` in metadata
 
-This is the most complex middleware, handling:
-- Provider capability detection
-- Multi-round tool execution
-- Streaming chunk forwarding
-- Response validation
+**Configuration**:
+```go
+assemblyStage := stage.NewPromptAssemblyStage(
+    promptRegistry,
+    "customer-support",  // task type
+    map[string]string{   // variables
+        "customer_name": "Alice",
+    },
+)
+```
 
-### 5. State Store Middleware
+#### 3. TemplateStage
 
-**Purpose**: Persists conversation state for continuity.
+**Purpose**: Processes template variables in content.
 
-**Responsibilities**:
-- Load previous conversation state
-- Save updated conversation state
-- Handle state store errors
+**Behavior**:
+- Substitutes `{{variable}}` patterns with values
+- Processes both system prompt and message content
+- Reads variables from element metadata
 
-**Locations**:
-- Load: `runtime/pipeline/middleware/statestore_load.go`
-- Save: `runtime/pipeline/middleware/statestore_save.go`
+#### 4. ProviderStage
 
-### 6. Validation Middleware
+**Purpose**: Executes LLM calls with streaming and tool support.
+
+**Behavior**:
+- Calls the configured LLM provider
+- Handles multi-round tool execution loops
+- Supports both streaming and non-streaming modes
+- Enforces tool policies (blocklist, ToolChoice)
+- Tracks token usage and latency
+
+**Configuration**:
+```go
+providerConfig := &stage.ProviderConfig{
+    MaxTokens:   1000,
+    Temperature: 0.7,
+}
+providerStage := stage.NewProviderStage(
+    provider,
+    toolRegistry,
+    toolPolicy,
+    providerConfig,
+)
+```
+
+#### 5. ValidationStage
 
 **Purpose**: Validates responses against schemas and constraints.
 
-**Responsibilities**:
-- Apply dynamic validation rules
-- Validate structured outputs
-- Support streaming validation
-- Chain multiple validators
+**Behavior**:
+- Runs validators specified in metadata
+- Supports multiple validators in sequence
+- Can suppress or propagate validation errors
 
-**Location**: `runtime/pipeline/middleware/dynamic_validator.go`
+#### 6. StateStoreSaveStage
 
-### 7. Debug Middleware
+**Purpose**: Persists conversation state after processing.
 
-**Purpose**: Provides debugging and introspection capabilities.
+**Behavior**:
+- Saves new messages to the state store
+- Merges metadata from the conversation
+- Updates conversation state for continuity
 
-**Responsibilities**:
-- Log execution details
-- Capture intermediate state
-- Record timing information
-- Enable step-through debugging
+### Streaming/Speech Stages
 
-**Location**: `runtime/pipeline/middleware/debug.go`
+#### VADAccumulatorStage
+
+**Purpose**: Voice activity detection and audio buffering.
+
+**Behavior**:
+- Buffers audio chunks until speech ends
+- Detects speech start/stop using VAD
+- Transcribes buffered audio to text
+
+#### AudioTurnStage
+
+**Purpose**: Comprehensive turn detection for voice applications.
+
+**Behavior**:
+- Voice activity detection (VAD)
+- Turn boundary detection
+- Audio accumulation
+- Interruption detection (shared with TTS)
+
+**Configuration**:
+```go
+config := stage.AudioTurnConfig{
+    SilenceDuration:   800 * time.Millisecond,
+    MinSpeechDuration: 200 * time.Millisecond,
+    MaxTurnDuration:   30 * time.Second,
+    SampleRate:        16000,
+}
+turnStage, _ := stage.NewAudioTurnStage(config)
+```
+
+#### STTStage
+
+**Purpose**: Speech-to-text transcription.
+
+**Behavior**:
+- Transcribes audio elements to text
+- Configurable language and minimum audio length
+- Skips empty or too-short audio
+
+#### TTSStage / TTSStageWithInterruption
+
+**Purpose**: Text-to-speech synthesis.
+
+**Behavior**:
+- Synthesizes audio for text elements
+- `TTSStageWithInterruption` supports barge-in detection
+- Configurable voice and speed
+
+#### DuplexProviderStage
+
+**Purpose**: Bidirectional WebSocket streaming for native audio LLMs.
+
+**Behavior**:
+- Concurrent input/output forwarding
+- StreamElement to StreamChunk conversion
+- Used with Gemini Live API and similar
+
+### Advanced Stages
+
+#### RouterStage
+
+**Purpose**: Dynamic routing to multiple output paths.
+
+**Behavior**:
+- Routes elements based on configurable functions
+- Multiple output channel support
+- Thread-safe output management
+
+#### MergeStage
+
+**Purpose**: Fan-in pattern for combining multiple streams.
+
+**Behavior**:
+- Merges N input channels to 1 output
+- Adds `merge_input_index` metadata
+- Concurrent processing of inputs
+
+#### MetricsStage
+
+**Purpose**: Per-stage performance monitoring.
+
+**Behavior**:
+- Tracks latency (min/max/avg)
+- Tracks throughput and error counts
+- Transparent wrapper pattern
+
+#### TracingStage
+
+**Purpose**: Distributed tracing support.
+
+**Behavior**:
+- Generates trace IDs
+- Records per-stage timing
+- Propagates trace context through pipeline
+
+### Utility Stages
+
+#### DebugStage
+
+**Purpose**: Pipeline debugging and inspection.
+
+**Behavior**:
+- Logs element details as JSON
+- Configurable output destination
+- Useful for development
+
+#### VariableProviderStage
+
+**Purpose**: Dynamic variable resolution.
+
+**Behavior**:
+- Resolves variables from multiple providers
+- Adds resolved values to metadata
+- Supports async variable sources
+
+#### MediaExternalizerStage
+
+**Purpose**: External storage for large media content.
+
+**Behavior**:
+- Uploads large media to external storage
+- Replaces inline data with URLs
+- Configurable size thresholds
+
+#### ContextBuilderStage
+
+**Purpose**: Token budget management.
+
+**Behavior**:
+- Enforces token limits on conversation context
+- Supports truncation strategies (sliding window, summarization)
+- Prevents context overflow
+
+## Pipeline Modes
+
+The SDK supports three pipeline configurations for different use cases:
+
+### Text Mode
+
+Standard HTTP-based LLM interactions:
+
+```
+Input → StateStoreLoad → VariableProvider → PromptAssembly → Template → Provider → Validation → StateStoreSave → Output
+```
+
+**Use Cases**: Chat applications, content generation, text processing
+
+### VAD Mode (Voice Activity Detection)
+
+For voice applications without native audio LLM support:
+
+```
+Input → StateStoreLoad → VariableProvider → PromptAssembly → Template → AudioTurn → STT → Provider → TTS → Validation → StateStoreSave → Output
+```
+
+**Use Cases**: Voice assistants using text-based LLMs, telephony integrations
+
+### ASM Mode (Audio Streaming Mode)
+
+For native multimodal LLMs with real-time audio:
+
+```
+Input → StateStoreLoad → VariableProvider → PromptAssembly → Template → DuplexProvider → Validation → StateStoreSave → Output
+```
+
+**Use Cases**: Gemini Live API, real-time voice conversations
 
 ## Execution Modes
 
-### Non-Streaming Execution
-
-In non-streaming mode, the pipeline waits for the complete response before proceeding:
-
-```mermaid
-sequenceDiagram
-    participant Client
-    participant Pipeline
-    participant Middleware
-    participant Provider
-
-    Client->>Pipeline: Execute(request)
-    Pipeline->>Middleware: Process(execCtx, next)
-    Middleware->>Provider: Chat(request)
-    Provider-->>Middleware: Complete Response
-    Middleware-->>Pipeline: Process complete
-    Pipeline-->>Client: Final Result
-```
-
-**Use Cases**:
-- Batch processing
-- Testing scenarios
-- Response post-processing
-- Full validation before returning
-
 ### Streaming Execution
 
-In streaming mode, responses are forwarded as chunks arrive:
+Elements flow through the pipeline as they're produced:
 
 ```mermaid
 sequenceDiagram
     participant Client
     participant Pipeline
-    participant Middleware
+    participant Stage1
     participant Provider
+    participant Stage2
 
-    Client->>Pipeline: ExecuteStream(request)
-    Pipeline->>Middleware: Process(execCtx, next)
-    Middleware->>Provider: ChatStream(request)
-    loop Streaming
-        Provider-->>Middleware: Chunk
-        Middleware-->>Pipeline: Forward Chunk
-        Pipeline-->>Client: Stream Chunk
+    Client->>Pipeline: Execute(input)
+    Pipeline->>Stage1: Start goroutine
+    Pipeline->>Provider: Start goroutine
+    Pipeline->>Stage2: Start goroutine
+
+    loop For each input element
+        Client->>Stage1: element via channel
+        Stage1->>Provider: processed element
+        Provider->>Stage2: streaming chunks
+        Stage2->>Client: output chunks
     end
-    Provider-->>Middleware: Stream Complete
-    Middleware-->>Pipeline: Process complete
-    Pipeline-->>Client: Final Status
 ```
 
-**Use Cases**:
-- Interactive chat interfaces
-- Real-time applications
-- Progressive content display
-- Reduced perceived latency
+**Use Cases**: Interactive chat, real-time applications, progressive display
+
+### Synchronous Execution
+
+Convenience wrapper that collects all output:
+
+```go
+result, err := pipeline.ExecuteSync(ctx, inputElement)
+// result.Response contains the final response
+// result.Messages contains all messages
+```
+
+**Use Cases**: Batch processing, testing, simple request/response
 
 ## Multi-Round Tool Execution
 
-The Provider Middleware handles complex tool calling scenarios:
+The ProviderStage handles complex tool calling scenarios:
 
 ```mermaid
 sequenceDiagram
     participant Pipeline
-    participant Provider MW
+    participant Provider Stage
     participant LLM
     participant Tool Registry
 
-    Pipeline->>Provider MW: Process (Round 1)
-    Provider MW->>LLM: Chat(messages, tools)
-    LLM-->>Provider MW: Response + Tool Calls
+    Pipeline->>Provider Stage: element with message
+    Provider Stage->>LLM: Chat(messages, tools)
+    LLM-->>Provider Stage: Response + Tool Calls
 
     loop Each Tool Call
-        Provider MW->>Tool Registry: Execute(toolName, args)
-        Tool Registry-->>Provider MW: Tool Result
+        Provider Stage->>Tool Registry: Execute(toolName, args)
+        Tool Registry-->>Provider Stage: Tool Result
     end
 
-    Provider MW->>Provider MW: Append Tool Results
-    Provider MW->>LLM: Chat(messages + results, tools)
-    LLM-->>Provider MW: Final Response
-    Provider MW-->>Pipeline: Complete
+    Provider Stage->>Provider Stage: Append Tool Results
+    Provider Stage->>LLM: Chat(messages + results, tools)
+    LLM-->>Provider Stage: Final Response
+    Provider Stage-->>Pipeline: Output elements
 ```
 
 **Features**:
 - Automatic tool call detection
 - Parallel tool execution
-- Result aggregation
 - Round limit enforcement (default: 10 rounds)
 - Tool policy enforcement
 
-## Concurrency & Resource Management
+## Configuration
 
-### Semaphore-Based Concurrency Control
-
-```mermaid
-graph LR
-    subgraph "Execution Slots"
-        Slot1["Slot 1<br/>In Use"]
-        Slot2["Slot 2<br/>In Use"]
-        Slot3["Slot 3<br/>Available"]
-        SlotN["Slot N<br/>Available"]
-    end
-
-    subgraph "Waiting Requests"
-        Req1["Request 1<br/>Waiting"]
-        Req2["Request 2<br/>Waiting"]
-    end
-
-    Req1 -.->|Blocked| Slot1
-    Req2 -.->|Blocked| Slot2
-
-    style Slot1 fill:#f99
-    style Slot2 fill:#f99
-    style Slot3 fill:#9f9
-    style SlotN fill:#9f9
-```
-
-The pipeline uses a weighted semaphore to limit concurrent executions:
-- Requests acquire a slot before execution
-- Blocked requests wait for available slots
-- Slots are released after execution completes
-- Prevents resource exhaustion
-
-### Graceful Shutdown
-
-When shutting down:
-1. Stop accepting new requests
-2. Wait for in-flight executions to complete
-3. Timeout after `GracefulShutdownTimeout`
-4. Return error if timeout expires
-
-## Error Handling Strategy
-
-### Middleware Error Propagation
-
-```mermaid
-graph TD
-    MW1["Middleware 1"]
-    MW2["Middleware 2"]
-    MW3["Middleware 3<br/>(Error Occurs)"]
-    MW4["Middleware 4"]
-
-    MW1 -->|next| MW2
-    MW2 -->|next| MW3
-    MW3 -.->|error| MW2
-    MW2 -.->|error| MW1
-
-    style MW3 fill:#f99
-```
-
-Errors propagate back up the middleware chain, allowing each middleware to:
-- Clean up resources
-- Add context to errors
-- Perform error recovery
-- Log failures
-
-### Provider Error Handling
-
-The Provider Middleware implements sophisticated error handling:
-- **Retries**: Automatic retry with exponential backoff
-- **Fallbacks**: Try alternative models or providers
-- **Graceful Degradation**: Return partial results when possible
-- **Error Context**: Enrich errors with request details
-
-## Configuration & Customization
-
-### Creating a Custom Pipeline
+### Pipeline Configuration
 
 ```go
-pipeline := pipeline.NewPipelineWithConfig(
-    &pipeline.PipelineRuntimeConfig{
-        MaxConcurrentExecutions: 50,
-        StreamBufferSize:        200,
-        ExecutionTimeout:        60 * time.Second,
-    },
-    middleware.ContextExtraction(),
-    middleware.TemplateMiddleware(templateRenderer),
-    middleware.PromptAssembly(promptRegistry),
-    middleware.ProviderMiddleware(provider, toolRegistry, toolPolicy, config),
-    middleware.StateStoreSave(stateStore),
-    middleware.DynamicValidator(validators),
-)
+config := stage.DefaultPipelineConfig().
+    WithChannelBufferSize(32).           // Larger buffers for throughput
+    WithPriorityQueue(true).             // Enable priority scheduling
+    WithExecutionTimeout(60 * time.Second).
+    WithMetrics(true).                   // Enable per-stage metrics
+    WithTracing(true)                    // Enable element-level tracing
+
+pipeline := stage.NewPipelineBuilderWithConfig(config).
+    Chain(stages...).
+    Build()
 ```
 
-### Custom Middleware Example
+### Default Configuration Values
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| ChannelBufferSize | 16 | Buffer size for inter-stage channels |
+| ExecutionTimeout | 30s | Maximum pipeline execution time |
+| GracefulShutdownTimeout | 10s | Timeout for graceful shutdown |
+| PriorityQueue | false | Enable priority-based scheduling |
+| Metrics | false | Enable per-stage metrics collection |
+| Tracing | false | Enable distributed tracing |
+
+## Error Handling
+
+### Error Propagation
+
+Errors can be sent as error elements or returned from Process:
 
 ```go
-type loggingMiddleware struct {
-    logger *log.Logger
-}
+func (s *MyStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
+    defer close(output)
 
-func (m *loggingMiddleware) Process(execCtx *pipeline.ExecutionContext, next func() error) error {
-    start := time.Now()
-    m.logger.Printf("Starting execution: %d messages", len(execCtx.Messages))
+    for elem := range input {
+        if err := s.process(elem); err != nil {
+            // Option 1: Send error element and continue
+            output <- stage.NewErrorElement(err)
+            continue
 
-    err := next()
-
-    duration := time.Since(start)
-    m.logger.Printf("Execution complete: %v (took %v)", err == nil, duration)
-
-    return err
+            // Option 2: Return error to stop pipeline
+            // return err
+        }
+        output <- elem
+    }
+    return nil
 }
 ```
+
+### Context Cancellation
+
+All stages should respect context cancellation:
+
+```go
+select {
+case output <- elem:
+    // Element sent successfully
+case <-ctx.Done():
+    return ctx.Err()  // Pipeline cancelled
+}
+```
+
+## Creating Custom Stages
+
+### Basic Pattern
+
+```go
+type MyStage struct {
+    stage.BaseStage
+    config MyConfig
+}
+
+func NewMyStage(config MyConfig) *MyStage {
+    return &MyStage{
+        BaseStage: stage.NewBaseStage("my_stage", stage.StageTypeTransform),
+        config:    config,
+    }
+}
+
+func (s *MyStage) Process(
+    ctx context.Context,
+    input <-chan stage.StreamElement,
+    output chan<- stage.StreamElement,
+) error {
+    defer close(output)  // Always close output when done
+
+    for elem := range input {
+        // Transform the element
+        if elem.Text != nil {
+            transformed := strings.ToUpper(*elem.Text)
+            elem.Text = &transformed
+        }
+
+        // Send to output with cancellation check
+        select {
+        case output <- elem:
+        case <-ctx.Done():
+            return ctx.Err()
+        }
+    }
+
+    return nil
+}
+```
+
+### Stage Type Guidelines
+
+| Stage Type | Input | Output | Use When |
+|------------|-------|--------|----------|
+| Transform | 1 | 1 or more | Modifying or enriching elements |
+| Accumulate | Many | 1 | Buffering until condition met |
+| Generate | 0 or 1 | Many | Producing streaming output |
+| Sink | Many | 0 | Terminal processing (save, log) |
+| Bidirectional | Varies | Varies | Full duplex communication |
 
 ## Performance Considerations
 
 ### Optimization Strategies
 
-1. **Middleware Ordering**: Place fast-failing middleware early in the chain
-2. **Concurrency Limits**: Tune based on provider rate limits and system resources
-3. **Stream Buffer Sizing**: Balance memory usage vs. throughput
-4. **Timeout Configuration**: Set based on provider SLAs and user expectations
+1. **Stage Ordering**: Place fast-failing stages early
+2. **Channel Buffer Sizing**: Balance memory vs. throughput
+3. **Concurrent Execution**: Stages run in parallel by default
+4. **Backpressure**: Slow consumers naturally slow producers
 
-### Monitoring & Observability
+### Monitoring Metrics
 
 Key metrics to track:
-- **Execution Duration**: Time spent in each middleware
-- **Concurrency Utilization**: Active vs. available slots
-- **Error Rates**: Failures by middleware and error type
-- **Tool Execution**: Tool call frequency and duration
-- **Provider Performance**: Latency and token usage
+- **Stage Duration**: Time spent in each stage
+- **Element Throughput**: Elements per second
+- **Error Rates**: Failures by stage and type
+- **Channel Utilization**: Buffer fill levels
 
-## Integration with Other Runtime Components
+## Integration with Other Components
 
 ```mermaid
 graph TB
     subgraph "Pipeline System"
         Pipeline
-        Middleware
+        Stages
     end
 
     subgraph "Provider System"
@@ -425,10 +630,10 @@ graph TB
         StateStore
     end
 
-    Pipeline --> Middleware
-    Middleware --> Provider
-    Middleware --> ToolRegistry
-    Middleware --> StateStore
+    Pipeline --> Stages
+    Stages --> Provider
+    Stages --> ToolRegistry
+    Stages --> StateStore
     ProviderRegistry --> Provider
     ToolRegistry --> MCPClient
 ```
@@ -441,23 +646,12 @@ The pipeline integrates with:
 
 ## Best Practices
 
-1. **Keep Middleware Focused**: Each middleware should have a single, clear responsibility
-2. **Always Call Next**: Middleware must call `next()` exactly once to maintain chain integrity
-3. **Handle Errors Gracefully**: Don't swallow errors; add context and propagate
-4. **Use Context Properly**: Respect context cancellation for responsive shutdown
-5. **Test Middleware Independently**: Unit test each middleware with mock dependencies
-6. **Document Side Effects**: Clearly document what state each middleware modifies
-7. **Consider Ordering**: Middleware order matters; document dependencies
-
-## Future Enhancements
-
-Potential areas for evolution:
-- **Conditional Middleware**: Skip middleware based on request properties
-- **Branching Pipelines**: Support alternative execution paths
-- **Middleware Versioning**: Allow multiple versions of middleware to coexist
-- **Dynamic Middleware**: Add/remove middleware at runtime
-- **Circuit Breakers**: Automatic failure detection and recovery
-- **Middleware Marketplace**: Community-contributed middleware plugins
+1. **Always Close Output**: Use `defer close(output)` at the start of Process
+2. **Respect Context**: Check `ctx.Done()` in long-running operations
+3. **Use Metadata**: Pass state between stages via element metadata
+4. **Handle Errors Gracefully**: Decide between error elements and fatal errors
+5. **Keep Stages Focused**: Each stage should have a single responsibility
+6. **Test Independently**: Unit test each stage with mock channels
 
 ---
 

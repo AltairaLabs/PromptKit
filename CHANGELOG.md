@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Stage-Based Pipeline Architecture
+A complete rewrite of the runtime pipeline from middleware-based to stage-based architecture, enabling true streaming execution with concurrent processing.
+
+**Key Changes:**
+- **Stage-Based Execution**: Pipeline now uses a DAG of stages instead of middleware chain
+- **True Streaming**: Elements flow through stages as they're produced via channels
+- **Concurrent Processing**: Each stage runs in its own goroutine
+- **Backpressure Support**: Channel-based communication naturally handles slow consumers
+- **Three Pipeline Modes**: Text, VAD (Voice Activity Detection), and ASM (Audio Streaming Mode)
+
+**New Stages:**
+- Core: `StateStoreLoadStage`, `StateStoreSaveStage`, `PromptAssemblyStage`, `TemplateStage`, `ValidationStage`, `ProviderStage`
+- Streaming: `VADAccumulatorStage`, `AudioTurnStage`, `STTStage`, `TTSStage`, `TTSStageWithInterruption`, `DuplexProviderStage`
+- Advanced: `RouterStage`, `MergeStage`, `MetricsStage`, `TracingStage`, `PriorityChannel`
+- Utility: `DebugStage`, `VariableProviderStage`, `MediaExternalizerStage`, `ContextBuilderStage`
+
+**SDK Integration:**
+- SDK now builds stage-based pipelines internally
+- Three execution modes: Text (HTTP API), VAD (Audio → STT → LLM → TTS), ASM (WebSocket duplex)
+- `WithVADMode()` option for voice applications using text-based LLMs
+- `WithStreamingConfig()` for native multimodal LLM streaming (Gemini Live)
+
+**Documentation:**
+- Updated `docs/src/content/architecture/runtime-pipeline.md` with stage architecture
+- Fixed all SDK tutorial pack examples to comply with PromptPack schema v1.1.0
+
 #### SDK v2 - Pack-First Architecture
 A complete rewrite of the Go SDK with a pack-first architecture that reduces boilerplate by ~80%.
 

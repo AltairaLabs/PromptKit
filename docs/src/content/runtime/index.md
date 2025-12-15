@@ -4,7 +4,7 @@ description: Core framework powering all PromptKit tools
 docType: guide
 order: 5
 ---
-# ⚙️ Runtime
+# Runtime
 
 **Core framework powering all PromptKit tools**
 
@@ -15,8 +15,8 @@ order: 5
 The Runtime is the foundational layer that provides:
 
 - **Provider interfaces** for implementing custom LLM providers
-- **Pipeline architecture** for request/response processing
-- **Middleware system** for extensible processing layers
+- **Pipeline architecture** for streaming request/response processing
+- **Stage system** for extensible, composable processing layers
 - **Type definitions** used across all PromptKit tools
 - **Tool execution** framework for MCP integration
 - **Validation system** for input/output checking
@@ -28,7 +28,7 @@ The Runtime is the foundational layer that provides:
 The Runtime is for advanced users who want to:
 
 - **Build custom providers** for new LLM services
-- **Create custom middleware** for specialized processing
+- **Create custom stages** for specialized processing
 - **Extend validators** with domain-specific checks
 - **Integrate MCP servers** with custom tools
 - **Understand internals** for contributions
@@ -45,111 +45,129 @@ package main
 
 import (
     "context"
-    "github.com/AltairaLabs/PromptKit/runtime/providers"
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline"
+    "github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+    "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
 )
 
-// Implement a custom provider
-type MyProvider struct {
-    providers.BaseProvider
-}
-
-func (p *MyProvider) Complete(ctx context.Context, req *providers.Request) (*providers.Response, error) {
-    // Custom provider logic
-    return &providers.Response{
-        Content: "Custom response",
-    }, nil
-}
-
 func main() {
-    // Register your provider
-    providers.Register("my-provider", NewMyProvider)
-    
-    // Use in pipeline
-    p := pipeline.New().WithProvider("my-provider")
-    // ...
+    // Create provider
+    provider := openai.NewOpenAIProvider(
+        "openai", "gpt-4o-mini", "",
+        openai.DefaultProviderDefaults(),
+        false,
+    )
+
+    // Build stage-based pipeline
+    pipeline := stage.NewPipelineBuilder().
+        Chain(
+            stage.NewProviderStage(provider, nil, nil, &stage.ProviderConfig{
+                MaxTokens:   1500,
+                Temperature: 0.7,
+            }),
+        ).
+        Build()
+
+    // Execute
+    input := make(chan stage.StreamElement, 1)
+    msg := types.Message{Role: "user"}
+    msg.AddTextPart("Hello!")
+    input <- stage.NewMessageElement(msg)
+    close(input)
+
+    output, _ := pipeline.Execute(context.Background(), input)
+    for elem := range output {
+        if elem.Text != nil {
+            fmt.Print(*elem.Text)
+        }
+    }
 }
 ```
 
-**Next**: [Build a Custom Provider Tutorial](/runtime/tutorials/01-custom-provider/)
+**Next**: [Build Your First Pipeline Tutorial](/runtime/tutorials/01-first-pipeline/)
 
 ---
 
 ## Documentation by Type
 
-### 📚 Tutorials (Learn by Doing)
+### Tutorials (Learn by Doing)
 
 Step-by-step guides for extending Runtime:
 
-1. [Custom Provider](/runtime/tutorials/01-custom-provider/) - Implement a provider
-2. [Custom Middleware](/runtime/tutorials/02-custom-middleware/) - Add processing layers
-3. [Custom Validator](/runtime/tutorials/03-custom-validator/) - Extend validation
+1. [First Pipeline](/runtime/tutorials/01-first-pipeline/) - Build your first pipeline
+2. [Multi-Turn Conversations](/runtime/tutorials/02-multi-turn/) - State management
+3. [MCP Integration](/runtime/tutorials/03-mcp-integration/) - Add MCP tools
+4. [Validation & Guardrails](/runtime/tutorials/04-validation-guardrails/) - Content safety
+5. [Production Deployment](/runtime/tutorials/05-production-deployment/) - Deploy pipelines
+6. [Advanced Patterns](/runtime/tutorials/06-advanced-patterns/) - Complex pipelines
 
-### 🔧 How-To Guides (Accomplish Specific Tasks)
+### How-To Guides (Accomplish Specific Tasks)
 
 Focused guides for specific Runtime tasks:
 
-- [Implement a Provider](/runtime/how-to/implement-provider/) - Provider interface
-- [Create Middleware](/runtime/how-to/create-middleware/) - Middleware patterns
-- [Extend Validators](/runtime/how-to/extend-validators/) - Custom validation
+- [Configure Pipeline](/runtime/how-to/configure-pipeline/) - Pipeline setup
+- [Setup Providers](/runtime/how-to/setup-providers/) - Provider configuration
+- [Handle Errors](/runtime/how-to/handle-errors/) - Error handling
+- [Streaming Responses](/runtime/how-to/streaming-responses/) - Real-time output
+- [Manage State](/runtime/how-to/manage-state/) - Conversation persistence
 - [Integrate MCP](/runtime/how-to/integrate-mcp/) - MCP server integration
-- [Customize Pipeline](/runtime/how-to/customize-pipeline/) - Pipeline configuration
+- [Monitor Costs](/runtime/how-to/monitor-costs/) - Cost tracking
 
-### 💡 Explanation (Understand the Concepts)
+### Explanation (Understand the Concepts)
 
 Deep dives into Runtime architecture:
 
-- [Architecture Overview](/runtime/explanation/architecture-overview/) - System design
-- [Pipeline Design](/runtime/explanation/pipeline-design/) - Request flow
-- [Provider Interface](/runtime/explanation/provider-interface/) - Provider contract
-- [Middleware Lifecycle](/runtime/explanation/middleware-lifecycle/) - Processing stages
-- [Tool Execution](/runtime/explanation/tool-execution/) - Tool calling system
-- [MCP Integration](/runtime/explanation/mcp-integration/) - Model Context Protocol
+- [Pipeline Architecture](/runtime/explanation/pipeline-architecture/) - Stage-based streaming
+- [Stage Design](/runtime/explanation/stage-design/) - Composable stage patterns
+- [Provider System](/runtime/explanation/provider-system/) - LLM provider abstraction
+- [State Management](/runtime/explanation/state-management/) - Conversation persistence
 
-### 📖 Reference (Look Up Details)
+### Reference (Look Up Details)
 
 Complete API documentation:
 
-- [Providers API](/runtime/reference/api/providers/) - Provider interfaces
-- [Pipeline API](/runtime/reference/api/pipeline/) - Pipeline builders
-- [Middleware API](/runtime/reference/api/middleware/) - Middleware types
-- [Types API](/runtime/reference/api/types/) - Core type definitions
-- [Validators API](/runtime/reference/api/validators/) - Validation interfaces
-- [MCP API](/runtime/reference/api/mcp/) - MCP integration
+- [Pipeline API](/runtime/reference/pipeline/) - Stage and pipeline interfaces
+- [Providers API](/runtime/reference/providers/) - Provider interfaces
+- [Types API](/runtime/reference/types/) - Core type definitions
+- [Tools & MCP API](/runtime/reference/tools-mcp/) - Tool execution
+- [Validators API](/runtime/reference/validators/) - Validation interfaces
+- [Storage API](/runtime/reference/storage/) - State storage
 
 ---
 
 ## Key Concepts
 
-### Provider Interface
+### Stage Interface
 
-Implement custom LLM providers:
+Implement custom processing stages:
 
 ```go
-type Provider interface {
-    Complete(ctx context.Context, req *Request) (*Response, error)
-    Stream(ctx context.Context, req *Request) (<-chan *StreamChunk, error)
-    Metadata() *ProviderMetadata
+type Stage interface {
+    Name() string
+    Type() StageType
+    Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
 }
 ```
 
 ### Pipeline Architecture
 
-Request processing flow:
+Streaming request processing flow:
 
 ```
-Request → Middleware₁ → Middleware₂ → Provider → Middleware₂ → Middleware₁ → Response
+Input → [Stage 1] → [Stage 2] → [Stage N] → Output
 ```
 
-### Middleware System
+Each stage runs in its own goroutine, enabling concurrent streaming.
 
-Extensible processing layers:
+### Stage Types
 
-```go
-type Middleware interface {
-    Process(ctx context.Context, req *Request, next Handler) (*Response, error)
-}
-```
+Different stage behaviors:
+
+| Type | Pattern | Example |
+|------|---------|---------|
+| Transform | 1:1 or 1:N | Validation, enrichment |
+| Accumulate | N:1 | VAD buffering, collection |
+| Generate | 0:N | LLM streaming, TTS |
+| Sink | N:0 | State save, metrics |
 
 ### Tool Execution
 
@@ -171,31 +189,31 @@ graph TB
     subgraph "SDK Layer"
         SDK[SDK]
     end
-    
+
     subgraph "Runtime Layer"
         Pipeline[Pipeline]
-        Middleware[Middleware]
+        Stages[Stages]
         Providers[Providers]
         Tools[Tool Execution]
         Validators[Validators]
     end
-    
+
     subgraph "External Services"
         OpenAI[OpenAI]
         Anthropic[Anthropic]
         MCP[MCP Servers]
     end
-    
+
     SDK --> Pipeline
-    Pipeline --> Middleware
-    Middleware --> Providers
-    Middleware --> Tools
-    Middleware --> Validators
-    
+    Pipeline --> Stages
+    Stages --> Providers
+    Stages --> Tools
+    Stages --> Validators
+
     Providers --> OpenAI
     Providers --> Anthropic
     Tools --> MCP
-    
+
     style Runtime Layer fill:#f3e5f5
 ```
 
@@ -206,14 +224,14 @@ graph TB
 ### For Framework Contributors
 
 - Add new provider support
-- Implement new middleware types
+- Implement new stage types
 - Extend validation system
 - Improve core functionality
 
 ### For Advanced Developers
 
 - Build custom providers for internal APIs
-- Create domain-specific middleware
+- Create domain-specific stages
 - Integrate proprietary LLM services
 - Implement custom tool execution
 
@@ -226,78 +244,70 @@ graph TB
 
 ---
 
-## Examples
+## Pipeline Modes
 
-Runtime extension examples:
+Runtime supports three pipeline configurations:
 
-- [Custom Provider](/runtime/examples/custom-provider/) - Implement a new provider
-- [Custom Middleware](/runtime/examples/custom-middleware/) - Add processing
-- [MCP Integration](/runtime/examples/mcp-integration/) - Integrate MCP servers
+### Text Mode
 
----
+Standard HTTP-based LLM interactions:
 
-## Extension Points
-
-### Provider Registration
-
-```go
-providers.Register("my-provider", func(config *ProviderConfig) (Provider, error) {
-    return &MyProvider{config: config}, nil
-})
+```
+Message → StateStoreLoad → PromptAssembly → Provider → StateStoreSave → Response
 ```
 
-### Middleware Registration
+### VAD Mode (Voice Activity Detection)
 
-```go
-middleware.Register("my-middleware", func(config *MiddlewareConfig) (Middleware, error) {
-    return &MyMiddleware{config: config}, nil
-})
+For voice applications using text-based LLMs:
+
+```
+Audio → AudioTurn → STT → Provider → TTS → Audio
 ```
 
-### Validator Registration
+### ASM Mode (Audio Streaming)
 
-```go
-validators.Register("my-validator", func() Validator {
-    return &MyValidator{}
-})
+For native multimodal LLMs with real-time audio:
+
+```
+Audio/Text → DuplexProvider → Audio/Text
 ```
 
 ---
 
 ## Core Types
 
-### Request
+### StreamElement
 
 ```go
-type Request struct {
-    Messages    []Message
-    Model       string
-    Temperature float64
-    MaxTokens   int
-    Tools       []Tool
-    Metadata    map[string]interface{}
+type StreamElement struct {
+    Text      *string
+    Audio     *AudioData
+    Message   *types.Message
+    ToolCall  *types.ToolCall
+    Metadata  map[string]interface{}
+    Error     error
+    Timestamp time.Time
 }
 ```
 
-### Response
+### Message
+
+```go
+type Message struct {
+    Role    string
+    Content string
+    Parts   []ContentPart
+}
+```
+
+### Provider Response
 
 ```go
 type Response struct {
-    Content     string
-    ToolCalls   []ToolCall
-    Usage       *Usage
-    Metadata    map[string]interface{}
-}
-```
-
-### StreamChunk
-
-```go
-type StreamChunk struct {
     Content   string
-    Delta     string
-    Done      bool
-    Error     error
+    ToolCalls []ToolCall
+    Usage     *Usage
+    Metadata  map[string]interface{}
 }
 ```
 
@@ -305,12 +315,21 @@ type StreamChunk struct {
 
 ## Design Principles
 
+### Streaming First
+
+Runtime is designed for streaming from the ground up:
+
+- Channel-based data flow
+- Concurrent stage execution
+- Backpressure support
+- True streaming (not simulated)
+
 ### Extensibility
 
 Runtime is designed to be extended without modifying core code:
 
 - Plugin-based provider system
-- Composable middleware
+- Composable stages
 - Flexible validation
 - Open for extension, closed for modification
 
@@ -336,7 +355,7 @@ Leverage Go's type system:
 
 ## Getting Help
 
-- **Quick Start**: [Custom Provider Tutorial](/runtime/tutorials/01-custom-provider/)
+- **Quick Start**: [First Pipeline Tutorial](/runtime/tutorials/01-first-pipeline/)
 - **Questions**: [GitHub Discussions](https://github.com/AltairaLabs/PromptKit/discussions)
 - **Issues**: [Report a Bug](https://github.com/AltairaLabs/PromptKit/issues)
 - **Contributing**: [Contribution Guide](/community/contributing/)
@@ -348,4 +367,3 @@ Leverage Go's type system:
 - **SDK**: [Built on top of Runtime](/sdk/)
 - **Arena**: [Uses Runtime for testing](/arena/)
 - **Architecture**: [System Design](/concepts/architecture/)
-- **ADRs**: [Architecture Decisions](/concepts/architecture/adr/)

@@ -39,11 +39,18 @@ Create `dynamic.pack.json`:
 
 ```json
 {
-  "version": "1.0",
+  "id": "dynamic-support",
+  "name": "Dynamic Support",
+  "version": "1.0.0",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
   "prompts": {
     "support": {
-      "name": "support",
-      "description": "Dynamic customer support",
+      "id": "support",
+      "name": "Support Agent",
+      "version": "1.0.0",
       "system_template": "You are a {{role}} at {{company}}. Help customers in {{language}}. The customer's name is {{customer_name}}.",
       "parameters": {
         "temperature": 0.7

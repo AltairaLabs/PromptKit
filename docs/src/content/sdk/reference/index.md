@@ -298,6 +298,21 @@ import (
 )
 ```
 
+## Additional References
+
+### Audio & Voice
+
+- **[Audio API](audio)** - VAD mode, ASM mode, turn detection, audio streaming
+- **[TTS API](tts)** - Text-to-speech services, voices, formats, providers
+
+### Dynamic Variables
+
+- **[Variable Providers](variables)** - Dynamic variable resolution, built-in providers, custom providers
+
+### Related
+
+- **[ConversationManager](conversation-manager)** - Legacy conversation management
+
 ## See Also
 
 - [Tutorials](../tutorials/)

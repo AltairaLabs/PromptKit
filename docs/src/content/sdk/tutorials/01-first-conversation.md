@@ -41,11 +41,18 @@ Create `hello.pack.json`:
 
 ```json
 {
-  "version": "1.0",
+  "id": "hello-chatbot",
+  "name": "Hello Chatbot",
+  "version": "1.0.0",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
   "prompts": {
     "chat": {
-      "name": "chat",
-      "description": "A helpful AI assistant",
+      "id": "chat",
+      "name": "Chat Assistant",
+      "version": "1.0.0",
       "system_template": "You are a helpful AI assistant. Be concise and friendly. The user's name is {{user_name}}.",
       "parameters": {
         "temperature": 0.7,
@@ -187,12 +194,25 @@ The pack file can specify different providers:
 
 ```json
 {
-  "version": "1.0",
+  "id": "my-chatbot",
+  "name": "My Chatbot",
+  "version": "1.0.0",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
   "provider": {
     "name": "anthropic",
     "model": "claude-3-5-sonnet-20241022"
   },
-  "prompts": { ... }
+  "prompts": {
+    "chat": {
+      "id": "chat",
+      "name": "Chat",
+      "version": "1.0.0",
+      "system_template": "You are a helpful assistant."
+    }
+  }
 }
 ```
 
