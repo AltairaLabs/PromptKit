@@ -184,6 +184,14 @@ func (m *MockStreamSession) SendText(ctx context.Context, text string) error {
 	return nil
 }
 
+func (m *MockStreamSession) SendSystemContext(ctx context.Context, text string) error {
+	if m.err != nil {
+		return m.err
+	}
+	m.texts = append(m.texts, text)
+	return nil
+}
+
 func (m *MockStreamSession) Response() <-chan StreamChunk {
 	return m.responses
 }

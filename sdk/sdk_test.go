@@ -567,11 +567,15 @@ func (m *mockStreamingProvider) GetStreamingCapabilities() providers.StreamingCa
 // mockStreamSession implements providers.StreamInputSession
 type mockStreamSession struct{}
 
-func (m *mockStreamSession) SendChunk(ctx context.Context, chunk *types.MediaChunk) error {
+func (m *mockStreamSession) SendChunk(_ context.Context, _ *types.MediaChunk) error {
 	return nil
 }
 
-func (m *mockStreamSession) SendText(ctx context.Context, text string) error {
+func (m *mockStreamSession) SendText(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockStreamSession) SendSystemContext(_ context.Context, _ string) error {
 	return nil
 }
 

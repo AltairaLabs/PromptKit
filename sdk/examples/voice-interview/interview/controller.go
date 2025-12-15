@@ -11,7 +11,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk"
 	"github.com/AltairaLabs/PromptKit/sdk/examples/voice-interview/audio"
-	"github.com/AltairaLabs/PromptKit/sdk/examples/voice-interview/speech"
 	"github.com/AltairaLabs/PromptKit/sdk/examples/voice-interview/video"
 )
 
@@ -24,10 +23,6 @@ type Controller struct {
 	audioSystem *audio.AudioSystem
 	webcam      *video.WebcamCapture
 	state       *InterviewState
-
-	// Speech services (for VAD mode)
-	transcriber speech.Transcriber
-	tts         speech.TextToSpeech
 
 	// Event channels
 	events      chan Event
@@ -111,14 +106,6 @@ func (c *Controller) SetWebcam(webcam *video.WebcamCapture) {
 	c.webcam = webcam
 }
 
-// SetSpeechServices sets the transcriber and TTS services (required for VAD mode)
-func (c *Controller) SetSpeechServices(transcriber speech.Transcriber, tts speech.TextToSpeech) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.transcriber = transcriber
-	c.tts = tts
-}
-
 // Events returns the event channel
 func (c *Controller) Events() <-chan Event {
 	return c.events
@@ -157,21 +144,12 @@ func (c *Controller) Start(ctx context.Context) error {
 	c.state.Start()
 	c.emitEvent(EventInterviewStarted, nil)
 
-	// Start processing goroutines based on mode
-	switch c.config.Mode {
-	case ModeASM:
-		go c.runASMMode()
-		// Start response processor only for ASM mode (duplex streaming)
-		go c.processResponses()
-	case ModeVAD:
-		// Verify speech services are configured
-		if c.transcriber == nil || c.tts == nil {
-			return fmt.Errorf("VAD mode requires speech services (transcriber and TTS)")
-		}
-		go c.runVADMode()
-		// Send initial greeting to start the interview
-		go c.sendInitialGreeting()
-	}
+	// Start processing goroutines
+	// Both ASM and VAD modes now use the same duplex streaming approach
+	// In ASM mode: audio → Gemini Live (native) → audio
+	// In VAD mode: audio → [AudioTurn→STT→LLM→TTS pipeline] → audio
+	go c.runAudioStreaming()
+	go c.processResponses()
 
 	// Start webcam processor if enabled
 	if c.config.EnableWebcam && c.webcam != nil {
@@ -194,27 +172,34 @@ func (c *Controller) Stop() {
 	}
 }
 
-// runASMMode handles continuous bidirectional audio streaming
-func (c *Controller) runASMMode() {
-	fmt.Println("[ASM] ASM mode started - streaming audio to Gemini")
+// runAudioStreaming handles continuous audio streaming for both ASM and VAD modes
+// In ASM mode: audio streams directly to Gemini Live API
+// In VAD mode: audio flows through the pipeline (AudioTurn → STT → LLM → TTS)
+func (c *Controller) runAudioStreaming() {
+	modeStr := "ASM"
+	if c.config.Mode == ModeVAD {
+		modeStr = "VAD"
+	}
+	fmt.Printf("[%s] Audio streaming started\n", modeStr)
+
 	audioChunks := c.audioSystem.Capture().AudioChunks()
 	energyLevels := c.audioSystem.Capture().EnergyLevels()
 
 	chunkCount := 0
 	errorCount := 0
-	fmt.Println("[ASM] Waiting for audio from microphone...")
+	fmt.Printf("[%s] Waiting for audio from microphone...\n", modeStr)
 
 	for {
 		select {
 		case <-c.ctx.Done():
-			fmt.Printf("[ASM] Stopped - sent %d chunks to Gemini (errors=%d)\n", chunkCount, errorCount)
+			fmt.Printf("[%s] Stopped - sent %d chunks (errors=%d)\n", modeStr, chunkCount, errorCount)
 			return
 		case audioData := <-audioChunks:
 			chunkCount++
 			if chunkCount == 1 {
-				fmt.Printf("[ASM] First audio chunk from mic: %d bytes - sending to Gemini\n", len(audioData))
+				fmt.Printf("[%s] First audio chunk from mic: %d bytes\n", modeStr, len(audioData))
 			}
-			// Stream audio directly to the model
+			// Stream audio to the pipeline (works for both ASM and VAD modes)
 			audioDataStr := string(audioData)
 			chunk := &providers.StreamChunk{
 				MediaDelta: &types.MediaContent{
@@ -226,13 +211,13 @@ func (c *Controller) runASMMode() {
 			if err := c.conv.SendChunk(c.ctx, chunk); err != nil {
 				errorCount++
 				if errorCount == 1 {
-					fmt.Printf("[ASM ERROR] First SendChunk error: %v\n", err)
+					fmt.Printf("[%s ERROR] First SendChunk error: %v\n", modeStr, err)
 				} else if errorCount%10 == 0 {
-					fmt.Printf("[ASM ERROR] SendChunk errors: %d (latest: %v)\n", errorCount, err)
+					fmt.Printf("[%s ERROR] SendChunk errors: %d (latest: %v)\n", modeStr, errorCount, err)
 				}
 				c.emitEvent(EventError, err)
 			} else if chunkCount%100 == 0 {
-				fmt.Printf("[ASM] Sent %d audio chunks to Gemini\n", chunkCount)
+				fmt.Printf("[%s] Sent %d audio chunks\n", modeStr, chunkCount)
 			}
 		case energy := <-energyLevels:
 			// Emit speaking/silent events for UI feedback
@@ -245,149 +230,7 @@ func (c *Controller) runASMMode() {
 	}
 }
 
-// runVADMode handles turn-based audio with VAD and TTS
-func (c *Controller) runVADMode() {
-	audioChunks := c.audioSystem.Capture().AudioChunks()
-	energyLevels := c.audioSystem.Capture().EnergyLevels()
-
-	// Buffer for accumulating speech
-	var speechBuffer []byte
-	speaking := false
-	silenceStart := time.Time{}
-	silenceThreshold := 1200 * time.Millisecond // Reduced from 1500ms
-	speechThreshold := 0.02                     // Lower threshold for speech detection
-
-	// Periodic status for debugging
-	lastStatus := time.Now()
-
-	for {
-		select {
-		case <-c.ctx.Done():
-			return
-		case audioData := <-audioChunks:
-			// Only buffer audio when speaking is detected
-			if speaking {
-				speechBuffer = append(speechBuffer, audioData...)
-			}
-		case energy := <-energyLevels:
-			// Periodic status update
-			if time.Since(lastStatus) > 5*time.Second {
-				fmt.Printf("[VAD] Status: speaking=%v, buffer=%d bytes, energy=%.4f\n",
-					speaking, len(speechBuffer), energy)
-				lastStatus = time.Now()
-			}
-
-			if energy > speechThreshold {
-				// User is speaking
-				if !speaking {
-					fmt.Printf("[VAD] Speech detected (energy=%.4f)\n", energy)
-				}
-				speaking = true
-				silenceStart = time.Time{}
-				c.emitEvent(EventUserSpeaking, energy)
-			} else if speaking {
-				// Silence after speech
-				if silenceStart.IsZero() {
-					silenceStart = time.Now()
-				} else if time.Since(silenceStart) > silenceThreshold {
-					// End of turn - send accumulated speech
-					if len(speechBuffer) > 0 {
-						fmt.Printf("[VAD] Turn complete, processing %d bytes\n", len(speechBuffer))
-						c.sendAccumulatedSpeech(speechBuffer)
-						speechBuffer = nil
-					}
-					speaking = false
-					silenceStart = time.Time{}
-				}
-				c.emitEvent(EventUserSilent, energy)
-			}
-		}
-	}
-}
-
-// sendInitialGreeting sends an initial message to start the interview
-func (c *Controller) sendInitialGreeting() {
-	fmt.Println("[VAD] Sending initial greeting request...")
-
-	// Send a request to start the interview
-	respCh := c.conv.Stream(c.ctx, "Please introduce yourself and ask the first interview question.")
-
-	// Process response and convert to speech
-	c.handleVADTextResponse(respCh)
-}
-
-// sendAccumulatedSpeech transcribes speech and sends to the LLM
-func (c *Controller) sendAccumulatedSpeech(speechData []byte) {
-	fmt.Printf("[VAD] Transcribing speech: %d bytes\n", len(speechData))
-
-	// Step 1: Transcribe the audio to text using STT
-	transcript, err := c.transcriber.Transcribe(c.ctx, speechData, "pcm")
-	if err != nil {
-		fmt.Printf("[VAD ERROR] Transcription failed: %v\n", err)
-		c.emitEvent(EventError, err)
-		return
-	}
-
-	if transcript == "" {
-		fmt.Println("[VAD] No speech detected in audio")
-		return
-	}
-
-	fmt.Printf("[VAD] Transcribed: %q\n", transcript)
-
-	// Step 2: Send transcribed text to the LLM
-	respCh := c.conv.Stream(c.ctx, transcript)
-
-	// Step 3: Process response and convert to speech
-	c.handleVADTextResponse(respCh)
-}
-
-// handleVADTextResponse handles text response from LLM and converts to speech
-func (c *Controller) handleVADTextResponse(respCh <-chan sdk.StreamChunk) {
-	var fullResponse string
-
-	for chunk := range respCh {
-		if chunk.Error != nil {
-			fmt.Printf("[VAD] LLM error: %v\n", chunk.Error)
-			c.emitEvent(EventError, chunk.Error)
-			return
-		}
-
-		// Accumulate text response
-		if chunk.Text != "" {
-			fullResponse += chunk.Text
-		}
-	}
-
-	if fullResponse == "" {
-		return
-	}
-
-	c.emitEvent(EventTranscriptReceived, fullResponse)
-
-	// Send to transcripts channel
-	select {
-	case c.transcripts <- fullResponse:
-	default:
-	}
-
-	// Convert response to speech using TTS
-	audioData, err := c.tts.Synthesize(c.ctx, fullResponse)
-	if err != nil {
-		fmt.Printf("[VAD] TTS error: %v\n", err)
-		c.emitEvent(EventError, err)
-		return
-	}
-
-	// Play the audio
-	if err := c.audioSystem.Playback().Write(audioData); err != nil {
-		fmt.Printf("[VAD] Audio playback error: %v\n", err)
-	}
-
-	c.emitEvent(EventAudioReceived, len(audioData))
-}
-
-// processResponses handles streaming responses from the model
+// processResponses handles streaming responses from the model (works for both ASM and VAD modes)
 func (c *Controller) processResponses() {
 	fmt.Println("[RESPONSE] processResponses goroutine started")
 

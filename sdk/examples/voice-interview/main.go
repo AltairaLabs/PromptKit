@@ -39,15 +39,16 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/gemini"
+	"github.com/AltairaLabs/PromptKit/runtime/stt"
+	"github.com/AltairaLabs/PromptKit/runtime/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk"
 	"github.com/AltairaLabs/PromptKit/sdk/examples/voice-interview/audio"
 	"github.com/AltairaLabs/PromptKit/sdk/examples/voice-interview/interview"
-	"github.com/AltairaLabs/PromptKit/sdk/examples/voice-interview/speech"
 	"github.com/AltairaLabs/PromptKit/sdk/examples/voice-interview/ui"
 	"github.com/AltairaLabs/PromptKit/sdk/examples/voice-interview/video"
 )
@@ -76,9 +77,8 @@ func main() {
 		return
 	}
 
-	// Check for API key
-	apiKey := os.Getenv("GEMINI_API_KEY")
-	if apiKey == "" {
+	// Check for API key (SDK auto-detects from environment, but we validate early for better error messages)
+	if os.Getenv("GEMINI_API_KEY") == "" {
 		log.Fatal("GEMINI_API_KEY environment variable is required")
 	}
 
@@ -136,18 +136,6 @@ func main() {
 		}
 	}
 
-	// Create Gemini provider explicitly (required for ASM mode)
-	geminiProvider := gemini.NewProvider(
-		"gemini",
-		"gemini-2.0-flash-exp",
-		"https://generativelanguage.googleapis.com",
-		providers.ProviderDefaults{
-			Temperature: 0.7,
-			MaxTokens:   500,
-		},
-		false, // includeRawOutput
-	)
-
 	// Prepare initial variables BEFORE opening conversation
 	// (Required for ASM mode where pipeline is built at open time)
 	state := interview.NewInterviewState("interview-1", questionBank, interviewMode)
@@ -183,11 +171,11 @@ IMPORTANT:
 	switch interviewMode {
 	case interview.ModeASM:
 		// ASM mode: native bidirectional audio streaming
+		// SDK auto-detects Gemini from GEMINI_API_KEY; we specify the model for Live API support
 		conv, err = sdk.OpenDuplex(
 			*packPath,
 			"interviewer",
-			sdk.WithProvider(geminiProvider),
-			sdk.WithAPIKey(apiKey),
+			sdk.WithModel("gemini-2.0-flash-exp"), // Required for Gemini Live API (native audio streaming)
 			sdk.WithVariables(initialVars),
 			sdk.WithStreamingConfig(&providers.StreamingInputConfig{
 				Config: types.StreamingMediaConfig{
@@ -206,17 +194,32 @@ IMPORTANT:
 			}),
 		)
 	case interview.ModeVAD:
-		// VAD mode: turn-based conversation with Gemini, using OpenAI for speech services
-		// Requires OPENAI_API_KEY for transcription (Whisper) and TTS
-		if os.Getenv("OPENAI_API_KEY") == "" {
+		// VAD mode: turn-based conversation using pipeline stages
+		// Requires OPENAI_API_KEY for STT (Whisper) and TTS
+		openaiKey := os.Getenv("OPENAI_API_KEY")
+		if openaiKey == "" {
 			log.Fatal("OPENAI_API_KEY environment variable required for VAD mode (speech services)")
 		}
-		conv, err = sdk.Open(
+
+		// Create STT and TTS services from runtime packages
+		sttService := stt.NewOpenAI(openaiKey)
+		ttsService := tts.NewOpenAI(openaiKey)
+
+		// VAD mode uses OpenDuplex with WithVADMode - pipeline handles VAD → STT → LLM → TTS
+		// SDK auto-detects Gemini from GEMINI_API_KEY
+		conv, err = sdk.OpenDuplex(
 			*packPath,
 			"interviewer",
-			sdk.WithProvider(geminiProvider),
-			sdk.WithAPIKey(apiKey),
+			sdk.WithModel("gemini-2.0-flash-exp"), // Use latest model for best results
 			sdk.WithVariables(initialVars),
+			sdk.WithVADMode(sttService, ttsService, &sdk.VADModeConfig{
+				SilenceDuration:   1200 * time.Millisecond,
+				MinSpeechDuration: 200 * time.Millisecond,
+				SampleRate:        audio.InputSampleRate,
+				Language:          "en",
+				Voice:             "nova",
+				Speed:             1.0,
+			}),
 		)
 	}
 
@@ -235,18 +238,8 @@ IMPORTANT:
 		controller.SetWebcam(webcam)
 	}
 
-	// Initialize speech services for VAD mode (OpenAI API key already verified above)
-	if interviewMode == interview.ModeVAD {
-		openaiKey := os.Getenv("OPENAI_API_KEY") // Already verified above when creating provider
-		transcriber := speech.NewOpenAITranscriber(openaiKey)
-		tts := speech.NewOpenAITTS(speech.TTSConfig{
-			APIKey: openaiKey,
-			Voice:  speech.VoiceNova,
-			Format: speech.FormatPCM,
-			Speed:  1.0,
-		})
-		controller.SetSpeechServices(transcriber, tts)
-	}
+	// VAD mode speech services are now handled by the pipeline via WithVADMode()
+	// No manual setup needed - the controller uses the same duplex streaming approach as ASM mode
 
 	// Start the interview
 	if err := controller.Start(ctx); err != nil {

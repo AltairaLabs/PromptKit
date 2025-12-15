@@ -610,4 +610,3 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 
 	return elem
 }
-

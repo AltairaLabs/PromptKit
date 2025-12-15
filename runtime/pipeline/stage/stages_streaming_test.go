@@ -266,30 +266,30 @@ func TestDuplexProviderStage_EdgeCases(t *testing.T) {
 
 func TestVADAccumulatorStage_Basic(t *testing.T) {
 	t.Run("creates VAD accumulator stage", func(t *testing.T) {
-analyzer := &mockVADAnalyzer{}
+		analyzer := &mockVADAnalyzer{}
 		transcriber := &mockTranscriber{}
 		config := DefaultVADConfig()
-		
+
 		stage := NewVADAccumulatorStage(analyzer, transcriber, config)
-		
+
 		assert.NotNil(t, stage)
 		assert.Equal(t, "vad_accumulator", stage.Name())
 		assert.Equal(t, StageTypeAccumulate, stage.Type())
 	})
-	
+
 	t.Run("processes audio elements", func(t *testing.T) {
 		analyzer := &mockVADAnalyzer{}
 		transcriber := &mockTranscriber{}
 		config := DefaultVADConfig()
-		
+
 		stage := NewVADAccumulatorStage(analyzer, transcriber, config)
-		
+
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		
+
 		input := make(chan StreamElement, 10)
 		output := make(chan StreamElement, 10)
-		
+
 		// Send audio element
 		input <- StreamElement{
 			Audio: &AudioData{
@@ -298,13 +298,13 @@ analyzer := &mockVADAnalyzer{}
 			},
 		}
 		close(input)
-		
+
 		// Process in background
 		errCh := make(chan error, 1)
 		go func() {
 			errCh <- stage.Process(ctx, input, output)
 		}()
-		
+
 		// Wait for result
 		select {
 		case err := <-errCh:
@@ -313,30 +313,30 @@ analyzer := &mockVADAnalyzer{}
 			t.Fatal("Timeout waiting for VAD processing")
 		}
 	})
-	
+
 	t.Run("passes through non-audio elements", func(t *testing.T) {
 		analyzer := &mockVADAnalyzer{}
 		transcriber := &mockTranscriber{}
 		config := DefaultVADConfig()
-		
+
 		stage := NewVADAccumulatorStage(analyzer, transcriber, config)
-		
+
 		ctx := context.Background()
 		input := make(chan StreamElement, 10)
 		output := make(chan StreamElement, 10)
-		
+
 		// Send non-audio element
 		textVal := "test"
 		input <- StreamElement{
 			Text: &textVal,
 		}
 		close(input)
-		
+
 		// Process
 		go func() {
 			_ = stage.Process(ctx, input, output)
 		}()
-		
+
 		// Should pass through immediately
 		select {
 		case elem := <-output:
@@ -346,18 +346,18 @@ analyzer := &mockVADAnalyzer{}
 			t.Fatal("Timeout - element not passed through")
 		}
 	})
-	
+
 	t.Run("handles context cancellation", func(t *testing.T) {
 		analyzer := &mockVADAnalyzer{}
 		transcriber := &mockTranscriber{}
 		config := DefaultVADConfig()
-		
+
 		stage := NewVADAccumulatorStage(analyzer, transcriber, config)
-		
+
 		ctx, cancel := context.WithCancel(context.Background())
 		input := make(chan StreamElement, 10)
 		output := make(chan StreamElement, 10)
-		
+
 		// Send audio first
 		input <- StreamElement{
 			Audio: &AudioData{
@@ -365,18 +365,18 @@ analyzer := &mockVADAnalyzer{}
 				SampleRate: 16000,
 			},
 		}
-		
+
 		// Start processing in background
 		errCh := make(chan error, 1)
 		go func() {
 			errCh <- stage.Process(ctx, input, output)
 		}()
-		
+
 		// Cancel after starting
 		time.Sleep(50 * time.Millisecond)
 		cancel()
 		close(input)
-		
+
 		// Should complete
 		select {
 		case <-errCh:
@@ -385,18 +385,18 @@ analyzer := &mockVADAnalyzer{}
 			t.Fatal("Process didn't complete after context cancellation")
 		}
 	})
-	
+
 	t.Run("processes multiple audio elements", func(t *testing.T) {
 		analyzer := &mockVADAnalyzer{}
 		transcriber := &mockTranscriber{}
 		config := DefaultVADConfig()
-		
+
 		stage := NewVADAccumulatorStage(analyzer, transcriber, config)
-		
+
 		ctx := context.Background()
 		input := make(chan StreamElement, 10)
 		output := make(chan StreamElement, 10)
-		
+
 		// Send multiple audio chunks
 		for i := 0; i < 3; i++ {
 			input <- StreamElement{
@@ -407,29 +407,29 @@ analyzer := &mockVADAnalyzer{}
 			}
 		}
 		close(input)
-		
+
 		// Process
 		go func() {
 			_ = stage.Process(ctx, input, output)
 		}()
-		
+
 		// Wait for processing
 		time.Sleep(200 * time.Millisecond)
 	})
-	
+
 	t.Run("processes audio with different sample rates", func(t *testing.T) {
 		analyzer := &mockVADAnalyzer{}
 		transcriber := &mockTranscriber{}
 		config := DefaultVADConfig()
-		
+
 		stage := NewVADAccumulatorStage(analyzer, transcriber, config)
-		
+
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		
+
 		input := make(chan StreamElement, 10)
 		output := make(chan StreamElement, 10)
-		
+
 		// Send audio with different sample rate
 		input <- StreamElement{
 			Audio: &AudioData{
@@ -438,13 +438,13 @@ analyzer := &mockVADAnalyzer{}
 			},
 		}
 		close(input)
-		
+
 		// Process
 		errCh := make(chan error, 1)
 		go func() {
 			errCh <- stage.Process(ctx, input, output)
 		}()
-		
+
 		// Wait for result
 		select {
 		case err := <-errCh:
@@ -460,39 +460,39 @@ func TestTTSStage_Basic(t *testing.T) {
 	t.Run("creates TTS stage", func(t *testing.T) {
 		tts := &mockTTSService{}
 		config := DefaultTTSConfig()
-		
+
 		stage := NewTTSStage(tts, config)
-		
+
 		assert.NotNil(t, stage)
 		assert.Equal(t, "tts", stage.Name())
 		assert.Equal(t, StageTypeTransform, stage.Type())
 	})
-	
+
 	t.Run("processes text elements", func(t *testing.T) {
 		tts := &mockTTSService{}
 		config := DefaultTTSConfig()
-		
+
 		stage := NewTTSStage(tts, config)
-		
+
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		
+
 		input := make(chan StreamElement, 10)
 		output := make(chan StreamElement, 10)
-		
+
 		// Send text element
 		textVal := "Hello world"
 		input <- StreamElement{
 			Text: &textVal,
 		}
 		close(input)
-		
+
 		// Process in background
 		errCh := make(chan error, 1)
 		go func() {
 			errCh <- stage.Process(ctx, input, output)
 		}()
-		
+
 		// Should get audio output
 		select {
 		case elem := <-output:
@@ -501,7 +501,7 @@ func TestTTSStage_Basic(t *testing.T) {
 		case <-time.After(1 * time.Second):
 			t.Fatal("Timeout waiting for TTS output")
 		}
-		
+
 		// Wait for completion
 		select {
 		case err := <-errCh:
@@ -510,17 +510,17 @@ func TestTTSStage_Basic(t *testing.T) {
 			t.Fatal("Timeout waiting for TTS completion")
 		}
 	})
-	
+
 	t.Run("passes through non-text elements", func(t *testing.T) {
 		tts := &mockTTSService{}
 		config := DefaultTTSConfig()
-		
+
 		stage := NewTTSStage(tts, config)
-		
+
 		ctx := context.Background()
 		input := make(chan StreamElement, 10)
 		output := make(chan StreamElement, 10)
-		
+
 		// Send audio element (non-text)
 		input <- StreamElement{
 			Audio: &AudioData{
@@ -529,12 +529,12 @@ func TestTTSStage_Basic(t *testing.T) {
 			},
 		}
 		close(input)
-		
+
 		// Process
 		go func() {
 			_ = stage.Process(ctx, input, output)
 		}()
-		
+
 		// Should pass through
 		select {
 		case elem := <-output:
@@ -543,30 +543,30 @@ func TestTTSStage_Basic(t *testing.T) {
 			t.Fatal("Timeout - element not passed through")
 		}
 	})
-	
+
 	t.Run("respects MinTextLength config", func(t *testing.T) {
 		tts := &mockTTSService{}
 		config := DefaultTTSConfig()
 		config.MinTextLength = 10
-		
+
 		stage := NewTTSStage(tts, config)
-		
+
 		ctx := context.Background()
 		input := make(chan StreamElement, 10)
 		output := make(chan StreamElement, 10)
-		
+
 		// Send short text (below minimum)
 		shortText := "hi"
 		input <- StreamElement{
 			Text: &shortText,
 		}
 		close(input)
-		
+
 		// Process
 		go func() {
 			_ = stage.Process(ctx, input, output)
 		}()
-		
+
 		// Should not synthesize, just pass through or skip
 		select {
 		case <-output:
@@ -575,30 +575,30 @@ func TestTTSStage_Basic(t *testing.T) {
 			// OK if channel closed
 		}
 	})
-	
+
 	t.Run("respects SkipEmpty config", func(t *testing.T) {
 		tts := &mockTTSService{}
 		config := DefaultTTSConfig()
 		config.SkipEmpty = true
-		
+
 		stage := NewTTSStage(tts, config)
-		
+
 		ctx := context.Background()
 		input := make(chan StreamElement, 10)
 		output := make(chan StreamElement, 10)
-		
+
 		// Send empty text
 		emptyText := ""
 		input <- StreamElement{
 			Text: &emptyText,
 		}
 		close(input)
-		
+
 		// Process
 		go func() {
 			_ = stage.Process(ctx, input, output)
 		}()
-		
+
 		// Should skip
 		select {
 		case <-output:
@@ -607,19 +607,19 @@ func TestTTSStage_Basic(t *testing.T) {
 			// OK if skipped
 		}
 	})
-	
+
 	t.Run("extracts text from Message content", func(t *testing.T) {
 		tts := &mockTTSService{}
 		config := DefaultTTSConfig()
-		
+
 		stage := NewTTSStage(tts, config)
-		
+
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		
+
 		input := make(chan StreamElement, 10)
 		output := make(chan StreamElement, 10)
-		
+
 		// Send element with message
 		input <- StreamElement{
 			Message: &types.Message{
@@ -628,12 +628,12 @@ func TestTTSStage_Basic(t *testing.T) {
 			},
 		}
 		close(input)
-		
+
 		// Process
 		go func() {
 			_ = stage.Process(ctx, input, output)
 		}()
-		
+
 		// Should synthesize from message content
 		select {
 		case elem := <-output:
@@ -642,19 +642,19 @@ func TestTTSStage_Basic(t *testing.T) {
 			t.Fatal("Timeout waiting for TTS from message")
 		}
 	})
-	
+
 	t.Run("extracts text from Message parts", func(t *testing.T) {
 		tts := &mockTTSService{}
 		config := DefaultTTSConfig()
-		
+
 		stage := NewTTSStage(tts, config)
-		
+
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		
+
 		input := make(chan StreamElement, 10)
 		output := make(chan StreamElement, 10)
-		
+
 		// Send element with message parts
 		partText := "Part text"
 		input <- StreamElement{
@@ -666,12 +666,12 @@ func TestTTSStage_Basic(t *testing.T) {
 			},
 		}
 		close(input)
-		
+
 		// Process
 		go func() {
 			_ = stage.Process(ctx, input, output)
 		}()
-		
+
 		// Should synthesize from message parts
 		select {
 		case elem := <-output:
@@ -680,34 +680,34 @@ func TestTTSStage_Basic(t *testing.T) {
 			t.Fatal("Timeout waiting for TTS from message parts")
 		}
 	})
-	
+
 	t.Run("handles context cancellation during processing", func(t *testing.T) {
 		tts := &mockTTSService{}
 		config := DefaultTTSConfig()
-		
+
 		stage := NewTTSStage(tts, config)
-		
+
 		ctx, cancel := context.WithCancel(context.Background())
 		input := make(chan StreamElement, 10)
 		output := make(chan StreamElement, 10)
-		
+
 		// Send text
 		textVal := "test"
 		input <- StreamElement{
 			Text: &textVal,
 		}
-		
+
 		// Start processing
 		errCh := make(chan error, 1)
 		go func() {
 			errCh <- stage.Process(ctx, input, output)
 		}()
-		
+
 		// Cancel after short delay
 		time.Sleep(50 * time.Millisecond)
 		cancel()
 		close(input)
-		
+
 		// Should complete
 		select {
 		case <-errCh:
@@ -716,17 +716,17 @@ func TestTTSStage_Basic(t *testing.T) {
 			t.Fatal("TTS didn't complete after context cancellation")
 		}
 	})
-	
+
 	t.Run("processes empty message with no text", func(t *testing.T) {
 		tts := &mockTTSService{}
 		config := DefaultTTSConfig()
-		
+
 		stage := NewTTSStage(tts, config)
-		
+
 		ctx := context.Background()
 		input := make(chan StreamElement, 10)
 		output := make(chan StreamElement, 10)
-		
+
 		// Send message with no content
 		input <- StreamElement{
 			Message: &types.Message{
@@ -734,12 +734,12 @@ func TestTTSStage_Basic(t *testing.T) {
 			},
 		}
 		close(input)
-		
+
 		// Process
 		go func() {
 			_ = stage.Process(ctx, input, output)
 		}()
-		
+
 		// Should pass through or skip
 		select {
 		case <-output:

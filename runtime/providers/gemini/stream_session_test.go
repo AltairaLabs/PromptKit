@@ -848,6 +848,7 @@ func TestNewStreamSession_AcceptsValidModalities(t *testing.T) {
 		})
 	}
 }
+
 // TestStreamSession_SendAfterClose tests sending after session is closed
 func TestStreamSession_SendAfterClose(t *testing.T) {
 	server := newMockWebSocketServer(func(conn *websocket.Conn) {
@@ -860,16 +861,16 @@ func TestStreamSession_SendAfterClose(t *testing.T) {
 
 	ctx := context.Background()
 	session, _ := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
-	
+
 	// Close the session
 	session.Close()
-	
+
 	// Try to send text after close
 	err := session.SendText(ctx, "test")
 	if err == nil || !strings.Contains(err.Error(), "closed") {
 		t.Errorf("Expected closed error, got: %v", err)
 	}
-	
+
 	// Try to send chunk after close
 	chunk := &types.MediaChunk{Data: []byte("test")}
 	err = session.SendChunk(ctx, chunk)
@@ -882,21 +883,21 @@ func TestStreamSession_SendAfterClose(t *testing.T) {
 func TestTruncateInlineData(t *testing.T) {
 	// Test with map containing long data
 	data := map[string]interface{}{
-		"data": strings.Repeat("x", 200),
+		"data":  strings.Repeat("x", 200),
 		"other": "value",
 	}
-	
+
 	truncateInlineData(data)
-	
+
 	dataVal, ok := data["data"].(string)
 	if !ok {
 		t.Fatal("data field should still be string")
 	}
-	
+
 	if !strings.Contains(dataVal, "bytes") {
 		t.Error("Expected data to be truncated with byte count")
 	}
-	
+
 	// Test with nested structures
 	nested := map[string]interface{}{
 		"outer": map[string]interface{}{
@@ -908,16 +909,16 @@ func TestTruncateInlineData(t *testing.T) {
 			},
 		},
 	}
-	
+
 	truncateInlineData(nested)
-	
+
 	// Verify nested map was truncated
 	outer := nested["outer"].(map[string]interface{})
 	outerData := outer["data"].(string)
 	if !strings.Contains(outerData, "bytes") {
 		t.Error("Expected nested data to be truncated")
 	}
-	
+
 	// Verify array element was truncated
 	arrayElems := nested["array"].([]interface{})
 	if len(arrayElems) > 0 {
@@ -933,12 +934,12 @@ func TestProcessServerMessage_Interruption(t *testing.T) {
 	server := newMockWebSocketServer(func(conn *websocket.Conn) {
 		// Read setup message
 		_, _, _ = conn.ReadMessage()
-		
+
 		// Send setup_complete
 		setupResponse := ServerMessage{SetupComplete: &SetupComplete{}}
 		setupData, _ := json.Marshal(setupResponse)
 		_ = conn.WriteMessage(websocket.TextMessage, setupData)
-		
+
 		// Send interruption message
 		interruptMsg := ServerMessage{
 			ServerContent: &ServerContent{
@@ -947,18 +948,18 @@ func TestProcessServerMessage_Interruption(t *testing.T) {
 		}
 		msgData, _ := json.Marshal(interruptMsg)
 		_ = conn.WriteMessage(websocket.TextMessage, msgData)
-		
+
 		time.Sleep(100 * time.Millisecond)
 	})
 	defer server.Close()
-	
+
 	ctx := context.Background()
 	session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}
 	defer session.Close()
-	
+
 	// Wait for interruption message
 	select {
 	case chunk := <-session.responseCh:
@@ -974,12 +975,12 @@ func TestProcessServerMessage_InputTranscription(t *testing.T) {
 	server := newMockWebSocketServer(func(conn *websocket.Conn) {
 		// Read setup message
 		_, _, _ = conn.ReadMessage()
-		
+
 		// Send setup_complete
 		setupResponse := ServerMessage{SetupComplete: &SetupComplete{}}
 		setupData, _ := json.Marshal(setupResponse)
 		_ = conn.WriteMessage(websocket.TextMessage, setupData)
-		
+
 		// Send input transcription
 		transcriptMsg := ServerMessage{
 			ServerContent: &ServerContent{
@@ -991,18 +992,18 @@ func TestProcessServerMessage_InputTranscription(t *testing.T) {
 		}
 		msgData, _ := json.Marshal(transcriptMsg)
 		_ = conn.WriteMessage(websocket.TextMessage, msgData)
-		
+
 		time.Sleep(100 * time.Millisecond)
 	})
 	defer server.Close()
-	
+
 	ctx := context.Background()
 	session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}
 	defer session.Close()
-	
+
 	// Wait for transcription
 	select {
 	case chunk := <-session.responseCh:
@@ -1024,12 +1025,12 @@ func TestProcessServerMessage_OutputTranscription(t *testing.T) {
 	server := newMockWebSocketServer(func(conn *websocket.Conn) {
 		// Read setup message
 		_, _, _ = conn.ReadMessage()
-		
+
 		// Send setup_complete
 		setupResponse := ServerMessage{SetupComplete: &SetupComplete{}}
 		setupData, _ := json.Marshal(setupResponse)
 		_ = conn.WriteMessage(websocket.TextMessage, setupData)
-		
+
 		// Send output transcription
 		transcriptMsg := ServerMessage{
 			ServerContent: &ServerContent{
@@ -1041,18 +1042,18 @@ func TestProcessServerMessage_OutputTranscription(t *testing.T) {
 		}
 		msgData, _ := json.Marshal(transcriptMsg)
 		_ = conn.WriteMessage(websocket.TextMessage, msgData)
-		
+
 		time.Sleep(100 * time.Millisecond)
 	})
 	defer server.Close()
-	
+
 	ctx := context.Background()
 	session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}
 	defer session.Close()
-	
+
 	// Wait for transcription
 	select {
 	case chunk := <-session.responseCh:
@@ -1074,12 +1075,12 @@ func TestProcessServerMessage_TurnCompleteWithoutModelTurn(t *testing.T) {
 	server := newMockWebSocketServer(func(conn *websocket.Conn) {
 		// Read setup message
 		_, _, _ = conn.ReadMessage()
-		
+
 		// Send setup_complete
 		setupResponse := ServerMessage{SetupComplete: &SetupComplete{}}
 		setupData, _ := json.Marshal(setupResponse)
 		_ = conn.WriteMessage(websocket.TextMessage, setupData)
-		
+
 		// Send turn complete without model turn
 		completeMsg := ServerMessage{
 			ServerContent: &ServerContent{
@@ -1089,18 +1090,18 @@ func TestProcessServerMessage_TurnCompleteWithoutModelTurn(t *testing.T) {
 		}
 		msgData, _ := json.Marshal(completeMsg)
 		_ = conn.WriteMessage(websocket.TextMessage, msgData)
-		
+
 		time.Sleep(100 * time.Millisecond)
 	})
 	defer server.Close()
-	
+
 	ctx := context.Background()
 	session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}
 	defer session.Close()
-	
+
 	// Wait for completion
 	select {
 	case chunk := <-session.responseCh:
@@ -1119,12 +1120,12 @@ func TestProcessServerMessage_ToolCall(t *testing.T) {
 	server := newMockWebSocketServer(func(conn *websocket.Conn) {
 		// Read setup message
 		_, _, _ = conn.ReadMessage()
-		
+
 		// Send setup_complete
 		setupResponse := ServerMessage{SetupComplete: &SetupComplete{}}
 		setupData, _ := json.Marshal(setupResponse)
 		_ = conn.WriteMessage(websocket.TextMessage, setupData)
-		
+
 		// Send tool call message
 		toolCallMsg := ServerMessage{
 			ToolCall: &ToolCallMsg{
@@ -1139,18 +1140,18 @@ func TestProcessServerMessage_ToolCall(t *testing.T) {
 		}
 		msgData, _ := json.Marshal(toolCallMsg)
 		_ = conn.WriteMessage(websocket.TextMessage, msgData)
-		
+
 		time.Sleep(100 * time.Millisecond)
 	})
 	defer server.Close()
-	
+
 	ctx := context.Background()
 	session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}
 	defer session.Close()
-	
+
 	// Tool calls are currently no-op, just verify no error
 	time.Sleep(200 * time.Millisecond)
 }

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
@@ -312,6 +313,28 @@ func (c *Conversation) buildStreamPipelineWithParams(
 		if c.prompt.Parameters.Temperature != nil {
 			pipelineCfg.Temperature = float32(*c.prompt.Parameters.Temperature)
 		}
+	}
+
+	// Add VAD mode configuration if present
+	if c.config.vadModeConfig != nil && c.config.sttService != nil && c.config.ttsService != nil {
+		// Create shared interruption handler for barge-in support
+		interruptionHandler := audio.NewInterruptionHandler(
+			audio.InterruptionImmediate,
+			nil, // VAD is managed by AudioTurnStage
+		)
+
+		// Convert SDK config to internal stage configs
+		vadCfg := c.config.vadModeConfig
+		audioTurnCfg := vadCfg.toAudioTurnConfig(interruptionHandler)
+		sttCfg := vadCfg.toSTTStageConfig()
+		ttsCfg := vadCfg.toTTSStageConfig(interruptionHandler)
+
+		pipelineCfg.VADConfig = &audioTurnCfg
+		pipelineCfg.STTService = c.config.sttService
+		pipelineCfg.STTConfig = &sttCfg
+		pipelineCfg.TTSService = c.config.ttsService
+		pipelineCfg.TTSConfig = &ttsCfg
+		pipelineCfg.InterruptionHandler = interruptionHandler
 	}
 
 	// Build the stage pipeline directly (for duplex sessions)

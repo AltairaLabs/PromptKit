@@ -5,13 +5,16 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
 	"github.com/AltairaLabs/PromptKit/runtime/variables"
@@ -75,6 +78,27 @@ type Config struct {
 	// UseStages is deprecated and ignored - stages are always used.
 	// This field is kept for backward compatibility but has no effect.
 	UseStages bool
+
+	// VAD mode configuration (alternative to ASM mode)
+	// When set, enables VAD pipeline: AudioTurnStage → STTStage → ProviderStage → TTSStage
+
+	// VADConfig configures the AudioTurnStage for VAD mode
+	VADConfig *stage.AudioTurnConfig
+
+	// STTService for speech-to-text in VAD mode
+	STTService stt.Service
+
+	// STTConfig configures the STTStage
+	STTConfig *stage.STTStageConfig
+
+	// TTSService for text-to-speech in VAD mode
+	TTSService tts.Service
+
+	// TTSConfig configures the TTSStageWithInterruption
+	TTSConfig *stage.TTSStageWithInterruptionConfig
+
+	// InterruptionHandler shared between AudioTurnStage and TTSStage for barge-in support
+	InterruptionHandler *audio.InterruptionHandler
 }
 
 // Build creates a stage-based streaming pipeline wrapped for SDK compatibility.
@@ -147,11 +171,52 @@ func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 
 	// 5. Provider stage - LLM calls with streaming and tool support
 	// Use DuplexProviderStage for ASM mode (WebSocket streaming)
-	// Use regular ProviderStage for text/VAD mode (HTTP API)
+	// Use VAD pipeline for VAD mode
+	// Use regular ProviderStage for text mode (HTTP API)
 	if cfg.StreamInputSession != nil {
+		// ASM mode: Direct audio streaming to LLM
 		logger.Debug("Using DuplexProviderStage for ASM mode")
 		stages = append(stages, stage.NewDuplexProviderStage(cfg.StreamInputSession))
+	} else if cfg.VADConfig != nil && cfg.STTService != nil && cfg.TTSService != nil {
+		// VAD mode: Audio → VAD → STT → LLM → TTS
+		logger.Debug("Using VAD pipeline stages")
+
+		// 5a. AudioTurnStage - VAD + turn detection + audio accumulation
+		audioTurnStage, err := stage.NewAudioTurnStage(*cfg.VADConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create AudioTurnStage: %w", err)
+		}
+		stages = append(stages, audioTurnStage)
+
+		// 5b. STTStage - transcribe audio to text
+		sttConfig := stage.DefaultSTTStageConfig()
+		if cfg.STTConfig != nil {
+			sttConfig = *cfg.STTConfig
+		}
+		stages = append(stages, stage.NewSTTStage(cfg.STTService, sttConfig))
+
+		// 5c. ProviderStage - LLM call
+		if cfg.Provider != nil {
+			providerConfig := &stage.ProviderConfig{
+				MaxTokens:   cfg.MaxTokens,
+				Temperature: cfg.Temperature,
+			}
+			stages = append(stages, stage.NewProviderStage(
+				cfg.Provider,
+				cfg.ToolRegistry,
+				cfg.ToolPolicy,
+				providerConfig,
+			))
+		}
+
+		// 5d. TTSStage - synthesize text to audio
+		ttsConfig := stage.DefaultTTSStageWithInterruptionConfig()
+		if cfg.TTSConfig != nil {
+			ttsConfig = *cfg.TTSConfig
+		}
+		stages = append(stages, stage.NewTTSStageWithInterruption(cfg.TTSService, ttsConfig))
 	} else if cfg.Provider != nil {
+		// Text mode: standard LLM call
 		providerConfig := &stage.ProviderConfig{
 			MaxTokens:   cfg.MaxTokens,
 			Temperature: cfg.Temperature,

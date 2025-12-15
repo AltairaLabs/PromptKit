@@ -696,6 +696,9 @@ func TestLocalExecutorExecute(t *testing.T) {
 // Mock Types for Audio/TTS Testing
 // =============================================================================
 
+// errMockSessionClosed is used by mock session for testing
+var errMockSessionClosed = fmt.Errorf("session closed")
+
 // audioMockStreamSession implements providers.StreamInputSession for testing
 type audioMockStreamSession struct {
 	closed   bool
@@ -711,14 +714,21 @@ func newAudioMockStreamSession() *audioMockStreamSession {
 
 func (m *audioMockStreamSession) SendChunk(_ context.Context, _ *types.MediaChunk) error {
 	if m.closed {
-		return audio.ErrSessionClosed
+		return errMockSessionClosed
 	}
 	return nil
 }
 
 func (m *audioMockStreamSession) SendText(_ context.Context, _ string) error {
 	if m.closed {
-		return audio.ErrSessionClosed
+		return errMockSessionClosed
+	}
+	return nil
+}
+
+func (m *audioMockStreamSession) SendSystemContext(_ context.Context, _ string) error {
+	if m.closed {
+		return errMockSessionClosed
 	}
 	return nil
 }

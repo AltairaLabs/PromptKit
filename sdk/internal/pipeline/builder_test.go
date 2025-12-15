@@ -585,11 +585,11 @@ func TestStreamPipelineAdapter(t *testing.T) {
 		for chunk := range stream {
 			chunks = append(chunks, chunk)
 		}
-		
+
 		// Should have received at least one chunk
 		assert.NotEmpty(t, chunks)
 	})
-	
+
 	t.Run("adapter handles streaming mode", func(t *testing.T) {
 		registry := createTestRegistry("chat")
 		mockProvider := mock.NewProvider("test-mock", "test-model", true) // Streaming enabled
@@ -619,31 +619,30 @@ func TestStreamPipelineAdapter(t *testing.T) {
 	})
 }
 
-
 func TestBuildStreamPipeline(t *testing.T) {
 	t.Run("builds stream pipeline successfully", func(t *testing.T) {
-registry := createTestRegistry("chat")
+		registry := createTestRegistry("chat")
 
-cfg := &Config{
+		cfg := &Config{
 			PromptRegistry: registry,
 			TaskType:       "chat",
 		}
-		
+
 		pipeline, err := BuildStreamPipeline(cfg)
 		require.NoError(t, err)
 		assert.NotNil(t, pipeline)
 	})
-	
+
 	t.Run("builds stream pipeline with duplex session", func(t *testing.T) {
-registry := createTestRegistry("chat")
-mockSession := mock.NewMockStreamSession()
-		
+		registry := createTestRegistry("chat")
+		mockSession := mock.NewMockStreamSession()
+
 		cfg := &Config{
 			PromptRegistry:     registry,
 			TaskType:           "chat",
 			StreamInputSession: mockSession,
 		}
-		
+
 		pipeline, err := BuildStreamPipeline(cfg)
 		require.NoError(t, err)
 		assert.NotNil(t, pipeline)
