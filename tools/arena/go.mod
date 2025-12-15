@@ -8,7 +8,7 @@ replace github.com/AltairaLabs/PromptKit/pkg => ../../pkg
 
 require (
 	github.com/AltairaLabs/PromptKit/pkg v0.0.0
-	github.com/AltairaLabs/PromptKit/runtime v1.1.3
+	github.com/AltairaLabs/PromptKit/runtime v1.1.4
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/glamour v0.10.0
@@ -22,7 +22,7 @@ require (
 	github.com/xeipuuv/gojsonschema v1.2.0
 	golang.org/x/term v0.37.0
 	gopkg.in/yaml.v3 v3.0.1
-	k8s.io/apimachinery v0.34.2
+	k8s.io/apimachinery v0.34.3
 )
 
 require (
