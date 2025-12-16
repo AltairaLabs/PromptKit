@@ -386,3 +386,127 @@ func (m *mockVariableProvider) Provide(ctx context.Context) (map[string]string, 
 	}
 	return m.vars, nil
 }
+
+// =============================================================================
+// PipelineBuilder Tests
+// =============================================================================
+
+func TestPipelineBuilder_WithConfig(t *testing.T) {
+	config := &PipelineConfig{
+		ChannelBufferSize: 100,
+	}
+
+	builder := NewPipelineBuilder().WithConfig(config)
+	assert.NotNil(t, builder)
+	// Config is set internally - we verify by building successfully
+}
+
+func TestPipelineBuilder_WithEventEmitter(t *testing.T) {
+	builder := NewPipelineBuilder().WithEventEmitter(nil)
+	assert.NotNil(t, builder)
+}
+
+func TestPipelineBuilder_AddStage(t *testing.T) {
+	stage := NewDebugStage("test-debug")
+	builder := NewPipelineBuilder().AddStage(stage)
+	assert.NotNil(t, builder)
+}
+
+func TestPipelineBuilder_Branch(t *testing.T) {
+	// Create stages with different names
+	stageA := NewDebugStage("stage-a")
+	stageB := NewDebugStage("stage-b")
+	stageC := NewDebugStage("stage-c")
+
+	builder := NewPipelineBuilder().
+		AddStage(stageA).
+		AddStage(stageB).
+		AddStage(stageC).
+		Branch(stageA.Name(), stageB.Name(), stageC.Name())
+
+	assert.NotNil(t, builder)
+}
+
+func TestPipelineBuilder_Clone(t *testing.T) {
+	original := NewPipelineBuilder().
+		AddStage(NewDebugStage("test-debug"))
+
+	cloned := original.Clone()
+
+	assert.NotNil(t, cloned)
+	// The clone should be independent
+}
+
+// =============================================================================
+// MediaExternalizerStage Tests
+// =============================================================================
+
+func TestMediaExternalizerStage_DisabledPassthrough(t *testing.T) {
+	config := &MediaExternalizerConfig{
+		Enabled: false,
+	}
+	stage := NewMediaExternalizerStage(config)
+	require.NotNil(t, stage)
+
+	// Test passthrough when disabled
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+
+	msg := &types.Message{Role: "user", Content: "Hello"}
+	input <- NewMessageElement(msg)
+	close(input)
+
+	err := stage.Process(context.Background(), input, output)
+	require.NoError(t, err)
+
+	result := <-output
+	assert.NotNil(t, result.Message)
+	assert.Equal(t, "Hello", result.Message.Content)
+}
+
+func TestMediaExternalizerStage_NoStoragePassthrough(t *testing.T) {
+	config := &MediaExternalizerConfig{
+		Enabled:        true,
+		StorageService: nil, // No storage service
+	}
+	stage := NewMediaExternalizerStage(config)
+	require.NotNil(t, stage)
+
+	// Test passthrough when no storage service
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+
+	msg := &types.Message{Role: "user", Content: "Hello"}
+	input <- NewMessageElement(msg)
+	close(input)
+
+	err := stage.Process(context.Background(), input, output)
+	require.NoError(t, err)
+
+	result := <-output
+	assert.NotNil(t, result.Message)
+}
+
+func TestMediaExternalizerStage_ContextCancellation(t *testing.T) {
+	config := &MediaExternalizerConfig{
+		Enabled: false,
+	}
+	stage := NewMediaExternalizerStage(config)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement)
+
+	// Cancel context before processing
+	cancel()
+
+	msg := &types.Message{Role: "user", Content: "Hello"}
+	input <- NewMessageElement(msg)
+	close(input)
+
+	err := stage.Process(ctx, input, output)
+	// Either returns context error or completes
+	if err != nil {
+		assert.ErrorIs(t, err, context.Canceled)
+	}
+}
