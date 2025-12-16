@@ -26,10 +26,10 @@ spec:
   streaming: true
 
   # Conversation turns with audio and self-play
+  # Note: In duplex mode, audio from 'parts' is streamed to the model.
   turns:
-    # Initial turn with audio file to start the conversation
+    # Turn 1: Initial greeting via audio file
     - role: user
-      content: "Hi there! I'm interested in learning about your services."
       parts:
         - type: audio
           media:
@@ -53,9 +53,8 @@ spec:
           params:
             pattern: ".{10,}"
 
-    # Final turn with audio file
+    # Turn 3: Closing via audio file
     - role: user
-      content: "That's really helpful, thank you!"
       parts:
         - type: audio
           media:

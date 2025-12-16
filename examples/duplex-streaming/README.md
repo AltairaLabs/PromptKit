@@ -152,8 +152,8 @@ For testing with pre-recorded audio files, use the `parts` field with media cont
 
 ```yaml
 turns:
+  # Turn 1: Greeting - "Hello, can you hear me?"
   - role: user
-    content: "Hello, can you hear me?"  # Transcript for logging
     parts:
       - type: audio
         media:
@@ -161,7 +161,7 @@ turns:
           mime_type: audio/L16
 ```
 
-The `content` field serves as a transcript for logging and verification, while the `parts` field contains the actual audio to stream.
+In duplex mode, the audio from `parts` is streamed directly to the model. Use comments to document what each audio file contains.
 
 **Supported audio formats:**
 - PCM (audio/L16) - Raw 16-bit PCM at 16kHz mono

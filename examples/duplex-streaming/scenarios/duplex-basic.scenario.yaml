@@ -25,10 +25,11 @@ spec:
   streaming: true
 
   # Conversation turns using audio files
+  # Note: In duplex mode, audio from 'parts' is streamed to the model.
+  # The 'content' field is not used when 'parts' contains audio.
   turns:
-    # Turn 1: Greeting - audio from file
+    # Turn 1: Greeting - "Hello, can you hear me?"
     - role: user
-      content: "Hello, can you hear me?"
       parts:
         - type: audio
           media:
@@ -39,9 +40,8 @@ spec:
           params:
             pattern: "(?i)(hello|hi|hey|yes|hear)"
 
-    # Turn 2: Basic question - audio from file
+    # Turn 2: Question - "What's your name?"
     - role: user
-      content: "What's your name and what can you help me with?"
       parts:
         - type: audio
           media:
@@ -53,9 +53,8 @@ spec:
             patterns:
               - "Nova"
 
-    # Turn 3: Follow-up - audio from file
+    # Turn 3: Follow-up - "Tell me a fun fact"
     - role: user
-      content: "Can you tell me a quick fun fact?"
       parts:
         - type: audio
           media:
