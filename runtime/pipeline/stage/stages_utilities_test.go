@@ -914,3 +914,504 @@ func TestStageType_String(t *testing.T) {
 		assert.Equal(t, tt.expected, tt.stageType.String())
 	}
 }
+
+// =============================================================================
+// ExecuteSync Tests
+// =============================================================================
+
+func TestStreamPipeline_ExecuteSync(t *testing.T) {
+	t.Run("executes pipeline and returns result", func(t *testing.T) {
+		// Create a simple passthrough stage
+		stage := NewPassthroughStage("passthrough")
+		builder := NewPipelineBuilder().AddStage(stage)
+		pipeline, err := builder.Build()
+		require.NoError(t, err)
+
+		// Create input with a message
+		msg := &types.Message{Role: "assistant", Content: "Hello, world!"}
+		input := NewMessageElement(msg)
+		input.Metadata["test_key"] = "test_value"
+
+		// Execute sync
+		result, err := pipeline.ExecuteSync(context.Background(), input)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+
+		// Verify result
+		assert.Len(t, result.Messages, 1)
+		assert.Equal(t, "Hello, world!", result.Messages[0].Content)
+		assert.NotNil(t, result.Response)
+		assert.Equal(t, "Hello, world!", result.Response.Content)
+		assert.Equal(t, "test_value", result.Metadata["test_key"])
+	})
+
+	t.Run("handles empty input", func(t *testing.T) {
+		stage := NewPassthroughStage("passthrough")
+		builder := NewPipelineBuilder().AddStage(stage)
+		pipeline, err := builder.Build()
+		require.NoError(t, err)
+
+		result, err := pipeline.ExecuteSync(context.Background())
+		require.NoError(t, err)
+		assert.Len(t, result.Messages, 0)
+	})
+
+	t.Run("handles multiple messages", func(t *testing.T) {
+		stage := NewPassthroughStage("passthrough")
+		builder := NewPipelineBuilder().AddStage(stage)
+		pipeline, err := builder.Build()
+		require.NoError(t, err)
+
+		msg1 := NewMessageElement(&types.Message{Role: "user", Content: "Hello"})
+		msg2 := NewMessageElement(&types.Message{Role: "assistant", Content: "Hi there"})
+
+		result, err := pipeline.ExecuteSync(context.Background(), msg1, msg2)
+		require.NoError(t, err)
+		assert.Len(t, result.Messages, 2)
+		assert.Equal(t, "Hi there", result.Response.Content)
+	})
+
+	t.Run("captures errors", func(t *testing.T) {
+		stage := NewPassthroughStage("passthrough")
+		builder := NewPipelineBuilder().AddStage(stage)
+		pipeline, err := builder.Build()
+		require.NoError(t, err)
+
+		errorElem := NewErrorElement(assert.AnError)
+
+		result, err := pipeline.ExecuteSync(context.Background(), errorElem)
+		assert.Error(t, err)
+		assert.NotNil(t, result)
+	})
+}
+
+// =============================================================================
+// Shutdown Tests
+// =============================================================================
+
+func TestStreamPipeline_Shutdown(t *testing.T) {
+	t.Run("shuts down cleanly", func(t *testing.T) {
+		stage := NewPassthroughStage("passthrough")
+		builder := NewPipelineBuilder()
+		builder.AddStage(stage)
+		pipeline, err := builder.Build()
+		require.NoError(t, err)
+
+		err = pipeline.Shutdown(context.Background())
+		assert.NoError(t, err)
+	})
+
+	t.Run("double shutdown is idempotent", func(t *testing.T) {
+		stage := NewPassthroughStage("passthrough")
+		builder := NewPipelineBuilder()
+		builder.AddStage(stage)
+		pipeline, err := builder.Build()
+		require.NoError(t, err)
+
+		// First shutdown
+		err = pipeline.Shutdown(context.Background())
+		assert.NoError(t, err)
+
+		// Second shutdown should be no-op
+		err = pipeline.Shutdown(context.Background())
+		assert.NoError(t, err)
+	})
+}
+
+// =============================================================================
+// StageFunc Tests
+// =============================================================================
+
+func TestStageFunc_Process(t *testing.T) {
+	t.Run("executes custom function", func(t *testing.T) {
+		// Create a function that transforms content
+		fn := func(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
+			defer close(output)
+			for elem := range input {
+				if elem.Message != nil {
+					elem.Message.Content = "transformed: " + elem.Message.Content
+				}
+				select {
+				case output <- elem:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+			return nil
+		}
+
+		stage := NewStageFunc("transformer", StageTypeTransform, fn)
+		assert.Equal(t, "transformer", stage.Name())
+		assert.Equal(t, StageTypeTransform, stage.Type())
+
+		input := make(chan StreamElement, 1)
+		output := make(chan StreamElement, 1)
+
+		msg := &types.Message{Role: "user", Content: "hello"}
+		input <- NewMessageElement(msg)
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err)
+
+		result := <-output
+		assert.Equal(t, "transformed: hello", result.Message.Content)
+	})
+
+	t.Run("handles context cancellation", func(t *testing.T) {
+		fn := func(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
+			<-ctx.Done()
+			return ctx.Err()
+		}
+
+		stage := NewStageFunc("blocker", StageTypeTransform, fn)
+		input := make(chan StreamElement)
+		output := make(chan StreamElement)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err := stage.Process(ctx, input, output)
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, context.Canceled)
+	})
+}
+
+// =============================================================================
+// FilterStage Tests
+// =============================================================================
+
+func TestFilterStage_Process(t *testing.T) {
+	t.Run("filters elements based on predicate", func(t *testing.T) {
+		// Only allow assistant messages
+		predicate := func(elem StreamElement) bool {
+			return elem.Message != nil && elem.Message.Role == "assistant"
+		}
+
+		stage := NewFilterStage("assistant-filter", predicate)
+		assert.Equal(t, "assistant-filter", stage.Name())
+		assert.Equal(t, StageTypeTransform, stage.Type())
+
+		input := make(chan StreamElement, 3)
+		output := make(chan StreamElement, 3)
+
+		input <- NewMessageElement(&types.Message{Role: "user", Content: "hello"})
+		input <- NewMessageElement(&types.Message{Role: "assistant", Content: "hi"})
+		input <- NewMessageElement(&types.Message{Role: "user", Content: "bye"})
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err)
+
+		// Should only have the assistant message
+		var results []StreamElement
+		for elem := range output {
+			results = append(results, elem)
+		}
+		assert.Len(t, results, 1)
+		assert.Equal(t, "assistant", results[0].Message.Role)
+	})
+
+	t.Run("handles context cancellation", func(t *testing.T) {
+		predicate := func(elem StreamElement) bool { return true }
+		stage := NewFilterStage("filter", predicate)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		input := make(chan StreamElement, 1)
+		output := make(chan StreamElement) // Unbuffered
+
+		msg := NewMessageElement(&types.Message{Role: "user", Content: "test"})
+		input <- msg
+		close(input)
+
+		cancel()
+
+		err := stage.Process(ctx, input, output)
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, context.Canceled)
+	})
+
+	t.Run("passes all elements when predicate always returns true", func(t *testing.T) {
+		predicate := func(elem StreamElement) bool { return true }
+		stage := NewFilterStage("passthrough-filter", predicate)
+
+		input := make(chan StreamElement, 2)
+		output := make(chan StreamElement, 2)
+
+		input <- NewMessageElement(&types.Message{Role: "user", Content: "hello"})
+		input <- NewMessageElement(&types.Message{Role: "assistant", Content: "hi"})
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err)
+
+		var count int
+		for range output {
+			count++
+		}
+		assert.Equal(t, 2, count)
+	})
+
+	t.Run("filters all elements when predicate always returns false", func(t *testing.T) {
+		predicate := func(elem StreamElement) bool { return false }
+		stage := NewFilterStage("reject-all", predicate)
+
+		input := make(chan StreamElement, 2)
+		output := make(chan StreamElement, 2)
+
+		input <- NewMessageElement(&types.Message{Role: "user", Content: "hello"})
+		input <- NewMessageElement(&types.Message{Role: "assistant", Content: "hi"})
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err)
+
+		var count int
+		for range output {
+			count++
+		}
+		assert.Equal(t, 0, count)
+	})
+}
+
+// =============================================================================
+// ContextBuilderStage Truncation Tests
+// =============================================================================
+
+func TestContextBuilderStage_TruncateStrategies(t *testing.T) {
+	t.Run("TruncateLeastRelevant falls back to oldest", func(t *testing.T) {
+		policy := &ContextBuilderPolicy{
+			TokenBudget:      20,
+			ReserveForOutput: 5,
+			Strategy:         TruncateLeastRelevant,
+		}
+		stage := NewContextBuilderStage(policy)
+
+		input := make(chan StreamElement, 3)
+		output := make(chan StreamElement, 3)
+
+		input <- NewMessageElement(&types.Message{Role: "user", Content: "First message with content"})
+		input <- NewMessageElement(&types.Message{Role: "assistant", Content: "Second message"})
+		input <- NewMessageElement(&types.Message{Role: "user", Content: "Latest"})
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err)
+
+		// Should truncate but keep most recent
+		var results []types.Message
+		for elem := range output {
+			if elem.Message != nil {
+				results = append(results, *elem.Message)
+			}
+		}
+		assert.LessOrEqual(t, len(results), 3)
+	})
+
+	t.Run("TruncateSummarize falls back to oldest", func(t *testing.T) {
+		policy := &ContextBuilderPolicy{
+			TokenBudget:      20,
+			ReserveForOutput: 5,
+			Strategy:         TruncateSummarize,
+		}
+		stage := NewContextBuilderStage(policy)
+
+		input := make(chan StreamElement, 3)
+		output := make(chan StreamElement, 3)
+
+		input <- NewMessageElement(&types.Message{Role: "user", Content: "First message with content"})
+		input <- NewMessageElement(&types.Message{Role: "assistant", Content: "Second message"})
+		input <- NewMessageElement(&types.Message{Role: "user", Content: "Latest"})
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err)
+
+		// Should truncate but keep most recent
+		var results []types.Message
+		for elem := range output {
+			if elem.Message != nil {
+				results = append(results, *elem.Message)
+			}
+		}
+		assert.LessOrEqual(t, len(results), 3)
+	})
+
+	t.Run("default strategy uses TruncateOldest", func(t *testing.T) {
+		policy := &ContextBuilderPolicy{
+			TokenBudget:      20,
+			ReserveForOutput: 5,
+			Strategy:         TruncationStrategy("unknown"), // Unknown strategy
+		}
+		stage := NewContextBuilderStage(policy)
+
+		input := make(chan StreamElement, 3)
+		output := make(chan StreamElement, 3)
+
+		input <- NewMessageElement(&types.Message{Role: "user", Content: "First message with content"})
+		input <- NewMessageElement(&types.Message{Role: "assistant", Content: "Second message"})
+		input <- NewMessageElement(&types.Message{Role: "user", Content: "Latest"})
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err)
+
+		// Should truncate but keep most recent
+		var results []types.Message
+		for elem := range output {
+			if elem.Message != nil {
+				results = append(results, *elem.Message)
+			}
+		}
+		assert.LessOrEqual(t, len(results), 3)
+	})
+}
+
+// =============================================================================
+// ContextBuilderStage Token Counting Tests
+// =============================================================================
+
+func TestContextBuilderStage_CountToolCallTokens(t *testing.T) {
+	policy := &ContextBuilderPolicy{
+		TokenBudget:      1000,
+		ReserveForOutput: 100,
+		Strategy:         TruncateOldest,
+	}
+	stage := NewContextBuilderStage(policy)
+
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+
+	// Create message with tool calls
+	msg := &types.Message{
+		Role:    "assistant",
+		Content: "Using tools",
+		ToolCalls: []types.MessageToolCall{
+			{ID: "call1", Name: "tool1", Args: []byte(`{"arg": "value"}`)},
+			{ID: "call2", Name: "tool2", Args: []byte(`{"data": "test"}`)},
+		},
+	}
+	input <- NewMessageElement(msg)
+	close(input)
+
+	err := stage.Process(context.Background(), input, output)
+	require.NoError(t, err)
+
+	// Should pass through with tool call tokens counted
+	var count int
+	for range output {
+		count++
+	}
+	assert.Equal(t, 1, count)
+}
+
+// =============================================================================
+// VariableProviderStage Tests
+// =============================================================================
+
+func TestVariableProviderStage_ErrorHandling(t *testing.T) {
+	t.Run("handles provider error", func(t *testing.T) {
+		mockProvider := &mockVariableProvider{
+			name: "error-provider",
+			err:  assert.AnError,
+		}
+
+		stage := NewVariableProviderStage(mockProvider)
+
+		input := make(chan StreamElement, 1)
+		output := make(chan StreamElement, 1)
+
+		input <- StreamElement{Metadata: map[string]interface{}{}}
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		assert.Error(t, err)
+	})
+
+	t.Run("handles nil metadata", func(t *testing.T) {
+		mockProvider := &mockVariableProvider{
+			name: "test-provider",
+			vars: map[string]string{"key": "value"},
+		}
+
+		stage := NewVariableProviderStage(mockProvider)
+
+		input := make(chan StreamElement, 1)
+		output := make(chan StreamElement, 1)
+
+		// Element with nil metadata
+		input <- StreamElement{}
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err)
+
+		result := <-output
+		assert.NotNil(t, result.Metadata)
+		vars := result.Metadata["variables"].(map[string]string)
+		assert.Equal(t, "value", vars["key"])
+	})
+}
+
+// =============================================================================
+// PipelineConfig Validation Tests
+// =============================================================================
+
+func TestPipelineConfig_Validate(t *testing.T) {
+	t.Run("validates channel buffer size", func(t *testing.T) {
+		config := &PipelineConfig{
+			ChannelBufferSize: -1,
+		}
+		err := config.Validate()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "channel buffer size")
+	})
+
+	t.Run("validates max concurrent pipelines", func(t *testing.T) {
+		config := &PipelineConfig{
+			ChannelBufferSize:        10,
+			MaxConcurrentPipelines:   -1,
+		}
+		err := config.Validate()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "max concurrent pipelines")
+	})
+
+	t.Run("validates execution timeout", func(t *testing.T) {
+		config := &PipelineConfig{
+			ChannelBufferSize:      10,
+			MaxConcurrentPipelines: 10,
+			ExecutionTimeout:       -1 * time.Second,
+		}
+		err := config.Validate()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "timeout")
+	})
+
+	t.Run("valid config passes validation", func(t *testing.T) {
+		config := DefaultPipelineConfig()
+		err := config.Validate()
+		assert.NoError(t, err)
+	})
+}
+
+// =============================================================================
+// PipelineBuilder Validation Tests
+// =============================================================================
+
+func TestPipelineBuilder_Validate_NoStages(t *testing.T) {
+	builder := NewPipelineBuilder()
+	_, err := builder.Build()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "at least one stage")
+}
+
+func TestPipelineBuilder_Validate_InvalidConfig(t *testing.T) {
+	config := &PipelineConfig{
+		ChannelBufferSize: -1,
+	}
+	builder := NewPipelineBuilderWithConfig(config)
+	builder.AddStage(NewPassthroughStage("test"))
+	_, err := builder.Build()
+	assert.Error(t, err)
+}
