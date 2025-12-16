@@ -302,3 +302,237 @@ func isTranscriptionError(err error, target **stt.TranscriptionError) bool {
 	}
 	return false
 }
+
+// =============================================================================
+// Additional Helper Function Tests (for coverage)
+// =============================================================================
+
+func TestOpenAIService_Transcribe_WithPrompt(t *testing.T) {
+	// Create mock server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify multipart form
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			t.Errorf("Failed to parse multipart form: %v", err)
+		}
+
+		// Check prompt field was included
+		prompt := r.FormValue("prompt")
+		if prompt != "test context prompt" {
+			t.Errorf("Expected prompt field, got: %q", prompt)
+		}
+
+		// Return mock response
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"text": "Transcription with context",
+		})
+	}))
+	defer server.Close()
+
+	service := stt.NewOpenAI("test-api-key", stt.WithOpenAIBaseURL(server.URL))
+
+	ctx := context.Background()
+	audio := generateTestAudio(16000, 0.5)
+
+	text, err := service.Transcribe(ctx, audio, stt.TranscriptionConfig{
+		Format:     stt.FormatPCM,
+		SampleRate: 16000,
+		Channels:   1,
+		Prompt:     "test context prompt",
+	})
+
+	if err != nil {
+		t.Fatalf("Transcribe failed: %v", err)
+	}
+
+	if text != "Transcription with context" {
+		t.Errorf("Unexpected text: %q", text)
+	}
+}
+
+func TestOpenAIService_Transcribe_WAVFormat(t *testing.T) {
+	// Create mock server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"text": "WAV transcription",
+		})
+	}))
+	defer server.Close()
+
+	service := stt.NewOpenAI("test-api-key", stt.WithOpenAIBaseURL(server.URL))
+
+	ctx := context.Background()
+	// Use WAV format (no wrapping needed)
+	audio := generateTestAudio(16000, 0.5)
+
+	text, err := service.Transcribe(ctx, audio, stt.TranscriptionConfig{
+		Format:     "wav",
+		SampleRate: 16000,
+		Channels:   1,
+	})
+
+	if err != nil {
+		t.Fatalf("Transcribe failed: %v", err)
+	}
+
+	if text != "WAV transcription" {
+		t.Errorf("Unexpected text: %q", text)
+	}
+}
+
+func TestOpenAIService_Transcribe_DefaultsApplied(t *testing.T) {
+	// Create mock server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"text": "Default config test",
+		})
+	}))
+	defer server.Close()
+
+	service := stt.NewOpenAI("test-api-key", stt.WithOpenAIBaseURL(server.URL))
+
+	ctx := context.Background()
+	audio := generateTestAudio(16000, 0.5)
+
+	// Use empty config - defaults should be applied
+	text, err := service.Transcribe(ctx, audio, stt.TranscriptionConfig{})
+
+	if err != nil {
+		t.Fatalf("Transcribe failed: %v", err)
+	}
+
+	if text != "Default config test" {
+		t.Errorf("Unexpected text: %q", text)
+	}
+}
+
+func TestOpenAIService_Transcribe_CustomModel(t *testing.T) {
+	// Create mock server
+	modelReceived := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			t.Errorf("Failed to parse multipart form: %v", err)
+		}
+		modelReceived = r.FormValue("model")
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"text": "Custom model test",
+		})
+	}))
+	defer server.Close()
+
+	// Create service with custom model
+	service := stt.NewOpenAI("test-api-key",
+		stt.WithOpenAIBaseURL(server.URL),
+		stt.WithOpenAIModel("custom-whisper-model"))
+
+	ctx := context.Background()
+	audio := generateTestAudio(16000, 0.5)
+
+	_, err := service.Transcribe(ctx, audio, stt.TranscriptionConfig{
+		Format: stt.FormatPCM,
+	})
+
+	if err != nil {
+		t.Fatalf("Transcribe failed: %v", err)
+	}
+
+	if modelReceived != "custom-whisper-model" {
+		t.Errorf("Expected custom model, got: %q", modelReceived)
+	}
+}
+
+func TestOpenAIService_Transcribe_UnauthorizedError(t *testing.T) {
+	// Create mock server that returns 401
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": map[string]interface{}{
+				"message": "Invalid API key",
+				"type":    "invalid_request_error",
+				"code":    "invalid_api_key",
+			},
+		})
+	}))
+	defer server.Close()
+
+	service := stt.NewOpenAI("invalid-key", stt.WithOpenAIBaseURL(server.URL))
+
+	ctx := context.Background()
+	audio := generateTestAudio(16000, 0.5)
+
+	_, err := service.Transcribe(ctx, audio, stt.TranscriptionConfig{
+		Format: stt.FormatPCM,
+	})
+
+	if err == nil {
+		t.Fatal("Expected error for unauthorized request")
+	}
+
+	// Should be a TranscriptionError
+	var txErr *stt.TranscriptionError
+	if !isTranscriptionError(err, &txErr) {
+		t.Errorf("Expected TranscriptionError, got: %T", err)
+	}
+}
+
+func TestOpenAIService_Transcribe_ServerError(t *testing.T) {
+	// Create mock server that returns 500
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": map[string]interface{}{
+				"message": "Internal server error",
+				"type":    "server_error",
+				"code":    "server_error",
+			},
+		})
+	}))
+	defer server.Close()
+
+	service := stt.NewOpenAI("test-key", stt.WithOpenAIBaseURL(server.URL))
+
+	ctx := context.Background()
+	audio := generateTestAudio(16000, 0.5)
+
+	_, err := service.Transcribe(ctx, audio, stt.TranscriptionConfig{
+		Format: stt.FormatPCM,
+	})
+
+	if err == nil {
+		t.Fatal("Expected error for server error response")
+	}
+
+	// Server errors should be retryable
+	var txErr *stt.TranscriptionError
+	if isTranscriptionError(err, &txErr) && !txErr.Retryable {
+		t.Error("Server error should be retryable")
+	}
+}
+
+func TestOpenAIService_Transcribe_MalformedResponse(t *testing.T) {
+	// Create mock server that returns invalid JSON
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("invalid json{"))
+	}))
+	defer server.Close()
+
+	service := stt.NewOpenAI("test-key", stt.WithOpenAIBaseURL(server.URL))
+
+	ctx := context.Background()
+	audio := generateTestAudio(16000, 0.5)
+
+	_, err := service.Transcribe(ctx, audio, stt.TranscriptionConfig{
+		Format: stt.FormatPCM,
+	})
+
+	if err == nil {
+		t.Fatal("Expected error for malformed response")
+	}
+}

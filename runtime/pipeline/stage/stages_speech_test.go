@@ -580,3 +580,200 @@ func generateTestPCMAudio(length int) []byte {
 	}
 	return data
 }
+
+// =============================================================================
+// Additional TTSStageWithInterruption Tests (for coverage)
+// =============================================================================
+
+func TestTTSStageWithInterruption_SkipsEmptyText(t *testing.T) {
+	synthesizeCalled := false
+	mockTts := &mockTTSService{
+		synthesizeFunc: func(ctx context.Context, text string, config tts.SynthesisConfig) (io.ReadCloser, error) {
+			synthesizeCalled = true
+			return io.NopCloser(strings.NewReader("audio")), nil
+		},
+	}
+	config := stage.DefaultTTSStageWithInterruptionConfig()
+	config.SkipEmpty = true
+	config.MinTextLength = 5
+
+	s := stage.NewTTSStageWithInterruption(mockTts, config)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	input := make(chan stage.StreamElement, 1)
+	output := make(chan stage.StreamElement, 10)
+
+	go func() {
+		_ = s.Process(ctx, input, output)
+	}()
+
+	// Send short text (should be skipped)
+	text := "Hi"
+	input <- stage.StreamElement{Text: &text}
+	close(input)
+
+	// Wait for processing
+	time.Sleep(100 * time.Millisecond)
+
+	if synthesizeCalled {
+		t.Error("Synthesize should not be called for short text")
+	}
+}
+
+func TestTTSStageWithInterruption_SynthesisError(t *testing.T) {
+	mockTts := &mockTTSService{
+		synthesizeFunc: func(ctx context.Context, text string, config tts.SynthesisConfig) (io.ReadCloser, error) {
+			return nil, io.EOF // Simulate error
+		},
+	}
+	config := stage.DefaultTTSStageWithInterruptionConfig()
+
+	s := stage.NewTTSStageWithInterruption(mockTts, config)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	input := make(chan stage.StreamElement, 1)
+	output := make(chan stage.StreamElement, 10)
+
+	go func() {
+		_ = s.Process(ctx, input, output)
+	}()
+
+	text := "Test synthesis error"
+	input <- stage.StreamElement{Text: &text}
+	close(input)
+
+	// Should receive error element
+	select {
+	case elem := <-output:
+		if elem.Error == nil {
+			t.Error("Expected error element for synthesis failure")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Timeout waiting for output")
+	}
+}
+
+func TestTTSStageWithInterruption_ContextCancellation(t *testing.T) {
+	mockTts := &mockTTSService{
+		synthesizeFunc: func(ctx context.Context, text string, config tts.SynthesisConfig) (io.ReadCloser, error) {
+			// Simulate slow synthesis
+			time.Sleep(500 * time.Millisecond)
+			return io.NopCloser(strings.NewReader("audio")), nil
+		},
+	}
+	config := stage.DefaultTTSStageWithInterruptionConfig()
+
+	s := stage.NewTTSStageWithInterruption(mockTts, config)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	input := make(chan stage.StreamElement, 1)
+	output := make(chan stage.StreamElement, 10)
+
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- s.Process(ctx, input, output)
+	}()
+
+	text := "Test context cancellation"
+	input <- stage.StreamElement{Text: &text}
+
+	// Cancel immediately
+	cancel()
+	close(input)
+
+	// Should complete (with or without error)
+	select {
+	case <-errChan:
+		// Expected - context cancelled
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout - process should have completed")
+	}
+}
+
+func TestTTSStageWithInterruption_MultipleTexts(t *testing.T) {
+	synthesizeCount := 0
+	mockTts := &mockTTSService{
+		synthesizeFunc: func(ctx context.Context, text string, config tts.SynthesisConfig) (io.ReadCloser, error) {
+			synthesizeCount++
+			return io.NopCloser(strings.NewReader("audio data")), nil
+		},
+	}
+	config := stage.DefaultTTSStageWithInterruptionConfig()
+
+	s := stage.NewTTSStageWithInterruption(mockTts, config)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	input := make(chan stage.StreamElement, 3)
+	output := make(chan stage.StreamElement, 10)
+
+	go func() {
+		_ = s.Process(ctx, input, output)
+	}()
+
+	// Send multiple text elements
+	texts := []string{"First sentence", "Second sentence", "Third sentence"}
+	for _, txt := range texts {
+		t := txt
+		input <- stage.StreamElement{Text: &t}
+	}
+	close(input)
+
+	// Collect outputs
+	var received int
+	timeout := time.After(3 * time.Second)
+	for {
+		select {
+		case elem, ok := <-output:
+			if !ok {
+				goto done
+			}
+			if elem.Audio != nil {
+				received++
+			}
+		case <-timeout:
+			goto done
+		}
+	}
+done:
+
+	if received != 3 {
+		t.Errorf("Expected 3 audio outputs, got %d", received)
+	}
+	if synthesizeCount != 3 {
+		t.Errorf("Expected 3 synthesize calls, got %d", synthesizeCount)
+	}
+}
+
+func TestTTSStageWithInterruption_MessageElement(t *testing.T) {
+	mockTts := &mockTTSService{
+		synthesizeFunc: func(ctx context.Context, text string, config tts.SynthesisConfig) (io.ReadCloser, error) {
+			return io.NopCloser(strings.NewReader("audio")), nil
+		},
+	}
+	config := stage.DefaultTTSStageWithInterruptionConfig()
+
+	s := stage.NewTTSStageWithInterruption(mockTts, config)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	input := make(chan stage.StreamElement, 1)
+	output := make(chan stage.StreamElement, 10)
+
+	go func() {
+		_ = s.Process(ctx, input, output)
+	}()
+
+	// Send element with no text (tests skip path)
+	input <- stage.StreamElement{Text: nil, Metadata: map[string]interface{}{}}
+	close(input)
+
+	// Wait for processing
+	time.Sleep(100 * time.Millisecond)
+}

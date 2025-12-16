@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/stretchr/testify/assert"
@@ -494,4 +495,184 @@ func TestProviderStage_BaseStageProperties(t *testing.T) {
 
 	assert.Equal(t, "provider", stage.Name())
 	assert.Equal(t, StageTypeGenerate, stage.Type())
+}
+
+// =============================================================================
+// Helper Function Unit Tests (for coverage)
+// =============================================================================
+
+func TestProviderStage_AccumulateInput(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+	stage := NewProviderStage(provider, nil, nil, nil)
+
+	t.Run("accumulates messages and metadata", func(t *testing.T) {
+		input := make(chan StreamElement, 3)
+
+		// Send multiple messages with metadata
+		msg1 := types.Message{Role: "user", Content: "Hello"}
+		elem1 := NewMessageElement(&msg1)
+		elem1.Metadata["system_prompt"] = "You are helpful"
+		input <- elem1
+
+		msg2 := types.Message{Role: "assistant", Content: "Hi"}
+		elem2 := NewMessageElement(&msg2)
+		elem2.Metadata["allowed_tools"] = []string{"tool1", "tool2"}
+		input <- elem2
+
+		msg3 := types.Message{Role: "user", Content: "Thanks"}
+		elem3 := NewMessageElement(&msg3)
+		elem3.Metadata["custom_key"] = "custom_value"
+		input <- elem3
+
+		close(input)
+
+		acc := stage.accumulateInput(input)
+
+		assert.Len(t, acc.messages, 3)
+		assert.Equal(t, "You are helpful", acc.systemPrompt)
+		assert.Equal(t, []string{"tool1", "tool2"}, acc.allowedTools)
+		assert.Equal(t, "custom_value", acc.metadata["custom_key"])
+	})
+
+	t.Run("handles empty input", func(t *testing.T) {
+		input := make(chan StreamElement)
+		close(input)
+
+		acc := stage.accumulateInput(input)
+
+		assert.Len(t, acc.messages, 0)
+		assert.Empty(t, acc.systemPrompt)
+		assert.Nil(t, acc.allowedTools)
+		assert.NotNil(t, acc.metadata)
+	})
+
+	t.Run("handles elements without messages", func(t *testing.T) {
+		input := make(chan StreamElement, 1)
+		text := "some text"
+		elem := StreamElement{Text: &text, Metadata: map[string]interface{}{"key": "value"}}
+		input <- elem
+		close(input)
+
+		acc := stage.accumulateInput(input)
+
+		assert.Len(t, acc.messages, 0)
+		assert.Equal(t, "value", acc.metadata["key"])
+	})
+}
+
+func TestProviderStage_ExtractMetadata(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+	stage := NewProviderStage(provider, nil, nil, nil)
+
+	t.Run("extracts system prompt", func(t *testing.T) {
+		acc := &providerInput{metadata: make(map[string]interface{})}
+		elem := &StreamElement{Metadata: map[string]interface{}{"system_prompt": "test prompt"}}
+
+		stage.extractMetadata(elem, acc)
+
+		assert.Equal(t, "test prompt", acc.systemPrompt)
+	})
+
+	t.Run("extracts allowed tools", func(t *testing.T) {
+		acc := &providerInput{metadata: make(map[string]interface{})}
+		elem := &StreamElement{Metadata: map[string]interface{}{"allowed_tools": []string{"a", "b"}}}
+
+		stage.extractMetadata(elem, acc)
+
+		assert.Equal(t, []string{"a", "b"}, acc.allowedTools)
+	})
+
+	t.Run("handles nil metadata", func(t *testing.T) {
+		acc := &providerInput{metadata: make(map[string]interface{})}
+		elem := &StreamElement{Metadata: nil}
+
+		stage.extractMetadata(elem, acc)
+
+		assert.Empty(t, acc.systemPrompt)
+		assert.Nil(t, acc.allowedTools)
+	})
+
+	t.Run("merges all metadata", func(t *testing.T) {
+		acc := &providerInput{metadata: make(map[string]interface{})}
+		elem := &StreamElement{Metadata: map[string]interface{}{
+			"key1": "value1",
+			"key2": 42,
+		}}
+
+		stage.extractMetadata(elem, acc)
+
+		assert.Equal(t, "value1", acc.metadata["key1"])
+		assert.Equal(t, 42, acc.metadata["key2"])
+	})
+}
+
+func TestProviderStage_EmitResponseMessages(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+	stage := NewProviderStage(provider, nil, nil, nil)
+
+	t.Run("emits all messages with metadata", func(t *testing.T) {
+		ctx := context.Background()
+		output := make(chan StreamElement, 10)
+		messages := []types.Message{
+			{Role: "assistant", Content: "Response 1"},
+			{Role: "assistant", Content: "Response 2"},
+		}
+		metadata := map[string]interface{}{"key": "value"}
+
+		go func() {
+			err := stage.emitResponseMessages(ctx, messages, metadata, output)
+			assert.NoError(t, err)
+			close(output)
+		}()
+
+		var received []StreamElement
+		for elem := range output {
+			received = append(received, elem)
+		}
+
+		assert.Len(t, received, 2)
+		assert.Equal(t, "Response 1", received[0].Message.Content)
+		assert.Equal(t, "value", received[0].Metadata["key"])
+	})
+
+	t.Run("handles empty messages", func(t *testing.T) {
+		ctx := context.Background()
+		output := make(chan StreamElement, 10)
+
+		err := stage.emitResponseMessages(ctx, []types.Message{}, nil, output)
+
+		assert.NoError(t, err)
+	})
+
+	t.Run("respects context cancellation", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // Cancel immediately
+
+		output := make(chan StreamElement) // Unbuffered, will block
+		messages := []types.Message{{Role: "assistant", Content: "Test"}}
+
+		err := stage.emitResponseMessages(ctx, messages, nil, output)
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "context canceled")
+	})
+}
+
+func TestProviderStage_GetMaxRounds(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+
+	t.Run("returns default when no policy", func(t *testing.T) {
+		stage := NewProviderStage(provider, nil, nil, nil)
+		assert.Equal(t, 10, stage.getMaxRounds()) // defaultMaxRounds
+	})
+
+	t.Run("returns policy value when set", func(t *testing.T) {
+		stage := NewProviderStage(provider, nil, &pipeline.ToolPolicy{MaxRounds: 5}, nil)
+		assert.Equal(t, 5, stage.getMaxRounds())
+	})
+
+	t.Run("returns default when policy MaxRounds is zero", func(t *testing.T) {
+		stage := NewProviderStage(provider, nil, &pipeline.ToolPolicy{MaxRounds: 0}, nil)
+		assert.Equal(t, 10, stage.getMaxRounds())
+	})
 }
