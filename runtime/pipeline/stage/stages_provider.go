@@ -61,206 +61,204 @@ func NewProviderStage(
 	}
 }
 
+// providerInput holds accumulated input data for provider execution.
+type providerInput struct {
+	messages     []types.Message
+	systemPrompt string
+	allowedTools []string
+	metadata     map[string]interface{}
+}
+
 // Process executes the LLM provider call and handles tool execution.
-func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
+func (s *ProviderStage) Process(
+	ctx context.Context,
+	input <-chan StreamElement,
+	output chan<- StreamElement,
+) error {
 	defer close(output)
 
 	if s.provider == nil {
 		return errors.New("provider stage: no provider configured")
 	}
 
-	// Accumulate input messages and metadata
-	var messages []types.Message
-	var systemPrompt string
-	var allowedTools []string
-	metadata := make(map[string]interface{})
+	accumulated := s.accumulateInput(input)
+
+	logger.Debug("ProviderStage accumulated input",
+		"messages", len(accumulated.messages),
+		"allowed_tools", accumulated.allowedTools,
+		"mock_scenario_id", accumulated.metadata["mock_scenario_id"],
+		"mock_turn_number", accumulated.metadata["mock_turn_number"])
+
+	return s.executeAndEmit(ctx, accumulated, output)
+}
+
+// accumulateInput collects messages and metadata from input channel.
+func (s *ProviderStage) accumulateInput(input <-chan StreamElement) *providerInput {
+	acc := &providerInput{
+		metadata: make(map[string]interface{}),
+	}
 
 	for elem := range input {
 		if elem.Message != nil {
-			messages = append(messages, *elem.Message)
+			acc.messages = append(acc.messages, *elem.Message)
 		}
-		if elem.Metadata != nil {
-			// Extract prompt assembly data
-			if sp, ok := elem.Metadata["system_prompt"].(string); ok {
-				systemPrompt = sp
-			}
-			if toolsList, ok := elem.Metadata["allowed_tools"].([]string); ok {
-				allowedTools = toolsList
-				logger.Debug("ProviderStage received allowed_tools", "tools", allowedTools, "count", len(allowedTools))
-			}
-			// Merge all metadata
-			for k, v := range elem.Metadata {
-				metadata[k] = v
-			}
-		}
+		s.extractMetadata(&elem, acc)
 	}
 
-	logger.Debug("ProviderStage accumulated input",
-		"messages", len(messages),
-		"allowed_tools", allowedTools,
-		"mock_scenario_id", metadata["mock_scenario_id"],
-		"mock_turn_number", metadata["mock_turn_number"])
+	return acc
+}
 
-	// Check if provider supports streaming
+// extractMetadata extracts prompt data and merges metadata from element.
+func (s *ProviderStage) extractMetadata(elem *StreamElement, acc *providerInput) {
+	if elem.Metadata == nil {
+		return
+	}
+	if sp, ok := elem.Metadata["system_prompt"].(string); ok {
+		acc.systemPrompt = sp
+	}
+	if toolsList, ok := elem.Metadata["allowed_tools"].([]string); ok {
+		acc.allowedTools = toolsList
+		logger.Debug("ProviderStage received allowed_tools", "tools", toolsList, "count", len(toolsList))
+	}
+	for k, v := range elem.Metadata {
+		acc.metadata[k] = v
+	}
+}
+
+// executeAndEmit runs provider execution and emits results.
+func (s *ProviderStage) executeAndEmit(
+	ctx context.Context,
+	acc *providerInput,
+	output chan<- StreamElement,
+) error {
+	var responseMessages []types.Message
+	var err error
+
 	if s.provider.SupportsStreaming() {
-		// Use streaming execution path
-		responseMessages, err := s.executeStreamingMultiRound(ctx, messages, systemPrompt, allowedTools, metadata, output)
-		if err != nil {
-			output <- NewErrorElement(err)
-			return err
-		}
-
-		// Emit final response messages (streaming chunks already emitted)
-		for i := range responseMessages {
-			elem := NewMessageElement(&responseMessages[i])
-			elem.Metadata = metadata
-
-			logger.Debug("ProviderStage emitting response message",
-				"role", responseMessages[i].Role,
-				"has_validator_configs", metadata["validator_configs"] != nil)
-
-			select {
-			case output <- elem:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		}
+		responseMessages, err = s.executeStreamingMultiRound(ctx, acc, output)
 	} else {
-		// Execute provider with multi-round support for tools (non-streaming)
-		responseMessages, err := s.executeMultiRound(ctx, messages, systemPrompt, allowedTools, metadata)
-		if err != nil {
-			output <- NewErrorElement(err)
-			return err
-		}
-
-		// Emit response messages
-		for i := range responseMessages {
-			elem := NewMessageElement(&responseMessages[i])
-			elem.Metadata = metadata
-
-			select {
-			case output <- elem:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		}
+		responseMessages, err = s.executeMultiRound(ctx, acc)
 	}
 
+	if err != nil {
+		output <- NewErrorElement(err)
+		return err
+	}
+
+	return s.emitResponseMessages(ctx, responseMessages, acc.metadata, output)
+}
+
+// emitResponseMessages sends response messages to output channel.
+func (s *ProviderStage) emitResponseMessages(
+	ctx context.Context,
+	messages []types.Message,
+	metadata map[string]interface{},
+	output chan<- StreamElement,
+) error {
+	for i := range messages {
+		elem := NewMessageElement(&messages[i])
+		elem.Metadata = metadata
+
+		logger.Debug("ProviderStage emitting response message",
+			"role", messages[i].Role,
+			"has_validator_configs", metadata["validator_configs"] != nil)
+
+		select {
+		case output <- elem:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 	return nil
 }
 
 func (s *ProviderStage) executeMultiRound(
 	ctx context.Context,
-	messages []types.Message,
-	systemPrompt string,
-	allowedTools []string,
-	metadata map[string]interface{},
+	acc *providerInput,
 ) ([]types.Message, error) {
-	// Build tools for provider
-	providerTools, toolChoice, err := s.buildProviderTools(allowedTools)
+	providerTools, toolChoice, err := s.buildProviderTools(acc.allowedTools)
 	if err != nil {
 		return nil, fmt.Errorf("provider stage: %w", err)
 	}
 
-	// Multi-round execution loop for tool calls
-	round := 0
-	maxRounds := defaultMaxRounds
-	if s.toolPolicy != nil && s.toolPolicy.MaxRounds > 0 {
-		maxRounds = s.toolPolicy.MaxRounds
-	}
+	messages := acc.messages
+	maxRounds := s.getMaxRounds()
 
-	for {
-		round++
-
-		// Check max rounds
-		if round > maxRounds {
-			return messages, fmt.Errorf("provider stage: max rounds (%d) exceeded", maxRounds)
-		}
-
-		// Execute one round
-		response, hasToolCalls, err := s.executeRound(ctx, messages, systemPrompt, providerTools, toolChoice, round, metadata)
+	for round := 1; round <= maxRounds; round++ {
+		response, hasToolCalls, err := s.executeRound(
+			ctx, messages, acc.systemPrompt, providerTools, toolChoice, round, acc.metadata)
 		if err != nil {
 			return messages, err
 		}
 
-		// Add response to messages
 		messages = append(messages, response)
 
-		// If no tool calls, we're done
 		if !hasToolCalls {
 			break
 		}
 
-		// Execute tool calls and add results to messages
 		toolResults, err := s.executeToolCalls(ctx, response.ToolCalls)
 		if err != nil {
 			return messages, fmt.Errorf("provider stage: tool execution failed: %w", err)
 		}
 
 		messages = append(messages, toolResults...)
-
-		// For subsequent rounds, use "auto" tool choice
 		toolChoice = "auto"
+
+		if round == maxRounds {
+			return messages, fmt.Errorf("provider stage: max rounds (%d) exceeded", maxRounds)
+		}
 	}
 
 	return messages, nil
 }
 
+// getMaxRounds returns the maximum number of tool call rounds.
+func (s *ProviderStage) getMaxRounds() int {
+	if s.toolPolicy != nil && s.toolPolicy.MaxRounds > 0 {
+		return s.toolPolicy.MaxRounds
+	}
+	return defaultMaxRounds
+}
+
 func (s *ProviderStage) executeStreamingMultiRound(
 	ctx context.Context,
-	messages []types.Message,
-	systemPrompt string,
-	allowedTools []string,
-	metadata map[string]interface{},
+	acc *providerInput,
 	output chan<- StreamElement,
 ) ([]types.Message, error) {
-	// Build tools for provider
-	providerTools, toolChoice, err := s.buildProviderTools(allowedTools)
+	providerTools, toolChoice, err := s.buildProviderTools(acc.allowedTools)
 	if err != nil {
 		return nil, fmt.Errorf("provider stage: %w", err)
 	}
 
-	// Multi-round execution loop for tool calls
-	round := 0
-	maxRounds := defaultMaxRounds
-	if s.toolPolicy != nil && s.toolPolicy.MaxRounds > 0 {
-		maxRounds = s.toolPolicy.MaxRounds
-	}
+	messages := acc.messages
+	maxRounds := s.getMaxRounds()
 
-	for {
-		round++
-
-		// Check max rounds
-		if round > maxRounds {
-			return messages, fmt.Errorf("provider stage: max rounds (%d) exceeded", maxRounds)
-		}
-
-		// Execute one streaming round
+	for round := 1; round <= maxRounds; round++ {
 		response, hasToolCalls, err := s.executeStreamingRound(
-			ctx, messages, systemPrompt, providerTools, toolChoice, round, output, metadata,
+			ctx, messages, acc.systemPrompt, providerTools, toolChoice, round, output, acc.metadata,
 		)
 		if err != nil {
 			return messages, err
 		}
 
-		// Add response to messages
 		messages = append(messages, response)
 
-		// If no tool calls, we're done
 		if !hasToolCalls {
 			break
 		}
 
-		// Execute tool calls and add results to messages
 		toolResults, err := s.executeToolCalls(ctx, response.ToolCalls)
 		if err != nil {
 			return messages, fmt.Errorf("provider stage: tool execution failed: %w", err)
 		}
 
 		messages = append(messages, toolResults...)
-
-		// For subsequent rounds, use "auto" tool choice
 		toolChoice = "auto"
+
+		if round == maxRounds {
+			return messages, fmt.Errorf("provider stage: max rounds (%d) exceeded", maxRounds)
+		}
 	}
 
 	return messages, nil

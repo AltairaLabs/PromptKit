@@ -476,108 +476,164 @@ func (s *TTSStageWithInterruption) Process(
 	defer close(output)
 
 	for elem := range input {
-		// Extract text content
-		text := s.extractText(&elem)
-		if text == "" {
-			// Pass through non-text elements
-			select {
-			case output <- elem:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-			continue
-		}
-
-		// Check if should skip
-		if s.config.SkipEmpty && len(strings.TrimSpace(text)) < s.config.MinTextLength {
-			continue
-		}
-
-		// Signal bot speaking before synthesis
-		if s.interruption != nil {
-			s.interruption.SetBotSpeaking(true)
-		}
-
-		// Check for interruption before synthesis
-		if s.interruption != nil && s.interruption.WasInterrupted() {
-			logger.Debug("TTSStageWithInterruption: interrupted before synthesis")
-			s.interruption.Reset()
-			if s.interruption != nil {
-				s.interruption.SetBotSpeaking(false)
-			}
-			continue
-		}
-
-		// Synthesize audio
-		reader, err := s.service.Synthesize(ctx, text, tts.SynthesisConfig{
-			Voice:  s.config.Voice,
-			Speed:  s.config.Speed,
-			Format: tts.FormatPCM16,
-		})
-		if err != nil {
-			logger.Error("TTSStageWithInterruption: synthesis failed", "error", err)
-			if s.interruption != nil {
-				s.interruption.SetBotSpeaking(false)
-			}
-			elem.Error = err
-			select {
-			case output <- elem:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-			continue
-		}
-
-		// Read all audio (could be streaming in future)
-		audioData, err := io.ReadAll(reader)
-		if closeErr := reader.Close(); closeErr != nil {
-			logger.Warn("TTSStageWithInterruption: failed to close reader", "error", closeErr)
-		}
-		if err != nil {
-			logger.Error("TTSStageWithInterruption: failed to read audio", "error", err)
-			if s.interruption != nil {
-				s.interruption.SetBotSpeaking(false)
-			}
-			continue
-		}
-
-		// Check for interruption after synthesis
-		if s.interruption != nil && s.interruption.WasInterrupted() {
-			logger.Debug("TTSStageWithInterruption: interrupted after synthesis, discarding")
-			s.interruption.Reset()
-			s.interruption.SetBotSpeaking(false)
-			continue
-		}
-
-		logger.Debug("TTSStageWithInterruption: synthesized",
-			"text_len", len(text), "audio_bytes", len(audioData))
-
-		// Create output element with audio
-		outElem := StreamElement{
-			Text: &text,
-			Audio: &AudioData{
-				Samples:    audioData,
-				SampleRate: defaultTTSOutputSampleRate,
-				Channels:   1,
-				Format:     AudioFormatPCM16,
-			},
-			Timestamp: time.Now(),
-			Metadata:  elem.Metadata,
-		}
-
-		// Signal bot done speaking
-		if s.interruption != nil {
-			s.interruption.SetBotSpeaking(false)
-		}
-
-		select {
-		case output <- outElem:
-		case <-ctx.Done():
-			return ctx.Err()
+		if err := s.processElement(ctx, &elem, output); err != nil {
+			return err
 		}
 	}
 
 	return nil
+}
+
+// processElement handles a single element in the TTS pipeline.
+func (s *TTSStageWithInterruption) processElement(
+	ctx context.Context,
+	elem *StreamElement,
+	output chan<- StreamElement,
+) error {
+	text := s.extractText(elem)
+	if text == "" {
+		return s.forwardElement(ctx, *elem, output)
+	}
+
+	if s.shouldSkipText(text) {
+		return nil
+	}
+
+	return s.synthesizeAndEmit(ctx, text, elem, output)
+}
+
+// shouldSkipText checks if text should be skipped based on config.
+func (s *TTSStageWithInterruption) shouldSkipText(text string) bool {
+	return s.config.SkipEmpty && len(strings.TrimSpace(text)) < s.config.MinTextLength
+}
+
+// forwardElement forwards an element to output.
+//
+//nolint:gocritic // hugeParam: StreamElement intentionally passed by value to avoid modification
+func (s *TTSStageWithInterruption) forwardElement(
+	ctx context.Context,
+	elem StreamElement,
+	output chan<- StreamElement,
+) error {
+	select {
+	case output <- elem:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// setBotSpeaking safely sets bot speaking state if handler exists.
+func (s *TTSStageWithInterruption) setBotSpeaking(speaking bool) {
+	if s.interruption != nil {
+		s.interruption.SetBotSpeaking(speaking)
+	}
+}
+
+// checkAndResetInterruption checks if interrupted and resets if so.
+func (s *TTSStageWithInterruption) checkAndResetInterruption() bool {
+	if s.interruption != nil && s.interruption.WasInterrupted() {
+		s.interruption.Reset()
+		s.setBotSpeaking(false)
+		return true
+	}
+	return false
+}
+
+// synthesizeAndEmit performs TTS synthesis and emits the audio element.
+func (s *TTSStageWithInterruption) synthesizeAndEmit(
+	ctx context.Context,
+	text string,
+	elem *StreamElement,
+	output chan<- StreamElement,
+) error {
+	s.setBotSpeaking(true)
+
+	if s.checkAndResetInterruption() {
+		logger.Debug("TTSStageWithInterruption: interrupted before synthesis")
+		return nil
+	}
+
+	audioData, err := s.performSynthesis(ctx, text, elem, output)
+	if err != nil || audioData == nil {
+		return err
+	}
+
+	if s.checkAndResetInterruption() {
+		logger.Debug("TTSStageWithInterruption: interrupted after synthesis, discarding")
+		return nil
+	}
+
+	return s.emitAudioElement(ctx, text, audioData, elem.Metadata, output)
+}
+
+// performSynthesis executes the TTS synthesis and returns audio data.
+func (s *TTSStageWithInterruption) performSynthesis(
+	ctx context.Context,
+	text string,
+	elem *StreamElement,
+	output chan<- StreamElement,
+) ([]byte, error) {
+	reader, err := s.service.Synthesize(ctx, text, tts.SynthesisConfig{
+		Voice:  s.config.Voice,
+		Speed:  s.config.Speed,
+		Format: tts.FormatPCM16,
+	})
+	if err != nil {
+		return nil, s.handleSynthesisError(ctx, err, elem, output)
+	}
+
+	audioData, err := io.ReadAll(reader)
+	if closeErr := reader.Close(); closeErr != nil {
+		logger.Warn("TTSStageWithInterruption: failed to close reader", "error", closeErr)
+	}
+	if err != nil {
+		logger.Error("TTSStageWithInterruption: failed to read audio", "error", err)
+		s.setBotSpeaking(false)
+		return nil, nil // Not a fatal error, just skip this element
+	}
+
+	return audioData, nil
+}
+
+// handleSynthesisError handles synthesis errors and emits error element.
+func (s *TTSStageWithInterruption) handleSynthesisError(
+	ctx context.Context,
+	err error,
+	elem *StreamElement,
+	output chan<- StreamElement,
+) error {
+	logger.Error("TTSStageWithInterruption: synthesis failed", "error", err)
+	s.setBotSpeaking(false)
+	elem.Error = err
+	return s.forwardElement(ctx, *elem, output)
+}
+
+// emitAudioElement creates and emits the audio output element.
+func (s *TTSStageWithInterruption) emitAudioElement(
+	ctx context.Context,
+	text string,
+	audioData []byte,
+	metadata map[string]interface{},
+	output chan<- StreamElement,
+) error {
+	logger.Debug("TTSStageWithInterruption: synthesized",
+		"text_len", len(text), "audio_bytes", len(audioData))
+
+	outElem := StreamElement{
+		Text: &text,
+		Audio: &AudioData{
+			Samples:    audioData,
+			SampleRate: defaultTTSOutputSampleRate,
+			Channels:   1,
+			Format:     AudioFormatPCM16,
+		},
+		Timestamp: time.Now(),
+		Metadata:  metadata,
+	}
+
+	s.setBotSpeaking(false)
+	return s.forwardElement(ctx, outElem, output)
 }
 
 // extractText extracts text content from an element.

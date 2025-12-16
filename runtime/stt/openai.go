@@ -76,6 +76,15 @@ func (s *OpenAIService) Name() string {
 	return "openai-whisper"
 }
 
+// normalizedConfig holds config values with defaults applied.
+type normalizedConfig struct {
+	format     string
+	sampleRate int
+	channels   int
+	bitDepth   int
+	model      string
+}
+
 // Transcribe converts audio to text using OpenAI's Whisper API.
 //
 //nolint:gocritic // hugeParam: TranscriptionConfig passed by value to satisfy Service interface
@@ -86,89 +95,138 @@ func (s *OpenAIService) Transcribe(
 		return "", ErrEmptyAudio
 	}
 
-	// Apply defaults
-	format := config.Format
-	if format == "" {
-		format = FormatPCM
-	}
-	sampleRate := config.SampleRate
-	if sampleRate == 0 {
-		sampleRate = DefaultSampleRate
-	}
-	channels := config.Channels
-	if channels == 0 {
-		channels = DefaultChannels
-	}
-	bitDepth := config.BitDepth
-	if bitDepth == 0 {
-		bitDepth = DefaultBitDepth
+	nc := s.normalizeConfig(&config)
+	audioData, filename := s.prepareAudio(audio, nc)
+
+	formData, contentType, err := s.buildMultipartForm(audioData, filename, nc, &config)
+	if err != nil {
+		return "", err
 	}
 
-	// Prepare audio data
-	audioData := audio
-	filename := "audio." + format
+	return s.executeRequest(ctx, formData, contentType)
+}
 
-	// PCM needs to be wrapped as WAV for Whisper
-	if format == FormatPCM {
-		audioData = WrapPCMAsWAV(audio, sampleRate, channels, bitDepth)
-		filename = "audio.wav"
+// normalizeConfig applies defaults to transcription config.
+func (s *OpenAIService) normalizeConfig(config *TranscriptionConfig) *normalizedConfig {
+	nc := &normalizedConfig{
+		format:     config.Format,
+		sampleRate: config.SampleRate,
+		channels:   config.Channels,
+		bitDepth:   config.BitDepth,
+		model:      config.Model,
 	}
+	if nc.format == "" {
+		nc.format = FormatPCM
+	}
+	if nc.sampleRate == 0 {
+		nc.sampleRate = DefaultSampleRate
+	}
+	if nc.channels == 0 {
+		nc.channels = DefaultChannels
+	}
+	if nc.bitDepth == 0 {
+		nc.bitDepth = DefaultBitDepth
+	}
+	if nc.model == "" {
+		nc.model = s.model
+	}
+	return nc
+}
 
-	// Build multipart form
+// prepareAudio prepares audio data, wrapping PCM as WAV if needed.
+func (s *OpenAIService) prepareAudio(
+	audio []byte,
+	nc *normalizedConfig,
+) (audioData []byte, filename string) {
+	if nc.format == FormatPCM {
+		return WrapPCMAsWAV(audio, nc.sampleRate, nc.channels, nc.bitDepth), "audio.wav"
+	}
+	return audio, "audio." + nc.format
+}
+
+// buildMultipartForm builds the multipart form for the transcription request.
+func (s *OpenAIService) buildMultipartForm(
+	audioData []byte,
+	filename string,
+	nc *normalizedConfig,
+	config *TranscriptionConfig,
+) (*bytes.Buffer, string, error) {
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 
-	// Add audio file
-	part, err := writer.CreateFormFile("file", filename)
-	if err != nil {
-		return "", fmt.Errorf("failed to create form file: %w", err)
-	}
-	if _, err := part.Write(audioData); err != nil {
-		return "", fmt.Errorf("failed to write audio data: %w", err)
+	if err := s.writeAudioField(writer, audioData, filename); err != nil {
+		return nil, "", err
 	}
 
-	// Add model field
-	model := config.Model
-	if model == "" {
-		model = s.model
-	}
-	if err := writer.WriteField("model", model); err != nil {
-		return "", fmt.Errorf("failed to write model field: %w", err)
+	if err := s.writeModelField(writer, nc.model); err != nil {
+		return nil, "", err
 	}
 
-	// Add language hint if provided
-	if config.Language != "" {
-		if err := writer.WriteField("language", config.Language); err != nil {
-			return "", fmt.Errorf("failed to write language field: %w", err)
-		}
-	}
-
-	// Add prompt if provided
-	if config.Prompt != "" {
-		if err := writer.WriteField("prompt", config.Prompt); err != nil {
-			return "", fmt.Errorf("failed to write prompt field: %w", err)
-		}
+	if err := s.writeOptionalFields(writer, config); err != nil {
+		return nil, "", err
 	}
 
 	if err := writer.Close(); err != nil {
-		return "", fmt.Errorf("failed to close multipart writer: %w", err)
+		return nil, "", fmt.Errorf("failed to close multipart writer: %w", err)
 	}
 
-	// Create request
+	return &buf, writer.FormDataContentType(), nil
+}
+
+// writeAudioField writes the audio file field.
+func (s *OpenAIService) writeAudioField(writer *multipart.Writer, audioData []byte, filename string) error {
+	part, err := writer.CreateFormFile("file", filename)
+	if err != nil {
+		return fmt.Errorf("failed to create form file: %w", err)
+	}
+	if _, err := part.Write(audioData); err != nil {
+		return fmt.Errorf("failed to write audio data: %w", err)
+	}
+	return nil
+}
+
+// writeModelField writes the model field.
+func (s *OpenAIService) writeModelField(writer *multipart.Writer, model string) error {
+	if err := writer.WriteField("model", model); err != nil {
+		return fmt.Errorf("failed to write model field: %w", err)
+	}
+	return nil
+}
+
+// writeOptionalFields writes optional language and prompt fields.
+func (s *OpenAIService) writeOptionalFields(writer *multipart.Writer, config *TranscriptionConfig) error {
+	if config.Language != "" {
+		if err := writer.WriteField("language", config.Language); err != nil {
+			return fmt.Errorf("failed to write language field: %w", err)
+		}
+	}
+	if config.Prompt != "" {
+		if err := writer.WriteField("prompt", config.Prompt); err != nil {
+			return fmt.Errorf("failed to write prompt field: %w", err)
+		}
+	}
+	return nil
+}
+
+// executeRequest sends the transcription request and parses the response.
+func (s *OpenAIService) executeRequest(
+	ctx context.Context,
+	formData *bytes.Buffer,
+	contentType string,
+) (string, error) {
 	req, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,
 		s.baseURL+openAITranscribeEndpoint,
-		&buf,
+		formData,
 	)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Authorization", "Bearer "+s.apiKey)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Content-Type", contentType)
 
-	// Send request
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return "", NewTranscriptionError("openai", "", "request failed", err, true)
@@ -184,7 +242,6 @@ func (s *OpenAIService) Transcribe(
 		return "", s.handleError(resp.StatusCode, body)
 	}
 
-	// Parse response
 	var result struct {
 		Text string `json:"text"`
 	}

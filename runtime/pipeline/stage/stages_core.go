@@ -137,56 +137,93 @@ func NewValidationStage(registry *validators.Registry, suppressExceptions bool) 
 	}
 }
 
+// validationState holds accumulated state during validation processing.
+type validationState struct {
+	elements          []StreamElement
+	lastAssistantElem *StreamElement
+	metadata          map[string]interface{}
+}
+
 // Process validates response elements and attaches results to metadata.
 //
 //nolint:lll // Channel signature cannot be shortened
-func (s *ValidationStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
+func (s *ValidationStage) Process(
+	ctx context.Context,
+	input <-chan StreamElement,
+	output chan<- StreamElement,
+) error {
 	defer close(output)
 
-	// Accumulate messages and metadata
-	var elements []StreamElement
-	var lastAssistantElem *StreamElement
-	metadata := make(map[string]interface{})
+	state := s.accumulateElements(input)
+
+	if err := s.runValidation(ctx, state, output); err != nil {
+		return err
+	}
+
+	return s.forwardAllElements(ctx, state.elements, output)
+}
+
+// accumulateElements collects elements and tracks the last assistant message.
+func (s *ValidationStage) accumulateElements(input <-chan StreamElement) *validationState {
+	state := &validationState{
+		metadata: make(map[string]interface{}),
+	}
 
 	for elem := range input {
-		elements = append(elements, elem)
-
-		// Track last assistant message
+		state.elements = append(state.elements, elem)
 		if elem.Message != nil && elem.Message.Role == "assistant" {
-			lastAssistantElem = &elements[len(elements)-1]
+			state.lastAssistantElem = &state.elements[len(state.elements)-1]
 		}
-
-		// Accumulate metadata from all elements
 		for k, v := range elem.Metadata {
-			metadata[k] = v
+			state.metadata[k] = v
 		}
 	}
 
-	// Validate if we have an assistant message and validators configured
-	if lastAssistantElem != nil && lastAssistantElem.Message != nil {
-		// Merge accumulated metadata onto assistant element
-		if lastAssistantElem.Metadata == nil {
-			lastAssistantElem.Metadata = make(map[string]interface{})
-		}
-		for k, v := range metadata {
-			lastAssistantElem.Metadata[k] = v
-		}
+	return state
+}
 
-		logger.Debug("ValidationStage found assistant message to validate",
-			"has_content", lastAssistantElem.Message.Content != "",
-			"has_metadata", lastAssistantElem.Metadata != nil,
-			"has_validator_configs", lastAssistantElem.Metadata != nil && lastAssistantElem.Metadata["validator_configs"] != nil)
-
-		if err := s.validateElement(ctx, lastAssistantElem); err != nil {
-			// Emit error element if validation failed and exceptions not suppressed
-			if !s.suppressValidationExceptions {
-				output <- NewErrorElement(err)
-				return err
-			}
-		}
+// runValidation performs validation on the assistant message if present.
+func (s *ValidationStage) runValidation(
+	ctx context.Context,
+	state *validationState,
+	output chan<- StreamElement,
+) error {
+	if state.lastAssistantElem == nil || state.lastAssistantElem.Message == nil {
+		return nil
 	}
 
-	// Forward all elements
+	s.mergeMetadataToAssistant(state)
+
+	logger.Debug("ValidationStage found assistant message to validate",
+		"has_content", state.lastAssistantElem.Message.Content != "",
+		"has_metadata", state.lastAssistantElem.Metadata != nil,
+		"has_validator_configs", state.lastAssistantElem.Metadata["validator_configs"] != nil)
+
+	if err := s.validateElement(ctx, state.lastAssistantElem); err != nil {
+		if !s.suppressValidationExceptions {
+			output <- NewErrorElement(err)
+			return err
+		}
+	}
+	return nil
+}
+
+// mergeMetadataToAssistant merges accumulated metadata to the assistant element.
+func (s *ValidationStage) mergeMetadataToAssistant(state *validationState) {
+	if state.lastAssistantElem.Metadata == nil {
+		state.lastAssistantElem.Metadata = make(map[string]interface{})
+	}
+	for k, v := range state.metadata {
+		state.lastAssistantElem.Metadata[k] = v
+	}
+}
+
+// forwardAllElements forwards all elements to the output channel.
+func (s *ValidationStage) forwardAllElements(
+	ctx context.Context,
+	elements []StreamElement,
+	output chan<- StreamElement,
+) error {
 	for _, elem := range elements {
 		select {
 		case output <- elem:
@@ -194,7 +231,6 @@ func (s *ValidationStage) Process(ctx context.Context, input <-chan StreamElemen
 			return ctx.Err()
 		}
 	}
-
 	return nil
 }
 
@@ -319,34 +355,59 @@ func NewStateStoreLoadStage(config *pipeline.StateStoreConfig) *StateStoreLoadSt
 // Process loads conversation history and emits it before current input.
 //
 //nolint:lll // Channel signature cannot be shortened
-func (s *StateStoreLoadStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
+func (s *StateStoreLoadStage) Process(
+	ctx context.Context,
+	input <-chan StreamElement,
+	output chan<- StreamElement,
+) error {
 	defer close(output)
 
-	// Load history if configured
-	var historyMessages []types.Message
-	if s.config != nil && s.config.Store != nil {
-		store, ok := s.config.Store.(statestore.Store)
-		if !ok {
-			return fmt.Errorf("state store load: invalid store type")
-		}
-
-		state, err := store.Load(ctx, s.config.ConversationID)
-		if err != nil && !errors.Is(err, statestore.ErrNotFound) {
-			return fmt.Errorf("state store load: failed to load state: %w", err)
-		}
-
-		if state != nil && len(state.Messages) > 0 {
-			historyMessages = state.Messages
-			// Mark messages as loaded from statestore
-			for i := range historyMessages {
-				historyMessages[i].Source = "statestore"
-			}
-		}
+	historyMessages, err := s.loadHistoryMessages(ctx)
+	if err != nil {
+		return err
 	}
 
-	// Emit history messages first
-	for i := range historyMessages {
-		elem := NewMessageElement(&historyMessages[i])
+	if err := s.emitHistoryMessages(ctx, historyMessages, output); err != nil {
+		return err
+	}
+
+	return s.forwardInputWithMetadata(ctx, input, output)
+}
+
+// loadHistoryMessages loads messages from state store if configured.
+func (s *StateStoreLoadStage) loadHistoryMessages(ctx context.Context) ([]types.Message, error) {
+	if s.config == nil || s.config.Store == nil {
+		return nil, nil
+	}
+
+	store, ok := s.config.Store.(statestore.Store)
+	if !ok {
+		return nil, fmt.Errorf("state store load: invalid store type")
+	}
+
+	state, err := store.Load(ctx, s.config.ConversationID)
+	if err != nil && !errors.Is(err, statestore.ErrNotFound) {
+		return nil, fmt.Errorf("state store load: failed to load state: %w", err)
+	}
+
+	if state == nil || len(state.Messages) == 0 {
+		return nil, nil
+	}
+
+	for i := range state.Messages {
+		state.Messages[i].Source = "statestore"
+	}
+	return state.Messages, nil
+}
+
+// emitHistoryMessages sends history messages to output channel.
+func (s *StateStoreLoadStage) emitHistoryMessages(
+	ctx context.Context,
+	messages []types.Message,
+	output chan<- StreamElement,
+) error {
+	for i := range messages {
+		elem := NewMessageElement(&messages[i])
 		elem.Metadata["from_history"] = true
 		select {
 		case output <- elem:
@@ -354,28 +415,37 @@ func (s *StateStoreLoadStage) Process(ctx context.Context, input <-chan StreamEl
 			return ctx.Err()
 		}
 	}
+	return nil
+}
 
-	// Then emit current input messages
+// forwardInputWithMetadata forwards input elements with conversation metadata.
+func (s *StateStoreLoadStage) forwardInputWithMetadata(
+	ctx context.Context,
+	input <-chan StreamElement,
+	output chan<- StreamElement,
+) error {
 	for elem := range input {
-		// Enrich with conversation metadata
-		if elem.Metadata == nil {
-			elem.Metadata = make(map[string]interface{})
-		}
-		if s.config != nil {
-			elem.Metadata["conversation_id"] = s.config.ConversationID
-			if s.config.UserID != "" {
-				elem.Metadata["user_id"] = s.config.UserID
-			}
-		}
-
+		s.enrichElementMetadata(&elem)
 		select {
 		case output <- elem:
 		case <-ctx.Done():
 			return ctx.Err()
 		}
 	}
-
 	return nil
+}
+
+// enrichElementMetadata adds conversation metadata to an element.
+func (s *StateStoreLoadStage) enrichElementMetadata(elem *StreamElement) {
+	if elem.Metadata == nil {
+		elem.Metadata = make(map[string]interface{})
+	}
+	if s.config != nil {
+		elem.Metadata["conversation_id"] = s.config.ConversationID
+		if s.config.UserID != "" {
+			elem.Metadata["user_id"] = s.config.UserID
+		}
+	}
 }
 
 // StateStoreSaveStage saves conversation state to state store.
@@ -392,90 +462,145 @@ func NewStateStoreSaveStage(config *pipeline.StateStoreConfig) *StateStoreSaveSt
 	}
 }
 
+// saveCollectedData holds data collected during state save processing.
+type saveCollectedData struct {
+	messages []types.Message
+	metadata map[string]interface{}
+}
+
 // Process collects all messages and saves them to state store.
 //
 //nolint:lll // Channel signature cannot be shortened
-func (s *StateStoreSaveStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
+func (s *StateStoreSaveStage) Process(
+	ctx context.Context,
+	input <-chan StreamElement,
+	output chan<- StreamElement,
+) error {
 	defer close(output)
 
-	// Skip if no config
 	if s.config == nil || s.config.Store == nil {
-		// Just forward elements
-		for elem := range input {
-			select {
-			case output <- elem:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		}
-		return nil
+		return s.forwardAllElements(ctx, input, output)
 	}
 
-	// Collect all messages
-	var messages []types.Message
-	var metadata map[string]interface{}
+	collected, err := s.collectAndForward(ctx, input, output)
+	if err != nil {
+		return err
+	}
 
+	return s.saveToStateStore(ctx, collected)
+}
+
+// forwardAllElements forwards all input elements when no store is configured.
+func (s *StateStoreSaveStage) forwardAllElements(
+	ctx context.Context,
+	input <-chan StreamElement,
+	output chan<- StreamElement,
+) error {
 	for elem := range input {
-		if elem.Message != nil {
-			messages = append(messages, *elem.Message)
-		}
-		if elem.Metadata != nil {
-			if metadata == nil {
-				metadata = make(map[string]interface{})
-			}
-			for k, v := range elem.Metadata {
-				metadata[k] = v
-			}
-		}
-
-		// Forward element
 		select {
 		case output <- elem:
 		case <-ctx.Done():
 			return ctx.Err()
 		}
 	}
+	return nil
+}
 
-	// Save to state store
+// collectAndForward collects messages/metadata while forwarding elements.
+func (s *StateStoreSaveStage) collectAndForward(
+	ctx context.Context,
+	input <-chan StreamElement,
+	output chan<- StreamElement,
+) (*saveCollectedData, error) {
+	collected := &saveCollectedData{}
+
+	for elem := range input {
+		if elem.Message != nil {
+			collected.messages = append(collected.messages, *elem.Message)
+		}
+		s.mergeElementMetadata(&elem, collected)
+
+		select {
+		case output <- elem:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	return collected, nil
+}
+
+// mergeElementMetadata merges element metadata into collected data.
+func (s *StateStoreSaveStage) mergeElementMetadata(elem *StreamElement, collected *saveCollectedData) {
+	if elem.Metadata == nil {
+		return
+	}
+	if collected.metadata == nil {
+		collected.metadata = make(map[string]interface{})
+	}
+	for k, v := range elem.Metadata {
+		collected.metadata[k] = v
+	}
+}
+
+// saveToStateStore saves collected data to the state store.
+func (s *StateStoreSaveStage) saveToStateStore(ctx context.Context, collected *saveCollectedData) error {
 	store, ok := s.config.Store.(statestore.Store)
 	if !ok {
 		return fmt.Errorf("state store save: invalid store type")
 	}
 
-	// Load current state or create new
+	state, err := s.loadOrCreateState(ctx, store)
+	if err != nil {
+		return err
+	}
+
+	s.updateStateWithCollectedData(state, collected)
+	return store.Save(ctx, state)
+}
+
+// loadOrCreateState loads existing state or creates new one.
+func (s *StateStoreSaveStage) loadOrCreateState(
+	ctx context.Context,
+	store statestore.Store,
+) (*statestore.ConversationState, error) {
 	state, err := store.Load(ctx, s.config.ConversationID)
 	if err != nil && !errors.Is(err, statestore.ErrNotFound) {
-		return fmt.Errorf("state store save: failed to load state: %w", err)
+		return nil, fmt.Errorf("state store save: failed to load state: %w", err)
 	}
 
-	if state == nil {
-		state = &statestore.ConversationState{
-			ID:       s.config.ConversationID,
-			UserID:   s.config.UserID,
-			Messages: make([]types.Message, 0),
-			Metadata: make(map[string]interface{}),
-		}
-
-		// Initialize with config metadata
-		for k, v := range s.config.Metadata {
-			state.Metadata[k] = v
-		}
+	if state != nil {
+		return state, nil
 	}
 
-	// Update with new messages
-	state.Messages = make([]types.Message, len(messages))
-	copy(state.Messages, messages)
+	return s.createNewState(), nil
+}
 
-	// Ensure metadata is initialized
+// createNewState creates a new conversation state with config defaults.
+func (s *StateStoreSaveStage) createNewState() *statestore.ConversationState {
+	state := &statestore.ConversationState{
+		ID:       s.config.ConversationID,
+		UserID:   s.config.UserID,
+		Messages: make([]types.Message, 0),
+		Metadata: make(map[string]interface{}),
+	}
+	for k, v := range s.config.Metadata {
+		state.Metadata[k] = v
+	}
+	return state
+}
+
+// updateStateWithCollectedData updates state with collected messages and metadata.
+func (s *StateStoreSaveStage) updateStateWithCollectedData(
+	state *statestore.ConversationState,
+	collected *saveCollectedData,
+) {
+	state.Messages = make([]types.Message, len(collected.messages))
+	copy(state.Messages, collected.messages)
+
 	if state.Metadata == nil {
 		state.Metadata = make(map[string]interface{})
 	}
-
-	// Merge execution metadata
-	for k, v := range metadata {
+	for k, v := range collected.metadata {
 		state.Metadata[k] = v
 	}
-
-	// Save to store
-	return store.Save(ctx, state)
 }
