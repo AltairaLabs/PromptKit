@@ -22,7 +22,7 @@ const (
 // - ✅ Multi-round tool execution with automatic tool result handling
 // - ✅ Synchronous tool execution via toolRegistry.ExecuteAsync()
 // - ⚠️ Limited async/pending tool support (no ExecutionContext for tracking)
-// - Note: For full async tool support with approval workflows, use MiddlewareAdapter
+// - TODO: Implement full async tool support with approval workflows
 
 // ProviderStage executes LLM calls and handles tool execution.
 // This is the request/response mode implementation.
@@ -513,11 +513,10 @@ func (s *ProviderStage) handleToolResult(
 		logger.Warn("Tool requires approval in ProviderStage - pending tool support not yet implemented",
 			"tool", call.Name, "call_id", call.ID)
 		return types.MessageToolResult{
-			ID:   call.ID,
-			Name: call.Name,
-			Content: pendingMsg + " (Note: Async tool support in stages is limited - " +
-				"consider using MiddlewareAdapter for full async support)",
-			Error: "",
+			ID:      call.ID,
+			Name:    call.Name,
+			Content: pendingMsg + " (Note: Async tool approval workflows not yet implemented in stages)",
+			Error:   "",
 		}
 
 	case tools.ToolStatusFailed:

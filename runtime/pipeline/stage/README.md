@@ -128,12 +128,7 @@ result, err := pipeline.ExecuteSync(ctx, elements...)
    - Execution timeouts
    - Metrics and tracing flags
 
-6. **Backward Compatibility**
-   - `MiddlewareAdapter` wraps existing `pipeline.Middleware`
-   - Accumulates input, calls `Process()`, emits output
-   - Zero changes required to existing middleware
-
-7. **Events & Observability**
+6. **Events & Observability**
    - New event types: `stage.started`, `stage.completed`, `stage.failed`
    - Event data includes stage name, type, duration, errors
    - Compatible with existing `EventEmitter` and `EventBus`
@@ -172,13 +167,12 @@ result, err := pipeline.ExecuteSync(ctx, elements...)
    - Policy enforcement (blocklist, ToolChoice)
    - Complete/Failed/Pending status handling
 
-### ✅ Completed (Phase 3: Deprecation & Migration)
+### ✅ Completed (Phase 3: Middleware Removal)
 
-1. **Middleware Deprecation**
-   - `Middleware` interface marked deprecated in `types.go`
-   - Comprehensive migration guide in README
-   - Quick migration path using `MiddlewareAdapter`
-   - Full migration path to native stages
+1. **Middleware Removed**
+   - Legacy `Middleware` interface has been removed
+   - All pipeline execution now uses native stages
+   - SDK and Arena fully migrated to stage-based pipelines
 
 ### ✅ Completed (Phase 4: Streaming Stages)
 
@@ -291,24 +285,6 @@ for elem := range output {
 }
 ```
 
-### Using MiddlewareAdapter
-
-```go
-// Wrap existing middleware
-promptMiddleware := middleware.NewPromptAssemblyMiddleware(prompt, vars)
-providerMiddleware := middleware.NewProviderMiddleware(provider, config)
-
-pipeline := stage.NewPipelineBuilder().
-    Chain(
-        stage.WrapMiddleware("prompt", promptMiddleware),
-        stage.WrapMiddleware("provider", providerMiddleware),
-    ).
-    Build()
-
-// Executes just like before, but using the new architecture
-result, _ := pipeline.ExecuteSync(ctx, stage.NewTextElement("Hello"))
-```
-
 ### Custom Stage
 
 ```go
@@ -387,9 +363,7 @@ go test ./runtime/pipeline/stage -run=Example -v
 # ok  	github.com/AltairaLabs/PromptKit/runtime/pipeline/stage	0.185s
 ```
 
-## Migration Path
-
-### For New Code
+## Creating Custom Stages
 
 Use the stage architecture directly:
 
@@ -399,70 +373,9 @@ pipeline := stage.NewPipelineBuilder().
     Build()
 ```
 
-### For Existing Code
-
-Wrap existing middleware with zero changes:
+### Stage Implementation Pattern
 
 ```go
-pipeline := stage.NewPipelineBuilder().
-    Chain(
-        stage.WrapMiddleware("name", existingMiddleware),
-    ).
-    Build()
-```
-
-The adapter handles all translation between ExecutionContext and StreamElements.
-
-## Migrating from Deprecated Middleware Interface
-
-**Note**: The `pipeline.Middleware` interface is deprecated as of Phase 3 and will be removed in the next major version.
-
-### Quick Migration (Recommended for Compatibility)
-
-Use `MiddlewareAdapter` to wrap existing middleware without any code changes:
-
-```go
-// Before (deprecated)
-pipeline := pipeline.NewPipeline(
-    promptMiddleware,
-    providerMiddleware,
-    validationMiddleware,
-)
-
-// After (using stage architecture with adapters)
-stagePipeline := stage.NewPipelineBuilder().
-    Chain(
-        stage.WrapMiddleware("prompt", promptMiddleware),
-        stage.WrapMiddleware("provider", providerMiddleware),
-        stage.WrapMiddleware("validation", validationMiddleware),
-    ).
-    Build()
-```
-
-**Benefits**: Zero code changes, maintains backward compatibility
-
-**Limitations**: Doesn't get full streaming benefits (elements are accumulated)
-
-### Full Migration (Recommended for Performance)
-
-Convert middleware to native stages for true streaming execution:
-
-```go
-// Before: Middleware that implements Process() and StreamChunk()
-type MyMiddleware struct {}
-
-func (m *MyMiddleware) Process(ctx *pipeline.ExecutionContext, next func() error) error {
-    // Transform messages
-    ctx.Messages = append(ctx.Messages, types.Message{...})
-    return next()
-}
-
-func (m *MyMiddleware) StreamChunk(ctx *pipeline.ExecutionContext, chunk *providers.StreamChunk) error {
-    // Optional: intercept streaming chunks
-    return nil
-}
-
-// After: Native Stage implementation
 type MyStage struct {
     stage.BaseStage
 }
@@ -493,33 +406,11 @@ func (s *MyStage) Process(ctx context.Context, input <-chan stage.StreamElement,
 }
 ```
 
-**Benefits**:
-- True streaming with lower latency
-- Concurrent execution
-- Better testability
-- Clearer data flow
-
-**Migration Checklist**:
-1. ✅ Replace `pipeline.Middleware` with `stage.Stage`
-2. ✅ Change `Process(ctx *pipeline.ExecutionContext, next func() error)` to `Process(ctx context.Context, input <-chan stage.StreamElement, output chan<- stage.StreamElement)`
-3. ✅ Replace shared `ExecutionContext` access with channel-based element passing
-4. ✅ Remove `StreamChunk()` method (use channel-based streaming instead)
-5. ✅ Add `defer close(output)` at the start of Process
-6. ✅ Handle context cancellation with `select { case <-ctx.Done(): }`
-7. ✅ Test with both streaming and synchronous execution
-
-### Common Migration Patterns
+### Common Patterns
 
 #### Pattern 1: Message Transformation
 
 ```go
-// Middleware: Accumulates all messages before processing
-func (m *MyMiddleware) Process(ctx *ExecutionContext, next func() error) error {
-    ctx.Messages = transform(ctx.Messages)
-    return next()
-}
-
-// Stage: Transforms each message as it arrives
 func (s *MyStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
     defer close(output)
     for elem := range input {
@@ -535,11 +426,6 @@ func (s *MyStage) Process(ctx context.Context, input <-chan StreamElement, outpu
 #### Pattern 2: State Access via Metadata
 
 ```go
-// Middleware: Shared context state
-ctx.SystemPrompt = "..."
-ctx.AllowedTools = []string{...}
-
-// Stage: Metadata propagation
 elem.Metadata["system_prompt"] = "..."
 elem.Metadata["allowed_tools"] = []string{...}
 ```
@@ -547,28 +433,15 @@ elem.Metadata["allowed_tools"] = []string{...}
 #### Pattern 3: Error Handling
 
 ```go
-// Middleware: Return error to stop chain
-if err != nil {
-    return err
-}
-
-// Stage: Send error element
 if err != nil {
     output <- stage.NewErrorElement(err)
     return err
 }
 ```
 
-### Deprecation Timeline
-
-- **Now (Phase 3)**: `Middleware` interface marked deprecated
-- **Next Minor Version**: Documentation moved to legacy section
-- **Next Major Version**: `Middleware` interface removed
-
 ### Need Help?
 
 - See [example_test.go](./example_test.go) for complete stage examples
-- Read [PIPELINE_STREAMING_ARCHITECTURE_PROPOSAL.md](../../../../docs/local-backlog/PIPELINE_STREAMING_ARCHITECTURE_PROPOSAL.md) for architecture details
 - Check existing stage implementations in [stages_core.go](./stages_core.go) for reference patterns
 
 ## Architecture Benefits
@@ -580,24 +453,8 @@ if err != nil {
 5. **Flexible Topology**: DAG supports branching, fan-in, fan-out
 6. **Better Testing**: Stages are independently testable units
 7. **Observability**: Per-stage events, metrics, tracing
-8. **Backward Compatible**: Existing middleware works via adapter
-
-## Next Steps (Phase 2)
-
-1. Convert core middleware to native stages:
-   - PromptAssemblyStage
-   - ValidationStage
-   - StateStoreLoad/SaveStage
-   - ProviderStage
-
-2. Verify Arena compatibility with adapted stages
-
-3. Performance benchmarking vs. current implementation
-
-4. Documentation and examples for stage authoring
 
 ## References
 
-- [Pipeline Streaming Architecture Proposal](../../../../docs/local-backlog/PIPELINE_STREAMING_ARCHITECTURE_PROPOSAL.md)
 - [Current Pipeline Implementation](../pipeline.go)
-- [Middleware Interface](../types.go)
+- [Stage Types Definition](../types.go)
