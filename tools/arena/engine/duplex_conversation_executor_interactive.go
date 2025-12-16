@@ -277,12 +277,12 @@ func (de *DuplexConversationExecutor) streamAudioChunks(
 
 // processSelfPlayDuplexTurn handles self-play turns in duplex mode.
 func (de *DuplexConversationExecutor) processSelfPlayDuplexTurn(
-	_ context.Context,
-	_ *ConversationRequest,
-	_ *config.TurnDefinition,
+	ctx context.Context,
+	req *ConversationRequest,
+	turn *config.TurnDefinition,
 	turnIdx int,
-	_ chan<- stage.StreamElement,
-	_ <-chan stage.StreamElement,
+	inputChan chan<- stage.StreamElement,
+	outputChan <-chan stage.StreamElement,
 ) error {
 	// For self-play in duplex mode:
 	// 1. Wait for assistant response (if not first turn)
@@ -290,14 +290,121 @@ func (de *DuplexConversationExecutor) processSelfPlayDuplexTurn(
 	// 3. Convert to audio using TTS (if configured)
 	// 4. Stream audio to pipeline
 
-	// TODO: Implement self-play with TTS integration
-	// This requires:
-	// - Getting the content generator from selfPlayRegistry
-	// - Generating text response
-	// - Converting to audio via TTS service
-	// - Streaming audio chunks
+	// Validate self-play registry is available
+	if de.selfPlayRegistry == nil {
+		return fmt.Errorf("self-play registry not configured for duplex turn %d", turnIdx)
+	}
 
-	return fmt.Errorf("self-play duplex turns not yet implemented (turn %d)", turnIdx)
+	// Check if TTS is configured
+	if turn.TTS == nil {
+		return fmt.Errorf("TTS configuration required for self-play duplex turn %d", turnIdx)
+	}
+
+	// Get audio generator from registry
+	audioGen, err := de.selfPlayRegistry.GetAudioContentGenerator(
+		turn.Role,
+		turn.Persona,
+		turn.TTS,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to get audio generator for turn %d: %w", turnIdx, err)
+	}
+
+	// Collect conversation history from state store
+	history := de.getConversationHistory(req)
+
+	// Generate text and convert to audio
+	audioResult, err := audioGen.NextUserTurnAudio(ctx, history, req.Scenario.ID)
+	if err != nil {
+		return fmt.Errorf("failed to generate audio for turn %d: %w", turnIdx, err)
+	}
+
+	logger.Debug("Self-play audio generated",
+		"turn", turnIdx,
+		"text_length", len(audioResult.TextResult.Response.Content),
+		"audio_bytes", len(audioResult.Audio),
+	)
+
+	// Stream audio chunks to the pipeline
+	return de.streamSelfPlayAudio(ctx, audioResult.Audio, inputChan, outputChan)
+}
+
+// streamSelfPlayAudio streams synthesized audio to the duplex pipeline.
+func (de *DuplexConversationExecutor) streamSelfPlayAudio(
+	ctx context.Context,
+	audioData []byte,
+	inputChan chan<- stage.StreamElement,
+	outputChan <-chan stage.StreamElement,
+) error {
+	// Start a goroutine to collect responses
+	responseDone := make(chan error, 1)
+	go func() {
+		for elem := range outputChan {
+			if elem.Error != nil {
+				responseDone <- elem.Error
+				return
+			}
+			// Process response elements
+		}
+		responseDone <- nil
+	}()
+
+	// Stream audio in chunks
+	chunkSize := defaultAudioChunkSize
+	for offset := 0; offset < len(audioData); offset += chunkSize {
+		end := offset + chunkSize
+		if end > len(audioData) {
+			end = len(audioData)
+		}
+
+		chunk := audioData[offset:end]
+		elem := stage.StreamElement{
+			Audio: &stage.AudioData{
+				Samples:    chunk,
+				SampleRate: defaultSampleRate,
+				Channels:   1,
+				Format:     stage.AudioFormatPCM16,
+			},
+		}
+
+		select {
+		case inputChan <- elem:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	// Wait for response collection to complete
+	select {
+	case err := <-responseDone:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// getConversationHistory retrieves the conversation history from state store.
+func (de *DuplexConversationExecutor) getConversationHistory(req *ConversationRequest) []types.Message {
+	if req.StateStoreConfig == nil || req.StateStoreConfig.Store == nil {
+		return nil
+	}
+
+	store, ok := req.StateStoreConfig.Store.(statestore.Store)
+	if !ok {
+		return nil
+	}
+
+	state, err := store.Load(context.Background(), req.ConversationID)
+	if err != nil {
+		logger.Debug("Failed to load conversation history", "error", err)
+		return nil
+	}
+
+	if state == nil {
+		return nil
+	}
+
+	return state.Messages
 }
 
 // buildResultFromStateStore loads final state and builds result.

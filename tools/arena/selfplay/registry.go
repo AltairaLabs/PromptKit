@@ -22,6 +22,7 @@ type Registry struct {
 	personas         map[string]*config.UserPersonaPack // Maps persona ID to persona config
 	roles            []config.SelfPlayRoleGroup         // Self-play role configurations
 	userGenerators   map[CacheKey]*ContentGenerator     // Cache for created user generators
+	ttsRegistry      *TTSRegistry                       // TTS service registry for audio generation
 	cacheHits        int                                // Track cache hits for observability
 	cacheMisses      int                                // Track cache misses for observability
 	mu               sync.RWMutex                       // Protects concurrent access to cache
@@ -40,9 +41,26 @@ func NewRegistry(
 		personas:         personas,
 		roles:            roles,
 		userGenerators:   make(map[CacheKey]*ContentGenerator),
+		ttsRegistry:      NewTTSRegistry(),
 		cacheHits:        0,
 		cacheMisses:      0,
 	}
+}
+
+// NewRegistryWithTTS creates a new self-play registry with a custom TTS registry.
+// This is useful for testing or when using pre-configured TTS services.
+func NewRegistryWithTTS(
+	providerRegistry *providers.Registry,
+	providerMap map[string]string,
+	personas map[string]*config.UserPersonaPack,
+	roles []config.SelfPlayRoleGroup,
+	ttsRegistry *TTSRegistry,
+) *Registry {
+	reg := NewRegistry(providerRegistry, providerMap, personas, roles)
+	if ttsRegistry != nil {
+		reg.ttsRegistry = ttsRegistry
+	}
+	return reg
 }
 
 // GetContentGenerator implements Provider interface
@@ -81,6 +99,42 @@ func (r *Registry) GetContentGenerator(role, personaID string) (Generator, error
 	r.mu.Unlock()
 
 	return contentGen, nil
+}
+
+// GetAudioContentGenerator implements AudioProvider interface.
+// Returns an AudioGenerator for the given role, persona, and TTS configuration.
+// Unlike GetContentGenerator, audio generators are not cached since TTS config may vary.
+func (r *Registry) GetAudioContentGenerator(
+	role, personaID string,
+	ttsConfig *config.TTSConfig,
+) (AudioGenerator, error) {
+	// Validate TTS config
+	if ttsConfig == nil {
+		return nil, fmt.Errorf("TTS configuration is required for audio generation")
+	}
+	if err := ttsConfig.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid TTS configuration: %w", err)
+	}
+
+	// Get the text content generator (this may be cached)
+	textGen, err := r.createContentGenerator(role, personaID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create text generator: %w", err)
+	}
+
+	// Get TTS service from registry
+	ttsService, err := r.ttsRegistry.Get(ttsConfig.Provider)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get TTS service: %w", err)
+	}
+
+	// Create and return audio generator
+	return NewAudioContentGenerator(textGen, ttsService, ttsConfig), nil
+}
+
+// GetTTSRegistry returns the TTS registry for direct access if needed.
+func (r *Registry) GetTTSRegistry() *TTSRegistry {
+	return r.ttsRegistry
 }
 
 // IsValidRole checks if a role is configured for self-play
