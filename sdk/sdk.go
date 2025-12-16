@@ -253,9 +253,7 @@ func resolveProvider(cfg *config) (providers.Provider, error) {
 
 // initEventBus initializes the conversation's event bus.
 func initEventBus(conv *Conversation, cfg *config) {
-	if cfg.eventBus != nil {
-		cfg.eventBus = cfg.eventBus
-	} else {
+	if cfg.eventBus == nil {
 		cfg.eventBus = events.NewEventBus()
 	}
 	// EventBus is stored in config and accessed via c.config.eventBus
