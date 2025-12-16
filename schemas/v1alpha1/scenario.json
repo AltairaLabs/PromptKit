@@ -54,6 +54,18 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "DuplexConfig": {
+      "properties": {
+        "timeout": {
+          "type": "string"
+        },
+        "turn_detection": {
+          "$ref": "#/$defs/TurnDetectionConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "ObjectMeta": {
       "properties": {
         "name": {
@@ -138,6 +150,9 @@
             "$ref": "#/$defs/AssertionConfig"
           },
           "type": "array"
+        },
+        "duplex": {
+          "$ref": "#/$defs/DuplexConfig"
         }
       },
       "additionalProperties": false,
@@ -147,6 +162,22 @@
         "task_type",
         "description",
         "turns"
+      ]
+    },
+    "TTSConfig": {
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "voice": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "provider",
+        "voice"
       ]
     },
     "ToolPolicy": {
@@ -222,6 +253,9 @@
         "seed": {
           "type": "integer"
         },
+        "tts": {
+          "$ref": "#/$defs/TTSConfig"
+        },
         "streaming": {
           "type": "boolean"
         },
@@ -237,6 +271,18 @@
       "required": [
         "role"
       ]
+    },
+    "TurnDetectionConfig": {
+      "properties": {
+        "mode": {
+          "type": "string"
+        },
+        "vad": {
+          "$ref": "#/$defs/VADConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "TurnMediaContent": {
       "properties": {
@@ -267,6 +313,21 @@
       "required": [
         "mime_type"
       ]
+    },
+    "VADConfig": {
+      "properties": {
+        "silence_threshold_ms": {
+          "type": "integer"
+        },
+        "min_speech_ms": {
+          "type": "integer"
+        },
+        "max_turn_duration_s": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     }
   },
   "properties": {

@@ -1,6 +1,9 @@
 package config
 
 import (
+	"fmt"
+	"time"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
@@ -395,6 +398,8 @@ type Scenario struct {
 	ContextPolicy *ContextPolicy `json:"context_policy,omitempty" yaml:"context_policy,omitempty"`
 	// Assertions evaluated after the entire conversation completes.
 	ConversationAssertions []asrt.AssertionConfig `json:"conversation_assertions,omitempty" yaml:"conversation_assertions,omitempty"` //nolint:lll
+	// Duplex enables bidirectional streaming mode for voice/audio scenarios.
+	Duplex *DuplexConfig `json:"duplex,omitempty" yaml:"duplex,omitempty"`
 }
 
 // ShouldStreamTurn returns whether streaming should be used for a specific turn.
@@ -430,6 +435,141 @@ type ToolPolicy struct {
 	Blocklist           []string `json:"blocklist,omitempty" yaml:"blocklist,omitempty"`
 }
 
+// Turn detection mode constants
+const (
+	// TurnDetectionModeVAD uses voice activity detection for turn boundaries.
+	TurnDetectionModeVAD = "vad"
+	// TurnDetectionModeASM uses provider-native (server-side) turn detection.
+	TurnDetectionModeASM = "asm"
+)
+
+// DuplexConfig enables duplex (bidirectional) streaming mode for a scenario.
+// When enabled, audio is streamed in chunks and turn boundaries are detected dynamically.
+type DuplexConfig struct {
+	// Timeout is the maximum session duration (e.g., "10m", "5m30s").
+	Timeout string `json:"timeout,omitempty" yaml:"timeout,omitempty"`
+	// TurnDetection configures how turn boundaries are detected.
+	TurnDetection *TurnDetectionConfig `json:"turn_detection,omitempty" yaml:"turn_detection,omitempty"`
+}
+
+// TurnDetectionConfig configures turn detection for duplex mode.
+type TurnDetectionConfig struct {
+	// Mode specifies the turn detection method: "vad" (voice activity detection) or "asm" (provider-native).
+	Mode string `json:"mode,omitempty" yaml:"mode,omitempty"`
+	// VAD contains voice activity detection settings (used when Mode is "vad").
+	VAD *VADConfig `json:"vad,omitempty" yaml:"vad,omitempty"`
+}
+
+// VADConfig configures voice activity detection for turn detection.
+type VADConfig struct {
+	// SilenceThresholdMs is the silence duration in milliseconds to trigger turn end (default: 500).
+	SilenceThresholdMs int `json:"silence_threshold_ms,omitempty" yaml:"silence_threshold_ms,omitempty"`
+	// MinSpeechMs is the minimum speech duration before silence counts (default: 1000).
+	MinSpeechMs int `json:"min_speech_ms,omitempty" yaml:"min_speech_ms,omitempty"`
+	// MaxTurnDurationS forces turn end after this duration in seconds (default: 60).
+	MaxTurnDurationS int `json:"max_turn_duration_s,omitempty" yaml:"max_turn_duration_s,omitempty"`
+}
+
+// TTSConfig configures text-to-speech for self-play audio generation in duplex mode.
+type TTSConfig struct {
+	// Provider is the TTS provider (e.g., "openai", "elevenlabs", "cartesia").
+	Provider string `json:"provider" yaml:"provider"`
+	// Voice is the voice ID to use for synthesis.
+	Voice string `json:"voice" yaml:"voice"`
+}
+
+// Validate validates the DuplexConfig settings.
+func (d *DuplexConfig) Validate() error {
+	if d == nil {
+		return nil
+	}
+
+	// Validate timeout format if provided
+	if d.Timeout != "" {
+		if _, err := time.ParseDuration(d.Timeout); err != nil {
+			return fmt.Errorf("invalid duplex timeout format %q: %w", d.Timeout, err)
+		}
+	}
+
+	// Validate turn detection config
+	if d.TurnDetection != nil {
+		if err := d.TurnDetection.Validate(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// GetTimeoutDuration returns the timeout as a time.Duration, or the default if not set.
+func (d *DuplexConfig) GetTimeoutDuration(defaultTimeout time.Duration) time.Duration {
+	if d == nil || d.Timeout == "" {
+		return defaultTimeout
+	}
+	duration, err := time.ParseDuration(d.Timeout)
+	if err != nil {
+		return defaultTimeout
+	}
+	return duration
+}
+
+// Validate validates the TurnDetectionConfig settings.
+func (t *TurnDetectionConfig) Validate() error {
+	if t == nil {
+		return nil
+	}
+
+	// Validate mode if provided
+	if t.Mode != "" && t.Mode != TurnDetectionModeVAD && t.Mode != TurnDetectionModeASM {
+		return fmt.Errorf("invalid turn detection mode %q: must be %q or %q",
+			t.Mode, TurnDetectionModeVAD, TurnDetectionModeASM)
+	}
+
+	// Validate VAD config if mode is vad
+	if t.Mode == TurnDetectionModeVAD && t.VAD != nil {
+		if err := t.VAD.Validate(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Validate validates the VADConfig settings.
+func (v *VADConfig) Validate() error {
+	if v == nil {
+		return nil
+	}
+
+	if v.SilenceThresholdMs < 0 {
+		return fmt.Errorf("silence_threshold_ms must be non-negative, got %d", v.SilenceThresholdMs)
+	}
+	if v.MinSpeechMs < 0 {
+		return fmt.Errorf("min_speech_ms must be non-negative, got %d", v.MinSpeechMs)
+	}
+	if v.MaxTurnDurationS < 0 {
+		return fmt.Errorf("max_turn_duration_s must be non-negative, got %d", v.MaxTurnDurationS)
+	}
+
+	return nil
+}
+
+// Validate validates the TTSConfig settings.
+func (t *TTSConfig) Validate() error {
+	if t == nil {
+		return nil
+	}
+
+	if t.Provider == "" {
+		return fmt.Errorf("tts provider is required")
+	}
+	if t.Voice == "" {
+		return fmt.Errorf("tts voice is required")
+	}
+
+	return nil
+}
+
 // TurnDefinition represents a single conversation turn definition
 type TurnDefinition struct {
 	Role    string `json:"role" yaml:"role"` // "user", "assistant", or provider selector like "claude-user" (only for self-play turns)
@@ -445,6 +585,10 @@ type TurnDefinition struct {
 	AssistantTemp float32 `json:"assistant_temp,omitempty" yaml:"assistant_temp,omitempty"` // Override assistant temperature
 	UserTemp      float32 `json:"user_temp,omitempty" yaml:"user_temp,omitempty"`           // Override user temperature
 	Seed          int     `json:"seed,omitempty" yaml:"seed,omitempty"`                     // Override seed
+
+	// TTS configures text-to-speech for self-play audio generation in duplex mode.
+	// When set, self-play generates audio responses instead of text.
+	TTS *TTSConfig `json:"tts,omitempty" yaml:"tts,omitempty"`
 
 	// Streaming control - if nil, uses scenario-level streaming setting
 	Streaming *bool `json:"streaming,omitempty" yaml:"streaming,omitempty"` // Override streaming for this turn
