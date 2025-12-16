@@ -1,3 +1,5 @@
+//go:build portaudio
+
 // Package main demonstrates bidirectional streaming with OpenDuplex.
 //
 // This example shows:

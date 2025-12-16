@@ -1,3 +1,5 @@
+//go:build portaudio
+
 // Package ui provides a terminal user interface for the voice interview.
 package ui
 

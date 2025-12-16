@@ -1,3 +1,5 @@
+//go:build portaudio
+
 // Package main demonstrates interactive voice chat using the SDK.
 //
 // This example shows:

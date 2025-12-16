@@ -1,3 +1,5 @@
+//go:build portaudio
+
 // Package main demonstrates a voice-enabled interview system using PromptKit's
 // stage-based pipeline architecture.
 //

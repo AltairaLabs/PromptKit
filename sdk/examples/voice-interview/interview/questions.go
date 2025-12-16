@@ -1,3 +1,5 @@
+//go:build portaudio
+
 // Package interview provides interview orchestration and state management.
 package interview
 

@@ -1,3 +1,5 @@
+//go:build portaudio
+
 // Package video provides webcam capture for multimodal input.
 package video
 

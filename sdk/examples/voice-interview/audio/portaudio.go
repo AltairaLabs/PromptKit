@@ -1,3 +1,5 @@
+//go:build portaudio
+
 // Package audio provides audio capture and playback using PortAudio.
 package audio
 
