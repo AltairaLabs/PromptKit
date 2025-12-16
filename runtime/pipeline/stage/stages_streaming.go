@@ -509,7 +509,7 @@ func (s *DuplexProviderStage) sendAudioElement(ctx context.Context, elem *Stream
 func (s *DuplexProviderStage) sendTextElement(ctx context.Context, elem *StreamElement) {
 	text := *elem.Text
 
-	logger.Debug("DuplexProviderStage: forwarding text to session", "content", text)
+	logger.Debug("DuplexProviderStage: forwarding text to session", "length", len(text))
 
 	if err := s.session.SendText(ctx, text); err != nil {
 		logger.Error("DuplexProviderStage: failed to send text to session", "error", err)

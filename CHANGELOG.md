@@ -31,6 +31,12 @@ A complete rewrite of the runtime pipeline from middleware-based to stage-based 
 - `WithVADMode()` option for voice applications using text-based LLMs
 - `WithStreamingConfig()` for native multimodal LLM streaming (Gemini Live)
 
+**Migration Notes:**
+- **Config.UseStages**: This option is now deprecated and ignored - stages are always used. Remove it from your configuration if present.
+- **Duplex Session Done()**: Now signals when the response stream completes (pipeline finished), not when the provider session closes. This is more intuitive for consumers.
+- **Duplex Session Error()**: Now returns nil. Errors are delivered through the Response() channel as StreamChunks with Error field set. Check for `chunk.Error != nil` when consuming responses.
+- **Internal Pipeline**: The `runtime/pipeline` package's middleware types are deprecated. Use `runtime/pipeline/stage` for new integrations.
+
 **Documentation:**
 - Updated `docs/src/content/architecture/runtime-pipeline.md` with stage architecture
 - Fixed all SDK tutorial pack examples to comply with PromptPack schema v1.1.0

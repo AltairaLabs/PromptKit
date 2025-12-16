@@ -112,6 +112,24 @@ func getKeys(m map[string]interface{}) []string {
 }
 
 // TemplateStage substitutes {{variable}} placeholders in messages and metadata.
+//
+// This stage reads variables from the element's metadata["variables"] map and
+// replaces all occurrences of {{variable_name}} in:
+//   - metadata["system_prompt"] - the system prompt for the LLM
+//   - message.Content - the message text content
+//   - message.Parts[].Text - individual content parts
+//
+// Variables are typically set by:
+//   - PromptAssemblyStage (from base_variables in config)
+//   - VariableProviderStage (from dynamic variable providers)
+//
+// Example:
+//
+//	Input: "Hello {{name}}, the topic is {{topic}}"
+//	Variables: {"name": "Alice", "topic": "AI"}
+//	Output: "Hello Alice, the topic is AI"
+//
+// This is a Transform stage: 1 input element → 1 output element
 type TemplateStage struct {
 	BaseStage
 }
@@ -178,7 +196,26 @@ func (s *TemplateStage) substituteVariables(text string, vars map[string]string)
 	return result
 }
 
-// VariableProviderStage resolves variables from providers and adds them to metadata.
+// VariableProviderStage resolves variables from dynamic providers and adds them to metadata.
+//
+// This stage calls each registered variable provider to fetch dynamic variables
+// (e.g., from environment, external services, databases) and merges them into
+// the element's metadata["variables"] map for use by TemplateStage.
+//
+// Provider resolution order:
+//  1. Variables from earlier stages (e.g., PromptAssemblyStage base_variables)
+//  2. Each provider is called in sequence; later providers can override earlier values
+//
+// Error handling:
+//   - If any provider fails, the stage returns an error and aborts the pipeline
+//   - This ensures variable resolution failures are surfaced early
+//
+// Example providers:
+//   - Environment variable provider: reads from OS environment
+//   - Config provider: reads from configuration files
+//   - External API provider: fetches user context from external services
+//
+// This is a Transform stage: 1 input element → 1 output element (with enriched metadata)
 type VariableProviderStage struct {
 	BaseStage
 	providers []variables.Provider
@@ -255,7 +292,25 @@ type MediaExternalizerConfig struct {
 	ConversationID  string
 }
 
-// MediaExternalizerStage externalizes large media content to storage.
+// MediaExternalizerStage externalizes large media content to external storage.
+//
+// When messages contain large inline media (images, audio, video), this stage
+// moves the data to external storage and replaces it with a storage reference.
+// This reduces memory usage and allows for media lifecycle management.
+//
+// Behavior:
+//   - Skipped if Enabled=false or no StorageService configured
+//   - Only externalizes media exceeding SizeThresholdKB (base64 size)
+//   - Preserves media.StorageReference if already externalized
+//   - Clears media.Data after successful externalization
+//
+// Configuration:
+//   - Enabled: master switch for externalization
+//   - SizeThresholdKB: minimum size to externalize (0 = externalize all)
+//   - StorageService: where to store media (S3, GCS, local filesystem, etc.)
+//   - DefaultPolicy: retention policy name for stored media
+//
+// This is a Transform stage: 1 input element → 1 output element (with externalized media)
 type MediaExternalizerStage struct {
 	BaseStage
 	config *MediaExternalizerConfig
@@ -420,6 +475,31 @@ type ContextBuilderPolicy struct {
 }
 
 // ContextBuilderStage manages token budget and truncates messages if needed.
+//
+// This stage ensures the conversation context fits within the LLM's token budget
+// by applying truncation strategies when messages exceed the limit.
+//
+// Token budget calculation:
+//
+//	available = TokenBudget - ReserveForOutput - systemPromptTokens
+//
+// Truncation strategies (TruncationStrategy):
+//   - TruncateOldest: removes oldest messages first (keeps most recent context)
+//   - TruncateLeastRelevant: removes least relevant messages (requires embeddings) [TODO]
+//   - TruncateSummarize: compresses old messages into summaries [TODO]
+//   - TruncateFail: returns error if budget exceeded (strict mode)
+//
+// Configuration (ContextBuilderPolicy):
+//   - TokenBudget: total tokens allowed (0 = unlimited, pass-through mode)
+//   - ReserveForOutput: tokens reserved for LLM response
+//   - Strategy: truncation strategy to apply
+//   - CacheBreakpoints: enable prompt caching hints
+//
+// Metadata added:
+//   - context_truncated: true if truncation was applied
+//   - enable_cache_breakpoints: copied from policy.CacheBreakpoints
+//
+// This is an Accumulate stage: N input elements → N (possibly fewer) output elements
 type ContextBuilderStage struct {
 	BaseStage
 	policy *ContextBuilderPolicy

@@ -393,7 +393,7 @@ func (s *STTStage) Process(
 			continue
 		}
 
-		logger.Debug("STTStage: transcribed", "text", text)
+		logger.Debug("STTStage: transcribed", "textLength", len(text))
 
 		// Create text element, preserving metadata
 		outElem := StreamElement{
