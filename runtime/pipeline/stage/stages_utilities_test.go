@@ -510,3 +510,181 @@ func TestMediaExternalizerStage_ContextCancellation(t *testing.T) {
 		assert.ErrorIs(t, err, context.Canceled)
 	}
 }
+
+// =============================================================================
+// StreamElement Tests
+// =============================================================================
+
+func TestAudioFormat_String(t *testing.T) {
+	tests := []struct {
+		format   AudioFormat
+		expected string
+	}{
+		{AudioFormatPCM16, "pcm16"},
+		{AudioFormatFloat32, "float32"},
+		{AudioFormatOpus, "opus"},
+		{AudioFormatMP3, "mp3"},
+		{AudioFormatAAC, "aac"},
+		{AudioFormat(99), "unknown"},
+	}
+
+	for _, tt := range tests {
+		assert.Equal(t, tt.expected, tt.format.String())
+	}
+}
+
+func TestNewAudioElement(t *testing.T) {
+	audio := &AudioData{
+		Samples:    []byte{1, 2, 3, 4},
+		SampleRate: 16000,
+		Channels:   1,
+	}
+
+	elem := NewAudioElement(audio)
+
+	assert.NotNil(t, elem.Audio)
+	assert.Equal(t, PriorityHigh, elem.Priority)
+	assert.NotNil(t, elem.Metadata)
+}
+
+func TestNewVideoElement(t *testing.T) {
+	video := &VideoData{
+		Data:     []byte{1, 2, 3, 4},
+		MIMEType: "video/mp4",
+		Width:    640,
+		Height:   480,
+	}
+
+	elem := NewVideoElement(video)
+
+	assert.NotNil(t, elem.Video)
+	assert.Equal(t, PriorityHigh, elem.Priority)
+}
+
+func TestNewImageElement(t *testing.T) {
+	image := &ImageData{
+		Data:     []byte{1, 2, 3, 4},
+		MIMEType: "image/png",
+		Width:    100,
+		Height:   100,
+	}
+
+	elem := NewImageElement(image)
+
+	assert.NotNil(t, elem.Image)
+	assert.Equal(t, PriorityNormal, elem.Priority)
+}
+
+func TestNewEndOfStreamElement(t *testing.T) {
+	elem := NewEndOfStreamElement()
+
+	assert.True(t, elem.EndOfStream)
+	assert.Equal(t, PriorityCritical, elem.Priority)
+}
+
+func TestStreamElement_IsEmpty(t *testing.T) {
+	t.Run("empty element", func(t *testing.T) {
+		elem := StreamElement{}
+		assert.True(t, elem.IsEmpty())
+	})
+
+	t.Run("element with text", func(t *testing.T) {
+		elem := NewTextElement("hello")
+		assert.False(t, elem.IsEmpty())
+	})
+
+	t.Run("element with error", func(t *testing.T) {
+		elem := NewErrorElement(assert.AnError)
+		assert.False(t, elem.IsEmpty())
+	})
+}
+
+func TestStreamElement_HasContent(t *testing.T) {
+	t.Run("empty element", func(t *testing.T) {
+		elem := StreamElement{}
+		assert.False(t, elem.HasContent())
+	})
+
+	t.Run("element with text", func(t *testing.T) {
+		elem := NewTextElement("hello")
+		assert.True(t, elem.HasContent())
+	})
+
+	t.Run("element with message", func(t *testing.T) {
+		msg := &types.Message{Role: "user", Content: "hi"}
+		elem := NewMessageElement(msg)
+		assert.True(t, elem.HasContent())
+	})
+}
+
+func TestStreamElement_IsControl(t *testing.T) {
+	t.Run("non-control element", func(t *testing.T) {
+		elem := NewTextElement("hello")
+		assert.False(t, elem.IsControl())
+	})
+
+	t.Run("error element", func(t *testing.T) {
+		elem := NewErrorElement(assert.AnError)
+		assert.True(t, elem.IsControl())
+	})
+
+	t.Run("end of stream element", func(t *testing.T) {
+		elem := NewEndOfStreamElement()
+		assert.True(t, elem.IsControl())
+	})
+}
+
+func TestStreamElement_WithSource(t *testing.T) {
+	elem := NewTextElement("test")
+	result := elem.WithSource("my-stage")
+
+	assert.Equal(t, "my-stage", result.Source)
+}
+
+func TestStreamElement_WithPriority(t *testing.T) {
+	elem := NewTextElement("test")
+	result := elem.WithPriority(PriorityCritical)
+
+	assert.Equal(t, PriorityCritical, result.Priority)
+}
+
+func TestStreamElement_WithSequence(t *testing.T) {
+	elem := NewTextElement("test")
+	result := elem.WithSequence(42)
+
+	assert.Equal(t, int64(42), result.Sequence)
+}
+
+func TestStreamElement_WithMetadata(t *testing.T) {
+	elem := NewTextElement("test")
+	result := elem.WithMetadata("key", "value")
+
+	assert.Equal(t, "value", result.Metadata["key"])
+}
+
+func TestStreamElement_WithMetadata_NilMap(t *testing.T) {
+	elem := StreamElement{}
+	result := elem.WithMetadata("key", "value")
+
+	assert.NotNil(t, result.Metadata)
+	assert.Equal(t, "value", result.Metadata["key"])
+}
+
+func TestStreamElement_GetMetadata(t *testing.T) {
+	t.Run("existing key", func(t *testing.T) {
+		elem := NewTextElement("test")
+		elem.Metadata["key"] = "value"
+
+		assert.Equal(t, "value", elem.GetMetadata("key"))
+	})
+
+	t.Run("missing key", func(t *testing.T) {
+		elem := NewTextElement("test")
+		assert.Nil(t, elem.GetMetadata("nonexistent"))
+	})
+
+	t.Run("nil metadata", func(t *testing.T) {
+		elem := StreamElement{}
+		assert.Nil(t, elem.GetMetadata("key"))
+	})
+}
