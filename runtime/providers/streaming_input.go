@@ -21,7 +21,6 @@ import (
 //	        Encoding:   "pcm",
 //	        Channels:   1,
 //	    },
-//	    SystemMsg: "You are a helpful voice assistant",
 //	})
 //	if err != nil {
 //	    return err
@@ -54,7 +53,13 @@ type StreamInputSession interface {
 
 	// SendText sends a text message to the provider during the streaming session.
 	// This is useful for sending text prompts or instructions during audio streaming.
+	// Note: This marks the turn as complete, triggering a response.
 	SendText(ctx context.Context, text string) error
+
+	// SendSystemContext sends a text message as context without completing the turn.
+	// Use this for system prompts that provide context but shouldn't trigger an immediate response.
+	// The audio/text that follows will be processed with this context in mind.
+	SendSystemContext(ctx context.Context, text string) error
 
 	// Response returns a receive-only channel for streaming responses.
 	// The channel is closed when the session ends or encounters an error.
@@ -76,25 +81,17 @@ type StreamInputSession interface {
 	Done() <-chan struct{}
 }
 
-// StreamInputRequest configures a new streaming input session.
-type StreamInputRequest struct {
-	// Config specifies the media streaming configuration
+// StreamingInputConfig configures a new streaming input session.
+type StreamingInputConfig struct {
+	// Config specifies the media streaming configuration (codec, sample rate, etc.)
 	Config types.StreamingMediaConfig `json:"config"`
 
-	// SystemMsg is the system message for the conversation
-	SystemMsg string `json:"system_msg,omitempty"`
+	// SystemInstruction is the system prompt to configure the model's behavior.
+	// For Gemini Live API, this is included in the setup message.
+	SystemInstruction string `json:"system_instruction,omitempty"`
 
-	// InitialText is optional text to send before streaming starts
-	// This can be used to provide initial context or instructions
-	InitialText string `json:"initial_text,omitempty"`
-
-	// Temperature controls randomness in responses (0.0 to 2.0)
-	Temperature float32 `json:"temperature,omitempty"`
-
-	// MaxTokens limits the response length
-	MaxTokens int `json:"max_tokens,omitempty"`
-
-	// Metadata contains provider-specific configuration
+	// Metadata contains provider-specific session configuration
+	// Example: {"response_modalities": ["TEXT", "AUDIO"]} for Gemini
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
 }
 
@@ -107,7 +104,7 @@ type StreamInputSupport interface {
 	// CreateStreamSession creates a new bidirectional streaming session.
 	// The session remains active until Close() is called or an error occurs.
 	// Returns an error if the provider doesn't support the requested media type.
-	CreateStreamSession(ctx context.Context, req *StreamInputRequest) (StreamInputSession, error)
+	CreateStreamSession(ctx context.Context, req *StreamingInputConfig) (StreamInputSession, error)
 
 	// SupportsStreamInput returns the media types supported for streaming input.
 	// Common values: types.ContentTypeAudio, types.ContentTypeVideo
@@ -204,6 +201,6 @@ func (r VideoResolution) String() string {
 }
 
 // Validate checks if the StreamInputRequest is valid
-func (r *StreamInputRequest) Validate() error {
+func (r *StreamingInputConfig) Validate() error {
 	return r.Config.Validate()
 }

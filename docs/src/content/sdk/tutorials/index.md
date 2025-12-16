@@ -29,11 +29,22 @@ Follow these tutorials in order for a structured learning experience:
 
 ### Advanced Topics
 
-5. **[Human-in-the-Loop](05-custom-pipelines)**  
+5. **[Human-in-the-Loop](05-custom-pipelines)**
    Implement approval workflows with `OnToolAsync()`. Build safe AI agents.
 
-6. **[Working with Media](06-media-storage)**  
+6. **[Working with Media](06-media-storage)**
    Handle images and multimodal content. Optimize memory with storage.
+
+### Voice & Audio
+
+7. **[Audio Sessions](07-audio-sessions)**
+   Build voice-enabled conversations with VAD and ASM modes. Real-time audio streaming.
+
+8. **[TTS Integration](08-tts-integration)**
+   Add text-to-speech to responses. Configure voices, formats, and providers.
+
+9. **[Variable Providers](09-variable-providers)**
+   Inject dynamic context with RAG, database lookups, and session state.
 
 ## Prerequisites
 

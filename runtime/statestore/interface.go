@@ -13,6 +13,10 @@ type Store interface {
 
 	// Save persists conversation state
 	Save(ctx context.Context, state *ConversationState) error
+
+	// Fork creates a copy of an existing conversation state with a new ID
+	// The original conversation is left unchanged. Returns ErrNotFound if sourceID doesn't exist.
+	Fork(ctx context.Context, sourceID, newID string) error
 }
 
 // ListOptions provides filtering and pagination options for listing conversations.

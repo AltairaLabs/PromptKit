@@ -17,7 +17,7 @@ func TestScriptedExecutor_BuildUserMessage_LegacyTextContent(t *testing.T) {
 		ScriptedContent: "Hello, world!",
 	}
 
-	msg, err := executor.buildUserMessage(req)
+	msg, err := executor.buildUserMessage(&req)
 	if err != nil {
 		t.Fatalf("buildUserMessage() error = %v", err)
 	}
@@ -63,7 +63,7 @@ func TestScriptedExecutor_BuildUserMessage_MultimodalParts(t *testing.T) {
 		ScriptedParts:   turnParts,
 	}
 
-	msg, err := executor.buildUserMessage(req)
+	msg, err := executor.buildUserMessage(&req)
 	if err != nil {
 		t.Fatalf("buildUserMessage() error = %v", err)
 	}
@@ -118,7 +118,7 @@ func TestScriptedExecutor_BuildUserMessage_MultimodalWithFile(t *testing.T) {
 		ScriptedParts: turnParts,
 	}
 
-	msg, err := executor.buildUserMessage(req)
+	msg, err := executor.buildUserMessage(&req)
 	if err != nil {
 		t.Fatalf("buildUserMessage() error = %v", err)
 	}
@@ -144,7 +144,7 @@ func TestScriptedExecutor_BuildUserMessage_InvalidParts(t *testing.T) {
 		ScriptedParts: turnParts,
 	}
 
-	_, err := executor.buildUserMessage(req)
+	_, err := executor.buildUserMessage(&req)
 	if err == nil {
 		t.Error("Expected error for invalid part type")
 	}
@@ -166,7 +166,7 @@ func TestScriptedExecutor_BuildUserMessage_FileNotFound(t *testing.T) {
 		ScriptedParts: turnParts,
 	}
 
-	_, err := executor.buildUserMessage(req)
+	_, err := executor.buildUserMessage(&req)
 	if err == nil {
 		t.Error("Expected error for nonexistent file")
 	}

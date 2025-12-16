@@ -200,6 +200,12 @@ func (s *ArenaStateStore) attachTraceToMessages(state *runtimestore.Conversation
 	}
 }
 
+// Fork creates a copy of the state with a new session ID
+// This is a no-op for the arena state store as forking is handled at the pipeline level
+func (s *ArenaStateStore) Fork(ctx context.Context, sourceID, newID string) error {
+	return nil
+}
+
 // deepCloneConversationState creates a deep copy of ConversationState including all messages
 func (s *ArenaStateStore) deepCloneConversationState(
 	state *runtimestore.ConversationState,

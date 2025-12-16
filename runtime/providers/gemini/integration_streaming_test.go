@@ -53,8 +53,7 @@ func TestStreamingIntegration_EndToEnd(t *testing.T) {
 
 	// Create stream session
 	req := providers.StreamInputRequest{
-		Config:    config,
-		SystemMsg: "You are a helpful voice assistant. Please respond briefly.",
+		Config: config,
 	}
 
 	session, err := provider.CreateStreamSession(ctx, &req)

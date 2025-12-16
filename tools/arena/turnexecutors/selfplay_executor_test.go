@@ -13,7 +13,7 @@ func TestBuildSelfPlayMetadata_MergesFields(t *testing.T) {
 	req := TurnRequest{SelfPlayRole: "challenger"}
 	exec := &pipeline.ExecutionResult{Metadata: map[string]interface{}{"persona": "p1", "custom": 123}}
 
-	meta := e.buildSelfPlayMetadata(req, exec)
+	meta := e.buildSelfPlayMetadata(&req, exec)
 	if meta["role"] != "challenger" || meta["self_play_execution"] != true {
 		t.Fatalf("missing base metadata: %+v", meta)
 	}
@@ -35,7 +35,7 @@ func TestBuildUserMessageFromResult_SetsLatencyAndMeta(t *testing.T) {
 		Metadata: map[string]interface{}{"persona": "p1"},
 	}
 
-	msg := e.buildUserMessageFromResult(req, exec)
+	msg := e.buildUserMessageFromResult(&req, exec)
 	if msg.Role != "user" || msg.Content != "hello" {
 		t.Fatalf("unexpected message: %+v", msg)
 	}

@@ -1,10 +1,11 @@
 package turnexecutors
 
 import (
+	"context"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+	arenastages "github.com/AltairaLabs/PromptKit/tools/arena/stages"
 )
 
 // Note: mock provider detection covered in existing helpers test file
@@ -15,37 +16,37 @@ func TestConvertTruncationStrategy(t *testing.T) {
 	tests := []struct {
 		name     string
 		strategy string
-		want     middleware.TruncationStrategy
+		want     stage.TruncationStrategy
 	}{
 		{
 			name:     "truncate oldest",
 			strategy: "truncate_oldest",
-			want:     middleware.TruncateOldest,
+			want:     stage.TruncateOldest,
 		},
 		{
 			name:     "relevance",
 			strategy: "relevance",
-			want:     middleware.TruncateLeastRelevant,
+			want:     stage.TruncateLeastRelevant,
 		},
 		{
 			name:     "summarize",
 			strategy: "summarize",
-			want:     middleware.TruncateSummarize,
+			want:     stage.TruncateSummarize,
 		},
 		{
 			name:     "fail",
 			strategy: "fail",
-			want:     middleware.TruncateFail,
+			want:     stage.TruncateFail,
 		},
 		{
 			name:     "empty string defaults to oldest",
 			strategy: "",
-			want:     middleware.TruncateOldest,
+			want:     stage.TruncateOldest,
 		},
 		{
 			name:     "unknown strategy defaults to oldest",
 			strategy: "unknown_strategy",
-			want:     middleware.TruncateOldest,
+			want:     stage.TruncateOldest,
 		},
 	}
 
@@ -207,14 +208,25 @@ func TestPipelineExecutor_BuildBaseVariables(t *testing.T) {
 	}
 }
 
-func TestMetadataInjectionMiddleware(t *testing.T) {
-	mw := &metadataInjectionMiddleware{metadata: map[string]interface{}{"foo": "bar"}}
-	ctx := &pipeline.ExecutionContext{}
-	err := mw.Process(ctx, func() error { return nil })
+func TestMetadataInjectionStage(t *testing.T) {
+	s := arenastages.NewMetadataInjectionStage(map[string]interface{}{"foo": "bar"})
+
+	input := make(chan stage.StreamElement, 1)
+	output := make(chan stage.StreamElement, 1)
+
+	// Send a test element
+	input <- stage.StreamElement{Metadata: make(map[string]interface{})}
+	close(input)
+
+	// Process
+	err := s.Process(context.Background(), input, output)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if ctx.Metadata["foo"] != "bar" {
-		t.Fatalf("expected metadata to be injected")
+
+	// Check output
+	elem := <-output
+	if elem.Metadata["foo"] != "bar" {
+		t.Fatalf("expected metadata to be injected, got %v", elem.Metadata)
 	}
 }

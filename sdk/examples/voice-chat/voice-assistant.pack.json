@@ -1,0 +1,23 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "voice-assistant",
+  "name": "Voice Assistant",
+  "version": "1.0.0",
+  "description": "Interactive voice assistant with speech input",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "chat": {
+      "id": "chat",
+      "name": "Voice Chat",
+      "version": "1.0.0",
+      "system_template": "You are a helpful voice assistant. Provide concise, natural responses suitable for voice conversation. Keep responses brief and conversational.",
+      "parameters": {
+        "temperature": 0.7,
+        "max_tokens": 150
+      }
+    }
+  }
+}

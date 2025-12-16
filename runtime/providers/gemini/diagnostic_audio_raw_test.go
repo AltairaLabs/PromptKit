@@ -53,8 +53,7 @@ func TestDiagnostic_AudioModalityRawMessages(t *testing.T) {
 
 	// Request AUDIO modality
 	req := providers.StreamInputRequest{
-		Config:    config,
-		SystemMsg: "You are a helpful assistant.",
+		Config: config,
 		Metadata: map[string]interface{}{
 			"response_modalities": []string{"AUDIO"}, // 🎯 AUDIO only
 		},

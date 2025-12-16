@@ -121,6 +121,26 @@ func (s *RedisStore) Save(ctx context.Context, state *ConversationState) error {
 	return nil
 }
 
+// Fork creates a copy of an existing conversation state with a new ID.
+func (s *RedisStore) Fork(ctx context.Context, sourceID, newID string) error {
+	if sourceID == "" || newID == "" {
+		return ErrInvalidID
+	}
+
+	// Load the source state
+	source, err := s.Load(ctx, sourceID)
+	if err != nil {
+		return err
+	}
+
+	// Create forked state with new ID
+	source.ID = newID
+	source.LastAccessedAt = time.Now()
+
+	// Save the forked state
+	return s.Save(ctx, source)
+}
+
 // Delete removes a conversation state from Redis.
 func (s *RedisStore) Delete(ctx context.Context, id string) error {
 	if id == "" {

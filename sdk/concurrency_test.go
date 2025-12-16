@@ -24,7 +24,8 @@ func TestConcurrentConversations(t *testing.T) {
 			conv.SetVar("id", string(rune('A'+id)))
 
 			// Each conversation should see its own variable
-			assert.Equal(t, string(rune('A'+id)), conv.GetVar("id"))
+			val, _ := conv.GetVar("id")
+			assert.Equal(t, string(rune('A'+id)), val)
 
 			// Register a handler
 			conv.OnTool("test", func(args map[string]any) (any, error) {
@@ -45,13 +46,17 @@ func TestConversationVariableIsolation(t *testing.T) {
 	conv1.SetVar("name", "Alice")
 	conv2.SetVar("name", "Bob")
 
-	assert.Equal(t, "Alice", conv1.GetVar("name"))
-	assert.Equal(t, "Bob", conv2.GetVar("name"))
+	val1, _ := conv1.GetVar("name")
+	val2, _ := conv2.GetVar("name")
+	assert.Equal(t, "Alice", val1)
+	assert.Equal(t, "Bob", val2)
 
 	// Changing one shouldn't affect the other
 	conv1.SetVar("name", "Charlie")
-	assert.Equal(t, "Charlie", conv1.GetVar("name"))
-	assert.Equal(t, "Bob", conv2.GetVar("name"))
+	val1, _ = conv1.GetVar("name")
+	val2, _ = conv2.GetVar("name")
+	assert.Equal(t, "Charlie", val1)
+	assert.Equal(t, "Bob", val2)
 }
 
 // TestConcurrentSetVar verifies thread-safety of SetVar.
@@ -66,7 +71,7 @@ func TestConcurrentSetVar(t *testing.T) {
 			defer wg.Done()
 			key := string(rune('A' + (id % 26)))
 			conv.SetVar(key, "value")
-			_ = conv.GetVar(key)
+			_, _ = conv.GetVar(key)
 		}(i)
 	}
 
@@ -109,15 +114,19 @@ func TestForkIsolation(t *testing.T) {
 	forked := original.Fork()
 
 	// Both should start with the same variable
-	assert.Equal(t, "original", original.GetVar("branch"))
-	assert.Equal(t, "original", forked.GetVar("branch"))
+	origVal, _ := original.GetVar("branch")
+	forkVal, _ := forked.GetVar("branch")
+	assert.Equal(t, "original", origVal)
+	assert.Equal(t, "original", forkVal)
 
 	// Modify the forked conversation
 	forked.SetVar("branch", "forked")
 
 	// Original should be unchanged
-	assert.Equal(t, "original", original.GetVar("branch"))
-	assert.Equal(t, "forked", forked.GetVar("branch"))
+	origVal, _ = original.GetVar("branch")
+	forkVal, _ = forked.GetVar("branch")
+	assert.Equal(t, "original", origVal)
+	assert.Equal(t, "forked", forkVal)
 
 	// Both have the shared tool
 	original.handlersMu.RLock()
@@ -154,12 +163,16 @@ func TestConcurrentFork(t *testing.T) {
 
 	// Verify all forks have the base variable
 	for _, fork := range forks {
-		assert.Equal(t, "value", fork.GetVar("base"))
+		val, _ := fork.GetVar("base")
+		assert.Equal(t, "value", val)
 	}
 
 	// Original is unchanged
-	assert.Equal(t, "value", original.GetVar("base"))
-	assert.Equal(t, "", original.GetVar("fork_id"))
+	origVal, _ := original.GetVar("base")
+	forkVal, ok := original.GetVar("fork_id")
+	assert.Equal(t, "value", origVal)
+	assert.Equal(t, "", forkVal)
+	assert.False(t, ok)
 }
 
 // TestConcurrentMessagesAccess verifies thread-safety of Messages() access.
@@ -173,8 +186,9 @@ func TestConcurrentMessagesAccess(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			ctx := context.Background()
 			for j := 0; j < 100; j++ {
-				_ = conv.Messages()
+				_ = conv.Messages(ctx)
 				time.Sleep(time.Microsecond)
 			}
 		}()
@@ -185,9 +199,7 @@ func TestConcurrentMessagesAccess(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for j := 0; j < 100; j++ {
-			conv.varMu.Lock()
-			conv.variables["counter"] = string(rune('0' + j))
-			conv.varMu.Unlock()
+			conv.SetVar("counter", string(rune('0'+j)))
 			time.Sleep(time.Microsecond)
 		}
 	}()

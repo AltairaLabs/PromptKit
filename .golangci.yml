@@ -193,6 +193,9 @@ linters:
           - staticcheck
           - govet
           - whitespace
+          - revive  # examples can have repetitive names for clarity
+          - exhaustive  # examples don't need exhaustive switch coverage
+          - dupl  # examples may have intentional duplication
 
 # Formatter settings (goimports is a formatter in v2)
 formatters:
@@ -207,6 +210,7 @@ formatters:
       - vendor
       - bin
       - out
+      - examples  # examples can have different import ordering for clarity
 
 run:
   timeout: 5m

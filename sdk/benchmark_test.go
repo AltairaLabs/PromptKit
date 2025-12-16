@@ -26,7 +26,7 @@ func BenchmarkVariableAccess(b *testing.B) {
 		}
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_ = conv.GetVar("key")
+			_, _ = conv.GetVar("key")
 		}
 	})
 
@@ -49,7 +49,7 @@ func BenchmarkVariableAccess(b *testing.B) {
 		b.ResetTimer()
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
-				_ = conv.GetVar("key")
+				_, _ = conv.GetVar("key")
 			}
 		})
 	})
@@ -208,11 +208,11 @@ func (c *benchConversation) SetVar(name, value string) {
 	c.varMu.Unlock()
 }
 
-func (c *benchConversation) GetVar(name string) string {
+func (c *benchConversation) GetVar(name string) (string, bool) {
 	c.varMu.RLock()
-	v := c.variables[name]
+	v, ok := c.variables[name]
 	c.varMu.RUnlock()
-	return v
+	return v, ok
 }
 
 func (c *benchConversation) OnTool(name string, handler func(map[string]any) (any, error)) {

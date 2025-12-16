@@ -45,7 +45,7 @@ func TestScriptedExecutor_HandleNonStreamingProvider_Error(t *testing.T) {
 	outChan := make(chan MessageStreamChunk, 1)
 
 	// Call handleNonStreamingProvider - should detect error and send to channel
-	handled := executor.handleNonStreamingProvider(context.Background(), req, outChan)
+	handled := executor.handleNonStreamingProvider(context.Background(), &req, outChan)
 
 	if !handled {
 		t.Error("Expected handleNonStreamingProvider to return true")
@@ -57,8 +57,8 @@ func TestScriptedExecutor_HandleNonStreamingProvider_Error(t *testing.T) {
 		if chunk.Error == nil {
 			t.Error("Expected error in channel, got nil")
 		}
-		// Error message includes the pipeline wrapper
-		expectedSubstring := "generation failed"
+		// Error message includes provider failure
+		expectedSubstring := "provider call failed"
 		if !strings.Contains(chunk.Error.Error(), expectedSubstring) {
 			t.Errorf("Expected error to contain '%s', got: %v", expectedSubstring, chunk.Error)
 		}
@@ -107,7 +107,7 @@ func TestScriptedExecutor_HandleNonStreamingProvider_Success(t *testing.T) {
 	outChan := make(chan MessageStreamChunk, 1)
 
 	// Call handleNonStreamingProvider
-	handled := executor.handleNonStreamingProvider(context.Background(), req, outChan)
+	handled := executor.handleNonStreamingProvider(context.Background(), &req, outChan)
 
 	if !handled {
 		t.Error("Expected handleNonStreamingProvider to return true")
@@ -144,7 +144,7 @@ func TestScriptedExecutor_HandleNonStreamingProvider_NotHandled(t *testing.T) {
 	outChan := make(chan MessageStreamChunk, 1)
 
 	// Should return false for streaming provider
-	handled := executor.handleNonStreamingProvider(context.Background(), req, outChan)
+	handled := executor.handleNonStreamingProvider(context.Background(), &req, outChan)
 
 	if handled {
 		t.Error("Expected handleNonStreamingProvider to return false for streaming provider")
@@ -207,7 +207,7 @@ func TestSelfPlayExecutor_HandleNonStreamingProvider_Error(t *testing.T) {
 	outChan := make(chan MessageStreamChunk, 2)
 
 	// Call handleNonStreamingProvider - should detect error and send to channel
-	handled := executor.handleNonStreamingProvider(context.Background(), req, userMessage, outChan)
+	handled := executor.handleNonStreamingProvider(context.Background(), &req, &userMessage, outChan)
 
 	if !handled {
 		t.Error("Expected handleNonStreamingProvider to return true")
@@ -280,7 +280,7 @@ func TestSelfPlayExecutor_HandleNonStreamingProvider_Success(t *testing.T) {
 	outChan := make(chan MessageStreamChunk, 1)
 
 	// Call handleNonStreamingProvider
-	handled := executor.handleNonStreamingProvider(context.Background(), req, userMessage, outChan)
+	handled := executor.handleNonStreamingProvider(context.Background(), &req, &userMessage, outChan)
 
 	if !handled {
 		t.Error("Expected handleNonStreamingProvider to return true")

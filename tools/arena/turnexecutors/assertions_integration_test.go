@@ -89,7 +89,7 @@ func TestPipelineExecutor_AssertionsPass(t *testing.T) {
 	}
 
 	// Execute - should pass
-	err := executor.Execute(context.Background(), req, userMsg)
+	err := executor.Execute(context.Background(), &req, &userMsg)
 	if err != nil {
 		t.Fatalf("Expected no error with passing assertions, got: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestPipelineExecutor_AssertionsFail(t *testing.T) {
 	}
 
 	// Execute - should fail with assertion error
-	err := executor.Execute(context.Background(), req, userMsg)
+	err := executor.Execute(context.Background(), &req, &userMsg)
 	if err == nil {
 		t.Fatal("Expected error for failed assertion, got nil")
 	}
@@ -266,7 +266,7 @@ func TestPipelineExecutor_NoAssertions(t *testing.T) {
 	}
 
 	// Execute - should succeed
-	err := executor.Execute(context.Background(), req, userMsg)
+	err := executor.Execute(context.Background(), &req, &userMsg)
 	if err != nil {
 		t.Fatalf("Expected no error without assertions, got: %v", err)
 	}
