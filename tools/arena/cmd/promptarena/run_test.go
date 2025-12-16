@@ -586,3 +586,49 @@ func TestSetDefaultFilePaths_JUnitDefaults(t *testing.T) {
 		})
 	}
 }
+
+func TestCountFailedAssertions(t *testing.T) {
+	tests := []struct {
+		name     string
+		results  []engine.RunResult
+		expected int
+	}{
+		{
+			name:     "no results",
+			results:  []engine.RunResult{},
+			expected: 0,
+		},
+		{
+			name: "all passing",
+			results: []engine.RunResult{
+				{RunID: "run-001", ConversationAssertions: engine.AssertionsSummary{Failed: 0, Passed: true, Total: 3}},
+				{RunID: "run-002", ConversationAssertions: engine.AssertionsSummary{Failed: 0, Passed: true, Total: 5}},
+			},
+			expected: 0,
+		},
+		{
+			name: "some failures",
+			results: []engine.RunResult{
+				{RunID: "run-001", ConversationAssertions: engine.AssertionsSummary{Failed: 2, Passed: false, Total: 5}},
+				{RunID: "run-002", ConversationAssertions: engine.AssertionsSummary{Failed: 0, Passed: true, Total: 3}},
+				{RunID: "run-003", ConversationAssertions: engine.AssertionsSummary{Failed: 1, Passed: false, Total: 4}},
+			},
+			expected: 3,
+		},
+		{
+			name: "all failing",
+			results: []engine.RunResult{
+				{RunID: "run-001", ConversationAssertions: engine.AssertionsSummary{Failed: 3, Passed: false, Total: 3}},
+				{RunID: "run-002", ConversationAssertions: engine.AssertionsSummary{Failed: 2, Passed: false, Total: 2}},
+			},
+			expected: 5,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := countFailedAssertions(tt.results)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

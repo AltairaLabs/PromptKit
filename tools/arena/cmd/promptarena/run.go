@@ -477,9 +477,18 @@ func processResults(results []engine.RunResult, params *RunParameters, configFil
 		log.Printf("Warning: failed to save summary: %v", err)
 	}
 
-	// Handle CI mode errors
-	if errorCount > 0 && params.CIMode {
-		return fmt.Errorf("execution failed: %d runs had errors", errorCount)
+	// Handle CI mode errors and failures
+	if params.CIMode {
+		failedAssertions := countFailedAssertions(results)
+		if errorCount > 0 && failedAssertions > 0 {
+			return fmt.Errorf("execution failed: %d runs had errors, %d assertions failed", errorCount, failedAssertions)
+		}
+		if errorCount > 0 {
+			return fmt.Errorf("execution failed: %d runs had errors", errorCount)
+		}
+		if failedAssertions > 0 {
+			return fmt.Errorf("test failures: %d assertions failed", failedAssertions)
+		}
 	}
 
 	return nil
@@ -572,4 +581,13 @@ func countResultsByStatus(results []engine.RunResult) (successCount, errorCount 
 	}
 
 	return successCount, errorCount
+}
+
+// countFailedAssertions counts the total number of failed assertions across all results
+func countFailedAssertions(results []engine.RunResult) int {
+	failedCount := 0
+	for i := range results {
+		failedCount += results[i].ConversationAssertions.Failed
+	}
+	return failedCount
 }
