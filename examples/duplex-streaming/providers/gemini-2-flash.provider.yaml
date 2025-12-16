@@ -23,7 +23,7 @@ spec:
   additional_config:
     # Enable audio modality for duplex mode
     audio_enabled: true
-    # Response modalities (text and audio)
+    # Response modalities - Gemini Live API only supports ONE modality at a time
+    # Use TEXT for text responses, or AUDIO for audio responses (not both)
     response_modalities:
-      - text
-      - audio
+      - TEXT

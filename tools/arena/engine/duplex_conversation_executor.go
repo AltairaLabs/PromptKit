@@ -107,12 +107,23 @@ func (de *DuplexConversationExecutor) buildSessionConfig(
 			Channels:   1,
 			BitDepth:   16, // Required for Gemini Live API
 		},
+		Metadata: make(map[string]interface{}),
 	}
 
 	// Add system instruction if available from prompt registry
 	if de.promptRegistry != nil && req.Scenario != nil && req.Scenario.TaskType != "" {
 		if assembled := de.promptRegistry.Load(req.Scenario.TaskType); assembled != nil {
 			cfg.SystemInstruction = assembled.SystemPrompt
+		}
+	}
+
+	// Pass through response_modalities from provider config if available
+	if req.Config != nil && req.Provider != nil {
+		providerID := req.Provider.ID()
+		if providerCfg, ok := req.Config.LoadedProviders[providerID]; ok && providerCfg.AdditionalConfig != nil {
+			if modalities, exists := providerCfg.AdditionalConfig["response_modalities"]; exists {
+				cfg.Metadata["response_modalities"] = modalities
+			}
 		}
 	}
 
