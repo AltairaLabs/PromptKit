@@ -11,6 +11,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Mock STT service for testing
@@ -776,4 +779,192 @@ func TestTTSStageWithInterruption_MessageElement(t *testing.T) {
 
 	// Wait for processing
 	time.Sleep(100 * time.Millisecond)
+}
+
+// TestTTSStageWithInterruption_ExtractText_FromMessage tests extractText with message content.
+func TestTTSStageWithInterruption_ExtractText_FromMessage(t *testing.T) {
+	synthesized := false
+	mockTts := &mockTTSService{
+		synthesizeFunc: func(ctx context.Context, text string, config tts.SynthesisConfig) (io.ReadCloser, error) {
+			synthesized = true
+			assert.Equal(t, "Hello from message", text)
+			return io.NopCloser(strings.NewReader("audio")), nil
+		},
+	}
+
+	s := stage.NewTTSStageWithInterruption(mockTts, stage.DefaultTTSStageWithInterruptionConfig())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	input := make(chan stage.StreamElement, 1)
+	output := make(chan stage.StreamElement, 10)
+
+	go func() {
+		_ = s.Process(ctx, input, output)
+	}()
+
+	// Send message element with content
+	msg := &types.Message{
+		Role:    "assistant",
+		Content: "Hello from message",
+	}
+	input <- stage.StreamElement{Message: msg, Metadata: map[string]interface{}{}}
+	close(input)
+
+	// Collect outputs
+	var results []stage.StreamElement
+	timeout := time.After(300 * time.Millisecond)
+loop:
+	for {
+		select {
+		case elem, ok := <-output:
+			if !ok {
+				break loop
+			}
+			results = append(results, elem)
+		case <-timeout:
+			break loop
+		}
+	}
+
+	// Should have synthesized the message content
+	require.GreaterOrEqual(t, len(results), 1)
+	assert.True(t, synthesized, "should have called synthesize")
+}
+
+// TestTTSStageWithInterruption_ExtractText_FromMessageParts tests extractText with message parts.
+func TestTTSStageWithInterruption_ExtractText_FromMessageParts(t *testing.T) {
+	synthesized := false
+	mockTts := &mockTTSService{
+		synthesizeFunc: func(ctx context.Context, text string, config tts.SynthesisConfig) (io.ReadCloser, error) {
+			synthesized = true
+			assert.Equal(t, "Hello from part", text)
+			return io.NopCloser(strings.NewReader("audio")), nil
+		},
+	}
+
+	s := stage.NewTTSStageWithInterruption(mockTts, stage.DefaultTTSStageWithInterruptionConfig())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	input := make(chan stage.StreamElement, 1)
+	output := make(chan stage.StreamElement, 10)
+
+	go func() {
+		_ = s.Process(ctx, input, output)
+	}()
+
+	// Send message element with parts
+	partText := "Hello from part"
+	msg := &types.Message{
+		Role:    "assistant",
+		Content: "", // Empty content, should fall through to parts
+		Parts: []types.ContentPart{
+			{Type: "text", Text: &partText},
+		},
+	}
+	input <- stage.StreamElement{Message: msg, Metadata: map[string]interface{}{}}
+	close(input)
+
+	// Collect outputs
+	var results []stage.StreamElement
+	timeout := time.After(300 * time.Millisecond)
+loop:
+	for {
+		select {
+		case elem, ok := <-output:
+			if !ok {
+				break loop
+			}
+			results = append(results, elem)
+		case <-timeout:
+			break loop
+		}
+	}
+
+	// Should have synthesized the part text
+	require.GreaterOrEqual(t, len(results), 1)
+	assert.True(t, synthesized, "should have called synthesize")
+}
+
+// TestTTSStageWithInterruption_ExtractText_EmptyMessageContent tests extractText with empty message.
+func TestTTSStageWithInterruption_ExtractText_EmptyMessageContent(t *testing.T) {
+	synthesized := false
+	mockTts := &mockTTSService{
+		synthesizeFunc: func(ctx context.Context, text string, config tts.SynthesisConfig) (io.ReadCloser, error) {
+			synthesized = true
+			return io.NopCloser(strings.NewReader("audio")), nil
+		},
+	}
+
+	s := stage.NewTTSStageWithInterruption(mockTts, stage.DefaultTTSStageWithInterruptionConfig())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+
+	input := make(chan stage.StreamElement, 1)
+	output := make(chan stage.StreamElement, 10)
+
+	go func() {
+		_ = s.Process(ctx, input, output)
+	}()
+
+	// Send message element with empty content and no parts
+	msg := &types.Message{
+		Role:    "assistant",
+		Content: "",
+	}
+	input <- stage.StreamElement{Message: msg, Metadata: map[string]interface{}{}}
+	close(input)
+
+	// Wait for processing
+	time.Sleep(100 * time.Millisecond)
+
+	// Should not have called TTS since text is empty
+	assert.False(t, synthesized, "should not have called synthesize for empty text")
+}
+
+// TestTTSStageWithInterruption_PerformSynthesis_ReadError tests performSynthesis reader error path.
+func TestTTSStageWithInterruption_PerformSynthesis_ReadError(t *testing.T) {
+	synthesized := false
+	mockTts := &mockTTSService{
+		synthesizeFunc: func(ctx context.Context, text string, config tts.SynthesisConfig) (io.ReadCloser, error) {
+			synthesized = true
+			// Return a reader that will fail on read
+			return io.NopCloser(&errorReader{err: io.ErrUnexpectedEOF}), nil
+		},
+	}
+
+	s := stage.NewTTSStageWithInterruption(mockTts, stage.DefaultTTSStageWithInterruptionConfig())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	input := make(chan stage.StreamElement, 1)
+	output := make(chan stage.StreamElement, 10)
+
+	go func() {
+		_ = s.Process(ctx, input, output)
+	}()
+
+	text := "Test text for read error"
+	input <- stage.StreamElement{Text: &text, Metadata: map[string]interface{}{}}
+	close(input)
+
+	// Wait for processing
+	time.Sleep(200 * time.Millisecond)
+
+	// Should have tried to synthesize
+	assert.True(t, synthesized, "should have tried to synthesize")
+}
+
+// errorReader is a reader that always returns an error
+type errorReader struct {
+	err error
+}
+
+func (r *errorReader) Read(p []byte) (int, error) {
+	return 0, r.err
 }
