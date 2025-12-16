@@ -20,7 +20,7 @@
     "gray-matter": "^4.0.3",
     "mermaid": "^11.12.2",
     "react": "^19.2.3",
-    "react-dom": "^19.2.1",
+    "react-dom": "^19.2.3",
     "rehype-mermaid": "^3.0.0"
   },
   "devDependencies": {
