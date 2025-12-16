@@ -427,8 +427,6 @@ func (e *SelfPlayExecutor) buildStreamingStages(req *TurnRequest) (*stage.Stream
 }
 
 // forwardStageElements forwards stage elements from pipeline to output channel
-//
-//nolint:gocognit // Stream processing logic is inherently complex
 func (e *SelfPlayExecutor) forwardStageElements(
 	outputChan <-chan stage.StreamElement,
 	messages []types.Message,
@@ -439,36 +437,53 @@ func (e *SelfPlayExecutor) forwardStageElements(
 	assistantMsg.Role = roleAssistant
 
 	for elem := range outputChan {
-		// Check for error
 		if elem.Error != nil {
 			outChan <- MessageStreamChunk{Messages: messages, Error: elem.Error}
 			return
 		}
 
-		// Collect assistant messages
-		if elem.Message != nil && elem.Message.Role == roleAssistant {
-			assistantMsg = *elem.Message
-			messages = e.updateMessagesList(messages, &assistantMsg, assistantIndex)
-
-			// Extract finish reason from metadata if available
-			var finishReason *string
-			if elem.Metadata != nil {
-				if fr, ok := elem.Metadata["finish_reason"].(string); ok {
-					finishReason = &fr
-				}
-			}
-
-			outChan <- MessageStreamChunk{
-				Messages:     messages,
-				MessageIndex: assistantIndex,
-				FinishReason: finishReason,
-			}
-
-			if finishReason != nil {
-				break
-			}
+		if done := e.processAssistantElement(&elem, &messages, &assistantMsg, assistantIndex, outChan); done {
+			break
 		}
 	}
+}
+
+// processAssistantElement processes an assistant message element.
+// Returns true if streaming should stop.
+func (e *SelfPlayExecutor) processAssistantElement(
+	elem *stage.StreamElement,
+	messages *[]types.Message,
+	assistantMsg *types.Message,
+	assistantIndex int,
+	outChan chan<- MessageStreamChunk,
+) bool {
+	if elem.Message == nil || elem.Message.Role != roleAssistant {
+		return false
+	}
+
+	*assistantMsg = *elem.Message
+	*messages = e.updateMessagesList(*messages, assistantMsg, assistantIndex)
+
+	finishReason := e.extractFinishReason(elem.Metadata)
+
+	outChan <- MessageStreamChunk{
+		Messages:     *messages,
+		MessageIndex: assistantIndex,
+		FinishReason: finishReason,
+	}
+
+	return finishReason != nil
+}
+
+// extractFinishReason extracts the finish reason from element metadata.
+func (e *SelfPlayExecutor) extractFinishReason(metadata map[string]interface{}) *string {
+	if metadata == nil {
+		return nil
+	}
+	if fr, ok := metadata["finish_reason"].(string); ok {
+		return &fr
+	}
+	return nil
 }
 
 // updateMessagesList updates the messages list with current assistant message

@@ -262,7 +262,7 @@ func (s *OpenAIService) handleError(statusCode int, body []byte) error {
 		} `json:"error"`
 	}
 
-	if err := json.Unmarshal(body, &errResp); err != nil {
+	if json.Unmarshal(body, &errResp) != nil {
 		return NewTranscriptionError(
 			"openai",
 			fmt.Sprintf("%d", statusCode),

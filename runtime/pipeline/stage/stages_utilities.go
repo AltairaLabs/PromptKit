@@ -150,30 +150,7 @@ func (s *TemplateStage) Process(
 	defer close(output)
 
 	for elem := range input {
-		// Get variables from metadata if available
-		var vars map[string]string
-		if v, ok := elem.Metadata["variables"].(map[string]string); ok {
-			vars = v
-		}
-
-		// Substitute in system prompt if present in metadata
-		if systemPrompt, ok := elem.Metadata["system_prompt"].(string); ok && vars != nil {
-			substituted := s.substituteVariables(systemPrompt, vars)
-			elem.Metadata["system_prompt"] = substituted
-		}
-
-		// Substitute in message content if message element
-		if elem.Message != nil && vars != nil {
-			elem.Message.Content = s.substituteVariables(elem.Message.Content, vars)
-
-			// Substitute in parts
-			for i := range elem.Message.Parts {
-				if elem.Message.Parts[i].Text != nil {
-					text := s.substituteVariables(*elem.Message.Parts[i].Text, vars)
-					elem.Message.Parts[i].Text = &text
-				}
-			}
-		}
+		s.substituteElement(&elem)
 
 		// Forward element
 		select {
@@ -184,6 +161,37 @@ func (s *TemplateStage) Process(
 	}
 
 	return nil
+}
+
+// substituteElement performs variable substitution on a single element.
+func (s *TemplateStage) substituteElement(elem *StreamElement) {
+	// Get variables from metadata if available
+	vars, ok := elem.Metadata["variables"].(map[string]string)
+	if !ok || vars == nil {
+		return
+	}
+
+	// Substitute in system prompt if present in metadata
+	if systemPrompt, ok := elem.Metadata["system_prompt"].(string); ok {
+		elem.Metadata["system_prompt"] = s.substituteVariables(systemPrompt, vars)
+	}
+
+	// Substitute in message content if message element
+	if elem.Message != nil {
+		s.substituteMessage(elem.Message, vars)
+	}
+}
+
+// substituteMessage performs variable substitution on message content and parts.
+func (s *TemplateStage) substituteMessage(msg *types.Message, vars map[string]string) {
+	msg.Content = s.substituteVariables(msg.Content, vars)
+
+	for i := range msg.Parts {
+		if msg.Parts[i].Text != nil {
+			text := s.substituteVariables(*msg.Parts[i].Text, vars)
+			msg.Parts[i].Text = &text
+		}
+	}
 }
 
 // substituteVariables replaces {{variable}} placeholders with values.

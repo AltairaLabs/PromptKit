@@ -166,50 +166,61 @@ func (b *PipelineBuilder) validate() error {
 }
 
 // detectCycles checks if the pipeline DAG contains cycles.
-//
-//nolint:gocognit // Complexity inherent to cycle detection algorithm
 func (b *PipelineBuilder) detectCycles() error {
-	// Build adjacency list
-	graph := make(map[string][]string)
-	for fromStage, toStages := range b.edges {
-		graph[fromStage] = toStages
+	detector := &cycleDetector{
+		graph:    b.edges,
+		visited:  make(map[string]bool),
+		recStack: make(map[string]bool),
 	}
 
-	// Track visited nodes and nodes in current path
-	visited := make(map[string]bool)
-	recStack := make(map[string]bool)
-
-	// DFS to detect cycles
-	var dfs func(string) bool
-	dfs = func(node string) bool {
-		visited[node] = true
-		recStack[node] = true
-
-		for _, neighbor := range graph[node] {
-			if !visited[neighbor] {
-				if dfs(neighbor) {
-					return true
-				}
-			} else if recStack[neighbor] {
-				// Cycle detected
-				return true
-			}
-		}
-
-		recStack[node] = false
-		return false
-	}
-
-	// Check all nodes (handles disconnected components)
 	for _, stage := range b.stages {
-		if !visited[stage.Name()] {
-			if dfs(stage.Name()) {
-				return ErrCyclicDependency
-			}
+		if detector.hasCycleFrom(stage.Name()) {
+			return ErrCyclicDependency
 		}
 	}
 
 	return nil
+}
+
+// cycleDetector implements DFS-based cycle detection for a directed graph.
+type cycleDetector struct {
+	graph    map[string][]string
+	visited  map[string]bool
+	recStack map[string]bool
+}
+
+// hasCycleFrom checks if there's a cycle starting from the given node.
+func (d *cycleDetector) hasCycleFrom(node string) bool {
+	if d.visited[node] {
+		return false
+	}
+	return d.dfs(node)
+}
+
+// dfs performs depth-first search to detect cycles.
+func (d *cycleDetector) dfs(node string) bool {
+	d.visited[node] = true
+	d.recStack[node] = true
+
+	if d.hasNeighborCycle(node) {
+		return true
+	}
+
+	d.recStack[node] = false
+	return false
+}
+
+// hasNeighborCycle checks if any neighbor creates a cycle.
+func (d *cycleDetector) hasNeighborCycle(node string) bool {
+	for _, neighbor := range d.graph[node] {
+		if d.recStack[neighbor] {
+			return true
+		}
+		if !d.visited[neighbor] && d.dfs(neighbor) {
+			return true
+		}
+	}
+	return false
 }
 
 // Clone creates a deep copy of the builder.

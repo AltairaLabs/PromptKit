@@ -313,7 +313,7 @@ func (e *ScriptedExecutor) forwardStageElements(
 		}
 
 		if elem.Message != nil {
-			if done := e.processMessageElement(&elem, &messages, &assistantMsg, assistantIndex, outChan); done {
+			if e.processMessageElement(&elem, &messages, &assistantMsg, assistantIndex, outChan) {
 				break
 			}
 			continue

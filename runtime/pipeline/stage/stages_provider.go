@@ -42,6 +42,16 @@ type ProviderConfig struct {
 	DisableTrace bool
 }
 
+// streamingRoundParams holds parameters for a streaming round execution.
+type streamingRoundParams struct {
+	messages      []types.Message
+	systemPrompt  string
+	providerTools interface{}
+	toolChoice    string
+	round         int
+	metadata      map[string]interface{}
+}
+
 // NewProviderStage creates a new provider stage for request/response mode.
 func NewProviderStage(
 	provider providers.Provider,
@@ -235,9 +245,15 @@ func (s *ProviderStage) executeStreamingMultiRound(
 	maxRounds := s.getMaxRounds()
 
 	for round := 1; round <= maxRounds; round++ {
-		response, hasToolCalls, err := s.executeStreamingRound(
-			ctx, messages, acc.systemPrompt, providerTools, toolChoice, round, output, acc.metadata,
-		)
+		params := &streamingRoundParams{
+			messages:      messages,
+			systemPrompt:  acc.systemPrompt,
+			providerTools: providerTools,
+			toolChoice:    toolChoice,
+			round:         round,
+			metadata:      acc.metadata,
+		}
+		response, hasToolCalls, err := s.executeStreamingRound(ctx, params, output)
 		if err != nil {
 			return messages, err
 		}
@@ -336,93 +352,36 @@ func (s *ProviderStage) executeRound(
 
 func (s *ProviderStage) executeStreamingRound(
 	ctx context.Context,
-	messages []types.Message,
-	systemPrompt string,
-	providerTools interface{},
-	toolChoice string,
-	round int,
+	params *streamingRoundParams,
 	output chan<- StreamElement,
-	metadata map[string]interface{},
 ) (types.Message, bool, error) {
 	// Build provider request
 	req := providers.PredictionRequest{
-		System:      systemPrompt,
-		Messages:    messages,
+		System:      params.systemPrompt,
+		Messages:    params.messages,
 		MaxTokens:   s.config.MaxTokens,
 		Temperature: s.config.Temperature,
 		Seed:        s.config.Seed,
-		Metadata:    metadata,
+		Metadata:    params.metadata,
 	}
 
 	logger.Debug("Provider streaming round starting",
-		"round", round,
-		"messages", len(messages),
-		"tools", providerTools != nil)
+		"round", params.round,
+		"messages", len(params.messages),
+		"tools", params.providerTools != nil)
 
 	startTime := time.Now()
 
-	// Call streaming provider (with or without tools)
-	var streamChan <-chan providers.StreamChunk
-	var err error
-
-	if providerTools != nil {
-		// Use tool-aware streaming interface
-		toolProvider, ok := s.provider.(providers.ToolSupport)
-		if !ok {
-			return types.Message{}, false, errors.New("provider does not support tools")
-		}
-		streamChan, err = toolProvider.PredictStreamWithTools(ctx, req, providerTools, toolChoice)
-	} else {
-		// Regular streaming prediction
-		streamChan, err = s.provider.PredictStream(ctx, req)
-	}
-
+	// Start the streaming request
+	streamChan, err := s.startStreamingRequest(ctx, req, params.providerTools, params.toolChoice)
 	if err != nil {
-		logger.Error("Provider stream failed", "error", err)
-		return types.Message{}, false, fmt.Errorf("provider stream failed: %w", err)
+		return types.Message{}, false, err
 	}
 
-	// Accumulate response from chunks
-	var content string
-	var toolCalls []types.MessageToolCall
-
-	// Process streaming chunks
-	for chunk := range streamChan {
-		if chunk.Error != nil {
-			logger.Error("Stream chunk error", "error", chunk.Error)
-			return types.Message{}, false, fmt.Errorf("stream chunk error: %w", chunk.Error)
-		}
-
-		// Update accumulated state
-		content = chunk.Content
-		if len(chunk.ToolCalls) > 0 {
-			toolCalls = chunk.ToolCalls
-		}
-
-		// Emit streaming element with delta text
-		if chunk.Delta != "" {
-			elem := NewTextElement(chunk.Delta)
-			elem.Timestamp = timeNow()
-			elem.Priority = PriorityNormal
-
-			// Copy metadata
-			for k, v := range metadata {
-				elem.Metadata[k] = v
-			}
-
-			// Add chunk-specific metadata
-			elem.Metadata["token_count"] = chunk.TokenCount
-			if chunk.FinishReason != nil {
-				elem.Metadata["finish_reason"] = *chunk.FinishReason
-			}
-
-			// Emit the chunk element
-			select {
-			case output <- elem:
-			case <-ctx.Done():
-				return types.Message{}, false, ctx.Err()
-			}
-		}
+	// Process all chunks and collect response
+	content, toolCalls, err := s.processStreamChunks(ctx, streamChan, params.metadata, output)
+	if err != nil {
+		return types.Message{}, false, err
 	}
 
 	duration := time.Since(startTime)
@@ -436,14 +395,100 @@ func (s *ProviderStage) executeStreamingRound(
 	}
 
 	logger.Debug("Provider streaming round completed",
-		"round", round,
+		"round", params.round,
 		"duration", duration,
 		"tool_calls", len(toolCalls))
 
-	// Check for tool calls
-	hasToolCalls := len(toolCalls) > 0
+	return responseMsg, len(toolCalls) > 0, nil
+}
 
-	return responseMsg, hasToolCalls, nil
+// startStreamingRequest initiates a streaming request with or without tools.
+func (s *ProviderStage) startStreamingRequest(
+	ctx context.Context,
+	req providers.PredictionRequest,
+	providerTools interface{},
+	toolChoice string,
+) (<-chan providers.StreamChunk, error) {
+	if providerTools != nil {
+		toolProvider, ok := s.provider.(providers.ToolSupport)
+		if !ok {
+			return nil, errors.New("provider does not support tools")
+		}
+		streamChan, err := toolProvider.PredictStreamWithTools(ctx, req, providerTools, toolChoice)
+		if err != nil {
+			logger.Error("Provider stream failed", "error", err)
+			return nil, fmt.Errorf("provider stream failed: %w", err)
+		}
+		return streamChan, nil
+	}
+
+	streamChan, err := s.provider.PredictStream(ctx, req)
+	if err != nil {
+		logger.Error("Provider stream failed", "error", err)
+		return nil, fmt.Errorf("provider stream failed: %w", err)
+	}
+	return streamChan, nil
+}
+
+// processStreamChunks processes streaming chunks and emits elements to output.
+func (s *ProviderStage) processStreamChunks(
+	ctx context.Context,
+	streamChan <-chan providers.StreamChunk,
+	metadata map[string]interface{},
+	output chan<- StreamElement,
+) (string, []types.MessageToolCall, error) {
+	var content string
+	var toolCalls []types.MessageToolCall
+
+	for chunk := range streamChan {
+		if chunk.Error != nil {
+			logger.Error("Stream chunk error", "error", chunk.Error)
+			return "", nil, fmt.Errorf("stream chunk error: %w", chunk.Error)
+		}
+
+		content = chunk.Content
+		if len(chunk.ToolCalls) > 0 {
+			toolCalls = chunk.ToolCalls
+		}
+
+		if err := s.emitChunkElement(ctx, &chunk, metadata, output); err != nil {
+			return "", nil, err
+		}
+	}
+
+	return content, toolCalls, nil
+}
+
+// emitChunkElement creates and emits a streaming element for a chunk.
+func (s *ProviderStage) emitChunkElement(
+	ctx context.Context,
+	chunk *providers.StreamChunk,
+	metadata map[string]interface{},
+	output chan<- StreamElement,
+) error {
+	if chunk.Delta == "" {
+		return nil
+	}
+
+	elem := NewTextElement(chunk.Delta)
+	elem.Timestamp = timeNow()
+	elem.Priority = PriorityNormal
+
+	for k, v := range metadata {
+		elem.Metadata[k] = v
+	}
+
+	elem.Metadata["token_count"] = chunk.TokenCount
+	if chunk.FinishReason != nil {
+		elem.Metadata["finish_reason"] = *chunk.FinishReason
+	}
+
+	select {
+	case output <- elem:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (s *ProviderStage) executeToolCalls(ctx context.Context, toolCalls []types.MessageToolCall) ([]types.Message, error) {
@@ -531,7 +576,7 @@ func (s *ProviderStage) handleToolResult(
 
 		// Try to format nicely if it's JSON
 		var resultValue interface{}
-		if err := json.Unmarshal(asyncResult.Content, &resultValue); err == nil {
+		if json.Unmarshal(asyncResult.Content, &resultValue) == nil {
 			content = formatToolResult(resultValue)
 		}
 

@@ -2,7 +2,6 @@ package sdk
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"os"
 	"strings"
@@ -148,59 +147,19 @@ type ToolHandlerCtx func(ctx context.Context, args map[string]any) (any, error)
 func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption) (*Response, error) {
 	startTime := time.Now()
 
-	c.mu.RLock()
-	if c.mode != UnaryMode {
-		c.mu.RUnlock()
-		return nil, fmt.Errorf("Send() only available in unary mode; use OpenDuplex() for duplex streaming")
+	if err := c.validateSendState(); err != nil {
+		return nil, err
 	}
-	if c.closed {
-		c.mu.RUnlock()
-		return nil, ErrConversationClosed
-	}
-	c.mu.RUnlock()
 
 	// Build user message from input
-	var userMsg *types.Message
-	switch m := message.(type) {
-	case string:
-		userMsg = &types.Message{Role: "user"}
-		userMsg.AddTextPart(m)
-	case *types.Message:
-		userMsg = m
-	default:
-		return nil, fmt.Errorf("message must be string or *types.Message, got %T", message)
+	userMsg, err := c.buildUserMessage(message)
+	if err != nil {
+		return nil, err
 	}
 
-	// Apply send options (image attachments, etc.)
-	sendCfg := &sendConfig{}
-	for _, opt := range opts {
-		if err := opt(sendCfg); err != nil {
-			return nil, fmt.Errorf("failed to apply send option: %w", err)
-		}
-	}
-
-	// Add content parts from options to the message
-	for _, part := range sendCfg.parts {
-		switch p := part.(type) {
-		case imageFilePart:
-			if err := userMsg.AddImagePart(p.path, p.detail); err != nil {
-				return nil, fmt.Errorf("failed to add image from file: %w", err)
-			}
-		case imageURLPart:
-			userMsg.AddImagePartFromURL(p.url, p.detail)
-		case imageDataPart:
-			base64Data := base64.StdEncoding.EncodeToString(p.data)
-			contentPart := types.NewImagePartFromData(base64Data, p.mimeType, p.detail)
-			userMsg.AddPart(contentPart)
-		case audioFilePart:
-			if err := userMsg.AddAudioPart(p.path); err != nil {
-				return nil, fmt.Errorf("failed to add audio from file: %w", err)
-			}
-		case filePart:
-			userMsg.AddTextPart(fmt.Sprintf("[File: %s]\n%s", p.name, string(p.data)))
-		default:
-			return nil, fmt.Errorf("unknown content part type: %T", part)
-		}
+	// Apply send options and add content parts
+	if err = c.applyOptionsToMessage(userMsg, opts); err != nil {
+		return nil, err
 	}
 
 	// Build and execute pipeline
@@ -209,8 +168,47 @@ func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption
 		return nil, err
 	}
 
-	// Build response
 	return c.buildResponse(result, startTime), nil
+}
+
+// validateSendState checks if the conversation is in a valid state for Send().
+func (c *Conversation) validateSendState() error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.mode != UnaryMode {
+		return fmt.Errorf("Send() only available in unary mode; use OpenDuplex() for duplex streaming")
+	}
+	if c.closed {
+		return ErrConversationClosed
+	}
+	return nil
+}
+
+// buildUserMessage creates a user message from the input.
+func (c *Conversation) buildUserMessage(message any) (*types.Message, error) {
+	switch m := message.(type) {
+	case string:
+		userMsg := &types.Message{Role: "user"}
+		userMsg.AddTextPart(m)
+		return userMsg, nil
+	case *types.Message:
+		return m, nil
+	default:
+		return nil, fmt.Errorf("message must be string or *types.Message, got %T", message)
+	}
+}
+
+// applyOptionsToMessage applies send options and adds content parts to the message.
+func (c *Conversation) applyOptionsToMessage(userMsg *types.Message, opts []SendOption) error {
+	sendCfg := &sendConfig{}
+	for _, opt := range opts {
+		if err := opt(sendCfg); err != nil {
+			return fmt.Errorf("failed to apply send option: %w", err)
+		}
+	}
+
+	return c.addContentParts(userMsg, sendCfg.parts)
 }
 
 // buildPipelineWithParams builds a stage pipeline with explicit parameters.

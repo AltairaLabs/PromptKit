@@ -129,45 +129,87 @@ func (s *AudioTurnStage) Process(
 	for elem := range input {
 		// Pass through non-audio elements immediately
 		if elem.Audio == nil {
-			select {
-			case output <- elem:
-			case <-ctx.Done():
-				return ctx.Err()
+			if err := s.forwardElement(ctx, &elem, output); err != nil {
+				return err
 			}
 			continue
 		}
 
-		// Process audio chunk
-		if err := s.processAudio(ctx, &elem, state); err != nil {
-			logger.Error("AudioTurnStage: processing failed", "error", err)
-			output <- NewErrorElement(err)
+		// Process audio chunk and handle turn completion
+		if err := s.processAudioElement(ctx, &elem, state, output); err != nil {
 			return err
-		}
-
-		// Check for interruption
-		if s.interruption != nil {
-			vadState := s.vad.State()
-			if interrupted, _ := s.interruption.ProcessVADState(ctx, vadState); interrupted {
-				logger.Debug("AudioTurnStage: user interrupted, resetting turn")
-				s.resetState(state)
-				continue
-			}
-		}
-
-		// Check if turn is complete
-		if s.shouldCompleteTurn(state) {
-			if err := s.emitTurnAudio(ctx, state, output); err != nil {
-				return err
-			}
-			s.resetState(state)
 		}
 	}
 
 	// Stream closed - emit any remaining audio
+	return s.emitRemainingAudio(ctx, state, output)
+}
+
+// forwardElement forwards a non-audio element to output.
+func (s *AudioTurnStage) forwardElement(
+	ctx context.Context,
+	elem *StreamElement,
+	output chan<- StreamElement,
+) error {
+	select {
+	case output <- *elem:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// processAudioElement processes an audio element and handles turn completion.
+func (s *AudioTurnStage) processAudioElement(
+	ctx context.Context,
+	elem *StreamElement,
+	state *audioTurnState,
+	output chan<- StreamElement,
+) error {
+	if err := s.processAudio(ctx, elem, state); err != nil {
+		logger.Error("AudioTurnStage: processing failed", "error", err)
+		output <- NewErrorElement(err)
+		return err
+	}
+
+	// Check for interruption
+	if s.checkInterruption(ctx, state) {
+		return nil
+	}
+
+	// Check if turn is complete
+	if s.shouldCompleteTurn(state) {
+		if err := s.emitTurnAudio(ctx, state, output); err != nil {
+			return err
+		}
+		s.resetState(state)
+	}
+	return nil
+}
+
+// checkInterruption checks for user interruption and resets state if detected.
+func (s *AudioTurnStage) checkInterruption(ctx context.Context, state *audioTurnState) bool {
+	if s.interruption == nil {
+		return false
+	}
+	vadState := s.vad.State()
+	if interrupted, _ := s.interruption.ProcessVADState(ctx, vadState); interrupted {
+		logger.Debug("AudioTurnStage: user interrupted, resetting turn")
+		s.resetState(state)
+		return true
+	}
+	return false
+}
+
+// emitRemainingAudio emits any buffered audio when the stream closes.
+func (s *AudioTurnStage) emitRemainingAudio(
+	ctx context.Context,
+	state *audioTurnState,
+	output chan<- StreamElement,
+) error {
 	if len(state.audioBuffer) > 0 && state.speechDetected {
 		return s.emitTurnAudio(ctx, state, output)
 	}
-
 	return nil
 }
 
