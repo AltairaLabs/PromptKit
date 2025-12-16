@@ -230,17 +230,34 @@ func (de *DuplexConversationExecutor) streamAudioChunks(
 	outputChan <-chan stage.StreamElement,
 ) error {
 	// Start a goroutine to collect responses
+	// It exits when it sees EndOfStream (turn complete) rather than waiting for channel close
 	responseDone := make(chan error, 1)
 	go func() {
-		for elem := range outputChan {
-			if elem.Error != nil {
-				responseDone <- elem.Error
+		for {
+			select {
+			case <-ctx.Done():
+				responseDone <- ctx.Err()
 				return
+			case elem, ok := <-outputChan:
+				if !ok {
+					// Channel closed - session ended
+					responseDone <- nil
+					return
+				}
+				if elem.Error != nil {
+					responseDone <- elem.Error
+					return
+				}
+				// Check for turn completion (EndOfStream flag set by provider)
+				if elem.EndOfStream {
+					logger.Debug("Turn response complete", "hasText", elem.Text != nil)
+					responseDone <- nil
+					return
+				}
+				// Process response elements (text, audio)
+				// These are handled by the state store stage
 			}
-			// Process response elements (text, audio)
-			// These are handled by the state store stage
 		}
-		responseDone <- nil
 	}()
 
 	// Stream audio chunks
@@ -264,6 +281,15 @@ func (de *DuplexConversationExecutor) streamAudioChunks(
 		case <-ctx.Done():
 			return ctx.Err()
 		}
+	}
+
+	// Signal end of audio input for this turn
+	// This triggers mock sessions to emit their auto-response
+	endOfTurn := stage.StreamElement{EndOfStream: true}
+	select {
+	case inputChan <- endOfTurn:
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 
 	// Wait for response collection to complete
@@ -337,16 +363,33 @@ func (de *DuplexConversationExecutor) streamSelfPlayAudio(
 	outputChan <-chan stage.StreamElement,
 ) error {
 	// Start a goroutine to collect responses
+	// It exits when it sees EndOfStream (turn complete) rather than waiting for channel close
 	responseDone := make(chan error, 1)
 	go func() {
-		for elem := range outputChan {
-			if elem.Error != nil {
-				responseDone <- elem.Error
+		for {
+			select {
+			case <-ctx.Done():
+				responseDone <- ctx.Err()
 				return
+			case elem, ok := <-outputChan:
+				if !ok {
+					// Channel closed - session ended
+					responseDone <- nil
+					return
+				}
+				if elem.Error != nil {
+					responseDone <- elem.Error
+					return
+				}
+				// Check for turn completion (EndOfStream flag set by provider)
+				if elem.EndOfStream {
+					logger.Debug("Self-play turn response complete", "hasText", elem.Text != nil)
+					responseDone <- nil
+					return
+				}
+				// Process response elements
 			}
-			// Process response elements
 		}
-		responseDone <- nil
 	}()
 
 	// Stream audio in chunks
@@ -372,6 +415,15 @@ func (de *DuplexConversationExecutor) streamSelfPlayAudio(
 		case <-ctx.Done():
 			return ctx.Err()
 		}
+	}
+
+	// Signal end of audio input for this turn
+	// This triggers mock sessions to emit their auto-response
+	endOfTurn := stage.StreamElement{EndOfStream: true}
+	select {
+	case inputChan <- endOfTurn:
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 
 	// Wait for response collection to complete

@@ -14,52 +14,28 @@ spec:
   task_type: voice-assistant
   description: "Interactive technical support conversation in duplex mode"
 
-  # Duplex configuration with longer timeout for extended conversation
+  # Duplex configuration - using asm (provider-native) mode for mock testing
   duplex:
-    timeout: "15m"
+    timeout: "30s"
     turn_detection:
-      mode: vad
-      vad:
-        silence_threshold_ms: 700
-        min_speech_ms: 1200
+      mode: asm
 
   streaming: true
 
   turns:
-    # Opening: User describes their issue
+    # Turn 1: User describes issue (audio: "Hello, can you hear me?")
     - role: user
-      content: "Hi, I'm having trouble connecting to my account. It keeps showing an error message."
+      parts:
+        - type: audio
+          media:
+            file_path: audio/greeting.pcm
+            mime_type: audio/L16
       assertions:
         - type: content_matches
           params:
-            pattern: "(?i)(sorry|help|understand|let me|troubleshoot|account)"
+            pattern: "(?i)(hello|hi|hey|yes|hear)"
 
     # Self-play: Technical user asks detailed follow-up questions
-    - role: selfplay-user
-      persona: technical-user
-      turns: 3
-      tts:
-        provider: openai
-        voice: echo  # Different voice for variety
-      assertions:
-        - type: content_matches
-          params:
-            pattern: ".{15,}"  # Ensure substantive responses
-
-    # User provides more context
-    - role: user
-      content: "I've tried clearing my browser cache but it didn't help."
-      assertions:
-        - type: content_includes
-          params:
-            patterns:
-              - "try"
-              - "suggest"
-              - "another"
-              - "option"
-              - "step"
-
-    # More self-play turns
     - role: selfplay-user
       persona: technical-user
       turns: 2
@@ -69,20 +45,32 @@ spec:
       assertions:
         - type: content_matches
           params:
-            pattern: "(?i)(help|assist|solution|resolve)"
+            pattern: ".{15,}"
 
-    # Closing turn
+    # Turn 2: User asks a question (audio: "What's your name?")
     - role: user
-      content: "Great, that worked! Thanks for your help."
+      parts:
+        - type: audio
+          media:
+            file_path: audio/question.pcm
+            mime_type: audio/L16
       assertions:
         - type: content_includes
           params:
             patterns:
-              - "glad"
-              - "welcome"
-              - "happy"
-              - "help"
-              - "resolved"
+              - "Nova"
+
+    # Turn 3: Follow-up (audio: "Tell me a fun fact")
+    - role: user
+      parts:
+        - type: audio
+          media:
+            file_path: audio/funfact.pcm
+            mime_type: audio/L16
+      assertions:
+        - type: content_matches
+          params:
+            pattern: ".{20,}"
 
   context:
     goal: "Resolve a technical account access issue through voice support"

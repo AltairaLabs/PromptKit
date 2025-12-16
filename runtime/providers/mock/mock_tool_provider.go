@@ -22,24 +22,46 @@ type ToolProvider struct {
 // NewToolProvider creates a new mock provider with tool support and duplex streaming.
 // This uses default in-memory responses for backward compatibility.
 func NewToolProvider(id, model string, includeRawOutput bool, additionalConfig map[string]interface{}) *ToolProvider {
+	var streamingProvider *StreamingProvider
+
 	if additionalConfig != nil {
 		if mockConfigPath, ok := additionalConfig["mock_config"].(string); ok && mockConfigPath != "" {
 			// Create file-based repository and use ToolProvider for tool call simulation
 			repository, err := NewFileMockRepository(mockConfigPath)
 			if err != nil {
 				logger.Warn("failed to load mock config from %s: %w", mockConfigPath, err)
-				return &ToolProvider{
-					StreamingProvider: NewStreamingProvider(id, model, includeRawOutput),
-				}
+				streamingProvider = NewStreamingProvider(id, model, includeRawOutput)
+			} else {
+				streamingProvider = NewStreamingProviderWithRepository(id, model, includeRawOutput, repository)
 			}
-			return &ToolProvider{
-				StreamingProvider: NewStreamingProviderWithRepository(id, model, includeRawOutput, repository),
-			}
+		} else {
+			streamingProvider = NewStreamingProvider(id, model, includeRawOutput)
 		}
+
+		// Configure auto-respond for duplex streaming tests
+		// Handle both bool and string "true" from YAML parsing
+		autoRespond := false
+		switch v := additionalConfig["auto_respond"].(type) {
+		case bool:
+			autoRespond = v
+		case string:
+			autoRespond = v == "true"
+		}
+
+		if autoRespond {
+			responseText := DefaultMockStreamingResponse
+			if text, ok := additionalConfig["response_text"].(string); ok && text != "" {
+				responseText = text
+			}
+			logger.Info("Mock provider: auto-respond enabled", "response_text", responseText)
+			streamingProvider.WithAutoRespond(responseText)
+		}
+	} else {
+		streamingProvider = NewStreamingProvider(id, model, includeRawOutput)
 	}
 
 	return &ToolProvider{
-		StreamingProvider: NewStreamingProvider(id, model, includeRawOutput),
+		StreamingProvider: streamingProvider,
 	}
 }
 

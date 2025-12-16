@@ -468,8 +468,24 @@ func (s *DuplexProviderStage) forwardInputElements(
 	}
 }
 
+// EndInputter is an optional interface for sessions that support explicit end-of-input signaling.
+// This is primarily used by mock sessions to trigger responses after all audio has been sent.
+type EndInputter interface {
+	EndInput()
+}
+
 // sendElementToSession sends a single element to the WebSocket session.
 func (s *DuplexProviderStage) sendElementToSession(ctx context.Context, elem *StreamElement) {
+	// Check for end of stream (end of turn input)
+	if elem.EndOfStream {
+		logger.Debug("DuplexProviderStage: end of stream signal received")
+		// Signal end of input to session if it supports it (for mock sessions)
+		if endInputter, ok := s.session.(EndInputter); ok {
+			endInputter.EndInput()
+		}
+		return
+	}
+
 	// Check for system prompt in metadata (sent once at the start)
 	if !s.systemPromptSent && elem.Metadata != nil {
 		if systemPrompt, ok := elem.Metadata["system_prompt"].(string); ok && systemPrompt != "" {
@@ -607,6 +623,11 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 	// Add metadata
 	if chunk.Metadata != nil {
 		elem.Metadata = chunk.Metadata
+	}
+
+	// Mark as end of stream (turn complete) when finish reason is present
+	if chunk.FinishReason != nil && *chunk.FinishReason != "" {
+		elem.EndOfStream = true
 	}
 
 	return elem

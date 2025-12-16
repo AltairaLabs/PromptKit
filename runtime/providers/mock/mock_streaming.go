@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -16,6 +17,9 @@ const (
 	fullHDWidth               = 1920
 	fullHDHeight              = 1080
 	errSessionClosed          = "session closed"
+
+	// DefaultMockStreamingResponse is the default response text for auto-respond mode.
+	DefaultMockStreamingResponse = "Mock streaming response"
 )
 
 // MockStreamSession implements providers.StreamInputSession for testing duplex scenarios.
@@ -31,11 +35,13 @@ type MockStreamSession struct {
 	mu          sync.Mutex
 
 	// Configurable behavior for testing
-	sendChunkErr   error
-	sendTextErr    error
-	autoRespond    bool                    // If true, automatically send responses when receiving input
-	responseText   string                  // Text to auto-respond with
-	responseChunks []providers.StreamChunk // Custom response chunks to emit
+	sendChunkErr       error
+	sendTextErr        error
+	autoRespond        bool                    // If true, automatically send responses when receiving input
+	responseText       string                  // Text to auto-respond with
+	responseChunks     []providers.StreamChunk // Custom response chunks to emit
+	closeAfterResponse bool                    // If true, close response channel after auto-responding
+	responseCount      int                     // Track number of responses sent
 }
 
 // NewMockStreamSession creates a new mock stream session.
@@ -51,9 +57,17 @@ func NewMockStreamSession() *MockStreamSession {
 }
 
 // WithAutoRespond configures the session to automatically respond to inputs.
+// The session stays open to handle multiple turns - call Close() when done.
 func (m *MockStreamSession) WithAutoRespond(text string) *MockStreamSession {
 	m.autoRespond = true
 	m.responseText = text
+	m.closeAfterResponse = false // Keep session open for multiple turns
+	return m
+}
+
+// WithCloseAfterResponse configures whether to close the response channel after auto-responding.
+func (m *MockStreamSession) WithCloseAfterResponse(closeAfter bool) *MockStreamSession {
+	m.closeAfterResponse = closeAfter
 	return m
 }
 
@@ -95,9 +109,9 @@ func (m *MockStreamSession) SendChunk(ctx context.Context, chunk *types.MediaChu
 
 	m.chunks = append(m.chunks, chunk)
 
-	if m.autoRespond {
-		m.emitAutoResponse()
-	}
+	// Don't log every chunk - too noisy
+	// Only respond once per turn (not on every chunk)
+	// We respond when EndInput is called, not on each SendChunk
 
 	return nil
 }
@@ -173,6 +187,19 @@ func (m *MockStreamSession) Done() <-chan struct{} {
 	return m.doneCh
 }
 
+// EndInput signals the end of input for the current turn.
+// For mock sessions with auto-respond enabled, this triggers the response.
+func (m *MockStreamSession) EndInput() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.autoRespond && !m.closeCalled {
+		logger.Debug("MockStreamSession.EndInput: emitting auto-response",
+			"chunks_received", len(m.chunks))
+		m.emitAutoResponse()
+	}
+}
+
 // EmitChunk sends a response chunk (for testing).
 func (m *MockStreamSession) EmitChunk(chunk *providers.StreamChunk) {
 	m.mu.Lock()
@@ -218,6 +245,15 @@ func (m *MockStreamSession) emitAutoResponse() {
 			// Channel full or closed - this shouldn't happen with buffered channel
 		}
 	}
+
+	m.responseCount++
+
+	// Close the response channel if configured - allows duplex tests to complete
+	if m.closeAfterResponse && !m.closeCalled {
+		m.closeCalled = true
+		close(m.doneCh)
+		close(m.responses)
+	}
 }
 
 // StreamingProvider extends Provider with StreamInputSupport for duplex testing.
@@ -226,6 +262,10 @@ type StreamingProvider struct {
 	sessions         []*MockStreamSession // Track all created sessions
 	createSessionErr error
 	mu               sync.Mutex
+
+	// Auto-respond configuration for duplex testing
+	autoRespond  bool   // If true, sessions auto-respond to inputs
+	responseText string // Text to respond with
 }
 
 // NewStreamingProvider creates a mock provider with duplex streaming support.
@@ -254,6 +294,13 @@ func (p *StreamingProvider) WithCreateSessionError(err error) *StreamingProvider
 	return p
 }
 
+// WithAutoRespond configures the provider to create sessions that auto-respond to inputs.
+func (p *StreamingProvider) WithAutoRespond(responseText string) *StreamingProvider {
+	p.autoRespond = true
+	p.responseText = responseText
+	return p
+}
+
 // CreateStreamSession implements StreamInputSupport.CreateStreamSession.
 func (p *StreamingProvider) CreateStreamSession(
 	ctx context.Context,
@@ -262,8 +309,17 @@ func (p *StreamingProvider) CreateStreamSession(
 	if p.createSessionErr != nil {
 		return nil, p.createSessionErr
 	}
-	// Create a new session and track it (no auto-respond by default for testing)
+	// Create a new session and track it
 	session := NewMockStreamSession()
+
+	// Configure auto-respond if enabled on the provider
+	if p.autoRespond {
+		responseText := p.responseText
+		if responseText == "" {
+			responseText = DefaultMockStreamingResponse
+		}
+		session.WithAutoRespond(responseText)
+	}
 
 	p.mu.Lock()
 	p.sessions = append(p.sessions, session)

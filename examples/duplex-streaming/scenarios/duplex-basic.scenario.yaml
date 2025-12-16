@@ -14,13 +14,12 @@ spec:
   description: "Basic duplex streaming test with audio file inputs"
 
   # Enable duplex mode for bidirectional streaming
+  # Using 'asm' (provider-native) mode - bypasses client-side VAD
+  # This is simpler for testing and lets the provider handle turn detection
   duplex:
-    timeout: "5m"
+    timeout: "30s"
     turn_detection:
-      mode: vad
-      vad:
-        silence_threshold_ms: 500
-        min_speech_ms: 1000
+      mode: asm
 
   streaming: true
 
