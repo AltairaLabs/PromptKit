@@ -130,6 +130,79 @@ func TestTemplateStage_NoVariablesInMetadata(t *testing.T) {
 	assert.Equal(t, "Hello {{name}}!", result.Metadata["system_prompt"])
 }
 
+func TestTemplateStage_NilMessage(t *testing.T) {
+	stage := NewTemplateStage()
+
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+
+	// Element with variables but no message
+	elem := StreamElement{
+		Metadata: map[string]interface{}{
+			"variables":     map[string]string{"name": "Test"},
+			"system_prompt": "Hello {{name}}!",
+		},
+		// No Message field
+	}
+	input <- elem
+	close(input)
+
+	err := stage.Process(context.Background(), input, output)
+	require.NoError(t, err)
+
+	result := <-output
+	assert.Equal(t, "Hello Test!", result.Metadata["system_prompt"])
+	assert.Nil(t, result.Message)
+}
+
+func TestTemplateStage_MessageWithNoParts(t *testing.T) {
+	stage := NewTemplateStage()
+
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+
+	// Message with content but no parts
+	msg := &types.Message{
+		Role:    "user",
+		Content: "Hello {{name}}!",
+		Parts:   nil, // No parts
+	}
+	elem := NewMessageElement(msg)
+	elem.Metadata["variables"] = map[string]string{"name": "World"}
+	input <- elem
+	close(input)
+
+	err := stage.Process(context.Background(), input, output)
+	require.NoError(t, err)
+
+	result := <-output
+	assert.Equal(t, "Hello World!", result.Message.Content)
+}
+
+func TestTemplateStage_ContextCancellation(t *testing.T) {
+	stage := NewTemplateStage()
+
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement) // Unbuffered, so send will block
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	elem := StreamElement{
+		Metadata: map[string]interface{}{
+			"variables": map[string]string{"name": "Test"},
+		},
+	}
+	input <- elem
+	close(input)
+
+	// Cancel context - the Process should return context.Canceled when trying to send
+	cancel()
+
+	err := stage.Process(ctx, input, output)
+	assert.Error(t, err)
+	assert.Equal(t, context.Canceled, err)
+}
+
 func TestContextBuilderStage_PassThroughWhenUnderBudget(t *testing.T) {
 	policy := &ContextBuilderPolicy{
 		TokenBudget:      1000,
@@ -436,6 +509,72 @@ func TestPipelineBuilder_Clone(t *testing.T) {
 
 	assert.NotNil(t, cloned)
 	// The clone should be independent
+}
+
+func TestPipelineBuilder_Validate_CycleDetection(t *testing.T) {
+	// Test cycle detection with a simple cycle: A -> B -> C -> A
+	// Note: NewDebugStage adds "debug_" prefix to stage names
+	stageA := NewDebugStage("a")
+	stageB := NewDebugStage("b")
+	stageC := NewDebugStage("c")
+
+	builder := NewPipelineBuilder().
+		AddStage(stageA).
+		AddStage(stageB).
+		AddStage(stageC).
+		Branch("debug_a", "debug_b").
+		Branch("debug_b", "debug_c").
+		Branch("debug_c", "debug_a") // Creates a cycle
+
+	_, err := builder.Build()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cyclic")
+}
+
+func TestPipelineBuilder_Validate_NoCycle(t *testing.T) {
+	// Test valid DAG: A -> B -> C (no cycle)
+	stageA := NewDebugStage("a")
+	stageB := NewDebugStage("b")
+	stageC := NewDebugStage("c")
+
+	builder := NewPipelineBuilder().
+		AddStage(stageA).
+		AddStage(stageB).
+		AddStage(stageC).
+		Branch("debug_a", "debug_b").
+		Branch("debug_b", "debug_c")
+
+	pipeline, err := builder.Build()
+	assert.NoError(t, err)
+	assert.NotNil(t, pipeline)
+}
+
+func TestPipelineBuilder_Validate_DisconnectedComponents(t *testing.T) {
+	// Test with disconnected components (should still work)
+	stageA := NewDebugStage("a")
+	stageB := NewDebugStage("b")
+
+	builder := NewPipelineBuilder().
+		AddStage(stageA).
+		AddStage(stageB)
+	// No edges between them
+
+	pipeline, err := builder.Build()
+	assert.NoError(t, err)
+	assert.NotNil(t, pipeline)
+}
+
+func TestPipelineBuilder_Validate_SelfLoop(t *testing.T) {
+	// Test self-loop detection: A -> A
+	stageA := NewDebugStage("a")
+
+	builder := NewPipelineBuilder().
+		AddStage(stageA).
+		Branch("debug_a", "debug_a") // Self-loop
+
+	_, err := builder.Build()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cyclic")
 }
 
 // =============================================================================
