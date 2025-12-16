@@ -1,0 +1,58 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/scenario.json
+#
+# Basic Duplex Streaming Scenario
+# Demonstrates bidirectional audio with scripted user turns.
+#
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: duplex-basic
+
+spec:
+  id: duplex-basic
+  task_type: voice-assistant
+  description: "Basic duplex streaming test with scripted turns"
+
+  # Enable duplex mode for bidirectional streaming
+  duplex:
+    timeout: "5m"
+    turn_detection:
+      mode: vad  # Voice activity detection
+      vad:
+        silence_threshold_ms: 500
+        min_speech_ms: 1000
+
+  # Streaming is implicit in duplex mode
+  streaming: true
+
+  # Conversation turns
+  turns:
+    # Turn 1: Simple greeting
+    - role: user
+      content: "Hello, can you hear me?"
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(hello|hi|hey|yes|hear)"
+
+    # Turn 2: Basic question
+    - role: user
+      content: "What's your name and what can you help me with?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "Nova"  # Assistant name from prompt
+
+    # Turn 3: Follow-up
+    - role: user
+      content: "Can you tell me a quick fun fact?"
+      assertions:
+        - type: content_matches
+          params:
+            pattern: ".{20,}"  # At least 20 characters (a real response)
+
+  # Scenario context
+  context:
+    goal: "Test basic duplex streaming functionality"
+    timeline: "immediate"

@@ -1,0 +1,66 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/scenario.json
+#
+# Duplex Self-Play Scenario
+# LLM generates user messages converted to audio via TTS
+# for fully automated audio conversation testing.
+#
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: duplex-selfplay
+
+spec:
+  id: duplex-selfplay
+  task_type: voice-assistant
+  description: "Duplex streaming with TTS-powered self-play"
+
+  # Enable duplex mode
+  duplex:
+    timeout: "10m"
+    turn_detection:
+      mode: vad
+      vad:
+        silence_threshold_ms: 600
+        min_speech_ms: 800
+
+  streaming: true
+
+  # Conversation turns with self-play
+  turns:
+    # Initial scripted turn to start the conversation
+    - role: user
+      content: "Hi there! I'm interested in learning about your services."
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(help|assist|service|offer)"
+
+    # Self-play turn: LLM generates follow-up questions
+    # TTS converts the generated text to audio for duplex input
+    - role: selfplay-user
+      persona: curious-customer
+      turns: 2  # Generate 2 follow-up turns
+      tts:
+        provider: openai
+        voice: alloy
+      assertions:
+        - type: content_matches
+          params:
+            pattern: ".{10,}"  # Ensure meaningful responses
+
+    # Another scripted turn
+    - role: user
+      content: "That's really helpful, thank you!"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "welcome"
+              - "glad"
+              - "happy"
+              - "help"
+
+  context:
+    goal: "Test self-play with TTS audio generation in duplex mode"
+    user_type: "potential customer"
+    conversation_style: "inquisitive"

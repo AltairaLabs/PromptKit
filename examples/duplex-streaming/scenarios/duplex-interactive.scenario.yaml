@@ -1,0 +1,95 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/scenario.json
+#
+# Interactive Duplex Scenario
+# Technical support conversation with extended self-play
+# and comprehensive assertion testing.
+#
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: duplex-interactive
+
+spec:
+  id: duplex-interactive
+  task_type: voice-assistant
+  description: "Interactive technical support conversation in duplex mode"
+
+  # Duplex configuration with longer timeout for extended conversation
+  duplex:
+    timeout: "15m"
+    turn_detection:
+      mode: vad
+      vad:
+        silence_threshold_ms: 700
+        min_speech_ms: 1200
+
+  streaming: true
+
+  turns:
+    # Opening: User describes their issue
+    - role: user
+      content: "Hi, I'm having trouble connecting to my account. It keeps showing an error message."
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(sorry|help|understand|let me|troubleshoot|account)"
+
+    # Self-play: Technical user asks detailed follow-up questions
+    - role: selfplay-user
+      persona: technical-user
+      turns: 3
+      tts:
+        provider: openai
+        voice: echo  # Different voice for variety
+      assertions:
+        - type: content_matches
+          params:
+            pattern: ".{15,}"  # Ensure substantive responses
+
+    # User provides more context
+    - role: user
+      content: "I've tried clearing my browser cache but it didn't help."
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "try"
+              - "suggest"
+              - "another"
+              - "option"
+              - "step"
+
+    # More self-play turns
+    - role: selfplay-user
+      persona: technical-user
+      turns: 2
+      tts:
+        provider: openai
+        voice: echo
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(help|assist|solution|resolve)"
+
+    # Closing turn
+    - role: user
+      content: "Great, that worked! Thanks for your help."
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "glad"
+              - "welcome"
+              - "happy"
+              - "help"
+              - "resolved"
+
+  context:
+    goal: "Resolve a technical account access issue through voice support"
+    user_expertise: "moderate technical knowledge"
+    issue_type: "account access"
+    expected_resolution: "successful login"
+
+  # Constraints for the conversation
+  constraints:
+    max_sentences: 5  # Keep responses concise for voice

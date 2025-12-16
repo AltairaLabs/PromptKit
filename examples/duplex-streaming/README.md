@@ -1,0 +1,247 @@
+# Duplex Streaming Example
+
+This example demonstrates Arena's **duplex streaming** capabilities for testing real-time, bidirectional audio conversations with LLMs.
+
+## What is Duplex Streaming?
+
+Duplex streaming enables simultaneous input and output audio streams, allowing for natural voice conversations where:
+
+- **User speaks** → Audio is streamed to the LLM in real-time
+- **LLM responds** → Audio is streamed back while the user might still be speaking
+- **Natural interruptions** → The system handles turn-taking using voice activity detection (VAD)
+
+This is ideal for testing voice assistants, customer support bots, and any real-time conversational AI.
+
+## Features Demonstrated
+
+| Feature | Description |
+|---------|-------------|
+| **Duplex Mode** | Bidirectional audio streaming with configurable timeouts |
+| **VAD Turn Detection** | Voice activity detection for natural conversation flow |
+| **Self-Play with TTS** | LLM-generated user messages converted to audio via TTS |
+| **Multiple Providers** | Test across Gemini 2.0 Flash and OpenAI GPT-4o Realtime |
+| **Mock Mode** | CI-friendly testing without API keys |
+
+## Prerequisites
+
+### For Local Testing (Real Providers)
+
+```bash
+# Set your API keys
+export GEMINI_API_KEY="your-gemini-api-key"
+export OPENAI_API_KEY="your-openai-api-key"
+```
+
+### For CI Testing (Mock Provider)
+
+No API keys required - uses deterministic mock responses.
+
+## Quick Start
+
+### Run with Mock Provider (CI Mode)
+
+```bash
+# Navigate to the example directory
+cd examples/duplex-streaming
+
+# Run all scenarios with mock provider
+promptarena run --provider mock-duplex
+
+# Run a specific scenario
+promptarena run --scenario duplex-basic --provider mock-duplex
+```
+
+### Run with Real Providers (Local Testing)
+
+```bash
+# Run with Gemini 2.0 Flash (requires GEMINI_API_KEY)
+promptarena run --provider gemini-2-flash
+
+# Run with OpenAI GPT-4o Realtime (requires OPENAI_API_KEY)
+promptarena run --provider openai-gpt4o-realtime
+
+# Run specific scenario
+promptarena run --scenario duplex-selfplay --provider gemini-2-flash
+```
+
+## Scenarios
+
+### 1. `duplex-basic` - Basic Duplex Streaming
+
+Simple scripted conversation to verify duplex functionality:
+- 3 scripted user turns
+- Tests greeting, Q&A, and follow-up
+- Validates response patterns
+
+```yaml
+duplex:
+  timeout: "5m"
+  turn_detection:
+    mode: vad
+    vad:
+      silence_threshold_ms: 500
+      min_speech_ms: 1000
+```
+
+### 2. `duplex-selfplay` - Self-Play with TTS
+
+Demonstrates automated conversation testing using self-play:
+- LLM generates user messages
+- TTS converts generated text to audio
+- Audio is fed back into the duplex stream
+
+```yaml
+turns:
+  - role: selfplay-user
+    persona: curious-customer
+    turns: 2
+    tts:
+      provider: openai
+      voice: alloy
+```
+
+### 3. `duplex-interactive` - Interactive Technical Support
+
+Extended conversation simulating a support call:
+- Multiple self-play turns with different personas
+- Comprehensive assertion testing
+- Tests natural conversation flow
+
+## Configuration Reference
+
+### Duplex Configuration
+
+```yaml
+spec:
+  duplex:
+    # Maximum session duration
+    timeout: "10m"
+
+    # Turn detection settings
+    turn_detection:
+      mode: vad  # "vad" or "asm" (provider-native)
+      vad:
+        # Silence duration to trigger turn end (ms)
+        silence_threshold_ms: 500
+        # Minimum speech before silence counts (ms)
+        min_speech_ms: 1000
+```
+
+### TTS Configuration (Self-Play)
+
+```yaml
+turns:
+  - role: selfplay-user
+    persona: curious-customer
+    tts:
+      provider: openai    # "openai", "elevenlabs", "cartesia"
+      voice: alloy        # Provider-specific voice ID
+```
+
+### Available TTS Voices
+
+| Provider | Voices |
+|----------|--------|
+| OpenAI | `alloy`, `echo`, `fable`, `onyx`, `nova`, `shimmer` |
+| ElevenLabs | Use voice IDs from your ElevenLabs account |
+| Cartesia | Use voice IDs from your Cartesia account |
+
+## File Structure
+
+```
+duplex-streaming/
+├── config.arena.yaml           # Main arena configuration
+├── README.md                   # This file
+├── mock-responses.yaml         # Mock responses for CI testing
+├── providers/
+│   ├── gemini-2-flash.provider.yaml
+│   ├── openai-gpt4o-realtime.provider.yaml
+│   └── mock-duplex.provider.yaml
+├── scenarios/
+│   ├── duplex-basic.scenario.yaml
+│   ├── duplex-selfplay.scenario.yaml
+│   └── duplex-interactive.scenario.yaml
+├── prompts/
+│   └── voice-assistant.prompt.yaml
+├── personas/
+│   ├── curious-customer.persona.yaml
+│   └── technical-user.persona.yaml
+└── out/                        # Test results output
+```
+
+## Current Status
+
+**Note:** Duplex streaming requires providers that support bidirectional audio streaming.
+
+### Provider Requirements
+
+Duplex mode requires providers to implement `StreamInputSupport` interface, which enables:
+- Streaming audio input to the model
+- Streaming audio output from the model
+- Bidirectional, real-time conversation
+
+**Supported providers:**
+- Gemini 2.0 Flash (with audio enabled)
+- OpenAI GPT-4o Realtime
+
+**Not supported (by design):**
+- Mock provider - does not implement bidirectional streaming
+- Standard text-only providers
+
+When running with unsupported providers, you'll see:
+```
+Error: provider *mock.ToolProvider does not support streaming input
+```
+
+## CI/CD Integration
+
+### Using Mock Provider
+
+For CI pipelines, schema validation can be run without API keys:
+
+```yaml
+# GitHub Actions example - validate configuration
+- name: Validate Duplex Streaming Config
+  run: |
+    cd examples/duplex-streaming
+    promptarena validate config.arena.yaml
+```
+
+Full duplex execution in CI requires mocking the streaming providers.
+
+### Future: Mocking TTS/STT
+
+For full audio pipeline testing in CI, consider:
+
+1. **Mock TTS Service**: Returns pre-recorded audio files
+2. **Mock STT Service**: Returns transcriptions from audio
+3. **Audio Fixtures**: Pre-recorded test audio files
+
+This would enable end-to-end audio testing without external API dependencies.
+
+## Troubleshooting
+
+### "Provider does not support streaming"
+
+Ensure you're using a provider that supports duplex mode:
+- Gemini 2.0 Flash with audio enabled
+- OpenAI GPT-4o Realtime
+- Mock provider with `simulate_streaming: true`
+
+### "TTS provider not configured"
+
+For self-play scenarios with TTS, ensure:
+1. The TTS provider API key is set (e.g., `OPENAI_API_KEY`)
+2. The voice ID is valid for the chosen provider
+
+### "VAD timeout"
+
+If turn detection isn't working:
+- Increase `silence_threshold_ms` for longer pauses
+- Decrease `min_speech_ms` if speech is being cut off
+
+## Learn More
+
+- [Arena Documentation](https://docs.promptkit.altairalabs.ai/arena)
+- [Duplex Streaming Guide](https://docs.promptkit.altairalabs.ai/arena/duplex)
+- [Self-Play Testing](https://docs.promptkit.altairalabs.ai/arena/self-play)

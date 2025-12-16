@@ -1,0 +1,56 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/arena.json
+#
+# Duplex Streaming Demo
+# Demonstrates Arena's duplex streaming capabilities for real-time,
+# bidirectional audio conversations. This example showcases:
+# - Duplex mode with continuous audio streaming
+# - Self-play with TTS (text-to-speech) integration
+# - Voice activity detection (VAD) for turn detection
+# - Real-time conversation testing
+#
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: duplex-streaming-demo
+
+spec:
+  # Prompt configurations
+  prompt_configs:
+    - id: voice-assistant
+      file: prompts/voice-assistant.prompt.yaml
+
+  # Provider configurations
+  providers:
+    # Real providers for local testing (require API keys)
+    - file: providers/gemini-2-flash.provider.yaml
+    - file: providers/openai-gpt4o-realtime.provider.yaml
+    # Mock provider for CI testing
+    - file: providers/mock-duplex.provider.yaml
+
+  # Scenario definitions
+  scenarios:
+    - file: scenarios/duplex-basic.scenario.yaml
+    - file: scenarios/duplex-selfplay.scenario.yaml
+    - file: scenarios/duplex-interactive.scenario.yaml
+
+  # Self-play configuration for simulated conversations
+  self_play:
+    enabled: true
+    personas:
+      - file: personas/curious-customer.persona.yaml
+      - file: personas/technical-user.persona.yaml
+    roles:
+      - id: selfplay-user
+        provider: mock-duplex  # Use mock for CI, switch to real provider for local testing
+
+  # Default settings
+  defaults:
+    temperature: 0.7
+    max_tokens: 1000
+    seed: 42
+    concurrency: 1  # Duplex scenarios should run sequentially
+    output:
+      dir: out
+      formats:
+        - json
+        - html
