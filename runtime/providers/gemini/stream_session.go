@@ -269,6 +269,14 @@ func (s *StreamSession) CompleteTurn(ctx context.Context) error {
 	return s.ws.Send(msg)
 }
 
+// EndInput implements the EndInputter interface expected by DuplexProviderStage.
+// It signals that the user's input turn is complete and the model should respond.
+func (s *StreamSession) EndInput() {
+	if err := s.CompleteTurn(s.ctx); err != nil {
+		logger.Error("EndInput: failed to complete turn", "error", err)
+	}
+}
+
 // Response returns the channel for receiving responses
 func (s *StreamSession) Response() <-chan providers.StreamChunk {
 	return s.responseCh

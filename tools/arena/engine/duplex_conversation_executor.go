@@ -103,8 +103,9 @@ func (de *DuplexConversationExecutor) buildSessionConfig(
 			Type:       types.ContentTypeAudio,
 			ChunkSize:  defaultAudioChunkSize,
 			SampleRate: defaultSampleRate,
-			Encoding:   "pcm",
+			Encoding:   "pcm_linear16",
 			Channels:   1,
+			BitDepth:   16, // Required for Gemini Live API
 		},
 	}
 
