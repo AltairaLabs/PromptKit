@@ -39,7 +39,7 @@ func NewDefaultConversationExecutor(
 	selfPlayExecutor turnexecutors.TurnExecutor,
 	selfPlayRegistry *selfplay.Registry,
 	promptRegistry *prompt.Registry,
-) ConversationExecutor {
+) *DefaultConversationExecutor {
 	return &DefaultConversationExecutor{
 		scriptedExecutor: scriptedExecutor,
 		selfPlayExecutor: selfPlayExecutor,
