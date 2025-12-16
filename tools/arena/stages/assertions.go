@@ -81,9 +81,15 @@ func (s *ArenaAssertionStage) Process(
 		}
 	}
 
-	// Return validation errors if any occurred
+	// Emit error element if validation failed (pipeline collects errors from elements)
 	if len(validationErrors) > 0 {
-		return fmt.Errorf("validation failed: %v", validationErrors)
+		validationErr := fmt.Errorf("validation failed: %v", validationErrors)
+		select {
+		case output <- stage.NewErrorElement(validationErr):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		return validationErr
 	}
 
 	return nil

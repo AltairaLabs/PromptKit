@@ -322,26 +322,26 @@ func (e *ScriptedExecutor) forwardStageElements(
 			continue
 		}
 
-		// Handle streaming chunks (from ProviderStage) - no Message, just delta in metadata
-		if elem.Metadata != nil {
-			if delta, ok := elem.Metadata["delta"].(string); ok && delta != "" {
-				var finishReason *string
+		// Handle streaming chunks (from ProviderStage) - delta is in elem.Text
+		if elem.Text != nil && *elem.Text != "" {
+			var finishReason *string
+			var tokenCount int
+
+			if elem.Metadata != nil {
 				if fr, ok := elem.Metadata["finish_reason"].(string); ok {
 					finishReason = &fr
 				}
-
-				var tokenCount int
 				if tc, ok := elem.Metadata["token_count"].(int); ok {
 					tokenCount = tc
 				}
+			}
 
-				outChan <- MessageStreamChunk{
-					Messages:     messages,
-					Delta:        delta,
-					MessageIndex: assistantIndex,
-					TokenCount:   tokenCount,
-					FinishReason: finishReason,
-				}
+			outChan <- MessageStreamChunk{
+				Messages:     messages,
+				Delta:        *elem.Text,
+				MessageIndex: assistantIndex,
+				TokenCount:   tokenCount,
+				FinishReason: finishReason,
 			}
 		}
 	}
