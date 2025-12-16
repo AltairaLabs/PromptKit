@@ -11,6 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
@@ -136,7 +137,28 @@ func (de *DuplexConversationExecutor) buildDuplexPipeline(
 	// Add duplex provider stage
 	stages = append(stages, stage.NewDuplexProviderStage(session))
 
+	// Add state store save stage to capture conversation messages
+	if req.StateStoreConfig != nil && req.StateStoreConfig.Store != nil {
+		storeConfig := de.buildPipelineStateStoreConfig(req)
+		stages = append(stages, stage.NewStateStoreSaveStage(storeConfig))
+	}
+
 	return builder.Chain(stages...).Build()
+}
+
+// buildPipelineStateStoreConfig converts engine StateStoreConfig to pipeline StateStoreConfig.
+func (de *DuplexConversationExecutor) buildPipelineStateStoreConfig(
+	req *ConversationRequest,
+) *pipeline.StateStoreConfig {
+	if req.StateStoreConfig == nil {
+		return nil
+	}
+	return &pipeline.StateStoreConfig{
+		Store:          req.StateStoreConfig.Store,
+		ConversationID: req.ConversationID,
+		UserID:         req.StateStoreConfig.UserID,
+		Metadata:       req.StateStoreConfig.Metadata,
+	}
 }
 
 // processDuplexTurns processes each turn in the scenario through the duplex pipeline.
@@ -217,6 +239,31 @@ func (de *DuplexConversationExecutor) streamAudioTurn(
 		return fmt.Errorf("failed to create audio source: %w", err)
 	}
 	defer source.Close()
+
+	// Create user message element to capture in state store
+	// This records that user audio was sent
+	audioPath := audioPart.Media.FilePath
+	mimeType := audioPart.Media.MIMEType
+	userMsg := &types.Message{
+		Role: "user",
+		Parts: []types.ContentPart{
+			{
+				Type: types.ContentTypeAudio,
+				Media: &types.MediaContent{
+					FilePath: &audioPath,
+					MIMEType: mimeType,
+				},
+			},
+		},
+	}
+
+	// Send user message to pipeline for state store capture
+	userMsgElem := stage.NewMessageElement(userMsg)
+	select {
+	case inputChan <- userMsgElem:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 
 	// Stream audio chunks to pipeline
 	return de.streamAudioChunks(ctx, source, inputChan, outputChan)

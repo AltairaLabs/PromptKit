@@ -421,7 +421,8 @@ func (s *DuplexProviderStage) Process(
 	inputDone := make(chan error, 1)
 
 	// Start input forwarding goroutine
-	go s.forwardInputElements(inputCtx, input, inputDone)
+	// Pass output channel so Message elements can be forwarded for state store capture
+	go s.forwardInputElements(inputCtx, input, output, inputDone)
 
 	// Forward responses from session to output (blocks until complete)
 	responseErr := s.forwardResponseElements(ctx, output)
@@ -447,9 +448,11 @@ func (s *DuplexProviderStage) Process(
 }
 
 // forwardInputElements forwards elements from input channel to WebSocket session.
+// It also sends Message elements to the output channel for state store capture.
 func (s *DuplexProviderStage) forwardInputElements(
 	ctx context.Context,
 	input <-chan StreamElement,
+	output chan<- StreamElement,
 	done chan error,
 ) {
 	for {
@@ -463,6 +466,19 @@ func (s *DuplexProviderStage) forwardInputElements(
 				done <- nil
 				return
 			}
+
+			// Forward Message elements to output for state store capture
+			// These are user messages that need to be recorded in conversation history
+			if elem.Message != nil {
+				logger.Debug("DuplexProviderStage: forwarding user message to output", "role", elem.Message.Role)
+				select {
+				case output <- elem:
+				case <-ctx.Done():
+					done <- ctx.Err()
+					return
+				}
+			}
+
 			s.sendElementToSession(ctx, &elem)
 		}
 	}
@@ -601,12 +617,26 @@ func (s *DuplexProviderStage) handleResponseChunk(
 }
 
 // chunkToElement converts a StreamChunk to a StreamElement.
+// Creates a Message with role="assistant" for text responses to enable state store saving.
 func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) StreamElement {
 	elem := StreamElement{}
 
 	// Add text if present
 	if chunk.Content != "" {
 		elem.Text = &chunk.Content
+
+		// Create Message for state store saving
+		// Only create message on final chunk (with finish reason) to avoid duplicates
+		if chunk.FinishReason != nil && *chunk.FinishReason != "" {
+			elem.Message = &types.Message{
+				Role:    "assistant",
+				Content: chunk.Content,
+				Parts: []types.ContentPart{
+					{Text: &chunk.Content},
+				},
+				CostInfo: chunk.CostInfo,
+			}
+		}
 	}
 
 	// Add audio if present
