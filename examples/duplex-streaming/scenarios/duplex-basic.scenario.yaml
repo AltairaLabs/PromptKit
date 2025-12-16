@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/scenario.json
 #
 # Basic Duplex Streaming Scenario
-# Demonstrates bidirectional audio with scripted user turns.
+# Demonstrates bidirectional audio with audio file inputs.
 #
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Scenario
@@ -11,48 +11,61 @@ metadata:
 spec:
   id: duplex-basic
   task_type: voice-assistant
-  description: "Basic duplex streaming test with scripted turns"
+  description: "Basic duplex streaming test with audio file inputs"
 
   # Enable duplex mode for bidirectional streaming
   duplex:
     timeout: "5m"
     turn_detection:
-      mode: vad  # Voice activity detection
+      mode: vad
       vad:
         silence_threshold_ms: 500
         min_speech_ms: 1000
 
-  # Streaming is implicit in duplex mode
   streaming: true
 
-  # Conversation turns
+  # Conversation turns using audio files
   turns:
-    # Turn 1: Simple greeting
+    # Turn 1: Greeting - audio from file
     - role: user
       content: "Hello, can you hear me?"
+      parts:
+        - type: audio
+          media:
+            file_path: audio/greeting.pcm
+            mime_type: audio/L16
       assertions:
         - type: content_matches
           params:
             pattern: "(?i)(hello|hi|hey|yes|hear)"
 
-    # Turn 2: Basic question
+    # Turn 2: Basic question - audio from file
     - role: user
       content: "What's your name and what can you help me with?"
+      parts:
+        - type: audio
+          media:
+            file_path: audio/question.pcm
+            mime_type: audio/L16
       assertions:
         - type: content_includes
           params:
             patterns:
-              - "Nova"  # Assistant name from prompt
+              - "Nova"
 
-    # Turn 3: Follow-up
+    # Turn 3: Follow-up - audio from file
     - role: user
       content: "Can you tell me a quick fun fact?"
+      parts:
+        - type: audio
+          media:
+            file_path: audio/funfact.pcm
+            mime_type: audio/L16
       assertions:
         - type: content_matches
           params:
-            pattern: ".{20,}"  # At least 20 characters (a real response)
+            pattern: ".{20,}"
 
-  # Scenario context
   context:
-    goal: "Test basic duplex streaming functionality"
+    goal: "Test basic duplex streaming functionality with audio inputs"
     timeline: "immediate"

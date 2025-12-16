@@ -146,6 +146,28 @@ turns:
 | ElevenLabs | Use voice IDs from your ElevenLabs account |
 | Cartesia | Use voice IDs from your Cartesia account |
 
+### Audio File Input
+
+For testing with pre-recorded audio files, use the `parts` field with media content:
+
+```yaml
+turns:
+  - role: user
+    content: "Hello, can you hear me?"  # Transcript for logging
+    parts:
+      - type: audio
+        media:
+          file_path: audio/greeting.pcm
+          mime_type: audio/L16
+```
+
+The `content` field serves as a transcript for logging and verification, while the `parts` field contains the actual audio to stream.
+
+**Supported audio formats:**
+- PCM (audio/L16) - Raw 16-bit PCM at 16kHz mono
+- Opus (audio/opus) - Compressed audio
+- WAV (audio/wav) - Uncompressed WAV files
+
 ## File Structure
 
 ```
@@ -153,6 +175,10 @@ duplex-streaming/
 ├── config.arena.yaml           # Main arena configuration
 ├── README.md                   # This file
 ├── mock-responses.yaml         # Mock responses for CI testing
+├── audio/                      # Pre-recorded audio fixtures
+│   ├── greeting.pcm            # "Hello, can you hear me?"
+│   ├── question.pcm            # "What's your name?"
+│   └── funfact.pcm             # "Tell me a fun fact"
 ├── providers/
 │   ├── gemini-2-flash.provider.yaml
 │   ├── openai-gpt4o-realtime.provider.yaml
@@ -171,7 +197,7 @@ duplex-streaming/
 
 ## Current Status
 
-**Note:** Duplex streaming requires providers that support bidirectional audio streaming.
+Duplex streaming requires providers that support bidirectional audio streaming.
 
 ### Provider Requirements
 
@@ -183,21 +209,31 @@ Duplex mode requires providers to implement `StreamInputSupport` interface, whic
 **Supported providers:**
 - Gemini 2.0 Flash (with audio enabled)
 - OpenAI GPT-4o Realtime
+- Mock provider (for CI/testing)
 
-**Not supported (by design):**
-- Mock provider - does not implement bidirectional streaming
+**Not supported:**
 - Standard text-only providers
 
 When running with unsupported providers, you'll see:
 ```
-Error: provider *mock.ToolProvider does not support streaming input
+Error: provider does not support streaming input
 ```
 
 ## CI/CD Integration
 
 ### Using Mock Provider
 
-For CI pipelines, schema validation can be run without API keys:
+The mock provider fully supports duplex streaming, enabling CI testing without API keys:
+
+```yaml
+# GitHub Actions example - run duplex tests
+- name: Run Duplex Streaming Tests
+  run: |
+    cd examples/duplex-streaming
+    promptarena run --provider mock-duplex
+```
+
+For schema validation only:
 
 ```yaml
 # GitHub Actions example - validate configuration
@@ -207,17 +243,14 @@ For CI pipelines, schema validation can be run without API keys:
     promptarena validate config.arena.yaml
 ```
 
-Full duplex execution in CI requires mocking the streaming providers.
+### Audio Fixtures
 
-### Future: Mocking TTS/STT
+Pre-recorded PCM audio files are included in the `audio/` directory for testing:
+- `greeting.pcm` - Simple greeting (~2.5s)
+- `question.pcm` - Basic question (~1.5s)
+- `funfact.pcm` - Follow-up request (~2.3s)
 
-For full audio pipeline testing in CI, consider:
-
-1. **Mock TTS Service**: Returns pre-recorded audio files
-2. **Mock STT Service**: Returns transcriptions from audio
-3. **Audio Fixtures**: Pre-recorded test audio files
-
-This would enable end-to-end audio testing without external API dependencies.
+These can be used to test audio streaming without TTS dependencies.
 
 ## Troubleshooting
 
@@ -226,7 +259,7 @@ This would enable end-to-end audio testing without external API dependencies.
 Ensure you're using a provider that supports duplex mode:
 - Gemini 2.0 Flash with audio enabled
 - OpenAI GPT-4o Realtime
-- Mock provider with `simulate_streaming: true`
+- Mock provider (mock-duplex)
 
 ### "TTS provider not configured"
 

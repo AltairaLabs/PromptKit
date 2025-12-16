@@ -25,11 +25,16 @@ spec:
 
   streaming: true
 
-  # Conversation turns with self-play
+  # Conversation turns with audio and self-play
   turns:
-    # Initial scripted turn to start the conversation
+    # Initial turn with audio file to start the conversation
     - role: user
       content: "Hi there! I'm interested in learning about your services."
+      parts:
+        - type: audio
+          media:
+            file_path: audio/greeting.pcm
+            mime_type: audio/L16
       assertions:
         - type: content_matches
           params:
@@ -39,18 +44,23 @@ spec:
     # TTS converts the generated text to audio for duplex input
     - role: selfplay-user
       persona: curious-customer
-      turns: 2  # Generate 2 follow-up turns
+      turns: 2
       tts:
         provider: openai
         voice: alloy
       assertions:
         - type: content_matches
           params:
-            pattern: ".{10,}"  # Ensure meaningful responses
+            pattern: ".{10,}"
 
-    # Another scripted turn
+    # Final turn with audio file
     - role: user
       content: "That's really helpful, thank you!"
+      parts:
+        - type: audio
+          media:
+            file_path: audio/funfact.pcm
+            mime_type: audio/L16
       assertions:
         - type: content_includes
           params:

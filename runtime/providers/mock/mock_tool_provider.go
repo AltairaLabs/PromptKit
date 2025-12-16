@@ -11,14 +11,15 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// ToolProvider extends MockProvider to support tool/function calling.
+// ToolProvider extends MockProvider to support tool/function calling and duplex streaming.
 // It implements the ToolSupport interface to enable tool call simulation
 // while maintaining compatibility with the existing MockProvider API.
+// By embedding StreamingProvider, it also supports StreamInputSupport for duplex scenarios.
 type ToolProvider struct {
-	*Provider
+	*StreamingProvider
 }
 
-// NewToolProvider creates a new mock provider with tool support.
+// NewToolProvider creates a new mock provider with tool support and duplex streaming.
 // This uses default in-memory responses for backward compatibility.
 func NewToolProvider(id, model string, includeRawOutput bool, additionalConfig map[string]interface{}) *ToolProvider {
 	if additionalConfig != nil {
@@ -28,25 +29,25 @@ func NewToolProvider(id, model string, includeRawOutput bool, additionalConfig m
 			if err != nil {
 				logger.Warn("failed to load mock config from %s: %w", mockConfigPath, err)
 				return &ToolProvider{
-					Provider: NewProvider(id, model, includeRawOutput),
+					StreamingProvider: NewStreamingProvider(id, model, includeRawOutput),
 				}
 			}
 			return &ToolProvider{
-				Provider: NewProviderWithRepository(id, model, includeRawOutput, repository),
+				StreamingProvider: NewStreamingProviderWithRepository(id, model, includeRawOutput, repository),
 			}
 		}
 	}
 
 	return &ToolProvider{
-		Provider: NewProvider(id, model, includeRawOutput),
+		StreamingProvider: NewStreamingProvider(id, model, includeRawOutput),
 	}
 }
 
-// NewToolProviderWithRepository creates a mock provider with tool support
+// NewToolProviderWithRepository creates a mock provider with tool support and duplex streaming
 // using a custom response repository for advanced scenarios.
 func NewToolProviderWithRepository(id, model string, includeRawOutput bool, repo ResponseRepository) *ToolProvider {
 	return &ToolProvider{
-		Provider: NewProviderWithRepository(id, model, includeRawOutput, repo),
+		StreamingProvider: NewStreamingProviderWithRepository(id, model, includeRawOutput, repo),
 	}
 }
 
