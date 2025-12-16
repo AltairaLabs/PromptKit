@@ -928,10 +928,13 @@ func TestTTSStageWithInterruption_ExtractText_EmptyMessageContent(t *testing.T) 
 
 // TestTTSStageWithInterruption_PerformSynthesis_ReadError tests performSynthesis reader error path.
 func TestTTSStageWithInterruption_PerformSynthesis_ReadError(t *testing.T) {
-	synthesized := false
+	synthesizeCalled := make(chan struct{}, 1)
 	mockTts := &mockTTSService{
 		synthesizeFunc: func(ctx context.Context, text string, config tts.SynthesisConfig) (io.ReadCloser, error) {
-			synthesized = true
+			select {
+			case synthesizeCalled <- struct{}{}:
+			default:
+			}
 			// Return a reader that will fail on read
 			return io.NopCloser(&errorReader{err: io.ErrUnexpectedEOF}), nil
 		},
@@ -953,11 +956,13 @@ func TestTTSStageWithInterruption_PerformSynthesis_ReadError(t *testing.T) {
 	input <- stage.StreamElement{Text: &text, Metadata: map[string]interface{}{}}
 	close(input)
 
-	// Wait for processing
-	time.Sleep(200 * time.Millisecond)
-
-	// Should have tried to synthesize
-	assert.True(t, synthesized, "should have tried to synthesize")
+	// Wait for synthesis call
+	select {
+	case <-synthesizeCalled:
+		// Good - synthesis was called
+	case <-time.After(300 * time.Millisecond):
+		t.Error("should have tried to synthesize")
+	}
 }
 
 // errorReader is a reader that always returns an error
