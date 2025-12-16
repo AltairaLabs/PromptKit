@@ -158,8 +158,8 @@ func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption
 	}
 
 	// Apply send options and add content parts
-	if err = c.applyOptionsToMessage(userMsg, opts); err != nil {
-		return nil, err
+	if optErr := c.applyOptionsToMessage(userMsg, opts); optErr != nil {
+		return nil, optErr
 	}
 
 	// Build and execute pipeline

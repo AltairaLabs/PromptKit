@@ -442,7 +442,7 @@ func (e *SelfPlayExecutor) forwardStageElements(
 			return
 		}
 
-		if done := e.processAssistantElement(&elem, &messages, &assistantMsg, assistantIndex, outChan); done {
+		if e.processAssistantElement(&elem, &messages, &assistantMsg, assistantIndex, outChan) {
 			break
 		}
 	}
