@@ -33,11 +33,18 @@ Create `hitl.pack.json`:
 
 ```json
 {
-  "version": "1.0",
+  "id": "hitl-demo",
+  "name": "HITL Demo",
+  "version": "1.0.0",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
   "prompts": {
     "refund_agent": {
-      "name": "refund_agent",
-      "description": "Customer refund agent",
+      "id": "refund-agent",
+      "name": "Refund Agent",
+      "version": "1.0.0",
       "system_template": "You are a customer support agent that processes refunds. For any refund request, use the process_refund tool.",
       "tools": ["process_refund"]
     }

@@ -201,8 +201,10 @@ func TestOpenWithVariableDefaults(t *testing.T) {
 	require.NoError(t, err)
 
 	// Check that defaults were applied
-	assert.Equal(t, "World", conv.GetVar("name"))
-	assert.Equal(t, "Hi", conv.GetVar("greeting"))
+	val1, _ := conv.GetVar("name")
+	val2, _ := conv.GetVar("greeting")
+	assert.Equal(t, "World", val1)
+	assert.Equal(t, "Hi", val2)
 }
 
 func TestResumeWithStateStore(t *testing.T) {
@@ -249,6 +251,23 @@ func (m *mockStore) Load(_ context.Context, id string) (*statestore.Conversation
 		return nil, m.loadErr
 	}
 	return m.conversations[id], nil
+}
+
+func (m *mockStore) Fork(_ context.Context, sourceID, newID string) error {
+	source, exists := m.conversations[sourceID]
+	if !exists {
+		return statestore.ErrNotFound
+	}
+	// Create a copy
+	forked := &statestore.ConversationState{
+		ID:         newID,
+		UserID:     source.UserID,
+		Messages:   append([]types.Message{}, source.Messages...),
+		TokenCount: source.TokenCount,
+		Metadata:   source.Metadata,
+	}
+	m.conversations[newID] = forked
+	return nil
 }
 
 // mockProvider implements providers.Provider for testing
@@ -432,7 +451,7 @@ func TestInitMCPRegistry(t *testing.T) {
 func TestApplyDefaultVariables(t *testing.T) {
 	t.Run("applies defaults", func(t *testing.T) {
 		conv := &Conversation{
-			variables: make(map[string]string),
+			config: &config{},
 		}
 		prompt := &pack.Prompt{
 			Variables: []pack.Variable{
@@ -443,25 +462,165 @@ func TestApplyDefaultVariables(t *testing.T) {
 		}
 		applyDefaultVariables(conv, prompt)
 
-		assert.Equal(t, "default1", conv.variables["var1"])
-		assert.Empty(t, conv.variables["var2"])
-		assert.Equal(t, "default3", conv.variables["var3"])
+		// Variables are now stored in config.initialVariables, not directly in conversation
+		assert.Equal(t, "default1", conv.config.initialVariables["var1"])
+		assert.Empty(t, conv.config.initialVariables["var2"])
+		assert.Equal(t, "default3", conv.config.initialVariables["var3"])
+	})
+
+	t.Run("does not overwrite user-provided values", func(t *testing.T) {
+		conv := &Conversation{
+			config: &config{
+				initialVariables: map[string]string{
+					"var1": "user-value1",
+					"var3": "user-value3",
+				},
+			},
+		}
+		prompt := &pack.Prompt{
+			Variables: []pack.Variable{
+				{Name: "var1", Default: "default1"},
+				{Name: "var2", Default: "default2"},
+				{Name: "var3", Default: "default3"},
+			},
+		}
+		applyDefaultVariables(conv, prompt)
+
+		// User-provided values should NOT be overwritten
+		assert.Equal(t, "user-value1", conv.config.initialVariables["var1"])
+		// Default should be applied for missing variable
+		assert.Equal(t, "default2", conv.config.initialVariables["var2"])
+		// User-provided values should NOT be overwritten
+		assert.Equal(t, "user-value3", conv.config.initialVariables["var3"])
 	})
 }
 
 func TestInitEventBus(t *testing.T) {
 	t.Run("creates new bus when not provided", func(t *testing.T) {
-		conv := &Conversation{}
+		conv := &Conversation{config: &config{}}
 		cfg := &config{}
 		initEventBus(conv, cfg)
-		assert.NotNil(t, conv.eventBus)
+		assert.NotNil(t, cfg.eventBus)
 	})
 
-	t.Run("uses provided bus", func(t *testing.T) {
-		conv := &Conversation{}
+	t.Run("uses provided event bus", func(t *testing.T) {
+		conv := &Conversation{config: &config{}}
 		bus := events.NewEventBus()
 		cfg := &config{eventBus: bus}
 		initEventBus(conv, cfg)
-		assert.Equal(t, bus, conv.eventBus)
+		assert.Equal(t, bus, cfg.eventBus)
 	})
+}
+
+func TestOpenDuplex(t *testing.T) {
+	// Create a valid pack file
+	dir := t.TempDir()
+	packFile := filepath.Join(dir, "test.pack.json")
+	packContent := `{
+		"name": "test-pack",
+		"version": "v1",
+		"prompts": {
+			"main": {
+				"system_template": "You are a helpful assistant."
+			}
+		}
+	}`
+	err := os.WriteFile(packFile, []byte(packContent), 0644)
+	require.NoError(t, err)
+
+	t.Run("fails with non-streaming provider", func(t *testing.T) {
+		// Use a regular provider that doesn't support streaming input
+		mockProv := &mockProvider{}
+		_, err := OpenDuplex(packFile, "main",
+			WithProvider(mockProv),
+			WithSkipSchemaValidation(),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "does not support duplex streaming")
+	})
+
+	t.Run("succeeds with streaming provider", func(t *testing.T) {
+		// Use a provider that supports streaming input
+		mockProv := &mockStreamingProvider{}
+		conv, err := OpenDuplex(packFile, "main",
+			WithProvider(mockProv),
+			WithSkipSchemaValidation(),
+		)
+		require.NoError(t, err)
+		assert.NotNil(t, conv)
+		assert.Equal(t, DuplexMode, conv.mode)
+		assert.NotNil(t, conv.duplexSession)
+		assert.Nil(t, conv.unarySession)
+		defer conv.Close()
+	})
+
+	t.Run("fails with invalid pack", func(t *testing.T) {
+		mockProv := &mockStreamingProvider{}
+		_, err := OpenDuplex("/nonexistent.pack.json", "main",
+			WithProvider(mockProv),
+		)
+		assert.Error(t, err)
+	})
+
+	t.Run("fails with non-existent prompt", func(t *testing.T) {
+		mockProv := &mockStreamingProvider{}
+		_, err := OpenDuplex(packFile, "nonexistent",
+			WithProvider(mockProv),
+			WithSkipSchemaValidation(),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+}
+
+// mockStreamingProvider implements providers.StreamInputSupport for testing
+type mockStreamingProvider struct {
+	mockProvider
+}
+
+func (m *mockStreamingProvider) CreateStreamSession(ctx context.Context, cfg *providers.StreamingInputConfig) (providers.StreamInputSession, error) {
+	return &mockStreamSession{}, nil
+}
+
+func (m *mockStreamingProvider) SupportsStreamInput() []string {
+	return []string{types.ContentTypeAudio}
+}
+
+func (m *mockStreamingProvider) GetStreamingCapabilities() providers.StreamingCapabilities {
+	return providers.StreamingCapabilities{}
+}
+
+// mockStreamSession implements providers.StreamInputSession
+type mockStreamSession struct{}
+
+func (m *mockStreamSession) SendChunk(_ context.Context, _ *types.MediaChunk) error {
+	return nil
+}
+
+func (m *mockStreamSession) SendText(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockStreamSession) SendSystemContext(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockStreamSession) Response() <-chan providers.StreamChunk {
+	ch := make(chan providers.StreamChunk)
+	close(ch)
+	return ch
+}
+
+func (m *mockStreamSession) Close() error {
+	return nil
+}
+
+func (m *mockStreamSession) Done() <-chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}
+
+func (m *mockStreamSession) Error() error {
+	return nil
 }

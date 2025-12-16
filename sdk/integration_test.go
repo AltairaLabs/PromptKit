@@ -270,7 +270,8 @@ func TestIntegration_ConcurrentConversations(t *testing.T) {
 				conv.SetVar("user_id", string(rune('A'+idx)))
 
 				// Verify isolation
-				if conv.GetVar("user_id") != string(rune('A'+idx)) {
+				val, _ := conv.GetVar("user_id")
+				if val != string(rune('A'+idx)) {
 					errors <- assert.AnError
 				}
 			}(i)
@@ -347,9 +348,13 @@ func TestIntegration_VariableSubstitution(t *testing.T) {
 		conv.SetVar("name", "Alice")
 		conv.SetVar("role", "Admin")
 
-		assert.Equal(t, "Alice", conv.GetVar("name"))
-		assert.Equal(t, "Admin", conv.GetVar("role"))
-		assert.Equal(t, "", conv.GetVar("nonexistent"))
+		val1, _ := conv.GetVar("name")
+		val2, _ := conv.GetVar("role")
+		val3, ok := conv.GetVar("nonexistent")
+		assert.Equal(t, "Alice", val1)
+		assert.Equal(t, "Admin", val2)
+		assert.Equal(t, "", val3)
+		assert.False(t, ok)
 	})
 
 	t.Run("SetVars bulk operation", func(t *testing.T) {
@@ -362,8 +367,10 @@ func TestIntegration_VariableSubstitution(t *testing.T) {
 			"count": 42,
 		})
 
-		assert.Equal(t, "Bob", conv.GetVar("name"))
-		assert.Equal(t, "42", conv.GetVar("count"))
+		val1, _ := conv.GetVar("name")
+		val2, _ := conv.GetVar("count")
+		assert.Equal(t, "Bob", val1)
+		assert.Equal(t, "42", val2)
 	})
 
 	t.Run("concurrent variable access", func(t *testing.T) {
@@ -388,7 +395,7 @@ func TestIntegration_VariableSubstitution(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				_ = conv.GetVar("key")
+				_, _ = conv.GetVar("key")
 			}()
 		}
 
@@ -411,10 +418,11 @@ func (m *mockConversation) SetVar(name, value string) {
 	m.variables[name] = value
 }
 
-func (m *mockConversation) GetVar(name string) string {
+func (m *mockConversation) GetVar(name string) (string, bool) {
 	m.varMu.RLock()
 	defer m.varMu.RUnlock()
-	return m.variables[name]
+	val, ok := m.variables[name]
+	return val, ok
 }
 
 func (m *mockConversation) SetVars(vars map[string]any) {

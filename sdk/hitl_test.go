@@ -191,7 +191,7 @@ func TestContinue(t *testing.T) {
 
 	t.Run("returns error when no messages", func(t *testing.T) {
 		conv := newTestConversation()
-		conv.state = nil
+		// No messages in store
 
 		_, err := conv.Continue(context.Background())
 		assert.Error(t, err)

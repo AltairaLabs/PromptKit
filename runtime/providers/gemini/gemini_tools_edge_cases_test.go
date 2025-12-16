@@ -274,13 +274,14 @@ func TestToolProvider_ParseToolResponse_UnknownFinishReason(t *testing.T) {
 }
 
 func TestToolProvider_MakeRequest_NoCachedTokens(t *testing.T) {
-	provider := NewToolProvider("test", "gemini-1.5-flash", "https://invalid.test", providers.ProviderDefaults{}, false)
+	// Use localhost address to avoid DNS lookup timeouts
+	provider := NewToolProvider("test", "gemini-1.5-flash", "http://127.0.0.1:1", providers.ProviderDefaults{}, false)
 
 	request := map[string]interface{}{
 		"contents": []interface{}{},
 	}
 
-	// This will fail due to invalid URL, but we're testing that the code path doesn't crash
+	// This will fail due to connection refused, but we're testing that the code path doesn't crash
 	_, err := provider.makeRequest(context.Background(), request)
 	if err == nil {
 		t.Error("Expected error for invalid request")

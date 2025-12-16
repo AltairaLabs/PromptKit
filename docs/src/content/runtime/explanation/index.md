@@ -14,11 +14,11 @@ These explanations help you understand *why* Runtime works the way it does. They
 ## Topics
 
 ### Architecture
-- [Pipeline Architecture](pipeline-architecture) - How the middleware-based pipeline works
+- [Pipeline Architecture](pipeline-architecture) - How the stage-based streaming pipeline works
 - [Provider System](provider-system) - LLM provider abstraction and implementation
 
 ### Integration
-- [Middleware Design](middleware-design) - Composable middleware patterns
+- [Stage Design](stage-design) - Composable stage patterns
 - [State Management](state-management) - Conversation history and persistence
 
 ## When to Read These
@@ -37,14 +37,15 @@ These explanations help you understand *why* Runtime works the way it does. They
 
 ## Key Concepts
 
-### Middleware Pattern
+### Stage-Based Architecture
 
-Runtime uses a middleware-based architecture where each middleware layer processes requests in sequence. This provides:
+Runtime uses a stage-based streaming architecture where each stage processes elements in its own goroutine. This provides:
 
-- **Composability**: Mix and match middleware
-- **Separation of concerns**: Each middleware has one job
-- **Flexibility**: Add custom middleware easily
-- **Testability**: Test middleware in isolation
+- **True Streaming**: Elements flow through as they're produced
+- **Concurrency**: Stages run in parallel
+- **Composability**: Mix and match stages
+- **Backpressure**: Channel-based flow control
+- **Testability**: Test stages in isolation
 
 ### Provider Abstraction
 
@@ -67,33 +68,49 @@ Runtime implements function calling through:
 ## Architecture Overview
 
 ```
-Request
+Input
   ↓
 Pipeline
-  ├── State Middleware (load conversation)
-  ├── Template Middleware (apply templates)
-  ├── Validator Middleware (check content)
-  └── Provider Middleware (call LLM)
+  ├── StateStoreLoad Stage (load conversation)
+  ├── PromptAssembly Stage (apply templates)
+  ├── Validation Stage (check content)
+  └── Provider Stage (call LLM)
       ├── Tool Registry (available tools)
       └── Provider (OpenAI/Claude/Gemini)
   ↓
-Response
+Output
 ```
+
+Each stage runs concurrently in its own goroutine, connected by channels.
+
+## Pipeline Modes
+
+Runtime supports three execution modes:
+
+### Text Mode
+Standard HTTP-based LLM interactions for chat and completion.
+
+### VAD Mode
+Voice Activity Detection for voice applications using text-based LLMs:
+Audio → STT → LLM → TTS
+
+### ASM Mode
+Audio Streaming Mode for native multimodal LLMs with real-time audio via WebSocket.
 
 ## Design Principles
 
-**1. Simplicity**
-- Easy to use for common cases
-- Sensible defaults
-- Clear error messages
+**1. Streaming First**
+- Channel-based data flow
+- Concurrent stage execution
+- True streaming (not simulated)
 
 **2. Composability**
-- Middleware stack is flexible
+- Stage pipeline is flexible
 - Mix components as needed
 - Build custom pipelines
 
 **3. Extensibility**
-- Custom middleware supported
+- Custom stages supported
 - Custom providers possible
 - Custom tools and executors
 

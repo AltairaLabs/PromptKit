@@ -20,6 +20,13 @@ const (
 	// EventMiddlewareFailed marks middleware failure.
 	EventMiddlewareFailed EventType = "middleware.failed"
 
+	// EventStageStarted marks stage start (for new streaming architecture).
+	EventStageStarted EventType = "stage.started"
+	// EventStageCompleted marks stage completion (for new streaming architecture).
+	EventStageCompleted EventType = "stage.completed"
+	// EventStageFailed marks stage failure (for new streaming architecture).
+	EventStageFailed EventType = "stage.failed"
+
 	// EventProviderCallStarted marks provider call start.
 	EventProviderCallStarted EventType = "provider.call.started"
 	// EventProviderCallCompleted marks provider call completion.
@@ -129,6 +136,33 @@ type MiddlewareFailedData struct {
 	Index    int
 	Error    error
 	Duration time.Duration
+}
+
+// StageStartedData contains data for stage start events (streaming architecture).
+type StageStartedData struct {
+	baseEventData
+	Name      string
+	Index     int
+	StageType string // Type of stage (transform, accumulate, generate, sink, bidirectional)
+}
+
+// StageCompletedData contains data for stage completion events (streaming architecture).
+type StageCompletedData struct {
+	baseEventData
+	Name      string
+	Index     int
+	Duration  time.Duration
+	StageType string
+}
+
+// StageFailedData contains data for stage failure events (streaming architecture).
+type StageFailedData struct {
+	baseEventData
+	Name      string
+	Index     int
+	Error     error
+	Duration  time.Duration
+	StageType string
 }
 
 // ProviderCallStartedData contains data for provider call start events.

@@ -34,6 +34,10 @@ type StreamChunk struct {
 	// Values: "stop", "length", "content_filter", "tool_calls", "error", "validation_failed", "cancelled"
 	FinishReason *string `json:"finish_reason,omitempty"`
 
+	// Interrupted indicates the response was interrupted (e.g., user started speaking)
+	// When true, clients should clear any buffered audio and prepare for a new response
+	Interrupted bool `json:"interrupted,omitempty"`
+
 	// Error is set if an error occurred during streaming
 	Error error `json:"error,omitempty"`
 

@@ -20,14 +20,15 @@ var _ providers.StreamInputSupport = (*Provider)(nil)
 //	req := providers.StreamInputRequest{
 //	    Config: config,
 //	    Metadata: map[string]interface{}{
-//	        "response_modalities": []string{"AUDIO"},        // Audio only
-//	        // OR
-//	        "response_modalities": []string{"TEXT", "AUDIO"}, // Both text and audio
+//	        "response_modalities": []string{"AUDIO"}, // Audio only (TEXT+AUDIO not supported)
 //	    },
 //	}
 //
 // Audio responses will be delivered in the StreamChunk.Metadata["audio_data"] field as base64-encoded PCM.
-func (p *Provider) CreateStreamSession(ctx context.Context, req *providers.StreamInputRequest) (providers.StreamInputSession, error) {
+func (p *Provider) CreateStreamSession(
+	ctx context.Context,
+	req *providers.StreamingInputConfig,
+) (providers.StreamInputSession, error) {
 	// Validate configuration
 	if err := req.Config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid stream configuration: %w", err)
@@ -49,9 +50,10 @@ func (p *Provider) CreateStreamSession(ctx context.Context, req *providers.Strea
 	// Note: API key is passed via x-goog-api-key header, not as query parameter
 	wsURL := "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
 
-	// Configure session with model and response modalities
+	// Configure session with model, response modalities, and system instruction
 	config := StreamSessionConfig{
-		Model: p.Model,
+		Model:             p.Model,
+		SystemInstruction: req.SystemInstruction,
 	}
 
 	// Check metadata for response modalities configuration
@@ -80,9 +82,6 @@ func (p *Provider) CreateStreamSession(ctx context.Context, req *providers.Strea
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stream session: %w", err)
 	}
-
-	// Note: System messages and initial text would be sent via SendText() after creation
-	// The Gemini Live API doesn't have a separate setup phase for these
 
 	return session, nil
 }

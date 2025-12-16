@@ -1,0 +1,439 @@
+// Package session provides session abstractions for managing conversations.
+// Sessions wrap pipelines and provide convenient APIs for text and duplex streaming interactions.
+package session
+
+import (
+	"context"
+	"fmt"
+	"sync"
+
+	"github.com/google/uuid"
+
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
+)
+
+// duplexSession implements BidirectionalSession with stage-based StreamPipeline.
+// It manages streaming input/output through the stage pipeline.
+//
+// Two modes:
+// - ASM mode: Creates persistent providerSession, one long-running pipeline execution
+// - VAD mode: No providerSession, VAD triggers multiple pipeline executions with one-shot calls
+type duplexSession struct {
+	id              string
+	store           statestore.Store
+	pipeline        *stage.StreamPipeline
+	provider        providers.Provider           // Provider for LLM calls
+	providerSession providers.StreamInputSession // nil for VAD mode, set for ASM mode
+	variables       map[string]string
+	varsMu          sync.RWMutex
+	closeMu         sync.Mutex
+	closed          bool
+
+	// Internal pipeline channel (stage.StreamElement)
+	stageInput chan stage.StreamElement // Feeds converted elements to pipeline
+
+	// External API channel (providers.StreamChunk)
+	streamOutput chan providers.StreamChunk // Consumer receives chunks here
+
+	// Pipeline execution control
+	executionStarted bool
+	executionMu      sync.Mutex
+}
+
+//nolint:unused // Used by tests
+const streamBufferSize = 100 // Size of buffered channels for streaming
+
+// initConversationState initializes state for a new conversation if it doesn't exist.
+func initConversationState(ctx context.Context, store statestore.Store, cfg *DuplexSessionConfig, convID string) error {
+	_, err := store.Load(ctx, convID)
+	if err != nil {
+		initialState := &statestore.ConversationState{
+			ID:       convID,
+			UserID:   cfg.UserID,
+			Messages: []types.Message{},
+			Metadata: cfg.Metadata,
+		}
+		if err := store.Save(ctx, initialState); err != nil {
+			return fmt.Errorf("failed to initialize conversation state: %w", err)
+		}
+	}
+	return nil
+}
+
+// NewDuplexSession creates a bidirectional session from a config.
+// PipelineBuilder and Provider are required.
+//
+// If Config is provided (ASM mode):
+//   - Creates persistent provider session (provider must support StreamInputSupport)
+//   - Calls PipelineBuilder with provider and session
+//   - Single long-running pipeline execution
+//
+// If Config is nil (VAD mode):
+//   - No provider session created
+//   - Calls PipelineBuilder with provider and nil session
+//   - VAD middleware triggers multiple pipeline executions
+func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSession, error) {
+	if cfg.PipelineBuilder == nil {
+		return nil, fmt.Errorf("pipeline builder is required")
+	}
+	if cfg.Provider == nil {
+		return nil, fmt.Errorf("provider is required")
+	}
+
+	conversationID := cfg.ConversationID
+	if conversationID == "" {
+		conversationID = uuid.New().String()
+	}
+
+	store := cfg.StateStore
+	if store == nil {
+		store = statestore.NewMemoryStore()
+	}
+
+	// Initialize conversation state if it doesn't exist
+	if err := initConversationState(ctx, store, cfg, conversationID); err != nil {
+		return nil, err
+	}
+
+	// Conditionally create provider session for ASM mode
+	var providerSession providers.StreamInputSession
+	var err error
+	if cfg.Config != nil {
+		// ASM mode: provider must support streaming
+		streamProvider, ok := cfg.Provider.(providers.StreamInputSupport)
+		if !ok {
+			return nil, fmt.Errorf("provider must implement StreamInputSupport for ASM mode")
+		}
+		providerSession, err = streamProvider.CreateStreamSession(ctx, cfg.Config)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create provider session: %w", err)
+		}
+	}
+
+	// Build pipeline with provider and session (session is nil for VAD mode)
+	var builtPipeline *stage.StreamPipeline
+	builtPipeline, err = cfg.PipelineBuilder(ctx, cfg.Provider, providerSession, conversationID, store)
+	if err != nil {
+		if providerSession != nil {
+			_ = providerSession.Close()
+		}
+		return nil, fmt.Errorf("failed to build pipeline: %w", err)
+	}
+
+	// Initialize variables
+	vars := make(map[string]string)
+	for k, v := range cfg.Variables {
+		vars[k] = v
+	}
+
+	// Create streaming channels
+	// stageInput feeds stage.StreamElement to the pipeline
+	// streamOutput receives providers.StreamChunk for the external API
+	stageInput := make(chan stage.StreamElement, streamBufferSize)
+	streamOutput := make(chan providers.StreamChunk, streamBufferSize)
+
+	sess := &duplexSession{
+		id:              conversationID,
+		store:           store,
+		pipeline:        builtPipeline,
+		provider:        cfg.Provider,
+		providerSession: providerSession, // nil for VAD mode, set for ASM mode
+		variables:       vars,
+		stageInput:      stageInput,
+		streamOutput:    streamOutput,
+	}
+
+	return sess, nil
+}
+
+// ID returns the unique session identifier.
+func (s *duplexSession) ID() string {
+	return s.id
+}
+
+// SendChunk sends a chunk to the session via the Pipeline.
+// Converts providers.StreamChunk to stage.StreamElement at the boundary.
+func (s *duplexSession) SendChunk(ctx context.Context, chunk *providers.StreamChunk) error {
+	s.closeMu.Lock()
+	if s.closed {
+		s.closeMu.Unlock()
+		return fmt.Errorf("session is closed")
+	}
+	s.closeMu.Unlock()
+
+	if chunk == nil {
+		return fmt.Errorf("chunk cannot be nil")
+	}
+
+	// Start Pipeline execution on first chunk
+	s.executionMu.Lock()
+	if !s.executionStarted {
+		s.executionStarted = true
+		s.executionMu.Unlock()
+
+		// Start Pipeline execution in background
+		go s.executePipeline(ctx)
+	} else {
+		s.executionMu.Unlock()
+	}
+
+	// Convert StreamChunk to StreamElement at the boundary
+	elem := streamChunkToStreamElement(chunk)
+
+	// Send converted element to Pipeline
+	select {
+	case s.stageInput <- elem:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// SendText is a convenience method for sending text.
+func (s *duplexSession) SendText(ctx context.Context, text string) error {
+	s.closeMu.Lock()
+	if s.closed {
+		s.closeMu.Unlock()
+		return fmt.Errorf("session is closed")
+	}
+	s.closeMu.Unlock()
+
+	chunk := &providers.StreamChunk{
+		Content: text,
+	}
+	return s.SendChunk(ctx, chunk)
+}
+
+// executePipeline runs the stage pipeline with streaming input/output.
+// This is called once when the first chunk is received.
+// Converts stage.StreamElement output to providers.StreamChunk at the boundary.
+func (s *duplexSession) executePipeline(ctx context.Context) {
+	defer close(s.streamOutput)
+
+	// Start the stage pipeline with our input channel
+	stageOutput, err := s.pipeline.Execute(ctx, s.stageInput)
+	if err != nil {
+		finishReason := "error"
+		select {
+		case s.streamOutput <- providers.StreamChunk{
+			Error:        err,
+			FinishReason: &finishReason,
+		}:
+		default:
+		}
+		return
+	}
+
+	// Forward stage output to streamOutput, converting StreamElement to StreamChunk
+	for {
+		select {
+		case <-ctx.Done():
+			errChunk := providers.StreamChunk{Error: ctx.Err()}
+			select {
+			case s.streamOutput <- errChunk:
+			default:
+			}
+			return
+		case elem, ok := <-stageOutput:
+			if !ok {
+				// Stage pipeline finished
+				return
+			}
+			chunk := streamElementToStreamChunk(&elem)
+			select {
+			case s.streamOutput <- chunk:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+}
+
+// Response returns the response channel from the Pipeline.
+func (s *duplexSession) Response() <-chan providers.StreamChunk {
+	return s.streamOutput
+}
+
+// Close ends the session.
+func (s *duplexSession) Close() error {
+	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
+
+	if s.closed {
+		return nil
+	}
+
+	s.closed = true
+	close(s.stageInput)
+
+	// Close provider session if it exists (ASM mode)
+	if s.providerSession != nil {
+		return s.providerSession.Close()
+	}
+
+	return nil
+}
+
+// Done returns a channel that's closed when the session ends.
+func (s *duplexSession) Done() <-chan struct{} {
+	// Create done channel that closes when output closes
+	done := make(chan struct{})
+	go func() {
+		// Wait for all output to be consumed
+		for range s.streamOutput { //nolint:revive // intentionally draining channel
+		}
+		close(done)
+	}()
+	return done
+}
+
+// Error returns any error from the session.
+// In Pipeline mode, errors are sent as chunks in the response stream.
+func (s *duplexSession) Error() error {
+	return nil
+}
+
+// Variables returns a copy of the current variables.
+func (s *duplexSession) Variables() map[string]string {
+	s.varsMu.RLock()
+	defer s.varsMu.RUnlock()
+
+	vars := make(map[string]string, len(s.variables))
+	for k, v := range s.variables {
+		vars[k] = v
+	}
+	return vars
+}
+
+// SetVar sets a session variable.
+func (s *duplexSession) SetVar(name, value string) {
+	s.varsMu.Lock()
+	defer s.varsMu.Unlock()
+	s.variables[name] = value
+}
+
+// GetVar retrieves a session variable.
+func (s *duplexSession) GetVar(name string) (string, bool) {
+	s.varsMu.RLock()
+	defer s.varsMu.RUnlock()
+	val, ok := s.variables[name]
+	return val, ok
+}
+
+// Messages implements BaseSession.
+func (s *duplexSession) Messages(ctx context.Context) ([]types.Message, error) {
+	state, err := s.store.Load(ctx, s.id)
+	if err != nil {
+		return nil, err
+	}
+	return state.Messages, nil
+}
+
+// Clear implements BaseSession.
+func (s *duplexSession) Clear(ctx context.Context) error {
+	state := &statestore.ConversationState{
+		ID:       s.id,
+		Messages: nil,
+	}
+	return s.store.Save(ctx, state)
+}
+
+// ForkSession implements DuplexSession.
+func (s *duplexSession) ForkSession(
+	ctx context.Context,
+	forkID string,
+	pipelineBuilder PipelineBuilder,
+) (DuplexSession, error) {
+	// Fork the state in the store
+	if err := s.store.Fork(ctx, s.id, forkID); err != nil {
+		return nil, fmt.Errorf("failed to fork state: %w", err)
+	}
+
+	// Copy variables
+	s.varsMu.RLock()
+	forkVars := make(map[string]string, len(s.variables))
+	for k, v := range s.variables {
+		forkVars[k] = v
+	}
+	s.varsMu.RUnlock()
+
+	// Create new duplex session with the builder
+	return NewDuplexSession(ctx, &DuplexSessionConfig{
+		ConversationID:  forkID,
+		StateStore:      s.store,
+		PipelineBuilder: pipelineBuilder,
+		Provider:        s.provider,
+		Variables:       forkVars,
+	})
+}
+
+// streamChunkToStreamElement converts a providers.StreamChunk to stage.StreamElement.
+// This is the boundary conversion for input data.
+func streamChunkToStreamElement(chunk *providers.StreamChunk) stage.StreamElement {
+	elem := stage.StreamElement{
+		Metadata: make(map[string]interface{}),
+	}
+
+	// Convert audio data from MediaDelta to Audio
+	if chunk.MediaDelta != nil && chunk.MediaDelta.Data != nil {
+		audioData := []byte(*chunk.MediaDelta.Data)
+		const defaultSampleRate = 16000 // Default for speech
+		elem.Audio = &stage.AudioData{
+			Samples:    audioData,
+			SampleRate: defaultSampleRate, // Default, could be extracted from metadata
+			Format:     stage.AudioFormatPCM16,
+		}
+	}
+
+	// Convert text content
+	if chunk.Delta != "" {
+		elem.Text = &chunk.Delta
+	} else if chunk.Content != "" {
+		elem.Text = &chunk.Content
+	}
+
+	// Copy metadata
+	if chunk.Metadata != nil {
+		for k, v := range chunk.Metadata {
+			elem.Metadata[k] = v
+		}
+	}
+
+	return elem
+}
+
+// streamElementToStreamChunk converts a stage.StreamElement to providers.StreamChunk.
+// This is the boundary conversion for output data.
+func streamElementToStreamChunk(elem *stage.StreamElement) providers.StreamChunk {
+	chunk := providers.StreamChunk{}
+
+	// Convert audio data from Audio to MediaDelta
+	if elem.Audio != nil && len(elem.Audio.Samples) > 0 {
+		audioStr := string(elem.Audio.Samples)
+		chunk.MediaDelta = &types.MediaContent{
+			MIMEType: types.MIMETypeAudioWAV,
+			Data:     &audioStr,
+		}
+	}
+
+	// Convert text content
+	if elem.Text != nil && *elem.Text != "" {
+		chunk.Delta = *elem.Text
+		chunk.Content = *elem.Text
+	}
+
+	// Handle errors
+	if elem.Error != nil {
+		chunk.Error = elem.Error
+	}
+
+	// Copy metadata
+	if elem.Metadata != nil {
+		chunk.Metadata = elem.Metadata
+	}
+
+	return chunk
+}

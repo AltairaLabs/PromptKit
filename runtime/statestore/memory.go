@@ -74,6 +74,37 @@ func (s *MemoryStore) Save(ctx context.Context, state *ConversationState) error 
 	return nil
 }
 
+// Fork creates a copy of an existing conversation state with a new ID.
+func (s *MemoryStore) Fork(ctx context.Context, sourceID, newID string) error {
+	if sourceID == "" || newID == "" {
+		return ErrInvalidID
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Load source state
+	source, exists := s.states[sourceID]
+	if !exists {
+		return ErrNotFound
+	}
+
+	// Deep copy the state
+	forked := deepCopyState(source)
+	forked.ID = newID
+	forked.LastAccessedAt = time.Now()
+
+	// Store the forked state
+	s.states[newID] = forked
+
+	// Update user index if UserID is set
+	if forked.UserID != "" {
+		s.updateUserIndex(forked.UserID, newID)
+	}
+
+	return nil
+}
+
 // Delete removes a conversation state by ID.
 func (s *MemoryStore) Delete(ctx context.Context, id string) error {
 	if id == "" {

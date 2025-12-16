@@ -6,13 +6,23 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/google/uuid"
+
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/provider"
+	"github.com/AltairaLabs/PromptKit/sdk/session"
+	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
 )
+
+// debugSnippetMaxLen is the max length for debug log snippets.
+const debugSnippetMaxLen = 200
 
 // Open loads a pack file and creates a new conversation for the specified prompt.
 //
@@ -60,8 +70,8 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 		return nil, err
 	}
 
-	// Resolve provider
-	prov, err := resolveProvider(cfg)
+	// Resolve provider and store in config
+	_, err = resolveProvider(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -73,10 +83,20 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 		promptName:     promptName,
 		promptRegistry: p.ToPromptRegistry(),                                  // Create registry for PromptAssemblyMiddleware
 		toolRegistry:   tools.NewRegistryWithRepository(p.ToToolRepository()), // Create registry with pack tools
-		provider:       prov,
 		config:         cfg,
-		variables:      make(map[string]string),
 		handlers:       make(map[string]ToolHandler),
+		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
+		pendingStore:   sdktools.NewPendingStore(),
+	}
+
+	// Apply default variables from prompt BEFORE initializing session
+	// This ensures defaults are available when creating the session
+	applyDefaultVariables(conv, prompt)
+
+	// Initialize internal memory store for conversation history
+	// This is used by StateStoreLoad/Save middleware in the pipeline
+	if err := initInternalStateStore(conv, cfg); err != nil {
+		return nil, err
 	}
 
 	// Initialize event bus (use provided or create new)
@@ -87,8 +107,92 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 		return nil, err
 	}
 
-	// Apply default variables from prompt
+	return conv, nil
+}
+
+// OpenDuplex loads a pack file and creates a new duplex streaming conversation for the specified prompt.
+//
+// This creates a conversation in duplex mode for bidirectional streaming interactions.
+// Use this when you need real-time streaming input/output with the LLM.
+//
+// Basic usage:
+//
+//	conv, err := sdk.OpenDuplex("./assistant.pack.json", "chat")
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	defer conv.Close()
+//
+//	// Send streaming input
+//	go func() {
+//	    conv.SendText(ctx, "Hello, ")
+//	    conv.SendText(ctx, "how are you?")
+//	}()
+//
+//	// Receive streaming output
+//	respCh, _ := conv.Response()
+//	for chunk := range respCh {
+//	    fmt.Print(chunk.Content)
+//	}
+//
+// The provider must support streaming input (implement providers.StreamInputSupport).
+// Currently supported providers: Gemini with certain models.
+func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, error) {
+	// Apply options to build configuration
+	cfg, err := applyOptions(promptName, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	// Load and validate pack
+	p, prompt, err := loadAndValidatePack(packPath, promptName, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	// Resolve provider
+	prov, err := resolveProvider(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	// Verify provider supports streaming input
+	streamProvider, ok := prov.(providers.StreamInputSupport)
+	if !ok {
+		return nil, fmt.Errorf(
+			"provider %T does not support duplex streaming (must implement providers.StreamInputSupport)",
+			prov,
+		)
+	}
+
+	// Create conversation
+	conv := &Conversation{
+		pack:           p,
+		prompt:         prompt,
+		promptName:     promptName,
+		promptRegistry: p.ToPromptRegistry(),
+		toolRegistry:   tools.NewRegistryWithRepository(p.ToToolRepository()),
+		config:         cfg,
+		handlers:       make(map[string]ToolHandler),
+		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
+		pendingStore:   sdktools.NewPendingStore(),
+	}
+
+	// Apply default variables from prompt BEFORE initializing session
 	applyDefaultVariables(conv, prompt)
+
+	// Initialize duplex session
+	if err := initDuplexSession(conv, cfg, streamProvider); err != nil {
+		return nil, err
+	}
+
+	// Initialize event bus
+	initEventBus(conv, cfg)
+
+	// Initialize MCP registry if configured
+	if err := initMCPRegistry(conv, cfg); err != nil {
+		return nil, err
+	}
 
 	return conv, nil
 }
@@ -134,6 +238,7 @@ func loadAndValidatePack(packPath, promptName string, cfg *config) (*pack.Pack, 
 }
 
 // resolveProvider auto-detects or uses the configured provider.
+// Stores the resolved provider in cfg.provider for later use.
 func resolveProvider(cfg *config) (providers.Provider, error) {
 	if cfg.provider != nil {
 		return cfg.provider, nil
@@ -142,16 +247,156 @@ func resolveProvider(cfg *config) (providers.Provider, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to detect provider: %w", err)
 	}
+	cfg.provider = detected
 	return detected, nil
 }
 
 // initEventBus initializes the conversation's event bus.
 func initEventBus(conv *Conversation, cfg *config) {
-	if cfg.eventBus != nil {
-		conv.eventBus = cfg.eventBus
-	} else {
-		conv.eventBus = events.NewEventBus()
+	if cfg.eventBus == nil {
+		cfg.eventBus = events.NewEventBus()
 	}
+	// EventBus is stored in config and accessed via c.config.eventBus
+}
+
+// initInternalStateStore initializes the internal state store for conversation history.
+// If a state store is provided via options, use that. Otherwise, create a MemoryStore.
+// This enables the StateStoreLoad/Save middleware to manage conversation history.
+// Also generates a unique conversation ID if not already set.
+// Finally, creates a TextSession wrapping a pre-configured pipeline.
+func initInternalStateStore(conv *Conversation, cfg *config) error {
+	var store statestore.Store
+	if cfg.stateStore != nil {
+		// User provided a state store (e.g., Redis for persistence)
+		store = cfg.stateStore
+	} else {
+		// Create internal memory store for this conversation
+		store = statestore.NewMemoryStore()
+	}
+
+	// Generate conversation ID if not already set via options
+	conversationID := cfg.conversationID
+	if conversationID == "" {
+		conversationID = uuid.New().String()
+	}
+
+	// Get initial variables from config (includes prompt defaults)
+	initialVars := cfg.initialVariables
+	if initialVars == nil {
+		initialVars = make(map[string]string)
+	}
+
+	// Build pipeline once during initialization (note: pipeline doesn't capture variables anymore)
+	// No StreamInputSession for unary mode
+	pipeline, err := conv.buildPipelineWithParams(store, conversationID, nil)
+	if err != nil {
+		return fmt.Errorf("failed to build pipeline: %w", err)
+	}
+
+	// Create text session wrapping the pipeline
+	unarySession, err := session.NewUnarySession(session.UnarySessionConfig{
+		ConversationID: conversationID,
+		StateStore:     store,
+		Pipeline:       pipeline,
+		Variables:      initialVars,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create unary session: %w", err)
+	}
+
+	conv.mode = UnaryMode
+	conv.unarySession = unarySession
+	return nil
+}
+
+// loadSystemInstruction loads the system instruction for ASM mode from prompt registry.
+func loadSystemInstruction(
+	conv *Conversation,
+	streamConfig *providers.StreamingInputConfig,
+	initialVars map[string]string,
+) {
+	if streamConfig.SystemInstruction != "" || conv.promptRegistry == nil {
+		return
+	}
+	logger.Debug("Loading system instruction with variables",
+		"promptName", conv.promptName,
+		"varCount", len(initialVars),
+		"topic", initialVars["topic"])
+	assembled := conv.promptRegistry.LoadWithVars(conv.promptName, initialVars, "")
+	if assembled != nil && assembled.SystemPrompt != "" {
+		streamConfig.SystemInstruction = assembled.SystemPrompt
+		// Log first N chars of system prompt for debugging
+		snippet := assembled.SystemPrompt
+		if len(snippet) > debugSnippetMaxLen {
+			snippet = snippet[:debugSnippetMaxLen] + "..."
+		}
+		logger.Debug("Set system instruction for ASM session",
+			"promptName", conv.promptName,
+			"length", len(assembled.SystemPrompt),
+			"snippet", snippet)
+	}
+}
+
+// initDuplexSession initializes a duplex streaming session.
+func initDuplexSession(conv *Conversation, cfg *config, streamProvider providers.StreamInputSupport) error {
+	var store statestore.Store
+	if cfg.stateStore != nil {
+		store = cfg.stateStore
+	} else {
+		store = statestore.NewMemoryStore()
+	}
+
+	// Generate conversation ID if not already set via options
+	conversationID := cfg.conversationID
+	if conversationID == "" {
+		conversationID = uuid.New().String()
+	}
+
+	// Get initial variables from config
+	initialVars := cfg.initialVariables
+	if initialVars == nil {
+		initialVars = make(map[string]string)
+	}
+
+	// Create pipeline builder closure that captures conversation context
+	// Returns *stage.StreamPipeline directly for duplex sessions
+	pipelineBuilder := func(
+		ctx context.Context,
+		provider providers.Provider,
+		providerSession providers.StreamInputSession,
+		convID string,
+		stateStore statestore.Store,
+	) (*stage.StreamPipeline, error) {
+		// Build stage pipeline directly (not wrapped) for duplex sessions
+		return conv.buildStreamPipelineWithParams(stateStore, convID, providerSession)
+	}
+
+	// Mode is determined by cfg.streamingConfig:
+	// - If set: ASM mode (creates provider session, continuous streaming)
+	// - If nil: VAD mode (no provider session, turn-based streaming)
+	var streamConfig *providers.StreamingInputConfig
+	if cfg.streamingConfig != nil {
+		streamConfig = cfg.streamingConfig
+		// For ASM mode, load and set the system instruction from prompt registry
+		loadSystemInstruction(conv, streamConfig, initialVars)
+	}
+
+	// Create duplex session with builder
+	duplexSession, err := session.NewDuplexSession(context.Background(), &session.DuplexSessionConfig{
+		ConversationID:  conversationID,
+		StateStore:      store,
+		PipelineBuilder: pipelineBuilder,
+		Provider:        streamProvider,
+		Config:          streamConfig, // nil for VAD mode, set for ASM mode
+		Variables:       initialVars,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create duplex session: %w", err)
+	}
+
+	conv.mode = DuplexMode
+	conv.duplexSession = duplexSession
+	return nil
 }
 
 // initMCPRegistry initializes the MCP registry if servers are configured.
@@ -173,10 +418,22 @@ func initMCPRegistry(conv *Conversation, cfg *config) error {
 }
 
 // applyDefaultVariables sets default variable values from the prompt.
+// Only sets defaults for variables that weren't already provided via WithVariables.
 func applyDefaultVariables(conv *Conversation, prompt *pack.Prompt) {
+	// This is called before session is created, so we need to track these
+	// temporarily. The session will be initialized with these variables later.
 	for _, v := range prompt.Variables {
 		if v.Default != "" {
-			conv.variables[v.Name] = v.Default
+			// Store in a temporary map until session is created
+			if conv.config != nil && conv.config.initialVariables == nil {
+				conv.config.initialVariables = make(map[string]string)
+			}
+			if conv.config != nil {
+				// Only set default if user didn't provide a value
+				if _, exists := conv.config.initialVariables[v.Name]; !exists {
+					conv.config.initialVariables[v.Name] = v.Default
+				}
+			}
 		}
 	}
 }
@@ -223,14 +480,14 @@ func Resume(conversationID, packPath, promptName string, opts ...Option) (*Conve
 	}
 
 	// Open conversation with the loaded state
-	conv, err := Open(packPath, promptName, opts...)
+	// Add WithConversationID to preserve the original ID
+	optsWithID := append(opts, WithConversationID(conversationID))
+	conv, err := Open(packPath, promptName, optsWithID...)
 	if err != nil {
 		return nil, err
 	}
 
-	// Restore state
-	conv.state = state
-	conv.id = conversationID
+	// The session now has the correct conversation ID from WithConversationID option
 
 	return conv, nil
 }

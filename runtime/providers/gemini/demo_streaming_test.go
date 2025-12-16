@@ -55,8 +55,7 @@ func TestStreamingDemo_RealAPI(t *testing.T) {
 	}
 
 	req := providers.StreamInputRequest{
-		Config:    config,
-		SystemMsg: "You are a helpful assistant. Respond briefly and clearly.",
+		Config: config,
 	}
 
 	fmt.Println("📡 Step 1: Establishing WebSocket connection to Gemini Live API...")

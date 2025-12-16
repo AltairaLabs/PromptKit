@@ -122,7 +122,7 @@ func (m *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 
 		// Convert mock turn to content parts
 		parts = turn.ToContentParts()
-		logger.Debug("MockProvider parts converted", "num_parts", len(parts), "content", responseText)
+		logger.Debug("MockProvider parts converted", "num_parts", len(parts), "contentLength", len(responseText))
 
 		// If we have parts but no responseText, generate a summary from parts
 		if responseText == "" && len(parts) > 0 {

@@ -1310,3 +1310,12 @@ func TestArenaStateStore_GetResult_NilParams(t *testing.T) {
 	assert.Equal(t, systemPrompt, result.Params["system_prompt"])
 	assert.Len(t, result.Params, 1, "Should only have system_prompt in params")
 }
+
+func TestArenaStateStore_Fork(t *testing.T) {
+	store := NewArenaStateStore()
+	ctx := context.Background()
+
+	// Fork is a no-op for arena state store
+	err := store.Fork(ctx, "source-123", "new-456")
+	assert.NoError(t, err, "Fork should succeed as a no-op")
+}

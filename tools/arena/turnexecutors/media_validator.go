@@ -140,7 +140,8 @@ func validateSymlink(cleanPath, baseDir, filePath string) error {
 		return fmt.Errorf("failed to resolve symlink %s: %w", filePath, err)
 	}
 
-	if err := validateSymlinkTarget(targetPath, baseDir, filePath); err != nil {
+	//nolint:gocritic // Using = to avoid shadowing err from outer scope
+	if err = validateSymlinkTarget(targetPath, baseDir, filePath); err != nil {
 		return err
 	}
 

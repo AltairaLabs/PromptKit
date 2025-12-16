@@ -10,12 +10,12 @@ import (
 func TestStreamInputRequest_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
-		req     StreamInputRequest
+		req     StreamingInputConfig
 		wantErr bool
 	}{
 		{
 			name: "valid audio request",
-			req: StreamInputRequest{
+			req: StreamingInputConfig{
 				Config: types.StreamingMediaConfig{
 					Type:       types.ContentTypeAudio,
 					ChunkSize:  8192,
@@ -23,13 +23,12 @@ func TestStreamInputRequest_Validate(t *testing.T) {
 					Encoding:   "pcm",
 					Channels:   1,
 				},
-				SystemMsg: "You are a helpful assistant",
 			},
 			wantErr: false,
 		},
 		{
 			name: "valid video request",
-			req: StreamInputRequest{
+			req: StreamingInputConfig{
 				Config: types.StreamingMediaConfig{
 					Type:      types.ContentTypeVideo,
 					ChunkSize: 32768,
@@ -42,7 +41,7 @@ func TestStreamInputRequest_Validate(t *testing.T) {
 		},
 		{
 			name: "invalid config",
-			req: StreamInputRequest{
+			req: StreamingInputConfig{
 				Config: types.StreamingMediaConfig{
 					Type:      types.ContentTypeAudio,
 					ChunkSize: -1, // Invalid
@@ -178,6 +177,14 @@ func (m *MockStreamSession) SendChunk(ctx context.Context, chunk *types.MediaChu
 }
 
 func (m *MockStreamSession) SendText(ctx context.Context, text string) error {
+	if m.err != nil {
+		return m.err
+	}
+	m.texts = append(m.texts, text)
+	return nil
+}
+
+func (m *MockStreamSession) SendSystemContext(ctx context.Context, text string) error {
 	if m.err != nil {
 		return m.err
 	}

@@ -650,3 +650,85 @@ func TestMemoryStore_DeepCloneNestedStructures(t *testing.T) {
 	arr := msg.Meta["array"].([]interface{})
 	assert.Equal(t, "item1", arr[0])
 }
+
+func TestMemoryStore_Fork(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+
+	// Create original state
+	original := &ConversationState{
+		ID:           "conv-123",
+		UserID:       "user-alice",
+		SystemPrompt: "You are a helpful assistant",
+		Messages: []types.Message{
+			{Role: "user", Content: "Hello", Timestamp: time.Now()},
+			{Role: "assistant", Content: "Hi there!", Timestamp: time.Now()},
+		},
+		TokenCount: 100,
+		Metadata:   map[string]interface{}{"key": "value"},
+	}
+
+	// Save original
+	err := store.Save(ctx, original)
+	require.NoError(t, err)
+
+	// Fork the conversation
+	err = store.Fork(ctx, "conv-123", "conv-123-fork")
+	require.NoError(t, err)
+
+	// Load forked state
+	forked, err := store.Load(ctx, "conv-123-fork")
+	require.NoError(t, err)
+
+	// Verify fork has new ID
+	assert.Equal(t, "conv-123-fork", forked.ID)
+
+	// Verify other fields are copied
+	assert.Equal(t, original.UserID, forked.UserID)
+	assert.Equal(t, original.SystemPrompt, forked.SystemPrompt)
+	assert.Equal(t, original.TokenCount, forked.TokenCount)
+	assert.Equal(t, len(original.Messages), len(forked.Messages))
+
+	// Verify messages are copied
+	for i := range original.Messages {
+		assert.Equal(t, original.Messages[i].Role, forked.Messages[i].Role)
+		assert.Equal(t, original.Messages[i].Content, forked.Messages[i].Content)
+	}
+
+	// Verify modifying fork doesn't affect original
+	forked.Messages = append(forked.Messages, types.Message{
+		Role:    "user",
+		Content: "New message in fork",
+	})
+	err = store.Save(ctx, forked)
+	require.NoError(t, err)
+
+	// Load original again
+	reloadedOriginal, err := store.Load(ctx, "conv-123")
+	require.NoError(t, err)
+
+	// Original should be unchanged
+	assert.Equal(t, 2, len(reloadedOriginal.Messages))
+	assert.NotEqual(t, len(reloadedOriginal.Messages), len(forked.Messages))
+}
+
+func TestMemoryStore_ForkNotFound(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+
+	err := store.Fork(ctx, "nonexistent", "fork-id")
+	assert.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestMemoryStore_ForkInvalidIDs(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+
+	// Empty source ID
+	err := store.Fork(ctx, "", "fork-id")
+	assert.ErrorIs(t, err, ErrInvalidID)
+
+	// Empty new ID
+	err = store.Fork(ctx, "conv-123", "")
+	assert.ErrorIs(t, err, ErrInvalidID)
+}

@@ -7,7 +7,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
@@ -18,7 +18,7 @@ func TestBuildContextPolicy(t *testing.T) {
 	tests := []struct {
 		name     string
 		scenario *config.Scenario
-		want     *middleware.ContextBuilderPolicy
+		want     *stage.ContextBuilderPolicy
 	}{
 		{
 			name:     "nil scenario returns nil",
@@ -43,10 +43,10 @@ func TestBuildContextPolicy(t *testing.T) {
 					CacheBreakpoints: true,
 				},
 			},
-			want: &middleware.ContextBuilderPolicy{
+			want: &stage.ContextBuilderPolicy{
 				TokenBudget:      1000,
 				ReserveForOutput: 200,
-				Strategy:         middleware.TruncateOldest,
+				Strategy:         stage.TruncateOldest,
 				CacheBreakpoints: true,
 			},
 		},
@@ -106,7 +106,7 @@ func TestBuildStateStoreConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildStateStoreConfig(tt.req)
+			got := buildStateStoreConfig(&tt.req)
 			if (got == nil) != (tt.want == nil) {
 				t.Errorf("buildStateStoreConfig() = %v, want %v", got, tt.want)
 				return
@@ -128,7 +128,7 @@ func TestBuildProviderConfig(t *testing.T) {
 	tests := []struct {
 		name string
 		req  TurnRequest
-		want *middleware.ProviderMiddlewareConfig
+		want *stage.ProviderConfig
 	}{
 		{
 			name: "basic config",
@@ -137,7 +137,7 @@ func TestBuildProviderConfig(t *testing.T) {
 				Temperature: 0.7,
 				Seed:        &seed,
 			},
-			want: &middleware.ProviderMiddlewareConfig{
+			want: &stage.ProviderConfig{
 				MaxTokens:   1000,
 				Temperature: 0.7,
 				Seed:        &seed,
@@ -150,7 +150,7 @@ func TestBuildProviderConfig(t *testing.T) {
 				Temperature: 0.3,
 				Seed:        nil,
 			},
-			want: &middleware.ProviderMiddlewareConfig{
+			want: &stage.ProviderConfig{
 				MaxTokens:   500,
 				Temperature: 0.3,
 				Seed:        nil,
@@ -160,7 +160,7 @@ func TestBuildProviderConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildProviderConfig(tt.req)
+			got := buildProviderConfig(&tt.req)
 			if got.MaxTokens != tt.want.MaxTokens {
 				t.Errorf("MaxTokens = %d, want %d", got.MaxTokens, tt.want.MaxTokens)
 			}
@@ -239,7 +239,7 @@ func TestBuildMediaConfig(t *testing.T) {
 		name           string
 		conversationID string
 		mediaStorage   storage.MediaStorageService
-		want           *middleware.MediaExternalizerConfig
+		want           *stage.MediaExternalizerConfig
 	}{
 		{
 			name:           "nil media storage returns nil",
@@ -251,7 +251,7 @@ func TestBuildMediaConfig(t *testing.T) {
 			name:           "with media storage returns configured config",
 			conversationID: "conv-456",
 			mediaStorage:   mockStorage,
-			want: &middleware.MediaExternalizerConfig{
+			want: &stage.MediaExternalizerConfig{
 				Enabled:         true,
 				StorageService:  mockStorage,
 				SizeThresholdKB: 100,
