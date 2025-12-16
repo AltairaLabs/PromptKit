@@ -2,6 +2,7 @@ package turnexecutors
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
@@ -98,7 +99,7 @@ func TestScriptedExecutor_ExecuteTurnStream_ProviderError(t *testing.T) {
 	// Should receive error in stream
 	chunk := <-stream
 	require.Error(t, chunk.Error)
-	assert.Equal(t, assert.AnError, chunk.Error)
+	assert.True(t, errors.Is(chunk.Error, assert.AnError), "expected error to wrap assert.AnError")
 
 	// Stream should be closed
 	_, ok := <-stream

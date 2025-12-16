@@ -53,7 +53,13 @@ type StreamInputSession interface {
 
 	// SendText sends a text message to the provider during the streaming session.
 	// This is useful for sending text prompts or instructions during audio streaming.
+	// Note: This marks the turn as complete, triggering a response.
 	SendText(ctx context.Context, text string) error
+
+	// SendSystemContext sends a text message as context without completing the turn.
+	// Use this for system prompts that provide context but shouldn't trigger an immediate response.
+	// The audio/text that follows will be processed with this context in mind.
+	SendSystemContext(ctx context.Context, text string) error
 
 	// Response returns a receive-only channel for streaming responses.
 	// The channel is closed when the session ends or encounters an error.
@@ -76,12 +82,13 @@ type StreamInputSession interface {
 }
 
 // StreamingInputConfig configures a new streaming input session.
-// Note: System prompts, model parameters (temperature, max tokens, etc.) are
-// configured at the provider level, not per-session. This only contains
-// session-specific media configuration and provider metadata.
 type StreamingInputConfig struct {
 	// Config specifies the media streaming configuration (codec, sample rate, etc.)
 	Config types.StreamingMediaConfig `json:"config"`
+
+	// SystemInstruction is the system prompt to configure the model's behavior.
+	// For Gemini Live API, this is included in the setup message.
+	SystemInstruction string `json:"system_instruction,omitempty"`
 
 	// Metadata contains provider-specific session configuration
 	// Example: {"response_modalities": ["TEXT", "AUDIO"]} for Gemini

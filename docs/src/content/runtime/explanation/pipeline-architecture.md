@@ -5,429 +5,411 @@ order: 1
 ---
 # Pipeline Architecture
 
-Understanding Runtime's middleware-based pipeline design.
+Understanding Runtime's stage-based streaming pipeline design.
 
 ## Overview
 
-Runtime uses a **middleware pattern** for processing LLM requests. This architecture provides flexibility, composability, and clear separation of concerns.
+Runtime uses a **stage-based streaming architecture** for processing LLM requests. This design provides true streaming execution, concurrent processing, and a composable DAG (Directed Acyclic Graph) of processing units.
 
 ## Core Concept
 
-A pipeline is a stack of middleware layers that process requests in sequence:
+A pipeline is a DAG of stages that process streaming elements:
 
 ```
-Request → [Middleware 1] → [Middleware 2] → [Middleware N] → Provider → Response
+Input → [Stage 1] → [Stage 2] → [Stage N] → Output
+            │            │
+            ▼            ▼
+        [Branch A]   [Branch B]
 ```
 
-Each middleware can:
-- Inspect and modify the request
-- Pass control to the next middleware
-- Process the response
-- Handle errors
+Each stage:
+- Runs in its own goroutine
+- Receives elements via input channel
+- Sends processed elements via output channel
+- Supports true streaming (elements flow as they're produced)
 
-## Pipeline Structure
+## Why Stages?
 
-### Basic Pipeline
+### Streaming First
+
+The stage architecture is designed for streaming scenarios like voice applications:
+1. **Streaming input**: Audio chunks from microphone
+2. **Accumulation**: VAD detects turn boundaries
+3. **Processing**: Transcribe, call LLM, generate TTS
+4. **Streaming output**: Audio chunks to speaker
+
+Stages model this as a reactive stream where data flows through connected processing units:
 
 ```go
-pipe := pipeline.NewPipeline(
-    middleware.ProviderMiddleware(provider, nil, nil, config),
-)
+pipeline := stage.NewPipelineBuilder().
+    Chain(
+        stage.NewAudioTurnStage(vadConfig),      // Accumulate until turn complete
+        stage.NewSTTStage(sttService, sttConfig), // Transcribe audio
+        stage.NewProviderStage(provider, tools, policy, config), // Call LLM
+        stage.NewTTSStageWithInterruption(ttsService, handler, ttsConfig), // Generate audio
+    ).
+    Build()
 ```
 
-This creates a minimal pipeline with just provider middleware.
+## StreamElement
 
-### Multi-Layer Pipeline
+The fundamental unit of data flowing through the pipeline:
 
 ```go
-pipe := pipeline.NewPipeline(
-    middleware.StateMiddleware(store),           // Layer 1: Load state
-    middleware.TemplateMiddleware(templates),    // Layer 2: Apply templates
-    middleware.ValidatorMiddleware(validators),  // Layer 3: Validate content
-    middleware.ProviderMiddleware(provider, toolRegistry, policy, config),  // Layer 4: Call LLM
-)
+type StreamElement struct {
+    // Content types (at most one is set)
+    Text      *string
+    Audio     *AudioData
+    Video     *VideoData
+    Image     *ImageData
+    Message   *types.Message
+    ToolCall  *types.ToolCall
+    Parts     []types.ContentPart
+
+    // Metadata for inter-stage communication
+    Metadata  map[string]interface{}
+
+    // Control and observability
+    Priority  Priority  // Low, Normal, High, Critical
+    Error     error
+    Timestamp time.Time
+}
 ```
 
-Middleware executes in order:
-1. **State**: Loads conversation history
-2. **Template**: Applies prompt templates
-3. **Validator**: Checks content safety
-4. **Provider**: Sends request to LLM
+**Key insight**: Each element carries one content type, enabling type-safe routing and priority scheduling.
 
-## Why Middleware?
+## Stage Interface
 
-### Problem: Monolithic Design
-
-Without middleware, you'd need:
+All stages implement:
 
 ```go
-// Bad: Everything in one function
-func Execute(prompt string) string {
-    // Load state
-    history := loadFromRedis(sessionID)
-    
-    // Apply template
-    templated := applyTemplate(prompt, history)
-    
-    // Validate
-    if containsBannedWords(templated) {
-        return "Error: banned content"
+type Stage interface {
+    Name() string
+    Type() StageType
+    Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
+}
+```
+
+### Stage Types
+
+| Type | Pattern | Example |
+|------|---------|---------|
+| Transform | 1:1 or 1:N | Validation, enrichment |
+| Accumulate | N:1 | VAD buffering, message collection |
+| Generate | 0:N | LLM streaming, TTS |
+| Sink | N:0 | State store save, metrics |
+| Bidirectional | Varies | WebSocket session |
+
+### Contract
+
+Every stage must:
+1. Read from input channel until closed
+2. Send results to output channel
+3. Close output channel when done
+4. Respect context cancellation
+
+```go
+func (s *MyStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
+    defer close(output)  // Always close output
+
+    for elem := range input {
+        // Process element
+        result := s.transform(elem)
+
+        // Send with cancellation check
+        select {
+        case output <- result:
+        case <-ctx.Done():
+            return ctx.Err()
+        }
     }
-    
-    // Call LLM
-    response := openai.Complete(templated)
-    
-    // Save state
-    saveToRedis(sessionID, response)
-    
-    return response
+    return nil
 }
 ```
 
-**Problems**:
-- Hard to test individual components
-- Can't reuse logic
-- Difficult to add features
-- No flexibility in ordering
+## Pipeline Execution
 
-### Solution: Middleware Pattern
+### Streaming Execution
 
-With middleware:
+Elements flow through the pipeline as they're produced:
 
 ```go
-// Good: Composable layers
-pipe := pipeline.NewPipeline(
-    StateMiddleware(store),
-    TemplateMiddleware(templates),
-    ValidatorMiddleware(validators),
-    ProviderMiddleware(provider, nil, nil, config),
-)
+output, err := pipeline.Execute(ctx, input)
+if err != nil {
+    return err
+}
 
-result, err := pipe.Execute(ctx, "user", prompt)
-```
-
-**Benefits**:
-- Each middleware is independent
-- Easy to test in isolation
-- Reusable across pipelines
-- Flexible ordering
-- Add/remove layers easily
-
-## Middleware Interface
-
-All middleware implements:
-
-```go
-type Middleware interface {
-    Process(ctx *ExecutionContext, msg *Message) (*ProviderResponse, error)
+for elem := range output {
+    // Process elements as they arrive
+    if elem.Text != nil {
+        fmt.Print(*elem.Text)
+    }
 }
 ```
 
-### Execution Context
+### Synchronous Execution
 
-The context flows through all middleware:
+For request/response patterns, `ExecuteSync` collects all output:
 
 ```go
-type ExecutionContext struct {
-    Context         context.Context
-    SessionID       string
-    Messages        []Message
-    ExecutionResult *PipelineResult
-    Metadata        map[string]interface{}
+result, err := pipeline.ExecuteSync(ctx, inputElements...)
+// result.Messages contains all messages
+// result.Response contains the final response
+```
+
+This is just `Execute()` + drain and accumulate.
+
+## Execution Modes
+
+### Text Mode (Request/Response)
+
+Standard HTTP-based LLM interactions:
+
+```
+Message → StateStoreLoad → PromptAssembly → Template → Provider → Validation → StateStoreSave → Response
+```
+
+**Use cases**: Chat applications, content generation
+
+### VAD Mode (Voice Activity Detection)
+
+For voice applications using text-based LLMs:
+
+```
+Audio → AudioTurn → STT → StateStoreLoad → PromptAssembly → Template → Provider → TTS → StateStoreSave → Audio
+```
+
+**Use cases**: Voice assistants, telephony integrations
+
+### ASM Mode (Audio Streaming)
+
+For native multimodal LLMs with real-time audio:
+
+```
+Audio/Text → StateStoreLoad → PromptAssembly → Template → DuplexProvider → StateStoreSave → Audio/Text
+```
+
+**Use cases**: Gemini Live API, real-time voice conversations
+
+## Concurrency Model
+
+### Goroutine Lifecycle
+
+Each stage runs in its own goroutine, managed by the pipeline:
+
+```go
+func (p *Pipeline) Execute(ctx context.Context, input <-chan StreamElement) (<-chan StreamElement, error) {
+    ctx, cancel := context.WithCancel(ctx)
+
+    // Start each stage in its own goroutine
+    current := input
+    for _, stg := range p.stages {
+        output := make(chan StreamElement, p.config.ChannelBufferSize)
+
+        go func(s Stage, in <-chan StreamElement, out chan<- StreamElement) {
+            if err := s.Process(ctx, in, out); err != nil {
+                // Error handling
+            }
+        }(stg, current, output)
+
+        current = output
+    }
+
+    return current, nil
 }
 ```
 
-This provides:
-- Request context (timeout, cancellation)
-- Session identification
-- Message history
-- Execution metadata
+### Backpressure
 
-### Message Structure
+Channel-based communication naturally handles backpressure:
+- Slow consumers block producers
+- Buffer size controls latency vs. throughput tradeoff
+- No unbounded buffering
+
+### Shutdown
+
+Graceful shutdown propagates through the pipeline:
 
 ```go
-type Message struct {
-    Role    string
-    Content string
-    ToolCalls []MessageToolCall
+func (p *Pipeline) Shutdown(timeout time.Duration) error {
+    p.cancel()  // Cancel context
+
+    // Wait for all stages to complete
+    done := make(chan struct{})
+    go func() {
+        p.wg.Wait()
+        close(done)
+    }()
+
+    select {
+    case <-done:
+        return nil
+    case <-time.After(timeout):
+        return ErrShutdownTimeout
+    }
 }
 ```
 
-Messages represent the conversation.
+## Pipeline Builder
 
-## Middleware Types
-
-### State Middleware
-
-**Purpose**: Manage conversation history
+The builder constructs pipelines with a fluent API:
 
 ```go
-StateMiddleware(store StateStore)
+pipeline := stage.NewPipelineBuilder().
+    Chain(
+        stage.NewStateStoreLoadStage(stateConfig),
+        stage.NewPromptAssemblyStage(registry, taskType, vars),
+        stage.NewProviderStage(provider, tools, policy, config),
+        stage.NewStateStoreSaveStage(stateConfig),
+    ).
+    Build()
 ```
 
-**Behavior**:
-1. Before: Loads previous messages from store
-2. Adds new message to history
-3. Passes to next middleware
-4. After: Saves updated history
+### Branching
 
-**Use case**: Multi-turn conversations, chatbots
-
-### Template Middleware
-
-**Purpose**: Apply prompt templates
+For parallel processing paths:
 
 ```go
-TemplateMiddleware(templates TemplateStore)
+pipeline := stage.NewPipelineBuilder().
+    Chain(
+        stage.NewProviderStage(provider, tools, policy, config),
+    ).
+    Branch("provider", "tts", "text_output").  // Fork output
+    Chain(
+        stage.NewTTSStage(ttsService, config),
+    ).
+    Build()
 ```
 
-**Behavior**:
-1. Looks up template by name
-2. Renders template with variables
-3. Replaces message content
-4. Passes to next middleware
+### DAG Validation
 
-**Use case**: Consistent prompt formatting, dynamic prompts
+The builder validates the pipeline structure:
+- Detects cycles
+- Verifies all stages are connected
+- Checks for duplicate stage names
 
-### Validator Middleware
+## Error Handling
 
-**Purpose**: Content safety and validation
+### Error Elements
+
+Errors can be sent as elements for downstream handling:
 
 ```go
-ValidatorMiddleware(validators ...Validator)
+if err := s.validate(elem); err != nil {
+    output <- stage.NewErrorElement(err)
+    continue  // Process next element
+}
 ```
 
-**Behavior**:
-1. Runs all validators on message
-2. If any fails, returns error
-3. If all pass, continues to next middleware
+### Fatal Errors
 
-**Use case**: Banned word filtering, length limits, content moderation
-
-### Provider Middleware
-
-**Purpose**: Call LLM and handle tools
+Returning an error from `Process()` stops the pipeline:
 
 ```go
-ProviderMiddleware(provider Provider, tools *ToolRegistry, policy *ToolPolicy, config *ProviderConfig)
+if err := s.criticalOperation(elem); err != nil {
+    return err  // Pipeline stops
+}
 ```
 
-**Behavior**:
-1. Receives all messages
-2. Calls provider (OpenAI, Claude, Gemini)
-3. Handles tool calls if present
-4. Returns LLM response
+### Context Cancellation
 
-**Use case**: Core LLM interaction, function calling
+All stages should respect context cancellation:
 
-## Execution Flow
-
-### Request Path
-
-```
-User Input
-  ↓
-pipe.Execute(ctx, "user", "Hello")
-  ↓
-StateMiddleware.Process()
-  ├─ Load history from Redis
-  ├─ Add new message
-  └─ Pass to next →
-  ↓
-ValidatorMiddleware.Process()
-  ├─ Check banned words
-  ├─ Check length
-  └─ Pass to next →
-  ↓
-ProviderMiddleware.Process()
-  ├─ Call OpenAI API
-  ├─ Handle tool calls
-  └─ Return response ←
-  ↓
-StateMiddleware (return path)
-  └─ Save updated history
-  ↓
-Result to caller
+```go
+select {
+case output <- elem:
+    // Success
+case <-ctx.Done():
+    return ctx.Err()  // Pipeline cancelled
+}
 ```
 
-### Response Path
+## Event Integration
 
-Middleware processes responses in reverse order, allowing for:
-- Response transformation
-- Logging
-- Metrics collection
-- State updates
+The pipeline emits events for observability:
+
+```go
+// Automatic events for all stages
+EventStageStarted    // When stage begins processing
+EventStageCompleted  // When stage finishes successfully
+EventStageFailed     // When stage encounters an error
+
+// Pipeline lifecycle
+EventPipelineStarted
+EventPipelineCompleted
+EventPipelineFailed
+```
+
+These events are automatically emitted by the pipeline - stage authors don't need to emit them manually.
+
+## Performance Characteristics
+
+### Latency
+
+| Scenario | Target | Notes |
+|----------|--------|-------|
+| Audio chunk → VAD | < 10ms | Minimal buffering |
+| Turn complete → LLM request | < 50ms | Channel hop only |
+| LLM token → TTS chunk | < 50ms | Parallel processing |
+| Channel hop overhead | ~1-2ms | Per stage |
+
+### Memory
+
+- Channel buffers control memory usage
+- No full response accumulation needed for streaming
+- Element pooling available for high-throughput scenarios
+
+### Throughput
+
+- Concurrent stage execution
+- Backpressure prevents unbounded growth
+- Priority scheduling for QoS
 
 ## Design Decisions
 
-### Why Sequential Processing?
+### Why Channels Over Callbacks?
 
-**Decision**: Middleware executes in strict order
+**Decision**: Use Go channels for inter-stage communication
 
 **Rationale**:
-- Predictable behavior
+- Natural fit for Go's concurrency model
+- Built-in backpressure
 - Easy to reason about
-- Clear dependencies (state before validation)
-- Simple debugging
+- Standard error propagation via context
 
-**Alternative considered**: Parallel middleware execution was considered but rejected due to complexity and unclear ordering.
+### Why One Goroutine Per Stage?
 
-### Why Immutable Context?
-
-**Decision**: ExecutionContext is passed by pointer but treated as immutable
+**Decision**: Each stage runs in exactly one goroutine
 
 **Rationale**:
-- Prevents surprising mutations
-- Clear data flow
-- Easier testing
-- Thread-safe patterns
+- Clear ownership of lifecycle
+- Predictable resource usage
+- Simple debugging (goroutine per stage)
+- Easy to add metrics/tracing
 
-**Trade-off**: Slight performance cost, but worth it for safety.
+### Why Close Output Channel?
 
-### Why No Middleware Skipping?
-
-**Decision**: Can't skip middleware based on runtime conditions
+**Decision**: Stages must close their output channel when done
 
 **Rationale**:
-- Pipeline structure is defined at creation
-- Conditional logic belongs inside middleware
-- Simpler mental model
-- Easier optimization
-
-**Example**:
-```go
-// Don't skip middleware
-if needsValidation {
-    pipe := NewPipeline(StateMiddleware(), ValidatorMiddleware(), ProviderMiddleware())
-} else {
-    pipe := NewPipeline(StateMiddleware(), ProviderMiddleware())
-}
-
-// Instead, use conditional middleware
-type ConditionalValidator struct {
-    enabled bool
-    next Middleware
-}
-
-func (m *ConditionalValidator) Process(ctx *ExecutionContext, msg *Message) (*ProviderResponse, error) {
-    if m.enabled {
-        // validate
-    }
-    return m.next.Process(ctx, msg)
-}
-```
-
-## Custom Middleware
-
-You can create custom middleware for domain-specific needs:
-
-```go
-type LoggingMiddleware struct {
-    next Middleware
-}
-
-func (m *LoggingMiddleware) Process(ctx *ExecutionContext, msg *Message) (*ProviderResponse, error) {
-    start := time.Now()
-    log.Printf("Processing: %s", msg.Content)
-    
-    response, err := m.next.Process(ctx, msg)
-    
-    duration := time.Since(start)
-    if err != nil {
-        log.Printf("Error after %v: %v", duration, err)
-    } else {
-        log.Printf("Success in %v", duration)
-    }
-    
-    return response, err
-}
-```
-
-## Performance Considerations
-
-### Middleware Overhead
-
-Each middleware adds minimal overhead:
-- Function call
-- Context passing
-- Error checking
-
-For typical workloads (LLM calls taking 1-5 seconds), middleware overhead is negligible (<1ms).
-
-### Memory Usage
-
-Middleware doesn't copy messages by default, reducing memory usage. However:
-- State middleware loads full history (can be large)
-- Template middleware may create temporary strings
-- Validator middleware processes content
-
-**Optimization**: Limit message history to recent messages.
-
-### Concurrency
-
-Pipelines are **not thread-safe**. Create separate pipelines for concurrent requests:
-
-```go
-// Don't share pipeline across goroutines
-pipe := NewPipeline(...)
-go func() { pipe.Execute(...) }()  // ❌ Race condition
-go func() { pipe.Execute(...) }()  // ❌ Race condition
-
-// Do create one pipeline per goroutine
-func worker() {
-    pipe := NewPipeline(...)  // ✓ Thread-local
-    pipe.Execute(...)
-}
-go worker()
-go worker()
-```
-
-## Comparison to Other Patterns
-
-### vs. Decorator Pattern
-
-**Decorator**: Wraps objects to add behavior
-
-```go
-validator := NewValidator(provider)
-template := NewTemplate(validator)
-state := NewState(template)
-```
-
-**Middleware**: Explicitly ordered chain
-
-```go
-pipe := NewPipeline(state, template, validator, provider)
-```
-
-**Why middleware?** More explicit ordering, easier composition.
-
-### vs. Chain of Responsibility
-
-**Chain of Responsibility**: Each handler decides whether to pass to next
-
-**Middleware**: All handlers process in sequence
-
-**Why middleware?** Simpler for this use case - we always want full processing.
+- Signal completion to downstream stages
+- Enable `for range` iteration
+- Prevent goroutine leaks
+- Clear shutdown semantics
 
 ## Summary
 
-Pipeline architecture provides:
+The stage-based pipeline architecture provides:
 
-✅ **Composability**: Mix and match middleware  
-✅ **Separation of Concerns**: Each layer has one job  
-✅ **Testability**: Test middleware independently  
-✅ **Flexibility**: Add custom middleware easily  
-✅ **Maintainability**: Clear, predictable flow  
+- **True Streaming**: Elements flow as they're produced
+- **Concurrency**: Each stage runs independently
+- **Backpressure**: Slow consumers naturally throttle producers
+- **Composability**: Build complex pipelines from simple stages
+- **Observability**: Automatic events for all stages
+- **Type Safety**: Strongly typed elements with clear contracts
 
 ## Related Topics
 
-- [Middleware Design](middleware-design) - Deep dive into middleware patterns
-- [Provider System](provider-system) - How providers work
-- [Pipeline Reference](../reference/pipeline) - Complete API
-
-## Further Reading
-
-- Middleware pattern in web frameworks (Express.js, ASP.NET Core)
-- Chain of Responsibility pattern (Gang of Four)
-- Interceptor pattern in RPC systems (gRPC)
+- [Stage Reference](../reference/pipeline) - Complete stage API
+- [Provider System](provider-system) - How providers integrate
+- [State Management](state-management) - Conversation persistence

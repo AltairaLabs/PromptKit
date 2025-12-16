@@ -1,3 +1,20 @@
+// Package gemini provides Gemini Live API streaming support.
+//
+// IMPORTANT: Response Modality Limitation
+//
+// The Gemini Live API does NOT support requesting both TEXT and AUDIO response
+// modalities simultaneously. Attempting to set ResponseModalities to ["TEXT", "AUDIO"]
+// will result in a WebSocket error:
+//
+//	websocket: close 1007 (invalid payload data): Request contains an invalid argument.
+//
+// Valid configurations:
+//   - ["TEXT"]  - Text responses only (default)
+//   - ["AUDIO"] - Audio responses only
+//
+// If you need both text and audio, you must choose one primary modality.
+// For audio responses with transcription, the API may provide output transcription
+// separately via the OutputTranscription field.
 package gemini
 
 import (
@@ -63,12 +80,26 @@ type StreamSession struct {
 // StreamSessionConfig configures a streaming session
 type StreamSessionConfig struct {
 	Model              string   // Model name (will be prefixed with "models/" automatically)
-	ResponseModalities []string // "TEXT" and/or "AUDIO"
+	ResponseModalities []string // "TEXT" or "AUDIO" - NOT both! See package doc for details.
 	SystemInstruction  string   // System prompt/instruction for the model
 }
 
 // NewStreamSession creates a new streaming session
 func NewStreamSession(ctx context.Context, wsURL, apiKey string, config StreamSessionConfig) (*StreamSession, error) {
+	// Default to TEXT if no modalities specified
+	modalities := config.ResponseModalities
+	if len(modalities) == 0 {
+		modalities = []string{"TEXT"}
+	}
+
+	// IMPORTANT: Gemini Live API does NOT support TEXT+AUDIO simultaneously
+	// Reject this configuration early with a clear error message
+	if len(modalities) > 1 && sliceContains(modalities, "TEXT") && sliceContains(modalities, "AUDIO") {
+		return nil, fmt.Errorf(
+			"invalid response modalities: Gemini Live API does not support TEXT and AUDIO " +
+				"simultaneously. Use either [\"TEXT\"] or [\"AUDIO\"], not both")
+	}
+
 	sessionCtx, cancel := context.WithCancel(ctx)
 
 	ws := NewWebSocketManager(wsURL, apiKey)
@@ -83,12 +114,6 @@ func NewStreamSession(ctx context.Context, wsURL, apiKey string, config StreamSe
 		cancel:     cancel,
 		responseCh: make(chan providers.StreamChunk, 10),
 		errCh:      make(chan error, 1),
-	}
-
-	// Default to TEXT if no modalities specified
-	modalities := config.ResponseModalities
-	if len(modalities) == 0 {
-		modalities = []string{"TEXT"}
 	}
 
 	// Ensure model is in correct format: models/{model}
@@ -120,9 +145,8 @@ func NewStreamSession(ctx context.Context, wsURL, apiKey string, config StreamSe
 	setupContent := map[string]interface{}{
 		"model":            modelPath,
 		"generationConfig": generationConfig,
-		// Enable transcription of both input (user) and output (model) audio
-		"inputAudioTranscription":  map[string]interface{}{},
-		"outputAudioTranscription": map[string]interface{}{},
+		// Note: inputAudioTranscription and outputAudioTranscription removed
+		// as they may cause "invalid argument" errors with some configurations
 	}
 
 	// Add system instruction if provided
@@ -137,6 +161,14 @@ func NewStreamSession(ctx context.Context, wsURL, apiKey string, config StreamSe
 	setupMsg := map[string]interface{}{
 		"setup": setupContent,
 	}
+
+	// Log setup message at debug level
+	if logger.DefaultLogger != nil {
+		if setupJSON, err := json.MarshalIndent(setupMsg, "", "  "); err == nil {
+			logger.DefaultLogger.Debug("Gemini setup message", "setup", string(setupJSON))
+		}
+	}
+
 	if err := ws.Send(setupMsg); err != nil {
 		ws.Close()
 		cancel()
@@ -196,6 +228,24 @@ func (s *StreamSession) SendText(ctx context.Context, text string) error {
 	// Build text message with turn_complete set to true
 	// This signals to Gemini that we're done sending input and expecting a response
 	msg := buildTextMessage(text, true)
+
+	return s.ws.Send(msg)
+}
+
+// SendSystemContext sends a text message as context without completing the turn.
+// Use this for system prompts that should provide context but not trigger a response.
+// The audio/text that follows will be processed with this context in mind.
+func (s *StreamSession) SendSystemContext(ctx context.Context, text string) error {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return errors.New(ErrSessionClosed)
+	}
+	s.mu.Unlock()
+
+	// Build text message WITHOUT turn_complete
+	// This provides context without triggering an immediate response
+	msg := buildTextMessage(text, false)
 
 	return s.ws.Send(msg)
 }

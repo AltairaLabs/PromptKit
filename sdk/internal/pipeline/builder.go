@@ -2,19 +2,21 @@
 package pipeline
 
 import (
+	"fmt"
+
+	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
 	"github.com/AltairaLabs/PromptKit/runtime/variables"
 )
-
-// debugLogTruncateLen is the max length for system prompt debug output.
-const debugLogTruncateLen = 200
 
 // Config holds configuration for building a pipeline.
 type Config struct {
@@ -24,7 +26,7 @@ type Config struct {
 	// ToolRegistry for tool execution (optional)
 	ToolRegistry *tools.Registry
 
-	// PromptRegistry for loading prompts (required for PromptAssemblyMiddleware)
+	// PromptRegistry for loading prompts (required for PromptAssemblyStage)
 	PromptRegistry *prompt.Registry
 
 	// TaskType is the prompt ID/task type to load from the registry
@@ -61,126 +63,156 @@ type Config struct {
 	Temperature float32
 
 	// StateStore for conversation history persistence (optional)
-	// When provided, StateStoreLoad/Save middleware will be added to the pipeline
+	// When provided, StateStoreLoad/Save stages will be added to the pipeline
 	StateStore statestore.Store
 
 	// ConversationID for state store operations
 	ConversationID string
 
 	// StreamInputSession for duplex streaming (ASM mode) (optional)
-	// When provided, DuplexProviderMiddleware will be used instead of regular ProviderMiddleware
+	// When provided, DuplexProviderStage will be used instead of regular ProviderStage
 	StreamInputSession providers.StreamInputSession
+
+	// UseStages is deprecated and ignored - stages are always used.
+	// This field is kept for backward compatibility but has no effect.
+	UseStages bool
+
+	// VAD mode configuration (alternative to ASM mode)
+	// When set, enables VAD pipeline: AudioTurnStage → STTStage → ProviderStage → TTSStage
+
+	// VADConfig configures the AudioTurnStage for VAD mode
+	VADConfig *stage.AudioTurnConfig
+
+	// STTService for speech-to-text in VAD mode
+	STTService stt.Service
+
+	// STTConfig configures the STTStage
+	STTConfig *stage.STTStageConfig
+
+	// TTSService for text-to-speech in VAD mode
+	TTSService tts.Service
+
+	// TTSConfig configures the TTSStageWithInterruption
+	TTSConfig *stage.TTSStageWithInterruptionConfig
+
+	// InterruptionHandler shared between AudioTurnStage and TTSStage for barge-in support
+	InterruptionHandler *audio.InterruptionHandler
 }
 
-// Build creates a pipeline with the appropriate middleware chain.
+// Build creates a stage-based streaming pipeline.
 //
-// The pipeline is structured as follows:
-//  1. StateStoreLoadMiddleware - Load conversation history (if state store configured)
-//  2. PromptAssemblyMiddleware - Load and assemble the prompt from registry
-//  3. ProviderMiddleware - LLM call with tool execution
-//  4. DynamicValidatorMiddleware - Validate responses (if configured)
-//  5. StateStoreSaveMiddleware - Save conversation state (if state store configured)
+// Stage order:
+//  1. StateStoreLoadStage - Load conversation history (if configured)
+//  2. VariableProviderStage - Dynamic variable resolution (if configured)
+//  3. PromptAssemblyStage - Load and assemble prompt from registry
+//  4. TemplateStage - Prepare system prompt for provider
+//  5. ProviderStage/DuplexProviderStage - LLM call with streaming support
+//  6. ValidationStage - Validate responses (if configured)
+//  7. StateStoreSaveStage - Save conversation state (if configured)
 //
 // This matches the runtime pipeline used by Arena.
-func Build(cfg *Config) (*rtpipeline.Pipeline, error) {
-	var middlewares []rtpipeline.Middleware
+func Build(cfg *Config) (*stage.StreamPipeline, error) {
+	return buildStreamPipelineInternal(cfg)
+}
 
-	// Debug: log configuration
-	logger.Debug("Building pipeline",
+// BuildStreamPipeline is deprecated, use Build instead.
+// Kept for backward compatibility.
+func BuildStreamPipeline(cfg *Config) (*stage.StreamPipeline, error) {
+	return Build(cfg)
+}
+
+// buildStreamPipelineInternal creates a stage pipeline directly without wrapping.
+// Used by DuplexSession which handles streaming at the session level.
+func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
+	logger.Info("Building stage-based pipeline",
 		"taskType", cfg.TaskType,
-		"variables", cfg.Variables,
-		"hasPromptRegistry", cfg.PromptRegistry != nil,
+		"hasStateStore", cfg.StateStore != nil,
 		"hasToolRegistry", cfg.ToolRegistry != nil,
-		"hasStateStore", cfg.StateStore != nil)
+		"hasDuplexSession", cfg.StreamInputSession != nil)
 
-	// 1. State store load middleware - loads conversation history FIRST
+	// Create stage pipeline builder with appropriate config
+	var builder *stage.PipelineBuilder
+	if cfg.StreamInputSession != nil {
+		// For duplex streaming (ASM mode), disable execution timeout
+		// since the session runs indefinitely until user ends it
+		pipelineConfig := stage.DefaultPipelineConfig()
+		pipelineConfig.ExecutionTimeout = 0 // Disable timeout for duplex
+		builder = stage.NewPipelineBuilderWithConfig(pipelineConfig)
+	} else {
+		builder = stage.NewPipelineBuilder()
+	}
+
+	var stages []stage.Stage
+
+	// 1. State store load stage - loads conversation history FIRST
 	var stateStoreConfig *rtpipeline.StateStoreConfig
 	if cfg.StateStore != nil {
 		stateStoreConfig = &rtpipeline.StateStoreConfig{
 			Store:          cfg.StateStore,
 			ConversationID: cfg.ConversationID,
 		}
-		middlewares = append(middlewares, middleware.StateStoreLoadMiddleware(stateStoreConfig))
+		stages = append(stages, stage.NewStateStoreLoadStage(stateStoreConfig))
 	}
 
-	// 2. Variable provider middleware - resolves dynamic variables BEFORE prompt assembly
+	// 2. Variable provider stage - resolves dynamic variables
 	if len(cfg.VariableProviders) > 0 {
-		middlewares = append(middlewares, middleware.VariableProviderMiddleware(cfg.VariableProviders...))
+		stages = append(stages, stage.NewVariableProviderStage(cfg.VariableProviders...))
 	}
 
-	// 3. Prompt assembly middleware - loads prompt, sets system prompt and allowed tools
-	// 4. Template middleware - copies SystemPrompt to Prompt (for ProviderMiddleware)
-	// 5. Debug middleware to log the assembled prompt
-	middlewares = append(middlewares,
-		middleware.PromptAssemblyMiddleware(cfg.PromptRegistry, cfg.TaskType, cfg.Variables),
-		middleware.TemplateMiddleware(),
-		&debugMiddleware{},
+	// 3. Prompt assembly stage - loads prompt, sets system prompt and allowed tools
+	// 4. Template stage - prepares system prompt for provider
+	stages = append(stages,
+		stage.NewPromptAssemblyStage(cfg.PromptRegistry, cfg.TaskType, cfg.Variables),
+		stage.NewTemplateStage(),
 	)
 
-	// 5. Provider middleware for LLM calls with tool support
-	if cfg.Provider != nil {
-		providerConfig := &middleware.ProviderMiddlewareConfig{
+	// 5. Provider stage - LLM calls with streaming and tool support
+	// Use DuplexProviderStage for ASM mode (WebSocket streaming)
+	// Use VAD pipeline for VAD mode (extracted to builder_vad.go - integration tested)
+	// Use regular ProviderStage for text mode (HTTP API)
+	if cfg.StreamInputSession != nil {
+		// ASM mode: Direct audio streaming to LLM
+		logger.Debug("Using DuplexProviderStage for ASM mode")
+		stages = append(stages, stage.NewDuplexProviderStage(cfg.StreamInputSession))
+	} else if cfg.VADConfig != nil && cfg.STTService != nil && cfg.TTSService != nil {
+		// VAD mode: build audio pipeline (AudioTurnStage → STTStage → ProviderStage → TTSStage)
+		vadStages, err := buildVADPipelineStages(cfg)
+		if err != nil {
+			return nil, err
+		}
+		stages = append(stages, vadStages...)
+	} else if cfg.Provider != nil {
+		// Text mode: standard LLM call
+		providerConfig := &stage.ProviderConfig{
 			MaxTokens:   cfg.MaxTokens,
 			Temperature: cfg.Temperature,
 		}
-
-		// Use DuplexProviderMiddleware for ASM mode (WebSocket streaming)
-		// Use regular ProviderMiddleware for text/VAD mode (HTTP API)
-		if cfg.StreamInputSession != nil {
-			logger.Debug("Using DuplexProviderMiddleware for ASM mode")
-			middlewares = append(middlewares, middleware.DuplexProviderMiddleware(
-				cfg.StreamInputSession,
-				providerConfig,
-			))
-		} else {
-			middlewares = append(middlewares, middleware.ProviderMiddleware(
-				cfg.Provider,
-				cfg.ToolRegistry,
-				cfg.ToolPolicy,
-				providerConfig,
-			))
-		}
+		stages = append(stages, stage.NewProviderStage(
+			cfg.Provider,
+			cfg.ToolRegistry,
+			cfg.ToolPolicy,
+			providerConfig,
+		))
 	}
 
-	// 6. Validation middleware (if configured)
+	// 6. Validation stage - validate responses if configured
 	if cfg.ValidatorRegistry != nil && len(cfg.ValidatorConfigs) > 0 {
-		middlewares = append(middlewares, middleware.DynamicValidatorMiddlewareWithSuppression(
+		stages = append(stages, stage.NewValidationStage(
 			cfg.ValidatorRegistry,
 			cfg.SuppressValidationErrors,
 		))
 	}
 
-	// 7. State store save middleware - saves conversation state LAST
+	// 7. State store save stage - saves conversation state LAST
 	if stateStoreConfig != nil {
-		middlewares = append(middlewares, middleware.StateStoreSaveMiddleware(stateStoreConfig))
+		stages = append(stages, stage.NewStateStoreSaveStage(stateStoreConfig))
 	}
 
-	// Create pipeline with default config
-	return rtpipeline.NewPipelineWithConfigValidated(nil, middlewares...)
-}
-
-// debugMiddleware logs execution context for debugging.
-type debugMiddleware struct{}
-
-// Process logs the execution context state for debugging.
-func (m *debugMiddleware) Process(execCtx *rtpipeline.ExecutionContext, next func() error) error {
-	if len(execCtx.SystemPrompt) > debugLogTruncateLen {
-		logger.Debug("After PromptAssembly",
-			"systemPromptLength", len(execCtx.SystemPrompt),
-			"systemPromptPreview", execCtx.SystemPrompt[:debugLogTruncateLen]+"...",
-			"allowedTools", execCtx.AllowedTools,
-			"variables", execCtx.Variables)
-	} else {
-		logger.Debug("After PromptAssembly",
-			"systemPromptLength", len(execCtx.SystemPrompt),
-			"systemPrompt", execCtx.SystemPrompt,
-			"allowedTools", execCtx.AllowedTools,
-			"variables", execCtx.Variables)
+	// Build and return the StreamPipeline directly
+	streamPipeline, err := builder.Chain(stages...).Build()
+	if err != nil {
+		return nil, fmt.Errorf("failed to build stage pipeline: %w", err)
 	}
-	return next()
-}
 
-// StreamChunk is a no-op for debug middleware.
-func (m *debugMiddleware) StreamChunk(_ *rtpipeline.ExecutionContext, _ *providers.StreamChunk) error {
-	return nil
+	return streamPipeline, nil
 }

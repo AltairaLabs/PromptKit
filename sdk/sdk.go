@@ -9,8 +9,9 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
-	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -19,6 +20,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/sdk/session"
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
 )
+
+// debugSnippetMaxLen is the max length for debug log snippets.
+const debugSnippetMaxLen = 200
 
 // Open loads a pack file and creates a new conversation for the specified prompt.
 //
@@ -66,8 +70,8 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 		return nil, err
 	}
 
-	// Resolve provider
-	prov, err := resolveProvider(cfg)
+	// Resolve provider and store in config
+	_, err = resolveProvider(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +83,6 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 		promptName:     promptName,
 		promptRegistry: p.ToPromptRegistry(),                                  // Create registry for PromptAssemblyMiddleware
 		toolRegistry:   tools.NewRegistryWithRepository(p.ToToolRepository()), // Create registry with pack tools
-		provider:       prov,
 		config:         cfg,
 		handlers:       make(map[string]ToolHandler),
 		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
@@ -169,7 +172,6 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 		promptName:     promptName,
 		promptRegistry: p.ToPromptRegistry(),
 		toolRegistry:   tools.NewRegistryWithRepository(p.ToToolRepository()),
-		provider:       prov,
 		config:         cfg,
 		handlers:       make(map[string]ToolHandler),
 		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
@@ -236,6 +238,7 @@ func loadAndValidatePack(packPath, promptName string, cfg *config) (*pack.Pack, 
 }
 
 // resolveProvider auto-detects or uses the configured provider.
+// Stores the resolved provider in cfg.provider for later use.
 func resolveProvider(cfg *config) (providers.Provider, error) {
 	if cfg.provider != nil {
 		return cfg.provider, nil
@@ -244,6 +247,7 @@ func resolveProvider(cfg *config) (providers.Provider, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to detect provider: %w", err)
 	}
+	cfg.provider = detected
 	return detected, nil
 }
 
@@ -329,15 +333,16 @@ func initDuplexSession(conv *Conversation, cfg *config, streamProvider providers
 	}
 
 	// Create pipeline builder closure that captures conversation context
+	// Returns *stage.StreamPipeline directly for duplex sessions
 	pipelineBuilder := func(
 		ctx context.Context,
 		provider providers.Provider,
 		providerSession providers.StreamInputSession,
 		convID string,
 		stateStore statestore.Store,
-	) (*rtpipeline.Pipeline, error) {
-		// Build pipeline using conversation's existing logic
-		return conv.buildPipelineWithParams(stateStore, convID, providerSession)
+	) (*stage.StreamPipeline, error) {
+		// Build stage pipeline directly (not wrapped) for duplex sessions
+		return conv.buildStreamPipelineWithParams(stateStore, convID, providerSession)
 	}
 
 	// Mode is determined by cfg.streamingConfig:
@@ -346,6 +351,28 @@ func initDuplexSession(conv *Conversation, cfg *config, streamProvider providers
 	var streamConfig *providers.StreamingInputConfig
 	if cfg.streamingConfig != nil {
 		streamConfig = cfg.streamingConfig
+
+		// For ASM mode, load and set the system instruction from prompt registry
+		// Gemini Live API requires system instruction in the setup message
+		if streamConfig.SystemInstruction == "" && conv.promptRegistry != nil {
+			logger.Debug("Loading system instruction with variables",
+				"promptName", conv.promptName,
+				"varCount", len(initialVars),
+				"topic", initialVars["topic"])
+			assembled := conv.promptRegistry.LoadWithVars(conv.promptName, initialVars, "")
+			if assembled != nil && assembled.SystemPrompt != "" {
+				streamConfig.SystemInstruction = assembled.SystemPrompt
+				// Log first N chars of system prompt for debugging
+				snippet := assembled.SystemPrompt
+				if len(snippet) > debugSnippetMaxLen {
+					snippet = snippet[:debugSnippetMaxLen] + "..."
+				}
+				logger.Debug("Set system instruction for ASM session",
+					"promptName", conv.promptName,
+					"length", len(assembled.SystemPrompt),
+					"snippet", snippet)
+			}
+		}
 	}
 
 	// Create duplex session with builder
@@ -385,6 +412,7 @@ func initMCPRegistry(conv *Conversation, cfg *config) error {
 }
 
 // applyDefaultVariables sets default variable values from the prompt.
+// Only sets defaults for variables that weren't already provided via WithVariables.
 func applyDefaultVariables(conv *Conversation, prompt *pack.Prompt) {
 	// This is called before session is created, so we need to track these
 	// temporarily. The session will be initialized with these variables later.
@@ -395,7 +423,10 @@ func applyDefaultVariables(conv *Conversation, prompt *pack.Prompt) {
 				conv.config.initialVariables = make(map[string]string)
 			}
 			if conv.config != nil {
-				conv.config.initialVariables[v.Name] = v.Default
+				// Only set default if user didn't provide a value
+				if _, exists := conv.config.initialVariables[v.Name]; !exists {
+					conv.config.initialVariables[v.Name] = v.Default
+				}
 			}
 		}
 	}

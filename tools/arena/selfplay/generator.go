@@ -8,10 +8,10 @@ import (
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	arenamiddleware "github.com/AltairaLabs/PromptKit/tools/arena/middleware"
+	arenastages "github.com/AltairaLabs/PromptKit/tools/arena/stages"
 )
 
 const selfPlayUserRole = "self-play user"
@@ -46,7 +46,7 @@ func extractRegionFromPersonaID(personaID string) string {
 	return "us"
 }
 
-// NextUserTurn generates a user message using the LLM through a pipeline
+// NextUserTurn generates a user message using the LLM through a stage pipeline
 func (cg *ContentGenerator) NextUserTurn(
 	ctx context.Context,
 	history []types.Message,
@@ -79,33 +79,48 @@ func (cg *ContentGenerator) NextUserTurn(
 		cg.persona.ID,
 	)
 
-	// Build pipeline with standard middleware:
-	// 1. PersonaAssemblyMiddleware - assembles persona prompt with fragments/vars
-	// 2. HistoryInjectionMiddleware - prepends conversation history
-	// 3. TemplateMiddleware - final variable substitution (if needed)
-	// 4. ProviderMiddleware - calls LLM
-	providerConfig := &middleware.ProviderMiddlewareConfig{
+	// Build stage pipeline:
+	// 1. PersonaAssemblyStage - assembles persona prompt with fragments/vars
+	// 2. HistoryInjectionStage - prepends conversation history
+	// 3. SelfPlayUserTurnContextStage - injects scenario context for MockProvider
+	// 4. TemplateStage - final variable substitution
+	// 5. ProviderStage - calls LLM
+	providerConfig := &stage.ProviderConfig{
 		Temperature: cg.persona.Defaults.Temperature,
 		MaxTokens:   200, // Short user messages
 	}
 
-	middlewares := []pipeline.Middleware{
-		arenamiddleware.PersonaAssemblyMiddleware(cg.persona, region, baseVariables),
-		arenamiddleware.HistoryInjectionMiddleware(history),
-		// Inject scenario context for MockProvider using NEXT user turn (self-play only)
-		arenamiddleware.SelfPlayUserTurnContextMiddleware(&config.Scenario{ID: scenarioID}),
-		middleware.TemplateMiddleware(),
-		middleware.ProviderMiddleware(cg.provider, nil, nil, providerConfig),
+	stages := []stage.Stage{
+		arenastages.NewPersonaAssemblyStage(cg.persona, region, baseVariables),
+		arenastages.NewHistoryInjectionStage(history),
+		arenastages.NewSelfPlayUserTurnContextStage(&config.Scenario{ID: scenarioID}),
+		stage.NewTemplateStage(),
+		stage.NewProviderStage(cg.provider, nil, nil, providerConfig),
 	}
 
-	pl := pipeline.NewPipeline(middlewares...)
+	builder := stage.NewPipelineBuilder()
+	pl, err := builder.Chain(stages...).Build()
+	if err != nil {
+		return nil, fmt.Errorf("failed to build stage pipeline: %w", err)
+	}
 
-	// Execute pipeline with empty content (system prompt + history drives generation)
-	result, err := pl.Execute(ctx, "", "")
+	// Create empty input element (system prompt + history drives generation)
+	inputElem := stage.StreamElement{
+		Metadata: map[string]interface{}{
+			"persona":     cg.persona.ID,
+			"scenario_id": scenarioID,
+		},
+	}
+
+	// Execute pipeline synchronously
+	stageResult, err := pl.ExecuteSync(ctx, inputElem)
 	if err != nil {
 		logger.LLMError(cg.provider.ID(), selfPlayUserRole, err)
 		return nil, fmt.Errorf("failed to generate user turn: %w", err)
 	}
+
+	// Convert stage.ExecutionResult to pipeline.ExecutionResult
+	result := convertStageResult(stageResult)
 
 	// Log response
 	logger.LLMResponse(
@@ -120,7 +135,7 @@ func (cg *ContentGenerator) NextUserTurn(
 	if result.Response != nil && result.Response.Content != "" {
 		if err := cg.validateUserResponse(result.Response.Content); err != nil {
 			logger.Warn(
-				"⚠️  User response validation warning",
+				"User response validation warning",
 				"provider", cg.provider.ID(),
 				"role", selfPlayUserRole,
 				"warning", err.Error(),
@@ -143,6 +158,26 @@ func (cg *ContentGenerator) NextUserTurn(
 	result.Metadata["self_play_provider"] = cg.provider.ID()
 
 	return result, nil
+}
+
+// convertStageResult converts stage.ExecutionResult to pipeline.ExecutionResult
+func convertStageResult(stageResult *stage.ExecutionResult) *pipeline.ExecutionResult {
+	result := &pipeline.ExecutionResult{
+		Messages: stageResult.Messages,
+		CostInfo: stageResult.CostInfo,
+		Metadata: stageResult.Metadata,
+	}
+
+	// Convert Response if present
+	if stageResult.Response != nil {
+		result.Response = &pipeline.Response{
+			Role:      stageResult.Response.Role,
+			Content:   stageResult.Response.Content,
+			ToolCalls: stageResult.Response.ToolCalls,
+		}
+	}
+
+	return result
 }
 
 // validateUserResponse validates that the user response meets requirements

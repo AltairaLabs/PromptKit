@@ -25,6 +25,13 @@ const (
 	errStorageServiceMissing = "storage reference specified but storage service not available"
 	errStorageRetrieveFailed = "failed to retrieve from storage"
 	errStorageReturnedNoData = "storage returned media without data"
+
+	// Content type constants
+	contentTypeAudio = "audio"
+	contentTypeVideo = "video"
+
+	// HTTP constants
+	maxRedirects = 10
 )
 
 // HTTPMediaLoader handles loading media from HTTP/HTTPS URLs
@@ -39,9 +46,9 @@ func NewHTTPMediaLoader(timeout time.Duration, maxFileSize int64) *HTTPMediaLoad
 		client: &http.Client{
 			Timeout: timeout,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				// Allow up to 10 redirects
-				if len(via) >= 10 {
-					return fmt.Errorf("stopped after 10 redirects")
+				// Allow up to maxRedirects redirects
+				if len(via) >= maxRedirects {
+					return fmt.Errorf("stopped after %d redirects", maxRedirects)
 				}
 				return nil
 			},
@@ -91,12 +98,13 @@ func convertSinglePart(
 		return convertTextPart(turnPart, index)
 	case "image":
 		return convertImagePart(ctx, turnPart, baseDir, httpLoader, storageService, index)
-	case "audio":
+	case contentTypeAudio:
 		return convertAudioPart(ctx, turnPart, baseDir, httpLoader, storageService, index)
-	case "video":
+	case contentTypeVideo:
 		return convertVideoPart(ctx, turnPart, baseDir, httpLoader, storageService, index)
 	default:
-		return types.ContentPart{}, NewValidationError(index, "unknown", "", fmt.Sprintf("unsupported content part type: %s", turnPart.Type))
+		return types.ContentPart{}, NewValidationError(
+			index, "unknown", "", fmt.Sprintf("unsupported content part type: %s", turnPart.Type))
 	}
 }
 
@@ -146,7 +154,7 @@ type mediaConversionConfig struct {
 // It reduces code duplication by handling the common conversion logic
 func convertMediaPart(
 	ctx context.Context,
-	cfg mediaConversionConfig,
+	cfg *mediaConversionConfig,
 	createPartFromData func(data, mimeType string) types.ContentPart,
 	loadFromFile func(filePath, baseDir string, idx int) (types.ContentPart, error),
 ) (types.ContentPart, error) {
@@ -156,15 +164,16 @@ func convertMediaPart(
 
 	// Handle storage reference (highest priority)
 	if cfg.turnPart.Media.StorageReference != "" {
-		media, err := loadFromStorageReference(ctx, cfg.storageService, cfg.turnPart.Media.StorageReference, cfg.contentType, cfg.index)
+		media, err := loadFromStorageReference(
+			ctx, cfg.storageService, cfg.turnPart.Media.StorageReference, cfg.contentType, cfg.index)
 		if err != nil {
 			return types.ContentPart{}, err
 		}
 		var mediaType string
 		switch cfg.contentType {
-		case "audio":
+		case contentTypeAudio:
 			mediaType = types.ContentTypeAudio
-		case "video":
+		case contentTypeVideo:
 			mediaType = types.ContentTypeVideo
 		default:
 			mediaType = cfg.contentType
@@ -175,7 +184,8 @@ func convertMediaPart(
 	// Handle URL-based media
 	if cfg.turnPart.Media.URL != "" {
 		if cfg.httpLoader == nil {
-			return types.ContentPart{}, NewValidationError(cfg.index, cfg.contentType, cfg.turnPart.Media.URL, errURLNoHTTPLoader)
+			return types.ContentPart{}, NewValidationError(
+				cfg.index, cfg.contentType, cfg.turnPart.Media.URL, errURLNoHTTPLoader)
 		}
 		data, mimeType, err := cfg.httpLoader.loadMediaFromURL(ctx, cfg.turnPart.Media.URL, cfg.contentType, cfg.index)
 		if err != nil {
@@ -278,16 +288,9 @@ func convertAudioPart(
 		httpLoader:     httpLoader,
 		storageService: storageService,
 		index:          index,
-		contentType:    "audio",
+		contentType:    contentTypeAudio,
 	}
-	return convertMediaPart(ctx, cfg,
-		func(data, mimeType string) types.ContentPart {
-			return types.NewAudioPartFromData(data, mimeType)
-		},
-		func(filePath, baseDir string, idx int) (types.ContentPart, error) {
-			return loadAudioFromFile(filePath, baseDir, idx)
-		},
-	)
+	return convertMediaPart(ctx, &cfg, types.NewAudioPartFromData, loadAudioFromFile)
 }
 
 // convertVideoPart converts a video content part, loading from storage reference, file, or URL if needed
@@ -305,16 +308,9 @@ func convertVideoPart(
 		httpLoader:     httpLoader,
 		storageService: storageService,
 		index:          index,
-		contentType:    "video",
+		contentType:    contentTypeVideo,
 	}
-	return convertMediaPart(ctx, cfg,
-		func(data, mimeType string) types.ContentPart {
-			return types.NewVideoPartFromData(data, mimeType)
-		},
-		func(filePath, baseDir string, idx int) (types.ContentPart, error) {
-			return loadVideoFromFile(filePath, baseDir, idx)
-		},
-	)
+	return convertMediaPart(ctx, &cfg, types.NewVideoPartFromData, loadVideoFromFile)
 }
 
 // loadImageFromFile loads an image from disk and returns a content part
@@ -355,14 +351,17 @@ func loadVideoFromFile(filePath, baseDir string, index int) (types.ContentPart, 
 }
 
 // loadMediaFromURL fetches media from an HTTP/HTTPS URL and returns base64-encoded data and MIME type
-func (h *HTTPMediaLoader) loadMediaFromURL(ctx context.Context, url, contentType string, index int) (string, string, error) {
+func (h *HTTPMediaLoader) loadMediaFromURL(
+	ctx context.Context, url, contentType string, index int,
+) (data, mimeType string, err error) {
 	// Validate URL scheme
 	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-		return "", "", NewValidationError(index, contentType, url, "unsupported URL scheme (only http:// and https:// are supported)")
+		return "", "", NewValidationError(
+			index, contentType, url, "unsupported URL scheme (only http:// and https:// are supported)")
 	}
 
 	// Create request with context
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return "", "", NewNetworkError(index, contentType, url, "failed to create HTTP request", err)
 	}
@@ -370,9 +369,9 @@ func (h *HTTPMediaLoader) loadMediaFromURL(ctx context.Context, url, contentType
 	// Execute request
 	resp, err := h.client.Do(req)
 	if err != nil {
-		// Check if context was cancelled
+		// Check if context was canceled
 		if ctx.Err() != nil {
-			return "", "", NewNetworkError(index, contentType, url, "request cancelled or timed out", ctx.Err())
+			return "", "", NewNetworkError(index, contentType, url, "request canceled or timed out", ctx.Err())
 		}
 		return "", "", NewNetworkError(index, contentType, url, "failed to fetch from URL", err)
 	}
@@ -404,37 +403,39 @@ func (h *HTTPMediaLoader) loadMediaFromURL(ctx context.Context, url, contentType
 	}
 
 	// Get MIME type from Content-Type header or detect from URL
-	mimeType := resp.Header.Get("Content-Type")
+	mimeType = resp.Header.Get("Content-Type")
 	if mimeType == "" {
 		mimeType = detectMIMEType(url)
 	}
 
 	// Base64 encode
-	base64Data := base64.StdEncoding.EncodeToString(fileData)
+	data = base64.StdEncoding.EncodeToString(fileData)
 
-	return base64Data, mimeType, nil
+	return data, mimeType, nil
 }
 
 // loadMediaFile reads a media file and returns base64-encoded data and MIME type
-func loadMediaFile(fullPath, contentType string, index int) (string, string, error) {
+func loadMediaFile(
+	fullPath, contentType string, index int,
+) (data, mimeType string, err error) {
 	// Check if file exists
-	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-		return "", "", NewFileError(index, contentType, fullPath, "file does not exist", err)
+	if _, statErr := os.Stat(fullPath); os.IsNotExist(statErr) {
+		return "", "", NewFileError(index, contentType, fullPath, "file does not exist", statErr)
 	}
 
-	// Read file
-	fileData, err := os.ReadFile(fullPath)
+	// Read file - fullPath is validated by resolveFilePath and media_validator.go
+	fileData, err := os.ReadFile(fullPath) //nolint:gosec // Path validated before reaching here
 	if err != nil {
 		return "", "", NewFileError(index, contentType, fullPath, "failed to read file", err)
 	}
 
 	// Detect MIME type from file extension
-	mimeType := detectMIMEType(fullPath)
+	mimeType = detectMIMEType(fullPath)
 
 	// Base64 encode
-	base64Data := base64.StdEncoding.EncodeToString(fileData)
+	data = base64.StdEncoding.EncodeToString(fileData)
 
-	return base64Data, mimeType, nil
+	return data, mimeType, nil
 }
 
 // resolveFilePath resolves a file path relative to the base directory

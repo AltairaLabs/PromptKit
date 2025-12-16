@@ -19,6 +19,13 @@ const (
 	defaultMaxTokens   = 4096
 )
 
+// Provider name constants
+const (
+	providerGemini    = "gemini"
+	providerOpenAI    = "openai"
+	providerAnthropic = "anthropic"
+)
+
 // Info contains detected provider information.
 type Info struct {
 	// Name is the provider identifier (e.g., "openai", "anthropic", "gemini").
@@ -33,9 +40,25 @@ type Info struct {
 
 // Detect attempts to detect a provider from environment variables and create it.
 // If apiKey is provided, it uses that instead of environment detection.
-// If model is provided, it overrides the default model.
+// If model is provided, it overrides the default model and may determine the provider.
 // Returns the provider or an error if none can be detected.
 func Detect(apiKey, model string) (providers.Provider, error) {
+	// If model is specified, try to infer provider from model name first
+	if model != "" {
+		if providerName := inferProviderFromModel(model); providerName != "" {
+			// Try to get API key for the inferred provider
+			info := detectInfoForProvider(providerName)
+			if info != nil {
+				info.Model = model
+				if apiKey != "" {
+					info.APIKey = apiKey
+				}
+				return createProvider(info)
+			}
+		}
+	}
+
+	// Fall back to environment variable detection
 	info := detectInfo()
 	if info == nil && apiKey == "" {
 		return nil, fmt.Errorf("no provider detected: set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY")
@@ -55,6 +78,50 @@ func Detect(apiKey, model string) (providers.Provider, error) {
 	}
 
 	return createProvider(info)
+}
+
+// inferProviderFromModel attempts to determine the provider from the model name.
+// Returns empty string if provider cannot be inferred.
+func inferProviderFromModel(model string) string {
+	modelLower := strings.ToLower(model)
+	switch {
+	case strings.HasPrefix(modelLower, "gemini"):
+		return providerGemini
+	case strings.HasPrefix(modelLower, "gpt"),
+		strings.HasPrefix(modelLower, "o1"),
+		strings.HasPrefix(modelLower, "o3"):
+		return providerOpenAI
+	case strings.HasPrefix(modelLower, "claude"):
+		return providerAnthropic
+	default:
+		return ""
+	}
+}
+
+// detectInfoForProvider returns provider info for a specific provider name.
+func detectInfoForProvider(providerName string) *Info {
+	envKeys := map[string][]string{
+		"openai":    {"OPENAI_API_KEY"},
+		"anthropic": {"ANTHROPIC_API_KEY"},
+		"gemini":    {"GOOGLE_API_KEY", "GEMINI_API_KEY"},
+	}
+
+	keys, ok := envKeys[providerName]
+	if !ok {
+		return nil
+	}
+
+	for _, keyEnv := range keys {
+		if key := os.Getenv(keyEnv); key != "" {
+			return &Info{
+				Name:   providerName,
+				APIKey: key,
+				Model:  "", // Will be set by caller
+			}
+		}
+	}
+
+	return nil
 }
 
 // detectInfo checks environment for provider API keys.

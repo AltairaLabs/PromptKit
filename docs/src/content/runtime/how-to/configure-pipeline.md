@@ -9,13 +9,13 @@ Set up and configure Runtime pipeline for LLM execution.
 
 ## Goal
 
-Create a functional pipeline with proper configuration for your use case.
+Create a functional stage-based pipeline with proper configuration for your use case.
 
 ## Prerequisites
 
 - Go 1.21+
 - API key for LLM provider (OpenAI, Claude, or Gemini)
-- Basic understanding of middleware pattern
+- Basic understanding of streaming pipelines
 
 ## Basic Pipeline
 
@@ -25,10 +25,8 @@ Create a functional pipeline with proper configuration for your use case.
 import (
     "context"
     "log"
-    "os"
-    
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline"
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
+
+    "github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
     "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
 )
 ```
@@ -49,53 +47,66 @@ defer provider.Close()
 ### Step 3: Build Pipeline
 
 ```go
-pipe := pipeline.NewPipeline(
-    middleware.ProviderMiddleware(provider, nil, nil, &middleware.ProviderMiddlewareConfig{
-        MaxTokens:   1500,
-        Temperature: 0.7,
-    }),
-)
-defer pipe.Shutdown(context.Background())
+pipeline := stage.NewPipelineBuilder().
+    Chain(
+        stage.NewProviderStage(provider, nil, nil, &stage.ProviderConfig{
+            MaxTokens:   1500,
+            Temperature: 0.7,
+        }),
+    ).
+    Build()
 ```
 
 ### Step 4: Execute
 
 ```go
 ctx := context.Background()
-result, err := pipe.Execute(ctx, "user", "What is 2+2?")
+
+// Create input element
+msg := types.Message{Role: "user"}
+msg.AddTextPart("What is 2+2?")
+input := make(chan stage.StreamElement, 1)
+input <- stage.NewMessageElement(msg)
+close(input)
+
+// Execute pipeline
+output, err := pipeline.Execute(ctx, input)
 if err != nil {
     log.Fatalf("Execution failed: %v", err)
 }
 
-log.Printf("Response: %s\n", result.Response.Content)
-log.Printf("Cost: $%.6f\n", result.CostInfo.TotalCost)
+// Collect response
+for elem := range output {
+    if elem.Text != nil {
+        log.Printf("Response: %s\n", *elem.Text)
+    }
+}
 ```
 
 ## Configuration Options
 
-### Runtime Configuration
+### Pipeline Configuration
 
 ```go
-config := &pipeline.PipelineRuntimeConfig{
-    MaxConcurrentExecutions: 100,              // Limit concurrent requests
-    StreamBufferSize:        100,              // Stream chunk buffer
-    ExecutionTimeout:        30 * time.Second, // Per-request timeout
-    GracefulShutdownTimeout: 10 * time.Second, // Shutdown grace period
-}
+config := stage.DefaultPipelineConfig().
+    WithChannelBufferSize(32).              // Inter-stage channel buffer
+    WithExecutionTimeout(30 * time.Second). // Per-request timeout
+    WithGracefulShutdownTimeout(10 * time.Second). // Shutdown grace period
+    WithMetrics(true).                      // Enable per-stage metrics
+    WithTracing(true)                       // Enable distributed tracing
 
-pipe := pipeline.NewPipelineWithConfig(config,
-    middleware.ProviderMiddleware(provider, nil, nil, providerConfig),
-)
+pipeline := stage.NewPipelineBuilderWithConfig(config).
+    Chain(stages...).
+    Build()
 ```
 
-### Provider Configuration
+### Provider Stage Configuration
 
 ```go
-providerConfig := &middleware.ProviderMiddlewareConfig{
+providerConfig := &stage.ProviderConfig{
     MaxTokens:    2000,       // Maximum response tokens
     Temperature:  0.7,        // Randomness (0-2)
     Seed:         &seed,      // Reproducibility
-    DisableTrace: false,      // Enable execution tracing
 }
 ```
 
@@ -121,23 +132,18 @@ provider := openai.NewOpenAIProvider(
 )
 ```
 
-## Multiple Middleware
+## Multiple Stages
 
-### Adding Template Middleware
+### Adding Prompt Assembly
 
 ```go
-pipe := pipeline.NewPipeline(
-    middleware.TemplateMiddleware(),  // Process 
-    middleware.ProviderMiddleware(provider, nil, nil, config),
-)
-
-// System prompt with variables
-execCtx := &pipeline.ExecutionContext{
-    SystemPrompt: "You are a  assistant.",
-    Variables: map[string]string{
-        "role": "helpful",
-    },
-}
+pipeline := stage.NewPipelineBuilder().
+    Chain(
+        stage.NewPromptAssemblyStage(promptRegistry, "chat", variables),
+        stage.NewTemplateStage(),
+        stage.NewProviderStage(provider, nil, nil, config),
+    ).
+    Build()
 ```
 
 ### Adding Validators
@@ -145,15 +151,19 @@ execCtx := &pipeline.ExecutionContext{
 ```go
 import "github.com/AltairaLabs/PromptKit/runtime/validators"
 
-validatorList := []validators.Validator{
-    validators.NewBannedWordsValidator([]string{"inappropriate"}),
-    validators.NewLengthValidator(10, 500),
-}
+validatorRegistry := validators.NewRegistry()
+validatorRegistry.Register("banned_words", validators.NewBannedWordsValidator([]string{"inappropriate"}))
+validatorRegistry.Register("length", validators.NewLengthValidator(10, 500))
 
-pipe := pipeline.NewPipeline(
-    middleware.ProviderMiddleware(provider, nil, nil, config),
-    middleware.ValidatorMiddleware(validatorList),
-)
+pipeline := stage.NewPipelineBuilder().
+    Chain(
+        stage.NewPromptAssemblyStage(promptRegistry, "chat", variables),
+        stage.NewValidationStage(validatorRegistry, &stage.ValidationConfig{
+            FailOnError: true,
+        }),
+        stage.NewProviderStage(provider, nil, nil, config),
+    ).
+    Build()
 ```
 
 ### Adding State Persistence
@@ -162,6 +172,7 @@ pipe := pipeline.NewPipeline(
 import (
     "github.com/redis/go-redis/v9"
     "github.com/AltairaLabs/PromptKit/runtime/statestore"
+    "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 )
 
 redisClient := redis.NewClient(&redis.Options{
@@ -170,10 +181,90 @@ redisClient := redis.NewClient(&redis.Options{
 
 store := statestore.NewRedisStateStore(redisClient)
 
-pipe := pipeline.NewPipeline(
-    middleware.StateStoreMiddleware(store, "session-123"),
-    middleware.ProviderMiddleware(provider, nil, nil, config),
-)
+stateConfig := &pipeline.StateStoreConfig{
+    Store:          store,
+    ConversationID: "session-123",
+}
+
+pipeline := stage.NewPipelineBuilder().
+    Chain(
+        stage.NewStateStoreLoadStage(stateConfig),
+        stage.NewPromptAssemblyStage(promptRegistry, "chat", variables),
+        stage.NewProviderStage(provider, nil, nil, config),
+        stage.NewStateStoreSaveStage(stateConfig),
+    ).
+    Build()
+```
+
+## Pipeline Modes
+
+### Text Mode (Default)
+
+Standard request/response pipeline:
+
+```go
+pipeline := stage.NewPipelineBuilder().
+    Chain(
+        stage.NewStateStoreLoadStage(stateConfig),
+        stage.NewPromptAssemblyStage(promptRegistry, task, vars),
+        stage.NewTemplateStage(),
+        stage.NewProviderStage(provider, tools, policy, config),
+        stage.NewValidationStage(validatorRegistry, validationConfig),
+        stage.NewStateStoreSaveStage(stateConfig),
+    ).
+    Build()
+```
+
+### VAD Mode (Voice with Text LLM)
+
+For voice applications using text-based LLMs:
+
+```go
+vadConfig := stage.AudioTurnConfig{
+    SilenceDuration:   800 * time.Millisecond,
+    MinSpeechDuration: 200 * time.Millisecond,
+    MaxTurnDuration:   30 * time.Second,
+    SampleRate:        16000,
+}
+
+sttConfig := stage.STTStageConfig{
+    Language:      "en",
+    MinAudioBytes: 1600,
+}
+
+ttsConfig := stage.TTSConfig{
+    Voice: "alloy",
+    Speed: 1.0,
+}
+
+pipeline := stage.NewPipelineBuilder().
+    Chain(
+        stage.NewAudioTurnStage(vadConfig),
+        stage.NewSTTStage(sttService, sttConfig),
+        stage.NewStateStoreLoadStage(stateConfig),
+        stage.NewPromptAssemblyStage(promptRegistry, task, vars),
+        stage.NewProviderStage(provider, tools, policy, config),
+        stage.NewStateStoreSaveStage(stateConfig),
+        stage.NewTTSStageWithInterruption(ttsService, interruptionHandler, ttsConfig),
+    ).
+    Build()
+```
+
+### ASM Mode (Duplex Streaming)
+
+For native multimodal LLMs like Gemini Live:
+
+```go
+session, _ := gemini.NewStreamSession(ctx, endpoint, apiKey, streamConfig)
+
+pipeline := stage.NewPipelineBuilder().
+    Chain(
+        stage.NewStateStoreLoadStage(stateConfig),
+        stage.NewPromptAssemblyStage(promptRegistry, task, vars),
+        stage.NewDuplexProviderStage(session),
+        stage.NewStateStoreSaveStage(stateConfig),
+    ).
+    Build()
 ```
 
 ## Environment-Based Configuration
@@ -181,13 +272,13 @@ pipe := pipeline.NewPipeline(
 ### Production Configuration
 
 ```go
-func NewProductionPipeline() (*pipeline.Pipeline, error) {
+func NewProductionPipeline() (*stage.StreamPipeline, error) {
     // Get API key from environment
     apiKey := os.Getenv("OPENAI_API_KEY")
     if apiKey == "" {
         return nil, fmt.Errorf("OPENAI_API_KEY not set")
     }
-    
+
     // Configure provider
     provider := openai.NewOpenAIProvider(
         "openai-prod",
@@ -196,47 +287,50 @@ func NewProductionPipeline() (*pipeline.Pipeline, error) {
         openai.DefaultProviderDefaults(),
         false,
     )
-    
-    // Production runtime config
-    config := &pipeline.PipelineRuntimeConfig{
-        MaxConcurrentExecutions: 50,  // Conservative limit
-        ExecutionTimeout:        60 * time.Second,
-        GracefulShutdownTimeout: 15 * time.Second,
-    }
-    
+
+    // Production pipeline config
+    config := stage.DefaultPipelineConfig().
+        WithChannelBufferSize(32).
+        WithExecutionTimeout(60 * time.Second).
+        WithGracefulShutdownTimeout(15 * time.Second).
+        WithMetrics(true)
+
     // Build pipeline
-    pipe := pipeline.NewPipelineWithConfig(config,
-        middleware.TemplateMiddleware(),
-        middleware.ProviderMiddleware(provider, nil, nil, &middleware.ProviderMiddlewareConfig{
-            MaxTokens:   1500,
-            Temperature: 0.7,
-        }),
-        middleware.ValidatorMiddleware(productionValidators()),
-    )
-    
-    return pipe, nil
+    return stage.NewPipelineBuilderWithConfig(config).
+        Chain(
+            stage.NewPromptAssemblyStage(promptRegistry, "chat", nil),
+            stage.NewTemplateStage(),
+            stage.NewValidationStage(validatorRegistry, validationConfig),
+            stage.NewProviderStage(provider, toolRegistry, toolPolicy, &stage.ProviderConfig{
+                MaxTokens:   1500,
+                Temperature: 0.7,
+            }),
+        ).
+        Build(), nil
 }
 ```
 
 ### Development Configuration
 
 ```go
-func NewDevelopmentPipeline() *pipeline.Pipeline {
+func NewDevelopmentPipeline() *stage.StreamPipeline {
     // Use mock provider for testing
     provider := mock.NewMockProvider("mock", "test-model", true)
-    
+
     // Relaxed config for development
-    config := &pipeline.PipelineRuntimeConfig{
-        MaxConcurrentExecutions: 10,
-        ExecutionTimeout:        10 * time.Second,
-    }
-    
-    return pipeline.NewPipelineWithConfig(config,
-        middleware.ProviderMiddleware(provider, nil, nil, &middleware.ProviderMiddlewareConfig{
-            MaxTokens:   500,
-            Temperature: 1.0,
-        }),
-    )
+    config := stage.DefaultPipelineConfig().
+        WithChannelBufferSize(8).
+        WithExecutionTimeout(10 * time.Second)
+
+    return stage.NewPipelineBuilderWithConfig(config).
+        Chain(
+            stage.NewDebugStage(os.Stdout),  // Log all elements
+            stage.NewProviderStage(provider, nil, nil, &stage.ProviderConfig{
+                MaxTokens:   500,
+                Temperature: 1.0,
+            }),
+        ).
+        Build()
 }
 ```
 
@@ -250,11 +344,13 @@ type PipelineConfig struct {
     Model        string
     MaxTokens    int
     Temperature  float32
+    EnableState  bool
+    EnableDebug  bool
 }
 
-func NewPipelineFromConfig(cfg PipelineConfig) (*pipeline.Pipeline, error) {
+func NewPipelineFromConfig(cfg PipelineConfig) (*stage.StreamPipeline, error) {
     var provider providers.Provider
-    
+
     switch cfg.ProviderType {
     case "openai":
         provider = openai.NewOpenAIProvider(
@@ -271,42 +367,62 @@ func NewPipelineFromConfig(cfg PipelineConfig) (*pipeline.Pipeline, error) {
     default:
         return nil, fmt.Errorf("unknown provider: %s", cfg.ProviderType)
     }
-    
-    return pipeline.NewPipeline(
-        middleware.ProviderMiddleware(provider, nil, nil, &middleware.ProviderMiddlewareConfig{
-            MaxTokens:   cfg.MaxTokens,
-            Temperature: cfg.Temperature,
-        }),
-    ), nil
+
+    // Build stage list
+    stages := []stage.Stage{}
+
+    if cfg.EnableDebug {
+        stages = append(stages, stage.NewDebugStage(os.Stdout))
+    }
+
+    if cfg.EnableState {
+        stages = append(stages, stage.NewStateStoreLoadStage(stateConfig))
+    }
+
+    stages = append(stages, stage.NewProviderStage(provider, nil, nil, &stage.ProviderConfig{
+        MaxTokens:   cfg.MaxTokens,
+        Temperature: cfg.Temperature,
+    }))
+
+    if cfg.EnableState {
+        stages = append(stages, stage.NewStateStoreSaveStage(stateConfig))
+    }
+
+    return stage.NewPipelineBuilder().
+        Chain(stages...).
+        Build(), nil
 }
 ```
 
-### Conditional Middleware
+### Synchronous Execution Helper
 
 ```go
-func BuildPipeline(enableValidation, enableState bool) *pipeline.Pipeline {
-    middlewares := []pipeline.Middleware{}
-    
-    // Always include provider
-    middlewares = append(middlewares,
-        middleware.ProviderMiddleware(provider, nil, nil, config),
-    )
-    
-    // Conditional validation
-    if enableValidation {
-        middlewares = append(middlewares,
-            middleware.ValidatorMiddleware(validators),
-        )
+func ExecuteSync(ctx context.Context, pipeline *stage.StreamPipeline, message string) (*types.Message, error) {
+    // Create input
+    msg := types.Message{Role: "user"}
+    msg.AddTextPart(message)
+    input := make(chan stage.StreamElement, 1)
+    input <- stage.NewMessageElement(msg)
+    close(input)
+
+    // Execute
+    output, err := pipeline.Execute(ctx, input)
+    if err != nil {
+        return nil, err
     }
-    
-    // Conditional state
-    if enableState {
-        middlewares = append(middlewares,
-            middleware.StateStoreMiddleware(store, sessionID),
-        )
+
+    // Collect response
+    var response *types.Message
+    for elem := range output {
+        if elem.Message != nil {
+            response = elem.Message
+        }
+        if elem.Error != nil {
+            return nil, elem.Error
+        }
     }
-    
-    return pipeline.NewPipeline(middlewares...)
+
+    return response, nil
 }
 ```
 
@@ -319,22 +435,37 @@ func TestPipeline(t *testing.T) {
     // Create mock provider
     provider := mock.NewMockProvider("test", "test-model", false)
     provider.AddResponse("test input", "test output")
-    
+
     // Simple test pipeline
-    pipe := pipeline.NewPipeline(
-        middleware.ProviderMiddleware(provider, nil, nil, &middleware.ProviderMiddlewareConfig{
-            MaxTokens: 100,
-        }),
-    )
-    
+    pipeline := stage.NewPipelineBuilder().
+        Chain(
+            stage.NewProviderStage(provider, nil, nil, &stage.ProviderConfig{
+                MaxTokens: 100,
+            }),
+        ).
+        Build()
+
+    // Create input
+    msg := types.Message{Role: "user"}
+    msg.AddTextPart("test input")
+    input := make(chan stage.StreamElement, 1)
+    input <- stage.NewMessageElement(msg)
+    close(input)
+
     // Execute
-    result, err := pipe.Execute(context.Background(), "user", "test input")
+    output, err := pipeline.Execute(context.Background(), input)
     if err != nil {
         t.Fatalf("execution failed: %v", err)
     }
-    
-    if result.Response.Content != "test output" {
-        t.Errorf("unexpected response: %s", result.Response.Content)
+
+    // Check output
+    for elem := range output {
+        if elem.Message != nil {
+            content := elem.Message.GetTextContent()
+            if content != "test output" {
+                t.Errorf("unexpected response: %s", content)
+            }
+        }
     }
 }
 ```
@@ -348,21 +479,19 @@ func TestPipeline(t *testing.T) {
 **Solution**: Increase execution timeout:
 
 ```go
-config := &pipeline.PipelineRuntimeConfig{
-    ExecutionTimeout: 120 * time.Second,  // Increase from default 30s
-}
+config := stage.DefaultPipelineConfig().
+    WithExecutionTimeout(120 * time.Second)  // Increase from default 30s
 ```
 
-### Issue: Rate Limiting
+### Issue: Backpressure
 
-**Problem**: Provider rate limit errors.
+**Problem**: Slow consumers causing producer blocking.
 
-**Solution**: Reduce concurrency:
+**Solution**: Increase channel buffer size:
 
 ```go
-config := &pipeline.PipelineRuntimeConfig{
-    MaxConcurrentExecutions: 10,  // Reduce from default 100
-}
+config := stage.DefaultPipelineConfig().
+    WithChannelBufferSize(64)  // Increase from default 16
 ```
 
 ### Issue: Memory Growth
@@ -372,7 +501,7 @@ config := &pipeline.PipelineRuntimeConfig{
 **Solution**: Ensure proper cleanup:
 
 ```go
-defer pipe.Shutdown(context.Background())
+defer pipeline.Shutdown(10 * time.Second)
 defer provider.Close()
 defer store.Close()
 ```
@@ -381,7 +510,7 @@ defer store.Close()
 
 1. **Always use defer for cleanup**:
    ```go
-   defer pipe.Shutdown(context.Background())
+   defer pipeline.Shutdown(10 * time.Second)
    ```
 
 2. **Set appropriate timeouts**:
@@ -398,25 +527,24 @@ defer store.Close()
 4. **Configure based on environment**:
    ```go
    if os.Getenv("ENV") == "production" {
-       config.MaxConcurrentExecutions = 50
+       config = config.WithMetrics(true).WithTracing(true)
    }
    ```
 
-5. **Monitor and log configuration**:
-   ```go
-   log.Printf("Pipeline config: max_concurrent=%d, timeout=%v",
-       config.MaxConcurrentExecutions,
-       config.ExecutionTimeout)
-   ```
+5. **Order stages correctly**:
+   - State load before prompt assembly
+   - Validation before provider
+   - State save after provider
 
 ## Next Steps
 
 - [Setup Providers](setup-providers) - Configure specific providers
-- [Implement Tools](implement-tools) - Add function calling
 - [Handle Errors](handle-errors) - Robust error handling
 - [Streaming Responses](streaming-responses) - Real-time output
+- [Create Custom Stages](create-custom-stages) - Build your own stages
 
 ## See Also
 
 - [Pipeline Reference](../reference/pipeline) - Complete API
 - [Pipeline Tutorial](../tutorials/01-first-pipeline) - Step-by-step guide
+- [Stage Design](../explanation/stage-design) - Architecture explanation

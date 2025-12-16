@@ -41,11 +41,18 @@ Create `tools.pack.json`:
 
 ```json
 {
-  "version": "1.0",
+  "id": "tools-demo",
+  "name": "Tools Demo",
+  "version": "1.0.0",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
   "prompts": {
     "assistant": {
-      "name": "assistant",
-      "description": "Assistant with tool support",
+      "id": "assistant",
+      "name": "Tool Assistant",
+      "version": "1.0.0",
       "system_template": "You are a helpful assistant. Use tools when needed.",
       "tools": ["get_time", "get_weather"]
     }

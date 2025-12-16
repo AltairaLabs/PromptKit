@@ -473,6 +473,28 @@ func (p *ToolProvider) PredictStreamWithTools(
 	return outChan, nil
 }
 
+// Ensure ToolProvider implements StreamInputSupport by forwarding to embedded Provider
+var _ providers.StreamInputSupport = (*ToolProvider)(nil)
+
+// CreateStreamSession forwards to the embedded Provider's CreateStreamSession.
+// This enables duplex streaming with tool support.
+func (p *ToolProvider) CreateStreamSession(
+	ctx context.Context,
+	req *providers.StreamingInputConfig,
+) (providers.StreamInputSession, error) {
+	return p.Provider.CreateStreamSession(ctx, req)
+}
+
+// SupportsStreamInput forwards to the embedded Provider's SupportsStreamInput.
+func (p *ToolProvider) SupportsStreamInput() []string {
+	return p.Provider.SupportsStreamInput()
+}
+
+// GetStreamingCapabilities forwards to the embedded Provider's GetStreamingCapabilities.
+func (p *ToolProvider) GetStreamingCapabilities() providers.StreamingCapabilities {
+	return p.Provider.GetStreamingCapabilities()
+}
+
 func init() {
 	providers.RegisterProviderFactory("gemini", func(spec providers.ProviderSpec) (providers.Provider, error) {
 		return NewToolProvider(spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput), nil

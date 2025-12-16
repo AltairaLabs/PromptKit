@@ -20,9 +20,7 @@ var _ providers.StreamInputSupport = (*Provider)(nil)
 //	req := providers.StreamInputRequest{
 //	    Config: config,
 //	    Metadata: map[string]interface{}{
-//	        "response_modalities": []string{"AUDIO"},        // Audio only
-//	        // OR
-//	        "response_modalities": []string{"TEXT", "AUDIO"}, // Both text and audio
+//	        "response_modalities": []string{"AUDIO"}, // Audio only (TEXT+AUDIO not supported)
 //	    },
 //	}
 //
@@ -52,11 +50,10 @@ func (p *Provider) CreateStreamSession(
 	// Note: API key is passed via x-goog-api-key header, not as query parameter
 	wsURL := "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
 
-	// Configure session with model and response modalities
-	// Note: SystemInstruction should be sent via SendText() after session creation,
-	// assembled by the pipeline, not passed through StreamInputRequest
+	// Configure session with model, response modalities, and system instruction
 	config := StreamSessionConfig{
-		Model: p.Model,
+		Model:             p.Model,
+		SystemInstruction: req.SystemInstruction,
 	}
 
 	// Check metadata for response modalities configuration

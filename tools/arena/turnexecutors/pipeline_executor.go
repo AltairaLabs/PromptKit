@@ -5,10 +5,9 @@ import (
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
@@ -16,49 +15,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
 	arenaassertions "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
-	arenamiddleware "github.com/AltairaLabs/PromptKit/tools/arena/middleware"
+	arenastages "github.com/AltairaLabs/PromptKit/tools/arena/stages"
 )
-
-// variableInjectionMiddleware injects variables into the execution context
-type variableInjectionMiddleware struct {
-	variables map[string]string
-}
-
-// metadataInjectionMiddleware copies request metadata into the execution context.
-type metadataInjectionMiddleware struct {
-	metadata map[string]interface{}
-}
-
-func (m *variableInjectionMiddleware) Process(execCtx *pipeline.ExecutionContext, next func() error) error {
-	execCtx.Variables = m.variables
-	return next()
-}
-
-func (m *variableInjectionMiddleware) StreamChunk(execCtx *pipeline.ExecutionContext, chunk *providers.StreamChunk) error {
-	return nil
-}
-
-// Process injects request metadata into the execution context.
-func (m *metadataInjectionMiddleware) Process(execCtx *pipeline.ExecutionContext, next func() error) error {
-	if len(m.metadata) == 0 {
-		return next()
-	}
-	if execCtx.Metadata == nil {
-		execCtx.Metadata = make(map[string]interface{}, len(m.metadata))
-	}
-	for k, v := range m.metadata {
-		execCtx.Metadata[k] = v
-	}
-	return next()
-}
-
-// StreamChunk is a no-op for metadata injection.
-func (m *metadataInjectionMiddleware) StreamChunk(
-	execCtx *pipeline.ExecutionContext,
-	chunk *providers.StreamChunk,
-) error {
-	return nil
-}
 
 // PipelineExecutor executes conversations through the pipeline architecture.
 // It handles both non-streaming and streaming execution, including multi-round tool calls.
@@ -86,12 +44,12 @@ func buildBaseVariables(region string) map[string]string {
 }
 
 // buildContextPolicy constructs context policy from scenario config
-func buildContextPolicy(scenario *config.Scenario) *middleware.ContextBuilderPolicy {
+func buildContextPolicy(scenario *config.Scenario) *stage.ContextBuilderPolicy {
 	if scenario == nil || scenario.ContextPolicy == nil {
 		return nil
 	}
 
-	return &middleware.ContextBuilderPolicy{
+	return &stage.ContextBuilderPolicy{
 		TokenBudget:      scenario.ContextPolicy.TokenBudget,
 		ReserveForOutput: scenario.ContextPolicy.ReserveForOutput,
 		Strategy:         convertTruncationStrategy(scenario.ContextPolicy.Strategy),
@@ -100,7 +58,7 @@ func buildContextPolicy(scenario *config.Scenario) *middleware.ContextBuilderPol
 }
 
 // buildStateStoreConfig creates state store config from request
-func buildStateStoreConfig(req TurnRequest) *pipeline.StateStoreConfig {
+func buildStateStoreConfig(req *TurnRequest) *pipeline.StateStoreConfig {
 	if req.StateStoreConfig == nil {
 		return nil
 	}
@@ -113,9 +71,9 @@ func buildStateStoreConfig(req TurnRequest) *pipeline.StateStoreConfig {
 	}
 }
 
-// buildProviderConfig creates provider middleware config from request
-func buildProviderConfig(req TurnRequest) *middleware.ProviderMiddlewareConfig {
-	return &middleware.ProviderMiddlewareConfig{
+// buildProviderConfig creates provider config from request
+func buildProviderConfig(req *TurnRequest) *stage.ProviderConfig {
+	return &stage.ProviderConfig{
 		MaxTokens:   req.MaxTokens,
 		Temperature: float32(req.Temperature),
 		Seed:        req.Seed,
@@ -137,15 +95,15 @@ func buildToolPolicy(scenario *config.Scenario) *pipeline.ToolPolicy {
 }
 
 // buildMediaConfig creates media externalizer config
-func buildMediaConfig(conversationID string, mediaStorage storage.MediaStorageService) *middleware.MediaExternalizerConfig {
+func buildMediaConfig(conversationID string, mediaStorage storage.MediaStorageService) *stage.MediaExternalizerConfig {
 	if mediaStorage == nil {
 		return nil
 	}
 
-	return &middleware.MediaExternalizerConfig{
+	return &stage.MediaExternalizerConfig{
 		Enabled:         true,
 		StorageService:  mediaStorage,
-		SizeThresholdKB: 100, // Externalize media larger than 100KB
+		SizeThresholdKB: mediaExternalizerThresholdKB,
 		DefaultPolicy:   "retain",
 		RunID:           conversationID,
 		ConversationID:  conversationID,
@@ -159,27 +117,31 @@ func isMockProvider(provider providers.Provider) bool {
 	return isMock || isMockTool
 }
 
-// convertTruncationStrategy converts string strategy to middleware.TruncationStrategy
-func convertTruncationStrategy(strategy string) middleware.TruncationStrategy {
+// convertTruncationStrategy converts string strategy to stage.TruncationStrategy
+func convertTruncationStrategy(strategy string) stage.TruncationStrategy {
 	switch strategy {
 	case "oldest":
-		return middleware.TruncateOldest
+		return stage.TruncateOldest
 	case "fail":
-		return middleware.TruncateFail
+		return stage.TruncateFail
 	case "summarize":
-		return middleware.TruncateSummarize
+		return stage.TruncateSummarize
 	case "relevance":
-		return middleware.TruncateLeastRelevant
+		return stage.TruncateLeastRelevant
 	default:
-		return middleware.TruncateOldest
+		return stage.TruncateOldest
 	}
 }
 
-// buildMiddleware constructs the middleware chain for pipeline execution
-func (e *PipelineExecutor) buildMiddleware(req TurnRequest, baseVariables map[string]string) []pipeline.Middleware {
-	var pipelineMiddleware []pipeline.Middleware
+// buildStagePipeline constructs a stage-based pipeline for execution.
+// This replaces the middleware chain with streaming stages for better performance.
+func (e *PipelineExecutor) buildStagePipeline(
+	req *TurnRequest, baseVariables map[string]string,
+) (*stage.StreamPipeline, error) {
+	logger.Info("🔧 buildStagePipeline called", "provider_type", fmt.Sprintf("%T", req.Provider))
+	builder := stage.NewPipelineBuilder()
 
-	// Merge prompt vars into base variables so prompt assembly has required values.
+	// Merge prompt vars into base variables
 	mergedVars := map[string]string{}
 	for k, v := range baseVariables {
 		mergedVars[k] = v
@@ -188,76 +150,74 @@ func (e *PipelineExecutor) buildMiddleware(req TurnRequest, baseVariables map[st
 		mergedVars[k] = v
 	}
 
-	// 0. StateStore Load middleware
+	var stages []stage.Stage
+
+	// 0. State store load + turn index
 	if storeConfig := buildStateStoreConfig(req); storeConfig != nil {
-		// 0a. Compute authoritative turn indices right after loading state
-		pipelineMiddleware = append(pipelineMiddleware,
-			middleware.StateStoreLoadMiddleware(storeConfig),
-			arenamiddleware.TurnIndexMiddleware(),
+		stages = append(stages,
+			stage.NewStateStoreLoadStage(storeConfig),
+			arenastages.NewTurnIndexStage(),
 		)
 	}
 
-	// 1. Variable injection
-	injection := []pipeline.Middleware{
-		&variableInjectionMiddleware{variables: mergedVars},
-	}
-	// 1a. Metadata injection (generic: pass through request metadata to execution context)
+	// 1. Variable and metadata injection stages
+	stages = append(stages, arenastages.NewVariableInjectionStage(mergedVars))
 	if len(req.Metadata) > 0 {
-		injection = append(injection, &metadataInjectionMiddleware{metadata: req.Metadata})
+		stages = append(stages, arenastages.NewMetadataInjectionStage(req.Metadata))
 	}
-	pipelineMiddleware = append(pipelineMiddleware, injection...)
 
-	// 2-4. Prompt assembly, context extraction, template middleware
-	pipelineMiddleware = append(pipelineMiddleware,
-		middleware.PromptAssemblyMiddleware(req.PromptRegistry, req.TaskType, mergedVars),
-		arenamiddleware.ScenarioContextExtractionMiddleware(req.Scenario),
-		middleware.TemplateMiddleware(),
+	// 2-4. Prompt assembly, context extraction, template
+	stages = append(stages,
+		stage.NewPromptAssemblyStage(req.PromptRegistry, req.TaskType, mergedVars),
+		arenastages.NewScenarioContextExtractionStage(req.Scenario),
+		stage.NewTemplateStage(),
 	)
 
-	// 4a. Mock scenario context (for mock providers only) - BEFORE context building/truncation
-	// This ensures turn-number calculation uses the full state-store history, not a truncated context.
+	// 4a. Mock scenario context (for mock providers only)
 	if isMockProvider(req.Provider) {
-		logger.Debug("Adding MockScenarioContextMiddleware (pre-context-builder)", "scenario_id", req.Scenario.ID)
-		pipelineMiddleware = append(pipelineMiddleware, arenamiddleware.MockScenarioContextMiddleware(req.Scenario))
+		logger.Debug("Adding MockScenarioContext stage", "scenario_id", req.Scenario.ID)
+		stages = append(stages, arenastages.NewMockScenarioContextStage(req.Scenario))
 	} else {
-		logger.Debug("Provider is not a mock provider, skipping MockScenarioContextMiddleware", "provider_type", fmt.Sprintf("%T", req.Provider))
+		logger.Debug("Skipping MockScenarioContext stage - not a mock provider",
+			"provider_type", fmt.Sprintf("%T", req.Provider))
 	}
 
 	// 5. Context builder (if policy exists)
 	if contextPolicy := buildContextPolicy(req.Scenario); contextPolicy != nil {
-		pipelineMiddleware = append(pipelineMiddleware, middleware.ContextBuilderMiddleware(contextPolicy))
+		stages = append(stages, stage.NewContextBuilderStage(contextPolicy))
 	}
 
-	// 6. Provider middleware
-	pipelineMiddleware = append(pipelineMiddleware, middleware.ProviderMiddleware(
+	// 6. Provider stage
+	providerConfig := buildProviderConfig(req)
+	stages = append(stages, stage.NewProviderStage(
 		req.Provider,
 		e.toolRegistry,
 		buildToolPolicy(req.Scenario),
-		buildProviderConfig(req),
+		providerConfig,
 	))
 
-	// 7. Media externalization
+	// 7. Media externalization (if configured)
 	if mediaConfig := buildMediaConfig(req.ConversationID, e.mediaStorage); mediaConfig != nil {
-		pipelineMiddleware = append(pipelineMiddleware, middleware.MediaExternalizerMiddleware(mediaConfig))
+		stages = append(stages, stage.NewMediaExternalizerStage(mediaConfig))
 	}
 
-	// 8. Dynamic validator (with suppression for arena)
-	pipelineMiddleware = append(pipelineMiddleware, middleware.DynamicValidatorMiddlewareWithSuppression(validators.DefaultRegistry, true))
+	// 8. Dynamic validator
+	stages = append(stages, stage.NewValidationStage(validators.DefaultRegistry, true))
 
-	// 9. StateStore Save middleware
-	if req.StateStoreConfig != nil && req.ConversationID != "" {
-		storeConfig := buildStateStoreConfig(req)
-		pipelineMiddleware = append(pipelineMiddleware, arenamiddleware.ArenaStateStoreSaveMiddleware(storeConfig))
-	}
-
-	// 10. Assertion middleware
+	// 9. Assertion stage - must run before state store save
 	if len(req.Assertions) > 0 {
 		assertionRegistry := arenaassertions.NewArenaAssertionRegistry()
-		pipelineMiddleware = append(pipelineMiddleware,
-			arenaassertions.ArenaAssertionMiddleware(assertionRegistry, req.Assertions))
+		stages = append(stages, arenastages.NewArenaAssertionStage(assertionRegistry, req.Assertions))
 	}
 
-	return pipelineMiddleware
+	// 10. Arena state store save - saves messages with assertion metadata
+	if req.StateStoreConfig != nil && req.ConversationID != "" {
+		storeConfig := buildStateStoreConfig(req)
+		stages = append(stages, arenastages.NewArenaStateStoreSaveStage(storeConfig))
+	}
+
+	// Chain all stages together
+	return builder.Chain(stages...).Build()
 }
 
 // handleExecutionError processes pipeline execution errors
@@ -278,33 +238,34 @@ func (e *PipelineExecutor) handleExecutionError(provider providers.Provider, err
 // Output: all new messages generated (assistant messages, tool results, etc.)
 func (e *PipelineExecutor) Execute(
 	ctx context.Context,
-	req TurnRequest,
-	userMessage types.Message,
+	req *TurnRequest,
+	userMessage *types.Message,
 ) error {
-	// Build base variables and middleware chain
+	// Build base variables and stage pipeline
 	baseVariables := buildBaseVariables(req.Region)
-	pipelineMiddleware := e.buildMiddleware(req, baseVariables)
-	p := pipeline.NewPipeline(pipelineMiddleware...)
+	p, err := e.buildStagePipeline(req, baseVariables)
+	if err != nil {
+		return fmt.Errorf("failed to build stage pipeline: %w", err)
+	}
 
 	// Log the call
 	logger.LLMCall(req.Provider.ID(), "assistant", 1, req.Temperature, "max_tokens", req.MaxTokens)
 
-	// Execute pipeline
-	var emitter *events.Emitter
-	if req.EventBus != nil {
-		emitter = events.NewEmitter(req.EventBus, req.RunID, "", req.ConversationID)
+	// Create input element from user message
+	inputElem := stage.StreamElement{
+		Message: userMessage,
+		Metadata: map[string]interface{}{
+			"run_id":          req.RunID,
+			"conversation_id": req.ConversationID,
+		},
 	}
 
-	_, err := p.ExecuteWithMessageOptions(&pipeline.ExecutionOptions{
-		Context:        ctx,
-		RunID:          req.RunID,
-		ConversationID: req.ConversationID,
-		EventEmitter:   emitter,
-	}, userMessage)
+	// Execute pipeline synchronously
+	_, err = p.ExecuteSync(ctx, inputElem)
 	if err != nil {
 		return e.handleExecutionError(req.Provider, err)
 	}
 
-	logger.Debug("Pipeline execution completed successfully")
+	logger.Debug("Stage pipeline execution completed successfully")
 	return nil
 }

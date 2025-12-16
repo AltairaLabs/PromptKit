@@ -1,14 +1,26 @@
 package sdk
 
 import (
+	"time"
+
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/variables"
+)
+
+// VAD mode default configuration constants.
+const (
+	defaultVADSilenceDuration   = 800 * time.Millisecond
+	defaultVADMinSpeechDuration = 200 * time.Millisecond
+	defaultVADMaxTurnDuration   = 30 * time.Second
+	defaultVADSampleRate        = 16000
 )
 
 // config holds the configuration for a conversation.
@@ -61,6 +73,13 @@ type config struct {
 	// If set: ASM mode (audio streaming model with continuous bidirectional streaming)
 	// If nil: VAD mode (voice activity detection with turn-based streaming)
 	streamingConfig *providers.StreamingInputConfig
+
+	// VAD mode configuration
+	// When set, enables VAD pipeline: AudioTurnStage → STTStage → ProviderStage → TTSStage
+	vadModeConfig *VADModeConfig
+
+	// STT service for VAD mode
+	sttService stt.Service
 }
 
 // Option configures a Conversation.
@@ -387,6 +406,33 @@ func WithVariableProvider(p variables.Provider) Option {
 	}
 }
 
+// WithVariables sets initial variables for template substitution.
+//
+// These variables are available immediately when the conversation opens,
+// before any messages are sent. Use this for variables that must be set
+// before the first LLM call (e.g., in streaming/ASM mode).
+//
+// Variables set here override prompt defaults but can be further modified
+// via conv.SetVar() for subsequent messages.
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "assistant",
+//	    sdk.WithVariables(map[string]string{
+//	        "user_name": "Alice",
+//	        "language": "en",
+//	    }),
+//	)
+func WithVariables(vars map[string]string) Option {
+	return func(c *config) error {
+		if c.initialVariables == nil {
+			c.initialVariables = make(map[string]string)
+		}
+		for k, v := range vars {
+			c.initialVariables[k] = v
+		}
+		return nil
+	}
+}
+
 // WithTTS configures text-to-speech for the Pipeline.
 //
 // TTS is applied via Pipeline middleware during streaming responses.
@@ -436,6 +482,132 @@ func WithStreamingConfig(streamingConfig *providers.StreamingInputConfig) Option
 		c.streamingConfig = streamingConfig
 		return nil
 	}
+}
+
+// VADModeConfig configures VAD (Voice Activity Detection) mode for voice conversations.
+// In VAD mode, the pipeline processes audio through:
+// AudioTurnStage → STTStage → ProviderStage → TTSStage
+//
+// This enables voice conversations using standard text-based LLMs.
+type VADModeConfig struct {
+	// SilenceDuration is how long silence must persist to trigger turn complete.
+	// Default: 800ms
+	SilenceDuration time.Duration
+
+	// MinSpeechDuration is minimum speech before turn can complete.
+	// Default: 200ms
+	MinSpeechDuration time.Duration
+
+	// MaxTurnDuration is maximum turn length before forcing completion.
+	// Default: 30s
+	MaxTurnDuration time.Duration
+
+	// SampleRate is the audio sample rate.
+	// Default: 16000
+	SampleRate int
+
+	// Language is the language hint for STT (e.g., "en", "es").
+	// Default: "en"
+	Language string
+
+	// Voice is the TTS voice to use.
+	// Default: "alloy"
+	Voice string
+
+	// Speed is the TTS speech rate (0.5-2.0).
+	// Default: 1.0
+	Speed float64
+}
+
+// DefaultVADModeConfig returns sensible defaults for VAD mode.
+func DefaultVADModeConfig() *VADModeConfig {
+	return &VADModeConfig{
+		SilenceDuration:   defaultVADSilenceDuration,
+		MinSpeechDuration: defaultVADMinSpeechDuration,
+		MaxTurnDuration:   defaultVADMaxTurnDuration,
+		SampleRate:        defaultVADSampleRate,
+		Language:          "en",
+		Voice:             "alloy",
+		Speed:             1.0,
+	}
+}
+
+// WithVADMode configures VAD mode for voice conversations with standard text-based LLMs.
+// VAD mode processes audio through a pipeline: Audio → VAD → STT → LLM → TTS → Audio
+//
+// This is an alternative to ASM mode (WithStreamingConfig) for providers without
+// native audio streaming support.
+//
+// Example:
+//
+//	sttService := stt.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
+//	ttsService := tts.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
+//
+//	conv, _ := sdk.OpenDuplex("./assistant.pack.json", "voice-chat",
+//	    sdk.WithProvider(openai.NewProvider(openai.Config{...})),
+//	    sdk.WithVADMode(sttService, ttsService, nil), // nil uses defaults
+//	)
+//
+// With custom config:
+//
+//	conv, _ := sdk.OpenDuplex("./assistant.pack.json", "voice-chat",
+//	    sdk.WithProvider(openai.NewProvider(openai.Config{...})),
+//	    sdk.WithVADMode(sttService, ttsService, &sdk.VADModeConfig{
+//	        SilenceDuration: 500 * time.Millisecond,
+//	        Voice:           "nova",
+//	    }),
+//	)
+func WithVADMode(sttService stt.Service, ttsService tts.Service, cfg *VADModeConfig) Option {
+	return func(c *config) error {
+		if cfg == nil {
+			cfg = DefaultVADModeConfig()
+		}
+		c.vadModeConfig = cfg
+		c.sttService = sttService
+		c.ttsService = ttsService
+		return nil
+	}
+}
+
+// toAudioTurnConfig converts VADModeConfig to internal AudioTurnConfig.
+func (v *VADModeConfig) toAudioTurnConfig(ih *audio.InterruptionHandler) stage.AudioTurnConfig {
+	cfg := stage.DefaultAudioTurnConfig()
+	if v.SilenceDuration > 0 {
+		cfg.SilenceDuration = v.SilenceDuration
+	}
+	if v.MinSpeechDuration > 0 {
+		cfg.MinSpeechDuration = v.MinSpeechDuration
+	}
+	if v.MaxTurnDuration > 0 {
+		cfg.MaxTurnDuration = v.MaxTurnDuration
+	}
+	if v.SampleRate > 0 {
+		cfg.SampleRate = v.SampleRate
+	}
+	cfg.InterruptionHandler = ih
+	return cfg
+}
+
+// toSTTStageConfig converts VADModeConfig to internal STTStageConfig.
+func (v *VADModeConfig) toSTTStageConfig() stage.STTStageConfig {
+	cfg := stage.DefaultSTTStageConfig()
+	if v.Language != "" {
+		cfg.Language = v.Language
+	}
+	return cfg
+}
+
+// toTTSStageConfig converts VADModeConfig to internal TTSStageWithInterruptionConfig.
+func (v *VADModeConfig) toTTSStageConfig(ih *audio.InterruptionHandler) stage.TTSStageWithInterruptionConfig {
+	cfg := stage.DefaultTTSStageWithInterruptionConfig()
+	if v.Voice != "" {
+		cfg.Voice = v.Voice
+	}
+	if v.Speed > 0 {
+		cfg.Speed = v.Speed
+	}
+	cfg.InterruptionHandler = ih
+	return cfg
 }
 
 // sendConfig holds configuration for a single Send call.

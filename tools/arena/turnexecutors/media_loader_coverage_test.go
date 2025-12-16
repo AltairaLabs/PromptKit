@@ -156,14 +156,7 @@ func TestConvertMediaPart_AudioFromStorage(t *testing.T) {
 		contentType:    "audio",
 	}
 
-	part, err := convertMediaPart(ctx, cfg,
-		func(data, mimeType string) types.ContentPart {
-			return types.NewAudioPartFromData(data, mimeType)
-		},
-		func(filePath, baseDir string, idx int) (types.ContentPart, error) {
-			return loadAudioFromFile(filePath, baseDir, idx)
-		},
-	)
+	part, err := convertMediaPart(ctx, &cfg, types.NewAudioPartFromData, loadAudioFromFile)
 
 	assert.NoError(t, err)
 	assert.Equal(t, types.ContentTypeAudio, part.Type)
@@ -199,14 +192,7 @@ func TestConvertMediaPart_VideoFromStorage(t *testing.T) {
 		contentType:    "video",
 	}
 
-	part, err := convertMediaPart(ctx, cfg,
-		func(data, mimeType string) types.ContentPart {
-			return types.NewVideoPartFromData(data, mimeType)
-		},
-		func(filePath, baseDir string, idx int) (types.ContentPart, error) {
-			return loadVideoFromFile(filePath, baseDir, idx)
-		},
-	)
+	part, err := convertMediaPart(ctx, &cfg, types.NewVideoPartFromData, loadVideoFromFile)
 
 	assert.NoError(t, err)
 	assert.Equal(t, types.ContentTypeVideo, part.Type)

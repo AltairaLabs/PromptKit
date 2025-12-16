@@ -10,9 +10,11 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:     "promptarena",
-	Short:   "PromptKit Arena - Multi-turn conversation simulation and testing tool",
-	Version: GetVersion(),
+	Use:           "promptarena",
+	Short:         "PromptKit Arena - Multi-turn conversation simulation and testing tool",
+	Version:       GetVersion(),
+	SilenceUsage:  true,  // Don't print usage on error
+	SilenceErrors: false, // Do print errors
 	Long: `PromptKit Arena is a testing framework for running multi-turn conversation 
 simulations across multiple LLM providers and system prompts.
 
@@ -40,8 +42,9 @@ func setupVersion() {
 
 func Execute() {
 	setupVersion()
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	err := rootCmd.Execute()
+	if err != nil {
+		// Error already printed by cobra
 		os.Exit(1)
 	}
 }
