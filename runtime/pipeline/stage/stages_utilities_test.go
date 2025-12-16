@@ -3,6 +3,7 @@ package stage
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -687,4 +688,90 @@ func TestStreamElement_GetMetadata(t *testing.T) {
 		elem := StreamElement{}
 		assert.Nil(t, elem.GetMetadata("key"))
 	})
+}
+
+// =============================================================================
+// PipelineConfig Tests
+// =============================================================================
+
+func TestPipelineConfig_WithMaxConcurrentPipelines(t *testing.T) {
+	config := &PipelineConfig{}
+	result := config.WithMaxConcurrentPipelines(50)
+
+	assert.Equal(t, 50, result.MaxConcurrentPipelines)
+}
+
+func TestPipelineConfig_WithExecutionTimeout(t *testing.T) {
+	config := &PipelineConfig{}
+	result := config.WithExecutionTimeout(30 * time.Second)
+
+	assert.Equal(t, 30*time.Second, result.ExecutionTimeout)
+}
+
+func TestPipelineConfig_WithGracefulShutdownTimeout(t *testing.T) {
+	config := &PipelineConfig{}
+	result := config.WithGracefulShutdownTimeout(10 * time.Second)
+
+	assert.Equal(t, 10*time.Second, result.GracefulShutdownTimeout)
+}
+
+func TestPipelineConfig_WithTracing(t *testing.T) {
+	config := &PipelineConfig{}
+	result := config.WithTracing(true)
+
+	assert.True(t, result.EnableTracing)
+}
+
+// =============================================================================
+// StageError Tests
+// =============================================================================
+
+func TestStageError_Error(t *testing.T) {
+	err := &StageError{
+		StageName: "my-stage",
+		StageType: StageTypeTransform,
+		Err:       assert.AnError,
+	}
+
+	errorMsg := err.Error()
+
+	assert.Contains(t, errorMsg, "my-stage")
+	assert.Contains(t, errorMsg, "transform")
+}
+
+func TestStageError_Unwrap(t *testing.T) {
+	originalErr := assert.AnError
+	stageErr := &StageError{
+		StageName: "test",
+		StageType: StageTypeGenerate,
+		Err:       originalErr,
+	}
+
+	assert.Equal(t, originalErr, stageErr.Unwrap())
+}
+
+func TestNewStageError(t *testing.T) {
+	err := NewStageError("my-stage", StageTypeSink, assert.AnError)
+
+	assert.Equal(t, "my-stage", err.StageName)
+	assert.Equal(t, StageTypeSink, err.StageType)
+	assert.Equal(t, assert.AnError, err.Err)
+}
+
+func TestStageType_String(t *testing.T) {
+	tests := []struct {
+		stageType StageType
+		expected  string
+	}{
+		{StageTypeTransform, "transform"},
+		{StageTypeAccumulate, "accumulate"},
+		{StageTypeGenerate, "generate"},
+		{StageTypeSink, "sink"},
+		{StageTypeBidirectional, "bidirectional"},
+		{StageType(99), "unknown"},
+	}
+
+	for _, tt := range tests {
+		assert.Equal(t, tt.expected, tt.stageType.String())
+	}
 }
