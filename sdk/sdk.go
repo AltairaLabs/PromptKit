@@ -309,6 +309,34 @@ func initInternalStateStore(conv *Conversation, cfg *config) error {
 	return nil
 }
 
+// loadSystemInstruction loads the system instruction for ASM mode from prompt registry.
+func loadSystemInstruction(
+	conv *Conversation,
+	streamConfig *providers.StreamingInputConfig,
+	initialVars map[string]string,
+) {
+	if streamConfig.SystemInstruction != "" || conv.promptRegistry == nil {
+		return
+	}
+	logger.Debug("Loading system instruction with variables",
+		"promptName", conv.promptName,
+		"varCount", len(initialVars),
+		"topic", initialVars["topic"])
+	assembled := conv.promptRegistry.LoadWithVars(conv.promptName, initialVars, "")
+	if assembled != nil && assembled.SystemPrompt != "" {
+		streamConfig.SystemInstruction = assembled.SystemPrompt
+		// Log first N chars of system prompt for debugging
+		snippet := assembled.SystemPrompt
+		if len(snippet) > debugSnippetMaxLen {
+			snippet = snippet[:debugSnippetMaxLen] + "..."
+		}
+		logger.Debug("Set system instruction for ASM session",
+			"promptName", conv.promptName,
+			"length", len(assembled.SystemPrompt),
+			"snippet", snippet)
+	}
+}
+
 // initDuplexSession initializes a duplex streaming session.
 func initDuplexSession(conv *Conversation, cfg *config, streamProvider providers.StreamInputSupport) error {
 	var store statestore.Store
@@ -349,28 +377,8 @@ func initDuplexSession(conv *Conversation, cfg *config, streamProvider providers
 	var streamConfig *providers.StreamingInputConfig
 	if cfg.streamingConfig != nil {
 		streamConfig = cfg.streamingConfig
-
 		// For ASM mode, load and set the system instruction from prompt registry
-		// Gemini Live API requires system instruction in the setup message
-		if streamConfig.SystemInstruction == "" && conv.promptRegistry != nil {
-			logger.Debug("Loading system instruction with variables",
-				"promptName", conv.promptName,
-				"varCount", len(initialVars),
-				"topic", initialVars["topic"])
-			assembled := conv.promptRegistry.LoadWithVars(conv.promptName, initialVars, "")
-			if assembled != nil && assembled.SystemPrompt != "" {
-				streamConfig.SystemInstruction = assembled.SystemPrompt
-				// Log first N chars of system prompt for debugging
-				snippet := assembled.SystemPrompt
-				if len(snippet) > debugSnippetMaxLen {
-					snippet = snippet[:debugSnippetMaxLen] + "..."
-				}
-				logger.Debug("Set system instruction for ASM session",
-					"promptName", conv.promptName,
-					"length", len(assembled.SystemPrompt),
-					"snippet", snippet)
-			}
-		}
+		loadSystemInstruction(conv, streamConfig, initialVars)
 	}
 
 	// Create duplex session with builder

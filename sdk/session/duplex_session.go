@@ -46,6 +46,23 @@ type duplexSession struct {
 //nolint:unused // Used by tests
 const streamBufferSize = 100 // Size of buffered channels for streaming
 
+// initConversationState initializes state for a new conversation if it doesn't exist.
+func initConversationState(ctx context.Context, store statestore.Store, cfg *DuplexSessionConfig, convID string) error {
+	_, err := store.Load(ctx, convID)
+	if err != nil {
+		initialState := &statestore.ConversationState{
+			ID:       convID,
+			UserID:   cfg.UserID,
+			Messages: []types.Message{},
+			Metadata: cfg.Metadata,
+		}
+		if err := store.Save(ctx, initialState); err != nil {
+			return fmt.Errorf("failed to initialize conversation state: %w", err)
+		}
+	}
+	return nil
+}
+
 // NewDuplexSession creates a bidirectional session from a config.
 // PipelineBuilder and Provider are required.
 //
@@ -77,21 +94,13 @@ func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSess
 	}
 
 	// Initialize conversation state if it doesn't exist
-	_, err := store.Load(context.Background(), conversationID)
-	if err != nil {
-		initialState := &statestore.ConversationState{
-			ID:       conversationID,
-			UserID:   cfg.UserID,
-			Messages: []types.Message{},
-			Metadata: cfg.Metadata,
-		}
-		if err := store.Save(context.Background(), initialState); err != nil {
-			return nil, fmt.Errorf("failed to initialize conversation state: %w", err)
-		}
+	if err := initConversationState(ctx, store, cfg, conversationID); err != nil {
+		return nil, err
 	}
 
 	// Conditionally create provider session for ASM mode
 	var providerSession providers.StreamInputSession
+	var err error
 	if cfg.Config != nil {
 		// ASM mode: provider must support streaming
 		streamProvider, ok := cfg.Provider.(providers.StreamInputSupport)
@@ -105,7 +114,8 @@ func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSess
 	}
 
 	// Build pipeline with provider and session (session is nil for VAD mode)
-	builtPipeline, err := cfg.PipelineBuilder(ctx, cfg.Provider, providerSession, conversationID, store)
+	var builtPipeline *stage.StreamPipeline
+	builtPipeline, err = cfg.PipelineBuilder(ctx, cfg.Provider, providerSession, conversationID, store)
 	if err != nil {
 		if providerSession != nil {
 			_ = providerSession.Close()

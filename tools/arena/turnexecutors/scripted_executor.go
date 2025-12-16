@@ -274,9 +274,29 @@ func (e *ScriptedExecutor) buildStreamingStages(req *TurnRequest) (*stage.Stream
 	return builder.Chain(stages...).Build()
 }
 
+// extractFinishReason extracts finish reason from element metadata.
+func extractFinishReason(metadata map[string]interface{}) *string {
+	if metadata == nil {
+		return nil
+	}
+	if fr, ok := metadata["finish_reason"].(string); ok {
+		return &fr
+	}
+	return nil
+}
+
+// extractTokenCount extracts token count from element metadata.
+func extractTokenCount(metadata map[string]interface{}) int {
+	if metadata == nil {
+		return 0
+	}
+	if tc, ok := metadata["token_count"].(int); ok {
+		return tc
+	}
+	return 0
+}
+
 // forwardStageElements forwards stage elements from pipeline to output channel
-//
-//nolint:gocognit // Stream element forwarding with message type handling is complex
 func (e *ScriptedExecutor) forwardStageElements(
 	outputChan <-chan stage.StreamElement,
 	messages []types.Message,
@@ -287,63 +307,65 @@ func (e *ScriptedExecutor) forwardStageElements(
 	assistantMsg.Role = roleAssistant
 
 	for elem := range outputChan {
-		// Check for error
 		if elem.Error != nil {
 			outChan <- MessageStreamChunk{Messages: messages, Error: elem.Error}
 			return
 		}
 
-		// Check for final message elements first (they have Message set)
-		// These may also have delta metadata from the provider, so we check Message before delta
 		if elem.Message != nil {
-			if elem.Message.Role == roleAssistant {
-				assistantMsg = *elem.Message
-				messages = e.updateMessagesList(messages, &assistantMsg, assistantIndex)
-
-				// Extract finish reason from metadata if available
-				var finishReason *string
-				if elem.Metadata != nil {
-					if fr, ok := elem.Metadata["finish_reason"].(string); ok {
-						finishReason = &fr
-					}
-				}
-
-				outChan <- MessageStreamChunk{
-					Messages:     messages,
-					MessageIndex: assistantIndex,
-					FinishReason: finishReason,
-				}
-
-				if finishReason != nil {
-					break
-				}
+			if done := e.processMessageElement(&elem, &messages, &assistantMsg, assistantIndex, outChan); done {
+				break
 			}
-			// Skip other message types (e.g., user messages that flow through)
 			continue
 		}
 
-		// Handle streaming chunks (from ProviderStage) - delta is in elem.Text
-		if elem.Text != nil && *elem.Text != "" {
-			var finishReason *string
-			var tokenCount int
+		e.processStreamingElement(&elem, messages, assistantIndex, outChan)
+	}
+}
 
-			if elem.Metadata != nil {
-				if fr, ok := elem.Metadata["finish_reason"].(string); ok {
-					finishReason = &fr
-				}
-				if tc, ok := elem.Metadata["token_count"].(int); ok {
-					tokenCount = tc
-				}
-			}
+// processMessageElement handles message elements (final messages from provider).
+// Returns true if streaming should stop.
+func (e *ScriptedExecutor) processMessageElement(
+	elem *stage.StreamElement,
+	messages *[]types.Message,
+	assistantMsg *types.Message,
+	assistantIndex int,
+	outChan chan<- MessageStreamChunk,
+) bool {
+	if elem.Message.Role != roleAssistant {
+		return false
+	}
 
-			outChan <- MessageStreamChunk{
-				Messages:     messages,
-				Delta:        *elem.Text,
-				MessageIndex: assistantIndex,
-				TokenCount:   tokenCount,
-				FinishReason: finishReason,
-			}
-		}
+	*assistantMsg = *elem.Message
+	*messages = e.updateMessagesList(*messages, assistantMsg, assistantIndex)
+	finishReason := extractFinishReason(elem.Metadata)
+
+	outChan <- MessageStreamChunk{
+		Messages:     *messages,
+		MessageIndex: assistantIndex,
+		FinishReason: finishReason,
+	}
+
+	return finishReason != nil
+}
+
+// processStreamingElement handles streaming text chunks.
+func (e *ScriptedExecutor) processStreamingElement(
+	elem *stage.StreamElement,
+	messages []types.Message,
+	assistantIndex int,
+	outChan chan<- MessageStreamChunk,
+) {
+	if elem.Text == nil || *elem.Text == "" {
+		return
+	}
+
+	outChan <- MessageStreamChunk{
+		Messages:     messages,
+		Delta:        *elem.Text,
+		MessageIndex: assistantIndex,
+		TokenCount:   extractTokenCount(elem.Metadata),
+		FinishReason: extractFinishReason(elem.Metadata),
 	}
 }
 

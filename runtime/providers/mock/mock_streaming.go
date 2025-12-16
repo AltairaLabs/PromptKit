@@ -15,6 +15,7 @@ const (
 	hd720Height               = 720
 	fullHDWidth               = 1920
 	fullHDHeight              = 1080
+	errSessionClosed          = "session closed"
 )
 
 // MockStreamSession implements providers.StreamInputSession for testing duplex scenarios.
@@ -86,7 +87,7 @@ func (m *MockStreamSession) SendChunk(ctx context.Context, chunk *types.MediaChu
 	defer m.mu.Unlock()
 
 	if m.closeCalled {
-		return errors.New("session closed")
+		return errors.New(errSessionClosed)
 	}
 	if m.sendChunkErr != nil {
 		return m.sendChunkErr
@@ -107,7 +108,7 @@ func (m *MockStreamSession) SendText(ctx context.Context, text string) error {
 	defer m.mu.Unlock()
 
 	if m.closeCalled {
-		return errors.New("session closed")
+		return errors.New(errSessionClosed)
 	}
 	if m.sendTextErr != nil {
 		return m.sendTextErr
@@ -129,7 +130,7 @@ func (m *MockStreamSession) SendSystemContext(ctx context.Context, text string) 
 	defer m.mu.Unlock()
 
 	if m.closeCalled {
-		return errors.New("session closed")
+		return errors.New(errSessionClosed)
 	}
 	if m.sendTextErr != nil {
 		return m.sendTextErr

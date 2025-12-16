@@ -11,8 +11,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// TranscriptionService converts audio bytes to text.
-type TranscriptionService interface {
+// Transcriber converts audio bytes to text.
+// Follows Go naming convention for single-method interfaces.
+type Transcriber interface {
 	Transcribe(ctx context.Context, audio []byte) (string, error)
 }
 
@@ -55,14 +56,14 @@ func DefaultVADConfig() VADConfig {
 type VADAccumulatorStage struct {
 	BaseStage
 	analyzer    audio.VADAnalyzer
-	transcriber TranscriptionService
+	transcriber Transcriber
 	config      VADConfig
 }
 
 // NewVADAccumulatorStage creates a new VAD accumulator stage.
 func NewVADAccumulatorStage(
 	analyzer audio.VADAnalyzer,
-	transcriber TranscriptionService,
+	transcriber Transcriber,
 	config VADConfig,
 ) *VADAccumulatorStage {
 	return &VADAccumulatorStage{

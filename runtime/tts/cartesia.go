@@ -231,12 +231,6 @@ func (s *CartesiaService) processWSResponse(
 // mapFormat converts AudioFormat to Cartesia format config.
 func (s *CartesiaService) mapFormat(format AudioFormat) cartesiaOutputFormat {
 	switch format.Name {
-	case formatPCM:
-		return cartesiaOutputFormat{
-			Container:  "raw",
-			Encoding:   "pcm_s16le",
-			SampleRate: sampleRate24000,
-		}
 	case formatMP3:
 		return cartesiaOutputFormat{
 			Container:  formatMP3,
@@ -250,6 +244,7 @@ func (s *CartesiaService) mapFormat(format AudioFormat) cartesiaOutputFormat {
 			SampleRate: sampleRate44100,
 		}
 	default:
+		// Default to PCM raw format (also handles formatPCM explicitly)
 		return cartesiaOutputFormat{
 			Container:  "raw",
 			Encoding:   "pcm_s16le",

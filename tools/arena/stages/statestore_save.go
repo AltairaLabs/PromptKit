@@ -29,68 +29,64 @@ func NewArenaStateStoreSaveStage(config *pipeline.StateStoreConfig) *ArenaStateS
 	}
 }
 
+// collectedData holds all data collected from stream elements.
+type collectedData struct {
+	messages []types.Message
+	metadata map[string]interface{}
+	trace    *pipeline.ExecutionTrace
+	costInfo *types.CostInfo
+}
+
+// collectFromElement extracts data from a single element and updates collected data.
+func (d *collectedData) collectFromElement(elem *stage.StreamElement) {
+	if elem.Message != nil {
+		d.messages = append(d.messages, *elem.Message)
+	}
+	if elem.Metadata == nil {
+		return
+	}
+	if d.metadata == nil {
+		d.metadata = make(map[string]interface{})
+	}
+	for k, v := range elem.Metadata {
+		d.metadata[k] = v
+	}
+	if t, ok := elem.Metadata["execution_trace"].(*pipeline.ExecutionTrace); ok {
+		d.trace = t
+	}
+	if c, ok := elem.Metadata["cost_info"].(*types.CostInfo); ok {
+		d.costInfo = c
+	}
+}
+
+// forwardElements just forwards elements without collecting.
+func forwardElements(ctx context.Context, input <-chan stage.StreamElement, output chan<- stage.StreamElement) error {
+	for elem := range input {
+		select {
+		case output <- elem:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+
 // Process collects all messages and saves them with telemetry to Arena state store.
-//
-//nolint:gocognit,lll // Stream processing with state store operations is inherently complex
 func (s *ArenaStateStoreSaveStage) Process(ctx context.Context, input <-chan stage.StreamElement, output chan<- stage.StreamElement) error {
 	defer close(output)
 
-	// Skip if no config provided
 	if s.config == nil || s.config.Store == nil {
-		// Just forward elements
-		for elem := range input {
-			select {
-			case output <- elem:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		}
-		return nil
+		return forwardElements(ctx, input, output)
 	}
 
-	// Type assert to ArenaStateStore
 	arenaStore, ok := s.config.Store.(*statestore.ArenaStateStore)
 	if !ok {
 		return fmt.Errorf("arena state store save: invalid store type, expected *statestore.ArenaStateStore")
 	}
 
-	// Collect all messages and metadata while forwarding
-	var messages []types.Message
-	var metadata map[string]interface{}
-	var trace *pipeline.ExecutionTrace
-	var costInfo *types.CostInfo
-
+	data := &collectedData{}
 	for elem := range input {
-		// Collect messages
-		if elem.Message != nil {
-			messages = append(messages, *elem.Message)
-		}
-
-		// Collect metadata
-		if elem.Metadata != nil {
-			if metadata == nil {
-				metadata = make(map[string]interface{})
-			}
-			for k, v := range elem.Metadata {
-				metadata[k] = v
-			}
-		}
-
-		// Extract trace if present
-		if elem.Metadata != nil {
-			if t, ok := elem.Metadata["execution_trace"].(*pipeline.ExecutionTrace); ok {
-				trace = t
-			}
-		}
-
-		// Extract cost info if present
-		if elem.Metadata != nil {
-			if c, ok := elem.Metadata["cost_info"].(*types.CostInfo); ok {
-				costInfo = c
-			}
-		}
-
-		// Forward element
+		data.collectFromElement(&elem)
 		select {
 		case output <- elem:
 		case <-ctx.Done():
@@ -98,17 +94,60 @@ func (s *ArenaStateStoreSaveStage) Process(ctx context.Context, input <-chan sta
 		}
 	}
 
-	// Save to Arena state store
-	if err := s.saveToArenaStateStore(ctx, arenaStore, messages, metadata, trace, costInfo); err != nil {
+	err := s.saveToArenaStateStore(
+		ctx, arenaStore, data.messages, data.metadata, data.trace, data.costInfo)
+	if err != nil {
 		return fmt.Errorf("arena state store save: %w", err)
 	}
 
 	return nil
 }
 
+// createNewState creates a new conversation state with config defaults.
+func (s *ArenaStateStoreSaveStage) createNewState() *runtimeStatestore.ConversationState {
+	state := &runtimeStatestore.ConversationState{
+		ID:       s.config.ConversationID,
+		UserID:   s.config.UserID,
+		Messages: make([]types.Message, 0),
+		Metadata: make(map[string]interface{}),
+	}
+	for k, v := range s.config.Metadata {
+		state.Metadata[k] = v
+	}
+	return state
+}
+
+// updateStateMetadata updates state metadata with execution data and cost info.
+func updateStateMetadata(
+	state *runtimeStatestore.ConversationState,
+	metadata map[string]interface{},
+	costInfo *types.CostInfo,
+) {
+	if state.Metadata == nil {
+		state.Metadata = make(map[string]interface{})
+	}
+	for k, v := range metadata {
+		state.Metadata[k] = v
+	}
+	if costInfo != nil && costInfo.TotalCost > 0 {
+		state.Metadata["total_cost_usd"] = costInfo.TotalCost
+		state.Metadata["total_tokens"] = costInfo.InputTokens + costInfo.OutputTokens
+	}
+}
+
+// ensureTrace returns the provided trace or creates a default one.
+func ensureTrace(trace *pipeline.ExecutionTrace) *pipeline.ExecutionTrace {
+	if trace != nil {
+		return trace
+	}
+	return &pipeline.ExecutionTrace{
+		StartedAt: time.Now(),
+		LLMCalls:  []pipeline.LLMCall{},
+		Events:    []pipeline.TraceEvent{},
+	}
+}
+
 // saveToArenaStateStore saves conversation state with telemetry.
-//
-//nolint:gocognit // State store save with telemetry tracking is complex
 func (s *ArenaStateStoreSaveStage) saveToArenaStateStore(
 	ctx context.Context,
 	arenaStore *statestore.ArenaStateStore,
@@ -117,69 +156,26 @@ func (s *ArenaStateStoreSaveStage) saveToArenaStateStore(
 	trace *pipeline.ExecutionTrace,
 	costInfo *types.CostInfo,
 ) error {
-	// Load current state (or create new)
 	state, err := arenaStore.Load(ctx, s.config.ConversationID)
 	if err != nil && !errors.Is(err, statestore.ErrNotFound) {
 		return fmt.Errorf("failed to load state: %w", err)
 	}
 
-	// Create new state if not found
 	if state == nil {
-		state = &runtimeStatestore.ConversationState{
-			ID:       s.config.ConversationID,
-			UserID:   s.config.UserID,
-			Messages: make([]types.Message, 0),
-			Metadata: make(map[string]interface{}),
-		}
-
-		// Initialize with config metadata if provided
-		for k, v := range s.config.Metadata {
-			state.Metadata[k] = v
-		}
+		state = s.createNewState()
 	}
 
-	// Prepend system prompt as the first message if present
-	// This ensures the system prompt is visible in Arena results
+	// Set messages with system prompt if present
 	if systemPrompt, ok := metadata["system_prompt"].(string); ok && systemPrompt != "" {
 		state.Messages = prependSystemMessage(messages, systemPrompt)
 	} else {
-		// No system prompt, just copy messages
 		state.Messages = make([]types.Message, len(messages))
 		copy(state.Messages, messages)
 	}
 
-	// Initialize state metadata if nil
-	if state.Metadata == nil {
-		state.Metadata = make(map[string]interface{})
-	}
+	updateStateMetadata(state, metadata, costInfo)
 
-	// Copy execution metadata (overwrites state metadata)
-	for k, v := range metadata {
-		state.Metadata[k] = v
-	}
-
-	// Store cost info in metadata
-	if costInfo != nil && costInfo.TotalCost > 0 {
-		state.Metadata["total_cost_usd"] = costInfo.TotalCost
-		state.Metadata["total_tokens"] = costInfo.InputTokens + costInfo.OutputTokens
-	}
-
-	// Store system prompt in metadata for Arena results (backwards compatibility)
-	if systemPrompt, ok := metadata["system_prompt"].(string); ok && systemPrompt != "" {
-		state.Metadata["system_prompt"] = systemPrompt
-	}
-
-	// Create default trace if not present
-	if trace == nil {
-		trace = &pipeline.ExecutionTrace{
-			StartedAt: time.Now(),
-			LLMCalls:  []pipeline.LLMCall{},
-			Events:    []pipeline.TraceEvent{},
-		}
-	}
-
-	// Save state with trace (Arena-specific method)
-	if err := arenaStore.SaveWithTrace(ctx, state, trace); err != nil {
+	if err := arenaStore.SaveWithTrace(ctx, state, ensureTrace(trace)); err != nil {
 		return fmt.Errorf("failed to save with trace: %w", err)
 	}
 
