@@ -13,7 +13,6 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -36,9 +35,12 @@ func newTestConversation() *Conversation {
 			"chat": {ID: "chat", SystemTemplate: "You are helpful."},
 		},
 	}
-	// Create a minimal textSession for tests - requires a pipeline
-	// Since many tests don't actually execute, we create a minimal one
-	minimalPipeline := &pipeline.Pipeline{} // Empty pipeline for tests that don't execute
+	// Create a minimal textSession for tests - requires a pipeline with at least one stage
+	promptRegistry := p.ToPromptRegistry()
+	minimalPipeline, _ := stage.NewPipelineBuilder().
+		Chain(stage.NewPromptAssemblyStage(promptRegistry, "chat", nil)).
+		Build()
+
 	sess, err := session.NewUnarySession(session.UnarySessionConfig{
 		Variables: make(map[string]string),
 		Pipeline:  minimalPipeline,
@@ -1258,6 +1260,67 @@ func TestSendWithMockProvider(t *testing.T) {
 	assert.Greater(t, resp.Duration().Nanoseconds(), int64(0))
 }
 
+func TestSendWithImageOptions(t *testing.T) {
+	ctx := context.Background()
+	repo := mock.NewInMemoryMockRepository("I see the image")
+	mockProv := mock.NewProviderWithRepository("test-mock", "test-model", false, repo)
+	store := statestore.NewMemoryStore()
+
+	p := &pack.Pack{
+		ID: "test-pack",
+		Prompts: map[string]*pack.Prompt{
+			"chat": {
+				ID:             "chat",
+				SystemTemplate: "You are helpful.",
+			},
+		},
+	}
+
+	conv := &Conversation{
+		pack:           p,
+		prompt:         p.Prompts["chat"],
+		promptName:     "chat",
+		promptRegistry: p.ToPromptRegistry(),
+		toolRegistry:   tools.NewRegistry(),
+		config:         &config{provider: mockProv},
+		mode:           UnaryMode,
+		handlers:       make(map[string]ToolHandler),
+		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
+		pendingStore:   sdktools.NewPendingStore(),
+	}
+
+	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil)
+	require.NoError(t, err)
+
+	unarySession, err := session.NewUnarySession(session.UnarySessionConfig{
+		ConversationID: "test-conv",
+		StateStore:     store,
+		Pipeline:       pipeline,
+	})
+	require.NoError(t, err)
+	conv.unarySession = unarySession
+
+	t.Run("with image URL", func(t *testing.T) {
+		resp, err := conv.Send(ctx, "What's in this image?", WithImageURL("https://example.com/image.jpg"))
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+	})
+
+	t.Run("with image data", func(t *testing.T) {
+		imageData := []byte{0x89, 0x50, 0x4E, 0x47} // PNG header
+		resp, err := conv.Send(ctx, "Describe this", WithImageData(imageData, "image/png"))
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+	})
+
+	t.Run("with file content", func(t *testing.T) {
+		fileData := []byte("test file content")
+		resp, err := conv.Send(ctx, "Review this file", WithFile("test.txt", fileData))
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+	})
+}
+
 func TestSendWithProviderError(t *testing.T) {
 	// TODO: Error propagation through stage-based pipeline needs review
 	t.Skip("Error propagation through stage-based pipeline needs review")
@@ -1308,6 +1371,52 @@ func TestSendWithProviderError(t *testing.T) {
 	// Test Send with error
 	_, err = conv.Send(ctx, "Hello")
 	assert.Error(t, err)
+}
+
+func TestTriggerStart(t *testing.T) {
+	ctx := context.Background()
+	store := statestore.NewMemoryStore()
+	provider := mock.NewProvider("test", "test-model", false)
+
+	pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
+		providerStage := stage.NewProviderStage(provider, nil, nil, nil)
+		return stage.NewPipelineBuilder().Chain(providerStage).Build()
+	}
+
+	t.Run("succeeds in duplex mode", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.mode = DuplexMode
+
+		duplexSession, err := session.NewDuplexSession(ctx, &session.DuplexSessionConfig{
+			ConversationID:  "test",
+			StateStore:      store,
+			PipelineBuilder: pipelineBuilder,
+			Provider:        provider,
+		})
+		require.NoError(t, err)
+		conv.duplexSession = duplexSession
+
+		err = conv.TriggerStart(ctx, "Hello")
+		assert.NoError(t, err)
+	})
+
+	t.Run("fails in unary mode", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.mode = UnaryMode
+
+		err := conv.TriggerStart(ctx, "Hello")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "duplex mode")
+	})
+
+	t.Run("fails when closed", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.mode = DuplexMode
+		conv.closed = true
+
+		err := conv.TriggerStart(ctx, "Hello")
+		assert.Equal(t, ErrConversationClosed, err)
+	})
 }
 
 func TestSendInDuplexMode(t *testing.T) {

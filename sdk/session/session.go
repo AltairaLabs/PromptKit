@@ -37,7 +37,7 @@ type UnarySession interface {
 
 	// ForkSession creates a new session that is a fork of this one.
 	// The new session will have an independent copy of the conversation state.
-	ForkSession(ctx context.Context, forkID string, pipeline *pipeline.Pipeline) (UnarySession, error)
+	ForkSession(ctx context.Context, forkID string, pipeline *stage.StreamPipeline) (UnarySession, error)
 }
 
 // DuplexSession manages bidirectional streaming conversations.
@@ -75,12 +75,12 @@ type DuplexSession interface {
 }
 
 // UnarySessionConfig configures a TextSession.
-// StateStore should match what's configured in the Pipeline middleware.
+// StateStore should match what's configured in the Pipeline stages.
 type UnarySessionConfig struct {
 	ConversationID string
 	UserID         string
-	StateStore     statestore.Store // Must match Pipeline's StateStore middleware
-	Pipeline       *pipeline.Pipeline
+	StateStore     statestore.Store // Must match Pipeline's StateStore stages
+	Pipeline       *stage.StreamPipeline
 	Metadata       map[string]interface{}
 	Variables      map[string]string // Initial variables for template substitution
 }

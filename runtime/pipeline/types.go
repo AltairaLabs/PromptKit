@@ -1,270 +1,14 @@
+// Package pipeline provides types and configuration for stage-based pipeline execution.
+// The legacy middleware-based pipeline has been removed in favor of the stage architecture.
+// See runtime/pipeline/stage for the current implementation.
 package pipeline
 
 import (
-	"context"
 	"errors"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
-
-// ExecutionContext is the execution state passed through the middleware chain.
-// It contains all the data needed for pipeline execution and is modified by middleware.
-type ExecutionContext struct {
-	// Context for cancellation, deadlines, and request-scoped values
-	Context context.Context
-
-	// Identifiers for organization and tracking
-	RunID          string // Test run or execution batch identifier
-	SessionID      string // Session identifier for grouping related conversations
-	ConversationID string // Conversation identifier for this specific exchange
-
-	// State (mutable by middleware)
-	SystemPrompt     string                    // Populated by PromptAssemblyMiddleware
-	Variables        map[string]string         // Populated by PromptAssemblyMiddleware and ContextExtractionMiddleware
-	AllowedTools     []string                  // Populated by PromptAssemblyMiddleware
-	Messages         []types.Message           // Conversation history + current messages
-	Tools            []types.ToolDef           // Available tool definitions
-	ToolResults      []types.MessageToolResult // Executed tool results
-	PendingToolCalls []types.MessageToolCall   // Tool calls awaiting external completion (human-in-the-loop)
-	Prompt           string                    // Assembled prompt (after variable substitution by TemplateMiddleware)
-
-	// Output (populated by middleware)
-	Trace       ExecutionTrace // Complete trace of all LLM calls and events
-	Response    *Response      // Convenience pointer to the most recent response (= Trace.LLMCalls[len-1].Response)
-	RawResponse interface{}    // Convenience pointer to most recent raw response (= Trace.LLMCalls[len-1].RawResponse)
-
-	// Error tracking (middleware can check this to see if an error occurred earlier in the chain)
-	Error error // First error encountered during execution (subsequent middleware still run)
-
-	// Metadata (for passing data between middleware)
-	Metadata map[string]interface{}
-
-	// Cost tracking (aggregate across all calls)
-	CostInfo types.CostInfo
-
-	// Streaming support
-	StreamMode        bool                       // If true, use streaming execution
-	StreamInput       chan providers.StreamChunk // Input channel for streaming chunks (used by VAD middleware)
-	StreamOutput      chan providers.StreamChunk // Output channel for streaming chunks
-	StreamInterrupted bool                       // Set to true by middleware to stop streaming
-	InterruptReason   string                     // Reason for interruption
-
-	// Middleware control
-	ShortCircuit bool // Set to true by middleware to intentionally skip remaining middleware
-
-	// Internal: handler for processing chunks through middleware (set by Pipeline)
-	streamChunkHandler func(*providers.StreamChunk) error
-
-	// Optional event emission
-	EventEmitter *events.Emitter
-}
-
-// InterruptStream interrupts the stream with the given reason.
-// Middleware should call this to stop streaming when validation fails, rate limits are hit, etc.
-func (ctx *ExecutionContext) InterruptStream(reason string) {
-	ctx.StreamInterrupted = true
-	ctx.InterruptReason = reason
-}
-
-// AddPendingToolCall adds a tool call to the pending list.
-// Used by middleware when a tool returns ToolStatusPending.
-func (ctx *ExecutionContext) AddPendingToolCall(toolCall types.MessageToolCall) {
-	ctx.PendingToolCalls = append(ctx.PendingToolCalls, toolCall)
-}
-
-// HasPendingToolCalls returns true if there are any pending tool calls.
-func (ctx *ExecutionContext) HasPendingToolCalls() bool {
-	return len(ctx.PendingToolCalls) > 0
-}
-
-// GetPendingToolCall retrieves a pending tool call by ID.
-// Returns nil if not found.
-func (ctx *ExecutionContext) GetPendingToolCall(id string) *types.MessageToolCall {
-	for i := range ctx.PendingToolCalls {
-		if ctx.PendingToolCalls[i].ID == id {
-			return &ctx.PendingToolCalls[i]
-		}
-	}
-	return nil
-}
-
-// RemovePendingToolCall removes a tool call from the pending list by ID.
-// Returns true if the tool call was found and removed.
-func (ctx *ExecutionContext) RemovePendingToolCall(id string) bool {
-	for i, tc := range ctx.PendingToolCalls {
-		if tc.ID == id {
-			ctx.PendingToolCalls = append(ctx.PendingToolCalls[:i], ctx.PendingToolCalls[i+1:]...)
-			return true
-		}
-	}
-	return false
-}
-
-// ClearPendingToolCalls removes all pending tool calls.
-func (ctx *ExecutionContext) ClearPendingToolCalls() {
-	ctx.PendingToolCalls = nil
-}
-
-// RecordLLMCall adds an LLM call to the execution trace if tracing is enabled.
-// This method is called by provider middleware to track all LLM interactions.
-func (ctx *ExecutionContext) RecordLLMCall(disableTrace bool, response *Response, startTime time.Time, duration time.Duration, costInfo *types.CostInfo, toolCalls []types.MessageToolCall) {
-	// Check if tracing is enabled (default true unless explicitly disabled)
-	if disableTrace {
-		return
-	}
-
-	// The message index is the current length of messages (before we append)
-	// This assumes the message will be appended right after this call
-	messageIndex := len(ctx.Messages)
-
-	llmCall := LLMCall{
-		Sequence:     len(ctx.Trace.LLMCalls) + 1,
-		MessageIndex: messageIndex,
-		Response:     response,
-		StartedAt:    startTime,
-		Duration:     duration,
-		ToolCalls:    toolCalls,
-	}
-
-	if costInfo != nil {
-		llmCall.Cost = types.CostInfo{
-			InputTokens:   costInfo.InputTokens,
-			OutputTokens:  costInfo.OutputTokens,
-			CachedTokens:  costInfo.CachedTokens,
-			InputCostUSD:  costInfo.InputCostUSD,
-			OutputCostUSD: costInfo.OutputCostUSD,
-			CachedCostUSD: costInfo.CachedCostUSD,
-			TotalCost:     costInfo.TotalCost,
-		}
-	}
-
-	ctx.Trace.LLMCalls = append(ctx.Trace.LLMCalls, llmCall)
-}
-
-// EmitStreamChunk emits a stream chunk to the output channel.
-// Returns false if the stream has been interrupted or the channel is closed.
-// Middleware that produces chunks should check the return value to know when to stop.
-func (ctx *ExecutionContext) EmitStreamChunk(chunk providers.StreamChunk) bool {
-	if ctx.StreamInterrupted {
-		return false
-	}
-
-	// Run chunk through middleware StreamChunk() hooks if handler is set
-	if ctx.streamChunkHandler != nil {
-		if err := ctx.streamChunkHandler(&chunk); err != nil {
-			// Error from middleware - don't emit chunk
-			return false
-		}
-		// Check if middleware interrupted the stream
-		if ctx.StreamInterrupted {
-			return false
-		}
-	}
-
-	select {
-	case ctx.StreamOutput <- chunk:
-		return true
-	case <-ctx.Context.Done():
-		return false
-	}
-}
-
-// IsStreaming returns true if the execution context is in streaming mode.
-func (ctx *ExecutionContext) IsStreaming() bool {
-	return ctx.StreamMode
-}
-
-// Middleware defines the execution interface for pipeline steps.
-//
-// Deprecated: Middleware is deprecated in favor of the new Stage-based streaming architecture.
-// Use github.com/AltairaLabs/PromptKit/runtime/pipeline/stage.Stage instead.
-// For migration guidance, see runtime/pipeline/stage/README.md.
-// Middleware will be removed in the next major version.
-//
-// Middleware executes in a nested chain where each middleware explicitly calls next()
-// to continue the pipeline. This makes the execution flow clear and explicit.
-//
-// Given middleware chain: [A, B, C]
-// Execution order is:
-//
-//	A.Process(ctx, func() {
-//	  return B.Process(ctx, func() {
-//	    return C.Process(ctx, func() {
-//	      return nil // End of chain
-//	    })
-//	  })
-//	})
-//
-// Example implementation:
-//
-//	func (m *ProviderMiddleware) Process(ctx *ExecutionContext, next func() error) error {
-//	  // Setup/processing logic
-//	  response, err := m.provider.Generate(ctx)
-//	  if err != nil {
-//	    return err
-//	  }
-//	  ctx.Response = response
-//
-//	  // Continue to next middleware
-//	  if err := next(); err != nil {
-//	    return err
-//	  }
-//
-//	  // Optional cleanup logic
-//	  return nil
-//	}
-//
-// Error Handling:
-//   - If Process() returns an error, the error is captured in ExecutionContext.Error
-//   - Errors stop the chain - subsequent middleware do not execute
-//   - Middleware can check ExecutionContext.Error to see if earlier steps failed
-//
-// ExecutionContext is used internally by middleware but users should not create it directly.
-type Middleware interface {
-	Process(ctx *ExecutionContext, next func() error) error
-	// StreamChunk is called for each chunk during streaming execution (if StreamMode is true).
-	// Middleware can inspect, validate, or modify chunks. Return an error or call ctx.InterruptStream()
-	// to stop streaming. Most middleware should return nil (no-op).
-	//
-	// Deprecated: StreamChunk is deprecated as part of the Middleware interface deprecation.
-	// Use the Stage-based streaming architecture instead, which provides true streaming execution
-	// through channels. See runtime/pipeline/stage/README.md for migration guidance.
-	StreamChunk(ctx *ExecutionContext, chunk *providers.StreamChunk) error
-}
-
-// Response represents the final output from a pipeline execution.
-type Response struct {
-	Role          string
-	Content       string
-	Parts         []types.ContentPart // Multimodal content parts (text, image, audio, video)
-	ToolCalls     []types.MessageToolCall
-	FinalResponse string // If tools were used, this is the final response after tools
-	Metadata      ResponseMetadata
-}
-
-// ResponseMetadata contains metadata about the response.
-type ResponseMetadata struct {
-	Provider     string
-	Model        string
-	Latency      time.Duration
-	TokensInput  int
-	TokensOutput int
-	Cost         float64
-}
-
-// ExecutionConfig contains configuration for pipeline execution.
-type ExecutionConfig struct {
-	Provider     providers.Provider
-	ToolRegistry *tools.Registry
-	Temperature  float32
-	MaxTokens    int
-	Seed         *int
-	ToolPolicy   *ToolPolicy
-}
 
 // ToolPolicy defines constraints on tool usage.
 type ToolPolicy struct {
@@ -276,13 +20,13 @@ type ToolPolicy struct {
 
 // PipelineConfig represents the complete pipeline configuration for pack format
 type Config struct {
-	Stages     []string           `json:"stages"`               // Pipeline stages in order (e.g., ["template", "provider", "validator"])
-	Middleware []MiddlewareConfig `json:"middleware,omitempty"` // Middleware configurations
+	Stages     []string           `json:"stages"`               // Pipeline stages in order
+	Middleware []MiddlewareConfig `json:"middleware,omitempty"` // Deprecated: for backward compatibility only
 }
 
-// MiddlewareConfig represents configuration for a specific middleware
+// MiddlewareConfig represents configuration for a specific middleware (deprecated)
 type MiddlewareConfig struct {
-	Type   string                 `json:"type"`             // Middleware type (e.g., "template", "provider", "validator")
+	Type   string                 `json:"type"`             // Middleware type
 	Config map[string]interface{} `json:"config,omitempty"` // Type-specific configuration
 }
 
@@ -296,14 +40,14 @@ type RetryPolicy struct {
 // TemplateMiddlewareConfig contains configuration for template middleware
 type TemplateMiddlewareConfig struct {
 	StrictMode     bool `json:"strict_mode"`     // Fail on undefined variables
-	AllowUndefined bool `json:"allow_undefined"` // Allow undefined variables (opposite of strict_mode)
+	AllowUndefined bool `json:"allow_undefined"` // Allow undefined variables
 }
 
 // ProviderMiddlewareConfig contains configuration for provider middleware
 type ProviderMiddlewareConfig struct {
 	RetryPolicy  *RetryPolicy `json:"retry_policy,omitempty"`  // Retry policy
 	TimeoutMs    int          `json:"timeout_ms,omitempty"`    // Request timeout in milliseconds
-	DisableTrace bool         `json:"disable_trace,omitempty"` // Disable execution tracing (default: false = tracing enabled)
+	DisableTrace bool         `json:"disable_trace,omitempty"` // Disable execution tracing
 }
 
 // ValidatorMiddlewareConfig contains configuration for validator middleware
@@ -313,31 +57,28 @@ type ValidatorMiddlewareConfig struct {
 }
 
 // ExecutionTrace captures the complete execution history of a pipeline run.
-// This includes all LLM calls, tool executions, and other significant events.
 type ExecutionTrace struct {
 	LLMCalls    []LLMCall    `json:"llm_calls"`              // All LLM API calls made during execution
-	Events      []TraceEvent `json:"events,omitempty"`       // Other trace events (tool execution, context truncation, etc.)
+	Events      []TraceEvent `json:"events,omitempty"`       // Other trace events
 	StartedAt   time.Time    `json:"started_at"`             // When pipeline execution started
-	CompletedAt *time.Time   `json:"completed_at,omitempty"` // When pipeline execution completed (nil if still running)
+	CompletedAt *time.Time   `json:"completed_at,omitempty"` // When pipeline execution completed
 }
 
 // LLMCall represents a single LLM API call within a pipeline execution.
-// In tool-enabled scenarios, multiple calls may occur in sequence.
 type LLMCall struct {
-	Sequence     int                     `json:"sequence"`               // Call number in sequence (1, 2, 3...)
-	MessageIndex int                     `json:"message_index"`          // Index into ExecutionResult.Messages where assistant response is stored
+	Sequence     int                     `json:"sequence"`               // Call number in sequence
+	MessageIndex int                     `json:"message_index"`          // Index into messages array
 	Request      interface{}             `json:"request,omitempty"`      // Raw request (if debugging enabled)
-	Response     *Response               `json:"response"`               // Parsed response
-	RawResponse  interface{}             `json:"raw_response,omitempty"` // Raw provider response (if debugging enabled)
+	Response     interface{}             `json:"response"`               // Parsed response
+	RawResponse  interface{}             `json:"raw_response,omitempty"` // Raw provider response
 	StartedAt    time.Time               `json:"started_at"`             // When call started
 	Duration     time.Duration           `json:"duration"`               // How long the call took
 	Cost         types.CostInfo          `json:"cost"`                   // Cost information for this call
 	ToolCalls    []types.MessageToolCall `json:"tool_calls,omitempty"`   // If this call triggered tool execution
-	Error        *string                 `json:"error,omitempty"`        // Error message if the call failed (nil if successful)
+	Error        *string                 `json:"error,omitempty"`        // Error message if the call failed
 }
 
 // SetError sets the error for this LLM call from an error value.
-// If err is nil, clears the error field.
 func (l *LLMCall) SetError(err error) {
 	if err != nil {
 		errMsg := err.Error()
@@ -348,7 +89,6 @@ func (l *LLMCall) SetError(err error) {
 }
 
 // GetError returns the error as an error type, or nil if no error occurred.
-// This is a convenience method for accessing the Error field as an error type.
 func (l *LLMCall) GetError() error {
 	if l.Error == nil {
 		return nil
@@ -358,7 +98,7 @@ func (l *LLMCall) GetError() error {
 
 // TraceEvent represents a significant event during pipeline execution.
 type TraceEvent struct {
-	Type      string      `json:"type"`              // Event type (e.g., "tool_execution", "context_truncation", "validation_failed")
+	Type      string      `json:"type"`              // Event type
 	Timestamp time.Time   `json:"timestamp"`         // When the event occurred
 	Data      interface{} `json:"data"`              // Event-specific data
 	Message   string      `json:"message,omitempty"` // Human-readable description
@@ -372,31 +112,30 @@ type StateStoreConfig struct {
 	Metadata       map[string]interface{} // Additional metadata to store (optional)
 }
 
-// ExecutionResult is the output of a pipeline execution.
-// It contains the final state after all middleware has been executed.
-type ExecutionResult struct {
-	Messages []types.Message        `json:"messages"`  // All messages including history and responses
-	Response *Response              `json:"response"`  // The final response (convenience field)
-	Trace    ExecutionTrace         `json:"trace"`     // Complete execution trace with all LLM calls
-	CostInfo types.CostInfo         `json:"cost_info"` // Aggregate cost across all LLM calls
-	Metadata map[string]interface{} `json:"metadata"`  // Metadata populated by middleware
+// ValidationError represents a validation failure.
+type ValidationError struct {
+	Type     string                   `json:"type"`
+	Details  string                   `json:"details"`
+	Failures []types.ValidationResult `json:"failures"` // All failed validations
 }
 
-// ExecutionOptions provides optional parameters for pipeline execution.
-// All fields are optional and will use sensible defaults if not provided.
-type ExecutionOptions struct {
-	// RunID identifies the test run or execution batch
-	RunID string
+// Error returns the error message for this validation error.
+func (e *ValidationError) Error() string {
+	return e.Type + ": " + e.Details
+}
 
-	// SessionID identifies the session for grouping related conversations
-	SessionID string
+// Response represents the output from a pipeline execution.
+type Response struct {
+	Role      string                  `json:"role"`
+	Content   string                  `json:"content"`
+	ToolCalls []types.MessageToolCall `json:"tool_calls,omitempty"`
+}
 
-	// ConversationID identifies this specific conversation exchange
-	ConversationID string
-
-	// Context for cancellation and timeouts (if nil, uses context.Background())
-	Context context.Context
-
-	// EventEmitter enables runtime event emission; if nil, events are disabled.
-	EventEmitter *events.Emitter
+// ExecutionResult is the output of a pipeline execution.
+type ExecutionResult struct {
+	Messages []types.Message        `json:"messages"`  // All messages including history and responses
+	Response *Response              `json:"response"`  // The final response
+	Trace    ExecutionTrace         `json:"trace"`     // Complete execution trace with all LLM calls
+	CostInfo types.CostInfo         `json:"cost_info"` // Aggregate cost across all LLM calls
+	Metadata map[string]interface{} `json:"metadata"`  // Metadata populated by stages
 }

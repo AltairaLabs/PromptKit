@@ -2,7 +2,6 @@
 package pipeline
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
@@ -15,7 +14,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
 	"github.com/AltairaLabs/PromptKit/runtime/variables"
 )
@@ -101,8 +99,7 @@ type Config struct {
 	InterruptionHandler *audio.InterruptionHandler
 }
 
-// Build creates a stage-based streaming pipeline wrapped for SDK compatibility.
-// Use BuildStreamPipeline for duplex sessions that need direct stage pipeline access.
+// Build creates a stage-based streaming pipeline.
 //
 // Stage order:
 //  1. StateStoreLoadStage - Load conversation history (if configured)
@@ -114,14 +111,14 @@ type Config struct {
 //  7. StateStoreSaveStage - Save conversation state (if configured)
 //
 // This matches the runtime pipeline used by Arena.
-func Build(cfg *Config) (*rtpipeline.Pipeline, error) {
-	return buildStagePipeline(cfg)
+func Build(cfg *Config) (*stage.StreamPipeline, error) {
+	return buildStreamPipelineInternal(cfg)
 }
 
-// BuildStreamPipeline creates a stage-based streaming pipeline directly.
-// This is used by DuplexSession which manages streaming at the session level.
+// BuildStreamPipeline is deprecated, use Build instead.
+// Kept for backward compatibility.
 func BuildStreamPipeline(cfg *Config) (*stage.StreamPipeline, error) {
-	return buildStreamPipelineInternal(cfg)
+	return Build(cfg)
 }
 
 // buildStreamPipelineInternal creates a stage pipeline directly without wrapping.
@@ -171,50 +168,19 @@ func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 
 	// 5. Provider stage - LLM calls with streaming and tool support
 	// Use DuplexProviderStage for ASM mode (WebSocket streaming)
-	// Use VAD pipeline for VAD mode
+	// Use VAD pipeline for VAD mode (extracted to builder_vad.go - integration tested)
 	// Use regular ProviderStage for text mode (HTTP API)
 	if cfg.StreamInputSession != nil {
 		// ASM mode: Direct audio streaming to LLM
 		logger.Debug("Using DuplexProviderStage for ASM mode")
 		stages = append(stages, stage.NewDuplexProviderStage(cfg.StreamInputSession))
 	} else if cfg.VADConfig != nil && cfg.STTService != nil && cfg.TTSService != nil {
-		// VAD mode: Audio → VAD → STT → LLM → TTS
-		logger.Debug("Using VAD pipeline stages")
-
-		// 5a. AudioTurnStage - VAD + turn detection + audio accumulation
-		audioTurnStage, err := stage.NewAudioTurnStage(*cfg.VADConfig)
+		// VAD mode: build audio pipeline (AudioTurnStage → STTStage → ProviderStage → TTSStage)
+		vadStages, err := buildVADPipelineStages(cfg)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create AudioTurnStage: %w", err)
+			return nil, err
 		}
-		stages = append(stages, audioTurnStage)
-
-		// 5b. STTStage - transcribe audio to text
-		sttConfig := stage.DefaultSTTStageConfig()
-		if cfg.STTConfig != nil {
-			sttConfig = *cfg.STTConfig
-		}
-		stages = append(stages, stage.NewSTTStage(cfg.STTService, sttConfig))
-
-		// 5c. ProviderStage - LLM call
-		if cfg.Provider != nil {
-			providerConfig := &stage.ProviderConfig{
-				MaxTokens:   cfg.MaxTokens,
-				Temperature: cfg.Temperature,
-			}
-			stages = append(stages, stage.NewProviderStage(
-				cfg.Provider,
-				cfg.ToolRegistry,
-				cfg.ToolPolicy,
-				providerConfig,
-			))
-		}
-
-		// 5d. TTSStage - synthesize text to audio
-		ttsConfig := stage.DefaultTTSStageWithInterruptionConfig()
-		if cfg.TTSConfig != nil {
-			ttsConfig = *cfg.TTSConfig
-		}
-		stages = append(stages, stage.NewTTSStageWithInterruption(cfg.TTSService, ttsConfig))
+		stages = append(stages, vadStages...)
 	} else if cfg.Provider != nil {
 		// Text mode: standard LLM call
 		providerConfig := &stage.ProviderConfig{
@@ -249,195 +215,4 @@ func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 	}
 
 	return streamPipeline, nil
-}
-
-// buildStagePipeline creates a pipeline wrapped for SDK compatibility (unary mode).
-func buildStagePipeline(cfg *Config) (*rtpipeline.Pipeline, error) {
-	streamPipeline, err := buildStreamPipelineInternal(cfg)
-	if err != nil {
-		return nil, err
-	}
-	return wrapStreamPipeline(streamPipeline), nil
-}
-
-// wrapStreamPipeline wraps a StreamPipeline for SDK's unary Pipeline interface.
-// Note: Duplex sessions use BuildStreamPipeline and manage streaming directly.
-func wrapStreamPipeline(sp *stage.StreamPipeline) *rtpipeline.Pipeline {
-	adapter := &streamPipelineMiddlewareAdapter{streamPipeline: sp}
-	pipeline, _ := rtpipeline.NewPipelineWithConfigValidated(nil, adapter)
-	return pipeline
-}
-
-// streamPipelineMiddlewareAdapter bridges unary middleware execution to stage execution.
-// Duplex streaming is handled directly by DuplexSession using StreamPipeline.Execute().
-type streamPipelineMiddlewareAdapter struct {
-	streamPipeline *stage.StreamPipeline
-}
-
-// Process converts middleware ExecutionContext to StreamElement, executes stages, and converts back.
-// Supports both unary and streaming modes.
-func (a *streamPipelineMiddlewareAdapter) Process(execCtx *rtpipeline.ExecutionContext, _ func() error) error {
-	ctx := execCtx.Context
-	if ctx == nil {
-		return fmt.Errorf("execution context missing from pipeline")
-	}
-
-	// Convert ExecutionContext to StreamElement for stage input
-	inputElem := executionContextToStreamElement(execCtx)
-
-	// For streaming mode, use Execute and emit chunks as they arrive
-	if execCtx.StreamMode {
-		return a.processStreaming(ctx, &inputElem, execCtx)
-	}
-
-	// Unary mode: execute synchronously
-	result, err := a.streamPipeline.ExecuteSync(ctx, inputElem)
-	if err != nil {
-		return err
-	}
-
-	// Convert output ExecutionResult back to ExecutionContext
-	executionResultToExecutionContext(result, execCtx)
-
-	return nil
-}
-
-// processStreaming handles streaming execution by emitting chunks as they arrive.
-func (a *streamPipelineMiddlewareAdapter) processStreaming(
-	ctx context.Context,
-	inputElem *stage.StreamElement,
-	execCtx *rtpipeline.ExecutionContext,
-) error {
-	// Create input channel with the element
-	inputChan := make(chan stage.StreamElement, 1)
-	inputChan <- *inputElem
-	close(inputChan)
-
-	// Execute as stream
-	outputChan, err := a.streamPipeline.Execute(ctx, inputChan)
-	if err != nil {
-		return err
-	}
-
-	// Process output elements - emit text chunks and accumulate result
-	var accumulatedContent string
-	var messages []types.Message
-	var response *stage.Response
-
-	for elem := range outputChan {
-		// Handle errors
-		if elem.Error != nil {
-			return elem.Error
-		}
-
-		// Emit text chunks for streaming
-		if elem.Text != nil && *elem.Text != "" {
-			accumulatedContent += *elem.Text
-			// Emit the chunk through the execution context
-			chunk := providers.StreamChunk{
-				Delta:   *elem.Text,
-				Content: accumulatedContent,
-			}
-			execCtx.EmitStreamChunk(chunk)
-		}
-
-		// Collect messages
-		if elem.Message != nil {
-			messages = append(messages, *elem.Message)
-			// Track assistant response
-			if elem.Message.Role == "assistant" {
-				response = &stage.Response{
-					Role:    elem.Message.Role,
-					Content: elem.Message.Content,
-					Parts:   elem.Message.Parts,
-				}
-			}
-		}
-	}
-
-	// Set final response from accumulated data
-	if response != nil {
-		execCtx.Response = &rtpipeline.Response{
-			Role:      response.Role,
-			Content:   response.Content,
-			ToolCalls: response.ToolCalls,
-		}
-	} else if accumulatedContent != "" {
-		// If we only got text chunks without a final message, create response from accumulated text
-		execCtx.Response = &rtpipeline.Response{
-			Role:    "assistant",
-			Content: accumulatedContent,
-		}
-	}
-
-	if len(messages) > 0 {
-		execCtx.Messages = messages
-	}
-
-	return nil
-}
-
-// StreamChunk is not used since stages handle streaming internally.
-func (a *streamPipelineMiddlewareAdapter) StreamChunk(
-	_ *rtpipeline.ExecutionContext,
-	_ *providers.StreamChunk,
-) error {
-	return nil
-}
-
-// executionContextToStreamElement converts middleware ExecutionContext to stage StreamElement.
-func executionContextToStreamElement(execCtx *rtpipeline.ExecutionContext) stage.StreamElement {
-	elem := stage.StreamElement{
-		Metadata: make(map[string]interface{}),
-	}
-
-	// Get the user message from the execution context's Messages list
-	if len(execCtx.Messages) > 0 {
-		userMsg := execCtx.Messages[len(execCtx.Messages)-1]
-		elem.Message = &userMsg
-	}
-
-	// Copy metadata
-	if execCtx.Metadata != nil {
-		for k, v := range execCtx.Metadata {
-			elem.Metadata[k] = v
-		}
-	}
-
-	// Copy execution context fields as metadata
-	if execCtx.SystemPrompt != "" {
-		elem.Metadata["system_prompt"] = execCtx.SystemPrompt
-	}
-	if len(execCtx.AllowedTools) > 0 {
-		elem.Metadata["allowed_tools"] = execCtx.AllowedTools
-	}
-	if len(execCtx.Variables) > 0 {
-		elem.Metadata["variables"] = execCtx.Variables
-	}
-
-	return elem
-}
-
-// executionResultToExecutionContext converts stage ExecutionResult back to ExecutionContext.
-func executionResultToExecutionContext(result *stage.ExecutionResult, execCtx *rtpipeline.ExecutionContext) {
-	if result.Response != nil {
-		execCtx.Response = &rtpipeline.Response{
-			Role:      result.Response.Role,
-			Content:   result.Response.Content,
-			ToolCalls: result.Response.ToolCalls,
-		}
-	}
-
-	if result.Metadata != nil {
-		if execCtx.Metadata == nil {
-			execCtx.Metadata = make(map[string]interface{})
-		}
-		for k, v := range result.Metadata {
-			execCtx.Metadata[k] = v
-		}
-	}
-
-	if len(result.Messages) > 0 {
-		execCtx.Messages = result.Messages
-	}
 }

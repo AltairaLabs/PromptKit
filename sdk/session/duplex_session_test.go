@@ -9,8 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	mock "github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
@@ -54,54 +55,6 @@ func (s *testNoOpStage) Process(ctx context.Context, in <-chan stage.StreamEleme
 	for elem := range in {
 		out <- elem
 	}
-	return nil
-}
-
-// wrapStreamPipelineForTest wraps a StreamPipeline for test compatibility.
-func wrapStreamPipelineForTest(sp *stage.StreamPipeline) *pipeline.Pipeline {
-	adapter := &testStreamPipelineAdapter{streamPipeline: sp}
-	p, _ := pipeline.NewPipelineWithConfigValidated(nil, adapter)
-	return p
-}
-
-// testStreamPipelineAdapter bridges stage execution for tests.
-type testStreamPipelineAdapter struct {
-	streamPipeline *stage.StreamPipeline
-}
-
-func (a *testStreamPipelineAdapter) Process(execCtx *pipeline.ExecutionContext, _ func() error) error {
-	ctx := execCtx.Context
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	// Create input element from execution context
-	inputElem := stage.StreamElement{
-		Metadata: make(map[string]interface{}),
-	}
-	if len(execCtx.Messages) > 0 {
-		userMsg := execCtx.Messages[len(execCtx.Messages)-1]
-		inputElem.Message = &userMsg
-	}
-
-	// Execute the stage pipeline synchronously
-	result, err := a.streamPipeline.ExecuteSync(ctx, inputElem)
-	if err != nil {
-		return err
-	}
-
-	// Convert output to ExecutionContext
-	if result.Response != nil {
-		execCtx.Response = &pipeline.Response{
-			Role:      result.Response.Role,
-			Content:   result.Response.Content,
-			ToolCalls: result.Response.ToolCalls,
-		}
-	}
-	return nil
-}
-
-func (a *testStreamPipelineAdapter) StreamChunk(_ *pipeline.ExecutionContext, _ *providers.StreamChunk) error {
 	return nil
 }
 
@@ -440,8 +393,25 @@ func TestNewTextSession(t *testing.T) {
 	})
 
 	t.Run("creates session with defaults", func(t *testing.T) {
+		// Create a proper test pipeline
+		repo := memory.NewPromptRepository()
+		repo.RegisterPrompt("chat", &prompt.Config{
+			APIVersion: "promptkit.io/v1alpha1",
+			Kind:       "Prompt",
+			Spec: prompt.Spec{
+				TaskType:       "chat",
+				SystemTemplate: "You are helpful",
+			},
+		})
+		registry := prompt.NewRegistryWithRepository(repo)
+
+		builder := stage.NewPipelineBuilder()
+		pipe, _ := builder.
+			Chain(stage.NewPromptAssemblyStage(registry, "chat", nil)).
+			Build()
+
 		cfg := UnarySessionConfig{
-			Pipeline: &pipeline.Pipeline{},
+			Pipeline: pipe,
 		}
 		session, err := NewUnarySession(cfg)
 		require.NoError(t, err)

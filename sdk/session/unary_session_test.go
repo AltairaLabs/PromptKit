@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
-	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
@@ -214,7 +214,7 @@ func TestUnarySession_Clear(t *testing.T) {
 }
 
 // Helper function to create a test pipeline
-func createTestPipeline(t *testing.T) *rtpipeline.Pipeline {
+func createTestPipeline(t *testing.T) *stage.StreamPipeline {
 	t.Helper()
 
 	// Create prompt registry

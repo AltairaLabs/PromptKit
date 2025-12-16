@@ -213,13 +213,13 @@ func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption
 	return c.buildResponse(result, startTime), nil
 }
 
-// buildPipelineWithParams builds a wrapped pipeline with explicit parameters.
+// buildPipelineWithParams builds a stage pipeline with explicit parameters.
 // Used during initialization for unary sessions.
 func (c *Conversation) buildPipelineWithParams(
 	store statestore.Store,
 	conversationID string,
 	streamInputSession providers.StreamInputSession,
-) (*rtpipeline.Pipeline, error) {
+) (*stage.StreamPipeline, error) {
 	// Get initial variables from config (required for prompt template resolution)
 	vars := make(map[string]string)
 	if c.config != nil && c.config.initialVariables != nil {
