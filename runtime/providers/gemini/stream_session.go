@@ -271,9 +271,15 @@ func (s *StreamSession) CompleteTurn(ctx context.Context) error {
 
 // EndInput implements the EndInputter interface expected by DuplexProviderStage.
 // It signals that the user's input turn is complete and the model should respond.
+//
+// For Gemini Live API with realtime_input (audio streaming), the end of turn is
+// normally derived from VAD detecting silence. Since we're sending pre-recorded
+// audio files, we send a brief text prompt to trigger the model's response.
 func (s *StreamSession) EndInput() {
-	if err := s.CompleteTurn(s.ctx); err != nil {
-		logger.Error("EndInput: failed to complete turn", "error", err)
+	// Send a minimal prompt to trigger response after audio input
+	// This works because SendText sets turn_complete=true
+	if err := s.SendText(s.ctx, "Please respond to what you just heard."); err != nil {
+		logger.Error("EndInput: failed to send trigger prompt", "error", err)
 	}
 }
 
