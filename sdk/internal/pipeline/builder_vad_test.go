@@ -84,11 +84,11 @@ func TestBuildVADPipelineStages(t *testing.T) {
 		}
 
 		cfg := &Config{
-			Provider:   provider,
-			VADConfig:  &vadConfig,
-			STTService: sttService,
-			TTSService: ttsService,
-			MaxTokens:  1000,
+			Provider:    provider,
+			VADConfig:   &vadConfig,
+			STTService:  sttService,
+			TTSService:  ttsService,
+			MaxTokens:   1000,
 			Temperature: 0.7,
 		}
 

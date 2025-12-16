@@ -321,9 +321,12 @@ test-ci-examples: build-arena ## Test all CI pipeline examples with mock data
 		if [ -n "$$scenario_name" ]; then \
 			SCENARIO_FLAG="--scenario $$scenario_name"; \
 		fi; \
-		cd "examples/$$example" && ../../bin/promptarena run --config config.arena.yaml --mock-provider --mock-config "$$mock_file" $$SCENARIO_FLAG --ci --formats json 2>&1 | head -50; \
-		EXIT_CODE=$${PIPESTATUS[0]}; \
+		TMPFILE=$$(mktemp); \
+		cd "examples/$$example" && ../../bin/promptarena run --config config.arena.yaml --mock-provider --mock-config "$$mock_file" $$SCENARIO_FLAG --ci --formats json > "$$TMPFILE" 2>&1; \
+		EXIT_CODE=$$?; \
 		cd ../..; \
+		head -50 "$$TMPFILE"; \
+		rm -f "$$TMPFILE"; \
 		if [ $$EXIT_CODE -eq 0 ]; then \
 			echo ""; \
 			echo "✓ Example $$example completed"; \
