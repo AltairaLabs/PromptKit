@@ -401,7 +401,29 @@ func (s *StreamSession) processServerMessage(msg *ServerMessage) error {
 		return nil
 	}
 
+	// Store usage metadata for cost calculation
+	var costInfo *types.CostInfo
+	if msg.UsageMetadata != nil {
+		costInfo = &types.CostInfo{
+			InputTokens:  msg.UsageMetadata.PromptTokenCount,
+			OutputTokens: msg.UsageMetadata.ResponseTokenCount,
+			// Cost calculation would require pricing info from provider
+		}
+	}
+
 	if msg.ServerContent == nil {
+		// Even without server content, we might have usage metadata
+		if costInfo != nil {
+			// Send a chunk with just cost info
+			response := providers.StreamChunk{
+				CostInfo: costInfo,
+			}
+			select {
+			case s.responseCh <- response:
+			case <-s.ctx.Done():
+				return s.ctx.Err()
+			}
+		}
 		return nil
 	}
 
@@ -457,6 +479,7 @@ func (s *StreamSession) processServerMessage(msg *ServerMessage) error {
 		finishReason := "complete"
 		response := providers.StreamChunk{
 			FinishReason: &finishReason,
+			CostInfo:     costInfo,
 		}
 		select {
 		case s.responseCh <- response:
@@ -468,14 +491,14 @@ func (s *StreamSession) processServerMessage(msg *ServerMessage) error {
 
 	// Process model turn
 	if content.ModelTurn != nil {
-		return s.processModelTurn(content.ModelTurn, content.TurnComplete)
+		return s.processModelTurn(content.ModelTurn, content.TurnComplete, costInfo)
 	}
 
 	return nil
 }
 
 // processModelTurn processes a model turn from the server
-func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool) error {
+func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool, costInfo *types.CostInfo) error {
 	response := providers.StreamChunk{
 		Content: "",
 	}
@@ -507,10 +530,11 @@ func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool) err
 		}
 	}
 
-	// Mark turn completion
+	// Mark turn completion and include cost info
 	if turnComplete {
 		finishReason := "complete"
 		response.FinishReason = &finishReason
+		response.CostInfo = costInfo
 	}
 
 	// Send response to channel
@@ -569,7 +593,14 @@ type ServerMessage struct {
 	SetupComplete *SetupComplete `json:"setupComplete,omitempty"`
 	ServerContent *ServerContent `json:"serverContent,omitempty"`
 	ToolCall      *ToolCallMsg   `json:"toolCall,omitempty"`
-	// Note: usageMetadata and other fields omitted for now
+	UsageMetadata *UsageMetadata `json:"usageMetadata,omitempty"`
+}
+
+// UsageMetadata contains token usage information
+type UsageMetadata struct {
+	PromptTokenCount   int `json:"promptTokenCount,omitempty"`
+	ResponseTokenCount int `json:"responseTokenCount,omitempty"`
+	TotalTokenCount    int `json:"totalTokenCount,omitempty"`
 }
 
 // SetupComplete indicates setup is complete (empty object per docs)

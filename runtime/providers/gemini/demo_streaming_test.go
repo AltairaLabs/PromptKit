@@ -54,7 +54,7 @@ func TestStreamingDemo_RealAPI(t *testing.T) {
 		Encoding:   "pcm_linear16",
 	}
 
-	req := providers.StreamInputRequest{
+	req := providers.StreamingInputConfig{
 		Config: config,
 	}
 

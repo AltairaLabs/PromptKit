@@ -59,7 +59,7 @@ func TestStreamingDemo_AudioAndTextOutput(t *testing.T) {
 	// 🎯 KEY CONFIGURATION: Request BOTH text and audio in responses
 	// Note: As of the current API version, audio output may not be supported yet.
 	// This test demonstrates how to configure it when available.
-	req := providers.StreamInputRequest{
+	req := providers.StreamingInputConfig{
 		Config: config,
 		Metadata: map[string]interface{}{
 			"response_modalities": []string{"TEXT", "AUDIO"}, // Request both!
@@ -259,7 +259,7 @@ func TestStreamingDemo_AudioOutputOnly(t *testing.T) {
 
 	// 🎯 KEY CONFIGURATION: Request AUDIO-ONLY responses
 	// Note: As of the current API version, audio output may not be supported yet.
-	req := providers.StreamInputRequest{
+	req := providers.StreamingInputConfig{
 		Config: config,
 		Metadata: map[string]interface{}{
 			"response_modalities": []string{"AUDIO"}, // Audio only!

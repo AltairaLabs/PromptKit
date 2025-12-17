@@ -52,7 +52,7 @@ func TestStreamingIntegration_EndToEnd(t *testing.T) {
 	}
 
 	// Create stream session
-	req := providers.StreamInputRequest{
+	req := providers.StreamingInputConfig{
 		Config: config,
 	}
 
@@ -161,7 +161,7 @@ func TestStreamingIntegration_AudioRoundTrip(t *testing.T) {
 		Encoding:   "pcm_linear16",
 	}
 
-	req := providers.StreamInputRequest{
+	req := providers.StreamingInputConfig{
 		Config: config,
 	}
 
@@ -237,7 +237,7 @@ func TestStreamingIntegration_ErrorHandling(t *testing.T) {
 				Encoding:   "pcm_linear16",
 			}
 
-			req := providers.StreamInputRequest{
+			req := providers.StreamingInputConfig{
 				Config: config,
 			}
 
@@ -275,7 +275,7 @@ func TestStreamingIntegration_Performance(t *testing.T) {
 		Encoding:   "pcm_linear16",
 	}
 
-	req := providers.StreamInputRequest{
+	req := providers.StreamingInputConfig{
 		Config: config,
 	}
 
