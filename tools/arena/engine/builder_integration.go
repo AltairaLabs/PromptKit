@@ -344,6 +344,7 @@ func newConversationExecutor(cfg *config.Config, toolRegistry *tools.Registry, p
 	duplexExecutor := NewDuplexConversationExecutor(
 		selfPlayRegistry,
 		promptRegistry,
+		mediaStorage,
 	)
 
 	// Return composite executor that routes based on scenario configuration

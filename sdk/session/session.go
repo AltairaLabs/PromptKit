@@ -88,12 +88,16 @@ type UnarySessionConfig struct {
 // PipelineBuilder creates a StreamPipeline for a DuplexSession.
 // This is typically a closure created in SDK that captures configuration.
 //
-// For ASM mode: session will be non-nil, builder creates pipeline with DuplexProviderStage that uses it.
-// For VAD mode: session will be nil, builder creates pipeline with VAD/TTS stages.
+// For ASM mode: streamProvider will be non-nil, builder passes it to DuplexProviderStage
+//
+//	which creates the session lazily using system_prompt from element metadata.
+//
+// For VAD mode: streamProvider will be nil, builder creates pipeline with VAD/TTS stages.
 type PipelineBuilder func(
 	ctx context.Context,
 	provider providers.Provider, // Provider for making LLM calls (required)
-	session providers.StreamInputSession, // nil for VAD mode, set for ASM mode
+	streamProvider providers.StreamInputSupport, // For ASM mode: streaming provider. For VAD mode: nil
+	streamConfig *providers.StreamingInputConfig, // Base config for session creation (system prompt comes from pipeline)
 	conversationID string,
 	store statestore.Store,
 ) (*stage.StreamPipeline, error)
@@ -106,14 +110,14 @@ type PipelineBuilder func(
 // Two modes based on Config field:
 //
 // ASM Mode (Config provided):
-//   - DuplexSession creates persistent provider session
-//   - Calls PipelineBuilder with provider and session
-//   - Builder creates pipeline with provider middleware that uses the session
+//   - Pipeline is the single source of truth
+//   - DuplexProviderStage creates the session lazily using system_prompt from element metadata
+//   - PipelineBuilder receives streaming provider + base config (NOT a pre-created session)
 //   - Single long-running pipeline execution for continuous streaming
 //
 // VAD Mode (Config nil):
 //   - No provider session created
-//   - Calls PipelineBuilder with provider and nil session
+//   - Calls PipelineBuilder with nil streaming provider
 //   - Builder creates pipeline with VAD middleware and provider middleware for one-shot calls
 //   - Multiple pipeline executions, one per detected turn
 //
@@ -124,7 +128,7 @@ type DuplexSessionConfig struct {
 	StateStore      statestore.Store                // StateStore for conversation history
 	PipelineBuilder PipelineBuilder                 // Function to build pipeline (required, typically a closure from SDK)
 	Provider        providers.Provider              // Provider for LLM calls (required)
-	Config          *providers.StreamingInputConfig // For ASM mode: streaming config. For VAD mode: nil
+	Config          *providers.StreamingInputConfig // For ASM mode: base streaming config. For VAD mode: nil
 	Metadata        map[string]interface{}
 	Variables       map[string]string // Initial variables for template substitution
 }

@@ -1155,3 +1155,95 @@ func TestProcessServerMessage_ToolCall(t *testing.T) {
 	// Tool calls are currently no-op, just verify no error
 	time.Sleep(200 * time.Millisecond)
 }
+
+func TestStreamSessionConstants(t *testing.T) {
+	// Test that constants are defined correctly
+	if responseChannelSize != 10 {
+		t.Errorf("Expected responseChannelSize = 10, got %d", responseChannelSize)
+	}
+
+	if silenceFrameSize != 16000 {
+		t.Errorf("Expected silenceFrameSize = 16000, got %d", silenceFrameSize)
+	}
+
+	if silenceFrameCount != 8 {
+		t.Errorf("Expected silenceFrameCount = 8, got %d", silenceFrameCount)
+	}
+
+	if silenceFrameDelayMS != 50 {
+		t.Errorf("Expected silenceFrameDelayMS = 50, got %d", silenceFrameDelayMS)
+	}
+
+	if tokensPerThousand != 1000.0 {
+		t.Errorf("Expected tokensPerThousand = 1000.0, got %f", tokensPerThousand)
+	}
+}
+
+func TestStreamSessionConfigValidation(t *testing.T) {
+	tests := []struct {
+		name   string
+		config StreamSessionConfig
+	}{
+		{
+			name: "valid config",
+			config: StreamSessionConfig{
+				Model:              "gemini-2.0-flash-exp",
+				ResponseModalities: []string{"TEXT"},
+				SystemInstruction:  "You are a helpful assistant",
+				InputCostPer1K:     0.0001,
+				OutputCostPer1K:    0.0002,
+			},
+		},
+		{
+			name: "audio modality",
+			config: StreamSessionConfig{
+				Model:              "gemini-2.0-flash-exp",
+				ResponseModalities: []string{"AUDIO"},
+				InputCostPer1K:     0.0001,
+				OutputCostPer1K:    0.0002,
+			},
+		},
+		{
+			name: "zero costs",
+			config: StreamSessionConfig{
+				Model:              "gemini-2.0-flash-exp",
+				ResponseModalities: []string{"TEXT"},
+				InputCostPer1K:     0,
+				OutputCostPer1K:    0,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Just verify the config structure is valid
+			if tt.config.Model == "" {
+				t.Error("Model should not be empty")
+			}
+		})
+	}
+}
+
+func TestSliceContains(t *testing.T) {
+	tests := []struct {
+		name     string
+		slice    []string
+		item     string
+		expected bool
+	}{
+		{"found", []string{"a", "b", "c"}, "b", true},
+		{"not found", []string{"a", "b", "c"}, "d", false},
+		{"empty slice", []string{}, "a", false},
+		{"case sensitive", []string{"TEXT"}, "text", false},
+		{"exact match", []string{"AUDIO"}, "AUDIO", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sliceContains(tt.slice, tt.item)
+			if result != tt.expected {
+				t.Errorf("sliceContains(%v, %q) = %v, want %v", tt.slice, tt.item, result, tt.expected)
+			}
+		})
+	}
+}

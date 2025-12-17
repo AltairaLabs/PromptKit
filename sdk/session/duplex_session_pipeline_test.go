@@ -20,7 +20,7 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 	t.Run("returns streamOutput in Pipeline mode", func(t *testing.T) {
 		// Create minimal pipeline with mock provider
 		provider := mock.NewProvider("mock", "mock-model", false)
-		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
+		pipelineBuilder := func(ctx context.Context, p providers.Provider, streamProvider providers.StreamInputSupport, streamConfig *providers.StreamingInputConfig, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
 			providerStage := stage.NewProviderStage(provider, nil, nil, nil)
 			builder := stage.NewPipelineBuilder()
 			return builder.Chain(providerStage).Build()
@@ -45,7 +45,7 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 	t.Run("Error() returns nil in Pipeline mode", func(t *testing.T) {
 		// Create minimal pipeline
 		provider := mock.NewProvider("mock", "mock-model", false)
-		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
+		pipelineBuilder := func(ctx context.Context, p providers.Provider, streamProvider providers.StreamInputSupport, streamConfig *providers.StreamingInputConfig, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
 			providerStage := stage.NewProviderStage(provider, nil, nil, nil)
 			builder := stage.NewPipelineBuilder()
 			return builder.Chain(providerStage).Build()
@@ -69,7 +69,7 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 	t.Run("Close() closes streamInput in Pipeline mode", func(t *testing.T) {
 		// Create minimal pipeline
 		provider := mock.NewProvider("mock", "mock-model", false)
-		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
+		pipelineBuilder := func(ctx context.Context, p providers.Provider, streamProvider providers.StreamInputSupport, streamConfig *providers.StreamingInputConfig, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
 			providerStage := stage.NewProviderStage(provider, nil, nil, nil)
 			builder := stage.NewPipelineBuilder()
 			return builder.Chain(providerStage).Build()
@@ -104,7 +104,7 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 		provider := mock.NewProviderWithRepository("mock", "mock-model", false,
 			mock.NewInMemoryMockRepository("Hello from mock provider"))
 
-		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
+		pipelineBuilder := func(ctx context.Context, p providers.Provider, streamProvider providers.StreamInputSupport, streamConfig *providers.StreamingInputConfig, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
 			providerStage := stage.NewProviderStage(provider, nil, nil, nil)
 			builder := stage.NewPipelineBuilder()
 			return builder.Chain(providerStage).Build()

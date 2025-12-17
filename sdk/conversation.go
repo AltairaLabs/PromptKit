@@ -216,7 +216,8 @@ func (c *Conversation) applyOptionsToMessage(userMsg *types.Message, opts []Send
 func (c *Conversation) buildPipelineWithParams(
 	store statestore.Store,
 	conversationID string,
-	streamInputSession providers.StreamInputSession,
+	streamProvider providers.StreamInputSupport,
+	streamConfig *providers.StreamingInputConfig,
 ) (*stage.StreamPipeline, error) {
 	// Get initial variables from config (required for prompt template resolution)
 	vars := make(map[string]string)
@@ -236,17 +237,18 @@ func (c *Conversation) buildPipelineWithParams(
 
 	// Build pipeline configuration
 	pipelineCfg := &intpipeline.Config{
-		Provider:           c.config.provider,
-		ToolRegistry:       toolRegistry,
-		PromptRegistry:     c.promptRegistry,
-		TaskType:           c.promptName,
-		Variables:          vars,
-		VariableProviders:  c.config.variableProviders, // Pass to pipeline for dynamic resolution
-		MaxTokens:          defaultMaxTokens,
-		Temperature:        defaultTemperature,
-		StateStore:         store,
-		ConversationID:     conversationID,
-		StreamInputSession: streamInputSession, // Pass session for duplex mode
+		Provider:            c.config.provider,
+		ToolRegistry:        toolRegistry,
+		PromptRegistry:      c.promptRegistry,
+		TaskType:            c.promptName,
+		Variables:           vars,
+		VariableProviders:   c.config.variableProviders, // Pass to pipeline for dynamic resolution
+		MaxTokens:           defaultMaxTokens,
+		Temperature:         defaultTemperature,
+		StateStore:          store,
+		ConversationID:      conversationID,
+		StreamInputProvider: streamProvider, // For duplex mode: provider creates session lazily
+		StreamInputConfig:   streamConfig,   // Base config for session
 	}
 
 	// Apply parameters from prompt if available
@@ -270,7 +272,8 @@ func (c *Conversation) buildPipelineWithParams(
 func (c *Conversation) buildStreamPipelineWithParams(
 	store statestore.Store,
 	conversationID string,
-	streamInputSession providers.StreamInputSession,
+	streamProvider providers.StreamInputSupport,
+	streamConfig *providers.StreamingInputConfig,
 ) (*stage.StreamPipeline, error) {
 	// Get initial variables from config (required for prompt template resolution)
 	vars := make(map[string]string)
@@ -290,17 +293,18 @@ func (c *Conversation) buildStreamPipelineWithParams(
 
 	// Build pipeline configuration
 	pipelineCfg := &intpipeline.Config{
-		Provider:           c.config.provider,
-		ToolRegistry:       toolRegistry,
-		PromptRegistry:     c.promptRegistry,
-		TaskType:           c.promptName,
-		Variables:          vars,
-		VariableProviders:  c.config.variableProviders,
-		MaxTokens:          defaultMaxTokens,
-		Temperature:        defaultTemperature,
-		StateStore:         store,
-		ConversationID:     conversationID,
-		StreamInputSession: streamInputSession,
+		Provider:            c.config.provider,
+		ToolRegistry:        toolRegistry,
+		PromptRegistry:      c.promptRegistry,
+		TaskType:            c.promptName,
+		Variables:           vars,
+		VariableProviders:   c.config.variableProviders,
+		MaxTokens:           defaultMaxTokens,
+		Temperature:         defaultTemperature,
+		StateStore:          store,
+		ConversationID:      conversationID,
+		StreamInputProvider: streamProvider, // For duplex mode: provider creates session lazily
+		StreamInputConfig:   streamConfig,   // Base config for session
 	}
 
 	// Apply parameters from prompt if available
@@ -637,7 +641,7 @@ func (c *Conversation) Fork() *Conversation {
 	}
 
 	ctx := context.Background()
-	pipeline, err := c.buildPipelineWithParams(store, forkID, nil)
+	pipeline, err := c.buildPipelineWithParams(store, forkID, nil, nil)
 	if err != nil {
 		return nil
 	}
@@ -672,11 +676,12 @@ func (c *Conversation) Fork() *Conversation {
 		pipelineBuilder := func(
 			ctx context.Context,
 			provider providers.Provider,
-			providerSession providers.StreamInputSession,
+			streamProvider providers.StreamInputSupport,
+			streamConfig *providers.StreamingInputConfig,
 			convID string,
 			stateStore statestore.Store,
 		) (*stage.StreamPipeline, error) {
-			return fork.buildStreamPipelineWithParams(stateStore, convID, providerSession)
+			return fork.buildStreamPipelineWithParams(stateStore, convID, streamProvider, streamConfig)
 		}
 
 		forkSession, err := c.duplexSession.ForkSession(ctx, forkID, pipelineBuilder)

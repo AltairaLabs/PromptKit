@@ -210,7 +210,7 @@ func TestConversationMessages(t *testing.T) {
 	// Create a dummy pipeline (not used for this test)
 	// We'll create a minimal valid pipeline
 	provider := mock.NewProvider("test", "test-model", false)
-	pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
+	pipelineBuilder := func(ctx context.Context, p providers.Provider, streamProvider providers.StreamInputSupport, streamConfig *providers.StreamingInputConfig, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
 		// Return a minimal stage pipeline with provider stage for test
 		providerStage := stage.NewProviderStage(provider, nil, nil, nil)
 		return stage.NewPipelineBuilder().Chain(providerStage).Build()
@@ -258,7 +258,7 @@ func TestConversationClear(t *testing.T) {
 	store := statestore.NewMemoryStore()
 	convID := "test-conv"
 	provider := mock.NewProvider("test", "test-model", false)
-	pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
+	pipelineBuilder := func(ctx context.Context, p providers.Provider, streamProvider providers.StreamInputSupport, streamConfig *providers.StreamingInputConfig, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
 		// Return a minimal stage pipeline with provider stage for test
 		providerStage := stage.NewProviderStage(provider, nil, nil, nil)
 		return stage.NewPipelineBuilder().Chain(providerStage).Build()
@@ -304,7 +304,7 @@ func TestConversationFork(t *testing.T) {
 	store := statestore.NewMemoryStore()
 	convID := "original"
 	provider := mock.NewProvider("test", "test-model", false)
-	pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
+	pipelineBuilder := func(ctx context.Context, p providers.Provider, streamProvider providers.StreamInputSupport, streamConfig *providers.StreamingInputConfig, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
 		// Return a minimal stage pipeline with provider stage for test
 		providerStage := stage.NewProviderStage(provider, nil, nil, nil)
 		return stage.NewPipelineBuilder().Chain(providerStage).Build()
@@ -996,7 +996,7 @@ func TestGetBaseSessionUnary(t *testing.T) {
 	conv := newTestConversation()
 	store := statestore.NewMemoryStore()
 	provider := mock.NewProvider("test", "test-model", false)
-	pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
+	pipelineBuilder := func(ctx context.Context, p providers.Provider, streamProvider providers.StreamInputSupport, streamConfig *providers.StreamingInputConfig, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
 		// Return a minimal stage pipeline with provider stage for test
 		providerStage := stage.NewProviderStage(provider, nil, nil, nil)
 		return stage.NewPipelineBuilder().Chain(providerStage).Build()
@@ -1024,7 +1024,7 @@ func TestGetBaseSessionDuplex(t *testing.T) {
 	ctx := context.Background()
 	store := statestore.NewMemoryStore()
 	provider := mock.NewProvider("test", "test-model", false)
-	pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
+	pipelineBuilder := func(ctx context.Context, p providers.Provider, streamProvider providers.StreamInputSupport, streamConfig *providers.StreamingInputConfig, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
 		// Return a minimal stage pipeline with provider stage for test
 		providerStage := stage.NewProviderStage(provider, nil, nil, nil)
 		return stage.NewPipelineBuilder().Chain(providerStage).Build()
@@ -1050,7 +1050,7 @@ func TestMessagesWithDifferentModes(t *testing.T) {
 		conv := newTestConversation()
 		store := statestore.NewMemoryStore()
 		provider := mock.NewProvider("test", "test-model", false)
-		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
+		pipelineBuilder := func(ctx context.Context, p providers.Provider, streamProvider providers.StreamInputSupport, streamConfig *providers.StreamingInputConfig, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
 			// Return a minimal stage pipeline with provider stage for test
 			providerStage := stage.NewProviderStage(provider, nil, nil, nil)
 			return stage.NewPipelineBuilder().Chain(providerStage).Build()
@@ -1084,7 +1084,7 @@ func TestMessagesWithDifferentModes(t *testing.T) {
 
 		store := statestore.NewMemoryStore()
 		provider := mock.NewProvider("test", "test-model", false)
-		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
+		pipelineBuilder := func(ctx context.Context, p providers.Provider, streamProvider providers.StreamInputSupport, streamConfig *providers.StreamingInputConfig, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
 			// Return a minimal stage pipeline with provider stage for test
 			providerStage := stage.NewProviderStage(provider, nil, nil, nil)
 			return stage.NewPipelineBuilder().Chain(providerStage).Build()
@@ -1119,7 +1119,7 @@ func TestClearWithDifferentModes(t *testing.T) {
 		conv := newTestConversation()
 		store := statestore.NewMemoryStore()
 		provider := mock.NewProvider("test", "test-model", false)
-		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
+		pipelineBuilder := func(ctx context.Context, p providers.Provider, streamProvider providers.StreamInputSupport, streamConfig *providers.StreamingInputConfig, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
 			// Return a minimal stage pipeline with provider stage for test
 			providerStage := stage.NewProviderStage(provider, nil, nil, nil)
 			return stage.NewPipelineBuilder().Chain(providerStage).Build()
@@ -1157,7 +1157,7 @@ func TestClearWithDifferentModes(t *testing.T) {
 
 		store := statestore.NewMemoryStore()
 		provider := mock.NewProvider("test", "test-model", false)
-		pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
+		pipelineBuilder := func(ctx context.Context, p providers.Provider, streamProvider providers.StreamInputSupport, streamConfig *providers.StreamingInputConfig, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
 			// Return a minimal stage pipeline with provider stage for test
 			providerStage := stage.NewProviderStage(provider, nil, nil, nil)
 			return stage.NewPipelineBuilder().Chain(providerStage).Build()
@@ -1241,7 +1241,7 @@ func TestSendWithMockProvider(t *testing.T) {
 	}
 
 	// Build pipeline and create session
-	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil)
+	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil, nil)
 	require.NoError(t, err)
 
 	unarySession, err := session.NewUnarySession(session.UnarySessionConfig{
@@ -1289,7 +1289,7 @@ func TestSendWithImageOptions(t *testing.T) {
 		pendingStore:   sdktools.NewPendingStore(),
 	}
 
-	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil)
+	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil, nil)
 	require.NoError(t, err)
 
 	unarySession, err := session.NewUnarySession(session.UnarySessionConfig{
@@ -1357,7 +1357,7 @@ func TestSendWithProviderError(t *testing.T) {
 	}
 
 	// Build pipeline and create session
-	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil)
+	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil, nil)
 	require.NoError(t, err)
 
 	unarySession, err := session.NewUnarySession(session.UnarySessionConfig{
@@ -1378,7 +1378,7 @@ func TestTriggerStart(t *testing.T) {
 	store := statestore.NewMemoryStore()
 	provider := mock.NewProvider("test", "test-model", false)
 
-	pipelineBuilder := func(ctx context.Context, p providers.Provider, ps providers.StreamInputSession, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
+	pipelineBuilder := func(ctx context.Context, p providers.Provider, streamProvider providers.StreamInputSupport, streamConfig *providers.StreamingInputConfig, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
 		providerStage := stage.NewProviderStage(provider, nil, nil, nil)
 		return stage.NewPipelineBuilder().Chain(providerStage).Build()
 	}
@@ -1538,7 +1538,7 @@ func TestSendWithOptions(t *testing.T) {
 		pendingStore:   sdktools.NewPendingStore(),
 	}
 
-	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil)
+	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil, nil)
 	require.NoError(t, err)
 
 	unarySession, err := session.NewUnarySession(session.UnarySessionConfig{
@@ -1657,7 +1657,7 @@ func TestBuildPipelineWithParameters(t *testing.T) {
 		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
 	}
 
-	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil)
+	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil, nil)
 	assert.NoError(t, err)
 	assert.NotNil(t, pipeline)
 }

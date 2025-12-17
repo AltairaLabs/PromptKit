@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
@@ -16,7 +17,23 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/validators"
+	arenaassertions "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
+	arenastages "github.com/AltairaLabs/PromptKit/tools/arena/stages"
+	arenastore "github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
+)
+
+const (
+	// Audio configuration constants
+	geminiAudioBitDepth = 16 // Required for Gemini Live API
+
+	// Timing constants
+	interTurnDelayMS = 500
+	drainTimeoutSec  = 30
+
+	// Role constants
+	roleAssistant = "assistant"
 )
 
 // ExecuteConversationStream runs a duplex conversation with streaming output.
@@ -42,6 +59,8 @@ func (de *DuplexConversationExecutor) ExecuteConversationStream(
 }
 
 // executeDuplexConversation handles the main duplex conversation logic.
+// The pipeline is the single source of truth: PromptAssemblyStage loads the prompt,
+// then DuplexProviderStage creates the session using system_prompt from metadata.
 func (de *DuplexConversationExecutor) executeDuplexConversation(
 	ctx context.Context,
 	req *ConversationRequest,
@@ -50,20 +69,10 @@ func (de *DuplexConversationExecutor) executeDuplexConversation(
 ) *ConversationResult {
 	de.emitSessionStarted(emitter, req)
 
-	// Start duplex session with provider
-	sessionConfig := de.buildSessionConfig(req)
-	session, err := streamProvider.CreateStreamSession(ctx, sessionConfig)
-	if err != nil {
-		de.emitSessionError(emitter, req, err)
-		return &ConversationResult{
-			Failed: true,
-			Error:  fmt.Sprintf("failed to start duplex session: %v", err),
-		}
-	}
-	defer session.Close()
-
 	// Build and execute the duplex pipeline
-	result := de.executeDuplexPipeline(ctx, req, session, emitter)
+	// The session is created inside the pipeline by DuplexProviderStage,
+	// using system_prompt from PromptAssemblyStage metadata.
+	result := de.executeDuplexPipeline(ctx, req, streamProvider, emitter)
 
 	de.emitSessionCompleted(emitter, req)
 	return result
@@ -73,11 +82,12 @@ func (de *DuplexConversationExecutor) executeDuplexConversation(
 func (de *DuplexConversationExecutor) executeDuplexPipeline(
 	ctx context.Context,
 	req *ConversationRequest,
-	session providers.StreamInputSession,
+	streamProvider providers.StreamInputSupport,
 	emitter *events.Emitter,
 ) *ConversationResult {
 	// Create pipeline for duplex streaming
-	pipeline, err := de.buildDuplexPipeline(req, session)
+	//nolint:gocritic // Variable shadowing unavoidable in this context
+	pipeline, err := de.buildDuplexPipeline(req, streamProvider)
 	if err != nil {
 		return &ConversationResult{
 			Failed: true,
@@ -117,12 +127,18 @@ func (de *DuplexConversationExecutor) executeDuplexPipeline(
 }
 
 // buildDuplexPipeline creates the streaming pipeline for duplex mode.
+// The pipeline follows the same pattern as non-duplex: PromptAssemblyStage runs first
+// to add system_prompt to metadata, then DuplexProviderStage creates the session
+// using that system_prompt.
 func (de *DuplexConversationExecutor) buildDuplexPipeline(
 	req *ConversationRequest,
-	session providers.StreamInputSession,
+	streamProvider providers.StreamInputSupport,
 ) (*stage.StreamPipeline, error) {
 	builder := stage.NewPipelineBuilder()
 	var stages []stage.Stage
+
+	// Build merged variables for prompt assembly (consistent with non-duplex pipeline)
+	mergedVars := de.buildMergedVariables(req)
 
 	// Add VAD stage if using client-side turn detection
 	if de.shouldUseClientVAD(req) {
@@ -134,30 +150,134 @@ func (de *DuplexConversationExecutor) buildDuplexPipeline(
 		stages = append(stages, vadStage)
 	}
 
-	// Add duplex provider stage
-	stages = append(stages, stage.NewDuplexProviderStage(session))
+	// 1. Prompt assembly stage (runs BEFORE provider, like non-duplex)
+	// This enriches elements with:
+	// - system_prompt for DuplexProviderStage to use at session creation
+	// - base_variables for template processing
+	taskType := ""
+	if req.Scenario != nil {
+		taskType = req.Scenario.TaskType
+	}
+	stages = append(stages,
+		stage.NewPromptAssemblyStage(de.promptRegistry, taskType, mergedVars),
+		// NOTE: ScenarioContextExtractionStage is NOT included in the duplex pipeline.
+		// It accumulates ALL elements before forwarding, which blocks the real-time
+		// element flow needed for duplex streaming. Context extraction is handled
+		// via mergedVars passed to PromptAssemblyStage.
+		stage.NewTemplateStage(),
+	)
 
-	// Add state store save stage to capture conversation messages
+	// 2. Duplex provider stage - creates session using system_prompt from metadata
+	// The session is created lazily when the first element arrives, reading
+	// system_prompt from the element's metadata (set by PromptAssemblyStage).
+	baseConfig := de.buildBaseSessionConfig(req)
+	stages = append(stages, stage.NewDuplexProviderStage(streamProvider, baseConfig))
+
+	// 3. Media externalizer stage to save audio files
+	if de.mediaStorage != nil {
+		mediaConfig := &stage.MediaExternalizerConfig{
+			Enabled:         true,
+			StorageService:  de.mediaStorage,
+			SizeThresholdKB: 0, // Externalize all media (audio can be large)
+			DefaultPolicy:   "retain",
+			RunID:           req.RunID,
+			ConversationID:  req.ConversationID,
+		}
+		stages = append(stages, stage.NewMediaExternalizerStage(mediaConfig))
+	}
+
+	// NOTE: ValidationStage is NOT included in the duplex pipeline.
+	// ValidationStage accumulates ALL elements before forwarding, which blocks
+	// the real-time element flow needed for duplex streaming. Turn assertions
+	// are handled separately by evaluateTurnAssertions() in the executor.
+
+	// 4. Arena state store save stage to capture conversation messages
+	// This stage handles system_prompt in metadata and prepends it as a system message
 	if req.StateStoreConfig != nil && req.StateStoreConfig.Store != nil {
 		storeConfig := de.buildPipelineStateStoreConfig(req)
-		stages = append(stages, stage.NewStateStoreSaveStage(storeConfig))
+		stages = append(stages, arenastages.NewArenaStateStoreSaveStage(storeConfig))
 	}
 
 	return builder.Chain(stages...).Build()
 }
 
+// buildBaseSessionConfig creates the base streaming configuration without system instruction.
+// The system instruction will be added by DuplexProviderStage from element metadata.
+func (de *DuplexConversationExecutor) buildBaseSessionConfig(req *ConversationRequest) *providers.StreamingInputConfig {
+	cfg := &providers.StreamingInputConfig{
+		Config: types.StreamingMediaConfig{
+			Type:       types.ContentTypeAudio,
+			ChunkSize:  defaultAudioChunkSize,
+			SampleRate: defaultSampleRate,
+			Encoding:   "pcm_linear16",
+			Channels:   1,
+			BitDepth:   geminiAudioBitDepth, // Required for Gemini Live API
+		},
+		Metadata: make(map[string]interface{}),
+	}
+
+	// Pass through response_modalities from provider config if available
+	if req.Config != nil && req.Provider != nil {
+		providerID := req.Provider.ID()
+		if providerCfg, ok := req.Config.LoadedProviders[providerID]; ok && providerCfg.AdditionalConfig != nil {
+			if modalities, exists := providerCfg.AdditionalConfig["response_modalities"]; exists {
+				cfg.Metadata["response_modalities"] = modalities
+			}
+		}
+	}
+
+	return cfg
+}
+
+// buildMergedVariables builds the merged variables map for prompt assembly.
+// This is consistent with how non-duplex pipelines build variables.
+func (de *DuplexConversationExecutor) buildMergedVariables(req *ConversationRequest) map[string]string {
+	mergedVars := make(map[string]string)
+
+	// Add region if available
+	if req.Region != "" {
+		mergedVars["region"] = req.Region
+	}
+
+	// Add any metadata from the request as variables
+	for k, v := range req.Metadata {
+		mergedVars[k] = v
+	}
+
+	return mergedVars
+}
+
 // buildPipelineStateStoreConfig converts engine StateStoreConfig to pipeline StateStoreConfig.
+// It also injects the system prompt from the prompt registry into metadata so that
+// ArenaStateStoreSaveStage can capture it in the state store output.
 func (de *DuplexConversationExecutor) buildPipelineStateStoreConfig(
 	req *ConversationRequest,
 ) *pipeline.StateStoreConfig {
 	if req.StateStoreConfig == nil {
 		return nil
 	}
+
+	// Start with existing metadata or create new map
+	metadata := make(map[string]interface{})
+	for k, v := range req.StateStoreConfig.Metadata {
+		metadata[k] = v
+	}
+
+	// Inject system prompt from prompt registry if available
+	// This ensures the system prompt is captured in the state store output
+	if de.promptRegistry != nil && req.Scenario != nil && req.Scenario.TaskType != "" {
+		if assembled := de.promptRegistry.Load(req.Scenario.TaskType); assembled != nil {
+			if assembled.SystemPrompt != "" {
+				metadata["system_prompt"] = assembled.SystemPrompt
+			}
+		}
+	}
+
 	return &pipeline.StateStoreConfig{
 		Store:          req.StateStoreConfig.Store,
 		ConversationID: req.ConversationID,
 		UserID:         req.StateStoreConfig.UserID,
-		Metadata:       req.StateStoreConfig.Metadata,
+		Metadata:       metadata,
 	}
 }
 
@@ -170,23 +290,79 @@ func (de *DuplexConversationExecutor) processDuplexTurns(
 	outputChan <-chan stage.StreamElement,
 	emitter *events.Emitter,
 ) error {
-	defer close(inputChan)
+	// Note: We don't use defer here because we need to close inputChan
+	// BEFORE draining outputChan to allow the pipeline to finish.
+	var turnErr error
+
+	logger.Debug("processDuplexTurns: starting", "numTurns", len(req.Scenario.Turns))
 
 	for turnIdx := range req.Scenario.Turns {
 		turn := &req.Scenario.Turns[turnIdx]
+		logger.Debug("processDuplexTurns: processing turn", "turnIdx", turnIdx, "role", turn.Role)
 		de.emitTurnStarted(emitter, turnIdx, turn.Role, req.Scenario.ID)
 
 		err := de.processSingleDuplexTurn(ctx, req, turn, turnIdx, baseDir, inputChan, outputChan)
 		if err != nil {
+			logger.Error("processDuplexTurns: turn failed", "turnIdx", turnIdx, "error", err)
 			de.emitTurnCompleted(emitter, turnIdx, turn.Role, req.Scenario.ID, err)
-			return err
+			turnErr = err
+			break
+		}
+		logger.Debug("processDuplexTurns: turn completed successfully", "turnIdx", turnIdx)
+
+		// Evaluate turn assertions if configured
+		// Assertions on user turns validate the subsequent assistant response
+		if len(turn.Assertions) > 0 {
+			de.evaluateTurnAssertions(ctx, req, turn, turnIdx)
 		}
 
 		de.emitTurnCompleted(emitter, turnIdx, turn.Role, req.Scenario.ID, nil)
 		logger.Debug("Duplex turn completed", "turn", turnIdx, "role", turn.Role)
+
+		// Add a delay between turns to allow Gemini to fully process
+		// the previous response before we start sending the next turn's audio.
+		// Without this delay, Gemini may interpret new audio as an "interruption"
+		// and skip generating a response for the next turn.
+		// 500ms is needed because Gemini needs time to transition from "speaking"
+		// state back to "listening" state.
+		if turnIdx < len(req.Scenario.Turns)-1 {
+			logger.Debug("Inter-turn delay before next turn", "delayMs", interTurnDelayMS)
+			time.Sleep(interTurnDelayMS * time.Millisecond)
+		}
 	}
 
-	return nil
+	// Close input channel to signal pipeline to finish
+	close(inputChan)
+
+	// Drain the output channel to ensure all pipeline stages
+	// (including state store save) have finished processing before we try to read results.
+	// Use a separate context for draining - we want to wait for pipeline completion
+	// even if the original context has timed out (e.g., turn timeout shouldn't prevent save).
+	drainCtx, drainCancel := context.WithTimeout(context.Background(), drainTimeoutSec*time.Second)
+	defer drainCancel()
+	de.drainOutputChannel(drainCtx, outputChan)
+
+	return turnErr
+}
+
+// drainOutputChannel consumes remaining elements from the output channel until closed.
+// This ensures all pipeline stages have finished processing.
+func (de *DuplexConversationExecutor) drainOutputChannel(
+	ctx context.Context,
+	outputChan <-chan stage.StreamElement,
+) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case _, ok := <-outputChan:
+			if !ok {
+				// Channel closed - all stages have finished
+				return
+			}
+			// Continue draining
+		}
+	}
 }
 
 // processSingleDuplexTurn processes a single turn in duplex mode.
@@ -240,13 +416,15 @@ func (de *DuplexConversationExecutor) streamAudioTurn(
 	}
 	defer source.Close()
 
-	// Create user message element to capture in state store
-	// This records that user audio was sent
-	audioPath := audioPart.Media.FilePath
-	mimeType := audioPart.Media.MIMEType
-	userMsg := &types.Message{
-		Role: "user",
-		Parts: []types.ContentPart{
+	// Load audio data for state store capture (converted to WAV for playability)
+	// Use the media loader's ConvertTurnPartsToMessageParts for proper conversion
+	messageParts, err := turnexecutors.ConvertTurnPartsToMessageParts(ctx, turn.Parts, baseDir, nil, nil)
+	if err != nil {
+		// Fallback to file path reference if conversion fails
+		logger.Debug("streamAudioTurn: failed to load audio data, using file path", "error", err)
+		audioPath := audioPart.Media.FilePath
+		mimeType := audioPart.Media.MIMEType
+		messageParts = []types.ContentPart{
 			{
 				Type: types.ContentTypeAudio,
 				Media: &types.MediaContent{
@@ -254,7 +432,13 @@ func (de *DuplexConversationExecutor) streamAudioTurn(
 					MIMEType: mimeType,
 				},
 			},
-		},
+		}
+	}
+
+	// Create user message element to capture in state store
+	userMsg := &types.Message{
+		Role:  "user",
+		Parts: messageParts,
 	}
 
 	// Send user message to pipeline for state store capture
@@ -276,8 +460,32 @@ func (de *DuplexConversationExecutor) streamAudioChunks(
 	inputChan chan<- stage.StreamElement,
 	outputChan <-chan stage.StreamElement,
 ) error {
-	// Start a goroutine to collect responses
-	// It exits when it sees EndOfStream (turn complete) rather than waiting for channel close
+	// First, drain any stale messages from the output channel.
+	// Messages can arrive between turns (e.g., "interrupted" status from the previous turn)
+	// and we don't want them to be picked up by this turn's response collector.
+	drainCount := 0
+drainLoop:
+	for {
+		select {
+		case elem, ok := <-outputChan:
+			if !ok {
+				return errors.New("output channel closed unexpectedly")
+			}
+			drainCount++
+			//nolint:lll // Debug logging - acceptable long line in interactive code
+			logger.Debug("streamAudioChunks: drained stale element", "hasText", elem.Text != nil, "endOfStream", elem.EndOfStream)
+			// If we hit an EndOfStream, that was a stale turn completion - continue draining
+		default:
+			// No more messages to drain
+			break drainLoop
+		}
+	}
+	if drainCount > 0 {
+		logger.Debug("streamAudioChunks: drained stale messages", "count", drainCount)
+	}
+
+	// Start a goroutine to collect responses.
+	// It exits when it sees EndOfStream (turn complete) - pipeline draining happens in processDuplexTurns.
 	responseDone := make(chan error, 1)
 	go func() {
 		for {
@@ -297,12 +505,12 @@ func (de *DuplexConversationExecutor) streamAudioChunks(
 				}
 				// Check for turn completion (EndOfStream flag set by provider)
 				if elem.EndOfStream {
-					logger.Debug("Turn response complete", "hasText", elem.Text != nil)
+					logger.Debug("Turn response complete",
+						"hasMessage", elem.Message != nil,
+						"hasText", elem.Text != nil)
 					responseDone <- nil
 					return
 				}
-				// Process response elements (text, audio)
-				// These are handled by the state store stage
 			}
 		}
 	}()
@@ -332,16 +540,20 @@ func (de *DuplexConversationExecutor) streamAudioChunks(
 
 	// Signal end of audio input for this turn
 	// This triggers mock sessions to emit their auto-response
+	// For Gemini, this calls EndInput() which sends turn_complete=true
+	logger.Debug("streamAudioChunks: sending EndOfStream signal to trigger response")
 	endOfTurn := stage.StreamElement{EndOfStream: true}
 	select {
 	case inputChan <- endOfTurn:
+		logger.Debug("streamAudioChunks: EndOfStream signal sent, waiting for response")
 	case <-ctx.Done():
 		return ctx.Err()
 	}
 
-	// Wait for response collection to complete
+	// Wait for turn response (EndOfStream or error)
 	select {
 	case err := <-responseDone:
+		logger.Debug("streamAudioChunks: response received", "error", err)
 		return err
 	case <-ctx.Done():
 		return ctx.Err()
@@ -664,4 +876,178 @@ func (de *DuplexConversationExecutor) emitTurnCompleted(
 		},
 		fmt.Sprintf("Duplex turn %d completed", turnIdx),
 	)
+}
+
+// evaluateTurnAssertions evaluates assertions configured on a turn.
+// Assertions on user turns validate the subsequent assistant response.
+func (de *DuplexConversationExecutor) evaluateTurnAssertions(
+	ctx context.Context,
+	req *ConversationRequest,
+	turn *config.TurnDefinition,
+	turnIdx int,
+) {
+	if len(turn.Assertions) == 0 {
+		return
+	}
+
+	// Get messages from state store to find the latest assistant message
+	messages := de.getConversationHistory(req)
+	if len(messages) == 0 {
+		logger.Debug("No messages to evaluate assertions against", "turn", turnIdx)
+		return
+	}
+
+	// Find the latest assistant message
+	var lastAssistantMsg *types.Message
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == roleAssistant {
+			lastAssistantMsg = &messages[i]
+			break
+		}
+	}
+
+	if lastAssistantMsg == nil {
+		logger.Debug("No assistant message found for assertion evaluation", "turn", turnIdx)
+		return
+	}
+
+	// Convert turn assertions to assertion configs
+	assertionConfigs := make([]arenaassertions.AssertionConfig, len(turn.Assertions))
+	for i, a := range turn.Assertions {
+		assertionConfigs[i] = arenaassertions.AssertionConfig{
+			Type:    a.Type,
+			Params:  a.Params,
+			Message: a.Message,
+		}
+	}
+
+	// Create assertion registry and evaluate
+	registry := arenaassertions.NewArenaAssertionRegistry()
+	results := de.runAssertions(ctx, registry, assertionConfigs, lastAssistantMsg, messages)
+
+	// Store results in the assistant message's metadata
+	de.storeAssertionResults(req, lastAssistantMsg, results)
+
+	logger.Debug("Turn assertions evaluated",
+		"turn", turnIdx,
+		"assertionCount", len(assertionConfigs),
+		"passed", de.countPassedAssertions(results))
+}
+
+// runAssertions executes all assertions and returns results.
+//
+//nolint:unparam // ctx may be used in future assertion implementations
+func (de *DuplexConversationExecutor) runAssertions(
+	ctx context.Context,
+	registry *validators.Registry,
+	configs []arenaassertions.AssertionConfig,
+	targetMsg *types.Message,
+	allMessages []types.Message,
+) []arenaassertions.AssertionResult {
+	results := make([]arenaassertions.AssertionResult, 0, len(configs))
+
+	for _, cfg := range configs {
+		// Build validator params
+		params := map[string]interface{}{
+			"assistant_response": targetMsg.Content,
+			"messages":           allMessages,
+		}
+		// Merge assertion params
+		for k, v := range cfg.Params {
+			params[k] = v
+		}
+
+		// Get validator factory
+		factory, ok := registry.Get(cfg.Type)
+		if !ok {
+			results = append(results, arenaassertions.AssertionResult{
+				Passed: false,
+				Details: map[string]interface{}{
+					"error": fmt.Sprintf("unknown validator type: %s", cfg.Type),
+				},
+				Message: cfg.Message,
+			})
+			continue
+		}
+
+		// Create validator instance and run validation
+		validator := factory(params)
+		validationResult := validator.Validate(targetMsg.Content, params)
+		results = append(results, arenaassertions.FromValidationResult(validationResult, cfg.Message))
+	}
+
+	return results
+}
+
+// storeAssertionResults stores assertion results in the state store.
+func (de *DuplexConversationExecutor) storeAssertionResults(
+	req *ConversationRequest,
+	msg *types.Message,
+	results []arenaassertions.AssertionResult,
+) {
+	if req.StateStoreConfig == nil || req.StateStoreConfig.Store == nil {
+		return
+	}
+
+	// Try to get ArenaStateStore to update assertion results
+	arenaStore, ok := req.StateStoreConfig.Store.(*arenastore.ArenaStateStore)
+	if !ok {
+		return
+	}
+
+	// Convert results to map format for message metadata
+	assertionResults := make(map[string]interface{})
+	resultsList := make([]map[string]interface{}, 0, len(results))
+	allPassed := true
+
+	for i, r := range results {
+		resultMap := map[string]interface{}{
+			"type":    fmt.Sprintf("assertion_%d", i),
+			"passed":  r.Passed,
+			"details": r.Details,
+		}
+		if r.Message != "" {
+			resultMap["message"] = r.Message
+		}
+		resultsList = append(resultsList, resultMap)
+		if !r.Passed {
+			allPassed = false
+		}
+	}
+
+	assertionResults["results"] = resultsList
+	assertionResults["all_passed"] = allPassed
+	assertionResults["total"] = len(results)
+	assertionResults["failed"] = de.countFailedAssertions(results)
+
+	// Update message metadata
+	if msg.Meta == nil {
+		msg.Meta = make(map[string]interface{})
+	}
+	msg.Meta["assertions"] = assertionResults
+
+	// Update the state store with the modified message
+	arenaStore.UpdateLastAssistantMessage(msg)
+}
+
+// countPassedAssertions counts how many assertions passed.
+func (de *DuplexConversationExecutor) countPassedAssertions(results []arenaassertions.AssertionResult) int {
+	count := 0
+	for _, r := range results {
+		if r.Passed {
+			count++
+		}
+	}
+	return count
+}
+
+// countFailedAssertions counts how many assertions failed.
+func (de *DuplexConversationExecutor) countFailedAssertions(results []arenaassertions.AssertionResult) int {
+	count := 0
+	for _, r := range results {
+		if !r.Passed {
+			count++
+		}
+	}
+	return count
 }

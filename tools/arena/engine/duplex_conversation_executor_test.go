@@ -10,7 +10,7 @@ import (
 )
 
 func TestDuplexConversationExecutor_RequiresDuplexConfig(t *testing.T) {
-	executor := NewDuplexConversationExecutor(nil, nil)
+	executor := NewDuplexConversationExecutor(nil, nil, nil)
 
 	// Scenario without duplex config should fail
 	req := ConversationRequest{
@@ -32,7 +32,7 @@ func TestDuplexConversationExecutor_RequiresDuplexConfig(t *testing.T) {
 }
 
 func TestDuplexConversationExecutor_ValidatesDuplexConfig(t *testing.T) {
-	executor := NewDuplexConversationExecutor(nil, nil)
+	executor := NewDuplexConversationExecutor(nil, nil, nil)
 
 	// Scenario with invalid duplex config should fail
 	req := ConversationRequest{
@@ -57,7 +57,7 @@ func TestDuplexConversationExecutor_ValidatesDuplexConfig(t *testing.T) {
 }
 
 func TestDuplexConversationExecutor_RequiresStreamingProvider(t *testing.T) {
-	executor := NewDuplexConversationExecutor(nil, nil)
+	executor := NewDuplexConversationExecutor(nil, nil, nil)
 
 	// Create a mock provider that doesn't support streaming
 	mockProvider := &mockNonStreamingProvider{}
@@ -85,7 +85,7 @@ func TestDuplexConversationExecutor_RequiresStreamingProvider(t *testing.T) {
 }
 
 func TestDuplexConversationExecutor_ShouldUseClientVAD(t *testing.T) {
-	executor := NewDuplexConversationExecutor(nil, nil)
+	executor := NewDuplexConversationExecutor(nil, nil, nil)
 
 	tests := []struct {
 		name     string
@@ -135,7 +135,7 @@ func TestDuplexConversationExecutor_ShouldUseClientVAD(t *testing.T) {
 }
 
 func TestDuplexConversationExecutor_ImplementsInterface(t *testing.T) {
-	executor := NewDuplexConversationExecutor(nil, nil)
+	executor := NewDuplexConversationExecutor(nil, nil, nil)
 
 	// Verify executor implements ConversationExecutor interface
 	var _ ConversationExecutor = executor
@@ -168,7 +168,7 @@ func (m *mockNonStreamingProvider) CalculateCost(_, _, _ int) types.CostInfo {
 }
 
 func TestDuplexConversationExecutor_BuildVADConfig(t *testing.T) {
-	executor := NewDuplexConversationExecutor(nil, nil)
+	executor := NewDuplexConversationExecutor(nil, nil, nil)
 
 	tests := []struct {
 		name            string
@@ -239,7 +239,7 @@ func TestDuplexConversationExecutor_BuildVADConfig(t *testing.T) {
 }
 
 func TestDuplexConversationExecutor_ContainsSelfPlay(t *testing.T) {
-	executor := NewDuplexConversationExecutor(nil, nil)
+	executor := NewDuplexConversationExecutor(nil, nil, nil)
 
 	tests := []struct {
 		name     string
@@ -276,7 +276,7 @@ func TestDuplexConversationExecutor_ContainsSelfPlay(t *testing.T) {
 }
 
 func TestDuplexConversationExecutor_IsSelfPlayRole(t *testing.T) {
-	executor := NewDuplexConversationExecutor(nil, nil)
+	executor := NewDuplexConversationExecutor(nil, nil, nil)
 
 	// With nil registry, should always return false
 	if executor.isSelfPlayRole("customer") {
@@ -288,8 +288,8 @@ func TestDuplexConversationExecutor_IsSelfPlayRole(t *testing.T) {
 }
 
 
-func TestDuplexConversationExecutor_BuildSessionConfig(t *testing.T) {
-	executor := NewDuplexConversationExecutor(nil, nil)
+func TestDuplexConversationExecutor_BuildBaseSessionConfig(t *testing.T) {
+	executor := NewDuplexConversationExecutor(nil, nil, nil)
 
 	req := &ConversationRequest{
 		Scenario: &config.Scenario{
@@ -298,7 +298,7 @@ func TestDuplexConversationExecutor_BuildSessionConfig(t *testing.T) {
 		},
 	}
 
-	cfg := executor.buildSessionConfig(req)
+	cfg := executor.buildBaseSessionConfig(req)
 
 	if cfg == nil {
 		t.Fatal("Expected non-nil config")
@@ -306,8 +306,8 @@ func TestDuplexConversationExecutor_BuildSessionConfig(t *testing.T) {
 	if cfg.Config.Type != types.ContentTypeAudio {
 		t.Errorf("Expected audio content type, got %s", cfg.Config.Type)
 	}
-	if cfg.Config.Encoding != "pcm" {
-		t.Errorf("Expected pcm encoding, got %s", cfg.Config.Encoding)
+	if cfg.Config.Encoding != "pcm_linear16" {
+		t.Errorf("Expected pcm_linear16 encoding, got %s", cfg.Config.Encoding)
 	}
 	if cfg.Config.Channels != 1 {
 		t.Errorf("Expected 1 channel, got %d", cfg.Config.Channels)
@@ -315,7 +315,7 @@ func TestDuplexConversationExecutor_BuildSessionConfig(t *testing.T) {
 }
 
 func TestDuplexConversationExecutor_CalculateTotalCost(t *testing.T) {
-	executor := NewDuplexConversationExecutor(nil, nil)
+	executor := NewDuplexConversationExecutor(nil, nil, nil)
 
 	tests := []struct {
 		name     string
@@ -402,14 +402,14 @@ func TestDuplexConversationExecutor_CalculateTotalCost(t *testing.T) {
 	}
 }
 
-func TestDuplexConversationExecutor_BuildSessionConfigWithPromptRegistry(t *testing.T) {
-	executor := NewDuplexConversationExecutor(nil, nil)
+func TestDuplexConversationExecutor_BuildBaseSessionConfigEdgeCases(t *testing.T) {
+	executor := NewDuplexConversationExecutor(nil, nil, nil)
 
 	// Test with nil scenario
 	req := &ConversationRequest{
 		Scenario: nil,
 	}
-	cfg := executor.buildSessionConfig(req)
+	cfg := executor.buildBaseSessionConfig(req)
 	if cfg == nil {
 		t.Fatal("Expected non-nil config even with nil scenario")
 	}
@@ -421,7 +421,7 @@ func TestDuplexConversationExecutor_BuildSessionConfigWithPromptRegistry(t *test
 			TaskType: "",
 		},
 	}
-	cfg = executor.buildSessionConfig(req)
+	cfg = executor.buildBaseSessionConfig(req)
 	if cfg == nil {
 		t.Fatal("Expected non-nil config with empty task type")
 	}

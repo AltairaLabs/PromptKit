@@ -8,6 +8,7 @@ import (
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -339,15 +340,16 @@ func TestBuildStagePipeline(t *testing.T) {
 		assert.NotNil(t, pipe)
 	})
 
-	t.Run("falls back to middleware when duplex session provided", func(t *testing.T) {
+	t.Run("uses DuplexProviderStage when streaming provider provided", func(t *testing.T) {
 		registry := createTestRegistry("chat")
-		mockSession := mock.NewMockStreamSession()
+		mockProvider := mock.NewStreamingProvider("test", "test-model", false)
 
 		cfg := &Config{
-			PromptRegistry:     registry,
-			TaskType:           "chat",
-			StreamInputSession: mockSession,
-			UseStages:          true, // Request stages but should fall back
+			PromptRegistry:      registry,
+			TaskType:            "chat",
+			StreamInputProvider: mockProvider,
+			StreamInputConfig:   &providers.StreamingInputConfig{},
+			UseStages:           true,
 		}
 
 		pipe, err := Build(cfg)
@@ -657,14 +659,15 @@ func TestBuildStreamPipeline(t *testing.T) {
 		assert.NotNil(t, pipeline)
 	})
 
-	t.Run("builds stream pipeline with duplex session", func(t *testing.T) {
+	t.Run("builds stream pipeline with streaming provider", func(t *testing.T) {
 		registry := createTestRegistry("chat")
-		mockSession := mock.NewMockStreamSession()
+		mockProvider := mock.NewStreamingProvider("test", "test-model", false)
 
 		cfg := &Config{
-			PromptRegistry:     registry,
-			TaskType:           "chat",
-			StreamInputSession: mockSession,
+			PromptRegistry:      registry,
+			TaskType:            "chat",
+			StreamInputProvider: mockProvider,
+			StreamInputConfig:   &providers.StreamingInputConfig{},
 		}
 
 		pipeline, err := BuildStreamPipeline(cfg)

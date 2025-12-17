@@ -36,6 +36,15 @@ const (
 	ErrSessionClosed = "session is closed"
 )
 
+// Configuration constants
+const (
+	responseChannelSize = 10
+	silenceFrameSize    = 16000
+	silenceFrameCount   = 8
+	silenceFrameDelayMS = 50
+	tokensPerThousand   = 1000.0
+)
+
 // sliceContains checks if a string slice contains a value
 func sliceContains(slice []string, val string) bool {
 	for _, s := range slice {
@@ -67,14 +76,16 @@ func truncateInlineData(v interface{}) {
 
 // StreamSession implements StreamInputSession for Gemini Live API
 type StreamSession struct {
-	ws          *WebSocketManager
-	ctx         context.Context
-	cancel      context.CancelFunc
-	responseCh  chan providers.StreamChunk
-	errCh       chan error
-	mu          sync.Mutex
-	closed      bool
-	sequenceNum int64
+	ws              *WebSocketManager
+	ctx             context.Context
+	cancel          context.CancelFunc
+	responseCh      chan providers.StreamChunk
+	errCh           chan error
+	mu              sync.Mutex
+	closed          bool
+	sequenceNum     int64
+	inputCostPer1K  float64 // Cost per 1K input tokens
+	outputCostPer1K float64 // Cost per 1K output tokens
 }
 
 // StreamSessionConfig configures a streaming session
@@ -82,6 +93,8 @@ type StreamSessionConfig struct {
 	Model              string   // Model name (will be prefixed with "models/" automatically)
 	ResponseModalities []string // "TEXT" or "AUDIO" - NOT both! See package doc for details.
 	SystemInstruction  string   // System prompt/instruction for the model
+	InputCostPer1K     float64  // Cost per 1K input tokens (for USD calculation)
+	OutputCostPer1K    float64  // Cost per 1K output tokens (for USD calculation)
 }
 
 // NewStreamSession creates a new streaming session
@@ -109,11 +122,13 @@ func NewStreamSession(ctx context.Context, wsURL, apiKey string, config StreamSe
 	}
 
 	session := &StreamSession{
-		ws:         ws,
-		ctx:        sessionCtx,
-		cancel:     cancel,
-		responseCh: make(chan providers.StreamChunk, 10),
-		errCh:      make(chan error, 1),
+		ws:              ws,
+		ctx:             sessionCtx,
+		cancel:          cancel,
+		responseCh:      make(chan providers.StreamChunk, responseChannelSize),
+		errCh:           make(chan error, 1),
+		inputCostPer1K:  config.InputCostPer1K,
+		outputCostPer1K: config.OutputCostPer1K,
 	}
 
 	// Ensure model is in correct format: models/{model}
@@ -145,8 +160,15 @@ func NewStreamSession(ctx context.Context, wsURL, apiKey string, config StreamSe
 	setupContent := map[string]interface{}{
 		"model":            modelPath,
 		"generationConfig": generationConfig,
-		// Note: inputAudioTranscription and outputAudioTranscription removed
-		// as they may cause "invalid argument" errors with some configurations
+	}
+
+	// Enable transcription for AUDIO mode to get text alongside audio
+	// This allows capturing both the audio and its text transcription
+	if sliceContains(modalities, "AUDIO") {
+		// Output transcription: what the model says (audio response -> text)
+		setupContent["outputAudioTranscription"] = map[string]interface{}{}
+		// Input transcription: what the user says (audio input -> text)
+		setupContent["inputAudioTranscription"] = map[string]interface{}{}
 	}
 
 	// Add system instruction if provided
@@ -272,15 +294,35 @@ func (s *StreamSession) CompleteTurn(ctx context.Context) error {
 // EndInput implements the EndInputter interface expected by DuplexProviderStage.
 // It signals that the user's input turn is complete and the model should respond.
 //
-// For Gemini Live API with realtime_input (audio streaming), the end of turn is
-// normally derived from VAD detecting silence. Since we're sending pre-recorded
-// audio files, we send a brief text prompt to trigger the model's response.
+// For Gemini Live API with realtime_input (audio streaming) and ASM mode,
+// the end of turn is derived from VAD detecting silence. We send silence frames
+// to help Gemini's VAD detect end of speech. We do NOT send a client_content
+// turn_complete message as that interferes with ASM mode and can cause the
+// session to close or interpret it as ending without user input.
 func (s *StreamSession) EndInput() {
-	// Send a minimal prompt to trigger response after audio input
-	// This works because SendText sets turn_complete=true
-	if err := s.SendText(s.ctx, "Please respond to what you just heard."); err != nil {
-		logger.Error("EndInput: failed to send trigger prompt", "error", err)
+	logger.Debug("Gemini StreamSession: EndInput called")
+
+	// Send silence frames to help VAD detect end of speech.
+	// This mimics the natural trailing silence at the end of human speech.
+	// Gemini's ASM mode will detect this silence and trigger the model response.
+	//
+	// silenceFrameSize bytes = 500ms of silence at 16kHz 16-bit mono (16000 samples * 1 byte per sample)
+	// We send 4 seconds total of silence to ensure VAD detection
+	silentChunk := make([]byte, silenceFrameSize)
+	for i := 0; i < silenceFrameCount; i++ {
+		chunk := &types.MediaChunk{
+			Data:      silentChunk,
+			Timestamp: time.Now(),
+		}
+		if err := s.SendChunk(s.ctx, chunk); err != nil {
+			logger.Error("Gemini StreamSession: EndInput failed to send silence", "error", err, "chunkIdx", i)
+			break
+		}
+		// Small delay between chunks to spread them out
+		time.Sleep(silenceFrameDelayMS * time.Millisecond)
 	}
+
+	logger.Debug("Gemini StreamSession: EndInput silence frames sent, waiting for VAD")
 }
 
 // Response returns the channel for receiving responses
@@ -404,10 +446,23 @@ func (s *StreamSession) processServerMessage(msg *ServerMessage) error {
 	// Store usage metadata for cost calculation
 	var costInfo *types.CostInfo
 	if msg.UsageMetadata != nil {
+		inputTokens := msg.UsageMetadata.PromptTokenCount
+		outputTokens := msg.UsageMetadata.ResponseTokenCount
+
+		// Calculate USD costs if pricing is configured
+		var inputCostUSD, outputCostUSD, totalCost float64
+		if s.inputCostPer1K > 0 && s.outputCostPer1K > 0 {
+			inputCostUSD = float64(inputTokens) / tokensPerThousand * s.inputCostPer1K
+			outputCostUSD = float64(outputTokens) / tokensPerThousand * s.outputCostPer1K
+			totalCost = inputCostUSD + outputCostUSD
+		}
+
 		costInfo = &types.CostInfo{
-			InputTokens:  msg.UsageMetadata.PromptTokenCount,
-			OutputTokens: msg.UsageMetadata.ResponseTokenCount,
-			// Cost calculation would require pricing info from provider
+			InputTokens:   inputTokens,
+			OutputTokens:  outputTokens,
+			InputCostUSD:  inputCostUSD,
+			OutputCostUSD: outputCostUSD,
+			TotalCost:     totalCost,
 		}
 	}
 

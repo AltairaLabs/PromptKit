@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -21,8 +20,6 @@ import (
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
 )
 
-// debugSnippetMaxLen is the max length for debug log snippets.
-const debugSnippetMaxLen = 200
 
 // Open loads a pack file and creates a new conversation for the specified prompt.
 //
@@ -287,8 +284,8 @@ func initInternalStateStore(conv *Conversation, cfg *config) error {
 	}
 
 	// Build pipeline once during initialization (note: pipeline doesn't capture variables anymore)
-	// No StreamInputSession for unary mode
-	pipeline, err := conv.buildPipelineWithParams(store, conversationID, nil)
+	// No streaming provider/config for unary mode
+	pipeline, err := conv.buildPipelineWithParams(store, conversationID, nil, nil)
 	if err != nil {
 		return fmt.Errorf("failed to build pipeline: %w", err)
 	}
@@ -309,33 +306,9 @@ func initInternalStateStore(conv *Conversation, cfg *config) error {
 	return nil
 }
 
-// loadSystemInstruction loads the system instruction for ASM mode from prompt registry.
-func loadSystemInstruction(
-	conv *Conversation,
-	streamConfig *providers.StreamingInputConfig,
-	initialVars map[string]string,
-) {
-	if streamConfig.SystemInstruction != "" || conv.promptRegistry == nil {
-		return
-	}
-	logger.Debug("Loading system instruction with variables",
-		"promptName", conv.promptName,
-		"varCount", len(initialVars),
-		"topic", initialVars["topic"])
-	assembled := conv.promptRegistry.LoadWithVars(conv.promptName, initialVars, "")
-	if assembled != nil && assembled.SystemPrompt != "" {
-		streamConfig.SystemInstruction = assembled.SystemPrompt
-		// Log first N chars of system prompt for debugging
-		snippet := assembled.SystemPrompt
-		if len(snippet) > debugSnippetMaxLen {
-			snippet = snippet[:debugSnippetMaxLen] + "..."
-		}
-		logger.Debug("Set system instruction for ASM session",
-			"promptName", conv.promptName,
-			"length", len(assembled.SystemPrompt),
-			"snippet", snippet)
-	}
-}
+// Note: loadSystemInstruction was removed - system prompt now comes from pipeline
+// PromptAssemblyStage adds system_prompt to element metadata, and DuplexProviderStage
+// reads it when creating the session lazily
 
 // initDuplexSession initializes a duplex streaming session.
 func initDuplexSession(conv *Conversation, cfg *config, streamProvider providers.StreamInputSupport) error {
@@ -360,26 +333,25 @@ func initDuplexSession(conv *Conversation, cfg *config, streamProvider providers
 
 	// Create pipeline builder closure that captures conversation context
 	// Returns *stage.StreamPipeline directly for duplex sessions
+	// Note: DuplexProviderStage creates session lazily using system_prompt from element metadata
 	pipelineBuilder := func(
 		ctx context.Context,
 		provider providers.Provider,
-		providerSession providers.StreamInputSession,
+		streamProvider providers.StreamInputSupport,
+		streamConfig *providers.StreamingInputConfig,
 		convID string,
 		stateStore statestore.Store,
 	) (*stage.StreamPipeline, error) {
 		// Build stage pipeline directly (not wrapped) for duplex sessions
-		return conv.buildStreamPipelineWithParams(stateStore, convID, providerSession)
+		return conv.buildStreamPipelineWithParams(stateStore, convID, streamProvider, streamConfig)
 	}
 
 	// Mode is determined by cfg.streamingConfig:
 	// - If set: ASM mode (creates provider session, continuous streaming)
 	// - If nil: VAD mode (no provider session, turn-based streaming)
-	var streamConfig *providers.StreamingInputConfig
-	if cfg.streamingConfig != nil {
-		streamConfig = cfg.streamingConfig
-		// For ASM mode, load and set the system instruction from prompt registry
-		loadSystemInstruction(conv, streamConfig, initialVars)
-	}
+	// Note: System instruction is NOT pre-loaded here anymore - it comes from pipeline
+	// PromptAssemblyStage adds system_prompt to element metadata
+	streamConfig := cfg.streamingConfig
 
 	// Create duplex session with builder
 	duplexSession, err := session.NewDuplexSession(context.Background(), &session.DuplexSessionConfig{

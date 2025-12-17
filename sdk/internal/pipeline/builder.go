@@ -69,9 +69,14 @@ type Config struct {
 	// ConversationID for state store operations
 	ConversationID string
 
-	// StreamInputSession for duplex streaming (ASM mode) (optional)
-	// When provided, DuplexProviderStage will be used instead of regular ProviderStage
-	StreamInputSession providers.StreamInputSession
+	// StreamInputProvider for duplex streaming (ASM mode) (optional)
+	// When provided with StreamInputConfig, DuplexProviderStage will be used.
+	// The stage creates the session lazily using system_prompt from element metadata.
+	StreamInputProvider providers.StreamInputSupport
+
+	// StreamInputConfig for duplex streaming session creation (ASM mode) (optional)
+	// Base config for session - system prompt is added from pipeline element metadata.
+	StreamInputConfig *providers.StreamingInputConfig
 
 	// UseStages is deprecated and ignored - stages are always used.
 	// This field is kept for backward compatibility but has no effect.
@@ -128,11 +133,11 @@ func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 		"taskType", cfg.TaskType,
 		"hasStateStore", cfg.StateStore != nil,
 		"hasToolRegistry", cfg.ToolRegistry != nil,
-		"hasDuplexSession", cfg.StreamInputSession != nil)
+		"hasStreamProvider", cfg.StreamInputProvider != nil)
 
 	// Create stage pipeline builder with appropriate config
 	var builder *stage.PipelineBuilder
-	if cfg.StreamInputSession != nil {
+	if cfg.StreamInputProvider != nil {
 		// For duplex streaming (ASM mode), disable execution timeout
 		// since the session runs indefinitely until user ends it
 		pipelineConfig := stage.DefaultPipelineConfig()
@@ -170,10 +175,11 @@ func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 	// Use DuplexProviderStage for ASM mode (WebSocket streaming)
 	// Use VAD pipeline for VAD mode (extracted to builder_vad.go - integration tested)
 	// Use regular ProviderStage for text mode (HTTP API)
-	if cfg.StreamInputSession != nil {
+	if cfg.StreamInputProvider != nil {
 		// ASM mode: Direct audio streaming to LLM
+		// DuplexProviderStage creates session lazily using system_prompt from element metadata
 		logger.Debug("Using DuplexProviderStage for ASM mode")
-		stages = append(stages, stage.NewDuplexProviderStage(cfg.StreamInputSession))
+		stages = append(stages, stage.NewDuplexProviderStage(cfg.StreamInputProvider, cfg.StreamInputConfig))
 	} else if cfg.VADConfig != nil && cfg.STTService != nil && cfg.TTSService != nil {
 		// VAD mode: build audio pipeline (AudioTurnStage → STTStage → ProviderStage → TTSStage)
 		vadStages, err := buildVADPipelineStages(cfg)

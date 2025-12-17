@@ -206,6 +206,34 @@ func (s *ArenaStateStore) Fork(ctx context.Context, sourceID, newID string) erro
 	return nil
 }
 
+// UpdateLastAssistantMessage updates the metadata of the last assistant message.
+// This is used by duplex mode to attach assertion results to messages after evaluation.
+//
+//nolint:gocognit // Complex state management function - acceptable for integration code
+func (s *ArenaStateStore) UpdateLastAssistantMessage(msg *types.Message) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Find the conversation that contains this message (by matching content)
+	for _, arenaState := range s.conversations {
+		msgs := arenaState.Messages
+		for i := len(msgs) - 1; i >= 0; i-- {
+			if msgs[i].Role == "assistant" && msgs[i].Content == msg.Content {
+				// Update the message's meta with the new meta
+				if msg.Meta != nil {
+					if msgs[i].Meta == nil {
+						msgs[i].Meta = make(map[string]interface{})
+					}
+					for k, v := range msg.Meta {
+						msgs[i].Meta[k] = v
+					}
+				}
+				return
+			}
+		}
+	}
+}
+
 // deepCloneConversationState creates a deep copy of ConversationState including all messages
 func (s *ArenaStateStore) deepCloneConversationState(
 	state *runtimestore.ConversationState,

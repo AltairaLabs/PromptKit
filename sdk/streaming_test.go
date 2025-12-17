@@ -76,7 +76,7 @@ func TestStream(t *testing.T) {
 		pendingStore:   sdktools.NewPendingStore(),
 	}
 
-	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil)
+	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil, nil)
 	require.NoError(t, err)
 
 	unarySession, err := session.NewUnarySession(session.UnarySessionConfig{
@@ -192,7 +192,7 @@ func TestStreamRaw(t *testing.T) {
 		pendingStore:   sdktools.NewPendingStore(),
 	}
 
-	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil)
+	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil, nil)
 	require.NoError(t, err)
 
 	unarySession, err := session.NewUnarySession(session.UnarySessionConfig{
@@ -330,7 +330,7 @@ func TestStreamingWithMultipleChunks(t *testing.T) {
 		pendingStore:   sdktools.NewPendingStore(),
 	}
 
-	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil)
+	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil, nil)
 	require.NoError(t, err)
 
 	unarySession, err := session.NewUnarySession(session.UnarySessionConfig{
@@ -468,7 +468,7 @@ func TestStreamingError(t *testing.T) {
 		pendingStore:   sdktools.NewPendingStore(),
 	}
 
-	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil)
+	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil, nil)
 	require.NoError(t, err)
 
 	unarySession, err := session.NewUnarySession(session.UnarySessionConfig{

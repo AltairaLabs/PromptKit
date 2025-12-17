@@ -19,18 +19,18 @@ import (
 // It manages streaming input/output through the stage pipeline.
 //
 // Two modes:
-// - ASM mode: Creates persistent providerSession, one long-running pipeline execution
+// - ASM mode: DuplexProviderStage creates session lazily, one long-running pipeline execution
 // - VAD mode: No providerSession, VAD triggers multiple pipeline executions with one-shot calls
 type duplexSession struct {
-	id              string
-	store           statestore.Store
-	pipeline        *stage.StreamPipeline
-	provider        providers.Provider           // Provider for LLM calls
-	providerSession providers.StreamInputSession // nil for VAD mode, set for ASM mode
-	variables       map[string]string
-	varsMu          sync.RWMutex
-	closeMu         sync.Mutex
-	closed          bool
+	id       string
+	store    statestore.Store
+	pipeline *stage.StreamPipeline
+	provider providers.Provider // Provider for LLM calls
+	// Note: Session is NOT stored here - DuplexProviderStage creates and manages it
+	variables map[string]string
+	varsMu    sync.RWMutex
+	closeMu   sync.Mutex
+	closed    bool
 
 	// Internal pipeline channel (stage.StreamElement)
 	stageInput chan stage.StreamElement // Feeds converted elements to pipeline
@@ -67,13 +67,13 @@ func initConversationState(ctx context.Context, store statestore.Store, cfg *Dup
 // PipelineBuilder and Provider are required.
 //
 // If Config is provided (ASM mode):
-//   - Creates persistent provider session (provider must support StreamInputSupport)
-//   - Calls PipelineBuilder with provider and session
+//   - Passes streaming provider + base config to PipelineBuilder
+//   - DuplexProviderStage creates session lazily using system_prompt from element metadata
 //   - Single long-running pipeline execution
 //
 // If Config is nil (VAD mode):
-//   - No provider session created
-//   - Calls PipelineBuilder with provider and nil session
+//   - No streaming provider or config
+//   - Calls PipelineBuilder with nil streaming provider
 //   - VAD middleware triggers multiple pipeline executions
 func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSession, error) {
 	if cfg.PipelineBuilder == nil {
@@ -98,28 +98,22 @@ func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSess
 		return nil, err
 	}
 
-	// Conditionally create provider session for ASM mode
-	var providerSession providers.StreamInputSession
-	var err error
+	// For ASM mode, extract the streaming provider (session is created lazily by pipeline)
+	var streamProvider providers.StreamInputSupport
 	if cfg.Config != nil {
 		// ASM mode: provider must support streaming
-		streamProvider, ok := cfg.Provider.(providers.StreamInputSupport)
+		var ok bool
+		streamProvider, ok = cfg.Provider.(providers.StreamInputSupport)
 		if !ok {
 			return nil, fmt.Errorf("provider must implement StreamInputSupport for ASM mode")
 		}
-		providerSession, err = streamProvider.CreateStreamSession(ctx, cfg.Config)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create provider session: %w", err)
-		}
+		// Note: Session is NOT created here - DuplexProviderStage creates it lazily
+		// using system_prompt from element metadata (set by PromptAssemblyStage)
 	}
 
-	// Build pipeline with provider and session (session is nil for VAD mode)
-	var builtPipeline *stage.StreamPipeline
-	builtPipeline, err = cfg.PipelineBuilder(ctx, cfg.Provider, providerSession, conversationID, store)
+	// Build pipeline with streaming provider + config (provider creates session lazily)
+	builtPipeline, err := cfg.PipelineBuilder(ctx, cfg.Provider, streamProvider, cfg.Config, conversationID, store)
 	if err != nil {
-		if providerSession != nil {
-			_ = providerSession.Close()
-		}
 		return nil, fmt.Errorf("failed to build pipeline: %w", err)
 	}
 
@@ -136,14 +130,13 @@ func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSess
 	streamOutput := make(chan providers.StreamChunk, streamBufferSize)
 
 	sess := &duplexSession{
-		id:              conversationID,
-		store:           store,
-		pipeline:        builtPipeline,
-		provider:        cfg.Provider,
-		providerSession: providerSession, // nil for VAD mode, set for ASM mode
-		variables:       vars,
-		stageInput:      stageInput,
-		streamOutput:    streamOutput,
+		id:           conversationID,
+		store:        store,
+		pipeline:     builtPipeline,
+		provider:     cfg.Provider,
+		variables:    vars,
+		stageInput:   stageInput,
+		streamOutput: streamOutput,
 	}
 
 	return sess, nil
@@ -268,11 +261,7 @@ func (s *duplexSession) Close() error {
 
 	s.closed = true
 	close(s.stageInput)
-
-	// Close provider session if it exists (ASM mode)
-	if s.providerSession != nil {
-		return s.providerSession.Close()
-	}
+	// Note: DuplexProviderStage manages the provider session and closes it when pipeline completes
 
 	return nil
 }

@@ -6,11 +6,16 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	runtimeStatestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
+)
+
+const (
+	contentPreviewMaxLen = 40 // Maximum length for content preview in logs
 )
 
 // ArenaStateStoreSaveStage saves conversation state with telemetry to ArenaStateStore.
@@ -40,6 +45,16 @@ type collectedData struct {
 // collectFromElement extracts data from a single element and updates collected data.
 func (d *collectedData) collectFromElement(elem *stage.StreamElement) {
 	if elem.Message != nil {
+		// Truncate content for logging
+		contentPreview := elem.Message.Content
+		if len(contentPreview) > contentPreviewMaxLen {
+			contentPreview = contentPreview[:contentPreviewMaxLen] + "..."
+		}
+		logger.Debug("ArenaStateStoreSaveStage: collecting message",
+			"role", elem.Message.Role,
+			"contentLen", len(elem.Message.Content),
+			"contentPreview", contentPreview,
+			"totalMessagesNow", len(d.messages)+1)
 		d.messages = append(d.messages, *elem.Message)
 	}
 	if elem.Metadata == nil {
@@ -57,6 +72,48 @@ func (d *collectedData) collectFromElement(elem *stage.StreamElement) {
 	if c, ok := elem.Metadata["cost_info"].(*types.CostInfo); ok {
 		d.costInfo = c
 	}
+
+	// Apply input transcription to the previous user message if present
+	// This updates the user message with what Gemini heard them say
+	if inputTranscript, ok := elem.Metadata["input_transcription"].(string); ok && inputTranscript != "" {
+		d.applyInputTranscription(inputTranscript)
+	}
+}
+
+// applyInputTranscription updates the last user message with the input transcription.
+// This is called when we receive an assistant message that includes the transcription
+// of what the user said in the previous turn.
+func (d *collectedData) applyInputTranscription(transcript string) {
+	// Find the last user message and update it with the transcription
+	//nolint:gocritic // Nesting acceptable for state update logic
+	for i := len(d.messages) - 1; i >= 0; i-- {
+		if d.messages[i].Role == roleUser {
+			// Update the Content field with the transcription
+			d.messages[i].Content = transcript
+			// Also add/update a text part with the transcription
+			textFound := false
+			for j := range d.messages[i].Parts {
+				if d.messages[i].Parts[j].Type == types.ContentTypeText || d.messages[i].Parts[j].Text != nil {
+					d.messages[i].Parts[j].Text = &transcript
+					d.messages[i].Parts[j].Type = types.ContentTypeText
+					textFound = true
+					break
+				}
+			}
+			// If no text part exists, prepend one
+			if !textFound {
+				newPart := types.ContentPart{
+					Type: types.ContentTypeText,
+					Text: &transcript,
+				}
+				d.messages[i].Parts = append([]types.ContentPart{newPart}, d.messages[i].Parts...)
+			}
+			logger.Debug("ArenaStateStoreSaveStage: applied input transcription to user message",
+				"messageIndex", i,
+				"transcriptionLen", len(transcript))
+			return
+		}
+	}
 }
 
 // forwardElements just forwards elements without collecting.
@@ -71,7 +128,9 @@ func forwardElements(ctx context.Context, input <-chan stage.StreamElement, outp
 	return nil
 }
 
-// Process collects all messages and saves them with telemetry to Arena state store.
+// Process collects messages and saves them incrementally to Arena state store.
+// Messages are saved after each turn completion (when an element contains a Message).
+// This ensures conversation state is captured in real-time as turns complete.
 func (s *ArenaStateStoreSaveStage) Process(ctx context.Context, input <-chan stage.StreamElement, output chan<- stage.StreamElement) error {
 	defer close(output)
 
@@ -81,18 +140,40 @@ func (s *ArenaStateStoreSaveStage) Process(ctx context.Context, input <-chan sta
 
 	arenaStore, ok := s.config.Store.(*statestore.ArenaStateStore)
 	if !ok {
-		return fmt.Errorf("arena state store save: invalid store type, expected *statestore.ArenaStateStore")
+		//nolint:lll // Error message with type name - acceptable long line
+		return fmt.Errorf("arena state store save: invalid store type, expected *statestore.ArenaStateStore, got %T", s.config.Store)
 	}
 
 	data := &collectedData{}
 	for elem := range input {
 		data.collectFromElement(&elem)
+
+		// Save incrementally when we receive a Message (turn completion)
+		// This ensures each turn is saved to state store immediately
+		if elem.Message != nil {
+			logger.Debug("ArenaStateStoreSaveStage: saving after turn completion",
+				"messageCount", len(data.messages),
+				"lastRole", elem.Message.Role,
+				"lastContentLen", len(elem.Message.Content))
+
+			err := s.saveToArenaStateStore(
+				ctx, arenaStore, data.messages, data.metadata, data.trace, data.costInfo)
+			if err != nil {
+				logger.Error("ArenaStateStoreSaveStage: failed to save after turn", "error", err)
+				// Continue processing - don't fail the entire pipeline for a save error
+			}
+		}
+
 		select {
 		case output <- elem:
 		case <-ctx.Done():
 			return ctx.Err()
 		}
 	}
+
+	// Final save at end (in case any metadata/trace was collected after last message)
+	logger.Debug("ArenaStateStoreSaveStage: final save",
+		"messageCount", len(data.messages))
 
 	err := s.saveToArenaStateStore(
 		ctx, arenaStore, data.messages, data.metadata, data.trace, data.costInfo)
@@ -165,8 +246,19 @@ func (s *ArenaStateStoreSaveStage) saveToArenaStateStore(
 		state = s.createNewState()
 	}
 
+	// Look for system_prompt in element metadata first, then in config metadata
+	// This allows system_prompt to be passed through either path
+	systemPrompt := ""
+	if sp, ok := metadata["system_prompt"].(string); ok && sp != "" {
+		systemPrompt = sp
+	} else if s.config != nil && s.config.Metadata != nil {
+		if sp, ok := s.config.Metadata["system_prompt"].(string); ok && sp != "" {
+			systemPrompt = sp
+		}
+	}
+
 	// Set messages with system prompt if present
-	if systemPrompt, ok := metadata["system_prompt"].(string); ok && systemPrompt != "" {
+	if systemPrompt != "" {
 		state.Messages = prependSystemMessage(messages, systemPrompt)
 	} else {
 		state.Messages = make([]types.Message, len(messages))

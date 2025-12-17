@@ -3,6 +3,8 @@ package stage
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
@@ -213,6 +215,7 @@ func (s *VADAccumulatorStage) emitTranscribedMessage(
 		Role: "user",
 		Parts: []types.ContentPart{
 			{
+				Type: types.ContentTypeText,
 				Text: &text,
 			},
 		},
@@ -376,18 +379,45 @@ func (s *TTSStage) shouldSynthesize(text string) bool {
 // This is sent to the session via SendText() before processing audio/text content.
 // For Gemini Live API, this becomes the initial context for the conversation.
 //
+// Response Accumulation:
+// Gemini Live API sends text/audio responses in chunks, with the final chunk
+// containing only a FinishReason (turnComplete) but no content. This stage
+// accumulates text and media across chunks and uses the accumulated content
+// when creating the Message on turn completion.
+//
 // This is a Bidirectional stage: input elements ⟷ WebSocket session ⟷ output elements
 type DuplexProviderStage struct {
 	BaseStage
+	// Provider and config for lazy session creation
+	provider   providers.StreamInputSupport
+	baseConfig *providers.StreamingInputConfig
+
+	// Session created on first element with system_prompt
 	session          providers.StreamInputSession
 	systemPromptSent bool
+
+	// Response accumulation for the current turn
+	// Reset when turn completes (FinishReason received)
+	accumulatedText  strings.Builder
+	accumulatedMedia []byte
+
+	// Input transcription for the current turn (what user said)
+	// This is captured from Gemini's inputTranscription events
+	inputTranscription strings.Builder
 }
 
 // NewDuplexProviderStage creates a new duplex provider stage.
-func NewDuplexProviderStage(session providers.StreamInputSession) *DuplexProviderStage {
+// The session is created lazily when the first element arrives,
+// using system_prompt from element metadata. This allows the pipeline
+// to be the single source of truth for prompt assembly.
+func NewDuplexProviderStage(
+	provider providers.StreamInputSupport,
+	baseConfig *providers.StreamingInputConfig,
+) *DuplexProviderStage {
 	return &DuplexProviderStage{
 		BaseStage:        NewBaseStage("duplex_provider", StageTypeBidirectional),
-		session:          session,
+		provider:         provider,
+		baseConfig:       baseConfig,
 		systemPromptSent: false,
 	}
 }
@@ -399,6 +429,10 @@ func NewDuplexProviderStage(session providers.StreamInputSession) *DuplexProvide
 // - Context is canceled (user stops the session)
 // - Session response channel is closed (server ends session)
 // - Input channel is closed (upstream ends)
+//
+// If no session is pre-configured, the session is created lazily when the first
+// element arrives. The system_prompt from element metadata is used as the
+// SystemInstruction for session creation.
 func (s *DuplexProviderStage) Process(
 	ctx context.Context,
 	input <-chan StreamElement,
@@ -406,8 +440,52 @@ func (s *DuplexProviderStage) Process(
 ) error {
 	defer close(output)
 
+	// Create session lazily if not pre-configured
 	if s.session == nil {
-		return errors.New("duplex provider stage: no session configured")
+		if s.provider == nil {
+			return errors.New("duplex provider stage: no provider or session configured")
+		}
+
+		// Wait for first element to get system_prompt from metadata
+		firstElem, ok := <-input
+		if !ok {
+			return errors.New("duplex provider stage: input channel closed before receiving first element")
+		}
+
+		// Extract system_prompt from metadata
+		systemPrompt := ""
+		if firstElem.Metadata != nil {
+			if sp, ok := firstElem.Metadata["system_prompt"].(string); ok {
+				systemPrompt = sp
+			}
+		}
+
+		// Create session config with system instruction
+		sessionConfig := s.baseConfig
+		if sessionConfig == nil {
+			sessionConfig = &providers.StreamingInputConfig{}
+		}
+		sessionConfig.SystemInstruction = systemPrompt
+
+		logger.Debug("DuplexProviderStage: creating session with system instruction",
+			"system_prompt_length", len(systemPrompt))
+
+		// Create the session
+		var err error
+		s.session, err = s.provider.CreateStreamSession(ctx, sessionConfig)
+		if err != nil {
+			return fmt.Errorf("duplex provider stage: failed to create session: %w", err)
+		}
+		logger.Debug("DuplexProviderStage: session created")
+		defer s.session.Close()
+		s.systemPromptSent = true // System instruction sent at session creation
+
+		// Re-inject the first element into a new channel that includes it
+		// This ensures the first element's audio/message content is processed
+		input = s.prependElement(ctx, &firstElem, input)
+	} else {
+		// Session was pre-configured, ensure it's closed on exit
+		defer s.session.Close()
 	}
 
 	logger.Debug("DuplexProviderStage: starting bidirectional streaming")
@@ -449,6 +527,14 @@ func (s *DuplexProviderStage) Process(
 
 // forwardInputElements forwards elements from input channel to WebSocket session.
 // It also sends Message elements to the output channel for state store capture.
+//
+// When the input channel closes, this goroutine closes the session to signal that
+// no more input will arrive. This is necessary because Gemini's WebSocket session
+// stays open indefinitely waiting for input. By closing the session, we trigger
+// the response channel to close, which unblocks forwardResponseElements.
+//
+// This is safe because the caller (Arena executor) waits for each turn's EndOfStream
+// response BEFORE closing the input channel, so all responses have been received.
 func (s *DuplexProviderStage) forwardInputElements(
 	ctx context.Context,
 	input <-chan StreamElement,
@@ -462,7 +548,16 @@ func (s *DuplexProviderStage) forwardInputElements(
 			return
 		case elem, ok := <-input:
 			if !ok {
-				logger.Debug("DuplexProviderStage: input channel closed, ending session input")
+				logger.Debug("DuplexProviderStage: input channel closed, closing session")
+				// Close the session to stop waiting for more responses.
+				// This causes the Gemini receiveLoop to exit (context canceled),
+				// which closes the response channel and unblocks forwardResponseElements.
+				// Safe because all turn responses have been received before input closes.
+				if s.session != nil {
+					if err := s.session.Close(); err != nil {
+						logger.Debug("DuplexProviderStage: error closing session", "error", err)
+					}
+				}
 				done <- nil
 				return
 			}
@@ -490,14 +585,49 @@ type EndInputter interface {
 	EndInput()
 }
 
+// prependElement creates a new channel that yields the first element followed by all elements
+// from the original input channel. This is used after consuming the first element to extract
+// system_prompt, ensuring the element's audio/message content is still processed.
+func (s *DuplexProviderStage) prependElement(
+	ctx context.Context,
+	first *StreamElement,
+	rest <-chan StreamElement,
+) <-chan StreamElement {
+	merged := make(chan StreamElement)
+	go func() {
+		defer close(merged)
+		// Send the first element
+		select {
+		case merged <- *first:
+		case <-ctx.Done():
+			return
+		}
+		// Forward all remaining elements
+		for elem := range rest {
+			select {
+			case merged <- elem:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return merged
+}
+
 // sendElementToSession sends a single element to the WebSocket session.
 func (s *DuplexProviderStage) sendElementToSession(ctx context.Context, elem *StreamElement) {
 	// Check for end of stream (end of turn input)
 	if elem.EndOfStream {
-		logger.Debug("DuplexProviderStage: end of stream signal received")
-		// Signal end of input to session if it supports it (for mock sessions)
+		logger.Debug("DuplexProviderStage: end of stream signal received, checking EndInputter interface")
+		// Signal end of input to session to trigger model response
+		// This is critical for pre-recorded audio files without trailing silence
 		if endInputter, ok := s.session.(EndInputter); ok {
+			logger.Debug("DuplexProviderStage: calling EndInput() to trigger response")
 			endInputter.EndInput()
+			logger.Debug("DuplexProviderStage: EndInput() completed")
+		} else {
+			logger.Debug("DuplexProviderStage: session does not implement EndInputter",
+				"sessionType", fmt.Sprintf("%T", s.session))
 		}
 		return
 	}
@@ -531,7 +661,8 @@ func (s *DuplexProviderStage) sendAudioElement(ctx context.Context, elem *Stream
 		IsLast:    false,
 	}
 
-	logger.Debug("DuplexProviderStage: forwarding audio to session", "dataLen", len(mediaChunk.Data))
+	// Note: Audio chunk forwarding is not logged individually to reduce log noise
+	// Use LOG_LEVEL=trace if you need to debug audio chunk flow
 
 	if err := s.session.SendChunk(ctx, mediaChunk); err != nil {
 		logger.Error("DuplexProviderStage: failed to send chunk to session", "error", err)
@@ -560,6 +691,9 @@ func (s *DuplexProviderStage) forwardResponseElements(
 	output chan<- StreamElement,
 ) error {
 	responseChannel := s.session.Response()
+	if responseChannel == nil {
+		return errors.New("session response channel is nil")
+	}
 
 	for {
 		select {
@@ -585,6 +719,8 @@ func (s *DuplexProviderStage) forwardResponseElements(
 }
 
 // handleResponseChunk processes and forwards a single response chunk.
+// It accumulates text and media content across chunks within a turn,
+// then resets the accumulation when the turn completes.
 func (s *DuplexProviderStage) handleResponseChunk(
 	ctx context.Context,
 	chunk *providers.StreamChunk,
@@ -601,12 +737,67 @@ func (s *DuplexProviderStage) handleResponseChunk(
 		return chunk.Error
 	}
 
-	// Convert chunk to element
+	// Accumulate text content for this turn
+	// For Gemini Live API, text comes via three paths:
+	// 1. outputTranscription: Delta only, with metadata["type"] == "output_transcription"
+	//    This is incremental transcription of model audio - APPEND to accumulated text
+	// 2. inputTranscription: metadata["type"] == "input_transcription" with metadata["transcription"]
+	//    This is transcription of user audio input - stored separately
+	// 3. ModelTurn: Both Content and Delta set to the same value (partial streaming text)
+	//    Use ONLY Content to avoid duplication
+	//
+	// Check metadata to distinguish the source
+	isOutputTranscription := false
+	isInputTranscription := false
+	if chunk.Metadata != nil {
+		if metaType, ok := chunk.Metadata["type"].(string); ok {
+			switch metaType {
+			case "output_transcription":
+				isOutputTranscription = true
+			case "input_transcription":
+				isInputTranscription = true
+			}
+		}
+	}
+
+	// Handle input transcription (what user said)
+	if isInputTranscription {
+		if transcript, ok := chunk.Metadata["transcription"].(string); ok && transcript != "" {
+			s.inputTranscription.WriteString(transcript)
+			logger.Debug("DuplexProviderStage: captured input transcription",
+				"transcriptLen", len(transcript),
+				"totalInputTranscriptLen", s.inputTranscription.Len())
+		}
+	}
+
+	if isOutputTranscription && chunk.Delta != "" {
+		// outputTranscription sends incremental text - append it
+		s.accumulatedText.WriteString(chunk.Delta)
+	} else if chunk.Content != "" {
+		// ModelTurn text - use Content (Delta is the same, so we only use one)
+		s.accumulatedText.WriteString(chunk.Content)
+	}
+
+	// Accumulate media content for this turn
+	if chunk.MediaDelta != nil && chunk.MediaDelta.Data != nil {
+		s.accumulatedMedia = append(s.accumulatedMedia, []byte(*chunk.MediaDelta.Data)...)
+	}
+
+	// Convert chunk to element (uses accumulated content for final chunk)
 	elem := s.chunkToElement(chunk)
+
+	// Reset accumulation after turn completes (after creating the element)
+	if chunk.FinishReason != nil && *chunk.FinishReason != "" {
+		s.accumulatedText.Reset()
+		s.accumulatedMedia = nil
+		s.inputTranscription.Reset()
+	}
 
 	logger.Debug("DuplexProviderStage: forwarding response element",
 		"hasText", elem.Text != nil,
-		"hasAudio", elem.Audio != nil)
+		"hasAudio", elem.Audio != nil,
+		"hasMessage", elem.Message != nil,
+		"endOfStream", elem.EndOfStream)
 
 	select {
 	case output <- elem:
@@ -617,31 +808,18 @@ func (s *DuplexProviderStage) handleResponseChunk(
 }
 
 // chunkToElement converts a StreamChunk to a StreamElement.
-// Creates a Message with role="assistant" for text responses to enable state store saving.
+// Creates a Message with role="assistant" for text and/or media responses to enable state store saving.
+// On the final chunk (with FinishReason), uses accumulated content from the entire turn.
 func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) StreamElement {
 	elem := StreamElement{}
 
-	// Add text if present
+	// Add text if present (for real-time streaming display)
 	if chunk.Content != "" {
 		elem.Text = &chunk.Content
-
-		// Create Message for state store saving
-		// Only create message on final chunk (with finish reason) to avoid duplicates
-		if chunk.FinishReason != nil && *chunk.FinishReason != "" {
-			elem.Message = &types.Message{
-				Role:    "assistant",
-				Content: chunk.Content,
-				Parts: []types.ContentPart{
-					{Text: &chunk.Content},
-				},
-				CostInfo: chunk.CostInfo,
-			}
-		}
 	}
 
-	// Add audio if present
+	// Add audio if present (for real-time playback)
 	if chunk.MediaDelta != nil && chunk.MediaDelta.Data != nil {
-		// Convert audio data
 		audioData := []byte(*chunk.MediaDelta.Data)
 		elem.Audio = &AudioData{
 			Samples:    audioData,
@@ -650,14 +828,69 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 		}
 	}
 
+	// Create Message for state store saving on final chunk
+	// Use ACCUMULATED content from the entire turn, not just the final chunk
+	// (Gemini sends text/audio in multiple chunks, final chunk often has no content)
+	if chunk.FinishReason != nil && *chunk.FinishReason != "" {
+		accumulatedText := s.accumulatedText.String()
+		hasContent := accumulatedText != "" || len(s.accumulatedMedia) > 0
+		hasCostInfo := chunk.CostInfo != nil && (chunk.CostInfo.InputTokens > 0 || chunk.CostInfo.OutputTokens > 0)
+
+		logger.Debug("DuplexProviderStage: turn complete",
+			"finishReason", *chunk.FinishReason,
+			"accumulatedTextLen", len(accumulatedText),
+			"accumulatedMediaLen", len(s.accumulatedMedia),
+			"hasContent", hasContent,
+			"hasCostInfo", hasCostInfo)
+
+		// Only create a Message if there's actual content or cost info to capture
+		// Skip empty FinishReason-only chunks (e.g., turn interruptions with no content)
+		if hasContent || hasCostInfo {
+			msg := &types.Message{
+				Role:     "assistant",
+				Content:  accumulatedText, // Use accumulated text, not chunk.Content
+				Parts:    []types.ContentPart{},
+				CostInfo: chunk.CostInfo,
+			}
+
+			// Add text part if accumulated text is present
+			if accumulatedText != "" {
+				msg.Parts = append(msg.Parts, types.ContentPart{
+					Type: types.ContentTypeText,
+					Text: &accumulatedText,
+				})
+			}
+
+			// Add media part if accumulated media is present
+			if len(s.accumulatedMedia) > 0 {
+				mediaData := string(s.accumulatedMedia)
+				msg.Parts = append(msg.Parts, types.ContentPart{
+					Type: types.ContentTypeAudio,
+					Media: &types.MediaContent{
+						Data:     &mediaData,
+						MIMEType: "audio/pcm", // Default - could be extracted from chunks
+					},
+				})
+			}
+
+			elem.Message = msg
+		}
+		elem.EndOfStream = true
+	}
+
 	// Add metadata
 	if chunk.Metadata != nil {
 		elem.Metadata = chunk.Metadata
 	}
 
-	// Mark as end of stream (turn complete) when finish reason is present
-	if chunk.FinishReason != nil && *chunk.FinishReason != "" {
-		elem.EndOfStream = true
+	// Add input transcription to metadata if present (for state store to update user message)
+	if s.inputTranscription.Len() > 0 && elem.EndOfStream {
+		if elem.Metadata == nil {
+			elem.Metadata = make(map[string]interface{})
+		}
+		elem.Metadata["input_transcription"] = s.inputTranscription.String()
+		logger.Debug("DuplexProviderStage: adding input transcription to element metadata",
+			"transcriptionLen", s.inputTranscription.Len())
 	}
 
 	return elem

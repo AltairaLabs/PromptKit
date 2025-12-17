@@ -3,6 +3,7 @@ package turnexecutors
 import (
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"net/http"
@@ -32,6 +33,15 @@ const (
 
 	// HTTP constants
 	maxRedirects = 10
+
+	// WAV format constants
+	wavHeaderSize         = 44
+	wavFmtChunkSize       = 16
+	wavChunkSizeOffset    = 36
+	audioBitsPerByte      = 8
+	geminiumSampleRate    = 16000
+	geminiumBitDepth      = 16
+	geminiumChannelsCount = 1
 )
 
 // HTTPMediaLoader handles loading media from HTTP/HTTPS URLs
@@ -326,7 +336,8 @@ func loadImageFromFile(filePath, baseDir, detail string, index int) (types.Conte
 	return types.NewImagePartFromData(data, mimeType, detailPtr), nil
 }
 
-// loadAudioFromFile loads audio from disk and returns a content part
+// loadAudioFromFile loads audio from disk and returns a content part.
+// For PCM files, it converts to WAV format for browser playability.
 func loadAudioFromFile(filePath, baseDir string, index int) (types.ContentPart, error) {
 	fullPath := resolveFilePath(filePath, baseDir)
 
@@ -335,7 +346,59 @@ func loadAudioFromFile(filePath, baseDir string, index int) (types.ContentPart, 
 		return types.ContentPart{}, err
 	}
 
+	// Convert PCM to WAV for browser playability
+	// Input PCM files are typically 16kHz, 16-bit, mono (standard for voice input)
+	if mimeType == "audio/pcm" || mimeType == "audio/L16" {
+		// Decode base64 data
+		pcmData, decErr := base64.StdEncoding.DecodeString(data)
+		if decErr != nil {
+			return types.ContentPart{}, NewFileError(index, "audio", fullPath, "failed to decode PCM data", decErr)
+		}
+		// Wrap in WAV header (16kHz, 16-bit, mono - standard input format)
+		wavData := wrapPCMInWAV(pcmData, geminiumSampleRate, geminiumBitDepth, geminiumChannelsCount)
+		data = base64.StdEncoding.EncodeToString(wavData)
+		mimeType = "audio/wav"
+	}
+
 	return types.NewAudioPartFromData(data, mimeType), nil
+}
+
+// wrapPCMInWAV wraps raw PCM audio data in a WAV header for playability.
+//
+//nolint:gosec // G115: Integer conversions are safe for audio parameters
+func wrapPCMInWAV(pcmData []byte, sampleRate, bitsPerSample, numChannels int) []byte {
+	dataSize := len(pcmData)
+	byteRate := sampleRate * numChannels * bitsPerSample / audioBitsPerByte
+	blockAlign := numChannels * bitsPerSample / audioBitsPerByte
+
+	// WAV header is 44 bytes
+	header := make([]byte, wavHeaderSize)
+
+	// RIFF chunk descriptor
+	copy(header[0:4], "RIFF")
+	binary.LittleEndian.PutUint32(header[4:8], uint32(wavChunkSizeOffset+dataSize)) // ChunkSize
+	copy(header[8:12], "WAVE")
+
+	// "fmt " sub-chunk
+	copy(header[12:16], "fmt ")
+	binary.LittleEndian.PutUint32(header[16:20], wavFmtChunkSize)       // Subchunk1Size (16 for PCM)
+	binary.LittleEndian.PutUint16(header[20:22], 1)                     // AudioFormat (1 = PCM)
+	binary.LittleEndian.PutUint16(header[22:24], uint16(numChannels))   // NumChannels
+	binary.LittleEndian.PutUint32(header[24:28], uint32(sampleRate))    // SampleRate
+	binary.LittleEndian.PutUint32(header[28:32], uint32(byteRate))      // ByteRate
+	binary.LittleEndian.PutUint16(header[32:34], uint16(blockAlign))    // BlockAlign
+	binary.LittleEndian.PutUint16(header[34:36], uint16(bitsPerSample)) // BitsPerSample
+
+	// "data" sub-chunk
+	copy(header[36:40], "data")
+	binary.LittleEndian.PutUint32(header[40:44], uint32(dataSize)) // Subchunk2Size
+
+	// Combine header and data
+	wav := make([]byte, wavHeaderSize+dataSize)
+	copy(wav[0:44], header)
+	copy(wav[44:], pcmData)
+
+	return wav
 }
 
 // loadVideoFromFile loads video from disk and returns a content part
@@ -464,6 +527,7 @@ func detectMIMEType(filePath string) string {
 		".wav": types.MIMETypeAudioWAV,
 		".ogg": types.MIMETypeAudioOgg,
 		".m4a": "audio/mp4", // Not defined in types package
+		".pcm": "audio/pcm", // Raw PCM audio
 
 		// Video
 		".mp4":  types.MIMETypeVideoMP4,

@@ -9,7 +9,20 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 )
 
-const divCloseTag = "</div>"
+const (
+	divCloseTag = "</div>"
+
+	// Content type strings
+	roleAssistant = "assistant"
+	sourceUnknown = "unknown"
+
+	// MIME type constants
+	mimeTypeWAV  = "audio/wav"
+	mimeTypeMPEG = "audio/mpeg"
+	mimeTypeOGG  = "audio/ogg"
+	mimeTypeWEBM = "audio/webm"
+	mimeTypeAAC  = "audio/aac"
+)
 
 // renderMediaSummaryBadge creates a compact badge showing media counts.
 // Returns empty string if no media content (only text).
@@ -51,6 +64,7 @@ func renderMediaSummaryBadge(summary *types.MediaSummary) string {
 
 // renderMediaItem creates detailed HTML for a single media item.
 // Displays type icon, source, metadata (MIME type, size), and load status.
+// For audio files, includes an HTML5 audio player if the file is playable.
 func renderMediaItem(item types.MediaItemSummary) string {
 	statusIcon := "✅"
 	statusClass := "loaded"
@@ -72,6 +86,12 @@ func renderMediaItem(item types.MediaItemSummary) string {
 	// Get type icon
 	typeIcon := getMediaTypeIcon(item.Type)
 
+	// Build the audio player HTML if this is a playable audio file
+	audioPlayer := ""
+	if item.Type == types.ContentTypeAudio && item.Source != "" && item.Source != sourceUnknown {
+		audioPlayer = renderAudioPlayer(item.Source, item.MIMEType)
+	}
+
 	html := fmt.Sprintf(`
         <div class="media-item %s %s" title="%s">
             <div class="media-icon">%s</div>
@@ -83,14 +103,80 @@ func renderMediaItem(item types.MediaItemSummary) string {
                     <span class="media-size">%s</span>
                     <span class="media-status">%s %s</span>
                 </div>
+                %s
             </div>
         </div>
     `, item.Type, statusClass, template.HTMLEscapeString(statusText),
 		typeIcon, template.HTMLEscapeString(truncateSource(item.Source, maxSourceLength)),
 		item.Type, template.HTMLEscapeString(item.MIMEType), sizeStr,
-		statusIcon, template.HTMLEscapeString(statusText))
+		statusIcon, template.HTMLEscapeString(statusText),
+		audioPlayer)
 
 	return html
+}
+
+// renderAudioPlayer creates an HTML5 audio player for playable audio files.
+// Returns empty string for non-playable formats like raw PCM.
+func renderAudioPlayer(source, mimeType string) string {
+	// Determine if the file is playable based on extension or MIME type
+	playableMIME := getPlayableAudioMIME(source, mimeType)
+	if playableMIME == "" {
+		// Not a playable format
+		return `<div class="audio-not-playable">(raw PCM - not directly playable)</div>`
+	}
+
+	// Make path relative to report location (report is in out/, media is in out/media/)
+	// Strip "out/" prefix if present since report.html is served from out/
+	relativePath := strings.TrimPrefix(source, "out/")
+
+	return fmt.Sprintf(`
+        <div class="audio-player">
+            <audio controls preload="metadata">
+                <source src="%s" type="%s">
+                Your browser does not support audio playback.
+            </audio>
+        </div>
+    `, template.HTMLEscapeString(relativePath), playableMIME)
+}
+
+// getPlayableAudioMIME returns the MIME type for playable audio, or empty if not playable.
+func getPlayableAudioMIME(source, mimeType string) string {
+	// Check by file extension first (more reliable for local files)
+	source = strings.ToLower(source)
+	switch {
+	case strings.HasSuffix(source, ".wav"):
+		return mimeTypeWAV
+	case strings.HasSuffix(source, ".mp3"):
+		return mimeTypeMPEG
+	case strings.HasSuffix(source, ".ogg"), strings.HasSuffix(source, ".oga"):
+		return mimeTypeOGG
+	case strings.HasSuffix(source, ".webm"), strings.HasSuffix(source, ".weba"):
+		return mimeTypeWEBM
+	case strings.HasSuffix(source, ".m4a"), strings.HasSuffix(source, ".aac"):
+		return mimeTypeAAC
+	case strings.HasSuffix(source, ".pcm"):
+		// Raw PCM is not playable in browsers
+		return ""
+	}
+
+	// Fall back to MIME type check
+	switch mimeType {
+	case "audio/wav", "audio/wave", "audio/x-wav":
+		return mimeTypeWAV
+	case "audio/mpeg", "audio/mp3":
+		return mimeTypeMPEG
+	case "audio/ogg":
+		return mimeTypeOGG
+	case "audio/webm":
+		return mimeTypeWEBM
+	case "audio/aac", "audio/mp4":
+		return mimeTypeAAC
+	case "audio/pcm", "audio/L16":
+		// Raw PCM is not playable
+		return ""
+	}
+
+	return ""
 }
 
 // renderMessageWithMedia shows rich media content in a message.
@@ -176,11 +262,14 @@ func getMediaItemSummaryFromPart(part types.ContentPart) types.MediaItemSummary 
 
 	item.MIMEType = part.Media.MIMEType
 
-	// Determine source - prefer FilePath/URL for display even if Data is set
+	// Determine source - prefer FilePath/URL/StorageReference for display even if Data is set
 	if part.Media.FilePath != nil {
 		item.Source = *part.Media.FilePath
 	} else if part.Media.URL != nil {
 		item.Source = *part.Media.URL
+	} else if part.Media.StorageReference != nil && *part.Media.StorageReference != "" {
+		item.Source = *part.Media.StorageReference
+		item.Loaded = true // Storage reference means the file exists
 	} else if part.Media.Data != nil && *part.Media.Data != "" {
 		item.Source = "inline data"
 	} else {

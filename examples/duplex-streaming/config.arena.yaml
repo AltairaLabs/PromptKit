@@ -54,3 +54,5 @@ spec:
       formats:
         - json
         - html
+      html:
+        file: report.html

@@ -10,6 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 )
@@ -31,16 +32,19 @@ const (
 type DuplexConversationExecutor struct {
 	selfPlayRegistry *selfplay.Registry
 	promptRegistry   *prompt.Registry
+	mediaStorage     storage.MediaStorageService
 }
 
 // NewDuplexConversationExecutor creates a new duplex conversation executor.
 func NewDuplexConversationExecutor(
 	selfPlayRegistry *selfplay.Registry,
 	promptRegistry *prompt.Registry,
+	mediaStorage storage.MediaStorageService,
 ) *DuplexConversationExecutor {
 	return &DuplexConversationExecutor{
 		selfPlayRegistry: selfPlayRegistry,
 		promptRegistry:   promptRegistry,
+		mediaStorage:     mediaStorage,
 	}
 }
 
@@ -92,42 +96,6 @@ func (de *DuplexConversationExecutor) ExecuteConversation(
 	result := de.executeDuplexConversation(ctx, &req, streamProvider, emitter)
 
 	return result
-}
-
-// buildSessionConfig creates the streaming configuration for the provider.
-func (de *DuplexConversationExecutor) buildSessionConfig(
-	req *ConversationRequest,
-) *providers.StreamingInputConfig {
-	cfg := &providers.StreamingInputConfig{
-		Config: types.StreamingMediaConfig{
-			Type:       types.ContentTypeAudio,
-			ChunkSize:  defaultAudioChunkSize,
-			SampleRate: defaultSampleRate,
-			Encoding:   "pcm_linear16",
-			Channels:   1,
-			BitDepth:   16, // Required for Gemini Live API
-		},
-		Metadata: make(map[string]interface{}),
-	}
-
-	// Add system instruction if available from prompt registry
-	if de.promptRegistry != nil && req.Scenario != nil && req.Scenario.TaskType != "" {
-		if assembled := de.promptRegistry.Load(req.Scenario.TaskType); assembled != nil {
-			cfg.SystemInstruction = assembled.SystemPrompt
-		}
-	}
-
-	// Pass through response_modalities from provider config if available
-	if req.Config != nil && req.Provider != nil {
-		providerID := req.Provider.ID()
-		if providerCfg, ok := req.Config.LoadedProviders[providerID]; ok && providerCfg.AdditionalConfig != nil {
-			if modalities, exists := providerCfg.AdditionalConfig["response_modalities"]; exists {
-				cfg.Metadata["response_modalities"] = modalities
-			}
-		}
-	}
-
-	return cfg
 }
 
 // shouldUseClientVAD determines if client-side VAD should be used.

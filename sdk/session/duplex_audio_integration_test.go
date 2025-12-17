@@ -16,7 +16,7 @@ import (
 )
 
 // createTestDuplexSessionWithStreaming creates a DuplexSession configured for ASM mode
-// with a mock streaming provider. Returns both the session and the mock session for verification.
+// with a mock streaming provider. Returns both the session and the mock provider for verification.
 func createTestDuplexSessionWithStreaming(t *testing.T) (DuplexSession, *mock.StreamingProvider) {
 	t.Helper()
 	ctx := context.Background()
@@ -25,22 +25,24 @@ func createTestDuplexSessionWithStreaming(t *testing.T) (DuplexSession, *mock.St
 	provider := mock.NewStreamingProvider("test", "test-model", false)
 
 	// Pipeline builder that creates a DuplexProviderStage
-	// The providerSession comes from DuplexSession's initialization
+	// The DuplexProviderStage creates the session lazily using system_prompt from element metadata
 	pipelineBuilder := func(
 		ctx context.Context,
 		p providers.Provider,
-		ps providers.StreamInputSession,
+		streamProvider providers.StreamInputSupport,
+		streamConfig *providers.StreamingInputConfig,
 		cid string,
 		s statestore.Store,
 	) (*stage.StreamPipeline, error) {
-		// ps is the provider session created by DuplexSession
-		if ps == nil {
-			t.Log("WARNING: provider session is nil in pipeline builder")
+		// streamProvider is the streaming provider passed for ASM mode
+		if streamProvider == nil {
+			t.Log("WARNING: stream provider is nil in pipeline builder")
 			// For testing, create a provider stage instead
 			providerStage := stage.NewProviderStage(p, nil, nil, nil)
 			return stage.NewPipelineBuilder().Chain(providerStage).Build()
 		}
-		duplexStage := stage.NewDuplexProviderStage(ps)
+		// DuplexProviderStage creates session lazily using system_prompt from element metadata
+		duplexStage := stage.NewDuplexProviderStage(streamProvider, streamConfig)
 		return stage.NewPipelineBuilder().Chain(duplexStage).Build()
 	}
 
@@ -124,27 +126,32 @@ func TestAudioFlowThroughPipeline(t *testing.T) {
 	t.Log("SUCCESS: Audio chunk reached mock session with correct data")
 }
 
-// TestAudioResponseFlowsBack verifies that responses from the provider
+// TestResponseFlowsBack verifies that responses from the provider
 // flow back through the pipeline to the session's Response channel.
-func TestAudioResponseFlowsBack(t *testing.T) {
+// Note: Uses SendText because the mock session's auto-respond is triggered by SendText,
+// not by SendChunk (which only responds when EndInput is called).
+func TestResponseFlowsBack(t *testing.T) {
 	ctx := context.Background()
 
-	// Create streaming provider
-	provider := mock.NewStreamingProvider("test", "test-model", false)
+	// Create streaming provider and configure auto-respond BEFORE session creation
+	// With lazy session creation, the provider must be configured first
+	provider := mock.NewStreamingProvider("test", "test-model", false).
+		WithAutoRespond("Hello from mock provider")
 
 	// Pipeline builder
 	pipelineBuilder := func(
 		ctx context.Context,
 		p providers.Provider,
-		ps providers.StreamInputSession,
+		streamProvider providers.StreamInputSupport,
+		streamConfig *providers.StreamingInputConfig,
 		cid string,
 		s statestore.Store,
 	) (*stage.StreamPipeline, error) {
-		if ps == nil {
+		if streamProvider == nil {
 			providerStage := stage.NewProviderStage(p, nil, nil, nil)
 			return stage.NewPipelineBuilder().Chain(providerStage).Build()
 		}
-		duplexStage := stage.NewDuplexProviderStage(ps)
+		duplexStage := stage.NewDuplexProviderStage(streamProvider, streamConfig)
 		return stage.NewPipelineBuilder().Chain(duplexStage).Build()
 	}
 
@@ -157,22 +164,9 @@ func TestAudioResponseFlowsBack(t *testing.T) {
 	require.NoError(t, err)
 	defer session.Close()
 
-	// Configure mock session to auto-respond
-	mockSession := provider.GetSession()
-	if mockSession == nil {
-		t.Fatal("No mock session created")
-	}
-	mockSession.WithAutoRespond("Hello from mock provider")
-
-	// Send a trigger chunk
-	audioData := generateTestAudioData(320)
-	audioStr := string(audioData)
-	err = session.SendChunk(ctx, &providers.StreamChunk{
-		MediaDelta: &types.MediaContent{
-			MIMEType: types.MIMETypeAudioWAV,
-			Data:     &audioStr,
-		},
-	})
+	// Send text to trigger auto-respond
+	// Note: SendText triggers auto-respond, SendChunk does not (requires EndInput)
+	err = session.SendText(ctx, "Hello")
 	require.NoError(t, err)
 
 	// Read response from session
@@ -349,24 +343,26 @@ func TestDiagnostics(t *testing.T) {
 	pipelineBuilder := func(
 		ctx context.Context,
 		p providers.Provider,
-		ps providers.StreamInputSession,
+		streamProvider providers.StreamInputSupport,
+		streamConfig *providers.StreamingInputConfig,
 		cid string,
 		s statestore.Store,
 	) (*stage.StreamPipeline, error) {
 		t.Logf("4. PipelineBuilder called:")
 		t.Logf("   - Provider: %T", p)
-		t.Logf("   - ProviderSession: %T (nil=%v)", ps, ps == nil)
+		t.Logf("   - StreamProvider: %T (nil=%v)", streamProvider, streamProvider == nil)
+		t.Logf("   - StreamConfig: %+v", streamConfig)
 		t.Logf("   - ConversationID: %s", cid)
 		t.Logf("   - StateStore: %T (nil=%v)", s, s == nil)
 
-		if ps == nil {
-			t.Log("   WARNING: ProviderSession is nil - DuplexProviderStage won't work!")
+		if streamProvider == nil {
+			t.Log("   WARNING: StreamProvider is nil - not in ASM mode")
 			providerStage := stage.NewProviderStage(p, nil, nil, nil)
 			return stage.NewPipelineBuilder().Chain(providerStage).Build()
 		}
 
-		t.Log("   Creating DuplexProviderStage with session")
-		duplexStage := stage.NewDuplexProviderStage(ps)
+		t.Log("   Creating DuplexProviderStage with provider + config (session created lazily)")
+		duplexStage := stage.NewDuplexProviderStage(streamProvider, streamConfig)
 		return stage.NewPipelineBuilder().Chain(duplexStage).Build()
 	}
 

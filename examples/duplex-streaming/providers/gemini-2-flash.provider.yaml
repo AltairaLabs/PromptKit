@@ -24,6 +24,7 @@ spec:
     # Enable audio modality for duplex mode
     audio_enabled: true
     # Response modalities - Gemini Live API only supports ONE modality at a time
-    # Use TEXT for text responses, or AUDIO for audio responses (not both)
+    # AUDIO mode returns audio + text transcription (via outputAudioTranscription)
+    # TEXT mode returns text only (no audio)
     response_modalities:
-      - TEXT
+      - AUDIO

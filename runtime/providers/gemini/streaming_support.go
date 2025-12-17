@@ -50,10 +50,19 @@ func (p *Provider) CreateStreamSession(
 	// Note: API key is passed via x-goog-api-key header, not as query parameter
 	wsURL := "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
 
-	// Configure session with model, response modalities, and system instruction
+	// Configure session with model, response modalities, system instruction, and pricing
 	config := StreamSessionConfig{
 		Model:             p.Model,
 		SystemInstruction: req.SystemInstruction,
+	}
+
+	// Set pricing from provider defaults, or use model-based defaults
+	if p.Defaults.Pricing.InputCostPer1K > 0 && p.Defaults.Pricing.OutputCostPer1K > 0 {
+		config.InputCostPer1K = p.Defaults.Pricing.InputCostPer1K
+		config.OutputCostPer1K = p.Defaults.Pricing.OutputCostPer1K
+	} else {
+		// Use model-based default pricing
+		config.InputCostPer1K, config.OutputCostPer1K, _ = geminiPricing(p.Model)
 	}
 
 	// Check metadata for response modalities configuration
