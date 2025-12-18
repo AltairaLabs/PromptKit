@@ -28,6 +28,20 @@ type AudioProvider interface {
 // Each generator is configured with a specific persona and LLM provider,
 // and produces user turns based on conversation history.
 // Returns the full pipeline ExecutionResult which includes trace data, costs, and metadata.
+// The opts parameter is optional and can be nil.
 type Generator interface {
-	NextUserTurn(ctx context.Context, history []types.Message, scenarioID string) (*pipeline.ExecutionResult, error)
+	NextUserTurn(
+		ctx context.Context,
+		history []types.Message,
+		scenarioID string,
+		opts *GeneratorOptions,
+	) (*pipeline.ExecutionResult, error)
+}
+
+// GeneratorOptions provides optional configuration for self-play generation.
+type GeneratorOptions struct {
+	// SelfplayTurnIndex is the 1-indexed selfplay turn number (first selfplay turn = 1).
+	// If set, this overrides the automatic turn counting from history.
+	// This is important for scenarios with mixed file-based and selfplay turns.
+	SelfplayTurnIndex int
 }

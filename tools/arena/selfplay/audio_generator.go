@@ -18,7 +18,13 @@ import (
 type AudioGenerator interface {
 	// NextUserTurnAudio generates a user message and converts it to audio.
 	// Returns the text result and audio data.
-	NextUserTurnAudio(ctx context.Context, history []types.Message, scenarioID string) (*AudioResult, error)
+	// The opts parameter is optional and can be nil.
+	NextUserTurnAudio(
+		ctx context.Context,
+		history []types.Message,
+		scenarioID string,
+		opts *GeneratorOptions,
+	) (*AudioResult, error)
 }
 
 // AudioResult contains both text and audio output from audio generation.
@@ -61,9 +67,10 @@ func (g *AudioContentGenerator) NextUserTurnAudio(
 	ctx context.Context,
 	history []types.Message,
 	scenarioID string,
+	opts *GeneratorOptions,
 ) (*AudioResult, error) {
 	// Generate text using the underlying generator
-	textResult, err := g.textGenerator.NextUserTurn(ctx, history, scenarioID)
+	textResult, err := g.textGenerator.NextUserTurn(ctx, history, scenarioID, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate text: %w", err)
 	}

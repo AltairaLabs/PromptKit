@@ -21,6 +21,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
 	arenaassertions "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
+	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	arenastages "github.com/AltairaLabs/PromptKit/tools/arena/stages"
 	arenastore "github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
@@ -334,7 +335,9 @@ func (de *DuplexConversationExecutor) processDuplexTurns(
 		for iteration := 0; iteration < turnsToExecute; iteration++ {
 			de.emitTurnStarted(emitter, logicalTurnIdx, turn.Role, req.Scenario.ID)
 
-			err := de.processSingleDuplexTurn(ctx, req, turn, logicalTurnIdx, baseDir, inputChan, outputChan)
+			// For selfplay turns, pass the iteration number (1-indexed) so the mock provider gets the correct turn
+			selfplayTurnNum := iteration + 1
+			err := de.processSingleDuplexTurn(ctx, req, turn, logicalTurnIdx, selfplayTurnNum, baseDir, inputChan, outputChan)
 			if err != nil {
 				// Check if this is a session ended error
 				// Handle based on resilience configuration
@@ -444,11 +447,13 @@ func (de *DuplexConversationExecutor) drainOutputChannel(
 }
 
 // processSingleDuplexTurn processes a single turn in duplex mode.
+// selfplayTurnNum is the 1-indexed selfplay turn number (only relevant for selfplay turns).
 func (de *DuplexConversationExecutor) processSingleDuplexTurn(
 	ctx context.Context,
 	req *ConversationRequest,
 	turn *config.TurnDefinition,
 	turnIdx int,
+	selfplayTurnNum int,
 	baseDir string,
 	inputChan chan<- stage.StreamElement,
 	outputChan <-chan stage.StreamElement,
@@ -460,7 +465,7 @@ func (de *DuplexConversationExecutor) processSingleDuplexTurn(
 
 	// For self-play turns, generate audio via TTS
 	if de.isSelfPlayRole(turn.Role) {
-		return de.processSelfPlayDuplexTurn(ctx, req, turn, turnIdx, inputChan, outputChan)
+		return de.processSelfPlayDuplexTurn(ctx, req, turn, turnIdx, selfplayTurnNum, inputChan, outputChan)
 	}
 
 	return fmt.Errorf("unsupported turn role for duplex: %s", turn.Role)
@@ -645,11 +650,13 @@ drainLoop:
 }
 
 // processSelfPlayDuplexTurn handles self-play turns in duplex mode.
+// selfplayTurnNum is the 1-indexed selfplay turn number (first selfplay = 1).
 func (de *DuplexConversationExecutor) processSelfPlayDuplexTurn(
 	ctx context.Context,
 	req *ConversationRequest,
 	turn *config.TurnDefinition,
 	turnIdx int,
+	selfplayTurnNum int,
 	inputChan chan<- stage.StreamElement,
 	outputChan <-chan stage.StreamElement,
 ) error {
@@ -683,7 +690,11 @@ func (de *DuplexConversationExecutor) processSelfPlayDuplexTurn(
 	history := de.getConversationHistory(req)
 
 	// Generate text and convert to audio
-	audioResult, err := audioGen.NextUserTurnAudio(ctx, history, req.Scenario.ID)
+	// Pass the selfplay turn number so the mock provider gets the correct turn response
+	opts := &selfplay.GeneratorOptions{
+		SelfplayTurnIndex: selfplayTurnNum,
+	}
+	audioResult, err := audioGen.NextUserTurnAudio(ctx, history, req.Scenario.ID, opts)
 	if err != nil {
 		return fmt.Errorf("failed to generate audio for turn %d: %w", turnIdx, err)
 	}
@@ -718,6 +729,19 @@ func (de *DuplexConversationExecutor) processSelfPlayDuplexTurn(
 				},
 			},
 		},
+	}
+
+	// Add selfplay metadata to the user message for reporting
+	userMsg.Meta = map[string]interface{}{
+		"self_play":           true,
+		"persona":             turn.Persona,
+		"selfplay_turn_index": selfplayTurnNum,
+	}
+	// Copy any additional metadata from the text generation result
+	if audioResult.TextResult != nil && audioResult.TextResult.Metadata != nil {
+		for k, v := range audioResult.TextResult.Metadata {
+			userMsg.Meta[k] = v
+		}
 	}
 
 	// Send user message to pipeline for state store capture

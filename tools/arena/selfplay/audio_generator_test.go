@@ -109,6 +109,7 @@ func TestAudioContentGenerator_NextUserTurnAudio(t *testing.T) {
 		context.Background(),
 		[]types.Message{},
 		"test-scenario",
+		nil, // opts
 	)
 
 	if err != nil {
@@ -151,6 +152,7 @@ func TestAudioContentGenerator_TTSError(t *testing.T) {
 		context.Background(),
 		[]types.Message{},
 		"test-scenario",
+		nil, // opts
 	)
 
 	if err == nil {
@@ -178,6 +180,7 @@ func TestAudioContentGenerator_TextGenerationError(t *testing.T) {
 		context.Background(),
 		[]types.Message{},
 		"test-scenario",
+		nil, // opts
 	)
 
 	if err == nil {
@@ -205,6 +208,7 @@ func TestAudioContentGenerator_EmptyTextResponse(t *testing.T) {
 		context.Background(),
 		[]types.Message{},
 		"test-scenario",
+		nil, // opts
 	)
 
 	if err == nil {

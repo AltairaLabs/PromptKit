@@ -14,7 +14,8 @@ import (
 // the appropriate mock response based on scenario and turn number.
 type SelfPlayUserTurnContextStage struct {
 	stage.BaseStage
-	scenario *config.Scenario
+	scenario      *config.Scenario
+	turnIndexHint int // If > 0, use this instead of computing from history
 }
 
 // NewSelfPlayUserTurnContextStage creates a new self-play context stage.
@@ -22,6 +23,20 @@ func NewSelfPlayUserTurnContextStage(scenario *config.Scenario) *SelfPlayUserTur
 	return &SelfPlayUserTurnContextStage{
 		BaseStage: stage.NewBaseStage("selfplay_user_context", stage.StageTypeTransform),
 		scenario:  scenario,
+	}
+}
+
+// NewSelfPlayUserTurnContextStageWithHint creates a self-play context stage with an explicit
+// turn index. The turnIndexHint should be the 1-indexed selfplay turn number (first selfplay = 1).
+// This is used when the scenario has mixed file-based and selfplay turns.
+func NewSelfPlayUserTurnContextStageWithHint(
+	scenario *config.Scenario,
+	turnIndexHint int,
+) *SelfPlayUserTurnContextStage {
+	return &SelfPlayUserTurnContextStage{
+		BaseStage:     stage.NewBaseStage("selfplay_user_context", stage.StageTypeTransform),
+		scenario:      scenario,
+		turnIndexHint: turnIndexHint,
 	}
 }
 
@@ -34,8 +49,16 @@ func (s *SelfPlayUserTurnContextStage) Process(ctx context.Context, input <-chan
 	// Accumulate elements and count user turns
 	elements, userCount := s.accumulateAndCount(input)
 
+	// If we have a turn index hint, use it directly instead of computing from history.
+	// This is important for scenarios with mixed file-based and selfplay turns,
+	// where the selfplay turn number should be relative to selfplay iterations only.
+	nextUserTurn := userCount + 1
+	if s.turnIndexHint > 0 {
+		nextUserTurn = s.turnIndexHint
+	}
+
 	// Forward elements with enriched metadata
-	return s.forwardWithMetadata(ctx, elements, userCount, output)
+	return s.forwardWithMetadataAndTurn(ctx, elements, userCount, nextUserTurn, output)
 }
 
 // accumulateAndCount collects all input elements and counts user messages.
@@ -66,15 +89,14 @@ func (s *SelfPlayUserTurnContextStage) countUserTurn(elem *stage.StreamElement, 
 	return currentCount
 }
 
-// forwardWithMetadata enriches elements with context and forwards them.
-func (s *SelfPlayUserTurnContextStage) forwardWithMetadata(
+// forwardWithMetadataAndTurn enriches elements with context and forwards them.
+func (s *SelfPlayUserTurnContextStage) forwardWithMetadataAndTurn(
 	ctx context.Context,
 	elements []stage.StreamElement,
 	userCount int,
+	nextUserTurn int,
 	output chan<- stage.StreamElement,
 ) error {
-	nextUserTurn := userCount + 1
-
 	for i := range elements {
 		elem := &elements[i]
 		s.enrichElement(elem, userCount, nextUserTurn)

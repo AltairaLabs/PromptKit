@@ -85,7 +85,7 @@ func (e *SelfPlayExecutor) generateUserMessage(
 		return types.Message{}, fmt.Errorf("failed to get content generator: %w", err)
 	}
 
-	execResult, err := contentGen.NextUserTurn(ctx, filteredHistory, req.Scenario.ID)
+	execResult, err := contentGen.NextUserTurn(ctx, filteredHistory, req.Scenario.ID, nil)
 	if err != nil {
 		return types.Message{}, fmt.Errorf("failed to generate user turn: %w", err)
 	}
@@ -222,7 +222,7 @@ func (e *SelfPlayExecutor) generateUserMessageForStream(
 		return types.Message{}, err
 	}
 
-	execResult, err := contentGen.NextUserTurn(ctx, filteredHistory, req.Scenario.ID)
+	execResult, err := contentGen.NextUserTurn(ctx, filteredHistory, req.Scenario.ID, nil)
 	if err != nil {
 		outChan <- MessageStreamChunk{Error: fmt.Errorf("failed to generate user turn: %w", err)}
 		return types.Message{}, err
