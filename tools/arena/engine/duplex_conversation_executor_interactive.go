@@ -5,11 +5,13 @@ package engine
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
@@ -28,9 +30,14 @@ const (
 	// Audio configuration constants
 	geminiAudioBitDepth = 16 // Required for Gemini Live API
 
-	// Timing constants
-	interTurnDelayMS = 500
-	drainTimeoutSec  = 30
+	// Default timing constants - can be overridden via scenario.duplex.resilience config
+	defaultInterTurnDelayMS         = 500
+	defaultSelfplayInterTurnDelayMS = 1000
+	defaultRetryDelayMS             = 1000
+	defaultMaxRetries               = 0
+	defaultPartialSuccessMinTurns   = 1
+	defaultIgnoreLastTurnSessionEnd = true
+	drainTimeoutSec                 = 30
 
 	// Role constants
 	roleAssistant = "assistant"
@@ -296,38 +303,109 @@ func (de *DuplexConversationExecutor) processDuplexTurns(
 
 	logger.Debug("processDuplexTurns: starting", "numTurns", len(req.Scenario.Turns))
 
-	for turnIdx := range req.Scenario.Turns {
-		turn := &req.Scenario.Turns[turnIdx]
-		logger.Debug("processDuplexTurns: processing turn", "turnIdx", turnIdx, "role", turn.Role)
-		de.emitTurnStarted(emitter, turnIdx, turn.Role, req.Scenario.ID)
+	// Get resilience configuration from scenario (or use defaults)
+	var resilience *config.DuplexResilienceConfig
+	if req.Scenario.Duplex != nil {
+		resilience = req.Scenario.Duplex.GetResilience()
+	}
+	interTurnDelayMS := resilience.GetInterTurnDelayMs(defaultInterTurnDelayMS)
+	selfplayInterTurnDelayMS := resilience.GetSelfplayInterTurnDelayMs(defaultSelfplayInterTurnDelayMS)
+	partialSuccessMinTurns := resilience.GetPartialSuccessMinTurns(defaultPartialSuccessMinTurns)
+	ignoreLastTurnSessionEnd := resilience.ShouldIgnoreLastTurnSessionEnd(defaultIgnoreLastTurnSessionEnd)
 
-		err := de.processSingleDuplexTurn(ctx, req, turn, turnIdx, baseDir, inputChan, outputChan)
-		if err != nil {
-			logger.Error("processDuplexTurns: turn failed", "turnIdx", turnIdx, "error", err)
-			de.emitTurnCompleted(emitter, turnIdx, turn.Role, req.Scenario.ID, err)
-			turnErr = err
+	// Track logical turn index (accounts for expanded selfplay turns)
+	logicalTurnIdx := 0
+
+	for scenarioTurnIdx := range req.Scenario.Turns {
+		turn := &req.Scenario.Turns[scenarioTurnIdx]
+
+		// Determine how many iterations to run for this turn
+		// Selfplay turns can specify turns: N to generate multiple interactions
+		turnsToExecute := 1
+		if de.isSelfPlayRole(turn.Role) && turn.Turns > 0 {
+			turnsToExecute = turn.Turns
+		}
+
+		logger.Debug("processDuplexTurns: processing turn",
+			"scenarioTurnIdx", scenarioTurnIdx,
+			"role", turn.Role,
+			"turnsToExecute", turnsToExecute)
+
+		for iteration := 0; iteration < turnsToExecute; iteration++ {
+			de.emitTurnStarted(emitter, logicalTurnIdx, turn.Role, req.Scenario.ID)
+
+			err := de.processSingleDuplexTurn(ctx, req, turn, logicalTurnIdx, baseDir, inputChan, outputChan)
+			if err != nil {
+				// Check if this is a session ended error
+				// Handle based on resilience configuration
+				isLastIteration := iteration == turnsToExecute-1
+				isLastScenarioTurn := scenarioTurnIdx == len(req.Scenario.Turns)-1
+				isLastTurn := isLastIteration && isLastScenarioTurn
+
+				if errors.Is(err, errSessionEnded) {
+					// Check if we should ignore session end on the last turn
+					if ignoreLastTurnSessionEnd && isLastTurn && logicalTurnIdx > 0 {
+						logger.Info("Session ended on final turn, treating as complete",
+							"logicalTurnIdx", logicalTurnIdx,
+							"completedTurns", logicalTurnIdx)
+						de.emitTurnCompleted(emitter, logicalTurnIdx, turn.Role, req.Scenario.ID, nil)
+						break
+					}
+
+					// Check if we have enough turns for partial success
+					if logicalTurnIdx >= partialSuccessMinTurns {
+						logger.Info("Session ended early, accepting partial success",
+							"logicalTurnIdx", logicalTurnIdx,
+							"completedTurns", logicalTurnIdx,
+							"minTurnsForSuccess", partialSuccessMinTurns)
+						de.emitTurnCompleted(emitter, logicalTurnIdx, turn.Role, req.Scenario.ID, nil)
+						break
+					}
+				}
+
+				logger.Error("processDuplexTurns: turn failed",
+					"logicalTurnIdx", logicalTurnIdx,
+					"iteration", iteration,
+					"error", err)
+				de.emitTurnCompleted(emitter, logicalTurnIdx, turn.Role, req.Scenario.ID, err)
+				turnErr = err
+				break
+			}
+			logger.Debug("processDuplexTurns: turn completed successfully",
+				"logicalTurnIdx", logicalTurnIdx,
+				"iteration", iteration)
+
+			// Evaluate turn assertions if configured
+			// Assertions on user turns validate the subsequent assistant response
+			if len(turn.Assertions) > 0 {
+				de.evaluateTurnAssertions(ctx, req, turn, logicalTurnIdx)
+			}
+
+			de.emitTurnCompleted(emitter, logicalTurnIdx, turn.Role, req.Scenario.ID, nil)
+			logger.Debug("Duplex turn completed", "turn", logicalTurnIdx, "role", turn.Role)
+
+			// Add a delay between turns to allow the provider to fully process
+			// the previous response before we start sending the next turn's audio.
+			// Without this delay, providers may interpret new audio as an "interruption".
+			isLastIteration := iteration == turnsToExecute-1
+			isLastScenarioTurn := scenarioTurnIdx == len(req.Scenario.Turns)-1
+			//nolint:staticcheck // De Morgan form is less readable here
+			if !(isLastIteration && isLastScenarioTurn) {
+				// Use longer delay after selfplay turns because TTS audio
+				// can be lengthy and providers' ASM may detect turn boundaries mid-utterance.
+				delayMS := interTurnDelayMS
+				if de.isSelfPlayRole(turn.Role) {
+					delayMS = selfplayInterTurnDelayMS
+				}
+				logger.Debug("Inter-turn delay before next turn", "delayMs", delayMS, "wasSelfplay", de.isSelfPlayRole(turn.Role))
+				time.Sleep(time.Duration(delayMS) * time.Millisecond)
+			}
+
+			logicalTurnIdx++
+		}
+
+		if turnErr != nil {
 			break
-		}
-		logger.Debug("processDuplexTurns: turn completed successfully", "turnIdx", turnIdx)
-
-		// Evaluate turn assertions if configured
-		// Assertions on user turns validate the subsequent assistant response
-		if len(turn.Assertions) > 0 {
-			de.evaluateTurnAssertions(ctx, req, turn, turnIdx)
-		}
-
-		de.emitTurnCompleted(emitter, turnIdx, turn.Role, req.Scenario.ID, nil)
-		logger.Debug("Duplex turn completed", "turn", turnIdx, "role", turn.Role)
-
-		// Add a delay between turns to allow Gemini to fully process
-		// the previous response before we start sending the next turn's audio.
-		// Without this delay, Gemini may interpret new audio as an "interruption"
-		// and skip generating a response for the next turn.
-		// 500ms is needed because Gemini needs time to transition from "speaking"
-		// state back to "listening" state.
-		if turnIdx < len(req.Scenario.Turns)-1 {
-			logger.Debug("Inter-turn delay before next turn", "delayMs", interTurnDelayMS)
-			time.Sleep(interTurnDelayMS * time.Millisecond)
 		}
 	}
 
@@ -453,6 +531,9 @@ func (de *DuplexConversationExecutor) streamAudioTurn(
 	return de.streamAudioChunks(ctx, source, inputChan, outputChan)
 }
 
+// errSessionEnded is returned when the session has ended (not an error, just complete)
+var errSessionEnded = errors.New("session ended")
+
 // streamAudioChunks streams audio from source to the pipeline and collects responses.
 func (de *DuplexConversationExecutor) streamAudioChunks(
 	ctx context.Context,
@@ -469,7 +550,10 @@ drainLoop:
 		select {
 		case elem, ok := <-outputChan:
 			if !ok {
-				return errors.New("output channel closed unexpectedly")
+				// Channel closed - session has ended
+				// This can happen if Gemini's session timed out or disconnected
+				logger.Debug("streamAudioChunks: session ended during drain (channel closed)")
+				return errSessionEnded
 			}
 			drainCount++
 			//nolint:lll // Debug logging - acceptable long line in interactive code
@@ -604,25 +688,87 @@ func (de *DuplexConversationExecutor) processSelfPlayDuplexTurn(
 		return fmt.Errorf("failed to generate audio for turn %d: %w", turnIdx, err)
 	}
 
+	// Get the generated text content
+	generatedText := audioResult.TextResult.Response.Content
+
 	logger.Debug("Self-play audio generated",
 		"turn", turnIdx,
-		"text_length", len(audioResult.TextResult.Response.Content),
+		"generated_text", generatedText,
+		"text_length", len(generatedText),
 		"audio_bytes", len(audioResult.Audio),
+		"sample_rate", audioResult.SampleRate,
 	)
 
+	// Create user message element to capture in state store
+	// Include both the generated text and the TTS audio data (base64 encoded)
+	audioDataBase64 := base64.StdEncoding.EncodeToString(audioResult.Audio)
+	userMsg := &types.Message{
+		Role:    "user",
+		Content: generatedText, // Include the selfplay-generated text
+		Parts: []types.ContentPart{
+			{
+				Type: types.ContentTypeText,
+				Text: &generatedText,
+			},
+			{
+				Type: types.ContentTypeAudio,
+				Media: &types.MediaContent{
+					Data:     &audioDataBase64,
+					MIMEType: "audio/pcm",
+				},
+			},
+		},
+	}
+
+	// Send user message to pipeline for state store capture
+	userMsgElem := stage.NewMessageElement(userMsg)
+	select {
+	case inputChan <- userMsgElem:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
 	// Stream audio chunks to the pipeline
-	return de.streamSelfPlayAudio(ctx, audioResult.Audio, inputChan, outputChan)
+	// Pass sample rate so streaming can resample if needed
+	return de.streamSelfPlayAudio(ctx, audioResult.Audio, audioResult.SampleRate, inputChan, outputChan)
 }
 
 // streamSelfPlayAudio streams synthesized audio to the duplex pipeline.
+// If the audio sample rate differs from the target rate (16kHz for Gemini),
+// the audio is resampled before streaming.
+//
+// IMPORTANT: Audio is streamed at real-time pace (not burst mode) because
+// Gemini's ASM (Automatic Speech Model) expects audio to arrive at playback speed.
+// Without pacing, TTS prosody pauses would appear as extended silence periods
+// to the ASM, causing it to incorrectly detect turn boundaries mid-utterance.
 func (de *DuplexConversationExecutor) streamSelfPlayAudio(
 	ctx context.Context,
 	audioData []byte,
+	sampleRate int,
 	inputChan chan<- stage.StreamElement,
 	outputChan <-chan stage.StreamElement,
 ) error {
+	// Resample audio if needed (Gemini expects 16kHz)
+	targetSampleRate := defaultSampleRate // 16000
+	if sampleRate != 0 && sampleRate != targetSampleRate {
+		logger.Debug("Resampling selfplay audio",
+			"from_rate", sampleRate,
+			"to_rate", targetSampleRate,
+			"input_bytes", len(audioData),
+		)
+		resampled, err := audio.ResamplePCM16(audioData, sampleRate, targetSampleRate)
+		if err != nil {
+			return fmt.Errorf("failed to resample audio: %w", err)
+		}
+		logger.Debug("Resampled selfplay audio",
+			"output_bytes", len(resampled),
+		)
+		audioData = resampled
+	}
+
 	// Start a goroutine to collect responses
-	// It exits when it sees EndOfStream (turn complete) rather than waiting for channel close
+	// It waits for EndOfStream (turnComplete from Gemini) before returning.
+	// This ensures we don't prematurely close the session while Gemini is still responding.
 	responseDone := make(chan error, 1)
 	go func() {
 		for {
@@ -630,29 +776,50 @@ func (de *DuplexConversationExecutor) streamSelfPlayAudio(
 			case <-ctx.Done():
 				responseDone <- ctx.Err()
 				return
+
 			case elem, ok := <-outputChan:
 				if !ok {
-					// Channel closed - session ended
-					responseDone <- nil
+					// Channel closed - session ended unexpectedly
+					logger.Debug("Self-play output channel closed unexpectedly")
+					responseDone <- errors.New("output channel closed unexpectedly")
 					return
 				}
 				if elem.Error != nil {
 					responseDone <- elem.Error
 					return
 				}
-				// Check for turn completion (EndOfStream flag set by provider)
+
+				// Check for turn completion (EndOfStream flag set by provider when turnComplete received)
 				if elem.EndOfStream {
-					logger.Debug("Self-play turn response complete", "hasText", elem.Text != nil)
+					logger.Debug("Self-play EndOfStream received (turn complete)",
+						"hasMessage", elem.Message != nil,
+						"hasText", elem.Text != nil)
 					responseDone <- nil
 					return
 				}
-				// Process response elements
+				// Continue collecting response elements until we get turnComplete
 			}
 		}
 	}()
 
-	// Stream audio in chunks
+	// Calculate chunk duration for real-time pacing
+	// At 16kHz 16-bit mono: 640 bytes = 320 samples = 20ms of audio
+	// We pace audio streaming to match real-time playback speed so that
+	// Gemini's ASM interprets pauses correctly (natural speech cadence vs turn boundaries)
 	chunkSize := defaultAudioChunkSize
+	bytesPerSample := 2                                                                             // 16-bit = 2 bytes
+	samplesPerChunk := chunkSize / bytesPerSample                                                   // 320 samples
+	chunkDuration := time.Duration(samplesPerChunk) * time.Second / time.Duration(targetSampleRate) // 20ms
+
+	logger.Debug("Streaming selfplay audio with real-time pacing",
+		"chunk_size", chunkSize,
+		"chunk_duration_ms", chunkDuration.Milliseconds(),
+		"total_bytes", len(audioData),
+		"total_chunks", (len(audioData)+chunkSize-1)/chunkSize,
+	)
+
+	// Stream audio in chunks with real-time pacing
+	streamStart := time.Now()
 	for offset := 0; offset < len(audioData); offset += chunkSize {
 		end := offset + chunkSize
 		if end > len(audioData) {
@@ -673,6 +840,15 @@ func (de *DuplexConversationExecutor) streamSelfPlayAudio(
 		case inputChan <- elem:
 		case <-ctx.Done():
 			return ctx.Err()
+		}
+
+		// Real-time pacing: wait for chunk duration before sending next chunk
+		// This ensures audio arrives at Gemini at playback speed
+		chunkIdx := offset / chunkSize
+		expectedTime := time.Duration(chunkIdx+1) * chunkDuration
+		elapsed := time.Since(streamStart)
+		if sleepTime := expectedTime - elapsed; sleepTime > 0 {
+			time.Sleep(sleepTime)
 		}
 	}
 

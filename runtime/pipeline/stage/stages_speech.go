@@ -127,7 +127,23 @@ func (s *AudioTurnStage) Process(
 	}
 
 	for elem := range input {
-		// Pass through non-audio elements immediately
+		// Handle EndOfStream specially - emit any accumulated audio first
+		// This prevents EndOfStream from racing ahead of buffered audio
+		if elem.EndOfStream {
+			logger.Debug("AudioTurnStage: EndOfStream received, emitting accumulated audio")
+			if err := s.emitRemainingAudio(ctx, state, output); err != nil {
+				return err
+			}
+			// Reset state for next turn
+			s.resetState(state)
+			// Forward the EndOfStream after the audio
+			if err := s.forwardElement(ctx, &elem, output); err != nil {
+				return err
+			}
+			continue
+		}
+
+		// Pass through other non-audio elements immediately
 		if elem.Audio == nil {
 			if err := s.forwardElement(ctx, &elem, output); err != nil {
 				return err
@@ -201,19 +217,30 @@ func (s *AudioTurnStage) checkInterruption(ctx context.Context, state *audioTurn
 	return false
 }
 
-// emitRemainingAudio emits any buffered audio when the stream closes.
+// emitRemainingAudio emits any buffered audio when the stream closes or EndOfStream is received.
+// When force=false (default), only emits if speech was detected.
+// When the stream is ending, we always emit buffered audio to ensure nothing is lost.
 func (s *AudioTurnStage) emitRemainingAudio(
 	ctx context.Context,
 	state *audioTurnState,
 	output chan<- StreamElement,
 ) error {
-	if len(state.audioBuffer) > 0 && state.speechDetected {
+	if len(state.audioBuffer) == 0 {
+		return nil
+	}
+	// Emit buffered audio if speech was detected OR if we have significant audio data
+	// For pre-recorded files, VAD may not detect speech, but we still want to forward the audio
+	if state.speechDetected || len(state.audioBuffer) > defaultMinAudioBytes {
+		logger.Debug("AudioTurnStage: emitting remaining audio",
+			"speechDetected", state.speechDetected,
+			"bufferSize", len(state.audioBuffer))
 		return s.emitTurnAudio(ctx, state, output)
 	}
 	return nil
 }
 
 // processAudio processes a single audio element.
+// Always buffers audio for forwarding - VAD is only used for turn detection, not filtering.
 func (s *AudioTurnStage) processAudio(
 	ctx context.Context,
 	elem *StreamElement,
@@ -223,7 +250,11 @@ func (s *AudioTurnStage) processAudio(
 		return nil
 	}
 
-	// Run VAD analysis
+	// Always buffer audio - VAD only determines turn boundaries, not what to forward
+	// This is important for pre-recorded audio files where VAD may not detect speech
+	state.audioBuffer = append(state.audioBuffer, elem.Audio.Samples...)
+
+	// Run VAD analysis for turn detection
 	_, err := s.vad.Analyze(ctx, elem.Audio.Samples)
 	if err != nil {
 		return err
@@ -231,7 +262,7 @@ func (s *AudioTurnStage) processAudio(
 
 	vadState := s.vad.State()
 
-	// Update state based on VAD
+	// Update speech detection state based on VAD
 	switch vadState {
 	case audio.VADStateSpeaking, audio.VADStateStarting:
 		if !state.speechDetected {
@@ -240,17 +271,11 @@ func (s *AudioTurnStage) processAudio(
 			logger.Debug("AudioTurnStage: speech started")
 		}
 		state.silenceStart = time.Time{} // Reset silence timer
-		// Buffer audio during speech
-		state.audioBuffer = append(state.audioBuffer, elem.Audio.Samples...)
 
 	case audio.VADStateStopping, audio.VADStateQuiet:
-		if state.speechDetected {
-			// Still accumulate during stopping/brief silence
-			state.audioBuffer = append(state.audioBuffer, elem.Audio.Samples...)
-			if state.silenceStart.IsZero() {
-				state.silenceStart = time.Now()
-				logger.Debug("AudioTurnStage: silence started")
-			}
+		if state.speechDetected && state.silenceStart.IsZero() {
+			state.silenceStart = time.Now()
+			logger.Debug("AudioTurnStage: silence started")
 		}
 	}
 

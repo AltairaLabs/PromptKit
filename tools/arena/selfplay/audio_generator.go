@@ -31,6 +31,9 @@ type AudioResult struct {
 
 	// AudioFormat describes the audio encoding.
 	AudioFormat tts.AudioFormat
+
+	// SampleRate is the sample rate of the audio data in Hz.
+	SampleRate int
 }
 
 // AudioContentGenerator wraps a ContentGenerator and adds TTS synthesis.
@@ -76,7 +79,7 @@ func (g *AudioContentGenerator) NextUserTurnAudio(
 	}
 
 	// Synthesize audio
-	audioData, format, err := g.synthesize(ctx, text)
+	audioData, format, sampleRate, err := g.synthesize(ctx, text)
 	if err != nil {
 		return nil, fmt.Errorf("failed to synthesize audio: %w", err)
 	}
@@ -85,11 +88,18 @@ func (g *AudioContentGenerator) NextUserTurnAudio(
 		TextResult:  textResult,
 		Audio:       audioData,
 		AudioFormat: format,
+		SampleRate:  sampleRate,
 	}, nil
 }
 
+// Default TTS output sample rate (most TTS services output at 24kHz).
+const defaultTTSSampleRate = 24000
+
 // synthesize converts text to audio using the TTS service.
-func (g *AudioContentGenerator) synthesize(ctx context.Context, text string) ([]byte, tts.AudioFormat, error) {
+// Returns the audio data, format, sample rate, and any error.
+//
+//nolint:gocritic // Unnamed results are clearer for this signature
+func (g *AudioContentGenerator) synthesize(ctx context.Context, text string) ([]byte, tts.AudioFormat, int, error) {
 	// Build TTS configuration
 	synthConfig := tts.SynthesisConfig{
 		Voice:  g.ttsConfig.Voice,
@@ -100,17 +110,19 @@ func (g *AudioContentGenerator) synthesize(ctx context.Context, text string) ([]
 	// Synthesize audio
 	reader, err := g.ttsService.Synthesize(ctx, text, synthConfig)
 	if err != nil {
-		return nil, tts.AudioFormat{}, err
+		return nil, tts.AudioFormat{}, 0, err
 	}
 	defer reader.Close()
 
 	// Read all audio data
 	audioData, err := io.ReadAll(reader)
 	if err != nil {
-		return nil, tts.AudioFormat{}, fmt.Errorf("failed to read audio data: %w", err)
+		return nil, tts.AudioFormat{}, 0, fmt.Errorf("failed to read audio data: %w", err)
 	}
 
-	return audioData, synthConfig.Format, nil
+	// TTS services typically output at 24kHz
+	// TODO: Get actual sample rate from TTS service metadata if available
+	return audioData, synthConfig.Format, defaultTTSSampleRate, nil
 }
 
 // GetTTSService returns the TTS service for direct access if needed.

@@ -450,6 +450,32 @@ type DuplexConfig struct {
 	Timeout string `json:"timeout,omitempty" yaml:"timeout,omitempty"`
 	// TurnDetection configures how turn boundaries are detected.
 	TurnDetection *TurnDetectionConfig `json:"turn_detection,omitempty" yaml:"turn_detection,omitempty"`
+	// Resilience configures error handling and retry behavior.
+	Resilience *DuplexResilienceConfig `json:"resilience,omitempty" yaml:"resilience,omitempty"`
+}
+
+// DuplexResilienceConfig configures error handling and retry behavior for duplex streaming.
+// These settings help handle transient failures and provider-specific behaviors.
+type DuplexResilienceConfig struct {
+	// MaxRetries is the number of retry attempts for failed turns (default: 0).
+	// Each retry creates a new session if the previous one ended.
+	MaxRetries int `json:"max_retries,omitempty" yaml:"max_retries,omitempty"`
+	// RetryDelayMs is the delay in milliseconds between retries (default: 1000).
+	RetryDelayMs int `json:"retry_delay_ms,omitempty" yaml:"retry_delay_ms,omitempty"`
+	// InterTurnDelayMs is the delay in milliseconds between turns (default: 500).
+	// This allows the provider to fully process the previous response.
+	InterTurnDelayMs int `json:"inter_turn_delay_ms,omitempty" yaml:"inter_turn_delay_ms,omitempty"`
+	// SelfplayInterTurnDelayMs is the delay after selfplay turns (default: 1000).
+	// Longer delay needed because TTS audio can be lengthy.
+	//nolint:lll // JSON/YAML tag names must match field names for clarity
+	SelfplayInterTurnDelayMs int `json:"selfplay_inter_turn_delay_ms,omitempty" yaml:"selfplay_inter_turn_delay_ms,omitempty"`
+	// PartialSuccessMinTurns is the minimum completed turns to accept partial success (default: 1).
+	// If the session ends unexpectedly but this many turns completed, treat as success.
+	PartialSuccessMinTurns int `json:"partial_success_min_turns,omitempty" yaml:"partial_success_min_turns,omitempty"`
+	// IgnoreLastTurnSessionEnd treats session end on the final turn as success (default: true).
+	// Useful when providers may close sessions after completing the expected conversation.
+	//nolint:lll // JSON/YAML tag names must match field names for clarity
+	IgnoreLastTurnSessionEnd *bool `json:"ignore_last_turn_session_end,omitempty" yaml:"ignore_last_turn_session_end,omitempty"`
 }
 
 // TurnDetectionConfig configures turn detection for duplex mode.
@@ -511,6 +537,62 @@ func (d *DuplexConfig) GetTimeoutDuration(defaultTimeout time.Duration) time.Dur
 		return defaultTimeout
 	}
 	return duration
+}
+
+// GetResilience returns the resilience config, or nil if not set.
+func (d *DuplexConfig) GetResilience() *DuplexResilienceConfig {
+	if d == nil {
+		return nil
+	}
+	return d.Resilience
+}
+
+// GetMaxRetries returns the configured max retries or the default.
+func (r *DuplexResilienceConfig) GetMaxRetries(defaultVal int) int {
+	if r == nil || r.MaxRetries <= 0 {
+		return defaultVal
+	}
+	return r.MaxRetries
+}
+
+// GetRetryDelayMs returns the configured retry delay or the default.
+func (r *DuplexResilienceConfig) GetRetryDelayMs(defaultVal int) int {
+	if r == nil || r.RetryDelayMs <= 0 {
+		return defaultVal
+	}
+	return r.RetryDelayMs
+}
+
+// GetInterTurnDelayMs returns the configured inter-turn delay or the default.
+func (r *DuplexResilienceConfig) GetInterTurnDelayMs(defaultVal int) int {
+	if r == nil || r.InterTurnDelayMs <= 0 {
+		return defaultVal
+	}
+	return r.InterTurnDelayMs
+}
+
+// GetSelfplayInterTurnDelayMs returns the configured selfplay inter-turn delay or the default.
+func (r *DuplexResilienceConfig) GetSelfplayInterTurnDelayMs(defaultVal int) int {
+	if r == nil || r.SelfplayInterTurnDelayMs <= 0 {
+		return defaultVal
+	}
+	return r.SelfplayInterTurnDelayMs
+}
+
+// GetPartialSuccessMinTurns returns the configured partial success threshold or the default.
+func (r *DuplexResilienceConfig) GetPartialSuccessMinTurns(defaultVal int) int {
+	if r == nil || r.PartialSuccessMinTurns <= 0 {
+		return defaultVal
+	}
+	return r.PartialSuccessMinTurns
+}
+
+// ShouldIgnoreLastTurnSessionEnd returns whether to ignore session end on the last turn.
+func (r *DuplexResilienceConfig) ShouldIgnoreLastTurnSessionEnd(defaultVal bool) bool {
+	if r == nil || r.IgnoreLastTurnSessionEnd == nil {
+		return defaultVal
+	}
+	return *r.IgnoreLastTurnSessionEnd
 }
 
 // Validate validates the TurnDetectionConfig settings.

@@ -61,6 +61,39 @@
         },
         "turn_detection": {
           "$ref": "#/$defs/TurnDetectionConfig"
+        },
+        "resilience": {
+          "$ref": "#/$defs/DuplexResilienceConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "DuplexResilienceConfig": {
+      "properties": {
+        "max_retries": {
+          "type": "integer",
+          "description": "Number of retry attempts for failed turns"
+        },
+        "retry_delay_ms": {
+          "type": "integer",
+          "description": "Delay in milliseconds between retries"
+        },
+        "inter_turn_delay_ms": {
+          "type": "integer",
+          "description": "Delay in milliseconds between turns"
+        },
+        "selfplay_inter_turn_delay_ms": {
+          "type": "integer",
+          "description": "Delay after selfplay turns (longer for TTS audio)"
+        },
+        "partial_success_min_turns": {
+          "type": "integer",
+          "description": "Minimum completed turns to accept partial success"
+        },
+        "ignore_last_turn_session_end": {
+          "type": "boolean",
+          "description": "Treat session end on final turn as success"
         }
       },
       "additionalProperties": false,

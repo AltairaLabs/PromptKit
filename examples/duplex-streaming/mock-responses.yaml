@@ -14,14 +14,19 @@ scenarios:
       2: "My name is Nova, and I'm here to help you with a variety of tasks. I can answer questions, provide information, help with troubleshooting, or just have a friendly conversation. What would you like to know more about?"
       3: "Here's a fun fact for you: Honey never spoils! Archaeologists have found 3,000-year-old honey in Egyptian tombs that was still perfectly edible. Pretty amazing, right?"
 
-  # Self-play scenario responses
+  # Self-play scenario responses (for the selfplay USER messages)
+  # Note: These are what the simulated curious customer says, NOT the assistant
   duplex-selfplay:
-    defaultResponse: "I'd be happy to help you learn more about our services."
+    defaultResponse: "That's interesting! Can you tell me more?"
     turns:
-      1: "Welcome! I'd be happy to help you learn about our services. We offer a range of solutions including voice assistants, customer support automation, and real-time conversation analysis. What interests you most?"
-      2: "Great question! Our voice assistant service uses advanced AI to handle customer inquiries naturally. It can understand context, remember previous parts of the conversation, and provide helpful responses in real-time."
-      3: "We offer flexible pricing based on usage. There's a free tier for getting started, and then pay-as-you-go options for scaling up. Would you like me to explain the different tiers?"
-      4: "You're very welcome! Is there anything else you'd like to know about our services?"
+      # Turn 1 is after assistant's first greeting, so selfplay asks a question
+      1: "Oh that sounds helpful! What kind of services do you offer exactly?"
+      # Turn 2 is after assistant describes services
+      2: "Interesting! And um, is there like a demo I could try first?"
+      # Turn 3 is after assistant answers about demo
+      3: "That sounds great. What about pricing options?"
+      # Turn 4 is closing
+      4: "Thanks, that's really helpful!"
 
   # Interactive scenario responses
   duplex-interactive:

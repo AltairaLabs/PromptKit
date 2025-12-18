@@ -22,6 +22,16 @@ spec:
       vad:
         silence_threshold_ms: 600
         min_speech_ms: 800
+    # Resilience configuration for handling provider-specific behaviors
+    resilience:
+      # Delay between turns (ms) to allow provider to finish processing
+      inter_turn_delay_ms: 500
+      # Longer delay after selfplay turns since TTS audio can be lengthy
+      selfplay_inter_turn_delay_ms: 1000
+      # Accept partial success if at least this many turns completed
+      partial_success_min_turns: 2
+      # Don't fail if session ends on the final turn
+      ignore_last_turn_session_end: true
 
   streaming: true
 
