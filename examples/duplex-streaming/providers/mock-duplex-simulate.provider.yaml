@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/provider.json
+#
+# Mock Duplex Provider with Simulation
+# Simulates Gemini's behavior: interruptions and session closures.
+#
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: mock-duplex-simulate
+
+spec:
+  id: mock-duplex-simulate
+  type: mock
+  model: mock-duplex-model
+
+  # Provider defaults
+  defaults:
+    temperature: 0.0
+    top_p: 1.0
+    max_tokens: 500
+
+  # Mock configuration with simulation behaviors
+  additional_config:
+    mock_config: mock-responses.yaml
+    auto_respond: true
+    response_text: "Hello! I'm Nova, your AI assistant. How can I help you today?"
+    # Simulate Gemini-like behaviors:
+    # interrupt_on_turn: 2     # Interrupt during turn 2's response
+    close_after_turns: 2       # Close session after 2 turns (like Gemini does)
+    close_no_response: true    # Close WITHOUT sending the response (like Gemini after interruption)

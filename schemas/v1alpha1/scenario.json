@@ -72,28 +72,22 @@
     "DuplexResilienceConfig": {
       "properties": {
         "max_retries": {
-          "type": "integer",
-          "description": "Number of retry attempts for failed turns"
+          "type": "integer"
         },
         "retry_delay_ms": {
-          "type": "integer",
-          "description": "Delay in milliseconds between retries"
+          "type": "integer"
         },
         "inter_turn_delay_ms": {
-          "type": "integer",
-          "description": "Delay in milliseconds between turns"
+          "type": "integer"
         },
         "selfplay_inter_turn_delay_ms": {
-          "type": "integer",
-          "description": "Delay after selfplay turns (longer for TTS audio)"
+          "type": "integer"
         },
         "partial_success_min_turns": {
-          "type": "integer",
-          "description": "Minimum completed turns to accept partial success"
+          "type": "integer"
         },
         "ignore_last_turn_session_end": {
-          "type": "boolean",
-          "description": "Treat session end on final turn as success"
+          "type": "boolean"
         }
       },
       "additionalProperties": false,
@@ -204,6 +198,15 @@
         },
         "voice": {
           "type": "string"
+        },
+        "audio_files": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "sample_rate": {
+          "type": "integer"
         }
       },
       "additionalProperties": false,

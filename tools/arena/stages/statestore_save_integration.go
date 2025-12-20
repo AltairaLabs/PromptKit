@@ -36,10 +36,11 @@ func NewArenaStateStoreSaveStage(config *pipeline.StateStoreConfig) *ArenaStateS
 
 // collectedData holds all data collected from stream elements.
 type collectedData struct {
-	messages []types.Message
-	metadata map[string]interface{}
-	trace    *pipeline.ExecutionTrace
-	costInfo *types.CostInfo
+	messages              []types.Message
+	metadata              map[string]interface{}
+	trace                 *pipeline.ExecutionTrace
+	costInfo              *types.CostInfo
+	transcriptionsApplied int // Tracks how many transcriptions have been applied (for ordering)
 }
 
 // collectFromElement extracts data from a single element and updates collected data.
@@ -73,46 +74,117 @@ func (d *collectedData) collectFromElement(elem *stage.StreamElement) {
 		d.costInfo = c
 	}
 
-	// Apply input transcription to the previous user message if present
-	// This updates the user message with what Gemini heard them say
+	// Apply input transcription to the correct user message.
+	// If a turn_id is provided, use it to find the exact user message.
+	// Otherwise, fall back to order-based matching (N-th transcription to N-th user message).
 	if inputTranscript, ok := elem.Metadata["input_transcription"].(string); ok && inputTranscript != "" {
-		d.applyInputTranscription(inputTranscript)
+		if turnID, ok := elem.Metadata["transcription_turn_id"].(string); ok && turnID != "" {
+			// Use turn_id for reliable matching
+			d.applyTranscriptionByTurnID(inputTranscript, turnID)
+		} else {
+			// Fall back to order-based matching
+			d.applyNextTranscription(inputTranscript)
+		}
 	}
 }
 
-// applyInputTranscription updates the last user message with the input transcription.
-// This is called when we receive an assistant message that includes the transcription
-// of what the user said in the previous turn.
-func (d *collectedData) applyInputTranscription(transcript string) {
-	// Find the last user message and update it with the transcription
-	//nolint:gocritic // Nesting acceptable for state update logic
-	for i := len(d.messages) - 1; i >= 0; i-- {
+// applyTranscriptionByTurnID applies a transcription to the user message with matching turn_id.
+// This provides reliable correlation between audio input and its transcription,
+// regardless of message arrival order.
+//
+// For selfplay messages (those with meta.self_play == true), the original LLM-generated
+// text is preserved in meta.original_text before being replaced by the transcription.
+func (d *collectedData) applyTranscriptionByTurnID(transcript, turnID string) {
+	for i := 0; i < len(d.messages); i++ {
 		if d.messages[i].Role == roleUser {
-			// Update the Content field with the transcription
-			d.messages[i].Content = transcript
-			// Also add/update a text part with the transcription
-			textFound := false
-			for j := range d.messages[i].Parts {
-				if d.messages[i].Parts[j].Type == types.ContentTypeText || d.messages[i].Parts[j].Text != nil {
-					d.messages[i].Parts[j].Text = &transcript
-					d.messages[i].Parts[j].Type = types.ContentTypeText
-					textFound = true
-					break
+			// Check if this message has the matching turn_id
+			if d.messages[i].Meta != nil {
+				if msgTurnID, ok := d.messages[i].Meta["turn_id"].(string); ok && msgTurnID == turnID {
+					d.applyTranscriptionToMessage(i, transcript)
+					logger.Debug("ArenaStateStoreSaveStage: applied transcription by turn_id",
+						"messageIndex", i,
+						"turnID", turnID,
+						"transcriptionLen", len(transcript))
+					return
 				}
 			}
-			// If no text part exists, prepend one
-			if !textFound {
-				newPart := types.ContentPart{
-					Type: types.ContentTypeText,
-					Text: &transcript,
-				}
-				d.messages[i].Parts = append([]types.ContentPart{newPart}, d.messages[i].Parts...)
-			}
-			logger.Debug("ArenaStateStoreSaveStage: applied input transcription to user message",
-				"messageIndex", i,
-				"transcriptionLen", len(transcript))
-			return
 		}
+	}
+	logger.Warn("ArenaStateStoreSaveStage: no user message found with turn_id",
+		"turnID", turnID,
+		"totalMessages", len(d.messages))
+}
+
+// applyNextTranscription applies a transcription to the N-th user message in order.
+// This is the fallback method when turn_id is not available.
+// Transcriptions arrive in turn order:
+// - First transcription is for the first user turn
+// - Second transcription is for the second user turn
+// - etc.
+//
+// We use the transcriptionsApplied counter to find the correct user message,
+// which handles race conditions where messages may arrive out of collection order.
+//
+// For selfplay messages (those with meta.self_play == true), the original LLM-generated
+// text is preserved in meta.original_text before being replaced by the transcription.
+// This allows comparing what the selfplay LLM generated vs what Gemini heard.
+func (d *collectedData) applyNextTranscription(transcript string) {
+	// Find the N-th user message (where N = transcriptionsApplied)
+	userCount := 0
+	for i := 0; i < len(d.messages); i++ {
+		if d.messages[i].Role == roleUser {
+			if userCount == d.transcriptionsApplied {
+				// This is the user message that should receive this transcription
+				d.applyTranscriptionToMessage(i, transcript)
+				d.transcriptionsApplied++
+				logger.Debug("ArenaStateStoreSaveStage: applied input transcription to user message",
+					"messageIndex", i,
+					"transcriptionNumber", d.transcriptionsApplied,
+					"transcriptionLen", len(transcript))
+				return
+			}
+			userCount++
+		}
+	}
+	logger.Warn("ArenaStateStoreSaveStage: no user message found to apply transcription",
+		"transcriptionNumber", d.transcriptionsApplied+1,
+		"userMessagesFound", userCount,
+		"totalMessages", len(d.messages))
+}
+
+// applyTranscriptionToMessage applies a transcription to a specific message by index.
+func (d *collectedData) applyTranscriptionToMessage(msgIdx int, transcript string) {
+	// For selfplay messages, preserve the original generated text in meta
+	// before overwriting with transcription
+	if d.messages[msgIdx].Meta != nil {
+		if _, isSelfplay := d.messages[msgIdx].Meta["self_play"].(bool); isSelfplay {
+			// Store original text if not already stored
+			if _, hasOriginal := d.messages[msgIdx].Meta["original_text"]; !hasOriginal {
+				d.messages[msgIdx].Meta["original_text"] = d.messages[msgIdx].Content
+			}
+		}
+	}
+
+	// Update the Content field with the transcription
+	d.messages[msgIdx].Content = transcript
+
+	// Also add/update a text part with the transcription
+	textFound := false
+	for j := range d.messages[msgIdx].Parts {
+		if d.messages[msgIdx].Parts[j].Type == types.ContentTypeText || d.messages[msgIdx].Parts[j].Text != nil {
+			d.messages[msgIdx].Parts[j].Text = &transcript
+			d.messages[msgIdx].Parts[j].Type = types.ContentTypeText
+			textFound = true
+			break
+		}
+	}
+	// If no text part exists, prepend one
+	if !textFound {
+		newPart := types.ContentPart{
+			Type: types.ContentTypeText,
+			Text: &transcript,
+		}
+		d.messages[msgIdx].Parts = append([]types.ContentPart{newPart}, d.messages[msgIdx].Parts...)
 	}
 }
 
@@ -145,6 +217,7 @@ func (s *ArenaStateStoreSaveStage) Process(ctx context.Context, input <-chan sta
 	}
 
 	data := &collectedData{}
+	ctxCanceled := false
 	for elem := range input {
 		data.collectFromElement(&elem)
 
@@ -156,18 +229,29 @@ func (s *ArenaStateStoreSaveStage) Process(ctx context.Context, input <-chan sta
 				"lastRole", elem.Message.Role,
 				"lastContentLen", len(elem.Message.Content))
 
+			// Use background context for saves - we want to capture data even if main ctx is canceled
+			saveCtx := ctx
+			if ctxCanceled {
+				saveCtx = context.Background()
+			}
 			err := s.saveToArenaStateStore(
-				ctx, arenaStore, data.messages, data.metadata, data.trace, data.costInfo)
+				saveCtx, arenaStore, data.messages, data.metadata, data.trace, data.costInfo)
 			if err != nil {
 				logger.Error("ArenaStateStoreSaveStage: failed to save after turn", "error", err)
 				// Continue processing - don't fail the entire pipeline for a save error
 			}
 		}
 
+		// Try to forward element, but if context is canceled, just drain remaining input
+		// This ensures we capture all messages (including partial responses) even on timeout
 		select {
 		case output <- elem:
 		case <-ctx.Done():
-			return ctx.Err()
+			if !ctxCanceled {
+				logger.Debug("ArenaStateStoreSaveStage: context canceled, will drain remaining elements")
+				ctxCanceled = true
+			}
+			// Continue draining - don't return early
 		}
 	}
 
@@ -175,8 +259,14 @@ func (s *ArenaStateStoreSaveStage) Process(ctx context.Context, input <-chan sta
 	logger.Debug("ArenaStateStoreSaveStage: final save",
 		"messageCount", len(data.messages))
 
+	// Use background context for final save if main context was canceled
+	// This ensures we save all collected data including partial responses
+	saveCtx := ctx
+	if ctxCanceled {
+		saveCtx = context.Background()
+	}
 	err := s.saveToArenaStateStore(
-		ctx, arenaStore, data.messages, data.metadata, data.trace, data.costInfo)
+		saveCtx, arenaStore, data.messages, data.metadata, data.trace, data.costInfo)
 	if err != nil {
 		return fmt.Errorf("arena state store save: %w", err)
 	}

@@ -20,6 +20,11 @@ const (
 
 	// DefaultMockStreamingResponse is the default response text for auto-respond mode.
 	DefaultMockStreamingResponse = "Mock streaming response"
+
+	// logPreviewMaxLen is the max length for text preview in debug logs.
+	logPreviewMaxLen = 20
+	// partialTextDivisor is used to calculate partial text length (half the response).
+	partialTextDivisor = 2
 )
 
 // MockStreamSession implements providers.StreamInputSession for testing duplex scenarios.
@@ -42,6 +47,14 @@ type MockStreamSession struct {
 	responseChunks     []providers.StreamChunk // Custom response chunks to emit
 	closeAfterResponse bool                    // If true, close response channel after auto-responding
 	responseCount      int                     // Track number of responses sent
+
+	// Simulation: Interruption behavior (mimics Gemini detecting user speech during response)
+	interruptOnTurn int  // If > 0, simulate interruption on this turn number (1-indexed)
+	interrupted     bool // Track if current turn was interrupted
+
+	// Simulation: Session closure (mimics Gemini dropping connection unexpectedly)
+	closeAfterTurns int  // If > 0, close session after this many turns
+	closeNoResponse bool // If true with closeAfterTurns, close WITHOUT sending final response
 }
 
 // NewMockStreamSession creates a new mock stream session.
@@ -92,6 +105,26 @@ func (m *MockStreamSession) WithSendTextError(err error) *MockStreamSession {
 // WithError sets the error returned by Error().
 func (m *MockStreamSession) WithError(err error) *MockStreamSession {
 	m.err = err
+	return m
+}
+
+// WithInterruptOnTurn configures the session to simulate an interruption on a specific turn.
+// This mimics Gemini detecting user speech while the model is responding.
+// The turn is 1-indexed (first turn = 1).
+func (m *MockStreamSession) WithInterruptOnTurn(turnNumber int) *MockStreamSession {
+	m.interruptOnTurn = turnNumber
+	return m
+}
+
+// WithCloseAfterTurns configures the session to close unexpectedly after N turns.
+// This simulates Gemini dropping the connection mid-conversation.
+// If noResponse is true, the session closes WITHOUT sending the final response
+// (mimics Gemini closing after interrupted turnComplete).
+func (m *MockStreamSession) WithCloseAfterTurns(turns int, noResponse ...bool) *MockStreamSession {
+	m.closeAfterTurns = turns
+	if len(noResponse) > 0 && noResponse[0] {
+		m.closeNoResponse = true
+	}
 	return m
 }
 
@@ -225,7 +258,60 @@ func (m *MockStreamSession) GetTexts() []string {
 
 // emitAutoResponse sends configured response chunks (must be called with lock held).
 func (m *MockStreamSession) emitAutoResponse() {
-	if len(m.responseChunks) > 0 {
+	currentTurn := m.responseCount + 1 // 1-indexed turn number
+
+	// Check if we should close WITHOUT responding (simulates Gemini closing after interruption)
+	if m.closeNoResponse && m.closeAfterTurns > 0 && currentTurn >= m.closeAfterTurns {
+		logger.Info("MockStreamSession: SIMULATING GEMINI CLOSURE - closing WITHOUT response",
+			"turn", currentTurn)
+		m.responseCount++
+		m.closeCalled = true
+		close(m.doneCh)
+		close(m.responses)
+		return
+	}
+
+	// Check if we should simulate an interruption on this turn
+	shouldInterrupt := m.interruptOnTurn > 0 && currentTurn == m.interruptOnTurn
+
+	if shouldInterrupt {
+		// Simulate interruption: emit partial response, then interrupted flag, then empty turnComplete
+		logger.Debug("MockStreamSession: simulating interruption",
+			"turn", currentTurn,
+			"partialText", m.responseText[:min(len(m.responseText), logPreviewMaxLen)])
+
+		// 1. Emit partial content before interruption
+		partialText := m.responseText[:min(len(m.responseText), len(m.responseText)/partialTextDivisor)]
+		partialChunk := providers.StreamChunk{
+			Content: partialText,
+			Delta:   partialText,
+		}
+		select {
+		case m.responses <- partialChunk:
+		default:
+		}
+
+		// 2. Emit interrupted flag (mimics Gemini's serverContent.interrupted)
+		interruptChunk := providers.StreamChunk{
+			Interrupted: true,
+		}
+		select {
+		case m.responses <- interruptChunk:
+		default:
+		}
+
+		// 3. Emit empty turnComplete (mimics Gemini's turnComplete after interruption)
+		finishReason := "complete"
+		emptyComplete := providers.StreamChunk{
+			FinishReason: &finishReason,
+		}
+		select {
+		case m.responses <- emptyComplete:
+		default:
+		}
+
+		m.interrupted = true
+	} else if len(m.responseChunks) > 0 {
 		// Emit custom chunks
 		for i := range m.responseChunks {
 			m.responses <- m.responseChunks[i]
@@ -248,8 +334,16 @@ func (m *MockStreamSession) emitAutoResponse() {
 
 	m.responseCount++
 
+	// Check if we should close the session unexpectedly after this turn
+	// This simulates Gemini closing the connection BEFORE sending a proper response
+	shouldClose := m.closeAfterTurns > 0 && m.responseCount >= m.closeAfterTurns
+
 	// Close the response channel if configured - allows duplex tests to complete
-	if m.closeAfterResponse && !m.closeCalled {
+	if (m.closeAfterResponse || shouldClose) && !m.closeCalled {
+		if shouldClose {
+			logger.Info("MockStreamSession: SIMULATING GEMINI CLOSURE - closing session unexpectedly",
+				"afterTurns", m.responseCount)
+		}
 		m.closeCalled = true
 		close(m.doneCh)
 		close(m.responses)
@@ -266,6 +360,11 @@ type StreamingProvider struct {
 	// Auto-respond configuration for duplex testing
 	autoRespond  bool   // If true, sessions auto-respond to inputs
 	responseText string // Text to respond with
+
+	// Simulation configuration (applied to new sessions)
+	interruptOnTurn int  // Turn number to interrupt (1-indexed)
+	closeAfterTurns int  // Close session after N turns
+	closeNoResponse bool // If true, close without sending final response
 }
 
 // NewStreamingProvider creates a mock provider with duplex streaming support.
@@ -301,6 +400,25 @@ func (p *StreamingProvider) WithAutoRespond(responseText string) *StreamingProvi
 	return p
 }
 
+// WithInterruptOnTurn configures the provider to create sessions that simulate
+// an interruption on a specific turn. This mimics Gemini detecting user speech
+// while the model is responding.
+func (p *StreamingProvider) WithInterruptOnTurn(turnNumber int) *StreamingProvider {
+	p.interruptOnTurn = turnNumber
+	return p
+}
+
+// WithCloseAfterTurns configures the provider to create sessions that close
+// unexpectedly after N turns. This simulates Gemini dropping the connection.
+// If noResponse is true, the session closes WITHOUT sending the final response.
+func (p *StreamingProvider) WithCloseAfterTurns(turns int, noResponse ...bool) *StreamingProvider {
+	p.closeAfterTurns = turns
+	if len(noResponse) > 0 && noResponse[0] {
+		p.closeNoResponse = true
+	}
+	return p
+}
+
 // CreateStreamSession implements StreamInputSupport.CreateStreamSession.
 func (p *StreamingProvider) CreateStreamSession(
 	ctx context.Context,
@@ -319,6 +437,14 @@ func (p *StreamingProvider) CreateStreamSession(
 			responseText = DefaultMockStreamingResponse
 		}
 		session.WithAutoRespond(responseText)
+	}
+
+	// Apply simulation configurations
+	if p.interruptOnTurn > 0 {
+		session.WithInterruptOnTurn(p.interruptOnTurn)
+	}
+	if p.closeAfterTurns > 0 {
+		session.WithCloseAfterTurns(p.closeAfterTurns, p.closeNoResponse)
 	}
 
 	p.mu.Lock()

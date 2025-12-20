@@ -56,6 +56,20 @@ func NewToolProvider(id, model string, includeRawOutput bool, additionalConfig m
 			logger.Info("Mock provider: auto-respond enabled", "response_text", responseText)
 			streamingProvider.WithAutoRespond(responseText)
 		}
+
+		// Configure simulation behaviors for testing duplex failure scenarios
+		// YAML parses integers as float64, so handle both types
+		if interruptTurn := getIntFromConfig(additionalConfig, "interrupt_on_turn"); interruptTurn > 0 {
+			logger.Info("Mock provider: interrupt simulation enabled", "turn", interruptTurn)
+			streamingProvider.WithInterruptOnTurn(interruptTurn)
+		}
+		if closeTurns := getIntFromConfig(additionalConfig, "close_after_turns"); closeTurns > 0 {
+			closeNoResponse := getBoolFromConfig(additionalConfig, "close_no_response")
+			logger.Info("Mock provider: session closure simulation enabled",
+				"after_turns", closeTurns,
+				"no_response", closeNoResponse)
+			streamingProvider.WithCloseAfterTurns(closeTurns, closeNoResponse)
+		}
 	} else {
 		streamingProvider = NewStreamingProvider(id, model, includeRawOutput)
 	}
@@ -295,4 +309,32 @@ func (m *ToolProvider) PredictStreamWithTools(
 	}()
 
 	return outChan, nil
+}
+
+// getIntFromConfig extracts an integer from additionalConfig, handling YAML's float64 parsing.
+func getIntFromConfig(config map[string]interface{}, key string) int {
+	if val, ok := config[key]; ok {
+		switch v := val.(type) {
+		case int:
+			return v
+		case float64:
+			return int(v)
+		case int64:
+			return int(v)
+		}
+	}
+	return 0
+}
+
+// getBoolFromConfig extracts a boolean from additionalConfig.
+func getBoolFromConfig(config map[string]interface{}, key string) bool {
+	if val, ok := config[key]; ok {
+		switch v := val.(type) {
+		case bool:
+			return v
+		case string:
+			return v == "true"
+		}
+	}
+	return false
 }

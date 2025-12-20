@@ -122,8 +122,8 @@ func (r *Registry) GetAudioContentGenerator(
 		return nil, fmt.Errorf("failed to create text generator: %w", err)
 	}
 
-	// Get TTS service from registry
-	ttsService, err := r.ttsRegistry.Get(ttsConfig.Provider)
+	// Get TTS service from registry (uses full config for audio files support)
+	ttsService, err := r.ttsRegistry.GetWithConfig(ttsConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get TTS service: %w", err)
 	}

@@ -16,13 +16,16 @@ scenarios:
 
   # Self-play scenario responses (for the selfplay USER messages)
   # Note: These are what the simulated curious customer says, NOT the assistant
+  # Important: Avoid exclamation marks mid-sentence as TTS pauses after them,
+  # which can trigger Gemini's turn detection to start responding early.
   duplex-selfplay:
-    defaultResponse: "That's interesting! Can you tell me more?"
+    defaultResponse: "That's interesting, can you tell me more?"
     turns:
       # Turn 1 is after assistant's first greeting, so selfplay asks a question
-      1: "Oh that sounds helpful! What kind of services do you offer exactly?"
+      1: "Oh that sounds helpful, what kind of services do you offer exactly?"
       # Turn 2 is after assistant describes services
-      2: "Interesting! And um, is there like a demo I could try first?"
+      # Use continuous speech without pauses that could trigger Gemini's turn detection
+      2: "I think that's exactly what I need so is there a demo I could try first?"
       # Turn 3 is after assistant answers about demo
       3: "That sounds great. What about pricing options?"
       # Turn 4 is closing
@@ -40,12 +43,13 @@ scenarios:
       6: "Wonderful, I'm so glad that worked! Your session has been refreshed and you should be all set. Is there anything else I can help you with today?"
 
 # Self-play mock responses (for generating user messages)
+# Important: Avoid exclamation marks mid-sentence as TTS pauses after them.
 selfplay:
   curious-customer:
-    defaultResponse: "That's interesting! Can you tell me more?"
+    defaultResponse: "That sounds helpful can you tell me more?"
     turns:
-      1: "Oh that sounds great! What kind of pricing options do you have?"
-      2: "Interesting. And is there like a demo I could try out first?"
+      1: "Oh that sounds great what kind of pricing options do you have?"
+      2: "I think that's exactly what I need so is there a demo I could try out first?"
 
   technical-user:
     defaultResponse: "Okay, let me try that."

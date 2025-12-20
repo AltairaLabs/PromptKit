@@ -366,6 +366,9 @@ func getMediaItemSummary(part ContentPart) MediaItemSummary {
 			base64Numerator = 3
 		)
 		item.SizeBytes = (len(*part.Media.Data) * base64Numerator) / base64Ratio
+	} else if part.Media.StorageReference != nil {
+		item.Source = *part.Media.StorageReference
+		// StorageReference means media was externalized to storage
 	} else if part.Media.FilePath != nil {
 		item.Source = *part.Media.FilePath
 		// If Data field is set later, media was successfully loaded

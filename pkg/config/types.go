@@ -498,10 +498,18 @@ type VADConfig struct {
 
 // TTSConfig configures text-to-speech for self-play audio generation in duplex mode.
 type TTSConfig struct {
-	// Provider is the TTS provider (e.g., "openai", "elevenlabs", "cartesia").
+	// Provider is the TTS provider (e.g., "openai", "elevenlabs", "cartesia", "mock").
 	Provider string `json:"provider" yaml:"provider"`
 	// Voice is the voice ID to use for synthesis.
 	Voice string `json:"voice" yaml:"voice"`
+	// AudioFiles is a list of PCM audio files to use for mock TTS provider.
+	// When provider is "mock", these files are loaded and rotated through for each synthesis call.
+	// Paths are relative to the scenario file location.
+	AudioFiles []string `json:"audio_files,omitempty" yaml:"audio_files,omitempty"`
+	// SampleRate is the sample rate of the TTS output in Hz.
+	// Default is 24000 for most TTS providers. For mock provider with pre-recorded files,
+	// set this to match the actual file sample rate (e.g., 16000 for 16kHz PCM files).
+	SampleRate int `json:"sample_rate,omitempty" yaml:"sample_rate,omitempty"`
 }
 
 // Validate validates the DuplexConfig settings.
@@ -645,7 +653,8 @@ func (t *TTSConfig) Validate() error {
 	if t.Provider == "" {
 		return fmt.Errorf("tts provider is required")
 	}
-	if t.Voice == "" {
+	// Voice is optional for mock provider when audio_files are specified
+	if t.Voice == "" && t.Provider != "mock" {
 		return fmt.Errorf("tts voice is required")
 	}
 

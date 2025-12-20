@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -40,6 +41,9 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 	var cancel context.CancelFunc
 	if p.config.ExecutionTimeout > 0 {
 		execCtx, cancel = context.WithTimeout(ctx, p.config.ExecutionTimeout)
+		logger.Info("Pipeline ExecutionTimeout configured",
+			"timeout", p.config.ExecutionTimeout,
+			"stages", len(p.stages))
 	}
 
 	// Track execution for graceful shutdown
@@ -70,6 +74,21 @@ func (p *StreamPipeline) executeBackground(ctx context.Context, input <-chan Str
 	start := time.Now()
 	if p.eventEmitter != nil {
 		p.eventEmitter.PipelineStarted(len(p.stages))
+	}
+
+	// Monitor for ExecutionTimeout - log clearly when it triggers
+	if p.config.ExecutionTimeout > 0 {
+		go func() {
+			<-ctx.Done()
+			elapsed := time.Since(start)
+			if ctx.Err() == context.DeadlineExceeded {
+				logger.Error("PIPELINE EXECUTION TIMEOUT TRIGGERED",
+					"configured_timeout", p.config.ExecutionTimeout,
+					"elapsed", elapsed,
+					"stages", len(p.stages),
+					"hint", "Consider increasing ExecutionTimeout or using WithExecutionTimeout(0) for long-running pipelines")
+			}
+		}()
 	}
 
 	// Create channels between stages

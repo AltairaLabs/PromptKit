@@ -26,11 +26,14 @@ spec:
     - file: providers/openai-gpt4o-realtime.provider.yaml
     # Mock provider for CI testing
     - file: providers/mock-duplex.provider.yaml
+    # Mock provider with simulation (interruptions, session closures)
+    - file: providers/mock-duplex-simulate.provider.yaml
 
   # Scenario definitions
   scenarios:
     - file: scenarios/duplex-basic.scenario.yaml
     - file: scenarios/duplex-selfplay.scenario.yaml
+    - file: scenarios/duplex-selfplay-mock.scenario.yaml
     - file: scenarios/duplex-interactive.scenario.yaml
 
   # Self-play configuration for simulated conversations

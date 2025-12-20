@@ -43,6 +43,10 @@ const (
 	silenceFrameCount   = 8
 	silenceFrameDelayMS = 50
 	tokensPerThousand   = 1000.0
+
+	// Reconnection constants
+	reconnectSetupTimeoutSec = 10 // Timeout for setup_complete after reconnect
+	reconnectHeartbeatSec    = 30 // Heartbeat interval after successful reconnect
 )
 
 // sliceContains checks if a string slice contains a value
@@ -75,6 +79,7 @@ func truncateInlineData(v interface{}) {
 }
 
 // StreamSession implements StreamInputSession for Gemini Live API
+// with automatic reconnection on unexpected connection drops.
 type StreamSession struct {
 	ws              *WebSocketManager
 	ctx             context.Context
@@ -86,6 +91,37 @@ type StreamSession struct {
 	sequenceNum     int64
 	inputCostPer1K  float64 // Cost per 1K input tokens
 	outputCostPer1K float64 // Cost per 1K output tokens
+
+	// Configuration stored for reconnection
+	wsURL    string
+	apiKey   string
+	config   StreamSessionConfig
+	setupMsg map[string]interface{} // Cached setup message for reconnection
+
+	// Reconnection settings
+	autoReconnect     bool // If true, attempt reconnection on unexpected drop
+	maxReconnectTries int  // Maximum reconnection attempts (default: 3)
+	reconnecting      bool // True while reconnection is in progress
+}
+
+// VADConfig configures Voice Activity Detection settings for Gemini Live API.
+// These settings control when Gemini detects the end of speech and starts responding.
+type VADConfig struct {
+	// Disabled turns off automatic VAD (manual turn control only)
+	Disabled bool
+	// StartOfSpeechSensitivity controls how sensitive the VAD is to detecting speech start.
+	// Valid values: "UNSPECIFIED", "LOW", "MEDIUM", "HIGH"
+	StartOfSpeechSensitivity string
+	// EndOfSpeechSensitivity controls how sensitive the VAD is to detecting silence.
+	// Valid values: "UNSPECIFIED", "LOW", "MEDIUM", "HIGH"
+	// Lower sensitivity = longer silence needed to trigger end of speech
+	EndOfSpeechSensitivity string
+	// PrefixPaddingMs is extra padding in milliseconds before speech detection
+	PrefixPaddingMs int
+	// SilenceThresholdMs is the duration of silence (in ms) to trigger end of speech.
+	// This maps to Gemini's "suffixPaddingMs" parameter.
+	// Default is typically ~500ms. Increase for TTS audio with natural pauses.
+	SilenceThresholdMs int
 }
 
 // StreamSessionConfig configures a streaming session
@@ -95,6 +131,16 @@ type StreamSessionConfig struct {
 	SystemInstruction  string   // System prompt/instruction for the model
 	InputCostPer1K     float64  // Cost per 1K input tokens (for USD calculation)
 	OutputCostPer1K    float64  // Cost per 1K output tokens (for USD calculation)
+
+	// VAD configures Voice Activity Detection settings.
+	// If nil, Gemini uses its default VAD settings.
+	VAD *VADConfig
+
+	// AutoReconnect enables automatic reconnection on unexpected connection drops.
+	// When enabled, the session will attempt to reconnect and continue receiving
+	// responses. Note: conversation context may be lost on reconnection.
+	AutoReconnect     bool
+	MaxReconnectTries int // Maximum reconnection attempts (default: 3)
 }
 
 // NewStreamSession creates a new streaming session
@@ -121,14 +167,25 @@ func NewStreamSession(ctx context.Context, wsURL, apiKey string, config StreamSe
 		return nil, fmt.Errorf("failed to connect: %w", err)
 	}
 
+	// Set default max reconnect tries
+	maxReconnectTries := config.MaxReconnectTries
+	if maxReconnectTries <= 0 {
+		maxReconnectTries = 3
+	}
+
 	session := &StreamSession{
-		ws:              ws,
-		ctx:             sessionCtx,
-		cancel:          cancel,
-		responseCh:      make(chan providers.StreamChunk, responseChannelSize),
-		errCh:           make(chan error, 1),
-		inputCostPer1K:  config.InputCostPer1K,
-		outputCostPer1K: config.OutputCostPer1K,
+		ws:                ws,
+		ctx:               sessionCtx,
+		cancel:            cancel,
+		responseCh:        make(chan providers.StreamChunk, responseChannelSize),
+		errCh:             make(chan error, 1),
+		inputCostPer1K:    config.InputCostPer1K,
+		outputCostPer1K:   config.OutputCostPer1K,
+		wsURL:             wsURL,
+		apiKey:            apiKey,
+		config:            config,
+		autoReconnect:     config.AutoReconnect,
+		maxReconnectTries: maxReconnectTries,
 	}
 
 	// Ensure model is in correct format: models/{model}
@@ -171,6 +228,39 @@ func NewStreamSession(ctx context.Context, wsURL, apiKey string, config StreamSe
 		setupContent["inputAudioTranscription"] = map[string]interface{}{}
 	}
 
+	// Add VAD (Voice Activity Detection) configuration if provided
+	// Gemini Live API uses camelCase for JSON field names and specific enum values
+	// See: https://ai.google.dev/api/live
+	if config.VAD != nil {
+		vadConfig := map[string]interface{}{}
+
+		if config.VAD.Disabled {
+			vadConfig["disabled"] = true
+		} else {
+			// Use Gemini's enum values: START_SENSITIVITY_LOW/HIGH, END_SENSITIVITY_LOW/HIGH
+			if config.VAD.StartOfSpeechSensitivity != "" {
+				vadConfig["startOfSpeechSensitivity"] = config.VAD.StartOfSpeechSensitivity
+			}
+			if config.VAD.EndOfSpeechSensitivity != "" {
+				vadConfig["endOfSpeechSensitivity"] = config.VAD.EndOfSpeechSensitivity
+			}
+			if config.VAD.PrefixPaddingMs > 0 {
+				vadConfig["prefixPaddingMs"] = config.VAD.PrefixPaddingMs
+			}
+			if config.VAD.SilenceThresholdMs > 0 {
+				// Gemini uses "silenceDurationMs" for the silence threshold
+				vadConfig["silenceDurationMs"] = config.VAD.SilenceThresholdMs
+			}
+		}
+
+		if len(vadConfig) > 0 {
+			setupContent["realtimeInputConfig"] = map[string]interface{}{
+				"automaticActivityDetection": vadConfig,
+			}
+			logger.Debug("Gemini VAD config added to setup", "vadConfig", vadConfig)
+		}
+	}
+
 	// Add system instruction if provided
 	if config.SystemInstruction != "" {
 		setupContent["systemInstruction"] = map[string]interface{}{
@@ -183,6 +273,9 @@ func NewStreamSession(ctx context.Context, wsURL, apiKey string, config StreamSe
 	setupMsg := map[string]interface{}{
 		"setup": setupContent,
 	}
+
+	// Store setup message for reconnection
+	session.setupMsg = setupMsg
 
 	// Log setup message at debug level
 	if logger.DefaultLogger != nil {
@@ -291,18 +384,73 @@ func (s *StreamSession) CompleteTurn(ctx context.Context) error {
 	return s.ws.Send(msg)
 }
 
+// SendActivityStart signals the start of user audio input.
+// Use this when VAD is disabled (manual turn control mode).
+// Must be called before sending audio chunks for a turn.
+func (s *StreamSession) SendActivityStart() error {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return errors.New(ErrSessionClosed)
+	}
+	s.mu.Unlock()
+
+	msg := map[string]interface{}{
+		"realtime_input": map[string]interface{}{
+			"activityStart": map[string]interface{}{},
+		},
+	}
+
+	logger.Debug("Gemini StreamSession: sending activityStart")
+	return s.ws.Send(msg)
+}
+
+// SendActivityEnd signals the end of user audio input.
+// Use this when VAD is disabled (manual turn control mode).
+// Call after sending all audio chunks for a turn to trigger model response.
+func (s *StreamSession) SendActivityEnd() error {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return errors.New(ErrSessionClosed)
+	}
+	s.mu.Unlock()
+
+	msg := map[string]interface{}{
+		"realtime_input": map[string]interface{}{
+			"activityEnd": map[string]interface{}{},
+		},
+	}
+
+	logger.Debug("Gemini StreamSession: sending activityEnd")
+	return s.ws.Send(msg)
+}
+
+// IsVADDisabled returns true if automatic VAD is disabled for this session.
+// When VAD is disabled, callers should use SendActivityStart/SendActivityEnd
+// for manual turn control instead of relying on silence detection.
+func (s *StreamSession) IsVADDisabled() bool {
+	return s.config.VAD != nil && s.config.VAD.Disabled
+}
+
 // EndInput implements the EndInputter interface expected by DuplexProviderStage.
 // It signals that the user's input turn is complete and the model should respond.
 //
-// For Gemini Live API with realtime_input (audio streaming) and ASM mode,
-// the end of turn is derived from VAD detecting silence. We send silence frames
-// to help Gemini's VAD detect end of speech. We do NOT send a client_content
-// turn_complete message as that interferes with ASM mode and can cause the
-// session to close or interpret it as ending without user input.
+// Behavior depends on VAD configuration:
+// - If VAD is disabled: sends activityEnd signal for explicit turn control
+// - If VAD is enabled: sends silence frames to trigger VAD end-of-speech detection
 func (s *StreamSession) EndInput() {
-	logger.Debug("Gemini StreamSession: EndInput called")
+	logger.Debug("Gemini StreamSession: EndInput called", "vad_disabled", s.IsVADDisabled())
 
-	// Send silence frames to help VAD detect end of speech.
+	// When VAD is disabled, use explicit turn signaling
+	if s.IsVADDisabled() {
+		if err := s.SendActivityEnd(); err != nil {
+			logger.Error("Gemini StreamSession: EndInput failed to send activityEnd", "error", err)
+		}
+		return
+	}
+
+	// When VAD is enabled, send silence frames to help VAD detect end of speech.
 	// This mimics the natural trailing silence at the end of human speech.
 	// Gemini's ASM mode will detect this silence and trigger the model response.
 	//
@@ -362,6 +510,74 @@ func (s *StreamSession) Error() error {
 	}
 }
 
+// reconnect attempts to reconnect the WebSocket and resend setup.
+// Returns true if reconnection succeeded, false otherwise.
+func (s *StreamSession) reconnect() bool {
+	s.mu.Lock()
+	if s.closed || s.reconnecting {
+		s.mu.Unlock()
+		return false
+	}
+	s.reconnecting = true
+	s.mu.Unlock()
+
+	defer func() {
+		s.mu.Lock()
+		s.reconnecting = false
+		s.mu.Unlock()
+	}()
+
+	for attempt := 1; attempt <= s.maxReconnectTries; attempt++ {
+		logger.Info("StreamSession: attempting reconnection",
+			"attempt", attempt,
+			"maxAttempts", s.maxReconnectTries)
+
+		// Close old WebSocket
+		_ = s.ws.Close()
+
+		// Create new WebSocket manager and connect
+		s.ws = NewWebSocketManager(s.wsURL, s.apiKey)
+		if err := s.ws.ConnectWithRetry(s.ctx); err != nil {
+			logger.Warn("StreamSession: reconnection failed",
+				"attempt", attempt,
+				"error", err)
+			continue
+		}
+
+		// Resend setup message
+		if err := s.ws.Send(s.setupMsg); err != nil {
+			logger.Warn("StreamSession: failed to send setup after reconnect",
+				"attempt", attempt,
+				"error", err)
+			_ = s.ws.Close()
+			continue
+		}
+
+		// Wait for setup_complete
+		setupCtx, setupCancel := context.WithTimeout(s.ctx, reconnectSetupTimeoutSec*time.Second)
+		var setupResponse ServerMessage
+		err := s.ws.Receive(setupCtx, &setupResponse)
+		setupCancel()
+
+		if err != nil || setupResponse.SetupComplete == nil {
+			logger.Warn("StreamSession: setup_complete not received after reconnect",
+				"attempt", attempt,
+				"error", err)
+			_ = s.ws.Close()
+			continue
+		}
+
+		// Restart heartbeat
+		s.ws.StartHeartbeat(s.ctx, reconnectHeartbeatSec*time.Second)
+
+		logger.Info("StreamSession: reconnection successful", "attempt", attempt)
+		return true
+	}
+
+	logger.Error("StreamSession: all reconnection attempts failed")
+	return false
+}
+
 // receiveLoop continuously receives messages from the WebSocket
 func (s *StreamSession) receiveLoop() {
 	defer close(s.responseCh)
@@ -369,22 +585,49 @@ func (s *StreamSession) receiveLoop() {
 	for {
 		select {
 		case <-s.ctx.Done():
+			logger.Debug("StreamSession: receiveLoop exiting due to context done")
 			return
 		default:
 			// First receive as raw JSON to see what we're getting
 			var rawMsg json.RawMessage
 			if err := s.ws.Receive(s.ctx, &rawMsg); err != nil {
-				// Check if session was closed
+				// Check if session was closed intentionally
 				s.mu.Lock()
 				closed := s.closed
 				s.mu.Unlock()
 
 				if !closed {
-					// Send error to error channel
-					select {
-					case s.errCh <- err:
-					default:
+					// Log the error with details to help diagnose connection issues
+					errMsg := err.Error()
+					isEOF := strings.Contains(errMsg, "EOF") || strings.Contains(errMsg, "unexpected EOF")
+					isCloseErr := strings.Contains(errMsg, "close") || strings.Contains(errMsg, "websocket")
+					isTimeout := strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "deadline")
+
+					logger.Warn("StreamSession: WebSocket receive error",
+						"error", err,
+						"isEOF", isEOF,
+						"isCloseError", isCloseErr,
+						"isTimeout", isTimeout,
+						"autoReconnect", s.autoReconnect)
+
+					// Attempt reconnection if enabled
+					if s.autoReconnect && !isTimeout {
+						if s.reconnect() {
+							// Reconnection successful, continue receiving
+							logger.Info("StreamSession: continuing after successful reconnection")
+							continue
+						}
 					}
+
+					// Reconnection failed or not enabled
+					wrappedErr := fmt.Errorf("gemini websocket error: %w", err)
+					select {
+					case s.errCh <- wrappedErr:
+					default:
+						logger.Debug("StreamSession: error channel full, dropping error")
+					}
+				} else {
+					logger.Debug("StreamSession: receiveLoop exiting due to intentional close")
 				}
 				return
 			}
@@ -403,7 +646,7 @@ func (s *StreamSession) receiveLoop() {
 			if logger.DefaultLogger != nil {
 				// Parse into generic map to see full structure
 				var logMsg map[string]interface{}
-				json.Unmarshal(rawMsg, &logMsg)
+				_ = json.Unmarshal(rawMsg, &logMsg) // Error ignored - best-effort logging
 
 				// Build summary of what's in the message
 				var keys []string

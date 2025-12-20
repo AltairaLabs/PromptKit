@@ -8,6 +8,11 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+const (
+	// defaultMaxReconnectTries is the default number of reconnection attempts for stream sessions.
+	defaultMaxReconnectTries = 3
+)
+
 // Ensure GeminiProvider implements StreamInputSupport
 var _ providers.StreamInputSupport = (*Provider)(nil)
 
@@ -54,6 +59,8 @@ func (p *Provider) CreateStreamSession(
 	config := StreamSessionConfig{
 		Model:             p.Model,
 		SystemInstruction: req.SystemInstruction,
+		AutoReconnect:     true, // Enable auto-reconnect by default for resilience
+		MaxReconnectTries: defaultMaxReconnectTries,
 	}
 
 	// Set pricing from provider defaults, or use model-based defaults
@@ -79,6 +86,25 @@ func (p *Provider) CreateStreamSession(
 				}
 			}
 		}
+
+		// Check for VAD disabled mode (manual turn control)
+		// When vad_disabled=true, automatic VAD is disabled and callers must use
+		// activityStart/activityEnd signals for explicit turn control.
+		// This is useful for pre-recorded audio (like TTS selfplay) where we know
+		// exactly when the audio starts and ends, avoiding false turn detections
+		// from natural speech pauses.
+		if vadDisabled, ok := req.Metadata["vad_disabled"].(bool); ok && vadDisabled {
+			config.VAD = &VADConfig{
+				Disabled: true,
+			}
+		}
+
+		// Note: We intentionally do NOT pass custom VAD threshold configuration to Gemini.
+		// Gemini's default VAD thresholds work well, and custom values (especially
+		// custom silence_duration_ms and prefix_padding_ms) can cause Gemini to
+		// not respond at all. The scenario's VAD config is used for local turn
+		// detection only, not passed to the provider. However, we DO support
+		// vad_disabled=true for explicit turn control.
 	}
 
 	// Default to TEXT if not specified

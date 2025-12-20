@@ -137,14 +137,15 @@ func TestTTSRegistry_SupportedProviders(t *testing.T) {
 	registry := NewTTSRegistry()
 
 	providers := registry.SupportedProviders()
-	if len(providers) != 3 {
-		t.Errorf("SupportedProviders() returned %d providers, want 3", len(providers))
+	if len(providers) != 4 {
+		t.Errorf("SupportedProviders() returned %d providers, want 4", len(providers))
 	}
 
 	expected := map[string]bool{
 		TTSProviderOpenAI:     true,
 		TTSProviderElevenLabs: true,
 		TTSProviderCartesia:   true,
+		TTSProviderMock:       true,
 	}
 
 	for _, p := range providers {
@@ -156,12 +157,12 @@ func TestTTSRegistry_SupportedProviders(t *testing.T) {
 
 func TestTTSRegistry_Clear(t *testing.T) {
 	registry := NewTTSRegistry()
-	mockSvc := &mockTTSService{name: "mock"}
+	customSvc := &mockTTSService{name: "custom-provider"}
 
-	registry.Register("mock", mockSvc)
+	registry.Register("custom", customSvc)
 
 	// Verify it's registered
-	_, err := registry.Get("mock")
+	_, err := registry.Get("custom")
 	if err != nil {
 		t.Fatalf("Get() before Clear() error = %v", err)
 	}
@@ -169,9 +170,62 @@ func TestTTSRegistry_Clear(t *testing.T) {
 	// Clear the registry
 	registry.Clear()
 
-	// Now it should fail (mock is not a supported provider for createService)
-	_, err = registry.Get("mock")
+	// Now it should fail ("custom" is not a supported provider for createService)
+	_, err = registry.Get("custom")
 	if err == nil {
 		t.Error("Get() after Clear() expected error")
+	}
+}
+
+func TestTTSRegistry_Get_MockProvider(t *testing.T) {
+	registry := NewTTSRegistry()
+
+	// Mock provider should work without any API key
+	svc, err := registry.Get(TTSProviderMock)
+	if err != nil {
+		t.Fatalf("Get(mock) error = %v", err)
+	}
+	if svc.Name() != TTSProviderMock {
+		t.Errorf("Get(mock) returned service name %q, want %q", svc.Name(), TTSProviderMock)
+	}
+}
+
+func TestMockTTS_Synthesize(t *testing.T) {
+	mock := NewMockTTS()
+
+	// Test synthesis
+	reader, err := mock.Synthesize(context.Background(), "Hello world", tts.SynthesisConfig{})
+	if err != nil {
+		t.Fatalf("Synthesize() error = %v", err)
+	}
+	defer reader.Close()
+
+	// Read the audio data
+	audio, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+
+	// Should have generated audio (minimum 4800 samples * 2 bytes = 9600 bytes)
+	if len(audio) < 9600 {
+		t.Errorf("Synthesize() generated %d bytes, want at least 9600", len(audio))
+	}
+}
+
+func TestMockTTS_SupportedVoices(t *testing.T) {
+	mock := NewMockTTS()
+	voices := mock.SupportedVoices()
+
+	if len(voices) == 0 {
+		t.Error("SupportedVoices() returned empty list")
+	}
+}
+
+func TestMockTTS_SupportedFormats(t *testing.T) {
+	mock := NewMockTTS()
+	formats := mock.SupportedFormats()
+
+	if len(formats) == 0 {
+		t.Error("SupportedFormats() returned empty list")
 	}
 }

@@ -334,3 +334,315 @@ func TestDuplexProviderStage_ContextCancellation(t *testing.T) {
 	})
 }
 
+func TestDuplexProviderStage_InterruptionHandling(t *testing.T) {
+	t.Run("Captures interrupted responses with finish_reason metadata", func(t *testing.T) {
+		// Configure provider to emit an interrupted chunk followed by a final chunk
+		interruptedContent := "Sure, I'd be ha-"
+		finalContent := "Absolutely! We have a free demo available."
+		finishReasonComplete := "complete"
+
+		responseChunks := []providers.StreamChunk{
+			// First, some content arrives
+			{
+				Content: interruptedContent,
+				Delta:   interruptedContent,
+			},
+			// Then interruption occurs
+			{
+				Interrupted: true,
+			},
+			// Then the final response
+			{
+				Content:      finalContent,
+				Delta:        finalContent,
+				FinishReason: &finishReasonComplete,
+			},
+		}
+
+		provider := providersmock.NewStreamingProvider("test", "test-model", false)
+		stage := NewDuplexProviderStage(provider, baseConfig())
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		input := make(chan StreamElement, 10)
+		output := make(chan StreamElement, 20)
+
+		// Send system prompt (don't close input yet - that would close the session)
+		input <- elementWithSystemPrompt("Test system prompt")
+
+		// Process in background
+		go func() {
+			stage.Process(ctx, input, output)
+		}()
+
+		// Wait for session to be created
+		time.Sleep(50 * time.Millisecond)
+
+		// Emit response chunks directly to the session
+		session := provider.GetSession()
+		require.NotNil(t, session, "Session should be created")
+		for _, chunk := range responseChunks {
+			session.EmitChunk(&chunk)
+		}
+
+		// Give time for chunks to be processed
+		time.Sleep(50 * time.Millisecond)
+
+		// Now close input to end the session
+		close(input)
+
+		// Collect output elements
+		var outputElements []StreamElement
+		timeout := time.After(500 * time.Millisecond)
+	collectLoop:
+		for {
+			select {
+			case elem, ok := <-output:
+				if !ok {
+					break collectLoop
+				}
+				outputElements = append(outputElements, elem)
+			case <-timeout:
+				break collectLoop
+			}
+		}
+		cancel()
+
+		// Find the interrupted message and final message
+		var interruptedMsg, finalMsg *types.Message
+		for _, elem := range outputElements {
+			if elem.Message != nil && elem.Message.Role == "assistant" {
+				// Check for finish_reason in message metadata
+				if elem.Message.Meta != nil {
+					if reason, ok := elem.Message.Meta["finish_reason"].(string); ok {
+						if reason == "interrupted" {
+							interruptedMsg = elem.Message
+						} else if reason == "complete" {
+							finalMsg = elem.Message
+						}
+					}
+				}
+			}
+		}
+
+		// Verify interrupted message was captured
+		assert.NotNil(t, interruptedMsg, "Should capture interrupted response as a message")
+		if interruptedMsg != nil {
+			assert.Equal(t, interruptedContent, interruptedMsg.Content, "Interrupted message should have partial content")
+			assert.Equal(t, "interrupted", interruptedMsg.Meta["finish_reason"], "Interrupted message should have finish_reason: interrupted")
+			assert.True(t, interruptedMsg.Meta["is_partial"].(bool), "Interrupted message should be marked as partial")
+		}
+
+		// Verify final message was captured
+		assert.NotNil(t, finalMsg, "Should capture final response as a message")
+		if finalMsg != nil {
+			assert.Equal(t, finalContent, finalMsg.Content, "Final message should have complete content")
+			assert.Equal(t, "complete", finalMsg.Meta["finish_reason"], "Final message should have finish_reason: complete")
+		}
+	})
+
+	// This test simulates the REAL Gemini behavior we're seeing:
+	// 1. Content chunks arrive (Gemini starts responding)
+	// 2. interrupted: true arrives (user started speaking)
+	// 3. turnComplete with NO content arrives (closing interrupted turn)
+	// 4. More content arrives (Gemini's new response)
+	// 5. turnComplete with content arrives (final response)
+	//
+	// The key issue: step 3's turnComplete should NOT emit EndOfStream
+	// because it's just closing the interrupted turn, not the final response.
+	t.Run("Empty turnComplete after interruption does not emit EndOfStream", func(t *testing.T) {
+		finishReasonComplete := "complete"
+
+		provider := providersmock.NewStreamingProvider("test", "test-model", false)
+		stage := NewDuplexProviderStage(provider, baseConfig())
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		input := make(chan StreamElement, 10)
+		output := make(chan StreamElement, 20)
+
+		input <- elementWithSystemPrompt("Test system prompt")
+
+		go func() {
+			stage.Process(ctx, input, output)
+		}()
+
+		time.Sleep(50 * time.Millisecond)
+		session := provider.GetSession()
+		require.NotNil(t, session)
+
+		// Simulate Gemini's interruption flow:
+		// 1. Some content arrives
+		session.EmitChunk(&providers.StreamChunk{
+			Content: "Sure, I'd be ha-",
+			Delta:   "Sure, I'd be ha-",
+		})
+
+		// 2. Interruption signal
+		session.EmitChunk(&providers.StreamChunk{
+			Interrupted: true,
+		})
+
+		// 3. Empty turnComplete (this should NOT cause EndOfStream)
+		session.EmitChunk(&providers.StreamChunk{
+			FinishReason: &finishReasonComplete,
+			// No content - this is just closing the interrupted turn
+		})
+
+		time.Sleep(50 * time.Millisecond)
+
+		// Collect elements so far - should NOT have EndOfStream yet
+		var elementsBeforeFinal []StreamElement
+		collectTimeout := time.After(100 * time.Millisecond)
+	collectBeforeFinal:
+		for {
+			select {
+			case elem := <-output:
+				elementsBeforeFinal = append(elementsBeforeFinal, elem)
+			case <-collectTimeout:
+				break collectBeforeFinal
+			}
+		}
+
+		// Verify no EndOfStream was emitted for the empty turnComplete
+		hasEndOfStreamBeforeFinal := false
+		hasInterruptedTurnComplete := false
+		for _, elem := range elementsBeforeFinal {
+			if elem.EndOfStream {
+				hasEndOfStreamBeforeFinal = true
+			}
+			if elem.Metadata != nil {
+				if itc, ok := elem.Metadata["interrupted_turn_complete"].(bool); ok && itc {
+					hasInterruptedTurnComplete = true
+				}
+			}
+		}
+
+		assert.False(t, hasEndOfStreamBeforeFinal,
+			"Empty turnComplete after interruption should NOT emit EndOfStream")
+		assert.True(t, hasInterruptedTurnComplete,
+			"Should emit interrupted_turn_complete metadata")
+
+		// 4. Now the real response arrives
+		session.EmitChunk(&providers.StreamChunk{
+			Content: "Absolutely! We have a demo.",
+			Delta:   "Absolutely! We have a demo.",
+		})
+
+		// 5. Final turnComplete with content
+		session.EmitChunk(&providers.StreamChunk{
+			Content:      "",
+			FinishReason: &finishReasonComplete,
+		})
+
+		time.Sleep(50 * time.Millisecond)
+		close(input)
+
+		// Collect remaining elements
+		var finalElements []StreamElement
+		finalTimeout := time.After(500 * time.Millisecond)
+	collectFinal:
+		for {
+			select {
+			case elem, ok := <-output:
+				if !ok {
+					break collectFinal
+				}
+				finalElements = append(finalElements, elem)
+			case <-finalTimeout:
+				break collectFinal
+			}
+		}
+		cancel()
+
+		// Now we should have EndOfStream with content
+		hasEndOfStreamFinal := false
+		var finalMessage *types.Message
+		for _, elem := range finalElements {
+			if elem.EndOfStream {
+				hasEndOfStreamFinal = true
+				finalMessage = elem.Message
+			}
+		}
+
+		assert.True(t, hasEndOfStreamFinal, "Final turnComplete should emit EndOfStream")
+		assert.NotNil(t, finalMessage, "Final response should have a message")
+		if finalMessage != nil {
+			assert.Equal(t, "Absolutely! We have a demo.", finalMessage.Content)
+		}
+	})
+
+	// Test the scenario where interruption happens with NO accumulated content
+	// (Gemini was interrupted before it could respond)
+	t.Run("Interruption with no content followed by empty turnComplete", func(t *testing.T) {
+		finishReasonComplete := "complete"
+
+		provider := providersmock.NewStreamingProvider("test", "test-model", false)
+		stage := NewDuplexProviderStage(provider, baseConfig())
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		input := make(chan StreamElement, 10)
+		output := make(chan StreamElement, 20)
+
+		input <- elementWithSystemPrompt("Test system prompt")
+
+		go func() {
+			stage.Process(ctx, input, output)
+		}()
+
+		time.Sleep(50 * time.Millisecond)
+		session := provider.GetSession()
+		require.NotNil(t, session)
+
+		// Interruption with NO prior content (Gemini hadn't started responding)
+		session.EmitChunk(&providers.StreamChunk{
+			Interrupted: true,
+		})
+
+		// Empty turnComplete
+		session.EmitChunk(&providers.StreamChunk{
+			FinishReason: &finishReasonComplete,
+		})
+
+		time.Sleep(50 * time.Millisecond)
+
+		// Collect elements - should have interrupted_turn_complete, NOT EndOfStream
+		var elements []StreamElement
+		collectTimeout := time.After(100 * time.Millisecond)
+	collect:
+		for {
+			select {
+			case elem := <-output:
+				elements = append(elements, elem)
+			case <-collectTimeout:
+				break collect
+			}
+		}
+
+		hasEndOfStream := false
+		hasInterruptedTurnComplete := false
+		for _, elem := range elements {
+			if elem.EndOfStream {
+				hasEndOfStream = true
+			}
+			if elem.Metadata != nil {
+				if itc, ok := elem.Metadata["interrupted_turn_complete"].(bool); ok && itc {
+					hasInterruptedTurnComplete = true
+				}
+			}
+		}
+
+		assert.False(t, hasEndOfStream,
+			"Empty turnComplete after interruption (no content) should NOT emit EndOfStream")
+		assert.True(t, hasInterruptedTurnComplete,
+			"Should emit interrupted_turn_complete metadata")
+
+		close(input)
+		cancel()
+	})
+}
+

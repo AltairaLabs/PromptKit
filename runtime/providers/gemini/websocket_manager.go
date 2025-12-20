@@ -155,6 +155,12 @@ func (wm *WebSocketManager) Receive(ctx context.Context, v interface{}) error {
 		wm.mu.Lock()
 		wm.connected = false
 		wm.mu.Unlock()
+
+		// Check if this is a close error from the remote (Gemini)
+		var closeErr *websocket.CloseError
+		if errors.As(err, &closeErr) {
+			return fmt.Errorf("REMOTE_CLOSED: code=%d reason=%q: %w", closeErr.Code, closeErr.Text, err)
+		}
 		return fmt.Errorf("failed to read message: %w", err)
 	}
 

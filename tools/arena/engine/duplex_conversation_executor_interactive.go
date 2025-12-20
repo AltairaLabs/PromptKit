@@ -8,10 +8,12 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
@@ -44,6 +46,75 @@ const (
 	roleAssistant = "assistant"
 )
 
+// errPartialSuccess is returned when a duplex conversation ends early but enough
+// turns have completed to consider it a partial success. This is not a failure.
+var errPartialSuccess = errors.New("partial success")
+
+// responseAction indicates how a response element should be handled.
+type responseAction int
+
+const (
+	// responseActionContinue means the element was informational (interruption signal),
+	// and we should continue waiting for the final response.
+	responseActionContinue responseAction = iota
+	// responseActionComplete means we received a complete response.
+	responseActionComplete
+	// responseActionError means an error occurred or the response was empty.
+	responseActionError
+)
+
+// processResponseElement handles a response element from the pipeline, determining
+// the appropriate action based on interruption signals, turn completion, and errors.
+//
+// This consolidates the response handling logic that was duplicated in
+// streamAudioChunks and streamSelfPlayAudio.
+//
+// Returns:
+//   - responseAction: what action to take
+//   - error: any error to return (only set when action is responseActionError)
+func processResponseElement(elem *stage.StreamElement, logPrefix string) (responseAction, error) {
+	// Check for errors
+	if elem.Error != nil {
+		return responseActionError, elem.Error
+	}
+
+	// Check for interruption signals - these are informational, keep waiting
+	if elem.Metadata != nil {
+		// Interruption signal: Gemini detected user started speaking during response.
+		// The partial response has been captured, now waiting for the new response.
+		if interrupted, ok := elem.Metadata["interrupted"].(bool); ok && interrupted {
+			logger.Debug(logPrefix + ": response interrupted, waiting for new response")
+			return responseActionContinue, nil
+		}
+
+		// Interrupted turn complete: Empty turnComplete after interruption.
+		// This is just Gemini closing the interrupted turn, not the final response.
+		if itc, ok := elem.Metadata["interrupted_turn_complete"].(bool); ok && itc {
+			logger.Debug(logPrefix + ": interrupted turn complete, waiting for real response")
+			return responseActionContinue, nil
+		}
+	}
+
+	// Check for turn completion (EndOfStream from DuplexProviderStage)
+	if elem.EndOfStream {
+		logger.Debug(logPrefix+": EndOfStream received",
+			"hasMessage", elem.Message != nil,
+			"hasText", elem.Text != nil)
+
+		// Check for empty response - shouldn't happen with proper interruption handling,
+		// but serves as a safety net. Treat as retriable error.
+		if elem.Message == nil || (elem.Message.Content == "" && len(elem.Message.Parts) == 0) {
+			logger.Debug(logPrefix + ": empty response, treating as retriable error")
+			return responseActionError, errors.New("empty response from Gemini, likely interrupted")
+		}
+
+		return responseActionComplete, nil
+	}
+
+	// Element doesn't require action (e.g., streaming text/audio chunk)
+	return responseActionContinue, nil
+}
+
 // ExecuteConversationStream runs a duplex conversation with streaming output.
 // For duplex mode, this returns chunks as they arrive from the provider.
 func (de *DuplexConversationExecutor) ExecuteConversationStream(
@@ -69,6 +140,9 @@ func (de *DuplexConversationExecutor) ExecuteConversationStream(
 // executeDuplexConversation handles the main duplex conversation logic.
 // The pipeline is the single source of truth: PromptAssemblyStage loads the prompt,
 // then DuplexProviderStage creates the session using system_prompt from metadata.
+//
+// This method implements retry logic for recoverable errors (session drops, network issues).
+// On failure, it waits for retry_delay_ms and creates a fresh pipeline/session.
 func (de *DuplexConversationExecutor) executeDuplexConversation(
 	ctx context.Context,
 	req *ConversationRequest,
@@ -77,13 +151,108 @@ func (de *DuplexConversationExecutor) executeDuplexConversation(
 ) *ConversationResult {
 	de.emitSessionStarted(emitter, req)
 
-	// Build and execute the duplex pipeline
-	// The session is created inside the pipeline by DuplexProviderStage,
-	// using system_prompt from PromptAssemblyStage metadata.
-	result := de.executeDuplexPipeline(ctx, req, streamProvider, emitter)
+	// Get retry configuration from scenario
+	var resilience *config.DuplexResilienceConfig
+	if req.Scenario != nil && req.Scenario.Duplex != nil {
+		resilience = req.Scenario.Duplex.GetResilience()
+	}
+	maxRetries := resilience.GetMaxRetries(defaultMaxRetries)
+	retryDelayMS := resilience.GetRetryDelayMs(defaultRetryDelayMS)
+
+	var result *ConversationResult
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			logger.Info("Retrying duplex conversation",
+				"attempt", attempt,
+				"maxRetries", maxRetries,
+				"retryDelayMs", retryDelayMS)
+			time.Sleep(time.Duration(retryDelayMS) * time.Millisecond)
+
+			// Clear state store for fresh retry
+			if err := de.clearStateStoreForRetry(ctx, req); err != nil {
+				logger.Warn("Failed to clear state store for retry", "error", err)
+			}
+		}
+
+		// Build and execute the duplex pipeline
+		// The session is created inside the pipeline by DuplexProviderStage,
+		// using system_prompt from PromptAssemblyStage metadata.
+		result = de.executeDuplexPipeline(ctx, req, streamProvider, emitter)
+
+		// Check if we should retry
+		if !result.Failed {
+			// Success - no need to retry
+			break
+		}
+
+		if !de.isRecoverableError(result.Error) {
+			// Non-recoverable error - don't retry
+			logger.Debug("Non-recoverable error, not retrying", "error", result.Error)
+			break
+		}
+
+		if attempt < maxRetries {
+			logger.Warn("Duplex conversation failed with recoverable error, will retry",
+				"attempt", attempt+1,
+				"maxRetries", maxRetries,
+				"error", result.Error)
+		}
+	}
 
 	de.emitSessionCompleted(emitter, req)
 	return result
+}
+
+// isRecoverableError checks if an error is recoverable and should trigger a retry.
+// Recoverable errors include session drops, network issues, and provider transient failures.
+func (de *DuplexConversationExecutor) isRecoverableError(errMsg string) bool {
+	recoverablePatterns := []string{
+		"output channel closed unexpectedly",
+		"session ended",
+		"websocket",
+		"connection reset",
+		"connection refused",
+		"timeout",
+		"EOF",
+		"broken pipe",
+		"interrupted",    // Gemini interrupted the response
+		"empty response", // Empty response, likely from interruption
+	}
+
+	errLower := strings.ToLower(errMsg)
+	for _, pattern := range recoverablePatterns {
+		if strings.Contains(errLower, strings.ToLower(pattern)) {
+			return true
+		}
+	}
+	return false
+}
+
+// clearStateStoreForRetry clears the state store before a retry attempt.
+// This ensures we don't accumulate duplicate messages across retries.
+func (de *DuplexConversationExecutor) clearStateStoreForRetry(ctx context.Context, req *ConversationRequest) error {
+	if req.StateStoreConfig == nil || req.StateStoreConfig.Store == nil {
+		return nil
+	}
+
+	// ArenaStateStore has a Delete method, but the generic Store interface doesn't
+	arenaStore, ok := req.StateStoreConfig.Store.(*arenastore.ArenaStateStore)
+	if !ok {
+		// For other store types, save an empty state to reset
+		store, ok := req.StateStoreConfig.Store.(statestore.Store)
+		if ok {
+			emptyState := &statestore.ConversationState{
+				ID:       req.ConversationID,
+				Messages: []types.Message{},
+				Metadata: make(map[string]interface{}),
+			}
+			return store.Save(ctx, emptyState)
+		}
+		return nil
+	}
+
+	// Delete existing state for this conversation
+	return arenaStore.Delete(ctx, req.ConversationID)
 }
 
 // executeDuplexPipeline builds and runs the duplex streaming pipeline.
@@ -123,7 +292,10 @@ func (de *DuplexConversationExecutor) executeDuplexPipeline(
 
 	// Process turns from scenario
 	err = de.processDuplexTurns(ctx, req, baseDir, inputChan, outputChan, emitter)
-	if err != nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+	isExpectedErr := errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, context.Canceled) ||
+		errors.Is(err, errPartialSuccess)
+	if err != nil && !isExpectedErr {
 		return &ConversationResult{
 			Failed: true,
 			Error:  fmt.Sprintf("duplex conversation failed: %v", err),
@@ -142,11 +314,24 @@ func (de *DuplexConversationExecutor) buildDuplexPipeline(
 	req *ConversationRequest,
 	streamProvider providers.StreamInputSupport,
 ) (*stage.StreamPipeline, error) {
-	builder := stage.NewPipelineBuilder()
+	// Create pipeline with no ExecutionTimeout - duplex conversations use the parent context's
+	// timeout (configured via scenario.duplex.timeout, default 10 minutes) for overall timing.
+	// The default 30-second ExecutionTimeout would prematurely cancel multi-turn conversations.
+	pipelineConfig := stage.DefaultPipelineConfig().WithExecutionTimeout(0)
+	builder := stage.NewPipelineBuilderWithConfig(pipelineConfig)
 	var stages []stage.Stage
 
 	// Build merged variables for prompt assembly (consistent with non-duplex pipeline)
 	mergedVars := de.buildMergedVariables(req)
+
+	// 0. Audio resample stage - normalizes all input audio to target sample rate
+	// This must be first so all downstream stages receive consistent sample rates.
+	// Gemini expects 16kHz audio input.
+	resampleConfig := stage.AudioResampleConfig{
+		TargetSampleRate:      defaultSampleRate, // 16000 Hz for Gemini
+		PassthroughIfSameRate: true,
+	}
+	stages = append(stages, stage.NewAudioResampleStage(resampleConfig))
 
 	// Add VAD stage if using client-side turn detection
 	if de.shouldUseClientVAD(req) {
@@ -181,6 +366,12 @@ func (de *DuplexConversationExecutor) buildDuplexPipeline(
 	baseConfig := de.buildBaseSessionConfig(req)
 	stages = append(stages, stage.NewDuplexProviderStage(streamProvider, baseConfig))
 
+	// NOTE: ResponseVADStage was removed. It was intended to delay EndOfStream until
+	// VAD confirmed response audio stopped, but it caused timing issues with selfplay:
+	// 1. The 3-second max wait overlapped with TTS synthesis time
+	// 2. This caused turn overlaps leading to Gemini interruptions
+	// Gemini's turnComplete signal is now used directly for turn completion.
+
 	// 3. Media externalizer stage to save audio files
 	if de.mediaStorage != nil {
 		mediaConfig := &stage.MediaExternalizerConfig{
@@ -199,7 +390,7 @@ func (de *DuplexConversationExecutor) buildDuplexPipeline(
 	// the real-time element flow needed for duplex streaming. Turn assertions
 	// are handled separately by evaluateTurnAssertions() in the executor.
 
-	// 4. Arena state store save stage to capture conversation messages
+	// 5. Arena state store save stage to capture conversation messages
 	// This stage handles system_prompt in metadata and prepends it as a system message
 	if req.StateStoreConfig != nil && req.StateStoreConfig.Store != nil {
 		storeConfig := de.buildPipelineStateStoreConfig(req)
@@ -231,6 +422,43 @@ func (de *DuplexConversationExecutor) buildBaseSessionConfig(req *ConversationRe
 			if modalities, exists := providerCfg.AdditionalConfig["response_modalities"]; exists {
 				cfg.Metadata["response_modalities"] = modalities
 			}
+		}
+	}
+
+	// Enable VAD disabled mode for selfplay scenarios
+	// Selfplay uses pre-recorded TTS audio which has natural speech pauses.
+	// Gemini's automatic VAD detects these pauses as turn boundaries, causing
+	// interruptions mid-sentence. Manual turn control (activityStart/activityEnd)
+	// prevents this by explicitly signaling when the audio starts and ends.
+	if req.Config != nil && req.Config.SelfPlay != nil && req.Config.SelfPlay.Enabled {
+		cfg.Metadata["vad_disabled"] = true
+		logger.Debug("buildBaseSessionConfig: VAD disabled for selfplay scenario",
+			"scenario_id", req.Scenario.ID)
+	}
+
+	// Pass VAD config from scenario's duplex config
+	// This allows the scenario to control Gemini's turn detection sensitivity
+	// Note: When vad_disabled=true (selfplay), VAD config thresholds are ignored
+	if req.Scenario != nil && req.Scenario.Duplex != nil &&
+		req.Scenario.Duplex.TurnDetection != nil && req.Scenario.Duplex.TurnDetection.VAD != nil {
+		vad := req.Scenario.Duplex.TurnDetection.VAD
+		vadConfig := map[string]interface{}{}
+
+		if vad.SilenceThresholdMs > 0 {
+			vadConfig["silence_threshold_ms"] = vad.SilenceThresholdMs
+		}
+		if vad.MinSpeechMs > 0 {
+			vadConfig["min_speech_ms"] = vad.MinSpeechMs
+		}
+		if vad.MaxTurnDurationS > 0 {
+			vadConfig["max_turn_duration_s"] = vad.MaxTurnDurationS
+		}
+
+		if len(vadConfig) > 0 {
+			cfg.Metadata["vad_config"] = vadConfig
+			logger.Debug("buildBaseSessionConfig: VAD config from scenario",
+				"silence_threshold_ms", vad.SilenceThresholdMs,
+				"min_speech_ms", vad.MinSpeechMs)
 		}
 	}
 
@@ -362,6 +590,8 @@ func (de *DuplexConversationExecutor) processDuplexTurns(
 							"completedTurns", logicalTurnIdx,
 							"minTurnsForSuccess", partialSuccessMinTurns)
 						de.emitTurnCompleted(emitter, logicalTurnIdx, turn.Role, req.Scenario.ID, nil)
+						// Use sentinel error to exit both loops without marking run as failed
+						turnErr = errPartialSuccess
 						break
 					}
 				}
@@ -409,6 +639,22 @@ func (de *DuplexConversationExecutor) processDuplexTurns(
 
 		if turnErr != nil {
 			break
+		}
+	}
+
+	// Signal that all responses have been received (we wait synchronously for each turn's response)
+	// This tells DuplexProviderStage to skip the finalResponseTimeout since we're done
+	if turnErr == nil || errors.Is(turnErr, errPartialSuccess) {
+		allDoneElem := stage.StreamElement{
+			Metadata: map[string]interface{}{
+				"all_responses_received": true,
+			},
+		}
+		select {
+		case inputChan <- allDoneElem:
+			logger.Debug("processDuplexTurns: sent all_responses_received signal")
+		case <-ctx.Done():
+			// Context canceled, just close
 		}
 	}
 
@@ -518,14 +764,26 @@ func (de *DuplexConversationExecutor) streamAudioTurn(
 		}
 	}
 
+	// Generate unique turn ID for this user message
+	// This is used to correlate transcription events with the correct user message
+	turnID := uuid.New().String()
+
 	// Create user message element to capture in state store
 	userMsg := &types.Message{
 		Role:  "user",
 		Parts: messageParts,
+		Meta: map[string]interface{}{
+			"turn_id": turnID,
+		},
 	}
 
 	// Send user message to pipeline for state store capture
 	userMsgElem := stage.NewMessageElement(userMsg)
+	// Also add turn_id to element metadata so DuplexProviderStage can track it
+	if userMsgElem.Metadata == nil {
+		userMsgElem.Metadata = make(map[string]interface{})
+	}
+	userMsgElem.Metadata["turn_id"] = turnID
 	select {
 	case inputChan <- userMsgElem:
 	case <-ctx.Done():
@@ -574,7 +832,8 @@ drainLoop:
 	}
 
 	// Start a goroutine to collect responses.
-	// It exits when it sees EndOfStream (turn complete) - pipeline draining happens in processDuplexTurns.
+	// It waits for EndOfStream (turn complete) from the pipeline.
+	// EndOfStream is set by DuplexProviderStage when Gemini sends turnComplete.
 	responseDone := make(chan error, 1)
 	go func() {
 		for {
@@ -582,22 +841,25 @@ drainLoop:
 			case <-ctx.Done():
 				responseDone <- ctx.Err()
 				return
+
 			case elem, ok := <-outputChan:
 				if !ok {
-					// Channel closed - session ended
-					responseDone <- nil
+					// Channel closed before receiving response - session ended prematurely
+					// This can happen if the input channel closes before Gemini responds
+					logger.Debug("Turn response channel closed before receiving complete response")
+					responseDone <- fmt.Errorf("session ended before receiving response: %w", errSessionEnded)
 					return
 				}
-				if elem.Error != nil {
-					responseDone <- elem.Error
-					return
-				}
-				// Check for turn completion (EndOfStream flag set by provider)
-				if elem.EndOfStream {
-					logger.Debug("Turn response complete",
-						"hasMessage", elem.Message != nil,
-						"hasText", elem.Text != nil)
+
+				action, err := processResponseElement(&elem, "Turn")
+				switch action {
+				case responseActionContinue:
+					continue
+				case responseActionComplete:
 					responseDone <- nil
+					return
+				case responseActionError:
+					responseDone <- err
 					return
 				}
 			}
@@ -702,8 +964,13 @@ func (de *DuplexConversationExecutor) processSelfPlayDuplexTurn(
 	// Get the generated text content
 	generatedText := audioResult.TextResult.Response.Content
 
+	// Generate unique turn ID for this user message
+	// This is used to correlate transcription events with the correct user message
+	turnID := uuid.New().String()
+
 	logger.Debug("Self-play audio generated",
 		"turn", turnIdx,
+		"turn_id", turnID,
 		"generated_text", generatedText,
 		"text_length", len(generatedText),
 		"audio_bytes", len(audioResult.Audio),
@@ -732,20 +999,38 @@ func (de *DuplexConversationExecutor) processSelfPlayDuplexTurn(
 	}
 
 	// Add selfplay metadata to the user message for reporting
+	// Include turn_id for correlating transcription events
+	// Only include essential selfplay fields, not pipeline internal metadata
 	userMsg.Meta = map[string]interface{}{
+		"turn_id":             turnID,
 		"self_play":           true,
 		"persona":             turn.Persona,
 		"selfplay_turn_index": selfplayTurnNum,
 	}
-	// Copy any additional metadata from the text generation result
+
+	// Copy only relevant metadata from text generation result
+	// Avoid copying pipeline internal fields like system_prompt, base_variables, etc.
 	if audioResult.TextResult != nil && audioResult.TextResult.Metadata != nil {
-		for k, v := range audioResult.TextResult.Metadata {
-			userMsg.Meta[k] = v
+		// Only copy specific fields that are relevant to selfplay output
+		relevantFields := []string{
+			"self_play_provider",
+			"validation_warning",
+			"warning_type",
+		}
+		for _, field := range relevantFields {
+			if v, ok := audioResult.TextResult.Metadata[field]; ok {
+				userMsg.Meta[field] = v
+			}
 		}
 	}
 
 	// Send user message to pipeline for state store capture
 	userMsgElem := stage.NewMessageElement(userMsg)
+	// Also add turn_id to element metadata so DuplexProviderStage can track it
+	if userMsgElem.Metadata == nil {
+		userMsgElem.Metadata = make(map[string]interface{})
+	}
+	userMsgElem.Metadata["turn_id"] = turnID
 	select {
 	case inputChan <- userMsgElem:
 	case <-ctx.Done():
@@ -758,13 +1043,15 @@ func (de *DuplexConversationExecutor) processSelfPlayDuplexTurn(
 }
 
 // streamSelfPlayAudio streams synthesized audio to the duplex pipeline.
-// If the audio sample rate differs from the target rate (16kHz for Gemini),
-// the audio is resampled before streaming.
+// The audio is passed with its original sample rate - the AudioResampleStage
+// in the pipeline will normalize it to the provider's expected rate (16kHz for Gemini).
 //
-// IMPORTANT: Audio is streamed at real-time pace (not burst mode) because
-// Gemini's ASM (Automatic Speech Model) expects audio to arrive at playback speed.
-// Without pacing, TTS prosody pauses would appear as extended silence periods
-// to the ASM, causing it to incorrectly detect turn boundaries mid-utterance.
+// Audio is sent in burst mode (as fast as possible) to avoid interruption issues.
+// Real-time pacing was previously used but caused problems: Gemini would start
+// responding before all audio was sent (detecting speech pauses mid-utterance),
+// and when more audio arrived, Gemini treated it as "user interrupted" and
+// discarded its response. Burst mode avoids this by sending all audio before
+// Gemini can detect any turn boundaries.
 func (de *DuplexConversationExecutor) streamSelfPlayAudio(
 	ctx context.Context,
 	audioData []byte,
@@ -772,27 +1059,19 @@ func (de *DuplexConversationExecutor) streamSelfPlayAudio(
 	inputChan chan<- stage.StreamElement,
 	outputChan <-chan stage.StreamElement,
 ) error {
-	// Resample audio if needed (Gemini expects 16kHz)
-	targetSampleRate := defaultSampleRate // 16000
-	if sampleRate != 0 && sampleRate != targetSampleRate {
-		logger.Debug("Resampling selfplay audio",
-			"from_rate", sampleRate,
-			"to_rate", targetSampleRate,
-			"input_bytes", len(audioData),
-		)
-		resampled, err := audio.ResamplePCM16(audioData, sampleRate, targetSampleRate)
-		if err != nil {
-			return fmt.Errorf("failed to resample audio: %w", err)
-		}
-		logger.Debug("Resampled selfplay audio",
-			"output_bytes", len(resampled),
-		)
-		audioData = resampled
+	// Note: Resampling is now handled by AudioResampleStage in the pipeline.
+	// The audio element carries the source sample rate so the stage can
+	// resample as needed.
+
+	// Use source sample rate for chunking (default to 16kHz if not specified)
+	sourceSampleRate := sampleRate
+	if sourceSampleRate == 0 {
+		sourceSampleRate = defaultSampleRate
 	}
 
-	// Start a goroutine to collect responses
-	// It waits for EndOfStream (turnComplete from Gemini) before returning.
-	// This ensures we don't prematurely close the session while Gemini is still responding.
+	// Start a goroutine to collect responses.
+	// It waits for EndOfStream (turn complete) from the pipeline.
+	// EndOfStream is set by DuplexProviderStage when Gemini sends turnComplete.
 	responseDone := make(chan error, 1)
 	go func() {
 		for {
@@ -805,44 +1084,40 @@ func (de *DuplexConversationExecutor) streamSelfPlayAudio(
 				if !ok {
 					// Channel closed - session ended unexpectedly
 					logger.Debug("Self-play output channel closed unexpectedly")
-					responseDone <- errors.New("output channel closed unexpectedly")
-					return
-				}
-				if elem.Error != nil {
-					responseDone <- elem.Error
+					responseDone <- fmt.Errorf("output channel closed unexpectedly: %w", errSessionEnded)
 					return
 				}
 
-				// Check for turn completion (EndOfStream flag set by provider when turnComplete received)
-				if elem.EndOfStream {
-					logger.Debug("Self-play EndOfStream received (turn complete)",
-						"hasMessage", elem.Message != nil,
-						"hasText", elem.Text != nil)
+				action, err := processResponseElement(&elem, "Self-play")
+				switch action {
+				case responseActionContinue:
+					continue
+				case responseActionComplete:
 					responseDone <- nil
 					return
+				case responseActionError:
+					responseDone <- err
+					return
 				}
-				// Continue collecting response elements until we get turnComplete
 			}
 		}
 	}()
 
-	// Calculate chunk duration for real-time pacing
-	// At 16kHz 16-bit mono: 640 bytes = 320 samples = 20ms of audio
-	// We pace audio streaming to match real-time playback speed so that
-	// Gemini's ASM interprets pauses correctly (natural speech cadence vs turn boundaries)
+	// Stream audio in BURST MODE (as fast as possible) to avoid interruption issues.
+	// Real-time pacing was removed because it caused problems: Gemini's VAD would detect
+	// pauses in the TTS audio (commas, periods) mid-utterance and start responding before
+	// all audio was sent. When more audio arrived, Gemini treated it as an interruption.
+	// Burst mode sends all audio before Gemini can detect any turn boundaries.
 	chunkSize := defaultAudioChunkSize
-	bytesPerSample := 2                                                                             // 16-bit = 2 bytes
-	samplesPerChunk := chunkSize / bytesPerSample                                                   // 320 samples
-	chunkDuration := time.Duration(samplesPerChunk) * time.Second / time.Duration(targetSampleRate) // 20ms
 
-	logger.Debug("Streaming selfplay audio with real-time pacing",
+	totalChunks := (len(audioData) + chunkSize - 1) / chunkSize
+	logger.Debug("Streaming selfplay audio in BURST MODE",
 		"chunk_size", chunkSize,
-		"chunk_duration_ms", chunkDuration.Milliseconds(),
+		"source_sample_rate", sourceSampleRate,
 		"total_bytes", len(audioData),
-		"total_chunks", (len(audioData)+chunkSize-1)/chunkSize,
+		"total_chunks", totalChunks,
 	)
 
-	// Stream audio in chunks with real-time pacing
 	streamStart := time.Now()
 	for offset := 0; offset < len(audioData); offset += chunkSize {
 		end := offset + chunkSize
@@ -851,12 +1126,19 @@ func (de *DuplexConversationExecutor) streamSelfPlayAudio(
 		}
 
 		chunk := audioData[offset:end]
+		chunkIdx := offset / chunkSize
+
 		elem := stage.StreamElement{
 			Audio: &stage.AudioData{
 				Samples:    chunk,
-				SampleRate: defaultSampleRate,
+				SampleRate: sourceSampleRate, // Pass source rate so AudioResampleStage can convert
 				Channels:   1,
 				Format:     stage.AudioFormatPCM16,
+			},
+			// Mark as passthrough so AudioTurnStage forwards immediately
+			// instead of accumulating (which breaks real-time streaming)
+			Metadata: map[string]interface{}{
+				"passthrough": true,
 			},
 		}
 
@@ -866,18 +1148,22 @@ func (de *DuplexConversationExecutor) streamSelfPlayAudio(
 			return ctx.Err()
 		}
 
-		// Real-time pacing: wait for chunk duration before sending next chunk
-		// This ensures audio arrives at Gemini at playback speed
-		chunkIdx := offset / chunkSize
-		expectedTime := time.Duration(chunkIdx+1) * chunkDuration
-		elapsed := time.Since(streamStart)
-		if sleepTime := expectedTime - elapsed; sleepTime > 0 {
-			time.Sleep(sleepTime)
+		// Log first, middle, and last chunk for debugging
+		if chunkIdx == 0 || chunkIdx == totalChunks/2 || chunkIdx == totalChunks-1 {
+			logger.Debug("Selfplay audio chunk sent (burst mode)",
+				"chunk_idx", chunkIdx,
+				"total_chunks", totalChunks,
+				"elapsed_ms", time.Since(streamStart).Milliseconds(),
+				"chunk_bytes", len(chunk),
+			)
 		}
+		// NO SLEEP - burst mode sends as fast as possible
 	}
 
 	// Signal end of audio input for this turn
 	// This triggers mock sessions to emit their auto-response
+	// For Gemini, this calls EndInput() which sends turn_complete=true
+	logger.Debug("streamSelfPlayAudio: sending EndOfStream signal to trigger response")
 	endOfTurn := stage.StreamElement{EndOfStream: true}
 	select {
 	case inputChan <- endOfTurn:

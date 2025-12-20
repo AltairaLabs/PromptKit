@@ -53,6 +53,12 @@ const (
 	defaultMinAudioBytes        = 1600  // 50ms at 16kHz 16-bit mono
 	defaultTTSOutputSampleRate  = 24000 // OpenAI TTS output sample rate
 	msPerSecond                 = 1000
+
+	// ResponseVAD default params - tuned for TTS audio detection
+	defaultResponseVADConfidence = 0.3   // Lower threshold for TTS audio
+	defaultResponseVADStartSecs  = 0.05  // Quick start detection (50ms)
+	defaultResponseVADStopSecs   = 0.3   // 300ms silence to confirm stop
+	defaultResponseVADMinVolume  = 0.005 // Lower min volume for TTS
 )
 
 // DefaultAudioTurnConfig returns sensible defaults for AudioTurnStage.
@@ -149,6 +155,17 @@ func (s *AudioTurnStage) Process(
 				return err
 			}
 			continue
+		}
+
+		// Check for passthrough mode - forward audio immediately without accumulation
+		// This is used for selfplay/TTS audio that needs real-time streaming to the provider
+		if elem.Metadata != nil {
+			if passthrough, ok := elem.Metadata["passthrough"].(bool); ok && passthrough {
+				if err := s.forwardElement(ctx, &elem, output); err != nil {
+					return err
+				}
+				continue
+			}
 		}
 
 		// Process audio chunk and handle turn completion
@@ -721,4 +738,251 @@ func (s *TTSStageWithInterruption) extractText(elem *StreamElement) string {
 	}
 
 	return ""
+}
+
+// ResponseVADConfig configures the ResponseVADStage.
+type ResponseVADConfig struct {
+	// VAD is the voice activity detector.
+	// If nil, a SimpleVAD with default params is created.
+	VAD audio.VADAnalyzer
+
+	// SilenceDuration is how long silence must persist after EndOfStream
+	// to confirm turn completion.
+	// Default: 500ms
+	SilenceDuration time.Duration
+
+	// MaxWaitDuration is the maximum time to wait for silence after EndOfStream.
+	// If silence is not detected within this time, EndOfStream is emitted anyway.
+	// Default: 3s
+	MaxWaitDuration time.Duration
+
+	// SampleRate is the expected audio sample rate.
+	// Default: 24000 (Gemini output)
+	SampleRate int
+}
+
+const (
+	defaultResponseVADSilence    = 500 * time.Millisecond
+	defaultResponseVADMaxWait    = 3 * time.Second
+	defaultResponseVADSampleRate = 24000
+	responseVADCheckIntervalMs   = 50
+)
+
+// DefaultResponseVADConfig returns sensible defaults for ResponseVADStage.
+func DefaultResponseVADConfig() ResponseVADConfig {
+	return ResponseVADConfig{
+		SilenceDuration: defaultResponseVADSilence,
+		MaxWaitDuration: defaultResponseVADMaxWait,
+		SampleRate:      defaultResponseVADSampleRate,
+	}
+}
+
+// ResponseVADStage monitors response audio for silence and delays EndOfStream
+// until actual silence is detected. This decouples turn completion from provider
+// signaling (e.g., Gemini's turnComplete) which may arrive before all audio
+// chunks have been received.
+//
+// This stage:
+// 1. Passes through all elements immediately (audio, text, messages)
+// 2. When EndOfStream is received from upstream, starts monitoring for silence
+// 3. Only emits EndOfStream downstream when VAD confirms sustained silence
+// 4. Has a max wait timeout to prevent indefinite blocking
+//
+// This is a Transform stage with buffering: it may hold EndOfStream temporarily.
+type ResponseVADStage struct {
+	BaseStage
+	config ResponseVADConfig
+	vad    audio.VADAnalyzer
+}
+
+// NewResponseVADStage creates a new response VAD stage.
+func NewResponseVADStage(config ResponseVADConfig) (*ResponseVADStage, error) {
+	// Create default VAD if not provided
+	vad := config.VAD
+	if vad == nil {
+		// Use params tuned for response audio detection
+		params := audio.VADParams{
+			Confidence: defaultResponseVADConfidence,
+			StartSecs:  defaultResponseVADStartSecs,
+			StopSecs:   defaultResponseVADStopSecs,
+			MinVolume:  defaultResponseVADMinVolume,
+			SampleRate: config.SampleRate,
+		}
+		if config.SampleRate == 0 {
+			params.SampleRate = defaultResponseVADSampleRate
+		}
+
+		var err error
+		vad, err = audio.NewSimpleVAD(params)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &ResponseVADStage{
+		BaseStage: NewBaseStage("response_vad", StageTypeTransform),
+		config:    config,
+		vad:       vad,
+	}, nil
+}
+
+// responseVADState holds the state for response VAD processing.
+type responseVADState struct {
+	// endOfStreamReceived indicates upstream signaled turn complete
+	endOfStreamReceived bool
+	// endOfStreamElem holds the EndOfStream element to emit after silence confirmed
+	endOfStreamElem *StreamElement
+	// silenceStartTime is when silence was first detected after EndOfStream
+	silenceStartTime time.Time
+	// endOfStreamTime is when EndOfStream was received
+	endOfStreamTime time.Time
+	// lastAudioTime is when the last audio chunk was received
+	lastAudioTime time.Time
+}
+
+// Process implements the Stage interface.
+// Monitors response audio for silence and delays EndOfStream until confirmed.
+//
+//nolint:gocognit // Complex state machine for audio stream processing - refactoring would hurt readability
+func (s *ResponseVADStage) Process(
+	ctx context.Context,
+	input <-chan StreamElement,
+	output chan<- StreamElement,
+) error {
+	defer close(output)
+
+	state := &responseVADState{}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+
+		case elem, ok := <-input:
+			if !ok {
+				// Input channel closed - emit any held EndOfStream
+				if state.endOfStreamElem != nil {
+					logger.Debug("ResponseVADStage: input closed, emitting held EndOfStream")
+					if err := s.emitElement(ctx, state.endOfStreamElem, output); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+
+			// Handle EndOfStream - hold it and start monitoring for silence
+			if elem.EndOfStream {
+				logger.Debug("ResponseVADStage: EndOfStream received, starting silence monitoring")
+				state.endOfStreamReceived = true
+				state.endOfStreamElem = &elem
+				state.endOfStreamTime = time.Now()
+				// Initialize silence tracking based on current VAD state
+				if s.vad.State() == audio.VADStateQuiet || s.vad.State() == audio.VADStateStopping {
+					state.silenceStartTime = time.Now()
+				}
+				continue
+			}
+
+			// Process audio through VAD
+			if elem.Audio != nil && len(elem.Audio.Samples) > 0 {
+				state.lastAudioTime = time.Now()
+				_, err := s.vad.Analyze(ctx, elem.Audio.Samples)
+				if err != nil {
+					logger.Error("ResponseVADStage: VAD analysis failed", "error", err)
+				}
+
+				// Update silence tracking
+				vadState := s.vad.State()
+				if vadState == audio.VADStateQuiet || vadState == audio.VADStateStopping {
+					if state.silenceStartTime.IsZero() {
+						state.silenceStartTime = time.Now()
+					}
+				} else {
+					// Audio detected - reset silence timer
+					state.silenceStartTime = time.Time{}
+				}
+			}
+
+			// Forward all elements immediately
+			if err := s.emitElement(ctx, &elem, output); err != nil {
+				return err
+			}
+
+			// Check if we should emit held EndOfStream
+			if state.endOfStreamReceived && s.shouldEmitEndOfStream(state) {
+				logger.Debug("ResponseVADStage: silence confirmed, emitting EndOfStream",
+					"silenceDuration", time.Since(state.silenceStartTime))
+				if err := s.emitElement(ctx, state.endOfStreamElem, output); err != nil {
+					return err
+				}
+				// Reset state for next turn
+				s.vad.Reset()
+				state.endOfStreamReceived = false
+				state.endOfStreamElem = nil
+				state.silenceStartTime = time.Time{}
+			}
+
+		default:
+			// No input available - check if we should emit held EndOfStream
+			if state.endOfStreamReceived && s.shouldEmitEndOfStream(state) {
+				logger.Debug("ResponseVADStage: silence confirmed (no more audio), emitting EndOfStream")
+				if err := s.emitElement(ctx, state.endOfStreamElem, output); err != nil {
+					return err
+				}
+				// Reset state for next turn
+				s.vad.Reset()
+				state.endOfStreamReceived = false
+				state.endOfStreamElem = nil
+				state.silenceStartTime = time.Time{}
+			}
+
+			// Small sleep to prevent busy-waiting
+			time.Sleep(responseVADCheckIntervalMs * time.Millisecond)
+		}
+	}
+}
+
+// shouldEmitEndOfStream determines if the held EndOfStream should be emitted.
+func (s *ResponseVADStage) shouldEmitEndOfStream(state *responseVADState) bool {
+	if !state.endOfStreamReceived {
+		return false
+	}
+
+	silenceDuration := s.config.SilenceDuration
+	if silenceDuration == 0 {
+		silenceDuration = defaultResponseVADSilence
+	}
+
+	maxWait := s.config.MaxWaitDuration
+	if maxWait == 0 {
+		maxWait = defaultResponseVADMaxWait
+	}
+
+	// Check max wait timeout
+	if time.Since(state.endOfStreamTime) >= maxWait {
+		logger.Debug("ResponseVADStage: max wait exceeded, emitting EndOfStream",
+			"maxWait", maxWait)
+		return true
+	}
+
+	// Check if silence duration is met
+	if !state.silenceStartTime.IsZero() && time.Since(state.silenceStartTime) >= silenceDuration {
+		return true
+	}
+
+	return false
+}
+
+// emitElement sends an element to the output channel.
+func (s *ResponseVADStage) emitElement(
+	ctx context.Context,
+	elem *StreamElement,
+	output chan<- StreamElement,
+) error {
+	select {
+	case output <- *elem:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
