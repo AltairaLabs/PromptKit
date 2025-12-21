@@ -162,7 +162,14 @@ func (b *PipelineBuilder) validate() error {
 	}
 
 	// Check for cycles using depth-first search
-	return b.detectCycles()
+	if err := b.detectCycles(); err != nil {
+		return err
+	}
+
+	// Validate format capabilities between connected stages (logs warnings)
+	ValidateCapabilities(b.stages, b.edges)
+
+	return nil
 }
 
 // detectCycles checks if the pipeline DAG contains cycles.
