@@ -3,8 +3,9 @@ package stage
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"hash/fnv"
-	"math/rand"
 	"sync"
 	"sync/atomic"
 
@@ -209,8 +210,6 @@ type WeightedRouter struct {
 	thresholds []weightThreshold
 	outputs    map[string]chan<- StreamElement
 	mu         sync.RWMutex
-	rng        *rand.Rand
-	rngMu      sync.Mutex
 }
 
 type weightThreshold struct {
@@ -243,7 +242,6 @@ func NewWeightedRouter(name string, weights map[string]float64) *WeightedRouter 
 		weights:    weights,
 		thresholds: thresholds,
 		outputs:    make(map[string]chan<- StreamElement),
-		rng:        rand.New(rand.NewSource(rand.Int63())),
 	}
 }
 
@@ -281,9 +279,7 @@ func (r *WeightedRouter) Process(
 }
 
 func (r *WeightedRouter) selectDestination() string {
-	r.rngMu.Lock()
-	v := r.rng.Float64()
-	r.rngMu.Unlock()
+	v := cryptoRandFloat64()
 
 	for _, t := range r.thresholds {
 		if v <= t.threshold {
@@ -292,6 +288,26 @@ func (r *WeightedRouter) selectDestination() string {
 	}
 	// Fallback to last (shouldn't happen due to normalization)
 	return r.thresholds[len(r.thresholds)-1].name
+}
+
+// cryptoRandFloat64 returns a cryptographically secure random float64 in [0.0, 1.0).
+func cryptoRandFloat64() float64 {
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	// Convert to uint64 and normalize to [0.0, 1.0)
+	u := binary.LittleEndian.Uint64(b[:])
+	return float64(u) / float64(1<<64)
+}
+
+// cryptoRandIntn returns a cryptographically secure random int in [0, n).
+func cryptoRandIntn(n int) int {
+	if n <= 0 {
+		return 0
+	}
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	u := binary.LittleEndian.Uint64(b[:])
+	return int(u % uint64(n))
 }
 
 // HashRouter routes elements based on consistent hashing of a key.
@@ -363,8 +379,6 @@ type RandomRouter struct {
 	outputNames []string
 	outputs     map[string]chan<- StreamElement
 	mu          sync.RWMutex
-	rng         *rand.Rand
-	rngMu       sync.Mutex
 }
 
 // NewRandomRouter creates a router that distributes elements randomly.
@@ -373,7 +387,6 @@ func NewRandomRouter(name string, outputNames []string) *RandomRouter {
 		BaseStage:   NewBaseStage(name, StageTypeTransform),
 		outputNames: outputNames,
 		outputs:     make(map[string]chan<- StreamElement),
-		rng:         rand.New(rand.NewSource(rand.Int63())),
 	}
 }
 
@@ -393,9 +406,7 @@ func (r *RandomRouter) Process(
 	defer close(output)
 
 	for elem := range input {
-		r.rngMu.Lock()
-		idx := r.rng.Intn(len(r.outputNames))
-		r.rngMu.Unlock()
+		idx := cryptoRandIntn(len(r.outputNames))
 		destName := r.outputNames[idx]
 
 		r.mu.RLock()
