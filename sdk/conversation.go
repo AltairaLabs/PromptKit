@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -29,6 +30,12 @@ const (
 	defaultMaxTokens        = 4096
 	defaultTemperature      = 0.7
 	streamChannelBufferSize = 100 // Buffer size for streaming channels
+)
+
+// Error message templates for mode-specific operations.
+const (
+	errDuplexModeRequired = "%s only available in duplex mode; use OpenDuplex()"
+	errUnaryModeRequired  = "Send() only available in unary mode; use OpenDuplex() for duplex streaming"
 )
 
 // SessionMode represents the conversation's session mode.
@@ -177,7 +184,7 @@ func (c *Conversation) validateSendState() error {
 	defer c.mu.RUnlock()
 
 	if c.mode != UnaryMode {
-		return fmt.Errorf("Send() only available in unary mode; use OpenDuplex() for duplex streaming")
+		return errors.New(errUnaryModeRequired)
 	}
 	if c.closed {
 		return ErrConversationClosed
@@ -407,7 +414,7 @@ func (c *Conversation) SendChunk(ctx context.Context, chunk *providers.StreamChu
 	defer c.mu.RUnlock()
 
 	if c.mode != DuplexMode {
-		return fmt.Errorf("SendChunk() only available in duplex mode; use OpenDuplex()")
+		return fmt.Errorf(errDuplexModeRequired, "SendChunk()")
 	}
 	if c.closed {
 		return ErrConversationClosed
@@ -423,7 +430,7 @@ func (c *Conversation) SendText(ctx context.Context, text string) error {
 	defer c.mu.RUnlock()
 
 	if c.mode != DuplexMode {
-		return fmt.Errorf("SendText() only available in duplex mode; use OpenDuplex()")
+		return fmt.Errorf(errDuplexModeRequired, "SendText()")
 	}
 	if c.closed {
 		return ErrConversationClosed
@@ -448,7 +455,7 @@ func (c *Conversation) TriggerStart(ctx context.Context, message string) error {
 	defer c.mu.RUnlock()
 
 	if c.mode != DuplexMode {
-		return fmt.Errorf("TriggerStart() only available in duplex mode; use OpenDuplex()")
+		return fmt.Errorf(errDuplexModeRequired, "TriggerStart()")
 	}
 	if c.closed {
 		return ErrConversationClosed
@@ -464,7 +471,7 @@ func (c *Conversation) Response() (<-chan providers.StreamChunk, error) {
 	defer c.mu.RUnlock()
 
 	if c.mode != DuplexMode {
-		return nil, fmt.Errorf("Response() only available in duplex mode; use OpenDuplex()")
+		return nil, fmt.Errorf(errDuplexModeRequired, "Response()")
 	}
 	if c.closed {
 		return nil, ErrConversationClosed
@@ -480,7 +487,7 @@ func (c *Conversation) Done() (<-chan struct{}, error) {
 	defer c.mu.RUnlock()
 
 	if c.mode != DuplexMode {
-		return nil, fmt.Errorf("Done() only available in duplex mode; use OpenDuplex()")
+		return nil, fmt.Errorf(errDuplexModeRequired, "Done()")
 	}
 	if c.closed {
 		return nil, ErrConversationClosed
@@ -497,7 +504,7 @@ func (c *Conversation) SessionError() error {
 	defer c.mu.RUnlock()
 
 	if c.mode != DuplexMode {
-		return fmt.Errorf("SessionError() only available in duplex mode")
+		return fmt.Errorf(errDuplexModeRequired, "SessionError()")
 	}
 	if c.closed {
 		return ErrConversationClosed

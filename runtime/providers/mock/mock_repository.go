@@ -10,6 +10,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Turn type constants for mock responses.
+const (
+	turnTypeText = "text" // Text-only response type
+)
+
 // ResponseRepository provides an interface for retrieving mock responses.
 // This abstraction allows mock data to come from various sources (files, databases, etc.)
 // and makes MockProvider reusable across different contexts (Arena, SDK examples, unit tests).
@@ -185,7 +190,7 @@ func (r *FileMockRepository) GetTurn(ctx context.Context, params ResponseParams)
 			if scenario.DefaultResponse != "" {
 				logger.Debug("Using scenario default response", "scenario_id", params.ScenarioID, "response", scenario.DefaultResponse)
 				return &Turn{
-					Type:    "text",
+					Type:    turnTypeText,
 					Content: scenario.DefaultResponse,
 				}, nil
 			}
@@ -199,7 +204,7 @@ func (r *FileMockRepository) GetTurn(ctx context.Context, params ResponseParams)
 	if r.config.DefaultResponse != "" {
 		logger.Debug("Using global default response", "response", r.config.DefaultResponse)
 		return &Turn{
-			Type:    "text",
+			Type:    turnTypeText,
 			Content: r.config.DefaultResponse,
 		}, nil
 	}
@@ -208,7 +213,7 @@ func (r *FileMockRepository) GetTurn(ctx context.Context, params ResponseParams)
 	fallback := fmt.Sprintf("Mock response for provider %s model %s", params.ProviderID, params.ModelName)
 	logger.Debug("Using final fallback response", "response", fallback)
 	return &Turn{
-		Type:    "text",
+		Type:    turnTypeText,
 		Content: fallback,
 	}, nil
 }
@@ -249,7 +254,7 @@ func (r *FileMockRepository) getSelfplayTurn(params *ResponseParams) *Turn {
 			"persona_id", params.PersonaID,
 			"response", persona.DefaultResponse)
 		return &Turn{
-			Type:    "text",
+			Type:    turnTypeText,
 			Content: persona.DefaultResponse,
 		}
 	}
@@ -273,7 +278,7 @@ func (r *FileMockRepository) parseTurnResponse(response interface{}) (*Turn, err
 // parseStringResponse creates a simple text Turn from a string response.
 func (r *FileMockRepository) parseStringResponse(content string) *Turn {
 	return &Turn{
-		Type:    "text",
+		Type:    turnTypeText,
 		Content: content,
 	}
 }
@@ -315,7 +320,7 @@ func (r *FileMockRepository) parseStructuredResponse(responseMap map[string]inte
 		}
 		turn.ToolCalls = toolCalls
 		// Automatically set type to tool_calls if tool calls are present
-		if turn.Type == "text" {
+		if turn.Type == turnTypeText {
 			turn.Type = "tool_calls"
 		}
 	}
@@ -506,7 +511,7 @@ func (r *InMemoryMockRepository) GetTurn(ctx context.Context, params ResponsePar
 	}
 
 	return &Turn{
-		Type:    "text",
+		Type:    turnTypeText,
 		Content: content,
 	}, nil
 }
@@ -536,7 +541,7 @@ func (t *Turn) ToContentParts() []types.ContentPart {
 // ToContentPart converts a ContentPart to types.ContentPart.
 func (m *ContentPart) ToContentPart() *types.ContentPart {
 	switch m.Type {
-	case "text":
+	case turnTypeText:
 		if m.Text != "" {
 			part := types.NewTextPart(m.Text)
 			return &part
