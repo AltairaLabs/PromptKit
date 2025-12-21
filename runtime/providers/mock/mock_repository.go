@@ -620,6 +620,7 @@ func (m *ContentPart) videoURLToContentPart() *types.ContentPart {
 }
 
 // applyMetadataToMedia applies metadata fields to MediaContent
+// NOSONAR: Complexity is intentional - each field requires its own type assertion and nil check
 func (m *ContentPart) applyMetadataToMedia(media *types.MediaContent) {
 	if m.Metadata == nil {
 		return
