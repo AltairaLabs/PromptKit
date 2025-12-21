@@ -52,7 +52,7 @@ func TestDiagnostic_AudioModalityRawMessages(t *testing.T) {
 	}
 
 	// Request AUDIO modality
-	req := providers.StreamInputRequest{
+	req := providers.StreamingInputConfig{
 		Config: config,
 		Metadata: map[string]interface{}{
 			"response_modalities": []string{"AUDIO"}, // 🎯 AUDIO only

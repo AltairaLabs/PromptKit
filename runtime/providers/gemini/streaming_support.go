@@ -4,12 +4,23 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+const (
+	// defaultMaxReconnectTries is the default number of reconnection attempts for stream sessions.
+	defaultMaxReconnectTries = 3
+)
+
 // Ensure GeminiProvider implements StreamInputSupport
 var _ providers.StreamInputSupport = (*Provider)(nil)
+
+// geminiLiveAPIURL is the WebSocket URL for Gemini Live API
+//
+//nolint:lll // URL cannot be split
+const geminiLiveAPIURL = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
 
 // CreateStreamSession creates a new bidirectional streaming session with Gemini Live API
 //
@@ -29,61 +40,116 @@ func (p *Provider) CreateStreamSession(
 	ctx context.Context,
 	req *providers.StreamingInputConfig,
 ) (providers.StreamInputSession, error) {
-	// Validate configuration
-	if err := req.Config.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid stream configuration: %w", err)
+	if err := p.validateStreamRequest(req); err != nil {
+		return nil, err
 	}
 
-	// Check if media type is supported
-	if req.Config.Type != types.ContentTypeAudio {
-		return nil, fmt.Errorf("unsupported media type: %s (only audio is supported)", req.Config.Type)
-	}
+	config := p.buildStreamSessionConfig(req)
+	p.applyMetadataConfig(req.Metadata, &config)
+	p.applyToolsConfig(req.Tools, &config)
 
-	// Validate audio config against Gemini requirements
-	encoder := NewAudioEncoder()
-	if err := encoder.ValidateConfig(&req.Config); err != nil {
-		return nil, fmt.Errorf("invalid audio configuration: %w", err)
-	}
-
-	// Construct WebSocket URL for Gemini Live API
-	// Format: wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent
-	// Note: API key is passed via x-goog-api-key header, not as query parameter
-	wsURL := "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
-
-	// Configure session with model, response modalities, and system instruction
-	config := StreamSessionConfig{
-		Model:             p.Model,
-		SystemInstruction: req.SystemInstruction,
-	}
-
-	// Check metadata for response modalities configuration
-	if req.Metadata != nil {
-		switch modalities := req.Metadata["response_modalities"].(type) {
-		case []string:
-			config.ResponseModalities = modalities
-		case []interface{}:
-			// Handle case where metadata comes as []interface{}
-			config.ResponseModalities = make([]string, 0, len(modalities))
-			for _, m := range modalities {
-				if s, ok := m.(string); ok {
-					config.ResponseModalities = append(config.ResponseModalities, s)
-				}
-			}
-		}
-	}
-
-	// Default to TEXT if not specified
 	if len(config.ResponseModalities) == 0 {
 		config.ResponseModalities = []string{"TEXT"}
 	}
 
-	// Create session with configuration
-	session, err := NewStreamSession(ctx, wsURL, p.ApiKey, config)
+	session, err := NewStreamSession(ctx, geminiLiveAPIURL, p.ApiKey, &config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stream session: %w", err)
 	}
 
 	return session, nil
+}
+
+// validateStreamRequest validates the streaming input configuration
+func (p *Provider) validateStreamRequest(req *providers.StreamingInputConfig) error {
+	if err := req.Config.Validate(); err != nil {
+		return fmt.Errorf("invalid stream configuration: %w", err)
+	}
+
+	if req.Config.Type != types.ContentTypeAudio {
+		return fmt.Errorf("unsupported media type: %s (only audio is supported)", req.Config.Type)
+	}
+
+	encoder := NewAudioEncoder()
+	if err := encoder.ValidateConfig(&req.Config); err != nil {
+		return fmt.Errorf("invalid audio configuration: %w", err)
+	}
+
+	return nil
+}
+
+// buildStreamSessionConfig creates a base session configuration
+func (p *Provider) buildStreamSessionConfig(req *providers.StreamingInputConfig) StreamSessionConfig {
+	config := StreamSessionConfig{
+		Model:             p.Model,
+		SystemInstruction: req.SystemInstruction,
+		AutoReconnect:     true,
+		MaxReconnectTries: defaultMaxReconnectTries,
+	}
+
+	p.applyPricingConfig(&config)
+	return config
+}
+
+// applyPricingConfig sets pricing from provider defaults or model-based defaults
+func (p *Provider) applyPricingConfig(config *StreamSessionConfig) {
+	if p.Defaults.Pricing.InputCostPer1K > 0 && p.Defaults.Pricing.OutputCostPer1K > 0 {
+		config.InputCostPer1K = p.Defaults.Pricing.InputCostPer1K
+		config.OutputCostPer1K = p.Defaults.Pricing.OutputCostPer1K
+	} else {
+		config.InputCostPer1K, config.OutputCostPer1K, _ = geminiPricing(p.Model)
+	}
+}
+
+// applyMetadataConfig extracts configuration from request metadata
+func (p *Provider) applyMetadataConfig(metadata map[string]interface{}, config *StreamSessionConfig) {
+	if metadata == nil {
+		return
+	}
+
+	p.applyResponseModalities(metadata, config)
+	p.applyVADDisabled(metadata, config)
+}
+
+// applyResponseModalities extracts response modalities from metadata
+func (p *Provider) applyResponseModalities(metadata map[string]interface{}, config *StreamSessionConfig) {
+	switch modalities := metadata["response_modalities"].(type) {
+	case []string:
+		config.ResponseModalities = modalities
+	case []interface{}:
+		config.ResponseModalities = make([]string, 0, len(modalities))
+		for _, m := range modalities {
+			if s, ok := m.(string); ok {
+				config.ResponseModalities = append(config.ResponseModalities, s)
+			}
+		}
+	}
+}
+
+// applyVADDisabled checks for VAD disabled mode in metadata
+func (p *Provider) applyVADDisabled(metadata map[string]interface{}, config *StreamSessionConfig) {
+	if vadDisabled, ok := metadata["vad_disabled"].(bool); ok && vadDisabled {
+		config.VAD = &VADConfig{
+			Disabled: true,
+		}
+	}
+}
+
+// applyToolsConfig converts and applies tools configuration
+func (p *Provider) applyToolsConfig(tools []providers.StreamingToolDefinition, config *StreamSessionConfig) {
+	if len(tools) == 0 {
+		return
+	}
+
+	config.Tools = make([]ToolDefinition, len(tools))
+	for i, tool := range tools {
+		config.Tools[i] = ToolDefinition{
+			Name:        tool.Name,
+			Description: tool.Description,
+			Parameters:  tool.Parameters,
+		}
+	}
+	logger.Debug("CreateStreamSession: tools configured", "tool_count", len(config.Tools))
 }
 
 // SupportsStreamInput returns the media types supported for streaming input

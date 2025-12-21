@@ -1,0 +1,83 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/scenario.json
+#
+# Interactive Duplex Scenario
+# Technical support conversation with extended self-play
+# and comprehensive assertion testing.
+#
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: duplex-interactive
+
+spec:
+  id: duplex-interactive
+  task_type: voice-assistant
+  description: "Interactive technical support conversation in duplex mode"
+
+  # Duplex configuration - using asm (provider-native) mode for mock testing
+  duplex:
+    timeout: "180s"
+    turn_detection:
+      mode: asm
+
+  streaming: true
+
+  turns:
+    # Turn 1: User describes issue (audio: "Hello, can you hear me?")
+    - role: user
+      parts:
+        - type: audio
+          media:
+            file_path: audio/greeting.pcm
+            mime_type: audio/L16
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(hello|hi|hey|yes|hear)"
+
+    # Self-play: Technical user asks detailed follow-up questions
+    - role: selfplay-user
+      persona: technical-user
+      turns: 2
+      tts:
+        provider: openai
+        voice: echo
+      assertions:
+        - type: content_matches
+          params:
+            pattern: ".{15,}"
+
+    # Turn 2: User asks a question (audio: "What's your name?")
+    - role: user
+      parts:
+        - type: audio
+          media:
+            file_path: audio/question.pcm
+            mime_type: audio/L16
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "Nova"
+
+    # Turn 3: Follow-up (audio: "Tell me a fun fact")
+    - role: user
+      parts:
+        - type: audio
+          media:
+            file_path: audio/funfact.pcm
+            mime_type: audio/L16
+      assertions:
+        - type: content_matches
+          params:
+            pattern: ".{20,}"
+
+  context:
+    goal: "Resolve a technical account access issue through voice support"
+    user_expertise: "moderate technical knowledge"
+    issue_type: "account access"
+    expected_resolution: "successful login"
+
+  # Constraints for the conversation
+  constraints:
+    max_sentences: 5  # Keep responses concise for voice

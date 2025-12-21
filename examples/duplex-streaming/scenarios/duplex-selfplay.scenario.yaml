@@ -1,0 +1,90 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/scenario.json
+#
+# Duplex Self-Play Scenario
+# LLM generates user messages converted to audio via TTS
+# for fully automated audio conversation testing.
+#
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: duplex-selfplay
+
+spec:
+  id: duplex-selfplay
+  task_type: voice-assistant
+  description: "Duplex streaming with TTS-powered self-play"
+
+  # Enable duplex mode
+  duplex:
+    timeout: "10m"
+    turn_detection:
+      mode: vad
+      vad:
+        # Increased to 1200ms to handle OpenAI TTS comma pauses
+        silence_threshold_ms: 1200
+        min_speech_ms: 800
+    # Resilience configuration for handling provider-specific behaviors
+    resilience:
+      # Number of retry attempts for failed conversations (session drops, network errors)
+      max_retries: 2
+      # Delay between retries (ms) to allow provider to recover
+      retry_delay_ms: 2000
+      # Delay between turns (ms) to allow provider to finish processing
+      inter_turn_delay_ms: 500
+      # Longer delay after selfplay turns since TTS audio can be lengthy
+      selfplay_inter_turn_delay_ms: 1000
+      # Accept partial success if at least this many turns completed
+      partial_success_min_turns: 2
+      # Don't fail if session ends on the final turn
+      ignore_last_turn_session_end: true
+
+  streaming: true
+
+  # Conversation turns with audio and self-play
+  # Note: In duplex mode, audio from 'parts' is streamed to the model.
+  turns:
+    # Turn 1: Initial greeting via audio file
+    - role: user
+      parts:
+        - type: audio
+          media:
+            file_path: audio/greeting.pcm
+            mime_type: audio/L16
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(help|assist|service|offer)"
+
+    # Self-play turn: LLM generates follow-up questions
+    # TTS converts the generated text to audio for duplex input
+    - role: selfplay-user
+      persona: curious-customer
+      turns: 3
+      tts:
+        provider: openai
+        voice: alloy
+      assertions:
+        - type: content_matches
+          params:
+            pattern: ".{10,}"
+
+    # Turn 3: Closing via audio file
+    - role: user
+      parts:
+        - type: audio
+          media:
+            file_path: audio/funfact.pcm
+            mime_type: audio/L16
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "welcome"
+              - "glad"
+              - "happy"
+              - "help"
+
+  context:
+    goal: "Test self-play with TTS audio generation in duplex mode"
+    user_type: "potential customer"
+    conversation_style: "inquisitive"

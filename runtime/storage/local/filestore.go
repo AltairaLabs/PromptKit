@@ -4,6 +4,7 @@ package local
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -16,6 +17,19 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+)
+
+const (
+	audioMIMETypePCM   = "audio/pcm"
+	audioMIMETypeL16   = "audio/L16"
+	audioMIMETypeWAV   = "audio/wav"
+	wavHeaderSize      = 44
+	wavFmtChunkSize    = 16
+	wavChunkSizeOffset = 36 // Offset for RIFF chunk size calculation
+	audioBitsPerByte   = 8
+	geminiumSampleRate = 24000
+	geminiumBitDepth   = 16
+	geminiumChannels   = 1
 )
 
 // FileStoreConfig configures the local filesystem storage backend.
@@ -89,6 +103,12 @@ func (fs *FileStore) StoreMedia(ctx context.Context, content *types.MediaContent
 	data, err := fs.getMediaData(content)
 	if err != nil {
 		return "", fmt.Errorf("failed to get media data: %w", err)
+	}
+
+	// Wrap raw PCM audio in WAV header for playability
+	// Gemini Live API outputs 24kHz, 16-bit, mono PCM
+	if isPCMAudio(content.MIMEType) {
+		data = wrapPCMInWAV(data, geminiumSampleRate, geminiumBitDepth, geminiumChannels)
 	}
 
 	// Compute hash if deduplication is enabled
@@ -443,12 +463,15 @@ func getExtensionFromMIME(mimeType string) string {
 		return ".webp"
 	case "audio/mpeg":
 		return ".mp3"
-	case "audio/wav":
+	case audioMIMETypeWAV:
 		return ".wav"
 	case "audio/ogg":
 		return ".ogg"
 	case "audio/webm":
 		return ".weba"
+	case audioMIMETypePCM, audioMIMETypeL16:
+		// PCM will be wrapped in WAV header for playability
+		return ".wav"
 	case "video/mp4":
 		return ".mp4"
 	case "video/webm":
@@ -474,7 +497,9 @@ func inferMIMETypeFromPath(path string) string {
 	case ".mp3":
 		return "audio/mpeg"
 	case ".wav":
-		return "audio/wav"
+		return audioMIMETypeWAV
+	case ".pcm":
+		return "audio/pcm"
 	case ".ogg", ".oga":
 		return "audio/ogg"
 	case ".weba":
@@ -488,4 +513,48 @@ func inferMIMETypeFromPath(path string) string {
 	default:
 		return ""
 	}
+}
+
+// wrapPCMInWAV wraps raw PCM audio data in a WAV header for playability.
+// Assumes 24kHz, 16-bit, mono PCM (Gemini Live API output format).
+//
+//nolint:gosec // Integer conversions are safe for audio parameters
+func wrapPCMInWAV(pcmData []byte, sampleRate, bitsPerSample, numChannels int) []byte {
+	dataSize := len(pcmData)
+	byteRate := sampleRate * numChannels * bitsPerSample / audioBitsPerByte
+	blockAlign := numChannels * bitsPerSample / audioBitsPerByte
+
+	// WAV header is 44 bytes
+	header := make([]byte, wavHeaderSize)
+
+	// RIFF chunk descriptor
+	copy(header[0:4], "RIFF")
+	binary.LittleEndian.PutUint32(header[4:8], uint32(wavChunkSizeOffset+dataSize)) // ChunkSize
+	copy(header[8:12], "WAVE")
+
+	// "fmt " sub-chunk
+	copy(header[12:16], "fmt ")
+	binary.LittleEndian.PutUint32(header[16:20], wavFmtChunkSize)       // Subchunk1Size (16 for PCM)
+	binary.LittleEndian.PutUint16(header[20:22], 1)                     // AudioFormat (1 = PCM)
+	binary.LittleEndian.PutUint16(header[22:24], uint16(numChannels))   // NumChannels
+	binary.LittleEndian.PutUint32(header[24:28], uint32(sampleRate))    // SampleRate
+	binary.LittleEndian.PutUint32(header[28:32], uint32(byteRate))      // ByteRate
+	binary.LittleEndian.PutUint16(header[32:34], uint16(blockAlign))    // BlockAlign
+	binary.LittleEndian.PutUint16(header[34:36], uint16(bitsPerSample)) // BitsPerSample
+
+	// "data" sub-chunk
+	copy(header[36:40], "data")
+	binary.LittleEndian.PutUint32(header[40:44], uint32(dataSize)) // Subchunk2Size
+
+	// Combine header and data
+	wav := make([]byte, wavHeaderSize+dataSize)
+	copy(wav[0:wavHeaderSize], header)
+	copy(wav[wavHeaderSize:], pcmData)
+
+	return wav
+}
+
+// isPCMAudio returns true if the MIME type represents raw PCM audio.
+func isPCMAudio(mimeType string) bool {
+	return mimeType == audioMIMETypePCM || mimeType == audioMIMETypeL16
 }

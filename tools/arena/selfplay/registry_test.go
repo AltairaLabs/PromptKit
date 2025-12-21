@@ -910,3 +910,113 @@ func TestSelfPlayRegistry_GetCacheStats_CachedPairs(t *testing.T) {
 		t.Error("Expected to find assistant:persona1 in cached pairs")
 	}
 }
+
+func TestSelfPlayRegistry_GetAudioContentGenerator_Success(t *testing.T) {
+	providerRegistry := providers.NewRegistry()
+	provider := createMockProvider("provider1")
+	providerRegistry.Register(provider)
+
+	personas := map[string]*config.UserPersonaPack{
+		"persona1": createTestPersona("persona1", "You are helpful"),
+	}
+
+	roles := []config.SelfPlayRoleGroup{
+		{ID: "user"},
+	}
+
+	providerMap := map[string]string{
+		"user": "provider1",
+	}
+
+	// Create registry with custom TTS registry
+	ttsRegistry := NewTTSRegistry()
+	ttsRegistry.Register("openai", &mockTTSService{name: "mock-openai"})
+
+	registry := NewRegistryWithTTS(providerRegistry, providerMap, personas, roles, ttsRegistry)
+
+	ttsConfig := &config.TTSConfig{
+		Provider: "openai",
+		Voice:    "alloy",
+	}
+
+	audioGen, err := registry.GetAudioContentGenerator("user", "persona1", ttsConfig)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	if audioGen == nil {
+		t.Error("Expected audio generator to be created")
+	}
+}
+
+func TestSelfPlayRegistry_GetAudioContentGenerator_NilTTSConfig(t *testing.T) {
+	registry := NewRegistry(providers.NewRegistry(), nil, nil, nil)
+
+	_, err := registry.GetAudioContentGenerator("user", "persona1", nil)
+	if err == nil {
+		t.Error("Expected error for nil TTS config")
+	}
+}
+
+func TestSelfPlayRegistry_GetAudioContentGenerator_InvalidTTSConfig(t *testing.T) {
+	registry := NewRegistry(providers.NewRegistry(), nil, nil, nil)
+
+	ttsConfig := &config.TTSConfig{
+		Provider: "", // Missing provider
+		Voice:    "alloy",
+	}
+
+	_, err := registry.GetAudioContentGenerator("user", "persona1", ttsConfig)
+	if err == nil {
+		t.Error("Expected error for invalid TTS config")
+	}
+}
+
+func TestSelfPlayRegistry_GetAudioContentGenerator_TTSProviderNotFound(t *testing.T) {
+	providerRegistry := providers.NewRegistry()
+	provider := createMockProvider("provider1")
+	providerRegistry.Register(provider)
+
+	personas := map[string]*config.UserPersonaPack{
+		"persona1": createTestPersona("persona1", "You are helpful"),
+	}
+
+	roles := []config.SelfPlayRoleGroup{
+		{ID: "user"},
+	}
+
+	providerMap := map[string]string{
+		"user": "provider1",
+	}
+
+	registry := NewRegistry(providerRegistry, providerMap, personas, roles)
+
+	ttsConfig := &config.TTSConfig{
+		Provider: "nonexistent",
+		Voice:    "alloy",
+	}
+
+	_, err := registry.GetAudioContentGenerator("user", "persona1", ttsConfig)
+	if err == nil {
+		t.Error("Expected error for nonexistent TTS provider")
+	}
+}
+
+func TestSelfPlayRegistry_GetTTSRegistry(t *testing.T) {
+	registry := NewRegistry(providers.NewRegistry(), nil, nil, nil)
+
+	ttsReg := registry.GetTTSRegistry()
+	if ttsReg == nil {
+		t.Error("Expected TTS registry to be initialized")
+	}
+}
+
+func TestNewRegistryWithTTS_NilTTSRegistry(t *testing.T) {
+	registry := NewRegistryWithTTS(providers.NewRegistry(), nil, nil, nil, nil)
+
+	// Should still have a default TTS registry
+	ttsReg := registry.GetTTSRegistry()
+	if ttsReg == nil {
+		t.Error("Expected TTS registry to be initialized even with nil input")
+	}
+}

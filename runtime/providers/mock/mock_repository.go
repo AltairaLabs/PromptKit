@@ -10,6 +10,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Turn type constants for mock responses.
+const (
+	turnTypeText = "text" // Text-only response type
+)
+
 // ResponseRepository provides an interface for retrieving mock responses.
 // This abstraction allows mock data to come from various sources (files, databases, etc.)
 // and makes MockProvider reusable across different contexts (Arena, SDK examples, unit tests).
@@ -31,6 +36,8 @@ type ResponseParams struct {
 	TurnNumber int    // Optional: Turn number in a multi-turn conversation
 	ProviderID string // Optional: ID of the provider being mocked
 	ModelName  string // Optional: Model name being mocked
+	PersonaID  string // Optional: ID of the persona for selfplay user responses
+	ArenaRole  string // Optional: Role in arena (e.g., "self_play_user")
 }
 
 // Turn represents a structured mock response that may include tool calls and multimodal content.
@@ -83,6 +90,10 @@ type Config struct {
 
 	// Scenario-specific responses keyed by scenario ID
 	Scenarios map[string]ScenarioConfig `yaml:"scenarios,omitempty"`
+
+	// Selfplay persona responses keyed by persona ID
+	// Used when generating user messages in selfplay mode
+	Selfplay map[string]ScenarioConfig `yaml:"selfplay,omitempty"`
 }
 
 // ScenarioConfig defines mock responses for a specific scenario.
@@ -137,13 +148,27 @@ func (r *FileMockRepository) GetResponse(ctx context.Context, params ResponsePar
 
 // GetTurn retrieves a structured mock turn response that may include tool calls.
 // This method supports both backward-compatible string responses and new structured Turn responses.
+//
+// For selfplay user turns (when ArenaRole == "self_play_user"), it looks up responses from
+// the selfplay section using PersonaID. For regular turns, it uses scenario responses.
 func (r *FileMockRepository) GetTurn(ctx context.Context, params ResponseParams) (*Turn, error) {
 	logger.Debug("FileMockRepository GetTurn",
 		"scenario_id", params.ScenarioID,
 		"turn_number", params.TurnNumber,
 		"provider_id", params.ProviderID,
 		"model", params.ModelName,
-		"available_scenarios", getScenarioKeys(r.config.Scenarios))
+		"persona_id", params.PersonaID,
+		"arena_role", params.ArenaRole,
+		"available_scenarios", getScenarioKeys(r.config.Scenarios),
+		"available_personas", getScenarioKeys(r.config.Selfplay))
+
+	// For selfplay user turns, look up persona-specific responses first
+	if params.ArenaRole == "self_play_user" && params.PersonaID != "" {
+		if turn := r.getSelfplayTurn(&params); turn != nil {
+			return turn, nil
+		}
+		// Fall through to scenario lookup if no persona-specific response
+	}
 
 	// Try scenario + turn specific response
 	if params.ScenarioID != "" {
@@ -165,7 +190,7 @@ func (r *FileMockRepository) GetTurn(ctx context.Context, params ResponseParams)
 			if scenario.DefaultResponse != "" {
 				logger.Debug("Using scenario default response", "scenario_id", params.ScenarioID, "response", scenario.DefaultResponse)
 				return &Turn{
-					Type:    "text",
+					Type:    turnTypeText,
 					Content: scenario.DefaultResponse,
 				}, nil
 			}
@@ -179,7 +204,7 @@ func (r *FileMockRepository) GetTurn(ctx context.Context, params ResponseParams)
 	if r.config.DefaultResponse != "" {
 		logger.Debug("Using global default response", "response", r.config.DefaultResponse)
 		return &Turn{
-			Type:    "text",
+			Type:    turnTypeText,
 			Content: r.config.DefaultResponse,
 		}, nil
 	}
@@ -188,9 +213,53 @@ func (r *FileMockRepository) GetTurn(ctx context.Context, params ResponseParams)
 	fallback := fmt.Sprintf("Mock response for provider %s model %s", params.ProviderID, params.ModelName)
 	logger.Debug("Using final fallback response", "response", fallback)
 	return &Turn{
-		Type:    "text",
+		Type:    turnTypeText,
 		Content: fallback,
 	}, nil
+}
+
+// getSelfplayTurn looks up a turn from the selfplay section by persona ID.
+func (r *FileMockRepository) getSelfplayTurn(params *ResponseParams) *Turn {
+	persona, exists := r.config.Selfplay[params.PersonaID]
+	if !exists {
+		logger.Debug("Persona not found in selfplay config",
+			"persona_id", params.PersonaID,
+			"available_personas", getScenarioKeys(r.config.Selfplay))
+		return nil
+	}
+
+	logger.Debug("Found persona in selfplay config", "persona_id", params.PersonaID)
+
+	// Try turn-specific response
+	if params.TurnNumber > 0 {
+		if turnResponse, ok := persona.Turns[params.TurnNumber]; ok {
+			logger.Debug("Using selfplay persona+turn response",
+				"persona_id", params.PersonaID,
+				"turn_number", params.TurnNumber,
+				"response_type", fmt.Sprintf("%T", turnResponse))
+
+			turn, err := r.parseTurnResponse(turnResponse)
+			if err != nil {
+				logger.Debug("Failed to parse selfplay turn response", "error", err)
+				return nil
+			}
+			return turn
+		}
+		logger.Debug("No turn-specific selfplay response found", "turn_number", params.TurnNumber)
+	}
+
+	// Try persona default
+	if persona.DefaultResponse != "" {
+		logger.Debug("Using persona default response",
+			"persona_id", params.PersonaID,
+			"response", persona.DefaultResponse)
+		return &Turn{
+			Type:    turnTypeText,
+			Content: persona.DefaultResponse,
+		}
+	}
+
+	return nil
 }
 
 // parseTurnResponse parses a turn response that could be either a string (backward compatibility)
@@ -209,7 +278,7 @@ func (r *FileMockRepository) parseTurnResponse(response interface{}) (*Turn, err
 // parseStringResponse creates a simple text Turn from a string response.
 func (r *FileMockRepository) parseStringResponse(content string) *Turn {
 	return &Turn{
-		Type:    "text",
+		Type:    turnTypeText,
 		Content: content,
 	}
 }
@@ -251,7 +320,7 @@ func (r *FileMockRepository) parseStructuredResponse(responseMap map[string]inte
 		}
 		turn.ToolCalls = toolCalls
 		// Automatically set type to tool_calls if tool calls are present
-		if turn.Type == "text" {
+		if turn.Type == turnTypeText {
 			turn.Type = "tool_calls"
 		}
 	}
@@ -442,7 +511,7 @@ func (r *InMemoryMockRepository) GetTurn(ctx context.Context, params ResponsePar
 	}
 
 	return &Turn{
-		Type:    "text",
+		Type:    turnTypeText,
 		Content: content,
 	}, nil
 }
@@ -472,7 +541,7 @@ func (t *Turn) ToContentParts() []types.ContentPart {
 // ToContentPart converts a ContentPart to types.ContentPart.
 func (m *ContentPart) ToContentPart() *types.ContentPart {
 	switch m.Type {
-	case "text":
+	case turnTypeText:
 		if m.Text != "" {
 			part := types.NewTextPart(m.Text)
 			return &part
@@ -556,6 +625,7 @@ func (m *ContentPart) videoURLToContentPart() *types.ContentPart {
 }
 
 // applyMetadataToMedia applies metadata fields to MediaContent
+// NOSONAR: Complexity is intentional - each field requires its own type assertion and nil check
 func (m *ContentPart) applyMetadataToMedia(media *types.MediaContent) {
 	if m.Metadata == nil {
 		return

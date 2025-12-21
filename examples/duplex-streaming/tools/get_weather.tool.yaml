@@ -1,0 +1,33 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: get_weather
+spec:
+  name: get_weather
+  description: Get current weather conditions for a location
+  input_schema:
+    type: object
+    properties:
+      location:
+        type: string
+        description: City name or location
+    required:
+      - location
+  output_schema:
+    type: object
+    properties:
+      temperature:
+        type: number
+        description: Temperature in degrees Fahrenheit
+      conditions:
+        type: string
+        description: Weather conditions (sunny, cloudy, rainy, etc.)
+      humidity:
+        type: number
+        description: Humidity percentage
+  mode: mock
+  timeout_ms: 2000
+  mock_result:
+    temperature: 52
+    conditions: cloudy with a chance of rain
+    humidity: 75

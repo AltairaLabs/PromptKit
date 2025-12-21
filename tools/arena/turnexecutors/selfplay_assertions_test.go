@@ -263,7 +263,7 @@ type selfPlayMockContentGenerator struct {
 	message types.Message
 }
 
-func (m *selfPlayMockContentGenerator) NextUserTurn(ctx context.Context, history []types.Message, scenarioID string) (*pipeline.ExecutionResult, error) {
+func (m *selfPlayMockContentGenerator) NextUserTurn(ctx context.Context, history []types.Message, scenarioID string, opts *selfplay.GeneratorOptions) (*pipeline.ExecutionResult, error) {
 	return &pipeline.ExecutionResult{
 		Response: &pipeline.Response{
 			Content: m.message.Content,

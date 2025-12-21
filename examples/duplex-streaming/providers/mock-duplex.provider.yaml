@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/provider.json
+#
+# Mock Duplex Provider
+# For testing duplex streaming scenarios in CI without API keys.
+#
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: mock-duplex
+
+spec:
+  id: mock-duplex
+  type: mock
+  model: mock-duplex-model
+
+  # Provider defaults
+  defaults:
+    temperature: 0.0
+    top_p: 1.0
+    max_tokens: 500
+
+  # Mock configuration
+  additional_config:
+    mock_config: mock-responses.yaml
+    # Enable auto-respond for duplex streaming sessions
+    # When true, the mock provider emits responses when receiving audio input
+    auto_respond: true
+    response_text: "Hello! I'm Nova, your AI assistant. How can I help you today?"

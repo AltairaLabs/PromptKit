@@ -74,21 +74,8 @@ func (m *Provider) ID() string {
 
 // Predict returns a mock response using the configured repository.
 func (m *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
-	// Try to get response from repository with scenario context
-	params := ResponseParams{
-		ProviderID: m.id,
-		ModelName:  m.model,
-	}
-
-	// Extract scenario context if available from providers.PredictionRequest.Metadata
-	if req.Metadata != nil {
-		if scenarioID, ok := req.Metadata["mock_scenario_id"].(string); ok {
-			params.ScenarioID = scenarioID
-		}
-		if turnNumber, ok := req.Metadata["mock_turn_number"].(int); ok {
-			params.TurnNumber = turnNumber
-		}
-	}
+	// Build response parameters from request metadata
+	params := m.buildResponseParams(req)
 
 	// Debug logging for troubleshooting mock provider behavior
 	logger.Debug("MockProvider Predict request",
@@ -217,6 +204,13 @@ func (m *Provider) buildResponseParams(req providers.PredictionRequest) Response
 		if turnNumber, ok := req.Metadata["mock_turn_number"].(int); ok {
 			params.TurnNumber = turnNumber
 		}
+		// Extract persona and role for selfplay user turns
+		if personaID, ok := req.Metadata["mock_persona_id"].(string); ok {
+			params.PersonaID = personaID
+		}
+		if arenaRole, ok := req.Metadata["arena_role"].(string); ok {
+			params.ArenaRole = arenaRole
+		}
 	}
 
 	return params
@@ -290,6 +284,7 @@ func (m *Provider) SupportsStreaming() bool {
 }
 
 // Close is a no-op for the mock provider.
+// NOSONAR: Intentionally empty - mock provider has no resources to clean up
 func (m *Provider) Close() error {
 	return nil
 }

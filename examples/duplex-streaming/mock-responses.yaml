@@ -1,0 +1,105 @@
+# Mock responses for duplex streaming scenarios
+# Used for CI testing without requiring real API keys
+
+# Default response if no specific match
+defaultResponse: "I'm here to help! How can I assist you today?"
+
+# Scenario-specific responses
+scenarios:
+  # Basic duplex scenario responses
+  duplex-basic:
+    defaultResponse: "I'm Nova, your voice assistant. I'm happy to help!"
+    turns:
+      1: "Hello! Yes, I can hear you perfectly. I'm Nova, your voice assistant from TechCorp. How can I help you today?"
+      2: "My name is Nova, and I'm here to help you with a variety of tasks. I can answer questions, provide information, help with troubleshooting, or just have a friendly conversation. What would you like to know more about?"
+      3: "Here's a fun fact for you: Honey never spoils! Archaeologists have found 3,000-year-old honey in Egyptian tombs that was still perfectly edible. Pretty amazing, right?"
+
+  # Self-play scenario responses (for the selfplay USER messages)
+  # Note: These are what the simulated curious customer says, NOT the assistant
+  # Important: Avoid exclamation marks mid-sentence as TTS pauses after them,
+  # which can trigger Gemini's turn detection to start responding early.
+  duplex-selfplay:
+    defaultResponse: "That's interesting, can you tell me more?"
+    turns:
+      # Turn 1 is after assistant's first greeting, so selfplay asks a question
+      1: "Oh that sounds helpful, what kind of services do you offer exactly?"
+      # Turn 2 is after assistant describes services
+      # Use continuous speech without pauses that could trigger Gemini's turn detection
+      2: "I think that's exactly what I need so is there a demo I could try first?"
+      # Turn 3 is after assistant answers about demo
+      3: "That sounds great. What about pricing options?"
+      # Turn 4 is closing
+      4: "Thanks, that's really helpful!"
+
+  # Duplex with tool calls scenario responses
+  # Turn structure: 1=greeting, 2=weather query, 3=calendar query, 4=reminder, 5=closing
+  duplex-tools:
+    defaultResponse: "I can help you with that. Let me look that up."
+    turns:
+      # Turn 1: Response to initial greeting audio
+      1: "Hello! I'm Nova, your voice assistant. I can help you with weather, your schedule, and reminders. What would you like to know?"
+      # Turn 2: Weather query - triggers get_weather tool, then responds
+      2:
+        type: tool_calls
+        content: "The weather in Seattle today is 52 degrees and cloudy with a chance of rain this afternoon. You might want to bring an umbrella if you're heading out."
+        tool_calls:
+          - name: get_weather
+            arguments:
+              location: "Seattle"
+      # Turn 3: Calendar query - triggers get_calendar_events tool
+      3:
+        type: tool_calls
+        content: "Looking at your calendar for today, you have two meetings. First, a team standup at 10 AM, and then a project review with Sarah at 2 PM. Both are scheduled for about 30 minutes."
+        tool_calls:
+          - name: get_calendar_events
+            arguments:
+              date: "today"
+              limit: 5
+      # Turn 4: Set reminder - triggers set_reminder tool
+      4:
+        type: tool_calls
+        content: "Got it, I've set a reminder for you to call mom in 30 minutes. I'll make sure you don't forget."
+        tool_calls:
+          - name: set_reminder
+            arguments:
+              message: "call mom"
+              time: "in 30 minutes"
+      # Turn 5: Closing response - no tool call
+      5: "You're welcome! Have a great day. Just say my name if you need anything else."
+
+  # Interactive scenario responses
+  duplex-interactive:
+    defaultResponse: "I'm sorry to hear you're having trouble. Let me help you resolve this."
+    turns:
+      1: "I'm sorry to hear you're having trouble with your account. Let me help you troubleshoot this. Can you tell me what error message you're seeing exactly?"
+      2: "I understand. That error typically occurs when there's a session issue. Since clearing the cache didn't help, let's try a few other things. First, could you try logging out completely and then logging back in?"
+      3: "Good to know. Sometimes the issue is browser-specific. Could you try accessing your account from a different browser or in an incognito window? That often helps isolate the problem."
+      4: "If that doesn't work, we might need to reset your session on our end. I can do that for you right now if you'd like. It only takes a moment and won't affect any of your data."
+      5: "Let me reset your session now. Please wait just a moment... Done! Try logging in again now."
+      6: "Wonderful, I'm so glad that worked! Your session has been refreshed and you should be all set. Is there anything else I can help you with today?"
+
+# Self-play mock responses (for generating user messages)
+# Important: Avoid exclamation marks mid-sentence as TTS pauses after them.
+selfplay:
+  curious-customer:
+    defaultResponse: "That sounds helpful can you tell me more?"
+    turns:
+      1: "Oh that sounds great what kind of pricing options do you have?"
+      2: "I think that's exactly what I need so is there a demo I could try out first?"
+
+  technical-user:
+    defaultResponse: "Okay, let me try that."
+    turns:
+      1: "What error code should I be looking for in the console?"
+      2: "Alright, I'll try that. Do I need to clear any local storage too?"
+      3: "Okay done. Still seeing the error. What's next?"
+      4: "Let me try incognito mode... actually that seems to be working!"
+      5: "Perfect, that fixed it. Thanks for walking me through this."
+
+  busy-professional:
+    defaultResponse: "Thanks, what else can you help me with?"
+    turns:
+      1: "Hey, what's the weather looking like in Seattle today?"
+      2: "Thanks. Do I have any meetings scheduled for today?"
+      3: "Got it. Can you remind me to call my mom in about 30 minutes?"
+      4: "Perfect, thanks for your help!"

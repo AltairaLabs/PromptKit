@@ -1,0 +1,41 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: get_calendar_events
+spec:
+  name: get_calendar_events
+  description: Get upcoming calendar events
+  input_schema:
+    type: object
+    properties:
+      date:
+        type: string
+        description: Date to check (today, tomorrow, or YYYY-MM-DD)
+      limit:
+        type: integer
+        description: Maximum number of events to return
+        default: 5
+  output_schema:
+    type: object
+    properties:
+      events:
+        type: array
+        items:
+          type: object
+          properties:
+            title:
+              type: string
+            time:
+              type: string
+            duration_minutes:
+              type: integer
+  mode: mock
+  timeout_ms: 2000
+  mock_result:
+    events:
+      - title: Team standup
+        time: "10:00 AM"
+        duration_minutes: 30
+      - title: Project review with Sarah
+        time: "2:00 PM"
+        duration_minutes: 30

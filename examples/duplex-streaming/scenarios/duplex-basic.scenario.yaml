@@ -1,0 +1,69 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/scenario.json
+#
+# Basic Duplex Streaming Scenario
+# Demonstrates bidirectional audio with audio file inputs.
+#
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: duplex-basic
+
+spec:
+  id: duplex-basic
+  task_type: voice-assistant
+  description: "Basic duplex streaming test with audio file inputs"
+
+  # Enable duplex mode for bidirectional streaming
+  # Using 'asm' (provider-native) mode - bypasses client-side VAD
+  # This is simpler for testing and lets the provider handle turn detection
+  duplex:
+    timeout: "30s"
+    turn_detection:
+      mode: asm
+
+  streaming: true
+
+  # Conversation turns using audio files
+  # Note: In duplex mode, audio from 'parts' is streamed to the model.
+  # The 'content' field is not used when 'parts' contains audio.
+  turns:
+    # Turn 1: Greeting - "Hello, can you hear me?"
+    - role: user
+      parts:
+        - type: audio
+          media:
+            file_path: audio/greeting.pcm
+            mime_type: audio/L16
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(hello|hi|hey|yes|hear)"
+
+    # Turn 2: Question - "What's your name?"
+    - role: user
+      parts:
+        - type: audio
+          media:
+            file_path: audio/question.pcm
+            mime_type: audio/L16
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "Nova"
+
+    # Turn 3: Follow-up - "Tell me a fun fact"
+    - role: user
+      parts:
+        - type: audio
+          media:
+            file_path: audio/funfact.pcm
+            mime_type: audio/L16
+      assertions:
+        - type: content_matches
+          params:
+            pattern: ".{20,}"
+
+  context:
+    goal: "Test basic duplex streaming functionality with audio inputs"
+    timeline: "immediate"

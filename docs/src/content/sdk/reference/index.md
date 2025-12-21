@@ -304,6 +304,7 @@ import (
 
 - **[Audio API](audio)** - VAD mode, ASM mode, turn detection, audio streaming
 - **[TTS API](tts)** - Text-to-speech services, voices, formats, providers
+- **[Streaming Package](streaming)** - Bidirectional streaming utilities, response collection, audio streaming
 
 ### Dynamic Variables
 

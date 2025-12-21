@@ -11,42 +11,79 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// ToolProvider extends MockProvider to support tool/function calling.
+// ToolProvider extends MockProvider to support tool/function calling and duplex streaming.
 // It implements the ToolSupport interface to enable tool call simulation
 // while maintaining compatibility with the existing MockProvider API.
+// By embedding StreamingProvider, it also supports StreamInputSupport for duplex scenarios.
 type ToolProvider struct {
-	*Provider
+	*StreamingProvider
 }
 
-// NewToolProvider creates a new mock provider with tool support.
+// NewToolProvider creates a new mock provider with tool support and duplex streaming.
 // This uses default in-memory responses for backward compatibility.
 func NewToolProvider(id, model string, includeRawOutput bool, additionalConfig map[string]interface{}) *ToolProvider {
+	var streamingProvider *StreamingProvider
+
 	if additionalConfig != nil {
 		if mockConfigPath, ok := additionalConfig["mock_config"].(string); ok && mockConfigPath != "" {
 			// Create file-based repository and use ToolProvider for tool call simulation
 			repository, err := NewFileMockRepository(mockConfigPath)
 			if err != nil {
 				logger.Warn("failed to load mock config from %s: %w", mockConfigPath, err)
-				return &ToolProvider{
-					Provider: NewProvider(id, model, includeRawOutput),
-				}
+				streamingProvider = NewStreamingProvider(id, model, includeRawOutput)
+			} else {
+				streamingProvider = NewStreamingProviderWithRepository(id, model, includeRawOutput, repository)
 			}
-			return &ToolProvider{
-				Provider: NewProviderWithRepository(id, model, includeRawOutput, repository),
-			}
+		} else {
+			streamingProvider = NewStreamingProvider(id, model, includeRawOutput)
 		}
+
+		// Configure auto-respond for duplex streaming tests
+		// Handle both bool and string "true" from YAML parsing
+		autoRespond := false
+		switch v := additionalConfig["auto_respond"].(type) {
+		case bool:
+			autoRespond = v
+		case string:
+			autoRespond = v == "true"
+		}
+
+		if autoRespond {
+			responseText := DefaultMockStreamingResponse
+			if text, ok := additionalConfig["response_text"].(string); ok && text != "" {
+				responseText = text
+			}
+			logger.Info("Mock provider: auto-respond enabled", "response_text", responseText)
+			streamingProvider.WithAutoRespond(responseText)
+		}
+
+		// Configure simulation behaviors for testing duplex failure scenarios
+		// YAML parses integers as float64, so handle both types
+		if interruptTurn := getIntFromConfig(additionalConfig, "interrupt_on_turn"); interruptTurn > 0 {
+			logger.Info("Mock provider: interrupt simulation enabled", "turn", interruptTurn)
+			streamingProvider.WithInterruptOnTurn(interruptTurn)
+		}
+		if closeTurns := getIntFromConfig(additionalConfig, "close_after_turns"); closeTurns > 0 {
+			closeNoResponse := getBoolFromConfig(additionalConfig, "close_no_response")
+			logger.Info("Mock provider: session closure simulation enabled",
+				"after_turns", closeTurns,
+				"no_response", closeNoResponse)
+			streamingProvider.WithCloseAfterTurns(closeTurns, closeNoResponse)
+		}
+	} else {
+		streamingProvider = NewStreamingProvider(id, model, includeRawOutput)
 	}
 
 	return &ToolProvider{
-		Provider: NewProvider(id, model, includeRawOutput),
+		StreamingProvider: streamingProvider,
 	}
 }
 
-// NewToolProviderWithRepository creates a mock provider with tool support
+// NewToolProviderWithRepository creates a mock provider with tool support and duplex streaming
 // using a custom response repository for advanced scenarios.
 func NewToolProviderWithRepository(id, model string, includeRawOutput bool, repo ResponseRepository) *ToolProvider {
 	return &ToolProvider{
-		Provider: NewProviderWithRepository(id, model, includeRawOutput, repo),
+		StreamingProvider: NewStreamingProviderWithRepository(id, model, includeRawOutput, repo),
 	}
 }
 
@@ -80,6 +117,8 @@ func (m *ToolProvider) PredictWithTools(ctx context.Context, req providers.Predi
 		TurnNumber: turnNumber,
 		ProviderID: m.id,
 		ModelName:  m.model,
+		PersonaID:  m.getPersonaID(req),
+		ArenaRole:  m.getArenaRole(req),
 	}
 
 	logger.Debug("ToolProvider PredictWithTools using turn",
@@ -223,6 +262,26 @@ func (m *ToolProvider) getScenarioID(req providers.PredictionRequest) string {
 	return ""
 }
 
+// getPersonaID extracts the persona ID from request metadata for selfplay user turns
+func (m *ToolProvider) getPersonaID(req providers.PredictionRequest) string {
+	if req.Metadata != nil {
+		if pid, ok := req.Metadata["mock_persona_id"].(string); ok {
+			return pid
+		}
+	}
+	return ""
+}
+
+// getArenaRole extracts the arena role from request metadata
+func (m *ToolProvider) getArenaRole(req providers.PredictionRequest) string {
+	if req.Metadata != nil {
+		if role, ok := req.Metadata["arena_role"].(string); ok {
+			return role
+		}
+	}
+	return ""
+}
+
 // PredictStreamWithTools performs a streaming predict request with tool support.
 // For mock providers, this delegates to PredictWithTools and wraps the response in chunks.
 func (m *ToolProvider) PredictStreamWithTools(
@@ -272,4 +331,32 @@ func (m *ToolProvider) PredictStreamWithTools(
 	}()
 
 	return outChan, nil
+}
+
+// getIntFromConfig extracts an integer from additionalConfig, handling YAML's float64 parsing.
+func getIntFromConfig(config map[string]interface{}, key string) int {
+	if val, ok := config[key]; ok {
+		switch v := val.(type) {
+		case int:
+			return v
+		case float64:
+			return int(v)
+		case int64:
+			return int(v)
+		}
+	}
+	return 0
+}
+
+// getBoolFromConfig extracts a boolean from additionalConfig.
+func getBoolFromConfig(config map[string]interface{}, key string) bool {
+	if val, ok := config[key]; ok {
+		switch v := val.(type) {
+		case bool:
+			return v
+		case string:
+			return v == "true"
+		}
+	}
+	return false
 }

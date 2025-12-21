@@ -57,6 +57,14 @@ Integrate Arena into GitHub Actions, GitLab CI, and other pipelines. Set up qual
 *Time: 60 minutes*
 </div>
 
+<div class="code-example" markdown="1">
+**[Tutorial 6: Duplex Voice Testing](06-duplex-testing)**
+
+Test bidirectional voice conversations with real-time audio streaming. Learn duplex mode, turn detection, and self-play with TTS.
+
+*Time: 45 minutes*
+</div>
+
 ## What's the Difference?
 
 **Tutorials** are learning-oriented lessons that guide you through completing projects:
@@ -98,5 +106,6 @@ By completing all tutorials, you'll have:
 - ✅ Complex conversation flows
 - ✅ Tool/function calling tests
 - ✅ Automated CI/CD pipeline
+- ✅ Voice/duplex streaming tests
 
 Ready to get started? **[Begin with Tutorial 1 →](01-first-test)**

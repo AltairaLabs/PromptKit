@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -29,6 +30,12 @@ const (
 	defaultMaxTokens        = 4096
 	defaultTemperature      = 0.7
 	streamChannelBufferSize = 100 // Buffer size for streaming channels
+)
+
+// Error message templates for mode-specific operations.
+const (
+	errDuplexModeRequired = "%s only available in duplex mode; use OpenDuplex()"
+	errUnaryModeRequired  = "Send() only available in unary mode; use OpenDuplex() for duplex streaming"
 )
 
 // SessionMode represents the conversation's session mode.
@@ -177,7 +184,7 @@ func (c *Conversation) validateSendState() error {
 	defer c.mu.RUnlock()
 
 	if c.mode != UnaryMode {
-		return fmt.Errorf("Send() only available in unary mode; use OpenDuplex() for duplex streaming")
+		return errors.New(errUnaryModeRequired)
 	}
 	if c.closed {
 		return ErrConversationClosed
@@ -216,7 +223,8 @@ func (c *Conversation) applyOptionsToMessage(userMsg *types.Message, opts []Send
 func (c *Conversation) buildPipelineWithParams(
 	store statestore.Store,
 	conversationID string,
-	streamInputSession providers.StreamInputSession,
+	streamProvider providers.StreamInputSupport,
+	streamConfig *providers.StreamingInputConfig,
 ) (*stage.StreamPipeline, error) {
 	// Get initial variables from config (required for prompt template resolution)
 	vars := make(map[string]string)
@@ -236,17 +244,18 @@ func (c *Conversation) buildPipelineWithParams(
 
 	// Build pipeline configuration
 	pipelineCfg := &intpipeline.Config{
-		Provider:           c.config.provider,
-		ToolRegistry:       toolRegistry,
-		PromptRegistry:     c.promptRegistry,
-		TaskType:           c.promptName,
-		Variables:          vars,
-		VariableProviders:  c.config.variableProviders, // Pass to pipeline for dynamic resolution
-		MaxTokens:          defaultMaxTokens,
-		Temperature:        defaultTemperature,
-		StateStore:         store,
-		ConversationID:     conversationID,
-		StreamInputSession: streamInputSession, // Pass session for duplex mode
+		Provider:            c.config.provider,
+		ToolRegistry:        toolRegistry,
+		PromptRegistry:      c.promptRegistry,
+		TaskType:            c.promptName,
+		Variables:           vars,
+		VariableProviders:   c.config.variableProviders, // Pass to pipeline for dynamic resolution
+		MaxTokens:           defaultMaxTokens,
+		Temperature:         defaultTemperature,
+		StateStore:          store,
+		ConversationID:      conversationID,
+		StreamInputProvider: streamProvider, // For duplex mode: provider creates session lazily
+		StreamInputConfig:   streamConfig,   // Base config for session
 	}
 
 	// Apply parameters from prompt if available
@@ -270,7 +279,8 @@ func (c *Conversation) buildPipelineWithParams(
 func (c *Conversation) buildStreamPipelineWithParams(
 	store statestore.Store,
 	conversationID string,
-	streamInputSession providers.StreamInputSession,
+	streamProvider providers.StreamInputSupport,
+	streamConfig *providers.StreamingInputConfig,
 ) (*stage.StreamPipeline, error) {
 	// Get initial variables from config (required for prompt template resolution)
 	vars := make(map[string]string)
@@ -290,17 +300,18 @@ func (c *Conversation) buildStreamPipelineWithParams(
 
 	// Build pipeline configuration
 	pipelineCfg := &intpipeline.Config{
-		Provider:           c.config.provider,
-		ToolRegistry:       toolRegistry,
-		PromptRegistry:     c.promptRegistry,
-		TaskType:           c.promptName,
-		Variables:          vars,
-		VariableProviders:  c.config.variableProviders,
-		MaxTokens:          defaultMaxTokens,
-		Temperature:        defaultTemperature,
-		StateStore:         store,
-		ConversationID:     conversationID,
-		StreamInputSession: streamInputSession,
+		Provider:            c.config.provider,
+		ToolRegistry:        toolRegistry,
+		PromptRegistry:      c.promptRegistry,
+		TaskType:            c.promptName,
+		Variables:           vars,
+		VariableProviders:   c.config.variableProviders,
+		MaxTokens:           defaultMaxTokens,
+		Temperature:         defaultTemperature,
+		StateStore:          store,
+		ConversationID:      conversationID,
+		StreamInputProvider: streamProvider, // For duplex mode: provider creates session lazily
+		StreamInputConfig:   streamConfig,   // Base config for session
 	}
 
 	// Apply parameters from prompt if available
@@ -403,7 +414,7 @@ func (c *Conversation) SendChunk(ctx context.Context, chunk *providers.StreamChu
 	defer c.mu.RUnlock()
 
 	if c.mode != DuplexMode {
-		return fmt.Errorf("SendChunk() only available in duplex mode; use OpenDuplex()")
+		return fmt.Errorf(errDuplexModeRequired, "SendChunk()")
 	}
 	if c.closed {
 		return ErrConversationClosed
@@ -419,7 +430,7 @@ func (c *Conversation) SendText(ctx context.Context, text string) error {
 	defer c.mu.RUnlock()
 
 	if c.mode != DuplexMode {
-		return fmt.Errorf("SendText() only available in duplex mode; use OpenDuplex()")
+		return fmt.Errorf(errDuplexModeRequired, "SendText()")
 	}
 	if c.closed {
 		return ErrConversationClosed
@@ -444,7 +455,7 @@ func (c *Conversation) TriggerStart(ctx context.Context, message string) error {
 	defer c.mu.RUnlock()
 
 	if c.mode != DuplexMode {
-		return fmt.Errorf("TriggerStart() only available in duplex mode; use OpenDuplex()")
+		return fmt.Errorf(errDuplexModeRequired, "TriggerStart()")
 	}
 	if c.closed {
 		return ErrConversationClosed
@@ -460,7 +471,7 @@ func (c *Conversation) Response() (<-chan providers.StreamChunk, error) {
 	defer c.mu.RUnlock()
 
 	if c.mode != DuplexMode {
-		return nil, fmt.Errorf("Response() only available in duplex mode; use OpenDuplex()")
+		return nil, fmt.Errorf(errDuplexModeRequired, "Response()")
 	}
 	if c.closed {
 		return nil, ErrConversationClosed
@@ -476,7 +487,7 @@ func (c *Conversation) Done() (<-chan struct{}, error) {
 	defer c.mu.RUnlock()
 
 	if c.mode != DuplexMode {
-		return nil, fmt.Errorf("Done() only available in duplex mode; use OpenDuplex()")
+		return nil, fmt.Errorf(errDuplexModeRequired, "Done()")
 	}
 	if c.closed {
 		return nil, ErrConversationClosed
@@ -493,7 +504,7 @@ func (c *Conversation) SessionError() error {
 	defer c.mu.RUnlock()
 
 	if c.mode != DuplexMode {
-		return fmt.Errorf("SessionError() only available in duplex mode")
+		return fmt.Errorf(errDuplexModeRequired, "SessionError()")
 	}
 	if c.closed {
 		return ErrConversationClosed
@@ -637,7 +648,7 @@ func (c *Conversation) Fork() *Conversation {
 	}
 
 	ctx := context.Background()
-	pipeline, err := c.buildPipelineWithParams(store, forkID, nil)
+	pipeline, err := c.buildPipelineWithParams(store, forkID, nil, nil)
 	if err != nil {
 		return nil
 	}
@@ -672,11 +683,12 @@ func (c *Conversation) Fork() *Conversation {
 		pipelineBuilder := func(
 			ctx context.Context,
 			provider providers.Provider,
-			providerSession providers.StreamInputSession,
+			streamProvider providers.StreamInputSupport,
+			streamConfig *providers.StreamingInputConfig,
 			convID string,
 			stateStore statestore.Store,
 		) (*stage.StreamPipeline, error) {
-			return fork.buildStreamPipelineWithParams(stateStore, convID, providerSession)
+			return fork.buildStreamPipelineWithParams(stateStore, convID, streamProvider, streamConfig)
 		}
 
 		forkSession, err := c.duplexSession.ForkSession(ctx, forkID, pipelineBuilder)

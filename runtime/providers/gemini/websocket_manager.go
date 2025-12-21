@@ -27,6 +27,7 @@ type WebSocketManager struct {
 
 	conn      *websocket.Conn
 	mu        sync.RWMutex
+	writeMu   sync.Mutex // Separate mutex for serializing writes (gorilla/websocket requires this)
 	connected bool
 	closed    bool
 
@@ -124,8 +125,11 @@ func (wm *WebSocketManager) Send(msg interface{}) error {
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 
-	// Send as text message (don't hold lock during I/O)
+	// Serialize writes - gorilla/websocket requires this for concurrent access
+	wm.writeMu.Lock()
 	err = conn.WriteMessage(websocket.TextMessage, data)
+	wm.writeMu.Unlock()
+
 	if err != nil {
 		// Mark disconnected without nested locking
 		wm.mu.Lock()
@@ -155,6 +159,12 @@ func (wm *WebSocketManager) Receive(ctx context.Context, v interface{}) error {
 		wm.mu.Lock()
 		wm.connected = false
 		wm.mu.Unlock()
+
+		// Check if this is a close error from the remote (Gemini)
+		var closeErr *websocket.CloseError
+		if errors.As(err, &closeErr) {
+			return fmt.Errorf("REMOTE_CLOSED: code=%d reason=%q: %w", closeErr.Code, closeErr.Text, err)
+		}
 		return fmt.Errorf("failed to read message: %w", err)
 	}
 
@@ -183,8 +193,11 @@ func (wm *WebSocketManager) SendPing() error {
 		return errors.New(ErrNotConnected)
 	}
 
-	// Send ping (don't hold lock during I/O)
+	// Serialize writes - gorilla/websocket requires this for concurrent access
+	wm.writeMu.Lock()
 	err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second))
+	wm.writeMu.Unlock()
+
 	if err != nil {
 		// Mark disconnected without nested locking
 		wm.mu.Lock()
@@ -257,9 +270,11 @@ func (wm *WebSocketManager) Close() error {
 	close(wm.closeCh)
 
 	if wm.conn != nil {
-		// Send close frame
+		// Serialize writes - gorilla/websocket requires this for concurrent access
+		wm.writeMu.Lock()
 		closeMsg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")
 		_ = wm.conn.WriteControl(websocket.CloseMessage, closeMsg, time.Now().Add(time.Second))
+		wm.writeMu.Unlock()
 
 		// Close connection
 		err := wm.conn.Close()

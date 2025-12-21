@@ -56,8 +56,8 @@ type MockContentGen struct {
 	mock.Mock
 }
 
-func (m *MockContentGen) NextUserTurn(ctx context.Context, history []types.Message, scenarioID string) (*pipeline.ExecutionResult, error) {
-	args := m.Called(ctx, history, scenarioID)
+func (m *MockContentGen) NextUserTurn(ctx context.Context, history []types.Message, scenarioID string, opts *selfplay.GeneratorOptions) (*pipeline.ExecutionResult, error) {
+	args := m.Called(ctx, history, scenarioID, opts)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -145,7 +145,7 @@ func TestSelfPlayExecutor_LoadHistory_NoStateStore(t *testing.T) {
 func TestSelfPlayExecutor_GenerateUserMessage_Error(t *testing.T) {
 	mockContentProvider := new(MockSelfPlayContentProvider)
 	mockGen := new(MockContentGen)
-	mockGen.On("NextUserTurn", mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("generation failed"))
+	mockGen.On("NextUserTurn", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("generation failed"))
 
 	mockContentProvider.On("GetContentGenerator", "test-role", "test-persona").Return(mockGen, nil)
 
@@ -174,7 +174,7 @@ func TestSelfPlayExecutor_GenerateUserMessage_NoContent(t *testing.T) {
 	mockGen := new(MockContentGen)
 
 	// Return result with no content
-	mockGen.On("NextUserTurn", mock.Anything, mock.Anything, mock.Anything).Return(&pipeline.ExecutionResult{
+	mockGen.On("NextUserTurn", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&pipeline.ExecutionResult{
 		Response: &pipeline.Response{
 			Role:    "assistant",
 			Content: "", // Empty content
@@ -242,7 +242,7 @@ func TestSelfPlayExecutor_LoadHistoryForStream_Error(t *testing.T) {
 func TestSelfPlayExecutor_GenerateUserMessageForStream_Error(t *testing.T) {
 	mockContentProvider := new(MockSelfPlayContentProvider)
 	mockGen := new(MockContentGen)
-	mockGen.On("NextUserTurn", mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("generation failed"))
+	mockGen.On("NextUserTurn", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("generation failed"))
 
 	mockContentProvider.On("GetContentGenerator", "test-role", "test-persona").Return(mockGen, nil)
 

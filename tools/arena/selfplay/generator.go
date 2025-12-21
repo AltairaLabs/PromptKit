@@ -46,11 +46,13 @@ func extractRegionFromPersonaID(personaID string) string {
 	return "us"
 }
 
-// NextUserTurn generates a user message using the LLM through a stage pipeline
+// NextUserTurn generates a user message using the LLM through a stage pipeline.
+// The opts parameter is optional and can be nil.
 func (cg *ContentGenerator) NextUserTurn(
 	ctx context.Context,
 	history []types.Message,
 	scenarioID string,
+	opts *GeneratorOptions,
 ) (*pipeline.ExecutionResult, error) {
 	if cg.provider == nil {
 		return nil, fmt.Errorf("ContentGenerator provider is nil - check self-play provider configuration")
@@ -90,10 +92,27 @@ func (cg *ContentGenerator) NextUserTurn(
 		MaxTokens:   200, // Short user messages
 	}
 
+	// Create the selfplay context stage.
+	// If opts provides a selfplay turn index, use it instead of computing from history.
+	// This is important for scenarios with mixed file-based and selfplay turns.
+	var selfplayContextStage stage.Stage
+	selfplayTurnIndex := 0
+	if opts != nil {
+		selfplayTurnIndex = opts.SelfplayTurnIndex
+	}
+	if selfplayTurnIndex > 0 {
+		selfplayContextStage = arenastages.NewSelfPlayUserTurnContextStageWithHint(
+			&config.Scenario{ID: scenarioID},
+			selfplayTurnIndex,
+		)
+	} else {
+		selfplayContextStage = arenastages.NewSelfPlayUserTurnContextStage(&config.Scenario{ID: scenarioID})
+	}
+
 	stages := []stage.Stage{
 		arenastages.NewPersonaAssemblyStage(cg.persona, region, baseVariables),
 		arenastages.NewHistoryInjectionStage(history),
-		arenastages.NewSelfPlayUserTurnContextStage(&config.Scenario{ID: scenarioID}),
+		selfplayContextStage,
 		stage.NewTemplateStage(),
 		stage.NewProviderStage(cg.provider, nil, nil, providerConfig),
 	}

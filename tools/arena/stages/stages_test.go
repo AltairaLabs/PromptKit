@@ -996,3 +996,360 @@ func TestPrependSystemMessage_EmptyMessages(t *testing.T) {
 	require.Len(t, result, 1)
 	assert.Equal(t, "system", result[0].Role)
 }
+
+// =============================================================================
+// Selfplay Metadata Preservation Tests (TDD for duplex mode)
+// =============================================================================
+
+// TestArenaStateStoreSaveStage_PreservesMessageMeta verifies that Message.Meta
+// is preserved when saving through the stage. This is critical for selfplay
+// metadata (self_play, persona, selfplay_turn_index) to appear in output.
+func TestArenaStateStoreSaveStage_PreservesMessageMeta(t *testing.T) {
+	store := statestore.NewArenaStateStore()
+
+	cfg := &pipeline.StateStoreConfig{
+		Store:          store,
+		ConversationID: "test-selfplay-meta",
+	}
+
+	s := NewArenaStateStoreSaveStage(cfg)
+
+	// Create a user message with Meta set (like selfplay does)
+	userMsg := &types.Message{
+		Role:    "user",
+		Content: "Generated selfplay text",
+		Meta: map[string]interface{}{
+			"self_play":           true,
+			"persona":             "curious-customer",
+			"selfplay_turn_index": 1,
+		},
+	}
+	userElem := stage.NewMessageElement(userMsg)
+
+	results := runStage(t, s, []stage.StreamElement{userElem})
+
+	// Should forward all elements
+	require.Len(t, results, 1)
+
+	// Verify state was saved
+	ctx := context.Background()
+	state, err := store.Load(ctx, "test-selfplay-meta")
+	require.NoError(t, err)
+	require.NotNil(t, state)
+	require.Len(t, state.Messages, 1)
+
+	// CRITICAL: Verify Meta is preserved on the saved message
+	savedMsg := state.Messages[0]
+	require.NotNil(t, savedMsg.Meta, "Message.Meta should be preserved after save")
+	assert.Equal(t, true, savedMsg.Meta["self_play"], "self_play should be true")
+	assert.Equal(t, "curious-customer", savedMsg.Meta["persona"], "persona should be preserved")
+	assert.Equal(t, 1, savedMsg.Meta["selfplay_turn_index"], "selfplay_turn_index should be preserved")
+}
+
+// TestArenaStateStoreSaveStage_PreservesOriginalTextForSelfplay verifies that
+// when input transcription is applied to a selfplay message, the original
+// LLM-generated text is preserved in meta.original_text.
+func TestArenaStateStoreSaveStage_PreservesOriginalTextForSelfplay(t *testing.T) {
+	store := statestore.NewArenaStateStore()
+
+	cfg := &pipeline.StateStoreConfig{
+		Store:          store,
+		ConversationID: "test-selfplay-transcription",
+	}
+
+	s := NewArenaStateStoreSaveStage(cfg)
+
+	// Create selfplay user message with original generated text
+	originalText := "What services do you offer for enterprise customers?"
+	userMsg := &types.Message{
+		Role:    "user",
+		Content: originalText,
+		Meta: map[string]interface{}{
+			"self_play":           true,
+			"persona":             "curious-customer",
+			"selfplay_turn_index": 1,
+		},
+	}
+
+	// Create assistant response with input_transcription (simulating Gemini's transcription)
+	// Note: Gemini often produces slightly different/truncated transcriptions
+	transcribedText := " kind of services do you offer for enterprise" // Truncated version
+	assistantMsg := &types.Message{
+		Role:    "assistant",
+		Content: "We offer several enterprise services...",
+	}
+	assistantElem := stage.NewMessageElement(assistantMsg)
+	assistantElem.Metadata = map[string]interface{}{
+		"input_transcription": transcribedText,
+	}
+
+	results := runStage(t, s, []stage.StreamElement{
+		stage.NewMessageElement(userMsg),
+		assistantElem,
+	})
+
+	require.Len(t, results, 2)
+
+	// Verify state was saved
+	ctx := context.Background()
+	state, err := store.Load(ctx, "test-selfplay-transcription")
+	require.NoError(t, err)
+	require.Len(t, state.Messages, 2)
+
+	// Check that the user message has both the transcription AND original text
+	savedUserMsg := state.Messages[0]
+
+	// Content should be the transcription (what Gemini heard)
+	assert.Equal(t, transcribedText, savedUserMsg.Content, "Content should be the transcription")
+
+	// Original text should be preserved in meta
+	require.NotNil(t, savedUserMsg.Meta, "Meta should exist")
+	originalInMeta, ok := savedUserMsg.Meta["original_text"].(string)
+	require.True(t, ok, "original_text should be in meta")
+	assert.Equal(t, originalText, originalInMeta, "Original selfplay text should be preserved in meta")
+}
+
+// TestArenaStateStoreSaveStage_TranscriptionAppliedToCorrectTurn verifies that
+// when messages arrive out of order due to race conditions (next turn's user message
+// arrives before previous turn's assistant response), the transcription is still
+// applied to the CORRECT user message (the one that precedes the assistant response).
+func TestArenaStateStoreSaveStage_TranscriptionAppliedToCorrectTurn(t *testing.T) {
+	store := statestore.NewArenaStateStore()
+
+	cfg := &pipeline.StateStoreConfig{
+		Store:          store,
+		ConversationID: "test-transcription-race",
+	}
+
+	s := NewArenaStateStoreSaveStage(cfg)
+
+	// Simulate a race condition where messages arrive in this order:
+	// 1. User message 1 (selfplay turn 1)
+	// 2. User message 2 (selfplay turn 2) - arrives BEFORE assistant 1!
+	// 3. Assistant message 1 (with transcription for turn 1)
+	// 4. Assistant message 2 (with transcription for turn 2)
+	//
+	// The transcription from assistant 1 should be applied to user 1, NOT user 2.
+
+	user1Original := "Hello, what services do you offer?"
+	user1 := &types.Message{
+		Role:    "user",
+		Content: user1Original,
+		Meta: map[string]interface{}{
+			"self_play":           true,
+			"selfplay_turn_index": 1,
+		},
+	}
+
+	user2Original := "That sounds great! What about pricing?"
+	user2 := &types.Message{
+		Role:    "user",
+		Content: user2Original,
+		Meta: map[string]interface{}{
+			"self_play":           true,
+			"selfplay_turn_index": 2,
+		},
+	}
+
+	transcript1 := " Hello what services do you offer"
+	assistant1 := &types.Message{
+		Role:    "assistant",
+		Content: "We offer many services...",
+	}
+	assistant1Elem := stage.NewMessageElement(assistant1)
+	assistant1Elem.Metadata = map[string]interface{}{
+		"input_transcription": transcript1,
+	}
+
+	transcript2 := " That sounds great what about pricing"
+	assistant2 := &types.Message{
+		Role:    "assistant",
+		Content: "Our pricing is...",
+	}
+	assistant2Elem := stage.NewMessageElement(assistant2)
+	assistant2Elem.Metadata = map[string]interface{}{
+		"input_transcription": transcript2,
+	}
+
+	// Send messages in the "race condition" order
+	results := runStage(t, s, []stage.StreamElement{
+		stage.NewMessageElement(user1), // User 1 arrives first
+		stage.NewMessageElement(user2), // User 2 arrives before assistant 1!
+		assistant1Elem,                  // Assistant 1 with transcript for user 1
+		assistant2Elem,                  // Assistant 2 with transcript for user 2
+	})
+
+	require.Len(t, results, 4)
+
+	// Verify state
+	ctx := context.Background()
+	state, err := store.Load(ctx, "test-transcription-race")
+	require.NoError(t, err)
+	require.Len(t, state.Messages, 4)
+
+	// User 1 should have transcript 1 (NOT transcript 2!)
+	assert.Equal(t, transcript1, state.Messages[0].Content,
+		"User 1 should have transcript 1, not transcript 2")
+	assert.Equal(t, user1Original, state.Messages[0].Meta["original_text"],
+		"User 1 should preserve its original text")
+
+	// User 2 should have transcript 2
+	assert.Equal(t, transcript2, state.Messages[1].Content,
+		"User 2 should have transcript 2")
+	assert.Equal(t, user2Original, state.Messages[1].Meta["original_text"],
+		"User 2 should preserve its original text")
+}
+
+// TestArenaStateStoreSaveStage_PreservesMetaAcrossMultipleMessages verifies
+// that Meta is preserved for both user and assistant messages in a conversation.
+func TestArenaStateStoreSaveStage_PreservesMetaAcrossMultipleMessages(t *testing.T) {
+	store := statestore.NewArenaStateStore()
+
+	cfg := &pipeline.StateStoreConfig{
+		Store:          store,
+		ConversationID: "test-multi-meta",
+	}
+
+	s := NewArenaStateStoreSaveStage(cfg)
+
+	// Create user message with selfplay Meta
+	userMsg := &types.Message{
+		Role:    "user",
+		Content: "First selfplay message",
+		Meta: map[string]interface{}{
+			"self_play":           true,
+			"selfplay_turn_index": 1,
+		},
+	}
+
+	// Create assistant message (no Meta expected from pipeline)
+	assistantMsg := &types.Message{
+		Role:    "assistant",
+		Content: "Assistant response",
+	}
+
+	// Create second user message with different selfplay index
+	userMsg2 := &types.Message{
+		Role:    "user",
+		Content: "Second selfplay message",
+		Meta: map[string]interface{}{
+			"self_play":           true,
+			"selfplay_turn_index": 2,
+		},
+	}
+
+	results := runStage(t, s, []stage.StreamElement{
+		stage.NewMessageElement(userMsg),
+		stage.NewMessageElement(assistantMsg),
+		stage.NewMessageElement(userMsg2),
+	})
+
+	require.Len(t, results, 3)
+
+	// Verify state was saved
+	ctx := context.Background()
+	state, err := store.Load(ctx, "test-multi-meta")
+	require.NoError(t, err)
+	require.Len(t, state.Messages, 3)
+
+	// First user message should have Meta with selfplay_turn_index=1
+	assert.NotNil(t, state.Messages[0].Meta, "First user message should have Meta")
+	assert.Equal(t, 1, state.Messages[0].Meta["selfplay_turn_index"])
+
+	// Assistant message should have nil Meta (or empty)
+	// This is expected - assistants don't have selfplay metadata
+
+	// Second user message should have Meta with selfplay_turn_index=2
+	assert.NotNil(t, state.Messages[2].Meta, "Second user message should have Meta")
+	assert.Equal(t, 2, state.Messages[2].Meta["selfplay_turn_index"])
+}
+
+// TestArenaStateStoreSaveStage_TranscriptionByTurnID verifies that
+// transcriptions are matched to user messages by turn_id when available,
+// providing reliable correlation regardless of message arrival order.
+func TestArenaStateStoreSaveStage_TranscriptionByTurnID(t *testing.T) {
+	store := statestore.NewArenaStateStore()
+
+	cfg := &pipeline.StateStoreConfig{
+		Store:          store,
+		ConversationID: "test-turn-id",
+	}
+
+	s := NewArenaStateStoreSaveStage(cfg)
+
+	// Create user messages with unique turn_ids
+	turnID1 := "turn-uuid-001"
+	turnID2 := "turn-uuid-002"
+
+	user1Original := "Hello, how are you?"
+	user1 := &types.Message{
+		Role:    "user",
+		Content: user1Original,
+		Meta: map[string]interface{}{
+			"turn_id":   turnID1,
+			"self_play": true,
+		},
+	}
+
+	user2Original := "What services do you offer?"
+	user2 := &types.Message{
+		Role:    "user",
+		Content: user2Original,
+		Meta: map[string]interface{}{
+			"turn_id":   turnID2,
+			"self_play": true,
+		},
+	}
+
+	// Transcriptions arrive with their corresponding turn_ids
+	transcript1 := " Hello how are you"
+	assistant1 := &types.Message{
+		Role:    "assistant",
+		Content: "I'm doing well, thanks!",
+	}
+	assistant1Elem := stage.NewMessageElement(assistant1)
+	assistant1Elem.Metadata = map[string]interface{}{
+		"input_transcription":   transcript1,
+		"transcription_turn_id": turnID1,
+	}
+
+	transcript2 := " What services do you offer"
+	assistant2 := &types.Message{
+		Role:    "assistant",
+		Content: "We offer many services...",
+	}
+	assistant2Elem := stage.NewMessageElement(assistant2)
+	assistant2Elem.Metadata = map[string]interface{}{
+		"input_transcription":   transcript2,
+		"transcription_turn_id": turnID2,
+	}
+
+	// Send messages in a mixed order (user2 arrives before assistant1)
+	// With turn_id matching, transcriptions should still be correct
+	results := runStage(t, s, []stage.StreamElement{
+		stage.NewMessageElement(user1), // User 1 arrives
+		stage.NewMessageElement(user2), // User 2 arrives before assistant1!
+		assistant1Elem,                  // Assistant 1 with transcript for turn_id1
+		assistant2Elem,                  // Assistant 2 with transcript for turn_id2
+	})
+
+	require.Len(t, results, 4)
+
+	// Verify state
+	ctx := context.Background()
+	state, err := store.Load(ctx, "test-turn-id")
+	require.NoError(t, err)
+	require.Len(t, state.Messages, 4)
+
+	// User 1 should have transcript 1 (matched by turn_id, not order)
+	assert.Equal(t, transcript1, state.Messages[0].Content,
+		"User 1 should have transcript 1 (matched by turn_id)")
+	assert.Equal(t, user1Original, state.Messages[0].Meta["original_text"],
+		"User 1 should preserve original text")
+
+	// User 2 should have transcript 2 (matched by turn_id, not order)
+	assert.Equal(t, transcript2, state.Messages[1].Content,
+		"User 2 should have transcript 2 (matched by turn_id)")
+	assert.Equal(t, user2Original, state.Messages[1].Meta["original_text"],
+		"User 2 should preserve original text")
+}

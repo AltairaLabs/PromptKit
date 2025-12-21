@@ -973,3 +973,216 @@ type errorReader struct {
 func (r *errorReader) Read(p []byte) (int, error) {
 	return 0, r.err
 }
+
+// =============================================================================
+// ResponseVADStage Tests
+// =============================================================================
+
+func TestNewResponseVADStage(t *testing.T) {
+	config := stage.DefaultResponseVADConfig()
+	s, err := stage.NewResponseVADStage(config)
+	require.NoError(t, err)
+
+	assert.Equal(t, stage.StageTypeTransform, s.Type())
+	assert.Equal(t, "response_vad", s.Name())
+}
+
+func TestResponseVADStage_ForwardsElementsImmediately(t *testing.T) {
+	config := stage.DefaultResponseVADConfig()
+	s, err := stage.NewResponseVADStage(config)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	input := make(chan stage.StreamElement, 10)
+	output := make(chan stage.StreamElement, 10)
+
+	go func() {
+		_ = s.Process(ctx, input, output)
+	}()
+
+	// Send audio element - should be forwarded immediately
+	audioData := generateTestPCMAudio(1000)
+	input <- stage.StreamElement{
+		Audio: &stage.AudioData{
+			Samples:    audioData,
+			SampleRate: 24000,
+			Channels:   1,
+			Format:     stage.AudioFormatPCM16,
+		},
+	}
+
+	// Should receive audio immediately
+	select {
+	case elem := <-output:
+		require.NotNil(t, elem.Audio)
+		assert.Equal(t, audioData, elem.Audio.Samples)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Audio should be forwarded immediately")
+	}
+
+	close(input)
+}
+
+// TestResponseVADStage_PointerAliasingBug tests that EndOfStream elements are not
+// corrupted when more elements arrive after it. This was a bug where the stage
+// stored a pointer to the loop variable, which got overwritten by subsequent elements.
+func TestResponseVADStage_PointerAliasingBug(t *testing.T) {
+	config := stage.DefaultResponseVADConfig()
+	config.SilenceDuration = 100 * time.Millisecond // Short silence for fast test
+	config.MaxWaitDuration = 500 * time.Millisecond
+	s, err := stage.NewResponseVADStage(config)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	input := make(chan stage.StreamElement, 10)
+	output := make(chan stage.StreamElement, 10)
+
+	go func() {
+		_ = s.Process(ctx, input, output)
+	}()
+
+	// Create EndOfStream element with Message (like DuplexProviderStage does)
+	text := "Expected response text"
+	msg := &types.Message{
+		Role:    "assistant",
+		Content: text,
+	}
+	endOfStreamElem := stage.StreamElement{
+		Message:     msg,
+		EndOfStream: true,
+		Metadata: map[string]interface{}{
+			"important_data": "should_be_preserved",
+		},
+	}
+
+	// Send EndOfStream first
+	input <- endOfStreamElem
+
+	// Now send MORE audio elements (simulating Gemini sending audio after turnComplete)
+	// This is where the bug manifests - these elements would overwrite the stored EndOfStream
+	for i := 0; i < 3; i++ {
+		audioData := generateTestPCMAudio(100)
+		input <- stage.StreamElement{
+			Audio: &stage.AudioData{
+				Samples:    audioData,
+				SampleRate: 24000,
+			},
+			// No Message - just audio
+		}
+	}
+
+	// Collect all outputs
+	var endOfStreamReceived *stage.StreamElement
+	var audioCount int
+	timeout := time.After(1 * time.Second)
+
+collectLoop:
+	for {
+		select {
+		case elem, ok := <-output:
+			if !ok {
+				break collectLoop
+			}
+			if elem.EndOfStream {
+				endOfStreamReceived = &elem
+				break collectLoop
+			}
+			if elem.Audio != nil {
+				audioCount++
+			}
+		case <-timeout:
+			break collectLoop
+		}
+	}
+
+	close(input)
+
+	// Verify the EndOfStream element was preserved correctly
+	require.NotNil(t, endOfStreamReceived, "EndOfStream should have been received")
+	require.NotNil(t, endOfStreamReceived.Message, "Message should be preserved in EndOfStream element")
+	assert.Equal(t, text, endOfStreamReceived.Message.Content, "Message content should be preserved")
+	assert.Equal(t, "assistant", endOfStreamReceived.Message.Role, "Message role should be preserved")
+
+	// Also verify audio elements were forwarded
+	assert.Equal(t, 3, audioCount, "All audio elements should have been forwarded")
+}
+
+// TestResponseVADStage_MultipleTurns tests that multiple turns are handled correctly
+// without cross-talk between turn states.
+func TestResponseVADStage_MultipleTurns(t *testing.T) {
+	config := stage.DefaultResponseVADConfig()
+	config.SilenceDuration = 50 * time.Millisecond
+	config.MaxWaitDuration = 200 * time.Millisecond
+	s, err := stage.NewResponseVADStage(config)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	input := make(chan stage.StreamElement, 20)
+	output := make(chan stage.StreamElement, 20)
+
+	go func() {
+		_ = s.Process(ctx, input, output)
+	}()
+
+	// Turn 1: Send audio, then EndOfStream with Message
+	audioData1 := generateTestPCMAudio(100)
+	input <- stage.StreamElement{
+		Audio: &stage.AudioData{Samples: audioData1, SampleRate: 24000},
+	}
+	turn1Msg := &types.Message{Role: "assistant", Content: "Turn 1 response"}
+	input <- stage.StreamElement{Message: turn1Msg, EndOfStream: true}
+
+	// Wait for turn 1 to complete
+	var turn1EOS *stage.StreamElement
+	timeout := time.After(500 * time.Millisecond)
+turn1Loop:
+	for {
+		select {
+		case elem := <-output:
+			if elem.EndOfStream {
+				turn1EOS = &elem
+				break turn1Loop
+			}
+		case <-timeout:
+			break turn1Loop
+		}
+	}
+	require.NotNil(t, turn1EOS, "Turn 1 EndOfStream should be received")
+	require.NotNil(t, turn1EOS.Message, "Turn 1 Message should be preserved")
+	assert.Equal(t, "Turn 1 response", turn1EOS.Message.Content)
+
+	// Turn 2: Send audio, then EndOfStream with Message
+	audioData2 := generateTestPCMAudio(100)
+	input <- stage.StreamElement{
+		Audio: &stage.AudioData{Samples: audioData2, SampleRate: 24000},
+	}
+	turn2Msg := &types.Message{Role: "assistant", Content: "Turn 2 response"}
+	input <- stage.StreamElement{Message: turn2Msg, EndOfStream: true}
+
+	// Wait for turn 2 to complete
+	var turn2EOS *stage.StreamElement
+	timeout = time.After(500 * time.Millisecond)
+turn2Loop:
+	for {
+		select {
+		case elem := <-output:
+			if elem.EndOfStream {
+				turn2EOS = &elem
+				break turn2Loop
+			}
+		case <-timeout:
+			break turn2Loop
+		}
+	}
+	require.NotNil(t, turn2EOS, "Turn 2 EndOfStream should be received")
+	require.NotNil(t, turn2EOS.Message, "Turn 2 Message should be preserved")
+	assert.Equal(t, "Turn 2 response", turn2EOS.Message.Content)
+
+	close(input)
+}

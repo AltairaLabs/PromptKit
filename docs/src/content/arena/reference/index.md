@@ -29,6 +29,9 @@ Test scenario file structure and specification.
 ### [Output Formats](./output-formats/)
 Report generation formats (HTML, JSON, JUnit, Markdown).
 
+### [Duplex Configuration](./duplex-config/)
+Complete duplex streaming configuration for voice testing scenarios.
+
 ---
 
 ## Reference vs. How-To

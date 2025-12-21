@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -40,6 +41,9 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 	var cancel context.CancelFunc
 	if p.config.ExecutionTimeout > 0 {
 		execCtx, cancel = context.WithTimeout(ctx, p.config.ExecutionTimeout)
+		logger.Info("Pipeline ExecutionTimeout configured",
+			"timeout", p.config.ExecutionTimeout,
+			"stages", len(p.stages))
 	}
 
 	// Track execution for graceful shutdown
@@ -70,6 +74,21 @@ func (p *StreamPipeline) executeBackground(ctx context.Context, input <-chan Str
 	start := time.Now()
 	if p.eventEmitter != nil {
 		p.eventEmitter.PipelineStarted(len(p.stages))
+	}
+
+	// Monitor for ExecutionTimeout - log clearly when it triggers
+	if p.config.ExecutionTimeout > 0 {
+		go func() {
+			<-ctx.Done()
+			elapsed := time.Since(start)
+			if ctx.Err() == context.DeadlineExceeded {
+				logger.Error("PIPELINE EXECUTION TIMEOUT TRIGGERED",
+					"configured_timeout", p.config.ExecutionTimeout,
+					"elapsed", elapsed,
+					"stages", len(p.stages),
+					"hint", "Consider increasing ExecutionTimeout or using WithExecutionTimeout(0) for long-running pipelines")
+			}
+		}()
 	}
 
 	// Create channels between stages
@@ -145,39 +164,44 @@ func (p *StreamPipeline) createChannels() map[string]chan StreamElement {
 //
 //nolint:lll // Channel signature cannot be shortened
 func (p *StreamPipeline) getStageInput(stage Stage, pipelineInput <-chan StreamElement, channels map[string]chan StreamElement) <-chan StreamElement {
-	// Check if this is a root stage (no incoming edges)
-	isRoot := true
-	for _, toStages := range p.edges {
-		for _, toStage := range toStages {
-			if toStage == stage.Name() {
-				isRoot = false
-				break
-			}
-		}
-		if !isRoot {
-			break
-		}
-	}
-
-	if isRoot {
+	if p.isRootStage(stage.Name()) {
 		return pipelineInput
 	}
 
-	// For non-root stages, find the upstream stage(s)
-	// For simplicity in linear chains, we'll just use the channel directly
-	// Note: Fan-in (multiple stages feeding into one) is a Phase 5 enhancement.
-	// Current implementation supports single upstream stage per stage (sufficient for linear chains and fan-out).
-	// For fan-in/merge patterns, a dedicated MergeStage will be implemented in Phase 5.
-	for fromStage, toStages := range p.edges {
-		for _, toStage := range toStages {
-			if toStage == stage.Name() {
-				return channels[fromStage]
-			}
-		}
+	// For non-root stages, find the upstream stage
+	if upstream := p.findUpstreamStage(stage.Name()); upstream != "" {
+		return channels[upstream]
 	}
 
 	// Should never reach here if validation worked
 	return nil
+}
+
+// isRootStage checks if a stage has no incoming edges.
+func (p *StreamPipeline) isRootStage(stageName string) bool {
+	for _, toStages := range p.edges {
+		for _, toStage := range toStages {
+			if toStage == stageName {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// findUpstreamStage finds the stage that feeds into the given stage.
+// Note: Fan-in (multiple stages feeding into one) is a Phase 5 enhancement.
+// Current implementation supports single upstream stage per stage (sufficient for linear chains and fan-out).
+// For fan-in/merge patterns, a dedicated MergeStage will be implemented in Phase 5.
+func (p *StreamPipeline) findUpstreamStage(stageName string) string {
+	for fromStage, toStages := range p.edges {
+		for _, toStage := range toStages {
+			if toStage == stageName {
+				return fromStage
+			}
+		}
+	}
+	return ""
 }
 
 // getStageOutput returns the output channel for a stage.
