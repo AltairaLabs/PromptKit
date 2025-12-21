@@ -463,7 +463,7 @@ func getExtensionFromMIME(mimeType string) string {
 		return ".webp"
 	case "audio/mpeg":
 		return ".mp3"
-	case "audio/wav":
+	case audioMIMETypeWAV:
 		return ".wav"
 	case "audio/ogg":
 		return ".ogg"
@@ -497,7 +497,7 @@ func inferMIMETypeFromPath(path string) string {
 	case ".mp3":
 		return "audio/mpeg"
 	case ".wav":
-		return "audio/wav"
+		return audioMIMETypeWAV
 	case ".pcm":
 		return "audio/pcm"
 	case ".ogg", ".oga":

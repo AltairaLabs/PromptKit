@@ -28,6 +28,9 @@ const (
 
 	// Default timeout for waiting for final response after input closes
 	finalResponseTimeout = 30 * time.Second
+
+	// MIME type for PCM audio
+	mimeTypeAudioPCM = "audio/pcm"
 )
 
 // EndInputter is an optional interface for sessions that support explicit end-of-input signaling.
@@ -541,7 +544,7 @@ func (s *DuplexProviderStage) forwardResponseElements(
 						Type: types.ContentTypeAudio,
 						Media: &types.MediaContent{
 							Data:     &mediaData,
-							MIMEType: "audio/pcm",
+							MIMEType: mimeTypeAudioPCM,
 						},
 					})
 				}
@@ -557,6 +560,7 @@ func (s *DuplexProviderStage) forwardResponseElements(
 
 				// Use a short timeout for sending - the downstream stage needs a chance to receive
 				// even though context is canceled. This is critical for capturing partial responses.
+				// NOSONAR: Intentional background context - main ctx is canceled, need fresh context
 				sendCtx, sendCancel := context.WithTimeout(context.Background(), partialResponseSendTimeout)
 				select {
 				case output <- elem:
@@ -645,7 +649,7 @@ func (s *DuplexProviderStage) forwardResponseElements(
 							Type: types.ContentTypeAudio,
 							Media: &types.MediaContent{
 								Data:     &mediaData,
-								MIMEType: "audio/pcm",
+								MIMEType: mimeTypeAudioPCM,
 							},
 						})
 					}
@@ -831,7 +835,7 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 					Type: types.ContentTypeAudio,
 					Media: &types.MediaContent{
 						Data:     &mediaData,
-						MIMEType: "audio/pcm",
+						MIMEType: mimeTypeAudioPCM,
 					},
 				})
 			}
@@ -942,7 +946,7 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 					Type: types.ContentTypeAudio,
 					Media: &types.MediaContent{
 						Data:     &mediaData,
-						MIMEType: "audio/pcm",
+						MIMEType: mimeTypeAudioPCM,
 					},
 				})
 			}

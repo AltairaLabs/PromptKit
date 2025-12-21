@@ -56,7 +56,8 @@ const (
 // StreamSession implements StreamInputSession for Gemini Live API
 // with automatic reconnection on unexpected connection drops.
 type StreamSession struct {
-	ws              *WebSocketManager
+	ws *WebSocketManager
+	// NOSONAR: ctx is required for session lifecycle (background goroutines, reconnection)
 	ctx             context.Context
 	cancel          context.CancelFunc
 	responseCh      chan providers.StreamChunk

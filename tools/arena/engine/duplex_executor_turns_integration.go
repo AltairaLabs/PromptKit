@@ -33,6 +33,18 @@ type turnLoopState struct {
 	turnErr        error
 }
 
+// turnProcessingArgs groups common arguments for turn processing functions.
+// This reduces parameter counts and improves readability.
+type turnProcessingArgs struct {
+	req        *ConversationRequest
+	baseDir    string
+	inputChan  chan<- stage.StreamElement
+	outputChan <-chan stage.StreamElement
+	emitter    *events.Emitter
+	cfg        *turnLoopConfig
+	state      *turnLoopState
+}
+
 // processDuplexTurns processes each turn in the scenario through the duplex pipeline.
 func (de *DuplexConversationExecutor) processDuplexTurns(
 	ctx context.Context,
@@ -44,13 +56,20 @@ func (de *DuplexConversationExecutor) processDuplexTurns(
 ) error {
 	logger.Debug("processDuplexTurns: starting", "numTurns", len(req.Scenario.Turns))
 
-	cfg := de.getTurnLoopConfig(req)
-	state := &turnLoopState{}
+	args := &turnProcessingArgs{
+		req:        req,
+		baseDir:    baseDir,
+		inputChan:  inputChan,
+		outputChan: outputChan,
+		emitter:    emitter,
+		cfg:        de.getTurnLoopConfig(req),
+		state:      &turnLoopState{},
+	}
 
-	de.processAllTurns(ctx, req, baseDir, inputChan, outputChan, emitter, cfg, state)
-	de.finalizeTurnProcessing(ctx, inputChan, outputChan, state.turnErr)
+	de.processAllTurns(ctx, args)
+	de.finalizeTurnProcessing(ctx, inputChan, outputChan, args.state.turnErr)
 
-	return state.turnErr
+	return args.state.turnErr
 }
 
 // getTurnLoopConfig extracts resilience configuration for turn processing.
@@ -68,18 +87,9 @@ func (de *DuplexConversationExecutor) getTurnLoopConfig(req *ConversationRequest
 }
 
 // processAllTurns iterates through all scenario turns.
-func (de *DuplexConversationExecutor) processAllTurns(
-	ctx context.Context,
-	req *ConversationRequest,
-	baseDir string,
-	inputChan chan<- stage.StreamElement,
-	outputChan <-chan stage.StreamElement,
-	emitter *events.Emitter,
-	cfg *turnLoopConfig,
-	state *turnLoopState,
-) {
-	for scenarioTurnIdx := range req.Scenario.Turns {
-		turn := &req.Scenario.Turns[scenarioTurnIdx]
+func (de *DuplexConversationExecutor) processAllTurns(ctx context.Context, args *turnProcessingArgs) {
+	for scenarioTurnIdx := range args.req.Scenario.Turns {
+		turn := &args.req.Scenario.Turns[scenarioTurnIdx]
 		turnsToExecute := de.getTurnsToExecute(turn)
 
 		logger.Debug("processDuplexTurns: processing turn",
@@ -87,10 +97,9 @@ func (de *DuplexConversationExecutor) processAllTurns(
 			"role", turn.Role,
 			"turnsToExecute", turnsToExecute)
 
-		de.processTurnIterations(ctx, req, turn, scenarioTurnIdx, turnsToExecute, baseDir,
-			inputChan, outputChan, emitter, cfg, state)
+		de.processTurnIterations(ctx, args, turn, scenarioTurnIdx, turnsToExecute)
 
-		if state.turnErr != nil {
+		if args.state.turnErr != nil {
 			break
 		}
 	}
@@ -107,78 +116,70 @@ func (de *DuplexConversationExecutor) getTurnsToExecute(turn *config.TurnDefinit
 // processTurnIterations handles multiple iterations of a single turn definition.
 func (de *DuplexConversationExecutor) processTurnIterations(
 	ctx context.Context,
-	req *ConversationRequest,
+	args *turnProcessingArgs,
 	turn *config.TurnDefinition,
-	scenarioTurnIdx int,
-	turnsToExecute int,
-	baseDir string,
-	inputChan chan<- stage.StreamElement,
-	outputChan <-chan stage.StreamElement,
-	emitter *events.Emitter,
-	cfg *turnLoopConfig,
-	state *turnLoopState,
+	scenarioTurnIdx, turnsToExecute int,
 ) {
 	for iteration := 0; iteration < turnsToExecute; iteration++ {
-		de.emitTurnStarted(emitter, state.logicalTurnIdx, turn.Role, req.Scenario.ID)
+		de.emitTurnStarted(args.emitter, args.state.logicalTurnIdx, turn.Role, args.req.Scenario.ID)
 
 		selfplayTurnNum := iteration + 1
 		err := de.processSingleDuplexTurn(
-			ctx, req, turn, state.logicalTurnIdx, selfplayTurnNum, baseDir, inputChan, outputChan,
+			ctx, args.req, turn, args.state.logicalTurnIdx, selfplayTurnNum,
+			args.baseDir, args.inputChan, args.outputChan,
 		)
 
 		if err != nil {
-			de.handleTurnError(err, turn, scenarioTurnIdx, iteration, turnsToExecute,
-				len(req.Scenario.Turns), emitter, cfg, state, req.Scenario.ID)
+			de.handleTurnError(err, args, turn, scenarioTurnIdx, iteration, turnsToExecute)
 			break
 		}
 
-		de.handleTurnSuccess(ctx, req, turn, state.logicalTurnIdx, emitter)
+		de.handleTurnSuccess(ctx, args.req, turn, args.state.logicalTurnIdx, args.emitter)
 
-		isLastTurn := (iteration == turnsToExecute-1) && (scenarioTurnIdx == len(req.Scenario.Turns)-1)
+		isLastTurn := (iteration == turnsToExecute-1) && (scenarioTurnIdx == len(args.req.Scenario.Turns)-1)
 		if !isLastTurn {
-			de.applyInterTurnDelay(turn, cfg)
+			de.applyInterTurnDelay(turn, args.cfg)
 		}
 
-		state.logicalTurnIdx++
+		args.state.logicalTurnIdx++
 	}
 }
 
 // handleTurnError processes a turn error and updates state. Always results in loop break.
 func (de *DuplexConversationExecutor) handleTurnError(
 	err error,
+	args *turnProcessingArgs,
 	turn *config.TurnDefinition,
-	scenarioTurnIdx, iteration, turnsToExecute, totalTurns int,
-	emitter *events.Emitter,
-	cfg *turnLoopConfig,
-	state *turnLoopState,
-	scenarioID string,
+	scenarioTurnIdx, iteration, turnsToExecute int,
 ) {
+	totalTurns := len(args.req.Scenario.Turns)
+	scenarioID := args.req.Scenario.ID
 	isLastTurn := (iteration == turnsToExecute-1) && (scenarioTurnIdx == totalTurns-1)
 
 	if errors.Is(err, errSessionEnded) {
-		if cfg.ignoreLastTurnSessionEnd && isLastTurn && state.logicalTurnIdx > 0 {
+		if args.cfg.ignoreLastTurnSessionEnd && isLastTurn && args.state.logicalTurnIdx > 0 {
 			logger.Info("Session ended on final turn, treating as complete",
-				"logicalTurnIdx", state.logicalTurnIdx)
-			de.emitTurnCompleted(emitter, state.logicalTurnIdx, turn.Role, scenarioID, nil)
+				"logicalTurnIdx", args.state.logicalTurnIdx)
+			de.emitTurnCompleted(args.emitter, args.state.logicalTurnIdx, turn.Role, scenarioID, nil)
 			return
 		}
 
-		if state.logicalTurnIdx >= cfg.partialSuccessMinTurns {
+		if args.state.logicalTurnIdx >= args.cfg.partialSuccessMinTurns {
 			logger.Info("Session ended early, accepting partial success",
-				"logicalTurnIdx", state.logicalTurnIdx,
-				"minTurnsForSuccess", cfg.partialSuccessMinTurns)
-			de.emitTurnCompleted(emitter, state.logicalTurnIdx, turn.Role, scenarioID, nil)
-			state.turnErr = errPartialSuccess
+				"logicalTurnIdx", args.state.logicalTurnIdx,
+				"minTurnsForSuccess", args.cfg.partialSuccessMinTurns)
+			de.emitTurnCompleted(args.emitter, args.state.logicalTurnIdx, turn.Role, scenarioID, nil)
+			args.state.turnErr = errPartialSuccess
 			return
 		}
 	}
 
 	logger.Error("processDuplexTurns: turn failed",
-		"logicalTurnIdx", state.logicalTurnIdx,
+		"logicalTurnIdx", args.state.logicalTurnIdx,
 		"iteration", iteration,
 		"error", err)
-	de.emitTurnCompleted(emitter, state.logicalTurnIdx, turn.Role, scenarioID, err)
-	state.turnErr = err
+	de.emitTurnCompleted(args.emitter, args.state.logicalTurnIdx, turn.Role, scenarioID, err)
+	args.state.turnErr = err
 }
 
 // handleTurnSuccess processes successful turn completion.
@@ -229,7 +230,7 @@ func (de *DuplexConversationExecutor) finalizeTurnProcessing(
 
 	close(inputChan)
 
-	drainCtx, drainCancel := context.WithTimeout(context.Background(), drainTimeoutSec*time.Second)
+	drainCtx, drainCancel := context.WithTimeout(context.Background(), drainTimeoutSec*time.Second) //nolint:all // NOSONAR: Intentional - ctx may be canceled, need fresh context for drain
 	defer drainCancel()
 	de.drainOutputChannel(drainCtx, outputChan)
 }

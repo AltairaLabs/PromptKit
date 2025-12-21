@@ -230,6 +230,7 @@ func (s *ArenaStateStoreSaveStage) Process(ctx context.Context, input <-chan sta
 				"lastContentLen", len(elem.Message.Content))
 
 			// Use background context for saves - we want to capture data even if main ctx is canceled
+			// NOSONAR: Intentional background context - ensures data persistence on cancellation
 			saveCtx := ctx
 			if ctxCanceled {
 				saveCtx = context.Background()
@@ -261,6 +262,7 @@ func (s *ArenaStateStoreSaveStage) Process(ctx context.Context, input <-chan sta
 
 	// Use background context for final save if main context was canceled
 	// This ensures we save all collected data including partial responses
+	// NOSONAR: Intentional background context - ensures final data persistence on cancellation
 	saveCtx := ctx
 	if ctxCanceled {
 		saveCtx = context.Background()
