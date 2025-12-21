@@ -88,6 +88,13 @@ func (m *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 		if turnNumber, ok := req.Metadata["mock_turn_number"].(int); ok {
 			params.TurnNumber = turnNumber
 		}
+		// Extract persona and role for selfplay user turns
+		if personaID, ok := req.Metadata["mock_persona_id"].(string); ok {
+			params.PersonaID = personaID
+		}
+		if arenaRole, ok := req.Metadata["arena_role"].(string); ok {
+			params.ArenaRole = arenaRole
+		}
 	}
 
 	// Debug logging for troubleshooting mock provider behavior
@@ -216,6 +223,13 @@ func (m *Provider) buildResponseParams(req providers.PredictionRequest) Response
 		}
 		if turnNumber, ok := req.Metadata["mock_turn_number"].(int); ok {
 			params.TurnNumber = turnNumber
+		}
+		// Extract persona and role for selfplay user turns
+		if personaID, ok := req.Metadata["mock_persona_id"].(string); ok {
+			params.PersonaID = personaID
+		}
+		if arenaRole, ok := req.Metadata["arena_role"].(string); ok {
+			params.ArenaRole = arenaRole
 		}
 	}
 

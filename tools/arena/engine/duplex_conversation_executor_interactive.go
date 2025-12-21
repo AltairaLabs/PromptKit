@@ -6,6 +6,7 @@ package engine
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -61,6 +62,8 @@ const (
 	responseActionComplete
 	// responseActionError means an error occurred or the response was empty.
 	responseActionError
+	// responseActionToolCalls means the response contains tool calls that need to be executed.
+	responseActionToolCalls
 )
 
 // processResponseElement handles a response element from the pipeline, determining
@@ -72,6 +75,8 @@ const (
 // Returns:
 //   - responseAction: what action to take
 //   - error: any error to return (only set when action is responseActionError)
+//
+//nolint:gocognit // Complexity 17 is acceptable for response state handling
 func processResponseElement(elem *stage.StreamElement, logPrefix string) (responseAction, error) {
 	// Check for errors
 	if elem.Error != nil {
@@ -103,9 +108,20 @@ func processResponseElement(elem *stage.StreamElement, logPrefix string) (respon
 
 		// Check for empty response - shouldn't happen with proper interruption handling,
 		// but serves as a safety net. Treat as retriable error.
-		if elem.Message == nil || (elem.Message.Content == "" && len(elem.Message.Parts) == 0) {
+		// A response with tool calls but no content is valid (model is requesting tool execution)
+		hasContent := elem.Message != nil && (elem.Message.Content != "" || len(elem.Message.Parts) > 0)
+		hasToolCalls := elem.Message != nil && len(elem.Message.ToolCalls) > 0
+		if !hasContent && !hasToolCalls {
 			logger.Debug(logPrefix + ": empty response, treating as retriable error")
 			return responseActionError, errors.New("empty response from Gemini, likely interrupted")
+		}
+
+		// If response contains tool calls, signal that tools need to be executed
+		// The caller will execute tools and send results back, then continue waiting
+		if hasToolCalls {
+			logger.Debug(logPrefix+": received tool call response, needs execution",
+				"tool_count", len(elem.Message.ToolCalls))
+			return responseActionToolCalls, nil
 		}
 
 		return responseActionComplete, nil
@@ -113,6 +129,143 @@ func processResponseElement(elem *stage.StreamElement, logPrefix string) (respon
 
 	// Element doesn't require action (e.g., streaming text/audio chunk)
 	return responseActionContinue, nil
+}
+
+// toolExecutionResult holds both the provider response and the messages for state store.
+type toolExecutionResult struct {
+	providerResponses []providers.ToolResponse
+	resultMessages    []types.Message
+}
+
+// executeToolCalls executes the tool calls from a response and returns both:
+// - Provider responses to send back to the streaming session
+// - Tool result messages to capture in the state store (matching non-streaming behavior)
+func (de *DuplexConversationExecutor) executeToolCalls(
+	ctx context.Context,
+	toolCalls []types.MessageToolCall,
+) *toolExecutionResult {
+	_ = ctx // Currently unused, but kept for future async tool execution
+
+	if de.toolRegistry == nil {
+		logger.Warn("executeToolCalls: no tool registry configured")
+		return nil
+	}
+
+	result := &toolExecutionResult{
+		providerResponses: make([]providers.ToolResponse, 0, len(toolCalls)),
+		resultMessages:    make([]types.Message, 0, len(toolCalls)),
+	}
+
+	for _, tc := range toolCalls {
+		logger.Debug("executeToolCalls: executing tool",
+			"name", tc.Name,
+			"id", tc.ID,
+			"args", string(tc.Args))
+
+		// Execute tool using registry - args are already json.RawMessage
+		toolResult, err := de.toolRegistry.Execute(tc.Name, tc.Args)
+		if err != nil {
+			logger.Error("executeToolCalls: tool execution failed",
+				"name", tc.Name, "error", err)
+			errMsg := fmt.Sprintf("tool execution failed: %s", err.Error())
+			result.providerResponses = append(result.providerResponses, providers.ToolResponse{
+				ToolCallID: tc.ID,
+				Result:     fmt.Sprintf(`{"error": %q}`, errMsg),
+				IsError:    true,
+			})
+			result.resultMessages = append(result.resultMessages, types.Message{
+				Role:    "tool",
+				Content: errMsg,
+				ToolResult: &types.MessageToolResult{
+					ID:      tc.ID,
+					Name:    tc.Name,
+					Content: errMsg,
+					Error:   errMsg,
+				},
+			})
+			continue
+		}
+
+		// Check if the tool itself reported an error
+		if toolResult.Error != "" {
+			logger.Error("executeToolCalls: tool returned error",
+				"name", tc.Name, "error", toolResult.Error)
+			result.providerResponses = append(result.providerResponses, providers.ToolResponse{
+				ToolCallID: tc.ID,
+				Result:     fmt.Sprintf(`{"error": %q}`, toolResult.Error),
+				IsError:    true,
+			})
+			result.resultMessages = append(result.resultMessages, types.Message{
+				Role:    "tool",
+				Content: toolResult.Error,
+				ToolResult: &types.MessageToolResult{
+					ID:        tc.ID,
+					Name:      tc.Name,
+					Content:   toolResult.Error,
+					Error:     toolResult.Error,
+					LatencyMs: toolResult.LatencyMs,
+				},
+			})
+			continue
+		}
+
+		// Convert result to string
+		resultStr := string(toolResult.Result)
+
+		logger.Debug("executeToolCalls: tool executed successfully",
+			"name", tc.Name,
+			"result_length", len(resultStr),
+			"latency_ms", toolResult.LatencyMs)
+
+		result.providerResponses = append(result.providerResponses, providers.ToolResponse{
+			ToolCallID: tc.ID,
+			Result:     resultStr,
+			IsError:    false,
+		})
+		result.resultMessages = append(result.resultMessages, types.Message{
+			Role:    "tool",
+			Content: resultStr, // Set Content for template rendering (matches UnmarshalJSON behavior)
+			ToolResult: &types.MessageToolResult{
+				ID:        tc.ID,
+				Name:      tc.Name,
+				Content:   resultStr,
+				LatencyMs: toolResult.LatencyMs,
+			},
+		})
+	}
+
+	return result
+}
+
+// sendToolResults sends tool execution results back through the pipeline to the provider,
+// and includes tool result messages for state store capture.
+// This matches the behavior of non-streaming mode where tool results are stored as messages.
+//
+// The tool result messages are sent via inputChan with metadata, and DuplexProviderStage
+// forwards them to output for state store capture.
+func (de *DuplexConversationExecutor) sendToolResults(
+	ctx context.Context,
+	execResult *toolExecutionResult,
+	inputChan chan<- stage.StreamElement,
+) error {
+	// Send both tool responses (for provider) and tool result messages (for state store)
+	// via the input channel. DuplexProviderStage handles routing appropriately.
+	elem := stage.StreamElement{
+		Metadata: map[string]interface{}{
+			"tool_responses":       execResult.providerResponses,
+			"tool_result_messages": execResult.resultMessages,
+		},
+	}
+
+	select {
+	case inputChan <- elem:
+		logger.Debug("sendToolResults: sent tool results to pipeline",
+			"provider_responses", len(execResult.providerResponses),
+			"result_messages", len(execResult.resultMessages))
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // ExecuteConversationStream runs a duplex conversation with streaming output.
@@ -459,6 +612,33 @@ func (de *DuplexConversationExecutor) buildBaseSessionConfig(req *ConversationRe
 			logger.Debug("buildBaseSessionConfig: VAD config from scenario",
 				"silence_threshold_ms", vad.SilenceThresholdMs,
 				"min_speech_ms", vad.MinSpeechMs)
+		}
+	}
+
+	// Extract tools from tool registry and add to session config
+	// This allows Gemini to return structured tool calls instead of speaking them
+	if de.toolRegistry != nil {
+		toolDescs := de.toolRegistry.GetTools()
+		if len(toolDescs) > 0 {
+			cfg.Tools = make([]providers.StreamingToolDefinition, 0, len(toolDescs))
+			for _, td := range toolDescs {
+				// Convert JSON schema to map for parameters
+				var params map[string]interface{}
+				if td.InputSchema != nil {
+					if err := json.Unmarshal(td.InputSchema, &params); err != nil {
+						logger.Debug("buildBaseSessionConfig: failed to parse tool schema",
+							"tool", td.Name, "error", err)
+						params = nil
+					}
+				}
+				cfg.Tools = append(cfg.Tools, providers.StreamingToolDefinition{
+					Name:        td.Name,
+					Description: td.Description,
+					Parameters:  params,
+				})
+			}
+			logger.Debug("buildBaseSessionConfig: tools configured for streaming session",
+				"tool_count", len(cfg.Tools))
 		}
 	}
 
@@ -834,6 +1014,7 @@ drainLoop:
 	// Start a goroutine to collect responses.
 	// It waits for EndOfStream (turn complete) from the pipeline.
 	// EndOfStream is set by DuplexProviderStage when Gemini sends turnComplete.
+	// If tool calls are received, it executes them and sends results back.
 	responseDone := make(chan error, 1)
 	go func() {
 		for {
@@ -861,6 +1042,20 @@ drainLoop:
 				case responseActionError:
 					responseDone <- err
 					return
+				case responseActionToolCalls:
+					// Execute tools and send results back
+					if elem.Message != nil && len(elem.Message.ToolCalls) > 0 {
+						toolResult := de.executeToolCalls(ctx, elem.Message.ToolCalls)
+						if toolResult != nil && len(toolResult.providerResponses) > 0 {
+							if err := de.sendToolResults(ctx, toolResult, inputChan); err != nil {
+								logger.Error("Turn: failed to send tool results", "error", err)
+								responseDone <- err
+								return
+							}
+						}
+					}
+					// Continue waiting for the actual response after tool execution
+					continue
 				}
 			}
 		}
@@ -1072,6 +1267,7 @@ func (de *DuplexConversationExecutor) streamSelfPlayAudio(
 	// Start a goroutine to collect responses.
 	// It waits for EndOfStream (turn complete) from the pipeline.
 	// EndOfStream is set by DuplexProviderStage when Gemini sends turnComplete.
+	// If tool calls are received, it executes them and sends results back.
 	responseDone := make(chan error, 1)
 	go func() {
 		for {
@@ -1098,6 +1294,20 @@ func (de *DuplexConversationExecutor) streamSelfPlayAudio(
 				case responseActionError:
 					responseDone <- err
 					return
+				case responseActionToolCalls:
+					// Execute tools and send results back
+					if elem.Message != nil && len(elem.Message.ToolCalls) > 0 {
+						toolResult := de.executeToolCalls(ctx, elem.Message.ToolCalls)
+						if toolResult != nil && len(toolResult.providerResponses) > 0 {
+							if err := de.sendToolResults(ctx, toolResult, inputChan); err != nil {
+								logger.Error("Self-play: failed to send tool results", "error", err)
+								responseDone <- err
+								return
+							}
+						}
+					}
+					// Continue waiting for the actual response after tool execution
+					continue
 				}
 			}
 		}
@@ -1242,12 +1452,117 @@ func (de *DuplexConversationExecutor) buildResultFromStateStore(
 
 	totalCost := de.calculateTotalCost(messages)
 	mediaOutputs := CollectMediaOutputs(messages)
+	toolStats := de.calculateToolStats(messages)
+
+	// Evaluate conversation-level assertions
+	convAssertionResults := de.evaluateConversationAssertions(req, messages)
 
 	return &ConversationResult{
-		Messages:     messages,
-		Cost:         totalCost,
-		MediaOutputs: mediaOutputs,
-		SelfPlay:     de.containsSelfPlay(req.Scenario),
+		Messages:                     messages,
+		Cost:                         totalCost,
+		MediaOutputs:                 mediaOutputs,
+		ToolStats:                    toolStats,
+		SelfPlay:                     de.containsSelfPlay(req.Scenario),
+		PersonaID:                    de.findFirstSelfPlayPersona(req.Scenario),
+		ConversationAssertionResults: convAssertionResults,
+	}
+}
+
+// calculateToolStats aggregates tool usage statistics from messages.
+func (de *DuplexConversationExecutor) calculateToolStats(messages []types.Message) *types.ToolStats {
+	toolStats := &types.ToolStats{
+		TotalCalls: 0,
+		ByTool:     make(map[string]int),
+	}
+
+	for i := range messages {
+		for j := range messages[i].ToolCalls {
+			toolStats.TotalCalls++
+			toolStats.ByTool[messages[i].ToolCalls[j].Name]++
+		}
+	}
+
+	if toolStats.TotalCalls == 0 {
+		return nil
+	}
+
+	return toolStats
+}
+
+// evaluateConversationAssertions evaluates scenario-level conversation assertions.
+func (de *DuplexConversationExecutor) evaluateConversationAssertions(
+	req *ConversationRequest,
+	messages []types.Message,
+) []arenaassertions.ConversationValidationResult {
+	if req.Scenario == nil || len(req.Scenario.ConversationAssertions) == 0 {
+		return nil
+	}
+
+	logger.Debug("Evaluating duplex conversation assertions",
+		"scenario", req.Scenario.ID,
+		"assertion_count", len(req.Scenario.ConversationAssertions))
+
+	// Convert scenario assertions to assertion format
+	var assertions []arenaassertions.ConversationAssertion
+	for i := range req.Scenario.ConversationAssertions {
+		a := req.Scenario.ConversationAssertions[i]
+		assertions = append(assertions, arenaassertions.ConversationAssertion(a))
+	}
+
+	// Build conversation context from messages
+	convCtx := de.buildConversationContext(req, messages)
+
+	// Run assertions
+	reg := arenaassertions.NewConversationAssertionRegistry()
+	results := reg.ValidateConversations(context.Background(), assertions, convCtx)
+
+	logger.Debug("Duplex conversation assertion results",
+		"result_count", len(results),
+		"results", results)
+
+	return results
+}
+
+// buildConversationContext creates the context used for conversation-level assertions.
+func (de *DuplexConversationExecutor) buildConversationContext(
+	req *ConversationRequest,
+	messages []types.Message,
+) *arenaassertions.ConversationContext {
+	// Extract tool calls across all assistant messages
+	var toolCalls []arenaassertions.ToolCallRecord
+	for idx := range messages {
+		msg := messages[idx]
+		if len(msg.ToolCalls) == 0 {
+			continue
+		}
+		for _, tc := range msg.ToolCalls {
+			var args map[string]interface{}
+			if len(tc.Args) > 0 {
+				// Parse JSON args into map (ignore errors for assertion purposes)
+				_ = json.Unmarshal(tc.Args, &args)
+			}
+			toolCalls = append(toolCalls, arenaassertions.ToolCallRecord{
+				TurnIndex: idx,
+				ToolName:  tc.Name,
+				Arguments: args,
+			})
+		}
+	}
+
+	// Build metadata
+	providerID := ""
+	if req.Provider != nil {
+		providerID = req.Provider.ID()
+	}
+	meta := arenaassertions.ConversationMetadata{
+		ScenarioID: req.Scenario.ID,
+		ProviderID: providerID,
+	}
+
+	return &arenaassertions.ConversationContext{
+		AllTurns:  messages,
+		ToolCalls: toolCalls,
+		Metadata:  meta,
 	}
 }
 

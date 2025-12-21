@@ -126,4 +126,11 @@ func (s *SelfPlayUserTurnContextStage) enrichElement(elem *stage.StreamElement, 
 	elem.Metadata["arena_role"] = "self_play_user"
 	elem.Metadata["mock_scenario_id"] = s.scenario.ID
 	elem.Metadata["mock_turn_number"] = nextUserTurn // backward-compat
+
+	// Copy persona ID from input metadata to mock_persona_id for mock provider lookup.
+	// This allows the mock repository to return persona-specific responses instead of
+	// scenario responses when generating selfplay user turns.
+	if personaID, ok := elem.Metadata["persona"].(string); ok && personaID != "" {
+		elem.Metadata["mock_persona_id"] = personaID
+	}
 }

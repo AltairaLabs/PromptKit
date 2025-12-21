@@ -343,3 +343,63 @@ func TestGeminiProvider_CreateStreamSession_EmptyConfig(t *testing.T) {
 		t.Errorf("expected 'invalid stream configuration' error, got: %v", err)
 	}
 }
+
+func TestGeminiProvider_CreateStreamSession_WithTools(t *testing.T) {
+	provider := NewProvider("test", "gemini-2.0-flash-exp", "https://api.test.com", providers.ProviderDefaults{}, false)
+
+	// Skip if no API key available
+	if provider.ApiKey == "" {
+		t.Skip("Skipping test: GEMINI_API_KEY not set")
+	}
+
+	ctx := context.Background()
+
+	config := types.StreamingMediaConfig{
+		Type:       types.ContentTypeAudio,
+		ChunkSize:  3200,
+		SampleRate: 16000,
+		Channels:   1,
+		BitDepth:   16,
+		Encoding:   "pcm_linear16",
+	}
+
+	// Create request with tools
+	req := providers.StreamingInputConfig{
+		Config: config,
+		Tools: []providers.StreamingToolDefinition{
+			{
+				Name:        "get_weather",
+				Description: "Get the current weather in a location",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"location": map[string]interface{}{
+							"type":        "string",
+							"description": "City name",
+						},
+					},
+					"required": []string{"location"},
+				},
+			},
+		},
+	}
+
+	session, err := provider.CreateStreamSession(ctx, &req)
+	if err != nil {
+		// Check if this is a Live API access error
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "API key not valid") || strings.Contains(errMsg, "websocket: close 1007") {
+			t.Skipf("Skipping test: API key does not have Gemini Live API access. Error: %v", err)
+		}
+		t.Fatalf("unexpected error creating session with tools: %v", err)
+	}
+
+	if session == nil {
+		t.Fatal("expected session to be non-nil")
+	}
+
+	// Clean up
+	if err := session.Close(); err != nil {
+		t.Errorf("error closing session: %v", err)
+	}
+}

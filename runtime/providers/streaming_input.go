@@ -90,9 +90,21 @@ type StreamingInputConfig struct {
 	// For Gemini Live API, this is included in the setup message.
 	SystemInstruction string `json:"system_instruction,omitempty"`
 
+	// Tools defines functions the model can call during the session.
+	// When configured, the model returns structured tool calls instead of
+	// speaking them as text. Supported by Gemini Live API.
+	Tools []StreamingToolDefinition `json:"tools,omitempty"`
+
 	// Metadata contains provider-specific session configuration
 	// Example: {"response_modalities": ["TEXT", "AUDIO"]} for Gemini
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// StreamingToolDefinition represents a function/tool available in streaming sessions.
+type StreamingToolDefinition struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description,omitempty"`
+	Parameters  map[string]interface{} `json:"parameters,omitempty"` // JSON Schema
 }
 
 // StreamInputSupport extends the Provider interface for bidirectional streaming.
@@ -203,4 +215,34 @@ func (r VideoResolution) String() string {
 // Validate checks if the StreamInputRequest is valid
 func (r *StreamingInputConfig) Validate() error {
 	return r.Config.Validate()
+}
+
+// ToolResponseSupport is an optional interface for streaming sessions that support tool calling.
+// When the model returns a tool call, the caller can execute the tool and send the result
+// back using this interface. The session will then continue generating a response based
+// on the tool result.
+//
+// Use type assertion to check if a StreamInputSession supports this interface:
+//
+//	if toolSession, ok := session.(ToolResponseSupport); ok {
+//	    err := toolSession.SendToolResponse(ctx, toolCallID, result)
+//	}
+type ToolResponseSupport interface {
+	// SendToolResponse sends the result of a tool execution back to the model.
+	// The toolCallID must match the ID from the MessageToolCall.
+	// The result is typically JSON-encoded but the format depends on the tool.
+	// After receiving the tool response, the model will continue generating.
+	SendToolResponse(ctx context.Context, toolCallID string, result string) error
+
+	// SendToolResponses sends multiple tool results at once (for parallel tool calls).
+	// This is more efficient than sending individual responses for providers that
+	// support batched tool responses.
+	SendToolResponses(ctx context.Context, responses []ToolResponse) error
+}
+
+// ToolResponse represents a single tool execution result.
+type ToolResponse struct {
+	ToolCallID string `json:"tool_call_id"`
+	Result     string `json:"result"`
+	IsError    bool   `json:"is_error,omitempty"` // True if the tool execution failed
 }

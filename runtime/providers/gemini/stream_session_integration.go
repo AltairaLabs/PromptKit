@@ -139,11 +139,25 @@ type StreamSessionConfig struct {
 	// If nil, Gemini uses its default VAD settings.
 	VAD *VADConfig
 
+	// Tools defines the function declarations available to the model.
+	// When tools are configured, the model will return structured tool calls
+	// instead of speaking them as text. Tool definitions should match the
+	// OpenAPI schema subset supported by Gemini.
+	Tools []ToolDefinition
+
 	// AutoReconnect enables automatic reconnection on unexpected connection drops.
 	// When enabled, the session will attempt to reconnect and continue receiving
 	// responses. Note: conversation context may be lost on reconnection.
 	AutoReconnect     bool
 	MaxReconnectTries int // Maximum reconnection attempts (default: 3)
+}
+
+// ToolDefinition represents a function/tool that the model can call.
+// This follows the Gemini function calling schema.
+type ToolDefinition struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description,omitempty"`
+	Parameters  map[string]interface{} `json:"parameters,omitempty"` // JSON Schema for parameters
 }
 
 // NewStreamSession creates a new streaming session
@@ -271,6 +285,28 @@ func NewStreamSession(ctx context.Context, wsURL, apiKey string, config StreamSe
 				{"text": config.SystemInstruction},
 			},
 		}
+	}
+
+	// Add tools if provided
+	// Per Gemini docs: tools must be declared in BidiGenerateContentSetup
+	if len(config.Tools) > 0 {
+		functionDeclarations := make([]map[string]interface{}, len(config.Tools))
+		for i, tool := range config.Tools {
+			funcDecl := map[string]interface{}{
+				"name": tool.Name,
+			}
+			if tool.Description != "" {
+				funcDecl["description"] = tool.Description
+			}
+			if len(tool.Parameters) > 0 {
+				funcDecl["parameters"] = tool.Parameters
+			}
+			functionDeclarations[i] = funcDecl
+		}
+		setupContent["tools"] = []map[string]interface{}{
+			{"functionDeclarations": functionDeclarations},
+		}
+		logger.Debug("Gemini tools added to setup", "tool_count", len(config.Tools))
 	}
 
 	setupMsg := map[string]interface{}{
@@ -698,9 +734,34 @@ func (s *StreamSession) processServerMessage(msg *ServerMessage) error {
 		return nil // Setup acknowledged
 	}
 
-	// Handle tool calls
-	if msg.ToolCall != nil {
-		// TODO: Implement tool call handling
+	// Handle tool calls - convert Gemini's BidiGenerateContentToolCall to StreamChunk
+	if msg.ToolCall != nil && len(msg.ToolCall.FunctionCalls) > 0 {
+		toolCalls := make([]types.MessageToolCall, len(msg.ToolCall.FunctionCalls))
+		for i, fc := range msg.ToolCall.FunctionCalls {
+			// Convert args map to JSON
+			argsJSON, err := json.Marshal(fc.Args)
+			if err != nil {
+				argsJSON = []byte("{}")
+			}
+			toolCalls[i] = types.MessageToolCall{
+				ID:   fc.ID,
+				Name: fc.Name,
+				Args: argsJSON,
+			}
+		}
+
+		// Send tool calls as a chunk with tool_calls finish reason
+		finishReason := "tool_calls"
+		response := providers.StreamChunk{
+			ToolCalls:    toolCalls,
+			FinishReason: &finishReason,
+		}
+		select {
+		case s.responseCh <- response:
+			logger.Debug("Gemini tool calls emitted", "count", len(toolCalls))
+		case <-s.ctx.Done():
+			return s.ctx.Err()
+		}
 		return nil
 	}
 
@@ -975,4 +1036,70 @@ func (s *ServerMessage) UnmarshalJSON(data []byte) error {
 		Alias: (*Alias)(s),
 	}
 	return json.Unmarshal(data, aux)
+}
+
+// Ensure StreamSession implements ToolResponseSupport
+var _ providers.ToolResponseSupport = (*StreamSession)(nil)
+
+// SendToolResponse sends a single tool execution result back to Gemini.
+// The toolCallID must match the ID from the FunctionCall.
+// The result should be a JSON-serializable string (typically JSON).
+func (s *StreamSession) SendToolResponse(ctx context.Context, toolCallID, result string) error {
+	return s.SendToolResponses(ctx, []providers.ToolResponse{
+		{
+			ToolCallID: toolCallID,
+			Result:     result,
+		},
+	})
+}
+
+// SendToolResponses sends multiple tool execution results back to Gemini.
+// This is used when the model makes parallel tool calls.
+// After receiving the tool responses, Gemini will continue generating.
+func (s *StreamSession) SendToolResponses(ctx context.Context, responses []providers.ToolResponse) error {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return errors.New(ErrSessionClosed)
+	}
+	s.mu.Unlock()
+
+	// Build Gemini's BidiGenerateContentToolResponse format
+	// Per docs: toolResponse.functionResponses[].{id, name, response}
+	functionResponses := make([]map[string]interface{}, len(responses))
+	for i, resp := range responses {
+		// Parse result as JSON if possible, otherwise wrap as string
+		var resultObj interface{}
+		if err := json.Unmarshal([]byte(resp.Result), &resultObj); err != nil {
+			// Result is not valid JSON, wrap it
+			resultObj = map[string]interface{}{"result": resp.Result}
+		}
+
+		funcResp := map[string]interface{}{
+			"id":       resp.ToolCallID,
+			"response": resultObj,
+		}
+
+		// Add error flag if the tool execution failed
+		if resp.IsError {
+			funcResp["error"] = true
+		}
+
+		functionResponses[i] = funcResp
+	}
+
+	msg := map[string]interface{}{
+		"toolResponse": map[string]interface{}{
+			"functionResponses": functionResponses,
+		},
+	}
+
+	// Log tool response for debugging
+	if logger.DefaultLogger != nil {
+		if msgJSON, err := json.MarshalIndent(msg, "", "  "); err == nil {
+			logger.DefaultLogger.Debug("Gemini sending tool response", "message", string(msgJSON))
+		}
+	}
+
+	return s.ws.Send(msg)
 }

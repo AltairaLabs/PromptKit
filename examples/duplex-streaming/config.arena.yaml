@@ -18,6 +18,8 @@ spec:
   prompt_configs:
     - id: voice-assistant
       file: prompts/voice-assistant.prompt.yaml
+    - id: voice-assistant-tools
+      file: prompts/voice-assistant-tools.prompt.yaml
 
   # Provider configurations
   providers:
@@ -35,6 +37,13 @@ spec:
     - file: scenarios/duplex-selfplay.scenario.yaml
     - file: scenarios/duplex-selfplay-mock.scenario.yaml
     - file: scenarios/duplex-interactive.scenario.yaml
+    - file: scenarios/duplex-tools.scenario.yaml
+
+  # Tool definitions for voice assistant
+  tools:
+    - file: tools/get_weather.tool.yaml
+    - file: tools/get_calendar_events.tool.yaml
+    - file: tools/set_reminder.tool.yaml
 
   # Self-play configuration for simulated conversations
   self_play:
@@ -42,6 +51,7 @@ spec:
     personas:
       - file: personas/curious-customer.persona.yaml
       - file: personas/technical-user.persona.yaml
+      - file: personas/busy-professional.persona.yaml
     roles:
       - id: selfplay-user
         provider: mock-duplex  # Use mock for CI, switch to real provider for local testing

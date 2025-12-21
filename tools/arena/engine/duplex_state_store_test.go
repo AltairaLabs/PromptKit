@@ -52,7 +52,7 @@ func TestDuplexStateStore_SystemPromptCaptured(t *testing.T) {
 	store := statestore.NewArenaStateStore()
 
 	// Setup: Create executor with prompt registry
-	executor := NewDuplexConversationExecutor(nil, promptRegistry, nil)
+	executor := NewDuplexConversationExecutor(nil, promptRegistry, nil, nil)
 
 	// Setup: Create scenario that uses the task type
 	scenario := &config.Scenario{
@@ -190,7 +190,7 @@ func TestDuplexStateStore_BuildResultFromStateStore(t *testing.T) {
 	t.Logf("Store has %d messages", len(loaded.Messages))
 
 	// Now test buildResultFromStateStore
-	executor := NewDuplexConversationExecutor(nil, nil, nil)
+	executor := NewDuplexConversationExecutor(nil, nil, nil, nil)
 	req := &ConversationRequest{
 		ConversationID: conversationID,
 		Scenario:       &config.Scenario{ID: "test"},
@@ -271,7 +271,7 @@ func TestDuplexStateStore_MediaOutputCaptured(t *testing.T) {
 	t.Logf("Store has %d messages", len(loaded.Messages))
 
 	// Now test buildResultFromStateStore
-	executor := NewDuplexConversationExecutor(nil, nil, nil)
+	executor := NewDuplexConversationExecutor(nil, nil, nil, nil)
 	req := &ConversationRequest{
 		ConversationID: conversationID,
 		Scenario:       &config.Scenario{ID: "test"},
@@ -339,7 +339,7 @@ func TestDuplexStateStore_PipelineCapturesMediaFromProvider(t *testing.T) {
 	store := statestore.NewArenaStateStore()
 
 	// Setup: Create executor
-	executor := NewDuplexConversationExecutor(nil, nil, nil)
+	executor := NewDuplexConversationExecutor(nil, nil, nil, nil)
 
 	// Setup: Create scenario
 	scenario := &config.Scenario{
@@ -444,7 +444,7 @@ func TestDuplexStateStore_SystemPromptPassedToStateStore(t *testing.T) {
 	// Verify buildBaseSessionConfig creates proper audio config
 	// Note: System prompt is now handled by the pipeline (PromptAssemblyStage adds it to metadata,
 	// DuplexProviderStage creates session with it). This is consistent with non-duplex pipelines.
-	executor := NewDuplexConversationExecutor(nil, promptRegistry, nil)
+	executor := NewDuplexConversationExecutor(nil, promptRegistry, nil, nil)
 
 	req := &ConversationRequest{
 		Scenario: &config.Scenario{

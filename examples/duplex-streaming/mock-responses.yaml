@@ -31,6 +31,42 @@ scenarios:
       # Turn 4 is closing
       4: "Thanks, that's really helpful!"
 
+  # Duplex with tool calls scenario responses
+  # Turn structure: 1=greeting, 2=weather query, 3=calendar query, 4=reminder, 5=closing
+  duplex-tools:
+    defaultResponse: "I can help you with that. Let me look that up."
+    turns:
+      # Turn 1: Response to initial greeting audio
+      1: "Hello! I'm Nova, your voice assistant. I can help you with weather, your schedule, and reminders. What would you like to know?"
+      # Turn 2: Weather query - triggers get_weather tool, then responds
+      2:
+        type: tool_calls
+        content: "The weather in Seattle today is 52 degrees and cloudy with a chance of rain this afternoon. You might want to bring an umbrella if you're heading out."
+        tool_calls:
+          - name: get_weather
+            arguments:
+              location: "Seattle"
+      # Turn 3: Calendar query - triggers get_calendar_events tool
+      3:
+        type: tool_calls
+        content: "Looking at your calendar for today, you have two meetings. First, a team standup at 10 AM, and then a project review with Sarah at 2 PM. Both are scheduled for about 30 minutes."
+        tool_calls:
+          - name: get_calendar_events
+            arguments:
+              date: "today"
+              limit: 5
+      # Turn 4: Set reminder - triggers set_reminder tool
+      4:
+        type: tool_calls
+        content: "Got it, I've set a reminder for you to call mom in 30 minutes. I'll make sure you don't forget."
+        tool_calls:
+          - name: set_reminder
+            arguments:
+              message: "call mom"
+              time: "in 30 minutes"
+      # Turn 5: Closing response - no tool call
+      5: "You're welcome! Have a great day. Just say my name if you need anything else."
+
   # Interactive scenario responses
   duplex-interactive:
     defaultResponse: "I'm sorry to hear you're having trouble. Let me help you resolve this."
@@ -59,3 +95,11 @@ selfplay:
       3: "Okay done. Still seeing the error. What's next?"
       4: "Let me try incognito mode... actually that seems to be working!"
       5: "Perfect, that fixed it. Thanks for walking me through this."
+
+  busy-professional:
+    defaultResponse: "Thanks, what else can you help me with?"
+    turns:
+      1: "Hey, what's the weather looking like in Seattle today?"
+      2: "Thanks. Do I have any meetings scheduled for today?"
+      3: "Got it. Can you remind me to call my mom in about 30 minutes?"
+      4: "Perfect, thanks for your help!"

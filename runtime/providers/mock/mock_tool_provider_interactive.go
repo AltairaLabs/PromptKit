@@ -117,6 +117,8 @@ func (m *ToolProvider) PredictWithTools(ctx context.Context, req providers.Predi
 		TurnNumber: turnNumber,
 		ProviderID: m.id,
 		ModelName:  m.model,
+		PersonaID:  m.getPersonaID(req),
+		ArenaRole:  m.getArenaRole(req),
 	}
 
 	logger.Debug("ToolProvider PredictWithTools using turn",
@@ -255,6 +257,26 @@ func (m *ToolProvider) getScenarioID(req providers.PredictionRequest) string {
 	if req.Metadata != nil {
 		if sid, ok := req.Metadata["mock_scenario_id"].(string); ok {
 			return sid
+		}
+	}
+	return ""
+}
+
+// getPersonaID extracts the persona ID from request metadata for selfplay user turns
+func (m *ToolProvider) getPersonaID(req providers.PredictionRequest) string {
+	if req.Metadata != nil {
+		if pid, ok := req.Metadata["mock_persona_id"].(string); ok {
+			return pid
+		}
+	}
+	return ""
+}
+
+// getArenaRole extracts the arena role from request metadata
+func (m *ToolProvider) getArenaRole(req providers.PredictionRequest) string {
+	if req.Metadata != nil {
+		if role, ok := req.Metadata["arena_role"].(string); ok {
+			return role
 		}
 	}
 	return ""

@@ -89,7 +89,7 @@ func buildEngineComponents(cfg *config.Config) (
 	}
 
 	// Build conversation executor (engine-specific, stays here)
-	conversationExecutor, err := newConversationExecutor(cfg, toolRegistry, promptRegistry, mediaStorage)
+	conversationExecutor, err := newConversationExecutor(cfg, toolRegistry, promptRegistry, mediaStorage, providerRegistry)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -310,12 +310,19 @@ func buildMCPRegistry(cfg *config.Config) (*mcp.RegistryImpl, error) {
 
 // newConversationExecutor creates the conversation executor with self-play support if enabled.
 // The mediaStorage parameter is passed through to turn executors to enable media externalization.
+// The providerRegistry is used to reuse providers for selfplay instead of creating duplicates.
 // This function stays in engine package as it creates engine-specific types.
 //
 // Returns a CompositeConversationExecutor that routes between:
 // - DefaultConversationExecutor for standard turn-based conversations
 // - DuplexConversationExecutor for bidirectional streaming scenarios (duplex mode)
-func newConversationExecutor(cfg *config.Config, toolRegistry *tools.Registry, promptRegistry *prompt.Registry, mediaStorage storage.MediaStorageService) (ConversationExecutor, error) {
+func newConversationExecutor(
+	cfg *config.Config,
+	toolRegistry *tools.Registry,
+	promptRegistry *prompt.Registry,
+	mediaStorage storage.MediaStorageService,
+	providerRegistry *providers.Registry,
+) (ConversationExecutor, error) {
 	// Build turn executors (always needed, even without self-play)
 	pipelineExecutor := turnexecutors.NewPipelineExecutor(toolRegistry, mediaStorage)
 	scriptedExecutor := turnexecutors.NewScriptedExecutor(pipelineExecutor)
@@ -326,7 +333,7 @@ func newConversationExecutor(cfg *config.Config, toolRegistry *tools.Registry, p
 
 	if cfg.SelfPlay != nil && cfg.SelfPlay.Enabled {
 		var err error
-		selfPlayRegistry, selfPlayExecutor, err = buildSelfPlayComponents(cfg, pipelineExecutor)
+		selfPlayRegistry, selfPlayExecutor, err = buildSelfPlayComponents(cfg, pipelineExecutor, providerRegistry)
 		if err != nil {
 			return nil, err
 		}
@@ -344,6 +351,7 @@ func newConversationExecutor(cfg *config.Config, toolRegistry *tools.Registry, p
 	duplexExecutor := NewDuplexConversationExecutor(
 		selfPlayRegistry,
 		promptRegistry,
+		toolRegistry,
 		mediaStorage,
 	)
 
@@ -355,6 +363,7 @@ func newConversationExecutor(cfg *config.Config, toolRegistry *tools.Registry, p
 func buildSelfPlayComponents(
 	cfg *config.Config,
 	pipelineExecutor *turnexecutors.PipelineExecutor,
+	mainProviderRegistry *providers.Registry,
 ) (*selfplay.Registry, *turnexecutors.SelfPlayExecutor, error) {
 	// Build self-play provider registry and role mapping
 	// Self-play roles now reference providers from the main provider list
@@ -362,16 +371,16 @@ func buildSelfPlayComponents(
 	selfPlayProviderMap := make(map[string]string) // roleID -> providerID
 
 	for _, role := range cfg.SelfPlay.Roles {
-		// Look up the provider from the main provider registry
+		// Look up the provider config to validate it exists
 		provider, exists := cfg.LoadedProviders[role.Provider]
 		if !exists {
 			return nil, nil, fmt.Errorf("self-play role %s references unknown provider %s", role.ID, role.Provider)
 		}
 
-		// Create provider implementation and register it
-		providerImpl, err := createProviderImpl(provider)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create provider for self-play role %s: %w", role.ID, err)
+		// Reuse provider from main registry instead of creating a duplicate
+		providerImpl, found := mainProviderRegistry.Get(provider.ID)
+		if !found {
+			return nil, nil, fmt.Errorf("self-play role %s: provider %s not found in main registry", role.ID, role.Provider)
 		}
 		selfPlayProviderRegistry.Register(providerImpl)
 

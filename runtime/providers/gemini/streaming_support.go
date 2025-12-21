@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -105,6 +106,21 @@ func (p *Provider) CreateStreamSession(
 		// not respond at all. The scenario's VAD config is used for local turn
 		// detection only, not passed to the provider. However, we DO support
 		// vad_disabled=true for explicit turn control.
+	}
+
+	// Convert tools from StreamingInputConfig to StreamSessionConfig format
+	// When tools are provided, Gemini will return structured tool calls instead of
+	// speaking them as text
+	if len(req.Tools) > 0 {
+		config.Tools = make([]ToolDefinition, len(req.Tools))
+		for i, tool := range req.Tools {
+			config.Tools[i] = ToolDefinition{
+				Name:        tool.Name,
+				Description: tool.Description,
+				Parameters:  tool.Parameters,
+			}
+		}
+		logger.Debug("CreateStreamSession: tools configured", "tool_count", len(config.Tools))
 	}
 
 	// Default to TEXT if not specified

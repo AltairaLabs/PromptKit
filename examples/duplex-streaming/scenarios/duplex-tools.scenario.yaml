@@ -1,0 +1,100 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/scenario.json
+#
+# Duplex Streaming with Tool Calls
+# Tests voice assistant tool calling in real-time duplex mode.
+# Uses selfplay with a busy-professional persona to generate natural queries
+# that trigger weather, calendar, and reminder tools.
+#
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: duplex-tools
+
+spec:
+  id: duplex-tools
+  task_type: voice-assistant-tools
+  description: "Duplex streaming with tool calls - voice assistant uses tools during conversation"
+
+  # Enable duplex mode
+  duplex:
+    timeout: "5m"
+    turn_detection:
+      mode: vad
+      vad:
+        silence_threshold_ms: 1200
+        min_speech_ms: 800
+    resilience:
+      max_retries: 2
+      retry_delay_ms: 2000
+      inter_turn_delay_ms: 500
+      selfplay_inter_turn_delay_ms: 1000
+      partial_success_min_turns: 3
+      ignore_last_turn_session_end: true
+
+  streaming: true
+
+  # Tool policy for this scenario
+  tool_policy:
+    tool_choice: auto
+    max_tool_calls_per_turn: 3
+    max_total_tool_calls: 10
+
+  turns:
+    # Initial greeting to start the conversation
+    - role: user
+      parts:
+        - type: audio
+          media:
+            file_path: audio/greeting.pcm
+            mime_type: audio/L16
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(hello|hi|help|assist|Nova)"
+            message: "Assistant should greet or offer help"
+
+    # Selfplay: busy professional asks about weather, calendar, reminders
+    # TTS converts generated text to audio for duplex input
+    - role: selfplay-user
+      persona: busy-professional
+      turns: 4
+      tts:
+        provider: openai
+        voice: alloy
+      assertions:
+        # Each turn should get a substantive response
+        - type: content_matches
+          params:
+            pattern: ".{20,}"
+            message: "Response should have meaningful content"
+
+  # Conversation-level assertions - verify tools were called
+  conversation_assertions:
+    - type: tools_called
+      params:
+        tool_names:
+          - get_weather
+        min_calls: 1
+        message: "Should call get_weather tool for weather query"
+
+    - type: tools_called
+      params:
+        tool_names:
+          - get_calendar_events
+        min_calls: 1
+        message: "Should call get_calendar_events for schedule query"
+
+    - type: tools_called
+      params:
+        tool_names:
+          - set_reminder
+        min_calls: 1
+        message: "Should call set_reminder for reminder request"
+
+  context:
+    goal: "Test tool calling in duplex streaming mode with selfplay"
+    user_type: "busy professional"
+    conversation_style: "efficient, task-oriented"
+
+  context_metadata:
+    domain: "personal assistant"

@@ -2,15 +2,17 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 func TestDuplexConversationExecutor_RequiresDuplexConfig(t *testing.T) {
-	executor := NewDuplexConversationExecutor(nil, nil, nil)
+	executor := NewDuplexConversationExecutor(nil, nil, nil, nil)
 
 	// Scenario without duplex config should fail
 	req := ConversationRequest{
@@ -32,7 +34,7 @@ func TestDuplexConversationExecutor_RequiresDuplexConfig(t *testing.T) {
 }
 
 func TestDuplexConversationExecutor_ValidatesDuplexConfig(t *testing.T) {
-	executor := NewDuplexConversationExecutor(nil, nil, nil)
+	executor := NewDuplexConversationExecutor(nil, nil, nil, nil)
 
 	// Scenario with invalid duplex config should fail
 	req := ConversationRequest{
@@ -57,7 +59,7 @@ func TestDuplexConversationExecutor_ValidatesDuplexConfig(t *testing.T) {
 }
 
 func TestDuplexConversationExecutor_RequiresStreamingProvider(t *testing.T) {
-	executor := NewDuplexConversationExecutor(nil, nil, nil)
+	executor := NewDuplexConversationExecutor(nil, nil, nil, nil)
 
 	// Create a mock provider that doesn't support streaming
 	mockProvider := &mockNonStreamingProvider{}
@@ -85,7 +87,7 @@ func TestDuplexConversationExecutor_RequiresStreamingProvider(t *testing.T) {
 }
 
 func TestDuplexConversationExecutor_ShouldUseClientVAD(t *testing.T) {
-	executor := NewDuplexConversationExecutor(nil, nil, nil)
+	executor := NewDuplexConversationExecutor(nil, nil, nil, nil)
 
 	tests := []struct {
 		name     string
@@ -135,7 +137,7 @@ func TestDuplexConversationExecutor_ShouldUseClientVAD(t *testing.T) {
 }
 
 func TestDuplexConversationExecutor_ImplementsInterface(t *testing.T) {
-	executor := NewDuplexConversationExecutor(nil, nil, nil)
+	executor := NewDuplexConversationExecutor(nil, nil, nil, nil)
 
 	// Verify executor implements ConversationExecutor interface
 	var _ ConversationExecutor = executor
@@ -168,7 +170,7 @@ func (m *mockNonStreamingProvider) CalculateCost(_, _, _ int) types.CostInfo {
 }
 
 func TestDuplexConversationExecutor_BuildVADConfig(t *testing.T) {
-	executor := NewDuplexConversationExecutor(nil, nil, nil)
+	executor := NewDuplexConversationExecutor(nil, nil, nil, nil)
 
 	tests := []struct {
 		name            string
@@ -239,7 +241,7 @@ func TestDuplexConversationExecutor_BuildVADConfig(t *testing.T) {
 }
 
 func TestDuplexConversationExecutor_ContainsSelfPlay(t *testing.T) {
-	executor := NewDuplexConversationExecutor(nil, nil, nil)
+	executor := NewDuplexConversationExecutor(nil, nil, nil, nil)
 
 	tests := []struct {
 		name     string
@@ -276,7 +278,7 @@ func TestDuplexConversationExecutor_ContainsSelfPlay(t *testing.T) {
 }
 
 func TestDuplexConversationExecutor_IsSelfPlayRole(t *testing.T) {
-	executor := NewDuplexConversationExecutor(nil, nil, nil)
+	executor := NewDuplexConversationExecutor(nil, nil, nil, nil)
 
 	// With nil registry, should always return false
 	if executor.isSelfPlayRole("customer") {
@@ -289,7 +291,7 @@ func TestDuplexConversationExecutor_IsSelfPlayRole(t *testing.T) {
 
 
 func TestDuplexConversationExecutor_BuildBaseSessionConfig(t *testing.T) {
-	executor := NewDuplexConversationExecutor(nil, nil, nil)
+	executor := NewDuplexConversationExecutor(nil, nil, nil, nil)
 
 	req := &ConversationRequest{
 		Scenario: &config.Scenario{
@@ -315,7 +317,7 @@ func TestDuplexConversationExecutor_BuildBaseSessionConfig(t *testing.T) {
 }
 
 func TestDuplexConversationExecutor_CalculateTotalCost(t *testing.T) {
-	executor := NewDuplexConversationExecutor(nil, nil, nil)
+	executor := NewDuplexConversationExecutor(nil, nil, nil, nil)
 
 	tests := []struct {
 		name     string
@@ -403,7 +405,7 @@ func TestDuplexConversationExecutor_CalculateTotalCost(t *testing.T) {
 }
 
 func TestDuplexConversationExecutor_BuildBaseSessionConfigEdgeCases(t *testing.T) {
-	executor := NewDuplexConversationExecutor(nil, nil, nil)
+	executor := NewDuplexConversationExecutor(nil, nil, nil, nil)
 
 	// Test with nil scenario
 	req := &ConversationRequest{
@@ -425,4 +427,270 @@ func TestDuplexConversationExecutor_BuildBaseSessionConfigEdgeCases(t *testing.T
 	if cfg == nil {
 		t.Fatal("Expected non-nil config with empty task type")
 	}
+}
+
+func TestDuplexConversationExecutor_FindFirstSelfPlayPersona(t *testing.T) {
+	executor := NewDuplexConversationExecutor(nil, nil, nil, nil)
+
+	tests := []struct {
+		name     string
+		scenario *config.Scenario
+		expected string
+	}{
+		{
+			name: "no turns",
+			scenario: &config.Scenario{
+				Turns: []config.TurnDefinition{},
+			},
+			expected: "",
+		},
+		{
+			name: "no selfplay roles",
+			scenario: &config.Scenario{
+				Turns: []config.TurnDefinition{
+					{Role: "user", Persona: "customer1"},
+					{Role: "assistant"},
+				},
+			},
+			expected: "",
+		},
+		{
+			name: "selfplay role without persona",
+			scenario: &config.Scenario{
+				Turns: []config.TurnDefinition{
+					{Role: "customer", Persona: ""},
+				},
+			},
+			expected: "", // No persona set
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := executor.findFirstSelfPlayPersona(tt.scenario)
+			if result != tt.expected {
+				t.Errorf("findFirstSelfPlayPersona() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestDuplexConversationExecutor_CalculateToolStats(t *testing.T) {
+	executor := NewDuplexConversationExecutor(nil, nil, nil, nil)
+
+	tests := []struct {
+		name           string
+		messages       []types.Message
+		expectNil      bool
+		expectedCalls  int
+		expectedByTool map[string]int
+	}{
+		{
+			name:      "empty messages",
+			messages:  []types.Message{},
+			expectNil: true,
+		},
+		{
+			name: "messages without tool calls",
+			messages: []types.Message{
+				{Role: "user", Content: "hello"},
+				{Role: "assistant", Content: "hi"},
+			},
+			expectNil: true,
+		},
+		{
+			name: "single tool call",
+			messages: []types.Message{
+				{
+					Role: "assistant",
+					ToolCalls: []types.MessageToolCall{
+						{Name: "get_weather", ID: "call_1"},
+					},
+				},
+			},
+			expectNil:      false,
+			expectedCalls:  1,
+			expectedByTool: map[string]int{"get_weather": 1},
+		},
+		{
+			name: "multiple tool calls same tool",
+			messages: []types.Message{
+				{
+					Role: "assistant",
+					ToolCalls: []types.MessageToolCall{
+						{Name: "search", ID: "call_1"},
+						{Name: "search", ID: "call_2"},
+					},
+				},
+			},
+			expectNil:      false,
+			expectedCalls:  2,
+			expectedByTool: map[string]int{"search": 2},
+		},
+		{
+			name: "multiple tool calls different tools",
+			messages: []types.Message{
+				{
+					Role: "assistant",
+					ToolCalls: []types.MessageToolCall{
+						{Name: "get_weather", ID: "call_1"},
+					},
+				},
+				{
+					Role: "assistant",
+					ToolCalls: []types.MessageToolCall{
+						{Name: "search", ID: "call_2"},
+						{Name: "get_time", ID: "call_3"},
+					},
+				},
+			},
+			expectNil:      false,
+			expectedCalls:  3,
+			expectedByTool: map[string]int{"get_weather": 1, "search": 1, "get_time": 1},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := executor.calculateToolStats(tt.messages)
+			if tt.expectNil {
+				if result != nil {
+					t.Errorf("calculateToolStats() = %v, want nil", result)
+				}
+				return
+			}
+
+			if result == nil {
+				t.Fatal("calculateToolStats() = nil, want non-nil")
+			}
+			if result.TotalCalls != tt.expectedCalls {
+				t.Errorf("TotalCalls = %d, want %d", result.TotalCalls, tt.expectedCalls)
+			}
+			for tool, count := range tt.expectedByTool {
+				if result.ByTool[tool] != count {
+					t.Errorf("ByTool[%s] = %d, want %d", tool, result.ByTool[tool], count)
+				}
+			}
+		})
+	}
+}
+
+func TestDuplexConversationExecutor_ExecuteToolCallsNilRegistry(t *testing.T) {
+	executor := NewDuplexConversationExecutor(nil, nil, nil, nil)
+
+	toolCalls := []types.MessageToolCall{
+		{Name: "test", ID: "call_1"},
+	}
+
+	result := executor.executeToolCalls(context.Background(), toolCalls)
+	if result != nil {
+		t.Errorf("executeToolCalls() with nil registry should return nil, got %v", result)
+	}
+}
+
+func TestProcessResponseElement(t *testing.T) {
+	tests := []struct {
+		name           string
+		elem           *stage.StreamElement
+		expectedAction responseAction
+		expectedErr    bool
+	}{
+		{
+			name: "error in element",
+			elem: &stage.StreamElement{
+				Error: errors.New("test error"),
+			},
+			expectedAction: responseActionError,
+			expectedErr:    true,
+		},
+		{
+			name: "interrupted signal",
+			elem: &stage.StreamElement{
+				Metadata: map[string]interface{}{
+					"interrupted": true,
+				},
+			},
+			expectedAction: responseActionContinue,
+			expectedErr:    false,
+		},
+		{
+			name: "interrupted turn complete",
+			elem: &stage.StreamElement{
+				Metadata: map[string]interface{}{
+					"interrupted_turn_complete": true,
+				},
+			},
+			expectedAction: responseActionContinue,
+			expectedErr:    false,
+		},
+		{
+			name: "end of stream with empty response",
+			elem: &stage.StreamElement{
+				EndOfStream: true,
+				Message:     nil,
+			},
+			expectedAction: responseActionError,
+			expectedErr:    true,
+		},
+		{
+			name: "end of stream with content",
+			elem: &stage.StreamElement{
+				EndOfStream: true,
+				Message: &types.Message{
+					Content: "response text",
+				},
+			},
+			expectedAction: responseActionComplete,
+			expectedErr:    false,
+		},
+		{
+			name: "end of stream with tool calls",
+			elem: &stage.StreamElement{
+				EndOfStream: true,
+				Message: &types.Message{
+					ToolCalls: []types.MessageToolCall{
+						{Name: "test", ID: "call_1"},
+					},
+				},
+			},
+			expectedAction: responseActionToolCalls,
+			expectedErr:    false,
+		},
+		{
+			name: "end of stream with parts",
+			elem: &stage.StreamElement{
+				EndOfStream: true,
+				Message: &types.Message{
+					Parts: []types.ContentPart{{Text: stringPtr("text")}},
+				},
+			},
+			expectedAction: responseActionComplete,
+			expectedErr:    false,
+		},
+		{
+			name: "streaming chunk continues",
+			elem: &stage.StreamElement{
+				Text: stringPtr("chunk"),
+			},
+			expectedAction: responseActionContinue,
+			expectedErr:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			action, err := processResponseElement(tt.elem, "test")
+
+			if action != tt.expectedAction {
+				t.Errorf("processResponseElement() action = %v, want %v", action, tt.expectedAction)
+			}
+			if (err != nil) != tt.expectedErr {
+				t.Errorf("processResponseElement() error = %v, wantErr %v", err, tt.expectedErr)
+			}
+		})
+	}
+}
+
+func stringPtr(s string) *string {
+	return &s
 }

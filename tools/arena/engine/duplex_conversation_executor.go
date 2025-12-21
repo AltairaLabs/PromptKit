@@ -11,6 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 )
@@ -32,6 +33,7 @@ const (
 type DuplexConversationExecutor struct {
 	selfPlayRegistry *selfplay.Registry
 	promptRegistry   *prompt.Registry
+	toolRegistry     *tools.Registry
 	mediaStorage     storage.MediaStorageService
 }
 
@@ -39,11 +41,13 @@ type DuplexConversationExecutor struct {
 func NewDuplexConversationExecutor(
 	selfPlayRegistry *selfplay.Registry,
 	promptRegistry *prompt.Registry,
+	toolRegistry *tools.Registry,
 	mediaStorage storage.MediaStorageService,
 ) *DuplexConversationExecutor {
 	return &DuplexConversationExecutor{
 		selfPlayRegistry: selfPlayRegistry,
 		promptRegistry:   promptRegistry,
+		toolRegistry:     toolRegistry,
 		mediaStorage:     mediaStorage,
 	}
 }
@@ -155,4 +159,14 @@ func (de *DuplexConversationExecutor) isSelfPlayRole(role string) bool {
 		return false
 	}
 	return de.selfPlayRegistry.IsValidRole(role)
+}
+
+// findFirstSelfPlayPersona finds the persona ID from the first self-play turn.
+func (de *DuplexConversationExecutor) findFirstSelfPlayPersona(scenario *config.Scenario) string {
+	for i := range scenario.Turns {
+		if de.isSelfPlayRole(scenario.Turns[i].Role) && scenario.Turns[i].Persona != "" {
+			return scenario.Turns[i].Persona
+		}
+	}
+	return ""
 }

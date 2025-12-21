@@ -5,6 +5,8 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/stretchr/testify/require"
 )
@@ -102,7 +104,12 @@ func TestBuildSelfPlayComponents_Success(t *testing.T) {
 		},
 	}
 
-	registry, executor, err := buildSelfPlayComponents(cfg, nil)
+	// Create provider registry with the mock provider
+	providerRegistry := providers.NewRegistry()
+	mockProvider := mock.NewProvider("mock-assistant", "mock-model", false)
+	providerRegistry.Register(mockProvider)
+
+	registry, executor, err := buildSelfPlayComponents(cfg, nil, providerRegistry)
 	require.NoError(t, err)
 	require.NotNil(t, registry)
 	require.NotNil(t, executor)
@@ -122,19 +129,23 @@ func TestBuildSelfPlayComponents_UnknownProvider(t *testing.T) {
 		},
 	}
 
-	registry, executor, err := buildSelfPlayComponents(cfg, nil)
+	// Empty provider registry
+	providerRegistry := providers.NewRegistry()
+
+	registry, executor, err := buildSelfPlayComponents(cfg, nil, providerRegistry)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "references unknown provider")
 	require.Nil(t, registry)
 	require.Nil(t, executor)
 }
 
-func TestBuildSelfPlayComponents_InvalidProviderType(t *testing.T) {
+func TestBuildSelfPlayComponents_ProviderNotInRegistry(t *testing.T) {
+	// Provider exists in config but not registered in the provider registry
 	cfg := &config.Config{
 		LoadedProviders: map[string]*config.Provider{
-			"invalid-provider": {
-				ID:   "invalid-provider",
-				Type: "invalid-type-that-does-not-exist",
+			"missing-provider": {
+				ID:   "missing-provider",
+				Type: "mock",
 			},
 		},
 		SelfPlay: &config.SelfPlayConfig{
@@ -142,15 +153,18 @@ func TestBuildSelfPlayComponents_InvalidProviderType(t *testing.T) {
 			Roles: []config.SelfPlayRoleGroup{
 				{
 					ID:       "user-role",
-					Provider: "invalid-provider",
+					Provider: "missing-provider",
 				},
 			},
 		},
 	}
 
-	registry, executor, err := buildSelfPlayComponents(cfg, nil)
+	// Empty provider registry - provider exists in config but not registered
+	providerRegistry := providers.NewRegistry()
+
+	registry, executor, err := buildSelfPlayComponents(cfg, nil, providerRegistry)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "failed to create provider")
+	require.Contains(t, err.Error(), "not found in main registry")
 	require.Nil(t, registry)
 	require.Nil(t, executor)
 }
@@ -190,7 +204,12 @@ func TestBuildSelfPlayComponents_MultipleRoles(t *testing.T) {
 		},
 	}
 
-	registry, executor, err := buildSelfPlayComponents(cfg, nil)
+	// Create provider registry with both mock providers
+	providerRegistry := providers.NewRegistry()
+	providerRegistry.Register(mock.NewProvider("mock-assistant", "mock-model", false))
+	providerRegistry.Register(mock.NewProvider("mock-user", "mock-model-2", false))
+
+	registry, executor, err := buildSelfPlayComponents(cfg, nil, providerRegistry)
 	require.NoError(t, err)
 	require.NotNil(t, registry)
 	require.NotNil(t, executor)
@@ -216,7 +235,11 @@ func TestNewConversationExecutor_WithSelfPlay(t *testing.T) {
 		},
 	}
 
-	executor, err := newConversationExecutor(cfg, nil, nil, nil)
+	// Create provider registry with the mock provider
+	providerRegistry := providers.NewRegistry()
+	providerRegistry.Register(mock.NewProvider("mock-assistant", "mock-model", false))
+
+	executor, err := newConversationExecutor(cfg, nil, nil, nil, providerRegistry)
 	require.NoError(t, err)
 	require.NotNil(t, executor)
 
@@ -232,7 +255,10 @@ func TestNewConversationExecutor_WithoutSelfPlay(t *testing.T) {
 		LoadedProviders: map[string]*config.Provider{},
 	}
 
-	executor, err := newConversationExecutor(cfg, nil, nil, nil)
+	// Empty provider registry (no self-play, so not used)
+	providerRegistry := providers.NewRegistry()
+
+	executor, err := newConversationExecutor(cfg, nil, nil, nil, providerRegistry)
 	require.NoError(t, err)
 	require.NotNil(t, executor)
 

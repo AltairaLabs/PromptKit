@@ -16,7 +16,7 @@ spec:
 
   # Duplex configuration - using asm (provider-native) mode for mock testing
   duplex:
-    timeout: "30s"
+    timeout: "180s"
     turn_detection:
       mode: asm
 

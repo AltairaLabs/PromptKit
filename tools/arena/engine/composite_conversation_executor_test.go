@@ -10,7 +10,7 @@ import (
 func TestCompositeConversationExecutor_RouteToDefault(t *testing.T) {
 	// Create mock executors
 	defaultExec := NewDefaultConversationExecutor(nil, nil, nil, nil)
-	duplexExec := NewDuplexConversationExecutor(nil, nil, nil)
+	duplexExec := NewDuplexConversationExecutor(nil, nil, nil, nil)
 
 	composite := NewCompositeConversationExecutor(defaultExec, duplexExec)
 
@@ -36,7 +36,7 @@ func TestCompositeConversationExecutor_RouteToDefault(t *testing.T) {
 func TestCompositeConversationExecutor_RouteToDuplex(t *testing.T) {
 	// Create mock executors
 	defaultExec := NewDefaultConversationExecutor(nil, nil, nil, nil)
-	duplexExec := NewDuplexConversationExecutor(nil, nil, nil)
+	duplexExec := NewDuplexConversationExecutor(nil, nil, nil, nil)
 
 	composite := NewCompositeConversationExecutor(defaultExec, duplexExec)
 
@@ -95,7 +95,7 @@ func TestCompositeConversationExecutor_NilDuplexExecutor(t *testing.T) {
 
 func TestCompositeConversationExecutor_NilDefaultExecutor(t *testing.T) {
 	// Create composite with nil default executor
-	duplexExec := NewDuplexConversationExecutor(nil, nil, nil)
+	duplexExec := NewDuplexConversationExecutor(nil, nil, nil, nil)
 	composite := NewCompositeConversationExecutor(nil, duplexExec)
 
 	// Standard scenario should fail gracefully
@@ -169,7 +169,7 @@ func TestCompositeConversationExecutor_IsDuplexScenario(t *testing.T) {
 
 func TestCompositeConversationExecutor_GetExecutors(t *testing.T) {
 	defaultExec := NewDefaultConversationExecutor(nil, nil, nil, nil)
-	duplexExec := NewDuplexConversationExecutor(nil, nil, nil)
+	duplexExec := NewDuplexConversationExecutor(nil, nil, nil, nil)
 
 	composite := NewCompositeConversationExecutor(defaultExec, duplexExec)
 
@@ -206,7 +206,7 @@ func TestCompositeConversationExecutor_StreamRouteToDefault(t *testing.T) {
 }
 
 func TestCompositeConversationExecutor_StreamRouteToDuplex(t *testing.T) {
-	duplexExec := NewDuplexConversationExecutor(nil, nil, nil)
+	duplexExec := NewDuplexConversationExecutor(nil, nil, nil, nil)
 	composite := NewCompositeConversationExecutor(nil, duplexExec)
 
 	req := ConversationRequest{

@@ -425,6 +425,11 @@ type DuplexProviderStage struct {
 	// Flag to track if we've already captured transcription for this turn
 	transcriptionCaptured bool
 
+	// Flag to track if we've already popped turn_id for this turn
+	// This prevents double-popping when there are multiple EndOfStream events
+	// (e.g., tool call response + final response)
+	turnIDPopped bool
+
 	// Channel to signal that input forwarding is done and we're waiting for final response
 	inputDoneCh   chan struct{}
 	inputDoneOnce sync.Once
@@ -514,6 +519,15 @@ func (s *DuplexProviderStage) Process(
 			sessionConfig = &providers.StreamingInputConfig{}
 		}
 		sessionConfig.SystemInstruction = systemPrompt
+
+		// Extract tools from metadata if provided
+		// Tools are passed from the duplex executor via element metadata
+		if firstElem.Metadata != nil {
+			if tools, ok := firstElem.Metadata["tools"].([]providers.StreamingToolDefinition); ok {
+				sessionConfig.Tools = tools
+				logger.Debug("DuplexProviderStage: tools extracted from metadata", "tool_count", len(tools))
+			}
+		}
 
 		logger.Debug("DuplexProviderStage: creating session with system instruction",
 			"system_prompt_length", len(systemPrompt))
@@ -614,6 +628,28 @@ func (s *DuplexProviderStage) forwardInputElements(
 					})
 					continue // Don't forward this signal element
 				}
+
+				// Check for tool result messages to forward to output for state store capture
+				// These are created by the executor after executing tools requested by the model
+				if toolMsgs, ok := elem.Metadata["tool_result_messages"].([]types.Message); ok && len(toolMsgs) > 0 {
+					logger.Debug("DuplexProviderStage: forwarding tool result messages to output",
+						"count", len(toolMsgs))
+					for i := range toolMsgs {
+						toolElem := StreamElement{
+							Message:     &toolMsgs[i],
+							EndOfStream: false,
+						}
+						select {
+						case output <- toolElem:
+							logger.Debug("DuplexProviderStage: tool result message forwarded",
+								"tool", toolMsgs[i].ToolResult.Name)
+						case <-ctx.Done():
+							done <- ctx.Err()
+							return
+						}
+					}
+					// Continue to process the element (may also have tool_responses for provider)
+				}
 			}
 
 			// Forward Message elements to output for state store capture
@@ -677,6 +713,27 @@ func (s *DuplexProviderStage) prependElement(
 
 // sendElementToSession sends a single element to the WebSocket session.
 func (s *DuplexProviderStage) sendElementToSession(ctx context.Context, elem *StreamElement) {
+	// Check for tool responses to send back to the provider
+	// Tool responses are sent by the executor after executing tools requested by the model
+	if elem.Metadata != nil {
+		if toolResponses, ok := elem.Metadata["tool_responses"].([]providers.ToolResponse); ok && len(toolResponses) > 0 {
+			// Check if session supports tool responses
+			if toolSession, ok := s.session.(providers.ToolResponseSupport); ok {
+				logger.Debug("DuplexProviderStage: sending tool responses to session",
+					"count", len(toolResponses))
+				if err := toolSession.SendToolResponses(ctx, toolResponses); err != nil {
+					logger.Error("DuplexProviderStage: failed to send tool responses", "error", err)
+				} else {
+					logger.Debug("DuplexProviderStage: tool responses sent successfully")
+				}
+			} else {
+				logger.Warn("DuplexProviderStage: session does not support tool responses",
+					"sessionType", fmt.Sprintf("%T", s.session))
+			}
+			return
+		}
+	}
+
 	// Check for end of stream (end of turn input)
 	if elem.EndOfStream {
 		logger.Debug("DuplexProviderStage: end of stream signal received",
@@ -730,6 +787,7 @@ func (s *DuplexProviderStage) sendAudioElement(ctx context.Context, elem *Stream
 	if s.transcriptionCaptured {
 		s.inputTranscription.Reset()
 		s.transcriptionCaptured = false
+		s.turnIDPopped = false // Reset so we can pop turn_id for the new turn
 		logger.Debug("DuplexProviderStage: reset transcription for new user turn")
 	}
 
@@ -1206,16 +1264,25 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 			return elem
 		}
 
-		// Create Message if there's content or cost info
-		if hasContent || hasCostInfo {
+		// Check if there are tool calls to capture
+		hasToolCalls := len(chunk.ToolCalls) > 0
+
+		// Create Message if there's content, cost info, or tool calls
+		if hasContent || hasCostInfo || hasToolCalls {
 			msg := &types.Message{
-				Role:     "assistant",
-				Content:  accumulatedText,
-				Parts:    []types.ContentPart{},
-				CostInfo: chunk.CostInfo,
+				Role:      "assistant",
+				Content:   accumulatedText,
+				Parts:     []types.ContentPart{},
+				ToolCalls: chunk.ToolCalls, // Capture tool calls from the chunk
+				CostInfo:  chunk.CostInfo,
 				Meta: map[string]interface{}{
 					"finish_reason": *chunk.FinishReason,
 				},
+			}
+
+			if hasToolCalls {
+				logger.Debug("DuplexProviderStage: captured tool calls",
+					"count", len(chunk.ToolCalls))
 			}
 
 			if accumulatedText != "" {
@@ -1252,26 +1319,40 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 		elem.Metadata = chunk.Metadata
 	}
 
-	// Add input transcription to metadata if present
-	if s.inputTranscription.Len() > 0 && elem.EndOfStream {
+	// Pop turn_id from queue on EndOfStream to keep queue in sync with turns.
+	// This must happen regardless of whether transcription was captured, because
+	// some turns may not produce transcription (e.g., short audio, no speech detected).
+	// If we only pop when there's transcription, the queue gets out of sync and
+	// subsequent transcriptions are correlated with the wrong user messages.
+	//
+	// We use turnIDPopped to prevent double-popping when there are multiple
+	// EndOfStream events per turn (e.g., tool call response + final response).
+	var turnID string
+	if elem.EndOfStream && !s.turnIDPopped {
+		s.turnIDMu.Lock()
+		if len(s.turnIDQueue) > 0 {
+			turnID = s.turnIDQueue[0]
+			s.turnIDQueue = s.turnIDQueue[1:]
+			s.turnIDPopped = true
+		}
+		s.turnIDMu.Unlock()
+	}
+
+	// Add input transcription to metadata if present.
+	// Only add if we just popped a turn_id (turnID != ""), which means this is
+	// the first EndOfStream for this user turn. Subsequent EndOfStream events
+	// (e.g., after tool execution) should not re-add transcription.
+	if s.inputTranscription.Len() > 0 && elem.EndOfStream && turnID != "" {
 		if elem.Metadata == nil {
 			elem.Metadata = make(map[string]interface{})
 		}
 		elem.Metadata["input_transcription"] = s.inputTranscription.String()
-
-		// Pop turn_id from queue for correlation
-		s.turnIDMu.Lock()
-		turnID := ""
-		if len(s.turnIDQueue) > 0 {
-			turnID = s.turnIDQueue[0]
-			s.turnIDQueue = s.turnIDQueue[1:]
-		}
-		s.turnIDMu.Unlock()
-		if turnID != "" {
-			elem.Metadata["transcription_turn_id"] = turnID
-		}
+		elem.Metadata["transcription_turn_id"] = turnID
 		logger.Debug("DuplexProviderStage: adding input transcription",
 			"transcriptionLen", s.inputTranscription.Len(),
+			"turnID", turnID)
+	} else if elem.EndOfStream && turnID != "" {
+		logger.Debug("DuplexProviderStage: turn complete without transcription",
 			"turnID", turnID)
 	}
 
