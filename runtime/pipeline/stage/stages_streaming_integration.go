@@ -741,15 +741,6 @@ func (s *DuplexProviderStage) sendAudioElement(ctx context.Context, elem *Stream
 		s.audioChunkCount = 0
 		s.audioBytesSent = 0
 		logger.Debug("DuplexProviderStage: starting new audio stream")
-
-		// If session supports manual turn control (VAD disabled), send activityStart
-		// before the first audio chunk to signal the start of user input
-		if activitySignaler, ok := s.session.(providers.ActivitySignaler); ok && activitySignaler.IsVADDisabled() {
-			logger.Debug("DuplexProviderStage: sending activityStart for manual turn control")
-			if err := activitySignaler.SendActivityStart(); err != nil {
-				logger.Error("DuplexProviderStage: failed to send activityStart", "error", err)
-			}
-		}
 	}
 
 	// Calculate gap from last chunk

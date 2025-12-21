@@ -102,6 +102,9 @@ type StreamSession struct {
 	autoReconnect     bool // If true, attempt reconnection on unexpected drop
 	maxReconnectTries int  // Maximum reconnection attempts (default: 3)
 	reconnecting      bool // True while reconnection is in progress
+
+	// Manual VAD control state
+	activityStartSent bool // True after activityStart has been sent for current turn
 }
 
 // VADConfig configures Voice Activity Detection settings for Gemini Live API.
@@ -316,14 +319,29 @@ func NewStreamSession(ctx context.Context, wsURL, apiKey string, config StreamSe
 	return session, nil
 }
 
-// SendChunk sends a media chunk to the server
+// SendChunk sends a media chunk to the server.
+// When VAD is disabled (manual turn control), automatically sends activityStart
+// before the first audio chunk of a turn.
 func (s *StreamSession) SendChunk(ctx context.Context, chunk *types.MediaChunk) error {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
 		return errors.New(ErrSessionClosed)
 	}
-	s.mu.Unlock()
+
+	// When VAD is disabled, send activityStart before first audio chunk
+	// This signals to Gemini that user input is starting
+	if s.isVADDisabled() && !s.activityStartSent {
+		s.activityStartSent = true
+		s.mu.Unlock()
+
+		if err := s.sendActivityStart(); err != nil {
+			logger.Error("StreamSession: failed to send activityStart", "error", err)
+			// Continue anyway - the audio may still work
+		}
+	} else {
+		s.mu.Unlock()
+	}
 
 	// Build client message
 	msg := buildClientMessage(*chunk, false)
@@ -384,10 +402,9 @@ func (s *StreamSession) CompleteTurn(ctx context.Context) error {
 	return s.ws.Send(msg)
 }
 
-// SendActivityStart signals the start of user audio input.
-// Use this when VAD is disabled (manual turn control mode).
-// Must be called before sending audio chunks for a turn.
-func (s *StreamSession) SendActivityStart() error {
+// sendActivityStart signals the start of user audio input.
+// Used internally when VAD is disabled (manual turn control mode).
+func (s *StreamSession) sendActivityStart() error {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -405,10 +422,9 @@ func (s *StreamSession) SendActivityStart() error {
 	return s.ws.Send(msg)
 }
 
-// SendActivityEnd signals the end of user audio input.
-// Use this when VAD is disabled (manual turn control mode).
-// Call after sending all audio chunks for a turn to trigger model response.
-func (s *StreamSession) SendActivityEnd() error {
+// sendActivityEnd signals the end of user audio input.
+// Used internally when VAD is disabled (manual turn control mode).
+func (s *StreamSession) sendActivityEnd() error {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -426,10 +442,8 @@ func (s *StreamSession) SendActivityEnd() error {
 	return s.ws.Send(msg)
 }
 
-// IsVADDisabled returns true if automatic VAD is disabled for this session.
-// When VAD is disabled, callers should use SendActivityStart/SendActivityEnd
-// for manual turn control instead of relying on silence detection.
-func (s *StreamSession) IsVADDisabled() bool {
+// isVADDisabled returns true if automatic VAD is disabled for this session.
+func (s *StreamSession) isVADDisabled() bool {
 	return s.config.VAD != nil && s.config.VAD.Disabled
 }
 
@@ -440,13 +454,17 @@ func (s *StreamSession) IsVADDisabled() bool {
 // - If VAD is disabled: sends activityEnd signal for explicit turn control
 // - If VAD is enabled: sends silence frames to trigger VAD end-of-speech detection
 func (s *StreamSession) EndInput() {
-	logger.Debug("Gemini StreamSession: EndInput called", "vad_disabled", s.IsVADDisabled())
+	logger.Debug("Gemini StreamSession: EndInput called", "vad_disabled", s.isVADDisabled())
 
 	// When VAD is disabled, use explicit turn signaling
-	if s.IsVADDisabled() {
-		if err := s.SendActivityEnd(); err != nil {
+	if s.isVADDisabled() {
+		if err := s.sendActivityEnd(); err != nil {
 			logger.Error("Gemini StreamSession: EndInput failed to send activityEnd", "error", err)
 		}
+		// Reset for next turn
+		s.mu.Lock()
+		s.activityStartSent = false
+		s.mu.Unlock()
 		return
 	}
 

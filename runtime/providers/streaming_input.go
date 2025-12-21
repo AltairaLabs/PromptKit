@@ -81,28 +81,6 @@ type StreamInputSession interface {
 	Done() <-chan struct{}
 }
 
-// ActivitySignaler is an optional interface for sessions that support
-// explicit turn control via activity signals. When automatic VAD is disabled,
-// callers must use SendActivityStart before sending audio and SendActivityEnd
-// after sending all audio to signal turn boundaries.
-//
-// This is useful for pre-recorded audio (like TTS selfplay) where the caller
-// knows exactly when the audio starts and ends, avoiding false turn detections
-// from natural speech pauses.
-type ActivitySignaler interface {
-	// SendActivityStart signals the start of user audio input.
-	// Must be called before sending audio chunks for a turn when VAD is disabled.
-	SendActivityStart() error
-
-	// SendActivityEnd signals the end of user audio input.
-	// Call after sending all audio chunks for a turn to trigger model response.
-	SendActivityEnd() error
-
-	// IsVADDisabled returns true if automatic VAD is disabled for this session.
-	// When true, callers must use SendActivityStart/SendActivityEnd for turn control.
-	IsVADDisabled() bool
-}
-
 // StreamingInputConfig configures a new streaming input session.
 type StreamingInputConfig struct {
 	// Config specifies the media streaming configuration (codec, sample rate, etc.)
