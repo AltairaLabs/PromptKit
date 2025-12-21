@@ -1,0 +1,62 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "openai-realtime-example",
+  "name": "OpenAI Realtime API Example",
+  "version": "1.0.0",
+  "description": "Example demonstrating bidirectional audio streaming with OpenAI Realtime API",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "assistant": {
+      "id": "assistant",
+      "name": "Voice Assistant",
+      "version": "1.0.0",
+      "system_template": "You are a helpful voice assistant. Respond naturally and conversationally to audio input. Keep your responses concise and engaging.",
+      "parameters": {
+        "temperature": 0.8,
+        "max_tokens": 1000
+      }
+    },
+    "translator": {
+      "id": "translator",
+      "name": "Real-time Translator",
+      "version": "1.0.0",
+      "system_template": "You are a real-time translator. When you hear speech, translate it to {{target_language}}. Respond only with the translation, speaking naturally in the target language.",
+      "variables": {
+        "target_language": {
+          "type": "string",
+          "required": true,
+          "default": "Spanish",
+          "description": "The target language for translation"
+        }
+      },
+      "parameters": {
+        "temperature": 0.6,
+        "max_tokens": 500
+      }
+    }
+  },
+  "tools": {
+    "get_weather": {
+      "name": "get_weather",
+      "description": "Get the current weather for a location",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "string",
+            "description": "The city and state, e.g. San Francisco, CA"
+          },
+          "unit": {
+            "type": "string",
+            "enum": ["celsius", "fahrenheit"],
+            "description": "The temperature unit"
+          }
+        },
+        "required": ["location"]
+      }
+    }
+  }
+}
