@@ -31,7 +31,7 @@ func TestNewStreamSession(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+	session, err := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("NewStreamSession failed: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestGeminiStreamSession_SendChunk(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+	session, err := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("NewStreamSession failed: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestGeminiStreamSession_SendText(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+	session, err := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("NewStreamSession failed: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestGeminiStreamSession_CompleteTurn(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+	session, err := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("NewStreamSession failed: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestGeminiStreamSession_ReceiveResponse(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+	session, err := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("NewStreamSession failed: %v", err)
 	}
@@ -324,7 +324,7 @@ func TestGeminiStreamSession_ReceiveAudioResponse(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+	session, err := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("NewStreamSession failed: %v", err)
 	}
@@ -415,7 +415,7 @@ func TestGeminiStreamSession_ReceiveMixedResponse(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+	session, err := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("NewStreamSession failed: %v", err)
 	}
@@ -465,7 +465,7 @@ func TestGeminiStreamSession_Close(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+	session, err := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("NewStreamSession failed: %v", err)
 	}
@@ -512,7 +512,7 @@ func TestGeminiStreamSession_Done(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+	session, err := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("NewStreamSession failed: %v", err)
 	}
@@ -547,7 +547,7 @@ func TestGeminiStreamSession_Error(t *testing.T) {
 		defer server.Close()
 
 		ctx := context.Background()
-		_, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+		_, err := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{})
 		// Expect failure since server closes without sending setup_complete
 		if err == nil {
 			t.Fatal("Expected error when connection closes during setup")
@@ -572,7 +572,7 @@ func TestGeminiStreamSession_Error(t *testing.T) {
 		defer server.Close()
 
 		ctx := context.Background()
-		session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+		session, err := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{})
 		if err != nil {
 			t.Fatalf("Failed to create session: %v", err)
 		}
@@ -606,7 +606,7 @@ func TestGeminiStreamSession_Error(t *testing.T) {
 		defer server.Close()
 
 		ctx := context.Background()
-		session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+		session, err := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{})
 		if err != nil {
 			t.Fatalf("Failed to create session: %v", err)
 		}
@@ -643,7 +643,7 @@ func TestGeminiStreamSession_ContextCancellation(t *testing.T) {
 	defer server.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+	session, err := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("NewStreamSession failed: %v", err)
 	}
@@ -694,7 +694,7 @@ func TestGeminiStreamSession_MultipleResponses(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+	session, err := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("NewStreamSession failed: %v", err)
 	}
@@ -797,7 +797,7 @@ func TestNewStreamSession_RejectsTextAndAudioTogether(t *testing.T) {
 	ctx := context.Background()
 
 	// This should fail BEFORE connecting to any server
-	_, err := NewStreamSession(ctx, "wss://example.com", "test-key", StreamSessionConfig{
+	_, err := NewStreamSession(ctx, "wss://example.com", "test-key", &StreamSessionConfig{
 		Model:              "gemini-2.0-flash-exp",
 		ResponseModalities: []string{"TEXT", "AUDIO"},
 	})
@@ -838,7 +838,7 @@ func TestNewStreamSession_AcceptsValidModalities(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{
+			session, err := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{
 				ResponseModalities: tc.modalities,
 			})
 			if err != nil {
@@ -860,7 +860,7 @@ func TestStreamSession_SendAfterClose(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	session, _ := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+	session, _ := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{})
 
 	// Close the session
 	session.Close()
@@ -954,7 +954,7 @@ func TestProcessServerMessage_Interruption(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+	session, err := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}
@@ -998,7 +998,7 @@ func TestProcessServerMessage_InputTranscription(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+	session, err := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}
@@ -1048,7 +1048,7 @@ func TestProcessServerMessage_OutputTranscription(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+	session, err := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}
@@ -1096,7 +1096,7 @@ func TestProcessServerMessage_TurnCompleteWithoutModelTurn(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+	session, err := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}
@@ -1146,7 +1146,7 @@ func TestProcessServerMessage_ToolCall(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{})
+	session, err := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{})
 	if err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}

@@ -66,7 +66,7 @@ func TestStreamSession_ReconnectOnUnexpectedClose(t *testing.T) {
 	defer cancel()
 
 	// Create session with auto-reconnect enabled
-	session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{
+	session, err := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{
 		AutoReconnect:     true,
 		MaxReconnectTries: 3,
 	})
@@ -164,7 +164,7 @@ func TestStreamSession_ReconnectWithCloseCode(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{
+			session, err := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{
 				AutoReconnect:     true,
 				MaxReconnectTries: 2,
 			})
@@ -238,7 +238,7 @@ func TestStreamSession_ReconnectPreservesSetup(t *testing.T) {
 	defer cancel()
 
 	systemInstruction := "You are a helpful assistant"
-	session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{
+	session, err := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{
 		Model:              "gemini-2.0-flash-exp",
 		SystemInstruction:  systemInstruction,
 		ResponseModalities: []string{"AUDIO"},
@@ -305,7 +305,7 @@ func TestStreamSession_NoReconnectWhenDisabled(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{
+	session, err := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{
 		AutoReconnect: false, // Reconnect disabled
 	})
 	if err != nil {
@@ -355,7 +355,7 @@ func TestStreamSession_ReconnectExhaustsRetries(t *testing.T) {
 	defer cancel()
 
 	maxRetries := 3
-	session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{
+	session, err := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{
 		AutoReconnect:     true,
 		MaxReconnectTries: maxRetries,
 	})
@@ -418,7 +418,7 @@ func TestStreamSession_SendChunkDuringReconnect(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	session, err := NewStreamSession(ctx, server.URL(), "test-key", StreamSessionConfig{
+	session, err := NewStreamSession(ctx, server.URL(), "test-key", &StreamSessionConfig{
 		AutoReconnect:     true,
 		MaxReconnectTries: 3,
 	})
