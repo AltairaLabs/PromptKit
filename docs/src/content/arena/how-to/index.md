@@ -51,6 +51,13 @@ Use assertions and custom validators to verify LLM response quality.
 Turn recorded Arena runs into mock provider YAML for deterministic, cost-free replays.
 </div>
 
+## Voice Testing
+
+<div class="code-example" markdown="1">
+### [Set Up Voice Testing with Self-Play](setup-voice-testing)
+Configure automated voice testing using duplex streaming and self-play with TTS.
+</div>
+
 ## Automation
 
 <div class="code-example" markdown="1">
