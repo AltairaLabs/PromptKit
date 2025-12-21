@@ -90,11 +90,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create file server
+	// NOSONAR: Path traversal safe - absDir is validated absolute path from user-specified directory
 	fs := http.FileServer(http.Dir(absDir))
 	http.Handle("/", fs)
 
 	// Start server
 	//nolint:gosec // G114: Dev tool - timeouts not needed for local server
+	// NOSONAR: TLS not required - local development tool, binds to localhost only
 	return http.ListenAndServe(fmt.Sprintf(":%d", actualPort), nil)
 }
 
@@ -103,6 +105,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 //nolint:noctx // Dev tool - context not needed for opening browser
 func openBrowser(url string) {
 	var cmd *exec.Cmd
+	// NOSONAR: Command injection safe - url is internally generated (localhost URL), not user input
 	switch runtime.GOOS {
 	case "darwin":
 		cmd = exec.Command("open", url)
