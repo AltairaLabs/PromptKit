@@ -8,6 +8,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/streaming"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -575,16 +576,11 @@ func TestDuplexConversationExecutor_CalculateToolStats(t *testing.T) {
 	}
 }
 
-func TestDuplexConversationExecutor_ExecuteToolCallsNilRegistry(t *testing.T) {
-	executor := NewDuplexConversationExecutor(nil, nil, nil, nil)
-
-	toolCalls := []types.MessageToolCall{
-		{Name: "test", ID: "call_1"},
-	}
-
-	result := executor.executeToolCalls(context.Background(), toolCalls)
-	if result != nil {
-		t.Errorf("executeToolCalls() with nil registry should return nil, got %v", result)
+func TestArenaToolExecutor_NilRegistry(t *testing.T) {
+	// Creating an executor with nil registry should return nil ToolExecutor
+	executor := newArenaToolExecutor(nil)
+	if executor != nil {
+		t.Errorf("newArenaToolExecutor(nil) should return nil, got %v", executor)
 	}
 }
 
@@ -592,7 +588,7 @@ func TestProcessResponseElement(t *testing.T) {
 	tests := []struct {
 		name           string
 		elem           *stage.StreamElement
-		expectedAction responseAction
+		expectedAction streaming.ResponseAction
 		expectedErr    bool
 	}{
 		{
@@ -600,7 +596,7 @@ func TestProcessResponseElement(t *testing.T) {
 			elem: &stage.StreamElement{
 				Error: errors.New("test error"),
 			},
-			expectedAction: responseActionError,
+			expectedAction: streaming.ResponseActionError,
 			expectedErr:    true,
 		},
 		{
@@ -610,7 +606,7 @@ func TestProcessResponseElement(t *testing.T) {
 					"interrupted": true,
 				},
 			},
-			expectedAction: responseActionContinue,
+			expectedAction: streaming.ResponseActionContinue,
 			expectedErr:    false,
 		},
 		{
@@ -620,7 +616,7 @@ func TestProcessResponseElement(t *testing.T) {
 					"interrupted_turn_complete": true,
 				},
 			},
-			expectedAction: responseActionContinue,
+			expectedAction: streaming.ResponseActionContinue,
 			expectedErr:    false,
 		},
 		{
@@ -629,7 +625,7 @@ func TestProcessResponseElement(t *testing.T) {
 				EndOfStream: true,
 				Message:     nil,
 			},
-			expectedAction: responseActionError,
+			expectedAction: streaming.ResponseActionError,
 			expectedErr:    true,
 		},
 		{
@@ -640,7 +636,7 @@ func TestProcessResponseElement(t *testing.T) {
 					Content: "response text",
 				},
 			},
-			expectedAction: responseActionComplete,
+			expectedAction: streaming.ResponseActionComplete,
 			expectedErr:    false,
 		},
 		{
@@ -653,7 +649,7 @@ func TestProcessResponseElement(t *testing.T) {
 					},
 				},
 			},
-			expectedAction: responseActionToolCalls,
+			expectedAction: streaming.ResponseActionToolCalls,
 			expectedErr:    false,
 		},
 		{
@@ -664,7 +660,7 @@ func TestProcessResponseElement(t *testing.T) {
 					Parts: []types.ContentPart{{Text: stringPtr("text")}},
 				},
 			},
-			expectedAction: responseActionComplete,
+			expectedAction: streaming.ResponseActionComplete,
 			expectedErr:    false,
 		},
 		{
@@ -672,20 +668,20 @@ func TestProcessResponseElement(t *testing.T) {
 			elem: &stage.StreamElement{
 				Text: stringPtr("chunk"),
 			},
-			expectedAction: responseActionContinue,
+			expectedAction: streaming.ResponseActionContinue,
 			expectedErr:    false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			action, err := processResponseElement(tt.elem, "test")
+			action, err := streaming.ProcessResponseElement(tt.elem, "test")
 
 			if action != tt.expectedAction {
-				t.Errorf("processResponseElement() action = %v, want %v", action, tt.expectedAction)
+				t.Errorf("ProcessResponseElement() action = %v, want %v", action, tt.expectedAction)
 			}
 			if (err != nil) != tt.expectedErr {
-				t.Errorf("processResponseElement() error = %v, wantErr %v", err, tt.expectedErr)
+				t.Errorf("ProcessResponseElement() error = %v, wantErr %v", err, tt.expectedErr)
 			}
 		})
 	}

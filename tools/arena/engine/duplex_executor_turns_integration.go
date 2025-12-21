@@ -13,6 +13,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/streaming"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
@@ -381,101 +382,23 @@ func (de *DuplexConversationExecutor) streamAudioChunks(
 
 // drainStaleMessages removes stale messages from the output channel.
 func (de *DuplexConversationExecutor) drainStaleMessages(outputChan <-chan stage.StreamElement) error {
-	drainCount := 0
-	for {
-		select {
-		case elem, ok := <-outputChan:
-			if !ok {
-				logger.Debug("drainStaleMessages: session ended during drain (channel closed)")
-				return errSessionEnded
-			}
-			drainCount++
-			logger.Debug("drainStaleMessages: drained stale element",
-				"hasText", elem.Text != nil, "endOfStream", elem.EndOfStream)
-		default:
-			if drainCount > 0 {
-				logger.Debug("drainStaleMessages: drained stale messages", "count", drainCount)
-			}
-			return nil
-		}
-	}
+	_, err := streaming.DrainStaleMessages(outputChan)
+	return err
 }
 
 // startResponseCollector starts a goroutine to collect responses from the output channel.
+// Uses the runtime/streaming.ResponseCollector for response handling and tool execution.
 func (de *DuplexConversationExecutor) startResponseCollector(
 	ctx context.Context,
 	outputChan <-chan stage.StreamElement,
 	inputChan chan<- stage.StreamElement,
 	logPrefix string,
 ) <-chan error {
-	responseDone := make(chan error, 1)
-	go de.collectResponses(ctx, outputChan, inputChan, responseDone, logPrefix)
-	return responseDone
-}
-
-// collectResponses processes elements from the output channel until complete.
-func (de *DuplexConversationExecutor) collectResponses(
-	ctx context.Context,
-	outputChan <-chan stage.StreamElement,
-	inputChan chan<- stage.StreamElement,
-	responseDone chan<- error,
-	logPrefix string,
-) {
-	for {
-		select {
-		case <-ctx.Done():
-			responseDone <- ctx.Err()
-			return
-
-		case elem, ok := <-outputChan:
-			if !ok {
-				logger.Debug(logPrefix + " response channel closed before receiving complete response")
-				responseDone <- fmt.Errorf("session ended before receiving response: %w", errSessionEnded)
-				return
-			}
-
-			action, err := processResponseElement(&elem, logPrefix)
-			done := de.handleResponseAction(ctx, action, err, &elem, inputChan, responseDone, logPrefix)
-			if done {
-				return
-			}
-		}
-	}
-}
-
-// handleResponseAction processes the response action and returns true if collection is done.
-func (de *DuplexConversationExecutor) handleResponseAction(
-	ctx context.Context,
-	action responseAction,
-	err error,
-	elem *stage.StreamElement,
-	inputChan chan<- stage.StreamElement,
-	responseDone chan<- error,
-	logPrefix string,
-) bool {
-	switch action {
-	case responseActionContinue:
-		return false
-	case responseActionComplete:
-		responseDone <- nil
-		return true
-	case responseActionError:
-		responseDone <- err
-		return true
-	case responseActionToolCalls:
-		if elem.Message != nil && len(elem.Message.ToolCalls) > 0 {
-			toolResult := de.executeToolCalls(ctx, elem.Message.ToolCalls)
-			if toolResult != nil && len(toolResult.providerResponses) > 0 {
-				if err := de.sendToolResults(ctx, toolResult, inputChan); err != nil {
-					logger.Error(logPrefix+": failed to send tool results", "error", err)
-					responseDone <- err
-					return true
-				}
-			}
-		}
-		return false
-	}
-	return false
+	collector := streaming.NewResponseCollector(streaming.ResponseCollectorConfig{
+		ToolExecutor: newArenaToolExecutor(de.toolRegistry),
+		LogPrefix:    logPrefix,
+	})
+	return collector.Start(ctx, outputChan, inputChan)
 }
 
 // streamFromFileSource streams audio chunks from a file source.
@@ -513,15 +436,8 @@ func (de *DuplexConversationExecutor) sendEndOfStream(
 	inputChan chan<- stage.StreamElement,
 	logPrefix string,
 ) error {
-	logger.Debug(logPrefix + ": sending EndOfStream signal to trigger response")
-	endOfTurn := stage.StreamElement{EndOfStream: true}
-	select {
-	case inputChan <- endOfTurn:
-		logger.Debug(logPrefix + ": EndOfStream signal sent, waiting for response")
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	_ = logPrefix // Used in streaming.SendEndOfStream's internal logging
+	return streaming.SendEndOfStream(ctx, inputChan)
 }
 
 // waitForResponse waits for the response collection to complete.
@@ -530,13 +446,9 @@ func (de *DuplexConversationExecutor) waitForResponse(
 	responseDone <-chan error,
 	logPrefix string,
 ) error {
-	select {
-	case err := <-responseDone:
-		logger.Debug(logPrefix+": response received", "error", err)
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	err := streaming.WaitForResponse(ctx, responseDone)
+	logger.Debug(logPrefix+": response received", "error", err)
+	return err
 }
 
 // ExecuteConversationStream runs a duplex conversation with streaming output.
@@ -733,84 +645,13 @@ func (de *DuplexConversationExecutor) getSourceSampleRate(sampleRate int) int {
 }
 
 // streamAudioBurstMode streams audio data as fast as possible without pacing.
+// Uses the runtime/streaming.AudioStreamer for efficient audio streaming.
 func (de *DuplexConversationExecutor) streamAudioBurstMode(
 	ctx context.Context,
 	audioData []byte,
 	sampleRate int,
 	inputChan chan<- stage.StreamElement,
 ) error {
-	chunkSize := defaultAudioChunkSize
-	totalChunks := (len(audioData) + chunkSize - 1) / chunkSize
-
-	logger.Debug("Streaming selfplay audio in BURST MODE",
-		"chunk_size", chunkSize,
-		"source_sample_rate", sampleRate,
-		"total_bytes", len(audioData),
-		"total_chunks", totalChunks,
-	)
-
-	streamStart := time.Now()
-	for offset := 0; offset < len(audioData); offset += chunkSize {
-		chunk, chunkIdx := de.getAudioChunk(audioData, offset, chunkSize)
-
-		if err := de.sendAudioChunk(ctx, chunk, sampleRate, inputChan); err != nil {
-			return err
-		}
-
-		de.logBurstProgress(chunkIdx, totalChunks, streamStart, len(chunk))
-	}
-
-	return nil
-}
-
-// getAudioChunk extracts a chunk from audio data at the given offset.
-func (de *DuplexConversationExecutor) getAudioChunk(
-	audioData []byte, offset, chunkSize int,
-) (chunk []byte, chunkIdx int) {
-	end := offset + chunkSize
-	if end > len(audioData) {
-		end = len(audioData)
-	}
-	return audioData[offset:end], offset / chunkSize
-}
-
-// sendAudioChunk sends an audio chunk to the input channel.
-func (de *DuplexConversationExecutor) sendAudioChunk(
-	ctx context.Context,
-	chunk []byte,
-	sampleRate int,
-	inputChan chan<- stage.StreamElement,
-) error {
-	elem := stage.StreamElement{
-		Audio: &stage.AudioData{
-			Samples:    chunk,
-			SampleRate: sampleRate,
-			Channels:   1,
-			Format:     stage.AudioFormatPCM16,
-		},
-		Metadata: map[string]interface{}{
-			"passthrough": true,
-		},
-	}
-
-	select {
-	case inputChan <- elem:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-// logBurstProgress logs progress for first, middle, and last chunks.
-func (de *DuplexConversationExecutor) logBurstProgress(
-	chunkIdx, totalChunks int, streamStart time.Time, chunkBytes int,
-) {
-	if chunkIdx == 0 || chunkIdx == totalChunks/2 || chunkIdx == totalChunks-1 {
-		logger.Debug("Selfplay audio chunk sent (burst mode)",
-			"chunk_idx", chunkIdx,
-			"total_chunks", totalChunks,
-			"elapsed_ms", time.Since(streamStart).Milliseconds(),
-			"chunk_bytes", chunkBytes,
-		)
-	}
+	streamer := streaming.NewAudioStreamer()
+	return streamer.StreamBurst(ctx, audioData, sampleRate, inputChan)
 }
