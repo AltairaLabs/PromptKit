@@ -196,28 +196,47 @@ func (s *DuplexProviderStage) Process(
 		bufferedElements := []StreamElement{firstElem}
 		bufferMu := &sync.Mutex{}
 		drainDone := make(chan struct{})
-		go func() {
-			logger.Debug("DuplexProviderStage: drain goroutine started")
-			defer close(drainDone)
-			for elem := range input {
-				bufferMu.Lock()
-				logger.Debug("DuplexProviderStage: buffered element",
-					"hasAudio", elem.Audio != nil,
-					"hasText", elem.Text != nil,
-					"endOfStream", elem.EndOfStream,
-					"bufferedCount", len(bufferedElements)+1)
-				bufferedElements = append(bufferedElements, elem)
-				isEOS := elem.EndOfStream
-				bufferMu.Unlock()
-				// Stop buffering on EndOfStream - the first turn's input is complete
-				if isEOS {
-					logger.Debug("DuplexProviderStage: EndOfStream received, stopping buffer")
-					return
+
+		// If the first element already has EndOfStream, skip buffering entirely
+		// This is common in tests and when there's only one element to send
+		if firstElem.EndOfStream {
+			logger.Debug("DuplexProviderStage: first element has EndOfStream, skipping buffer drain")
+			close(drainDone)
+		} else {
+			go func() {
+				logger.Debug("DuplexProviderStage: drain goroutine started")
+				defer close(drainDone)
+				for {
+					select {
+					case <-ctx.Done():
+						logger.Debug("DuplexProviderStage: drain goroutine canceled by context")
+						return
+					case elem, ok := <-input:
+						if !ok {
+							bufferMu.Lock()
+							logger.Debug("DuplexProviderStage: input channel closed during buffering",
+								"bufferedCount", len(bufferedElements))
+							bufferMu.Unlock()
+							return
+						}
+						bufferMu.Lock()
+						logger.Debug("DuplexProviderStage: buffered element",
+							"hasAudio", elem.Audio != nil,
+							"hasText", elem.Text != nil,
+							"endOfStream", elem.EndOfStream,
+							"bufferedCount", len(bufferedElements)+1)
+						bufferedElements = append(bufferedElements, elem)
+						isEOS := elem.EndOfStream
+						bufferMu.Unlock()
+						// Stop buffering on EndOfStream - the first turn's input is complete
+						if isEOS {
+							logger.Debug("DuplexProviderStage: EndOfStream received, stopping buffer")
+							return
+						}
+					}
 				}
-			}
-			logger.Debug("DuplexProviderStage: input channel closed during buffering",
-				"bufferedCount", len(bufferedElements))
-		}()
+			}()
+		}
 
 		// Create the session (may take several hundred milliseconds for WebSocket connection)
 		var err error
