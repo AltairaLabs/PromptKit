@@ -91,7 +91,7 @@ jobs:
         echo "Coverage report generated: coverage.out"
     
     - name: Publish Test Results  
-      uses: dorny/test-reporter@31a54ee7ebcacc03a09ea97a7e5465a47b84aea5 # v1.9.1
+      uses: dorny/test-reporter@fe45e9537387dac839af0d33ba56eed8e24189e8 # v2.3.0
       if: always()
       with:
         name: Test Results
@@ -339,7 +339,7 @@ jobs:
         echo "- **arena-guardrails-reports**" >> $GITHUB_STEP_SUMMARY
     
     - name: Publish Customer Support Test Results
-      uses: dorny/test-reporter@31a54ee7ebcacc03a09ea97a7e5465a47b84aea5 # v1.9.1
+      uses: dorny/test-reporter@fe45e9537387dac839af0d33ba56eed8e24189e8 # v2.3.0
       if: always()
       with:
         name: Arena - Customer Support
@@ -348,7 +348,7 @@ jobs:
         fail-on-error: true
     
     - name: Publish Multimodal Test Results
-      uses: dorny/test-reporter@31a54ee7ebcacc03a09ea97a7e5465a47b84aea5 # v1.9.1
+      uses: dorny/test-reporter@fe45e9537387dac839af0d33ba56eed8e24189e8 # v2.3.0
       if: always()
       with:
         name: Arena - Multimodal Basics
@@ -357,7 +357,7 @@ jobs:
         fail-on-error: true
     
     - name: Publish Variables Test Results
-      uses: dorny/test-reporter@31a54ee7ebcacc03a09ea97a7e5465a47b84aea5 # v1.9.1
+      uses: dorny/test-reporter@fe45e9537387dac839af0d33ba56eed8e24189e8 # v2.3.0
       if: always()
       with:
         name: Arena - Variables Demo
@@ -390,7 +390,7 @@ jobs:
         retention-days: 5
     
     - name: Publish LLM Judge Test Results
-      uses: dorny/test-reporter@31a54ee7ebcacc03a09ea97a7e5465a47b84aea5 # v1.9.1
+      uses: dorny/test-reporter@fe45e9537387dac839af0d33ba56eed8e24189e8 # v2.3.0
       if: always()
       with:
         name: Arena - LLM Judge
@@ -407,7 +407,7 @@ jobs:
         retention-days: 5
     
     - name: Publish Guardrails Test Results
-      uses: dorny/test-reporter@31a54ee7ebcacc03a09ea97a7e5465a47b84aea5 # v1.9.1
+      uses: dorny/test-reporter@fe45e9537387dac839af0d33ba56eed8e24189e8 # v2.3.0
       if: always()
       with:
         name: Arena - Guardrails Test
@@ -424,7 +424,7 @@ jobs:
         retention-days: 5
     
     - name: Publish Assertions Test Results
-      uses: dorny/test-reporter@31a54ee7ebcacc03a09ea97a7e5465a47b84aea5 # v1.9.1
+      uses: dorny/test-reporter@fe45e9537387dac839af0d33ba56eed8e24189e8 # v2.3.0
       if: always()
       with:
         name: Arena - Assertions Test
