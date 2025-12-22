@@ -140,6 +140,58 @@ func TestFileEventStore_Query(t *testing.T) {
 	})
 }
 
+func TestFileEventStore_QueryRaw(t *testing.T) {
+	store, err := NewFileEventStore(t.TempDir())
+	require.NoError(t, err)
+	defer store.Close()
+
+	sessionID := "session-queryraw-test"
+	now := time.Now()
+
+	// Append events with data
+	events := []*Event{
+		{
+			Type:      EventMessageCreated,
+			Timestamp: now,
+			SessionID: sessionID,
+			Data:      &MessageCreatedData{Role: "user", Content: "Hello"},
+		},
+		{
+			Type:      EventMessageCreated,
+			Timestamp: now.Add(time.Second),
+			SessionID: sessionID,
+			Data:      &MessageCreatedData{Role: "assistant", Content: "Hi there!"},
+		},
+	}
+
+	for _, e := range events {
+		require.NoError(t, store.Append(context.Background(), e))
+	}
+	require.NoError(t, store.Sync())
+
+	t.Run("returns stored events with raw data", func(t *testing.T) {
+		result, err := store.QueryRaw(context.Background(), &EventFilter{SessionID: sessionID})
+		require.NoError(t, err)
+		assert.Len(t, result, 2)
+
+		// Verify raw data is preserved
+		assert.NotEmpty(t, result[0].Event.Data)
+		assert.NotEmpty(t, result[0].Event.DataType)
+		assert.Equal(t, "*events.MessageCreatedData", result[0].Event.DataType)
+	})
+
+	t.Run("non-existent session returns nil", func(t *testing.T) {
+		result, err := store.QueryRaw(context.Background(), &EventFilter{SessionID: "no-such-session"})
+		require.NoError(t, err)
+		assert.Nil(t, result)
+	})
+
+	t.Run("requires session ID", func(t *testing.T) {
+		_, err := store.QueryRaw(context.Background(), &EventFilter{})
+		require.Error(t, err)
+	})
+}
+
 func TestFileEventStore_Stream(t *testing.T) {
 	store, err := NewFileEventStore(t.TempDir())
 	require.NoError(t, err)

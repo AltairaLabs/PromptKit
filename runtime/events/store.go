@@ -29,6 +29,10 @@ type EventStore interface {
 	// Query returns events matching the filter.
 	Query(ctx context.Context, filter *EventFilter) ([]*Event, error)
 
+	// QueryRaw returns stored events with raw data preserved.
+	// This is useful for export/import where data serialization must be preserved.
+	QueryRaw(ctx context.Context, filter *EventFilter) ([]*StoredEvent, error)
+
 	// Stream returns a channel of events for a session.
 	// The channel is closed when all events have been sent or context is canceled.
 	Stream(ctx context.Context, sessionID string) (<-chan *Event, error)
@@ -205,6 +209,50 @@ func (s *FileEventStore) Query(ctx context.Context, filter *EventFilter) ([]*Eve
 	}
 
 	return events, scanner.Err()
+}
+
+// QueryRaw returns stored events with raw data preserved.
+func (s *FileEventStore) QueryRaw(ctx context.Context, filter *EventFilter) ([]*StoredEvent, error) {
+	if filter.SessionID == "" {
+		return nil, fmt.Errorf("session ID required for query")
+	}
+
+	path := s.sessionPath(filter.SessionID)
+	f, err := os.Open(path) //nolint:gosec // path is constructed from trusted sessionID
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("open session file: %w", err)
+	}
+	defer f.Close()
+
+	var stored []*StoredEvent
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, scannerBufSize), scannerBufSize)
+
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			return stored, ctx.Err()
+		default:
+		}
+
+		var se StoredEvent
+		if err := json.Unmarshal(scanner.Bytes(), &se); err != nil {
+			continue // Skip malformed lines
+		}
+
+		event := se.Event.toEvent()
+		if s.matchesFilter(event, filter) {
+			stored = append(stored, &se)
+			if filter.Limit > 0 && len(stored) >= filter.Limit {
+				break
+			}
+		}
+	}
+
+	return stored, scanner.Err()
 }
 
 // Stream returns a channel of events for a session.
