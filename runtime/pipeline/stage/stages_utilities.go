@@ -474,12 +474,67 @@ const (
 	TruncateFail TruncationStrategy = "fail"
 )
 
+// QuerySourceType defines how to construct the relevance query.
+type QuerySourceType string
+
+const (
+	// QuerySourceLastUser uses the last user message as the query
+	QuerySourceLastUser QuerySourceType = "last_user"
+	// QuerySourceLastN concatenates the last N messages as the query
+	QuerySourceLastN QuerySourceType = "last_n"
+	// QuerySourceCustom uses a custom query string
+	QuerySourceCustom QuerySourceType = "custom"
+)
+
+// RelevanceConfig configures embedding-based relevance truncation.
+// Used when TruncationStrategy is TruncateLeastRelevant.
+type RelevanceConfig struct {
+	// EmbeddingProvider generates embeddings for similarity scoring.
+	// Required for relevance-based truncation; if nil, falls back to oldest.
+	EmbeddingProvider interface {
+		Embed(ctx context.Context, texts []string) ([][]float32, error)
+		EmbeddingDimensions() int
+		MaxBatchSize() int
+		ID() string
+	}
+
+	// MinRecentMessages always keeps the N most recent messages
+	// regardless of relevance score. Default: 3
+	MinRecentMessages int
+
+	// AlwaysKeepSystemRole keeps all system role messages regardless of score.
+	AlwaysKeepSystemRole bool
+
+	// SimilarityThreshold is the minimum score to consider a message relevant (0.0-1.0).
+	// Messages below this threshold may be dropped first.
+	SimilarityThreshold float64
+
+	// QuerySource determines what text to compare messages against.
+	// Default: QuerySourceLastUser
+	QuerySource QuerySourceType
+
+	// LastNCount is the number of messages to use when QuerySource is QuerySourceLastN.
+	// Default: 3
+	LastNCount int
+
+	// CustomQuery is the query text when QuerySource is QuerySourceCustom.
+	CustomQuery string
+
+	// CacheEmbeddings enables caching of embeddings across truncation calls.
+	// Useful when context changes incrementally.
+	CacheEmbeddings bool
+}
+
 // ContextBuilderPolicy defines token budget and truncation behavior.
 type ContextBuilderPolicy struct {
 	TokenBudget      int
 	ReserveForOutput int
 	Strategy         TruncationStrategy
 	CacheBreakpoints bool
+
+	// RelevanceConfig for TruncateLeastRelevant strategy (optional).
+	// If nil when using TruncateLeastRelevant, falls back to TruncateOldest.
+	RelevanceConfig *RelevanceConfig
 }
 
 // ContextBuilderStage manages token budget and truncates messages if needed.
