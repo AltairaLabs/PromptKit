@@ -49,6 +49,9 @@
         },
         "cache_breakpoints": {
           "type": "boolean"
+        },
+        "relevance": {
+          "$ref": "#/$defs/RelevanceConfig"
         }
       },
       "additionalProperties": false,
@@ -124,6 +127,42 @@
       },
       "additionalProperties": false,
       "type": "object"
+    },
+    "RelevanceConfig": {
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "min_recent_messages": {
+          "type": "integer"
+        },
+        "always_keep_system_role": {
+          "type": "boolean"
+        },
+        "similarity_threshold": {
+          "type": "number"
+        },
+        "query_source": {
+          "type": "string"
+        },
+        "last_n_count": {
+          "type": "integer"
+        },
+        "custom_query": {
+          "type": "string"
+        },
+        "cache_embeddings": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "provider"
+      ]
     },
     "Scenario": {
       "properties": {
