@@ -73,6 +73,33 @@ func TestWithTruncation(t *testing.T) {
 	}
 }
 
+func TestWithRelevanceTruncation(t *testing.T) {
+	t.Run("sets strategy to relevance", func(t *testing.T) {
+		opt := WithRelevanceTruncation(&RelevanceConfig{
+			MinRecentMessages:   5,
+			SimilarityThreshold: 0.3,
+			QuerySource:         "last_user",
+		})
+		cfg := &config{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+		assert.Equal(t, "relevance", cfg.truncationStrategy)
+		assert.NotNil(t, cfg.relevanceConfig)
+		assert.Equal(t, 5, cfg.relevanceConfig.MinRecentMessages)
+		assert.Equal(t, 0.3, cfg.relevanceConfig.SimilarityThreshold)
+		assert.Equal(t, "last_user", cfg.relevanceConfig.QuerySource)
+	})
+
+	t.Run("with nil config", func(t *testing.T) {
+		opt := WithRelevanceTruncation(nil)
+		cfg := &config{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+		assert.Equal(t, "relevance", cfg.truncationStrategy)
+		assert.Nil(t, cfg.relevanceConfig)
+	})
+}
+
 func TestWithValidationMode(t *testing.T) {
 	tests := []struct {
 		name string

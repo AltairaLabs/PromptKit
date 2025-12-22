@@ -47,6 +47,7 @@ type config struct {
 	// Context management
 	tokenBudget        int
 	truncationStrategy string
+	relevanceConfig    *RelevanceConfig
 
 	// Validation behavior
 	validationMode       ValidationMode
@@ -217,6 +218,8 @@ func WithTokenBudget(tokens int) Option {
 //
 //   - "summarize": Summarize old messages before removing
 //
+//   - "relevance": Remove least relevant messages based on embedding similarity
+//
 //     conv, _ := sdk.Open("./chat.pack.json", "assistant",
 //     sdk.WithTokenBudget(8000),
 //     sdk.WithTruncation("summarize"),
@@ -224,6 +227,71 @@ func WithTokenBudget(tokens int) Option {
 func WithTruncation(strategy string) Option {
 	return func(c *config) error {
 		c.truncationStrategy = strategy
+		return nil
+	}
+}
+
+// RelevanceConfig configures embedding-based relevance truncation.
+// Used when truncation strategy is "relevance".
+type RelevanceConfig struct {
+	// EmbeddingProvider generates embeddings for similarity scoring.
+	// Required for relevance-based truncation.
+	EmbeddingProvider providers.EmbeddingProvider
+
+	// MinRecentMessages always keeps the N most recent messages regardless of relevance.
+	// Default: 3
+	MinRecentMessages int
+
+	// AlwaysKeepSystemRole keeps all system role messages regardless of score.
+	// Default: true
+	AlwaysKeepSystemRole bool
+
+	// SimilarityThreshold is the minimum score (0.0-1.0) to consider a message relevant.
+	// Messages below this threshold are dropped first. Default: 0.0 (no threshold)
+	SimilarityThreshold float64
+
+	// QuerySource determines what text to compare messages against.
+	// Values: "last_user" (default), "last_n", "custom"
+	QuerySource string
+
+	// LastNCount is the number of messages to use when QuerySource is "last_n".
+	// Default: 3
+	LastNCount int
+
+	// CustomQuery is the query text when QuerySource is "custom".
+	CustomQuery string
+}
+
+// WithRelevanceTruncation configures embedding-based relevance truncation.
+//
+// This automatically sets the truncation strategy to "relevance" and configures
+// the embedding provider for semantic similarity scoring.
+//
+// Example with OpenAI embeddings:
+//
+//	embProvider, _ := openai.NewEmbeddingProvider()
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithTokenBudget(8000),
+//	    sdk.WithRelevanceTruncation(&sdk.RelevanceConfig{
+//	        EmbeddingProvider: embProvider,
+//	        MinRecentMessages: 3,
+//	        SimilarityThreshold: 0.3,
+//	    }),
+//	)
+//
+// Example with Gemini embeddings:
+//
+//	embProvider, _ := gemini.NewEmbeddingProvider()
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithTokenBudget(8000),
+//	    sdk.WithRelevanceTruncation(&sdk.RelevanceConfig{
+//	        EmbeddingProvider: embProvider,
+//	    }),
+//	)
+func WithRelevanceTruncation(cfg *RelevanceConfig) Option {
+	return func(c *config) error {
+		c.truncationStrategy = "relevance"
+		c.relevanceConfig = cfg
 		return nil
 	}
 }

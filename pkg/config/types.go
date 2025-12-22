@@ -421,10 +421,53 @@ func (s *Scenario) ShouldStreamTurn(turnIndex int) bool {
 
 // ContextPolicy defines context management for a scenario
 type ContextPolicy struct {
-	TokenBudget      int    `json:"token_budget,omitempty" yaml:"token_budget,omitempty"`             // Max tokens (0 = unlimited, default)
-	ReserveForOutput int    `json:"reserve_for_output,omitempty" yaml:"reserve_for_output,omitempty"` // Reserve for response (default 4000)
-	Strategy         string `json:"strategy,omitempty" yaml:"strategy,omitempty"`                     // "oldest", "summarize", "relevance", "fail"
-	CacheBreakpoints bool   `json:"cache_breakpoints,omitempty" yaml:"cache_breakpoints,omitempty"`   // Enable Anthropic caching
+	// TokenBudget is the maximum tokens for context (0 = unlimited)
+	TokenBudget int `json:"token_budget,omitempty" yaml:"token_budget,omitempty"`
+	// ReserveForOutput reserves tokens for the response (default 4000)
+	ReserveForOutput int `json:"reserve_for_output,omitempty" yaml:"reserve_for_output,omitempty"`
+	// Strategy is the truncation strategy: "oldest", "summarize", "relevance", "fail"
+	Strategy string `json:"strategy,omitempty" yaml:"strategy,omitempty"`
+	// CacheBreakpoints enables Anthropic caching
+	CacheBreakpoints bool `json:"cache_breakpoints,omitempty" yaml:"cache_breakpoints,omitempty"`
+	// Relevance configures embedding-based truncation when Strategy is "relevance"
+	Relevance *RelevanceConfig `json:"relevance,omitempty" yaml:"relevance,omitempty"`
+}
+
+// RelevanceConfig configures embedding-based relevance truncation.
+// Used when ContextPolicy.Strategy is "relevance".
+type RelevanceConfig struct {
+	// Provider specifies the embedding provider: "openai" or "gemini"
+	Provider string `json:"provider" yaml:"provider"`
+
+	// Model optionally overrides the default embedding model for the provider
+	Model string `json:"model,omitempty" yaml:"model,omitempty"`
+
+	// MinRecentMessages always keeps the N most recent messages regardless of relevance.
+	// Default: 3
+	MinRecentMessages int `json:"min_recent_messages,omitempty" yaml:"min_recent_messages,omitempty"`
+
+	// AlwaysKeepSystemRole keeps all system role messages regardless of score.
+	// Default: true
+	AlwaysKeepSystemRole *bool `json:"always_keep_system_role,omitempty" yaml:"always_keep_system_role,omitempty"`
+
+	// SimilarityThreshold is the minimum score (0.0-1.0) to consider a message relevant.
+	// Messages below this threshold are dropped first. Default: 0.0 (no threshold)
+	SimilarityThreshold float64 `json:"similarity_threshold,omitempty" yaml:"similarity_threshold,omitempty"`
+
+	// QuerySource determines what text to compare messages against.
+	// Values: "last_user" (default), "last_n", "custom"
+	QuerySource string `json:"query_source,omitempty" yaml:"query_source,omitempty"`
+
+	// LastNCount is the number of messages to use when QuerySource is "last_n".
+	// Default: 3
+	LastNCount int `json:"last_n_count,omitempty" yaml:"last_n_count,omitempty"`
+
+	// CustomQuery is the query text when QuerySource is "custom".
+	CustomQuery string `json:"custom_query,omitempty" yaml:"custom_query,omitempty"`
+
+	// CacheEmbeddings enables caching of embeddings across truncation calls.
+	// Default: false
+	CacheEmbeddings bool `json:"cache_embeddings,omitempty" yaml:"cache_embeddings,omitempty"`
 }
 
 // ToolPolicy defines constraints for tool usage in scenarios

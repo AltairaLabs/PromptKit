@@ -9,7 +9,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/gemini"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/openai"
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -49,11 +51,90 @@ func buildContextPolicy(scenario *config.Scenario) *stage.ContextBuilderPolicy {
 		return nil
 	}
 
-	return &stage.ContextBuilderPolicy{
+	policy := &stage.ContextBuilderPolicy{
 		TokenBudget:      scenario.ContextPolicy.TokenBudget,
 		ReserveForOutput: scenario.ContextPolicy.ReserveForOutput,
 		Strategy:         convertTruncationStrategy(scenario.ContextPolicy.Strategy),
 		CacheBreakpoints: scenario.ContextPolicy.CacheBreakpoints,
+	}
+
+	// Build relevance config if strategy is relevance and config is provided
+	if policy.Strategy == stage.TruncateLeastRelevant && scenario.ContextPolicy.Relevance != nil {
+		relevanceConfig := buildRelevanceConfig(scenario.ContextPolicy.Relevance)
+		if relevanceConfig != nil {
+			policy.RelevanceConfig = relevanceConfig
+		}
+	}
+
+	return policy
+}
+
+// buildRelevanceConfig constructs the runtime RelevanceConfig from YAML config.
+func buildRelevanceConfig(cfg *config.RelevanceConfig) *stage.RelevanceConfig {
+	if cfg == nil {
+		return nil
+	}
+
+	// Create embedding provider based on config
+	embeddingProvider, err := createEmbeddingProvider(cfg.Provider, cfg.Model)
+	if err != nil {
+		logger.Warn("failed to create embedding provider, relevance truncation will fall back to oldest",
+			"provider", cfg.Provider, "error", err)
+		return nil
+	}
+
+	relevance := &stage.RelevanceConfig{
+		EmbeddingProvider:    embeddingProvider,
+		MinRecentMessages:    cfg.MinRecentMessages,
+		SimilarityThreshold:  cfg.SimilarityThreshold,
+		QuerySource:          convertQuerySource(cfg.QuerySource),
+		LastNCount:           cfg.LastNCount,
+		CustomQuery:          cfg.CustomQuery,
+		CacheEmbeddings:      cfg.CacheEmbeddings,
+		AlwaysKeepSystemRole: true, // Default to true
+	}
+
+	// Override AlwaysKeepSystemRole if explicitly set
+	if cfg.AlwaysKeepSystemRole != nil {
+		relevance.AlwaysKeepSystemRole = *cfg.AlwaysKeepSystemRole
+	}
+
+	return relevance
+}
+
+// createEmbeddingProvider creates an embedding provider based on the provider name.
+func createEmbeddingProvider(providerName, model string) (providers.EmbeddingProvider, error) {
+	switch providerName {
+	case "openai":
+		opts := []openai.EmbeddingOption{}
+		if model != "" {
+			opts = append(opts, openai.WithEmbeddingModel(model))
+		}
+		return openai.NewEmbeddingProvider(opts...)
+
+	case "gemini":
+		opts := []gemini.EmbeddingOption{}
+		if model != "" {
+			opts = append(opts, gemini.WithGeminiEmbeddingModel(model))
+		}
+		return gemini.NewEmbeddingProvider(opts...)
+
+	default:
+		return nil, fmt.Errorf("unknown embedding provider: %s (supported: openai, gemini)", providerName)
+	}
+}
+
+// convertQuerySource converts string query source to stage.QuerySourceType.
+func convertQuerySource(source string) stage.QuerySourceType {
+	switch source {
+	case "last_user":
+		return stage.QuerySourceLastUser
+	case "last_n":
+		return stage.QuerySourceLastN
+	case "custom":
+		return stage.QuerySourceCustom
+	default:
+		return stage.QuerySourceLastUser
 	}
 }
 
