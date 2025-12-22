@@ -288,3 +288,59 @@ func TestHTTPConstants(t *testing.T) {
 	assert.Equal(t, "application/json", ApplicationJSON)
 	assert.Equal(t, "Bearer ", BearerPrefix)
 }
+
+func TestMarshalRequest(t *testing.T) {
+	t.Run("marshals valid struct", func(t *testing.T) {
+		req := struct {
+			Name string `json:"name"`
+		}{Name: "test"}
+
+		body, err := MarshalRequest(req)
+		require.NoError(t, err)
+		assert.Contains(t, string(body), "test")
+	})
+
+	t.Run("handles unmarshalable type", func(t *testing.T) {
+		// Channels can't be marshaled
+		req := make(chan int)
+		_, err := MarshalRequest(req)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to marshal request")
+	})
+}
+
+func TestUnmarshalResponse(t *testing.T) {
+	t.Run("unmarshals valid JSON", func(t *testing.T) {
+		body := []byte(`{"name": "test", "value": 42}`)
+		var resp struct {
+			Name  string `json:"name"`
+			Value int    `json:"value"`
+		}
+
+		err := UnmarshalResponse(body, &resp)
+		require.NoError(t, err)
+		assert.Equal(t, "test", resp.Name)
+		assert.Equal(t, 42, resp.Value)
+	})
+
+	t.Run("handles invalid JSON", func(t *testing.T) {
+		body := []byte(`{invalid json}`)
+		var resp map[string]interface{}
+
+		err := UnmarshalResponse(body, &resp)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to unmarshal response")
+	})
+}
+
+func TestLogEmbeddingRequest(t *testing.T) {
+	// Just verify it doesn't panic
+	start := time.Now()
+	LogEmbeddingRequest("Test", "model-v1", 5, start)
+}
+
+func TestLogEmbeddingRequestWithTokens(t *testing.T) {
+	// Just verify it doesn't panic
+	start := time.Now()
+	LogEmbeddingRequestWithTokens("Test", "model-v1", 5, 100, start)
+}

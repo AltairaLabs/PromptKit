@@ -4,13 +4,11 @@ package voyageai
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 )
 
@@ -196,9 +194,9 @@ func (p *EmbeddingProvider) embedTexts(
 		reqBody.OutputDimension = p.Dimensions
 	}
 
-	jsonBody, err := json.Marshal(reqBody)
+	jsonBody, err := providers.MarshalRequest(reqBody)
 	if err != nil {
-		return providers.EmbeddingResponse{}, fmt.Errorf("failed to marshal request: %w", err)
+		return providers.EmbeddingResponse{}, err
 	}
 
 	start := time.Now()
@@ -212,8 +210,8 @@ func (p *EmbeddingProvider) embedTexts(
 	}
 
 	var embedResp embeddingResponse
-	if err := json.Unmarshal(body, &embedResp); err != nil {
-		return providers.EmbeddingResponse{}, fmt.Errorf("failed to unmarshal response: %w", err)
+	if err := providers.UnmarshalResponse(body, &embedResp); err != nil {
+		return providers.EmbeddingResponse{}, err
 	}
 
 	// Extract embeddings in correct order
@@ -224,12 +222,7 @@ func (p *EmbeddingProvider) embedTexts(
 		len(texts),
 	)
 
-	logger.Debug("Voyage AI embedding request completed",
-		"model", model,
-		"texts", len(texts),
-		"tokens", embedResp.Usage.TotalTokens,
-		"latency_ms", time.Since(start).Milliseconds(),
-	)
+	providers.LogEmbeddingRequestWithTokens("Voyage AI", model, len(texts), embedResp.Usage.TotalTokens, start)
 
 	return providers.EmbeddingResponse{
 		Embeddings: embeddings,

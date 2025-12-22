@@ -2,12 +2,10 @@ package gemini
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 )
 
@@ -183,9 +181,9 @@ func (p *EmbeddingProvider) embedSingle(
 		},
 	}
 
-	jsonBody, err := json.Marshal(reqBody)
+	jsonBody, err := providers.MarshalRequest(reqBody)
 	if err != nil {
-		return providers.EmbeddingResponse{}, fmt.Errorf("failed to marshal request: %w", err)
+		return providers.EmbeddingResponse{}, err
 	}
 
 	start := time.Now()
@@ -200,8 +198,8 @@ func (p *EmbeddingProvider) embedSingle(
 	}
 
 	var embedResp geminiEmbedResponse
-	if err := json.Unmarshal(body, &embedResp); err != nil {
-		return providers.EmbeddingResponse{}, fmt.Errorf("failed to unmarshal response: %w", err)
+	if err := providers.UnmarshalResponse(body, &embedResp); err != nil {
+		return providers.EmbeddingResponse{}, err
 	}
 
 	if embedResp.Error != nil {
@@ -212,11 +210,7 @@ func (p *EmbeddingProvider) embedSingle(
 		return providers.EmbeddingResponse{}, fmt.Errorf("no embedding in response")
 	}
 
-	logger.Debug("Gemini embedding request completed",
-		"model", model,
-		"texts", 1,
-		"latency_ms", time.Since(start).Milliseconds(),
-	)
+	providers.LogEmbeddingRequest("Gemini", model, 1, start)
 
 	return providers.EmbeddingResponse{
 		Embeddings: [][]float32{embedResp.Embedding.Values},
@@ -256,9 +250,9 @@ func (p *EmbeddingProvider) embedBatchSingle(
 
 	reqBody := geminiBatchEmbedRequest{Requests: requests}
 
-	jsonBody, err := json.Marshal(reqBody)
+	jsonBody, err := providers.MarshalRequest(reqBody)
 	if err != nil {
-		return providers.EmbeddingResponse{}, fmt.Errorf("failed to marshal request: %w", err)
+		return providers.EmbeddingResponse{}, err
 	}
 
 	start := time.Now()
@@ -273,8 +267,8 @@ func (p *EmbeddingProvider) embedBatchSingle(
 	}
 
 	var embedResp geminiBatchEmbedResponse
-	if err := json.Unmarshal(body, &embedResp); err != nil {
-		return providers.EmbeddingResponse{}, fmt.Errorf("failed to unmarshal response: %w", err)
+	if err := providers.UnmarshalResponse(body, &embedResp); err != nil {
+		return providers.EmbeddingResponse{}, err
 	}
 
 	if embedResp.Error != nil {
@@ -291,11 +285,7 @@ func (p *EmbeddingProvider) embedBatchSingle(
 		embeddings[i] = emb.Values
 	}
 
-	logger.Debug("Gemini batch embedding request completed",
-		"model", model,
-		"texts", len(texts),
-		"latency_ms", time.Since(start).Milliseconds(),
-	)
+	providers.LogEmbeddingRequest("Gemini batch", model, len(texts), start)
 
 	return providers.EmbeddingResponse{
 		Embeddings: embeddings,

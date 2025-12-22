@@ -2,12 +2,10 @@ package openai
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 )
 
@@ -175,9 +173,9 @@ func (p *EmbeddingProvider) embedSingle(
 		Input: texts,
 	}
 
-	jsonBody, err := json.Marshal(reqBody)
+	jsonBody, err := providers.MarshalRequest(reqBody)
 	if err != nil {
-		return providers.EmbeddingResponse{}, fmt.Errorf("failed to marshal request: %w", err)
+		return providers.EmbeddingResponse{}, err
 	}
 
 	start := time.Now()
@@ -191,8 +189,8 @@ func (p *EmbeddingProvider) embedSingle(
 	}
 
 	var embedResp embeddingResponse
-	if err := json.Unmarshal(body, &embedResp); err != nil {
-		return providers.EmbeddingResponse{}, fmt.Errorf("failed to unmarshal response: %w", err)
+	if err := providers.UnmarshalResponse(body, &embedResp); err != nil {
+		return providers.EmbeddingResponse{}, err
 	}
 
 	if embedResp.Error != nil {
@@ -207,12 +205,7 @@ func (p *EmbeddingProvider) embedSingle(
 		len(texts),
 	)
 
-	logger.Debug("OpenAI embedding request completed",
-		"model", model,
-		"texts", len(texts),
-		"tokens", embedResp.Usage.TotalTokens,
-		"latency_ms", time.Since(start).Milliseconds(),
-	)
+	providers.LogEmbeddingRequestWithTokens("OpenAI", model, len(texts), embedResp.Usage.TotalTokens, start)
 
 	return providers.EmbeddingResponse{
 		Embeddings: embeddings,

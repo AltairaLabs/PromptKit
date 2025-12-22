@@ -3,10 +3,13 @@ package providers
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
 // Common HTTP constants for embedding providers.
@@ -177,4 +180,40 @@ func ExtractOrderedEmbeddings[T any](
 		}
 	}
 	return embeddings, nil
+}
+
+// MarshalRequest marshals a request body to JSON with standardized error handling.
+func MarshalRequest(req any) ([]byte, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+	return body, nil
+}
+
+// UnmarshalResponse unmarshals a response body from JSON with standardized error handling.
+func UnmarshalResponse(body []byte, resp any) error {
+	if err := json.Unmarshal(body, resp); err != nil {
+		return fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+	return nil
+}
+
+// LogEmbeddingRequest logs a completed embedding request with common fields.
+func LogEmbeddingRequest(provider, model string, textCount int, start time.Time) {
+	logger.Debug(provider+" embedding request completed",
+		"model", model,
+		"texts", textCount,
+		"latency_ms", time.Since(start).Milliseconds(),
+	)
+}
+
+// LogEmbeddingRequestWithTokens logs a completed embedding request with token count.
+func LogEmbeddingRequestWithTokens(provider, model string, textCount, tokens int, start time.Time) {
+	logger.Debug(provider+" embedding request completed",
+		"model", model,
+		"texts", textCount,
+		"tokens", tokens,
+		"latency_ms", time.Since(start).Milliseconds(),
+	)
 }
