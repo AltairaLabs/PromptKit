@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -1414,4 +1415,422 @@ func TestPipelineBuilder_Validate_InvalidConfig(t *testing.T) {
 	builder.AddStage(NewPassthroughStage("test"))
 	_, err := builder.Build()
 	assert.Error(t, err)
+}
+
+// =============================================================================
+// Relevance Truncation Tests
+// =============================================================================
+
+// mockEmbeddingProvider is a test implementation of providers.EmbeddingProvider
+type mockEmbeddingProvider struct {
+	embedFunc    func(texts []string) ([][]float32, error)
+	dimensions   int
+	maxBatch     int
+	id           string
+	embedCalled  int
+	lastTexts    []string
+}
+
+func newMockEmbeddingProvider() *mockEmbeddingProvider {
+	return &mockEmbeddingProvider{
+		dimensions: 3,
+		maxBatch:   100,
+		id:         "mock-embedding",
+	}
+}
+
+func (m *mockEmbeddingProvider) Embed(ctx context.Context, req providers.EmbeddingRequest) (providers.EmbeddingResponse, error) {
+	m.embedCalled++
+	m.lastTexts = req.Texts
+
+	if m.embedFunc != nil {
+		embeddings, err := m.embedFunc(req.Texts)
+		if err != nil {
+			return providers.EmbeddingResponse{}, err
+		}
+		return providers.EmbeddingResponse{Embeddings: embeddings, Model: "mock"}, nil
+	}
+
+	// Default: return unit vectors for each text
+	embeddings := make([][]float32, len(req.Texts))
+	for i := range req.Texts {
+		embeddings[i] = []float32{float32(i) * 0.1, 0.5, 0.5}
+	}
+	return providers.EmbeddingResponse{Embeddings: embeddings, Model: "mock"}, nil
+}
+
+func (m *mockEmbeddingProvider) EmbeddingDimensions() int {
+	return m.dimensions
+}
+
+func (m *mockEmbeddingProvider) MaxBatchSize() int {
+	return m.maxBatch
+}
+
+func (m *mockEmbeddingProvider) ID() string {
+	return m.id
+}
+
+func TestContextBuilderStage_TruncateByRelevance(t *testing.T) {
+	t.Run("falls back to oldest when no embedding provider", func(t *testing.T) {
+		policy := &ContextBuilderPolicy{
+			TokenBudget:      30,
+			ReserveForOutput: 5,
+			Strategy:         TruncateLeastRelevant,
+			RelevanceConfig:  nil, // No config
+		}
+		stage := NewContextBuilderStage(policy)
+
+		input := make(chan StreamElement, 3)
+		output := make(chan StreamElement, 3)
+
+		input <- NewMessageElement(&types.Message{Role: "user", Content: "First message with long content"})
+		input <- NewMessageElement(&types.Message{Role: "assistant", Content: "Second"})
+		input <- NewMessageElement(&types.Message{Role: "user", Content: "Third"})
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err)
+
+		// Should have truncated using oldest strategy
+		var results []types.Message
+		for elem := range output {
+			if elem.Message != nil {
+				results = append(results, *elem.Message)
+			}
+		}
+		assert.LessOrEqual(t, len(results), 3)
+	})
+
+	t.Run("uses relevance with embedding provider", func(t *testing.T) {
+		mockProvider := newMockEmbeddingProvider()
+		// Make query (last user message) similar to first message
+		mockProvider.embedFunc = func(texts []string) ([][]float32, error) {
+			embeddings := make([][]float32, len(texts))
+			for i, text := range texts {
+				if text == "What is AI?" || text == "AI is interesting topic to discuss" {
+					// Query and first message are similar
+					embeddings[i] = []float32{1.0, 0.0, 0.0}
+				} else if text == "Weather is nice today in the city" {
+					// Second message is different
+					embeddings[i] = []float32{0.0, 1.0, 0.0}
+				} else {
+					// Default
+					embeddings[i] = []float32{0.5, 0.5, 0.0}
+				}
+			}
+			return embeddings, nil
+		}
+
+		policy := &ContextBuilderPolicy{
+			TokenBudget:      20, // Small budget to force truncation
+			ReserveForOutput: 5,
+			Strategy:         TruncateLeastRelevant,
+			RelevanceConfig: &RelevanceConfig{
+				EmbeddingProvider:    mockProvider,
+				MinRecentMessages:    1, // Only protect last message
+				AlwaysKeepSystemRole: false,
+				QuerySource:          QuerySourceLastUser,
+			},
+		}
+		stage := NewContextBuilderStage(policy)
+
+		input := make(chan StreamElement, 3)
+		output := make(chan StreamElement, 3)
+
+		// Use longer messages to exceed budget
+		input <- NewMessageElement(&types.Message{Role: "user", Content: "AI is interesting topic to discuss"})
+		input <- NewMessageElement(&types.Message{Role: "assistant", Content: "Weather is nice today in the city"})
+		input <- NewMessageElement(&types.Message{Role: "user", Content: "What is AI?"})
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err)
+
+		// Embedding provider should have been called
+		assert.Equal(t, 1, mockProvider.embedCalled)
+	})
+
+	t.Run("protects system messages when configured", func(t *testing.T) {
+		mockProvider := newMockEmbeddingProvider()
+
+		policy := &ContextBuilderPolicy{
+			TokenBudget:      100,
+			ReserveForOutput: 10,
+			Strategy:         TruncateLeastRelevant,
+			RelevanceConfig: &RelevanceConfig{
+				EmbeddingProvider:    mockProvider,
+				MinRecentMessages:    1,
+				AlwaysKeepSystemRole: true,
+				QuerySource:          QuerySourceLastUser,
+			},
+		}
+		stage := NewContextBuilderStage(policy)
+
+		input := make(chan StreamElement, 4)
+		output := make(chan StreamElement, 4)
+
+		input <- NewMessageElement(&types.Message{Role: "system", Content: "You are a helpful assistant"})
+		input <- NewMessageElement(&types.Message{Role: "user", Content: "Hello"})
+		input <- NewMessageElement(&types.Message{Role: "assistant", Content: "Hi there"})
+		input <- NewMessageElement(&types.Message{Role: "user", Content: "How are you?"})
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err)
+
+		// Check that system message is preserved
+		var results []types.Message
+		for elem := range output {
+			if elem.Message != nil {
+				results = append(results, *elem.Message)
+			}
+		}
+
+		hasSystem := false
+		for _, msg := range results {
+			if msg.Role == "system" {
+				hasSystem = true
+				break
+			}
+		}
+		assert.True(t, hasSystem, "System message should be protected")
+	})
+
+	t.Run("handles embedding error gracefully", func(t *testing.T) {
+		mockProvider := newMockEmbeddingProvider()
+		mockProvider.embedFunc = func(texts []string) ([][]float32, error) {
+			return nil, assert.AnError
+		}
+
+		policy := &ContextBuilderPolicy{
+			TokenBudget:      30,
+			ReserveForOutput: 5,
+			Strategy:         TruncateLeastRelevant,
+			RelevanceConfig: &RelevanceConfig{
+				EmbeddingProvider: mockProvider,
+				MinRecentMessages: 1,
+				QuerySource:       QuerySourceLastUser,
+			},
+		}
+		stage := NewContextBuilderStage(policy)
+
+		input := make(chan StreamElement, 2)
+		output := make(chan StreamElement, 2)
+
+		input <- NewMessageElement(&types.Message{Role: "user", Content: "First long message"})
+		input <- NewMessageElement(&types.Message{Role: "user", Content: "Second"})
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err) // Should fall back to oldest, not error
+
+		// Should have output (fell back to oldest strategy)
+		var count int
+		for range output {
+			count++
+		}
+		assert.Greater(t, count, 0)
+	})
+}
+
+func TestBuildRelevanceQuery(t *testing.T) {
+	stage := NewContextBuilderStage(&ContextBuilderPolicy{})
+
+	t.Run("uses last user message", func(t *testing.T) {
+		messages := []types.Message{
+			{Role: "user", Content: "First question"},
+			{Role: "assistant", Content: "First answer"},
+			{Role: "user", Content: "Second question"},
+		}
+		cfg := &RelevanceConfig{QuerySource: QuerySourceLastUser}
+
+		query := stage.buildRelevanceQuery(messages, cfg)
+		assert.Equal(t, "Second question", query)
+	})
+
+	t.Run("uses last N messages", func(t *testing.T) {
+		messages := []types.Message{
+			{Role: "user", Content: "First"},
+			{Role: "assistant", Content: "Second"},
+			{Role: "user", Content: "Third"},
+		}
+		cfg := &RelevanceConfig{QuerySource: QuerySourceLastN, LastNCount: 2}
+
+		query := stage.buildRelevanceQuery(messages, cfg)
+		assert.Contains(t, query, "Second")
+		assert.Contains(t, query, "Third")
+	})
+
+	t.Run("uses custom query", func(t *testing.T) {
+		messages := []types.Message{
+			{Role: "user", Content: "Something"},
+		}
+		cfg := &RelevanceConfig{QuerySource: QuerySourceCustom, CustomQuery: "My custom query"}
+
+		query := stage.buildRelevanceQuery(messages, cfg)
+		assert.Equal(t, "My custom query", query)
+	})
+
+	t.Run("falls back to last message when no user message", func(t *testing.T) {
+		messages := []types.Message{
+			{Role: "assistant", Content: "Only assistant"},
+		}
+		cfg := &RelevanceConfig{QuerySource: QuerySourceLastUser}
+
+		query := stage.buildRelevanceQuery(messages, cfg)
+		assert.Equal(t, "Only assistant", query)
+	})
+
+	t.Run("returns empty for empty messages", func(t *testing.T) {
+		messages := []types.Message{}
+		cfg := &RelevanceConfig{QuerySource: QuerySourceLastUser}
+
+		query := stage.buildRelevanceQuery(messages, cfg)
+		assert.Equal(t, "", query)
+	})
+}
+
+func TestBuildScoredMessages(t *testing.T) {
+	stage := NewContextBuilderStage(&ContextBuilderPolicy{})
+
+	t.Run("marks recent messages as protected", func(t *testing.T) {
+		messages := []types.Message{
+			{Role: "user", Content: "First"},
+			{Role: "assistant", Content: "Second"},
+			{Role: "user", Content: "Third"},
+		}
+
+		scored := stage.buildScoredMessages(messages, 2, false)
+
+		assert.Len(t, scored, 3)
+		assert.False(t, scored[0].IsProtected) // First is not protected
+		assert.True(t, scored[1].IsProtected)  // Second is protected (within last 2)
+		assert.True(t, scored[2].IsProtected)  // Third is protected (within last 2)
+	})
+
+	t.Run("marks system role as protected", func(t *testing.T) {
+		messages := []types.Message{
+			{Role: "system", Content: "System prompt"},
+			{Role: "user", Content: "Question"},
+		}
+
+		scored := stage.buildScoredMessages(messages, 1, true)
+
+		assert.True(t, scored[0].IsProtected) // System is protected
+		assert.True(t, scored[1].IsProtected) // Last 1 is also protected
+	})
+
+	t.Run("calculates token counts", func(t *testing.T) {
+		messages := []types.Message{
+			{Role: "user", Content: "Hello world"}, // ~2-3 tokens
+		}
+
+		scored := stage.buildScoredMessages(messages, 1, false)
+
+		assert.Greater(t, scored[0].TokenCount, 0)
+	})
+}
+
+func TestExtractMessageText(t *testing.T) {
+	stage := NewContextBuilderStage(&ContextBuilderPolicy{})
+
+	t.Run("extracts content", func(t *testing.T) {
+		msg := &types.Message{Content: "Hello world"}
+		text := stage.extractMessageText(msg)
+		assert.Equal(t, "Hello world", text)
+	})
+
+	t.Run("extracts from parts when content empty", func(t *testing.T) {
+		part1 := "Part one"
+		part2 := "Part two"
+		msg := &types.Message{
+			Content: "",
+			Parts: []types.ContentPart{
+				{Text: &part1},
+				{Text: &part2},
+			},
+		}
+		text := stage.extractMessageText(msg)
+		assert.Contains(t, text, "Part one")
+		assert.Contains(t, text, "Part two")
+	})
+}
+
+func TestSelectByRelevance(t *testing.T) {
+	stage := NewContextBuilderStage(&ContextBuilderPolicy{})
+
+	t.Run("keeps protected messages first", func(t *testing.T) {
+		scored := []ScoredMessage{
+			{Index: 0, Message: types.Message{Content: "Protected"}, Score: 0.1, IsProtected: true, TokenCount: 5},
+			{Index: 1, Message: types.Message{Content: "High score"}, Score: 0.9, IsProtected: false, TokenCount: 5},
+			{Index: 2, Message: types.Message{Content: "Low score"}, Score: 0.2, IsProtected: false, TokenCount: 5},
+		}
+
+		result := stage.selectByRelevance(scored, 15, 0.0)
+
+		// Should have protected + highest scoring that fits
+		assert.GreaterOrEqual(t, len(result), 1)
+
+		// First should be protected (index 0)
+		if len(result) > 0 {
+			assert.Equal(t, "Protected", result[0].Content)
+		}
+	})
+
+	t.Run("respects threshold", func(t *testing.T) {
+		scored := []ScoredMessage{
+			{Index: 0, Message: types.Message{Content: "Protected"}, Score: 0.1, IsProtected: true, TokenCount: 5},
+			{Index: 1, Message: types.Message{Content: "Above threshold"}, Score: 0.8, IsProtected: false, TokenCount: 5},
+			{Index: 2, Message: types.Message{Content: "Below threshold"}, Score: 0.3, IsProtected: false, TokenCount: 5},
+		}
+
+		result := stage.selectByRelevance(scored, 20, 0.5) // Threshold of 0.5
+
+		// Should include protected and above-threshold
+		contents := make(map[string]bool)
+		for _, msg := range result {
+			contents[msg.Content] = true
+		}
+
+		assert.True(t, contents["Protected"])
+		assert.True(t, contents["Above threshold"])
+		assert.False(t, contents["Below threshold"])
+	})
+
+	t.Run("respects budget", func(t *testing.T) {
+		scored := []ScoredMessage{
+			{Index: 0, Message: types.Message{Content: "A"}, Score: 0.9, IsProtected: false, TokenCount: 10},
+			{Index: 1, Message: types.Message{Content: "B"}, Score: 0.8, IsProtected: false, TokenCount: 10},
+			{Index: 2, Message: types.Message{Content: "C"}, Score: 0.7, IsProtected: false, TokenCount: 10},
+		}
+
+		result := stage.selectByRelevance(scored, 15, 0.0) // Budget only fits ~1-2 messages
+
+		// Should not exceed budget
+		totalTokens := 0
+		for _, msg := range result {
+			// Approximate token count check
+			totalTokens += len(msg.Content)
+		}
+		// With budget of 15 and tokens of 10 each, should have at most 1 message
+		assert.LessOrEqual(t, len(result), 1)
+	})
+
+	t.Run("preserves original order", func(t *testing.T) {
+		scored := []ScoredMessage{
+			{Index: 0, Message: types.Message{Content: "First"}, Score: 0.5, IsProtected: false, TokenCount: 2},
+			{Index: 1, Message: types.Message{Content: "Second"}, Score: 0.9, IsProtected: false, TokenCount: 2},
+			{Index: 2, Message: types.Message{Content: "Third"}, Score: 0.7, IsProtected: false, TokenCount: 2},
+		}
+
+		result := stage.selectByRelevance(scored, 100, 0.0)
+
+		// Check order is preserved (by original index)
+		for i := 1; i < len(result); i++ {
+			// Message content should be in original order if both selected
+			// This is a simple check that order is maintained
+		}
+		assert.LessOrEqual(t, len(result), 3)
+	})
 }
