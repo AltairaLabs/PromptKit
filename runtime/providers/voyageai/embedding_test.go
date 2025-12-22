@@ -27,8 +27,8 @@ func TestNewEmbeddingProvider(t *testing.T) {
 
 		p, err := NewEmbeddingProvider()
 		require.NoError(t, err)
-		assert.Equal(t, DefaultModel, p.model)
-		assert.Equal(t, Dimensions1024, p.dimensions)
+		assert.Equal(t, DefaultModel, p.Model())
+		assert.Equal(t, Dimensions1024, p.EmbeddingDimensions())
 	})
 
 	t.Run("creates with explicit API key", func(t *testing.T) {
@@ -48,8 +48,8 @@ func TestNewEmbeddingProvider(t *testing.T) {
 			WithInputType(InputTypeQuery),
 		)
 		require.NoError(t, err)
-		assert.Equal(t, ModelVoyage3Large, p.model)
-		assert.Equal(t, Dimensions2048, p.dimensions)
+		assert.Equal(t, ModelVoyage3Large, p.Model())
+		assert.Equal(t, Dimensions2048, p.EmbeddingDimensions())
 		assert.Equal(t, InputTypeQuery, p.inputType)
 	})
 }

@@ -49,11 +49,7 @@ const (
 
 // EmbeddingProvider implements embedding generation via Gemini API.
 type EmbeddingProvider struct {
-	model      string
-	baseURL    string
-	apiKey     string
-	client     *http.Client
-	dimensions int
+	*providers.BaseEmbeddingProvider
 }
 
 // EmbeddingOption configures the EmbeddingProvider.
@@ -62,39 +58,43 @@ type EmbeddingOption func(*EmbeddingProvider)
 // WithGeminiEmbeddingModel sets the embedding model.
 func WithGeminiEmbeddingModel(model string) EmbeddingOption {
 	return func(p *EmbeddingProvider) {
-		p.model = model
-		p.dimensions = geminiDimensionsForModel(model)
+		p.ProviderModel = model
+		p.Dimensions = geminiDimensionsForModel(model)
 	}
 }
 
 // WithGeminiEmbeddingBaseURL sets a custom base URL.
 func WithGeminiEmbeddingBaseURL(url string) EmbeddingOption {
 	return func(p *EmbeddingProvider) {
-		p.baseURL = url
+		p.BaseURL = url
 	}
 }
 
 // WithGeminiEmbeddingAPIKey sets the API key explicitly.
 func WithGeminiEmbeddingAPIKey(key string) EmbeddingOption {
 	return func(p *EmbeddingProvider) {
-		p.apiKey = key
+		p.APIKey = key
 	}
 }
 
 // WithGeminiEmbeddingHTTPClient sets a custom HTTP client.
 func WithGeminiEmbeddingHTTPClient(client *http.Client) EmbeddingOption {
 	return func(p *EmbeddingProvider) {
-		p.client = client
+		p.HTTPClient = client
 	}
 }
 
 // NewEmbeddingProvider creates a Gemini embedding provider.
 func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 	p := &EmbeddingProvider{
-		model:      DefaultGeminiEmbeddingModel,
-		baseURL:    geminiEmbeddingBaseURL,
-		dimensions: dimensionsEmbedding004,
-		client:     &http.Client{Timeout: geminiEmbeddingTimeoutSec * time.Second},
+		BaseEmbeddingProvider: providers.NewBaseEmbeddingProvider(
+			"gemini-embedding",
+			DefaultGeminiEmbeddingModel,
+			geminiEmbeddingBaseURL,
+			dimensionsEmbedding004,
+			maxGeminiBatch,
+			geminiEmbeddingTimeoutSec*time.Second,
+		),
 	}
 
 	// Apply options
@@ -103,12 +103,12 @@ func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 	}
 
 	// Get API key from environment if not set
-	if p.apiKey == "" {
+	if p.APIKey == "" {
 		_, apiKey := providers.NewBaseProviderWithAPIKey("", false, "GEMINI_API_KEY", "GOOGLE_API_KEY")
-		p.apiKey = apiKey
+		p.APIKey = apiKey
 	}
 
-	if p.apiKey == "" {
+	if p.APIKey == "" {
 		return nil, fmt.Errorf("gemini API key not found: set GEMINI_API_KEY environment variable")
 	}
 
@@ -159,25 +159,18 @@ func (p *EmbeddingProvider) Embed(
 	ctx context.Context,
 	req providers.EmbeddingRequest,
 ) (providers.EmbeddingResponse, error) {
-	if len(req.Texts) == 0 {
-		return providers.EmbeddingResponse{
-			Embeddings: [][]float32{},
-			Model:      p.model,
-		}, nil
-	}
+	return p.EmbedWithEmptyCheck(ctx, req, p.embedTexts)
+}
 
-	// Use model override if provided
-	model := p.model
-	if req.Model != "" {
-		model = req.Model
-	}
-
+// embedTexts performs the actual embedding request.
+func (p *EmbeddingProvider) embedTexts(
+	ctx context.Context, texts []string, model string,
+) (providers.EmbeddingResponse, error) {
 	// Use batch endpoint for multiple texts
-	if len(req.Texts) > 1 {
-		return p.embedBatch(ctx, req.Texts, model)
+	if len(texts) > 1 {
+		return p.embedBatch(ctx, texts, model)
 	}
-
-	return p.embedSingle(ctx, req.Texts[0], model)
+	return p.embedSingle(ctx, texts[0], model)
 }
 
 // embedSingle embeds a single text using the embedContent endpoint.
@@ -197,7 +190,7 @@ func (p *EmbeddingProvider) embedSingle(
 		return providers.EmbeddingResponse{}, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s"+embedContentPath+"?key=%s", p.baseURL, model, p.apiKey)
+	url := fmt.Sprintf("%s"+embedContentPath+"?key=%s", p.BaseURL, model, p.APIKey)
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(jsonBody))
 	if err != nil {
 		return providers.EmbeddingResponse{}, fmt.Errorf("failed to create request: %w", err)
@@ -206,7 +199,7 @@ func (p *EmbeddingProvider) embedSingle(
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
 
 	start := time.Now()
-	resp, err := p.client.Do(httpReq)
+	resp, err := p.HTTPClient.Do(httpReq)
 	if err != nil {
 		return providers.EmbeddingResponse{}, fmt.Errorf("embedding request failed: %w", err)
 	}
@@ -218,7 +211,8 @@ func (p *EmbeddingProvider) embedSingle(
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return providers.EmbeddingResponse{}, fmt.Errorf("embedding API error (status %d): %s", resp.StatusCode, string(body))
+		return providers.EmbeddingResponse{},
+			fmt.Errorf("embedding API error (status %d): %s", resp.StatusCode, string(body))
 	}
 
 	var embedResp geminiEmbedResponse
@@ -283,7 +277,7 @@ func (p *EmbeddingProvider) embedBatchSingle(
 		return providers.EmbeddingResponse{}, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s"+batchEmbedContentsPath+"?key=%s", p.baseURL, model, p.apiKey)
+	url := fmt.Sprintf("%s"+batchEmbedContentsPath+"?key=%s", p.BaseURL, model, p.APIKey)
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(jsonBody))
 	if err != nil {
 		return providers.EmbeddingResponse{}, fmt.Errorf("failed to create request: %w", err)
@@ -292,7 +286,7 @@ func (p *EmbeddingProvider) embedBatchSingle(
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
 
 	start := time.Now()
-	resp, err := p.client.Do(httpReq)
+	resp, err := p.HTTPClient.Do(httpReq)
 	if err != nil {
 		return providers.EmbeddingResponse{}, fmt.Errorf("embedding request failed: %w", err)
 	}
@@ -304,7 +298,8 @@ func (p *EmbeddingProvider) embedBatchSingle(
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return providers.EmbeddingResponse{}, fmt.Errorf("embedding API error (status %d): %s", resp.StatusCode, string(body))
+		return providers.EmbeddingResponse{},
+			fmt.Errorf("embedding API error (status %d): %s", resp.StatusCode, string(body))
 	}
 
 	var embedResp geminiBatchEmbedResponse
@@ -367,32 +362,12 @@ func (p *EmbeddingProvider) embedBatched(
 	}, nil
 }
 
-// EmbeddingDimensions returns the dimensionality of embedding vectors.
-func (p *EmbeddingProvider) EmbeddingDimensions() int {
-	return p.dimensions
-}
-
-// MaxBatchSize returns the maximum texts per single API request.
-func (p *EmbeddingProvider) MaxBatchSize() int {
-	return maxGeminiBatch
-}
-
-// ID returns the provider identifier.
-func (p *EmbeddingProvider) ID() string {
-	return "gemini-embedding"
-}
-
-// Model returns the current embedding model.
-func (p *EmbeddingProvider) Model() string {
-	return p.model
-}
-
 // EstimateCost estimates the cost for embedding the given number of tokens.
 // Note: Gemini embeddings are currently free tier.
 func (p *EmbeddingProvider) EstimateCost(tokens int) float64 {
 	pricePerMillion := pricingEmbedding004Per1M
 
-	switch p.model {
+	switch p.ProviderModel {
 	case EmbeddingModel001:
 		pricePerMillion = pricingEmbedding001Per1M
 	case EmbeddingModel004:

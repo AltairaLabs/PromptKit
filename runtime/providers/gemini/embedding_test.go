@@ -20,9 +20,9 @@ func TestNewGeminiEmbeddingProvider(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		assert.Equal(t, DefaultGeminiEmbeddingModel, p.model)
-		assert.Equal(t, geminiEmbeddingBaseURL, p.baseURL)
-		assert.Equal(t, dimensionsEmbedding004, p.dimensions)
+		assert.Equal(t, DefaultGeminiEmbeddingModel, p.Model())
+		assert.Equal(t, geminiEmbeddingBaseURL, p.BaseURL)
+		assert.Equal(t, dimensionsEmbedding004, p.EmbeddingDimensions())
 		assert.Equal(t, "gemini-embedding", p.ID())
 	})
 
@@ -34,9 +34,9 @@ func TestNewGeminiEmbeddingProvider(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		assert.Equal(t, EmbeddingModel001, p.model)
-		assert.Equal(t, "https://custom.api.com", p.baseURL)
-		assert.Equal(t, dimensionsEmbedding001, p.dimensions)
+		assert.Equal(t, EmbeddingModel001, p.Model())
+		assert.Equal(t, "https://custom.api.com", p.BaseURL)
+		assert.Equal(t, dimensionsEmbedding001, p.EmbeddingDimensions())
 	})
 
 	t.Run("fails without API key", func(t *testing.T) {
@@ -437,7 +437,7 @@ func TestGeminiEmbeddingProvider_WithHTTPClient(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	assert.Equal(t, customClient, p.client)
+	assert.Equal(t, customClient, p.HTTPClient)
 }
 
 func TestGeminiDimensionsForModel(t *testing.T) {

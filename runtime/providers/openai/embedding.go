@@ -51,11 +51,7 @@ const (
 
 // EmbeddingProvider implements embedding generation via OpenAI API.
 type EmbeddingProvider struct {
-	model      string
-	baseURL    string
-	apiKey     string
-	client     *http.Client
-	dimensions int
+	*providers.BaseEmbeddingProvider
 }
 
 // EmbeddingOption configures the EmbeddingProvider.
@@ -64,39 +60,43 @@ type EmbeddingOption func(*EmbeddingProvider)
 // WithEmbeddingModel sets the embedding model.
 func WithEmbeddingModel(model string) EmbeddingOption {
 	return func(p *EmbeddingProvider) {
-		p.model = model
-		p.dimensions = dimensionsForModel(model)
+		p.ProviderModel = model
+		p.Dimensions = dimensionsForModel(model)
 	}
 }
 
 // WithEmbeddingBaseURL sets a custom base URL (for Azure or proxies).
 func WithEmbeddingBaseURL(url string) EmbeddingOption {
 	return func(p *EmbeddingProvider) {
-		p.baseURL = url
+		p.BaseURL = url
 	}
 }
 
 // WithEmbeddingAPIKey sets the API key explicitly.
 func WithEmbeddingAPIKey(key string) EmbeddingOption {
 	return func(p *EmbeddingProvider) {
-		p.apiKey = key
+		p.APIKey = key
 	}
 }
 
 // WithEmbeddingHTTPClient sets a custom HTTP client.
 func WithEmbeddingHTTPClient(client *http.Client) EmbeddingOption {
 	return func(p *EmbeddingProvider) {
-		p.client = client
+		p.HTTPClient = client
 	}
 }
 
 // NewEmbeddingProvider creates an OpenAI embedding provider.
 func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 	p := &EmbeddingProvider{
-		model:      DefaultEmbeddingModel,
-		baseURL:    "https://api.openai.com/v1",
-		dimensions: dimensions3Small,
-		client:     &http.Client{Timeout: embeddingTimeoutSec * time.Second},
+		BaseEmbeddingProvider: providers.NewBaseEmbeddingProvider(
+			"openai-embedding",
+			DefaultEmbeddingModel,
+			"https://api.openai.com/v1",
+			dimensions3Small,
+			maxEmbeddingBatch,
+			embeddingTimeoutSec*time.Second,
+		),
 	}
 
 	// Apply options
@@ -105,12 +105,12 @@ func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 	}
 
 	// Get API key from environment if not set
-	if p.apiKey == "" {
+	if p.APIKey == "" {
 		_, apiKey := providers.NewBaseProviderWithAPIKey("", false, "OPENAI_API_KEY", "OPENAI_TOKEN")
-		p.apiKey = apiKey
+		p.APIKey = apiKey
 	}
 
-	if p.apiKey == "" {
+	if p.APIKey == "" {
 		return nil, fmt.Errorf("OpenAI API key not found: set OPENAI_API_KEY environment variable")
 	}
 
@@ -125,10 +125,10 @@ type embeddingRequest struct {
 
 // embeddingResponse is the OpenAI embeddings API response format.
 type embeddingResponse struct {
-	Object string            `json:"object"`
-	Data   []embeddingData   `json:"data"`
-	Model  string            `json:"model"`
-	Usage  embeddingUsage    `json:"usage"`
+	Object string             `json:"object"`
+	Data   []embeddingData    `json:"data"`
+	Model  string             `json:"model"`
+	Usage  embeddingUsage     `json:"usage"`
 	Error  *embeddingAPIError `json:"error,omitempty"`
 }
 
@@ -150,30 +150,27 @@ type embeddingAPIError struct {
 }
 
 // Embed generates embeddings for the given texts.
-func (p *EmbeddingProvider) Embed(ctx context.Context, req providers.EmbeddingRequest) (providers.EmbeddingResponse, error) {
-	if len(req.Texts) == 0 {
-		return providers.EmbeddingResponse{
-			Embeddings: [][]float32{},
-			Model:      p.model,
-		}, nil
-	}
+func (p *EmbeddingProvider) Embed(
+	ctx context.Context, req providers.EmbeddingRequest,
+) (providers.EmbeddingResponse, error) {
+	return p.EmbedWithEmptyCheck(ctx, req, p.embedTexts)
+}
 
-	// Use model override if provided
-	model := p.model
-	if req.Model != "" {
-		model = req.Model
-	}
-
+// embedTexts performs the actual embedding request.
+func (p *EmbeddingProvider) embedTexts(
+	ctx context.Context, texts []string, model string,
+) (providers.EmbeddingResponse, error) {
 	// Handle batching if needed
-	if len(req.Texts) > maxEmbeddingBatch {
-		return p.embedBatched(ctx, req.Texts, model)
+	if len(texts) > maxEmbeddingBatch {
+		return p.embedBatched(ctx, texts, model)
 	}
-
-	return p.embedSingle(ctx, req.Texts, model)
+	return p.embedSingle(ctx, texts, model)
 }
 
 // embedSingle sends a single embedding request.
-func (p *EmbeddingProvider) embedSingle(ctx context.Context, texts []string, model string) (providers.EmbeddingResponse, error) {
+func (p *EmbeddingProvider) embedSingle(
+	ctx context.Context, texts []string, model string,
+) (providers.EmbeddingResponse, error) {
 	reqBody := embeddingRequest{
 		Model: model,
 		Input: texts,
@@ -184,16 +181,17 @@ func (p *EmbeddingProvider) embedSingle(ctx context.Context, texts []string, mod
 		return providers.EmbeddingResponse{}, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+embeddingsPath, bytes.NewReader(jsonBody))
+	url := p.BaseURL + embeddingsPath
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(jsonBody))
 	if err != nil {
 		return providers.EmbeddingResponse{}, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	httpReq.Header.Set(authorizationHeader, bearerPrefix+p.apiKey)
+	httpReq.Header.Set(authorizationHeader, bearerPrefix+p.APIKey)
 
 	start := time.Now()
-	resp, err := p.client.Do(httpReq)
+	resp, err := p.HTTPClient.Do(httpReq)
 	if err != nil {
 		return providers.EmbeddingResponse{}, fmt.Errorf("embedding request failed: %w", err)
 	}
@@ -205,7 +203,8 @@ func (p *EmbeddingProvider) embedSingle(ctx context.Context, texts []string, mod
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return providers.EmbeddingResponse{}, fmt.Errorf("embedding API error (status %d): %s", resp.StatusCode, string(body))
+		return providers.EmbeddingResponse{},
+			fmt.Errorf("embedding API error (status %d): %s", resp.StatusCode, string(body))
 	}
 
 	var embedResp embeddingResponse
@@ -240,7 +239,9 @@ func (p *EmbeddingProvider) embedSingle(ctx context.Context, texts []string, mod
 }
 
 // embedBatched handles embedding requests that exceed the batch limit.
-func (p *EmbeddingProvider) embedBatched(ctx context.Context, texts []string, model string) (providers.EmbeddingResponse, error) {
+func (p *EmbeddingProvider) embedBatched(
+	ctx context.Context, texts []string, model string,
+) (providers.EmbeddingResponse, error) {
 	var allEmbeddings [][]float32
 	var totalTokens int
 
@@ -269,31 +270,11 @@ func (p *EmbeddingProvider) embedBatched(ctx context.Context, texts []string, mo
 	}, nil
 }
 
-// EmbeddingDimensions returns the dimensionality of embedding vectors.
-func (p *EmbeddingProvider) EmbeddingDimensions() int {
-	return p.dimensions
-}
-
-// MaxBatchSize returns the maximum texts per single API request.
-func (p *EmbeddingProvider) MaxBatchSize() int {
-	return maxEmbeddingBatch
-}
-
-// ID returns the provider identifier.
-func (p *EmbeddingProvider) ID() string {
-	return "openai-embedding"
-}
-
-// Model returns the current embedding model.
-func (p *EmbeddingProvider) Model() string {
-	return p.model
-}
-
 // EstimateCost estimates the cost for embedding the given number of tokens.
 func (p *EmbeddingProvider) EstimateCost(tokens int) float64 {
 	pricePerMillion := pricing3SmallPer1M // Default
 
-	switch p.model {
+	switch p.ProviderModel {
 	case EmbeddingModelAda002:
 		pricePerMillion = pricingAda002Per1M
 	case EmbeddingModel3Small:

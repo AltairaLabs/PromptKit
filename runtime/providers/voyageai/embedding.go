@@ -59,23 +59,16 @@ const (
 
 // API constants.
 const (
-	defaultBaseURL       = "https://api.voyageai.com/v1"
-	embeddingsPath       = "/embeddings"
-	defaultTimeout       = 60 * time.Second
-	defaultMaxBatchSize  = 128     // Reasonable default; actual limit is token-based
-	maxTokensVoyage35    = 320000  // 320K for voyage-3.5
-	maxTokensVoyage35Lit = 1000000 // 1M for voyage-3.5-lite
-	maxTokensVoyage3Lrg  = 120000  // 120K for voyage-3-large
+	defaultBaseURL      = "https://api.voyageai.com/v1"
+	embeddingsPath      = "/embeddings"
+	defaultTimeout      = 60 * time.Second
+	defaultMaxBatchSize = 128 // Reasonable default; actual limit is token-based
 )
 
 // EmbeddingProvider implements embedding generation via Voyage AI API.
 type EmbeddingProvider struct {
-	model      string
-	baseURL    string
-	apiKey     string
-	client     *http.Client
-	dimensions int
-	inputType  string // Optional: "query" or "document"
+	*providers.BaseEmbeddingProvider
+	inputType string // Optional: "query" or "document"
 }
 
 // EmbeddingOption configures the EmbeddingProvider.
@@ -84,35 +77,35 @@ type EmbeddingOption func(*EmbeddingProvider)
 // WithModel sets the embedding model.
 func WithModel(model string) EmbeddingOption {
 	return func(p *EmbeddingProvider) {
-		p.model = model
+		p.ProviderModel = model
 	}
 }
 
 // WithDimensions sets the output embedding dimensions.
 func WithDimensions(dims int) EmbeddingOption {
 	return func(p *EmbeddingProvider) {
-		p.dimensions = dims
+		p.Dimensions = dims
 	}
 }
 
 // WithBaseURL sets a custom base URL.
 func WithBaseURL(url string) EmbeddingOption {
 	return func(p *EmbeddingProvider) {
-		p.baseURL = url
+		p.BaseURL = url
 	}
 }
 
 // WithAPIKey sets the API key explicitly.
 func WithAPIKey(key string) EmbeddingOption {
 	return func(p *EmbeddingProvider) {
-		p.apiKey = key
+		p.APIKey = key
 	}
 }
 
 // WithHTTPClient sets a custom HTTP client.
 func WithHTTPClient(client *http.Client) EmbeddingOption {
 	return func(p *EmbeddingProvider) {
-		p.client = client
+		p.HTTPClient = client
 	}
 }
 
@@ -127,10 +120,14 @@ func WithInputType(inputType string) EmbeddingOption {
 // NewEmbeddingProvider creates a Voyage AI embedding provider.
 func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 	p := &EmbeddingProvider{
-		model:      DefaultModel,
-		baseURL:    defaultBaseURL,
-		dimensions: Dimensions1024,
-		client:     &http.Client{Timeout: defaultTimeout},
+		BaseEmbeddingProvider: providers.NewBaseEmbeddingProvider(
+			"voyageai-embedding",
+			DefaultModel,
+			defaultBaseURL,
+			Dimensions1024,
+			defaultMaxBatchSize,
+			defaultTimeout,
+		),
 	}
 
 	// Apply options
@@ -139,11 +136,11 @@ func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 	}
 
 	// Get API key from environment if not set
-	if p.apiKey == "" {
-		p.apiKey = os.Getenv("VOYAGE_API_KEY")
+	if p.APIKey == "" {
+		p.APIKey = os.Getenv("VOYAGE_API_KEY")
 	}
 
-	if p.apiKey == "" {
+	if p.APIKey == "" {
 		return nil, fmt.Errorf("voyage AI API key not found: set VOYAGE_API_KEY environment variable")
 	}
 
@@ -185,24 +182,11 @@ type errorResponse struct {
 func (p *EmbeddingProvider) Embed(
 	ctx context.Context, req providers.EmbeddingRequest,
 ) (providers.EmbeddingResponse, error) {
-	if len(req.Texts) == 0 {
-		return providers.EmbeddingResponse{
-			Embeddings: [][]float32{},
-			Model:      p.model,
-		}, nil
-	}
-
-	// Use model override if provided
-	model := p.model
-	if req.Model != "" {
-		model = req.Model
-	}
-
-	return p.embedSingle(ctx, req.Texts, model)
+	return p.EmbedWithEmptyCheck(ctx, req, p.embedTexts)
 }
 
-// embedSingle sends a single embedding request.
-func (p *EmbeddingProvider) embedSingle(
+// embedTexts performs the actual embedding request.
+func (p *EmbeddingProvider) embedTexts(
 	ctx context.Context, texts []string, model string,
 ) (providers.EmbeddingResponse, error) {
 	reqBody := embeddingRequest{
@@ -214,8 +198,8 @@ func (p *EmbeddingProvider) embedSingle(
 	if p.inputType != "" {
 		reqBody.InputType = p.inputType
 	}
-	if p.dimensions > 0 && p.dimensions != Dimensions1024 {
-		reqBody.OutputDimension = p.dimensions
+	if p.Dimensions > 0 && p.Dimensions != Dimensions1024 {
+		reqBody.OutputDimension = p.Dimensions
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
@@ -223,16 +207,17 @@ func (p *EmbeddingProvider) embedSingle(
 		return providers.EmbeddingResponse{}, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+embeddingsPath, bytes.NewReader(jsonBody))
+	url := p.BaseURL + embeddingsPath
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(jsonBody))
 	if err != nil {
 		return providers.EmbeddingResponse{}, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	httpReq.Header.Set("Authorization", "Bearer "+p.APIKey)
 
 	start := time.Now()
-	resp, err := p.client.Do(httpReq)
+	resp, err := p.HTTPClient.Do(httpReq)
 	if err != nil {
 		return providers.EmbeddingResponse{}, fmt.Errorf("embedding request failed: %w", err)
 	}
@@ -278,27 +263,6 @@ func (p *EmbeddingProvider) embedSingle(
 		Model:      embedResp.Model,
 		Usage:      &providers.EmbeddingUsage{TotalTokens: embedResp.Usage.TotalTokens},
 	}, nil
-}
-
-// EmbeddingDimensions returns the dimensionality of embedding vectors.
-func (p *EmbeddingProvider) EmbeddingDimensions() int {
-	return p.dimensions
-}
-
-// MaxBatchSize returns the maximum texts per single API request.
-// Voyage AI uses token-based limits rather than text count limits.
-func (p *EmbeddingProvider) MaxBatchSize() int {
-	return defaultMaxBatchSize
-}
-
-// ID returns the provider identifier.
-func (p *EmbeddingProvider) ID() string {
-	return "voyageai-embedding"
-}
-
-// Model returns the current embedding model.
-func (p *EmbeddingProvider) Model() string {
-	return p.model
 }
 
 // Verify interface compliance

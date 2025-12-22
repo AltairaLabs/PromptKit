@@ -20,9 +20,9 @@ func TestNewEmbeddingProvider(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		assert.Equal(t, DefaultEmbeddingModel, p.model)
-		assert.Equal(t, "https://api.openai.com/v1", p.baseURL)
-		assert.Equal(t, dimensions3Small, p.dimensions)
+		assert.Equal(t, DefaultEmbeddingModel, p.Model())
+		assert.Equal(t, "https://api.openai.com/v1", p.BaseURL)
+		assert.Equal(t, dimensions3Small, p.EmbeddingDimensions())
 		assert.Equal(t, "openai-embedding", p.ID())
 	})
 
@@ -34,9 +34,9 @@ func TestNewEmbeddingProvider(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		assert.Equal(t, EmbeddingModel3Large, p.model)
-		assert.Equal(t, "https://custom.api.com", p.baseURL)
-		assert.Equal(t, dimensions3Large, p.dimensions)
+		assert.Equal(t, EmbeddingModel3Large, p.Model())
+		assert.Equal(t, "https://custom.api.com", p.BaseURL)
+		assert.Equal(t, dimensions3Large, p.EmbeddingDimensions())
 	})
 
 	t.Run("fails without API key", func(t *testing.T) {
@@ -369,7 +369,7 @@ func TestEmbeddingProvider_WithHTTPClient(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	assert.Equal(t, customClient, p.client)
+	assert.Equal(t, customClient, p.HTTPClient)
 }
 
 func TestDimensionsForModel(t *testing.T) {
