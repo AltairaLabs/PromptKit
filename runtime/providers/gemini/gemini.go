@@ -319,6 +319,12 @@ func (p *Provider) parseAndValidateGeminiResponse(respBody []byte, predictResp p
 
 // Predict sends a predict request to Gemini
 func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+	// Enrich context with provider and model info for logging
+	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
+		Provider: p.ID(),
+		Model:    p.Model,
+	})
+
 	start := time.Now()
 
 	// Convert messages to Gemini format and apply defaults
@@ -482,6 +488,12 @@ func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.Co
 
 // PredictStream streams a predict response from Gemini
 func (p *Provider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+	// Enrich context with provider and model info for logging
+	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
+		Provider: p.ID(),
+		Model:    p.Model,
+	})
+
 	// Convert messages to Gemini format and apply defaults
 	contents, systemInstruction, temperature, topP, maxTokens := p.prepareGeminiRequest(req)
 

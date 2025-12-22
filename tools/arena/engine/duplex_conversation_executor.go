@@ -7,6 +7,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -59,6 +60,13 @@ func (de *DuplexConversationExecutor) ExecuteConversation(
 	ctx context.Context,
 	req ConversationRequest, //nolint:gocritic // Interface compliance requires value receiver
 ) *ConversationResult {
+	// Enrich context with conversation-level logging fields
+	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
+		Scenario:  req.Scenario.ID,
+		SessionID: req.ConversationID,
+		Stage:     "duplex-execution",
+	})
+
 	// Validate duplex configuration
 	if req.Scenario.Duplex == nil {
 		return &ConversationResult{
