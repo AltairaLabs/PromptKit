@@ -119,7 +119,7 @@ func TestEmbeddingProvider_Embed(t *testing.T) {
 	t.Run("handles API error", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(errorResponse{Detail: "Invalid model"})
+			w.Write([]byte(`{"detail": "Invalid model"}`))
 		}))
 		defer server.Close()
 

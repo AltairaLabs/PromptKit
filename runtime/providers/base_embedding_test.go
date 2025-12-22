@@ -2,10 +2,14 @@ package providers
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewBaseEmbeddingProvider(t *testing.T) {
@@ -121,4 +125,166 @@ func TestBaseEmbeddingProvider_EmbedWithEmptyCheck(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "custom-model", resp.Model)
 	})
+}
+
+func TestBaseEmbeddingProvider_DoEmbeddingRequest(t *testing.T) {
+	t.Run("successful request with API key", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, http.MethodPost, r.Method)
+			assert.Equal(t, ApplicationJSON, r.Header.Get(ContentTypeHeader))
+			assert.Equal(t, BearerPrefix+"test-api-key", r.Header.Get(AuthorizationHeader))
+
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		}))
+		defer server.Close()
+
+		p := NewBaseEmbeddingProvider("test", "model", server.URL, 1024, 100, time.Second)
+		p.APIKey = "test-api-key"
+
+		body, err := p.DoEmbeddingRequest(context.Background(), HTTPRequestConfig{
+			URL:       server.URL,
+			Body:      []byte(`{"input": "test"}`),
+			UseAPIKey: true,
+		})
+		require.NoError(t, err)
+		assert.Contains(t, string(body), "ok")
+	})
+
+	t.Run("successful request without API key", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Empty(t, r.Header.Get(AuthorizationHeader))
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"result": "success"}`))
+		}))
+		defer server.Close()
+
+		p := NewBaseEmbeddingProvider("test", "model", server.URL, 1024, 100, time.Second)
+		p.APIKey = "key"
+
+		body, err := p.DoEmbeddingRequest(context.Background(), HTTPRequestConfig{
+			URL:       server.URL,
+			Body:      []byte(`{}`),
+			UseAPIKey: false,
+		})
+		require.NoError(t, err)
+		assert.Contains(t, string(body), "success")
+	})
+
+	t.Run("custom content type", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "text/plain", r.Header.Get(ContentTypeHeader))
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		p := NewBaseEmbeddingProvider("test", "model", server.URL, 1024, 100, time.Second)
+
+		_, err := p.DoEmbeddingRequest(context.Background(), HTTPRequestConfig{
+			URL:         server.URL,
+			Body:        []byte(`test`),
+			ContentType: "text/plain",
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("handles HTTP error status", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "bad request"}`))
+		}))
+		defer server.Close()
+
+		p := NewBaseEmbeddingProvider("test", "model", server.URL, 1024, 100, time.Second)
+
+		_, err := p.DoEmbeddingRequest(context.Background(), HTTPRequestConfig{
+			URL:  server.URL,
+			Body: []byte(`{}`),
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "status 400")
+		assert.Contains(t, err.Error(), "bad request")
+	})
+
+	t.Run("handles context cancellation", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			<-r.Context().Done()
+		}))
+		defer server.Close()
+
+		p := NewBaseEmbeddingProvider("test", "model", server.URL, 1024, 100, time.Second)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, err := p.DoEmbeddingRequest(ctx, HTTPRequestConfig{
+			URL:  server.URL,
+			Body: []byte(`{}`),
+		})
+		require.Error(t, err)
+	})
+}
+
+func TestExtractOrderedEmbeddings(t *testing.T) {
+	type testData struct {
+		Index     int
+		Embedding []float32
+	}
+
+	t.Run("extracts embeddings in correct order", func(t *testing.T) {
+		data := []testData{
+			{Index: 1, Embedding: []float32{0.3, 0.4}},
+			{Index: 0, Embedding: []float32{0.1, 0.2}},
+			{Index: 2, Embedding: []float32{0.5, 0.6}},
+		}
+
+		embeddings, err := ExtractOrderedEmbeddings(
+			data,
+			func(d testData) int { return d.Index },
+			func(d testData) []float32 { return d.Embedding },
+			3,
+		)
+		require.NoError(t, err)
+
+		assert.Equal(t, []float32{0.1, 0.2}, embeddings[0])
+		assert.Equal(t, []float32{0.3, 0.4}, embeddings[1])
+		assert.Equal(t, []float32{0.5, 0.6}, embeddings[2])
+	})
+
+	t.Run("handles empty data", func(t *testing.T) {
+		embeddings, err := ExtractOrderedEmbeddings(
+			[]testData{},
+			func(d testData) int { return d.Index },
+			func(d testData) []float32 { return d.Embedding },
+			0,
+		)
+		require.NoError(t, err)
+		assert.Empty(t, embeddings)
+	})
+
+	t.Run("ignores out of bounds indices", func(t *testing.T) {
+		data := []testData{
+			{Index: 0, Embedding: []float32{0.1}},
+			{Index: 5, Embedding: []float32{0.5}}, // out of bounds
+			{Index: -1, Embedding: []float32{0.0}}, // negative
+		}
+
+		embeddings, err := ExtractOrderedEmbeddings(
+			data,
+			func(d testData) int { return d.Index },
+			func(d testData) []float32 { return d.Embedding },
+			2,
+		)
+		require.NoError(t, err)
+
+		assert.Equal(t, []float32{0.1}, embeddings[0])
+		assert.Nil(t, embeddings[1]) // Not filled
+	})
+}
+
+func TestHTTPConstants(t *testing.T) {
+	assert.Equal(t, "Content-Type", ContentTypeHeader)
+	assert.Equal(t, "Authorization", AuthorizationHeader)
+	assert.Equal(t, "application/json", ApplicationJSON)
+	assert.Equal(t, "Bearer ", BearerPrefix)
 }

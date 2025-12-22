@@ -1,11 +1,9 @@
 package gemini
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
 
@@ -190,29 +188,15 @@ func (p *EmbeddingProvider) embedSingle(
 		return providers.EmbeddingResponse{}, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s"+embedContentPath+"?key=%s", p.BaseURL, model, p.APIKey)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(jsonBody))
-	if err != nil {
-		return providers.EmbeddingResponse{}, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-
 	start := time.Now()
-	resp, err := p.HTTPClient.Do(httpReq)
+	url := fmt.Sprintf("%s"+embedContentPath+"?key=%s", p.BaseURL, model, p.APIKey)
+	body, err := p.DoEmbeddingRequest(ctx, providers.HTTPRequestConfig{
+		URL:       url,
+		Body:      jsonBody,
+		UseAPIKey: false, // Gemini uses API key in URL
+	})
 	if err != nil {
-		return providers.EmbeddingResponse{}, fmt.Errorf("embedding request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return providers.EmbeddingResponse{}, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return providers.EmbeddingResponse{},
-			fmt.Errorf("embedding API error (status %d): %s", resp.StatusCode, string(body))
+		return providers.EmbeddingResponse{}, err
 	}
 
 	var embedResp geminiEmbedResponse
@@ -277,29 +261,15 @@ func (p *EmbeddingProvider) embedBatchSingle(
 		return providers.EmbeddingResponse{}, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s"+batchEmbedContentsPath+"?key=%s", p.BaseURL, model, p.APIKey)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(jsonBody))
-	if err != nil {
-		return providers.EmbeddingResponse{}, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-
 	start := time.Now()
-	resp, err := p.HTTPClient.Do(httpReq)
+	url := fmt.Sprintf("%s"+batchEmbedContentsPath+"?key=%s", p.BaseURL, model, p.APIKey)
+	body, err := p.DoEmbeddingRequest(ctx, providers.HTTPRequestConfig{
+		URL:       url,
+		Body:      jsonBody,
+		UseAPIKey: false, // Gemini uses API key in URL
+	})
 	if err != nil {
-		return providers.EmbeddingResponse{}, fmt.Errorf("embedding request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return providers.EmbeddingResponse{}, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return providers.EmbeddingResponse{},
-			fmt.Errorf("embedding API error (status %d): %s", resp.StatusCode, string(body))
+		return providers.EmbeddingResponse{}, err
 	}
 
 	var embedResp geminiBatchEmbedResponse

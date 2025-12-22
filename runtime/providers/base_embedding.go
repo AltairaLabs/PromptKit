@@ -1,9 +1,20 @@
 package providers
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"io"
 	"net/http"
 	"time"
+)
+
+// Common HTTP constants for embedding providers.
+const (
+	ContentTypeHeader   = "Content-Type"
+	AuthorizationHeader = "Authorization"
+	ApplicationJSON     = "application/json"
+	BearerPrefix        = "Bearer "
 )
 
 // BaseEmbeddingProvider provides common functionality for embedding providers.
@@ -99,4 +110,71 @@ func (b *BaseEmbeddingProvider) EmbedWithEmptyCheck(
 	}
 	model := b.ResolveModel(req.Model)
 	return embedFn(ctx, req.Texts, model)
+}
+
+// HTTPRequestConfig configures how to make an HTTP request.
+type HTTPRequestConfig struct {
+	URL         string
+	Body        []byte
+	UseAPIKey   bool   // If true, adds Authorization: Bearer <APIKey> header
+	ContentType string // Defaults to application/json
+}
+
+// DoEmbeddingRequest performs a common HTTP POST request for embeddings.
+// Returns the response body and any error.
+func (b *BaseEmbeddingProvider) DoEmbeddingRequest(
+	ctx context.Context,
+	cfg HTTPRequestConfig,
+) ([]byte, error) {
+	httpReq, err := http.NewRequestWithContext(
+		ctx, http.MethodPost, cfg.URL, bytes.NewReader(cfg.Body),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	contentType := cfg.ContentType
+	if contentType == "" {
+		contentType = ApplicationJSON
+	}
+	httpReq.Header.Set(ContentTypeHeader, contentType)
+
+	if cfg.UseAPIKey && b.APIKey != "" {
+		httpReq.Header.Set(AuthorizationHeader, BearerPrefix+b.APIKey)
+	}
+
+	resp, err := b.HTTPClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("embedding request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("embedding API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	return body, nil
+}
+
+// ExtractOrderedEmbeddings extracts embeddings from indexed response data
+// and places them in the correct order. Returns an error if count doesn't match.
+func ExtractOrderedEmbeddings[T any](
+	data []T,
+	getIndex func(T) int,
+	getEmbedding func(T) []float32,
+	expectedCount int,
+) ([][]float32, error) {
+	embeddings := make([][]float32, expectedCount)
+	for _, item := range data {
+		idx := getIndex(item)
+		if idx >= 0 && idx < expectedCount {
+			embeddings[idx] = getEmbedding(item)
+		}
+	}
+	return embeddings, nil
 }

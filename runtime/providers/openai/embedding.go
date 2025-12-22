@@ -1,11 +1,9 @@
 package openai
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
 
@@ -44,9 +42,10 @@ const (
 
 // Pricing per 1M tokens (as of late 2024)
 const (
-	pricingAda002Per1M  = 0.10
-	pricing3SmallPer1M  = 0.02
-	pricing3LargePer1M  = 0.13
+	pricingAda002Per1M = 0.10
+	pricing3SmallPer1M = 0.02
+	pricing3LargePer1M = 0.13
+	tokensPerMillion   = 1_000_000
 )
 
 // EmbeddingProvider implements embedding generation via OpenAI API.
@@ -181,30 +180,14 @@ func (p *EmbeddingProvider) embedSingle(
 		return providers.EmbeddingResponse{}, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := p.BaseURL + embeddingsPath
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(jsonBody))
-	if err != nil {
-		return providers.EmbeddingResponse{}, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	httpReq.Header.Set(authorizationHeader, bearerPrefix+p.APIKey)
-
 	start := time.Now()
-	resp, err := p.HTTPClient.Do(httpReq)
+	body, err := p.DoEmbeddingRequest(ctx, providers.HTTPRequestConfig{
+		URL:       p.BaseURL + embeddingsPath,
+		Body:      jsonBody,
+		UseAPIKey: true,
+	})
 	if err != nil {
-		return providers.EmbeddingResponse{}, fmt.Errorf("embedding request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return providers.EmbeddingResponse{}, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return providers.EmbeddingResponse{},
-			fmt.Errorf("embedding API error (status %d): %s", resp.StatusCode, string(body))
+		return providers.EmbeddingResponse{}, err
 	}
 
 	var embedResp embeddingResponse
@@ -217,12 +200,12 @@ func (p *EmbeddingProvider) embedSingle(
 	}
 
 	// Extract embeddings in correct order
-	embeddings := make([][]float32, len(texts))
-	for _, data := range embedResp.Data {
-		if data.Index < len(embeddings) {
-			embeddings[data.Index] = data.Embedding
-		}
-	}
+	embeddings, _ := providers.ExtractOrderedEmbeddings(
+		embedResp.Data,
+		func(d embeddingData) int { return d.Index },
+		func(d embeddingData) []float32 { return d.Embedding },
+		len(texts),
+	)
 
 	logger.Debug("OpenAI embedding request completed",
 		"model", model,
@@ -283,7 +266,7 @@ func (p *EmbeddingProvider) EstimateCost(tokens int) float64 {
 		pricePerMillion = pricing3LargePer1M
 	}
 
-	return float64(tokens) * pricePerMillion / 1_000_000
+	return float64(tokens) * pricePerMillion / tokensPerMillion
 }
 
 // dimensionsForModel returns the embedding dimensions for a given model.

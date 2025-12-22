@@ -3,11 +3,9 @@
 package voyageai
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"time"
@@ -174,10 +172,6 @@ type embeddingUsage struct {
 	TotalTokens int `json:"total_tokens"`
 }
 
-type errorResponse struct {
-	Detail string `json:"detail"`
-}
-
 // Embed generates embeddings for the given texts.
 func (p *EmbeddingProvider) Embed(
 	ctx context.Context, req providers.EmbeddingRequest,
@@ -207,35 +201,14 @@ func (p *EmbeddingProvider) embedTexts(
 		return providers.EmbeddingResponse{}, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := p.BaseURL + embeddingsPath
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(jsonBody))
-	if err != nil {
-		return providers.EmbeddingResponse{}, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+p.APIKey)
-
 	start := time.Now()
-	resp, err := p.HTTPClient.Do(httpReq)
+	body, err := p.DoEmbeddingRequest(ctx, providers.HTTPRequestConfig{
+		URL:       p.BaseURL + embeddingsPath,
+		Body:      jsonBody,
+		UseAPIKey: true,
+	})
 	if err != nil {
-		return providers.EmbeddingResponse{}, fmt.Errorf("embedding request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return providers.EmbeddingResponse{}, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		var errResp errorResponse
-		if json.Unmarshal(body, &errResp) == nil && errResp.Detail != "" {
-			return providers.EmbeddingResponse{},
-				fmt.Errorf("voyage AI API error (status %d): %s", resp.StatusCode, errResp.Detail)
-		}
-		return providers.EmbeddingResponse{},
-			fmt.Errorf("voyage AI API error (status %d): %s", resp.StatusCode, string(body))
+		return providers.EmbeddingResponse{}, err
 	}
 
 	var embedResp embeddingResponse
@@ -244,12 +217,12 @@ func (p *EmbeddingProvider) embedTexts(
 	}
 
 	// Extract embeddings in correct order
-	embeddings := make([][]float32, len(texts))
-	for _, data := range embedResp.Data {
-		if data.Index < len(embeddings) {
-			embeddings[data.Index] = data.Embedding
-		}
-	}
+	embeddings, _ := providers.ExtractOrderedEmbeddings(
+		embedResp.Data,
+		func(d embeddingData) int { return d.Index },
+		func(d embeddingData) []float32 { return d.Embedding },
+		len(texts),
+	)
 
 	logger.Debug("Voyage AI embedding request completed",
 		"model", model,
