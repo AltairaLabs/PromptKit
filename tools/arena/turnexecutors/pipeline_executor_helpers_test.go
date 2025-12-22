@@ -365,3 +365,228 @@ func (m *mockNonMockProvider) PredictStream(ctx context.Context, req providers.P
 }
 func (m *mockNonMockProvider) ShouldIncludeRawOutput() bool { return false }
 func (m *mockNonMockProvider) Close() error                 { return nil }
+
+func TestConvertQuerySource(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected stage.QuerySourceType
+	}{
+		{"last_user", stage.QuerySourceLastUser},
+		{"last_n", stage.QuerySourceLastN},
+		{"custom", stage.QuerySourceCustom},
+		{"unknown", stage.QuerySourceLastUser},
+		{"", stage.QuerySourceLastUser},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := convertQuerySource(tt.input)
+			if got != tt.expected {
+				t.Errorf("convertQuerySource(%q) = %v, want %v", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestBuildRelevanceConfig(t *testing.T) {
+	t.Run("nil config returns nil", func(t *testing.T) {
+		got := buildRelevanceConfig(nil)
+		if got != nil {
+			t.Errorf("buildRelevanceConfig(nil) = %v, want nil", got)
+		}
+	})
+
+	t.Run("unknown provider returns nil", func(t *testing.T) {
+		cfg := &config.RelevanceConfig{
+			Provider: "unknown-provider",
+		}
+		got := buildRelevanceConfig(cfg)
+		if got != nil {
+			t.Errorf("buildRelevanceConfig with unknown provider = %v, want nil", got)
+		}
+	})
+
+	t.Run("config with default AlwaysKeepSystemRole", func(t *testing.T) {
+		// Skip if no API key available
+		t.Setenv("OPENAI_API_KEY", "test-key-for-unit-test")
+		cfg := &config.RelevanceConfig{
+			Provider:          "openai",
+			MinRecentMessages: 5,
+			QuerySource:       "last_n",
+			LastNCount:        3,
+		}
+		got := buildRelevanceConfig(cfg)
+		if got == nil {
+			t.Skip("embedding provider not available")
+		}
+		if !got.AlwaysKeepSystemRole {
+			t.Error("AlwaysKeepSystemRole should default to true")
+		}
+		if got.MinRecentMessages != 5 {
+			t.Errorf("MinRecentMessages = %d, want 5", got.MinRecentMessages)
+		}
+		if got.QuerySource != stage.QuerySourceLastN {
+			t.Errorf("QuerySource = %v, want %v", got.QuerySource, stage.QuerySourceLastN)
+		}
+		if got.LastNCount != 3 {
+			t.Errorf("LastNCount = %d, want 3", got.LastNCount)
+		}
+	})
+
+	t.Run("config with explicit AlwaysKeepSystemRole false", func(t *testing.T) {
+		t.Setenv("OPENAI_API_KEY", "test-key-for-unit-test")
+		keepSystem := false
+		cfg := &config.RelevanceConfig{
+			Provider:             "openai",
+			AlwaysKeepSystemRole: &keepSystem,
+		}
+		got := buildRelevanceConfig(cfg)
+		if got == nil {
+			t.Skip("embedding provider not available")
+		}
+		if got.AlwaysKeepSystemRole {
+			t.Error("AlwaysKeepSystemRole should be false when explicitly set")
+		}
+	})
+}
+
+func TestBuildContextPolicy_WithRelevance(t *testing.T) {
+	t.Run("relevance strategy without config", func(t *testing.T) {
+		scenario := &config.Scenario{
+			ID: "test",
+			ContextPolicy: &config.ContextPolicy{
+				TokenBudget: 1000,
+				Strategy:    "relevance",
+				// No Relevance config
+			},
+		}
+		got := buildContextPolicy(scenario)
+		if got == nil {
+			t.Fatal("expected non-nil policy")
+		}
+		if got.Strategy != stage.TruncateLeastRelevant {
+			t.Errorf("Strategy = %v, want %v", got.Strategy, stage.TruncateLeastRelevant)
+		}
+		if got.RelevanceConfig != nil {
+			t.Error("RelevanceConfig should be nil when no config provided")
+		}
+	})
+
+	t.Run("relevance strategy with config", func(t *testing.T) {
+		t.Setenv("OPENAI_API_KEY", "test-key-for-unit-test")
+		scenario := &config.Scenario{
+			ID: "test",
+			ContextPolicy: &config.ContextPolicy{
+				TokenBudget: 1000,
+				Strategy:    "relevance",
+				Relevance: &config.RelevanceConfig{
+					Provider:            "openai",
+					MinRecentMessages:   4,
+					SimilarityThreshold: 0.5,
+					QuerySource:         "custom",
+					CustomQuery:         "test query",
+				},
+			},
+		}
+		got := buildContextPolicy(scenario)
+		if got == nil {
+			t.Fatal("expected non-nil policy")
+		}
+		if got.Strategy != stage.TruncateLeastRelevant {
+			t.Errorf("Strategy = %v, want %v", got.Strategy, stage.TruncateLeastRelevant)
+		}
+		if got.RelevanceConfig == nil {
+			t.Skip("embedding provider not available")
+		}
+		if got.RelevanceConfig.MinRecentMessages != 4 {
+			t.Errorf("MinRecentMessages = %d, want 4", got.RelevanceConfig.MinRecentMessages)
+		}
+		if got.RelevanceConfig.SimilarityThreshold != 0.5 {
+			t.Errorf("SimilarityThreshold = %f, want 0.5", got.RelevanceConfig.SimilarityThreshold)
+		}
+		if got.RelevanceConfig.QuerySource != stage.QuerySourceCustom {
+			t.Errorf("QuerySource = %v, want %v", got.RelevanceConfig.QuerySource, stage.QuerySourceCustom)
+		}
+		if got.RelevanceConfig.CustomQuery != "test query" {
+			t.Errorf("CustomQuery = %q, want %q", got.RelevanceConfig.CustomQuery, "test query")
+		}
+	})
+}
+
+func TestCreateEmbeddingProvider(t *testing.T) {
+	t.Run("unknown provider returns error", func(t *testing.T) {
+		_, err := createEmbeddingProvider("unknown", "")
+		if err == nil {
+			t.Error("expected error for unknown provider")
+		}
+	})
+
+	t.Run("openai provider without API key fails gracefully", func(t *testing.T) {
+		t.Setenv("OPENAI_API_KEY", "")
+		t.Setenv("OPENAI_TOKEN", "")
+		_, err := createEmbeddingProvider("openai", "")
+		// Should fail because no API key
+		if err == nil {
+			t.Log("OpenAI provider created without API key - check environment")
+		}
+	})
+
+	t.Run("gemini provider without API key fails gracefully", func(t *testing.T) {
+		t.Setenv("GEMINI_API_KEY", "")
+		t.Setenv("GOOGLE_API_KEY", "")
+		_, err := createEmbeddingProvider("gemini", "")
+		// Should fail because no API key
+		if err == nil {
+			t.Log("Gemini provider created without API key - check environment")
+		}
+	})
+
+	t.Run("openai provider with API key succeeds", func(t *testing.T) {
+		t.Setenv("OPENAI_API_KEY", "test-key-for-unit-test")
+		provider, err := createEmbeddingProvider("openai", "")
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+			return
+		}
+		if provider == nil {
+			t.Error("expected non-nil provider")
+			return
+		}
+		if provider.ID() != "openai-embedding" {
+			t.Errorf("ID() = %q, want %q", provider.ID(), "openai-embedding")
+		}
+	})
+
+	t.Run("gemini provider with API key succeeds", func(t *testing.T) {
+		t.Setenv("GEMINI_API_KEY", "test-key-for-unit-test")
+		provider, err := createEmbeddingProvider("gemini", "")
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+			return
+		}
+		if provider == nil {
+			t.Error("expected non-nil provider")
+			return
+		}
+		if provider.ID() != "gemini-embedding" {
+			t.Errorf("ID() = %q, want %q", provider.ID(), "gemini-embedding")
+		}
+	})
+
+	t.Run("openai provider with custom model", func(t *testing.T) {
+		t.Setenv("OPENAI_API_KEY", "test-key-for-unit-test")
+		provider, err := createEmbeddingProvider("openai", "text-embedding-3-large")
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+			return
+		}
+		if provider == nil {
+			t.Error("expected non-nil provider")
+			return
+		}
+		// Verify provider was created (Model() is not part of interface, so just check it works)
+		if provider.ID() != "openai-embedding" {
+			t.Errorf("ID() = %q, want %q", provider.ID(), "openai-embedding")
+		}
+	})
+}

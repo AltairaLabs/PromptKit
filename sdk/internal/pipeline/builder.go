@@ -44,8 +44,11 @@ type Config struct {
 	// TokenBudget for context management (0 = no limit)
 	TokenBudget int
 
-	// TruncationStrategy for context management ("sliding" or "summarize")
+	// TruncationStrategy for context management ("sliding", "summarize", or "relevance")
 	TruncationStrategy string
+
+	// RelevanceConfig for embedding-based truncation (optional, used with "relevance" strategy)
+	RelevanceConfig *stage.RelevanceConfig
 
 	// ValidatorRegistry for creating validators (optional)
 	ValidatorRegistry *validators.Registry
@@ -171,6 +174,12 @@ func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 		stage.NewTemplateStage(),
 	)
 
+	// 4.5 Context builder stage - manages token budget and truncation
+	if cfg.TokenBudget > 0 {
+		contextPolicy := buildContextBuilderPolicy(cfg)
+		stages = append(stages, stage.NewContextBuilderStage(contextPolicy))
+	}
+
 	// 5. Provider stage - LLM calls with streaming and tool support
 	// Use DuplexProviderStage for ASM mode (WebSocket streaming)
 	// Use VAD pipeline for VAD mode (extracted to builder_vad.go - integration tested)
@@ -221,4 +230,35 @@ func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 	}
 
 	return streamPipeline, nil
+}
+
+// buildContextBuilderPolicy creates a ContextBuilderPolicy from pipeline config.
+func buildContextBuilderPolicy(cfg *Config) *stage.ContextBuilderPolicy {
+	policy := &stage.ContextBuilderPolicy{
+		TokenBudget: cfg.TokenBudget,
+		Strategy:    convertTruncationStrategy(cfg.TruncationStrategy),
+	}
+
+	// Add relevance config if strategy is relevance
+	if policy.Strategy == stage.TruncateLeastRelevant && cfg.RelevanceConfig != nil {
+		policy.RelevanceConfig = cfg.RelevanceConfig
+	}
+
+	return policy
+}
+
+// convertTruncationStrategy converts string strategy to stage.TruncationStrategy.
+func convertTruncationStrategy(strategy string) stage.TruncationStrategy {
+	switch strategy {
+	case "sliding", "oldest", "":
+		return stage.TruncateOldest
+	case "summarize":
+		return stage.TruncateSummarize
+	case "relevance":
+		return stage.TruncateLeastRelevant
+	case "fail":
+		return stage.TruncateFail
+	default:
+		return stage.TruncateOldest
+	}
 }

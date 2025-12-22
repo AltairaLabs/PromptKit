@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/variables"
@@ -474,12 +476,62 @@ const (
 	TruncateFail TruncationStrategy = "fail"
 )
 
+// QuerySourceType defines how to construct the relevance query.
+type QuerySourceType string
+
+const (
+	// QuerySourceLastUser uses the last user message as the query
+	QuerySourceLastUser QuerySourceType = "last_user"
+	// QuerySourceLastN concatenates the last N messages as the query
+	QuerySourceLastN QuerySourceType = "last_n"
+	// QuerySourceCustom uses a custom query string
+	QuerySourceCustom QuerySourceType = "custom"
+)
+
+// RelevanceConfig configures embedding-based relevance truncation.
+// Used when TruncationStrategy is TruncateLeastRelevant.
+type RelevanceConfig struct {
+	// EmbeddingProvider generates embeddings for similarity scoring.
+	// Required for relevance-based truncation; if nil, falls back to oldest.
+	EmbeddingProvider providers.EmbeddingProvider
+
+	// MinRecentMessages always keeps the N most recent messages
+	// regardless of relevance score. Default: 3
+	MinRecentMessages int
+
+	// AlwaysKeepSystemRole keeps all system role messages regardless of score.
+	AlwaysKeepSystemRole bool
+
+	// SimilarityThreshold is the minimum score to consider a message relevant (0.0-1.0).
+	// Messages below this threshold may be dropped first.
+	SimilarityThreshold float64
+
+	// QuerySource determines what text to compare messages against.
+	// Default: QuerySourceLastUser
+	QuerySource QuerySourceType
+
+	// LastNCount is the number of messages to use when QuerySource is QuerySourceLastN.
+	// Default: 3
+	LastNCount int
+
+	// CustomQuery is the query text when QuerySource is QuerySourceCustom.
+	CustomQuery string
+
+	// CacheEmbeddings enables caching of embeddings across truncation calls.
+	// Useful when context changes incrementally.
+	CacheEmbeddings bool
+}
+
 // ContextBuilderPolicy defines token budget and truncation behavior.
 type ContextBuilderPolicy struct {
 	TokenBudget      int
 	ReserveForOutput int
 	Strategy         TruncationStrategy
 	CacheBreakpoints bool
+
+	// RelevanceConfig for TruncateLeastRelevant strategy (optional).
+	// If nil when using TruncateLeastRelevant, falls back to TruncateOldest.
+	RelevanceConfig *RelevanceConfig
 }
 
 // ContextBuilderStage manages token budget and truncates messages if needed.
@@ -580,7 +632,7 @@ func (s *ContextBuilderStage) Process(
 	}
 
 	// Apply truncation strategy
-	truncated, err := s.truncateMessages(messages, available)
+	truncated, err := s.truncateMessages(ctx, messages, available)
 	if err != nil {
 		return fmt.Errorf("context builder: %w", err)
 	}
@@ -654,14 +706,16 @@ func (s *ContextBuilderStage) countMessagesTokens(messages []types.Message) int 
 }
 
 // truncateMessages applies truncation strategy.
-func (s *ContextBuilderStage) truncateMessages(messages []types.Message, budget int) ([]types.Message, error) {
+func (s *ContextBuilderStage) truncateMessages(
+	ctx context.Context,
+	messages []types.Message,
+	budget int,
+) ([]types.Message, error) {
 	switch s.policy.Strategy {
 	case TruncateOldest:
 		return s.truncateOldest(messages, budget), nil
 	case TruncateLeastRelevant:
-		// TODO: Implement embedding-based relevance scoring
-		logger.Warn("Relevance-based truncation not implemented, falling back to oldest strategy")
-		return s.truncateOldest(messages, budget), nil
+		return s.truncateByRelevance(ctx, messages, budget)
 	case TruncateSummarize:
 		// TODO: Implement LLM-based summarization
 		logger.Warn("Summarization truncation not implemented, falling back to oldest strategy")
@@ -696,5 +750,272 @@ func (s *ContextBuilderStage) truncateOldest(messages []types.Message, budget in
 		used += msgTokens
 	}
 
+	return result
+}
+
+// truncateByRelevance removes least relevant messages based on embedding similarity.
+// Falls back to truncateOldest if EmbeddingProvider is not configured.
+func (s *ContextBuilderStage) truncateByRelevance(
+	ctx context.Context,
+	messages []types.Message,
+	budget int,
+) ([]types.Message, error) {
+	cfg := s.policy.RelevanceConfig
+
+	// Fall back to oldest if no embedding provider
+	if cfg == nil || cfg.EmbeddingProvider == nil {
+		logger.Warn("No embedding provider configured, falling back to oldest strategy")
+		return s.truncateOldest(messages, budget), nil
+	}
+
+	// Default configuration values
+	minRecent := cfg.MinRecentMessages
+	if minRecent <= 0 {
+		minRecent = 3
+	}
+
+	// Build the query text based on QuerySource
+	queryText := s.buildRelevanceQuery(messages, cfg)
+	if queryText == "" {
+		logger.Warn("Empty relevance query, falling back to oldest strategy")
+		return s.truncateOldest(messages, budget), nil
+	}
+
+	// Build scored messages with token counts and protection flags
+	scored := s.buildScoredMessages(messages, minRecent, cfg.AlwaysKeepSystemRole)
+
+	// Get embeddings for all message texts plus the query
+	texts := make([]string, 0, len(messages)+1)
+	texts = append(texts, queryText) // Query at index 0
+	for i := range scored {
+		texts = append(texts, s.extractMessageText(&scored[i].Message))
+	}
+
+	// Generate embeddings
+	resp, err := cfg.EmbeddingProvider.Embed(ctx, providers.EmbeddingRequest{Texts: texts})
+	if err != nil {
+		logger.Error("Embedding generation failed, falling back to oldest", "error", err)
+		return s.truncateOldest(messages, budget), nil
+	}
+
+	if len(resp.Embeddings) != len(texts) {
+		logger.Error("Embedding count mismatch, falling back to oldest",
+			"expected", len(texts), "got", len(resp.Embeddings))
+		return s.truncateOldest(messages, budget), nil
+	}
+	embeddings := resp.Embeddings
+
+	// Compute similarity scores (query embedding is at index 0)
+	queryEmbedding := embeddings[0]
+	for i := range scored {
+		messageEmbedding := embeddings[i+1] // +1 to skip query
+		scored[i].Score = CosineSimilarity(queryEmbedding, messageEmbedding)
+	}
+
+	// Select messages to keep based on relevance and budget
+	return s.selectByRelevance(scored, budget, cfg.SimilarityThreshold), nil
+}
+
+// buildRelevanceQuery constructs the query text for relevance comparison.
+func (s *ContextBuilderStage) buildRelevanceQuery(
+	messages []types.Message,
+	cfg *RelevanceConfig,
+) string {
+	switch cfg.QuerySource {
+	case QuerySourceCustom:
+		return cfg.CustomQuery
+
+	case QuerySourceLastN:
+		lastN := cfg.LastNCount
+		if lastN <= 0 {
+			lastN = 3
+		}
+		start := len(messages) - lastN
+		if start < 0 {
+			start = 0
+		}
+		var parts []string
+		for i := start; i < len(messages); i++ {
+			parts = append(parts, s.extractMessageText(&messages[i]))
+		}
+		return strings.Join(parts, " ")
+
+	case QuerySourceLastUser:
+		// Use last user message as query
+		for i := len(messages) - 1; i >= 0; i-- {
+			if messages[i].Role == "user" {
+				return s.extractMessageText(&messages[i])
+			}
+		}
+		// No user message found, use last message
+		if len(messages) > 0 {
+			return s.extractMessageText(&messages[len(messages)-1])
+		}
+	}
+	return ""
+}
+
+// buildScoredMessages creates ScoredMessage entries with protection flags.
+func (s *ContextBuilderStage) buildScoredMessages(
+	messages []types.Message,
+	minRecent int,
+	keepSystemRole bool,
+) []ScoredMessage {
+	scored := make([]ScoredMessage, len(messages))
+
+	for i := range messages {
+		scored[i] = ScoredMessage{
+			Index:      i,
+			Message:    messages[i],
+			TokenCount: s.countMessageTokens(&messages[i]),
+		}
+
+		// Mark as protected if system role and keepSystemRole is true
+		if keepSystemRole && messages[i].Role == "system" {
+			scored[i].IsProtected = true
+		}
+
+		// Mark most recent messages as protected
+		if i >= len(messages)-minRecent {
+			scored[i].IsProtected = true
+		}
+	}
+
+	return scored
+}
+
+// countMessageTokens counts tokens for a single message.
+func (s *ContextBuilderStage) countMessageTokens(msg *types.Message) int {
+	tokens := s.countTokens(msg.Content)
+	for _, tc := range msg.ToolCalls {
+		tokens += s.countTokens(string(tc.Args))
+	}
+	return tokens
+}
+
+// extractMessageText gets the text content from a message for embedding.
+func (s *ContextBuilderStage) extractMessageText(msg *types.Message) string {
+	if msg.Content != "" {
+		return msg.Content
+	}
+
+	// Try parts if Content is empty
+	var parts []string
+	for _, part := range msg.Parts {
+		if part.Text != nil && *part.Text != "" {
+			parts = append(parts, *part.Text)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// selectByRelevance selects messages to keep based on relevance scores and budget.
+// Protected messages are always kept. Remaining budget is filled by highest-scoring messages.
+func (s *ContextBuilderStage) selectByRelevance(
+	scored []ScoredMessage,
+	budget int,
+	threshold float64,
+) []types.Message {
+	protected, candidates := s.separateProtectedMessages(scored)
+	protectedTokens := s.sumTokens(protected)
+
+	// If protected messages already exceed budget, fall back to keeping most recent
+	if protectedTokens > budget {
+		return s.selectMostRecentProtected(protected, budget)
+	}
+
+	// Select candidates by score within remaining budget
+	remainingBudget := budget - protectedTokens
+	selected := s.selectCandidatesByScore(candidates, remainingBudget, threshold)
+
+	// Combine and sort by original index
+	return s.combineAndSort(protected, selected)
+}
+
+// separateProtectedMessages splits scored messages into protected and candidate slices.
+func (s *ContextBuilderStage) separateProtectedMessages(
+	scored []ScoredMessage,
+) (protected, candidates []ScoredMessage) {
+	for i := range scored {
+		if scored[i].IsProtected {
+			protected = append(protected, scored[i])
+		} else {
+			candidates = append(candidates, scored[i])
+		}
+	}
+	return protected, candidates
+}
+
+// sumTokens calculates total tokens for a slice of scored messages.
+func (s *ContextBuilderStage) sumTokens(messages []ScoredMessage) int {
+	total := 0
+	for i := range messages {
+		total += messages[i].TokenCount
+	}
+	return total
+}
+
+// selectMostRecentProtected handles edge case where protected messages exceed budget.
+func (s *ContextBuilderStage) selectMostRecentProtected(
+	protected []ScoredMessage,
+	budget int,
+) []types.Message {
+	logger.Warn("Protected messages exceed budget, keeping most recent only")
+
+	// Sort by index descending (most recent first)
+	sort.Sort(sort.Reverse(ByOriginalIndex(protected)))
+
+	var result []types.Message
+	used := 0
+	for i := range protected {
+		if used+protected[i].TokenCount <= budget {
+			result = append(result, protected[i].Message)
+			used += protected[i].TokenCount
+		}
+	}
+	return result
+}
+
+// selectCandidatesByScore selects highest-scoring candidates within budget.
+func (s *ContextBuilderStage) selectCandidatesByScore(
+	candidates []ScoredMessage,
+	budget int,
+	threshold float64,
+) []ScoredMessage {
+	sort.Sort(ScoredMessages(candidates))
+
+	var selected []ScoredMessage
+	usedTokens := 0
+	for i := range candidates {
+		if threshold > 0 && candidates[i].Score < threshold {
+			continue
+		}
+		if usedTokens+candidates[i].TokenCount <= budget {
+			selected = append(selected, candidates[i])
+			usedTokens += candidates[i].TokenCount
+		}
+	}
+	return selected
+}
+
+// combineAndSort merges protected and selected messages, sorts by original index.
+func (s *ContextBuilderStage) combineAndSort(
+	protected, selected []ScoredMessage,
+) []types.Message {
+	allSelected := make([]ScoredMessage, 0, len(protected)+len(selected))
+	allSelected = append(allSelected, protected...)
+	allSelected = append(allSelected, selected...)
+	sort.Sort(ByOriginalIndex(allSelected))
+
+	result := make([]types.Message, len(allSelected))
+	for i := range allSelected {
+		result[i] = allSelected[i].Message
+	}
+
+	logger.Debug("Relevance truncation complete",
+		"protected", len(protected),
+		"selected", len(selected),
+		"total", len(result),
+	)
 	return result
 }

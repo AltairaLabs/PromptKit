@@ -256,6 +256,9 @@ func (c *Conversation) buildPipelineWithParams(
 		ConversationID:      conversationID,
 		StreamInputProvider: streamProvider, // For duplex mode: provider creates session lazily
 		StreamInputConfig:   streamConfig,   // Base config for session
+		TokenBudget:         c.config.tokenBudget,
+		TruncationStrategy:  c.config.truncationStrategy,
+		RelevanceConfig:     c.buildRelevanceConfig(),
 	}
 
 	// Apply parameters from prompt if available
@@ -312,6 +315,9 @@ func (c *Conversation) buildStreamPipelineWithParams(
 		ConversationID:      conversationID,
 		StreamInputProvider: streamProvider, // For duplex mode: provider creates session lazily
 		StreamInputConfig:   streamConfig,   // Base config for session
+		TokenBudget:         c.config.tokenBudget,
+		TruncationStrategy:  c.config.truncationStrategy,
+		RelevanceConfig:     c.buildRelevanceConfig(),
 	}
 
 	// Apply parameters from prompt if available
@@ -751,4 +757,40 @@ func (c *Conversation) ID() string {
 // For convenience methods, see the [hooks] package.
 func (c *Conversation) EventBus() *events.EventBus {
 	return c.config.eventBus
+}
+
+// buildRelevanceConfig converts SDK RelevanceConfig to stage.RelevanceConfig.
+func (c *Conversation) buildRelevanceConfig() *stage.RelevanceConfig {
+	if c.config.relevanceConfig == nil {
+		return nil
+	}
+
+	cfg := c.config.relevanceConfig
+	stageConfig := &stage.RelevanceConfig{
+		EmbeddingProvider:    cfg.EmbeddingProvider,
+		MinRecentMessages:    cfg.MinRecentMessages,
+		AlwaysKeepSystemRole: cfg.AlwaysKeepSystemRole,
+		SimilarityThreshold:  cfg.SimilarityThreshold,
+		LastNCount:           cfg.LastNCount,
+		CustomQuery:          cfg.CustomQuery,
+	}
+
+	// Convert query source string to type
+	switch cfg.QuerySource {
+	case "last_user", "":
+		stageConfig.QuerySource = stage.QuerySourceLastUser
+	case "last_n":
+		stageConfig.QuerySource = stage.QuerySourceLastN
+	case "custom":
+		stageConfig.QuerySource = stage.QuerySourceCustom
+	default:
+		stageConfig.QuerySource = stage.QuerySourceLastUser
+	}
+
+	// Set defaults if not specified
+	if stageConfig.MinRecentMessages == 0 {
+		stageConfig.MinRecentMessages = 3
+	}
+
+	return stageConfig
 }
