@@ -1,0 +1,24 @@
+# Development Logging Configuration
+# Use this config during development for maximum visibility
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: LoggingConfig
+metadata:
+  name: development-logging
+spec:
+  # Debug level shows detailed information including API requests/responses
+  defaultLevel: debug
+
+  # Text format is easier to read in terminal
+  format: text
+
+  # Common fields appear in every log entry
+  commonFields:
+    environment: development
+
+  # Per-module overrides (optional)
+  # Uncomment to quiet specific modules while debugging others
+  # modules:
+  #   - name: providers
+  #     level: info  # Reduce provider verbosity
+  #   - name: runtime.pipeline
+  #     level: trace  # Maximum detail for pipeline debugging

@@ -1,0 +1,32 @@
+# Production Logging Configuration
+# Optimized for log aggregation and monitoring systems
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: LoggingConfig
+metadata:
+  name: production-logging
+spec:
+  # Info level for normal operations
+  defaultLevel: info
+
+  # JSON format for structured log aggregation (ELK, Datadog, etc.)
+  format: json
+
+  # Common fields for filtering and correlation in log systems
+  commonFields:
+    service: promptkit
+    environment: production
+    version: "1.0.0"
+
+  # Per-module configuration for production
+  modules:
+    # Reduce noise from verbose modules
+    - name: runtime.streaming
+      level: warn
+
+    # Keep pipeline logging at info for observability
+    - name: runtime.pipeline
+      level: info
+
+    # Only log provider errors in production
+    - name: providers
+      level: warn

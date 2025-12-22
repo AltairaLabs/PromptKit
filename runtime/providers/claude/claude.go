@@ -274,6 +274,12 @@ func (p *Provider) parseAndValidateClaudeResponse(respBody []byte, predictResp p
 
 // Predict sends a predict request to Claude
 func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+	// Enrich context with provider and model info for logging
+	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
+		Provider: p.ID(),
+		Model:    p.model,
+	})
+
 	start := time.Now()
 
 	// Convert messages to Claude format
@@ -395,6 +401,12 @@ func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.Co
 
 // PredictStream streams a predict response from Claude
 func (p *Provider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+	// Enrich context with provider and model info for logging
+	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
+		Provider: p.ID(),
+		Model:    p.model,
+	})
+
 	// Convert messages to Claude format
 	messages := make([]claudeMessage, 0, len(req.Messages))
 

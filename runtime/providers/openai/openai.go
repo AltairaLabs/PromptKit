@@ -430,6 +430,12 @@ func getTextFromPart(part interface{}) string {
 
 // predictWithMessages is a refactored version of Predict that accepts pre-converted messages
 func (p *Provider) predictWithMessages(ctx context.Context, req providers.PredictionRequest, messages []openAIMessage) (providers.PredictionResponse, error) {
+	// Enrich context with provider and model info for logging
+	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
+		Provider: p.ID(),
+		Model:    p.model,
+	})
+
 	start := time.Now()
 
 	// Apply provider defaults for zero values
@@ -537,6 +543,12 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 
 // predictStreamWithMessages is a refactored version of PredictStream that accepts pre-converted messages
 func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.PredictionRequest, messages []openAIMessage) (<-chan providers.StreamChunk, error) {
+	// Enrich context with provider and model info for logging
+	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
+		Provider: p.ID(),
+		Model:    p.model,
+	})
+
 	// Apply provider defaults for zero values
 	temperature, topP, maxTokens := p.applyRequestDefaults(req)
 

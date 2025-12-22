@@ -1,0 +1,33 @@
+# Debugging Logging Configuration
+# Use when troubleshooting specific modules
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: LoggingConfig
+metadata:
+  name: debugging-logging
+spec:
+  # Default to warn to quiet most output
+  defaultLevel: warn
+
+  # Text format for readability
+  format: text
+
+  commonFields:
+    mode: debugging
+
+  # Enable verbose logging only for the modules you're debugging
+  modules:
+    # Example: Debug pipeline execution
+    - name: runtime.pipeline
+      level: debug
+
+    # Example: Debug tool execution
+    - name: runtime.tools
+      level: debug
+
+    # Example: Trace-level logging for a specific provider
+    # - name: providers.openai
+    #   level: trace
+
+    # Example: Debug conversation execution in arena
+    # - name: tools.arena.engine
+    #   level: debug

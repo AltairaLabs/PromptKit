@@ -14,6 +14,7 @@ package logger
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"os"
 	"regexp"
@@ -24,38 +25,62 @@ var (
 	// DefaultLogger is the global structured logger instance.
 	// It is safe for concurrent use and initialized with slog.LevelInfo by default.
 	DefaultLogger *slog.Logger
+
+	// logOutput is the destination for log output.
+	// Defaults to os.Stderr but can be changed for testing.
+	logOutput io.Writer = os.Stderr
 )
+
+// currentLevel stores the current log level for reuse when recreating handlers.
+var currentLevel = slog.LevelInfo
 
 func init() {
 	// Check LOG_LEVEL environment variable
-	level := slog.LevelInfo
+	currentLevel = slog.LevelInfo
 	if envLevel := os.Getenv("LOG_LEVEL"); envLevel != "" {
-		switch strings.ToLower(envLevel) {
-		case "debug":
-			level = slog.LevelDebug
-		case "info":
-			level = slog.LevelInfo
-		case "warn", "warning":
-			level = slog.LevelWarn
-		case "error":
-			level = slog.LevelError
-		}
+		currentLevel = ParseLevel(envLevel)
 	}
 
-	// Initialize with text handler writing to stderr
-	handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+	// Initialize with text handler wrapped in context handler
+	initLogger(currentLevel, nil)
+}
+
+// initLogger creates the logger with the given level and common fields.
+func initLogger(level slog.Level, commonFields []slog.Attr) {
+	textHandler := slog.NewTextHandler(logOutput, &slog.HandlerOptions{
 		Level: level,
 	})
-	DefaultLogger = slog.New(handler)
+	contextHandler := NewContextHandler(textHandler, commonFields...)
+	DefaultLogger = slog.New(contextHandler)
+}
+
+// ParseLevel converts a string log level to slog.Level.
+// Supported values: "trace", "debug", "info", "warn", "warning", "error".
+// Unknown values default to LevelInfo.
+func ParseLevel(s string) slog.Level {
+	switch strings.ToLower(s) {
+	case "trace":
+		// slog doesn't have trace, use debug-4 (more verbose than debug)
+		//nolint:mnd // 4 is the standard offset for trace level below debug
+		return slog.LevelDebug - 4
+	case "debug":
+		return slog.LevelDebug
+	case "info":
+		return slog.LevelInfo
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }
 
 // SetLevel changes the logging level for all subsequent log operations.
 // This is safe for concurrent use as it replaces the entire logger instance.
 func SetLevel(level slog.Level) {
-	handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: level,
-	})
-	DefaultLogger = slog.New(handler)
+	currentLevel = level
+	initLogger(level, nil)
 }
 
 // SetVerbose enables debug-level logging when verbose is true, otherwise sets info-level.
@@ -66,6 +91,17 @@ func SetVerbose(verbose bool) {
 	} else {
 		SetLevel(slog.LevelInfo)
 	}
+}
+
+// SetOutput changes the log output destination and reinitializes the logger.
+// This is primarily for testing. Pass nil to reset to os.Stderr.
+func SetOutput(w io.Writer) {
+	if w == nil {
+		logOutput = os.Stderr
+	} else {
+		logOutput = w
+	}
+	initLogger(currentLevel, nil)
 }
 
 // Info logs an informational message with structured key-value attributes.
