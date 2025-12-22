@@ -55,10 +55,10 @@ const (
 
 // API constants.
 const (
-	defaultBaseURL      = "https://api.voyageai.com/v1"
-	embeddingsPath      = "/embeddings"
-	defaultTimeout      = 60 * time.Second
-	defaultMaxBatchSize = 128 // Reasonable default; actual limit is token-based
+	voyageBaseURL       = "https://api.voyageai.com/v1"
+	voyageEmbedEndpoint = "/embeddings"
+	voyageTimeout       = 60 * time.Second
+	voyageMaxBatch      = 128 // Reasonable default; actual limit is token-based
 )
 
 // EmbeddingProvider implements embedding generation via Voyage AI API.
@@ -119,10 +119,10 @@ func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 		BaseEmbeddingProvider: providers.NewBaseEmbeddingProvider(
 			"voyageai-embedding",
 			DefaultModel,
-			defaultBaseURL,
+			voyageBaseURL,
 			Dimensions1024,
-			defaultMaxBatchSize,
-			defaultTimeout,
+			voyageMaxBatch,
+			voyageTimeout,
 		),
 	}
 
@@ -143,8 +143,8 @@ func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 	return p, nil
 }
 
-// embeddingRequest is the Voyage AI embeddings API request format.
-type embeddingRequest struct {
+// voyageRequest is the Voyage AI embeddings API request format.
+type voyageRequest struct {
 	Model           string   `json:"model"`
 	Input           []string `json:"input"`
 	InputType       string   `json:"input_type,omitempty"`
@@ -152,21 +152,21 @@ type embeddingRequest struct {
 	OutputDtype     string   `json:"output_dtype,omitempty"`
 }
 
-// embeddingResponse is the Voyage AI embeddings API response format.
-type embeddingResponse struct {
-	Object string          `json:"object"`
-	Data   []embeddingData `json:"data"`
-	Model  string          `json:"model"`
-	Usage  embeddingUsage  `json:"usage"`
+// voyageResponse is the Voyage AI embeddings API response format.
+type voyageResponse struct {
+	Object string            `json:"object"`
+	Data   []voyageEmbedding `json:"data"`
+	Model  string            `json:"model"`
+	Usage  voyageUsage       `json:"usage"`
 }
 
-type embeddingData struct {
+type voyageEmbedding struct {
 	Object    string    `json:"object"`
 	Embedding []float32 `json:"embedding"`
 	Index     int       `json:"index"`
 }
 
-type embeddingUsage struct {
+type voyageUsage struct {
 	TotalTokens int `json:"total_tokens"`
 }
 
@@ -177,57 +177,57 @@ func (p *EmbeddingProvider) Embed(
 	return p.EmbedWithEmptyCheck(ctx, req, p.embedTexts)
 }
 
-// embedTexts performs the actual embedding request.
+// embedTexts performs the actual embedding request to Voyage AI.
 func (p *EmbeddingProvider) embedTexts(
 	ctx context.Context, texts []string, model string,
 ) (providers.EmbeddingResponse, error) {
-	reqBody := embeddingRequest{
+	voyageReq := voyageRequest{
 		Model: model,
 		Input: texts,
 	}
 
-	// Add optional parameters
+	// Add Voyage-specific optional parameters
 	if p.inputType != "" {
-		reqBody.InputType = p.inputType
+		voyageReq.InputType = p.inputType
 	}
 	if p.Dimensions > 0 && p.Dimensions != Dimensions1024 {
-		reqBody.OutputDimension = p.Dimensions
+		voyageReq.OutputDimension = p.Dimensions
 	}
 
-	jsonBody, err := providers.MarshalRequest(reqBody)
-	if err != nil {
-		return providers.EmbeddingResponse{}, err
+	reqBytes, marshalErr := providers.MarshalRequest(voyageReq)
+	if marshalErr != nil {
+		return providers.EmbeddingResponse{}, marshalErr
 	}
 
-	start := time.Now()
-	body, err := p.DoEmbeddingRequest(ctx, providers.HTTPRequestConfig{
-		URL:       p.BaseURL + embeddingsPath,
-		Body:      jsonBody,
+	requestStart := time.Now()
+	respBytes, httpErr := p.DoEmbeddingRequest(ctx, providers.HTTPRequestConfig{
+		URL:       p.BaseURL + voyageEmbedEndpoint,
+		Body:      reqBytes,
 		UseAPIKey: true,
 	})
-	if err != nil {
-		return providers.EmbeddingResponse{}, err
+	if httpErr != nil {
+		return providers.EmbeddingResponse{}, httpErr
 	}
 
-	var embedResp embeddingResponse
-	if err := providers.UnmarshalResponse(body, &embedResp); err != nil {
-		return providers.EmbeddingResponse{}, err
+	var voyageResp voyageResponse
+	if unmarshalErr := providers.UnmarshalResponse(respBytes, &voyageResp); unmarshalErr != nil {
+		return providers.EmbeddingResponse{}, unmarshalErr
 	}
 
-	// Extract embeddings in correct order
-	embeddings, _ := providers.ExtractOrderedEmbeddings(
-		embedResp.Data,
-		func(d embeddingData) int { return d.Index },
-		func(d embeddingData) []float32 { return d.Embedding },
+	// Reorder embeddings by index for consistent output
+	orderedEmbeddings, _ := providers.ExtractOrderedEmbeddings(
+		voyageResp.Data,
+		func(v voyageEmbedding) int { return v.Index },
+		func(v voyageEmbedding) []float32 { return v.Embedding },
 		len(texts),
 	)
 
-	providers.LogEmbeddingRequestWithTokens("Voyage AI", model, len(texts), embedResp.Usage.TotalTokens, start)
+	providers.LogEmbeddingRequestWithTokens("Voyage AI", model, len(texts), voyageResp.Usage.TotalTokens, requestStart)
 
 	return providers.EmbeddingResponse{
-		Embeddings: embeddings,
-		Model:      embedResp.Model,
-		Usage:      &providers.EmbeddingUsage{TotalTokens: embedResp.Usage.TotalTokens},
+		Embeddings: orderedEmbeddings,
+		Model:      voyageResp.Model,
+		Usage:      &providers.EmbeddingUsage{TotalTokens: voyageResp.Usage.TotalTokens},
 	}, nil
 }
 

@@ -78,21 +78,21 @@ func TestEmbeddingProvider_Embed(t *testing.T) {
 			assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 			assert.Equal(t, "Bearer test-key", r.Header.Get("Authorization"))
 
-			var req embeddingRequest
+			var req voyageRequest
 			err := json.NewDecoder(r.Body).Decode(&req)
 			require.NoError(t, err)
 			assert.Equal(t, DefaultModel, req.Model)
 			assert.Equal(t, []string{"hello world", "test input"}, req.Input)
 
 			// Return mock response
-			resp := embeddingResponse{
+			resp := voyageResponse{
 				Object: "list",
-				Data: []embeddingData{
+				Data: []voyageEmbedding{
 					{Object: "embedding", Embedding: []float32{0.1, 0.2, 0.3}, Index: 0},
 					{Object: "embedding", Embedding: []float32{0.4, 0.5, 0.6}, Index: 1},
 				},
 				Model: DefaultModel,
-				Usage: embeddingUsage{TotalTokens: 10},
+				Usage: voyageUsage{TotalTokens: 10},
 			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(resp)
@@ -139,17 +139,17 @@ func TestEmbeddingProvider_Embed(t *testing.T) {
 	t.Run("uses model override from request", func(t *testing.T) {
 		var receivedModel string
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var req embeddingRequest
+			var req voyageRequest
 			json.NewDecoder(r.Body).Decode(&req)
 			receivedModel = req.Model
 
-			resp := embeddingResponse{
+			resp := voyageResponse{
 				Object: "list",
-				Data: []embeddingData{
+				Data: []voyageEmbedding{
 					{Object: "embedding", Embedding: []float32{0.1}, Index: 0},
 				},
 				Model: req.Model,
-				Usage: embeddingUsage{TotalTokens: 5},
+				Usage: voyageUsage{TotalTokens: 5},
 			}
 			json.NewEncoder(w).Encode(resp)
 		}))
@@ -172,17 +172,17 @@ func TestEmbeddingProvider_Embed(t *testing.T) {
 	t.Run("includes input_type when set", func(t *testing.T) {
 		var receivedInputType string
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var req embeddingRequest
+			var req voyageRequest
 			json.NewDecoder(r.Body).Decode(&req)
 			receivedInputType = req.InputType
 
-			resp := embeddingResponse{
+			resp := voyageResponse{
 				Object: "list",
-				Data: []embeddingData{
+				Data: []voyageEmbedding{
 					{Object: "embedding", Embedding: []float32{0.1}, Index: 0},
 				},
 				Model: DefaultModel,
-				Usage: embeddingUsage{TotalTokens: 5},
+				Usage: voyageUsage{TotalTokens: 5},
 			}
 			json.NewEncoder(w).Encode(resp)
 		}))
@@ -205,17 +205,17 @@ func TestEmbeddingProvider_Embed(t *testing.T) {
 	t.Run("includes output_dimension when non-default", func(t *testing.T) {
 		var receivedDimension int
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var req embeddingRequest
+			var req voyageRequest
 			json.NewDecoder(r.Body).Decode(&req)
 			receivedDimension = req.OutputDimension
 
-			resp := embeddingResponse{
+			resp := voyageResponse{
 				Object: "list",
-				Data: []embeddingData{
+				Data: []voyageEmbedding{
 					{Object: "embedding", Embedding: make([]float32, 512), Index: 0},
 				},
 				Model: DefaultModel,
-				Usage: embeddingUsage{TotalTokens: 5},
+				Usage: voyageUsage{TotalTokens: 5},
 			}
 			json.NewEncoder(w).Encode(resp)
 		}))
@@ -297,15 +297,15 @@ func TestEmbeddingProvider_ContextCancellation(t *testing.T) {
 func TestEmbeddingProvider_PreservesOrderWithOutOfOrderResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Return embeddings in reverse order (2, 1, 0)
-		resp := embeddingResponse{
+		resp := voyageResponse{
 			Object: "list",
-			Data: []embeddingData{
+			Data: []voyageEmbedding{
 				{Object: "embedding", Embedding: []float32{0.5, 0.6}, Index: 2},
 				{Object: "embedding", Embedding: []float32{0.3, 0.4}, Index: 1},
 				{Object: "embedding", Embedding: []float32{0.1, 0.2}, Index: 0},
 			},
 			Model: DefaultModel,
-			Usage: embeddingUsage{TotalTokens: 15},
+			Usage: voyageUsage{TotalTokens: 15},
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
@@ -343,19 +343,19 @@ func TestEmbeddingProvider_WithHTTPClient(t *testing.T) {
 
 func TestEmbeddingProvider_EmbedSingleText(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req embeddingRequest
+		var req voyageRequest
 		json.NewDecoder(r.Body).Decode(&req)
 
 		assert.Len(t, req.Input, 1)
 		assert.Equal(t, "single text", req.Input[0])
 
-		resp := embeddingResponse{
+		resp := voyageResponse{
 			Object: "list",
-			Data: []embeddingData{
+			Data: []voyageEmbedding{
 				{Object: "embedding", Embedding: []float32{0.1, 0.2, 0.3, 0.4}, Index: 0},
 			},
 			Model: DefaultModel,
-			Usage: embeddingUsage{TotalTokens: 3},
+			Usage: voyageUsage{TotalTokens: 3},
 		}
 		json.NewEncoder(w).Encode(resp)
 	}))
@@ -379,17 +379,17 @@ func TestEmbeddingProvider_EmbedSingleText(t *testing.T) {
 func TestEmbeddingProvider_InputTypeDocument(t *testing.T) {
 	var receivedInputType string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req embeddingRequest
+		var req voyageRequest
 		json.NewDecoder(r.Body).Decode(&req)
 		receivedInputType = req.InputType
 
-		resp := embeddingResponse{
+		resp := voyageResponse{
 			Object: "list",
-			Data: []embeddingData{
+			Data: []voyageEmbedding{
 				{Object: "embedding", Embedding: []float32{0.1}, Index: 0},
 			},
 			Model: DefaultModel,
-			Usage: embeddingUsage{TotalTokens: 5},
+			Usage: voyageUsage{TotalTokens: 5},
 		}
 		json.NewEncoder(w).Encode(resp)
 	}))
@@ -424,17 +424,17 @@ func TestEmbeddingProvider_DomainSpecificModels(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var receivedModel string
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				var req embeddingRequest
+				var req voyageRequest
 				json.NewDecoder(r.Body).Decode(&req)
 				receivedModel = req.Model
 
-				resp := embeddingResponse{
+				resp := voyageResponse{
 					Object: "list",
-					Data: []embeddingData{
+					Data: []voyageEmbedding{
 						{Object: "embedding", Embedding: []float32{0.1}, Index: 0},
 					},
 					Model: req.Model,
-					Usage: embeddingUsage{TotalTokens: 5},
+					Usage: voyageUsage{TotalTokens: 5},
 				}
 				json.NewEncoder(w).Encode(resp)
 			}))
@@ -471,17 +471,17 @@ func TestEmbeddingProvider_AllDimensionOptions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var receivedDimension int
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				var req embeddingRequest
+				var req voyageRequest
 				json.NewDecoder(r.Body).Decode(&req)
 				receivedDimension = req.OutputDimension
 
-				resp := embeddingResponse{
+				resp := voyageResponse{
 					Object: "list",
-					Data: []embeddingData{
+					Data: []voyageEmbedding{
 						{Object: "embedding", Embedding: make([]float32, tc.dims), Index: 0},
 					},
 					Model: DefaultModel,
-					Usage: embeddingUsage{TotalTokens: 5},
+					Usage: voyageUsage{TotalTokens: 5},
 				}
 				json.NewEncoder(w).Encode(resp)
 			}))
@@ -506,17 +506,17 @@ func TestEmbeddingProvider_AllDimensionOptions(t *testing.T) {
 func TestEmbeddingProvider_DefaultDimensionNotSent(t *testing.T) {
 	var receivedDimension int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req embeddingRequest
+		var req voyageRequest
 		json.NewDecoder(r.Body).Decode(&req)
 		receivedDimension = req.OutputDimension
 
-		resp := embeddingResponse{
+		resp := voyageResponse{
 			Object: "list",
-			Data: []embeddingData{
+			Data: []voyageEmbedding{
 				{Object: "embedding", Embedding: make([]float32, 1024), Index: 0},
 			},
 			Model: DefaultModel,
-			Usage: embeddingUsage{TotalTokens: 5},
+			Usage: voyageUsage{TotalTokens: 5},
 		}
 		json.NewEncoder(w).Encode(resp)
 	}))
