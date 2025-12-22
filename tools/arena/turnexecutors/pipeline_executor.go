@@ -12,6 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers/gemini"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/openai"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/voyageai"
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -119,8 +120,15 @@ func createEmbeddingProvider(providerName, model string) (providers.EmbeddingPro
 		}
 		return gemini.NewEmbeddingProvider(opts...)
 
+	case "voyageai", "voyage":
+		opts := []voyageai.EmbeddingOption{}
+		if model != "" {
+			opts = append(opts, voyageai.WithModel(model))
+		}
+		return voyageai.NewEmbeddingProvider(opts...)
+
 	default:
-		return nil, fmt.Errorf("unknown embedding provider: %s (supported: openai, gemini)", providerName)
+		return nil, fmt.Errorf("unknown embedding provider: %s (supported: openai, gemini, voyageai)", providerName)
 	}
 }
 
