@@ -389,6 +389,10 @@ func streamChunkToStreamElement(chunk *providers.StreamChunk) stage.StreamElemen
 		for k, v := range chunk.Metadata {
 			elem.Metadata[k] = v
 		}
+		// Check for end_of_stream signal in metadata
+		if eos, ok := chunk.Metadata["end_of_stream"].(bool); ok && eos {
+			elem.EndOfStream = true
+		}
 	}
 
 	return elem

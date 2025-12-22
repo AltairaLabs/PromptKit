@@ -80,11 +80,15 @@ func TestAudioFlowThroughPipeline(t *testing.T) {
 	audioData := generateTestAudioData(1600) // 100ms at 16kHz mono
 	audioStr := string(audioData)
 
-	// Create audio chunk
+	// Create audio chunk with EndOfStream to signal end of turn input
+	// This allows the DuplexProviderStage to start processing immediately
 	chunk := &providers.StreamChunk{
 		MediaDelta: &types.MediaContent{
 			MIMEType: types.MIMETypeAudioWAV,
 			Data:     &audioStr,
+		},
+		Metadata: map[string]interface{}{
+			"end_of_stream": true, // Signal end of input turn
 		},
 	}
 
@@ -196,19 +200,27 @@ func TestMultipleAudioChunksFlow(t *testing.T) {
 	ctx := context.Background()
 	numChunks := 10
 
-	// Send multiple chunks
+	// Send multiple chunks - last one signals end of stream
 	for i := 0; i < numChunks; i++ {
 		audioData := generateTestAudioData(320)
 		// Mark each chunk with its index
 		audioData[0] = byte(i)
 		audioStr := string(audioData)
 
-		err := session.SendChunk(ctx, &providers.StreamChunk{
+		chunk := &providers.StreamChunk{
 			MediaDelta: &types.MediaContent{
 				MIMEType: types.MIMETypeAudioWAV,
 				Data:     &audioStr,
 			},
-		})
+		}
+		// Signal end of stream on last chunk
+		if i == numChunks-1 {
+			chunk.Metadata = map[string]interface{}{
+				"end_of_stream": true,
+			}
+		}
+
+		err := session.SendChunk(ctx, chunk)
 		require.NoError(t, err)
 	}
 
@@ -251,11 +263,14 @@ func TestAudioDataIntegrity(t *testing.T) {
 	}
 	audioStr := string(audioData)
 
-	// Send chunk
+	// Send chunk with end_of_stream to allow pipeline to process
 	err := session.SendChunk(ctx, &providers.StreamChunk{
 		MediaDelta: &types.MediaContent{
 			MIMEType: types.MIMETypeAudioWAV,
 			Data:     &audioStr,
+		},
+		Metadata: map[string]interface{}{
+			"end_of_stream": true,
 		},
 	})
 	require.NoError(t, err)
@@ -297,8 +312,14 @@ func TestTextFlowThroughPipeline(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Send text
-	err := session.SendText(ctx, "Hello, this is a test message")
+	// Send text with end_of_stream to allow pipeline to process
+	text := "Hello, this is a test message"
+	err := session.SendChunk(ctx, &providers.StreamChunk{
+		Content: text,
+		Metadata: map[string]interface{}{
+			"end_of_stream": true,
+		},
+	})
 	require.NoError(t, err)
 
 	// Wait for processing
@@ -386,7 +407,7 @@ func TestDiagnostics(t *testing.T) {
 		t.Log("6. MockSession created successfully")
 	}
 
-	// Step 7: Send a test chunk
+	// Step 7: Send a test chunk with end_of_stream
 	audioData := []byte{1, 2, 3, 4, 5}
 	audioStr := string(audioData)
 	err = session.SendChunk(ctx, &providers.StreamChunk{
@@ -394,9 +415,12 @@ func TestDiagnostics(t *testing.T) {
 			MIMEType: types.MIMETypeAudioWAV,
 			Data:     &audioStr,
 		},
+		Metadata: map[string]interface{}{
+			"end_of_stream": true,
+		},
 	})
 	require.NoError(t, err)
-	t.Log("7. Test chunk sent via SendChunk")
+	t.Log("7. Test chunk sent via SendChunk (with end_of_stream)")
 
 	// Step 8: Wait and check what arrived
 	time.Sleep(300 * time.Millisecond)

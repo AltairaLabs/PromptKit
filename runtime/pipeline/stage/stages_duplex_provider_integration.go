@@ -191,11 +191,12 @@ func (s *DuplexProviderStage) Process(
 		// This is critical for providers with slow session creation (e.g., OpenAI WebSocket ~600ms).
 		//
 		// We buffer until we see EndOfStream (which marks end of first turn input),
-		// then stop buffering. Subsequent turn elements will be read directly by
-		// forwardInputElements after the buffered elements are replayed.
+		// or until session creation completes (for fast providers like mocks).
+		// Subsequent turn elements will be read directly by forwardInputElements.
 		bufferedElements := []StreamElement{firstElem}
 		bufferMu := &sync.Mutex{}
 		drainDone := make(chan struct{})
+		sessionCreated := make(chan struct{})
 
 		// If the first element already has EndOfStream, skip buffering entirely
 		// This is common in tests and when there's only one element to send
@@ -210,6 +211,13 @@ func (s *DuplexProviderStage) Process(
 					select {
 					case <-ctx.Done():
 						logger.Debug("DuplexProviderStage: drain goroutine canceled by context")
+						return
+					case <-sessionCreated:
+						// Session is ready - stop buffering and let forwardInputElements handle the rest
+						bufferMu.Lock()
+						logger.Debug("DuplexProviderStage: session created, stopping buffer",
+							"bufferedCount", len(bufferedElements))
+						bufferMu.Unlock()
 						return
 					case elem, ok := <-input:
 						if !ok {
@@ -250,7 +258,10 @@ func (s *DuplexProviderStage) Process(
 		defer s.session.Close()
 		s.systemPromptSent = true // System instruction sent at session creation
 
-		// Wait for buffering to complete (stops at EndOfStream)
+		// Signal drain goroutine that session is ready - it can stop buffering
+		close(sessionCreated)
+
+		// Wait for buffering to complete (stops at EndOfStream or sessionCreated)
 		<-drainDone
 		bufferMu.Lock()
 		numBuffered := len(bufferedElements)
@@ -445,7 +456,29 @@ func (s *DuplexProviderStage) sendElementToSession(ctx context.Context, elem *St
 		}
 	}
 
-	// Check for end of stream (end of turn input)
+	// Check for system prompt in metadata (sent once at the start)
+	if !s.systemPromptSent && elem.Metadata != nil {
+		if systemPrompt, ok := elem.Metadata["system_prompt"].(string); ok && systemPrompt != "" {
+			logger.Debug("DuplexProviderStage: sending system prompt as context (no turn_complete)",
+				"promptLength", len(systemPrompt))
+			// Use SendSystemContext to send prompt WITHOUT triggering a response
+			// This allows the system prompt to be applied before audio input starts
+			if err := s.session.SendSystemContext(ctx, systemPrompt); err != nil {
+				logger.Error("DuplexProviderStage: failed to send system prompt", "error", err)
+			}
+			s.systemPromptSent = true
+		}
+	}
+
+	// Process audio/text content BEFORE handling EndOfStream
+	// This ensures content in the final element is sent before signaling end of input
+	if elem.Audio != nil && len(elem.Audio.Samples) > 0 {
+		s.sendAudioElement(ctx, elem)
+	} else if elem.Text != nil && *elem.Text != "" {
+		s.sendTextElement(ctx, elem)
+	}
+
+	// Check for end of stream (end of turn input) AFTER processing content
 	if elem.EndOfStream {
 		logger.Debug("DuplexProviderStage: end of stream signal received",
 			"audio_chunks_sent", s.audioChunkCount,
@@ -466,27 +499,6 @@ func (s *DuplexProviderStage) sendElementToSession(ctx context.Context, elem *St
 			logger.Debug("DuplexProviderStage: session does not implement EndInputter",
 				"sessionType", fmt.Sprintf("%T", s.session))
 		}
-		return
-	}
-
-	// Check for system prompt in metadata (sent once at the start)
-	if !s.systemPromptSent && elem.Metadata != nil {
-		if systemPrompt, ok := elem.Metadata["system_prompt"].(string); ok && systemPrompt != "" {
-			logger.Debug("DuplexProviderStage: sending system prompt as context (no turn_complete)",
-				"promptLength", len(systemPrompt))
-			// Use SendSystemContext to send prompt WITHOUT triggering a response
-			// This allows the system prompt to be applied before audio input starts
-			if err := s.session.SendSystemContext(ctx, systemPrompt); err != nil {
-				logger.Error("DuplexProviderStage: failed to send system prompt", "error", err)
-			}
-			s.systemPromptSent = true
-		}
-	}
-
-	if elem.Audio != nil && len(elem.Audio.Samples) > 0 {
-		s.sendAudioElement(ctx, elem)
-	} else if elem.Text != nil && *elem.Text != "" {
-		s.sendTextElement(ctx, elem)
 	}
 }
 
