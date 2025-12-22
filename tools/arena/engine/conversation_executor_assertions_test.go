@@ -3,7 +3,6 @@ package engine
 import (
 	"bytes"
 	"context"
-	"os"
 	"strings"
 	"testing"
 
@@ -20,15 +19,14 @@ import (
 // TestConversationExecutor_DebugOnUserTurnAssertions verifies that a debug message is logged
 // when assertions are specified on user turns (which will validate assistant responses)
 func TestConversationExecutor_DebugOnUserTurnAssertions(t *testing.T) {
-	// Capture stderr output where logger writes
-	originalStderr := os.Stderr
-	defer func() {
-		os.Stderr = originalStderr
-	}()
-
-	r, w, _ := os.Pipe()
-	os.Stderr = w
+	// Capture log output using a buffer
+	var output bytes.Buffer
+	logger.SetOutput(&output)
 	logger.SetVerbose(true) // Enable debug logging
+	defer func() {
+		logger.SetOutput(nil) // Reset to stderr
+		logger.SetVerbose(false)
+	}()
 
 	// Create mock turn executor
 	mockTurnExec := &MockTurnExecutor{}
@@ -93,11 +91,6 @@ func TestConversationExecutor_DebugOnUserTurnAssertions(t *testing.T) {
 	}
 
 	result := executor.ExecuteConversation(context.Background(), req)
-
-	// Close writer and read output
-	w.Close()
-	var output bytes.Buffer
-	_, _ = output.ReadFrom(r) // Ignore error and bytes written in test
 
 	// Should not fail
 	require.False(t, result.Failed, "Conversation should not fail")

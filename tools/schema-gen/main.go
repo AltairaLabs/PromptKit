@@ -61,6 +61,7 @@ func run() error {
 		{"PromptConfig", generators.GeneratePromptConfigSchema, "promptconfig.json"},
 		{"Tool", generators.GenerateToolSchema, "tool.json"},
 		{"Persona", generators.GeneratePersonaSchema, "persona.json"},
+		{"Logging", generators.GenerateLoggingSchema, "logging.json"},
 	}
 
 	if mkdirErr := os.MkdirAll(outputPath, dirPermissions); mkdirErr != nil {

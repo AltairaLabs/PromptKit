@@ -50,6 +50,13 @@ func NewDefaultConversationExecutor(
 
 // ExecuteConversation runs a complete conversation based on scenario using the new Turn model
 func (ce *DefaultConversationExecutor) ExecuteConversation(ctx context.Context, req ConversationRequest) *ConversationResult {
+	// Enrich context with scenario and session information for structured logging
+	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
+		Scenario:  req.Scenario.ID,
+		SessionID: req.ConversationID,
+		Stage:     "execution",
+	})
+
 	var emitter *events.Emitter
 	if req.EventBus != nil {
 		emitter = events.NewEmitter(req.EventBus, req.RunID, "", req.ConversationID)
@@ -72,10 +79,13 @@ func (ce *DefaultConversationExecutor) executeWithoutStreaming(
 ) *ConversationResult {
 	// Execute each turn in the scenario
 	for turnIdx, scenarioTurn := range req.Scenario.Turns {
+		// Enrich context with turn information
+		turnCtx := logger.WithTurnID(ctx, fmt.Sprintf("turn-%d", turnIdx))
+
 		ce.notifyTurnStarted(emitter, turnIdx, scenarioTurn.Role, req.Scenario.ID)
 		ce.debugOnUserTurnAssertions(scenarioTurn, turnIdx)
 
-		err := ce.executeNonStreamingTurn(ctx, req, scenarioTurn)
+		err := ce.executeNonStreamingTurn(turnCtx, req, scenarioTurn)
 
 		if err != nil {
 			logger.Error("Turn execution failed",
@@ -149,6 +159,10 @@ func (ce *DefaultConversationExecutor) executeWithStreaming(
 	emitter *events.Emitter,
 ) *ConversationResult {
 	for turnIdx, scenarioTurn := range req.Scenario.Turns {
+		// Enrich context with turn information
+		turnCtx := logger.WithTurnID(ctx, fmt.Sprintf("turn-%d", turnIdx))
+		turnCtx = logger.WithStage(turnCtx, "streaming")
+
 		ce.notifyTurnStarted(emitter, turnIdx, scenarioTurn.Role, req.Scenario.ID)
 
 		// Execute multiple self-play turns if specified
@@ -159,7 +173,7 @@ func (ce *DefaultConversationExecutor) executeWithStreaming(
 
 		var err error
 		for i := 0; i < turnsToExecute; i++ {
-			err = ce.executeStreamingTurn(ctx, *req, turnIdx, scenarioTurn)
+			err = ce.executeStreamingTurn(turnCtx, *req, turnIdx, scenarioTurn)
 			if err != nil {
 				break
 			}
