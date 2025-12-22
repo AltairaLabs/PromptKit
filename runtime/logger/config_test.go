@@ -276,3 +276,79 @@ func TestExtractModuleFromFunction(t *testing.T) {
 		})
 	}
 }
+
+func TestModuleHandler_WithAttrs(t *testing.T) {
+	var buf bytes.Buffer
+
+	mc := NewModuleConfig(slog.LevelDebug)
+
+	textHandler := slog.NewTextHandler(&buf, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	})
+
+	handler := NewModuleHandler(textHandler, mc)
+
+	// Test WithAttrs returns a new handler with the attrs
+	newHandler := handler.WithAttrs([]slog.Attr{slog.String("test_attr", "value")})
+
+	if newHandler == nil {
+		t.Error("WithAttrs returned nil")
+	}
+
+	// Verify it's a ModuleHandler
+	if _, ok := newHandler.(*ModuleHandler); !ok {
+		t.Error("WithAttrs should return a *ModuleHandler")
+	}
+}
+
+func TestModuleHandler_WithGroup(t *testing.T) {
+	var buf bytes.Buffer
+
+	mc := NewModuleConfig(slog.LevelDebug)
+
+	textHandler := slog.NewTextHandler(&buf, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	})
+
+	handler := NewModuleHandler(textHandler, mc)
+
+	// Test WithGroup returns a new handler with the group
+	newHandler := handler.WithGroup("test_group")
+
+	if newHandler == nil {
+		t.Error("WithGroup returned nil")
+	}
+
+	// Verify it's a ModuleHandler
+	if _, ok := newHandler.(*ModuleHandler); !ok {
+		t.Error("WithGroup should return a *ModuleHandler")
+	}
+}
+
+func TestModuleHandler_Handle_FiltersLowLevelLogs(t *testing.T) {
+	var buf bytes.Buffer
+
+	// Create module config that sets high level for runtime.logger
+	mc := NewModuleConfig(slog.LevelError) // Default to error only
+
+	textHandler := slog.NewTextHandler(&buf, &slog.HandlerOptions{
+		Level: slog.LevelDebug, // Base level allows all
+	})
+
+	handler := NewModuleHandler(textHandler, mc)
+	logger := slog.New(handler)
+
+	// Debug and Info should be filtered at error level
+	logger.Debug("debug message")
+	logger.Info("info message")
+
+	output := buf.String()
+
+	// Neither message should appear
+	if strings.Contains(output, "debug message") {
+		t.Error("Debug message should have been filtered")
+	}
+	if strings.Contains(output, "info message") {
+		t.Error("Info message should have been filtered")
+	}
+}

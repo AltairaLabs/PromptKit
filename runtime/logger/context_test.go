@@ -389,3 +389,97 @@ func TestContextHandler_Unwrap(t *testing.T) {
 		t.Error("Unwrap should return the inner handler")
 	}
 }
+
+func TestExtractLoggingFields_AllFields(t *testing.T) {
+	ctx := context.Background()
+
+	// Add all fields
+	ctx = WithLoggingContext(ctx, &LoggingFields{
+		TurnID:          "turn-1",
+		Scenario:        "test-scenario",
+		ScenarioVersion: "v1",
+		Provider:        "openai",
+		SessionID:       "sess-123",
+		Model:           "gpt-4",
+		Stage:           "execution",
+		RequestID:       "req-456",
+		CorrelationID:   "corr-789",
+		Environment:     "test",
+	})
+
+	fields := ExtractLoggingFields(ctx)
+
+	if fields.TurnID != "turn-1" {
+		t.Errorf("TurnID = %q, want %q", fields.TurnID, "turn-1")
+	}
+	if fields.Scenario != "test-scenario" {
+		t.Errorf("Scenario = %q, want %q", fields.Scenario, "test-scenario")
+	}
+	if fields.ScenarioVersion != "v1" {
+		t.Errorf("ScenarioVersion = %q, want %q", fields.ScenarioVersion, "v1")
+	}
+	if fields.Provider != "openai" {
+		t.Errorf("Provider = %q, want %q", fields.Provider, "openai")
+	}
+	if fields.SessionID != "sess-123" {
+		t.Errorf("SessionID = %q, want %q", fields.SessionID, "sess-123")
+	}
+	if fields.Model != "gpt-4" {
+		t.Errorf("Model = %q, want %q", fields.Model, "gpt-4")
+	}
+	if fields.Stage != "execution" {
+		t.Errorf("Stage = %q, want %q", fields.Stage, "execution")
+	}
+	if fields.RequestID != "req-456" {
+		t.Errorf("RequestID = %q, want %q", fields.RequestID, "req-456")
+	}
+	if fields.CorrelationID != "corr-789" {
+		t.Errorf("CorrelationID = %q, want %q", fields.CorrelationID, "corr-789")
+	}
+	if fields.Environment != "test" {
+		t.Errorf("Environment = %q, want %q", fields.Environment, "test")
+	}
+}
+
+func TestExtractLoggingFields_NonStringValues(t *testing.T) {
+	ctx := context.Background()
+
+	// Add a non-string value to context (should be skipped)
+	ctx = context.WithValue(ctx, ContextKeyTurnID, 12345) // int instead of string
+
+	fields := ExtractLoggingFields(ctx)
+
+	// Should be empty since the value wasn't a string
+	if fields.TurnID != "" {
+		t.Errorf("TurnID should be empty for non-string value, got %q", fields.TurnID)
+	}
+}
+
+func TestIndividualContextHelpers(t *testing.T) {
+	ctx := context.Background()
+
+	// Test each individual helper
+	ctx = WithModel(ctx, "gpt-4o")
+	ctx = WithStage(ctx, "validation")
+	ctx = WithRequestID(ctx, "req-abc")
+	ctx = WithCorrelationID(ctx, "corr-xyz")
+	ctx = WithEnvironment(ctx, "production")
+
+	fields := ExtractLoggingFields(ctx)
+
+	if fields.Model != "gpt-4o" {
+		t.Errorf("Model = %q, want %q", fields.Model, "gpt-4o")
+	}
+	if fields.Stage != "validation" {
+		t.Errorf("Stage = %q, want %q", fields.Stage, "validation")
+	}
+	if fields.RequestID != "req-abc" {
+		t.Errorf("RequestID = %q, want %q", fields.RequestID, "req-abc")
+	}
+	if fields.CorrelationID != "corr-xyz" {
+		t.Errorf("CorrelationID = %q, want %q", fields.CorrelationID, "corr-xyz")
+	}
+	if fields.Environment != "production" {
+		t.Errorf("Environment = %q, want %q", fields.Environment, "production")
+	}
+}
