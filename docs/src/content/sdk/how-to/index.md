@@ -22,6 +22,10 @@ Practical, task-focused guides for common SDK operations.
 
 - **[Manage Variables](manage-state)** - Use `SetVar()` and `GetVar()`
 
+## Context Management
+
+- **[Manage Context](manage-context)** - Configure token budgets and relevance-based truncation
+
 ## Observability
 
 - **[Monitor Events](monitor-events)** - Subscribe to events with `Subscribe()`

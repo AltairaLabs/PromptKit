@@ -58,6 +58,13 @@ Turn recorded Arena runs into mock provider YAML for deterministic, cost-free re
 Configure automated voice testing using duplex streaming and self-play with TTS.
 </div>
 
+## Context Management
+
+<div class="code-example" markdown="1">
+### [Manage Context](manage-context)
+Configure context management and truncation strategies for long conversations, including embedding-based relevance truncation.
+</div>
+
 ## Automation
 
 <div class="code-example" markdown="1">
