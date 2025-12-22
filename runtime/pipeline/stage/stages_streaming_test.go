@@ -463,7 +463,12 @@ func TestDuplexProviderStage_InterruptionHandling(t *testing.T) {
 		input := make(chan StreamElement, 10)
 		output := make(chan StreamElement, 20)
 
-		input <- elementWithSystemPrompt("Test system prompt")
+		// Send system prompt with EndOfStream to allow bidirectional streaming to start
+		// (the drain goroutine waits for EndOfStream before exiting)
+		input <- StreamElement{
+			Metadata:    map[string]interface{}{"system_prompt": "Test system prompt"},
+			EndOfStream: true,
+		}
 
 		go func() {
 			stage.Process(ctx, input, output)
@@ -588,7 +593,12 @@ func TestDuplexProviderStage_InterruptionHandling(t *testing.T) {
 		input := make(chan StreamElement, 10)
 		output := make(chan StreamElement, 20)
 
-		input <- elementWithSystemPrompt("Test system prompt")
+		// Send system prompt with EndOfStream to allow bidirectional streaming to start
+		// (the drain goroutine waits for EndOfStream before exiting)
+		input <- StreamElement{
+			Metadata:    map[string]interface{}{"system_prompt": "Test system prompt"},
+			EndOfStream: true,
+		}
 
 		go func() {
 			stage.Process(ctx, input, output)

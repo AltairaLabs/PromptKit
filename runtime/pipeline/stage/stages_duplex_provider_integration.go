@@ -2,6 +2,7 @@ package stage
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
@@ -185,19 +186,91 @@ func (s *DuplexProviderStage) Process(
 		logger.Debug("DuplexProviderStage: creating session with system instruction",
 			"system_prompt_length", len(systemPrompt))
 
-		// Create the session
+		// Buffer elements during session creation to avoid losing data
+		// when upstream stages close their output channels before session connects.
+		// This is critical for providers with slow session creation (e.g., OpenAI WebSocket ~600ms).
+		//
+		// We buffer until we see EndOfStream (which marks end of first turn input),
+		// or until session creation completes (for fast providers like mocks).
+		// Subsequent turn elements will be read directly by forwardInputElements.
+		bufferedElements := []StreamElement{firstElem}
+		bufferMu := &sync.Mutex{}
+		drainDone := make(chan struct{})
+		sessionCreated := make(chan struct{})
+
+		// If the first element already has EndOfStream, skip buffering entirely
+		// This is common in tests and when there's only one element to send
+		if firstElem.EndOfStream {
+			logger.Debug("DuplexProviderStage: first element has EndOfStream, skipping buffer drain")
+			close(drainDone)
+		} else {
+			go func() {
+				logger.Debug("DuplexProviderStage: drain goroutine started")
+				defer close(drainDone)
+				for {
+					select {
+					case <-ctx.Done():
+						logger.Debug("DuplexProviderStage: drain goroutine canceled by context")
+						return
+					case <-sessionCreated:
+						// Session is ready - stop buffering and let forwardInputElements handle the rest
+						bufferMu.Lock()
+						logger.Debug("DuplexProviderStage: session created, stopping buffer",
+							"bufferedCount", len(bufferedElements))
+						bufferMu.Unlock()
+						return
+					case elem, ok := <-input:
+						if !ok {
+							bufferMu.Lock()
+							logger.Debug("DuplexProviderStage: input channel closed during buffering",
+								"bufferedCount", len(bufferedElements))
+							bufferMu.Unlock()
+							return
+						}
+						bufferMu.Lock()
+						logger.Debug("DuplexProviderStage: buffered element",
+							"hasAudio", elem.Audio != nil,
+							"hasText", elem.Text != nil,
+							"endOfStream", elem.EndOfStream,
+							"bufferedCount", len(bufferedElements)+1)
+						bufferedElements = append(bufferedElements, elem)
+						isEOS := elem.EndOfStream
+						bufferMu.Unlock()
+						// Stop buffering on EndOfStream - the first turn's input is complete
+						if isEOS {
+							logger.Debug("DuplexProviderStage: EndOfStream received, stopping buffer")
+							return
+						}
+					}
+				}
+			}()
+		}
+
+		// Create the session (may take several hundred milliseconds for WebSocket connection)
 		var err error
 		s.session, err = s.provider.CreateStreamSession(ctx, sessionConfig)
 		if err != nil {
+			// Wait for drain goroutine to complete before returning
+			<-drainDone
 			return fmt.Errorf("duplex provider stage: failed to create session: %w", err)
 		}
 		logger.Debug("DuplexProviderStage: session created")
 		defer s.session.Close()
 		s.systemPromptSent = true // System instruction sent at session creation
 
-		// Re-inject the first element into a new channel that includes it
-		// This ensures the first element's audio/message content is processed
-		input = s.prependElement(ctx, &firstElem, input)
+		// Signal drain goroutine that session is ready - it can stop buffering
+		close(sessionCreated)
+
+		// Wait for buffering to complete (stops at EndOfStream or sessionCreated)
+		<-drainDone
+		bufferMu.Lock()
+		numBuffered := len(bufferedElements)
+		bufferMu.Unlock()
+		logger.Debug("DuplexProviderStage: replaying buffered elements",
+			"count", numBuffered)
+
+		// Re-inject buffered elements followed by original input for subsequent turns
+		input = s.replayAndMerge(ctx, bufferedElements, input)
 	} else {
 		// Session was pre-configured, ensure it's closed on exit
 		defer s.session.Close()
@@ -329,25 +402,27 @@ func (s *DuplexProviderStage) forwardInputElements(
 	}
 }
 
-// prependElement creates a new channel that yields the first element followed by all elements
-// from the original input channel. This is used after consuming the first element to extract
-// system_prompt, ensuring the element's audio/message content is still processed.
-func (s *DuplexProviderStage) prependElement(
+// replayAndMerge creates a channel that yields buffered elements followed by remaining input.
+// This is used after buffering during session creation to replay buffered elements
+// and then forward any subsequent elements from the original input channel.
+func (s *DuplexProviderStage) replayAndMerge(
 	ctx context.Context,
-	first *StreamElement,
-	rest <-chan StreamElement,
+	elements []StreamElement,
+	remaining <-chan StreamElement,
 ) <-chan StreamElement {
 	merged := make(chan StreamElement)
 	go func() {
 		defer close(merged)
-		// Send the first element
-		select {
-		case merged <- *first:
-		case <-ctx.Done():
-			return
+		// First, replay buffered elements
+		for i := range elements {
+			select {
+			case merged <- elements[i]:
+			case <-ctx.Done():
+				return
+			}
 		}
-		// Forward all remaining elements
-		for elem := range rest {
+		// Then, forward remaining elements from original input
+		for elem := range remaining {
 			select {
 			case merged <- elem:
 			case <-ctx.Done():
@@ -381,7 +456,29 @@ func (s *DuplexProviderStage) sendElementToSession(ctx context.Context, elem *St
 		}
 	}
 
-	// Check for end of stream (end of turn input)
+	// Check for system prompt in metadata (sent once at the start)
+	if !s.systemPromptSent && elem.Metadata != nil {
+		if systemPrompt, ok := elem.Metadata["system_prompt"].(string); ok && systemPrompt != "" {
+			logger.Debug("DuplexProviderStage: sending system prompt as context (no turn_complete)",
+				"promptLength", len(systemPrompt))
+			// Use SendSystemContext to send prompt WITHOUT triggering a response
+			// This allows the system prompt to be applied before audio input starts
+			if err := s.session.SendSystemContext(ctx, systemPrompt); err != nil {
+				logger.Error("DuplexProviderStage: failed to send system prompt", "error", err)
+			}
+			s.systemPromptSent = true
+		}
+	}
+
+	// Process audio/text content BEFORE handling EndOfStream
+	// This ensures content in the final element is sent before signaling end of input
+	if elem.Audio != nil && len(elem.Audio.Samples) > 0 {
+		s.sendAudioElement(ctx, elem)
+	} else if elem.Text != nil && *elem.Text != "" {
+		s.sendTextElement(ctx, elem)
+	}
+
+	// Check for end of stream (end of turn input) AFTER processing content
 	if elem.EndOfStream {
 		logger.Debug("DuplexProviderStage: end of stream signal received",
 			"audio_chunks_sent", s.audioChunkCount,
@@ -402,27 +499,6 @@ func (s *DuplexProviderStage) sendElementToSession(ctx context.Context, elem *St
 			logger.Debug("DuplexProviderStage: session does not implement EndInputter",
 				"sessionType", fmt.Sprintf("%T", s.session))
 		}
-		return
-	}
-
-	// Check for system prompt in metadata (sent once at the start)
-	if !s.systemPromptSent && elem.Metadata != nil {
-		if systemPrompt, ok := elem.Metadata["system_prompt"].(string); ok && systemPrompt != "" {
-			logger.Debug("DuplexProviderStage: sending system prompt as context (no turn_complete)",
-				"promptLength", len(systemPrompt))
-			// Use SendSystemContext to send prompt WITHOUT triggering a response
-			// This allows the system prompt to be applied before audio input starts
-			if err := s.session.SendSystemContext(ctx, systemPrompt); err != nil {
-				logger.Error("DuplexProviderStage: failed to send system prompt", "error", err)
-			}
-			s.systemPromptSent = true
-		}
-	}
-
-	if elem.Audio != nil && len(elem.Audio.Samples) > 0 {
-		s.sendAudioElement(ctx, elem)
-	} else if elem.Text != nil && *elem.Text != "" {
-		s.sendTextElement(ctx, elem)
 	}
 }
 
@@ -539,7 +615,7 @@ func (s *DuplexProviderStage) forwardResponseElements(
 				}
 
 				if len(s.accumulatedMedia) > 0 {
-					mediaData := string(s.accumulatedMedia)
+					mediaData := base64.StdEncoding.EncodeToString(s.accumulatedMedia)
 					msg.Parts = append(msg.Parts, types.ContentPart{
 						Type: types.ContentTypeAudio,
 						Media: &types.MediaContent{
@@ -644,7 +720,7 @@ func (s *DuplexProviderStage) forwardResponseElements(
 					}
 
 					if len(s.accumulatedMedia) > 0 {
-						mediaData := string(s.accumulatedMedia)
+						mediaData := base64.StdEncoding.EncodeToString(s.accumulatedMedia)
 						msg.Parts = append(msg.Parts, types.ContentPart{
 							Type: types.ContentTypeAudio,
 							Media: &types.MediaContent{
@@ -755,8 +831,14 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	}
 
 	// Accumulate media content for this turn
+	// MediaDelta.Data is base64-encoded, so decode it to raw bytes for accumulation
 	if chunk.MediaDelta != nil && chunk.MediaDelta.Data != nil {
-		s.accumulatedMedia = append(s.accumulatedMedia, []byte(*chunk.MediaDelta.Data)...)
+		rawBytes, err := base64.StdEncoding.DecodeString(*chunk.MediaDelta.Data)
+		if err != nil {
+			logger.Warn("DuplexProviderStage: failed to decode base64 audio chunk", "error", err)
+		} else {
+			s.accumulatedMedia = append(s.accumulatedMedia, rawBytes...)
+		}
 	}
 
 	// Convert chunk to element (uses accumulated content for final chunk)
@@ -830,7 +912,7 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 			}
 
 			if len(s.accumulatedMedia) > 0 {
-				mediaData := string(s.accumulatedMedia)
+				mediaData := base64.StdEncoding.EncodeToString(s.accumulatedMedia)
 				msg.Parts = append(msg.Parts, types.ContentPart{
 					Type: types.ContentTypeAudio,
 					Media: &types.MediaContent{
@@ -941,7 +1023,7 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 			}
 
 			if len(s.accumulatedMedia) > 0 {
-				mediaData := string(s.accumulatedMedia)
+				mediaData := base64.StdEncoding.EncodeToString(s.accumulatedMedia)
 				msg.Parts = append(msg.Parts, types.ContentPart{
 					Type: types.ContentTypeAudio,
 					Media: &types.MediaContent{
