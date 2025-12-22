@@ -271,3 +271,268 @@ func TestEmbeddingProvider_InterfaceCompliance(t *testing.T) {
 	// Verify it implements the interface
 	var _ providers.EmbeddingProvider = p
 }
+
+func TestEmbeddingProvider_ContextCancellation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Block until context is done
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	p, err := NewEmbeddingProvider(
+		WithAPIKey("test-key"),
+		WithBaseURL(server.URL),
+	)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	_, err = p.Embed(ctx, providers.EmbeddingRequest{
+		Texts: []string{"test"},
+	})
+	assert.Error(t, err)
+}
+
+func TestEmbeddingProvider_PreservesOrderWithOutOfOrderResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Return embeddings in reverse order (2, 1, 0)
+		resp := embeddingResponse{
+			Object: "list",
+			Data: []embeddingData{
+				{Object: "embedding", Embedding: []float32{0.5, 0.6}, Index: 2},
+				{Object: "embedding", Embedding: []float32{0.3, 0.4}, Index: 1},
+				{Object: "embedding", Embedding: []float32{0.1, 0.2}, Index: 0},
+			},
+			Model: DefaultModel,
+			Usage: embeddingUsage{TotalTokens: 15},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	p, err := NewEmbeddingProvider(
+		WithAPIKey("test-key"),
+		WithBaseURL(server.URL),
+	)
+	require.NoError(t, err)
+
+	resp, err := p.Embed(context.Background(), providers.EmbeddingRequest{
+		Texts: []string{"first", "second", "third"},
+	})
+	require.NoError(t, err)
+
+	// Should be reordered by index
+	assert.Len(t, resp.Embeddings, 3)
+	assert.Equal(t, []float32{0.1, 0.2}, resp.Embeddings[0])
+	assert.Equal(t, []float32{0.3, 0.4}, resp.Embeddings[1])
+	assert.Equal(t, []float32{0.5, 0.6}, resp.Embeddings[2])
+}
+
+func TestEmbeddingProvider_WithHTTPClient(t *testing.T) {
+	customClient := &http.Client{}
+	t.Setenv("VOYAGE_API_KEY", "test-key")
+
+	p, err := NewEmbeddingProvider(
+		WithHTTPClient(customClient),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, customClient, p.HTTPClient)
+}
+
+func TestEmbeddingProvider_EmbedSingleText(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req embeddingRequest
+		json.NewDecoder(r.Body).Decode(&req)
+
+		assert.Len(t, req.Input, 1)
+		assert.Equal(t, "single text", req.Input[0])
+
+		resp := embeddingResponse{
+			Object: "list",
+			Data: []embeddingData{
+				{Object: "embedding", Embedding: []float32{0.1, 0.2, 0.3, 0.4}, Index: 0},
+			},
+			Model: DefaultModel,
+			Usage: embeddingUsage{TotalTokens: 3},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	p, err := NewEmbeddingProvider(
+		WithAPIKey("test-key"),
+		WithBaseURL(server.URL),
+	)
+	require.NoError(t, err)
+
+	resp, err := p.Embed(context.Background(), providers.EmbeddingRequest{
+		Texts: []string{"single text"},
+	})
+	require.NoError(t, err)
+	assert.Len(t, resp.Embeddings, 1)
+	assert.Equal(t, []float32{0.1, 0.2, 0.3, 0.4}, resp.Embeddings[0])
+	assert.Equal(t, 3, resp.Usage.TotalTokens)
+}
+
+func TestEmbeddingProvider_InputTypeDocument(t *testing.T) {
+	var receivedInputType string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req embeddingRequest
+		json.NewDecoder(r.Body).Decode(&req)
+		receivedInputType = req.InputType
+
+		resp := embeddingResponse{
+			Object: "list",
+			Data: []embeddingData{
+				{Object: "embedding", Embedding: []float32{0.1}, Index: 0},
+			},
+			Model: DefaultModel,
+			Usage: embeddingUsage{TotalTokens: 5},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	p, err := NewEmbeddingProvider(
+		WithAPIKey("test-key"),
+		WithBaseURL(server.URL),
+		WithInputType(InputTypeDocument),
+	)
+	require.NoError(t, err)
+
+	_, err = p.Embed(context.Background(), providers.EmbeddingRequest{
+		Texts: []string{"document to index"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, InputTypeDocument, receivedInputType)
+}
+
+func TestEmbeddingProvider_DomainSpecificModels(t *testing.T) {
+	testCases := []struct {
+		model string
+		name  string
+	}{
+		{ModelVoyageCode3, "code model"},
+		{ModelVoyageFinance2, "finance model"},
+		{ModelVoyageLaw2, "law model"},
+		{ModelVoyage3Large, "large model"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var receivedModel string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var req embeddingRequest
+				json.NewDecoder(r.Body).Decode(&req)
+				receivedModel = req.Model
+
+				resp := embeddingResponse{
+					Object: "list",
+					Data: []embeddingData{
+						{Object: "embedding", Embedding: []float32{0.1}, Index: 0},
+					},
+					Model: req.Model,
+					Usage: embeddingUsage{TotalTokens: 5},
+				}
+				json.NewEncoder(w).Encode(resp)
+			}))
+			defer server.Close()
+
+			p, err := NewEmbeddingProvider(
+				WithAPIKey("test-key"),
+				WithBaseURL(server.URL),
+				WithModel(tc.model),
+			)
+			require.NoError(t, err)
+
+			resp, err := p.Embed(context.Background(), providers.EmbeddingRequest{
+				Texts: []string{"test"},
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tc.model, receivedModel)
+			assert.Equal(t, tc.model, resp.Model)
+		})
+	}
+}
+
+func TestEmbeddingProvider_AllDimensionOptions(t *testing.T) {
+	testCases := []struct {
+		dims int
+		name string
+	}{
+		{Dimensions256, "256 dimensions"},
+		{Dimensions512, "512 dimensions"},
+		{Dimensions2048, "2048 dimensions"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var receivedDimension int
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var req embeddingRequest
+				json.NewDecoder(r.Body).Decode(&req)
+				receivedDimension = req.OutputDimension
+
+				resp := embeddingResponse{
+					Object: "list",
+					Data: []embeddingData{
+						{Object: "embedding", Embedding: make([]float32, tc.dims), Index: 0},
+					},
+					Model: DefaultModel,
+					Usage: embeddingUsage{TotalTokens: 5},
+				}
+				json.NewEncoder(w).Encode(resp)
+			}))
+			defer server.Close()
+
+			p, err := NewEmbeddingProvider(
+				WithAPIKey("test-key"),
+				WithBaseURL(server.URL),
+				WithDimensions(tc.dims),
+			)
+			require.NoError(t, err)
+
+			_, err = p.Embed(context.Background(), providers.EmbeddingRequest{
+				Texts: []string{"test"},
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tc.dims, receivedDimension)
+		})
+	}
+}
+
+func TestEmbeddingProvider_DefaultDimensionNotSent(t *testing.T) {
+	var receivedDimension int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req embeddingRequest
+		json.NewDecoder(r.Body).Decode(&req)
+		receivedDimension = req.OutputDimension
+
+		resp := embeddingResponse{
+			Object: "list",
+			Data: []embeddingData{
+				{Object: "embedding", Embedding: make([]float32, 1024), Index: 0},
+			},
+			Model: DefaultModel,
+			Usage: embeddingUsage{TotalTokens: 5},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	p, err := NewEmbeddingProvider(
+		WithAPIKey("test-key"),
+		WithBaseURL(server.URL),
+		// Not setting dimensions, should use default 1024
+	)
+	require.NoError(t, err)
+
+	_, err = p.Embed(context.Background(), providers.EmbeddingRequest{
+		Texts: []string{"test"},
+	})
+	require.NoError(t, err)
+	// Default dimension (1024) should not be sent in the request
+	assert.Equal(t, 0, receivedDimension)
+}
