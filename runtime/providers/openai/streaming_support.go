@@ -79,8 +79,13 @@ func (p *Provider) applyStreamMetadata(metadata map[string]interface{}, config *
 		}
 	}
 
-	// Input audio transcription
-	if enableTranscription, ok := metadata["input_transcription"].(bool); ok && enableTranscription {
+	// Input audio transcription - enabled by default for debugging and logging
+	// Can be disabled via metadata["input_transcription"] = false
+	enableTranscription := true // default
+	if val, ok := metadata["input_transcription"].(bool); ok {
+		enableTranscription = val
+	}
+	if enableTranscription {
 		config.InputAudioTranscription = &TranscriptionConfig{
 			Model: "whisper-1",
 		}

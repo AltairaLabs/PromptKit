@@ -77,30 +77,30 @@ type RealtimeSessionConfig struct {
 type TranscriptionConfig struct {
 	// Model specifies the transcription model.
 	// Default: "whisper-1"
-	Model string
+	Model string `json:"model,omitempty"`
 }
 
 // TurnDetectionConfig configures server-side VAD.
 type TurnDetectionConfig struct {
 	// Type specifies the VAD type.
-	// Options: "server_vad"
-	Type string
+	// Options: "server_vad", "semantic_vad"
+	Type string `json:"type"`
 
 	// Threshold is the activation threshold (0.0-1.0).
 	// Default: 0.5
-	Threshold float64
+	Threshold float64 `json:"threshold,omitempty"`
 
 	// PrefixPaddingMs is audio padding before speech in milliseconds.
 	// Default: 300
-	PrefixPaddingMs int
+	PrefixPaddingMs int `json:"prefix_padding_ms,omitempty"`
 
 	// SilenceDurationMs is silence duration to detect end of speech.
 	// Default: 500
-	SilenceDurationMs int
+	SilenceDurationMs int `json:"silence_duration_ms,omitempty"`
 
 	// CreateResponse determines if a response is automatically created
 	// when speech ends. Default: true
-	CreateResponse bool
+	CreateResponse bool `json:"create_response,omitempty"`
 }
 
 // RealtimeToolDefinition defines a function available in the session.

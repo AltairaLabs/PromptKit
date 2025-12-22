@@ -18,6 +18,8 @@ type SessionUpdateEvent struct {
 }
 
 // SessionConfig is the session configuration sent in session.update.
+// Note: TurnDetection uses a pointer without omitempty so we can explicitly
+// send null to disable VAD. Omitting it causes OpenAI to use default (server_vad).
 type SessionConfig struct {
 	Modalities              []string             `json:"modalities,omitempty"`
 	Instructions            string               `json:"instructions,omitempty"`
@@ -25,7 +27,7 @@ type SessionConfig struct {
 	InputAudioFormat        string               `json:"input_audio_format,omitempty"`
 	OutputAudioFormat       string               `json:"output_audio_format,omitempty"`
 	InputAudioTranscription *TranscriptionConfig `json:"input_audio_transcription,omitempty"`
-	TurnDetection           *TurnDetectionConfig `json:"turn_detection,omitempty"`
+	TurnDetection           *TurnDetectionConfig `json:"turn_detection"` // No omitempty - null disables VAD
 	Tools                   []RealtimeToolDef    `json:"tools,omitempty"`
 	ToolChoice              interface{}          `json:"tool_choice,omitempty"`
 	Temperature             float64              `json:"temperature,omitempty"`

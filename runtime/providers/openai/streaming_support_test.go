@@ -218,16 +218,27 @@ func TestProvider_applyStreamMetadata(t *testing.T) {
 		}
 	})
 
-	t.Run("enables input transcription", func(t *testing.T) {
+	t.Run("enables input transcription by default", func(t *testing.T) {
 		config := DefaultRealtimeSessionConfig()
-		metadata := map[string]interface{}{
-			"input_transcription": true,
-		}
+		metadata := map[string]interface{}{}
 
 		p.applyStreamMetadata(metadata, &config)
 
 		if config.InputAudioTranscription == nil {
-			t.Error("expected input transcription config")
+			t.Error("expected input transcription config to be enabled by default")
+		}
+	})
+
+	t.Run("disables input transcription when explicitly set to false", func(t *testing.T) {
+		config := DefaultRealtimeSessionConfig()
+		metadata := map[string]interface{}{
+			"input_transcription": false,
+		}
+
+		p.applyStreamMetadata(metadata, &config)
+
+		if config.InputAudioTranscription != nil {
+			t.Error("expected input transcription to be disabled")
 		}
 	})
 

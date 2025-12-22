@@ -301,13 +301,16 @@ func TestDuplexConversationExecutor_BuildBaseSessionConfig(t *testing.T) {
 		},
 	}
 
-	cfg := executor.buildBaseSessionConfig(req)
+	cfg := executor.buildBaseSessionConfig(req, 16000)
 
 	if cfg == nil {
 		t.Fatal("Expected non-nil config")
 	}
 	if cfg.Config.Type != types.ContentTypeAudio {
 		t.Errorf("Expected audio content type, got %s", cfg.Config.Type)
+	}
+	if cfg.Config.SampleRate != 16000 {
+		t.Errorf("Expected 16000 sample rate, got %d", cfg.Config.SampleRate)
 	}
 	if cfg.Config.Encoding != "pcm_linear16" {
 		t.Errorf("Expected pcm_linear16 encoding, got %s", cfg.Config.Encoding)
@@ -412,9 +415,12 @@ func TestDuplexConversationExecutor_BuildBaseSessionConfigEdgeCases(t *testing.T
 	req := &ConversationRequest{
 		Scenario: nil,
 	}
-	cfg := executor.buildBaseSessionConfig(req)
+	cfg := executor.buildBaseSessionConfig(req, 24000)
 	if cfg == nil {
 		t.Fatal("Expected non-nil config even with nil scenario")
+	}
+	if cfg.Config.SampleRate != 24000 {
+		t.Errorf("Expected 24000 sample rate, got %d", cfg.Config.SampleRate)
 	}
 
 	// Test with empty task type
@@ -424,7 +430,7 @@ func TestDuplexConversationExecutor_BuildBaseSessionConfigEdgeCases(t *testing.T
 			TaskType: "",
 		},
 	}
-	cfg = executor.buildBaseSessionConfig(req)
+	cfg = executor.buildBaseSessionConfig(req, 16000)
 	if cfg == nil {
 		t.Fatal("Expected non-nil config with empty task type")
 	}

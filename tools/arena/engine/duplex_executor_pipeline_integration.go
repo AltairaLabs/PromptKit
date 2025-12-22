@@ -215,11 +215,20 @@ func (de *DuplexConversationExecutor) buildDuplexPipeline(
 	// Build merged variables for prompt assembly (consistent with non-duplex pipeline)
 	mergedVars := de.buildMergedVariables(req)
 
+	// Determine target sample rate from provider capabilities
+	// Each provider has different audio requirements (e.g., Gemini: 16kHz, OpenAI: 24kHz)
+	targetSampleRate := defaultSampleRate // fallback to 16kHz
+	caps := streamProvider.GetStreamingCapabilities()
+	if caps.Audio != nil && caps.Audio.PreferredSampleRate > 0 {
+		targetSampleRate = caps.Audio.PreferredSampleRate
+		logger.Debug("buildDuplexPipeline: using provider preferred sample rate",
+			"sample_rate", targetSampleRate)
+	}
+
 	// 0. Audio resample stage - normalizes all input audio to target sample rate
 	// This must be first so all downstream stages receive consistent sample rates.
-	// Gemini expects 16kHz audio input.
 	resampleConfig := stage.AudioResampleConfig{
-		TargetSampleRate:      defaultSampleRate, // 16000 Hz for Gemini
+		TargetSampleRate:      targetSampleRate,
 		PassthroughIfSameRate: true,
 	}
 	stages = append(stages, stage.NewAudioResampleStage(resampleConfig))
@@ -254,7 +263,7 @@ func (de *DuplexConversationExecutor) buildDuplexPipeline(
 	// 2. Duplex provider stage - creates session using system_prompt from metadata
 	// The session is created lazily when the first element arrives, reading
 	// system_prompt from the element's metadata (set by PromptAssemblyStage).
-	baseConfig := de.buildBaseSessionConfig(req)
+	baseConfig := de.buildBaseSessionConfig(req, targetSampleRate)
 	stages = append(stages, stage.NewDuplexProviderStage(streamProvider, baseConfig))
 
 	// NOTE: ResponseVADStage was removed. It was intended to delay EndOfStream until
@@ -293,12 +302,16 @@ func (de *DuplexConversationExecutor) buildDuplexPipeline(
 
 // buildBaseSessionConfig creates the base streaming configuration without system instruction.
 // The system instruction will be added by DuplexProviderStage from element metadata.
-func (de *DuplexConversationExecutor) buildBaseSessionConfig(req *ConversationRequest) *providers.StreamingInputConfig {
+// sampleRate is determined from provider capabilities in buildDuplexPipeline.
+func (de *DuplexConversationExecutor) buildBaseSessionConfig(
+	req *ConversationRequest,
+	sampleRate int,
+) *providers.StreamingInputConfig {
 	cfg := &providers.StreamingInputConfig{
 		Config: types.StreamingMediaConfig{
 			Type:       types.ContentTypeAudio,
 			ChunkSize:  defaultAudioChunkSize,
-			SampleRate: defaultSampleRate,
+			SampleRate: sampleRate,
 			Encoding:   "pcm_linear16",
 			Channels:   1,
 			BitDepth:   geminiAudioBitDepth,

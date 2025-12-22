@@ -456,7 +456,7 @@ func TestDuplexStateStore_SystemPromptPassedToStateStore(t *testing.T) {
 		},
 	}
 
-	sessionConfig := executor.buildBaseSessionConfig(req)
+	sessionConfig := executor.buildBaseSessionConfig(req, 16000)
 	if sessionConfig == nil {
 		t.Fatal("buildBaseSessionConfig should return non-nil config")
 	}

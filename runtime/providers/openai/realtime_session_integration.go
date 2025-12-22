@@ -46,7 +46,7 @@ type RealtimeSession struct {
 	// Configuration stored for the session
 	config RealtimeSessionConfig
 
-	// Cost tracking
+	// Cost tracking (can be overridden via provider config)
 	inputCostPer1K  float64
 	outputCostPer1K float64
 
@@ -107,18 +107,29 @@ func (s *RealtimeSession) waitForSessionCreated() error {
 	ctx, cancel := context.WithTimeout(s.ctx, setupTimeout)
 	defer cancel()
 
+	logger.Debug("OpenAI Realtime: waiting for session.created event")
 	data, err := s.ws.Receive(ctx)
 	if err != nil {
+		logger.Error("OpenAI Realtime: failed to receive session.created", "error", err)
 		return fmt.Errorf("failed to receive session.created: %w", err)
 	}
+	logger.Debug("OpenAI Realtime: received data from WebSocket", "length", len(data), "data", string(data))
 
 	event, err := ParseServerEvent(data)
 	if err != nil {
+		// Truncate data for logging to avoid huge error messages
+		const maxLogDataLen = 200
+		truncatedData := data
+		if len(data) > maxLogDataLen {
+			truncatedData = data[:maxLogDataLen]
+		}
+		logger.Error("OpenAI Realtime: failed to parse event", "error", err, "data", string(truncatedData))
 		return fmt.Errorf("failed to parse session.created: %w", err)
 	}
 
 	created, ok := event.(*SessionCreatedEvent)
 	if !ok {
+		logger.Error("OpenAI Realtime: unexpected event type", "got", fmt.Sprintf("%T", event))
 		return fmt.Errorf("expected session.created, got: %T", event)
 	}
 
@@ -429,7 +440,11 @@ func (s *RealtimeSession) EndInput() {
 
 // receiveLoop continuously receives and processes messages from the server.
 func (s *RealtimeSession) receiveLoop() {
-	defer close(s.responseCh)
+	logger.Debug("OpenAI Realtime: receiveLoop started")
+	defer func() {
+		logger.Debug("OpenAI Realtime: receiveLoop exiting, closing responseCh")
+		close(s.responseCh)
+	}()
 
 	msgCh := make(chan []byte, responseChannelSize)
 	errCh := make(chan error, 1)
@@ -441,6 +456,7 @@ func (s *RealtimeSession) receiveLoop() {
 	for {
 		select {
 		case <-s.ctx.Done():
+			logger.Debug("OpenAI Realtime: receiveLoop context done")
 			return
 		case err := <-errCh:
 			if err != nil && !errors.Is(err, context.Canceled) {
@@ -449,6 +465,8 @@ func (s *RealtimeSession) receiveLoop() {
 				case s.errCh <- err:
 				default:
 				}
+			} else {
+				logger.Debug("OpenAI Realtime: WebSocket receive loop ended", "error", err)
 			}
 			return
 		case data := <-msgCh:
@@ -543,16 +561,15 @@ func (s *RealtimeSession) handleTextDone(e *ResponseTextDoneEvent) {
 }
 
 func (s *RealtimeSession) handleAudioDelta(e *ResponseAudioDeltaEvent) {
-	// Decode base64 audio
-	audioData, err := base64.StdEncoding.DecodeString(e.Delta)
-	if err != nil {
-		logger.Warn("OpenAI Realtime: failed to decode audio", "error", err)
-		return
-	}
-
+	// Keep audio as base64 - that's the expected format for MediaDelta.Data
+	// (DuplexProviderStage and downstream stages expect base64)
+	audioDataBase64 := e.Delta
 	s.responseCh <- providers.StreamChunk{
+		MediaDelta: &types.MediaContent{
+			Data:     &audioDataBase64,
+			MIMEType: "audio/pcm",
+		},
 		Metadata: map[string]interface{}{
-			"audio_data":    audioData,
 			"item_id":       e.ItemID,
 			"response_id":   e.ResponseID,
 			"content_index": e.ContentIndex,
@@ -573,11 +590,12 @@ func (s *RealtimeSession) handleAudioDone(e *ResponseAudioDoneEvent) {
 
 func (s *RealtimeSession) handleTranscriptDelta(e *ResponseAudioTranscriptDeltaEvent) {
 	s.responseCh <- providers.StreamChunk{
+		Delta: e.Delta, // DuplexProviderStage accumulates this for output transcription
 		Metadata: map[string]interface{}{
-			"transcript_delta": e.Delta,
-			"item_id":          e.ItemID,
-			"response_id":      e.ResponseID,
-			"content_index":    e.ContentIndex,
+			"type":          "output_transcription",
+			"item_id":       e.ItemID,
+			"response_id":   e.ResponseID,
+			"content_index": e.ContentIndex,
 		},
 	}
 }
@@ -629,9 +647,10 @@ func (s *RealtimeSession) handleResponseDone(e *ResponseDoneEvent) {
 func (s *RealtimeSession) handleInputTranscription(e *ConversationItemInputAudioTranscriptionCompletedEvent) {
 	s.responseCh <- providers.StreamChunk{
 		Metadata: map[string]interface{}{
-			"input_transcript": e.Transcript,
-			"item_id":          e.ItemID,
-			"content_index":    e.ContentIndex,
+			"type":          "input_transcription",
+			"transcription": e.Transcript, // DuplexProviderStage expects this key
+			"item_id":       e.ItemID,
+			"content_index": e.ContentIndex,
 		},
 	}
 }
@@ -655,14 +674,18 @@ func (s *RealtimeSession) calculateCost(usage *UsageInfo) *types.CostInfo {
 	outputTokens := usage.OutputTokens
 
 	// Use configured pricing or defaults
+	// OpenAI Realtime API pricing per 1K tokens (as of 2025-01):
+	// gpt-realtime: Audio input $32/1M = $0.032/1K, Audio output $64/1M = $0.064/1K
+	// gpt-4o-realtime-preview: Audio input $100/1M = $0.10/1K, Audio output $200/1M = $0.20/1K
+	// Using gpt-realtime pricing as default since it's the recommended production model
 	inputCostPer1K := s.inputCostPer1K
 	outputCostPer1K := s.outputCostPer1K
 
 	if inputCostPer1K == 0 {
-		inputCostPer1K = 0.06 // Default for gpt-4o-realtime
+		inputCostPer1K = 0.032 // Default: gpt-realtime audio input $32/1M tokens
 	}
 	if outputCostPer1K == 0 {
-		outputCostPer1K = 0.24 // Default for gpt-4o-realtime
+		outputCostPer1K = 0.064 // Default: gpt-realtime audio output $64/1M tokens
 	}
 
 	inputCost := float64(inputTokens) / tokensPerThousand * inputCostPer1K
