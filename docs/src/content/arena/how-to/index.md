@@ -58,6 +58,13 @@ Turn recorded Arena runs into mock provider YAML for deterministic, cost-free re
 Configure automated voice testing using duplex streaming and self-play with TTS.
 </div>
 
+## Session Recording
+
+<div class="code-example" markdown="1">
+### [Session Recording](session-recording)
+Capture detailed session recordings for debugging, replay, and analysis. Export audio tracks, correlate events with annotations, and use recordings for deterministic test replay.
+</div>
+
 ## Context Management
 
 <div class="code-example" markdown="1">

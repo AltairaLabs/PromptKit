@@ -154,6 +154,11 @@ spec:
         file: junit.xml             # Default: junit.xml
         include_system_out: true    # Default: false
 
+      # Optional: Session recording for debugging and replay
+      recording:
+        enabled: true               # Default: false
+        dir: recordings             # Default: "recordings" (subdirectory of output.dir)
+
     # Failure behavior
     fail_on:                        # Conditions that cause test failure
       - assertion_failure           # Assertion didn't pass
@@ -304,6 +309,11 @@ Output configuration for test results.
   - `markdown`: Markdown report
   - `junit`: JUnit XML (for CI/CD)
 - Format-specific options (see structure above)
+- `recording` (object, optional): Session recording configuration
+  - `enabled` (bool): Enable session recording (default: false)
+  - `dir` (string): Subdirectory for recordings (default: "recordings")
+
+**Session Recording**: When enabled, Arena captures detailed event streams for each test run, including audio data for voice conversations. Recordings can be used for debugging, replay, and analysis. See [Session Recording Guide](/arena/how-to/session-recording/) for details.
 
 #### `defaults.fail_on`
 

@@ -107,6 +107,7 @@ Focused guides for specific Arena tasks:
 - [Validate Outputs](/arena/how-to/validate-outputs/) - Assertion strategies
 - [Customize Reports](/arena/how-to/customize-reports/) - Report formatting
 - [Integrate CI/CD](/arena/how-to/integrate-ci-cd/) - GitHub Actions, GitLab CI
+- [Session Recording](/arena/how-to/session-recording/) - Capture and replay sessions
 
 ### 💡 Explanation (Understand the Concepts)
 
@@ -116,6 +117,7 @@ Deep dives into Arena's design and philosophy:
 - [Scenario Design](/arena/explanation/scenario-design/) - Effective test patterns
 - [Provider Comparison](/arena/explanation/provider-comparison/) - Evaluate providers
 - [Validation Strategies](/arena/explanation/validation-strategies/) - Assertion best practices
+- [Session Recording](/arena/explanation/session-recording/) - Recording architecture and replay
 
 ### 📖 Reference (Look Up Details)
 
