@@ -92,17 +92,134 @@ func toSerializable(e *Event) (*SerializableEvent, error) {
 }
 
 // toEvent converts a SerializableEvent back to Event.
-// Note: Data is left as nil since the concrete type cannot be recovered.
-// Use the raw Data field for analysis.
+// It attempts to deserialize the Data field based on DataType.
 func (se *SerializableEvent) toEvent() *Event {
-	return &Event{
+	event := &Event{
 		Type:           se.Type,
 		Timestamp:      se.Timestamp,
 		RunID:          se.RunID,
 		SessionID:      se.SessionID,
 		ConversationID: se.ConversationID,
-		// Data is not deserialized - use RawData() for access
 	}
+
+	// Attempt to deserialize Data based on DataType
+	if len(se.Data) > 0 {
+		event.Data = deserializeEventData(se.DataType, se.Data)
+	}
+
+	return event
+}
+
+// deserializeEventData attempts to deserialize event data based on the type name.
+//
+//nolint:gocognit // Type switch has many cases but is straightforward
+func deserializeEventData(dataType string, data json.RawMessage) EventData {
+	var result EventData
+
+	switch dataType {
+	case "*events.AudioInputData":
+		var d AudioInputData
+		if json.Unmarshal(data, &d) == nil {
+			result = &d
+		}
+	case "*events.AudioOutputData":
+		var d AudioOutputData
+		if json.Unmarshal(data, &d) == nil {
+			result = &d
+		}
+	case "*events.AudioTranscriptionData":
+		var d AudioTranscriptionData
+		if json.Unmarshal(data, &d) == nil {
+			result = &d
+		}
+	case "*events.VideoFrameData":
+		var d VideoFrameData
+		if json.Unmarshal(data, &d) == nil {
+			result = &d
+		}
+	case "*events.ScreenshotData":
+		var d ScreenshotData
+		if json.Unmarshal(data, &d) == nil {
+			result = &d
+		}
+	case "*events.ImageInputData":
+		var d ImageInputData
+		if json.Unmarshal(data, &d) == nil {
+			result = &d
+		}
+	case "*events.ImageOutputData":
+		var d ImageOutputData
+		if json.Unmarshal(data, &d) == nil {
+			result = &d
+		}
+	case "*events.MessageCreatedData":
+		var d MessageCreatedData
+		if json.Unmarshal(data, &d) == nil {
+			result = &d
+		}
+	case "*events.MessageUpdatedData":
+		var d MessageUpdatedData
+		if json.Unmarshal(data, &d) == nil {
+			result = &d
+		}
+	case "*events.ConversationStartedData":
+		var d ConversationStartedData
+		if json.Unmarshal(data, &d) == nil {
+			result = &d
+		}
+	case "*events.PipelineStartedData":
+		var d PipelineStartedData
+		if json.Unmarshal(data, &d) == nil {
+			result = &d
+		}
+	case "*events.PipelineCompletedData":
+		var d PipelineCompletedData
+		if json.Unmarshal(data, &d) == nil {
+			result = &d
+		}
+	case "*events.PipelineFailedData":
+		var d PipelineFailedData
+		if json.Unmarshal(data, &d) == nil {
+			result = &d
+		}
+	case "*events.ProviderCallStartedData":
+		var d ProviderCallStartedData
+		if json.Unmarshal(data, &d) == nil {
+			result = &d
+		}
+	case "*events.ProviderCallCompletedData":
+		var d ProviderCallCompletedData
+		if json.Unmarshal(data, &d) == nil {
+			result = &d
+		}
+	case "*events.ProviderCallFailedData":
+		var d ProviderCallFailedData
+		if json.Unmarshal(data, &d) == nil {
+			result = &d
+		}
+	case "*events.ToolCallStartedData":
+		var d ToolCallStartedData
+		if json.Unmarshal(data, &d) == nil {
+			result = &d
+		}
+	case "*events.ToolCallCompletedData":
+		var d ToolCallCompletedData
+		if json.Unmarshal(data, &d) == nil {
+			result = &d
+		}
+	case "*events.ToolCallFailedData":
+		var d ToolCallFailedData
+		if json.Unmarshal(data, &d) == nil {
+			result = &d
+		}
+	case "*events.CustomEventData":
+		var d CustomEventData
+		if json.Unmarshal(data, &d) == nil {
+			result = &d
+		}
+	}
+
+	return result
 }
 
 // RawData returns the raw JSON data for custom unmarshaling.

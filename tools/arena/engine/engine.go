@@ -29,6 +29,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -56,7 +57,9 @@ type Engine struct {
 	providers            map[string]*config.Provider
 	personas             map[string]*config.UserPersonaPack
 	conversationExecutor ConversationExecutor
-	eventBus             *events.EventBus // Optional event bus for runtime/TUI events
+	eventBus             *events.EventBus  // Optional event bus for runtime/TUI events
+	eventStore           events.EventStore // Optional event store for session recording
+	recordingDir         string            // Directory where session recordings are stored
 }
 
 // NewEngineFromConfigFile creates a new simulation engine from a configuration file.
@@ -150,7 +153,8 @@ func NewEngine(
 }
 
 // Close shuts down the engine and cleans up resources.
-// This includes closing all MCP server connections and provider HTTP clients.
+// This includes closing all MCP server connections, provider HTTP clients,
+// and the event store if session recording is enabled.
 func (e *Engine) Close() error {
 	if err := e.closeMCPRegistry(); err != nil {
 		return err
@@ -164,12 +168,55 @@ func (e *Engine) Close() error {
 		return err
 	}
 
-	return nil
+	return e.closeEventStore()
 }
 
 // SetEventBus configures the shared event bus used for runtime and TUI observability.
+// If session recording is enabled, the event bus will be wired to the event store.
 func (e *Engine) SetEventBus(bus *events.EventBus) {
 	e.eventBus = bus
+	// Wire event store to bus if both are configured
+	if e.eventStore != nil && bus != nil {
+		bus.WithStore(e.eventStore)
+		logger.Debug("Wired event store to event bus for session recording")
+	}
+}
+
+// EnableSessionRecording enables session recording for all runs.
+// Recordings are stored in the specified directory as JSONL files,
+// one file per session (using RunID as session ID).
+// Returns an error if the directory cannot be created.
+func (e *Engine) EnableSessionRecording(recordingDir string) error {
+	store, err := events.NewFileEventStore(recordingDir)
+	if err != nil {
+		return fmt.Errorf("failed to create event store: %w", err)
+	}
+	e.eventStore = store
+	e.recordingDir = recordingDir
+
+	// Wire to existing event bus if present
+	if e.eventBus != nil {
+		e.eventBus.WithStore(store)
+		logger.Debug("Wired event store to event bus for session recording")
+	}
+
+	logger.Info("Session recording enabled", "directory", recordingDir)
+	return nil
+}
+
+// GetRecordingDir returns the directory where session recordings are stored.
+// Returns empty string if recording is not enabled.
+func (e *Engine) GetRecordingDir() string {
+	return e.recordingDir
+}
+
+// GetRecordingPath returns the path to the recording file for a given run ID.
+// Returns empty string if recording is not enabled.
+func (e *Engine) GetRecordingPath(runID string) string {
+	if e.recordingDir == "" {
+		return ""
+	}
+	return filepath.Join(e.recordingDir, runID+".jsonl")
 }
 
 // EnableMockProviderMode replaces all providers in the registry with mock providers.
@@ -249,6 +296,19 @@ func (e *Engine) closeSelfPlayRegistry() error {
 
 	if err := executor.selfPlayRegistry.Close(); err != nil {
 		return fmt.Errorf("failed to close self-play registry: %w", err)
+	}
+
+	return nil
+}
+
+// closeEventStore closes the event store if session recording is enabled
+func (e *Engine) closeEventStore() error {
+	if e.eventStore == nil {
+		return nil
+	}
+
+	if err := e.eventStore.Close(); err != nil {
+		return fmt.Errorf("failed to close event store: %w", err)
 	}
 
 	return nil

@@ -59,6 +59,9 @@ type RunMetadata struct {
 	UserFeedback *Feedback `json:"user_feedback,omitempty"`
 	SessionTags  []string  `json:"session_tags,omitempty"`
 
+	// Session recording path (if recording is enabled)
+	RecordingPath string `json:"recording_path,omitempty"`
+
 	// Conversation-level assertions (evaluated after conversation completes)
 	ConversationAssertionResults []ConversationValidationResult `json:"conv_assertions_results,omitempty"`
 }
@@ -504,6 +507,9 @@ type RunResult struct {
 	SessionTags   []string    `json:"SessionTags"`
 	AssistantRole interface{} `json:"AssistantRole"` // Using interface{} to avoid circular import
 	UserRole      interface{} `json:"UserRole"`
+
+	// Session recording path (if recording is enabled)
+	RecordingPath string `json:"RecordingPath,omitempty"`
 
 	// Conversation-level assertions evaluated after the conversation completes (summary format)
 	ConversationAssertions AssertionsSummary `json:"conversation_assertions,omitempty"`
