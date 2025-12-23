@@ -1,0 +1,12 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: replay-geography
+spec:
+  id: "replay-geography"
+  type: replay
+  model: "recorded-session"
+  additional_config:
+    recording: examples/session-replay/recordings/geography-session.recording.json
+    timing: instant
+    match: turn

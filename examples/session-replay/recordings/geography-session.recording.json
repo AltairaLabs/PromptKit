@@ -1,0 +1,79 @@
+{
+  "metadata": {
+    "session_id": "geo-session-001",
+    "start_time": "2024-01-15T10:00:00Z",
+    "end_time": "2024-01-15T10:01:30Z",
+    "duration": 90000000000,
+    "event_count": 6,
+    "version": "1.0",
+    "description": "Geography Q&A session for replay testing"
+  },
+  "events": [
+    {
+      "sequence": 1,
+      "type": "message.created",
+      "timestamp": "2024-01-15T10:00:00Z",
+      "offset": 0,
+      "session_id": "geo-session-001",
+      "data": {
+        "role": "user",
+        "content": "What is the capital of France?"
+      }
+    },
+    {
+      "sequence": 2,
+      "type": "message.created",
+      "timestamp": "2024-01-15T10:00:02Z",
+      "offset": 2000000000,
+      "session_id": "geo-session-001",
+      "data": {
+        "role": "assistant",
+        "content": "The capital of France is Paris. Paris is not only the capital but also the largest city in France, located in the north-central part of the country along the Seine River. It serves as France's political, economic, and cultural center."
+      }
+    },
+    {
+      "sequence": 3,
+      "type": "message.created",
+      "timestamp": "2024-01-15T10:00:30Z",
+      "offset": 30000000000,
+      "session_id": "geo-session-001",
+      "data": {
+        "role": "user",
+        "content": "What is the population of Paris?"
+      }
+    },
+    {
+      "sequence": 4,
+      "type": "message.created",
+      "timestamp": "2024-01-15T10:00:33Z",
+      "offset": 33000000000,
+      "session_id": "geo-session-001",
+      "data": {
+        "role": "assistant",
+        "content": "The city of Paris proper has a population of approximately 2.1 million people. However, the greater Paris metropolitan area (Ile-de-France) is home to about 12 million people, making it one of the largest urban areas in Europe."
+      }
+    },
+    {
+      "sequence": 5,
+      "type": "message.created",
+      "timestamp": "2024-01-15T10:01:00Z",
+      "offset": 60000000000,
+      "session_id": "geo-session-001",
+      "data": {
+        "role": "user",
+        "content": "What river flows through Paris?"
+      }
+    },
+    {
+      "sequence": 6,
+      "type": "message.created",
+      "timestamp": "2024-01-15T10:01:03Z",
+      "offset": 63000000000,
+      "session_id": "geo-session-001",
+      "data": {
+        "role": "assistant",
+        "content": "The Seine River flows through Paris. It is 777 kilometers (483 miles) long and is one of the major commercial waterways of France. The river divides Paris into the Left Bank (Rive Gauche) and Right Bank (Rive Droite), with many famous landmarks like the Eiffel Tower, Notre-Dame, and the Louvre situated along its banks."
+      }
+    }
+  ]
+}

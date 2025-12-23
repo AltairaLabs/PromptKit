@@ -1,0 +1,36 @@
+$schema: https://promptkit.altairalabs.ai/schemas/latest/scenario.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: geography-replay
+spec:
+  id: "geography-replay"
+  task_type: assistant
+  description: "Replay a recorded geography Q&A session"
+
+  turns:
+    - role: user
+      content: "What is the capital of France?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "Paris"
+              - "capital"
+
+    - role: user
+      content: "What is the population of Paris?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "million"
+              - "population"
+
+    - role: user
+      content: "What river flows through Paris?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "Seine"
