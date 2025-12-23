@@ -20,7 +20,6 @@ import (
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
 )
 
-
 // Open loads a pack file and creates a new conversation for the specified prompt.
 //
 // This is the primary entry point for SDK v2. It:
@@ -97,7 +96,7 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 	}
 
 	// Initialize event bus (use provided or create new)
-	initEventBus(conv, cfg)
+	initEventBus(cfg)
 
 	// Initialize MCP registry if configured
 	if err := initMCPRegistry(conv, cfg); err != nil {
@@ -184,7 +183,7 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 	}
 
 	// Initialize event bus
-	initEventBus(conv, cfg)
+	initEventBus(cfg)
 
 	// Initialize MCP registry if configured
 	if err := initMCPRegistry(conv, cfg); err != nil {
@@ -249,9 +248,14 @@ func resolveProvider(cfg *config) (providers.Provider, error) {
 }
 
 // initEventBus initializes the conversation's event bus.
-func initEventBus(conv *Conversation, cfg *config) {
+// If an event store is configured, it is attached to the bus for persistence.
+func initEventBus(cfg *config) {
 	if cfg.eventBus == nil {
 		cfg.eventBus = events.NewEventBus()
+	}
+	// Attach event store if configured (and not already attached)
+	if cfg.eventStore != nil && cfg.eventBus.Store() == nil {
+		cfg.eventBus.WithStore(cfg.eventStore)
 	}
 	// EventBus is stored in config and accessed via c.config.eventBus
 }

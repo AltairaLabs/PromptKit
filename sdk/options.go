@@ -44,6 +44,9 @@ type config struct {
 	// Event bus for observability
 	eventBus *events.EventBus
 
+	// Event store for session recording
+	eventStore events.EventStore
+
 	// Context management
 	tokenBudget        int
 	truncationStrategy string
@@ -191,6 +194,39 @@ func WithToolRegistry(registry *tools.Registry) Option {
 func WithEventBus(bus *events.EventBus) Option {
 	return func(c *config) error {
 		c.eventBus = bus
+		return nil
+	}
+}
+
+// WithEventStore configures event persistence for session recording.
+//
+// When set, all events published through the conversation's event bus are
+// automatically persisted to the store. This enables session replay and
+// analysis.
+//
+// The event store is automatically attached to the event bus. If no event bus
+// is provided via WithEventBus, a new one is created internally.
+//
+// Example with file-based storage:
+//
+//	store, _ := events.NewFileEventStore("/var/log/sessions")
+//	defer store.Close()
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithEventStore(store),
+//	)
+//
+// Example with shared bus and store:
+//
+//	store, _ := events.NewFileEventStore("/var/log/sessions")
+//	bus := events.NewEventBus().WithStore(store)
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithEventBus(bus),
+//	)
+func WithEventStore(store events.EventStore) Option {
+	return func(c *config) error {
+		c.eventStore = store
 		return nil
 	}
 }

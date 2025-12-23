@@ -19,6 +19,7 @@ import (
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/imagen"
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
+	_ "github.com/AltairaLabs/PromptKit/runtime/providers/replay"
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"

@@ -1,0 +1,29 @@
+# Replay provider for replaying recorded duplex sessions
+# This provider reads a previous Arena run output and replays the assistant responses
+# deterministically, including audio content.
+#
+# Usage:
+#   1. First, run a scenario against a real provider:
+#      promptarena run --scenario duplex-tools --provider gemini-2-flash
+#
+#   2. Find the output JSON file in ./out/ (e.g., 2025-12-21T09-31Z_*.json)
+#
+#   3. Update the 'arena_output' path below to point to your recording
+#
+#   4. Run the replay:
+#      promptarena run --scenario duplex-tools --provider replay-duplex
+#
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: replay-duplex
+spec:
+  id: "replay-duplex"
+  type: replay
+  model: "recorded-session"
+  additional_config:
+    # Path to arena run output JSON (relative to working directory)
+    # Update this to point to your recorded session
+    arena_output: examples/duplex-streaming/out/recorded-session.json
+    # Timing mode: instant (default), realtime, or accelerated
+    timing: instant

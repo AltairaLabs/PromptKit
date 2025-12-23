@@ -1,0 +1,23 @@
+$schema: https://promptkit.altairalabs.ai/schemas/latest/arena.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: session-replay
+spec:
+  prompt_configs:
+    - id: assistant
+      file: prompts/assistant.yaml
+
+  providers:
+    - file: providers/replay.provider.yaml
+
+  scenarios:
+    - file: scenarios/geography.scenario.yaml
+
+  defaults:
+    temperature: 0.0
+    max_tokens: 1000
+    concurrency: 1
+    output:
+      dir: out
+      formats: ["json", "html"]

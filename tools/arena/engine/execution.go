@@ -273,7 +273,9 @@ func (e *Engine) createRunEmitter(runID string, combo RunCombination) *events.Em
 	if e.eventBus == nil {
 		return nil
 	}
-	emitter := events.NewEmitter(e.eventBus, runID, "", runID)
+	// Use runID as sessionID for session recording - this ensures events are
+	// associated with the recording file for this run
+	emitter := events.NewEmitter(e.eventBus, runID, runID, runID)
 	emitter.EmitCustom(
 		events.EventType("arena.run.started"),
 		"ArenaEngine",
@@ -346,11 +348,13 @@ func (e *Engine) saveRunMetadata(
 		Error:                        result.Error,
 		SelfPlay:                     result.SelfPlay,
 		PersonaID:                    result.PersonaID,
+		RecordingPath:                e.GetRecordingPath(runID),
 		ConversationAssertionResults: result.ConversationAssertionResults,
 	}
 
 	logger.Debug("Saving run metadata",
 		"runID", runID,
+		"recording_path", metadata.RecordingPath,
 		"conv_assertions_count", len(result.ConversationAssertionResults),
 		"conv_assertions_results", result.ConversationAssertionResults)
 

@@ -227,12 +227,13 @@ type JudgeDefaults struct {
 
 // OutputConfig contains configuration for all output formats
 type OutputConfig struct {
-	Dir      string                `yaml:"dir"`                // Base output directory
-	Formats  []string              `yaml:"formats"`            // List of enabled formats: json, html, markdown, junit
-	JSON     *JSONOutputConfig     `yaml:"json,omitempty"`     // JSON-specific configuration
-	HTML     *HTMLOutputConfig     `yaml:"html,omitempty"`     // HTML-specific configuration
-	Markdown *MarkdownOutputConfig `yaml:"markdown,omitempty"` // Markdown-specific configuration
-	JUnit    *JUnitOutputConfig    `yaml:"junit,omitempty"`    // JUnit-specific configuration
+	Dir       string                `yaml:"dir"`                 // Base output directory
+	Formats   []string              `yaml:"formats"`             // List of enabled formats: json, html, markdown, junit
+	JSON      *JSONOutputConfig     `yaml:"json,omitempty"`      // JSON-specific configuration
+	HTML      *HTMLOutputConfig     `yaml:"html,omitempty"`      // HTML-specific configuration
+	Markdown  *MarkdownOutputConfig `yaml:"markdown,omitempty"`  // Markdown-specific configuration
+	JUnit     *JUnitOutputConfig    `yaml:"junit,omitempty"`     // JUnit-specific configuration
+	Recording *RecordingConfig      `yaml:"recording,omitempty"` // Session recording configuration
 }
 
 // JSONOutputConfig contains configuration options for JSON output
@@ -260,6 +261,13 @@ type MarkdownOutputConfig struct {
 type JUnitOutputConfig struct {
 	File string `yaml:"file,omitempty"` // Custom JUnit output file name
 	// Future: could add options like test suite naming, etc.
+}
+
+// RecordingConfig contains configuration for session recording.
+// Session recordings capture the complete event stream for replay and analysis.
+type RecordingConfig struct {
+	Enabled bool   `yaml:"enabled"`       // Enable session recording
+	Dir     string `yaml:"dir,omitempty"` // Subdirectory within output.dir (default: "recordings")
 }
 
 // Deprecated: Use MarkdownOutputConfig instead

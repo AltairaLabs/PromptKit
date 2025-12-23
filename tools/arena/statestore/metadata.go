@@ -96,7 +96,8 @@ func (s *ArenaStateStore) GetResult(ctx context.Context, runID string) (*RunResu
 		AssistantRole: arenaState.RunMetadata.AssistantRole,
 		UserRole:      arenaState.RunMetadata.UserRole,
 
-		MediaOutputs: mediaOutputs,
+		MediaOutputs:  mediaOutputs,
+		RecordingPath: arenaState.RunMetadata.RecordingPath,
 
 		// Conversation-level assertions (summary)
 		ConversationAssertions: buildConversationAssertionsSummary(arenaState.RunMetadata.ConversationAssertionResults),
@@ -166,6 +167,9 @@ func (s *ArenaStateStore) DumpToJSON(ctx context.Context, conversationID string)
 		result["SessionTags"] = arenaState.RunMetadata.SessionTags
 		result["AssistantRole"] = arenaState.RunMetadata.AssistantRole
 		result["UserRole"] = arenaState.RunMetadata.UserRole
+		if arenaState.RunMetadata.RecordingPath != "" {
+			result["RecordingPath"] = arenaState.RunMetadata.RecordingPath
+		}
 
 		// Compute violations as flat list for RunResult compatibility
 		result["Violations"] = s.extractViolationsFlat(arenaState)

@@ -264,7 +264,19 @@ func (de *DuplexConversationExecutor) buildDuplexPipeline(
 	// The session is created lazily when the first element arrives, reading
 	// system_prompt from the element's metadata (set by PromptAssemblyStage).
 	baseConfig := de.buildBaseSessionConfig(req, targetSampleRate)
-	stages = append(stages, stage.NewDuplexProviderStage(streamProvider, baseConfig))
+
+	// Create emitter for audio event recording if event bus is available
+	// Use RunID as SessionID to ensure events are stored (EventBus only stores events with non-empty SessionID)
+	var emitter *events.Emitter
+	if req.EventBus != nil {
+		emitter = events.NewEmitter(req.EventBus, req.RunID, req.RunID, req.ConversationID)
+	}
+
+	if emitter != nil {
+		stages = append(stages, stage.NewDuplexProviderStageWithEmitter(streamProvider, baseConfig, emitter))
+	} else {
+		stages = append(stages, stage.NewDuplexProviderStage(streamProvider, baseConfig))
+	}
 
 	// NOTE: ResponseVADStage was removed. It was intended to delay EndOfStream until
 	// VAD confirmed response audio stopped, but it caused timing issues with selfplay:

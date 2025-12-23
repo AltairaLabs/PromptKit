@@ -304,6 +304,9 @@
         },
         "junit": {
           "$ref": "#/$defs/JUnitOutputConfig"
+        },
+        "recording": {
+          "$ref": "#/$defs/RecordingConfig"
         }
       },
       "additionalProperties": false,
@@ -360,6 +363,21 @@
       "type": "object",
       "required": [
         "file"
+      ]
+    },
+    "RecordingConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "dir": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "enabled"
       ]
     },
     "RedisConfig": {

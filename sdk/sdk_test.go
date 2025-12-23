@@ -497,18 +497,45 @@ func TestApplyDefaultVariables(t *testing.T) {
 
 func TestInitEventBus(t *testing.T) {
 	t.Run("creates new bus when not provided", func(t *testing.T) {
-		conv := &Conversation{config: &config{}}
 		cfg := &config{}
-		initEventBus(conv, cfg)
+		initEventBus(cfg)
 		assert.NotNil(t, cfg.eventBus)
 	})
 
 	t.Run("uses provided event bus", func(t *testing.T) {
-		conv := &Conversation{config: &config{}}
 		bus := events.NewEventBus()
 		cfg := &config{eventBus: bus}
-		initEventBus(conv, cfg)
+		initEventBus(cfg)
 		assert.Equal(t, bus, cfg.eventBus)
+	})
+
+	t.Run("attaches event store to bus", func(t *testing.T) {
+		store, err := events.NewFileEventStore(t.TempDir())
+		require.NoError(t, err)
+		defer store.Close()
+
+		cfg := &config{eventStore: store}
+		initEventBus(cfg)
+
+		assert.NotNil(t, cfg.eventBus)
+		assert.Equal(t, store, cfg.eventBus.Store())
+	})
+
+	t.Run("preserves existing store on provided bus", func(t *testing.T) {
+		existingStore, err := events.NewFileEventStore(t.TempDir())
+		require.NoError(t, err)
+		defer existingStore.Close()
+
+		newStore, err := events.NewFileEventStore(t.TempDir())
+		require.NoError(t, err)
+		defer newStore.Close()
+
+		bus := events.NewEventBus().WithStore(existingStore)
+		cfg := &config{eventBus: bus, eventStore: newStore}
+		initEventBus(cfg)
+
+		// Should preserve the existing store, not overwrite with new one
+		assert.Equal(t, existingStore, cfg.eventBus.Store())
 	})
 }
 

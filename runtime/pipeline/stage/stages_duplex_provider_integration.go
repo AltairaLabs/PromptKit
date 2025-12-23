@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -109,6 +110,13 @@ type DuplexProviderStage struct {
 	// Track if we recently saw an interruption
 	// Used to detect "interrupted turn complete" (turnComplete with no content after interruption)
 	wasInterrupted bool
+
+	// Event emitter for recording audio events (optional, for session recording)
+	emitter *events.Emitter
+
+	// Chunk counters for ChunkIndex in audio events
+	inputChunkIndex  int
+	outputChunkIndex int
 }
 
 // NewDuplexProviderStage creates a new duplex provider stage.
@@ -127,6 +135,18 @@ func NewDuplexProviderStage(
 		baseConfig:             baseConfig,
 		systemPromptSent:       false,
 	}
+}
+
+// NewDuplexProviderStageWithEmitter creates a new duplex provider stage with event emission support.
+// The emitter is used to emit audio.input and audio.output events for session recording.
+func NewDuplexProviderStageWithEmitter(
+	provider providers.StreamInputSupport,
+	baseConfig *providers.StreamingInputConfig,
+	emitter *events.Emitter,
+) *DuplexProviderStage {
+	s := NewDuplexProviderStage(provider, baseConfig)
+	s.emitter = emitter
+	return s
 }
 
 // Process implements the Stage interface.
@@ -504,13 +524,14 @@ func (s *DuplexProviderStage) sendElementToSession(ctx context.Context, elem *St
 
 // sendAudioElement sends an audio element to the session.
 func (s *DuplexProviderStage) sendAudioElement(ctx context.Context, elem *StreamElement) {
-	// Reset transcription accumulator when starting a new user turn
+	// Reset transcription accumulator and chunk counter when starting a new user turn
 	// This prevents late-arriving transcription chunks from the previous turn
 	// from being mixed with this turn's transcription
 	if s.transcriptionCaptured {
 		s.inputTranscription.Reset()
 		s.transcriptionCaptured = false
 		s.turnIDPopped = false // Reset so we can pop turn_id for the new turn
+		s.inputChunkIndex = 0  // Reset chunk index for new turn
 		logger.Debug("DuplexProviderStage: reset transcription for new user turn")
 	}
 
@@ -556,6 +577,39 @@ func (s *DuplexProviderStage) sendAudioElement(ctx context.Context, elem *Stream
 
 	if err := s.session.SendChunk(ctx, mediaChunk); err != nil {
 		logger.Error("DuplexProviderStage: failed to send chunk to session", "error", err)
+	}
+
+	// Emit audio.input event for session recording
+	if s.emitter != nil && elem.Audio != nil {
+		// Calculate duration: 16-bit audio = 2 bytes per sample
+		sampleRate := elem.Audio.SampleRate
+		if sampleRate == 0 {
+			sampleRate = 16000 // Default to 16kHz
+		}
+		channels := elem.Audio.Channels
+		if channels == 0 {
+			channels = 1 // Default to mono
+		}
+		bytesPerSample := 2 // 16-bit audio
+		durationMs := int64(len(elem.Audio.Samples)) * 1000 / int64(sampleRate) / int64(channels) / int64(bytesPerSample)
+
+		s.emitter.AudioInput(&events.AudioInputData{
+			Actor:      "user",
+			ChunkIndex: s.inputChunkIndex,
+			Payload: events.BinaryPayload{
+				InlineData: elem.Audio.Samples,
+				MIMEType:   mimeTypeAudioPCM,
+				Size:       int64(len(elem.Audio.Samples)),
+			},
+			Metadata: events.AudioMetadata{
+				SampleRate: sampleRate,
+				Channels:   channels,
+				Encoding:   "pcm_linear16",
+				DurationMs: durationMs,
+			},
+			IsFinal: false, // Individual chunks are not final
+		})
+		s.inputChunkIndex++
 	}
 }
 
@@ -838,6 +892,32 @@ func (s *DuplexProviderStage) handleResponseChunk(
 			logger.Warn("DuplexProviderStage: failed to decode base64 audio chunk", "error", err)
 		} else {
 			s.accumulatedMedia = append(s.accumulatedMedia, rawBytes...)
+
+			// Emit audio.output event for session recording
+			if s.emitter != nil {
+				// Gemini outputs at 24kHz, mono, 16-bit
+				const outputSampleRate = 24000
+				const outputChannels = 1
+				const bytesPerSample = 2
+				durationMs := int64(len(rawBytes)) * 1000 / outputSampleRate / outputChannels / bytesPerSample
+
+				s.emitter.AudioOutput(&events.AudioOutputData{
+					ChunkIndex: s.outputChunkIndex,
+					Payload: events.BinaryPayload{
+						InlineData: rawBytes,
+						MIMEType:   mimeTypeAudioPCM,
+						Size:       int64(len(rawBytes)),
+					},
+					Metadata: events.AudioMetadata{
+						SampleRate: outputSampleRate,
+						Channels:   outputChannels,
+						Encoding:   "pcm_linear16",
+						DurationMs: durationMs,
+					},
+					GeneratedFrom: "model",
+				})
+				s.outputChunkIndex++
+			}
 		}
 	}
 
@@ -850,6 +930,7 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	if chunk.FinishReason != nil && *chunk.FinishReason != "" && elem.EndOfStream {
 		s.accumulatedText.Reset()
 		s.accumulatedMedia = nil
+		s.outputChunkIndex = 0 // Reset chunk index for next turn
 		// Mark transcription as captured - don't reset yet!
 		// Late-arriving transcription chunks will be ignored until a new user turn starts.
 		// The transcription buffer will be reset when sendAudioElement is called.

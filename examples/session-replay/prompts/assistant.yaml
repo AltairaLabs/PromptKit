@@ -1,0 +1,9 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: assistant
+spec:
+  version: "1.0.0"
+  description: "Assistant for geography questions"
+  task_type: "assistant"
+  system_template: "You are a helpful geography assistant."
