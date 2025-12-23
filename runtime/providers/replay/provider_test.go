@@ -405,3 +405,75 @@ func TestProvider_ToolCallsPreserved(t *testing.T) {
 	assert.Equal(t, "call_1", resp.ToolCalls[0].ID)
 	assert.Equal(t, "get_weather", resp.ToolCalls[0].Name)
 }
+
+func TestCreateProviderFromSpec(t *testing.T) {
+	// Create a test recording file
+	rec := createTestRecording(t, 2)
+	path := filepath.Join(t.TempDir(), "test.recording.json")
+	require.NoError(t, rec.SaveTo(path, recording.FormatJSON))
+
+	t.Run("creates provider from spec", func(t *testing.T) {
+		spec := providers.ProviderSpec{
+			ID:   "my-replay",
+			Type: "replay",
+			AdditionalConfig: map[string]interface{}{
+				"recording": path,
+				"timing":    "instant",
+				"match":     "turn",
+			},
+		}
+
+		provider, err := providers.CreateProviderFromSpec(spec)
+		require.NoError(t, err)
+		assert.Equal(t, "my-replay", provider.ID())
+
+		// Should work as a provider
+		resp, err := provider.Predict(context.Background(), providers.PredictionRequest{})
+		require.NoError(t, err)
+		assert.Equal(t, "Response A", resp.Content)
+	})
+
+	t.Run("fails without recording path", func(t *testing.T) {
+		spec := providers.ProviderSpec{
+			ID:   "bad-replay",
+			Type: "replay",
+		}
+
+		_, err := providers.CreateProviderFromSpec(spec)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "recording")
+	})
+
+	t.Run("fails with invalid recording path", func(t *testing.T) {
+		spec := providers.ProviderSpec{
+			ID:   "bad-replay",
+			Type: "replay",
+			AdditionalConfig: map[string]interface{}{
+				"recording": "/nonexistent/path.json",
+			},
+		}
+
+		_, err := providers.CreateProviderFromSpec(spec)
+		require.Error(t, err)
+	})
+
+	t.Run("respects timing config", func(t *testing.T) {
+		spec := providers.ProviderSpec{
+			ID:   "realtime-replay",
+			Type: "replay",
+			AdditionalConfig: map[string]interface{}{
+				"recording": path,
+				"timing":    "accelerated",
+				"speed":     5.0,
+			},
+		}
+
+		provider, err := providers.CreateProviderFromSpec(spec)
+		require.NoError(t, err)
+
+		// Cast to access config (for testing)
+		rp := provider.(*Provider)
+		assert.Equal(t, TimingAccelerated, rp.config.Timing)
+		assert.Equal(t, 5.0, rp.config.Speed)
+	})
+}
