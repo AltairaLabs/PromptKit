@@ -3,8 +3,10 @@ package events
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"time"
 )
@@ -492,4 +494,126 @@ func LoadMediaTimeline(
 		return nil, fmt.Errorf("query events: %w", err)
 	}
 	return NewMediaTimeline(sessionID, events, blobStore), nil
+}
+
+// WAV file constants.
+const (
+	wavHeaderSize     = 44
+	wavAudioFormat    = 1 // PCM
+	wavBitsPerByte    = 8
+	wavDefaultBits    = 16
+	wavFilePerms      = 0600
+	wavSubchunk1Size  = 16
+	defaultSampleRate = 24000
+	defaultChannels   = 1
+)
+
+// ExportToWAV exports the audio track to a WAV file.
+// The blobStore is used to load segment data that references external storage.
+//
+//nolint:gocognit // Sequential steps for WAV export are straightforward despite high count
+func (t *MediaTrack) ExportToWAV(path string, blobStore BlobStore) error {
+	if t.Type != TrackAudioInput && t.Type != TrackAudioOutput {
+		return fmt.Errorf("can only export audio tracks to WAV, got %s", t.Type)
+	}
+
+	if len(t.Segments) == 0 {
+		return fmt.Errorf("no segments to export")
+	}
+
+	// Get format from track
+	meta, ok := t.Format.(AudioMetadata)
+	if !ok {
+		// Default to common audio settings
+		meta = AudioMetadata{
+			SampleRate: defaultSampleRate,
+			Channels:   defaultChannels,
+			Encoding:   "pcm_linear16",
+		}
+	}
+
+	sampleRate := meta.SampleRate
+	if sampleRate == 0 {
+		sampleRate = defaultSampleRate
+	}
+	channels := meta.Channels
+	if channels == 0 {
+		channels = defaultChannels
+	}
+	bitsPerSample := wavDefaultBits
+
+	// Collect all audio data
+	var audioData []byte
+	for _, seg := range t.Segments {
+		var data []byte
+		if seg.Payload.InlineData != nil {
+			data = seg.Payload.InlineData
+		} else if blobStore != nil && seg.Payload.StorageRef != "" {
+			var err error
+			data, err = blobStore.Load(context.Background(), seg.Payload.StorageRef)
+			if err != nil {
+				return fmt.Errorf("load segment %d: %w", seg.ChunkIndex, err)
+			}
+		} else {
+			continue // Skip segments with no data
+		}
+		audioData = append(audioData, data...)
+	}
+
+	if len(audioData) == 0 {
+		return fmt.Errorf("no audio data to export")
+	}
+
+	// Create WAV file
+	wavData := createWAVFile(audioData, sampleRate, channels, bitsPerSample)
+
+	// Write to file
+	if err := os.WriteFile(path, wavData, wavFilePerms); err != nil {
+		return fmt.Errorf("write file: %w", err)
+	}
+
+	return nil
+}
+
+// createWAVFile creates a WAV file from raw PCM data.
+//
+//nolint:gosec // Integer conversions are safe for audio parameters (bounded by format constraints)
+func createWAVFile(pcmData []byte, sampleRate, channels, bitsPerSample int) []byte {
+	dataSize := len(pcmData)
+	byteRate := sampleRate * channels * bitsPerSample / wavBitsPerByte
+	blockAlign := channels * bitsPerSample / wavBitsPerByte
+
+	// Create buffer for header + data
+	wav := make([]byte, wavHeaderSize+dataSize)
+
+	// RIFF header
+	copy(wav[0:4], "RIFF")
+	binary.LittleEndian.PutUint32(wav[4:8], uint32(36+dataSize)) //nolint:mnd // WAV format constant
+	copy(wav[8:12], "WAVE")
+
+	// fmt subchunk
+	copy(wav[12:16], "fmt ")
+	binary.LittleEndian.PutUint32(wav[16:20], wavSubchunk1Size)
+	binary.LittleEndian.PutUint16(wav[20:22], wavAudioFormat)
+	binary.LittleEndian.PutUint16(wav[22:24], uint16(channels))
+	binary.LittleEndian.PutUint32(wav[24:28], uint32(sampleRate))
+	binary.LittleEndian.PutUint32(wav[28:32], uint32(byteRate))
+	binary.LittleEndian.PutUint16(wav[32:34], uint16(blockAlign))
+	binary.LittleEndian.PutUint16(wav[34:36], uint16(bitsPerSample))
+
+	// data subchunk
+	copy(wav[36:40], "data")
+	binary.LittleEndian.PutUint32(wav[40:44], uint32(dataSize))
+	copy(wav[wavHeaderSize:], pcmData)
+
+	return wav
+}
+
+// ExportAudioToWAV is a convenience method to export a specific audio track to WAV.
+func (mt *MediaTimeline) ExportAudioToWAV(trackType TrackType, path string) error {
+	track := mt.GetTrack(trackType)
+	if track == nil {
+		return fmt.Errorf("track %s not found", trackType)
+	}
+	return track.ExportToWAV(path, mt.blobStore)
 }
