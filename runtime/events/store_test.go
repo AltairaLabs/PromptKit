@@ -2,6 +2,7 @@ package events
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -326,4 +327,395 @@ func TestEventBus_WithStore_SkipsEventsWithoutSessionID(t *testing.T) {
 	// No files should be created
 	entries, _ := os.ReadDir(store.dir)
 	assert.Empty(t, entries)
+}
+
+func TestSerializableEvent_RawData(t *testing.T) {
+	rawJSON := json.RawMessage(`{"role":"user","content":"test"}`)
+	se := &SerializableEvent{
+		Data:     rawJSON,
+		DataType: "*events.MessageCreatedData",
+	}
+
+	result := se.RawData()
+	assert.Equal(t, rawJSON, result)
+}
+
+func TestDeserializeEventData(t *testing.T) {
+	tests := []struct {
+		name     string
+		dataType string
+		data     string
+		check    func(t *testing.T, result EventData)
+	}{
+		{
+			name:     "AudioInputData",
+			dataType: "*events.AudioInputData",
+			data:     `{"actor":"user","chunk_index":1}`,
+			check: func(t *testing.T, result EventData) {
+				data, ok := result.(*AudioInputData)
+				require.True(t, ok)
+				assert.Equal(t, "user", data.Actor)
+				assert.Equal(t, 1, data.ChunkIndex)
+			},
+		},
+		{
+			name:     "AudioOutputData",
+			dataType: "*events.AudioOutputData",
+			data:     `{"chunk_index":2}`,
+			check: func(t *testing.T, result EventData) {
+				data, ok := result.(*AudioOutputData)
+				require.True(t, ok)
+				assert.Equal(t, 2, data.ChunkIndex)
+			},
+		},
+		{
+			name:     "MessageCreatedData",
+			dataType: "*events.MessageCreatedData",
+			data:     `{"role":"assistant","content":"Hello!"}`,
+			check: func(t *testing.T, result EventData) {
+				data, ok := result.(*MessageCreatedData)
+				require.True(t, ok)
+				assert.Equal(t, "assistant", data.Role)
+				assert.Equal(t, "Hello!", data.Content)
+			},
+		},
+		{
+			name:     "ToolCallStartedData",
+			dataType: "*events.ToolCallStartedData",
+			data:     `{"ToolName":"get_weather","CallID":"call-1"}`,
+			check: func(t *testing.T, result EventData) {
+				data, ok := result.(*ToolCallStartedData)
+				require.True(t, ok)
+				assert.Equal(t, "get_weather", data.ToolName)
+				assert.Equal(t, "call-1", data.CallID)
+			},
+		},
+		{
+			name:     "ProviderCallCompletedData",
+			dataType: "*events.ProviderCallCompletedData",
+			data:     `{"Provider":"openai","InputTokens":100,"OutputTokens":50}`,
+			check: func(t *testing.T, result EventData) {
+				data, ok := result.(*ProviderCallCompletedData)
+				require.True(t, ok)
+				assert.Equal(t, "openai", data.Provider)
+				assert.Equal(t, 100, data.InputTokens)
+				assert.Equal(t, 50, data.OutputTokens)
+			},
+		},
+		{
+			name:     "PipelineStartedData",
+			dataType: "*events.PipelineStartedData",
+			data:     `{"MiddlewareCount":3}`,
+			check: func(t *testing.T, result EventData) {
+				data, ok := result.(*PipelineStartedData)
+				require.True(t, ok)
+				assert.Equal(t, 3, data.MiddlewareCount)
+			},
+		},
+		{
+			name:     "ConversationStartedData",
+			dataType: "*events.ConversationStartedData",
+			data:     `{"SystemPrompt":"You are a helpful assistant"}`,
+			check: func(t *testing.T, result EventData) {
+				data, ok := result.(*ConversationStartedData)
+				require.True(t, ok)
+				assert.Equal(t, "You are a helpful assistant", data.SystemPrompt)
+			},
+		},
+		{
+			name:     "AudioTranscriptionData",
+			dataType: "*events.AudioTranscriptionData",
+			data:     `{"text":"Hello world","language":"en-US","confidence":0.95}`,
+			check: func(t *testing.T, result EventData) {
+				data, ok := result.(*AudioTranscriptionData)
+				require.True(t, ok)
+				assert.Equal(t, "Hello world", data.Text)
+				assert.Equal(t, "en-US", data.Language)
+				assert.Equal(t, 0.95, data.Confidence)
+			},
+		},
+		{
+			name:     "VideoFrameData",
+			dataType: "*events.VideoFrameData",
+			data:     `{"frame_index":42}`,
+			check: func(t *testing.T, result EventData) {
+				data, ok := result.(*VideoFrameData)
+				require.True(t, ok)
+				assert.Equal(t, int64(42), data.FrameIndex)
+			},
+		},
+		{
+			name:     "ScreenshotData",
+			dataType: "*events.ScreenshotData",
+			data:     `{"window_title":"Terminal"}`,
+			check: func(t *testing.T, result EventData) {
+				data, ok := result.(*ScreenshotData)
+				require.True(t, ok)
+				assert.Equal(t, "Terminal", data.WindowTitle)
+			},
+		},
+		{
+			name:     "ImageInputData",
+			dataType: "*events.ImageInputData",
+			data:     `{"actor":"user"}`,
+			check: func(t *testing.T, result EventData) {
+				data, ok := result.(*ImageInputData)
+				require.True(t, ok)
+				assert.Equal(t, "user", data.Actor)
+			},
+		},
+		{
+			name:     "ImageOutputData",
+			dataType: "*events.ImageOutputData",
+			data:     `{"generated_from":"dalle"}`,
+			check: func(t *testing.T, result EventData) {
+				data, ok := result.(*ImageOutputData)
+				require.True(t, ok)
+				assert.Equal(t, "dalle", data.GeneratedFrom)
+			},
+		},
+		{
+			name:     "MessageUpdatedData",
+			dataType: "*events.MessageUpdatedData",
+			data:     `{"Index":5,"LatencyMs":150}`,
+			check: func(t *testing.T, result EventData) {
+				data, ok := result.(*MessageUpdatedData)
+				require.True(t, ok)
+				assert.Equal(t, 5, data.Index)
+				assert.Equal(t, int64(150), data.LatencyMs)
+			},
+		},
+		{
+			name:     "PipelineCompletedData",
+			dataType: "*events.PipelineCompletedData",
+			data:     `{"InputTokens":100,"OutputTokens":50}`,
+			check: func(t *testing.T, result EventData) {
+				data, ok := result.(*PipelineCompletedData)
+				require.True(t, ok)
+				assert.Equal(t, 100, data.InputTokens)
+				assert.Equal(t, 50, data.OutputTokens)
+			},
+		},
+		{
+			name:     "PipelineFailedData",
+			dataType: "*events.PipelineFailedData",
+			data:     `{}`,
+			check: func(t *testing.T, result EventData) {
+				_, ok := result.(*PipelineFailedData)
+				require.True(t, ok)
+			},
+		},
+		{
+			name:     "ProviderCallStartedData",
+			dataType: "*events.ProviderCallStartedData",
+			data:     `{"Provider":"openai","Model":"gpt-4"}`,
+			check: func(t *testing.T, result EventData) {
+				data, ok := result.(*ProviderCallStartedData)
+				require.True(t, ok)
+				assert.Equal(t, "openai", data.Provider)
+				assert.Equal(t, "gpt-4", data.Model)
+			},
+		},
+		{
+			name:     "ProviderCallFailedData",
+			dataType: "*events.ProviderCallFailedData",
+			data:     `{"Provider":"anthropic","Model":"claude-3"}`,
+			check: func(t *testing.T, result EventData) {
+				data, ok := result.(*ProviderCallFailedData)
+				require.True(t, ok)
+				assert.Equal(t, "anthropic", data.Provider)
+				assert.Equal(t, "claude-3", data.Model)
+			},
+		},
+		{
+			name:     "ToolCallCompletedData",
+			dataType: "*events.ToolCallCompletedData",
+			data:     `{"ToolName":"calculator","CallID":"call-2","Status":"success"}`,
+			check: func(t *testing.T, result EventData) {
+				data, ok := result.(*ToolCallCompletedData)
+				require.True(t, ok)
+				assert.Equal(t, "calculator", data.ToolName)
+				assert.Equal(t, "call-2", data.CallID)
+				assert.Equal(t, "success", data.Status)
+			},
+		},
+		{
+			name:     "ToolCallFailedData",
+			dataType: "*events.ToolCallFailedData",
+			data:     `{"ToolName":"search","CallID":"call-3"}`,
+			check: func(t *testing.T, result EventData) {
+				data, ok := result.(*ToolCallFailedData)
+				require.True(t, ok)
+				assert.Equal(t, "search", data.ToolName)
+				assert.Equal(t, "call-3", data.CallID)
+			},
+		},
+		{
+			name:     "CustomEventData",
+			dataType: "*events.CustomEventData",
+			data:     `{"MiddlewareName":"logger","EventName":"log.info","Message":"test message"}`,
+			check: func(t *testing.T, result EventData) {
+				data, ok := result.(*CustomEventData)
+				require.True(t, ok)
+				assert.Equal(t, "logger", data.MiddlewareName)
+				assert.Equal(t, "log.info", data.EventName)
+				assert.Equal(t, "test message", data.Message)
+			},
+		},
+		{
+			name:     "unknown type returns nil",
+			dataType: "*events.UnknownType",
+			data:     `{"foo":"bar"}`,
+			check: func(t *testing.T, result EventData) {
+				assert.Nil(t, result)
+			},
+		},
+		{
+			name:     "invalid JSON returns nil",
+			dataType: "*events.MessageCreatedData",
+			data:     `{invalid json}`,
+			check: func(t *testing.T, result EventData) {
+				assert.Nil(t, result)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := deserializeEventData(tt.dataType, json.RawMessage(tt.data))
+			tt.check(t, result)
+		})
+	}
+}
+
+func TestFileEventStore_Close_AlreadyClosed(t *testing.T) {
+	store, err := NewFileEventStore(t.TempDir())
+	require.NoError(t, err)
+
+	// First close
+	err = store.Close()
+	require.NoError(t, err)
+
+	// Second close should also succeed
+	err = store.Close()
+	require.NoError(t, err)
+}
+
+func TestFileEventStore_Sync_NoFiles(t *testing.T) {
+	store, err := NewFileEventStore(t.TempDir())
+	require.NoError(t, err)
+	defer store.Close()
+
+	// Sync with no files open should succeed
+	err = store.Sync()
+	require.NoError(t, err)
+}
+
+func TestFileEventStore_Query_AdvancedFilters(t *testing.T) {
+	store, err := NewFileEventStore(t.TempDir())
+	require.NoError(t, err)
+	defer store.Close()
+
+	sessionID := "session-advanced-filter"
+	baseTime := time.Now()
+
+	// Create events with different properties
+	events := []*Event{
+		{Type: EventMessageCreated, Timestamp: baseTime, SessionID: sessionID, RunID: "run-1", ConversationID: "conv-1"},
+		{Type: EventMessageCreated, Timestamp: baseTime.Add(time.Second), SessionID: sessionID, RunID: "run-2", ConversationID: "conv-1"},
+		{Type: EventToolCallStarted, Timestamp: baseTime.Add(2 * time.Second), SessionID: sessionID, RunID: "run-1", ConversationID: "conv-2"},
+	}
+
+	for _, e := range events {
+		require.NoError(t, store.Append(context.Background(), e))
+	}
+	require.NoError(t, store.Sync())
+
+	t.Run("filter by RunID", func(t *testing.T) {
+		result, err := store.Query(context.Background(), &EventFilter{
+			SessionID: sessionID,
+			RunID:     "run-1",
+		})
+		require.NoError(t, err)
+		assert.Len(t, result, 2)
+	})
+
+	t.Run("filter by time range Since", func(t *testing.T) {
+		result, err := store.Query(context.Background(), &EventFilter{
+			SessionID: sessionID,
+			Since:     baseTime.Add(500 * time.Millisecond),
+		})
+		require.NoError(t, err)
+		assert.Len(t, result, 2)
+	})
+
+	t.Run("filter by time range Until", func(t *testing.T) {
+		result, err := store.Query(context.Background(), &EventFilter{
+			SessionID: sessionID,
+			Until:     baseTime.Add(500 * time.Millisecond),
+		})
+		require.NoError(t, err)
+		assert.Len(t, result, 1)
+	})
+
+	t.Run("combined filters", func(t *testing.T) {
+		result, err := store.Query(context.Background(), &EventFilter{
+			SessionID:      sessionID,
+			RunID:          "run-1",
+			ConversationID: "conv-1",
+		})
+		require.NoError(t, err)
+		assert.Len(t, result, 1)
+	})
+}
+
+func TestFileEventStore_Sync_WithFiles(t *testing.T) {
+	store, err := NewFileEventStore(t.TempDir())
+	require.NoError(t, err)
+	defer store.Close()
+
+	// Write an event to create a file
+	event := &Event{
+		Type:      EventMessageCreated,
+		Timestamp: time.Now(),
+		SessionID: "session-sync",
+	}
+	require.NoError(t, store.Append(context.Background(), event))
+
+	// Sync should succeed with open files
+	err = store.Sync()
+	require.NoError(t, err)
+}
+
+func TestFileEventStore_toSerializable_WithData(t *testing.T) {
+	event := &Event{
+		Type:           EventMessageCreated,
+		Timestamp:      time.Now(),
+		SessionID:      "test-session",
+		ConversationID: "test-conv",
+		RunID:          "test-run",
+		Data: &MessageCreatedData{
+			Role:    "user",
+			Content: "Hello",
+		},
+	}
+
+	se, err := toSerializable(event)
+	require.NoError(t, err)
+	assert.Equal(t, "*events.MessageCreatedData", se.DataType)
+	assert.NotEmpty(t, se.Data)
+}
+
+func TestFileEventStore_toSerializable_NilData(t *testing.T) {
+	event := &Event{
+		Type:      EventPipelineStarted,
+		Timestamp: time.Now(),
+		SessionID: "test-session",
+		Data:      nil,
+	}
+
+	se, err := toSerializable(event)
+	require.NoError(t, err)
+	assert.Empty(t, se.DataType)
+	assert.Empty(t, se.Data)
 }

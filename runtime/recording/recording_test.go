@@ -340,6 +340,161 @@ func TestRecordedEvent_PreservesRawJSON(t *testing.T) {
 	assert.Equal(t, "Message A", data.Content)
 }
 
+func TestDeserializeEventData(t *testing.T) {
+	tests := []struct {
+		name     string
+		dataType string
+		data     string
+		check    func(t *testing.T, result events.EventData, err error)
+	}{
+		{
+			name:     "AudioInputData with pointer prefix",
+			dataType: "*events.AudioInputData",
+			data:     `{"actor":"user","chunk_index":1}`,
+			check: func(t *testing.T, result events.EventData, err error) {
+				require.NoError(t, err)
+				data, ok := result.(*events.AudioInputData)
+				require.True(t, ok)
+				assert.Equal(t, "user", data.Actor)
+				assert.Equal(t, 1, data.ChunkIndex)
+			},
+		},
+		{
+			name:     "AudioInputData without pointer prefix",
+			dataType: "events.AudioInputData",
+			data:     `{"actor":"assistant","chunk_index":2}`,
+			check: func(t *testing.T, result events.EventData, err error) {
+				require.NoError(t, err)
+				data, ok := result.(*events.AudioInputData)
+				require.True(t, ok)
+				assert.Equal(t, "assistant", data.Actor)
+			},
+		},
+		{
+			name:     "StageStartedData",
+			dataType: "*events.StageStartedData",
+			data:     `{"Name":"test-stage","StageType":"provider"}`,
+			check: func(t *testing.T, result events.EventData, err error) {
+				require.NoError(t, err)
+				data, ok := result.(*events.StageStartedData)
+				require.True(t, ok)
+				assert.Equal(t, "test-stage", data.Name)
+				assert.Equal(t, "provider", data.StageType)
+			},
+		},
+		{
+			name:     "MiddlewareStartedData",
+			dataType: "*events.MiddlewareStartedData",
+			data:     `{"Name":"logger","Index":0}`,
+			check: func(t *testing.T, result events.EventData, err error) {
+				require.NoError(t, err)
+				data, ok := result.(*events.MiddlewareStartedData)
+				require.True(t, ok)
+				assert.Equal(t, "logger", data.Name)
+			},
+		},
+		{
+			name:     "ValidationStartedData",
+			dataType: "*events.ValidationStartedData",
+			data:     `{"ValidatorName":"schema-validator"}`,
+			check: func(t *testing.T, result events.EventData, err error) {
+				require.NoError(t, err)
+				data, ok := result.(*events.ValidationStartedData)
+				require.True(t, ok)
+				assert.Equal(t, "schema-validator", data.ValidatorName)
+			},
+		},
+		{
+			name:     "ContextBuiltData",
+			dataType: "*events.ContextBuiltData",
+			data:     `{"TokenCount":1000}`,
+			check: func(t *testing.T, result events.EventData, err error) {
+				require.NoError(t, err)
+				data, ok := result.(*events.ContextBuiltData)
+				require.True(t, ok)
+				assert.Equal(t, 1000, data.TokenCount)
+			},
+		},
+		{
+			name:     "unknown type returns nil without error",
+			dataType: "*events.UnknownType",
+			data:     `{"foo":"bar"}`,
+			check: func(t *testing.T, result events.EventData, err error) {
+				require.NoError(t, err)
+				assert.Nil(t, result)
+			},
+		},
+		{
+			name:     "invalid JSON returns error",
+			dataType: "*events.AudioInputData",
+			data:     `{invalid json}`,
+			check: func(t *testing.T, result events.EventData, err error) {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "unmarshal")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := deserializeEventData(tt.dataType, json.RawMessage(tt.data))
+			tt.check(t, result, err)
+		})
+	}
+}
+
+func TestToTypedEvents_UnknownDataType(t *testing.T) {
+	rec := &SessionRecording{
+		Metadata: Metadata{Version: "1.0"},
+		Events: []RecordedEvent{
+			{
+				Type:      events.EventMessageCreated,
+				Timestamp: time.Now(),
+				SessionID: "test-session",
+				DataType:  "*events.UnknownEventType",
+				Data:      json.RawMessage(`{"unknown":"data"}`),
+			},
+		},
+	}
+
+	typedEvents, err := rec.ToTypedEvents()
+	require.NoError(t, err)
+	require.Len(t, typedEvents, 1)
+	// Unknown types should result in nil Data
+	assert.Nil(t, typedEvents[0].Data)
+}
+
+func TestLoadJSONLines_EmptyFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "empty.jsonl")
+	require.NoError(t, os.WriteFile(path, []byte(""), 0600))
+
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "empty recording file")
+}
+
+func TestLoadSessionRecordingFormat_MissingMetadata(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "no-metadata.jsonl")
+	// Create file with only events, no metadata line
+	content := `{"type":"event","event":{"seq":1,"type":"message.created","timestamp":"2024-01-01T00:00:00Z","session_id":"test"}}
+`
+	require.NoError(t, os.WriteFile(path, []byte(content), 0600))
+
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing metadata")
+}
+
+func TestLoadEventStoreFormat_EmptyEvents(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "empty-events.jsonl")
+	// Create file with only empty lines
+	content := "\n\n\n"
+	require.NoError(t, os.WriteFile(path, []byte(content), 0600))
+
+	_, err := Load(path)
+	require.Error(t, err)
+}
+
 func TestEndToEnd_RecordToMediaTimeline(t *testing.T) {
 	// End-to-end test: FileEventStore -> Load -> ToMediaTimeline -> ExportAudioToWAV
 	tmpDir := t.TempDir()
