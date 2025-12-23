@@ -171,6 +171,8 @@ type StreamSession struct {
 	closed       bool
 	inputCount   int
 	sessionError error
+
+	sendWg sync.WaitGroup // Tracks active sends to safely close channels
 }
 
 // SendChunk receives input chunks and triggers replay of the next response.
@@ -199,9 +201,9 @@ func (s *StreamSession) SendText(ctx context.Context, text string) error {
 		s.mu.Unlock()
 		// No more responses - send end signal
 		finishReason := finishReasonStop
-		s.responseChan <- providers.StreamChunk{
+		s.safeSend(&providers.StreamChunk{
 			FinishReason: &finishReason,
-		}
+		})
 		return nil
 	}
 
@@ -251,13 +253,35 @@ func (s *StreamSession) applyTimingDelay(ctx context.Context) error {
 	}
 }
 
+// safeSend safely sends a chunk to the response channel, returning false if session is closed.
+func (s *StreamSession) safeSend(chunk *providers.StreamChunk) bool {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return false
+	}
+	// Register as an active send while holding the lock
+	s.sendWg.Add(1)
+	s.mu.Unlock()
+
+	defer s.sendWg.Done()
+
+	// Use a select with doneChan to avoid blocking on a closed channel
+	select {
+	case <-s.doneChan:
+		return false
+	case s.responseChan <- *chunk:
+		return true
+	}
+}
+
 // sendTextContent sends the text content of a message.
 func (s *StreamSession) sendTextContent(msg arenaMessage) {
 	if msg.Content != "" {
-		s.responseChan <- providers.StreamChunk{
+		s.safeSend(&providers.StreamChunk{
 			Content: msg.Content,
 			Delta:   msg.Content,
-		}
+		})
 	}
 }
 
@@ -275,11 +299,13 @@ func (s *StreamSession) sendAudioParts(msg arenaMessage) {
 		}
 
 		audioStr := string(audioData)
-		s.responseChan <- providers.StreamChunk{
+		if !s.safeSend(&providers.StreamChunk{
 			MediaDelta: &types.MediaContent{
 				MIMEType: part.Media.MIMEType,
 				Data:     &audioStr,
 			},
+		}) {
+			return // Session closed, stop sending
 		}
 	}
 }
@@ -291,7 +317,7 @@ func (s *StreamSession) sendCompletionChunk(msg arenaMessage) {
 		finishReason = fr
 	}
 
-	chunk := providers.StreamChunk{
+	chunk := &providers.StreamChunk{
 		FinishReason: &finishReason,
 	}
 
@@ -299,7 +325,7 @@ func (s *StreamSession) sendCompletionChunk(msg arenaMessage) {
 		chunk.CostInfo = msg.CostInfo
 	}
 
-	s.responseChan <- chunk
+	s.safeSend(chunk)
 }
 
 // loadAudioData loads audio data from a storage reference or inline data.
@@ -341,15 +367,20 @@ func (s *StreamSession) Response() <-chan providers.StreamChunk {
 // Close ends the streaming session.
 func (s *StreamSession) Close() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.closed {
+		s.mu.Unlock()
 		return nil
 	}
 
 	s.closed = true
-	close(s.responseChan)
+	// Close doneChan first so safeSend operations will abort
 	close(s.doneChan)
+	s.mu.Unlock()
+
+	// Wait for any in-flight sends to complete before closing responseChan
+	s.sendWg.Wait()
+
+	close(s.responseChan)
 
 	return nil
 }
