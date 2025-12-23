@@ -1,0 +1,50 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/scenario.json
+#
+# Replay scenario for testing recorded duplex sessions
+# This scenario replays pre-recorded audio files using the replay provider.
+#
+# Usage:
+#   promptarena run --scenario duplex-replay --provider replay-duplex
+#
+# The assertions verify that the replayed responses match expected content.
+#
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: duplex-replay
+
+spec:
+  id: "duplex-replay"
+  task_type: voice-assistant-tools
+  description: "Replay a recorded duplex session deterministically"
+
+  duplex:
+    timeout: "60s"
+    turn_detection:
+      mode: asm
+      vad:
+        silence_threshold_ms: 1200
+        min_speech_ms: 800
+
+  streaming: true
+
+  # Single turn using pre-recorded audio
+  # The replay provider will return the recorded assistant response
+  turns:
+    # Turn 1: Initial greeting using existing PCM audio
+    - role: user
+      parts:
+        - type: audio
+          media:
+            file_path: audio/greeting.pcm
+            mime_type: audio/L16
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "hear"
+            case_insensitive: true
+
+  context:
+    goal: "Test replay provider with recorded duplex session"
+    timeline: "immediate"

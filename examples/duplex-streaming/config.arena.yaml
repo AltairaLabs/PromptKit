@@ -30,6 +30,8 @@ spec:
     - file: providers/mock-duplex.provider.yaml
     # Mock provider with simulation (interruptions, session closures)
     - file: providers/mock-duplex-simulate.provider.yaml
+    # Replay provider for deterministic playback of recorded sessions
+    - file: providers/replay-duplex.provider.yaml
 
   # Scenario definitions
   scenarios:
@@ -38,6 +40,7 @@ spec:
     - file: scenarios/duplex-selfplay-mock.scenario.yaml
     - file: scenarios/duplex-interactive.scenario.yaml
     - file: scenarios/duplex-tools.scenario.yaml
+    - file: scenarios/duplex-replay.scenario.yaml
 
   # Tool definitions for voice assistant
   tools:

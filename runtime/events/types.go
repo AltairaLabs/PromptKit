@@ -67,6 +67,23 @@ const (
 
 	// EventConversationStarted marks the start of a new conversation.
 	EventConversationStarted EventType = "conversation.started"
+
+	// EventAudioInput marks audio input from user/environment (multimodal recording).
+	EventAudioInput EventType = "audio.input"
+	// EventAudioOutput marks audio output from agent (multimodal recording).
+	EventAudioOutput EventType = "audio.output"
+	// EventAudioTranscription marks speech-to-text transcription result.
+	EventAudioTranscription EventType = "audio.transcription"
+
+	// EventVideoFrame marks a video frame capture (multimodal recording).
+	EventVideoFrame EventType = "video.frame"
+	// EventScreenshot marks a screenshot capture.
+	EventScreenshot EventType = "screenshot"
+
+	// EventImageInput marks image input from user/environment (multimodal recording).
+	EventImageInput EventType = "image.input"
+	// EventImageOutput marks image output from agent (multimodal recording).
+	EventImageOutput EventType = "image.output"
 )
 
 // EventData is a marker interface for event payloads.
@@ -334,4 +351,167 @@ type MessageUpdatedData struct {
 type ConversationStartedData struct {
 	baseEventData
 	SystemPrompt string // The assembled system prompt for this conversation
+}
+
+// BinaryPayload represents a reference to binary data stored externally.
+// This allows events to reference large payloads (audio, video, images) without
+// embedding them directly in the event stream.
+type BinaryPayload struct {
+	// StorageRef is a URI or path to the stored binary data.
+	// Examples: "file://recordings/audio/chunk-001.pcm", "s3://bucket/key"
+	StorageRef string `json:"storage_ref"`
+	// MIMEType is the MIME type of the binary data.
+	MIMEType string `json:"mime_type"`
+	// Size is the size of the binary data in bytes.
+	Size int64 `json:"size"`
+	// Checksum is an optional integrity checksum (e.g., SHA256).
+	Checksum string `json:"checksum,omitempty"`
+	// InlineData contains the raw bytes if small enough to embed directly.
+	// If set, StorageRef may be empty.
+	InlineData []byte `json:"inline_data,omitempty"`
+}
+
+// AudioMetadata contains format information for audio data.
+type AudioMetadata struct {
+	// SampleRate is the audio sample rate in Hz (e.g., 16000, 24000, 44100).
+	SampleRate int `json:"sample_rate"`
+	// Channels is the number of audio channels (1=mono, 2=stereo).
+	Channels int `json:"channels"`
+	// Encoding is the audio encoding format (e.g., "pcm", "pcm_linear16", "opus", "mp3").
+	Encoding string `json:"encoding"`
+	// BitsPerSample is the bit depth for PCM audio (e.g., 16, 24, 32).
+	BitsPerSample int `json:"bits_per_sample,omitempty"`
+	// DurationMs is the duration of the audio in milliseconds.
+	DurationMs int64 `json:"duration_ms"`
+}
+
+// AudioInputData contains data for audio input events.
+type AudioInputData struct {
+	baseEventData
+	// Actor identifies the source of the audio (e.g., "user", "environment").
+	Actor string `json:"actor"`
+	// Payload contains the audio data or reference.
+	Payload BinaryPayload `json:"payload"`
+	// Metadata contains audio format information.
+	Metadata AudioMetadata `json:"metadata"`
+	// TurnID links this audio to a specific conversation turn.
+	TurnID string `json:"turn_id,omitempty"`
+	// ChunkIndex is the sequence number for streaming audio (0-based).
+	ChunkIndex int `json:"chunk_index"`
+	// IsFinal indicates this is the last chunk in the stream.
+	IsFinal bool `json:"is_final"`
+}
+
+// AudioOutputData contains data for audio output events.
+type AudioOutputData struct {
+	baseEventData
+	// Payload contains the audio data or reference.
+	Payload BinaryPayload `json:"payload"`
+	// Metadata contains audio format information.
+	Metadata AudioMetadata `json:"metadata"`
+	// TurnID links this audio to a specific conversation turn.
+	TurnID string `json:"turn_id,omitempty"`
+	// ChunkIndex is the sequence number for streaming audio (0-based).
+	ChunkIndex int `json:"chunk_index"`
+	// IsFinal indicates this is the last chunk in the stream.
+	IsFinal bool `json:"is_final"`
+	// GeneratedFrom indicates what generated this audio (e.g., "tts", "model").
+	GeneratedFrom string `json:"generated_from,omitempty"`
+}
+
+// AudioTranscriptionData contains data for transcription events.
+type AudioTranscriptionData struct {
+	baseEventData
+	// Text is the transcribed text.
+	Text string `json:"text"`
+	// Language is the detected or specified language code (e.g., "en-US").
+	Language string `json:"language,omitempty"`
+	// Confidence is the confidence score (0.0 to 1.0) if available.
+	Confidence float64 `json:"confidence,omitempty"`
+	// TurnID links this transcription to a specific conversation turn.
+	TurnID string `json:"turn_id,omitempty"`
+	// AudioEventID references the audio event this transcription is derived from.
+	AudioEventID string `json:"audio_event_id,omitempty"`
+	// IsFinal indicates this is the final transcription (vs. interim results).
+	IsFinal bool `json:"is_final"`
+	// Provider is the STT provider used (e.g., "whisper", "google", "deepgram").
+	Provider string `json:"provider,omitempty"`
+}
+
+// VideoMetadata contains format information for video data.
+type VideoMetadata struct {
+	// Width is the video frame width in pixels.
+	Width int `json:"width"`
+	// Height is the video frame height in pixels.
+	Height int `json:"height"`
+	// Encoding is the video encoding format (e.g., "h264", "vp8", "mjpeg", "raw").
+	Encoding string `json:"encoding"`
+	// FrameRate is the frames per second.
+	FrameRate float64 `json:"frame_rate,omitempty"`
+	// DurationMs is the duration in milliseconds (for video segments).
+	DurationMs int64 `json:"duration_ms,omitempty"`
+}
+
+// VideoFrameData contains data for video frame events.
+type VideoFrameData struct {
+	baseEventData
+	// Payload contains the frame data or reference.
+	Payload BinaryPayload `json:"payload"`
+	// Metadata contains video format information.
+	Metadata VideoMetadata `json:"metadata"`
+	// FrameIndex is the frame sequence number.
+	FrameIndex int64 `json:"frame_index"`
+	// TimestampMs is the frame timestamp in milliseconds from session start.
+	TimestampMs int64 `json:"timestamp_ms"`
+	// IsKeyframe indicates if this is a keyframe (for seeking).
+	IsKeyframe bool `json:"is_keyframe"`
+}
+
+// ScreenshotData contains data for screenshot events.
+type ScreenshotData struct {
+	baseEventData
+	// Payload contains the image data or reference.
+	Payload BinaryPayload `json:"payload"`
+	// Metadata contains image format information.
+	Metadata VideoMetadata `json:"metadata"` // Reuse VideoMetadata for dimensions
+	// WindowTitle is the title of the captured window (if applicable).
+	WindowTitle string `json:"window_title,omitempty"`
+	// WindowBounds contains the window position and size.
+	WindowBounds *Rect `json:"window_bounds,omitempty"`
+	// Reason describes why the screenshot was taken (e.g., "before_action", "after_action", "periodic").
+	Reason string `json:"reason,omitempty"`
+}
+
+// Rect represents a rectangle for screen coordinates.
+type Rect struct {
+	X      int `json:"x"`
+	Y      int `json:"y"`
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}
+
+// ImageInputData contains data for image input events.
+type ImageInputData struct {
+	baseEventData
+	// Actor identifies the source of the image (e.g., "user", "environment").
+	Actor string `json:"actor"`
+	// Payload contains the image data or reference.
+	Payload BinaryPayload `json:"payload"`
+	// Metadata contains image format information.
+	Metadata VideoMetadata `json:"metadata"` // Reuse VideoMetadata for dimensions
+	// Description is an optional description of the image content.
+	Description string `json:"description,omitempty"`
+}
+
+// ImageOutputData contains data for image output events.
+type ImageOutputData struct {
+	baseEventData
+	// Payload contains the image data or reference.
+	Payload BinaryPayload `json:"payload"`
+	// Metadata contains image format information.
+	Metadata VideoMetadata `json:"metadata"` // Reuse VideoMetadata for dimensions
+	// GeneratedFrom indicates what generated this image (e.g., "dalle", "stable-diffusion").
+	GeneratedFrom string `json:"generated_from,omitempty"`
+	// Prompt is the prompt used to generate the image (if applicable).
+	Prompt string `json:"prompt,omitempty"`
 }
