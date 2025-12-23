@@ -25,6 +25,100 @@ const (
 // filePermissions for recording files.
 const filePermissions = 0600
 
+// eventDataRegistry maps type names to factory functions for event data types.
+// This enables deserialization of recorded events back to their typed structs.
+var eventDataRegistry = map[string]func() events.EventData{
+	// Audio events
+	"*events.AudioInputData":         func() events.EventData { return &events.AudioInputData{} },
+	"events.AudioInputData":          func() events.EventData { return &events.AudioInputData{} },
+	"*events.AudioOutputData":        func() events.EventData { return &events.AudioOutputData{} },
+	"events.AudioOutputData":         func() events.EventData { return &events.AudioOutputData{} },
+	"*events.AudioTranscriptionData": func() events.EventData { return &events.AudioTranscriptionData{} },
+	"events.AudioTranscriptionData":  func() events.EventData { return &events.AudioTranscriptionData{} },
+
+	// Video/Image events
+	"*events.VideoFrameData":  func() events.EventData { return &events.VideoFrameData{} },
+	"events.VideoFrameData":   func() events.EventData { return &events.VideoFrameData{} },
+	"*events.ScreenshotData":  func() events.EventData { return &events.ScreenshotData{} },
+	"events.ScreenshotData":   func() events.EventData { return &events.ScreenshotData{} },
+	"*events.ImageInputData":  func() events.EventData { return &events.ImageInputData{} },
+	"events.ImageInputData":   func() events.EventData { return &events.ImageInputData{} },
+	"*events.ImageOutputData": func() events.EventData { return &events.ImageOutputData{} },
+	"events.ImageOutputData":  func() events.EventData { return &events.ImageOutputData{} },
+
+	// Message events
+	"*events.MessageCreatedData":      func() events.EventData { return &events.MessageCreatedData{} },
+	"events.MessageCreatedData":       func() events.EventData { return &events.MessageCreatedData{} },
+	"*events.MessageUpdatedData":      func() events.EventData { return &events.MessageUpdatedData{} },
+	"events.MessageUpdatedData":       func() events.EventData { return &events.MessageUpdatedData{} },
+	"*events.ConversationStartedData": func() events.EventData { return &events.ConversationStartedData{} },
+	"events.ConversationStartedData":  func() events.EventData { return &events.ConversationStartedData{} },
+
+	// Pipeline events
+	"*events.PipelineStartedData":   func() events.EventData { return &events.PipelineStartedData{} },
+	"events.PipelineStartedData":    func() events.EventData { return &events.PipelineStartedData{} },
+	"*events.PipelineCompletedData": func() events.EventData { return &events.PipelineCompletedData{} },
+	"events.PipelineCompletedData":  func() events.EventData { return &events.PipelineCompletedData{} },
+	"*events.PipelineFailedData":    func() events.EventData { return &events.PipelineFailedData{} },
+	"events.PipelineFailedData":     func() events.EventData { return &events.PipelineFailedData{} },
+
+	// Provider events
+	"*events.ProviderCallStartedData":   func() events.EventData { return &events.ProviderCallStartedData{} },
+	"events.ProviderCallStartedData":    func() events.EventData { return &events.ProviderCallStartedData{} },
+	"*events.ProviderCallCompletedData": func() events.EventData { return &events.ProviderCallCompletedData{} },
+	"events.ProviderCallCompletedData":  func() events.EventData { return &events.ProviderCallCompletedData{} },
+	"*events.ProviderCallFailedData":    func() events.EventData { return &events.ProviderCallFailedData{} },
+	"events.ProviderCallFailedData":     func() events.EventData { return &events.ProviderCallFailedData{} },
+
+	// Tool events
+	"*events.ToolCallStartedData":   func() events.EventData { return &events.ToolCallStartedData{} },
+	"events.ToolCallStartedData":    func() events.EventData { return &events.ToolCallStartedData{} },
+	"*events.ToolCallCompletedData": func() events.EventData { return &events.ToolCallCompletedData{} },
+	"events.ToolCallCompletedData":  func() events.EventData { return &events.ToolCallCompletedData{} },
+	"*events.ToolCallFailedData":    func() events.EventData { return &events.ToolCallFailedData{} },
+	"events.ToolCallFailedData":     func() events.EventData { return &events.ToolCallFailedData{} },
+
+	// Custom events
+	"*events.CustomEventData": func() events.EventData { return &events.CustomEventData{} },
+	"events.CustomEventData":  func() events.EventData { return &events.CustomEventData{} },
+
+	// Stage events
+	"*events.StageStartedData":   func() events.EventData { return &events.StageStartedData{} },
+	"events.StageStartedData":    func() events.EventData { return &events.StageStartedData{} },
+	"*events.StageCompletedData": func() events.EventData { return &events.StageCompletedData{} },
+	"events.StageCompletedData":  func() events.EventData { return &events.StageCompletedData{} },
+	"*events.StageFailedData":    func() events.EventData { return &events.StageFailedData{} },
+	"events.StageFailedData":     func() events.EventData { return &events.StageFailedData{} },
+
+	// Middleware events
+	"*events.MiddlewareStartedData":   func() events.EventData { return &events.MiddlewareStartedData{} },
+	"events.MiddlewareStartedData":    func() events.EventData { return &events.MiddlewareStartedData{} },
+	"*events.MiddlewareCompletedData": func() events.EventData { return &events.MiddlewareCompletedData{} },
+	"events.MiddlewareCompletedData":  func() events.EventData { return &events.MiddlewareCompletedData{} },
+	"*events.MiddlewareFailedData":    func() events.EventData { return &events.MiddlewareFailedData{} },
+	"events.MiddlewareFailedData":     func() events.EventData { return &events.MiddlewareFailedData{} },
+
+	// Validation events
+	"*events.ValidationStartedData": func() events.EventData { return &events.ValidationStartedData{} },
+	"events.ValidationStartedData":  func() events.EventData { return &events.ValidationStartedData{} },
+	"*events.ValidationPassedData":  func() events.EventData { return &events.ValidationPassedData{} },
+	"events.ValidationPassedData":   func() events.EventData { return &events.ValidationPassedData{} },
+	"*events.ValidationFailedData":  func() events.EventData { return &events.ValidationFailedData{} },
+	"events.ValidationFailedData":   func() events.EventData { return &events.ValidationFailedData{} },
+
+	// Context/State events
+	"*events.ContextBuiltData":        func() events.EventData { return &events.ContextBuiltData{} },
+	"events.ContextBuiltData":         func() events.EventData { return &events.ContextBuiltData{} },
+	"*events.TokenBudgetExceededData": func() events.EventData { return &events.TokenBudgetExceededData{} },
+	"events.TokenBudgetExceededData":  func() events.EventData { return &events.TokenBudgetExceededData{} },
+	"*events.StateLoadedData":         func() events.EventData { return &events.StateLoadedData{} },
+	"events.StateLoadedData":          func() events.EventData { return &events.StateLoadedData{} },
+	"*events.StateSavedData":          func() events.EventData { return &events.StateSavedData{} },
+	"events.StateSavedData":           func() events.EventData { return &events.StateSavedData{} },
+	"*events.StreamInterruptedData":   func() events.EventData { return &events.StreamInterruptedData{} },
+	"events.StreamInterruptedData":    func() events.EventData { return &events.StreamInterruptedData{} },
+}
+
 // SessionRecording is a self-contained artifact for replay and analysis.
 // It contains all information needed to replay a session without access
 // to the original event store.
@@ -494,106 +588,15 @@ func (r *SessionRecording) ToTypedEvents() ([]*events.Event, error) {
 }
 
 // deserializeEventData deserializes JSON data to the appropriate typed struct based on dataType.
+// Uses the eventDataRegistry map for O(1) lookup instead of a large switch statement.
 func deserializeEventData(dataType string, data json.RawMessage) (events.EventData, error) {
-	// Create the appropriate struct based on dataType
-	var target events.EventData
-
-	switch dataType {
-	// Audio events (priority for media reconstruction)
-	case "*events.AudioInputData", "events.AudioInputData":
-		target = &events.AudioInputData{}
-	case "*events.AudioOutputData", "events.AudioOutputData":
-		target = &events.AudioOutputData{}
-	case "*events.AudioTranscriptionData", "events.AudioTranscriptionData":
-		target = &events.AudioTranscriptionData{}
-
-	// Video/Image events
-	case "*events.VideoFrameData", "events.VideoFrameData":
-		target = &events.VideoFrameData{}
-	case "*events.ScreenshotData", "events.ScreenshotData":
-		target = &events.ScreenshotData{}
-	case "*events.ImageInputData", "events.ImageInputData":
-		target = &events.ImageInputData{}
-	case "*events.ImageOutputData", "events.ImageOutputData":
-		target = &events.ImageOutputData{}
-
-	// Message events
-	case "*events.MessageCreatedData", "events.MessageCreatedData":
-		target = &events.MessageCreatedData{}
-	case "*events.MessageUpdatedData", "events.MessageUpdatedData":
-		target = &events.MessageUpdatedData{}
-	case "*events.ConversationStartedData", "events.ConversationStartedData":
-		target = &events.ConversationStartedData{}
-
-	// Pipeline events
-	case "*events.PipelineStartedData", "events.PipelineStartedData":
-		target = &events.PipelineStartedData{}
-	case "*events.PipelineCompletedData", "events.PipelineCompletedData":
-		target = &events.PipelineCompletedData{}
-	case "*events.PipelineFailedData", "events.PipelineFailedData":
-		target = &events.PipelineFailedData{}
-
-	// Provider events
-	case "*events.ProviderCallStartedData", "events.ProviderCallStartedData":
-		target = &events.ProviderCallStartedData{}
-	case "*events.ProviderCallCompletedData", "events.ProviderCallCompletedData":
-		target = &events.ProviderCallCompletedData{}
-	case "*events.ProviderCallFailedData", "events.ProviderCallFailedData":
-		target = &events.ProviderCallFailedData{}
-
-	// Tool events
-	case "*events.ToolCallStartedData", "events.ToolCallStartedData":
-		target = &events.ToolCallStartedData{}
-	case "*events.ToolCallCompletedData", "events.ToolCallCompletedData":
-		target = &events.ToolCallCompletedData{}
-	case "*events.ToolCallFailedData", "events.ToolCallFailedData":
-		target = &events.ToolCallFailedData{}
-
-	// Custom events (arena events, etc.)
-	case "*events.CustomEventData", "events.CustomEventData":
-		target = &events.CustomEventData{}
-
-	// Stage events
-	case "*events.StageStartedData", "events.StageStartedData":
-		target = &events.StageStartedData{}
-	case "*events.StageCompletedData", "events.StageCompletedData":
-		target = &events.StageCompletedData{}
-	case "*events.StageFailedData", "events.StageFailedData":
-		target = &events.StageFailedData{}
-
-	// Middleware events
-	case "*events.MiddlewareStartedData", "events.MiddlewareStartedData":
-		target = &events.MiddlewareStartedData{}
-	case "*events.MiddlewareCompletedData", "events.MiddlewareCompletedData":
-		target = &events.MiddlewareCompletedData{}
-	case "*events.MiddlewareFailedData", "events.MiddlewareFailedData":
-		target = &events.MiddlewareFailedData{}
-
-	// Validation events
-	case "*events.ValidationStartedData", "events.ValidationStartedData":
-		target = &events.ValidationStartedData{}
-	case "*events.ValidationPassedData", "events.ValidationPassedData":
-		target = &events.ValidationPassedData{}
-	case "*events.ValidationFailedData", "events.ValidationFailedData":
-		target = &events.ValidationFailedData{}
-
-	// Context/State events
-	case "*events.ContextBuiltData", "events.ContextBuiltData":
-		target = &events.ContextBuiltData{}
-	case "*events.TokenBudgetExceededData", "events.TokenBudgetExceededData":
-		target = &events.TokenBudgetExceededData{}
-	case "*events.StateLoadedData", "events.StateLoadedData":
-		target = &events.StateLoadedData{}
-	case "*events.StateSavedData", "events.StateSavedData":
-		target = &events.StateSavedData{}
-	case "*events.StreamInterruptedData", "events.StreamInterruptedData":
-		target = &events.StreamInterruptedData{}
-
-	default:
+	factory, ok := eventDataRegistry[dataType]
+	if !ok {
 		// Unknown type - return nil without error for forward compatibility
 		return nil, nil
 	}
 
+	target := factory()
 	if err := json.Unmarshal(data, target); err != nil {
 		return nil, fmt.Errorf("unmarshal %s: %w", dataType, err)
 	}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -25,6 +26,9 @@ const (
 	preferredSampleRate     = 24000
 	defaultChunkDelayMs     = 100
 )
+
+// ErrSessionClosed is returned when attempting to use a closed session.
+var ErrSessionClosed = errors.New("session is closed")
 
 // Ensure Provider implements StreamInputSupport.
 var _ providers.StreamInputSupport = (*StreamingProvider)(nil)
@@ -180,7 +184,7 @@ func (s *StreamSession) SendChunk(ctx context.Context, chunk *types.MediaChunk) 
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
-		return fmt.Errorf("session is closed")
+		return ErrSessionClosed
 	}
 	s.inputCount++
 	s.mu.Unlock()
@@ -193,7 +197,7 @@ func (s *StreamSession) SendText(ctx context.Context, text string) error {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
-		return fmt.Errorf("session is closed")
+		return ErrSessionClosed
 	}
 
 	// Find the next response to send
@@ -402,7 +406,7 @@ func (s *StreamSession) TriggerNextResponse(ctx context.Context) error {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
-		return fmt.Errorf("session is closed")
+		return ErrSessionClosed
 	}
 
 	if s.turnIndex >= len(s.messages) {

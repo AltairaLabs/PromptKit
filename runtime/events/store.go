@@ -15,10 +15,11 @@ import (
 
 // File system constants.
 const (
-	dirPermissions  = 0750
-	filePermissions = 0600
-	scannerBufSize  = 1024 * 1024 // 1MB buffer for large events
-	streamChanSize  = 100
+	dirPermissions     = 0750
+	filePermissions    = 0600
+	scannerBufSize     = 1024 * 1024 // 1MB buffer for large events
+	streamChanSize     = 100
+	errOpenSessionFile = "open session file: %w"
 )
 
 // EventStore persists events for later replay and analysis.
@@ -296,7 +297,7 @@ func (s *FileEventStore) Query(ctx context.Context, filter *EventFilter) ([]*Eve
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("open session file: %w", err)
+		return nil, fmt.Errorf(errOpenSessionFile, err)
 	}
 	defer f.Close()
 
@@ -340,7 +341,7 @@ func (s *FileEventStore) QueryRaw(ctx context.Context, filter *EventFilter) ([]*
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("open session file: %w", err)
+		return nil, fmt.Errorf(errOpenSessionFile, err)
 	}
 	defer f.Close()
 
@@ -382,7 +383,7 @@ func (s *FileEventStore) Stream(ctx context.Context, sessionID string) (<-chan *
 			close(ch)
 			return ch, nil
 		}
-		return nil, fmt.Errorf("open session file: %w", err)
+		return nil, fmt.Errorf(errOpenSessionFile, err)
 	}
 
 	ch := make(chan *Event, streamChanSize)

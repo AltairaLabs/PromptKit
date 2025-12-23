@@ -46,6 +46,7 @@ const (
 	defaultFontSize    = 24
 	defaultFFmpeg      = "ffmpeg"
 	subtitleDuration   = 3 * time.Second
+	ffmpegFilterComplex = "-filter_complex"
 )
 
 // ExportConfig configures session export behavior.
@@ -423,12 +424,12 @@ func (e *SessionExporter) buildAudioFFmpegArgs(inputPaths, outputPaths []string,
 
 	if totalInputs == 2 && e.config.AudioMix == audioMixStereo {
 		// Mix to stereo (left = input, right = output)
-		args = append(args, "-filter_complex",
+		args = append(args, ffmpegFilterComplex,
 			"[0:a][1:a]amerge=inputs=2,pan=stereo|c0=c0|c1=c1[a]",
 			"-map", "[a]")
 	} else if totalInputs == 2 && e.config.AudioMix == audioMixMono {
 		// Mix to mono
-		args = append(args, "-filter_complex",
+		args = append(args, ffmpegFilterComplex,
 			"[0:a][1:a]amix=inputs=2:duration=longest[a]",
 			"-map", "[a]")
 	} else if totalInputs == 1 {
@@ -649,7 +650,7 @@ func (e *SessionExporter) buildVideoFFmpegArgs(audioPaths []string, subtitlePath
 	}
 
 	if len(filterParts) > 0 {
-		args = append(args, "-filter_complex", strings.Join(filterParts, ";"))
+		args = append(args, ffmpegFilterComplex, strings.Join(filterParts, ";"))
 		if e.config.IncludeTranscriptions || e.config.IncludeAnnotations {
 			args = append(args, "-map", "[v]")
 		} else {

@@ -49,6 +49,7 @@ const (
 	blobDirPermissions  = 0750
 	blobFilePermissions = 0600
 	extWebm             = ".webm"
+	fileScheme          = "file://"
 )
 
 // NewFileBlobStore creates a file-based blob store.
@@ -192,16 +193,16 @@ func (s *FileBlobStore) Close() error {
 func (s *FileBlobStore) pathToRef(path string) string {
 	rel, err := filepath.Rel(s.baseDir, path)
 	if err != nil {
-		return "file://" + path
+		return fileScheme + path
 	}
-	return "file://" + rel
+	return fileScheme + rel
 }
 
 // refToPath converts a storage reference to a file path.
 func (s *FileBlobStore) refToPath(ref string) string {
 	// Strip file:// prefix if present
-	if len(ref) > 7 && ref[:7] == "file://" {
-		ref = ref[7:]
+	if len(ref) > len(fileScheme) && ref[:len(fileScheme)] == fileScheme {
+		ref = ref[len(fileScheme):]
 	}
 	// If absolute path, return as-is
 	if filepath.IsAbs(ref) {
