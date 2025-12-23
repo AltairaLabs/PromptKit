@@ -31,7 +31,7 @@ spec:
     # Mock provider with simulation (interruptions, session closures)
     - file: providers/mock-duplex-simulate.provider.yaml
     # Replay provider for deterministic playback of recorded sessions
-    - file: providers/replay-duplex.provider.yaml
+    # - file: providers/replay-duplex.provider.yaml  # Disabled until we have a recording
 
   # Scenario definitions
   scenarios:
@@ -72,3 +72,6 @@ spec:
         - html
       html:
         file: report.html
+      recording:
+        enabled: true
+        dir: recordings

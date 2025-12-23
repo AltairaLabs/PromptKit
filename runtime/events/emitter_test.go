@@ -129,6 +129,8 @@ func TestEmitterHandlesNilEmitter(t *testing.T) {
 	emitter.MessageCreated("user", "hello", 0, nil, nil)
 	emitter.MessageUpdated(0, 100, 10, 20, 0.001)
 	emitter.ConversationStarted("system prompt")
+	emitter.AudioInput(&AudioInputData{Actor: "user"})
+	emitter.AudioOutput(&AudioOutputData{GeneratedFrom: "model"})
 }
 
 func TestEmitter_MessageCreated(t *testing.T) {
@@ -291,4 +293,129 @@ func TestEmitter_ProviderCallCompleted_NilData(t *testing.T) {
 
 	// Should not panic when data is nil
 	emitter.ProviderCallCompleted(nil)
+}
+
+func TestEmitter_AudioInput(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-ai", "session-ai", "conv-ai")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	bus.Subscribe(EventAudioInput, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	emitter.AudioInput(&AudioInputData{
+		Actor:      "user",
+		ChunkIndex: 0,
+		Payload: BinaryPayload{
+			InlineData: []byte{0x01, 0x02, 0x03},
+			MIMEType:   "audio/pcm",
+			Size:       3,
+		},
+		Metadata: AudioMetadata{
+			SampleRate: 16000,
+			Channels:   1,
+			Encoding:   "pcm_linear16",
+			DurationMs: 100,
+		},
+		IsFinal: false,
+	})
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for audio.input event")
+	}
+
+	if got.RunID != "run-ai" || got.SessionID != "session-ai" || got.ConversationID != "conv-ai" {
+		t.Fatalf("unexpected context: %+v", got)
+	}
+
+	data, ok := got.Data.(*AudioInputData)
+	if !ok {
+		t.Fatalf("unexpected data type: %T", got.Data)
+	}
+
+	if data.Actor != "user" || data.ChunkIndex != 0 {
+		t.Fatalf("unexpected data: %+v", data)
+	}
+	if data.Metadata.SampleRate != 16000 || data.Metadata.Channels != 1 {
+		t.Fatalf("unexpected metadata: %+v", data.Metadata)
+	}
+}
+
+func TestEmitter_AudioInput_NilData(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-ain", "session-ain", "conv-ain")
+
+	// Should not panic when data is nil
+	emitter.AudioInput(nil)
+}
+
+func TestEmitter_AudioOutput(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-ao", "session-ao", "conv-ao")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	bus.Subscribe(EventAudioOutput, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	emitter.AudioOutput(&AudioOutputData{
+		ChunkIndex: 5,
+		Payload: BinaryPayload{
+			InlineData: []byte{0xAA, 0xBB, 0xCC, 0xDD},
+			MIMEType:   "audio/pcm",
+			Size:       4,
+		},
+		Metadata: AudioMetadata{
+			SampleRate: 24000,
+			Channels:   1,
+			Encoding:   "pcm_linear16",
+			DurationMs: 50,
+		},
+		GeneratedFrom: "model",
+	})
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for audio.output event")
+	}
+
+	if got.RunID != "run-ao" || got.SessionID != "session-ao" || got.ConversationID != "conv-ao" {
+		t.Fatalf("unexpected context: %+v", got)
+	}
+
+	data, ok := got.Data.(*AudioOutputData)
+	if !ok {
+		t.Fatalf("unexpected data type: %T", got.Data)
+	}
+
+	if data.ChunkIndex != 5 || data.GeneratedFrom != "model" {
+		t.Fatalf("unexpected data: %+v", data)
+	}
+	if data.Metadata.SampleRate != 24000 || data.Metadata.DurationMs != 50 {
+		t.Fatalf("unexpected metadata: %+v", data.Metadata)
+	}
+}
+
+func TestEmitter_AudioOutput_NilData(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-aon", "session-aon", "conv-aon")
+
+	// Should not panic when data is nil
+	emitter.AudioOutput(nil)
 }
