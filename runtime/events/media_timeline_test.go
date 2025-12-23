@@ -437,3 +437,180 @@ func TestVideoFrameExtraction(t *testing.T) {
 		t.Errorf("First segment should have frame index 0")
 	}
 }
+
+func TestMediaTrack_ExportToWAV(t *testing.T) {
+	sessionStart := time.Now()
+
+	events := []*Event{
+		{
+			Type:      EventAudioInput,
+			Timestamp: sessionStart,
+			SessionID: "wav-test",
+			Data: &AudioInputData{
+				Actor:      "user",
+				ChunkIndex: 0,
+				Metadata:   AudioMetadata{SampleRate: 16000, Channels: 1, DurationMs: 100},
+				Payload:    BinaryPayload{InlineData: make([]byte, 3200), MIMEType: "audio/pcm", Size: 3200},
+			},
+		},
+		{
+			Type:      EventAudioOutput,
+			Timestamp: sessionStart.Add(200 * time.Millisecond),
+			SessionID: "wav-test",
+			Data: &AudioOutputData{
+				ChunkIndex: 0,
+				Metadata:   AudioMetadata{SampleRate: 24000, Channels: 1, DurationMs: 100},
+				Payload:    BinaryPayload{InlineData: make([]byte, 4800), MIMEType: "audio/pcm", Size: 4800},
+			},
+		},
+	}
+
+	timeline := NewMediaTimeline("wav-test", events, nil)
+
+	// Test ExportAudioToWAV for input track
+	inputPath := t.TempDir() + "/input.wav"
+	if err := timeline.ExportAudioToWAV(TrackAudioInput, inputPath); err != nil {
+		t.Fatalf("Failed to export input audio: %v", err)
+	}
+
+	// Verify WAV file was created
+	inputData, err := os.ReadFile(inputPath)
+	if err != nil {
+		t.Fatalf("Failed to read WAV file: %v", err)
+	}
+
+	// Check WAV header
+	if string(inputData[0:4]) != "RIFF" {
+		t.Error("WAV file missing RIFF header")
+	}
+	if string(inputData[8:12]) != "WAVE" {
+		t.Error("WAV file missing WAVE format")
+	}
+	if string(inputData[12:16]) != "fmt " {
+		t.Error("WAV file missing fmt chunk")
+	}
+
+	// Test ExportAudioToWAV for output track
+	outputPath := t.TempDir() + "/output.wav"
+	if err := timeline.ExportAudioToWAV(TrackAudioOutput, outputPath); err != nil {
+		t.Fatalf("Failed to export output audio: %v", err)
+	}
+
+	outputData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read output WAV file: %v", err)
+	}
+	if len(outputData) < 44 {
+		t.Error("Output WAV file too small")
+	}
+}
+
+func TestMediaTrack_ExportToWAV_NonAudioTrack(t *testing.T) {
+	sessionStart := time.Now()
+
+	events := []*Event{
+		{
+			Type:      EventVideoFrame,
+			Timestamp: sessionStart,
+			SessionID: "video-test",
+			Data: &VideoFrameData{
+				FrameIndex: 0,
+				Metadata:   VideoMetadata{Width: 640, Height: 480},
+				Payload:    BinaryPayload{InlineData: make([]byte, 1000), MIMEType: "video/h264"},
+			},
+		},
+	}
+
+	timeline := NewMediaTimeline("video-test", events, nil)
+
+	// Should fail for video track
+	videoPath := t.TempDir() + "/video.wav"
+	err := timeline.ExportAudioToWAV(TrackVideo, videoPath)
+	if err == nil {
+		t.Error("Expected error when exporting video track to WAV")
+	}
+}
+
+func TestMediaTrack_ExportToWAV_NoSegments(t *testing.T) {
+	// Create a track with no segments
+	track := &MediaTrack{
+		Type:     TrackAudioInput,
+		Segments: []*MediaSegment{},
+	}
+
+	tmpPath := t.TempDir() + "/empty.wav"
+	err := track.ExportToWAV(tmpPath, nil)
+	if err == nil {
+		t.Error("Expected error for empty track")
+	}
+}
+
+func TestMediaTrack_ExportToWAV_NoFormat(t *testing.T) {
+	// Track with segments but no format metadata - should use defaults
+	track := &MediaTrack{
+		Type: TrackAudioInput,
+		Segments: []*MediaSegment{
+			{
+				Payload:  &BinaryPayload{InlineData: make([]byte, 1000)},
+				Metadata: nil, // No metadata
+			},
+		},
+		Format: nil, // No format
+	}
+
+	tmpPath := t.TempDir() + "/noformat.wav"
+	err := track.ExportToWAV(tmpPath, nil)
+	if err != nil {
+		t.Errorf("Should handle missing format: %v", err)
+	}
+
+	// Verify file was created
+	if _, err := os.Stat(tmpPath); os.IsNotExist(err) {
+		t.Error("WAV file was not created")
+	}
+}
+
+func TestMediaTimeline_ExportAudioToWAV_TrackNotFound(t *testing.T) {
+	timeline := NewMediaTimeline("empty", []*Event{}, nil)
+
+	err := timeline.ExportAudioToWAV(TrackAudioInput, "/tmp/notfound.wav")
+	if err == nil {
+		t.Error("Expected error for missing track")
+	}
+}
+
+func TestMixedAudioReader_SeekAndPosition(t *testing.T) {
+	sessionStart := time.Now()
+
+	events := []*Event{
+		{
+			Type:      EventAudioInput,
+			Timestamp: sessionStart,
+			SessionID: "mix-test",
+			Data: &AudioInputData{
+				Actor:      "user",
+				ChunkIndex: 0,
+				Metadata:   AudioMetadata{SampleRate: 24000, Channels: 1, DurationMs: 100},
+				Payload:    BinaryPayload{InlineData: make([]byte, 4800), MIMEType: "audio/pcm"},
+			},
+		},
+	}
+
+	timeline := NewMediaTimeline("mix-test", events, nil)
+
+	reader, err := timeline.NewMixedAudioReader()
+	if err != nil {
+		t.Fatalf("Failed to create mixed reader: %v", err)
+	}
+	defer reader.Close()
+
+	// Test Seek
+	if err := reader.Seek(50 * time.Millisecond); err != nil {
+		t.Errorf("Seek failed: %v", err)
+	}
+
+	// Test Position
+	if reader.Position() != 50*time.Millisecond {
+		t.Errorf("Expected position 50ms, got %v", reader.Position())
+	}
+}
