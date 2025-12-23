@@ -510,69 +510,84 @@ const (
 
 // ExportToWAV exports the audio track to a WAV file.
 // The blobStore is used to load segment data that references external storage.
-//
-//nolint:gocognit // Sequential steps for WAV export are straightforward despite high count
 func (t *MediaTrack) ExportToWAV(path string, blobStore BlobStore) error {
-	if t.Type != TrackAudioInput && t.Type != TrackAudioOutput {
-		return fmt.Errorf("can only export audio tracks to WAV, got %s", t.Type)
+	if err := t.validateAudioTrack(); err != nil {
+		return err
 	}
 
-	if len(t.Segments) == 0 {
-		return fmt.Errorf("no segments to export")
+	sampleRate, channels := t.getAudioParams()
+	audioData, err := t.collectAudioData(blobStore)
+	if err != nil {
+		return err
 	}
 
-	// Get format from track
-	meta, ok := t.Format.(AudioMetadata)
-	if !ok {
-		// Default to common audio settings
-		meta = AudioMetadata{
-			SampleRate: defaultSampleRate,
-			Channels:   defaultChannels,
-			Encoding:   "pcm_linear16",
-		}
-	}
-
-	sampleRate := meta.SampleRate
-	if sampleRate == 0 {
-		sampleRate = defaultSampleRate
-	}
-	channels := meta.Channels
-	if channels == 0 {
-		channels = defaultChannels
-	}
-	bitsPerSample := wavDefaultBits
-
-	// Collect all audio data
-	var audioData []byte
-	for _, seg := range t.Segments {
-		var data []byte
-		if seg.Payload.InlineData != nil {
-			data = seg.Payload.InlineData
-		} else if blobStore != nil && seg.Payload.StorageRef != "" {
-			var err error
-			data, err = blobStore.Load(context.Background(), seg.Payload.StorageRef)
-			if err != nil {
-				return fmt.Errorf("load segment %d: %w", seg.ChunkIndex, err)
-			}
-		} else {
-			continue // Skip segments with no data
-		}
-		audioData = append(audioData, data...)
-	}
-
-	if len(audioData) == 0 {
-		return fmt.Errorf("no audio data to export")
-	}
-
-	// Create WAV file
-	wavData := createWAVFile(audioData, sampleRate, channels, bitsPerSample)
-
-	// Write to file
+	wavData := createWAVFile(audioData, sampleRate, channels, wavDefaultBits)
 	if err := os.WriteFile(path, wavData, wavFilePerms); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 
 	return nil
+}
+
+// validateAudioTrack checks that the track is a valid audio track for export.
+func (t *MediaTrack) validateAudioTrack() error {
+	if t.Type != TrackAudioInput && t.Type != TrackAudioOutput {
+		return fmt.Errorf("can only export audio tracks to WAV, got %s", t.Type)
+	}
+	if len(t.Segments) == 0 {
+		return fmt.Errorf("no segments to export")
+	}
+	return nil
+}
+
+// getAudioParams returns the sample rate and channels for the track.
+func (t *MediaTrack) getAudioParams() (sampleRate, channels int) {
+	meta, ok := t.Format.(AudioMetadata)
+	if !ok {
+		return defaultSampleRate, defaultChannels
+	}
+
+	sampleRate = meta.SampleRate
+	if sampleRate == 0 {
+		sampleRate = defaultSampleRate
+	}
+	channels = meta.Channels
+	if channels == 0 {
+		channels = defaultChannels
+	}
+	return sampleRate, channels
+}
+
+// collectAudioData gathers all audio data from track segments.
+func (t *MediaTrack) collectAudioData(blobStore BlobStore) ([]byte, error) {
+	var audioData []byte
+	for _, seg := range t.Segments {
+		data, err := t.loadSegmentData(*seg, blobStore)
+		if err != nil {
+			return nil, err
+		}
+		audioData = append(audioData, data...)
+	}
+
+	if len(audioData) == 0 {
+		return nil, fmt.Errorf("no audio data to export")
+	}
+	return audioData, nil
+}
+
+// loadSegmentData loads data from a single segment.
+func (t *MediaTrack) loadSegmentData(seg MediaSegment, blobStore BlobStore) ([]byte, error) {
+	if seg.Payload.InlineData != nil {
+		return seg.Payload.InlineData, nil
+	}
+	if blobStore != nil && seg.Payload.StorageRef != "" {
+		data, err := blobStore.Load(context.Background(), seg.Payload.StorageRef)
+		if err != nil {
+			return nil, fmt.Errorf("load segment %d: %w", seg.ChunkIndex, err)
+		}
+		return data, nil
+	}
+	return nil, nil // Skip segments with no data
 }
 
 // createWAVFile creates a WAV file from raw PCM data.

@@ -111,113 +111,45 @@ func (se *SerializableEvent) toEvent() *Event {
 	return event
 }
 
-// deserializeEventData attempts to deserialize event data based on the type name.
-//
-//nolint:gocognit // Type switch has many cases but is straightforward
-func deserializeEventData(dataType string, data json.RawMessage) EventData {
-	var result EventData
+// eventDataFactory is a function that creates a new EventData instance.
+type eventDataFactory func() EventData
 
-	switch dataType {
-	case "*events.AudioInputData":
-		var d AudioInputData
-		if json.Unmarshal(data, &d) == nil {
-			result = &d
-		}
-	case "*events.AudioOutputData":
-		var d AudioOutputData
-		if json.Unmarshal(data, &d) == nil {
-			result = &d
-		}
-	case "*events.AudioTranscriptionData":
-		var d AudioTranscriptionData
-		if json.Unmarshal(data, &d) == nil {
-			result = &d
-		}
-	case "*events.VideoFrameData":
-		var d VideoFrameData
-		if json.Unmarshal(data, &d) == nil {
-			result = &d
-		}
-	case "*events.ScreenshotData":
-		var d ScreenshotData
-		if json.Unmarshal(data, &d) == nil {
-			result = &d
-		}
-	case "*events.ImageInputData":
-		var d ImageInputData
-		if json.Unmarshal(data, &d) == nil {
-			result = &d
-		}
-	case "*events.ImageOutputData":
-		var d ImageOutputData
-		if json.Unmarshal(data, &d) == nil {
-			result = &d
-		}
-	case "*events.MessageCreatedData":
-		var d MessageCreatedData
-		if json.Unmarshal(data, &d) == nil {
-			result = &d
-		}
-	case "*events.MessageUpdatedData":
-		var d MessageUpdatedData
-		if json.Unmarshal(data, &d) == nil {
-			result = &d
-		}
-	case "*events.ConversationStartedData":
-		var d ConversationStartedData
-		if json.Unmarshal(data, &d) == nil {
-			result = &d
-		}
-	case "*events.PipelineStartedData":
-		var d PipelineStartedData
-		if json.Unmarshal(data, &d) == nil {
-			result = &d
-		}
-	case "*events.PipelineCompletedData":
-		var d PipelineCompletedData
-		if json.Unmarshal(data, &d) == nil {
-			result = &d
-		}
-	case "*events.PipelineFailedData":
-		var d PipelineFailedData
-		if json.Unmarshal(data, &d) == nil {
-			result = &d
-		}
-	case "*events.ProviderCallStartedData":
-		var d ProviderCallStartedData
-		if json.Unmarshal(data, &d) == nil {
-			result = &d
-		}
-	case "*events.ProviderCallCompletedData":
-		var d ProviderCallCompletedData
-		if json.Unmarshal(data, &d) == nil {
-			result = &d
-		}
-	case "*events.ProviderCallFailedData":
-		var d ProviderCallFailedData
-		if json.Unmarshal(data, &d) == nil {
-			result = &d
-		}
-	case "*events.ToolCallStartedData":
-		var d ToolCallStartedData
-		if json.Unmarshal(data, &d) == nil {
-			result = &d
-		}
-	case "*events.ToolCallCompletedData":
-		var d ToolCallCompletedData
-		if json.Unmarshal(data, &d) == nil {
-			result = &d
-		}
-	case "*events.ToolCallFailedData":
-		var d ToolCallFailedData
-		if json.Unmarshal(data, &d) == nil {
-			result = &d
-		}
-	case "*events.CustomEventData":
-		var d CustomEventData
-		if json.Unmarshal(data, &d) == nil {
-			result = &d
-		}
+// eventDataRegistry maps type names to factory functions for deserialization.
+var eventDataRegistry = map[string]eventDataFactory{
+	"*events.AudioInputData":          func() EventData { return &AudioInputData{} },
+	"*events.AudioOutputData":         func() EventData { return &AudioOutputData{} },
+	"*events.AudioTranscriptionData":  func() EventData { return &AudioTranscriptionData{} },
+	"*events.VideoFrameData":          func() EventData { return &VideoFrameData{} },
+	"*events.ScreenshotData":          func() EventData { return &ScreenshotData{} },
+	"*events.ImageInputData":          func() EventData { return &ImageInputData{} },
+	"*events.ImageOutputData":         func() EventData { return &ImageOutputData{} },
+	"*events.MessageCreatedData":      func() EventData { return &MessageCreatedData{} },
+	"*events.MessageUpdatedData":      func() EventData { return &MessageUpdatedData{} },
+	"*events.ConversationStartedData": func() EventData { return &ConversationStartedData{} },
+	"*events.PipelineStartedData":     func() EventData { return &PipelineStartedData{} },
+	"*events.PipelineCompletedData":   func() EventData { return &PipelineCompletedData{} },
+	"*events.PipelineFailedData":      func() EventData { return &PipelineFailedData{} },
+	"*events.ProviderCallStartedData": func() EventData { return &ProviderCallStartedData{} },
+	"*events.ProviderCallCompletedData": func() EventData {
+		return &ProviderCallCompletedData{}
+	},
+	"*events.ProviderCallFailedData": func() EventData { return &ProviderCallFailedData{} },
+	"*events.ToolCallStartedData":    func() EventData { return &ToolCallStartedData{} },
+	"*events.ToolCallCompletedData":  func() EventData { return &ToolCallCompletedData{} },
+	"*events.ToolCallFailedData":     func() EventData { return &ToolCallFailedData{} },
+	"*events.CustomEventData":        func() EventData { return &CustomEventData{} },
+}
+
+// deserializeEventData attempts to deserialize event data based on the type name.
+func deserializeEventData(dataType string, data json.RawMessage) EventData {
+	factory, ok := eventDataRegistry[dataType]
+	if !ok {
+		return nil
+	}
+
+	result := factory()
+	if json.Unmarshal(data, result) != nil {
+		return nil
 	}
 
 	return result

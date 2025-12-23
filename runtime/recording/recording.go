@@ -449,8 +449,6 @@ type storedEventFormat struct {
 
 // loadEventStoreFormat parses the FileEventStore JSONL format.
 // Each line is {"seq":N,"parent_id":M,"event":{...}}.
-//
-//nolint:gocognit // Sequential parsing steps are straightforward despite high count
 func loadEventStoreFormat(lines [][]byte) (*SessionRecording, error) {
 	rec := &SessionRecording{
 		Metadata: Metadata{
@@ -458,68 +456,88 @@ func loadEventStoreFormat(lines [][]byte) (*SessionRecording, error) {
 		},
 	}
 
-	var sessionStart, sessionEnd time.Time
+	bounds := &sessionBounds{}
 
 	for i, line := range lines {
 		if len(line) == 0 {
 			continue
 		}
 
-		var stored storedEventFormat
-		if err := json.Unmarshal(line, &stored); err != nil {
-			return nil, fmt.Errorf("parse line %d: %w", i+1, err)
+		recorded, err := parseStoredEventLine(line, i)
+		if err != nil {
+			return nil, err
 		}
 
-		e := stored.Event
-
-		// Track session boundaries
-		if sessionStart.IsZero() || e.Timestamp.Before(sessionStart) {
-			sessionStart = e.Timestamp
-		}
-		if sessionEnd.IsZero() || e.Timestamp.After(sessionEnd) {
-			sessionEnd = e.Timestamp
-		}
-
-		// Capture session/conversation IDs for metadata
-		if rec.Metadata.SessionID == "" && e.SessionID != "" {
-			rec.Metadata.SessionID = e.SessionID
-		}
-		if rec.Metadata.ConversationID == "" && e.ConversationID != "" {
-			rec.Metadata.ConversationID = e.ConversationID
-		}
-
-		recorded := RecordedEvent{
-			Sequence:       stored.Sequence,
-			ParentSequence: stored.ParentID,
-			Type:           e.Type,
-			Timestamp:      e.Timestamp,
-			SessionID:      e.SessionID,
-			ConversationID: e.ConversationID,
-			RunID:          e.RunID,
-			DataType:       e.DataType,
-			Data:           e.Data,
-		}
-
-		rec.Events = append(rec.Events, recorded)
+		bounds.update(recorded.Timestamp)
+		captureMetadataIDs(&rec.Metadata, recorded)
+		rec.Events = append(rec.Events, *recorded)
 	}
 
 	if len(rec.Events) == 0 {
 		return nil, fmt.Errorf("no events found in recording")
 	}
 
-	// Calculate offsets and finalize metadata
-	rec.Metadata.StartTime = sessionStart
-	rec.Metadata.EndTime = sessionEnd
-	rec.Metadata.Duration = sessionEnd.Sub(sessionStart)
+	finalizeRecordingMetadata(rec, bounds)
+	return rec, nil
+}
+
+// sessionBounds tracks the time boundaries of a session.
+type sessionBounds struct {
+	start, end time.Time
+}
+
+// update updates the session bounds with a new timestamp.
+func (b *sessionBounds) update(ts time.Time) {
+	if b.start.IsZero() || ts.Before(b.start) {
+		b.start = ts
+	}
+	if b.end.IsZero() || ts.After(b.end) {
+		b.end = ts
+	}
+}
+
+// parseStoredEventLine parses a single line from the event store format.
+func parseStoredEventLine(line []byte, lineNum int) (*RecordedEvent, error) {
+	var stored storedEventFormat
+	if err := json.Unmarshal(line, &stored); err != nil {
+		return nil, fmt.Errorf("parse line %d: %w", lineNum+1, err)
+	}
+
+	e := stored.Event
+	return &RecordedEvent{
+		Sequence:       stored.Sequence,
+		ParentSequence: stored.ParentID,
+		Type:           e.Type,
+		Timestamp:      e.Timestamp,
+		SessionID:      e.SessionID,
+		ConversationID: e.ConversationID,
+		RunID:          e.RunID,
+		DataType:       e.DataType,
+		Data:           e.Data,
+	}, nil
+}
+
+// captureMetadataIDs captures session and conversation IDs from an event.
+func captureMetadataIDs(m *Metadata, e *RecordedEvent) {
+	if m.SessionID == "" && e.SessionID != "" {
+		m.SessionID = e.SessionID
+	}
+	if m.ConversationID == "" && e.ConversationID != "" {
+		m.ConversationID = e.ConversationID
+	}
+}
+
+// finalizeRecordingMetadata sets the final metadata and calculates event offsets.
+func finalizeRecordingMetadata(rec *SessionRecording, bounds *sessionBounds) {
+	rec.Metadata.StartTime = bounds.start
+	rec.Metadata.EndTime = bounds.end
+	rec.Metadata.Duration = bounds.end.Sub(bounds.start)
 	rec.Metadata.EventCount = len(rec.Events)
 	rec.Metadata.CreatedAt = time.Now()
 
-	// Calculate offsets from session start
 	for i := range rec.Events {
-		rec.Events[i].Offset = rec.Events[i].Timestamp.Sub(sessionStart)
+		rec.Events[i].Offset = rec.Events[i].Timestamp.Sub(bounds.start)
 	}
-
-	return rec, nil
 }
 
 // splitLines splits data into lines without using bufio.Scanner.

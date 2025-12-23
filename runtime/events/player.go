@@ -70,8 +70,8 @@ type SessionPlayer struct {
 	startTime time.Time // When playback started (for timing calculations)
 	pauseTime time.Time // When playback was paused
 
-	ctx    context.Context
-	cancel context.CancelFunc
+	ctx    context.Context    //nolint:containedctx // context stored for lifecycle management
+	cancel context.CancelFunc //nolint:containedctx // lifecycle management
 	done   chan struct{}
 }
 

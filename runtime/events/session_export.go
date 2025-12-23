@@ -213,8 +213,6 @@ type JSONSegment struct {
 }
 
 // buildJSONTimeline builds the JSON timeline structure.
-//
-//nolint:gocognit // Timeline building has inherent complexity
 func (e *SessionExporter) buildJSONTimeline() *JSONTimeline {
 	timeline := &JSONTimeline{
 		SessionID: e.session.SessionID,
@@ -222,48 +220,58 @@ func (e *SessionExporter) buildJSONTimeline() *JSONTimeline {
 		Metadata:  e.session.Metadata,
 	}
 
-	// Add events
+	timeline.Events = append(timeline.Events, e.buildEventItems()...)
+	timeline.Events = append(timeline.Events, e.buildAnnotationItems()...)
+	timeline.Tracks = e.buildTrackItems()
+
+	return timeline
+}
+
+// buildEventItems creates JSON timeline items from events.
+func (e *SessionExporter) buildEventItems() []JSONTimelineItem {
+	var items []JSONTimelineItem
 	for _, event := range e.session.Events {
 		eventTime := event.Timestamp.Sub(e.session.Metadata.StartTime)
-		if e.config.StartTime > 0 && eventTime < e.config.StartTime {
-			continue
-		}
-		if e.config.EndTime > 0 && eventTime > e.config.EndTime {
+		if !e.isInTimeRange(eventTime) {
 			continue
 		}
 
 		item := JSONTimelineItem{
 			Time: eventTime.Seconds(),
 			Type: string(event.Type),
-			Data: make(map[string]interface{}),
+			Data: e.extractEventData(event),
 		}
-
-		// Extract relevant data based on event type
-		switch data := event.Data.(type) {
-		case *MessageCreatedData:
-			item.Data["role"] = data.Role
-			item.Data["content"] = data.Content
-		case *AudioTranscriptionData:
-			item.Data["text"] = data.Text
-			item.Data["language"] = data.Language
-		case *ToolCallStartedData:
-			item.Data["tool_name"] = data.ToolName
-		case *ProviderCallCompletedData:
-			item.Data["provider"] = data.Provider
-			item.Data["model"] = data.Model
-			item.Data["cost"] = data.Cost
-		}
-
-		timeline.Events = append(timeline.Events, item)
+		items = append(items, item)
 	}
+	return items
+}
 
-	// Add annotations as events
+// extractEventData extracts relevant data from an event based on its type.
+func (e *SessionExporter) extractEventData(event *Event) map[string]interface{} {
+	data := make(map[string]interface{})
+	switch d := event.Data.(type) {
+	case *MessageCreatedData:
+		data["role"] = d.Role
+		data["content"] = d.Content
+	case *AudioTranscriptionData:
+		data["text"] = d.Text
+		data["language"] = d.Language
+	case *ToolCallStartedData:
+		data["tool_name"] = d.ToolName
+	case *ProviderCallCompletedData:
+		data["provider"] = d.Provider
+		data["model"] = d.Model
+		data["cost"] = d.Cost
+	}
+	return data
+}
+
+// buildAnnotationItems creates JSON timeline items from annotations.
+func (e *SessionExporter) buildAnnotationItems() []JSONTimelineItem {
+	var items []JSONTimelineItem
 	for _, annot := range e.session.Annotations {
 		annotTime := e.getAnnotationTime(annot)
-		if e.config.StartTime > 0 && annotTime < e.config.StartTime {
-			continue
-		}
-		if e.config.EndTime > 0 && annotTime > e.config.EndTime {
+		if !e.isInTimeRange(annotTime) {
 			continue
 		}
 
@@ -279,11 +287,14 @@ func (e *SessionExporter) buildJSONTimeline() *JSONTimeline {
 		if annot.Target.Type == annotations.TargetTimeRange {
 			item.Duration = annot.Target.EndTime.Sub(annot.Target.StartTime).Seconds()
 		}
-
-		timeline.Events = append(timeline.Events, item)
+		items = append(items, item)
 	}
+	return items
+}
 
-	// Add tracks
+// buildTrackItems creates JSON track items from media tracks.
+func (e *SessionExporter) buildTrackItems() []JSONTrack {
+	var tracks []JSONTrack
 	for trackType, track := range e.session.Timeline.Tracks {
 		jsonTrack := JSONTrack{
 			Type:     string(trackType),
@@ -298,11 +309,20 @@ func (e *SessionExporter) buildJSONTimeline() *JSONTimeline {
 				Size:       seg.Payload.Size,
 			})
 		}
-
-		timeline.Tracks = append(timeline.Tracks, jsonTrack)
+		tracks = append(tracks, jsonTrack)
 	}
+	return tracks
+}
 
-	return timeline
+// isInTimeRange checks if a time falls within the configured export range.
+func (e *SessionExporter) isInTimeRange(t time.Duration) bool {
+	if e.config.StartTime > 0 && t < e.config.StartTime {
+		return false
+	}
+	if e.config.EndTime > 0 && t > e.config.EndTime {
+		return false
+	}
+	return true
 }
 
 // getAnnotationTime returns the activation time for an annotation.
@@ -502,8 +522,6 @@ func (e *SessionExporter) exportVideo(ctx context.Context) error {
 }
 
 // generateSubtitles generates an SRT subtitle file from transcriptions and annotations.
-//
-//nolint:gocognit // Subtitle generation has inherent complexity
 func (e *SessionExporter) generateSubtitles(path string) error {
 	f, err := os.Create(path) //nolint:gosec // path is constructed from trusted tempDir
 	if err != nil {
@@ -512,52 +530,66 @@ func (e *SessionExporter) generateSubtitles(path string) error {
 	defer f.Close()
 
 	index := 1
-
-	// Add transcriptions
-	if e.config.IncludeTranscriptions {
-		for _, event := range e.session.Events {
-			if event.Type != EventAudioTranscription {
-				continue
-			}
-			data, ok := event.Data.(*AudioTranscriptionData)
-			if !ok {
-				continue
-			}
-
-			startTime := event.Timestamp.Sub(e.session.Metadata.StartTime)
-			endTime := startTime + subtitleDuration
-
-			_, _ = fmt.Fprintf(f, "%d\n", index)
-			_, _ = fmt.Fprintf(f, "%s --> %s\n", formatSRTTime(startTime), formatSRTTime(endTime))
-			_, _ = fmt.Fprintf(f, "%s\n\n", data.Text)
-			index++
-		}
-	}
-
-	// Add annotations
-	if e.config.IncludeAnnotations {
-		for _, annot := range e.session.Annotations {
-			annotTime := e.getAnnotationTime(annot)
-			var duration time.Duration
-			if annot.Target.Type == annotations.TargetTimeRange {
-				duration = annot.Target.EndTime.Sub(annot.Target.StartTime)
-			} else {
-				duration = subtitleDuration
-			}
-
-			text := e.formatAnnotation(annot)
-			if text == "" {
-				continue
-			}
-
-			_, _ = fmt.Fprintf(f, "%d\n", index)
-			_, _ = fmt.Fprintf(f, "%s --> %s\n", formatSRTTime(annotTime), formatSRTTime(annotTime+duration))
-			_, _ = fmt.Fprintf(f, "[%s] %s\n\n", annot.Key, text)
-			index++
-		}
-	}
+	index = e.writeTranscriptionSubtitles(f, index)
+	e.writeAnnotationSubtitles(f, index)
 
 	return nil
+}
+
+// writeTranscriptionSubtitles writes transcription events as subtitles.
+func (e *SessionExporter) writeTranscriptionSubtitles(f *os.File, index int) int {
+	if !e.config.IncludeTranscriptions {
+		return index
+	}
+
+	for _, event := range e.session.Events {
+		if event.Type != EventAudioTranscription {
+			continue
+		}
+		data, ok := event.Data.(*AudioTranscriptionData)
+		if !ok {
+			continue
+		}
+
+		startTime := event.Timestamp.Sub(e.session.Metadata.StartTime)
+		endTime := startTime + subtitleDuration
+
+		_, _ = fmt.Fprintf(f, "%d\n", index)
+		_, _ = fmt.Fprintf(f, "%s --> %s\n", formatSRTTime(startTime), formatSRTTime(endTime))
+		_, _ = fmt.Fprintf(f, "%s\n\n", data.Text)
+		index++
+	}
+	return index
+}
+
+// writeAnnotationSubtitles writes annotations as subtitles.
+func (e *SessionExporter) writeAnnotationSubtitles(f *os.File, index int) {
+	if !e.config.IncludeAnnotations {
+		return
+	}
+
+	for _, annot := range e.session.Annotations {
+		text := e.formatAnnotation(annot)
+		if text == "" {
+			continue
+		}
+
+		annotTime := e.getAnnotationTime(annot)
+		duration := e.getAnnotationDuration(annot)
+
+		_, _ = fmt.Fprintf(f, "%d\n", index)
+		_, _ = fmt.Fprintf(f, "%s --> %s\n", formatSRTTime(annotTime), formatSRTTime(annotTime+duration))
+		_, _ = fmt.Fprintf(f, "[%s] %s\n\n", annot.Key, text)
+		index++
+	}
+}
+
+// getAnnotationDuration returns the duration for an annotation subtitle.
+func (e *SessionExporter) getAnnotationDuration(annot *annotations.Annotation) time.Duration {
+	if annot.Target.Type == annotations.TargetTimeRange {
+		return annot.Target.EndTime.Sub(annot.Target.StartTime)
+	}
+	return subtitleDuration
 }
 
 // formatSRTTime formats a duration for SRT subtitles.
@@ -599,15 +631,28 @@ func (e *SessionExporter) formatAnnotation(annot *annotations.Annotation) string
 }
 
 // buildVideoFFmpegArgs builds ffmpeg arguments for video export.
-//
-//nolint:gocognit // FFmpeg argument building has inherent complexity
 func (e *SessionExporter) buildVideoFFmpegArgs(audioPaths []string, subtitlePath string) []string {
 	var args []string
 
-	// Get audio format
-	sampleRate, channels := e.getAudioFormat()
+	args = append(args, e.buildVideoInputArgs()...)
+	args = append(args, e.buildAudioInputArgs(audioPaths)...)
+	args = append(args, e.buildFilterArgs(audioPaths, subtitlePath)...)
+	args = append(args, e.buildOutputFormatArgs()...)
+	args = append(args, "-y", e.config.OutputPath)
 
-	// Generate blank video with audio
+	return args
+}
+
+// buildVideoInputArgs builds the video input arguments.
+func (e *SessionExporter) buildVideoInputArgs() []string {
+	duration := e.getExportDuration()
+	return []string{"-f", "lavfi", "-i",
+		fmt.Sprintf("color=c=black:s=%dx%d:d=%f:r=30",
+			e.config.VideoWidth, e.config.VideoHeight, duration.Seconds())}
+}
+
+// getExportDuration calculates the export duration considering time range config.
+func (e *SessionExporter) getExportDuration() time.Duration {
 	duration := e.session.Metadata.Duration
 	if e.config.EndTime > 0 {
 		duration = e.config.EndTime
@@ -615,63 +660,85 @@ func (e *SessionExporter) buildVideoFFmpegArgs(audioPaths []string, subtitlePath
 	if e.config.StartTime > 0 {
 		duration -= e.config.StartTime
 	}
+	return duration
+}
 
-	// Create color source for video (30 fps is standard)
-	args = append(args, "-f", "lavfi", "-i",
-		fmt.Sprintf("color=c=black:s=%dx%d:d=%f:r=30",
-			e.config.VideoWidth, e.config.VideoHeight, duration.Seconds()))
-
-	// Add audio inputs
+// buildAudioInputArgs builds audio input arguments for each audio path.
+func (e *SessionExporter) buildAudioInputArgs(audioPaths []string) []string {
+	sampleRate, channels := e.getAudioFormat()
+	var args []string
 	for _, path := range audioPaths {
 		args = append(args, "-f", "s16le", "-ar", fmt.Sprintf("%d", sampleRate),
 			"-ac", fmt.Sprintf("%d", channels), "-i", path)
 	}
+	return args
+}
 
-	// Build filter complex
+// buildFilterArgs builds the filter complex and mapping arguments.
+func (e *SessionExporter) buildFilterArgs(audioPaths []string, subtitlePath string) []string {
+	filterParts := e.buildFilterParts(audioPaths, subtitlePath)
+	if len(filterParts) == 0 {
+		return nil
+	}
+
+	args := []string{ffmpegFilterComplex, strings.Join(filterParts, ";")}
+	args = append(args, e.buildMappingArgs(audioPaths)...)
+	return args
+}
+
+// buildFilterParts builds the individual filter expressions.
+func (e *SessionExporter) buildFilterParts(audioPaths []string, subtitlePath string) []string {
 	var filterParts []string
 
-	// Add subtitle overlay if present
 	if e.config.IncludeTranscriptions || e.config.IncludeAnnotations {
 		subtitleFilter := fmt.Sprintf("subtitles=%s:force_style='FontSize=%d,PrimaryColour=&H00FFFFFF'",
 			strings.ReplaceAll(subtitlePath, "'", "'\\''"), e.config.FontSize)
 		filterParts = append(filterParts, fmt.Sprintf("[0:v]%s[v]", subtitleFilter))
 	}
 
-	// Add audio mixing if multiple tracks
-	if len(audioPaths) == 2 { //nolint:mnd // 2 tracks = stereo mixing
+	filterParts = append(filterParts, e.buildAudioMixFilter(audioPaths)...)
+	return filterParts
+}
+
+// buildAudioMixFilter builds the audio mixing filter based on track count.
+func (e *SessionExporter) buildAudioMixFilter(audioPaths []string) []string {
+	switch len(audioPaths) {
+	case 2: //nolint:mnd // 2 tracks = stereo mixing
 		switch e.config.AudioMix {
 		case audioMixStereo:
-			filterParts = append(filterParts, "[1:a][2:a]amerge=inputs=2,pan=stereo|c0=c0|c1=c1[a]")
+			return []string{"[1:a][2:a]amerge=inputs=2,pan=stereo|c0=c0|c1=c1[a]"}
 		case audioMixMono:
-			filterParts = append(filterParts, "[1:a][2:a]amix=inputs=2:duration=longest[a]")
+			return []string{"[1:a][2:a]amix=inputs=2:duration=longest[a]"}
 		}
-	} else if len(audioPaths) == 1 {
-		filterParts = append(filterParts, "[1:a]acopy[a]")
+	case 1:
+		return []string{"[1:a]acopy[a]"}
 	}
+	return nil
+}
 
-	if len(filterParts) > 0 {
-		args = append(args, ffmpegFilterComplex, strings.Join(filterParts, ";"))
-		if e.config.IncludeTranscriptions || e.config.IncludeAnnotations {
-			args = append(args, "-map", "[v]")
-		} else {
-			args = append(args, "-map", "0:v")
-		}
-		if len(audioPaths) > 0 {
-			args = append(args, "-map", "[a]")
-		}
+// buildMappingArgs builds the stream mapping arguments.
+func (e *SessionExporter) buildMappingArgs(audioPaths []string) []string {
+	var args []string
+	if e.config.IncludeTranscriptions || e.config.IncludeAnnotations {
+		args = append(args, "-map", "[v]")
+	} else {
+		args = append(args, "-map", "0:v")
 	}
-
-	// Output format
-	//nolint:exhaustive // Only handling video formats here
-	switch e.config.Format {
-	case ExportFormatMP4:
-		args = append(args, "-c:v", "libx264", "-preset", "fast", "-c:a", "aac")
-	case ExportFormatWebM:
-		args = append(args, "-c:v", "libvpx-vp9", "-c:a", "libopus")
+	if len(audioPaths) > 0 {
+		args = append(args, "-map", "[a]")
 	}
-
-	args = append(args, "-y", e.config.OutputPath)
 	return args
+}
+
+// buildOutputFormatArgs builds codec arguments based on output format.
+func (e *SessionExporter) buildOutputFormatArgs() []string {
+	switch e.config.Format { //nolint:exhaustive // Only handling video formats
+	case ExportFormatMP4:
+		return []string{"-c:v", "libx264", "-preset", "fast", "-c:a", "aac"}
+	case ExportFormatWebM:
+		return []string{"-c:v", "libvpx-vp9", "-c:a", "libopus"}
+	}
+	return nil
 }
 
 // runFFmpeg executes ffmpeg with the given arguments.

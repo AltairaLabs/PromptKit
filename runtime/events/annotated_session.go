@@ -126,57 +126,67 @@ func (l *AnnotatedSessionLoader) Load(ctx context.Context, sessionID string) (*A
 }
 
 // computeMetadata computes session metadata from events and annotations.
-//
-//nolint:gocognit // Metadata computation has inherent complexity
 func (l *AnnotatedSessionLoader) computeMetadata(session *AnnotatedSession) SessionMetadata {
 	meta := SessionMetadata{
 		EventCounts:      make(map[EventType]int),
 		AnnotationCounts: make(map[annotations.AnnotationType]int),
 	}
 
+	l.computeTimeRange(session, &meta)
+	l.computeEventStats(session, &meta)
+	l.computeAnnotationStats(session, &meta)
+
+	return meta
+}
+
+// computeTimeRange sets the start/end time and duration from events.
+func (l *AnnotatedSessionLoader) computeTimeRange(session *AnnotatedSession, meta *SessionMetadata) {
 	if len(session.Events) > 0 {
 		meta.StartTime = session.Events[0].Timestamp
 		meta.EndTime = session.Events[len(session.Events)-1].Timestamp
 		meta.Duration = meta.EndTime.Sub(meta.StartTime)
 	}
+}
 
-	// Count events by type and gather media info
+// computeEventStats gathers event counts and media statistics.
+func (l *AnnotatedSessionLoader) computeEventStats(session *AnnotatedSession, meta *SessionMetadata) {
 	for _, event := range session.Events {
 		meta.EventCounts[event.Type]++
+		l.updateMediaStats(event, meta)
+	}
+}
 
-		//nolint:exhaustive // Only counting specific event types for metadata
-		switch event.Type {
-		case EventAudioInput:
-			meta.HasAudioInput = true
-			if data, ok := event.Data.(*AudioInputData); ok {
-				meta.TotalAudioInputDuration += time.Duration(data.Metadata.DurationMs) * time.Millisecond
-			}
-		case EventAudioOutput:
-			meta.HasAudioOutput = true
-			if data, ok := event.Data.(*AudioOutputData); ok {
-				meta.TotalAudioOutputDuration += time.Duration(data.Metadata.DurationMs) * time.Millisecond
-			}
-		case EventVideoFrame:
-			meta.HasVideo = true
-		case EventToolCallStarted:
-			meta.ToolCalls++
-		case EventProviderCallStarted:
-			meta.ProviderCalls++
-		case EventMessageCreated:
-			if data, ok := event.Data.(*MessageCreatedData); ok {
-				if data.Role == "user" {
-					meta.ConversationTurns++
-				}
-			}
+// updateMediaStats updates metadata based on event type.
+func (l *AnnotatedSessionLoader) updateMediaStats(event *Event, meta *SessionMetadata) {
+	switch event.Type { //nolint:exhaustive // Only counting specific event types
+	case EventAudioInput:
+		meta.HasAudioInput = true
+		if data, ok := event.Data.(*AudioInputData); ok {
+			meta.TotalAudioInputDuration += time.Duration(data.Metadata.DurationMs) * time.Millisecond
+		}
+	case EventAudioOutput:
+		meta.HasAudioOutput = true
+		if data, ok := event.Data.(*AudioOutputData); ok {
+			meta.TotalAudioOutputDuration += time.Duration(data.Metadata.DurationMs) * time.Millisecond
+		}
+	case EventVideoFrame:
+		meta.HasVideo = true
+	case EventToolCallStarted:
+		meta.ToolCalls++
+	case EventProviderCallStarted:
+		meta.ProviderCalls++
+	case EventMessageCreated:
+		if data, ok := event.Data.(*MessageCreatedData); ok && data.Role == "user" {
+			meta.ConversationTurns++
 		}
 	}
+}
 
-	// Count annotations by type
+// computeAnnotationStats counts annotations by type.
+func (l *AnnotatedSessionLoader) computeAnnotationStats(session *AnnotatedSession, meta *SessionMetadata) {
 	for _, annot := range session.Annotations {
 		meta.AnnotationCounts[annot.Type]++
 	}
-
-	return meta
 }
 
 // NewSyncPlayer creates a synchronized player for this session.
@@ -302,12 +312,20 @@ type TimelineItem struct {
 }
 
 // BuildTimelineView creates a unified timeline view of all session content.
-//
-//nolint:gocognit // Timeline building has inherent complexity
 func (s *AnnotatedSession) BuildTimelineView() *TimelineView {
 	var items []TimelineItem
 
-	// Add events
+	items = append(items, s.buildEventItems()...)
+	items = append(items, s.buildAnnotationItems()...)
+	items = append(items, s.buildMediaItems()...)
+
+	sortTimelineItems(items)
+	return &TimelineView{Items: items}
+}
+
+// buildEventItems creates timeline items from events.
+func (s *AnnotatedSession) buildEventItems() []TimelineItem {
+	items := make([]TimelineItem, 0, len(s.Events))
 	for _, event := range s.Events {
 		items = append(items, TimelineItem{
 			Type:  TimelineItemEvent,
@@ -315,29 +333,41 @@ func (s *AnnotatedSession) BuildTimelineView() *TimelineView {
 			Event: event,
 		})
 	}
+	return items
+}
 
-	// Add annotations
+// buildAnnotationItems creates timeline items from annotations.
+func (s *AnnotatedSession) buildAnnotationItems() []TimelineItem {
+	items := make([]TimelineItem, 0, len(s.Annotations))
 	for _, annot := range s.Annotations {
 		item := TimelineItem{
 			Type:       TimelineItemAnnotation,
 			Annotation: annot,
 		}
-		//nolint:exhaustive // Only handling time-based target types
-		switch annot.Target.Type {
-		case annotations.TargetTimeRange:
-			item.Time = annot.Target.StartTime.Sub(s.Metadata.StartTime)
-			item.Duration = annot.Target.EndTime.Sub(annot.Target.StartTime)
-		case annotations.TargetEvent:
-			if annot.Target.EventSequence >= 0 && int(annot.Target.EventSequence) < len(s.Events) {
-				item.Time = s.Events[annot.Target.EventSequence].Timestamp.Sub(s.Metadata.StartTime)
-			}
-		default:
-			item.Time = 0
-		}
+		s.setAnnotationTime(&item, annot)
 		items = append(items, item)
 	}
+	return items
+}
 
-	// Add media segments
+// setAnnotationTime sets the time fields for an annotation timeline item.
+func (s *AnnotatedSession) setAnnotationTime(item *TimelineItem, annot *annotations.Annotation) {
+	switch annot.Target.Type { //nolint:exhaustive // Only handling time-based target types
+	case annotations.TargetTimeRange:
+		item.Time = annot.Target.StartTime.Sub(s.Metadata.StartTime)
+		item.Duration = annot.Target.EndTime.Sub(annot.Target.StartTime)
+	case annotations.TargetEvent:
+		if annot.Target.EventSequence >= 0 && int(annot.Target.EventSequence) < len(s.Events) {
+			item.Time = s.Events[annot.Target.EventSequence].Timestamp.Sub(s.Metadata.StartTime)
+		}
+	default:
+		item.Time = 0
+	}
+}
+
+// buildMediaItems creates timeline items from media segments.
+func (s *AnnotatedSession) buildMediaItems() []TimelineItem {
+	var items []TimelineItem
 	for trackType, track := range s.Timeline.Tracks {
 		for _, seg := range track.Segments {
 			items = append(items, TimelineItem{
@@ -349,8 +379,11 @@ func (s *AnnotatedSession) BuildTimelineView() *TimelineView {
 			})
 		}
 	}
+	return items
+}
 
-	// Sort by time
+// sortTimelineItems sorts items by time using bubble sort.
+func sortTimelineItems(items []TimelineItem) {
 	for i := 0; i < len(items)-1; i++ {
 		for j := i + 1; j < len(items); j++ {
 			if items[i].Time > items[j].Time {
@@ -358,6 +391,4 @@ func (s *AnnotatedSession) BuildTimelineView() *TimelineView {
 			}
 		}
 	}
-
-	return &TimelineView{Items: items}
 }
