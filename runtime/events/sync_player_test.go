@@ -419,3 +419,214 @@ func TestSyncPlayer_StopDuringPlayback(t *testing.T) {
 		t.Error("Position should be reset after stop")
 	}
 }
+
+func TestSyncPlayer_Timeline(t *testing.T) {
+	sessionStart := time.Now()
+
+	events := []*Event{
+		{
+			Type:      EventMessageCreated,
+			Timestamp: sessionStart,
+			SessionID: "test-session",
+			Data:      &MessageCreatedData{Role: "user", Content: "Hello"},
+		},
+	}
+
+	timeline := NewMediaTimeline("test-session", events, nil)
+	player := NewSyncPlayer(timeline, nil, nil)
+
+	// Test Timeline() getter
+	returnedTimeline := player.Timeline()
+	if returnedTimeline != timeline {
+		t.Error("Timeline() should return the same timeline")
+	}
+	if returnedTimeline.SessionID != "test-session" {
+		t.Errorf("Expected session ID 'test-session', got %s", returnedTimeline.SessionID)
+	}
+}
+
+func TestSyncPlayer_Annotations(t *testing.T) {
+	sessionStart := time.Now()
+
+	events := []*Event{
+		{
+			Type:      EventMessageCreated,
+			Timestamp: sessionStart,
+			SessionID: "test-session",
+			Data:      &MessageCreatedData{Role: "user", Content: "Hello"},
+		},
+	}
+
+	annots := []*annotations.Annotation{
+		{
+			ID:        "annot-1",
+			Type:      annotations.TypeScore,
+			SessionID: "test-session",
+			Key:       "quality",
+			Value:     annotations.NewScoreValue(0.9),
+			Target: annotations.Target{
+				Type:          annotations.TargetEvent,
+				EventSequence: 0,
+			},
+		},
+		{
+			ID:        "annot-2",
+			Type:      annotations.TypeComment,
+			SessionID: "test-session",
+			Key:       "feedback",
+			Value:     annotations.NewCommentValue("Good"),
+			Target: annotations.Target{
+				Type:          annotations.TargetEvent,
+				EventSequence: 0,
+			},
+		},
+	}
+
+	timeline := NewMediaTimeline("test-session", events, nil)
+	player := NewSyncPlayer(timeline, annots, nil)
+
+	// Test Annotations() getter
+	returnedAnnotations := player.Annotations()
+	if len(returnedAnnotations) != 2 {
+		t.Errorf("Expected 2 annotations, got %d", len(returnedAnnotations))
+	}
+}
+
+func TestSyncPlayer_GetAnnotationsInRange(t *testing.T) {
+	sessionStart := time.Now()
+
+	events := []*Event{
+		{
+			Type:      EventMessageCreated,
+			Timestamp: sessionStart,
+			SessionID: "test-session",
+			Data:      &MessageCreatedData{Role: "user", Content: "First"},
+		},
+		{
+			Type:      EventMessageCreated,
+			Timestamp: sessionStart.Add(1 * time.Second),
+			SessionID: "test-session",
+			Data:      &MessageCreatedData{Role: "assistant", Content: "Second"},
+		},
+		{
+			Type:      EventMessageCreated,
+			Timestamp: sessionStart.Add(2 * time.Second),
+			SessionID: "test-session",
+			Data:      &MessageCreatedData{Role: "user", Content: "Third"},
+		},
+	}
+
+	annots := []*annotations.Annotation{
+		{
+			ID:        "annot-1",
+			Type:      annotations.TypeScore,
+			SessionID: "test-session",
+			Key:       "early",
+			Value:     annotations.NewScoreValue(0.5),
+			Target: annotations.Target{
+				Type:      annotations.TargetTimeRange,
+				StartTime: sessionStart,
+				EndTime:   sessionStart.Add(500 * time.Millisecond),
+			},
+		},
+		{
+			ID:        "annot-2",
+			Type:      annotations.TypeScore,
+			SessionID: "test-session",
+			Key:       "middle",
+			Value:     annotations.NewScoreValue(0.7),
+			Target: annotations.Target{
+				Type:      annotations.TargetTimeRange,
+				StartTime: sessionStart.Add(1 * time.Second),
+				EndTime:   sessionStart.Add(1500 * time.Millisecond),
+			},
+		},
+		{
+			ID:        "annot-3",
+			Type:      annotations.TypeScore,
+			SessionID: "test-session",
+			Key:       "late",
+			Value:     annotations.NewScoreValue(0.9),
+			Target: annotations.Target{
+				Type:      annotations.TargetTimeRange,
+				StartTime: sessionStart.Add(2 * time.Second),
+				EndTime:   sessionStart.Add(2500 * time.Millisecond),
+			},
+		},
+	}
+
+	timeline := NewMediaTimeline("test-session", events, nil)
+	player := NewSyncPlayer(timeline, annots, nil)
+
+	// Get annotations in middle range (should get annot-2)
+	rangeAnnots := player.GetAnnotationsInRange(800*time.Millisecond, 1600*time.Millisecond)
+	if len(rangeAnnots) != 1 {
+		t.Errorf("Expected 1 annotation in range 800ms-1600ms, got %d", len(rangeAnnots))
+	}
+
+	// Get annotations in full range (should get all 3)
+	allAnnots := player.GetAnnotationsInRange(0, 3*time.Second)
+	if len(allAnnots) != 3 {
+		t.Errorf("Expected 3 annotations in full range, got %d", len(allAnnots))
+	}
+
+	// Get annotations in empty range
+	noAnnots := player.GetAnnotationsInRange(3*time.Second, 4*time.Second)
+	if len(noAnnots) != 0 {
+		t.Errorf("Expected 0 annotations in empty range, got %d", len(noAnnots))
+	}
+}
+
+func TestSyncPlayer_PlaybackCompletesNormally(t *testing.T) {
+	sessionStart := time.Now()
+
+	events := []*Event{
+		{
+			Type:      EventMessageCreated,
+			Timestamp: sessionStart,
+			SessionID: "test-session",
+			Data:      &MessageCreatedData{Role: "user", Content: "Hello"},
+		},
+		{
+			Type:      EventMessageCreated,
+			Timestamp: sessionStart.Add(50 * time.Millisecond),
+			SessionID: "test-session",
+			Data:      &MessageCreatedData{Role: "assistant", Content: "Hi"},
+		},
+	}
+
+	timeline := NewMediaTimeline("test-session", events, nil)
+
+	var completed bool
+	var mu sync.Mutex
+
+	config := &SyncPlayerConfig{
+		Speed: 100.0, // Very fast for quick test
+		OnComplete: func() {
+			mu.Lock()
+			completed = true
+			mu.Unlock()
+		},
+	}
+
+	player := NewSyncPlayer(timeline, nil, config)
+
+	ctx := context.Background()
+	if err := player.Play(ctx); err != nil {
+		t.Fatalf("Failed to start playback: %v", err)
+	}
+
+	player.Wait()
+
+	mu.Lock()
+	wasCompleted := completed
+	mu.Unlock()
+
+	if !wasCompleted {
+		t.Error("OnComplete callback should have been called")
+	}
+
+	if player.State() != PlayerStateStopped {
+		t.Errorf("Player should be stopped after completion, got %v", player.State())
+	}
+}
