@@ -788,8 +788,8 @@ func TestSyncPlayer_ResumeFromPause(t *testing.T) {
 	// Pause
 	player.Pause()
 
-	// Wait for pause to take effect
-	time.Sleep(20 * time.Millisecond)
+	// Wait for playback loop to fully exit before resuming
+	player.Wait()
 
 	// Resume playback
 	if err := player.Play(ctx); err != nil {
