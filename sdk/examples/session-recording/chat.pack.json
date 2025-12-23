@@ -1,0 +1,19 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "session-recording-example",
+  "name": "Session Recording Example",
+  "version": "1.0.0",
+  "description": "Example pack for session recording demo",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "chat": {
+      "id": "chat",
+      "name": "Chat",
+      "version": "1.0.0",
+      "system_template": "You are a helpful assistant. Answer questions concisely and accurately."
+    }
+  }
+}
