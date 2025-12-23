@@ -39,6 +39,12 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/storage/local"
 )
 
+// Default directory names for output.
+const (
+	defaultOutputDir     = "out"
+	defaultRecordingsDir = "recordings"
+)
+
 // Engine manages the execution of prompt testing scenarios across multiple
 // providers, regions, and configurations. It coordinates conversation execution,
 // tool calling, validation, and result collection.
@@ -219,6 +225,35 @@ func (e *Engine) GetRecordingPath(runID string) string {
 	return filepath.Join(e.recordingDir, runID+".jsonl")
 }
 
+// GetConfig returns the engine's configuration.
+func (e *Engine) GetConfig() *config.Config {
+	return e.config
+}
+
+// ConfigureSessionRecordingFromConfig enables session recording if configured.
+// It reads the recording configuration from the engine's config and enables
+// session recording with the appropriate directory path.
+// Returns nil if recording is not enabled in the config.
+func (e *Engine) ConfigureSessionRecordingFromConfig() error {
+	rec := e.config.Defaults.Output.Recording
+	if rec == nil || !rec.Enabled {
+		return nil
+	}
+
+	// Determine recording directory
+	outDir := e.config.Defaults.Output.Dir
+	if outDir == "" {
+		outDir = defaultOutputDir
+	}
+	recDir := rec.Dir
+	if recDir == "" {
+		recDir = defaultRecordingsDir
+	}
+	recordingPath := filepath.Join(outDir, recDir)
+
+	return e.EnableSessionRecording(recordingPath)
+}
+
 // EnableMockProviderMode replaces all providers in the registry with mock providers.
 // This enables testing of scenario behavior without making real API calls.
 // Mock providers can use either file-based configuration for scenario-specific
@@ -390,7 +425,7 @@ func buildMediaStorage(cfg *config.Config) (storage.MediaStorageService, error) 
 	// Determine the media storage directory
 	outDir := cfg.Defaults.Output.Dir
 	if outDir == "" {
-		outDir = "out"
+		outDir = defaultOutputDir
 	}
 
 	mediaDir := filepath.Join(outDir, "media")

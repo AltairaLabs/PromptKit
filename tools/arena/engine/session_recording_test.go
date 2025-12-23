@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 )
 
@@ -236,5 +237,162 @@ func TestRecordingIntegrationWithEventStore(t *testing.T) {
 	// Clean up
 	if err := engine.Close(); err != nil {
 		t.Errorf("Failed to close engine: %v", err)
+	}
+}
+
+func TestConfigureSessionRecordingFromConfig_Enabled(t *testing.T) {
+	// Create a temporary directory for output
+	tempDir, err := os.MkdirTemp("", "session-recording-config-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(tempDir) }()
+
+	// Create config with recording enabled
+	cfg := &config.Config{
+		Defaults: config.Defaults{
+			Output: config.OutputConfig{
+				Dir: tempDir,
+				Recording: &config.RecordingConfig{
+					Enabled: true,
+					Dir:     "recordings",
+				},
+			},
+		},
+	}
+
+	// Create engine with config
+	engine := &Engine{config: cfg}
+
+	// Configure session recording from config
+	err = engine.ConfigureSessionRecordingFromConfig()
+	if err != nil {
+		t.Fatalf("ConfigureSessionRecordingFromConfig failed: %v", err)
+	}
+
+	// Verify recording directory is set
+	expectedDir := filepath.Join(tempDir, "recordings")
+	if engine.GetRecordingDir() != expectedDir {
+		t.Errorf("Expected recording dir %s, got %s", expectedDir, engine.GetRecordingDir())
+	}
+
+	// Verify recording path generation works
+	testRunID := "test-run-123"
+	expectedPath := filepath.Join(expectedDir, testRunID+".jsonl")
+	if engine.GetRecordingPath(testRunID) != expectedPath {
+		t.Errorf("Expected recording path %s, got %s", expectedPath, engine.GetRecordingPath(testRunID))
+	}
+
+	// Clean up
+	if err := engine.Close(); err != nil {
+		t.Errorf("Failed to close engine: %v", err)
+	}
+}
+
+func TestConfigureSessionRecordingFromConfig_Disabled(t *testing.T) {
+	// Create config with recording explicitly disabled
+	cfg := &config.Config{
+		Defaults: config.Defaults{
+			Output: config.OutputConfig{
+				Dir: "/tmp/test-out",
+				Recording: &config.RecordingConfig{
+					Enabled: false,
+				},
+			},
+		},
+	}
+
+	// Create engine with config
+	engine := &Engine{config: cfg}
+
+	// Configure session recording from config
+	err := engine.ConfigureSessionRecordingFromConfig()
+	if err != nil {
+		t.Fatalf("ConfigureSessionRecordingFromConfig failed: %v", err)
+	}
+
+	// Verify recording is not enabled
+	if engine.GetRecordingDir() != "" {
+		t.Errorf("Expected empty recording dir, got %s", engine.GetRecordingDir())
+	}
+}
+
+func TestConfigureSessionRecordingFromConfig_NilRecording(t *testing.T) {
+	// Create config without recording config
+	cfg := &config.Config{
+		Defaults: config.Defaults{
+			Output: config.OutputConfig{
+				Dir: "/tmp/test-out",
+				// Recording is nil
+			},
+		},
+	}
+
+	// Create engine with config
+	engine := &Engine{config: cfg}
+
+	// Configure session recording from config
+	err := engine.ConfigureSessionRecordingFromConfig()
+	if err != nil {
+		t.Fatalf("ConfigureSessionRecordingFromConfig failed: %v", err)
+	}
+
+	// Verify recording is not enabled
+	if engine.GetRecordingDir() != "" {
+		t.Errorf("Expected empty recording dir, got %s", engine.GetRecordingDir())
+	}
+}
+
+func TestConfigureSessionRecordingFromConfig_DefaultDirs(t *testing.T) {
+	// Create config with recording enabled but no dirs specified
+	cfg := &config.Config{
+		Defaults: config.Defaults{
+			Output: config.OutputConfig{
+				// Dir is empty - should default to "out"
+				Recording: &config.RecordingConfig{
+					Enabled: true,
+					// Dir is empty - should default to "recordings"
+				},
+			},
+		},
+	}
+
+	// Create engine with config
+	engine := &Engine{config: cfg}
+
+	// Configure session recording from config
+	err := engine.ConfigureSessionRecordingFromConfig()
+	if err != nil {
+		t.Fatalf("ConfigureSessionRecordingFromConfig failed: %v", err)
+	}
+
+	// Verify default recording directory is set
+	expectedDir := filepath.Join("out", "recordings")
+	if engine.GetRecordingDir() != expectedDir {
+		t.Errorf("Expected default recording dir %s, got %s", expectedDir, engine.GetRecordingDir())
+	}
+
+	// Clean up
+	if err := engine.Close(); err != nil {
+		t.Errorf("Failed to close engine: %v", err)
+	}
+}
+
+func TestGetConfig(t *testing.T) {
+	// Create config
+	cfg := &config.Config{
+		Defaults: config.Defaults{
+			Output: config.OutputConfig{
+				Dir: "test-output",
+			},
+		},
+	}
+
+	// Create engine with config
+	engine := &Engine{config: cfg}
+
+	// Verify GetConfig returns the config
+	if engine.GetConfig() != cfg {
+		t.Error("GetConfig should return the engine's config")
 	}
 }

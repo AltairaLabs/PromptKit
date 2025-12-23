@@ -82,6 +82,11 @@ func setupEngine(configFile string, params *RunParameters) (*engine.Engine, *eng
 		return nil, nil, err
 	}
 
+	// Enable session recording if configured
+	if err = eng.ConfigureSessionRecordingFromConfig(); err != nil {
+		return nil, nil, fmt.Errorf("failed to configure session recording: %w", err)
+	}
+
 	plan, err := eng.GenerateRunPlan(params.Regions, params.Providers, params.Scenarios)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to generate run plan: %w", err)
