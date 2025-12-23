@@ -21,7 +21,7 @@ type OTLPExporter struct {
 	httpClient HTTPClient
 }
 
-// HTTPClient interface for testing.
+// HTTPClient interface for testing. NOSONAR(godre:S8196) - HTTPClient is clearer than Doer for this use case.
 type HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
 }

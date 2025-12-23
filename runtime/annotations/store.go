@@ -202,7 +202,7 @@ func (s *FileStore) findByID(ctx context.Context, path, id string) (*Annotation,
 		}
 
 		var stored storedAnnotation
-		if err := json.Unmarshal(scanner.Bytes(), &stored); err != nil {
+		if json.Unmarshal(scanner.Bytes(), &stored) != nil {
 			continue
 		}
 
@@ -258,7 +258,7 @@ func (s *FileStore) loadAnnotations(
 		}
 
 		var stored storedAnnotation
-		if err := json.Unmarshal(scanner.Bytes(), &stored); err != nil {
+		if json.Unmarshal(scanner.Bytes(), &stored) != nil {
 			continue
 		}
 

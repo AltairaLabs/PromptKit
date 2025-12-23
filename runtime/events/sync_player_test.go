@@ -630,3 +630,175 @@ func TestSyncPlayer_PlaybackCompletesNormally(t *testing.T) {
 		t.Errorf("Player should be stopped after completion, got %v", player.State())
 	}
 }
+
+func TestSyncPlayer_DeliverAnnotationsDuringPlayback(t *testing.T) {
+	sessionStart := time.Now()
+
+	// Create a longer session so annotations have time to be delivered
+	events := []*Event{
+		{
+			Type:      EventMessageCreated,
+			Timestamp: sessionStart,
+			SessionID: "test-session",
+			Data:      &MessageCreatedData{Role: "user", Content: "Hello"},
+		},
+		{
+			Type:      EventMessageCreated,
+			Timestamp: sessionStart.Add(100 * time.Millisecond),
+			SessionID: "test-session",
+			Data:      &MessageCreatedData{Role: "assistant", Content: "Hi"},
+		},
+	}
+
+	// Use TargetEvent type which is handled differently
+	annots := []*annotations.Annotation{
+		{
+			ID:        "annot-1",
+			Type:      annotations.TypeScore,
+			SessionID: "test-session",
+			Key:       "quality",
+			Value:     annotations.NewScoreValue(0.9),
+			Target: annotations.Target{
+				Type:          annotations.TargetEvent,
+				EventSequence: 0,
+			},
+		},
+	}
+
+	timeline := NewMediaTimeline("test-session", events, nil)
+
+	var deliveredAnnotations []*annotations.Annotation
+	var mu sync.Mutex
+
+	config := &SyncPlayerConfig{
+		Speed:      1.0,
+		SkipTiming: true, // Skip timing to test annotation delivery path
+		OnAnnotation: func(annot *annotations.Annotation, position time.Duration) {
+			mu.Lock()
+			deliveredAnnotations = append(deliveredAnnotations, annot)
+			mu.Unlock()
+		},
+	}
+
+	player := NewSyncPlayer(timeline, annots, config)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := player.Play(ctx); err != nil {
+		t.Fatalf("Failed to start playback: %v", err)
+	}
+
+	player.Wait()
+
+	mu.Lock()
+	annotCount := len(deliveredAnnotations)
+	mu.Unlock()
+
+	if annotCount != 1 {
+		t.Errorf("Expected 1 annotation delivered, got %d", annotCount)
+	}
+}
+
+func TestSyncPlayer_FindAnnotationAtPosition(t *testing.T) {
+	sessionStart := time.Now()
+
+	events := []*Event{
+		{
+			Type:      EventMessageCreated,
+			Timestamp: sessionStart,
+			SessionID: "test-session",
+			Data:      &MessageCreatedData{Role: "user", Content: "Hello"},
+		},
+	}
+
+	annots := []*annotations.Annotation{
+		{
+			ID:        "annot-1",
+			Type:      annotations.TypeScore,
+			SessionID: "test-session",
+			Key:       "early",
+			Value:     annotations.NewScoreValue(0.5),
+			Target: annotations.Target{
+				Type:      annotations.TargetTimeRange,
+				StartTime: sessionStart,
+				EndTime:   sessionStart.Add(100 * time.Millisecond),
+			},
+		},
+		{
+			ID:        "annot-2",
+			Type:      annotations.TypeScore,
+			SessionID: "test-session",
+			Key:       "late",
+			Value:     annotations.NewScoreValue(0.9),
+			Target: annotations.Target{
+				Type:      annotations.TargetTimeRange,
+				StartTime: sessionStart.Add(500 * time.Millisecond),
+				EndTime:   sessionStart.Add(600 * time.Millisecond),
+			},
+		},
+	}
+
+	timeline := NewMediaTimeline("test-session", events, nil)
+	player := NewSyncPlayer(timeline, annots, nil)
+
+	// Seek to middle to exercise findAnnotationAtPosition
+	if err := player.Seek(300 * time.Millisecond); err != nil {
+		t.Fatalf("Failed to seek: %v", err)
+	}
+
+	// Seek past all annotations
+	if err := player.Seek(1 * time.Second); err != nil {
+		t.Fatalf("Failed to seek: %v", err)
+	}
+}
+
+func TestSyncPlayer_ResumeFromPause(t *testing.T) {
+	sessionStart := time.Now()
+
+	events := []*Event{
+		{
+			Type:      EventMessageCreated,
+			Timestamp: sessionStart,
+			SessionID: "test-session",
+			Data:      &MessageCreatedData{Role: "user", Content: "Hello"},
+		},
+		{
+			Type:      EventMessageCreated,
+			Timestamp: sessionStart.Add(500 * time.Millisecond),
+			SessionID: "test-session",
+			Data:      &MessageCreatedData{Role: "assistant", Content: "Hi"},
+		},
+	}
+
+	timeline := NewMediaTimeline("test-session", events, nil)
+	config := &SyncPlayerConfig{Speed: 10.0}
+	player := NewSyncPlayer(timeline, nil, config)
+
+	ctx := context.Background()
+
+	// Start playback
+	if err := player.Play(ctx); err != nil {
+		t.Fatalf("Failed to start: %v", err)
+	}
+
+	// Wait briefly
+	time.Sleep(30 * time.Millisecond)
+
+	// Pause
+	player.Pause()
+
+	// Wait for pause to take effect
+	time.Sleep(20 * time.Millisecond)
+
+	// Resume playback
+	if err := player.Play(ctx); err != nil {
+		t.Fatalf("Failed to resume: %v", err)
+	}
+
+	player.Wait()
+
+	if player.State() != PlayerStateStopped {
+		t.Error("Player should be stopped after completion")
+	}
+}

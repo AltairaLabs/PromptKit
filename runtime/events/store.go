@@ -245,7 +245,7 @@ func (s *FileEventStore) Query(ctx context.Context, filter *EventFilter) ([]*Eve
 		}
 
 		var stored StoredEvent
-		if err := json.Unmarshal(scanner.Bytes(), &stored); err != nil {
+		if json.Unmarshal(scanner.Bytes(), &stored) != nil {
 			continue // Skip malformed lines
 		}
 
@@ -289,7 +289,7 @@ func (s *FileEventStore) QueryRaw(ctx context.Context, filter *EventFilter) ([]*
 		}
 
 		var se StoredEvent
-		if err := json.Unmarshal(scanner.Bytes(), &se); err != nil {
+		if json.Unmarshal(scanner.Bytes(), &se) != nil {
 			continue // Skip malformed lines
 		}
 
@@ -328,7 +328,7 @@ func (s *FileEventStore) Stream(ctx context.Context, sessionID string) (<-chan *
 
 		for scanner.Scan() {
 			var stored StoredEvent
-			if err := json.Unmarshal(scanner.Bytes(), &stored); err != nil {
+			if json.Unmarshal(scanner.Bytes(), &stored) != nil {
 				continue
 			}
 

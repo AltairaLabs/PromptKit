@@ -77,8 +77,8 @@ type SyncPlayer struct {
 	pauseTime    time.Time     // When playback was paused
 	audioReaders map[TrackType]*TrackReader
 
-	ctx    context.Context    //nolint:containedctx // context stored for lifecycle management
-	cancel context.CancelFunc //nolint:containedctx // lifecycle management
+	ctx    context.Context    //nolint:containedctx // NOSONAR(godre:S8242) context stored for lifecycle management
+	cancel context.CancelFunc //nolint:containedctx // context stored for lifecycle management
 	done   chan struct{}
 }
 

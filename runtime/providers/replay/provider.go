@@ -161,7 +161,7 @@ func (p *Provider) processEvent(event *recording.RecordedEvent, state *indexStat
 // processMessageEvent handles message events during indexing.
 func (p *Provider) processMessageEvent(event *recording.RecordedEvent, state *indexState) {
 	var msgData events.MessageCreatedData
-	if err := json.Unmarshal(event.Data, &msgData); err != nil {
+	if json.Unmarshal(event.Data, &msgData) != nil {
 		return
 	}
 
@@ -201,7 +201,7 @@ func (p *Provider) processProviderCallEvent(event *recording.RecordedEvent, stat
 	}
 
 	var callData events.ProviderCallCompletedData
-	if err := json.Unmarshal(event.Data, &callData); err != nil {
+	if json.Unmarshal(event.Data, &callData) != nil {
 		return
 	}
 
@@ -248,7 +248,7 @@ func (p *Provider) PredictStream(
 		defer close(ch)
 
 		// Apply timing delay if configured
-		if err := p.applyTiming(ctx, turn); err != nil {
+		if p.applyTiming(ctx, turn) != nil {
 			return
 		}
 
