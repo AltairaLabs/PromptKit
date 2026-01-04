@@ -1,16 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
   <defs>
-    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+    <linearGradient id="pk-grad1" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" style="stop-color:#6366f1;stop-opacity:1" />
       <stop offset="100%" style="stop-color:#8b5cf6;stop-opacity:1" />
     </linearGradient>
-    <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="100%">
+    <linearGradient id="pk-grad2" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" style="stop-color:#8b5cf6;stop-opacity:1" />
       <stop offset="100%" style="stop-color:#a855f7;stop-opacity:1" />
     </linearGradient>
   </defs>
-  <path d="M24 32 L48 64 L24 96" stroke="url(#grad1)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-  <rect x="60" y="28" width="44" height="20" rx="4" fill="url(#grad1)"/>
-  <rect x="60" y="54" width="44" height="20" rx="4" fill="url(#grad2)"/>
+  <path d="M24 32 L48 64 L24 96" stroke="url(#pk-grad1)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <rect x="60" y="28" width="44" height="20" rx="4" fill="url(#pk-grad1)"/>
+  <rect x="60" y="54" width="44" height="20" rx="4" fill="url(#pk-grad2)"/>
   <rect x="60" y="80" width="44" height="20" rx="4" fill="#a855f7"/>
 </svg>

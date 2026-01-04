@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <!-- PromptKit Logo - Dark mode variant (lighter colors for dark backgrounds) -->
+  <defs>
+    <linearGradient id="gd1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#818cf8"/>
+      <stop offset="100%" stop-color="#a78bfa"/>
+    </linearGradient>
+    <linearGradient id="gd2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a78bfa"/>
+      <stop offset="100%" stop-color="#c084fc"/>
+    </linearGradient>
+  </defs>
+  <path d="M24 32 L48 64 L24 96" stroke="url(#gd1)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <rect x="60" y="28" width="44" height="20" rx="4" fill="url(#gd1)"/>
+  <rect x="60" y="54" width="44" height="20" rx="4" fill="url(#gd2)"/>
+  <rect x="60" y="80" width="44" height="20" rx="4" fill="#c084fc"/>
+</svg>

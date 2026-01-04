@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <!-- PromptKit Logo - White monochrome (for colored backgrounds) -->
+  <path d="M24 32 L48 64 L24 96" stroke="#ffffff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <rect x="60" y="28" width="44" height="20" rx="4" fill="#ffffff"/>
+  <rect x="60" y="54" width="44" height="20" rx="4" fill="#ffffff" fill-opacity="0.8"/>
+  <rect x="60" y="80" width="44" height="20" rx="4" fill="#ffffff" fill-opacity="0.6"/>
+</svg>

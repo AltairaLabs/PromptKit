@@ -11,6 +11,10 @@ export default defineConfig({
     d2(),
     starlight({
       title: 'PromptKit',
+      logo: {
+        src: './public/logo.svg',
+        alt: 'PromptKit Logo',
+      },
       plugins: [starlightThemeGalaxy()],
       social: [
         { icon: 'github', label: 'GitHub', href: 'https://github.com/AltairaLabs/PromptKit' },
