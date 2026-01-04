@@ -3,7 +3,7 @@ title: SDK Explanation
 sidebar:
   order: 0
 ---
-Deep-dive documentation explaining SDK v2 architecture and design.
+Deep-dive documentation explaining SDK architecture and design.
 
 ## Architecture
 
@@ -14,22 +14,24 @@ Deep-dive documentation explaining SDK v2 architecture and design.
 
 ### Pack-First Architecture
 
-SDK v2 is built around the pack file as the single source of truth:
+The SDK is built around the pack file as the single source of truth:
 
-```
-┌─────────────────┐
-│   Pack File     │  ← Configuration, prompts, tools
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│   sdk.Open()    │  ← Load and validate
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Conversation   │  ← Ready to use
-└─────────────────┘
+```d2
+direction: down
+
+pack: Pack File {
+  label: "Pack File\n← Configuration, prompts, tools"
+}
+
+open: sdk.Open() {
+  label: "sdk.Open()\n← Load and validate"
+}
+
+conv: Conversation {
+  label: "Conversation\n← Ready to use"
+}
+
+pack -> open -> conv
 ```
 
 ### Why Pack-First?
@@ -39,26 +41,15 @@ SDK v2 is built around the pack file as the single source of truth:
 3. **Portable** - Same pack works across environments
 4. **Versioned** - Pack files are version controlled
 
-### Before (v1)
-
-```go
-provider := providers.NewOpenAIProvider(apiKey, model, false)
-manager, _ := sdk.NewConversationManager(sdk.WithProvider(provider))
-pack, _ := manager.LoadPack("./pack.json")
-conv, _ := manager.NewConversation(ctx, pack, sdk.ConversationConfig{
-    UserID:     "user123",
-    PromptName: "chat",
-})
-resp, _ := conv.Send(ctx, "Hello")
-```
-
-### After (v2)
+### Minimal API
 
 ```go
 conv, _ := sdk.Open("./pack.json", "chat")
 defer conv.Close()
 resp, _ := conv.Send(ctx, "Hello")
 ```
+
+Three lines to a working conversation.
 
 ## Key Concepts
 

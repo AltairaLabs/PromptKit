@@ -3,7 +3,7 @@ title: SDK Tutorials
 sidebar:
   order: 0
 ---
-Step-by-step tutorials to learn the PromptKit SDK v2 pack-first architecture.
+Step-by-step tutorials to learn the PromptKit SDK pack-first architecture.
 
 ## Learning Path
 
@@ -57,7 +57,7 @@ By completing these tutorials, you'll:
 - Create conversational AI applications with minimal code
 - Implement streaming and tool calling
 - Build approval workflows for sensitive operations
-- Understand SDK v2 architecture and patterns
+- Understand SDK architecture and patterns
 
 ## Getting Help
 

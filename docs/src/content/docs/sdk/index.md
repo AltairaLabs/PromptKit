@@ -1,5 +1,5 @@
 ---
-title: PromptKit SDK v2
+title: PromptKit SDK
 description: Pack-first Go SDK for building LLM applications with minimal boilerplate
 sidebar:
   order: 0
@@ -10,7 +10,7 @@ sidebar:
 
 ## What is the PromptKit SDK?
 
-The SDK v2 is a complete rewrite with a **pack-first architecture** that dramatically simplifies LLM application development:
+The SDK uses a **pack-first architecture** that dramatically simplifies LLM application development:
 
 - **5 lines to hello world** - Open a pack, send a message, done
 - **Pack-first design** - Load prompts tested with Arena, compiled with PackC
@@ -247,21 +247,8 @@ Working examples are available in the `sdk/examples/` directory:
 
 ---
 
-## Migration from v1
-
-If you're upgrading from SDK v1, see the [Migration Guide](/docs/sdk-migration/) for detailed before/after examples.
-
-Key changes:
-- `NewConversationManager()` → `sdk.Open()`
-- `SendMessage()` → `Send()`
-- `SendMessageStream()` → `Stream()`
-- Manual tool registration → `OnTool()`
-
----
-
 ## Getting Help
 
-- **Migration Guide**: [SDK Migration Guide](/docs/sdk-migration/)
 - **Questions**: [GitHub Discussions](https://github.com/AltairaLabs/PromptKit/discussions)
 - **Issues**: [Report a Bug](https://github.com/AltairaLabs/PromptKit/issues)
 - **Examples**: [SDK Examples](/sdk/examples/)

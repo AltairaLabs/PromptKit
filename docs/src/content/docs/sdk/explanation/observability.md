@@ -3,11 +3,11 @@ title: Observability
 sidebar:
   order: 2
 ---
-Understanding the event system in SDK v2.
+Understanding the event system in SDK.
 
 ## Overview
 
-SDK v2 uses an event-based observability system through the `hooks` package. Events are emitted at key points during execution, allowing you to monitor, debug, and audit your applications.
+SDK uses an event-based observability system through the `hooks` package. Events are emitted at key points during execution, allowing you to monitor, debug, and audit your applications.
 
 ## Event Types
 

@@ -3,11 +3,11 @@ title: SDK Reference
 sidebar:
   order: 0
 ---
-Complete reference documentation for the PromptKit SDK v2 API.
+Complete reference documentation for the PromptKit SDK API.
 
 ## Overview
 
-The SDK v2 provides a pack-first API that reduces boilerplate by ~80%.
+The SDK provides a pack-first API that reduces boilerplate by ~80%.
 
 ## Core Functions
 

@@ -3,7 +3,7 @@ title: Conversation
 sidebar:
   order: 2
 ---
-The main type for interacting with LLMs in SDK v2.
+The main type for interacting with LLMs in SDK.
 
 ## Creating a Conversation
 

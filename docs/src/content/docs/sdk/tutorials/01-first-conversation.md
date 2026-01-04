@@ -3,7 +3,7 @@ title: 'Tutorial 1: Your First Conversation'
 sidebar:
   order: 1
 ---
-Build a chatbot in 5 lines of code using the PromptKit SDK v2.
+Build a chatbot in 5 lines of code using the PromptKit SDK.
 
 ## What You'll Learn
 

@@ -3,7 +3,7 @@ title: Open a Conversation
 sidebar:
   order: 1
 ---
-Learn how to start using the SDK v2 with `sdk.Open()`.
+Learn how to start using the SDK with `sdk.Open()`.
 
 ## Basic Usage
 
