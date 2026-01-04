@@ -1,0 +1,33 @@
+/* PromptKit Custom Theme Colors
+ * Override Galaxy theme's blue accents with purple to match our logo
+ * Logo colors: #6366f1 (indigo) → #8b5cf6 (violet) → #a855f7 (purple)
+ */
+
+/* Dark mode theme variables */
+:root,
+::backdrop {
+  /* Accent colors - purple/violet gradient matching logo */
+  --sl-color-accent: hsl(258, 90%, 66%);  /* violet-500 #8b5cf6 */
+  --sl-color-accent-low: hsl(258, 70%, 30%);
+  --sl-color-accent-high: #c4b5fd;  /* violet-300 */
+
+  /* Steps component */
+  --fb-steps-bg-color: var(--sl-color-accent-high);
+
+  /* TOC highlight */
+  --fb-toc-color-current-bg: rgba(139, 92, 246, 0.2);
+}
+
+/* Light mode theme variables */
+:root[data-theme='light'] {
+  /* Accent colors - slightly darker for light backgrounds */
+  --sl-color-accent: hsl(258, 89%, 55%);  /* violet-600 */
+  --sl-color-accent-low: hsl(258, 89%, 90%);
+  --sl-color-accent-high: hsl(258, 80%, 40%);
+
+  /* Steps component */
+  --fb-steps-bg-color: hsl(258, 89%, 55%);
+
+  /* TOC highlight */
+  --fb-toc-color-current-bg: rgba(139, 92, 246, 0.15);
+}
