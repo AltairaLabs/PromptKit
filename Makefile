@@ -579,41 +579,41 @@ docs-install: ## Install documentation dependencies
 
 docs-api: ## Generate API documentation from Go code
 	@echo "🔧 Generating API documentation..."
-	@mkdir -p docs/src/content/api
+	@mkdir -p docs/src/content/docs/api
 	@echo "Generating SDK API docs..."
-	@cd sdk && gomarkdoc --output ../docs/src/content/api/sdk-temp.md .
-	@echo "---" > docs/src/content/api/sdk.md
-	@echo "title: SDK API Reference" >> docs/src/content/api/sdk.md
-	@echo "description: Complete API reference for the PromptKit Go SDK" >> docs/src/content/api/sdk.md
-	@echo "docType: reference" >> docs/src/content/api/sdk.md
-	@echo "order: 1" >> docs/src/content/api/sdk.md
-	@echo "---" >> docs/src/content/api/sdk.md
-	@cat docs/src/content/api/sdk-temp.md >> docs/src/content/api/sdk.md
-	@rm docs/src/content/api/sdk-temp.md
+	@cd sdk && gomarkdoc --output ../docs/src/content/docs/api/sdk-temp.md .
+	@echo "---" > docs/src/content/docs/api/sdk.md
+	@echo "title: SDK API Reference" >> docs/src/content/docs/api/sdk.md
+	@echo "description: Complete API reference for the PromptKit Go SDK" >> docs/src/content/docs/api/sdk.md
+	@echo "sidebar:" >> docs/src/content/docs/api/sdk.md
+	@echo "  order: 1" >> docs/src/content/docs/api/sdk.md
+	@echo "---" >> docs/src/content/docs/api/sdk.md
+	@cat docs/src/content/docs/api/sdk-temp.md >> docs/src/content/docs/api/sdk.md
+	@rm docs/src/content/docs/api/sdk-temp.md
 	@echo "Generating Runtime API docs..."
-	@cd runtime && gomarkdoc --output ../docs/src/content/api/runtime-temp.md ./...
-	@echo "---" > docs/src/content/api/runtime.md
-	@echo "title: Runtime API Reference" >> docs/src/content/api/runtime.md
-	@echo "description: Complete API reference for the PromptKit Runtime" >> docs/src/content/api/runtime.md
-	@echo "docType: reference" >> docs/src/content/api/runtime.md
-	@echo "order: 2" >> docs/src/content/api/runtime.md
-	@echo "---" >> docs/src/content/api/runtime.md
-	@cat docs/src/content/api/runtime-temp.md >> docs/src/content/api/runtime.md
-	@rm docs/src/content/api/runtime-temp.md
+	@cd runtime && gomarkdoc --output ../docs/src/content/docs/api/runtime-temp.md ./...
+	@echo "---" > docs/src/content/docs/api/runtime.md
+	@echo "title: Runtime API Reference" >> docs/src/content/docs/api/runtime.md
+	@echo "description: Complete API reference for the PromptKit Runtime" >> docs/src/content/docs/api/runtime.md
+	@echo "sidebar:" >> docs/src/content/docs/api/runtime.md
+	@echo "  order: 2" >> docs/src/content/docs/api/runtime.md
+	@echo "---" >> docs/src/content/docs/api/runtime.md
+	@cat docs/src/content/docs/api/runtime-temp.md >> docs/src/content/docs/api/runtime.md
+	@rm docs/src/content/docs/api/runtime-temp.md
 	@echo "✅ API documentation generated"
 
 docs-cli: ## Generate CLI documentation and man pages
 	@echo "📋 Generating CLI documentation..."
-	@mkdir -p docs/src/content/reference
+	@mkdir -p docs/src/content/docs/reference
 	@echo "Generating Arena CLI docs..."
-	@./bin/promptarena --help > docs/src/content/reference/arena-cli.txt 2>/dev/null || echo "Arena CLI help captured"
-	@echo "Generating PackC CLI docs..."  
-	@./bin/packc --help > docs/src/content/reference/packc-cli.txt 2>/dev/null || echo "PackC CLI help captured"
+	@./bin/promptarena --help > docs/src/content/docs/reference/arena-cli.txt 2>/dev/null || echo "Arena CLI help captured"
+	@echo "Generating PackC CLI docs..."
+	@./bin/packc --help > docs/src/content/docs/reference/packc-cli.txt 2>/dev/null || echo "PackC CLI help captured"
 	@echo "✅ CLI documentation generated"
 
 docs-validate: ## Validate and auto-fix documentation formatting
 	@echo "🔍 Validating and fixing documentation..."
-	@find docs/src/content -name "*.md" -type f | while read file; do \
+	@find docs/src/content/docs -name "*.md" -type f | while read file; do \
 		echo "Checking $$file..."; \
 		if command -v markdownlint >/dev/null 2>&1; then \
 			markdownlint --fix "$$file" 2>/dev/null || true; \
@@ -648,9 +648,10 @@ docs-clean: ## Clean generated documentation
 	@echo "🧹 Cleaning generated documentation..."
 	@rm -rf docs/dist/
 	@rm -rf docs/.astro/
-	@rm -rf docs/src/content/api/
-	@rm -rf docs/src/content/examples/
-	@rm -rf docs/src/content/reference/*-cli.txt
+	@rm -rf docs/src/content/docs/api/
+	@rm -rf docs/src/content/docs/arena/examples/
+	@rm -rf docs/src/content/docs/sdk/examples/
+	@rm -rf docs/src/content/docs/reference/*-cli.txt
 	@echo "✅ Generated documentation cleaned"
 
 docs: docs-build ## Generate all documentation (alias for docs-build)

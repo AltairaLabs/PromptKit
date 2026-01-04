@@ -1,0 +1,39 @@
+---
+title: PromptKit Documentation
+description: Professional LLM development framework for Go
+template: splash
+hero:
+  tagline: Professional LLM development framework for Go. Build, test, and deploy production-ready LLM applications.
+  actions:
+    - text: Get Started
+      link: /arena/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/AltairaLabs/PromptKit
+      variant: minimal
+      icon: external
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## Explore PromptKit
+
+<CardGrid stagger>
+  <Card title="Arena" icon="rocket">
+    Test and validate LLM prompts with multi-provider support, scenario-based testing, and CI/CD integration.
+    [Learn more](/arena/)
+  </Card>
+  <Card title="SDK" icon="seti:go">
+    Pack-first Go SDK for building LLM applications with minimal boilerplate. 5 lines to hello world.
+    [Learn more](/sdk/)
+  </Card>
+  <Card title="PackC" icon="document">
+    Compile and validate prompt packs. Ensure type-safe, version-controlled prompts for production.
+    [Learn more](/packc/)
+  </Card>
+  <Card title="Runtime" icon="setting">
+    Flexible pipeline execution engine with provider abstraction, state management, and MCP integration.
+    [Learn more](/runtime/)
+  </Card>
+</CardGrid>

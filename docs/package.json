@@ -11,17 +11,12 @@
   },
   "dependencies": {
     "@astrojs/mdx": "^4.3.13",
-    "@astrojs/react": "^4.4.2",
     "@astrojs/sitemap": "^3.6.0",
-    "@types/react": "^19.2.7",
-    "@types/react-dom": "^19.2.3",
+    "@astrojs/starlight": "^0.37.1",
     "astro": "^5.16.6",
-    "fuse.js": "^7.1.0",
-    "gray-matter": "^4.0.3",
+    "astro-d2": "^0.8.1",
     "mermaid": "^11.12.2",
-    "react": "^19.2.3",
-    "react-dom": "^19.2.3",
-    "rehype-mermaid": "^3.0.0"
+    "starlight-theme-galaxy": "^0.6.0"
   },
   "devDependencies": {
     "linkinator": "^7.5.1",
