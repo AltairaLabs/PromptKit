@@ -55,7 +55,10 @@ jobs:
       
       - name: Install gomarkdoc
         run: go install github.com/princjef/gomarkdoc/cmd/gomarkdoc@latest
-      
+
+      - name: Install D2
+        run: curl -fsSL https://d2lang.com/install.sh | sh -s --
+
       - name: Build CLI tools
         run: make build-tools
       
