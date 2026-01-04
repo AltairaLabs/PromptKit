@@ -1,0 +1,48 @@
+packc - PromptKit Pack Compiler
+
+Usage:
+  packc compile [options]         Compile ALL prompts from arena.yaml into a single pack
+  packc compile-prompt [options]  Compile a single prompt to pack format
+  packc validate <pack-file>      Validate a pack file
+  packc inspect <pack-file>       Display pack information
+  packc version                   Show version
+  packc help                      Show this help
+  packc completion <shell>        Generate shell completion script (bash, zsh, fish, powershell)
+
+Compile Command (main):
+  packc compile [-c <arena.yaml>] [-o <pack-file>] [--id <pack-id>]
+
+  Options:
+    -c, --config  Path to arena.yaml file (default: config.arena.yaml)
+    -o, --output  Output pack file path (default: {id}.pack.json)
+        --id      Pack ID (default: current folder name, sanitized)
+
+Compile Prompt Command (single prompt):
+  packc compile-prompt -p <yaml-file> -o <json-file>
+
+  Options:
+    -p, --prompt  Path to prompt YAML file (required)
+    -o, --output  Output pack file path (required)
+
+Examples:
+  # Compile using all defaults (config.arena.yaml, folder name as id)
+  packc compile
+
+  # Compile with custom config
+  packc compile -c arena.yaml
+
+  # Compile with all options specified
+  packc compile -c arena.yaml -o packs/customer-support-pack.json --id customer-support
+
+  # Compile single prompt
+  packc compile-prompt -p prompts/support.yaml -o packs/support.json
+
+  # Validate a pack
+  packc validate packs/support.json
+
+  # Inspect a pack
+  packc inspect packs/support.json
+
+  # Generate shell completions
+  packc completion bash >> ~/.bashrc
+  packc completion zsh >> ~/.zshrc
