@@ -7,7 +7,7 @@ Understanding how PromptArena handles bidirectional audio streaming for voice as
 
 ## What is Duplex Streaming?
 
-**Duplex streaming** enables real-time bidirectional communication between your test scenario and an LLM provider. Unlike traditional request-response patterns, duplex streaming:
+**[Duplex](/glossary#duplex) streaming** enables real-time bidirectional communication between your test scenario and an LLM provider. Unlike traditional request-response patterns, duplex streaming:
 
 - Sends audio in small chunks as it's being "spoken"
 - Receives responses while still sending input
@@ -119,7 +119,7 @@ The session is created **lazily** when the first element arrives, using configur
 
 ### Turn Detection
 
-Two modes are available for detecting when a speaker has finished:
+Two modes are available for detecting when a speaker has finished: [ASM](/glossary#asm) (provider-native) and [VAD](/glossary#vad) (client-side).
 
 #### ASM Mode (Provider-Native)
 
@@ -213,7 +213,7 @@ Paces audio to match actual speech timing:
 
 ## Self-Play with TTS
 
-For fully automated testing, self-play mode generates audio dynamically:
+For fully automated testing, self-play mode uses [TTS](/glossary#tts) to generate audio dynamically:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐

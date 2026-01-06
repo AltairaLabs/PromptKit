@@ -7,10 +7,10 @@ Learn to test bidirectional voice conversations with real-time audio streaming.
 
 ## What You'll Learn
 
-- Understand duplex streaming vs traditional audio testing
+- Understand [duplex](/glossary#duplex) streaming vs traditional audio testing
 - Create duplex test scenarios with audio files
-- Configure turn detection modes (VAD vs provider-native)
-- Use self-play with TTS for automated voice testing
+- Configure turn detection modes ([VAD](/glossary#vad) vs [ASM](/glossary#asm))
+- Use self-play with [TTS](/glossary#tts) for automated voice testing
 - Handle session resilience and error recovery
 
 ## Prerequisites

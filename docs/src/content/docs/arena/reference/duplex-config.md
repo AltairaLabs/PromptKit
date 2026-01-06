@@ -3,11 +3,11 @@ title: Duplex Configuration Reference
 sidebar:
   order: 7
 ---
-Complete reference for configuring duplex (bidirectional) streaming scenarios in PromptArena.
+Complete reference for configuring [duplex](/glossary#duplex) (bidirectional) streaming scenarios in PromptArena.
 
 ## Overview
 
-Duplex mode enables real-time bidirectional audio streaming for testing voice assistants and conversational AI. When enabled, audio is streamed in chunks and turn boundaries are detected dynamically.
+Duplex mode enables real-time bidirectional audio streaming for testing voice assistants and conversational AI. When enabled, audio is streamed in chunks and turn boundaries are detected dynamically using either [VAD](/glossary#vad) or [ASM](/glossary#asm) mode.
 
 **Requires**: Gemini Live API (provider type: `gemini`, model: `gemini-2.0-flash-exp` or similar)
 
@@ -194,7 +194,7 @@ Set to `false` if you need the final turn to complete normally without session t
 
 ## TTSConfig
 
-Text-to-speech configuration for self-play audio generation.
+[Text-to-speech (TTS)](/glossary#tts) configuration for self-play audio generation.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|

@@ -7,8 +7,8 @@ Build voice-enabled conversations with real-time audio streaming.
 
 ## What You'll Learn
 
-- Two modes for voice conversations: VAD and ASM
-- Setting up VAD mode with STT and TTS services
+- Two modes for voice conversations: [VAD](/glossary#vad) and [ASM](/glossary#asm)
+- Setting up VAD mode with [STT](/glossary#stt) and [TTS](/glossary#tts) services
 - Setting up ASM mode for native audio LLMs
 - Handling audio input and output streams
 - Turn detection and interruption handling
