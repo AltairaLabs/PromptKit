@@ -136,6 +136,9 @@ When an LLM generates plausible-sounding but false or fabricated information not
 ### Multi-turn
 A conversation with multiple back-and-forth exchanges that maintains context across [turns](#turn). Requires [state management](#state-store) to track history.
 
+### Ollama
+An open-source platform for running LLMs locally. PromptKit's Ollama [provider](#provider) enables cost-free local inference using models like Llama, Mistral, and LLaVA. Uses an OpenAI-compatible API.
+
 ### Multimodal
 Support for multiple content types (text, images, audio, video) in a single interaction. Gemini and GPT-4V are examples of multimodal models.
 

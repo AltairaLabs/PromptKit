@@ -176,16 +176,71 @@ metadata:
 spec:
   task_type: test
   description: "Gemini Test"
-  
+
     providers: [gemini-flash]
     assertions:
       # Expect fast responses
 max_seconds: 2
-      
+
       # Good at direct answers
       - type: content_includes
         params:
           patterns: "key information"
+```
+
+### Ollama (Local LLMs)
+
+**Strengths:**
+- Zero API costs (local inference)
+- No rate limits
+- Data privacy (runs locally)
+- OpenAI-compatible API
+- Fast iteration during development
+- No internet required
+
+**Models:**
+- `llama3.2:1b`: Lightweight, fast
+- `llama3.2:3b`: Good balance
+- `mistral`: Strong reasoning
+- `llava`: Vision capabilities
+- `deepseek-r1`: Advanced reasoning
+
+**Best for:**
+- Local development and testing
+- Privacy-sensitive applications
+- Cost-free experimentation
+- Offline development
+- CI/CD pipelines (with self-hosted runner)
+
+**Response characteristics:**
+```yaml
+# Typical Ollama response style (varies by model)
+- Length: Model-dependent (similar to base model)
+- Tone: Varies by model
+- Structure: Varies by model
+- Formatting: Good markdown support
+```
+
+**Testing considerations:**
+```yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: ollama-test
+
+spec:
+  task_type: test
+  description: "Ollama Local Test"
+
+    providers: [ollama-llama]
+    assertions:
+      # Local models may be slower (depends on hardware)
+      max_seconds: 10
+
+      # Good for iterative development
+      - type: content_includes
+        params:
+          patterns: "key concepts"
 ```
 
 ## Response Style Comparison
@@ -384,10 +439,17 @@ spec:
 | Anthropic | claude-sonnet | $3.00 | $15.00 | Premium |
 | Google | gemini-flash | $0.075 | $0.30 | Most affordable |
 | Google | gemini-pro | $1.25 | $5.00 | Mid-tier |
+| Ollama | Any model | $0.00 | $0.00 | Free (local) |
 
 ### Cost-Effective Testing Strategy
 
 ```yaml
+# Tier 0: Local development (Ollama, $0)
+local_tests:
+  providers: [ollama-llama]
+  scenarios: unlimited
+  cost: $0
+
 # Tier 1: Smoke tests (mock, $0)
 smoke_tests:
   provider: mock
@@ -406,7 +468,7 @@ quality_tests:
   scenarios: 50
   estimated_cost: $1.00
 
-# Total per run: ~$1.10
+# Total per run: ~$1.10 (excluding local tests)
 ```
 
 ## Capability Differences
@@ -684,16 +746,22 @@ decision_matrix:
     - need: function_calling
     - need: structured_output
     - priority: ease_of_use
-  
+
   use_claude_when:
     - need: long_context
     - need: detailed_explanations
     - priority: quality
-  
+
   use_gemini_when:
     - need: speed
     - need: cost_optimization
     - priority: throughput
+
+  use_ollama_when:
+    - need: zero_cost
+    - need: data_privacy
+    - need: offline_development
+    - priority: local_iteration
 ```
 
 ## Conclusion

@@ -12,6 +12,7 @@ PromptKit supports multiple LLM providers through a common interface:
 - **OpenAI**: GPT-4, GPT-4o, GPT-3.5
 - **Anthropic Claude**: Claude 3.5 Sonnet, Claude 3 Opus, Claude 3 Haiku
 - **Google Gemini**: Gemini 1.5 Pro, Gemini 1.5 Flash
+- **Ollama**: Local LLMs (Llama, Mistral, LLaVA, DeepSeek)
 - **Mock**: Testing and development
 
 All providers implement the `Provider` interface for text completion and `ToolSupport` interface for function calling.
@@ -98,6 +99,7 @@ type MultimodalCapabilities struct {
 | OpenAI GPT-4o/4o-mini | ✅ | ❌ | ❌ | JPEG, PNG, GIF, WebP |
 | Anthropic Claude 3.5 | ✅ | ❌ | ❌ | JPEG, PNG, GIF, WebP |
 | Google Gemini 1.5 | ✅ | ✅ | ✅ | Full multimodal support |
+| Ollama (LLaVA, Llama 3.2 Vision) | ✅ | ❌ | ❌ | JPEG, PNG, GIF, WebP |
 
 **Helper Functions**:
 
@@ -491,6 +493,144 @@ toolProvider := mock.NewMockToolProvider("mock", "test-model", false, nil)
 toolProvider.ConfigureToolResponse("get_weather", `{"temp": 72, "conditions": "sunny"}`)
 ```
 
+## Ollama Provider
+
+Run local LLMs with zero API costs using [Ollama](https://ollama.ai/). Uses the OpenAI-compatible `/v1/chat/completions` endpoint.
+
+### Constructor
+
+```go
+func NewOllamaProvider(
+    id string,
+    model string,
+    baseURL string,
+    defaults ProviderDefaults,
+    includeRawOutput bool,
+    additionalConfig map[string]interface{},
+) *OllamaProvider
+```
+
+**Parameters**:
+- `id`: Provider identifier (e.g., "ollama-llama")
+- `model`: Model name (e.g., "llama3.2:1b", "mistral", "llava")
+- `baseURL`: Ollama server URL (default: `http://localhost:11434`)
+- `defaults`: Default parameters and pricing (typically zero cost)
+- `includeRawOutput`: Include raw API response in output
+- `additionalConfig`: Extra options including `keep_alive` for model persistence
+
+**Environment**:
+- No API key required (local inference)
+- `OLLAMA_HOST`: Optional, alternative to `baseURL` parameter
+
+**Example**:
+```go
+provider := ollama.NewOllamaProvider(
+    "ollama",
+    "llama3.2:1b",
+    "http://localhost:11434",
+    ollama.DefaultProviderDefaults(),
+    false,
+    map[string]interface{}{
+        "keep_alive": "5m",  // Keep model loaded for 5 minutes
+    },
+)
+defer provider.Close()
+```
+
+### Supported Models
+
+Any model available via `ollama pull`. Common models include:
+
+| Model | Context | Cost |
+|-------|---------|------|
+| `llama3.2:1b` | 128K | Free (local) |
+| `llama3.2:3b` | 128K | Free (local) |
+| `llama3.1:8b` | 128K | Free (local) |
+| `mistral` | 32K | Free (local) |
+| `deepseek-r1:8b` | 64K | Free (local) |
+| `phi3:mini` | 128K | Free (local) |
+| `llava` | 4K | Free (local) |
+| `llama3.2-vision` | 128K | Free (local) |
+
+Run `ollama list` to see installed models, or `ollama pull <model>` to download new ones.
+
+### Features
+
+- ✅ Streaming support
+- ✅ Function calling (tool use)
+- ✅ Multimodal (vision) - LLaVA, Llama 3.2 Vision
+- ✅ Zero cost (local inference)
+- ✅ Model persistence (`keep_alive` parameter)
+- ✅ OpenAI-compatible API
+- ❌ No API key required
+
+### Tool Support
+
+```go
+toolProvider := ollama.NewOllamaToolProvider(
+    "ollama",
+    "llama3.2:1b",
+    "http://localhost:11434",
+    ollama.DefaultProviderDefaults(),
+    false,
+    map[string]interface{}{"keep_alive": "5m"},
+)
+
+// Build tools in OpenAI format
+tools, err := toolProvider.BuildTooling(toolDescriptors)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Execute with tools
+response, toolCalls, err := toolProvider.PredictWithTools(
+    ctx,
+    req,
+    tools,
+    "auto",  // Tool choice: "auto", "required", "none"
+)
+```
+
+### Configuration via YAML
+
+```yaml
+spec:
+  id: "ollama-llama"
+  type: ollama
+  model: llama3.2:1b
+  base_url: "http://localhost:11434"
+  additional_config:
+    keep_alive: "5m"
+```
+
+### Docker Setup
+
+Run Ollama with Docker Compose:
+
+```yaml
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 10s
+      timeout: 30s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  ollama_data:
+```
+
+Then pull a model:
+```bash
+docker exec ollama ollama pull llama3.2:1b
+```
+
 ## Usage Examples
 
 ### Basic Completion
@@ -714,6 +854,21 @@ func DefaultProviderDefaults() ProviderDefaults {
 }
 ```
 
+**Ollama**:
+```go
+func DefaultProviderDefaults() ProviderDefaults {
+    return ProviderDefaults{
+        Temperature: 0.7,
+        TopP:        0.9,
+        MaxTokens:   2048,
+        Pricing: Pricing{
+            InputCostPer1K:  0.0,  // Local inference - free
+            OutputCostPer1K: 0.0,
+        },
+    }
+}
+```
+
 ### Environment Variables
 
 All providers support environment variable configuration:
@@ -724,6 +879,7 @@ All providers support environment variable configuration:
 - `OPENAI_BASE_URL`: Custom OpenAI-compatible endpoint
 - `ANTHROPIC_BASE_URL`: Custom Claude endpoint
 - `GEMINI_BASE_URL`: Custom Gemini endpoint
+- `OLLAMA_HOST`: Ollama server URL (default: `http://localhost:11434`)
 
 ## Best Practices
 

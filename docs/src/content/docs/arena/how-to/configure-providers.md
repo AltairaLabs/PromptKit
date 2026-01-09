@@ -140,15 +140,62 @@ metadata:
 spec:
   type: azure-openai
   model: gpt-4o
-  
+
   base_url: https://your-resource.openai.azure.com
-  
+
   defaults:
     temperature: 0.6
     max_tokens: 2000
 ```
 
 Authentication uses the `AZURE_OPENAI_API_KEY` environment variable automatically.
+
+### Ollama (Local)
+
+```yaml
+# providers/ollama.yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: ollama-llama
+  labels:
+    provider: ollama
+
+spec:
+  type: ollama
+  model: llama3.2:1b
+  base_url: http://localhost:11434
+
+  additional_config:
+    keep_alive: "5m"  # Keep model loaded for 5 minutes
+
+  defaults:
+    temperature: 0.7
+    max_tokens: 2048
+```
+
+No API key required - Ollama runs locally. Start Ollama with:
+
+```bash
+# Install Ollama
+brew install ollama  # macOS
+# or visit https://ollama.ai for other platforms
+
+# Start Ollama server
+ollama serve
+
+# Pull a model
+ollama pull llama3.2:1b
+```
+
+Or use Docker:
+
+```bash
+docker run -d -p 11434:11434 -v ollama:/root/.ollama ollama/ollama
+docker exec -it <container> ollama pull llama3.2:1b
+```
+
+**Available Models**: Any model from `ollama list` - `llama3.2:1b`, `llama3.2:3b`, `mistral`, `llava`, `deepseek-r1:8b`, etc.
 
 ## Arena Configuration
 
@@ -403,3 +450,4 @@ See working provider configurations in:
 
 - `examples/customer-support/providers/`
 - `examples/mcp-chatbot/providers/`
+- `examples/ollama-local/providers/` - Local Ollama setup with Docker

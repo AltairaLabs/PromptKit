@@ -26,6 +26,11 @@ A **provider** is an LLM service (OpenAI, Anthropic, Google) that generates text
 - **Features**: Function calling, multimodal, 1M+ context, streaming
 - **Pricing**: Pay per token, free tier available
 
+### Ollama (Local)
+- **Models**: Llama 3.2, Mistral, LLaVA, DeepSeek, Phi, and more
+- **Features**: Function calling, vision (LLaVA), streaming, OpenAI-compatible API
+- **Pricing**: Free (local inference, no API costs)
+
 ## Why Provider Abstraction?
 
 **Problem**: Each provider has different APIs
