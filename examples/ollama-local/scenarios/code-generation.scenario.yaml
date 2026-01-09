@@ -1,0 +1,39 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: code-generation
+  annotations:
+    description: "Test code generation capabilities"
+spec:
+  id: code-generation
+  description: "Test code generation capabilities"
+  task_type: general-assistant
+  turns:
+    - role: user
+      content: "Write a Python function that checks if a number is prime. Just the function, no explanation."
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "def"
+              - "return"
+            message: "Response should contain a Python function"
+        - type: content_includes
+          params:
+            patterns:
+              - "prime"
+              - "Prime"
+            match_mode: any
+            message: "Response should mention prime"
+
+    - role: user
+      content: "Now write a simple 'Hello World' program in Go."
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "package"
+              - "fmt"
+              - "Println"
+            match_mode: any
+            message: "Response should contain Go code elements"

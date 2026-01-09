@@ -95,6 +95,7 @@ packs/
 # Ignore tools' built binaries (but not the source directories)
 bin/packc
 bin/promptarena
+tools/arena/arena
 !tools/packc/
 !tools/arena/
 

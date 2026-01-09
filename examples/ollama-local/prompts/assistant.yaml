@@ -1,0 +1,14 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: assistant
+  annotations:
+    description: "A helpful AI assistant running locally"
+spec:
+  task_type: "general-assistant"
+  version: "v1.0.0"
+  description: "A helpful AI assistant for general tasks"
+
+  system_template: |
+    You are a helpful AI assistant. You provide clear, concise, and accurate responses.
+    Be friendly and professional in your communication style.

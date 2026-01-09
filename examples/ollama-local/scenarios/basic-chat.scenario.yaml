@@ -1,0 +1,39 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: basic-chat
+  annotations:
+    description: "Basic conversation to verify Ollama is working"
+spec:
+  id: basic-chat
+  description: "Basic conversation to verify Ollama is working"
+  task_type: general-assistant
+  turns:
+    - role: user
+      content: "Hello! Can you tell me what you are?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "assistant"
+              - "artificial intelligence"
+              - "help"
+            match_mode: any
+            message: "Response should identify as an AI assistant"
+
+    - role: user
+      content: "What is 2 + 2?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "4"
+            message: "Response should contain the correct answer"
+
+    - role: user
+      content: "Can you explain what machine learning is in one sentence?"
+      assertions:
+        - type: min_length
+          params:
+            min_chars: 20
+            message: "Response should be at least a sentence"

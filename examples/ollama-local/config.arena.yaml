@@ -1,0 +1,27 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: ollama-local
+  annotations:
+    description: "Example demonstrating local LLM inference with Ollama"
+spec:
+  prompt_configs:
+    - id: assistant
+      file: prompts/assistant.yaml
+
+  providers:
+    - file: providers/ollama-llama.provider.yaml
+
+  scenarios:
+    - file: scenarios/basic-chat.scenario.yaml
+    - file: scenarios/code-generation.scenario.yaml
+
+  defaults:
+    temperature: 0.7
+    max_tokens: 1024
+    concurrency: 1
+    output:
+      dir: out
+      formats: ["json", "html"]
+      html:
+        file: report.html
