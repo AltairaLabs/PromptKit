@@ -79,6 +79,8 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 			baseURL = "https://api.anthropic.com"
 		case "imagen":
 			baseURL = "https://generativelanguage.googleapis.com/v1beta"
+		case "ollama":
+			baseURL = "http://localhost:11434"
 		case "mock":
 			// No base URL needed for mock provider
 		}
