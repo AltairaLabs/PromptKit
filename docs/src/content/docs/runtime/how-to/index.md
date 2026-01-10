@@ -33,6 +33,10 @@ These guides show you how to accomplish specific tasks with the PromptKit Runtim
 - [Integrate MCP](integrate-mcp) - Connect MCP servers
 - [Validate Tools](validate-tools) - Tool argument validation
 
+### Observability
+- [Prometheus Metrics](prometheus-metrics) - Monitor with Prometheus and Grafana
+- [Monitor Costs](monitor-costs) - Cost tracking and optimization
+
 ### Advanced Topics
 - [Streaming Responses](streaming-responses) - Real-time output
 - [Custom Middleware](custom-middleware) - Extend pipeline behavior
@@ -46,6 +50,7 @@ These guides show you how to accomplish specific tasks with the PromptKit Runtim
 | Connect to OpenAI/Claude | [Setup Providers](setup-providers) | 5 min |
 | Add MCP tools | [Integrate MCP](integrate-mcp) | 10 min |
 | Track costs | [Monitor Costs](monitor-costs) | 5 min |
+| Monitor with Prometheus | [Prometheus Metrics](prometheus-metrics) | 10 min |
 | Handle errors | [Handle Errors](handle-errors) | 10 min |
 | Stream responses | [Streaming Responses](streaming-responses) | 10 min |
 | Persist conversations | [Manage State](manage-state) | 15 min |
