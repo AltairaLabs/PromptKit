@@ -365,3 +365,130 @@ scenarios:
 	require.NoError(t, err)
 	assert.Equal(t, "Tool call response", response)
 }
+
+// TestFileMockRepository_GetTurn_SelfplayPersona tests the selfplay persona functionality.
+func TestFileMockRepository_GetTurn_SelfplayPersona(t *testing.T) {
+	configData := `
+defaultResponse: "Global fallback"
+scenarios:
+  test-scenario:
+    defaultResponse: "Scenario default"
+    turns:
+      1: "Scenario turn 1"
+selfplay:
+  test-persona:
+    defaultResponse: "Persona default response"
+    turns:
+      1: "Persona turn 1"
+      2:
+        type: text
+        content: "Persona turn 2 structured"
+`
+
+	tempFile := createTempYAMLFile(t, configData)
+	defer cleanupTempFile(t, tempFile)
+
+	repo, err := NewFileMockRepository(tempFile)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// Test selfplay persona turn-specific response
+	params := ResponseParams{
+		ScenarioID: "test-scenario",
+		PersonaID:  "test-persona",
+		ArenaRole:  "self_play_user",
+		TurnNumber: 1,
+	}
+
+	turn, err := repo.GetTurn(ctx, params)
+	require.NoError(t, err)
+	assert.Equal(t, "text", turn.Type)
+	assert.Equal(t, "Persona turn 1", turn.Content)
+
+	// Test selfplay persona structured turn
+	params.TurnNumber = 2
+	turn, err = repo.GetTurn(ctx, params)
+	require.NoError(t, err)
+	assert.Equal(t, "text", turn.Type)
+	assert.Equal(t, "Persona turn 2 structured", turn.Content)
+
+	// Test selfplay persona default (non-existent turn)
+	params.TurnNumber = 99
+	turn, err = repo.GetTurn(ctx, params)
+	require.NoError(t, err)
+	assert.Equal(t, "Persona default response", turn.Content)
+
+	// Test non-existent persona falls back to scenario
+	params.PersonaID = "non-existent-persona"
+	params.TurnNumber = 1
+	turn, err = repo.GetTurn(ctx, params)
+	require.NoError(t, err)
+	assert.Equal(t, "Scenario turn 1", turn.Content)
+}
+
+// TestFileMockRepository_GetTurn_SelfplayNoDefault tests selfplay without default response.
+func TestFileMockRepository_GetTurn_SelfplayNoDefault(t *testing.T) {
+	configData := `
+defaultResponse: "Global fallback"
+selfplay:
+  limited-persona:
+    turns:
+      1: "Only turn 1"
+`
+
+	tempFile := createTempYAMLFile(t, configData)
+	defer cleanupTempFile(t, tempFile)
+
+	repo, err := NewFileMockRepository(tempFile)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// Test specific turn exists
+	params := ResponseParams{
+		PersonaID:  "limited-persona",
+		ArenaRole:  "self_play_user",
+		TurnNumber: 1,
+	}
+
+	turn, err := repo.GetTurn(ctx, params)
+	require.NoError(t, err)
+	assert.Equal(t, "Only turn 1", turn.Content)
+
+	// Test non-existent turn (no default) falls back to global
+	params.TurnNumber = 2
+	turn, err = repo.GetTurn(ctx, params)
+	require.NoError(t, err)
+	assert.Equal(t, "Global fallback", turn.Content)
+}
+
+// TestFileMockRepository_GetTurn_SelfplayWithTurnZero tests selfplay with turn 0.
+func TestFileMockRepository_GetTurn_SelfplayWithTurnZero(t *testing.T) {
+	configData := `
+selfplay:
+  test-persona:
+    defaultResponse: "Persona default"
+    turns:
+      1: "Turn 1 response"
+`
+
+	tempFile := createTempYAMLFile(t, configData)
+	defer cleanupTempFile(t, tempFile)
+
+	repo, err := NewFileMockRepository(tempFile)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// Test with turn 0 (should use default)
+	params := ResponseParams{
+		PersonaID:  "test-persona",
+		ArenaRole:  "self_play_user",
+		TurnNumber: 0,
+	}
+
+	turn, err := repo.GetTurn(ctx, params)
+	require.NoError(t, err)
+	assert.Equal(t, "Persona default", turn.Content)
+}

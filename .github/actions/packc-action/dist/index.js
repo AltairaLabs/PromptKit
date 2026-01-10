@@ -45,8 +45,8 @@ exports.validate = validate;
 exports.parsePackFile = parsePackFile;
 const core = __importStar(__nccwpck_require__(7484));
 const exec = __importStar(__nccwpck_require__(5236));
-const fs = __importStar(__nccwpck_require__(9896));
-const path = __importStar(__nccwpck_require__(6928));
+const fs = __importStar(__nccwpck_require__(3024));
+const path = __importStar(__nccwpck_require__(6760));
 async function compile(inputs) {
     const args = ['compile'];
     args.push('--config', inputs.configFile);
@@ -240,9 +240,9 @@ exports.installORAS = installORAS;
 exports.installCosign = installCosign;
 const core = __importStar(__nccwpck_require__(7484));
 const tc = __importStar(__nccwpck_require__(3472));
-const path = __importStar(__nccwpck_require__(6928));
-const os = __importStar(__nccwpck_require__(857));
-const fs = __importStar(__nccwpck_require__(9896));
+const path = __importStar(__nccwpck_require__(6760));
+const os = __importStar(__nccwpck_require__(8161));
+const fs = __importStar(__nccwpck_require__(3024));
 const PROMPTKIT_REPO_OWNER = 'AltairaLabs';
 const PROMPTKIT_REPO_NAME = 'PromptKit';
 const ORAS_REPO_OWNER = 'oras-project';
@@ -504,94 +504,105 @@ function getInputs() {
         workingDirectory: core.getInput('working-directory') || '.',
     };
 }
+function logActionStart(inputs) {
+    core.info('PackC Action starting...');
+    core.info(`Config file: ${inputs.configFile}`);
+    core.info(`Working directory: ${inputs.workingDirectory}`);
+    if (inputs.packId) {
+        core.info(`Pack ID: ${inputs.packId}`);
+    }
+    if (inputs.registry) {
+        core.info(`Registry: ${inputs.registry}/${inputs.repository}`);
+    }
+}
+async function installTools(inputs) {
+    core.startGroup('Installing PackC');
+    await (0, installer_1.installPackC)(inputs.packcVersion);
+    core.endGroup();
+    if (inputs.registry) {
+        core.startGroup('Installing ORAS');
+        await (0, installer_1.installORAS)();
+        core.endGroup();
+    }
+    if (inputs.sign) {
+        core.startGroup('Installing Cosign');
+        await (0, installer_1.installCosign)();
+        core.endGroup();
+    }
+}
+async function compilePack(inputs) {
+    core.startGroup('Compiling Pack');
+    const compileInputs = {
+        configFile: inputs.configFile,
+        packId: inputs.packId,
+        output: inputs.output,
+        workingDirectory: inputs.workingDirectory,
+    };
+    let compileResult = await (0, compiler_1.compile)(compileInputs);
+    core.endGroup();
+    if (inputs.validate) {
+        core.startGroup('Validating Pack');
+        const isValid = await (0, compiler_1.validate)(compileResult.packFile);
+        if (!isValid) {
+            core.warning('Pack validation had warnings');
+        }
+        core.endGroup();
+    }
+    // Parse pack file for more accurate counts
+    const packInfo = (0, compiler_1.parsePackFile)(compileResult.packFile);
+    if (packInfo.prompts > 0) {
+        compileResult = {
+            ...compileResult,
+            prompts: packInfo.prompts,
+            tools: packInfo.tools,
+            packId: packInfo.packId || compileResult.packId,
+        };
+    }
+    return compileResult;
+}
+async function publishPack(inputs, compileResult) {
+    if (!inputs.registry || !inputs.repository) {
+        return undefined;
+    }
+    core.startGroup('Publishing to Registry');
+    const publishInputs = {
+        packFile: compileResult.packFile,
+        packId: compileResult.packId,
+        version: inputs.version,
+        registry: inputs.registry,
+        repository: inputs.repository,
+        username: inputs.username,
+        password: inputs.password,
+    };
+    const result = await (0, publisher_1.publish)(publishInputs);
+    core.endGroup();
+    return result;
+}
+async function signPack(inputs, publishResult) {
+    if (!inputs.sign || !inputs.cosignKey || !publishResult) {
+        return undefined;
+    }
+    core.startGroup('Signing Pack');
+    const signInputs = {
+        registryUrl: publishResult.registryUrl,
+        digest: publishResult.digest,
+        cosignKey: inputs.cosignKey,
+        cosignPassword: inputs.cosignPassword,
+    };
+    const result = await (0, signer_1.sign)(signInputs);
+    core.endGroup();
+    return result;
+}
 async function run() {
     try {
         const inputs = getInputs();
-        core.info('PackC Action starting...');
-        core.info(`Config file: ${inputs.configFile}`);
-        core.info(`Working directory: ${inputs.workingDirectory}`);
-        if (inputs.packId) {
-            core.info(`Pack ID: ${inputs.packId}`);
-        }
-        if (inputs.registry) {
-            core.info(`Registry: ${inputs.registry}/${inputs.repository}`);
-        }
-        // Step 1: Install tools
-        core.startGroup('Installing PackC');
-        await (0, installer_1.installPackC)(inputs.packcVersion);
-        core.endGroup();
-        if (inputs.registry) {
-            core.startGroup('Installing ORAS');
-            await (0, installer_1.installORAS)();
-            core.endGroup();
-        }
-        if (inputs.sign) {
-            core.startGroup('Installing Cosign');
-            await (0, installer_1.installCosign)();
-            core.endGroup();
-        }
-        // Step 2: Compile pack
-        core.startGroup('Compiling Pack');
-        const compileInputs = {
-            configFile: inputs.configFile,
-            packId: inputs.packId,
-            output: inputs.output,
-            workingDirectory: inputs.workingDirectory,
-        };
-        let compileResult = await (0, compiler_1.compile)(compileInputs);
-        core.endGroup();
-        // Step 3: Validate if enabled
-        if (inputs.validate) {
-            core.startGroup('Validating Pack');
-            const isValid = await (0, compiler_1.validate)(compileResult.packFile);
-            if (!isValid) {
-                core.warning('Pack validation had warnings');
-            }
-            core.endGroup();
-        }
-        // Parse pack file for more accurate counts
-        const packInfo = (0, compiler_1.parsePackFile)(compileResult.packFile);
-        if (packInfo.prompts > 0) {
-            compileResult = {
-                ...compileResult,
-                prompts: packInfo.prompts,
-                tools: packInfo.tools,
-                packId: packInfo.packId || compileResult.packId,
-            };
-        }
-        // Step 4: Publish to registry if configured
-        let publishResult;
-        if (inputs.registry && inputs.repository) {
-            core.startGroup('Publishing to Registry');
-            const publishInputs = {
-                packFile: compileResult.packFile,
-                packId: compileResult.packId,
-                version: inputs.version,
-                registry: inputs.registry,
-                repository: inputs.repository,
-                username: inputs.username,
-                password: inputs.password,
-            };
-            publishResult = await (0, publisher_1.publish)(publishInputs);
-            core.endGroup();
-        }
-        // Step 5: Sign if configured
-        let signResult;
-        if (inputs.sign && inputs.cosignKey && publishResult) {
-            core.startGroup('Signing Pack');
-            const signInputs = {
-                registryUrl: publishResult.registryUrl,
-                digest: publishResult.digest,
-                cosignKey: inputs.cosignKey,
-                cosignPassword: inputs.cosignPassword,
-            };
-            signResult = await (0, signer_1.sign)(signInputs);
-            core.endGroup();
-        }
-        // Step 6: Set outputs and log summary
+        logActionStart(inputs);
+        await installTools(inputs);
+        const compileResult = await compilePack(inputs);
+        const publishResult = await publishPack(inputs, compileResult);
+        const signResult = await signPack(inputs, publishResult);
         (0, outputs_1.setOutputs)(compileResult, publishResult, signResult);
         (0, outputs_1.logSummary)(compileResult, publishResult, signResult);
-        // Cleanup: Logout from registry
         if (inputs.registry && inputs.username) {
             await (0, publisher_1.logout)(inputs.registry);
         }
@@ -901,9 +912,9 @@ exports.sign = sign;
 exports.verify = verify;
 const core = __importStar(__nccwpck_require__(7484));
 const exec = __importStar(__nccwpck_require__(5236));
-const fs = __importStar(__nccwpck_require__(9896));
-const path = __importStar(__nccwpck_require__(6928));
-const os = __importStar(__nccwpck_require__(857));
+const fs = __importStar(__nccwpck_require__(3024));
+const path = __importStar(__nccwpck_require__(6760));
+const os = __importStar(__nccwpck_require__(8161));
 async function sign(inputs) {
     const imageRef = inputs.digest
         ? `${inputs.registryUrl.split(':')[0]}@${inputs.digest}`
@@ -29322,6 +29333,30 @@ module.exports = require("node:crypto");
 
 "use strict";
 module.exports = require("node:events");
+
+/***/ }),
+
+/***/ 3024:
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("node:fs");
+
+/***/ }),
+
+/***/ 8161:
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("node:os");
+
+/***/ }),
+
+/***/ 6760:
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("node:path");
 
 /***/ }),
 

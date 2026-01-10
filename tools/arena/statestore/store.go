@@ -16,6 +16,9 @@ import (
 // ErrNotFound is re-exported from runtime statestore
 var ErrNotFound = runtimestore.ErrNotFound
 
+// roleAssistant is the role constant for assistant messages.
+const roleAssistant = "assistant"
+
 // Feedback represents user feedback on conversation results
 // This is a placeholder for future optimization features (v0.3.0)
 type Feedback struct {
@@ -212,29 +215,47 @@ func (s *ArenaStateStore) Fork(ctx context.Context, sourceID, newID string) erro
 
 // UpdateLastAssistantMessage updates the metadata of the last assistant message.
 // This is used by duplex mode to attach assertion results to messages after evaluation.
-//
-//nolint:gocognit // Complex state management function - acceptable for integration code
 func (s *ArenaStateStore) UpdateLastAssistantMessage(msg *types.Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// Find the conversation that contains this message (by matching content)
 	for _, arenaState := range s.conversations {
-		msgs := arenaState.Messages
-		for i := len(msgs) - 1; i >= 0; i-- {
-			if msgs[i].Role == "assistant" && msgs[i].Content == msg.Content {
-				// Update the message's meta with the new meta
-				if msg.Meta != nil {
-					if msgs[i].Meta == nil {
-						msgs[i].Meta = make(map[string]interface{})
-					}
-					for k, v := range msg.Meta {
-						msgs[i].Meta[k] = v
-					}
-				}
-				return
-			}
+		if s.updateMessageInConversation(arenaState.Messages, msg) {
+			return
 		}
+	}
+}
+
+// updateMessageInConversation finds and updates a matching assistant message.
+// Returns true if a message was updated.
+func (s *ArenaStateStore) updateMessageInConversation(msgs []types.Message, msg *types.Message) bool {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if s.isMatchingAssistantMessage(&msgs[i], msg) {
+			s.mergeMessageMeta(&msgs[i], msg)
+			return true
+		}
+	}
+	return false
+}
+
+// isMatchingAssistantMessage checks if two messages match by role and content.
+func (s *ArenaStateStore) isMatchingAssistantMessage(existing, updated *types.Message) bool {
+	return existing.Role == roleAssistant && existing.Content == updated.Content
+}
+
+// mergeMessageMeta copies metadata from source to target message.
+func (s *ArenaStateStore) mergeMessageMeta(target, source *types.Message) {
+	if source.Meta == nil {
+		return
+	}
+
+	if target.Meta == nil {
+		target.Meta = make(map[string]interface{})
+	}
+
+	for k, v := range source.Meta {
+		target.Meta[k] = v
 	}
 }
 

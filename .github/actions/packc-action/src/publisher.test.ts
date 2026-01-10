@@ -1,6 +1,10 @@
+import * as core from '@actions/core';
 import * as exec from '@actions/exec';
 import { publish, login, logout } from './publisher';
 
+jest.mock('@actions/core');
+
+const mockedCore = jest.mocked(core);
 const mockedExec = jest.mocked(exec);
 
 describe('publisher', () => {
@@ -28,6 +32,19 @@ describe('publisher', () => {
 
       await expect(login('ghcr.io', 'user', 'token')).rejects.toThrow(
         'Failed to login to registry'
+      );
+    });
+
+    it('should capture stderr on login failure', async () => {
+      mockedExec.exec.mockImplementation(async (_cmd, _args, options) => {
+        if (options?.listeners?.stderr) {
+          options.listeners.stderr(Buffer.from('authentication failed'));
+        }
+        return 1;
+      });
+
+      await expect(login('ghcr.io', 'user', 'token')).rejects.toThrow(
+        'authentication failed'
       );
     });
   });
@@ -170,6 +187,93 @@ describe('publisher', () => {
       });
 
       expect(tagCalls.length).toBe(0);
+    });
+
+    it('should log stderr output from publish', async () => {
+      mockedExec.exec.mockImplementation(async (_cmd, _args, options) => {
+        if (options?.listeners?.stderr) {
+          options.listeners.stderr(Buffer.from('warning: some message'));
+        }
+        if (options?.listeners?.stdout) {
+          options.listeners.stdout(
+            Buffer.from('sha256:abc123def456abc123def456abc123def456abc123def456abc123def456abc1')
+          );
+        }
+        return 0;
+      });
+
+      await publish({
+        packFile: 'test.pack.json',
+        packId: 'test-pack',
+        version: 'foo',
+        registry: 'ghcr.io',
+        repository: 'test/pack',
+      });
+
+      expect(mockedCore.info).toHaveBeenCalledWith('--- stderr ---');
+      expect(mockedCore.info).toHaveBeenCalledWith('warning: some message');
+    });
+
+    it('should warn when tagging as latest fails', async () => {
+      mockedExec.exec.mockImplementation(async (_cmd, args, options) => {
+        if ((args as string[])[0] === 'tag') {
+          return 1; // Tag fails
+        }
+        if (options?.listeners?.stdout) {
+          options.listeners.stdout(
+            Buffer.from('sha256:abc123def456abc123def456abc123def456abc123def456abc123def456abc1')
+          );
+        }
+        return 0;
+      });
+
+      const result = await publish({
+        packFile: 'test.pack.json',
+        packId: 'test-pack',
+        version: '1.0.0',
+        registry: 'ghcr.io',
+        repository: 'test/pack',
+      });
+
+      expect(mockedCore.warning).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to tag as latest')
+      );
+      expect(result.tags).not.toContain('latest');
+    });
+
+    it('should parse digest from @sha256 format', async () => {
+      mockedExec.exec.mockImplementation(async (_cmd, _args, options) => {
+        if (options?.listeners?.stdout) {
+          options.listeners.stdout(
+            Buffer.from('Pushed image@sha256:abc123def456abc123def456abc123def456abc123def456abc123def456abc1')
+          );
+        }
+        return 0;
+      });
+
+      const result = await publish({
+        packFile: 'test.pack.json',
+        packId: 'test-pack',
+        version: 'foo',
+        registry: 'ghcr.io',
+        repository: 'test/pack',
+      });
+
+      expect(result.digest).toBe('sha256:abc123def456abc123def456abc123def456abc123def456abc123def456abc1');
+    });
+
+    it('should return empty digest when not found in output', async () => {
+      mockedExec.exec.mockImplementation(async () => 0);
+
+      const result = await publish({
+        packFile: 'test.pack.json',
+        packId: 'test-pack',
+        version: 'foo',
+        registry: 'ghcr.io',
+        repository: 'test/pack',
+      });
+
+      expect(result.digest).toBe('');
     });
   });
 });

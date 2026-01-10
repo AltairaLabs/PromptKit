@@ -1,6 +1,6 @@
 import * as core from '@actions/core';
 import * as exec from '@actions/exec';
-import * as path from 'path';
+import * as path from 'node:path';
 
 export interface RunnerInputs {
   configFile: string;
