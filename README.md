@@ -80,6 +80,40 @@ packc compile -c config.arena.yaml -o app.pack.json
 | **Tool Validation** | Mock or live tool call verification |
 | **SDK Deployment** | Compile prompts to portable packs for production |
 
+## GitHub Actions
+
+Integrate PromptKit into your CI/CD pipelines with our GitHub Actions:
+
+### PromptArena Action
+
+Run prompt tests in your workflows:
+
+```yaml
+- name: Run prompt tests
+  uses: AltairaLabs/PromptKit/.github/actions/promptarena-action@v1
+  with:
+    config-file: config.arena.yaml
+  env:
+    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+```
+
+### PackC Action
+
+Compile and publish prompt packs to OCI registries:
+
+```yaml
+- name: Build and publish pack
+  uses: AltairaLabs/PromptKit/.github/actions/packc-action@v1
+  with:
+    config-file: config.arena.yaml
+    registry: ghcr.io
+    repository: ${{ github.repository }}/prompts
+    username: ${{ github.actor }}
+    password: ${{ secrets.GITHUB_TOKEN }}
+```
+
+See the [GitHub Actions documentation](https://altairalabs.github.io/PromptKit/devops/) for full usage details.
+
 ## Repository Structure
 
 ```

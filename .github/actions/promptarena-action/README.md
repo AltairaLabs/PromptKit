@@ -149,6 +149,10 @@ The action supports:
 
 The action uses GitHub's tool cache to store downloaded binaries. Subsequent runs with the same version will use the cached binary for faster execution.
 
+## Documentation
+
+Full documentation with more examples: [PromptArena Action Docs](https://altairalabs.github.io/PromptKit/devops/promptarena-action/)
+
 ## License
 
-Apache-2.0
+Apache-2.0 - See [LICENSE](../../../LICENSE)
