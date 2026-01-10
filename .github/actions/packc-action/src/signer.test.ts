@@ -1,9 +1,12 @@
+import * as core from '@actions/core';
 import * as exec from '@actions/exec';
 import * as fs from 'node:fs';
 import { sign, verify } from './signer';
 
+jest.mock('@actions/core');
 jest.mock('node:fs');
 
+const mockedCore = jest.mocked(core);
 const mockedExec = jest.mocked(exec);
 const mockedFs = jest.mocked(fs);
 
@@ -105,6 +108,73 @@ describe('signer', () => {
 
       // Constructs the .sig reference from the imageRef when no signature digest in output
       expect(result.signature).toBe('ghcr.io/test/pack:sha256-abc123def456abc123def456abc123def456abc123def456abc123def456abc12345.sig');
+    });
+
+    it('should log stdout output', async () => {
+      mockedExec.exec.mockImplementation(async (_cmd, _args, options) => {
+        if (options?.listeners?.stdout) {
+          options.listeners.stdout(Buffer.from('signing output'));
+        }
+        return 0;
+      });
+
+      await sign({
+        registryUrl: 'ghcr.io/test/pack:1.0.0',
+        digest: '',
+        cosignKey: '/path/to/key.pem',
+      });
+
+      expect(mockedCore.info).toHaveBeenCalledWith('--- stdout ---');
+      expect(mockedCore.info).toHaveBeenCalledWith('signing output');
+    });
+
+    it('should log stderr output', async () => {
+      mockedExec.exec.mockImplementation(async (_cmd, _args, options) => {
+        if (options?.listeners?.stderr) {
+          options.listeners.stderr(Buffer.from('signing warning'));
+        }
+        return 0;
+      });
+
+      await sign({
+        registryUrl: 'ghcr.io/test/pack:1.0.0',
+        digest: '',
+        cosignKey: '/path/to/key.pem',
+      });
+
+      expect(mockedCore.info).toHaveBeenCalledWith('--- stderr ---');
+      expect(mockedCore.info).toHaveBeenCalledWith('signing warning');
+    });
+
+    it('should parse signature digest from output', async () => {
+      mockedExec.exec.mockImplementation(async (_cmd, _args, options) => {
+        if (options?.listeners?.stdout) {
+          options.listeners.stdout(
+            Buffer.from('Signature sha256:abc123def456abc123def456abc123def456abc123def456abc123def456abc1 created')
+          );
+        }
+        return 0;
+      });
+
+      const result = await sign({
+        registryUrl: 'ghcr.io/test/pack:1.0.0',
+        digest: '',
+        cosignKey: '/path/to/key.pem',
+      });
+
+      expect(result.signature).toBe('sha256:abc123def456abc123def456abc123def456abc123def456abc123def456abc1');
+    });
+
+    it('should return .sig suffix when no digest in imageRef', async () => {
+      mockedExec.exec.mockResolvedValue(0);
+
+      const result = await sign({
+        registryUrl: 'ghcr.io/test/pack:1.0.0',
+        digest: '',
+        cosignKey: '/path/to/key.pem',
+      });
+
+      expect(result.signature).toBe('ghcr.io/test/pack:1.0.0.sig');
     });
   });
 
