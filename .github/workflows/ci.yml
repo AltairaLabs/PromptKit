@@ -453,7 +453,7 @@ jobs:
       id: arena
       uses: ./.github/actions/promptarena-action
       with:
-        config-file: examples/llm-judge/config.arena.yaml
+        config-file: config.arena.yaml
         version: 'latest'
         output-dir: action-out
         working-directory: examples/llm-judge
