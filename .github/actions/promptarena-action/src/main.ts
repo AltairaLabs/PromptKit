@@ -2,7 +2,7 @@ import * as core from '@actions/core';
 import { installPromptArena } from './installer';
 import { runPromptArena, getOutputPaths, RunnerInputs } from './runner';
 import { parseResults, setOutputs, logSummary } from './outputs';
-import * as path from 'path';
+import * as path from 'node:path';
 
 async function run(): Promise<void> {
   try {

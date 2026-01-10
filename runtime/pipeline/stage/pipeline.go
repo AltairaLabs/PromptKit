@@ -76,25 +76,46 @@ func (p *StreamPipeline) executeBackground(ctx context.Context, input <-chan Str
 		p.eventEmitter.PipelineStarted(len(p.stages))
 	}
 
-	// Monitor for ExecutionTimeout - log clearly when it triggers
-	if p.config.ExecutionTimeout > 0 {
-		go func() {
-			<-ctx.Done()
-			elapsed := time.Since(start)
-			if ctx.Err() == context.DeadlineExceeded {
-				logger.Error("PIPELINE EXECUTION TIMEOUT TRIGGERED",
-					"configured_timeout", p.config.ExecutionTimeout,
-					"elapsed", elapsed,
-					"stages", len(p.stages),
-					"hint", "Consider increasing ExecutionTimeout or using WithExecutionTimeout(0) for long-running pipelines")
-			}
-		}()
-	}
+	p.monitorExecutionTimeout(ctx, start)
 
 	// Create channels between stages
 	channels := p.createChannels()
 
-	// Start all stages as goroutines
+	// Start stages and collect output
+	stageErrors := p.startStages(ctx, input, channels)
+	outputDone := p.startOutputCollection(channels, output)
+
+	// Wait for errors and output collection
+	firstError := p.waitForStageErrors(stageErrors)
+	<-outputDone
+
+	// Emit completion event
+	p.emitCompletionEvent(firstError, time.Since(start))
+}
+
+// monitorExecutionTimeout logs when execution timeout triggers.
+func (p *StreamPipeline) monitorExecutionTimeout(ctx context.Context, start time.Time) {
+	if p.config.ExecutionTimeout <= 0 {
+		return
+	}
+
+	go func() {
+		<-ctx.Done()
+		if ctx.Err() == context.DeadlineExceeded {
+			elapsed := time.Since(start)
+			logger.Error("PIPELINE EXECUTION TIMEOUT TRIGGERED",
+				"configured_timeout", p.config.ExecutionTimeout,
+				"elapsed", elapsed,
+				"stages", len(p.stages),
+				"hint", "Consider increasing ExecutionTimeout or using WithExecutionTimeout(0) for long-running pipelines")
+		}
+	}()
+}
+
+// startStages starts all pipeline stages as goroutines and returns the error channel.
+//
+//nolint:lll // Channel signature cannot be shortened
+func (p *StreamPipeline) startStages(ctx context.Context, input <-chan StreamElement, channels map[string]chan StreamElement) <-chan error {
 	stageWg := sync.WaitGroup{}
 	stageErrors := make(chan error, len(p.stages))
 
@@ -106,45 +127,51 @@ func (p *StreamPipeline) executeBackground(ctx context.Context, input <-chan Str
 		go p.runStage(ctx, stage, stageInput, stageOutput, &stageWg, stageErrors)
 	}
 
-	// Start collecting output from leaf stages CONCURRENTLY with stage execution
-	// This is critical for streaming/duplex stages that produce output while running
-	outputDone := make(chan struct{})
-	go func() {
-		p.collectOutput(channels, output)
-		close(output) // Close output after all leaf stage outputs are collected
-		close(outputDone)
-	}()
-
-	// Wait for all stages to complete
+	// Close error channel when all stages complete
 	go func() {
 		stageWg.Wait()
 		close(stageErrors)
 	}()
 
-	// Collect stage errors
+	return stageErrors
+}
+
+// startOutputCollection starts collecting output from leaf stages.
+func (p *StreamPipeline) startOutputCollection(
+	channels map[string]chan StreamElement,
+	output chan<- StreamElement,
+) <-chan struct{} {
+	outputDone := make(chan struct{})
+	go func() {
+		p.collectOutput(channels, output)
+		close(output)
+		close(outputDone)
+	}()
+	return outputDone
+}
+
+// waitForStageErrors collects errors from stages and returns the first error.
+func (p *StreamPipeline) waitForStageErrors(stageErrors <-chan error) error {
 	var firstError error
 	for err := range stageErrors {
 		if err != nil && firstError == nil {
 			firstError = err
 		}
 	}
+	return firstError
+}
 
-	// Wait for output collection to complete
-	<-outputDone
-
-	duration := time.Since(start)
-
-	// Emit completion event
-	if p.eventEmitter != nil {
-		if firstError != nil {
-			p.eventEmitter.PipelineFailed(firstError, duration)
-		} else {
-			p.eventEmitter.PipelineCompleted(duration, 0, 0, 0, 0)
-		}
+// emitCompletionEvent emits the appropriate pipeline completion event.
+func (p *StreamPipeline) emitCompletionEvent(err error, duration time.Duration) {
+	if p.eventEmitter == nil {
+		return
 	}
 
-	// Note: Error element is now sent via collectOutput if the leaf stage emits it
-	// This is cleaner than appending after output is closed
+	if err != nil {
+		p.eventEmitter.PipelineFailed(err, duration)
+	} else {
+		p.eventEmitter.PipelineCompleted(duration, 0, 0, 0, 0)
+	}
 }
 
 // createChannels creates all inter-stage channels based on the DAG topology.
@@ -326,7 +353,7 @@ func (p *StreamPipeline) accumulateResult(output <-chan StreamElement) (*Executi
 		if elem.Message != nil {
 			result.Messages = append(result.Messages, *elem.Message)
 			// Set response to last assistant message
-			if elem.Message.Role == "assistant" {
+			if elem.Message.Role == roleAssistant {
 				result.Response = &Response{
 					Role:    elem.Message.Role,
 					Content: elem.Message.Content,

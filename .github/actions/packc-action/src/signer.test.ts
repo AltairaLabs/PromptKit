@@ -1,8 +1,8 @@
 import * as exec from '@actions/exec';
-import * as fs from 'fs';
+import * as fs from 'node:fs';
 import { sign, verify } from './signer';
 
-jest.mock('fs');
+jest.mock('node:fs');
 
 const mockedExec = jest.mocked(exec);
 const mockedFs = jest.mocked(fs);

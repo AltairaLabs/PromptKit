@@ -1,8 +1,8 @@
 import * as core from '@actions/core';
-import * as fs from 'fs';
+import * as fs from 'node:fs';
 import { parseResults, setOutputs, logSummary, TestResults } from './outputs';
 
-jest.mock('fs');
+jest.mock('node:fs');
 
 const mockedCore = jest.mocked(core);
 const mockedFs = jest.mocked(fs);

@@ -152,15 +152,7 @@ func (r *FileMockRepository) GetResponse(ctx context.Context, params ResponsePar
 // For selfplay user turns (when ArenaRole == "self_play_user"), it looks up responses from
 // the selfplay section using PersonaID. For regular turns, it uses scenario responses.
 func (r *FileMockRepository) GetTurn(ctx context.Context, params ResponseParams) (*Turn, error) {
-	logger.Debug("FileMockRepository GetTurn",
-		"scenario_id", params.ScenarioID,
-		"turn_number", params.TurnNumber,
-		"provider_id", params.ProviderID,
-		"model", params.ModelName,
-		"persona_id", params.PersonaID,
-		"arena_role", params.ArenaRole,
-		"available_scenarios", getScenarioKeys(r.config.Scenarios),
-		"available_personas", getScenarioKeys(r.config.Selfplay))
+	r.logGetTurnDebug(&params)
 
 	// For selfplay user turns, look up persona-specific responses first
 	if params.ArenaRole == "self_play_user" && params.PersonaID != "" {
@@ -170,34 +162,9 @@ func (r *FileMockRepository) GetTurn(ctx context.Context, params ResponseParams)
 		// Fall through to scenario lookup if no persona-specific response
 	}
 
-	// Try scenario + turn specific response
-	if params.ScenarioID != "" {
-		if scenario, exists := r.config.Scenarios[params.ScenarioID]; exists {
-			logger.Debug("Found scenario in config", "scenario_id", params.ScenarioID)
-			if params.TurnNumber > 0 {
-				if turnResponse, ok := scenario.Turns[params.TurnNumber]; ok {
-					logger.Debug("Using scenario+turn specific response",
-						"scenario_id", params.ScenarioID,
-						"turn_number", params.TurnNumber,
-						"response_type", fmt.Sprintf("%T", turnResponse))
-
-					return r.parseTurnResponse(turnResponse)
-				}
-				logger.Debug("No turn-specific response found", "turn_number", params.TurnNumber)
-			}
-
-			// Try scenario default
-			if scenario.DefaultResponse != "" {
-				logger.Debug("Using scenario default response", "scenario_id", params.ScenarioID, "response", scenario.DefaultResponse)
-				return &Turn{
-					Type:    turnTypeText,
-					Content: scenario.DefaultResponse,
-				}, nil
-			}
-			logger.Debug("No scenario default response configured", "scenario_id", params.ScenarioID)
-		} else {
-			logger.Debug("Scenario not found in config", "scenario_id", params.ScenarioID, "available_scenarios", getScenarioKeys(r.config.Scenarios))
-		}
+	// Try scenario-specific response
+	if turn := r.getScenarioTurn(&params); turn != nil {
+		return turn, nil
 	}
 
 	// Try global default
@@ -210,12 +177,91 @@ func (r *FileMockRepository) GetTurn(ctx context.Context, params ResponseParams)
 	}
 
 	// Final fallback
+	return r.getFallbackTurn(&params), nil
+}
+
+// logGetTurnDebug logs debug information for GetTurn calls.
+func (r *FileMockRepository) logGetTurnDebug(params *ResponseParams) {
+	logger.Debug("FileMockRepository GetTurn",
+		"scenario_id", params.ScenarioID,
+		"turn_number", params.TurnNumber,
+		"provider_id", params.ProviderID,
+		"model", params.ModelName,
+		"persona_id", params.PersonaID,
+		"arena_role", params.ArenaRole,
+		"available_scenarios", getScenarioKeys(r.config.Scenarios),
+		"available_personas", getScenarioKeys(r.config.Selfplay))
+}
+
+// getScenarioTurn attempts to get a turn from scenario configuration.
+func (r *FileMockRepository) getScenarioTurn(params *ResponseParams) *Turn {
+	if params.ScenarioID == "" {
+		return nil
+	}
+
+	scenario, exists := r.config.Scenarios[params.ScenarioID]
+	if !exists {
+		logger.Debug("Scenario not found in config",
+			"scenario_id", params.ScenarioID,
+			"available_scenarios", getScenarioKeys(r.config.Scenarios))
+		return nil
+	}
+
+	logger.Debug("Found scenario in config", "scenario_id", params.ScenarioID)
+
+	// Try turn-specific response
+	if turn := r.getScenarioTurnResponse(params, &scenario); turn != nil {
+		return turn
+	}
+
+	// Try scenario default
+	if scenario.DefaultResponse != "" {
+		logger.Debug("Using scenario default response",
+			"scenario_id", params.ScenarioID,
+			"response", scenario.DefaultResponse)
+		return &Turn{
+			Type:    turnTypeText,
+			Content: scenario.DefaultResponse,
+		}
+	}
+
+	logger.Debug("No scenario default response configured", "scenario_id", params.ScenarioID)
+	return nil
+}
+
+// getScenarioTurnResponse attempts to get a turn-specific response from a scenario.
+func (r *FileMockRepository) getScenarioTurnResponse(params *ResponseParams, scenario *ScenarioConfig) *Turn {
+	if params.TurnNumber <= 0 {
+		return nil
+	}
+
+	turnResponse, ok := scenario.Turns[params.TurnNumber]
+	if !ok {
+		logger.Debug("No turn-specific response found", "turn_number", params.TurnNumber)
+		return nil
+	}
+
+	logger.Debug("Using scenario+turn specific response",
+		"scenario_id", params.ScenarioID,
+		"turn_number", params.TurnNumber,
+		"response_type", fmt.Sprintf("%T", turnResponse))
+
+	turn, err := r.parseTurnResponse(turnResponse)
+	if err != nil {
+		logger.Debug("Failed to parse turn response", "error", err)
+		return nil
+	}
+	return turn
+}
+
+// getFallbackTurn returns a generic fallback turn.
+func (r *FileMockRepository) getFallbackTurn(params *ResponseParams) *Turn {
 	fallback := fmt.Sprintf("Mock response for provider %s model %s", params.ProviderID, params.ModelName)
 	logger.Debug("Using final fallback response", "response", fallback)
 	return &Turn{
 		Type:    turnTypeText,
 		Content: fallback,
-	}, nil
+	}
 }
 
 // getSelfplayTurn looks up a turn from the selfplay section by persona ID.

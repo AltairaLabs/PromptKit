@@ -1,7 +1,7 @@
-import * as fs from 'fs';
+import * as fs from 'node:fs';
 import { parsePackFile } from './compiler';
 
-jest.mock('fs');
+jest.mock('node:fs');
 
 const mockedFs = jest.mocked(fs);
 
