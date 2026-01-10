@@ -49,6 +49,15 @@ type PipelineConfig struct {
 	// EnableTracing enables detailed tracing of element flow through stages.
 	// Default: false (can be expensive for high-throughput pipelines)
 	EnableTracing bool
+
+	// PrometheusEnabled enables Prometheus metrics export via HTTP.
+	// Default: false
+	PrometheusEnabled bool
+
+	// PrometheusAddr is the address to serve Prometheus metrics on (e.g., ":9090").
+	// Only used when PrometheusEnabled is true.
+	// Default: ":9090"
+	PrometheusAddr string
 }
 
 // DefaultPipelineConfig returns a PipelineConfig with sensible defaults.
@@ -61,6 +70,8 @@ func DefaultPipelineConfig() *PipelineConfig {
 		GracefulShutdownTimeout: DefaultGracefulShutdownTimeoutSeconds * time.Second,
 		EnableMetrics:           false,
 		EnableTracing:           false,
+		PrometheusEnabled:       false,
+		PrometheusAddr:          ":9090",
 	}
 }
 
@@ -120,5 +131,14 @@ func (c *PipelineConfig) WithMetrics(enabled bool) *PipelineConfig {
 // WithTracing enables or disables detailed tracing.
 func (c *PipelineConfig) WithTracing(enabled bool) *PipelineConfig {
 	c.EnableTracing = enabled
+	return c
+}
+
+// WithPrometheusExporter enables Prometheus metrics export at the given address.
+// The address should be in the format ":port" or "host:port".
+// Example: ":9090" or "localhost:9090"
+func (c *PipelineConfig) WithPrometheusExporter(addr string) *PipelineConfig {
+	c.PrometheusEnabled = true
+	c.PrometheusAddr = addr
 	return c
 }
