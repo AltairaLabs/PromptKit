@@ -1,7 +1,7 @@
 {
-  "name": "promptarena-action",
+  "name": "packc-action",
   "version": "1.0.0",
-  "description": "GitHub Action for running PromptArena tests",
+  "description": "GitHub Action for compiling and publishing prompt packs",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc && ncc build lib/main.js -o dist --source-map --license licenses.txt",
@@ -16,10 +16,10 @@
   },
   "keywords": [
     "github-action",
-    "promptarena",
-    "llm",
-    "testing",
-    "prompt-testing"
+    "packc",
+    "prompt-pack",
+    "oci",
+    "registry"
   ],
   "author": "AltairaLabs",
   "license": "Apache-2.0",

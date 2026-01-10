@@ -1,0 +1,76 @@
+name: 'PackC Compile and Publish'
+description: 'Compile prompt packs with PackC and optionally publish to OCI registries'
+author: 'AltairaLabs'
+
+branding:
+  icon: 'package'
+  color: 'blue'
+
+inputs:
+  config-file:
+    description: 'Path to Arena YAML configuration file'
+    required: true
+  pack-id:
+    description: 'Pack identifier (defaults to folder name)'
+    required: false
+  version:
+    description: 'Pack version (semver or git ref)'
+    required: false
+    default: 'latest'
+  packc-version:
+    description: 'PackC version to use'
+    required: false
+    default: 'latest'
+  output:
+    description: 'Output pack file path'
+    required: false
+  validate:
+    description: 'Run validation after compile'
+    required: false
+    default: 'true'
+  registry:
+    description: 'OCI registry URL (e.g., ghcr.io)'
+    required: false
+  repository:
+    description: 'Registry repository path'
+    required: false
+  username:
+    description: 'Registry username'
+    required: false
+  password:
+    description: 'Registry password or token'
+    required: false
+  sign:
+    description: 'Sign pack with Cosign'
+    required: false
+    default: 'false'
+  cosign-key:
+    description: 'Cosign private key for signing'
+    required: false
+  cosign-password:
+    description: 'Cosign key password'
+    required: false
+  working-directory:
+    description: 'Working directory for running commands'
+    required: false
+    default: '.'
+
+outputs:
+  pack-file:
+    description: 'Path to compiled pack file'
+  pack-id:
+    description: 'Pack identifier'
+  prompts:
+    description: 'Number of prompts in pack'
+  tools:
+    description: 'Number of tools in pack'
+  registry-url:
+    description: 'Full OCI registry URL (if published)'
+  digest:
+    description: 'OCI content digest (if published)'
+  signature:
+    description: 'Cosign signature reference (if signed)'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

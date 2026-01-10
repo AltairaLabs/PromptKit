@@ -483,3 +483,99 @@ jobs:
         name: promptarena-action-reports
         path: examples/llm-judge/action-out/
         retention-days: 5
+
+  test-packc-action:
+    name: Test PackC Action
+    runs-on: ubuntu-latest
+    if: github.actor != 'dependabot[bot]'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+    - name: Run PackC Action
+      id: packc
+      uses: ./.github/actions/packc-action
+      with:
+        config-file: config.arena.yaml
+        pack-id: llm-judge-pack
+        version: '1.0.0'
+        working-directory: examples/llm-judge
+
+    - name: Verify Action Outputs
+      run: |
+        echo "Action completed with the following results:"
+        echo "  Pack File: ${{ steps.packc.outputs.pack-file }}"
+        echo "  Pack ID:   ${{ steps.packc.outputs.pack-id }}"
+        echo "  Prompts:   ${{ steps.packc.outputs.prompts }}"
+        echo "  Tools:     ${{ steps.packc.outputs.tools }}"
+
+        # Verify pack file was created
+        if [ ! -f "${{ steps.packc.outputs.pack-file }}" ]; then
+          echo "Error: Pack file not created at ${{ steps.packc.outputs.pack-file }}"
+          exit 1
+        fi
+
+        echo "Pack file contents:"
+        cat "${{ steps.packc.outputs.pack-file }}" | head -50
+
+        echo "Action test passed!"
+
+    - name: Upload Pack Artifact
+      if: always()
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      with:
+        name: packc-action-pack
+        path: examples/llm-judge/*.pack.json
+        retention-days: 5
+
+  test-github-actions-typescript:
+    name: Test & Lint GitHub Actions (TypeScript)
+    runs-on: ubuntu-latest
+    if: github.actor != 'dependabot[bot]'
+
+    strategy:
+      matrix:
+        action:
+          - promptarena-action
+          - packc-action
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: .github/actions/${{ matrix.action }}/package-lock.json
+
+    - name: Install dependencies
+      working-directory: .github/actions/${{ matrix.action }}
+      run: npm ci
+
+    - name: Run linting
+      working-directory: .github/actions/${{ matrix.action }}
+      run: npm run lint
+
+    - name: Run tests with coverage
+      working-directory: .github/actions/${{ matrix.action }}
+      run: npm run test:ci
+
+    - name: Upload coverage report
+      if: always()
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      with:
+        name: ${{ matrix.action }}-coverage
+        path: .github/actions/${{ matrix.action }}/coverage/
+        retention-days: 5
+
+    - name: Publish Test Results
+      uses: dorny/test-reporter@b082adf0eced0765477756c2a610396589b8c637 # v2.5.0
+      if: always()
+      with:
+        name: ${{ matrix.action }} Unit Tests
+        path: .github/actions/${{ matrix.action }}/junit.xml
+        reporter: java-junit
+        fail-on-error: false
