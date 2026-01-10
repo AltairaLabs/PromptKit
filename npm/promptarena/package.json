@@ -8,8 +8,15 @@
   },
   "scripts": {
     "postinstall": "node postinstall.js",
-    "test": "node bin/promptarena.js --version",
-    "test:init": "node test-init.js"
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
+    "test:ci": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage --ci",
+    "test:binary": "node bin/promptarena.js --version",
+    "test:init": "node test-init.js",
+    "lint": "eslint *.js bin/*.js"
+  },
+  "devDependencies": {
+    "eslint": "^8.55.0",
+    "jest": "^29.7.0"
   },
   "keywords": [
     "llm",
