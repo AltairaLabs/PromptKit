@@ -57,6 +57,7 @@
   ],
   "files": [
     "bin/",
+    "lib/",
     "postinstall.js",
     "README.md",
     "schemas/",
