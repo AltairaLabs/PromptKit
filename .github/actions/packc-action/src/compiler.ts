@@ -77,7 +77,8 @@ function parseCompileOutput(output: string, inputs: CompileInputs): Omit<Compile
   // Extract pack file path from output
   // Example: "✓ Pack compiled successfully: my-pack.pack.json"
   let packFile = inputs.output || '';
-  const packFileMatch = output.match(/Pack compiled successfully[:\s]+([^\s]+\.pack\.json)/i);
+  const packFileRegex = /Pack compiled successfully:?\s*([^\s]+\.pack\.json)/i;
+  const packFileMatch = packFileRegex.exec(output);
   if (packFileMatch) {
     packFile = packFileMatch[1];
   }
@@ -95,7 +96,8 @@ function parseCompileOutput(output: string, inputs: CompileInputs): Omit<Compile
   // Extract pack ID
   // Example: "Compiling 3 prompts into pack 'my-pack'..."
   let packId = inputs.packId || '';
-  const packIdMatch = output.match(/into pack ['"]?([^'"]+)['"]?/i);
+  const packIdRegex = /into pack ['"]?([^'"]+)['"]?/i;
+  const packIdMatch = packIdRegex.exec(output);
   if (packIdMatch) {
     packId = packIdMatch[1];
   }
@@ -103,28 +105,32 @@ function parseCompileOutput(output: string, inputs: CompileInputs): Omit<Compile
   // Extract prompts count
   // Example: "Compiling 3 prompts into pack"
   let prompts = 0;
-  const promptsMatch = output.match(/Compiling (\d+) prompts?/i);
+  const promptsRegex = /Compiling (\d+) prompts?/i;
+  const promptsMatch = promptsRegex.exec(output);
   if (promptsMatch) {
-    prompts = parseInt(promptsMatch[1], 10);
+    prompts = Number.parseInt(promptsMatch[1], 10);
   }
 
   // Extract tools count
   // Example: "Including 2 tool definitions in pack"
   let tools = 0;
-  const toolsMatch = output.match(/Including (\d+) tool/i);
+  const toolsRegex = /Including (\d+) tool/i;
+  const toolsMatch = toolsRegex.exec(output);
   if (toolsMatch) {
-    tools = parseInt(toolsMatch[1], 10);
+    tools = Number.parseInt(toolsMatch[1], 10);
   }
 
   // Also try to parse from "Contains X prompts" line
-  const containsPromptsMatch = output.match(/Contains (\d+) prompts?/i);
+  const containsPromptsRegex = /Contains (\d+) prompts?/i;
+  const containsPromptsMatch = containsPromptsRegex.exec(output);
   if (containsPromptsMatch && prompts === 0) {
-    prompts = parseInt(containsPromptsMatch[1], 10);
+    prompts = Number.parseInt(containsPromptsMatch[1], 10);
   }
 
-  const containsToolsMatch = output.match(/Contains (\d+) tools?/i);
+  const containsToolsRegex = /Contains (\d+) tools?/i;
+  const containsToolsMatch = containsToolsRegex.exec(output);
   if (containsToolsMatch && tools === 0) {
-    tools = parseInt(containsToolsMatch[1], 10);
+    tools = Number.parseInt(containsToolsMatch[1], 10);
   }
 
   return {

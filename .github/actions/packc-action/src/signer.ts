@@ -96,7 +96,8 @@ function parseSignatureRef(output: string, imageRef: string): string {
   // Try to find it in the output
 
   // Pattern 1: Look for "Signature written to" or similar
-  const sigMatch = output.match(/signature.*?(sha256:[a-f0-9]{64})/i);
+  const sigRegex = /signature.*?(sha256:[a-f0-9]{64})/i;
+  const sigMatch = sigRegex.exec(output);
   if (sigMatch) {
     return sigMatch[1];
   }
