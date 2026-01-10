@@ -368,7 +368,50 @@ jobs:
           git push origin "tools/packc/$VERSION"
           echo "✓ Tagged tools/packc/$VERSION"
         fi
-    
+
+    - name: Update promptarena-action version
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
+      run: |
+        echo "Updating promptarena-action to $VERSION..."
+        cd .github/actions/promptarena-action
+
+        # Update version in package.json
+        VERSION_NO_V="${VERSION#v}"
+        npm version "$VERSION_NO_V" --no-git-tag-version --allow-same-version
+
+        cd ../../..
+
+        # Commit if there are changes
+        if ! git diff --quiet .github/actions/promptarena-action/package.json; then
+          git add .github/actions/promptarena-action/package.json
+          git commit -m "release: update promptarena-action to $VERSION"
+          git push origin "release/tools/$VERSION"
+          echo "✓ Updated promptarena-action to $VERSION"
+        else
+          echo "⚠ promptarena-action already at $VERSION"
+        fi
+
+    - name: Tag promptarena-action
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
+      run: |
+        # Tag with specific version
+        if git rev-parse "actions/promptarena/$VERSION" >/dev/null 2>&1; then
+          echo "⚠ Tag actions/promptarena/$VERSION already exists, skipping"
+        else
+          git tag -a "actions/promptarena/$VERSION" -m "Release promptarena-action $VERSION"
+          git push origin "actions/promptarena/$VERSION"
+          echo "✓ Tagged actions/promptarena/$VERSION"
+        fi
+
+        # Update major version tag (e.g., v1 -> latest v1.x.x)
+        MAJOR_VERSION=$(echo "$VERSION" | cut -d. -f1)
+        echo "Updating major version tag $MAJOR_VERSION to point to $VERSION..."
+        git tag -fa "actions/promptarena/$MAJOR_VERSION" -m "Release promptarena-action $VERSION"
+        git push origin "actions/promptarena/$MAJOR_VERSION" --force
+        echo "✓ Updated actions/promptarena/$MAJOR_VERSION -> $VERSION"
+
     - name: Verify installation
       env:
         VERSION: ${{ needs.validate.outputs.version }}
@@ -471,7 +514,14 @@ jobs:
         go install github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@$VERSION
         go install github.com/AltairaLabs/PromptKit/tools/packc@$VERSION
         \`\`\`
-        
+
+        **GitHub Action:**
+        \`\`\`yaml
+        - uses: AltairaLabs/PromptKit/.github/actions/promptarena-action@$VERSION
+          with:
+            config-file: config.arena.yaml
+        \`\`\`
+
         ## Next Steps
         
         1. Review and publish the [draft release](https://github.com/$GITHUB_REPO/releases)

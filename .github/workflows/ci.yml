@@ -439,3 +439,47 @@ jobs:
         name: arena-assertions-test-reports
         path: examples/assertions-test/out/
         retention-days: 5
+
+  test-promptarena-action:
+    name: Test PromptArena Action
+    runs-on: ubuntu-latest
+    if: github.actor != 'dependabot[bot]'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+    - name: Run PromptArena Action
+      id: arena
+      uses: ./.github/actions/promptarena-action
+      with:
+        config-file: config.arena.yaml
+        version: 'latest'
+        output-dir: action-out
+        working-directory: examples/llm-judge
+
+    - name: Verify Action Outputs
+      run: |
+        echo "Action completed with the following results:"
+        echo "  Passed: ${{ steps.arena.outputs.passed }}"
+        echo "  Failed: ${{ steps.arena.outputs.failed }}"
+        echo "  Errors: ${{ steps.arena.outputs.errors }}"
+        echo "  Total:  ${{ steps.arena.outputs.total }}"
+        echo "  Cost:   ${{ steps.arena.outputs.total-cost }}"
+        echo "  Success: ${{ steps.arena.outputs.success }}"
+
+        # Verify output directory was created
+        if [ ! -d "examples/llm-judge/action-out" ]; then
+          echo "Error: Output directory not created"
+          exit 1
+        fi
+
+        echo "Action test passed!"
+
+    - name: Upload Action Test Reports
+      if: always()
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      with:
+        name: promptarena-action-reports
+        path: examples/llm-judge/action-out/
+        retention-days: 5
