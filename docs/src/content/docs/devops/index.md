@@ -28,6 +28,10 @@ This directory contains operational and release management documentation for Pro
   - Run prompt tests in GitHub workflows
   - Native test reporting integration
   - Multi-platform support
+- **[packc-action.md](./packc-action.md)** - PackC GitHub Action for CI/CD integration
+  - Compile prompt packs in GitHub workflows
+  - Publish to OCI registries (GHCR, Docker Hub, ECR)
+  - Supply chain security with Cosign signing
 
 ### Release Management
 
