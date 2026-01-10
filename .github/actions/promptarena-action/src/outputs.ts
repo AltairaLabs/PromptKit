@@ -27,8 +27,42 @@ interface ArenaOutput {
   };
 }
 
+// Arena index.json format
+interface ArenaIndexOutput {
+  successful?: number;
+  errors?: number;
+  total_runs?: number;
+  total_cost?: number;
+}
+
 export async function parseResults(outputDir: string): Promise<TestResults> {
-  // Try to find and parse the JSON output
+  // First, try to parse index.json (Arena's primary output format)
+  const indexPath = path.join(outputDir, 'index.json');
+  if (fs.existsSync(indexPath)) {
+    try {
+      const content = fs.readFileSync(indexPath, 'utf-8');
+      const indexOutput = JSON.parse(content) as ArenaIndexOutput;
+      core.info(`Parsed results from ${indexPath}`);
+
+      const total = indexOutput.total_runs ?? 0;
+      const passed = indexOutput.successful ?? 0;
+      const errors = indexOutput.errors ?? 0;
+      const failed = total - passed - errors;
+
+      return {
+        passed,
+        failed: failed > 0 ? failed : 0,
+        errors,
+        total,
+        totalCost: indexOutput.total_cost ?? 0,
+        success: failed === 0 && errors === 0 && total > 0,
+      };
+    } catch (error) {
+      core.warning(`Failed to parse ${indexPath}: ${error}`);
+    }
+  }
+
+  // Fallback: Try other JSON file formats
   const jsonFiles = ['results.json', 'output.json', 'arena-results.json'];
   let arenaOutput: ArenaOutput | null = null;
 
