@@ -600,6 +600,17 @@ jobs:
       working-directory: .github/actions/${{ matrix.action }}
       run: npm run test:ci
 
+    - name: Fix coverage paths for SonarCloud
+      working-directory: .github/actions/${{ matrix.action }}
+      run: |
+        # Rewrite SF: paths in lcov.info to be relative to repo root
+        # e.g., SF:src/main.ts -> SF:.github/actions/packc-action/src/main.ts
+        if [ -f coverage/lcov.info ]; then
+          sed -i "s|^SF:src/|SF:.github/actions/${{ matrix.action }}/src/|g" coverage/lcov.info
+          echo "Fixed coverage paths:"
+          head -5 coverage/lcov.info
+        fi
+
     - name: Upload coverage report
       if: always()
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -648,6 +659,16 @@ jobs:
     - name: Run tests with coverage
       working-directory: npm/${{ matrix.package }}
       run: npm run test:ci
+
+    - name: Fix coverage paths for SonarCloud
+      working-directory: npm/${{ matrix.package }}
+      run: |
+        # Rewrite SF: paths in lcov.info to be relative to repo root
+        if [ -f coverage/lcov.info ]; then
+          sed -i "s|^SF:src/|SF:npm/${{ matrix.package }}/src/|g" coverage/lcov.info
+          echo "Fixed coverage paths:"
+          head -5 coverage/lcov.info
+        fi
 
     - name: Upload coverage report
       if: always()
