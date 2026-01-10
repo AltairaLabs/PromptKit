@@ -498,9 +498,9 @@ jobs:
       uses: ./.github/actions/packc-action
       with:
         config-file: config.arena.yaml
-        pack-id: customer-support-pack
+        pack-id: llm-judge-pack
         version: '1.0.0'
-        working-directory: examples/customer-support
+        working-directory: examples/llm-judge
 
     - name: Verify Action Outputs
       run: |
@@ -526,7 +526,7 @@ jobs:
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
       with:
         name: packc-action-pack
-        path: examples/customer-support/*.pack.json
+        path: examples/llm-judge/*.pack.json
         retention-days: 5
 
   test-github-actions-typescript:
