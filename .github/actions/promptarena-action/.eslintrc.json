@@ -5,10 +5,11 @@
     "ecmaVersion": 2020,
     "sourceType": "module"
   },
-  "plugins": ["@typescript-eslint"],
+  "plugins": ["@typescript-eslint", "sonarjs"],
   "extends": [
     "eslint:recommended",
-    "plugin:@typescript-eslint/recommended"
+    "plugin:@typescript-eslint/recommended",
+    "plugin:sonarjs/recommended-legacy"
   ],
   "env": {
     "node": true,
@@ -18,7 +19,17 @@
     "@typescript-eslint/no-explicit-any": "warn",
     "@typescript-eslint/explicit-function-return-type": "off",
     "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
-    "no-console": "off"
+    "no-console": "off",
+    "sonarjs/file-permissions": "off"
   },
+  "overrides": [
+    {
+      "files": ["**/*.test.ts"],
+      "rules": {
+        "sonarjs/publicly-writable-directories": "off",
+        "sonarjs/no-hardcoded-passwords": "off"
+      }
+    }
+  ],
   "ignorePatterns": ["dist/**", "lib/**", "node_modules/**", "coverage/**", "__mocks__/**"]
 }

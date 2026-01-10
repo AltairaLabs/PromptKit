@@ -5,10 +5,10 @@
  * This validates that users can follow the Quick Start successfully
  */
 
-import { spawn } from 'child_process';
-import { mkdtemp, rm } from 'fs/promises';
-import { tmpdir } from 'os';
-import { join } from 'path';
+import { spawn } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const TIMEOUT = 30000; // 30 seconds
 
@@ -111,11 +111,10 @@ async function testInitCommand() {
 }
 
 // Run the test
-testInitCommand()
-  .then(() => {
-    process.exit(0);
-  })
-  .catch((error) => {
-    console.error('Test suite failed:', error);
-    process.exit(1);
-  });
+try {
+  await testInitCommand();
+  process.exit(0);
+} catch (error) {
+  console.error('Test suite failed:', error);
+  process.exit(1);
+}

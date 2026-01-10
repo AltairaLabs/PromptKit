@@ -19,20 +19,15 @@ export interface RunResult {
 }
 
 export async function runPromptArena(inputs: RunnerInputs): Promise<RunResult> {
-  const args: string[] = ['run'];
-
-  // Required config file
-  args.push('--config', inputs.configFile);
-
-  // CI mode for non-interactive output
-  args.push('--ci');
-
-  // Output formats - always include json and junit for parsing
+  // Initialize args with required options
   const formats = ['json', 'junit'];
-  args.push('--format', formats.join(','));
-
-  // Output directory
-  args.push('--out', inputs.outputDir);
+  const args: string[] = [
+    'run',
+    '--config', inputs.configFile,
+    '--ci',
+    '--format', formats.join(','),
+    '--out', inputs.outputDir,
+  ];
 
   // Optional JUnit output path
   if (inputs.junitOutput) {
@@ -41,24 +36,27 @@ export async function runPromptArena(inputs: RunnerInputs): Promise<RunResult> {
 
   // Optional filters
   if (inputs.scenarios) {
-    const scenarioList = inputs.scenarios.split(',').map((s) => s.trim());
-    for (const scenario of scenarioList) {
-      args.push('--scenario', scenario);
-    }
+    const scenarioArgs = inputs.scenarios
+      .split(',')
+      .map((s) => s.trim())
+      .flatMap((scenario) => ['--scenario', scenario]);
+    args.push(...scenarioArgs);
   }
 
   if (inputs.providers) {
-    const providerList = inputs.providers.split(',').map((p) => p.trim());
-    for (const provider of providerList) {
-      args.push('--provider', provider);
-    }
+    const providerArgs = inputs.providers
+      .split(',')
+      .map((p) => p.trim())
+      .flatMap((provider) => ['--provider', provider]);
+    args.push(...providerArgs);
   }
 
   if (inputs.regions) {
-    const regionList = inputs.regions.split(',').map((r) => r.trim());
-    for (const region of regionList) {
-      args.push('--region', region);
-    }
+    const regionArgs = inputs.regions
+      .split(',')
+      .map((r) => r.trim())
+      .flatMap((region) => ['--region', region]);
+    args.push(...regionArgs);
   }
 
   core.info(`Running: promptarena ${args.join(' ')}`);

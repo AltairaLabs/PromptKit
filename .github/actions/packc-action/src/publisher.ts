@@ -138,13 +138,15 @@ async function tagImage(source: string, target: string): Promise<void> {
 function parseDigest(output: string): string {
   // Look for sha256 digest in output
   // Pattern: sha256:abc123...
-  const digestMatch = output.match(/sha256:[a-f0-9]{64}/i);
+  const digestRegex = /sha256:[a-f0-9]{64}/i;
+  const digestMatch = digestRegex.exec(output);
   if (digestMatch) {
     return digestMatch[0];
   }
 
   // Alternative pattern: @sha256:...
-  const altMatch = output.match(/@(sha256:[a-f0-9]{64})/i);
+  const altRegex = /@(sha256:[a-f0-9]{64})/i;
+  const altMatch = altRegex.exec(output);
   if (altMatch) {
     return altMatch[1];
   }
