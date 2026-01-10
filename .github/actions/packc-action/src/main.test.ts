@@ -27,9 +27,6 @@ const mockedSign = jest.mocked(sign);
 const mockedSetOutputs = jest.mocked(setOutputs);
 const mockedLogSummary = jest.mocked(logSummary);
 
-// Store the run function from main module
-let runMain: () => Promise<void>;
-
 describe('main', () => {
   beforeAll(async () => {
     // Import main module once to get the run function behavior
