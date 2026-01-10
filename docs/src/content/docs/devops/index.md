@@ -22,6 +22,13 @@ This directory contains operational and release management documentation for Pro
 - **[ci-cd-quickref.md](./ci-cd-quickref.md)** - Quick reference for common CI/CD commands and tasks
 - **[ci-cd-diagrams.md](./ci-cd-diagrams.md)** - Visual diagrams of pipeline architecture and flows
 
+### GitHub Actions
+
+- **[promptarena-action.md](./promptarena-action.md)** - PromptArena GitHub Action for CI/CD integration
+  - Run prompt tests in GitHub workflows
+  - Native test reporting integration
+  - Multi-platform support
+
 ### Release Management
 
 - **[release-automation.md](./release-automation.md)** - ⭐ **Start here!** Automated release tools (local script + GitHub Actions)

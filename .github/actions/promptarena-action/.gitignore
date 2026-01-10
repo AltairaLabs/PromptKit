@@ -1,0 +1,3 @@
+node_modules/
+lib/
+# Note: dist/ is intentionally NOT ignored - GitHub Actions need the compiled JS

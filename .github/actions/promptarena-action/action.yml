@@ -1,0 +1,62 @@
+name: 'PromptArena Test Runner'
+description: 'Run PromptArena tests in your CI/CD pipeline with native GitHub integration'
+author: 'AltairaLabs'
+
+branding:
+  icon: 'check-circle'
+  color: 'purple'
+
+inputs:
+  config-file:
+    description: 'Path to Arena YAML configuration file'
+    required: true
+  version:
+    description: 'PromptArena version to use (e.g., v1.1.6 or latest)'
+    required: false
+    default: 'latest'
+  scenarios:
+    description: 'Comma-separated list of scenarios to run'
+    required: false
+  providers:
+    description: 'Comma-separated list of providers to use'
+    required: false
+  regions:
+    description: 'Comma-separated list of regions to run'
+    required: false
+  output-dir:
+    description: 'Directory for test results'
+    required: false
+    default: 'out'
+  junit-output:
+    description: 'Path for JUnit XML output file'
+    required: false
+  fail-on-error:
+    description: 'Fail the action if tests fail'
+    required: false
+    default: 'true'
+  working-directory:
+    description: 'Working directory for running tests'
+    required: false
+    default: '.'
+
+outputs:
+  passed:
+    description: 'Number of passed tests'
+  failed:
+    description: 'Number of failed tests'
+  errors:
+    description: 'Number of errors'
+  total:
+    description: 'Total number of tests'
+  total-cost:
+    description: 'Total cost in dollars'
+  success:
+    description: 'Whether all tests passed (true/false)'
+  junit-path:
+    description: 'Path to generated JUnit XML file'
+  html-path:
+    description: 'Path to generated HTML report'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
