@@ -24,6 +24,10 @@ Practical, task-focused guides for common SDK operations.
 
 - **[Manage Context](manage-context)** - Configure token budgets and relevance-based truncation
 
+## Media Processing
+
+- **[Preprocess Images](preprocess-images)** - Automatically resize and optimize images before sending to LLM providers
+
 ## Observability
 
 - **[Monitor Events](monitor-events)** - Subscribe to events with `Subscribe()`

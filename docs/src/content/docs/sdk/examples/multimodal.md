@@ -121,8 +121,23 @@ The pack file configures the vision analyst prompt:
 }
 ```
 
+## Image Preprocessing
+
+For large images, enable automatic preprocessing to resize before sending:
+
+```go
+conv, err := sdk.Open("./multimodal.pack.json", "vision-analyst",
+    sdk.WithAutoResize(2048, 2048), // Max 2048x2048
+)
+```
+
+This automatically resizes large images while preserving aspect ratio, reducing token usage and preventing provider size limit errors.
+
+See [Preprocess Images](../how-to/preprocess-images) for full configuration options.
+
 ## Notes
 
 - Image analysis typically requires more tokens than text-only requests
 - Large images may be resized by the provider for processing
 - Some providers have limits on image size and format
+- Use `sdk.WithImagePreprocessing()` to handle large images automatically
