@@ -1,0 +1,63 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: multimodal-vision
+  annotations:
+    description: "Test multimodal image analysis capabilities with Ollama vision models"
+spec:
+  id: multimodal-vision
+  description: "Test multimodal image analysis capabilities with Ollama vision models"
+  task_type: image-analysis
+
+  # Enable streaming for multimodal responses
+  streaming: true
+
+  turns:
+    # Turn 1: Very brief acknowledgment only
+    - role: user
+      parts:
+        - type: text
+          text: "Reply with just 'OK' to confirm you can see this image."
+        - type: image
+          media:
+            file_path: ../../tools/arena/testdata/media/test-image-small.jpg
+            mime_type: image/jpeg
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(ok|yes|see|image|received)"
+            message: "Response should acknowledge image"
+
+    # Turn 2: Short follow-up about a specific detail
+    - role: user
+      parts:
+        - type: text
+          text: "What color is the sky?"
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(blue|grey|gray|white|overcast|cloudy)"
+            message: "Response should describe sky color"
+
+    # Turn 3: Ask about something NOT in first response
+    - role: user
+      parts:
+        - type: text
+          text: "How many silos do you see?"
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(one|two|three|1|2|3|silo)"
+            message: "Response should count silos"
+
+    # Turn 4: Request detailed description to prove full image access
+    - role: user
+      parts:
+        - type: text
+          text: "Now describe everything you see in this image in detail."
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(silo|tank|industrial|sky|building|structure)"
+            message: "Detailed description should mention visual elements"
+

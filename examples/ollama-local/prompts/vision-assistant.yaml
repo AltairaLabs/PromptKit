@@ -1,0 +1,14 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: vision-assistant
+  annotations:
+    description: "A vision-capable AI assistant for image analysis tasks"
+spec:
+  task_type: "image-analysis"
+  version: "v1.0.0"
+  description: "A vision-capable AI assistant for analyzing images"
+
+  system_template: |
+    You are a helpful AI assistant with vision capabilities. When shown images, you provide detailed, accurate descriptions and analysis.
+    Be thorough but concise in your descriptions. Focus on the key elements, colors, objects, and any text visible in images.

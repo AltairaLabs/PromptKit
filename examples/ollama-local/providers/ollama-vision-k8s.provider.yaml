@@ -1,0 +1,22 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: ollama-vision-k8s
+  annotations:
+    description: "LLaVA vision model running via Ollama on Kubernetes for multimodal testing"
+spec:
+  id: "ollama-vision-k8s"
+  type: ollama
+  # LLaVA 7B is a vision-language model that can process images
+  # Alternative options: llama3.2-vision:11b, bakllava:7b
+  model: llava:7b
+  # Point to Ollama service running in Kubernetes (via port-forward or ingress)
+  # For port-forward: kubectl port-forward -n ollama-system svc/ollama 11434:11434
+  base_url: "http://localhost:11434"
+  additional_config:
+    # Keep the model loaded longer since vision models take more time to load
+    keep_alive: "10m"
+  defaults:
+    temperature: 0.7
+    max_tokens: 2048
+    top_p: 0.9

@@ -309,8 +309,9 @@ func TestRenderMessageWithMedia(t *testing.T) {
 					},
 				},
 			},
-			want:    []string{"message user", "Analyze this image", "media-items", "test.jpg", "🖼️"},
-			wantNot: []string{"media-badge"},
+			// Images are now rendered inline, not in media-items
+			want:    []string{"message user", "Analyze this image", "inline-image", "test.jpg", "base64data", "image/jpeg"},
+			wantNot: []string{"media-badge", "media-items"}, // No media-items since only image (rendered inline)
 		},
 		{
 			name: "user message with Parts but empty Content (scenario executor pattern)",
@@ -350,7 +351,8 @@ func TestRenderMessageWithMedia(t *testing.T) {
 					},
 				},
 			},
-			want:    []string{"message assistant", "🖼️", "🎵", "chart.png", "voice.wav", "media-items"},
+			// Images rendered inline, audio in media-items
+			want:    []string{"message assistant", "inline-image", "chart.png", "🎵", "voice.wav", "media-items"},
 			wantNot: []string{"media-badge"},
 		},
 	}
@@ -368,6 +370,93 @@ func TestRenderMessageWithMedia(t *testing.T) {
 			for _, wantNot := range tt.wantNot {
 				if strings.Contains(got, wantNot) {
 					t.Errorf("renderMessageWithMedia() contains unexpected string %q\nGot: %s", wantNot, got)
+				}
+			}
+		})
+	}
+}
+
+func TestRenderInlineImage(t *testing.T) {
+	tests := []struct {
+		name    string
+		part    types.ContentPart
+		want    []string
+		wantNot []string
+	}{
+		{
+			name: "image with base64 data",
+			part: types.ContentPart{
+				Type: types.ContentTypeImage,
+				Media: &types.MediaContent{
+					MIMEType: "image/jpeg",
+					FilePath: stringPtr("/path/to/image.jpg"),
+					Data:     stringPtr("SGVsbG8gV29ybGQ="),
+				},
+			},
+			want:    []string{"inline-image", "data:image/jpeg;base64,", "SGVsbG8gV29ybGQ=", "image.jpg"},
+			wantNot: []string{"inline-image-placeholder"},
+		},
+		{
+			name: "image with URL only",
+			part: types.ContentPart{
+				Type: types.ContentTypeImage,
+				Media: &types.MediaContent{
+					MIMEType: "image/png",
+					URL:      stringPtr("https://example.com/image.png"),
+				},
+			},
+			want:    []string{"inline-image", "https://example.com/image.png"},
+			wantNot: []string{"inline-image-placeholder", "data:"},
+		},
+		{
+			name: "image with no data (placeholder)",
+			part: types.ContentPart{
+				Type: types.ContentTypeImage,
+				Media: &types.MediaContent{
+					MIMEType: "image/gif",
+					FilePath: stringPtr("missing.gif"),
+				},
+			},
+			want:    []string{"inline-image-placeholder", "🖼️", "missing.gif"},
+			wantNot: []string{"<img"},
+		},
+		{
+			name: "image with nil media",
+			part: types.ContentPart{
+				Type:  types.ContentTypeImage,
+				Media: nil,
+			},
+			want:    []string{},
+			wantNot: []string{"inline-image", "img"},
+		},
+		{
+			name: "image with size metadata",
+			part: types.ContentPart{
+				Type: types.ContentTypeImage,
+				Media: &types.MediaContent{
+					MIMEType: "image/png",
+					FilePath: stringPtr("large.png"),
+					SizeKB:   int64Ptr(1024),
+				},
+			},
+			want:    []string{"inline-image-placeholder", "1.0 MB"},
+			wantNot: []string{"<img"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := renderInlineImage(tt.part)
+
+			for _, want := range tt.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("renderInlineImage() missing expected string %q\nGot: %s", want, got)
+				}
+			}
+
+			for _, wantNot := range tt.wantNot {
+				if strings.Contains(got, wantNot) {
+					t.Errorf("renderInlineImage() contains unexpected string %q\nGot: %s", wantNot, got)
 				}
 			}
 		})

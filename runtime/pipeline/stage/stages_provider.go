@@ -330,18 +330,20 @@ func (s *ProviderStage) executeRound(
 		return types.Message{}, false, fmt.Errorf("provider call failed: %w", err)
 	}
 
-	// Build response message
+	// Build response message with latency
 	responseMsg := types.Message{
 		Role:      "assistant",
 		Content:   resp.Content,
 		Parts:     resp.Parts,
 		ToolCalls: toolCalls,
 		Timestamp: timeNow(),
+		LatencyMs: duration.Milliseconds(),
 	}
 
 	logger.Debug("Provider round completed",
 		"round", round,
 		"duration", duration,
+		"latencyMs", responseMsg.LatencyMs,
 		"tool_calls", len(toolCalls))
 
 	// Check for tool calls
@@ -386,17 +388,19 @@ func (s *ProviderStage) executeStreamingRound(
 
 	duration := time.Since(startTime)
 
-	// Build final response message
+	// Build final response message with latency
 	responseMsg := types.Message{
 		Role:      "assistant",
 		Content:   content,
 		ToolCalls: toolCalls,
 		Timestamp: timeNow(),
+		LatencyMs: duration.Milliseconds(),
 	}
 
 	logger.Debug("Provider streaming round completed",
 		"round", params.round,
 		"duration", duration,
+		"latencyMs", responseMsg.LatencyMs,
 		"tool_calls", len(toolCalls))
 
 	return responseMsg, len(toolCalls) > 0, nil
