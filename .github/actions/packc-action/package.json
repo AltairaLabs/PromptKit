@@ -1,6 +1,6 @@
 {
   "name": "packc-action",
-  "version": "1.0.0",
+  "version": "1.1.7",
   "description": "GitHub Action for compiling and publishing prompt packs",
   "main": "dist/index.js",
   "scripts": {
