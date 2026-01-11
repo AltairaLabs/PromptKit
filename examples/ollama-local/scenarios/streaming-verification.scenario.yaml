@@ -1,0 +1,85 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: streaming-verification
+  annotations:
+    description: "Verify streaming responses work correctly with Ollama"
+spec:
+  id: streaming-verification
+  description: "Verify streaming responses work correctly with Ollama"
+  task_type: general-assistant
+
+  # Force streaming mode for this scenario
+  streaming: true
+
+  turns:
+    # Test 1: Request a long response to verify streaming delivers chunks incrementally
+    - role: user
+      content: "Write a detailed explanation of how neural networks learn, covering forward propagation, backpropagation, and gradient descent. Be thorough."
+      assertions:
+        - type: min_length
+          params:
+            min_chars: 500
+            message: "Response should be substantial to verify streaming worked"
+        - type: content_includes
+          params:
+            patterns:
+              - "neural"
+              - "gradient"
+            match_mode: all
+            message: "Response should cover the requested topics"
+
+    # Test 2: Multi-paragraph response to verify chunk boundaries
+    - role: user
+      content: |
+        Now explain three different activation functions used in neural networks:
+        1. ReLU
+        2. Sigmoid
+        3. Tanh
+
+        For each, explain what it does, its formula, and when to use it.
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "ReLU"
+              - "sigmoid"
+              - "tanh"
+            match_mode: all
+            message: "Response should cover all three activation functions"
+        - type: min_length
+          params:
+            min_chars: 300
+            message: "Response should be detailed enough"
+
+    # Test 3: Code generation with streaming (tests code block handling)
+    - role: user
+      content: "Write a Python implementation of a simple perceptron with forward and backward methods. Include comments explaining each step."
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "def"
+              - "class"
+              - "forward"
+            match_mode: any
+            message: "Response should contain Python code"
+        - type: content_includes
+          params:
+            patterns:
+              - "weight"
+            message: "Response should mention weights"
+
+    # Test 4: Test streaming interruption handling (short response after long ones)
+    - role: user
+      content: "In one sentence, what is the vanishing gradient problem?"
+      assertions:
+        - type: max_length
+          params:
+            max_chars: 500
+            message: "Response should be concise as requested"
+        - type: content_includes
+          params:
+            patterns:
+              - "gradient"
+            message: "Response should mention gradient"

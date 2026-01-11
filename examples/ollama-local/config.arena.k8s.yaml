@@ -1,9 +1,9 @@
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Arena
 metadata:
-  name: ollama-local
+  name: ollama-k8s
   annotations:
-    description: "Example demonstrating local LLM inference with Ollama"
+    description: "Test suite for Ollama running on Kubernetes - validates streaming and multimodal support"
 spec:
   prompt_configs:
     - id: assistant
@@ -12,9 +12,10 @@ spec:
       file: prompts/vision-assistant.yaml
 
   providers:
-    - file: providers/ollama-llama.provider.yaml
-    # Uncomment for vision/multimodal testing (requires llava model)
-    # - file: providers/ollama-vision-local.provider.yaml
+    # Standard LLM for text-only scenarios
+    - file: providers/ollama-k8s.provider.yaml
+    # Vision model for multimodal scenarios
+    - file: providers/ollama-vision-k8s.provider.yaml
 
   scenarios:
     # Basic functionality tests
@@ -22,8 +23,8 @@ spec:
     - file: scenarios/code-generation.scenario.yaml
     # Streaming verification tests
     - file: scenarios/streaming-verification.scenario.yaml
-    # Uncomment for multimodal testing (requires vision provider)
-    # - file: scenarios/multimodal-vision.scenario.yaml
+    # Multimodal vision tests (requires vision provider)
+    - file: scenarios/multimodal-vision.scenario.yaml
 
   defaults:
     temperature: 0.7
@@ -33,4 +34,4 @@ spec:
       dir: out
       formats: ["json", "html"]
       html:
-        file: report.html
+        file: report-k8s.html

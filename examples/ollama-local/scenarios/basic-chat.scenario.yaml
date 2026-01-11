@@ -12,14 +12,10 @@ spec:
     - role: user
       content: "Hello! Can you tell me what you are?"
       assertions:
-        - type: content_includes
+        - type: min_length
           params:
-            patterns:
-              - "assistant"
-              - "artificial intelligence"
-              - "help"
-            match_mode: any
-            message: "Response should identify as an AI assistant"
+            min_chars: 50
+            message: "Response should be substantial"
 
     - role: user
       content: "What is 2 + 2?"

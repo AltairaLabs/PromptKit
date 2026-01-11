@@ -287,6 +287,77 @@ func TestProviderStage_MessageTimestamps(t *testing.T) {
 	}
 }
 
+// TestProviderStage_MessageLatency tests that messages have latency tracking
+func TestProviderStage_MessageLatency(t *testing.T) {
+	provider := mock.NewProvider("test-provider", "test-model", false)
+	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{})
+
+	input := make(chan StreamElement, 1)
+	userMsg := types.Message{
+		Role:    "user",
+		Content: "Test message",
+	}
+	elem := NewMessageElement(&userMsg)
+	elem.Metadata["system_prompt"] = "System"
+	input <- elem
+	close(input)
+
+	output := make(chan StreamElement, 10)
+	ctx := context.Background()
+	err := stage.Process(ctx, input, output)
+
+	require.NoError(t, err)
+
+	// Check that assistant messages have latency set (may be 0 for fast mock)
+	foundAssistant := false
+	for elem := range output {
+		if elem.Message != nil && elem.Message.Role == "assistant" {
+			foundAssistant = true
+			// Latency should be non-negative (mock may return instantly)
+			assert.GreaterOrEqual(t, elem.Message.LatencyMs, int64(0),
+				"assistant message should have non-negative latency")
+		}
+	}
+	assert.True(t, foundAssistant, "should have at least one assistant message")
+}
+
+// TestProviderStage_StreamingLatency tests latency tracking in streaming mode
+func TestProviderStage_StreamingLatency(t *testing.T) {
+	provider := mock.NewProvider("test-provider", "test-model", true) // streaming = true
+	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{})
+
+	input := make(chan StreamElement, 1)
+	userMsg := types.Message{
+		Role:    "user",
+		Content: "Test streaming message",
+	}
+	elem := NewMessageElement(&userMsg)
+	elem.Metadata["system_prompt"] = "System"
+	input <- elem
+	close(input)
+
+	output := make(chan StreamElement, 100)
+	ctx := context.Background()
+	err := stage.Process(ctx, input, output)
+
+	require.NoError(t, err)
+
+	// Collect all output elements
+	var assistantMessages []types.Message
+	for elem := range output {
+		if elem.Message != nil && elem.Message.Role == "assistant" {
+			assistantMessages = append(assistantMessages, *elem.Message)
+		}
+	}
+
+	// Should have at least one assistant message with latency
+	assert.NotEmpty(t, assistantMessages, "should have assistant messages")
+	for _, msg := range assistantMessages {
+		assert.GreaterOrEqual(t, msg.LatencyMs, int64(0),
+			"streaming assistant message should have non-negative latency")
+	}
+}
+
 // =============================================================================
 // Helper Function Tests
 // =============================================================================

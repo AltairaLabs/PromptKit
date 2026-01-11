@@ -111,6 +111,10 @@ type DuplexProviderStage struct {
 	// Used to detect "interrupted turn complete" (turnComplete with no content after interruption)
 	wasInterrupted bool
 
+	// Turn latency tracking - when the current turn started
+	// Set when user input is received, used to calculate LatencyMs on turn complete
+	turnStartTime time.Time
+
 	// Event emitter for recording audio events (optional, for session recording)
 	emitter *events.Emitter
 
@@ -401,6 +405,12 @@ func (s *DuplexProviderStage) forwardInputElements(
 			// Forward Message elements to output for state store capture
 			if elem.Message != nil {
 				logger.Debug("DuplexProviderStage: forwarding user message to output", "role", elem.Message.Role)
+				// Track turn start time for latency calculation on user messages
+				if elem.Message.Role == roleUser {
+					s.turnStartTime = time.Now()
+					logger.Debug("DuplexProviderStage: started turn timing",
+						"turnStartTime", s.turnStartTime.Format(time.RFC3339Nano))
+				}
 				// Extract turn_id for correlating transcription events
 				if turnID, ok := elem.Metadata["turn_id"].(string); ok && turnID != "" {
 					s.turnIDMu.Lock()
@@ -985,6 +995,11 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 				},
 			}
 
+			// Calculate turn latency if we have a start time
+			if !s.turnStartTime.IsZero() {
+				msg.LatencyMs = time.Since(s.turnStartTime).Milliseconds()
+			}
+
 			if accumulatedText != "" {
 				msg.Parts = append(msg.Parts, types.ContentPart{
 					Type: types.ContentTypeText,
@@ -1091,6 +1106,13 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 				},
 			}
 
+			// Calculate turn latency if we have a start time
+			if !s.turnStartTime.IsZero() {
+				msg.LatencyMs = time.Since(s.turnStartTime).Milliseconds()
+				logger.Debug("DuplexProviderStage: calculated turn latency",
+					"latencyMs", msg.LatencyMs)
+			}
+
 			if hasToolCalls {
 				logger.Debug("DuplexProviderStage: captured tool calls",
 					"count", len(chunk.ToolCalls))
@@ -1118,7 +1140,8 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 			logger.Debug("DuplexProviderStage: created message for turn",
 				"role", msg.Role,
 				"contentLen", len(msg.Content),
-				"partsCount", len(msg.Parts))
+				"partsCount", len(msg.Parts),
+				"latencyMs", msg.LatencyMs)
 		}
 		elem.EndOfStream = true
 		// Clear the interrupted flag - we got a real turn complete

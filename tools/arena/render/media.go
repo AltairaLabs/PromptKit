@@ -13,8 +13,10 @@ const (
 	divCloseTag = "</div>"
 
 	// Content type strings
-	roleAssistant = "assistant"
 	sourceUnknown = "unknown"
+
+	// Size constants
+	bytesPerKB = 1024
 
 	// MIME type constants
 	mimeTypeWAV  = "audio/wav"
@@ -182,13 +184,9 @@ func getPlayableAudioMIME(source, mimeType string) string {
 // renderMessageWithMedia shows rich media content in a message.
 // Returns HTML with text content and individual media item cards.
 func renderMessageWithMedia(msg types.Message) string {
-	html := fmt.Sprintf("<div class='message %s'>", msg.Role)
+	var html strings.Builder
 
-	// Generate media summary from Parts
-	var mediaSummary *types.MediaSummary
-	if len(msg.Parts) > 0 {
-		mediaSummary = getMediaSummaryFromParts(msg.Parts)
-	}
+	html.WriteString(fmt.Sprintf("<div class='message %s'>", msg.Role))
 
 	// Render text content - use GetContent() to extract text from Parts if needed
 	textContent := msg.GetContent()
@@ -200,20 +198,107 @@ func renderMessageWithMedia(msg types.Message) string {
 		} else {
 			renderedContent = string(renderMarkdown(textContent))
 		}
-		html += fmt.Sprintf("<div class='message-text'>%s</div>", renderedContent)
+		html.WriteString(fmt.Sprintf("<div class='message-text'>%s</div>", renderedContent))
 	}
 
-	// Render individual media items
-	if mediaSummary != nil && len(mediaSummary.MediaItems) > 0 {
-		html += "<div class='media-items'>"
-		for _, item := range mediaSummary.MediaItems {
-			html += renderMediaItem(item)
+	// Render inline images directly from Parts (to get actual image data)
+	if len(msg.Parts) > 0 {
+		for _, part := range msg.Parts {
+			if part.Type == types.ContentTypeImage && part.Media != nil {
+				html.WriteString(renderInlineImage(part))
+			}
 		}
-		html += divCloseTag
 	}
 
-	html += divCloseTag
-	return html
+	// Render other media items (audio, video) with metadata cards
+	var mediaSummary *types.MediaSummary
+	if len(msg.Parts) > 0 {
+		mediaSummary = getMediaSummaryFromParts(msg.Parts)
+	}
+	if mediaSummary != nil && len(mediaSummary.MediaItems) > 0 {
+		// Check if there are any non-image media items
+		hasNonImageMedia := false
+		for _, item := range mediaSummary.MediaItems {
+			if item.Type != types.ContentTypeImage {
+				hasNonImageMedia = true
+				break
+			}
+		}
+		if hasNonImageMedia {
+			html.WriteString("<div class='media-items'>")
+			for _, item := range mediaSummary.MediaItems {
+				// Skip images - they're rendered inline above
+				if item.Type == types.ContentTypeImage {
+					continue
+				}
+				html.WriteString(renderMediaItem(item))
+			}
+			html.WriteString(divCloseTag)
+		}
+	}
+
+	html.WriteString(divCloseTag)
+	return html.String()
+}
+
+// renderInlineImage renders an image part as an inline <img> element.
+// Displays the actual image content using base64 data URL.
+func renderInlineImage(part types.ContentPart) string {
+	if part.Media == nil {
+		return ""
+	}
+
+	// Get source description for alt text
+	source := "Image"
+	if part.Media.FilePath != nil && *part.Media.FilePath != "" {
+		source = *part.Media.FilePath
+	} else if part.Media.URL != nil && *part.Media.URL != "" {
+		source = *part.Media.URL
+	}
+
+	// Build the image HTML
+	var imgHTML string
+
+	// Image styling for inline display
+	const imgStyle = "max-width: 100%; max-height: 400px; border-radius: 4px; margin: 8px 0;"
+
+	// Check if we have inline data
+	if part.Media.Data != nil && *part.Media.Data != "" {
+		mimeType := part.Media.MIMEType
+		if mimeType == "" {
+			mimeType = "image/png" // Default
+		}
+		imgHTML = fmt.Sprintf(
+			`<div class="inline-image"><img src="data:%s;base64,%s" alt=%q title=%q style=%q /></div>`,
+			template.HTMLEscapeString(mimeType),
+			template.HTMLEscapeString(*part.Media.Data),
+			truncateSource(source, maxSourceLength),
+			source,
+			imgStyle,
+		)
+	} else if part.Media.URL != nil && *part.Media.URL != "" {
+		// Use URL directly if no inline data
+		imgHTML = fmt.Sprintf(
+			`<div class="inline-image"><img src=%q alt=%q title=%q style=%q /></div>`,
+			*part.Media.URL,
+			truncateSource(source, maxSourceLength),
+			source,
+			imgStyle,
+		)
+	} else {
+		// No displayable data - show placeholder with metadata
+		sizeStr := ""
+		if part.Media.SizeKB != nil {
+			sizeStr = fmt.Sprintf(" (%s)", formatBytes(int(*part.Media.SizeKB*bytesPerKB)))
+		}
+		imgHTML = fmt.Sprintf(
+			`<div class="inline-image-placeholder">🖼️ <span class="image-source">%s</span>%s</div>`,
+			template.HTMLEscapeString(truncateSource(source, maxSourceLength)),
+			sizeStr,
+		)
+	}
+
+	return imgHTML
 }
 
 // getMediaSummaryFromParts generates a MediaSummary from ContentParts.
@@ -325,10 +410,7 @@ func formatBytes(bytes int) string {
 		return "0 B"
 	}
 
-	const (
-		bytesPerKB = 1024
-		maxUnits   = 3
-	)
+	const maxUnits = 3
 
 	if bytes < bytesPerKB {
 		return fmt.Sprintf("%d B", bytes)

@@ -1,0 +1,51 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: multimodal-vision
+  annotations:
+    description: "Test multimodal image analysis capabilities with Ollama vision models"
+spec:
+  id: multimodal-vision
+  description: "Test multimodal image analysis capabilities with Ollama vision models"
+  task_type: image-analysis
+
+  # Enable streaming for multimodal responses
+  streaming: true
+
+  turns:
+    # Single turn: Image analysis with brief response
+    # Image shows: Industrial facility with storage tanks, partial "Lesie..." logo, pipes, blue sky
+    # Note: Keep prompt short to fit within 30s pipeline timeout
+    - role: user
+      parts:
+        - type: text
+          text: "List 3 things you see."
+        - type: image
+          media:
+            file_path: ../../tools/arena/testdata/media/test-image-small.jpg
+            mime_type: image/jpeg
+      assertions:
+        - type: min_length
+          params:
+            min_chars: 20
+            message: "Response should list items"
+
+  # Conversation-level assertions (evaluated across all turns)
+  conversation_assertions:
+    # Check for recognition of any structural/industrial element
+    - type: content_includes_any
+      params:
+        patterns:
+          - tank
+          - silo
+          - building
+          - structure
+          - pipe
+          - tower
+          - cylinder
+          - industrial
+          - factory
+          - chimney
+          - sky
+          - cloud
+        message: "Response should identify visible elements"
