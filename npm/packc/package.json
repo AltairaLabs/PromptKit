@@ -14,7 +14,7 @@
     "lint": "eslint *.js bin/*.js lib/*.js"
   },
   "devDependencies": {
-    "eslint": "^8.55.0",
+    "eslint": "^9.39.2",
     "jest": "^29.7.0"
   },
   "keywords": [
