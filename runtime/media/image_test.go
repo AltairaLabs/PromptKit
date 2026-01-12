@@ -24,22 +24,29 @@ func createTestImage(width, height int, format string) []byte {
 	case "png":
 		_ = png.Encode(&buf, img)
 	default: // jpeg
-		_ = jpeg.Encode(&buf, img, &jpeg.Options{Quality: 85})
+		_ = jpeg.Encode(&buf, img, &jpeg.Options{Quality: DefaultQuality})
 	}
 	return buf.Bytes()
 }
 
-func TestResizeImage_BasicResize(t *testing.T) {
-	// Create a 2048x2048 test image
-	testData := createTestImage(2048, 2048, "jpeg")
-
-	config := ImageResizeConfig{
-		MaxWidth:            1024,
-		MaxHeight:           1024,
-		Quality:             85,
+// testResizeConfig returns a standard test configuration with optional overrides.
+func testResizeConfig(opts ...func(*ImageResizeConfig)) ImageResizeConfig {
+	cfg := ImageResizeConfig{
+		MaxWidth:            DefaultMaxWidth,
+		MaxHeight:           DefaultMaxHeight,
+		Quality:             DefaultQuality,
 		PreserveAspectRatio: true,
 		SkipIfSmaller:       true,
 	}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	return cfg
+}
+
+func TestResizeImage_BasicResize(t *testing.T) {
+	testData := createTestImage(2048, 2048, "jpeg")
+	config := testResizeConfig()
 
 	result, err := ResizeImage(testData, config)
 	if err != nil {
@@ -60,16 +67,8 @@ func TestResizeImage_BasicResize(t *testing.T) {
 }
 
 func TestResizeImage_NoResizeNeeded(t *testing.T) {
-	// Create a 512x512 test image - smaller than limits
 	testData := createTestImage(512, 512, "jpeg")
-
-	config := ImageResizeConfig{
-		MaxWidth:            1024,
-		MaxHeight:           1024,
-		Quality:             85,
-		PreserveAspectRatio: true,
-		SkipIfSmaller:       true,
-	}
+	config := testResizeConfig()
 
 	result, err := ResizeImage(testData, config)
 	if err != nil {
@@ -91,16 +90,8 @@ func TestResizeImage_NoResizeNeeded(t *testing.T) {
 }
 
 func TestResizeImage_AspectRatioPreserved(t *testing.T) {
-	// Create a 2000x1000 test image (2:1 aspect ratio)
 	testData := createTestImage(2000, 1000, "jpeg")
-
-	config := ImageResizeConfig{
-		MaxWidth:            1024,
-		MaxHeight:           1024,
-		Quality:             85,
-		PreserveAspectRatio: true,
-		SkipIfSmaller:       true,
-	}
+	config := testResizeConfig()
 
 	result, err := ResizeImage(testData, config)
 	if err != nil {
@@ -121,17 +112,11 @@ func TestResizeImage_AspectRatioPreserved(t *testing.T) {
 }
 
 func TestResizeImage_FormatConversion(t *testing.T) {
-	// Create a PNG image
 	testData := createTestImage(512, 512, "png")
-
-	config := ImageResizeConfig{
-		MaxWidth:            1024,
-		MaxHeight:           1024,
-		Quality:             85,
-		Format:              "jpeg", // Convert to JPEG
-		PreserveAspectRatio: true,
-		SkipIfSmaller:       false, // Force processing even if small
-	}
+	config := testResizeConfig(func(c *ImageResizeConfig) {
+		c.Format = "jpeg"
+		c.SkipIfSmaller = false
+	})
 
 	result, err := ResizeImage(testData, config)
 	if err != nil {
@@ -309,17 +294,10 @@ func TestMIMETypeToFormat(t *testing.T) {
 }
 
 func TestResizeImage_PNGOutput(t *testing.T) {
-	// Create a test image
 	testData := createTestImage(2048, 2048, "jpeg")
-
-	config := ImageResizeConfig{
-		MaxWidth:            1024,
-		MaxHeight:           1024,
-		Quality:             85,
-		Format:              "png", // Output as PNG
-		PreserveAspectRatio: true,
-		SkipIfSmaller:       true,
-	}
+	config := testResizeConfig(func(c *ImageResizeConfig) {
+		c.Format = "png"
+	})
 
 	result, err := ResizeImage(testData, config)
 	if err != nil {
@@ -329,47 +307,34 @@ func TestResizeImage_PNGOutput(t *testing.T) {
 	if result.Format != "png" {
 		t.Errorf("Expected format 'png', got '%s'", result.Format)
 	}
-
-	if result.MIMEType != "image/png" {
-		t.Errorf("Expected MIME type 'image/png', got '%s'", result.MIMEType)
+	if result.MIMEType != MIMETypePNG {
+		t.Errorf("Expected MIME type '%s', got '%s'", MIMETypePNG, result.MIMEType)
 	}
 }
 
 func TestResizeImage_MaxSizeBytes(t *testing.T) {
-	// Create a large test image
 	testData := createTestImage(1024, 1024, "jpeg")
-
-	config := ImageResizeConfig{
-		MaxWidth:            1024,
-		MaxHeight:           1024,
-		MaxSizeBytes:        1000, // Very small limit to trigger quality reduction
-		Quality:             95,
-		PreserveAspectRatio: true,
-		SkipIfSmaller:       false, // Force processing
-	}
+	config := testResizeConfig(func(c *ImageResizeConfig) {
+		c.MaxSizeBytes = 1000
+		c.Quality = 95
+		c.SkipIfSmaller = false
+	})
 
 	result, err := ResizeImage(testData, config)
 	if err != nil {
 		t.Fatalf("ResizeImage failed: %v", err)
 	}
 
-	// Result should be compressed (quality reduced)
 	if result.NewSize > result.OriginalSize {
 		t.Errorf("Expected compressed output, got larger: %d > %d", result.NewSize, result.OriginalSize)
 	}
 }
 
 func TestResizeImage_ZeroQuality(t *testing.T) {
-	// Test that zero quality defaults properly
 	testData := createTestImage(2048, 2048, "jpeg")
-
-	config := ImageResizeConfig{
-		MaxWidth:            1024,
-		MaxHeight:           1024,
-		Quality:             0, // Should default to 85
-		PreserveAspectRatio: true,
-		SkipIfSmaller:       true,
-	}
+	config := testResizeConfig(func(c *ImageResizeConfig) {
+		c.Quality = 0
+	})
 
 	result, err := ResizeImage(testData, config)
 	if err != nil {
@@ -382,47 +347,35 @@ func TestResizeImage_ZeroQuality(t *testing.T) {
 }
 
 func TestResizeImage_UnknownFormat(t *testing.T) {
-	// Test encoding with unknown format (should default to JPEG)
 	testData := createTestImage(2048, 2048, "jpeg")
-
-	config := ImageResizeConfig{
-		MaxWidth:            1024,
-		MaxHeight:           1024,
-		Quality:             85,
-		Format:              "unknown_format", // Should default to JPEG
-		PreserveAspectRatio: true,
-		SkipIfSmaller:       false,
-	}
+	config := testResizeConfig(func(c *ImageResizeConfig) {
+		c.Format = "unknown_format"
+		c.SkipIfSmaller = false
+	})
 
 	result, err := ResizeImage(testData, config)
 	if err != nil {
 		t.Fatalf("ResizeImage failed: %v", err)
 	}
 
-	// Should have been encoded (as JPEG since unknown format)
-	if result.MIMEType != "image/jpeg" {
-		t.Errorf("Expected MIME type 'image/jpeg' for unknown format, got '%s'", result.MIMEType)
+	if result.MIMEType != MIMETypeJPEG {
+		t.Errorf("Expected MIME type '%s' for unknown format, got '%s'", MIMETypeJPEG, result.MIMEType)
 	}
 }
 
 func TestResizeImage_TinyDimensions(t *testing.T) {
-	// Test with very small max dimensions to trigger minimum of 1
 	testData := createTestImage(100, 10, "jpeg")
-
-	config := ImageResizeConfig{
-		MaxWidth:            1,
-		MaxHeight:           1,
-		Quality:             85,
-		PreserveAspectRatio: true,
-		SkipIfSmaller:       false,
-	}
+	config := testResizeConfig(func(c *ImageResizeConfig) {
+		c.MaxWidth = 1
+		c.MaxHeight = 1
+		c.SkipIfSmaller = false
+	})
 
 	result, err := ResizeImage(testData, config)
 	if err != nil {
 		t.Fatalf("ResizeImage failed: %v", err)
 	}
 
-	// Dimensions should be at least 1
 	if result.Width < 1 || result.Height < 1 {
 		t.Errorf("Expected minimum dimensions of 1x1, got %dx%d", result.Width, result.Height)
 	}

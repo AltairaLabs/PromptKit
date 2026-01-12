@@ -5,35 +5,44 @@ import (
 	"encoding/base64"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/media"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-func TestImagePreprocessStage_BasicOperation(t *testing.T) {
-	config := DefaultImagePreprocessConfig()
-	stage := NewImagePreprocessStage(config)
-
-	if stage.Name() != "image-preprocess" {
-		t.Errorf("Expected name 'image-preprocess', got '%s'", stage.Name())
-	}
-
-	if stage.Type() != StageTypeTransform {
-		t.Errorf("Expected type Transform, got %v", stage.Type())
-	}
-}
-
-func TestImagePreprocessStage_ProcessMessageWithImage(t *testing.T) {
-	config := ImagePreprocessConfig{
+// testPreprocessConfig returns a test configuration with optional overrides.
+func testPreprocessConfig(maxDim int, opts ...func(*ImagePreprocessConfig)) ImagePreprocessConfig {
+	cfg := ImagePreprocessConfig{
 		Resize: ImageResizeStageConfig{
-			MaxWidth:            512,
-			MaxHeight:           512,
-			Quality:             85,
+			MaxWidth:            maxDim,
+			MaxHeight:           maxDim,
+			Quality:             media.DefaultQuality,
 			PreserveAspectRatio: true,
 			SkipIfSmaller:       true,
 		},
 		EnableResize: true,
 	}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	return cfg
+}
 
-	stage := NewImagePreprocessStage(config)
+func TestImagePreprocessStage_BasicOperation(t *testing.T) {
+	config := DefaultImagePreprocessConfig()
+	stg := NewImagePreprocessStage(config)
+
+	if stg.Name() != "image-preprocess" {
+		t.Errorf("Expected name 'image-preprocess', got '%s'", stg.Name())
+	}
+
+	if stg.Type() != StageTypeTransform {
+		t.Errorf("Expected type Transform, got %v", stg.Type())
+	}
+}
+
+func TestImagePreprocessStage_ProcessMessageWithImage(t *testing.T) {
+	config := testPreprocessConfig(512)
+	stg := NewImagePreprocessStage(config)
 	ctx := context.Background()
 
 	input := make(chan StreamElement, 1)
@@ -57,7 +66,7 @@ func TestImagePreprocessStage_ProcessMessageWithImage(t *testing.T) {
 	close(input)
 
 	go func() {
-		if err := stage.Process(ctx, input, output); err != nil {
+		if err := stg.Process(ctx, input, output); err != nil {
 			t.Errorf("Process returned error: %v", err)
 		}
 	}()
@@ -94,7 +103,7 @@ func TestImagePreprocessStage_DisabledResize(t *testing.T) {
 		EnableResize: false, // Disabled
 	}
 
-	stage := NewImagePreprocessStage(config)
+	stg := NewImagePreprocessStage(config)
 	ctx := context.Background()
 
 	input := make(chan StreamElement, 1)
@@ -116,7 +125,7 @@ func TestImagePreprocessStage_DisabledResize(t *testing.T) {
 	close(input)
 
 	go func() {
-		if err := stage.Process(ctx, input, output); err != nil {
+		if err := stg.Process(ctx, input, output); err != nil {
 			t.Errorf("Process returned error: %v", err)
 		}
 	}()
@@ -135,7 +144,7 @@ func TestImagePreprocessStage_DisabledResize(t *testing.T) {
 
 func TestImagePreprocessStage_PassthroughNonImageMessages(t *testing.T) {
 	config := DefaultImagePreprocessConfig()
-	stage := NewImagePreprocessStage(config)
+	stg := NewImagePreprocessStage(config)
 	ctx := context.Background()
 
 	input := make(chan StreamElement, 1)
@@ -149,7 +158,7 @@ func TestImagePreprocessStage_PassthroughNonImageMessages(t *testing.T) {
 	close(input)
 
 	go func() {
-		if err := stage.Process(ctx, input, output); err != nil {
+		if err := stg.Process(ctx, input, output); err != nil {
 			t.Errorf("Process returned error: %v", err)
 		}
 	}()
@@ -182,7 +191,7 @@ func TestImagePreprocessStage_ProcessStandaloneImageData(t *testing.T) {
 		EnableResize: true,
 	}
 
-	stage := NewImagePreprocessStage(config)
+	stg := NewImagePreprocessStage(config)
 	ctx := context.Background()
 
 	input := make(chan StreamElement, 1)
@@ -202,7 +211,7 @@ func TestImagePreprocessStage_ProcessStandaloneImageData(t *testing.T) {
 	close(input)
 
 	go func() {
-		if err := stage.Process(ctx, input, output); err != nil {
+		if err := stg.Process(ctx, input, output); err != nil {
 			t.Errorf("Process returned error: %v", err)
 		}
 	}()
@@ -248,8 +257,8 @@ func TestImagePreprocessStage_GetConfig(t *testing.T) {
 		EnableResize: true,
 	}
 
-	stage := NewImagePreprocessStage(config)
-	got := stage.GetConfig()
+	stg := NewImagePreprocessStage(config)
+	got := stg.GetConfig()
 
 	if got.Resize.MaxWidth != 512 {
 		t.Errorf("Expected MaxWidth 512, got %d", got.Resize.MaxWidth)
@@ -261,7 +270,7 @@ func TestImagePreprocessStage_GetConfig(t *testing.T) {
 
 func TestImagePreprocessStage_ContextCancellationOnSend(t *testing.T) {
 	config := DefaultImagePreprocessConfig()
-	stage := NewImagePreprocessStage(config)
+	stg := NewImagePreprocessStage(config)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	input := make(chan StreamElement, 1)
@@ -279,7 +288,7 @@ func TestImagePreprocessStage_ContextCancellationOnSend(t *testing.T) {
 		cancel()
 	}()
 
-	err := stage.Process(ctx, input, output)
+	err := stg.Process(ctx, input, output)
 
 	// Should eventually return context error when trying to send to output
 	if err != nil && err != context.Canceled {
@@ -289,7 +298,7 @@ func TestImagePreprocessStage_ContextCancellationOnSend(t *testing.T) {
 
 func TestImagePreprocessStage_InvalidBase64(t *testing.T) {
 	config := DefaultImagePreprocessConfig()
-	stage := NewImagePreprocessStage(config)
+	stg := NewImagePreprocessStage(config)
 	ctx := context.Background()
 
 	input := make(chan StreamElement, 1)
@@ -309,7 +318,7 @@ func TestImagePreprocessStage_InvalidBase64(t *testing.T) {
 	close(input)
 
 	go func() {
-		_ = stage.Process(ctx, input, output)
+		_ = stg.Process(ctx, input, output)
 	}()
 
 	result := <-output
@@ -322,7 +331,7 @@ func TestImagePreprocessStage_InvalidBase64(t *testing.T) {
 
 func TestImagePreprocessStage_NilMedia(t *testing.T) {
 	config := DefaultImagePreprocessConfig()
-	stage := NewImagePreprocessStage(config)
+	stg := NewImagePreprocessStage(config)
 	ctx := context.Background()
 
 	input := make(chan StreamElement, 1)
@@ -338,7 +347,7 @@ func TestImagePreprocessStage_NilMedia(t *testing.T) {
 	close(input)
 
 	go func() {
-		if err := stage.Process(ctx, input, output); err != nil {
+		if err := stg.Process(ctx, input, output); err != nil {
 			t.Errorf("Process returned error: %v", err)
 		}
 	}()
@@ -353,7 +362,7 @@ func TestImagePreprocessStage_NilMedia(t *testing.T) {
 
 func TestImagePreprocessStage_EmptyData(t *testing.T) {
 	config := DefaultImagePreprocessConfig()
-	stage := NewImagePreprocessStage(config)
+	stg := NewImagePreprocessStage(config)
 	ctx := context.Background()
 
 	input := make(chan StreamElement, 1)
@@ -373,7 +382,7 @@ func TestImagePreprocessStage_EmptyData(t *testing.T) {
 	close(input)
 
 	go func() {
-		if err := stage.Process(ctx, input, output); err != nil {
+		if err := stg.Process(ctx, input, output); err != nil {
 			t.Errorf("Process returned error: %v", err)
 		}
 	}()
@@ -388,7 +397,7 @@ func TestImagePreprocessStage_EmptyData(t *testing.T) {
 
 func TestImagePreprocessStage_NoImageData(t *testing.T) {
 	config := DefaultImagePreprocessConfig()
-	stage := NewImagePreprocessStage(config)
+	stg := NewImagePreprocessStage(config)
 
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
@@ -402,7 +411,7 @@ func TestImagePreprocessStage_NoImageData(t *testing.T) {
 	close(input)
 
 	go func() {
-		if err := stage.Process(context.Background(), input, output); err != nil {
+		if err := stg.Process(context.Background(), input, output); err != nil {
 			t.Errorf("Process returned error: %v", err)
 		}
 	}()
