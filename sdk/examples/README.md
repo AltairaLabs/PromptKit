@@ -27,6 +27,18 @@ Basic streaming example showing real-time LLM responses.
 ### 🎨 [multimodal](./multimodal/)
 Working with images, audio, and other media types.
 
+### 🖼️ [image-preprocessing](./image-preprocessing/)
+Automatic image resizing and optimization for vision models.
+- `WithAutoResize()` for simple size limits
+- `WithImagePreprocessing()` for full control
+- Quality optimization for API costs and latency
+
+### 🎥 [realtime-video](./realtime-video/)
+Realtime video/image streaming for duplex sessions.
+- `SendFrame()` for webcam-like scenarios
+- `WithStreamingVideo()` for frame rate limiting
+- Simulated frame capture example
+
 ### 🛠️ [tools](./tools/)
 Function calling and tool integration.
 

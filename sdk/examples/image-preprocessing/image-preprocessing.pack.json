@@ -1,0 +1,23 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "image-preprocessing-example",
+  "name": "Image Preprocessing Example",
+  "version": "1.0.0",
+  "description": "Example demonstrating image preprocessing with automatic resizing and optimization",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "vision-analyst": {
+      "id": "vision-analyst",
+      "name": "Vision Analyst",
+      "version": "1.0.0",
+      "system_template": "You are an expert visual analyst. When shown images, provide detailed, accurate descriptions. Note any quality issues or artifacts you observe in the image.",
+      "parameters": {
+        "temperature": 0.7,
+        "max_tokens": 1024
+      }
+    }
+  }
+}
