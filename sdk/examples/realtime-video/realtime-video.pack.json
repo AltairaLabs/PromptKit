@@ -1,0 +1,23 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "realtime-video-example",
+  "name": "Realtime Video Streaming Example",
+  "version": "1.0.0",
+  "description": "Example demonstrating realtime video/image streaming for vision analysis",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "vision-stream": {
+      "id": "vision-stream",
+      "name": "Vision Stream Analyzer",
+      "version": "1.0.0",
+      "system_template": "You are a real-time vision analyst. You receive a stream of images and describe what you see. Be concise and focus on changes between frames. If you see movement or action, describe it.",
+      "parameters": {
+        "temperature": 0.7,
+        "max_tokens": 256
+      }
+    }
+  }
+}

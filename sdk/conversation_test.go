@@ -967,6 +967,22 @@ func TestDuplexMethodsInUnaryMode(t *testing.T) {
 	err = conv.SessionError()
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "duplex mode")
+
+	// Test SendFrame in unary mode
+	err = conv.SendFrame(ctx, &session.ImageFrame{
+		Data:     []byte("test"),
+		MIMEType: "image/jpeg",
+	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "duplex mode")
+
+	// Test SendVideoChunk in unary mode
+	err = conv.SendVideoChunk(ctx, &session.VideoChunk{
+		Data:     []byte("test"),
+		MIMEType: "video/h264",
+	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "duplex mode")
 }
 
 func TestDuplexMethodsWhenClosed(t *testing.T) {
@@ -990,6 +1006,85 @@ func TestDuplexMethodsWhenClosed(t *testing.T) {
 
 	err = conv.SessionError()
 	assert.Equal(t, ErrConversationClosed, err)
+
+	// Test SendFrame when closed
+	err = conv.SendFrame(ctx, &session.ImageFrame{
+		Data:     []byte("test"),
+		MIMEType: "image/jpeg",
+	})
+	assert.Equal(t, ErrConversationClosed, err)
+
+	// Test SendVideoChunk when closed
+	err = conv.SendVideoChunk(ctx, &session.VideoChunk{
+		Data:     []byte("test"),
+		MIMEType: "video/h264",
+	})
+	assert.Equal(t, ErrConversationClosed, err)
+}
+
+func TestSendFrameInDuplexMode(t *testing.T) {
+	ctx := context.Background()
+	conv := newTestConversation()
+	conv.mode = DuplexMode
+
+	store := statestore.NewMemoryStore()
+	provider := mock.NewProvider("test", "test-model", false)
+	pipelineBuilder := func(ctx context.Context, p providers.Provider, streamProvider providers.StreamInputSupport, streamConfig *providers.StreamingInputConfig, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
+		providerStage := stage.NewProviderStage(provider, nil, nil, nil)
+		return stage.NewPipelineBuilder().Chain(providerStage).Build()
+	}
+
+	duplexSession, err := session.NewDuplexSession(ctx, &session.DuplexSessionConfig{
+		ConversationID:  "test-video",
+		StateStore:      store,
+		PipelineBuilder: pipelineBuilder,
+		Provider:        provider,
+	})
+	require.NoError(t, err)
+	conv.duplexSession = duplexSession
+
+	// Test SendFrame - should succeed (no error from mock)
+	err = conv.SendFrame(ctx, &session.ImageFrame{
+		Data:      []byte("test-frame-data"),
+		MIMEType:  "image/jpeg",
+		Width:     640,
+		Height:    480,
+		FrameNum:  1,
+		Timestamp: time.Now(),
+	})
+	assert.NoError(t, err)
+}
+
+func TestSendVideoChunkInDuplexMode(t *testing.T) {
+	ctx := context.Background()
+	conv := newTestConversation()
+	conv.mode = DuplexMode
+
+	store := statestore.NewMemoryStore()
+	provider := mock.NewProvider("test", "test-model", false)
+	pipelineBuilder := func(ctx context.Context, p providers.Provider, streamProvider providers.StreamInputSupport, streamConfig *providers.StreamingInputConfig, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
+		providerStage := stage.NewProviderStage(provider, nil, nil, nil)
+		return stage.NewPipelineBuilder().Chain(providerStage).Build()
+	}
+
+	duplexSession, err := session.NewDuplexSession(ctx, &session.DuplexSessionConfig{
+		ConversationID:  "test-video",
+		StateStore:      store,
+		PipelineBuilder: pipelineBuilder,
+		Provider:        provider,
+	})
+	require.NoError(t, err)
+	conv.duplexSession = duplexSession
+
+	// Test SendVideoChunk - should succeed (no error from mock)
+	err = conv.SendVideoChunk(ctx, &session.VideoChunk{
+		Data:       []byte("test-video-chunk"),
+		MIMEType:   "video/h264",
+		ChunkIndex: 0,
+		IsKeyFrame: true,
+		Timestamp:  time.Now(),
+	})
+	assert.NoError(t, err)
 }
 
 func TestGetBaseSessionUnary(t *testing.T) {

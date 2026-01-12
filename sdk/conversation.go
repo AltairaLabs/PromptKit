@@ -447,6 +447,57 @@ func (c *Conversation) SendText(ctx context.Context, text string) error {
 	return c.duplexSession.SendText(ctx, text)
 }
 
+// SendFrame sends an image frame in duplex mode for realtime video scenarios.
+// Only available when the conversation was opened with OpenDuplex().
+//
+// Example:
+//
+//	frame := &session.ImageFrame{
+//	    Data:      jpegBytes,
+//	    MIMEType:  "image/jpeg",
+//	    Timestamp: time.Now(),
+//	}
+//	conv.SendFrame(ctx, frame)
+func (c *Conversation) SendFrame(ctx context.Context, frame *session.ImageFrame) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.mode != DuplexMode {
+		return fmt.Errorf(errDuplexModeRequired, "SendFrame()")
+	}
+	if c.closed {
+		return ErrConversationClosed
+	}
+
+	return c.duplexSession.SendFrame(ctx, frame)
+}
+
+// SendVideoChunk sends a video chunk in duplex mode for encoded video streaming.
+// Only available when the conversation was opened with OpenDuplex().
+//
+// Example:
+//
+//	chunk := &session.VideoChunk{
+//	    Data:       h264Data,
+//	    MIMEType:   "video/h264",
+//	    IsKeyFrame: true,
+//	    Timestamp:  time.Now(),
+//	}
+//	conv.SendVideoChunk(ctx, chunk)
+func (c *Conversation) SendVideoChunk(ctx context.Context, chunk *session.VideoChunk) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.mode != DuplexMode {
+		return fmt.Errorf(errDuplexModeRequired, "SendVideoChunk()")
+	}
+	if c.closed {
+		return ErrConversationClosed
+	}
+
+	return c.duplexSession.SendVideoChunk(ctx, chunk)
+}
+
 // TriggerStart sends a text message to make the model initiate the conversation.
 // Use this in ASM mode when you want the model to speak first (e.g., introducing itself).
 // Only available when the conversation was opened with OpenDuplex().
