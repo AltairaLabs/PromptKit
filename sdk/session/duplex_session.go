@@ -5,7 +5,9 @@ package session
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -200,6 +202,71 @@ func (s *duplexSession) SendText(ctx context.Context, text string) error {
 	return s.SendChunk(ctx, chunk)
 }
 
+// SendFrame sends an image frame to the session for realtime video scenarios.
+// This is a convenience method that wraps SendChunk with proper image formatting.
+func (s *duplexSession) SendFrame(ctx context.Context, frame *ImageFrame) error {
+	s.closeMu.Lock()
+	if s.closed {
+		s.closeMu.Unlock()
+		return fmt.Errorf("session is closed")
+	}
+	s.closeMu.Unlock()
+
+	if frame == nil || len(frame.Data) == 0 {
+		return fmt.Errorf("frame data is required")
+	}
+
+	// Convert frame data to string for MediaContent
+	dataStr := string(frame.Data)
+
+	chunk := &providers.StreamChunk{
+		MediaDelta: &types.MediaContent{
+			MIMEType: frame.MIMEType,
+			Data:     &dataStr,
+		},
+		Metadata: map[string]any{
+			"width":     frame.Width,
+			"height":    frame.Height,
+			"timestamp": frame.Timestamp,
+			"frame_num": frame.FrameNum,
+		},
+	}
+	return s.SendChunk(ctx, chunk)
+}
+
+// SendVideoChunk sends a video chunk to the session for encoded video streaming.
+// This is a convenience method that wraps SendChunk with proper video formatting.
+func (s *duplexSession) SendVideoChunk(ctx context.Context, vchunk *VideoChunk) error {
+	s.closeMu.Lock()
+	if s.closed {
+		s.closeMu.Unlock()
+		return fmt.Errorf("session is closed")
+	}
+	s.closeMu.Unlock()
+
+	if vchunk == nil || len(vchunk.Data) == 0 {
+		return fmt.Errorf("video chunk data is required")
+	}
+
+	// Convert chunk data to string for MediaContent
+	dataStr := string(vchunk.Data)
+
+	chunk := &providers.StreamChunk{
+		MediaDelta: &types.MediaContent{
+			MIMEType: vchunk.MIMEType,
+			Data:     &dataStr,
+		},
+		Metadata: map[string]any{
+			"width":        vchunk.Width,
+			"height":       vchunk.Height,
+			"timestamp":    vchunk.Timestamp,
+			"frame_num":    int64(vchunk.ChunkIndex),
+			"is_key_frame": vchunk.IsKeyFrame,
+		},
+	}
+	return s.SendChunk(ctx, chunk)
+}
+
 // executePipeline runs the stage pipeline with streaming input/output.
 // This is called once when the first chunk is received.
 // Converts stage.StreamElement output to providers.StreamChunk at the boundary.
@@ -361,19 +428,74 @@ func (s *duplexSession) ForkSession(
 
 // streamChunkToStreamElement converts a providers.StreamChunk to stage.StreamElement.
 // This is the boundary conversion for input data.
+// Routes media based on MIME type: video/* → VideoData, image/* → ImageData, audio/* → AudioData.
 func streamChunkToStreamElement(chunk *providers.StreamChunk) stage.StreamElement {
 	elem := stage.StreamElement{
 		Metadata: make(map[string]interface{}),
 	}
 
-	// Convert audio data from MediaDelta to Audio
+	// Convert media data from MediaDelta based on MIME type
 	if chunk.MediaDelta != nil && chunk.MediaDelta.Data != nil {
-		audioData := []byte(*chunk.MediaDelta.Data)
-		const defaultSampleRate = 16000 // Default for speech
-		elem.Audio = &stage.AudioData{
-			Samples:    audioData,
-			SampleRate: defaultSampleRate, // Default, could be extracted from metadata
-			Format:     stage.AudioFormatPCM16,
+		mimeType := chunk.MediaDelta.MIMEType
+		mediaData := []byte(*chunk.MediaDelta.Data)
+
+		switch {
+		case strings.HasPrefix(mimeType, "video/"):
+			// Video handling
+			elem.Video = &stage.VideoData{
+				Data:     mediaData,
+				MIMEType: mimeType,
+			}
+			elem.Priority = stage.PriorityHigh
+			// Extract video metadata if available
+			if chunk.Metadata != nil {
+				if w, ok := chunk.Metadata["width"].(int); ok {
+					elem.Video.Width = w
+				}
+				if h, ok := chunk.Metadata["height"].(int); ok {
+					elem.Video.Height = h
+				}
+				if ts, ok := chunk.Metadata["timestamp"].(time.Time); ok {
+					elem.Video.Timestamp = ts
+				}
+				if kf, ok := chunk.Metadata["is_key_frame"].(bool); ok {
+					elem.Video.IsKeyFrame = kf
+				}
+				if fn, ok := chunk.Metadata["frame_num"].(int64); ok {
+					elem.Video.FrameNum = fn
+				}
+			}
+
+		case strings.HasPrefix(mimeType, "image/"):
+			// Image handling
+			elem.Image = &stage.ImageData{
+				Data:     mediaData,
+				MIMEType: mimeType,
+			}
+			// Extract image metadata if available
+			if chunk.Metadata != nil {
+				if w, ok := chunk.Metadata["width"].(int); ok {
+					elem.Image.Width = w
+				}
+				if h, ok := chunk.Metadata["height"].(int); ok {
+					elem.Image.Height = h
+				}
+				if ts, ok := chunk.Metadata["timestamp"].(time.Time); ok {
+					elem.Image.Timestamp = ts
+				}
+				if fn, ok := chunk.Metadata["frame_num"].(int64); ok {
+					elem.Image.FrameNum = fn
+				}
+			}
+
+		default:
+			// Audio handling (default for backwards compatibility)
+			const defaultSampleRate = 16000 // Default for speech
+			elem.Audio = &stage.AudioData{
+				Samples:    mediaData,
+				SampleRate: defaultSampleRate,
+				Format:     stage.AudioFormatPCM16,
+			}
 		}
 	}
 
