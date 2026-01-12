@@ -130,17 +130,10 @@ func (s *ImagePreprocessStage) readImageFromFile(media *types.MediaContent) ([]b
 	return io.ReadAll(reader)
 }
 
-// buildResizeConfig converts stage config to medialib config.
+// buildResizeConfig returns the resize config directly.
+// Since ImageResizeStageConfig is an alias for media.ImageResizeConfig, no conversion needed.
 func (s *ImagePreprocessStage) buildResizeConfig() medialib.ImageResizeConfig {
-	return medialib.ImageResizeConfig{
-		MaxWidth:            s.config.Resize.MaxWidth,
-		MaxHeight:           s.config.Resize.MaxHeight,
-		MaxSizeBytes:        s.config.Resize.MaxSizeBytes,
-		Quality:             s.config.Resize.Quality,
-		Format:              s.config.Resize.Format,
-		PreserveAspectRatio: s.config.Resize.PreserveAspectRatio,
-		SkipIfSmaller:       s.config.Resize.SkipIfSmaller,
-	}
+	return s.config.Resize
 }
 
 // processMediaContent processes a single media content (image).

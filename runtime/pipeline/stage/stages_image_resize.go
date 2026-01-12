@@ -9,44 +9,13 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/media"
 )
 
-// ImageResizeStageConfig contains configuration for the image resizing stage.
-type ImageResizeStageConfig struct {
-	// MaxWidth is the maximum width in pixels (0 = no limit).
-	MaxWidth int
-
-	// MaxHeight is the maximum height in pixels (0 = no limit).
-	MaxHeight int
-
-	// MaxSizeBytes is the maximum encoded size in bytes (0 = no limit).
-	// If exceeded after resize, quality is reduced iteratively.
-	MaxSizeBytes int64
-
-	// Quality is the encoding quality (1-100). Used for JPEG and WebP.
-	// Default: 85.
-	Quality int
-
-	// Format is the output format ("jpeg", "png", "" = preserve original).
-	Format string
-
-	// PreserveAspectRatio maintains the original aspect ratio when resizing.
-	// Default: true.
-	PreserveAspectRatio bool
-
-	// SkipIfSmaller skips processing if the image is already within limits.
-	// Default: true.
-	SkipIfSmaller bool
-}
+// ImageResizeStageConfig is an alias for media.ImageResizeConfig.
+// This provides stage-specific naming while avoiding code duplication.
+type ImageResizeStageConfig = media.ImageResizeConfig
 
 // DefaultImageResizeStageConfig returns sensible defaults for image resizing.
 func DefaultImageResizeStageConfig() ImageResizeStageConfig {
-	return ImageResizeStageConfig{
-		MaxWidth:            media.DefaultMaxWidth,
-		MaxHeight:           media.DefaultMaxHeight,
-		Quality:             media.DefaultQuality,
-		Format:              "", // Preserve original
-		PreserveAspectRatio: true,
-		SkipIfSmaller:       true,
-	}
+	return media.DefaultImageResizeConfig()
 }
 
 // ImageResizeStage resizes images to fit within configured dimensions.
@@ -107,17 +76,6 @@ func (s *ImageResizeStage) resizeElement(elem *StreamElement) error {
 		return nil
 	}
 
-	// Convert stage config to media config
-	mediaConfig := media.ImageResizeConfig{
-		MaxWidth:            s.config.MaxWidth,
-		MaxHeight:           s.config.MaxHeight,
-		MaxSizeBytes:        s.config.MaxSizeBytes,
-		Quality:             s.config.Quality,
-		Format:              s.config.Format,
-		PreserveAspectRatio: s.config.PreserveAspectRatio,
-		SkipIfSmaller:       s.config.SkipIfSmaller,
-	}
-
 	// Check if processing is needed based on size constraints
 	origWidth := imageData.Width
 	origHeight := imageData.Height
@@ -137,8 +95,8 @@ func (s *ImageResizeStage) resizeElement(elem *StreamElement) error {
 		return nil
 	}
 
-	// Perform resize
-	result, err := media.ResizeImage(imageData.Data, mediaConfig)
+	// Perform resize using the config directly (no conversion needed since it's an alias)
+	result, err := media.ResizeImage(imageData.Data, s.config)
 	if err != nil {
 		return fmt.Errorf("resize failed: %w", err)
 	}
