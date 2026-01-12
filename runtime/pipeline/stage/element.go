@@ -157,9 +157,10 @@ type VideoData struct {
 	Height     int           // Frame height in pixels
 	FrameRate  float64       // Frames per second
 	Duration   time.Duration // Duration of the video segment
-	Timestamp  time.Time     // Timestamp of this frame
+	Timestamp  time.Time     // Timestamp of this frame/chunk
 	Format     string        // Format identifier (e.g., "h264", "vp8")
 	IsKeyFrame bool          // True if this is a key frame
+	FrameNum   int64         // Frame/chunk sequence number (for ordering in streams)
 
 	// StorageRef holds a reference to externalized data (when Data is nil).
 	// Use IsExternalized() to check, Load() to retrieve data.
@@ -222,6 +223,10 @@ type ImageData struct {
 	Width    int    // Image width in pixels
 	Height   int    // Image height in pixels
 	Format   string // Format identifier (e.g., "jpeg", "png", "webp")
+
+	// Streaming fields (for realtime video/image streaming)
+	FrameNum  int64     // Frame sequence number (for ordering in streams)
+	Timestamp time.Time // Frame capture timestamp (for synchronization)
 
 	// StorageRef holds a reference to externalized data (when Data is nil).
 	// Use IsExternalized() to check, Load() to retrieve data.

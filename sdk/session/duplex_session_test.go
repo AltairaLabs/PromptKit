@@ -786,6 +786,178 @@ func TestClear_Success(t *testing.T) {
 	assert.Empty(t, messages)
 }
 
+func TestDuplexSession_SendFrame(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("sends image frame successfully", func(t *testing.T) {
+		provider := mock.NewStreamingProvider("mock-provider", "mock-model", false)
+		session, err := NewDuplexSession(ctx, &DuplexSessionConfig{
+			Provider:        provider,
+			Config:          &providers.StreamingInputConfig{},
+			PipelineBuilder: testPipelineBuilder,
+		})
+		require.NoError(t, err)
+		defer session.Close()
+
+		frame := &ImageFrame{
+			Data:      []byte{0xFF, 0xD8, 0xFF, 0xE0}, // JPEG magic bytes
+			MIMEType:  "image/jpeg",
+			Width:     640,
+			Height:    480,
+			FrameNum:  1,
+			Timestamp: time.Now(),
+		}
+
+		err = session.SendFrame(ctx, frame)
+		require.NoError(t, err)
+
+		// Give pipeline time to process
+		time.Sleep(50 * time.Millisecond)
+	})
+
+	t.Run("returns error for nil frame", func(t *testing.T) {
+		provider := mock.NewStreamingProvider("mock-provider", "mock-model", false)
+		session, err := NewDuplexSession(ctx, &DuplexSessionConfig{
+			Provider:        provider,
+			Config:          &providers.StreamingInputConfig{},
+			PipelineBuilder: testPipelineBuilder,
+		})
+		require.NoError(t, err)
+		defer session.Close()
+
+		err = session.SendFrame(ctx, nil)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "frame data is required")
+	})
+
+	t.Run("returns error for empty frame data", func(t *testing.T) {
+		provider := mock.NewStreamingProvider("mock-provider", "mock-model", false)
+		session, err := NewDuplexSession(ctx, &DuplexSessionConfig{
+			Provider:        provider,
+			Config:          &providers.StreamingInputConfig{},
+			PipelineBuilder: testPipelineBuilder,
+		})
+		require.NoError(t, err)
+		defer session.Close()
+
+		frame := &ImageFrame{
+			Data:     []byte{},
+			MIMEType: "image/jpeg",
+		}
+
+		err = session.SendFrame(ctx, frame)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "frame data is required")
+	})
+
+	t.Run("returns error when session closed", func(t *testing.T) {
+		provider := mock.NewStreamingProvider("mock-provider", "mock-model", false)
+		session, err := NewDuplexSession(ctx, &DuplexSessionConfig{
+			Provider:        provider,
+			Config:          &providers.StreamingInputConfig{},
+			PipelineBuilder: testPipelineBuilder,
+		})
+		require.NoError(t, err)
+
+		session.Close()
+
+		frame := &ImageFrame{
+			Data:     []byte{0xFF, 0xD8},
+			MIMEType: "image/jpeg",
+		}
+		err = session.SendFrame(ctx, frame)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "session is closed")
+	})
+}
+
+func TestDuplexSession_SendVideoChunk(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("sends video chunk successfully", func(t *testing.T) {
+		provider := mock.NewStreamingProvider("mock-provider", "mock-model", false)
+		session, err := NewDuplexSession(ctx, &DuplexSessionConfig{
+			Provider:        provider,
+			Config:          &providers.StreamingInputConfig{},
+			PipelineBuilder: testPipelineBuilder,
+		})
+		require.NoError(t, err)
+		defer session.Close()
+
+		chunk := &VideoChunk{
+			Data:       []byte{0x00, 0x00, 0x00, 0x01}, // NAL unit start
+			MIMEType:   "video/h264",
+			Width:      1920,
+			Height:     1080,
+			ChunkIndex: 0,
+			IsKeyFrame: true,
+			Timestamp:  time.Now(),
+			Duration:   33 * time.Millisecond,
+		}
+
+		err = session.SendVideoChunk(ctx, chunk)
+		require.NoError(t, err)
+
+		// Give pipeline time to process
+		time.Sleep(50 * time.Millisecond)
+	})
+
+	t.Run("returns error for nil chunk", func(t *testing.T) {
+		provider := mock.NewStreamingProvider("mock-provider", "mock-model", false)
+		session, err := NewDuplexSession(ctx, &DuplexSessionConfig{
+			Provider:        provider,
+			Config:          &providers.StreamingInputConfig{},
+			PipelineBuilder: testPipelineBuilder,
+		})
+		require.NoError(t, err)
+		defer session.Close()
+
+		err = session.SendVideoChunk(ctx, nil)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "video chunk data is required")
+	})
+
+	t.Run("returns error for empty chunk data", func(t *testing.T) {
+		provider := mock.NewStreamingProvider("mock-provider", "mock-model", false)
+		session, err := NewDuplexSession(ctx, &DuplexSessionConfig{
+			Provider:        provider,
+			Config:          &providers.StreamingInputConfig{},
+			PipelineBuilder: testPipelineBuilder,
+		})
+		require.NoError(t, err)
+		defer session.Close()
+
+		chunk := &VideoChunk{
+			Data:     []byte{},
+			MIMEType: "video/h264",
+		}
+
+		err = session.SendVideoChunk(ctx, chunk)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "video chunk data is required")
+	})
+
+	t.Run("returns error when session closed", func(t *testing.T) {
+		provider := mock.NewStreamingProvider("mock-provider", "mock-model", false)
+		session, err := NewDuplexSession(ctx, &DuplexSessionConfig{
+			Provider:        provider,
+			Config:          &providers.StreamingInputConfig{},
+			PipelineBuilder: testPipelineBuilder,
+		})
+		require.NoError(t, err)
+
+		session.Close()
+
+		chunk := &VideoChunk{
+			Data:     []byte{0x00, 0x00, 0x00, 0x01},
+			MIMEType: "video/h264",
+		}
+		err = session.SendVideoChunk(ctx, chunk)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "session is closed")
+	})
+}
+
 // mockErrorStore is a test helper that returns errors for specific operations
 type mockErrorStore struct {
 	statestore.Store

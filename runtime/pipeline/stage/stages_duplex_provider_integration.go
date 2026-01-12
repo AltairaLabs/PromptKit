@@ -500,10 +500,14 @@ func (s *DuplexProviderStage) sendElementToSession(ctx context.Context, elem *St
 		}
 	}
 
-	// Process audio/text content BEFORE handling EndOfStream
+	// Process media/text content BEFORE handling EndOfStream
 	// This ensures content in the final element is sent before signaling end of input
 	if elem.Audio != nil && len(elem.Audio.Samples) > 0 {
 		s.sendAudioElement(ctx, elem)
+	} else if elem.Video != nil && len(elem.Video.Data) > 0 {
+		s.sendVideoElement(ctx, elem)
+	} else if elem.Image != nil && len(elem.Image.Data) > 0 {
+		s.sendImageElement(ctx, elem)
 	} else if elem.Text != nil && *elem.Text != "" {
 		s.sendTextElement(ctx, elem)
 	}
@@ -620,6 +624,60 @@ func (s *DuplexProviderStage) sendAudioElement(ctx context.Context, elem *Stream
 			IsFinal: false, // Individual chunks are not final
 		})
 		s.inputChunkIndex++
+	}
+}
+
+// sendVideoElement sends a video element to the session.
+// Video frames/chunks are sent with high priority for low-latency streaming.
+func (s *DuplexProviderStage) sendVideoElement(ctx context.Context, elem *StreamElement) {
+	logger.Debug("DuplexProviderStage: forwarding video to session",
+		"bytes", len(elem.Video.Data),
+		"mime_type", elem.Video.MIMEType,
+		"is_key_frame", elem.Video.IsKeyFrame,
+		"frame_num", elem.Video.FrameNum,
+	)
+
+	mediaChunk := &types.MediaChunk{
+		Data:      elem.Video.Data,
+		Timestamp: elem.Video.Timestamp,
+		IsLast:    false,
+		Metadata: map[string]string{
+			"mime_type":    elem.Video.MIMEType,
+			"is_key_frame": fmt.Sprintf("%v", elem.Video.IsKeyFrame),
+		},
+	}
+
+	if err := s.session.SendChunk(ctx, mediaChunk); err != nil {
+		logger.Error("DuplexProviderStage: failed to send video chunk to session", "error", err)
+	}
+}
+
+// sendImageElement sends an image element to the session.
+// Image frames are sent for realtime vision scenarios (webcam, screen share).
+func (s *DuplexProviderStage) sendImageElement(ctx context.Context, elem *StreamElement) {
+	logger.Debug("DuplexProviderStage: forwarding image to session",
+		"bytes", len(elem.Image.Data),
+		"mime_type", elem.Image.MIMEType,
+		"frame_num", elem.Image.FrameNum,
+	)
+
+	// Use current time if no timestamp set
+	timestamp := elem.Image.Timestamp
+	if timestamp.IsZero() {
+		timestamp = time.Now()
+	}
+
+	mediaChunk := &types.MediaChunk{
+		Data:      elem.Image.Data,
+		Timestamp: timestamp,
+		IsLast:    false,
+		Metadata: map[string]string{
+			"mime_type": elem.Image.MIMEType,
+		},
+	}
+
+	if err := s.session.SendChunk(ctx, mediaChunk); err != nil {
+		logger.Error("DuplexProviderStage: failed to send image to session", "error", err)
 	}
 }
 

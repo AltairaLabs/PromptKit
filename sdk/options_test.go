@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 )
 
@@ -382,3 +383,97 @@ func (m *mockTurnDetector) IsUserSpeaking() bool {
 }
 
 func (m *mockTurnDetector) Reset() {}
+
+func TestWithImagePreprocessing(t *testing.T) {
+	t.Run("with custom config", func(t *testing.T) {
+		cfg := &stage.ImagePreprocessConfig{
+			Resize: stage.ImageResizeStageConfig{
+				MaxWidth:  1024,
+				MaxHeight: 768,
+				Quality:   90,
+			},
+			EnableResize: true,
+		}
+
+		opt := WithImagePreprocessing(cfg)
+		assert.NotNil(t, opt)
+
+		c := &config{}
+		err := opt(c)
+		assert.NoError(t, err)
+		assert.NotNil(t, c.imagePreprocessConfig)
+		assert.Equal(t, 1024, c.imagePreprocessConfig.Resize.MaxWidth)
+		assert.Equal(t, 768, c.imagePreprocessConfig.Resize.MaxHeight)
+		assert.Equal(t, 90, c.imagePreprocessConfig.Resize.Quality)
+	})
+
+	t.Run("with nil config uses defaults", func(t *testing.T) {
+		opt := WithImagePreprocessing(nil)
+		assert.NotNil(t, opt)
+
+		c := &config{}
+		err := opt(c)
+		assert.NoError(t, err)
+		assert.NotNil(t, c.imagePreprocessConfig)
+	})
+}
+
+func TestWithAutoResize(t *testing.T) {
+	opt := WithAutoResize(1280, 720)
+	assert.NotNil(t, opt)
+
+	c := &config{}
+	err := opt(c)
+	assert.NoError(t, err)
+	assert.NotNil(t, c.imagePreprocessConfig)
+	assert.Equal(t, 1280, c.imagePreprocessConfig.Resize.MaxWidth)
+	assert.Equal(t, 720, c.imagePreprocessConfig.Resize.MaxHeight)
+}
+
+func TestDefaultVideoStreamConfig(t *testing.T) {
+	cfg := DefaultVideoStreamConfig()
+	assert.NotNil(t, cfg)
+	assert.Equal(t, 1.0, cfg.TargetFPS)
+	assert.Equal(t, 0, cfg.MaxWidth)
+	assert.Equal(t, 0, cfg.MaxHeight)
+	assert.Equal(t, 85, cfg.Quality)
+	assert.True(t, cfg.EnableResize)
+}
+
+func TestWithStreamingVideo(t *testing.T) {
+	t.Run("with custom config", func(t *testing.T) {
+		cfg := &VideoStreamConfig{
+			TargetFPS:    2.5,
+			MaxWidth:     1920,
+			MaxHeight:    1080,
+			Quality:      75,
+			EnableResize: false,
+		}
+
+		opt := WithStreamingVideo(cfg)
+		assert.NotNil(t, opt)
+
+		c := &config{}
+		err := opt(c)
+		assert.NoError(t, err)
+		assert.NotNil(t, c.videoStreamConfig)
+		assert.Equal(t, 2.5, c.videoStreamConfig.TargetFPS)
+		assert.Equal(t, 1920, c.videoStreamConfig.MaxWidth)
+		assert.Equal(t, 1080, c.videoStreamConfig.MaxHeight)
+		assert.Equal(t, 75, c.videoStreamConfig.Quality)
+		assert.False(t, c.videoStreamConfig.EnableResize)
+	})
+
+	t.Run("with nil config uses defaults", func(t *testing.T) {
+		opt := WithStreamingVideo(nil)
+		assert.NotNil(t, opt)
+
+		c := &config{}
+		err := opt(c)
+		assert.NoError(t, err)
+		assert.NotNil(t, c.videoStreamConfig)
+		assert.Equal(t, 1.0, c.videoStreamConfig.TargetFPS)
+		assert.Equal(t, 85, c.videoStreamConfig.Quality)
+		assert.True(t, c.videoStreamConfig.EnableResize)
+	})
+}

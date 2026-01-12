@@ -52,6 +52,14 @@ type DuplexSession interface {
 	// SendText is a convenience method for sending text directly.
 	SendText(ctx context.Context, text string) error
 
+	// SendFrame sends an image frame to the session for realtime video scenarios.
+	// This is a convenience method that wraps SendChunk with proper image formatting.
+	SendFrame(ctx context.Context, frame *ImageFrame) error
+
+	// SendVideoChunk sends a video chunk to the session for encoded video streaming.
+	// This is a convenience method that wraps SendChunk with proper video formatting.
+	SendVideoChunk(ctx context.Context, chunk *VideoChunk) error
+
 	// Response returns a receive-only channel for streaming responses.
 	// The channel emits StreamChunks containing LLM responses (text, media, tool calls, etc).
 	Response() <-chan providers.StreamChunk
