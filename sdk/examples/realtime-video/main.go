@@ -57,7 +57,7 @@ func main() {
 		"./realtime-video.pack.json",
 		"vision-stream",
 		sdk.WithAPIKey(apiKey),
-		sdk.WithModel("gemini-2.0-flash-exp"),
+		sdk.WithModel("gemini-2.5-flash-preview-native-audio-dialog"),
 		// Enable bidirectional streaming session with the provider
 		sdk.WithStreamingConfig(&providers.StreamingInputConfig{
 			Config: types.StreamingMediaConfig{
@@ -105,6 +105,16 @@ func main() {
 	// Simulate sending frames (in a real app, these would come from a webcam)
 	fmt.Println("Simulating frame capture and sending...")
 	fmt.Println()
+
+	// First, send a text prompt to initialize the conversation
+	fmt.Println("Initializing vision analysis...")
+	err = conv.SendText(ctx, "I'm going to send you some images. Please describe each one as you receive it.")
+	if err != nil {
+		log.Printf("Failed to send initial text: %v", err)
+	}
+
+	// Give the model time to process and respond
+	time.Sleep(2 * time.Second)
 
 	// Send a few simulated frames
 	for i := 1; i <= 3; i++ {

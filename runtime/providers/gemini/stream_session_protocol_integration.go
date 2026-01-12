@@ -351,7 +351,13 @@ func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool, cos
 	}
 }
 
-// buildClientMessage builds a realtime input message with media chunk
+// buildClientMessage builds a realtime input message with media chunk.
+// For images/video, uses the format from the TypeScript SDK:
+//
+//	session.sendRealtimeInput({ media: { data: base64Data, mimeType: 'image/jpeg' } })
+//
+// Which translates to wire format: { "realtimeInput": { "media": { "data": "...", "mimeType": "..." } } }
+// For audio, uses the legacy format with media_chunks array.
 func buildClientMessage(chunk types.MediaChunk, _ bool) map[string]interface{} {
 	// Determine MIME type from metadata or default to audio/pcm
 	mimeType := audioPCMMime
@@ -365,26 +371,35 @@ func buildClientMessage(chunk types.MediaChunk, _ bool) map[string]interface{} {
 
 	// Handle different media types
 	if strings.HasPrefix(mimeType, "image/") || strings.HasPrefix(mimeType, "video/") {
-		// For images/video, data should already be in appropriate format
-		// Base64 encode raw bytes
+		// For images/video, use the format from TypeScript SDK:
+		// sendRealtimeInput({ media: { data: base64Data, mimeType: 'image/jpeg' } })
 		base64Data = base64.StdEncoding.EncodeToString(chunk.Data)
-	} else {
-		// For audio, use PCM encoder
-		encoder := NewAudioEncoder()
-		var err error
-		base64Data, err = encoder.EncodePCM(chunk.Data)
-		if err != nil {
-			// If encoding fails, use empty string (should not happen with valid PCM data)
-			base64Data = ""
+
+		// Use camelCase keys to match the TypeScript SDK / protobuf JSON encoding
+		return map[string]interface{}{
+			"realtimeInput": map[string]interface{}{
+				"media": map[string]interface{}{
+					"data":     base64Data,
+					"mimeType": mimeType,
+				},
+			},
 		}
-		mimeType = audioPCMMime
+	}
+
+	// For audio, use PCM encoder with legacy format
+	encoder := NewAudioEncoder()
+	var err error
+	base64Data, err = encoder.EncodePCM(chunk.Data)
+	if err != nil {
+		// If encoding fails, use empty string (should not happen with valid PCM data)
+		base64Data = ""
 	}
 
 	return map[string]interface{}{
 		"realtime_input": map[string]interface{}{
 			"media_chunks": []map[string]interface{}{
 				{
-					"mime_type": mimeType,
+					"mime_type": audioPCMMime,
 					"data":      base64Data,
 				},
 			},
