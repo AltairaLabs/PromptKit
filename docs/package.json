@@ -12,7 +12,7 @@
   "dependencies": {
     "@astrojs/mdx": "^4.3.13",
     "@astrojs/sitemap": "^3.6.1",
-    "@astrojs/starlight": "^0.37.1",
+    "@astrojs/starlight": "^0.37.2",
     "astro": "^5.16.8",
     "astro-d2": "^0.8.1",
     "mermaid": "^11.12.2",
