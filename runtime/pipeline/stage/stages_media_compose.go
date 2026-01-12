@@ -87,11 +87,17 @@ func (s *MediaComposeStage) Process(
 	input <-chan StreamElement,
 	output chan<- StreamElement,
 ) error {
-	defer close(output)
-
 	// Start timeout checker
 	timeoutDone := make(chan struct{})
-	go s.checkTimeouts(ctx, output, timeoutDone)
+	timeoutExited := make(chan struct{})
+	go s.checkTimeouts(ctx, output, timeoutDone, timeoutExited)
+
+	// Ensure we wait for checkTimeouts to exit before closing output
+	defer func() {
+		close(timeoutDone)
+		<-timeoutExited // Wait for checkTimeouts goroutine to finish
+		close(output)
+	}()
 
 	for elem := range input {
 		// Check if this is a media element with extract metadata
@@ -101,7 +107,6 @@ func (s *MediaComposeStage) Process(
 			select {
 			case output <- elem:
 			case <-ctx.Done():
-				close(timeoutDone)
 				return ctx.Err()
 			}
 			continue
@@ -115,7 +120,6 @@ func (s *MediaComposeStage) Process(
 			select {
 			case output <- elem:
 			case <-ctx.Done():
-				close(timeoutDone)
 				return ctx.Err()
 			}
 			continue
@@ -133,7 +137,6 @@ func (s *MediaComposeStage) Process(
 				select {
 				case output <- errElem:
 				case <-ctx.Done():
-					close(timeoutDone)
 					return ctx.Err()
 				}
 				continue
@@ -146,7 +149,6 @@ func (s *MediaComposeStage) Process(
 			select {
 			case output <- outElem:
 			case <-ctx.Done():
-				close(timeoutDone)
 				return ctx.Err()
 			}
 		}
@@ -175,12 +177,10 @@ func (s *MediaComposeStage) Process(
 		select {
 		case output <- outElem:
 		case <-ctx.Done():
-			close(timeoutDone)
 			return ctx.Err()
 		}
 	}
 
-	close(timeoutDone)
 	return nil
 }
 
@@ -398,7 +398,14 @@ func videoDataToMediaContent(videoData *VideoData) *types.MediaContent {
 }
 
 // checkTimeouts periodically checks for timed-out pending messages.
-func (s *MediaComposeStage) checkTimeouts(ctx context.Context, output chan<- StreamElement, done <-chan struct{}) {
+func (s *MediaComposeStage) checkTimeouts(
+	ctx context.Context,
+	output chan<- StreamElement,
+	done <-chan struct{},
+	exited chan<- struct{},
+) {
+	defer close(exited) // Signal that this goroutine has exited
+
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
