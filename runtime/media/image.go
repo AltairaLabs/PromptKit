@@ -231,26 +231,19 @@ func resizeImageInternal(src image.Image, width, height int) image.Image {
 // encodeImage encodes an image to the specified format.
 func encodeImage(img image.Image, format string, quality int) ([]byte, error) {
 	var buf bytes.Buffer
+	var err error
 
 	switch format {
-	case FormatJPEG, FormatJPG:
-		err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality})
-		if err != nil {
-			return nil, err
-		}
 	case FormatPNG:
-		err := png.Encode(&buf, img)
-		if err != nil {
-			return nil, err
-		}
+		err = png.Encode(&buf, img)
 	default:
-		// Default to JPEG for unknown formats
-		err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality})
-		if err != nil {
-			return nil, err
-		}
+		// JPEG, JPG, or unknown formats default to JPEG
+		err = jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality})
 	}
 
+	if err != nil {
+		return nil, err
+	}
 	return buf.Bytes(), nil
 }
 
