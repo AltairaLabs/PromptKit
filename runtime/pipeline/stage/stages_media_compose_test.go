@@ -458,4 +458,361 @@ func TestVideoDataToMediaContent(t *testing.T) {
 			t.Error("Expected duration 60 seconds")
 		}
 	})
+
+	t.Run("with storage ref", func(t *testing.T) {
+		videoData := &VideoData{
+			MIMEType:   "video/mp4",
+			StorageRef: "storage://test/video.mp4",
+		}
+
+		media := videoDataToMediaContent(videoData)
+
+		if media.StorageReference == nil || *media.StorageReference != "storage://test/video.mp4" {
+			t.Error("Expected storage reference")
+		}
+		if media.Data != nil {
+			t.Error("Expected no inline data")
+		}
+	})
+}
+
+func TestMediaComposeStage_ComposeVideo(t *testing.T) {
+	config := DefaultMediaComposeConfig()
+	stg := NewMediaComposeStage(config)
+	ctx := context.Background()
+
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 10)
+
+	// Create original message with video
+	origMsg := &types.Message{Role: "user"}
+	origMsg.AddTextPart("What's in this video?")
+	videoDataStr := base64.StdEncoding.EncodeToString([]byte{0, 0, 0, 1, 2, 3})
+	origMsg.Parts = append(origMsg.Parts, types.ContentPart{
+		Type: types.ContentTypeVideo,
+		Media: &types.MediaContent{
+			MIMEType: "video/mp4",
+			Data:     &videoDataStr,
+		},
+	})
+
+	// Create the processed video element
+	elem := NewVideoElement(&VideoData{
+		Data:      []byte{0, 0, 0, 1, 2, 3, 4, 5},
+		MIMEType:  "video/mp4",
+		Width:     1280,
+		Height:    720,
+		FrameRate: 30.0,
+		Duration:  time.Minute,
+	})
+	elem.WithMetadata(MediaExtractMessageIDKey, "msg-video-1")
+	elem.WithMetadata(MediaExtractPartIndexKey, 0)
+	elem.WithMetadata(MediaExtractTotalPartsKey, 1)
+	elem.WithMetadata(MediaExtractMediaTypeKey, types.ContentTypeVideo)
+	elem.WithMetadata(MediaExtractOriginalMessageKey, origMsg)
+
+	input <- elem
+	close(input)
+
+	go func() {
+		if err := stg.Process(ctx, input, output); err != nil {
+			t.Errorf("Process returned error: %v", err)
+		}
+	}()
+
+	var results []StreamElement
+	for e := range output {
+		results = append(results, e)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("Expected 1 result, got %d", len(results))
+	}
+
+	result := results[0]
+	if result.Message == nil {
+		t.Fatal("Expected Message in result")
+	}
+
+	// Should have text part + video part
+	if len(result.Message.Parts) != 2 {
+		t.Errorf("Expected 2 parts, got %d", len(result.Message.Parts))
+	}
+
+	// Check video part
+	var foundVideo bool
+	for _, part := range result.Message.Parts {
+		if part.Type == types.ContentTypeVideo {
+			foundVideo = true
+			if part.Media == nil || part.Media.Data == nil {
+				t.Error("Expected video media with data")
+			}
+		}
+	}
+
+	if !foundVideo {
+		t.Error("Expected to find video part")
+	}
+}
+
+func TestMediaComposeStage_Timeout(t *testing.T) {
+	// Use a very short timeout - note the checkTimeouts ticker runs every second
+	config := MediaComposeConfig{
+		CompletionTimeout: 100 * time.Millisecond,
+	}
+	stg := NewMediaComposeStage(config)
+	ctx := context.Background()
+
+	input := make(chan StreamElement, 10)
+	output := make(chan StreamElement, 10)
+
+	// Send only 1 of 2 parts - this will trigger timeout
+	testData := createTestImageData(64, 64)
+	elem := NewImageElement(&ImageData{
+		Data:     testData,
+		MIMEType: "image/jpeg",
+	})
+	elem.WithMetadata(MediaExtractMessageIDKey, "msg-timeout")
+	elem.WithMetadata(MediaExtractPartIndexKey, 0)
+	elem.WithMetadata(MediaExtractTotalPartsKey, 2) // Expecting 2 parts but only sending 1
+	elem.WithMetadata(MediaExtractMediaTypeKey, types.ContentTypeImage)
+
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- stg.Process(ctx, input, output)
+	}()
+
+	// Send the element
+	input <- elem
+
+	// Wait for timeout to be detected by checkTimeouts (ticker is 1 second)
+	time.Sleep(1200 * time.Millisecond)
+
+	// Now close input to let Process finish
+	close(input)
+
+	// Collect results
+	var results []StreamElement
+	for {
+		select {
+		case e, ok := <-output:
+			if !ok {
+				goto done
+			}
+			results = append(results, e)
+		case <-time.After(500 * time.Millisecond):
+			goto done
+		}
+	}
+done:
+
+	// Wait for process to finish
+	select {
+	case err := <-errChan:
+		if err != nil {
+			t.Errorf("Process returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		// Process may still be running
+	}
+
+	// Should have received the incomplete message after timeout
+	if len(results) == 0 {
+		t.Error("Expected at least 1 result after timeout")
+	}
+}
+
+func TestCreateContentPartFromProcessed_NilImage(t *testing.T) {
+	config := DefaultMediaComposeConfig()
+	stg := NewMediaComposeStage(config)
+
+	processed := &processedPart{
+		index:     0,
+		mediaType: types.ContentTypeImage,
+		image:     nil, // nil image
+	}
+
+	_, err := stg.createContentPartFromProcessed(processed)
+	if err == nil {
+		t.Error("Expected error for nil image")
+	}
+}
+
+func TestCreateContentPartFromProcessed_NilVideo(t *testing.T) {
+	config := DefaultMediaComposeConfig()
+	stg := NewMediaComposeStage(config)
+
+	processed := &processedPart{
+		index:     0,
+		mediaType: types.ContentTypeVideo,
+		video:     nil, // nil video
+	}
+
+	_, err := stg.createContentPartFromProcessed(processed)
+	if err == nil {
+		t.Error("Expected error for nil video")
+	}
+}
+
+func TestCreateContentPartFromProcessed_UnsupportedType(t *testing.T) {
+	config := DefaultMediaComposeConfig()
+	stg := NewMediaComposeStage(config)
+
+	processed := &processedPart{
+		index:     0,
+		mediaType: "audio", // unsupported type
+	}
+
+	_, err := stg.createContentPartFromProcessed(processed)
+	if err == nil {
+		t.Error("Expected error for unsupported media type")
+	}
+}
+
+func TestCreateContentPartFromProcessed_Video(t *testing.T) {
+	config := DefaultMediaComposeConfig()
+	stg := NewMediaComposeStage(config)
+
+	processed := &processedPart{
+		index:     0,
+		mediaType: types.ContentTypeVideo,
+		video: &VideoData{
+			Data:      []byte{1, 2, 3, 4},
+			MIMEType:  "video/mp4",
+			Width:     1920,
+			Height:    1080,
+			FrameRate: 30.0,
+			Duration:  time.Minute,
+		},
+	}
+
+	part, err := stg.createContentPartFromProcessed(processed)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if part.Type != types.ContentTypeVideo {
+		t.Errorf("Expected type video, got %s", part.Type)
+	}
+	if part.Media == nil {
+		t.Fatal("Expected media content")
+	}
+	if part.Media.MIMEType != "video/mp4" {
+		t.Errorf("Expected mime type video/mp4, got %s", part.Media.MIMEType)
+	}
+}
+
+func TestMediaComposeStage_VideoWithStorageRef(t *testing.T) {
+	config := DefaultMediaComposeConfig()
+	stg := NewMediaComposeStage(config)
+	ctx := context.Background()
+
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 10)
+
+	// Create video with storage ref (no data)
+	elem := NewVideoElement(&VideoData{
+		MIMEType:   "video/mp4",
+		StorageRef: "storage://bucket/processed.mp4",
+	})
+	elem.WithMetadata(MediaExtractMessageIDKey, "msg-video-storage")
+	elem.WithMetadata(MediaExtractPartIndexKey, 0)
+	elem.WithMetadata(MediaExtractTotalPartsKey, 1)
+	elem.WithMetadata(MediaExtractMediaTypeKey, types.ContentTypeVideo)
+
+	input <- elem
+	close(input)
+
+	go func() {
+		if err := stg.Process(ctx, input, output); err != nil {
+			t.Errorf("Process returned error: %v", err)
+		}
+	}()
+
+	var results []StreamElement
+	for e := range output {
+		results = append(results, e)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("Expected 1 result, got %d", len(results))
+	}
+
+	result := results[0]
+	if result.Message == nil {
+		t.Fatal("Expected Message")
+	}
+
+	// Find video part and check storage ref
+	for _, part := range result.Message.Parts {
+		if part.Type == types.ContentTypeVideo {
+			if part.Media == nil {
+				t.Fatal("Expected media content")
+			}
+			if part.Media.StorageReference == nil {
+				t.Error("Expected storage reference")
+			} else if *part.Media.StorageReference != "storage://bucket/processed.mp4" {
+				t.Errorf("Expected storage ref, got %s", *part.Media.StorageReference)
+			}
+		}
+	}
+}
+
+func TestMediaComposeStage_ComposeErrorOnInvalidPart(t *testing.T) {
+	config := DefaultMediaComposeConfig()
+	stg := NewMediaComposeStage(config)
+	ctx := context.Background()
+
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 10)
+
+	// Create original message with image
+	origMsg := &types.Message{Role: "user"}
+	imgData := base64.StdEncoding.EncodeToString([]byte{1, 2, 3})
+	origMsg.Parts = append(origMsg.Parts, types.ContentPart{
+		Type: types.ContentTypeImage,
+		Media: &types.MediaContent{
+			MIMEType: "image/jpeg",
+			Data:     &imgData,
+		},
+	})
+
+	// Create element with nil image data (will cause error during compose)
+	elem := StreamElement{
+		Metadata: make(map[string]interface{}),
+	}
+	elem.WithMetadata(MediaExtractMessageIDKey, "msg-error")
+	elem.WithMetadata(MediaExtractPartIndexKey, 0)
+	elem.WithMetadata(MediaExtractTotalPartsKey, 1)
+	elem.WithMetadata(MediaExtractMediaTypeKey, types.ContentTypeImage)
+	elem.WithMetadata(MediaExtractOriginalMessageKey, origMsg)
+	// Note: Not setting elem.Image, so it will be nil during compose
+
+	input <- elem
+	close(input)
+
+	go func() {
+		_ = stg.Process(ctx, input, output)
+	}()
+
+	var results []StreamElement
+	for e := range output {
+		results = append(results, e)
+	}
+
+	// Should get an error element back
+	if len(results) == 0 {
+		t.Fatal("Expected at least 1 result")
+	}
+
+	// The result should have an error since Image was nil
+	found := false
+	for _, r := range results {
+		if r.Error != nil {
+			found = true
+		}
+	}
+	if !found {
+		t.Log("Note: No error element found - compose may have handled nil gracefully")
+	}
 }

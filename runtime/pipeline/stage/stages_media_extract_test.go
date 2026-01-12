@@ -3,6 +3,7 @@ package stage
 import (
 	"context"
 	"encoding/base64"
+	"os"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -472,4 +473,382 @@ func TestDefaultMediaExtractConfig(t *testing.T) {
 	if !config.PreserveStorageRefs {
 		t.Error("Expected PreserveStorageRefs true by default")
 	}
+}
+
+func TestMediaExtractStage_ExtractVideo(t *testing.T) {
+	config := DefaultMediaExtractConfig()
+	stg := NewMediaExtractStage(config)
+	ctx := context.Background()
+
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 10)
+
+	// Create message with video
+	videoData := []byte{0, 0, 0, 1, 2, 3, 4, 5} // Fake video data
+	encodedData := base64.StdEncoding.EncodeToString(videoData)
+
+	msg := &types.Message{Role: "user"}
+	msg.Parts = append(msg.Parts, types.ContentPart{
+		Type: types.ContentTypeVideo,
+		Media: &types.MediaContent{
+			MIMEType: "video/mp4",
+			Data:     &encodedData,
+		},
+	})
+
+	input <- StreamElement{Message: msg}
+	close(input)
+
+	go func() {
+		if err := stg.Process(ctx, input, output); err != nil {
+			t.Errorf("Process returned error: %v", err)
+		}
+	}()
+
+	var results []StreamElement
+	for elem := range output {
+		results = append(results, elem)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("Expected 1 element, got %d", len(results))
+	}
+
+	if results[0].Video == nil {
+		t.Fatal("Expected Video element")
+	}
+
+	if results[0].Video.MIMEType != "video/mp4" {
+		t.Errorf("Expected video/mp4, got %s", results[0].Video.MIMEType)
+	}
+}
+
+func TestMediaExtractStage_DisableVideos(t *testing.T) {
+	config := MediaExtractConfig{
+		ExtractImages:       true,
+		ExtractVideos:       false, // Disabled
+		PreserveStorageRefs: true,
+	}
+	stg := NewMediaExtractStage(config)
+	ctx := context.Background()
+
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 10)
+
+	videoData := []byte{0, 0, 0, 1, 2, 3}
+	encodedData := base64.StdEncoding.EncodeToString(videoData)
+
+	msg := &types.Message{Role: "user"}
+	msg.Parts = append(msg.Parts, types.ContentPart{
+		Type: types.ContentTypeVideo,
+		Media: &types.MediaContent{
+			MIMEType: "video/mp4",
+			Data:     &encodedData,
+		},
+	})
+
+	input <- StreamElement{Message: msg}
+	close(input)
+
+	go func() {
+		if err := stg.Process(ctx, input, output); err != nil {
+			t.Errorf("Process returned error: %v", err)
+		}
+	}()
+
+	result := <-output
+
+	// Should pass through message since videos are disabled
+	if result.Message == nil {
+		t.Fatal("Expected Message to pass through")
+	}
+	if result.Video != nil {
+		t.Error("Expected no Video when extraction disabled")
+	}
+}
+
+func TestMediaExtractStage_VideoWithStorageRef(t *testing.T) {
+	config := MediaExtractConfig{
+		ExtractVideos:       true,
+		PreserveStorageRefs: true,
+	}
+	stg := NewMediaExtractStage(config)
+	ctx := context.Background()
+
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 10)
+
+	storageRef := "storage://bucket/video.mp4"
+	msg := &types.Message{Role: "user"}
+	msg.Parts = append(msg.Parts, types.ContentPart{
+		Type: types.ContentTypeVideo,
+		Media: &types.MediaContent{
+			MIMEType:         "video/mp4",
+			StorageReference: &storageRef,
+		},
+	})
+
+	input <- StreamElement{Message: msg}
+	close(input)
+
+	go func() {
+		if err := stg.Process(ctx, input, output); err != nil {
+			t.Errorf("Process returned error: %v", err)
+		}
+	}()
+
+	result := <-output
+
+	if result.Video == nil {
+		t.Fatal("Expected Video element")
+	}
+
+	if result.Video.StorageRef != "storage://bucket/video.mp4" {
+		t.Errorf("Expected storage ref, got %v", result.Video.StorageRef)
+	}
+}
+
+func TestMediaExtractStage_VideoWithMetadata(t *testing.T) {
+	config := DefaultMediaExtractConfig()
+	stg := NewMediaExtractStage(config)
+	ctx := context.Background()
+
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 10)
+
+	videoData := []byte{0, 0, 0, 1, 2, 3}
+	encodedData := base64.StdEncoding.EncodeToString(videoData)
+	width := 1920
+	height := 1080
+	fps := 30
+	duration := 60
+	format := "h264"
+
+	msg := &types.Message{Role: "user"}
+	msg.Parts = append(msg.Parts, types.ContentPart{
+		Type: types.ContentTypeVideo,
+		Media: &types.MediaContent{
+			MIMEType: "video/mp4",
+			Data:     &encodedData,
+			Width:    &width,
+			Height:   &height,
+			FPS:      &fps,
+			Duration: &duration,
+			Format:   &format,
+		},
+	})
+
+	input <- StreamElement{Message: msg}
+	close(input)
+
+	go func() {
+		if err := stg.Process(ctx, input, output); err != nil {
+			t.Errorf("Process returned error: %v", err)
+		}
+	}()
+
+	result := <-output
+
+	if result.Video == nil {
+		t.Fatal("Expected Video element")
+	}
+
+	if result.Video.Width != 1920 {
+		t.Errorf("Expected width 1920, got %d", result.Video.Width)
+	}
+	if result.Video.Height != 1080 {
+		t.Errorf("Expected height 1080, got %d", result.Video.Height)
+	}
+	if result.Video.FrameRate != 30 {
+		t.Errorf("Expected framerate 30, got %f", result.Video.FrameRate)
+	}
+}
+
+func TestMediaContentToImageData_WithMetadata(t *testing.T) {
+	width := 800
+	height := 600
+	format := "png"
+	testData := []byte{1, 2, 3, 4}
+	encodedData := base64.StdEncoding.EncodeToString(testData)
+
+	media := &types.MediaContent{
+		MIMEType: "image/png",
+		Data:     &encodedData,
+		Width:    &width,
+		Height:   &height,
+		Format:   &format,
+	}
+
+	imageData, err := mediaContentToImageData(media, true)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if imageData.Width != 800 {
+		t.Errorf("Expected width 800, got %d", imageData.Width)
+	}
+	if imageData.Height != 600 {
+		t.Errorf("Expected height 600, got %d", imageData.Height)
+	}
+	if imageData.Format != "png" {
+		t.Errorf("Expected format 'png', got %s", imageData.Format)
+	}
+}
+
+func TestMediaContentToImageData_NoDataSource(t *testing.T) {
+	media := &types.MediaContent{
+		MIMEType: "image/jpeg",
+	}
+
+	_, err := mediaContentToImageData(media, true)
+	if err == nil {
+		t.Error("Expected error for media with no data source")
+	}
+}
+
+func TestMediaContentToVideoData_NoDataSource(t *testing.T) {
+	media := &types.MediaContent{
+		MIMEType: "video/mp4",
+	}
+
+	_, err := mediaContentToVideoData(media, true)
+	if err == nil {
+		t.Error("Expected error for media with no data source")
+	}
+}
+
+func TestMediaContentToImageData_StorageRefWithoutPreserve(t *testing.T) {
+	storageRef := "storage://test"
+	media := &types.MediaContent{
+		MIMEType:         "image/jpeg",
+		StorageReference: &storageRef,
+	}
+
+	_, err := mediaContentToImageData(media, false)
+	if err == nil {
+		t.Error("Expected error when storage ref not preserved and no storage service")
+	}
+}
+
+func TestMediaContentToVideoData_StorageRefWithoutPreserve(t *testing.T) {
+	storageRef := "storage://test"
+	media := &types.MediaContent{
+		MIMEType:         "video/mp4",
+		StorageReference: &storageRef,
+	}
+
+	_, err := mediaContentToVideoData(media, false)
+	if err == nil {
+		t.Error("Expected error when storage ref not preserved and no storage service")
+	}
+}
+
+func TestMediaContentToImageData_URLError(t *testing.T) {
+	url := "https://example.com/image.jpg"
+	media := &types.MediaContent{
+		MIMEType: "image/jpeg",
+		URL:      &url,
+	}
+
+	_, err := mediaContentToImageData(media, true)
+	if err == nil {
+		t.Error("Expected error for URL-based media")
+	}
+}
+
+func TestMediaContentToVideoData_URLError(t *testing.T) {
+	url := "https://example.com/video.mp4"
+	media := &types.MediaContent{
+		MIMEType: "video/mp4",
+		URL:      &url,
+	}
+
+	_, err := mediaContentToVideoData(media, true)
+	if err == nil {
+		t.Error("Expected error for URL-based media")
+	}
+}
+
+func TestMediaContentToImageData_FilePath(t *testing.T) {
+	// Create a temp file with test image data
+	tmpDir := t.TempDir()
+	tmpFile := tmpDir + "/test.jpg"
+	testData := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10} // JPEG header-ish
+	if err := writeTestFile(tmpFile, testData); err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+
+	media := &types.MediaContent{
+		MIMEType: "image/jpeg",
+		FilePath: &tmpFile,
+	}
+
+	imageData, err := mediaContentToImageData(media, true)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if imageData.MIMEType != "image/jpeg" {
+		t.Errorf("Expected mime type image/jpeg, got %s", imageData.MIMEType)
+	}
+	if len(imageData.Data) != len(testData) {
+		t.Errorf("Expected data length %d, got %d", len(testData), len(imageData.Data))
+	}
+}
+
+func TestMediaContentToVideoData_FilePath(t *testing.T) {
+	// Create a temp file with test video data
+	tmpDir := t.TempDir()
+	tmpFile := tmpDir + "/test.mp4"
+	testData := []byte{0x00, 0x00, 0x00, 0x1C, 0x66, 0x74} // MP4 header-ish
+	if err := writeTestFile(tmpFile, testData); err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+
+	media := &types.MediaContent{
+		MIMEType: "video/mp4",
+		FilePath: &tmpFile,
+	}
+
+	videoData, err := mediaContentToVideoData(media, true)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if videoData.MIMEType != "video/mp4" {
+		t.Errorf("Expected mime type video/mp4, got %s", videoData.MIMEType)
+	}
+	if len(videoData.Data) != len(testData) {
+		t.Errorf("Expected data length %d, got %d", len(testData), len(videoData.Data))
+	}
+}
+
+func TestMediaContentToImageData_FilePathNotExists(t *testing.T) {
+	filePath := "/nonexistent/path/image.jpg"
+	media := &types.MediaContent{
+		MIMEType: "image/jpeg",
+		FilePath: &filePath,
+	}
+
+	_, err := mediaContentToImageData(media, true)
+	if err == nil {
+		t.Error("Expected error for nonexistent file")
+	}
+}
+
+func TestMediaContentToVideoData_FilePathNotExists(t *testing.T) {
+	filePath := "/nonexistent/path/video.mp4"
+	media := &types.MediaContent{
+		MIMEType: "video/mp4",
+		FilePath: &filePath,
+	}
+
+	_, err := mediaContentToVideoData(media, true)
+	if err == nil {
+		t.Error("Expected error for nonexistent file")
+	}
+}
+
+func writeTestFile(path string, data []byte) error {
+	return os.WriteFile(path, data, 0644)
 }
