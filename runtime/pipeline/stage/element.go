@@ -2,10 +2,66 @@
 package stage
 
 import (
+	"context"
+	"encoding/base64"
+	"fmt"
+	"io"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
+
+// loadExternalizedData loads data from storage using the given reference.
+// Returns nil if ref is empty. This is a helper to reduce duplication in Load methods.
+func loadExternalizedData(
+	ctx context.Context,
+	store storage.MediaStorageService,
+	ref storage.Reference,
+	mediaType string,
+) ([]byte, error) {
+	content, err := store.RetrieveMedia(ctx, ref)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load externalized %s: %w", mediaType, err)
+	}
+
+	reader, err := content.ReadData()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get %s reader: %w", mediaType, err)
+	}
+	defer reader.Close()
+
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s data: %w", mediaType, err)
+	}
+
+	return data, nil
+}
+
+// externalizeData stores data to external storage and returns the reference.
+// This is a helper to reduce duplication in Externalize methods.
+func externalizeData(
+	ctx context.Context,
+	store storage.MediaStorageService,
+	data []byte,
+	mimeType string,
+	metadata *storage.MediaMetadata,
+	mediaType string,
+) (storage.Reference, error) {
+	content := &types.MediaContent{
+		MIMEType: mimeType,
+	}
+	dataStr := base64.StdEncoding.EncodeToString(data)
+	content.Data = &dataStr
+
+	ref, err := store.StoreMedia(ctx, content, metadata)
+	if err != nil {
+		return "", fmt.Errorf("failed to externalize %s: %w", mediaType, err)
+	}
+
+	return ref, nil
+}
 
 // StreamElement is the unit of data flowing through the pipeline.
 // It can carry different types of content and supports backpressure.
@@ -93,6 +149,7 @@ func (af AudioFormat) String() string {
 }
 
 // VideoData carries video frame data with metadata.
+// Supports externalization to avoid holding large data in memory.
 type VideoData struct {
 	Data       []byte        // Raw video frame data or encoded video segment
 	MIMEType   string        // MIME type (e.g., "video/mp4", "video/webm")
@@ -103,15 +160,124 @@ type VideoData struct {
 	Timestamp  time.Time     // Timestamp of this frame
 	Format     string        // Format identifier (e.g., "h264", "vp8")
 	IsKeyFrame bool          // True if this is a key frame
+
+	// StorageRef holds a reference to externalized data (when Data is nil).
+	// Use IsExternalized() to check, Load() to retrieve data.
+	StorageRef storage.Reference
+}
+
+// IsExternalized returns true if the video data has been externalized to storage.
+func (d *VideoData) IsExternalized() bool {
+	return d.StorageRef != "" && len(d.Data) == 0
+}
+
+// Load retrieves externalized video data from storage.
+func (d *VideoData) Load(ctx context.Context, store storage.MediaStorageService) error {
+	if !d.IsExternalized() {
+		return nil
+	}
+
+	data, err := loadExternalizedData(ctx, store, d.StorageRef, "video")
+	if err != nil {
+		return err
+	}
+
+	d.Data = data
+	return nil
+}
+
+// Externalize stores the video data to external storage and clears in-memory data.
+func (d *VideoData) Externalize(
+	ctx context.Context,
+	store storage.MediaStorageService,
+	metadata *storage.MediaMetadata,
+) error {
+	if len(d.Data) == 0 {
+		return nil
+	}
+
+	ref, err := externalizeData(ctx, store, d.Data, d.MIMEType, metadata, "video")
+	if err != nil {
+		return err
+	}
+
+	d.StorageRef = ref
+	d.Data = nil
+	return nil
+}
+
+// EnsureLoaded ensures the video data is loaded into memory.
+func (d *VideoData) EnsureLoaded(ctx context.Context, store storage.MediaStorageService) ([]byte, error) {
+	if err := d.Load(ctx, store); err != nil {
+		return nil, err
+	}
+	return d.Data, nil
 }
 
 // ImageData carries image data with metadata.
+// Supports externalization to avoid holding large data in memory.
 type ImageData struct {
 	Data     []byte // Raw image data (encoded as JPEG, PNG, etc.)
 	MIMEType string // MIME type (e.g., "image/jpeg", "image/png")
 	Width    int    // Image width in pixels
 	Height   int    // Image height in pixels
 	Format   string // Format identifier (e.g., "jpeg", "png", "webp")
+
+	// StorageRef holds a reference to externalized data (when Data is nil).
+	// Use IsExternalized() to check, Load() to retrieve data.
+	StorageRef storage.Reference
+}
+
+// IsExternalized returns true if the image data has been externalized to storage.
+// When externalized, Data is nil and StorageRef contains the storage reference.
+func (d *ImageData) IsExternalized() bool {
+	return d.StorageRef != "" && len(d.Data) == 0
+}
+
+// Load retrieves externalized image data from storage.
+// Returns immediately if data is already in memory.
+func (d *ImageData) Load(ctx context.Context, store storage.MediaStorageService) error {
+	if !d.IsExternalized() {
+		return nil // Already loaded or never externalized
+	}
+
+	data, err := loadExternalizedData(ctx, store, d.StorageRef, "image")
+	if err != nil {
+		return err
+	}
+
+	d.Data = data
+	return nil
+}
+
+// Externalize stores the image data to external storage and clears in-memory data.
+// The StorageRef is updated to point to the stored data.
+func (d *ImageData) Externalize(
+	ctx context.Context,
+	store storage.MediaStorageService,
+	metadata *storage.MediaMetadata,
+) error {
+	if len(d.Data) == 0 {
+		return nil // Nothing to externalize
+	}
+
+	ref, err := externalizeData(ctx, store, d.Data, d.MIMEType, metadata, "image")
+	if err != nil {
+		return err
+	}
+
+	d.StorageRef = ref
+	d.Data = nil
+	return nil
+}
+
+// EnsureLoaded ensures the image data is loaded into memory.
+// This is a convenience method that calls Load if externalized.
+func (d *ImageData) EnsureLoaded(ctx context.Context, store storage.MediaStorageService) ([]byte, error) {
+	if err := d.Load(ctx, store); err != nil {
+		return nil, err
+	}
+	return d.Data, nil
 }
 
 // NewTextElement creates a new StreamElement with text content.

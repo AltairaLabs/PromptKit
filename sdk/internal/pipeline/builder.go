@@ -105,6 +105,10 @@ type Config struct {
 
 	// InterruptionHandler shared between AudioTurnStage and TTSStage for barge-in support
 	InterruptionHandler *audio.InterruptionHandler
+
+	// ImagePreprocessConfig configures image preprocessing (resizing, optimization)
+	// When non-nil, ImagePreprocessStage is added before the provider stage
+	ImagePreprocessConfig *stage.ImagePreprocessConfig
 }
 
 // Build creates a stage-based streaming pipeline.
@@ -178,6 +182,11 @@ func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 	if cfg.TokenBudget > 0 {
 		contextPolicy := buildContextBuilderPolicy(cfg)
 		stages = append(stages, stage.NewContextBuilderStage(contextPolicy))
+	}
+
+	// 4.6 Image preprocessing stage - resize/optimize images before provider
+	if cfg.ImagePreprocessConfig != nil {
+		stages = append(stages, stage.NewImagePreprocessStage(*cfg.ImagePreprocessConfig))
 	}
 
 	// 5. Provider stage - LLM calls with streaming and tool support

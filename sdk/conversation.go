@@ -244,21 +244,22 @@ func (c *Conversation) buildPipelineWithParams(
 
 	// Build pipeline configuration
 	pipelineCfg := &intpipeline.Config{
-		Provider:            c.config.provider,
-		ToolRegistry:        toolRegistry,
-		PromptRegistry:      c.promptRegistry,
-		TaskType:            c.promptName,
-		Variables:           vars,
-		VariableProviders:   c.config.variableProviders, // Pass to pipeline for dynamic resolution
-		MaxTokens:           defaultMaxTokens,
-		Temperature:         defaultTemperature,
-		StateStore:          store,
-		ConversationID:      conversationID,
-		StreamInputProvider: streamProvider, // For duplex mode: provider creates session lazily
-		StreamInputConfig:   streamConfig,   // Base config for session
-		TokenBudget:         c.config.tokenBudget,
-		TruncationStrategy:  c.config.truncationStrategy,
-		RelevanceConfig:     c.buildRelevanceConfig(),
+		Provider:              c.config.provider,
+		ToolRegistry:          toolRegistry,
+		PromptRegistry:        c.promptRegistry,
+		TaskType:              c.promptName,
+		Variables:             vars,
+		VariableProviders:     c.config.variableProviders, // Pass to pipeline for dynamic resolution
+		MaxTokens:             defaultMaxTokens,
+		Temperature:           defaultTemperature,
+		StateStore:            store,
+		ConversationID:        conversationID,
+		StreamInputProvider:   streamProvider, // For duplex mode: provider creates session lazily
+		StreamInputConfig:     streamConfig,   // Base config for session
+		TokenBudget:           c.config.tokenBudget,
+		TruncationStrategy:    c.config.truncationStrategy,
+		RelevanceConfig:       c.buildRelevanceConfig(),
+		ImagePreprocessConfig: c.config.imagePreprocessConfig,
 	}
 
 	// Apply parameters from prompt if available
@@ -303,21 +304,22 @@ func (c *Conversation) buildStreamPipelineWithParams(
 
 	// Build pipeline configuration
 	pipelineCfg := &intpipeline.Config{
-		Provider:            c.config.provider,
-		ToolRegistry:        toolRegistry,
-		PromptRegistry:      c.promptRegistry,
-		TaskType:            c.promptName,
-		Variables:           vars,
-		VariableProviders:   c.config.variableProviders,
-		MaxTokens:           defaultMaxTokens,
-		Temperature:         defaultTemperature,
-		StateStore:          store,
-		ConversationID:      conversationID,
-		StreamInputProvider: streamProvider, // For duplex mode: provider creates session lazily
-		StreamInputConfig:   streamConfig,   // Base config for session
-		TokenBudget:         c.config.tokenBudget,
-		TruncationStrategy:  c.config.truncationStrategy,
-		RelevanceConfig:     c.buildRelevanceConfig(),
+		Provider:              c.config.provider,
+		ToolRegistry:          toolRegistry,
+		PromptRegistry:        c.promptRegistry,
+		TaskType:              c.promptName,
+		Variables:             vars,
+		VariableProviders:     c.config.variableProviders,
+		MaxTokens:             defaultMaxTokens,
+		Temperature:           defaultTemperature,
+		StateStore:            store,
+		ConversationID:        conversationID,
+		StreamInputProvider:   streamProvider, // For duplex mode: provider creates session lazily
+		StreamInputConfig:     streamConfig,   // Base config for session
+		TokenBudget:           c.config.tokenBudget,
+		TruncationStrategy:    c.config.truncationStrategy,
+		RelevanceConfig:       c.buildRelevanceConfig(),
+		ImagePreprocessConfig: c.config.imagePreprocessConfig,
 	}
 
 	// Apply parameters from prompt if available

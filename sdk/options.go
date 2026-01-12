@@ -84,6 +84,10 @@ type config struct {
 
 	// STT service for VAD mode
 	sttService stt.Service
+
+	// Image preprocessing configuration
+	// When set, images are preprocessed (resized, optimized) before sending to provider
+	imagePreprocessConfig *stage.ImagePreprocessConfig
 }
 
 // Option configures a Conversation.
@@ -712,6 +716,58 @@ func (v *VADModeConfig) toTTSStageConfig(ih *audio.InterruptionHandler) stage.TT
 	}
 	cfg.InterruptionHandler = ih
 	return cfg
+}
+
+// WithImagePreprocessing enables automatic image preprocessing before sending to the LLM.
+// This resizes large images to fit within provider limits, reducing token usage and preventing errors.
+//
+// The default configuration resizes images to max 1024x1024 with 85% quality.
+//
+// Example with defaults:
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "vision-assistant",
+//	    sdk.WithImagePreprocessing(nil), // Use default settings
+//	)
+//
+// Example with custom config:
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "vision-assistant",
+//	    sdk.WithImagePreprocessing(&stage.ImagePreprocessConfig{
+//	        Resize: stage.ImageResizeStageConfig{
+//	            MaxWidth:  2048,
+//	            MaxHeight: 2048,
+//	            Quality:   90,
+//	        },
+//	        EnableResize: true,
+//	    }),
+//	)
+func WithImagePreprocessing(cfg *stage.ImagePreprocessConfig) Option {
+	return func(c *config) error {
+		if cfg == nil {
+			defaultCfg := stage.DefaultImagePreprocessConfig()
+			cfg = &defaultCfg
+		}
+		c.imagePreprocessConfig = cfg
+		return nil
+	}
+}
+
+// WithAutoResize is a convenience option that enables image resizing with the specified dimensions.
+// Use this for simple cases; use WithImagePreprocessing for full control.
+//
+// Example:
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "vision-assistant",
+//	    sdk.WithAutoResize(1024, 1024), // Max 1024x1024
+//	)
+func WithAutoResize(maxWidth, maxHeight int) Option {
+	return func(c *config) error {
+		cfg := stage.DefaultImagePreprocessConfig()
+		cfg.Resize.MaxWidth = maxWidth
+		cfg.Resize.MaxHeight = maxHeight
+		c.imagePreprocessConfig = &cfg
+		return nil
+	}
 }
 
 // sendConfig holds configuration for a single Send call.
