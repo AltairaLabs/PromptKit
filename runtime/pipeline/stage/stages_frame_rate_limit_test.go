@@ -198,8 +198,9 @@ func TestFrameRateLimitStage_DropsExcessFrames(t *testing.T) {
 		}
 	}()
 
-	// Wait for processing to complete
-	time.Sleep(50 * time.Millisecond)
+	// Drain output channel to wait for processing to complete
+	for range output {
+	}
 
 	emitted, dropped := stage.GetStats()
 	if emitted != 1 {
@@ -239,7 +240,9 @@ func TestFrameRateLimitStage_VideoFrames(t *testing.T) {
 		}
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	// Drain output channel to wait for processing to complete
+	for range output {
+	}
 
 	emitted, dropped := stage.GetStats()
 	if emitted != 1 {
@@ -285,8 +288,9 @@ func TestFrameRateLimitStage_HighFPS_PassesMoreFrames(t *testing.T) {
 		}
 	}()
 
-	// Wait for processing
-	time.Sleep(100 * time.Millisecond)
+	// Drain output channel to wait for processing to complete
+	for range output {
+	}
 
 	emitted, dropped := stage.GetStats()
 	// At 1000 FPS (1ms intervals) with 5ms between frames, all should pass

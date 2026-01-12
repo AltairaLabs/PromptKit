@@ -3,6 +3,7 @@ package stage
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
@@ -87,6 +88,7 @@ type FrameRateLimitStage struct {
 	config FrameRateLimitConfig
 
 	// Timing state
+	mu             sync.Mutex // Protects all mutable state below
 	lastEmitTime   time.Time
 	frameInterval  time.Duration
 	droppedFrames  int64
@@ -175,6 +177,9 @@ func (s *FrameRateLimitStage) shouldEmitElement(elem *StreamElement) bool {
 
 // applyRateLimit applies the rate limiting logic to a video/image element.
 func (s *FrameRateLimitStage) applyRateLimit() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	now := time.Now()
 
 	// First frame always passes
@@ -216,5 +221,7 @@ func (s *FrameRateLimitStage) GetConfig() FrameRateLimitConfig {
 
 // GetStats returns the current frame statistics.
 func (s *FrameRateLimitStage) GetStats() (emitted, dropped int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.emittedFrames, s.droppedFrames
 }
