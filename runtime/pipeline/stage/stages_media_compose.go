@@ -82,6 +82,8 @@ func NewMediaComposeStage(config MediaComposeConfig) *MediaComposeStage {
 
 // Process implements the Stage interface.
 // Collects media elements and composes them back into messages.
+//
+//nolint:dupl // Similar fan-in pattern shared with FramesToMessageStage but different data types
 func (s *MediaComposeStage) Process(
 	ctx context.Context,
 	input <-chan StreamElement,
@@ -422,6 +424,8 @@ func (s *MediaComposeStage) checkTimeouts(
 }
 
 // processTimeouts handles messages that have exceeded the completion timeout.
+//
+//nolint:dupl // Similar pattern shared with FramesToMessageStage but different data types
 func (s *MediaComposeStage) processTimeouts(ctx context.Context, output chan<- StreamElement) {
 	s.mu.Lock()
 	now := time.Now()
