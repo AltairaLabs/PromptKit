@@ -39,6 +39,24 @@ var (
 
 	// ErrInvalidGracefulShutdownTimeout is returned for invalid graceful shutdown timeout.
 	ErrInvalidGracefulShutdownTimeout = errors.New("graceful shutdown timeout must be non-negative")
+
+	// ErrFFmpegNotFound is returned when FFmpeg binary cannot be found.
+	ErrFFmpegNotFound = errors.New("ffmpeg not found")
+
+	// ErrFFmpegFailed is returned when FFmpeg execution fails.
+	ErrFFmpegFailed = errors.New("ffmpeg execution failed")
+
+	// ErrFFmpegTimeout is returned when FFmpeg execution times out.
+	ErrFFmpegTimeout = errors.New("ffmpeg execution timeout")
+
+	// ErrInvalidVideoFormat is returned when video cannot be processed.
+	ErrInvalidVideoFormat = errors.New("invalid or unsupported video format")
+
+	// ErrNoFramesExtracted is returned when FFmpeg produces no output frames.
+	ErrNoFramesExtracted = errors.New("no frames extracted from video")
+
+	// ErrVideoDataRequired is returned when video data is required but missing.
+	ErrVideoDataRequired = errors.New("video data required but not available")
 )
 
 // StageError wraps an error with stage information.
