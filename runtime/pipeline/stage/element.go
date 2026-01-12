@@ -12,6 +12,57 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+// loadExternalizedData loads data from storage using the given reference.
+// Returns nil if ref is empty. This is a helper to reduce duplication in Load methods.
+func loadExternalizedData(
+	ctx context.Context,
+	store storage.MediaStorageService,
+	ref storage.Reference,
+	mediaType string,
+) ([]byte, error) {
+	content, err := store.RetrieveMedia(ctx, ref)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load externalized %s: %w", mediaType, err)
+	}
+
+	reader, err := content.ReadData()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get %s reader: %w", mediaType, err)
+	}
+	defer reader.Close()
+
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s data: %w", mediaType, err)
+	}
+
+	return data, nil
+}
+
+// externalizeData stores data to external storage and returns the reference.
+// This is a helper to reduce duplication in Externalize methods.
+func externalizeData(
+	ctx context.Context,
+	store storage.MediaStorageService,
+	data []byte,
+	mimeType string,
+	metadata *storage.MediaMetadata,
+	mediaType string,
+) (storage.Reference, error) {
+	content := &types.MediaContent{
+		MIMEType: mimeType,
+	}
+	dataStr := base64.StdEncoding.EncodeToString(data)
+	content.Data = &dataStr
+
+	ref, err := store.StoreMedia(ctx, content, metadata)
+	if err != nil {
+		return "", fmt.Errorf("failed to externalize %s: %w", mediaType, err)
+	}
+
+	return ref, nil
+}
+
 // StreamElement is the unit of data flowing through the pipeline.
 // It can carry different types of content and supports backpressure.
 // Each element should contain at most one content type.
@@ -126,20 +177,9 @@ func (d *VideoData) Load(ctx context.Context, store storage.MediaStorageService)
 		return nil
 	}
 
-	content, err := store.RetrieveMedia(ctx, d.StorageRef)
+	data, err := loadExternalizedData(ctx, store, d.StorageRef, "video")
 	if err != nil {
-		return fmt.Errorf("failed to load externalized video: %w", err)
-	}
-
-	reader, err := content.ReadData()
-	if err != nil {
-		return fmt.Errorf("failed to get video reader: %w", err)
-	}
-	defer reader.Close()
-
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return fmt.Errorf("failed to read video data: %w", err)
+		return err
 	}
 
 	d.Data = data
@@ -156,15 +196,9 @@ func (d *VideoData) Externalize(
 		return nil
 	}
 
-	content := &types.MediaContent{
-		MIMEType: d.MIMEType,
-	}
-	dataStr := base64.StdEncoding.EncodeToString(d.Data)
-	content.Data = &dataStr
-
-	ref, err := store.StoreMedia(ctx, content, metadata)
+	ref, err := externalizeData(ctx, store, d.Data, d.MIMEType, metadata, "video")
 	if err != nil {
-		return fmt.Errorf("failed to externalize video: %w", err)
+		return err
 	}
 
 	d.StorageRef = ref
@@ -207,21 +241,9 @@ func (d *ImageData) Load(ctx context.Context, store storage.MediaStorageService)
 		return nil // Already loaded or never externalized
 	}
 
-	content, err := store.RetrieveMedia(ctx, d.StorageRef)
+	data, err := loadExternalizedData(ctx, store, d.StorageRef, "image")
 	if err != nil {
-		return fmt.Errorf("failed to load externalized image: %w", err)
-	}
-
-	// Read the data from the retrieved content
-	reader, err := content.ReadData()
-	if err != nil {
-		return fmt.Errorf("failed to get image reader: %w", err)
-	}
-	defer reader.Close()
-
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return fmt.Errorf("failed to read image data: %w", err)
+		return err
 	}
 
 	d.Data = data
@@ -239,23 +261,13 @@ func (d *ImageData) Externalize(
 		return nil // Nothing to externalize
 	}
 
-	// Create media content for storage - encode raw bytes as base64
-	content := &types.MediaContent{
-		MIMEType: d.MIMEType,
-	}
-	dataStr := base64.StdEncoding.EncodeToString(d.Data)
-	content.Data = &dataStr
-
-	// Store the media
-	ref, err := store.StoreMedia(ctx, content, metadata)
+	ref, err := externalizeData(ctx, store, d.Data, d.MIMEType, metadata, "image")
 	if err != nil {
-		return fmt.Errorf("failed to externalize image: %w", err)
+		return err
 	}
 
-	// Clear in-memory data and store reference
 	d.StorageRef = ref
 	d.Data = nil
-
 	return nil
 }
 
