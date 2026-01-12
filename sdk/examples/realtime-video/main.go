@@ -46,7 +46,7 @@ func main() {
 		log.Fatal("GEMINI_API_KEY environment variable is required")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	// Open a duplex session with video streaming configuration
@@ -57,7 +57,7 @@ func main() {
 		"./realtime-video.pack.json",
 		"vision-stream",
 		sdk.WithAPIKey(apiKey),
-		sdk.WithModel("gemini-2.5-flash-preview-native-audio-dialog"),
+		sdk.WithModel("gemini-2.5-flash-native-audio-preview-12-2025"),
 		// Enable bidirectional streaming session with the provider
 		sdk.WithStreamingConfig(&providers.StreamingInputConfig{
 			Config: types.StreamingMediaConfig{
@@ -89,6 +89,8 @@ func main() {
 		fmt.Println("Waiting for vision analysis responses...")
 		fmt.Println()
 		for chunk := range responseChan {
+			fmt.Printf("[DEBUG] Received chunk: Content=%q, Error=%v, FinishReason=%v, Metadata=%v\n",
+				chunk.Content, chunk.Error, chunk.FinishReason, chunk.Metadata)
 			if chunk.Error != nil {
 				fmt.Printf("\n[Error: %v]\n", chunk.Error)
 				continue
@@ -100,6 +102,7 @@ func main() {
 				fmt.Printf("\n[Response complete: %s]\n", *chunk.FinishReason)
 			}
 		}
+		fmt.Println("[DEBUG] Response channel closed")
 	}()
 
 	// Simulate sending frames (in a real app, these would come from a webcam)
@@ -112,6 +115,7 @@ func main() {
 	if err != nil {
 		log.Printf("Failed to send initial text: %v", err)
 	}
+	fmt.Println("[DEBUG] Text sent successfully")
 
 	// Give the model time to process and respond
 	time.Sleep(2 * time.Second)
@@ -142,6 +146,7 @@ func main() {
 			log.Printf("Failed to send frame %d: %v", i, err)
 			continue
 		}
+		fmt.Printf("[DEBUG] Frame %d sent successfully\n", i)
 
 		// Wait between frames (simulating real-time capture)
 		time.Sleep(time.Second)
@@ -163,7 +168,7 @@ func main() {
 		select {
 		case <-doneChan:
 			fmt.Println("\n[Session complete]")
-		case <-time.After(15 * time.Second):
+		case <-time.After(30 * time.Second):
 			fmt.Println("\n[Timeout waiting for response]")
 		}
 	}
