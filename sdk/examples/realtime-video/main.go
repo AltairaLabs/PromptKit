@@ -29,6 +29,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk"
 	"github.com/AltairaLabs/PromptKit/sdk/session"
 )
@@ -56,6 +58,12 @@ func main() {
 		"vision-stream",
 		sdk.WithAPIKey(apiKey),
 		sdk.WithModel("gemini-2.0-flash-exp"),
+		// Enable bidirectional streaming session with the provider
+		sdk.WithStreamingConfig(&providers.StreamingInputConfig{
+			Config: types.StreamingMediaConfig{
+				Type: types.ContentTypeImage,
+			},
+		}),
 		// Configure video streaming: 1 FPS, auto-resize to 1024x1024
 		sdk.WithStreamingVideo(&sdk.VideoStreamConfig{
 			TargetFPS:    1.0,   // 1 frame per second for LLM processing

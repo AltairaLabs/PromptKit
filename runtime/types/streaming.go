@@ -109,21 +109,29 @@ func (c *StreamingMediaConfig) Validate() error {
 		return fmt.Errorf("streaming media type is required")
 	}
 
-	// Type must be audio or video
-	if c.Type != ContentTypeAudio && c.Type != ContentTypeVideo {
-		return fmt.Errorf("streaming media type must be audio or video, got: %s", c.Type)
+	// Type must be audio, video, or image
+	if c.Type != ContentTypeAudio && c.Type != ContentTypeVideo && c.Type != ContentTypeImage {
+		return fmt.Errorf("streaming media type must be audio, video, or image, got: %s", c.Type)
 	}
 
-	// ChunkSize must be positive
-	if c.ChunkSize <= 0 {
-		return fmt.Errorf("chunk size must be positive, got: %d", c.ChunkSize)
+	// ChunkSize must be positive for audio/video streaming
+	// Image streaming uses per-frame sizes, so ChunkSize=0 is acceptable
+	if c.Type != ContentTypeImage && c.ChunkSize <= 0 {
+		return fmt.Errorf("chunk size must be positive for %s, got: %d", c.Type, c.ChunkSize)
 	}
 
 	// Validate based on media type
-	if c.Type == ContentTypeAudio {
+	switch c.Type {
+	case ContentTypeAudio:
 		return c.validateAudioConfig()
+	case ContentTypeVideo:
+		return c.validateVideoConfig()
+	case ContentTypeImage:
+		// Image streaming has minimal config requirements
+		// Individual frame validation happens at send time
+		return nil
 	}
-	return c.validateVideoConfig()
+	return nil
 }
 
 // validateAudioConfig validates audio-specific configuration

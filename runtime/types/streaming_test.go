@@ -77,7 +77,7 @@ func TestStreamingMediaConfig_Validate(t *testing.T) {
 				ChunkSize: 8192,
 			},
 			wantErr: true,
-			errMsg:  "must be audio or video",
+			errMsg:  "must be audio, video, or image",
 		},
 		{
 			name: "invalid chunk size",

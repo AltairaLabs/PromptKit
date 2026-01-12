@@ -12,6 +12,16 @@ import (
 const (
 	// defaultMaxReconnectTries is the default number of reconnection attempts for stream sessions.
 	defaultMaxReconnectTries = 3
+
+	// Video resolution constants for streaming capabilities
+	videoResHDWidth   = 1920
+	videoResHDHeight  = 1080
+	videoRes1024      = 1024
+	videoResVGAWidth  = 640
+	videoResVGAHeight = 480
+	videoPreferredFPS = 1 // Gemini Live API processes at 1 FPS
+	audioMinChunkSize = 160
+	audioMaxChunkSize = 32000
 )
 
 // Ensure GeminiProvider implements StreamInputSupport
@@ -66,13 +76,17 @@ func (p *Provider) validateStreamRequest(req *providers.StreamingInputConfig) er
 		return fmt.Errorf("invalid stream configuration: %w", err)
 	}
 
-	if req.Config.Type != types.ContentTypeAudio {
-		return fmt.Errorf("unsupported media type: %s (only audio is supported)", req.Config.Type)
-	}
-
-	encoder := NewAudioEncoder()
-	if err := encoder.ValidateConfig(&req.Config); err != nil {
-		return fmt.Errorf("invalid audio configuration: %w", err)
+	switch req.Config.Type {
+	case types.ContentTypeAudio:
+		encoder := NewAudioEncoder()
+		if err := encoder.ValidateConfig(&req.Config); err != nil {
+			return fmt.Errorf("invalid audio configuration: %w", err)
+		}
+	case types.ContentTypeImage, types.ContentTypeVideo:
+		// Video/image streaming supported via Gemini Live API
+		// Validated at frame send time
+	default:
+		return fmt.Errorf("unsupported media type: %s (supported: audio, video, image)", req.Config.Type)
 	}
 
 	return nil
@@ -154,13 +168,13 @@ func (p *Provider) applyToolsConfig(tools []providers.StreamingToolDefinition, c
 
 // SupportsStreamInput returns the media types supported for streaming input
 func (p *Provider) SupportsStreamInput() []string {
-	return []string{types.ContentTypeAudio}
+	return []string{types.ContentTypeAudio, types.ContentTypeVideo, types.ContentTypeImage}
 }
 
 // GetStreamingCapabilities returns detailed information about Gemini's streaming support
 func (p *Provider) GetStreamingCapabilities() providers.StreamingCapabilities {
 	return providers.StreamingCapabilities{
-		SupportedMediaTypes: []string{types.ContentTypeAudio},
+		SupportedMediaTypes: []string{types.ContentTypeAudio, types.ContentTypeVideo, types.ContentTypeImage},
 		Audio: &providers.AudioStreamingCapabilities{
 			SupportedEncodings:   []string{"pcm_linear16"},
 			SupportedSampleRates: []int{16000},
@@ -169,10 +183,21 @@ func (p *Provider) GetStreamingCapabilities() providers.StreamingCapabilities {
 			PreferredEncoding:    "pcm_linear16",
 			PreferredSampleRate:  16000,
 		},
-		Video:                nil, // Video not supported yet
+		Video: &providers.VideoStreamingCapabilities{
+			SupportedEncodings: []string{"image/jpeg", "image/png", "image/gif", "image/webp"},
+			SupportedResolutions: []providers.VideoResolution{
+				{Width: videoResHDWidth, Height: videoResHDHeight},
+				{Width: videoRes1024, Height: videoRes1024},
+				{Width: videoResVGAWidth, Height: videoResVGAHeight},
+			},
+			SupportedFrameRates: []int{videoPreferredFPS}, // Gemini Live API processes at 1 FPS
+			PreferredEncoding:   "image/jpeg",
+			PreferredResolution: providers.VideoResolution{Width: videoRes1024, Height: videoRes1024},
+			PreferredFrameRate:  videoPreferredFPS,
+		},
 		BidirectionalSupport: true,
-		MaxSessionDuration:   0,     // No limit
-		MinChunkSize:         160,   // 10ms at 16kHz
-		MaxChunkSize:         32000, // ~2 seconds at 16kHz
+		MaxSessionDuration:   0, // No limit
+		MinChunkSize:         audioMinChunkSize,
+		MaxChunkSize:         audioMaxChunkSize,
 	}
 }
