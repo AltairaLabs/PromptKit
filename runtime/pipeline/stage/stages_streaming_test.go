@@ -656,3 +656,248 @@ func TestDuplexProviderStage_InterruptionHandling(t *testing.T) {
 	})
 }
 
+func TestDuplexProviderStage_VideoImageForwarding(t *testing.T) {
+	t.Run("Forwards video elements to session", func(t *testing.T) {
+		provider := providersmock.NewStreamingProvider("test", "test-model", false).
+			WithAutoRespond("Test response")
+		stage := NewDuplexProviderStage(provider, baseConfig())
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		input := make(chan StreamElement, 10)
+		output := make(chan StreamElement, 10)
+
+		// Send system prompt first (required for session creation)
+		input <- elementWithSystemPrompt("Test system prompt")
+
+		// Send test video data
+		videoData := []byte{0x00, 0x00, 0x00, 0x01, 0x67} // H.264 NAL unit start
+		input <- StreamElement{
+			Video: &VideoData{
+				Data:       videoData,
+				MIMEType:   "video/h264",
+				Width:      1920,
+				Height:     1080,
+				IsKeyFrame: true,
+				Timestamp:  time.Now(),
+			},
+		}
+		close(input)
+
+		// Process in background
+		done := make(chan error, 1)
+		go func() {
+			done <- stage.Process(ctx, input, output)
+		}()
+
+		// Wait for processing
+		time.Sleep(200 * time.Millisecond)
+		cancel()
+
+		// Verify video was forwarded
+		session := provider.GetSession()
+		require.NotNil(t, session)
+		chunks := session.GetChunks()
+		// Note: video is forwarded through SendChunk which populates GetChunks()
+		// The actual verification depends on mock implementation
+		require.NotEmpty(t, chunks, "Expected video chunks to be forwarded")
+	})
+
+	t.Run("Forwards image elements to session", func(t *testing.T) {
+		provider := providersmock.NewStreamingProvider("test", "test-model", false).
+			WithAutoRespond("Test response")
+		stage := NewDuplexProviderStage(provider, baseConfig())
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		input := make(chan StreamElement, 10)
+		output := make(chan StreamElement, 10)
+
+		// Send system prompt first
+		input <- elementWithSystemPrompt("Test system prompt")
+
+		// Send test image data (JPEG magic bytes)
+		imageData := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10}
+		input <- StreamElement{
+			Image: &ImageData{
+				Data:      imageData,
+				MIMEType:  "image/jpeg",
+				Width:     640,
+				Height:    480,
+				Timestamp: time.Now(),
+			},
+		}
+		close(input)
+
+		// Process in background
+		done := make(chan error, 1)
+		go func() {
+			done <- stage.Process(ctx, input, output)
+		}()
+
+		// Wait for processing
+		time.Sleep(200 * time.Millisecond)
+		cancel()
+
+		// Verify image was forwarded
+		session := provider.GetSession()
+		require.NotNil(t, session)
+		chunks := session.GetChunks()
+		require.NotEmpty(t, chunks, "Expected image chunks to be forwarded")
+	})
+
+	t.Run("Handles mixed audio video and image elements", func(t *testing.T) {
+		provider := providersmock.NewStreamingProvider("test", "test-model", false).
+			WithAutoRespond("Test response")
+		stage := NewDuplexProviderStage(provider, baseConfig())
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		input := make(chan StreamElement, 10)
+		output := make(chan StreamElement, 10)
+
+		// Send system prompt first
+		input <- elementWithSystemPrompt("Test system prompt")
+
+		// Send mixed media types
+		input <- StreamElement{
+			Audio: &AudioData{
+				Samples:    []byte("audio data"),
+				SampleRate: 16000,
+				Format:     AudioFormatPCM16,
+			},
+		}
+		input <- StreamElement{
+			Image: &ImageData{
+				Data:     []byte{0xFF, 0xD8},
+				MIMEType: "image/jpeg",
+			},
+		}
+		input <- StreamElement{
+			Video: &VideoData{
+				Data:     []byte{0x00, 0x00, 0x00, 0x01},
+				MIMEType: "video/h264",
+			},
+		}
+		close(input)
+
+		// Process in background
+		done := make(chan error, 1)
+		go func() {
+			done <- stage.Process(ctx, input, output)
+		}()
+
+		// Wait for processing
+		time.Sleep(200 * time.Millisecond)
+		cancel()
+
+		// Verify all media types were forwarded
+		session := provider.GetSession()
+		require.NotNil(t, session)
+		chunks := session.GetChunks()
+		require.GreaterOrEqual(t, len(chunks), 3, "Expected all media chunks to be forwarded")
+	})
+
+	t.Run("Skips video elements with empty data", func(t *testing.T) {
+		provider := providersmock.NewStreamingProvider("test", "test-model", false).
+			WithAutoRespond("Test response")
+		stage := NewDuplexProviderStage(provider, baseConfig())
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		input := make(chan StreamElement, 10)
+		output := make(chan StreamElement, 10)
+
+		// Send system prompt first
+		input <- elementWithSystemPrompt("Test system prompt")
+
+		// Send video element with empty data - should be skipped
+		input <- StreamElement{
+			Video: &VideoData{
+				Data:     []byte{}, // Empty data
+				MIMEType: "video/h264",
+			},
+		}
+
+		// Send valid audio element
+		input <- StreamElement{
+			Audio: &AudioData{
+				Samples:    []byte("audio data"),
+				SampleRate: 16000,
+				Format:     AudioFormatPCM16,
+			},
+		}
+		close(input)
+
+		// Process in background
+		done := make(chan error, 1)
+		go func() {
+			done <- stage.Process(ctx, input, output)
+		}()
+
+		// Wait for processing
+		time.Sleep(200 * time.Millisecond)
+		cancel()
+
+		// Verify only non-empty elements were forwarded
+		session := provider.GetSession()
+		require.NotNil(t, session)
+		chunks := session.GetChunks()
+		// Should have audio chunk but not empty video chunk
+		require.Len(t, chunks, 1, "Expected only audio chunk (video with empty data should be skipped)")
+	})
+
+	t.Run("Skips image elements with empty data", func(t *testing.T) {
+		provider := providersmock.NewStreamingProvider("test", "test-model", false).
+			WithAutoRespond("Test response")
+		stage := NewDuplexProviderStage(provider, baseConfig())
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		input := make(chan StreamElement, 10)
+		output := make(chan StreamElement, 10)
+
+		// Send system prompt first
+		input <- elementWithSystemPrompt("Test system prompt")
+
+		// Send image element with empty data - should be skipped
+		input <- StreamElement{
+			Image: &ImageData{
+				Data:     []byte{}, // Empty data
+				MIMEType: "image/jpeg",
+			},
+		}
+
+		// Send valid audio element
+		input <- StreamElement{
+			Audio: &AudioData{
+				Samples:    []byte("audio data"),
+				SampleRate: 16000,
+				Format:     AudioFormatPCM16,
+			},
+		}
+		close(input)
+
+		// Process in background
+		done := make(chan error, 1)
+		go func() {
+			done <- stage.Process(ctx, input, output)
+		}()
+
+		// Wait for processing
+		time.Sleep(200 * time.Millisecond)
+		cancel()
+
+		// Verify only non-empty elements were forwarded
+		session := provider.GetSession()
+		require.NotNil(t, session)
+		chunks := session.GetChunks()
+		require.Len(t, chunks, 1, "Expected only audio chunk (image with empty data should be skipped)")
+	})
+}
+
