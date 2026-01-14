@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/provider.json
 #
-# Google Gemini 2.0 Flash Provider
+# Google Gemini 3 Flash Provider
 # Native audio streaming support for bidirectional real-time conversations.
 #
 apiVersion: promptkit.altairalabs.ai/v1alpha1
@@ -11,7 +11,7 @@ metadata:
 spec:
   id: gemini-2-flash
   type: gemini
-  model: gemini-2.0-flash-exp
+  model: gemini-3-flash-preview
 
   # Provider defaults
   defaults:

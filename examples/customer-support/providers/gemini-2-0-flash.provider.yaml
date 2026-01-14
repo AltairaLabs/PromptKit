@@ -5,7 +5,7 @@ metadata:
 spec:
   id: gemini-2-0-flash
   type: gemini
-  model: gemini-2.0-flash-exp
+  model: gemini-3-flash-preview
   defaults:
     temperature: 0.7
     max_tokens: 1500
