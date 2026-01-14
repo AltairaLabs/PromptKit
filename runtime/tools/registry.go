@@ -7,13 +7,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"gopkg.in/yaml.v3"
 )
 
 const (
 	errInvalidToolDescriptor  = "invalid tool descriptor in %s: %w"
 	errResultValidationFailed = "result validation failed: %v"
-	msgToolCoercions          = "Tool %s: performed %d coercions\n"
 )
 
 // ToolRepository provides abstract access to tool descriptors (local interface to avoid import cycles)
@@ -300,8 +300,7 @@ func (r *Registry) Execute(toolName string, args json.RawMessage) (*ToolResult, 
 
 	// Log coercions if any occurred
 	if len(coercions) > 0 {
-		// Could log coercions here for debugging
-		fmt.Printf(msgToolCoercions, toolName, len(coercions))
+		logger.Debug("Tool performed coercions", "tool", toolName, "count", len(coercions))
 	}
 
 	return &ToolResult{
@@ -433,7 +432,7 @@ func (r *Registry) validateAndCoerceResult(tool *ToolDescriptor, toolName string
 	}
 
 	if len(coercions) > 0 {
-		fmt.Printf(msgToolCoercions, toolName, len(coercions))
+		logger.Debug("Tool performed coercions", "tool", toolName, "count", len(coercions))
 	}
 
 	return &ToolExecutionResult{
