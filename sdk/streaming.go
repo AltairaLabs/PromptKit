@@ -171,6 +171,18 @@ func (c *Conversation) addContentParts(msg *types.Message, parts []any) error {
 			if err := msg.AddAudioPart(p.path); err != nil {
 				return fmt.Errorf("failed to add audio from file: %w", err)
 			}
+		case audioDataPart:
+			base64Data := base64.StdEncoding.EncodeToString(p.data)
+			contentPart := types.NewAudioPartFromData(base64Data, p.mimeType)
+			msg.AddPart(contentPart)
+		case videoFilePart:
+			if err := msg.AddVideoPart(p.path); err != nil {
+				return fmt.Errorf("failed to add video from file: %w", err)
+			}
+		case videoDataPart:
+			base64Data := base64.StdEncoding.EncodeToString(p.data)
+			contentPart := types.NewVideoPartFromData(base64Data, p.mimeType)
+			msg.AddPart(contentPart)
 		case filePart:
 			msg.AddTextPart(fmt.Sprintf("[File: %s]\n%s", p.name, string(p.data)))
 		default:

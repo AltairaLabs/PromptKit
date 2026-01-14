@@ -185,6 +185,38 @@ func TestSendOptions(t *testing.T) {
 		assert.Equal(t, 1, len(cfg.parts))
 	})
 
+	t.Run("WithAudioData", func(t *testing.T) {
+		data := []byte("fake audio data")
+		opt := WithAudioData(data, "audio/mp3")
+		assert.NotNil(t, opt)
+
+		cfg := &sendConfig{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+		assert.Equal(t, 1, len(cfg.parts))
+	})
+
+	t.Run("WithVideoFile", func(t *testing.T) {
+		opt := WithVideoFile("/path/to/video.mp4")
+		assert.NotNil(t, opt)
+
+		cfg := &sendConfig{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+		assert.Equal(t, 1, len(cfg.parts))
+	})
+
+	t.Run("WithVideoData", func(t *testing.T) {
+		data := []byte("fake video data")
+		opt := WithVideoData(data, "video/mp4")
+		assert.NotNil(t, opt)
+
+		cfg := &sendConfig{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+		assert.Equal(t, 1, len(cfg.parts))
+	})
+
 	t.Run("WithFile", func(t *testing.T) {
 		opt := WithFile("doc.pdf", []byte("pdf content"))
 		assert.NotNil(t, opt)
@@ -476,4 +508,84 @@ func TestWithStreamingVideo(t *testing.T) {
 		assert.Equal(t, 85, c.videoStreamConfig.Quality)
 		assert.True(t, c.videoStreamConfig.EnableResize)
 	})
+}
+
+func TestWithEventStore(t *testing.T) {
+	opt := WithEventStore(nil)
+	assert.NotNil(t, opt)
+
+	cfg := &config{}
+	err := opt(cfg)
+	assert.NoError(t, err)
+}
+
+func TestWithVariables(t *testing.T) {
+	vars := map[string]string{"key1": "value1", "key2": "value2"}
+	opt := WithVariables(vars)
+	assert.NotNil(t, opt)
+
+	cfg := &config{}
+	err := opt(cfg)
+	assert.NoError(t, err)
+	assert.Equal(t, "value1", cfg.initialVariables["key1"])
+	assert.Equal(t, "value2", cfg.initialVariables["key2"])
+}
+
+func TestWithStreamingConfig(t *testing.T) {
+	opt := WithStreamingConfig(nil)
+	assert.NotNil(t, opt)
+
+	cfg := &config{}
+	err := opt(cfg)
+	assert.NoError(t, err)
+}
+
+func TestMCPServerBuilderWithArgs(t *testing.T) {
+	builder := NewMCPServer("test", "cmd", "arg1")
+	builder.WithArgs("arg2", "arg3")
+	config := builder.Build()
+
+	assert.Equal(t, "test", config.Name)
+	assert.Equal(t, "cmd", config.Command)
+	assert.Contains(t, config.Args, "arg1")
+	assert.Contains(t, config.Args, "arg2")
+	assert.Contains(t, config.Args, "arg3")
+}
+
+func TestDefaultVADModeConfig(t *testing.T) {
+	cfg := DefaultVADModeConfig()
+	assert.NotNil(t, cfg)
+	assert.Equal(t, 800000000, int(cfg.SilenceDuration)) // 800ms in nanoseconds
+	assert.Equal(t, 16000, cfg.SampleRate)
+	assert.Equal(t, "en", cfg.Language)
+	assert.Equal(t, "alloy", cfg.Voice)
+	assert.Equal(t, 1.0, cfg.Speed)
+}
+
+func TestWithVADMode(t *testing.T) {
+	opt := WithVADMode(nil, nil, nil)
+	assert.NotNil(t, opt)
+
+	cfg := &config{}
+	err := opt(cfg)
+	assert.NoError(t, err)
+	assert.NotNil(t, cfg.vadModeConfig)
+}
+
+func TestVADModeConfigConversions(t *testing.T) {
+	cfg := DefaultVADModeConfig()
+
+	// Test toAudioTurnConfig
+	turnCfg := cfg.toAudioTurnConfig(nil)
+	assert.Equal(t, cfg.SilenceDuration, turnCfg.SilenceDuration)
+	assert.Equal(t, cfg.SampleRate, turnCfg.SampleRate)
+
+	// Test toSTTStageConfig
+	sttCfg := cfg.toSTTStageConfig()
+	assert.Equal(t, cfg.Language, sttCfg.Language)
+
+	// Test toTTSStageConfig
+	ttsCfg := cfg.toTTSStageConfig(nil)
+	assert.Equal(t, cfg.Voice, ttsCfg.Voice)
+	assert.Equal(t, cfg.Speed, ttsCfg.Speed)
 }
