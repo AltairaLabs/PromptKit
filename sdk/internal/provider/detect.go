@@ -181,7 +181,7 @@ func createProvider(info *Info) (providers.Provider, error) {
 		return gemini.NewToolProvider(
 			"gemini",
 			info.Model,
-			"https://generativelanguage.googleapis.com",
+			"https://generativelanguage.googleapis.com/v1beta",
 			defaults,
 			false,
 		), nil
