@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -86,7 +87,7 @@ func NewFileStore(config FileStoreConfig) (*FileStore, error) {
 	if config.EnableDeduplication {
 		if err := fs.loadDedupIndex(); err != nil {
 			// Log but don't fail - we'll rebuild as needed
-			fmt.Printf("Warning: failed to load deduplication index: %v\n", err)
+			logger.Warn("Failed to load deduplication index", "error", err)
 		}
 	}
 
@@ -165,7 +166,7 @@ func (fs *FileStore) StoreMedia(ctx context.Context, content *types.MediaContent
 	// Store metadata alongside the file
 	if err := fs.storeMetadata(filePath, metadata); err != nil {
 		// Log but don't fail
-		fmt.Printf("Warning: failed to store metadata: %v\n", err)
+		logger.Warn("Failed to store metadata", "path", filePath, "error", err)
 	}
 
 	return storage.Reference(filePath), nil

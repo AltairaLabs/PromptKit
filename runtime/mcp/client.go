@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
 // ClientOptions configures MCP client behavior
@@ -485,7 +487,7 @@ func (c *StdioClient) readLoop() {
 	}
 
 	if err := scanner.Err(); err != nil && !c.closed {
-		fmt.Printf("MCP: scanner error: %v\n", err)
+		logger.Error("MCP scanner error", "error", err)
 	}
 }
 

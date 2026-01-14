@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 )
 
@@ -107,7 +108,7 @@ func (h *TimeBasedPolicyHandler) EnforcePolicy(ctx context.Context, baseDir stri
 
 	// Log enforcement results
 	if deleted > 0 || errors > 0 {
-		fmt.Printf("Policy enforcement: deleted %d files, encountered %d errors\n", deleted, errors)
+		logger.Info("Policy enforcement completed", "deleted", deleted, "errors", errors)
 	}
 
 	return nil
@@ -155,7 +156,7 @@ func (h *TimeBasedPolicyHandler) StartEnforcement(ctx context.Context, baseDir s
 			select {
 			case <-ticker.C:
 				if err := h.EnforcePolicy(ctx, baseDir); err != nil {
-					fmt.Printf("Policy enforcement error: %v\n", err)
+					logger.Error("Policy enforcement failed", "error", err)
 				}
 			case <-h.stopCh:
 				return
