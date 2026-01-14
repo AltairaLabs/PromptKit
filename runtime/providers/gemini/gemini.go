@@ -109,7 +109,15 @@ type geminiSafetyRating struct {
 	Probability string `json:"probability"`
 }
 
-// convertMessagesToGeminiContents converts provider messages to Gemini format
+// convertMessagesToGeminiContents converts provider messages to Gemini format.
+// This handles both legacy text-only messages and multimodal messages with audio/image/video.
+//
+// For text-only messages (including SDK-style messages with multiple text parts),
+// content is combined into a single text part via GetContent() to preserve backward
+// compatibility with existing tests and behavior.
+//
+// For messages with actual media content (images, audio, video), each part is
+// converted separately using the multimodal conversion functions.
 func convertMessagesToGeminiContents(messages []types.Message) []geminiContent {
 	contents := make([]geminiContent, 0, len(messages))
 	for i := range messages {
@@ -119,10 +127,41 @@ func convertMessagesToGeminiContents(messages []types.Message) []geminiContent {
 			role = roleModel
 		}
 
-		contents = append(contents, geminiContent{
-			Role:  role,
-			Parts: []geminiPart{{Text: messages[i].GetContent()}},
-		})
+		// Check if this message has actual media content (images, audio, video).
+		// We use HasMediaContent() rather than IsMultimodal() because IsMultimodal()
+		// returns true even for text-only messages that use Parts (SDK-style).
+		// For text-only messages, we want to combine all text into a single part.
+		if messages[i].HasMediaContent() {
+			// Convert multimodal parts using the shared conversion functions
+			var parts []geminiPart
+			conversionFailed := false
+			for _, part := range messages[i].Parts {
+				gPart, err := convertPartToGemini(part)
+				if err != nil {
+					// Fall back to text-only on conversion error
+					conversionFailed = true
+					break
+				}
+				parts = append(parts, gPart)
+			}
+			if conversionFailed {
+				contents = append(contents, geminiContent{
+					Role:  role,
+					Parts: []geminiPart{{Text: messages[i].GetContent()}},
+				})
+			} else {
+				contents = append(contents, geminiContent{
+					Role:  role,
+					Parts: parts,
+				})
+			}
+		} else {
+			// Text-only message (legacy or SDK-style with only text parts)
+			contents = append(contents, geminiContent{
+				Role:  role,
+				Parts: []geminiPart{{Text: messages[i].GetContent()}},
+			})
+		}
 	}
 	return contents
 }

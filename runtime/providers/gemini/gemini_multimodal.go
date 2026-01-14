@@ -62,38 +62,30 @@ func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities 
 	}
 }
 
-// PredictMultimodal performs a predict request with multimodal content
+// PredictMultimodal performs a predict request with multimodal content.
+// This validates multimodal content against Gemini's capabilities before making the request.
+// For callers that don't need validation, use Predict directly.
 func (p *Provider) PredictMultimodal(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	// Validate that messages are compatible with Gemini's capabilities
 	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
 		return providers.PredictionResponse{}, err
 	}
 
-	// Convert messages to Gemini format (handles both legacy and multimodal)
-	contents, systemInstruction, err := convertMessagesToGemini(req.Messages, req.System)
-	if err != nil {
-		return providers.PredictionResponse{}, fmt.Errorf("failed to convert messages: %w", err)
-	}
-
-	// Use the common predict implementation
-	return p.predictWithContents(ctx, contents, systemInstruction, req.Temperature, req.TopP, req.MaxTokens, req.Seed)
+	// Delegate to the standard Predict method which now handles multimodal content
+	return p.Predict(ctx, req)
 }
 
-// PredictMultimodalStream performs a streaming predict request with multimodal content
+// PredictMultimodalStream performs a streaming predict request with multimodal content.
+// This validates multimodal content against Gemini's capabilities before making the request.
+// For callers that don't need validation, use PredictStream directly.
 func (p *Provider) PredictMultimodalStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	// Validate that messages are compatible with Gemini's capabilities
 	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
 		return nil, err
 	}
 
-	// Convert messages to Gemini format (handles both legacy and multimodal)
-	contents, systemInstruction, err := convertMessagesToGemini(req.Messages, req.System)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert messages: %w", err)
-	}
-
-	// Use the common streaming implementation
-	return p.predictStreamWithContents(ctx, contents, systemInstruction, req.Temperature, req.TopP, req.MaxTokens, req.Seed)
+	// Delegate to the standard PredictStream method which now handles multimodal content
+	return p.PredictStream(ctx, req)
 }
 
 // convertMessagesToGemini converts PromptKit messages to Gemini format

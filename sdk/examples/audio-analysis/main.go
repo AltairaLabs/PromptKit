@@ -45,7 +45,7 @@ func main() {
 
 	// Open a conversation with the audio analyst prompt using Gemini 2.5
 	conv, err := sdk.Open("./audio-analysis.pack.json", "audio-analyst",
-		sdk.WithModel("gemini-2.5-flash"),
+		sdk.WithModel("gemini-3-flash-preview"),
 		sdk.WithAPIKey(apiKey),
 	)
 	if err != nil {
