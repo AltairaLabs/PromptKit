@@ -446,7 +446,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 
 	// Use streamGenerateContent endpoint
 	url := fmt.Sprintf(
-		"%s/models/%s:streamGenerateContent?alt=sse&key=%s",
+		"%s/v1beta/models/%s:streamGenerateContent?alt=sse&key=%s",
 		p.BaseURL, p.Model, p.ApiKey,
 	)
 

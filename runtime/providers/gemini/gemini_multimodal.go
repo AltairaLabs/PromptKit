@@ -236,7 +236,7 @@ func (p *Provider) predictWithContents(ctx context.Context, contents []geminiCon
 	}
 
 	// Build URL with API key
-	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", p.BaseURL, p.Model, p.ApiKey)
+	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", p.BaseURL, p.Model, p.ApiKey)
 
 	// Debug log the request
 	headers := map[string]string{
@@ -274,7 +274,8 @@ func (p *Provider) predictWithContents(ctx context.Context, contents []geminiCon
 	if resp.StatusCode != http.StatusOK {
 		predictResp.Latency = time.Since(start)
 		predictResp.Raw = respBody
-		return predictResp, fmt.Errorf("gemini api error (status %d): %s", resp.StatusCode, string(respBody))
+		return predictResp, fmt.Errorf("API request to %s failed with status %d: %s",
+			logger.RedactSensitiveData(url), resp.StatusCode, string(respBody))
 	}
 
 	// Parse and validate response
@@ -370,7 +371,7 @@ func (p *Provider) predictStreamWithContents(ctx context.Context, contents []gem
 	}
 
 	// Build URL for streaming
-	url := fmt.Sprintf("%s/models/%s:streamGenerateContent?alt=sse&key=%s", p.BaseURL, p.Model, p.ApiKey)
+	url := fmt.Sprintf("%s/v1beta/models/%s:streamGenerateContent?alt=sse&key=%s", p.BaseURL, p.Model, p.ApiKey)
 
 	// Make HTTP request
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
@@ -388,7 +389,8 @@ func (p *Provider) predictStreamWithContents(ctx context.Context, contents []gem
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("gemini api error (status %d): %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("API request to %s failed with status %d: %s",
+			logger.RedactSensitiveData(url), resp.StatusCode, string(body))
 	}
 
 	outChan := make(chan providers.StreamChunk)
