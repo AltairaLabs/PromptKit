@@ -929,6 +929,42 @@ func WithAudioFile(path string) SendOption {
 	}
 }
 
+// WithAudioData attaches audio from raw bytes.
+//
+//	resp, _ := conv.Send(ctx, "Transcribe this audio",
+//	    sdk.WithAudioData(audioBytes, "audio/mp3"),
+//	)
+func WithAudioData(data []byte, mimeType string) SendOption {
+	return func(c *sendConfig) error {
+		c.parts = append(c.parts, audioDataPart{data: data, mimeType: mimeType})
+		return nil
+	}
+}
+
+// WithVideoFile attaches a video from a file path.
+//
+//	resp, _ := conv.Send(ctx, "Describe this video",
+//	    sdk.WithVideoFile("/path/to/video.mp4"),
+//	)
+func WithVideoFile(path string) SendOption {
+	return func(c *sendConfig) error {
+		c.parts = append(c.parts, videoFilePart{path: path})
+		return nil
+	}
+}
+
+// WithVideoData attaches a video from raw bytes.
+//
+//	resp, _ := conv.Send(ctx, "Describe this video",
+//	    sdk.WithVideoData(videoBytes, "video/mp4"),
+//	)
+func WithVideoData(data []byte, mimeType string) SendOption {
+	return func(c *sendConfig) error {
+		c.parts = append(c.parts, videoDataPart{data: data, mimeType: mimeType})
+		return nil
+	}
+}
+
 // WithFile attaches a file with the given name and content.
 //
 //	resp, _ := conv.Send(ctx, "Analyze this data",
@@ -960,6 +996,20 @@ type imageDataPart struct {
 
 type audioFilePart struct {
 	path string
+}
+
+type audioDataPart struct {
+	data     []byte
+	mimeType string
+}
+
+type videoFilePart struct {
+	path string
+}
+
+type videoDataPart struct {
+	data     []byte
+	mimeType string
 }
 
 type filePart struct {

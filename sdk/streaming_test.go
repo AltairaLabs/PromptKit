@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -407,6 +408,58 @@ func TestAddContentPartsWithImageData(t *testing.T) {
 	assert.NotEmpty(t, msg.Parts)
 }
 
+func TestAddContentPartsWithAudioData(t *testing.T) {
+	conv := newTestConversation()
+	msg := &types.Message{Role: "user"}
+
+	// Test with audio data part
+	err := conv.addContentParts(msg, []any{
+		audioDataPart{
+			data:     []byte("fake audio data"),
+			mimeType: "audio/mp3",
+		},
+	})
+
+	assert.NoError(t, err)
+	assert.NotEmpty(t, msg.Parts)
+}
+
+func TestAddContentPartsWithVideoData(t *testing.T) {
+	conv := newTestConversation()
+	msg := &types.Message{Role: "user"}
+
+	// Test with video data part
+	err := conv.addContentParts(msg, []any{
+		videoDataPart{
+			data:     []byte("fake video data"),
+			mimeType: "video/mp4",
+		},
+	})
+
+	assert.NoError(t, err)
+	assert.NotEmpty(t, msg.Parts)
+}
+
+func TestAddContentPartsWithVideoFile(t *testing.T) {
+	conv := newTestConversation()
+	msg := &types.Message{Role: "user"}
+
+	// Create a temp video file
+	tmpFile, err := os.CreateTemp("", "test-*.mp4")
+	require.NoError(t, err)
+	defer os.Remove(tmpFile.Name())
+	tmpFile.Write([]byte("fake video data"))
+	tmpFile.Close()
+
+	// Test with video file part
+	err = conv.addContentParts(msg, []any{
+		videoFilePart{path: tmpFile.Name()},
+	})
+
+	assert.NoError(t, err)
+	assert.NotEmpty(t, msg.Parts)
+}
+
 func TestAddContentPartsWithFile(t *testing.T) {
 	conv := newTestConversation()
 	msg := &types.Message{Role: "user"}
@@ -438,6 +491,45 @@ func TestAddContentPartsUnknownType(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown content part type")
+}
+
+func TestAddContentPartsVideoFileError(t *testing.T) {
+	conv := newTestConversation()
+	msg := &types.Message{Role: "user"}
+
+	// Test with unsupported video extension (error comes from MIME type inference)
+	err := conv.addContentParts(msg, []any{
+		videoFilePart{path: "/path/to/video.unsupported"},
+	})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to add video from file")
+}
+
+func TestAddContentPartsImageFileError(t *testing.T) {
+	conv := newTestConversation()
+	msg := &types.Message{Role: "user"}
+
+	// Test with unsupported image extension (error comes from MIME type inference)
+	err := conv.addContentParts(msg, []any{
+		imageFilePart{path: "/path/to/image.unsupported"},
+	})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to add image from file")
+}
+
+func TestAddContentPartsAudioFileError(t *testing.T) {
+	conv := newTestConversation()
+	msg := &types.Message{Role: "user"}
+
+	// Test with unsupported audio extension (error comes from MIME type inference)
+	err := conv.addContentParts(msg, []any{
+		audioFilePart{path: "/path/to/audio.unsupported"},
+	})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to add audio from file")
 }
 
 func TestStreamingError(t *testing.T) {
