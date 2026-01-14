@@ -364,7 +364,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 
-	if err := providers.CheckHTTPError(resp); err != nil {
+	if err := providers.CheckHTTPError(resp, url); err != nil {
 		_ = resp.Body.Close()
 		return nil, err
 	}

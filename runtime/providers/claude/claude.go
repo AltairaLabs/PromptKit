@@ -231,7 +231,8 @@ func (p *Provider) makeClaudeHTTPRequest(ctx context.Context, claudeReq claudeRe
 			"response", string(respBody))
 		predictResp.Latency = time.Since(start)
 		predictResp.Raw = respBody
-		return nil, predictResp, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
+		return nil, predictResp, fmt.Errorf("API request to %s failed with status %d: %s",
+			url, resp.StatusCode, string(respBody))
 	}
 
 	return respBody, predictResp, nil
@@ -481,7 +482,7 @@ func (p *Provider) PredictStream(ctx context.Context, req providers.PredictionRe
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 
-	if err := providers.CheckHTTPError(resp); err != nil {
+	if err := providers.CheckHTTPError(resp, p.baseURL+"/messages"); err != nil {
 		return nil, err
 	}
 

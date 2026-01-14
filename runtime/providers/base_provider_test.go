@@ -179,7 +179,7 @@ func TestCheckHTTPError(t *testing.T) {
 			}
 
 			// Test CheckHTTPError
-			err = CheckHTTPError(resp)
+			err = CheckHTTPError(resp, server.URL)
 
 			if tt.expectError {
 				if err == nil {
@@ -373,7 +373,7 @@ func TestBaseProvider_Integration(t *testing.T) {
 		}
 
 		// Check for HTTP error
-		err = CheckHTTPError(resp)
+		err = CheckHTTPError(resp, server.URL)
 		if err == nil {
 			t.Error("Expected CheckHTTPError to return error for 400 status")
 		}
@@ -415,7 +415,7 @@ func TestBaseProvider_Integration(t *testing.T) {
 		defer resp.Body.Close()
 
 		// Check for HTTP error (should be none)
-		err = CheckHTTPError(resp)
+		err = CheckHTTPError(resp, server.URL)
 		if err != nil {
 			t.Errorf("Expected no error for 200 status, got: %v", err)
 		}

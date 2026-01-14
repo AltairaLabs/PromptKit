@@ -498,7 +498,8 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 	if resp.StatusCode != http.StatusOK {
 		predictResp.Latency = time.Since(start)
 		predictResp.Raw = respBody
-		return predictResp, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
+		return predictResp, fmt.Errorf("API request to %s failed with status %d: %s",
+			p.baseURL+openAIPredictCompletionsPath, resp.StatusCode, string(respBody))
 	}
 
 	var openAIResp openAIResponse
@@ -589,7 +590,7 @@ func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 
-	if err := providers.CheckHTTPError(resp); err != nil {
+	if err := providers.CheckHTTPError(resp, p.baseURL+openAIPredictCompletionsPath); err != nil {
 		return nil, err
 	}
 

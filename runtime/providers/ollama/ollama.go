@@ -530,7 +530,7 @@ func (p *Provider) predictWithMessages(
 		predictResp.Latency = time.Since(start)
 		predictResp.Raw = respBody
 		return predictResp, fmt.Errorf(
-			"ollama API request failed with status %d: %s", resp.StatusCode, string(respBody),
+			"ollama API request to %s failed with status %d: %s", url, resp.StatusCode, string(respBody),
 		)
 	}
 
@@ -623,7 +623,7 @@ func (p *Provider) predictStreamWithMessages(
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 
-	if err := providers.CheckHTTPError(resp); err != nil {
+	if err := providers.CheckHTTPError(resp, url); err != nil {
 		return nil, err
 	}
 

@@ -67,11 +67,11 @@ func (b *BaseProvider) GetHTTPClient() *http.Client {
 }
 
 // CheckHTTPError checks if HTTP response is an error and returns formatted error with body
-func CheckHTTPError(resp *http.Response) error {
+func CheckHTTPError(resp *http.Response, url string) error {
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		body, _ := io.ReadAll(resp.Body) // NOSONAR: Read error results in empty body in error message
-		return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("API request to %s failed with status %d: %s", url, resp.StatusCode, string(body))
 	}
 	return nil
 }
