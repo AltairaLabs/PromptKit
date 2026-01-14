@@ -19,6 +19,8 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	"github.com/AltairaLabs/PromptKit/runtime/version"
 )
 
 var (
@@ -43,6 +45,9 @@ func init() {
 
 	// Initialize with text handler wrapped in context handler
 	initLogger(currentLevel, nil)
+
+	// Log version info at startup (debug level only)
+	version.LogStartup()
 }
 
 // initLogger creates the logger with the given level and common fields.
@@ -52,6 +57,8 @@ func initLogger(level slog.Level, commonFields []slog.Attr) {
 	})
 	contextHandler := NewContextHandler(textHandler, commonFields...)
 	DefaultLogger = slog.New(contextHandler)
+	// Set as default slog logger so other packages using slog directly get the same config
+	slog.SetDefault(DefaultLogger)
 }
 
 // ParseLevel converts a string log level to slog.Level.

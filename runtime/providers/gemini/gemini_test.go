@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 func TestNewProvider(t *testing.T) {
@@ -405,6 +406,79 @@ func TestGeminiPromptFeedback_Structure(t *testing.T) {
 
 	if feedback.BlockReason != "SAFETY" {
 		t.Error("BlockReason mismatch")
+	}
+}
+
+// TestInferMediaTypeFromMIME tests the MIME type inference function
+// TestConvertMessagesToGeminiContents_WithParts verifies that messages created using
+// AddTextPart() (SDK style) are correctly converted to Gemini format.
+// This is a regression test for a bug where convertMessagesToGeminiContents used
+// .Content directly instead of GetContent(), which would return empty string for
+// messages that store text in Parts rather than the Content field.
+func TestConvertMessagesToGeminiContents_WithParts(t *testing.T) {
+	tests := []struct {
+		name     string
+		setup    func() types.Message
+		wantText string
+	}{
+		{
+			name: "legacy message with Content field",
+			setup: func() types.Message {
+				return types.Message{
+					Role:    "user",
+					Content: "Hello from Content field",
+				}
+			},
+			wantText: "Hello from Content field",
+		},
+		{
+			name: "SDK-style message with AddTextPart",
+			setup: func() types.Message {
+				msg := types.Message{Role: "user"}
+				msg.AddTextPart("Hello from Parts")
+				return msg
+			},
+			wantText: "Hello from Parts",
+		},
+		{
+			name: "SDK-style message with multiple text parts",
+			setup: func() types.Message {
+				msg := types.Message{Role: "user"}
+				msg.AddTextPart("First part. ")
+				msg.AddTextPart("Second part.")
+				return msg
+			},
+			wantText: "First part. Second part.",
+		},
+		{
+			name: "assistant message with AddTextPart",
+			setup: func() types.Message {
+				msg := types.Message{Role: "assistant"}
+				msg.AddTextPart("Assistant response")
+				return msg
+			},
+			wantText: "Assistant response",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := tt.setup()
+			contents := convertMessagesToGeminiContents([]types.Message{msg})
+
+			if len(contents) != 1 {
+				t.Fatalf("Expected 1 content, got %d", len(contents))
+			}
+
+			if len(contents[0].Parts) != 1 {
+				t.Fatalf("Expected 1 part, got %d", len(contents[0].Parts))
+			}
+
+			gotText := contents[0].Parts[0].Text
+			if gotText != tt.wantText {
+				t.Errorf("Text mismatch:\n  got:  %q\n  want: %q", gotText, tt.wantText)
+			}
+		})
 	}
 }
 

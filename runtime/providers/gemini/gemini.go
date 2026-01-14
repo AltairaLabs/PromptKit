@@ -121,7 +121,7 @@ func convertMessagesToGeminiContents(messages []types.Message) []geminiContent {
 
 		contents = append(contents, geminiContent{
 			Role:  role,
-			Parts: []geminiPart{{Text: messages[i].Content}},
+			Parts: []geminiPart{{Text: messages[i].GetContent()}},
 		})
 	}
 	return contents
