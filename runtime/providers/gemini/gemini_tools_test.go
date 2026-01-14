@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -501,5 +502,49 @@ func TestGeminiToolProvider_PredictStreamWithTools_HTTPError(t *testing.T) {
 
 	if err == nil {
 		t.Fatal("Expected error for HTTP 500")
+	}
+}
+
+// TestGeminiToolProvider_PredictStreamWithTools_URLFormat verifies the streaming URL format.
+// IMPORTANT: The URL must NOT contain "alt=sse" because:
+// - With alt=sse: Google returns SSE format (text lines prefixed with "data:")
+// - Without alt=sse: Google returns JSON array format
+// The streamResponse function parses as JSON array, so alt=sse breaks parsing.
+// Duplex streaming uses WebSockets (not HTTP), so alt=sse is irrelevant there.
+func TestGeminiToolProvider_PredictStreamWithTools_URLFormat(t *testing.T) {
+	var capturedURL string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedURL = r.URL.String()
+		// Return valid JSON array response
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`[{"candidates":[{"content":{"parts":[{"text":"test"}],"role":"model"},"finishReason":"STOP"}]}]`))
+	}))
+	defer server.Close()
+
+	geminiProvider := NewProvider("test", "gemini-2.0-flash", server.URL, providers.ProviderDefaults{}, false)
+	provider := &ToolProvider{Provider: geminiProvider}
+
+	ctx := context.Background()
+	stream, err := provider.PredictStreamWithTools(ctx, providers.PredictionRequest{
+		Messages: []types.Message{{Role: "user", Content: "test"}},
+	}, nil, "auto")
+	if err != nil {
+		t.Fatalf("PredictStreamWithTools failed: %v", err)
+	}
+
+	// Drain the stream
+	for range stream {
+	}
+
+	// Verify URL does NOT contain alt=sse
+	if strings.Contains(capturedURL, "alt=sse") {
+		t.Errorf("Streaming URL should NOT contain 'alt=sse' (causes SSE format instead of JSON array).\n"+
+			"Got URL: %s", capturedURL)
+	}
+
+	// Verify it's using streamGenerateContent endpoint
+	if !strings.Contains(capturedURL, "streamGenerateContent") {
+		t.Errorf("Expected streamGenerateContent in URL, got: %s", capturedURL)
 	}
 }
