@@ -28,7 +28,7 @@ func TestDuplexIntegration_SystemPrompt(t *testing.T) {
 	provider := NewProvider(
 		"gemini-test",
 		"gemini-2.0-flash-exp",
-		"https://generativelanguage.googleapis.com",
+		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{Temperature: 0.7},
 		false,
 	)
@@ -153,7 +153,7 @@ func TestDuplexIntegration_AudioThenEndInput(t *testing.T) {
 	provider := NewProvider(
 		"gemini-test",
 		"gemini-2.0-flash-exp",
-		"https://generativelanguage.googleapis.com",
+		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{Temperature: 0.7},
 		false,
 	)
@@ -268,7 +268,7 @@ func TestDuplexIntegration_MultiTurn(t *testing.T) {
 	provider := NewProvider(
 		"gemini-test",
 		"gemini-2.0-flash-exp",
-		"https://generativelanguage.googleapis.com",
+		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{Temperature: 0.7},
 		false,
 	)
@@ -351,7 +351,7 @@ func TestDuplexIntegration_ResponseModalities(t *testing.T) {
 	provider := NewProvider(
 		"gemini-test",
 		"gemini-2.0-flash-exp",
-		"https://generativelanguage.googleapis.com",
+		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{Temperature: 0.7},
 		false,
 	)

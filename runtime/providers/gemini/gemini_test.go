@@ -17,7 +17,7 @@ func TestNewProvider(t *testing.T) {
 		},
 	}
 
-	provider := NewProvider("test-gemini", "gemini-1.5-pro", "https://generativelanguage.googleapis.com", defaults, false)
+	provider := NewProvider("test-gemini", "gemini-1.5-pro", "https://generativelanguage.googleapis.com/v1beta", defaults, false)
 
 	if provider == nil {
 		t.Fatal("Expected non-nil provider")
@@ -31,7 +31,7 @@ func TestNewProvider(t *testing.T) {
 		t.Errorf("Expected model 'gemini-1.5-pro', got '%s'", provider.Model)
 	}
 
-	if provider.BaseURL != "https://generativelanguage.googleapis.com" {
+	if provider.BaseURL != "https://generativelanguage.googleapis.com/v1beta" {
 		t.Error("BaseURL mismatch")
 	}
 

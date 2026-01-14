@@ -242,7 +242,7 @@ func (p *Provider) makeGeminiHTTPRequest(ctx context.Context, geminiReq geminiRe
 	}
 
 	// Build URL with API key
-	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", p.BaseURL, p.Model, p.ApiKey)
+	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", p.BaseURL, p.Model, p.ApiKey)
 
 	// Debug log the request
 	headers := map[string]string{
@@ -507,7 +507,7 @@ func (p *Provider) PredictStream(ctx context.Context, req providers.PredictionRe
 	}
 
 	// Make HTTP request
-	url := fmt.Sprintf("%s/v1beta/models/%s:streamGenerateContent?key=%s", p.BaseURL, p.Model, p.ApiKey)
+	url := fmt.Sprintf("%s/models/%s:streamGenerateContent?key=%s", p.BaseURL, p.Model, p.ApiKey)
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
