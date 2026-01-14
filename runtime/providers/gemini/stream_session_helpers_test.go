@@ -106,6 +106,80 @@ func TestBuildClientMessage_AudioPCM(t *testing.T) {
 	}
 }
 
+func TestBuildClientMessage_ImageJPEG(t *testing.T) {
+	// Test buildClientMessage with image data - should use TypeScript SDK format
+	imageData := []byte{0xFF, 0xD8, 0xFF, 0xE0} // Fake JPEG header
+
+	chunk := types.MediaChunk{
+		Data:      imageData,
+		Timestamp: time.Now(),
+		Metadata: map[string]string{
+			"mime_type": "image/jpeg",
+		},
+	}
+
+	msg := buildClientMessage(chunk, false)
+	if msg == nil {
+		t.Fatal("Expected non-nil message")
+	}
+
+	// Image should use camelCase "realtimeInput" format (TypeScript SDK style)
+	realtimeInput, ok := msg["realtimeInput"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Expected realtimeInput (camelCase) in message for images")
+	}
+
+	// Should use singular "media" object, not "media_chunks" array
+	media, ok := realtimeInput["media"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Expected media object in realtimeInput")
+	}
+
+	mimeType, ok := media["mimeType"].(string)
+	if !ok || mimeType != "image/jpeg" {
+		t.Errorf("Expected mimeType 'image/jpeg', got %v", mimeType)
+	}
+
+	data, ok := media["data"].(string)
+	if !ok || data == "" {
+		t.Error("Expected base64 encoded data")
+	}
+}
+
+func TestBuildClientMessage_VideoPNG(t *testing.T) {
+	// Test buildClientMessage with video/PNG data
+	videoData := []byte{0x89, 0x50, 0x4E, 0x47} // Fake PNG header
+
+	chunk := types.MediaChunk{
+		Data:      videoData,
+		Timestamp: time.Now(),
+		Metadata: map[string]string{
+			"mime_type": "video/mp4",
+		},
+	}
+
+	msg := buildClientMessage(chunk, false)
+	if msg == nil {
+		t.Fatal("Expected non-nil message")
+	}
+
+	// Video should also use camelCase "realtimeInput" format
+	realtimeInput, ok := msg["realtimeInput"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Expected realtimeInput (camelCase) in message for video")
+	}
+
+	media, ok := realtimeInput["media"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Expected media object in realtimeInput")
+	}
+
+	mimeType, ok := media["mimeType"].(string)
+	if !ok || mimeType != "video/mp4" {
+		t.Errorf("Expected mimeType 'video/mp4', got %v", mimeType)
+	}
+}
+
 func TestCompleteTurn_ClosedSession(t *testing.T) {
 	session := &StreamSession{
 		closed: true,

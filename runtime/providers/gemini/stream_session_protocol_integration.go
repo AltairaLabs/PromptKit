@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -12,6 +13,9 @@ import (
 
 // finishReasonComplete is the finish reason indicating the turn completed normally.
 const finishReasonComplete = "complete"
+
+// audioPCMMime is the MIME type for PCM audio used by Gemini Live API.
+const audioPCMMime = "audio/pcm"
 
 // sliceContains checks if a string slice contains a value
 func sliceContains(slice []string, val string) bool {
@@ -347,11 +351,45 @@ func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool, cos
 	}
 }
 
-// buildClientMessage builds a realtime input message with media chunk
+// buildClientMessage builds a realtime input message with media chunk.
+// For images/video, uses the format from the TypeScript SDK:
+//
+//	session.sendRealtimeInput({ media: { data: base64Data, mimeType: 'image/jpeg' } })
+//
+// Which translates to wire format: { "realtimeInput": { "media": { "data": "...", "mimeType": "..." } } }
+// For audio, uses the legacy format with media_chunks array.
 func buildClientMessage(chunk types.MediaChunk, _ bool) map[string]interface{} {
-	// Encode binary PCM data as base64 for transmission
+	// Determine MIME type from metadata or default to audio/pcm
+	mimeType := audioPCMMime
+	if chunk.Metadata != nil {
+		if mt := chunk.Metadata["mime_type"]; mt != "" {
+			mimeType = mt
+		}
+	}
+
+	var base64Data string
+
+	// Handle different media types
+	if strings.HasPrefix(mimeType, "image/") || strings.HasPrefix(mimeType, "video/") {
+		// For images/video, use the format from TypeScript SDK:
+		// sendRealtimeInput({ media: { data: base64Data, mimeType: 'image/jpeg' } })
+		base64Data = base64.StdEncoding.EncodeToString(chunk.Data)
+
+		// Use camelCase keys to match the TypeScript SDK / protobuf JSON encoding
+		return map[string]interface{}{
+			"realtimeInput": map[string]interface{}{
+				"media": map[string]interface{}{
+					"data":     base64Data,
+					"mimeType": mimeType,
+				},
+			},
+		}
+	}
+
+	// For audio, use PCM encoder with legacy format
 	encoder := NewAudioEncoder()
-	base64Data, err := encoder.EncodePCM(chunk.Data)
+	var err error
+	base64Data, err = encoder.EncodePCM(chunk.Data)
 	if err != nil {
 		// If encoding fails, use empty string (should not happen with valid PCM data)
 		base64Data = ""
@@ -361,7 +399,7 @@ func buildClientMessage(chunk types.MediaChunk, _ bool) map[string]interface{} {
 		"realtime_input": map[string]interface{}{
 			"media_chunks": []map[string]interface{}{
 				{
-					"mime_type": "audio/pcm",
+					"mime_type": audioPCMMime,
 					"data":      base64Data,
 				},
 			},
