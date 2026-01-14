@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"gopkg.in/yaml.v3"
 )
 
@@ -289,18 +288,13 @@ func (r *Registry) Execute(toolName string, args json.RawMessage) (*ToolResult, 
 	}
 
 	// Validate and potentially coerce the result for non-MCP tools
-	validatedResult, coercions, err := r.validator.CoerceResult(tool, result)
+	validatedResult, _, err := r.validator.CoerceResult(tool, result)
 	if err != nil {
 		return &ToolResult{
 			Name:      toolName,
 			Error:     fmt.Sprintf(errResultValidationFailed, err),
 			LatencyMs: latency,
 		}, nil
-	}
-
-	// Log coercions if any occurred
-	if len(coercions) > 0 {
-		logger.Debug("Tool performed coercions", "tool", toolName, "count", len(coercions))
 	}
 
 	return &ToolResult{
@@ -394,7 +388,7 @@ func (r *Registry) executeWithAsyncExecutor(asyncExecutor AsyncToolExecutor, too
 	}
 
 	// result.Content is already json.RawMessage
-	return r.validateAndCoerceResult(tool, toolName, result.Content)
+	return r.validateAndCoerceResult(tool, result.Content)
 }
 
 // executeSyncFallback executes a tool synchronously for non-async executors
@@ -418,21 +412,17 @@ func (r *Registry) executeSyncFallback(executor Executor, tool *ToolDescriptor, 
 		}, nil
 	}
 
-	return r.validateAndCoerceResult(tool, toolName, result)
+	return r.validateAndCoerceResult(tool, result)
 }
 
 // validateAndCoerceResult validates and coerces tool execution results
-func (r *Registry) validateAndCoerceResult(tool *ToolDescriptor, toolName string, content json.RawMessage) (*ToolExecutionResult, error) {
-	validatedResult, coercions, err := r.validator.CoerceResult(tool, content)
+func (r *Registry) validateAndCoerceResult(tool *ToolDescriptor, content json.RawMessage) (*ToolExecutionResult, error) {
+	validatedResult, _, err := r.validator.CoerceResult(tool, content)
 	if err != nil {
 		return &ToolExecutionResult{
 			Status: ToolStatusFailed,
 			Error:  fmt.Sprintf(errResultValidationFailed, err),
 		}, nil
-	}
-
-	if len(coercions) > 0 {
-		logger.Debug("Tool performed coercions", "tool", toolName, "count", len(coercions))
 	}
 
 	return &ToolExecutionResult{
