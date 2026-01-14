@@ -5,7 +5,7 @@ metadata:
 spec:
   id: "gemini-flash"
   type: gemini
-  model: gemini-3-flash-preview
+  model: gemini-2.5-flash
   include_raw_output: true  # Include raw API requests/responses in output for debugging
   defaults:
     temperature: 0.7

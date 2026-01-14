@@ -371,7 +371,7 @@ func (p *Provider) predictStreamWithContents(ctx context.Context, contents []gem
 	}
 
 	// Build URL for streaming
-	url := fmt.Sprintf("%s/models/%s:streamGenerateContent?alt=sse&key=%s", p.BaseURL, p.Model, p.ApiKey)
+	url := fmt.Sprintf("%s/models/%s:streamGenerateContent?key=%s", p.BaseURL, p.Model, p.ApiKey)
 
 	// Make HTTP request
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
