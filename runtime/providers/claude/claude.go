@@ -380,7 +380,7 @@ func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.Co
 		cachedCostPer1K = inputCostPer1K * 0.1
 	} else {
 		// Fallback to hardcoded pricing with warning
-		fmt.Printf("WARNING: No pricing configured for provider %s (model: %s), using fallback pricing\n", p.ID(), p.model)
+		logger.Warn("No pricing configured, using fallback pricing", "provider", p.ID(), "model", p.model)
 		inputCostPer1K, outputCostPer1K, cachedCostPer1K = claudePricing(p.model)
 	}
 
