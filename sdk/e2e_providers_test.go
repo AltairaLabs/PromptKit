@@ -62,6 +62,34 @@ func NewProviderConversationWithEvents(t *testing.T, provider ProviderConfig, bu
 	return NewProviderConversation(t, provider, WithEventBus(bus))
 }
 
+// NewToolsConversation creates a conversation configured for tool tests.
+func NewToolsConversation(t *testing.T, provider ProviderConfig, opts ...Option) *Conversation {
+	t.Helper()
+
+	if !provider.HasCapability(CapTools) {
+		t.Skipf("Provider %s does not support tools", provider.ID)
+	}
+
+	// Build pack path
+	packPath := filepath.Join(E2EPackDir(), "e2e-test.pack.json")
+
+	// Ensure pack file exists
+	if _, err := os.Stat(packPath); os.IsNotExist(err) {
+		t.Skipf("Test pack file not found: %s (create it or set E2E_PACK_DIR)", packPath)
+	}
+
+	// Use "tools" prompt which has tools defined
+	allOpts := []Option{
+		WithModel(provider.DefaultModel),
+	}
+	allOpts = append(allOpts, opts...)
+
+	conv, err := Open(packPath, "tools", allOpts...)
+	require.NoError(t, err, "Failed to open tools conversation with provider %s", provider.ID)
+
+	return conv
+}
+
 // NewVisionConversation creates a conversation configured for vision tests.
 func NewVisionConversation(t *testing.T, provider ProviderConfig, opts ...Option) *Conversation {
 	t.Helper()
@@ -99,30 +127,34 @@ func EnsureTestPacks(t *testing.T) {
 	packPath := filepath.Join(packDir, "e2e-test.pack.json")
 	if _, err := os.Stat(packPath); os.IsNotExist(err) {
 		packContent := `{
-  "version": "1.0",
-  "name": "e2e-test",
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "e2e-test",
+  "name": "E2E Test Pack",
+  "version": "1.0.0",
   "description": "Minimal pack for e2e testing",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
   "prompts": {
     "chat": {
-      "system_template": "You are a helpful assistant for testing. Keep responses brief.",
-      "parameters": {
-        "max_tokens": 256,
-        "temperature": 0.7
-      }
+      "id": "chat",
+      "name": "Chat",
+      "version": "1.0.0",
+      "system_template": "You are a helpful assistant for testing. Keep responses brief."
     },
     "vision": {
-      "system_template": "You are a vision assistant. Describe images briefly and accurately.",
-      "parameters": {
-        "max_tokens": 512,
-        "temperature": 0.5
-      }
+      "id": "vision",
+      "name": "Vision",
+      "version": "1.0.0",
+      "system_template": "You are a vision assistant. Describe images briefly and accurately."
     },
     "tools": {
+      "id": "tools",
+      "name": "Tools",
+      "version": "1.0.0",
       "system_template": "You are an assistant that uses tools when helpful.",
-      "tools": ["calculator", "weather"],
-      "parameters": {
-        "max_tokens": 512
-      }
+      "tools": ["calculator", "weather"]
     }
   },
   "tools": {
