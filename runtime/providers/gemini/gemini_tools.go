@@ -102,10 +102,6 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (in
 
 // PredictWithTools performs a predict request with tool support
 func (p *ToolProvider) PredictWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
-	logger.Debug("PredictWithTools called",
-		"toolChoice", toolChoice,
-		"messages", len(req.Messages))
-
 	// Store tools and request context for potential continuation
 	p.currentTools = tools
 	p.currentRequest = &req
@@ -175,10 +171,11 @@ func buildMessageParts(msg types.Message, pendingToolResults []map[string]interf
 		}
 	}
 
-	// Add text content
-	if msg.Content != "" {
+	// Add text content - use GetContent() to properly handle both Content field and Parts
+	textContent := msg.GetContent()
+	if textContent != "" {
 		parts = append(parts, map[string]interface{}{
-			"text": msg.Content,
+			"text": textContent,
 		})
 	}
 

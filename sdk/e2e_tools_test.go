@@ -28,10 +28,6 @@ func TestE2E_Tools_BasicToolCall(t *testing.T) {
 		if provider.ID == "mock" {
 			t.Skip("Mock provider uses different tool setup")
 		}
-		if provider.ID == "gemini" || provider.ID == "gemini-realtime" {
-			t.Skip("Gemini tools have a known SDK bug - contents not being sent correctly")
-		}
-
 		conv := NewToolsConversation(t, provider)
 		defer conv.Close()
 
@@ -77,10 +73,6 @@ func TestE2E_Tools_ToolWithComplexArgs(t *testing.T) {
 		if provider.ID == "mock" {
 			t.Skip("Mock provider uses different tool setup")
 		}
-		if provider.ID == "gemini" || provider.ID == "gemini-realtime" {
-			t.Skip("Gemini tools have a known SDK bug - contents not being sent correctly")
-		}
-
 		conv := NewToolsConversation(t, provider)
 		defer conv.Close()
 
@@ -139,10 +131,6 @@ func TestE2E_Tools_MultipleToolCalls(t *testing.T) {
 		if provider.ID == "mock" {
 			t.Skip("Mock provider uses different tool setup")
 		}
-		if provider.ID == "gemini" || provider.ID == "gemini-realtime" {
-			t.Skip("Gemini tools have a known SDK bug - contents not being sent correctly")
-		}
-
 		conv := NewToolsConversation(t, provider)
 		defer conv.Close()
 
@@ -181,10 +169,6 @@ func TestE2E_Tools_ToolError(t *testing.T) {
 		if provider.ID == "mock" {
 			t.Skip("Mock provider uses different tool setup")
 		}
-		if provider.ID == "gemini" || provider.ID == "gemini-realtime" {
-			t.Skip("Gemini tools have a known SDK bug - contents not being sent correctly")
-		}
-
 		conv := NewToolsConversation(t, provider)
 		defer conv.Close()
 
