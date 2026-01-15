@@ -509,3 +509,143 @@ func TestMessage_RoleValues(t *testing.T) {
 		}
 	}
 }
+
+// =============================================================================
+// Message Constructor Tests
+// =============================================================================
+
+func TestNewTextMessage(t *testing.T) {
+	msg := NewTextMessage("assistant", "Hello, world!")
+
+	if msg.Role != "assistant" {
+		t.Errorf("Role mismatch: got %q, want %q", msg.Role, "assistant")
+	}
+	if msg.Content != "Hello, world!" {
+		t.Errorf("Content mismatch: got %q, want %q", msg.Content, "Hello, world!")
+	}
+}
+
+func TestNewUserMessage(t *testing.T) {
+	msg := NewUserMessage("What is the weather?")
+
+	if msg.Role != "user" {
+		t.Errorf("Role mismatch: got %q, want %q", msg.Role, "user")
+	}
+	if msg.Content != "What is the weather?" {
+		t.Errorf("Content mismatch: got %q, want %q", msg.Content, "What is the weather?")
+	}
+}
+
+func TestNewAssistantMessage(t *testing.T) {
+	msg := NewAssistantMessage("The weather is sunny.")
+
+	if msg.Role != "assistant" {
+		t.Errorf("Role mismatch: got %q, want %q", msg.Role, "assistant")
+	}
+	if msg.Content != "The weather is sunny." {
+		t.Errorf("Content mismatch: got %q, want %q", msg.Content, "The weather is sunny.")
+	}
+}
+
+func TestNewSystemMessage(t *testing.T) {
+	msg := NewSystemMessage("You are a helpful assistant.")
+
+	if msg.Role != "system" {
+		t.Errorf("Role mismatch: got %q, want %q", msg.Role, "system")
+	}
+	if msg.Content != "You are a helpful assistant." {
+		t.Errorf("Content mismatch: got %q, want %q", msg.Content, "You are a helpful assistant.")
+	}
+}
+
+func TestNewToolResultMessage(t *testing.T) {
+	result := MessageToolResult{
+		ID:        "call_123",
+		Name:      "get_weather",
+		Content:   `{"temp": 72, "condition": "sunny"}`,
+		LatencyMs: 150,
+	}
+
+	msg := NewToolResultMessage(result)
+
+	if msg.Role != "tool" {
+		t.Errorf("Role mismatch: got %q, want %q", msg.Role, "tool")
+	}
+	if msg.ToolResult == nil {
+		t.Fatal("Expected ToolResult to be set")
+	}
+	if msg.ToolResult.ID != "call_123" {
+		t.Errorf("ToolResult.ID mismatch: got %q, want %q", msg.ToolResult.ID, "call_123")
+	}
+	if msg.ToolResult.Name != "get_weather" {
+		t.Errorf("ToolResult.Name mismatch: got %q, want %q", msg.ToolResult.Name, "get_weather")
+	}
+	// Content should be synced from ToolResult.Content
+	if msg.Content != result.Content {
+		t.Errorf("Content not synced: got %q, want %q", msg.Content, result.Content)
+	}
+}
+
+func TestNewToolResultMessage_ContentSync(t *testing.T) {
+	// Verify that Content and ToolResult.Content are synchronized
+	result := MessageToolResult{
+		ID:      "call_456",
+		Name:    "calculator",
+		Content: "42",
+	}
+
+	msg := NewToolResultMessage(result)
+
+	// Both should have the same content
+	if msg.Content != msg.ToolResult.Content {
+		t.Errorf("Content not synced with ToolResult.Content: Content=%q, ToolResult.Content=%q",
+			msg.Content, msg.ToolResult.Content)
+	}
+
+	// GetContent should return the content
+	if msg.GetContent() != "42" {
+		t.Errorf("GetContent() mismatch: got %q, want %q", msg.GetContent(), "42")
+	}
+}
+
+func TestNewToolResultMessage_WithError(t *testing.T) {
+	result := MessageToolResult{
+		ID:      "call_789",
+		Name:    "invalid_tool",
+		Content: "Tool execution failed",
+		Error:   "Tool not found",
+	}
+
+	msg := NewToolResultMessage(result)
+
+	if msg.ToolResult.Error != "Tool not found" {
+		t.Errorf("ToolResult.Error mismatch: got %q, want %q", msg.ToolResult.Error, "Tool not found")
+	}
+}
+
+func TestNewMultimodalMessage(t *testing.T) {
+	text := "Check this image"
+	parts := []ContentPart{
+		NewTextPart(text),
+	}
+
+	msg := NewMultimodalMessage("user", parts)
+
+	if msg.Role != "user" {
+		t.Errorf("Role mismatch: got %q, want %q", msg.Role, "user")
+	}
+	if len(msg.Parts) != 1 {
+		t.Fatalf("Expected 1 part, got %d", len(msg.Parts))
+	}
+	if msg.Parts[0].Type != ContentTypeText {
+		t.Errorf("Part type mismatch: got %q, want %q", msg.Parts[0].Type, ContentTypeText)
+	}
+	// Content should be empty for multimodal messages
+	if msg.Content != "" {
+		t.Errorf("Content should be empty for multimodal messages, got %q", msg.Content)
+	}
+	// GetContent should extract text from parts
+	if msg.GetContent() != text {
+		t.Errorf("GetContent() mismatch: got %q, want %q", msg.GetContent(), text)
+	}
+}

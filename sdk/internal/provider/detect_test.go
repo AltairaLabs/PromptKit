@@ -202,6 +202,31 @@ func TestCreateProvider(t *testing.T) {
 		assert.Equal(t, "gemini", prov.ID())
 	})
 
+	t.Run("ollama", func(t *testing.T) {
+		info := &Info{Name: "ollama", APIKey: "", Model: "llava:7b"}
+		prov, err := createProvider(info)
+		require.NoError(t, err)
+		assert.Equal(t, "ollama", prov.ID())
+	})
+
+	t.Run("ollama with custom host", func(t *testing.T) {
+		// Set custom OLLAMA_HOST_URL
+		orig := os.Getenv("OLLAMA_HOST_URL")
+		_ = os.Setenv("OLLAMA_HOST_URL", "http://custom-host:11434")
+		defer func() {
+			if orig == "" {
+				_ = os.Unsetenv("OLLAMA_HOST_URL")
+			} else {
+				_ = os.Setenv("OLLAMA_HOST_URL", orig)
+			}
+		}()
+
+		info := &Info{Name: "ollama", APIKey: "", Model: "llama3.2:3b"}
+		prov, err := createProvider(info)
+		require.NoError(t, err)
+		assert.Equal(t, "ollama", prov.ID())
+	})
+
 	t.Run("unsupported provider", func(t *testing.T) {
 		info := &Info{Name: "unknown", APIKey: "test", Model: "model"}
 		_, err := createProvider(info)
@@ -246,7 +271,14 @@ func TestInferProviderFromModel(t *testing.T) {
 		{"claude-sonnet-4-20250514", "anthropic"},
 		{"Claude-3-Haiku", "anthropic"},
 
-		// Unknown models
+		// Ollama models (detected by ":" in name)
+		{"llava:7b", "ollama"},
+		{"llama3.2:3b", "ollama"},
+		{"llama2:latest", "ollama"},
+		{"mistral:7b-instruct", "ollama"},
+		{"qwen2.5:14b", "ollama"},
+
+		// Unknown models (no ":" and no recognized prefix)
 		{"unknown-model", ""},
 		{"llama-3", ""},
 		{"", ""},
@@ -312,6 +344,14 @@ func TestDetectInfoForProvider(t *testing.T) {
 
 		info := detectInfoForProvider("anthropic")
 		assert.Nil(t, info)
+	})
+
+	t.Run("ollama provider returns info without API key", func(t *testing.T) {
+		// Ollama doesn't require API keys
+		info := detectInfoForProvider("ollama")
+		require.NotNil(t, info)
+		assert.Equal(t, "ollama", info.Name)
+		assert.Equal(t, "", info.APIKey) // No API key needed
 	})
 }
 
@@ -382,5 +422,60 @@ func TestDetect_ModelTakesPriority(t *testing.T) {
 		prov, err := Detect("", "gemini-2.0-flash-exp")
 		require.NoError(t, err)
 		assert.Equal(t, "openai", prov.ID())
+	})
+}
+
+func TestDetect_OllamaModels(t *testing.T) {
+	// Save and restore environment
+	origOpenAI := os.Getenv("OPENAI_API_KEY")
+	origOllamaHost := os.Getenv("OLLAMA_HOST_URL")
+	defer func() {
+		_ = os.Setenv("OPENAI_API_KEY", origOpenAI)
+		if origOllamaHost == "" {
+			_ = os.Unsetenv("OLLAMA_HOST_URL")
+		} else {
+			_ = os.Setenv("OLLAMA_HOST_URL", origOllamaHost)
+		}
+	}()
+
+	t.Run("ollama model detected by colon", func(t *testing.T) {
+		// Clear other providers
+		_ = os.Unsetenv("OPENAI_API_KEY")
+		_ = os.Unsetenv("ANTHROPIC_API_KEY")
+		_ = os.Unsetenv("GOOGLE_API_KEY")
+		_ = os.Unsetenv("GEMINI_API_KEY")
+
+		prov, err := Detect("", "llava:7b")
+		require.NoError(t, err)
+		assert.Equal(t, "ollama", prov.ID())
+	})
+
+	t.Run("ollama model llama3.2:3b", func(t *testing.T) {
+		_ = os.Unsetenv("OPENAI_API_KEY")
+		_ = os.Unsetenv("ANTHROPIC_API_KEY")
+		_ = os.Unsetenv("GOOGLE_API_KEY")
+		_ = os.Unsetenv("GEMINI_API_KEY")
+
+		prov, err := Detect("", "llama3.2:3b")
+		require.NoError(t, err)
+		assert.Equal(t, "ollama", prov.ID())
+	})
+
+	t.Run("ollama takes priority over env vars when model has colon", func(t *testing.T) {
+		// Set OpenAI key but use Ollama model
+		_ = os.Setenv("OPENAI_API_KEY", "openai-key")
+
+		prov, err := Detect("", "mistral:7b")
+		require.NoError(t, err)
+		assert.Equal(t, "ollama", prov.ID())
+	})
+
+	t.Run("ollama with custom host URL", func(t *testing.T) {
+		_ = os.Unsetenv("OPENAI_API_KEY")
+		_ = os.Setenv("OLLAMA_HOST_URL", "http://192.168.1.100:11434")
+
+		prov, err := Detect("", "qwen2.5:14b")
+		require.NoError(t, err)
+		assert.Equal(t, "ollama", prov.ID())
 	})
 }
