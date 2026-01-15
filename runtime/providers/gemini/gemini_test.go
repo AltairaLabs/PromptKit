@@ -28,8 +28,8 @@ func TestNewProvider(t *testing.T) {
 		t.Errorf("Expected ID 'test-gemini', got '%s'", provider.ID())
 	}
 
-	if provider.Model != "gemini-1.5-pro" {
-		t.Errorf("Expected model 'gemini-1.5-pro', got '%s'", provider.Model)
+	if provider.Model() != "gemini-1.5-pro" {
+		t.Errorf("Expected model 'gemini-1.5-pro', got '%s'", provider.Model())
 	}
 
 	if provider.BaseURL != "https://generativelanguage.googleapis.com/v1beta" {
@@ -212,7 +212,7 @@ func TestGeminiProvider_DifferentModels(t *testing.T) {
 
 	for _, model := range models {
 		provider := NewProvider("test", model, "url", providers.ProviderDefaults{}, false)
-		if provider.Model != model {
+		if provider.Model() != model {
 			t.Errorf("Model mismatch for %s", model)
 		}
 	}

@@ -487,10 +487,9 @@ func TestNewProviderStage_WithConfig(t *testing.T) {
 	seed := 42
 
 	config := &ProviderConfig{
-		MaxTokens:    500,
-		Temperature:  0.9,
-		Seed:         &seed,
-		DisableTrace: true,
+		MaxTokens:   500,
+		Temperature: 0.9,
+		Seed:        &seed,
 	}
 
 	stage := NewProviderStage(provider, nil, nil, config)
@@ -499,7 +498,6 @@ func TestNewProviderStage_WithConfig(t *testing.T) {
 	assert.Equal(t, 500, stage.config.MaxTokens)
 	assert.Equal(t, float32(0.9), stage.config.Temperature)
 	assert.Equal(t, &seed, stage.config.Seed)
-	assert.True(t, stage.config.DisableTrace)
 }
 
 func TestProviderStage_NonStreamingMode(t *testing.T) {

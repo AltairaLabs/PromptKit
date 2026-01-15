@@ -148,6 +148,7 @@ func TestDuplexConversationExecutor_ImplementsInterface(t *testing.T) {
 type mockNonStreamingProvider struct{}
 
 func (m *mockNonStreamingProvider) ID() string              { return "mock" }
+func (m *mockNonStreamingProvider) Model() string           { return "mock-model" }
 func (m *mockNonStreamingProvider) SupportsStreaming() bool { return false }
 func (m *mockNonStreamingProvider) ShouldIncludeRawOutput() bool { return false }
 func (m *mockNonStreamingProvider) Close() error            { return nil }

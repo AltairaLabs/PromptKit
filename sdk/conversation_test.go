@@ -758,7 +758,8 @@ type mockStreamProvider struct {
 	sessionErr error
 }
 
-func (m *mockStreamProvider) ID() string { return "mock-stream" }
+func (m *mockStreamProvider) ID() string    { return "mock-stream" }
+func (m *mockStreamProvider) Model() string { return "mock-stream-model" }
 func (m *mockStreamProvider) Predict(_ context.Context, _ providers.PredictionRequest) (providers.PredictionResponse, error) {
 	return providers.PredictionResponse{}, nil
 }
@@ -796,7 +797,8 @@ func (m *mockStreamProvider) GetStreamingCapabilities() providers.StreamingCapab
 // mockNonStreamProvider implements providers.Provider but not StreamInputSupport
 type mockNonStreamProvider struct{}
 
-func (m *mockNonStreamProvider) ID() string { return "mock-non-stream" }
+func (m *mockNonStreamProvider) ID() string    { return "mock-non-stream" }
+func (m *mockNonStreamProvider) Model() string { return "mock-non-stream-model" }
 func (m *mockNonStreamProvider) Predict(_ context.Context, _ providers.PredictionRequest) (providers.PredictionResponse, error) {
 	return providers.PredictionResponse{}, nil
 }

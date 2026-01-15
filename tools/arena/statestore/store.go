@@ -135,7 +135,8 @@ func (s *ArenaStateStore) Save(ctx context.Context, state *runtimestore.Conversa
 }
 
 // SaveWithTrace stores conversation state with execution trace (Arena-specific method)
-// This is called by ArenaStateStoreSaveMiddleware to directly pass the trace
+// This is called by ArenaStateStoreSaveMiddleware to directly pass the trace.
+// LLM call traces (_llm_trace) are always attached to messages when trace data is available.
 func (s *ArenaStateStore) SaveWithTrace(
 	ctx context.Context,
 	state *runtimestore.ConversationState,
@@ -153,7 +154,7 @@ func (s *ArenaStateStore) SaveWithTrace(
 	// Deep clone the state to capture current state immutably
 	clonedState := s.deepCloneConversationState(state)
 
-	// Attach trace to messages if provided
+	// Attach trace to messages if trace is provided
 	if trace != nil && len(trace.LLMCalls) > 0 {
 		s.attachTraceToMessages(clonedState, trace)
 	}

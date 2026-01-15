@@ -62,6 +62,11 @@ func NewProvider(
 	}
 }
 
+// Model returns the model name/identifier used by this provider.
+func (p *Provider) Model() string {
+	return p.model
+}
+
 // Ollama API request/response structures (OpenAI-compatible format)
 type ollamaRequest struct {
 	Model       string          `json:"model"`

@@ -497,6 +497,14 @@ func (s *StateStoreSaveStage) forwardAllElements(
 	output chan<- StreamElement,
 ) error {
 	for elem := range input {
+		// Always forward error elements unconditionally - they carry critical
+		// error information that must reach accumulateResult even when context
+		// is canceled. This prevents errors from being silently dropped.
+		if elem.Error != nil {
+			output <- elem
+			continue
+		}
+
 		select {
 		case output <- elem:
 		case <-ctx.Done():
@@ -519,6 +527,14 @@ func (s *StateStoreSaveStage) collectAndForward(
 			collected.messages = append(collected.messages, *elem.Message)
 		}
 		s.mergeElementMetadata(&elem, collected)
+
+		// Always forward error elements unconditionally - they carry critical
+		// error information that must reach accumulateResult even when context
+		// is canceled. This prevents errors from being silently dropped.
+		if elem.Error != nil {
+			output <- elem
+			continue
+		}
 
 		select {
 		case output <- elem:

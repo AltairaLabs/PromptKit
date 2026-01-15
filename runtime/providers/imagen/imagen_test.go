@@ -233,8 +233,8 @@ func TestProviderFieldsInitialization(t *testing.T) {
 		t.Errorf("Expected ID %q, got %q", id, provider.ID())
 	}
 
-	if provider.Model != model {
-		t.Errorf("Expected Model %q, got %q", model, provider.Model)
+	if provider.Model() != model {
+		t.Errorf("Expected Model %q, got %q", model, provider.Model())
 	}
 
 	if provider.BaseURL != baseURL {
@@ -272,8 +272,8 @@ func TestProviderDefaultValues(t *testing.T) {
 	})
 
 	expectedModel := "imagen-4.0-generate-001"
-	if provider.Model != expectedModel {
-		t.Errorf("Expected default model %q, got %q", expectedModel, provider.Model)
+	if provider.Model() != expectedModel {
+		t.Errorf("Expected default model %q, got %q", expectedModel, provider.Model())
 	}
 
 	expectedBaseURL := defaultBaseURL

@@ -345,6 +345,7 @@ func (m *mockMediaStorage) GetURL(ctx context.Context, reference storage.Referen
 type mockNonMockProvider struct{}
 
 func (m *mockNonMockProvider) ID() string                          { return "mock-non-mock" }
+func (m *mockNonMockProvider) Model() string                       { return "mock-non-mock-model" }
 func (m *mockNonMockProvider) Name() string                        { return "Mock Non-Mock Provider" }
 func (m *mockNonMockProvider) SupportsStreaming() bool             { return false }
 func (m *mockNonMockProvider) SupportsJSONResponse() bool          { return false }

@@ -10,9 +10,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -54,14 +53,33 @@ func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults,
 	}
 }
 
+// Model returns the model name/identifier used by this provider.
+func (p *Provider) Model() string {
+	return p.model
+}
+
 // OpenAI API request/response structures
 type openAIRequest struct {
-	Model       string          `json:"model"`
-	Messages    []openAIMessage `json:"messages"`
-	Temperature float32         `json:"temperature"`
-	TopP        float32         `json:"top_p"`
-	MaxTokens   int             `json:"max_tokens"`
-	Seed        *int            `json:"seed,omitempty"`
+	Model          string                `json:"model"`
+	Messages       []openAIMessage       `json:"messages"`
+	Temperature    float32               `json:"temperature"`
+	TopP           float32               `json:"top_p"`
+	MaxTokens      int                   `json:"max_tokens"`
+	Seed           *int                  `json:"seed,omitempty"`
+	ResponseFormat *openAIResponseFormat `json:"response_format,omitempty"`
+}
+
+// openAIResponseFormat specifies the response format for OpenAI API
+type openAIResponseFormat struct {
+	Type       string            `json:"type"` // "text", "json_object", or "json_schema"
+	JSONSchema *openAIJSONSchema `json:"json_schema,omitempty"`
+}
+
+// openAIJSONSchema specifies a JSON schema for structured output
+type openAIJSONSchema struct {
+	Name   string      `json:"name"`
+	Schema interface{} `json:"schema"`
+	Strict bool        `json:"strict,omitempty"`
 }
 
 type openAIMessage struct {
@@ -142,6 +160,40 @@ func (p *Provider) applyRequestDefaults(req providers.PredictionRequest) (temper
 	}
 
 	return temperature, topP, maxTokens
+}
+
+// convertResponseFormat converts provider ResponseFormat to OpenAI format
+func (p *Provider) convertResponseFormat(rf *providers.ResponseFormat) *openAIResponseFormat {
+	if rf == nil {
+		return nil
+	}
+
+	result := &openAIResponseFormat{
+		Type: string(rf.Type),
+	}
+
+	// Handle JSON schema format
+	if rf.Type == providers.ResponseFormatJSONSchema && len(rf.JSONSchema) > 0 {
+		// Parse the schema from raw JSON
+		var schema interface{}
+		if err := json.Unmarshal(rf.JSONSchema, &schema); err != nil {
+			// If parsing fails, just use the raw JSON
+			schema = rf.JSONSchema
+		}
+
+		schemaName := rf.SchemaName
+		if schemaName == "" {
+			schemaName = "response_schema"
+		}
+
+		result.JSONSchema = &openAIJSONSchema{
+			Name:   schemaName,
+			Schema: schema,
+			Strict: rf.Strict,
+		}
+	}
+
+	return result
 }
 
 // Predict sends a predict request to OpenAI
@@ -334,7 +386,16 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 			continue // Skip malformed chunks
 		}
 
+		// Handle usage-only chunk (sent when stream_options.include_usage is true)
+		// This chunk has no choices but contains the final token counts
 		if len(chunk.Choices) == 0 {
+			if chunk.Usage != nil {
+				// Send final chunk with usage data
+				stopReason := providers.StringPtr("stop")
+				finalChunk := p.createFinalStreamChunk(
+					accumulated, accumulatedToolCalls, totalTokens, stopReason, chunk.Usage)
+				outChan <- finalChunk
+			}
 			continue
 		}
 
@@ -365,11 +426,17 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 			}
 		}
 
-		// Handle finish reason
+		// Handle finish reason - don't return yet, wait for usage-only chunk
+		// When stream_options.include_usage is true, usage comes in a separate chunk
 		if choice.FinishReason != nil {
-			finalChunk := p.createFinalStreamChunk(accumulated, accumulatedToolCalls, totalTokens, choice.FinishReason, chunk.Usage)
-			outChan <- finalChunk
-			return
+			// If usage is included in this chunk, send final chunk now
+			if chunk.Usage != nil {
+				finalChunk := p.createFinalStreamChunk(
+					accumulated, accumulatedToolCalls, totalTokens, choice.FinishReason, chunk.Usage)
+				outChan <- finalChunk
+				return
+			}
+			// Otherwise, continue to wait for the usage-only chunk
 		}
 	}
 
@@ -449,6 +516,11 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 		TopP:        topP,
 		MaxTokens:   maxTokens,
 		Seed:        req.Seed,
+	}
+
+	// Add response format if specified
+	if req.ResponseFormat != nil {
+		openAIReq.ResponseFormat = p.convertResponseFormat(req.ResponseFormat)
 	}
 
 	reqBody, err := json.Marshal(openAIReq)
@@ -567,6 +639,10 @@ func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.
 	}
 	if req.Seed != nil {
 		openAIReq["seed"] = *req.Seed
+	}
+	// Add response format if specified
+	if req.ResponseFormat != nil {
+		openAIReq["response_format"] = p.convertResponseFormat(req.ResponseFormat)
 	}
 
 	reqBody, err := json.Marshal(openAIReq)

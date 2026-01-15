@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
@@ -21,7 +22,23 @@ const (
 	applicationJSON       = "application/json"
 	anthropicVersionValue = "2023-06-01"
 	anthropicVersionKey   = "Anthropic-Version"
+	anthropicAPIHost      = "api.anthropic.com"
+	textDeltaType         = "text_delta"
 )
+
+// normalizeBaseURL ensures the baseURL includes the /v1 path for Anthropic's API.
+// If the URL is the Anthropic API without /v1, it adds it.
+// Mock server URLs (non-Anthropic hosts) are left unchanged.
+func normalizeBaseURL(baseURL string) string {
+	// Only modify if it's the Anthropic API host
+	if strings.Contains(baseURL, anthropicAPIHost) {
+		// Check if /v1 is already present
+		if !strings.Contains(baseURL, "/v1") {
+			return strings.TrimSuffix(baseURL, "/") + "/v1"
+		}
+	}
+	return baseURL
+}
 
 // Provider implements the Provider interface for Anthropic Claude
 type Provider struct {
@@ -39,10 +56,15 @@ func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults,
 	return &Provider{
 		BaseProvider: base,
 		model:        model,
-		baseURL:      baseURL,
+		baseURL:      normalizeBaseURL(baseURL),
 		apiKey:       apiKey,
 		defaults:     defaults,
 	}
+}
+
+// Model returns the model name/identifier used by this provider.
+func (p *Provider) Model() string {
+	return p.model
 }
 
 // Close implements provider cleanup (uses BaseProvider.Close)
@@ -65,6 +87,7 @@ type claudeMessage struct {
 type claudeContentBlock struct {
 	Type         string              `json:"type"` // "text", "image", etc.
 	Text         string              `json:"text,omitempty"`
+	Source       *claudeImageSource  `json:"source,omitempty"` // For image content
 	CacheControl *claudeCacheControl `json:"cache_control,omitempty"`
 }
 
@@ -118,20 +141,42 @@ func (p *Provider) supportsCaching() bool {
 	}
 }
 
-// convertMessagesToClaudeFormat converts provider messages to Claude format with cache control
+// convertMessagesToClaudeFormat converts provider messages to Claude format with cache control.
+// Handles both text-only and multimodal (image) messages inline.
 func (p *Provider) convertMessagesToClaudeFormat(messages []types.Message) []claudeMessage {
 	claudeMessages := make([]claudeMessage, 0, len(messages))
 	minCharsForCaching := 2048 * 4 // ~8192 characters (Claude requires 2048 tokens minimum)
 
 	for i := range messages {
 		msg := &messages[i]
+
+		// Check if message has media content (images, audio, video)
+		if msg.HasMediaContent() {
+			// Use multimodal conversion path
+			claudeMsg, err := p.convertMessageToClaudeMultimodal(*msg)
+			if err != nil {
+				// Fall back to text-only on conversion error
+				logger.Warn("Failed to convert multimodal message, falling back to text", "error", err)
+				textContent := msg.GetContent()
+				claudeMessages = append(claudeMessages, claudeMessage{
+					Role:    msg.Role,
+					Content: []claudeContentBlock{{Type: "text", Text: textContent}},
+				})
+			} else {
+				claudeMessages = append(claudeMessages, claudeMsg)
+			}
+			continue
+		}
+
+		// Text-only message
+		textContent := msg.GetContent()
 		contentBlock := claudeContentBlock{
 			Type: "text",
-			Text: msg.Content,
+			Text: textContent,
 		}
 
 		// Only cache the last message with sufficient content to maximize cache hits
-		if p.supportsCaching() && i == len(messages)-1 && len(msg.Content) >= minCharsForCaching {
+		if p.supportsCaching() && i == len(messages)-1 && len(textContent) >= minCharsForCaching {
 			contentBlock.CacheControl = &claudeCacheControl{Type: "ephemeral"}
 		}
 
@@ -408,22 +453,8 @@ func (p *Provider) PredictStream(ctx context.Context, req providers.PredictionRe
 		Model:    p.model,
 	})
 
-	// Convert messages to Claude format
-	messages := make([]claudeMessage, 0, len(req.Messages))
-
-	for i := range req.Messages {
-		msg := &req.Messages[i]
-		claudeMsg := claudeMessage{
-			Role: msg.Role,
-			Content: []claudeContentBlock{
-				{
-					Type: "text",
-					Text: msg.Content,
-				},
-			},
-		}
-		messages = append(messages, claudeMsg)
-	}
+	// Convert messages to Claude format (handles both text and multimodal)
+	messages := p.convertMessagesToClaudeFormat(req.Messages)
 
 	// Apply provider defaults
 	temperature := req.Temperature
@@ -493,6 +524,33 @@ func (p *Provider) PredictStream(ctx context.Context, req providers.PredictionRe
 	return outChan, nil
 }
 
+// processClaudeContentDeltaInternal handles content_block_delta events with pre-parsed delta
+func (p *Provider) processClaudeContentDeltaInternal(
+	delta *struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	},
+	accumulated string,
+	totalTokens int,
+	outChan chan<- providers.StreamChunk,
+) (newAccumulated string, newTokenCount int) {
+	if delta == nil || delta.Type != textDeltaType {
+		return accumulated, totalTokens
+	}
+
+	accumulated += delta.Text
+	totalTokens++
+
+	outChan <- providers.StreamChunk{
+		Content:     accumulated,
+		Delta:       delta.Text,
+		TokenCount:  totalTokens,
+		DeltaTokens: 1,
+	}
+
+	return accumulated, totalTokens
+}
+
 // processClaudeContentDelta handles content_block_delta events from Claude stream
 func (p *Provider) processClaudeContentDelta(event struct {
 	Type  string `json:"type"`
@@ -505,7 +563,7 @@ func (p *Provider) processClaudeContentDelta(event struct {
 		Usage      *claudeUsage `json:"usage,omitempty"`
 	} `json:"message,omitempty"`
 }, accumulated string, totalTokens int, outChan chan<- providers.StreamChunk) (newAccumulated string, newTotalTokens int) {
-	if event.Delta == nil || event.Delta.Type != "text_delta" {
+	if event.Delta == nil || event.Delta.Type != textDeltaType {
 		return accumulated, totalTokens
 	}
 
@@ -571,6 +629,10 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 	accumulated := ""
 	totalTokens := 0
 
+	// Track usage from message_start and message_delta events
+	var inputTokens, outputTokens, cachedTokens int
+	var stopReason string
+
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
@@ -585,28 +647,76 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 
 		data := scanner.Data()
 
-		var event struct {
-			Type  string `json:"type"`
-			Delta *struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			} `json:"delta,omitempty"`
-			Message *struct {
-				StopReason string       `json:"stop_reason"`
-				Usage      *claudeUsage `json:"usage,omitempty"`
-			} `json:"message,omitempty"`
+		// Parse the event to determine its type
+		var baseEvent struct {
+			Type string `json:"type"`
 		}
-
-		if err := json.Unmarshal([]byte(data), &event); err != nil {
+		if err := json.Unmarshal([]byte(data), &baseEvent); err != nil {
 			continue // Skip malformed chunks
 		}
 
-		switch event.Type {
+		switch baseEvent.Type {
+		case "message_start":
+			// message_start contains input tokens
+			var startEvent struct {
+				Message *struct {
+					Usage *claudeUsage `json:"usage,omitempty"`
+				} `json:"message,omitempty"`
+			}
+			if err := json.Unmarshal([]byte(data), &startEvent); err == nil {
+				if startEvent.Message != nil && startEvent.Message.Usage != nil {
+					inputTokens = startEvent.Message.Usage.InputTokens
+					cachedTokens = startEvent.Message.Usage.CacheReadInputTokens
+				}
+			}
+
 		case "content_block_delta":
-			accumulated, totalTokens = p.processClaudeContentDelta(event, accumulated, totalTokens, outChan)
+			var deltaEvent struct {
+				Delta *struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				} `json:"delta,omitempty"`
+			}
+			if err := json.Unmarshal([]byte(data), &deltaEvent); err == nil {
+				accumulated, totalTokens = p.processClaudeContentDeltaInternal(deltaEvent.Delta, accumulated, totalTokens, outChan)
+			}
+
+		case "message_delta":
+			// message_delta contains output tokens and stop reason
+			var messageDeltaEvent struct {
+				Delta *struct {
+					StopReason string `json:"stop_reason,omitempty"`
+				} `json:"delta,omitempty"`
+				Usage *claudeUsage `json:"usage,omitempty"`
+			}
+			if err := json.Unmarshal([]byte(data), &messageDeltaEvent); err == nil {
+				if messageDeltaEvent.Delta != nil && messageDeltaEvent.Delta.StopReason != "" {
+					stopReason = messageDeltaEvent.Delta.StopReason
+				}
+				if messageDeltaEvent.Usage != nil {
+					outputTokens = messageDeltaEvent.Usage.OutputTokens
+				}
+			}
 
 		case "message_stop":
-			p.processClaudeMessageStop(event, accumulated, totalTokens, outChan)
+			// Send final chunk with accumulated usage
+			finishReason := stopReason
+			if finishReason == "" {
+				finishReason = "stop"
+			}
+			finalChunk := providers.StreamChunk{
+				Content:      accumulated,
+				TokenCount:   totalTokens,
+				FinishReason: &finishReason,
+			}
+
+			// Calculate cost from accumulated usage
+			if inputTokens > 0 || outputTokens > 0 {
+				costBreakdown := p.CalculateCost(inputTokens, outputTokens, cachedTokens)
+				finalChunk.CostInfo = &costBreakdown
+			}
+
+			outChan <- finalChunk
 			return
 		}
 	}

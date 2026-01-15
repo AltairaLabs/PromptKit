@@ -267,6 +267,7 @@ func (c *Conversation) buildPipelineWithParams(
 		RelevanceConfig:       c.buildRelevanceConfig(),
 		ImagePreprocessConfig: c.config.imagePreprocessConfig,
 		EventEmitter:          eventEmitter,
+		ResponseFormat:        c.config.responseFormat,
 	}
 
 	// Apply parameters from prompt if available
@@ -334,6 +335,7 @@ func (c *Conversation) buildStreamPipelineWithParams(
 		RelevanceConfig:       c.buildRelevanceConfig(),
 		ImagePreprocessConfig: c.config.imagePreprocessConfig,
 		EventEmitter:          eventEmitter,
+		ResponseFormat:        c.config.responseFormat,
 	}
 
 	// Apply parameters from prompt if available

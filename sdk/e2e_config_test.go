@@ -105,7 +105,7 @@ func DefaultProviders() []ProviderConfig {
 			DefaultModel:  "gpt-4o-mini",
 			RealtimeModel: "gpt-4o-realtime-preview",
 			Capabilities: []Capability{
-				CapRealtime, CapAudio,
+				CapRealtime, // Audio is only via realtime API, not predict
 			},
 		},
 		{
@@ -124,7 +124,7 @@ func DefaultProviders() []ProviderConfig {
 			DefaultModel: "gemini-2.0-flash",
 			VisionModel:  "gemini-2.0-flash",
 			Capabilities: []Capability{
-				CapText, CapStreaming, CapVision, CapVideo, CapTools, CapJSON,
+				CapText, CapStreaming, CapVision, CapAudio, CapVideo, CapTools, CapJSON,
 			},
 		},
 		{

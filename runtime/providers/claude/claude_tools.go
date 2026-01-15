@@ -125,10 +125,12 @@ func buildClaudeMessageContent(msg types.Message, pendingToolResults []claudeToo
 	}
 
 	// Add the message text content if present
-	if msg.Content != "" {
+	// Use GetContent() to handle both legacy Content field and new Parts field
+	textContent := msg.GetContent()
+	if textContent != "" {
 		content = append(content, claudeTextContent{
 			Type: "text",
-			Text: msg.Content,
+			Text: textContent,
 		})
 	}
 

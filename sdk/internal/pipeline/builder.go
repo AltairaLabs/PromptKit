@@ -66,6 +66,9 @@ type Config struct {
 	// Temperature for LLM response
 	Temperature float32
 
+	// ResponseFormat for JSON mode output (optional)
+	ResponseFormat *providers.ResponseFormat
+
 	// StateStore for conversation history persistence (optional)
 	// When provided, StateStoreLoad/Save stages will be added to the pipeline
 	StateStore statestore.Store
@@ -213,8 +216,9 @@ func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 	} else if cfg.Provider != nil {
 		// Text mode: standard LLM call
 		providerConfig := &stage.ProviderConfig{
-			MaxTokens:   cfg.MaxTokens,
-			Temperature: cfg.Temperature,
+			MaxTokens:      cfg.MaxTokens,
+			Temperature:    cfg.Temperature,
+			ResponseFormat: cfg.ResponseFormat,
 		}
 		stages = append(stages, stage.NewProviderStageWithEmitter(
 			cfg.Provider,

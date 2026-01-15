@@ -38,10 +38,10 @@ type ProviderStage struct {
 
 // ProviderConfig contains configuration for the provider stage.
 type ProviderConfig struct {
-	MaxTokens    int
-	Temperature  float32
-	Seed         *int
-	DisableTrace bool
+	MaxTokens      int
+	Temperature    float32
+	Seed           *int
+	ResponseFormat *providers.ResponseFormat // Optional response format (JSON mode)
 }
 
 // streamingRoundParams holds parameters for a streaming round execution.
@@ -307,12 +307,13 @@ func (s *ProviderStage) executeRound(
 ) (types.Message, bool, error) {
 	// Build provider request
 	req := providers.PredictionRequest{
-		System:      systemPrompt,
-		Messages:    messages,
-		MaxTokens:   s.config.MaxTokens,
-		Temperature: s.config.Temperature,
-		Seed:        s.config.Seed,
-		Metadata:    metadata,
+		System:         systemPrompt,
+		Messages:       messages,
+		MaxTokens:      s.config.MaxTokens,
+		Temperature:    s.config.Temperature,
+		Seed:           s.config.Seed,
+		ResponseFormat: s.config.ResponseFormat,
+		Metadata:       metadata,
 	}
 
 	// Count tools for event emission
@@ -367,6 +368,7 @@ func (s *ProviderStage) executeRound(
 	if s.emitter != nil {
 		completedData := &events.ProviderCallCompletedData{
 			Provider:      s.provider.ID(),
+			Model:         s.provider.Model(),
 			Duration:      duration,
 			ToolCallCount: len(toolCalls),
 		}
@@ -408,12 +410,13 @@ func (s *ProviderStage) executeStreamingRound(
 ) (types.Message, bool, error) {
 	// Build provider request
 	req := providers.PredictionRequest{
-		System:      params.systemPrompt,
-		Messages:    params.messages,
-		MaxTokens:   s.config.MaxTokens,
-		Temperature: s.config.Temperature,
-		Seed:        s.config.Seed,
-		Metadata:    params.metadata,
+		System:         params.systemPrompt,
+		Messages:       params.messages,
+		MaxTokens:      s.config.MaxTokens,
+		Temperature:    s.config.Temperature,
+		Seed:           s.config.Seed,
+		Metadata:       params.metadata,
+		ResponseFormat: s.config.ResponseFormat,
 	}
 
 	// Count tools for event emission
@@ -463,6 +466,7 @@ func (s *ProviderStage) executeStreamingRound(
 	if s.emitter != nil {
 		completedData := &events.ProviderCallCompletedData{
 			Provider:      s.provider.ID(),
+			Model:         s.provider.Model(),
 			Duration:      duration,
 			ToolCallCount: len(toolCalls),
 		}

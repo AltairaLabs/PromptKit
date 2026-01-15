@@ -122,6 +122,40 @@ func NewVisionConversation(t *testing.T, provider ProviderConfig, opts ...Option
 	return NewProviderConversation(t, provider, allOpts...)
 }
 
+// NewVisionConversationWithEvents creates a vision conversation with event tracking.
+func NewVisionConversationWithEvents(t *testing.T, provider ProviderConfig, bus *events.EventBus) *Conversation {
+	t.Helper()
+
+	if !provider.HasCapability(CapVision) {
+		t.Skipf("Provider %s does not support vision", provider.ID)
+	}
+
+	// Add cost tracking subscription to the provided bus
+	bus.Subscribe(events.EventProviderCallCompleted, func(e *events.Event) {
+		if data, ok := e.Data.(*events.ProviderCallCompletedData); ok {
+			GetCostTracker().RecordCost(data)
+		}
+	})
+
+	model := provider.VisionModel
+	if model == "" {
+		model = provider.DefaultModel
+	}
+
+	return NewProviderConversation(t, provider, WithModel(model), WithEventBus(bus))
+}
+
+// NewAudioConversation creates a conversation configured for audio tests.
+func NewAudioConversation(t *testing.T, provider ProviderConfig, opts ...Option) *Conversation {
+	t.Helper()
+
+	if !provider.HasCapability(CapAudio) {
+		t.Skipf("Provider %s does not support audio", provider.ID)
+	}
+
+	return NewProviderConversation(t, provider, opts...)
+}
+
 // =============================================================================
 // Test Pack Management
 // =============================================================================

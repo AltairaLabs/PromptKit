@@ -228,7 +228,7 @@ func (p *Provider) predictWithContents(ctx context.Context, contents []geminiCon
 	}
 
 	// Build URL with API key
-	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", p.BaseURL, p.Model, p.ApiKey)
+	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", p.BaseURL, p.modelName, p.ApiKey)
 
 	// Debug log the request
 	headers := map[string]string{
@@ -363,7 +363,7 @@ func (p *Provider) predictStreamWithContents(ctx context.Context, contents []gem
 	}
 
 	// Build URL for streaming
-	url := fmt.Sprintf("%s/models/%s:streamGenerateContent?key=%s", p.BaseURL, p.Model, p.ApiKey)
+	url := fmt.Sprintf("%s/models/%s:streamGenerateContent?key=%s", p.BaseURL, p.modelName, p.ApiKey)
 
 	// Make HTTP request
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))

@@ -832,3 +832,302 @@ func TestSupportsStreaming(t *testing.T) {
 		t.Error("Expected OpenAI provider to support streaming")
 	}
 }
+
+func TestOpenAIProvider_Model(t *testing.T) {
+	tests := []struct {
+		name     string
+		model    string
+		expected string
+	}{
+		{"gpt-4", "gpt-4", "gpt-4"},
+		{"gpt-4o", "gpt-4o", "gpt-4o"},
+		{"gpt-3.5-turbo", "gpt-3.5-turbo", "gpt-3.5-turbo"},
+		{"custom-model", "custom-fine-tuned-model", "custom-fine-tuned-model"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			provider := NewProvider("test", tt.model, "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
+			if got := provider.Model(); got != tt.expected {
+				t.Errorf("Model() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestPredict_ErrorPaths(t *testing.T) {
+	// Test error paths in Predict/PredictStream
+	tests := []struct {
+		name        string
+		messages    []types.Message
+		expectError string
+	}{
+		{
+			name: "unsupported audio content",
+			messages: []types.Message{
+				{
+					Role: "user",
+					Parts: []types.ContentPart{
+						{Type: types.ContentTypeAudio},
+					},
+				},
+			},
+			expectError: "audio and video content not supported",
+		},
+		{
+			name: "unsupported video content",
+			messages: []types.Message{
+				{
+					Role: "user",
+					Parts: []types.ContentPart{
+						{Type: types.ContentTypeVideo},
+					},
+				},
+			},
+			expectError: "audio and video content not supported",
+		},
+		{
+			name: "unknown content type",
+			messages: []types.Message{
+				{
+					Role: "user",
+					Parts: []types.ContentPart{
+						{Type: "unknown_type"},
+					},
+				},
+			},
+			expectError: "unknown content type",
+		},
+		{
+			name: "image without media",
+			messages: []types.Message{
+				{
+					Role: "user",
+					Parts: []types.ContentPart{
+						{Type: types.ContentTypeImage, Media: nil},
+					},
+				},
+			},
+			expectError: "image part missing media content",
+		},
+	}
+
+	provider := NewProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
+	ctx := context.Background()
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := providers.PredictionRequest{
+				Messages: tt.messages,
+			}
+
+			// Test Predict
+			_, err := provider.Predict(ctx, req)
+			if err == nil {
+				t.Error("Expected error from Predict")
+			} else if !contains(err.Error(), tt.expectError) {
+				t.Errorf("Predict error = %q, want to contain %q", err.Error(), tt.expectError)
+			}
+
+			// Test PredictStream
+			_, err = provider.PredictStream(ctx, req)
+			if err == nil {
+				t.Error("Expected error from PredictStream")
+			} else if !contains(err.Error(), tt.expectError) {
+				t.Errorf("PredictStream error = %q, want to contain %q", err.Error(), tt.expectError)
+			}
+		})
+	}
+}
+
+// contains checks if s contains substr
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > 0 && len(substr) > 0 && findSubstring(s, substr)))
+}
+
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+func TestCalculateCost_FallbackPricing(t *testing.T) {
+	// Test fallback pricing for different models (no pricing configured)
+	tests := []struct {
+		name          string
+		model         string
+		inputTokens   int
+		outputTokens  int
+		cachedTokens  int
+		expectedTotal float64
+	}{
+		{
+			name:          "gpt-4 fallback pricing",
+			model:         "gpt-4",
+			inputTokens:   1000,
+			outputTokens:  1000,
+			cachedTokens:  0,
+			expectedTotal: 0.03 + 0.06, // $0.03 input + $0.06 output
+		},
+		{
+			name:          "gpt-4o-mini fallback pricing",
+			model:         "gpt-4o-mini",
+			inputTokens:   1000,
+			outputTokens:  1000,
+			cachedTokens:  0,
+			expectedTotal: 0.00015 + 0.0006, // very low cost model
+		},
+		{
+			name:          "gpt-3.5-turbo fallback pricing",
+			model:         "gpt-3.5-turbo",
+			inputTokens:   1000,
+			outputTokens:  1000,
+			cachedTokens:  0,
+			expectedTotal: 0.0015 + 0.002,
+		},
+		{
+			name:          "gpt-4o fallback pricing (default)",
+			model:         "gpt-4o",
+			inputTokens:   1000,
+			outputTokens:  1000,
+			cachedTokens:  0,
+			expectedTotal: 0.0025 + 0.01, // default pricing
+		},
+		{
+			name:          "unknown model uses default pricing",
+			model:         "unknown-model",
+			inputTokens:   1000,
+			outputTokens:  1000,
+			cachedTokens:  0,
+			expectedTotal: 0.0025 + 0.01, // default pricing
+		},
+		{
+			name:          "gpt-4 with cached tokens",
+			model:         "gpt-4",
+			inputTokens:   1000,
+			outputTokens:  500,
+			cachedTokens:  200,
+			expectedTotal: (800.0/1000.0)*0.03 + (200.0/1000.0)*0.015 + (500.0/1000.0)*0.06,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create provider without pricing configured to trigger fallback
+			provider := NewProvider("test", tt.model, "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
+			cost := provider.CalculateCost(tt.inputTokens, tt.outputTokens, tt.cachedTokens)
+
+			// Allow small floating point tolerance
+			diff := cost.TotalCost - tt.expectedTotal
+			if diff < -0.0001 || diff > 0.0001 {
+				t.Errorf("TotalCost = %v, want %v (diff: %v)", cost.TotalCost, tt.expectedTotal, diff)
+			}
+		})
+	}
+}
+
+func TestConvertResponseFormat(t *testing.T) {
+	provider := NewProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
+
+	tests := []struct {
+		name           string
+		input          *providers.ResponseFormat
+		expectedNil    bool
+		expectedType   string
+		expectedSchema bool
+		schemaName     string
+		strict         bool
+	}{
+		{
+			name:        "nil input",
+			input:       nil,
+			expectedNil: true,
+		},
+		{
+			name: "text format",
+			input: &providers.ResponseFormat{
+				Type: providers.ResponseFormatText,
+			},
+			expectedType: "text",
+		},
+		{
+			name: "json format",
+			input: &providers.ResponseFormat{
+				Type: providers.ResponseFormatJSON,
+			},
+			expectedType: "json_object",
+		},
+		{
+			name: "json schema with custom name",
+			input: &providers.ResponseFormat{
+				Type:       providers.ResponseFormatJSONSchema,
+				JSONSchema: []byte(`{"type": "object", "properties": {"name": {"type": "string"}}}`),
+				SchemaName: "custom_schema",
+				Strict:     true,
+			},
+			expectedType:   "json_schema",
+			expectedSchema: true,
+			schemaName:     "custom_schema",
+			strict:         true,
+		},
+		{
+			name: "json schema with default name",
+			input: &providers.ResponseFormat{
+				Type:       providers.ResponseFormatJSONSchema,
+				JSONSchema: []byte(`{"type": "object"}`),
+			},
+			expectedType:   "json_schema",
+			expectedSchema: true,
+			schemaName:     "response_schema",
+			strict:         false,
+		},
+		{
+			name: "json schema with invalid JSON falls back gracefully",
+			input: &providers.ResponseFormat{
+				Type:       providers.ResponseFormatJSONSchema,
+				JSONSchema: []byte(`{invalid json`),
+				SchemaName: "fallback_test",
+			},
+			expectedType:   "json_schema",
+			expectedSchema: true,
+			schemaName:     "fallback_test",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := provider.convertResponseFormat(tt.input)
+
+			if tt.expectedNil {
+				if result != nil {
+					t.Error("Expected nil result")
+				}
+				return
+			}
+
+			if result == nil {
+				t.Fatal("Expected non-nil result")
+			}
+
+			if result.Type != tt.expectedType {
+				t.Errorf("Type = %q, want %q", result.Type, tt.expectedType)
+			}
+
+			if tt.expectedSchema {
+				if result.JSONSchema == nil {
+					t.Fatal("Expected JSONSchema to be set")
+				}
+				if result.JSONSchema.Name != tt.schemaName {
+					t.Errorf("SchemaName = %q, want %q", result.JSONSchema.Name, tt.schemaName)
+				}
+				if result.JSONSchema.Strict != tt.strict {
+					t.Errorf("Strict = %v, want %v", result.JSONSchema.Strict, tt.strict)
+				}
+			}
+		})
+	}
+}

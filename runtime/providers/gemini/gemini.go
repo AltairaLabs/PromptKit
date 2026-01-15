@@ -11,9 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -26,10 +25,10 @@ const (
 // Provider implements the Provider interface for Google Gemini
 type Provider struct {
 	providers.BaseProvider
-	Model    string
-	BaseURL  string
-	ApiKey   string
-	Defaults providers.ProviderDefaults
+	modelName string
+	BaseURL   string
+	ApiKey    string
+	Defaults  providers.ProviderDefaults
 }
 
 // NewProvider creates a new Gemini provider
@@ -38,11 +37,16 @@ func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults,
 
 	return &Provider{
 		BaseProvider: base,
-		Model:        model,
+		modelName:    model,
 		BaseURL:      baseURL,
 		ApiKey:       apiKey,
 		Defaults:     defaults,
 	}
+}
+
+// Model returns the model name/identifier used by this provider.
+func (p *Provider) Model() string {
+	return p.modelName
 }
 
 // Gemini API request/response structures
@@ -76,9 +80,11 @@ type geminiInlineData struct {
 }
 
 type geminiGenConfig struct {
-	Temperature     float32 `json:"temperature"`
-	TopP            float32 `json:"topP"`
-	MaxOutputTokens int     `json:"maxOutputTokens"`
+	Temperature      float32     `json:"temperature"`
+	TopP             float32     `json:"topP"`
+	MaxOutputTokens  int         `json:"maxOutputTokens"`
+	ResponseMimeType string      `json:"responseMimeType,omitempty"` // "text/plain" or "application/json"
+	ResponseSchema   interface{} `json:"responseSchema,omitempty"`   // JSON Schema for structured output
 }
 
 type geminiSafety struct {
@@ -235,6 +241,30 @@ func (p *Provider) buildGeminiRequest(contents []geminiContent, systemInstructio
 	}
 }
 
+// applyResponseFormat applies response format settings to a Gemini request
+func (p *Provider) applyResponseFormat(req *geminiRequest, rf *providers.ResponseFormat) {
+	if rf == nil {
+		return
+	}
+
+	switch rf.Type {
+	case providers.ResponseFormatJSON:
+		// Simple JSON mode - just set the MIME type
+		req.GenerationConfig.ResponseMimeType = applicationJSON
+	case providers.ResponseFormatJSONSchema:
+		// JSON schema mode - set MIME type and schema
+		req.GenerationConfig.ResponseMimeType = applicationJSON
+		if len(rf.JSONSchema) > 0 {
+			var schema interface{}
+			if err := json.Unmarshal(rf.JSONSchema, &schema); err == nil {
+				req.GenerationConfig.ResponseSchema = schema
+			}
+		}
+	case providers.ResponseFormatText:
+		// Text is default, no changes needed
+	}
+}
+
 // handleGeminiFinishReason processes error finish reasons from Gemini responses
 func (p *Provider) handleGeminiFinishReason(finishReason string, predictResp providers.PredictionResponse, respBody []byte, start time.Time) (providers.PredictionResponse, error) {
 	predictResp.Latency = time.Since(start)
@@ -288,7 +318,7 @@ func (p *Provider) makeGeminiHTTPRequest(ctx context.Context, geminiReq geminiRe
 	}
 
 	// Build URL with API key
-	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", p.BaseURL, p.Model, p.ApiKey)
+	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", p.BaseURL, p.modelName, p.ApiKey)
 
 	// Debug log the request
 	headers := map[string]string{
@@ -369,7 +399,7 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 	// Enrich context with provider and model info for logging
 	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
 		Provider: p.ID(),
-		Model:    p.Model,
+		Model:    p.modelName,
 	})
 
 	start := time.Now()
@@ -379,6 +409,9 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 
 	// Create request
 	geminiReq := p.buildGeminiRequest(contents, systemInstruction, temperature, topP, maxTokens)
+
+	// Apply response format if specified
+	p.applyResponseFormat(&geminiReq, req.ResponseFormat)
 
 	// Prepare response with raw request if configured (set early to preserve on error)
 	predictResp := providers.PredictionResponse{
@@ -513,8 +546,8 @@ func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.Co
 		cachedCostPer1K = inputCostPer1K * 0.5
 	} else {
 		// Fallback to hardcoded pricing with warning
-		logger.Warn("No pricing configured, using fallback pricing", "provider", p.ID(), "model", p.Model)
-		inputCostPer1K, outputCostPer1K, cachedCostPer1K = geminiPricing(p.Model)
+		logger.Warn("No pricing configured, using fallback pricing", "provider", p.ID(), "model", p.modelName)
+		inputCostPer1K, outputCostPer1K, cachedCostPer1K = geminiPricing(p.modelName)
 	}
 
 	// Calculate costs
@@ -538,7 +571,7 @@ func (p *Provider) PredictStream(ctx context.Context, req providers.PredictionRe
 	// Enrich context with provider and model info for logging
 	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
 		Provider: p.ID(),
-		Model:    p.Model,
+		Model:    p.modelName,
 	})
 
 	// Convert messages to Gemini format and apply defaults
@@ -547,13 +580,16 @@ func (p *Provider) PredictStream(ctx context.Context, req providers.PredictionRe
 	// Create streaming request
 	geminiReq := p.buildGeminiRequest(contents, systemInstruction, temperature, topP, maxTokens)
 
+	// Apply response format if specified
+	p.applyResponseFormat(&geminiReq, req.ResponseFormat)
+
 	reqBody, err := json.Marshal(geminiReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	// Make HTTP request
-	url := fmt.Sprintf("%s/models/%s:streamGenerateContent?key=%s", p.BaseURL, p.Model, p.ApiKey)
+	url := fmt.Sprintf("%s/models/%s:streamGenerateContent?key=%s", p.BaseURL, p.modelName, p.ApiKey)
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)

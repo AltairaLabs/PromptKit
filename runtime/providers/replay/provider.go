@@ -214,6 +214,11 @@ func (p *Provider) ID() string {
 	return p.id
 }
 
+// Model returns the model name. For replay provider, this returns "replay".
+func (p *Provider) Model() string {
+	return "replay"
+}
+
 // Predict returns the next recorded response.
 func (p *Provider) Predict(
 	ctx context.Context,

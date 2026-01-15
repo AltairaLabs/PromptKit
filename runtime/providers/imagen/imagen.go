@@ -26,13 +26,18 @@ const (
 // Provider implements the Provider interface for Google's Imagen image generation
 type Provider struct {
 	providers.BaseProvider
-	Model      string
+	modelName  string
 	BaseURL    string
 	ApiKey     string
 	ProjectID  string
 	Location   string
 	Defaults   providers.ProviderDefaults
 	HTTPClient *http.Client
+}
+
+// Model returns the model name/identifier used by this provider.
+func (p *Provider) Model() string {
+	return p.modelName
 }
 
 // imagenRequest represents the request to Imagen API
@@ -94,7 +99,7 @@ func NewProvider(config Config) *Provider {
 	httpClient := &http.Client{Timeout: defaultTimeout}
 	p := &Provider{
 		BaseProvider: providers.NewBaseProvider(config.ID, config.IncludeRawOutput, httpClient),
-		Model:        config.Model,
+		modelName:    config.Model,
 		BaseURL:      config.BaseURL,
 		ApiKey:       config.ApiKey,
 		ProjectID:    config.ProjectID,
@@ -161,7 +166,7 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 	}
 
 	// Build URL for Gemini API: models/{model}:predict
-	url := fmt.Sprintf("%s/models/%s:predict", p.BaseURL, p.Model)
+	url := fmt.Sprintf("%s/models/%s:predict", p.BaseURL, p.modelName)
 
 	logger.Debug("🔵 API Request", "provider", "Imagen", "method", "POST", "url", url)
 

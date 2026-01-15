@@ -31,8 +31,9 @@ func TestNewProvider(t *testing.T) {
 		t.Errorf("Expected model 'claude-3-5-sonnet-20241022', got '%s'", provider.model)
 	}
 
-	if provider.baseURL != "https://api.anthropic.com" {
-		t.Error("BaseURL mismatch")
+	// baseURL should be normalized to include /v1 for Anthropic API
+	if provider.baseURL != "https://api.anthropic.com/v1" {
+		t.Errorf("BaseURL mismatch: expected 'https://api.anthropic.com/v1', got '%s'", provider.baseURL)
 	}
 
 	if provider.defaults.Temperature != 0.8 {

@@ -14,10 +14,11 @@ type mockProviderForTest struct {
 	id string
 }
 
-func (m *mockProviderForTest) ID() string              { return m.id }
-func (m *mockProviderForTest) Close() error           { return nil }
+func (m *mockProviderForTest) ID() string                   { return m.id }
+func (m *mockProviderForTest) Model() string                { return testModelName }
+func (m *mockProviderForTest) Close() error                 { return nil }
 func (m *mockProviderForTest) ShouldIncludeRawOutput() bool { return false }
-func (m *mockProviderForTest) SupportsStreaming() bool     { return false }
+func (m *mockProviderForTest) SupportsStreaming() bool      { return false }
 func (m *mockProviderForTest) CalculateCost(_, _, _ int) types.CostInfo {
 	return types.CostInfo{}
 }

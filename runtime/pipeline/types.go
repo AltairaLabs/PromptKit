@@ -45,9 +45,8 @@ type TemplateMiddlewareConfig struct {
 
 // ProviderMiddlewareConfig contains configuration for provider middleware
 type ProviderMiddlewareConfig struct {
-	RetryPolicy  *RetryPolicy `json:"retry_policy,omitempty"`  // Retry policy
-	TimeoutMs    int          `json:"timeout_ms,omitempty"`    // Request timeout in milliseconds
-	DisableTrace bool         `json:"disable_trace,omitempty"` // Disable execution tracing
+	RetryPolicy *RetryPolicy `json:"retry_policy,omitempty"` // Retry policy
+	TimeoutMs   int          `json:"timeout_ms,omitempty"`   // Request timeout in milliseconds
 }
 
 // ValidatorMiddlewareConfig contains configuration for validator middleware

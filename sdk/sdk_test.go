@@ -273,7 +273,8 @@ func (m *mockStore) Fork(_ context.Context, sourceID, newID string) error {
 // mockProvider implements providers.Provider for testing
 type mockProvider struct{}
 
-func (m *mockProvider) ID() string { return "mock" }
+func (m *mockProvider) ID() string    { return "mock" }
+func (m *mockProvider) Model() string { return "mock-model" }
 func (m *mockProvider) Predict(_ context.Context, _ providers.PredictionRequest) (providers.PredictionResponse, error) {
 	return providers.PredictionResponse{}, nil
 }
