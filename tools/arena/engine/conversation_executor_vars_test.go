@@ -395,6 +395,10 @@ func (m *MockTestProvider) ID() string {
 	return m.id
 }
 
+func (m *MockTestProvider) Model() string {
+	return "mock-test-model"
+}
+
 func (m *MockTestProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	return providers.PredictionResponse{
 		Content: "mock response",

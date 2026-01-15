@@ -72,6 +72,11 @@ func (m *Provider) ID() string {
 	return m.id
 }
 
+// Model returns the model name.
+func (m *Provider) Model() string {
+	return m.model
+}
+
 // Predict returns a mock response using the configured repository.
 func (m *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	// Build response parameters from request metadata

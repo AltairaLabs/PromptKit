@@ -28,6 +28,11 @@ func (m *MockProvider) ID() string {
 	return args.String(0)
 }
 
+func (m *MockProvider) Model() string {
+	args := m.Called()
+	return args.String(0)
+}
+
 func (m *MockProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	args := m.Called(ctx, req)
 	return args.Get(0).(providers.PredictionResponse), args.Error(1)

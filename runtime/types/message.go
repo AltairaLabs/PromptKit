@@ -103,9 +103,18 @@ type ValidationResult struct {
 }
 
 // GetContent returns the content of the message.
-// If Parts is non-empty, it returns only the text parts concatenated.
-// Otherwise, it returns the legacy Content field.
+// This is the recommended way to access message content as it handles all cases:
+// 1. For tool messages (Role="tool"): returns ToolResult.Content (authoritative source)
+// 2. For multimodal messages: returns concatenated text parts
+// 3. For legacy messages: returns the Content field
 func (m *Message) GetContent() string {
+	// Tool messages: ToolResult.Content is the authoritative source
+	// This handles the case where Content field may be empty but ToolResult.Content is set
+	if m.Role == "tool" && m.ToolResult != nil {
+		return m.ToolResult.Content
+	}
+
+	// Multimodal messages: extract text from parts
 	if len(m.Parts) > 0 {
 		var text string
 		for _, part := range m.Parts {
@@ -115,6 +124,7 @@ func (m *Message) GetContent() string {
 		}
 		return text
 	}
+
 	return m.Content
 }
 
@@ -194,6 +204,62 @@ func (m *Message) AddVideoPart(filePath string) error {
 	}
 	m.AddPart(part)
 	return nil
+}
+
+// =============================================================================
+// Message Constructors
+//
+// These constructors ensure proper initialization and field synchronization.
+// Always prefer these over direct struct initialization.
+// =============================================================================
+
+// NewTextMessage creates a simple text message.
+// Use this for user, assistant, or system messages with text-only content.
+func NewTextMessage(role, content string) Message {
+	return Message{
+		Role:    role,
+		Content: content,
+	}
+}
+
+// NewUserMessage creates a user message with text content.
+func NewUserMessage(content string) Message {
+	return NewTextMessage("user", content)
+}
+
+// NewAssistantMessage creates an assistant message with text content.
+func NewAssistantMessage(content string) Message {
+	return NewTextMessage("assistant", content)
+}
+
+// NewSystemMessage creates a system message with text content.
+func NewSystemMessage(content string) Message {
+	return NewTextMessage("system", content)
+}
+
+// NewToolResultMessage creates a properly normalized tool result message.
+// This ensures Content and ToolResult.Content are always synchronized,
+// which is required for provider compatibility and consistent behavior.
+//
+// IMPORTANT: Always use this constructor instead of directly creating
+// Message{Role: "tool", ToolResult: ...} to avoid Content/ToolResult.Content
+// synchronization issues.
+func NewToolResultMessage(result MessageToolResult) Message {
+	return Message{
+		Role:       "tool",
+		Content:    result.Content, // Sync Content for backward compatibility
+		ToolResult: &result,
+	}
+}
+
+// NewMultimodalMessage creates a message with multimodal content parts.
+// When using Parts, the Content field is intentionally left empty as
+// GetContent() will extract text from Parts.
+func NewMultimodalMessage(role string, parts []ContentPart) Message {
+	return Message{
+		Role:  role,
+		Parts: parts,
+	}
 }
 
 // MediaSummary provides a high-level overview of media content in a message.

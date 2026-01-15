@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help build build-tools build-arena build-packc build-inspect-state test test-tools test-race lint clean coverage install install-tools install-tools-user uninstall-tools test-npm-init test-getting-started test-templates test-ci-examples
+.PHONY: help build build-tools build-arena build-packc build-inspect-state test test-tools test-race lint clean coverage install install-tools install-tools-user uninstall-tools test-npm-init test-getting-started test-templates test-ci-examples test-e2e test-e2e-mock test-e2e-coverage test-e2e-ci
  
 # Route unknown targets to help
 .DEFAULT:
@@ -346,6 +346,52 @@ test-ci-examples: build-arena ## Test all CI pipeline examples with mock data
 		exit 1; \
 	fi
 
+# =============================================================================
+# SDK E2E Tests
+# =============================================================================
+
+test-e2e: ## Run SDK e2e tests with available providers
+	@echo "🧪 Running SDK E2E Tests..."
+	@./scripts/run-e2e-tests.sh --verbose
+
+test-e2e-mock: ## Run SDK e2e tests with mock provider only (no API keys needed)
+	@echo "🧪 Running SDK E2E Tests (mock only)..."
+	@./scripts/run-e2e-tests.sh --mock-only --verbose
+
+test-e2e-coverage: ## Run SDK e2e tests with coverage and HTML report
+	@echo "🧪 Running SDK E2E Tests with coverage..."
+	@./scripts/run-e2e-tests.sh --coverage --html --verbose
+	@echo ""
+	@echo "📊 Coverage report: sdk/e2e-results/coverage.html"
+
+test-e2e-ci: ## Run SDK e2e tests for CI (JSON + JUnit output)
+	@echo "🧪 Running SDK E2E Tests (CI mode)..."
+	@./scripts/run-e2e-tests.sh --coverage --json --junit
+	@echo ""
+	@echo "📋 Results: sdk/e2e-results/"
+
+test-e2e-suite: ## Run specific e2e test suite (usage: make test-e2e-suite SUITE=text)
+	@if [ -z "$(SUITE)" ]; then \
+		echo "Usage: make test-e2e-suite SUITE=<suite>"; \
+		echo "Available suites: text, vision, tools, events"; \
+		exit 1; \
+	fi
+	@echo "🧪 Running SDK E2E Tests - Suite: $(SUITE)..."
+	@./scripts/run-e2e-tests.sh --suite=$(SUITE) --verbose
+
+test-e2e-provider: ## Run e2e tests for specific provider (usage: make test-e2e-provider PROVIDER=openai)
+	@if [ -z "$(PROVIDER)" ]; then \
+		echo "Usage: make test-e2e-provider PROVIDER=<provider>"; \
+		echo "Available providers: openai, anthropic, gemini, mock"; \
+		exit 1; \
+	fi
+	@echo "🧪 Running SDK E2E Tests - Provider: $(PROVIDER)..."
+	@./scripts/run-e2e-tests.sh --providers=$(PROVIDER) --verbose
+
+# =============================================================================
+# Other Tests
+# =============================================================================
+
 test-race: ## Run tests with race detector
 	@echo "Testing runtime with race detector..."
 	@cd runtime && go test -race -v ./... 2>&1 | tee race-test.log; \
@@ -452,6 +498,8 @@ lint: ## Run linters
 	@cd tools/inspect-state && golangci-lint run ./...
 	@echo "Running gosec security scanner..."
 	@$(MAKE) security-scan
+	@echo "Checking message content patterns..."
+	@./scripts/lint-message-patterns.sh
 
 lint-diff: ## Run linters on changed code only (fast, for pre-commit)
 	@echo "🔍 Linting changed code only..."
@@ -564,6 +612,7 @@ clean: ## Clean build artifacts
 	@rm -f tools/packc/packc
 	@rm -f tools/inspect-state/inspect-state
 	@rm -f tools/schema-gen/schema-gen
+	@rm -rf sdk/e2e-results/
 	@echo "Cleaned build artifacts"
 
 # Documentation targets (Astro-based)

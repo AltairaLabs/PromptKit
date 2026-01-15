@@ -53,16 +53,12 @@ func (e *arenaToolExecutor) Execute(
 				Result:     fmt.Sprintf(`{"error": %q}`, errMsg),
 				IsError:    true,
 			})
-			result.ResultMessages = append(result.ResultMessages, types.Message{
-				Role:    "tool",
+			result.ResultMessages = append(result.ResultMessages, types.NewToolResultMessage(types.MessageToolResult{
+				ID:      tc.ID,
+				Name:    tc.Name,
 				Content: errMsg,
-				ToolResult: &types.MessageToolResult{
-					ID:      tc.ID,
-					Name:    tc.Name,
-					Content: errMsg,
-					Error:   errMsg,
-				},
-			})
+				Error:   errMsg,
+			}))
 			continue
 		}
 
@@ -75,17 +71,13 @@ func (e *arenaToolExecutor) Execute(
 				Result:     fmt.Sprintf(`{"error": %q}`, toolResult.Error),
 				IsError:    true,
 			})
-			result.ResultMessages = append(result.ResultMessages, types.Message{
-				Role:    "tool",
-				Content: toolResult.Error,
-				ToolResult: &types.MessageToolResult{
-					ID:        tc.ID,
-					Name:      tc.Name,
-					Content:   toolResult.Error,
-					Error:     toolResult.Error,
-					LatencyMs: toolResult.LatencyMs,
-				},
-			})
+			result.ResultMessages = append(result.ResultMessages, types.NewToolResultMessage(types.MessageToolResult{
+				ID:        tc.ID,
+				Name:      tc.Name,
+				Content:   toolResult.Error,
+				Error:     toolResult.Error,
+				LatencyMs: toolResult.LatencyMs,
+			}))
 			continue
 		}
 
@@ -102,16 +94,12 @@ func (e *arenaToolExecutor) Execute(
 			Result:     resultStr,
 			IsError:    false,
 		})
-		result.ResultMessages = append(result.ResultMessages, types.Message{
-			Role:    "tool",
-			Content: resultStr, // Set Content for template rendering (matches UnmarshalJSON behavior)
-			ToolResult: &types.MessageToolResult{
-				ID:        tc.ID,
-				Name:      tc.Name,
-				Content:   resultStr,
-				LatencyMs: toolResult.LatencyMs,
-			},
-		})
+		result.ResultMessages = append(result.ResultMessages, types.NewToolResultMessage(types.MessageToolResult{
+			ID:        tc.ID,
+			Name:      tc.Name,
+			Content:   resultStr,
+			LatencyMs: toolResult.LatencyMs,
+		}))
 	}
 
 	return result, nil

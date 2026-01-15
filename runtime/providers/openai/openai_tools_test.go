@@ -912,3 +912,107 @@ func TestToolProvider_PredictStreamWithTools_HTTPError(t *testing.T) {
 		t.Fatal("Expected error for HTTP 500")
 	}
 }
+
+// ============================================================================
+// Tool Result Message Conversion Tests
+// ============================================================================
+
+// TestToolProvider_ConvertToolResultMessage_ContentIsSet verifies that tool result
+// messages have their content properly set from ToolResult.Content when building
+// the OpenAI request. This is critical for streaming with tools to work correctly.
+func TestToolProvider_ConvertToolResultMessage_ContentIsSet(t *testing.T) {
+	// This test verifies the bug fix: tool result messages must use ToolResult.Content
+	// as the message content, not the (empty) Message.Content field.
+
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+
+	// Create a tool result message (as created by stages_provider.go executeToolCalls)
+	// Note: Message.Content is NOT set - only ToolResult.Content has the data
+	toolResultMsg := types.Message{
+		Role: "tool",
+		// Content is intentionally empty - this is how the SDK creates tool result messages
+		ToolResult: &types.MessageToolResult{
+			ID:      "call_123",
+			Name:    "weather",
+			Content: `{"temperature": 73, "conditions": "sunny"}`,
+			Error:   "",
+		},
+	}
+
+	// Convert to OpenAI format
+	openaiMsg := provider.convertSingleMessageForTools(toolResultMsg)
+
+	// Verify tool_call_id and name are set
+	if openaiMsg["tool_call_id"] != "call_123" {
+		t.Errorf("Expected tool_call_id 'call_123', got '%v'", openaiMsg["tool_call_id"])
+	}
+	if openaiMsg["name"] != "weather" {
+		t.Errorf("Expected name 'weather', got '%v'", openaiMsg["name"])
+	}
+
+	// CRITICAL: Verify content is set from ToolResult.Content (not empty)
+	content, ok := openaiMsg["content"].(string)
+	if !ok {
+		t.Fatalf("Expected content to be string, got %T", openaiMsg["content"])
+	}
+	if content == "" {
+		t.Fatal("CRITICAL BUG: Tool result content is empty! ToolResult.Content should be used as the message content")
+	}
+	if content != `{"temperature": 73, "conditions": "sunny"}` {
+		t.Errorf("Expected content to be the tool result JSON, got '%s'", content)
+	}
+}
+
+// TestToolProvider_ConvertRequestMessages_ToolResultHasContent verifies that when building
+// messages for a request with tool results, the content is properly included.
+func TestToolProvider_ConvertRequestMessages_ToolResultHasContent(t *testing.T) {
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+
+	req := providers.PredictionRequest{
+		Messages: []types.Message{
+			{Role: "user", Content: "What's the weather in Miami?"},
+			{
+				Role: "assistant",
+				ToolCalls: []types.MessageToolCall{
+					{ID: "call_abc", Name: "weather", Args: json.RawMessage(`{"location": "Miami"}`)},
+				},
+			},
+			{
+				Role: "tool",
+				// Content is NOT set - only ToolResult has the data
+				ToolResult: &types.MessageToolResult{
+					ID:      "call_abc",
+					Name:    "weather",
+					Content: `{"temp": 75, "conditions": "partly cloudy"}`,
+				},
+			},
+		},
+	}
+
+	messages := provider.convertRequestMessagesToOpenAI(req)
+
+	// Find the tool result message
+	var toolMsg map[string]interface{}
+	for _, msg := range messages {
+		if msg["role"] == "tool" {
+			toolMsg = msg
+			break
+		}
+	}
+
+	if toolMsg == nil {
+		t.Fatal("Expected to find tool message in built messages")
+	}
+
+	// Verify content is set
+	content, ok := toolMsg["content"].(string)
+	if !ok {
+		t.Fatalf("Expected content to be string, got %T", toolMsg["content"])
+	}
+	if content == "" {
+		t.Fatal("CRITICAL BUG: Tool message content is empty in built request")
+	}
+	if content != `{"temp": 75, "conditions": "partly cloudy"}` {
+		t.Errorf("Expected tool result content, got '%s'", content)
+	}
+}

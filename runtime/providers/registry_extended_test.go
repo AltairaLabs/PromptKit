@@ -14,10 +14,11 @@ type mockProviderForTest struct {
 	id string
 }
 
-func (m *mockProviderForTest) ID() string              { return m.id }
-func (m *mockProviderForTest) Close() error           { return nil }
+func (m *mockProviderForTest) ID() string                   { return m.id }
+func (m *mockProviderForTest) Model() string                { return testModelName }
+func (m *mockProviderForTest) Close() error                 { return nil }
 func (m *mockProviderForTest) ShouldIncludeRawOutput() bool { return false }
-func (m *mockProviderForTest) SupportsStreaming() bool     { return false }
+func (m *mockProviderForTest) SupportsStreaming() bool      { return false }
 func (m *mockProviderForTest) CalculateCost(_, _, _ int) types.CostInfo {
 	return types.CostInfo{}
 }
@@ -43,7 +44,7 @@ func TestCreateProviderFromSpecDefaultBaseURLs(t *testing.T) {
 		expectedBaseURL string
 	}{
 		{"openai default", "openai", "https://api.openai.com/v1"},
-		{"gemini default", "gemini", "https://generativelanguage.googleapis.com"},
+		{"gemini default", "gemini", "https://generativelanguage.googleapis.com/v1beta"},
 		{"claude default", "claude", "https://api.anthropic.com"},
 		{"imagen default", "imagen", "https://generativelanguage.googleapis.com/v1beta"},
 		{"ollama default", "ollama", "http://localhost:11434"},

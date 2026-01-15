@@ -393,6 +393,10 @@ func (m *MockStreamingProvider) ID() string {
 	return "mock-streaming"
 }
 
+func (m *MockStreamingProvider) Model() string {
+	return "mock-streaming-model"
+}
+
 func (m *MockStreamingProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	return providers.PredictionResponse{}, nil
 }

@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
 // ClientOptions configures MCP client behavior
@@ -121,8 +123,8 @@ func (c *StdioClient) Initialize(ctx context.Context) (*InitializeResponse, erro
 		}
 
 		if attempt < c.options.MaxRetries {
-			fmt.Printf("MCP[%s]: failed to start process (attempt %d/%d): %v\n",
-				c.config.Name, attempt+1, c.options.MaxRetries+1, startErr)
+			logger.Warn("MCP failed to start process, retrying",
+				"server", c.config.Name, "attempt", attempt+1, "maxAttempts", c.options.MaxRetries+1, "error", startErr)
 		}
 	}
 
@@ -167,7 +169,7 @@ func (c *StdioClient) Initialize(ctx context.Context) (*InitializeResponse, erro
 	// Send initialized notification
 	if err := c.sendNotification("notifications/initialized", nil); err != nil {
 		// Non-fatal: log but continue
-		fmt.Printf("MCP[%s]: initialized notification failed (continuing): %v\n", c.config.Name, err)
+		logger.Warn("MCP initialized notification failed, continuing", "server", c.config.Name, "error", err)
 	}
 
 	// Store server info and update activity timestamp
@@ -188,7 +190,7 @@ func (c *StdioClient) ListTools(ctx context.Context) ([]Tool, error) {
 	var resp ToolsListResponse
 	if err := c.sendRequestWithRetry(ctx, "tools/list", nil, &resp); err != nil {
 		if c.options.EnableGracefulDegradation {
-			fmt.Printf("MCP[%s]: tools/list failed (graceful degradation enabled): %v\n", c.config.Name, err)
+			logger.Warn("MCP tools/list failed, using graceful degradation", "server", c.config.Name, "error", err)
 			return []Tool{}, nil // Return empty list instead of error
 		}
 		return nil, fmt.Errorf("tools/list request failed: %w", err)
@@ -358,8 +360,8 @@ func (c *StdioClient) sendRequestWithRetry(ctx context.Context, method string, p
 
 		// Log retry attempt
 		if attempt < c.options.MaxRetries {
-			fmt.Printf("MCP[%s]: %s failed (attempt %d/%d): %v\n",
-				c.config.Name, method, attempt+1, c.options.MaxRetries+1, err)
+			logger.Warn("MCP request failed, retrying",
+				"server", c.config.Name, "method", method, "attempt", attempt+1, "maxAttempts", c.options.MaxRetries+1, "error", err)
 		}
 	}
 
@@ -477,7 +479,7 @@ func (c *StdioClient) readLoop() {
 		var msg JSONRPCMessage
 		if err := json.Unmarshal(line, &msg); err != nil {
 			// Log error but continue reading
-			fmt.Printf("MCP: failed to unmarshal message: %v\n", err)
+			logger.Error("MCP failed to unmarshal message", "error", err)
 			continue
 		}
 
@@ -485,7 +487,7 @@ func (c *StdioClient) readLoop() {
 	}
 
 	if err := scanner.Err(); err != nil && !c.closed {
-		fmt.Printf("MCP: scanner error: %v\n", err)
+		logger.Error("MCP scanner error", "error", err)
 	}
 }
 
@@ -495,7 +497,7 @@ func (c *StdioClient) handleMessage(msg *JSONRPCMessage) {
 	if msg.ID != nil && msg.Method == "" {
 		id, ok := msg.ID.(float64) // JSON numbers are float64
 		if !ok {
-			fmt.Printf("MCP: invalid response ID type: %T\n", msg.ID)
+			logger.Warn("MCP invalid response ID type", "type", fmt.Sprintf("%T", msg.ID))
 			return
 		}
 
@@ -526,12 +528,12 @@ func (c *StdioClient) handleNotification(msg *JSONRPCMessage) {
 	switch msg.Method {
 	case "notifications/tools/list_changed":
 		// Tool list changed - could trigger a refresh
-		fmt.Printf("MCP: tools list changed for server %s\n", c.config.Name)
+		logger.Info("MCP tools list changed", "server", c.config.Name)
 	case "notifications/resources/list_changed":
-		fmt.Printf("MCP: resources list changed for server %s\n", c.config.Name)
+		logger.Info("MCP resources list changed", "server", c.config.Name)
 	default:
 		// Unknown notification
-		fmt.Printf("MCP: received unknown notification: %s\n", msg.Method)
+		logger.Debug("MCP received unknown notification", "method", msg.Method)
 	}
 }
 
@@ -542,6 +544,6 @@ func (c *StdioClient) logStderr() {
 	scanner := bufio.NewScanner(c.stderr)
 	for scanner.Scan() {
 		line := scanner.Text()
-		fmt.Printf("MCP[%s] stderr: %s\n", c.config.Name, line)
+		logger.Debug("MCP server stderr", "server", c.config.Name, "output", line)
 	}
 }

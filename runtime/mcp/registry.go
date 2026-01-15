@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sync"
+
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
 // RegistryImpl implements the Registry interface
@@ -113,7 +115,7 @@ func (r *RegistryImpl) createNewClient(ctx context.Context, serverName string) (
 	// Refresh tool index for this server
 	if err := r.refreshToolIndexForServer(ctx, serverName, newClient); err != nil {
 		// Log error but don't fail - client is still usable
-		fmt.Printf("Warning: failed to refresh tool index for %s: %v\n", serverName, err)
+		logger.Warn("Failed to refresh tool index", "server", serverName, "error", err)
 	}
 
 	return newClient, nil

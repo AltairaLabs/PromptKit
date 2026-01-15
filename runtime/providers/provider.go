@@ -19,15 +19,41 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+// ResponseFormatType defines the type of response format
+type ResponseFormatType string
+
+const (
+	// ResponseFormatText is the default text response format
+	ResponseFormatText ResponseFormatType = "text"
+	// ResponseFormatJSON requests JSON output from the model
+	ResponseFormatJSON ResponseFormatType = "json_object"
+	// ResponseFormatJSONSchema requests JSON output conforming to a schema
+	ResponseFormatJSONSchema ResponseFormatType = "json_schema"
+)
+
+// ResponseFormat specifies the format of the model's response
+type ResponseFormat struct {
+	// Type specifies the response format type
+	Type ResponseFormatType `json:"type"`
+	// JSONSchema is the schema to use when Type is ResponseFormatJSONSchema
+	// This should be a valid JSON Schema object
+	JSONSchema json.RawMessage `json:"json_schema,omitempty"`
+	// SchemaName is an optional name for the schema (used by OpenAI)
+	SchemaName string `json:"schema_name,omitempty"`
+	// Strict enables strict schema validation (OpenAI-specific)
+	Strict bool `json:"strict,omitempty"`
+}
+
 // PredictionRequest represents a request to a predict provider
 type PredictionRequest struct {
-	System      string                 `json:"system"`
-	Messages    []types.Message        `json:"messages"`
-	Temperature float32                `json:"temperature"`
-	TopP        float32                `json:"top_p"`
-	MaxTokens   int                    `json:"max_tokens"`
-	Seed        *int                   `json:"seed,omitempty"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"` // Optional metadata for provider-specific context
+	System         string                 `json:"system"`
+	Messages       []types.Message        `json:"messages"`
+	Temperature    float32                `json:"temperature"`
+	TopP           float32                `json:"top_p"`
+	MaxTokens      int                    `json:"max_tokens"`
+	Seed           *int                   `json:"seed,omitempty"`
+	ResponseFormat *ResponseFormat        `json:"response_format,omitempty"` // Optional response format (JSON mode)
+	Metadata       map[string]interface{} `json:"metadata,omitempty"`        // Provider-specific context
 }
 
 // PredictionResponse represents a response from a predict provider
@@ -58,6 +84,9 @@ type ProviderDefaults struct {
 // Provider interface defines the contract for predict providers
 type Provider interface {
 	ID() string
+
+	// Model returns the model name/identifier used by this provider
+	Model() string
 
 	Predict(ctx context.Context, req PredictionRequest) (PredictionResponse, error)
 

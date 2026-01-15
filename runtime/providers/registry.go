@@ -1,5 +1,10 @@
 package providers
 
+const (
+	// DefaultGeminiBaseURL is the default base URL for Gemini API (includes version path)
+	DefaultGeminiBaseURL = "https://generativelanguage.googleapis.com/v1beta"
+)
+
 // Registry manages available providers
 type Registry struct {
 	providers map[string]Provider
@@ -74,11 +79,11 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 		case "openai":
 			baseURL = "https://api.openai.com/v1"
 		case "gemini":
-			baseURL = "https://generativelanguage.googleapis.com"
+			baseURL = DefaultGeminiBaseURL
 		case "claude":
 			baseURL = "https://api.anthropic.com"
 		case "imagen":
-			baseURL = "https://generativelanguage.googleapis.com/v1beta"
+			baseURL = DefaultGeminiBaseURL
 		case "ollama":
 			baseURL = "http://localhost:11434"
 		case "mock":

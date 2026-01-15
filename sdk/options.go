@@ -98,6 +98,10 @@ type config struct {
 	// Video streaming configuration for realtime video in duplex sessions
 	// When set, enables frame rate limiting and preprocessing for video/image streams
 	videoStreamConfig *VideoStreamConfig
+
+	// ResponseFormat configures the LLM response format (JSON mode)
+	// When set, the provider will request responses in the specified format
+	responseFormat *providers.ResponseFormat
 }
 
 // Option configures a Conversation.
@@ -776,6 +780,55 @@ func WithAutoResize(maxWidth, maxHeight int) Option {
 		cfg.Resize.MaxWidth = maxWidth
 		cfg.Resize.MaxHeight = maxHeight
 		c.imagePreprocessConfig = &cfg
+		return nil
+	}
+}
+
+// WithResponseFormat configures the LLM response format for JSON mode output.
+// This instructs the model to return responses in the specified format.
+//
+// For simple JSON object output:
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithResponseFormat(&providers.ResponseFormat{
+//	        Type: providers.ResponseFormatJSON,
+//	    }),
+//	)
+//
+// For structured JSON output with a schema:
+//
+//	schema := json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`)
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithResponseFormat(&providers.ResponseFormat{
+//	        Type:       providers.ResponseFormatJSONSchema,
+//	        JSONSchema: schema,
+//	        SchemaName: "person",
+//	        Strict:     true,
+//	    }),
+//	)
+func WithResponseFormat(format *providers.ResponseFormat) Option {
+	return func(c *config) error {
+		c.responseFormat = format
+		return nil
+	}
+}
+
+// WithJSONMode is a convenience option that enables simple JSON output mode.
+// The model will return valid JSON objects but without schema enforcement.
+// Use WithResponseFormat for more control including schema validation.
+//
+// Example:
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithJSONMode(),
+//	)
+//	resp, _ := conv.Send(ctx, "List 3 colors as JSON")
+//	// Response: {"colors": ["red", "green", "blue"]}
+func WithJSONMode() Option {
+	return func(c *config) error {
+		c.responseFormat = &providers.ResponseFormat{
+			Type: providers.ResponseFormatJSON,
+		}
 		return nil
 	}
 }

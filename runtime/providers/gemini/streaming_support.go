@@ -95,7 +95,7 @@ func (p *Provider) validateStreamRequest(req *providers.StreamingInputConfig) er
 // buildStreamSessionConfig creates a base session configuration
 func (p *Provider) buildStreamSessionConfig(req *providers.StreamingInputConfig) StreamSessionConfig {
 	config := StreamSessionConfig{
-		Model:             p.Model,
+		Model:             p.modelName,
 		SystemInstruction: req.SystemInstruction,
 		AutoReconnect:     true,
 		MaxReconnectTries: defaultMaxReconnectTries,
@@ -111,7 +111,7 @@ func (p *Provider) applyPricingConfig(config *StreamSessionConfig) {
 		config.InputCostPer1K = p.Defaults.Pricing.InputCostPer1K
 		config.OutputCostPer1K = p.Defaults.Pricing.OutputCostPer1K
 	} else {
-		config.InputCostPer1K, config.OutputCostPer1K, _ = geminiPricing(p.Model)
+		config.InputCostPer1K, config.OutputCostPer1K, _ = geminiPricing(p.modelName)
 	}
 }
 

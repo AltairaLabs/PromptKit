@@ -557,7 +557,7 @@ func TestProcessGeminiStreamChunk(t *testing.T) {
 			outChan := make(chan providers.StreamChunk, 10)
 			defer close(outChan)
 
-			content, tokens, finished := provider.processGeminiStreamChunk(tt.chunk, tt.accumulated, tt.totalTokens, outChan)
+			content, tokens, _, finished := provider.processGeminiStreamChunk(tt.chunk, tt.accumulated, tt.totalTokens, nil, outChan)
 
 			assert.Equal(t, tt.wantContent, content)
 			assert.Equal(t, tt.wantTokens, tokens)

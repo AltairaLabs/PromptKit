@@ -89,14 +89,14 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 	// This ensures defaults are available when creating the session
 	applyDefaultVariables(conv, prompt)
 
+	// Initialize event bus BEFORE building pipeline so it can be wired up
+	initEventBus(cfg)
+
 	// Initialize internal memory store for conversation history
 	// This is used by StateStoreLoad/Save middleware in the pipeline
 	if err := initInternalStateStore(conv, cfg); err != nil {
 		return nil, err
 	}
-
-	// Initialize event bus (use provided or create new)
-	initEventBus(cfg)
 
 	// Initialize MCP registry if configured
 	if err := initMCPRegistry(conv, cfg); err != nil {
@@ -177,13 +177,13 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 	// Apply default variables from prompt BEFORE initializing session
 	applyDefaultVariables(conv, prompt)
 
+	// Initialize event bus BEFORE building pipeline so it can be wired up
+	initEventBus(cfg)
+
 	// Initialize duplex session
 	if err := initDuplexSession(conv, cfg, streamProvider); err != nil {
 		return nil, err
 	}
-
-	// Initialize event bus
-	initEventBus(cfg)
 
 	// Initialize MCP registry if configured
 	if err := initMCPRegistry(conv, cfg); err != nil {

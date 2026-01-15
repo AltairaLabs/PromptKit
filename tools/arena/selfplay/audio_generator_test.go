@@ -20,10 +20,11 @@ type mockProvider struct {
 	err      error
 }
 
-func (m *mockProvider) ID() string              { return "mock" }
-func (m *mockProvider) SupportsStreaming() bool { return false }
+func (m *mockProvider) ID() string                   { return "mock" }
+func (m *mockProvider) Model() string                { return "mock-model" }
+func (m *mockProvider) SupportsStreaming() bool      { return false }
 func (m *mockProvider) ShouldIncludeRawOutput() bool { return false }
-func (m *mockProvider) Close() error            { return nil }
+func (m *mockProvider) Close() error                 { return nil }
 func (m *mockProvider) CalculateCost(_, _, _ int) types.CostInfo {
 	return types.CostInfo{}
 }

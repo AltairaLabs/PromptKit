@@ -28,7 +28,7 @@ func TestStreamingIntegration_EndToEnd(t *testing.T) {
 	}
 
 	// Create provider
-	provider := NewProvider("gemini", "gemini-2.0-flash-exp", "https://generativelanguage.googleapis.com", providers.ProviderDefaults{
+	provider := NewProvider("gemini", "gemini-2.0-flash-exp", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{
 		Temperature: 0.7,
 	}, false)
 
@@ -147,7 +147,7 @@ func TestStreamingIntegration_AudioRoundTrip(t *testing.T) {
 		t.Skip("Skipping integration test: GEMINI_API_KEY not set")
 	}
 
-	provider := NewProvider("gemini", "gemini-2.0-flash-exp", "https://generativelanguage.googleapis.com", providers.ProviderDefaults{}, false)
+	provider := NewProvider("gemini", "gemini-2.0-flash-exp", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{}, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -221,7 +221,7 @@ func TestStreamingIntegration_ErrorHandling(t *testing.T) {
 			provider := &Provider{
 				BaseProvider: providers.BaseProvider{},
 				Model:        "gemini-2.0-flash-exp",
-				BaseURL:      "https://generativelanguage.googleapis.com",
+				BaseURL:      "https://generativelanguage.googleapis.com/v1beta",
 				ApiKey:       tt.apiKey,
 			}
 
@@ -261,7 +261,7 @@ func TestStreamingIntegration_Performance(t *testing.T) {
 		t.Skip("Skipping integration test: GEMINI_API_KEY not set")
 	}
 
-	provider := NewProvider("gemini", "gemini-2.0-flash-exp", "https://generativelanguage.googleapis.com", providers.ProviderDefaults{}, false)
+	provider := NewProvider("gemini", "gemini-2.0-flash-exp", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{}, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

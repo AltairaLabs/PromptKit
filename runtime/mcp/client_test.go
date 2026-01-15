@@ -70,3 +70,97 @@ func TestNewStdioClientWithOptions(t *testing.T) {
 	assert.Equal(t, customOpts.RetryDelay, client.options.RetryDelay)
 	assert.False(t, client.options.EnableGracefulDegradation)
 }
+
+func TestCheckHealth(t *testing.T) {
+	config := ServerConfig{
+		Name:    "test-server",
+		Command: "echo",
+	}
+
+	t.Run("not initialized", func(t *testing.T) {
+		client := NewStdioClient(config)
+		err := client.checkHealth()
+		assert.Equal(t, ErrClientNotInitialized, err)
+	})
+
+	t.Run("closed client", func(t *testing.T) {
+		client := NewStdioClient(config)
+		client.closed = true
+		err := client.checkHealth()
+		assert.Equal(t, ErrClientClosed, err)
+	})
+
+	t.Run("started but no process", func(t *testing.T) {
+		client := NewStdioClient(config)
+		client.started = true
+		err := client.checkHealth()
+		assert.Equal(t, ErrProcessDied, err)
+	})
+}
+
+func TestIsAlive(t *testing.T) {
+	config := ServerConfig{
+		Name:    "test-server",
+		Command: "echo",
+	}
+
+	t.Run("not started", func(t *testing.T) {
+		client := NewStdioClient(config)
+		assert.False(t, client.IsAlive())
+	})
+
+	t.Run("closed", func(t *testing.T) {
+		client := NewStdioClient(config)
+		client.started = true
+		client.closed = true
+		assert.False(t, client.IsAlive())
+	})
+}
+
+func TestHandleNotification(t *testing.T) {
+	config := ServerConfig{
+		Name:    "test-server",
+		Command: "echo",
+	}
+	client := NewStdioClient(config)
+
+	// Test various notification types - these just log, so we're testing they don't panic
+	t.Run("tools list changed", func(t *testing.T) {
+		msg := &JSONRPCMessage{Method: "notifications/tools/list_changed"}
+		client.handleNotification(msg) // Should not panic
+	})
+
+	t.Run("resources list changed", func(t *testing.T) {
+		msg := &JSONRPCMessage{Method: "notifications/resources/list_changed"}
+		client.handleNotification(msg) // Should not panic
+	})
+
+	t.Run("unknown notification", func(t *testing.T) {
+		msg := &JSONRPCMessage{Method: "some/unknown/notification"}
+		client.handleNotification(msg) // Should not panic
+	})
+}
+
+func TestHandleMessage(t *testing.T) {
+	config := ServerConfig{
+		Name:    "test-server",
+		Command: "echo",
+	}
+	client := NewStdioClient(config)
+
+	t.Run("invalid ID type", func(t *testing.T) {
+		// ID is a string instead of a number - should log warning and return
+		msg := &JSONRPCMessage{ID: "not-a-number"}
+		client.handleMessage(msg) // Should not panic
+	})
+
+	t.Run("notification message", func(t *testing.T) {
+		msg := &JSONRPCMessage{Method: "some/notification"}
+		client.handleMessage(msg) // Should route to handleNotification
+	})
+
+	t.Run("response with valid ID but no pending request", func(t *testing.T) {
+		msg := &JSONRPCMessage{ID: float64(123)}
+		client.handleMessage(msg) // Should handle gracefully
+	})
+}

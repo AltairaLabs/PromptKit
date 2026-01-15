@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -32,14 +33,15 @@ type ProviderStage struct {
 	toolRegistry *tools.Registry
 	toolPolicy   *pipeline.ToolPolicy
 	config       *ProviderConfig
+	emitter      *events.Emitter // Optional event emitter for provider call events
 }
 
 // ProviderConfig contains configuration for the provider stage.
 type ProviderConfig struct {
-	MaxTokens    int
-	Temperature  float32
-	Seed         *int
-	DisableTrace bool
+	MaxTokens      int
+	Temperature    float32
+	Seed           *int
+	ResponseFormat *providers.ResponseFormat // Optional response format (JSON mode)
 }
 
 // streamingRoundParams holds parameters for a streaming round execution.
@@ -59,6 +61,19 @@ func NewProviderStage(
 	toolPolicy *pipeline.ToolPolicy,
 	config *ProviderConfig,
 ) *ProviderStage {
+	return NewProviderStageWithEmitter(provider, toolRegistry, toolPolicy, config, nil)
+}
+
+// NewProviderStageWithEmitter creates a new provider stage with event emission support.
+// The emitter is used to emit provider.call.started, provider.call.completed, and
+// provider.call.failed events for observability and session recording.
+func NewProviderStageWithEmitter(
+	provider providers.Provider,
+	toolRegistry *tools.Registry,
+	toolPolicy *pipeline.ToolPolicy,
+	config *ProviderConfig,
+	emitter *events.Emitter,
+) *ProviderStage {
 	if config == nil {
 		config = &ProviderConfig{}
 	}
@@ -68,6 +83,7 @@ func NewProviderStage(
 		toolRegistry: toolRegistry,
 		toolPolicy:   toolPolicy,
 		config:       config,
+		emitter:      emitter,
 	}
 }
 
@@ -291,18 +307,32 @@ func (s *ProviderStage) executeRound(
 ) (types.Message, bool, error) {
 	// Build provider request
 	req := providers.PredictionRequest{
-		System:      systemPrompt,
-		Messages:    messages,
-		MaxTokens:   s.config.MaxTokens,
-		Temperature: s.config.Temperature,
-		Seed:        s.config.Seed,
-		Metadata:    metadata,
+		System:         systemPrompt,
+		Messages:       messages,
+		MaxTokens:      s.config.MaxTokens,
+		Temperature:    s.config.Temperature,
+		Seed:           s.config.Seed,
+		ResponseFormat: s.config.ResponseFormat,
+		Metadata:       metadata,
+	}
+
+	// Count tools for event emission
+	toolCount := 0
+	if providerTools != nil {
+		if toolDescs, ok := providerTools.([]*providers.ToolDescriptor); ok {
+			toolCount = len(toolDescs)
+		}
 	}
 
 	logger.Debug("Provider round starting",
 		"round", round,
 		"messages", len(messages),
 		"tools", providerTools != nil)
+
+	// Emit provider call started event
+	if s.emitter != nil {
+		s.emitter.ProviderCallStarted(s.provider.ID(), "", len(messages), toolCount)
+	}
 
 	// Call provider (with or without tools)
 	startTime := time.Now()
@@ -327,7 +357,28 @@ func (s *ProviderStage) executeRound(
 
 	if err != nil {
 		logger.Error("Provider call failed", "error", err, "duration", duration)
+		// Emit provider call failed event
+		if s.emitter != nil {
+			s.emitter.ProviderCallFailed(s.provider.ID(), "", err, duration)
+		}
 		return types.Message{}, false, fmt.Errorf("provider call failed: %w", err)
+	}
+
+	// Emit provider call completed event
+	if s.emitter != nil {
+		completedData := &events.ProviderCallCompletedData{
+			Provider:      s.provider.ID(),
+			Model:         s.provider.Model(),
+			Duration:      duration,
+			ToolCallCount: len(toolCalls),
+		}
+		if resp.CostInfo != nil {
+			completedData.InputTokens = resp.CostInfo.InputTokens
+			completedData.OutputTokens = resp.CostInfo.OutputTokens
+			completedData.CachedTokens = resp.CostInfo.CachedTokens
+			completedData.Cost = resp.CostInfo.TotalCost
+		}
+		s.emitter.ProviderCallCompleted(completedData)
 	}
 
 	// Build response message with latency
@@ -359,12 +410,21 @@ func (s *ProviderStage) executeStreamingRound(
 ) (types.Message, bool, error) {
 	// Build provider request
 	req := providers.PredictionRequest{
-		System:      params.systemPrompt,
-		Messages:    params.messages,
-		MaxTokens:   s.config.MaxTokens,
-		Temperature: s.config.Temperature,
-		Seed:        s.config.Seed,
-		Metadata:    params.metadata,
+		System:         params.systemPrompt,
+		Messages:       params.messages,
+		MaxTokens:      s.config.MaxTokens,
+		Temperature:    s.config.Temperature,
+		Seed:           s.config.Seed,
+		Metadata:       params.metadata,
+		ResponseFormat: s.config.ResponseFormat,
+	}
+
+	// Count tools for event emission
+	toolCount := 0
+	if params.providerTools != nil {
+		if toolDescs, ok := params.providerTools.([]*providers.ToolDescriptor); ok {
+			toolCount = len(toolDescs)
+		}
 	}
 
 	logger.Debug("Provider streaming round starting",
@@ -372,21 +432,53 @@ func (s *ProviderStage) executeStreamingRound(
 		"messages", len(params.messages),
 		"tools", params.providerTools != nil)
 
+	// Emit provider call started event
+	if s.emitter != nil {
+		s.emitter.ProviderCallStarted(s.provider.ID(), "", len(params.messages), toolCount)
+	}
+
 	startTime := time.Now()
 
 	// Start the streaming request
 	streamChan, err := s.startStreamingRequest(ctx, req, params.providerTools, params.toolChoice)
 	if err != nil {
+		duration := time.Since(startTime)
+		// Emit provider call failed event
+		if s.emitter != nil {
+			s.emitter.ProviderCallFailed(s.provider.ID(), "", err, duration)
+		}
 		return types.Message{}, false, err
 	}
 
 	// Process all chunks and collect response
-	content, toolCalls, err := s.processStreamChunks(ctx, streamChan, params.metadata, output)
+	content, toolCalls, costInfo, err := s.processStreamChunks(ctx, streamChan, params.metadata, output)
+	duration := time.Since(startTime)
+
 	if err != nil {
+		// Emit provider call failed event
+		if s.emitter != nil {
+			s.emitter.ProviderCallFailed(s.provider.ID(), "", err, duration)
+		}
 		return types.Message{}, false, err
 	}
 
-	duration := time.Since(startTime)
+	// Emit provider call completed event with cost info from streaming response
+	if s.emitter != nil {
+		completedData := &events.ProviderCallCompletedData{
+			Provider:      s.provider.ID(),
+			Model:         s.provider.Model(),
+			Duration:      duration,
+			ToolCallCount: len(toolCalls),
+		}
+		// Populate token counts from cost info if available (present in final chunk)
+		if costInfo != nil {
+			completedData.InputTokens = costInfo.InputTokens
+			completedData.OutputTokens = costInfo.OutputTokens
+			completedData.CachedTokens = costInfo.CachedTokens
+			completedData.Cost = costInfo.TotalCost
+		}
+		s.emitter.ProviderCallCompleted(completedData)
+	}
 
 	// Build final response message with latency
 	responseMsg := types.Message{
@@ -435,32 +527,38 @@ func (s *ProviderStage) startStreamingRequest(
 }
 
 // processStreamChunks processes streaming chunks and emits elements to output.
+// Returns accumulated content, tool calls, cost info (from final chunk), and any error.
 func (s *ProviderStage) processStreamChunks(
 	ctx context.Context,
 	streamChan <-chan providers.StreamChunk,
 	metadata map[string]interface{},
 	output chan<- StreamElement,
-) (string, []types.MessageToolCall, error) {
+) (string, []types.MessageToolCall, *types.CostInfo, error) {
 	var content string
 	var toolCalls []types.MessageToolCall
+	var costInfo *types.CostInfo
 
 	for chunk := range streamChan {
 		if chunk.Error != nil {
 			logger.Error("Stream chunk error", "error", chunk.Error)
-			return "", nil, fmt.Errorf("stream chunk error: %w", chunk.Error)
+			return "", nil, nil, fmt.Errorf("stream chunk error: %w", chunk.Error)
 		}
 
 		content = chunk.Content
 		if len(chunk.ToolCalls) > 0 {
 			toolCalls = chunk.ToolCalls
 		}
+		// Capture cost info from final chunk (only present when FinishReason != nil)
+		if chunk.CostInfo != nil {
+			costInfo = chunk.CostInfo
+		}
 
 		if err := s.emitChunkElement(ctx, &chunk, metadata, output); err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 	}
 
-	return content, toolCalls, nil
+	return content, toolCalls, costInfo, nil
 }
 
 // emitChunkElement creates and emits a streaming element for a chunk.
@@ -505,15 +603,13 @@ func (s *ProviderStage) executeToolCalls(ctx context.Context, toolCalls []types.
 	for _, toolCall := range toolCalls {
 		// Check if tool is blocked by policy
 		if s.toolPolicy != nil && isToolBlocked(toolCall.Name, s.toolPolicy.Blocklist) {
-			results = append(results, types.Message{
-				Role: "tool",
-				ToolResult: &types.MessageToolResult{
-					ID:      toolCall.ID,
-					Name:    toolCall.Name,
-					Content: fmt.Sprintf("Tool %s is blocked by policy", toolCall.Name),
-					Error:   fmt.Sprintf("Tool %s is blocked by policy", toolCall.Name),
-				},
-			})
+			errMsg := fmt.Sprintf("Tool %s is blocked by policy", toolCall.Name)
+			results = append(results, types.NewToolResultMessage(types.MessageToolResult{
+				ID:      toolCall.ID,
+				Name:    toolCall.Name,
+				Content: errMsg,
+				Error:   errMsg,
+			}))
 			continue
 		}
 
@@ -521,24 +617,18 @@ func (s *ProviderStage) executeToolCalls(ctx context.Context, toolCalls []types.
 		asyncResult, err := s.toolRegistry.ExecuteAsync(toolCall.Name, toolCall.Args)
 		if err != nil {
 			// Tool not found or execution setup failed
-			results = append(results, types.Message{
-				Role: "tool",
-				ToolResult: &types.MessageToolResult{
-					ID:      toolCall.ID,
-					Name:    toolCall.Name,
-					Content: fmt.Sprintf("Error: %v", err),
-					Error:   err.Error(),
-				},
-			})
+			results = append(results, types.NewToolResultMessage(types.MessageToolResult{
+				ID:      toolCall.ID,
+				Name:    toolCall.Name,
+				Content: fmt.Sprintf("Error: %v", err),
+				Error:   err.Error(),
+			}))
 			continue
 		}
 
 		// Convert tool execution result to message
 		result := s.handleToolResult(toolCall, asyncResult)
-		results = append(results, types.Message{
-			Role:       "tool",
-			ToolResult: &result,
-		})
+		results = append(results, types.NewToolResultMessage(result))
 	}
 
 	return results, nil

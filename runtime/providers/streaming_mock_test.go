@@ -81,6 +81,7 @@ data: [DONE]
 
 func TestClaudeStreamResponse(t *testing.T) {
 	// Create a mock SSE stream with Claude's event format
+	// Note: Claude API sends stop_reason in message_delta, not message_stop
 	sseData := `data: {"type":"content_block_start","index":0}
 
 data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Hello"}}
@@ -89,7 +90,9 @@ data: {"type":"content_block_delta","delta":{"type":"text_delta","text":" Claude
 
 data: {"type":"content_block_stop"}
 
-data: {"type":"message_stop","message":{"stop_reason":"end_turn"}}
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
+
+data: {"type":"message_stop"}
 
 `
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

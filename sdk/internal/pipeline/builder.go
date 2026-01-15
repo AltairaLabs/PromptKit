@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
@@ -65,6 +66,9 @@ type Config struct {
 	// Temperature for LLM response
 	Temperature float32
 
+	// ResponseFormat for JSON mode output (optional)
+	ResponseFormat *providers.ResponseFormat
+
 	// StateStore for conversation history persistence (optional)
 	// When provided, StateStoreLoad/Save stages will be added to the pipeline
 	StateStore statestore.Store
@@ -109,6 +113,10 @@ type Config struct {
 	// ImagePreprocessConfig configures image preprocessing (resizing, optimization)
 	// When non-nil, ImagePreprocessStage is added before the provider stage
 	ImagePreprocessConfig *stage.ImagePreprocessConfig
+
+	// EventEmitter for emitting provider call events (optional)
+	// When provided, ProviderStage will emit ProviderCallStarted/Completed/Failed events
+	EventEmitter *events.Emitter
 }
 
 // Build creates a stage-based streaming pipeline.
@@ -208,14 +216,16 @@ func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 	} else if cfg.Provider != nil {
 		// Text mode: standard LLM call
 		providerConfig := &stage.ProviderConfig{
-			MaxTokens:   cfg.MaxTokens,
-			Temperature: cfg.Temperature,
+			MaxTokens:      cfg.MaxTokens,
+			Temperature:    cfg.Temperature,
+			ResponseFormat: cfg.ResponseFormat,
 		}
-		stages = append(stages, stage.NewProviderStage(
+		stages = append(stages, stage.NewProviderStageWithEmitter(
 			cfg.Provider,
 			cfg.ToolRegistry,
 			cfg.ToolPolicy,
 			providerConfig,
+			cfg.EventEmitter,
 		))
 	}
 

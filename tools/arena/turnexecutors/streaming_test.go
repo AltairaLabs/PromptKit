@@ -190,6 +190,10 @@ func (m *MockStreamingProvider) ID() string {
 	return "mock-streaming"
 }
 
+func (m *MockStreamingProvider) Model() string {
+	return "mock-streaming-model"
+}
+
 func (m *MockStreamingProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	return providers.PredictionResponse{
 		Content: "mock response",
@@ -239,6 +243,10 @@ type MockNonStreamingProvider struct{}
 
 func (m *MockNonStreamingProvider) ID() string {
 	return "mock-non-streaming"
+}
+
+func (m *MockNonStreamingProvider) Model() string {
+	return "mock-non-streaming-model"
 }
 
 func (m *MockNonStreamingProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {

@@ -109,7 +109,8 @@ func processClaudeToolResult(msg types.Message) claudeToolResult {
 	return claudeToolResult{
 		Type:      "tool_result",
 		ToolUseID: msg.ToolResult.ID,
-		Content:   msg.Content,
+		// Use ToolResult.Content (not msg.Content which is empty)
+		Content: msg.ToolResult.Content,
 	}
 }
 
@@ -125,10 +126,12 @@ func buildClaudeMessageContent(msg types.Message, pendingToolResults []claudeToo
 	}
 
 	// Add the message text content if present
-	if msg.Content != "" {
+	// Use GetContent() to handle both legacy Content field and new Parts field
+	textContent := msg.GetContent()
+	if textContent != "" {
 		content = append(content, claudeTextContent{
 			Type: "text",
-			Text: msg.Content,
+			Text: textContent,
 		})
 	}
 
@@ -381,7 +384,7 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]
 	logger.APIResponse(providerNameLog, resp.StatusCode, string(respBytes), nil)
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBytes))
+		return nil, fmt.Errorf("API request to %s failed with status %d: %s", url, resp.StatusCode, string(respBytes))
 	}
 
 	return respBytes, nil
@@ -425,7 +428,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("API request to %s failed with status %d: %s", url, resp.StatusCode, string(body))
 	}
 
 	outChan := make(chan providers.StreamChunk)

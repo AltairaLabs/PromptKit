@@ -247,6 +247,10 @@ func (m *MockProvider) ID() string {
 	return m.id
 }
 
+func (m *MockProvider) Model() string {
+	return "mock-model"
+}
+
 func (m *MockProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	costBreakdown := types.CostInfo{
 		InputTokens:   10,

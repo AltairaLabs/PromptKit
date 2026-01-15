@@ -12,7 +12,8 @@ type mockProvider struct {
 	id string
 }
 
-func (m *mockProvider) ID() string { return m.id }
+func (m *mockProvider) ID() string    { return m.id }
+func (m *mockProvider) Model() string { return "mock-model" }
 func (m *mockProvider) Predict(ctx context.Context, req PredictionRequest) (PredictionResponse, error) {
 	return PredictionResponse{}, nil
 }

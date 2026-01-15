@@ -102,10 +102,6 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (in
 
 // PredictWithTools performs a predict request with tool support
 func (p *ToolProvider) PredictWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
-	logger.Debug("PredictWithTools called",
-		"toolChoice", toolChoice,
-		"messages", len(req.Messages))
-
 	// Store tools and request context for potential continuation
 	p.currentTools = tools
 	p.currentRequest = &req
@@ -131,11 +127,14 @@ func (p *ToolProvider) PredictWithTools(ctx context.Context, req providers.Predi
 
 // processToolMessage converts a tool result message to Gemini's functionResponse format
 func processToolMessage(msg types.Message) map[string]interface{} {
+	// Use ToolResult.Content (not msg.Content which is empty for tool result messages)
+	content := msg.ToolResult.Content
+
 	var response interface{}
-	if err := json.Unmarshal([]byte(msg.Content), &response); err != nil {
+	if err := json.Unmarshal([]byte(content), &response); err != nil {
 		// If unmarshal fails, wrap the content in an object
 		response = map[string]interface{}{
-			"result": msg.Content,
+			"result": content,
 		}
 	} else {
 		// Successfully unmarshaled, but check if it's a map (object) or primitive
@@ -149,7 +148,7 @@ func processToolMessage(msg types.Message) map[string]interface{} {
 	// Debug: log tool message details
 	logger.Debug("Processing tool message",
 		"name", msg.ToolResult.Name,
-		"content_length", len(msg.Content),
+		"content_length", len(content),
 		"tool_result_id", msg.ToolResult.ID)
 
 	if msg.ToolResult.Name == "" {
@@ -175,10 +174,11 @@ func buildMessageParts(msg types.Message, pendingToolResults []map[string]interf
 		}
 	}
 
-	// Add text content
-	if msg.Content != "" {
+	// Add text content - use GetContent() to properly handle both Content field and Parts
+	textContent := msg.GetContent()
+	if textContent != "" {
 		parts = append(parts, map[string]interface{}{
-			"text": msg.Content,
+			"text": textContent,
 		})
 	}
 
@@ -385,7 +385,7 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]
 	}
 
 	// Build URL with API key for Gemini
-	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", p.BaseURL, p.Model, p.ApiKey)
+	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", p.BaseURL, p.modelName, p.ApiKey)
 
 	// Debug log the request
 	var requestObj interface{}
@@ -422,7 +422,8 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]
 	logger.APIResponse(providerNameLog, resp.StatusCode, string(respBytes), nil)
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBytes))
+		return nil, fmt.Errorf("API request to %s failed with status %d: %s",
+			logger.RedactSensitiveData(url), resp.StatusCode, string(respBytes))
 	}
 
 	return respBytes, nil
@@ -445,8 +446,8 @@ func (p *ToolProvider) PredictStreamWithTools(
 
 	// Use streamGenerateContent endpoint
 	url := fmt.Sprintf(
-		"%s/models/%s:streamGenerateContent?alt=sse&key=%s",
-		p.BaseURL, p.Model, p.ApiKey,
+		"%s/models/%s:streamGenerateContent?key=%s",
+		p.BaseURL, p.modelName, p.ApiKey,
 	)
 
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(requestBytes))
@@ -464,7 +465,8 @@ func (p *ToolProvider) PredictStreamWithTools(
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("API request to %s failed with status %d: %s",
+			logger.RedactSensitiveData(url), resp.StatusCode, string(body))
 	}
 
 	outChan := make(chan providers.StreamChunk)

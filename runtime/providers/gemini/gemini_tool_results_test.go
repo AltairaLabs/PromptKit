@@ -293,3 +293,60 @@ func TestToolProvider_MultipleToolResultsGrouped(t *testing.T) {
 
 	t.Logf("✅ Multiple tool results properly grouped in single user content")
 }
+
+// TestProcessToolMessage_UsesToolResultContent verifies that processToolMessage
+// uses ToolResult.Content (not msg.Content) for the tool response.
+// This is critical for streaming with tools to work correctly.
+func TestProcessToolMessage_UsesToolResultContent(t *testing.T) {
+	// Create a tool result message as the SDK creates them:
+	// - msg.Content is NOT set (empty)
+	// - msg.ToolResult.Content has the actual data
+	toolResultMsg := types.Message{
+		Role: "tool",
+		// Content is intentionally empty - this is how the SDK creates tool result messages
+		ToolResult: &types.MessageToolResult{
+			ID:      "call_abc123",
+			Name:    "weather",
+			Content: `{"temperature": 73, "conditions": "sunny"}`,
+			Error:   "",
+		},
+	}
+
+	// Process the tool message
+	result := processToolMessage(toolResultMsg)
+
+	// Verify the result has functionResponse
+	funcResponse, ok := result["functionResponse"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected functionResponse map, got %T", result["functionResponse"])
+	}
+
+	// Verify name is set
+	if funcResponse["name"] != "weather" {
+		t.Errorf("Expected name 'weather', got '%v'", funcResponse["name"])
+	}
+
+	// CRITICAL: Verify response contains the tool result data (not empty)
+	response, ok := funcResponse["response"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected response to be map, got %T: %v", funcResponse["response"], funcResponse["response"])
+	}
+
+	// Check for actual content - must have the temperature from our test data
+	// (not just an empty "result" key from the fallback)
+	temp, hasTemp := response["temperature"]
+	if !hasTemp {
+		t.Fatal("CRITICAL BUG: Tool result response missing 'temperature'! ToolResult.Content should be used, not msg.Content")
+	}
+	if temp != float64(73) {
+		t.Errorf("Expected temperature 73, got %v", temp)
+	}
+
+	conditions, hasCond := response["conditions"]
+	if !hasCond {
+		t.Fatal("CRITICAL BUG: Tool result response missing 'conditions'! ToolResult.Content should be used")
+	}
+	if conditions != "sunny" {
+		t.Errorf("Expected conditions 'sunny', got %v", conditions)
+	}
+}

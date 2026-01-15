@@ -11,9 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -26,10 +25,10 @@ const (
 // Provider implements the Provider interface for Google Gemini
 type Provider struct {
 	providers.BaseProvider
-	Model    string
-	BaseURL  string
-	ApiKey   string
-	Defaults providers.ProviderDefaults
+	modelName string
+	BaseURL   string
+	ApiKey    string
+	Defaults  providers.ProviderDefaults
 }
 
 // NewProvider creates a new Gemini provider
@@ -38,11 +37,16 @@ func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults,
 
 	return &Provider{
 		BaseProvider: base,
-		Model:        model,
+		modelName:    model,
 		BaseURL:      baseURL,
 		ApiKey:       apiKey,
 		Defaults:     defaults,
 	}
+}
+
+// Model returns the model name/identifier used by this provider.
+func (p *Provider) Model() string {
+	return p.modelName
 }
 
 // Gemini API request/response structures
@@ -59,8 +63,15 @@ type geminiContent struct {
 }
 
 type geminiPart struct {
-	Text       string            `json:"text,omitempty"`
-	InlineData *geminiInlineData `json:"inlineData,omitempty"`
+	Text         string              `json:"text,omitempty"`
+	InlineData   *geminiInlineData   `json:"inlineData,omitempty"`
+	FunctionCall *geminiPartFuncCall `json:"functionCall,omitempty"`
+}
+
+// geminiPartFuncCall represents a function call in a streaming response part
+type geminiPartFuncCall struct {
+	Name string          `json:"name"`
+	Args json.RawMessage `json:"args"`
 }
 
 type geminiInlineData struct {
@@ -69,9 +80,11 @@ type geminiInlineData struct {
 }
 
 type geminiGenConfig struct {
-	Temperature     float32 `json:"temperature"`
-	TopP            float32 `json:"topP"`
-	MaxOutputTokens int     `json:"maxOutputTokens"`
+	Temperature      float32     `json:"temperature"`
+	TopP             float32     `json:"topP"`
+	MaxOutputTokens  int         `json:"maxOutputTokens"`
+	ResponseMimeType string      `json:"responseMimeType,omitempty"` // "text/plain" or "application/json"
+	ResponseSchema   interface{} `json:"responseSchema,omitempty"`   // JSON Schema for structured output
 }
 
 type geminiSafety struct {
@@ -109,7 +122,15 @@ type geminiSafetyRating struct {
 	Probability string `json:"probability"`
 }
 
-// convertMessagesToGeminiContents converts provider messages to Gemini format
+// convertMessagesToGeminiContents converts provider messages to Gemini format.
+// This handles both legacy text-only messages and multimodal messages with audio/image/video.
+//
+// For text-only messages (including SDK-style messages with multiple text parts),
+// content is combined into a single text part via GetContent() to preserve backward
+// compatibility with existing tests and behavior.
+//
+// For messages with actual media content (images, audio, video), each part is
+// converted separately using the multimodal conversion functions.
 func convertMessagesToGeminiContents(messages []types.Message) []geminiContent {
 	contents := make([]geminiContent, 0, len(messages))
 	for i := range messages {
@@ -119,10 +140,41 @@ func convertMessagesToGeminiContents(messages []types.Message) []geminiContent {
 			role = roleModel
 		}
 
-		contents = append(contents, geminiContent{
-			Role:  role,
-			Parts: []geminiPart{{Text: messages[i].Content}},
-		})
+		// Check if this message has actual media content (images, audio, video).
+		// We use HasMediaContent() rather than IsMultimodal() because IsMultimodal()
+		// returns true even for text-only messages that use Parts (SDK-style).
+		// For text-only messages, we want to combine all text into a single part.
+		if messages[i].HasMediaContent() {
+			// Convert multimodal parts using the shared conversion functions
+			var parts []geminiPart
+			conversionFailed := false
+			for _, part := range messages[i].Parts {
+				gPart, err := convertPartToGemini(part)
+				if err != nil {
+					// Fall back to text-only on conversion error
+					conversionFailed = true
+					break
+				}
+				parts = append(parts, gPart)
+			}
+			if conversionFailed {
+				contents = append(contents, geminiContent{
+					Role:  role,
+					Parts: []geminiPart{{Text: messages[i].GetContent()}},
+				})
+			} else {
+				contents = append(contents, geminiContent{
+					Role:  role,
+					Parts: parts,
+				})
+			}
+		} else {
+			// Text-only message (legacy or SDK-style with only text parts)
+			contents = append(contents, geminiContent{
+				Role:  role,
+				Parts: []geminiPart{{Text: messages[i].GetContent()}},
+			})
+		}
 	}
 	return contents
 }
@@ -189,6 +241,30 @@ func (p *Provider) buildGeminiRequest(contents []geminiContent, systemInstructio
 	}
 }
 
+// applyResponseFormat applies response format settings to a Gemini request
+func (p *Provider) applyResponseFormat(req *geminiRequest, rf *providers.ResponseFormat) {
+	if rf == nil {
+		return
+	}
+
+	switch rf.Type {
+	case providers.ResponseFormatJSON:
+		// Simple JSON mode - just set the MIME type
+		req.GenerationConfig.ResponseMimeType = applicationJSON
+	case providers.ResponseFormatJSONSchema:
+		// JSON schema mode - set MIME type and schema
+		req.GenerationConfig.ResponseMimeType = applicationJSON
+		if len(rf.JSONSchema) > 0 {
+			var schema interface{}
+			if err := json.Unmarshal(rf.JSONSchema, &schema); err == nil {
+				req.GenerationConfig.ResponseSchema = schema
+			}
+		}
+	case providers.ResponseFormatText:
+		// Text is default, no changes needed
+	}
+}
+
 // handleGeminiFinishReason processes error finish reasons from Gemini responses
 func (p *Provider) handleGeminiFinishReason(finishReason string, predictResp providers.PredictionResponse, respBody []byte, start time.Time) (providers.PredictionResponse, error) {
 	predictResp.Latency = time.Since(start)
@@ -242,7 +318,7 @@ func (p *Provider) makeGeminiHTTPRequest(ctx context.Context, geminiReq geminiRe
 	}
 
 	// Build URL with API key
-	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", p.BaseURL, p.Model, p.ApiKey)
+	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", p.BaseURL, p.modelName, p.ApiKey)
 
 	// Debug log the request
 	headers := map[string]string{
@@ -280,7 +356,8 @@ func (p *Provider) makeGeminiHTTPRequest(ctx context.Context, geminiReq geminiRe
 	if resp.StatusCode != http.StatusOK {
 		predictResp.Latency = time.Since(start)
 		predictResp.Raw = respBody
-		return nil, predictResp, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
+		return nil, predictResp, fmt.Errorf("API request to %s failed with status %d: %s",
+			logger.RedactSensitiveData(url), resp.StatusCode, string(respBody))
 	}
 
 	return respBody, predictResp, nil
@@ -322,7 +399,7 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 	// Enrich context with provider and model info for logging
 	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
 		Provider: p.ID(),
-		Model:    p.Model,
+		Model:    p.modelName,
 	})
 
 	start := time.Now()
@@ -332,6 +409,9 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 
 	// Create request
 	geminiReq := p.buildGeminiRequest(contents, systemInstruction, temperature, topP, maxTokens)
+
+	// Apply response format if specified
+	p.applyResponseFormat(&geminiReq, req.ResponseFormat)
 
 	// Prepare response with raw request if configured (set early to preserve on error)
 	predictResp := providers.PredictionResponse{
@@ -466,8 +546,8 @@ func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.Co
 		cachedCostPer1K = inputCostPer1K * 0.5
 	} else {
 		// Fallback to hardcoded pricing with warning
-		fmt.Printf("WARNING: No pricing configured for provider %s (model: %s), using fallback pricing\n", p.ID(), p.Model)
-		inputCostPer1K, outputCostPer1K, cachedCostPer1K = geminiPricing(p.Model)
+		logger.Warn("No pricing configured, using fallback pricing", "provider", p.ID(), "model", p.modelName)
+		inputCostPer1K, outputCostPer1K, cachedCostPer1K = geminiPricing(p.modelName)
 	}
 
 	// Calculate costs
@@ -491,7 +571,7 @@ func (p *Provider) PredictStream(ctx context.Context, req providers.PredictionRe
 	// Enrich context with provider and model info for logging
 	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
 		Provider: p.ID(),
-		Model:    p.Model,
+		Model:    p.modelName,
 	})
 
 	// Convert messages to Gemini format and apply defaults
@@ -500,13 +580,16 @@ func (p *Provider) PredictStream(ctx context.Context, req providers.PredictionRe
 	// Create streaming request
 	geminiReq := p.buildGeminiRequest(contents, systemInstruction, temperature, topP, maxTokens)
 
+	// Apply response format if specified
+	p.applyResponseFormat(&geminiReq, req.ResponseFormat)
+
 	reqBody, err := json.Marshal(geminiReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	// Make HTTP request
-	url := fmt.Sprintf("%s/v1beta/models/%s:streamGenerateContent?key=%s", p.BaseURL, p.Model, p.ApiKey)
+	url := fmt.Sprintf("%s/models/%s:streamGenerateContent?key=%s", p.BaseURL, p.modelName, p.ApiKey)
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -520,7 +603,7 @@ func (p *Provider) PredictStream(ctx context.Context, req providers.PredictionRe
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 
-	if err := providers.CheckHTTPError(resp); err != nil {
+	if err := providers.CheckHTTPError(resp, logger.RedactSensitiveData(url)); err != nil {
 		return nil, err
 	}
 
@@ -532,26 +615,47 @@ func (p *Provider) PredictStream(ctx context.Context, req providers.PredictionRe
 }
 
 // processGeminiStreamChunk processes a single chunk from the Gemini stream
-func (p *Provider) processGeminiStreamChunk(chunk geminiResponse, accumulated string, totalTokens int, outChan chan<- providers.StreamChunk) (newAccumulated string, newTotalTokens int, shouldContinue bool) {
+func (p *Provider) processGeminiStreamChunk(
+	chunk geminiResponse,
+	accumulated string,
+	totalTokens int,
+	toolCalls []types.MessageToolCall,
+	outChan chan<- providers.StreamChunk,
+) (newAccumulated string, newTotalTokens int, newToolCalls []types.MessageToolCall, finished bool) {
 	if len(chunk.Candidates) == 0 {
-		return accumulated, totalTokens, false
+		return accumulated, totalTokens, toolCalls, false
 	}
 
 	candidate := chunk.Candidates[0]
 	if len(candidate.Content.Parts) == 0 {
-		return accumulated, totalTokens, false
+		return accumulated, totalTokens, toolCalls, false
 	}
 
-	delta := candidate.Content.Parts[0].Text
-	if delta != "" {
-		accumulated += delta
-		totalTokens++ // Approximate
+	// Process all parts in the candidate
+	for i, part := range candidate.Content.Parts {
+		// Handle text content
+		if part.Text != "" {
+			accumulated += part.Text
+			totalTokens++ // Approximate
 
-		outChan <- providers.StreamChunk{
-			Content:     accumulated,
-			Delta:       delta,
-			TokenCount:  totalTokens,
-			DeltaTokens: 1,
+			outChan <- providers.StreamChunk{
+				Content:     accumulated,
+				Delta:       part.Text,
+				TokenCount:  totalTokens,
+				DeltaTokens: 1,
+			}
+		}
+
+		// Handle function calls
+		if part.FunctionCall != nil {
+			toolCall := types.MessageToolCall{
+				ID:   fmt.Sprintf("call_%d", len(toolCalls)+i),
+				Name: part.FunctionCall.Name,
+			}
+			if part.FunctionCall.Args != nil {
+				toolCall.Args = part.FunctionCall.Args
+			}
+			toolCalls = append(toolCalls, toolCall)
 		}
 	}
 
@@ -560,6 +664,7 @@ func (p *Provider) processGeminiStreamChunk(chunk geminiResponse, accumulated st
 			Content:      accumulated,
 			TokenCount:   totalTokens,
 			FinishReason: &candidate.FinishReason,
+			ToolCalls:    toolCalls,
 		}
 
 		// Extract cost from usage metadata if available
@@ -573,10 +678,10 @@ func (p *Provider) processGeminiStreamChunk(chunk geminiResponse, accumulated st
 		}
 
 		outChan <- finalChunk
-		return accumulated, totalTokens, true // Signal finish
+		return accumulated, totalTokens, toolCalls, true // Signal finish
 	}
 
-	return accumulated, totalTokens, false
+	return accumulated, totalTokens, toolCalls, false
 }
 
 // streamResponse reads JSON stream from Gemini and sends chunks
@@ -607,6 +712,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 
 	accumulated := ""
 	totalTokens := 0
+	var toolCalls []types.MessageToolCall
 
 	// Process each chunk in the array
 	for _, chunk := range responses {
@@ -622,7 +728,8 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 		}
 
 		var finished bool
-		accumulated, totalTokens, finished = p.processGeminiStreamChunk(chunk, accumulated, totalTokens, outChan)
+		accumulated, totalTokens, toolCalls, finished = p.processGeminiStreamChunk(
+			chunk, accumulated, totalTokens, toolCalls, outChan)
 		if finished {
 			return
 		}
@@ -632,6 +739,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 	outChan <- providers.StreamChunk{
 		Content:      accumulated,
 		TokenCount:   totalTokens,
+		ToolCalls:    toolCalls,
 		FinishReason: providers.StringPtr("stop"),
 	}
 }

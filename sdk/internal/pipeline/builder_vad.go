@@ -35,11 +35,12 @@ func buildVADPipelineStages(cfg *Config) ([]stage.Stage, error) {
 			MaxTokens:   cfg.MaxTokens,
 			Temperature: cfg.Temperature,
 		}
-		stages = append(stages, stage.NewProviderStage(
+		stages = append(stages, stage.NewProviderStageWithEmitter(
 			cfg.Provider,
 			cfg.ToolRegistry,
 			cfg.ToolPolicy,
 			providerConfig,
+			cfg.EventEmitter,
 		))
 	}
 
