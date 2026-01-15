@@ -26,7 +26,7 @@
 # Environment Variables:
 #   OPENAI_API_KEY      Enable OpenAI provider tests
 #   ANTHROPIC_API_KEY   Enable Anthropic provider tests
-#   GOOGLE_API_KEY      Enable Gemini provider tests
+#   GEMINI_API_KEY      Enable Gemini provider tests (or GOOGLE_API_KEY)
 #   E2E_PROVIDERS       Override provider list
 #   E2E_SKIP_PROVIDERS  Skip specific providers
 #
@@ -168,7 +168,7 @@ echo ""
 echo -e "${CYAN}Provider Availability:${NC}"
 [[ -n "${OPENAI_API_KEY:-}" ]] && echo -e "  ${GREEN}✓${NC} OpenAI" || echo -e "  ${YELLOW}○${NC} OpenAI (no API key)"
 [[ -n "${ANTHROPIC_API_KEY:-}" ]] && echo -e "  ${GREEN}✓${NC} Anthropic" || echo -e "  ${YELLOW}○${NC} Anthropic (no API key)"
-[[ -n "${GOOGLE_API_KEY:-}" ]] && echo -e "  ${GREEN}✓${NC} Gemini" || echo -e "  ${YELLOW}○${NC} Gemini (no API key)"
+[[ -n "${GEMINI_API_KEY:-}" || -n "${GOOGLE_API_KEY:-}" ]] && echo -e "  ${GREEN}✓${NC} Gemini" || echo -e "  ${YELLOW}○${NC} Gemini (no API key)"
 echo -e "  ${GREEN}✓${NC} Mock (always available)"
 echo ""
 

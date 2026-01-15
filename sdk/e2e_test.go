@@ -36,7 +36,7 @@
 //
 //	OPENAI_API_KEY      Enable OpenAI provider tests
 //	ANTHROPIC_API_KEY   Enable Anthropic provider tests
-//	GOOGLE_API_KEY      Enable Gemini provider tests
+//	GEMINI_API_KEY      Enable Gemini provider tests (or GOOGLE_API_KEY)
 //	E2E_PROVIDERS       Limit to specific providers (comma-separated)
 //	E2E_SKIP_PROVIDERS  Skip specific providers (comma-separated)
 //	E2E_CONFIG          Path to JSON config file

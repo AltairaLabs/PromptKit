@@ -19,7 +19,7 @@ import (
 // Environment Variables:
 //   - OPENAI_API_KEY: Enable OpenAI provider tests
 //   - ANTHROPIC_API_KEY: Enable Anthropic provider tests
-//   - GOOGLE_API_KEY: Enable Gemini provider tests
+//   - GEMINI_API_KEY or GOOGLE_API_KEY: Enable Gemini provider tests
 //   - E2E_PROVIDERS: Comma-separated list to limit providers (e.g., "openai,anthropic")
 //   - E2E_SKIP_PROVIDERS: Comma-separated list to skip (e.g., "gemini")
 //   - E2E_CONFIG: Path to JSON config file for advanced settings
@@ -45,8 +45,11 @@ type ProviderConfig struct {
 	// ID is the provider identifier (e.g., "openai", "anthropic")
 	ID string
 
-	// EnvKey is the environment variable name for the API key
+	// EnvKey is the primary environment variable name for the API key
 	EnvKey string
+
+	// AltEnvKeys are alternative environment variable names (checked if EnvKey is not set)
+	AltEnvKeys []string
 
 	// DefaultModel is the model to use for tests
 	DefaultModel string
@@ -73,7 +76,15 @@ func (p *ProviderConfig) HasCapability(cap Capability) bool {
 
 // IsAvailable checks if the provider's API key is set.
 func (p *ProviderConfig) IsAvailable() bool {
-	return os.Getenv(p.EnvKey) != ""
+	if os.Getenv(p.EnvKey) != "" {
+		return true
+	}
+	for _, key := range p.AltEnvKeys {
+		if os.Getenv(key) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // DefaultProviders returns the built-in provider configurations.
@@ -108,7 +119,8 @@ func DefaultProviders() []ProviderConfig {
 		},
 		{
 			ID:           "gemini",
-			EnvKey:       "GOOGLE_API_KEY",
+			EnvKey:       "GEMINI_API_KEY",
+			AltEnvKeys:   []string{"GOOGLE_API_KEY"},
 			DefaultModel: "gemini-2.0-flash",
 			VisionModel:  "gemini-2.0-flash",
 			Capabilities: []Capability{
@@ -117,7 +129,8 @@ func DefaultProviders() []ProviderConfig {
 		},
 		{
 			ID:            "gemini-realtime",
-			EnvKey:        "GOOGLE_API_KEY",
+			EnvKey:        "GEMINI_API_KEY",
+			AltEnvKeys:    []string{"GOOGLE_API_KEY"},
 			DefaultModel:  "gemini-2.0-flash",
 			RealtimeModel: "gemini-2.0-flash-live-001",
 			Capabilities: []Capability{
