@@ -30,6 +30,7 @@ func E2EPackDir() string {
 
 // NewProviderConversation creates a conversation with a real provider.
 // Uses a minimal test pack and configures the provider based on ProviderConfig.
+// Automatically includes cost tracking via the global cost tracker.
 func NewProviderConversation(t *testing.T, provider ProviderConfig, opts ...Option) *Conversation {
 	t.Helper()
 
@@ -43,11 +44,13 @@ func NewProviderConversation(t *testing.T, provider ProviderConfig, opts ...Opti
 
 	// Build options based on provider
 	// SDK auto-detects provider from API key and model name
+	// Always include cost tracking event bus
 	allOpts := []Option{
 		WithModel(provider.DefaultModel),
+		WithEventBus(CreateCostTrackingEventBus()),
 	}
 
-	// Add user-provided options
+	// Add user-provided options (may override event bus if explicitly provided)
 	allOpts = append(allOpts, opts...)
 
 	conv, err := Open(packPath, "chat", allOpts...)
@@ -57,12 +60,20 @@ func NewProviderConversation(t *testing.T, provider ProviderConfig, opts ...Opti
 }
 
 // NewProviderConversationWithEvents creates a conversation with event tracking.
+// Also adds cost tracking to the provided event bus.
 func NewProviderConversationWithEvents(t *testing.T, provider ProviderConfig, bus *events.EventBus) *Conversation {
 	t.Helper()
+	// Add cost tracking subscription to the provided bus
+	bus.Subscribe(events.EventProviderCallCompleted, func(e *events.Event) {
+		if data, ok := e.Data.(*events.ProviderCallCompletedData); ok {
+			GetCostTracker().RecordCost(data)
+		}
+	})
 	return NewProviderConversation(t, provider, WithEventBus(bus))
 }
 
 // NewToolsConversation creates a conversation configured for tool tests.
+// Automatically includes cost tracking via the global cost tracker.
 func NewToolsConversation(t *testing.T, provider ProviderConfig, opts ...Option) *Conversation {
 	t.Helper()
 
@@ -79,8 +90,10 @@ func NewToolsConversation(t *testing.T, provider ProviderConfig, opts ...Option)
 	}
 
 	// Use "tools" prompt which has tools defined
+	// Always include cost tracking event bus
 	allOpts := []Option{
 		WithModel(provider.DefaultModel),
+		WithEventBus(CreateCostTrackingEventBus()),
 	}
 	allOpts = append(allOpts, opts...)
 
