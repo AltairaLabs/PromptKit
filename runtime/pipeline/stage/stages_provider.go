@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -32,6 +33,7 @@ type ProviderStage struct {
 	toolRegistry *tools.Registry
 	toolPolicy   *pipeline.ToolPolicy
 	config       *ProviderConfig
+	emitter      *events.Emitter // Optional event emitter for provider call events
 }
 
 // ProviderConfig contains configuration for the provider stage.
@@ -59,6 +61,19 @@ func NewProviderStage(
 	toolPolicy *pipeline.ToolPolicy,
 	config *ProviderConfig,
 ) *ProviderStage {
+	return NewProviderStageWithEmitter(provider, toolRegistry, toolPolicy, config, nil)
+}
+
+// NewProviderStageWithEmitter creates a new provider stage with event emission support.
+// The emitter is used to emit provider.call.started, provider.call.completed, and
+// provider.call.failed events for observability and session recording.
+func NewProviderStageWithEmitter(
+	provider providers.Provider,
+	toolRegistry *tools.Registry,
+	toolPolicy *pipeline.ToolPolicy,
+	config *ProviderConfig,
+	emitter *events.Emitter,
+) *ProviderStage {
 	if config == nil {
 		config = &ProviderConfig{}
 	}
@@ -68,6 +83,7 @@ func NewProviderStage(
 		toolRegistry: toolRegistry,
 		toolPolicy:   toolPolicy,
 		config:       config,
+		emitter:      emitter,
 	}
 }
 
@@ -299,10 +315,23 @@ func (s *ProviderStage) executeRound(
 		Metadata:    metadata,
 	}
 
+	// Count tools for event emission
+	toolCount := 0
+	if providerTools != nil {
+		if toolDescs, ok := providerTools.([]*providers.ToolDescriptor); ok {
+			toolCount = len(toolDescs)
+		}
+	}
+
 	logger.Debug("Provider round starting",
 		"round", round,
 		"messages", len(messages),
 		"tools", providerTools != nil)
+
+	// Emit provider call started event
+	if s.emitter != nil {
+		s.emitter.ProviderCallStarted(s.provider.ID(), "", len(messages), toolCount)
+	}
 
 	// Call provider (with or without tools)
 	startTime := time.Now()
@@ -327,7 +356,27 @@ func (s *ProviderStage) executeRound(
 
 	if err != nil {
 		logger.Error("Provider call failed", "error", err, "duration", duration)
+		// Emit provider call failed event
+		if s.emitter != nil {
+			s.emitter.ProviderCallFailed(s.provider.ID(), "", err, duration)
+		}
 		return types.Message{}, false, fmt.Errorf("provider call failed: %w", err)
+	}
+
+	// Emit provider call completed event
+	if s.emitter != nil {
+		completedData := &events.ProviderCallCompletedData{
+			Provider:      s.provider.ID(),
+			Duration:      duration,
+			ToolCallCount: len(toolCalls),
+		}
+		if resp.CostInfo != nil {
+			completedData.InputTokens = resp.CostInfo.InputTokens
+			completedData.OutputTokens = resp.CostInfo.OutputTokens
+			completedData.CachedTokens = resp.CostInfo.CachedTokens
+			completedData.Cost = resp.CostInfo.TotalCost
+		}
+		s.emitter.ProviderCallCompleted(completedData)
 	}
 
 	// Build response message with latency
@@ -367,26 +416,58 @@ func (s *ProviderStage) executeStreamingRound(
 		Metadata:    params.metadata,
 	}
 
+	// Count tools for event emission
+	toolCount := 0
+	if params.providerTools != nil {
+		if toolDescs, ok := params.providerTools.([]*providers.ToolDescriptor); ok {
+			toolCount = len(toolDescs)
+		}
+	}
+
 	logger.Debug("Provider streaming round starting",
 		"round", params.round,
 		"messages", len(params.messages),
 		"tools", params.providerTools != nil)
+
+	// Emit provider call started event
+	if s.emitter != nil {
+		s.emitter.ProviderCallStarted(s.provider.ID(), "", len(params.messages), toolCount)
+	}
 
 	startTime := time.Now()
 
 	// Start the streaming request
 	streamChan, err := s.startStreamingRequest(ctx, req, params.providerTools, params.toolChoice)
 	if err != nil {
+		duration := time.Since(startTime)
+		// Emit provider call failed event
+		if s.emitter != nil {
+			s.emitter.ProviderCallFailed(s.provider.ID(), "", err, duration)
+		}
 		return types.Message{}, false, err
 	}
 
 	// Process all chunks and collect response
 	content, toolCalls, err := s.processStreamChunks(ctx, streamChan, params.metadata, output)
+	duration := time.Since(startTime)
+
 	if err != nil {
+		// Emit provider call failed event
+		if s.emitter != nil {
+			s.emitter.ProviderCallFailed(s.provider.ID(), "", err, duration)
+		}
 		return types.Message{}, false, err
 	}
 
-	duration := time.Since(startTime)
+	// Emit provider call completed event
+	// Note: Token counts are not available for streaming responses
+	if s.emitter != nil {
+		s.emitter.ProviderCallCompleted(&events.ProviderCallCompletedData{
+			Provider:      s.provider.ID(),
+			Duration:      duration,
+			ToolCallCount: len(toolCalls),
+		})
+	}
 
 	// Build final response message with latency
 	responseMsg := types.Message{

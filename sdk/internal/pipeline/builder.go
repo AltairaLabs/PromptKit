@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
@@ -109,6 +110,10 @@ type Config struct {
 	// ImagePreprocessConfig configures image preprocessing (resizing, optimization)
 	// When non-nil, ImagePreprocessStage is added before the provider stage
 	ImagePreprocessConfig *stage.ImagePreprocessConfig
+
+	// EventEmitter for emitting provider call events (optional)
+	// When provided, ProviderStage will emit ProviderCallStarted/Completed/Failed events
+	EventEmitter *events.Emitter
 }
 
 // Build creates a stage-based streaming pipeline.
@@ -211,11 +216,12 @@ func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 			MaxTokens:   cfg.MaxTokens,
 			Temperature: cfg.Temperature,
 		}
-		stages = append(stages, stage.NewProviderStage(
+		stages = append(stages, stage.NewProviderStageWithEmitter(
 			cfg.Provider,
 			cfg.ToolRegistry,
 			cfg.ToolPolicy,
 			providerConfig,
+			cfg.EventEmitter,
 		))
 	}
 

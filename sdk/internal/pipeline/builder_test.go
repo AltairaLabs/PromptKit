@@ -873,6 +873,74 @@ func TestBuildStreamPipeline(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotNil(t, pipeline)
 	})
+
+	t.Run("builds with image preprocess config", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		provider := mock.NewProvider("test", "test-model", false)
+
+		defaultConfig := stage.DefaultImagePreprocessConfig()
+		cfg := &Config{
+			PromptRegistry:        registry,
+			TaskType:              "chat",
+			Provider:              provider,
+			ImagePreprocessConfig: &defaultConfig,
+		}
+
+		pipeline, err := BuildStreamPipeline(cfg)
+		require.NoError(t, err)
+		assert.NotNil(t, pipeline)
+	})
+
+	t.Run("builds with summarize truncation strategy", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		provider := mock.NewProvider("test", "test-model", false)
+
+		cfg := &Config{
+			PromptRegistry:     registry,
+			TaskType:           "chat",
+			Provider:           provider,
+			TokenBudget:        5000,
+			TruncationStrategy: "summarize",
+		}
+
+		pipeline, err := BuildStreamPipeline(cfg)
+		require.NoError(t, err)
+		assert.NotNil(t, pipeline)
+	})
+
+	t.Run("builds with relevance truncation strategy", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		provider := mock.NewProvider("test", "test-model", false)
+
+		cfg := &Config{
+			PromptRegistry:     registry,
+			TaskType:           "chat",
+			Provider:           provider,
+			TokenBudget:        5000,
+			TruncationStrategy: "relevance",
+		}
+
+		pipeline, err := BuildStreamPipeline(cfg)
+		require.NoError(t, err)
+		assert.NotNil(t, pipeline)
+	})
+
+	t.Run("builds with fail truncation strategy", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		provider := mock.NewProvider("test", "test-model", false)
+
+		cfg := &Config{
+			PromptRegistry:     registry,
+			TaskType:           "chat",
+			Provider:           provider,
+			TokenBudget:        5000,
+			TruncationStrategy: "fail",
+		}
+
+		pipeline, err := BuildStreamPipeline(cfg)
+		require.NoError(t, err)
+		assert.NotNil(t, pipeline)
+	})
 }
 
 // testVariableProvider implements variables.Provider for testing
