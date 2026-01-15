@@ -242,6 +242,12 @@ func (c *Conversation) buildPipelineWithParams(
 	toolRegistry := c.toolRegistry
 	c.handlersMu.RUnlock()
 
+	// Create event emitter if event bus is configured
+	var eventEmitter *events.Emitter
+	if c.config.eventBus != nil {
+		eventEmitter = events.NewEmitter(c.config.eventBus, "", conversationID, conversationID)
+	}
+
 	// Build pipeline configuration
 	pipelineCfg := &intpipeline.Config{
 		Provider:              c.config.provider,
@@ -260,6 +266,7 @@ func (c *Conversation) buildPipelineWithParams(
 		TruncationStrategy:    c.config.truncationStrategy,
 		RelevanceConfig:       c.buildRelevanceConfig(),
 		ImagePreprocessConfig: c.config.imagePreprocessConfig,
+		EventEmitter:          eventEmitter,
 	}
 
 	// Apply parameters from prompt if available
@@ -302,6 +309,12 @@ func (c *Conversation) buildStreamPipelineWithParams(
 	toolRegistry := c.toolRegistry
 	c.handlersMu.RUnlock()
 
+	// Create event emitter if event bus is configured
+	var eventEmitter *events.Emitter
+	if c.config.eventBus != nil {
+		eventEmitter = events.NewEmitter(c.config.eventBus, "", conversationID, conversationID)
+	}
+
 	// Build pipeline configuration
 	pipelineCfg := &intpipeline.Config{
 		Provider:              c.config.provider,
@@ -320,6 +333,7 @@ func (c *Conversation) buildStreamPipelineWithParams(
 		TruncationStrategy:    c.config.truncationStrategy,
 		RelevanceConfig:       c.buildRelevanceConfig(),
 		ImagePreprocessConfig: c.config.imagePreprocessConfig,
+		EventEmitter:          eventEmitter,
 	}
 
 	// Apply parameters from prompt if available

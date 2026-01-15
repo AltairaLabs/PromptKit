@@ -448,7 +448,7 @@ func (s *ProviderStage) executeStreamingRound(
 	}
 
 	// Process all chunks and collect response
-	content, toolCalls, err := s.processStreamChunks(ctx, streamChan, params.metadata, output)
+	content, toolCalls, costInfo, err := s.processStreamChunks(ctx, streamChan, params.metadata, output)
 	duration := time.Since(startTime)
 
 	if err != nil {
@@ -459,14 +459,21 @@ func (s *ProviderStage) executeStreamingRound(
 		return types.Message{}, false, err
 	}
 
-	// Emit provider call completed event
-	// Note: Token counts are not available for streaming responses
+	// Emit provider call completed event with cost info from streaming response
 	if s.emitter != nil {
-		s.emitter.ProviderCallCompleted(&events.ProviderCallCompletedData{
+		completedData := &events.ProviderCallCompletedData{
 			Provider:      s.provider.ID(),
 			Duration:      duration,
 			ToolCallCount: len(toolCalls),
-		})
+		}
+		// Populate token counts from cost info if available (present in final chunk)
+		if costInfo != nil {
+			completedData.InputTokens = costInfo.InputTokens
+			completedData.OutputTokens = costInfo.OutputTokens
+			completedData.CachedTokens = costInfo.CachedTokens
+			completedData.Cost = costInfo.TotalCost
+		}
+		s.emitter.ProviderCallCompleted(completedData)
 	}
 
 	// Build final response message with latency
@@ -516,32 +523,38 @@ func (s *ProviderStage) startStreamingRequest(
 }
 
 // processStreamChunks processes streaming chunks and emits elements to output.
+// Returns accumulated content, tool calls, cost info (from final chunk), and any error.
 func (s *ProviderStage) processStreamChunks(
 	ctx context.Context,
 	streamChan <-chan providers.StreamChunk,
 	metadata map[string]interface{},
 	output chan<- StreamElement,
-) (string, []types.MessageToolCall, error) {
+) (string, []types.MessageToolCall, *types.CostInfo, error) {
 	var content string
 	var toolCalls []types.MessageToolCall
+	var costInfo *types.CostInfo
 
 	for chunk := range streamChan {
 		if chunk.Error != nil {
 			logger.Error("Stream chunk error", "error", chunk.Error)
-			return "", nil, fmt.Errorf("stream chunk error: %w", chunk.Error)
+			return "", nil, nil, fmt.Errorf("stream chunk error: %w", chunk.Error)
 		}
 
 		content = chunk.Content
 		if len(chunk.ToolCalls) > 0 {
 			toolCalls = chunk.ToolCalls
 		}
+		// Capture cost info from final chunk (only present when FinishReason != nil)
+		if chunk.CostInfo != nil {
+			costInfo = chunk.CostInfo
+		}
 
 		if err := s.emitChunkElement(ctx, &chunk, metadata, output); err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 	}
 
-	return content, toolCalls, nil
+	return content, toolCalls, costInfo, nil
 }
 
 // emitChunkElement creates and emits a streaming element for a chunk.
