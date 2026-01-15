@@ -188,6 +188,8 @@ func (p *ToolProvider) convertSingleMessageForTools(msg types.Message) map[strin
 	if msg.Role == "tool" && msg.ToolResult != nil {
 		openaiMsg["tool_call_id"] = msg.ToolResult.ID
 		openaiMsg["name"] = msg.ToolResult.Name
+		// Use ToolResult.Content as the message content (not msg.Content which is empty)
+		openaiMsg["content"] = msg.ToolResult.Content
 	}
 
 	return openaiMsg

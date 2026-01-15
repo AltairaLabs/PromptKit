@@ -603,15 +603,13 @@ func (s *ProviderStage) executeToolCalls(ctx context.Context, toolCalls []types.
 	for _, toolCall := range toolCalls {
 		// Check if tool is blocked by policy
 		if s.toolPolicy != nil && isToolBlocked(toolCall.Name, s.toolPolicy.Blocklist) {
-			results = append(results, types.Message{
-				Role: "tool",
-				ToolResult: &types.MessageToolResult{
-					ID:      toolCall.ID,
-					Name:    toolCall.Name,
-					Content: fmt.Sprintf("Tool %s is blocked by policy", toolCall.Name),
-					Error:   fmt.Sprintf("Tool %s is blocked by policy", toolCall.Name),
-				},
-			})
+			errMsg := fmt.Sprintf("Tool %s is blocked by policy", toolCall.Name)
+			results = append(results, types.NewToolResultMessage(types.MessageToolResult{
+				ID:      toolCall.ID,
+				Name:    toolCall.Name,
+				Content: errMsg,
+				Error:   errMsg,
+			}))
 			continue
 		}
 
@@ -619,24 +617,18 @@ func (s *ProviderStage) executeToolCalls(ctx context.Context, toolCalls []types.
 		asyncResult, err := s.toolRegistry.ExecuteAsync(toolCall.Name, toolCall.Args)
 		if err != nil {
 			// Tool not found or execution setup failed
-			results = append(results, types.Message{
-				Role: "tool",
-				ToolResult: &types.MessageToolResult{
-					ID:      toolCall.ID,
-					Name:    toolCall.Name,
-					Content: fmt.Sprintf("Error: %v", err),
-					Error:   err.Error(),
-				},
-			})
+			results = append(results, types.NewToolResultMessage(types.MessageToolResult{
+				ID:      toolCall.ID,
+				Name:    toolCall.Name,
+				Content: fmt.Sprintf("Error: %v", err),
+				Error:   err.Error(),
+			}))
 			continue
 		}
 
 		// Convert tool execution result to message
 		result := s.handleToolResult(toolCall, asyncResult)
-		results = append(results, types.Message{
-			Role:       "tool",
-			ToolResult: &result,
-		})
+		results = append(results, types.NewToolResultMessage(result))
 	}
 
 	return results, nil

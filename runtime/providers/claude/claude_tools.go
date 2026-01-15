@@ -109,7 +109,8 @@ func processClaudeToolResult(msg types.Message) claudeToolResult {
 	return claudeToolResult{
 		Type:      "tool_result",
 		ToolUseID: msg.ToolResult.ID,
-		Content:   msg.Content,
+		// Use ToolResult.Content (not msg.Content which is empty)
+		Content: msg.ToolResult.Content,
 	}
 }
 

@@ -275,3 +275,36 @@ func TestToolProvider_MultipleToolResultsGrouped(t *testing.T) {
 
 	t.Logf("✅ Multiple tool results properly grouped in single user message")
 }
+
+// TestProcessClaudeToolResult_UsesToolResultContent verifies that processClaudeToolResult
+// uses ToolResult.Content (not msg.Content) for the tool result content.
+// This is critical for streaming with tools to work correctly.
+func TestProcessClaudeToolResult_UsesToolResultContent(t *testing.T) {
+	// Create a tool result message as the SDK creates them:
+	// - msg.Content is NOT set (empty)
+	// - msg.ToolResult.Content has the actual data
+	toolResultMsg := types.Message{
+		Role: "tool",
+		// Content is intentionally empty - this is how the SDK creates tool result messages
+		ToolResult: &types.MessageToolResult{
+			ID:      "toolu_abc123",
+			Name:    "weather",
+			Content: `{"temperature": 73, "conditions": "sunny"}`,
+			Error:   "",
+		},
+	}
+
+	// Process the tool result
+	result := processClaudeToolResult(toolResultMsg)
+
+	// Verify the result uses ToolResult.Content
+	if result.Content == "" {
+		t.Fatal("CRITICAL BUG: Tool result content is empty! ToolResult.Content should be used")
+	}
+	if result.Content != `{"temperature": 73, "conditions": "sunny"}` {
+		t.Errorf("Expected ToolResult.Content, got '%s'", result.Content)
+	}
+	if result.ToolUseID != "toolu_abc123" {
+		t.Errorf("Expected ToolUseID 'toolu_abc123', got '%s'", result.ToolUseID)
+	}
+}

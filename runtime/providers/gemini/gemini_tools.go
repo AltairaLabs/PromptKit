@@ -127,11 +127,14 @@ func (p *ToolProvider) PredictWithTools(ctx context.Context, req providers.Predi
 
 // processToolMessage converts a tool result message to Gemini's functionResponse format
 func processToolMessage(msg types.Message) map[string]interface{} {
+	// Use ToolResult.Content (not msg.Content which is empty for tool result messages)
+	content := msg.ToolResult.Content
+
 	var response interface{}
-	if err := json.Unmarshal([]byte(msg.Content), &response); err != nil {
+	if err := json.Unmarshal([]byte(content), &response); err != nil {
 		// If unmarshal fails, wrap the content in an object
 		response = map[string]interface{}{
-			"result": msg.Content,
+			"result": content,
 		}
 	} else {
 		// Successfully unmarshaled, but check if it's a map (object) or primitive
@@ -145,7 +148,7 @@ func processToolMessage(msg types.Message) map[string]interface{} {
 	// Debug: log tool message details
 	logger.Debug("Processing tool message",
 		"name", msg.ToolResult.Name,
-		"content_length", len(msg.Content),
+		"content_length", len(content),
 		"tool_result_id", msg.ToolResult.ID)
 
 	if msg.ToolResult.Name == "" {

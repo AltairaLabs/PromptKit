@@ -498,6 +498,8 @@ lint: ## Run linters
 	@cd tools/inspect-state && golangci-lint run ./...
 	@echo "Running gosec security scanner..."
 	@$(MAKE) security-scan
+	@echo "Checking message content patterns..."
+	@./scripts/lint-message-patterns.sh
 
 lint-diff: ## Run linters on changed code only (fast, for pre-commit)
 	@echo "🔍 Linting changed code only..."
