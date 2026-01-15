@@ -9,6 +9,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/claude"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/gemini"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/ollama"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/openai"
 )
 
@@ -24,6 +25,7 @@ const (
 	providerGemini    = "gemini"
 	providerOpenAI    = "openai"
 	providerAnthropic = "anthropic"
+	providerOllama    = "ollama"
 )
 
 // Info contains detected provider information.
@@ -93,6 +95,9 @@ func inferProviderFromModel(model string) string {
 		return providerOpenAI
 	case strings.HasPrefix(modelLower, "claude"):
 		return providerAnthropic
+	case strings.Contains(model, ":"):
+		// Ollama models typically use "name:tag" format (e.g., "llava:7b", "llama2:latest")
+		return providerOllama
 	default:
 		return ""
 	}
@@ -100,6 +105,17 @@ func inferProviderFromModel(model string) string {
 
 // detectInfoForProvider returns provider info for a specific provider name.
 func detectInfoForProvider(providerName string) *Info {
+	// Ollama doesn't require API keys - just check OLLAMA_HOST env var
+	if providerName == providerOllama {
+		// OLLAMA_HOST indicates Ollama is configured; defaults to localhost if not set
+		// Return info if model was explicitly specified (caller will set model)
+		return &Info{
+			Name:   providerOllama,
+			APIKey: "", // Ollama doesn't use API keys
+			Model:  "", // Will be set by caller
+		}
+	}
+
 	envKeys := map[string][]string{
 		"openai":    {"OPENAI_API_KEY"},
 		"anthropic": {"ANTHROPIC_API_KEY"},
@@ -184,6 +200,20 @@ func createProvider(info *Info) (providers.Provider, error) {
 			"https://generativelanguage.googleapis.com/v1beta",
 			defaults,
 			false,
+		), nil
+	case "ollama":
+		// Use OLLAMA_HOST_URL env var or default to localhost:11434
+		baseURL := os.Getenv("OLLAMA_HOST_URL")
+		if baseURL == "" {
+			baseURL = "http://localhost:11434"
+		}
+		return ollama.NewToolProvider(
+			"ollama",
+			info.Model,
+			baseURL,
+			defaults,
+			false,
+			nil,
 		), nil
 	default:
 		return nil, fmt.Errorf("unsupported provider: %s", info.Name)

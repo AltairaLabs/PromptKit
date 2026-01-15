@@ -20,6 +20,7 @@ import (
 //   - OPENAI_API_KEY: Enable OpenAI provider tests
 //   - ANTHROPIC_API_KEY: Enable Anthropic provider tests
 //   - GEMINI_API_KEY or GOOGLE_API_KEY: Enable Gemini provider tests
+//   - OLLAMA_HOST_URL: Enable Ollama provider tests (e.g., "http://localhost:11434")
 //   - E2E_PROVIDERS: Comma-separated list to limit providers (e.g., "openai,anthropic")
 //   - E2E_SKIP_PROVIDERS: Comma-separated list to skip (e.g., "gemini")
 //   - E2E_CONFIG: Path to JSON config file for advanced settings
@@ -135,6 +136,24 @@ func DefaultProviders() []ProviderConfig {
 			RealtimeModel: "gemini-2.0-flash-live-001",
 			Capabilities: []Capability{
 				CapRealtime, CapAudio, CapVideo,
+			},
+		},
+		{
+			ID:           "ollama",
+			EnvKey:       "OLLAMA_HOST_URL", // Set to Ollama base URL (e.g., "http://localhost:11434")
+			DefaultModel: "llava:7b",        // Default to llava for vision tests
+			VisionModel:  "llava:7b",
+			Capabilities: []Capability{
+				CapText, CapStreaming, CapVision,
+				// Note: llava:7b does not support tools
+			},
+		},
+		{
+			ID:           "ollama-tools",
+			EnvKey:       "OLLAMA_HOST_URL", // Set to Ollama base URL (e.g., "http://localhost:11434")
+			DefaultModel: "llama3.2:3b",     // llama3.2 supports function calling
+			Capabilities: []Capability{
+				CapText, CapStreaming, CapTools,
 			},
 		},
 		{
