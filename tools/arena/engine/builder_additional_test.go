@@ -48,7 +48,7 @@ func TestBuildEngineComponents_MinimalConfig(t *testing.T) {
 		},
 	}
 
-	providerReg, promptReg, mcpReg, convExec, err := buildEngineComponents(cfg)
+	providerReg, promptReg, mcpReg, convExec, err := BuildEngineComponents(cfg)
 	require.NoError(t, err)
 	require.NotNil(t, providerReg)
 	require.Nil(t, promptReg)

@@ -101,7 +101,7 @@ func NewEngineFromConfigFile(configPath string) (*Engine, error) {
 	}
 
 	// Build registries and executors from the config
-	providerRegistry, promptRegistry, mcpRegistry, convExecutor, err := buildEngineComponents(cfg)
+	providerRegistry, promptRegistry, mcpRegistry, convExecutor, err := BuildEngineComponents(cfg)
 	if err != nil {
 		return nil, err
 	}
