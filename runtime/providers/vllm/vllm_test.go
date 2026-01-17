@@ -104,12 +104,12 @@ func TestPredict_Success(t *testing.T) {
 			t.Errorf("Expected path %s, got %s", vllmChatCompletionsPath, r.URL.Path)
 		}
 
-		resp := vllmResponse{
+		resp := vllmChatResponse{
 			ID:      "test-id",
 			Object:  "chat.completion",
 			Created: time.Now().Unix(),
 			Model:   "test-model",
-			Choices: []vllmChoice{
+			Choices: []vllmChatChoice{
 				{
 					Index: 0,
 					Message: vllmMessage{
@@ -168,8 +168,8 @@ func TestPredict_WithAPIKey(t *testing.T) {
 			t.Error("Expected Authorization header with Bearer token")
 		}
 
-		resp := vllmResponse{
-			Choices: []vllmChoice{
+		resp := vllmChatResponse{
+			Choices: []vllmChatChoice{
 				{Message: vllmMessage{Content: "OK"}},
 			},
 			Usage: vllmUsage{PromptTokens: 5, CompletionTokens: 5},
@@ -220,8 +220,8 @@ func TestModel(t *testing.T) {
 
 func TestPredict_Error_NoChoices(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := vllmResponse{
-			Choices: []vllmChoice{},
+		resp := vllmChatResponse{
+			Choices: []vllmChatChoice{},
 			Usage:   vllmUsage{PromptTokens: 5, CompletionTokens: 5},
 		}
 		json.NewEncoder(w).Encode(resp)
@@ -288,7 +288,7 @@ func TestPredict_Error_InvalidJSON(t *testing.T) {
 
 func TestPredict_Error_APIError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := vllmResponse{
+		resp := vllmChatResponse{
 			Error: &vllmError{
 				Message: "Model not found",
 				Type:    "model_error",
@@ -329,8 +329,8 @@ func TestPredict_WithSystemMessage(t *testing.T) {
 			t.Errorf("Expected first message to be system, got %s", req.Messages[0].Role)
 		}
 
-		resp := vllmResponse{
-			Choices: []vllmChoice{
+		resp := vllmChatResponse{
+			Choices: []vllmChatChoice{
 				{Message: vllmMessage{Content: "Response"}},
 			},
 			Usage: vllmUsage{PromptTokens: 10, CompletionTokens: 5},
@@ -373,8 +373,8 @@ func TestPredict_WithVLLMParams(t *testing.T) {
 			t.Error("Expected guided_json to be set")
 		}
 
-		resp := vllmResponse{
-			Choices: []vllmChoice{
+		resp := vllmChatResponse{
+			Choices: []vllmChatChoice{
 				{Message: vllmMessage{Content: "Response"}},
 			},
 			Usage: vllmUsage{PromptTokens: 10, CompletionTokens: 5},
@@ -413,8 +413,8 @@ func TestPredict_WithSeed(t *testing.T) {
 			t.Error("Expected seed=42")
 		}
 
-		resp := vllmResponse{
-			Choices: []vllmChoice{
+		resp := vllmChatResponse{
+			Choices: []vllmChatChoice{
 				{Message: vllmMessage{Content: "Response"}},
 			},
 			Usage: vllmUsage{PromptTokens: 10, CompletionTokens: 5},
@@ -441,8 +441,8 @@ func TestPredict_WithSeed(t *testing.T) {
 
 func TestPredict_IncludeRawOutput(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := vllmResponse{
-			Choices: []vllmChoice{
+		resp := vllmChatResponse{
+			Choices: []vllmChatChoice{
 				{Message: vllmMessage{Content: "Response"}},
 			},
 			Usage: vllmUsage{PromptTokens: 10, CompletionTokens: 5},

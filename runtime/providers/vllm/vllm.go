@@ -92,21 +92,22 @@ type vllmRequest struct {
 }
 
 type vllmMessage struct {
-	Role    string `json:"role"`
-	Content any    `json:"content"` // Can be string or []any for multimodal
+	Role      string         `json:"role"`
+	Content   any            `json:"content"` // Can be string or []any for multimodal
+	ToolCalls []vllmToolCall `json:"tool_calls,omitempty"`
 }
 
-type vllmResponse struct {
-	ID      string       `json:"id"`
-	Object  string       `json:"object"`
-	Created int64        `json:"created"`
-	Model   string       `json:"model"`
-	Choices []vllmChoice `json:"choices"`
-	Usage   vllmUsage    `json:"usage"`
-	Error   *vllmError   `json:"error,omitempty"`
+type vllmChatResponse struct {
+	ID      string           `json:"id"`
+	Object  string           `json:"object"`
+	Created int64            `json:"created"`
+	Model   string           `json:"model"`
+	Choices []vllmChatChoice `json:"choices"`
+	Usage   vllmUsage        `json:"usage"`
+	Error   *vllmError       `json:"error,omitempty"`
 }
 
-type vllmChoice struct {
+type vllmChatChoice struct {
 	Index        int         `json:"index"`
 	Message      vllmMessage `json:"message"`
 	FinishReason string      `json:"finish_reason"`
@@ -122,6 +123,32 @@ type vllmError struct {
 	Message string `json:"message"`
 	Type    string `json:"type"`
 	Code    string `json:"code"`
+}
+
+type vllmStreamChunk struct {
+	Choices []vllmStreamChoice `json:"choices"`
+	Usage   *vllmUsage         `json:"usage,omitempty"`
+}
+
+type vllmStreamChoice struct {
+	Delta        vllmStreamDelta `json:"delta"`
+	FinishReason string          `json:"finish_reason,omitempty"`
+}
+
+type vllmStreamDelta struct {
+	Content   string               `json:"content,omitempty"`
+	ToolCalls []vllmStreamToolCall `json:"tool_calls,omitempty"`
+}
+
+type vllmStreamToolCall struct {
+	Index    *int             `json:"index,omitempty"`
+	ID       string           `json:"id,omitempty"`
+	Type     string           `json:"type,omitempty"`
+	Function vllmFunctionCall `json:"function,omitempty"`
+}
+
+type vllmErrorResponse struct {
+	Error vllmError `json:"error"`
 }
 
 // prepareMessages converts prediction request messages to vLLM format with system message
@@ -354,7 +381,7 @@ func (p *Provider) predictWithMessages(
 		)
 	}
 
-	var vllmResp vllmResponse
+	var vllmResp vllmChatResponse
 	if err := json.Unmarshal(respBody, &vllmResp); err != nil {
 		predictResp.Latency = time.Since(start)
 		predictResp.Raw = respBody
@@ -480,15 +507,7 @@ func (p *Provider) streamResponse(
 			return
 		}
 
-		var chunk struct {
-			Choices []struct {
-				Delta struct {
-					Content string `json:"content"`
-				} `json:"delta"`
-				FinishReason *string `json:"finish_reason"`
-			} `json:"choices"`
-			Usage *vllmUsage `json:"usage,omitempty"`
-		}
+		var chunk vllmStreamChunk
 
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			continue
@@ -503,16 +522,16 @@ func (p *Provider) streamResponse(
 		// Send content chunk
 		if choice.Delta.Content != "" {
 			outChan <- providers.StreamChunk{
-				Content:     choice.Delta.Content,
+				Delta:       choice.Delta.Content,
 				DeltaTokens: 1,
 			}
 		}
 
-		// Send final chunk with usage info
-		if choice.FinishReason != nil && chunk.Usage != nil {
+		// Send final chunk with finish reason and usage
+		if choice.FinishReason != "" && chunk.Usage != nil {
 			costInfo := p.CalculateCost(chunk.Usage.PromptTokens, chunk.Usage.CompletionTokens, 0)
 			outChan <- providers.StreamChunk{
-				FinishReason: choice.FinishReason,
+				FinishReason: &choice.FinishReason,
 				CostInfo:     &costInfo,
 			}
 		}
@@ -522,5 +541,3 @@ func (p *Provider) streamResponse(
 		outChan <- providers.StreamChunk{Error: err}
 	}
 }
-
-// SupportsStreaming is provided by BaseProvider (returns true)

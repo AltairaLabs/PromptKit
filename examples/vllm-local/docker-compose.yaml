@@ -27,8 +27,8 @@ services:
       - --dtype
       - auto
       # Uncomment for CPU-only mode (slower)
-      # - --device
-      # - cpu
+      - --device
+      - cpu
       # Uncomment for better GPU utilization
       # - --gpu-memory-utilization
       # - "0.9"

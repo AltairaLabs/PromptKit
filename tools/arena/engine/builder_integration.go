@@ -21,6 +21,7 @@ import (
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/ollama"
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/replay"
+	_ "github.com/AltairaLabs/PromptKit/runtime/providers/vllm"
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"

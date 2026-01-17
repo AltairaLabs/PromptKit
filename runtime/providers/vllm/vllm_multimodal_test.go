@@ -53,8 +53,8 @@ func TestPredictMultimodal_WithImageURL(t *testing.T) {
 			t.Errorf("Expected 2 content parts, got %d", len(contentArray))
 		}
 
-		resp := vllmResponse{
-			Choices: []vllmChoice{
+		resp := vllmChatResponse{
+			Choices: []vllmChatChoice{
 				{Message: vllmMessage{Content: "I see an image"}},
 			},
 			Usage: vllmUsage{PromptTokens: 10, CompletionTokens: 5},
@@ -88,8 +88,8 @@ func TestPredictMultimodal_WithBase64Image(t *testing.T) {
 		var req vllmRequest
 		json.NewDecoder(r.Body).Decode(&req)
 
-		resp := vllmResponse{
-			Choices: []vllmChoice{
+		resp := vllmChatResponse{
+			Choices: []vllmChatChoice{
 				{Message: vllmMessage{Content: "I see an image"}},
 			},
 			Usage: vllmUsage{PromptTokens: 10, CompletionTokens: 5},
@@ -132,8 +132,8 @@ func TestPredictMultimodal_TextOnly(t *testing.T) {
 			}
 		}
 
-		resp := vllmResponse{
-			Choices: []vllmChoice{
+		resp := vllmChatResponse{
+			Choices: []vllmChatChoice{
 				{Message: vllmMessage{Content: "Text response"}},
 			},
 			Usage: vllmUsage{PromptTokens: 5, CompletionTokens: 5},
