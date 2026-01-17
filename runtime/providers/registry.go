@@ -86,6 +86,8 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 			baseURL = DefaultGeminiBaseURL
 		case "ollama":
 			baseURL = "http://localhost:11434"
+		case "vllm":
+			baseURL = "http://localhost:8000"
 		case "mock":
 			// No base URL needed for mock provider
 		}

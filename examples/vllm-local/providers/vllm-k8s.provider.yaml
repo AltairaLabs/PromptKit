@@ -1,0 +1,18 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: vllm-k8s
+  annotations:
+    description: "vLLM running on Kubernetes cluster"
+spec:
+  id: "vllm-k8s"
+  type: vllm
+  model: meta-llama/Llama-2-7b-chat-hf
+  base_url: "http://vllm.default.svc.cluster.local:8000"
+  # Optional: Add authentication if vLLM is configured with --api-key
+  # additional_config:
+  #   api_key: "${VLLM_API_KEY}"
+  defaults:
+    temperature: 0.7
+    max_tokens: 2048
+    top_p: 0.9

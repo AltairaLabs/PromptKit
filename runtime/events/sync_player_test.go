@@ -211,7 +211,7 @@ func TestSyncPlayer_SpeedChange(t *testing.T) {
 	player.SetSpeed(2.0)
 
 	// Speed should be updated (we can't easily verify internal state, but ensure no crash)
-	player.SetSpeed(0) // Should default to 1.0
+	player.SetSpeed(0)  // Should default to 1.0
 	player.SetSpeed(-1) // Should default to 1.0
 }
 

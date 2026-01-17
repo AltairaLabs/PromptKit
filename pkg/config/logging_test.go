@@ -190,4 +190,3 @@ func TestLoggingConfig_Structure(t *testing.T) {
 		t.Errorf("unexpected number of modules: %d", len(cfg.Spec.Modules))
 	}
 }
-

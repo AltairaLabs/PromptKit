@@ -900,4 +900,3 @@ func TestDuplexProviderStage_VideoImageForwarding(t *testing.T) {
 		require.Len(t, chunks, 1, "Expected only audio chunk (image with empty data should be skipped)")
 	})
 }
-

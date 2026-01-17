@@ -1,0 +1,15 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: vllm-local
+  annotations:
+    description: "Local vLLM inference server"
+spec:
+  id: "vllm-local"
+  type: vllm
+  model: facebook/opt-125m
+  base_url: "http://localhost:8000"
+  defaults:
+    temperature: 0.7
+    max_tokens: 1024
+    top_p: 0.9

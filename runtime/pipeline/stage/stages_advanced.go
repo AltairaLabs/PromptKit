@@ -197,16 +197,16 @@ func (s *MergeStage) forwardInput(
 
 // StageMetrics contains performance metrics for a stage.
 type StageMetrics struct {
-	StageName        string
-	ElementsIn       int64
-	ElementsOut      int64
-	ElementsErrored  int64
-	TotalLatency     time.Duration
-	MinLatency       time.Duration
-	MaxLatency       time.Duration
-	AvgLatency       time.Duration
-	LastUpdated      time.Time
-	mu               sync.RWMutex
+	StageName       string
+	ElementsIn      int64
+	ElementsOut     int64
+	ElementsErrored int64
+	TotalLatency    time.Duration
+	MinLatency      time.Duration
+	MaxLatency      time.Duration
+	AvgLatency      time.Duration
+	LastUpdated     time.Time
+	mu              sync.RWMutex
 }
 
 // NewStageMetrics creates a new metrics collector for a stage.

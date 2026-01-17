@@ -48,6 +48,7 @@ func TestCreateProviderFromSpecDefaultBaseURLs(t *testing.T) {
 		{"claude default", "claude", "https://api.anthropic.com"},
 		{"imagen default", "imagen", "https://generativelanguage.googleapis.com/v1beta"},
 		{"ollama default", "ollama", "http://localhost:11434"},
+		{"vllm default", "vllm", "http://localhost:8000"},
 		{"mock default", "mock", ""},
 	}
 

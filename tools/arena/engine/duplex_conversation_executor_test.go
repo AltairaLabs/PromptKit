@@ -147,11 +147,11 @@ func TestDuplexConversationExecutor_ImplementsInterface(t *testing.T) {
 // mockNonStreamingProvider is a mock provider that doesn't support streaming
 type mockNonStreamingProvider struct{}
 
-func (m *mockNonStreamingProvider) ID() string              { return "mock" }
-func (m *mockNonStreamingProvider) Model() string           { return "mock-model" }
-func (m *mockNonStreamingProvider) SupportsStreaming() bool { return false }
+func (m *mockNonStreamingProvider) ID() string                   { return "mock" }
+func (m *mockNonStreamingProvider) Model() string                { return "mock-model" }
+func (m *mockNonStreamingProvider) SupportsStreaming() bool      { return false }
 func (m *mockNonStreamingProvider) ShouldIncludeRawOutput() bool { return false }
-func (m *mockNonStreamingProvider) Close() error            { return nil }
+func (m *mockNonStreamingProvider) Close() error                 { return nil }
 
 func (m *mockNonStreamingProvider) Predict(
 	_ context.Context,
@@ -175,11 +175,11 @@ func TestDuplexConversationExecutor_BuildVADConfig(t *testing.T) {
 	executor := NewDuplexConversationExecutor(nil, nil, nil, nil)
 
 	tests := []struct {
-		name            string
-		duplex          *config.DuplexConfig
-		expectDefaults  bool
-		silenceMs       int
-		minSpeechMs     int
+		name             string
+		duplex           *config.DuplexConfig
+		expectDefaults   bool
+		silenceMs        int
+		minSpeechMs      int
 		maxTurnDurationS int
 	}{
 		{
@@ -290,7 +290,6 @@ func TestDuplexConversationExecutor_IsSelfPlayRole(t *testing.T) {
 		t.Error("Expected false with nil registry")
 	}
 }
-
 
 func TestDuplexConversationExecutor_BuildBaseSessionConfig(t *testing.T) {
 	executor := NewDuplexConversationExecutor(nil, nil, nil, nil)

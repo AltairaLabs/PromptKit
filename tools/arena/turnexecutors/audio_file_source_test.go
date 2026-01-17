@@ -219,10 +219,10 @@ func createTestWAVFileAt(t *testing.T, path string) {
 
 	// fmt chunk
 	f.Write([]byte("fmt "))
-	writeUint32LE(f, 16)                                        // chunk size
-	writeUint16LE(f, 1)                                         // audio format (PCM)
-	writeUint16LE(f, channels)                                  // channels
-	writeUint32LE(f, sampleRate)                                // sample rate
+	writeUint32LE(f, 16)                                          // chunk size
+	writeUint16LE(f, 1)                                           // audio format (PCM)
+	writeUint16LE(f, channels)                                    // channels
+	writeUint32LE(f, sampleRate)                                  // sample rate
 	writeUint32LE(f, sampleRate*uint32(channels*bitsPerSample/8)) // byte rate
 	writeUint16LE(f, channels*bitsPerSample/8)                    // block align
 	writeUint16LE(f, bitsPerSample)                               // bits per sample

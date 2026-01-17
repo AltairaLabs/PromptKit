@@ -1,0 +1,29 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: code-generation
+  annotations:
+    description: "Test code generation capabilities"
+spec:
+  id: code-generation
+  description: "Test vLLM's code generation capabilities"
+  task_type: code-assistant
+  turns:
+    - role: user
+      content: "Write a Python function that calculates the factorial of a number."
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "def"
+              - "factorial"
+            message: "Response should contain a Python function definition"
+
+    - role: user
+      content: "Can you add error handling to check for negative numbers?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "if"
+            message: "Response should include conditional logic"

@@ -1,15 +1,15 @@
 package sdk
 
 import (
-"errors"
-"testing"
+	"errors"
+	"testing"
 
-"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestValidationError(t *testing.T) {
 	t.Run("Error method", func(t *testing.T) {
-ve := &ValidationError{
+		ve := &ValidationError{
 			ValidatorType: "banned_words",
 			Message:       "contains prohibited content",
 		}
@@ -19,7 +19,7 @@ ve := &ValidationError{
 	})
 
 	t.Run("with details", func(t *testing.T) {
-ve := &ValidationError{
+		ve := &ValidationError{
 			ValidatorType: "length",
 			Message:       "too long",
 			Details: map[string]any{
@@ -32,30 +32,30 @@ ve := &ValidationError{
 	})
 
 	t.Run("AsValidationError with ValidationError", func(t *testing.T) {
-ve := &ValidationError{ValidatorType: "test"}
+		ve := &ValidationError{ValidatorType: "test"}
 		result, ok := AsValidationError(ve)
 		assert.True(t, ok)
 		assert.Equal(t, ve, result)
 	})
 
 	t.Run("AsValidationError with non-ValidationError", func(t *testing.T) {
-err := errors.New("regular error")
-result, ok := AsValidationError(err)
-assert.False(t, ok)
-assert.Nil(t, result)
-})
+		err := errors.New("regular error")
+		result, ok := AsValidationError(err)
+		assert.False(t, ok)
+		assert.Nil(t, result)
+	})
 
 	t.Run("AsValidationError with nil", func(t *testing.T) {
-result, ok := AsValidationError(nil)
-assert.False(t, ok)
-assert.Nil(t, result)
-})
+		result, ok := AsValidationError(nil)
+		assert.False(t, ok)
+		assert.Nil(t, result)
+	})
 }
 
 func TestPackError(t *testing.T) {
 	t.Run("Error method", func(t *testing.T) {
-cause := errors.New("file not found")
-pe := &PackError{
+		cause := errors.New("file not found")
+		pe := &PackError{
 			Path:  "/path/to/pack.yaml",
 			Cause: cause,
 		}
@@ -65,8 +65,8 @@ pe := &PackError{
 	})
 
 	t.Run("Unwrap method", func(t *testing.T) {
-cause := errors.New("file not found")
-pe := &PackError{
+		cause := errors.New("file not found")
+		pe := &PackError{
 			Path:  "/path/to/pack.yaml",
 			Cause: cause,
 		}
@@ -76,7 +76,7 @@ pe := &PackError{
 
 func TestProviderError(t *testing.T) {
 	t.Run("Error method without status code", func(t *testing.T) {
-pe := &ProviderError{
+		pe := &ProviderError{
 			Provider: "openai",
 			Message:  "rate limit exceeded",
 		}
@@ -86,7 +86,7 @@ pe := &ProviderError{
 	})
 
 	t.Run("Error method with status code", func(t *testing.T) {
-pe := &ProviderError{
+		pe := &ProviderError{
 			Provider:   "anthropic",
 			StatusCode: 429,
 			Message:    "too many requests",
@@ -97,8 +97,8 @@ pe := &ProviderError{
 	})
 
 	t.Run("Unwrap method", func(t *testing.T) {
-cause := errors.New("connection timeout")
-pe := &ProviderError{
+		cause := errors.New("connection timeout")
+		pe := &ProviderError{
 			Provider: "gemini",
 			Message:  "failed",
 			Cause:    cause,
@@ -109,8 +109,8 @@ pe := &ProviderError{
 
 func TestToolError(t *testing.T) {
 	t.Run("Error method", func(t *testing.T) {
-cause := errors.New("connection timeout")
-te := &ToolError{
+		cause := errors.New("connection timeout")
+		te := &ToolError{
 			ToolName: "get_weather",
 			Cause:    cause,
 		}
@@ -120,8 +120,8 @@ te := &ToolError{
 	})
 
 	t.Run("Unwrap method", func(t *testing.T) {
-cause := errors.New("timeout")
-te := &ToolError{
+		cause := errors.New("timeout")
+		te := &ToolError{
 			ToolName: "get_weather",
 			Cause:    cause,
 		}

@@ -37,4 +37,7 @@ import (
 
 	// Register Replay provider (for deterministic testing)
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/replay"
+
+	// Register vLLM provider (for self-hosted inference)
+	_ "github.com/AltairaLabs/PromptKit/runtime/providers/vllm"
 )

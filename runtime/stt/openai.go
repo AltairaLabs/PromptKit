@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	openAIBaseURL          = "https://api.openai.com/v1"
+	openAIBaseURL            = "https://api.openai.com/v1"
 	openAITranscribeEndpoint = "/audio/transcriptions"
 
 	// ModelWhisper1 is the OpenAI Whisper model for transcription.

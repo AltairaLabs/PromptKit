@@ -1,0 +1,28 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: vllm-guided
+  annotations:
+    description: "vLLM with guided decoding for structured output"
+spec:
+  id: "vllm-guided"
+  type: vllm
+  model: facebook/opt-125m
+  base_url: "http://localhost:8000"
+  additional_config:
+    # Guided decoding - ensures output matches JSON schema
+    guided_json:
+      type: object
+      properties:
+        sentiment:
+          type: string
+          enum: ["positive", "negative", "neutral"]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+      required: ["sentiment", "confidence"]
+  defaults:
+    temperature: 0.7
+    max_tokens: 512
+    top_p: 0.9

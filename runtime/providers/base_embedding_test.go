@@ -265,7 +265,7 @@ func TestExtractOrderedEmbeddings(t *testing.T) {
 	t.Run("ignores out of bounds indices", func(t *testing.T) {
 		data := []testData{
 			{Index: 0, Embedding: []float32{0.1}},
-			{Index: 5, Embedding: []float32{0.5}}, // out of bounds
+			{Index: 5, Embedding: []float32{0.5}},  // out of bounds
 			{Index: -1, Embedding: []float32{0.0}}, // negative
 		}
 
