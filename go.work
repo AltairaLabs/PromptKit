@@ -1,6 +1,7 @@
 go 1.25.1
 
 use (
+	./examples/programmatic-arena
 	./pkg
 	./runtime
 	./sdk

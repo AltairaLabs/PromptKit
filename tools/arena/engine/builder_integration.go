@@ -30,7 +30,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// buildEngineComponents builds all engine components from a loaded Config object.
+// BuildEngineComponents builds all engine components from a loaded Config object.
 // This function creates and initializes:
 // - MCP registry and tools (if configured)
 // - Provider registry (for main assistant)
@@ -41,25 +41,30 @@ import (
 // - Self-play registry (if enabled)
 // - Conversation executor
 //
+// This function is exported to enable programmatic creation of Arena engines
+// without requiring file-based configuration. Users can construct a *config.Config
+// programmatically and pass it to this function to get all required registries
+// for use with NewEngine.
+//
 // Returns all components needed to construct an Engine, or an error if any component fails to build.
-func buildEngineComponents(cfg *config.Config) (
-	*providers.Registry,
-	*prompt.Registry,
-	*mcp.RegistryImpl,
-	ConversationExecutor,
-	error,
+func BuildEngineComponents(cfg *config.Config) (
+	providerRegistry *providers.Registry,
+	promptRegistry *prompt.Registry,
+	mcpRegistry *mcp.RegistryImpl,
+	convExecutor ConversationExecutor,
+	err error,
 ) {
 	// Initialize core registries
-	providerRegistry := providers.NewRegistry()
+	providerRegistry = providers.NewRegistry()
 
 	// Create MCP registry from config
-	mcpRegistry, err := buildMCPRegistry(cfg)
+	mcpRegistry, err = buildMCPRegistry(cfg)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("failed to create MCP registry: %w", err)
 	}
 
 	// Build prompt registry - validate and extract task type mappings
-	promptRegistry, err := buildPromptRegistry(cfg)
+	promptRegistry, err = buildPromptRegistry(cfg)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("failed to build prompt registry: %w", err)
 	}
