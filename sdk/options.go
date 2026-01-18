@@ -1020,12 +1020,40 @@ func WithVideoData(data []byte, mimeType string) SendOption {
 
 // WithFile attaches a file with the given name and content.
 //
+// Deprecated: Use WithDocumentFile or WithDocumentData instead for proper document handling.
+// This function is kept for backward compatibility but should not be used for new code
+// as it cannot properly handle binary files.
+//
 //	resp, _ := conv.Send(ctx, "Analyze this data",
 //	    sdk.WithFile("data.csv", csvBytes),
 //	)
 func WithFile(name string, data []byte) SendOption {
 	return func(c *sendConfig) error {
 		c.parts = append(c.parts, filePart{name: name, data: data})
+		return nil
+	}
+}
+
+// WithDocumentFile attaches a document from a file path (PDF, Word, markdown, etc.).
+//
+//	resp, _ := conv.Send(ctx, "Analyze this document",
+//	    sdk.WithDocumentFile("contract.pdf"),
+//	)
+func WithDocumentFile(path string) SendOption {
+	return func(c *sendConfig) error {
+		c.parts = append(c.parts, documentFilePart{path: path})
+		return nil
+	}
+}
+
+// WithDocumentData attaches a document from raw data with the specified MIME type.
+//
+//	resp, _ := conv.Send(ctx, "Review this PDF",
+//	    sdk.WithDocumentData(pdfBytes, types.MIMETypePDF),
+//	)
+func WithDocumentData(data []byte, mimeType string) SendOption {
+	return func(c *sendConfig) error {
+		c.parts = append(c.parts, documentDataPart{data: data, mimeType: mimeType})
 		return nil
 	}
 }
@@ -1068,4 +1096,12 @@ type videoDataPart struct {
 type filePart struct {
 	name string
 	data []byte
+}
+type documentFilePart struct {
+	path string
+}
+
+type documentDataPart struct {
+	data     []byte
+	mimeType string
 }

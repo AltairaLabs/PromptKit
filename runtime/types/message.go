@@ -133,10 +133,11 @@ func (m *Message) IsMultimodal() bool {
 	return len(m.Parts) > 0
 }
 
-// HasMediaContent returns true if the message contains any media (image, audio, video)
+// HasMediaContent returns true if the message contains any media (image, audio, video, document)
 func (m *Message) HasMediaContent() bool {
 	for _, part := range m.Parts {
-		if part.Type == ContentTypeImage || part.Type == ContentTypeAudio || part.Type == ContentTypeVideo {
+		if part.Type == ContentTypeImage || part.Type == ContentTypeAudio ||
+			part.Type == ContentTypeVideo || part.Type == ContentTypeDocument {
 			return true
 		}
 	}
@@ -206,6 +207,16 @@ func (m *Message) AddVideoPart(filePath string) error {
 	return nil
 }
 
+// AddDocumentPart adds a document content part from a file path
+func (m *Message) AddDocumentPart(filePath string) error {
+	part, err := NewDocumentPart(filePath)
+	if err != nil {
+		return err
+	}
+	m.AddPart(part)
+	return nil
+}
+
 // =============================================================================
 // Message Constructors
 //
@@ -265,12 +276,13 @@ func NewMultimodalMessage(role string, parts []ContentPart) Message {
 // MediaSummary provides a high-level overview of media content in a message.
 // This is included in JSON output to make multimodal messages more observable.
 type MediaSummary struct {
-	TotalParts int                `json:"total_parts"`           // Total number of content parts
-	TextParts  int                `json:"text_parts"`            // Number of text parts
-	ImageParts int                `json:"image_parts"`           // Number of image parts
-	AudioParts int                `json:"audio_parts"`           // Number of audio parts
-	VideoParts int                `json:"video_parts"`           // Number of video parts
-	MediaItems []MediaItemSummary `json:"media_items,omitempty"` // Details of each media item
+	TotalParts    int                `json:"total_parts"`           // Total number of content parts
+	TextParts     int                `json:"text_parts"`            // Number of text parts
+	ImageParts    int                `json:"image_parts"`           // Number of image parts
+	AudioParts    int                `json:"audio_parts"`           // Number of audio parts
+	VideoParts    int                `json:"video_parts"`           // Number of video parts
+	DocumentParts int                `json:"document_parts"`        // Number of document parts
+	MediaItems    []MediaItemSummary `json:"media_items,omitempty"` // Details of each media item
 }
 
 // MediaItemSummary provides details about a single media item in a message.
@@ -402,6 +414,9 @@ func (m *Message) getMediaSummary() *MediaSummary {
 		case ContentTypeVideo:
 			summary.VideoParts++
 			summary.MediaItems = append(summary.MediaItems, getMediaItemSummary(part))
+		case ContentTypeDocument:
+			summary.DocumentParts++
+			summary.MediaItems = append(summary.MediaItems, getMediaItemSummary(part))
 		}
 	}
 
@@ -422,8 +437,28 @@ func getMediaItemSummary(part ContentPart) MediaItemSummary {
 
 	item.MIMEType = part.Media.MIMEType
 
-	// Determine source
-	if part.Media.Data != nil && *part.Media.Data != "" {
+	// Determine source - prefer FilePath/URL/StorageReference over "inline data" for better display
+	if part.Media.FilePath != nil {
+		item.Source = *part.Media.FilePath
+		// If Data field is also set, media was successfully loaded
+		if part.Media.Data != nil && *part.Media.Data != "" {
+			item.Loaded = true
+			// Estimate size from base64 data (roughly 3/4 of base64 length)
+			const (
+				base64Ratio     = 4
+				base64Numerator = 3
+			)
+			item.SizeBytes = (len(*part.Media.Data) * base64Numerator) / base64Ratio
+		}
+	} else if part.Media.URL != nil {
+		item.Source = *part.Media.URL
+		if part.Media.Data != nil && *part.Media.Data != "" {
+			item.Loaded = true
+		}
+	} else if part.Media.StorageReference != nil {
+		item.Source = *part.Media.StorageReference
+		// StorageReference means media was externalized to storage
+	} else if part.Media.Data != nil && *part.Media.Data != "" {
 		item.Source = "inline data"
 		item.Loaded = true
 		// Estimate size from base64 data (roughly 3/4 of base64 length)
@@ -432,14 +467,6 @@ func getMediaItemSummary(part ContentPart) MediaItemSummary {
 			base64Numerator = 3
 		)
 		item.SizeBytes = (len(*part.Media.Data) * base64Numerator) / base64Ratio
-	} else if part.Media.StorageReference != nil {
-		item.Source = *part.Media.StorageReference
-		// StorageReference means media was externalized to storage
-	} else if part.Media.FilePath != nil {
-		item.Source = *part.Media.FilePath
-		// If Data field is set later, media was successfully loaded
-	} else if part.Media.URL != nil {
-		item.Source = *part.Media.URL
 	} else {
 		item.Source = "unknown"
 		item.Error = "no data source"

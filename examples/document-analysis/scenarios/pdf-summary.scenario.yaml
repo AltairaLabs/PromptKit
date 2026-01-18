@@ -1,0 +1,40 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: pdf-summary
+spec:
+  id: "pdf-summary"
+  task_type: document-analysis
+  description: "Test PDF document summarization"
+
+  turns:
+    - role: user
+      parts:
+        - type: text
+          text: "Please summarize this document and highlight the key points"
+        - type: document
+          media:
+            file_path: "test-docs/sample.pdf"
+            mime_type: "application/pdf"
+      
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "document"
+        - type: min_length
+          params:
+            min_characters: 100
+        - type: max_length
+          params:
+            max_characters: 5000
+
+    - role: user
+      content: "What are the main topics covered?"
+      assertions:
+        - type: min_length
+          params:
+            min_characters: 50
+        - type: max_length
+          params:
+            max_characters: 3000

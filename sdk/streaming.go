@@ -183,7 +183,17 @@ func (c *Conversation) addContentParts(msg *types.Message, parts []any) error {
 			base64Data := base64.StdEncoding.EncodeToString(p.data)
 			contentPart := types.NewVideoPartFromData(base64Data, p.mimeType)
 			msg.AddPart(contentPart)
+		case documentFilePart:
+			if err := msg.AddDocumentPart(p.path); err != nil {
+				return fmt.Errorf("failed to add document from file: %w", err)
+			}
+		case documentDataPart:
+			base64Data := base64.StdEncoding.EncodeToString(p.data)
+			contentPart := types.NewDocumentPartFromData(base64Data, p.mimeType)
+			msg.AddPart(contentPart)
 		case filePart:
+			// Legacy file part - kept for backward compatibility
+			// Try to detect if it's a document by checking the name extension
 			msg.AddTextPart(fmt.Sprintf("[File: %s]\n%s", p.name, string(p.data)))
 		default:
 			return fmt.Errorf("unknown content part type: %T", part)

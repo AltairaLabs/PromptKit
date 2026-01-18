@@ -16,26 +16,31 @@ import (
 
 // GetMultimodalCapabilities returns Claude's multimodal support capabilities
 func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
-	// Claude supports images and PDFs, but not audio or video
+	// Claude supports images and PDFs (documents)
 	return providers.MultimodalCapabilities{
-		SupportsImages: true,
-		SupportsAudio:  false,
-		SupportsVideo:  false,
+		SupportsImages:    true,
+		SupportsAudio:     false,
+		SupportsVideo:     false,
+		SupportsDocuments: true,
 		ImageFormats: []string{
 			types.MIMETypeImageJPEG,
 			types.MIMETypeImagePNG,
 			types.MIMETypeImageGIF,
 			types.MIMETypeImageWebP,
 		},
-		AudioFormats:   []string{},
-		VideoFormats:   []string{},
-		MaxImageSizeMB: 5, // 5MB per image
-		MaxAudioSizeMB: 0, // Not supported
-		MaxVideoSizeMB: 0, // Not supported
+		AudioFormats: []string{},
+		VideoFormats: []string{},
+		DocumentFormats: []string{
+			types.MIMETypePDF,
+		},
+		MaxImageSizeMB:    5,  //nolint:mnd // Claude's documented image size limit
+		MaxAudioSizeMB:    0,  // Not supported
+		MaxVideoSizeMB:    0,  // Not supported
+		MaxDocumentSizeMB: 32, //nolint:mnd // Claude's documented PDF size limit
 	}
 }
 
-// claudeImageSource represents an image in Claude's format
+// claudeImageSource represents an image or document source in Claude's format
 type claudeImageSource struct {
 	Type      string `json:"type"`       // "base64" or "url"
 	MediaType string `json:"media_type"` // MIME type
@@ -43,7 +48,7 @@ type claudeImageSource struct {
 	URL       string `json:"url,omitempty"`
 }
 
-// claudeContentBlockMultimodal extends claudeContentBlock with image support
+// claudeContentBlockMultimodal extends claudeContentBlock with multimodal support
 type claudeContentBlockMultimodal struct {
 	Type         string              `json:"type"` // "text", "image", "document"
 	Text         string              `json:"text,omitempty"`
@@ -155,6 +160,13 @@ func (p *Provider) convertPartsToClaudeBlocks(parts []types.ContentPart) ([]inte
 			}
 			contentBlocks = append(contentBlocks, block)
 
+		case types.ContentTypeDocument:
+			block, err := p.convertDocumentPartToClaude(part)
+			if err != nil {
+				return nil, err
+			}
+			contentBlocks = append(contentBlocks, block)
+
 		case types.ContentTypeAudio:
 			return nil, fmt.Errorf("claude does not support audio content")
 
@@ -218,6 +230,37 @@ func (p *Provider) convertImagePartToClaude(part types.ContentPart) (claudeConte
 		block.Source.Type = "base64"
 		block.Source.Data = data
 	}
+
+	return block, nil
+}
+
+// convertDocumentPartToClaude converts a document part to Claude's format
+func (p *Provider) convertDocumentPartToClaude(part types.ContentPart) (claudeContentBlockMultimodal, error) {
+	if part.Media == nil {
+		return claudeContentBlockMultimodal{}, fmt.Errorf("document part missing media data")
+	}
+
+	// Validate that Claude supports this document type
+	if part.Media.MIMEType != types.MIMETypePDF {
+		return claudeContentBlockMultimodal{}, fmt.Errorf("claude only supports PDF documents, got: %s", part.Media.MIMEType)
+	}
+
+	block := claudeContentBlockMultimodal{
+		Type: "document",
+		Source: &claudeImageSource{
+			MediaType: part.Media.MIMEType,
+		},
+	}
+
+	// Claude documents only support base64 encoding (no URL support)
+	// Use MediaLoader for all sources (Data, FilePath, StorageReference)
+	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+	data, err := loader.GetBase64Data(context.Background(), part.Media)
+	if err != nil {
+		return claudeContentBlockMultimodal{}, fmt.Errorf("failed to load document data: %w", err)
+	}
+	block.Source.Type = "base64"
+	block.Source.Data = data
 
 	return block, nil
 }

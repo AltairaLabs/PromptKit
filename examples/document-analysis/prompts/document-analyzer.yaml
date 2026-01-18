@@ -1,0 +1,70 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: document-analyzer
+spec:
+  task_type: "document-analysis"
+  version: "v1.0.0"
+  description: "Analyzes PDF and other document formats"
+
+  system_template: |
+    You are an expert document analyst. When provided with documents, you:
+    - Extract key information and main points
+    - Identify important dates, names, and numbers
+    - Summarize the document's purpose and content
+    - Note any special clauses, terms, or conditions
+    - Provide clear, structured analysis
+    
+    Be thorough, accurate, and professional in your analysis.
+
+  # Multimodal media configuration - documents are treated as media attachments
+  media:
+    enabled: true
+    supported_types:
+      - image
+    
+    # Example multimodal interactions
+    examples:
+      - name: "single-pdf-analysis"
+        description: "User provides a PDF for analysis"
+        role: user
+        parts:
+          - type: text
+            text: "Please summarize this contract"
+          - type: document
+            media:
+              file_path: "./test-docs/contract.pdf"
+              mime_type: "application/pdf"
+      
+      - name: "compare-documents"
+        description: "User provides multiple documents to compare"
+        role: user
+        parts:
+          - type: text
+            text: "Compare these two versions and identify changes"
+          - type: document
+            media:
+              file_path: "./test-docs/version1.pdf"
+              mime_type: "application/pdf"
+              caption: "Version 1"
+          - type: document
+            media:
+              file_path: "./test-docs/version2.pdf"
+              mime_type: "application/pdf"
+              caption: "Version 2"
+      
+      - name: "mixed-media-analysis"
+        description: "User provides both image and document"
+        role: user
+        parts:
+          - type: text
+            text: "Compare the blueprint with the specifications"
+          - type: image
+            media:
+              file_path: "./test-docs/blueprint.png"
+              mime_type: "image/png"
+              detail: "high"
+          - type: document
+            media:
+              file_path: "./test-docs/specs.pdf"
+              mime_type: "application/pdf"

@@ -52,12 +52,13 @@ type Turn struct {
 // ContentPart represents a single content part in a multimodal mock response.
 // This mirrors the structure of types.ContentPart but with YAML-friendly field names.
 type ContentPart struct {
-	Type     string                 `yaml:"type"`                // "text", "image", "audio", or "video"
-	Text     string                 `yaml:"text,omitempty"`      // Text content (for type="text")
-	ImageURL *ImageURL              `yaml:"image_url,omitempty"` // Image URL (for type="image")
-	AudioURL *AudioURL              `yaml:"audio_url,omitempty"` // Audio URL (for type="audio")
-	VideoURL *VideoURL              `yaml:"video_url,omitempty"` // Video URL (for type="video")
-	Metadata map[string]interface{} `yaml:"metadata,omitempty"`  // Additional metadata
+	Type        string                 `yaml:"type"`                   // "text", "image", "audio", "video", or "document"
+	Text        string                 `yaml:"text,omitempty"`         // Text content (for type="text")
+	ImageURL    *ImageURL              `yaml:"image_url,omitempty"`    // Image URL (for type="image")
+	AudioURL    *AudioURL              `yaml:"audio_url,omitempty"`    // Audio URL (for type="audio")
+	VideoURL    *VideoURL              `yaml:"video_url,omitempty"`    // Video URL (for type="video")
+	DocumentURL *DocumentURL           `yaml:"document_url,omitempty"` // Document URL (for type="document")
+	Metadata    map[string]interface{} `yaml:"metadata,omitempty"`     // Additional metadata
 }
 
 // ImageURL represents image content in a mock response.
@@ -74,6 +75,11 @@ type AudioURL struct {
 // VideoURL represents video content in a mock response.
 type VideoURL struct {
 	URL string `yaml:"url"` // URL to the video file (can be mock://, http://, https://, data:, or file path)
+}
+
+// DocumentURL represents document content in a mock response.
+type DocumentURL struct {
+	URL string `yaml:"url"` // URL to the document file (can be mock://, http://, https://, data:, or file path)
 }
 
 // ToolCall represents a simulated tool call from the LLM.

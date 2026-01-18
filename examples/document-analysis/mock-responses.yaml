@@ -1,0 +1,54 @@
+# Mock responses for document analysis scenarios
+defaultResponse: "I can analyze the document you've provided."
+
+scenarios:
+  pdf-summary:
+    turns:
+      1: |
+        This document appears to be a comprehensive overview covering several key topics:
+        
+        1. **Main Subject**: The document discusses fundamental principles and best practices
+        2. **Key Points**:
+           - Implementation strategies for scalable systems
+           - Performance optimization techniques
+           - Security considerations and compliance requirements
+        3. **Important Dates**: Referenced timeline spans Q1-Q4 2024
+        4. **Target Audience**: Technical teams and stakeholders
+        
+        The document is well-structured with clear sections and actionable recommendations. It emphasizes practical application over theoretical concepts.
+
+  multi-doc-compare:
+    turns:
+      1: |
+        After comparing the two documents, here are the key difference and similarities:
+        
+        **Version 1 vs Version 2 Changes:**
+        
+        1. **Updated Timeline**: Version 2 extends the implementation deadline by 2 months
+        2. **Budget Adjustments**: Increased budget allocation by 15% in Section 3.2
+        3. **New Requirements**: Version 2 adds three additional security requirements
+        4. **Removed Sections**: Section 4.5 on legacy system migration was removed in Version 2
+        5. **Personnel Changes**: Version 2 lists updated team composition
+        
+        The core objectives remain the same, but Version 2 reflects more realistic timelines and resource allocation based on stakeholder feedback.
+
+  mixed-media:
+    turns:
+      1: |
+        Comparing the visual diagram with the written specification document:
+        
+        **Visual Diagram Analysis:**
+        - The diagram shows a three-tier architecture with clear separation of concerns
+        - Components are connected via well-defined interfaces
+        - Color coding indicates different service types (blue=data, green=business logic, orange=presentation)
+        
+        **Specification Document:**
+        - Describes the same three-tier architecture in detail
+        - Specifies communication protocols between tiers (REST, gRPC)
+        - Includes performance requirements (99.9% uptime, <100ms latency)
+        
+        **Alignment:**
+        The diagram accurately represents the architecture described in the specifications. All components mentioned in the text are present in the visual representation. The data flow matches the documented process flow.
+        
+        **Minor Discrepancy:**
+        The specifications mention a caching layer that doesn't appear in the diagram - this may need clarification.

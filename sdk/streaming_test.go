@@ -480,6 +480,51 @@ func TestAddContentPartsWithFile(t *testing.T) {
 	}
 }
 
+func TestAddContentPartsWithDocumentFile(t *testing.T) {
+	conv := newTestConversation()
+	msg := &types.Message{Role: "user"}
+
+	// Create a temporary PDF file
+	tmpDir := t.TempDir()
+	tmpFile := tmpDir + "/test.pdf"
+	err := os.WriteFile(tmpFile, []byte("%PDF-1.4\ntest content"), 0644)
+	assert.NoError(t, err)
+
+	// Test with document file part
+	err = conv.addContentParts(msg, []any{
+		documentFilePart{path: tmpFile},
+	})
+
+	assert.NoError(t, err)
+	assert.NotEmpty(t, msg.Parts)
+	if len(msg.Parts) > 0 {
+		assert.Equal(t, types.ContentTypeDocument, msg.Parts[0].Type)
+		assert.NotNil(t, msg.Parts[0].Media)
+		assert.Equal(t, types.MIMETypePDF, msg.Parts[0].Media.MIMEType)
+	}
+}
+
+func TestAddContentPartsWithDocumentData(t *testing.T) {
+	conv := newTestConversation()
+	msg := &types.Message{Role: "user"}
+
+	// Test with document data part
+	err := conv.addContentParts(msg, []any{
+		documentDataPart{
+			data:     []byte("%PDF-1.4\ntest content"),
+			mimeType: types.MIMETypePDF,
+		},
+	})
+
+	assert.NoError(t, err)
+	assert.NotEmpty(t, msg.Parts)
+	if len(msg.Parts) > 0 {
+		assert.Equal(t, types.ContentTypeDocument, msg.Parts[0].Type)
+		assert.NotNil(t, msg.Parts[0].Media)
+		assert.Equal(t, types.MIMETypePDF, msg.Parts[0].Media.MIMEType)
+	}
+}
+
 func TestAddContentPartsUnknownType(t *testing.T) {
 	conv := newTestConversation()
 	msg := &types.Message{Role: "user"}

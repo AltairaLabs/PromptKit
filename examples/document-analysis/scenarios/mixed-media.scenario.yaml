@@ -1,0 +1,33 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: mixed-media
+spec:
+  id: "mixed-media"
+  task_type: document-analysis
+  description: "Test analyzing both images and documents together"
+
+  turns:
+    - role: user
+      parts:
+        - type: text
+          text: "Compare the diagram with the written specifications"
+        - type: image
+          media:
+            url: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Cat03.jpg/300px-Cat03.jpg"
+            mime_type: "image/jpeg"
+            detail: "high"
+        - type: document
+          media:
+            file_path: "test-docs/specs.pdf"
+            mime_type: "application/pdf"
+      
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "diagram"
+              - "specification"
+        - type: min_length
+          params:
+            min_characters: 200

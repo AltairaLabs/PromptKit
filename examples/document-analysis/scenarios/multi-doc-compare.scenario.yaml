@@ -1,0 +1,34 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: multi-doc-compare
+spec:
+  id: "multi-doc-compare"
+  task_type: document-analysis
+  description: "Test comparing multiple documents"
+
+  turns:
+    - role: user
+      parts:
+        - type: text
+          text: "Compare these two documents and identify the key differences"
+        - type: document
+          media:
+            file_path: "test-docs/version1.pdf"
+            mime_type: "application/pdf"
+        - type: document
+          media:
+            file_path: "test-docs/version2.pdf"
+            mime_type: "application/pdf"
+      
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "difference"
+        - type: min_length
+          params:
+            min_characters: 150
+        - type: max_length
+          params:
+            max_characters: 6000
