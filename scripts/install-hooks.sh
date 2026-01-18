@@ -32,18 +32,19 @@ if [ ! -d "$REPO_ROOT/.git" ]; then
 fi
 
 # Check if pre-commit hook already exists
-HOOK_SOURCE="$REPO_ROOT/.git/hooks/pre-commit"
+HOOK_SOURCE="$SCRIPT_DIR/pre-commit.sh"
+HOOK_DEST="$REPO_ROOT/.git/hooks/pre-commit"
 
-if [ -f "$HOOK_SOURCE" ]; then
-    # Make it executable
-    chmod +x "$HOOK_SOURCE"
-    echo -e "${GREEN}✓${NC} Pre-commit hook found and made executable"
-else
-    echo -e "${YELLOW}Warning: Pre-commit hook not found at expected location${NC}"
+if [ ! -f "$HOOK_SOURCE" ]; then
+    echo -e "${YELLOW}Error: Pre-commit hook source not found${NC}"
     echo "Expected: $HOOK_SOURCE"
-    echo "The hook should be tracked in version control."
     exit 1
 fi
+
+# Copy and make executable
+cp "$HOOK_SOURCE" "$HOOK_DEST"
+chmod +x "$HOOK_DEST"
+echo -e "${GREEN}✓${NC} Pre-commit hook installed"
 
 echo ""
 echo -e "${BLUE}Checking prerequisites...${NC}"

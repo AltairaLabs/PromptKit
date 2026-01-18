@@ -144,10 +144,13 @@ PromptArena implements PromptPack v1.1 multimodal support with comprehensive tes
 spec:
   media:
     enabled: true
-    supported_types: [image, audio, video]
+    supported_types: [image, audio, video, document]
     image:
       max_size_mb: 20
       allowed_formats: [jpeg, png, webp]
+    document:
+      max_size_mb: 32
+      allowed_formats: [pdf]
 ```
 
 ```yaml
@@ -161,9 +164,12 @@ turns:
         image_url:
           url: "path/to/image.jpg"
           detail: "high"
+      - type: document
+        document_url:
+          url: "path/to/document.pdf"
 ```
 
-See [`examples/arena-media-test/`](../../examples/arena-media-test/) for complete examples.
+See [`examples/arena-media-test/`](../../examples/arena-media-test/) and [`examples/document-analysis/`](../../examples/document-analysis/) for complete examples.
 
 ### 4. Mock Provider Support
 
