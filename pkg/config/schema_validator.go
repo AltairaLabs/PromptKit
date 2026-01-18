@@ -96,6 +96,7 @@ type ConfigType string
 const (
 	ConfigTypeArena        ConfigType = "arena"
 	ConfigTypeScenario     ConfigType = "scenario"
+	ConfigTypeEval         ConfigType = "eval"
 	ConfigTypeProvider     ConfigType = "provider"
 	ConfigTypePromptConfig ConfigType = "promptconfig"
 	ConfigTypeTool         ConfigType = "tool"
@@ -297,6 +298,24 @@ func ValidateScenario(yamlData []byte) error {
 	return nil
 }
 
+// ValidateEval validates an Eval configuration against its schema
+func ValidateEval(yamlData []byte) error {
+	result, err := ValidateWithSchema(yamlData, ConfigTypeEval)
+	if err != nil {
+		return err
+	}
+
+	if !result.Valid {
+		var errorMessages []string
+		for _, e := range result.Errors {
+			errorMessages = append(errorMessages, fmt.Sprintf(errorFormat, e.Error()))
+		}
+		return fmt.Errorf("eval configuration does not match schema:\n%s", strings.Join(errorMessages, "\n"))
+	}
+
+	return nil
+}
+
 // ValidateProvider validates a Provider configuration against its schema
 func ValidateProvider(yamlData []byte) error {
 	result, err := ValidateWithSchema(yamlData, ConfigTypeProvider)
@@ -391,6 +410,8 @@ func DetectConfigType(yamlData []byte) (ConfigType, error) {
 			return ConfigTypeTool, nil
 		case "Persona":
 			return ConfigTypePersona, nil
+		case kindEval:
+			return ConfigTypeEval, nil
 		}
 	}
 

@@ -17,12 +17,14 @@ graph TB
 
     Prompt["PromptConfig<br/>System Instructions"]
     Scenario["Scenario<br/>Test Cases"]
+    Eval["Eval<br/>Saved Conversation<br/>Evaluation"]
     Provider["Provider<br/>Model Config"]
     Tool["Tool<br/>Functions"]
     Persona["Persona<br/>Self-Play AI"]
 
     Arena --> Prompt
     Arena --> Scenario
+    Arena --> Eval
     Arena --> Provider
     Arena --> Tool
 
@@ -75,6 +77,11 @@ spec:
     - file: scenarios/smoke-tests.yaml
     - file: scenarios/regression-tests.yaml
     - file: scenarios/edge-cases.yaml
+
+  # Evaluation configurations (saved conversation evaluation)
+  evals:
+    - file: evals/customer-support-eval.yaml
+    - file: evals/regression-eval.yaml
 
   # Optional: Judges (map judge name -> provider)
   judges:
@@ -963,6 +970,279 @@ Uses MCP server (auto-discovered, no additional config needed):
 mode: mcp
 # Tool is provided by MCP server configured in arena.yaml
 ```
+
+## Eval (Saved Conversation Evaluation)
+
+Defines an evaluation configuration for replaying and validating saved conversations.
+
+### Complete Structure
+
+```yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Eval
+metadata:
+  name: customer-support-eval
+
+spec:
+  # Unique identifier
+  id: customer-support-eval         # Required: Eval identifier
+  
+  # Description
+  description: |                    # Optional: Human-readable description
+    Evaluate saved customer support conversation for quality
+    and adherence to support guidelines
+
+  # Recording source
+  recording:                        # Required: Recording to evaluate
+    path: recordings/session-2024-01-15.recording.json
+    type: session                   # session, arena_output, transcript, generic
+
+  # Judge configurations
+  judge_targets:                    # Optional: Judge providers for LLM assertions
+    default:                        # Judge name (referenced in assertions)
+      type: openai                  # Provider type
+      model: gpt-4o                 # Model to use
+      id: gpt-4o-judge              # Unique judge ID
+    
+    quality:
+      type: anthropic
+      model: claude-3-5-sonnet-20241022
+      id: claude-quality-judge
+
+  # Assertions to evaluate
+  assertions:                       # Optional: Validation criteria
+    - type: llm_judge
+      params:
+        judge: default
+        criteria: |
+          Does the conversation demonstrate empathy and
+          provide clear, actionable solutions?
+        expected: pass
+    
+    - type: llm_judge
+      params:
+        judge: quality
+        criteria: "Is the tone professional and friendly?"
+        expected: pass
+    
+    - type: contains
+      params:
+        text: "resolution"
+        case_sensitive: false
+
+  # Categorization
+  tags:                             # Optional: Tags for filtering
+    - customer-support
+    - production
+    - q1-2024
+
+  # Replay behavior
+  mode: instant                     # Optional: instant, realtime, accelerated
+  speed: 1.0                        # Optional: Playback speed multiplier (for realtime/accelerated)
+```
+
+### Field Descriptions
+
+#### `recording`
+
+Specifies the saved conversation to evaluate.
+
+**Fields**:
+- `path` (string, required): Path to recording file (relative to eval file or absolute)
+- `type` (string, required): Recording format type
+  - `session`: Session recording JSON (`.recording.json`)
+  - `arena_output`: Arena output JSON from previous runs
+  - `transcript`: Transcript YAML (`.transcript.yaml`)
+  - `generic`: Generic chat export JSON
+
+**Example**:
+
+```yaml
+recording:
+  path: ../recordings/2024-01-15-session.recording.json
+  type: session
+```
+
+#### `judge_targets`
+
+Defines LLM providers used for judge-based assertions.
+
+**Structure**: Map of judge name → provider specification
+
+**Fields** (per judge):
+- `type` (string, required): Provider type (openai, anthropic, google, etc.)
+- `model` (string, required): Model identifier
+- `id` (string, required): Unique judge identifier
+
+**Example**:
+
+```yaml
+judge_targets:
+  default:
+    type: openai
+    model: gpt-4o-mini
+    id: default-judge
+  quality:
+    type: anthropic
+    model: claude-3-5-sonnet-20241022
+    id: quality-judge
+```
+
+#### `assertions`
+
+Validation criteria to evaluate against the replayed conversation.
+
+**Common Assertion Types**:
+- `llm_judge`: Use an LLM to evaluate conversation quality
+- `contains`: Check if specific text appears in conversation
+- `turn_count`: Validate number of conversation turns
+- `tools_called`: Verify tool usage
+
+**Example**:
+
+```yaml
+assertions:
+  - type: llm_judge
+    params:
+      judge: default
+      criteria: "Does the assistant provide accurate information?"
+      expected: pass
+  
+  - type: contains
+    params:
+      text: "thank you"
+      case_sensitive: false
+```
+
+#### `mode`
+
+Controls replay timing behavior:
+
+- `instant` (default): Replay as fast as possible
+- `realtime`: Replay at original conversation speed
+- `accelerated`: Replay faster than original, controlled by `speed`
+
+#### `speed`
+
+Playback speed multiplier (used with `realtime` or `accelerated` mode):
+
+- `1.0` (default): Normal speed
+- `2.0`: 2x speed
+- `0.5`: Half speed
+
+### Usage in Arena Configuration
+
+Reference eval files in the main arena configuration:
+
+```yaml
+# arena.yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: my-evaluations
+
+spec:
+  # Providers (needed for judge_targets if not using inline specs)
+  providers:
+    - file: providers/openai-gpt4o.provider.yaml
+    - file: providers/claude-sonnet.provider.yaml
+
+  # Eval configurations
+  evals:
+    - file: evals/customer-support-eval.yaml
+    - file: evals/sales-conversation-eval.yaml
+    - file: evals/technical-support-eval.yaml
+```
+
+### Recording Types
+
+**Session Recording** (`.recording.json`):
+```yaml
+recording:
+  path: recordings/session-123.recording.json
+  type: session
+```
+
+Generated by Arena with `recording.enabled: true` in output config. Contains full event stream with timing, audio data, and metadata.
+
+**Arena Output** (previous run results):
+```yaml
+recording:
+  path: out/results-2024-01-15.json
+  type: arena_output
+```
+
+Use results from previous Arena runs as input for regression testing.
+
+**Transcript YAML**:
+```yaml
+recording:
+  path: transcripts/conversation.transcript.yaml
+  type: transcript
+```
+
+Human-readable transcript format (future support via recording adapters).
+
+**Generic Chat Export**:
+```yaml
+recording:
+  path: exports/chat-log.json
+  type: generic
+```
+
+Import conversations from third-party systems (future support via recording adapters).
+
+### Integration with Session Recording
+
+Evals work seamlessly with Arena's session recording feature:
+
+1. **Record** a conversation:
+```yaml
+# arena.yaml
+spec:
+  defaults:
+    output:
+      recording:
+        enabled: true
+        dir: recordings
+```
+
+2. **Create** an eval configuration:
+```yaml
+# evals/validate-session.eval.yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Eval
+metadata:
+  name: validate-session
+spec:
+  id: session-validation
+  recording:
+    path: ../recordings/run-abc123.recording.json
+    type: session
+  judge_targets:
+    default:
+      type: openai
+      model: gpt-4o
+      id: validator
+  assertions:
+    - type: llm_judge
+      params:
+        judge: default
+        criteria: "Was the conversation helpful and accurate?"
+```
+
+3. **Run** the evaluation:
+```bash
+promptar ena run --config arena.yaml
+```
+
+### See Also
+
+- **[Session Recording Guide](/arena/how-to/session-recording/)** - Enable and use session recording
+- **[Assertions Reference](./assertions)** - All available assertion types
+- **[Replay Provider](./providers#replay-provider)** - Replay provider details
+
+---
 
 ## Persona (Self-Play)
 

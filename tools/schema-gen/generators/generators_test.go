@@ -168,6 +168,72 @@ func TestGeneratePersonaSchema(t *testing.T) {
 	}
 }
 
+func TestGenerateEvalSchema(t *testing.T) {
+	schema, err := GenerateEvalSchema()
+	if err != nil {
+		t.Fatalf("GenerateEvalSchema() error = %v", err)
+	}
+
+	if schema == nil {
+		t.Fatal("GenerateEvalSchema() returned nil schema")
+	}
+
+	jsonSchema, ok := schema.(*jsonschema.Schema)
+	if !ok {
+		t.Fatal("GenerateEvalSchema() did not return *jsonschema.Schema")
+	}
+
+	if jsonSchema.Title == "" {
+		t.Error("Schema title is empty")
+	}
+
+	if jsonSchema.Description == "" {
+		t.Error("Schema description is empty")
+	}
+
+	expectedID := schemaBaseURL + "/eval.json"
+	if string(jsonSchema.ID) != expectedID {
+		t.Errorf("Schema ID = %v, want %v", jsonSchema.ID, expectedID)
+	}
+
+	if len(jsonSchema.Examples) == 0 {
+		t.Error("Schema has no examples")
+	}
+}
+
+func TestGenerateLoggingSchema(t *testing.T) {
+	schema, err := GenerateLoggingSchema()
+	if err != nil {
+		t.Fatalf("GenerateLoggingSchema() error = %v", err)
+	}
+
+	if schema == nil {
+		t.Fatal("GenerateLoggingSchema() returned nil schema")
+	}
+
+	jsonSchema, ok := schema.(*jsonschema.Schema)
+	if !ok {
+		t.Fatal("GenerateLoggingSchema() did not return *jsonschema.Schema")
+	}
+
+	if jsonSchema.Title == "" {
+		t.Error("Schema title is empty")
+	}
+
+	if jsonSchema.Description == "" {
+		t.Error("Schema description is empty")
+	}
+
+	expectedID := schemaBaseURL + "/logging.json"
+	if string(jsonSchema.ID) != expectedID {
+		t.Errorf("Schema ID = %v, want %v", jsonSchema.ID, expectedID)
+	}
+
+	if len(jsonSchema.Examples) == 0 {
+		t.Error("Schema has no examples")
+	}
+}
+
 func TestGenerateMetadataSchema(t *testing.T) {
 	schema, err := GenerateMetadataSchema()
 	if err != nil {

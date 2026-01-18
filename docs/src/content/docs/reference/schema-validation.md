@@ -43,6 +43,7 @@ The `/latest/` path automatically points to the current stable schema version:
 | PromptConfig | `https://promptkit.altairalabs.ai/schemas/latest/promptconfig.json` |
 | Tool | `https://promptkit.altairalabs.ai/schemas/latest/tool.json` |
 | Persona | `https://promptkit.altairalabs.ai/schemas/latest/persona.json` |
+| Eval | `https://promptkit.altairalabs.ai/schemas/latest/eval.json` |
 
 **Benefits of using `/latest/`:**
 
@@ -62,6 +63,7 @@ For stability in production or when you need a specific schema version:
 | PromptConfig | `https://promptkit.altairalabs.ai/schemas/v1alpha1/promptconfig.json` |
 | Tool | `https://promptkit.altairalabs.ai/schemas/v1alpha1/tool.json` |
 | Persona | `https://promptkit.altairalabs.ai/schemas/v1alpha1/persona.json` |
+| Eval | `https://promptkit.altairalabs.ai/schemas/v1alpha1/eval.json` |
 
 ### Common Schemas
 
@@ -189,6 +191,43 @@ spec:
     - detail-oriented
 ```
 
+### Eval Configuration
+
+Recommended file name: `*.eval.yaml` (e.g., `validate-session.eval.yaml`)
+
+```yaml
+$schema: https://promptkit.altairalabs.ai/schemas/latest/eval.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Eval
+metadata:
+  name: validate-customer-support
+
+spec:
+  id: "support-validation"
+  description: "Validate customer support conversation quality"
+  
+  recording:
+    path: recordings/session-123.recording.json
+    type: session
+  
+  judge_targets:
+    default:
+      type: openai
+      model: gpt-4o
+      id: quality-judge
+  
+  assertions:
+    - type: llm_judge
+      params:
+        judge: default
+        criteria: "Was the conversation helpful and professional?"
+        expected: pass
+  
+  tags:
+    - customer-support
+    - quality-check
+```
+
 ## VS Code Integration
 
 ### Automatic Setup
@@ -226,6 +265,10 @@ Add to your workspace or user settings:
     "https://promptkit.altairalabs.ai/schemas/latest/persona.json": [
       "*.persona.yaml",
       "**/personas/*.yaml"
+    ],
+    "https://promptkit.altairalabs.ai/schemas/latest/eval.json": [
+      "*.eval.yaml",
+      "**/evals/*.yaml"
     ]
   },
   "yaml.schemaStore.enable": true,
@@ -241,6 +284,7 @@ Add to your workspace or user settings:
 - Tools: `*.tool.yaml`
 - Personas: `*.persona.yaml`
 - PromptConfigs: `*.prompt.yaml`
+- Evals: `*.eval.yaml`
 
 ### Features
 
@@ -275,6 +319,7 @@ require('lspconfig').yamlls.setup {
         ["https://promptkit.altairalabs.ai/schemas/latest/provider.json"] = { "*.provider.yaml", "**/providers/*.yaml" },
         ["https://promptkit.altairalabs.ai/schemas/latest/tool.json"] = { "*.tool.yaml", "**/tools/*.yaml" },
         ["https://promptkit.altairalabs.ai/schemas/latest/persona.json"] = { "*.persona.yaml", "**/personas/*.yaml" },
+        ["https://promptkit.altairalabs.ai/schemas/latest/eval.json"] = { "*.eval.yaml", "**/evals/*.yaml" },
       }
     }
   }

@@ -50,7 +50,8 @@ type Config struct {
 	Providers     []ProviderRef     `yaml:"providers"`
 	Judges        []JudgeRef        `yaml:"judges,omitempty"`
 	JudgeDefaults *JudgeDefaults    `yaml:"judge_defaults,omitempty"`
-	Scenarios     []ScenarioRef     `yaml:"scenarios"`
+	Scenarios     []ScenarioRef     `yaml:"scenarios,omitempty"`
+	Evals         []EvalRef         `yaml:"evals,omitempty"`
 	Tools         []ToolRef         `yaml:"tools,omitempty"`
 	MCPServers    []MCPServerConfig `yaml:"mcp_servers,omitempty"`
 	StateStore    *StateStoreConfig `yaml:"state_store,omitempty"`
@@ -64,6 +65,7 @@ type Config struct {
 	LoadedProviders     map[string]*Provider         `yaml:"-" json:"-"` // provider ID -> provider
 	LoadedJudges        map[string]*JudgeTarget      `yaml:"-" json:"-"` // judge name -> resolved target
 	LoadedScenarios     map[string]*Scenario         `yaml:"-" json:"-"` // scenario ID -> scenario
+	LoadedEvals         map[string]*Eval             `yaml:"-" json:"-"` // eval ID -> eval
 	LoadedTools         []ToolData                   `yaml:"-" json:"-"` // list of tool data
 	LoadedPersonas      map[string]*UserPersonaPack  `yaml:"-" json:"-"` // persona ID -> persona
 
@@ -172,6 +174,11 @@ type JudgeTarget struct {
 
 // ScenarioRef references a scenario file
 type ScenarioRef struct {
+	File string `yaml:"file"`
+}
+
+// EvalRef references an eval configuration file
+type EvalRef struct {
 	File string `yaml:"file"`
 }
 
@@ -853,4 +860,61 @@ type PersonaConfigSchema struct {
 	Kind       string          `yaml:"kind"`
 	Metadata   ObjectMeta      `yaml:"metadata,omitempty"`
 	Spec       UserPersonaPack `yaml:"spec"`
+}
+
+// EvalConfig represents an Eval (saved conversation evaluation) configuration
+// in K8s-style manifest format
+type EvalConfig struct {
+	APIVersion string     `yaml:"apiVersion"`
+	Kind       string     `yaml:"kind"`
+	Metadata   ObjectMeta `yaml:"metadata,omitempty"`
+	Spec       Eval       `yaml:"spec"`
+}
+
+// EvalConfigK8s represents the Eval configuration using full K8s ObjectMeta for unmarshaling
+type EvalConfigK8s struct {
+	APIVersion string            `yaml:"apiVersion"`
+	Kind       string            `yaml:"kind"`
+	Metadata   metav1.ObjectMeta `yaml:"metadata,omitempty"`
+	Spec       Eval              `yaml:"spec"`
+}
+
+// Eval describes an evaluation configuration for replaying and validating saved conversations
+type Eval struct {
+	// ID uniquely identifies this evaluation configuration
+	ID string `json:"id" yaml:"id" jsonschema:"required,description=Unique identifier for this evaluation"`
+	// Description provides a human-readable explanation of what this eval tests
+	Description string `json:"description" yaml:"description" jsonschema:"description=Human-readable description"`
+	// Recording specifies the path to the saved conversation to evaluate
+	Recording RecordingSource `json:"recording" yaml:"recording" jsonschema:"required,description=Recording source"`
+	// JudgeTargets maps judge names to provider specifications for LLM judge assertions
+	// Keys correspond to judge names used in assertions
+	JudgeTargets map[string]JudgeProviderSpec `json:"judge_targets,omitempty" yaml:"judge_targets,omitempty" jsonschema:"description=Map of judge names to provider configurations for LLM-based assertions"` //nolint:lll
+	// Assertions evaluated after the conversation is replayed
+	Assertions []asrt.AssertionConfig `json:"assertions,omitempty" yaml:"assertions,omitempty" jsonschema:"description=Assertions to evaluate after replay"` //nolint:lll
+	// Tags for categorizing and filtering evaluations
+	Tags []string `json:"tags,omitempty" yaml:"tags,omitempty" jsonschema:"description=Tags for categorization"`
+	// Mode controls replay behavior: "instant", "realtime", or "accelerated"
+	Mode string `json:"mode,omitempty" yaml:"mode,omitempty" jsonschema:"enum=instant,enum=realtime,enum=accelerated,description=Replay timing mode (instant, realtime, or accelerated)"` //nolint:lll
+	// Speed controls playback speed when Mode is "accelerated" (default: 1.0)
+	Speed float64 `json:"speed,omitempty" yaml:"speed,omitempty" jsonschema:"description=Playback speed (default 1.0)"`
+}
+
+// RecordingSource specifies where to load the saved conversation from
+type RecordingSource struct {
+	// Path to the recording file (relative to eval config file or absolute)
+	Path string `json:"path" yaml:"path" jsonschema:"required,description=Path to recording file"`
+	// Type hints the recording format: "session", "arena_output", "transcript", or "generic"
+	// If omitted, format is auto-detected from file extension
+	Type string `json:"type,omitempty" yaml:"type,omitempty" jsonschema:"enum=session,enum=arena_output,enum=transcript,enum=generic,description=Recording format type hint (auto-detected if omitted)"` //nolint:lll
+}
+
+// JudgeProviderSpec specifies a provider configuration for an LLM judge
+type JudgeProviderSpec struct {
+	// Type is the provider type (e.g., "openai", "anthropic", "gemini")
+	Type string `json:"type" yaml:"type" jsonschema:"required,description=Provider type (openai, anthropic, gemini, etc.)"`
+	// Model is the model to use for this judge
+	Model string `json:"model" yaml:"model" jsonschema:"required,description=Model name for this judge"`
+	// ID optionally overrides the provider ID (defaults to Type)
+	ID string `json:"id,omitempty" yaml:"id,omitempty" jsonschema:"description=Provider ID (defaults to type if omitted)"`
 }

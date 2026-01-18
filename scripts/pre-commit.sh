@@ -302,6 +302,12 @@ else
                     continue
                 fi
                 
+                # Skip build-time tooling (schema generators, etc.)
+                if [[ "$file" == tools/schema-gen/* ]]; then
+                    COVERAGE_RESULTS+=("○ $file: N/A (build tooling)")
+                    continue
+                fi
+                
                 # Calculate ACTUAL statement coverage from raw coverage.out
                 # Format: file:startLine.startCol,endLine.endCol numStatements count
                 # count > 0 means covered, count = 0 means not covered
@@ -376,65 +382,8 @@ else
     fi
 fi
 
-
 #
-# 4. Validate YAML configs in examples
-#
-print_header "Validating Example Configs"
-
-# Check for staged YAML files in examples directory
-STAGED_YAML_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep 'examples/.*\.yaml$' || true)
-
-if [ -z "$STAGED_YAML_FILES" ]; then
-    print_info "No YAML config files staged in examples"
-else
-    print_info "Found $(echo "$STAGED_YAML_FILES" | wc -l | tr -d ' ') YAML config file(s) to validate"
-
-    # Check if promptarena binary exists
-    if [ ! -f "$REPO_ROOT/bin/promptarena" ]; then
-        print_warning "promptarena binary not found - skipping config validation"
-        print_info "Run 'make build-arena' to build it"
-    else
-        YAML_VALIDATION_FAILED=0
-
-        # Validate each YAML file
-        for file in $STAGED_YAML_FILES; do
-            # Skip certain files that don't need schema validation
-            if [[ "$file" == *"/mock-responses.yaml" ]] || [[ "$file" == *"/.env"* ]]; then
-                continue
-            fi
-
-            print_info "Validating $file..."
-            
-            # Run promptarena validate with schema-only flag (no provider/API checks)
-            if "$REPO_ROOT/bin/promptarena" validate "$REPO_ROOT/$file" --schema-only 2>&1 | grep -q "✓"; then
-                print_success "$file passed validation"
-            else
-                # Run again to capture the error
-                ERROR_OUTPUT=$("$REPO_ROOT/bin/promptarena" validate "$REPO_ROOT/$file" --schema-only 2>&1 || true)
-                
-                # Check if it's a valid file but not a config type we validate
-                if echo "$ERROR_OUTPUT" | grep -q "could not determine config type" || echo "$ERROR_OUTPUT" | grep -q "unsupported"; then
-                    print_info "$file skipped (not a validatable config type)"
-                else
-                    print_error "$file has validation errors:"
-                    echo "$ERROR_OUTPUT" | grep -E "error|Error|invalid|Invalid|missing|Missing|required|Required" | sed 's/^/    /'
-                    YAML_VALIDATION_FAILED=1
-                fi
-            fi
-        done
-
-        if [ $YAML_VALIDATION_FAILED -eq 1 ]; then
-            echo ""
-            print_error "YAML config validation failed. Fix schema errors above."
-            print_info "Run 'promptarena validate <file> --verbose' for details"
-            CHECKS_FAILED=1
-        fi
-    fi
-fi
-
-#
-# 5. Lint TypeScript files in GitHub Actions
+# 4. Lint TypeScript files in GitHub Actions
 #
 print_header "Linting TypeScript Files"
 

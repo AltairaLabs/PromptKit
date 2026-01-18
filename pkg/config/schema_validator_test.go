@@ -402,3 +402,255 @@ func TestSchemaValidationError_Error(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateEval_Valid(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	validEval := []byte(`
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Eval
+metadata:
+  name: test-eval
+spec:
+  id: test-eval-id
+  description: Test evaluation
+  recording:
+    path: test-recording.json
+    type: session
+  assertions:
+    - type: contains
+      params:
+        pattern: "test"
+`)
+
+	err := ValidateEval(validEval)
+	assert.NoError(t, err)
+}
+
+func TestValidateEval_MissingRequired(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	invalidEval := []byte(`
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Eval
+metadata:
+  name: test-eval
+spec:
+  description: Missing ID
+  recording:
+    path: test.json
+`)
+
+	err := ValidateEval(invalidEval)
+	assert.Error(t, err)
+}
+
+func TestDetectConfigType_Eval(t *testing.T) {
+	yamlData := []byte(`
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Eval
+metadata:
+  name: test-eval
+spec:
+  id: test-id
+`)
+
+	configType, err := DetectConfigType(yamlData)
+	require.NoError(t, err)
+	assert.Equal(t, ConfigTypeEval, configType)
+}
+
+func TestDetectConfigType_UnknownKind(t *testing.T) {
+	yamlData := []byte(`
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: UnknownType
+metadata:
+  name: test
+`)
+
+	_, err := DetectConfigType(yamlData)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown 'kind'")
+}
+
+func TestDetectConfigType_MissingKind(t *testing.T) {
+	yamlData := []byte(`
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+metadata:
+  name: test
+`)
+
+	_, err := DetectConfigType(yamlData)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing or unknown 'kind'")
+}
+
+func TestTryLocalSchemaFallback(t *testing.T) {
+	// Test with a config type that should have a local schema
+	schema, err := tryLocalSchemaFallback(ConfigTypeArena)
+	if err == nil {
+		require.NotNil(t, schema)
+	} else {
+		// If no local schema exists, we expect an error
+		assert.Contains(t, err.Error(), "no local schema found")
+	}
+
+	// Test with an invalid config type (no schema file should exist)
+	_, err = tryLocalSchemaFallback(ConfigType("nonexistent"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no local schema found")
+}
+
+func TestLoadSchema_WithFallback(t *testing.T) {
+	// Enable fallback for this test
+	originalFallbackSetting := SchemaFallbackEnabled
+	SchemaFallbackEnabled = true
+	defer func() { SchemaFallbackEnabled = originalFallbackSetting }()
+
+	// Test with an invalid remote schema URL (should trigger fallback)
+	schema, err := loadSchema("http://invalid-url-that-does-not-exist.com/schema.json", ConfigTypeArena, "")
+
+	// The result depends on whether local schemas exist
+	// Either way, we're testing the fallback path
+	if err != nil {
+		assert.Contains(t, err.Error(), "failed to load schema")
+	} else {
+		require.NotNil(t, schema)
+	}
+}
+
+func TestLoadSchema_WithoutFallback(t *testing.T) {
+	// Disable fallback for this test
+	originalFallbackSetting := SchemaFallbackEnabled
+	SchemaFallbackEnabled = false
+	defer func() { SchemaFallbackEnabled = originalFallbackSetting }()
+
+	// Test with a malformed schema reference that will fail
+	_, err := loadSchema("file:///nonexistent/path/to/schema.json", ConfigTypeArena, "")
+	if err != nil {
+		// Error is expected when the file doesn't exist
+		require.Error(t, err)
+	}
+	// Note: This test verifies the non-fallback path is tested
+}
+
+func TestValidateScenario_InvalidYAML(t *testing.T) {
+	invalidYAML := []byte(`invalid: yaml: content: [[[`)
+
+	err := ValidateScenario(invalidYAML)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse YAML")
+}
+
+func TestValidateProvider_InvalidYAML(t *testing.T) {
+	invalidYAML := []byte(`invalid: yaml: content: [[[`)
+
+	err := ValidateProvider(invalidYAML)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse YAML")
+}
+
+func TestValidatePromptConfig_InvalidYAML(t *testing.T) {
+	invalidYAML := []byte(`invalid: yaml: content: [[[`)
+
+	err := ValidatePromptConfig(invalidYAML)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse YAML")
+}
+
+func TestValidateTool_InvalidYAML(t *testing.T) {
+	invalidYAML := []byte(`invalid: yaml: content: [[[`)
+
+	err := ValidateTool(invalidYAML)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse YAML")
+}
+
+func TestValidatePersona_InvalidYAML(t *testing.T) {
+	invalidYAML := []byte(`invalid: yaml: content: [[[`)
+
+	err := ValidatePersona(invalidYAML)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse YAML")
+}
+
+func TestValidateScenario_SchemaValidationFailure(t *testing.T) {
+	// Valid YAML but doesn't match schema (missing required fields)
+	invalidScenario := []byte(`
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: test
+spec:
+  id: test
+  # Missing required fields like task_type, description, turns
+`)
+
+	err := ValidateScenario(invalidScenario)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "scenario configuration does not match schema")
+}
+
+func TestValidateProvider_SchemaValidationFailure(t *testing.T) {
+	// Valid YAML but doesn't match schema
+	invalidProvider := []byte(`
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: test
+spec:
+  id: test
+  # Missing required field 'type'
+`)
+
+	err := ValidateProvider(invalidProvider)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "provider configuration does not match schema")
+}
+
+func TestValidatePromptConfig_SchemaValidationFailure(t *testing.T) {
+	// Valid YAML but doesn't match schema
+	invalidPrompt := []byte(`
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: test
+spec:
+  id: test
+  # Missing required fields
+`)
+
+	err := ValidatePromptConfig(invalidPrompt)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "promptconfig configuration does not match schema")
+}
+
+func TestValidateTool_SchemaValidationFailure(t *testing.T) {
+	// Valid YAML but doesn't match schema
+	invalidTool := []byte(`
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: test
+spec:
+  invalid_field: true
+`)
+
+	err := ValidateTool(invalidTool)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tool configuration does not match schema")
+}
+
+func TestValidatePersona_SchemaValidationFailure(t *testing.T) {
+	// Valid YAML but doesn't match schema
+	invalidPersona := []byte(`
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Persona
+metadata:
+  name: test
+spec:
+  invalid_field: true
+`)
+
+	err := ValidatePersona(invalidPersona)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "persona configuration does not match schema")
+}

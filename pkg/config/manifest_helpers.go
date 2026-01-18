@@ -67,3 +67,43 @@ func (c *ProviderConfigK8s) GetName() string {
 func (c *ProviderConfigK8s) SetID(id string) {
 	c.Spec.ID = id
 }
+
+// GetAPIVersion returns the API version for EvalConfig
+func (c *EvalConfig) GetAPIVersion() string {
+	return c.APIVersion
+}
+
+// GetKind returns the kind for EvalConfig
+func (c *EvalConfig) GetKind() string {
+	return c.Kind
+}
+
+// GetName returns the metadata name for EvalConfig
+func (c *EvalConfig) GetName() string {
+	return c.Metadata.Name
+}
+
+// SetID sets the ID in the spec for EvalConfig
+func (c *EvalConfig) SetID(id string) {
+	c.Spec.ID = id
+}
+
+// GetAPIVersion returns the API version for EvalConfigK8s
+func (c *EvalConfigK8s) GetAPIVersion() string {
+	return c.APIVersion
+}
+
+// GetKind returns the kind for EvalConfigK8s
+func (c *EvalConfigK8s) GetKind() string {
+	return c.Kind
+}
+
+// GetName returns the metadata name for EvalConfigK8s
+func (c *EvalConfigK8s) GetName() string {
+	return c.Metadata.Name
+}
+
+// SetID sets the ID in the spec for EvalConfigK8s
+func (c *EvalConfigK8s) SetID(id string) {
+	c.Spec.ID = id
+}

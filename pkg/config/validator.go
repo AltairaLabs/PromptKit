@@ -55,6 +55,7 @@ func (v *ConfigValidator) Validate() error {
 	v.validatePromptConfigs()
 	v.validateProviders()
 	v.validateScenarios()
+	v.validateEvals()
 	v.validatePersonas()
 	v.validateSelfPlay()
 	v.validateJudges()
@@ -154,8 +155,8 @@ func (v *ConfigValidator) validateProviders() {
 
 // validateScenarios validates scenario file references
 func (v *ConfigValidator) validateScenarios() {
-	if len(v.config.Scenarios) == 0 {
-		v.warns = append(v.warns, "no scenarios defined")
+	if len(v.config.Scenarios) == 0 && len(v.config.Evals) == 0 {
+		v.warns = append(v.warns, "no scenarios or evals defined")
 		return
 	}
 
@@ -174,6 +175,31 @@ func (v *ConfigValidator) validateScenarios() {
 		}
 		if _, err := os.Stat(checkPath); os.IsNotExist(err) {
 			v.errors = append(v.errors, fmt.Errorf("scenario file not found: %s", scenario.File))
+		}
+	}
+}
+
+// validateEvals validates eval file references
+func (v *ConfigValidator) validateEvals() {
+	if len(v.config.Evals) == 0 {
+		return
+	}
+
+	seen := make(map[string]bool)
+	for _, eval := range v.config.Evals {
+		// Check for duplicates
+		if seen[eval.File] {
+			v.warns = append(v.warns, fmt.Sprintf("duplicate eval file: %s", eval.File))
+		}
+		seen[eval.File] = true
+
+		// Validate file exists - resolve relative to config path
+		checkPath := eval.File
+		if v.configPath != "" {
+			checkPath = ResolveFilePath(v.configPath, eval.File)
+		}
+		if _, err := os.Stat(checkPath); os.IsNotExist(err) {
+			v.errors = append(v.errors, fmt.Errorf("eval file not found: %s", eval.File))
 		}
 	}
 }
