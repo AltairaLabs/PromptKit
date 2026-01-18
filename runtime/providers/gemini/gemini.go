@@ -134,6 +134,11 @@ type geminiSafetyRating struct {
 func convertMessagesToGeminiContents(messages []types.Message) []geminiContent {
 	contents := make([]geminiContent, 0, len(messages))
 	for i := range messages {
+		// Skip system role messages - they should be in systemPrompt parameter
+		if messages[i].Role == roleSystem {
+			continue
+		}
+
 		role := messages[i].Role
 		// Gemini uses "user" and "model" roles
 		if role == roleAssistant {

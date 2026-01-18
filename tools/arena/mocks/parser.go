@@ -197,6 +197,16 @@ func convertSinglePart(p types.ContentPart) (mock.ContentPart, bool, error) {
 				URL: *p.Media.URL,
 			},
 		}, true, nil
+	case types.ContentTypeDocument:
+		if p.Media == nil || p.Media.URL == nil {
+			return mock.ContentPart{}, false, nil
+		}
+		return mock.ContentPart{
+			Type: types.ContentTypeDocument,
+			DocumentURL: &mock.DocumentURL{
+				URL: *p.Media.URL,
+			},
+		}, true, nil
 	default:
 		return mock.ContentPart{}, false, fmt.Errorf("unsupported content part type: %s", p.Type)
 	}

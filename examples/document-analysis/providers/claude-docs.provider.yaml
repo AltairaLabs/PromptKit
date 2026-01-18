@@ -1,0 +1,14 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: claude-docs
+spec:
+  id: "claude-docs"
+  type: claude
+  model: claude-3-5-haiku-20241022
+  include_raw_output: true
+  # API key loaded from env: ANTHROPIC_API_KEY
+  defaults:
+    temperature: 0.7
+    max_tokens: 2000
+    top_p: 1.0

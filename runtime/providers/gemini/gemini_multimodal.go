@@ -17,6 +17,7 @@ import (
 const (
 	roleAssistant          = "assistant"
 	roleModel              = "model"
+	roleSystem             = "system"
 	finishReasonMaxTokens  = "MAX_TOKENS"
 	finishReasonSafety     = "SAFETY"
 	finishReasonRecitation = "RECITATION"
@@ -24,11 +25,12 @@ const (
 
 // GetMultimodalCapabilities returns Gemini's multimodal support capabilities
 func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
-	// Gemini supports images, audio, and video
+	// Gemini supports images, audio, video, and documents (PDF)
 	return providers.MultimodalCapabilities{
-		SupportsImages: true,
-		SupportsAudio:  true,
-		SupportsVideo:  true,
+		SupportsImages:    true,
+		SupportsAudio:     true,
+		SupportsVideo:     true,
+		SupportsDocuments: true,
 		ImageFormats: []string{
 			types.MIMETypeImageJPEG,
 			types.MIMETypeImagePNG,
@@ -56,9 +58,13 @@ func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities 
 			"video/wmv",
 			"video/3gpp",
 		},
-		MaxImageSizeMB: 20,
-		MaxAudioSizeMB: 20,
-		MaxVideoSizeMB: 20,
+		DocumentFormats: []string{
+			types.MIMETypePDF,
+		},
+		MaxImageSizeMB:    20, //nolint:mnd // Gemini's documented media size limit
+		MaxAudioSizeMB:    20, //nolint:mnd // Gemini's documented media size limit
+		MaxVideoSizeMB:    20, //nolint:mnd // Gemini's documented media size limit
+		MaxDocumentSizeMB: 20, //nolint:mnd // Gemini's documented media size limit
 	}
 }
 
@@ -98,8 +104,13 @@ func convertMessagesToGemini(messages []types.Message, systemPrompt string) (con
 		}
 	}
 
-	// Convert each message
+	// Convert each message, skipping system role messages
 	for i := range messages {
+		// Skip system role messages - they should be in systemPrompt parameter
+		if messages[i].Role == roleSystem {
+			continue
+		}
+
 		content, err := convertMessageToGemini(messages[i])
 		if err != nil {
 			return nil, nil, err
@@ -155,7 +166,7 @@ func convertPartToGemini(part types.ContentPart) (geminiPart, error) {
 		}
 		return geminiPart{Text: *part.Text}, nil
 
-	case types.ContentTypeImage, types.ContentTypeAudio, types.ContentTypeVideo:
+	case types.ContentTypeImage, types.ContentTypeAudio, types.ContentTypeVideo, types.ContentTypeDocument:
 		return convertMediaPartToGemini(part)
 
 	default:
@@ -163,7 +174,7 @@ func convertPartToGemini(part types.ContentPart) (geminiPart, error) {
 	}
 }
 
-// convertMediaPartToGemini converts image/audio/video parts to Gemini format
+// convertMediaPartToGemini converts image/audio/video/document parts to Gemini format
 func convertMediaPartToGemini(part types.ContentPart) (geminiPart, error) {
 	if part.Media == nil {
 		return geminiPart{}, fmt.Errorf("%s part missing media field", part.Type)

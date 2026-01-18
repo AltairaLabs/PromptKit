@@ -28,8 +28,9 @@ const (
 	errStorageReturnedNoData = "storage returned media without data"
 
 	// Content type constants
-	contentTypeAudio = "audio"
-	contentTypeVideo = "video"
+	contentTypeAudio    = "audio"
+	contentTypeVideo    = "video"
+	contentTypeDocument = "document"
 
 	// HTTP constants
 	maxRedirects = 10
@@ -112,6 +113,8 @@ func convertSinglePart(
 		return convertAudioPart(ctx, turnPart, baseDir, httpLoader, storageService, index)
 	case contentTypeVideo:
 		return convertVideoPart(ctx, turnPart, baseDir, httpLoader, storageService, index)
+	case contentTypeDocument:
+		return convertDocumentPart(ctx, turnPart, baseDir, httpLoader, storageService, index)
 	default:
 		return types.ContentPart{}, NewValidationError(
 			index, "unknown", "", fmt.Sprintf("unsupported content part type: %s", turnPart.Type))
@@ -185,6 +188,8 @@ func convertMediaPart(
 			mediaType = types.ContentTypeAudio
 		case contentTypeVideo:
 			mediaType = types.ContentTypeVideo
+		case contentTypeDocument:
+			mediaType = types.ContentTypeDocument
 		default:
 			mediaType = cfg.contentType
 		}
@@ -333,7 +338,10 @@ func loadImageFromFile(filePath, baseDir, detail string, index int) (types.Conte
 	}
 
 	detailPtr := parseDetailLevel(detail)
-	return types.NewImagePartFromData(data, mimeType, detailPtr), nil
+	part := types.NewImagePartFromData(data, mimeType, detailPtr)
+	// Preserve file path for HTML report display
+	part.Media.FilePath = &filePath
+	return part, nil
 }
 
 // loadAudioFromFile loads audio from disk and returns a content part.
@@ -360,7 +368,10 @@ func loadAudioFromFile(filePath, baseDir string, index int) (types.ContentPart, 
 		mimeType = "audio/wav"
 	}
 
-	return types.NewAudioPartFromData(data, mimeType), nil
+	part := types.NewAudioPartFromData(data, mimeType)
+	// Preserve file path for HTML report display
+	part.Media.FilePath = &filePath
+	return part, nil
 }
 
 // wrapPCMInWAV wraps raw PCM audio data in a WAV header for playability.
@@ -411,6 +422,41 @@ func loadVideoFromFile(filePath, baseDir string, index int) (types.ContentPart, 
 	}
 
 	return types.NewVideoPartFromData(data, mimeType), nil
+}
+
+// convertDocumentPart converts a document content part, loading from storage reference, file, or URL if needed
+func convertDocumentPart(
+	ctx context.Context,
+	turnPart config.TurnContentPart,
+	baseDir string,
+	httpLoader *HTTPMediaLoader,
+	storageService storage.MediaStorageService,
+	index int,
+) (types.ContentPart, error) {
+	cfg := mediaConversionConfig{
+		turnPart:       turnPart,
+		baseDir:        baseDir,
+		httpLoader:     httpLoader,
+		storageService: storageService,
+		index:          index,
+		contentType:    contentTypeDocument,
+	}
+	return convertMediaPart(ctx, &cfg, types.NewDocumentPartFromData, loadDocumentFromFile)
+}
+
+// loadDocumentFromFile loads a document from disk and returns a content part
+func loadDocumentFromFile(filePath, baseDir string, index int) (types.ContentPart, error) {
+	fullPath := resolveFilePath(filePath, baseDir)
+
+	data, mimeType, err := loadMediaFile(fullPath, "document", index)
+	if err != nil {
+		return types.ContentPart{}, err
+	}
+
+	part := types.NewDocumentPartFromData(data, mimeType)
+	// Preserve file path for HTML report display
+	part.Media.FilePath = &filePath
+	return part, nil
 }
 
 // loadMediaFromURL fetches media from an HTTP/HTTPS URL and returns base64-encoded data and MIME type
@@ -533,6 +579,9 @@ func detectMIMEType(filePath string) string {
 		".mp4":  types.MIMETypeVideoMP4,
 		".webm": types.MIMETypeVideoWebM,
 		".mov":  "video/quicktime", // Not defined in types package
+
+		// Documents
+		".pdf": "application/pdf",
 	}
 
 	if mimeType, ok := mimeTypes[ext]; ok {

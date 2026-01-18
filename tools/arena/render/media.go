@@ -53,6 +53,12 @@ func renderMediaSummaryBadge(summary *types.MediaSummary) string {
 				summary.VideoParts, summary.VideoParts))
 	}
 
+	if summary.DocumentParts > 0 {
+		badges = append(badges,
+			fmt.Sprintf(`<span class="media-badge document" title="%d document(s)">📄 %d</span>`,
+				summary.DocumentParts, summary.DocumentParts))
+	}
+
 	if len(badges) == 0 {
 		return ""
 	}
@@ -326,6 +332,9 @@ func getMediaSummaryFromParts(parts []types.ContentPart) *types.MediaSummary {
 		case types.ContentTypeVideo:
 			summary.VideoParts++
 			summary.MediaItems = append(summary.MediaItems, getMediaItemSummaryFromPart(part))
+		case types.ContentTypeDocument:
+			summary.DocumentParts++
+			summary.MediaItems = append(summary.MediaItems, getMediaItemSummaryFromPart(part))
 		}
 	}
 
@@ -398,6 +407,8 @@ func getMediaTypeIcon(mediaType string) string {
 		return "🎵"
 	case types.ContentTypeVideo:
 		return "🎬"
+	case types.ContentTypeDocument:
+		return "📄"
 	default:
 		return "📎"
 	}

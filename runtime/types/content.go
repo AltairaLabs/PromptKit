@@ -49,10 +49,11 @@ type MediaContent struct {
 
 // ContentType constants for different content part types
 const (
-	ContentTypeText  = "text"
-	ContentTypeImage = "image"
-	ContentTypeAudio = "audio"
-	ContentTypeVideo = "video"
+	ContentTypeText     = "text"
+	ContentTypeImage    = "image"
+	ContentTypeAudio    = "audio"
+	ContentTypeVideo    = "video"
+	ContentTypeDocument = "document"
 )
 
 // Common MIME types
@@ -70,6 +71,15 @@ const (
 	MIMETypeVideoMP4  = "video/mp4"
 	MIMETypeVideoWebM = "video/webm"
 	MIMETypeVideoOgg  = "video/ogg"
+
+	MIMETypePDF       = "application/pdf"
+	MIMETypeDocx      = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	MIMETypeDoc       = "application/msword"
+	MIMETypeMarkdown  = "text/markdown"
+	MIMETypePlainText = "text/plain"
+	MIMETypeCSV       = "text/csv"
+	MIMETypeJSON      = "application/json"
+	MIMETypeXML       = "application/xml"
 )
 
 // NewTextPart creates a ContentPart with text content
@@ -176,6 +186,33 @@ func NewVideoPartFromData(base64Data, mimeType string) ContentPart {
 	}
 }
 
+// NewDocumentPart creates a ContentPart with document content from a file path
+func NewDocumentPart(filePath string) (ContentPart, error) {
+	mimeType, err := inferMIMEType(filePath)
+	if err != nil {
+		return ContentPart{}, err
+	}
+
+	return ContentPart{
+		Type: ContentTypeDocument,
+		Media: &MediaContent{
+			FilePath: &filePath,
+			MIMEType: mimeType,
+		},
+	}, nil
+}
+
+// NewDocumentPartFromData creates a ContentPart with base64-encoded document data
+func NewDocumentPartFromData(base64Data, mimeType string) ContentPart {
+	return ContentPart{
+		Type: ContentTypeDocument,
+		Media: &MediaContent{
+			Data:     &base64Data,
+			MIMEType: mimeType,
+		},
+	}
+}
+
 // Validate checks if the ContentPart is valid
 func (cp *ContentPart) Validate() error {
 	switch cp.Type {
@@ -183,7 +220,7 @@ func (cp *ContentPart) Validate() error {
 		if cp.Text == nil || *cp.Text == "" {
 			return fmt.Errorf("text content part must have non-empty text")
 		}
-	case ContentTypeImage, ContentTypeAudio, ContentTypeVideo:
+	case ContentTypeImage, ContentTypeAudio, ContentTypeVideo, ContentTypeDocument:
 		if cp.Media == nil {
 			return fmt.Errorf("%s content part must have media content", cp.Type)
 		}
@@ -313,6 +350,24 @@ func inferMIMEType(filePath string) (string, error) {
 		return MIMETypeVideoWebM, nil
 	case ".ogv":
 		return MIMETypeVideoOgg, nil
+
+	// Documents
+	case ".pdf":
+		return MIMETypePDF, nil
+	case ".docx":
+		return MIMETypeDocx, nil
+	case ".doc":
+		return MIMETypeDoc, nil
+	case ".md", ".markdown":
+		return MIMETypeMarkdown, nil
+	case ".txt":
+		return MIMETypePlainText, nil
+	case ".csv":
+		return MIMETypeCSV, nil
+	case ".json":
+		return MIMETypeJSON, nil
+	case ".xml":
+		return MIMETypeXML, nil
 
 	default:
 		return "", fmt.Errorf("unsupported file extension: %s", ext)

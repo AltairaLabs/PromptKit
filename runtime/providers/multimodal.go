@@ -8,15 +8,18 @@ import (
 
 // MultimodalCapabilities describes what types of multimodal content a provider supports
 type MultimodalCapabilities struct {
-	SupportsImages bool     // Provider can process image inputs
-	SupportsAudio  bool     // Provider can process audio inputs
-	SupportsVideo  bool     // Provider can process video inputs
-	ImageFormats   []string // Supported image MIME types (e.g., "image/jpeg", "image/png")
-	AudioFormats   []string // Supported audio MIME types (e.g., "audio/mpeg", "audio/wav")
-	VideoFormats   []string // Supported video MIME types (e.g., "video/mp4")
-	MaxImageSizeMB int      // Maximum image size in megabytes (0 = unlimited/unknown)
-	MaxAudioSizeMB int      // Maximum audio size in megabytes (0 = unlimited/unknown)
-	MaxVideoSizeMB int      // Maximum video size in megabytes (0 = unlimited/unknown)
+	SupportsImages    bool     // Provider can process image inputs
+	SupportsAudio     bool     // Provider can process audio inputs
+	SupportsVideo     bool     // Provider can process video inputs
+	SupportsDocuments bool     // Provider can process document inputs (PDF, etc.)
+	ImageFormats      []string // Supported image MIME types (e.g., "image/jpeg", "image/png")
+	AudioFormats      []string // Supported audio MIME types (e.g., "audio/mpeg", "audio/wav")
+	VideoFormats      []string // Supported video MIME types (e.g., "video/mp4")
+	DocumentFormats   []string // Supported document MIME types (e.g., "application/pdf")
+	MaxImageSizeMB    int      // Maximum image size in megabytes (0 = unlimited/unknown)
+	MaxAudioSizeMB    int      // Maximum audio size in megabytes (0 = unlimited/unknown)
+	MaxVideoSizeMB    int      // Maximum video size in megabytes (0 = unlimited/unknown)
+	MaxDocumentSizeMB int      // Maximum document size in megabytes (0 = unlimited/unknown)
 }
 
 // ImageDetail specifies the level of detail for image processing
@@ -95,6 +98,15 @@ func HasVideoSupport(p Provider) bool {
 	return mp.GetMultimodalCapabilities().SupportsVideo
 }
 
+// HasDocumentSupport checks if a provider supports document inputs
+func HasDocumentSupport(p Provider) bool {
+	mp := GetMultimodalProvider(p)
+	if mp == nil {
+		return false
+	}
+	return mp.GetMultimodalCapabilities().SupportsDocuments
+}
+
 // IsFormatSupported checks if a provider supports a specific media format (MIME type)
 func IsFormatSupported(p Provider, contentType, mimeType string) bool {
 	mp := GetMultimodalProvider(p)
@@ -121,6 +133,11 @@ func IsFormatSupported(p Provider, contentType, mimeType string) bool {
 			return false
 		}
 		formats = caps.VideoFormats
+	case types.ContentTypeDocument:
+		if !caps.SupportsDocuments {
+			return false
+		}
+		formats = caps.DocumentFormats
 	default:
 		return false
 	}

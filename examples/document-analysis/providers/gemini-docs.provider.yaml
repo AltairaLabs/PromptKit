@@ -1,0 +1,14 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: gemini-docs
+spec:
+  id: "gemini-docs"
+  type: gemini
+  model: gemini-2.5-flash
+  include_raw_output: true
+  # API key loaded from env: GEMINI_API_KEY
+  defaults:
+    temperature: 0.7
+    max_tokens: 2000
+    top_p: 1.0

@@ -10,6 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 func TestWithModel(t *testing.T) {
@@ -219,6 +220,27 @@ func TestSendOptions(t *testing.T) {
 
 	t.Run("WithFile", func(t *testing.T) {
 		opt := WithFile("doc.pdf", []byte("pdf content"))
+		assert.NotNil(t, opt)
+
+		cfg := &sendConfig{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+		assert.Equal(t, 1, len(cfg.parts))
+	})
+
+	t.Run("WithDocumentFile", func(t *testing.T) {
+		opt := WithDocumentFile("/path/to/document.pdf")
+		assert.NotNil(t, opt)
+
+		cfg := &sendConfig{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+		assert.Equal(t, 1, len(cfg.parts))
+	})
+
+	t.Run("WithDocumentData", func(t *testing.T) {
+		data := []byte("fake pdf data")
+		opt := WithDocumentData(data, types.MIMETypePDF)
 		assert.NotNil(t, opt)
 
 		cfg := &sendConfig{}

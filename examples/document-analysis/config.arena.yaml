@@ -1,0 +1,29 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: document-analysis
+spec:
+  prompt_configs:
+    - id: document-analyzer
+      file: prompts/document-analyzer.yaml
+
+  providers:
+    - file: providers/claude-docs.provider.yaml
+    - file: providers/gemini-docs.provider.yaml
+    - file: providers/mock-docs.provider.yaml
+
+  scenarios:
+    - file: scenarios/pdf-summary.scenario.yaml
+    - file: scenarios/multi-doc-compare.scenario.yaml
+    # Mixed-media scenario disabled - image loading issues
+    # - file: scenarios/mixed-media.scenario.yaml
+
+  defaults:
+    temperature: 0.7
+    max_tokens: 2000
+    concurrency: 2
+    output:
+      dir: out
+      formats: ["json", "html"]
+      html:
+        file: document-report.html
