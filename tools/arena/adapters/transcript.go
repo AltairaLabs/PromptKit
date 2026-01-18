@@ -172,39 +172,17 @@ func (a *TranscriptAdapter) convertContentPart(part TranscriptContentPart) types
 }
 
 // convertTranscriptMedia converts a TranscriptMediaPart to types.MediaContent.
-//
-//nolint:dupl // Media conversion logic is similar across adapters but types differ
 func (a *TranscriptAdapter) convertTranscriptMedia(media *TranscriptMediaPart) *types.MediaContent {
-	result := &types.MediaContent{
+	return convertMediaToContent(&MediaSource{
 		MIMEType: media.MIMEType,
-	}
-
-	// Handle different data sources
-	if media.Data != "" {
-		result.Data = &media.Data
-	} else if media.URI != "" {
-		result.URL = &media.URI
-	} else if media.Path != "" {
-		result.FilePath = &media.Path
-	}
-
-	// Copy media-specific fields
-	if media.Size > 0 {
-		sizeKB := media.Size / bytesPerKB
-		result.SizeKB = &sizeKB
-	}
-	if media.Width > 0 {
-		result.Width = &media.Width
-	}
-	if media.Height > 0 {
-		result.Height = &media.Height
-	}
-	if media.Duration > 0 {
-		durationSec := int(media.Duration / millisecondsPerS)
-		result.Duration = &durationSec
-	}
-
-	return result
+		Data:     media.Data,
+		URI:      media.URI,
+		Path:     media.Path,
+		Size:     media.Size,
+		Width:    media.Width,
+		Height:   media.Height,
+		Duration: media.Duration,
+	})
 }
 
 // TranscriptFile represents the structure of a *.transcript.yaml file.

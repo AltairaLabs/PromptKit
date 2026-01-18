@@ -56,3 +56,55 @@ type ProviderSpec struct {
 	Model string `json:"model" yaml:"model"`
 	ID    string `json:"id" yaml:"id"`
 }
+
+const (
+	bytesPerKB       = 1024
+	millisecondsPerS = 1000
+)
+
+// MediaSource defines the source data for media content conversion.
+type MediaSource struct {
+	MIMEType string
+	Data     string
+	URI      string
+	Path     string
+	Size     int64
+	Width    int
+	Height   int
+	Duration int64 // milliseconds
+}
+
+// convertMediaToContent converts a MediaSource to types.MediaContent.
+// This is a shared helper to avoid duplication across adapters.
+func convertMediaToContent(media *MediaSource) *types.MediaContent {
+	result := &types.MediaContent{
+		MIMEType: media.MIMEType,
+	}
+
+	// Handle different data sources
+	if media.Data != "" {
+		result.Data = &media.Data
+	} else if media.URI != "" {
+		result.URL = &media.URI
+	} else if media.Path != "" {
+		result.FilePath = &media.Path
+	}
+
+	// Copy media-specific fields
+	if media.Size > 0 {
+		sizeKB := media.Size / bytesPerKB
+		result.SizeKB = &sizeKB
+	}
+	if media.Width > 0 {
+		result.Width = &media.Width
+	}
+	if media.Height > 0 {
+		result.Height = &media.Height
+	}
+	if media.Duration > 0 {
+		durationSec := int(media.Duration / millisecondsPerS)
+		result.Duration = &durationSec
+	}
+
+	return result
+}

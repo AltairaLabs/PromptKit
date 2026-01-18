@@ -9,11 +9,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-const (
-	bytesPerKB       = 1024
-	millisecondsPerS = 1000
-)
-
 // SessionRecordingAdapter loads PromptKit session recordings (*.recording.json).
 type SessionRecordingAdapter struct{}
 
@@ -145,39 +140,17 @@ func (a *SessionRecordingAdapter) convertContentPart(part RecordedContentPart) t
 }
 
 // convertMediaPart converts a RecordedMediaPart to types.MediaContent.
-//
-//nolint:dupl // Media conversion logic is similar across adapters but types differ
 func (a *SessionRecordingAdapter) convertMediaPart(media *RecordedMediaPart) *types.MediaContent {
-	result := &types.MediaContent{
+	return convertMediaToContent(&MediaSource{
 		MIMEType: media.MIMEType,
-	}
-
-	// Handle different data sources
-	if media.Data != "" {
-		result.Data = &media.Data
-	} else if media.URI != "" {
-		result.URL = &media.URI
-	} else if media.Path != "" {
-		result.FilePath = &media.Path
-	}
-
-	// Copy media-specific fields
-	if media.Size > 0 {
-		sizeKB := media.Size / bytesPerKB
-		result.SizeKB = &sizeKB
-	}
-	if media.Width > 0 {
-		result.Width = &media.Width
-	}
-	if media.Height > 0 {
-		result.Height = &media.Height
-	}
-	if media.Duration > 0 {
-		durationSec := int(media.Duration / millisecondsPerS)
-		result.Duration = &durationSec
-	}
-
-	return result
+		Data:     media.Data,
+		URI:      media.URI,
+		Path:     media.Path,
+		Size:     media.Size,
+		Width:    media.Width,
+		Height:   media.Height,
+		Duration: media.Duration,
+	})
 }
 
 // SessionRecordingFile represents the structure of a *.recording.json file.
