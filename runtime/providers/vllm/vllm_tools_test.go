@@ -13,7 +13,6 @@ import (
 
 func TestBuildTooling(t *testing.T) {
 	p := NewProvider("vllm-test", "test-model", "http://localhost:8000", providers.ProviderDefaults{}, false, nil)
-	
 
 	tests := []struct {
 		name     string
@@ -155,7 +154,6 @@ func TestPredictWithTools_Success(t *testing.T) {
 
 	// Create provider
 	p := NewProvider("vllm-test", "test-model", server.URL, providers.ProviderDefaults{}, false, nil)
-	
 
 	// Build tools
 	tools, err := p.BuildTooling([]*providers.ToolDescriptor{
@@ -242,7 +240,6 @@ func TestPredictWithTools_NoTools(t *testing.T) {
 
 	// Create provider
 	p := NewProvider("vllm-test", "test-model", server.URL, providers.ProviderDefaults{}, false, nil)
-	
 
 	// Make prediction without tools
 	req := providers.PredictionRequest{
@@ -291,7 +288,6 @@ data: [DONE]
 
 	// Create provider
 	p := NewProvider("vllm-test", "test-model", server.URL, providers.ProviderDefaults{}, false, nil)
-	
 
 	// Build tools
 	tools, err := p.BuildTooling([]*providers.ToolDescriptor{
@@ -375,7 +371,6 @@ func TestPredictWithTools_HTTPError(t *testing.T) {
 	defer server.Close()
 
 	p := NewProvider("vllm-test", "test-model", server.URL, providers.ProviderDefaults{}, false, nil)
-	
 
 	tools, _ := p.BuildTooling([]*providers.ToolDescriptor{
 		{
@@ -404,7 +399,6 @@ func TestPredictStreamWithTools_HTTPError(t *testing.T) {
 	defer server.Close()
 
 	p := NewProvider("vllm-test", "test-model", server.URL, providers.ProviderDefaults{}, false, nil)
-	
 
 	tools, _ := p.BuildTooling([]*providers.ToolDescriptor{
 		{
@@ -452,13 +446,13 @@ func TestPredictWithTools_VLLMParams(t *testing.T) {
 
 	// Create provider with vLLM-specific config
 	additionalConfig := map[string]any{
-		"use_beam_search":      true,
-		"best_of":              3,
-		"ignore_eos":           true,
-		"skip_special_tokens":  true,
-		"guided_json":          map[string]interface{}{"type": "object"},
-		"guided_regex":         "test.*",
-		"guided_choice":        []string{"a", "b", "c"},
+		"use_beam_search":     true,
+		"best_of":             3,
+		"ignore_eos":          true,
+		"skip_special_tokens": true,
+		"guided_json":         map[string]interface{}{"type": "object"},
+		"guided_regex":        "test.*",
+		"guided_choice":       []string{"a", "b", "c"},
 	}
 	p := NewProvider("vllm-test", "test-model", server.URL, providers.ProviderDefaults{}, false, additionalConfig)
 

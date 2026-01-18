@@ -196,7 +196,7 @@ func TestPredictMultimodalStream_Success(t *testing.T) {
 		if chunk.Error != nil {
 			t.Errorf("Stream chunk error: %v", chunk.Error)
 		}
-		content += chunk.Content
+		content = chunk.Content
 	}
 
 	if content != "I see an image" {

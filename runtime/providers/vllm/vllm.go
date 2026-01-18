@@ -493,6 +493,7 @@ func (p *Provider) streamResponse(
 	defer body.Close()
 
 	scanner := providers.NewSSEScanner(body)
+	accumulated := "" // Track accumulated content
 
 	for scanner.Scan() {
 		select {
@@ -521,7 +522,9 @@ func (p *Provider) streamResponse(
 
 		// Send content chunk
 		if choice.Delta.Content != "" {
+			accumulated += choice.Delta.Content
 			outChan <- providers.StreamChunk{
+				Content:     accumulated,
 				Delta:       choice.Delta.Content,
 				DeltaTokens: 1,
 			}
@@ -531,6 +534,7 @@ func (p *Provider) streamResponse(
 		if choice.FinishReason != "" && chunk.Usage != nil {
 			costInfo := p.CalculateCost(chunk.Usage.PromptTokens, chunk.Usage.CompletionTokens, 0)
 			outChan <- providers.StreamChunk{
+				Content:      accumulated,
 				FinishReason: &choice.FinishReason,
 				CostInfo:     &costInfo,
 			}

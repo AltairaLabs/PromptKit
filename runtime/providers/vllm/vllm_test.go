@@ -506,20 +506,20 @@ func TestPredictStream_Success(t *testing.T) {
 		t.Fatalf("PredictStream failed: %v", err)
 	}
 
-	var content string
+	var lastContent string
 	var gotUsage bool
 	for chunk := range stream {
 		if chunk.Error != nil {
 			t.Errorf("Stream chunk error: %v", chunk.Error)
 		}
-		content += chunk.Content
+		lastContent = chunk.Content
 		if chunk.CostInfo != nil {
 			gotUsage = true
 		}
 	}
 
-	if content != "Hello world!" {
-		t.Errorf("Expected 'Hello world!', got '%s'", content)
+	if lastContent != "Hello world!" {
+		t.Errorf("Expected 'Hello world!', got '%s'", lastContent)
 	}
 	if !gotUsage {
 		t.Error("Expected to receive usage info in final chunk")
