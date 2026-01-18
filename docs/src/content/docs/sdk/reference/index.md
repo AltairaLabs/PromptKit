@@ -59,6 +59,62 @@ Override max tokens.
 sdk.WithMaxTokens(2000)
 ```
 
+### WithImageFile
+
+Attach an image from a file.
+
+```go
+sdk.WithImageFile("/path/to/image.png")
+```
+
+### WithImageURL
+
+Attach an image from a URL.
+
+```go
+sdk.WithImageURL("https://example.com/image.jpg")
+```
+
+### WithImageData
+
+Attach image from raw bytes.
+
+```go
+sdk.WithImageData(imageBytes, "image/png")
+```
+
+### WithDocumentFile
+
+Attach a PDF document from a file.
+
+```go
+sdk.WithDocumentFile("/path/to/document.pdf")
+```
+
+### WithDocumentData
+
+Attach a PDF document from raw bytes.
+
+```go
+sdk.WithDocumentData(pdfBytes, "application/pdf")
+```
+
+### WithAudioFile
+
+Attach an audio file.
+
+```go
+sdk.WithAudioFile("/path/to/audio.mp3")
+```
+
+### WithVideoFile
+
+Attach a video file.
+
+```go
+sdk.WithVideoFile("/path/to/video.mp4")
+```
+
 ## Conversation Type
 
 ### Send

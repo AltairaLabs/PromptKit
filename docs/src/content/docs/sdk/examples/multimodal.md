@@ -93,6 +93,38 @@ sdk.WithImageFile("/path/to/local/image.png")
 sdk.WithImageData(imageBytes, "image/png")
 ```
 
+## Document Input Options
+
+The SDK supports PDF document analysis:
+
+### From File
+```go
+sdk.WithDocumentFile("/path/to/document.pdf")
+```
+
+### From Raw Data
+```go
+sdk.WithDocumentData(pdfBytes, "application/pdf")
+```
+
+### Document Analysis Example
+
+```go
+resp, err := conv.Send(ctx, "Summarize this document",
+    sdk.WithDocumentFile("./report.pdf"),
+)
+if err != nil {
+    log.Fatalf("Error: %v", err)
+}
+fmt.Println(resp.Text())
+```
+
+### Provider Support
+
+- **Claude**: Supports PDFs up to 32MB (Haiku, Sonnet, Opus)
+- **Gemini**: Supports PDFs up to 20MB (Flash, Pro)
+- **OpenAI**: Document support varies by model
+
 ## Supported Providers
 
 Multimodal capabilities require a provider that supports vision:
