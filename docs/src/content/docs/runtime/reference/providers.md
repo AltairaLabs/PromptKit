@@ -13,6 +13,7 @@ PromptKit supports multiple LLM providers through a common interface:
 - **Anthropic Claude**: Claude 3.5 Sonnet, Claude 3 Opus, Claude 3 Haiku
 - **Google Gemini**: Gemini 1.5 Pro, Gemini 1.5 Flash
 - **Ollama**: Local LLMs (Llama, Mistral, LLaVA, DeepSeek)
+- **vLLM**: High-performance inference (GPU-accelerated, high-throughput)
 - **Mock**: Testing and development
 
 All providers implement the `Provider` interface for text completion and `ToolSupport` interface for function calling.
@@ -100,6 +101,7 @@ type MultimodalCapabilities struct {
 | Anthropic Claude 3.5 | ✅ | ❌ | ❌ | JPEG, PNG, GIF, WebP |
 | Google Gemini 1.5 | ✅ | ✅ | ✅ | Full multimodal support |
 | Ollama (LLaVA, Llama 3.2 Vision) | ✅ | ❌ | ❌ | JPEG, PNG, GIF, WebP |
+| vLLM (LLaVA, vision models) | ✅ | ❌ | ❌ | JPEG, PNG, GIF, WebP, 20MB limit |
 
 **Helper Functions**:
 
@@ -631,6 +633,274 @@ Then pull a model:
 docker exec ollama ollama pull llama3.2:1b
 ```
 
+## vLLM Provider
+
+High-throughput inference engine optimized for GPU-accelerated LLM serving. Supports guided decoding, advanced sampling strategies, and efficient batching for maximum performance.
+
+### Constructor
+
+```go
+func NewVLLMProvider(
+    id string,
+    model string,
+    baseURL string,
+    defaults ProviderDefaults,
+    includeRawOutput bool,
+    additionalConfig map[string]interface{},
+) *VLLMProvider
+```
+
+**Parameters**:
+- `id`: Provider identifier (e.g., "vllm-llama")
+- `model`: Model name served by vLLM (e.g., "meta-llama/Llama-3.2-1B-Instruct")
+- `baseURL`: vLLM server URL (default: `http://localhost:8000`)
+- `defaults`: Default parameters and pricing (typically zero cost for self-hosted)
+- `includeRawOutput`: Include raw API response in output
+- `additionalConfig`: vLLM-specific options (guided decoding, beam search, etc.)
+
+**Environment**:
+- No API key required (self-hosted inference)
+- `VLLM_API_KEY`: Optional API key if vLLM server configured with authentication
+
+**Example**:
+```go
+provider := vllm.NewVLLMProvider(
+    "vllm",
+    "meta-llama/Llama-3.2-1B-Instruct",
+    "http://localhost:8000",
+    vllm.DefaultProviderDefaults(),
+    false,
+    map[string]interface{}{
+        "use_beam_search": false,
+        "best_of":         1,
+    },
+)
+defer provider.Close()
+```
+
+### Supported Models
+
+Any model supported by vLLM from HuggingFace. Common models include:
+
+| Model | Context | Features | Cost |
+|-------|---------|----------|------|
+| `meta-llama/Llama-3.2-1B-Instruct` | 128K | Fast, compact | Free (self-hosted) |
+| `meta-llama/Llama-3.2-3B-Instruct` | 128K | Balanced | Free (self-hosted) |
+| `meta-llama/Llama-3.1-8B-Instruct` | 128K | High quality | Free (self-hosted) |
+| `mistralai/Mistral-7B-Instruct-v0.3` | 32K | Good performance | Free (self-hosted) |
+| `Qwen/Qwen2.5-7B-Instruct` | 128K | Multilingual | Free (self-hosted) |
+| `microsoft/Phi-3-mini-128k-instruct` | 128K | Efficient | Free (self-hosted) |
+| `llava-hf/llava-v1.6-mistral-7b-hf` | 4K | Vision support | Free (self-hosted) |
+
+Check [vLLM documentation](https://docs.vllm.ai/en/latest/models/supported_models.html) for full model compatibility list.
+
+### Features
+
+- ✅ Streaming support (SSE)
+- ✅ Function calling (tool use)
+- ✅ Multimodal (vision) - LLaVA and vision-capable models
+- ✅ GPU acceleration (CUDA, ROCm)
+- ✅ Guided decoding (JSON schema, regex, grammar)
+- ✅ Beam search for higher quality
+- ✅ Tensor parallelism for large models
+- ✅ PagedAttention for memory efficiency
+- ✅ Continuous batching for throughput
+- ✅ OpenAI-compatible API
+- ✅ Zero API costs (self-hosted)
+- ❌ No API key required
+
+### vLLM-Specific Parameters
+
+Additional configuration options beyond standard OpenAI parameters:
+
+```go
+additionalConfig := map[string]interface{}{
+    // Sampling & Quality
+    "use_beam_search":    false,      // Enable beam search (slower, higher quality)
+    "best_of":            1,          // Generate N candidates, return best
+    "ignore_eos":         false,      // Continue past EOS token
+    
+    // Guided Decoding
+    "guided_json":        jsonSchema, // Force JSON output matching schema
+    "guided_regex":       "^[0-9]+$", // Force output matching regex
+    "guided_choice":      []string{"yes", "no"}, // Force choice from options
+    "guided_grammar":     bnfGrammar, // Force output matching BNF grammar
+    "guided_whitespace_pattern": nil, // Custom whitespace handling
+}
+```
+
+**Example with Guided JSON**:
+```go
+// Force JSON output matching schema
+jsonSchema := `{
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"},
+        "age": {"type": "integer"}
+    },
+    "required": ["name", "age"]
+}`
+
+provider := vllm.NewVLLMProvider(
+    "vllm",
+    "meta-llama/Llama-3.2-3B-Instruct",
+    "http://localhost:8000",
+    vllm.DefaultProviderDefaults(),
+    false,
+    map[string]interface{}{
+        "guided_json": jsonSchema,
+    },
+)
+```
+
+### Tool Support
+
+```go
+toolProvider := vllm.NewVLLMToolProvider(
+    "vllm",
+    "meta-llama/Llama-3.2-1B-Instruct",
+    "http://localhost:8000",
+    vllm.DefaultProviderDefaults(),
+    false,
+    nil,
+)
+
+// Build tools in OpenAI format
+tools, err := toolProvider.BuildTooling(toolDescriptors)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Execute with tools
+response, toolCalls, err := toolProvider.PredictWithTools(
+    ctx,
+    req,
+    tools,
+    "auto",  // Tool choice: "auto", "required", "none", or specific tool name
+)
+```
+
+### Configuration via YAML
+
+```yaml
+spec:
+  id: "vllm-llama"
+  type: vllm
+  model: meta-llama/Llama-3.2-3B-Instruct
+  base_url: "http://localhost:8000"
+  additional_config:
+    use_beam_search: false
+    best_of: 1
+```
+
+### Docker Setup
+
+Run vLLM with Docker:
+
+```bash
+# CPU-only (for testing)
+docker run --rm -it \
+  -p 8000:8000 \
+  vllm/vllm-openai:latest \
+  --model meta-llama/Llama-3.2-1B-Instruct \
+  --max-model-len 2048
+
+# GPU-accelerated (recommended for production)
+docker run --rm -it \
+  --gpus all \
+  -p 8000:8000 \
+  vllm/vllm-openai:latest \
+  --model meta-llama/Llama-3.2-3B-Instruct \
+  --dtype half \
+  --max-model-len 4096
+```
+
+**Docker Compose**:
+
+```yaml
+services:
+  vllm:
+    image: vllm/vllm-openai:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - vllm_cache:/root/.cache/huggingface
+    command:
+      - --model
+      - meta-llama/Llama-3.2-3B-Instruct
+      - --dtype
+      - half
+      - --max-model-len
+      - "4096"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  vllm_cache:
+```
+
+### Performance Tuning
+
+**Tensor Parallelism** (multi-GPU):
+```bash
+docker run --gpus all -p 8000:8000 \
+  vllm/vllm-openai:latest \
+  --model meta-llama/Llama-3.1-8B-Instruct \
+  --tensor-parallel-size 2  # Split across 2 GPUs
+```
+
+**Memory Optimization**:
+```bash
+docker run --gpus all -p 8000:8000 \
+  vllm/vllm-openai:latest \
+  --model meta-llama/Llama-3.2-3B-Instruct \
+  --gpu-memory-utilization 0.9  # Use 90% of GPU memory
+  --max-model-len 8192
+```
+
+**Quantization** (reduce memory):
+```bash
+docker run --gpus all -p 8000:8000 \
+  vllm/vllm-openai:latest \
+  --model meta-llama/Llama-3.1-8B-Instruct \
+  --quantization awq  # or 'gptq', 'squeezellm'
+```
+
+### Comparison: vLLM vs Ollama
+
+| Feature | vLLM | Ollama |
+|---------|------|--------|
+| **Target Use Case** | High-performance GPU inference | Local development, ease of use |
+| **GPU Acceleration** | Required (CUDA/ROCm) | Optional |
+| **Throughput** | Very high (continuous batching) | Moderate |
+| **Model Loading** | HuggingFace models directly | `ollama pull` model management |
+| **Guided Decoding** | ✅ JSON schema, regex, grammar | ❌ |
+| **Beam Search** | ✅ | ❌ |
+| **Tensor Parallelism** | ✅ Multi-GPU support | ❌ |
+| **Quantization** | ✅ AWQ, GPTQ, SqueezeLLM | ✅ GGUF format |
+| **API Compatibility** | OpenAI-compatible | OpenAI-compatible |
+| **Setup Complexity** | Moderate (GPU drivers, Docker) | Low (single binary) |
+| **Memory Efficiency** | PagedAttention | Standard |
+| **Cost** | Free (self-hosted) | Free (self-hosted) |
+
+**When to use vLLM**:
+- GPU-accelerated inference for performance
+- Multi-GPU setups for large models
+- Need structured output (guided decoding)
+- Batch processing workloads requiring high throughput
+- Advanced sampling strategies (beam search)
+
+**When to use Ollama**:
+- Local development and testing
+- CPU-only environments
+- Quick model experimentation
+- Simpler setup requirements
+
 ## Usage Examples
 
 ### Basic Completion
@@ -869,6 +1139,21 @@ func DefaultProviderDefaults() ProviderDefaults {
 }
 ```
 
+**vLLM**:
+```go
+func DefaultProviderDefaults() ProviderDefaults {
+    return ProviderDefaults{
+        Temperature: 0.7,
+        TopP:        0.95,
+        MaxTokens:   2048,
+        Pricing: Pricing{
+            InputCostPer1K:  0.0,  // Self-hosted inference - free
+            OutputCostPer1K: 0.0,
+        },
+    }
+}
+```
+
 ### Environment Variables
 
 All providers support environment variable configuration:
@@ -880,6 +1165,8 @@ All providers support environment variable configuration:
 - `ANTHROPIC_BASE_URL`: Custom Claude endpoint
 - `GEMINI_BASE_URL`: Custom Gemini endpoint
 - `OLLAMA_HOST`: Ollama server URL (default: `http://localhost:11434`)
+- `VLLM_API_KEY`: Optional vLLM authentication (if server configured with auth)
+- `VLLM_BASE_URL`: vLLM server URL (default: `http://localhost:8000`)
 
 ## Best Practices
 
