@@ -139,6 +139,9 @@ A conversation with multiple back-and-forth exchanges that maintains context acr
 ### Ollama
 An open-source platform for running LLMs locally. PromptKit's Ollama [provider](#provider) enables cost-free local inference using models like Llama, Mistral, and LLaVA. Uses an OpenAI-compatible API.
 
+### vLLM
+A high-throughput inference engine optimized for serving LLMs with GPU acceleration. PromptKit's vLLM [provider](#provider) enables high-performance model serving with advanced features like guided decoding, beam search, and multimodal support. Like [Ollama](#ollama), it's self-hosted for zero API costs, but optimized for throughput and performance with GPU support.
+
 ### Multimodal
 Support for multiple content types (text, images, audio, video) in a single interaction. Gemini and GPT-4V are examples of multimodal models.
 

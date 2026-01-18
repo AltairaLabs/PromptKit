@@ -251,4 +251,3 @@ func TestSaveWithTrace_EmptyLLMCalls(t *testing.T) {
 		t.Error("Expected no Meta when LLMCalls is empty")
 	}
 }
-

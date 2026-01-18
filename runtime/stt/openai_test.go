@@ -193,7 +193,7 @@ func TestOpenAIService_Transcribe_WithCustomClient(t *testing.T) {
 			resp := &http.Response{
 				StatusCode: http.StatusOK,
 				Header:     make(http.Header),
-				Body: io.NopCloser(strings.NewReader(`{"text": "Test"}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"text": "Test"}`)),
 			}
 			resp.Header.Set("Content-Type", "application/json")
 			return resp, nil

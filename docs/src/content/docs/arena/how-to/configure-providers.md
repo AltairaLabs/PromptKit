@@ -197,6 +197,110 @@ docker exec -it <container> ollama pull llama3.2:1b
 
 **Available Models**: Any model from `ollama list` - `llama3.2:1b`, `llama3.2:3b`, `mistral`, `llava`, `deepseek-r1:8b`, etc.
 
+### vLLM (High-Performance)
+
+```yaml
+# providers/vllm.yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: vllm-llama
+  labels:
+    provider: vllm
+
+spec:
+  type: vllm
+  model: meta-llama/Llama-3.2-3B-Instruct
+  base_url: http://localhost:8000
+
+  additional_config:
+    use_beam_search: false
+    best_of: 1
+    # Guided decoding for structured output
+    # guided_json: '{"type": "object", "properties": {...}}'
+
+  defaults:
+    temperature: 0.7
+    max_tokens: 2048
+```
+
+No API key required - vLLM runs as a self-hosted service. Start vLLM with Docker:
+
+```bash
+# GPU-accelerated (recommended)
+docker run --rm --gpus all \
+  -p 8000:8000 \
+  vllm/vllm-openai:latest \
+  --model meta-llama/Llama-3.2-3B-Instruct \
+  --dtype half \
+  --max-model-len 4096
+
+# CPU-only (for testing, slow)
+docker run --rm \
+  -p 8000:8000 \
+  vllm/vllm-openai:latest \
+  --model meta-llama/Llama-3.2-1B-Instruct \
+  --max-model-len 2048
+```
+
+Or use Docker Compose:
+
+```yaml
+services:
+  vllm:
+    image: vllm/vllm-openai:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - vllm_cache:/root/.cache/huggingface
+    command:
+      - --model
+      - meta-llama/Llama-3.2-3B-Instruct
+      - --dtype
+      - half
+      - --max-model-len
+      - "4096"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  vllm_cache:
+```
+
+**Available Models**: Any HuggingFace model supported by vLLM - Llama 3.x, Mistral, Qwen, Phi, LLaVA for vision, etc. See [vLLM docs](https://docs.vllm.ai/en/latest/models/supported_models.html).
+
+**Advanced Features**:
+
+```yaml
+# Guided JSON output
+spec:
+  additional_config:
+    guided_json: |
+      {
+        "type": "object",
+        "properties": {
+          "sentiment": {"type": "string", "enum": ["positive", "negative", "neutral"]},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+        },
+        "required": ["sentiment", "confidence"]
+      }
+
+# Regex-constrained output
+spec:
+  additional_config:
+    guided_regex: "^[0-9]{3}-[0-9]{3}-[0-9]{4}$"  # Phone number format
+
+# Choice selection
+spec:
+  additional_config:
+    guided_choice: ["yes", "no", "maybe"]
+```
+
 ## Arena Configuration
 
 Reference providers in your `arena.yaml`:

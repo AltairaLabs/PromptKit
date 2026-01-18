@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-local
+    ports:
+      - "8000:8000"
+    # Uncomment if you need GPU support (recommended)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    environment:
+      # Optional: Set HuggingFace token for gated models
+      # - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN}
+      - VLLM_ALLOW_RUNTIME_LORA=false
+    command:
+      - --model
+      - facebook/opt-125m  # Small model for testing (~250MB)
+      # For production, use larger models:
+      # - meta-llama/Llama-2-7b-chat-hf
+      # - mistralai/Mistral-7B-Instruct-v0.1
+      - --dtype
+      - auto
+      # Uncomment for CPU-only mode (slower)
+      - --device
+      - cpu
+      # Uncomment for better GPU utilization
+      # - --gpu-memory-utilization
+      # - "0.9"
+      # Uncomment for tensor parallelism (multi-GPU)
+      # - --tensor-parallel-size
+      # - "2"
+    volumes:
+      # Cache HuggingFace models locally
+      - vllm-models:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+volumes:
+  vllm-models:
+    driver: local

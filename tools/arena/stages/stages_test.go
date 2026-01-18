@@ -1175,8 +1175,8 @@ func TestArenaStateStoreSaveStage_TranscriptionAppliedToCorrectTurn(t *testing.T
 	results := runStage(t, s, []stage.StreamElement{
 		stage.NewMessageElement(user1), // User 1 arrives first
 		stage.NewMessageElement(user2), // User 2 arrives before assistant 1!
-		assistant1Elem,                  // Assistant 1 with transcript for user 1
-		assistant2Elem,                  // Assistant 2 with transcript for user 2
+		assistant1Elem,                 // Assistant 1 with transcript for user 1
+		assistant2Elem,                 // Assistant 2 with transcript for user 2
 	})
 
 	require.Len(t, results, 4)
@@ -1329,8 +1329,8 @@ func TestArenaStateStoreSaveStage_TranscriptionByTurnID(t *testing.T) {
 	results := runStage(t, s, []stage.StreamElement{
 		stage.NewMessageElement(user1), // User 1 arrives
 		stage.NewMessageElement(user2), // User 2 arrives before assistant1!
-		assistant1Elem,                  // Assistant 1 with transcript for turn_id1
-		assistant2Elem,                  // Assistant 2 with transcript for turn_id2
+		assistant1Elem,                 // Assistant 1 with transcript for turn_id1
+		assistant2Elem,                 // Assistant 2 with transcript for turn_id2
 	})
 
 	require.Len(t, results, 4)

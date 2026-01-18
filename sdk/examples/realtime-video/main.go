@@ -66,7 +66,7 @@ func main() {
 		}),
 		// Configure video streaming: 1 FPS, auto-resize to 1024x1024
 		sdk.WithStreamingVideo(&sdk.VideoStreamConfig{
-			TargetFPS:    1.0,   // 1 frame per second for LLM processing
+			TargetFPS:    1.0, // 1 frame per second for LLM processing
 			MaxWidth:     1024,
 			MaxHeight:    1024,
 			Quality:      85,

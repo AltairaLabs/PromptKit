@@ -98,10 +98,10 @@ func TestMediaTrack_OffsetInSegment(t *testing.T) {
 	}
 
 	tests := []struct {
-		offset          time.Duration
-		expectedSegIdx  int
-		expectedOffset  time.Duration
-		expectNil       bool
+		offset         time.Duration
+		expectedSegIdx int
+		expectedOffset time.Duration
+		expectNil      bool
 	}{
 		{0, 0, 0, false},
 		{50 * time.Millisecond, 0, 50 * time.Millisecond, false},

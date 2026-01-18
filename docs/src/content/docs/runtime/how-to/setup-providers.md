@@ -324,9 +324,11 @@ defer cancel()
    ```
 
 3. **Use appropriate models for tasks**:
-   - Simple: gpt-4o-mini, claude-haiku
-   - Complex: gpt-4o, claude-sonnet
+   - Simple: gpt-4o-mini, claude-haiku, llama 3.2 1B (vLLM/Ollama)
+   - Complex: gpt-4o, claude-sonnet, llama 3.1 8B (vLLM)
    - Long context: gemini-1.5-pro
+   - Local development: ollama (easy setup)
+   - GPU-accelerated: vLLM (high throughput, guided decoding)
 
 4. **Monitor costs**:
    ```go
@@ -340,6 +342,76 @@ defer cancel()
        // Fallback or retry
    }
    ```
+
+## Ollama & vLLM Setup
+
+### Ollama (Local Development)
+
+```go
+import "github.com/AltairaLabs/PromptKit/runtime/providers/ollama"
+
+provider := ollama.NewOllamaProvider(
+    "ollama",
+    "llama3.2:1b",
+    "http://localhost:11434",
+    ollama.DefaultProviderDefaults(),
+    false,
+    map[string]interface{}{
+        "keep_alive": "5m",  // Keep model loaded
+    },
+)
+defer provider.Close()
+```
+
+**Setup**:
+```bash
+# Install Ollama
+brew install ollama  # macOS
+# or visit https://ollama.ai
+
+# Start server
+ollama serve
+
+# Pull a model
+ollama pull llama3.2:1b
+```
+
+### vLLM (High-Performance)
+
+```go
+import "github.com/AltairaLabs/PromptKit/runtime/providers/vllm"
+
+provider := vllm.NewVLLMProvider(
+    "vllm",
+    "meta-llama/Llama-3.2-3B-Instruct",
+    "http://localhost:8000",
+    vllm.DefaultProviderDefaults(),
+    false,
+    map[string]interface{}{
+        "use_beam_search": false,
+        "guided_json":     jsonSchema,  // Force structured output
+    },
+)
+defer provider.Close()
+```
+
+**Setup (GPU-accelerated)**:
+```bash
+docker run --rm --gpus all \
+  -p 8000:8000 \
+  vllm/vllm-openai:latest \
+  --model meta-llama/Llama-3.2-3B-Instruct \
+  --dtype half \
+  --max-model-len 4096
+```
+
+**Features**:
+- Guided decoding (JSON schema, regex)
+- Beam search for quality
+- Multi-GPU tensor parallelism
+- High-throughput continuous batching
+
+See [Provider Reference](../reference/providers#vllm-provider) for full vLLM configuration options.
 
 ## Next Steps
 

@@ -1,0 +1,29 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: vllm-k8s
+  annotations:
+    description: "vLLM running on Kubernetes cluster"
+spec:
+  prompt_configs:
+    - id: assistant
+      file: prompts/assistant.yaml
+    - id: code-helper
+      file: prompts/code-helper.yaml
+
+  providers:
+    - file: providers/vllm-k8s.provider.yaml
+
+  scenarios:
+    - file: scenarios/basic-chat.scenario.yaml
+    - file: scenarios/code-generation.scenario.yaml
+
+  defaults:
+    temperature: 0.7
+    max_tokens: 2048
+    concurrency: 4  # Higher concurrency for production cluster
+    output:
+      dir: out
+      formats: ["json", "html"]
+      html:
+        file: report.html

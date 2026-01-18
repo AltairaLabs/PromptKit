@@ -209,8 +209,8 @@ Make up fictional data.`)
 
 		// Verify it's valid JSON with nested structure
 		var book struct {
-			Title         string   `json:"title"`
-			Author        struct {
+			Title  string `json:"title"`
+			Author struct {
 				Name    string `json:"name"`
 				Country string `json:"country"`
 			} `json:"author"`

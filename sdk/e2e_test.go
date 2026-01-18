@@ -74,17 +74,17 @@
 //
 // Example GitHub Actions workflow:
 //
-//	- name: Run E2E Tests
-//	  run: make test-e2e-ci
-//	  env:
-//	    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-//	    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+//   - name: Run E2E Tests
+//     run: make test-e2e-ci
+//     env:
+//     OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+//     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 //
-//	- name: Upload Results
-//	  uses: actions/upload-artifact@v4
-//	  with:
-//	    name: e2e-results
-//	    path: sdk/e2e-results/
+//   - name: Upload Results
+//     uses: actions/upload-artifact@v4
+//     with:
+//     name: e2e-results
+//     path: sdk/e2e-results/
 //
 // # Adding New Tests
 //

@@ -31,14 +31,14 @@ import (
 type Capability string
 
 const (
-	CapText      Capability = "text"       // Basic text conversation
-	CapStreaming Capability = "streaming"  // Streaming responses
-	CapVision    Capability = "vision"     // Image understanding
-	CapAudio     Capability = "audio"      // Audio input/output
-	CapVideo     Capability = "video"      // Video understanding
-	CapTools     Capability = "tools"      // Tool/function calling
-	CapJSON      Capability = "json"       // JSON mode output
-	CapRealtime  Capability = "realtime"   // Real-time streaming (WebSocket)
+	CapText      Capability = "text"      // Basic text conversation
+	CapStreaming Capability = "streaming" // Streaming responses
+	CapVision    Capability = "vision"    // Image understanding
+	CapAudio     Capability = "audio"     // Audio input/output
+	CapVideo     Capability = "video"     // Video understanding
+	CapTools     Capability = "tools"     // Tool/function calling
+	CapJSON      Capability = "json"      // JSON mode output
+	CapRealtime  Capability = "realtime"  // Real-time streaming (WebSocket)
 )
 
 // ProviderConfig defines a provider's capabilities and configuration.

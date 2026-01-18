@@ -522,11 +522,11 @@ func TestCartesiaService_mapFormat_AllFormats(t *testing.T) {
 	service := NewCartesia("test-key")
 
 	tests := []struct {
-		name        string
-		format      AudioFormat
-		wantEnc     string
-		wantCont    string
-		wantRate    int
+		name     string
+		format   AudioFormat
+		wantEnc  string
+		wantCont string
+		wantRate int
 	}{
 		{
 			name:     "pcm format",

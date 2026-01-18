@@ -1370,8 +1370,8 @@ func TestPipelineConfig_Validate(t *testing.T) {
 
 	t.Run("validates max concurrent pipelines", func(t *testing.T) {
 		config := &PipelineConfig{
-			ChannelBufferSize:        10,
-			MaxConcurrentPipelines:   -1,
+			ChannelBufferSize:      10,
+			MaxConcurrentPipelines: -1,
 		}
 		err := config.Validate()
 		assert.Error(t, err)
@@ -1423,12 +1423,12 @@ func TestPipelineBuilder_Validate_InvalidConfig(t *testing.T) {
 
 // mockEmbeddingProvider is a test implementation of providers.EmbeddingProvider
 type mockEmbeddingProvider struct {
-	embedFunc    func(texts []string) ([][]float32, error)
-	dimensions   int
-	maxBatch     int
-	id           string
-	embedCalled  int
-	lastTexts    []string
+	embedFunc   func(texts []string) ([][]float32, error)
+	dimensions  int
+	maxBatch    int
+	id          string
+	embedCalled int
+	lastTexts   []string
 }
 
 func newMockEmbeddingProvider() *mockEmbeddingProvider {

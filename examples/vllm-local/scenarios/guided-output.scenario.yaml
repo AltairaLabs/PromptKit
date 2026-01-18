@@ -1,0 +1,35 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: guided-output
+  annotations:
+    description: "Test vLLM guided decoding for structured output"
+spec:
+  id: guided-output
+  description: "Test vLLM's guided decoding capabilities"
+  task_type: general-assistant
+  turns:
+    - role: user
+      content: "The product is amazing! Best purchase ever. I'm so happy with it."
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "sentiment"
+              - "confidence"
+              - "positive"
+            message: "Response should contain sentiment and confidence in JSON format"
+        - type: valid_json
+          params:
+            message: "Response should be valid JSON"
+
+    - role: user
+      content: "This is terrible. Worst experience I've ever had. Would not recommend."
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "sentiment"
+              - "confidence"
+              - "negative"
+            message: "Response should identify negative sentiment"
