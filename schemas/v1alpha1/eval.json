@@ -1,0 +1,226 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "$id": "https://promptkit.altairalabs.ai/schemas/v1alpha1/eval.json",
+  "$defs": {
+    "AssertionConfig": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "params"
+      ]
+    },
+    "Eval": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for this evaluation"
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description"
+        },
+        "recording": {
+          "$ref": "#/$defs/RecordingSource",
+          "description": "Recording source"
+        },
+        "judge_targets": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JudgeProviderSpec"
+          },
+          "type": "object",
+          "description": "Map of judge names to provider configurations for LLM-based assertions"
+        },
+        "assertions": {
+          "items": {
+            "$ref": "#/$defs/AssertionConfig"
+          },
+          "type": "array",
+          "description": "Assertions to evaluate after replay"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Tags for categorization"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "instant",
+            "realtime",
+            "accelerated"
+          ],
+          "description": "Replay timing mode (instant"
+        },
+        "speed": {
+          "type": "number",
+          "description": "Playback speed (default 1.0)"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "description",
+        "recording"
+      ]
+    },
+    "JudgeProviderSpec": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Provider type (openai"
+        },
+        "model": {
+          "type": "string",
+          "description": "Model name for this judge"
+        },
+        "id": {
+          "type": "string",
+          "description": "Provider ID (defaults to type if omitted)"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "model"
+      ]
+    },
+    "ObjectMeta": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "Name",
+          "description": "Name of the resource"
+        },
+        "namespace": {
+          "type": "string",
+          "title": "Namespace",
+          "description": "Namespace for the resource"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Labels",
+          "description": "Key-value pairs for organizing resources"
+        },
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Annotations",
+          "description": "Additional metadata"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "RecordingSource": {
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path to recording file"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "session",
+            "arena_output",
+            "transcript",
+            "generic"
+          ],
+          "description": "Recording format type hint (auto-detected if omitted)"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "path"
+      ]
+    }
+  },
+  "properties": {
+    "apiVersion": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/ObjectMeta"
+    },
+    "spec": {
+      "$ref": "#/$defs/Eval"
+    },
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "description": "JSON Schema reference URL"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "apiVersion",
+    "kind",
+    "spec"
+  ],
+  "title": "PromptArena Eval Configuration",
+  "description": "Eval configuration for replaying and validating saved conversations",
+  "examples": [
+    {
+      "apiVersion": "promptkit.altairalabs.ai/v1alpha1",
+      "kind": "Eval",
+      "metadata": {
+        "name": "my-eval"
+      },
+      "spec": {
+        "assertions": [
+          {
+            "config": {
+              "criteria": "Was the customer issue resolved satisfactorily?",
+              "expected": "pass",
+              "judge": "default"
+            },
+            "type": "llm_judge"
+          }
+        ],
+        "description": "Evaluate saved customer support conversation",
+        "id": "eval-saved-conversation",
+        "judge_targets": {
+          "default": {
+            "id": "gpt-4o-judge",
+            "model": "gpt-4o",
+            "type": "openai"
+          }
+        },
+        "mode": "instant",
+        "recording": {
+          "path": "recordings/session-2024-01-15.recording.json",
+          "type": "session"
+        },
+        "tags": [
+          "customer-support",
+          "evaluation"
+        ]
+      }
+    }
+  ]
+}
