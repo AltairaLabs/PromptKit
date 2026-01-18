@@ -224,6 +224,76 @@ This enables:
 - Reproducing exact conversation flows
 - Testing against known-good responses
 
+## Evaluating Recorded Conversations
+
+Use the **Eval** configuration type to validate and test saved conversations with assertions and LLM judges:
+
+```yaml
+# evals/validate-recording.eval.yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Eval
+metadata:
+  name: validate-support-session
+
+spec:
+  id: support-validation
+  description: Validate customer support conversation quality
+  
+  recording:
+    path: recordings/session-abc123.recording.json
+    type: session
+  
+  judge_targets:
+    default:
+      type: openai
+      model: gpt-4o
+      id: quality-judge
+  
+  assertions:
+    - type: llm_judge
+      params:
+        judge: default
+        criteria: "Did the agent provide helpful and accurate information?"
+        expected: pass
+    
+    - type: llm_judge
+      params:
+        judge: default
+        criteria: "Was the conversation tone professional and empathetic?"
+        expected: pass
+```
+
+Reference the eval in your arena configuration:
+
+```yaml
+# arena.yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: evaluation-suite
+
+spec:
+  providers:
+    - file: providers/openai-gpt4o.provider.yaml
+  
+  evals:
+    - file: evals/validate-recording.eval.yaml
+```
+
+Run evaluations:
+
+```bash
+promptarena run --config arena.yaml
+```
+
+This workflow enables:
+- **Quality assurance**: Validate conversation quality with LLM judges
+- **Regression testing**: Ensure consistency across model updates
+- **Batch evaluation**: Test multiple recordings with the same criteria
+- **CI/CD integration**: Automated conversation quality checks
+
+See the **[Eval Configuration Reference](/arena/reference/config-schema#eval-saved-conversation-evaluation)** for complete documentation.
+
 ## Complete Example
 
 See `examples/session-replay/` for a full working example:
