@@ -5,6 +5,7 @@ This provider enables PromptKit to use [vLLM](https://github.com/vllm-project/vl
 ## Features
 
 ### Core Functionality
+
 - ✅ Text generation via `/v1/chat/completions` endpoint
 - ✅ Streaming support using Server-Sent Events (SSE)
 - ✅ Optional API key authentication
@@ -12,6 +13,7 @@ This provider enables PromptKit to use [vLLM](https://github.com/vllm-project/vl
 - ✅ OpenAI-compatible message format
 
 ### vLLM-Specific Parameters
+
 - `use_beam_search` - Enable beam search for better quality (slower)
 - `best_of` - Number of candidate completions to generate
 - `ignore_eos` - Ignore end-of-sequence tokens
@@ -23,6 +25,7 @@ This provider enables PromptKit to use [vLLM](https://github.com/vllm-project/vl
 - `guided_whitespace_pattern` - Whitespace handling for guided decoding
 
 ### Multimodal Support
+
 - ✅ Image inputs (JPEG, PNG, GIF, WebP)
 - ✅ Maximum 20MB per image
 - ✅ Both URL and base64 data URL formats
@@ -171,6 +174,7 @@ The vLLM provider has **86.8% test coverage**, exceeding the required 80% thresh
 ### Test Suite (40 tests)
 
 #### Core Functionality (8 tests)
+
 - Provider creation with/without API key
 - Cost calculation (free and custom pricing)
 - Basic prediction
@@ -178,12 +182,14 @@ The vLLM provider has **86.8% test coverage**, exceeding the required 80% thresh
 - Close method
 
 #### Error Handling (4 tests)
+
 - Empty choices in response
 - HTTP errors (500, etc.)
 - Invalid JSON responses
 - vLLM API error messages
 
 #### vLLM Features (6 tests)
+
 - System message handling
 - vLLM-specific parameters (beam search, guided JSON, etc.)
 - Seed parameter
@@ -192,12 +198,14 @@ The vLLM provider has **86.8% test coverage**, exceeding the required 80% thresh
 - Context cancellation
 
 #### Message Processing (4 tests)
+
 - Message preparation with/without system
 - Multiple message handling
 - Default parameter application
 - Content extraction
 
 #### Multimodal Support (13 tests)
+
 - Capabilities reporting
 - Image prediction (URL and base64)
 - Text-only multimodal requests
@@ -209,6 +217,7 @@ The vLLM provider has **86.8% test coverage**, exceeding the required 80% thresh
 - System message with multimodal
 
 #### Utilities (5 tests)
+
 - Model name retrieval
 - Content string extraction
 - Helper functions
@@ -242,6 +251,7 @@ The provider consists of four main files:
 vLLM uses OpenAI-compatible APIs but with some differences:
 
 ### Supported
+
 - `/v1/chat/completions` endpoint
 - Messages with `role` and `content`
 - System messages
@@ -250,11 +260,13 @@ vLLM uses OpenAI-compatible APIs but with some differences:
 - Multimodal inputs (vision models)
 
 ### vLLM Extensions
+
 - Guided decoding (JSON, regex, grammar)
 - Beam search parameters
 - EOS token control
 
 ### Not Supported (vs OpenAI)
+
 - Function/tool calling (planned for phase 2)
 - Response format enforcement (use guided_json instead)
 - logprobs (vLLM has different format)
@@ -273,6 +285,7 @@ These are identical to warnings in the Ollama provider and don't represent actua
 ## Implementation Status
 
 ### Phase 1 (Complete) ✅
+
 - [x] Core provider implementation
 - [x] Streaming support
 - [x] Multimodal image support
@@ -284,6 +297,7 @@ These are identical to warnings in the Ollama provider and don't represent actua
 - [x] Documentation
 
 ### Phase 2 (Planned)
+
 - [ ] Tool/function calling support
 - [ ] Tool support tests
 - [ ] Advanced guided decoding examples

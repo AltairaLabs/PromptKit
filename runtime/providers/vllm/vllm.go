@@ -199,7 +199,7 @@ func (p *Provider) applyRequestDefaults(
 // buildRequest creates a vLLM request with optional vLLM-specific parameters
 //
 //nolint:gocognit // complexity from vLLM-specific parameter extraction
-func (p *Provider) buildRequest(
+func (p *Provider) buildRequest( // NOSONAR
 	req *providers.PredictionRequest,
 	messages []vllmMessage,
 	temperature, topP float32,

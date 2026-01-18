@@ -104,7 +104,7 @@ func (p *Provider) prepareMultimodalMessages(req providers.PredictionRequest) ([
 // vLLM uses OpenAI-compatible format: array of content parts with type and text/image_url
 //
 //nolint:gocognit,gocritic // complexity from multimodal content part handling; msg contains media data
-func (p *Provider) buildMultimodalContent(msg types.Message) ([]map[string]any, error) {
+func (p *Provider) buildMultimodalContent(msg types.Message) ([]map[string]any, error) { // NOSONAR
 	content := make([]map[string]any, 0)
 
 	// Process each content part

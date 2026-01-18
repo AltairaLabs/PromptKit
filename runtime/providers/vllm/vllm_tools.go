@@ -72,7 +72,7 @@ func (p *Provider) BuildTooling(descriptors []*providers.ToolDescriptor) (any, e
 // PredictWithTools performs a prediction request with tool support
 //
 //nolint:gocritic,gocognit // req size matches ToolSupport interface, complexity from tool call extraction
-func (p *Provider) PredictWithTools(
+func (p *Provider) PredictWithTools( // NOSONAR
 	ctx context.Context,
 	req providers.PredictionRequest,
 	tools any,
@@ -91,7 +91,14 @@ func (p *Provider) PredictWithTools(
 	temperature, topP, maxTokens := p.applyRequestDefaults(&req)
 
 	// Build vLLM request with tools
-	vllmReq := p.buildToolRequest(&req, messages, temperature, topP, maxTokens, false, tools, toolChoice)
+	vllmReq := p.buildToolRequest(&req, messages, toolRequestParams{
+		temperature: temperature,
+		topP:        topP,
+		maxTokens:   maxTokens,
+		stream:      false,
+		tools:       tools,
+		toolChoice:  toolChoice,
+	})
 
 	// Prepare response with raw request if configured
 	predictResp := providers.PredictionResponse{}
@@ -203,7 +210,14 @@ func (p *Provider) PredictStreamWithTools(
 	temperature, topP, maxTokens := p.applyRequestDefaults(&req)
 
 	// Build vLLM request with tools (stream=true)
-	vllmReq := p.buildToolRequest(&req, messages, temperature, topP, maxTokens, true, tools, toolChoice)
+	vllmReq := p.buildToolRequest(&req, messages, toolRequestParams{
+		temperature: temperature,
+		topP:        topP,
+		maxTokens:   maxTokens,
+		stream:      true,
+		tools:       tools,
+		toolChoice:  toolChoice,
+	})
 
 	// Serialize request
 	reqBody, err := json.Marshal(vllmReq)
@@ -249,18 +263,24 @@ func (p *Provider) PredictStreamWithTools(
 	return chunks, nil
 }
 
+// toolRequestParams groups parameters for building tool requests
+type toolRequestParams struct {
+	temperature float32
+	topP        float32
+	maxTokens   int
+	stream      bool
+	tools       any
+	toolChoice  string
+}
+
 // buildToolRequest builds a vLLM API request with tools
 func (p *Provider) buildToolRequest(
 	req *providers.PredictionRequest,
 	messages []vllmMessage,
-	temperature, topP float32,
-	maxTokens int,
-	stream bool,
-	tools any,
-	toolChoice string,
+	params toolRequestParams,
 ) map[string]any {
 	// Build base request using the existing buildRequest method
-	vllmReq := p.buildRequest(req, messages, temperature, topP, maxTokens, stream)
+	vllmReq := p.buildRequest(req, messages, params.temperature, params.topP, params.maxTokens, params.stream)
 
 	// Convert struct to map for tool additions
 	reqMap := make(map[string]any)
@@ -297,12 +317,12 @@ func (p *Provider) buildToolRequest(
 	}
 
 	// Add tools if present
-	if tools != nil {
-		reqMap["tools"] = tools
+	if params.tools != nil {
+		reqMap["tools"] = params.tools
 
 		// Add tool choice if specified
-		if toolChoice != "" {
-			switch toolChoice {
+		if params.toolChoice != "" {
+			switch params.toolChoice {
 			case toolChoiceRequired:
 				reqMap["tool_choice"] = "required"
 			case toolChoiceNone:
@@ -314,7 +334,7 @@ func (p *Provider) buildToolRequest(
 				reqMap["tool_choice"] = map[string]any{
 					"type": "function",
 					"function": map[string]any{
-						"name": toolChoice,
+						"name": params.toolChoice,
 					},
 				}
 			}
@@ -326,7 +346,7 @@ func (p *Provider) buildToolRequest(
 
 // streamToolResponse processes the SSE stream for tool calls
 //
-//nolint:gocognit // complexity from SSE parsing and tool call accumulation
+//nolint:gocognit // complexity from SSE parsing and tool call accumulation; NOSONAR
 func (p *Provider) streamToolResponse(ctx context.Context, body io.ReadCloser, chunks chan<- providers.StreamChunk) {
 	defer close(chunks)
 	defer body.Close()
