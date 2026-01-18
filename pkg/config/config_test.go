@@ -518,3 +518,394 @@ spec:
 		t.Error("Expected error when tool file doesn't exist")
 	}
 }
+
+func TestLoadConfigWithEvals(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "test-config.yaml")
+
+	// Create eval file
+	evalContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Eval
+metadata:
+  name: test-eval
+spec:
+  id: eval1
+  description: Test evaluation
+  recording:
+    path: test-recording.json
+    type: session
+  judge_targets:
+    default:
+      type: openai
+      model: gpt-4o
+  assertions:
+    - type: llm_judge
+      params:
+        judge: default
+        criteria: "Test criteria"
+  tags:
+    - test
+  mode: instant
+`
+	evalPath := filepath.Join(tmpDir, "eval1.yaml")
+	if err := os.WriteFile(evalPath, []byte(evalContent), 0600); err != nil {
+		t.Fatalf("Failed to write test eval: %v", err)
+	}
+
+	// Create provider file
+	providerContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: provider1
+spec:
+  id: provider1
+  type: openai
+  model: gpt-4
+  defaults:
+    temperature: 0.7
+    top_p: 1.0
+    max_tokens: 1000
+`
+	providerPath := filepath.Join(tmpDir, "provider1.yaml")
+	if err := os.WriteFile(providerPath, []byte(providerContent), 0600); err != nil {
+		t.Fatalf("Failed to write test provider: %v", err)
+	}
+
+	configContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: test-arena
+spec:
+  defaults:
+    verbose: true
+
+  evals:
+    - file: eval1.yaml
+
+  providers:
+    - file: provider1.yaml
+`
+
+	err := os.WriteFile(configPath, []byte(configContent), 0600)
+	if err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	config, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	if config == nil {
+		t.Fatal("Config is nil")
+	}
+
+	if len(config.LoadedEvals) != 1 {
+		t.Errorf("Expected 1 loaded eval, got %d", len(config.LoadedEvals))
+	}
+
+	eval, ok := config.LoadedEvals["test-eval"]
+	if !ok {
+		t.Fatal("Expected eval 'test-eval' to be loaded")
+	}
+
+	if eval.ID != "test-eval" {
+		t.Errorf("Expected eval ID 'test-eval', got %q", eval.ID)
+	}
+
+	if eval.Description != "Test evaluation" {
+		t.Errorf("Expected description 'Test evaluation', got %q", eval.Description)
+	}
+
+	if eval.Recording.Path != "test-recording.json" {
+		t.Errorf("Expected recording path 'test-recording.json', got %q", eval.Recording.Path)
+	}
+
+	if eval.Mode != "instant" {
+		t.Errorf("Expected mode 'instant', got %q", eval.Mode)
+	}
+
+	if len(eval.Tags) != 1 || eval.Tags[0] != "test" {
+		t.Errorf("Expected tags ['test'], got %v", eval.Tags)
+	}
+}
+
+func TestLoadEval(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmpDir := t.TempDir()
+
+	evalContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Eval
+metadata:
+  name: direct-eval
+spec:
+  id: direct-eval-id
+  description: Direct eval test
+  recording:
+    path: session.recording.json
+  assertions:
+    - type: contains
+      params:
+        pattern: "test"
+`
+	evalPath := filepath.Join(tmpDir, "direct-eval.yaml")
+	if err := os.WriteFile(evalPath, []byte(evalContent), 0600); err != nil {
+		t.Fatalf("Failed to write test eval: %v", err)
+	}
+
+	eval, err := LoadEval(evalPath)
+	if err != nil {
+		t.Fatalf("LoadEval failed: %v", err)
+	}
+
+	if eval.ID != "direct-eval" {
+		t.Errorf("Expected ID 'direct-eval', got %q", eval.ID)
+	}
+
+	if eval.Description != "Direct eval test" {
+		t.Errorf("Expected description 'Direct eval test', got %q", eval.Description)
+	}
+
+	if eval.Recording.Path != "session.recording.json" {
+		t.Errorf("Expected recording path 'session.recording.json', got %q", eval.Recording.Path)
+	}
+}
+
+func TestLoadEval_InvalidFile(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	_, err := LoadEval("/nonexistent/eval.yaml")
+	if err == nil {
+		t.Error("Expected error for nonexistent file")
+	}
+}
+
+func TestLoadEval_InvalidYAML(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmpDir := t.TempDir()
+	evalPath := filepath.Join(tmpDir, "invalid.yaml")
+	if err := os.WriteFile(evalPath, []byte("invalid: yaml: content:"), 0600); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	_, err := LoadEval(evalPath)
+	if err == nil {
+		t.Error("Expected error for invalid YAML")
+	}
+}
+
+func TestLoadConfigWithEvalsError(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "test-config.yaml")
+
+	// Create provider file
+	providerContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: provider1
+spec:
+  id: provider1
+  type: openai
+  model: gpt-4
+`
+	providerPath := filepath.Join(tmpDir, "provider1.yaml")
+	if err := os.WriteFile(providerPath, []byte(providerContent), 0600); err != nil {
+		t.Fatalf("Failed to write test provider: %v", err)
+	}
+
+	// Reference nonexistent eval file
+	configContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: test-arena
+spec:
+  defaults:
+    verbose: true
+  evals:
+    - file: nonexistent-eval.yaml
+  providers:
+    - file: provider1.yaml
+`
+
+	err := os.WriteFile(configPath, []byte(configContent), 0600)
+	if err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	_, err = LoadConfig(configPath)
+	if err == nil {
+		t.Error("Expected error when eval file doesn't exist")
+	}
+}
+
+func TestLoadConfig_WithTools(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "test-config.yaml")
+
+	// Create scenario file
+	scenarioContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: test-scenario
+spec:
+  id: scenario1
+  task_type: test
+  description: Test scenario
+  turns:
+    - role: user
+      content: "Hello"
+`
+	scenarioPath := filepath.Join(tmpDir, "scenario1.yaml")
+	if err := os.WriteFile(scenarioPath, []byte(scenarioContent), 0600); err != nil {
+		t.Fatalf("Failed to write test scenario: %v", err)
+	}
+
+	// Create provider file
+	providerContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: provider1
+spec:
+  id: provider1
+  type: openai
+  model: gpt-4
+`
+	providerPath := filepath.Join(tmpDir, "provider1.yaml")
+	if err := os.WriteFile(providerPath, []byte(providerContent), 0600); err != nil {
+		t.Fatalf("Failed to write test provider: %v", err)
+	}
+
+	// Create tool file
+	toolContent := `{
+  "type": "function",
+  "function": {
+    "name": "get_weather",
+    "description": "Get weather information",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "location": {
+          "type": "string",
+          "description": "The city name"
+        }
+      },
+      "required": ["location"]
+    }
+  }
+}`
+	toolPath := filepath.Join(tmpDir, "weather-tool.json")
+	if err := os.WriteFile(toolPath, []byte(toolContent), 0600); err != nil {
+		t.Fatalf("Failed to write test tool: %v", err)
+	}
+
+	configContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: test-arena
+spec:
+  defaults:
+    verbose: true
+  scenarios:
+    - file: scenario1.yaml
+  providers:
+    - file: provider1.yaml
+  tools:
+    - file: weather-tool.json
+`
+
+	err := os.WriteFile(configPath, []byte(configContent), 0600)
+	if err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	config, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	if len(config.LoadedTools) != 1 {
+		t.Errorf("Expected 1 loaded tool, got %d", len(config.LoadedTools))
+	}
+
+	if config.LoadedTools[0].FilePath != "weather-tool.json" {
+		t.Errorf("Expected tool file path 'weather-tool.json', got %s", config.LoadedTools[0].FilePath)
+	}
+}
+
+func TestLoadConfig_WithToolsError(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "test-config.yaml")
+
+	// Create scenario file
+	scenarioContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: test-scenario
+spec:
+  id: scenario1
+  task_type: test
+  description: Test scenario
+  turns:
+    - role: user
+      content: "Hello"
+`
+	scenarioPath := filepath.Join(tmpDir, "scenario1.yaml")
+	if err := os.WriteFile(scenarioPath, []byte(scenarioContent), 0600); err != nil {
+		t.Fatalf("Failed to write test scenario: %v", err)
+	}
+
+	// Reference nonexistent tool file
+	configContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: test-arena
+spec:
+  defaults:
+    verbose: true
+  scenarios:
+    - file: scenario1.yaml
+  tools:
+    - file: nonexistent-tool.json
+`
+
+	err := os.WriteFile(configPath, []byte(configContent), 0600)
+	if err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	_, err = LoadConfig(configPath)
+	if err == nil {
+		t.Error("Expected error when tool file doesn't exist")
+	}
+}
+
+func TestLoadProvider_Error(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmpDir := t.TempDir()
+
+	// Try to load a nonexistent provider file
+	_, err := LoadProvider(filepath.Join(tmpDir, "nonexistent.yaml"))
+	if err == nil {
+		t.Error("Expected error when loading nonexistent provider file")
+	}
+}
+
+func TestLoadProvider_InvalidYAML(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmpDir := t.TempDir()
+	providerPath := filepath.Join(tmpDir, "bad-provider.yaml")
+
+	// Create invalid YAML content
+	invalidContent := `invalid: yaml: content: [[[`
+	if err := os.WriteFile(providerPath, []byte(invalidContent), 0600); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	_, err := LoadProvider(providerPath)
+	if err == nil {
+		t.Error("Expected error when loading invalid YAML")
+	}
+}

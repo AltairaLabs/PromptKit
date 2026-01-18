@@ -9,6 +9,11 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 )
 
+const (
+	// kindEval is the K8s-style kind value for Eval configurations
+	kindEval = "Eval"
+)
+
 // LoadConfig loads and validates configuration from a YAML file in K8s-style manifest format.
 // Reads all referenced resource files (scenarios, providers, tools, personas) and populates
 // the Config struct, making it self-contained for programmatic use without physical files.
@@ -41,6 +46,7 @@ func LoadConfig(filename string) (*Config, error) {
 	cfg.LoadedProviders = make(map[string]*Provider, len(cfg.Providers))
 	cfg.LoadedJudges = make(map[string]*JudgeTarget, len(cfg.Judges))
 	cfg.LoadedScenarios = make(map[string]*Scenario, len(cfg.Scenarios))
+	cfg.LoadedEvals = make(map[string]*Eval, len(cfg.Evals))
 	cfg.LoadedTools = make([]ToolData, 0, len(cfg.Tools))
 	cfg.LoadedPersonas = make(map[string]*UserPersonaPack)
 	cfg.ProviderGroups = make(map[string]string)
@@ -50,6 +56,9 @@ func LoadConfig(filename string) (*Config, error) {
 		return nil, err
 	}
 	if err := cfg.loadScenarios(filename); err != nil {
+		return nil, err
+	}
+	if err := cfg.loadEvals(filename); err != nil {
 		return nil, err
 	}
 	if err := cfg.loadProviders(filename); err != nil {
@@ -104,6 +113,8 @@ func loadSimpleK8sManifest[T k8sManifest](filename string, expectedKind string) 
 	switch expectedKind {
 	case "Scenario":
 		validationErr = ValidateScenario(data)
+	case kindEval:
+		validationErr = ValidateEval(data)
 	case "Provider":
 		validationErr = ValidateProvider(data)
 	case "Tool":
@@ -131,6 +142,16 @@ func loadSimpleK8sManifest[T k8sManifest](filename string, expectedKind string) 
 func LoadScenario(filename string) (*Scenario, error) {
 	// Use K8s version for unmarshaling
 	config, err := loadSimpleK8sManifest[*ScenarioConfigK8s](filename, "Scenario")
+	if err != nil {
+		return nil, err
+	}
+	return &config.Spec, nil
+}
+
+// LoadEval loads and parses an eval configuration from a YAML file in K8s-style manifest format
+func LoadEval(filename string) (*Eval, error) {
+	// Use K8s version for unmarshaling
+	config, err := loadSimpleK8sManifest[*EvalConfigK8s](filename, "Eval")
 	if err != nil {
 		return nil, err
 	}
@@ -193,6 +214,19 @@ func (c *Config) loadScenarios(configPath string) error {
 			return fmt.Errorf("failed to load scenario %s: %w", ref.File, err)
 		}
 		c.LoadedScenarios[scenario.ID] = scenario
+	}
+	return nil
+}
+
+// loadEvals loads all referenced eval configurations
+func (c *Config) loadEvals(configPath string) error {
+	for _, ref := range c.Evals {
+		fullPath := ResolveFilePath(configPath, ref.File)
+		eval, err := LoadEval(fullPath)
+		if err != nil {
+			return fmt.Errorf("failed to load eval %s: %w", ref.File, err)
+		}
+		c.LoadedEvals[eval.ID] = eval
 	}
 	return nil
 }

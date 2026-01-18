@@ -57,6 +57,7 @@ func run() error {
 	}{
 		{"Arena", generators.GenerateArenaSchema, "arena.json"},
 		{"Scenario", generators.GenerateScenarioSchema, "scenario.json"},
+		{"Eval", generators.GenerateEvalSchema, "eval.json"},
 		{"Provider", generators.GenerateProviderSchema, "provider.json"},
 		{"PromptConfig", generators.GeneratePromptConfigSchema, "promptconfig.json"},
 		{"Tool", generators.GenerateToolSchema, "tool.json"},

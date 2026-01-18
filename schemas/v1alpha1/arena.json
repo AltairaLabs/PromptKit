@@ -31,6 +31,12 @@
           },
           "type": "array"
         },
+        "evals": {
+          "items": {
+            "$ref": "#/$defs/EvalRef"
+          },
+          "type": "array"
+        },
         "tools": {
           "items": {
             "$ref": "#/$defs/ToolRef"
@@ -57,7 +63,6 @@
       "type": "object",
       "required": [
         "providers",
-        "scenarios",
         "defaults"
       ]
     },
@@ -108,6 +113,18 @@
       },
       "additionalProperties": false,
       "type": "object"
+    },
+    "EvalRef": {
+      "properties": {
+        "file": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "file"
+      ]
     },
     "HTMLOutputConfig": {
       "properties": {

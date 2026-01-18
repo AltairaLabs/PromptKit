@@ -1,0 +1,25 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Eval
+metadata:
+  name: basic-eval
+spec:
+  id: basic-eval-test
+  description: Test evaluation of a saved conversation
+  recording:
+    path: ../session-replay/recordings/geography-session.recording.json
+    type: session
+  judge_targets:
+    default:
+      type: openai
+      model: gpt-4o
+      id: gpt-4o-judge
+  assertions:
+    - type: llm_judge
+      params:
+        judge: default
+        criteria: "Does the conversation contain accurate geographic information about Paris?"
+        expected: pass
+  tags:
+    - test
+    - geography
+  mode: instant
