@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -117,9 +118,12 @@ func TestEngine_SaveRunError(t *testing.T) {
 		bus := events.NewEventBus()
 		emitter := events.NewEmitter(bus, "session", "conv", runID)
 
-		var eventReceived bool
+		var mu sync.Mutex
+		eventReceived := false
 		bus.Subscribe(events.EventType("arena.run.failed"), func(e *events.Event) {
+			mu.Lock()
 			eventReceived = true
+			mu.Unlock()
 		})
 
 		_, err := e.saveRunError(ctx, store, combo, runID+"_2", startTime, errorMsg, emitter)
@@ -127,7 +131,10 @@ func TestEngine_SaveRunError(t *testing.T) {
 
 		// Give event time to propagate
 		time.Sleep(10 * time.Millisecond)
-		assert.True(t, eventReceived)
+		mu.Lock()
+		received := eventReceived
+		mu.Unlock()
+		assert.True(t, received)
 	})
 }
 
@@ -185,9 +192,12 @@ func TestEngine_NotifyRunCompletion(t *testing.T) {
 		e := &Engine{eventBus: bus}
 		emitter := events.NewEmitter(bus, "session", "conv", "run-id")
 
-		var eventReceived bool
+		var mu sync.Mutex
+		eventReceived := false
 		bus.Subscribe(events.EventType("arena.run.failed"), func(e *events.Event) {
+			mu.Lock()
 			eventReceived = true
+			mu.Unlock()
 		})
 
 		result := &ConversationResult{
@@ -196,7 +206,10 @@ func TestEngine_NotifyRunCompletion(t *testing.T) {
 
 		e.notifyRunCompletion(emitter, result, "run-id", time.Second, 0.05)
 		time.Sleep(10 * time.Millisecond)
-		assert.True(t, eventReceived)
+		mu.Lock()
+		received := eventReceived
+		mu.Unlock()
+		assert.True(t, received)
 	})
 
 	t.Run("emits completed event on success", func(t *testing.T) {
@@ -204,9 +217,12 @@ func TestEngine_NotifyRunCompletion(t *testing.T) {
 		e := &Engine{eventBus: bus}
 		emitter := events.NewEmitter(bus, "session", "conv", "run-id")
 
-		var eventReceived bool
+		var mu sync.Mutex
+		eventReceived := false
 		bus.Subscribe(events.EventType("arena.run.completed"), func(e *events.Event) {
+			mu.Lock()
 			eventReceived = true
+			mu.Unlock()
 		})
 
 		result := &ConversationResult{
@@ -215,7 +231,10 @@ func TestEngine_NotifyRunCompletion(t *testing.T) {
 
 		e.notifyRunCompletion(emitter, result, "run-id", 2*time.Second, 0.10)
 		time.Sleep(10 * time.Millisecond)
-		assert.True(t, eventReceived)
+		mu.Lock()
+		received := eventReceived
+		mu.Unlock()
+		assert.True(t, received)
 	})
 }
 
