@@ -555,6 +555,31 @@ func TestProvider_GetMetadata(t *testing.T) {
 		metadata := p.GetMetadata()
 		assert.Equal(t, "from_config", metadata["priority_field"])
 	})
+
+	t.Run("merges provider info when already exists in config", func(t *testing.T) {
+		rec := createTestRecording(t, 1)
+		rec.Metadata.ProviderName = "openai"
+		rec.Metadata.Model = "gpt-4"
+
+		cfg := &Config{
+			Metadata: map[string]interface{}{
+				"provider_info": map[string]interface{}{
+					"existing_field": "existing_value",
+				},
+			},
+		}
+
+		p, err := NewProvider(rec, cfg)
+		require.NoError(t, err)
+
+		metadata := p.GetMetadata()
+		providerInfo := metadata["provider_info"].(map[string]interface{})
+
+		// Should have both existing field and new fields from recording
+		assert.Equal(t, "existing_value", providerInfo["existing_field"])
+		assert.Equal(t, "openai", providerInfo["provider_id"])
+		assert.Equal(t, "gpt-4", providerInfo["model"])
+	})
 }
 
 func TestProvider_MultimodalParts(t *testing.T) {
