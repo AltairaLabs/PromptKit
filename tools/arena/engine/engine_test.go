@@ -103,7 +103,7 @@ func TestGenerateRunPlan_Empty(t *testing.T) {
 	eng := newTestEngine(t, tmpDir, cfg)
 
 	// Generate plan with no filters - should return empty combinations
-	plan, err := eng.GenerateRunPlan(nil, nil, nil)
+	plan, err := eng.GenerateRunPlan(nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("GenerateRunPlan failed: %v", err)
 	}

@@ -1,0 +1,5 @@
+defaultResponse: '{"passed": true, "score": 0.95, "reasoning": "The customer support agent demonstrates excellent professionalism and helpfulness throughout the conversation. They address customer inquiries promptly, offer clear solutions, and maintain a courteous tone."}'
+scenarios:
+  basic-eval-test:
+    turns:
+      1: '{"passed": true, "score": 0.95, "reasoning": "The customer support agent demonstrates excellent professionalism and helpfulness throughout the conversation. They address customer inquiries promptly, offer clear solutions, and maintain a courteous tone."}'

@@ -35,19 +35,19 @@
           "$ref": "#/$defs/RecordingSource",
           "description": "Recording source"
         },
-        "judge_targets": {
-          "additionalProperties": {
-            "$ref": "#/$defs/JudgeProviderSpec"
+        "turns": {
+          "items": {
+            "$ref": "#/$defs/EvalTurnConfig"
           },
-          "type": "object",
-          "description": "Map of judge names to provider configurations for LLM-based assertions"
+          "type": "array",
+          "description": "Turn-level assertions"
         },
-        "assertions": {
+        "conversation_assertions": {
           "items": {
             "$ref": "#/$defs/AssertionConfig"
           },
           "type": "array",
-          "description": "Assertions to evaluate after replay"
+          "description": "Conversation-level assertions"
         },
         "tags": {
           "items": {
@@ -78,27 +78,28 @@
         "recording"
       ]
     },
-    "JudgeProviderSpec": {
+    "EvalAllTurnsConfig": {
       "properties": {
-        "type": {
-          "type": "string",
-          "description": "Provider type (openai"
-        },
-        "model": {
-          "type": "string",
-          "description": "Model name for this judge"
-        },
-        "id": {
-          "type": "string",
-          "description": "Provider ID (defaults to type if omitted)"
+        "assertions": {
+          "items": {
+            "$ref": "#/$defs/AssertionConfig"
+          },
+          "type": "array",
+          "description": "Assertions to apply to each assistant message"
         }
       },
       "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "type",
-        "model"
-      ]
+      "type": "object"
+    },
+    "EvalTurnConfig": {
+      "properties": {
+        "all_turns": {
+          "$ref": "#/$defs/EvalAllTurnsConfig",
+          "description": "Assertions to apply to all assistant messages"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "ObjectMeta": {
       "properties": {

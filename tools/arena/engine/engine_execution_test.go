@@ -33,7 +33,7 @@ func TestGenerateRunPlan_AllCombinations(t *testing.T) {
 	scenarioFilter := []string{"s1", "s2"}
 	regionFilter := []string{"us", "uk"}
 
-	plan, err := eng.GenerateRunPlan(regionFilter, providerFilter, scenarioFilter)
+	plan, err := eng.GenerateRunPlan(regionFilter, providerFilter, scenarioFilter, nil)
 	if err != nil {
 		t.Errorf("GenerateRunPlan failed: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestGenerateRunPlan_NoRegions(t *testing.T) {
 	scenarioFilter := []string{} // Empty - should use all scenarios
 	regionFilter := []string{}   // Empty - should use default region
 
-	plan, err := eng.GenerateRunPlan(regionFilter, providerFilter, scenarioFilter)
+	plan, err := eng.GenerateRunPlan(regionFilter, providerFilter, scenarioFilter, nil)
 	if err != nil {
 		t.Errorf("GenerateRunPlan failed: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestGenerateRunPlan_WithRegions(t *testing.T) {
 	scenarioFilter := []string{} // Empty - should use all scenarios
 	regionFilter := []string{}   // Empty - should default to "default" region
 
-	plan, err := eng.GenerateRunPlan(regionFilter, providerFilter, scenarioFilter)
+	plan, err := eng.GenerateRunPlan(regionFilter, providerFilter, scenarioFilter, nil)
 	if err != nil {
 		t.Errorf("GenerateRunPlan failed: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestGenerateRunPlan_WithRegions(t *testing.T) {
 
 	// Test with explicit region filter
 	regionFilter = []string{"us", "eu"}
-	plan, err = eng.GenerateRunPlan(regionFilter, providerFilter, scenarioFilter)
+	plan, err = eng.GenerateRunPlan(regionFilter, providerFilter, scenarioFilter, nil)
 	if err != nil {
 		t.Errorf("GenerateRunPlan with region filter failed: %v", err)
 	}

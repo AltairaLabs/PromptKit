@@ -25,6 +25,8 @@ import (
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
+	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
@@ -71,29 +73,29 @@ func BuildEngineComponents(cfg *config.Config) (
 	}
 
 	// Build tool registry with memory repository
-	toolRegistry, err := buildToolRegistry(cfg)
-	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to build tool registry: %w", err)
+	toolRegistry, toolErr := buildToolRegistry(cfg)
+	if toolErr != nil {
+		return nil, nil, nil, nil, fmt.Errorf("failed to build tool registry: %w", toolErr)
 	}
 
 	// Build provider registry (must stay in engine to avoid circular import with config)
 	for _, provider := range cfg.LoadedProviders {
-		providerImpl, err := createProviderImpl(provider)
-		if err != nil {
-			return nil, nil, nil, nil, err
+		providerImpl, provErr := createProviderImpl(provider)
+		if provErr != nil {
+			return nil, nil, nil, nil, provErr
 		}
 		providerRegistry.Register(providerImpl)
 	}
 
 	// Discover and register MCP tools (if any MCP servers configured)
-	if err := discoverAndRegisterMCPTools(mcpRegistry, toolRegistry); err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to discover MCP tools: %w", err)
+	if mcpErr := discoverAndRegisterMCPTools(mcpRegistry, toolRegistry); mcpErr != nil {
+		return nil, nil, nil, nil, fmt.Errorf("failed to discover MCP tools: %w", mcpErr)
 	}
 
 	// Build media storage service
-	mediaStorage, err := buildMediaStorage(cfg)
-	if err != nil {
-		return nil, nil, nil, nil, err
+	mediaStorage, storageErr := buildMediaStorage(cfg)
+	if storageErr != nil {
+		return nil, nil, nil, nil, storageErr
 	}
 
 	// Build conversation executor (engine-specific, stays here)
@@ -228,14 +230,18 @@ func buildPromptRegistry(cfg *config.Config) (*prompt.Registry, error) {
 
 		// Validate task type is present
 		if promptConfig.Spec.TaskType == "" {
-			return nil, fmt.Errorf("prompt config %s (ID: %s) is missing required spec.task_type field", promptData.FilePath, refID)
+			return nil, fmt.Errorf(
+				"prompt config %s (ID: %s) is missing required spec.task_type field",
+				promptData.FilePath, refID)
 		}
 
 		// Check for duplicate task types
 		if existingFile, exists := taskTypeToFile[promptConfig.Spec.TaskType]; exists {
 			existingID := taskTypeToID[promptConfig.Spec.TaskType]
 			return nil, fmt.Errorf(
-				"duplicate task_type '%s' found in multiple prompt configs:\n  - %s (ID: %s)\n  - %s (ID: %s)\nEach task_type must be unique across all prompt configs",
+				"duplicate task_type '%s' found in multiple prompt configs:\n"+
+					"  - %s (ID: %s)\n  - %s (ID: %s)\n"+
+					"Each task_type must be unique across all prompt configs",
 				promptConfig.Spec.TaskType,
 				existingFile,
 				existingID,
@@ -363,8 +369,31 @@ func newConversationExecutor(
 		mediaStorage,
 	)
 
+	// Build eval conversation executor components
+	evalExecutor := buildEvalExecutor(promptRegistry, providerRegistry)
+
 	// Return composite executor that routes based on scenario configuration
-	return NewCompositeConversationExecutor(defaultExecutor, duplexExecutor), nil
+	return NewCompositeConversationExecutor(defaultExecutor, duplexExecutor, evalExecutor), nil
+}
+
+// buildEvalExecutor creates the eval conversation executor with required registries.
+func buildEvalExecutor(
+	promptRegistry *prompt.Registry,
+	providerRegistry *providers.Registry,
+) *EvalConversationExecutor {
+	// Import adapters and assertions packages
+	// We need to do this here to avoid circular dependencies
+	adapterRegistry := adapters.NewRegistry()
+	assertionRegistry := assertions.NewArenaAssertionRegistry()
+	convAssertionRegistry := assertions.NewConversationAssertionRegistry()
+
+	return NewEvalConversationExecutor(
+		adapterRegistry,
+		assertionRegistry,
+		convAssertionRegistry,
+		promptRegistry,
+		providerRegistry,
+	)
 }
 
 // buildSelfPlayComponents creates the self-play registry and executor.

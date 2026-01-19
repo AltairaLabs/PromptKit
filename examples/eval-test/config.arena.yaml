@@ -5,6 +5,11 @@ metadata:
 spec:
   providers:
     - file: providers/replay.provider.yaml
+    - file: providers/gpt-4o-judge.provider.yaml
+
+  judges:
+    - name: gpt-4o-judge
+      provider: gpt-4o-judge
 
   evals:
     - file: evals/basic-eval.eval.yaml
@@ -18,3 +23,6 @@ spec:
       formats:
         - json
         - html
+      html:
+        file: document-report.html
+      

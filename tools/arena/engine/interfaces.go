@@ -49,6 +49,7 @@ type ConversationRequest struct {
 	// Required fields
 	Provider providers.Provider
 	Scenario *config.Scenario
+	Eval     *config.Eval // Eval configuration (mutually exclusive with Scenario)
 	Config   *config.Config
 	Region   string
 

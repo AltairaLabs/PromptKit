@@ -535,12 +535,14 @@ spec:
   recording:
     path: test-recording.json
     type: session
-  judge_targets:
-    default:
-      type: openai
-      model: gpt-4o
-  assertions:
-    - type: llm_judge
+  turns:
+    - all_turns:
+        assertions:
+          - type: content_includes
+            params:
+              patterns: ["test"]
+  conversation_assertions:
+    - type: llm_judge_conversation
       params:
         judge: default
         criteria: "Test criteria"
@@ -618,8 +620,14 @@ spec:
 		t.Errorf("Expected description 'Test evaluation', got %q", eval.Description)
 	}
 
-	if eval.Recording.Path != "test-recording.json" {
-		t.Errorf("Expected recording path 'test-recording.json', got %q", eval.Recording.Path)
+	if eval.Recording.Path == "" {
+		t.Error("Expected recording path to be set")
+	}
+	if !filepath.IsAbs(eval.Recording.Path) {
+		t.Errorf("Expected absolute recording path, got %q", eval.Recording.Path)
+	}
+	if filepath.Base(eval.Recording.Path) != "test-recording.json" {
+		t.Errorf("Expected recording filename 'test-recording.json', got %q", filepath.Base(eval.Recording.Path))
 	}
 
 	if eval.Mode != "instant" {
@@ -644,10 +652,12 @@ spec:
   description: Direct eval test
   recording:
     path: session.recording.json
-  assertions:
-    - type: contains
-      params:
-        pattern: "test"
+  turns:
+    - all_turns:
+        assertions:
+          - type: content_includes
+            params:
+              patterns: ["test"]
 `
 	evalPath := filepath.Join(tmpDir, "direct-eval.yaml")
 	if err := os.WriteFile(evalPath, []byte(evalContent), 0600); err != nil {
@@ -667,8 +677,14 @@ spec:
 		t.Errorf("Expected description 'Direct eval test', got %q", eval.Description)
 	}
 
-	if eval.Recording.Path != "session.recording.json" {
-		t.Errorf("Expected recording path 'session.recording.json', got %q", eval.Recording.Path)
+	if eval.Recording.Path == "" {
+		t.Error("Expected recording path to be set")
+	}
+	if !filepath.IsAbs(eval.Recording.Path) {
+		t.Errorf("Expected absolute recording path, got %q", eval.Recording.Path)
+	}
+	if filepath.Base(eval.Recording.Path) != "session.recording.json" {
+		t.Errorf("Expected recording filename 'session.recording.json', got %q", filepath.Base(eval.Recording.Path))
 	}
 }
 

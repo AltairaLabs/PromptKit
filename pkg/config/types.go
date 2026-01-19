@@ -887,17 +887,28 @@ type Eval struct {
 	Description string `json:"description" yaml:"description" jsonschema:"description=Human-readable description"`
 	// Recording specifies the path to the saved conversation to evaluate
 	Recording RecordingSource `json:"recording" yaml:"recording" jsonschema:"required,description=Recording source"`
-	// JudgeTargets maps judge names to provider specifications for LLM judge assertions
-	// Keys correspond to judge names used in assertions
-	JudgeTargets map[string]JudgeProviderSpec `json:"judge_targets,omitempty" yaml:"judge_targets,omitempty" jsonschema:"description=Map of judge names to provider configurations for LLM-based assertions"` //nolint:lll
-	// Assertions evaluated after the conversation is replayed
-	Assertions []asrt.AssertionConfig `json:"assertions,omitempty" yaml:"assertions,omitempty" jsonschema:"description=Assertions to evaluate after replay"` //nolint:lll
+	// Turns configures turn-level assertion evaluation (array format matching Scenario structure)
+	Turns []EvalTurnConfig `json:"turns,omitempty" yaml:"turns,omitempty" jsonschema:"description=Turn-level assertions"`
+	// ConversationAssertions are evaluated on the entire conversation after replay
+	ConversationAssertions []asrt.AssertionConfig `json:"conversation_assertions,omitempty" yaml:"conversation_assertions,omitempty" jsonschema:"description=Conversation-level assertions"` //nolint:lll
 	// Tags for categorizing and filtering evaluations
 	Tags []string `json:"tags,omitempty" yaml:"tags,omitempty" jsonschema:"description=Tags for categorization"`
 	// Mode controls replay behavior: "instant", "realtime", or "accelerated"
 	Mode string `json:"mode,omitempty" yaml:"mode,omitempty" jsonschema:"enum=instant,enum=realtime,enum=accelerated,description=Replay timing mode (instant, realtime, or accelerated)"` //nolint:lll
 	// Speed controls playback speed when Mode is "accelerated" (default: 1.0)
 	Speed float64 `json:"speed,omitempty" yaml:"speed,omitempty" jsonschema:"description=Playback speed (default 1.0)"`
+}
+
+// EvalTurnConfig configures turn-level assertions for evaluations
+// Uses a structure parallel to Scenario turns but with all_turns instead of role
+type EvalTurnConfig struct {
+	// AllTurns contains assertions to apply to all assistant turns
+	AllTurns *EvalAllTurnsConfig `json:"all_turns,omitempty" yaml:"all_turns,omitempty" jsonschema:"description=Assertions to apply to all assistant messages"` //nolint:lll
+}
+
+// EvalAllTurnsConfig contains the assertions for all turns
+type EvalAllTurnsConfig struct {
+	Assertions []asrt.AssertionConfig `json:"assertions,omitempty" yaml:"assertions,omitempty" jsonschema:"description=Assertions to apply to each assistant message"` //nolint:lll
 }
 
 // RecordingSource specifies where to load the saved conversation from
@@ -907,14 +918,4 @@ type RecordingSource struct {
 	// Type hints the recording format: "session", "arena_output", "transcript", or "generic"
 	// If omitted, format is auto-detected from file extension
 	Type string `json:"type,omitempty" yaml:"type,omitempty" jsonschema:"enum=session,enum=arena_output,enum=transcript,enum=generic,description=Recording format type hint (auto-detected if omitted)"` //nolint:lll
-}
-
-// JudgeProviderSpec specifies a provider configuration for an LLM judge
-type JudgeProviderSpec struct {
-	// Type is the provider type (e.g., "openai", "anthropic", "gemini")
-	Type string `json:"type" yaml:"type" jsonschema:"required,description=Provider type (openai, anthropic, gemini, etc.)"`
-	// Model is the model to use for this judge
-	Model string `json:"model" yaml:"model" jsonschema:"required,description=Model name for this judge"`
-	// ID optionally overrides the provider ID (defaults to Type)
-	ID string `json:"id,omitempty" yaml:"id,omitempty" jsonschema:"description=Provider ID (defaults to type if omitted)"`
 }

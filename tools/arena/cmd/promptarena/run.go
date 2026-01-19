@@ -1,12 +1,8 @@
 package main
 
 import (
-	"context"
 	"fmt"
-	"log"
-	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -106,6 +102,7 @@ func init() {
 	runCmd.Flags().StringSlice("region", []string{}, "Regions to run (e.g., us,uk,au)")
 	runCmd.Flags().StringSlice("provider", []string{}, "Providers to use")
 	runCmd.Flags().StringSlice("scenario", []string{}, "Scenarios to run")
+	runCmd.Flags().StringSlice("eval", []string{}, "Evaluations to run")
 
 	// Execution settings
 	runCmd.Flags().IntP("concurrency", "j", 6, "Number of concurrent workers")
@@ -154,6 +151,7 @@ type RunParameters struct {
 	Regions        []string
 	Providers      []string
 	Scenarios      []string
+	Evals          []string // Evaluation configurations to run
 	Concurrency    int
 	OutDir         string
 	CIMode         bool
@@ -172,32 +170,6 @@ type RunParameters struct {
 }
 
 // loadConfiguration loads the configuration file and sets up viper
-func loadConfiguration(cmd *cobra.Command) (string, *config.Config, error) {
-	configFile, err := cmd.Flags().GetString("config")
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to get config flag: %w", err)
-	}
-
-	// If config path is a directory, append config.arena.yaml
-	if info, statErr := os.Stat(configFile); statErr == nil && info.IsDir() {
-		configFile = filepath.Join(configFile, "config.arena.yaml")
-	}
-
-	// Load configuration
-	viper.SetConfigFile(configFile)
-	if readErr := viper.ReadInConfig(); readErr != nil {
-		log.Printf("Warning: Could not read config file %s: %v", configFile, readErr)
-	}
-
-	// Load main config
-	cfg, err := config.LoadConfig(configFile)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to load config: %w", err)
-	}
-
-	return configFile, cfg, nil
-}
-
 // extractRunParameters extracts all run parameters from command flags
 func extractRunParameters(cmd *cobra.Command, cfg *config.Config) (*RunParameters, error) {
 	params := &RunParameters{}
@@ -239,6 +211,9 @@ func extractBasicFlags(cmd *cobra.Command, params *RunParameters) error {
 	}
 	if params.Scenarios, err = cmd.Flags().GetStringSlice("scenario"); err != nil {
 		return fmt.Errorf("failed to get scenario flag: %w", err)
+	}
+	if params.Evals, err = cmd.Flags().GetStringSlice("eval"); err != nil {
+		return fmt.Errorf("failed to get eval flag: %w", err)
 	}
 	if params.Concurrency, err = cmd.Flags().GetInt("concurrency"); err != nil {
 		return fmt.Errorf("failed to get concurrency flag: %w", err)
@@ -403,97 +378,7 @@ func applyConfigurationOverrides(cmd *cobra.Command, cfg *config.Config, params 
 }
 
 // displayRunInfo displays run information when not in CI mode
-func displayRunInfo(params *RunParameters, configFile string) {
-	if params.CIMode {
-		return
-	}
-
-	fmt.Printf("Running Altaira Prompt Arena\n")
-	fmt.Printf("Config: %s\n", configFile)
-	if len(params.Regions) > 0 {
-		fmt.Printf("Regions: %s\n", strings.Join(params.Regions, ", "))
-	}
-	if len(params.Providers) > 0 {
-		fmt.Printf("Providers: %s\n", strings.Join(params.Providers, ", "))
-	}
-	fmt.Printf("Scenarios: %s\n", strings.Join(params.Scenarios, ", "))
-	fmt.Printf("Concurrency: %d\n", params.Concurrency)
-	fmt.Printf("Output: %s\n", params.OutDir)
-	fmt.Printf("Formats: %s\n", strings.Join(params.OutputFormats, ", "))
-	if contains(params.OutputFormats, "junit") {
-		fmt.Printf("JUnit XML: %s\n", params.JUnitFile)
-	}
-	if contains(params.OutputFormats, "html") || params.GenerateHTML {
-		fmt.Printf("HTML Report: %s\n", params.HTMLFile)
-	}
-	if contains(params.OutputFormats, "markdown") {
-		fmt.Printf("Markdown Report: %s\n", params.MarkdownFile)
-	}
-	fmt.Println()
-}
-
 // convertRunResults retrieves and converts run results from the statestore
-func convertRunResults(ctx context.Context, eng *engine.Engine, runIDs []string) ([]engine.RunResult, error) {
-	arenaStore, ok := eng.GetStateStore().(*statestore.ArenaStateStore)
-	if !ok {
-		return nil, fmt.Errorf("failed to get ArenaStateStore")
-	}
-
-	results := make([]engine.RunResult, 0, len(runIDs))
-	for _, runID := range runIDs {
-		storeResult, err := arenaStore.GetResult(ctx, runID)
-		if err != nil {
-			log.Printf("Warning: failed to get run result for %s: %v", runID, err)
-			continue
-		}
-		results = append(results, convertToEngineRunResult(storeResult))
-	}
-
-	return results, nil
-}
-
-// processResults processes, saves, and reports execution results using repository pattern
-func processResults(results []engine.RunResult, params *RunParameters, configFile string) error {
-	// Create output directory
-	if err := os.MkdirAll(params.OutDir, 0755); err != nil {
-		return fmt.Errorf("failed to create output directory: %w", err)
-	}
-
-	// Create composite repository for multiple output formats
-	repository, err := createResultRepository(params, configFile)
-	if err != nil {
-		return fmt.Errorf("failed to create result repository: %w", err)
-	}
-
-	// Save results using repository pattern
-	if err := repository.SaveResults(results); err != nil {
-		return fmt.Errorf("failed to save results: %w", err)
-	}
-
-	// Create and save summary
-	successCount, errorCount := countResultsByStatus(results)
-	summary := createResultSummary(results, successCount, errorCount, configFile)
-	if err := repository.SaveSummary(summary); err != nil {
-		log.Printf("Warning: failed to save summary: %v", err)
-	}
-
-	// Handle CI mode errors and failures
-	if params.CIMode {
-		failedAssertions := countFailedAssertions(results)
-		if errorCount > 0 && failedAssertions > 0 {
-			return fmt.Errorf("execution failed: %d runs had errors, %d assertions failed", errorCount, failedAssertions)
-		}
-		if errorCount > 0 {
-			return fmt.Errorf("execution failed: %d runs had errors", errorCount)
-		}
-		if failedAssertions > 0 {
-			return fmt.Errorf("test failures: %d assertions failed", failedAssertions)
-		}
-	}
-
-	return nil
-}
-
 // convertToEngineRunResult converts statestore.RunResult to engine.RunResult
 func convertToEngineRunResult(sr *statestore.RunResult) engine.RunResult {
 	result := engine.RunResult{
