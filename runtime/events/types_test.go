@@ -3,6 +3,8 @@ package events
 import (
 	"testing"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 func TestBaseEventData_EventData(t *testing.T) {
@@ -12,6 +14,14 @@ func TestBaseEventData_EventData(t *testing.T) {
 	// Test that it has the marker method
 	bed := baseEventData{}
 	bed.eventData() // Should not panic
+
+	// Test that MessageCreatedData embeds baseEventData and satisfies EventData
+	var _ EventData = &MessageCreatedData{}
+	msgData := &MessageCreatedData{
+		Role:    "user",
+		Content: "test",
+	}
+	msgData.eventData() // Should not panic
 }
 
 func TestEventDataStructs(t *testing.T) {
@@ -105,5 +115,59 @@ func TestEventTypes_Constants(t *testing.T) {
 				t.Errorf("EventType = %v, want %v", tt.eventType, tt.expected)
 			}
 		})
+	}
+}
+
+func TestMessageCreatedData_Parts(t *testing.T) {
+	// Test that MessageCreatedData can store multimodal content parts
+	textContent := "Check out this image"
+	imageURL := "https://example.com/image.jpg"
+
+	msgData := &MessageCreatedData{
+		Role:    "assistant",
+		Content: textContent,
+		Parts: []types.ContentPart{
+			{
+				Type: types.ContentTypeText,
+				Text: &textContent,
+			},
+			{
+				Type: types.ContentTypeImage,
+				Media: &types.MediaContent{
+					URL:      &imageURL,
+					MIMEType: types.MIMETypeImageJPEG,
+				},
+			},
+		},
+	}
+
+	// Ensure it satisfies EventData interface
+	var _ EventData = msgData
+	msgData.eventData() // Call the marker method
+
+	if msgData.Role != "assistant" {
+		t.Errorf("MessageCreatedData.Role = %v, want assistant", msgData.Role)
+	}
+	if msgData.Content != textContent {
+		t.Errorf("MessageCreatedData.Content = %v, want %v", msgData.Content, textContent)
+	}
+	if len(msgData.Parts) != 2 {
+		t.Fatalf("MessageCreatedData.Parts length = %v, want 2", len(msgData.Parts))
+	}
+
+	// Verify text part
+	if msgData.Parts[0].Type != types.ContentTypeText {
+		t.Errorf("Parts[0].Type = %v, want %v", msgData.Parts[0].Type, types.ContentTypeText)
+	}
+	if msgData.Parts[0].Text == nil || *msgData.Parts[0].Text != textContent {
+		t.Errorf("Parts[0].Text = %v, want %v", msgData.Parts[0].Text, textContent)
+	}
+
+	// Verify image part
+	if msgData.Parts[1].Type != types.ContentTypeImage {
+		t.Errorf("Parts[1].Type = %v, want %v", msgData.Parts[1].Type, types.ContentTypeImage)
+	}
+	if msgData.Parts[1].Media == nil || msgData.Parts[1].Media.URL == nil || *msgData.Parts[1].Media.URL != imageURL {
+		t.Errorf("Parts[1].Media.URL = %v, want %v", msgData.Parts[1].Media.URL, imageURL)
 	}
 }

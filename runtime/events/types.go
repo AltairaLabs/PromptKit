@@ -1,6 +1,10 @@
 package events
 
-import "time"
+import (
+	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/types"
+)
 
 // EventType identifies the type of event emitted by the runtime.
 type EventType string
@@ -106,6 +110,7 @@ type baseEventData struct{}
 
 func (baseEventData) eventData() {
 	// marker method to satisfy EventData
+	_ = 0 // no-op statement for coverage tracking
 }
 
 // PipelineStartedData contains data for pipeline start events.
@@ -332,9 +337,10 @@ type MessageCreatedData struct {
 	baseEventData
 	Role       string
 	Content    string
-	Index      int                // Position in conversation history
-	ToolCalls  []MessageToolCall  // Tool calls requested by assistant (if any)
-	ToolResult *MessageToolResult // Tool result for tool messages (if any)
+	Index      int                 // Position in conversation history
+	Parts      []types.ContentPart // Multimodal content parts (text, images, audio, video)
+	ToolCalls  []MessageToolCall   // Tool calls requested by assistant (if any)
+	ToolResult *MessageToolResult  // Tool result for tool messages (if any)
 }
 
 // MessageUpdatedData contains data for message update events.

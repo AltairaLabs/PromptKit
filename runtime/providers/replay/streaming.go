@@ -72,9 +72,12 @@ type arenaOutput struct {
 	Params     struct {
 		SystemPrompt string `json:"system_prompt"`
 	} `json:"Params"`
-	Cost      *types.CostInfo `json:"Cost,omitempty"`
-	StartTime time.Time       `json:"StartTime"`
-	EndTime   time.Time       `json:"EndTime"`
+	Cost         *types.CostInfo        `json:"Cost,omitempty"`
+	StartTime    time.Time              `json:"StartTime"`
+	EndTime      time.Time              `json:"EndTime"`
+	Metadata     map[string]interface{} `json:"Metadata,omitempty"`
+	JudgeTargets map[string]interface{} `json:"JudgeTargets,omitempty"`
+	Tags         []string               `json:"Tags,omitempty"`
 }
 
 // NewStreamingProviderFromArenaOutput creates a streaming replay provider from an arena output file.
@@ -97,6 +100,37 @@ func NewStreamingProviderFromArenaOutput(path string, cfg *Config) (*StreamingPr
 	config := DefaultConfig()
 	if cfg != nil {
 		config = *cfg
+	}
+
+	// Extract metadata from arena output
+	if config.Metadata == nil {
+		config.Metadata = make(map[string]interface{})
+	}
+
+	// Add judge targets if present
+	if len(output.JudgeTargets) > 0 {
+		config.Metadata["judge_targets"] = output.JudgeTargets
+	}
+
+	// Add tags if present
+	if len(output.Tags) > 0 {
+		config.Metadata["tags"] = output.Tags
+	}
+
+	// Add provider info
+	if output.ProviderID != "" {
+		config.Metadata["provider_info"] = map[string]interface{}{
+			"provider_id": output.ProviderID,
+		}
+	}
+
+	// Add custom metadata from output
+	if len(output.Metadata) > 0 {
+		for k, v := range output.Metadata {
+			if _, exists := config.Metadata[k]; !exists {
+				config.Metadata[k] = v
+			}
+		}
 	}
 
 	p := &Provider{

@@ -47,6 +47,11 @@ type Config struct {
 	// MatchMode controls how requests are matched to recorded responses.
 	// Default: MatchByTurn (sequential order)
 	MatchMode MatchMode
+
+	// Metadata contains additional information about the recording.
+	// This can include judge targets, tags, and provider information
+	// that should flow through to evaluation contexts.
+	Metadata map[string]interface{}
 }
 
 // MatchMode controls how incoming requests are matched to recorded responses.
@@ -376,6 +381,12 @@ func (p *Provider) buildResponse(turn *recordedTurn) providers.PredictionRespons
 	// Extract content from the assistant message
 	if turn.message != nil {
 		resp.Content = turn.message.Content
+
+		// Include multimodal content parts if present
+		if len(turn.message.Parts) > 0 {
+			resp.Parts = turn.message.Parts
+		}
+
 		// Convert tool calls if present
 		if len(turn.message.ToolCalls) > 0 {
 			resp.ToolCalls = make([]types.MessageToolCall, len(turn.message.ToolCalls))
@@ -461,6 +472,70 @@ func (p *Provider) CurrentTurn() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.turnIndex
+}
+
+// GetMetadata returns metadata about the recording.
+// This includes judge targets, tags, and provider information
+// that can be used by evaluation frameworks and assertions.
+func (p *Provider) GetMetadata() map[string]interface{} {
+	metadata := make(map[string]interface{})
+
+	// Include configured metadata
+	p.addConfiguredMetadata(metadata)
+
+	// Include recording metadata if available
+	p.addRecordingMetadata(metadata)
+
+	return metadata
+}
+
+// addConfiguredMetadata adds configured metadata to the result map.
+func (p *Provider) addConfiguredMetadata(metadata map[string]interface{}) {
+	if p.config.Metadata != nil {
+		for k, v := range p.config.Metadata {
+			metadata[k] = v
+		}
+	}
+}
+
+// addRecordingMetadata adds recording-specific metadata to the result map.
+func (p *Provider) addRecordingMetadata(metadata map[string]interface{}) {
+	if p.recording == nil {
+		return
+	}
+
+	// Add custom metadata from recording
+	if p.recording.Metadata.Custom != nil {
+		for k, v := range p.recording.Metadata.Custom {
+			// Don't override configured metadata
+			if _, exists := metadata[k]; !exists {
+				metadata[k] = v
+			}
+		}
+	}
+
+	// Add provider info
+	if p.recording.Metadata.ProviderName != "" {
+		p.addProviderInfo(metadata)
+	}
+
+	// Add session ID
+	if p.recording.Metadata.SessionID != "" {
+		metadata["session_id"] = p.recording.Metadata.SessionID
+	}
+}
+
+// addProviderInfo adds provider information to the metadata map.
+func (p *Provider) addProviderInfo(metadata map[string]interface{}) {
+	if existingInfo, ok := metadata["provider_info"].(map[string]interface{}); ok {
+		existingInfo["provider_id"] = p.recording.Metadata.ProviderName
+		existingInfo["model"] = p.recording.Metadata.Model
+	} else {
+		metadata["provider_info"] = map[string]interface{}{
+			"provider_id": p.recording.Metadata.ProviderName,
+			"model":       p.recording.Metadata.Model,
+		}
+	}
 }
 
 // Ensure Provider implements providers.Provider.

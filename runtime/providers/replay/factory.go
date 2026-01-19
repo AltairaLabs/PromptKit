@@ -87,6 +87,11 @@ func parseConfig(additionalConfig map[string]interface{}) Config {
 		cfg.MatchMode = parseMatchMode(match)
 	}
 
+	// Parse metadata if provided
+	if metadata, ok := additionalConfig["metadata"].(map[string]interface{}); ok {
+		cfg.Metadata = metadata
+	}
+
 	return cfg
 }
 
