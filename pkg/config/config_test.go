@@ -620,8 +620,14 @@ spec:
 		t.Errorf("Expected description 'Test evaluation', got %q", eval.Description)
 	}
 
-	if eval.Recording.Path != "test-recording.json" {
-		t.Errorf("Expected recording path 'test-recording.json', got %q", eval.Recording.Path)
+	if eval.Recording.Path == "" {
+		t.Error("Expected recording path to be set")
+	}
+	if !filepath.IsAbs(eval.Recording.Path) {
+		t.Errorf("Expected absolute recording path, got %q", eval.Recording.Path)
+	}
+	if filepath.Base(eval.Recording.Path) != "test-recording.json" {
+		t.Errorf("Expected recording filename 'test-recording.json', got %q", filepath.Base(eval.Recording.Path))
 	}
 
 	if eval.Mode != "instant" {
@@ -671,8 +677,14 @@ spec:
 		t.Errorf("Expected description 'Direct eval test', got %q", eval.Description)
 	}
 
-	if eval.Recording.Path != "session.recording.json" {
-		t.Errorf("Expected recording path 'session.recording.json', got %q", eval.Recording.Path)
+	if eval.Recording.Path == "" {
+		t.Error("Expected recording path to be set")
+	}
+	if !filepath.IsAbs(eval.Recording.Path) {
+		t.Errorf("Expected absolute recording path, got %q", eval.Recording.Path)
+	}
+	if filepath.Base(eval.Recording.Path) != "session.recording.json" {
+		t.Errorf("Expected recording filename 'session.recording.json', got %q", filepath.Base(eval.Recording.Path))
 	}
 }
 
