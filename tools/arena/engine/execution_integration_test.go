@@ -23,7 +23,7 @@ func TestEngine_ExecuteRun_InvalidStateStore(t *testing.T) {
 		evals:                make(map[string]*config.Eval),
 		providers:            make(map[string]*config.Provider),
 		providerRegistry:     providers.NewRegistry(),
-		conversationExecutor: nil, // Not needed for this error path
+		conversationExecutor: nil,                      // Not needed for this error path
 		stateStore:           &mockInvalidStateStore{}, // Invalid type
 	}
 

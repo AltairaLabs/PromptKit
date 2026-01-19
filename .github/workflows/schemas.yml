@@ -105,11 +105,7 @@ jobs:
           exit 1
         fi
 
-  # Note: ajv validation removed as it's redundant with promptarena CLI validation above
-  # The promptarena validate command provides authoritative validation since it uses
-  # the same code that will load these configs at runtime
-  
-  validate-examples-disabled:
+
     name: Validate Example Configs with ajv (DISABLED - redundant)
     if: false  # Disabled - promptarena CLI validation is authoritative
     runs-on: ubuntu-latest
