@@ -550,50 +550,15 @@ func TestEvalConversationExecutor_BuildConversationContext(t *testing.T) {
 				Tags:      []string{"meta-tag"},
 			},
 		},
-		{
-			name: "with judge targets from eval",
-			eval: &config.Eval{
-				ID: "test-eval",
-				JudgeTargets: map[string]config.JudgeProviderSpec{
-					"quality": {
-						Type:  "openai",
-						Model: "gpt-4",
-					},
-				},
-			},
-			messages: []types.Message{
-				{Role: "user", Content: "hello"},
-			},
-			metadata: nil,
-		},
-		{
-			name: "judge targets precedence - eval overrides metadata",
-			eval: &config.Eval{
-				ID: "test-eval",
-				JudgeTargets: map[string]config.JudgeProviderSpec{
-					"quality": {
-						Type:  "openai",
-						Model: "gpt-4",
-					},
-				},
-			},
-			messages: []types.Message{
-				{Role: "user", Content: "hello"},
-			},
-			metadata: &adapters.RecordingMetadata{
-				JudgeTargets: map[string]adapters.ProviderSpec{
-					"quality": {
-						Type:  "anthropic",
-						Model: "claude-3",
-					},
-				},
-			},
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := executor.buildConversationContext(tt.eval, tt.messages, tt.metadata)
+			req := &ConversationRequest{
+				Eval:   tt.eval,
+				Config: &config.Config{}, // Empty config is fine for this test
+			}
+			ctx := executor.buildConversationContext(req, tt.messages, tt.metadata)
 
 			if ctx == nil {
 				t.Fatal("Expected non-nil context")
@@ -612,48 +577,6 @@ func TestEvalConversationExecutor_BuildConversationContext(t *testing.T) {
 			if tt.metadata != nil && tt.metadata.SessionID != "" {
 				if sessionID, ok := ctx.Metadata.Extras["session_id"].(string); !ok || sessionID != tt.metadata.SessionID {
 					t.Errorf("Expected session_id %q, got %v", tt.metadata.SessionID, ctx.Metadata.Extras["session_id"])
-				}
-			}
-
-			// Check judge targets precedence
-			if tt.eval.JudgeTargets != nil {
-				// Judge targets should be in extras
-				judgeTargetsRaw, ok := ctx.Metadata.Extras["judge_targets"]
-				if !ok {
-					t.Error("Expected judge_targets in extras")
-					return
-				}
-
-				judgeTargets, ok := judgeTargetsRaw.(map[string]interface{})
-				if !ok {
-					t.Errorf("Expected judge_targets to be map[string]interface{}, got %T", judgeTargetsRaw)
-					return
-				}
-
-				for name, spec := range tt.eval.JudgeTargets {
-					targetRaw, ok := judgeTargets[name]
-					if !ok {
-						t.Errorf("Expected judge target %q not found", name)
-						continue
-					}
-
-					target, ok := targetRaw.(map[string]interface{})
-					if !ok {
-						t.Errorf("Expected judge target %q to be map, got %T", name, targetRaw)
-						continue
-					}
-
-					expectedID := spec.ID
-					if expectedID == "" {
-						expectedID = spec.Type
-					}
-
-					if providerID, ok := target["provider_id"].(string); !ok || providerID != expectedID {
-						t.Errorf("Judge target %q: expected provider ID %q, got %v", name, expectedID, target["provider_id"])
-					}
-					if model, ok := target["model"].(string); !ok || model != spec.Model {
-						t.Errorf("Judge target %q: expected model %q, got %v", name, spec.Model, target["model"])
-					}
 				}
 			}
 		})

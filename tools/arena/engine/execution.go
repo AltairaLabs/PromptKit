@@ -9,6 +9,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
@@ -504,6 +505,19 @@ func (e *Engine) saveEvalMetadata(
 	startTime time.Time,
 	duration time.Duration,
 ) error {
+	// Save messages to the arena state first
+	state := &runtimestore.ConversationState{
+		ID:       runID,
+		Messages: convResult.Messages,
+		Metadata: make(map[string]interface{}),
+	}
+
+	// Store the conversation state
+	if err := store.Save(ctx, state); err != nil {
+		return fmt.Errorf("failed to save conversation state: %w", err)
+	}
+
+	// Then save the metadata
 	metadata := &statestore.RunMetadata{
 		RunID:                        runID,
 		ScenarioID:                   combo.EvalID, // Use EvalID in ScenarioID field for storage

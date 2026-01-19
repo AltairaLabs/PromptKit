@@ -416,10 +416,12 @@ spec:
   recording:
     path: test-recording.json
     type: session
-  assertions:
-    - type: contains
-      params:
-        pattern: "test"
+  turns:
+    - all_turns:
+        assertions:
+          - type: content_includes
+            params:
+              patterns: ["test"]
 `)
 
 	err := ValidateEval(validEval)

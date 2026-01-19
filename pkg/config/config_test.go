@@ -535,12 +535,14 @@ spec:
   recording:
     path: test-recording.json
     type: session
-  judge_targets:
-    default:
-      type: openai
-      model: gpt-4o
-  assertions:
-    - type: llm_judge
+  turns:
+    - all_turns:
+        assertions:
+          - type: content_includes
+            params:
+              patterns: ["test"]
+  conversation_assertions:
+    - type: llm_judge_conversation
       params:
         judge: default
         criteria: "Test criteria"
@@ -644,10 +646,12 @@ spec:
   description: Direct eval test
   recording:
     path: session.recording.json
-  assertions:
-    - type: contains
-      params:
-        pattern: "test"
+  turns:
+    - all_turns:
+        assertions:
+          - type: content_includes
+            params:
+              patterns: ["test"]
 `
 	evalPath := filepath.Join(tmpDir, "direct-eval.yaml")
 	if err := os.WriteFile(evalPath, []byte(evalContent), 0600); err != nil {

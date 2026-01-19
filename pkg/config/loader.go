@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 
@@ -155,6 +156,12 @@ func LoadEval(filename string) (*Eval, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Resolve recording path relative to the eval file's directory
+	if config.Spec.Recording.Path != "" && !filepath.IsAbs(config.Spec.Recording.Path) {
+		config.Spec.Recording.Path = ResolveFilePath(filename, config.Spec.Recording.Path)
+	}
+
 	return &config.Spec, nil
 }
 

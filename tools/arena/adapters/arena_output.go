@@ -32,6 +32,21 @@ func (a *ArenaOutputAdapter) Load(path string) ([]types.Message, *RecordingMetad
 		return nil, nil, fmt.Errorf("failed to read arena output: %w", err)
 	}
 
+	// Try to unmarshal as a simple run result first (with Messages array)
+	var simpleResult struct {
+		Messages []types.Message `json:"Messages"`
+		RunID    string          `json:"RunID"`
+	}
+	if err := json.Unmarshal(data, &simpleResult); err == nil && len(simpleResult.Messages) > 0 {
+		// Simple format with direct Messages array
+		metadata := &RecordingMetadata{
+			SessionID: simpleResult.RunID,
+			Extras:    make(map[string]interface{}),
+		}
+		return simpleResult.Messages, metadata, nil
+	}
+
+	// Fall back to turn-based format
 	var output ArenaOutputFile
 	if err := json.Unmarshal(data, &output); err != nil {
 		return nil, nil, fmt.Errorf("failed to parse arena output JSON: %w", err)

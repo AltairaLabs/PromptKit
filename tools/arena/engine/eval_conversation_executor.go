@@ -50,7 +50,6 @@ func (e *EvalConversationExecutor) ExecuteConversation(
 	ctx context.Context,
 	req ConversationRequest, //nolint:gocritic // Interface compliance requires value receiver
 ) *ConversationResult {
-	// Validate eval configuration first
 	if err := e.validateEvalConfig(req.Eval); err != nil {
 		return &ConversationResult{
 			Failed: true,
@@ -58,77 +57,98 @@ func (e *EvalConversationExecutor) ExecuteConversation(
 		}
 	}
 
-	// Enrich context with eval information for structured logging
-	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
-		Scenario:  req.Eval.ID,
-		SessionID: req.ConversationID,
-		Stage:     "eval-execution",
-	})
+	ctx = e.enrichLoggingContext(ctx, &req)
+	messages, metadata, err := e.loadRecording(&req)
+	if err != nil {
+		return &ConversationResult{Failed: true, Error: err.Error()}
+	}
 
+	convCtx := e.buildConversationContext(&req, messages, metadata)
+	e.applyAllTurnAssertions(req.Eval.Turns, messages, convCtx)
+	convResults := e.evaluateConversationAssertions(ctx, req.Eval.ConversationAssertions, convCtx)
+
+	return &ConversationResult{
+		Messages:                     messages,
+		Cost:                         e.calculateCost(messages),
+		ConversationAssertionResults: convResults,
+		Failed:                       e.hasFailedAssertions(messages, convResults),
+	}
+}
+
+// enrichLoggingContext adds eval metadata to the logging context.
+func (e *EvalConversationExecutor) enrichLoggingContext(ctx context.Context, req *ConversationRequest) context.Context {
 	logger.Info("executing eval mode",
 		"eval_id", req.Eval.ID,
 		"recording", req.Eval.Recording.Path)
 
-	// Load recording using adapter registry
+	return logger.WithLoggingContext(ctx, &logger.LoggingFields{
+		Scenario:  req.Eval.ID,
+		SessionID: req.ConversationID,
+		Stage:     "eval-execution",
+	})
+}
+
+// loadRecording loads messages from the recording file using the adapter registry.
+func (e *EvalConversationExecutor) loadRecording(
+	req *ConversationRequest,
+) ([]types.Message, *adapters.RecordingMetadata, error) {
 	if e.adapterRegistry == nil {
-		return &ConversationResult{
-			Failed: true,
-			Error:  "adapter registry not configured for eval mode",
-		}
+		return nil, nil, fmt.Errorf("adapter registry not configured for eval mode")
 	}
 
 	adapter := e.adapterRegistry.FindAdapter(req.Eval.Recording.Path, req.Eval.Recording.Type)
 	if adapter == nil {
-		return &ConversationResult{
-			Failed: true,
-			Error: fmt.Sprintf("no adapter found for recording: %s (type: %s)",
-				req.Eval.Recording.Path, req.Eval.Recording.Type),
-		}
+		return nil, nil, fmt.Errorf("no adapter found for recording: %s (type: %s)",
+			req.Eval.Recording.Path, req.Eval.Recording.Type)
 	}
 
-	// Load messages and metadata from recording
 	messages, metadata, err := adapter.Load(req.Eval.Recording.Path)
 	if err != nil {
-		return &ConversationResult{
-			Failed: true,
-			Error:  fmt.Sprintf("failed to load recording: %v", err),
-		}
+		return nil, nil, fmt.Errorf("failed to load recording: %w", err)
 	}
 
 	logger.Debug("loaded recording",
 		"messages", len(messages),
 		"session_id", metadata.SessionID)
 
-	// Build conversation context from recording
-	convCtx := e.buildConversationContext(req.Eval, messages, metadata)
+	return messages, metadata, nil
+}
 
-	// Apply turn-level assertions to assistant messages
+// applyAllTurnAssertions extracts and applies all turn-level assertions to assistant messages.
+func (e *EvalConversationExecutor) applyAllTurnAssertions(
+	turns []config.EvalTurnConfig,
+	messages []types.Message,
+	convCtx *assertions.ConversationContext,
+) {
+	turnAssertions := e.extractTurnAssertions(turns)
 	for i := range messages {
-		msg := &messages[i]
-		if msg.Role == roleAssistant {
-			e.applyTurnAssertions(req.Eval.Assertions, msg, convCtx)
+		if messages[i].Role == roleAssistant {
+			e.applyTurnAssertions(turnAssertions, &messages[i], convCtx)
 		}
 	}
+}
 
-	// Run conversation-level assertions if configured
-	var convResults []assertions.ConversationValidationResult
-	if e.convAssertionReg != nil && len(req.Eval.Assertions) > 0 {
-		convResults = e.applyConversationAssertions(ctx, req.Eval.Assertions, convCtx)
+// extractTurnAssertions collects all turn-level assertions from eval config.
+func (e *EvalConversationExecutor) extractTurnAssertions(turns []config.EvalTurnConfig) []assertions.AssertionConfig {
+	var assertionConfigs []assertions.AssertionConfig
+	for _, turnCfg := range turns {
+		if turnCfg.AllTurns != nil && len(turnCfg.AllTurns.Assertions) > 0 {
+			assertionConfigs = append(assertionConfigs, turnCfg.AllTurns.Assertions...)
+		}
 	}
+	return assertionConfigs
+}
 
-	// Calculate costs from metadata
-	totalCost := e.calculateCost(messages)
-
-	// Determine if eval failed based on assertions
-	failed := e.hasFailedAssertions(messages, convResults)
-
-	// Return result with same schema as scenario execution
-	return &ConversationResult{
-		Messages:                     messages,
-		Cost:                         totalCost,
-		ConversationAssertionResults: convResults,
-		Failed:                       failed,
+// evaluateConversationAssertions runs conversation-level assertions if configured.
+func (e *EvalConversationExecutor) evaluateConversationAssertions(
+	ctx context.Context,
+	assertionConfigs []assertions.AssertionConfig,
+	convCtx *assertions.ConversationContext,
+) []assertions.ConversationValidationResult {
+	if e.convAssertionReg == nil || len(assertionConfigs) == 0 {
+		return nil
 	}
+	return e.applyConversationAssertions(ctx, assertionConfigs, convCtx)
 }
 
 // ExecuteConversationStream runs evaluation with streaming output.
@@ -167,66 +187,13 @@ func (e *EvalConversationExecutor) validateEvalConfig(eval *config.Eval) error {
 }
 
 // buildConversationContext creates a conversation context for eval mode.
-// Merges metadata from the recording with eval configuration.
+// Uses the same metadata attachment as scenarios for consistency.
 func (e *EvalConversationExecutor) buildConversationContext(
-	eval *config.Eval,
+	req *ConversationRequest,
 	messages []types.Message,
 	metadata *adapters.RecordingMetadata,
 ) *assertions.ConversationContext {
-	// Build judge targets map, prioritizing eval config over recording metadata
-	judgeTargets := e.buildJudgeTargets(eval, metadata)
-
 	// Build extras map from metadata
-	extras := e.buildExtrasMap(eval, metadata, judgeTargets)
-
-	return &assertions.ConversationContext{
-		AllTurns: messages,
-		Metadata: assertions.ConversationMetadata{
-			Extras: extras,
-		},
-	}
-}
-
-// buildJudgeTargets builds the judge targets map from recording metadata and eval config.
-func (e *EvalConversationExecutor) buildJudgeTargets(
-	eval *config.Eval,
-	metadata *adapters.RecordingMetadata,
-) map[string]interface{} {
-	judgeTargets := make(map[string]interface{})
-
-	// Add judge targets from recording metadata if available
-	if metadata != nil && metadata.JudgeTargets != nil {
-		for name, spec := range metadata.JudgeTargets {
-			judgeTargets[name] = e.createJudgeTarget(spec.ID, spec.Type, spec.Model)
-		}
-	}
-
-	// Override with eval config judge targets (takes precedence)
-	for name, spec := range eval.JudgeTargets {
-		judgeTargets[name] = e.createJudgeTarget(spec.ID, spec.Type, spec.Model)
-	}
-
-	return judgeTargets
-}
-
-// createJudgeTarget creates a judge target map from provider spec.
-func (e *EvalConversationExecutor) createJudgeTarget(id, providerType, model string) map[string]interface{} {
-	providerID := id
-	if providerID == "" {
-		providerID = providerType
-	}
-	return map[string]interface{}{
-		"provider_id": providerID,
-		"model":       model,
-	}
-}
-
-// buildExtrasMap builds the extras metadata map.
-func (e *EvalConversationExecutor) buildExtrasMap(
-	eval *config.Eval,
-	metadata *adapters.RecordingMetadata,
-	judgeTargets map[string]interface{},
-) map[string]interface{} {
 	extras := make(map[string]interface{})
 
 	// Add recording metadata
@@ -245,11 +212,18 @@ func (e *EvalConversationExecutor) buildExtrasMap(
 	}
 
 	// Add eval-specific metadata
-	extras["eval_id"] = eval.ID
-	extras["tags"] = e.mergeTags(eval.Tags, metadata)
-	extras["judge_targets"] = judgeTargets
+	extras["eval_id"] = req.Eval.ID
+	extras["tags"] = e.mergeTags(req.Eval.Tags, metadata)
 
-	return extras
+	// Attach judge metadata using the same function as scenarios
+	attachJudgeMetadata(extras, req.Config)
+
+	return &assertions.ConversationContext{
+		AllTurns: messages,
+		Metadata: assertions.ConversationMetadata{
+			Extras: extras,
+		},
+	}
 }
 
 // applyTurnAssertions applies turn-level assertions to a single message.
@@ -334,6 +308,7 @@ func (e *EvalConversationExecutor) applyConversationAssertions(
 		}
 
 		result := validator.ValidateConversation(ctx, convCtx, cfg.Params)
+		result.Type = cfg.Type
 		result.Message = cfg.Message
 		results = append(results, result)
 	}

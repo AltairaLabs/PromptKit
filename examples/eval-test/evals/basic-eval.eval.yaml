@@ -6,19 +6,34 @@ spec:
   id: basic-eval-test
   description: Test evaluation of a saved conversation
   recording:
-    path: ../session-replay/recordings/geography-session.recording.json
-    type: session
-  judge_targets:
-    default:
-      type: openai
-      model: gpt-4o
-      id: gpt-4o-judge
-  assertions:
-    - type: llm_judge
+    path: ../recordings/customer-support.arena.json
+    type: arena_output
+  
+  turns:
+    - all_turns:
+        assertions:
+          - type: content_includes
+            params:
+              patterns:
+                - "you"
+  
+  conversation_assertions:
+    - type: content_includes_any
+      message: "Conversation includes customer support language"
       params:
-        judge: default
-        criteria: "Does the conversation contain accurate geographic information about Paris?"
+        patterns:
+          - "refund"
+          - "help you"
+          - "apologize"
+        case_sensitive: false
+    
+    - type: llm_judge_conversation
+      message: "Agent responds helpfully and professionally"
+      params:
+        judge: gpt-4o-judge
+        criteria: "Does the customer support agent respond helpfully and professionally to customer inquiries?"
         expected: pass
+  
   tags:
     - test
     - geography
