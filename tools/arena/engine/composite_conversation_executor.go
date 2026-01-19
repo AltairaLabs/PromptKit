@@ -6,25 +6,30 @@ import (
 
 // CompositeConversationExecutor routes conversation execution to the appropriate
 // executor based on scenario configuration. It selects between:
+// - EvalConversationExecutor for evaluation mode (recording replay with assertions)
 // - DefaultConversationExecutor for standard turn-based conversations
 // - DuplexConversationExecutor for bidirectional streaming scenarios
 type CompositeConversationExecutor struct {
 	defaultExecutor *DefaultConversationExecutor
 	duplexExecutor  *DuplexConversationExecutor
+	evalExecutor    *EvalConversationExecutor
 }
 
 // NewCompositeConversationExecutor creates a new composite executor.
 func NewCompositeConversationExecutor(
 	defaultExecutor *DefaultConversationExecutor,
 	duplexExecutor *DuplexConversationExecutor,
+	evalExecutor *EvalConversationExecutor,
 ) *CompositeConversationExecutor {
 	return &CompositeConversationExecutor{
 		defaultExecutor: defaultExecutor,
 		duplexExecutor:  duplexExecutor,
+		evalExecutor:    evalExecutor,
 	}
 }
 
 // ExecuteConversation routes to the appropriate executor based on scenario config.
+// If the request is for eval mode, uses EvalConversationExecutor.
 // If the scenario has duplex configuration, uses DuplexConversationExecutor.
 // Otherwise, uses DefaultConversationExecutor.
 //
@@ -33,6 +38,17 @@ func (ce *CompositeConversationExecutor) ExecuteConversation(
 	ctx context.Context,
 	req ConversationRequest,
 ) *ConversationResult {
+	// Check if this is an eval mode request
+	if req.Eval != nil {
+		if ce.evalExecutor == nil {
+			return &ConversationResult{
+				Failed: true,
+				Error:  "eval executor not configured but request has eval configuration",
+			}
+		}
+		return ce.evalExecutor.ExecuteConversation(ctx, req)
+	}
+
 	// Check if scenario requires duplex mode
 	if ce.isDuplexScenario(&req) {
 		if ce.duplexExecutor == nil {
@@ -61,6 +77,22 @@ func (ce *CompositeConversationExecutor) ExecuteConversationStream(
 	ctx context.Context,
 	req ConversationRequest,
 ) (<-chan ConversationStreamChunk, error) {
+	// Check if this is an eval mode request
+	if req.Eval != nil {
+		if ce.evalExecutor == nil {
+			errChan := make(chan ConversationStreamChunk, 1)
+			errChan <- ConversationStreamChunk{
+				Result: &ConversationResult{
+					Failed: true,
+					Error:  "eval executor not configured but request has eval configuration",
+				},
+			}
+			close(errChan)
+			return errChan, nil
+		}
+		return ce.evalExecutor.ExecuteConversationStream(ctx, req)
+	}
+
 	// Check if scenario requires duplex mode
 	if ce.isDuplexScenario(&req) {
 		if ce.duplexExecutor == nil {
@@ -105,4 +137,9 @@ func (ce *CompositeConversationExecutor) GetDefaultExecutor() *DefaultConversati
 // GetDuplexExecutor returns the duplex executor for direct access if needed.
 func (ce *CompositeConversationExecutor) GetDuplexExecutor() *DuplexConversationExecutor {
 	return ce.duplexExecutor
+}
+
+// GetEvalExecutor returns the eval executor for direct access if needed.
+func (ce *CompositeConversationExecutor) GetEvalExecutor() *EvalConversationExecutor {
+	return ce.evalExecutor
 }

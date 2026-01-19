@@ -130,6 +130,10 @@ promptkit/
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
+## AI Development
+
+For AI coding assistants working on this repository, see [AGENTS.md](./AGENTS.md) for critical development rules and pre-commit requirements.
+
 ## License
 
 Apache 2.0 - See [LICENSE](./LICENSE).
