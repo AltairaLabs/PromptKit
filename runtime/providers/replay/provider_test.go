@@ -477,3 +477,151 @@ func TestCreateProviderFromSpec(t *testing.T) {
 		assert.Equal(t, 5.0, rp.config.Speed)
 	})
 }
+
+func TestProvider_GetMetadata(t *testing.T) {
+	t.Run("returns empty metadata when none configured", func(t *testing.T) {
+		rec := createTestRecording(t, 1)
+		p, err := NewProvider(rec, nil)
+		require.NoError(t, err)
+
+		metadata := p.GetMetadata()
+		assert.NotNil(t, metadata)
+	})
+
+	t.Run("returns configured metadata", func(t *testing.T) {
+		rec := createTestRecording(t, 1)
+		cfg := &Config{
+			Metadata: map[string]interface{}{
+				"judge_targets": map[string]interface{}{
+					"default": map[string]interface{}{
+						"type":  "openai",
+						"model": "gpt-4",
+						"id":    "gpt-4-judge",
+					},
+				},
+				"tags": []string{"evaluation", "test"},
+			},
+		}
+
+		p, err := NewProvider(rec, cfg)
+		require.NoError(t, err)
+
+		metadata := p.GetMetadata()
+		assert.Contains(t, metadata, "judge_targets")
+		assert.Contains(t, metadata, "tags")
+
+		judgeTargets := metadata["judge_targets"].(map[string]interface{})
+		assert.Contains(t, judgeTargets, "default")
+	})
+
+	t.Run("includes recording metadata", func(t *testing.T) {
+		rec := createTestRecording(t, 1)
+		rec.Metadata.ProviderName = "openai"
+		rec.Metadata.Model = "gpt-4-turbo"
+		rec.Metadata.Custom = map[string]any{
+			"custom_field": "custom_value",
+		}
+
+		p, err := NewProvider(rec, nil)
+		require.NoError(t, err)
+
+		metadata := p.GetMetadata()
+		assert.Contains(t, metadata, "provider_info")
+		assert.Contains(t, metadata, "session_id")
+		assert.Contains(t, metadata, "custom_field")
+
+		providerInfo := metadata["provider_info"].(map[string]interface{})
+		assert.Equal(t, "openai", providerInfo["provider_id"])
+		assert.Equal(t, "gpt-4-turbo", providerInfo["model"])
+		assert.Equal(t, "test-session", metadata["session_id"])
+		assert.Equal(t, "custom_value", metadata["custom_field"])
+	})
+
+	t.Run("config metadata takes precedence over recording metadata", func(t *testing.T) {
+		rec := createTestRecording(t, 1)
+		rec.Metadata.Custom = map[string]any{
+			"priority_field": "from_recording",
+		}
+
+		cfg := &Config{
+			Metadata: map[string]interface{}{
+				"priority_field": "from_config",
+			},
+		}
+
+		p, err := NewProvider(rec, cfg)
+		require.NoError(t, err)
+
+		metadata := p.GetMetadata()
+		assert.Equal(t, "from_config", metadata["priority_field"])
+	})
+}
+
+func TestProvider_MultimodalParts(t *testing.T) {
+	t.Run("includes multimodal parts in response", func(t *testing.T) {
+		baseTime := time.Now()
+		textContent := "Here is an image:"
+		imageURL := "https://example.com/image.jpg"
+
+		// Create recording with multimodal content
+		assistantMsgData, _ := json.Marshal(events.MessageCreatedData{
+			Role:    "assistant",
+			Content: textContent,
+			Parts: []types.ContentPart{
+				{
+					Type: types.ContentTypeText,
+					Text: &textContent,
+				},
+				{
+					Type: types.ContentTypeImage,
+					Media: &types.MediaContent{
+						URL:      &imageURL,
+						MIMEType: types.MIMETypeImageJPEG,
+					},
+				},
+			},
+		})
+
+		rec := &recording.SessionRecording{
+			Metadata: recording.Metadata{
+				SessionID: "test-multimodal",
+			},
+			Events: []recording.RecordedEvent{
+				{
+					Sequence:  1,
+					Type:      events.EventMessageCreated,
+					Timestamp: baseTime,
+					Offset:    0,
+					SessionID: "test-multimodal",
+					Data:      assistantMsgData,
+				},
+			},
+		}
+
+		p, err := NewProvider(rec, nil)
+		require.NoError(t, err)
+
+		// Make a prediction
+		ctx := context.Background()
+		resp, err := p.Predict(ctx, providers.PredictionRequest{
+			Messages: []types.Message{
+				{Role: "user", Content: "Show me an image"},
+			},
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, textContent, resp.Content)
+		require.Len(t, resp.Parts, 2)
+
+		// Verify text part
+		assert.Equal(t, types.ContentTypeText, resp.Parts[0].Type)
+		assert.NotNil(t, resp.Parts[0].Text)
+		assert.Equal(t, textContent, *resp.Parts[0].Text)
+
+		// Verify image part
+		assert.Equal(t, types.ContentTypeImage, resp.Parts[1].Type)
+		assert.NotNil(t, resp.Parts[1].Media)
+		assert.Equal(t, imageURL, *resp.Parts[1].Media.URL)
+		assert.Equal(t, types.MIMETypeImageJPEG, resp.Parts[1].Media.MIMEType)
+	})
+}
