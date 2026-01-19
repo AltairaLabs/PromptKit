@@ -40,7 +40,7 @@
             "$ref": "#/$defs/EvalTurnConfig"
           },
           "type": "array",
-          "description": "Turn-level assertion configuration"
+          "description": "Turn-level assertions"
         },
         "conversation_assertions": {
           "items": {
