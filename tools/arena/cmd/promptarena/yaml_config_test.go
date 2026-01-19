@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -154,11 +155,199 @@ func TestExtractRunParameters_OutputFormats(t *testing.T) {
 	}
 }
 
+func TestEvalFiltering(t *testing.T) {
+	tests := []struct {
+		name          string
+		flagValue     []string
+		setFlag       bool
+		expectedEvals []string
+	}{
+		{
+			name:          "no eval flag",
+			setFlag:       false,
+			expectedEvals: []string{},
+		},
+		{
+			name:          "single eval",
+			flagValue:     []string{"basic-eval"},
+			setFlag:       true,
+			expectedEvals: []string{"basic-eval"},
+		},
+		{
+			name:          "multiple evals",
+			flagValue:     []string{"eval1", "eval2"},
+			setFlag:       true,
+			expectedEvals: []string{"eval1", "eval2"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create test config
+			cfg := &config.Config{
+				Defaults: config.Defaults{
+					OutDir:      "test-out",
+					Concurrency: 1,
+				},
+			}
+
+			// Create test command
+			cmd := &cobra.Command{}
+			setupTestFlags(cmd)
+
+			// Set eval flag if specified
+			if tt.setFlag {
+				err := cmd.Flags().Set("eval", formatSliceToString(tt.flagValue))
+				require.NoError(t, err)
+			}
+
+			// Extract parameters
+			params, err := extractRunParameters(cmd, cfg)
+			require.NoError(t, err)
+
+			// Verify evals
+			assert.Equal(t, tt.expectedEvals, params.Evals)
+		})
+	}
+}
+
+func TestProcessDeprecatedHTMLFlag(t *testing.T) {
+	tests := []struct {
+		name              string
+		htmlFlag          bool
+		expectedHTML      bool
+		expectedInFormats bool
+	}{
+		{
+			name:              "html flag not set",
+			htmlFlag:          false,
+			expectedHTML:      false,
+			expectedInFormats: false,
+		},
+		{
+			name:              "html flag set",
+			htmlFlag:          true,
+			expectedHTML:      true,
+			expectedInFormats: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := &cobra.Command{}
+			setupTestFlags(cmd)
+
+			err := cmd.Flags().Set("html", fmt.Sprintf("%t", tt.htmlFlag))
+			require.NoError(t, err)
+
+			params := &RunParameters{
+				OutputFormats: []string{},
+			}
+
+			err = processDeprecatedHTMLFlag(cmd, params)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.expectedHTML, params.GenerateHTML)
+			if tt.expectedInFormats {
+				assert.Contains(t, params.OutputFormats, "html")
+			} else {
+				assert.NotContains(t, params.OutputFormats, "html")
+			}
+		})
+	}
+}
+
+func TestProcessConfigHTMLSetting(t *testing.T) {
+	cfg := &config.Config{
+		Defaults: config.Defaults{
+			HTMLReport: "/path/to/report.html",
+		},
+	}
+
+	params := &RunParameters{
+		OutputFormats: []string{},
+	}
+
+	processConfigHTMLSetting(cfg, params)
+
+	assert.True(t, params.GenerateHTML)
+	assert.Equal(t, "/path/to/report.html", params.HTMLReportPath)
+	assert.Contains(t, params.OutputFormats, "html")
+}
+
+func TestApplyConfigurationOverrides(t *testing.T) {
+	tests := []struct {
+		name              string
+		verbose           bool
+		maxTokens         int
+		setMaxTokens      bool
+		expectedVerbose   bool
+		expectedMaxTokens int
+	}{
+		{
+			name:              "no overrides",
+			verbose:           false,
+			setMaxTokens:      false,
+			expectedVerbose:   false,
+			expectedMaxTokens: 0,
+		},
+		{
+			name:              "verbose override",
+			verbose:           true,
+			setMaxTokens:      false,
+			expectedVerbose:   true,
+			expectedMaxTokens: 0,
+		},
+		{
+			name:              "max tokens override",
+			verbose:           false,
+			maxTokens:         1000,
+			setMaxTokens:      true,
+			expectedVerbose:   false,
+			expectedMaxTokens: 1000,
+		},
+		{
+			name:              "both overrides",
+			verbose:           true,
+			maxTokens:         2000,
+			setMaxTokens:      true,
+			expectedVerbose:   true,
+			expectedMaxTokens: 2000,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := &cobra.Command{}
+			setupTestFlags(cmd)
+
+			cfg := &config.Config{
+				Defaults: config.Defaults{},
+			}
+
+			params := &RunParameters{
+				Verbose: tt.verbose,
+			}
+
+			if tt.setMaxTokens {
+				err := cmd.Flags().Set("max-tokens", fmt.Sprintf("%d", tt.maxTokens))
+				require.NoError(t, err)
+			}
+
+			applyConfigurationOverrides(cmd, cfg, params)
+
+			assert.Equal(t, tt.expectedVerbose, cfg.Defaults.Verbose)
+			assert.Equal(t, tt.expectedMaxTokens, cfg.Defaults.MaxTokens)
+		})
+	}
+}
+
 // Helper function to set up test flags (mirrors the real flags)
 func setupTestFlags(cmd *cobra.Command) {
 	cmd.Flags().StringSlice("region", []string{}, "Regions to run")
 	cmd.Flags().StringSlice("provider", []string{}, "Providers to use")
 	cmd.Flags().StringSlice("scenario", []string{}, "Scenarios to run")
+	cmd.Flags().StringSlice("eval", []string{}, "Evaluations to run")
 	cmd.Flags().IntP("concurrency", "j", 6, "Number of concurrent workers")
 	cmd.Flags().StringP("out", "o", "out", "Output directory")
 	cmd.Flags().Bool("ci", false, "CI mode")

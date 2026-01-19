@@ -235,7 +235,7 @@ func TestGenerateRunPlan_WithFilters(t *testing.T) {
 	}
 
 	// Test with scenario filter
-	plan, err := eng.GenerateRunPlan(nil, nil, []string{"scenario1"})
+	plan, err := eng.GenerateRunPlan(nil, nil, []string{"scenario1"}, nil)
 	if err != nil {
 		t.Errorf("GenerateRunPlan failed: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestGenerateRunPlan_RegionFilter(t *testing.T) {
 	}
 
 	// Test with region filter
-	plan, err := eng.GenerateRunPlan([]string{"us"}, nil, nil)
+	plan, err := eng.GenerateRunPlan([]string{"us"}, nil, nil, nil)
 	if err != nil {
 		t.Errorf("GenerateRunPlan failed: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestGenerateRunPlan_ProviderFilter(t *testing.T) {
 	}
 
 	// Test with provider filter
-	plan, err := eng.GenerateRunPlan(nil, []string{"provider1"}, nil)
+	plan, err := eng.GenerateRunPlan(nil, []string{"provider1"}, nil, nil)
 	if err != nil {
 		t.Errorf("GenerateRunPlan failed: %v", err)
 	}

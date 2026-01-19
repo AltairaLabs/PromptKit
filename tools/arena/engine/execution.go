@@ -13,23 +13,32 @@ import (
 )
 
 // GenerateRunPlan creates a comprehensive test execution plan from filter criteria.
-// The plan contains all combinations of regions × providers × scenarios that match
-// the provided filters. Scenarios can optionally specify which providers they should
-// be tested against via the `providers` field.
+// The plan contains all combinations of regions × providers × scenarios OR evals that match
+// the provided filters. Scenarios and evals are mutually exclusive.
 //
-// Filter behavior:
+// For scenarios:
 // - regionFilter: Empty = all regions from prompt configs (or default)
 // - providerFilter: Empty = all registered providers (or scenario-specified providers)
 // - scenarioFilter: Empty = all loaded scenarios
 //
-// Provider selection logic:
+// For evals:
+// - evalFilter: Empty = all loaded evals
+// - Regions and providers are not used (they come from recordings)
+//
+// Provider selection logic (scenarios only):
 // 1. If scenario specifies providers: use those (intersected with CLI filter if provided)
 // 2. If scenario doesn't specify providers: use all arena providers (intersected with CLI filter)
 //
 // Returns a RunPlan containing all matching combinations, ready for execution.
 // Each combination represents one independent test run that will be executed
 // and validated separately.
-func (e *Engine) GenerateRunPlan(regionFilter, providerFilter, scenarioFilter []string) (*RunPlan, error) {
+func (e *Engine) GenerateRunPlan(regionFilter, providerFilter, scenarioFilter, evalFilter []string) (*RunPlan, error) {
+	// If eval filter specified, generate eval combinations
+	if len(evalFilter) > 0 || (len(scenarioFilter) == 0 && len(e.scenarios) == 0 && len(e.evals) > 0) {
+		return e.generateEvalPlan(evalFilter)
+	}
+
+	// Otherwise generate scenario combinations
 	regions := e.resolveRegions(regionFilter)
 	scenarioIDs, err := e.resolveScenarios(scenarioFilter)
 	if err != nil {
@@ -63,6 +72,34 @@ func (e *Engine) resolveScenarios(scenarioFilter []string) ([]string, error) {
 		scenarioIDs = append(scenarioIDs, id)
 	}
 	return scenarioIDs, nil
+}
+
+// generateEvalPlan creates a run plan for evaluations
+func (e *Engine) generateEvalPlan(evalFilter []string) (*RunPlan, error) {
+	evalIDs := e.resolveEvals(evalFilter)
+
+	var combinations []RunCombination
+	for _, evalID := range evalIDs {
+		combinations = append(combinations, RunCombination{
+			EvalID: evalID,
+			// Region and ProviderID not used for evals
+		})
+	}
+
+	return &RunPlan{Combinations: combinations}, nil
+}
+
+// resolveEvals returns the eval IDs to use, applying all evals if empty
+func (e *Engine) resolveEvals(evalFilter []string) []string {
+	if len(evalFilter) > 0 {
+		return evalFilter
+	}
+
+	var evalIDs []string
+	for id := range e.evals {
+		evalIDs = append(evalIDs, id)
+	}
+	return evalIDs
 }
 
 // generateCombinations creates all valid combinations of regions, scenarios, and providers
@@ -190,17 +227,24 @@ func (e *Engine) intersectProviders(scenarioProviders, providerFilter []string) 
 	return finalProviders
 }
 
-// executeRun executes a single test combination: region + scenario + provider.
+// executeRun executes a single test combination: scenario OR eval.
 // This is the core execution method that coordinates all aspects of running one test:
 //
+// For scenario-based runs:
 // 1. Validates that the scenario and provider exist
 // 2. Resolves the task type and builds the system prompt for the region
 // 3. Delegates to ConversationExecutor for turn-by-turn execution
 // 4. Collects results including conversation transcript, costs, timing, tool calls
 // 5. Runs validators and captures validation results
 // 6. Saves results to StateStore
-// 7. Handles errors gracefully, always returning a RunID (with Error saved in StateStore if failed)
 //
+// For eval-based runs:
+// 1. Validates that the eval config exists
+// 2. Loads the recording via adapter registry
+// 3. Applies assertions to the saved conversation
+// 4. Saves evaluation results to StateStore
+//
+// Handles errors gracefully, always returning a RunID (with Error saved in StateStore if failed).
 // Returns the RunID. Results can be retrieved from StateStore using GetRunResult().
 func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, error) {
 	startTime := time.Now()
@@ -218,6 +262,12 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 		return e.saveRunError(ctx, arenaStore, combo, runID, startTime, errMsg, runEmitter)
 	}
 
+	// Check if this is an eval run
+	if combo.EvalID != "" {
+		return e.executeEvalRun(ctx, combo, runID, startTime, arenaStore, runEmitter, saveError)
+	}
+
+	// Otherwise it's a scenario run
 	// Get scenario
 	scenario, exists := e.scenarios[combo.ScenarioID]
 	if !exists {
@@ -395,9 +445,93 @@ func (e *Engine) notifyRunCompletion(
 	)
 }
 
+// executeEvalRun executes an evaluation run (recording replay with assertions)
+func (e *Engine) executeEvalRun(
+	ctx context.Context,
+	combo RunCombination,
+	runID string,
+	startTime time.Time,
+	arenaStore *statestore.ArenaStateStore,
+	runEmitter *events.Emitter,
+	saveError func(string) (string, error),
+) (string, error) {
+	// Get eval config
+	eval, exists := e.evals[combo.EvalID]
+	if !exists {
+		return saveError(fmt.Sprintf("eval not found: %s", combo.EvalID))
+	}
+
+	// Execute evaluation (no provider needed - comes from recording)
+	req := ConversationRequest{
+		Eval:     eval,
+		Config:   e.config,
+		Region:   "default", // Not used for evals
+		RunID:    runID,
+		EventBus: e.eventBus,
+		StateStoreConfig: &StateStoreConfig{
+			Store: e.stateStore,
+			Metadata: map[string]interface{}{
+				"eval_id":    combo.EvalID,
+				"started_at": startTime.Format(time.RFC3339),
+			},
+		},
+		ConversationID: runID,
+	}
+
+	convResult := e.conversationExecutor.ExecuteConversation(ctx, req)
+
+	// Calculate duration and cost
+	duration := time.Since(startTime)
+	cost := convResult.Cost.TotalCost
+
+	// Save run metadata to StateStore (use EvalID in place of ScenarioID)
+	if err := e.saveEvalMetadata(ctx, arenaStore, combo, convResult, runID, startTime, duration); err != nil {
+		return runID, fmt.Errorf("failed to save eval metadata: %w", err)
+	}
+
+	e.notifyRunCompletion(runEmitter, convResult, runID, duration, cost)
+
+	return runID, nil
+}
+
+// saveEvalMetadata saves evaluation run results to the state store
+func (e *Engine) saveEvalMetadata(
+	ctx context.Context,
+	store *statestore.ArenaStateStore,
+	combo RunCombination,
+	convResult *ConversationResult,
+	runID string,
+	startTime time.Time,
+	duration time.Duration,
+) error {
+	metadata := &statestore.RunMetadata{
+		RunID:                        runID,
+		ScenarioID:                   combo.EvalID, // Use EvalID in ScenarioID field for storage
+		ProviderID:                   "eval",       // Placeholder - actual provider is in recording
+		Region:                       "default",
+		StartTime:                    startTime,
+		EndTime:                      startTime.Add(duration),
+		Duration:                     duration,
+		Error:                        convResult.Error,
+		SelfPlay:                     convResult.SelfPlay,
+		PersonaID:                    convResult.PersonaID,
+		ConversationAssertionResults: convResult.ConversationAssertionResults,
+	}
+
+	if convResult.Failed {
+		metadata.Error = convResult.Error
+	}
+
+	return store.SaveMetadata(ctx, runID, metadata)
+}
+
 // generateRunID creates a unique run ID for a combination
 func generateRunID(combo RunCombination) string {
 	timestamp := time.Now().Format("2006-01-02T15-04Z")
+	if combo.EvalID != "" {
+		hash := sha256.Sum256([]byte(fmt.Sprintf("eval_%s", combo.EvalID)))
+		return fmt.Sprintf("%s_eval_%s_%x", timestamp, combo.EvalID, hash[:4])
+	}
 	hash := sha256.Sum256([]byte(fmt.Sprintf("%s_%s_%s", combo.Region, combo.ScenarioID, combo.ProviderID)))
 	return fmt.Sprintf("%s_%s_%s_%s_%x", timestamp, combo.ProviderID, combo.Region, combo.ScenarioID, hash[:4])
 }

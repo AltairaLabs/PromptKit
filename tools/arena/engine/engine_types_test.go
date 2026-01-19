@@ -195,6 +195,7 @@ func TestGenerateRunPlan_MultipleFilters(t *testing.T) {
 		[]string{"us", "uk"},
 		[]string{"p1"},
 		[]string{"s1"},
+		nil,
 	)
 
 	if err != nil {

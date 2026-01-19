@@ -60,6 +60,7 @@ type Engine struct {
 	stateStore           statestore.Store            // State store for conversation persistence (always enabled)
 	mediaStorage         storage.MediaStorageService // Media storage for externalization (always enabled)
 	scenarios            map[string]*config.Scenario
+	evals                map[string]*config.Eval
 	providers            map[string]*config.Provider
 	personas             map[string]*config.UserPersonaPack
 	conversationExecutor ConversationExecutor
@@ -153,6 +154,7 @@ func NewEngine(
 		mediaStorage:         mediaStorage,
 		conversationExecutor: convExecutor,
 		scenarios:            cfg.LoadedScenarios,
+		evals:                cfg.LoadedEvals,
 		providers:            cfg.LoadedProviders,
 		personas:             cfg.LoadedPersonas,
 	}, nil

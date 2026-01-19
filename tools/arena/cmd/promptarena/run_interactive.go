@@ -7,10 +7,13 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	bubbletea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
@@ -18,6 +21,99 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/logging"
 )
+
+const (
+	outputDirPerm = 0750 // Directory permissions for output directories
+)
+
+// loadConfiguration loads and parses the arena configuration file
+func loadConfiguration(cmd *cobra.Command) (string, *config.Config, error) {
+	configFile, err := cmd.Flags().GetString("config")
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to get config flag: %w", err)
+	}
+
+	// If config path is a directory, append config.arena.yaml
+	if info, statErr := os.Stat(configFile); statErr == nil && info.IsDir() {
+		configFile = filepath.Join(configFile, "config.arena.yaml")
+	}
+
+	// Load configuration
+	viper.SetConfigFile(configFile)
+	if readErr := viper.ReadInConfig(); readErr != nil {
+		log.Printf("Warning: Could not read config file %s: %v", configFile, readErr)
+	}
+
+	// Load main config
+	cfg, err := config.LoadConfig(configFile)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to load config: %w", err)
+	}
+
+	return configFile, cfg, nil
+}
+
+// convertRunResults converts run IDs to RunResults by fetching from state store
+func convertRunResults(ctx context.Context, eng *engine.Engine, runIDs []string) ([]engine.RunResult, error) {
+	arenaStore, ok := eng.GetStateStore().(*statestore.ArenaStateStore)
+	if !ok {
+		return nil, fmt.Errorf("failed to get ArenaStateStore")
+	}
+
+	results := make([]engine.RunResult, 0, len(runIDs))
+	for _, runID := range runIDs {
+		storeResult, err := arenaStore.GetResult(ctx, runID)
+		if err != nil {
+			log.Printf("Warning: failed to get run result for %s: %v", runID, err)
+			continue
+		}
+		results = append(results, convertToEngineRunResult(storeResult))
+	}
+
+	return results, nil
+}
+
+// processResults processes, saves, and reports execution results using repository pattern
+func processResults(results []engine.RunResult, params *RunParameters, configFile string) error {
+	// Create output directory
+	if err := os.MkdirAll(params.OutDir, outputDirPerm); err != nil {
+		return fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	// Create composite repository for multiple output formats
+	repository, err := createResultRepository(params, configFile)
+	if err != nil {
+		return fmt.Errorf("failed to create result repository: %w", err)
+	}
+
+	// Save results using repository pattern
+	if err := repository.SaveResults(results); err != nil {
+		return fmt.Errorf("failed to save results: %w", err)
+	}
+
+	// Create and save summary
+	successCount, errorCount := countResultsByStatus(results)
+	summary := createResultSummary(results, successCount, errorCount, configFile)
+	if err := repository.SaveSummary(summary); err != nil {
+		log.Printf("Warning: failed to save summary: %v", err)
+	}
+
+	// Handle CI mode errors and failures
+	if params.CIMode {
+		failedAssertions := countFailedAssertions(results)
+		if errorCount > 0 && failedAssertions > 0 {
+			return fmt.Errorf("execution failed: %d runs had errors, %d assertions failed", errorCount, failedAssertions)
+		}
+		if errorCount > 0 {
+			return fmt.Errorf("execution failed: %d runs had errors", errorCount)
+		}
+		if failedAssertions > 0 {
+			return fmt.Errorf("test failures: %d assertions failed", failedAssertions)
+		}
+	}
+
+	return nil
+}
 
 // runSimulations is the main entry point for the run command.
 // It orchestrates configuration loading, parameter extraction, execution, and result processing.
@@ -87,7 +183,7 @@ func setupEngine(configFile string, params *RunParameters) (*engine.Engine, *eng
 		return nil, nil, fmt.Errorf("failed to configure session recording: %w", err)
 	}
 
-	plan, err := eng.GenerateRunPlan(params.Regions, params.Providers, params.Scenarios)
+	plan, err := eng.GenerateRunPlan(params.Regions, params.Providers, params.Scenarios, params.Evals)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to generate run plan: %w", err)
 	}
@@ -276,4 +372,40 @@ func executeSimple(ctx context.Context, eng *engine.Engine, plan *engine.RunPlan
 	fmt.Println(tui.RenderSummaryCIMode(summary))
 
 	return runIDs, nil
+}
+
+// displayRunInfo prints configuration and execution parameters.
+// This is UI/display code excluded from coverage requirements.
+func displayRunInfo(params *RunParameters, configFile string) {
+	if params.CIMode {
+		return
+	}
+
+	fmt.Printf("Running Altaira Prompt Arena\n")
+	fmt.Printf("Config: %s\n", configFile)
+	if len(params.Regions) > 0 {
+		fmt.Printf("Regions: %s\n", strings.Join(params.Regions, ", "))
+	}
+	if len(params.Providers) > 0 {
+		fmt.Printf("Providers: %s\n", strings.Join(params.Providers, ", "))
+	}
+	if len(params.Scenarios) > 0 {
+		fmt.Printf("Scenarios: %s\n", strings.Join(params.Scenarios, ", "))
+	}
+	if len(params.Evals) > 0 {
+		fmt.Printf("Evaluations: %s\n", strings.Join(params.Evals, ", "))
+	}
+	fmt.Printf("Concurrency: %d\n", params.Concurrency)
+	fmt.Printf("Output: %s\n", params.OutDir)
+	fmt.Printf("Formats: %s\n", strings.Join(params.OutputFormats, ", "))
+	if contains(params.OutputFormats, "junit") {
+		fmt.Printf("JUnit XML: %s\n", params.JUnitFile)
+	}
+	if contains(params.OutputFormats, "html") || params.GenerateHTML {
+		fmt.Printf("HTML Report: %s\n", params.HTMLFile)
+	}
+	if contains(params.OutputFormats, "markdown") {
+		fmt.Printf("Markdown Report: %s\n", params.MarkdownFile)
+	}
+	fmt.Println()
 }
