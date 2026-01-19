@@ -5,8 +5,8 @@ go 1.25.1
 replace github.com/AltairaLabs/PromptKit/runtime => ../runtime
 
 require (
-	github.com/AltairaLabs/PromptKit/runtime v1.1.7
-	github.com/AltairaLabs/PromptKit/tools/arena v1.1.7
+	github.com/AltairaLabs/PromptKit/runtime v1.1.8
+	github.com/AltairaLabs/PromptKit/tools/arena v1.1.8
 	github.com/stretchr/testify v1.11.1
 	github.com/xeipuuv/gojsonschema v1.2.0
 	gopkg.in/yaml.v3 v3.0.1
