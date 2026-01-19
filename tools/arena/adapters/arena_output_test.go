@@ -244,6 +244,57 @@ func TestArenaOutputAdapter_Load_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestArenaOutputAdapter_Load_SimpleFormat(t *testing.T) {
+	adapter := NewArenaOutputAdapter()
+
+	// Test the simple format (Messages array + RunID)
+	simpleFormat := struct {
+		Messages []types.Message `json:"Messages"`
+		RunID    string          `json:"RunID"`
+	}{
+		Messages: []types.Message{
+			{Role: "user", Content: "Hello"},
+			{Role: "assistant", Content: "Hi there!"},
+			{Role: "user", Content: "How are you?"},
+		},
+		RunID: "test-run-123",
+	}
+
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "simple.arena.json")
+	data, err := json.Marshal(simpleFormat)
+	if err != nil {
+		t.Fatalf("Failed to marshal: %v", err)
+	}
+	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+		t.Fatalf("Failed to write: %v", err)
+	}
+
+	messages, metadata, err := adapter.Load(tmpFile)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	// Check messages
+	if len(messages) != 3 {
+		t.Fatalf("Load() got %d messages, want 3", len(messages))
+	}
+	if messages[0].Role != "user" || messages[0].Content != "Hello" {
+		t.Errorf("messages[0] = %+v, want user: Hello", messages[0])
+	}
+	if messages[1].Role != "assistant" || messages[1].Content != "Hi there!" {
+		t.Errorf("messages[1] = %+v, want assistant: Hi there!", messages[1])
+	}
+
+	// Check metadata
+	if metadata == nil {
+		t.Fatal("metadata is nil")
+	}
+	if metadata.SessionID != "test-run-123" {
+		t.Errorf("metadata.SessionID = %s, want test-run-123", metadata.SessionID)
+	}
+}
+
 func TestConvertParts(t *testing.T) {
 	adapter := NewArenaOutputAdapter()
 
