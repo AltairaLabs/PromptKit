@@ -211,17 +211,25 @@ func TestContinue(t *testing.T) {
 func TestResolveToolStoresResolution(t *testing.T) {
 	t.Run("stores resolution for continue", func(t *testing.T) {
 		conv := newTestConversation()
-		conv.pendingStore = sdktools.NewPendingStore()
-		conv.resolvedStore = sdktools.NewResolvedStore()
 
-		// Add a pending tool with a handler
-		conv.pendingStore.Add(&sdktools.PendingToolCall{
-			ID:   "test-id",
-			Name: "test_tool",
-		})
+		// Register async tool with handler
+		conv.OnToolAsync(
+			"test_tool",
+			func(args map[string]any) sdktools.PendingResult {
+				return sdktools.PendingResult{Reason: "test"}
+			},
+			func(args map[string]any) (any, error) {
+				return map[string]any{"status": "executed"}, nil
+			},
+		)
+
+		// Create a pending call through the proper API
+		pending, shouldWait := conv.CheckPending("test_tool", map[string]any{"key": "value"})
+		require.NotNil(t, pending)
+		require.True(t, shouldWait)
 
 		// Resolve it
-		resolution, err := conv.ResolveTool("test-id")
+		resolution, err := conv.ResolveTool(pending.ID)
 		require.NoError(t, err)
 
 		// Verify resolution was stored
