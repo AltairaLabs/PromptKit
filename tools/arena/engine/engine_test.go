@@ -232,7 +232,7 @@ func TestEnableMockProviderMode(t *testing.T) {
 	}
 
 	// Create minimal engine using the direct constructor
-	eng, err := NewEngine(cfg, providerRegistry, nil, nil, nil)
+	eng, err := NewEngine(cfg, providerRegistry, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
@@ -297,7 +297,7 @@ func TestEnableMockProviderMode_WithConfigFile(t *testing.T) {
 	mockProvider := mock.NewProvider("test-provider", "gpt-4", false)
 	providerRegistry.Register(mockProvider)
 
-	eng, err := NewEngine(cfg, providerRegistry, nil, nil, nil)
+	eng, err := NewEngine(cfg, providerRegistry, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
@@ -351,7 +351,7 @@ func TestEnableMockProviderMode_WithInvalidConfigFile(t *testing.T) {
 	mockProvider := mock.NewProvider("test-provider", "gpt-4", false)
 	providerRegistry.Register(mockProvider)
 
-	eng, err := NewEngine(cfg, providerRegistry, nil, nil, nil)
+	eng, err := NewEngine(cfg, providerRegistry, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}

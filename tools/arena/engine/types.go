@@ -15,10 +15,11 @@ type RunPlan struct {
 
 // RunCombination represents a single test execution
 type RunCombination struct {
-	Region     string
-	ScenarioID string // For scenario-based runs
-	EvalID     string // For eval-based runs (mutually exclusive with ScenarioID)
-	ProviderID string // Not used for eval runs (provider comes from recording)
+	Region       string
+	ScenarioID   string // For scenario-based runs
+	EvalID       string // For eval-based runs (mutually exclusive with ScenarioID)
+	ProviderID   string // Not used for eval runs (provider comes from recording)
+	RecordingRef string // For batch evals: specific recording reference ID (resolved by adapter)
 }
 
 // RunResult contains the complete results of a single test execution

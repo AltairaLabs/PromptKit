@@ -18,16 +18,22 @@ func NewArenaOutputAdapter() *ArenaOutputAdapter {
 }
 
 // CanHandle returns true for *.arena-output.json files or "arena_output" type hint.
-func (a *ArenaOutputAdapter) CanHandle(path string, typeHint string) bool {
+func (a *ArenaOutputAdapter) CanHandle(source string, typeHint string) bool {
 	if matchesTypeHint(typeHint, "arena", "arena_output", "scenario_output") {
 		return true
 	}
-	return hasExtension(path, ".arena-output.json", ".arena.json")
+	return hasExtension(source, ".arena-output.json", ".arena.json")
+}
+
+// Enumerate expands a source into individual recording references.
+// For file-based sources, this expands glob patterns to matching files.
+func (a *ArenaOutputAdapter) Enumerate(source string) ([]RecordingReference, error) {
+	return EnumerateFiles(source, "arena_output")
 }
 
 // Load reads an arena output file and converts it to Arena messages.
-func (a *ArenaOutputAdapter) Load(path string) ([]types.Message, *RecordingMetadata, error) {
-	data, err := os.ReadFile(path)
+func (a *ArenaOutputAdapter) Load(ref RecordingReference) ([]types.Message, *RecordingMetadata, error) {
+	data, err := os.ReadFile(ref.ID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read arena output: %w", err)
 	}

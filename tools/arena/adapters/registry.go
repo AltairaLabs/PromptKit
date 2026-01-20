@@ -17,9 +17,7 @@ type Registry struct {
 
 // NewRegistry creates a new adapter registry with default adapters registered.
 func NewRegistry() *Registry {
-	r := &Registry{
-		adapters: make([]RecordingAdapter, 0),
-	}
+	r := NewEmptyRegistry()
 
 	// Register built-in adapters
 	r.Register(NewSessionRecordingAdapter())
@@ -27,6 +25,14 @@ func NewRegistry() *Registry {
 	r.Register(NewTranscriptAdapter())
 
 	return r
+}
+
+// NewEmptyRegistry creates an empty adapter registry without any built-in adapters.
+// This is useful for testing or when you want to register only specific adapters.
+func NewEmptyRegistry() *Registry {
+	return &Registry{
+		adapters: make([]RecordingAdapter, 0),
+	}
 }
 
 // Register adds an adapter to the registry.
@@ -52,19 +58,35 @@ func (r *Registry) FindAdapter(path, typeHint string) RecordingAdapter {
 	return nil
 }
 
-// Load finds an appropriate adapter and loads the recording.
-// Returns an error if no adapter can handle the format or if loading fails.
-func (r *Registry) Load(path, typeHint string) ([]types.Message, *RecordingMetadata, error) {
-	adapter := r.FindAdapter(path, typeHint)
+// Enumerate expands a source into individual recording references.
+// Uses the first adapter that can handle the source.
+// Returns an error if no adapter can handle the source or if enumeration fails.
+func (r *Registry) Enumerate(source, typeHint string) ([]RecordingReference, error) {
+	adapter := r.FindAdapter(source, typeHint)
 	if adapter == nil {
-		ext := filepath.Ext(path)
+		ext := filepath.Ext(source)
 		if typeHint != "" {
-			return nil, nil, fmt.Errorf("no adapter found for type hint '%s' (path: %s)", typeHint, path)
+			return nil, fmt.Errorf("no adapter found for type hint '%s' (source: %s)", typeHint, source)
 		}
-		return nil, nil, fmt.Errorf("no adapter found for file extension '%s' (path: %s)", ext, path)
+		return nil, fmt.Errorf("no adapter found for file extension '%s' (source: %s)", ext, source)
 	}
 
-	return adapter.Load(path)
+	return adapter.Enumerate(source)
+}
+
+// Load finds an appropriate adapter and loads the recording from a reference.
+// Returns an error if no adapter can handle the format or if loading fails.
+func (r *Registry) Load(ref RecordingReference) ([]types.Message, *RecordingMetadata, error) {
+	adapter := r.FindAdapter(ref.ID, ref.TypeHint)
+	if adapter == nil {
+		ext := filepath.Ext(ref.ID)
+		if ref.TypeHint != "" {
+			return nil, nil, fmt.Errorf("no adapter found for type hint '%s' (ref: %s)", ref.TypeHint, ref.ID)
+		}
+		return nil, nil, fmt.Errorf("no adapter found for file extension '%s' (ref: %s)", ext, ref.ID)
+	}
+
+	return adapter.Load(ref)
 }
 
 // hasExtension checks if the path has one of the given extensions (case-insensitive).

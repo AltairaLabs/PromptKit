@@ -48,12 +48,13 @@ func TestBuildEngineComponents_MinimalConfig(t *testing.T) {
 		},
 	}
 
-	providerReg, promptReg, mcpReg, convExec, err := BuildEngineComponents(cfg)
+	providerReg, promptReg, mcpReg, convExec, adapterReg, err := BuildEngineComponents(cfg)
 	require.NoError(t, err)
 	require.NotNil(t, providerReg)
 	require.Nil(t, promptReg)
 	require.Nil(t, mcpReg)
 	require.NotNil(t, convExec)
+	require.NotNil(t, adapterReg)
 }
 
 func TestDiscoverAndRegisterMCPTools_EmptyRegistry(t *testing.T) {
@@ -239,9 +240,10 @@ func TestNewConversationExecutor_WithSelfPlay(t *testing.T) {
 	providerRegistry := providers.NewRegistry()
 	providerRegistry.Register(mock.NewProvider("mock-assistant", "mock-model", false))
 
-	executor, err := newConversationExecutor(cfg, nil, nil, nil, providerRegistry)
+	executor, adapterReg, err := newConversationExecutor(cfg, nil, nil, nil, providerRegistry)
 	require.NoError(t, err)
 	require.NotNil(t, executor)
+	require.NotNil(t, adapterReg)
 
 	// Should be a CompositeConversationExecutor
 	composite, ok := executor.(*CompositeConversationExecutor)
@@ -258,9 +260,10 @@ func TestNewConversationExecutor_WithoutSelfPlay(t *testing.T) {
 	// Empty provider registry (no self-play, so not used)
 	providerRegistry := providers.NewRegistry()
 
-	executor, err := newConversationExecutor(cfg, nil, nil, nil, providerRegistry)
+	executor, adapterReg, err := newConversationExecutor(cfg, nil, nil, nil, providerRegistry)
 	require.NoError(t, err)
 	require.NotNil(t, executor)
+	require.NotNil(t, adapterReg)
 
 	// Should be a CompositeConversationExecutor with nil self-play components
 	composite, ok := executor.(*CompositeConversationExecutor)

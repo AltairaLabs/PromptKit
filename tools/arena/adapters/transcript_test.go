@@ -104,7 +104,7 @@ func TestTranscriptAdapter_Load(t *testing.T) {
 		t.Fatalf("Failed to write temp file: %v", err)
 	}
 
-	messages, metadata, err := adapter.Load(tmpFile)
+	messages, metadata, err := adapter.Load(RecordingReference{ID: tmpFile, Source: tmpFile})
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -183,7 +183,7 @@ func TestTranscriptAdapter_Load_WithToolCalls(t *testing.T) {
 		t.Fatalf("Failed to write: %v", err)
 	}
 
-	messages, _, err := adapter.Load(tmpFile)
+	messages, _, err := adapter.Load(RecordingReference{ID: tmpFile, Source: tmpFile})
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -252,7 +252,7 @@ func TestTranscriptAdapter_Load_WithMultimodal(t *testing.T) {
 		t.Fatalf("Failed to write: %v", err)
 	}
 
-	messages, _, err := adapter.Load(tmpFile)
+	messages, _, err := adapter.Load(RecordingReference{ID: tmpFile, Source: tmpFile})
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -290,7 +290,7 @@ func TestTranscriptAdapter_Load_WithMultimodal(t *testing.T) {
 func TestTranscriptAdapter_Load_InvalidFile(t *testing.T) {
 	adapter := NewTranscriptAdapter()
 
-	_, _, err := adapter.Load("/nonexistent/file.transcript.yaml")
+	_, _, err := adapter.Load(RecordingReference{ID: "/nonexistent/file.transcript.yaml", Source: "/nonexistent/file.transcript.yaml"})
 	if err == nil {
 		t.Error("Load() should return error for nonexistent file")
 	}
@@ -305,7 +305,7 @@ func TestTranscriptAdapter_Load_InvalidYAML(t *testing.T) {
 		t.Fatalf("Failed to write temp file: %v", err)
 	}
 
-	_, _, err := adapter.Load(tmpFile)
+	_, _, err := adapter.Load(RecordingReference{ID: tmpFile, Source: tmpFile})
 	if err == nil {
 		t.Error("Load() should return error for invalid YAML")
 	}

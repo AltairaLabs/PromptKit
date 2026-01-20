@@ -18,17 +18,24 @@ func NewSessionRecordingAdapter() *SessionRecordingAdapter {
 }
 
 // CanHandle returns true for *.recording.json files or "session" type hint.
-func (a *SessionRecordingAdapter) CanHandle(path, typeHint string) bool {
+func (a *SessionRecordingAdapter) CanHandle(source, typeHint string) bool {
 	if matchesTypeHint(typeHint, "session", "recording", "session_recording") {
 		return true
 	}
-	return hasExtension(path, ".recording.json")
+	// Check if any part of a glob pattern would match our extensions
+	return hasExtension(source, ".recording.json")
+}
+
+// Enumerate expands a source into individual recording references.
+// For file-based sources, this expands glob patterns to matching files.
+func (a *SessionRecordingAdapter) Enumerate(source string) ([]RecordingReference, error) {
+	return EnumerateFiles(source, "session")
 }
 
 // Load reads a session recording file and converts it to Arena messages.
-func (a *SessionRecordingAdapter) Load(path string) ([]types.Message, *RecordingMetadata, error) {
+func (a *SessionRecordingAdapter) Load(ref RecordingReference) ([]types.Message, *RecordingMetadata, error) {
 	//nolint:gosec // File path is provided by user/config, not external input
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(ref.ID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read session recording: %w", err)
 	}

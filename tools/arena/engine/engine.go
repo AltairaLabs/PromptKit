@@ -37,6 +37,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/storage/local"
+	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
 )
 
 // Default directory names for output.
@@ -64,7 +65,8 @@ type Engine struct {
 	providers            map[string]*config.Provider
 	personas             map[string]*config.UserPersonaPack
 	conversationExecutor ConversationExecutor
-	eventBus             *events.EventBus  // Optional event bus for runtime/TUI events
+	adapterRegistry      *adapters.Registry // Registry for recording adapters (used for eval enumeration)
+	eventBus             *events.EventBus   // Optional event bus for runtime/TUI events
 	eventStore           events.EventStore // Optional event store for session recording
 	recordingDir         string            // Directory where session recordings are stored
 }
@@ -102,13 +104,13 @@ func NewEngineFromConfigFile(configPath string) (*Engine, error) {
 	}
 
 	// Build registries and executors from the config
-	providerRegistry, promptRegistry, mcpRegistry, convExecutor, err := BuildEngineComponents(cfg)
+	providerRegistry, promptRegistry, mcpRegistry, convExecutor, adapterRegistry, err := BuildEngineComponents(cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	// Create engine with all components
-	return NewEngine(cfg, providerRegistry, promptRegistry, mcpRegistry, convExecutor)
+	return NewEngine(cfg, providerRegistry, promptRegistry, mcpRegistry, convExecutor, adapterRegistry)
 }
 
 // NewEngine creates a new simulation engine from pre-built components.
@@ -124,6 +126,7 @@ func NewEngineFromConfigFile(configPath string) (*Engine, error) {
 //   - providerRegistry: Registry for looking up providers by ID
 //   - promptRegistry: Registry for system prompts and task types
 //   - convExecutor: Executor for full conversations
+//   - adapterRegistry: Registry for recording adapters (used for eval enumeration)
 //
 // Returns an initialized Engine ready for test execution.
 func NewEngine(
@@ -132,6 +135,7 @@ func NewEngine(
 	promptRegistry *prompt.Registry,
 	mcpRegistry *mcp.RegistryImpl,
 	convExecutor ConversationExecutor,
+	adapterRegistry *adapters.Registry,
 ) (*Engine, error) {
 	// Build state store from config if configured
 	stateStore, err := buildStateStore(cfg)
@@ -153,6 +157,7 @@ func NewEngine(
 		stateStore:           stateStore,
 		mediaStorage:         mediaStorage,
 		conversationExecutor: convExecutor,
+		adapterRegistry:      adapterRegistry,
 		scenarios:            cfg.LoadedScenarios,
 		evals:                cfg.LoadedEvals,
 		providers:            cfg.LoadedProviders,

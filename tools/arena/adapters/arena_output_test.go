@@ -112,7 +112,7 @@ func TestArenaOutputAdapter_Load(t *testing.T) {
 		t.Fatalf("Failed to write temp file: %v", err)
 	}
 
-	messages, metadata, err := adapter.Load(tmpFile)
+	messages, metadata, err := adapter.Load(RecordingReference{ID: tmpFile, Source: tmpFile})
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -193,7 +193,7 @@ func TestArenaOutputAdapter_Load_WithToolResults(t *testing.T) {
 		t.Fatalf("Failed to write: %v", err)
 	}
 
-	messages, _, err := adapter.Load(tmpFile)
+	messages, _, err := adapter.Load(RecordingReference{ID: tmpFile, Source: tmpFile})
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -223,7 +223,7 @@ func TestArenaOutputAdapter_Load_WithToolResults(t *testing.T) {
 func TestArenaOutputAdapter_Load_InvalidFile(t *testing.T) {
 	adapter := NewArenaOutputAdapter()
 
-	_, _, err := adapter.Load("/nonexistent/file.arena.json")
+	_, _, err := adapter.Load(RecordingReference{ID: "/nonexistent/file.arena.json", Source: "/nonexistent/file.arena.json"})
 	if err == nil {
 		t.Error("Load() should return error for nonexistent file")
 	}
@@ -238,7 +238,7 @@ func TestArenaOutputAdapter_Load_InvalidJSON(t *testing.T) {
 		t.Fatalf("Failed to write temp file: %v", err)
 	}
 
-	_, _, err := adapter.Load(tmpFile)
+	_, _, err := adapter.Load(RecordingReference{ID: tmpFile, Source: tmpFile})
 	if err == nil {
 		t.Error("Load() should return error for invalid JSON")
 	}
@@ -270,7 +270,7 @@ func TestArenaOutputAdapter_Load_SimpleFormat(t *testing.T) {
 		t.Fatalf("Failed to write: %v", err)
 	}
 
-	messages, metadata, err := adapter.Load(tmpFile)
+	messages, metadata, err := adapter.Load(RecordingReference{ID: tmpFile, Source: tmpFile})
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}

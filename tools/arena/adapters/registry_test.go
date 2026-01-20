@@ -9,20 +9,28 @@ import (
 
 // mockAdapter is a test adapter for testing the registry.
 type mockAdapter struct {
-	canHandleFunc func(path string, typeHint string) bool
-	loadFunc      func(path string) ([]types.Message, *RecordingMetadata, error)
+	canHandleFunc func(source string, typeHint string) bool
+	enumerateFunc func(source string) ([]RecordingReference, error)
+	loadFunc      func(ref RecordingReference) ([]types.Message, *RecordingMetadata, error)
 }
 
-func (m *mockAdapter) CanHandle(path string, typeHint string) bool {
+func (m *mockAdapter) CanHandle(source string, typeHint string) bool {
 	if m.canHandleFunc != nil {
-		return m.canHandleFunc(path, typeHint)
+		return m.canHandleFunc(source, typeHint)
 	}
 	return false
 }
 
-func (m *mockAdapter) Load(path string) ([]types.Message, *RecordingMetadata, error) {
+func (m *mockAdapter) Enumerate(source string) ([]RecordingReference, error) {
+	if m.enumerateFunc != nil {
+		return m.enumerateFunc(source)
+	}
+	return []RecordingReference{{ID: source, Source: source}}, nil
+}
+
+func (m *mockAdapter) Load(ref RecordingReference) ([]types.Message, *RecordingMetadata, error) {
 	if m.loadFunc != nil {
-		return m.loadFunc(path)
+		return m.loadFunc(ref)
 	}
 	return nil, nil, nil
 }
@@ -110,16 +118,17 @@ func TestRegistry_Load(t *testing.T) {
 	}
 
 	mockAdptr := &mockAdapter{
-		canHandleFunc: func(path string, typeHint string) bool {
-			return hasExtension(path, ".test")
+		canHandleFunc: func(source string, typeHint string) bool {
+			return hasExtension(source, ".test")
 		},
-		loadFunc: func(path string) ([]types.Message, *RecordingMetadata, error) {
+		loadFunc: func(ref RecordingReference) ([]types.Message, *RecordingMetadata, error) {
 			return expectedMessages, expectedMetadata, nil
 		},
 	}
 	registry.Register(mockAdptr)
 
-	messages, metadata, err := registry.Load("file.test", "")
+	ref := RecordingReference{ID: "file.test", Source: "file.test"}
+	messages, metadata, err := registry.Load(ref)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -138,9 +147,50 @@ func TestRegistry_Load_NoAdapter(t *testing.T) {
 		adapters: make([]RecordingAdapter, 0),
 	}
 
-	_, _, err := registry.Load("file.unknown", "")
+	ref := RecordingReference{ID: "file.unknown", Source: "file.unknown"}
+	_, _, err := registry.Load(ref)
 	if err == nil {
 		t.Error("Load() should return error when no adapter found")
+	}
+}
+
+func TestRegistry_Enumerate(t *testing.T) {
+	registry := &Registry{
+		adapters: make([]RecordingAdapter, 0),
+	}
+
+	// Register a mock adapter with enumerate function
+	mockAdptr := &mockAdapter{
+		canHandleFunc: func(source string, typeHint string) bool {
+			return hasExtension(source, ".test")
+		},
+		enumerateFunc: func(source string) ([]RecordingReference, error) {
+			return []RecordingReference{
+				{ID: "file1.test", Source: source, TypeHint: "test"},
+				{ID: "file2.test", Source: source, TypeHint: "test"},
+			}, nil
+		},
+	}
+	registry.Register(mockAdptr)
+
+	refs, err := registry.Enumerate("*.test", "")
+	if err != nil {
+		t.Fatalf("Enumerate() error = %v", err)
+	}
+
+	if len(refs) != 2 {
+		t.Errorf("Enumerate() got %d refs, want 2", len(refs))
+	}
+}
+
+func TestRegistry_Enumerate_NoAdapter(t *testing.T) {
+	registry := &Registry{
+		adapters: make([]RecordingAdapter, 0),
+	}
+
+	_, err := registry.Enumerate("file.unknown", "")
+	if err == nil {
+		t.Error("Enumerate() should return error when no adapter found")
 	}
 }
 

@@ -1,12 +1,99 @@
 package adapters
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestContainsGlobChars(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+		want   bool
+	}{
+		{"literal path", "/path/to/file.json", false},
+		{"with asterisk", "/path/to/*.json", true},
+		{"with question mark", "/path/to/file?.json", true},
+		{"with bracket", "/path/to/[abc].json", true},
+		{"with double asterisk", "/path/**/file.json", true},
+		{"asterisk in filename", "/path/to/file*.json", true},
+		{"empty string", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := containsGlobChars(tt.source)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestEnumerateFiles_SingleFile(t *testing.T) {
+	// Create temp file
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "test.json")
+	require.NoError(t, os.WriteFile(tmpFile, []byte("{}"), 0644))
+
+	// Non-glob path should return single reference
+	refs, err := EnumerateFiles(tmpFile, "session")
+	require.NoError(t, err)
+	require.Len(t, refs, 1)
+	assert.Equal(t, tmpFile, refs[0].ID)
+	assert.Equal(t, tmpFile, refs[0].Source)
+	assert.Equal(t, "session", refs[0].TypeHint)
+}
+
+func TestEnumerateFiles_GlobPattern(t *testing.T) {
+	// Create temp directory with multiple files
+	tmpDir := t.TempDir()
+
+	files := []string{"test1.json", "test2.json", "test3.json", "other.txt"}
+	for _, f := range files {
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, f), []byte("{}"), 0644))
+	}
+
+	// Glob pattern should return matching files
+	pattern := filepath.Join(tmpDir, "*.json")
+	refs, err := EnumerateFiles(pattern, "session")
+	require.NoError(t, err)
+	require.Len(t, refs, 3) // 3 .json files
+
+	// Verify each reference has correct fields
+	for _, ref := range refs {
+		assert.Contains(t, ref.ID, ".json")
+		assert.Equal(t, pattern, ref.Source)
+		assert.Equal(t, "session", ref.TypeHint)
+	}
+}
+
+func TestEnumerateFiles_NoMatches(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Glob pattern with no matches
+	pattern := filepath.Join(tmpDir, "*.nonexistent")
+	refs, err := EnumerateFiles(pattern, "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no files matched")
+	assert.Nil(t, refs)
+}
+
+func TestEnumerateFiles_InvalidGlobPattern(t *testing.T) {
+	// Invalid glob pattern
+	refs, err := EnumerateFiles("/path/[invalid", "")
+	// filepath.Glob returns error for invalid patterns
+	// but we should handle it gracefully
+	if err != nil {
+		// Either returns "invalid glob pattern" or "no files matched"
+		assert.True(t, len(refs) == 0, "should return empty refs on error")
+	} else {
+		assert.Empty(t, refs)
+	}
+}
 
 func TestConvertMediaToContent(t *testing.T) {
 	tests := []struct {
