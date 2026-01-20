@@ -86,7 +86,13 @@ jobs:
         # Merge coverage files
         echo "mode: set" > coverage.out
         grep -h -v "^mode:" runtime/runtime-coverage.out sdk/sdk-coverage.out tools/arena/arena-coverage.out pkg/pkg-coverage.out tools/packc/packc-coverage.out tools/inspect-state/inspect-state-coverage.out tools/schema-gen/schema-gen-coverage.out >> coverage.out 2>/dev/null || true
-        echo "Coverage report generated: coverage.out"
+
+        # Fix coverage paths for SonarCloud - strip module prefix to get repo-relative paths
+        # Go coverage uses full module paths (github.com/AltairaLabs/PromptKit/...) but SonarCloud expects repo-relative paths
+        sed -i 's|github.com/AltairaLabs/PromptKit/||g' coverage.out
+        echo "Coverage report generated with $(wc -l < coverage.out) lines"
+        echo "Sample paths:"
+        head -5 coverage.out
     
     - name: Publish Test Results  
       uses: dorny/test-reporter@b082adf0eced0765477756c2a610396589b8c637 # v2.5.0
