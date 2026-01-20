@@ -397,6 +397,7 @@ func (s *StreamSession) SendChunk(ctx context.Context, chunk *types.MediaChunk) 
 		s.mu.Unlock()
 		return errors.New(ErrSessionClosed)
 	}
+	ws := s.ws // Get local copy under lock to avoid race with reconnect
 
 	// When VAD is disabled, send activityStart before first audio chunk
 	// This signals to Gemini that user input is starting
@@ -415,7 +416,7 @@ func (s *StreamSession) SendChunk(ctx context.Context, chunk *types.MediaChunk) 
 	// Build client message
 	msg := buildClientMessage(*chunk, false)
 
-	return s.ws.Send(msg)
+	return ws.Send(msg)
 }
 
 // SendText sends a text message to the server and marks the turn as complete
@@ -425,13 +426,14 @@ func (s *StreamSession) SendText(ctx context.Context, text string) error {
 		s.mu.Unlock()
 		return errors.New(ErrSessionClosed)
 	}
+	ws := s.ws // Get local copy under lock to avoid race with reconnect
 	s.mu.Unlock()
 
 	// Build text message with turn_complete set to true
 	// This signals to Gemini that we're done sending input and expecting a response
 	msg := buildTextMessage(text, true)
 
-	return s.ws.Send(msg)
+	return ws.Send(msg)
 }
 
 // SendSystemContext sends a text message as context without completing the turn.
@@ -443,13 +445,14 @@ func (s *StreamSession) SendSystemContext(ctx context.Context, text string) erro
 		s.mu.Unlock()
 		return errors.New(ErrSessionClosed)
 	}
+	ws := s.ws // Get local copy under lock to avoid race with reconnect
 	s.mu.Unlock()
 
 	// Build text message WITHOUT turn_complete
 	// This provides context without triggering an immediate response
 	msg := buildTextMessage(text, false)
 
-	return s.ws.Send(msg)
+	return ws.Send(msg)
 }
 
 // CompleteTurn signals that the current turn is complete
@@ -459,6 +462,7 @@ func (s *StreamSession) CompleteTurn(ctx context.Context) error {
 		s.mu.Unlock()
 		return errors.New(ErrSessionClosed)
 	}
+	ws := s.ws // Get local copy under lock to avoid race with reconnect
 	s.mu.Unlock()
 
 	// Send turn_complete message
@@ -468,7 +472,7 @@ func (s *StreamSession) CompleteTurn(ctx context.Context) error {
 		},
 	}
 
-	return s.ws.Send(msg)
+	return ws.Send(msg)
 }
 
 // sendActivityStart signals the start of user audio input.
@@ -479,6 +483,7 @@ func (s *StreamSession) sendActivityStart() error {
 		s.mu.Unlock()
 		return errors.New(ErrSessionClosed)
 	}
+	ws := s.ws // Get local copy under lock to avoid race with reconnect
 	s.mu.Unlock()
 
 	msg := map[string]interface{}{
@@ -488,7 +493,7 @@ func (s *StreamSession) sendActivityStart() error {
 	}
 
 	logger.Debug("Gemini StreamSession: sending activityStart")
-	return s.ws.Send(msg)
+	return ws.Send(msg)
 }
 
 // sendActivityEnd signals the end of user audio input.
@@ -499,6 +504,7 @@ func (s *StreamSession) sendActivityEnd() error {
 		s.mu.Unlock()
 		return errors.New(ErrSessionClosed)
 	}
+	ws := s.ws // Get local copy under lock to avoid race with reconnect
 	s.mu.Unlock()
 
 	msg := map[string]interface{}{
@@ -508,7 +514,7 @@ func (s *StreamSession) sendActivityEnd() error {
 	}
 
 	logger.Debug("Gemini StreamSession: sending activityEnd")
-	return s.ws.Send(msg)
+	return ws.Send(msg)
 }
 
 // isVADDisabled returns true if automatic VAD is disabled for this session.
@@ -619,43 +625,51 @@ func (s *StreamSession) reconnect() bool {
 			"attempt", attempt,
 			"maxAttempts", s.maxReconnectTries)
 
-		// Close old WebSocket
-		_ = s.ws.Close()
+		// Get current ws under lock and close it
+		s.mu.Lock()
+		oldWS := s.ws
+		s.mu.Unlock()
+		_ = oldWS.Close()
 
-		// Create new WebSocket manager and connect
-		s.ws = NewWebSocketManager(s.wsURL, s.apiKey)
-		if err := s.ws.ConnectWithRetry(s.ctx); err != nil {
+		// Create new WebSocket manager and connect (outside lock - may take time)
+		newWS := NewWebSocketManager(s.wsURL, s.apiKey)
+		if err := newWS.ConnectWithRetry(s.ctx); err != nil {
 			logger.Warn("StreamSession: reconnection failed",
 				"attempt", attempt,
 				"error", err)
 			continue
 		}
 
+		// Swap to new ws under lock to avoid race with Send methods
+		s.mu.Lock()
+		s.ws = newWS
+		s.mu.Unlock()
+
 		// Resend setup message
-		if err := s.ws.Send(s.setupMsg); err != nil {
+		if err := newWS.Send(s.setupMsg); err != nil {
 			logger.Warn("StreamSession: failed to send setup after reconnect",
 				"attempt", attempt,
 				"error", err)
-			_ = s.ws.Close()
+			_ = newWS.Close()
 			continue
 		}
 
 		// Wait for setup_complete
 		setupCtx, setupCancel := context.WithTimeout(s.ctx, reconnectSetupTimeoutSec*time.Second)
 		var setupResponse ServerMessage
-		err := s.ws.Receive(setupCtx, &setupResponse)
+		err := newWS.Receive(setupCtx, &setupResponse)
 		setupCancel()
 
 		if err != nil || setupResponse.SetupComplete == nil {
 			logger.Warn("StreamSession: setup_complete not received after reconnect",
 				"attempt", attempt,
 				"error", err)
-			_ = s.ws.Close()
+			_ = newWS.Close()
 			continue
 		}
 
 		// Restart heartbeat
-		s.ws.StartHeartbeat(s.ctx, reconnectHeartbeatSec*time.Second)
+		newWS.StartHeartbeat(s.ctx, reconnectHeartbeatSec*time.Second)
 
 		logger.Info("StreamSession: reconnection successful", "attempt", attempt)
 		return true
