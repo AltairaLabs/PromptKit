@@ -184,3 +184,59 @@ func TestAsyncToolHandler(t *testing.T) {
 		assert.False(t, result.IsPending())
 	})
 }
+
+func TestResolvedStore(t *testing.T) {
+	t.Run("new store is empty", func(t *testing.T) {
+		store := NewResolvedStore()
+		resolutions := store.PopAll()
+		assert.Empty(t, resolutions)
+	})
+
+	t.Run("add and pop all", func(t *testing.T) {
+		store := NewResolvedStore()
+
+		res1 := &ToolResolution{ID: "res-1", Result: "result1"}
+		res2 := &ToolResolution{ID: "res-2", Result: "result2"}
+
+		store.Add(res1)
+		store.Add(res2)
+
+		resolutions := store.PopAll()
+		assert.Len(t, resolutions, 2)
+		assert.Equal(t, "res-1", resolutions[0].ID)
+		assert.Equal(t, "res-2", resolutions[1].ID)
+
+		// PopAll should clear the store
+		resolutions = store.PopAll()
+		assert.Empty(t, resolutions)
+	})
+
+	t.Run("add nil is safe", func(t *testing.T) {
+		store := NewResolvedStore()
+		store.Add(nil)
+		resolutions := store.PopAll()
+		assert.Len(t, resolutions, 1)
+		assert.Nil(t, resolutions[0])
+	})
+
+	t.Run("concurrent access is safe", func(t *testing.T) {
+		store := NewResolvedStore()
+		done := make(chan bool)
+
+		// Add from multiple goroutines
+		for i := 0; i < 10; i++ {
+			go func(id int) {
+				store.Add(&ToolResolution{ID: string(rune('0' + id))})
+				done <- true
+			}(i)
+		}
+
+		// Wait for all adds
+		for i := 0; i < 10; i++ {
+			<-done
+		}
+
+		resolutions := store.PopAll()
+		assert.Len(t, resolutions, 10)
+	})
+}

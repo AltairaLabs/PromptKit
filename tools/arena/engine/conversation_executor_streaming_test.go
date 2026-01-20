@@ -526,7 +526,7 @@ func TestExecuteConversation_SelfPlayTurnNonStreaming(t *testing.T) {
 			ID:           "plant-operator",
 			SystemPrompt: "You are an operator.",
 			Defaults: config.PersonaDefaults{
-				Temperature: 0.7,
+				Temperature: ptrFloat32Streaming(0.7),
 			},
 		},
 	}
@@ -595,7 +595,7 @@ func TestExecuteConversation_SelfPlayTurnStreaming(t *testing.T) {
 			ID:           "plant-operator",
 			SystemPrompt: "You are an operator.",
 			Defaults: config.PersonaDefaults{
-				Temperature: 0.7,
+				Temperature: ptrFloat32Streaming(0.7),
 			},
 		},
 	}
@@ -640,4 +640,8 @@ func TestExecuteConversation_SelfPlayTurnStreaming(t *testing.T) {
 	require.False(t, result.Failed)
 	require.Equal(t, 0, selfPlayExec.execCalls)
 	require.Equal(t, 1, selfPlayExec.streamCalls)
+}
+
+func ptrFloat32Streaming(f float32) *float32 {
+	return &f
 }

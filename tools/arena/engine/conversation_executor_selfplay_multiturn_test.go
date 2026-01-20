@@ -354,6 +354,10 @@ func boolPtr(b bool) *bool {
 	return &b
 }
 
+func ptrFloat32(f float32) *float32 {
+	return &f
+}
+
 // createTestSelfPlayRegistry creates a minimal self-play registry for testing
 func createTestSelfPlayRegistry(t *testing.T) *selfplay.Registry {
 	t.Helper()
@@ -384,21 +388,21 @@ func createTestSelfPlayRegistry(t *testing.T) *selfplay.Registry {
 			ID:           "curious-learner",
 			SystemPrompt: "You are a curious learner asking questions.",
 			Defaults: config.PersonaDefaults{
-				Temperature: 0.7,
+				Temperature: ptrFloat32(0.7),
 			},
 		},
 		"attacker": {
 			ID:           "attacker",
 			SystemPrompt: "You are testing security.",
 			Defaults: config.PersonaDefaults{
-				Temperature: 0.8,
+				Temperature: ptrFloat32(0.8),
 			},
 		},
 		"test": {
 			ID:           "test",
 			SystemPrompt: "You are a test persona.",
 			Defaults: config.PersonaDefaults{
-				Temperature: 0.7,
+				Temperature: ptrFloat32(0.7),
 			},
 		},
 	}

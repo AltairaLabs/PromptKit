@@ -146,6 +146,12 @@ func LoadScenario(filename string) (*Scenario, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Validate nested configs (DuplexConfig, RelevanceConfig, etc.)
+	if err := config.Spec.Validate(); err != nil {
+		return nil, fmt.Errorf("scenario validation failed for %s: %w", filename, err)
+	}
+
 	return &config.Spec, nil
 }
 

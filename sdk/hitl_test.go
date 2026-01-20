@@ -189,12 +189,70 @@ func TestContinue(t *testing.T) {
 		assert.Equal(t, ErrConversationClosed, err)
 	})
 
-	t.Run("returns error when no messages", func(t *testing.T) {
+	t.Run("returns error when no resolved tools", func(t *testing.T) {
 		conv := newTestConversation()
-		// No messages in store
+		conv.resolvedStore = sdktools.NewResolvedStore()
 
 		_, err := conv.Continue(context.Background())
 		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no resolved tools")
+	})
+
+	t.Run("returns error when nil resolved store", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.resolvedStore = nil
+
+		_, err := conv.Continue(context.Background())
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no resolved tools")
+	})
+}
+
+func TestResolveToolStoresResolution(t *testing.T) {
+	t.Run("stores resolution for continue", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.pendingStore = sdktools.NewPendingStore()
+		conv.resolvedStore = sdktools.NewResolvedStore()
+
+		// Add a pending tool with a handler
+		conv.pendingStore.Add(&sdktools.PendingToolCall{
+			ID:   "test-id",
+			Name: "test_tool",
+		})
+
+		// Resolve it
+		resolution, err := conv.ResolveTool("test-id")
+		require.NoError(t, err)
+
+		// Verify resolution was stored
+		resolutions := conv.resolvedStore.PopAll()
+		assert.Len(t, resolutions, 1)
+		assert.Equal(t, resolution.ID, resolutions[0].ID)
+	})
+}
+
+func TestRejectToolStoresResolution(t *testing.T) {
+	t.Run("stores rejection for continue", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.pendingStore = sdktools.NewPendingStore()
+		conv.resolvedStore = sdktools.NewResolvedStore()
+
+		// Add a pending tool
+		conv.pendingStore.Add(&sdktools.PendingToolCall{
+			ID:   "test-id",
+			Name: "test_tool",
+		})
+
+		// Reject it
+		resolution, err := conv.RejectTool("test-id", "not allowed")
+		require.NoError(t, err)
+		assert.True(t, resolution.Rejected)
+
+		// Verify rejection was stored
+		resolutions := conv.resolvedStore.PopAll()
+		assert.Len(t, resolutions, 1)
+		assert.True(t, resolutions[0].Rejected)
+		assert.Equal(t, "not allowed", resolutions[0].RejectionReason)
 	})
 }
 

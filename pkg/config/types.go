@@ -434,6 +434,38 @@ func (s *Scenario) ShouldStreamTurn(turnIndex int) bool {
 	return s.Streaming
 }
 
+// Validate validates the Scenario and all nested configurations.
+func (s *Scenario) Validate() error {
+	if s == nil {
+		return nil
+	}
+
+	// Validate duplex config if present
+	if s.Duplex != nil {
+		if err := s.Duplex.Validate(); err != nil {
+			return fmt.Errorf("scenario %s: %w", s.ID, err)
+		}
+	}
+
+	// Validate context policy relevance config if present
+	if s.ContextPolicy != nil && s.ContextPolicy.Relevance != nil {
+		if err := s.ContextPolicy.Relevance.Validate(); err != nil {
+			return fmt.Errorf("scenario %s context policy: %w", s.ID, err)
+		}
+	}
+
+	// Validate TTS configs in turns
+	for i := range s.Turns {
+		if s.Turns[i].TTS != nil {
+			if err := s.Turns[i].TTS.Validate(); err != nil {
+				return fmt.Errorf("scenario %s turn %d: %w", s.ID, i, err)
+			}
+		}
+	}
+
+	return nil
+}
+
 // ContextPolicy defines context management for a scenario
 type ContextPolicy struct {
 	// TokenBudget is the maximum tokens for context (0 = unlimited)
@@ -483,6 +515,46 @@ type RelevanceConfig struct {
 	// CacheEmbeddings enables caching of embeddings across truncation calls.
 	// Default: false
 	CacheEmbeddings bool `json:"cache_embeddings,omitempty" yaml:"cache_embeddings,omitempty"`
+}
+
+// Validate validates the RelevanceConfig settings.
+func (r *RelevanceConfig) Validate() error {
+	if r == nil {
+		return nil
+	}
+
+	// Validate provider if specified
+	if r.Provider != "" && r.Provider != "openai" && r.Provider != "gemini" && r.Provider != "voyageai" {
+		return fmt.Errorf("relevance provider must be 'openai', 'gemini', or 'voyageai', got %q", r.Provider)
+	}
+
+	// Validate similarity threshold range
+	if r.SimilarityThreshold < 0.0 || r.SimilarityThreshold > 1.0 {
+		return fmt.Errorf("similarity_threshold must be between 0.0 and 1.0, got %f", r.SimilarityThreshold)
+	}
+
+	// Validate query source
+	validQuerySources := map[string]bool{"": true, "last_user": true, "last_n": true, "custom": true}
+	if !validQuerySources[r.QuerySource] {
+		return fmt.Errorf("query_source must be 'last_user', 'last_n', or 'custom', got %q", r.QuerySource)
+	}
+
+	// Validate last_n_count when query_source is "last_n"
+	if r.QuerySource == "last_n" && r.LastNCount <= 0 {
+		return fmt.Errorf("last_n_count must be positive when query_source is 'last_n'")
+	}
+
+	// Validate custom_query when query_source is "custom"
+	if r.QuerySource == "custom" && r.CustomQuery == "" {
+		return fmt.Errorf("custom_query is required when query_source is 'custom'")
+	}
+
+	// Validate min_recent_messages is non-negative
+	if r.MinRecentMessages < 0 {
+		return fmt.Errorf("min_recent_messages must be non-negative, got %d", r.MinRecentMessages)
+	}
+
+	return nil
 }
 
 // ToolPolicy defines constraints for tool usage in scenarios

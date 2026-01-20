@@ -80,10 +80,11 @@ func TestAudioContentGenerator_NextUserTurnAudio(t *testing.T) {
 	mockProv := &mockProvider{response: "Hello, how can I help?"}
 
 	// Create persona config
+	defaultTemp := config.DefaultPersonaTemperature
 	persona := &config.UserPersonaPack{
 		ID: "test-persona",
 		Defaults: config.PersonaDefaults{
-			Temperature: 0.7,
+			Temperature: &defaultTemp,
 		},
 		SystemPrompt: "You are a helpful assistant",
 	}

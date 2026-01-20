@@ -99,6 +99,9 @@ type Conversation struct {
 	// Pending tool calls awaiting approval
 	pendingStore *sdktools.PendingStore
 
+	// Resolved tool calls awaiting processing by Continue()
+	resolvedStore *sdktools.ResolvedStore
+
 	// MCP registry for managing MCP servers
 	mcpRegistry mcp.Registry
 
@@ -740,6 +743,7 @@ func (c *Conversation) Fork() *Conversation {
 		handlers:       handlers,
 		asyncHandlers:  asyncHandlers,
 		pendingStore:   sdktools.NewPendingStore(),
+		resolvedStore:  sdktools.NewResolvedStore(),
 		mcpRegistry:    c.mcpRegistry, // Share MCP registry
 	}
 

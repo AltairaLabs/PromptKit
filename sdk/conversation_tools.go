@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
@@ -171,6 +172,9 @@ func (c *Conversation) OnToolAsync(
 	if c.pendingStore == nil {
 		c.pendingStore = sdktools.NewPendingStore()
 	}
+	if c.resolvedStore == nil {
+		c.resolvedStore = sdktools.NewResolvedStore()
+	}
 
 	c.asyncHandlers[name] = checkFunc
 
@@ -197,7 +201,15 @@ func (c *Conversation) ResolveTool(id string) (*sdktools.ToolResolution, error) 
 	if c.pendingStore == nil {
 		return nil, fmt.Errorf("no pending tools")
 	}
-	return c.pendingStore.Resolve(id)
+	resolution, err := c.pendingStore.Resolve(id)
+	if err != nil {
+		return nil, err
+	}
+	// Store for Continue() to use
+	if c.resolvedStore != nil {
+		c.resolvedStore.Add(resolution)
+	}
+	return resolution, nil
 }
 
 // RejectTool rejects a pending tool call.
@@ -209,7 +221,15 @@ func (c *Conversation) RejectTool(id, reason string) (*sdktools.ToolResolution, 
 	if c.pendingStore == nil {
 		return nil, fmt.Errorf("no pending tools")
 	}
-	return c.pendingStore.Reject(id, reason)
+	resolution, err := c.pendingStore.Reject(id, reason)
+	if err != nil {
+		return nil, err
+	}
+	// Store for Continue() to use
+	if c.resolvedStore != nil {
+		c.resolvedStore.Add(resolution)
+	}
+	return resolution, nil
 }
 
 // Continue resumes conversation after resolving pending tools.
@@ -232,24 +252,51 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 	}
 	c.mu.RUnlock()
 
-	// Build the tool results from resolved pending tools
-	// and continue the conversation
-	// For now, this is a simplified implementation that re-sends
-	// with the last context - full implementation would inject tool results
-
-	// Get the last message from state store
-	msgs := c.Messages(ctx)
-	if len(msgs) == 0 {
-		return nil, fmt.Errorf("no messages to continue from")
+	// Get all resolved tool results
+	var resolutions []*sdktools.ToolResolution
+	if c.resolvedStore != nil {
+		resolutions = c.resolvedStore.PopAll()
 	}
 
-	// Execute pipeline with empty message (continuation)
-	userMsg := &types.Message{Role: "user"}
-	userMsg.AddTextPart("continue")
+	if len(resolutions) == 0 {
+		return nil, fmt.Errorf("no resolved tools to continue with")
+	}
 
-	result, err := c.executePipeline(ctx, userMsg)
-	if err != nil {
-		return nil, err
+	// Build tool result messages from resolutions
+	toolMsgs := make([]types.Message, 0, len(resolutions))
+	for _, res := range resolutions {
+		var content string
+		var errStr string
+		if res.Rejected {
+			content = fmt.Sprintf("Tool call rejected: %s", res.RejectionReason)
+			errStr = "rejected by user"
+		} else if res.Error != nil {
+			content = fmt.Sprintf("Tool error: %s", res.Error.Error())
+			errStr = res.Error.Error()
+		} else if res.ResultJSON != nil {
+			content = string(res.ResultJSON)
+		} else {
+			content = fmt.Sprintf("%v", res.Result)
+		}
+
+		toolResult := types.MessageToolResult{
+			ID:      res.ID,
+			Content: content,
+			Error:   errStr,
+		}
+		toolMsgs = append(toolMsgs, types.NewToolResultMessage(toolResult))
+	}
+
+	// Execute the pipeline with the tool result messages
+	// The pipeline will process these and get the LLM's response
+	var result *rtpipeline.ExecutionResult
+	var err error
+
+	for i := range toolMsgs {
+		result, err = c.executePipeline(ctx, &toolMsgs[i])
+		if err != nil {
+			return nil, fmt.Errorf("failed to process tool result %d: %w", i, err)
+		}
 	}
 
 	return c.buildResponse(result, startTime), nil

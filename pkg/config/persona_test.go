@@ -28,16 +28,18 @@ func TestPersonaStyle_Structure(t *testing.T) {
 }
 
 func TestPersonaDefaults_Structure(t *testing.T) {
+	temp := float32(0.8)
+	seed := 123
 	defaults := PersonaDefaults{
-		Temperature: 0.8,
-		Seed:        123,
+		Temperature: &temp,
+		Seed:        &seed,
 	}
 
-	if defaults.Temperature != 0.8 {
+	if defaults.Temperature == nil || *defaults.Temperature != 0.8 {
 		t.Error("Temperature mismatch")
 	}
 
-	if defaults.Seed != 123 {
+	if defaults.Seed == nil || *defaults.Seed != 123 {
 		t.Error("Seed mismatch")
 	}
 }
@@ -173,7 +175,7 @@ spec:
 		t.Error("Verbosity mismatch")
 	}
 
-	if persona.Defaults.Temperature != 0.7 {
+	if persona.Defaults.Temperature == nil || *persona.Defaults.Temperature != 0.7 {
 		t.Error("Temperature mismatch")
 	}
 }
@@ -285,12 +287,68 @@ spec:
 	}
 
 	// Check defaults are applied
-	if persona.Defaults.Temperature == 0 {
+	if persona.Defaults.Temperature == nil {
 		t.Error("Expected default temperature to be set")
+	} else if *persona.Defaults.Temperature != 0.7 {
+		t.Errorf("Expected default temperature 0.7, got %f", *persona.Defaults.Temperature)
 	}
 
-	if persona.Defaults.Seed == 0 {
+	if persona.Defaults.Seed == nil {
 		t.Error("Expected default seed to be set")
+	} else if *persona.Defaults.Seed != 42 {
+		t.Errorf("Expected default seed 42, got %d", *persona.Defaults.Seed)
+	}
+}
+
+// TestLoadPersona_ExplicitZeroTemperature verifies that explicit temperature=0
+// is preserved and not overwritten by the default (fixes the bug where
+// temperature=0 was silently changed to 0.7)
+func TestLoadPersona_ExplicitZeroTemperature(t *testing.T) {
+	tmpDir := t.TempDir()
+	personaFile := filepath.Join(tmpDir, "persona.yaml")
+
+	personaContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Persona
+metadata:
+  name: deterministic-persona
+spec:
+  description: Persona with deterministic output
+  system_prompt: Be deterministic
+  goals:
+    - Be predictable
+  constraints:
+    - No randomness
+  style:
+    verbosity: short
+    challenge_level: low
+  defaults:
+    temperature: 0
+    seed: 0
+`
+
+	if err := os.WriteFile(personaFile, []byte(personaContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	persona, err := LoadPersona(personaFile)
+	if err != nil {
+		t.Fatalf("Failed to load persona: %v", err)
+	}
+
+	// Verify explicit temperature=0 is preserved (not overwritten to 0.7)
+	if persona.Defaults.Temperature == nil {
+		t.Fatal("Expected temperature to be set")
+	}
+	if *persona.Defaults.Temperature != 0 {
+		t.Errorf("Expected temperature 0 to be preserved, got %f", *persona.Defaults.Temperature)
+	}
+
+	// Verify explicit seed=0 is preserved (not overwritten to 42)
+	if persona.Defaults.Seed == nil {
+		t.Fatal("Expected seed to be set")
+	}
+	if *persona.Defaults.Seed != 0 {
+		t.Errorf("Expected seed 0 to be preserved, got %d", *persona.Defaults.Seed)
 	}
 }
 

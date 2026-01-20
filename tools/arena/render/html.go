@@ -284,19 +284,32 @@ func updateMatrixCell(cell *MatrixCell, result engine.RunResult) {
 func generateScenarioGroups(results []engine.RunResult, scenarios []string) []ScenarioGroup {
 	groups := make([]ScenarioGroup, 0, len(scenarios))
 
-	for _, scenario := range scenarios {
-		// Filter results for this scenario
-		var scenarioResults []engine.RunResult
-		providersMap := make(map[string]bool)
-		regionsMap := make(map[string]bool)
+	// Pre-build index of results by scenario ID (O(N) instead of O(N×M))
+	resultsByScenario := make(map[string][]engine.RunResult)
+	providersByScenario := make(map[string]map[string]bool)
+	regionsByScenario := make(map[string]map[string]bool)
 
-		for _, result := range results {
-			if result.ScenarioID == scenario {
-				scenarioResults = append(scenarioResults, result)
-				providersMap[result.ProviderID] = true
-				regionsMap[result.Region] = true
-			}
+	for i := range results {
+		result := &results[i]
+		scenarioID := result.ScenarioID
+
+		resultsByScenario[scenarioID] = append(resultsByScenario[scenarioID], *result)
+
+		if providersByScenario[scenarioID] == nil {
+			providersByScenario[scenarioID] = make(map[string]bool)
 		}
+		providersByScenario[scenarioID][result.ProviderID] = true
+
+		if regionsByScenario[scenarioID] == nil {
+			regionsByScenario[scenarioID] = make(map[string]bool)
+		}
+		regionsByScenario[scenarioID][result.Region] = true
+	}
+
+	for _, scenario := range scenarios {
+		scenarioResults := resultsByScenario[scenario]
+		providersMap := providersByScenario[scenario]
+		regionsMap := regionsByScenario[scenario]
 
 		// Convert maps to slices
 		providers := make([]string, 0, len(providersMap))

@@ -722,3 +722,108 @@ func searchStr(s, substr string) bool {
 	}
 	return false
 }
+
+func TestScenario_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  *Scenario
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "nil scenario is valid",
+			config:  nil,
+			wantErr: false,
+		},
+		{
+			name:    "empty scenario is valid",
+			config:  &Scenario{},
+			wantErr: false,
+		},
+		{
+			name: "scenario with valid duplex config",
+			config: &Scenario{
+				ID: "test-scenario",
+				Duplex: &DuplexConfig{
+					Timeout: "10m",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "scenario with invalid duplex timeout",
+			config: &Scenario{
+				ID: "test-scenario",
+				Duplex: &DuplexConfig{
+					Timeout: "invalid",
+				},
+			},
+			wantErr: true,
+			errMsg:  "invalid duplex timeout",
+		},
+		{
+			name: "scenario with invalid VAD config",
+			config: &Scenario{
+				ID: "test-scenario",
+				Duplex: &DuplexConfig{
+					TurnDetection: &TurnDetectionConfig{
+						Mode: TurnDetectionModeVAD,
+						VAD: &VADConfig{
+							SilenceThresholdMs: -1,
+						},
+					},
+				},
+			},
+			wantErr: true,
+			errMsg:  "silence_threshold_ms must be non-negative",
+		},
+		{
+			name: "scenario with invalid TTS config in turn",
+			config: &Scenario{
+				ID: "test-scenario",
+				Turns: []TurnDefinition{
+					{
+						Role: "user",
+						TTS: &TTSConfig{
+							// Provider is required
+							Voice: "alloy",
+						},
+					},
+				},
+			},
+			wantErr: true,
+			errMsg:  "tts provider is required",
+		},
+		{
+			name: "scenario with valid TTS config in turn",
+			config: &Scenario{
+				ID: "test-scenario",
+				Turns: []TurnDefinition{
+					{
+						Role: "user",
+						TTS: &TTSConfig{
+							Provider: "openai",
+							Voice:    "alloy",
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if tt.wantErr {
+				if err == nil {
+					t.Error("Validate() expected error, got nil")
+				} else if !containsStr(err.Error(), tt.errMsg) {
+					t.Errorf("Validate() error = %v, expected to contain %q", err, tt.errMsg)
+				}
+			} else if err != nil {
+				t.Errorf("Validate() unexpected error: %v", err)
+			}
+		})
+	}
+}

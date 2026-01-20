@@ -198,3 +198,41 @@ func (s *PendingStore) Reject(id, reason string) (*ToolResolution, error) {
 		RejectionReason: reason,
 	}, nil
 }
+
+// ResolvedStore tracks tool call resolutions that haven't been processed by Continue().
+// This allows the Continue() method to send proper tool result messages to the LLM.
+type ResolvedStore struct {
+	resolutions []*ToolResolution
+	mu          sync.Mutex
+}
+
+// NewResolvedStore creates a new resolved tool store.
+func NewResolvedStore() *ResolvedStore {
+	return &ResolvedStore{
+		resolutions: make([]*ToolResolution, 0),
+	}
+}
+
+// Add stores a resolved tool call.
+func (s *ResolvedStore) Add(resolution *ToolResolution) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.resolutions = append(s.resolutions, resolution)
+}
+
+// PopAll returns all resolutions and clears the store.
+// Used by Continue() to get all pending tool results.
+func (s *ResolvedStore) PopAll() []*ToolResolution {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	resolutions := s.resolutions
+	s.resolutions = make([]*ToolResolution, 0)
+	return resolutions
+}
+
+// Len returns the number of stored resolutions.
+func (s *ResolvedStore) Len() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.resolutions)
+}
