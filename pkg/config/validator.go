@@ -384,17 +384,11 @@ func (v *ConfigValidator) buildToolUsageCheck(definedTools, allowedTools map[str
 		Passed: true,
 	}
 	for toolFile := range definedTools {
-		used := false
-		for allowedTool := range allowedTools {
-			if allowedTool != "" {
-				used = true
-				break
-			}
-		}
-		if !used && len(allowedTools) == 0 {
+		// Check if this specific tool is allowed by any prompt
+		if !allowedTools[toolFile] {
 			check.Passed = false
 			check.Warning = true
-			issue := fmt.Sprintf("tool %s is defined but no prompts allow any tools", toolFile)
+			issue := fmt.Sprintf("tool %s is defined but not allowed by any prompt", toolFile)
 			check.Issues = append(check.Issues, issue)
 		}
 	}

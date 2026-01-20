@@ -61,6 +61,52 @@ type FileStore struct {
 	refMu     sync.RWMutex
 }
 
+// validatePath checks that the given path is within the base directory.
+// This prevents path traversal attacks (e.g., ../../etc/passwd).
+// It also resolves symlinks to prevent symlink-based escapes.
+func (fs *FileStore) validatePath(path string) error {
+	// Get cleaned absolute path of base directory
+	absBase, err := filepath.Abs(fs.config.BaseDir)
+	if err != nil {
+		return fmt.Errorf("failed to resolve base directory: %w", err)
+	}
+	absBase = filepath.Clean(absBase)
+
+	// Get cleaned absolute path of the target
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("failed to resolve path: %w", err)
+	}
+	absPath = filepath.Clean(absPath)
+
+	// First, do a quick check using cleaned paths (handles ../ traversal)
+	if !strings.HasPrefix(absPath+string(filepath.Separator), absBase+string(filepath.Separator)) &&
+		absPath != absBase {
+		return fmt.Errorf("path %q is outside base directory %q", path, fs.config.BaseDir)
+	}
+
+	// For existing files, also check resolved symlinks to prevent symlink attacks
+	if _, err := os.Lstat(absPath); err == nil {
+		// Path exists, resolve symlinks on both paths for symlink attack prevention
+		realBase, err := filepath.EvalSymlinks(absBase)
+		if err != nil {
+			realBase = absBase
+		}
+
+		realPath, err := filepath.EvalSymlinks(absPath)
+		if err != nil {
+			return fmt.Errorf("failed to resolve symlinks: %w", err)
+		}
+
+		if !strings.HasPrefix(realPath+string(filepath.Separator), realBase+string(filepath.Separator)) &&
+			realPath != realBase {
+			return fmt.Errorf("path %q resolves outside base directory (symlink attack)", path)
+		}
+	}
+
+	return nil
+}
+
 // NewFileStore creates a new local filesystem storage backend.
 func NewFileStore(config FileStoreConfig) (*FileStore, error) {
 	if config.BaseDir == "" {
@@ -176,6 +222,11 @@ func (fs *FileStore) StoreMedia(ctx context.Context, content *types.MediaContent
 func (fs *FileStore) RetrieveMedia(ctx context.Context, reference storage.Reference) (*types.MediaContent, error) {
 	filePath := string(reference)
 
+	// Validate path is within base directory (prevents path traversal attacks)
+	if err := fs.validatePath(filePath); err != nil {
+		return nil, fmt.Errorf("invalid media reference: %w", err)
+	}
+
 	// Validate file exists and is readable
 	info, err := os.Stat(filePath)
 	if err != nil {
@@ -215,6 +266,11 @@ func (fs *FileStore) RetrieveMedia(ctx context.Context, reference storage.Refere
 // DeleteMedia implements MediaStorageService.DeleteMedia
 func (fs *FileStore) DeleteMedia(ctx context.Context, reference storage.Reference) error {
 	filePath := string(reference)
+
+	// Validate path is within base directory (prevents path traversal attacks)
+	if err := fs.validatePath(filePath); err != nil {
+		return fmt.Errorf("invalid media reference: %w", err)
+	}
 
 	// Check reference count if deduplication is enabled
 	if fs.config.EnableDeduplication {
@@ -260,6 +316,11 @@ func (fs *FileStore) DeleteMedia(ctx context.Context, reference storage.Referenc
 // GetURL implements MediaStorageService.GetURL
 func (fs *FileStore) GetURL(ctx context.Context, reference storage.Reference, expiry time.Duration) (string, error) {
 	filePath := string(reference)
+
+	// Validate path is within base directory (prevents path traversal attacks)
+	if err := fs.validatePath(filePath); err != nil {
+		return "", fmt.Errorf("invalid media reference: %w", err)
+	}
 
 	// Validate file exists
 	if _, err := os.Stat(filePath); err != nil {
