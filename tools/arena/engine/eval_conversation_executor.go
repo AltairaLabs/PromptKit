@@ -88,7 +88,7 @@ func (e *EvalConversationExecutor) enrichLoggingContext(ctx context.Context, req
 	})
 }
 
-// loadRecording loads messages from the recording file using the adapter registry.
+// loadRecording loads messages from the recording using the adapter registry.
 func (e *EvalConversationExecutor) loadRecording(
 	req *ConversationRequest,
 ) ([]types.Message, *adapters.RecordingMetadata, error) {
@@ -96,13 +96,14 @@ func (e *EvalConversationExecutor) loadRecording(
 		return nil, nil, fmt.Errorf("adapter registry not configured for eval mode")
 	}
 
-	adapter := e.adapterRegistry.FindAdapter(req.Eval.Recording.Path, req.Eval.Recording.Type)
-	if adapter == nil {
-		return nil, nil, fmt.Errorf("no adapter found for recording: %s (type: %s)",
-			req.Eval.Recording.Path, req.Eval.Recording.Type)
+	// Create a recording reference from the eval config
+	ref := adapters.RecordingReference{
+		ID:       req.Eval.Recording.Path,
+		Source:   req.Eval.Recording.Path,
+		TypeHint: req.Eval.Recording.Type,
 	}
 
-	messages, metadata, err := adapter.Load(req.Eval.Recording.Path)
+	messages, metadata, err := e.adapterRegistry.Load(ref)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load recording: %w", err)
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
@@ -75,19 +76,61 @@ func (e *Engine) resolveScenarios(scenarioFilter []string) ([]string, error) {
 	return scenarioIDs, nil
 }
 
-// generateEvalPlan creates a run plan for evaluations
+// generateEvalPlan creates a run plan for evaluations.
+// Uses the adapter registry to enumerate recordings from source patterns.
+// This allows adapters to handle glob patterns, database queries, or other enumeration strategies.
 func (e *Engine) generateEvalPlan(evalFilter []string) (*RunPlan, error) {
 	evalIDs := e.resolveEvals(evalFilter)
 
 	var combinations []RunCombination
 	for _, evalID := range evalIDs {
-		combinations = append(combinations, RunCombination{
-			EvalID: evalID,
-			// Region and ProviderID not used for evals
-		})
+		eval, exists := e.evals[evalID]
+		if !exists {
+			return nil, fmt.Errorf("eval not found: %s", evalID)
+		}
+
+		// Use adapter registry to enumerate recordings
+		refs, err := e.enumerateRecordings(eval.Recording.Path, eval.Recording.Type)
+		if err != nil {
+			return nil, fmt.Errorf("failed to enumerate recordings for eval %s: %w", evalID, err)
+		}
+
+		for _, ref := range refs {
+			combinations = append(combinations, RunCombination{
+				EvalID:       evalID,
+				RecordingRef: ref.ID,
+				// Region and ProviderID not used for evals
+			})
+		}
 	}
 
 	return &RunPlan{Combinations: combinations}, nil
+}
+
+// enumerateRecordings uses the adapter registry to expand recording sources.
+// If no adapter registry is configured, returns a single reference for the source.
+func (e *Engine) enumerateRecordings(source, typeHint string) ([]adapters.RecordingReference, error) {
+	if e.adapterRegistry == nil {
+		// No registry configured - return single reference
+		return []adapters.RecordingReference{{
+			ID:       source,
+			Source:   source,
+			TypeHint: typeHint,
+		}}, nil
+	}
+
+	refs, err := e.adapterRegistry.Enumerate(source, typeHint)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(refs) > 1 {
+		logger.Info("enumerated recording sources",
+			"source", source,
+			"count", len(refs))
+	}
+
+	return refs, nil
 }
 
 // resolveEvals returns the eval IDs to use, applying all evals if empty
@@ -462,9 +505,22 @@ func (e *Engine) executeEvalRun(
 		return saveError(fmt.Sprintf("eval not found: %s", combo.EvalID))
 	}
 
+	// For batch evals with specific recording references, create a copy with the overridden path
+	evalToUse := eval
+	recordingPath := eval.Recording.Path
+	if combo.RecordingRef != "" && combo.RecordingRef != eval.Recording.Path {
+		evalCopy := *eval
+		evalCopy.Recording = config.RecordingSource{
+			Path: combo.RecordingRef,
+			Type: eval.Recording.Type,
+		}
+		evalToUse = &evalCopy
+		recordingPath = combo.RecordingRef
+	}
+
 	// Execute evaluation (no provider needed - comes from recording)
 	req := ConversationRequest{
-		Eval:     eval,
+		Eval:     evalToUse,
 		Config:   e.config,
 		Region:   "default", // Not used for evals
 		RunID:    runID,
@@ -472,8 +528,9 @@ func (e *Engine) executeEvalRun(
 		StateStoreConfig: &StateStoreConfig{
 			Store: e.stateStore,
 			Metadata: map[string]interface{}{
-				"eval_id":    combo.EvalID,
-				"started_at": startTime.Format(time.RFC3339),
+				"eval_id":        combo.EvalID,
+				"recording_path": recordingPath,
+				"started_at":     startTime.Format(time.RFC3339),
 			},
 		},
 		ConversationID: runID,

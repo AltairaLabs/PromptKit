@@ -300,11 +300,17 @@ type mockRecordingAdapter struct {
 	metadata *adapters.RecordingMetadata
 }
 
-func (m *mockRecordingAdapter) CanHandle(path, recordingType string) bool {
+func (m *mockRecordingAdapter) CanHandle(source, recordingType string) bool {
 	return recordingType == "mock"
 }
 
-func (m *mockRecordingAdapter) Load(path string) ([]types.Message, *adapters.RecordingMetadata, error) {
+func (m *mockRecordingAdapter) Enumerate(source string) ([]adapters.RecordingReference, error) {
+	return []adapters.RecordingReference{
+		{ID: source, Source: source, TypeHint: "mock"},
+	}, nil
+}
+
+func (m *mockRecordingAdapter) Load(ref adapters.RecordingReference) ([]types.Message, *adapters.RecordingMetadata, error) {
 	return m.messages, m.metadata, nil
 }
 

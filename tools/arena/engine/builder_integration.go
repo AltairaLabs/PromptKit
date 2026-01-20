@@ -55,6 +55,7 @@ func BuildEngineComponents(cfg *config.Config) (
 	promptRegistry *prompt.Registry,
 	mcpRegistry *mcp.RegistryImpl,
 	convExecutor ConversationExecutor,
+	adapterReg *adapters.Registry,
 	err error,
 ) {
 	// Initialize core registries
@@ -63,48 +64,49 @@ func BuildEngineComponents(cfg *config.Config) (
 	// Create MCP registry from config
 	mcpRegistry, err = buildMCPRegistry(cfg)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to create MCP registry: %w", err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create MCP registry: %w", err)
 	}
 
 	// Build prompt registry - validate and extract task type mappings
 	promptRegistry, err = buildPromptRegistry(cfg)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to build prompt registry: %w", err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("failed to build prompt registry: %w", err)
 	}
 
 	// Build tool registry with memory repository
 	toolRegistry, toolErr := buildToolRegistry(cfg)
 	if toolErr != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to build tool registry: %w", toolErr)
+		return nil, nil, nil, nil, nil, fmt.Errorf("failed to build tool registry: %w", toolErr)
 	}
 
 	// Build provider registry (must stay in engine to avoid circular import with config)
 	for _, provider := range cfg.LoadedProviders {
 		providerImpl, provErr := createProviderImpl(provider)
 		if provErr != nil {
-			return nil, nil, nil, nil, provErr
+			return nil, nil, nil, nil, nil, provErr
 		}
 		providerRegistry.Register(providerImpl)
 	}
 
 	// Discover and register MCP tools (if any MCP servers configured)
 	if mcpErr := discoverAndRegisterMCPTools(mcpRegistry, toolRegistry); mcpErr != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to discover MCP tools: %w", mcpErr)
+		return nil, nil, nil, nil, nil, fmt.Errorf("failed to discover MCP tools: %w", mcpErr)
 	}
 
 	// Build media storage service
 	mediaStorage, storageErr := buildMediaStorage(cfg)
 	if storageErr != nil {
-		return nil, nil, nil, nil, storageErr
+		return nil, nil, nil, nil, nil, storageErr
 	}
 
 	// Build conversation executor (engine-specific, stays here)
-	conversationExecutor, err := newConversationExecutor(cfg, toolRegistry, promptRegistry, mediaStorage, providerRegistry)
+	conversationExecutor, adapterRegistry, err := newConversationExecutor(
+		cfg, toolRegistry, promptRegistry, mediaStorage, providerRegistry)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
-	return providerRegistry, promptRegistry, mcpRegistry, conversationExecutor, nil
+	return providerRegistry, promptRegistry, mcpRegistry, conversationExecutor, adapterRegistry, nil
 }
 
 // createProviderImpl converts config.Provider to providers.Provider.
@@ -330,13 +332,14 @@ func buildMCPRegistry(cfg *config.Config) (*mcp.RegistryImpl, error) {
 // Returns a CompositeConversationExecutor that routes between:
 // - DefaultConversationExecutor for standard turn-based conversations
 // - DuplexConversationExecutor for bidirectional streaming scenarios (duplex mode)
+// Also returns the adapter registry for use in batch evaluation enumeration.
 func newConversationExecutor(
 	cfg *config.Config,
 	toolRegistry *tools.Registry,
 	promptRegistry *prompt.Registry,
 	mediaStorage storage.MediaStorageService,
 	providerRegistry *providers.Registry,
-) (ConversationExecutor, error) {
+) (ConversationExecutor, *adapters.Registry, error) {
 	// Build turn executors (always needed, even without self-play)
 	pipelineExecutor := turnexecutors.NewPipelineExecutor(toolRegistry, mediaStorage)
 	scriptedExecutor := turnexecutors.NewScriptedExecutor(pipelineExecutor)
@@ -349,7 +352,7 @@ func newConversationExecutor(
 		var err error
 		selfPlayRegistry, selfPlayExecutor, err = buildSelfPlayComponents(cfg, pipelineExecutor, providerRegistry)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
@@ -370,17 +373,18 @@ func newConversationExecutor(
 	)
 
 	// Build eval conversation executor components
-	evalExecutor := buildEvalExecutor(promptRegistry, providerRegistry)
+	evalExecutor, adapterRegistry := buildEvalExecutor(promptRegistry, providerRegistry)
 
 	// Return composite executor that routes based on scenario configuration
-	return NewCompositeConversationExecutor(defaultExecutor, duplexExecutor, evalExecutor), nil
+	return NewCompositeConversationExecutor(defaultExecutor, duplexExecutor, evalExecutor), adapterRegistry, nil
 }
 
 // buildEvalExecutor creates the eval conversation executor with required registries.
+// Returns both the executor and the adapter registry (for use in batch enumeration).
 func buildEvalExecutor(
 	promptRegistry *prompt.Registry,
 	providerRegistry *providers.Registry,
-) *EvalConversationExecutor {
+) (*EvalConversationExecutor, *adapters.Registry) {
 	// Import adapters and assertions packages
 	// We need to do this here to avoid circular dependencies
 	adapterRegistry := adapters.NewRegistry()
@@ -393,7 +397,7 @@ func buildEvalExecutor(
 		convAssertionRegistry,
 		promptRegistry,
 		providerRegistry,
-	)
+	), adapterRegistry
 }
 
 // buildSelfPlayComponents creates the self-play registry and executor.

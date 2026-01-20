@@ -27,17 +27,23 @@ func NewTranscriptAdapter() *TranscriptAdapter {
 }
 
 // CanHandle returns true for *.transcript.yaml files or "transcript" type hint.
-func (a *TranscriptAdapter) CanHandle(path, typeHint string) bool {
+func (a *TranscriptAdapter) CanHandle(source, typeHint string) bool {
 	if matchesTypeHint(typeHint, "transcript", "yaml") {
 		return true
 	}
-	return hasExtension(path, ".transcript.yaml", ".transcript.yml")
+	return hasExtension(source, ".transcript.yaml", ".transcript.yml")
+}
+
+// Enumerate expands a source into individual recording references.
+// For file-based sources, this expands glob patterns to matching files.
+func (a *TranscriptAdapter) Enumerate(source string) ([]RecordingReference, error) {
+	return EnumerateFiles(source, "transcript")
 }
 
 // Load reads a transcript file and converts it to Arena messages.
-func (a *TranscriptAdapter) Load(path string) ([]types.Message, *RecordingMetadata, error) {
+func (a *TranscriptAdapter) Load(ref RecordingReference) ([]types.Message, *RecordingMetadata, error) {
 	//nolint:gosec // File path is provided by user/config, not external input
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(ref.ID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read transcript: %w", err)
 	}

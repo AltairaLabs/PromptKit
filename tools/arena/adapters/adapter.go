@@ -4,22 +4,53 @@
 package adapters
 
 import (
+	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+// RecordingReference is an opaque reference to a single recording.
+// It abstracts the underlying storage mechanism (file, database, API, etc.)
+// allowing adapters to enumerate and load recordings from various sources.
+type RecordingReference struct {
+	// ID is a unique identifier for this recording reference.
+	// For file-based adapters, this is typically the file path.
+	// For database adapters, this could be a record ID.
+	ID string `json:"id" yaml:"id"`
+
+	// Source is the original source pattern/query that produced this reference.
+	// For file-based adapters, this is the original glob pattern or path.
+	Source string `json:"source" yaml:"source"`
+
+	// TypeHint is an optional format indicator (e.g., "session", "arena_output", "transcript").
+	TypeHint string `json:"type_hint,omitempty" yaml:"type_hint,omitempty"`
+
+	// Metadata contains adapter-specific metadata about this reference.
+	// This can include file size, modification time, database metadata, etc.
+	Metadata map[string]interface{} `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+}
+
 // RecordingAdapter converts saved conversations from various formats
 // into Arena-friendly structures for evaluation.
 type RecordingAdapter interface {
-	// CanHandle returns true if this adapter supports the given path/type hint.
-	// The path is the file path to the recording, and typeHint is an optional
-	// explicit format indicator from the eval config (e.g., "session", "arena_output", "transcript").
-	CanHandle(path string, typeHint string) bool
+	// CanHandle returns true if this adapter supports the given source/type hint.
+	// The source could be a file path, glob pattern, database query, etc.
+	// typeHint is an optional explicit format indicator from the eval config.
+	CanHandle(source string, typeHint string) bool
 
-	// Load converts the recording to Arena message format.
+	// Enumerate expands a source into individual recording references.
+	// For file-based adapters, this expands glob patterns to matching files.
+	// For database adapters, this could execute a query and return record IDs.
+	// Returns a single-element slice for non-expandable sources.
+	Enumerate(source string) ([]RecordingReference, error)
+
+	// Load converts a recording to Arena message format.
+	// The reference should have been obtained from Enumerate.
 	// Returns the messages, metadata, and any error encountered.
-	Load(path string) ([]types.Message, *RecordingMetadata, error)
+	Load(ref RecordingReference) ([]types.Message, *RecordingMetadata, error)
 }
 
 // RecordingMetadata contains metadata extracted from the recording
@@ -107,4 +138,44 @@ func convertMediaToContent(media *MediaSource) *types.MediaContent {
 	}
 
 	return result
+}
+
+// EnumerateFiles is a helper for file-based adapters to expand glob patterns.
+// It returns recording references for each matching file.
+// If the source doesn't contain glob characters, it returns a single reference.
+func EnumerateFiles(source, typeHint string) ([]RecordingReference, error) {
+	// Check if source contains glob characters
+	if !containsGlobChars(source) {
+		return []RecordingReference{{
+			ID:       source,
+			Source:   source,
+			TypeHint: typeHint,
+		}}, nil
+	}
+
+	// Expand the glob pattern
+	matches, err := filepath.Glob(source)
+	if err != nil {
+		return nil, fmt.Errorf("invalid glob pattern: %w", err)
+	}
+
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("no files matched glob pattern: %s", source)
+	}
+
+	refs := make([]RecordingReference, len(matches))
+	for i, match := range matches {
+		refs[i] = RecordingReference{
+			ID:       match,
+			Source:   source,
+			TypeHint: typeHint,
+		}
+	}
+
+	return refs, nil
+}
+
+// containsGlobChars checks if a path contains glob metacharacters.
+func containsGlobChars(path string) bool {
+	return strings.ContainsAny(path, "*?[")
 }
