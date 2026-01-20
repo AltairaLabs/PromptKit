@@ -12,6 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
@@ -336,4 +337,77 @@ func TestEngine_GenerateEvalPlan(t *testing.T) {
 		assert.Len(t, plan.Combinations, 1)
 		assert.Equal(t, "eval-1", plan.Combinations[0].EvalID)
 	})
+
+	t.Run("returns error for non-existent eval", func(t *testing.T) {
+		plan, err := e.generateEvalPlan([]string{"non-existent"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "eval not found")
+		assert.Nil(t, plan)
+	})
+}
+
+func TestEngine_EnumerateRecordings(t *testing.T) {
+	t.Run("returns single ref when no adapter registry", func(t *testing.T) {
+		e := &Engine{
+			adapterRegistry: nil,
+		}
+		refs, err := e.enumerateRecordings("/path/to/recording.json", "session")
+		require.NoError(t, err)
+		require.Len(t, refs, 1)
+		assert.Equal(t, "/path/to/recording.json", refs[0].ID)
+		assert.Equal(t, "/path/to/recording.json", refs[0].Source)
+		assert.Equal(t, "session", refs[0].TypeHint)
+	})
+}
+
+func TestEngine_GenerateEvalPlan_WithAdapterRegistry(t *testing.T) {
+	// Create an empty adapter registry (without built-in adapters) and add only our mock
+	registry := adapters.NewEmptyRegistry()
+	mockAdapter := &multiRefMockAdapter{
+		refs: []adapters.RecordingReference{
+			{ID: "/recordings/file1.json", Source: "/recordings/*.json", TypeHint: "session"},
+			{ID: "/recordings/file2.json", Source: "/recordings/*.json", TypeHint: "session"},
+		},
+	}
+	registry.Register(mockAdapter)
+
+	e := &Engine{
+		evals: map[string]*config.Eval{
+			"eval-1": {
+				Recording: config.RecordingSource{
+					Path: "/recordings/*.json",
+					Type: "session",
+				},
+			},
+		},
+		adapterRegistry: registry,
+	}
+
+	t.Run("creates combinations for multiple recordings", func(t *testing.T) {
+		plan, err := e.generateEvalPlan([]string{"eval-1"})
+		require.NoError(t, err)
+		require.Len(t, plan.Combinations, 2)
+		assert.Equal(t, "eval-1", plan.Combinations[0].EvalID)
+		assert.Equal(t, "/recordings/file1.json", plan.Combinations[0].RecordingRef)
+		assert.Equal(t, "eval-1", plan.Combinations[1].EvalID)
+		assert.Equal(t, "/recordings/file2.json", plan.Combinations[1].RecordingRef)
+	})
+}
+
+// multiRefMockAdapter is a mock adapter that returns multiple recording references
+type multiRefMockAdapter struct {
+	refs []adapters.RecordingReference
+}
+
+func (m *multiRefMockAdapter) CanHandle(source, typeHint string) bool {
+	// Always handle sources containing our test pattern
+	return true
+}
+
+func (m *multiRefMockAdapter) Enumerate(source string) ([]adapters.RecordingReference, error) {
+	return m.refs, nil
+}
+
+func (m *multiRefMockAdapter) Load(ref adapters.RecordingReference) ([]types.Message, *adapters.RecordingMetadata, error) {
+	return nil, nil, nil
 }

@@ -17,9 +17,7 @@ type Registry struct {
 
 // NewRegistry creates a new adapter registry with default adapters registered.
 func NewRegistry() *Registry {
-	r := &Registry{
-		adapters: make([]RecordingAdapter, 0),
-	}
+	r := NewEmptyRegistry()
 
 	// Register built-in adapters
 	r.Register(NewSessionRecordingAdapter())
@@ -27,6 +25,14 @@ func NewRegistry() *Registry {
 	r.Register(NewTranscriptAdapter())
 
 	return r
+}
+
+// NewEmptyRegistry creates an empty adapter registry without any built-in adapters.
+// This is useful for testing or when you want to register only specific adapters.
+func NewEmptyRegistry() *Registry {
+	return &Registry{
+		adapters: make([]RecordingAdapter, 0),
+	}
 }
 
 // Register adds an adapter to the registry.
