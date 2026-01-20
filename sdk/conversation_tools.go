@@ -346,6 +346,14 @@ func (c *Conversation) CheckPending(
 		Message:   result.Message,
 	}
 
+	// Set the handler from the registered handlers
+	c.handlersMu.RLock()
+	handler := c.handlers[name]
+	c.handlersMu.RUnlock()
+	if handler != nil {
+		pending.SetHandler(handler)
+	}
+
 	// Store it
 	c.pendingStore.Add(pending)
 

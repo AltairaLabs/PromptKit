@@ -185,6 +185,29 @@ func TestAsyncToolHandler(t *testing.T) {
 	})
 }
 
+func TestPendingToolCall_SetHandler(t *testing.T) {
+	t.Run("sets handler and can resolve", func(t *testing.T) {
+		store := NewPendingStore()
+		call := &PendingToolCall{
+			ID:        "call-1",
+			Name:      "test_tool",
+			Arguments: map[string]any{"x": float64(10)},
+		}
+
+		// Set handler using public method
+		call.SetHandler(func(args map[string]any) (any, error) {
+			x := args["x"].(float64)
+			return map[string]any{"result": x * 2}, nil
+		})
+
+		store.Add(call)
+
+		resolution, err := store.Resolve("call-1")
+		assert.NoError(t, err)
+		assert.NotNil(t, resolution.Result)
+	})
+}
+
 func TestResolvedStore(t *testing.T) {
 	t.Run("new store is empty", func(t *testing.T) {
 		store := NewResolvedStore()

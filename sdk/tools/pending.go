@@ -64,6 +64,12 @@ type PendingToolCall struct {
 	handler func(args map[string]any) (any, error)
 }
 
+// SetHandler sets the execution handler for this pending call.
+// This is called by the SDK when creating a pending tool call.
+func (p *PendingToolCall) SetHandler(h func(args map[string]any) (any, error)) {
+	p.handler = h
+}
+
 // PendingStore manages pending tool calls for a conversation.
 type PendingStore struct {
 	pending map[string]*PendingToolCall
