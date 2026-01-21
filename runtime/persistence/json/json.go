@@ -29,17 +29,22 @@ type PromptRepository struct {
 	*common.BasePromptRepository
 }
 
+// marshalIndent wraps json.MarshalIndent with default formatting
+func marshalIndent(v any) ([]byte, error) {
+	return json.MarshalIndent(v, "", "  ")
+}
+
 // NewJSONPromptRepository creates a JSON file-based prompt repository
 func NewJSONPromptRepository(basePath string, taskTypeToFile map[string]string) *PromptRepository {
+	base := common.NewBasePromptRepository(
+		basePath,
+		taskTypeToFile,
+		[]string{jsonExt},
+		json.Unmarshal,
+	)
+	base.Marshal = marshalIndent
 	return &PromptRepository{
-		BasePromptRepository: common.NewBasePromptRepository(
-			basePath,
-			taskTypeToFile,
-			[]string{jsonExt},
-			func(data []byte, v interface{}) error {
-				return json.Unmarshal(data, v)
-			},
-		),
+		BasePromptRepository: base,
 	}
 }
 
@@ -70,9 +75,9 @@ func (r *PromptRepository) LoadFragment(name, relativePath, baseDir string) (*pr
 
 // ListPrompts is inherited from BasePromptRepository
 
-// SavePrompt saves a prompt configuration (not yet implemented)
+// SavePrompt saves a prompt configuration to a JSON file
 func (r *PromptRepository) SavePrompt(config *prompt.Config) error {
-	return fmt.Errorf("not implemented")
+	return r.BasePromptRepository.SavePrompt(config)
 }
 
 // JSONToolRepository loads tools from JSON files on disk

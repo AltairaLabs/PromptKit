@@ -13,6 +13,9 @@ import (
 // UnmarshalFunc is a function that unmarshals data into a prompt config
 type UnmarshalFunc func([]byte, interface{}) error
 
+// MarshalFunc is a function that marshals a prompt config to bytes
+type MarshalFunc func(interface{}) ([]byte, error)
+
 // BasePromptRepository provides common prompt repository functionality
 type BasePromptRepository struct {
 	BasePath       string
@@ -20,6 +23,7 @@ type BasePromptRepository struct {
 	Cache          map[string]*prompt.Config
 	Extensions     []string
 	Unmarshal      UnmarshalFunc
+	Marshal        MarshalFunc
 }
 
 // NewBasePromptRepository creates a new base repository
@@ -215,6 +219,73 @@ func (r *BasePromptRepository) ListPrompts() ([]string, error) {
 	})
 
 	return taskTypes, err
+}
+
+// File permission constants
+const (
+	dirPerm  = 0o750 // Directory permissions: rwxr-x---
+	filePerm = 0o600 // File permissions: rw-------
+)
+
+// SavePrompt saves a prompt configuration to disk
+func (r *BasePromptRepository) SavePrompt(config *prompt.Config) error {
+	if r.Marshal == nil {
+		return fmt.Errorf("save not supported: marshal function not configured")
+	}
+	if config == nil {
+		return fmt.Errorf("config cannot be nil")
+	}
+	if config.Spec.TaskType == "" {
+		return fmt.Errorf("task_type cannot be empty")
+	}
+
+	// Determine output file path
+	filePath := r.resolveOutputPath(config.Spec.TaskType)
+
+	// Marshal config to bytes
+	data, err := r.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	// Ensure directory exists
+	dir := filepath.Dir(filePath)
+	if err := os.MkdirAll(dir, dirPerm); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", dir, err)
+	}
+
+	// Write file
+	if err := os.WriteFile(filePath, data, filePerm); err != nil {
+		return fmt.Errorf("failed to write file %s: %w", filePath, err)
+	}
+
+	// Update cache
+	r.Cache[config.Spec.TaskType] = config
+
+	// Update mapping if not already present
+	if _, exists := r.TaskTypeToFile[config.Spec.TaskType]; !exists {
+		r.TaskTypeToFile[config.Spec.TaskType] = filePath
+	}
+
+	return nil
+}
+
+// resolveOutputPath determines the file path for saving a prompt
+func (r *BasePromptRepository) resolveOutputPath(taskType string) string {
+	// Check explicit mapping first
+	if filePath, ok := r.TaskTypeToFile[taskType]; ok {
+		if filepath.IsAbs(filePath) {
+			return filePath
+		}
+		return filepath.Join(r.BasePath, filePath)
+	}
+
+	// Default to basePath/taskType with first extension
+	ext := ".yaml"
+	if len(r.Extensions) > 0 {
+		ext = r.Extensions[0]
+	}
+	return filepath.Join(r.BasePath, taskType+ext)
 }
 
 // ValidatePromptConfig validates the prompt configuration structure

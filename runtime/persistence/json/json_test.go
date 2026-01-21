@@ -427,14 +427,67 @@ func TestJSONPromptRepository_ListPrompts(t *testing.T) {
 	}
 }
 
-func TestJSONPromptRepository_SavePrompt_NotImplemented(t *testing.T) {
+func TestJSONPromptRepository_SavePrompt(t *testing.T) {
 	tmpDir := t.TempDir()
 	repo := NewJSONPromptRepository(tmpDir, nil)
 
-	config := &prompt.Config{}
+	config := &prompt.Config{
+		APIVersion: "promptkit.dev/v1",
+		Kind:       "PromptConfig",
+		Spec: prompt.Spec{
+			TaskType:       "save-test",
+			SystemTemplate: "Test system template",
+		},
+	}
+
+	// Save the prompt
+	err := repo.SavePrompt(config)
+	if err != nil {
+		t.Fatalf("SavePrompt() failed: %v", err)
+	}
+
+	// Verify file was created
+	expectedPath := tmpDir + "/save-test.json"
+	if _, err := os.Stat(expectedPath); os.IsNotExist(err) {
+		t.Fatalf("Expected file %s to exist after SavePrompt", expectedPath)
+	}
+
+	// Load it back and verify
+	loaded, err := repo.LoadPrompt("save-test")
+	if err != nil {
+		t.Fatalf("LoadPrompt() after SavePrompt() failed: %v", err)
+	}
+	if loaded.Spec.TaskType != "save-test" {
+		t.Errorf("Expected task_type 'save-test', got '%s'", loaded.Spec.TaskType)
+	}
+	if loaded.Spec.SystemTemplate != "Test system template" {
+		t.Errorf("Expected system_template 'Test system template', got '%s'", loaded.Spec.SystemTemplate)
+	}
+}
+
+func TestJSONPromptRepository_SavePrompt_NilConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	repo := NewJSONPromptRepository(tmpDir, nil)
+
+	err := repo.SavePrompt(nil)
+	if err == nil {
+		t.Error("Expected error for nil config, got nil")
+	}
+}
+
+func TestJSONPromptRepository_SavePrompt_EmptyTaskType(t *testing.T) {
+	tmpDir := t.TempDir()
+	repo := NewJSONPromptRepository(tmpDir, nil)
+
+	config := &prompt.Config{
+		Spec: prompt.Spec{
+			TaskType: "",
+		},
+	}
+
 	err := repo.SavePrompt(config)
 	if err == nil {
-		t.Error("Expected 'not implemented' error, got nil")
+		t.Error("Expected error for empty task_type, got nil")
 	}
 }
 
