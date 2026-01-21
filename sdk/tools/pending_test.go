@@ -247,7 +247,7 @@ func TestResolvedStore(t *testing.T) {
 		done := make(chan bool)
 
 		// Add from multiple goroutines
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			go func(id int) {
 				store.Add(&ToolResolution{ID: string(rune('0' + id))})
 				done <- true
@@ -255,11 +255,25 @@ func TestResolvedStore(t *testing.T) {
 		}
 
 		// Wait for all adds
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			<-done
 		}
 
 		resolutions := store.PopAll()
 		assert.Len(t, resolutions, 10)
+	})
+
+	t.Run("len returns count", func(t *testing.T) {
+		store := NewResolvedStore()
+		assert.Equal(t, 0, store.Len())
+
+		store.Add(&ToolResolution{ID: "res-1"})
+		assert.Equal(t, 1, store.Len())
+
+		store.Add(&ToolResolution{ID: "res-2"})
+		assert.Equal(t, 2, store.Len())
+
+		store.PopAll()
+		assert.Equal(t, 0, store.Len())
 	})
 }

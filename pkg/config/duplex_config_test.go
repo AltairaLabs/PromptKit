@@ -708,6 +708,193 @@ turns:
 	}
 }
 
+func TestRelevanceConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  *RelevanceConfig
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "nil config is valid",
+			config:  nil,
+			wantErr: false,
+		},
+		{
+			name:    "empty config is valid",
+			config:  &RelevanceConfig{},
+			wantErr: false,
+		},
+		{
+			name: "valid openai provider",
+			config: &RelevanceConfig{
+				Provider: "openai",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid gemini provider",
+			config: &RelevanceConfig{
+				Provider: "gemini",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid voyageai provider",
+			config: &RelevanceConfig{
+				Provider: "voyageai",
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid provider",
+			config: &RelevanceConfig{
+				Provider: "invalid-provider",
+			},
+			wantErr: true,
+			errMsg:  "relevance provider must be",
+		},
+		{
+			name: "valid similarity threshold",
+			config: &RelevanceConfig{
+				SimilarityThreshold: 0.5,
+			},
+			wantErr: false,
+		},
+		{
+			name: "similarity threshold too low",
+			config: &RelevanceConfig{
+				SimilarityThreshold: -0.1,
+			},
+			wantErr: true,
+			errMsg:  "similarity_threshold must be between",
+		},
+		{
+			name: "similarity threshold too high",
+			config: &RelevanceConfig{
+				SimilarityThreshold: 1.5,
+			},
+			wantErr: true,
+			errMsg:  "similarity_threshold must be between",
+		},
+		{
+			name: "valid query source last_user",
+			config: &RelevanceConfig{
+				QuerySource: "last_user",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid query source last_n with count",
+			config: &RelevanceConfig{
+				QuerySource: "last_n",
+				LastNCount:  5,
+			},
+			wantErr: false,
+		},
+		{
+			name: "query source last_n without count",
+			config: &RelevanceConfig{
+				QuerySource: "last_n",
+				LastNCount:  0,
+			},
+			wantErr: true,
+			errMsg:  "last_n_count must be positive",
+		},
+		{
+			name: "valid query source custom with query",
+			config: &RelevanceConfig{
+				QuerySource: "custom",
+				CustomQuery: "my custom query",
+			},
+			wantErr: false,
+		},
+		{
+			name: "query source custom without query",
+			config: &RelevanceConfig{
+				QuerySource: "custom",
+				CustomQuery: "",
+			},
+			wantErr: true,
+			errMsg:  "custom_query is required",
+		},
+		{
+			name: "invalid query source",
+			config: &RelevanceConfig{
+				QuerySource: "invalid",
+			},
+			wantErr: true,
+			errMsg:  "query_source must be",
+		},
+		{
+			name: "negative min_recent_messages",
+			config: &RelevanceConfig{
+				MinRecentMessages: -1,
+			},
+			wantErr: true,
+			errMsg:  "min_recent_messages must be non-negative",
+		},
+		{
+			name: "valid min_recent_messages",
+			config: &RelevanceConfig{
+				MinRecentMessages: 5,
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("Validate() expected error containing %q, got nil", tt.errMsg)
+				} else if tt.errMsg != "" && !containsStr(err.Error(), tt.errMsg) {
+					t.Errorf("Validate() error = %v, want error containing %q", err, tt.errMsg)
+				}
+			} else if err != nil {
+				t.Errorf("Validate() unexpected error = %v", err)
+			}
+		})
+	}
+}
+
+func TestScenario_ValidateWithRelevance(t *testing.T) {
+	t.Run("scenario with invalid relevance config", func(t *testing.T) {
+		scenario := &Scenario{
+			ID: "test-scenario",
+			ContextPolicy: &ContextPolicy{
+				Relevance: &RelevanceConfig{
+					Provider: "invalid-provider",
+				},
+			},
+		}
+		err := scenario.Validate()
+		if err == nil {
+			t.Error("Validate() expected error for invalid relevance provider")
+		}
+		if !containsStr(err.Error(), "relevance provider must be") {
+			t.Errorf("Validate() error = %v, expected to contain 'relevance provider must be'", err)
+		}
+	})
+
+	t.Run("scenario with valid relevance config", func(t *testing.T) {
+		scenario := &Scenario{
+			ID: "test-scenario",
+			ContextPolicy: &ContextPolicy{
+				Relevance: &RelevanceConfig{
+					Provider:            "openai",
+					SimilarityThreshold: 0.7,
+				},
+			},
+		}
+		err := scenario.Validate()
+		if err != nil {
+			t.Errorf("Validate() unexpected error: %v", err)
+		}
+	})
+}
+
 // containsStr checks if s contains substr
 func containsStr(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
