@@ -73,8 +73,10 @@ func (e *Exporter) Start() error {
 	mux.Handle("/metrics", promhttp.HandlerFor(e.registry, promhttp.HandlerOpts{
 		EnableOpenMetrics: true,
 	}))
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
+		// Write error is intentionally ignored - client may have disconnected
+		// and there's nothing actionable to do with the error in a health check
 		_, _ = w.Write([]byte("ok"))
 	})
 

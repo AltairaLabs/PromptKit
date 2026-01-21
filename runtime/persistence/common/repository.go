@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 )
 
@@ -113,7 +114,7 @@ func (r *BasePromptRepository) SearchByFilename(taskType string) string {
 	}
 
 	var foundFile string
-	_ = filepath.WalkDir(r.BasePath, func(path string, d os.DirEntry, err error) error {
+	err := filepath.WalkDir(r.BasePath, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
@@ -126,6 +127,10 @@ func (r *BasePromptRepository) SearchByFilename(taskType string) string {
 		}
 		return nil
 	})
+	if err != nil {
+		logger.Debug("Failed to walk directory for filename search",
+			"base_path", r.BasePath, "task_type", taskType, "error", err)
+	}
 
 	return foundFile
 }
@@ -133,7 +138,7 @@ func (r *BasePromptRepository) SearchByFilename(taskType string) string {
 // SearchByContent searches for files by parsing and checking task type
 func (r *BasePromptRepository) SearchByContent(taskType string) string {
 	var foundFile string
-	_ = filepath.WalkDir(r.BasePath, func(path string, d os.DirEntry, err error) error {
+	err := filepath.WalkDir(r.BasePath, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
@@ -149,6 +154,10 @@ func (r *BasePromptRepository) SearchByContent(taskType string) string {
 
 		return nil
 	})
+	if err != nil {
+		logger.Debug("Failed to walk directory for content search",
+			"base_path", r.BasePath, "task_type", taskType, "error", err)
+	}
 
 	return foundFile
 }
