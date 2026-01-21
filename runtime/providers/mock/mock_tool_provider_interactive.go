@@ -21,7 +21,8 @@ type ToolProvider struct {
 
 // NewToolProvider creates a new mock provider with tool support and duplex streaming.
 // This uses default in-memory responses for backward compatibility.
-func NewToolProvider(id, model string, includeRawOutput bool, additionalConfig map[string]interface{}) *ToolProvider {
+//nolint:gocognit // complexity is inherent in config parsing
+func NewToolProvider(id, model string, includeRawOutput bool, additionalConfig map[string]any) *ToolProvider {
 	var streamingProvider *StreamingProvider
 
 	if additionalConfig != nil {
@@ -90,7 +91,7 @@ func NewToolProviderWithRepository(id, model string, includeRawOutput bool, repo
 // BuildTooling implements the ToolSupport interface.
 // For mock providers, we just return the tools as-is since we don't need
 // to transform them into a provider-specific format.
-func (m *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (interface{}, error) {
+func (m *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (providers.ProviderTools, error) {
 	logger.Debug("ToolProvider BuildTooling",
 		"provider_id", m.id,
 		"tool_count", len(descriptors))
@@ -102,7 +103,14 @@ func (m *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (in
 // PredictWithTools implements the ToolSupport interface.
 // This method handles the initial predict request with tools available,
 // potentially returning tool calls based on the mock configuration.
-func (m *ToolProvider) PredictWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
+//
+//nolint:gocritic // hugeParam: interface signature requires value receiver
+func (m *ToolProvider) PredictWithTools(
+	ctx context.Context,
+	req providers.PredictionRequest,
+	tools providers.ProviderTools,
+	toolChoice string,
+) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	logger.Debug("ToolProvider PredictWithTools",
 		"provider_id", m.id,
 		"tool_choice", toolChoice,

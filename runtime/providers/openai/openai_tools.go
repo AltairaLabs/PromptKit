@@ -18,7 +18,12 @@ type ToolProvider struct {
 }
 
 // NewToolProvider creates a new OpenAI provider with tool support
-func NewToolProvider(id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool, additionalConfig map[string]interface{}) *ToolProvider {
+func NewToolProvider(
+	id, model, baseURL string,
+	defaults providers.ProviderDefaults,
+	includeRawOutput bool,
+	additionalConfig map[string]any,
+) *ToolProvider {
 	return &ToolProvider{
 		Provider: NewProvider(id, model, baseURL, defaults, includeRawOutput),
 	}
@@ -48,7 +53,7 @@ type openAIFunctionCall struct {
 }
 
 // BuildTooling converts tool descriptors to OpenAI format
-func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (interface{}, error) {
+func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (providers.ProviderTools, error) {
 	if len(descriptors) == 0 {
 		return nil, nil
 	}
@@ -69,7 +74,14 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (in
 }
 
 // PredictWithTools performs a prediction request with tool support
-func (p *ToolProvider) PredictWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
+//
+//nolint:gocritic // hugeParam: interface signature requires value receiver
+func (p *ToolProvider) PredictWithTools(
+	ctx context.Context,
+	req providers.PredictionRequest,
+	tools providers.ProviderTools,
+	toolChoice string,
+) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	// Track latency - START timing
 	start := time.Now()
 

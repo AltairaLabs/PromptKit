@@ -135,12 +135,12 @@ func (r *Registry) LoadToolFromBytes(filename string, data []byte) error {
 
 // loadYAMLTool loads a tool from YAML data (K8s manifest format required)
 func (r *Registry) loadYAMLTool(filename string, data []byte) error {
-	var temp interface{}
+	var temp any
 	if err := yaml.Unmarshal(data, &temp); err != nil {
 		return fmt.Errorf("failed to parse YAML tool file %s: %w", filename, err)
 	}
 
-	tempMap, ok := temp.(map[string]interface{})
+	tempMap, ok := temp.(map[string]any)
 	if !ok {
 		return fmt.Errorf("invalid YAML structure in %s", filename)
 	}
@@ -154,7 +154,7 @@ func (r *Registry) loadYAMLTool(filename string, data []byte) error {
 }
 
 // loadK8sManifest loads a K8s-style tool manifest
-func (r *Registry) loadK8sManifest(filename string, temp interface{}) error {
+func (r *Registry) loadK8sManifest(filename string, temp any) error {
 	jsonData, err := json.Marshal(temp)
 	if err != nil {
 		return fmt.Errorf("failed to convert K8s manifest to JSON for %s: %w", filename, err)

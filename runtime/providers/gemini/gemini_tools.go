@@ -23,7 +23,7 @@ const (
 // ToolProvider extends GeminiProvider with tool support
 type ToolProvider struct {
 	*Provider
-	currentTools   interface{}                  // Store current tools for continuation
+	currentTools   providers.ProviderTools      // Store current tools for continuation
 	currentRequest *providers.PredictionRequest // Store current request context for continuation
 }
 
@@ -81,7 +81,7 @@ type geminiToolResponse struct {
 }
 
 // BuildTooling converts tool descriptors to Gemini format
-func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (interface{}, error) {
+func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (providers.ProviderTools, error) {
 	if len(descriptors) == 0 {
 		return nil, nil
 	}
@@ -101,7 +101,14 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (in
 }
 
 // PredictWithTools performs a predict request with tool support
-func (p *ToolProvider) PredictWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
+//
+//nolint:gocritic // hugeParam: interface signature requires value receiver
+func (p *ToolProvider) PredictWithTools(
+	ctx context.Context,
+	req providers.PredictionRequest,
+	tools providers.ProviderTools,
+	toolChoice string,
+) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	// Store tools and request context for potential continuation
 	p.currentTools = tools
 	p.currentRequest = &req
@@ -126,20 +133,22 @@ func (p *ToolProvider) PredictWithTools(ctx context.Context, req providers.Predi
 }
 
 // processToolMessage converts a tool result message to Gemini's functionResponse format
-func processToolMessage(msg types.Message) map[string]interface{} {
+//
+//nolint:gocritic // hugeParam: types.Message is part of established API
+func processToolMessage(msg types.Message) map[string]any {
 	// Use ToolResult.Content (not msg.Content which is empty for tool result messages)
 	content := msg.ToolResult.Content
 
-	var response interface{}
+	var response any
 	if err := json.Unmarshal([]byte(content), &response); err != nil {
 		// If unmarshal fails, wrap the content in an object
-		response = map[string]interface{}{
+		response = map[string]any{
 			"result": content,
 		}
 	} else {
 		// Successfully unmarshaled, but check if it's a map (object) or primitive
-		if _, isMap := response.(map[string]interface{}); !isMap {
-			response = map[string]interface{}{
+		if _, isMap := response.(map[string]any); !isMap {
+			response = map[string]any{
 				"result": response,
 			}
 		}
@@ -155,8 +164,8 @@ func processToolMessage(msg types.Message) map[string]interface{} {
 		logger.Warn("Tool message has empty Name field - functionResponse will be invalid")
 	}
 
-	return map[string]interface{}{
-		"functionResponse": map[string]interface{}{
+	return map[string]any{
+		"functionResponse": map[string]any{
 			"name":     msg.ToolResult.Name,
 			"response": response,
 		},
@@ -164,8 +173,10 @@ func processToolMessage(msg types.Message) map[string]interface{} {
 }
 
 // buildMessageParts creates parts array for a message including text and tool calls
-func buildMessageParts(msg types.Message, pendingToolResults []map[string]interface{}) []interface{} {
-	parts := make([]interface{}, 0)
+//
+//nolint:gocritic // hugeParam: types.Message is part of established API
+func buildMessageParts(msg types.Message, pendingToolResults []map[string]any) []any {
+	parts := make([]any, 0)
 
 	// Add pending tool results first if this is a user message
 	if msg.Role == roleUser {
@@ -177,7 +188,7 @@ func buildMessageParts(msg types.Message, pendingToolResults []map[string]interf
 	// Add text content - use GetContent() to properly handle both Content field and Parts
 	textContent := msg.GetContent()
 	if textContent != "" {
-		parts = append(parts, map[string]interface{}{
+		parts = append(parts, map[string]any{
 			"text": textContent,
 		})
 	}
@@ -185,12 +196,12 @@ func buildMessageParts(msg types.Message, pendingToolResults []map[string]interf
 	// Add tool calls if this is a model message
 	if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
 		for _, toolCall := range msg.ToolCalls {
-			var args interface{}
+			var args any
 			if err := json.Unmarshal(toolCall.Args, &args); err != nil {
 				args = string(toolCall.Args)
 			}
-			parts = append(parts, map[string]interface{}{
-				"functionCall": map[string]interface{}{
+			parts = append(parts, map[string]any{
+				"functionCall": map[string]any{
 					"name": toolCall.Name,
 					"args": args,
 				},
@@ -202,8 +213,8 @@ func buildMessageParts(msg types.Message, pendingToolResults []map[string]interf
 }
 
 // addToolConfig adds tool configuration to the request based on toolChoice
-func addToolConfig(request map[string]interface{}, tools interface{}, toolChoice string) {
-	request["tools"] = []interface{}{tools}
+func addToolConfig(request map[string]any, tools any, toolChoice string) {
+	request["tools"] = []any{tools}
 
 	mode := "AUTO" // default
 	if toolChoice != "" {
@@ -219,17 +230,20 @@ func addToolConfig(request map[string]interface{}, tools interface{}, toolChoice
 		}
 	}
 
-	request["tool_config"] = map[string]interface{}{
-		"function_calling_config": map[string]interface{}{
+	request["tool_config"] = map[string]any{
+		"function_calling_config": map[string]any{
 			"mode": mode,
 		},
 	}
 }
 
-func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools interface{}, toolChoice string) map[string]interface{} {
+//nolint:gocritic // hugeParam: method uses req value throughout
+func (p *ToolProvider) buildToolRequest(
+	req providers.PredictionRequest, tools any, toolChoice string,
+) map[string]any {
 	// Convert messages to Gemini format
-	contents := make([]map[string]interface{}, 0, len(req.Messages))
-	var pendingToolResults []map[string]interface{}
+	contents := make([]map[string]any, 0, len(req.Messages))
+	var pendingToolResults []map[string]any
 
 	for i := range req.Messages {
 		if req.Messages[i].Role == "tool" {
@@ -239,7 +253,7 @@ func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools i
 
 		// If we have pending tool results, add them as a user message before non-user messages
 		if len(pendingToolResults) > 0 && req.Messages[i].Role != "user" {
-			contents = append(contents, map[string]interface{}{
+			contents = append(contents, map[string]any{
 				"role":  "user",
 				"parts": pendingToolResults,
 			})
@@ -260,7 +274,7 @@ func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools i
 			role = "model"
 		}
 
-		contents = append(contents, map[string]interface{}{
+		contents = append(contents, map[string]any{
 			"role":  role,
 			"parts": parts,
 		})
@@ -268,7 +282,7 @@ func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools i
 
 	// If there are still pending tool results at the end, add them as a final user message
 	if len(pendingToolResults) > 0 {
-		contents = append(contents, map[string]interface{}{
+		contents = append(contents, map[string]any{
 			"role":  "user",
 			"parts": pendingToolResults,
 		})
@@ -277,9 +291,9 @@ func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools i
 	// Apply defaults to zero-valued request parameters
 	temperature, topP, maxTokens := p.applyRequestDefaults(req)
 
-	request := map[string]interface{}{
+	request := map[string]any{
 		"contents": contents,
-		"generationConfig": map[string]interface{}{
+		"generationConfig": map[string]any{
 			"temperature":     temperature,
 			"topP":            topP,
 			"maxOutputTokens": maxTokens,
@@ -287,9 +301,9 @@ func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools i
 	}
 
 	if req.System != "" {
-		request["systemInstruction"] = map[string]interface{}{
-			"parts": []interface{}{
-				map[string]interface{}{"text": req.System},
+		request["systemInstruction"] = map[string]any{
+			"parts": []any{
+				map[string]any{"text": req.System},
 			},
 		}
 	}
@@ -353,7 +367,8 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte, predictResp providers
 			}
 
 			if part.FunctionCall.Args != nil {
-				argsBytes, _ := json.Marshal(part.FunctionCall.Args) // NOSONAR: Marshal only errors on unsupported types, impossible with map[string]interface{}
+				// Marshal can't fail for map[string]any
+				argsBytes, _ := json.Marshal(part.FunctionCall.Args)
 				toolCall.Args = json.RawMessage(argsBytes)
 			}
 			toolCalls = append(toolCalls, toolCall)
@@ -378,7 +393,7 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte, predictResp providers
 	return predictResp, toolCalls, nil
 }
 
-func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]byte, error) {
+func (p *ToolProvider) makeRequest(ctx context.Context, request any) ([]byte, error) {
 	requestBytes, err := json.Marshal(request)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
@@ -388,7 +403,7 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]
 	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", p.BaseURL, p.modelName, p.ApiKey)
 
 	// Debug log the request
-	var requestObj interface{}
+	var requestObj any
 	if err := json.Unmarshal(requestBytes, &requestObj); err != nil {
 		// If unmarshal fails for logging, use raw bytes as fallback
 		requestObj = string(requestBytes)
@@ -433,7 +448,7 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]
 func (p *ToolProvider) PredictStreamWithTools(
 	ctx context.Context,
 	req providers.PredictionRequest,
-	tools interface{},
+	tools any,
 	toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
 	// Build Gemini request with tools

@@ -111,7 +111,7 @@ type PendingToolInfo struct {
 	CallbackURL string     `json:"callback_url,omitempty"`
 
 	// Arbitrary metadata for custom middleware
-	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 // ToolPolicy defines constraints for tool usage in scenarios

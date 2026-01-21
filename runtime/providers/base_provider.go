@@ -81,7 +81,7 @@ func CheckHTTPError(resp *http.Response, url string) error {
 }
 
 // UnmarshalJSON unmarshals JSON with error recovery that sets latency and raw response
-func UnmarshalJSON(respBody []byte, v interface{}, predictResp *PredictionResponse, start time.Time) error {
+func UnmarshalJSON(respBody []byte, v any, predictResp *PredictionResponse, start time.Time) error {
 	if err := json.Unmarshal(respBody, v); err != nil {
 		predictResp.Latency = time.Since(start)
 		predictResp.Raw = respBody
@@ -105,7 +105,7 @@ type RequestHeaders map[string]string
 func (b *BaseProvider) MakeJSONRequest(
 	ctx context.Context,
 	url string,
-	request interface{},
+	request any,
 	headers RequestHeaders,
 	providerName string,
 ) ([]byte, error) {

@@ -46,14 +46,14 @@ type ResponseFormat struct {
 
 // PredictionRequest represents a request to a predict provider
 type PredictionRequest struct {
-	System         string                 `json:"system"`
-	Messages       []types.Message        `json:"messages"`
-	Temperature    float32                `json:"temperature"`
-	TopP           float32                `json:"top_p"`
-	MaxTokens      int                    `json:"max_tokens"`
-	Seed           *int                   `json:"seed,omitempty"`
-	ResponseFormat *ResponseFormat        `json:"response_format,omitempty"` // Optional response format (JSON mode)
-	Metadata       map[string]interface{} `json:"metadata,omitempty"`        // Provider-specific context
+	System         string          `json:"system"`
+	Messages       []types.Message `json:"messages"`
+	Temperature    float32         `json:"temperature"`
+	TopP           float32         `json:"top_p"`
+	MaxTokens      int             `json:"max_tokens"`
+	Seed           *int            `json:"seed,omitempty"`
+	ResponseFormat *ResponseFormat `json:"response_format,omitempty"` // Optional response format (JSON mode)
+	Metadata       map[string]any  `json:"metadata,omitempty"`        // Provider-specific context
 }
 
 // PredictionResponse represents a response from a predict provider
@@ -63,7 +63,7 @@ type PredictionResponse struct {
 	CostInfo   *types.CostInfo         `json:"cost_info,omitempty"` // Cost breakdown for this response (includes token counts)
 	Latency    time.Duration           `json:"latency"`
 	Raw        []byte                  `json:"raw,omitempty"`
-	RawRequest interface{}             `json:"raw_request,omitempty"` // Raw API request (for debugging)
+	RawRequest any                     `json:"raw_request,omitempty"` // Raw API request (for debugging)
 	ToolCalls  []types.MessageToolCall `json:"tool_calls,omitempty"`  // Tools called in this response
 }
 
@@ -115,21 +115,41 @@ type ToolDescriptor struct {
 // This is an alias to types.MessageToolResult for provider-specific context
 type ToolResult = types.MessageToolResult
 
+// ProviderTools represents provider-specific tool configuration.
+// Each provider returns its own native format:
+//   - OpenAI: []openAITool
+//   - Claude: []claudeTool
+//   - Gemini: geminiToolWrapper
+//   - Ollama: []ollamaTool
+//   - vLLM: []vllmTool
+//   - Mock: []*ToolDescriptor
+//
+// The value returned by BuildTooling should be passed directly to PredictWithTools.
+type ProviderTools = any
+
 // ToolSupport interface for providers that support tool/function calling
 type ToolSupport interface {
 	Provider // Extends the base Provider interface
 
-	// BuildTooling converts tool descriptors to provider-native format
-	BuildTooling(descriptors []*ToolDescriptor) (interface{}, error)
+	// BuildTooling converts tool descriptors to provider-native format.
+	// Returns a provider-specific type that should be passed to PredictWithTools.
+	BuildTooling(descriptors []*ToolDescriptor) (ProviderTools, error)
 
-	// PredictWithTools performs a predict request with tool support
-	PredictWithTools(ctx context.Context, req PredictionRequest, tools interface{}, toolChoice string) (PredictionResponse, []types.MessageToolCall, error)
+	// PredictWithTools performs a predict request with tool support.
+	// The tools parameter should be the value returned by BuildTooling.
+	PredictWithTools(
+		ctx context.Context,
+		req PredictionRequest,
+		tools ProviderTools,
+		toolChoice string,
+	) (PredictionResponse, []types.MessageToolCall, error)
 
-	// PredictStreamWithTools performs a streaming predict request with tool support
+	// PredictStreamWithTools performs a streaming predict request with tool support.
+	// The tools parameter should be the value returned by BuildTooling.
 	PredictStreamWithTools(
 		ctx context.Context,
 		req PredictionRequest,
-		tools interface{},
+		tools ProviderTools,
 		toolChoice string,
 	) (<-chan StreamChunk, error)
 }

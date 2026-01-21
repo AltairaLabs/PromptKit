@@ -54,7 +54,7 @@ type claudeToolResult struct {
 
 type claudeToolMessage struct {
 	Role         string              `json:"role"`
-	Content      []interface{}       `json:"content"`
+	Content      []any               `json:"content"`
 	CacheControl *claudeCacheControl `json:"cache_control,omitempty"`
 }
 
@@ -64,7 +64,7 @@ type claudeTextContent struct {
 }
 
 // BuildTooling converts tool descriptors to Claude format
-func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (interface{}, error) {
+func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (providers.ProviderTools, error) {
 	if len(descriptors) == 0 {
 		return nil, nil
 	}
@@ -82,7 +82,14 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (in
 }
 
 // PredictWithTools performs a predict request with tool support
-func (p *ToolProvider) PredictWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
+//
+//nolint:gocritic // hugeParam: interface signature requires value receiver
+func (p *ToolProvider) PredictWithTools(
+	ctx context.Context,
+	req providers.PredictionRequest,
+	tools providers.ProviderTools,
+	toolChoice string,
+) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	// Track total latency including API call time
 	start := time.Now()
 

@@ -49,7 +49,7 @@ func (p *Provider) PredictStream(
 	}
 
 	// Create streaming request
-	claudeReq := map[string]interface{}{
+	claudeReq := map[string]any{
 		"model":       p.model,
 		"max_tokens":  maxTokens,
 		"messages":    messages,
