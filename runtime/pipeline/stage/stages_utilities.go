@@ -11,6 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
+	"github.com/AltairaLabs/PromptKit/runtime/tokenizer"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/variables"
 )
@@ -532,6 +533,11 @@ type ContextBuilderPolicy struct {
 	// RelevanceConfig for TruncateLeastRelevant strategy.
 	// Required when using TruncateLeastRelevant; must include EmbeddingProvider.
 	RelevanceConfig *RelevanceConfig
+
+	// TokenCounter provides token counting for budget management.
+	// If nil, a default heuristic counter is used with ModelFamilyDefault ratio (1.35).
+	// Use tokenizer.NewTokenCounterForModel(modelName) to create a model-aware counter.
+	TokenCounter tokenizer.TokenCounter
 }
 
 // ContextBuilderStage manages token budget and truncates messages if needed.
@@ -562,14 +568,22 @@ type ContextBuilderPolicy struct {
 // This is an Accumulate stage: N input elements → N (possibly fewer) output elements
 type ContextBuilderStage struct {
 	BaseStage
-	policy *ContextBuilderPolicy
+	policy       *ContextBuilderPolicy
+	tokenCounter tokenizer.TokenCounter
 }
 
 // NewContextBuilderStage creates a context builder stage.
 func NewContextBuilderStage(policy *ContextBuilderPolicy) *ContextBuilderStage {
+	// Use provided TokenCounter or default to heuristic counter
+	var tc tokenizer.TokenCounter = tokenizer.DefaultTokenCounter
+	if policy != nil && policy.TokenCounter != nil {
+		tc = policy.TokenCounter
+	}
+
 	return &ContextBuilderStage{
-		BaseStage: NewBaseStage("context_builder", StageTypeAccumulate),
-		policy:    policy,
+		BaseStage:    NewBaseStage("context_builder", StageTypeAccumulate),
+		policy:       policy,
+		tokenCounter: tc,
 	}
 }
 
@@ -684,13 +698,10 @@ func (s *ContextBuilderStage) emitMessages(
 	return nil
 }
 
-// countTokens estimates token count using a simple heuristic.
+// countTokens estimates token count using the configured TokenCounter.
+// If no counter was configured, uses the default heuristic counter.
 func (s *ContextBuilderStage) countTokens(text string) int {
-	if text == "" {
-		return 0
-	}
-	words := strings.Fields(text)
-	return int(float64(len(words)) * 1.3)
+	return s.tokenCounter.CountTokens(text)
 }
 
 // countMessagesTokens estimates total tokens for messages.

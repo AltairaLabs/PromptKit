@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/tokenizer"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -392,6 +393,87 @@ func TestContextBuilderStage_NilPolicyPassesThrough(t *testing.T) {
 		count++
 	}
 	assert.Equal(t, 2, count)
+}
+
+func TestContextBuilderStage_CustomTokenCounter(t *testing.T) {
+	// Create a custom token counter that returns 10 tokens per message
+	// This allows us to verify the custom counter is being used
+	customCounter := tokenizer.NewHeuristicTokenCounterWithRatio(10.0)
+
+	policy := &ContextBuilderPolicy{
+		TokenBudget:      25, // Only allow 2 messages (10 tokens each) plus buffer
+		ReserveForOutput: 0,
+		Strategy:         TruncateOldest,
+		TokenCounter:     customCounter,
+	}
+
+	stage := NewContextBuilderStage(policy)
+
+	input := make(chan StreamElement, 3)
+	output := make(chan StreamElement, 3)
+
+	// Each "word" will be counted as 10 tokens with our custom counter
+	input <- NewMessageElement(&types.Message{Role: "user", Content: "first"})  // 10 tokens
+	input <- NewMessageElement(&types.Message{Role: "user", Content: "second"}) // 10 tokens
+	input <- NewMessageElement(&types.Message{Role: "user", Content: "third"})  // 10 tokens
+	close(input)
+
+	err := stage.Process(context.Background(), input, output)
+	require.NoError(t, err)
+
+	// With 25 token budget and 10 tokens per message, only 2 messages should fit
+	count := 0
+	for range output {
+		count++
+	}
+	assert.Equal(t, 2, count, "Should truncate to 2 messages with custom token counter")
+}
+
+func TestContextBuilderStage_DefaultTokenCounter(t *testing.T) {
+	// Test that default token counter is used when none provided
+	policy := &ContextBuilderPolicy{
+		TokenBudget:      100, // Generous budget
+		ReserveForOutput: 0,
+		Strategy:         TruncateOldest,
+		// TokenCounter is nil - should use default
+	}
+
+	stage := NewContextBuilderStage(policy)
+
+	input := make(chan StreamElement, 2)
+	output := make(chan StreamElement, 2)
+
+	// "hello world" = 2 words * ~1.35 = ~2-3 tokens with default counter
+	input <- NewMessageElement(&types.Message{Role: "user", Content: "hello world"})
+	input <- NewMessageElement(&types.Message{Role: "user", Content: "goodbye world"})
+	close(input)
+
+	err := stage.Process(context.Background(), input, output)
+	require.NoError(t, err)
+
+	// Both should fit with 100 token budget
+	count := 0
+	for range output {
+		count++
+	}
+	assert.Equal(t, 2, count, "Both messages should fit with default counter")
+}
+
+func TestContextBuilderStage_ModelAwareTokenCounter(t *testing.T) {
+	// Test using model-aware token counter
+	gptCounter := tokenizer.NewTokenCounterForModel("gpt-4")
+
+	policy := &ContextBuilderPolicy{
+		TokenBudget:      100,
+		ReserveForOutput: 0,
+		Strategy:         TruncateOldest,
+		TokenCounter:     gptCounter,
+	}
+
+	stage := NewContextBuilderStage(policy)
+
+	// Verify the counter was set correctly
+	assert.NotNil(t, stage.tokenCounter)
 }
 
 func TestDebugStage_PassesThrough(t *testing.T) {
