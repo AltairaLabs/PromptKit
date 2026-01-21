@@ -950,13 +950,13 @@ func TestToolProvider_ConvertToolResultMessage_ContentIsSet(t *testing.T) {
 		t.Errorf("Expected name 'weather', got '%v'", openaiMsg["name"])
 	}
 
-	// CRITICAL: Verify content is set from ToolResult.Content (not empty)
+	// Verify content is set from ToolResult.Content (not empty)
 	content, ok := openaiMsg["content"].(string)
 	if !ok {
 		t.Fatalf("Expected content to be string, got %T", openaiMsg["content"])
 	}
 	if content == "" {
-		t.Fatal("CRITICAL BUG: Tool result content is empty! ToolResult.Content should be used as the message content")
+		t.Fatal("Tool result content is empty - ToolResult.Content should be used as the message content")
 	}
 	if content != `{"temperature": 73, "conditions": "sunny"}` {
 		t.Errorf("Expected content to be the tool result JSON, got '%s'", content)
@@ -1010,7 +1010,7 @@ func TestToolProvider_ConvertRequestMessages_ToolResultHasContent(t *testing.T) 
 		t.Fatalf("Expected content to be string, got %T", toolMsg["content"])
 	}
 	if content == "" {
-		t.Fatal("CRITICAL BUG: Tool message content is empty in built request")
+		t.Fatal("Tool message content is empty in built request")
 	}
 	if content != `{"temp": 75, "conditions": "partly cloudy"}` {
 		t.Errorf("Expected tool result content, got '%s'", content)

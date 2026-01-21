@@ -99,9 +99,9 @@ func ValidatePredictReturnsLatency(t *testing.T, provider Provider) {
 		return
 	}
 
-	// CRITICAL: Latency must be non-zero
+	// Latency must be non-zero
 	if resp.Latency == 0 {
-		t.Errorf("CRITICAL BUG: Predict() returned Latency=0, but call took %v", elapsed)
+		t.Errorf("Predict() returned Latency=0, but call took %v", elapsed)
 		t.Logf("Response: %+v", resp)
 		t.Logf("This will cause latency_ms to be omitted from JSON due to omitempty tag")
 	}
@@ -171,12 +171,11 @@ func ValidatePredictWithToolsReturnsLatency(t *testing.T, provider Provider) {
 
 	_ = toolCalls // We don't care if tools were actually called, just that latency was tracked
 
-	// CRITICAL: Latency must be non-zero
+	// Latency must be non-zero
 	if resp.Latency == 0 {
-		t.Errorf("CRITICAL BUG: PredictWithTools() returned Latency=0, but call took %v", elapsed)
+		t.Errorf("PredictWithTools() returned Latency=0, but call took %v", elapsed)
 		t.Logf("Response: %+v", resp)
 		t.Logf("This will cause latency_ms to be omitted from JSON due to omitempty tag")
-		t.Logf("This is the EXACT production bug we're fixing!")
 	}
 
 	// Latency should be reasonable (within 10x of actual elapsed time)

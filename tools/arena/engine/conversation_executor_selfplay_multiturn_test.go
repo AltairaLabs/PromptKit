@@ -129,15 +129,14 @@ func TestExecuteConversation_SelfPlayMultiTurn(t *testing.T) {
 		t.Errorf("Expected success, got error: %s", result.Error)
 	}
 
-	// CRITICAL: Scripted executor should be called once (initial turn)
+	// Verify scripted executor called once (initial turn)
 	if scriptedCallCount != 1 {
-		t.Errorf("CRITICAL: Expected 1 scripted turn, got %d", scriptedCallCount)
+		t.Errorf("Expected 1 scripted turn, got %d", scriptedCallCount)
 	}
 
-	// CRITICAL: Self-play executor should be called 5 times (turns: 5)
+	// Verify self-play executor called 5 times (turns: 5)
 	if selfPlayCallCount != 5 {
-		t.Errorf("CRITICAL BUG: Expected 5 self-play turns, got %d", selfPlayCallCount)
-		t.Errorf("This indicates the `turns: 5` field is not being respected!")
+		t.Errorf("Expected 5 self-play turns, got %d (turns field not respected)", selfPlayCallCount)
 	}
 
 	// Expected messages:
@@ -238,9 +237,9 @@ func TestExecuteConversation_SelfPlayMultiTurnStreaming(t *testing.T) {
 		t.Errorf("Expected success, got error: %s", result.Error)
 	}
 
-	// Should execute 3 self-play turns even with streaming enabled
+	// Verify 3 self-play turns execute with streaming enabled
 	if selfPlayCallCount != 3 {
-		t.Errorf("CRITICAL BUG: Expected 3 self-play turns with streaming, got %d", selfPlayCallCount)
+		t.Errorf("Expected 3 self-play turns with streaming, got %d", selfPlayCallCount)
 	}
 
 	// 1 initial + 3 self-play = 8 messages total

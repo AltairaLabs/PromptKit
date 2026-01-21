@@ -138,12 +138,12 @@ func TestToolProvider_PredictWithToolsLatency(t *testing.T) {
 		return
 	}
 
-	// CRITICAL: Latency must be non-zero
+	// Latency must be non-zero
 	if resp.Latency == 0 {
-		t.Errorf("CRITICAL BUG: PredictWithTools() returned Latency=0, but call took %v", elapsed)
+		t.Errorf("PredictWithTools() returned Latency=0, but call took %v", elapsed)
 		t.Logf("Response: %+v", resp)
 		t.Logf("ToolCalls: %+v", toolCalls)
 	}
 
-	t.Logf("✓ PredictWithTools() correctly set Latency=%v (actual: %v)", resp.Latency, elapsed)
+	t.Logf("PredictWithTools() correctly set Latency=%v (actual: %v)", resp.Latency, elapsed)
 }

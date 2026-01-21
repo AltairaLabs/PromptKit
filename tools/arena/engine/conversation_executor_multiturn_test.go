@@ -128,9 +128,9 @@ func TestExecuteConversation_TenScriptedTurns(t *testing.T) {
 		t.Errorf("Expected success, got error: %s", result.Error)
 	}
 
-	// CRITICAL: Should have executed ALL 10 turns
+	// Verify all 10 turns executed
 	if len(executedTurns) != 10 {
-		t.Errorf("CRITICAL BUG: Expected 10 turns to execute, only %d executed", len(executedTurns))
+		t.Errorf("Expected 10 turns to execute, only %d executed", len(executedTurns))
 		t.Errorf("Executed turns: %v", executedTurns)
 	}
 

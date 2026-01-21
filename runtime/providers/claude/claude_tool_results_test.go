@@ -299,7 +299,7 @@ func TestProcessClaudeToolResult_UsesToolResultContent(t *testing.T) {
 
 	// Verify the result uses ToolResult.Content
 	if result.Content == "" {
-		t.Fatal("CRITICAL BUG: Tool result content is empty! ToolResult.Content should be used")
+		t.Fatal("Tool result content is empty - ToolResult.Content should be used")
 	}
 	if result.Content != `{"temperature": 73, "conditions": "sunny"}` {
 		t.Errorf("Expected ToolResult.Content, got '%s'", result.Content)
