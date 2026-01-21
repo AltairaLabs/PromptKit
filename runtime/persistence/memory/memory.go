@@ -62,10 +62,10 @@ func (r *PromptRepository) ListPrompts() ([]string, error) {
 // SavePrompt saves a prompt configuration
 func (r *PromptRepository) SavePrompt(config *prompt.Config) error {
 	if config == nil {
-		return fmt.Errorf("config cannot be nil")
+		return persistence.ErrNilConfig
 	}
 	if config.Spec.TaskType == "" {
-		return fmt.Errorf("task_type cannot be empty")
+		return persistence.ErrEmptyTaskType
 	}
 	r.prompts[config.Spec.TaskType] = config
 	return nil
@@ -114,10 +114,10 @@ func (r *ToolRepository) ListTools() ([]string, error) {
 // SaveTool saves a tool descriptor
 func (r *ToolRepository) SaveTool(descriptor *tools.ToolDescriptor) error {
 	if descriptor == nil {
-		return fmt.Errorf("descriptor cannot be nil")
+		return persistence.ErrNilDescriptor
 	}
 	if descriptor.Name == "" {
-		return fmt.Errorf("tool name cannot be empty")
+		return persistence.ErrEmptyToolName
 	}
 	r.tools[descriptor.Name] = descriptor
 	return nil

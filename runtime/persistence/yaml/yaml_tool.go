@@ -58,10 +58,10 @@ func (r *ToolRepository) ListTools() ([]string, error) {
 // The file will be named <tool-name>.yaml in the repository's base path.
 func (r *ToolRepository) SaveTool(descriptor *tools.ToolDescriptor) error {
 	if descriptor == nil {
-		return fmt.Errorf("descriptor cannot be nil")
+		return persistence.ErrNilDescriptor
 	}
 	if descriptor.Name == "" {
-		return fmt.Errorf("tool name cannot be empty")
+		return persistence.ErrEmptyToolName
 	}
 
 	// Build K8s manifest format

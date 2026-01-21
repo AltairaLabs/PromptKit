@@ -2,11 +2,13 @@ package common
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/persistence"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -483,7 +485,7 @@ func TestSavePrompt(t *testing.T) {
 
 		err := repo.SavePrompt(nil)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "config cannot be nil")
+		assert.True(t, errors.Is(err, persistence.ErrNilConfig), "expected ErrNilConfig, got %v", err)
 	})
 
 	t.Run("error for empty task_type", func(t *testing.T) {
@@ -498,7 +500,7 @@ func TestSavePrompt(t *testing.T) {
 
 		err := repo.SavePrompt(config)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "task_type cannot be empty")
+		assert.True(t, errors.Is(err, persistence.ErrEmptyTaskType), "expected ErrEmptyTaskType, got %v", err)
 	})
 
 	t.Run("uses explicit mapping for path", func(t *testing.T) {

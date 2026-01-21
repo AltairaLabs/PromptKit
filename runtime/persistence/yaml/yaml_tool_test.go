@@ -1,10 +1,12 @@
 package yaml
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/persistence"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
@@ -172,8 +174,8 @@ func TestYAMLToolRepository_SaveTool(t *testing.T) {
 		repo := NewYAMLToolRepository(tmpDir)
 
 		err := repo.SaveTool(nil)
-		if err == nil {
-			t.Error("Expected error for nil descriptor, got nil")
+		if !errors.Is(err, persistence.ErrNilDescriptor) {
+			t.Errorf("Expected ErrNilDescriptor, got %v", err)
 		}
 	})
 
@@ -184,8 +186,8 @@ func TestYAMLToolRepository_SaveTool(t *testing.T) {
 		err := repo.SaveTool(&tools.ToolDescriptor{
 			Description: "test tool",
 		})
-		if err == nil {
-			t.Error("Expected error for empty name, got nil")
+		if !errors.Is(err, persistence.ErrEmptyToolName) {
+			t.Errorf("Expected ErrEmptyToolName, got %v", err)
 		}
 	})
 

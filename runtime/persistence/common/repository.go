@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/persistence"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 )
 
@@ -242,10 +243,10 @@ func (r *BasePromptRepository) SavePrompt(config *prompt.Config) error {
 		return fmt.Errorf("save not supported: marshal function not configured")
 	}
 	if config == nil {
-		return fmt.Errorf("config cannot be nil")
+		return persistence.ErrNilConfig
 	}
 	if config.Spec.TaskType == "" {
-		return fmt.Errorf("task_type cannot be empty")
+		return persistence.ErrEmptyTaskType
 	}
 
 	// Determine output file path
