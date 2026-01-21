@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
-
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -356,47 +354,13 @@ func (p *ToolProvider) parseToolResponse(
 }
 
 func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]byte, error) {
-	requestBytes, err := json.Marshal(request)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	// Construct the full messages endpoint URL
 	url := p.baseURL + "/messages"
-
-	logger.APIRequest(providerNameLog, "POST", url, map[string]string{
+	headers := providers.RequestHeaders{
 		contentTypeHeader:   applicationJSON,
-		apiKeyHeader:        "***",
+		apiKeyHeader:        p.apiKey,
 		anthropicVersionKey: anthropicVersionValue,
-	}, request)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(requestBytes))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-
-	req.Header.Set(contentTypeHeader, applicationJSON)
-	req.Header.Set(apiKeyHeader, p.apiKey)
-	req.Header.Set(anthropicVersionKey, anthropicVersionValue)
-
-	resp, err := p.GetHTTPClient().Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	logger.APIResponse(providerNameLog, resp.StatusCode, string(respBytes), nil)
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API request to %s failed with status %d: %s", url, resp.StatusCode, string(respBytes))
-	}
-
-	return respBytes, nil
+	return p.MakeJSONRequest(ctx, url, request, headers, providerNameLog)
 }
 
 // PredictStreamWithTools performs a streaming predict request with tool support

@@ -1,12 +1,16 @@
 package providers
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
 // BaseProvider provides common functionality shared across all provider implementations.
@@ -90,4 +94,75 @@ func UnmarshalJSON(respBody []byte, v interface{}, predictResp *PredictionRespon
 func SetErrorResponse(predictResp *PredictionResponse, respBody []byte, start time.Time) {
 	predictResp.Latency = time.Since(start)
 	predictResp.Raw = respBody
+}
+
+// RequestHeaders is a map of HTTP header key-value pairs
+type RequestHeaders map[string]string
+
+// MakeJSONRequest performs a JSON HTTP POST request with common error handling.
+// This reduces duplication across provider implementations.
+// providerName is used for logging purposes.
+func (b *BaseProvider) MakeJSONRequest(
+	ctx context.Context,
+	url string,
+	request interface{},
+	headers RequestHeaders,
+	providerName string,
+) ([]byte, error) {
+	reqBytes, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	return b.MakeRawRequest(ctx, url, reqBytes, headers, providerName)
+}
+
+// MakeRawRequest performs an HTTP POST request with pre-marshaled body.
+// Use this when you need to control the serialization yourself.
+func (b *BaseProvider) MakeRawRequest(
+	ctx context.Context,
+	url string,
+	body []byte,
+	headers RequestHeaders,
+	providerName string,
+) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set all headers
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+
+	// Log the request (mask sensitive headers for logging)
+	logHeaders := make(map[string]string)
+	for k, v := range headers {
+		if k == "Authorization" || k == "x-api-key" {
+			logHeaders[k] = "***"
+		} else {
+			logHeaders[k] = v
+		}
+	}
+	logger.APIRequest(providerName, "POST", url, logHeaders, json.RawMessage(body))
+
+	resp, err := b.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	logger.APIResponse(providerName, resp.StatusCode, string(respBytes), nil)
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(respBytes))
+	}
+
+	return respBytes, nil
 }

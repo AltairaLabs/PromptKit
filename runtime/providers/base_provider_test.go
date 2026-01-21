@@ -349,6 +349,219 @@ func TestSetErrorResponse(t *testing.T) {
 	}
 }
 
+func TestBaseProvider_MakeJSONRequest(t *testing.T) {
+	tests := []struct {
+		name           string
+		statusCode     int
+		responseBody   string
+		requestBody    interface{}
+		headers        RequestHeaders
+		expectError    bool
+		errorContains  string
+		validateReq    func(*testing.T, *http.Request)
+	}{
+		{
+			name:         "Successful request",
+			statusCode:   http.StatusOK,
+			responseBody: `{"result": "success"}`,
+			requestBody:  map[string]string{"key": "value"},
+			headers: RequestHeaders{
+				"Content-Type": "application/json",
+			},
+			expectError: false,
+		},
+		{
+			name:         "Request with authorization header",
+			statusCode:   http.StatusOK,
+			responseBody: `{"result": "authorized"}`,
+			requestBody:  map[string]string{"data": "test"},
+			headers: RequestHeaders{
+				"Content-Type":  "application/json",
+				"Authorization": "Bearer secret-token",
+			},
+			expectError: false,
+			validateReq: func(t *testing.T, r *http.Request) {
+				if r.Header.Get("Authorization") != "Bearer secret-token" {
+					t.Errorf("Expected auth header, got %s", r.Header.Get("Authorization"))
+				}
+			},
+		},
+		{
+			name:         "Request with x-api-key header",
+			statusCode:   http.StatusOK,
+			responseBody: `{"result": "api-key-auth"}`,
+			requestBody:  map[string]string{"data": "test"},
+			headers: RequestHeaders{
+				"Content-Type": "application/json",
+				"x-api-key":    "my-api-key",
+			},
+			expectError: false,
+			validateReq: func(t *testing.T, r *http.Request) {
+				if r.Header.Get("x-api-key") != "my-api-key" {
+					t.Errorf("Expected x-api-key header, got %s", r.Header.Get("x-api-key"))
+				}
+			},
+		},
+		{
+			name:          "Server error returns error",
+			statusCode:    http.StatusInternalServerError,
+			responseBody:  `{"error": "server error"}`,
+			requestBody:   map[string]string{"key": "value"},
+			headers:       RequestHeaders{"Content-Type": "application/json"},
+			expectError:   true,
+			errorContains: "500",
+		},
+		{
+			name:          "Bad request returns error",
+			statusCode:    http.StatusBadRequest,
+			responseBody:  `{"error": "invalid request"}`,
+			requestBody:   map[string]string{"key": "value"},
+			headers:       RequestHeaders{"Content-Type": "application/json"},
+			expectError:   true,
+			errorContains: "400",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Validate request if validator provided
+				if tt.validateReq != nil {
+					tt.validateReq(t, r)
+				}
+				// Verify it's a POST request
+				if r.Method != http.MethodPost {
+					t.Errorf("Expected POST method, got %s", r.Method)
+				}
+				w.WriteHeader(tt.statusCode)
+				_, _ = w.Write([]byte(tt.responseBody))
+			}))
+			defer server.Close()
+
+			client := &http.Client{Timeout: 30 * time.Second}
+			base := NewBaseProvider("test-provider", false, client)
+
+			ctx := t.Context()
+			result, err := base.MakeJSONRequest(ctx, server.URL, tt.requestBody, tt.headers, "TestProvider")
+
+			if tt.expectError {
+				if err == nil {
+					t.Error("Expected error but got nil")
+				} else if tt.errorContains != "" && !containsStr(err.Error(), tt.errorContains) {
+					t.Errorf("Expected error to contain %q, got %q", tt.errorContains, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error, got: %v", err)
+				}
+				if string(result) != tt.responseBody {
+					t.Errorf("Expected response %q, got %q", tt.responseBody, string(result))
+				}
+			}
+		})
+	}
+}
+
+func TestBaseProvider_MakeJSONRequest_MarshalError(t *testing.T) {
+	client := &http.Client{Timeout: 30 * time.Second}
+	base := NewBaseProvider("test-provider", false, client)
+
+	// Create an unmarshalable value (channel)
+	unmarshalable := make(chan int)
+	ctx := t.Context()
+
+	_, err := base.MakeJSONRequest(ctx, "http://example.com", unmarshalable, nil, "TestProvider")
+
+	if err == nil {
+		t.Error("Expected error for unmarshalable request")
+	}
+	if !containsStr(err.Error(), "failed to marshal request") {
+		t.Errorf("Expected marshal error, got: %v", err)
+	}
+}
+
+func TestBaseProvider_MakeRawRequest(t *testing.T) {
+	tests := []struct {
+		name          string
+		statusCode    int
+		responseBody  string
+		requestBody   []byte
+		headers       RequestHeaders
+		expectError   bool
+		errorContains string
+	}{
+		{
+			name:         "Successful raw request",
+			statusCode:   http.StatusOK,
+			responseBody: `{"raw": "response"}`,
+			requestBody:  []byte(`{"raw": "request"}`),
+			headers:      RequestHeaders{"Content-Type": "application/json"},
+			expectError:  false,
+		},
+		{
+			name:          "Server error",
+			statusCode:    http.StatusServiceUnavailable,
+			responseBody:  `{"error": "service unavailable"}`,
+			requestBody:   []byte(`{}`),
+			headers:       RequestHeaders{"Content-Type": "application/json"},
+			expectError:   true,
+			errorContains: "503",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.statusCode)
+				_, _ = w.Write([]byte(tt.responseBody))
+			}))
+			defer server.Close()
+
+			client := &http.Client{Timeout: 30 * time.Second}
+			base := NewBaseProvider("test-provider", false, client)
+
+			ctx := t.Context()
+			result, err := base.MakeRawRequest(ctx, server.URL, tt.requestBody, tt.headers, "TestProvider")
+
+			if tt.expectError {
+				if err == nil {
+					t.Error("Expected error but got nil")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error, got: %v", err)
+				}
+				if string(result) != tt.responseBody {
+					t.Errorf("Expected response %q, got %q", tt.responseBody, string(result))
+				}
+			}
+		})
+	}
+}
+
+func TestBaseProvider_MakeRawRequest_NetworkError(t *testing.T) {
+	client := &http.Client{Timeout: 1 * time.Millisecond}
+	base := NewBaseProvider("test-provider", false, client)
+
+	ctx := t.Context()
+	// Use an invalid URL that will fail
+	_, err := base.MakeRawRequest(ctx, "http://192.0.2.1:12345", []byte(`{}`), nil, "TestProvider")
+
+	if err == nil {
+		t.Error("Expected error for network failure")
+	}
+}
+
+// Helper function for string contains check
+func containsStr(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
 func TestBaseProvider_Integration(t *testing.T) {
 	// Test a realistic flow using base provider helpers
 	t.Run("Realistic error handling flow", func(t *testing.T) {
