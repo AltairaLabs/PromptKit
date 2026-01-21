@@ -85,6 +85,9 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (in
 
 // PredictWithTools performs a predict request with tool support
 func (p *ToolProvider) PredictWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
+	// Track total latency including API call time
+	start := time.Now()
+
 	// Build Claude request with tools
 	claudeReq := p.buildToolRequest(req, tools, toolChoice)
 
@@ -97,11 +100,15 @@ func (p *ToolProvider) PredictWithTools(ctx context.Context, req providers.Predi
 	// Make the API call
 	respBytes, err := p.makeRequest(ctx, claudeReq)
 	if err != nil {
+		predictResp.Latency = time.Since(start)
 		return predictResp, nil, err
 	}
 
+	// Capture total latency
+	latency := time.Since(start)
+
 	// Parse response and extract tool calls
-	return p.parseToolResponse(respBytes, predictResp)
+	return p.parseToolResponse(respBytes, &predictResp, latency)
 }
 
 // processClaudeToolResult converts a tool message to Claude's tool_result format
@@ -306,26 +313,28 @@ func parseToolCallsFromRawResponse(respBytes []byte) []types.MessageToolCall {
 	return toolCalls
 }
 
-func (p *ToolProvider) parseToolResponse(respBytes []byte, predictResp providers.PredictionResponse) (providers.PredictionResponse, []types.MessageToolCall, error) {
-	start := time.Now()
-
+func (p *ToolProvider) parseToolResponse(
+	respBytes []byte,
+	predictResp *providers.PredictionResponse,
+	latency time.Duration,
+) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	var resp claudeResponse
 	if err := json.Unmarshal(respBytes, &resp); err != nil {
-		predictResp.Latency = time.Since(start)
+		predictResp.Latency = latency
 		predictResp.Raw = respBytes
-		return predictResp, nil, fmt.Errorf("failed to parse Claude response: %w", err)
+		return *predictResp, nil, fmt.Errorf("failed to parse Claude response: %w", err)
 	}
 
 	if resp.Error != nil {
-		predictResp.Latency = time.Since(start)
+		predictResp.Latency = latency
 		predictResp.Raw = respBytes
-		return predictResp, nil, fmt.Errorf("claude API error: %s", resp.Error.Message)
+		return *predictResp, nil, fmt.Errorf("claude API error: %s", resp.Error.Message)
 	}
 
 	if len(resp.Content) == 0 {
-		predictResp.Latency = time.Since(start)
+		predictResp.Latency = latency
 		predictResp.Raw = respBytes
-		return predictResp, nil, fmt.Errorf("no content in Claude response")
+		return *predictResp, nil, fmt.Errorf("no content in Claude response")
 	}
 
 	// Extract text content
@@ -339,11 +348,11 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte, predictResp providers
 
 	predictResp.Content = textContent
 	predictResp.CostInfo = &costBreakdown
-	predictResp.Latency = time.Since(start)
+	predictResp.Latency = latency
 	predictResp.Raw = respBytes
 	predictResp.ToolCalls = toolCalls
 
-	return predictResp, toolCalls, nil
+	return *predictResp, toolCalls, nil
 }
 
 func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]byte, error) {
