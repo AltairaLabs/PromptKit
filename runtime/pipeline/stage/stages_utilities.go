@@ -529,8 +529,8 @@ type ContextBuilderPolicy struct {
 	Strategy         TruncationStrategy
 	CacheBreakpoints bool
 
-	// RelevanceConfig for TruncateLeastRelevant strategy (optional).
-	// If nil when using TruncateLeastRelevant, falls back to TruncateOldest.
+	// RelevanceConfig for TruncateLeastRelevant strategy.
+	// Required when using TruncateLeastRelevant; must include EmbeddingProvider.
 	RelevanceConfig *RelevanceConfig
 }
 
@@ -545,8 +545,8 @@ type ContextBuilderPolicy struct {
 //
 // Truncation strategies (TruncationStrategy):
 //   - TruncateOldest: removes oldest messages first (keeps most recent context)
-//   - TruncateLeastRelevant: removes least relevant messages (requires embeddings) [TODO]
-//   - TruncateSummarize: compresses old messages into summaries [TODO]
+//   - TruncateLeastRelevant: removes least relevant messages (requires RelevanceConfig with EmbeddingProvider)
+//   - TruncateSummarize: not yet implemented (returns error)
 //   - TruncateFail: returns error if budget exceeded (strict mode)
 //
 // Configuration (ContextBuilderPolicy):
@@ -717,9 +717,8 @@ func (s *ContextBuilderStage) truncateMessages(
 	case TruncateLeastRelevant:
 		return s.truncateByRelevance(ctx, messages, budget)
 	case TruncateSummarize:
-		// TODO: Implement LLM-based summarization
-		logger.Warn("Summarization truncation not implemented, falling back to oldest strategy")
-		return s.truncateOldest(messages, budget), nil
+		return nil, fmt.Errorf("truncation strategy %q is not yet implemented; use %q, %q, or %q instead",
+			TruncateSummarize, TruncateOldest, TruncateLeastRelevant, TruncateFail)
 	case TruncateFail:
 		return nil, fmt.Errorf("token budget exceeded: have %d, budget %d", s.countMessagesTokens(messages), budget)
 	default:
@@ -762,10 +761,11 @@ func (s *ContextBuilderStage) truncateByRelevance(
 ) ([]types.Message, error) {
 	cfg := s.policy.RelevanceConfig
 
-	// Fall back to oldest if no embedding provider
+	// Require embedding provider for relevance-based truncation
 	if cfg == nil || cfg.EmbeddingProvider == nil {
-		logger.Warn("No embedding provider configured, falling back to oldest strategy")
-		return s.truncateOldest(messages, budget), nil
+		return nil, fmt.Errorf(
+			"strategy %q requires RelevanceConfig with EmbeddingProvider; use %q instead",
+			TruncateLeastRelevant, TruncateOldest)
 	}
 
 	// Default configuration values

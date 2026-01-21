@@ -1180,39 +1180,33 @@ func TestFilterStage_Process(t *testing.T) {
 // =============================================================================
 
 func TestContextBuilderStage_TruncateStrategies(t *testing.T) {
-	t.Run("TruncateLeastRelevant falls back to oldest", func(t *testing.T) {
+	t.Run("TruncateLeastRelevant without embeddings returns error", func(t *testing.T) {
 		policy := &ContextBuilderPolicy{
-			TokenBudget:      20,
-			ReserveForOutput: 5,
+			TokenBudget:      5, // Small budget to trigger truncation
+			ReserveForOutput: 1,
 			Strategy:         TruncateLeastRelevant,
+			// No RelevanceConfig - should error
 		}
 		stage := NewContextBuilderStage(policy)
 
 		input := make(chan StreamElement, 3)
 		output := make(chan StreamElement, 3)
 
-		input <- NewMessageElement(&types.Message{Role: "user", Content: "First message with content"})
-		input <- NewMessageElement(&types.Message{Role: "assistant", Content: "Second message"})
-		input <- NewMessageElement(&types.Message{Role: "user", Content: "Latest"})
+		// Messages exceed the budget to trigger truncation
+		input <- NewMessageElement(&types.Message{Role: "user", Content: "First message with lots of content here"})
+		input <- NewMessageElement(&types.Message{Role: "assistant", Content: "Second message with more content"})
+		input <- NewMessageElement(&types.Message{Role: "user", Content: "Latest message that also has content"})
 		close(input)
 
 		err := stage.Process(context.Background(), input, output)
-		require.NoError(t, err)
-
-		// Should truncate but keep most recent
-		var results []types.Message
-		for elem := range output {
-			if elem.Message != nil {
-				results = append(results, *elem.Message)
-			}
-		}
-		assert.LessOrEqual(t, len(results), 3)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "requires RelevanceConfig")
 	})
 
-	t.Run("TruncateSummarize falls back to oldest", func(t *testing.T) {
+	t.Run("TruncateSummarize returns not implemented error", func(t *testing.T) {
 		policy := &ContextBuilderPolicy{
-			TokenBudget:      20,
-			ReserveForOutput: 5,
+			TokenBudget:      5, // Small budget to trigger truncation
+			ReserveForOutput: 1,
 			Strategy:         TruncateSummarize,
 		}
 		stage := NewContextBuilderStage(policy)
@@ -1220,22 +1214,15 @@ func TestContextBuilderStage_TruncateStrategies(t *testing.T) {
 		input := make(chan StreamElement, 3)
 		output := make(chan StreamElement, 3)
 
-		input <- NewMessageElement(&types.Message{Role: "user", Content: "First message with content"})
-		input <- NewMessageElement(&types.Message{Role: "assistant", Content: "Second message"})
-		input <- NewMessageElement(&types.Message{Role: "user", Content: "Latest"})
+		// Messages exceed the budget to trigger truncation
+		input <- NewMessageElement(&types.Message{Role: "user", Content: "First message with lots of content here"})
+		input <- NewMessageElement(&types.Message{Role: "assistant", Content: "Second message with more content"})
+		input <- NewMessageElement(&types.Message{Role: "user", Content: "Latest message that also has content"})
 		close(input)
 
 		err := stage.Process(context.Background(), input, output)
-		require.NoError(t, err)
-
-		// Should truncate but keep most recent
-		var results []types.Message
-		for elem := range output {
-			if elem.Message != nil {
-				results = append(results, *elem.Message)
-			}
-		}
-		assert.LessOrEqual(t, len(results), 3)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not yet implemented")
 	})
 
 	t.Run("default strategy uses TruncateOldest", func(t *testing.T) {
