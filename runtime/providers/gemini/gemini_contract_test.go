@@ -39,8 +39,11 @@ func TestGeminiProvider_Contract(t *testing.T) {
 	defer provider.Close()
 
 	// Run the complete contract test suite
-	// TODO: Re-enable after refactoring - contract tests are in parent package test file
-	t.Skip("Contract tests temporarily disabled during package restructuring")
+	providers.RunProviderContractTests(t, providers.ProviderContractTests{
+		Provider:                  provider,
+		SupportsToolsExpected:     false, // Base provider doesn't support tools
+		SupportsStreamingExpected: true,
+	})
 }
 
 // TestToolProvider_Contract tests the Gemini provider with tool support.
@@ -67,8 +70,11 @@ func TestToolProvider_Contract(t *testing.T) {
 	defer provider.Close()
 
 	// Run the complete contract test suite including tools
-	// TODO: Re-enable after refactoring - contract tests are in parent package test file
-	t.Skip("Contract tests temporarily disabled during package restructuring")
+	providers.RunProviderContractTests(t, providers.ProviderContractTests{
+		Provider:                  provider,
+		SupportsToolsExpected:     true,
+		SupportsStreamingExpected: true,
+	})
 }
 
 // TestToolProvider_PredictWithToolsLatency verifies the latency bug fix for Gemini.

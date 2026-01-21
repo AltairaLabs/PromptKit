@@ -1,3 +1,7 @@
+// Package providers contains provider contract test helpers.
+//
+// This file contains exported test helpers that can be used by provider
+// implementations in subpackages to validate their contract compliance.
 package providers
 
 import (
@@ -117,8 +121,9 @@ func ValidatePredictReturnsLatency(t *testing.T, provider Provider) {
 	}
 }
 
-// ValidatePredictWithToolsReturnsLatency verifies that PredictWithTools() returns a response with non-zero latency.
-// This test is CRITICAL - it would have caught the production bug where PredictWithTools didn't set latency!
+// ValidatePredictWithToolsReturnsLatency verifies that PredictWithTools() returns latency.
+// This test is CRITICAL - it would have caught the production bug where
+// PredictWithTools didn't set latency!
 // Exported for use in provider-specific regression tests.
 func ValidatePredictWithToolsReturnsLatency(t *testing.T, provider Provider) {
 	toolSupport, ok := provider.(ToolSupport)
@@ -297,7 +302,7 @@ func testSupportsStreamingMatches(t *testing.T, provider Provider, expected bool
 	}
 }
 
-// testPredictStreamReturnsLatency verifies that streaming responses include latency in final chunk
+// testPredictStreamReturnsLatency verifies streaming responses include latency in final chunk
 func testPredictStreamReturnsLatency(t *testing.T, provider Provider) {
 	ctx := context.Background()
 	req := PredictionRequest{

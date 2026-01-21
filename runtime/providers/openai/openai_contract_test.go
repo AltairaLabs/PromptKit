@@ -39,13 +39,11 @@ func TestOpenAIProvider_Contract(t *testing.T) {
 	defer provider.Close()
 
 	// Run the complete contract test suite
-	// TODO: Re-enable after refactoring - contract tests are in parent package test file
-	// providers.RunProviderContractTests(t, providers.ProviderContractTests{
-	// 	Provider:                  provider,
-	// 	SupportsToolsExpected:     true,
-	// 	SupportsStreamingExpected: true,
-	// })
-	t.Skip("Contract tests temporarily disabled during package restructuring")
+	providers.RunProviderContractTests(t, providers.ProviderContractTests{
+		Provider:                  provider,
+		SupportsToolsExpected:     false, // Base provider doesn't support tools
+		SupportsStreamingExpected: true,
+	})
 }
 
 // TestOpenAIProvider_LatencyBugFix is a specific regression test for the latency bug.
