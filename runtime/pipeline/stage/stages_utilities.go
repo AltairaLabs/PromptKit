@@ -731,7 +731,7 @@ func (s *ContextBuilderStage) truncateOldest(messages []types.Message, budget in
 	var result []types.Message
 	used := 0
 
-	// Start from most recent, work backwards
+	// Start from most recent, work backwards, collecting in reverse order
 	for i := len(messages) - 1; i >= 0; i-- {
 		msg := messages[i]
 		msgTokens := s.countTokens(msg.Content)
@@ -745,8 +745,13 @@ func (s *ContextBuilderStage) truncateOldest(messages []types.Message, budget in
 			break
 		}
 
-		result = append([]types.Message{msg}, result...) // Prepend
+		result = append(result, msg)
 		used += msgTokens
+	}
+
+	// Reverse to restore original order (oldest first)
+	for i, j := 0, len(result)-1; i < j; i, j = i+1, j-1 {
+		result[i], result[j] = result[j], result[i]
 	}
 
 	return result
