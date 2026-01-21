@@ -33,7 +33,7 @@ func (e *MockStaticExecutor) Name() string {
 // Execute executes a tool using static mock data
 func (e *MockStaticExecutor) Execute(descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
 	if descriptor.Mode != modeMock {
-		return nil, fmt.Errorf("static mock executor can only execute mock tools")
+		return nil, ErrMockExecutorOnly
 	}
 
 	// Use the mock result from the descriptor
@@ -70,7 +70,7 @@ func (e *MockScriptedExecutor) Name() string {
 // Execute executes a tool using templated mock data
 func (e *MockScriptedExecutor) Execute(descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
 	if descriptor.Mode != modeMock {
-		return nil, fmt.Errorf("scripted mock executor can only execute mock tools")
+		return nil, ErrMockExecutorOnly
 	}
 
 	// Choose template source
