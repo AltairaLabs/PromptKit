@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
 func TestNewYAMLToolRepository(t *testing.T) {
@@ -164,14 +166,94 @@ spec:
 	}
 }
 
-func TestYAMLToolRepository_SaveTool_NotImplemented(t *testing.T) {
-	tmpDir := t.TempDir()
-	repo := NewYAMLToolRepository(tmpDir)
+func TestYAMLToolRepository_SaveTool(t *testing.T) {
+	t.Run("nil descriptor returns error", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		repo := NewYAMLToolRepository(tmpDir)
 
-	err := repo.SaveTool(nil)
-	if err == nil {
-		t.Error("Expected 'not implemented' error, got nil")
-	}
+		err := repo.SaveTool(nil)
+		if err == nil {
+			t.Error("Expected error for nil descriptor, got nil")
+		}
+	})
+
+	t.Run("empty name returns error", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		repo := NewYAMLToolRepository(tmpDir)
+
+		err := repo.SaveTool(&tools.ToolDescriptor{
+			Description: "test tool",
+		})
+		if err == nil {
+			t.Error("Expected error for empty name, got nil")
+		}
+	})
+
+	t.Run("saves tool successfully", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		repo := NewYAMLToolRepository(tmpDir)
+
+		descriptor := &tools.ToolDescriptor{
+			Name:        "test-tool",
+			Description: "A test tool",
+			Mode:        "mock",
+		}
+
+		err := repo.SaveTool(descriptor)
+		if err != nil {
+			t.Fatalf("SaveTool() failed: %v", err)
+		}
+
+		// Verify file was created
+		filePath := filepath.Join(tmpDir, "test-tool.yaml")
+		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+			t.Error("Expected file to be created")
+		}
+
+		// Verify tool is in cache
+		loaded, err := repo.LoadTool("test-tool")
+		if err != nil {
+			t.Fatalf("LoadTool() failed: %v", err)
+		}
+		if loaded.Name != "test-tool" {
+			t.Errorf("Expected name 'test-tool', got '%s'", loaded.Name)
+		}
+	})
+
+	t.Run("saved tool can be reloaded", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		repo := NewYAMLToolRepository(tmpDir)
+
+		descriptor := &tools.ToolDescriptor{
+			Name:        "reload-test",
+			Description: "Tool to test reloading",
+			Mode:        "live",
+			TimeoutMs:   5000,
+		}
+
+		err := repo.SaveTool(descriptor)
+		if err != nil {
+			t.Fatalf("SaveTool() failed: %v", err)
+		}
+
+		// Create new repo instance to test reload from file
+		repo2 := NewYAMLToolRepository(tmpDir)
+		err = repo2.LoadToolFromFile(filepath.Join(tmpDir, "reload-test.yaml"))
+		if err != nil {
+			t.Fatalf("LoadToolFromFile() failed: %v", err)
+		}
+
+		loaded, err := repo2.LoadTool("reload-test")
+		if err != nil {
+			t.Fatalf("LoadTool() failed: %v", err)
+		}
+		if loaded.Description != "Tool to test reloading" {
+			t.Errorf("Expected description 'Tool to test reloading', got '%s'", loaded.Description)
+		}
+		if loaded.TimeoutMs != 5000 {
+			t.Errorf("Expected timeout 5000, got %d", loaded.TimeoutMs)
+		}
+	})
 }
 
 func TestYAMLToolRepository_LoadDirectory(t *testing.T) {

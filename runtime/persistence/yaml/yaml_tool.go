@@ -10,6 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/AltairaLabs/PromptKit/runtime/persistence"
+	"github.com/AltairaLabs/PromptKit/runtime/persistence/common"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
@@ -53,9 +54,47 @@ func (r *ToolRepository) ListTools() ([]string, error) {
 	return names, nil
 }
 
-// SaveTool saves a tool descriptor (not yet implemented)
+// SaveTool saves a tool descriptor to a YAML file using K8s manifest format.
+// The file will be named <tool-name>.yaml in the repository's base path.
 func (r *ToolRepository) SaveTool(descriptor *tools.ToolDescriptor) error {
-	return fmt.Errorf("not implemented")
+	if descriptor == nil {
+		return fmt.Errorf("descriptor cannot be nil")
+	}
+	if descriptor.Name == "" {
+		return fmt.Errorf("tool name cannot be empty")
+	}
+
+	// Build K8s manifest format
+	toolConfig := tools.ToolConfig{
+		APIVersion: "promptkit.altairalabs.io/v1",
+		Kind:       "Tool",
+		Spec:       *descriptor,
+	}
+	toolConfig.Metadata.Name = descriptor.Name
+
+	// Marshal to YAML
+	data, err := yaml.Marshal(toolConfig)
+	if err != nil {
+		return fmt.Errorf("failed to marshal tool config: %w", err)
+	}
+
+	// Determine output file path
+	filePath := filepath.Join(r.basePath, descriptor.Name+yamlExt)
+
+	// Ensure directory exists
+	if err := os.MkdirAll(r.basePath, common.DirPerm); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", r.basePath, err)
+	}
+
+	// Write file
+	if err := os.WriteFile(filePath, data, common.FilePerm); err != nil {
+		return fmt.Errorf("failed to write file %s: %w", filePath, err)
+	}
+
+	// Update in-memory cache
+	r.tools[descriptor.Name] = descriptor
+
+	return nil
 }
 
 // LoadToolFromFile loads a tool from a YAML file and registers it

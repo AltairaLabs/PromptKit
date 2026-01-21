@@ -230,10 +230,10 @@ func (r *BasePromptRepository) ListPrompts() ([]string, error) {
 	return taskTypes, err
 }
 
-// File permission constants
+// File permission constants for persistence operations
 const (
-	dirPerm  = 0o750 // Directory permissions: rwxr-x---
-	filePerm = 0o600 // File permissions: rw-------
+	DirPerm  = 0o750 // Directory permissions: rwxr-x---
+	FilePerm = 0o600 // File permissions: rw-------
 )
 
 // SavePrompt saves a prompt configuration to disk
@@ -259,12 +259,12 @@ func (r *BasePromptRepository) SavePrompt(config *prompt.Config) error {
 
 	// Ensure directory exists
 	dir := filepath.Dir(filePath)
-	if err := os.MkdirAll(dir, dirPerm); err != nil {
+	if err := os.MkdirAll(dir, DirPerm); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
 
 	// Write file
-	if err := os.WriteFile(filePath, data, filePerm); err != nil {
+	if err := os.WriteFile(filePath, data, FilePerm); err != nil {
 		return fmt.Errorf("failed to write file %s: %w", filePath, err)
 	}
 
