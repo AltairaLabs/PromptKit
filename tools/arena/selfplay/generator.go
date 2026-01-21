@@ -71,12 +71,18 @@ func (cg *ContentGenerator) NextUserTurn(
 		"user_context": "user",
 	}
 
+	// Get temperature from persona or use default
+	temperature := config.DefaultPersonaTemperature
+	if cg.persona.Defaults.Temperature != nil {
+		temperature = *cg.persona.Defaults.Temperature
+	}
+
 	// Log the self-play user generation API call
 	logger.LLMCall(
 		cg.provider.ID(),
 		selfPlayUserRole,
 		len(history),
-		float64(cg.persona.Defaults.Temperature),
+		float64(temperature),
 		"persona",
 		cg.persona.ID,
 	)
@@ -88,7 +94,7 @@ func (cg *ContentGenerator) NextUserTurn(
 	// 4. TemplateStage - final variable substitution
 	// 5. ProviderStage - calls LLM
 	providerConfig := &stage.ProviderConfig{
-		Temperature: cg.persona.Defaults.Temperature,
+		Temperature: temperature,
 		MaxTokens:   200, // Short user messages
 	}
 

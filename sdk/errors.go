@@ -1,6 +1,9 @@
 package sdk
 
-import "errors"
+import (
+	"errors"
+	"strconv"
+)
 
 // Sentinel errors for common failure cases.
 var (
@@ -100,7 +103,7 @@ type ProviderError struct {
 func (e *ProviderError) Error() string {
 	msg := "provider " + e.Provider + " error"
 	if e.StatusCode > 0 {
-		msg += " (" + string(rune(e.StatusCode)) + ")"
+		msg += " (" + strconv.Itoa(e.StatusCode) + ")"
 	}
 	return msg + ": " + e.Message
 }

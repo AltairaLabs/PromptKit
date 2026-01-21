@@ -83,6 +83,7 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 		handlers:       make(map[string]ToolHandler),
 		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
 		pendingStore:   sdktools.NewPendingStore(),
+		resolvedStore:  sdktools.NewResolvedStore(),
 	}
 
 	// Apply default variables from prompt BEFORE initializing session
@@ -172,6 +173,7 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 		handlers:       make(map[string]ToolHandler),
 		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
 		pendingStore:   sdktools.NewPendingStore(),
+		resolvedStore:  sdktools.NewResolvedStore(),
 	}
 
 	// Apply default variables from prompt BEFORE initializing session

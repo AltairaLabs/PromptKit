@@ -184,3 +184,96 @@ func TestAsyncToolHandler(t *testing.T) {
 		assert.False(t, result.IsPending())
 	})
 }
+
+func TestPendingToolCall_SetHandler(t *testing.T) {
+	t.Run("sets handler and can resolve", func(t *testing.T) {
+		store := NewPendingStore()
+		call := &PendingToolCall{
+			ID:        "call-1",
+			Name:      "test_tool",
+			Arguments: map[string]any{"x": float64(10)},
+		}
+
+		// Set handler using public method
+		call.SetHandler(func(args map[string]any) (any, error) {
+			x := args["x"].(float64)
+			return map[string]any{"result": x * 2}, nil
+		})
+
+		store.Add(call)
+
+		resolution, err := store.Resolve("call-1")
+		assert.NoError(t, err)
+		assert.NotNil(t, resolution.Result)
+	})
+}
+
+func TestResolvedStore(t *testing.T) {
+	t.Run("new store is empty", func(t *testing.T) {
+		store := NewResolvedStore()
+		resolutions := store.PopAll()
+		assert.Empty(t, resolutions)
+	})
+
+	t.Run("add and pop all", func(t *testing.T) {
+		store := NewResolvedStore()
+
+		res1 := &ToolResolution{ID: "res-1", Result: "result1"}
+		res2 := &ToolResolution{ID: "res-2", Result: "result2"}
+
+		store.Add(res1)
+		store.Add(res2)
+
+		resolutions := store.PopAll()
+		assert.Len(t, resolutions, 2)
+		assert.Equal(t, "res-1", resolutions[0].ID)
+		assert.Equal(t, "res-2", resolutions[1].ID)
+
+		// PopAll should clear the store
+		resolutions = store.PopAll()
+		assert.Empty(t, resolutions)
+	})
+
+	t.Run("add nil is safe", func(t *testing.T) {
+		store := NewResolvedStore()
+		store.Add(nil)
+		resolutions := store.PopAll()
+		assert.Len(t, resolutions, 1)
+		assert.Nil(t, resolutions[0])
+	})
+
+	t.Run("concurrent access is safe", func(t *testing.T) {
+		store := NewResolvedStore()
+		done := make(chan bool)
+
+		// Add from multiple goroutines
+		for i := range 10 {
+			go func(id int) {
+				store.Add(&ToolResolution{ID: string(rune('0' + id))})
+				done <- true
+			}(i)
+		}
+
+		// Wait for all adds
+		for range 10 {
+			<-done
+		}
+
+		resolutions := store.PopAll()
+		assert.Len(t, resolutions, 10)
+	})
+
+	t.Run("len returns count", func(t *testing.T) {
+		store := NewResolvedStore()
+		assert.Equal(t, 0, store.Len())
+
+		store.Add(&ToolResolution{ID: "res-1"})
+		assert.Equal(t, 1, store.Len())
+
+		store.Add(&ToolResolution{ID: "res-2"})
+		assert.Equal(t, 2, store.Len())
+
+		store.PopAll()
+		assert.Equal(t, 0, store.Len())
+	})
+}

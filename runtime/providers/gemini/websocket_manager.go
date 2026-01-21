@@ -20,6 +20,14 @@ const (
 	ErrManagerClosed = "manager is closed"
 )
 
+// WebSocket limits
+const (
+	// MaxMessageSize is the maximum allowed WebSocket message size (16MB).
+	// This protects against memory exhaustion from malformed or malicious responses.
+	// The limit is generous to accommodate base64-encoded audio/video content.
+	MaxMessageSize = 16 * 1024 * 1024
+)
+
 // WebSocketManager manages a WebSocket connection with reconnection logic.
 type WebSocketManager struct {
 	url    string
@@ -92,6 +100,9 @@ func (wm *WebSocketManager) Connect(ctx context.Context) error {
 
 	wm.conn = conn
 	wm.connected = true
+
+	// Set read limit to prevent memory exhaustion from oversized messages
+	conn.SetReadLimit(MaxMessageSize)
 
 	return nil
 }

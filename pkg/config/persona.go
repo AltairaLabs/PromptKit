@@ -14,6 +14,12 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/template"
 )
 
+// Default values for persona configuration
+const (
+	DefaultPersonaTemperature = float32(0.7)
+	DefaultPersonaSeed        = 42
+)
+
 // PersonaConfig represents a K8s-style persona configuration manifest
 type PersonaConfig struct {
 	APIVersion string            `yaml:"apiVersion"`
@@ -58,10 +64,11 @@ type PersonaStyle struct {
 	FrictionTags   []string `json:"friction_tags" yaml:"friction_tags"`     // e.g., ["skeptical", "impatient", "detail-oriented"]
 }
 
-// PersonaDefaults contains default LLM parameters for the persona
+// PersonaDefaults contains default LLM parameters for the persona.
+// Pointer types are used to distinguish "not set" (nil) from "explicitly set to 0".
 type PersonaDefaults struct {
-	Temperature float32 `json:"temperature" yaml:"temperature"`
-	Seed        int     `json:"seed" yaml:"seed"`
+	Temperature *float32 `json:"temperature,omitempty" yaml:"temperature,omitempty"`
+	Seed        *int     `json:"seed,omitempty" yaml:"seed,omitempty"`
 }
 
 // LoadPersona loads a user persona from a YAML or JSON file
@@ -180,12 +187,15 @@ func validateAndReturnPersona(persona *UserPersonaPack, filename string) (*UserP
 		return nil, fmt.Errorf("persona %s style validation failed: %w", persona.ID, err)
 	}
 
-	// Set defaults if not specified
-	if persona.Defaults.Temperature == 0 {
-		persona.Defaults.Temperature = 0.7
+	// Set defaults only if not specified (nil means "use default")
+	// This correctly preserves explicit temperature=0 and seed=0 values
+	if persona.Defaults.Temperature == nil {
+		defaultTemp := DefaultPersonaTemperature
+		persona.Defaults.Temperature = &defaultTemp
 	}
-	if persona.Defaults.Seed == 0 {
-		persona.Defaults.Seed = 42
+	if persona.Defaults.Seed == nil {
+		defaultSeed := DefaultPersonaSeed
+		persona.Defaults.Seed = &defaultSeed
 	}
 
 	return persona, nil

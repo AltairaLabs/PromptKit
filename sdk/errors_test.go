@@ -93,6 +93,7 @@ func TestProviderError(t *testing.T) {
 		}
 		errStr := pe.Error()
 		assert.Contains(t, errStr, "anthropic")
+		assert.Contains(t, errStr, "429", "status code should appear as decimal string, not unicode rune")
 		assert.Contains(t, errStr, "too many requests")
 	})
 

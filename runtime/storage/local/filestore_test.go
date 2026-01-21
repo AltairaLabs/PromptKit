@@ -245,7 +245,7 @@ func TestFileStore_GetURL(t *testing.T) {
 		url, err := fs.GetURL(ctx, storage.Reference("/nonexistent.jpg"), 1*time.Hour)
 		assert.Error(t, err)
 		assert.Empty(t, url)
-		assert.Contains(t, err.Error(), "media not found")
+		assert.Contains(t, err.Error(), "outside base directory")
 	})
 }
 
@@ -407,10 +407,27 @@ func TestFileStore_ErrorCases(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		retrieved, err := fs.RetrieveMedia(ctx, storage.Reference("/nonexistent/file.jpg"))
+		// Use path within base directory that doesn't exist
+		nonExistentPath := filepath.Join(tempDir, "nonexistent", "file.jpg")
+		retrieved, err := fs.RetrieveMedia(ctx, storage.Reference(nonExistentPath))
 		assert.Error(t, err)
 		assert.Nil(t, retrieved)
 		assert.Contains(t, err.Error(), "media not found")
+	})
+
+	t.Run("retrieve fails for path traversal attempt", func(t *testing.T) {
+		tempDir := t.TempDir()
+		fs, err := local.NewFileStore(local.FileStoreConfig{
+			BaseDir:      tempDir,
+			Organization: storage.OrganizationByRun,
+		})
+		require.NoError(t, err)
+
+		// Attempt path traversal
+		retrieved, err := fs.RetrieveMedia(ctx, storage.Reference("/etc/passwd"))
+		assert.Error(t, err)
+		assert.Nil(t, retrieved)
+		assert.Contains(t, err.Error(), "outside base directory")
 	})
 
 	t.Run("delete succeeds for non-existent file", func(t *testing.T) {
@@ -421,8 +438,24 @@ func TestFileStore_ErrorCases(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		err = fs.DeleteMedia(ctx, storage.Reference("/nonexistent/file.jpg"))
+		// Use path within base directory that doesn't exist
+		nonExistentPath := filepath.Join(tempDir, "nonexistent", "file.jpg")
+		err = fs.DeleteMedia(ctx, storage.Reference(nonExistentPath))
 		assert.NoError(t, err) // Should not error
+	})
+
+	t.Run("delete fails for path traversal attempt", func(t *testing.T) {
+		tempDir := t.TempDir()
+		fs, err := local.NewFileStore(local.FileStoreConfig{
+			BaseDir:      tempDir,
+			Organization: storage.OrganizationByRun,
+		})
+		require.NoError(t, err)
+
+		// Attempt path traversal
+		err = fs.DeleteMedia(ctx, storage.Reference("/etc/passwd"))
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "outside base directory")
 	})
 }
 

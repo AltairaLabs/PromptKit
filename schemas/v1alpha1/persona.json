@@ -63,11 +63,7 @@
         }
       },
       "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "temperature",
-        "seed"
-      ]
+      "type": "object"
     },
     "PersonaStyle": {
       "properties": {
