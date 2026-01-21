@@ -24,19 +24,24 @@ type PromptRepository struct {
 	*common.BasePromptRepository
 }
 
+// yamlMarshal wraps yaml.Marshal to match the MarshalFunc signature
+func yamlMarshal(v any) ([]byte, error) {
+	return yaml.Marshal(v)
+}
+
 // NewYAMLPromptRepository creates a YAML file-based prompt repository
 // If taskTypeToFile mappings are provided, they will be used for lookups.
 // Otherwise, the repository will search the basePath directory.
 func NewYAMLPromptRepository(basePath string, taskTypeToFile map[string]string) *PromptRepository {
+	base := common.NewBasePromptRepository(
+		basePath,
+		taskTypeToFile,
+		[]string{yamlExt, ymlExt},
+		yaml.Unmarshal,
+	)
+	base.Marshal = yamlMarshal
 	return &PromptRepository{
-		BasePromptRepository: common.NewBasePromptRepository(
-			basePath,
-			taskTypeToFile,
-			[]string{yamlExt, ymlExt},
-			func(data []byte, v interface{}) error {
-				return yaml.Unmarshal(data, v)
-			},
-		),
+		BasePromptRepository: base,
 	}
 }
 
@@ -70,7 +75,7 @@ func (r *PromptRepository) LoadFragment(name, relativePath, baseDir string) (*pr
 
 // ListPrompts is inherited from BasePromptRepository
 
-// SavePrompt saves a prompt configuration (not yet implemented)
+// SavePrompt saves a prompt configuration to a YAML file
 func (r *PromptRepository) SavePrompt(config *prompt.Config) error {
-	return fmt.Errorf("not implemented")
+	return r.BasePromptRepository.SavePrompt(config)
 }

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -235,7 +236,7 @@ func TestClaudeParseToolResponse_NoToolCalls(t *testing.T) {
 		}
 	}`
 
-	predictResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON), providers.PredictionResponse{})
+	predictResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON), &providers.PredictionResponse{}, time.Second)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -286,7 +287,7 @@ func TestClaudeParseToolResponse_WithToolCall(t *testing.T) {
 		}
 	}`
 
-	predictResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON), providers.PredictionResponse{})
+	predictResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON), &providers.PredictionResponse{}, time.Second)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -361,7 +362,7 @@ func TestClaudeParseToolResponse_MultipleToolCalls(t *testing.T) {
 		}
 	}`
 
-	predictResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON), providers.PredictionResponse{})
+	predictResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON), &providers.PredictionResponse{}, time.Second)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -419,7 +420,7 @@ func TestClaudeParseToolResponse_MixedContent(t *testing.T) {
 		}
 	}`
 
-	predictResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON), providers.PredictionResponse{})
+	predictResp, toolCalls, err := provider.parseToolResponse([]byte(responseJSON), &providers.PredictionResponse{}, time.Second)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -440,7 +441,7 @@ func TestClaudeParseToolResponse_InvalidJSON(t *testing.T) {
 
 	responseJSON := `{invalid json`
 
-	_, _, err := provider.parseToolResponse([]byte(responseJSON), providers.PredictionResponse{})
+	_, _, err := provider.parseToolResponse([]byte(responseJSON), &providers.PredictionResponse{}, time.Second)
 	if err == nil {
 		t.Error("Expected error for invalid JSON, got nil")
 	}
@@ -467,7 +468,7 @@ func TestClaudeParseToolResponse_CachedTokens(t *testing.T) {
 		}
 	}`
 
-	predictResp, _, err := provider.parseToolResponse([]byte(responseJSON), providers.PredictionResponse{})
+	predictResp, _, err := provider.parseToolResponse([]byte(responseJSON), &providers.PredictionResponse{}, time.Second)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -508,7 +509,7 @@ func TestClaudeParseToolResponse_EmptyContent(t *testing.T) {
 		}
 	}`
 
-	_, _, err := provider.parseToolResponse([]byte(responseJSON), providers.PredictionResponse{})
+	_, _, err := provider.parseToolResponse([]byte(responseJSON), &providers.PredictionResponse{}, time.Second)
 	// The current implementation returns an error for empty content
 	if err == nil {
 		t.Error("Expected error for empty content, got nil")

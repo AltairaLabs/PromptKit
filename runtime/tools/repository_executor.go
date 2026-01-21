@@ -44,7 +44,7 @@ func (e *RepositoryToolExecutor) Execute(descriptor *ToolDescriptor, args json.R
 		"base_executor", e.baseExecutor.Name())
 
 	// Parse arguments to a map for matching
-	var argsMap map[string]interface{}
+	var argsMap map[string]any
 	if err := json.Unmarshal(args, &argsMap); err != nil {
 		logger.Debug("RepositoryToolExecutor failed to parse args, falling back to base executor",
 			"tool_name", descriptor.Name,
@@ -86,7 +86,9 @@ func (e *RepositoryToolExecutor) Execute(descriptor *ToolDescriptor, args json.R
 
 // getRepositoryResponse attempts to get a mock response from the repository.
 // It returns nil if no matching response is found (not an error condition).
-func (e *RepositoryToolExecutor) getRepositoryResponse(toolName string, args map[string]interface{}) (*ToolResponseData, error) {
+func (e *RepositoryToolExecutor) getRepositoryResponse(
+	toolName string, args map[string]any,
+) (*ToolResponseData, error) {
 	if e.repository == nil {
 		return nil, nil
 	}
@@ -109,12 +111,12 @@ func (e *RepositoryToolExecutor) getRepositoryResponse(toolName string, args map
 type ToolResponseRepository interface {
 	// GetToolResponse retrieves a mock response for a tool execution.
 	// Returns nil if no matching response is configured (not an error).
-	GetToolResponse(toolName string, args map[string]interface{}, contextKey string) (*ToolResponseData, error)
+	GetToolResponse(toolName string, args map[string]any, contextKey string) (*ToolResponseData, error)
 }
 
 // ToolResponseData represents a configured tool response with optional error.
 type ToolResponseData struct {
-	Result interface{}    `json:"result,omitempty"` // Successful response data
+	Result any            `json:"result,omitempty"` // Successful response data
 	Error  *ToolErrorData `json:"error,omitempty"`  // Error response
 }
 
@@ -134,9 +136,9 @@ type FileToolResponseRepository struct {
 
 // MockToolResponseConfig represents a single tool response configuration.
 type MockToolResponseConfig struct {
-	CallArgs map[string]interface{} `yaml:"call_args"`
-	Result   interface{}            `yaml:"result,omitempty"`
-	Error    *MockToolErrorConfig   `yaml:"error,omitempty"`
+	CallArgs map[string]any       `yaml:"call_args"`
+	Result   any                  `yaml:"result,omitempty"`
+	Error    *MockToolErrorConfig `yaml:"error,omitempty"`
 }
 
 // MockToolErrorConfig represents an error configuration.
@@ -156,7 +158,9 @@ func NewFileToolResponseRepository(scenarioID string, toolResponses map[string][
 
 // GetToolResponse implements ToolResponseRepository.
 // It finds the first matching response based on argument comparison.
-func (r *FileToolResponseRepository) GetToolResponse(toolName string, args map[string]interface{}, contextKey string) (*ToolResponseData, error) {
+func (r *FileToolResponseRepository) GetToolResponse(
+	toolName string, args map[string]any, contextKey string,
+) (*ToolResponseData, error) {
 	logger.Debug("FileToolResponseRepository GetToolResponse",
 		"tool_name", toolName,
 		"scenario_id", r.scenarioID,
@@ -210,7 +214,7 @@ func (r *FileToolResponseRepository) GetToolResponse(toolName string, args map[s
 
 // argumentsMatch checks if the provided arguments match the expected arguments.
 // It performs a deep comparison of argument values.
-func (r *FileToolResponseRepository) argumentsMatch(provided, expected map[string]interface{}) bool {
+func (r *FileToolResponseRepository) argumentsMatch(provided, expected map[string]any) bool {
 	if len(expected) == 0 {
 		return true // Empty expected args match any provided args
 	}
@@ -257,7 +261,9 @@ func (r *InMemoryToolResponseRepository) AddResponse(contextKey, toolName string
 // For simplicity, this implementation only matches by tool name and context,
 // not by arguments. For argument-based matching, use FileToolResponseRepository
 // or implement a custom repository.
-func (r *InMemoryToolResponseRepository) GetToolResponse(toolName string, args map[string]interface{}, contextKey string) (*ToolResponseData, error) {
+func (r *InMemoryToolResponseRepository) GetToolResponse(
+	toolName string, args map[string]any, contextKey string,
+) (*ToolResponseData, error) {
 	contextResponses, exists := r.responses[contextKey]
 	if !exists {
 		return nil, nil

@@ -11,6 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
+	"github.com/AltairaLabs/PromptKit/runtime/tokenizer"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/variables"
 )
@@ -529,9 +530,14 @@ type ContextBuilderPolicy struct {
 	Strategy         TruncationStrategy
 	CacheBreakpoints bool
 
-	// RelevanceConfig for TruncateLeastRelevant strategy (optional).
-	// If nil when using TruncateLeastRelevant, falls back to TruncateOldest.
+	// RelevanceConfig for TruncateLeastRelevant strategy.
+	// Required when using TruncateLeastRelevant; must include EmbeddingProvider.
 	RelevanceConfig *RelevanceConfig
+
+	// TokenCounter provides token counting for budget management.
+	// If nil, a default heuristic counter is used with ModelFamilyDefault ratio (1.35).
+	// Use tokenizer.NewTokenCounterForModel(modelName) to create a model-aware counter.
+	TokenCounter tokenizer.TokenCounter
 }
 
 // ContextBuilderStage manages token budget and truncates messages if needed.
@@ -545,8 +551,8 @@ type ContextBuilderPolicy struct {
 //
 // Truncation strategies (TruncationStrategy):
 //   - TruncateOldest: removes oldest messages first (keeps most recent context)
-//   - TruncateLeastRelevant: removes least relevant messages (requires embeddings) [TODO]
-//   - TruncateSummarize: compresses old messages into summaries [TODO]
+//   - TruncateLeastRelevant: removes least relevant messages (requires RelevanceConfig with EmbeddingProvider)
+//   - TruncateSummarize: not yet implemented (returns error)
 //   - TruncateFail: returns error if budget exceeded (strict mode)
 //
 // Configuration (ContextBuilderPolicy):
@@ -562,14 +568,22 @@ type ContextBuilderPolicy struct {
 // This is an Accumulate stage: N input elements → N (possibly fewer) output elements
 type ContextBuilderStage struct {
 	BaseStage
-	policy *ContextBuilderPolicy
+	policy       *ContextBuilderPolicy
+	tokenCounter tokenizer.TokenCounter
 }
 
 // NewContextBuilderStage creates a context builder stage.
 func NewContextBuilderStage(policy *ContextBuilderPolicy) *ContextBuilderStage {
+	// Use provided TokenCounter or default to heuristic counter
+	var tc tokenizer.TokenCounter = tokenizer.DefaultTokenCounter
+	if policy != nil && policy.TokenCounter != nil {
+		tc = policy.TokenCounter
+	}
+
 	return &ContextBuilderStage{
-		BaseStage: NewBaseStage("context_builder", StageTypeAccumulate),
-		policy:    policy,
+		BaseStage:    NewBaseStage("context_builder", StageTypeAccumulate),
+		policy:       policy,
+		tokenCounter: tc,
 	}
 }
 
@@ -684,13 +698,10 @@ func (s *ContextBuilderStage) emitMessages(
 	return nil
 }
 
-// countTokens estimates token count using a simple heuristic.
+// countTokens estimates token count using the configured TokenCounter.
+// If no counter was configured, uses the default heuristic counter.
 func (s *ContextBuilderStage) countTokens(text string) int {
-	if text == "" {
-		return 0
-	}
-	words := strings.Fields(text)
-	return int(float64(len(words)) * 1.3)
+	return s.tokenCounter.CountTokens(text)
 }
 
 // countMessagesTokens estimates total tokens for messages.
@@ -717,9 +728,8 @@ func (s *ContextBuilderStage) truncateMessages(
 	case TruncateLeastRelevant:
 		return s.truncateByRelevance(ctx, messages, budget)
 	case TruncateSummarize:
-		// TODO: Implement LLM-based summarization
-		logger.Warn("Summarization truncation not implemented, falling back to oldest strategy")
-		return s.truncateOldest(messages, budget), nil
+		return nil, fmt.Errorf("truncation strategy %q is not yet implemented; use %q, %q, or %q instead",
+			TruncateSummarize, TruncateOldest, TruncateLeastRelevant, TruncateFail)
 	case TruncateFail:
 		return nil, fmt.Errorf("token budget exceeded: have %d, budget %d", s.countMessagesTokens(messages), budget)
 	default:
@@ -732,7 +742,7 @@ func (s *ContextBuilderStage) truncateOldest(messages []types.Message, budget in
 	var result []types.Message
 	used := 0
 
-	// Start from most recent, work backwards
+	// Start from most recent, work backwards, collecting in reverse order
 	for i := len(messages) - 1; i >= 0; i-- {
 		msg := messages[i]
 		msgTokens := s.countTokens(msg.Content)
@@ -746,8 +756,13 @@ func (s *ContextBuilderStage) truncateOldest(messages []types.Message, budget in
 			break
 		}
 
-		result = append([]types.Message{msg}, result...) // Prepend
+		result = append(result, msg)
 		used += msgTokens
+	}
+
+	// Reverse to restore original order (oldest first)
+	for i, j := 0, len(result)-1; i < j; i, j = i+1, j-1 {
+		result[i], result[j] = result[j], result[i]
 	}
 
 	return result
@@ -762,10 +777,11 @@ func (s *ContextBuilderStage) truncateByRelevance(
 ) ([]types.Message, error) {
 	cfg := s.policy.RelevanceConfig
 
-	// Fall back to oldest if no embedding provider
+	// Require embedding provider for relevance-based truncation
 	if cfg == nil || cfg.EmbeddingProvider == nil {
-		logger.Warn("No embedding provider configured, falling back to oldest strategy")
-		return s.truncateOldest(messages, budget), nil
+		return nil, fmt.Errorf(
+			"strategy %q requires RelevanceConfig with EmbeddingProvider; use %q instead",
+			TruncateLeastRelevant, TruncateOldest)
 	}
 
 	// Default configuration values

@@ -99,9 +99,9 @@ func TestClaudeProvider_CacheControlNotSentForHaiku(t *testing.T) {
 		t.Fatal("First content is not a map")
 	}
 
-	// THE BUG: cache_control should NOT be present for Haiku
+	// cache_control should NOT be present for Haiku (causes 400 error)
 	if cacheControl, exists := firstContent["cache_control"]; exists {
-		t.Errorf("CRITICAL BUG: cache_control should not be sent for Claude 3.5 Haiku, but found: %v", cacheControl)
+		t.Errorf("cache_control should not be sent for Claude 3.5 Haiku, but found: %v", cacheControl)
 		t.Errorf("This causes a 400 error: 'messages.0.cache_control: Extra inputs are not permitted'")
 	}
 }
@@ -180,13 +180,13 @@ func TestToolProvider_CacheControlNotSentForHaiku(t *testing.T) {
 		t.Fatalf("PredictWithTools failed: %v", err)
 	}
 
-	// CRITICAL TEST: Verify that cache_control was NOT sent in system blocks
+	// Verify that cache_control was NOT sent in system blocks
 	system, ok := capturedRequest["system"].([]interface{})
 	if ok && len(system) > 0 {
 		systemBlock, ok := system[0].(map[string]interface{})
 		if ok {
 			if cacheControl, exists := systemBlock["cache_control"]; exists {
-				t.Errorf("CRITICAL BUG: cache_control should not be sent for Claude 3.5 Haiku system prompt, but found: %v", cacheControl)
+				t.Errorf("cache_control should not be sent for Claude 3.5 Haiku system prompt, but found: %v", cacheControl)
 			}
 		}
 	}
@@ -201,7 +201,7 @@ func TestToolProvider_CacheControlNotSentForHaiku(t *testing.T) {
 				lastContent, ok := content[0].(map[string]interface{})
 				if ok {
 					if cacheControl, exists := lastContent["cache_control"]; exists {
-						t.Errorf("CRITICAL BUG: cache_control should not be sent for Claude 3.5 Haiku message, but found: %v", cacheControl)
+						t.Errorf("cache_control should not be sent for Claude 3.5 Haiku message, but found: %v", cacheControl)
 					}
 				}
 			}

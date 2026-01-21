@@ -336,7 +336,7 @@ func TestProcessToolMessage_UsesToolResultContent(t *testing.T) {
 	// (not just an empty "result" key from the fallback)
 	temp, hasTemp := response["temperature"]
 	if !hasTemp {
-		t.Fatal("CRITICAL BUG: Tool result response missing 'temperature'! ToolResult.Content should be used, not msg.Content")
+		t.Fatal("Tool result response missing 'temperature' - ToolResult.Content should be used, not msg.Content")
 	}
 	if temp != float64(73) {
 		t.Errorf("Expected temperature 73, got %v", temp)
@@ -344,7 +344,7 @@ func TestProcessToolMessage_UsesToolResultContent(t *testing.T) {
 
 	conditions, hasCond := response["conditions"]
 	if !hasCond {
-		t.Fatal("CRITICAL BUG: Tool result response missing 'conditions'! ToolResult.Content should be used")
+		t.Fatal("Tool result response missing 'conditions' - ToolResult.Content should be used")
 	}
 	if conditions != "sunny" {
 		t.Errorf("Expected conditions 'sunny', got %v", conditions)

@@ -39,13 +39,11 @@ func TestOpenAIProvider_Contract(t *testing.T) {
 	defer provider.Close()
 
 	// Run the complete contract test suite
-	// TODO: Re-enable after refactoring - contract tests are in parent package test file
-	// providers.RunProviderContractTests(t, providers.ProviderContractTests{
-	// 	Provider:                  provider,
-	// 	SupportsToolsExpected:     true,
-	// 	SupportsStreamingExpected: true,
-	// })
-	t.Skip("Contract tests temporarily disabled during package restructuring")
+	providers.RunProviderContractTests(t, providers.ProviderContractTests{
+		Provider:                  provider,
+		SupportsToolsExpected:     false, // Base provider doesn't support tools
+		SupportsStreamingExpected: true,
+	})
 }
 
 // TestOpenAIProvider_LatencyBugFix is a specific regression test for the latency bug.
@@ -91,13 +89,13 @@ func TestOpenAIProvider_LatencyBugFix(t *testing.T) {
 		return
 	}
 
-	// CRITICAL: Latency must be non-zero
+	// Latency must be non-zero
 	if resp.Latency == 0 {
-		t.Errorf("CRITICAL BUG: Predict() returned Latency=0, but call took %v", elapsed)
+		t.Errorf("Predict() returned Latency=0, but call took %v", elapsed)
 		t.Logf("Response: %+v", resp)
 	}
 
-	t.Logf("✓ Predict() correctly set Latency=%v (actual: %v)", resp.Latency, elapsed)
+	t.Logf("Predict() correctly set Latency=%v (actual: %v)", resp.Latency, elapsed)
 }
 
 // TestToolProvider_PredictWithToolsLatency is the CRITICAL test that proves
@@ -165,12 +163,12 @@ func TestToolProvider_PredictWithToolsLatency(t *testing.T) {
 		return
 	}
 
-	// CRITICAL: Latency must be non-zero
+	// Latency must be non-zero
 	if resp.Latency == 0 {
-		t.Errorf("CRITICAL BUG: PredictWithTools() returned Latency=0, but call took %v", elapsed)
+		t.Errorf("PredictWithTools() returned Latency=0, but call took %v", elapsed)
 		t.Logf("Response: %+v", resp)
 		t.Logf("ToolCalls: %+v", toolCalls)
 	}
 
-	t.Logf("✓ PredictWithTools() correctly set Latency=%v (actual: %v)", resp.Latency, elapsed)
+	t.Logf("PredictWithTools() correctly set Latency=%v (actual: %v)", resp.Latency, elapsed)
 }

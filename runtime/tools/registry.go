@@ -135,12 +135,12 @@ func (r *Registry) LoadToolFromBytes(filename string, data []byte) error {
 
 // loadYAMLTool loads a tool from YAML data (K8s manifest format required)
 func (r *Registry) loadYAMLTool(filename string, data []byte) error {
-	var temp interface{}
+	var temp any
 	if err := yaml.Unmarshal(data, &temp); err != nil {
 		return fmt.Errorf("failed to parse YAML tool file %s: %w", filename, err)
 	}
 
-	tempMap, ok := temp.(map[string]interface{})
+	tempMap, ok := temp.(map[string]any)
 	if !ok {
 		return fmt.Errorf("invalid YAML structure in %s", filename)
 	}
@@ -154,7 +154,7 @@ func (r *Registry) loadYAMLTool(filename string, data []byte) error {
 }
 
 // loadK8sManifest loads a K8s-style tool manifest
-func (r *Registry) loadK8sManifest(filename string, temp interface{}) error {
+func (r *Registry) loadK8sManifest(filename string, temp any) error {
 	jsonData, err := json.Marshal(temp)
 	if err != nil {
 		return fmt.Errorf("failed to convert K8s manifest to JSON for %s: %w", filename, err)
@@ -213,7 +213,7 @@ func (r *Registry) loadJSONTool(filename string, data []byte) error {
 func (r *Registry) GetTool(name string) (*ToolDescriptor, error) {
 	tool, exists := r.tools[name]
 	if !exists {
-		return nil, fmt.Errorf("tool %s not found", name)
+		return nil, fmt.Errorf("%w: %s", ErrToolNotFound, name)
 	}
 	return tool, nil
 }
@@ -434,19 +434,19 @@ func (r *Registry) validateAndCoerceResult(tool *ToolDescriptor, content json.Ra
 // validateDescriptor validates a tool descriptor
 func (r *Registry) validateDescriptor(descriptor *ToolDescriptor) error {
 	if descriptor.Name == "" {
-		return fmt.Errorf("tool name is required")
+		return ErrToolNameRequired
 	}
 
 	if descriptor.Description == "" {
-		return fmt.Errorf("tool description is required")
+		return ErrToolDescriptionRequired
 	}
 
 	if len(descriptor.InputSchema) == 0 {
-		return fmt.Errorf("input schema is required")
+		return ErrInputSchemaRequired
 	}
 
 	if len(descriptor.OutputSchema) == 0 {
-		return fmt.Errorf("output schema is required")
+		return ErrOutputSchemaRequired
 	}
 
 	// Mode must be empty (defaults to mock), a built-in mode, or a registered executor name
@@ -454,7 +454,7 @@ func (r *Registry) validateDescriptor(descriptor *ToolDescriptor) error {
 		descriptor.Mode == modeLive || descriptor.Mode == modeMCP
 	_, isRegisteredExecutor := r.executors[descriptor.Mode]
 	if !isBuiltinMode && !isRegisteredExecutor {
-		return fmt.Errorf("mode must be 'mock', 'live', 'mcp', or a registered executor name")
+		return ErrInvalidToolMode
 	}
 
 	if descriptor.TimeoutMs <= 0 {

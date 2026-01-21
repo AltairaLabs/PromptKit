@@ -5,11 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -309,42 +307,12 @@ func (p *ToolProvider) parseToolResponse(
 
 // makeRequest makes an HTTP request to the Ollama API
 func (p *ToolProvider) makeRequest(ctx context.Context, request any) ([]byte, error) {
-	reqBytes, err := json.Marshal(request)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
 	url := p.baseURL + ollamaChatCompletionsPath
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(reqBytes))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Ollama doesn't require Authorization header
-	req.Header.Set(contentTypeHeader, applicationJSON)
-
-	logger.APIRequest("Ollama", "POST", url, map[string]string{
+	headers := providers.RequestHeaders{
 		contentTypeHeader: applicationJSON,
-	}, request)
-
-	resp, err := p.GetHTTPClient().Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		// Ollama doesn't require Authorization header
 	}
-	defer resp.Body.Close()
-
-	respBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	logger.APIResponse("Ollama", resp.StatusCode, string(respBytes), nil)
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("ollama API error (status %d): %s", resp.StatusCode, string(respBytes))
-	}
-
-	return respBytes, nil
+	return p.MakeJSONRequest(ctx, url, request, headers, "Ollama")
 }
 
 // PredictStreamWithTools performs a streaming predict request with tool support

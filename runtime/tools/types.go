@@ -21,10 +21,10 @@ import (
 
 // ToolConfig represents a K8s-style tool configuration manifest
 type ToolConfig struct {
-	APIVersion string            `yaml:"apiVersion"`
-	Kind       string            `yaml:"kind"`
-	Metadata   metav1.ObjectMeta `yaml:"metadata,omitempty"`
-	Spec       ToolDescriptor    `yaml:"spec"`
+	APIVersion string            `json:"apiVersion" yaml:"apiVersion"`
+	Kind       string            `json:"kind" yaml:"kind"`
+	Metadata   metav1.ObjectMeta `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+	Spec       ToolDescriptor    `json:"spec" yaml:"spec"`
 }
 
 // ToolDescriptor represents a normalized tool definition
@@ -111,7 +111,7 @@ type PendingToolInfo struct {
 	CallbackURL string     `json:"callback_url,omitempty"`
 
 	// Arbitrary metadata for custom middleware
-	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 // ToolPolicy defines constraints for tool usage in scenarios

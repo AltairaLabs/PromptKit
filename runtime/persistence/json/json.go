@@ -29,17 +29,22 @@ type PromptRepository struct {
 	*common.BasePromptRepository
 }
 
+// marshalIndent wraps json.MarshalIndent with default formatting
+func marshalIndent(v any) ([]byte, error) {
+	return json.MarshalIndent(v, "", "  ")
+}
+
 // NewJSONPromptRepository creates a JSON file-based prompt repository
 func NewJSONPromptRepository(basePath string, taskTypeToFile map[string]string) *PromptRepository {
+	base := common.NewBasePromptRepository(
+		basePath,
+		taskTypeToFile,
+		[]string{jsonExt},
+		json.Unmarshal,
+	)
+	base.Marshal = marshalIndent
 	return &PromptRepository{
-		BasePromptRepository: common.NewBasePromptRepository(
-			basePath,
-			taskTypeToFile,
-			[]string{jsonExt},
-			func(data []byte, v interface{}) error {
-				return json.Unmarshal(data, v)
-			},
-		),
+		BasePromptRepository: base,
 	}
 }
 
@@ -70,9 +75,9 @@ func (r *PromptRepository) LoadFragment(name, relativePath, baseDir string) (*pr
 
 // ListPrompts is inherited from BasePromptRepository
 
-// SavePrompt saves a prompt configuration (not yet implemented)
+// SavePrompt saves a prompt configuration to a JSON file
 func (r *PromptRepository) SavePrompt(config *prompt.Config) error {
-	return fmt.Errorf("not implemented")
+	return r.BasePromptRepository.SavePrompt(config)
 }
 
 // JSONToolRepository loads tools from JSON files on disk
@@ -107,9 +112,47 @@ func (r *ToolRepository) ListTools() ([]string, error) {
 	return names, nil
 }
 
-// SaveTool saves a tool descriptor (not yet implemented)
+// SaveTool saves a tool descriptor to a JSON file using K8s manifest format.
+// The file will be named <tool-name>.json in the repository's base path.
 func (r *ToolRepository) SaveTool(descriptor *tools.ToolDescriptor) error {
-	return fmt.Errorf("not implemented")
+	if descriptor == nil {
+		return persistence.ErrNilDescriptor
+	}
+	if descriptor.Name == "" {
+		return persistence.ErrEmptyToolName
+	}
+
+	// Build K8s manifest format
+	toolConfig := tools.ToolConfig{
+		APIVersion: "promptkit.altairalabs.io/v1",
+		Kind:       "Tool",
+		Spec:       *descriptor,
+	}
+	toolConfig.Metadata.Name = descriptor.Name
+
+	// Marshal to JSON with indentation
+	data, err := marshalIndent(toolConfig)
+	if err != nil {
+		return fmt.Errorf("failed to marshal tool config: %w", err)
+	}
+
+	// Determine output file path
+	filePath := filepath.Join(r.basePath, descriptor.Name+jsonExt)
+
+	// Ensure directory exists
+	if err := os.MkdirAll(r.basePath, common.DirPerm); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", r.basePath, err)
+	}
+
+	// Write file
+	if err := os.WriteFile(filePath, data, common.FilePerm); err != nil {
+		return fmt.Errorf("failed to write file %s: %w", filePath, err)
+	}
+
+	// Update in-memory cache
+	r.tools[descriptor.Name] = descriptor
+
+	return nil
 }
 
 // LoadToolFromFile loads a tool from a JSON file

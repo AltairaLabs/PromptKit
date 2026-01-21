@@ -1,10 +1,12 @@
 package json
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/persistence"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
@@ -427,14 +429,67 @@ func TestJSONPromptRepository_ListPrompts(t *testing.T) {
 	}
 }
 
-func TestJSONPromptRepository_SavePrompt_NotImplemented(t *testing.T) {
+func TestJSONPromptRepository_SavePrompt(t *testing.T) {
 	tmpDir := t.TempDir()
 	repo := NewJSONPromptRepository(tmpDir, nil)
 
-	config := &prompt.Config{}
+	config := &prompt.Config{
+		APIVersion: "promptkit.dev/v1",
+		Kind:       "PromptConfig",
+		Spec: prompt.Spec{
+			TaskType:       "save-test",
+			SystemTemplate: "Test system template",
+		},
+	}
+
+	// Save the prompt
+	err := repo.SavePrompt(config)
+	if err != nil {
+		t.Fatalf("SavePrompt() failed: %v", err)
+	}
+
+	// Verify file was created
+	expectedPath := tmpDir + "/save-test.json"
+	if _, err := os.Stat(expectedPath); os.IsNotExist(err) {
+		t.Fatalf("Expected file %s to exist after SavePrompt", expectedPath)
+	}
+
+	// Load it back and verify
+	loaded, err := repo.LoadPrompt("save-test")
+	if err != nil {
+		t.Fatalf("LoadPrompt() after SavePrompt() failed: %v", err)
+	}
+	if loaded.Spec.TaskType != "save-test" {
+		t.Errorf("Expected task_type 'save-test', got '%s'", loaded.Spec.TaskType)
+	}
+	if loaded.Spec.SystemTemplate != "Test system template" {
+		t.Errorf("Expected system_template 'Test system template', got '%s'", loaded.Spec.SystemTemplate)
+	}
+}
+
+func TestJSONPromptRepository_SavePrompt_NilConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	repo := NewJSONPromptRepository(tmpDir, nil)
+
+	err := repo.SavePrompt(nil)
+	if err == nil {
+		t.Error("Expected error for nil config, got nil")
+	}
+}
+
+func TestJSONPromptRepository_SavePrompt_EmptyTaskType(t *testing.T) {
+	tmpDir := t.TempDir()
+	repo := NewJSONPromptRepository(tmpDir, nil)
+
+	config := &prompt.Config{
+		Spec: prompt.Spec{
+			TaskType: "",
+		},
+	}
+
 	err := repo.SavePrompt(config)
 	if err == nil {
-		t.Error("Expected 'not implemented' error, got nil")
+		t.Error("Expected error for empty task_type, got nil")
 	}
 }
 
@@ -492,12 +547,92 @@ func TestJSONToolRepository_ListTools(t *testing.T) {
 	}
 }
 
-func TestJSONToolRepository_SaveTool_NotImplemented(t *testing.T) {
-	tmpDir := t.TempDir()
-	repo := NewJSONToolRepository(tmpDir)
+func TestJSONToolRepository_SaveTool(t *testing.T) {
+	t.Run("nil descriptor returns error", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		repo := NewJSONToolRepository(tmpDir)
 
-	err := repo.SaveTool(nil)
-	if err == nil {
-		t.Error("Expected 'not implemented' error, got nil")
-	}
+		err := repo.SaveTool(nil)
+		if !errors.Is(err, persistence.ErrNilDescriptor) {
+			t.Errorf("Expected ErrNilDescriptor, got %v", err)
+		}
+	})
+
+	t.Run("empty name returns error", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		repo := NewJSONToolRepository(tmpDir)
+
+		err := repo.SaveTool(&tools.ToolDescriptor{
+			Description: "test tool",
+		})
+		if !errors.Is(err, persistence.ErrEmptyToolName) {
+			t.Errorf("Expected ErrEmptyToolName, got %v", err)
+		}
+	})
+
+	t.Run("saves tool successfully", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		repo := NewJSONToolRepository(tmpDir)
+
+		descriptor := &tools.ToolDescriptor{
+			Name:        "test-tool",
+			Description: "A test tool",
+			Mode:        "mock",
+		}
+
+		err := repo.SaveTool(descriptor)
+		if err != nil {
+			t.Fatalf("SaveTool() failed: %v", err)
+		}
+
+		// Verify file was created
+		filePath := filepath.Join(tmpDir, "test-tool.json")
+		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+			t.Error("Expected file to be created")
+		}
+
+		// Verify tool is in cache
+		loaded, err := repo.LoadTool("test-tool")
+		if err != nil {
+			t.Fatalf("LoadTool() failed: %v", err)
+		}
+		if loaded.Name != "test-tool" {
+			t.Errorf("Expected name 'test-tool', got '%s'", loaded.Name)
+		}
+	})
+
+	t.Run("saved tool can be reloaded", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		repo := NewJSONToolRepository(tmpDir)
+
+		descriptor := &tools.ToolDescriptor{
+			Name:        "reload-test",
+			Description: "Tool to test reloading",
+			Mode:        "live",
+			TimeoutMs:   5000,
+		}
+
+		err := repo.SaveTool(descriptor)
+		if err != nil {
+			t.Fatalf("SaveTool() failed: %v", err)
+		}
+
+		// Create new repo instance to test reload from file
+		repo2 := NewJSONToolRepository(tmpDir)
+		err = repo2.LoadToolFromFile(filepath.Join(tmpDir, "reload-test.json"))
+		if err != nil {
+			t.Fatalf("LoadToolFromFile() failed: %v", err)
+		}
+
+		loaded, err := repo2.LoadTool("reload-test")
+		if err != nil {
+			t.Fatalf("LoadTool() failed: %v", err)
+		}
+		if loaded.Description != "Tool to test reloading" {
+			t.Errorf("Expected description 'Tool to test reloading', got '%s'", loaded.Description)
+		}
+		if loaded.TimeoutMs != 5000 {
+			t.Errorf("Expected timeout 5000, got %d", loaded.TimeoutMs)
+		}
+	})
 }

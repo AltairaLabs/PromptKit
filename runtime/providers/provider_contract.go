@@ -1,3 +1,7 @@
+// Package providers contains provider contract test helpers.
+//
+// This file contains exported test helpers that can be used by provider
+// implementations in subpackages to validate their contract compliance.
 package providers
 
 import (
@@ -99,9 +103,9 @@ func ValidatePredictReturnsLatency(t *testing.T, provider Provider) {
 		return
 	}
 
-	// CRITICAL: Latency must be non-zero
+	// Latency must be non-zero
 	if resp.Latency == 0 {
-		t.Errorf("CRITICAL BUG: Predict() returned Latency=0, but call took %v", elapsed)
+		t.Errorf("Predict() returned Latency=0, but call took %v", elapsed)
 		t.Logf("Response: %+v", resp)
 		t.Logf("This will cause latency_ms to be omitted from JSON due to omitempty tag")
 	}
@@ -117,8 +121,9 @@ func ValidatePredictReturnsLatency(t *testing.T, provider Provider) {
 	}
 }
 
-// ValidatePredictWithToolsReturnsLatency verifies that PredictWithTools() returns a response with non-zero latency.
-// This test is CRITICAL - it would have caught the production bug where PredictWithTools didn't set latency!
+// ValidatePredictWithToolsReturnsLatency verifies that PredictWithTools() returns latency.
+// This test is CRITICAL - it would have caught the production bug where
+// PredictWithTools didn't set latency!
 // Exported for use in provider-specific regression tests.
 func ValidatePredictWithToolsReturnsLatency(t *testing.T, provider Provider) {
 	toolSupport, ok := provider.(ToolSupport)
@@ -171,12 +176,11 @@ func ValidatePredictWithToolsReturnsLatency(t *testing.T, provider Provider) {
 
 	_ = toolCalls // We don't care if tools were actually called, just that latency was tracked
 
-	// CRITICAL: Latency must be non-zero
+	// Latency must be non-zero
 	if resp.Latency == 0 {
-		t.Errorf("CRITICAL BUG: PredictWithTools() returned Latency=0, but call took %v", elapsed)
+		t.Errorf("PredictWithTools() returned Latency=0, but call took %v", elapsed)
 		t.Logf("Response: %+v", resp)
 		t.Logf("This will cause latency_ms to be omitted from JSON due to omitempty tag")
-		t.Logf("This is the EXACT production bug we're fixing!")
 	}
 
 	// Latency should be reasonable (within 10x of actual elapsed time)
@@ -298,7 +302,7 @@ func testSupportsStreamingMatches(t *testing.T, provider Provider, expected bool
 	}
 }
 
-// testPredictStreamReturnsLatency verifies that streaming responses include latency in final chunk
+// testPredictStreamReturnsLatency verifies streaming responses include latency in final chunk
 func testPredictStreamReturnsLatency(t *testing.T, provider Provider) {
 	ctx := context.Background()
 	req := PredictionRequest{

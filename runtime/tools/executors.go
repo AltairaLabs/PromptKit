@@ -33,7 +33,7 @@ func (e *MockStaticExecutor) Name() string {
 // Execute executes a tool using static mock data
 func (e *MockStaticExecutor) Execute(descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
 	if descriptor.Mode != modeMock {
-		return nil, fmt.Errorf("static mock executor can only execute mock tools")
+		return nil, ErrMockExecutorOnly
 	}
 
 	// Use the mock result from the descriptor
@@ -70,7 +70,7 @@ func (e *MockScriptedExecutor) Name() string {
 // Execute executes a tool using templated mock data
 func (e *MockScriptedExecutor) Execute(descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
 	if descriptor.Mode != modeMock {
-		return nil, fmt.Errorf("scripted mock executor can only execute mock tools")
+		return nil, ErrMockExecutorOnly
 	}
 
 	// Choose template source
@@ -88,7 +88,7 @@ func (e *MockScriptedExecutor) Execute(descriptor *ToolDescriptor, args json.Raw
 	}
 
 	// Parse arguments for template processing
-	var argsMap map[string]interface{}
+	var argsMap map[string]any
 	if err := json.Unmarshal(args, &argsMap); err != nil {
 		return nil, fmt.Errorf("failed to parse arguments for templating: %w", err)
 	}
@@ -100,10 +100,10 @@ func (e *MockScriptedExecutor) Execute(descriptor *ToolDescriptor, args json.Raw
 	}
 
 	// Try to parse as JSON to validate
-	var jsonResult interface{}
+	var jsonResult any
 	if err := json.Unmarshal([]byte(result), &jsonResult); err != nil {
 		// If not valid JSON, wrap it as a string value
-		jsonResult = map[string]interface{}{
+		jsonResult = map[string]any{
 			"result": result,
 		}
 	}
@@ -112,7 +112,7 @@ func (e *MockScriptedExecutor) Execute(descriptor *ToolDescriptor, args json.Raw
 }
 
 // processTemplate renders a Go text/template with provided arguments.
-func (e *MockScriptedExecutor) processTemplate(tmpl string, args map[string]interface{}) (string, error) {
+func (e *MockScriptedExecutor) processTemplate(tmpl string, args map[string]any) (string, error) {
 	t, err := template.New("mock").Option("missingkey=zero").Parse(tmpl)
 	if err != nil {
 		return "", err

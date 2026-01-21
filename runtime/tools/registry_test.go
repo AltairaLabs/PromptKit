@@ -2,6 +2,7 @@ package tools_test
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -724,4 +725,90 @@ func (m *mockAsyncCustomExecutor) ExecuteAsync(descriptor *tools.ToolDescriptor,
 		Status:  m.status,
 		Content: m.result,
 	}, nil
+}
+
+// TestSentinelErrors verifies that sentinel errors are returned correctly
+func TestSentinelErrors(t *testing.T) {
+	t.Run("ErrToolNotFound", func(t *testing.T) {
+		registry := tools.NewRegistry()
+		_, err := registry.GetTool("nonexistent")
+		if !errors.Is(err, tools.ErrToolNotFound) {
+			t.Errorf("Expected ErrToolNotFound, got %v", err)
+		}
+	})
+
+	// Use legacy format (no apiVersion) to directly test validateDescriptor
+	t.Run("ErrToolNameRequired", func(t *testing.T) {
+		registry := tools.NewRegistry()
+		// Legacy format - no apiVersion/kind
+		toolJSON := `{
+			"name": "",
+			"description": "Test tool",
+			"input_schema": {"type": "object"},
+			"output_schema": {"type": "object"},
+			"mode": "mock"
+		}`
+		err := registry.LoadToolFromBytes("test.json", []byte(toolJSON))
+		if !errors.Is(err, tools.ErrToolNameRequired) {
+			t.Errorf("Expected ErrToolNameRequired, got %v", err)
+		}
+	})
+
+	t.Run("ErrToolDescriptionRequired", func(t *testing.T) {
+		registry := tools.NewRegistry()
+		toolJSON := `{
+			"name": "test",
+			"description": "",
+			"input_schema": {"type": "object"},
+			"output_schema": {"type": "object"},
+			"mode": "mock"
+		}`
+		err := registry.LoadToolFromBytes("test.json", []byte(toolJSON))
+		if !errors.Is(err, tools.ErrToolDescriptionRequired) {
+			t.Errorf("Expected ErrToolDescriptionRequired, got %v", err)
+		}
+	})
+
+	t.Run("ErrInputSchemaRequired", func(t *testing.T) {
+		registry := tools.NewRegistry()
+		toolJSON := `{
+			"name": "test",
+			"description": "Test tool",
+			"output_schema": {"type": "object"},
+			"mode": "mock"
+		}`
+		err := registry.LoadToolFromBytes("test.json", []byte(toolJSON))
+		if !errors.Is(err, tools.ErrInputSchemaRequired) {
+			t.Errorf("Expected ErrInputSchemaRequired, got %v", err)
+		}
+	})
+
+	t.Run("ErrOutputSchemaRequired", func(t *testing.T) {
+		registry := tools.NewRegistry()
+		toolJSON := `{
+			"name": "test",
+			"description": "Test tool",
+			"input_schema": {"type": "object"},
+			"mode": "mock"
+		}`
+		err := registry.LoadToolFromBytes("test.json", []byte(toolJSON))
+		if !errors.Is(err, tools.ErrOutputSchemaRequired) {
+			t.Errorf("Expected ErrOutputSchemaRequired, got %v", err)
+		}
+	})
+
+	t.Run("ErrInvalidToolMode", func(t *testing.T) {
+		registry := tools.NewRegistry()
+		toolJSON := `{
+			"name": "test",
+			"description": "Test tool",
+			"input_schema": {"type": "object"},
+			"output_schema": {"type": "object"},
+			"mode": "invalid-mode"
+		}`
+		err := registry.LoadToolFromBytes("test.json", []byte(toolJSON))
+		if !errors.Is(err, tools.ErrInvalidToolMode) {
+			t.Errorf("Expected ErrInvalidToolMode, got %v", err)
+		}
+	})
 }

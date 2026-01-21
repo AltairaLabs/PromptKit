@@ -1,8 +1,10 @@
 package memory
 
 import (
+	"errors"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/persistence"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
@@ -252,4 +254,46 @@ func TestMemoryToolRepository_ListTools_Multiple(t *testing.T) {
 			t.Errorf("Expected to find tool '%s' in list", expected)
 		}
 	}
+}
+
+func TestMemoryPromptRepository_SavePrompt_Errors(t *testing.T) {
+	t.Run("nil config returns ErrNilConfig", func(t *testing.T) {
+		repo := NewPromptRepository()
+		err := repo.SavePrompt(nil)
+		if !errors.Is(err, persistence.ErrNilConfig) {
+			t.Errorf("Expected ErrNilConfig, got %v", err)
+		}
+	})
+
+	t.Run("empty task_type returns ErrEmptyTaskType", func(t *testing.T) {
+		repo := NewPromptRepository()
+		config := &prompt.Config{
+			Spec: prompt.Spec{TaskType: ""},
+		}
+		err := repo.SavePrompt(config)
+		if !errors.Is(err, persistence.ErrEmptyTaskType) {
+			t.Errorf("Expected ErrEmptyTaskType, got %v", err)
+		}
+	})
+}
+
+func TestMemoryToolRepository_SaveTool_Errors(t *testing.T) {
+	t.Run("nil descriptor returns ErrNilDescriptor", func(t *testing.T) {
+		repo := NewToolRepository()
+		err := repo.SaveTool(nil)
+		if !errors.Is(err, persistence.ErrNilDescriptor) {
+			t.Errorf("Expected ErrNilDescriptor, got %v", err)
+		}
+	})
+
+	t.Run("empty name returns ErrEmptyToolName", func(t *testing.T) {
+		repo := NewToolRepository()
+		descriptor := &tools.ToolDescriptor{
+			Description: "test tool",
+		}
+		err := repo.SaveTool(descriptor)
+		if !errors.Is(err, persistence.ErrEmptyToolName) {
+			t.Errorf("Expected ErrEmptyToolName, got %v", err)
+		}
+	})
 }

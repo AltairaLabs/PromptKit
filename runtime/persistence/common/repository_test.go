@@ -2,11 +2,13 @@ package common
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/persistence"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -429,4 +431,130 @@ func TestCustomUnmarshalFunc(t *testing.T) {
 	_, err := repo.LoadPrompt("test")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "custom unmarshal error")
+}
+
+func TestSavePrompt(t *testing.T) {
+	t.Run("saves and loads config", func(t *testing.T) {
+		tmpDir, err := os.MkdirTemp("", "test-save-prompt")
+		require.NoError(t, err)
+		defer os.RemoveAll(tmpDir)
+
+		repo := NewBasePromptRepository(tmpDir, nil, []string{".json"}, json.Unmarshal)
+		repo.Marshal = func(v interface{}) ([]byte, error) {
+			return json.MarshalIndent(v, "", "  ")
+		}
+
+		config := &prompt.Config{
+			APIVersion: "v1",
+			Kind:       "PromptConfig",
+			Spec:       prompt.Spec{TaskType: "save-test"},
+		}
+
+		err = repo.SavePrompt(config)
+		require.NoError(t, err)
+
+		// Verify file exists
+		filePath := filepath.Join(tmpDir, "save-test.json")
+		_, err = os.Stat(filePath)
+		assert.NoError(t, err)
+
+		// Verify we can load it back
+		loaded, err := repo.LoadPrompt("save-test")
+		require.NoError(t, err)
+		assert.Equal(t, "save-test", loaded.Spec.TaskType)
+	})
+
+	t.Run("error without marshal function", func(t *testing.T) {
+		repo := NewBasePromptRepository("/tmp", nil, []string{".json"}, json.Unmarshal)
+		// Marshal is not set
+
+		config := &prompt.Config{
+			Spec: prompt.Spec{TaskType: "test"},
+		}
+
+		err := repo.SavePrompt(config)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "marshal function not configured")
+	})
+
+	t.Run("error for nil config", func(t *testing.T) {
+		repo := NewBasePromptRepository("/tmp", nil, []string{".json"}, json.Unmarshal)
+		repo.Marshal = func(v interface{}) ([]byte, error) {
+			return json.Marshal(v)
+		}
+
+		err := repo.SavePrompt(nil)
+		assert.Error(t, err)
+		assert.True(t, errors.Is(err, persistence.ErrNilConfig), "expected ErrNilConfig, got %v", err)
+	})
+
+	t.Run("error for empty task_type", func(t *testing.T) {
+		repo := NewBasePromptRepository("/tmp", nil, []string{".json"}, json.Unmarshal)
+		repo.Marshal = func(v interface{}) ([]byte, error) {
+			return json.Marshal(v)
+		}
+
+		config := &prompt.Config{
+			Spec: prompt.Spec{TaskType: ""},
+		}
+
+		err := repo.SavePrompt(config)
+		assert.Error(t, err)
+		assert.True(t, errors.Is(err, persistence.ErrEmptyTaskType), "expected ErrEmptyTaskType, got %v", err)
+	})
+
+	t.Run("uses explicit mapping for path", func(t *testing.T) {
+		tmpDir, err := os.MkdirTemp("", "test-save-mapping")
+		require.NoError(t, err)
+		defer os.RemoveAll(tmpDir)
+
+		mapping := map[string]string{"mapped-task": "custom/path/config.json"}
+		repo := NewBasePromptRepository(tmpDir, mapping, []string{".json"}, json.Unmarshal)
+		repo.Marshal = func(v interface{}) ([]byte, error) {
+			return json.Marshal(v)
+		}
+
+		config := &prompt.Config{
+			APIVersion: "v1",
+			Kind:       "PromptConfig",
+			Spec:       prompt.Spec{TaskType: "mapped-task"},
+		}
+
+		err = repo.SavePrompt(config)
+		require.NoError(t, err)
+
+		// Verify file was created at mapped path
+		expectedPath := filepath.Join(tmpDir, "custom/path/config.json")
+		_, err = os.Stat(expectedPath)
+		assert.NoError(t, err)
+	})
+
+	t.Run("updates cache and mapping", func(t *testing.T) {
+		tmpDir, err := os.MkdirTemp("", "test-save-cache")
+		require.NoError(t, err)
+		defer os.RemoveAll(tmpDir)
+
+		repo := NewBasePromptRepository(tmpDir, nil, []string{".json"}, json.Unmarshal)
+		repo.Marshal = func(v interface{}) ([]byte, error) {
+			return json.Marshal(v)
+		}
+
+		config := &prompt.Config{
+			APIVersion: "v1",
+			Kind:       "PromptConfig",
+			Spec:       prompt.Spec{TaskType: "cache-test"},
+		}
+
+		err = repo.SavePrompt(config)
+		require.NoError(t, err)
+
+		// Verify cache was updated
+		cached, ok := repo.Cache["cache-test"]
+		assert.True(t, ok)
+		assert.Equal(t, "cache-test", cached.Spec.TaskType)
+
+		// Verify mapping was added
+		_, hasMapping := repo.TaskTypeToFile["cache-test"]
+		assert.True(t, hasMapping)
+	})
 }

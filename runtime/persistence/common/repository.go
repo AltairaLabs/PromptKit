@@ -7,11 +7,16 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/persistence"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 )
 
 // UnmarshalFunc is a function that unmarshals data into a prompt config
 type UnmarshalFunc func([]byte, interface{}) error
+
+// MarshalFunc is a function that marshals a prompt config to bytes
+type MarshalFunc func(interface{}) ([]byte, error)
 
 // BasePromptRepository provides common prompt repository functionality
 type BasePromptRepository struct {
@@ -20,6 +25,7 @@ type BasePromptRepository struct {
 	Cache          map[string]*prompt.Config
 	Extensions     []string
 	Unmarshal      UnmarshalFunc
+	Marshal        MarshalFunc
 }
 
 // NewBasePromptRepository creates a new base repository
@@ -109,7 +115,7 @@ func (r *BasePromptRepository) SearchByFilename(taskType string) string {
 	}
 
 	var foundFile string
-	_ = filepath.WalkDir(r.BasePath, func(path string, d os.DirEntry, err error) error {
+	err := filepath.WalkDir(r.BasePath, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
@@ -122,6 +128,10 @@ func (r *BasePromptRepository) SearchByFilename(taskType string) string {
 		}
 		return nil
 	})
+	if err != nil {
+		logger.Debug("Failed to walk directory for filename search",
+			"base_path", r.BasePath, "task_type", taskType, "error", err)
+	}
 
 	return foundFile
 }
@@ -129,7 +139,7 @@ func (r *BasePromptRepository) SearchByFilename(taskType string) string {
 // SearchByContent searches for files by parsing and checking task type
 func (r *BasePromptRepository) SearchByContent(taskType string) string {
 	var foundFile string
-	_ = filepath.WalkDir(r.BasePath, func(path string, d os.DirEntry, err error) error {
+	err := filepath.WalkDir(r.BasePath, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
@@ -145,6 +155,10 @@ func (r *BasePromptRepository) SearchByContent(taskType string) string {
 
 		return nil
 	})
+	if err != nil {
+		logger.Debug("Failed to walk directory for content search",
+			"base_path", r.BasePath, "task_type", taskType, "error", err)
+	}
 
 	return foundFile
 }
@@ -215,6 +229,73 @@ func (r *BasePromptRepository) ListPrompts() ([]string, error) {
 	})
 
 	return taskTypes, err
+}
+
+// File permission constants for persistence operations
+const (
+	DirPerm  = 0o750 // Directory permissions: rwxr-x---
+	FilePerm = 0o600 // File permissions: rw-------
+)
+
+// SavePrompt saves a prompt configuration to disk
+func (r *BasePromptRepository) SavePrompt(config *prompt.Config) error {
+	if r.Marshal == nil {
+		return fmt.Errorf("save not supported: marshal function not configured")
+	}
+	if config == nil {
+		return persistence.ErrNilConfig
+	}
+	if config.Spec.TaskType == "" {
+		return persistence.ErrEmptyTaskType
+	}
+
+	// Determine output file path
+	filePath := r.resolveOutputPath(config.Spec.TaskType)
+
+	// Marshal config to bytes
+	data, err := r.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	// Ensure directory exists
+	dir := filepath.Dir(filePath)
+	if err := os.MkdirAll(dir, DirPerm); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", dir, err)
+	}
+
+	// Write file
+	if err := os.WriteFile(filePath, data, FilePerm); err != nil {
+		return fmt.Errorf("failed to write file %s: %w", filePath, err)
+	}
+
+	// Update cache
+	r.Cache[config.Spec.TaskType] = config
+
+	// Update mapping if not already present
+	if _, exists := r.TaskTypeToFile[config.Spec.TaskType]; !exists {
+		r.TaskTypeToFile[config.Spec.TaskType] = filePath
+	}
+
+	return nil
+}
+
+// resolveOutputPath determines the file path for saving a prompt
+func (r *BasePromptRepository) resolveOutputPath(taskType string) string {
+	// Check explicit mapping first
+	if filePath, ok := r.TaskTypeToFile[taskType]; ok {
+		if filepath.IsAbs(filePath) {
+			return filePath
+		}
+		return filepath.Join(r.BasePath, filePath)
+	}
+
+	// Default to basePath/taskType with first extension
+	ext := ".yaml"
+	if len(r.Extensions) > 0 {
+		ext = r.Extensions[0]
+	}
+	return filepath.Join(r.BasePath, taskType+ext)
 }
 
 // ValidatePromptConfig validates the prompt configuration structure

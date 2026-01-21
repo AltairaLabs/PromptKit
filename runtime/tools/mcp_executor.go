@@ -34,7 +34,7 @@ func (e *MCPExecutor) Name() string {
 // Execute executes a tool using an MCP server
 func (e *MCPExecutor) Execute(descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
 	if descriptor.Mode != modeMCP {
-		return nil, fmt.Errorf("MCP executor can only execute mcp tools")
+		return nil, ErrMCPExecutorOnly
 	}
 
 	logger.Info("🔧 MCP Tool Call", "tool", descriptor.Name, "args", string(args))
