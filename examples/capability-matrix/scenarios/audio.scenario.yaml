@@ -1,0 +1,27 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+
+metadata:
+  name: audio
+
+spec:
+  id: audio
+  task_type: capability-test
+  description: "Test audio input understanding capability"
+  provider_group: audio
+
+  turns:
+    - role: user
+      parts:
+        - type: text
+          text: "Describe what you hear in this audio. If you cannot process audio, say 'AUDIO_NOT_SUPPORTED'. Otherwise end your response with CAPABILITY_PASS."
+        - type: audio
+          media:
+            # Using a reliable public audio sample from Google Cloud
+            url: "https://storage.googleapis.com/cloud-samples-data/speech/brooklyn_bridge.raw"
+            mime_type: "audio/raw"
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(CAPABILITY_PASS|AUDIO_NOT_SUPPORTED|cannot|unable|don't|audio)"
+            message: "Should either process audio or indicate inability"

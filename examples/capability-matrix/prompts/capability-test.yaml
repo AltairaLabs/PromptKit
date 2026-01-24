@@ -1,0 +1,19 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+
+metadata:
+  name: capability-test
+
+spec:
+  version: "1.0.0"
+  description: "Minimal prompt for testing provider capabilities"
+  task_type: "capability-test"
+
+  system_template: |
+    You are a capability testing assistant. Follow instructions precisely.
+    When asked to say something specific, include it exactly as requested.
+    When asked to call a tool, call the appropriate tool with the specified parameters.
+    When asked to output JSON, respond with valid JSON only.
+
+  allowed_tools:
+    - get_weather

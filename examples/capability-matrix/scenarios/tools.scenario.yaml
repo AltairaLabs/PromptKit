@@ -1,0 +1,21 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+
+metadata:
+  name: tools
+
+spec:
+  id: tools
+  task_type: capability-test
+  description: "Test function/tool calling capability"
+  provider_group: tools
+
+  turns:
+    - role: user
+      content: "Call the get_weather function with location='test_city' to check the weather."
+      assertions:
+        - type: tools_called
+          params:
+            tools:
+              - "get_weather"
+            message: "Should call the get_weather tool"

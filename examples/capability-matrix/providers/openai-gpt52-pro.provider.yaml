@@ -1,0 +1,15 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: PLACEHOLDER
+spec:
+  id: PLACEHOLDER
+  type: openai
+  model: PLACEHOLDER
+  defaults:
+    temperature: 0.1
+    max_tokens: 500
+    top_p: 1.0
+  pricing:
+    input_cost_per_1k: 0.00125
+    output_cost_per_1k: 0.01

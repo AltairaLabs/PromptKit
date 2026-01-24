@@ -1,0 +1,15 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: anthropic-opus45
+spec:
+  id: anthropic-opus45
+  type: claude
+  model: claude-opus-4-5-20251101
+  defaults:
+    temperature: 0.1
+    top_p: 1.0
+    max_tokens: 500
+  pricing:
+    input_cost_per_1k: 0.005
+    output_cost_per_1k: 0.025

@@ -1,0 +1,54 @@
+# Mock Provider Configuration for Capability Matrix Tests
+#
+# These responses are designed to pass the capability test assertions
+# when running without API keys using the mock provider.
+
+defaultResponse: "CAPABILITY_PASS"
+
+scenarios:
+  text-basic:
+    defaultResponse: "CAPABILITY_PASS"
+    turns:
+      1: "CAPABILITY_PASS"
+
+  streaming:
+    defaultResponse: "1\n2\n3\n4\n5\nCAPABILITY_PASS"
+    turns:
+      1: "1\n2\n3\n4\n5\nCAPABILITY_PASS"
+
+  vision:
+    defaultResponse: "I can see a colorful logo image. CAPABILITY_PASS"
+    turns:
+      1: "I can see a colorful logo image. CAPABILITY_PASS"
+
+  tools:
+    defaultResponse: "I'll check the weather for you."
+    turns:
+      1:
+        tool_calls:
+          - name: "get_weather"
+            arguments:
+              location: "test_city"
+      2: "The weather in test_city is sunny and 72F. CAPABILITY_PASS"
+
+  json-mode:
+    defaultResponse: '{"capability": "json", "status": "CAPABILITY_PASS", "test": true}'
+    turns:
+      1: |
+        ```json
+        {
+          "capability": "json",
+          "status": "CAPABILITY_PASS",
+          "test": true
+        }
+        ```
+
+  audio:
+    defaultResponse: "I can hear audio content. CAPABILITY_PASS"
+    turns:
+      1: "I can hear someone speaking about a bridge. CAPABILITY_PASS"
+
+  video:
+    defaultResponse: "I can see a video. CAPABILITY_PASS"
+    turns:
+      1: "I can see a cat in the video. CAPABILITY_PASS"

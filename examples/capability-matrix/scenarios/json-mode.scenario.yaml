@@ -1,0 +1,35 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+
+metadata:
+  name: json-mode
+
+spec:
+  id: json-mode
+  task_type: capability-test
+  description: "Test JSON mode/structured output capability"
+  provider_group: json
+
+  turns:
+    - role: user
+      content: |
+        Output a JSON object with the following structure:
+        {
+          "capability": "json",
+          "status": "CAPABILITY_PASS",
+          "test": true
+        }
+        Output ONLY the JSON, no other text.
+      assertions:
+        - type: is_valid_json
+          params:
+            allow_wrapped: true
+            extract_json: true
+            message: "Response should contain valid JSON"
+        - type: json_path
+          params:
+            jmespath_expression: "status"
+            expected: "CAPABILITY_PASS"
+            allow_wrapped: true
+            extract_json: true
+            message: "JSON should have status field set to CAPABILITY_PASS"

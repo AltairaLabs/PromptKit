@@ -1,0 +1,16 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: openai-gpt41-mini
+spec:
+  id: openai-gpt41-mini
+  type: openai
+  # STATUS: Model name TBD - gpt-4.1-mini may not exist yet
+  model: gpt-4.1-mini
+  defaults:
+    temperature: 0.1
+    max_tokens: 500
+    top_p: 1.0
+  pricing:
+    input_cost_per_1k: 0.002
+    output_cost_per_1k: 0.008

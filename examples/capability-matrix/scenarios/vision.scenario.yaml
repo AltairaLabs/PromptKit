@@ -1,0 +1,31 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+
+metadata:
+  name: vision
+
+spec:
+  id: vision
+  task_type: capability-test
+  description: "Test vision/image understanding capability"
+  provider_group: vision
+
+  turns:
+    - role: user
+      parts:
+        - type: text
+          text: "Describe what you see in this image briefly. End your response with CAPABILITY_PASS."
+        - type: image
+          media:
+            # Using a simple, reliably-accessible test image
+            url: "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png"
+            mime_type: "image/png"
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["CAPABILITY_PASS"]
+            message: "Response should include CAPABILITY_PASS"
+        - type: min_length
+          params:
+            min_characters: 20
+            message: "Should provide some description of the image"
