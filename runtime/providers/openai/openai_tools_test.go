@@ -839,7 +839,9 @@ data: [DONE]
 	}))
 	defer server.Close()
 
-	provider := NewToolProvider("test", "gpt-4", server.URL, providers.ProviderDefaults{}, false, nil)
+	// Use Chat Completions API mode since mock returns that format
+	additionalConfig := map[string]any{"api_mode": "completions"}
+	provider := NewToolProvider("test", "gpt-4", server.URL, providers.ProviderDefaults{}, false, additionalConfig)
 
 	schema := json.RawMessage(`{"type": "object", "properties": {"q": {"type": "string"}}}`)
 	tools, _ := provider.BuildTooling([]*providers.ToolDescriptor{
@@ -893,7 +895,9 @@ data: [DONE]
 	}))
 	defer server.Close()
 
-	provider := NewToolProvider("test", "gpt-4", server.URL, providers.ProviderDefaults{}, false, nil)
+	// Use Chat Completions API mode since mock returns that format
+	additionalConfig := map[string]any{"api_mode": "completions"}
+	provider := NewToolProvider("test", "gpt-4", server.URL, providers.ProviderDefaults{}, false, additionalConfig)
 
 	schema := json.RawMessage(`{"type": "object", "properties": {"q": {"type": "string"}}}`)
 	tools, _ := provider.BuildTooling([]*providers.ToolDescriptor{

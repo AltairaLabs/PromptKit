@@ -10,6 +10,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // Streaming finish reason constants
@@ -227,11 +228,17 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 	var inputTokens, outputTokens, cachedTokens int
 	var stopReason string
 
+	// Track tool calls from content_block_start and content_block_delta events
+	var accumulatedToolCalls []types.MessageToolCall
+	var currentToolCallIndex = -1
+	var currentToolCallJSON string
+
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
 			outChan <- providers.StreamChunk{
 				Content:      accumulated,
+				ToolCalls:    accumulatedToolCalls,
 				Error:        ctx.Err(),
 				FinishReason: providers.StringPtr("canceled"),
 			}
@@ -264,16 +271,72 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 				}
 			}
 
+		case "content_block_start":
+			// content_block_start can indicate a new tool_use block
+			var blockStartEvent struct {
+				Index        int `json:"index"`
+				ContentBlock *struct {
+					Type string `json:"type"`
+					ID   string `json:"id"`
+					Name string `json:"name"`
+				} `json:"content_block,omitempty"`
+			}
+			if err := json.Unmarshal([]byte(data), &blockStartEvent); err == nil {
+				if blockStartEvent.ContentBlock != nil && blockStartEvent.ContentBlock.Type == "tool_use" {
+					// Start a new tool call
+					currentToolCallIndex = len(accumulatedToolCalls)
+					currentToolCallJSON = ""
+					accumulatedToolCalls = append(accumulatedToolCalls, types.MessageToolCall{
+						ID:   blockStartEvent.ContentBlock.ID,
+						Name: blockStartEvent.ContentBlock.Name,
+						Args: json.RawMessage("{}"),
+					})
+				}
+			}
+
 		case "content_block_delta":
 			var deltaEvent struct {
+				Index int `json:"index"`
 				Delta *struct {
-					Type string `json:"type"`
-					Text string `json:"text"`
+					Type        string `json:"type"`
+					Text        string `json:"text"`
+					PartialJSON string `json:"partial_json"`
 				} `json:"delta,omitempty"`
 			}
 			if err := json.Unmarshal([]byte(data), &deltaEvent); err == nil {
-				accumulated, totalTokens = p.processClaudeContentDeltaInternal(deltaEvent.Delta, accumulated, totalTokens, outChan)
+				if deltaEvent.Delta != nil {
+					switch deltaEvent.Delta.Type {
+					case textDeltaType:
+						// Handle text delta - create a compatible struct for processClaudeContentDeltaInternal
+						textDelta := &struct {
+							Type string `json:"type"`
+							Text string `json:"text"`
+						}{
+							Type: deltaEvent.Delta.Type,
+							Text: deltaEvent.Delta.Text,
+						}
+						accumulated, totalTokens = p.processClaudeContentDeltaInternal(textDelta, accumulated, totalTokens, outChan)
+					case "input_json_delta":
+						// Handle tool call input JSON delta
+						if currentToolCallIndex >= 0 && currentToolCallIndex < len(accumulatedToolCalls) {
+							currentToolCallJSON += deltaEvent.Delta.PartialJSON
+							// Update the tool call args with accumulated JSON
+							accumulatedToolCalls[currentToolCallIndex].Args = json.RawMessage(currentToolCallJSON)
+							// Emit chunk with updated tool calls
+							outChan <- providers.StreamChunk{
+								Content:    accumulated,
+								ToolCalls:  accumulatedToolCalls,
+								TokenCount: totalTokens,
+							}
+						}
+					}
+				}
 			}
+
+		case "content_block_stop":
+			// Reset current tool call tracking when block ends
+			currentToolCallIndex = -1
+			currentToolCallJSON = ""
 
 		case "message_delta":
 			// message_delta contains output tokens and stop reason
@@ -300,6 +363,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 			}
 			finalChunk := providers.StreamChunk{
 				Content:      accumulated,
+				ToolCalls:    accumulatedToolCalls,
 				TokenCount:   totalTokens,
 				FinishReason: &finishReason,
 			}
@@ -318,6 +382,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 	if err := scanner.Err(); err != nil {
 		outChan <- providers.StreamChunk{
 			Content:      accumulated,
+			ToolCalls:    accumulatedToolCalls,
 			Error:        err,
 			FinishReason: providers.StringPtr("error"),
 		}

@@ -53,32 +53,47 @@ func requiresResponsesAPI(model string) bool {
 	return model == "o1-pro"
 }
 
+// transformToResponsesCallID converts a call ID to Responses API format.
+// The Responses API requires function call IDs to start with 'fc_'.
+// Chat Completions API uses 'call_' prefix which must be transformed.
+func transformToResponsesCallID(callID string) string {
+	// If already in Responses format, return as-is
+	if strings.HasPrefix(callID, "fc_") {
+		return callID
+	}
+	// Transform call_ prefix to fc_ prefix
+	if strings.HasPrefix(callID, "call_") {
+		return "fc_" + strings.TrimPrefix(callID, "call_")
+	}
+	// For any other format, add fc_ prefix
+	return "fc_" + callID
+}
+
 // getAPIMode determines which API to use based on config and model.
 // Priority:
 //  1. Model requirement (o1-pro requires responses)
 //  2. Explicit config setting
-//  3. Default to completions API
+//  3. Default to Responses API
 func getAPIMode(model string, additionalConfig map[string]any) APIMode {
 	// If model requires Responses API, use it regardless of config
 	if requiresResponsesAPI(model) {
 		return APIModeResponses
 	}
 
-	// Check explicit config
+	// Check explicit config for legacy API
 	if additionalConfig != nil {
 		if mode, ok := additionalConfig["api_mode"].(string); ok {
 			switch strings.ToLower(mode) {
+			case "completions", "chat_completions", "legacy":
+				return APIModeCompletions
 			case "responses":
 				return APIModeResponses
-			case "completions", "chat_completions":
-				return APIModeCompletions
 			}
 		}
 	}
 
-	// Default to completions API for now until responses API is fully tested
-	// TODO: Change default to APIModeResponses once validated
-	return APIModeCompletions
+	// Default to Responses API
+	return APIModeResponses
 }
 
 // Responses API response structures
@@ -191,16 +206,73 @@ func (p *Provider) buildResponsesRequest(req providers.PredictionRequest, tools 
 }
 
 // convertMessagesToResponsesInput converts messages to Responses API input format
+// The Responses API expects a flat list where tool calls are separate function_call items
 func (p *Provider) convertMessagesToResponsesInput(messages []types.Message) []any {
-	input := make([]any, 0, len(messages))
+	// Allocate extra capacity for tool calls which become separate items
+	const toolCallCapacityMultiplier = 2
+	input := make([]any, 0, len(messages)*toolCallCapacityMultiplier)
 	for i := range messages {
-		input = append(input, p.convertSingleMessageToResponsesInput(&messages[i]))
+		items := p.convertSingleMessageToResponsesInput(&messages[i])
+		for _, item := range items {
+			input = append(input, item)
+		}
 	}
 	return input
 }
 
 // convertSingleMessageToResponsesInput converts a single message to Responses API format
-func (p *Provider) convertSingleMessageToResponsesInput(msg *types.Message) map[string]any {
+// Returns a slice because assistant messages with tool calls become multiple items
+func (p *Provider) convertSingleMessageToResponsesInput(msg *types.Message) []map[string]any {
+	// Handle tool results - these are function_call_output items
+	if msg.Role == roleToolResult && msg.ToolResult != nil {
+		// Transform call ID to Responses API format (must start with 'fc_')
+		callID := transformToResponsesCallID(msg.ToolResult.ID)
+		return []map[string]any{{
+			"type":    "function_call_output",
+			"call_id": callID,
+			"output":  msg.ToolResult.Content,
+		}}
+	}
+
+	// Handle assistant messages with tool calls
+	// In Responses API, tool calls become separate function_call items
+	if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+		items := make([]map[string]any, 0, len(msg.ToolCalls)+1)
+
+		// Add text content as a message if present
+		content := msg.GetContent()
+		if content != "" {
+			items = append(items, map[string]any{
+				"type": "message",
+				"role": "assistant",
+				"content": []map[string]any{{
+					"type": "output_text",
+					"text": content,
+				}},
+			})
+		}
+
+		// Add each tool call as a separate function_call item
+		for _, tc := range msg.ToolCalls {
+			// Parse the args JSON to get actual object
+			var args any
+			if err := json.Unmarshal(tc.Args, &args); err != nil {
+				args = string(tc.Args) // Fallback to string if not valid JSON
+			}
+			// Transform call ID to Responses API format (must start with 'fc_')
+			callID := transformToResponsesCallID(tc.ID)
+			items = append(items, map[string]any{
+				"type":      typeFunctionCall,
+				"id":        callID,
+				"call_id":   callID,
+				"name":      tc.Name,
+				"arguments": args,
+			})
+		}
+		return items
+	}
+
+	// Regular message (user or assistant without tool calls)
 	inputMsg := map[string]any{
 		"role": msg.Role,
 	}
@@ -208,19 +280,7 @@ func (p *Provider) convertSingleMessageToResponsesInput(msg *types.Message) map[
 	// Handle content (multimodal or simple text)
 	inputMsg["content"] = p.getMessageContent(msg)
 
-	// Handle tool calls in assistant messages
-	if len(msg.ToolCalls) > 0 {
-		inputMsg["tool_calls"] = p.convertToolCallsToResponsesFormat(msg.ToolCalls)
-	}
-
-	// Handle tool results
-	if msg.Role == roleToolResult && msg.ToolResult != nil {
-		inputMsg["type"] = "function_call_output"
-		inputMsg["call_id"] = msg.ToolResult.ID
-		inputMsg["output"] = msg.ToolResult.Content
-	}
-
-	return inputMsg
+	return []map[string]any{inputMsg}
 }
 
 // getMessageContent extracts content from a message in Responses API format
@@ -247,10 +307,13 @@ func (p *Provider) convertPartToResponsesFormat(part *types.ContentPart) map[str
 			"text": part.Text,
 		}
 	case "image":
-		if part.Media != nil {
+		if part.Media != nil && part.Media.URL != nil && *part.Media.URL != "" {
+			// Responses API expects image_url as an object with url field
 			return map[string]any{
-				"type":      "input_image",
-				"image_url": part.Media.URL,
+				"type": "input_image",
+				"image_url": map[string]any{
+					"url": *part.Media.URL,
+				},
 			}
 		}
 	}
@@ -272,20 +335,6 @@ func (p *Provider) convertToolsToResponsesFormat(tools any) []any {
 			"name":        tool.Function.Name,
 			"description": tool.Function.Description,
 			"parameters":  tool.Function.Parameters,
-		}
-	}
-	return result
-}
-
-// convertToolCallsToResponsesFormat converts tool calls to Responses API format
-func (p *Provider) convertToolCallsToResponsesFormat(toolCalls []types.MessageToolCall) []map[string]any {
-	result := make([]map[string]any, len(toolCalls))
-	for i, tc := range toolCalls {
-		result[i] = map[string]any{
-			"type":      "function_call",
-			"call_id":   tc.ID,
-			"name":      tc.Name,
-			"arguments": string(tc.Args),
 		}
 	}
 	return result
@@ -605,7 +654,13 @@ func (p *Provider) handleFuncArgsDelta(
 		found := false
 		for i := range toolCalls {
 			if toolCalls[i].ID == delta.CallID {
-				toolCalls[i].Args = append(toolCalls[i].Args, []byte(delta.Delta)...)
+				// Replace placeholder {} with actual content, or append to existing
+				currentArgs := string(toolCalls[i].Args)
+				if currentArgs == "{}" || currentArgs == "" {
+					toolCalls[i].Args = json.RawMessage(delta.Delta)
+				} else {
+					toolCalls[i].Args = append(toolCalls[i].Args, []byte(delta.Delta)...)
+				}
 				found = true
 				break
 			}
@@ -634,7 +689,7 @@ func (p *Provider) handleOutputAdded(data string, toolCalls []types.MessageToolC
 			toolCalls = append(toolCalls, types.MessageToolCall{
 				ID:   item.Item.CallID,
 				Name: item.Item.Name,
-				Args: json.RawMessage(""),
+				Args: json.RawMessage(""), // Will be populated by delta events
 			})
 		}
 	}
