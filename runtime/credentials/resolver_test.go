@@ -370,3 +370,92 @@ func TestResolve_ImagenDefaultEnvVars(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "imagen-key", akc.APIKey())
 }
+
+func TestWithBearerPrefix(t *testing.T) {
+	cred := NewAPIKeyCredential("test-key", WithBearerPrefix())
+
+	req, err := http.NewRequest("POST", "https://api.example.com", nil)
+	require.NoError(t, err)
+
+	err = cred.Apply(context.Background(), req)
+	require.NoError(t, err)
+
+	assert.Equal(t, "Bearer test-key", req.Header.Get("Authorization"))
+}
+
+func TestMustResolve_Success(t *testing.T) {
+	cfg := ResolverConfig{
+		ProviderType: "openai",
+		CredentialConfig: &config.CredentialConfig{
+			APIKey: "sk-test-key",
+		},
+	}
+
+	// Should not panic
+	cred := MustResolve(context.Background(), cfg)
+	require.NotNil(t, cred)
+	assert.Equal(t, "api_key", cred.Type())
+}
+
+func TestMustResolve_Panics(t *testing.T) {
+	cfg := ResolverConfig{
+		ProviderType: "openai",
+		CredentialConfig: &config.CredentialConfig{
+			CredentialEnv: "NONEXISTENT_VAR_FOR_PANIC_TEST",
+		},
+	}
+
+	assert.Panics(t, func() {
+		MustResolve(context.Background(), cfg)
+	})
+}
+
+func TestAPIKeyCredential_EmptyKey(t *testing.T) {
+	// Empty API key should not set header
+	cred := NewAPIKeyCredential("")
+
+	req, err := http.NewRequest("POST", "https://api.example.com", nil)
+	require.NoError(t, err)
+
+	err = cred.Apply(context.Background(), req)
+	require.NoError(t, err)
+
+	// Header should be empty when API key is empty
+	assert.Empty(t, req.Header.Get("Authorization"))
+}
+
+func TestResolve_SecondaryClaudeEnvVar(t *testing.T) {
+	// Test that CLAUDE_API_KEY works as fallback
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("CLAUDE_API_KEY", "claude-fallback-key")
+
+	cfg := ResolverConfig{
+		ProviderType: "claude",
+	}
+
+	cred, err := Resolve(context.Background(), cfg)
+	require.NoError(t, err)
+	require.NotNil(t, cred)
+
+	akc, ok := cred.(*APIKeyCredential)
+	require.True(t, ok)
+	assert.Equal(t, "claude-fallback-key", akc.APIKey())
+}
+
+func TestResolve_GeminiSecondaryEnvVar(t *testing.T) {
+	// Test that GOOGLE_API_KEY works as fallback for gemini
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("GOOGLE_API_KEY", "google-fallback-key")
+
+	cfg := ResolverConfig{
+		ProviderType: "gemini",
+	}
+
+	cred, err := Resolve(context.Background(), cfg)
+	require.NoError(t, err)
+	require.NotNil(t, cred)
+
+	akc, ok := cred.(*APIKeyCredential)
+	require.True(t, ok)
+	assert.Equal(t, "google-fallback-key", akc.APIKey())
+}
