@@ -9,6 +9,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -610,4 +611,195 @@ func TestVADModeConfigConversions(t *testing.T) {
 	ttsCfg := cfg.toTTSStageConfig(nil)
 	assert.Equal(t, cfg.Voice, ttsCfg.Voice)
 	assert.Equal(t, cfg.Speed, ttsCfg.Speed)
+}
+
+// Credential option tests
+
+func TestWithCredentialAPIKey(t *testing.T) {
+	opt := WithCredentialAPIKey("sk-test-key")
+	assert.NotNil(t, opt)
+
+	cfg := &credentialConfig{}
+	opt.applyCredential(cfg)
+	assert.Equal(t, "sk-test-key", cfg.apiKey)
+}
+
+func TestWithCredentialFile(t *testing.T) {
+	opt := WithCredentialFile("/path/to/credential.txt")
+	assert.NotNil(t, opt)
+
+	cfg := &credentialConfig{}
+	opt.applyCredential(cfg)
+	assert.Equal(t, "/path/to/credential.txt", cfg.credentialFile)
+}
+
+func TestWithCredentialEnv(t *testing.T) {
+	opt := WithCredentialEnv("MY_API_KEY_VAR")
+	assert.NotNil(t, opt)
+
+	cfg := &credentialConfig{}
+	opt.applyCredential(cfg)
+	assert.Equal(t, "MY_API_KEY_VAR", cfg.credentialEnv)
+}
+
+// Platform option tests
+
+func TestWithPlatformRegion(t *testing.T) {
+	opt := WithPlatformRegion("us-west-2")
+	assert.NotNil(t, opt)
+
+	cfg := &platformConfig{}
+	opt.applyPlatform(cfg)
+	assert.Equal(t, "us-west-2", cfg.region)
+}
+
+func TestWithPlatformProject(t *testing.T) {
+	opt := WithPlatformProject("my-gcp-project")
+	assert.NotNil(t, opt)
+
+	cfg := &platformConfig{}
+	opt.applyPlatform(cfg)
+	assert.Equal(t, "my-gcp-project", cfg.project)
+}
+
+func TestWithPlatformEndpoint(t *testing.T) {
+	opt := WithPlatformEndpoint("https://custom.endpoint.com")
+	assert.NotNil(t, opt)
+
+	cfg := &platformConfig{}
+	opt.applyPlatform(cfg)
+	assert.Equal(t, "https://custom.endpoint.com", cfg.endpoint)
+}
+
+// Platform provider option tests
+
+func TestWithBedrock(t *testing.T) {
+	t.Run("basic usage", func(t *testing.T) {
+		opt := WithBedrock("us-west-2")
+		assert.NotNil(t, opt)
+
+		cfg := &config{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+	})
+
+	t.Run("with additional options", func(t *testing.T) {
+		opt := WithBedrock("us-east-1", WithPlatformEndpoint("https://custom.bedrock.aws"))
+		assert.NotNil(t, opt)
+
+		cfg := &config{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+	})
+}
+
+func TestWithVertex(t *testing.T) {
+	t.Run("basic usage", func(t *testing.T) {
+		opt := WithVertex("us-central1", "my-project")
+		assert.NotNil(t, opt)
+
+		cfg := &config{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+	})
+
+	t.Run("with additional options", func(t *testing.T) {
+		opt := WithVertex("europe-west1", "my-project", WithPlatformEndpoint("https://custom.vertex.googleapis.com"))
+		assert.NotNil(t, opt)
+
+		cfg := &config{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+	})
+}
+
+func TestWithAzure(t *testing.T) {
+	t.Run("basic usage", func(t *testing.T) {
+		opt := WithAzure("https://my-resource.openai.azure.com")
+		assert.NotNil(t, opt)
+
+		cfg := &config{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+	})
+
+	t.Run("with additional options", func(t *testing.T) {
+		opt := WithAzure("https://my-resource.openai.azure.com", WithPlatformRegion("eastus"))
+		assert.NotNil(t, opt)
+
+		cfg := &config{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+	})
+}
+
+// MCP option tests (additional tests, main tests in mcp_test.go)
+
+func TestNewMCPServerWithEnvMultiple(t *testing.T) {
+	builder := NewMCPServer("test", "cmd").
+		WithEnv("KEY1", "value1").
+		WithEnv("KEY2", "value2")
+
+	cfg := builder.Build()
+	assert.Equal(t, "test", cfg.Name)
+	assert.Equal(t, "cmd", cfg.Command)
+	assert.Equal(t, "value1", cfg.Env["KEY1"])
+	assert.Equal(t, "value2", cfg.Env["KEY2"])
+}
+
+// Validation option tests
+
+func TestWithSkipSchemaValidation(t *testing.T) {
+	opt := WithSkipSchemaValidation()
+	assert.NotNil(t, opt)
+
+	cfg := &config{}
+	err := opt(cfg)
+	assert.NoError(t, err)
+	assert.True(t, cfg.skipSchemaValidation)
+}
+
+// Response format option tests
+
+func TestWithResponseFormat(t *testing.T) {
+	t.Run("JSON format", func(t *testing.T) {
+		opt := WithResponseFormat(&providers.ResponseFormat{
+			Type: providers.ResponseFormatJSON,
+		})
+		assert.NotNil(t, opt)
+
+		cfg := &config{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+		assert.NotNil(t, cfg.responseFormat)
+		assert.Equal(t, providers.ResponseFormatJSON, cfg.responseFormat.Type)
+	})
+
+	t.Run("JSON Schema format", func(t *testing.T) {
+		opt := WithResponseFormat(&providers.ResponseFormat{
+			Type:       providers.ResponseFormatJSONSchema,
+			SchemaName: "person",
+			Strict:     true,
+		})
+		assert.NotNil(t, opt)
+
+		cfg := &config{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+		assert.NotNil(t, cfg.responseFormat)
+		assert.Equal(t, providers.ResponseFormatJSONSchema, cfg.responseFormat.Type)
+		assert.Equal(t, "person", cfg.responseFormat.SchemaName)
+		assert.True(t, cfg.responseFormat.Strict)
+	})
+}
+
+func TestWithJSONMode(t *testing.T) {
+	opt := WithJSONMode()
+	assert.NotNil(t, opt)
+
+	cfg := &config{}
+	err := opt(cfg)
+	assert.NoError(t, err)
+	assert.NotNil(t, cfg.responseFormat)
+	assert.Equal(t, providers.ResponseFormatJSON, cfg.responseFormat.Type)
 }
