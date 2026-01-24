@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
@@ -111,13 +112,43 @@ func BuildEngineComponents(cfg *config.Config) (
 
 // createProviderImpl converts config.Provider to providers.Provider.
 func createProviderImpl(provider *config.Provider) (providers.Provider, error) {
+	// Resolve credential using the credential chain
+	ctx := context.Background()
+	resolverCfg := credentials.ResolverConfig{
+		ProviderType:     provider.Type,
+		CredentialConfig: provider.Credential,
+	}
+
+	// Handle platform configuration
+	var platformConfig *providers.PlatformConfig
+	var platform string
+	if provider.Platform != nil {
+		platform = provider.Platform.Type
+		platformConfig = &providers.PlatformConfig{
+			Type:             provider.Platform.Type,
+			Region:           provider.Platform.Region,
+			Project:          provider.Platform.Project,
+			Endpoint:         provider.Platform.Endpoint,
+			AdditionalConfig: provider.Platform.AdditionalConfig,
+		}
+		resolverCfg.PlatformConfig = provider.Platform
+	}
+
+	cred, err := credentials.Resolve(ctx, resolverCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve credentials for provider %s: %w", provider.ID, err)
+	}
+
 	spec := providers.ProviderSpec{
 		ID:               provider.ID,
 		Type:             provider.Type,
 		Model:            provider.Model,
 		BaseURL:          provider.BaseURL,
 		IncludeRawOutput: provider.IncludeRawOutput,
-		AdditionalConfig: provider.AdditionalConfig, // Pass through additional config
+		AdditionalConfig: provider.AdditionalConfig,
+		Credential:       cred,
+		Platform:         platform,
+		PlatformConfig:   platformConfig,
 		Defaults: providers.ProviderDefaults{
 			Temperature: provider.Defaults.Temperature,
 			TopP:        provider.Defaults.TopP,

@@ -32,6 +32,16 @@ func NewToolProvider(id, model, baseURL string, defaults providers.ProviderDefau
 	}
 }
 
+// NewToolProviderWithCredential creates a Claude tool provider with explicit credential.
+func NewToolProviderWithCredential(
+	id, model, baseURL string, defaults providers.ProviderDefaults,
+	includeRawOutput bool, cred providers.Credential,
+) *ToolProvider {
+	return &ToolProvider{
+		Provider: NewProviderWithCredential(id, model, baseURL, defaults, includeRawOutput, cred),
+	}
+}
+
 // Claude-specific tool structures
 type claudeTool struct {
 	Name        string          `json:"name"`
@@ -418,7 +428,17 @@ func (p *ToolProvider) PredictStreamWithTools(
 }
 
 func init() {
-	providers.RegisterProviderFactory("claude", func(spec providers.ProviderSpec) (providers.Provider, error) {
-		return NewToolProvider(spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput), nil
-	})
+	factory := func(spec providers.ProviderSpec) (providers.Provider, error) {
+		// Use credential if provided, otherwise fall back to legacy behavior
+		if spec.Credential != nil {
+			return NewToolProviderWithCredential(
+				spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
+				spec.IncludeRawOutput, spec.Credential,
+			), nil
+		}
+		return NewToolProvider(
+			spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput,
+		), nil
+	}
+	providers.RegisterProviderFactory("claude", factory)
 }

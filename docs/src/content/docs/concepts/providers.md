@@ -36,6 +36,25 @@ A **provider** is an LLM service (OpenAI, Anthropic, Google) that generates text
 - **Features**: Function calling, vision, streaming, guided decoding, beam search, GPU-accelerated high-throughput
 - **Pricing**: Free (self-hosted, no API costs)
 
+## Platform Support
+
+PromptKit supports running models on cloud hyperscaler platforms in addition to direct API access:
+
+### AWS Bedrock
+- **Authentication**: Uses AWS SDK credential chain (IRSA, IAM roles, env vars)
+- **Models**: Claude models via Anthropic partnership
+- **Benefits**: Enterprise security, VPC integration, no API key management
+
+### Google Cloud Vertex AI
+- **Authentication**: Uses GCP Application Default Credentials (Workload Identity, service accounts)
+- **Models**: Claude and Gemini models
+- **Benefits**: GCP integration, enterprise compliance, unified billing
+
+### Azure AI Foundry
+- **Authentication**: Uses Azure AD tokens (Managed Identity, service principals)
+- **Models**: OpenAI models via Azure partnership
+- **Benefits**: Azure integration, enterprise security, compliance
+
 ## Why Provider Abstraction?
 
 **Problem**: Each provider has different APIs
@@ -122,6 +141,85 @@ for {
     }
     fmt.Print(chunk.Content)
 }
+```
+
+## Credential Configuration
+
+PromptKit supports flexible credential configuration with a resolution chain:
+
+### Resolution Order
+
+Credentials are resolved in the following priority order:
+
+1. **`api_key`**: Explicit API key in configuration
+2. **`credential_file`**: Read API key from a file path
+3. **`credential_env`**: Read API key from specified environment variable
+4. **Default env vars**: Fall back to provider-specific defaults (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
+
+### Configuration Examples
+
+```yaml
+# Explicit API key (not recommended for production)
+credential:
+  api_key: "sk-..."
+
+# Read from file (good for secrets management)
+credential:
+  credential_file: /run/secrets/openai-key
+
+# Read from custom env var (useful for multiple providers)
+credential:
+  credential_env: OPENAI_PROD_API_KEY
+```
+
+### Per-Provider Credentials
+
+Configure different credentials for the same provider type:
+
+```yaml
+providers:
+  - id: openai-prod
+    type: openai
+    model: gpt-4o
+    credential:
+      credential_env: OPENAI_PROD_KEY
+
+  - id: openai-dev
+    type: openai
+    model: gpt-4o-mini
+    credential:
+      credential_env: OPENAI_DEV_KEY
+```
+
+### Platform Credentials
+
+For cloud platforms, credentials are handled automatically via SDK credential chains:
+
+```yaml
+# AWS Bedrock - uses IRSA, IAM roles, or AWS_* env vars
+- id: claude-bedrock
+  type: claude
+  model: claude-3-5-sonnet-20241022
+  platform:
+    type: bedrock
+    region: us-west-2
+
+# GCP Vertex AI - uses Workload Identity or GOOGLE_APPLICATION_CREDENTIALS
+- id: claude-vertex
+  type: claude
+  model: claude-3-5-sonnet-20241022
+  platform:
+    type: vertex
+    region: us-central1
+    project: my-gcp-project
+
+# Azure AI - uses Managed Identity or AZURE_* env vars
+- id: gpt4-azure
+  type: openai
+  model: gpt-4o
+  platform:
+    type: azure
+    endpoint: https://my-resource.openai.azure.com
 ```
 
 ## Provider Configuration
@@ -440,5 +538,6 @@ Providers are:
 
 - [Provider System Explanation](../runtime/explanation/provider-system) - Architecture details
 - [Provider Reference](../runtime/reference/providers) - API documentation
+- [Cloud Provider Examples](../arena/examples/cloud-providers) - Bedrock, Vertex, Azure examples
 - [Multi-Provider Fallback](../runtime/how-to/fallback-providers) - Implementation guide
 - [Cost Monitoring](../runtime/how-to/monitor-costs) - Track expenses

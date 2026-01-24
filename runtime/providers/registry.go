@@ -1,5 +1,10 @@
 package providers
 
+import (
+	"context"
+	"net/http"
+)
+
 const (
 	// DefaultGeminiBaseURL is the default base URL for Gemini API (includes version path)
 	DefaultGeminiBaseURL = "https://generativelanguage.googleapis.com/v1beta"
@@ -67,6 +72,37 @@ type ProviderSpec struct {
 	Defaults         ProviderDefaults
 	IncludeRawOutput bool
 	AdditionalConfig map[string]interface{} // Flexible key-value pairs for provider-specific configuration
+
+	// Credential holds the resolved credential for this provider.
+	// If nil, providers fall back to environment variable lookup.
+	Credential Credential
+
+	// Platform identifies the hosting platform (e.g., "bedrock", "vertex", "azure").
+	// Empty string means direct API access to the provider.
+	Platform string
+
+	// PlatformConfig holds platform-specific configuration.
+	// Only set when Platform is non-empty.
+	PlatformConfig *PlatformConfig
+}
+
+// Credential applies authentication to HTTP requests.
+// This is the interface that providers use to authenticate requests.
+type Credential interface {
+	// Apply adds authentication to the HTTP request.
+	Apply(ctx context.Context, req *http.Request) error
+
+	// Type returns the credential type identifier.
+	Type() string
+}
+
+// PlatformConfig holds platform-specific settings from config.
+type PlatformConfig struct {
+	Type             string
+	Region           string
+	Project          string
+	Endpoint         string
+	AdditionalConfig map[string]interface{}
 }
 
 // CreateProviderFromSpec creates a provider implementation from a spec.

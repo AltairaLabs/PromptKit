@@ -22,6 +22,10 @@ Examples showing how to integrate PromptKit with external systems and tools.
 
 Examples showcasing advanced PromptKit capabilities like human-in-the-loop workflows, state management, and custom middleware.
 
+### ☁️ Cloud Integration
+
+Examples for running LLMs on enterprise cloud platforms with managed authentication (AWS Bedrock, GCP Vertex AI, Azure AI).
+
 ---
 
 ## Available Examples
@@ -155,6 +159,22 @@ Examples showcasing advanced PromptKit capabilities like human-in-the-loop workf
 
 - **Learn**: How to make prompts flexible and reusable with template variables
 - **Includes**: Restaurant bot and product support examples with detailed testing
+
+### 12. **cloud-providers** ⭐
+
+**Category**: Integration
+**Purpose**: Configure providers with cloud hyperscaler platforms
+
+- **Features**:
+
+  - AWS Bedrock integration with IAM authentication
+  - GCP Vertex AI with Workload Identity
+  - Azure AI with Managed Identity
+  - Per-provider credential configuration
+  - Multi-cloud comparison testing
+
+- **Learn**: How to run LLMs on enterprise cloud platforms
+- **Includes**: Bedrock, Vertex, Azure configurations with authentication examples
 
 ---
 

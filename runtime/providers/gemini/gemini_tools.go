@@ -34,6 +34,16 @@ func NewToolProvider(id, model, baseURL string, defaults providers.ProviderDefau
 	}
 }
 
+// NewToolProviderWithCredential creates a Gemini tool provider with explicit credential.
+func NewToolProviderWithCredential(
+	id, model, baseURL string, defaults providers.ProviderDefaults,
+	includeRawOutput bool, cred providers.Credential,
+) *ToolProvider {
+	return &ToolProvider{
+		Provider: NewProviderWithCredential(id, model, baseURL, defaults, includeRawOutput, cred),
+	}
+}
+
 // Gemini-specific tool structures
 type geminiToolDeclaration struct {
 	FunctionDeclarations []geminiFunctionDeclaration `json:"function_declarations"`
@@ -513,7 +523,16 @@ func (p *ToolProvider) GetStreamingCapabilities() providers.StreamingCapabilitie
 }
 
 func init() {
-	providers.RegisterProviderFactory("gemini", func(spec providers.ProviderSpec) (providers.Provider, error) {
-		return NewToolProvider(spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput), nil
-	})
+	factory := func(spec providers.ProviderSpec) (providers.Provider, error) {
+		if spec.Credential != nil {
+			return NewToolProviderWithCredential(
+				spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
+				spec.IncludeRawOutput, spec.Credential,
+			), nil
+		}
+		return NewToolProvider(
+			spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput,
+		), nil
+	}
+	providers.RegisterProviderFactory("gemini", factory)
 }

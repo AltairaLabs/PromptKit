@@ -756,6 +756,19 @@ spec:
   # Optional: API endpoint override
   base_url: https://api.openai.com/v1
 
+  # Optional: Credential configuration
+  credential:
+    api_key: ""                     # Direct API key (not recommended)
+    credential_file: ""             # Path to file containing API key
+    credential_env: ""              # Environment variable name
+
+  # Optional: Platform configuration (for cloud hosting)
+  platform:
+    type: ""                        # bedrock, vertex, or azure
+    region: ""                      # AWS/GCP region
+    project: ""                     # GCP project ID (Vertex only)
+    endpoint: ""                    # Custom endpoint URL (Azure)
+
   # Model parameters
   defaults:
     temperature: 0.7                # Sampling temperature (0.0-2.0)
@@ -839,9 +852,99 @@ spec:
 
 Mock provider for testing without API calls. Returns predefined responses.
 
-### Authentication
+### Credential Configuration
 
-Providers authenticate using environment variables:
+Credentials can be configured in multiple ways with the following resolution order:
+
+1. **`api_key`**: Direct API key value (not recommended for production)
+2. **`credential_file`**: Read API key from a file
+3. **`credential_env`**: Read from specified environment variable
+4. **Default env vars**: Fall back to standard env vars (OPENAI_API_KEY, etc.)
+
+**Example - Per-Provider Credentials:**
+```yaml
+# Production OpenAI with custom env var
+spec:
+  type: openai
+  model: gpt-4o
+  credential:
+    credential_env: OPENAI_PROD_KEY
+
+# Development OpenAI with different key
+spec:
+  type: openai
+  model: gpt-4o-mini
+  credential:
+    credential_env: OPENAI_DEV_KEY
+```
+
+**Example - Credential from File:**
+```yaml
+spec:
+  type: openai
+  model: gpt-4o
+  credential:
+    credential_file: /run/secrets/openai-api-key
+```
+
+### Platform Configuration
+
+Platforms allow running models on cloud hyperscalers with managed authentication:
+
+#### AWS Bedrock
+
+```yaml
+spec:
+  type: claude                      # LLM API format
+  model: claude-3-5-sonnet-20241022
+  platform:
+    type: bedrock
+    region: us-west-2
+```
+
+Uses AWS SDK credential chain:
+- IRSA (EKS workload identity)
+- EC2 instance roles
+- `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` env vars
+
+Model names are automatically mapped (e.g., `claude-3-5-sonnet-20241022` → `anthropic.claude-3-5-sonnet-20241022-v2:0`).
+
+#### GCP Vertex AI
+
+```yaml
+spec:
+  type: claude
+  model: claude-3-5-sonnet-20241022
+  platform:
+    type: vertex
+    region: us-central1
+    project: my-gcp-project
+```
+
+Uses GCP Application Default Credentials:
+- Workload Identity (GKE)
+- Service account keys
+- `GOOGLE_APPLICATION_CREDENTIALS` env var
+
+#### Azure AI Foundry
+
+```yaml
+spec:
+  type: openai
+  model: gpt-4o
+  platform:
+    type: azure
+    endpoint: https://my-resource.openai.azure.com
+```
+
+Uses Azure SDK credential chain:
+- Managed Identity
+- Azure CLI credentials
+- `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_CLIENT_SECRET` env vars
+
+### Authentication (Legacy)
+
+For backward compatibility, providers can still authenticate using environment variables:
 
 ```bash
 export OPENAI_API_KEY="sk-..."

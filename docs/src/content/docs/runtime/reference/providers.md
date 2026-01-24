@@ -1168,6 +1168,144 @@ All providers support environment variable configuration:
 - `VLLM_API_KEY`: Optional vLLM authentication (if server configured with auth)
 - `VLLM_BASE_URL`: vLLM server URL (default: `http://localhost:8000`)
 
+## Credential System
+
+PromptKit provides a flexible credential system for authenticating with LLM providers.
+
+### Credential Interface
+
+```go
+type Credential interface {
+    // Apply adds authentication to an HTTP request
+    Apply(ctx context.Context, req *http.Request) error
+
+    // Type returns the credential type identifier
+    Type() string
+}
+```
+
+### Credential Types
+
+#### APIKeyCredential
+
+Standard API key authentication (most providers):
+
+```go
+cred := credentials.NewAPIKeyCredential("sk-your-key",
+    credentials.WithHeaderName("Authorization"),  // Default
+    credentials.WithPrefix("Bearer "),            // Default
+)
+```
+
+#### AWSCredential
+
+AWS SigV4 signing for Bedrock:
+
+```go
+cred, err := credentials.NewAWSCredential(ctx, "us-west-2")
+// Uses AWS SDK default credential chain:
+// - IRSA (EKS)
+// - IAM instance roles
+// - AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
+```
+
+#### GCPCredential
+
+GCP OAuth tokens for Vertex AI:
+
+```go
+cred, err := credentials.NewGCPCredential(ctx, "us-central1", "my-project")
+// Uses Application Default Credentials:
+// - Workload Identity (GKE)
+// - Service account keys
+// - GOOGLE_APPLICATION_CREDENTIALS
+```
+
+#### AzureCredential
+
+Azure AD tokens for Azure AI:
+
+```go
+cred, err := credentials.NewAzureCredential(ctx, "https://my-resource.openai.azure.com")
+// Uses Azure SDK default credential chain:
+// - Managed Identity
+// - Azure CLI credentials
+// - AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_CLIENT_SECRET
+```
+
+### Credential Resolution
+
+The `credentials.Resolve()` function resolves credentials based on configuration:
+
+```go
+import "github.com/AltairaLabs/PromptKit/runtime/credentials"
+
+cfg := credentials.ResolverConfig{
+    ProviderType:     "openai",
+    CredentialConfig: &config.CredentialConfig{
+        CredentialEnv: "MY_OPENAI_KEY",  // Custom env var
+    },
+}
+
+cred, err := credentials.Resolve(ctx, cfg)
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+**Resolution Order:**
+1. `api_key` - Direct API key value
+2. `credential_file` - Read from file path
+3. `credential_env` - Read from specified env var
+4. Default env vars - Provider-specific defaults
+
+**Default Environment Variables:**
+- OpenAI: `OPENAI_API_KEY`, `OPENAI_TOKEN`
+- Claude: `ANTHROPIC_API_KEY`, `CLAUDE_API_KEY`
+- Gemini: `GEMINI_API_KEY`, `GOOGLE_API_KEY`
+
+### Platform Configuration
+
+Platforms are hosting layers that wrap provider APIs with different authentication:
+
+```go
+type PlatformConfig struct {
+    Type             string                 // bedrock, vertex, azure
+    Region           string                 // AWS/GCP region
+    Project          string                 // GCP project ID
+    Endpoint         string                 // Custom endpoint URL
+    AdditionalConfig map[string]interface{} // Platform-specific options
+}
+```
+
+#### AWS Bedrock
+
+```yaml
+platform:
+  type: bedrock
+  region: us-west-2
+```
+
+Model names are automatically mapped:
+- `claude-3-5-sonnet-20241022` → `anthropic.claude-3-5-sonnet-20241022-v2:0`
+
+#### GCP Vertex AI
+
+```yaml
+platform:
+  type: vertex
+  region: us-central1
+  project: my-gcp-project
+```
+
+#### Azure AI Foundry
+
+```yaml
+platform:
+  type: azure
+  endpoint: https://my-resource.openai.azure.com
+```
+
 ## Best Practices
 
 ### 1. Resource Management

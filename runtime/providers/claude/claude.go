@@ -44,10 +44,11 @@ func normalizeBaseURL(baseURL string) string {
 // Provider implements the Provider interface for Anthropic Claude
 type Provider struct {
 	providers.BaseProvider
-	model    string
-	baseURL  string
-	apiKey   string
-	defaults providers.ProviderDefaults
+	model      string
+	baseURL    string
+	apiKey     string
+	credential providers.Credential
+	defaults   providers.ProviderDefaults
 }
 
 // NewProvider creates a new Claude provider
@@ -63,9 +64,38 @@ func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults,
 	}
 }
 
+// NewProviderWithCredential creates a new Claude provider with explicit credential.
+func NewProviderWithCredential(
+	id, model, baseURL string, defaults providers.ProviderDefaults,
+	includeRawOutput bool, cred providers.Credential,
+) *Provider {
+	base := providers.NewBaseProvider(id, includeRawOutput, nil)
+
+	return &Provider{
+		BaseProvider: base,
+		model:        model,
+		baseURL:      normalizeBaseURL(baseURL),
+		credential:   cred,
+		defaults:     defaults,
+	}
+}
+
 // Model returns the model name/identifier used by this provider.
 func (p *Provider) Model() string {
 	return p.model
+}
+
+// applyAuth applies authentication to an HTTP request.
+// Uses credential interface if available, falls back to legacy apiKey.
+func (p *Provider) applyAuth(ctx context.Context, req *http.Request) error {
+	if p.credential != nil {
+		return p.credential.Apply(ctx, req)
+	}
+	// Legacy behavior: use apiKey directly
+	if p.apiKey != "" {
+		req.Header.Set("X-API-Key", p.apiKey)
+	}
+	return nil
 }
 
 // Close implements provider cleanup (uses BaseProvider.Close)
@@ -250,8 +280,13 @@ func (p *Provider) makeClaudeHTTPRequest(ctx context.Context, claudeReq claudeRe
 	}
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	httpReq.Header.Set("X-API-Key", p.apiKey)
 	httpReq.Header.Set(anthropicVersionKey, anthropicVersionValue)
+
+	// Apply authentication
+	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+		predictResp.Latency = time.Since(start)
+		return nil, predictResp, fmt.Errorf("failed to apply authentication: %w", authErr)
+	}
 
 	logger.APIRequest("Claude", "POST", url, map[string]string{
 		contentTypeHeader:   applicationJSON,

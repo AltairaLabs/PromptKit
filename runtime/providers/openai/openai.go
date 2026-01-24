@@ -34,10 +34,11 @@ const (
 // OpenAIProvider implements the Provider interface for OpenAI
 type Provider struct {
 	providers.BaseProvider
-	model    string
-	baseURL  string
-	apiKey   string
-	defaults providers.ProviderDefaults
+	model      string
+	baseURL    string
+	apiKey     string
+	credential providers.Credential
+	defaults   providers.ProviderDefaults
 }
 
 // NewProvider creates a new OpenAI provider
@@ -51,6 +52,34 @@ func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults,
 		apiKey:       apiKey,
 		defaults:     defaults,
 	}
+}
+
+// NewProviderWithCredential creates a new OpenAI provider with explicit credential.
+func NewProviderWithCredential(
+	id, model, baseURL string, defaults providers.ProviderDefaults,
+	includeRawOutput bool, cred providers.Credential,
+) *Provider {
+	base := providers.NewBaseProvider(id, includeRawOutput, nil)
+
+	return &Provider{
+		BaseProvider: base,
+		model:        model,
+		baseURL:      baseURL,
+		credential:   cred,
+		defaults:     defaults,
+	}
+}
+
+// applyAuth applies authentication to an HTTP request.
+func (p *Provider) applyAuth(ctx context.Context, req *http.Request) error {
+	if p.credential != nil {
+		return p.credential.Apply(ctx, req)
+	}
+	// Legacy behavior: use apiKey directly
+	if p.apiKey != "" {
+		req.Header.Set(authorizationHeader, bearerPrefix+p.apiKey)
+	}
+	return nil
 }
 
 // Model returns the model name/identifier used by this provider.
@@ -543,13 +572,15 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 	}
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	httpReq.Header.Set(authorizationHeader, bearerPrefix+p.apiKey)
+	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+		return predictResp, fmt.Errorf("failed to apply authentication: %w", authErr)
+	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
 
 	logger.APIRequest("OpenAI", "POST", p.baseURL+openAIPredictCompletionsPath, map[string]string{
 		contentTypeHeader:   applicationJSON,
-		authorizationHeader: bearerPrefix + p.apiKey,
+		authorizationHeader: "***",
 	}, openAIReq)
 
 	resp, err := client.Do(httpReq)
@@ -657,8 +688,10 @@ func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.
 	}
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	httpReq.Header.Set(authorizationHeader, bearerPrefix+p.apiKey)
 	httpReq.Header.Set("Accept", "text/event-stream")
+	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+		return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
+	}
 
 	//nolint:bodyclose // body is closed in streamResponse goroutine
 	resp, err := p.GetHTTPClient().Do(httpReq)

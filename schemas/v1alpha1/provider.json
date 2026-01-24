@@ -50,6 +50,54 @@
         "output_cost_per_1k"
       ]
     },
+    "CredentialConfig": {
+      "description": "Configuration for provider credential resolution",
+      "properties": {
+        "api_key": {
+          "type": "string",
+          "description": "Explicit API key value (not recommended for production)"
+        },
+        "credential_file": {
+          "type": "string",
+          "description": "Path to a file containing the API key"
+        },
+        "credential_env": {
+          "type": "string",
+          "description": "Name of an environment variable containing the API key"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "PlatformConfig": {
+      "description": "Configuration for hyperscaler hosting platforms (bedrock, vertex, azure)",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["bedrock", "vertex", "azure"],
+          "description": "Platform type"
+        },
+        "region": {
+          "type": "string",
+          "description": "Cloud region (e.g., us-west-2, us-central1)"
+        },
+        "project": {
+          "type": "string",
+          "description": "Cloud project ID (required for Vertex)"
+        },
+        "endpoint": {
+          "type": "string",
+          "description": "Optional custom endpoint URL"
+        },
+        "additional_config": {
+          "type": "object",
+          "description": "Platform-specific configuration"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": ["type"]
+    },
     "Provider": {
       "properties": {
         "id": {
@@ -81,6 +129,14 @@
         },
         "additional_config": {
           "type": "object"
+        },
+        "credential": {
+          "$ref": "#/$defs/CredentialConfig",
+          "description": "Credential configuration for this provider"
+        },
+        "platform": {
+          "$ref": "#/$defs/PlatformConfig",
+          "description": "Platform configuration (bedrock, vertex, azure)"
         }
       },
       "additionalProperties": false,
