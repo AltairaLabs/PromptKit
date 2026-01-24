@@ -46,6 +46,61 @@ func TestNewProvider(t *testing.T) {
 	}
 }
 
+func TestNewProviderWithCredential(t *testing.T) {
+	defaults := providers.ProviderDefaults{
+		Temperature: 0.7,
+		TopP:        0.9,
+		MaxTokens:   1000,
+	}
+
+	t.Run("with credential", func(t *testing.T) {
+		cred := &mockCredential{credType: "api_key"}
+		provider := NewProviderWithCredential("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false, cred)
+
+		if provider == nil {
+			t.Fatal("Expected non-nil provider")
+		}
+
+		if provider.ID() != "test-openai" {
+			t.Errorf("Expected ID 'test-openai', got '%s'", provider.ID())
+		}
+
+		if provider.model != "gpt-4" {
+			t.Errorf("Expected model 'gpt-4', got '%s'", provider.model)
+		}
+
+		if provider.baseURL != "https://api.openai.com/v1" {
+			t.Errorf("BaseURL mismatch: expected 'https://api.openai.com/v1', got '%s'", provider.baseURL)
+		}
+
+		if provider.credential == nil {
+			t.Error("Expected credential to be set")
+		}
+	})
+
+	t.Run("with nil credential", func(t *testing.T) {
+		provider := NewProviderWithCredential("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false, nil)
+
+		if provider == nil {
+			t.Fatal("Expected non-nil provider")
+		}
+
+		if provider.credential != nil {
+			t.Error("Expected credential to be nil")
+		}
+	})
+}
+
+// mockCredential implements providers.Credential for testing
+type mockCredential struct {
+	credType string
+}
+
+func (m *mockCredential) Type() string { return m.credType }
+func (m *mockCredential) Apply(_ context.Context, _ *http.Request) error {
+	return nil
+}
+
 func TestOpenAIProvider_ID(t *testing.T) {
 	ids := []string{"openai-gpt4", "openai-gpt-3.5", "custom-openai"}
 

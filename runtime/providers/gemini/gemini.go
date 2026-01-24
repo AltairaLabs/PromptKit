@@ -25,10 +25,11 @@ const (
 // Provider implements the Provider interface for Google Gemini
 type Provider struct {
 	providers.BaseProvider
-	modelName string
-	BaseURL   string
-	ApiKey    string
-	Defaults  providers.ProviderDefaults
+	modelName  string
+	BaseURL    string
+	ApiKey     string
+	credential providers.Credential
+	Defaults   providers.ProviderDefaults
 }
 
 // NewProvider creates a new Gemini provider
@@ -40,6 +41,31 @@ func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults,
 		modelName:    model,
 		BaseURL:      baseURL,
 		ApiKey:       apiKey,
+		Defaults:     defaults,
+	}
+}
+
+// NewProviderWithCredential creates a new Gemini provider with explicit credential.
+func NewProviderWithCredential(
+	id, model, baseURL string, defaults providers.ProviderDefaults,
+	includeRawOutput bool, cred providers.Credential,
+) *Provider {
+	base := providers.NewBaseProvider(id, includeRawOutput, nil)
+
+	// Extract API key from credential if it's an APIKeyCredential
+	var apiKey string
+	if cred != nil && cred.Type() == "api_key" {
+		if akc, ok := cred.(interface{ APIKey() string }); ok {
+			apiKey = akc.APIKey()
+		}
+	}
+
+	return &Provider{
+		BaseProvider: base,
+		modelName:    model,
+		BaseURL:      baseURL,
+		ApiKey:       apiKey,
+		credential:   cred,
 		Defaults:     defaults,
 	}
 }

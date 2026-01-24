@@ -1,6 +1,8 @@
 package gemini
 
 import (
+	"context"
+	"net/http"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -39,6 +41,88 @@ func TestNewProvider(t *testing.T) {
 	if provider.Defaults.Temperature != 0.9 {
 		t.Error("Temperature default mismatch")
 	}
+}
+
+func TestNewProviderWithCredential(t *testing.T) {
+	defaults := providers.ProviderDefaults{
+		Temperature: 0.9,
+		TopP:        0.95,
+		MaxTokens:   2048,
+	}
+
+	t.Run("with APIKeyCredential", func(t *testing.T) {
+		cred := &mockAPIKeyCredential{apiKey: "test-api-key"}
+		provider := NewProviderWithCredential("test-gemini", "gemini-1.5-pro", "https://api.example.com", defaults, false, cred)
+
+		if provider == nil {
+			t.Fatal("Expected non-nil provider")
+		}
+
+		if provider.ID() != "test-gemini" {
+			t.Errorf("Expected ID 'test-gemini', got '%s'", provider.ID())
+		}
+
+		if provider.Model() != "gemini-1.5-pro" {
+			t.Errorf("Expected model 'gemini-1.5-pro', got '%s'", provider.Model())
+		}
+
+		if provider.ApiKey != "test-api-key" {
+			t.Errorf("Expected ApiKey 'test-api-key', got '%s'", provider.ApiKey)
+		}
+
+		if provider.credential == nil {
+			t.Error("Expected credential to be set")
+		}
+	})
+
+	t.Run("with nil credential", func(t *testing.T) {
+		provider := NewProviderWithCredential("test-gemini", "gemini-1.5-pro", "https://api.example.com", defaults, false, nil)
+
+		if provider == nil {
+			t.Fatal("Expected non-nil provider")
+		}
+
+		if provider.ApiKey != "" {
+			t.Errorf("Expected empty ApiKey, got '%s'", provider.ApiKey)
+		}
+	})
+
+	t.Run("with non-APIKey credential", func(t *testing.T) {
+		cred := &mockOtherCredential{}
+		provider := NewProviderWithCredential("test-gemini", "gemini-1.5-pro", "https://api.example.com", defaults, false, cred)
+
+		if provider == nil {
+			t.Fatal("Expected non-nil provider")
+		}
+
+		// Should not extract API key from non-api_key credential
+		if provider.ApiKey != "" {
+			t.Errorf("Expected empty ApiKey for non-APIKey credential, got '%s'", provider.ApiKey)
+		}
+
+		if provider.credential == nil {
+			t.Error("Expected credential to be set")
+		}
+	})
+}
+
+// mockAPIKeyCredential implements providers.Credential for testing
+type mockAPIKeyCredential struct {
+	apiKey string
+}
+
+func (m *mockAPIKeyCredential) Type() string { return "api_key" }
+func (m *mockAPIKeyCredential) Apply(_ context.Context, _ *http.Request) error {
+	return nil
+}
+func (m *mockAPIKeyCredential) APIKey() string { return m.apiKey }
+
+// mockOtherCredential implements providers.Credential for testing non-APIKey credentials
+type mockOtherCredential struct{}
+
+func (m *mockOtherCredential) Type() string { return "other" }
+func (m *mockOtherCredential) Apply(_ context.Context, _ *http.Request) error {
+	return nil
 }
 
 func TestGeminiProvider_ID(t *testing.T) {

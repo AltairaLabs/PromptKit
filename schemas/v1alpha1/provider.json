@@ -2,6 +2,21 @@
   "$schema": "https://json-schema.org/draft-07/schema",
   "$id": "https://promptkit.altairalabs.ai/schemas/v1alpha1/provider.json",
   "$defs": {
+    "CredentialConfig": {
+      "properties": {
+        "api_key": {
+          "type": "string"
+        },
+        "credential_file": {
+          "type": "string"
+        },
+        "credential_env": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "ObjectMeta": {
       "properties": {
         "name": {
@@ -29,6 +44,27 @@
           "type": "object",
           "title": "Annotations",
           "description": "Additional metadata"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "PlatformConfig": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "region": {
+          "type": "string"
+        },
+        "project": {
+          "type": "string"
+        },
+        "endpoint": {
+          "type": "string"
+        },
+        "additional_config": {
+          "type": "object"
         }
       },
       "additionalProperties": false,
@@ -81,6 +117,12 @@
         },
         "additional_config": {
           "type": "object"
+        },
+        "credential": {
+          "$ref": "#/$defs/CredentialConfig"
+        },
+        "platform": {
+          "$ref": "#/$defs/PlatformConfig"
         }
       },
       "additionalProperties": false,

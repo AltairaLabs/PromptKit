@@ -79,9 +79,13 @@ func (p *Provider) PredictStream(
 	}
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	httpReq.Header.Set("x-api-key", p.apiKey)
 	httpReq.Header.Set(anthropicVersionKey, anthropicVersionValue)
 	httpReq.Header.Set("Accept", "text/event-stream")
+
+	// Apply authentication
+	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+		return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
+	}
 
 	//nolint:bodyclose // body is closed in streamResponse goroutine
 	resp, err := p.GetHTTPClient().Do(httpReq)

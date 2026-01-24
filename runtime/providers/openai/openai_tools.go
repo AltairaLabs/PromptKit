@@ -29,6 +29,16 @@ func NewToolProvider(
 	}
 }
 
+// NewToolProviderWithCredential creates an OpenAI tool provider with explicit credential.
+func NewToolProviderWithCredential(
+	id, model, baseURL string, defaults providers.ProviderDefaults,
+	includeRawOutput bool, additionalConfig map[string]any, cred providers.Credential,
+) *ToolProvider {
+	return &ToolProvider{
+		Provider: NewProviderWithCredential(id, model, baseURL, defaults, includeRawOutput, cred),
+	}
+}
+
 // OpenAI-specific tool structures
 type openAITool struct {
 	Type     string             `json:"type"`
@@ -358,7 +368,17 @@ func (p *ToolProvider) PredictStreamWithTools(
 }
 
 func init() {
-	providers.RegisterProviderFactory("openai", func(spec providers.ProviderSpec) (providers.Provider, error) {
-		return NewToolProvider(spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput, spec.AdditionalConfig), nil
-	})
+	factory := func(spec providers.ProviderSpec) (providers.Provider, error) {
+		if spec.Credential != nil {
+			return NewToolProviderWithCredential(
+				spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
+				spec.IncludeRawOutput, spec.AdditionalConfig, spec.Credential,
+			), nil
+		}
+		return NewToolProvider(
+			spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
+			spec.IncludeRawOutput, spec.AdditionalConfig,
+		), nil
+	}
+	providers.RegisterProviderFactory("openai", factory)
 }

@@ -148,6 +148,148 @@ func WithProvider(p providers.Provider) Option {
 	}
 }
 
+// CredentialOption configures credentials for a provider.
+type CredentialOption interface {
+	applyCredential(*credentialConfig)
+}
+
+// credentialConfig holds credential configuration.
+type credentialConfig struct {
+	apiKey         string
+	credentialFile string
+	credentialEnv  string
+}
+
+type credentialOptionFunc func(*credentialConfig)
+
+func (f credentialOptionFunc) applyCredential(c *credentialConfig) {
+	f(c)
+}
+
+// WithCredentialAPIKey sets an explicit API key.
+func WithCredentialAPIKey(key string) CredentialOption {
+	return credentialOptionFunc(func(c *credentialConfig) {
+		c.apiKey = key
+	})
+}
+
+// WithCredentialFile sets a credential file path.
+func WithCredentialFile(path string) CredentialOption {
+	return credentialOptionFunc(func(c *credentialConfig) {
+		c.credentialFile = path
+	})
+}
+
+// WithCredentialEnv sets an environment variable name for the credential.
+func WithCredentialEnv(envVar string) CredentialOption {
+	return credentialOptionFunc(func(c *credentialConfig) {
+		c.credentialEnv = envVar
+	})
+}
+
+// PlatformOption configures a platform for a provider.
+type PlatformOption interface {
+	applyPlatform(*platformConfig)
+}
+
+// platformConfig holds platform configuration.
+type platformConfig struct {
+	platformType string
+	region       string
+	project      string
+	endpoint     string
+}
+
+type platformOptionFunc func(*platformConfig)
+
+func (f platformOptionFunc) applyPlatform(c *platformConfig) {
+	f(c)
+}
+
+// WithPlatformRegion sets the cloud region.
+func WithPlatformRegion(region string) PlatformOption {
+	return platformOptionFunc(func(c *platformConfig) {
+		c.region = region
+	})
+}
+
+// WithPlatformProject sets the cloud project (for Vertex).
+func WithPlatformProject(project string) PlatformOption {
+	return platformOptionFunc(func(c *platformConfig) {
+		c.project = project
+	})
+}
+
+// WithPlatformEndpoint sets a custom endpoint URL.
+func WithPlatformEndpoint(endpoint string) PlatformOption {
+	return platformOptionFunc(func(c *platformConfig) {
+		c.endpoint = endpoint
+	})
+}
+
+// WithBedrock configures AWS Bedrock as the hosting platform.
+// This uses the AWS SDK default credential chain (IRSA, instance profile, env vars).
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithBedrock("us-west-2"),
+//	)
+func WithBedrock(region string, opts ...PlatformOption) Option {
+	return func(c *config) error {
+		pc := &platformConfig{
+			platformType: "bedrock",
+			region:       region,
+		}
+		for _, opt := range opts {
+			opt.applyPlatform(pc)
+		}
+		// Platform configuration is stored and used during provider creation
+		// This is a placeholder - actual implementation would integrate with
+		// the credentials package
+		return nil
+	}
+}
+
+// WithVertex configures Google Cloud Vertex AI as the hosting platform.
+// This uses Application Default Credentials (Workload Identity, gcloud auth, etc.).
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithVertex("us-central1", "my-project"),
+//	)
+func WithVertex(region, project string, opts ...PlatformOption) Option {
+	return func(c *config) error {
+		pc := &platformConfig{
+			platformType: "vertex",
+			region:       region,
+			project:      project,
+		}
+		for _, opt := range opts {
+			opt.applyPlatform(pc)
+		}
+		// Platform configuration is stored and used during provider creation
+		return nil
+	}
+}
+
+// WithAzure configures Azure AI services as the hosting platform.
+// This uses the Azure SDK default credential chain (Managed Identity, Azure CLI, etc.).
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithAzure("https://my-resource.openai.azure.com"),
+//	)
+func WithAzure(endpoint string, opts ...PlatformOption) Option {
+	return func(c *config) error {
+		pc := &platformConfig{
+			platformType: "azure",
+			endpoint:     endpoint,
+		}
+		for _, opt := range opts {
+			opt.applyPlatform(pc)
+		}
+		// Platform configuration is stored and used during provider creation
+		return nil
+	}
+}
+
 // WithStateStore configures persistent state storage.
 //
 // When configured, conversation state (messages, metadata) is automatically

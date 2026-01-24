@@ -1,6 +1,8 @@
 package claude
 
 import (
+	"context"
+	"net/http"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -39,6 +41,62 @@ func TestNewProvider(t *testing.T) {
 	if provider.defaults.Temperature != 0.8 {
 		t.Error("Temperature default mismatch")
 	}
+}
+
+func TestNewProviderWithCredential(t *testing.T) {
+	defaults := providers.ProviderDefaults{
+		Temperature: 0.8,
+		TopP:        0.95,
+		MaxTokens:   2000,
+	}
+
+	t.Run("with credential", func(t *testing.T) {
+		cred := &mockCredential{credType: "api_key"}
+		provider := NewProviderWithCredential("test-claude", "claude-3-5-sonnet", "https://api.anthropic.com", defaults, false, cred)
+
+		if provider == nil {
+			t.Fatal("Expected non-nil provider")
+		}
+
+		if provider.ID() != "test-claude" {
+			t.Errorf("Expected ID 'test-claude', got '%s'", provider.ID())
+		}
+
+		if provider.model != "claude-3-5-sonnet" {
+			t.Errorf("Expected model 'claude-3-5-sonnet', got '%s'", provider.model)
+		}
+
+		// baseURL should be normalized to include /v1 for Anthropic API
+		if provider.baseURL != "https://api.anthropic.com/v1" {
+			t.Errorf("BaseURL mismatch: expected 'https://api.anthropic.com/v1', got '%s'", provider.baseURL)
+		}
+
+		if provider.credential == nil {
+			t.Error("Expected credential to be set")
+		}
+	})
+
+	t.Run("with nil credential", func(t *testing.T) {
+		provider := NewProviderWithCredential("test-claude", "claude-3-5-sonnet", "https://api.anthropic.com", defaults, false, nil)
+
+		if provider == nil {
+			t.Fatal("Expected non-nil provider")
+		}
+
+		if provider.credential != nil {
+			t.Error("Expected credential to be nil")
+		}
+	})
+}
+
+// mockCredential implements providers.Credential for testing
+type mockCredential struct {
+	credType string
+}
+
+func (m *mockCredential) Type() string { return m.credType }
+func (m *mockCredential) Apply(_ context.Context, _ *http.Request) error {
+	return nil
 }
 
 func TestClaudeProvider_ID(t *testing.T) {

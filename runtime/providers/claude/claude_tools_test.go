@@ -38,6 +38,38 @@ func TestNewToolProvider(t *testing.T) {
 	}
 }
 
+func TestNewToolProviderWithCredential(t *testing.T) {
+	defaults := providers.ProviderDefaults{
+		Temperature: 0.7,
+		MaxTokens:   1000,
+	}
+
+	t.Run("with credential", func(t *testing.T) {
+		cred := &mockCredential{credType: "api_key"}
+		provider := NewToolProviderWithCredential("test-claude", "claude-3-opus", "https://api.anthropic.com", defaults, false, cred)
+
+		if provider == nil {
+			t.Fatal("Expected non-nil provider")
+		}
+
+		if provider.Provider == nil {
+			t.Fatal("Expected non-nil ClaudeProvider")
+		}
+
+		if provider.ID() != "test-claude" {
+			t.Errorf("Expected id 'test-claude', got '%s'", provider.ID())
+		}
+	})
+
+	t.Run("with nil credential", func(t *testing.T) {
+		provider := NewToolProviderWithCredential("test-claude", "claude-3-opus", "https://api.anthropic.com", defaults, false, nil)
+
+		if provider == nil {
+			t.Fatal("Expected non-nil provider")
+		}
+	})
+}
+
 // ============================================================================
 // BuildTooling Tests
 // ============================================================================
