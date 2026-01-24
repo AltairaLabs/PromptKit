@@ -273,23 +273,18 @@ func (p *Provider) predictWithContentsMultimodal(ctx context.Context, messages [
 	if temperature == 0 {
 		temperature = p.defaults.Temperature
 	}
-	if topP == 0 {
-		topP = p.defaults.TopP
-	}
 	if maxTokens == 0 {
 		maxTokens = p.defaults.MaxTokens
 	}
 
 	// Build request
+	// Note: Anthropic's newer models (Claude 4+) don't support both temperature and top_p
+	// We only send temperature to avoid the "cannot both be specified" error
 	claudeReq := map[string]interface{}{
 		"model":       p.model,
 		"max_tokens":  maxTokens,
 		"messages":    messages,
 		"temperature": temperature,
-	}
-
-	if topP > 0 && topP < 1 {
-		claudeReq["top_p"] = topP
 	}
 
 	if len(system) > 0 {
@@ -415,24 +410,19 @@ func (p *Provider) predictStreamWithContentsMultimodal(ctx context.Context, mess
 	if temperature == 0 {
 		temperature = p.defaults.Temperature
 	}
-	if topP == 0 {
-		topP = p.defaults.TopP
-	}
 	if maxTokens == 0 {
 		maxTokens = p.defaults.MaxTokens
 	}
 
 	// Build request
+	// Note: Anthropic's newer models (Claude 4+) don't support both temperature and top_p
+	// We only send temperature to avoid the "cannot both be specified" error
 	claudeReq := map[string]interface{}{
 		"model":       p.model,
 		"max_tokens":  maxTokens,
 		"messages":    messages,
 		"temperature": temperature,
 		"stream":      true,
-	}
-
-	if topP > 0 && topP < 1 {
-		claudeReq["top_p"] = topP
 	}
 
 	if len(system) > 0 {

@@ -38,23 +38,19 @@ func (p *Provider) PredictStream(
 		temperature = p.defaults.Temperature
 	}
 
-	topP := req.TopP
-	if topP == 0 {
-		topP = p.defaults.TopP
-	}
-
 	maxTokens := req.MaxTokens
 	if maxTokens == 0 {
 		maxTokens = p.defaults.MaxTokens
 	}
 
 	// Create streaming request
+	// Note: Anthropic's newer models (Claude 4+) don't support both temperature and top_p
+	// We only send temperature to avoid the "cannot both be specified" error
 	claudeReq := map[string]any{
 		"model":       p.model,
 		"max_tokens":  maxTokens,
 		"messages":    messages,
 		"temperature": temperature,
-		"top_p":       topP,
 		"stream":      true,
 	}
 

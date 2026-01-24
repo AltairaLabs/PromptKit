@@ -25,7 +25,7 @@ func NewToolProvider(
 	additionalConfig map[string]any,
 ) *ToolProvider {
 	return &ToolProvider{
-		Provider: NewProvider(id, model, baseURL, defaults, includeRawOutput),
+		Provider: NewProviderWithConfig(id, model, baseURL, defaults, includeRawOutput, additionalConfig),
 	}
 }
 
@@ -35,7 +35,7 @@ func NewToolProviderWithCredential(
 	includeRawOutput bool, additionalConfig map[string]any, cred providers.Credential,
 ) *ToolProvider {
 	return &ToolProvider{
-		Provider: NewProviderWithCredential(id, model, baseURL, defaults, includeRawOutput, cred),
+		Provider: NewProviderWithCredentialAndConfig(id, model, baseURL, defaults, includeRawOutput, cred, additionalConfig),
 	}
 }
 
@@ -92,6 +92,24 @@ func (p *ToolProvider) PredictWithTools(
 	tools providers.ProviderTools,
 	toolChoice string,
 ) (providers.PredictionResponse, []types.MessageToolCall, error) {
+	// Route to appropriate API based on mode
+	if p.apiMode == APIModeResponses {
+		return p.predictWithResponses(ctx, req, tools, toolChoice)
+	}
+
+	// Legacy chat completions API
+	return p.predictWithCompletions(ctx, req, tools, toolChoice)
+}
+
+// predictWithCompletions performs a prediction using the chat completions API
+//
+//nolint:gocritic // hugeParam: interface signature requires value receiver for compatibility
+func (p *ToolProvider) predictWithCompletions(
+	ctx context.Context,
+	req providers.PredictionRequest,
+	tools providers.ProviderTools,
+	toolChoice string,
+) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	// Track latency - START timing
 	start := time.Now()
 
@@ -138,12 +156,13 @@ func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools i
 
 	// Build request
 	openaiReq := map[string]interface{}{
-		"model":       p.model,
-		"messages":    messages,
-		"temperature": temperature,
-		"top_p":       topP,
-		"max_tokens":  maxTokens,
+		"model":    p.model,
+		"messages": messages,
 	}
+	// Add max tokens with the correct parameter name for the model type
+	addMaxTokensToRequest(openaiReq, p.model, maxTokens)
+	// Add sampling parameters (temperature, top_p) if model supports them
+	addSamplingParamsToRequest(openaiReq, p.model, temperature, topP)
 
 	if req.Seed != nil {
 		openaiReq["seed"] = *req.Seed
@@ -325,6 +344,24 @@ func (p *ToolProvider) PredictStreamWithTools(
 	tools interface{},
 	toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
+	// Route to appropriate API based on mode
+	if p.apiMode == APIModeResponses {
+		return p.predictStreamWithResponses(ctx, req, tools, toolChoice)
+	}
+
+	// Legacy chat completions API
+	return p.predictStreamWithCompletions(ctx, req, tools, toolChoice)
+}
+
+// predictStreamWithCompletions performs a streaming predict using chat completions API
+//
+//nolint:gocritic // hugeParam: interface signature requires value receiver for compatibility
+func (p *ToolProvider) predictStreamWithCompletions(
+	ctx context.Context,
+	req providers.PredictionRequest,
+	tools interface{},
+	toolChoice string,
+) (<-chan providers.StreamChunk, error) {
 	// Build OpenAI request with tools (same as non-streaming)
 	openaiReq := p.buildToolRequest(req, tools, toolChoice)
 
@@ -369,12 +406,14 @@ func (p *ToolProvider) PredictStreamWithTools(
 
 func init() {
 	factory := func(spec providers.ProviderSpec) (providers.Provider, error) {
-		if spec.Credential != nil {
+		// Use credential if provided and it's not a no-op (empty) credential
+		if spec.Credential != nil && spec.Credential.Type() != "none" {
 			return NewToolProviderWithCredential(
 				spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
 				spec.IncludeRawOutput, spec.AdditionalConfig, spec.Credential,
 			), nil
 		}
+		// Fall back to env-var-based constructor
 		return NewToolProvider(
 			spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
 			spec.IncludeRawOutput, spec.AdditionalConfig,

@@ -261,14 +261,15 @@ func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools i
 	}
 
 	// Apply defaults to zero-valued request parameters
-	temperature, topP, maxTokens := p.applyDefaults(req.Temperature, req.TopP, req.MaxTokens)
+	temperature, _, maxTokens := p.applyDefaults(req.Temperature, req.TopP, req.MaxTokens)
 
+	// Note: Anthropic's newer models (Claude 4+) don't support both temperature and top_p
+	// We only send temperature to avoid the "cannot both be specified" error
 	request := map[string]interface{}{
 		"model":       p.model,
 		"max_tokens":  maxTokens,
 		"messages":    messages,
 		"temperature": temperature,
-		"top_p":       topP,
 	}
 
 	if req.System != "" {
@@ -429,13 +430,14 @@ func (p *ToolProvider) PredictStreamWithTools(
 
 func init() {
 	factory := func(spec providers.ProviderSpec) (providers.Provider, error) {
-		// Use credential if provided, otherwise fall back to legacy behavior
-		if spec.Credential != nil {
+		// Use credential if provided and it's not a no-op (empty) credential
+		if spec.Credential != nil && spec.Credential.Type() != "none" {
 			return NewToolProviderWithCredential(
 				spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
 				spec.IncludeRawOutput, spec.Credential,
 			), nil
 		}
+		// Fall back to env-var-based constructor
 		return NewToolProvider(
 			spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput,
 		), nil

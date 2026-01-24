@@ -524,12 +524,14 @@ func (p *ToolProvider) GetStreamingCapabilities() providers.StreamingCapabilitie
 
 func init() {
 	factory := func(spec providers.ProviderSpec) (providers.Provider, error) {
-		if spec.Credential != nil {
+		// Use credential if provided and it's not a no-op (empty) credential
+		if spec.Credential != nil && spec.Credential.Type() != "none" {
 			return NewToolProviderWithCredential(
 				spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
 				spec.IncludeRawOutput, spec.Credential,
 			), nil
 		}
+		// Fall back to env-var-based constructor
 		return NewToolProvider(
 			spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput,
 		), nil

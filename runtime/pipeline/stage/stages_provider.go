@@ -381,7 +381,7 @@ func (s *ProviderStage) executeRound(
 		s.emitter.ProviderCallCompleted(completedData)
 	}
 
-	// Build response message with latency
+	// Build response message with latency and cost info
 	responseMsg := types.Message{
 		Role:      "assistant",
 		Content:   resp.Content,
@@ -389,6 +389,7 @@ func (s *ProviderStage) executeRound(
 		ToolCalls: toolCalls,
 		Timestamp: timeNow(),
 		LatencyMs: duration.Milliseconds(),
+		CostInfo:  resp.CostInfo,
 	}
 
 	logger.Debug("Provider round completed",
@@ -480,13 +481,14 @@ func (s *ProviderStage) executeStreamingRound(
 		s.emitter.ProviderCallCompleted(completedData)
 	}
 
-	// Build final response message with latency
+	// Build final response message with latency and cost info
 	responseMsg := types.Message{
 		Role:      "assistant",
 		Content:   content,
 		ToolCalls: toolCalls,
 		Timestamp: timeNow(),
 		LatencyMs: duration.Milliseconds(),
+		CostInfo:  costInfo,
 	}
 
 	logger.Debug("Provider streaming round completed",

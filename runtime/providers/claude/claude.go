@@ -25,6 +25,7 @@ const (
 	anthropicAPIHost      = "api.anthropic.com"
 	textDeltaType         = "text_delta"
 	roleSystem            = "system"
+	httpClientTimeout     = 60 * time.Second
 )
 
 // normalizeBaseURL ensures the baseURL includes the /v1 path for Anthropic's API.
@@ -69,12 +70,22 @@ func NewProviderWithCredential(
 	id, model, baseURL string, defaults providers.ProviderDefaults,
 	includeRawOutput bool, cred providers.Credential,
 ) *Provider {
-	base := providers.NewBaseProvider(id, includeRawOutput, nil)
+	client := &http.Client{Timeout: httpClientTimeout}
+	base := providers.NewBaseProvider(id, includeRawOutput, client)
+
+	// Extract API key from credential if it's an APIKeyCredential
+	var apiKey string
+	if cred != nil && cred.Type() == "api_key" {
+		if akc, ok := cred.(interface{ APIKey() string }); ok {
+			apiKey = akc.APIKey()
+		}
+	}
 
 	return &Provider{
 		BaseProvider: base,
 		model:        model,
 		baseURL:      normalizeBaseURL(baseURL),
+		apiKey:       apiKey,
 		credential:   cred,
 		defaults:     defaults,
 	}
@@ -373,19 +384,20 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 	messages := p.convertMessagesToClaudeFormat(req.Messages)
 
 	// Apply provider defaults
-	temperature, topP, maxTokens := p.applyDefaults(req.Temperature, req.TopP, req.MaxTokens)
+	// Note: We ignore topP because Anthropic's newer models (Claude 4+) don't support both temperature and top_p
+	temperature, _, maxTokens := p.applyDefaults(req.Temperature, req.TopP, req.MaxTokens)
 
 	// Create system content blocks
 	systemBlocks := p.createSystemBlocks(req.System)
 
 	// Create request
+	// Note: TopP is omitted to avoid the "cannot both be specified" error with newer Claude models
 	claudeReq := claudeRequest{
 		Model:       p.model,
 		MaxTokens:   maxTokens,
 		Messages:    messages,
 		System:      systemBlocks,
 		Temperature: temperature,
-		TopP:        topP,
 	}
 
 	// Prepare response with raw request if configured (set early to preserve on error)

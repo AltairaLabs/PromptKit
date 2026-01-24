@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help build build-tools build-arena build-packc build-inspect-state test test-tools test-race lint clean coverage install install-tools install-tools-user uninstall-tools test-npm-init test-getting-started test-templates test-ci-examples test-e2e test-e2e-mock test-e2e-coverage test-e2e-ci
+.PHONY: help build build-tools build-arena build-packc build-inspect-state test test-tools test-race lint clean coverage install install-tools install-tools-user uninstall-tools test-npm-init test-getting-started test-templates test-ci-examples test-e2e test-e2e-mock test-e2e-coverage test-e2e-ci capability-matrix capability-matrix-live
  
 # Route unknown targets to help
 .DEFAULT:
@@ -387,6 +387,37 @@ test-e2e-provider: ## Run e2e tests for specific provider (usage: make test-e2e-
 	fi
 	@echo "🧪 Running SDK E2E Tests - Provider: $(PROVIDER)..."
 	@./scripts/run-e2e-tests.sh --providers=$(PROVIDER) --verbose
+
+# =============================================================================
+# Capability Matrix
+# =============================================================================
+
+capability-matrix: build-arena ## Generate provider/model capability matrix (with mock provider)
+	@echo "Running Capability Matrix Tests (mock mode)..."
+	@echo ""
+	@cd examples/capability-matrix && ../../bin/promptarena run --config config.arena.yaml --mock-provider --mock-config mock-responses.yaml --ci || true
+	@echo ""
+	@cd examples/capability-matrix && ./scripts/generate-matrix.sh
+	@echo ""
+	@echo "Output files:"
+	@echo "   examples/capability-matrix/out/CAPABILITY_MATRIX.md"
+	@echo "   examples/capability-matrix/out/*.json (raw results)"
+
+capability-matrix-live: build-arena ## Generate provider/model capability matrix (requires API keys)
+	@echo "Running Capability Matrix Tests (live mode)..."
+	@echo ""
+	@echo "Available providers:"
+	@[[ -n "$${OPENAI_API_KEY:-}" ]] && echo "  + OpenAI" || echo "  - OpenAI (OPENAI_API_KEY not set)"
+	@[[ -n "$${ANTHROPIC_API_KEY:-}" ]] && echo "  + Anthropic" || echo "  - Anthropic (ANTHROPIC_API_KEY not set)"
+	@[[ -n "$${GEMINI_API_KEY:-}$${GOOGLE_API_KEY:-}" ]] && echo "  + Gemini" || echo "  - Gemini (GEMINI_API_KEY not set)"
+	@echo ""
+	@cd examples/capability-matrix && ../../bin/promptarena run --config config.arena.yaml --ci || true
+	@echo ""
+	@cd examples/capability-matrix && ./scripts/generate-matrix.sh
+	@echo ""
+	@echo "Output files:"
+	@echo "   examples/capability-matrix/out/CAPABILITY_MATRIX.md"
+	@echo "   examples/capability-matrix/out/*.json (raw results)"
 
 # =============================================================================
 # Other Tests

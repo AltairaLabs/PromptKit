@@ -359,7 +359,11 @@ func setDefaultFilePaths(cfg *config.Config, params *RunParameters) {
 
 	// Set default Markdown file path if markdown generation is enabled
 	if params.MarkdownFile == "" && contains(params.OutputFormats, "markdown") {
-		params.MarkdownFile = filepath.Join(params.OutDir, "results.md")
+		if cfg.Defaults.Output.Markdown != nil && cfg.Defaults.Output.Markdown.File != "" {
+			params.MarkdownFile = config.ResolveOutputPath(params.OutDir, cfg.Defaults.Output.Markdown.File)
+		} else {
+			params.MarkdownFile = filepath.Join(params.OutDir, "results.md")
+		}
 	}
 }
 
