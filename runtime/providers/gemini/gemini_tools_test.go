@@ -13,6 +13,42 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+// ============================================================================
+// NewToolProviderWithCredential Tests
+// ============================================================================
+
+func TestNewToolProviderWithCredential(t *testing.T) {
+	defaults := providers.ProviderDefaults{
+		Temperature: 0.7,
+		MaxTokens:   1000,
+	}
+
+	t.Run("with credential", func(t *testing.T) {
+		cred := &mockAPIKeyCredential{apiKey: "test-key"}
+		provider := NewToolProviderWithCredential("test-gemini", "gemini-pro", "https://api.example.com", defaults, false, cred)
+
+		if provider == nil {
+			t.Fatal("Expected non-nil provider")
+		}
+
+		if provider.Provider == nil {
+			t.Fatal("Expected non-nil GeminiProvider")
+		}
+
+		if provider.ID() != "test-gemini" {
+			t.Errorf("Expected id 'test-gemini', got '%s'", provider.ID())
+		}
+	})
+
+	t.Run("with nil credential", func(t *testing.T) {
+		provider := NewToolProviderWithCredential("test-gemini", "gemini-pro", "https://api.example.com", defaults, false, nil)
+
+		if provider == nil {
+			t.Fatal("Expected non-nil provider")
+		}
+	})
+}
+
 func TestGeminiToolResponseParsing(t *testing.T) {
 	// This is the actual response from Gemini that contains a function call
 	geminiResponseJSON := `{

@@ -37,6 +37,47 @@ func TestNewToolProvider(t *testing.T) {
 	}
 }
 
+func TestNewToolProviderWithCredential(t *testing.T) {
+	defaults := providers.ProviderDefaults{
+		Temperature: 0.7,
+		MaxTokens:   1000,
+	}
+
+	t.Run("with credential", func(t *testing.T) {
+		cred := &mockCredential{credType: "api_key"}
+		provider := NewToolProviderWithCredential("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false, nil, cred)
+
+		if provider == nil {
+			t.Fatal("Expected non-nil provider")
+		}
+
+		if provider.Provider == nil {
+			t.Fatal("Expected non-nil OpenAIProvider")
+		}
+
+		if provider.ID() != "test-openai" {
+			t.Errorf("Expected id 'test-openai', got '%s'", provider.ID())
+		}
+	})
+
+	t.Run("with nil credential", func(t *testing.T) {
+		provider := NewToolProviderWithCredential("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false, nil, nil)
+
+		if provider == nil {
+			t.Fatal("Expected non-nil provider")
+		}
+	})
+
+	t.Run("with additional config", func(t *testing.T) {
+		additionalConfig := map[string]any{"key": "value"}
+		provider := NewToolProviderWithCredential("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false, additionalConfig, nil)
+
+		if provider == nil {
+			t.Fatal("Expected non-nil provider")
+		}
+	})
+}
+
 // ============================================================================
 // BuildTooling Tests
 // ============================================================================
