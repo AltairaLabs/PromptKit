@@ -17,9 +17,9 @@ spec:
           text: "Describe what you hear in this audio. If you cannot process audio, say 'AUDIO_NOT_SUPPORTED'. Otherwise end your response with CAPABILITY_PASS."
         - type: audio
           media:
-            # Using a reliable public audio sample from Google Cloud
-            url: "https://storage.googleapis.com/cloud-samples-data/speech/brooklyn_bridge.raw"
-            mime_type: "audio/raw"
+            # Google Cloud Speech API sample in FLAC format
+            url: "https://storage.googleapis.com/cloud-samples-data/speech/brooklyn_bridge.flac"
+            mime_type: "audio/flac"
       assertions:
         - type: content_matches
           params:
