@@ -136,8 +136,13 @@ func processClaudeToolResult(msg types.Message) claudeToolResult {
 	}
 }
 
-// buildClaudeMessageContent creates content array for a message including text and tool calls
-func buildClaudeMessageContent(msg types.Message, pendingToolResults []claudeToolResult) []interface{} {
+// buildClaudeMessageContent creates content array for a message including text, images, and tool calls
+//
+//nolint:gocritic // hugeParam: types.Message is part of established API
+func (p *ToolProvider) buildClaudeMessageContent(
+	msg types.Message,
+	pendingToolResults []claudeToolResult,
+) []interface{} {
 	content := make([]interface{}, 0)
 
 	// Add pending tool results first if this is a user message
@@ -147,15 +152,8 @@ func buildClaudeMessageContent(msg types.Message, pendingToolResults []claudeToo
 		}
 	}
 
-	// Add the message text content if present
-	// Use GetContent() to handle both legacy Content field and new Parts field
-	textContent := msg.GetContent()
-	if textContent != "" {
-		content = append(content, claudeTextContent{
-			Type: "text",
-			Text: textContent,
-		})
-	}
+	// Add message content (text and/or media)
+	content = append(content, p.buildMessageContentBlocks(msg)...)
 
 	// Add tool calls if this is an assistant message
 	if msg.Role == roleAssistant && len(msg.ToolCalls) > 0 {
@@ -170,6 +168,33 @@ func buildClaudeMessageContent(msg types.Message, pendingToolResults []claudeToo
 	}
 
 	return content
+}
+
+// buildMessageContentBlocks creates content blocks for text and media parts of a message.
+// This is extracted to reduce cognitive complexity of buildClaudeMessageContent.
+//
+//nolint:gocritic // hugeParam: types.Message is part of established API
+func (p *ToolProvider) buildMessageContentBlocks(msg types.Message) []interface{} {
+	// Check if message has multimodal content (images, etc.)
+	if msg.HasMediaContent() {
+		// Use multimodal conversion path
+		blocks, err := p.convertPartsToClaudeBlocks(msg.Parts)
+		if err == nil {
+			return blocks
+		}
+		// Fallback to text-only on conversion error
+	}
+
+	// Text-only path (either no media or conversion failed)
+	textContent := msg.GetContent()
+	if textContent != "" {
+		return []interface{}{claudeTextContent{
+			Type: "text",
+			Text: textContent,
+		}}
+	}
+
+	return nil
 }
 
 // addClaudeToolConfig adds tool configuration to the request based on toolChoice
@@ -218,7 +243,7 @@ func (p *ToolProvider) processMessageForTools(
 		pendingToolResults = nil
 	}
 
-	content := buildClaudeMessageContent(msg, pendingToolResults)
+	content := p.buildClaudeMessageContent(msg, pendingToolResults)
 	if msg.Role == roleUser {
 		pendingToolResults = nil
 	}

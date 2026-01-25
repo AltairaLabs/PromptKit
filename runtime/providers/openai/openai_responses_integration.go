@@ -307,13 +307,27 @@ func (p *Provider) convertPartToResponsesFormat(part *types.ContentPart) map[str
 			"text": part.Text,
 		}
 	case "image":
-		if part.Media != nil && part.Media.URL != nil && *part.Media.URL != "" {
-			// Responses API expects image_url as an object with url field
-			return map[string]any{
-				"type": "input_image",
-				"image_url": map[string]any{
-					"url": *part.Media.URL,
-				},
+		if part.Media != nil {
+			var imageURL string
+
+			// Check for URL first
+			if part.Media.URL != nil && *part.Media.URL != "" {
+				imageURL = *part.Media.URL
+			} else if part.Media.Data != nil && *part.Media.Data != "" {
+				// Handle base64 data - construct data URL
+				mimeType := part.Media.MIMEType
+				if mimeType == "" {
+					mimeType = "image/png" // Default mime type
+				}
+				imageURL = "data:" + mimeType + ";base64," + *part.Media.Data
+			}
+
+			if imageURL != "" {
+				// Responses API expects image_url as a string (the URL directly)
+				return map[string]any{
+					"type":      "input_image",
+					"image_url": imageURL,
+				}
 			}
 		}
 	}

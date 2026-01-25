@@ -182,7 +182,7 @@ func processToolMessage(msg types.Message) map[string]any {
 	}
 }
 
-// buildMessageParts creates parts array for a message including text and tool calls
+// buildMessageParts creates parts array for a message including text, images, and tool calls
 //
 //nolint:gocritic // hugeParam: types.Message is part of established API
 func buildMessageParts(msg types.Message, pendingToolResults []map[string]any) []any {
@@ -195,12 +195,34 @@ func buildMessageParts(msg types.Message, pendingToolResults []map[string]any) [
 		}
 	}
 
-	// Add text content - use GetContent() to properly handle both Content field and Parts
-	textContent := msg.GetContent()
-	if textContent != "" {
-		parts = append(parts, map[string]any{
-			"text": textContent,
-		})
+	// Check if message has multimodal content (images, etc.)
+	if msg.HasMediaContent() {
+		// Process each part including images
+		for _, part := range msg.Parts {
+			switch part.Type {
+			case types.ContentTypeText:
+				if part.Text != nil && *part.Text != "" {
+					parts = append(parts, map[string]any{
+						"text": *part.Text,
+					})
+				}
+			case types.ContentTypeImage, types.ContentTypeAudio, types.ContentTypeVideo, types.ContentTypeDocument:
+				if part.Media != nil {
+					mediaMap := convertMediaPartToMap(part)
+					if mediaMap != nil {
+						parts = append(parts, mediaMap)
+					}
+				}
+			}
+		}
+	} else {
+		// Add text content - use GetContent() to properly handle both Content field and Parts
+		textContent := msg.GetContent()
+		if textContent != "" {
+			parts = append(parts, map[string]any{
+				"text": textContent,
+			})
+		}
 	}
 
 	// Add tool calls if this is a model message
@@ -220,6 +242,55 @@ func buildMessageParts(msg types.Message, pendingToolResults []map[string]any) [
 	}
 
 	return parts
+}
+
+// convertMediaPartToMap converts a media ContentPart to Gemini's inline_data format
+func convertMediaPartToMap(part types.ContentPart) map[string]any {
+	if part.Media == nil {
+		return nil
+	}
+
+	// Get MIME type
+	mimeType := part.Media.MIMEType
+	if mimeType == "" {
+		// Default mime types based on content type
+		switch part.Type {
+		case types.ContentTypeImage:
+			mimeType = "image/png"
+		case types.ContentTypeAudio:
+			mimeType = "audio/wav"
+		case types.ContentTypeVideo:
+			mimeType = "video/mp4"
+		case types.ContentTypeDocument:
+			mimeType = "application/pdf"
+		default:
+			return nil
+		}
+	}
+
+	// Get base64 data - try Data field first, then URL
+	var base64Data string
+	if part.Media.Data != nil && *part.Media.Data != "" {
+		base64Data = *part.Media.Data
+	} else if part.Media.URL != nil && *part.Media.URL != "" {
+		// For URL-based media, use the MediaLoader
+		loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+		data, err := loader.GetBase64Data(context.Background(), part.Media)
+		if err != nil {
+			logger.Warn("Failed to load media from URL", "url", *part.Media.URL, "error", err)
+			return nil
+		}
+		base64Data = data
+	} else {
+		return nil
+	}
+
+	return map[string]any{
+		"inlineData": map[string]any{
+			"mimeType": mimeType,
+			"data":     base64Data,
+		},
+	}
 }
 
 // addToolConfig adds tool configuration to the request based on toolChoice
