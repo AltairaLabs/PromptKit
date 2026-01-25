@@ -1,15 +1,15 @@
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Provider
 metadata:
-  name: PLACEHOLDER
+  name: openai-gpt5-pro
 spec:
-  id: PLACEHOLDER
+  id: openai-gpt5-pro
   type: openai
-  model: PLACEHOLDER
+  model: gpt-5-pro
   defaults:
     temperature: 0.1
     max_tokens: 500
     top_p: 1.0
   pricing:
-    input_cost_per_1k: 0.00125
-    output_cost_per_1k: 0.01
+    input_cost_per_1k: 0.01
+    output_cost_per_1k: 0.03
