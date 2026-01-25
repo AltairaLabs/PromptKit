@@ -1,0 +1,25 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+
+metadata:
+  name: text-basic
+
+spec:
+  id: text-basic
+  task_type: capability-test
+  description: "Test basic text completion capability"
+  required_capabilities:
+    - text
+  tool_policy:
+    tool_choice: none
+    max_tool_calls_per_turn: 0
+    max_total_tool_calls: 0
+
+  turns:
+    - role: user
+      content: "Say exactly: CAPABILITY_PASS"
+      assertions:
+        - type: content_includes
+          message: "Response should include the exact phrase CAPABILITY_PASS"
+          params:
+            patterns: ["CAPABILITY_PASS"]

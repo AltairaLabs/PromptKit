@@ -1,0 +1,26 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+
+metadata:
+  name: tools
+
+spec:
+  id: tools
+  task_type: capability-test
+  description: "Test function/tool calling capability"
+  required_capabilities:
+    - tools
+
+  turns:
+    - role: user
+      content: "Call the get_weather function for New York City and tell me the result. Say CAPABILITY_PASS when done."
+      assertions:
+        - type: tools_called
+          message: "Should call the get_weather tool"
+          params:
+            tools:
+              - "get_weather"
+        - type: content_includes
+          message: "Response should include CAPABILITY_PASS"
+          params:
+            patterns: ["CAPABILITY_PASS"]

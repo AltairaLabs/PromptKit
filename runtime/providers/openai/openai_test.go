@@ -927,7 +927,7 @@ func TestPredict_ErrorPaths(t *testing.T) {
 					},
 				},
 			},
-			expectError: "audio and video content not supported",
+			expectError: "audio content requires audio model",
 		},
 		{
 			name: "unsupported video content",
@@ -939,7 +939,7 @@ func TestPredict_ErrorPaths(t *testing.T) {
 					},
 				},
 			},
-			expectError: "audio and video content not supported",
+			expectError: "video content not supported by OpenAI API",
 		},
 		{
 			name: "unknown content type",

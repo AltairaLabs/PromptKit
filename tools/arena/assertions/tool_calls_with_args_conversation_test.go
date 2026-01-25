@@ -55,3 +55,210 @@ func TestToolCallsWithArgsConversationValidator_EndToEnd(t *testing.T) {
 		t.Fatalf("expected failure with violations, got: %+v", res2)
 	}
 }
+
+func TestValidateArgsMatch_PatternMatching(t *testing.T) {
+	tc := ToolCallRecord{
+		TurnIndex: 1,
+		ToolName:  "analyze_image",
+		Arguments: map[string]interface{}{
+			"description": "This is a Google logo with colorful letters",
+		},
+	}
+
+	// Pattern matches
+	vios := validateArgsMatch(tc, map[string]string{"description": "(?i)(google|logo)"})
+	if len(vios) != 0 {
+		t.Fatalf("expected no violations for matching pattern, got: %v", vios)
+	}
+
+	// Pattern does not match
+	vios = validateArgsMatch(tc, map[string]string{"description": "(?i)(microsoft|apple)"})
+	if len(vios) != 1 || vios[0].Description != "argument value does not match pattern" {
+		t.Fatalf("expected single pattern mismatch violation, got: %v", vios)
+	}
+
+	// Missing argument
+	vios = validateArgsMatch(tc, map[string]string{"nonexistent": ".*"})
+	if len(vios) != 1 || vios[0].Description != "missing argument for pattern match" {
+		t.Fatalf("expected single missing argument violation, got: %v", vios)
+	}
+
+	// Invalid regex
+	vios = validateArgsMatch(tc, map[string]string{"description": "[invalid"})
+	if len(vios) != 1 || vios[0].Description != "invalid regex pattern" {
+		t.Fatalf("expected single invalid regex violation, got: %v", vios)
+	}
+}
+
+func TestToolCallsWithArgsConversationValidator_ArgsMatch(t *testing.T) {
+	v := NewToolCallsWithArgsConversationValidator()
+	ctx := &ConversationContext{ToolCalls: []ToolCallRecord{
+		{
+			TurnIndex: 0,
+			ToolName:  "analyze_image",
+			Arguments: map[string]interface{}{
+				"description": "A colorful Google logo with red, blue, yellow and green letters",
+			},
+		},
+	}}
+
+	// Pattern matches
+	res := v.ValidateConversation(nil, ctx, map[string]interface{}{
+		"tool_name": "analyze_image",
+		"args_match": map[string]interface{}{
+			"description": "(?i)(google|logo|colorful)",
+		},
+	})
+	if !res.Passed {
+		t.Fatalf("expected pass for matching pattern, got: %+v", res)
+	}
+
+	// Pattern does not match
+	res = v.ValidateConversation(nil, ctx, map[string]interface{}{
+		"tool_name": "analyze_image",
+		"args_match": map[string]interface{}{
+			"description": "(?i)(microsoft|apple)",
+		},
+	})
+	if res.Passed {
+		t.Fatalf("expected failure for non-matching pattern, got: %+v", res)
+	}
+}
+
+func TestToolCallsWithArgsConversationValidator_ToolNotCalled(t *testing.T) {
+	v := NewToolCallsWithArgsConversationValidator()
+	ctx := &ConversationContext{ToolCalls: []ToolCallRecord{
+		{TurnIndex: 0, ToolName: "other_tool", Arguments: map[string]interface{}{"foo": "bar"}},
+	}}
+
+	// Require a tool that wasn't called
+	res := v.ValidateConversation(nil, ctx, map[string]interface{}{
+		"tool_name": "analyze_image",
+		"args_match": map[string]interface{}{
+			"description": ".*",
+		},
+	})
+	if res.Passed {
+		t.Fatalf("expected failure when tool not called, got: %+v", res)
+	}
+	if res.Message != "tool 'analyze_image' was not called" {
+		t.Fatalf("expected 'tool not called' message, got: %s", res.Message)
+	}
+}
+
+func TestToolCallsWithArgsConversationValidator_CombinedExactAndPattern(t *testing.T) {
+	v := NewToolCallsWithArgsConversationValidator()
+	ctx := &ConversationContext{ToolCalls: []ToolCallRecord{
+		{
+			TurnIndex: 0,
+			ToolName:  "get_weather",
+			Arguments: map[string]interface{}{
+				"location": "New York",
+				"units":    "celsius",
+			},
+		},
+	}}
+
+	// Both exact match and pattern match
+	res := v.ValidateConversation(nil, ctx, map[string]interface{}{
+		"tool_name": "get_weather",
+		"required_args": map[string]interface{}{
+			"units": "celsius",
+		},
+		"args_match": map[string]interface{}{
+			"location": "(?i)new york",
+		},
+	})
+	if !res.Passed {
+		t.Fatalf("expected pass for combined exact+pattern match, got: %+v", res)
+	}
+
+	// Exact match fails
+	res = v.ValidateConversation(nil, ctx, map[string]interface{}{
+		"tool_name": "get_weather",
+		"required_args": map[string]interface{}{
+			"units": "fahrenheit",
+		},
+		"args_match": map[string]interface{}{
+			"location": "(?i)new york",
+		},
+	})
+	if res.Passed {
+		t.Fatalf("expected failure when exact match fails, got: %+v", res)
+	}
+}
+
+func TestToolCallsWithArgsConversationValidator_Type(t *testing.T) {
+	v := NewToolCallsWithArgsConversationValidator()
+	if v.Type() != "tool_calls_with_args" {
+		t.Fatalf("expected type 'tool_calls_with_args', got: %s", v.Type())
+	}
+}
+
+func TestToolCallsWithArgsConversationValidator_NoRequirements(t *testing.T) {
+	v := NewToolCallsWithArgsConversationValidator()
+	ctx := &ConversationContext{ToolCalls: []ToolCallRecord{
+		{TurnIndex: 0, ToolName: "any_tool", Arguments: map[string]interface{}{"foo": "bar"}},
+	}}
+
+	// No required_args or args_match - should pass with message
+	res := v.ValidateConversation(nil, ctx, map[string]interface{}{
+		"tool_name": "any_tool",
+	})
+	if !res.Passed {
+		t.Fatalf("expected pass when no requirements, got: %+v", res)
+	}
+	if res.Message != "no required args or patterns configured" {
+		t.Fatalf("expected specific message, got: %s", res.Message)
+	}
+}
+
+func TestExtractArgsMatch_NilInput(t *testing.T) {
+	result := extractArgsMatch(nil)
+	if result != nil {
+		t.Fatal("expected nil result for nil input")
+	}
+}
+
+func TestExtractArgsMatch_InvalidType(t *testing.T) {
+	result := extractArgsMatch("not a map")
+	if result != nil {
+		t.Fatal("expected nil result for non-map input")
+	}
+}
+
+func TestExtractArgsMatch_NonStringValues(t *testing.T) {
+	input := map[string]interface{}{
+		"valid":   "pattern",
+		"invalid": 123, // not a string
+	}
+	result := extractArgsMatch(input)
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result["valid"] != "pattern" {
+		t.Fatalf("expected 'pattern', got: %s", result["valid"])
+	}
+	if _, ok := result["invalid"]; ok {
+		t.Fatal("expected invalid key to be skipped")
+	}
+}
+
+func TestAsString(t *testing.T) {
+	tests := []struct {
+		input    interface{}
+		expected string
+	}{
+		{"hello", "hello"},
+		{123, "123"},
+		{45.67, "45.67"},
+		{true, "true"},
+		{nil, "<nil>"},
+	}
+	for _, tt := range tests {
+		result := asString(tt.input)
+		if result != tt.expected {
+			t.Errorf("asString(%v) = %s, expected %s", tt.input, result, tt.expected)
+		}
+	}
+}

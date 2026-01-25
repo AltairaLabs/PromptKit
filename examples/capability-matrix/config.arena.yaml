@@ -1,0 +1,136 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+
+metadata:
+  name: capability-matrix
+
+spec:
+  prompt_configs:
+    - id: capability-test
+      file: prompts/capability-test.yaml
+
+  providers:
+    # ==========================================================================
+    # OpenAI Models
+    # ==========================================================================
+
+    # GPT-4.1 family (latest)
+    - file: providers/openai-gpt41.provider.yaml
+      group: text,streaming,vision,tools,json
+    - file: providers/openai-gpt41-mini.provider.yaml
+      group: text,streaming,vision,tools,json
+    - file: providers/openai-gpt41-nano.provider.yaml
+      group: text,streaming,vision,tools,json
+
+    # GPT-4o family
+    - file: providers/openai-gpt4o.provider.yaml
+      group: text,streaming,vision,tools,json
+    - file: providers/openai-gpt4o-mini.provider.yaml
+      group: text,streaming,vision,tools,json
+
+    # GPT-4o Audio models - Require audio in input/output, audio-only capability
+    - file: providers/openai-gpt4o-audio.provider.yaml
+      group: audio
+    - file: providers/openai-gpt4o-mini-audio.provider.yaml
+      group: audio
+
+    # o-series reasoning models (use max_completion_tokens, no temperature/top_p)
+    - file: providers/openai-o1.provider.yaml
+      group: text,streaming,tools,json
+    # o1-pro uses v1/responses API (automatically selected)
+    - file: providers/openai-o1-pro.provider.yaml
+      group: text,streaming,tools,json
+    - file: providers/openai-o3.provider.yaml
+      group: text,streaming,tools,json
+    - file: providers/openai-o3-mini.provider.yaml
+      group: text,streaming,tools,json
+    - file: providers/openai-o4-mini.provider.yaml
+      group: text,streaming,tools,json
+
+    # ==========================================================================
+    # Anthropic Models
+    # ==========================================================================
+
+    # Claude 4.5 family
+    - file: providers/anthropic-opus45.provider.yaml
+      group: text,streaming,vision,tools,json
+    - file: providers/anthropic-sonnet45.provider.yaml
+      group: text,streaming,vision,tools,json
+    - file: providers/anthropic-haiku45.provider.yaml
+      group: text,streaming,vision,tools,json
+
+    # Claude 4.x family
+    - file: providers/anthropic-opus41.provider.yaml
+      group: text,streaming,vision,tools,json
+    - file: providers/anthropic-opus4.provider.yaml
+      group: text,streaming,vision,tools,json
+    - file: providers/anthropic-sonnet4.provider.yaml
+      group: text,streaming,vision,tools,json
+
+    # Claude 3.x family
+    - file: providers/anthropic-sonnet37.provider.yaml
+      group: text,streaming,vision,tools,json
+
+    # ==========================================================================
+    # Google Gemini Models (uses v1beta API endpoint)
+    # ==========================================================================
+
+    # Gemini 2.5 family
+    - file: providers/gemini-25-pro.provider.yaml
+      group: text,streaming,vision,tools,json,audio,video
+    - file: providers/gemini-25-flash.provider.yaml
+      group: text,streaming,vision,tools,json,audio,video
+
+    # Gemini 2.0 family
+    - file: providers/gemini-20-flash.provider.yaml
+      group: text,streaming,vision,tools,json,audio,video
+    - file: providers/gemini-20-flash-lite.provider.yaml
+      group: text,streaming,vision,tools,json,audio,video
+
+    # ==========================================================================
+    # Ollama Local Models
+    # ==========================================================================
+    - file: providers/ollama-llama32-3b.provider.yaml
+      group: text,streaming,tools,json
+
+    # ==========================================================================
+    # Mock Provider (for CI testing)
+    # ==========================================================================
+    - file: providers/mock.provider.yaml
+      group: text,streaming,tools,json
+
+  scenarios:
+    - file: scenarios/text-basic.scenario.yaml
+    - file: scenarios/streaming.scenario.yaml
+    - file: scenarios/vision.scenario.yaml
+    - file: scenarios/tools.scenario.yaml
+    - file: scenarios/json-mode.scenario.yaml
+    - file: scenarios/audio.scenario.yaml
+    - file: scenarios/video.scenario.yaml
+    # Combination scenarios
+    - file: scenarios/streaming-tools.scenario.yaml
+    - file: scenarios/streaming-vision.scenario.yaml
+    - file: scenarios/streaming-tools-vision.scenario.yaml
+    - file: scenarios/tools-vision.scenario.yaml
+
+  tools:
+    - file: tools/get-weather.tool.yaml
+    - file: tools/analyze-image.tool.yaml
+
+  defaults:
+    temperature: 0.1
+    max_tokens: 500
+    concurrency: 6
+    output:
+      dir: out
+      formats: ["json", "markdown", "html"]
+      html:
+        file: capability-matrix.html
+      markdown:
+        file: capability-matrix.md
+        include_details: true
+        show_overview: true
+        show_results_matrix: true
+        show_failed_tests: true
+        show_cost_summary: true
+    fail_on: []

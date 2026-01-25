@@ -1,0 +1,37 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+
+metadata:
+  name: audio
+
+spec:
+  id: audio
+  task_type: capability-test
+  description: "Test audio input understanding capability"
+  required_capabilities:
+    - audio
+  tool_policy:
+    tool_choice: none
+    max_tool_calls_per_turn: 0
+    max_total_tool_calls: 0
+
+  turns:
+    - role: user
+      parts:
+        - type: text
+          text: "Listen to this audio and transcribe or describe what is being said. End your response with CAPABILITY_PASS."
+        - type: audio
+          media:
+            # Google Cloud Speech API sample - speaker describing Brooklyn Bridge
+            url: "https://storage.googleapis.com/cloud-samples-data/speech/brooklyn_bridge.flac"
+            mime_type: "audio/flac"
+      assertions:
+        - type: content_includes
+          message: "Response should include CAPABILITY_PASS"
+          params:
+            patterns: ["CAPABILITY_PASS"]
+        - type: content_matches
+          message: "Response should reference content from the Brooklyn Bridge audio"
+          params:
+            # Broadened to match various transcription terms that may appear
+            pattern: "(?i)(brooklyn|bridge|pedestrian|walk|river|manhattan|new york|york|landmark|structure|east|span|tower|cable|foot|built|open)"

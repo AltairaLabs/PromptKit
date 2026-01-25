@@ -1,0 +1,21 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: openai-gpt5-nano
+spec:
+  id: openai-gpt5-nano
+  type: openai
+  model: gpt-5-nano
+  capabilities:
+    - text
+    - streaming
+    - vision
+    - tools
+    - json
+  defaults:
+    temperature: 0.1
+    max_tokens: 500
+    top_p: 1.0
+  pricing:
+    input_cost_per_1k: 0.0003
+    output_cost_per_1k: 0.0012

@@ -591,3 +591,128 @@ func TestCreateEmbeddingProvider(t *testing.T) {
 		}
 	})
 }
+
+// mockMultimodalProvider implements providers.MultimodalSupport for testing
+type mockMultimodalProvider struct {
+	mockNonMockProvider
+	caps providers.MultimodalCapabilities
+}
+
+func (m *mockMultimodalProvider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
+	return m.caps
+}
+
+func (m *mockMultimodalProvider) PredictMultimodal(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+	return providers.PredictionResponse{}, nil
+}
+
+func (m *mockMultimodalProvider) PredictMultimodalStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+	return nil, nil
+}
+
+func TestBuildMediaConvertConfig(t *testing.T) {
+	t.Run("nil provider returns nil", func(t *testing.T) {
+		got := buildMediaConvertConfig(nil)
+		if got != nil {
+			t.Errorf("buildMediaConvertConfig(nil) = %v, want nil", got)
+		}
+	})
+
+	t.Run("non-multimodal provider returns nil", func(t *testing.T) {
+		got := buildMediaConvertConfig(&mockNonMockProvider{})
+		if got != nil {
+			t.Errorf("buildMediaConvertConfig(non-multimodal) = %v, want nil", got)
+		}
+	})
+
+	t.Run("multimodal provider with no formats returns nil", func(t *testing.T) {
+		provider := &mockMultimodalProvider{
+			caps: providers.MultimodalCapabilities{
+				// No formats defined
+			},
+		}
+		got := buildMediaConvertConfig(provider)
+		if got != nil {
+			t.Errorf("buildMediaConvertConfig(no formats) = %v, want nil", got)
+		}
+	})
+
+	t.Run("multimodal provider with audio formats returns config", func(t *testing.T) {
+		provider := &mockMultimodalProvider{
+			caps: providers.MultimodalCapabilities{
+				SupportsAudio: true,
+				AudioFormats:  []string{"audio/wav", "audio/mpeg"},
+			},
+		}
+		got := buildMediaConvertConfig(provider)
+		if got == nil {
+			t.Fatal("expected non-nil config")
+		}
+		if len(got.TargetAudioFormats) != 2 {
+			t.Errorf("TargetAudioFormats = %v, want 2 formats", got.TargetAudioFormats)
+		}
+		if !got.PassthroughOnError {
+			t.Error("PassthroughOnError should be true")
+		}
+		// AudioConverterConfig is a struct, not a pointer, so just verify the config was created
+		// The actual converter config is tested elsewhere
+	})
+
+	t.Run("multimodal provider with image formats returns config", func(t *testing.T) {
+		provider := &mockMultimodalProvider{
+			caps: providers.MultimodalCapabilities{
+				SupportsImages: true,
+				ImageFormats:   []string{"image/jpeg", "image/png"},
+			},
+		}
+		got := buildMediaConvertConfig(provider)
+		if got == nil {
+			t.Fatal("expected non-nil config")
+		}
+		if len(got.TargetImageFormats) != 2 {
+			t.Errorf("TargetImageFormats = %v, want 2 formats", got.TargetImageFormats)
+		}
+	})
+
+	t.Run("multimodal provider with video formats returns config", func(t *testing.T) {
+		provider := &mockMultimodalProvider{
+			caps: providers.MultimodalCapabilities{
+				SupportsVideo: true,
+				VideoFormats:  []string{"video/mp4"},
+			},
+		}
+		got := buildMediaConvertConfig(provider)
+		if got == nil {
+			t.Fatal("expected non-nil config")
+		}
+		if len(got.TargetVideoFormats) != 1 {
+			t.Errorf("TargetVideoFormats = %v, want 1 format", got.TargetVideoFormats)
+		}
+	})
+
+	t.Run("multimodal provider with all formats returns config", func(t *testing.T) {
+		provider := &mockMultimodalProvider{
+			caps: providers.MultimodalCapabilities{
+				SupportsImages: true,
+				SupportsAudio:  true,
+				SupportsVideo:  true,
+				ImageFormats:   []string{"image/jpeg"},
+				AudioFormats:   []string{"audio/wav"},
+				VideoFormats:   []string{"video/mp4"},
+			},
+		}
+		got := buildMediaConvertConfig(provider)
+		if got == nil {
+			t.Fatal("expected non-nil config")
+		}
+		if len(got.TargetImageFormats) != 1 {
+			t.Errorf("TargetImageFormats = %v, want 1 format", got.TargetImageFormats)
+		}
+		if len(got.TargetAudioFormats) != 1 {
+			t.Errorf("TargetAudioFormats = %v, want 1 format", got.TargetAudioFormats)
+		}
+		if len(got.TargetVideoFormats) != 1 {
+			t.Errorf("TargetVideoFormats = %v, want 1 format", got.TargetVideoFormats)
+		}
+	})
+}

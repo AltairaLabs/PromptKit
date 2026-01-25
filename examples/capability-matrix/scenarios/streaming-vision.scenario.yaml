@@ -1,0 +1,37 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+
+metadata:
+  name: streaming-vision
+
+spec:
+  id: streaming-vision
+  task_type: capability-test
+  description: "Test streaming with image input"
+  required_capabilities:
+    - streaming
+    - vision
+  streaming: true
+  tool_policy:
+    tool_choice: none
+    max_tool_calls_per_turn: 0
+    max_total_tool_calls: 0
+
+  turns:
+    - role: user
+      parts:
+        - type: text
+          text: "Describe this image. What company or brand logo is shown? Say CAPABILITY_PASS when done."
+        - type: image
+          media:
+            url: "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png"
+            mime_type: "image/png"
+      assertions:
+        - type: content_includes
+          message: "Response should include CAPABILITY_PASS"
+          params:
+            patterns: ["CAPABILITY_PASS"]
+        - type: content_matches
+          message: "Response should describe the Google logo (mentions Google, logo, colors, or letters)"
+          params:
+            pattern: "(?i)(google|logo|brand|colorful|letters|text|red|blue|green|yellow)"

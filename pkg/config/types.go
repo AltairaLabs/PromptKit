@@ -59,6 +59,8 @@ type Config struct {
 	SelfPlay      *SelfPlayConfig   `yaml:"self_play,omitempty"`
 	// ProviderGroups maps provider ID to configured group (populated during load)
 	ProviderGroups map[string]string `yaml:"-" json:"-"`
+	// ProviderCapabilities maps provider ID to its capabilities (populated during load)
+	ProviderCapabilities map[string][]string `yaml:"-" json:"-"`
 
 	// Loaded resources (populated by LoadConfig, not serialized)
 	LoadedPromptConfigs map[string]*PromptConfigData `yaml:"-" json:"-"` // taskType -> config
@@ -407,6 +409,9 @@ type Scenario struct {
 	// ProvidersOverride: If empty, uses all arena providers.
 	Providers     []string `json:"providers,omitempty" yaml:"providers,omitempty"`
 	ProviderGroup string   `json:"provider_group,omitempty" yaml:"provider_group,omitempty"`
+	// RequiredCapabilities filters providers to only those supporting all listed capabilities.
+	// Valid values: text, streaming, vision, tools, json, audio, video, documents
+	RequiredCapabilities []string `json:"required_capabilities,omitempty" yaml:"required_capabilities,omitempty"`
 	// Enable streaming for all turns by default.
 	Streaming bool `json:"streaming,omitempty" yaml:"streaming,omitempty"`
 	// Context management policy for long conversations.
@@ -868,6 +873,8 @@ type Provider struct {
 	AdditionalConfig map[string]interface{} `json:"additional_config,omitempty" yaml:"additional_config,omitempty"`   // Additional provider-specific configuration
 	Credential       *CredentialConfig      `json:"credential,omitempty" yaml:"credential,omitempty"`
 	Platform         *PlatformConfig        `json:"platform,omitempty" yaml:"platform,omitempty"`
+	// Capabilities lists what this provider supports: text, streaming, vision, tools, json, audio, video, documents
+	Capabilities []string `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
 }
 
 // CredentialConfig defines how to obtain credentials for a provider.

@@ -22,6 +22,7 @@ const (
 	applicationJSON              = "application/json"
 	authorizationHeader          = "Authorization"
 	bearerPrefix                 = "Bearer "
+	httpClientTimeout            = 60 * time.Second
 )
 
 // Default pricing constants (GPT-4o pricing used as fallback for unknown models)
@@ -31,26 +32,71 @@ const (
 	defaultCachedCostPer1K = 0.00125
 )
 
+// isOSeriesModel checks if a model is an OpenAI o-series reasoning model.
+// O-series models (o1, o3, o4, etc.) require max_completion_tokens instead of max_tokens.
+func isOSeriesModel(model string) bool {
+	// Check for o-series model prefixes: o1, o3, o4, etc.
+	if len(model) >= 2 && model[0] == 'o' && model[1] >= '0' && model[1] <= '9' {
+		return true
+	}
+	return false
+}
+
+// addMaxTokensToRequest adds the appropriate max tokens parameter to the request.
+// O-series models use max_completion_tokens, others use max_tokens.
+func addMaxTokensToRequest(req map[string]interface{}, model string, maxTokens int) {
+	if isOSeriesModel(model) {
+		req["max_completion_tokens"] = maxTokens
+	} else {
+		req["max_tokens"] = maxTokens
+	}
+}
+
+// addSamplingParamsToRequest adds temperature and top_p to the request if the model supports them.
+// O-series models don't support temperature or top_p parameters.
+func addSamplingParamsToRequest(req map[string]interface{}, model string, temperature, topP float32) {
+	if isOSeriesModel(model) {
+		// O-series models don't support temperature or top_p
+		return
+	}
+	req["temperature"] = temperature
+	req["top_p"] = topP
+}
+
 // OpenAIProvider implements the Provider interface for OpenAI
 type Provider struct {
 	providers.BaseProvider
-	model      string
-	baseURL    string
-	apiKey     string
-	credential providers.Credential
-	defaults   providers.ProviderDefaults
+	model            string
+	baseURL          string
+	apiKey           string
+	credential       providers.Credential
+	defaults         providers.ProviderDefaults
+	apiMode          APIMode
+	additionalConfig map[string]any
 }
 
 // NewProvider creates a new OpenAI provider
 func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool) *Provider {
+	return NewProviderWithConfig(id, model, baseURL, defaults, includeRawOutput, nil)
+}
+
+// NewProviderWithConfig creates a new OpenAI provider with additional configuration
+func NewProviderWithConfig(
+	id, model, baseURL string,
+	defaults providers.ProviderDefaults,
+	includeRawOutput bool,
+	additionalConfig map[string]any,
+) *Provider {
 	base, apiKey := providers.NewBaseProviderWithAPIKey(id, includeRawOutput, "OPENAI_API_KEY", "OPENAI_TOKEN")
 
 	return &Provider{
-		BaseProvider: base,
-		model:        model,
-		baseURL:      baseURL,
-		apiKey:       apiKey,
-		defaults:     defaults,
+		BaseProvider:     base,
+		model:            model,
+		baseURL:          baseURL,
+		apiKey:           apiKey,
+		defaults:         defaults,
+		apiMode:          getAPIMode(model, additionalConfig),
+		additionalConfig: additionalConfig,
 	}
 }
 
@@ -59,14 +105,34 @@ func NewProviderWithCredential(
 	id, model, baseURL string, defaults providers.ProviderDefaults,
 	includeRawOutput bool, cred providers.Credential,
 ) *Provider {
-	base := providers.NewBaseProvider(id, includeRawOutput, nil)
+	return NewProviderWithCredentialAndConfig(id, model, baseURL, defaults, includeRawOutput, cred, nil)
+}
+
+// NewProviderWithCredentialAndConfig creates a new OpenAI provider with explicit credential and config.
+func NewProviderWithCredentialAndConfig(
+	id, model, baseURL string, defaults providers.ProviderDefaults,
+	includeRawOutput bool, cred providers.Credential, additionalConfig map[string]any,
+) *Provider {
+	client := &http.Client{Timeout: httpClientTimeout}
+	base := providers.NewBaseProvider(id, includeRawOutput, client)
+
+	// Extract API key from credential if it's an APIKeyCredential
+	var apiKey string
+	if cred != nil && cred.Type() == "api_key" {
+		if akc, ok := cred.(interface{ APIKey() string }); ok {
+			apiKey = akc.APIKey()
+		}
+	}
 
 	return &Provider{
-		BaseProvider: base,
-		model:        model,
-		baseURL:      baseURL,
-		credential:   cred,
-		defaults:     defaults,
+		BaseProvider:     base,
+		model:            model,
+		baseURL:          baseURL,
+		apiKey:           apiKey,
+		credential:       cred,
+		defaults:         defaults,
+		apiMode:          getAPIMode(model, additionalConfig),
+		additionalConfig: additionalConfig,
 	}
 }
 
@@ -537,19 +603,34 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 	// Apply provider defaults for zero values
 	temperature, topP, maxTokens := p.applyRequestDefaults(req)
 
-	// Create request
-	openAIReq := openAIRequest{
-		Model:       p.model,
-		Messages:    messages,
-		Temperature: temperature,
-		TopP:        topP,
-		MaxTokens:   maxTokens,
-		Seed:        req.Seed,
+	// Create request as a map for flexibility with o-series models
+	openAIReq := map[string]interface{}{
+		"model":    p.model,
+		"messages": messages,
+	}
+
+	// Add modalities for audio models when audio content is present
+	if p.apiMode == APIModeCompletions && isAudioModel(p.model) && requestContainsAudio(&req) {
+		openAIReq["modalities"] = []string{"text", "audio"}
+		// Audio models require audio output configuration
+		openAIReq["audio"] = map[string]interface{}{
+			"voice":  "alloy",
+			"format": "wav",
+		}
+	}
+
+	// Add max tokens with the correct parameter name for the model type
+	addMaxTokensToRequest(openAIReq, p.model, maxTokens)
+	// Add sampling parameters (temperature, top_p) if model supports them
+	addSamplingParamsToRequest(openAIReq, p.model, temperature, topP)
+
+	if req.Seed != nil {
+		openAIReq["seed"] = *req.Seed
 	}
 
 	// Add response format if specified
 	if req.ResponseFormat != nil {
-		openAIReq.ResponseFormat = p.convertResponseFormat(req.ResponseFormat)
+		openAIReq["response_format"] = p.convertResponseFormat(req.ResponseFormat)
 	}
 
 	reqBody, err := json.Marshal(openAIReq)
@@ -658,16 +739,28 @@ func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.
 
 	// Create streaming request
 	openAIReq := map[string]interface{}{
-		"model":       p.model,
-		"messages":    messages,
-		"temperature": temperature,
-		"top_p":       topP,
-		"max_tokens":  maxTokens,
-		"stream":      true,
+		"model":    p.model,
+		"messages": messages,
+		"stream":   true,
 		"stream_options": map[string]interface{}{
 			"include_usage": true,
 		},
 	}
+
+	// Add modalities for audio models when audio content is present
+	if p.apiMode == APIModeCompletions && isAudioModel(p.model) && requestContainsAudio(&req) {
+		openAIReq["modalities"] = []string{"text", "audio"}
+		// Audio models require audio output configuration
+		openAIReq["audio"] = map[string]interface{}{
+			"voice":  "alloy",
+			"format": "wav",
+		}
+	}
+
+	// Add max tokens with the correct parameter name for the model type
+	addMaxTokensToRequest(openAIReq, p.model, maxTokens)
+	// Add sampling parameters (temperature, top_p) if model supports them
+	addSamplingParamsToRequest(openAIReq, p.model, temperature, topP)
 	if req.Seed != nil {
 		openAIReq["seed"] = *req.Seed
 	}

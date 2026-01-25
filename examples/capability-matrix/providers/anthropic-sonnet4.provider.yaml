@@ -1,0 +1,22 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: anthropic-sonnet4
+spec:
+  id: anthropic-sonnet4
+  type: claude
+  model: claude-sonnet-4-20250514
+  capabilities:
+    - text
+    - streaming
+    - vision
+    - tools
+    - json
+    - documents
+  defaults:
+    temperature: 0.1
+    top_p: 1.0
+    max_tokens: 500
+  pricing:
+    input_cost_per_1k: 0.003
+    output_cost_per_1k: 0.015

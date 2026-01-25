@@ -632,3 +632,289 @@ func TestCountFailedAssertions(t *testing.T) {
 		})
 	}
 }
+
+func TestSetDefaultFilePaths_MarkdownConfig(t *testing.T) {
+	tests := []struct {
+		name             string
+		params           *RunParameters
+		cfg              *config.Config
+		expectedMarkdown string
+	}{
+		{
+			name: "uses config markdown file when set",
+			params: &RunParameters{
+				OutDir:        "output",
+				OutputFormats: []string{"markdown"},
+				MarkdownFile:  "",
+			},
+			cfg: &config.Config{
+				Defaults: config.Defaults{
+					Output: config.OutputConfig{
+						Markdown: &config.MarkdownOutputConfig{
+							File: "capability-matrix.md",
+						},
+					},
+				},
+			},
+			expectedMarkdown: "output/capability-matrix.md",
+		},
+		{
+			name: "uses default when no config",
+			params: &RunParameters{
+				OutDir:        "output",
+				OutputFormats: []string{"markdown"},
+				MarkdownFile:  "",
+			},
+			cfg:              &config.Config{},
+			expectedMarkdown: "output/results.md",
+		},
+		{
+			name: "preserves custom markdown file",
+			params: &RunParameters{
+				OutDir:        "output",
+				OutputFormats: []string{"markdown"},
+				MarkdownFile:  "custom-report.md",
+			},
+			cfg: &config.Config{
+				Defaults: config.Defaults{
+					Output: config.OutputConfig{
+						Markdown: &config.MarkdownOutputConfig{
+							File: "capability-matrix.md",
+						},
+					},
+				},
+			},
+			expectedMarkdown: "custom-report.md",
+		},
+		{
+			name: "does not set markdown when not in output formats",
+			params: &RunParameters{
+				OutDir:        "output",
+				OutputFormats: []string{"json"},
+				MarkdownFile:  "",
+			},
+			cfg: &config.Config{
+				Defaults: config.Defaults{
+					Output: config.OutputConfig{
+						Markdown: &config.MarkdownOutputConfig{
+							File: "capability-matrix.md",
+						},
+					},
+				},
+			},
+			expectedMarkdown: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setDefaultFilePaths(tt.cfg, tt.params)
+			assert.Equal(t, tt.expectedMarkdown, tt.params.MarkdownFile)
+		})
+	}
+}
+
+func TestSetDefaultFilePaths_HTMLConfig(t *testing.T) {
+	tests := []struct {
+		name         string
+		params       *RunParameters
+		cfg          *config.Config
+		expectedHTML string
+	}{
+		{
+			name: "uses config html file when set",
+			params: &RunParameters{
+				OutDir:        "output",
+				OutputFormats: []string{"html"},
+				HTMLFile:      "",
+			},
+			cfg: &config.Config{
+				Defaults: config.Defaults{
+					Output: config.OutputConfig{
+						HTML: &config.HTMLOutputConfig{
+							File: "report.html",
+						},
+					},
+				},
+			},
+			expectedHTML: "output/report.html",
+		},
+		{
+			name: "uses deprecated HTMLReportPath when set",
+			params: &RunParameters{
+				OutDir:         "output",
+				OutputFormats:  []string{"html"},
+				HTMLFile:       "",
+				HTMLReportPath: "deprecated-report.html",
+			},
+			cfg:          &config.Config{},
+			expectedHTML: "output/deprecated-report.html",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setDefaultFilePaths(tt.cfg, tt.params)
+			assert.Equal(t, tt.expectedHTML, tt.params.HTMLFile)
+		})
+	}
+}
+
+func TestCountFailed(t *testing.T) {
+	tests := []struct {
+		name     string
+		results  []statestore.ConversationValidationResult
+		expected int
+	}{
+		{
+			name:     "empty results",
+			results:  []statestore.ConversationValidationResult{},
+			expected: 0,
+		},
+		{
+			name: "all passed",
+			results: []statestore.ConversationValidationResult{
+				{Passed: true},
+				{Passed: true},
+				{Passed: true},
+			},
+			expected: 0,
+		},
+		{
+			name: "all failed",
+			results: []statestore.ConversationValidationResult{
+				{Passed: false},
+				{Passed: false},
+			},
+			expected: 2,
+		},
+		{
+			name: "mixed results",
+			results: []statestore.ConversationValidationResult{
+				{Passed: true},
+				{Passed: false},
+				{Passed: true},
+				{Passed: false},
+				{Passed: false},
+			},
+			expected: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := countFailed(tt.results)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestCreateResultRepository(t *testing.T) {
+	t.Run("creates json repository", func(t *testing.T) {
+		params := &RunParameters{
+			OutDir:        "test-output",
+			OutputFormats: []string{"json"},
+		}
+		repo, err := createResultRepository(params, "")
+		require.NoError(t, err)
+		assert.NotNil(t, repo)
+	})
+
+	t.Run("creates junit repository", func(t *testing.T) {
+		params := &RunParameters{
+			OutDir:        "test-output",
+			OutputFormats: []string{"junit"},
+			JUnitFile:     "test.xml",
+		}
+		repo, err := createResultRepository(params, "")
+		require.NoError(t, err)
+		assert.NotNil(t, repo)
+	})
+
+	t.Run("creates html repository", func(t *testing.T) {
+		params := &RunParameters{
+			OutDir:        "test-output",
+			OutputFormats: []string{"html"},
+			HTMLFile:      "test.html",
+		}
+		repo, err := createResultRepository(params, "")
+		require.NoError(t, err)
+		assert.NotNil(t, repo)
+	})
+
+	t.Run("creates markdown repository", func(t *testing.T) {
+		params := &RunParameters{
+			OutDir:        "test-output",
+			OutputFormats: []string{"markdown"},
+			MarkdownFile:  "test.md",
+		}
+		repo, err := createResultRepository(params, "")
+		require.NoError(t, err)
+		assert.NotNil(t, repo)
+	})
+
+	t.Run("creates multiple repositories", func(t *testing.T) {
+		params := &RunParameters{
+			OutDir:        "test-output",
+			OutputFormats: []string{"json", "junit", "html", "markdown"},
+			JUnitFile:     "test.xml",
+			HTMLFile:      "test.html",
+			MarkdownFile:  "test.md",
+		}
+		repo, err := createResultRepository(params, "")
+		require.NoError(t, err)
+		assert.NotNil(t, repo)
+	})
+
+	t.Run("errors on unsupported format", func(t *testing.T) {
+		params := &RunParameters{
+			OutDir:        "test-output",
+			OutputFormats: []string{"unsupported"},
+		}
+		repo, err := createResultRepository(params, "")
+		assert.Error(t, err)
+		assert.Nil(t, repo)
+		assert.Contains(t, err.Error(), "unsupported output format")
+	})
+}
+
+func TestContainsHelper(t *testing.T) {
+	tests := []struct {
+		name     string
+		slice    []string
+		item     string
+		expected bool
+	}{
+		{
+			name:     "item found",
+			slice:    []string{"a", "b", "c"},
+			item:     "b",
+			expected: true,
+		},
+		{
+			name:     "item not found",
+			slice:    []string{"a", "b", "c"},
+			item:     "d",
+			expected: false,
+		},
+		{
+			name:     "empty slice",
+			slice:    []string{},
+			item:     "a",
+			expected: false,
+		},
+		{
+			name:     "single item found",
+			slice:    []string{"a"},
+			item:     "a",
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := contains(tt.slice, tt.item)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

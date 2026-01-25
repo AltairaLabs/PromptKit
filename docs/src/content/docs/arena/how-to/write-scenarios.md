@@ -87,14 +87,80 @@ The spec section contains your test configuration:
 spec:
   task_type: support
   description: "Conversation flow test"
-  
+
   context_metadata:
     urgency: high
     topic: billing
-  
+
   turns:
     # Conversation turns go here
 ```
+
+### Required Capabilities
+
+Use `required_capabilities` to ensure scenarios only run against providers that support specific features:
+
+```yaml
+spec:
+  task_type: capability-test
+  description: "Test vision with streaming"
+  required_capabilities:
+    - vision
+    - streaming
+  streaming: true
+
+  turns:
+    - role: user
+      parts:
+        - type: text
+          text: "Describe this image"
+        - type: image
+          media:
+            url: "https://example.com/image.png"
+            mime_type: "image/png"
+```
+
+**Available Capabilities**: `text`, `streaming`, `vision`, `tools`, `json`, `audio`, `video`, `documents`, `duplex`
+
+This scenario will only run against providers that have both `vision` AND `streaming` in their `capabilities` list.
+
+### Tool Policy
+
+Use `tool_policy` to control tool calling behavior:
+
+```yaml
+spec:
+  task_type: test
+  description: "Text-only test without tools"
+  tool_policy:
+    tool_choice: none           # Disable tool calling
+    max_tool_calls_per_turn: 0
+    max_total_tool_calls: 0
+
+  turns:
+    - role: user
+      content: "Just respond with text, no tools"
+```
+
+**Tool Choice Options**:
+- `none` - Disable tool calling entirely
+- `auto` - Let the model decide (default)
+- `required` - Force tool use
+- `<tool_name>` - Force specific tool
+
+**Example - Require tool use**:
+```yaml
+spec:
+  tool_policy:
+    tool_choice: required
+    max_tool_calls_per_turn: 3
+    max_total_tool_calls: 10
+```
+
+This is useful when:
+- Testing scenarios that should NOT use tools (text, streaming, vision tests)
+- Forcing tool usage for tool-specific tests
+- Limiting tool calls to prevent runaway loops
 
 ### Conversation Turns
 

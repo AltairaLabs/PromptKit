@@ -9,6 +9,7 @@ func NewArenaAssertionRegistry() *runtimeValidators.Registry {
 	// Register arena-specific assertion validators
 	registry.Register("tools_called", NewToolsCalledValidator)
 	registry.Register("tools_not_called", NewToolsNotCalledValidator)
+	registry.Register("tool_calls_with_args", NewToolCallsWithArgsValidator)
 	registry.Register("content_includes", NewContentIncludesValidator)
 	registry.Register("content_matches", NewContentMatchesValidator)
 	registry.Register("guardrail_triggered", NewGuardrailTriggeredValidator)

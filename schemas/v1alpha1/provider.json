@@ -123,6 +123,12 @@
         },
         "platform": {
           "$ref": "#/$defs/PlatformConfig"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "additionalProperties": false,

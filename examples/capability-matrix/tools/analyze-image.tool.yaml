@@ -1,0 +1,22 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+
+metadata:
+  name: analyze_image
+
+spec:
+  name: analyze_image
+  description: Analyze an image and return description
+  input_schema:
+    type: object
+    properties:
+      description:
+        type: string
+        description: Description of the image
+    required:
+      - description
+  output_schema:
+    type: string
+  mode: mock
+  mock_result: "Image analysis received"
+  timeout_ms: 5000

@@ -20,6 +20,7 @@ import (
 const (
 	contentTypeHeader = "Content-Type"
 	applicationJSON   = "application/json"
+	httpClientTimeout = 60 * time.Second
 )
 
 // Provider implements the Provider interface for Google Gemini
@@ -50,7 +51,8 @@ func NewProviderWithCredential(
 	id, model, baseURL string, defaults providers.ProviderDefaults,
 	includeRawOutput bool, cred providers.Credential,
 ) *Provider {
-	base := providers.NewBaseProvider(id, includeRawOutput, nil)
+	client := &http.Client{Timeout: httpClientTimeout}
+	base := providers.NewBaseProvider(id, includeRawOutput, client)
 
 	// Extract API key from credential if it's an APIKeyCredential
 	var apiKey string

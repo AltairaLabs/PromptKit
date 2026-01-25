@@ -202,7 +202,9 @@ func convertMediaPart(
 			return types.ContentPart{}, NewValidationError(
 				cfg.index, cfg.contentType, cfg.turnPart.Media.URL, errURLNoHTTPLoader)
 		}
-		data, mimeType, err := cfg.httpLoader.loadMediaFromURL(ctx, cfg.turnPart.Media.URL, cfg.contentType, cfg.index)
+		// Pass explicit MIME type from scenario if specified
+		data, mimeType, err := cfg.httpLoader.loadMediaFromURL(
+			ctx, cfg.turnPart.Media.URL, cfg.contentType, cfg.index, cfg.turnPart.Media.MIMEType)
 		if err != nil {
 			return types.ContentPart{}, err
 		}
@@ -261,7 +263,9 @@ func convertImagePart(
 	if turnPart.Media.URL != "" {
 		// If httpLoader is provided, fetch and encode the image
 		if httpLoader != nil {
-			data, mimeType, err := httpLoader.loadMediaFromURL(ctx, turnPart.Media.URL, "image", index)
+			// Pass explicit MIME type from config if specified
+			data, mimeType, err := httpLoader.loadMediaFromURL(
+				ctx, turnPart.Media.URL, "image", index, turnPart.Media.MIMEType)
 			if err != nil {
 				return types.ContentPart{}, err
 			}
@@ -459,9 +463,10 @@ func loadDocumentFromFile(filePath, baseDir string, index int) (types.ContentPar
 	return part, nil
 }
 
-// loadMediaFromURL fetches media from an HTTP/HTTPS URL and returns base64-encoded data and MIME type
+// loadMediaFromURL fetches media from an HTTP/HTTPS URL and returns base64-encoded data and MIME type.
+// If explicitMIMEType is provided, it takes precedence over auto-detection.
 func (h *HTTPMediaLoader) loadMediaFromURL(
-	ctx context.Context, url, contentType string, index int,
+	ctx context.Context, url, contentType string, index int, explicitMIMEType string,
 ) (data, mimeType string, err error) {
 	// Validate URL scheme
 	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
@@ -511,10 +516,14 @@ func (h *HTTPMediaLoader) loadMediaFromURL(
 		return "", "", NewSizeError(index, contentType, url, msg)
 	}
 
-	// Get MIME type from Content-Type header or detect from URL
-	mimeType = resp.Header.Get("Content-Type")
-	if mimeType == "" {
-		mimeType = detectMIMEType(url)
+	// Get MIME type: explicit > Content-Type header > URL detection
+	if explicitMIMEType != "" {
+		mimeType = explicitMIMEType
+	} else {
+		mimeType = resp.Header.Get("Content-Type")
+		if mimeType == "" {
+			mimeType = detectMIMEType(url)
+		}
 	}
 
 	// Base64 encode

@@ -732,8 +732,11 @@ func TestClaudeToolProvider_BuildToolRequest_AppliesDefaults(t *testing.T) {
 				t.Errorf("Expected temperature %.2f, got %v", tt.expectedTemp, request["temperature"])
 			}
 
-			if topP, ok := request["top_p"].(float32); !ok || topP != tt.expectedTopP {
-				t.Errorf("Expected top_p %.2f, got %v", tt.expectedTopP, request["top_p"])
+			// Note: top_p is intentionally NOT included in the request
+			// Claude 4+ doesn't support both temperature and top_p simultaneously
+			// See buildToolRequest() comment for details
+			if _, hasTopP := request["top_p"]; hasTopP {
+				t.Errorf("top_p should not be in request (Claude 4+ doesn't support both temp and top_p)")
 			}
 
 			if maxTokens, ok := request["max_tokens"].(int); !ok || maxTokens != tt.expectedMaxTokens {

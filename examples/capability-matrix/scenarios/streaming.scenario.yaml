@@ -1,0 +1,30 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+
+metadata:
+  name: streaming
+
+spec:
+  id: streaming
+  task_type: capability-test
+  description: "Test streaming response capability"
+  required_capabilities:
+    - streaming
+  streaming: true
+  tool_policy:
+    tool_choice: none
+    max_tool_calls_per_turn: 0
+    max_total_tool_calls: 0
+
+  turns:
+    - role: user
+      content: "Count from 1 to 5, one number per line, then say CAPABILITY_PASS on a new line."
+      assertions:
+        - type: content_includes
+          message: "Streaming response should include CAPABILITY_PASS"
+          params:
+            patterns: ["CAPABILITY_PASS"]
+        - type: content_matches
+          message: "Should contain numbers 1-5"
+          params:
+            pattern: "[1-5]"
