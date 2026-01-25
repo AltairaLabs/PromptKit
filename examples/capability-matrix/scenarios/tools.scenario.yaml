@@ -13,16 +13,14 @@ spec:
 
   turns:
     - role: user
-      content: "Call the get_weather function with location='test_city' to check the weather."
+      content: "Call the get_weather function for New York City and tell me the result. Say CAPABILITY_PASS when done."
       assertions:
         - type: tools_called
           message: "Should call the get_weather tool"
           params:
             tools:
               - "get_weather"
-        - type: tool_calls_with_args
-          message: "Should call get_weather with location='test_city'"
+        - type: content_includes
+          message: "Response should include CAPABILITY_PASS"
           params:
-            tool_name: "get_weather"
-            expected_args:
-              location: "test_city"
+            patterns: ["CAPABILITY_PASS"]

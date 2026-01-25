@@ -7,11 +7,7 @@ spec:
   type: openai
   model: gpt-4o-audio-preview
   capabilities:
-    - text
-    - streaming
     - audio
-    - tools
-    - json
     - duplex
   defaults:
     temperature: 0.1

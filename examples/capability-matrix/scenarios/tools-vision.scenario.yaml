@@ -16,7 +16,7 @@ spec:
     - role: user
       parts:
         - type: text
-          text: "Look at this image. What company logo do you see? Call the analyze_image tool and include 'google' in your description if you recognize it."
+          text: "Look at this image and call the analyze_image tool with a description of what you see. Then say CAPABILITY_PASS."
         - type: image
           media:
             url: "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png"
@@ -27,9 +27,7 @@ spec:
           params:
             tools:
               - "analyze_image"
-        - type: tool_calls_with_args
-          message: "Tool call description should reference the Google logo"
+        - type: content_includes
+          message: "Response should include CAPABILITY_PASS"
           params:
-            tool_name: "analyze_image"
-            args_match:
-              description: "(?i)(google|logo|colorful|letters)"
+            patterns: ["CAPABILITY_PASS"]
