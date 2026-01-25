@@ -2,10 +2,78 @@ package stage
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/binary"
+	"fmt"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/media"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
+
+// createMinimalWAV creates a minimal valid WAV file for testing.
+// Returns a valid WAV byte slice that can be processed by ffmpeg.
+func createMinimalWAV() []byte {
+	// Create a minimal valid WAV file with PCM audio
+	// Header: 44 bytes + data
+	sampleRate := uint32(16000)
+	bitsPerSample := uint16(16)
+	numChannels := uint16(1)
+	numSamples := 1600 // 0.1 seconds at 16kHz
+
+	// Create sample data (silence)
+	dataSize := numSamples * int(bitsPerSample/8) * int(numChannels)
+	data := make([]byte, dataSize)
+
+	// Create WAV header
+	wav := make([]byte, 0, 44+dataSize)
+
+	// RIFF header
+	wav = append(wav, []byte("RIFF")...)
+	fileSize := make([]byte, 4)
+	binary.LittleEndian.PutUint32(fileSize, uint32(36+dataSize))
+	wav = append(wav, fileSize...)
+	wav = append(wav, []byte("WAVE")...)
+
+	// fmt subchunk
+	wav = append(wav, []byte("fmt ")...)
+	subchunk1Size := make([]byte, 4)
+	binary.LittleEndian.PutUint32(subchunk1Size, 16) // PCM
+	wav = append(wav, subchunk1Size...)
+
+	audioFormat := make([]byte, 2)
+	binary.LittleEndian.PutUint16(audioFormat, 1) // PCM
+	wav = append(wav, audioFormat...)
+
+	channels := make([]byte, 2)
+	binary.LittleEndian.PutUint16(channels, numChannels)
+	wav = append(wav, channels...)
+
+	sampleRateBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(sampleRateBytes, sampleRate)
+	wav = append(wav, sampleRateBytes...)
+
+	byteRate := make([]byte, 4)
+	binary.LittleEndian.PutUint32(byteRate, sampleRate*uint32(numChannels)*uint32(bitsPerSample)/8)
+	wav = append(wav, byteRate...)
+
+	blockAlign := make([]byte, 2)
+	binary.LittleEndian.PutUint16(blockAlign, numChannels*bitsPerSample/8)
+	wav = append(wav, blockAlign...)
+
+	bps := make([]byte, 2)
+	binary.LittleEndian.PutUint16(bps, bitsPerSample)
+	wav = append(wav, bps...)
+
+	// data subchunk
+	wav = append(wav, []byte("data")...)
+	dataSizeBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(dataSizeBytes, uint32(dataSize))
+	wav = append(wav, dataSizeBytes...)
+	wav = append(wav, data...)
+
+	return wav
+}
 
 func TestNewMediaConvertStage(t *testing.T) {
 	t.Run("with default config", func(t *testing.T) {
@@ -672,5 +740,523 @@ func TestMediaConvertStage_NilVideo(t *testing.T) {
 	result := stage.convertElement(ctx, &elem)
 	if result.Video != nil {
 		t.Error("nil video should remain nil")
+	}
+}
+
+func TestMediaConvertStage_MessageWithAudioParts(t *testing.T) {
+	config := MediaConvertConfig{
+		TargetAudioFormats:   []string{media.MIMETypeAudioWAV},
+		AudioConverterConfig: media.DefaultAudioConverterConfig(),
+		PassthroughOnError:   true,
+	}
+	stage := NewMediaConvertStage(&config)
+
+	ctx := context.Background()
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+
+	// Create message with audio part already in target format
+	audioData := base64.StdEncoding.EncodeToString([]byte("fake wav audio"))
+	msg := &types.Message{
+		Role: "user",
+		Parts: []types.ContentPart{
+			types.NewTextPart("Hello"),
+			{
+				Type: types.ContentTypeAudio,
+				Media: &types.MediaContent{
+					Data:     &audioData,
+					MIMEType: media.MIMETypeAudioWAV, // Already in target format
+				},
+			},
+		},
+	}
+	input <- NewMessageElement(msg)
+	close(input)
+
+	err := stage.Process(ctx, input, output)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	result := <-output
+	if result.Message == nil {
+		t.Fatal("expected message in result")
+	}
+	if len(result.Message.Parts) != 2 {
+		t.Errorf("expected 2 parts, got %d", len(result.Message.Parts))
+	}
+	// Audio should be unchanged since it's already in target format
+	if result.Message.Parts[1].Media.MIMEType != media.MIMETypeAudioWAV {
+		t.Errorf("expected MIME type %s, got %s", media.MIMETypeAudioWAV, result.Message.Parts[1].Media.MIMEType)
+	}
+}
+
+func TestMediaConvertStage_MessageWithoutParts(t *testing.T) {
+	config := MediaConvertConfig{
+		TargetAudioFormats: []string{media.MIMETypeAudioWAV},
+	}
+	stage := NewMediaConvertStage(&config)
+
+	ctx := context.Background()
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+
+	// Create message with no parts (text-only)
+	msg := &types.Message{
+		Role:    "user",
+		Content: "Hello, world!",
+		Parts:   nil,
+	}
+	input <- NewMessageElement(msg)
+	close(input)
+
+	err := stage.Process(ctx, input, output)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	result := <-output
+	if result.Message == nil {
+		t.Fatal("expected message in result")
+	}
+	if result.Message.GetContent() != "Hello, world!" {
+		t.Errorf("expected content 'Hello, world!', got %q", result.Message.GetContent())
+	}
+}
+
+func TestMediaConvertStage_MessageWithNilMedia(t *testing.T) {
+	config := MediaConvertConfig{
+		TargetAudioFormats: []string{media.MIMETypeAudioWAV},
+		PassthroughOnError: true,
+	}
+	stage := NewMediaConvertStage(&config)
+
+	ctx := context.Background()
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+
+	// Create message with audio part but nil media
+	msg := &types.Message{
+		Role: "user",
+		Parts: []types.ContentPart{
+			{
+				Type:  types.ContentTypeAudio,
+				Media: nil, // nil media
+			},
+		},
+	}
+	input <- NewMessageElement(msg)
+	close(input)
+
+	err := stage.Process(ctx, input, output)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	result := <-output
+	if result.Message == nil {
+		t.Fatal("expected message in result")
+	}
+	// Should pass through without error
+	if result.Error != nil {
+		t.Errorf("unexpected error: %v", result.Error)
+	}
+}
+
+func TestMediaConvertStage_MessageWithNilData(t *testing.T) {
+	config := MediaConvertConfig{
+		TargetAudioFormats: []string{media.MIMETypeAudioWAV},
+		PassthroughOnError: true,
+	}
+	stage := NewMediaConvertStage(&config)
+
+	ctx := context.Background()
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+
+	// Create message with audio part but nil data
+	msg := &types.Message{
+		Role: "user",
+		Parts: []types.ContentPart{
+			{
+				Type: types.ContentTypeAudio,
+				Media: &types.MediaContent{
+					Data:     nil, // nil data
+					MIMEType: "audio/mp3",
+				},
+			},
+		},
+	}
+	input <- NewMessageElement(msg)
+	close(input)
+
+	err := stage.Process(ctx, input, output)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	result := <-output
+	if result.Message == nil {
+		t.Fatal("expected message in result")
+	}
+	// Should pass through without error (nil data is handled gracefully)
+	if result.Error != nil {
+		t.Errorf("unexpected error: %v", result.Error)
+	}
+}
+
+func TestMediaConvertStage_MessageWithEmptyMIMEType(t *testing.T) {
+	config := MediaConvertConfig{
+		TargetAudioFormats: []string{media.MIMETypeAudioWAV},
+		PassthroughOnError: true,
+	}
+	stage := NewMediaConvertStage(&config)
+
+	ctx := context.Background()
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+
+	// Create message with audio part but empty MIME type
+	audioData := base64.StdEncoding.EncodeToString([]byte("fake audio"))
+	msg := &types.Message{
+		Role: "user",
+		Parts: []types.ContentPart{
+			{
+				Type: types.ContentTypeAudio,
+				Media: &types.MediaContent{
+					Data:     &audioData,
+					MIMEType: "", // empty MIME type
+				},
+			},
+		},
+	}
+	input <- NewMessageElement(msg)
+	close(input)
+
+	err := stage.Process(ctx, input, output)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	result := <-output
+	if result.Message == nil {
+		t.Fatal("expected message in result")
+	}
+	// Should pass through without error (empty MIME type logs warning but continues)
+	if result.Error != nil {
+		t.Errorf("unexpected error: %v", result.Error)
+	}
+}
+
+func TestMediaConvertStage_MessageWithTextAndImageParts(t *testing.T) {
+	config := MediaConvertConfig{
+		TargetImageFormats: []string{"image/jpeg"},
+	}
+	stage := NewMediaConvertStage(&config)
+
+	ctx := context.Background()
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+
+	// Create message with text and image parts
+	imageData := base64.StdEncoding.EncodeToString([]byte("fake image"))
+	msg := &types.Message{
+		Role: "user",
+		Parts: []types.ContentPart{
+			types.NewTextPart("Look at this image"),
+			{
+				Type: types.ContentTypeImage,
+				Media: &types.MediaContent{
+					Data:     &imageData,
+					MIMEType: "image/png", // Different format, but image conversion not implemented
+				},
+			},
+		},
+	}
+	input <- NewMessageElement(msg)
+	close(input)
+
+	err := stage.Process(ctx, input, output)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	result := <-output
+	if result.Message == nil {
+		t.Fatal("expected message in result")
+	}
+	// Image conversion not implemented, should pass through
+	if len(result.Message.Parts) != 2 {
+		t.Errorf("expected 2 parts, got %d", len(result.Message.Parts))
+	}
+}
+
+func TestMediaConvertStage_MessageNoTargetFormats(t *testing.T) {
+	// When no target formats specified, message audio should pass through unchanged
+	config := MediaConvertConfig{
+		PassthroughOnError: true,
+	}
+	stage := NewMediaConvertStage(&config)
+
+	ctx := context.Background()
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+
+	audioData := base64.StdEncoding.EncodeToString([]byte("fake mp3 audio"))
+	msg := &types.Message{
+		Role: "user",
+		Parts: []types.ContentPart{
+			{
+				Type: types.ContentTypeAudio,
+				Media: &types.MediaContent{
+					Data:     &audioData,
+					MIMEType: media.MIMETypeAudioMP3,
+				},
+			},
+		},
+	}
+	input <- NewMessageElement(msg)
+	close(input)
+
+	err := stage.Process(ctx, input, output)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	result := <-output
+	if result.Message == nil {
+		t.Fatal("expected message in result")
+	}
+	// Audio should be unchanged when no target formats
+	if result.Message.Parts[0].Media.MIMEType != media.MIMETypeAudioMP3 {
+		t.Errorf("expected MIME type %s, got %s", media.MIMETypeAudioMP3, result.Message.Parts[0].Media.MIMEType)
+	}
+}
+
+func TestMediaConvertStage_AudioFormatToMIMEType(t *testing.T) {
+	tests := []struct {
+		format   AudioFormat
+		expected string
+	}{
+		{AudioFormatPCM16, media.MIMETypeAudioWAV},
+		{AudioFormatFloat32, media.MIMETypeAudioWAV},
+		{AudioFormatOpus, media.MIMETypeAudioOGG},
+		{AudioFormatMP3, media.MIMETypeAudioMP3},
+		{AudioFormatAAC, media.MIMETypeAudioAAC},
+		{AudioFormat(999), media.MIMETypeAudioWAV}, // unknown format defaults to WAV
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("format_%d", tt.format), func(t *testing.T) {
+			result := audioFormatToMIMEType(tt.format)
+			if result != tt.expected {
+				t.Errorf("expected %s, got %s", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestMediaConvertStage_MimeTypeToStageAudioFormat(t *testing.T) {
+	tests := []struct {
+		mimeType string
+		expected AudioFormat
+	}{
+		{media.MIMETypeAudioWAV, AudioFormatPCM16},
+		{media.MIMETypeAudioXWAV, AudioFormatPCM16},
+		{media.MIMETypeAudioMP3, AudioFormatMP3},
+		{media.MIMETypeAudioOGG, AudioFormatOpus},
+		{media.MIMETypeAudioAAC, AudioFormatAAC},
+		{media.MIMETypeAudioM4A, AudioFormatAAC},
+		{"audio/unknown", AudioFormatPCM16}, // unknown defaults to PCM16
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.mimeType, func(t *testing.T) {
+			result := mimeTypeToStageAudioFormat(tt.mimeType)
+			if result != tt.expected {
+				t.Errorf("expected %d, got %d", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestMediaConvertStage_MessageWithInvalidBase64(t *testing.T) {
+	config := MediaConvertConfig{
+		TargetAudioFormats: []string{media.MIMETypeAudioWAV},
+		PassthroughOnError: true,
+	}
+	stage := NewMediaConvertStage(&config)
+
+	ctx := context.Background()
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+
+	// Create message with invalid base64 data
+	invalidData := "not-valid-base64!!!"
+	msg := &types.Message{
+		Role: "user",
+		Parts: []types.ContentPart{
+			{
+				Type: types.ContentTypeAudio,
+				Media: &types.MediaContent{
+					Data:     &invalidData,
+					MIMEType: media.MIMETypeAudioMP3, // Not in target, so needs conversion
+				},
+			},
+		},
+	}
+	input <- NewMessageElement(msg)
+	close(input)
+
+	err := stage.Process(ctx, input, output)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	result := <-output
+	if result.Message == nil {
+		t.Fatal("expected message in result")
+	}
+	// With PassthroughOnError=true, should not have an error on element
+	if result.Error != nil {
+		t.Errorf("expected passthrough, got error: %v", result.Error)
+	}
+}
+
+func TestMediaConvertStage_MessageWithInvalidBase64_ErrorPropagation(t *testing.T) {
+	config := MediaConvertConfig{
+		TargetAudioFormats: []string{media.MIMETypeAudioWAV},
+		PassthroughOnError: false, // Propagate errors
+	}
+	stage := NewMediaConvertStage(&config)
+
+	ctx := context.Background()
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+
+	// Create message with invalid base64 data
+	invalidData := "not-valid-base64!!!"
+	msg := &types.Message{
+		Role: "user",
+		Parts: []types.ContentPart{
+			{
+				Type: types.ContentTypeAudio,
+				Media: &types.MediaContent{
+					Data:     &invalidData,
+					MIMEType: media.MIMETypeAudioMP3, // Not in target, so needs conversion
+				},
+			},
+		},
+	}
+	input <- NewMessageElement(msg)
+	close(input)
+
+	err := stage.Process(ctx, input, output)
+	if err != nil {
+		t.Fatalf("unexpected processing error: %v", err)
+	}
+
+	result := <-output
+	if result.Message == nil {
+		t.Fatal("expected message in result")
+	}
+	// With PassthroughOnError=false, should have an error on element
+	if result.Error == nil {
+		t.Error("expected error to be propagated")
+	}
+}
+
+func TestMediaConvertStage_ImageConversionNotImplemented(t *testing.T) {
+	config := MediaConvertConfig{
+		TargetImageFormats: []string{"image/jpeg"},
+		PassthroughOnError: false, // Propagate errors
+	}
+	stage := NewMediaConvertStage(&config)
+
+	ctx := context.Background()
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+
+	// Create element with image that needs conversion
+	elem := StreamElement{
+		Image: &ImageData{
+			Data:     []byte("fake image data"),
+			MIMEType: "image/png", // Different from target
+		},
+	}
+	input <- elem
+	close(input)
+
+	err := stage.Process(ctx, input, output)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	result := <-output
+	// With PassthroughOnError=false, error should be propagated
+	if result.Error == nil {
+		t.Error("expected error for unimplemented image conversion")
+	}
+}
+
+func TestMediaConvertStage_MessageAudioConversionSuccess(t *testing.T) {
+	// Skip if ffmpeg is not available
+	converter := media.NewAudioConverter(media.DefaultAudioConverterConfig())
+	if converter == nil {
+		t.Skip("ffmpeg not available, skipping conversion test")
+	}
+
+	config := MediaConvertConfig{
+		TargetAudioFormats:   []string{media.MIMETypeAudioMP3},
+		AudioConverterConfig: media.DefaultAudioConverterConfig(),
+		PassthroughOnError:   false,
+	}
+	stage := NewMediaConvertStage(&config)
+
+	ctx := context.Background()
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+
+	// Create a valid WAV file and encode to base64
+	wavData := createMinimalWAV()
+	wavBase64 := base64.StdEncoding.EncodeToString(wavData)
+
+	msg := &types.Message{
+		Role: "user",
+		Parts: []types.ContentPart{
+			{
+				Type: types.ContentTypeAudio,
+				Media: &types.MediaContent{
+					Data:     &wavBase64,
+					MIMEType: media.MIMETypeAudioWAV, // Will be converted to MP3
+				},
+			},
+		},
+	}
+	input <- NewMessageElement(msg)
+	close(input)
+
+	err := stage.Process(ctx, input, output)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	result := <-output
+	if result.Message == nil {
+		t.Fatal("expected message in result")
+	}
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %v", result.Error)
+	}
+	// Audio should have been converted to MP3
+	if len(result.Message.Parts) != 1 {
+		t.Errorf("expected 1 part, got %d", len(result.Message.Parts))
+	}
+	if result.Message.Parts[0].Media.MIMEType != media.MIMETypeAudioMP3 {
+		t.Errorf("expected MIME type %s, got %s", media.MIMETypeAudioMP3, result.Message.Parts[0].Media.MIMEType)
+	}
+	// Data should be base64 encoded MP3
+	if result.Message.Parts[0].Media.Data == nil || *result.Message.Parts[0].Media.Data == "" {
+		t.Error("expected converted audio data")
 	}
 }

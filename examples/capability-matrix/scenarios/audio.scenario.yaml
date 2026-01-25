@@ -23,5 +23,5 @@ spec:
       assertions:
         - type: content_matches
           params:
-            pattern: "(?i)(CAPABILITY_PASS|AUDIO_NOT_SUPPORTED|cannot|unable|don't|audio)"
+            pattern: "(?i)(CAPABILITY_PASS|AUDIO_NOT_SUPPORTED|cannot|unable|don't|audio|bridge|brooklyn)"
             message: "Should either process audio or indicate inability"

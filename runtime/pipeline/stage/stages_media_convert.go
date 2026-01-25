@@ -3,10 +3,12 @@ package stage
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/media"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // MediaConvertConfig configures the MediaConvertStage behavior.
@@ -83,22 +85,100 @@ func (s *MediaConvertStage) Process(
 
 // convertElement converts media in an element if needed.
 func (s *MediaConvertStage) convertElement(ctx context.Context, elem *StreamElement) StreamElement {
-	// Handle audio conversion
+	// Handle standalone audio conversion
 	if elem.Audio != nil && len(s.config.TargetAudioFormats) > 0 {
 		s.tryConvertAudio(ctx, elem)
 	}
 
-	// Handle image conversion (future)
+	// Handle standalone image conversion (future)
 	if elem.Image != nil && len(s.config.TargetImageFormats) > 0 {
 		s.tryConvertImage(ctx, elem)
 	}
 
-	// Handle video conversion (future)
+	// Handle standalone video conversion (future)
 	if elem.Video != nil && len(s.config.TargetVideoFormats) > 0 {
 		s.tryConvertVideo(ctx, elem)
 	}
 
+	// Handle message with multimodal parts
+	if elem.Message != nil && len(elem.Message.Parts) > 0 {
+		s.convertMessageParts(ctx, elem)
+	}
+
 	return *elem
+}
+
+// convertMessageParts converts media content in message parts.
+func (s *MediaConvertStage) convertMessageParts(ctx context.Context, elem *StreamElement) {
+	for i := range elem.Message.Parts {
+		part := &elem.Message.Parts[i]
+
+		switch part.Type {
+		case types.ContentTypeAudio:
+			if part.Media != nil && len(s.config.TargetAudioFormats) > 0 {
+				s.convertMessageAudioPart(ctx, part, elem)
+			}
+		case types.ContentTypeImage:
+			// Image conversion not yet implemented
+		case types.ContentTypeVideo:
+			// Video conversion not yet implemented
+		}
+	}
+}
+
+// convertMessageAudioPart converts audio content in a message part.
+func (s *MediaConvertStage) convertMessageAudioPart(ctx context.Context, part *types.ContentPart, elem *StreamElement) {
+	if part.Media == nil || part.Media.Data == nil {
+		return
+	}
+
+	currentMIME := part.Media.MIMEType
+	if currentMIME == "" {
+		logger.Warn("Audio part missing MIME type, skipping conversion")
+		return
+	}
+
+	// Check if already in supported format
+	if media.IsFormatSupported(currentMIME, s.config.TargetAudioFormats) {
+		logger.Debug("Audio already in supported format", "mime_type", currentMIME)
+		return
+	}
+
+	// Decode base64 data
+	audioData, err := base64.StdEncoding.DecodeString(*part.Media.Data)
+	if err != nil {
+		s.handleConversionError(elem, err, "Audio", currentMIME)
+		return
+	}
+
+	// Select target format
+	targetMIME := media.SelectTargetFormat(s.config.TargetAudioFormats)
+
+	logger.Debug("Converting message audio part",
+		"from", currentMIME,
+		"to", targetMIME,
+		"data_size", len(audioData))
+
+	// Convert
+	result, err := s.audioConverter.ConvertAudio(ctx, audioData, currentMIME, targetMIME)
+	if err != nil {
+		s.handleConversionError(elem, err, "Audio", currentMIME)
+		return
+	}
+
+	// Update part with converted data
+	if result.WasConverted {
+		logger.Info("Audio converted in message part",
+			"from", currentMIME,
+			"to", result.MIMEType,
+			"original_size", result.OriginalSize,
+			"new_size", result.NewSize)
+
+		// Encode back to base64
+		convertedData := base64.StdEncoding.EncodeToString(result.Data)
+		part.Media.Data = &convertedData
+		part.Media.MIMEType = result.MIMEType
+	}
 }
 
 // tryConvertAudio attempts audio conversion and handles errors.
