@@ -609,6 +609,16 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 		"messages": messages,
 	}
 
+	// Add modalities for audio models when audio content is present
+	if p.apiMode == APIModeCompletions && isAudioModel(p.model) && requestContainsAudio(&req) {
+		openAIReq["modalities"] = []string{"text", "audio"}
+		// Audio models require audio output configuration
+		openAIReq["audio"] = map[string]interface{}{
+			"voice":  "alloy",
+			"format": "wav",
+		}
+	}
+
 	// Add max tokens with the correct parameter name for the model type
 	addMaxTokensToRequest(openAIReq, p.model, maxTokens)
 	// Add sampling parameters (temperature, top_p) if model supports them
@@ -736,6 +746,17 @@ func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.
 			"include_usage": true,
 		},
 	}
+
+	// Add modalities for audio models when audio content is present
+	if p.apiMode == APIModeCompletions && isAudioModel(p.model) && requestContainsAudio(&req) {
+		openAIReq["modalities"] = []string{"text", "audio"}
+		// Audio models require audio output configuration
+		openAIReq["audio"] = map[string]interface{}{
+			"voice":  "alloy",
+			"format": "wav",
+		}
+	}
+
 	// Add max tokens with the correct parameter name for the model type
 	addMaxTokensToRequest(openAIReq, p.model, maxTokens)
 	// Add sampling parameters (temperature, top_p) if model supports them

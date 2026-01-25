@@ -10,9 +10,7 @@ import (
 
 // GetMultimodalCapabilities returns OpenAI's multimodal capabilities
 func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
-	// OpenAI Vision API supports images
-	// Audio/video are not directly supported in the predict API (use Whisper separately)
-	return providers.MultimodalCapabilities{
+	caps := providers.MultimodalCapabilities{
 		SupportsImages: true,
 		SupportsAudio:  false,
 		SupportsVideo:  false,
@@ -28,6 +26,24 @@ func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities 
 		MaxAudioSizeMB: 0,
 		MaxVideoSizeMB: 0,
 	}
+
+	// Audio models (gpt-4o-audio-preview) support audio input when using Chat Completions API
+	if p.apiMode == APIModeCompletions && isAudioModel(p.model) {
+		caps.SupportsAudio = true
+		caps.AudioFormats = []string{
+			types.MIMETypeAudioWAV,
+			types.MIMETypeAudioMP3,
+		}
+		caps.MaxAudioSizeMB = 25 // OpenAI audio limit
+	}
+
+	return caps
+}
+
+// isAudioModel checks if the model supports audio input
+func isAudioModel(model string) bool {
+	// Audio preview models support audio input via Chat Completions API
+	return model == "gpt-4o-audio-preview" || model == "gpt-4o-mini-audio-preview"
 }
 
 // PredictMultimodal performs a predict request with multimodal content
@@ -124,8 +140,22 @@ func (p *Provider) convertMessageToOpenAI(msg types.Message) (openAIMessage, err
 			}
 			contentParts = append(contentParts, imagePart)
 
-		case types.ContentTypeAudio, types.ContentTypeVideo:
-			return openAIMessage{}, fmt.Errorf("audio and video content not supported by OpenAI predict API")
+		case types.ContentTypeAudio:
+			// Audio is only supported for audio models using Chat Completions API
+			if p.apiMode != APIModeCompletions || !isAudioModel(p.model) {
+				return openAIMessage{}, fmt.Errorf("audio content requires audio model with Chat Completions API")
+			}
+			if part.Media == nil {
+				return openAIMessage{}, fmt.Errorf("audio part missing media content")
+			}
+			audioPart, err := p.convertAudioPartToOpenAI(part)
+			if err != nil {
+				return openAIMessage{}, err
+			}
+			contentParts = append(contentParts, audioPart)
+
+		case types.ContentTypeVideo:
+			return openAIMessage{}, fmt.Errorf("video content not supported by OpenAI API")
 
 		default:
 			return openAIMessage{}, fmt.Errorf("unknown content type: %s", part.Type)
@@ -173,6 +203,66 @@ func (p *Provider) convertImagePartToOpenAI(part types.ContentPart) (map[string]
 	imagePart["image_url"] = imageURL
 
 	return imagePart, nil
+}
+
+// convertAudioPartToOpenAI converts an audio ContentPart to OpenAI's input_audio format
+// OpenAI audio input format: { "type": "input_audio", "input_audio": { "data": base64, "format": "wav"|"mp3" } }
+func (p *Provider) convertAudioPartToOpenAI(part types.ContentPart) (map[string]interface{}, error) {
+	if part.Media == nil {
+		return nil, fmt.Errorf("audio part missing media content")
+	}
+
+	// Get base64-encoded audio data
+	var audioData string
+	if part.Media.Data != nil && *part.Media.Data != "" {
+		audioData = *part.Media.Data
+	} else {
+		// Use MediaLoader for URL, FilePath, or StorageReference
+		loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+		data, err := loader.GetBase64Data(context.Background(), part.Media)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load audio data: %w", err)
+		}
+		audioData = data
+	}
+
+	// Determine audio format from MIME type
+	format := getAudioFormat(part.Media.MIMEType)
+	if format == "" {
+		return nil, fmt.Errorf("unsupported audio format for OpenAI: %s (supported: wav, mp3)", part.Media.MIMEType)
+	}
+
+	return map[string]interface{}{
+		"type": "input_audio",
+		"input_audio": map[string]interface{}{
+			"data":   audioData,
+			"format": format,
+		},
+	}, nil
+}
+
+// getAudioFormat converts MIME type to OpenAI audio format string
+func getAudioFormat(mimeType string) string {
+	switch mimeType {
+	case types.MIMETypeAudioWAV, "audio/x-wav":
+		return "wav"
+	case types.MIMETypeAudioMP3: // "audio/mpeg"
+		return "mp3"
+	default:
+		return ""
+	}
+}
+
+// requestContainsAudio checks if any message in the request contains audio content
+func requestContainsAudio(req *providers.PredictionRequest) bool {
+	for i := range req.Messages {
+		for j := range req.Messages[i].Parts {
+			if req.Messages[i].Parts[j].Type == types.ContentTypeAudio {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // PredictMultimodalWithTools implements providers.MultimodalToolSupport interface for ToolProvider

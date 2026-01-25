@@ -11,5 +11,9 @@ spec:
     max_tokens: 500
     top_p: 1.0
   pricing:
-    input_cost_per_1k: 0.0025
-    output_cost_per_1k: 0.01
+    # Audio tokens: ~$0.10 per minute input, ~$0.24 per minute output
+    input_cost_per_1k: 0.10
+    output_cost_per_1k: 0.20
+  additional_config:
+    # Audio models require Chat Completions API (not Responses API)
+    api_mode: completions

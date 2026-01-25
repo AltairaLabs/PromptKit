@@ -75,12 +75,14 @@ This document tracks expected capabilities for each provider/model based on offi
 - **Audio Input** - Gemini only (inline data up to 20MB)
 - **Video Input** - Gemini only
 
-### Not Yet Implemented
+### Partially Implemented
 - **OpenAI Audio Models** (`gpt-4o-audio-preview`, `gpt-4o-mini-audio-preview`)
-  - Requires Chat Completions API with `modalities: ["text", "audio"]` parameter
-  - Current implementation uses Responses API which doesn't support these models
+  - Implemented via Chat Completions API with `modalities: ["text", "audio"]` parameter
+  - Requires `api_mode: completions` in provider config (Responses API doesn't support audio)
+  - Supports WAV and MP3 formats only
   - See: https://platform.openai.com/docs/guides/audio
 
+### Not Yet Implemented
 - **OpenAI Realtime API** (WebSocket-based live audio)
   - Different API endpoint and protocol entirely
   - Not applicable for batch testing

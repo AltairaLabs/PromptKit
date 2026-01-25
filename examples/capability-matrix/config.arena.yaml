@@ -28,13 +28,11 @@ spec:
     - file: providers/openai-gpt4o-mini.provider.yaml
       group: text,streaming,vision,tools,json
 
-    # GPT-4o Audio models - NOT YET SUPPORTED
-    # These require Chat Completions API with modalities parameter, not Responses API
-    # TODO: Add support for audio modality in OpenAI provider
-    # - file: providers/openai-gpt4o-audio.provider.yaml
-    #   group: text,streaming,audio,tools,json
-    # - file: providers/openai-gpt4o-mini-audio.provider.yaml
-    #   group: text,streaming,audio,tools,json
+    # GPT-4o Audio models - Use Chat Completions API with modalities parameter
+    - file: providers/openai-gpt4o-audio.provider.yaml
+      group: text,streaming,audio,tools,json
+    - file: providers/openai-gpt4o-mini-audio.provider.yaml
+      group: text,streaming,audio,tools,json
 
     # o-series reasoning models (use max_completion_tokens, no temperature/top_p)
     - file: providers/openai-o1.provider.yaml

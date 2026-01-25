@@ -56,6 +56,64 @@ func TestOpenAIProvider_GetMultimodalCapabilities(t *testing.T) {
 	}
 }
 
+func TestOpenAIProvider_AudioModelCapabilities(t *testing.T) {
+	// Audio models with Chat Completions API should support audio
+	provider := NewProviderWithConfig(
+		"test-audio", "gpt-4o-audio-preview", "https://api.openai.com/v1",
+		providers.ProviderDefaults{}, false,
+		map[string]any{"api_mode": "completions"},
+	)
+
+	caps := provider.GetMultimodalCapabilities()
+
+	if !caps.SupportsImages {
+		t.Error("Expected audio model to still support images")
+	}
+
+	if !caps.SupportsAudio {
+		t.Error("Expected audio model with completions API to support audio")
+	}
+
+	if caps.SupportsVideo {
+		t.Error("Expected audio model not to support video")
+	}
+
+	// Check audio formats
+	hasWAV := false
+	hasMP3 := false
+	for _, format := range caps.AudioFormats {
+		if format == types.MIMETypeAudioWAV {
+			hasWAV = true
+		}
+		if format == types.MIMETypeAudioMP3 {
+			hasMP3 = true
+		}
+	}
+
+	if !hasWAV || !hasMP3 {
+		t.Error("Expected audio model to support WAV and MP3 formats")
+	}
+
+	if caps.MaxAudioSizeMB != 25 {
+		t.Errorf("Expected MaxAudioSizeMB = 25, got %d", caps.MaxAudioSizeMB)
+	}
+}
+
+func TestOpenAIProvider_NonAudioModelWithCompletionsAPI(t *testing.T) {
+	// Non-audio model with Chat Completions API should NOT support audio
+	provider := NewProviderWithConfig(
+		"test", "gpt-4o", "https://api.openai.com/v1",
+		providers.ProviderDefaults{}, false,
+		map[string]any{"api_mode": "completions"},
+	)
+
+	caps := provider.GetMultimodalCapabilities()
+
+	if caps.SupportsAudio {
+		t.Error("Expected non-audio model not to support audio even with completions API")
+	}
+}
+
 func TestOpenAIProvider_SupportsMultimodal(t *testing.T) {
 	provider := NewProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
 
@@ -369,7 +427,7 @@ func TestOpenAIProvider_ConvertAudioReturnsError(t *testing.T) {
 		t.Fatal("Expected error when converting audio content, got nil")
 	}
 
-	expectedErr := "audio and video content not supported by OpenAI predict API"
+	expectedErr := "audio content requires audio model with Chat Completions API"
 	if err.Error() != expectedErr {
 		t.Errorf("Expected error '%s', got '%s'", expectedErr, err.Error())
 	}
@@ -1200,4 +1258,389 @@ func TestPredictStreamWithMessages_MalformedChunks(t *testing.T) {
 // Helper function
 func strPtr(s string) *string {
 	return &s
+}
+
+// =============================================================================
+// Audio Model Tests
+// =============================================================================
+
+func TestIsAudioModel(t *testing.T) {
+	tests := []struct {
+		model    string
+		expected bool
+	}{
+		{"gpt-4o-audio-preview", true},
+		{"gpt-4o-mini-audio-preview", true},
+		{"gpt-4o", false},
+		{"gpt-4o-mini", false},
+		{"gpt-4-turbo", false},
+		{"gpt-3.5-turbo", false},
+		{"o1", false},
+		{"o1-mini", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			result := isAudioModel(tt.model)
+			if result != tt.expected {
+				t.Errorf("isAudioModel(%q) = %v, expected %v", tt.model, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGetAudioFormat(t *testing.T) {
+	tests := []struct {
+		mimeType string
+		expected string
+	}{
+		{types.MIMETypeAudioWAV, "wav"},
+		{"audio/x-wav", "wav"},
+		{types.MIMETypeAudioMP3, "mp3"},
+		{"audio/mpeg", "mp3"},
+		{types.MIMETypeAudioOgg, ""},     // Not supported
+		{"audio/flac", ""},               // Not supported
+		{"audio/aac", ""},                // Not supported
+		{"video/mp4", ""},                // Not audio
+		{"", ""},                         // Empty
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.mimeType, func(t *testing.T) {
+			result := getAudioFormat(tt.mimeType)
+			if result != tt.expected {
+				t.Errorf("getAudioFormat(%q) = %q, expected %q", tt.mimeType, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestRequestContainsAudio(t *testing.T) {
+	tests := []struct {
+		name     string
+		req      providers.PredictionRequest
+		expected bool
+	}{
+		{
+			name: "no messages",
+			req: providers.PredictionRequest{
+				Messages: []types.Message{},
+			},
+			expected: false,
+		},
+		{
+			name: "text only message",
+			req: providers.PredictionRequest{
+				Messages: []types.Message{
+					{Role: "user", Content: "Hello"},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "image only message",
+			req: providers.PredictionRequest{
+				Messages: []types.Message{
+					{
+						Role: "user",
+						Parts: []types.ContentPart{
+							{
+								Type: types.ContentTypeImage,
+								Media: &types.MediaContent{
+									URL:      strPtr("https://example.com/image.jpg"),
+									MIMEType: types.MIMETypeImageJPEG,
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "audio message",
+			req: providers.PredictionRequest{
+				Messages: []types.Message{
+					{
+						Role: "user",
+						Parts: []types.ContentPart{
+							{
+								Type: types.ContentTypeAudio,
+								Media: &types.MediaContent{
+									Data:     strPtr("base64audiodata"),
+									MIMEType: types.MIMETypeAudioWAV,
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "mixed content with audio",
+			req: providers.PredictionRequest{
+				Messages: []types.Message{
+					{
+						Role: "user",
+						Parts: []types.ContentPart{
+							types.NewTextPart("Listen to this:"),
+							{
+								Type: types.ContentTypeAudio,
+								Media: &types.MediaContent{
+									Data:     strPtr("base64audiodata"),
+									MIMEType: types.MIMETypeAudioMP3,
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "audio in second message",
+			req: providers.PredictionRequest{
+				Messages: []types.Message{
+					{Role: "user", Content: "Hello"},
+					{
+						Role: "user",
+						Parts: []types.ContentPart{
+							{
+								Type: types.ContentTypeAudio,
+								Media: &types.MediaContent{
+									Data:     strPtr("base64audiodata"),
+									MIMEType: types.MIMETypeAudioWAV,
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := requestContainsAudio(&tt.req)
+			if result != tt.expected {
+				t.Errorf("requestContainsAudio() = %v, expected %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestOpenAIProvider_ConvertAudioPartToOpenAI(t *testing.T) {
+	provider := NewProviderWithConfig(
+		"test-audio", "gpt-4o-audio-preview", "https://api.openai.com/v1",
+		providers.ProviderDefaults{}, false,
+		map[string]any{"api_mode": "completions"},
+	)
+
+	t.Run("valid WAV audio with base64 data", func(t *testing.T) {
+		base64Data := "UklGRhQAAABXQVZFZm10IBAAAAABAAEAIlYAAESsAAACABAAZGF0YQAAAAA="
+		part := types.ContentPart{
+			Type: types.ContentTypeAudio,
+			Media: &types.MediaContent{
+				Data:     &base64Data,
+				MIMEType: types.MIMETypeAudioWAV,
+			},
+		}
+
+		result, err := provider.convertAudioPartToOpenAI(part)
+		require.NoError(t, err)
+
+		assert.Equal(t, "input_audio", result["type"])
+		inputAudio, ok := result["input_audio"].(map[string]interface{})
+		require.True(t, ok)
+		assert.Equal(t, base64Data, inputAudio["data"])
+		assert.Equal(t, "wav", inputAudio["format"])
+	})
+
+	t.Run("valid MP3 audio", func(t *testing.T) {
+		base64Data := "//uQxAAAAAANIAAAAAExBTUUzLjEwMFVVVVVV"
+		part := types.ContentPart{
+			Type: types.ContentTypeAudio,
+			Media: &types.MediaContent{
+				Data:     &base64Data,
+				MIMEType: types.MIMETypeAudioMP3,
+			},
+		}
+
+		result, err := provider.convertAudioPartToOpenAI(part)
+		require.NoError(t, err)
+
+		inputAudio := result["input_audio"].(map[string]interface{})
+		assert.Equal(t, "mp3", inputAudio["format"])
+	})
+
+	t.Run("unsupported audio format", func(t *testing.T) {
+		base64Data := "base64flacdata"
+		part := types.ContentPart{
+			Type: types.ContentTypeAudio,
+			Media: &types.MediaContent{
+				Data:     &base64Data,
+				MIMEType: "audio/flac",
+			},
+		}
+
+		_, err := provider.convertAudioPartToOpenAI(part)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unsupported audio format")
+	})
+
+	t.Run("nil media", func(t *testing.T) {
+		part := types.ContentPart{
+			Type:  types.ContentTypeAudio,
+			Media: nil,
+		}
+
+		_, err := provider.convertAudioPartToOpenAI(part)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing media content")
+	})
+}
+
+func TestOpenAIProvider_AudioModelConvertMessage(t *testing.T) {
+	provider := NewProviderWithConfig(
+		"test-audio", "gpt-4o-audio-preview", "https://api.openai.com/v1",
+		providers.ProviderDefaults{}, false,
+		map[string]any{"api_mode": "completions"},
+	)
+
+	t.Run("audio message with text", func(t *testing.T) {
+		base64Audio := "UklGRhQAAABXQVZFZm10IBAAAAABAAEAIlYAAESsAAACABAAZGF0YQAAAAA="
+		msg := types.Message{
+			Role: "user",
+			Parts: []types.ContentPart{
+				types.NewTextPart("Transcribe this audio:"),
+				{
+					Type: types.ContentTypeAudio,
+					Media: &types.MediaContent{
+						Data:     &base64Audio,
+						MIMEType: types.MIMETypeAudioWAV,
+					},
+				},
+			},
+		}
+
+		converted, err := provider.convertMessageToOpenAI(msg)
+		require.NoError(t, err)
+
+		parts, ok := converted.Content.([]interface{})
+		require.True(t, ok)
+		require.Len(t, parts, 2)
+
+		// Check text part
+		textPart := parts[0].(map[string]interface{})
+		assert.Equal(t, "text", textPart["type"])
+
+		// Check audio part
+		audioPart := parts[1].(map[string]interface{})
+		assert.Equal(t, "input_audio", audioPart["type"])
+		inputAudio := audioPart["input_audio"].(map[string]interface{})
+		assert.Equal(t, "wav", inputAudio["format"])
+	})
+}
+
+func TestOpenAIProvider_AudioModelWithResponsesAPI(t *testing.T) {
+	// Audio model with Responses API should NOT support audio
+	provider := NewProviderWithConfig(
+		"test-audio", "gpt-4o-audio-preview", "https://api.openai.com/v1",
+		providers.ProviderDefaults{}, false,
+		map[string]any{"api_mode": "responses"}, // Not completions
+	)
+
+	caps := provider.GetMultimodalCapabilities()
+
+	if caps.SupportsAudio {
+		t.Error("Expected audio model with Responses API not to support audio")
+	}
+}
+
+func TestOpenAIProvider_AudioModelMiniVariant(t *testing.T) {
+	// Test the mini variant of audio model
+	provider := NewProviderWithConfig(
+		"test-audio", "gpt-4o-mini-audio-preview", "https://api.openai.com/v1",
+		providers.ProviderDefaults{}, false,
+		map[string]any{"api_mode": "completions"},
+	)
+
+	caps := provider.GetMultimodalCapabilities()
+
+	if !caps.SupportsAudio {
+		t.Error("Expected gpt-4o-mini-audio-preview to support audio")
+	}
+	if !caps.SupportsImages {
+		t.Error("Expected gpt-4o-mini-audio-preview to still support images")
+	}
+}
+
+func TestOpenAIProvider_AudioNotSupportedOnNonAudioModel(t *testing.T) {
+	// Standard model should reject audio even with completions API
+	provider := NewProviderWithConfig(
+		"test", "gpt-4o", "https://api.openai.com/v1",
+		providers.ProviderDefaults{}, false,
+		map[string]any{"api_mode": "completions"},
+	)
+
+	base64Audio := "audiodata"
+	msg := types.Message{
+		Role: "user",
+		Parts: []types.ContentPart{
+			{
+				Type: types.ContentTypeAudio,
+				Media: &types.MediaContent{
+					Data:     &base64Audio,
+					MIMEType: types.MIMETypeAudioWAV,
+				},
+			},
+		},
+	}
+
+	_, err := provider.convertMessageToOpenAI(msg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "audio content requires audio model")
+}
+
+func TestOpenAIProvider_APIMode_Configuration(t *testing.T) {
+	tests := []struct {
+		name            string
+		additionalConfig map[string]any
+		expectedAPIMode string
+	}{
+		{
+			name:            "default is responses",
+			additionalConfig: nil,
+			expectedAPIMode: "responses",
+		},
+		{
+			name:            "explicit completions",
+			additionalConfig: map[string]any{"api_mode": "completions"},
+			expectedAPIMode: "completions",
+		},
+		{
+			name:            "explicit responses",
+			additionalConfig: map[string]any{"api_mode": "responses"},
+			expectedAPIMode: "responses",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			provider := NewProviderWithConfig(
+				"test", "gpt-4o", "https://api.openai.com/v1",
+				providers.ProviderDefaults{}, false,
+				tt.additionalConfig,
+			)
+
+			// Check the internal API mode
+			actualMode := string(provider.apiMode)
+			if actualMode != tt.expectedAPIMode {
+				t.Errorf("expected API mode %q, got %q", tt.expectedAPIMode, actualMode)
+			}
+		})
+	}
 }
