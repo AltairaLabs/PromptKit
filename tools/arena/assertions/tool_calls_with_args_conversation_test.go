@@ -187,3 +187,78 @@ func TestToolCallsWithArgsConversationValidator_CombinedExactAndPattern(t *testi
 		t.Fatalf("expected failure when exact match fails, got: %+v", res)
 	}
 }
+
+func TestToolCallsWithArgsConversationValidator_Type(t *testing.T) {
+	v := NewToolCallsWithArgsConversationValidator()
+	if v.Type() != "tool_calls_with_args" {
+		t.Fatalf("expected type 'tool_calls_with_args', got: %s", v.Type())
+	}
+}
+
+func TestToolCallsWithArgsConversationValidator_NoRequirements(t *testing.T) {
+	v := NewToolCallsWithArgsConversationValidator()
+	ctx := &ConversationContext{ToolCalls: []ToolCallRecord{
+		{TurnIndex: 0, ToolName: "any_tool", Arguments: map[string]interface{}{"foo": "bar"}},
+	}}
+
+	// No required_args or args_match - should pass with message
+	res := v.ValidateConversation(nil, ctx, map[string]interface{}{
+		"tool_name": "any_tool",
+	})
+	if !res.Passed {
+		t.Fatalf("expected pass when no requirements, got: %+v", res)
+	}
+	if res.Message != "no required args or patterns configured" {
+		t.Fatalf("expected specific message, got: %s", res.Message)
+	}
+}
+
+func TestExtractArgsMatch_NilInput(t *testing.T) {
+	result := extractArgsMatch(nil)
+	if result != nil {
+		t.Fatal("expected nil result for nil input")
+	}
+}
+
+func TestExtractArgsMatch_InvalidType(t *testing.T) {
+	result := extractArgsMatch("not a map")
+	if result != nil {
+		t.Fatal("expected nil result for non-map input")
+	}
+}
+
+func TestExtractArgsMatch_NonStringValues(t *testing.T) {
+	input := map[string]interface{}{
+		"valid":   "pattern",
+		"invalid": 123, // not a string
+	}
+	result := extractArgsMatch(input)
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result["valid"] != "pattern" {
+		t.Fatalf("expected 'pattern', got: %s", result["valid"])
+	}
+	if _, ok := result["invalid"]; ok {
+		t.Fatal("expected invalid key to be skipped")
+	}
+}
+
+func TestAsString(t *testing.T) {
+	tests := []struct {
+		input    interface{}
+		expected string
+	}{
+		{"hello", "hello"},
+		{123, "123"},
+		{45.67, "45.67"},
+		{true, "true"},
+		{nil, "<nil>"},
+	}
+	for _, tt := range tests {
+		result := asString(tt.input)
+		if result != tt.expected {
+			t.Errorf("asString(%v) = %s, expected %s", tt.input, result, tt.expected)
+		}
+	}
+}

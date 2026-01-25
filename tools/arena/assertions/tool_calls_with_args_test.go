@@ -230,3 +230,202 @@ func TestToolCallsWithArgsValidator_MissingArgument(t *testing.T) {
 		t.Fatalf("expected failure for missing argument, got: %+v", result)
 	}
 }
+
+func TestToolCallsWithArgsValidator_EmptyArgs(t *testing.T) {
+	params := map[string]interface{}{
+		"tool_name": "simple_tool",
+		"expected_args": map[string]interface{}{
+			"param": "value",
+		},
+	}
+	validator := NewToolCallsWithArgsValidator(params)
+
+	// Create test messages with empty args
+	messages := []types.Message{
+		{
+			Role: "assistant",
+			ToolCalls: []types.MessageToolCall{
+				{Name: "simple_tool", Args: nil}, // empty args
+			},
+		},
+	}
+
+	result := validator.Validate("", map[string]interface{}{
+		"_turn_messages": messages,
+	})
+
+	if result.Passed {
+		t.Fatalf("expected failure for empty args when args required, got: %+v", result)
+	}
+}
+
+func TestToolCallsWithArgsValidator_InvalidJSON(t *testing.T) {
+	params := map[string]interface{}{
+		"tool_name": "test_tool",
+		"expected_args": map[string]interface{}{
+			"param": "value",
+		},
+	}
+	validator := NewToolCallsWithArgsValidator(params)
+
+	// Create test messages with invalid JSON args
+	messages := []types.Message{
+		{
+			Role: "assistant",
+			ToolCalls: []types.MessageToolCall{
+				{Name: "test_tool", Args: []byte("invalid json{")},
+			},
+		},
+	}
+
+	result := validator.Validate("", map[string]interface{}{
+		"_turn_messages": messages,
+	})
+
+	if result.Passed {
+		t.Fatalf("expected failure for invalid JSON args, got: %+v", result)
+	}
+}
+
+func TestToolCallsWithArgsValidator_InvalidRegexPattern(t *testing.T) {
+	params := map[string]interface{}{
+		"tool_name": "test_tool",
+		"args_match": map[string]interface{}{
+			"description": "[invalid(regex",
+		},
+	}
+	validator := NewToolCallsWithArgsValidator(params)
+
+	args, _ := json.Marshal(map[string]interface{}{
+		"description": "some value",
+	})
+	messages := []types.Message{
+		{
+			Role: "assistant",
+			ToolCalls: []types.MessageToolCall{
+				{Name: "test_tool", Args: args},
+			},
+		},
+	}
+
+	result := validator.Validate("", map[string]interface{}{
+		"_turn_messages": messages,
+	})
+
+	if result.Passed {
+		t.Fatalf("expected failure for invalid regex pattern, got: %+v", result)
+	}
+}
+
+func TestToolCallsWithArgsValidator_MissingArgumentForPattern(t *testing.T) {
+	params := map[string]interface{}{
+		"tool_name": "test_tool",
+		"args_match": map[string]interface{}{
+			"missing_field": ".*",
+		},
+	}
+	validator := NewToolCallsWithArgsValidator(params)
+
+	args, _ := json.Marshal(map[string]interface{}{
+		"other_field": "some value",
+	})
+	messages := []types.Message{
+		{
+			Role: "assistant",
+			ToolCalls: []types.MessageToolCall{
+				{Name: "test_tool", Args: args},
+			},
+		},
+	}
+
+	result := validator.Validate("", map[string]interface{}{
+		"_turn_messages": messages,
+	})
+
+	if result.Passed {
+		t.Fatalf("expected failure for missing argument for pattern, got: %+v", result)
+	}
+}
+
+func TestToolCallsWithArgsValidator_NoRequirements(t *testing.T) {
+	params := map[string]interface{}{
+		"tool_name": "test_tool",
+		// No expected_args or args_match
+	}
+	validator := NewToolCallsWithArgsValidator(params)
+
+	args, _ := json.Marshal(map[string]interface{}{"any": "value"})
+	messages := []types.Message{
+		{
+			Role: "assistant",
+			ToolCalls: []types.MessageToolCall{
+				{Name: "test_tool", Args: args},
+			},
+		},
+	}
+
+	result := validator.Validate("", map[string]interface{}{
+		"_turn_messages": messages,
+	})
+
+	if !result.Passed {
+		t.Fatalf("expected pass when no requirements, got: %+v", result)
+	}
+}
+
+func TestToolCallsWithArgsValidator_FallbackToExtractToolCalls(t *testing.T) {
+	params := map[string]interface{}{
+		"tool_name": "test_tool",
+		"expected_args": map[string]interface{}{
+			"location": "NYC",
+		},
+	}
+	validator := NewToolCallsWithArgsValidator(params)
+
+	// Use fallback path (no _turn_messages, use _message_tool_calls directly)
+	args, _ := json.Marshal(map[string]interface{}{"location": "NYC"})
+	result := validator.Validate("", map[string]interface{}{
+		"_message_tool_calls": []types.MessageToolCall{
+			{Name: "test_tool", Args: args},
+		},
+	})
+
+	if !result.Passed {
+		t.Fatalf("expected pass with fallback extraction, got: %+v", result)
+	}
+}
+
+func TestExtractMapStringString_DirectMap(t *testing.T) {
+	// Test extractMapStringString with map[string]string input
+	params := map[string]interface{}{
+		"args_match": map[string]string{
+			"key": "value",
+		},
+	}
+
+	result := extractMapStringString(params, "args_match")
+	if result == nil {
+		t.Fatal("expected non-nil result for map[string]string input")
+	}
+	if result["key"] != "value" {
+		t.Fatalf("expected 'value', got '%s'", result["key"])
+	}
+}
+
+func TestExtractMapStringInterface_Nil(t *testing.T) {
+	params := map[string]interface{}{}
+
+	result := extractMapStringInterface(params, "nonexistent")
+	if result != nil {
+		t.Fatal("expected nil result for nonexistent key")
+	}
+}
+
+func TestExtractMapStringString_Nil(t *testing.T) {
+	params := map[string]interface{}{}
+
+	result := extractMapStringString(params, "nonexistent")
+	if result != nil {
+		t.Fatal("expected nil result for nonexistent key")
+	}
+}
