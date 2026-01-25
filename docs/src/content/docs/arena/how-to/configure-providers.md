@@ -45,7 +45,14 @@ metadata:
 spec:
   type: openai
   model: gpt-4o-mini
-  
+
+  capabilities:
+    - text
+    - streaming
+    - vision
+    - tools
+    - json
+
   defaults:
     temperature: 0.6
     max_tokens: 2000
@@ -53,6 +60,62 @@ spec:
 ```
 
 Authentication uses the `OPENAI_API_KEY` environment variable automatically.
+
+## Provider Capabilities
+
+The `capabilities` field declares what features a provider supports. Scenarios can then use `required_capabilities` to only run against providers with matching capabilities.
+
+**Available Capabilities**:
+
+| Capability | Description |
+|------------|-------------|
+| `text` | Basic text completion |
+| `streaming` | Streaming responses |
+| `vision` | Image understanding |
+| `tools` | Function/tool calling |
+| `json` | JSON mode output |
+| `audio` | Audio input understanding |
+| `video` | Video input understanding |
+| `documents` | PDF/document upload support |
+| `duplex` | Real-time bidirectional audio |
+
+**Example - Vision-capable provider**:
+```yaml
+spec:
+  type: openai
+  model: gpt-4o
+  capabilities:
+    - text
+    - streaming
+    - vision
+    - tools
+    - json
+```
+
+**Example - Audio-only provider**:
+```yaml
+spec:
+  type: openai
+  model: gpt-4o-audio-preview
+  capabilities:
+    - audio
+    - duplex
+```
+
+**Example - Local model with limited capabilities**:
+```yaml
+spec:
+  type: ollama
+  model: llama3.2:3b
+  capabilities:
+    - text
+    - streaming
+    - tools
+    - json
+  # Note: llama3.2:3b does NOT support vision (only 11B/90B models do)
+```
+
+When a scenario specifies `required_capabilities`, only providers with ALL listed capabilities will run that scenario. See [Write Scenarios](./write-scenarios) for details.
 
 ## Supported Providers
 

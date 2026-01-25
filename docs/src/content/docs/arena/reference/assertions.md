@@ -289,6 +289,75 @@ Verifies that specific tools were NOT invoked in the response.
 
 ---
 
+#### `tool_calls_with_args` (Turn-Level)
+
+Verifies that a tool was called with specific arguments in the current turn. Supports both exact value matching and regex pattern matching.
+
+**Use Cases**:
+- Validate argument passing to tools
+- Check parameter extraction from user input
+- Ensure correct tool configuration
+- Flexible pattern matching for dynamic values
+
+**Parameters**:
+- `tool_name` (string): Tool name to check
+- `expected_args` (object): Exact argument values to match (use `null` for presence-only check)
+- `args_match` (object): Regex patterns to match against argument values
+
+**Example - Exact Match**:
+```yaml
+- role: user
+  content: "What's the weather in San Francisco?"
+  assertions:
+    - type: tool_calls_with_args
+      params:
+        tool_name: get_weather
+        expected_args:
+          location: "San Francisco"
+      message: "Should pass location correctly"
+```
+
+**Example - Regex Pattern Match**:
+```yaml
+- role: user
+  content: "Analyze this image and describe it"
+  assertions:
+    - type: tool_calls_with_args
+      params:
+        tool_name: analyze_image
+        args_match:
+          description: "(?i)(logo|image|picture|graphic)"
+      message: "Description should reference visual content"
+```
+
+**Example - Presence Check (any value)**:
+```yaml
+- role: user
+  content: "Get weather for my city"
+  assertions:
+    - type: tool_calls_with_args
+      params:
+        tool_name: get_weather
+        expected_args:
+          location: null  # Just check that location exists
+      message: "Should pass some location"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "details": {
+    "violations": [
+      {"type": "missing_argument", "tool": "get_weather", "argument": "location"},
+      {"type": "pattern_mismatch", "tool": "analyze_image", "argument": "description", "pattern": "(?i)logo"}
+    ]
+  }
+}
+```
+
+---
+
 #### `tool_calls_with_args` (Conversation-Level)
 
 Verifies that a tool was called with specific arguments across the entire conversation.
@@ -299,12 +368,14 @@ Verifies that a tool was called with specific arguments across the entire conver
 - Validate argument passing across conversation
 - Check parameter extraction from user input
 - Ensure correct tool configuration
+- Pattern matching for dynamic argument values
 
 **Parameters**:
-- `tool` (string): Tool name to check
-- `expected_args` (object): Expected argument values
+- `tool_name` (string): Tool name to check
+- `required_args` (object): Expected argument values (exact match)
+- `args_match` (object): Regex patterns to match against argument values
 
-**Example**:
+**Example - Exact Match**:
 ```yaml
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Scenario
@@ -319,23 +390,34 @@ spec:
   conversation_assertions:
     - type: tool_calls_with_args
       params:
-        tool: get_weather
-        expected_args:
+        tool_name: get_weather
+        required_args:
           location: "San Francisco"
-        message: "Should pass location correctly"
+      message: "Should pass location correctly"
 ```
 
-**Partial Match**:
+**Example - Regex Pattern Match**:
 ```yaml
-# Only check specific args, ignore others
 conversation_assertions:
   - type: tool_calls_with_args
     params:
-      tool: search_products
-      expected_args:
+      tool_name: search_products
+      args_match:
+        query: "(?i)(laptop|computer|electronics)"
+    message: "Should search for electronics-related terms"
+```
+
+**Combined Exact and Pattern Match**:
+```yaml
+conversation_assertions:
+  - type: tool_calls_with_args
+    params:
+      tool_name: create_order
+      required_args:
         category: "electronics"
-        message: "Should search in electronics category"
-      # Ignores other args like limit, sort, etc.
+      args_match:
+        product_id: "^PROD-[0-9]+$"
+    message: "Should create order with valid product ID"
 ```
 
 **Failure Details**:
