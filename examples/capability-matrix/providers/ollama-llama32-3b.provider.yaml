@@ -1,0 +1,26 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: ollama-llama32-3b
+  annotations:
+    description: "Local Llama 3.2 3B model running via Ollama"
+spec:
+  id: ollama-llama32-3b
+  type: ollama
+  model: llama3.2:3b
+  base_url: "http://localhost:11435"
+  capabilities:
+    - text
+    - streaming
+    - tools
+    - json
+  additional_config:
+    keep_alive: "5m"
+  defaults:
+    temperature: 0.1
+    max_tokens: 500
+    top_p: 1.0
+  pricing:
+    # Local model - no API costs
+    input_cost_per_1k: 0.0
+    output_cost_per_1k: 0.0

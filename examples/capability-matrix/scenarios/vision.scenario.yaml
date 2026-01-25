@@ -10,6 +10,10 @@ spec:
   description: "Test vision/image understanding capability"
   required_capabilities:
     - vision
+  tool_policy:
+    tool_choice: none
+    max_tool_calls_per_turn: 0
+    max_total_tool_calls: 0
 
   turns:
     - role: user

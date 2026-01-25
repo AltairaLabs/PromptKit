@@ -88,6 +88,12 @@ spec:
       group: text,streaming,vision,tools,json,audio,video
 
     # ==========================================================================
+    # Ollama Local Models
+    # ==========================================================================
+    - file: providers/ollama-llama32-3b.provider.yaml
+      group: text,streaming,tools,json
+
+    # ==========================================================================
     # Mock Provider (for CI testing)
     # ==========================================================================
     - file: providers/mock.provider.yaml
