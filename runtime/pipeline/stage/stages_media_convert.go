@@ -18,7 +18,8 @@ type MediaConvertConfig struct {
 	TargetAudioFormats []string
 
 	// TargetImageFormats lists accepted image MIME types.
-	// Image conversion not yet implemented.
+	// Images will be converted to the first format if not already supported.
+	// Supported formats: image/jpeg, image/png
 	TargetImageFormats []string
 
 	// TargetVideoFormats lists accepted video MIME types.
@@ -27,6 +28,10 @@ type MediaConvertConfig struct {
 
 	// AudioConverterConfig configures audio conversion.
 	AudioConverterConfig media.AudioConverterConfig
+
+	// ImageResizeConfig configures image conversion/resizing.
+	// Only the Format and Quality fields are used for format conversion.
+	ImageResizeConfig media.ImageResizeConfig
 
 	// PassthroughOnError passes through unconverted content if conversion fails.
 	// If false, errors are propagated to the pipeline.
@@ -38,6 +43,7 @@ type MediaConvertConfig struct {
 func DefaultMediaConvertConfig() MediaConvertConfig {
 	return MediaConvertConfig{
 		AudioConverterConfig: media.DefaultAudioConverterConfig(),
+		ImageResizeConfig:    media.DefaultImageResizeConfig(),
 		PassthroughOnError:   true,
 	}
 }
@@ -119,7 +125,9 @@ func (s *MediaConvertStage) convertMessageParts(ctx context.Context, elem *Strea
 				s.convertMessageAudioPart(ctx, part, elem)
 			}
 		case types.ContentTypeImage:
-			// Image conversion not yet implemented
+			if part.Media != nil && len(s.config.TargetImageFormats) > 0 {
+				s.convertMessageImagePart(ctx, part, elem)
+			}
 		case types.ContentTypeVideo:
 			// Video conversion not yet implemented
 		}
@@ -179,6 +187,67 @@ func (s *MediaConvertStage) convertMessageAudioPart(ctx context.Context, part *t
 		part.Media.Data = &convertedData
 		part.Media.MIMEType = result.MIMEType
 	}
+}
+
+// convertMessageImagePart converts image content in a message part.
+func (s *MediaConvertStage) convertMessageImagePart(_ context.Context, part *types.ContentPart, elem *StreamElement) {
+	if part.Media == nil || part.Media.Data == nil {
+		return
+	}
+
+	currentMIME := part.Media.MIMEType
+	if currentMIME == "" {
+		logger.Warn("Image part missing MIME type, skipping conversion")
+		return
+	}
+
+	// Check if already in supported format
+	if isImageFormatSupported(currentMIME, s.config.TargetImageFormats) {
+		logger.Debug("Image already in supported format", "mime_type", currentMIME)
+		return
+	}
+
+	// Decode base64 data
+	imageData, err := base64.StdEncoding.DecodeString(*part.Media.Data)
+	if err != nil {
+		s.handleConversionError(elem, err, "Image", currentMIME)
+		return
+	}
+
+	// Select target format
+	targetMIME := selectTargetImageFormat(s.config.TargetImageFormats)
+	targetFormat := mimeTypeToImageFormat(targetMIME)
+
+	logger.Debug("Converting message image part",
+		"from", currentMIME,
+		"to", targetMIME,
+		"data_size", len(imageData))
+
+	// Configure resize for format conversion only (preserve dimensions)
+	config := s.config.ImageResizeConfig
+	config.Format = targetFormat
+	config.MaxWidth = 0          // No resize
+	config.MaxHeight = 0         // No resize
+	config.SkipIfSmaller = false // Force processing for format conversion
+
+	// Convert using ResizeImage (which handles format conversion)
+	result, err := media.ResizeImage(imageData, config)
+	if err != nil {
+		s.handleConversionError(elem, err, "Image", currentMIME)
+		return
+	}
+
+	// Update part with converted data
+	logger.Info("Image converted in message part",
+		"from", currentMIME,
+		"to", result.MIMEType,
+		"original_size", result.OriginalSize,
+		"new_size", result.NewSize)
+
+	// Encode back to base64
+	convertedData := base64.StdEncoding.EncodeToString(result.Data)
+	part.Media.Data = &convertedData
+	part.Media.MIMEType = result.MIMEType
 }
 
 // tryConvertAudio attempts audio conversion and handles errors.
@@ -262,7 +331,6 @@ func (s *MediaConvertStage) convertAudioElement(ctx context.Context, elem *Strea
 }
 
 // convertImageElement converts image data to a supported format.
-// Currently a placeholder for future implementation.
 func (s *MediaConvertStage) convertImageElement(_ context.Context, elem *StreamElement) error {
 	img := elem.Image
 	if img == nil {
@@ -270,12 +338,47 @@ func (s *MediaConvertStage) convertImageElement(_ context.Context, elem *StreamE
 	}
 
 	// Check if already in supported format
-	if media.IsFormatSupported(img.MIMEType, s.config.TargetImageFormats) {
+	if isImageFormatSupported(img.MIMEType, s.config.TargetImageFormats) {
 		return nil
 	}
 
-	// TODO: Implement image format conversion using media.ResizeImage
-	return fmt.Errorf("image format conversion not yet implemented")
+	// Get image data
+	if len(img.Data) == 0 {
+		return fmt.Errorf("no image data available")
+	}
+
+	// Select target format
+	targetMIME := selectTargetImageFormat(s.config.TargetImageFormats)
+	targetFormat := mimeTypeToImageFormat(targetMIME)
+
+	// Configure resize for format conversion only (preserve dimensions)
+	config := s.config.ImageResizeConfig
+	config.Format = targetFormat
+	config.MaxWidth = 0          // No resize
+	config.MaxHeight = 0         // No resize
+	config.SkipIfSmaller = false // Force processing for format conversion
+
+	// Convert using ResizeImage (which handles format conversion)
+	result, err := media.ResizeImage(img.Data, config)
+	if err != nil {
+		return fmt.Errorf("image conversion failed: %w", err)
+	}
+
+	// Update element with converted data
+	logger.Debug("Image converted",
+		"from", img.MIMEType,
+		"to", result.MIMEType,
+		"original_size", result.OriginalSize,
+		"new_size", result.NewSize,
+	)
+
+	img.Data = result.Data
+	img.MIMEType = result.MIMEType
+	img.Format = result.Format
+	img.Width = result.Width
+	img.Height = result.Height
+
+	return nil
 }
 
 // convertVideoElement converts video data to a supported format.
@@ -375,5 +478,66 @@ func mimeTypeToStageAudioFormat(mimeType string) AudioFormat {
 		return AudioFormatAAC
 	default:
 		return AudioFormatPCM16
+	}
+}
+
+// isImageFormatSupported checks if a MIME type is in the list of supported image formats.
+func isImageFormatSupported(mimeType string, supportedFormats []string) bool {
+	mimeType = normalizeImageMIMEType(mimeType)
+	for _, supported := range supportedFormats {
+		if normalizeImageMIMEType(supported) == mimeType {
+			return true
+		}
+	}
+	return false
+}
+
+// selectTargetImageFormat selects the best target format from supported formats.
+// Prefers JPEG (widely supported), then PNG.
+func selectTargetImageFormat(supportedFormats []string) string {
+	if len(supportedFormats) == 0 {
+		return media.MIMETypeJPEG // Default fallback
+	}
+
+	// Preference order: JPEG (most compatible), then PNG
+	preferences := []string{
+		media.MIMETypeJPEG,
+		media.MIMETypePNG,
+	}
+
+	for _, pref := range preferences {
+		if isImageFormatSupported(pref, supportedFormats) {
+			return normalizeImageMIMEType(pref)
+		}
+	}
+
+	// Return first supported format
+	return normalizeImageMIMEType(supportedFormats[0])
+}
+
+// mimeTypeToImageFormat converts a MIME type to a format string for media.ResizeImage.
+func mimeTypeToImageFormat(mimeType string) string {
+	mimeType = normalizeImageMIMEType(mimeType)
+	switch mimeType {
+	case media.MIMETypeJPEG:
+		return media.FormatJPEG
+	case media.MIMETypePNG:
+		return media.FormatPNG
+	case media.MIMETypeGIF:
+		return media.FormatGIF
+	case media.MIMETypeWebP:
+		return media.FormatWebP
+	default:
+		return media.FormatJPEG
+	}
+}
+
+// normalizeImageMIMEType normalizes image MIME type variations to a canonical form.
+func normalizeImageMIMEType(mimeType string) string {
+	switch mimeType {
+	case "image/jpg":
+		return media.MIMETypeJPEG
+	default:
+		return mimeType
 	}
 }

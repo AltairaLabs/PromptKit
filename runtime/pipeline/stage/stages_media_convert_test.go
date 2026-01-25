@@ -1,10 +1,14 @@
 package stage
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/media"
@@ -1166,7 +1170,7 @@ func TestMediaConvertStage_MessageWithInvalidBase64_ErrorPropagation(t *testing.
 	}
 }
 
-func TestMediaConvertStage_ImageConversionNotImplemented(t *testing.T) {
+func TestMediaConvertStage_ImageConversionInvalidData(t *testing.T) {
 	config := MediaConvertConfig{
 		TargetImageFormats: []string{"image/jpeg"},
 		PassthroughOnError: false, // Propagate errors
@@ -1177,7 +1181,7 @@ func TestMediaConvertStage_ImageConversionNotImplemented(t *testing.T) {
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
 
-	// Create element with image that needs conversion
+	// Create element with invalid image data
 	elem := StreamElement{
 		Image: &ImageData{
 			Data:     []byte("fake image data"),
@@ -1193,10 +1197,125 @@ func TestMediaConvertStage_ImageConversionNotImplemented(t *testing.T) {
 	}
 
 	result := <-output
-	// With PassthroughOnError=false, error should be propagated
+	// With PassthroughOnError=false, error should be propagated for invalid data
 	if result.Error == nil {
-		t.Error("expected error for unimplemented image conversion")
+		t.Error("expected error for invalid image data")
 	}
+}
+
+func TestMediaConvertStage_ImageConversionSuccess(t *testing.T) {
+	config := MediaConvertConfig{
+		TargetImageFormats: []string{media.MIMETypeJPEG},
+		ImageResizeConfig:  media.DefaultImageResizeConfig(),
+		PassthroughOnError: false,
+	}
+	stage := NewMediaConvertStage(&config)
+
+	ctx := context.Background()
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+
+	// Create a minimal valid PNG image (1x1 red pixel)
+	pngData := createMinimalPNG()
+
+	elem := StreamElement{
+		Image: &ImageData{
+			Data:     pngData,
+			MIMEType: media.MIMETypePNG, // Will be converted to JPEG
+			Width:    1,
+			Height:   1,
+		},
+	}
+	input <- elem
+	close(input)
+
+	err := stage.Process(ctx, input, output)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	result := <-output
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %v", result.Error)
+	}
+	if result.Image == nil {
+		t.Fatal("expected image in result")
+	}
+	// Image should have been converted to JPEG
+	if result.Image.MIMEType != media.MIMETypeJPEG {
+		t.Errorf("expected MIME type %s, got %s", media.MIMETypeJPEG, result.Image.MIMEType)
+	}
+}
+
+func TestMediaConvertStage_MessageImageConversionSuccess(t *testing.T) {
+	config := MediaConvertConfig{
+		TargetImageFormats: []string{media.MIMETypeJPEG},
+		ImageResizeConfig:  media.DefaultImageResizeConfig(),
+		PassthroughOnError: false,
+	}
+	stage := NewMediaConvertStage(&config)
+
+	ctx := context.Background()
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+
+	// Create a minimal valid PNG image
+	pngData := createMinimalPNG()
+	pngBase64 := base64.StdEncoding.EncodeToString(pngData)
+
+	msg := &types.Message{
+		Role: "user",
+		Parts: []types.ContentPart{
+			{
+				Type: types.ContentTypeImage,
+				Media: &types.MediaContent{
+					Data:     &pngBase64,
+					MIMEType: media.MIMETypePNG, // Will be converted to JPEG
+				},
+			},
+		},
+	}
+	input <- NewMessageElement(msg)
+	close(input)
+
+	err := stage.Process(ctx, input, output)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	result := <-output
+	if result.Message == nil {
+		t.Fatal("expected message in result")
+	}
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %v", result.Error)
+	}
+	// Image should have been converted to JPEG
+	if len(result.Message.Parts) != 1 {
+		t.Errorf("expected 1 part, got %d", len(result.Message.Parts))
+	}
+	if result.Message.Parts[0].Media.MIMEType != media.MIMETypeJPEG {
+		t.Errorf("expected MIME type %s, got %s", media.MIMETypeJPEG, result.Message.Parts[0].Media.MIMEType)
+	}
+}
+
+// createMinimalPNG creates a minimal valid PNG image for testing.
+func createMinimalPNG() []byte {
+	// Create a 10x10 red image
+	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
+	red := color.RGBA{255, 0, 0, 255}
+	for y := 0; y < 10; y++ {
+		for x := 0; x < 10; x++ {
+			img.Set(x, y, red)
+		}
+	}
+
+	// Encode to PNG
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		panic(err)
+	}
+	return buf.Bytes()
 }
 
 func TestMediaConvertStage_MessageAudioConversionSuccess(t *testing.T) {
