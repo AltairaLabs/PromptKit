@@ -6,6 +6,13 @@ spec:
   id: anthropic-sonnet37
   type: claude
   model: claude-3-7-sonnet-20250219
+  capabilities:
+    - text
+    - streaming
+    - vision
+    - tools
+    - json
+    - documents
   defaults:
     temperature: 0.1
     top_p: 1.0

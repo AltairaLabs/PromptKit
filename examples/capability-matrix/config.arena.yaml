@@ -101,9 +101,15 @@ spec:
     - file: scenarios/json-mode.scenario.yaml
     - file: scenarios/audio.scenario.yaml
     - file: scenarios/video.scenario.yaml
+    # Combination scenarios
+    - file: scenarios/streaming-tools.scenario.yaml
+    - file: scenarios/streaming-vision.scenario.yaml
+    - file: scenarios/streaming-tools-vision.scenario.yaml
+    - file: scenarios/tools-vision.scenario.yaml
 
   tools:
     - file: tools/get-weather.tool.yaml
+    - file: tools/analyze-image.tool.yaml
 
   defaults:
     temperature: 0.1

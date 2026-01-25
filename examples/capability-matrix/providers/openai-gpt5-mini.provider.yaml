@@ -6,6 +6,12 @@ spec:
   id: openai-gpt5-mini
   type: openai
   model: gpt-5-mini
+  capabilities:
+    - text
+    - streaming
+    - vision
+    - tools
+    - json
   defaults:
     temperature: 0.1
     max_tokens: 500

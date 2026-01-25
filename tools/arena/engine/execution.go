@@ -224,6 +224,11 @@ func (e *Engine) getInitialProviders(scenario *config.Scenario, providerFilter [
 		providers = e.providerRegistry.List()
 	}
 
+	// Filter by required capabilities if specified
+	if len(scenario.RequiredCapabilities) > 0 {
+		providers = e.filterByCapabilities(providers, scenario.RequiredCapabilities)
+	}
+
 	// Apply global provider filter if provided
 	if len(providerFilter) > 0 {
 		// If no providers were discovered, honor the filter directly (test convenience)
@@ -234,6 +239,32 @@ func (e *Engine) getInitialProviders(scenario *config.Scenario, providerFilter [
 	}
 
 	return providers
+}
+
+// filterByCapabilities filters providers to only those that have all required capabilities
+func (e *Engine) filterByCapabilities(providers, required []string) []string {
+	var result []string
+	for _, id := range providers {
+		caps := e.config.ProviderCapabilities[id]
+		if hasAllCapabilities(caps, required) {
+			result = append(result, id)
+		}
+	}
+	return result
+}
+
+// hasAllCapabilities checks if the provider has all required capabilities
+func hasAllCapabilities(have, need []string) bool {
+	haveSet := make(map[string]struct{}, len(have))
+	for _, c := range have {
+		haveSet[c] = struct{}{}
+	}
+	for _, c := range need {
+		if _, ok := haveSet[c]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // applyProviderFilter filters providers by the provided list, preserving order from input slice.

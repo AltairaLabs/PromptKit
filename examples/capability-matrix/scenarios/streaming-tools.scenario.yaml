@@ -2,18 +2,20 @@ apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Scenario
 
 metadata:
-  name: tools
+  name: streaming-tools
 
 spec:
-  id: tools
+  id: streaming-tools
   task_type: capability-test
-  description: "Test function/tool calling capability"
+  description: "Test streaming with tool calls"
   required_capabilities:
+    - streaming
     - tools
+  streaming: true
 
   turns:
     - role: user
-      content: "Call the get_weather function with location='test_city' to check the weather."
+      content: "Call the get_weather function with location='test_city' and then say CAPABILITY_PASS."
       assertions:
         - type: tools_called
           message: "Should call the get_weather tool"
@@ -26,3 +28,7 @@ spec:
             tool_name: "get_weather"
             expected_args:
               location: "test_city"
+        - type: content_includes
+          message: "Response should include CAPABILITY_PASS after tool call"
+          params:
+            patterns: ["CAPABILITY_PASS"]

@@ -925,3 +925,531 @@ func TestLoadProvider_InvalidYAML(t *testing.T) {
 		t.Error("Expected error when loading invalid YAML")
 	}
 }
+
+// ============================================================================
+// Capability Tests
+// ============================================================================
+
+func TestLoadProvider_WithCapabilities(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmpDir := t.TempDir()
+	providerPath := filepath.Join(tmpDir, "provider-with-caps.yaml")
+
+	providerContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: test-provider
+spec:
+  id: test-provider
+  type: openai
+  model: gpt-4o
+  capabilities:
+    - text
+    - streaming
+    - vision
+    - tools
+    - json
+  defaults:
+    temperature: 0.7
+    max_tokens: 1000
+    top_p: 1.0
+`
+
+	if err := os.WriteFile(providerPath, []byte(providerContent), 0600); err != nil {
+		t.Fatalf("Failed to write test provider: %v", err)
+	}
+
+	provider, err := LoadProvider(providerPath)
+	if err != nil {
+		t.Fatalf("LoadProvider failed: %v", err)
+	}
+
+	if provider == nil {
+		t.Fatal("Provider is nil")
+	}
+
+	if len(provider.Capabilities) != 5 {
+		t.Errorf("Expected 5 capabilities, got %d", len(provider.Capabilities))
+	}
+
+	expectedCaps := []string{"text", "streaming", "vision", "tools", "json"}
+	for i, cap := range expectedCaps {
+		if provider.Capabilities[i] != cap {
+			t.Errorf("Expected capability[%d] = %q, got %q", i, cap, provider.Capabilities[i])
+		}
+	}
+}
+
+func TestLoadProvider_WithoutCapabilities(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmpDir := t.TempDir()
+	providerPath := filepath.Join(tmpDir, "provider-no-caps.yaml")
+
+	providerContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: test-provider
+spec:
+  id: test-provider
+  type: openai
+  model: gpt-4
+  defaults:
+    temperature: 0.7
+    max_tokens: 1000
+    top_p: 1.0
+`
+
+	if err := os.WriteFile(providerPath, []byte(providerContent), 0600); err != nil {
+		t.Fatalf("Failed to write test provider: %v", err)
+	}
+
+	provider, err := LoadProvider(providerPath)
+	if err != nil {
+		t.Fatalf("LoadProvider failed: %v", err)
+	}
+
+	if provider == nil {
+		t.Fatal("Provider is nil")
+	}
+
+	if len(provider.Capabilities) != 0 {
+		t.Errorf("Expected 0 capabilities, got %d", len(provider.Capabilities))
+	}
+}
+
+func TestLoadScenario_WithRequiredCapabilities(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmpDir := t.TempDir()
+	scenarioPath := filepath.Join(tmpDir, "scenario-with-caps.yaml")
+
+	scenarioContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: vision-test
+spec:
+  id: vision-test
+  task_type: test
+  description: Test vision capability
+  required_capabilities:
+    - vision
+    - streaming
+  turns:
+    - role: user
+      content: "Describe this image"
+`
+
+	if err := os.WriteFile(scenarioPath, []byte(scenarioContent), 0600); err != nil {
+		t.Fatalf("Failed to write test scenario: %v", err)
+	}
+
+	scenario, err := LoadScenario(scenarioPath)
+	if err != nil {
+		t.Fatalf("LoadScenario failed: %v", err)
+	}
+
+	if scenario == nil {
+		t.Fatal("Scenario is nil")
+	}
+
+	if len(scenario.RequiredCapabilities) != 2 {
+		t.Errorf("Expected 2 required capabilities, got %d", len(scenario.RequiredCapabilities))
+	}
+
+	expectedCaps := []string{"vision", "streaming"}
+	for i, cap := range expectedCaps {
+		if scenario.RequiredCapabilities[i] != cap {
+			t.Errorf("Expected required_capabilities[%d] = %q, got %q", i, cap, scenario.RequiredCapabilities[i])
+		}
+	}
+}
+
+func TestLoadScenario_WithoutRequiredCapabilities(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmpDir := t.TempDir()
+	scenarioPath := filepath.Join(tmpDir, "scenario-no-caps.yaml")
+
+	scenarioContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: basic-test
+spec:
+  id: basic-test
+  task_type: test
+  description: Basic test scenario
+  turns:
+    - role: user
+      content: "Hello"
+`
+
+	if err := os.WriteFile(scenarioPath, []byte(scenarioContent), 0600); err != nil {
+		t.Fatalf("Failed to write test scenario: %v", err)
+	}
+
+	scenario, err := LoadScenario(scenarioPath)
+	if err != nil {
+		t.Fatalf("LoadScenario failed: %v", err)
+	}
+
+	if scenario == nil {
+		t.Fatal("Scenario is nil")
+	}
+
+	if len(scenario.RequiredCapabilities) != 0 {
+		t.Errorf("Expected 0 required capabilities, got %d", len(scenario.RequiredCapabilities))
+	}
+}
+
+func TestLoadConfig_ProviderCapabilitiesPopulated(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "test-config.yaml")
+
+	// Create scenario file
+	scenarioContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: test-scenario
+spec:
+  id: scenario1
+  task_type: test
+  description: Test scenario
+  required_capabilities:
+    - vision
+  turns:
+    - role: user
+      content: "Hello"
+`
+	scenarioPath := filepath.Join(tmpDir, "scenario1.yaml")
+	if err := os.WriteFile(scenarioPath, []byte(scenarioContent), 0600); err != nil {
+		t.Fatalf("Failed to write test scenario: %v", err)
+	}
+
+	// Create provider with capabilities
+	provider1Content := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: provider-vision
+spec:
+  id: provider-vision
+  type: openai
+  model: gpt-4o
+  capabilities:
+    - text
+    - streaming
+    - vision
+    - tools
+  defaults:
+    temperature: 0.7
+    top_p: 1.0
+    max_tokens: 1000
+`
+	provider1Path := filepath.Join(tmpDir, "provider1.yaml")
+	if err := os.WriteFile(provider1Path, []byte(provider1Content), 0600); err != nil {
+		t.Fatalf("Failed to write test provider1: %v", err)
+	}
+
+	// Create provider without vision capability
+	provider2Content := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: provider-text-only
+spec:
+  id: provider-text-only
+  type: openai
+  model: gpt-4
+  capabilities:
+    - text
+    - streaming
+    - tools
+  defaults:
+    temperature: 0.7
+    top_p: 1.0
+    max_tokens: 1000
+`
+	provider2Path := filepath.Join(tmpDir, "provider2.yaml")
+	if err := os.WriteFile(provider2Path, []byte(provider2Content), 0600); err != nil {
+		t.Fatalf("Failed to write test provider2: %v", err)
+	}
+
+	configContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: test-arena
+spec:
+  defaults:
+    verbose: true
+    concurrency: 4
+
+  scenarios:
+    - file: scenario1.yaml
+
+  providers:
+    - file: provider1.yaml
+    - file: provider2.yaml
+`
+
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	config, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	if config == nil {
+		t.Fatal("Config is nil")
+	}
+
+	// Verify ProviderCapabilities map is populated
+	if config.ProviderCapabilities == nil {
+		t.Fatal("ProviderCapabilities map is nil")
+	}
+
+	if len(config.ProviderCapabilities) != 2 {
+		t.Errorf("Expected 2 providers in ProviderCapabilities, got %d", len(config.ProviderCapabilities))
+	}
+
+	// Check provider-vision capabilities
+	visionCaps, exists := config.ProviderCapabilities["provider-vision"]
+	if !exists {
+		t.Error("Expected provider-vision in ProviderCapabilities")
+	} else {
+		if len(visionCaps) != 4 {
+			t.Errorf("Expected 4 capabilities for provider-vision, got %d", len(visionCaps))
+		}
+		hasVision := false
+		for _, cap := range visionCaps {
+			if cap == "vision" {
+				hasVision = true
+				break
+			}
+		}
+		if !hasVision {
+			t.Error("Expected provider-vision to have 'vision' capability")
+		}
+	}
+
+	// Check provider-text-only capabilities
+	textCaps, exists := config.ProviderCapabilities["provider-text-only"]
+	if !exists {
+		t.Error("Expected provider-text-only in ProviderCapabilities")
+	} else {
+		if len(textCaps) != 3 {
+			t.Errorf("Expected 3 capabilities for provider-text-only, got %d", len(textCaps))
+		}
+		hasVision := false
+		for _, cap := range textCaps {
+			if cap == "vision" {
+				hasVision = true
+				break
+			}
+		}
+		if hasVision {
+			t.Error("Expected provider-text-only NOT to have 'vision' capability")
+		}
+	}
+
+	// Verify loaded scenario has required capabilities
+	scenario, exists := config.LoadedScenarios["test-scenario"]
+	if !exists {
+		t.Fatal("Expected scenario 'test-scenario' to be loaded")
+	}
+	if len(scenario.RequiredCapabilities) != 1 {
+		t.Errorf("Expected 1 required capability, got %d", len(scenario.RequiredCapabilities))
+	}
+	if scenario.RequiredCapabilities[0] != "vision" {
+		t.Errorf("Expected required capability 'vision', got %q", scenario.RequiredCapabilities[0])
+	}
+}
+
+func TestLoadConfig_ProviderWithoutCapabilities_EmptyInMap(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "test-config.yaml")
+
+	// Create scenario file
+	scenarioContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: test-scenario
+spec:
+  id: scenario1
+  task_type: test
+  description: Test scenario
+  turns:
+    - role: user
+      content: "Hello"
+`
+	scenarioPath := filepath.Join(tmpDir, "scenario1.yaml")
+	if err := os.WriteFile(scenarioPath, []byte(scenarioContent), 0600); err != nil {
+		t.Fatalf("Failed to write test scenario: %v", err)
+	}
+
+	// Create provider WITHOUT capabilities
+	providerContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: legacy-provider
+spec:
+  id: legacy-provider
+  type: openai
+  model: gpt-4
+  defaults:
+    temperature: 0.7
+    top_p: 1.0
+    max_tokens: 1000
+`
+	providerPath := filepath.Join(tmpDir, "provider.yaml")
+	if err := os.WriteFile(providerPath, []byte(providerContent), 0600); err != nil {
+		t.Fatalf("Failed to write test provider: %v", err)
+	}
+
+	configContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: test-arena
+spec:
+  defaults:
+    verbose: true
+  scenarios:
+    - file: scenario1.yaml
+  providers:
+    - file: provider.yaml
+`
+
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	config, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	// ProviderCapabilities map should be initialized but not contain the provider
+	// since it has no capabilities
+	if config.ProviderCapabilities == nil {
+		t.Fatal("ProviderCapabilities map should be initialized")
+	}
+
+	_, exists := config.ProviderCapabilities["legacy-provider"]
+	if exists {
+		t.Error("Provider without capabilities should not be in ProviderCapabilities map")
+	}
+}
+
+func TestLoadScenario_MultipleCapabilityCombination(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmpDir := t.TempDir()
+	scenarioPath := filepath.Join(tmpDir, "combo-scenario.yaml")
+
+	scenarioContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: combo-test
+spec:
+  id: combo-test
+  task_type: test
+  description: Test multiple capability combination
+  required_capabilities:
+    - streaming
+    - tools
+    - vision
+  streaming: true
+  turns:
+    - role: user
+      content: "Look at this image and call a tool"
+`
+
+	if err := os.WriteFile(scenarioPath, []byte(scenarioContent), 0600); err != nil {
+		t.Fatalf("Failed to write test scenario: %v", err)
+	}
+
+	scenario, err := LoadScenario(scenarioPath)
+	if err != nil {
+		t.Fatalf("LoadScenario failed: %v", err)
+	}
+
+	if len(scenario.RequiredCapabilities) != 3 {
+		t.Errorf("Expected 3 required capabilities, got %d", len(scenario.RequiredCapabilities))
+	}
+
+	expectedCaps := map[string]bool{"streaming": true, "tools": true, "vision": true}
+	for _, cap := range scenario.RequiredCapabilities {
+		if !expectedCaps[cap] {
+			t.Errorf("Unexpected capability: %s", cap)
+		}
+		delete(expectedCaps, cap)
+	}
+	if len(expectedCaps) > 0 {
+		t.Errorf("Missing expected capabilities: %v", expectedCaps)
+	}
+
+	if !scenario.Streaming {
+		t.Error("Expected streaming to be true")
+	}
+}
+
+func TestLoadProvider_AllCapabilityTypes(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmpDir := t.TempDir()
+	providerPath := filepath.Join(tmpDir, "full-caps-provider.yaml")
+
+	providerContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: full-caps
+spec:
+  id: full-caps
+  type: gemini
+  model: gemini-2.5-pro
+  capabilities:
+    - text
+    - streaming
+    - vision
+    - tools
+    - json
+    - audio
+    - video
+    - documents
+  defaults:
+    temperature: 0.7
+    max_tokens: 1000
+    top_p: 1.0
+`
+
+	if err := os.WriteFile(providerPath, []byte(providerContent), 0600); err != nil {
+		t.Fatalf("Failed to write test provider: %v", err)
+	}
+
+	provider, err := LoadProvider(providerPath)
+	if err != nil {
+		t.Fatalf("LoadProvider failed: %v", err)
+	}
+
+	if len(provider.Capabilities) != 8 {
+		t.Errorf("Expected 8 capabilities, got %d", len(provider.Capabilities))
+	}
+
+	expectedCaps := map[string]bool{
+		"text":      true,
+		"streaming": true,
+		"vision":    true,
+		"tools":     true,
+		"json":      true,
+		"audio":     true,
+		"video":     true,
+		"documents": true,
+	}
+
+	for _, cap := range provider.Capabilities {
+		if !expectedCaps[cap] {
+			t.Errorf("Unexpected capability: %s", cap)
+		}
+		delete(expectedCaps, cap)
+	}
+	if len(expectedCaps) > 0 {
+		t.Errorf("Missing expected capabilities: %v", expectedCaps)
+	}
+}

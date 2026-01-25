@@ -6,6 +6,13 @@ spec:
   id: anthropic-opus45
   type: claude
   model: claude-opus-4-5-20251101
+  capabilities:
+    - text
+    - streaming
+    - vision
+    - tools
+    - json
+    - documents
   defaults:
     temperature: 0.1
     top_p: 1.0

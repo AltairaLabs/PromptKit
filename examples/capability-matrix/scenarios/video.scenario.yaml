@@ -8,20 +8,25 @@ spec:
   id: video
   task_type: capability-test
   description: "Test video input understanding capability"
-  provider_group: video
+  required_capabilities:
+    - video
 
   turns:
     - role: user
       parts:
         - type: text
-          text: "Describe what you see in this video. If you cannot process video, say 'VIDEO_NOT_SUPPORTED'. Otherwise end your response with CAPABILITY_PASS."
+          text: "Watch this video and describe what animal or action you see. End your response with CAPABILITY_PASS."
         - type: video
           media:
-            # Using a reliable public test video sample
+            # Using a reliable public test video sample - cat video
             url: "https://storage.googleapis.com/cloud-samples-data/video/cat.mp4"
             mime_type: "video/mp4"
       assertions:
-        - type: content_matches
+        - type: content_includes
+          message: "Response should include CAPABILITY_PASS"
           params:
-            pattern: "(?i)(CAPABILITY_PASS|VIDEO_NOT_SUPPORTED|cannot|unable|don't|video)"
-            message: "Should either process video or indicate inability"
+            patterns: ["CAPABILITY_PASS"]
+        - type: content_matches
+          message: "Response should describe the cat video content (mentions cat, kitten, animal, etc.)"
+          params:
+            pattern: "(?i)(cat|kitten|feline|animal|pet|fur|paw|whisker|meow|playing|moving)"

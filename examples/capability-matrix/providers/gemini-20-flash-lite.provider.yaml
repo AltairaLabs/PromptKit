@@ -6,6 +6,16 @@ spec:
   id: gemini-20-flash-lite
   type: gemini
   model: gemini-2.0-flash-lite
+  capabilities:
+    - text
+    - streaming
+    - vision
+    - tools
+    - json
+    - audio
+    - video
+    - documents
+    - duplex
   defaults:
     temperature: 0.1
     max_tokens: 500

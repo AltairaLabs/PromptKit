@@ -6,6 +6,13 @@ spec:
   id: openai-gpt4o-audio
   type: openai
   model: gpt-4o-audio-preview
+  capabilities:
+    - text
+    - streaming
+    - audio
+    - tools
+    - json
+    - duplex
   defaults:
     temperature: 0.1
     max_tokens: 500

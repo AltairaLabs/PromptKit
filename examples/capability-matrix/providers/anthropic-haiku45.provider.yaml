@@ -6,6 +6,13 @@ spec:
   id: anthropic-haiku45
   type: claude
   model: claude-haiku-4-5-20251001
+  capabilities:
+    - text
+    - streaming
+    - vision
+    - tools
+    - json
+    - documents
   defaults:
     temperature: 0.1
     top_p: 1.0

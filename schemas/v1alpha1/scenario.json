@@ -205,6 +205,12 @@
         "provider_group": {
           "type": "string"
         },
+        "required_capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "streaming": {
           "type": "boolean"
         },

@@ -8,20 +8,25 @@ spec:
   id: audio
   task_type: capability-test
   description: "Test audio input understanding capability"
-  provider_group: audio
+  required_capabilities:
+    - audio
 
   turns:
     - role: user
       parts:
         - type: text
-          text: "Describe what you hear in this audio. If you cannot process audio, say 'AUDIO_NOT_SUPPORTED'. Otherwise end your response with CAPABILITY_PASS."
+          text: "Listen to this audio and transcribe or describe what is being said. End your response with CAPABILITY_PASS."
         - type: audio
           media:
-            # Google Cloud Speech API sample in FLAC format
+            # Google Cloud Speech API sample - speaker describing Brooklyn Bridge
             url: "https://storage.googleapis.com/cloud-samples-data/speech/brooklyn_bridge.flac"
             mime_type: "audio/flac"
       assertions:
-        - type: content_matches
+        - type: content_includes
+          message: "Response should include CAPABILITY_PASS"
           params:
-            pattern: "(?i)(CAPABILITY_PASS|AUDIO_NOT_SUPPORTED|cannot|unable|don't|audio|bridge|brooklyn)"
-            message: "Should either process audio or indicate inability"
+            patterns: ["CAPABILITY_PASS"]
+        - type: content_matches
+          message: "Response should reference content from the Brooklyn Bridge audio (mentions Brooklyn, bridge, pedestrian, walkway, etc.)"
+          params:
+            pattern: "(?i)(brooklyn|bridge|pedestrian|walkway|promenade|river|manhattan|famous)"

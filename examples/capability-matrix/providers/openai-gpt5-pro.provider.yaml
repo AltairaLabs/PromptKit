@@ -6,6 +6,13 @@ spec:
   id: openai-gpt5-pro
   type: openai
   model: gpt-5-pro
+  capabilities:
+    - text
+    - streaming
+    - vision
+    - tools
+    - json
+    - audio
   defaults:
     temperature: 0.1
     max_tokens: 500

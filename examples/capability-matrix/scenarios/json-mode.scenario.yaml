@@ -8,7 +8,8 @@ spec:
   id: json-mode
   task_type: capability-test
   description: "Test JSON mode/structured output capability"
-  provider_group: json
+  required_capabilities:
+    - json
 
   turns:
     - role: user
@@ -22,14 +23,14 @@ spec:
         Output ONLY the JSON, no other text.
       assertions:
         - type: is_valid_json
+          message: "Response should contain valid JSON"
           params:
             allow_wrapped: true
             extract_json: true
-            message: "Response should contain valid JSON"
         - type: json_path
+          message: "JSON should have status field set to CAPABILITY_PASS"
           params:
             jmespath_expression: "status"
             expected: "CAPABILITY_PASS"
             allow_wrapped: true
             extract_json: true
-            message: "JSON should have status field set to CAPABILITY_PASS"

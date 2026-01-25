@@ -6,6 +6,11 @@ spec:
   id: openai-o3-mini
   type: openai
   model: o3-mini
+  capabilities:
+    - text
+    - streaming
+    - tools
+    - json
   defaults:
     temperature: 0.1
     max_tokens: 500

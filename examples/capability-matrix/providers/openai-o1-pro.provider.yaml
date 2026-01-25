@@ -6,6 +6,11 @@ spec:
   id: openai-o1-pro
   type: openai
   model: o1-pro
+  capabilities:
+    - text
+    - streaming
+    - tools
+    - json
   defaults:
     temperature: 0.1
     max_tokens: 500

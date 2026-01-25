@@ -2,23 +2,24 @@ apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Scenario
 
 metadata:
-  name: vision
+  name: streaming-vision
 
 spec:
-  id: vision
+  id: streaming-vision
   task_type: capability-test
-  description: "Test vision/image understanding capability"
+  description: "Test streaming with image input"
   required_capabilities:
+    - streaming
     - vision
+  streaming: true
 
   turns:
     - role: user
       parts:
         - type: text
-          text: "Describe what you see in this image. What company or brand is shown? End your response with CAPABILITY_PASS."
+          text: "Describe this image. What company or brand logo is shown? Say CAPABILITY_PASS when done."
         - type: image
           media:
-            # Using a simple, reliably-accessible test image
             url: "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png"
             mime_type: "image/png"
       assertions:

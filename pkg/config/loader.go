@@ -51,6 +51,7 @@ func LoadConfig(filename string) (*Config, error) {
 	cfg.LoadedTools = make([]ToolData, 0, len(cfg.Tools))
 	cfg.LoadedPersonas = make(map[string]*UserPersonaPack)
 	cfg.ProviderGroups = make(map[string]string)
+	cfg.ProviderCapabilities = make(map[string][]string)
 
 	// Load all resources
 	if err := cfg.loadPromptConfigs(filename); err != nil {
@@ -258,6 +259,10 @@ func (c *Config) loadProviders(configPath string) error {
 			group = "default"
 		}
 		c.ProviderGroups[provider.ID] = group
+		// Populate provider capabilities from the provider spec
+		if len(provider.Capabilities) > 0 {
+			c.ProviderCapabilities[provider.ID] = provider.Capabilities
+		}
 	}
 	return nil
 }

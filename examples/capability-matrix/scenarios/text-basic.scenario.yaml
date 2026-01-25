@@ -8,13 +8,14 @@ spec:
   id: text-basic
   task_type: capability-test
   description: "Test basic text completion capability"
-  provider_group: text
+  required_capabilities:
+    - text
 
   turns:
     - role: user
       content: "Say exactly: CAPABILITY_PASS"
       assertions:
         - type: content_includes
+          message: "Response should include the exact phrase CAPABILITY_PASS"
           params:
             patterns: ["CAPABILITY_PASS"]
-            message: "Response should include the exact phrase CAPABILITY_PASS"

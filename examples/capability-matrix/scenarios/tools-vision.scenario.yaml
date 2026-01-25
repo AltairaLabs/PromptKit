@@ -1,0 +1,35 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+
+metadata:
+  name: tools-vision
+
+spec:
+  id: tools-vision
+  task_type: capability-test
+  description: "Test tool calls with image input (non-streaming)"
+  required_capabilities:
+    - tools
+    - vision
+
+  turns:
+    - role: user
+      parts:
+        - type: text
+          text: "Look at this image. What company logo do you see? Call the analyze_image tool and include 'google' in your description if you recognize it."
+        - type: image
+          media:
+            url: "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png"
+            mime_type: "image/png"
+      assertions:
+        - type: tools_called
+          message: "Should call the analyze_image tool"
+          params:
+            tools:
+              - "analyze_image"
+        - type: tool_calls_with_args
+          message: "Tool call description should reference the Google logo"
+          params:
+            tool_name: "analyze_image"
+            args_match:
+              description: "(?i)(google|logo|colorful|letters)"
