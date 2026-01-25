@@ -32,7 +32,7 @@ func TestHTTPMediaLoader_Success(t *testing.T) {
 	loader := NewHTTPMediaLoader(5*time.Second, 1024*1024)
 
 	// Load media
-	data, mimeType, err := loader.loadMediaFromURL(context.Background(), server.URL, "image", 0)
+	data, mimeType, err := loader.loadMediaFromURL(context.Background(), server.URL, "image", 0, "")
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestHTTPMediaLoader_404Error(t *testing.T) {
 	loader := NewHTTPMediaLoader(5*time.Second, 1024*1024)
 
 	// Attempt to load media
-	_, _, err := loader.loadMediaFromURL(context.Background(), server.URL, "image", 0)
+	_, _, err := loader.loadMediaFromURL(context.Background(), server.URL, "image", 0, "")
 	if err == nil {
 		t.Fatal("Expected error for 404, got nil")
 	}
@@ -81,7 +81,7 @@ func TestHTTPMediaLoader_Timeout(t *testing.T) {
 	loader := NewHTTPMediaLoader(100*time.Millisecond, 1024*1024)
 
 	// Attempt to load media
-	_, _, err := loader.loadMediaFromURL(context.Background(), server.URL, "image", 0)
+	_, _, err := loader.loadMediaFromURL(context.Background(), server.URL, "image", 0, "")
 	if err == nil {
 		t.Fatal("Expected timeout error, got nil")
 	}
@@ -109,7 +109,7 @@ func TestHTTPMediaLoader_ContextCancellation(t *testing.T) {
 	cancel() // Cancel immediately
 
 	// Attempt to load media
-	_, _, err := loader.loadMediaFromURL(ctx, server.URL, "image", 0)
+	_, _, err := loader.loadMediaFromURL(ctx, server.URL, "image", 0, "")
 	if err == nil {
 		t.Fatal("Expected context cancelled error, got nil")
 	}
@@ -137,7 +137,7 @@ func TestHTTPMediaLoader_FileSizeLimit(t *testing.T) {
 	loader := NewHTTPMediaLoader(5*time.Second, 1024)
 
 	// Attempt to load media
-	_, _, err := loader.loadMediaFromURL(context.Background(), server.URL, "image", 0)
+	_, _, err := loader.loadMediaFromURL(context.Background(), server.URL, "image", 0, "")
 	if err == nil {
 		t.Fatal("Expected file size error, got nil")
 	}
@@ -172,7 +172,7 @@ func TestHTTPMediaLoader_FileSizeLimitWithoutContentLength(t *testing.T) {
 	loader := NewHTTPMediaLoader(5*time.Second, 1024)
 
 	// Attempt to load media
-	_, _, err := loader.loadMediaFromURL(context.Background(), server.URL, "image", 0)
+	_, _, err := loader.loadMediaFromURL(context.Background(), server.URL, "image", 0, "")
 	if err == nil {
 		t.Fatal("Expected file size error, got nil")
 	}
@@ -195,7 +195,7 @@ func TestHTTPMediaLoader_InvalidURL(t *testing.T) {
 	loader := NewHTTPMediaLoader(5*time.Second, 1024*1024)
 
 	// Test invalid URL
-	_, _, err := loader.loadMediaFromURL(context.Background(), "ht!tp://invalid-url", "image", 0)
+	_, _, err := loader.loadMediaFromURL(context.Background(), "ht!tp://invalid-url", "image", 0, "")
 	if err == nil {
 		t.Fatal("Expected error for invalid URL, got nil")
 	}
@@ -215,7 +215,7 @@ func TestHTTPMediaLoader_MIMETypeFromHeader(t *testing.T) {
 
 	loader := NewHTTPMediaLoader(5*time.Second, 1024*1024)
 
-	_, mimeType, err := loader.loadMediaFromURL(context.Background(), server.URL, "image", 0)
+	_, mimeType, err := loader.loadMediaFromURL(context.Background(), server.URL, "image", 0, "")
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -244,7 +244,7 @@ func TestHTTPMediaLoader_MIMETypeFromURL(t *testing.T) {
 
 	loader := NewHTTPMediaLoader(5*time.Second, 1024*1024)
 
-	_, mimeType, err := loader.loadMediaFromURL(context.Background(), testURL, "image", 0)
+	_, mimeType, err := loader.loadMediaFromURL(context.Background(), testURL, "image", 0, "")
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestHTTPMediaLoader_RedirectHandling(t *testing.T) {
 
 	loader := NewHTTPMediaLoader(5*time.Second, 1024*1024)
 
-	data, mimeType, err := loader.loadMediaFromURL(context.Background(), redirectServer.URL, "image", 0)
+	data, mimeType, err := loader.loadMediaFromURL(context.Background(), redirectServer.URL, "image", 0, "")
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -302,7 +302,7 @@ func TestHTTPMediaLoader_TooManyRedirects(t *testing.T) {
 
 	loader := NewHTTPMediaLoader(5*time.Second, 1024*1024)
 
-	_, _, err := loader.loadMediaFromURL(context.Background(), server.URL, "image", 0)
+	_, _, err := loader.loadMediaFromURL(context.Background(), server.URL, "image", 0, "")
 	if err == nil {
 		t.Fatal("Expected redirect error, got nil")
 	}

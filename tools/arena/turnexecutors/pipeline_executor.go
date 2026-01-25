@@ -6,6 +6,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/media"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -199,6 +200,39 @@ func buildMediaConfig(conversationID string, mediaStorage storage.MediaStorageSe
 	}
 }
 
+// buildMediaConvertConfig creates media conversion config from provider capabilities.
+// Returns nil if the provider doesn't support multimodal or has no format restrictions.
+func buildMediaConvertConfig(provider providers.Provider) *stage.MediaConvertConfig {
+	// Check if provider supports multimodal
+	mp := providers.GetMultimodalProvider(provider)
+	if mp == nil {
+		return nil
+	}
+
+	caps := mp.GetMultimodalCapabilities()
+
+	// Only create config if provider has format restrictions
+	hasFormats := len(caps.AudioFormats) > 0 || len(caps.ImageFormats) > 0 || len(caps.VideoFormats) > 0
+	if !hasFormats {
+		return nil
+	}
+
+	cfg := stage.DefaultMediaConvertConfig()
+	cfg.TargetAudioFormats = caps.AudioFormats
+	cfg.TargetImageFormats = caps.ImageFormats
+	cfg.TargetVideoFormats = caps.VideoFormats
+	cfg.AudioConverterConfig = media.DefaultAudioConverterConfig()
+	cfg.PassthroughOnError = true // Don't fail if conversion fails, let provider handle it
+
+	logger.Debug("Media conversion configured",
+		"audio_formats", caps.AudioFormats,
+		"image_formats", caps.ImageFormats,
+		"video_formats", caps.VideoFormats,
+	)
+
+	return &cfg
+}
+
 // isMockProvider checks if provider is a mock type
 func isMockProvider(provider providers.Provider) bool {
 	_, isMock := provider.(*mock.Provider)
@@ -274,6 +308,11 @@ func (e *PipelineExecutor) buildStagePipeline(
 	// 5. Context builder (if policy exists)
 	if contextPolicy := buildContextPolicy(req.Scenario); contextPolicy != nil {
 		stages = append(stages, stage.NewContextBuilderStage(contextPolicy))
+	}
+
+	// 5a. Media conversion stage - converts media to provider-supported formats
+	if mediaConvertConfig := buildMediaConvertConfig(req.Provider); mediaConvertConfig != nil {
+		stages = append(stages, stage.NewMediaConvertStage(mediaConvertConfig))
 	}
 
 	// 6. Provider stage

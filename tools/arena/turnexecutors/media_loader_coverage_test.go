@@ -294,7 +294,7 @@ func TestHTTPMediaLoader_UnsupportedScheme(t *testing.T) {
 	httpLoader := NewHTTPMediaLoader(5*time.Second, 10*1024*1024)
 	ctx := context.Background()
 
-	_, _, err := httpLoader.loadMediaFromURL(ctx, "ftp://example.com/file.jpg", "image", 0)
+	_, _, err := httpLoader.loadMediaFromURL(ctx, "ftp://example.com/file.jpg", "image", 0, "")
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported URL scheme")
@@ -319,7 +319,7 @@ func TestHTTPMediaLoader_ContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	_, _, err = httpLoader.loadMediaFromURL(ctx, server.URL, "image", 0)
+	_, _, err = httpLoader.loadMediaFromURL(ctx, server.URL, "image", 0, "")
 
 	assert.Error(t, err)
 }
@@ -340,7 +340,7 @@ func TestHTTPMediaLoader_NonOKStatus(t *testing.T) {
 	httpLoader := NewHTTPMediaLoader(5*time.Second, 10*1024*1024)
 	ctx := context.Background()
 
-	_, _, err = httpLoader.loadMediaFromURL(ctx, server.URL, "image", 0)
+	_, _, err = httpLoader.loadMediaFromURL(ctx, server.URL, "image", 0, "")
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "HTTP 404")
@@ -357,7 +357,7 @@ func TestHTTPMediaLoader_ContentLengthExceedsLimit(t *testing.T) {
 	httpLoader := NewHTTPMediaLoader(5*time.Second, 10*1024*1024) // 10MB limit
 	ctx := context.Background()
 
-	_, _, err := httpLoader.loadMediaFromURL(ctx, server.URL, "image", 0)
+	_, _, err := httpLoader.loadMediaFromURL(ctx, server.URL, "image", 0, "")
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "exceeds maximum")
@@ -375,7 +375,7 @@ func TestHTTPMediaLoader_BodyExceedsLimit(t *testing.T) {
 	httpLoader := NewHTTPMediaLoader(5*time.Second, 10*1024*1024) // 10MB limit
 	ctx := context.Background()
 
-	_, _, err := httpLoader.loadMediaFromURL(ctx, server.URL, "video", 0)
+	_, _, err := httpLoader.loadMediaFromURL(ctx, server.URL, "video", 0, "")
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "exceeds maximum")
@@ -394,7 +394,7 @@ func TestHTTPMediaLoader_ContentTypeFromHeader(t *testing.T) {
 	ctx := context.Background()
 
 	// URL says .mp3, but header says wav - header should win
-	_, mimeType, err := httpLoader.loadMediaFromURL(ctx, server.URL+"/file.mp3", "audio", 0)
+	_, mimeType, err := httpLoader.loadMediaFromURL(ctx, server.URL+"/file.mp3", "audio", 0, "")
 
 	assert.NoError(t, err)
 	// Should use Content-Type from header, not URL extension
@@ -416,7 +416,7 @@ func TestHTTPMediaLoader_MaxRedirects(t *testing.T) {
 	httpLoader := NewHTTPMediaLoader(5*time.Second, 10*1024*1024)
 	ctx := context.Background()
 
-	_, _, err := httpLoader.loadMediaFromURL(ctx, server.URL, "image", 0)
+	_, _, err := httpLoader.loadMediaFromURL(ctx, server.URL, "image", 0, "")
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "redirects")
