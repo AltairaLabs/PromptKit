@@ -1,9 +1,9 @@
 cloud.google.com/go/compute/metadata v0.3.0 h1:Tz+eQXMEqDIKRsmY3cHTL6FVaynIjX2QxYC4trgAKZc=
 cloud.google.com/go/compute/metadata v0.3.0/go.mod h1:zFmK7XCadkQkj6TtorcaGlCW1hT1fIilQDwofLpJ20k=
-github.com/AltairaLabs/PromptKit/pkg v1.1.8 h1:hJdT8Z5C2V2yJMXGI1zexU8WAtTdIBmzQpOiEIqByX8=
-github.com/AltairaLabs/PromptKit/pkg v1.1.8/go.mod h1:obNKX/7UERHAoQAcQ7oueZxTAhtlb3sc3W2x6bxR5tQ=
-github.com/AltairaLabs/PromptKit/tools/arena v1.1.7 h1:N5z1QsQ0fNAMBhyTKo+IKCSdE1Trh3Yp6tTteeqIWvs=
-github.com/AltairaLabs/PromptKit/tools/arena v1.1.7/go.mod h1:XWGEdFForz1GHFxrBuUcDK/wHD1p7XoZ4wp4fEMOxvo=
+github.com/AltairaLabs/PromptKit/pkg v1.1.9 h1:xiUv3TqCpQHhOMcINHwfoJsEIVVTAUMwn6HpDz4lxxY=
+github.com/AltairaLabs/PromptKit/pkg v1.1.9/go.mod h1:4htiWbTXroNWxQxrAuPkRcxQ1V9ZwMRWC0jOOhFT7zg=
+github.com/AltairaLabs/PromptKit/tools/arena v1.1.8 h1:m5H3sQLwNc48QVkauyBROWt5hTnGxxhIJckgqu62L8U=
+github.com/AltairaLabs/PromptKit/tools/arena v1.1.8/go.mod h1:kNfG11Moapwt8q7VyNpUEFE8v/iW/IsQXEOPa3stDeA=
 github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0 h1:fou+2+WFTib47nS+nz/ozhEBnvU96bKHy6LjRsY4E28=
 github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0/go.mod h1:t76Ruy8AHvUAC8GfMWJMa0ElSbuIcO03NLpynfbgsPA=
 github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1 h1:Hk5QBxZQC1jb2Fwj6mpzme37xbCDdNTxU7O9eb5+LB4=
