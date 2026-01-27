@@ -57,6 +57,42 @@ type Prompt struct {
 	ModelOverrides map[string]any `json:"model_overrides,omitempty"`
 }
 
+// VariableBindingKind defines the type of resource a variable binds to.
+type VariableBindingKind string
+
+const (
+	// BindingKindProject binds to project metadata (name, description, tags).
+	BindingKindProject VariableBindingKind = "project"
+	// BindingKindProvider binds to provider/model selection.
+	BindingKindProvider VariableBindingKind = "provider"
+	// BindingKindWorkspace binds to current workspace (name, namespace).
+	BindingKindWorkspace VariableBindingKind = "workspace"
+	// BindingKindSecret binds to Kubernetes Secret resources.
+	BindingKindSecret VariableBindingKind = "secret"
+	// BindingKindConfigMap binds to Kubernetes ConfigMap resources.
+	BindingKindConfigMap VariableBindingKind = "configmap"
+)
+
+// VariableBindingFilter specifies criteria for filtering bound resources.
+type VariableBindingFilter struct {
+	// Capability filters resources by capability (e.g., "chat", "embeddings").
+	Capability string `json:"capability,omitempty"`
+	// Labels filters resources by label selectors.
+	Labels map[string]string `json:"labels,omitempty"`
+}
+
+// VariableBinding defines how a variable binds to system resources.
+type VariableBinding struct {
+	// Kind specifies the type of resource to bind to.
+	Kind VariableBindingKind `json:"kind"`
+	// Field specifies which field of the resource to bind (e.g., "name", "model").
+	Field string `json:"field,omitempty"`
+	// AutoPopulate enables automatic population of this variable from the bound resource.
+	AutoPopulate bool `json:"autoPopulate,omitempty"`
+	// Filter specifies criteria for filtering bound resources.
+	Filter *VariableBindingFilter `json:"filter,omitempty"`
+}
+
 // Variable represents a template variable.
 type Variable struct {
 	Name        string `json:"name"`
@@ -64,6 +100,8 @@ type Variable struct {
 	Description string `json:"description,omitempty"`
 	Required    bool   `json:"required,omitempty"`
 	Default     string `json:"default,omitempty"`
+	// Binding enables automatic population from system resources and type-safe UI selection.
+	Binding *VariableBinding `json:"binding,omitempty"`
 }
 
 // Tool represents a tool definition.
@@ -235,11 +273,31 @@ func (pr *Prompt) ToPromptConfig(taskType string) *prompt.Config {
 				Description: v.Description,
 				Required:    v.Required,
 				Default:     v.Default,
+				Binding:     convertVariableBinding(v.Binding),
 			}
 		}
 	}
 
 	return cfg
+}
+
+// convertVariableBinding converts a pack VariableBinding to a prompt VariableBinding.
+func convertVariableBinding(b *VariableBinding) *prompt.VariableBinding {
+	if b == nil {
+		return nil
+	}
+	result := &prompt.VariableBinding{
+		Kind:         prompt.VariableBindingKind(b.Kind),
+		Field:        b.Field,
+		AutoPopulate: b.AutoPopulate,
+	}
+	if b.Filter != nil {
+		result.Filter = &prompt.VariableBindingFilter{
+			Capability: b.Filter.Capability,
+			Labels:     b.Filter.Labels,
+		}
+	}
+	return result
 }
 
 // ToToolRepository creates a memory.ToolRepository from the pack.
