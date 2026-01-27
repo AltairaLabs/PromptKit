@@ -2038,3 +2038,111 @@ func TestFetchURL_HTTPError(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "http status 404")
 }
+
+func TestVariableBinding_YAMLParsing(t *testing.T) {
+	templateContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Template
+metadata:
+  name: binding-test
+spec:
+  variables:
+    - name: project_name
+      type: string
+      required: true
+      binding:
+        kind: project
+        field: name
+        autoPopulate: true
+    - name: model
+      type: string
+      default: gpt-4
+      binding:
+        kind: provider
+        field: model
+        filter:
+          capability: chat
+          labels:
+            env: production
+    - name: workspace_name
+      type: string
+      binding:
+        kind: workspace
+        field: name
+    - name: api_key
+      type: string
+      binding:
+        kind: secret
+        field: name
+    - name: config_data
+      type: string
+      binding:
+        kind: configmap
+        field: name
+    - name: temperature
+      type: number
+      default: "0.7"
+  files:
+    - path: test.txt
+      content: "Hello"
+`
+	tempDir := t.TempDir()
+	templatePath := filepath.Join(tempDir, "template.yaml")
+	err := os.WriteFile(templatePath, []byte(templateContent), 0644)
+	require.NoError(t, err)
+
+	loader := NewLoader("")
+	tmpl, err := loader.LoadFromFile(templatePath)
+	require.NoError(t, err)
+	assert.NotNil(t, tmpl)
+
+	// Verify binding was parsed correctly
+	assert.Len(t, tmpl.Spec.Variables, 6)
+
+	// Test project binding
+	projectVar := tmpl.Spec.Variables[0]
+	assert.Equal(t, "project_name", projectVar.Name)
+	require.NotNil(t, projectVar.Binding)
+	assert.Equal(t, BindingKindProject, projectVar.Binding.Kind)
+	assert.Equal(t, "name", projectVar.Binding.Field)
+	assert.True(t, projectVar.Binding.AutoPopulate)
+	assert.Nil(t, projectVar.Binding.Filter)
+
+	// Test provider binding with filter
+	modelVar := tmpl.Spec.Variables[1]
+	assert.Equal(t, "model", modelVar.Name)
+	require.NotNil(t, modelVar.Binding)
+	assert.Equal(t, BindingKindProvider, modelVar.Binding.Kind)
+	assert.Equal(t, "model", modelVar.Binding.Field)
+	require.NotNil(t, modelVar.Binding.Filter)
+	assert.Equal(t, "chat", modelVar.Binding.Filter.Capability)
+	assert.Equal(t, "production", modelVar.Binding.Filter.Labels["env"])
+
+	// Test workspace binding
+	workspaceVar := tmpl.Spec.Variables[2]
+	require.NotNil(t, workspaceVar.Binding)
+	assert.Equal(t, BindingKindWorkspace, workspaceVar.Binding.Kind)
+
+	// Test secret binding
+	secretVar := tmpl.Spec.Variables[3]
+	require.NotNil(t, secretVar.Binding)
+	assert.Equal(t, BindingKindSecret, secretVar.Binding.Kind)
+
+	// Test configmap binding
+	configmapVar := tmpl.Spec.Variables[4]
+	require.NotNil(t, configmapVar.Binding)
+	assert.Equal(t, BindingKindConfigMap, configmapVar.Binding.Kind)
+
+	// Test variable without binding
+	tempVar := tmpl.Spec.Variables[5]
+	assert.Equal(t, "temperature", tempVar.Name)
+	assert.Nil(t, tempVar.Binding)
+}
+
+func TestVariableBindingKind_Constants(t *testing.T) {
+	// Verify constant values match expected strings
+	assert.Equal(t, VariableBindingKind("project"), BindingKindProject)
+	assert.Equal(t, VariableBindingKind("provider"), BindingKindProvider)
+	assert.Equal(t, VariableBindingKind("workspace"), BindingKindWorkspace)
+	assert.Equal(t, VariableBindingKind("secret"), BindingKindSecret)
+	assert.Equal(t, VariableBindingKind("configmap"), BindingKindConfigMap)
+}

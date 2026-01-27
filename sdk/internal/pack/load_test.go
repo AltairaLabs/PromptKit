@@ -487,3 +487,144 @@ func TestPackListToolsEmpty(t *testing.T) {
 	tools := p.ListTools()
 	assert.Nil(t, tools)
 }
+
+func TestVariableBindingParsing(t *testing.T) {
+	data := []byte(`{
+		"id": "binding-test",
+		"prompts": {
+			"chat": {
+				"id": "chat",
+				"system_template": "Test",
+				"variables": [
+					{
+						"name": "project_name",
+						"type": "string",
+						"required": true,
+						"binding": {
+							"kind": "project",
+							"field": "name",
+							"autoPopulate": true
+						}
+					},
+					{
+						"name": "model",
+						"type": "string",
+						"binding": {
+							"kind": "provider",
+							"field": "model",
+							"filter": {
+								"capability": "chat",
+								"labels": {"env": "production"}
+							}
+						}
+					},
+					{
+						"name": "temperature",
+						"type": "number"
+					}
+				]
+			}
+		}
+	}`)
+
+	p, err := Parse(data)
+	require.NoError(t, err)
+
+	prompt := p.GetPrompt("chat")
+	require.NotNil(t, prompt)
+	require.Len(t, prompt.Variables, 3)
+
+	// Test project binding
+	projectVar := prompt.Variables[0]
+	assert.Equal(t, "project_name", projectVar.Name)
+	require.NotNil(t, projectVar.Binding)
+	assert.Equal(t, BindingKindProject, projectVar.Binding.Kind)
+	assert.Equal(t, "name", projectVar.Binding.Field)
+	assert.True(t, projectVar.Binding.AutoPopulate)
+	assert.Nil(t, projectVar.Binding.Filter)
+
+	// Test provider binding with filter
+	modelVar := prompt.Variables[1]
+	assert.Equal(t, "model", modelVar.Name)
+	require.NotNil(t, modelVar.Binding)
+	assert.Equal(t, BindingKindProvider, modelVar.Binding.Kind)
+	assert.Equal(t, "model", modelVar.Binding.Field)
+	require.NotNil(t, modelVar.Binding.Filter)
+	assert.Equal(t, "chat", modelVar.Binding.Filter.Capability)
+	assert.Equal(t, "production", modelVar.Binding.Filter.Labels["env"])
+
+	// Test variable without binding
+	tempVar := prompt.Variables[2]
+	assert.Equal(t, "temperature", tempVar.Name)
+	assert.Nil(t, tempVar.Binding)
+}
+
+func TestVariableBindingConversion(t *testing.T) {
+	pr := &Prompt{
+		ID:             "test",
+		SystemTemplate: "Test",
+		Variables: []Variable{
+			{
+				Name:     "project",
+				Type:     "string",
+				Required: true,
+				Binding: &VariableBinding{
+					Kind:         BindingKindProject,
+					Field:        "name",
+					AutoPopulate: true,
+				},
+			},
+			{
+				Name: "model",
+				Type: "string",
+				Binding: &VariableBinding{
+					Kind:  BindingKindProvider,
+					Field: "model",
+					Filter: &VariableBindingFilter{
+						Capability: "chat",
+						Labels:     map[string]string{"tier": "premium"},
+					},
+				},
+			},
+			{
+				Name: "simple",
+				Type: "string",
+			},
+		},
+	}
+
+	cfg := pr.ToPromptConfig("test-task")
+	require.Len(t, cfg.Spec.Variables, 3)
+
+	// Test project binding conversion
+	projectVar := cfg.Spec.Variables[0]
+	assert.Equal(t, "project", projectVar.Name)
+	require.NotNil(t, projectVar.Binding)
+	assert.Equal(t, "project", string(projectVar.Binding.Kind))
+	assert.Equal(t, "name", projectVar.Binding.Field)
+	assert.True(t, projectVar.Binding.AutoPopulate)
+	assert.Nil(t, projectVar.Binding.Filter)
+
+	// Test provider binding conversion with filter
+	modelVar := cfg.Spec.Variables[1]
+	assert.Equal(t, "model", modelVar.Name)
+	require.NotNil(t, modelVar.Binding)
+	assert.Equal(t, "provider", string(modelVar.Binding.Kind))
+	assert.Equal(t, "model", modelVar.Binding.Field)
+	require.NotNil(t, modelVar.Binding.Filter)
+	assert.Equal(t, "chat", modelVar.Binding.Filter.Capability)
+	assert.Equal(t, "premium", modelVar.Binding.Filter.Labels["tier"])
+
+	// Test variable without binding
+	simpleVar := cfg.Spec.Variables[2]
+	assert.Equal(t, "simple", simpleVar.Name)
+	assert.Nil(t, simpleVar.Binding)
+}
+
+func TestVariableBindingKindConstants(t *testing.T) {
+	assert.Equal(t, VariableBindingKind("project"), BindingKindProject)
+	assert.Equal(t, VariableBindingKind("provider"), BindingKindProvider)
+	assert.Equal(t, VariableBindingKind("workspace"), BindingKindWorkspace)
+	assert.Equal(t, VariableBindingKind("secret"), BindingKindSecret)
+	assert.Equal(t, VariableBindingKind("configmap"), BindingKindConfigMap)
+}

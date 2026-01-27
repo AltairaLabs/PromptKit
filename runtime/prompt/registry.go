@@ -211,6 +211,44 @@ type TemplateEngineInfo struct {
 	Features []string `yaml:"features,omitempty" json:"features,omitempty"` // Supported features
 }
 
+// VariableBindingKind defines the type of resource a variable binds to.
+type VariableBindingKind string
+
+const (
+	// BindingKindProject binds to project metadata (name, description, tags).
+	BindingKindProject VariableBindingKind = "project"
+	// BindingKindProvider binds to provider/model selection.
+	BindingKindProvider VariableBindingKind = "provider"
+	// BindingKindWorkspace binds to current workspace (name, namespace).
+	BindingKindWorkspace VariableBindingKind = "workspace"
+	// BindingKindSecret binds to Kubernetes Secret resources.
+	BindingKindSecret VariableBindingKind = "secret"
+	// BindingKindConfigMap binds to Kubernetes ConfigMap resources.
+	BindingKindConfigMap VariableBindingKind = "configmap"
+)
+
+// VariableBindingFilter specifies criteria for filtering bound resources.
+type VariableBindingFilter struct {
+	// Capability filters resources by capability (e.g., "chat", "embeddings").
+	Capability string `yaml:"capability,omitempty" json:"capability,omitempty"`
+	// Labels filters resources by label selectors.
+	Labels map[string]string `yaml:"labels,omitempty" json:"labels,omitempty"`
+}
+
+// VariableBinding defines how a variable binds to system resources.
+// This enables automatic population from system resources and type-safe UI selection.
+type VariableBinding struct {
+	// Kind specifies the type of resource to bind to.
+	Kind VariableBindingKind `yaml:"kind" json:"kind"`
+	// Field specifies which field of the resource to bind (e.g., "name", "model").
+	Field string `yaml:"field,omitempty" json:"field,omitempty"`
+	// AutoPopulate enables automatic population of this variable from the bound resource.
+	// When true, the variable may be auto-filled and optionally hidden from the wizard.
+	AutoPopulate bool `yaml:"autoPopulate,omitempty" json:"autoPopulate,omitempty"`
+	// Filter specifies criteria for filtering bound resources.
+	Filter *VariableBindingFilter `yaml:"filter,omitempty" json:"filter,omitempty"`
+}
+
 // VariableMetadata contains enhanced metadata for a variable
 // VariableMetadata defines a template variable with validation rules
 // This struct matches the SDK Variable type for PromptPack spec compliance
@@ -222,6 +260,9 @@ type VariableMetadata struct {
 	Description string                 `yaml:"description,omitempty" json:"description,omitempty"`
 	Example     interface{}            `yaml:"example,omitempty" json:"example,omitempty"`
 	Validation  map[string]interface{} `yaml:"validation,omitempty" json:"validation,omitempty"`
+	// Binding enables automatic population from system resources and type-safe UI selection.
+	// This allows prompts to declare semantic meaning for variables beyond just their data type.
+	Binding *VariableBinding `yaml:"binding,omitempty" json:"binding,omitempty"`
 }
 
 // Metadata contains additional metadata for the pack format
