@@ -20,6 +20,6 @@
   },
   "devDependencies": {
     "linkinator": "^7.5.3",
-    "playwright": "^1.57.0"
+    "playwright": "^1.58.1"
   }
 }
