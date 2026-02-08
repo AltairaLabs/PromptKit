@@ -374,6 +374,17 @@ func (c *Conversation) ToolRegistry() *tools.Registry {
 	return c.toolRegistry
 }
 
+// registerA2ATools registers tool descriptors and the executor for A2A tools.
+func (c *Conversation) registerA2ATools() {
+	if c.config.a2aBridge == nil {
+		return
+	}
+	for _, td := range c.config.a2aBridge.GetToolDescriptors() {
+		_ = c.toolRegistry.Register(td)
+	}
+	c.toolRegistry.RegisterExecutor(&a2aExecutor{})
+}
+
 // registerMCPExecutors registers executors for MCP tools.
 func (c *Conversation) registerMCPExecutors() {
 	if c.mcpRegistry == nil {

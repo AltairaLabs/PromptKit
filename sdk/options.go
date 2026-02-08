@@ -3,6 +3,7 @@ package sdk
 import (
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
@@ -66,6 +67,9 @@ type config struct {
 
 	// MCP configuration
 	mcpServers []mcp.ServerConfig
+
+	// A2A tool bridge for remote agent tools
+	a2aBridge *a2a.ToolBridge
 
 	// Variable providers for dynamic variable resolution
 	variableProviders []variables.Provider
@@ -650,6 +654,28 @@ func (b *MCPServerBuilder) Build() mcp.ServerConfig {
 func WithMCPServer(builder *MCPServerBuilder) Option {
 	return func(c *config) error {
 		c.mcpServers = append(c.mcpServers, builder.Build())
+		return nil
+	}
+}
+
+// WithA2ATools registers tools from an A2A [a2a.ToolBridge] so the LLM can
+// call remote A2A agents as tools.
+//
+// The bridge must have already discovered agents via [a2a.ToolBridge.RegisterAgent].
+// Each agent skill becomes a tool with Mode "a2a" in the tool registry.
+//
+// Example:
+//
+//	client := a2a.NewClient("https://agent.example.com")
+//	bridge := a2a.NewToolBridge(client)
+//	bridge.RegisterAgent(ctx)
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "assistant",
+//	    sdk.WithA2ATools(bridge),
+//	)
+func WithA2ATools(bridge *a2a.ToolBridge) Option {
+	return func(c *config) error {
+		c.a2aBridge = bridge
 		return nil
 	}
 }
