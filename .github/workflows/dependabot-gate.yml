@@ -12,7 +12,7 @@ jobs:
     # Job name must match the required status check context in the ruleset
     name: SonarCloud Analysis
     runs-on: ubuntu-latest
-    if: github.actor == 'dependabot[bot]'
+    if: startsWith(github.head_ref, 'dependabot/')
     steps:
       - name: Skip SonarCloud for Dependabot
         run: echo "SonarCloud analysis skipped — dependency-only change from Dependabot"
