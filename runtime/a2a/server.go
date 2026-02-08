@@ -76,6 +76,9 @@ type Server struct {
 
 	cancelsMu sync.Mutex
 	cancels   map[string]context.CancelFunc // task_id → cancel for in-flight Send
+
+	subsMu sync.Mutex
+	subs   map[string]*taskBroadcaster // task_id → broadcaster
 }
 
 // NewServer creates a new A2A server.
@@ -84,6 +87,7 @@ func NewServer(opener ConversationOpener, opts ...ServerOption) *Server {
 		opener:  opener,
 		convs:   make(map[string]Conversation),
 		cancels: make(map[string]context.CancelFunc),
+		subs:    make(map[string]*taskBroadcaster),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -120,6 +124,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if s.httpSrv != nil {
 		firstErr = s.httpSrv.Shutdown(ctx)
 	}
+
+	// Close all broadcasters.
+	s.closeAllBroadcasters()
 
 	// Cancel all in-flight tasks.
 	s.cancelsMu.Lock()
@@ -168,12 +175,16 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	switch req.Method {
 	case MethodSendMessage:
 		s.handleSendMessage(w, &req)
+	case MethodSendStreamingMessage:
+		s.handleStreamMessage(w, r, &req)
 	case MethodGetTask:
 		s.handleGetTask(w, &req)
 	case MethodCancelTask:
 		s.handleCancelTask(w, &req)
 	case MethodListTasks:
 		s.handleListTasks(w, &req)
+	case MethodTaskSubscribe:
+		s.handleTaskSubscribe(w, r, &req)
 	default:
 		writeRPCError(w, req.ID, -32601, "Method not found")
 	}

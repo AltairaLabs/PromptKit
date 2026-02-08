@@ -17,6 +17,7 @@ const (
 	MethodGetTask              = "tasks/get"
 	MethodCancelTask           = "tasks/cancel"
 	MethodListTasks            = "tasks/list"
+	MethodTaskSubscribe        = "tasks/subscribe"
 )
 
 // TaskState represents the state of an A2A task.
@@ -252,6 +253,11 @@ type ListTasksResponse struct {
 	NextPageToken string `json:"nextPageToken,omitempty"`
 	PageSize      int    `json:"pageSize,omitempty"`
 	TotalSize     int    `json:"totalSize,omitempty"`
+}
+
+// SubscribeTaskRequest is the params for tasks/subscribe.
+type SubscribeTaskRequest struct {
+	ID string `json:"id"`
 }
 
 // --- Streaming Events ---
