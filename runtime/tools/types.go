@@ -44,6 +44,7 @@ type ToolDescriptor struct {
 	MockTemplateFile string `json:"mock_template_file,omitempty" yaml:"mock_template_file,omitempty"`
 
 	HTTPConfig *HTTPConfig `json:"http,omitempty" yaml:"http,omitempty"` // Live HTTP configuration
+	A2AConfig  *A2AConfig  `json:"a2a,omitempty" yaml:"a2a,omitempty"`   // A2A agent configuration
 }
 
 // HTTPConfig defines configuration for live HTTP tool execution
@@ -54,6 +55,13 @@ type HTTPConfig struct {
 	TimeoutMs      int               `json:"timeout_ms" yaml:"timeout_ms"`
 	Redact         []string          `json:"redact,omitempty" yaml:"redact,omitempty"`
 	Headers        map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+}
+
+// A2AConfig defines configuration for A2A agent tool execution
+type A2AConfig struct {
+	AgentURL  string `json:"agent_url" yaml:"agent_url"`
+	SkillID   string `json:"skill_id" yaml:"skill_id"`
+	TimeoutMs int    `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
 }
 
 // ToolCall represents a tool invocation request
