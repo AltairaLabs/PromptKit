@@ -17,6 +17,7 @@ The Runtime is the foundational layer that provides:
 - **Stage system** for extensible, composable processing layers
 - **Type definitions** used across all PromptKit tools
 - **Tool execution** framework for MCP integration
+- **A2A protocol** for agent-to-agent communication and tool delegation
 - **Validation system** for input/output checking
 
 ---
@@ -97,6 +98,7 @@ Step-by-step guides for extending Runtime:
 4. [Validation & Guardrails](/runtime/tutorials/04-validation-guardrails/) - Content safety
 5. [Production Deployment](/runtime/tutorials/05-production-deployment/) - Deploy pipelines
 6. [Advanced Patterns](/runtime/tutorials/06-advanced-patterns/) - Complex pipelines
+7. [A2A Client](/runtime/tutorials/07-a2a-client/) - Discover agents and send messages
 
 ### How-To Guides (Accomplish Specific Tasks)
 
@@ -109,6 +111,8 @@ Focused guides for specific Runtime tasks:
 - [Manage State](/runtime/how-to/manage-state/) - Conversation persistence
 - [Integrate MCP](/runtime/how-to/integrate-mcp/) - MCP server integration
 - [Monitor Costs](/runtime/how-to/monitor-costs/) - Cost tracking
+- [Use A2A Tool Bridge](/runtime/how-to/use-a2a-tool-bridge/) - Register agents as tools
+- [Use A2A Mock Server](/runtime/how-to/use-a2a-mock-server/) - Deterministic testing
 
 ### Explanation (Understand the Concepts)
 
@@ -129,6 +133,7 @@ Complete API documentation:
 - [Tools & MCP API](/runtime/reference/tools-mcp/) - Tool execution
 - [Validators API](/runtime/reference/validators/) - Validation interfaces
 - [Storage API](/runtime/reference/storage/) - State storage
+- [A2A API](/runtime/reference/a2a/) - Client, types, tool bridge, mock
 
 ---
 

@@ -37,9 +37,9 @@ func main() {
 		},
 	}
 
-	server := a2a.NewServer(opener,
-		a2a.WithCard(&card),
-		a2a.WithPort(9999),
+	server := sdk.NewA2AServer(opener,
+		sdk.WithA2ACard(&card),
+		sdk.WithA2APort(9999),
 	)
 
 	// Handle graceful shutdown.

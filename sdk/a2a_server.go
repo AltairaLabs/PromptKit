@@ -1,4 +1,4 @@
-package a2a
+package sdk
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/a2a"
 )
 
 const (
@@ -29,50 +29,44 @@ const (
 	sendSettleTime = 5 * time.Millisecond
 )
 
-// ConversationResult holds the outcome of a Send call.
-type ConversationResult struct {
-	Parts        []types.ContentPart
-	PendingTools bool
-}
-
-// Conversation abstracts a single conversation session.
-type Conversation interface {
-	Send(ctx context.Context, msg *types.Message) (*ConversationResult, error)
+// a2aConv is the subset of *Conversation the A2A server needs.
+type a2aConv interface {
+	Send(ctx context.Context, message any, opts ...SendOption) (*Response, error)
 	Close() error
 }
 
-// ConversationOpener creates or retrieves a Conversation for a context ID.
-type ConversationOpener func(contextID string) (Conversation, error)
+// A2AConversationOpener creates or retrieves a conversation for a context ID.
+type A2AConversationOpener func(contextID string) (a2aConv, error)
 
-// ServerOption configures a [Server].
-type ServerOption func(*Server)
+// A2AServerOption configures an [A2AServer].
+type A2AServerOption func(*A2AServer)
 
-// WithCard sets the agent card served at /.well-known/agent.json.
-func WithCard(card *AgentCard) ServerOption {
-	return func(s *Server) { s.card = *card }
+// WithA2ACard sets the agent card served at /.well-known/agent.json.
+func WithA2ACard(card *a2a.AgentCard) A2AServerOption {
+	return func(s *A2AServer) { s.card = *card }
 }
 
-// WithPort sets the TCP port for ListenAndServe.
-func WithPort(port int) ServerOption {
-	return func(s *Server) { s.port = port }
+// WithA2APort sets the TCP port for ListenAndServe.
+func WithA2APort(port int) A2AServerOption {
+	return func(s *A2AServer) { s.port = port }
 }
 
-// WithTaskStore sets a custom task store. Defaults to an in-memory store.
-func WithTaskStore(store TaskStore) ServerOption {
-	return func(s *Server) { s.taskStore = store }
+// WithA2ATaskStore sets a custom task store. Defaults to an in-memory store.
+func WithA2ATaskStore(store A2ATaskStore) A2AServerOption {
+	return func(s *A2AServer) { s.taskStore = store }
 }
 
-// Server is an HTTP server that exposes a PromptKit Conversation as an
+// A2AServer is an HTTP server that exposes a PromptKit Conversation as an
 // A2A-compliant JSON-RPC endpoint.
-type Server struct {
-	opener    ConversationOpener
-	taskStore TaskStore
-	card      AgentCard
+type A2AServer struct {
+	opener    A2AConversationOpener
+	taskStore A2ATaskStore
+	card      a2a.AgentCard
 	port      int
 	httpSrv   *http.Server
 
 	convsMu sync.RWMutex
-	convs   map[string]Conversation // context_id → Conversation
+	convs   map[string]a2aConv // context_id → conversation
 
 	cancelsMu sync.Mutex
 	cancels   map[string]context.CancelFunc // task_id → cancel for in-flight Send
@@ -81,11 +75,11 @@ type Server struct {
 	subs   map[string]*taskBroadcaster // task_id → broadcaster
 }
 
-// NewServer creates a new A2A server.
-func NewServer(opener ConversationOpener, opts ...ServerOption) *Server {
-	s := &Server{
+// NewA2AServer creates a new A2A server.
+func NewA2AServer(opener A2AConversationOpener, opts ...A2AServerOption) *A2AServer {
+	s := &A2AServer{
 		opener:  opener,
-		convs:   make(map[string]Conversation),
+		convs:   make(map[string]a2aConv),
 		cancels: make(map[string]context.CancelFunc),
 		subs:    make(map[string]*taskBroadcaster),
 	}
@@ -93,13 +87,13 @@ func NewServer(opener ConversationOpener, opts ...ServerOption) *Server {
 		opt(s)
 	}
 	if s.taskStore == nil {
-		s.taskStore = NewInMemoryTaskStore()
+		s.taskStore = NewInMemoryA2ATaskStore()
 	}
 	return s
 }
 
 // Handler returns an http.Handler implementing the A2A protocol.
-func (s *Server) Handler() http.Handler {
+func (s *A2AServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /.well-known/agent.json", s.handleAgentCard)
 	mux.HandleFunc("POST /a2a", s.handleRPC)
@@ -107,7 +101,7 @@ func (s *Server) Handler() http.Handler {
 }
 
 // ListenAndServe starts the HTTP server on the configured port.
-func (s *Server) ListenAndServe() error {
+func (s *A2AServer) ListenAndServe() error {
 	s.httpSrv = &http.Server{
 		Addr:              fmt.Sprintf(":%d", s.port),
 		Handler:           s.Handler(),
@@ -118,7 +112,7 @@ func (s *Server) ListenAndServe() error {
 
 // Shutdown gracefully shuts down the server: drains HTTP requests, cancels
 // in-flight tasks, and closes all conversations.
-func (s *Server) Shutdown(ctx context.Context) error {
+func (s *A2AServer) Shutdown(ctx context.Context) error {
 	var firstErr error
 
 	if s.httpSrv != nil {
@@ -150,7 +144,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 }
 
 // Serve starts the HTTP server on the given listener.
-func (s *Server) Serve(ln net.Listener) error {
+func (s *A2AServer) Serve(ln net.Listener) error {
 	s.httpSrv = &http.Server{
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: defaultReadHeaderTimeout,
@@ -159,31 +153,31 @@ func (s *Server) Serve(ln net.Listener) error {
 }
 
 // handleAgentCard serves the agent card as JSON.
-func (s *Server) handleAgentCard(w http.ResponseWriter, _ *http.Request) {
+func (s *A2AServer) handleAgentCard(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(s.card)
 }
 
 // handleRPC dispatches a JSON-RPC 2.0 request to the appropriate handler.
-func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
-	var req JSONRPCRequest
+func (s *A2AServer) handleRPC(w http.ResponseWriter, r *http.Request) {
+	var req a2a.JSONRPCRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeRPCError(w, nil, -32700, "Parse error")
 		return
 	}
 
 	switch req.Method {
-	case MethodSendMessage:
+	case a2a.MethodSendMessage:
 		s.handleSendMessage(w, &req)
-	case MethodSendStreamingMessage:
+	case a2a.MethodSendStreamingMessage:
 		s.handleStreamMessage(w, r, &req)
-	case MethodGetTask:
+	case a2a.MethodGetTask:
 		s.handleGetTask(w, &req)
-	case MethodCancelTask:
+	case a2a.MethodCancelTask:
 		s.handleCancelTask(w, &req)
-	case MethodListTasks:
+	case a2a.MethodListTasks:
 		s.handleListTasks(w, &req)
-	case MethodTaskSubscribe:
+	case a2a.MethodTaskSubscribe:
 		s.handleTaskSubscribe(w, r, &req)
 	default:
 		writeRPCError(w, req.ID, -32601, "Method not found")
@@ -191,8 +185,8 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSendMessage processes a message/send request.
-func (s *Server) handleSendMessage(w http.ResponseWriter, req *JSONRPCRequest) {
-	var params SendMessageRequest
+func (s *A2AServer) handleSendMessage(w http.ResponseWriter, req *a2a.JSONRPCRequest) {
+	var params a2a.SendMessageRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		writeRPCError(w, req.ID, -32602, "Invalid params")
 		return
@@ -209,7 +203,7 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, req *JSONRPCRequest) {
 		return
 	}
 
-	pkMsg, err := MessageToMessage(&params.Message)
+	pkMsg, err := a2a.MessageToMessage(&params.Message)
 	if err != nil {
 		writeRPCError(w, req.ID, -32602, fmt.Sprintf("Invalid message: %v", err))
 		return
@@ -238,7 +232,7 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, req *JSONRPCRequest) {
 
 // runConversation spawns a goroutine that drives the conversation for a task.
 // It returns a channel that is closed when the goroutine completes.
-func (s *Server) runConversation(taskID string, conv Conversation, pkMsg *types.Message) <-chan struct{} {
+func (s *A2AServer) runConversation(taskID string, conv a2aConv, pkMsg any) <-chan struct{} {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancelsMu.Lock()
 	s.cancels[taskID] = cancel
@@ -249,36 +243,36 @@ func (s *Server) runConversation(taskID string, conv Conversation, pkMsg *types.
 		defer close(done)
 		defer cancel()
 
-		_ = s.taskStore.SetState(taskID, TaskStateWorking, nil)
+		_ = s.taskStore.SetState(taskID, a2a.TaskStateWorking, nil)
 
-		result, sendErr := conv.Send(ctx, pkMsg)
+		resp, sendErr := conv.Send(ctx, pkMsg)
 		if sendErr != nil {
 			errText := sendErr.Error()
-			_ = s.taskStore.SetState(taskID, TaskStateFailed, &Message{
-				Role:  RoleAgent,
-				Parts: []Part{{Text: &errText}},
+			_ = s.taskStore.SetState(taskID, a2a.TaskStateFailed, &a2a.Message{
+				Role:  a2a.RoleAgent,
+				Parts: []a2a.Part{{Text: &errText}},
 			})
 			return
 		}
 
-		if result.PendingTools {
-			_ = s.taskStore.SetState(taskID, TaskStateInputRequired, nil)
+		if len(resp.PendingTools()) > 0 {
+			_ = s.taskStore.SetState(taskID, a2a.TaskStateInputRequired, nil)
 			return
 		}
 
-		artifacts, convErr := ContentPartsToArtifacts(result.Parts)
+		artifacts, convErr := a2a.ContentPartsToArtifacts(resp.Parts())
 		if convErr == nil && len(artifacts) > 0 {
 			_ = s.taskStore.AddArtifacts(taskID, artifacts)
 		}
-		_ = s.taskStore.SetState(taskID, TaskStateCompleted, nil)
+		_ = s.taskStore.SetState(taskID, a2a.TaskStateCompleted, nil)
 	}()
 
 	return done
 }
 
 // handleGetTask processes a tasks/get request.
-func (s *Server) handleGetTask(w http.ResponseWriter, req *JSONRPCRequest) {
-	var params GetTaskRequest
+func (s *A2AServer) handleGetTask(w http.ResponseWriter, req *a2a.JSONRPCRequest) {
+	var params a2a.GetTaskRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		writeRPCError(w, req.ID, -32602, "Invalid params")
 		return
@@ -294,8 +288,8 @@ func (s *Server) handleGetTask(w http.ResponseWriter, req *JSONRPCRequest) {
 }
 
 // handleCancelTask processes a tasks/cancel request.
-func (s *Server) handleCancelTask(w http.ResponseWriter, req *JSONRPCRequest) {
-	var params CancelTaskRequest
+func (s *A2AServer) handleCancelTask(w http.ResponseWriter, req *a2a.JSONRPCRequest) {
+	var params a2a.CancelTaskRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		writeRPCError(w, req.ID, -32602, "Invalid params")
 		return
@@ -319,8 +313,8 @@ func (s *Server) handleCancelTask(w http.ResponseWriter, req *JSONRPCRequest) {
 }
 
 // handleListTasks processes a tasks/list request.
-func (s *Server) handleListTasks(w http.ResponseWriter, req *JSONRPCRequest) {
-	var params ListTasksRequest
+func (s *A2AServer) handleListTasks(w http.ResponseWriter, req *a2a.JSONRPCRequest) {
+	var params a2a.ListTasksRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		writeRPCError(w, req.ID, -32602, "Invalid params")
 		return
@@ -338,12 +332,12 @@ func (s *Server) handleListTasks(w http.ResponseWriter, req *JSONRPCRequest) {
 	}
 
 	// Convert []*Task to []Task for the response.
-	taskList := make([]Task, len(tasks))
+	taskList := make([]a2a.Task, len(tasks))
 	for i, t := range tasks {
 		taskList[i] = *t
 	}
 
-	writeRPCResult(w, req.ID, ListTasksResponse{
+	writeRPCResult(w, req.ID, a2a.ListTasksResponse{
 		Tasks:    taskList,
 		PageSize: limit,
 	})
@@ -351,7 +345,7 @@ func (s *Server) handleListTasks(w http.ResponseWriter, req *JSONRPCRequest) {
 
 // getOrCreateConversation retrieves an existing conversation for the context ID
 // or creates a new one via the opener (double-check lock pattern).
-func (s *Server) getOrCreateConversation(contextID string) (Conversation, error) {
+func (s *A2AServer) getOrCreateConversation(contextID string) (a2aConv, error) {
 	s.convsMu.RLock()
 	if conv, ok := s.convs[contextID]; ok {
 		s.convsMu.RUnlock()
@@ -386,7 +380,7 @@ func generateID() string {
 func writeRPCResult(w http.ResponseWriter, id, result any) {
 	data, _ := json.Marshal(result)
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(JSONRPCResponse{
+	_ = json.NewEncoder(w).Encode(a2a.JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      id,
 		Result:  data,
@@ -396,9 +390,9 @@ func writeRPCResult(w http.ResponseWriter, id, result any) {
 // writeRPCError writes a JSON-RPC 2.0 error response.
 func writeRPCError(w http.ResponseWriter, id any, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(JSONRPCResponse{
+	_ = json.NewEncoder(w).Encode(a2a.JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      id,
-		Error:   &JSONRPCError{Code: code, Message: msg},
+		Error:   &a2a.JSONRPCError{Code: code, Message: msg},
 	})
 }

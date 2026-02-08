@@ -228,7 +228,7 @@ func (c *Client) SendMessageStream(ctx context.Context, params *SendMessageReque
 	go func() {
 		defer close(ch)
 		defer resp.Body.Close()
-		readSSE(ctx, resp.Body, ch)
+		ReadSSE(ctx, resp.Body, ch)
 	}()
 
 	return ch, nil
@@ -261,8 +261,8 @@ func (c *Client) ListTasks(ctx context.Context, params *ListTasksRequest) ([]*Ta
 	return tasks, nil
 }
 
-// readSSE reads SSE events from r and sends parsed StreamEvents to ch.
-func readSSE(ctx context.Context, r io.Reader, ch chan<- StreamEvent) {
+// ReadSSE reads SSE events from r and sends parsed StreamEvents to ch.
+func ReadSSE(ctx context.Context, r io.Reader, ch chan<- StreamEvent) {
 	scanner := bufio.NewScanner(r)
 	var buf strings.Builder
 

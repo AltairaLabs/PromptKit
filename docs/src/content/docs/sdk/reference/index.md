@@ -364,6 +364,10 @@ import (
 
 - **[Variable Providers](variables)** - Dynamic variable resolution, built-in providers, custom providers
 
+### A2A Server
+
+- **[A2A Server](a2a-server)** - A2AServer, A2ATaskStore, A2AConversationOpener
+
 ### Related
 
 - **[ConversationManager](conversation-manager)** - Legacy conversation management

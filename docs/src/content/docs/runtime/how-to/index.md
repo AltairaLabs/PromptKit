@@ -37,6 +37,10 @@ These guides show you how to accomplish specific tasks with the PromptKit Runtim
 - [Prometheus Metrics](prometheus-metrics) - Monitor with Prometheus and Grafana
 - [Monitor Costs](monitor-costs) - Cost tracking and optimization
 
+### A2A (Agent-to-Agent)
+- [Use Tool Bridge](use-a2a-tool-bridge) - Register A2A agent skills as local tools
+- [Use Mock Server](use-a2a-mock-server) - Deterministic testing with mock A2A servers
+
 ### Advanced Topics
 - [Streaming Responses](streaming-responses) - Real-time output
 - [Custom Middleware](custom-middleware) - Extend pipeline behavior

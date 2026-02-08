@@ -44,6 +44,11 @@ Follow these tutorials in order for a structured learning experience:
 9. **[Variable Providers](09-variable-providers)**
    Inject dynamic context with RAG, database lookups, and session state.
 
+### A2A
+
+10. **[A2A Server](10-a2a-server)**
+    Expose a PromptKit conversation as an A2A-compliant agent server.
+
 ## Prerequisites
 
 - Go 1.21 or higher
