@@ -1,0 +1,13 @@
+# Mock LLM response configuration for the A2A demo scenario.
+# Turn 1: The mock LLM returns a tool call to the A2A research agent.
+# Turn 2: After receiving the tool result, the mock LLM summarizes the findings.
+scenarios:
+  delegated-research:
+    turns:
+      1:
+        tool_calls:
+          - name: "a2a_research_agent_search_papers"
+            arguments:
+              query: "Search for papers about quantum computing"
+      2:
+        response: "Based on the research results, I found 3 papers on quantum computing:\n1. Quantum Computing Fundamentals (2024)\n2. Advances in Quantum Error Correction (2024)\n3. Practical Quantum Algorithms for Optimization (2023)"

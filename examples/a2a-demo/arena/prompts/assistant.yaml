@@ -1,0 +1,14 @@
+apiVersion: promptkit.ai/v1
+kind: PromptConfig
+metadata:
+  name: assistant
+spec:
+  task_type: assistant
+  version: v1.0.0
+  description: An assistant that can delegate research to A2A agents
+  allowed_tools:
+    - a2a_research_agent_search_papers
+  system_template: |
+    You are a helpful assistant with access to research tools.
+    When asked to search for papers or research a topic, use the available tools.
+    Summarize the results for the user.
