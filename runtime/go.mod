@@ -3,7 +3,7 @@ module github.com/AltairaLabs/PromptKit/runtime
 go 1.25.1
 
 require (
-	github.com/AltairaLabs/PromptKit/pkg v1.1.9
+	github.com/AltairaLabs/PromptKit/pkg v1.1.10
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1
 	github.com/Masterminds/semver/v3 v3.4.0
