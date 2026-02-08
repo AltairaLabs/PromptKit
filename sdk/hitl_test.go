@@ -208,6 +208,65 @@ func TestContinue(t *testing.T) {
 	})
 }
 
+func TestContinue_ResolutionBranches(t *testing.T) {
+	// These tests exercise the resolution-building branches in Continue().
+	// The minimal test pipeline processes messages without a provider, so
+	// Continue succeeds — we verify the code paths don't panic.
+
+	t.Run("builds rejected resolution message", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.resolvedStore = sdktools.NewResolvedStore()
+		conv.resolvedStore.Add(&sdktools.ToolResolution{
+			ID:              "r1",
+			Rejected:        true,
+			RejectionReason: "not authorized",
+		})
+
+		resp, err := conv.Continue(context.Background())
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+	})
+
+	t.Run("builds error resolution message", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.resolvedStore = sdktools.NewResolvedStore()
+		conv.resolvedStore.Add(&sdktools.ToolResolution{
+			ID:    "r2",
+			Error: assert.AnError,
+		})
+
+		resp, err := conv.Continue(context.Background())
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+	})
+
+	t.Run("builds resultJSON resolution message", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.resolvedStore = sdktools.NewResolvedStore()
+		conv.resolvedStore.Add(&sdktools.ToolResolution{
+			ID:         "r3",
+			ResultJSON: []byte(`{"status":"ok"}`),
+		})
+
+		resp, err := conv.Continue(context.Background())
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+	})
+
+	t.Run("builds plain result resolution message", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.resolvedStore = sdktools.NewResolvedStore()
+		conv.resolvedStore.Add(&sdktools.ToolResolution{
+			ID:     "r4",
+			Result: "plain value",
+		})
+
+		resp, err := conv.Continue(context.Background())
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+	})
+}
+
 func TestResolveToolStoresResolution(t *testing.T) {
 	t.Run("stores resolution for continue", func(t *testing.T) {
 		conv := newTestConversation()

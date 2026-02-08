@@ -242,6 +242,7 @@ func (c *Conversation) buildPipelineWithParams(
 	localExec := &localExecutor{handlers: c.handlers}
 	c.toolRegistry.RegisterExecutor(localExec)
 	c.registerMCPExecutors()
+	c.registerA2ATools()
 	toolRegistry := c.toolRegistry
 	c.handlersMu.RUnlock()
 
@@ -310,6 +311,7 @@ func (c *Conversation) buildStreamPipelineWithParams(
 	localExec := &localExecutor{handlers: c.handlers}
 	c.toolRegistry.RegisterExecutor(localExec)
 	c.registerMCPExecutors()
+	c.registerA2ATools()
 	toolRegistry := c.toolRegistry
 	c.handlersMu.RUnlock()
 
