@@ -3,7 +3,6 @@ title: Output Formats
 sidebar:
   order: 6
 ---
-# Output Formats
 
 PromptArena supports multiple output formats for test results, each optimized for different use cases. You can generate multiple formats simultaneously from a single test run.
 
