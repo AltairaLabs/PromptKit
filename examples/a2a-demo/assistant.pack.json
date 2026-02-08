@@ -1,0 +1,16 @@
+{
+  "name": "a2a-demo-assistant",
+  "version": "1.0.0",
+  "description": "Demo assistant for A2A examples",
+  "prompts": {
+    "chat": {
+      "provider": {
+        "type": "openai"
+      },
+      "model": "gpt-4o-mini",
+      "task_type": "chat",
+      "system": "You are a helpful assistant. Answer questions clearly and concisely. When tools are available, use them to provide accurate information.",
+      "max_tokens": 1024
+    }
+  }
+}

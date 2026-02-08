@@ -1,6 +1,7 @@
 go 1.25.1
 
 use (
+	./examples/a2a-demo
 	./examples/programmatic-arena
 	./pkg
 	./runtime

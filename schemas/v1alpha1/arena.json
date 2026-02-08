@@ -49,6 +49,12 @@
           },
           "type": "array"
         },
+        "a2a_agents": {
+          "items": {
+            "$ref": "#/$defs/A2AAgentConfig"
+          },
+          "type": "array"
+        },
         "state_store": {
           "$ref": "#/$defs/StateStoreConfig"
         },
@@ -64,6 +70,134 @@
       "required": [
         "providers",
         "defaults"
+      ]
+    },
+    "A2AAgentConfig": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "card": {
+          "$ref": "#/$defs/A2ACardConfig"
+        },
+        "responses": {
+          "items": {
+            "$ref": "#/$defs/A2AResponseRule"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "card"
+      ]
+    },
+    "A2ACardConfig": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "skills": {
+          "items": {
+            "$ref": "#/$defs/A2ASkillConfig"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name"
+      ]
+    },
+    "A2ASkillConfig": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "name"
+      ]
+    },
+    "A2AResponseRule": {
+      "properties": {
+        "skill": {
+          "type": "string"
+        },
+        "match": {
+          "$ref": "#/$defs/A2AMatchConfig"
+        },
+        "response": {
+          "$ref": "#/$defs/A2AResponseConfig"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "skill"
+      ]
+    },
+    "A2AMatchConfig": {
+      "properties": {
+        "contains": {
+          "type": "string"
+        },
+        "regex": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "A2AResponseConfig": {
+      "properties": {
+        "parts": {
+          "items": {
+            "$ref": "#/$defs/A2APartConfig"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "parts"
+      ]
+    },
+    "A2APartConfig": {
+      "properties": {
+        "text": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "text"
       ]
     },
     "Defaults": {
