@@ -264,10 +264,14 @@ for chunk := range conv.Stream(ctx,
 Documents can use many tokens:
 
 ```go
-// Subscribe to cost tracking
-conv.Subscribe("cost_update", func(e hooks.Event) {
-    cost := e.Data.(float64)
-    log.Printf("Current cost: $%.4f", cost)
+import (
+    "github.com/AltairaLabs/PromptKit/sdk/hooks"
+    "github.com/AltairaLabs/PromptKit/runtime/events"
+)
+
+// Monitor provider calls for cost tracking
+hooks.OnProviderCall(conv, func(e *events.Event) {
+    log.Printf("Provider call completed: %s", e.Type)
 })
 
 resp, err := conv.Send(ctx, "Analyze",

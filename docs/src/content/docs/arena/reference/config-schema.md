@@ -123,8 +123,6 @@ spec:
     temperature: 0.7                # Default: 0.7
     top_p: 1.0                      # Default: 1.0
     max_tokens: 1500                # Default: varies by provider
-    seed: 42                        # Optional: For reproducibility
-
     # Execution settings
     concurrency: 3                  # Default: 1 (number of parallel tests)
     timeout: 30s                    # Default: 30s (per test)
@@ -416,25 +414,6 @@ spec:
         max_sentences: 8
         message: "Maximum 8 sentences"
 
-  # Optional: Voice and personality
-  voice_profile:
-    tone: professional              # Desired tone
-    characteristics:                # Personality traits
-      - helpful
-      - empathetic
-      - clear
-      - patient
-    avoid:                          # Traits to avoid
-      - robotic
-      - dismissive
-      - overly casual
-
-  # Optional: Model requirements
-  model_requirements:
-    min_context_window: 8000        # Minimum context tokens
-    supports_function_calling: true # Requires tool support
-    supports_streaming: true        # Requires streaming
-    supports_vision: false          # Requires multimodal
 ```
 
 ### Field Descriptions
@@ -584,15 +563,6 @@ validators:
       param2: value2
     message: "Optional description"
 ```
-
-#### `voice_profile`
-
-Optional personality and tone guidance.
-
-**Fields**:
-- `tone`: Overall tone (professional, casual, formal, friendly)
-- `characteristics`: Desired traits (array of strings)
-- `avoid`: Traits to avoid (array of strings)
 
 ## Scenario
 
@@ -773,9 +743,6 @@ spec:
     temperature: 0.7                # Sampling temperature (0.0-2.0)
     top_p: 1.0                      # Nucleus sampling (0.0-1.0)
     max_tokens: 500                 # Max response length
-    seed: 42                        # Reproducibility seed (optional)
-    frequency_penalty: 0.0          # Frequency penalty (optional)
-    presence_penalty: 0.0           # Presence penalty (optional)
 
   # Optional: Include raw API responses in output
   include_raw_output: false         # Default: false

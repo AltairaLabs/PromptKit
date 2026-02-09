@@ -87,7 +87,7 @@ Combines multiple providers in sequence:
 ```go
 import "github.com/AltairaLabs/PromptKit/runtime/variables"
 
-chain := variables.NewChainProvider(
+chain := variables.Chain(
     variables.NewTimeProvider(),
     variables.NewStateProvider(store, convID),
     &myRAGProvider{},
@@ -238,7 +238,7 @@ func (p *UserDataProvider) Provide(ctx context.Context) (map[string]string, erro
 Variables are resolved in order, with later providers overriding earlier ones:
 
 ```go
-chain := variables.NewChainProvider(
+chain := variables.Chain(
     &defaultsProvider{},     // Base defaults
     &userDataProvider{},     // User-specific data (overrides defaults)
     &ragProvider{},          // RAG context
@@ -313,7 +313,7 @@ import (
 
 func main() {
     // Create provider chain
-    chain := variables.NewChainProvider(
+    chain := variables.Chain(
         // Time context
         variables.NewTimeProvider(),
 

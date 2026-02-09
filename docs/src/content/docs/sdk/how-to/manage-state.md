@@ -14,8 +14,10 @@ conv.SetVar("user_name", "Alice")
 ## Get a Variable
 
 ```go
-name := conv.GetVar("user_name")
-fmt.Println(name)  // "Alice"
+name, ok := conv.GetVar("user_name")
+if ok {
+    fmt.Println(name)  // "Alice"
+}
 ```
 
 ## Set Multiple Variables
@@ -30,27 +32,13 @@ conv.SetVars(map[string]any{
 
 ## Variable Types
 
-Variables support any JSON-serializable type:
+Variables are strings:
 
 ```go
-// Strings
 conv.SetVar("name", "Alice")
-
-// Numbers
-conv.SetVar("count", 42)
-conv.SetVar("score", 98.5)
-
-// Booleans
-conv.SetVar("is_premium", true)
-
-// Slices
-conv.SetVar("tags", []string{"vip", "active"})
-
-// Maps
-conv.SetVar("metadata", map[string]any{
-    "region": "us-west",
-    "tier":   "gold",
-})
+conv.SetVar("count", "42")
+conv.SetVar("is_premium", "true")
+conv.SetVar("region", "us-west")
 ```
 
 ## Use in Templates
@@ -96,8 +84,8 @@ conv.SetVarsFromEnv("MYAPP_")
 ## Check if Set
 
 ```go
-value := conv.GetVar("optional_var")
-if value == nil {
+value, ok := conv.GetVar("optional_var")
+if !ok {
     // Variable not set
     conv.SetVar("optional_var", "default")
 }
@@ -114,7 +102,7 @@ for i := 0; i < 10; i++ {
     wg.Add(1)
     go func(n int) {
         defer wg.Done()
-        conv.SetVar(fmt.Sprintf("var_%d", n), n)
+        conv.SetVar(fmt.Sprintf("var_%d", n), fmt.Sprintf("%d", n))
     }(i)
 }
 
@@ -134,8 +122,10 @@ conv2 := conv1.Fork()
 conv2.SetVar("user", "Bob")
 
 // Variables are isolated
-fmt.Println(conv1.GetVar("user"))  // "Alice"
-fmt.Println(conv2.GetVar("user"))  // "Bob"
+user1, _ := conv1.GetVar("user")
+user2, _ := conv2.GetVar("user")
+fmt.Println(user1)  // "Alice"
+fmt.Println(user2)  // "Bob"
 ```
 
 ## Complete Example

@@ -7,12 +7,12 @@ Understanding how PackC compiles prompts into packs.
 
 ## Overview
 
-PackC transforms human-friendly YAML configurations into optimized, validated JSON packs through a multi-stage compilation pipeline.
+PackC transforms human-friendly YAML configurations into validated JSON packs through a multi-stage compilation pipeline.
 
 ## Compilation Pipeline
 
 ```
-YAML Files → Parser → Validator → Optimizer → Pack Builder → JSON Output
+YAML Files → Parser → Validator → Pack Builder → JSON Output
 ```
 
 ### Stage 1: Configuration Loading
@@ -59,16 +59,7 @@ registry.Register(promptConfig)
 
 **Output**: Validated PromptConfig objects or errors
 
-### Stage 4: Optimization
-
-**Transformations**:
-1. **Template compilation** - Pre-parse templates
-2. **Whitespace normalization** - Consistent formatting
-3. **Fragment resolution** - Inline or reference
-4. **Tool deduplication** - Merge duplicate tools
-5. **Metadata extraction** - Build pack metadata
-
-### Stage 5: Pack Assembly
+### Stage 4: Pack Assembly
 
 **Process**:
 1. Create pack structure
@@ -79,7 +70,7 @@ registry.Register(promptConfig)
 
 **Output**: Complete Pack object
 
-### Stage 6: JSON Serialization
+### Stage 5: JSON Serialization
 
 **Format**: Indented JSON for readability
 
@@ -249,48 +240,6 @@ File: prompts/support.yaml
 Line: 5
 ```
 
-## Performance Optimizations
-
-### 1. Concurrent Loading
-
-Load multiple prompt files in parallel:
-
-```go
-// Pseudocode
-for each promptFile {
-  go loadPrompt(promptFile)
-}
-```
-
-### 2. Validation Caching
-
-Cache validation results:
-
-```go
-if cached := validationCache[promptID]; cached != nil {
-  return cached
-}
-```
-
-### 3. Incremental Compilation
-
-Only recompile changed prompts (future):
-
-```go
-if !hasChanged(promptFile) {
-  return cachedPack
-}
-```
-
-### 4. Streaming Output
-
-Write pack JSON as generated:
-
-```go
-encoder := json.NewEncoder(file)
-encoder.Encode(pack)
-```
-
 ## Memory Management
 
 ### Small Footprint
@@ -319,28 +268,7 @@ packc compile --config arena.yaml --output pack.json --id app
 ```
 
 - Full validation
-- All optimizations
 - Complete metadata
-
-### Fast Mode (future)
-
-```bash
-packc compile --fast
-```
-
-- Skip non-essential validation
-- Minimal optimization
-- For development iteration
-
-### Strict Mode (future)
-
-```bash
-packc compile --strict
-```
-
-- Fail on any warning
-- Extra validation checks
-- For production builds
 
 ## Deterministic Builds
 
@@ -361,58 +289,18 @@ PackC produces deterministic output:
 - Fixed timestamp format
 - Consistent whitespace
 
-## Compilation Hooks (future)
-
-Allow customization:
-
-```go
-compiler.AddHook("pre-validate", func(prompt *PromptConfig) error {
-  // Custom validation
-})
-
-compiler.AddHook("post-compile", func(pack *Pack) error {
-  // Custom transformations
-})
-```
-
-Use cases:
-- Custom validation rules
-- Organization-specific formatting
-- Metadata injection
-- Security scanning
-
 ## Debugging Compilation
 
-### Verbose Output
+Use `packc inspect` to view the contents of a compiled pack:
 
 ```bash
-packc compile --verbose
+packc inspect packs/app.pack.json
 ```
 
-Shows:
-- Files loaded
-- Prompts registered
-- Validation results
-- Optimization steps
-
-### Dry Run
+Use `packc validate` to check a pack for errors:
 
 ```bash
-packc compile --dry-run
-```
-
-- Run compilation
-- Don't write output
-- Show what would be generated
-
-### Inspect Intermediate
-
-View stages:
-
-```bash
-packc compile --dump-ast      # After parsing
-packc compile --dump-validated  # After validation
-packc compile --dump-optimized  # After optimization
+packc validate packs/app.pack.json
 ```
 
 ## Build Reproducibility
@@ -456,7 +344,6 @@ Generate build info:
 PackCompiler
 ├── Parser (YAML → PromptConfig)
 ├── Validator (checks)
-├── Optimizer (transformations)
 ├── Assembler (build pack)
 └── Serializer (write JSON)
 ```
@@ -470,8 +357,7 @@ Each component is:
 
 1. **Custom parsers** - Support other input formats
 2. **Custom validators** - Add validation rules
-3. **Custom optimizers** - Apply transformations
-4. **Custom serializers** - Output other formats
+3. **Custom serializers** - Output other formats
 
 ## Comparison with Other Compilers
 
@@ -495,52 +381,12 @@ Each component is:
 | Plugins | Planned | Extensive |
 | Speed | Fast | Moderate |
 
-## Future Enhancements
-
-### 1. Incremental Compilation
-
-Only recompile changed prompts:
-
-```bash
-# First build: compile all
-packc compile
-
-# Subsequent: only changed
-packc compile --incremental
-```
-
-### 2. Watch Mode
-
-Auto-recompile on file changes:
-
-```bash
-packc compile --watch
-```
-
-### 3. Parallel Compilation
-
-Compile multiple packs in parallel:
-
-```bash
-packc compile config/*.yaml --parallel
-```
-
-### 4. Custom Output Formats
-
-Support other formats:
-
-```bash
-packc compile --format yaml  # Output YAML pack
-packc compile --format toml  # Output TOML pack
-```
-
 ## Summary
 
 PackC's compilation architecture is:
 
 - **Pipeline-based** - Clear stages from YAML to JSON
 - **Validated** - Multiple validation checkpoints
-- **Optimized** - Minimal output size
 - **Extensible** - Modular components
 - **Deterministic** - Reproducible builds
 - **Fast** - Milliseconds for typical projects

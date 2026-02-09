@@ -48,13 +48,13 @@ if err != nil {
 ### Rate Limit Errors
 
 ```go
-result, err := provider.Complete(ctx, messages, config)
+result, err := provider.Predict(ctx, messages, config)
 if err != nil {
     if strings.Contains(err.Error(), "rate_limit") {
         log.Println("Rate limited")
         // Wait and retry
         time.Sleep(5 * time.Second)
-        result, err = provider.Complete(ctx, messages, config)
+        result, err = provider.Predict(ctx, messages, config)
     }
 }
 ```
@@ -62,7 +62,7 @@ if err != nil {
 ### Authentication Errors
 
 ```go
-result, err := provider.Complete(ctx, messages, config)
+result, err := provider.Predict(ctx, messages, config)
 if err != nil {
     if strings.Contains(err.Error(), "authentication") ||
        strings.Contains(err.Error(), "invalid_api_key") {
@@ -160,7 +160,7 @@ func (p *ProviderPool) Execute(ctx context.Context, messages []types.Message, co
     for i := 0; i < len(p.providers); i++ {
         provider := p.providers[(p.current+i)%len(p.providers)]
         
-        result, err := provider.Complete(ctx, messages, config)
+        result, err := provider.Predict(ctx, messages, config)
         if err == nil {
             // Success - update current
             p.current = (p.current + i) % len(p.providers)
@@ -211,7 +211,7 @@ func (cb *CircuitBreaker) Call(fn func() error) error {
 // Usage
 cb := &CircuitBreaker{maxFailures: 3, timeout: 30 * time.Second}
 err := cb.Call(func() error {
-    _, err := provider.Complete(ctx, messages, config)
+    _, err := provider.Predict(ctx, messages, config)
     return err
 })
 ```
@@ -360,47 +360,39 @@ import (
     "time"
     
     "github.com/AltairaLabs/PromptKit/runtime/pipeline"
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
     "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
-    "github.com/AltairaLabs/PromptKit/runtime/providers/anthropic"
+    "github.com/AltairaLabs/PromptKit/runtime/providers/claude"
 )
 
 func main() {
     // Create providers
-    openaiProvider := openai.NewOpenAIProvider(
+    openaiProvider := openai.NewProvider(
         "openai", "gpt-4o-mini", "", openai.DefaultProviderDefaults(), false,
     )
     defer openaiProvider.Close()
-    
-    claudeProvider := anthropic.NewAnthropicProvider(
-        "claude", "claude-3-5-haiku-20241022", "", anthropic.DefaultProviderDefaults(), false,
+
+    claudeProvider := claude.NewProvider(
+        "claude", "claude-3-5-haiku-20241022", "", claude.DefaultProviderDefaults(), false,
     )
     defer claudeProvider.Close()
-    
+
     // Provider pool with fallback
     providers := []types.Provider{openaiProvider, claudeProvider}
-    
-    config := &middleware.ProviderMiddlewareConfig{
-        MaxTokens:   1000,
-        Temperature: 0.7,
-    }
-    
+
     // Try each provider with retry
     var result *pipeline.PipelineResult
     var err error
-    
+
     for _, provider := range providers {
-        pipe := pipeline.NewPipeline(
-            middleware.ProviderMiddleware(provider, nil, nil, config),
-        )
+        pipe := pipeline.NewPipeline(provider)
         defer pipe.Shutdown(context.Background())
-        
+
         // Retry with backoff
         result, err = executeWithRetry(pipe, context.Background(), "user", "Hello!", 3)
         if err == nil {
             break
         }
-        
+
         log.Printf("Provider %s failed: %v", provider.GetProviderName(), err)
     }
     
@@ -456,9 +448,7 @@ func isRetryableError(err error) bool {
 
 2. Reduce response size:
    ```go
-   config := &middleware.ProviderMiddlewareConfig{
-       MaxTokens: 500,  // Smaller response
-   }
+   // Set lower MaxTokens in ProviderDefaults
    ```
 
 3. Simplify prompt:

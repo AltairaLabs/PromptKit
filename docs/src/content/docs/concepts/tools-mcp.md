@@ -83,23 +83,15 @@ func (e *WeatherExecutor) Name() string {
 }
 ```
 
-### Use in Pipeline
+### Register Tools
 
 ```go
 // Create registry
 registry := tools.NewToolRegistry()
 registry.RegisterTool(weatherTool, &WeatherExecutor{})
-
-// Add to pipeline
-pipe := pipeline.NewPipeline(
-    middleware.ToolMiddleware(registry),
-    middleware.ProviderMiddleware(provider, nil, nil, nil),
-)
-
-// Execute
-result, _ := pipe.Execute(ctx, "user", "What's the weather in Paris?")
-// LLM will use the tool automatically
 ```
+
+The tool registry makes tools available for the LLM to call during conversations.
 
 ## Model Context Protocol (MCP)
 
@@ -161,12 +153,6 @@ mcpTools, _ := mcpClient.ListTools()
 for _, tool := range mcpTools {
     registry.RegisterTool(tool, executor)
 }
-
-// Use in pipeline
-pipe := pipeline.NewPipeline(
-    middleware.ToolMiddleware(registry),
-    middleware.ProviderMiddleware(provider, nil, nil, nil),
-)
 ```
 
 ## Common Tools

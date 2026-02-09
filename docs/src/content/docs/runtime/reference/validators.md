@@ -75,39 +75,39 @@ if err != nil {
 
 ### LengthValidator
 
-Enforces minimum and maximum length constraints.
+Enforces length constraints.
 
 **Constructor**:
 ```go
-func NewLengthValidator(minLength, maxLength int) *LengthValidator
+func NewLengthValidator() *LengthValidator
 ```
 
 **Example**:
 ```go
-validator := validators.NewLengthValidator(10, 500)
+validator := validators.NewLengthValidator()
 
 result := validator.Validate("Short", nil)
 if !result.Passed {
-    log.Println("Response too short")
+    log.Println("Response length violation")
 }
 ```
 
-### SentenceCountValidator
+### MaxSentencesValidator
 
 Validates number of sentences.
 
 **Constructor**:
 ```go
-func NewSentenceCountValidator(minSentences, maxSentences int) *SentenceCountValidator
+func NewMaxSentencesValidator() *MaxSentencesValidator
 ```
 
 **Example**:
 ```go
-validator := validators.NewSentenceCountValidator(2, 10)
+validator := validators.NewMaxSentencesValidator()
 
 result := validator.Validate("One sentence.", nil)
 if !result.Passed {
-    log.Println("Not enough sentences")
+    log.Println("Sentence count violation")
 }
 ```
 
@@ -136,52 +136,35 @@ if !result.Passed {
 ### Validator Middleware
 
 ```go
-import (
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
-    "github.com/AltairaLabs/PromptKit/runtime/validators"
-)
+import "github.com/AltairaLabs/PromptKit/runtime/validators"
 
 // Create validators
 validatorList := []validators.Validator{
     validators.NewBannedWordsValidator([]string{"banned"}),
-    validators.NewLengthValidator(10, 1000),
-    validators.NewSentenceCountValidator(1, 20),
+    validators.NewLengthValidator(),
+    validators.NewMaxSentencesValidator(),
 }
 
-// Add to pipeline
-pipe := pipeline.NewPipeline(
-    middleware.ProviderMiddleware(provider, nil, nil, config),
-    middleware.ValidatorMiddleware(validatorList),
-)
-
-// Validation runs after provider execution
-result, err := pipe.Execute(ctx, "user", "Hello")
-if err != nil {
-    log.Printf("Validation failed: %v", err)
+// Validate content
+for _, v := range validatorList {
+    result := v.Validate(content, nil)
+    if !result.Passed {
+        log.Printf("Validation failed: %v", result.Details)
+    }
 }
 ```
 
 ### Streaming Validation
 
 ```go
-// Streaming validators abort stream on violation
-validatorList := []validators.Validator{
-    validators.NewBannedWordsValidator([]string{"inappropriate"}),
-}
+// Streaming validators can check chunks in real-time
+validator := validators.NewBannedWordsValidator([]string{"inappropriate"})
 
-pipe := pipeline.NewPipeline(
-    middleware.ProviderMiddleware(provider, nil, nil, config),
-    middleware.ValidatorMiddleware(validatorList),
-)
-
-// Stream will be interrupted if banned word detected
-streamChan, _ := pipe.ExecuteStream(ctx, "user", "Hello")
-for chunk := range streamChan {
-    if chunk.Error != nil {
-        log.Printf("Stream interrupted: %v", chunk.Error)
-        break
-    }
-    fmt.Print(chunk.Delta)
+// Check each chunk during streaming
+err := validator.ValidateChunk(chunk)
+if err != nil {
+    log.Printf("Stream interrupted: %v", err)
+    // Abort stream
 }
 ```
 
@@ -253,7 +236,7 @@ func (v *CustomStreamingValidator) Validate(
 ```go
 // Order matters - fast validators first
 validatorList := []validators.Validator{
-    validators.NewLengthValidator(1, 10000),      // Fast check
+    validators.NewLengthValidator(),              // Fast check
     validators.NewBannedWordsValidator(banned),   // Medium
     customExpensiveValidator,                      // Slow check last
 }
@@ -269,8 +252,8 @@ streamingValidators := []validators.Validator{
 
 // Use regular validators for post-processing
 postValidators := []validators.Validator{
-    validators.NewLengthValidator(10, 500),
-    validators.NewSentenceCountValidator(2, 10),
+    validators.NewLengthValidator(),
+    validators.NewMaxSentencesValidator(),
 }
 ```
 

@@ -118,12 +118,14 @@ Retrieve variables with `GetVar()`:
 conv.SetVar("user_id", "12345")
 
 // Get it back
-userID := conv.GetVar("user_id")
-fmt.Printf("User ID: %v\n", userID)  // "12345"
+userID, ok := conv.GetVar("user_id")
+if ok {
+    fmt.Printf("User ID: %s\n", userID)  // "12345"
+}
 
-// Non-existent variables return nil
-missing := conv.GetVar("nonexistent")
-fmt.Printf("Missing: %v\n", missing)  // nil
+// Non-existent variables return false
+_, ok = conv.GetVar("nonexistent")
+fmt.Printf("Found: %v\n", ok)  // false
 ```
 
 ## Environment Variables
@@ -160,28 +162,24 @@ conv.SetVar("customer_name", "Bob")
 resp2, _ := conv.Send(ctx, "What products do you have?")
 ```
 
-## Type-Safe Variables
+## Variable Values
 
-Variables support any JSON-serializable type:
+Variables are strings:
 
 ```go
-// Strings
 conv.SetVar("name", "Alice")
+conv.SetVar("user_id", "12345")
+conv.SetVar("is_premium", "true")
+conv.SetVar("region", "us-west")
+```
 
-// Numbers
-conv.SetVar("user_id", 12345)
-conv.SetVar("score", 98.5)
+Use `SetVars()` for bulk setting with `map[string]any` (values are converted to strings):
 
-// Booleans
-conv.SetVar("is_premium", true)
-
-// Slices
-conv.SetVar("tags", []string{"vip", "enterprise"})
-
-// Maps
-conv.SetVar("metadata", map[string]any{
-    "region": "us-west",
-    "tier":   "gold",
+```go
+conv.SetVars(map[string]any{
+    "name":       "Alice",
+    "user_id":    12345,
+    "is_premium": true,
 })
 ```
 
@@ -197,7 +195,7 @@ for i := 0; i < 10; i++ {
     wg.Add(1)
     go func(n int) {
         defer wg.Done()
-        conv.SetVar(fmt.Sprintf("var_%d", n), n)
+        conv.SetVar(fmt.Sprintf("var_%d", n), fmt.Sprintf("%d", n))
     }(i)
 }
 
@@ -217,8 +215,10 @@ conv2 := conv1.Fork()
 conv2.SetVar("user", "Bob")
 
 // conv1 still has "Alice"
-fmt.Println(conv1.GetVar("user"))  // "Alice"
-fmt.Println(conv2.GetVar("user"))  // "Bob"
+user1, _ := conv1.GetVar("user")
+user2, _ := conv2.GetVar("user")
+fmt.Println(user1)  // "Alice"
+fmt.Println(user2)  // "Bob"
 ```
 
 ## What You've Learned

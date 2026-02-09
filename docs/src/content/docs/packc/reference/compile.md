@@ -134,8 +134,7 @@ The compile command performs these steps:
 2. **Parse Prompts** - Load all referenced YAML files
 3. **Validate** - Check for errors and warnings
 4. **Compile** - Transform to pack format
-5. **Optimize** - Remove unused data
-6. **Write** - Save to output file
+5. **Write** - Save to output file
 
 ## Exit Codes
 

@@ -165,175 +165,6 @@ spec:
             message: "Should remember user's name"
 ```
 
-## Custom Validators
-
-Create custom validation logic for complex requirements.
-
-### Validator File Structure
-
-```yaml
-# validators/custom-validators.yaml
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Tool
-metadata:
-  name: custom-validators
-
-spec:
-  type: validator
-  
-  validators:
-    - name: check_pii_removal
-      description: "Ensures no PII in responses"
-      language: python
-      script: |
-        import re
-        
-        def validate(response, context):
-            # Check for email addresses
-            if re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', response):
-                return False, "Email address found in response"
-            
-            # Check for phone numbers
-            if re.search(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b', response):
-                return False, "Phone number found in response"
-            
-            # Check for SSN patterns
-            if re.search(r'\b\d{3}-\d{2}-\d{4}\b', response):
-                return False, "SSN pattern found in response"
-            
-            return True, "No PII detected"
-```
-
-### Use Custom Validators
-
-```yaml
-# arena.yaml
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Arena
-metadata:
-  name: pii-testing-arena
-
-spec:
-  validators:
-    - path: ./validators/custom-validators.yaml
-  
-  scenarios:
-    - path: ./scenarios/pii-test.yaml
-
-# In scenario
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Scenario
-metadata:
-  name: pii-test
-
-spec:
-  turns:
-    - role: user
-      content: "Tell me about user John Doe"
-      assertions:
-        - type: custom_validator
-          params:
-            validator: check_pii_removal
-            message: "Should not contain PII"
-```
-
-### Advanced Validator Examples
-
-#### Brand Consistency
-
-```yaml
-validators:
-  - name: brand_check
-    type: script
-    language: python
-    script: |
-      def validate(response, context):
-          brand_terms = {
-              "our company": "AcmeCorp",
-              "our product": "SuperWidget",
-          }
-          
-          for wrong, correct in brand_terms.items():
-              if wrong.lower() in response.lower():
-                  return False, f"Use '{correct}' instead of '{wrong}'"
-          
-          return True, "Brand terms correct"
-```
-
-#### Factual Accuracy (with external data)
-
-```yaml
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Tool
-metadata:
-  name: fact-checker
-
-spec:
-  type: validator
-  
-  validators:
-    - name: fact_check
-      language: python
-      script: |
-        import json
-        
-        def validate(response, context):
-            facts = context.get("known_facts", {})
-            
-            for key, value in facts.items():
-                if key in response and str(value) not in response:
-                    return False, f"Incorrect {key}: expected {value}"
-            
-            return True, "Facts verified"
-
-# Use in scenario
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Scenario
-metadata:
-  name: fact-checking-test
-
-spec:
-  fixtures:
-    known_facts:
-      price: "$99"
-      warranty: "2 years"
-  
-  turns:
-    - role: user
-      content: "What's the warranty period?"
-      assertions:
-        - type: custom_validator
-          params:
-            validator: fact_check
-            message: "Facts should be accurate"
-```
-
-#### Citation Validation
-
-```yaml
-validators:
-  - name: check_citations
-    type: script
-    language: python
-    script: |
-      import re
-      
-      def validate(response, context):
-          # Require citation format [Source: XYZ]
-          citations = re.findall(r'\[Source: (.+?)\]', response)
-          
-          if not citations:
-              return False, "No citations found"
-          
-          # Verify citations are in allowed sources
-          allowed = context.get("allowed_sources", [])
-          for cite in citations:
-              if cite not in allowed:
-                  return False, f"Invalid source: {cite}"
-          
-          return True, f"Found {len(citations)} valid citations"
-```
-
 ## Assertion Combinations
 
 ### AND Logic (All must pass)
@@ -444,14 +275,6 @@ spec:
           params:
             patterns: ["critical terms"]
             message: "Must include critical terms"
-params:
-            seconds: 1
-            message: "Must respond within 1 second"
-        
-        - type: custom_validator
-          params:
-            validator: safety_check
-            message: "Must pass safety check"
 ```
 
 ### Regression Testing
@@ -469,8 +292,11 @@ spec:
     - role: user
       content: "Standard query"
       assertions:
-            score: 0.85
-            message: "Quality should be above 85%"
+        - type: llm_judge
+          params:
+            criteria: "Response quality is above baseline expectations"
+            judge_provider: "openai/gpt-4o-mini"
+            message: "Quality should be above baseline"
 ```
 
 ## Output Reports
@@ -496,20 +322,14 @@ Example JSON output:
   "turn": 1,
   "assertions": [
     {
-      "type": "contains",
+      "type": "content_includes",
       "expected": "thank you",
       "passed": true
     },
     {
-      "type": "sentiment",
-      "expected": "positive",
-      "actual": "positive",
-      "passed": true
-    },
-    {
-      "type": "response_time",
-      "max_seconds": 2,
-      "actual_seconds": 1.3,
+      "type": "llm_judge",
+      "expected": "pass",
+      "actual": "pass",
       "passed": true
     }
   ],
@@ -569,13 +389,11 @@ Example JSON output:
 ### 3. Meaningful Error Messages
 
 ```yaml
-validators:
-  - name: check_policy
-    script: |
-      def validate(response, context):
-          if "refund" in response and "30 days" not in response:
-              return False, "Refund responses must mention 30-day policy"
-          return True, "Policy mentioned correctly"
+assertions:
+  - type: content_includes
+    params:
+      patterns: ["30 days"]
+      message: "Refund responses must mention 30-day policy"
 ```
 
 ### 4. Test Validators
