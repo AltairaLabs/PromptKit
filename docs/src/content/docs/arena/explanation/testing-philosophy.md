@@ -493,7 +493,6 @@ assertions:
 # Quality gates
 quality_gates:
   min_pass_rate: 0.95      # 95% of assertions must pass
-  max_response_time: 3     # 3 seconds max
   max_cost_per_run: 0.50   # $0.50 per test run
   min_scenarios: 50        # At least 50 scenarios
 ```
@@ -513,23 +512,6 @@ turns:
     prompt_version: "v2.0"
     compare_to_baseline: true
     improvement_threshold: 0.05  # 5% better
-```
-
-### Monitoring and Alerting
-
-```yaml
-# Continuous testing
-schedule: "*/6 * * * *"  # Every 6 hours
-
-alerts:
-  - condition: pass_rate < 0.90
-    action: notify_team
-  
-  - condition: response_time > 5
-    action: page_oncall
-  
-  - condition: cost > daily_budget
-    action: disable_tests
 ```
 
 ## The Human Factor

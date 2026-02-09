@@ -148,13 +148,6 @@ templates.RegisterTemplate("support", &template.PromptTemplate{
         "company": "TechCorp",
     },
 })
-
-pipe := pipeline.NewPipeline(
-    middleware.TemplateMiddleware(templates, nil),
-    middleware.ProviderMiddleware(provider, nil, nil, nil),
-)
-
-result, _ := pipe.Execute(ctx, "user", "Help me")
 ```
 
 ### SDK
@@ -184,15 +177,14 @@ user: |
   
 ```
 
-Pack and use:
+Compile and use:
 
 ```bash
-packc pack prompts/ -o support.pack
+packc compile --config arena.yaml --output support.pack.json --id support
 ```
 
 ```go
-pack, _ := packc.LoadPack("support.pack")
-template := pack.Templates["support"]
+pack, _ := prompt.LoadPack("support.pack.json")
 ```
 
 ### PromptArena

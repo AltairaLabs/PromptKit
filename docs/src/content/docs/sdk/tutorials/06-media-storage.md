@@ -7,7 +7,7 @@ Learn how to monitor and observe your SDK applications with the hooks package.
 
 ## What You'll Learn
 
-- Subscribe to SDK events
+- Listen for SDK events with hooks
 - Monitor tool calls and responses
 - Track conversation flow
 - Debug issues
@@ -27,7 +27,7 @@ Complete [Tutorial 1](01-first-conversation) and understand basic SDK usage.
 
 ## Basic Event Subscription
 
-Use `Subscribe()` to listen for events:
+Use the `hooks` package to listen for events:
 
 ```go
 package main
@@ -39,6 +39,7 @@ import (
 
     "github.com/AltairaLabs/PromptKit/sdk"
     "github.com/AltairaLabs/PromptKit/sdk/hooks"
+    "github.com/AltairaLabs/PromptKit/runtime/events"
 )
 
 func main() {
@@ -48,14 +49,13 @@ func main() {
     }
     defer conv.Close()
 
-    // Subscribe to send events
-    conv.Subscribe(hooks.EventSend, func(e hooks.Event) {
-        fmt.Printf("[SEND] Message: %v\n", e.Data["message"])
+    // Subscribe to provider call events
+    hooks.On(conv, events.EventProviderCallStarted, func(e *events.Event) {
+        fmt.Printf("[PROVIDER] Call started\n")
     })
 
-    // Subscribe to response events
-    conv.Subscribe(hooks.EventResponse, func(e hooks.Event) {
-        fmt.Printf("[RESPONSE] Got reply\n")
+    hooks.On(conv, events.EventProviderCallCompleted, func(e *events.Event) {
+        fmt.Printf("[PROVIDER] Call completed\n")
     })
 
     ctx := context.Background()
@@ -66,16 +66,20 @@ func main() {
 
 ## Event Types
 
-The hooks package provides these event types:
+Events are defined as `events.EventType` in the `runtime/events` package:
 
 ```go
 const (
-    EventSend       = "send"        // Message sent
-    EventResponse   = "response"    // Response received
-    EventToolCall   = "tool_call"   // Tool invoked
-    EventToolResult = "tool_result" // Tool returned
-    EventError      = "error"       // Error occurred
-    EventStream     = "stream"      // Stream chunk received
+    EventProviderCallStarted   EventType = "provider.call.started"
+    EventProviderCallCompleted EventType = "provider.call.completed"
+    EventProviderCallFailed    EventType = "provider.call.failed"
+    EventToolCallStarted       EventType = "tool.call.started"
+    EventToolCallCompleted     EventType = "tool.call.completed"
+    EventToolCallFailed        EventType = "tool.call.failed"
+    EventPipelineStarted       EventType = "pipeline.started"
+    EventPipelineCompleted     EventType = "pipeline.completed"
+    EventPipelineFailed        EventType = "pipeline.failed"
+    EventStreamInterrupted     EventType = "stream.interrupted"
 )
 ```
 
@@ -84,16 +88,8 @@ const (
 Track tool execution:
 
 ```go
-conv.Subscribe(hooks.EventToolCall, func(e hooks.Event) {
-    toolName := e.Data["tool"].(string)
-    args := e.Data["args"]
-    fmt.Printf("[TOOL] Calling %s with %v\n", toolName, args)
-})
-
-conv.Subscribe(hooks.EventToolResult, func(e hooks.Event) {
-    toolName := e.Data["tool"].(string)
-    result := e.Data["result"]
-    fmt.Printf("[TOOL] %s returned: %v\n", toolName, result)
+hooks.OnToolCall(conv, func(name string, args map[string]any) {
+    fmt.Printf("[TOOL] Calling %s with %v\n", name, args)
 })
 ```
 
@@ -103,25 +99,12 @@ Create a comprehensive logger:
 
 ```go
 func logAllEvents(conv *sdk.Conversation) {
-    events := []string{
-        hooks.EventSend,
-        hooks.EventResponse,
-        hooks.EventToolCall,
-        hooks.EventToolResult,
-        hooks.EventError,
-        hooks.EventStream,
-    }
-    
-    for _, event := range events {
-        eventName := event // Capture for closure
-        conv.Subscribe(eventName, func(e hooks.Event) {
-            log.Printf("[%s] %s: %v", 
-                e.Timestamp.Format("15:04:05"),
-                eventName,
-                e.Data,
-            )
-        })
-    }
+    hooks.OnEvent(conv, func(e *events.Event) {
+        log.Printf("[%s] %s",
+            e.Timestamp.Format("15:04:05"),
+            e.Type,
+        )
+    })
 }
 
 // Usage
@@ -131,37 +114,15 @@ logAllEvents(conv)
 
 ## Error Monitoring
 
-Track and alert on errors:
+Track pipeline and provider failures:
 
 ```go
-conv.Subscribe(hooks.EventError, func(e hooks.Event) {
-    err := e.Data["error"]
-    
-    // Log the error
-    log.Printf("[ERROR] %v", err)
-    
-    // Alert if critical
-    if isCritical(err) {
-        alertTeam(err)
-    }
+hooks.On(conv, events.EventProviderCallFailed, func(e *events.Event) {
+    log.Printf("[ERROR] Provider call failed")
 })
-```
 
-## Stream Monitoring
-
-Track streaming progress:
-
-```go
-var charCount int
-
-conv.Subscribe(hooks.EventStream, func(e hooks.Event) {
-    chunk := e.Data["chunk"].(string)
-    charCount += len(chunk)
-    
-    // Log progress every 100 characters
-    if charCount % 100 == 0 {
-        log.Printf("[STREAM] %d characters received", charCount)
-    }
+hooks.On(conv, events.EventPipelineFailed, func(e *events.Event) {
+    log.Printf("[ERROR] Pipeline failed")
 })
 ```
 
@@ -171,27 +132,19 @@ Collect metrics for monitoring systems:
 
 ```go
 type Metrics struct {
-    MessageCount  int64
     ToolCalls     int64
     Errors        int64
-    TotalTokens   int64
     mu            sync.Mutex
 }
 
 func (m *Metrics) Attach(conv *sdk.Conversation) {
-    conv.Subscribe(hooks.EventSend, func(e hooks.Event) {
-        m.mu.Lock()
-        m.MessageCount++
-        m.mu.Unlock()
-    })
-    
-    conv.Subscribe(hooks.EventToolCall, func(e hooks.Event) {
+    hooks.On(conv, events.EventToolCallStarted, func(e *events.Event) {
         m.mu.Lock()
         m.ToolCalls++
         m.mu.Unlock()
     })
-    
-    conv.Subscribe(hooks.EventError, func(e hooks.Event) {
+
+    hooks.On(conv, events.EventToolCallFailed, func(e *events.Event) {
         m.mu.Lock()
         m.Errors++
         m.mu.Unlock()
@@ -205,35 +158,18 @@ Enable verbose debugging:
 
 ```go
 func enableDebug(conv *sdk.Conversation) {
-    conv.Subscribe(hooks.EventSend, func(e hooks.Event) {
-        fmt.Printf("📤 SEND: %v\n", e.Data)
-    })
-    
-    conv.Subscribe(hooks.EventResponse, func(e hooks.Event) {
-        fmt.Printf("📥 RESPONSE: %v\n", e.Data)
-    })
-    
-    conv.Subscribe(hooks.EventToolCall, func(e hooks.Event) {
-        fmt.Printf("🔧 TOOL CALL: %s(%v)\n", 
-            e.Data["tool"], e.Data["args"])
-    })
-    
-    conv.Subscribe(hooks.EventToolResult, func(e hooks.Event) {
-        fmt.Printf("✅ TOOL RESULT: %v\n", e.Data["result"])
-    })
-    
-    conv.Subscribe(hooks.EventError, func(e hooks.Event) {
-        fmt.Printf("❌ ERROR: %v\n", e.Data["error"])
+    hooks.OnEvent(conv, func(e *events.Event) {
+        log.Printf("[DEBUG] %s: %s", e.Timestamp.Format("15:04:05"), e.Type)
     })
 }
 ```
 
 ## What You've Learned
 
-✅ Subscribe to events with `Subscribe()`  
-✅ Monitor tool calls and responses  
-✅ Track errors and stream progress  
-✅ Build metrics collection  
+✅ Subscribe to events with `hooks.On()`, `hooks.OnEvent()`, `hooks.OnToolCall()`
+✅ Monitor tool calls and provider calls
+✅ Track errors with event types
+✅ Build metrics collection
 ✅ Enable debug logging  
 
 ## Next Steps

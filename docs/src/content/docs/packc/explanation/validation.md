@@ -54,7 +54,7 @@ Warning: Missing description for prompt 'support'
 Warning: Tool 'search' not defined
 ```
 
-Use `--strict` mode to treat warnings as errors (future).
+Warnings indicate potential issues that should be reviewed.
 
 ## Validation Levels
 
@@ -324,20 +324,7 @@ Error in prompts/support.yaml:
 
 ## Validation Strategies
 
-### Strict Mode
-
-Treat warnings as errors:
-
-```bash
-packc compile --strict
-```
-
-Use for:
-- Production builds
-- CI/CD pipelines
-- Release candidates
-
-### Lenient Mode (default)
+### Default Mode
 
 Allow warnings:
 
@@ -345,27 +332,7 @@ Allow warnings:
 packc compile
 ```
 
-Use for:
-- Development
-- Quick iteration
-- Testing
-
-### Custom Validation
-
-Add custom rules (future):
-
-```yaml
-# .packc-rules.yaml
-validation:
-  rules:
-    - name: require-descriptions
-      level: error
-      check: prompt.description != ""
-    
-    - name: max-system-prompt-length
-      level: warning
-      check: len(prompt.system) < 1000
-```
+Warnings are reported but do not stop compilation. Use for development and production builds alike. Review warnings to improve pack quality.
 
 ## Pre-Deployment Validation
 
@@ -570,7 +537,7 @@ PackC's validation strategy:
 - **Multi-level** - Syntax, schema, references, semantics
 - **Progressive** - Validation at each pipeline stage
 - **Informative** - Clear error messages with context
-- **Flexible** - Warnings vs. errors, strict mode
+- **Flexible** - Warnings vs. errors
 - **Automated** - Easy to integrate in workflows
 - **Evolving** - Continuous improvement
 

@@ -142,7 +142,7 @@ conv, _ := sdk.Open("./pack.json", "chat",
 Combines multiple providers in sequence.
 
 ```go
-func NewChainProvider(providers ...Provider) Provider
+func Chain(providers ...Provider) *ChainProvider
 ```
 
 **Resolution Order:**
@@ -153,7 +153,7 @@ func NewChainProvider(providers ...Provider) Provider
 **Example:**
 
 ```go
-chain := variables.NewChainProvider(
+chain := variables.Chain(
     variables.NewTimeProvider(),       // Base time variables
     variables.NewStateProvider(store, convID), // User state
     &myRAGProvider{},                  // RAG context

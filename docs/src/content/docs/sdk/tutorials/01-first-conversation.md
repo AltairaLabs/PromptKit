@@ -182,7 +182,6 @@ fmt.Println(resp2.Text())  // "Your name is Alice."
 ```go
 conv, err := sdk.Open("./hello.pack.json", "chat",
     sdk.WithModel("gpt-4o"),
-    sdk.WithTemperature(0.9),
 )
 ```
 

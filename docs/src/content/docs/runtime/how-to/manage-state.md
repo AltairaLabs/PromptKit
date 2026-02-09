@@ -17,28 +17,14 @@ Store and retrieve conversation state for continuity.
 import "github.com/AltairaLabs/PromptKit/runtime/statestore"
 
 // In-memory store (dev/testing)
-store := statestore.NewInMemoryStateStore()
+store := statestore.NewMemoryStore()
 
 // Redis store (production)
-store, err := statestore.NewRedisStateStore("localhost:6379", "", 0)
-if err != nil {
-    log.Fatal(err)
-}
+store := statestore.NewRedisStore(redisClient)
 defer store.Close()
 ```
 
-### Step 2: Add State Middleware
-
-```go
-import "github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
-
-pipe := pipeline.NewPipeline(
-    middleware.StateMiddleware(store),
-    middleware.ProviderMiddleware(provider, toolRegistry, policy, config),
-)
-```
-
-### Step 3: Use Session IDs
+### Step 2: Use Session IDs
 
 ```go
 ctx := context.Background()
@@ -57,7 +43,7 @@ result2, err := pipe.ExecuteWithContext(ctx, sessionID, "user", "What's my name?
 ### Basic Setup
 
 ```go
-store := statestore.NewInMemoryStateStore()
+store := statestore.NewMemoryStore()
 ```
 
 **Use Cases**:
@@ -92,10 +78,11 @@ for _, msg := range loaded {
 }
 ```
 
-### Delete State
+### Fork State
 
 ```go
-err := store.Delete(ctx, sessionID)
+// Fork creates a copy of the session state under a new session ID
+err := store.Fork(ctx, sourceSessionID, newSessionID)
 if err != nil {
     log.Fatal(err)
 }
@@ -106,25 +93,26 @@ if err != nil {
 ### Basic Setup
 
 ```go
-store, err := statestore.NewRedisStateStore(
-    "localhost:6379",  // address
-    "",                // password (empty for no auth)
-    0,                 // database
-)
-if err != nil {
-    log.Fatal(err)
-}
+import "github.com/redis/go-redis/v9"
+
+redisClient := redis.NewClient(&redis.Options{
+    Addr: "localhost:6379",
+})
+
+store := statestore.NewRedisStore(redisClient)
 defer store.Close()
 ```
 
 ### With Authentication
 
 ```go
-store, err := statestore.NewRedisStateStore(
-    os.Getenv("REDIS_HOST"),
-    os.Getenv("REDIS_PASSWORD"),
-    0,
-)
+redisClient := redis.NewClient(&redis.Options{
+    Addr:     os.Getenv("REDIS_HOST"),
+    Password: os.Getenv("REDIS_PASSWORD"),
+    DB:       0,
+})
+
+store := statestore.NewRedisStore(redisClient)
 ```
 
 ### Connection Pooling
@@ -157,22 +145,22 @@ import (
     "context"
     "log"
     
+    "github.com/redis/go-redis/v9"
     "github.com/AltairaLabs/PromptKit/runtime/pipeline"
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
     "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
     "github.com/AltairaLabs/PromptKit/runtime/statestore"
 )
 
 func main() {
     // Create Redis store
-    store, err := statestore.NewRedisStateStore("localhost:6379", "", 0)
-    if err != nil {
-        log.Fatal(err)
-    }
+    redisClient := redis.NewClient(&redis.Options{
+        Addr: "localhost:6379",
+    })
+    store := statestore.NewRedisStore(redisClient)
     defer store.Close()
-    
+
     // Create provider
-    provider := openai.NewOpenAIProvider(
+    provider := openai.NewProvider(
         "openai",
         "gpt-4o-mini",
         "",
@@ -180,15 +168,9 @@ func main() {
         false,
     )
     defer provider.Close()
-    
-    // Build pipeline with state
-    pipe := pipeline.NewPipeline(
-        middleware.StateMiddleware(store),
-        middleware.ProviderMiddleware(provider, nil, nil, &middleware.ProviderMiddlewareConfig{
-            MaxTokens:   1000,
-            Temperature: 0.7,
-        }),
-    )
+
+    // Build pipeline
+    pipe := pipeline.NewPipeline(provider)
     defer pipe.Shutdown(context.Background())
     
     ctx := context.Background()
@@ -220,24 +202,23 @@ import (
     "github.com/AltairaLabs/PromptKit/runtime/statestore"
 )
 
-func cleanupOldSessions(store statestore.StateStore, maxAge time.Duration) {
-    // For in-memory store
-    if memStore, ok := store.(*statestore.InMemoryStateStore); ok {
-        // Custom cleanup logic
-        // InMemoryStateStore doesn't expose session listing
-        // Implement custom session tracking if needed
-    }
-    
-    // For Redis store
-    if redisStore, ok := store.(*statestore.RedisStateStore); ok {
-        // Redis TTL handles expiration automatically
-        // Or manually delete specific sessions:
-        ctx := context.Background()
-        sessionIDs := []string{"old-session-1", "old-session-2"}
-        
-        for _, id := range sessionIDs {
-            if err := redisStore.Delete(ctx, id); err != nil {
-                log.Printf("Failed to delete session %s: %v", id, err)
+func cleanupOldSessions(store statestore.Store) {
+    // Redis TTL handles expiration automatically
+    // For manual cleanup, load and re-save trimmed state
+    ctx := context.Background()
+    sessionIDs := []string{"old-session-1", "old-session-2"}
+
+    for _, id := range sessionIDs {
+        messages, err := store.Load(ctx, id)
+        if err != nil {
+            log.Printf("Failed to load session %s: %v", id, err)
+            continue
+        }
+        // Trim old messages
+        if len(messages) > 20 {
+            messages = messages[len(messages)-20:]
+            if err := store.Save(ctx, id, messages); err != nil {
+                log.Printf("Failed to save session %s: %v", id, err)
             }
         }
     }
@@ -297,20 +278,17 @@ truncated := prompt.TruncateMessages(messages, maxTokens)
 store.Save(ctx, sessionID, truncated)
 ```
 
-### State Sharing
+### State Sharing (Fork)
 
 ```go
-// Copy state between sessions
+// Fork state to a new session
 sourceSession := "user-123-original"
 targetSession := "user-123-new-topic"
 
-messages, err := store.Load(ctx, sourceSession)
+err := store.Fork(ctx, sourceSession, targetSession)
 if err != nil {
     log.Fatal(err)
 }
-
-// Save to new session
-err = store.Save(ctx, targetSession, messages)
 ```
 
 ## Error Handling
@@ -339,7 +317,7 @@ if err != nil {
 ### Retry Logic
 
 ```go
-func saveWithRetry(store statestore.StateStore, sessionID string, messages []types.Message, maxRetries int) error {
+func saveWithRetry(store statestore.Store, sessionID string, messages []types.Message, maxRetries int) error {
     ctx := context.Background()
     
     for i := 0; i < maxRetries; i++ {
@@ -364,12 +342,11 @@ func saveWithRetry(store statestore.StateStore, sessionID string, messages []typ
 
 **Solutions**:
 
-1. Verify state middleware is registered:
+1. Verify store is properly initialized:
    ```go
-   pipe := pipeline.NewPipeline(
-       middleware.StateMiddleware(store),  // Must be first
-       middleware.ProviderMiddleware(provider, nil, nil, config),
-   )
+   store := statestore.NewMemoryStore()
+   // or
+   store := statestore.NewRedisStore(redisClient)
    ```
 
 2. Check session ID consistency:
@@ -384,10 +361,10 @@ func saveWithRetry(store statestore.StateStore, sessionID string, messages []typ
    
    ```go
    // Test save/load
-   testMessages := []types.Message
+   testMessages := []types.Message{}
    store.Save(ctx, "test-session", testMessages)
    loaded, err := store.Load(ctx, "test-session")
-   if err != nil || len(loaded) == 0 {
+   if err != nil {
        log.Fatal("Store not working")
    }
    ```
@@ -407,11 +384,10 @@ func saveWithRetry(store statestore.StateStore, sessionID string, messages []typ
 
 2. Verify connection details:
    ```go
-   store, err := statestore.NewRedisStateStore("localhost:6379", "", 0)
-   if err != nil {
-       log.Printf("Connection failed: %v", err)
-       // Check host, port, password
-   }
+   redisClient := redis.NewClient(&redis.Options{
+       Addr: "localhost:6379",
+   })
+   store := statestore.NewRedisStore(redisClient)
    ```
 
 3. Test network connectivity:
@@ -441,10 +417,13 @@ func saveWithRetry(store statestore.StateStore, sessionID string, messages []typ
 1. **Use Redis for production**:
    ```go
    // Production
-   store, _ := statestore.NewRedisStateStore(os.Getenv("REDIS_URL"), "", 0)
-   
+   redisClient := redis.NewClient(&redis.Options{
+       Addr: os.Getenv("REDIS_URL"),
+   })
+   store := statestore.NewRedisStore(redisClient)
+
    // Development
-   store := statestore.NewInMemoryStateStore()
+   store := statestore.NewMemoryStore()
    ```
 
 2. **Always close store**:

@@ -158,18 +158,24 @@ Pattern matching for structured content:
 ```yaml
 # Phone number format
 assertions:
-  - type: regex
-    value: "\\+?1?\\d{9,15}"
+  - type: content_matches
+    params:
+      pattern: "\\+?1?\\d{9,15}"
+      message: "Should contain a phone number"
 
 # Email address
 assertions:
-  - type: regex
-    value: "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
+  - type: content_matches
+    params:
+      pattern: "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
+      message: "Should contain an email address"
 
 # Date format (YYYY-MM-DD)
 assertions:
-  - type: regex
-    value: "\\d{4}-\\d{2}-\\d{2}"
+  - type: content_matches
+    params:
+      pattern: "\\d{4}-\\d{2}-\\d{2}"
+      message: "Should contain a date in YYYY-MM-DD format"
 ```
 
 **Use when:**
@@ -483,17 +489,18 @@ spec:
 **Validation types:**
 ```yaml
 assertions:
-  # References earlier context
-turn_index: 0
-  
-  # Maintains consistency
-  - type: consistent_with_turn
-    turn_index: 0
-  
-  # State progression
-  - type: state_changed
-    from: "initial"
-    to: "confirmed"
+  # Check that the response references earlier context
+  - type: content_includes
+    params:
+      patterns: ["Alice"]
+      message: "Should reference earlier context"
+
+  # Use LLM judge for consistency checks
+  - type: llm_judge
+    params:
+      criteria: "Response is consistent with earlier conversation context"
+      judge_provider: "openai/gpt-4o-mini"
+      message: "Must maintain consistency"
 ```
 
 ## Validation Patterns
@@ -549,7 +556,10 @@ Balance between too loose and too strict:
 ```yaml
 # Too loose (might pass bad responses)
 assertions:
-  - type: not_empty
+  - type: content_matches
+    params:
+      pattern: ".+"
+      message: "Must not be empty"
 
 # Too strict (might fail good responses)
 assertions:
@@ -637,31 +647,6 @@ spec:
 ```
 
 ## Advanced Techniques
-
-### Custom Validators
-
-Write custom validation logic:
-
-```yaml
-assertions:
-  - type: custom
-    validator: check_business_hours
-    args:
-      timezone: "America/New_York"
-```
-
-**Implementation:**
-```python
-def check_business_hours(response: str, timezone: str) -> bool:
-    # Extract time from response
-    time_match = re.search(r'\d{1,2}:\d{2}', response)
-    if not time_match:
-        return False
-    
-    # Parse and validate
-    time = datetime.strptime(time_match.group(), '%H:%M')
-    return 9 <= time.hour < 17  # 9 AM - 5 PM
-```
 
 ### Multiple Assertions
 

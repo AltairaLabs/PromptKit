@@ -3,64 +3,53 @@ title: Monitor Events
 sidebar:
   order: 5
 ---
-Learn how to observe SDK operations with `Subscribe()`.
+Learn how to observe SDK operations with the `hooks` package.
 
 ## Basic Subscription
 
 ```go
-import "github.com/AltairaLabs/PromptKit/sdk/hooks"
+import (
+    "github.com/AltairaLabs/PromptKit/sdk/hooks"
+    "github.com/AltairaLabs/PromptKit/runtime/events"
+)
 
-conv.Subscribe(hooks.EventSend, func(e hooks.Event) {
-    fmt.Printf("Sent: %v\n", e.Data["message"])
+hooks.On(conv, events.EventProviderCallStarted, func(e *events.Event) {
+    fmt.Printf("Provider call started\n")
 })
 ```
 
 ## Event Types
 
+Events are defined as `events.EventType` in the `runtime/events` package:
+
 ```go
 const (
-    EventSend       = "send"        // Message sent
-    EventResponse   = "response"    // Response received
-    EventToolCall   = "tool_call"   // Tool invoked
-    EventToolResult = "tool_result" // Tool returned
-    EventError      = "error"       // Error occurred
-    EventStream     = "stream"      // Stream chunk
+    EventProviderCallStarted   EventType = "provider.call.started"
+    EventProviderCallCompleted EventType = "provider.call.completed"
+    EventProviderCallFailed    EventType = "provider.call.failed"
+    EventToolCallStarted       EventType = "tool.call.started"
+    EventToolCallCompleted     EventType = "tool.call.completed"
+    EventToolCallFailed        EventType = "tool.call.failed"
+    EventPipelineStarted       EventType = "pipeline.started"
+    EventPipelineCompleted     EventType = "pipeline.completed"
+    EventPipelineFailed        EventType = "pipeline.failed"
+    EventStreamInterrupted     EventType = "stream.interrupted"
 )
 ```
 
 ## Monitor Tool Calls
 
 ```go
-conv.Subscribe(hooks.EventToolCall, func(e hooks.Event) {
-    toolName := e.Data["tool"].(string)
-    args := e.Data["args"]
-    fmt.Printf("Tool called: %s(%v)\n", toolName, args)
-})
-
-conv.Subscribe(hooks.EventToolResult, func(e hooks.Event) {
-    toolName := e.Data["tool"].(string)
-    result := e.Data["result"]
-    fmt.Printf("Tool result: %s -> %v\n", toolName, result)
+hooks.OnToolCall(conv, func(name string, args map[string]any) {
+    fmt.Printf("Tool called: %s(%v)\n", name, args)
 })
 ```
 
-## Monitor Errors
+## Monitor Provider Calls
 
 ```go
-conv.Subscribe(hooks.EventError, func(e hooks.Event) {
-    err := e.Data["error"]
-    log.Printf("Error: %v", err)
-})
-```
-
-## Monitor Streaming
-
-```go
-var charCount int
-
-conv.Subscribe(hooks.EventStream, func(e hooks.Event) {
-    chunk := e.Data["chunk"].(string)
-    charCount += len(chunk)
+hooks.OnProviderCall(conv, func(e *events.Event) {
+    log.Printf("Provider call: %v", e)
 })
 ```
 
@@ -68,30 +57,22 @@ conv.Subscribe(hooks.EventStream, func(e hooks.Event) {
 
 ```go
 func attachLogger(conv *sdk.Conversation) {
-    events := []string{
-        hooks.EventSend,
-        hooks.EventResponse,
-        hooks.EventToolCall,
-        hooks.EventToolResult,
-        hooks.EventError,
-    }
-    
-    for _, event := range events {
-        name := event
-        conv.Subscribe(name, func(e hooks.Event) {
-            log.Printf("[%s] %v", name, e.Data)
-        })
-    }
+    hooks.OnEvent(conv, func(e *events.Event) {
+        log.Printf("[%s] %s", e.Timestamp.Format("15:04:05"), e.Type)
+    })
 }
 ```
 
 ## Event Structure
 
 ```go
+// From runtime/events package
 type Event struct {
-    Type      string         // Event type
-    Timestamp time.Time      // When it occurred
-    Data      map[string]any // Event-specific data
+    Type           EventType
+    Timestamp      time.Time
+    SessionID      string
+    ConversationID string
+    // ... additional event-specific fields
 }
 ```
 
@@ -99,26 +80,19 @@ type Event struct {
 
 ```go
 type Metrics struct {
-    Messages  int64
     ToolCalls int64
     Errors    int64
     mu        sync.Mutex
 }
 
 func (m *Metrics) Attach(conv *sdk.Conversation) {
-    conv.Subscribe(hooks.EventSend, func(e hooks.Event) {
-        m.mu.Lock()
-        m.Messages++
-        m.mu.Unlock()
-    })
-    
-    conv.Subscribe(hooks.EventToolCall, func(e hooks.Event) {
+    hooks.On(conv, events.EventToolCallStarted, func(e *events.Event) {
         m.mu.Lock()
         m.ToolCalls++
         m.mu.Unlock()
     })
-    
-    conv.Subscribe(hooks.EventError, func(e hooks.Event) {
+
+    hooks.On(conv, events.EventToolCallFailed, func(e *events.Event) {
         m.mu.Lock()
         m.Errors++
         m.mu.Unlock()
@@ -130,17 +104,8 @@ func (m *Metrics) Attach(conv *sdk.Conversation) {
 
 ```go
 func enableDebug(conv *sdk.Conversation) {
-    conv.Subscribe(hooks.EventSend, func(e hooks.Event) {
-        fmt.Printf("📤 %v\n", e.Data)
-    })
-    conv.Subscribe(hooks.EventResponse, func(e hooks.Event) {
-        fmt.Printf("📥 %v\n", e.Data)
-    })
-    conv.Subscribe(hooks.EventToolCall, func(e hooks.Event) {
-        fmt.Printf("🔧 %v\n", e.Data)
-    })
-    conv.Subscribe(hooks.EventError, func(e hooks.Event) {
-        fmt.Printf("❌ %v\n", e.Data)
+    hooks.OnEvent(conv, func(e *events.Event) {
+        log.Printf("[DEBUG] %s: %s", e.Timestamp.Format("15:04:05"), e.Type)
     })
 }
 ```
@@ -157,6 +122,7 @@ import (
 
     "github.com/AltairaLabs/PromptKit/sdk"
     "github.com/AltairaLabs/PromptKit/sdk/hooks"
+    "github.com/AltairaLabs/PromptKit/runtime/events"
 )
 
 func main() {
@@ -164,16 +130,13 @@ func main() {
     defer conv.Close()
 
     // Monitor all activity
-    conv.Subscribe(hooks.EventSend, func(e hooks.Event) {
-        log.Printf("→ Sending message")
+    hooks.OnEvent(conv, func(e *events.Event) {
+        log.Printf("[%s] %s", e.Timestamp.Format("15:04:05"), e.Type)
     })
-    
-    conv.Subscribe(hooks.EventResponse, func(e hooks.Event) {
-        log.Printf("← Got response")
-    })
-    
-    conv.Subscribe(hooks.EventError, func(e hooks.Event) {
-        log.Printf("⚠ Error: %v", e.Data["error"])
+
+    // Monitor tool calls specifically
+    hooks.OnToolCall(conv, func(name string, args map[string]any) {
+        log.Printf("Tool called: %s", name)
     })
 
     // Use normally

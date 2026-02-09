@@ -209,9 +209,10 @@ spec:
     - role: user
       content: ""
       assertions:
-        - type: error_handled
+        - type: content_matches
           params:
-            message: "Should handle empty input"
+            pattern: ".+"
+            message: "Should handle empty input gracefully"
 
 # Very long input
 apiVersion: promptkit.altairalabs.ai/v1alpha1
@@ -228,8 +229,9 @@ spec:
     - role: user
       content: "{{fixtures.long_text}}"
       assertions:
-        - type: response_received
+        - type: content_matches
           params:
+            pattern: ".+"
             message: "Should handle long input"
 
 # Special characters
@@ -431,7 +433,10 @@ Choose the right level:
 ```yaml
 # Too loose (accepts anything)
 assertions:
-  - type: response_received
+  - type: content_matches
+    params:
+      pattern: ".+"
+      message: "Must not be empty"
 
 # Appropriate (validates behavior)
 assertions:

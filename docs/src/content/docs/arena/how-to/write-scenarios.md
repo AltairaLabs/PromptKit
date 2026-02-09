@@ -50,9 +50,6 @@ spec:
           params:
             patterns: ["Monday"]
             message: "Should mention business days"
-params:
-            max_seconds: 3
-            message: "Should respond quickly"
     
     - role: user
       content: "Do you offer weekend support?"
@@ -399,8 +396,9 @@ spec:
     - role: user
       content: "{{fixtures.long_text}}"
       assertions:
-        - type: content_not_empty
+        - type: content_includes
           params:
+            patterns: [" "]
             message: "Should respond to very long input"
 ```
 

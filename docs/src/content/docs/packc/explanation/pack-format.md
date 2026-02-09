@@ -36,21 +36,15 @@ A PromptPack-compliant `.pack.json` file:
 
 ```json
 {
-  "apiVersion": "promptkit.altairalabs.ai/v1alpha1",
-  "kind": "PromptPack",
-  "metadata": {
-    "name": "customer-support",
-    "version": "1.0.0"
-  },
-  "prompts": [
-    {
-      "id": "greeting",
+  "id": "customer-support",
+  "name": "Customer Support Pack",
+  "version": "1.0.0",
+  "prompts": {
+    "greeting": {
       "system": "You are a helpful support agent.",
-      "template": "Help the user with: {{.query}}"
+      "user_template": "Help the user with: {{.query}}"
     }
-  ],
-  "tools": [...],
-  "fragments": {...}
+  }
 }
 ```
 
@@ -58,12 +52,10 @@ A PromptPack-compliant `.pack.json` file:
 
 | Field | Description |
 |-------|-------------|
-| `apiVersion` | PromptPack schema version |
-| `kind` | Always `"PromptPack"` |
-| `metadata` | Name, version, description |
-| `prompts` | Array of prompt definitions |
-| `tools` | Optional tool specifications |
-| `fragments` | Reusable prompt components |
+| `id` | Unique pack identifier |
+| `name` | Human-readable pack name |
+| `version` | Pack version (semver) |
+| `prompts` | Map of prompt definitions |
 
 ### Prompt Structure
 
@@ -245,7 +237,7 @@ One pack per application or feature:
 ### 4. Validate Before Deploy
 
 ```bash
-packc validate pack.json --strict
+packc validate pack.json
 ```
 
 ## Learn More

@@ -9,27 +9,11 @@ Install the packc compiler on your system.
 
 Get packc installed and ready to compile prompt packs.
 
-## Installation Methods
+## Installation
 
-### Method 1: Homebrew (macOS/Linux - Recommended)
+### Go Install
 
-```bash
-# Install PromptKit (includes PackC)
-brew install promptkit
-
-# Verify installation
-packc version
-```
-
-**Expected output:**
-
-```
-packc v0.1.0
-```
-
-### Method 2: Go Install
-
-This installs the latest version directly:
+Install via `go install` (the only supported installation method):
 
 ```bash
 # Install latest version
@@ -46,36 +30,7 @@ packc version
 go install github.com/AltairaLabs/PromptKit/tools/packc@v0.1.0
 ```
 
-### Method 3: Download Pre-built Binary
-
-Visit the [PromptKit Releases](https://github.com/AltairaLabs/PromptKit/releases) page and download the appropriate binary for your platform.
-
-```bash
-# Example for macOS (adjust version and platform as needed)
-curl -LO https://github.com/AltairaLabs/PromptKit/releases/latest/download/packc-darwin-amd64
-chmod +x packc-darwin-amd64
-sudo mv packc-darwin-amd64 /usr/local/bin/packc
-
-# Verify
-packc version
-```
-
-### Method 4: Docker
-
-Run packc in a container:
-
-```bash
-# Pull image (when available)
-docker pull ghcr.io/AltairaLabs/packc:latest
-
-# Or build locally from the repo
-docker build -t packc -f Dockerfile.packc .
-
-# Run packc
-docker run --rm -v $(pwd):/workspace packc version
-```
-
-### For Developers: Build from Source
+### Build from Source
 
 For development or custom builds:
 
@@ -224,34 +179,17 @@ packc compile --config arena.yaml --output "$PACKC_OUTPUT_DIR/app.pack.json" --i
 
 ## Platform-Specific Notes
 
-### macOS
+### macOS / Linux
 
-Homebrew is the recommended method:
-
-```bash
-brew install promptkit
-```
-
-### Linux
-
-Use Go install or download the binary:
+Use `go install`:
 
 ```bash
-# Download binary
-curl -LO https://github.com/AltairaLabs/PromptKit/releases/latest/download/packc-linux-amd64
-chmod +x packc-linux-amd64
-sudo mv packc-linux-amd64 /usr/local/bin/packc
+go install github.com/AltairaLabs/PromptKit/tools/packc@latest
 ```
 
 ### Windows (PowerShell)
 
-Download the binary and add to PATH:
-
 ```powershell
-# Download from GitHub releases
-# https://github.com/AltairaLabs/PromptKit/releases
-
-# Or use go install
 go install github.com/AltairaLabs/PromptKit/tools/packc@latest
 ```
 
@@ -285,16 +223,6 @@ stage('Install packc') {
     sh 'packc version'
   }
 }
-```
-
-### Docker
-
-```dockerfile
-FROM golang:1.22
-
-RUN go install github.com/AltairaLabs/PromptKit/tools/packc@latest
-
-RUN packc version
 ```
 
 ## Troubleshooting

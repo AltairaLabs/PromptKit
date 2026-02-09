@@ -18,7 +18,7 @@ When conversations grow long, they may exceed the LLM's context window. The SDK 
 Limit the total tokens used for context:
 
 ```go
-conv, _ := sdk.Open(ctx, provider,
+conv, _ := sdk.Open("./app.pack.json", "chat",
     sdk.WithTokenBudget(8000),
 )
 ```
@@ -32,7 +32,7 @@ When the conversation exceeds this budget, older messages are truncated.
 Removes oldest messages first:
 
 ```go
-conv, _ := sdk.Open(ctx, provider,
+conv, _ := sdk.Open("./app.pack.json", "chat",
     sdk.WithTokenBudget(8000),
     sdk.WithTruncation("sliding"),
 )
@@ -51,7 +51,7 @@ import (
 // Create embedding provider
 embProvider, _ := openai.NewEmbeddingProvider()
 
-conv, _ := sdk.Open(ctx, provider,
+conv, _ := sdk.Open("./app.pack.json", "chat",
     sdk.WithTokenBudget(8000),
     sdk.WithRelevanceTruncation(&sdk.RelevanceConfig{
         EmbeddingProvider:   embProvider,
@@ -188,19 +188,12 @@ import (
     "fmt"
     "log"
 
-    "github.com/AltairaLabs/PromptKit/runtime/providers/claude"
     "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
     "github.com/AltairaLabs/PromptKit/sdk"
 )
 
 func main() {
     ctx := context.Background()
-
-    // Create LLM provider
-    llmProvider, err := claude.NewProvider()
-    if err != nil {
-        log.Fatal(err)
-    }
 
     // Create embedding provider for relevance truncation
     embProvider, err := openai.NewEmbeddingProvider()
@@ -209,7 +202,7 @@ func main() {
     }
 
     // Open conversation with context management
-    conv, err := sdk.Open(ctx, llmProvider,
+    conv, err := sdk.Open("./app.pack.json", "chat",
         sdk.WithTokenBudget(8000),
         sdk.WithRelevanceTruncation(&sdk.RelevanceConfig{
             EmbeddingProvider:    embProvider,

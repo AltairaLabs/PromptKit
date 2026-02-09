@@ -7,18 +7,24 @@ Understanding the event system in SDK.
 
 ## Overview
 
-SDK uses an event-based observability system through the `hooks` package. Events are emitted at key points during execution, allowing you to monitor, debug, and audit your applications.
+SDK uses an event-based observability system through the `hooks` package (in `sdk/hooks`) and the `events` package (in `runtime/events`). Events are emitted at key points during execution, allowing you to monitor, debug, and audit your applications.
 
 ## Event Types
 
+Events are defined as `events.EventType` in the `runtime/events` package:
+
 ```go
 const (
-    EventSend       = "send"        // Message sent
-    EventResponse   = "response"    // Response received
-    EventToolCall   = "tool_call"   // Tool invoked
-    EventToolResult = "tool_result" // Tool returned
-    EventError      = "error"       // Error occurred
-    EventStream     = "stream"      // Stream chunk
+    EventProviderCallStarted   EventType = "provider.call.started"
+    EventProviderCallCompleted EventType = "provider.call.completed"
+    EventProviderCallFailed    EventType = "provider.call.failed"
+    EventToolCallStarted       EventType = "tool.call.started"
+    EventToolCallCompleted     EventType = "tool.call.completed"
+    EventToolCallFailed        EventType = "tool.call.failed"
+    EventPipelineStarted       EventType = "pipeline.started"
+    EventPipelineCompleted     EventType = "pipeline.completed"
+    EventPipelineFailed        EventType = "pipeline.failed"
+    EventStreamInterrupted     EventType = "stream.interrupted"
 )
 ```
 
@@ -28,24 +34,27 @@ const (
 conv.Send(ctx, "Hello")
         │
         ▼
-   EventSend ─────────► Subscriber
+   PipelineStarted ──────────► Listener
         │
         ▼
-   Provider Call
+   ProviderCallStarted ─────► Listener
         │
         ▼
-   EventResponse ─────► Subscriber
+   ProviderCallCompleted ───► Listener
         │
         │ (if tool call)
         ├────────────────┐
         │                ▼
-        │          EventToolCall ──► Subscriber
+        │     ToolCallStarted ──► Listener
         │                │
-        │          Handler executes
+        │         Handler executes
         │                │
-        │          EventToolResult ─► Subscriber
+        │     ToolCallCompleted ─► Listener
         │                │
         └────────────────┘
+        │
+        ▼
+   PipelineCompleted ───────► Listener
         │
         ▼
    Return Response
@@ -54,56 +63,43 @@ conv.Send(ctx, "Hello")
 ## Subscribing to Events
 
 ```go
-import "github.com/AltairaLabs/PromptKit/sdk/hooks"
+import (
+    "github.com/AltairaLabs/PromptKit/sdk/hooks"
+    "github.com/AltairaLabs/PromptKit/runtime/events"
+)
 
-conv.Subscribe(hooks.EventSend, func(e hooks.Event) {
-    log.Printf("Sent: %v", e.Data["message"])
+// Subscribe to a specific event type
+hooks.On(conv, events.EventProviderCallCompleted, func(e *events.Event) {
+    log.Printf("Provider call completed")
+})
+
+// Subscribe to all events
+hooks.OnEvent(conv, func(e *events.Event) {
+    log.Printf("Event: %s", e.Type)
+})
+
+// Subscribe to tool calls specifically
+hooks.OnToolCall(conv, func(name string, args map[string]any) {
+    log.Printf("Tool: %s", name)
+})
+
+// Subscribe to provider calls
+hooks.OnProviderCall(conv, func(e *events.Event) {
+    log.Printf("Provider: %s", e.Type)
 })
 ```
 
 ## Event Structure
 
 ```go
+// From runtime/events package
 type Event struct {
-    Type      string         // Event type (EventSend, etc.)
-    Timestamp time.Time      // When the event occurred
-    Data      map[string]any // Event-specific data
+    Type           EventType
+    Timestamp      time.Time
+    SessionID      string
+    ConversationID string
+    // ... additional event-specific fields
 }
-```
-
-## Event Data
-
-### EventSend
-
-```go
-e.Data["message"]  // The message sent
-```
-
-### EventResponse
-
-```go
-e.Data["text"]     // Response text
-e.Data["tokens"]   // Token count (if available)
-```
-
-### EventToolCall
-
-```go
-e.Data["tool"]     // Tool name
-e.Data["args"]     // Tool arguments
-```
-
-### EventToolResult
-
-```go
-e.Data["tool"]     // Tool name
-e.Data["result"]   // Tool result
-```
-
-### EventError
-
-```go
-e.Data["error"]    // The error
 ```
 
 ## Use Cases
@@ -112,23 +108,12 @@ e.Data["error"]    // The error
 
 ```go
 func attachLogger(conv *sdk.Conversation) {
-    events := []string{
-        hooks.EventSend,
-        hooks.EventResponse,
-        hooks.EventToolCall,
-        hooks.EventError,
-    }
-    
-    for _, event := range events {
-        name := event
-        conv.Subscribe(name, func(e hooks.Event) {
-            log.Printf("[%s] %s: %v",
-                e.Timestamp.Format("15:04:05"),
-                name,
-                e.Data,
-            )
-        })
-    }
+    hooks.OnEvent(conv, func(e *events.Event) {
+        log.Printf("[%s] %s",
+            e.Timestamp.Format("15:04:05"),
+            e.Type,
+        )
+    })
 }
 ```
 
@@ -136,26 +121,19 @@ func attachLogger(conv *sdk.Conversation) {
 
 ```go
 type Metrics struct {
-    Messages  int64
     ToolCalls int64
     Errors    int64
     mu        sync.Mutex
 }
 
 func (m *Metrics) Attach(conv *sdk.Conversation) {
-    conv.Subscribe(hooks.EventSend, func(e hooks.Event) {
-        m.mu.Lock()
-        m.Messages++
-        m.mu.Unlock()
-    })
-    
-    conv.Subscribe(hooks.EventToolCall, func(e hooks.Event) {
+    hooks.On(conv, events.EventToolCallStarted, func(e *events.Event) {
         m.mu.Lock()
         m.ToolCalls++
         m.mu.Unlock()
     })
-    
-    conv.Subscribe(hooks.EventError, func(e hooks.Event) {
+
+    hooks.On(conv, events.EventToolCallFailed, func(e *events.Event) {
         m.mu.Lock()
         m.Errors++
         m.mu.Unlock()
@@ -167,20 +145,12 @@ func (m *Metrics) Attach(conv *sdk.Conversation) {
 
 ```go
 func enableDebug(conv *sdk.Conversation) {
-    conv.Subscribe(hooks.EventSend, func(e hooks.Event) {
-        fmt.Printf("📤 SEND: %v\n", e.Data)
+    hooks.OnEvent(conv, func(e *events.Event) {
+        log.Printf("[DEBUG] %s: %s", e.Timestamp.Format("15:04:05"), e.Type)
     })
-    
-    conv.Subscribe(hooks.EventResponse, func(e hooks.Event) {
-        fmt.Printf("📥 RESPONSE\n")
-    })
-    
-    conv.Subscribe(hooks.EventToolCall, func(e hooks.Event) {
-        fmt.Printf("🔧 TOOL: %s(%v)\n", e.Data["tool"], e.Data["args"])
-    })
-    
-    conv.Subscribe(hooks.EventError, func(e hooks.Event) {
-        fmt.Printf("❌ ERROR: %v\n", e.Data["error"])
+
+    hooks.OnToolCall(conv, func(name string, args map[string]any) {
+        log.Printf("[DEBUG] Tool: %s(%v)", name, args)
     })
 }
 ```

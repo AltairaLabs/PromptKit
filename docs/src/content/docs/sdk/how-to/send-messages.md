@@ -95,7 +95,8 @@ fmt.Println(resp2.Text())  // "Your name is Alice."
 ### Get All Messages
 
 ```go
-messages := conv.Messages()
+ctx := context.Background()
+messages := conv.Messages(ctx)
 for _, msg := range messages {
     fmt.Printf("[%s] %s\n", msg.Role, msg.Content)
 }
@@ -104,7 +105,7 @@ for _, msg := range messages {
 ### Clear History
 
 ```go
-conv.Clear()  // Starts fresh
+_ = conv.Clear()  // Starts fresh, returns error
 ```
 
 ## Timeouts
@@ -129,8 +130,8 @@ if err != nil {
     switch {
     case errors.Is(err, sdk.ErrConversationClosed):
         log.Fatal("Conversation was closed")
-    case errors.Is(err, sdk.ErrProviderError):
-        log.Printf("Provider error: %v", err)
+    case errors.Is(err, sdk.ErrProviderNotDetected):
+        log.Printf("Provider not detected: %v", err)
     case errors.Is(err, context.DeadlineExceeded):
         log.Println("Request timed out")
     default:

@@ -18,16 +18,15 @@ State stores provide persistent storage for conversation history, enabling:
 
 - **Redis**: Production-ready distributed state
 - **In-memory**: Development and testing
-- **Custom**: Implement `StateStore` interface
+- **Custom**: Implement `Store` interface
 
 ## Core Interface
 
 ```go
-type StateStore interface {
-    Save(ctx context.Context, sessionID string, messages []types.Message) error
+type Store interface {
     Load(ctx context.Context, sessionID string) ([]types.Message, error)
-    Delete(ctx context.Context, sessionID string) error
-    List(ctx context.Context) ([]string, error)
+    Save(ctx context.Context, sessionID string, messages []types.Message) error
+    Fork(ctx context.Context, sourceSessionID string, newSessionID string) error
 }
 ```
 
@@ -36,7 +35,7 @@ type StateStore interface {
 ### Constructor
 
 ```go
-func NewRedisStateStore(client *redis.Client) *RedisStateStore
+func NewRedisStore(client *redis.Client, opts ...RedisStoreOption) *RedisStore
 ```
 
 **Example**:
@@ -53,7 +52,7 @@ redisClient := redis.NewClient(&redis.Options{
 })
 
 // Create state store
-store := statestore.NewRedisStateStore(redisClient)
+store := statestore.NewRedisStore(redisClient)
 defer store.Close()
 ```
 
@@ -84,22 +83,12 @@ for _, msg := range messages {
 }
 ```
 
-**Delete**:
+**Fork**:
 ```go
-err := store.Delete(ctx, "session-123")
+err := store.Fork(ctx, "session-123", "session-456")
 if err != nil {
     log.Fatal(err)
 }
-```
-
-**List**:
-```go
-sessionIDs, err := store.List(ctx)
-if err != nil {
-    log.Fatal(err)
-}
-
-fmt.Printf("Active sessions: %v\n", sessionIDs)
 ```
 
 ## In-Memory State Store
@@ -107,7 +96,7 @@ fmt.Printf("Active sessions: %v\n", sessionIDs)
 For development and testing.
 
 ```go
-store := statestore.NewInMemoryStateStore()
+store := statestore.NewMemoryStore()
 
 // Same interface as Redis store
 store.Save(ctx, "session-1", messages)
@@ -116,25 +105,18 @@ messages, _ := store.Load(ctx, "session-1")
 
 ## Usage with Pipeline
 
-### State Middleware
+### With Pipeline
 
 ```go
-import (
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
-    "github.com/AltairaLabs/PromptKit/runtime/statestore"
-)
+import "github.com/AltairaLabs/PromptKit/runtime/statestore"
 
 // Create state store
-store := statestore.NewRedisStateStore(redisClient)
+store := statestore.NewRedisStore(redisClient)
 
-// Add to pipeline
-pipe := pipeline.NewPipeline(
-    middleware.StateStoreMiddleware(store, "session-123"),
-    middleware.ProviderMiddleware(provider, nil, nil, config),
-)
-
-// State automatically saved after each execution
-result, err := pipe.Execute(ctx, "user", "Hello")
+// Load state, execute, and save state
+messages, _ := store.Load(ctx, sessionID)
+// ... execute pipeline with messages ...
+store.Save(ctx, sessionID, updatedMessages)
 ```
 
 ### Manual State Management
@@ -173,14 +155,14 @@ redisClient := redis.NewClient(&redis.Options{
     MinIdleConns: 5,
 })
 
-store := statestore.NewRedisStateStore(redisClient)
+store := statestore.NewRedisStore(redisClient)
 ```
 
 ### TTL Management
 
 ```go
-// Set expiration on session keys
-err := store.SaveWithTTL(ctx, sessionID, messages, 24*time.Hour)
+// Set expiration on session keys via Redis client configuration
+// or use RedisStoreOption when creating the store
 ```
 
 ## Custom State Store
@@ -192,6 +174,20 @@ type CustomStateStore struct {
     backend Database
 }
 
+func (s *CustomStateStore) Load(
+    ctx context.Context,
+    sessionID string,
+) ([]types.Message, error) {
+    data, err := s.backend.Get(ctx, sessionID)
+    if err != nil {
+        return nil, err
+    }
+
+    var messages []types.Message
+    err = json.Unmarshal(data, &messages)
+    return messages, err
+}
+
 func (s *CustomStateStore) Save(
     ctx context.Context,
     sessionID string,
@@ -201,31 +197,16 @@ func (s *CustomStateStore) Save(
     return s.backend.Set(ctx, sessionID, data)
 }
 
-func (s *CustomStateStore) Load(
+func (s *CustomStateStore) Fork(
     ctx context.Context,
-    sessionID string,
-) ([]types.Message, error) {
-    data, err := s.backend.Get(ctx, sessionID)
-    if err != nil {
-        return nil, err
-    }
-    
-    var messages []types.Message
-    err = json.Unmarshal(data, &messages)
-    return messages, err
-}
-
-func (s *CustomStateStore) Delete(
-    ctx context.Context,
-    sessionID string,
+    sourceSessionID string,
+    newSessionID string,
 ) error {
-    return s.backend.Delete(ctx, sessionID)
-}
-
-func (s *CustomStateStore) List(
-    ctx context.Context,
-) ([]string, error) {
-    return s.backend.ListKeys(ctx, "session:*")
+    messages, err := s.Load(ctx, sourceSessionID)
+    if err != nil {
+        return err
+    }
+    return s.Save(ctx, newSessionID, messages)
 }
 ```
 
@@ -237,10 +218,8 @@ func (s *CustomStateStore) List(
 // Use meaningful session IDs
 sessionID := fmt.Sprintf("user-%s-%d", userID, time.Now().Unix())
 
-// Clean up old sessions
-for _, sessionID := range oldSessions {
-    store.Delete(ctx, sessionID)
-}
+// Fork a session for branching conversations
+store.Fork(ctx, sessionID, newSessionID)
 ```
 
 ### 2. Error Handling
@@ -248,12 +227,8 @@ for _, sessionID := range oldSessions {
 ```go
 messages, err := store.Load(ctx, sessionID)
 if err != nil {
-    if err == statestore.ErrSessionNotFound {
-        // Start new conversation
-        messages = []types.Message{}
-    } else {
-        return err
-    }
+    // Start new conversation on any load error
+    messages = []types.Message{}
 }
 ```
 

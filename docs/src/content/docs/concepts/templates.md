@@ -80,14 +80,6 @@ templates.RegisterTemplate("support", &template.PromptTemplate{
         "company": "TechCorp",
     },
 })
-
-// Use in pipeline
-pipe := pipeline.NewPipeline(
-    middleware.TemplateMiddleware(templates, &middleware.TemplateConfig{
-        DefaultTemplate: "support",
-    }),
-    // ... other middleware
-)
 ```
 
 ### PackC Templates
@@ -122,17 +114,16 @@ user: |
   Customer question: 
 ```
 
-Package templates:
+Compile templates:
 
 ```bash
-packc pack prompts/ -o templates.pack
+packc compile --config arena.yaml --output templates.pack.json --id templates
 ```
 
 Load in code:
 
 ```go
-pack, _ := packc.LoadPack("templates.pack")
-template := pack.Templates["support"]
+pack, _ := prompt.LoadPack("templates.pack.json")
 ```
 
 ### SDK Templates
@@ -350,9 +341,9 @@ func TestTemplate(t *testing.T) {
 
 ### Production
 
-1. **Package with PackC**: `packc pack prompts/ -o prod.pack`
-2. **Deploy with app**: Include `.pack` file
-3. **Load at runtime**: `packc.LoadPack("prod.pack")`
+1. **Compile with PackC**: `packc compile --config arena.yaml --output prod.pack.json --id prod`
+2. **Deploy with app**: Include `.pack.json` file
+3. **Load at runtime**: `prompt.LoadPack("prod.pack.json")`
 4. **Monitor usage**: Track which templates are used
 
 ### Updates
@@ -467,4 +458,4 @@ Templates provide:
 - [Prompts](prompts) - Prompt engineering basics
 - [Runtime Templates](../runtime/how-to/use-templates) - Implementation guide
 - [PackC Documentation](../packc/index) - Template packaging
-- [Template Reference](../runtime/reference/middleware.md#templatemiddleware) - API details
+- [Template Reference](../runtime/reference/template) - API details

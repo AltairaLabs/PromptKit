@@ -426,13 +426,12 @@ import (
     "net/http"
     
     "github.com/AltairaLabs/PromptKit/runtime/pipeline"
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
     "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
 )
 
 func main() {
     // Create provider
-    provider := openai.NewOpenAIProvider(
+    provider := openai.NewProvider(
         "openai",
         "gpt-4o-mini",
         "",
@@ -440,14 +439,9 @@ func main() {
         false,
     )
     defer provider.Close()
-    
+
     // Build pipeline
-    pipe := pipeline.NewPipeline(
-        middleware.ProviderMiddleware(provider, nil, nil, &middleware.ProviderMiddlewareConfig{
-            MaxTokens:   1500,
-            Temperature: 0.7,
-        }),
-    )
+    pipe := pipeline.NewPipeline(provider)
     defer pipe.Shutdown(context.Background())
     
     // Set up HTTP endpoint
@@ -515,7 +509,7 @@ func handleStreamRequest(w http.ResponseWriter, r *http.Request, pipe *pipeline.
 1. Check network latency
 2. Use faster model:
    ```go
-   provider := openai.NewOpenAIProvider("openai", "gpt-4o-mini", ...)
+   provider := openai.NewProvider("openai", "gpt-4o-mini", ...)
    ```
 3. Reduce max tokens:
    ```go

@@ -16,7 +16,7 @@ Connect to LLM providers with proper configuration and authentication.
 ```go
 import "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
 
-provider := openai.NewOpenAIProvider(
+provider := openai.NewProvider(
     "openai",
     "gpt-4o-mini",
     "",  // Default URL
@@ -45,7 +45,7 @@ customDefaults := providers.ProviderDefaults{
     },
 }
 
-provider := openai.NewOpenAIProvider(
+provider := openai.NewProvider(
     "openai",
     "gpt-4o-mini",
     "",
@@ -58,13 +58,13 @@ provider := openai.NewOpenAIProvider(
 
 ```go
 // Fast and cheap
-provider := openai.NewOpenAIProvider("openai", "gpt-4o-mini", "", defaults, false)
+provider := openai.NewProvider("openai", "gpt-4o-mini", "", defaults, false)
 
 // Balanced
-provider := openai.NewOpenAIProvider("openai", "gpt-4o", "", defaults, false)
+provider := openai.NewProvider("openai", "gpt-4o", "", defaults, false)
 
 // Advanced reasoning
-provider := openai.NewOpenAIProvider("openai", "gpt-4-turbo", "", defaults, false)
+provider := openai.NewProvider("openai", "gpt-4-turbo", "", defaults, false)
 ```
 
 ## Claude Setup
@@ -74,7 +74,7 @@ provider := openai.NewOpenAIProvider("openai", "gpt-4-turbo", "", defaults, fals
 ```go
 import "github.com/AltairaLabs/PromptKit/runtime/providers/claude"
 
-provider := claude.NewClaudeProvider(
+provider := claude.NewProvider(
     "claude",
     "claude-3-5-sonnet-20241022",
     "",
@@ -94,13 +94,13 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 
 ```go
 // Fast and cheap
-provider := claude.NewClaudeProvider("claude", "claude-3-haiku-20240307", "", defaults, false)
+provider := claude.NewProvider("claude", "claude-3-haiku-20240307", "", defaults, false)
 
 // Balanced (recommended)
-provider := claude.NewClaudeProvider("claude", "claude-3-5-sonnet-20241022", "", defaults, false)
+provider := claude.NewProvider("claude", "claude-3-5-sonnet-20241022", "", defaults, false)
 
 // Most capable
-provider := claude.NewClaudeProvider("claude", "claude-3-opus-20240229", "", defaults, false)
+provider := claude.NewProvider("claude", "claude-3-opus-20240229", "", defaults, false)
 ```
 
 ## Gemini Setup
@@ -110,7 +110,7 @@ provider := claude.NewClaudeProvider("claude", "claude-3-opus-20240229", "", def
 ```go
 import "github.com/AltairaLabs/PromptKit/runtime/providers/gemini"
 
-provider := gemini.NewGeminiProvider(
+provider := gemini.NewProvider(
     "gemini",
     "gemini-1.5-flash",
     "",
@@ -130,10 +130,10 @@ export GEMINI_API_KEY="..."
 
 ```go
 // Fast and cheap
-provider := gemini.NewGeminiProvider("gemini", "gemini-1.5-flash", "", defaults, false)
+provider := gemini.NewProvider("gemini", "gemini-1.5-flash", "", defaults, false)
 
 // Advanced (large context)
-provider := gemini.NewGeminiProvider("gemini", "gemini-1.5-pro", "", defaults, false)
+provider := gemini.NewProvider("gemini", "gemini-1.5-pro", "", defaults, false)
 ```
 
 ## Multi-Provider Setup
@@ -201,15 +201,15 @@ func SelectProvider(taskType string) providers.Provider {
     switch taskType {
     case "simple":
         // Use cheapest model
-        return openai.NewOpenAIProvider("openai", "gpt-4o-mini", "", defaults, false)
+        return openai.NewProvider("openai", "gpt-4o-mini", "", defaults, false)
     case "complex":
         // Use more capable model
-        return claude.NewClaudeProvider("claude", "claude-3-5-sonnet-20241022", "", defaults, false)
+        return claude.NewProvider("claude", "claude-3-5-sonnet-20241022", "", defaults, false)
     case "long-context":
         // Use model with large context
-        return gemini.NewGeminiProvider("gemini", "gemini-1.5-pro", "", defaults, false)
+        return gemini.NewProvider("gemini", "gemini-1.5-pro", "", defaults, false)
     default:
-        return openai.NewOpenAIProvider("openai", "gpt-4o-mini", "", defaults, false)
+        return openai.NewProvider("openai", "gpt-4o-mini", "", defaults, false)
     }
 }
 ```
@@ -217,7 +217,8 @@ func SelectProvider(taskType string) providers.Provider {
 ### Token Limits
 
 ```go
-config := &middleware.ProviderMiddlewareConfig{
+// Set MaxTokens via ProviderDefaults when creating a provider
+defaults := providers.ProviderDefaults{
     MaxTokens:   500,  // Limit output tokens
     Temperature: 0.7,
 }
@@ -244,7 +245,7 @@ result, err := provider.Predict(ctx, req)
 ### Azure OpenAI
 
 ```go
-provider := openai.NewOpenAIProvider(
+provider := openai.NewProvider(
     "azure-openai",
     "gpt-4",
     "https://your-resource.openai.azure.com/openai/deployments/your-deployment",
@@ -256,7 +257,7 @@ provider := openai.NewOpenAIProvider(
 ### OpenAI-Compatible Endpoints
 
 ```go
-provider := openai.NewOpenAIProvider(
+provider := openai.NewProvider(
     "local-llm",
     "model-name",
     "http://localhost:8080/v1",

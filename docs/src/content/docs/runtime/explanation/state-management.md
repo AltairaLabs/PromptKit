@@ -33,11 +33,11 @@ LLMs don't remember previous interactions:
 
 ```go
 // First call
-response1 := llm.Complete("What's the capital of France?")
+response1 := llm.Predict("What's the capital of France?")
 // Response: "Paris"
 
 // Second call - LLM has no memory
-response2 := llm.Complete("What about Germany?")
+response2 := llm.Predict("What about Germany?")
 // Response: "Germany? What about it?" (No context!)
 ```
 
@@ -51,7 +51,7 @@ messages := []Message{
     {Role: "assistant", Content: "Paris"},
     {Role: "user", Content: "What about Germany?"},
 }
-response := llm.Complete(messages)
+response := llm.Predict(messages)
 // Response: "The capital of Germany is Berlin"
 ```
 
@@ -73,39 +73,36 @@ Sessions enable:
 - **History isolation**: Users don't see each other's history
 - **Concurrent access**: Multiple requests per session
 
-### StateMiddleware
+### State Management Flow
 
-Manages state automatically:
+State is managed through the Store interface:
 
 ```go
-stateMiddleware := middleware.StateMiddleware(store, &middleware.StateMiddlewareConfig{
-    MaxMessages: 10,
-    TTL:         24 * time.Hour,
-})
+// Load history for session ID
+messages, _ := store.Load(ctx, sessionID)
 
-pipeline := pipeline.NewPipeline(
-    stateMiddleware,
-    // ... other middleware
-)
+// Execute with loaded context
+// ... pipeline execution ...
+
+// Save updated messages
+store.Save(ctx, sessionID, updatedMessages)
 ```
 
 **Before execution**:
 - Load history for session ID
-- Add to ExecutionContext.Messages
 
 **After execution**:
-- Save new messages
-- Update store
+- Save new messages to store
 
 ## State Store Interface
 
 All stores implement:
 
 ```go
-type StateStore interface {
-    Load(sessionID string) ([]Message, error)
-    Save(sessionID string, messages []Message) error
-    Delete(sessionID string) error
+type Store interface {
+    Load(ctx context.Context, sessionID string) ([]Message, error)
+    Save(ctx context.Context, sessionID string, messages []Message) error
+    Fork(ctx context.Context, sourceSessionID string, newSessionID string) error
 }
 ```
 
@@ -114,7 +111,7 @@ type StateStore interface {
 Fast, but not persistent:
 
 ```go
-store := statestore.NewInMemoryStateStore()
+store := statestore.NewMemoryStore()
 ```
 
 **Characteristics**:
@@ -137,7 +134,7 @@ Persistent and scalable:
 redisClient := redis.NewClient(&redis.Options{
     Addr: "localhost:6379",
 })
-store := statestore.NewRedisStateStore(redisClient)
+store := statestore.NewRedisStore(redisClient)
 ```
 
 **Characteristics**:
@@ -170,14 +167,14 @@ store := statestore.NewRedisStateStore(redisClient)
 
 ### Why Separate Store Interface?
 
-**Decision**: StateStore is separate from middleware
+**Decision**: Store is separate from pipeline logic
 
 **Rationale**:
 - **Pluggable**: Easy to swap storage backends
 - **Testable**: Mock stores for testing
 - **Reusable**: Stores can be used outside pipelines
 
-**Alternative considered**: Embedding storage in StateMiddleware. Rejected as too coupled.
+**Alternative considered**: Embedding storage in pipeline. Rejected as too coupled.
 
 ### Why Message History?
 
@@ -211,9 +208,11 @@ store := statestore.NewRedisStateStore(redisClient)
 Limit history size:
 
 ```go
-StateMiddleware(store, &StateMiddlewareConfig{
-    MaxMessages: 10,  // Keep last 10 messages only
-})
+// Load and trim messages before execution
+messages, _ := store.Load(ctx, sessionID)
+if len(messages) > 10 {
+    messages = messages[len(messages)-10:]
+}
 ```
 
 **Benefits**:
@@ -235,21 +234,15 @@ Keep recent messages:
 
 ### Time-Based Expiration
 
-Delete old sessions:
+Use Redis TTL or application-level expiration to auto-expire sessions.
+
+### Forking Sessions
+
+Branch conversations:
 
 ```go
-StateMiddleware(store, &StateMiddlewareConfig{
-    TTL: 24 * time.Hour,  // Sessions expire after 24 hours
-})
-```
-
-### Manual Cleanup
-
-Delete sessions explicitly:
-
-```go
-// End conversation
-store.Delete(sessionID)
+// Fork a conversation to try a different direction
+store.Fork(ctx, sessionID, newSessionID)
 ```
 
 ## Scaling Considerations
@@ -308,15 +301,14 @@ Typical performance:
 **1. Message Limits**
 
 ```go
-// Fast: Load last 10 messages
-StateMiddleware(store, &StateMiddlewareConfig{
-    MaxMessages: 10,
-})
+// Fast: Load and trim to last 10 messages
+messages, _ := store.Load(ctx, sessionID)
+if len(messages) > 10 {
+    messages = messages[len(messages)-10:]
+}
 
-// Slow: Load all messages
-StateMiddleware(store, &StateMiddlewareConfig{
-    MaxMessages: -1,  // No limit
-})
+// Slow: Load all messages (no trimming)
+messages, _ := store.Load(ctx, sessionID)
 ```
 
 **2. Lazy Loading**
@@ -324,17 +316,17 @@ StateMiddleware(store, &StateMiddlewareConfig{
 Load on demand:
 
 ```go
-type LazyStateStore struct {
-    inner StateStore
+type LazyStore struct {
+    inner Store
     cache map[string][]Message
 }
 
-func (s *LazyStateStore) Load(sessionID string) ([]Message, error) {
+func (s *LazyStore) Load(ctx context.Context, sessionID string) ([]Message, error) {
     if cached, ok := s.cache[sessionID]; ok {
         return cached, nil  // Cache hit
     }
-    
-    messages, err := s.inner.Load(sessionID)
+
+    messages, err := s.inner.Load(ctx, sessionID)
     s.cache[sessionID] = messages
     return messages, err
 }
@@ -346,12 +338,12 @@ Compress stored messages:
 
 ```go
 type CompressedStore struct {
-    inner StateStore
+    inner Store
 }
 
-func (s *CompressedStore) Save(sessionID string, messages []Message) error {
+func (s *CompressedStore) Save(ctx context.Context, sessionID string, messages []Message) error {
     compressed := compress(messages)
-    return s.inner.Save(sessionID, compressed)
+    return s.inner.Save(ctx, sessionID, compressed)
 }
 ```
 
@@ -378,7 +370,7 @@ type Message struct {
     Version int
 }
 
-func (s *StateStore) Save(sessionID string, messages []Message, expectedVersion int) error {
+func (s *VersionedStore) Save(sessionID string, messages []Message, expectedVersion int) error {
     currentVersion := s.getVersion(sessionID)
     if currentVersion != expectedVersion {
         return ErrVersionMismatch
@@ -408,15 +400,17 @@ Use in-memory store for fast tests:
 
 ```go
 func TestStateManagement(t *testing.T) {
-    store := statestore.NewInMemoryStateStore()
+    store := statestore.NewMemoryStore()
     
+    ctx := context.Background()
+
     // Test save
-    messages := []Message
-    err := store.Save("session-1", messages)
+    messages := []Message{}
+    err := store.Save(ctx, "session-1", messages)
     assert.NoError(t, err)
-    
+
     // Test load
-    loaded, err := store.Load("session-1")
+    loaded, err := store.Load(ctx, "session-1")
     assert.NoError(t, err)
     assert.Equal(t, messages, loaded)
 }
@@ -424,19 +418,24 @@ func TestStateManagement(t *testing.T) {
 
 ### Mock Store
 
-For testing middleware:
+For testing state management:
 
 ```go
-type MockStateStore struct {
+type MockStore struct {
     messages map[string][]Message
 }
 
-func (m *MockStateStore) Load(sessionID string) ([]Message, error) {
+func (m *MockStore) Load(ctx context.Context, sessionID string) ([]Message, error) {
     return m.messages[sessionID], nil
 }
 
-func (m *MockStateStore) Save(sessionID string, messages []Message) error {
+func (m *MockStore) Save(ctx context.Context, sessionID string, messages []Message) error {
     m.messages[sessionID] = messages
+    return nil
+}
+
+func (m *MockStore) Fork(ctx context.Context, source string, target string) error {
+    m.messages[target] = append([]Message{}, m.messages[source]...)
     return nil
 }
 ```
@@ -476,14 +475,15 @@ result, err := pipeline.ExecuteWithSession(ctx, sessionID, "user", "Hello")
 
 **Use case**: Guest users, temporary chats
 
-### Cleanup on Logout
+### Branching Conversations
 
-Delete user sessions:
+Fork a session to explore different directions:
 
 ```go
-func handleLogout(userID string) {
+func branchConversation(userID, newBranchID string) {
     sessionID := fmt.Sprintf("user-%s", userID)
-    store.Delete(sessionID)
+    newSessionID := fmt.Sprintf("user-%s-branch-%s", userID, newBranchID)
+    store.Fork(ctx, sessionID, newSessionID)
 }
 ```
 
@@ -522,7 +522,7 @@ Enable both for best durability.
 
 ### Privacy Compliance
 
-- **Data deletion**: Implement Delete()
+- **Data deletion**: Implement cleanup mechanisms
 - **Data export**: Allow users to export history
 - **Encryption**: Encrypt messages at rest
 - **TTL**: Automatically delete old data
@@ -532,17 +532,12 @@ Enable both for best durability.
 ### Development (In-Memory)
 
 ```go
-store := statestore.NewInMemoryStateStore()
+store := statestore.NewMemoryStore()
 
-stateMiddleware := middleware.StateMiddleware(store, &middleware.StateMiddlewareConfig{
-    MaxMessages: 10,
-    TTL:         1 * time.Hour,
-})
-
-pipeline := pipeline.NewPipeline(
-    stateMiddleware,
-    // ... other middleware
-)
+// Use store directly for state management
+messages, _ := store.Load(ctx, sessionID)
+// ... execute pipeline ...
+store.Save(ctx, sessionID, updatedMessages)
 ```
 
 ### Production (Redis)
@@ -556,17 +551,12 @@ redisClient := redis.NewClient(&redis.Options{
     PoolSize:     10,
 })
 
-store := statestore.NewRedisStateStore(redisClient)
+store := statestore.NewRedisStore(redisClient)
 
-stateMiddleware := middleware.StateMiddleware(store, &middleware.StateMiddlewareConfig{
-    MaxMessages: 20,
-    TTL:         24 * time.Hour,
-})
-
-pipeline := pipeline.NewPipeline(
-    stateMiddleware,
-    // ... other middleware
-)
+// Use store directly for state management
+messages, _ := store.Load(ctx, sessionID)
+// ... execute pipeline ...
+store.Save(ctx, sessionID, updatedMessages)
 ```
 
 ## Summary
@@ -582,7 +572,7 @@ State management provides:
 ## Related Topics
 
 - [Pipeline Architecture](pipeline-architecture) - How state fits in pipelines
-- [Middleware Design](middleware-design) - StateMiddleware implementation
+- [State Store Reference](../reference/statestore) - Store interface details
 - [StateStore Reference](../reference/statestore) - Complete API
 - [Multi-turn Conversations Tutorial](../tutorials/02-multi-turn) - Hands-on guide
 

@@ -22,7 +22,7 @@ defer conv.Close()
 Send a message and wait for response.
 
 ```go
-func (c *Conversation) Send(ctx context.Context, message any) (*Response, error)
+func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption) (*Response, error)
 ```
 
 **Example:**
@@ -39,7 +39,7 @@ fmt.Println(resp.Text())
 Stream a response in real-time.
 
 ```go
-func (c *Conversation) Stream(ctx context.Context, message string) <-chan StreamChunk
+func (c *Conversation) Stream(ctx context.Context, message any, opts ...SendOption) <-chan StreamChunk
 ```
 
 **Example:**
@@ -57,15 +57,15 @@ for chunk := range conv.Stream(ctx, "Tell me a story") {
 Manage template variables.
 
 ```go
-func (c *Conversation) SetVar(key string, value any)
-func (c *Conversation) GetVar(key string) any
+func (c *Conversation) SetVar(name, value string)
+func (c *Conversation) GetVar(name string) (string, bool)
 func (c *Conversation) SetVars(vars map[string]any)
 ```
 
 **Example:**
 ```go
 conv.SetVar("user_name", "Alice")
-name := conv.GetVar("user_name")
+name, ok := conv.GetVar("user_name")
 ```
 
 ### OnTool / OnToolCtx
@@ -123,12 +123,15 @@ Register HTTP-based tool.
 func (c *Conversation) OnToolHTTP(name string, config *tools.HTTPToolConfig)
 ```
 
-### Subscribe
+### Event Hooks
 
-Subscribe to events.
+Use the `hooks` package to subscribe to events.
 
 ```go
-func (c *Conversation) Subscribe(event string, handler func(hooks.Event))
+hooks.On(conv, events.EventType, func(e *events.Event) { ... })
+hooks.OnEvent(conv, func(e *events.Event) { ... })
+hooks.OnToolCall(conv, func(name string, args map[string]any) { ... })
+hooks.OnProviderCall(conv, func(e *events.Event) { ... })
 ```
 
 ### ResolveTool / RejectTool
@@ -145,7 +148,7 @@ func (c *Conversation) RejectTool(id string, reason string) (*ToolResult, error)
 Get conversation history.
 
 ```go
-func (c *Conversation) Messages() []types.Message
+func (c *Conversation) Messages(ctx context.Context) []types.Message
 ```
 
 ### Clear
@@ -153,7 +156,7 @@ func (c *Conversation) Messages() []types.Message
 Clear conversation history.
 
 ```go
-func (c *Conversation) Clear()
+func (c *Conversation) Clear() error
 ```
 
 ### Fork

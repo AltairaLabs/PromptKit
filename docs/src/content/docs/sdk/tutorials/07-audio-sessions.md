@@ -256,11 +256,8 @@ The default turn detector uses silence duration:
 ```go
 import "github.com/AltairaLabs/PromptKit/runtime/audio"
 
-// Create custom turn detector
-detector := audio.NewSilenceDetector(audio.SilenceConfig{
-    SilenceThreshold:  500 * time.Millisecond,
-    MinSpeechDuration: 100 * time.Millisecond,
-})
+// Create custom turn detector with a silence threshold
+detector := audio.NewSilenceDetector(500 * time.Millisecond)
 
 conv, _ := sdk.OpenDuplex("./voice-assistant.pack.json", "assistant",
     sdk.WithTurnDetector(detector),

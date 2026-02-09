@@ -101,10 +101,7 @@ Configures a custom turn detector for audio sessions.
 **Example:**
 
 ```go
-detector := audio.NewSilenceDetector(audio.SilenceConfig{
-    SilenceThreshold:  500 * time.Millisecond,
-    MinSpeechDuration: 100 * time.Millisecond,
-})
+detector := audio.NewSilenceDetector(500 * time.Millisecond)
 
 conv, _ := sdk.OpenDuplex("./pack.json", "voice",
     sdk.WithTurnDetector(detector),
@@ -221,7 +218,7 @@ type AudioData struct {
 Coordinates interruption detection between AudioTurnStage and TTSStage.
 
 ```go
-handler := audio.NewInterruptionHandler()
+handler := audio.NewInterruptionHandler(audio.InterruptionImmediate, vadAnalyzer)
 
 // Used internally by VAD pipeline
 // Automatically handles barge-in detection

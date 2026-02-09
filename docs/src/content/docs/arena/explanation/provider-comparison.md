@@ -179,13 +179,11 @@ spec:
 
     providers: [gemini-flash]
     assertions:
-      # Expect fast responses
-max_seconds: 2
-
       # Good at direct answers
       - type: content_includes
         params:
-          patterns: "key information"
+          patterns: ["key information"]
+          message: "Should contain key information"
 ```
 
 ### Ollama (Local LLMs)
@@ -234,13 +232,11 @@ spec:
 
     providers: [ollama-llama]
     assertions:
-      # Local models may be slower (depends on hardware)
-      max_seconds: 10
-
       # Good for iterative development
       - type: content_includes
         params:
-          patterns: "key concepts"
+          patterns: ["key concepts"]
+          message: "Should contain key concepts"
 ```
 
 ## Response Style Comparison
@@ -287,8 +283,9 @@ assertions:
       patterns: ["cardiovascular", "mental", "energy"]
   
   # Not: format-specific assertion
-  # - type: regex
-  #   value: "^1\\. .+"  # Too OpenAI-specific
+  # - type: content_matches
+  #   params:
+  #     pattern: "^1\\. .+"  # Too OpenAI-specific
 ```
 
 ### Verbosity Differences
@@ -383,17 +380,7 @@ claude-sonnet:         ~1.5-2.5 seconds
 gemini-pro:            ~1.0-2.0 seconds
 ```
 
-**Test with appropriate thresholds:**
-```yaml
-assertions:
-  # Fast models
-max_seconds: 2
-    providers: [openai-mini, gemini-flash, claude-haiku]
-  
-  # Powerful models (allow more time)
-max_seconds: 4
-    providers: [openai-gpt4o, claude-sonnet, gemini-pro]
-```
+**Note:** Arena does not provide a built-in response time assertion. Response latency can be observed in test output reports and tracked over time as a metric.
 
 ### Context Window Handling
 
@@ -423,8 +410,11 @@ spec:
       - role: user
         content: "Summarize the key points"
         assertions:
-          - type: references_document
-            value: true
+          - type: llm_judge
+            params:
+              criteria: "Response accurately references and summarizes the provided document"
+              judge_provider: "openai/gpt-4o-mini"
+              message: "Should reference document content"
 ```
 
 ## Cost Analysis
@@ -603,7 +593,10 @@ turns:
   - name: "High Throughput"
     providers: [gemini-flash]
     assertions:
-max_seconds: 1
+      - type: content_includes
+        params:
+          patterns: ["result"]
+          message: "Should return a result"
 ```
 
 ### Fallback Testing
@@ -669,9 +662,11 @@ Account for style differences:
 ```yaml
 # Test content, not format
 assertions:
-  - type: content_similarity
-    baseline: "${fixtures.expected_content}"
-    threshold: 0.85  # 85% similar
+  - type: llm_judge
+    params:
+      criteria: "Response covers the same key points as the expected content"
+      judge_provider: "openai/gpt-4o-mini"
+      message: "Should be similar to expected content"
 ```
 
 ### 3. Use Tags for Provider Categories

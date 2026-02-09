@@ -52,24 +52,6 @@ conv, _ := sdk.Open("./app.pack.json", "chat",
 )
 ```
 
-### Override Temperature
-
-```go
-conv, _ := sdk.Open("./app.pack.json", "chat",
-    sdk.WithTemperature(0.9),
-)
-```
-
-### Multiple Options
-
-```go
-conv, _ := sdk.Open("./app.pack.json", "chat",
-    sdk.WithModel("gpt-4o"),
-    sdk.WithTemperature(0.8),
-    sdk.WithMaxTokens(2000),
-)
-```
-
 ## Environment Variables
 
 The SDK uses these environment variables:
@@ -79,9 +61,6 @@ The SDK uses these environment variables:
 export OPENAI_API_KEY="sk-..."
 export ANTHROPIC_API_KEY="sk-ant-..."
 export GOOGLE_API_KEY="..."
-
-# Optional: Default model
-export PROMPTKIT_MODEL="gpt-4o-mini"
 ```
 
 ## Error Handling
@@ -94,8 +73,8 @@ if err != nil {
         log.Fatal("Pack file not found")
     case errors.Is(err, sdk.ErrPromptNotFound):
         log.Fatal("Prompt not in pack")
-    case errors.Is(err, sdk.ErrInvalidPack):
-        log.Fatal("Pack file is invalid")
+    case errors.Is(err, sdk.ErrProviderNotDetected):
+        log.Fatal("No provider could be auto-detected")
     default:
         log.Fatalf("Failed to open: %v", err)
     }

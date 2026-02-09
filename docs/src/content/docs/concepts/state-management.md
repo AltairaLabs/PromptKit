@@ -22,11 +22,11 @@ LLMs are stateless:
 
 ```go
 // First message
-response1 := llm.Complete("What's the capital of France?")
+response1 := llm.Predict("What's the capital of France?")
 // "Paris"
 
 // Second message - no memory!
-response2 := llm.Complete("What about Germany?")
+response2 := llm.Predict("What about Germany?")
 // "What do you mean 'what about Germany'?"
 ```
 
@@ -40,7 +40,7 @@ messages := []Message{
     {Role: "assistant", Content: "Paris"},
     {Role: "user", Content: "What about Germany?"},
 }
-response := llm.Complete(messages)
+response := llm.Predict(messages)
 // "The capital of Germany is Berlin"
 ```
 
@@ -60,26 +60,22 @@ Sessions enable:
 - **History isolation**: Users don't see each other's messages
 - **Concurrent access**: Multiple requests per session
 
-### StateMiddleware
+### Using the Store Interface
 
-Manages state automatically:
+The `Store` interface provides `Load`, `Save`, and `Fork` methods:
 
 ```go
-store := statestore.NewRedisStateStore(redisClient)
+store := statestore.NewMemoryStore()
 
-stateMiddleware := middleware.StateMiddleware(store, &middleware.StateMiddlewareConfig{
-    MaxMessages: 10,
-    TTL:         24 * time.Hour,
-})
+// Save conversation state
+err := store.Save(sessionID, messages)
 
-pipe := pipeline.NewPipeline(
-    stateMiddleware,  // Loads history before, saves after
-    middleware.ProviderMiddleware(provider, nil, nil, nil),
-)
-```
+// Load conversation state
+messages, err := store.Load(sessionID)
 
-**Before execution**: Loads history  
-**After execution**: Saves new messages  
+// Fork a conversation (create a branch)
+err := store.Fork(sourceSessionID, newSessionID)
+```  
 
 ## State Stores
 
@@ -88,7 +84,7 @@ pipe := pipeline.NewPipeline(
 Fast, but not persistent:
 
 ```go
-store := statestore.NewInMemoryStateStore()
+store := statestore.NewMemoryStore()
 ```
 
 **Pros**: Very fast (~1-10µs)  
@@ -110,15 +106,16 @@ store := statestore.NewRedisStateStore(redisClient)
 **Cons**: Slower (~1-5ms), requires Redis  
 **Use for**: Production, distributed systems  
 
-## Configuration Options
+## Usage Patterns
 
-### Message Limits
+### Limiting History Size
 
-Control history size:
+Control history size by trimming messages after loading:
 
 ```go
-config := &middleware.StateMiddlewareConfig{
-    MaxMessages: 20,  // Keep last 20 messages
+messages, _ := store.Load(sessionID)
+if len(messages) > 20 {
+    messages = messages[len(messages)-20:]
 }
 ```
 
@@ -126,21 +123,6 @@ config := &middleware.StateMiddlewareConfig{
 - Lower costs (fewer tokens)
 - Faster loading
 - More relevant context
-
-### Time-To-Live (TTL)
-
-Auto-delete old sessions:
-
-```go
-config := &middleware.StateMiddlewareConfig{
-    TTL: 24 * time.Hour,  // Delete after 24h
-}
-```
-
-**Benefits**:
-- Automatic cleanup
-- Privacy compliance
-- Cost reduction
 
 ## Session Patterns
 
@@ -184,7 +166,7 @@ sessionID := uuid.New().String()
 store := statestore.NewRedisStateStore(redisClient)
 
 // Development
-store := statestore.NewInMemoryStateStore()
+store := statestore.NewMemoryStore()
 ```
 
 ✅ **Set appropriate limits**
@@ -306,7 +288,7 @@ if metrics.LoadLatency > 100*time.Millisecond {
 
 ```go
 func TestStateStore(t *testing.T) {
-    store := statestore.NewInMemoryStateStore()
+    store := statestore.NewMemoryStore()
     
     // Save messages
     messages := []types.Message{

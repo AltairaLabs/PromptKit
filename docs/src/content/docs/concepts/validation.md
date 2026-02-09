@@ -51,16 +51,7 @@ bannedWords := validators.NewBannedWordsValidator([]string{
     "hack", "crack", "pirate",
 })
 
-lengthValidator := validators.NewLengthValidator(1, 1000)
-
-// Add to pipeline
-pipe := pipeline.NewPipeline(
-    middleware.ValidatorMiddleware([]validators.Validator{
-        bannedWords,
-        lengthValidator,
-    }, nil),
-    middleware.ProviderMiddleware(provider, nil, nil, nil),
-)
+lengthValidator := validators.NewLengthValidator()
 ```
 
 ### SDK Validation
@@ -112,10 +103,10 @@ validator := validators.NewBannedWordsValidator([]string{
 
 ### LengthValidator
 
-Enforces min/max length:
+Enforces length constraints:
 
 ```go
-validator := validators.NewLengthValidator(10, 1000)
+validator := validators.NewLengthValidator()
 ```
 
 **Use for**: Cost control, quality assurance
@@ -156,40 +147,26 @@ func (v *CustomValidator) Name() string {
 
 ### Pre-Execution (Input)
 
+Validate user input before sending to the LLM:
+
 ```go
-pipe := pipeline.NewPipeline(
-    middleware.ValidatorMiddleware(inputValidators, &middleware.ValidatorConfig{
-        Stage:           "pre",  // Before LLM
-        FailOnViolation: true,
-    }),
-    middleware.ProviderMiddleware(provider, nil, nil, nil),
-)
+err := inputValidator.Validate(userMessage)
+if err != nil {
+    // Block the request
+    return fmt.Errorf("input validation failed: %w", err)
+}
 ```
 
 ### Post-Execution (Output)
 
-```go
-pipe := pipeline.NewPipeline(
-    middleware.ProviderMiddleware(provider, nil, nil, nil),
-    middleware.ValidatorMiddleware(outputValidators, &middleware.ValidatorConfig{
-        Stage:           "post",  // After LLM
-        FailOnViolation: true,
-    }),
-)
-```
-
-### Both Stages
+Validate LLM responses before returning to the user:
 
 ```go
-pipe := pipeline.NewPipeline(
-    middleware.ValidatorMiddleware(inputValidators, &middleware.ValidatorConfig{
-        Stage: "pre",
-    }),
-    middleware.ProviderMiddleware(provider, nil, nil, nil),
-    middleware.ValidatorMiddleware(outputValidators, &middleware.ValidatorConfig{
-        Stage: "post",
-    }),
-)
+err := outputValidator.Validate(response)
+if err != nil {
+    // Block or replace the response
+    return fmt.Errorf("output validation failed: %w", err)
+}
 ```
 
 ## Common Use Cases
@@ -279,29 +256,21 @@ tests:
 ### Strict (Production)
 
 ```go
-config := &middleware.ValidatorConfig{
-    FailOnViolation: true,   // Block requests
-    LogViolations:   true,    // Track issues
+// Block requests that fail validation
+err := validator.Validate(message)
+if err != nil {
+    return err  // Reject the request
 }
 ```
 
 ### Permissive (Development)
 
 ```go
-config := &middleware.ValidatorConfig{
-    FailOnViolation: false,   // Allow through
-    LogViolations:   true,     // But log for analysis
-}
-```
-
-### Adaptive
-
-```go
-func GetValidationConfig(env string) *middleware.ValidatorConfig {
-    if env == "production" {
-        return &middleware.ValidatorConfig{FailOnViolation: true}
-    }
-    return &middleware.ValidatorConfig{FailOnViolation: false}
+// Log but allow through
+err := validator.Validate(message)
+if err != nil {
+    logger.Warn("validation failed", zap.Error(err))
+    // Continue processing
 }
 ```
 
