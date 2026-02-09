@@ -47,7 +47,7 @@ Create the arena configuration:
 ```yaml
 # arena.yaml
 apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: ArenaConfig
+kind: Arena
 metadata:
   name: duplex-test
 

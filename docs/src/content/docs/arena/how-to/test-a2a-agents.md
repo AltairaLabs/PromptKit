@@ -37,7 +37,7 @@ Add an `a2a_agents` block to your Arena config:
 ```yaml
 # config.arena.yaml
 apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: ArenaConfig
+kind: Arena
 metadata:
   name: a2a-demo
 spec:
