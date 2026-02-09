@@ -57,10 +57,11 @@ The base `Provider` interface defines the minimal contract all providers must im
 type Provider interface {
     // Identity
     ID() string
+    Model() string
 
-    // Chat operations
-    Chat(ctx context.Context, req ChatRequest) (ChatResponse, error)
-    ChatStream(ctx context.Context, req ChatRequest) (<-chan StreamChunk, error)
+    // Prediction operations
+    Predict(ctx context.Context, req PredictionRequest) (PredictionResponse, error)
+    PredictStream(ctx context.Context, req PredictionRequest) (<-chan StreamChunk, error)
     SupportsStreaming() bool
 
     // Cost calculation
@@ -75,9 +76,9 @@ type Provider interface {
 ```
 
 **Key Responsibilities**:
-- **Identity**: Unique provider identification
-- **Chat**: Execute chat completions (blocking)
-- **Streaming**: Execute streaming chat completions
+- **Identity**: Unique provider identification and model name
+- **Predict**: Execute prediction requests (blocking)
+- **Streaming**: Execute streaming prediction requests
 - **Cost**: Calculate provider-specific costs
 - **Configuration**: Runtime behavior flags
 - **Lifecycle**: Resource cleanup
@@ -91,15 +92,23 @@ type ToolSupport interface {
     Provider // Extends base Provider
 
     // Convert tool descriptors to provider-native format
-    BuildTooling(descriptors []*ToolDescriptor) (interface{}, error)
+    BuildTooling(descriptors []*ToolDescriptor) (ProviderTools, error)
 
-    // Execute chat with tool support
-    ChatWithTools(
+    // Execute prediction with tool support
+    PredictWithTools(
         ctx context.Context,
-        req ChatRequest,
-        tools interface{},
+        req PredictionRequest,
+        tools ProviderTools,
         toolChoice string,
-    ) (ChatResponse, []types.MessageToolCall, error)
+    ) (PredictionResponse, []types.MessageToolCall, error)
+
+    // Execute streaming prediction with tool support
+    PredictStreamWithTools(
+        ctx context.Context,
+        req PredictionRequest,
+        tools ProviderTools,
+        toolChoice string,
+    ) (<-chan StreamChunk, error)
 }
 ```
 
@@ -129,19 +138,20 @@ type StreamingInputSupport interface {
 
 ## Request & Response Types
 
-### ChatRequest
+### PredictionRequest
 
 Unified request format across all providers:
 
 ```go
-type ChatRequest struct {
-    System      string                 // System prompt
-    Messages    []types.Message        // Conversation history
-    Temperature float32                // Sampling temperature
-    TopP        float32                // Nucleus sampling
-    MaxTokens   int                    // Maximum response length
-    Seed        *int                   // Reproducibility seed
-    Metadata    map[string]interface{} // Provider-specific extras
+type PredictionRequest struct {
+    System         string                 // System prompt
+    Messages       []types.Message        // Conversation history
+    Temperature    float32                // Sampling temperature
+    TopP           float32                // Nucleus sampling
+    MaxTokens      int                    // Maximum response length
+    Seed           *int                   // Reproducibility seed
+    ResponseFormat *ResponseFormat        // Optional response format (JSON mode)
+    Metadata       map[string]any         // Provider-specific extras
 }
 ```
 
@@ -150,22 +160,24 @@ type ChatRequest struct {
 - **Extensible**: Metadata field for provider-specific options
 - **Type Safe**: Structured fields prevent errors
 
-### ChatResponse
+### PredictionResponse
 
 Unified response format:
 
 ```go
-type ChatResponse struct {
+type PredictionResponse struct {
     Content    string                  // Response text
+    Parts      []types.ContentPart     // Multimodal content parts (text, image, audio, video)
     ToolCalls  []types.MessageToolCall // Tool invocations
     CostInfo   *types.CostInfo         // Token usage & cost
     Latency    time.Duration           // Response time
     Raw        []byte                  // Raw API response (debug)
-    RawRequest interface{}             // Raw API request (debug)
+    RawRequest any                     // Raw API request (debug)
 }
 ```
 
 **Key Features**:
+- **Multimodal**: Rich content parts beyond text
 - **Cost Tracking**: Built-in cost calculation
 - **Performance Metrics**: Latency measurement
 - **Debugging**: Optional raw data capture
@@ -251,7 +263,7 @@ sequenceDiagram
     App->>Registry: Get(id)
     Registry-->>App: provider
 
-    App->>Provider: Chat(request)
+    App->>Provider: Predict(request)
     Provider-->>App: response
 
     App->>Registry: Close()
@@ -280,7 +292,7 @@ type ProviderSpec struct {
 ```go
 func init() {
     RegisterProviderFactory("openai", func(spec ProviderSpec) (Provider, error) {
-        return NewOpenAIProvider(spec)
+        return openai.NewProvider(spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput), nil
     })
 }
 ```
@@ -369,12 +381,12 @@ sequenceDiagram
     participant Provider
     participant API
 
-    Client->>Provider: Chat(request)
+    Client->>Provider: Predict(request)
     Provider->>API: HTTP POST
     Note over API: Processing...
     API-->>Provider: Complete Response
     Provider->>Provider: Parse & Transform
-    Provider-->>Client: ChatResponse
+    Provider-->>Client: PredictionResponse
 ```
 
 **Characteristics**:
@@ -391,7 +403,7 @@ sequenceDiagram
     participant Provider
     participant API
 
-    Client->>Provider: ChatStream(request)
+    Client->>Provider: PredictStream(request)
     Provider->>API: HTTP POST (Accept: text/event-stream)
     Provider-->>Client: StreamChunk channel
 
@@ -736,7 +748,7 @@ mock.AddResponse("Hello", nil)
 mock.AddToolCall("get_weather", args, result)
 mock.SetLatency(100 * time.Millisecond)
 
-response, err := mock.Chat(ctx, request)
+response, err := mock.Predict(ctx, request)
 ```
 
 ### Logging Integration

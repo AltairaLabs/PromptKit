@@ -50,24 +50,31 @@ mkdir -p prompts config packs
 cat > prompts/greeting.yaml <<'EOF'
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: PromptConfig
+metadata:
+  name: Customer Greeting
 spec:
   task_type: greeting
-  name: Customer Greeting
   description: Welcome customers and identify their needs
-  
-  system_prompt: |
+  version: v1.0.0
+
+  system_template: |
     You are a friendly customer service representative.
     Greet the customer warmly and ask how you can help them today.
-  
-  user_template: |
-    Customer: 
-    Previous interactions: 
-  
-  template_engine: go
-  
-  parameters:
-    temperature: 0.8
-    max_tokens: 150
+    Customer: {{customer_name}}
+    Previous interactions: {{previous_interactions}}
+
+  template_engine:
+    version: v1
+    syntax: "{{variable}}"
+
+  variables:
+    - name: customer_name
+      type: string
+      required: true
+    - name: previous_interactions
+      type: string
+      required: false
+      default: "none"
 EOF
 ```
 
@@ -77,32 +84,39 @@ EOF
 cat > prompts/support.yaml <<'EOF'
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: PromptConfig
+metadata:
+  name: Technical Support
 spec:
   task_type: support
-  name: Technical Support
   description: Provide technical support and solutions
-  
-  system_prompt: |
+  version: v1.0.0
+
+  system_template: |
     You are a knowledgeable technical support specialist.
     Help customers solve their technical issues with clear, step-by-step guidance.
     Always be patient and understanding.
-  
-  user_template: |
-    Customer: 
-    Issue: 
-    Product: 
-  
-  template_engine: go
-  
-  parameters:
-    temperature: 0.7
-    max_tokens: 500
-  
-  tools:
-    - name: search_knowledge_base
-      description: Search the knowledge base for solutions
-    - name: create_ticket
-      description: Create a support ticket
+    Customer: {{customer_name}}
+    Issue: {{issue}}
+    Product: {{product}}
+
+  template_engine:
+    version: v1
+    syntax: "{{variable}}"
+
+  variables:
+    - name: customer_name
+      type: string
+      required: true
+    - name: issue
+      type: string
+      required: true
+    - name: product
+      type: string
+      required: true
+
+  allowed_tools:
+    - search_knowledge_base
+    - create_ticket
 EOF
 ```
 
@@ -112,34 +126,48 @@ EOF
 cat > prompts/escalation.yaml <<'EOF'
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: PromptConfig
+metadata:
+  name: Escalation Handler
 spec:
   task_type: escalation
-  name: Escalation Handler
   description: Handle complex issues requiring escalation
-  
-  system_prompt: |
+  version: v1.0.0
+
+  system_template: |
     You are a senior support specialist handling escalated issues.
     Document the issue thoroughly and prepare it for senior management review.
     Be empathetic and assure the customer their issue has high priority.
-  
-  user_template: |
-    Customer: 
-    Account Type: 
-    Issue: 
-    Previous attempts: 
-    Urgency: 
-  
-  template_engine: go
-  
-  parameters:
-    temperature: 0.6
-    max_tokens: 600
-  
-  tools:
-    - name: create_escalation_ticket
-      description: Create high-priority escalation ticket
-    - name: notify_manager
-      description: Notify support manager of escalation
+    Customer: {{customer_name}}
+    Account Type: {{account_type}}
+    Issue: {{issue}}
+    Previous attempts: {{previous_attempts}}
+    Urgency: {{urgency}}
+
+  template_engine:
+    version: v1
+    syntax: "{{variable}}"
+
+  variables:
+    - name: customer_name
+      type: string
+      required: true
+    - name: account_type
+      type: string
+      required: true
+    - name: issue
+      type: string
+      required: true
+    - name: previous_attempts
+      type: string
+      required: false
+      default: "none"
+    - name: urgency
+      type: string
+      required: true
+
+  allowed_tools:
+    - create_escalation_ticket
+    - notify_manager
 EOF
 ```
 
@@ -238,17 +266,16 @@ In your application, you can select prompts by task type:
 
 ```go
 // Load pack
-pack, _ := manager.LoadPack("./packs/customer-service.pack.json")
+pack, _ := prompt.LoadPack("./packs/customer-service.pack.json")
 
-// Use greeting prompt
-conv, _ := manager.NewConversation(ctx, pack, config.ConversationConfig{
-    TaskType: "greeting",
-})
+// Access greeting prompt
+greetingPrompt := pack.GetPrompt("greeting")
 
-// Later, switch to support
-supportConv, _ := manager.NewConversation(ctx, pack, config.ConversationConfig{
-    TaskType: "support",
-})
+// Access support prompt
+supportPrompt := pack.GetPrompt("support")
+
+// List all available prompts
+promptTypes := pack.ListPrompts()
 ```
 
 ## Organizing Large Packs
@@ -286,24 +313,30 @@ Create a follow-up prompt:
 cat > prompts/followup.yaml <<'EOF'
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: PromptConfig
+metadata:
+  name: Follow-up Check
 spec:
   task_type: followup
-  name: Follow-up Check
   description: Check on customer satisfaction after support
-  
-  system_prompt: |
+  version: v1.0.0
+
+  system_template: |
     You are conducting a satisfaction check after customer support.
     Ask if the issue was resolved and if they need any additional help.
-  
-  user_template: |
-    Customer: 
-    Resolution: 
-  
-  template_engine: go
-  
-  parameters:
-    temperature: 0.8
-    max_tokens: 200
+    Customer: {{customer_name}}
+    Resolution: {{resolution}}
+
+  template_engine:
+    version: v1
+    syntax: "{{variable}}"
+
+  variables:
+    - name: customer_name
+      type: string
+      required: true
+    - name: resolution
+      type: string
+      required: true
 EOF
 ```
 

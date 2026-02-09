@@ -43,22 +43,6 @@ Override the model.
 sdk.WithModel("gpt-4o")
 ```
 
-### WithTemperature
-
-Override temperature.
-
-```go
-sdk.WithTemperature(0.8)
-```
-
-### WithMaxTokens
-
-Override max tokens.
-
-```go
-sdk.WithMaxTokens(2000)
-```
-
 ### WithImageFile
 
 Attach an image from a file.
@@ -122,7 +106,7 @@ sdk.WithVideoFile("/path/to/video.mp4")
 Send a message and get a response.
 
 ```go
-func (c *Conversation) Send(ctx context.Context, message any) (*Response, error)
+func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption) (*Response, error)
 ```
 
 ### Stream
@@ -130,7 +114,7 @@ func (c *Conversation) Send(ctx context.Context, message any) (*Response, error)
 Stream a response.
 
 ```go
-func (c *Conversation) Stream(ctx context.Context, message string) <-chan StreamChunk
+func (c *Conversation) Stream(ctx context.Context, message any, opts ...SendOption) <-chan StreamChunk
 ```
 
 ### SetVar
@@ -138,7 +122,7 @@ func (c *Conversation) Stream(ctx context.Context, message string) <-chan Stream
 Set a template variable.
 
 ```go
-func (c *Conversation) SetVar(key string, value any)
+func (c *Conversation) SetVar(name, value string)
 ```
 
 ### GetVar
@@ -146,7 +130,7 @@ func (c *Conversation) SetVar(key string, value any)
 Get a template variable.
 
 ```go
-func (c *Conversation) GetVar(key string) any
+func (c *Conversation) GetVar(name string) (string, bool)
 ```
 
 ### SetVars
@@ -186,7 +170,7 @@ func (c *Conversation) OnTools(handlers map[string]ToolHandler)
 Register a tool with approval workflow.
 
 ```go
-func (c *Conversation) OnToolAsync(name string, check CheckFunc, execute ToolHandler)
+func (c *Conversation) OnToolAsync(name string, check func(args map[string]any) tools.PendingResult, execute ToolHandler)
 ```
 
 ### OnToolHTTP
@@ -197,12 +181,19 @@ Register an HTTP tool.
 func (c *Conversation) OnToolHTTP(name string, config *tools.HTTPToolConfig)
 ```
 
-### Subscribe
+### EventBus
 
-Subscribe to events.
+Get the event bus for subscribing to events via the `hooks` package.
 
 ```go
-func (c *Conversation) Subscribe(event string, handler func(hooks.Event))
+func (c *Conversation) EventBus() *events.EventBus
+```
+
+**Example:**
+```go
+hooks.On(conv, events.EventProviderCallCompleted, func(e *events.Event) {
+    log.Printf("Provider call completed: %s", e.Type)
+})
 ```
 
 ### Messages
@@ -210,7 +201,7 @@ func (c *Conversation) Subscribe(event string, handler func(hooks.Event))
 Get conversation history.
 
 ```go
-func (c *Conversation) Messages() []types.Message
+func (c *Conversation) Messages(ctx context.Context) []types.Message
 ```
 
 ### Clear
@@ -218,7 +209,7 @@ func (c *Conversation) Messages() []types.Message
 Clear conversation history.
 
 ```go
-func (c *Conversation) Clear()
+func (c *Conversation) Clear() error
 ```
 
 ### Fork
@@ -250,7 +241,7 @@ func (c *Conversation) ID() string
 Approve a pending tool.
 
 ```go
-func (c *Conversation) ResolveTool(id string) (*ToolResult, error)
+func (c *Conversation) ResolveTool(id string) (*tools.ToolResolution, error)
 ```
 
 ### RejectTool
@@ -258,7 +249,7 @@ func (c *Conversation) ResolveTool(id string) (*ToolResult, error)
 Reject a pending tool.
 
 ```go
-func (c *Conversation) RejectTool(id string, reason string) (*ToolResult, error)
+func (c *Conversation) RejectTool(id string, reason string) (*tools.ToolResolution, error)
 ```
 
 ## Response Type
@@ -284,7 +275,7 @@ func (r *Response) HasToolCalls() bool
 Get tool calls.
 
 ```go
-func (r *Response) ToolCalls() []ToolCall
+func (r *Response) ToolCalls() []types.MessageToolCall
 ```
 
 ### PendingTools
@@ -299,9 +290,12 @@ func (r *Response) PendingTools() []PendingTool
 
 ```go
 type StreamChunk struct {
-    Type  ChunkType // ChunkText, ChunkToolCall, ChunkDone
-    Text  string    // Text content
-    Error error     // Error if any
+    Type     ChunkType              // ChunkText, ChunkToolCall, ChunkMedia, ChunkDone
+    Text     string                 // Text content (for ChunkText)
+    ToolCall *types.MessageToolCall // Tool call (for ChunkToolCall)
+    Media    *types.MediaContent    // Media content (for ChunkMedia)
+    Message  *Response              // Complete response (for ChunkDone)
+    Error    error                  // Error if any
 }
 ```
 
@@ -309,9 +303,10 @@ type StreamChunk struct {
 
 ```go
 const (
-    ChunkText     ChunkType = "text"
-    ChunkToolCall ChunkType = "tool_call"
-    ChunkDone     ChunkType = "done"
+    ChunkText     ChunkType = iota // 0 - text content
+    ChunkToolCall                  // 1 - tool call
+    ChunkMedia                     // 2 - media content
+    ChunkDone                      // 3 - streaming complete
 )
 ```
 
@@ -333,12 +328,14 @@ type ToolHandlerCtx func(ctx context.Context, args map[string]any) (any, error)
 
 ```go
 var (
-    ErrPackNotFound       = errors.New("pack file not found")
-    ErrPromptNotFound     = errors.New("prompt not found in pack")
-    ErrInvalidPack        = errors.New("invalid pack format")
-    ErrProviderError      = errors.New("provider error")
-    ErrConversationClosed = errors.New("conversation closed")
-    ErrToolNotRegistered  = errors.New("tool not registered")
+    ErrConversationClosed  = errors.New("conversation is closed")
+    ErrConversationNotFound = errors.New("conversation not found")
+    ErrNoStateStore        = errors.New("no state store configured")
+    ErrPromptNotFound      = errors.New("prompt not found in pack")
+    ErrPackNotFound        = errors.New("pack file not found")
+    ErrProviderNotDetected = errors.New("could not detect provider: no API keys found in environment")
+    ErrToolNotRegistered   = errors.New("tool handler not registered")
+    ErrToolNotInPack       = errors.New("tool not defined in pack")
 )
 ```
 

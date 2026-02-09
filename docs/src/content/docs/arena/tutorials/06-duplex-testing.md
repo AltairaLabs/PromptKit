@@ -45,17 +45,22 @@ mkdir -p audio prompts providers scenarios
 Create the arena configuration:
 
 ```yaml
-# arena.yaml
+# config.arena.yaml
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Arena
 metadata:
   name: duplex-test
 
 spec:
-  prompts_dir: ./prompts
-  providers_dir: ./providers
-  scenarios_dir: ./scenarios
-  output_dir: ./out
+  prompts:
+    - path: ./prompts
+  providers:
+    - path: ./providers
+  scenarios:
+    - path: ./scenarios
+  defaults:
+    output:
+      dir: ./out
 ```
 
 ## Step 2: Configure the Gemini Provider
@@ -374,10 +379,11 @@ assertions:
     params:
       pattern: ".{20,}"  # At least 20 characters
 
-  # Sentiment analysis
-  - type: sentiment
+  # Quality evaluation
+  - type: llm_judge
     params:
-      expected: positive
+      criteria: "Response has positive sentiment"
+      judge_provider: "openai/gpt-4o-mini"
 ```
 
 ## Debugging Duplex Tests

@@ -30,7 +30,7 @@ Practical, task-focused guides for common SDK operations.
 
 ## Observability
 
-- **[Monitor Events](monitor-events)** - Subscribe to events with `Subscribe()`
+- **[Monitor Events](monitor-events)** - Subscribe to events with `hooks.On()`
 
 ## Quick Reference
 
@@ -83,8 +83,8 @@ conv.SetVars(map[string]any{
 ### Subscribe to Events
 
 ```go
-conv.Subscribe(hooks.EventSend, func(e hooks.Event) {
-    log.Printf("Sent: %v", e.Data["message"])
+hooks.On(conv, events.EventProviderCallCompleted, func(e *events.Event) {
+    log.Printf("Provider call completed: %s", e.Type)
 })
 ```
 

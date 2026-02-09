@@ -95,11 +95,11 @@ func main() {
     }
     
     // Create provider
-    provider := openai.NewOpenAIProvider(
+    provider := openai.NewProvider(
         "openai",
         "gpt-4o-mini",
-        os.Getenv("OPENAI_API_KEY"),
-        openai.DefaultProviderDefaults(),
+        "", // uses OPENAI_API_KEY env var
+        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
         false,
     )
     defer provider.Close()
@@ -307,16 +307,16 @@ func main() {
     }
     
     // Provider and pipeline
-    provider := openai.NewOpenAIProvider(
+    provider := openai.NewProvider(
         "openai",
         "gpt-4o-mini",
-        os.Getenv("OPENAI_API_KEY"),
-        openai.DefaultProviderDefaults(),
+        "", // uses OPENAI_API_KEY env var
+        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
         false,
     )
     defer provider.Close()
     
-    store := statestore.NewInMemoryStateStore()
+    store := statestore.NewMemoryStore()
     
     pipe := pipeline.NewPipeline(
         middleware.StateMiddleware(store),

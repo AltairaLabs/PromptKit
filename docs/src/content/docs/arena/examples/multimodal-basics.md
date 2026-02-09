@@ -127,14 +127,11 @@ promptarena run arena.yaml --scenario image-analysis
 # Test only mock provider
 promptarena run arena.yaml --provider mock-vision
 
-# Test with specific prompt config
-promptarena run arena.yaml --prompt image-analyzer
-
 # Increase concurrency for faster testing
 promptarena run arena.yaml --concurrency 5
 
 # Generate only HTML output
-promptarena run arena.yaml --output-format html
+promptarena run arena.yaml --format html
 ```
 
 ## Mock Responses
@@ -235,7 +232,7 @@ promptarena run arena.yaml
 promptarena run arena.yaml -v
 
 # Generate detailed HTML report
-promptarena run arena.yaml --output-dir ./test-results
+promptarena run arena.yaml --out ./test-results
 ```
 
 ## Expected Output

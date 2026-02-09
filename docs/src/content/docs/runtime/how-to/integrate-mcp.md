@@ -170,11 +170,11 @@ func main() {
     }
     
     // Create provider
-    provider := openai.NewOpenAIProvider(
+    provider := openai.NewProvider(
         "openai",
         "gpt-4o-mini",
         "",
-        openai.DefaultProviderDefaults(),
+        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
         false,
     )
     defer provider.Close()

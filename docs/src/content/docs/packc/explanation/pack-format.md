@@ -36,13 +36,20 @@ A PromptPack-compliant `.pack.json` file:
 
 ```json
 {
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
   "id": "customer-support",
   "name": "Customer Support Pack",
-  "version": "1.0.0",
+  "version": "v1.0.0",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
   "prompts": {
     "greeting": {
-      "system": "You are a helpful support agent.",
-      "user_template": "Help the user with: {{.query}}"
+      "id": "greeting",
+      "name": "Greeting",
+      "system_template": "You are a helpful support agent. Help the user with: {{query}}",
+      "version": "v1.0.0"
     }
   }
 }
@@ -59,19 +66,22 @@ A PromptPack-compliant `.pack.json` file:
 
 ### Prompt Structure
 
-Each prompt in the `prompts` array:
+Each prompt in the `prompts` map (keyed by task type):
 
 ```json
 {
   "id": "task-id",
   "name": "Display Name",
   "description": "What this prompt does",
-  "system": "System prompt text",
-  "template": "User message template with {{.variables}}",
-  "parameters": {
-    "temperature": 0.7,
-    "max_tokens": 1000
-  },
+  "version": "v1.0.0",
+  "system_template": "System prompt text with {{variables}}",
+  "variables": [
+    {
+      "name": "variable_name",
+      "type": "string",
+      "required": true
+    }
+  ],
   "tools": ["tool1", "tool2"]
 }
 ```
@@ -125,18 +135,15 @@ Reusable prompt components, defined once and referenced by multiple prompts:
 ```json
 {
   "fragments": {
-    "company-info": {
-      "content": "You work for Acme Corp, a leader in...",
-      "description": "Standard company information"
-    }
+    "company-info": "You work for Acme Corp, a leader in..."
   },
-  "prompts": [
-    {
+  "prompts": {
+    "support": {
       "id": "support",
-      "system": "{{fragment:company-info}}\n\nYou are a support agent...",
-      "fragments": ["company-info"]
+      "system_template": "{{company-info}}\n\nYou are a support agent...",
+      "version": "v1.0.0"
     }
-  ]
+  }
 }
 ```
 
@@ -163,11 +170,14 @@ MAJOR.MINOR.PATCH
 
 ### Schema Versions
 
-The PromptPack format itself is versioned via `apiVersion`:
+The PromptPack format itself is versioned via `$schema` and `compilation.schema`:
 
 ```json
 {
-  "apiVersion": "promptkit.altairalabs.ai/v1alpha1"
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "compilation": {
+    "schema": "v1"
+  }
 }
 ```
 
@@ -209,9 +219,10 @@ Use the [PromptPack spec](https://promptpack.org) for maximum portability:
 
 ```json
 {
-  "apiVersion": "promptkit.altairalabs.ai/v1alpha1",
-  "kind": "PromptPack",
-  "metadata": { "name": "...", "version": "..." }
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "my-pack",
+  "name": "My Pack",
+  "version": "v1.0.0"
 }
 ```
 

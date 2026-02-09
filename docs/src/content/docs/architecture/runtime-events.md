@@ -40,12 +40,12 @@ The `EventBus` is a thread-safe pub/sub system that distributes events to regist
 bus := events.NewEventBus()
 
 // Subscribe to specific event types
-bus.Subscribe(events.EventPipelineStarted, func(e events.Event) {
+bus.Subscribe(events.EventPipelineStarted, func(e *events.Event) {
     log.Printf("Pipeline started: %s", e.ConversationID)
 })
 
 // Subscribe to all events
-bus.SubscribeAll(func(e events.Event) {
+bus.SubscribeAll(func(e *events.Event) {
     metrics.RecordEvent(e.Type)
 })
 ```
@@ -198,18 +198,22 @@ func (m *ContextBuilderMiddleware) Execute(ctx *ExecutionContext, next NextFunc)
 
 ### SDK Integration
 
-The SDK exposes event listeners on conversations:
+The SDK exposes event listeners via the `hooks` package:
 
 ```go
-// Create manager with event bus
-manager, _ := sdk.NewConversationManager(
-    sdk.WithProvider(provider),
-    sdk.WithEventBus(eventBus),
+conv, _ := sdk.Open("./assistant.pack.json", "chat",
+    sdk.WithModel("gpt-4o-mini"),
 )
+defer conv.Close()
 
-// Add listener to conversation
-conversation.AddEventListener(func(e *events.Event) {
+// Subscribe to all events
+hooks.OnEvent(conv, func(e *events.Event) {
     fmt.Printf("[%s] %s\n", e.Type, e.Timestamp)
+})
+
+// Subscribe to a specific event type
+hooks.On(conv, events.EventToolCallStarted, func(e *events.Event) {
+    fmt.Printf("Tool call: %+v\n", e.Data)
 })
 ```
 
@@ -230,7 +234,7 @@ adapter.Start()
 Integrate with observability platforms:
 
 ```go
-bus.SubscribeAll(func(e events.Event) {
+bus.SubscribeAll(func(e *events.Event) {
     // Send to Datadog, New Relic, etc.
     datadog.SendEvent(map[string]interface{}{
         "type": string(e.Type),
@@ -249,12 +253,12 @@ Monitor LLM costs in real-time:
 var totalCost float64
 var mu sync.Mutex
 
-bus.Subscribe(events.EventProviderCallCompleted, func(e events.Event) {
+bus.Subscribe(events.EventProviderCallCompleted, func(e *events.Event) {
     data := e.Data.(events.ProviderCallCompletedData)
     mu.Lock()
     totalCost += data.Cost
     mu.Unlock()
-    
+
     log.Printf("Call cost: $%.4f | Total: $%.4f", data.Cost, totalCost)
 })
 ```
@@ -272,7 +276,7 @@ type MiddlewareStats struct {
 
 stats := make(map[string]*MiddlewareStats)
 
-bus.Subscribe(events.EventMiddlewareCompleted, func(e events.Event) {
+bus.Subscribe(events.EventMiddlewareCompleted, func(e *events.Event) {
     data := e.Data.(events.MiddlewareCompletedData)
     
     if _, ok := stats[data.Name]; !ok {
@@ -289,9 +293,9 @@ bus.Subscribe(events.EventMiddlewareCompleted, func(e events.Event) {
 Capture execution traces for debugging:
 
 ```go
-var trace []events.Event
+var trace []*events.Event
 
-bus.SubscribeAll(func(e events.Event) {
+bus.SubscribeAll(func(e *events.Event) {
     trace = append(trace, e)
 })
 
@@ -311,13 +315,13 @@ if err != nil {
 Events are delivered asynchronously to avoid impacting pipeline performance:
 
 ```go
-func (eb *EventBus) Publish(event Event) {
+func (eb *EventBus) Publish(event *Event) {
     // Copy listeners while holding lock
     eb.mu.RLock()
     listeners := make([]Listener, len(eb.listeners[event.Type]))
     copy(listeners, eb.listeners[event.Type])
     eb.mu.RUnlock()
-    
+
     // Execute asynchronously
     go func() {
         for _, listener := range listeners {
@@ -336,7 +340,7 @@ Events contain metadata and metrics, not full message payloads, to minimize memo
 Listener panics are caught to prevent cascading failures:
 
 ```go
-func safeInvoke(listener Listener, event Event) {
+func safeInvoke(listener Listener, event *Event) {
     defer func() {
         if r := recover(); r != nil {
             log.Printf("Event listener panic: %v", r)

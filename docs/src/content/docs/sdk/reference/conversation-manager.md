@@ -131,7 +131,7 @@ Use the `hooks` package to subscribe to events.
 hooks.On(conv, events.EventType, func(e *events.Event) { ... })
 hooks.OnEvent(conv, func(e *events.Event) { ... })
 hooks.OnToolCall(conv, func(name string, args map[string]any) { ... })
-hooks.OnProviderCall(conv, func(e *events.Event) { ... })
+hooks.OnProviderCall(conv, func(model string, inputTokens, outputTokens int, cost float64) { ... })
 ```
 
 ### ResolveTool / RejectTool
@@ -139,8 +139,8 @@ hooks.OnProviderCall(conv, func(e *events.Event) { ... })
 Handle pending approvals.
 
 ```go
-func (c *Conversation) ResolveTool(id string) (*ToolResult, error)
-func (c *Conversation) RejectTool(id string, reason string) (*ToolResult, error)
+func (c *Conversation) ResolveTool(id string) (*tools.ToolResolution, error)
+func (c *Conversation) RejectTool(id string, reason string) (*tools.ToolResolution, error)
 ```
 
 ### Messages

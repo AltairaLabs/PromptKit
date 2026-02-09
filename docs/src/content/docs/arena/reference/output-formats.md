@@ -575,7 +575,7 @@ defaults:
 
 ```bash
 # Or override via CLI
-promptarena run arena.yaml --output custom-dir
+promptarena run arena.yaml --out custom-dir
 ```
 
 ## Programmatic Access

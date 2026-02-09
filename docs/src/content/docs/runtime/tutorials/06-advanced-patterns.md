@@ -138,70 +138,73 @@ import (
     "github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// Logging Middleware
-type LoggingMiddleware struct {
-    next pipeline.Middleware
+// LoggingWrapper wraps a provider to add logging
+type LoggingWrapper struct {
+    inner providers.Provider
 }
 
-func NewLoggingMiddleware(next pipeline.Middleware) *LoggingMiddleware {
-    return &LoggingMiddleware{next: next}
+func NewLoggingWrapper(inner providers.Provider) *LoggingWrapper {
+    return &LoggingWrapper{inner: inner}
 }
 
-func (m *LoggingMiddleware) Process(ctx *pipeline.ExecutionContext, msg *types.Message) (*types.ProviderResponse, error) {
+func (w *LoggingWrapper) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
     start := time.Now()
-    
-    fmt.Printf("[%s] Processing: %s...\n", 
-        time.Now().Format("15:04:05"),
-        msg.Content[:min(50, len(msg.Content))])
-    
-    response, err := m.next.Process(ctx, msg)
-    
+
+    content := ""
+    if len(req.Messages) > 0 {
+        content = req.Messages[len(req.Messages)-1].Content
+        if len(content) > 50 {
+            content = content[:50]
+        }
+    }
+    fmt.Printf("[%s] Processing: %s...\n", time.Now().Format("15:04:05"), content)
+
+    resp, err := w.inner.Predict(ctx, req)
+
     duration := time.Since(start)
     if err != nil {
         fmt.Printf("[%s] Error after %v: %v\n", time.Now().Format("15:04:05"), duration, err)
-    } else {
-        fmt.Printf("[%s] Success in %v (tokens: %d, cost: $%.6f)\n",
+    } else if resp.CostInfo != nil {
+        fmt.Printf("[%s] Success in %v (cost: $%.6f)\n",
             time.Now().Format("15:04:05"),
             duration,
-            response.Usage.TotalTokens,
-            ctx.ExecutionResult.Cost.TotalCost)
+            resp.CostInfo.TotalCost)
     }
-    
-    return response, err
+
+    return resp, err
 }
 
-func min(a, b int) int {
-    if a < b {
-        return a
-    }
-    return b
+// BudgetWrapper wraps a provider to enforce budget limits
+type BudgetWrapper struct {
+    inner  providers.Provider
+    budget float64
+    spent  float64
+    mu     sync.Mutex
 }
 
-// Budget Middleware
-type BudgetMiddleware struct {
-    next      pipeline.Middleware
-    budget    float64
-    spent     float64
-}
-
-func NewBudgetMiddleware(next pipeline.Middleware, budget float64) *BudgetMiddleware {
-    return &BudgetMiddleware{
-        next:   next,
+func NewBudgetWrapper(inner providers.Provider, budget float64) *BudgetWrapper {
+    return &BudgetWrapper{
+        inner:  inner,
         budget: budget,
     }
 }
 
-func (m *BudgetMiddleware) Process(ctx *pipeline.ExecutionContext, msg *types.Message) (*types.ProviderResponse, error) {
-    if m.spent >= m.budget {
-        return nil, fmt.Errorf("budget exceeded: $%.2f / $%.2f", m.spent, m.budget)
+func (w *BudgetWrapper) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+    w.mu.Lock()
+    if w.spent >= w.budget {
+        w.mu.Unlock()
+        return providers.PredictionResponse{}, fmt.Errorf("budget exceeded: $%.2f / $%.2f", w.spent, w.budget)
     }
-    
-    response, err := m.next.Process(ctx, msg)
-    if err == nil && ctx.ExecutionResult != nil {
-        m.spent += ctx.ExecutionResult.Cost.TotalCost
+    w.mu.Unlock()
+
+    resp, err := w.inner.Predict(ctx, req)
+    if err == nil && resp.CostInfo != nil {
+        w.mu.Lock()
+        w.spent += resp.CostInfo.TotalCost
+        w.mu.Unlock()
     }
-    
-    return response, err
+
+    return resp, err
 }
 ```
 
@@ -304,7 +307,7 @@ import (
 )
 
 type ProviderPool struct {
-    providers []types.Provider
+    providers []providers.Provider
     current   int32
     health    map[string]*ProviderHealth
     mu        sync.RWMutex
@@ -316,51 +319,51 @@ type ProviderHealth struct {
     available   bool
 }
 
-func NewProviderPool(providers ...types.Provider) *ProviderPool {
+func NewProviderPool(providerList ...providers.Provider) *ProviderPool {
     pool := &ProviderPool{
-        providers: providers,
+        providers: providerList,
         health:    make(map[string]*ProviderHealth),
     }
-    
-    for _, p := range providers {
-        pool.health[p.GetProviderName()] = &ProviderHealth{
+
+    for _, p := range providerList {
+        pool.health[p.ID()] = &ProviderHealth{
             available: true,
         }
     }
-    
+
     return pool
 }
 
-func (pp *ProviderPool) Execute(ctx context.Context, messages []types.Message, config *types.ProviderConfig) (*types.ProviderResponse, error) {
+func (pp *ProviderPool) Execute(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
     startIdx := int(atomic.LoadInt32(&pp.current)) % len(pp.providers)
-    
+
     for i := 0; i < len(pp.providers); i++ {
         idx := (startIdx + i) % len(pp.providers)
         provider := pp.providers[idx]
-        
+
         // Check health
         pp.mu.RLock()
-        health := pp.health[provider.GetProviderName()]
+        health := pp.health[provider.ID()]
         pp.mu.RUnlock()
-        
+
         if !health.available {
             continue
         }
-        
-        response, err := provider.Complete(ctx, messages, config)
+
+        response, err := provider.Predict(ctx, req)
         if err == nil {
             atomic.StoreInt32(&pp.current, int32(idx))
             atomic.StoreInt32(&health.failures, 0)
             return response, nil
         }
-        
+
         // Record failure
         failures := atomic.AddInt32(&health.failures, 1)
         if failures >= 3 {
             pp.mu.Lock()
             health.available = false
             pp.mu.Unlock()
-            
+
             // Reset after 1 minute
             go func(h *ProviderHealth) {
                 time.Sleep(time.Minute)
@@ -371,8 +374,8 @@ func (pp *ProviderPool) Execute(ctx context.Context, messages []types.Message, c
             }(health)
         }
     }
-    
-    return nil, fmt.Errorf("all providers unavailable")
+
+    return providers.PredictionResponse{}, fmt.Errorf("all providers unavailable")
 }
 ```
 
@@ -453,7 +456,7 @@ Reuse providers across requests:
 
 ```go
 // Create once, reuse many times
-provider := openai.NewOpenAIProvider(...)
+provider := openai.NewProvider(...)
 defer provider.Close()
 
 // Use in multiple pipelines or requests
@@ -514,61 +517,55 @@ import (
     "fmt"
     "time"
     
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline"
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
+    "github.com/AltairaLabs/PromptKit/runtime/providers"
     "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
+    "github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 func main() {
     // Response cache
     cache := NewResponseCache(10 * time.Minute)
-    
+
     // Provider with connection pooling
-    provider := openai.NewOpenAIProvider(
+    provider := openai.NewProvider(
         "openai",
         "gpt-4o-mini",
-        os.Getenv("OPENAI_API_KEY"),
-        openai.DefaultProviderDefaults(),
+        "", // uses OPENAI_API_KEY env var
+        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
         false,
     )
     defer provider.Close()
-    
-    // Pipeline with custom middleware
-    basePipe := middleware.ProviderMiddleware(provider, nil, nil, &middleware.ProviderMiddlewareConfig{
-        MaxTokens:   500,
-        Temperature: 0.7,
-    })
-    
-    loggingPipe := NewLoggingMiddleware(basePipe)
-    budgetPipe := NewBudgetMiddleware(loggingPipe, 1.0)  // $1 budget
-    
-    pipe := pipeline.NewPipeline(budgetPipe)
-    defer pipe.Shutdown(context.Background())
-    
+
+    // Wrap with logging and budget
+    budgetProvider := NewBudgetWrapper(provider, 1.0) // $1 budget
+
     ctx := context.Background()
-    
+
     // Process with caching
     prompts := []string{
         "What is AI?",
         "What is machine learning?",
         "What is AI?",  // Cache hit!
     }
-    
+
     for _, prompt := range prompts {
         if cached, exists := cache.Get(prompt); exists {
             fmt.Printf("\n[CACHE] %s\n", prompt)
-            fmt.Printf("Response: %s\n", cached.Response.Content)
+            fmt.Printf("Response: %s\n", cached.Content)
             continue
         }
-        
-        result, err := pipe.Execute(ctx, "user", prompt)
+
+        resp, err := budgetProvider.Predict(ctx, providers.PredictionRequest{
+            Messages:    []types.Message{{Role: "user", Content: prompt}},
+            Temperature: 0.7,
+            MaxTokens:   500,
+        })
         if err != nil {
             fmt.Printf("Error: %v\n", err)
             continue
         }
-        
-        cache.Set(prompt, result)
-        fmt.Printf("\nResponse: %s\n", result.Response.Content)
+
+        fmt.Printf("\nResponse: %s\n", resp.Content)
     }
 }
 ```

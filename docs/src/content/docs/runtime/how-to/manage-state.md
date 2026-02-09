@@ -21,7 +21,6 @@ store := statestore.NewMemoryStore()
 
 // Redis store (production)
 store := statestore.NewRedisStore(redisClient)
-defer store.Close()
 ```
 
 ### Step 2: Use Session IDs
@@ -56,24 +55,26 @@ store := statestore.NewMemoryStore()
 
 ```go
 // Save state manually
-sessionID := "session-1"
-messages := []types.Message{
-    {Role: "user", Content: "Hello"},
-    {Role: "assistant", Content: "Hi there!"},
+state := &statestore.ConversationState{
+    ID: "session-1",
+    Messages: []types.Message{
+        {Role: "user", Content: "Hello"},
+        {Role: "assistant", Content: "Hi there!"},
+    },
 }
 
-err := store.Save(ctx, sessionID, messages)
+err := store.Save(ctx, state)
 if err != nil {
     log.Fatal(err)
 }
 
 // Load state
-loaded, err := store.Load(ctx, sessionID)
+loaded, err := store.Load(ctx, "session-1")
 if err != nil {
     log.Fatal(err)
 }
 
-for _, msg := range loaded {
+for _, msg := range loaded.Messages {
     log.Printf("%s: %s\n", msg.Role, msg.Content)
 }
 ```
@@ -100,10 +101,9 @@ redisClient := redis.NewClient(&redis.Options{
 })
 
 store := statestore.NewRedisStore(redisClient)
-defer store.Close()
 ```
 
-### With Authentication
+### With Authentication and Options
 
 ```go
 redisClient := redis.NewClient(&redis.Options{
@@ -112,7 +112,10 @@ redisClient := redis.NewClient(&redis.Options{
     DB:       0,
 })
 
-store := statestore.NewRedisStore(redisClient)
+store := statestore.NewRedisStore(redisClient,
+    statestore.WithTTL(24*time.Hour),
+    statestore.WithPrefix("myapp:"),
+)
 ```
 
 ### Connection Pooling
@@ -157,35 +160,39 @@ func main() {
         Addr: "localhost:6379",
     })
     store := statestore.NewRedisStore(redisClient)
-    defer store.Close()
 
     // Create provider
     provider := openai.NewProvider(
         "openai",
         "gpt-4o-mini",
         "",
-        openai.DefaultProviderDefaults(),
+        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
         false,
     )
     defer provider.Close()
 
-    // Build pipeline
-    pipe := pipeline.NewPipeline(provider)
-    defer pipe.Shutdown(context.Background())
-    
     ctx := context.Background()
-    
-    // User 1 conversation
-    userID1 := "user-alice"
-    pipe.ExecuteWithContext(ctx, userID1, "user", "My favorite color is blue")
-    result1, _ := pipe.ExecuteWithContext(ctx, userID1, "user", "What's my favorite color?")
-    log.Printf("User 1: %s\n", result1.Response.Content)
-    
-    // User 2 conversation (separate state)
-    userID2 := "user-bob"
-    pipe.ExecuteWithContext(ctx, userID2, "user", "I love pizza")
-    result2, _ := pipe.ExecuteWithContext(ctx, userID2, "user", "What food do I love?")
-    log.Printf("User 2: %s\n", result2.Response.Content)
+
+    // User 1 conversation - save state
+    state1 := &statestore.ConversationState{
+        ID:       "user-alice",
+        Messages: []types.Message{{Role: "user", Content: "My favorite color is blue"}},
+    }
+    store.Save(ctx, state1)
+
+    // User 2 conversation - separate state
+    state2 := &statestore.ConversationState{
+        ID:       "user-bob",
+        Messages: []types.Message{{Role: "user", Content: "I love pizza"}},
+    }
+    store.Save(ctx, state2)
+
+    // Load each user's state independently
+    loaded1, _ := store.Load(ctx, "user-alice")
+    log.Printf("User 1 messages: %d\n", len(loaded1.Messages))
+
+    loaded2, _ := store.Load(ctx, "user-bob")
+    log.Printf("User 2 messages: %d\n", len(loaded2.Messages))
 }
 ```
 
@@ -203,22 +210,22 @@ import (
 )
 
 func cleanupOldSessions(store statestore.Store) {
-    // Redis TTL handles expiration automatically
+    // Redis TTL handles expiration automatically via WithTTL option
     // For manual cleanup, load and re-save trimmed state
     ctx := context.Background()
-    sessionIDs := []string{"old-session-1", "old-session-2"}
+    conversationIDs := []string{"old-session-1", "old-session-2"}
 
-    for _, id := range sessionIDs {
-        messages, err := store.Load(ctx, id)
+    for _, id := range conversationIDs {
+        state, err := store.Load(ctx, id)
         if err != nil {
-            log.Printf("Failed to load session %s: %v", id, err)
+            log.Printf("Failed to load conversation %s: %v", id, err)
             continue
         }
         // Trim old messages
-        if len(messages) > 20 {
-            messages = messages[len(messages)-20:]
-            if err := store.Save(ctx, id, messages); err != nil {
-                log.Printf("Failed to save session %s: %v", id, err)
+        if len(state.Messages) > 20 {
+            state.Messages = state.Messages[len(state.Messages)-20:]
+            if err := store.Save(ctx, state); err != nil {
+                log.Printf("Failed to save conversation %s: %v", id, err)
             }
         }
     }
@@ -247,35 +254,48 @@ sessionID := fmt.Sprintf("support-%s", ticketID)
 
 ```go
 // Load existing state
-messages, err := store.Load(ctx, sessionID)
+state, err := store.Load(ctx, conversationID)
 if err != nil {
     log.Fatal(err)
 }
 
 // Keep only recent messages (sliding window)
 maxMessages := 10
-if len(messages) > maxMessages {
-    messages = messages[len(messages)-maxMessages:]
+if len(state.Messages) > maxMessages {
+    state.Messages = state.Messages[len(state.Messages)-maxMessages:]
 }
 
 // Save trimmed state
-err = store.Save(ctx, sessionID, messages)
+err = store.Save(ctx, state)
 ```
 
 ### Token Limit Management
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/prompt"
-
 // Load state
-messages, _ := store.Load(ctx, sessionID)
+state, _ := store.Load(ctx, conversationID)
 
-// Truncate by tokens
+// Estimate and trim by token count
+// Rough estimate: 4 chars per token
+totalChars := 0
+for _, msg := range state.Messages {
+    totalChars += len(msg.Content)
+}
+estimatedTokens := totalChars / 4
+
+// Trim if too many tokens
 maxTokens := 4000
-truncated := prompt.TruncateMessages(messages, maxTokens)
+for estimatedTokens > maxTokens && len(state.Messages) > 1 {
+    state.Messages = state.Messages[1:]
+    totalChars = 0
+    for _, msg := range state.Messages {
+        totalChars += len(msg.Content)
+    }
+    estimatedTokens = totalChars / 4
+}
 
-// Save truncated state
-store.Save(ctx, sessionID, truncated)
+// Save trimmed state
+store.Save(ctx, state)
 ```
 
 ### State Sharing (Fork)
@@ -296,18 +316,18 @@ if err != nil {
 ### Connection Errors
 
 ```go
-messages, err := store.Load(ctx, sessionID)
+state, err := store.Load(ctx, conversationID)
 if err != nil {
     log.Printf("Failed to load state: %v", err)
     // Start with empty state
-    messages = []types.Message{}
+    state = &statestore.ConversationState{ID: conversationID}
 }
 ```
 
 ### Save Failures
 
 ```go
-err := store.Save(ctx, sessionID, messages)
+err := store.Save(ctx, state)
 if err != nil {
     log.Printf("Warning: Failed to save state: %v", err)
     // Continue execution, state may be lost
@@ -317,19 +337,19 @@ if err != nil {
 ### Retry Logic
 
 ```go
-func saveWithRetry(store statestore.Store, sessionID string, messages []types.Message, maxRetries int) error {
+func saveWithRetry(store statestore.Store, state *statestore.ConversationState, maxRetries int) error {
     ctx := context.Background()
-    
+
     for i := 0; i < maxRetries; i++ {
-        err := store.Save(ctx, sessionID, messages)
+        err := store.Save(ctx, state)
         if err == nil {
             return nil
         }
-        
+
         log.Printf("Save failed (attempt %d/%d): %v", i+1, maxRetries, err)
         time.Sleep(time.Second * time.Duration(i+1))
     }
-    
+
     return fmt.Errorf("failed after %d retries", maxRetries)
 }
 ```
@@ -358,11 +378,11 @@ func saveWithRetry(store statestore.Store, sessionID string, messages []types.Me
    ```
 
 3. Verify store connection:
-   
+
    ```go
    // Test save/load
-   testMessages := []types.Message{}
-   store.Save(ctx, "test-session", testMessages)
+   testState := &statestore.ConversationState{ID: "test-session"}
+   store.Save(ctx, testState)
    loaded, err := store.Load(ctx, "test-session")
    if err != nil {
        log.Fatal("Store not working")
@@ -403,12 +423,12 @@ func saveWithRetry(store statestore.Store, sessionID string, messages []types.Me
 
 1. Switch to Redis for production
 2. Implement periodic cleanup
-3. Limit messages per session:
+3. Limit messages per conversation:
    ```go
-   messages, _ := store.Load(ctx, sessionID)
-   if len(messages) > 50 {
-       messages = messages[len(messages)-50:]
-       store.Save(ctx, sessionID, messages)
+   state, _ := store.Load(ctx, conversationID)
+   if len(state.Messages) > 50 {
+       state.Messages = state.Messages[len(state.Messages)-50:]
+       store.Save(ctx, state)
    }
    ```
 
@@ -426,9 +446,9 @@ func saveWithRetry(store statestore.Store, sessionID string, messages []types.Me
    store := statestore.NewMemoryStore()
    ```
 
-2. **Always close store**:
+2. **Use TTL for Redis store**:
    ```go
-   defer store.Close()
+   store := statestore.NewRedisStore(redisClient, statestore.WithTTL(24*time.Hour))
    ```
 
 3. **Use descriptive session IDs**:
@@ -451,10 +471,10 @@ func saveWithRetry(store statestore.Store, sessionID string, messages []types.Me
 
 5. **Handle state errors gracefully**:
    ```go
-   messages, err := store.Load(ctx, sessionID)
+   state, err := store.Load(ctx, conversationID)
    if err != nil {
        log.Printf("State load failed: %v", err)
-       messages = []types.Message{}  // Start fresh
+       state = &statestore.ConversationState{ID: conversationID}  // Start fresh
    }
    ```
 
@@ -462,8 +482,8 @@ func saveWithRetry(store statestore.Store, sessionID string, messages []types.Me
    ```go
    // Trim old messages
    maxMessages := 20
-   if len(messages) > maxMessages {
-       messages = messages[len(messages)-maxMessages:]
+   if len(state.Messages) > maxMessages {
+       state.Messages = state.Messages[len(state.Messages)-maxMessages:]
    }
    ```
 

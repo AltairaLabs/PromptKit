@@ -48,8 +48,8 @@ hooks.OnToolCall(conv, func(name string, args map[string]any) {
 ## Monitor Provider Calls
 
 ```go
-hooks.OnProviderCall(conv, func(e *events.Event) {
-    log.Printf("Provider call: %v", e)
+hooks.OnProviderCall(conv, func(model string, inputTokens, outputTokens int, cost float64) {
+    log.Printf("Model %s: %d in, %d out, $%.4f", model, inputTokens, outputTokens, cost)
 })
 ```
 

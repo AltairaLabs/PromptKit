@@ -131,12 +131,10 @@ pack, _ := prompt.LoadPack("templates.pack.json")
 SDK uses simpler template approach:
 
 ```go
-conv := sdk.NewConversation(provider, &sdk.ConversationConfig{
-    SystemPrompt: "You are a helpful assistant for .",
-    Variables: map[string]string{
-        "company": "TechCorp",
-    },
-})
+conv, _ := sdk.Open("./assistant.pack.json", "chat",
+    sdk.WithModel("gpt-4o-mini"),
+)
+defer conv.Close()
 ```
 
 ## Template Syntax

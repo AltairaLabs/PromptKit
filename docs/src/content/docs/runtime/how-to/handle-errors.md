@@ -48,13 +48,13 @@ if err != nil {
 ### Rate Limit Errors
 
 ```go
-result, err := provider.Predict(ctx, messages, config)
+resp, err := provider.Predict(ctx, req)
 if err != nil {
     if strings.Contains(err.Error(), "rate_limit") {
         log.Println("Rate limited")
         // Wait and retry
         time.Sleep(5 * time.Second)
-        result, err = provider.Predict(ctx, messages, config)
+        resp, err = provider.Predict(ctx, req)
     }
 }
 ```
@@ -62,7 +62,7 @@ if err != nil {
 ### Authentication Errors
 
 ```go
-result, err := provider.Predict(ctx, messages, config)
+resp, err := provider.Predict(ctx, req)
 if err != nil {
     if strings.Contains(err.Error(), "authentication") ||
        strings.Contains(err.Error(), "invalid_api_key") {
@@ -149,29 +149,29 @@ func executeWithFixedRetry(pipe *pipeline.Pipeline, ctx context.Context, role, c
 
 ```go
 type ProviderPool struct {
-    providers []types.Provider
+    providers []providers.Provider
     current   int
 }
 
-func (p *ProviderPool) Execute(ctx context.Context, messages []types.Message, config *types.ProviderConfig) (*types.ProviderResponse, error) {
+func (p *ProviderPool) Execute(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
     var lastErr error
-    
+
     // Try each provider
     for i := 0; i < len(p.providers); i++ {
         provider := p.providers[(p.current+i)%len(p.providers)]
-        
-        result, err := provider.Predict(ctx, messages, config)
+
+        resp, err := provider.Predict(ctx, req)
         if err == nil {
             // Success - update current
             p.current = (p.current + i) % len(p.providers)
-            return result, nil
+            return resp, nil
         }
-        
+
         lastErr = err
         log.Printf("Provider %d failed: %v", i, err)
     }
-    
-    return nil, fmt.Errorf("all providers failed: %w", lastErr)
+
+    return providers.PredictionResponse{}, fmt.Errorf("all providers failed: %w", lastErr)
 }
 ```
 
@@ -211,7 +211,7 @@ func (cb *CircuitBreaker) Call(fn func() error) error {
 // Usage
 cb := &CircuitBreaker{maxFailures: 3, timeout: 30 * time.Second}
 err := cb.Call(func() error {
-    _, err := provider.Predict(ctx, messages, config)
+    _, err := provider.Predict(ctx, req)
     return err
 })
 ```
@@ -359,69 +359,72 @@ import (
     "strings"
     "time"
     
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline"
+    "github.com/AltairaLabs/PromptKit/runtime/providers"
     "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
     "github.com/AltairaLabs/PromptKit/runtime/providers/claude"
+    "github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 func main() {
     // Create providers
     openaiProvider := openai.NewProvider(
-        "openai", "gpt-4o-mini", "", openai.DefaultProviderDefaults(), false,
+        "openai", "gpt-4o-mini", "", providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000}, false,
     )
     defer openaiProvider.Close()
 
     claudeProvider := claude.NewProvider(
-        "claude", "claude-3-5-haiku-20241022", "", claude.DefaultProviderDefaults(), false,
+        "claude", "claude-3-5-haiku-20241022", "", providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 4096}, false,
     )
     defer claudeProvider.Close()
 
     // Provider pool with fallback
-    providers := []types.Provider{openaiProvider, claudeProvider}
+    providerList := []providers.Provider{openaiProvider, claudeProvider}
+
+    req := providers.PredictionRequest{
+        Messages:    []types.Message{{Role: "user", Content: "Hello!"}},
+        Temperature: 0.7,
+        MaxTokens:   2000,
+    }
 
     // Try each provider with retry
-    var result *pipeline.PipelineResult
+    var resp providers.PredictionResponse
     var err error
 
-    for _, provider := range providers {
-        pipe := pipeline.NewPipeline(provider)
-        defer pipe.Shutdown(context.Background())
-
-        // Retry with backoff
-        result, err = executeWithRetry(pipe, context.Background(), "user", "Hello!", 3)
+    for _, provider := range providerList {
+        resp, err = predictWithRetry(provider, context.Background(), req, 3)
         if err == nil {
             break
         }
 
-        log.Printf("Provider %s failed: %v", provider.GetProviderName(), err)
+        log.Printf("Provider %s failed: %v", provider.ID(), err)
     }
-    
+
     if err != nil {
         log.Fatal("All providers failed")
     }
-    
-    log.Printf("Success: %s", result.Response.Content)
+
+    log.Printf("Success: %s", resp.Content)
 }
 
-func executeWithRetry(pipe *pipeline.Pipeline, ctx context.Context, role, content string, maxRetries int) (*pipeline.PipelineResult, error) {
+func predictWithRetry(provider providers.Provider, ctx context.Context, req providers.PredictionRequest, maxRetries int) (providers.PredictionResponse, error) {
     for i := 0; i < maxRetries; i++ {
-        result, err := pipe.Execute(ctx, role, content)
+        resp, err := provider.Predict(ctx, req)
         if err == nil {
-            return result, nil
+            return resp, nil
         }
-        
+
         if !isRetryableError(err) {
-            return nil, err
+            return providers.PredictionResponse{}, err
         }
-        
+
         if i < maxRetries-1 {
             backoff := time.Duration(1<<uint(i)) * time.Second
             log.Printf("Retry %d/%d after %v", i+1, maxRetries, backoff)
             time.Sleep(backoff)
         }
     }
-    
-    return nil, fmt.Errorf("failed after %d retries", maxRetries)
+
+    return providers.PredictionResponse{}, fmt.Errorf("failed after %d retries", maxRetries)
 }
 
 func isRetryableError(err error) bool {
@@ -513,7 +516,7 @@ func isRetryableError(err error) bool {
 
 3. **Use multiple providers for redundancy**:
    ```go
-   providers := []types.Provider{openai, claude, gemini}
+   providerList := []providers.Provider{openaiProvider, claudeProvider, geminiProvider}
    ```
 
 4. **Log errors with context**:

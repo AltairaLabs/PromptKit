@@ -9,7 +9,7 @@ Complete API reference for the PromptKit Runtime components.
 
 The PromptKit Runtime provides the core execution engine for LLM interactions. It handles:
 
-- **Pipeline Execution**: Middleware-based processing with streaming support
+- **Pipeline Execution**: Stage-based processing with streaming support
 - **Provider Integration**: Multi-LLM support (OpenAI, Anthropic, Google Gemini)
 - **Tool Execution**: Function calling with MCP integration
 - **State Management**: Conversation persistence and caching
@@ -22,7 +22,7 @@ The PromptKit Runtime provides the core execution engine for LLM interactions. I
 
 | Component | Description | Reference |
 |-----------|-------------|-----------|
-| **Pipeline** | Middleware-based execution engine | [pipeline.md](pipeline) |
+| **Pipeline** | Stage-based execution engine | [pipeline.md](pipeline) |
 | **Providers** | LLM provider implementations | [providers.md](providers) |
 | **Tools** | Function calling and MCP integration | [tools.md](tools) |
 | **MCP** | Model Context Protocol support | [mcp.md](mcp) |
@@ -49,79 +49,80 @@ import (
 
 ## Basic Usage
 
-### Simple Pipeline
+### Simple Provider Usage
 
 ```go
 import (
     "context"
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline"
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
+    "github.com/AltairaLabs/PromptKit/runtime/providers"
     "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
+    "github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // Create provider
-provider := openai.NewOpenAIProvider(
+provider := openai.NewProvider(
     "openai",
     "gpt-4o-mini",
-    "", // default baseURL
-    openai.DefaultProviderDefaults(),
+    "", // default baseURL (uses env var for API key)
+    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 1500},
     false, // includeRawOutput
 )
+defer provider.Close()
 
-// Build pipeline with middleware
-pipe := pipeline.NewPipeline(
-    middleware.ProviderMiddleware(provider, nil, nil, &middleware.ProviderMiddlewareConfig{
-        MaxTokens:   1500,
-        Temperature: 0.7,
-    }),
-)
-
-// Execute
-result, err := pipe.Execute(ctx, "user", "Hello!")
+// Execute prediction
+ctx := context.Background()
+resp, err := provider.Predict(ctx, providers.PredictionRequest{
+    Messages: []types.Message{
+        {Role: "user", Content: "Hello!"},
+    },
+    Temperature: 0.7,
+    MaxTokens:   1500,
+})
 if err != nil {
     log.Fatal(err)
 }
 
-fmt.Println(result.Response.Content)
+fmt.Println(resp.Content)
 ```
 
-### With Tools
+### With MCP Tools
 
 ```go
 import (
-    "github.com/AltairaLabs/PromptKit/runtime/tools"
     "github.com/AltairaLabs/PromptKit/runtime/mcp"
 )
 
-// Create tool registry
-toolRegistry := tools.NewRegistry()
-
 // Register MCP server
 mcpRegistry := mcp.NewRegistry()
+defer mcpRegistry.Close()
+
 mcpRegistry.RegisterServer(mcp.ServerConfig{
     Name:    "filesystem",
     Command: "npx",
     Args:    []string{"-y", "@modelcontextprotocol/server-filesystem", "/allowed"},
 })
 
-// Discover and register MCP tools
-mcpExecutor := tools.NewMCPExecutor(mcpRegistry)
-toolRegistry.RegisterExecutor(mcpExecutor)
+// Discover tools
+ctx := context.Background()
+serverTools, err := mcpRegistry.ListAllTools(ctx)
+if err != nil {
+    log.Fatal(err)
+}
 
-// Use in pipeline
-pipe := pipeline.NewPipeline(
-    middleware.ProviderMiddleware(provider, toolRegistry, &pipeline.ToolPolicy{
-        ToolChoice: "auto",
-        MaxRounds:  5,
-    }, config),
-)
+for serverName, tools := range serverTools {
+    log.Printf("Server %s has %d tools\n", serverName, len(tools))
+}
 ```
 
 ### Streaming Execution
 
 ```go
 // Execute with streaming
-streamChan, err := pipe.ExecuteStream(ctx, "user", "Write a story")
+streamChan, err := provider.PredictStream(ctx, providers.PredictionRequest{
+    Messages:    []types.Message{{Role: "user", Content: "Write a story"}},
+    Temperature: 0.7,
+    MaxTokens:   1500,
+})
 if err != nil {
     log.Fatal(err)
 }
@@ -132,31 +133,18 @@ for chunk := range streamChan {
         log.Printf("Error: %v\n", chunk.Error)
         break
     }
-    
+
     if chunk.Delta != "" {
         fmt.Print(chunk.Delta)
     }
-    
-    if chunk.FinalResult != nil {
-        fmt.Printf("\n\nTotal tokens: %d\n", chunk.FinalResult.CostInfo.InputTokens)
+
+    if chunk.FinishReason != nil {
+        fmt.Printf("\n\nStream complete: %s\n", *chunk.FinishReason)
     }
 }
 ```
 
 ## Configuration
-
-### Pipeline Configuration
-
-```go
-config := &pipeline.PipelineRuntimeConfig{
-    MaxConcurrentExecutions: 100,        // Concurrent pipeline executions
-    StreamBufferSize:        100,        // Stream chunk buffer size
-    ExecutionTimeout:        30 * time.Second,  // Per-execution timeout
-    GracefulShutdownTimeout: 10 * time.Second,  // Shutdown grace period
-}
-
-pipe := pipeline.NewPipelineWithConfig(config, middleware...)
-```
 
 ### Provider Configuration
 
@@ -171,7 +159,7 @@ defaults := providers.ProviderDefaults{
     },
 }
 
-provider := openai.NewOpenAIProvider("openai", "gpt-4o-mini", "", defaults, false)
+provider := openai.NewProvider("openai", "gpt-4o-mini", "", defaults, false)
 ```
 
 ### Tool Policy
@@ -187,36 +175,25 @@ policy := &pipeline.ToolPolicy{
 
 ## Error Handling
 
-### Pipeline Errors
-
-```go
-result, err := pipe.Execute(ctx, "user", "Hello")
-if err != nil {
-    switch {
-    case errors.Is(err, pipeline.ErrPipelineShuttingDown):
-        log.Println("Pipeline is shutting down")
-    case errors.Is(err, context.DeadlineExceeded):
-        log.Println("Execution timeout")
-    default:
-        log.Printf("Execution failed: %v", err)
-    }
-}
-```
-
 ### Provider Errors
 
 ```go
-result, err := provider.Predict(ctx, req)
+resp, err := provider.Predict(ctx, req)
 if err != nil {
-    // Check for rate limiting, API errors, network errors
-    log.Printf("Provider error: %v", err)
+    switch {
+    case errors.Is(err, context.DeadlineExceeded):
+        log.Println("Request timeout")
+    default:
+        log.Printf("Provider error: %v", err)
+    }
 }
 ```
 
 ### Tool Errors
 
 ```go
-result, err := toolRegistry.Execute(ctx, "tool_name", argsJSON)
+// MCP tool call errors
+response, err := client.CallTool(ctx, "read_file", args)
 if err != nil {
     log.Printf("Tool execution failed: %v", err)
 }
@@ -228,7 +205,6 @@ if err != nil {
 
 ```go
 // Always close resources
-defer pipe.Shutdown(context.Background())
 defer provider.Close()
 defer mcpRegistry.Close()
 ```
@@ -240,14 +216,14 @@ defer mcpRegistry.Close()
 ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 defer cancel()
 
-result, err := pipe.Execute(ctx, "user", "Hello")
+resp, err := provider.Predict(ctx, req)
 ```
 
 ### Streaming Cleanup
 
 ```go
 // Always drain streaming channels
-streamChan, err := pipe.ExecuteStream(ctx, "user", "Hello")
+streamChan, err := provider.PredictStream(ctx, req)
 if err != nil {
     return err
 }
@@ -256,19 +232,6 @@ for chunk := range streamChan {
     // Process chunks
     if chunk.Error != nil {
         break
-    }
-}
-```
-
-### Error Recovery
-
-```go
-// Handle partial results on error
-result, err := pipe.Execute(ctx, "user", "Hello")
-if err != nil {
-    // Check if we got partial execution data
-    if result != nil && len(result.Messages) > 0 {
-        log.Printf("Partial execution: %d messages", len(result.Messages))
     }
 }
 ```

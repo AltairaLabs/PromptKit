@@ -499,8 +499,8 @@ jq '.summary' out/results.json > metrics/run-${BUILD_ID}.json
 ### Timeout Issues
 
 ```bash
-# Increase timeout for CI environments
-promptarena run --ci --timeout 600  # 10 minutes
+# Reduce concurrency for CI environments to avoid rate limits
+promptarena run --ci --concurrency 1
 ```
 
 ### Rate Limiting

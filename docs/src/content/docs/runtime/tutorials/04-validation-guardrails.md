@@ -47,11 +47,11 @@ import (
 
 func main() {
     // Create provider
-    provider := openai.NewOpenAIProvider(
+    provider := openai.NewProvider(
         "openai",
         "gpt-4o-mini",
-        os.Getenv("OPENAI_API_KEY"),
-        openai.DefaultProviderDefaults(),
+        "", // uses OPENAI_API_KEY env var
+        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
         false,
     )
     defer provider.Close()
@@ -61,7 +61,7 @@ func main() {
         "spam", "hack", "exploit",
     })
     
-    lengthValidator := validators.NewLengthValidator(10, 1000)
+    lengthValidator := validators.NewLengthValidator()
     
     // Build pipeline with validation
     pipe := pipeline.NewPipeline(
@@ -144,32 +144,29 @@ validator := validators.NewBannedWordsValidator([]string{
 
 ### LengthValidator
 
-Enforces message length limits:
+Checks content length against limits (configured via params):
 
 ```go
-validator := validators.NewLengthValidator(
-    10,    // Minimum length
-    1000,  // Maximum length
-)
+validator := validators.NewLengthValidator()
+// Limits are passed as params: max_characters, max_tokens
 ```
 
-### SentenceValidator
+### MaxSentencesValidator
 
-Ensures proper sentence structure:
+Checks sentence count limits:
 
 ```go
-validator := validators.NewSentenceValidator(
-    1,  // Min sentences
-    10, // Max sentences
-)
+validator := validators.NewMaxSentencesValidator()
+// Max sentence count is passed as params: max_sentences
 ```
 
-### RoleIntegrityValidator
+### RequiredFieldsValidator
 
-Validates message roles are correct:
+Checks for required fields in content:
 
 ```go
-validator := validators.NewRoleIntegrityValidator()
+validator := validators.NewRequiredFieldsValidator()
+// Required fields are passed as params: required_fields
 ```
 
 ## Custom Validators
@@ -190,23 +187,22 @@ import (
 // EmailValidator ensures messages don't contain email addresses
 type EmailValidator struct{}
 
-func (v *EmailValidator) ValidateMessage(msg *types.Message) error {
-    if strings.Contains(msg.Content, "@") && strings.Contains(msg.Content, ".com") {
-        return fmt.Errorf("email addresses not allowed")
+func (v *EmailValidator) Validate(content string, params map[string]interface{}) validators.ValidationResult {
+    if strings.Contains(content, "@") && strings.Contains(content, ".com") {
+        return validators.ValidationResult{
+            Passed:  false,
+            Details: "email addresses not allowed",
+        }
     }
-    return nil
-}
-
-func (v *EmailValidator) ValidateStream(chunk *types.StreamChunk) error {
-    return v.ValidateMessage(&types.Message{Content: chunk.Content})
+    return validators.ValidationResult{Passed: true}
 }
 
 // Use custom validator
 emailValidator := &EmailValidator{}
-pipe := pipeline.NewPipeline(
-    middleware.ValidatorMiddleware(emailValidator),
-    middleware.ProviderMiddleware(provider, nil, nil, config),
-)
+result := emailValidator.Validate("Send to user@example.com", nil)
+if !result.Passed {
+    log.Printf("Validation failed: %v", result.Details)
+}
 ```
 
 ## Production Example
@@ -245,26 +241,28 @@ func NewPIIValidator() *PIIValidator {
     }
 }
 
-func (v *PIIValidator) ValidateMessage(msg *types.Message) error {
-    if v.emailRegex.MatchString(msg.Content) {
-        return fmt.Errorf("email addresses not allowed")
+func (v *PIIValidator) Validate(content string, params map[string]interface{}) validators.ValidationResult {
+    if v.emailRegex.MatchString(content) {
+        return validators.ValidationResult{
+            Passed:  false,
+            Details: "email addresses not allowed",
+        }
     }
-    if v.phoneRegex.MatchString(msg.Content) {
-        return fmt.Errorf("phone numbers not allowed")
+    if v.phoneRegex.MatchString(content) {
+        return validators.ValidationResult{
+            Passed:  false,
+            Details: "phone numbers not allowed",
+        }
     }
-    return nil
-}
-
-func (v *PIIValidator) ValidateStream(chunk *types.StreamChunk) error {
-    return v.ValidateMessage(&types.Message{Content: chunk.Content})
+    return validators.ValidationResult{Passed: true}
 }
 
 func main() {
-    provider := openai.NewOpenAIProvider(
+    provider := openai.NewProvider(
         "openai",
         "gpt-4o-mini",
-        os.Getenv("OPENAI_API_KEY"),
-        openai.DefaultProviderDefaults(),
+        "", // uses OPENAI_API_KEY env var
+        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
         false,
     )
     defer provider.Close()
@@ -273,7 +271,7 @@ func main() {
     bannedWords := validators.NewBannedWordsValidator([]string{
         "spam", "scam", "hack", "exploit",
     })
-    lengthValidator := validators.NewLengthValidator(5, 500)
+    lengthValidator := validators.NewLengthValidator()
     piiValidator := NewPIIValidator()
     
     config := &middleware.ProviderMiddlewareConfig{

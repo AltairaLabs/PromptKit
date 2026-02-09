@@ -15,10 +15,14 @@ All providers implement the same interface:
 
 ```go
 type Provider interface {
-    Complete(ctx context.Context, messages []Message, config *ProviderConfig) (*ProviderResponse, error)
-    CompleteStream(ctx context.Context, messages []Message, config *ProviderConfig) (StreamReader, error)
-    GetProviderName() string
+    ID() string
+    Model() string
+    Predict(ctx context.Context, req PredictionRequest) (PredictionResponse, error)
+    PredictStream(ctx context.Context, req PredictionRequest) (<-chan StreamChunk, error)
+    SupportsStreaming() bool
+    ShouldIncludeRawOutput() bool
     Close() error
+    CalculateCost(inputTokens, outputTokens, cachedTokens int) types.CostInfo
 }
 ```
 
@@ -26,7 +30,7 @@ This allows code like:
 
 ```go
 // Same code works with any provider
-result, err := provider.Complete(ctx, messages, config)
+resp, err := provider.Predict(ctx, req)
 ```
 
 ## Why Provider Abstraction?
@@ -51,19 +55,19 @@ With abstraction:
 
 ```go
 // Works with any provider
-var provider types.Provider
+var provider providers.Provider
 
 // OpenAI
-provider = openai.NewOpenAIProvider(...)
+provider = openai.NewProvider(...)
 
 // Or Claude
-provider = anthropic.NewAnthropicProvider(...)
+provider = claude.NewProvider(...)
 
 // Or Gemini
-provider = gemini.NewGeminiProvider(...)
+provider = gemini.NewProvider(...)
 
 // Same code!
-response, err := provider.Complete(ctx, messages, config)
+resp, err := provider.Predict(ctx, req)
 ```
 
 ## Benefits
@@ -90,38 +94,38 @@ response, err := provider.Complete(ctx, messages, config)
 
 ## Provider Interface
 
-### Complete Method
+### Predict Method
 
-Synchronous completion:
+Synchronous prediction:
 
 ```go
-Complete(ctx context.Context, messages []Message, config *ProviderConfig) (*ProviderResponse, error)
+Predict(ctx context.Context, req PredictionRequest) (PredictionResponse, error)
 ```
 
 **Parameters**:
 - `ctx`: Timeout and cancellation
-- `messages`: Conversation history
-- `config`: Model parameters (temperature, max tokens, etc.)
+- `req`: Prediction request with messages, temperature, max tokens, etc.
 
 **Returns**:
-- `ProviderResponse`: LLM's response
+- `PredictionResponse`: LLM's response with content, cost info, and tool calls
 - `error`: Any errors
 
-### CompleteStream Method
+### PredictStream Method
 
-Streaming completion:
+Streaming prediction:
 
 ```go
-CompleteStream(ctx context.Context, messages []Message, config *ProviderConfig) (StreamReader, error)
+PredictStream(ctx context.Context, req PredictionRequest) (<-chan StreamChunk, error)
 ```
 
-Returns a stream reader for real-time output.
+Returns a channel of stream chunks for real-time output.
 
 ### Lifecycle Methods
 
 ```go
-GetProviderName() string  // Returns "openai", "claude", "gemini"
-Close() error             // Cleanup resources
+ID() string      // Returns provider identifier
+Model() string   // Returns model name
+Close() error    // Cleanup resources
 ```
 
 ## Provider Configuration
@@ -138,19 +142,20 @@ type ProviderConfig struct {
 }
 ```
 
-### Provider-Specific Defaults
+### Provider Defaults
 
-Each provider has sensible defaults:
+All providers accept a `ProviderDefaults` struct:
 
 ```go
-// OpenAI defaults
-openai.DefaultProviderDefaults() // temperature: 1.0, max_tokens: 4096
-
-// Claude defaults  
-anthropic.DefaultProviderDefaults() // temperature: 1.0, max_tokens: 4096
-
-// Gemini defaults
-gemini.DefaultProviderDefaults() // temperature: 0.9, max_tokens: 8192
+defaults := providers.ProviderDefaults{
+    Temperature: 0.7,
+    TopP:        0.95,
+    MaxTokens:   2000,
+    Pricing: providers.Pricing{
+        InputCostPer1K:  0.00015,
+        OutputCostPer1K: 0.0006,
+    },
+}
 ```
 
 ## Implementation Details
@@ -338,14 +343,14 @@ Runtime handles conversion automatically.
 Try providers in order:
 
 ```go
-providers := []types.Provider{primary, secondary, tertiary}
+providers := []providers.Provider{primary, secondary, tertiary}
 
-for _, provider := range providers {
-    result, err := provider.Complete(ctx, messages, config)
+for _, provider := range providerList {
+    resp, err := provider.Predict(ctx, req)
     if err == nil {
-        return result, nil
+        return resp, nil
     }
-    log.Printf("Provider %s failed: %v", provider.GetProviderName(), err)
+    log.Printf("Provider %s failed: %v", provider.ID(), err)
 }
 
 return nil, errors.New("all providers failed")
@@ -357,14 +362,14 @@ Distribute across providers:
 
 ```go
 type LoadBalancer struct {
-    providers []types.Provider
+    providers []providers.Provider
     current   int
 }
 
-func (lb *LoadBalancer) Execute(...) (*ProviderResponse, error) {
+func (lb *LoadBalancer) Execute(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
     provider := lb.providers[lb.current % len(lb.providers)]
     lb.current++
-    return provider.Complete(...)
+    return provider.Predict(ctx, req)
 }
 ```
 
@@ -373,7 +378,7 @@ func (lb *LoadBalancer) Execute(...) (*ProviderResponse, error) {
 Route to cheapest provider:
 
 ```go
-func selectProvider(taskComplexity string) types.Provider {
+func selectProvider(taskComplexity string) providers.Provider {
     switch taskComplexity {
     case "simple":
         return openaiMini  // Cheapest
@@ -392,15 +397,12 @@ func selectProvider(taskComplexity string) types.Provider {
 Runtime includes a mock provider:
 
 ```go
-mockProvider := mock.NewMockProvider()
-mockProvider.SetResponse("Hello! How can I help?")
+mockProvider := mock.NewProvider("mock", "mock-model", false)
 
-pipe := pipeline.NewPipeline(
-    middleware.ProviderMiddleware(mockProvider, nil, nil, config),
-)
-
-result, _ := pipe.Execute(ctx, "user", "Hi")
-// result.Response.Content == "Hello! How can I help?"
+resp, _ := mockProvider.Predict(ctx, providers.PredictionRequest{
+    Messages: []types.Message{{Role: "user", Content: "Hi"}},
+})
+fmt.Println(resp.Content)
 ```
 
 **Benefits**:
@@ -417,11 +419,11 @@ Providers maintain HTTP connection pools:
 
 ```go
 // Good: Reuse provider
-provider := openai.NewOpenAIProvider(...)
+provider := openai.NewProvider(...)
 defer provider.Close()
 
 for _, prompt := range prompts {
-    provider.Complete(ctx, messages, config)  // Reuses connections
+    provider.Predict(ctx, req)  // Reuses connections
 }
 ```
 
@@ -430,7 +432,7 @@ for _, prompt := range prompts {
 Always close providers:
 
 ```go
-provider := openai.NewOpenAIProvider(...)
+provider := openai.NewProvider(...)
 defer provider.Close()  // Essential!
 ```
 
@@ -447,7 +449,7 @@ Use contexts for timeouts:
 ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 defer cancel()
 
-result, err := provider.Complete(ctx, messages, config)
+resp, err := provider.Predict(ctx, req)
 ```
 
 ## Future Extensibility

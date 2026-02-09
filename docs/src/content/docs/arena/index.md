@@ -193,7 +193,7 @@ Run tests in your pipeline:
 ```yaml
 # .github/workflows/test-prompts.yml
 - name: Test Prompts
-  run: promptarena run --ci --fail-on-error
+  run: promptarena run --ci
 ```
 
 ---

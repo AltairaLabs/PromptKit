@@ -51,8 +51,12 @@ response := llm.Predict(messages)
 Each conversation has a **session ID**:
 
 ```go
-sessionID := "user-123"
-result, _ := pipeline.ExecuteWithSession(ctx, sessionID, "user", "Hello")
+conv, _ := sdk.Open("./assistant.pack.json", "chat",
+    sdk.WithModel("gpt-4o-mini"),
+)
+defer conv.Close()
+
+response, _ := conv.Send(ctx, "Hello")
 ```
 
 Sessions enable:
@@ -68,13 +72,13 @@ The `Store` interface provides `Load`, `Save`, and `Fork` methods:
 store := statestore.NewMemoryStore()
 
 // Save conversation state
-err := store.Save(sessionID, messages)
+err := store.Save(ctx, state)
 
 // Load conversation state
-messages, err := store.Load(sessionID)
+state, err := store.Load(ctx, sessionID)
 
 // Fork a conversation (create a branch)
-err := store.Fork(sourceSessionID, newSessionID)
+err := store.Fork(ctx, sourceSessionID, newSessionID)
 ```  
 
 ## State Stores
@@ -99,7 +103,7 @@ Persistent and scalable:
 redisClient := redis.NewClient(&redis.Options{
     Addr: "localhost:6379",
 })
-store := statestore.NewRedisStateStore(redisClient)
+store := statestore.NewRedisStore(redisClient)
 ```
 
 **Pros**: Persistent, multi-instance, TTL support  
@@ -163,7 +167,7 @@ sessionID := uuid.New().String()
 ✅ **Use Redis in production**
 ```go
 // Production
-store := statestore.NewRedisStateStore(redisClient)
+store := statestore.NewRedisStore(redisClient)
 
 // Development
 store := statestore.NewMemoryStore()

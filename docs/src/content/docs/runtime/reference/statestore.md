@@ -24,9 +24,24 @@ State stores provide persistent storage for conversation history, enabling:
 
 ```go
 type Store interface {
-    Load(ctx context.Context, sessionID string) ([]types.Message, error)
-    Save(ctx context.Context, sessionID string, messages []types.Message) error
-    Fork(ctx context.Context, sourceSessionID string, newSessionID string) error
+    Load(ctx context.Context, id string) (*ConversationState, error)
+    Save(ctx context.Context, state *ConversationState) error
+    Fork(ctx context.Context, sourceID, newID string) error
+}
+```
+
+### ConversationState
+
+```go
+type ConversationState struct {
+    ID             string
+    UserID         string
+    Messages       []types.Message
+    SystemPrompt   string
+    Summaries      []Summary
+    TokenCount     int
+    LastAccessedAt time.Time
+    Metadata       map[string]interface{}
 }
 ```
 
@@ -35,8 +50,12 @@ type Store interface {
 ### Constructor
 
 ```go
-func NewRedisStore(client *redis.Client, opts ...RedisStoreOption) *RedisStore
+func NewRedisStore(client *redis.Client, opts ...RedisOption) *RedisStore
 ```
+
+**Options**:
+- `WithTTL(ttl time.Duration)` - Set TTL for conversation states (default: 24 hours)
+- `WithPrefix(prefix string)` - Set key prefix (default: "promptkit")
 
 **Example**:
 ```go
@@ -53,19 +72,21 @@ redisClient := redis.NewClient(&redis.Options{
 
 // Create state store
 store := statestore.NewRedisStore(redisClient)
-defer store.Close()
 ```
 
 ### Methods
 
 **Save**:
 ```go
-messages := []types.Message{
-    {Role: "user", Content: "Hello"},
-    {Role: "assistant", Content: "Hi there!"},
+state := &statestore.ConversationState{
+    ID: "session-123",
+    Messages: []types.Message{
+        {Role: "user", Content: "Hello"},
+        {Role: "assistant", Content: "Hi there!"},
+    },
 }
 
-err := store.Save(ctx, "session-123", messages)
+err := store.Save(ctx, state)
 if err != nil {
     log.Fatal(err)
 }
@@ -73,12 +94,12 @@ if err != nil {
 
 **Load**:
 ```go
-messages, err := store.Load(ctx, "session-123")
+state, err := store.Load(ctx, "session-123")
 if err != nil {
     log.Fatal(err)
 }
 
-for _, msg := range messages {
+for _, msg := range state.Messages {
     fmt.Printf("%s: %s\n", msg.Role, msg.Content)
 }
 ```
@@ -99,8 +120,12 @@ For development and testing.
 store := statestore.NewMemoryStore()
 
 // Same interface as Redis store
-store.Save(ctx, "session-1", messages)
-messages, _ := store.Load(ctx, "session-1")
+state := &statestore.ConversationState{
+    ID:       "session-1",
+    Messages: messages,
+}
+store.Save(ctx, state)
+loaded, _ := store.Load(ctx, "session-1")
 ```
 
 ## Usage with Pipeline
@@ -114,29 +139,26 @@ import "github.com/AltairaLabs/PromptKit/runtime/statestore"
 store := statestore.NewRedisStore(redisClient)
 
 // Load state, execute, and save state
-messages, _ := store.Load(ctx, sessionID)
-// ... execute pipeline with messages ...
-store.Save(ctx, sessionID, updatedMessages)
+state, _ := store.Load(ctx, sessionID)
+// ... execute pipeline with state.Messages ...
+state.Messages = append(state.Messages, newMessages...)
+store.Save(ctx, state)
 ```
 
 ### Manual State Management
 
 ```go
 // Load existing conversation
-messages, _ := store.Load(ctx, sessionID)
+state, _ := store.Load(ctx, sessionID)
 
-// Execute with loaded context
-execCtx := &pipeline.ExecutionContext{
-    Messages: messages,
-}
-
-// Save updated state
-execCtx.Messages = append(execCtx.Messages, types.Message{
+// Add new message
+state.Messages = append(state.Messages, types.Message{
     Role:    "user",
     Content: "New message",
 })
 
-store.Save(ctx, sessionID, execCtx.Messages)
+// Save updated state
+store.Save(ctx, state)
 ```
 
 ## Configuration
@@ -176,37 +198,37 @@ type CustomStateStore struct {
 
 func (s *CustomStateStore) Load(
     ctx context.Context,
-    sessionID string,
-) ([]types.Message, error) {
-    data, err := s.backend.Get(ctx, sessionID)
+    id string,
+) (*statestore.ConversationState, error) {
+    data, err := s.backend.Get(ctx, id)
     if err != nil {
         return nil, err
     }
 
-    var messages []types.Message
-    err = json.Unmarshal(data, &messages)
-    return messages, err
+    var state statestore.ConversationState
+    err = json.Unmarshal(data, &state)
+    return &state, err
 }
 
 func (s *CustomStateStore) Save(
     ctx context.Context,
-    sessionID string,
-    messages []types.Message,
+    state *statestore.ConversationState,
 ) error {
-    data, _ := json.Marshal(messages)
-    return s.backend.Set(ctx, sessionID, data)
+    data, _ := json.Marshal(state)
+    return s.backend.Set(ctx, state.ID, data)
 }
 
 func (s *CustomStateStore) Fork(
     ctx context.Context,
-    sourceSessionID string,
-    newSessionID string,
+    sourceID string,
+    newID string,
 ) error {
-    messages, err := s.Load(ctx, sourceSessionID)
+    state, err := s.Load(ctx, sourceID)
     if err != nil {
         return err
     }
-    return s.Save(ctx, newSessionID, messages)
+    state.ID = newID
+    return s.Save(ctx, state)
 }
 ```
 
@@ -225,10 +247,13 @@ store.Fork(ctx, sessionID, newSessionID)
 ### 2. Error Handling
 
 ```go
-messages, err := store.Load(ctx, sessionID)
+state, err := store.Load(ctx, sessionID)
 if err != nil {
     // Start new conversation on any load error
-    messages = []types.Message{}
+    state = &statestore.ConversationState{
+        ID:       sessionID,
+        Messages: []types.Message{},
+    }
 }
 ```
 
@@ -236,12 +261,13 @@ if err != nil {
 
 ```go
 // Limit conversation history to prevent memory issues
+state, _ := store.Load(ctx, sessionID)
 maxMessages := 50
-if len(messages) > maxMessages {
-    messages = messages[len(messages)-maxMessages:]
+if len(state.Messages) > maxMessages {
+    state.Messages = state.Messages[len(state.Messages)-maxMessages:]
 }
 
-store.Save(ctx, sessionID, messages)
+store.Save(ctx, state)
 ```
 
 ### 4. Concurrent Access
@@ -251,9 +277,9 @@ store.Save(ctx, sessionID, messages)
 lock := acquireLock(sessionID)
 defer lock.Release()
 
-messages, _ := store.Load(ctx, sessionID)
-// ... modify messages ...
-store.Save(ctx, sessionID, messages)
+state, _ := store.Load(ctx, sessionID)
+// ... modify state.Messages ...
+store.Save(ctx, state)
 ```
 
 ## Performance Considerations

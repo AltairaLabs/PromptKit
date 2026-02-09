@@ -20,7 +20,7 @@ provider := openai.NewProvider(
     "openai",
     "gpt-4o-mini",
     "",  // Default URL
-    openai.DefaultProviderDefaults(),
+    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
     false,
 )
 defer provider.Close()
@@ -78,7 +78,7 @@ provider := claude.NewProvider(
     "claude",
     "claude-3-5-sonnet-20241022",
     "",
-    claude.DefaultProviderDefaults(),
+    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 4096},
     false,
 )
 defer provider.Close()
@@ -114,7 +114,7 @@ provider := gemini.NewProvider(
     "gemini",
     "gemini-1.5-flash",
     "",
-    gemini.DefaultProviderDefaults(),
+    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 8192},
     false,
 )
 defer provider.Close()
@@ -230,7 +230,7 @@ defaults := providers.ProviderDefaults{
 import "github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 
 // Create mock provider
-provider := mock.NewMockProvider("mock", "test-model", false)
+provider := mock.NewProvider("mock", "test-model", false)
 
 // Configure responses
 provider.AddResponse("Hello", "Hi there!")
@@ -351,11 +351,11 @@ defer cancel()
 ```go
 import "github.com/AltairaLabs/PromptKit/runtime/providers/ollama"
 
-provider := ollama.NewOllamaProvider(
+provider := ollama.NewProvider(
     "ollama",
     "llama3.2:1b",
     "http://localhost:11434",
-    ollama.DefaultProviderDefaults(),
+    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2048},
     false,
     map[string]interface{}{
         "keep_alive": "5m",  // Keep model loaded
@@ -382,11 +382,11 @@ ollama pull llama3.2:1b
 ```go
 import "github.com/AltairaLabs/PromptKit/runtime/providers/vllm"
 
-provider := vllm.NewVLLMProvider(
+provider := vllm.NewProvider(
     "vllm",
     "meta-llama/Llama-3.2-3B-Instruct",
     "http://localhost:8000",
-    vllm.DefaultProviderDefaults(),
+    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2048},
     false,
     map[string]interface{}{
         "use_beam_search": false,

@@ -45,14 +45,16 @@ package main
 import (
     "context"
     "github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+    "github.com/AltairaLabs/PromptKit/runtime/providers"
     "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
+    "github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 func main() {
     // Create provider
-    provider := openai.NewOpenAIProvider(
+    provider := openai.NewProvider(
         "openai", "gpt-4o-mini", "",
-        openai.DefaultProviderDefaults(),
+        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 1500},
         false,
     )
 

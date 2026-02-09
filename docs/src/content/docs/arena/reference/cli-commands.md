@@ -24,6 +24,8 @@ promptarena [command] [flags]
 | `debug` | Debug configuration and prompt loading |
 | `prompt-debug` | Debug and test prompt generation |
 | `render` | Generate HTML report from existing results |
+| `validate` | Validate configuration files |
+| `view` | View test results |
 | `completion` | Generate shell autocompletion script |
 | `help` | Help about any command |
 
@@ -52,8 +54,6 @@ promprarena init [directory] [flags]
 | `--quick` | bool | `false` | Skip interactive prompts, use defaults |
 | `--provider` | string | - | Provider to configure (mock, openai, claude, gemini) |
 | `--template` | string | `quick-start` | Template to use for initialization |
-| `--list-templates` | bool | `false` | List all available built-in templates |
-| `--var` | []string | - | Set template variables (key=value) |
 | `--template-index` | string | `community` | Template repo name or index URL/path for remote templates |
 | `--repo-config` | string | user config | Template repo config file |
 | `--template-cache` | string | temp dir | Cache directory for remote templates |
@@ -76,9 +76,6 @@ PromptArena includes 6 built-in templates:
 #### List Available Templates
 
 ```bash
-# See all built-in templates
-promprarena init --list-templates
-
 # List remote templates (from the default community repo)
 promptarena templates list
 
@@ -114,21 +111,11 @@ promptarena templates render --template community/basic-chatbot --version 1.0.0 
 promprarena init my-project
 ```
 
-#### Template Variables
-
-```bash
-# Override template variables
-promprarena init my-test --quick --provider openai \
-  --var project_name="My Custom Project" \
-  --var description="Custom description" \
-  --var temperature=0.8
-```
-
 ### What Gets Created
 
 Depending on the template, `init` creates:
 
-- `arena.yaml` - Main Arena configuration
+- `config.arena.yaml` - Main Arena configuration
 - `prompts/` - Prompt configurations
 - `providers/` - Provider configurations
 - `scenarios/` - Test scenarios
@@ -259,7 +246,7 @@ promptarena run [flags]
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `-c, --config` | string | `arena.yaml` | Configuration file path |
+| `-c, --config` | string | `config.arena.yaml` | Configuration file path |
 
 #### Execution Control
 
@@ -451,7 +438,7 @@ promptarena config-inspect [flags]
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `-c, --config` | string | `arena.yaml` | Configuration file path |
+| `-c, --config` | string | `config.arena.yaml` | Configuration file path |
 | `--format` | string | `text` | Output format: text, json |
 | `-s, --short` | bool | `false` | Show only validation results (shortcut for `--section validation`) |
 | `--section` | string | - | Focus on specific section: prompts, providers, scenarios, tools, selfplay, judges, defaults, validation |
@@ -587,7 +574,7 @@ promptarena debug [flags]
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `-c, --config` | string | `arena.yaml` | Configuration file path |
+| `-c, --config` | string | `config.arena.yaml` | Configuration file path |
 
 ### Examples
 
@@ -622,7 +609,7 @@ promptarena prompt-debug [flags]
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `-c, --config` | string | `arena.yaml` | Configuration file path |
+| `-c, --config` | string | `config.arena.yaml` | Configuration file path |
 | `-t, --task-type` | string | - | Task type for prompt generation |
 | `-r, --region` | string | - | Region for prompt generation |
 | `--persona` | string | - | Persona ID to test |

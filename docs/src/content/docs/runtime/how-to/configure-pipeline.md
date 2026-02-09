@@ -32,11 +32,11 @@ import (
 ### Step 2: Create Provider
 
 ```go
-provider := openai.NewOpenAIProvider(
+provider := openai.NewProvider(
     "openai",
     "gpt-4o-mini",
     "",  // Use default base URL
-    openai.DefaultProviderDefaults(),
+    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
     false,  // Don't include raw output
 )
 defer provider.Close()
@@ -121,7 +121,7 @@ customDefaults := providers.ProviderDefaults{
     },
 }
 
-provider := openai.NewOpenAIProvider(
+provider := openai.NewProvider(
     "custom-openai",
     "gpt-4o-mini",
     "",
@@ -151,7 +151,7 @@ import "github.com/AltairaLabs/PromptKit/runtime/validators"
 
 validatorRegistry := validators.NewRegistry()
 validatorRegistry.Register("banned_words", validators.NewBannedWordsValidator([]string{"inappropriate"}))
-validatorRegistry.Register("length", validators.NewLengthValidator(10, 500))
+validatorRegistry.Register("length", validators.NewLengthValidator())
 
 pipeline := stage.NewPipelineBuilder().
     Chain(
@@ -177,7 +177,7 @@ redisClient := redis.NewClient(&redis.Options{
     Addr: "localhost:6379",
 })
 
-store := statestore.NewRedisStateStore(redisClient)
+store := statestore.NewRedisStore(redisClient)
 
 stateConfig := &pipeline.StateStoreConfig{
     Store:          store,
@@ -278,11 +278,11 @@ func NewProductionPipeline() (*stage.StreamPipeline, error) {
     }
 
     // Configure provider
-    provider := openai.NewOpenAIProvider(
+    provider := openai.NewProvider(
         "openai-prod",
         "gpt-4o-mini",
         "",
-        openai.DefaultProviderDefaults(),
+        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
         false,
     )
 
@@ -313,7 +313,7 @@ func NewProductionPipeline() (*stage.StreamPipeline, error) {
 ```go
 func NewDevelopmentPipeline() *stage.StreamPipeline {
     // Use mock provider for testing
-    provider := mock.NewMockProvider("mock", "test-model", true)
+    provider := mock.NewProvider("mock", "test-model", true)
 
     // Relaxed config for development
     config := stage.DefaultPipelineConfig().
@@ -351,15 +351,15 @@ func NewPipelineFromConfig(cfg PipelineConfig) (*stage.StreamPipeline, error) {
 
     switch cfg.ProviderType {
     case "openai":
-        provider = openai.NewOpenAIProvider(
+        provider = openai.NewProvider(
             "openai", cfg.Model, "",
-            openai.DefaultProviderDefaults(),
+            providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
             false,
         )
     case "claude":
-        provider = claude.NewClaudeProvider(
+        provider = claude.NewProvider(
             "claude", cfg.Model, "",
-            claude.DefaultProviderDefaults(),
+            providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 4096},
             false,
         )
     default:
@@ -431,7 +431,7 @@ func ExecuteSync(ctx context.Context, pipeline *stage.StreamPipeline, message st
 ```go
 func TestPipeline(t *testing.T) {
     // Create mock provider
-    provider := mock.NewMockProvider("test", "test-model", false)
+    provider := mock.NewProvider("test", "test-model", false)
     provider.AddResponse("test input", "test output")
 
     // Simple test pipeline
@@ -499,9 +499,8 @@ config := stage.DefaultPipelineConfig().
 **Solution**: Ensure proper cleanup:
 
 ```go
-defer pipeline.Shutdown(10 * time.Second)
 defer provider.Close()
-defer store.Close()
+defer mcpRegistry.Close()
 ```
 
 ## Best Practices

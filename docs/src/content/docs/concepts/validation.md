@@ -56,16 +56,17 @@ lengthValidator := validators.NewLengthValidator()
 
 ### SDK Validation
 
-```go
-conv := sdk.NewConversation(provider, nil)
+Validators are defined in pack configuration (guardrails section) and applied automatically at runtime:
 
-// Add custom validator
-conv.AddValidator(func(message string) error {
-    if strings.Contains(message, "password") {
-        return errors.New("do not share passwords")
-    }
-    return nil
-})
+```go
+conv, _ := sdk.Open("./assistant.pack.json", "chat",
+    sdk.WithModel("gpt-4o-mini"),
+)
+defer conv.Close()
+
+// Validators are configured in the pack file's guardrails section.
+// The runtime applies them automatically on each turn.
+response, _ := conv.Send(ctx, "Hello")
 ```
 
 ### PromptArena Validation

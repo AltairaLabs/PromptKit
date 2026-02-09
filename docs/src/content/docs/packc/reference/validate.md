@@ -41,15 +41,19 @@ packc validate packs/app.pack.json
 **Output (success):**
 ```
 Validating pack: packs/app.pack.json
-✓ Pack is valid
+Validating against PromptPack schema...
+✓ Schema validation passed
+✓ Pack structure is valid
 ```
 
 **Output (with warnings):**
 ```
 Validating pack: packs/app.pack.json
+Validating against PromptPack schema...
+✓ Schema validation passed
 ⚠ Pack has 2 warnings:
-  - Template variable 'user_name' not defined in prompt 'support'
-  - Tool 'search_api' referenced but not defined
+  - prompt 'support': no variables defined
+  - prompt 'support': missing version
 ```
 
 ### Validate in CI/CD

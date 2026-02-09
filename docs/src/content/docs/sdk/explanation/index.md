@@ -87,23 +87,26 @@ Handler Lookup
 Events flow through the hooks package:
 
 ```
-Send() ─────► EventSend
+Send() ─────► EventPipelineStarted
     │
     ▼
-Provider Call
+Provider Call ► EventProviderCallStarted
     │
     ▼
-Response ───► EventResponse
+Response ───► EventProviderCallCompleted
     │
-    ├─► Tool Call ───► EventToolCall
+    ├─► Tool Call ───► EventToolCallStarted
     │       │
     │       ▼
     │   Handler
     │       │
     │       ▼
-    │   EventToolResult
+    │   EventToolCallCompleted
     │
-    └─► Error ───► EventError
+    └─► Error ───► EventProviderCallFailed
+    │
+    ▼
+EventPipelineCompleted
 ```
 
 ## See Also

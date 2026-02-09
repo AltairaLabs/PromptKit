@@ -69,11 +69,11 @@ import (
 
 func main() {
     // Step 1: Create provider
-    provider := openai.NewOpenAIProvider(
+    provider := openai.NewProvider(
         "openai",
         "gpt-4o-mini",
-        os.Getenv("OPENAI_API_KEY"),
-        openai.DefaultProviderDefaults(),
+        "", // uses OPENAI_API_KEY env var
+        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
         false,
     )
     defer provider.Close()
@@ -120,12 +120,12 @@ Cost: $0.000023
 ### 1. Create Provider
 
 ```go
-provider := openai.NewOpenAIProvider(
-    "openai",           // Provider name
+provider := openai.NewProvider(
+    "openai",           // Provider ID
     "gpt-4o-mini",      // Model (cost-effective)
-    os.Getenv("OPENAI_API_KEY"),  // API key
-    openai.DefaultProviderDefaults(),  // Default settings
-    false,              // Debug mode off
+    "",                 // Base URL (empty = default, uses OPENAI_API_KEY env var)
+    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},  // Default settings
+    false,              // Include raw output off
 )
 ```
 
@@ -174,11 +174,11 @@ Try modifying your application:
 Use a more powerful model:
 
 ```go
-provider := openai.NewOpenAIProvider(
+provider := openai.NewProvider(
     "openai",
     "gpt-4o",  // More capable, higher cost
-    os.Getenv("OPENAI_API_KEY"),
-    openai.DefaultProviderDefaults(),
+    "", // uses OPENAI_API_KEY env var
+    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
     false,
 )
 ```
@@ -279,18 +279,17 @@ import (
 )
 
 func main() {
-    // Validate API key
-    apiKey := os.Getenv("OPENAI_API_KEY")
-    if apiKey == "" {
+    // Validate API key is set
+    if os.Getenv("OPENAI_API_KEY") == "" {
         log.Fatal("OPENAI_API_KEY environment variable not set")
     }
-    
+
     // Create provider
-    provider := openai.NewOpenAIProvider(
+    provider := openai.NewProvider(
         "openai",
         "gpt-4o-mini",
-        apiKey,
-        openai.DefaultProviderDefaults(),
+        "", // uses OPENAI_API_KEY env var
+        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
         false,
     )
     defer provider.Close()

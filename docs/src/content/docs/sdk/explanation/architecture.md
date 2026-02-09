@@ -69,18 +69,8 @@ pack, err := loader.Load("./app.pack.json")
 
 ### Conversation
 
-The main interaction point:
-
-```go
-type Conversation struct {
-    pack      *pack.Pack
-    prompt    *pack.Prompt
-    state     *ConversationState
-    handlers  map[string]ToolHandler
-    eventBus  *events.EventBus
-    // ...
-}
-```
+The `Conversation` type is the main interaction point. Its internal fields are unexported;
+the public API includes `Send()`, `Stream()`, `SetVar()`, `GetVar()`, `OnTool()`, and more.
 
 **Responsibilities:**
 - Manage variables
@@ -95,18 +85,21 @@ Observability through events:
 
 ```go
 type Event struct {
-    Type      string
-    Timestamp time.Time
-    Data      map[string]any
+    Type           EventType  // e.g. events.EventProviderCallCompleted
+    Timestamp      time.Time
+    RunID          string
+    SessionID      string
+    ConversationID string
+    Data           EventData  // Type-specific payload (e.g. *ProviderCallCompletedData)
 }
 ```
 
 **Event Flow:**
-1. `conv.Send()` emits `EventSend`
-2. Provider call executes
-3. Response emits `EventResponse`
-4. Tool calls emit `EventToolCall`
-5. Errors emit `EventError`
+1. `conv.Send()` emits `EventPipelineStarted`
+2. Provider call emits `EventProviderCallStarted` / `EventProviderCallCompleted`
+3. Tool calls emit `EventToolCallStarted` / `EventToolCallCompleted`
+4. Pipeline completion emits `EventPipelineCompleted`
+5. Failures emit `EventProviderCallFailed` / `EventPipelineFailed`
 
 ## Request Flow
 
@@ -114,7 +107,7 @@ type Event struct {
 direction: down
 
 send: conv.Send(ctx, "Hello")
-emit_send: Emit EventSend
+emit_start: Emit EventPipelineStarted
 build: Build Context {
   label: "Build Context\n- System prompt\n- Variables\n- History\n- Tool defs"
 }
@@ -122,10 +115,10 @@ provider: Provider Call (OpenAI, etc.)
 process: Process Response {
   label: "Process Response\n- Tool calls?\n- Update history"
 }
-emit_response: Emit EventResponse
+emit_complete: Emit EventPipelineCompleted
 return: Return Response
 
-send -> emit_send -> build -> provider -> process -> emit_response -> return
+send -> emit_start -> build -> provider -> process -> emit_complete -> return
 ```
 
 ## Tool Execution
@@ -144,7 +137,7 @@ auto_ok: Auto-OK
 pending: Pending
 execute: Execute Handler
 wait: Wait for Resolve/Reject
-emit: Emit EventToolResult
+emit: Emit EventToolCallCompleted
 continue: Continue conversation
 
 response -> lookup
@@ -164,30 +157,21 @@ emit -> continue
 
 ### Variable Storage
 
-```go
-type ConversationState struct {
-    mu        sync.RWMutex
-    variables map[string]any
-    messages  []types.Message
-}
-```
-
-Thread-safe access:
-- `SetVar()` acquires write lock
-- `GetVar()` acquires read lock
-- Concurrent access safe
+Variables are stored internally in the session layer with thread-safe access:
+- `SetVar(name, value string)` acquires write lock
+- `GetVar(name string) (string, bool)` acquires read lock
+- Concurrent access is safe
 
 ### Message History
 
-```go
-// Append message
-state.AddMessage(types.Message{
-    Role:    "user",
-    Content: "Hello",
-})
+Messages are managed through the session and pipeline layers. Use the public API:
 
+```go
 // Get all messages
-messages := state.GetMessages()
+messages := conv.Messages(ctx)
+
+// Clear history
+_ = conv.Clear()
 ```
 
 ## Thread Safety
@@ -202,7 +186,7 @@ for i := 0; i < 10; i++ {
     wg.Add(1)
     go func(n int) {
         defer wg.Done()
-        conv.SetVar(fmt.Sprintf("key_%d", n), n)
+        conv.SetVar(fmt.Sprintf("key_%d", n), fmt.Sprintf("%d", n))
     }(i)
 }
 

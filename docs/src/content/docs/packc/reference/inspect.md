@@ -35,39 +35,45 @@ packc inspect packs/app.pack.json
 === Pack Information ===
 Pack: Customer Support Assistant
 ID: customer-support
-Version: 1.0.0
+Version: v1.0.0
 Description: AI-powered customer support system
 
-Template Engine: go
+Template Engine: v1 ({{variable}})
 
 === Prompts (3) ===
 
-1. customer-support
-   System: You are a helpful customer support agent...
-   Variables: customer_name, order_id, issue_type
-   Tools: search_kb, create_ticket
-   Parameters: temperature=0.7, max_tokens=1000
+[customer-support]
+  Name: Customer Support Agent
+  Description: Handles customer inquiries
+  Version: v1.0.0
+  Variables: 2 required, 1 optional
+    Required: [customer_name, order_id]
+  Tools (2): [search_kb, create_ticket]
 
-2. sales-assistant
-   System: You are a sales assistant...
-   Variables: product_name, price
-   Tools: search_products, get_inventory
-   Parameters: temperature=0.8, max_tokens=800
+[sales-assistant]
+  Name: Sales Assistant
+  Description: Assists with sales inquiries
+  Version: v1.0.0
+  Variables: 2 required, 0 optional
+    Required: [product_name, price]
+  Tools (2): [search_products, get_inventory]
 
-3. technical-expert
-   System: You are a technical expert...
-   Variables: product_id, error_code
-   Tools: search_docs, run_diagnostics
-   Parameters: temperature=0.5, max_tokens=1500
+[technical-expert]
+  Name: Technical Expert
+  Description: Technical troubleshooting
+  Version: v1.0.0
+  Variables: 2 required, 0 optional
+    Required: [product_id, error_code]
+  Tools (2): [search_docs, run_diagnostics]
 
-Shared Fragments (2): greeting, signature
+Shared Fragments (2): [greeting, signature]
 
 Pack Metadata:
   Domain: customer-service
   Language: en
   Tags: [support, production]
 
-Compilation: packc-v0.1.0, 2024-01-15T10:30:00Z, Schema: 1.0
+Compilation: packc-v0.1.0, 2025-01-15T10:30:00Z, Schema: v1
 ```
 
 ### Pipe to File
@@ -104,21 +110,23 @@ Description: Pack description
 Template system used:
 
 ```
-Template Engine: go
+Template Engine: v1 ({{variable}})
 ```
 
-Currently only `go` templates are supported.
+Shows the template engine version and syntax format.
 
 ### Prompts
 
 Detailed information for each prompt:
 
 ```
-1. prompt-name
-   System: System prompt text (truncated)
-   Variables: var1, var2, var3
-   Tools: tool1, tool2
-   Parameters: temperature=0.7, max_tokens=1000
+[prompt-name]
+  Name: Display Name
+  Description: Prompt description
+  Version: v1.0.0
+  Variables: 2 required, 1 optional
+    Required: [var1, var2]
+  Tools (2): [tool1, tool2]
 ```
 
 ### Shared Fragments
@@ -145,7 +153,7 @@ Pack Metadata:
 Build details:
 
 ```
-Compilation: packc-v0.1.0, 2024-01-15T10:30:00Z, Schema: 1.0
+Compilation: packc-v0.1.0, 2025-01-15T10:30:00Z, Schema: v1
 ```
 
 ## Use Cases

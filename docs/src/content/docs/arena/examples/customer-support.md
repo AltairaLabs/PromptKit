@@ -31,14 +31,6 @@ cd examples/customer-support
 promptarena run -c config.arena.yaml
 ```
 
-### Running with Streaming Output
-
-To see streaming tokens in real-time (useful for the streaming demos):
-
-```bash
-promptarena run -c config.arena.yaml --streaming
-```
-
 ### Running a Specific Scenario
 
 To run just the streaming-with-tools demo:

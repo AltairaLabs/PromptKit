@@ -8,7 +8,7 @@ Compile a single prompt YAML file into pack format.
 ## Synopsis
 
 ```bash
-packc compile-prompt --prompt <yaml-file> --output <json-file> [options]
+packc compile-prompt --prompt <yaml-file> --output <json-file>
 ```
 
 ## Description
@@ -36,13 +36,6 @@ Unlike the `compile` command which processes all prompts from arena.yaml, `compi
 - Must end with `.json` or `.pack.json`
 - Parent directory will be created if it doesn't exist
 
-### Optional Options
-
-**`--config-dir <path>`**
-- Base directory for resolving config files
-- Default: current directory
-- Used for resolving relative paths in media references
-
 ## Examples
 
 ### Basic Single Prompt Compilation
@@ -51,15 +44,6 @@ Unlike the `compile` command which processes all prompts from arena.yaml, `compi
 packc compile-prompt \
   --prompt prompts/support.yaml \
   --output packs/support.pack.json
-```
-
-### With Custom Config Directory
-
-```bash
-packc compile-prompt \
-  --prompt prompts/marketing/email.yaml \
-  --output packs/marketing-email.pack.json \
-  --config-dir ./config
 ```
 
 ### Compile for Testing
@@ -91,27 +75,28 @@ The prompt YAML file must contain a valid PromptConfig structure:
 # prompts/support.yaml
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: PromptConfig
+metadata:
+  name: Customer Support Agent
 spec:
   task_type: customer-support
-  name: Customer Support Agent
   description: Handles customer inquiries
-  system_prompt: |
+  version: v1.0.0
+  system_template: |
     You are a helpful customer support agent.
     You assist customers with their questions.
-  
-  user_template: |
-    Customer: 
-  
-  template_engine: go
-  
-  parameters:
-    temperature: 0.7
-    max_tokens: 1000
-    top_p: 0.9
-  
-  tools:
-    - name: search_knowledge_base
-      description: Search the knowledge base
+    Customer: {{customer_name}}
+
+  template_engine:
+    version: v1
+    syntax: "{{variable}}"
+
+  variables:
+    - name: customer_name
+      type: string
+      required: true
+
+  allowed_tools:
+    - search_knowledge_base
 ```
 
 ## Output Format
@@ -121,27 +106,33 @@ The command produces a JSON pack file with this structure:
 ```json
 {
   "id": "customer-support",
-  "version": "1.0.0",
-  "compiler_version": "packc-v0.1.0",
+  "name": "Customer Support Agent",
+  "version": "v1.0.0",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
   "prompts": {
     "customer-support": {
       "id": "customer-support",
       "name": "Customer Support Agent",
       "description": "Handles customer inquiries",
-      "system": "You are a helpful customer support agent.\nYou assist customers with their questions.",
-      "user_template": "Customer: ",
-      "template_engine": "go",
-      "parameters": {
-        "temperature": 0.7,
-        "max_tokens": 1000,
-        "top_p": 0.9
-      },
+      "version": "v1.0.0",
+      "system_template": "You are a helpful customer support agent.\nYou assist customers with their questions.\nCustomer: {{customer_name}}",
+      "variables": [
+        {
+          "name": "customer_name",
+          "type": "string",
+          "required": true
+        }
+      ],
       "tools": ["search_knowledge_base"]
     }
   },
-  "metadata": {
-    "source_file": "prompts/support.yaml",
-    "compiled_at": "2025-01-16T10:30:00Z"
+  "compilation": {
+    "compiled_with": "packc-v0.1.0",
+    "created_at": "2025-01-16T10:30:00Z",
+    "schema": "v1"
   }
 }
 ```
@@ -187,7 +178,7 @@ Error parsing prompt config: missing required field: task_type
   - Image file not found: images/logo.png
 ```
 
-**Solution**: Ensure media files exist at specified paths. Use `--config-dir` to set base directory.
+**Solution**: Ensure media files exist at specified paths relative to the prompt file location.
 
 ### Invalid Template Syntax
 

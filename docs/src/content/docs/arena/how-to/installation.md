@@ -32,8 +32,7 @@ npm install --save-dev @altairalabs/promptarena
 ```json
 {
   "scripts": {
-    "test:prompts": "promptarena run -c ./tests/config.arena.yaml",
-    "test:watch": "promptarena run -c ./tests/config.arena.yaml --watch"
+    "test:prompts": "promptarena run -c ./tests/config.arena.yaml"
   },
   "devDependencies": {
     "@altairalabs/promptarena": "^0.0.1"
