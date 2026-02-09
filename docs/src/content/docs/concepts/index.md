@@ -103,4 +103,4 @@ Some concepts are component-specific:
 - **[Getting Started](../guides/getting-started)**: Quick introduction to PromptKit
 - **[Architecture](../architecture/index)**: System design and structure
 - **[Glossary](../glossary)**: Term definitions
-- **[Workflows](../workflows/index)**: End-to-end examples
+

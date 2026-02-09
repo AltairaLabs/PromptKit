@@ -49,7 +49,6 @@ docs-new/
 │   │   ├── packc/        # PackC documentation
 │   │   ├── runtime/      # Runtime documentation
 │   │   ├── concepts/     # Cross-cutting concepts
-│   │   ├── workflows/    # Workflow guides
 │   │   ├── examples/     # Generated examples
 │   │   └── api/          # Generated API docs
 │   ├── components/       # Reusable components

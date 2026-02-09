@@ -26,7 +26,6 @@ export default defineConfig({
         { label: 'PackC', autogenerate: { directory: 'packc' } },
         { label: 'Runtime', autogenerate: { directory: 'runtime' } },
         { label: 'Concepts', autogenerate: { directory: 'concepts' } },
-        { label: 'Workflows', autogenerate: { directory: 'workflows' } },
         { label: 'Architecture', autogenerate: { directory: 'architecture' } },
         { label: 'API', autogenerate: { directory: 'api' } },
         { label: 'DevOps', autogenerate: { directory: 'devops' } },
