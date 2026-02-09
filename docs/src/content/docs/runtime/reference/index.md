@@ -29,6 +29,7 @@ The PromptKit Runtime provides the core execution engine for LLM interactions. I
 | **State Store** | Conversation persistence | [statestore.md](statestore) |
 | **Validators** | Content validation | [validators.md](validators) |
 | **Types** | Core data structures | [types.md](types) |
+| **A2A** | Client, types, tool bridge, mock | [a2a.md](a2a) |
 | **Logging** | Structured logging with context | [logging.md](logging) |
 
 ### Import Paths

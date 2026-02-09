@@ -255,6 +255,24 @@ Working examples are available in the `sdk/examples/` directory:
 
 ---
 
+## A2A Server
+
+Expose your agent as an A2A-compliant service:
+
+```go
+opener := sdk.A2AOpener("./assistant.pack.json", "chat")
+server := sdk.NewA2AServer(opener,
+    sdk.WithA2ACard(&card),
+    sdk.WithA2APort(9999),
+)
+server.ListenAndServe()
+```
+
+- **[A2A Server Tutorial](/sdk/tutorials/10-a2a-server/)** — step-by-step guide
+- **[A2A Server Reference](/sdk/reference/a2a-server/)** — complete API docs
+
+---
+
 ## Related Tools
 
 - **Arena**: [Test prompts before using them](/arena/)

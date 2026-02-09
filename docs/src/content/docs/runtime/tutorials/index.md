@@ -27,6 +27,9 @@ Follow these tutorials in sequence to build expertise:
 ### 6. Advanced Topics
 - [Advanced Patterns](06-advanced-patterns) - Optimization and advanced techniques (30 min)
 
+### 7. A2A
+- [A2A Client](07-a2a-client) - Discover agents and send messages (10 min)
+
 ## What You'll Learn
 
 **Tutorial 1: First Pipeline**

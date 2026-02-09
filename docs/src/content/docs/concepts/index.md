@@ -30,6 +30,9 @@ Learn about conversation state, session management, and persistence strategies.
 ### [Tools & MCP](tools-mcp)
 Understand function calling, tool integration, and the Model Context Protocol.
 
+### [A2A (Agent-to-Agent)](a2a)
+Learn about the Agent-to-Agent protocol for inter-agent communication, task lifecycle, and discovery.
+
 ## How Concepts Work Together
 
 ```
@@ -100,4 +103,4 @@ Some concepts are component-specific:
 - **[Getting Started](../guides/getting-started)**: Quick introduction to PromptKit
 - **[Architecture](../architecture/index)**: System design and structure
 - **[Glossary](../glossary)**: Term definitions
-- **[Workflows](../workflows/index)**: End-to-end examples
+

@@ -26,7 +26,7 @@ func TestCreateProviderImpl_MockProvider(t *testing.T) {
 		},
 	}
 
-	provider, err := createProviderImpl(providerCfg)
+	provider, err := createProviderImpl("", providerCfg)
 	require.NoError(t, err)
 	require.NotNil(t, provider)
 	require.Equal(t, "mock-assistant", provider.ID())
@@ -48,13 +48,14 @@ func TestBuildEngineComponents_MinimalConfig(t *testing.T) {
 		},
 	}
 
-	providerReg, promptReg, mcpReg, convExec, adapterReg, err := BuildEngineComponents(cfg)
+	providerReg, promptReg, mcpReg, convExec, adapterReg, a2aCleanup, err := BuildEngineComponents(cfg)
 	require.NoError(t, err)
 	require.NotNil(t, providerReg)
 	require.Nil(t, promptReg)
 	require.Nil(t, mcpReg)
 	require.NotNil(t, convExec)
 	require.NotNil(t, adapterReg)
+	require.Nil(t, a2aCleanup)
 }
 
 func TestDiscoverAndRegisterMCPTools_EmptyRegistry(t *testing.T) {

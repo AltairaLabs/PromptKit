@@ -1,0 +1,39 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: a2a-demo
+spec:
+  providers:
+    - file: providers/mock-provider.yaml
+  prompt_configs:
+    - id: assistant
+      file: prompts/assistant.yaml
+  scenarios:
+    - file: scenarios/delegated_research.yaml
+  a2a_agents:
+    - name: research_agent
+      card:
+        name: Research Agent
+        description: A mock research agent that returns papers on various topics
+        skills:
+          - id: search_papers
+            name: Search Papers
+            description: Search for academic papers on a given topic
+            tags: [research, papers, search]
+      responses:
+        - skill: search_papers
+          match:
+            contains: quantum
+          response:
+            parts:
+              - text: "Found 3 papers on quantum computing:\n1. Quantum Computing Fundamentals (2024)\n2. Advances in Quantum Error Correction (2024)\n3. Practical Quantum Algorithms for Optimization (2023)"
+        - skill: search_papers
+          response:
+            parts:
+              - text: "Found 1 paper on the requested topic:\n1. General Survey of the Field (2024)"
+  defaults:
+    temperature: 0.1
+    max_tokens: 512
+    output:
+      dir: out
+      formats: [json]

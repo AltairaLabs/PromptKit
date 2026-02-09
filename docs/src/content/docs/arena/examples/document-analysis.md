@@ -70,7 +70,7 @@ document-analysis/
 ```yaml
 # config.arena.yaml
 apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: ArenaConfig
+kind: Arena
 metadata:
   name: document-analysis-arena
 spec:

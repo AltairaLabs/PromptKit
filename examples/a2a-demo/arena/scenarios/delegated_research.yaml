@@ -1,0 +1,24 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: delegated-research
+spec:
+  id: delegated-research
+  task_type: assistant
+  description: Test delegation of research queries to an A2A agent
+  tool_policy:
+    tool_choice: auto
+    max_tool_calls_per_turn: 3
+    max_total_tool_calls: 5
+  turns:
+    - role: user
+      content: "Search for papers about quantum computing"
+      assertions:
+        - type: tools_called
+          params:
+            tools:
+              - a2a_research_agent_search_papers
+        - type: content_includes
+          params:
+            patterns:
+              - "Quantum Computing Fundamentals"

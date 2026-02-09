@@ -1,4 +1,4 @@
-package a2a
+package sdk
 
 import (
 	"context"
@@ -7,36 +7,18 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/AltairaLabs/PromptKit/runtime/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// StreamChunkType identifies the kind of streaming chunk.
-type StreamChunkType int
-
-// StreamChunk type constants.
-const (
-	StreamChunkText     StreamChunkType = iota // Incremental text
-	StreamChunkMedia                           // Media content (image, audio, etc.)
-	StreamChunkToolCall                        // Tool call (suppressed — agent opacity)
-	StreamChunkDone                            // Final signal
-)
+// a2aStreamConv extends a2aConv with streaming support.
+type a2aStreamConv interface {
+	a2aConv
+	Stream(ctx context.Context, message any, opts ...SendOption) <-chan StreamChunk
+}
 
 // subscriberBuffer is the channel buffer size for broadcast subscribers.
 const subscriberBuffer = 64
-
-// StreamChunk is a single unit of streaming output from a conversation.
-type StreamChunk struct {
-	Type  StreamChunkType
-	Text  string
-	Media *types.MediaContent
-	Error error
-}
-
-// StreamingConversation extends Conversation with streaming support.
-type StreamingConversation interface {
-	Conversation
-	Stream(ctx context.Context, msg *types.Message) (<-chan StreamChunk, error)
-}
 
 // ssePayload is a single SSE payload ready to be broadcast.
 type ssePayload struct {
@@ -106,7 +88,7 @@ func (b *taskBroadcaster) close() {
 }
 
 // getBroadcaster returns or creates a broadcaster for the given task ID.
-func (s *Server) getBroadcaster(taskID string) *taskBroadcaster {
+func (s *A2AServer) getBroadcaster(taskID string) *taskBroadcaster {
 	s.subsMu.Lock()
 	defer s.subsMu.Unlock()
 	b, ok := s.subs[taskID]
@@ -118,14 +100,14 @@ func (s *Server) getBroadcaster(taskID string) *taskBroadcaster {
 }
 
 // removeBroadcaster removes a broadcaster from the map.
-func (s *Server) removeBroadcaster(taskID string) {
+func (s *A2AServer) removeBroadcaster(taskID string) {
 	s.subsMu.Lock()
 	defer s.subsMu.Unlock()
 	delete(s.subs, taskID)
 }
 
 // closeAllBroadcasters closes all active broadcasters.
-func (s *Server) closeAllBroadcasters() {
+func (s *A2AServer) closeAllBroadcasters() {
 	s.subsMu.Lock()
 	defer s.subsMu.Unlock()
 	for id, b := range s.subs {
@@ -142,7 +124,7 @@ func marshalRaw(v any) json.RawMessage {
 
 // writeSSE writes a single SSE event to the response.
 func writeSSE(w http.ResponseWriter, flusher http.Flusher, id, event any) {
-	data, _ := json.Marshal(JSONRPCResponse{
+	data, _ := json.Marshal(a2a.JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      id,
 		Result:  marshalRaw(event),
@@ -153,7 +135,7 @@ func writeSSE(w http.ResponseWriter, flusher http.Flusher, id, event any) {
 
 // broadcastEvent builds an ssePayload and sends it to the broadcaster.
 func broadcastEvent(b *taskBroadcaster, rpcID, event any) {
-	data, _ := json.Marshal(JSONRPCResponse{
+	data, _ := json.Marshal(a2a.JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      rpcID,
 		Result:  marshalRaw(event),
@@ -163,7 +145,7 @@ func broadcastEvent(b *taskBroadcaster, rpcID, event any) {
 
 // streamCtx bundles the common parameters for streaming SSE to a client.
 type streamCtx struct {
-	srv       *Server
+	srv       *A2AServer
 	w         http.ResponseWriter
 	flusher   http.Flusher
 	b         *taskBroadcaster
@@ -180,16 +162,16 @@ func (sc *streamCtx) emit(event any) {
 
 // fail records a task failure in the store and emits the failed status event.
 func (sc *streamCtx) fail(errText string) {
-	_ = sc.srv.taskStore.SetState(sc.taskID, TaskStateFailed, &Message{
-		Role:  RoleAgent,
-		Parts: []Part{{Text: &errText}},
+	_ = sc.srv.taskStore.SetState(sc.taskID, a2a.TaskStateFailed, &a2a.Message{
+		Role:  a2a.RoleAgent,
+		Parts: []a2a.Part{{Text: &errText}},
 	})
-	sc.emit(TaskStatusUpdateEvent{
+	sc.emit(a2a.TaskStatusUpdateEvent{
 		TaskID:    sc.taskID,
 		ContextID: sc.contextID,
-		Status: TaskStatus{
-			State:   TaskStateFailed,
-			Message: &Message{Role: RoleAgent, Parts: []Part{{Text: &errText}}},
+		Status: a2a.TaskStatus{
+			State:   a2a.TaskStateFailed,
+			Message: &a2a.Message{Role: a2a.RoleAgent, Parts: []a2a.Part{{Text: &errText}}},
 		},
 	})
 	sc.b.close()
@@ -198,21 +180,21 @@ func (sc *streamCtx) fail(errText string) {
 
 // complete records a task completion and emits the completed status event.
 func (sc *streamCtx) complete() {
-	_ = sc.srv.taskStore.SetState(sc.taskID, TaskStateCompleted, nil)
-	sc.emit(TaskStatusUpdateEvent{
+	_ = sc.srv.taskStore.SetState(sc.taskID, a2a.TaskStateCompleted, nil)
+	sc.emit(a2a.TaskStatusUpdateEvent{
 		TaskID:    sc.taskID,
 		ContextID: sc.contextID,
-		Status:    TaskStatus{State: TaskStateCompleted},
+		Status:    a2a.TaskStatus{State: a2a.TaskStateCompleted},
 	})
 	sc.b.close()
 	sc.srv.removeBroadcaster(sc.taskID)
 }
 
 // handleStreamMessage processes a message/stream request.
-func (s *Server) handleStreamMessage(
-	w http.ResponseWriter, r *http.Request, req *JSONRPCRequest,
+func (s *A2AServer) handleStreamMessage(
+	w http.ResponseWriter, r *http.Request, req *a2a.JSONRPCRequest,
 ) {
-	var params SendMessageRequest
+	var params a2a.SendMessageRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		writeRPCError(w, req.ID, -32602, "Invalid params")
 		return
@@ -230,14 +212,14 @@ func (s *Server) handleStreamMessage(
 		return
 	}
 
-	streamConv, ok := conv.(StreamingConversation)
+	streamConv, ok := conv.(a2aStreamConv)
 	if !ok {
 		writeRPCError(w, req.ID, -32601,
 			"Streaming not supported by this agent")
 		return
 	}
 
-	pkMsg, err := MessageToMessage(&params.Message)
+	pkMsg, err := a2a.MessageToMessage(&params.Message)
 	if err != nil {
 		writeRPCError(w, req.ID, -32602,
 			fmt.Sprintf("Invalid message: %v", err))
@@ -273,11 +255,11 @@ func (s *Server) handleStreamMessage(
 	}
 
 	// Set task to working.
-	_ = s.taskStore.SetState(taskID, TaskStateWorking, nil)
-	sc.emit(TaskStatusUpdateEvent{
+	_ = s.taskStore.SetState(taskID, a2a.TaskStateWorking, nil)
+	sc.emit(a2a.TaskStatusUpdateEvent{
 		TaskID:    taskID,
 		ContextID: contextID,
-		Status:    TaskStatus{State: TaskStateWorking},
+		Status:    a2a.TaskStatus{State: a2a.TaskStateWorking},
 	})
 
 	// Use request context so client disconnect cancels the stream.
@@ -288,11 +270,7 @@ func (s *Server) handleStreamMessage(
 	s.cancels[taskID] = cancel
 	s.cancelsMu.Unlock()
 
-	chunks, streamErr := streamConv.Stream(ctx, pkMsg)
-	if streamErr != nil {
-		sc.fail(streamErr.Error())
-		return
-	}
+	chunks := streamConv.Stream(ctx, pkMsg)
 
 	sc.processChunks(chunks)
 }
@@ -308,46 +286,46 @@ func (sc *streamCtx) processChunks(chunks <-chan StreamChunk) {
 		}
 
 		switch chunk.Type {
-		case StreamChunkText:
-			evt := TaskArtifactUpdateEvent{
+		case ChunkText:
+			evt := a2a.TaskArtifactUpdateEvent{
 				TaskID:    sc.taskID,
 				ContextID: sc.contextID,
-				Artifact: Artifact{
+				Artifact: a2a.Artifact{
 					ArtifactID: fmt.Sprintf("artifact-%d", artifactIdx),
-					Parts:      []Part{{Text: &chunk.Text}},
+					Parts:      []a2a.Part{{Text: &chunk.Text}},
 				},
 				Append: true,
 			}
 			artifactIdx++
 			sc.emit(evt)
 
-		case StreamChunkMedia:
+		case ChunkMedia:
 			if chunk.Media == nil {
 				continue
 			}
-			part, convErr := ContentPartToA2APart(types.ContentPart{
-				Type:  InferContentType(chunk.Media.MIMEType),
+			part, convErr := a2a.ContentPartToA2APart(types.ContentPart{
+				Type:  a2a.InferContentType(chunk.Media.MIMEType),
 				Media: chunk.Media,
 			})
 			if convErr != nil {
 				continue
 			}
-			evt := TaskArtifactUpdateEvent{
+			evt := a2a.TaskArtifactUpdateEvent{
 				TaskID:    sc.taskID,
 				ContextID: sc.contextID,
-				Artifact: Artifact{
+				Artifact: a2a.Artifact{
 					ArtifactID: fmt.Sprintf("artifact-%d", artifactIdx),
-					Parts:      []Part{part},
+					Parts:      []a2a.Part{part},
 				},
 				Append: true,
 			}
 			artifactIdx++
 			sc.emit(evt)
 
-		case StreamChunkToolCall:
+		case ChunkToolCall:
 			// Suppressed — agent opacity. Task stays working.
 
-		case StreamChunkDone:
+		case ChunkDone:
 			sc.complete()
 			return
 		}
@@ -358,8 +336,8 @@ func (sc *streamCtx) processChunks(chunks <-chan StreamChunk) {
 }
 
 // handleTaskSubscribe processes a tasks/subscribe request.
-func (s *Server) handleTaskSubscribe(w http.ResponseWriter, r *http.Request, req *JSONRPCRequest) {
-	var params SubscribeTaskRequest
+func (s *A2AServer) handleTaskSubscribe(w http.ResponseWriter, r *http.Request, req *a2a.JSONRPCRequest) {
+	var params a2a.SubscribeTaskRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		writeRPCError(w, req.ID, -32602, "Invalid params")
 		return
@@ -389,7 +367,7 @@ func (s *Server) handleTaskSubscribe(w http.ResponseWriter, r *http.Request, req
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 
-		writeSSE(w, flusher, req.ID, TaskStatusUpdateEvent{
+		writeSSE(w, flusher, req.ID, a2a.TaskStatusUpdateEvent{
 			TaskID:    task.ID,
 			ContextID: task.ContextID,
 			Status:    task.Status,

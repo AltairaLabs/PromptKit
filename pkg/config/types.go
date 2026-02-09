@@ -54,6 +54,7 @@ type Config struct {
 	Evals         []EvalRef         `yaml:"evals,omitempty"`
 	Tools         []ToolRef         `yaml:"tools,omitempty"`
 	MCPServers    []MCPServerConfig `yaml:"mcp_servers,omitempty"`
+	A2AAgents     []A2AAgentConfig  `yaml:"a2a_agents,omitempty"`
 	StateStore    *StateStoreConfig `yaml:"state_store,omitempty"`
 	Defaults      Defaults          `yaml:"defaults"`
 	SelfPlay      *SelfPlayConfig   `yaml:"self_play,omitempty"`
@@ -110,6 +111,52 @@ type MCPServerConfig struct {
 	Command string            `yaml:"command"`
 	Args    []string          `yaml:"args,omitempty"`
 	Env     map[string]string `yaml:"env,omitempty"`
+}
+
+// A2AAgentConfig defines a mock A2A agent for Arena testing.
+type A2AAgentConfig struct {
+	Name      string            `yaml:"name"`
+	Card      A2ACardConfig     `yaml:"card"`
+	Responses []A2AResponseRule `yaml:"responses"`
+}
+
+// A2ACardConfig defines the agent card for a mock A2A agent.
+type A2ACardConfig struct {
+	Name        string           `yaml:"name"`
+	Description string           `yaml:"description"`
+	Skills      []A2ASkillConfig `yaml:"skills"`
+}
+
+// A2ASkillConfig defines a single skill in a mock A2A agent card.
+type A2ASkillConfig struct {
+	ID          string   `yaml:"id"`
+	Name        string   `yaml:"name"`
+	Description string   `yaml:"description"`
+	Tags        []string `yaml:"tags,omitempty"`
+}
+
+// A2AResponseRule defines a response rule for a mock A2A agent.
+type A2AResponseRule struct {
+	Skill    string             `yaml:"skill"`
+	Match    *A2AMatchConfig    `yaml:"match,omitempty"`
+	Response *A2AResponseConfig `yaml:"response,omitempty"`
+	Error    string             `yaml:"error,omitempty"`
+}
+
+// A2AMatchConfig defines how to match incoming messages for a mock A2A agent.
+type A2AMatchConfig struct {
+	Contains string `yaml:"contains,omitempty"`
+	Regex    string `yaml:"regex,omitempty"`
+}
+
+// A2AResponseConfig defines the response parts for a mock A2A agent.
+type A2AResponseConfig struct {
+	Parts []A2APartConfig `yaml:"parts"`
+}
+
+// A2APartConfig defines a single response part for a mock A2A agent.
+type A2APartConfig struct {
+	Text string `yaml:"text"`
 }
 
 // StateStoreConfig represents configuration for conversation state storage

@@ -69,6 +69,7 @@ type Engine struct {
 	eventBus             *events.EventBus   // Optional event bus for runtime/TUI events
 	eventStore           events.EventStore // Optional event store for session recording
 	recordingDir         string            // Directory where session recordings are stored
+	a2aCleanup           func()            // Cleanup function for mock A2A servers
 }
 
 // NewEngineFromConfigFile creates a new simulation engine from a configuration file.
@@ -104,13 +105,22 @@ func NewEngineFromConfigFile(configPath string) (*Engine, error) {
 	}
 
 	// Build registries and executors from the config
-	providerRegistry, promptRegistry, mcpRegistry, convExecutor, adapterRegistry, err := BuildEngineComponents(cfg)
+	providerRegistry, promptRegistry, mcpRegistry, convExecutor,
+		adapterRegistry, a2aCleanup, err := BuildEngineComponents(cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	// Create engine with all components
-	return NewEngine(cfg, providerRegistry, promptRegistry, mcpRegistry, convExecutor, adapterRegistry)
+	eng, err := NewEngine(cfg, providerRegistry, promptRegistry, mcpRegistry, convExecutor, adapterRegistry)
+	if err != nil {
+		if a2aCleanup != nil {
+			a2aCleanup()
+		}
+		return nil, err
+	}
+	eng.a2aCleanup = a2aCleanup
+	return eng, nil
 }
 
 // NewEngine creates a new simulation engine from pre-built components.
@@ -169,6 +179,10 @@ func NewEngine(
 // This includes closing all MCP server connections, provider HTTP clients,
 // and the event store if session recording is enabled.
 func (e *Engine) Close() error {
+	if e.a2aCleanup != nil {
+		e.a2aCleanup()
+	}
+
 	if err := e.closeMCPRegistry(); err != nil {
 		return err
 	}
