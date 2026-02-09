@@ -52,11 +52,12 @@ conv, _ := sdk.Open("./pack.json", "chat",
 )
 
 // Available variables:
-// {{current_time}}     - "15:04:05"
-// {{current_date}}     - "2025-01-15"
-// {{current_datetime}} - "2025-01-15 15:04:05"
-// {{day_of_week}}      - "Wednesday"
-// {{timezone}}         - "America/New_York"
+// {{current_time}}    - "2025-01-15T15:04:05Z" (RFC3339 format)
+// {{current_date}}    - "2025-01-15"
+// {{current_year}}    - "2025"
+// {{current_month}}   - "January"
+// {{current_weekday}} - "Wednesday"
+// {{current_hour}}    - "15"
 ```
 
 ### StateProvider

@@ -87,10 +87,10 @@ Error parsing config: yaml: line 2: did not find expected key
 **Check**:
 
 ```go
-type PromptConfig struct {
-  TaskType string `yaml:"task_type"` // Required
-  SystemPrompt string `yaml:"system_prompt"` // Required
-  UserTemplate string `yaml:"user_template"` // Optional
+type Spec struct {
+  TaskType       string `yaml:"task_type"`       // Required
+  SystemTemplate string `yaml:"system_template"` // Required
+  Version        string `yaml:"version"`         // Required
 }
 ```
 
@@ -120,7 +120,7 @@ if err != nil {
 
 ```yaml
 # Invalid Go template
-user_template: "
+system_template: "
 ```
 
 **Error**:
@@ -187,9 +187,9 @@ Warning: Pack size 2MB exceeds recommended 1MB
   "id": "required",
   "name": "optional but recommended",
   "description": "optional but recommended",
-  "system": "required (system or system_template)",
-  "user_template": "optional",
-  "parameters": "optional"
+  "version": "required",
+  "system_template": "required",
+  "variables": "optional but recommended"
 }
 ```
 
@@ -256,19 +256,19 @@ task_type: "support agent"  # ❌ Error: no spaces
 
 ```yaml
 # Valid
-user_template: "User: "
-user_template: ""
+system_template: "User: {{user_name}}"
+system_template: "{{message}}"
 
 # Invalid
-user_template: "
-user_template: ""  # Unknown function
+system_template: "{{.unclosed"
+system_template: "{{unknown_func .x}}"  # Unknown function
 ```
 
 **Variable References**:
 
 ```yaml
 # Warning if variables not documented
-user_template: ""  # ⚠️ Undocumented variable
+system_template: "{{undocumented_var}}"  # Variable not in variables list
 ```
 
 ## Validation Implementation
@@ -277,49 +277,30 @@ user_template: ""  # ⚠️ Undocumented variable
 
 ```go
 func (p *Pack) Validate() []string {
-  var warnings []string
-  
-  // 1. Validate pack structure
-  warnings = append(warnings, p.validateStructure()...)
-  
-  // 2. Validate each prompt
-  for _, prompt := range p.Prompts {
-    warnings = append(warnings, prompt.Validate()...)
-  }
-  
-  // 3. Validate references
-  warnings = append(warnings, p.validateReferences()...)
-  
-  // 4. Validate fragments
-  warnings = append(warnings, p.validateFragments()...)
-  
+  warnings := []string{}
+  warnings = append(warnings, p.validatePackFields()...)
+  warnings = append(warnings, p.validateTemplateEngine()...)
+  warnings = append(warnings, p.validatePrompts()...)
+  warnings = append(warnings, p.validateCompilation()...)
   return warnings
 }
 ```
 
-### Validation Context
+### Validation Output
 
-Provide context for errors:
+Validation returns a list of warning strings:
 
 ```go
-type ValidationError struct {
-  Field   string  // Which field
-  Value   interface{}  // Actual value
-  Message string  // Error description
-  File    string  // Source file
-  Line    int     // Line number
-}
+warnings := pack.Validate()
+// Returns: []string{"missing required field: id", "prompt 'support': missing system_template"}
 ```
 
-**Error Message**:
+**Example output**:
 
 ```
-Error in prompts/support.yaml:
-  Line 8: Missing required field 'task_type'
-  
-  7:   spec:
-  8:     name: Support Agent
-  9:     system_prompt: ...
+⚠ Pack has 2 warnings:
+  - missing required field: id
+  - prompt 'support': missing system_template
 ```
 
 ## Validation Strategies
@@ -362,7 +343,7 @@ jq empty pack.json
 **4. Required metadata present**
 
 ```bash
-jq -e '.compiler_version' pack.json
+jq -e '.compilation.compiled_with' pack.json
 jq -e '.version' pack.json
 ```
 
@@ -419,11 +400,9 @@ Summary: Pack is valid with 2 warnings
 
 ### Detailed Report (future)
 
-```bash
-packc validate pack.json --detailed
-```
+A more detailed validation report may be added in future versions.
 
-**Output**:
+**Example of what a detailed report might look like**:
 
 ```
 Validation Report

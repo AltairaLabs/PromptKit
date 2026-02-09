@@ -161,10 +161,10 @@ spec:
           params:
             patterns: ["hello"]
             message: "Should include greeting"
-        
-        - type: content_length
+
+        - type: content_matches
           params:
-            max: 100
+            pattern: "^.{1,100}$"
             message: "Response should be brief"
     
     - role: user
@@ -270,9 +270,8 @@ For each turn, Arena:
 
 ### 3. Response Validation
 Arena checked each response against your assertions:
-- **Contains**: Verified greeting words were present
-- **Max Length**: Ensured response wasn't too long
-- **Sentiment**: Confirmed positive tone
+- **content_includes**: Verified greeting words were present
+- **content_matches**: Ensured response matched expected patterns
 
 ### 4. Report Generation
 Arena saved results in multiple formats for analysis.
@@ -292,12 +291,11 @@ spec:
         - type: content_includes
           params:
             patterns: ["hello"]
-        
-        - type: content_length
+
+        - type: content_matches
           params:
-            max: 100
-params:
-            max_seconds: 3
+            pattern: "^.{1,100}$"
+            message: "Response should be brief"
 ```
 
 Run again:
@@ -325,9 +323,10 @@ spec:
     - role: user
       content: ""
       assertions:
-        - type: content_length
+        - type: content_matches
           params:
-            min: 10
+            pattern: "^.{10,}$"
+            message: "Response should be at least 10 characters"
 ```
 
 Add it to `arena.yaml`:

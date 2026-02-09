@@ -134,8 +134,9 @@ spec:
       source: test-docs/sample.pdf
   
   assertions:
-    - type: contains
-      value: "Test PDF"
+    - type: content_includes
+      params:
+        patterns: ["Test PDF"]
 ```
 
 **Run it:**
@@ -168,8 +169,9 @@ spec:
       source: test-docs/specs.pdf
   
   assertions:
-    - type: contains
-      value: "received"
+    - type: content_includes
+      params:
+        patterns: ["received"]
 ```
 
 **Run it:**
@@ -200,10 +202,12 @@ spec:
       source: test-docs/diagram.png
   
   assertions:
-    - type: contains
-      value: "PDF"
-    - type: contains
-      value: "image"
+    - type: content_includes
+      params:
+        patterns: ["PDF"]
+    - type: content_includes
+      params:
+        patterns: ["image"]
 ```
 
 **Run it:**
@@ -406,15 +410,21 @@ Add more specific assertions:
 
 ```yaml
 assertions:
-  - type: contains
-    value: "summary"
-  - type: not_contains
-    value: "error"
-  - type: regex
-    pattern: "\\d+ pages?"
-  - type: length_range
-    min: 50
-    max: 500
+  - type: content_includes
+    params:
+      patterns: ["summary"]
+  - type: content_matches
+    params:
+      pattern: "^(?!.*error).*$"
+      message: "Should not contain error"
+  - type: content_matches
+    params:
+      pattern: "\\d+ pages?"
+      message: "Should mention page count"
+  - type: content_matches
+    params:
+      pattern: "^.{50,500}$"
+      message: "Response should be between 50 and 500 characters"
 ```
 
 ### Variable Substitution

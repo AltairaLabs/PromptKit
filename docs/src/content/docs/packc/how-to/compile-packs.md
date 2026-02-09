@@ -70,13 +70,22 @@ For individual prompt development or testing.
    # prompts/support.yaml
    apiVersion: promptkit.altairalabs.ai/v1alpha1
    kind: PromptConfig
+   metadata:
+     name: Customer Support Agent
    spec:
      task_type: customer-support
-     name: Customer Support Agent
-     system_prompt: |
+     description: Handles customer inquiries
+     version: v1.0.0
+     system_template: |
        You are a helpful customer support agent.
-     user_template: |
-       Customer: 
+       Customer: {{customer_name}}
+     template_engine:
+       version: v1
+       syntax: "{{variable}}"
+     variables:
+       - name: customer_name
+         type: string
+         required: true
    ```
 
 2. **Compile the prompt**
@@ -282,7 +291,7 @@ packc inspect packs/app.pack.json
 ### Test with SDK
 
 ```go
-pack, err := manager.LoadPack("./packs/app.pack.json")
+pack, err := prompt.LoadPack("./packs/app.pack.json")
 if err != nil {
     log.Fatal("Pack load failed:", err)
 }
@@ -305,18 +314,20 @@ Error loading arena config: open arena.yaml: no such file or directory
 packc compile --config ./config/arena.yaml --output packs/app.pack.json --id app
 ```
 
-### Missing required fields
+### Smart defaults
 
-**Problem:**
+All compile flags have smart defaults:
 
-```
-Error: --output and --id are required
-```
-
-**Solution:** Provide all required flags:
+- `--config` defaults to `config.arena.yaml`
+- `--output` defaults to `{id}.pack.json`
+- `--id` defaults to the current folder name (sanitized)
 
 ```bash
-packc compile --config arena.yaml --output packs/app.pack.json --id my-app
+# Use all defaults
+packc compile
+
+# Or specify only what you need
+packc compile --config arena.yaml
 ```
 
 ### Prompt file not found

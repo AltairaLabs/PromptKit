@@ -60,7 +60,7 @@ spec:
             message: "Should contain valid email"
 ```
 
-#### Not Containstern Matching
+#### Negative Pattern Matching
 
 Ensure specific content is absent using negative lookahead:
 

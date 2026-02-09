@@ -37,29 +37,27 @@ PackC is the reference compiler for this standard.
 ## Quick Start
 
 ```bash
-# Install PromptKit (includes PackC)
-brew install promptkit
-
-# Or with Go
+# Install with Go
 go install github.com/AltairaLabs/PromptKit/tools/packc@latest
 
 # Create a prompt source file
 cat > greeting.yaml <<EOF
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: PromptConfig
+metadata:
+  name: Greeting Assistant
 spec:
   task_type: greeting
-  name: Greeting Assistant
   description: A friendly assistant that greets users
-  system_prompt: |
+  system_template: |
     You are a friendly assistant. Greet the user warmly.
-  parameters:
-    temperature: 0.7
-    max_tokens: 150
+  template_engine:
+    version: v1
+    syntax: "{{variable}}"
 EOF
 
 # Compile to PromptPack format
-packc compile-prompt greeting.yaml --output greeting.pack.json
+packc compile-prompt --prompt greeting.yaml --output greeting.pack.json
 
 # Validate against the spec
 packc validate greeting.pack.json
@@ -159,10 +157,10 @@ Complete command and format specifications:
 Transform YAML/JSON prompts into [PromptPack](https://promptpack.org)-compliant packages:
 
 ```bash
-packc compile prompts/my-app.yaml \
+packc compile \
+  --config arena.yaml \
   --output dist/my-app.pack.json \
-  --optimize \
-  --version 1.0.0
+  --id my-app
 ```
 
 ### Schema Validation
@@ -170,7 +168,7 @@ packc compile prompts/my-app.yaml \
 Ensure packs conform to the [PromptPack specification](https://promptpack.org):
 
 ```bash
-packc validate my-app.pack.json --strict
+packc validate my-app.pack.json
 ```
 
 Checks:
@@ -184,7 +182,7 @@ Checks:
 Production-ready output:
 
 ```bash
-packc compile prompts/*.yaml --optimize
+packc compile --config arena.yaml --output app.pack.json --id my-app
 ```
 
 - Minify JSON output
@@ -200,19 +198,27 @@ A compiled pack follows the [PromptPack specification](https://promptpack.org):
 
 ```json
 {
-  "apiVersion": "promptkit.altairalabs.ai/v1alpha1",
-  "kind": "PromptPack",
-  "metadata": {
-    "name": "my-app",
-    "version": "1.0.0"
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "my-app",
+  "name": "my-app",
+  "version": "v1.0.0",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
   },
-  "prompts": [
-    {
+  "prompts": {
+    "greeting": {
       "id": "greeting",
-      "system": "You are helpful.",
-      "template": "Greet the user."
+      "name": "Greeting Assistant",
+      "system_template": "You are helpful.",
+      "version": "v1.0.0"
     }
-  ]
+  },
+  "compilation": {
+    "compiled_with": "packc-v0.1.0",
+    "created_at": "2025-01-15T10:30:00Z",
+    "schema": "v1"
+  }
 }
 ```
 
@@ -235,8 +241,8 @@ Automate pack builds in your pipeline:
 ```yaml
 - name: Compile PromptPacks
   run: |
-    packc compile prompts/*.yaml --output-dir dist/
-    packc validate dist/*.pack.json --strict
+    packc compile --config arena.yaml --output dist/app.pack.json --id my-app
+    packc validate dist/app.pack.json
 ```
 
 ### Makefile
@@ -244,11 +250,11 @@ Automate pack builds in your pipeline:
 ```makefile
 .PHONY: build-packs
 build-packs:
-    packc compile prompts/*.yaml --output-dir dist/packs/
+    packc compile --config arena.yaml --output dist/packs/app.pack.json --id my-app
 
 .PHONY: validate-packs
 validate-packs:
-    packc validate dist/packs/*.pack.json --strict
+    packc validate dist/packs/app.pack.json
 ```
 
 ---
@@ -270,7 +276,7 @@ validate-packs:
 ### Quality Assurance
 
 - Always validate after compilation
-- Use `--strict` mode in CI/CD
+- Validate packs in CI/CD before deployment
 - Test packs with Arena before distribution
 
 ---

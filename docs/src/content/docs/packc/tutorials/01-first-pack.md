@@ -33,12 +33,7 @@ In this tutorial, you'll learn to:
 
 Choose your preferred installation method:
 
-**Option 1: Homebrew (Recommended)**
-```bash
-brew install promptkit
-```
-
-**Option 2: Go Install**
+**Go Install**
 ```bash
 go install github.com/AltairaLabs/PromptKit/tools/packc@latest
 ```
@@ -92,23 +87,32 @@ Create your first prompt file:
 cat > prompts/greeting.yaml <<'EOF'
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: PromptConfig
+metadata:
+  name: Greeting Assistant
 spec:
   task_type: greeting
-  name: Greeting Assistant
   description: A friendly assistant that greets users
-  
-  system_prompt: |
+  version: v1.0.0
+
+  system_template: |
     You are a friendly assistant. Greet the user warmly and ask how you can help.
-  
-  user_template: |
-    User name: 
-    Time of day: 
-  
-  template_engine: go
-  
-  parameters:
-    temperature: 0.7
-    max_tokens: 150
+    User name: {{user_name}}
+    Time of day: {{time_of_day}}
+
+  template_engine:
+    version: v1
+    syntax: "{{variable}}"
+
+  variables:
+    - name: user_name
+      type: string
+      required: true
+      description: The user's name
+    - name: time_of_day
+      type: string
+      required: false
+      default: morning
+      description: Time of day for greeting
 EOF
 ```
 
@@ -120,10 +124,9 @@ Create an arena.yaml configuration that references your prompt:
 
 ```bash
 cat > config/arena.yaml <<'EOF'
-prompts:
-  - ../prompts/greeting.yaml
-
-tools_directory: ./tools
+prompt_configs:
+  - id: greeting
+    file: ../prompts/greeting.yaml
 EOF
 ```
 
@@ -169,33 +172,23 @@ packc inspect packs/greeting.pack.json
 **Expected output:**
 
 ```
-Pack Information
-================
+=== Pack Information ===
+Pack: greeting
 ID: greeting
-Name: greeting
-Version: 1.0.0
-Compiler Version: packc-v0.1.0
+Version: v1.0.0
 
-Template Engine
-===============
-Engine: go
+Template Engine: v1 ({{variable}})
 
-Prompts
-=======
-- ID: greeting
+=== Prompts (1) ===
+
+[greeting]
   Name: Greeting Assistant
   Description: A friendly assistant that greets users
-  
-  System Prompt:
-  You are a friendly assistant. Greet the user warmly and ask how you can help.
-  
-  User Template:
-  User name: 
-  Time of day: 
-  
-  Parameters:
-  - temperature: 0.7
-  - max_tokens: 150
+  Version: v1.0.0
+  Variables: 1 required, 1 optional
+    Required: [user_name]
+
+Compilation: packc-v0.1.0, 2025-01-15T10:30:00Z, Schema: v1
 ```
 
 ## Step 7: Validate Your Pack
@@ -210,7 +203,9 @@ packc validate packs/greeting.pack.json
 
 ```
 Validating pack: packs/greeting.pack.json
-✓ Pack is valid
+Validating against PromptPack schema...
+✓ Schema validation passed
+✓ Pack structure is valid
 ```
 
 ## Step 8: View the Pack JSON
@@ -237,11 +232,11 @@ Congratulations! You've successfully:
 
 Your pack contains:
 
-- **Prompt metadata** - Name, description, task type
-- **System prompt** - Instructions for the AI
-- **User template** - How to format user input with variables
-- **Parameters** - Model settings (temperature, max_tokens)
-- **Compiler metadata** - Version and compilation info
+- **Prompt metadata** - Name, description, task type, version
+- **System template** - Instructions for the AI with template variables
+- **Variables** - Defined template variables with types and defaults
+- **Template engine** - Template engine configuration (version and syntax)
+- **Compilation info** - Compiler version, timestamp, and schema version
 
 ## Try It Yourself
 
@@ -252,7 +247,7 @@ Experiment with your pack:
 Edit `prompts/greeting.yaml` to change the greeting style:
 
 ```yaml
-system_prompt: |
+system_template: |
   You are a professional business assistant. Greet the user formally.
 ```
 
@@ -325,33 +320,41 @@ Here's the complete prompt file for reference:
 # prompts/greeting.yaml
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: PromptConfig
+metadata:
+  name: Greeting Assistant
 spec:
   task_type: greeting
-  name: Greeting Assistant
   description: A friendly assistant that greets users
-  
-  system_prompt: |
+  version: v1.0.0
+
+  system_template: |
     You are a friendly assistant. Greet the user warmly and ask how you can help.
-  
-  user_template: |
-    User name: 
-    Time of day: 
-  
-  template_engine: go
-  
-  parameters:
-    temperature: 0.7
-    max_tokens: 150
+    User name: {{user_name}}
+    Time of day: {{time_of_day}}
+
+  template_engine:
+    version: v1
+    syntax: "{{variable}}"
+
+  variables:
+    - name: user_name
+      type: string
+      required: true
+      description: The user's name
+    - name: time_of_day
+      type: string
+      required: false
+      default: morning
+      description: Time of day for greeting
 ```
 
 And the arena configuration:
 
 ```yaml
 # config/arena.yaml
-prompts:
-  - ../prompts/greeting.yaml
-
-tools_directory: ./tools
+prompt_configs:
+  - id: greeting
+    file: ../prompts/greeting.yaml
 ```
 
 Congratulations on completing your first pack!

@@ -94,7 +94,7 @@ Run the test:
 promptarena run --scenario support-conversation
 ```
 
-The `references_previous` assertion checks if the response demonstrates awareness of earlier turns.
+The `content_includes` assertion can check if the response demonstrates awareness of earlier turns by verifying keywords from previous exchanges appear in the response.
 
 ## Step 3: Information Gathering Flow
 
@@ -396,8 +396,8 @@ cat out/results.json | jq '.results[] | select(.scenario == "Account Issue Resol
 
 ```bash
 # Find tests with context retention issues
-cat out/results.json | jq '.results[] | select(.assertions[] | 
-  select(.type == "references_previous" and .passed == false))'
+cat out/results.json | jq '.results[] | select(.assertions[] |
+  select(.type == "content_includes" and .passed == false))'
 ```
 
 ## Advanced Patterns
@@ -611,8 +611,8 @@ assertions:
 ### Long Conversations Timeout
 
 ```bash
-# Increase timeout for long conversations
-promptarena run --timeout 300  # 5 minutes
+# Increase concurrency limits or reduce scenarios for long conversations
+promptarena run --concurrency 1 --verbose
 ```
 
 ## Next Steps

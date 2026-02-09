@@ -207,9 +207,9 @@ spec:
     - role: user
       content: "Hello"
       assertions:
-        - type: content_length
+        - type: content_matches
           params:
-            max: 200
+            pattern: "^.{1,200}$"
             message: "Response should be brief"
 ```
 
@@ -237,9 +237,6 @@ spec:
           params:
             patterns: ["Monday"]
             message: "Should mention business days"
-params:
-            max_seconds: 3
-            message: "Should respond quickly"
     
     - role: user
       content: "How do I contact support?"

@@ -84,8 +84,8 @@ hooks.OnToolCall(conv, func(name string, args map[string]any) {
 })
 
 // Subscribe to provider calls
-hooks.OnProviderCall(conv, func(e *events.Event) {
-    log.Printf("Provider: %s", e.Type)
+hooks.OnProviderCall(conv, func(model string, inputTokens, outputTokens int, cost float64) {
+    log.Printf("Model %s: %d in, %d out, $%.4f", model, inputTokens, outputTokens, cost)
 })
 ```
 
@@ -157,7 +157,7 @@ func enableDebug(conv *sdk.Conversation) {
 
 ## Thread Safety
 
-Event handlers are called synchronously on the goroutine that triggered the event. Use appropriate synchronization if handlers access shared state.
+Event handlers are called asynchronously in a separate goroutine (see `EventBus.Publish` in `runtime/events/bus.go`). Use appropriate synchronization if handlers access shared state, as they run concurrently with the calling code.
 
 ## See Also
 

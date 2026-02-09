@@ -208,19 +208,13 @@ conv.OnToolCtx("search", func(ctx context.Context, args map[string]any) (any, er
 For external API calls, use HTTP tools:
 
 ```go
-import "github.com/AltairaLabs/PromptKit/sdk/tools"
+import sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
 
-conv.OnToolHTTP("stock_price", &tools.HTTPToolConfig{
-    BaseURL: "https://api.stocks.example.com",
-    Method:  "GET",
-    Path:    "/v1/price",
-    Headers: map[string]string{
-        "Authorization": "Bearer " + apiKey,
-    },
-    QueryParams: map[string]string{
-        "symbol": "{{symbol}}",  // From tool args
-    },
-})
+conv.OnToolHTTP("stock_price", sdktools.NewHTTPToolConfig(
+    "https://api.stocks.example.com/v1/price",
+    sdktools.WithMethod("GET"),
+    sdktools.WithHeader("Authorization", "Bearer "+apiKey),
+))
 ```
 
 ## Error Handling

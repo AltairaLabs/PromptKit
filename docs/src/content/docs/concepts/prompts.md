@@ -155,10 +155,10 @@ templates.RegisterTemplate("support", &template.PromptTemplate{
 SDK simplifies prompt management:
 
 ```go
-conv := sdk.NewConversation(provider, &sdk.ConversationConfig{
-    SystemPrompt: "You are a helpful assistant",
-    Model:        "gpt-4o-mini",
-})
+conv, _ := sdk.Open("./assistant.pack.json", "chat",
+    sdk.WithModel("gpt-4o-mini"),
+)
+defer conv.Close()
 
 response, _ := conv.Send(ctx, "Hello")
 ```

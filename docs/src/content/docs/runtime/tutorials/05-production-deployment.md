@@ -72,7 +72,7 @@ import (
 
 type Server struct {
     pipes         []pipeline.Pipeline
-    store         statestore.StateStore
+    store         statestore.Store
     metrics       *Metrics
     currentPipe   int32
 }
@@ -113,32 +113,35 @@ func (m *Metrics) Report() map[string]interface{} {
 
 func NewServer() (*Server, error) {
     // Create state store
-    store, err := statestore.NewRedisStateStore("localhost:6379", "", 0)
-    if err != nil {
+    var store statestore.Store
+    redisClient := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+    if err := redisClient.Ping(context.Background()).Err(); err != nil {
         log.Printf("Redis unavailable, using in-memory: %v", err)
-        store = statestore.NewInMemoryStateStore()
+        store = statestore.NewMemoryStore()
+    } else {
+        store = statestore.NewRedisStore(redisClient)
     }
     
     // Create providers
-    openaiProvider := openai.NewOpenAIProvider(
+    openaiProvider := openai.NewProvider(
         "openai",
         "gpt-4o-mini",
-        os.Getenv("OPENAI_API_KEY"),
-        openai.DefaultProviderDefaults(),
+        "", // uses OPENAI_API_KEY env var
+        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
         false,
     )
     
-    claudeProvider := anthropic.NewAnthropicProvider(
+    claudeProvider := anthropic.NewProvider(
         "claude",
         "claude-3-5-haiku-20241022",
-        os.Getenv("ANTHROPIC_API_KEY"),
-        anthropic.DefaultProviderDefaults(),
+        "", // uses ANTHROPIC_API_KEY env var
+        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 4096},
         false,
     )
     
     // Validators
     bannedWords := validators.NewBannedWordsValidator([]string{"spam", "hack"})
-    lengthValidator := validators.NewLengthValidator(1, 1000)
+    lengthValidator := validators.NewLengthValidator()
     
     // Pipeline config
     config := &middleware.ProviderMiddlewareConfig{
@@ -203,9 +206,7 @@ func (s *Server) Close() {
     for _, pipe := range s.pipes {
         pipe.Shutdown(ctx)
     }
-    if s.store != nil {
-        s.store.Close()
-    }
+    // Store does not need closing; Redis client manages its own connections
 }
 
 type ChatRequest struct {

@@ -56,12 +56,12 @@ When packc compiles a pack, it embeds the compiler version in the pack metadata:
 ```json
 {
   "id": "customer-support",
-  "version": "1.0.0",
-  "compiler_version": "packc-v0.1.0",
+  "version": "v1.0.0",
   "prompts": { ... },
-  "metadata": {
-    "compiled_at": "2025-01-16T10:30:00Z",
-    "compiler_version": "packc-v0.1.0"
+  "compilation": {
+    "compiled_with": "packc-v0.1.0",
+    "created_at": "2025-01-16T10:30:00Z",
+    "schema": "v1"
   }
 }
 ```
@@ -213,7 +213,7 @@ jobs:
   test:
     strategy:
       matrix:
-        packc-version: ['v0.1.0', 'v0.2.0', 'latest']
+        packc-version: ['v0.1.0', 'latest']
     
     runs-on: ubuntu-latest
     steps:
@@ -287,9 +287,7 @@ Error: Pack compiled with packc v0.2.0 but SDK expects v0.1.0
 
 | PackC Version | Pack Format | SDK Compatibility |
 |--------------|-------------|-------------------|
-| v0.1.0       | 1.0         | SDK v0.1.x        |
-| v0.2.0       | 1.1         | SDK v0.2.x        |
-| v1.0.0       | 2.0         | SDK v1.x          |
+| v0.1.0       | v1          | SDK v0.1.x        |
 
 ### Checking Compatibility
 

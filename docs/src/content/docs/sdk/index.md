@@ -64,7 +64,6 @@ conv, err := sdk.Open("./myapp.pack.json", "assistant")
 // Open with options
 conv, err := sdk.Open("./myapp.pack.json", "assistant",
     sdk.WithModel("gpt-4o"),
-    sdk.WithTemperature(0.7),
 )
 ```
 
@@ -85,10 +84,10 @@ resp2, _ := conv.Send(ctx, "What's my name?") // "Alice"
 ```go
 // Set variables for prompt templates
 conv.SetVar("user_name", "Alice")
-conv.SetVar("context", map[string]any{"role": "admin"})
+conv.SetVar("context", "admin role context")
 
 // Get variables
-name := conv.GetVar("user_name")
+name, ok := conv.GetVar("user_name")
 
 // Bulk operations
 conv.SetVars(map[string]any{
@@ -126,12 +125,11 @@ For external API calls:
 ```go
 import "github.com/AltairaLabs/PromptKit/sdk/tools"
 
-conv.OnToolHTTP("stock_price", &tools.HTTPToolConfig{
-    BaseURL: "https://api.stocks.example.com",
-    Method:  "GET",
-    Path:    "/v1/price",
-    Headers: map[string]string{"Authorization": "Bearer " + apiKey},
-})
+conv.OnToolHTTP("stock_price", tools.NewHTTPToolConfig(
+    "https://api.stocks.example.com/v1/price",
+    tools.WithMethod("GET"),
+    tools.WithHeader("Authorization", "Bearer "+apiKey),
+))
 ```
 
 ---
@@ -200,15 +198,18 @@ for _, pending := range resp.PendingTools() {
 Monitor events with hooks:
 
 ```go
-import "github.com/AltairaLabs/PromptKit/sdk/hooks"
+import (
+    "github.com/AltairaLabs/PromptKit/sdk/hooks"
+    "github.com/AltairaLabs/PromptKit/runtime/events"
+)
 
 // Subscribe to events
-conv.Subscribe(hooks.EventSend, func(e hooks.Event) {
-    fmt.Printf("Sending: %s\n", e.Data["message"])
+hooks.On(conv, events.EventProviderCallCompleted, func(e *events.Event) {
+    fmt.Printf("Provider call completed: %s\n", e.Type)
 })
 
-conv.Subscribe(hooks.EventToolCall, func(e hooks.Event) {
-    fmt.Printf("Tool called: %s\n", e.Data["tool"])
+hooks.OnToolCall(conv, func(name string, args map[string]any) {
+    fmt.Printf("Tool called: %s\n", name)
 })
 ```
 
@@ -224,8 +225,8 @@ if err != nil {
         // Pack file doesn't exist
     case errors.Is(err, sdk.ErrPromptNotFound):
         // Prompt ID not in pack
-    case errors.Is(err, sdk.ErrProviderError):
-        // LLM provider error
+    case errors.Is(err, sdk.ErrProviderNotDetected):
+        // No provider API key found
     case errors.Is(err, sdk.ErrToolNotRegistered):
         // Tool handler missing
     default:

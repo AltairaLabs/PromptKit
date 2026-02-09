@@ -86,18 +86,25 @@ go func() {
 
 ## Integration with SDK
 
-VAD is typically used with audio sessions:
+VAD is typically used with duplex audio sessions:
 
 ```go
-conv, _ := sdk.Open("./pack.json", "assistant")
-
-// Create audio session with VAD
-session, _ := conv.OpenAudioSession(ctx,
-    sdk.WithSessionVAD(audio.NewSimpleVAD(audio.DefaultVADParams())),
+import (
+    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/runtime/stt"
+    "github.com/AltairaLabs/PromptKit/runtime/tts"
 )
 
+sttService := stt.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
+ttsService := tts.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
+
+conv, _ := sdk.OpenDuplex("./pack.json", "assistant",
+    sdk.WithVADMode(sttService, ttsService, sdk.DefaultVADModeConfig()),
+)
+defer conv.Close()
+
 // VAD automatically processes audio chunks
-session.SendChunk(ctx, audioChunk)
+conv.SendChunk(ctx, audioChunk)
 ```
 
 ## Notes

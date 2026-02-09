@@ -253,13 +253,13 @@ type Pricing struct {
 ### Constructor
 
 ```go
-func NewOpenAIProvider(
+func NewProvider(
     id string,
     model string,
     baseURL string,
     defaults ProviderDefaults,
     includeRawOutput bool,
-) *OpenAIProvider
+) *Provider
 ```
 
 **Parameters**:
@@ -274,11 +274,11 @@ func NewOpenAIProvider(
 
 **Example**:
 ```go
-provider := openai.NewOpenAIProvider(
+provider := openai.NewProvider(
     "openai",
     "gpt-4o-mini",
     "",  // Use default URL
-    openai.DefaultProviderDefaults(),
+    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
     false,
 )
 defer provider.Close()
@@ -307,11 +307,11 @@ defer provider.Close()
 
 ```go
 // Create tool provider
-toolProvider := openai.NewOpenAIToolProvider(
+toolProvider := openai.NewToolProvider(
     "openai",
     "gpt-4o-mini",
     "",
-    openai.DefaultProviderDefaults(),
+    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
     false,
     nil,  // Additional config
 )
@@ -336,13 +336,13 @@ response, toolCalls, err := toolProvider.PredictWithTools(
 ### Constructor
 
 ```go
-func NewClaudeProvider(
+func NewProvider(
     id string,
     model string,
     baseURL string,
     defaults ProviderDefaults,
     includeRawOutput bool,
-) *ClaudeProvider
+) *Provider
 ```
 
 **Environment**:
@@ -350,11 +350,11 @@ func NewClaudeProvider(
 
 **Example**:
 ```go
-provider := claude.NewClaudeProvider(
+provider := claude.NewProvider(
     "claude",
     "claude-3-5-sonnet-20241022",
     "",  // Use default URL
-    claude.DefaultProviderDefaults(),
+    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 4096},
     false,
 )
 defer provider.Close()
@@ -380,11 +380,11 @@ defer provider.Close()
 ### Tool Support
 
 ```go
-toolProvider := claude.NewClaudeToolProvider(
+toolProvider := claude.NewToolProvider(
     "claude",
     "claude-3-5-sonnet-20241022",
     "",
-    claude.DefaultProviderDefaults(),
+    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 4096},
     false,
 )
 
@@ -396,13 +396,13 @@ response, toolCalls, err := toolProvider.PredictWithTools(ctx, req, tools, "auto
 ### Constructor
 
 ```go
-func NewGeminiProvider(
+func NewProvider(
     id string,
     model string,
     baseURL string,
     defaults ProviderDefaults,
     includeRawOutput bool,
-) *GeminiProvider
+) *Provider
 ```
 
 **Environment**:
@@ -410,11 +410,11 @@ func NewGeminiProvider(
 
 **Example**:
 ```go
-provider := gemini.NewGeminiProvider(
+provider := gemini.NewProvider(
     "gemini",
     "gemini-1.5-flash",
     "",
-    gemini.DefaultProviderDefaults(),
+    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 8192},
     false,
 )
 defer provider.Close()
@@ -438,11 +438,11 @@ defer provider.Close()
 ### Tool Support
 
 ```go
-toolProvider := gemini.NewGeminiToolProvider(
+toolProvider := gemini.NewToolProvider(
     "gemini",
     "gemini-1.5-flash",
     "",
-    gemini.DefaultProviderDefaults(),
+    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 8192},
     false,
 )
 
@@ -456,16 +456,16 @@ For testing and development.
 ### Constructor
 
 ```go
-func NewMockProvider(
+func NewProvider(
     id string,
     model string,
     includeRawOutput bool,
-) *MockProvider
+) *Provider
 ```
 
 **Example**:
 ```go
-provider := mock.NewMockProvider("mock", "test-model", false)
+provider := mock.NewProvider("mock", "test-model", false)
 
 // Configure responses
 provider.AddResponse("Hello", "Hi there!")
@@ -483,13 +483,13 @@ repo := &CustomMockRepository{
     },
 }
 
-provider := mock.NewMockProviderWithRepository("mock", "test-model", false, repo)
+provider := mock.NewProviderWithRepository("mock", "test-model", false, repo)
 ```
 
 ### Tool Support
 
 ```go
-toolProvider := mock.NewMockToolProvider("mock", "test-model", false, nil)
+toolProvider := mock.NewToolProvider("mock", "test-model", false, nil)
 
 // Configure tool call responses
 toolProvider.ConfigureToolResponse("get_weather", `{"temp": 72, "conditions": "sunny"}`)
@@ -502,14 +502,14 @@ Run local LLMs with zero API costs using [Ollama](https://ollama.ai/). Uses the 
 ### Constructor
 
 ```go
-func NewOllamaProvider(
+func NewProvider(
     id string,
     model string,
     baseURL string,
     defaults ProviderDefaults,
     includeRawOutput bool,
     additionalConfig map[string]interface{},
-) *OllamaProvider
+) *Provider
 ```
 
 **Parameters**:
@@ -526,11 +526,11 @@ func NewOllamaProvider(
 
 **Example**:
 ```go
-provider := ollama.NewOllamaProvider(
+provider := ollama.NewProvider(
     "ollama",
     "llama3.2:1b",
     "http://localhost:11434",
-    ollama.DefaultProviderDefaults(),
+    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2048},
     false,
     map[string]interface{}{
         "keep_alive": "5m",  // Keep model loaded for 5 minutes
@@ -569,11 +569,11 @@ Run `ollama list` to see installed models, or `ollama pull <model>` to download 
 ### Tool Support
 
 ```go
-toolProvider := ollama.NewOllamaToolProvider(
+toolProvider := ollama.NewToolProvider(
     "ollama",
     "llama3.2:1b",
     "http://localhost:11434",
-    ollama.DefaultProviderDefaults(),
+    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2048},
     false,
     map[string]interface{}{"keep_alive": "5m"},
 )
@@ -640,14 +640,14 @@ High-throughput inference engine optimized for GPU-accelerated LLM serving. Supp
 ### Constructor
 
 ```go
-func NewVLLMProvider(
+func NewProvider(
     id string,
     model string,
     baseURL string,
     defaults ProviderDefaults,
     includeRawOutput bool,
     additionalConfig map[string]interface{},
-) *VLLMProvider
+) *Provider
 ```
 
 **Parameters**:
@@ -664,11 +664,11 @@ func NewVLLMProvider(
 
 **Example**:
 ```go
-provider := vllm.NewVLLMProvider(
+provider := vllm.NewProvider(
     "vllm",
     "meta-llama/Llama-3.2-1B-Instruct",
     "http://localhost:8000",
-    vllm.DefaultProviderDefaults(),
+    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2048},
     false,
     map[string]interface{}{
         "use_beam_search": false,
@@ -741,11 +741,11 @@ jsonSchema := `{
     "required": ["name", "age"]
 }`
 
-provider := vllm.NewVLLMProvider(
+provider := vllm.NewProvider(
     "vllm",
     "meta-llama/Llama-3.2-3B-Instruct",
     "http://localhost:8000",
-    vllm.DefaultProviderDefaults(),
+    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2048},
     false,
     map[string]interface{}{
         "guided_json": jsonSchema,
@@ -756,11 +756,11 @@ provider := vllm.NewVLLMProvider(
 ### Tool Support
 
 ```go
-toolProvider := vllm.NewVLLMToolProvider(
+toolProvider := vllm.NewToolProvider(
     "vllm",
     "meta-llama/Llama-3.2-1B-Instruct",
     "http://localhost:8000",
-    vllm.DefaultProviderDefaults(),
+    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2048},
     false,
     nil,
 )
@@ -911,11 +911,11 @@ import (
     "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
 )
 
-provider := openai.NewOpenAIProvider(
+provider := openai.NewProvider(
     "openai",
     "gpt-4o-mini",
     "",
-    openai.DefaultProviderDefaults(),
+    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
     false,
 )
 defer provider.Close()
@@ -960,7 +960,7 @@ for chunk := range streamChan {
         fmt.Print(chunk.Delta)
     }
     
-    if chunk.Done {
+    if chunk.FinishReason != nil {
         fmt.Printf("\n\nComplete! Tokens: %d\n", chunk.TokenCount)
     }
 }
@@ -969,11 +969,11 @@ for chunk := range streamChan {
 ### With Function Calling
 
 ```go
-toolProvider := openai.NewOpenAIToolProvider(
+toolProvider := openai.NewToolProvider(
     "openai",
     "gpt-4o-mini",
     "",
-    openai.DefaultProviderDefaults(),
+    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
     false,
     nil,
 )
@@ -1012,7 +1012,7 @@ if err != nil {
 // Process tool calls
 for _, call := range toolCalls {
     fmt.Printf("Tool: %s\n", call.Name)
-    fmt.Printf("Args: %s\n", call.Arguments)
+    fmt.Printf("Args: %s\n", call.Args)
 }
 ```
 
@@ -1047,8 +1047,8 @@ costInfo := provider.CalculateCost(
     0,     // Cached tokens
 )
 
-fmt.Printf("Input cost: $%.6f\n", costInfo.InputCost)
-fmt.Printf("Output cost: $%.6f\n", costInfo.OutputCost)
+fmt.Printf("Input cost: $%.6f\n", costInfo.InputCostUSD)
+fmt.Printf("Output cost: $%.6f\n", costInfo.OutputCostUSD)
 fmt.Printf("Total cost: $%.6f\n", costInfo.TotalCost)
 ```
 
@@ -1066,7 +1066,7 @@ customDefaults := providers.ProviderDefaults{
     },
 }
 
-provider := openai.NewOpenAIProvider(
+provider := openai.NewProvider(
     "custom-openai",
     "gpt-4o-mini",
     "",
@@ -1077,80 +1077,72 @@ provider := openai.NewOpenAIProvider(
 
 ## Configuration
 
-### Default Provider Settings
+### Recommended Provider Defaults
 
-**OpenAI**:
+Configure `ProviderDefaults` when creating providers. Here are recommended values:
+
+**OpenAI** (gpt-4o-mini):
 ```go
-func DefaultProviderDefaults() ProviderDefaults {
-    return ProviderDefaults{
-        Temperature: 0.7,
-        TopP:        1.0,
-        MaxTokens:   2000,
-        Pricing: Pricing{
-            InputCostPer1K:  0.00015,  // gpt-4o-mini
-            OutputCostPer1K: 0.0006,
-        },
-    }
+providers.ProviderDefaults{
+    Temperature: 0.7,
+    TopP:        1.0,
+    MaxTokens:   2000,
+    Pricing: providers.Pricing{
+        InputCostPer1K:  0.00015,
+        OutputCostPer1K: 0.0006,
+    },
 }
 ```
 
-**Claude**:
+**Claude** (claude-3-5-sonnet):
 ```go
-func DefaultProviderDefaults() ProviderDefaults {
-    return ProviderDefaults{
-        Temperature: 0.7,
-        TopP:        1.0,
-        MaxTokens:   4096,
-        Pricing: Pricing{
-            InputCostPer1K:  0.003,    // claude-3-5-sonnet
-            OutputCostPer1K: 0.015,
-        },
-    }
+providers.ProviderDefaults{
+    Temperature: 0.7,
+    TopP:        1.0,
+    MaxTokens:   4096,
+    Pricing: providers.Pricing{
+        InputCostPer1K:  0.003,
+        OutputCostPer1K: 0.015,
+    },
 }
 ```
 
-**Gemini**:
+**Gemini** (gemini-1.5-flash):
 ```go
-func DefaultProviderDefaults() ProviderDefaults {
-    return ProviderDefaults{
-        Temperature: 0.7,
-        TopP:        0.95,
-        MaxTokens:   8192,
-        Pricing: Pricing{
-            InputCostPer1K:  0.000075,  // gemini-1.5-flash
-            OutputCostPer1K: 0.0003,
-        },
-    }
+providers.ProviderDefaults{
+    Temperature: 0.7,
+    TopP:        0.95,
+    MaxTokens:   8192,
+    Pricing: providers.Pricing{
+        InputCostPer1K:  0.000075,
+        OutputCostPer1K: 0.0003,
+    },
 }
 ```
 
-**Ollama**:
+**Ollama** (local inference):
 ```go
-func DefaultProviderDefaults() ProviderDefaults {
-    return ProviderDefaults{
-        Temperature: 0.7,
-        TopP:        0.9,
-        MaxTokens:   2048,
-        Pricing: Pricing{
-            InputCostPer1K:  0.0,  // Local inference - free
-            OutputCostPer1K: 0.0,
-        },
-    }
+providers.ProviderDefaults{
+    Temperature: 0.7,
+    TopP:        0.9,
+    MaxTokens:   2048,
+    Pricing: providers.Pricing{
+        InputCostPer1K:  0.0,  // Free (local)
+        OutputCostPer1K: 0.0,
+    },
 }
 ```
 
-**vLLM**:
+**vLLM** (self-hosted):
 ```go
-func DefaultProviderDefaults() ProviderDefaults {
-    return ProviderDefaults{
-        Temperature: 0.7,
-        TopP:        0.95,
-        MaxTokens:   2048,
-        Pricing: Pricing{
-            InputCostPer1K:  0.0,  // Self-hosted inference - free
-            OutputCostPer1K: 0.0,
-        },
-    }
+providers.ProviderDefaults{
+    Temperature: 0.7,
+    TopP:        0.95,
+    MaxTokens:   2048,
+    Pricing: providers.Pricing{
+        InputCostPer1K:  0.0,  // Free (self-hosted)
+        OutputCostPer1K: 0.0,
+    },
 }
 ```
 
@@ -1312,7 +1304,7 @@ platform:
 
 ```go
 // Always close providers
-provider := openai.NewOpenAIProvider(...)
+provider := openai.NewProvider(...)
 defer provider.Close()
 ```
 

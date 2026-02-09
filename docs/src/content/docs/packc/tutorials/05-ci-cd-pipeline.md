@@ -37,15 +37,22 @@ mkdir -p prompts config packs .github/workflows
 cat > prompts/assistant.yaml <<'EOF'
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: PromptConfig
+metadata:
+  name: AI Assistant
 spec:
   task_type: assistant
-  name: AI Assistant
-  system_prompt: You are a helpful AI assistant.
-  user_template: ""
-  template_engine: go
-  parameters:
-    temperature: 0.7
-    max_tokens: 500
+  description: A helpful AI assistant
+  version: v1.0.0
+  system_template: |
+    You are a helpful AI assistant.
+    User: {{user_message}}
+  template_engine:
+    version: v1
+    syntax: "{{variable}}"
+  variables:
+    - name: user_message
+      type: string
+      required: true
 EOF
 
 cat > config/arena.yaml <<'EOF'

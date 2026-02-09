@@ -222,8 +222,9 @@ LoadedScenarios: map[string]*config.Scenario{
 				Content: "What is 2+2?",
 				Assertions: []asrt.AssertionConfig{
 					{
-						Type:  "contains",
-						Value: "4",
+						Type:    "content_includes",
+						Params:  map[string]interface{}{"patterns": []string{"4"}},
+						Message: "Should contain the answer 4",
 					},
 				},
 			},

@@ -37,9 +37,6 @@ packc inspect app.pack.json
 ```bash
 # Install from source
 go install github.com/AltairaLabs/PromptKit/tools/packc@latest
-
-# Or use pre-built binary
-# Download from GitHub releases
 ```
 
 ### Pack File Format
@@ -48,18 +45,28 @@ PackC produces `.pack.json` files with this structure:
 
 ```json
 {
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
   "id": "my-app",
   "name": "My Application",
-  "version": "1.0.0",
-  "template_engine": "go",
+  "version": "v1.0.0",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
   "prompts": {
     "task_type": {
-      "system": "System prompt...",
-      "user_template": "User template...",
-      "parameters": {...},
-      "tools": [...],
-      "variables": {...}
+      "id": "task_type",
+      "name": "Display Name",
+      "system_template": "System prompt...",
+      "version": "v1.0.0",
+      "tools": ["tool1", "tool2"],
+      "variables": [...]
     }
+  },
+  "compilation": {
+    "compiled_with": "packc-v0.1.0",
+    "created_at": "2025-01-15T10:30:00Z",
+    "schema": "v1"
   }
 }
 ```

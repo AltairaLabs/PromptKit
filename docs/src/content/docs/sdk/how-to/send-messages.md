@@ -157,7 +157,7 @@ msg := types.Message{
     Role:    "user",
     Content: "Hello!",
 }
-resp, _ := conv.Send(ctx, msg)
+resp, _ := conv.Send(ctx, &msg)
 ```
 
 ## Complete Example

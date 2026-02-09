@@ -305,16 +305,16 @@ spec:
 
 ```bash
 # AWS Bedrock (requires AWS credentials)
-arena run -c examples/cloud-providers/bedrock-arena.yaml
+promptarena run -c examples/cloud-providers/bedrock-arena.yaml
 
 # GCP Vertex (requires GCP credentials)
-arena run -c examples/cloud-providers/vertex-arena.yaml
+promptarena run -c examples/cloud-providers/vertex-arena.yaml
 
 # Azure (requires Azure credentials)
-arena run -c examples/cloud-providers/azure-arena.yaml
+promptarena run -c examples/cloud-providers/azure-arena.yaml
 
 # Multi-cloud comparison
-arena run -c examples/cloud-providers/multi-cloud-arena.yaml
+promptarena run -c examples/cloud-providers/multi-cloud-arena.yaml
 ```
 
 ## Best Practices

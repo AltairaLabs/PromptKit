@@ -270,8 +270,8 @@ import (
 )
 
 // Monitor provider calls for cost tracking
-hooks.OnProviderCall(conv, func(e *events.Event) {
-    log.Printf("Provider call completed: %s", e.Type)
+hooks.OnProviderCall(conv, func(model string, inputTokens, outputTokens int, cost float64) {
+    log.Printf("Model %s: %d in, %d out, $%.4f", model, inputTokens, outputTokens, cost)
 })
 
 resp, err := conv.Send(ctx, "Analyze",

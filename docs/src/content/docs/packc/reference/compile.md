@@ -8,7 +8,7 @@ Compile all prompts from an arena.yaml configuration into a single pack file.
 ## Synopsis
 
 ```bash
-packc compile --config <arena.yaml> --output <pack-file> --id <pack-id>
+packc compile [-c <arena.yaml>] [-o <pack-file>] [--id <pack-id>]
 ```
 
 ## Description
@@ -19,23 +19,24 @@ This is the primary command for building production packs that contain multiple 
 
 ## Options
 
-### Required
+### Optional (all flags have smart defaults)
 
-**`--config <path>`**
+**`-c, --config <path>`**
 - Path to the arena.yaml configuration file
 - This file lists all prompts to include in the pack
 - Default: `config.arena.yaml`
 
-**`--output <path>`**
+**`-o, --output <path>`**
 - Path where the compiled pack file will be written
 - Should end in `.pack.json`
+- Default: `{id}.pack.json`
 - Example: `packs/customer-support.pack.json`
 
 **`--id <string>`**
 - Unique identifier for this pack
 - Used by the SDK to reference the pack
 - Should be kebab-case (e.g., `customer-support`)
-- Example: `--id customer-support`
+- Default: current folder name (sanitized to lowercase alphanumeric with hyphens)
 
 ## Examples
 
@@ -78,19 +79,14 @@ packc compile \
 The arena.yaml file references prompt configurations:
 
 ```yaml
-version: "1.0"
+prompt_configs:
+  - file: prompts/support.yaml
+  - file: prompts/sales.yaml
+  - file: prompts/technical.yaml
 
-prompts:
-  - id: customer-support
-    path: prompts/support.yaml
-  
-  - id: sales-assistant
-    path: prompts/sales.yaml
-  
-  - id: technical-expert
-    path: prompts/technical.yaml
-
-tools_dir: tools/
+tools:
+  - file: tools/search_kb.yaml
+  - file: tools/create_ticket.yaml
 ```
 
 ## Output: Pack File
@@ -99,29 +95,32 @@ The command produces a `.pack.json` file:
 
 ```json
 {
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
   "id": "customer-support",
-  "name": "Customer Support Pack",
-  "version": "1.0.0",
-  "template_engine": "go",
+  "name": "customer-support",
+  "version": "v1.0.0",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
   "prompts": {
     "customer-support": {
-      "system": "You are a customer support agent...",
-      "parameters": {
-        "temperature": 0.7,
-        "max_tokens": 1000
-      }
+      "id": "customer-support",
+      "name": "Customer Support Agent",
+      "system_template": "You are a customer support agent...",
+      "version": "v1.0.0"
     },
     "sales-assistant": {
-      "system": "You are a sales assistant...",
-      "parameters": {
-        "temperature": 0.8
-      }
+      "id": "sales-assistant",
+      "name": "Sales Assistant",
+      "system_template": "You are a sales assistant...",
+      "version": "v1.0.0"
     }
   },
   "compilation": {
     "compiled_with": "packc-v0.1.0",
-    "created_at": "2024-01-15T10:30:00Z",
-    "schema": "1.0"
+    "created_at": "2025-01-15T10:30:00Z",
+    "schema": "v1"
   }
 }
 ```
@@ -143,16 +142,15 @@ The compile command performs these steps:
 
 ## Common Errors
 
-### Missing Required Options
+### Using Smart Defaults
+
+All flags have smart defaults, so you can run `packc compile` with no arguments:
 
 ```bash
-$ packc compile --config arena.yaml
-Error: --output and --id are required
-```
+# Uses config.arena.yaml, folder name as ID, {id}.pack.json as output
+packc compile
 
-**Solution:** Provide both `--output` and `--id`:
-
-```bash
+# Or override specific options
 packc compile --config arena.yaml --output app.pack.json --id my-app
 ```
 

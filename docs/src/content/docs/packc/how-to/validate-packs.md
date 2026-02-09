@@ -35,15 +35,19 @@ Verify pack structure, catch errors, and enforce quality standards before deploy
    **Success:**
    ```
    Validating pack: packs/app.pack.json
-   ✓ Pack is valid
+   Validating against PromptPack schema...
+   ✓ Schema validation passed
+   ✓ Pack structure is valid
    ```
 
    **With warnings:**
    ```
    Validating pack: packs/app.pack.json
+   Validating against PromptPack schema...
+   ✓ Schema validation passed
    ⚠ Pack has 2 warnings:
      - Missing description for prompt 'support'
-     - Tool 'search_kb' not defined
+     - prompt 'support': no variables defined
    ```
 
 ## Validation Checks
@@ -239,8 +243,8 @@ if ! jq empty "$pack_file" 2>/dev/null; then
 fi
 
 # Check for required metadata
-if ! jq -e '.compiler_version' "$pack_file" >/dev/null; then
-  echo "✗ Missing compiler_version"
+if ! jq -e '.compilation.compiled_with' "$pack_file" >/dev/null; then
+  echo "✗ Missing compilation.compiled_with"
   exit 1
 fi
 

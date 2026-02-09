@@ -78,14 +78,18 @@ Sessions enable:
 State is managed through the Store interface:
 
 ```go
-// Load history for session ID
-messages, _ := store.Load(ctx, sessionID)
+// Load conversation state by ID
+state, _ := store.Load(ctx, conversationID)
+
+// Access message history
+messages := state.Messages
 
 // Execute with loaded context
 // ... pipeline execution ...
 
-// Save updated messages
-store.Save(ctx, sessionID, updatedMessages)
+// Save updated state
+state.Messages = append(state.Messages, newMessages...)
+store.Save(ctx, state)
 ```
 
 **Before execution**:
@@ -100,9 +104,24 @@ All stores implement:
 
 ```go
 type Store interface {
-    Load(ctx context.Context, sessionID string) ([]Message, error)
-    Save(ctx context.Context, sessionID string, messages []Message) error
-    Fork(ctx context.Context, sourceSessionID string, newSessionID string) error
+    Load(ctx context.Context, id string) (*ConversationState, error)
+    Save(ctx context.Context, state *ConversationState) error
+    Fork(ctx context.Context, sourceID, newID string) error
+}
+```
+
+The `ConversationState` struct holds all conversation data:
+
+```go
+type ConversationState struct {
+    ID             string
+    UserID         string
+    Messages       []types.Message
+    SystemPrompt   string
+    Summaries      []string
+    TokenCount     int
+    LastAccessedAt time.Time
+    Metadata       map[string]any
 }
 ```
 
@@ -209,9 +228,9 @@ Limit history size:
 
 ```go
 // Load and trim messages before execution
-messages, _ := store.Load(ctx, sessionID)
-if len(messages) > 10 {
-    messages = messages[len(messages)-10:]
+state, _ := store.Load(ctx, conversationID)
+if len(state.Messages) > 10 {
+    state.Messages = state.Messages[len(state.Messages)-10:]
 }
 ```
 
@@ -302,13 +321,13 @@ Typical performance:
 
 ```go
 // Fast: Load and trim to last 10 messages
-messages, _ := store.Load(ctx, sessionID)
-if len(messages) > 10 {
-    messages = messages[len(messages)-10:]
+state, _ := store.Load(ctx, conversationID)
+if len(state.Messages) > 10 {
+    state.Messages = state.Messages[len(state.Messages)-10:]
 }
 
 // Slow: Load all messages (no trimming)
-messages, _ := store.Load(ctx, sessionID)
+state, _ := store.Load(ctx, conversationID)
 ```
 
 **2. Lazy Loading**
@@ -317,18 +336,20 @@ Load on demand:
 
 ```go
 type LazyStore struct {
-    inner Store
-    cache map[string][]Message
+    inner statestore.Store
+    cache map[string]*statestore.ConversationState
 }
 
-func (s *LazyStore) Load(ctx context.Context, sessionID string) ([]Message, error) {
-    if cached, ok := s.cache[sessionID]; ok {
+func (s *LazyStore) Load(ctx context.Context, id string) (*statestore.ConversationState, error) {
+    if cached, ok := s.cache[id]; ok {
         return cached, nil  // Cache hit
     }
 
-    messages, err := s.inner.Load(ctx, sessionID)
-    s.cache[sessionID] = messages
-    return messages, err
+    state, err := s.inner.Load(ctx, id)
+    if err == nil {
+        s.cache[id] = state
+    }
+    return state, err
 }
 ```
 
@@ -338,12 +359,13 @@ Compress stored messages:
 
 ```go
 type CompressedStore struct {
-    inner Store
+    inner statestore.Store
 }
 
-func (s *CompressedStore) Save(ctx context.Context, sessionID string, messages []Message) error {
-    compressed := compress(messages)
-    return s.inner.Save(ctx, sessionID, compressed)
+func (s *CompressedStore) Save(ctx context.Context, state *statestore.ConversationState) error {
+    // Compress messages before saving
+    state.Messages = compress(state.Messages)
+    return s.inner.Save(ctx, state)
 }
 ```
 
@@ -405,14 +427,17 @@ func TestStateManagement(t *testing.T) {
     ctx := context.Background()
 
     // Test save
-    messages := []Message{}
-    err := store.Save(ctx, "session-1", messages)
+    state := &statestore.ConversationState{
+        ID:       "session-1",
+        Messages: []types.Message{},
+    }
+    err := store.Save(ctx, state)
     assert.NoError(t, err)
 
     // Test load
     loaded, err := store.Load(ctx, "session-1")
     assert.NoError(t, err)
-    assert.Equal(t, messages, loaded)
+    assert.Equal(t, state.Messages, loaded.Messages)
 }
 ```
 
@@ -422,20 +447,31 @@ For testing state management:
 
 ```go
 type MockStore struct {
-    messages map[string][]Message
+    states map[string]*statestore.ConversationState
 }
 
-func (m *MockStore) Load(ctx context.Context, sessionID string) ([]Message, error) {
-    return m.messages[sessionID], nil
+func (m *MockStore) Load(ctx context.Context, id string) (*statestore.ConversationState, error) {
+    state, ok := m.states[id]
+    if !ok {
+        return nil, statestore.ErrNotFound
+    }
+    return state, nil
 }
 
-func (m *MockStore) Save(ctx context.Context, sessionID string, messages []Message) error {
-    m.messages[sessionID] = messages
+func (m *MockStore) Save(ctx context.Context, state *statestore.ConversationState) error {
+    m.states[state.ID] = state
     return nil
 }
 
-func (m *MockStore) Fork(ctx context.Context, source string, target string) error {
-    m.messages[target] = append([]Message{}, m.messages[source]...)
+func (m *MockStore) Fork(ctx context.Context, sourceID, newID string) error {
+    source, ok := m.states[sourceID]
+    if !ok {
+        return statestore.ErrNotFound
+    }
+    newState := *source
+    newState.ID = newID
+    newState.Messages = append([]types.Message{}, source.Messages...)
+    m.states[newID] = &newState
     return nil
 }
 ```
@@ -503,11 +539,11 @@ Track state metrics:
 Handle store failures gracefully:
 
 ```go
-messages, err := store.Load(sessionID)
+state, err := store.Load(ctx, conversationID)
 if err != nil {
     log.Printf("Failed to load state: %v", err)
-    // Continue with empty history
-    messages = []Message{}
+    // Continue with empty state
+    state = &statestore.ConversationState{ID: conversationID}
 }
 ```
 
@@ -535,9 +571,10 @@ Enable both for best durability.
 store := statestore.NewMemoryStore()
 
 // Use store directly for state management
-messages, _ := store.Load(ctx, sessionID)
-// ... execute pipeline ...
-store.Save(ctx, sessionID, updatedMessages)
+state, _ := store.Load(ctx, conversationID)
+// ... execute pipeline with state.Messages ...
+state.Messages = append(state.Messages, newMessages...)
+store.Save(ctx, state)
 ```
 
 ### Production (Redis)
@@ -554,9 +591,10 @@ redisClient := redis.NewClient(&redis.Options{
 store := statestore.NewRedisStore(redisClient)
 
 // Use store directly for state management
-messages, _ := store.Load(ctx, sessionID)
-// ... execute pipeline ...
-store.Save(ctx, sessionID, updatedMessages)
+state, _ := store.Load(ctx, conversationID)
+// ... execute pipeline with state.Messages ...
+state.Messages = append(state.Messages, newMessages...)
+store.Save(ctx, state)
 ```
 
 ## Summary

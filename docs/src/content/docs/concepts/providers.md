@@ -74,18 +74,22 @@ genai.GenerateContent(...)
 
 ```go
 // Works with any provider
-var provider types.Provider
-response, err := provider.Complete(ctx, messages, config)
+var provider providers.Provider
+response, err := provider.Predict(ctx, req)
 ```
 
 ## Provider Interface
 
 ```go
 type Provider interface {
-    Complete(ctx context.Context, messages []Message, config *ProviderConfig) (*ProviderResponse, error)
-    CompleteStream(ctx context.Context, messages []Message, config *ProviderConfig) (StreamReader, error)
-    GetProviderName() string
+    ID() string
+    Model() string
+    Predict(ctx context.Context, req PredictionRequest) (PredictionResponse, error)
+    PredictStream(ctx context.Context, req PredictionRequest) (<-chan StreamChunk, error)
+    SupportsStreaming() bool
+    ShouldIncludeRawOutput() bool
     Close() error
+    CalculateCost(inputTokens, outputTokens, cachedTokens int) types.CostInfo
 }
 ```
 
@@ -95,17 +99,16 @@ type Provider interface {
 
 ```go
 // Create provider
-provider, err := openai.NewOpenAIProvider(apiKey, "gpt-4o-mini")
-if err != nil {
-    log.Fatal(err)
-}
+provider := openai.NewProvider("my-openai", "gpt-4o-mini", "", providers.ProviderDefaults{}, false)
 defer provider.Close()
 
 // Send request
-messages := []types.Message{
-    {Role: "user", Content: "Hello"},
+req := providers.PredictionRequest{
+    Messages: []types.Message{
+        {Role: "user", Content: "Hello"},
+    },
 }
-response, err := provider.Complete(ctx, messages, nil)
+response, err := provider.Predict(ctx, req)
 if err != nil {
     log.Fatal(err)
 }
@@ -116,30 +119,29 @@ fmt.Println(response.Content)
 ### With Configuration
 
 ```go
-config := &types.ProviderConfig{
+req := providers.PredictionRequest{
+    Messages:    messages,
     MaxTokens:   500,
     Temperature: 0.7,
     TopP:        0.9,
 }
 
-response, err := provider.Complete(ctx, messages, config)
+response, err := provider.Predict(ctx, req)
 ```
 
 ### Streaming
 
 ```go
-stream, err := provider.CompleteStream(ctx, messages, config)
+stream, err := provider.PredictStream(ctx, req)
 if err != nil {
     log.Fatal(err)
 }
-defer stream.Close()
 
-for {
-    chunk, err := stream.Recv()
-    if err != nil {
+for chunk := range stream {
+    if chunk.Error != nil {
         break
     }
-    fmt.Print(chunk.Content)
+    fmt.Print(chunk.Delta)
 }
 ```
 
@@ -227,12 +229,15 @@ For cloud platforms, credentials are handled automatically via SDK credential ch
 ### Common Parameters
 
 ```go
-type ProviderConfig struct {
-    MaxTokens     int      // Output limit (default: 4096)
-    Temperature   float64  // Randomness 0-2 (default: 1.0)
-    TopP          float64  // Nucleus sampling 0-1 (default: 1.0)
-    Seed          *int     // Reproducibility (optional)
-    StopSequences []string // Stop generation (optional)
+type PredictionRequest struct {
+    System         string                 // System prompt
+    Messages       []types.Message        // Conversation history
+    Temperature    float32                // Randomness 0-2 (default: 1.0)
+    TopP           float32                // Nucleus sampling 0-1 (default: 1.0)
+    MaxTokens      int                    // Output limit (default: 4096)
+    Seed           *int                   // Reproducibility (optional)
+    ResponseFormat *ResponseFormat        // Optional response format (JSON mode)
+    Metadata       map[string]any         // Provider-specific extras
 }
 ```
 
@@ -247,10 +252,10 @@ Controls randomness:
 
 ```go
 // Factual tasks
-config := &types.ProviderConfig{Temperature: 0.2}
+config := &providers.PredictionRequest{Temperature: 0.2}
 
 // Creative tasks
-config := &types.ProviderConfig{Temperature: 1.2}
+config := &providers.PredictionRequest{Temperature: 1.2}
 ```
 
 ### Max Tokens
@@ -259,10 +264,10 @@ Limits output length:
 
 ```go
 // Short responses
-config := &types.ProviderConfig{MaxTokens: 100}
+config := &providers.PredictionRequest{MaxTokens: 100}
 
 // Long responses
-config := &types.ProviderConfig{MaxTokens: 4096}
+config := &providers.PredictionRequest{MaxTokens: 4096}
 ```
 
 ## Multi-Provider Strategies
@@ -272,17 +277,17 @@ config := &types.ProviderConfig{MaxTokens: 4096}
 Try providers in order:
 
 ```go
-providers := []types.Provider{primary, secondary, tertiary}
+providerList := []providers.Provider{primary, secondary, tertiary}
 
-var response *types.ProviderResponse
+var response providers.PredictionResponse
 var err error
 
-for _, provider := range providers {
-    response, err = provider.Complete(ctx, messages, config)
+for _, provider := range providerList {
+    response, err = provider.Predict(ctx, req)
     if err == nil {
         break  // Success
     }
-    log.Printf("Provider %s failed: %v", provider.GetProviderName(), err)
+    log.Printf("Provider %s failed: %v", provider.ID(), err)
 }
 ```
 
@@ -291,10 +296,10 @@ for _, provider := range providers {
 Distribute across providers:
 
 ```go
-providers := []types.Provider{openai1, openai2, claude}
+providers := []providers.Provider{openai1, openai2, claude}
 current := 0
 
-func GetNextProvider() types.Provider {
+func GetNextProvider() providers.Provider {
     provider := providers[current % len(providers)]
     current++
     return provider
@@ -306,7 +311,7 @@ func GetNextProvider() types.Provider {
 Route by cost:
 
 ```go
-func SelectProvider(complexity string) types.Provider {
+func SelectProvider(complexity string) providers.Provider {
     switch complexity {
     case "simple":
         return gpt4oMini  // Cheapest
@@ -325,7 +330,7 @@ func SelectProvider(complexity string) types.Provider {
 Route by quality needs:
 
 ```go
-func SelectByQuality(task string) types.Provider {
+func SelectByQuality(task string) providers.Provider {
     if task == "code_generation" {
         return gpt4o  // Best for code
     } else if task == "long_document" {
@@ -413,7 +418,7 @@ func SelectByQuality(task string) types.Provider {
 
 ✅ **Close providers**
 ```go
-provider, _ := openai.NewOpenAIProvider(...)
+provider := openai.NewProvider("my-openai", "gpt-4o-mini", "", providers.ProviderDefaults{}, false)
 defer provider.Close()  // Essential
 ```
 
@@ -421,14 +426,14 @@ defer provider.Close()  // Essential
 ```go
 // Good: One provider, many requests
 provider := createProvider()
-for _, prompt := range prompts {
-    provider.Complete(ctx, prompt, config)
+for _, req := range requests {
+    provider.Predict(ctx, req)
 }
 
 // Bad: New provider per request
-for _, prompt := range prompts {
+for _, req := range requests {
     provider := createProvider()
-    provider.Complete(ctx, prompt, config)
+    provider.Predict(ctx, req)
     provider.Close()
 }
 ```
@@ -437,7 +442,7 @@ for _, prompt := range prompts {
 
 ✅ **Handle provider errors**
 ```go
-response, err := provider.Complete(ctx, messages, config)
+response, err := provider.Predict(ctx, req)
 if err != nil {
     if errors.Is(err, ErrRateLimited) {
         // Wait and retry
@@ -456,7 +461,7 @@ if err != nil {
 ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 defer cancel()
 
-response, err := provider.Complete(ctx, messages, config)
+response, err := provider.Predict(ctx, req)
 ```
 
 ## Testing with Providers
@@ -470,7 +475,7 @@ func TestWithMock(t *testing.T) {
     mockProvider := mock.NewMockProvider()
     mockProvider.SetResponse("Test response")
     
-    response, err := mockProvider.Complete(ctx, messages, nil)
+    response, err := mockProvider.Predict(ctx, req)
     assert.NoError(t, err)
     assert.Equal(t, "Test response", response.Content)
 }
@@ -497,7 +502,7 @@ type ProviderMetrics struct {
     AvgLatency     time.Duration
 }
 
-func TrackRequest(provider string, response *ProviderResponse, err error) {
+func TrackRequest(provider string, response *providers.PredictionResponse, err error) {
     metrics := GetMetrics(provider)
     metrics.RequestCount++
     
@@ -512,16 +517,14 @@ func TrackRequest(provider string, response *ProviderResponse, err error) {
 
 ### Monitor Costs
 
+Track costs using the event bus and provider cost calculation:
+
 ```go
-costTracker := middleware.NewCostTracker()
-
-// Use in pipeline
-pipe := pipeline.NewPipeline(
-    middleware.ProviderMiddleware(provider, nil, costTracker, config),
-)
-
-// Check costs
-fmt.Printf("Total cost: $%.4f\n", costTracker.TotalCost())
+bus := events.NewEventBus()
+bus.Subscribe(events.EventProviderCallCompleted, func(e *events.Event) {
+    data := e.Data.(events.ProviderCallCompletedData)
+    fmt.Printf("Call cost: $%.4f\n", data.Cost)
+})
 ```
 
 ## Summary

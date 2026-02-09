@@ -58,12 +58,12 @@ Looking for task-oriented guides? See:
 
 | Assertion | Purpose |
 |-----------|---------|
-| `not_empty` | Response is not empty |
-| `contains` | Response contains text |
-| `matches` | Response matches regex |
-| `tool_called` | Specific tool was invoked |
-| `max_tokens` | Token count within limit |
-| `semantic_similarity` | Meaning matches expected |
+| `content_includes` | Response contains specific text |
+| `content_matches` | Response matches regex pattern |
+| `tools_called` | Specific tools were invoked |
+| `is_valid_json` | Response is valid JSON |
+| `json_schema` | Response matches JSON schema |
+| `llm_judge` | LLM evaluates response quality |
 
 ### Output Formats
 

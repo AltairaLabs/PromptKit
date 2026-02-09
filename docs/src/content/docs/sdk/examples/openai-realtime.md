@@ -203,7 +203,10 @@ Tools: []providers.StreamingToolDefinition{
 if chunk.ToolCalls != nil {
     for _, tc := range chunk.ToolCalls {
         result := executeToolCall(tc.Name, tc.Arguments)
-        conv.SendToolResult(ctx, tc.ID, result)
+        // Resolve the tool call and continue the conversation
+        conv.ResolveTool(tc.ID)
+        conv.Continue(ctx)
+        _ = result
     }
 }
 ```

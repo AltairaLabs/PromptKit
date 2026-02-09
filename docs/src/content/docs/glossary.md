@@ -66,7 +66,7 @@ A publish-subscribe system that distributes execution events to listeners. Used 
 A validator that enforces policies on LLM outputs in real-time. Guardrails can detect and prevent policy violations (banned content, PII exposure, etc.) and abort responses early. Different from [assertions](#assertion), which are test-time checks.
 
 ### Middleware
-Pluggable processing components that intercept and transform data flowing through the [pipeline](#pipeline). Examples: template rendering, validation, state management.
+Historically referred to pluggable processing components in the pipeline. The current architecture uses a **stage-based** design (see [Stage](#stage)), where each stage is a discrete processing step in a [DAG](#dag) pipeline. The term "middleware" may still appear in event names and some documentation for backward compatibility.
 
 ### Mock Provider
 A fake LLM [provider](#provider) that returns pre-configured responses. Used for deterministic testing without calling real APIs or incurring costs.

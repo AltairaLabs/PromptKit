@@ -70,18 +70,19 @@ conv, _ := sdk.Open("./pack.json", "chat",
 Injects current time and date information.
 
 ```go
-func NewTimeProvider() Provider
+func NewTimeProvider() *TimeProvider
 ```
 
 **Variables Provided:**
 
 | Variable | Format | Example |
 |----------|--------|---------|
-| `current_time` | 15:04:05 | "14:30:45" |
+| `current_time` | RFC3339 | "2025-01-15T14:30:45Z" |
 | `current_date` | 2006-01-02 | "2025-01-15" |
-| `current_datetime` | 2006-01-02 15:04:05 | "2025-01-15 14:30:45" |
-| `day_of_week` | Monday | "Wednesday" |
-| `timezone` | Zone name | "America/New_York" |
+| `current_year` | 2006 | "2025" |
+| `current_month` | Full month name | "January" |
+| `current_weekday` | Full weekday name | "Wednesday" |
+| `current_hour` | 24-hour format | "14" |
 
 **Example:**
 
@@ -93,7 +94,7 @@ conv, _ := sdk.Open("./pack.json", "chat",
 )
 
 // In pack template:
-// "The current time is {{current_time}} on {{day_of_week}}."
+// "The current time is {{current_time}} on {{current_weekday}}."
 ```
 
 ### StateProvider
@@ -101,7 +102,7 @@ conv, _ := sdk.Open("./pack.json", "chat",
 Extracts variables from conversation state metadata.
 
 ```go
-func NewStateProvider(store statestore.Store, conversationID string) Provider
+func NewStateProvider(store statestore.Store, conversationID string) *StateProvider
 ```
 
 **Parameters:**
@@ -122,7 +123,7 @@ convID := "conv-123"
 state, _ := store.Load(ctx, convID)
 state.Metadata["user_tier"] = "premium"
 state.Metadata["language"] = "en"
-store.Save(ctx, convID, state)
+store.Save(ctx, state)
 
 // Use StateProvider
 provider := variables.NewStateProvider(store, convID)

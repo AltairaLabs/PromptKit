@@ -154,10 +154,10 @@ spec:
           params:
             patterns: ["account"]
             message: "Should acknowledge account issue"
-        
-        - type: content_length
+
+        - type: content_matches
           params:
-            max: 300
+            pattern: "^.{1,300}$"
             message: "Keep response concise"
     
     - role: user
@@ -277,10 +277,9 @@ spec:
             patterns: ["feature"]
             message: "Should explain features"
         
-        - type: content_length
+        - type: content_matches
           params:
-            min: 50
-            max: 500
+            pattern: "^.{50,500}$"
             message: "Response should be substantial but not excessive"
 ```
 
@@ -310,9 +309,10 @@ spec:
     - role: user
       content: "Quick question: what's your return policy?"
       assertions:
-params:
-            max_seconds: 2
-            message: "All providers should respond quickly"
+        - type: content_matches
+          params:
+            pattern: ".+"
+            message: "All providers should respond with content"
 ```
 
 ### Cost Analysis

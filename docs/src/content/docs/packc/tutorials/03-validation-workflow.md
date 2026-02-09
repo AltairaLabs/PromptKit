@@ -38,16 +38,22 @@ Create a sample prompt:
 cat > prompts/assistant.yaml <<'EOF'
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: PromptConfig
+metadata:
+  name: AI Assistant
 spec:
   task_type: assistant
-  name: AI Assistant
   description: General purpose assistant
-  system_prompt: You are a helpful AI assistant.
-  user_template: "User: "
-  template_engine: go
-  parameters:
-    temperature: 0.7
-    max_tokens: 500
+  version: v1.0.0
+  system_template: |
+    You are a helpful AI assistant.
+    User: {{user_message}}
+  template_engine:
+    version: v1
+    syntax: "{{variable}}"
+  variables:
+    - name: user_message
+      type: string
+      required: true
 EOF
 ```
 

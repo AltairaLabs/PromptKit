@@ -97,15 +97,22 @@ func main() {
 
     conv.SetVar("user_name", "Alice")
 
-    // Start audio processing
+    // Send audio chunks and receive responses
     ctx := context.Background()
-    audioIn, audioOut, err := conv.StartAudio(ctx)
-    if err != nil {
-        log.Fatal(err)
-    }
 
-    // Feed audio from microphone and play output
+    // Receive streaming audio/text responses in a goroutine
+    respCh, _ := conv.Response()
+    go func() {
+        for chunk := range respCh {
+            // Handle audio or text output
+            _ = chunk
+        }
+    }()
+
+    // Send audio chunks from microphone
+    // conv.SendChunk(ctx, chunk)
     // (See complete example for audio I/O implementation)
+    _ = ctx
 }
 ```
 
@@ -196,14 +203,18 @@ func main() {
     }
     defer conv.Close()
 
-    // Start streaming
-    audioIn, audioOut, err := conv.StartAudio(ctx)
-    if err != nil {
-        log.Fatal(err)
-    }
+    // Receive streaming responses in a goroutine
+    respCh, _ := conv.Response()
+    go func() {
+        for chunk := range respCh {
+            // Handle audio or text output
+            _ = chunk
+        }
+    }()
 
-    // Stream audio bidirectionally
-    // ...
+    // Send audio chunks
+    // conv.SendChunk(ctx, chunk)
+    // (See complete example for bidirectional streaming)
 }
 ```
 

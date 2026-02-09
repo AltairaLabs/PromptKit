@@ -70,17 +70,17 @@ import (
 
 func main() {
     // Create provider
-    provider := openai.NewOpenAIProvider(
+    provider := openai.NewProvider(
         "openai",
         "gpt-4o-mini",
-        os.Getenv("OPENAI_API_KEY"),
-        openai.DefaultProviderDefaults(),
+        "", // uses OPENAI_API_KEY env var
+        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
         false,
     )
     defer provider.Close()
     
     // Create in-memory state store
-    store := statestore.NewInMemoryStateStore()
+    store := statestore.NewMemoryStore()
     
     // Build pipeline with state middleware
     pipe := pipeline.NewPipeline(
@@ -181,21 +181,18 @@ import (
 
 func main() {
     // Create provider
-    provider := openai.NewOpenAIProvider(
+    provider := openai.NewProvider(
         "openai",
         "gpt-4o-mini",
-        os.Getenv("OPENAI_API_KEY"),
-        openai.DefaultProviderDefaults(),
+        "", // uses OPENAI_API_KEY env var
+        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
         false,
     )
     defer provider.Close()
     
     // Create Redis state store
-    store, err := statestore.NewRedisStateStore("localhost:6379", "", 0)
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer store.Close()
+    redisClient := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+    store := statestore.NewRedisStore(redisClient)
     
     // Build pipeline with state
     pipe := pipeline.NewPipeline(
@@ -291,31 +288,37 @@ LLMs have token limits. Keep conversations manageable:
 ### Option 1: Trim by Message Count
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/types"
-
 // Load state
-messages, _ := store.Load(ctx, sessionID)
+state, _ := store.Load(ctx, sessionID)
 
 // Keep only recent 10 messages
 maxMessages := 10
-if len(messages) > maxMessages {
-    messages = messages[len(messages)-maxMessages:]
-    store.Save(ctx, sessionID, messages)
+if len(state.Messages) > maxMessages {
+    state.Messages = state.Messages[len(state.Messages)-maxMessages:]
+    store.Save(ctx, state)
 }
 ```
 
 ### Option 2: Trim by Token Count
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/prompt"
-
 // Load state
-messages, _ := store.Load(ctx, sessionID)
+state, _ := store.Load(ctx, sessionID)
 
-// Keep only messages within token limit
+// Estimate tokens and trim (rough: 4 chars per token)
+totalChars := 0
+for _, msg := range state.Messages {
+    totalChars += len(msg.Content)
+}
 maxTokens := 4000
-trimmed := prompt.TruncateMessages(messages, maxTokens)
-store.Save(ctx, sessionID, trimmed)
+for totalChars/4 > maxTokens && len(state.Messages) > 1 {
+    state.Messages = state.Messages[1:]
+    totalChars = 0
+    for _, msg := range state.Messages {
+        totalChars += len(msg.Content)
+    }
+}
+store.Save(ctx, state)
 ```
 
 ## Complete Multi-User Chatbot
@@ -342,11 +345,10 @@ import (
 
 func main() {
     // Configuration
-    apiKey := os.Getenv("OPENAI_API_KEY")
-    if apiKey == "" {
+    if os.Getenv("OPENAI_API_KEY") == "" {
         log.Fatal("OPENAI_API_KEY not set")
     }
-    
+
     redisAddr := os.Getenv("REDIS_ADDR")
     if redisAddr == "" {
         redisAddr = "localhost:6379"
@@ -358,24 +360,23 @@ func main() {
     }
     
     // Create provider
-    provider := openai.NewOpenAIProvider(
+    provider := openai.NewProvider(
         "openai",
         "gpt-4o-mini",
-        apiKey,
-        openai.DefaultProviderDefaults(),
+        "", // uses OPENAI_API_KEY env var
+        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
         false,
     )
     defer provider.Close()
     
     // Create state store (fallback to in-memory if Redis fails)
-    var store statestore.StateStore
-    redisStore, err := statestore.NewRedisStateStore(redisAddr, "", 0)
-    if err != nil {
+    var store statestore.Store
+    redisClient := redis.NewClient(&redis.Options{Addr: redisAddr})
+    if err := redisClient.Ping(context.Background()).Err(); err != nil {
         log.Printf("Redis unavailable, using in-memory store: %v", err)
-        store = statestore.NewInMemoryStateStore()
+        store = statestore.NewMemoryStore()
     } else {
-        store = redisStore
-        defer redisStore.Close()
+        store = statestore.NewRedisStore(redisClient)
     }
     
     // Build pipeline
@@ -411,7 +412,8 @@ func main() {
             return
             
         case "clear":
-            store.Delete(ctx, sessionID)
+            // Save empty state to clear conversation
+            store.Save(ctx, &statestore.ConversationState{ID: sessionID})
             fmt.Println("\n[Conversation cleared]\n")
             fmt.Print("You: ")
             continue
@@ -454,11 +456,12 @@ Add personality to your bot:
 // Add system message before first user message
 systemPrompt := "You are a helpful AI assistant who speaks like a pirate."
 
-// Insert at start of conversation
-messages := []types.Message{
-    {Role: "system", Content: systemPrompt},
+// Save initial state with system prompt
+state := &statestore.ConversationState{
+    ID:           sessionID,
+    SystemPrompt: systemPrompt,
 }
-store.Save(ctx, sessionID, messages)
+store.Save(ctx, state)
 ```
 
 ### 2. Multiple Users
@@ -478,7 +481,8 @@ Add a command to clear history:
 
 ```go
 if input == "/clear" {
-    store.Delete(ctx, sessionID)
+    // Save empty state to clear conversation
+    store.Save(ctx, &statestore.ConversationState{ID: sessionID})
     fmt.Println("Conversation cleared!")
     continue
 }
@@ -501,10 +505,10 @@ if input == "/clear" {
 
 **Solution**: Trim messages:
 ```go
-messages, _ := store.Load(ctx, sessionID)
-if len(messages) > 20 {
-    messages = messages[len(messages)-20:]
-    store.Save(ctx, sessionID, messages)
+state, _ := store.Load(ctx, sessionID)
+if len(state.Messages) > 20 {
+    state.Messages = state.Messages[len(state.Messages)-20:]
+    store.Save(ctx, state)
 }
 ```
 

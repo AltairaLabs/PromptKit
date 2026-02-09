@@ -39,8 +39,8 @@ prompts:
 **Purpose**: Central repository of all prompts
 
 ```go
-registry := prompt.NewRegistry()
-registry.Register(promptConfig)
+repo := memory.NewPromptRepository()
+registry := prompt.NewRegistryWithRepository(repo)
 ```
 
 **Features**:
@@ -51,7 +51,7 @@ registry.Register(promptConfig)
 ### Stage 3: Validation
 
 **Checks**:
-- Required fields present (task_type, system_prompt)
+- Required fields present (task_type, system_template)
 - Template syntax valid
 - Parameter types correct
 - Tool references valid
@@ -92,7 +92,7 @@ json.MarshalIndent(pack, "", "  ")
 Parses YAML to PromptConfig:
 
 ```go
-func ParsePromptConfig(data []byte) (*PromptConfig, error)
+func ParseConfig(data []byte) (*Config, error)
 ```
 
 Handles:
@@ -133,9 +133,10 @@ Returns list of validation warnings (non-fatal) or errors (fatal).
 Default template engine:
 
 ```yaml
-user_template: |
-  User: 
-  Message: 
+system_template: |
+  You are a helpful assistant.
+  User: {{user_name}}
+  Message: {{message}}
 ```
 
 **Processing**:
@@ -182,7 +183,7 @@ Fragment content embedded in prompt:
 {
   "prompts": {
     "support": {
-      "system": "Company: \n\nYou are support..."
+      "system_template": "Company: {{company_name}}\n\nYou are support..."
     }
   }
 }
@@ -195,12 +196,11 @@ Fragment stored separately:
 ```json
 {
   "fragments": {
-    "company-info": { "content": "..." }
+    "company-info": "Company: {{company_name}}..."
   },
   "prompts": {
     "support": {
-      "system": "\n\nYou are support...",
-      "fragments": ["company-info"]
+      "system_template": "{{company-info}}\n\nYou are support..."
     }
   }
 }

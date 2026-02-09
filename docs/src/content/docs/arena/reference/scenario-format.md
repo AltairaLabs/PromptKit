@@ -127,10 +127,6 @@ conversation_assertions:
   - type: tools_called
   - type: tools_not_called
   - type: tool_calls_with_args
-  - type: tools_not_called_with_args
-  - type: content_includes_any
-  - type: content_not_includes
-  - type: llm_judge_conversation
 ```
 
 See the [Assertions Guide](./assertions) for complete documentation.

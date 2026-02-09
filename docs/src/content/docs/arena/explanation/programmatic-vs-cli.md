@@ -292,7 +292,7 @@ If you outgrow the CLI:
 
 ```bash
 # Easy debugging
-promptarena run --verbose --log-level debug
+promptarena run --verbose
 promptarena debug --config arena.yaml
 promptarena config-inspect
 ```

@@ -111,23 +111,24 @@ if !result.Passed {
 }
 ```
 
-### RoleIntegrityValidator
+### RequiredFieldsValidator
 
-Prevents role confusion in responses.
+Checks for required fields in content.
 
 **Constructor**:
 ```go
-func NewRoleIntegrityValidator() *RoleIntegrityValidator
+func NewRequiredFieldsValidator() *RequiredFieldsValidator
 ```
 
 **Example**:
 ```go
-validator := validators.NewRoleIntegrityValidator()
+validator := validators.NewRequiredFieldsValidator()
 
-// Detects if response contains "User:" or "Assistant:" markers
-result := validator.Validate("Assistant: I can help.", nil)
+result := validator.Validate("Some content", map[string]interface{}{
+    "required_fields": []string{"name", "email"},
+})
 if !result.Passed {
-    log.Println("Role marker detected in response")
+    log.Println("Missing required fields")
 }
 ```
 

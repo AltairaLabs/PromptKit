@@ -50,7 +50,7 @@ PromptArena includes 6 built-in templates for common testing scenarios:
 View all available templates:
 
 ```bash
-promptarena init --list-templates
+promptarena templates list
 ```
 
 ## Community Templates (Remote)
@@ -83,7 +83,7 @@ Flags:
 
 ```bash
 # Mock provider (no API required, great for testing)
-promprarena init my-test --quick --provider mock
+promptarena init my-test --quick --provider mock
 
 # OpenAI (GPT models)
 promptarena init my-test --quick --provider openai
@@ -121,20 +121,6 @@ Example interactive session:
 ? Max Tokens: 2000
 ? Create sample test scenario? Yes
 ? Scenario Name: basic-greeting
-```
-
-## Command-Line Variables
-
-Override template variables directly:
-
-```bash
-promptarena init my-test \
-  --quick \
-  --provider openai \
-  --var project_name="My Custom Project" \
-  --var description="Custom description" \
-  --var temperature=0.8 \
-  --var max_tokens=4000
 ```
 
 ## What Gets Generated
@@ -213,8 +199,9 @@ spec:
     - role: user
       content: "Hello! Can you help me?"
       assertions:
-        - type: content_not_empty
+        - type: content_matches
           params:
+            pattern: ".+"
             message: "Should respond to greeting"
 ```
 
@@ -309,21 +296,6 @@ promptarena init qa-testing --quick --provider mock
 ```
 
 ## Advanced Usage
-
-### Custom Template Variables
-
-Pass variables for fine-grained control:
-
-```bash
-promptarena init api-tests \
-  --quick \
-  --provider openai \
-  --var project_name="API Integration Tests" \
-  --var description="Tests for API endpoint conversations" \
-  --var system_prompt="You are an API assistant" \
-  --var temperature=0.3 \
-  --var max_tokens=1000
-```
 
 ### Inspect Generated Files
 

@@ -45,10 +45,10 @@ LLM: "It's 18°C and cloudy in Paris"
 import "github.com/AltairaLabs/PromptKit/runtime/tools"
 
 // Define tool
-weatherTool := &tools.ToolDef{
+weatherTool := &tools.ToolDescriptor{
     Name:        "get_weather",
     Description: "Get current weather for a city",
-    Parameters: json.RawMessage(`{
+    InputSchema: json.RawMessage(`{
         "type": "object",
         "properties": {
             "city": {
@@ -87,8 +87,8 @@ func (e *WeatherExecutor) Name() string {
 
 ```go
 // Create registry
-registry := tools.NewToolRegistry()
-registry.RegisterTool(weatherTool, &WeatherExecutor{})
+registry := tools.NewRegistry()
+registry.Register(weatherTool)
 ```
 
 The tool registry makes tools available for the LLM to call during conversations.
@@ -148,10 +148,10 @@ defer mcpClient.Close()
 executor := mcp.NewMCPExecutor(mcpClient)
 
 // Register tools
-registry := tools.NewToolRegistry()
+registry := tools.NewRegistry()
 mcpTools, _ := mcpClient.ListTools()
 for _, tool := range mcpTools {
-    registry.RegisterTool(tool, executor)
+    registry.Register(tool)
 }
 ```
 
@@ -160,7 +160,7 @@ for _, tool := range mcpTools {
 ### File Operations
 
 ```go
-fileTools := []tools.ToolDef{
+fileTools := []tools.ToolDescriptor{
     {
         Name:        "read_file",
         Description: "Read contents of a file",
@@ -179,10 +179,10 @@ fileTools := []tools.ToolDef{
 ### Database Queries
 
 ```go
-dbTool := &tools.ToolDef{
+dbTool := &tools.ToolDescriptor{
     Name:        "query_database",
     Description: "Execute SQL query",
-    Parameters: json.RawMessage(`{
+    InputSchema: json.RawMessage(`{
         "type": "object",
         "properties": {
             "query": {"type": "string"}
@@ -194,10 +194,10 @@ dbTool := &tools.ToolDef{
 ### API Calls
 
 ```go
-apiTool := &tools.ToolDef{
+apiTool := &tools.ToolDescriptor{
     Name:        "fetch_url",
     Description: "Fetch data from URL",
-    Parameters: json.RawMessage(`{
+    InputSchema: json.RawMessage(`{
         "type": "object",
         "properties": {
             "url": {"type": "string"}
@@ -209,10 +209,10 @@ apiTool := &tools.ToolDef{
 ### Calculations
 
 ```go
-calcTool := &tools.ToolDef{
+calcTool := &tools.ToolDescriptor{
     Name:        "calculate",
     Description: "Perform mathematical calculation",
-    Parameters: json.RawMessage(`{
+    InputSchema: json.RawMessage(`{
         "type": "object",
         "properties": {
             "expression": {"type": "string"}
@@ -238,7 +238,7 @@ Description: "Get current weather for a specified city. Returns temperature in C
 ### Detailed Parameters
 
 ```go
-Parameters: json.RawMessage(`{
+InputSchema: json.RawMessage(`{
     "type": "object",
     "properties": {
         "city": {
@@ -391,7 +391,7 @@ Response: "Here's your sales analysis [chart]"
 
 ```go
 if userTier == "premium" {
-    registry.RegisterTool(advancedAnalyticsTool, executor)
+    registry.Register(advancedAnalyticsTool)
 }
 ```
 
