@@ -476,6 +476,42 @@
         "params"
       ]
     },
+    "VariableBinding": {
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "field": {
+          "type": "string"
+        },
+        "autoPopulate": {
+          "type": "boolean"
+        },
+        "filter": {
+          "$ref": "#/$defs/VariableBindingFilter"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind"
+      ]
+    },
+    "VariableBindingFilter": {
+      "properties": {
+        "capability": {
+          "type": "string"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "VariableMetadata": {
       "properties": {
         "name": {
@@ -494,6 +530,9 @@
         "example": true,
         "validation": {
           "type": "object"
+        },
+        "binding": {
+          "$ref": "#/$defs/VariableBinding"
         }
       },
       "additionalProperties": false,

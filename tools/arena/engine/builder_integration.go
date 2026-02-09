@@ -565,7 +565,7 @@ func startAndRegisterA2AAgents(cfg *config.Config, toolRegistry *tools.Registry)
 		return nil, err
 	}
 
-	toolRegistry.RegisterExecutor(&a2aExecutor{})
+	toolRegistry.RegisterExecutor(a2a.NewExecutor())
 
 	totalTools, err := discoverAndRegisterA2ATools(servers, toolRegistry)
 	if err != nil {

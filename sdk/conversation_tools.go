@@ -382,7 +382,7 @@ func (c *Conversation) registerA2ATools() {
 	for _, td := range c.config.a2aBridge.GetToolDescriptors() {
 		_ = c.toolRegistry.Register(td)
 	}
-	c.toolRegistry.RegisterExecutor(&a2aExecutor{})
+	c.toolRegistry.RegisterExecutor(newA2AExecutor())
 }
 
 // registerMCPExecutors registers executors for MCP tools.

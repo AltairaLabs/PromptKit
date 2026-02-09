@@ -76,7 +76,7 @@ func setupA2ABridge(t *testing.T, serverURL string) *a2a.ToolBridge {
 }
 
 func TestA2AExecutor_Name(t *testing.T) {
-	exec := &a2aExecutor{}
+	exec := a2a.NewExecutor()
 	assert.Equal(t, "a2a", exec.Name())
 }
 
@@ -84,7 +84,7 @@ func TestA2AExecutor_Execute(t *testing.T) {
 	srv := a2aTestServer(t, "TestAgent", "greet", "Hello from remote agent!")
 	defer srv.Close()
 
-	exec := &a2aExecutor{}
+	exec := a2a.NewExecutor()
 	desc := &tools.ToolDescriptor{
 		Name: "a2a_testagent_greet",
 		Mode: "a2a",
@@ -104,7 +104,7 @@ func TestA2AExecutor_Execute(t *testing.T) {
 }
 
 func TestA2AExecutor_Execute_NoA2AConfig(t *testing.T) {
-	exec := &a2aExecutor{}
+	exec := a2a.NewExecutor()
 	desc := &tools.ToolDescriptor{Name: "bad_tool", Mode: "a2a"}
 
 	_, err := exec.Execute(desc, json.RawMessage(`{"query":"test"}`))
@@ -116,7 +116,7 @@ func TestA2AExecutor_Execute_Timeout(t *testing.T) {
 	srv := a2aTestServer(t, "TestAgent", "greet", "ok")
 	defer srv.Close()
 
-	exec := &a2aExecutor{}
+	exec := a2a.NewExecutor()
 	desc := &tools.ToolDescriptor{
 		Name: "a2a_testagent_greet",
 		Mode: "a2a",
@@ -133,17 +133,6 @@ func TestA2AExecutor_Execute_Timeout(t *testing.T) {
 	var parsed map[string]string
 	require.NoError(t, json.Unmarshal(result, &parsed))
 	assert.Equal(t, "ok", parsed["response"])
-}
-
-func TestA2AExecutor_ClientCaching(t *testing.T) {
-	exec := &a2aExecutor{}
-
-	c1 := exec.getOrCreateClient("http://agent1.example.com")
-	c2 := exec.getOrCreateClient("http://agent1.example.com")
-	c3 := exec.getOrCreateClient("http://agent2.example.com")
-
-	assert.Same(t, c1, c2, "same URL should return same client")
-	assert.NotSame(t, c1, c3, "different URLs should return different clients")
 }
 
 func TestWithA2ATools_Option(t *testing.T) {
@@ -256,7 +245,7 @@ func TestExtractResponseText(t *testing.T) {
 				},
 			},
 		}
-		assert.Equal(t, "hello", extractResponseText(task))
+		assert.Equal(t, "hello", a2a.ExtractResponseText(task))
 	})
 
 	t.Run("from artifacts", func(t *testing.T) {
@@ -266,12 +255,12 @@ func TestExtractResponseText(t *testing.T) {
 				{Parts: []a2a.Part{{Text: &text}}},
 			},
 		}
-		assert.Equal(t, "artifact text", extractResponseText(task))
+		assert.Equal(t, "artifact text", a2a.ExtractResponseText(task))
 	})
 
 	t.Run("empty task", func(t *testing.T) {
 		task := &a2a.Task{}
-		assert.Equal(t, "", extractResponseText(task))
+		assert.Equal(t, "", a2a.ExtractResponseText(task))
 	})
 
 	t.Run("status message preferred over artifacts", func(t *testing.T) {
@@ -287,6 +276,6 @@ func TestExtractResponseText(t *testing.T) {
 				{Parts: []a2a.Part{{Text: &artifactText}}},
 			},
 		}
-		assert.Equal(t, "from status", extractResponseText(task))
+		assert.Equal(t, "from status", a2a.ExtractResponseText(task))
 	})
 }
