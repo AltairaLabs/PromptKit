@@ -1,4 +1,4 @@
-apiVersion: promptkit.ai/v1
+apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: PromptConfig
 metadata:
   name: assistant

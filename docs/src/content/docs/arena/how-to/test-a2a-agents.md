@@ -36,7 +36,7 @@ Add an `a2a_agents` block to your Arena config:
 
 ```yaml
 # config.arena.yaml
-apiVersion: promptkit.ai/v1
+apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: ArenaConfig
 metadata:
   name: a2a-demo
@@ -88,7 +88,7 @@ Enable the A2A tool in your prompt config with `allowed_tools`:
 
 ```yaml
 # prompts/assistant.yaml
-apiVersion: promptkit.ai/v1
+apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: PromptConfig
 spec:
   task_type: assistant
@@ -136,7 +136,7 @@ Write a scenario that sends the user message and asserts on the outcome:
 
 ```yaml
 # scenarios/delegated_research.yaml
-apiVersion: promptkit.ai/v1
+apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Scenario
 metadata:
   name: delegated-research

@@ -103,7 +103,7 @@ This naming is important for `allowed_tools` in prompt configs — you reference
 To enable A2A tools in a prompt config, list them in `allowed_tools`:
 
 ```yaml
-apiVersion: promptkit.ai/v1
+apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: PromptConfig
 spec:
   allowed_tools:

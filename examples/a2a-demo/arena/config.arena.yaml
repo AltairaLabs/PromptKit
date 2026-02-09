@@ -1,4 +1,4 @@
-apiVersion: promptkit.ai/v1
+apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: ArenaConfig
 metadata:
   name: a2a-demo
