@@ -1,5 +1,5 @@
-github.com/AltairaLabs/PromptKit/tools/arena v1.1.9 h1:/wfLQ0P8dg2FO2lOP9dZnra15hkL0oaxnvXshmXy6/Q=
-github.com/AltairaLabs/PromptKit/tools/arena v1.1.9/go.mod h1:DupUKqQkhar9yUjajI2JqrKan/OTK3BMdCCy7yrWtnw=
+github.com/AltairaLabs/PromptKit/tools/arena v1.1.10 h1:3VD8fhv6XRUCWOXNikLhEmiP3nOavVS+WqcnMJqj9gM=
+github.com/AltairaLabs/PromptKit/tools/arena v1.1.10/go.mod h1:1F5yAQ/AsGF1xXJpSzitWO70NK27CU8tIWnYxBFbSIE=
 github.com/Masterminds/semver/v3 v3.4.0 h1:Zog+i5UMtVoCU8oKka5P7i9q9HgrJeGzI9SA1Xbatp0=
 github.com/Masterminds/semver/v3 v3.4.0/go.mod h1:4V+yj/TJE1HU9XfppCwVMZq3I84lprf4nC11bSS5beM=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
