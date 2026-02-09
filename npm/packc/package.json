@@ -14,7 +14,7 @@
     "lint": "eslint *.js bin/*.js lib/*.js"
   },
   "devDependencies": {
-    "@eslint/js": "^9.0.0",
+    "@eslint/js": "^10.0.1",
     "eslint": "^9.39.2",
     "globals": "^17.0.0",
     "jest": "^30.2.0"
