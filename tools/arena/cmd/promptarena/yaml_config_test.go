@@ -363,6 +363,8 @@ func setupTestFlags(cmd *cobra.Command) {
 	cmd.Flags().Float32("temperature", 0.6, "Temperature")
 	cmd.Flags().Int("max-tokens", 0, "Max tokens")
 	cmd.Flags().IntP("seed", "s", 42, "Random seed")
+	cmd.Flags().Bool("skip-pack-evals", false, "Disable pack eval execution")
+	cmd.Flags().StringSlice("eval-types", []string{}, "Filter to specific eval types")
 }
 
 // Helper function to convert slice to comma-separated string for flag setting

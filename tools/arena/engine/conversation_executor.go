@@ -31,6 +31,7 @@ type DefaultConversationExecutor struct {
 	selfPlayExecutor turnexecutors.TurnExecutor
 	selfPlayRegistry *selfplay.Registry
 	promptRegistry   *prompt.Registry
+	packEvalHook     *PackEvalHook
 }
 
 // NewDefaultConversationExecutor creates a new conversation executor
@@ -39,12 +40,14 @@ func NewDefaultConversationExecutor(
 	selfPlayExecutor turnexecutors.TurnExecutor,
 	selfPlayRegistry *selfplay.Registry,
 	promptRegistry *prompt.Registry,
+	packEvalHook *PackEvalHook,
 ) *DefaultConversationExecutor {
 	return &DefaultConversationExecutor{
 		scriptedExecutor: scriptedExecutor,
 		selfPlayExecutor: selfPlayExecutor,
 		selfPlayRegistry: selfPlayRegistry,
 		promptRegistry:   promptRegistry,
+		packEvalHook:     packEvalHook,
 	}
 }
 
@@ -591,6 +594,13 @@ func (ce *DefaultConversationExecutor) buildResultFromStateStore(req Conversatio
 
 	// Evaluate conversation-level assertions, if any
 	convAssertionResults := ce.evaluateConversationAssertions(&req, messages)
+
+	// Run pack eval session-level evals if configured
+	if ce.packEvalHook != nil && ce.packEvalHook.HasEvals() {
+		packResults := ce.packEvalHook.RunSessionEvals(
+			context.Background(), messages, req.ConversationID)
+		convAssertionResults = append(convAssertionResults, packResults...)
+	}
 
 	return &ConversationResult{
 		Messages:                     messages,

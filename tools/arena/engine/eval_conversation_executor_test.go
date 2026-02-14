@@ -27,6 +27,7 @@ func TestNewEvalConversationExecutor(t *testing.T) {
 		convAssertionReg,
 		promptReg,
 		providerReg,
+		nil,
 	)
 
 	if executor == nil {
@@ -56,6 +57,7 @@ func TestEvalConversationExecutor_ValidatesEvalConfig(t *testing.T) {
 		assertions.NewConversationAssertionRegistry(),
 		prompt.NewRegistryWithRepository(memory.NewPromptRepository()),
 		providers.NewRegistry(),
+		nil,
 	)
 
 	tests := []struct {
@@ -156,6 +158,7 @@ func TestEvalConversationExecutor_RequiresAdapterRegistry(t *testing.T) {
 		assertions.NewConversationAssertionRegistry(),
 		prompt.NewRegistryWithRepository(memory.NewPromptRepository()),
 		providers.NewRegistry(),
+		nil,
 	)
 
 	req := ConversationRequest{
@@ -187,6 +190,7 @@ func TestEvalConversationExecutor_NoAdapterFound(t *testing.T) {
 		assertions.NewConversationAssertionRegistry(),
 		prompt.NewRegistryWithRepository(memory.NewPromptRepository()),
 		providers.NewRegistry(),
+		nil,
 	)
 
 	req := ConversationRequest{
@@ -215,6 +219,7 @@ func TestEvalConversationExecutor_CalculateCost(t *testing.T) {
 		assertions.NewConversationAssertionRegistry(),
 		prompt.NewRegistryWithRepository(memory.NewPromptRepository()),
 		providers.NewRegistry(),
+		nil,
 	)
 
 	tests := []struct {
@@ -329,6 +334,7 @@ func TestEvalConversationExecutor_HasFailedAssertions(t *testing.T) {
 		assertions.NewConversationAssertionRegistry(),
 		prompt.NewRegistryWithRepository(memory.NewPromptRepository()),
 		providers.NewRegistry(),
+		nil,
 	)
 
 	tests := []struct {
@@ -450,6 +456,7 @@ func TestEvalConversationExecutor_MergeTags(t *testing.T) {
 		assertions.NewConversationAssertionRegistry(),
 		prompt.NewRegistryWithRepository(memory.NewPromptRepository()),
 		providers.NewRegistry(),
+		nil,
 	)
 
 	tests := []struct {
@@ -528,6 +535,7 @@ func TestEvalConversationExecutor_BuildConversationContext(t *testing.T) {
 		assertions.NewConversationAssertionRegistry(),
 		prompt.NewRegistryWithRepository(memory.NewPromptRepository()),
 		providers.NewRegistry(),
+		nil,
 	)
 
 	tests := []struct {
@@ -604,6 +612,7 @@ func TestEvalConversationExecutor_ApplyTurnAssertions(t *testing.T) {
 		assertions.NewConversationAssertionRegistry(),
 		prompt.NewRegistryWithRepository(memory.NewPromptRepository()),
 		providers.NewRegistry(),
+		nil,
 	)
 
 	tests := []struct {
@@ -721,6 +730,7 @@ func TestEvalConversationExecutor_ExecuteConversationStream(t *testing.T) {
 		assertions.NewConversationAssertionRegistry(),
 		prompt.NewRegistryWithRepository(memory.NewPromptRepository()),
 		providers.NewRegistry(),
+		nil,
 	)
 
 	req := ConversationRequest{
@@ -771,6 +781,7 @@ func TestEvalConversationExecutor_ApplyConversationAssertions(t *testing.T) {
 		convAssertionReg,
 		prompt.NewRegistryWithRepository(memory.NewPromptRepository()),
 		providers.NewRegistry(),
+		nil,
 	)
 
 	tests := []struct {

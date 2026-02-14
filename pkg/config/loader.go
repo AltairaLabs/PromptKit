@@ -85,6 +85,13 @@ func LoadConfig(filename string) (*Config, error) {
 		return nil, err
 	}
 
+	// Load pack file if specified
+	if cfg.PackFile != "" {
+		if err := cfg.loadPackFile(filename); err != nil {
+			return nil, err
+		}
+	}
+
 	// Validate the loaded configuration (warnings only, doesn't fail)
 	validator := NewConfigValidatorWithPath(cfg, filename)
 	_ = validator.Validate() // Intentionally ignored - validation warnings accessible via validator.GetWarnings()
@@ -280,6 +287,17 @@ func (c *Config) loadTools(configPath string) error {
 			Data:     data,
 		})
 	}
+	return nil
+}
+
+// loadPackFile loads a .pack.json file and stores the result in LoadedPack.
+func (c *Config) loadPackFile(configPath string) error {
+	fullPath := ResolveFilePath(configPath, c.PackFile)
+	pack, err := prompt.LoadPack(fullPath)
+	if err != nil {
+		return fmt.Errorf("failed to load pack file %s: %w", c.PackFile, err)
+	}
+	c.LoadedPack = pack
 	return nil
 }
 

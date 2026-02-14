@@ -312,6 +312,7 @@ func TestNewDefaultConversationExecutor(t *testing.T) {
 		selfPlayExecutor,
 		registry,
 		promptRegistry,
+		nil,
 	)
 
 	if executor == nil {
@@ -363,6 +364,7 @@ func TestExecuteConversation_BasicScriptedScenario(t *testing.T) {
 		nil,
 		nil,
 		createTestPromptRegistry(t),
+		nil,
 	)
 
 	scenario := &config.Scenario{
@@ -434,6 +436,7 @@ func TestExecuteConversation_MultipleScriptedTurns(t *testing.T) {
 		nil,
 		nil,
 		createTestPromptRegistry(t),
+		nil,
 	)
 
 	scenario := &config.Scenario{
@@ -542,6 +545,7 @@ func TestExecuteConversation_WithToolCalls(t *testing.T) {
 		nil,
 		nil,
 		createTestPromptRegistry(t),
+		nil,
 	)
 
 	scenario := &config.Scenario{
@@ -606,6 +610,7 @@ func TestExecuteConversation_ExecutorError(t *testing.T) {
 		nil,
 		nil,
 		createTestPromptRegistry(t),
+		nil,
 	)
 
 	scenario := &config.Scenario{
@@ -698,6 +703,7 @@ func TestExecuteConversation_ValidationFailurePreservesMessages(t *testing.T) {
 		nil,
 		nil,
 		createTestPromptRegistry(t),
+		nil,
 	)
 
 	scenario := &config.Scenario{
@@ -844,6 +850,7 @@ func TestExecuteConversation_ValidationFailureMultipleTurns(t *testing.T) {
 		nil,
 		nil,
 		createTestPromptRegistry(t),
+		nil,
 	)
 
 	scenario := &config.Scenario{

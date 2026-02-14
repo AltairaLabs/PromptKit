@@ -60,6 +60,7 @@ func TestArenaStateStore_CapturesTelemetry(t *testing.T) {
 		nil, // no self-play
 		nil, // no self-play registry
 		nil, // no prompt registry
+		nil, // no packEvalHook
 	)
 
 	// Create engine
@@ -176,6 +177,7 @@ func TestArenaStateStore_MultipleRuns(t *testing.T) {
 	// Create conversation executor
 	conversationExecutor := NewDefaultConversationExecutor(
 		scriptedExecutor,
+		nil,
 		nil,
 		nil,
 		nil,
