@@ -767,6 +767,8 @@ func TestRegisterInit(t *testing.T) {
 		"json_schema",
 		"json_valid",
 		"latency_budget",
+		"llm_judge",
+		"llm_judge_session",
 		"regex",
 		"tool_args",
 		"tool_args_excluded_session",
