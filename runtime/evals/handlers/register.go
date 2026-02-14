@@ -22,4 +22,8 @@ func init() {
 	evals.RegisterDefault(&ToolsNotCalledSessionHandler{})
 	evals.RegisterDefault(&ToolArgsSessionHandler{})
 	evals.RegisterDefault(&ToolArgsExcludedSessionHandler{})
+
+	// LLM judge handlers
+	evals.RegisterDefault(&LLMJudgeHandler{})
+	evals.RegisterDefault(&LLMJudgeSessionHandler{})
 }
