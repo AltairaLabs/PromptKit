@@ -99,6 +99,9 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 		return nil, err
 	}
 
+	// Initialize eval middleware
+	conv.evalMW = newEvalMiddleware(conv)
+
 	// Initialize MCP registry if configured
 	if err := initMCPRegistry(conv, cfg); err != nil {
 		return nil, err
@@ -186,6 +189,9 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 	if err := initDuplexSession(conv, cfg, streamProvider); err != nil {
 		return nil, err
 	}
+
+	// Initialize eval middleware
+	conv.evalMW = newEvalMiddleware(conv)
 
 	// Initialize MCP registry if configured
 	if err := initMCPRegistry(conv, cfg); err != nil {
