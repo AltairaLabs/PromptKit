@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -37,6 +38,9 @@ type Pack struct {
 	// Fragments - Map of fragment name -> content
 	Fragments map[string]string `json:"fragments,omitempty"`
 
+	// Evals - Pack-level eval definitions (applied to all prompts unless overridden)
+	Evals []evals.EvalDef `json:"evals,omitempty"`
+
 	// FilePath is the path from which this pack was loaded.
 	FilePath string `json:"-"`
 }
@@ -54,6 +58,7 @@ type Prompt struct {
 	MediaConfig    *MediaConfig   `json:"media,omitempty"`
 	Parameters     *Parameters    `json:"parameters,omitempty"`
 	Validators     []Validator    `json:"validators,omitempty"`
+	Evals          []evals.EvalDef `json:"evals,omitempty"`
 	ModelOverrides map[string]any `json:"model_overrides,omitempty"`
 }
 

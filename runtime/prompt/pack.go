@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 )
 
 // PromptPackSchemaURL is the JSON Schema URL for validating PromptPack files
@@ -90,6 +92,9 @@ type Pack struct {
 	// Metadata
 	Metadata    *Metadata        `json:"metadata,omitempty"`
 	Compilation *CompilationInfo `json:"compilation,omitempty"`
+
+	// Evals - Pack-level eval definitions (applied to all prompts unless overridden)
+	Evals []evals.EvalDef `json:"evals,omitempty"`
 }
 
 // PackTool represents a tool definition in the pack (per PromptPack spec Section 9)
@@ -129,6 +134,9 @@ type PackPrompt struct {
 
 	// Validators
 	Validators []ValidatorConfig `json:"validators,omitempty"`
+
+	// Evals - Prompt-level eval definitions (override pack-level evals by ID)
+	Evals []evals.EvalDef `json:"evals,omitempty"`
 
 	// Model Testing
 	TestedModels []ModelTestResultRef `json:"tested_models,omitempty"`
