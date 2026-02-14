@@ -20,21 +20,61 @@ hooks.On(conv, events.EventProviderCallStarted, func(e *events.Event) {
 
 ## Event Types
 
-Events are defined as `events.EventType` in the `runtime/events` package:
+Events are defined as `events.EventType` in the `runtime/events` package, grouped by category:
 
 ```go
-const (
-    EventProviderCallStarted   EventType = "provider.call.started"
-    EventProviderCallCompleted EventType = "provider.call.completed"
-    EventProviderCallFailed    EventType = "provider.call.failed"
-    EventToolCallStarted       EventType = "tool.call.started"
-    EventToolCallCompleted     EventType = "tool.call.completed"
-    EventToolCallFailed        EventType = "tool.call.failed"
-    EventPipelineStarted       EventType = "pipeline.started"
-    EventPipelineCompleted     EventType = "pipeline.completed"
-    EventPipelineFailed        EventType = "pipeline.failed"
-    EventStreamInterrupted     EventType = "stream.interrupted"
-)
+// Pipeline lifecycle
+EventPipelineStarted   EventType = "pipeline.started"
+EventPipelineCompleted EventType = "pipeline.completed"
+EventPipelineFailed    EventType = "pipeline.failed"
+
+// Middleware execution
+EventMiddlewareStarted   EventType = "middleware.started"
+EventMiddlewareCompleted EventType = "middleware.completed"
+EventMiddlewareFailed    EventType = "middleware.failed"
+
+// Stage execution (streaming pipeline)
+EventStageStarted   EventType = "stage.started"
+EventStageCompleted EventType = "stage.completed"
+EventStageFailed    EventType = "stage.failed"
+
+// Provider (LLM) calls
+EventProviderCallStarted   EventType = "provider.call.started"
+EventProviderCallCompleted EventType = "provider.call.completed"
+EventProviderCallFailed    EventType = "provider.call.failed"
+
+// Tool calls
+EventToolCallStarted   EventType = "tool.call.started"
+EventToolCallCompleted EventType = "tool.call.completed"
+EventToolCallFailed    EventType = "tool.call.failed"
+
+// Validation
+EventValidationStarted EventType = "validation.started"
+EventValidationPassed  EventType = "validation.passed"
+EventValidationFailed  EventType = "validation.failed"
+
+// Context & state
+EventContextBuilt          EventType = "context.built"
+EventTokenBudgetExceeded   EventType = "context.token_budget_exceeded"
+EventStateLoaded           EventType = "state.loaded"
+EventStateSaved            EventType = "state.saved"
+
+// Messages & conversation
+EventMessageCreated      EventType = "message.created"
+EventMessageUpdated      EventType = "message.updated"
+EventConversationStarted EventType = "conversation.started"
+
+// Multimodal
+EventAudioInput         EventType = "audio.input"
+EventAudioOutput        EventType = "audio.output"
+EventAudioTranscription EventType = "audio.transcription"
+EventVideoFrame         EventType = "video.frame"
+EventScreenshot         EventType = "screenshot"
+EventImageInput         EventType = "image.input"
+EventImageOutput        EventType = "image.output"
+
+// Stream control
+EventStreamInterrupted EventType = "stream.interrupted"
 ```
 
 ## Monitor Tool Calls
@@ -70,9 +110,10 @@ func attachLogger(conv *sdk.Conversation) {
 type Event struct {
     Type           EventType
     Timestamp      time.Time
+    RunID          string
     SessionID      string
     ConversationID string
-    // ... additional event-specific fields
+    Data           EventData  // Type-specific payload
 }
 ```
 
@@ -99,6 +140,60 @@ func (m *Metrics) Attach(conv *sdk.Conversation) {
     })
 }
 ```
+
+## Collect Eval Metrics
+
+The `MetricCollector` records eval results as Prometheus-compatible metrics. Configure it as a `ResultWriter` on conversations:
+
+```go
+import "github.com/AltairaLabs/PromptKit/runtime/evals"
+
+// Create a MetricCollector
+collector := evals.NewMetricCollector()
+
+// Wire it into conversation options
+conv, _ := sdk.Open("./app.pack.json", "chat",
+    sdk.WithEvalDispatcher(evals.NewInProcDispatcher(nil)),
+    sdk.WithResultWriters(evals.NewMetricResultWriter(collector)),
+)
+defer conv.Close()
+
+// Use the conversation normally — evals run automatically based on pack config
+resp, _ := conv.Send(ctx, "Hello!")
+
+// Export metrics in Prometheus text format
+collector.WritePrometheus(os.Stdout)
+```
+
+Pack evals define metrics in the pack file:
+
+```json
+{
+  "evals": [
+    {
+      "id": "response_relevance",
+      "type": "llm_judge",
+      "trigger": "every_turn",
+      "metric": {
+        "name": "response_relevance_score",
+        "type": "gauge"
+      },
+      "params": {
+        "criteria": "Is the response relevant to the user's question?"
+      }
+    }
+  ]
+}
+```
+
+The `MetricCollector` supports four metric types:
+
+| Type | Behavior |
+|------|----------|
+| `gauge` | Set to the eval's score value |
+| `counter` | Increment on each eval execution |
+| `histogram` | Observe score with configurable buckets |
+| `boolean` | Record 1.0 (pass) or 0.0 (fail) |
 
 ## Debug Mode
 
@@ -150,3 +245,4 @@ func main() {
 
 - [Tutorial 6: Observability](../tutorials/06-media-storage)
 - [Explanation: Observability](../explanation/observability)
+- [Arena Eval Framework](/arena/explanation/eval-framework/)

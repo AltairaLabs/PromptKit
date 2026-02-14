@@ -105,6 +105,7 @@ type Stage interface {
 | Accumulate | N:1 | VAD buffering, message collection |
 | Generate | 0:N | LLM streaming, TTS |
 | Sink | N:0 | State store save, metrics |
+| Observe | 1:1 (pass-through) | RecordingStage |
 | Bidirectional | Varies | WebSocket session |
 
 ### Contract
@@ -174,8 +175,10 @@ Standard HTTP-based LLM interactions:
 
 ```d2
 direction: right
-Message -> StateStoreLoad -> PromptAssembly -> Template -> Provider -> Validation -> StateStoreSave -> Response
+Message -> RecordingIn -> StateStoreLoad -> PromptAssembly -> Template -> Provider -> Validation -> RecordingOut -> StateStoreSave -> Response
 ```
+
+`RecordingIn` and `RecordingOut` are optional `RecordingStage` instances that capture user input and assistant output as events on the EventBus. They pass data through unchanged.
 
 **Use cases**: Chat applications, content generation
 
@@ -350,7 +353,32 @@ EventPipelineCompleted
 EventPipelineFailed
 ```
 
-These events are automatically emitted by the pipeline - stage authors don't need to emit them manually.
+These events are automatically emitted by the pipeline — stage authors don't need to emit them manually.
+
+### RecordingStage
+
+`RecordingStage` is a special observe-only stage that publishes content-carrying events to the EventBus as elements flow through the pipeline:
+
+```go
+stage.NewRecordingStage(eventBus, stage.RecordingStageConfig{
+    Position:       "output",       // "input" for user messages, "output" for assistant
+    SessionID:      sessionID,
+    ConversationID: conversationID,
+})
+```
+
+It records different element types as events:
+- **Text / Message** → `EventMessageCreated` (with tool calls and results if present)
+- **Audio / Image / Video** → corresponding multimodal events with metadata
+- **ToolCall** → `EventToolCallStarted`
+- **Error** → `EventStreamInterrupted`
+
+These events can be consumed by any EventBus listener, including:
+- **FileEventStore** for JSONL persistence and replay
+- **EventBusEvalListener** for automatic eval execution on `message.created` events
+- **Prometheus metrics listener** for operational monitoring
+
+See [Observability](/sdk/explanation/observability/) for EventBus architecture and [Eval Framework](/arena/explanation/eval-framework/) for how recorded events trigger evals.
 
 ## Performance Characteristics
 

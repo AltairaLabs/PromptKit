@@ -32,6 +32,9 @@ SDK Layer: {
   Hooks: {
     label: "Hooks\n- Events\n- Subscribe"
   }
+  Evals: {
+    label: "Evals\n- Dispatchers\n- Metrics\n- Middleware"
+  }
 }
 
 Runtime Layer: {
@@ -43,6 +46,9 @@ Runtime Layer: {
   }
   Tools: {
     label: "Tools\n- Registry\n- Handlers\n- HTTP"
+  }
+  EventBus: {
+    label: "EventBus\n- Publish\n- Subscribe\n- EventStore"
   }
 }
 
@@ -100,6 +106,23 @@ type Event struct {
 3. Tool calls emit `EventToolCallStarted` / `EventToolCallCompleted`
 4. Pipeline completion emits `EventPipelineCompleted`
 5. Failures emit `EventProviderCallFailed` / `EventPipelineFailed`
+
+The EventBus supports pluggable persistence via `EventStore` and fan-out to multiple listeners. See [Observability](observability) for the full event architecture.
+
+### Evals
+
+Automated quality checks on LLM outputs, defined in pack files and executed via dispatchers:
+
+- **EvalDispatcher** routes eval requests — `InProcDispatcher` runs synchronously, `EventDispatcher` publishes to an event bus for async workers, `NoOpDispatcher` defers to `EventBusEvalListener`
+- **EvalRunner** executes eval handlers (deterministic checks like `contains`, `regex`, `json_valid`, `tools_called`, or LLM judge evaluations) with timeout and panic recovery
+- **ResultWriters** record outcomes — `MetricResultWriter` feeds a `MetricCollector` for Prometheus metrics, `MetadataResultWriter` attaches results to message metadata
+
+**Trigger patterns:**
+- `every_turn` — after each assistant response
+- `on_session_complete` — when a session closes
+- `sample_turns` / `sample_sessions` — deterministic hash-based sampling
+
+The SDK eval middleware hooks into `Send()` (turn evals, async) and `Close()` (session evals, sync). Arena uses `PackEvalHook` to run evals against live or recorded conversations.
 
 ## Request Flow
 
