@@ -95,6 +95,7 @@ func TestBuildTurnRequest_VarsLookup(t *testing.T) {
 				nil,
 				nil,
 				createTestPromptRegistry(t),
+				nil,
 			)
 
 			// Create test request
@@ -168,6 +169,7 @@ func TestBuildTurnRequest_VarsWithComplexValues(t *testing.T) {
 		nil,
 		nil,
 		createTestPromptRegistry(t),
+		nil,
 	)
 
 	// Test with complex var values (multiline, special characters)
@@ -229,6 +231,7 @@ func TestBuildTurnRequest_TemperatureAndMaxTokens(t *testing.T) {
 		nil,
 		nil,
 		createTestPromptRegistry(t),
+		nil,
 	)
 
 	tests := []struct {
@@ -331,6 +334,7 @@ func TestBuildTurnRequest_StateStoreConfig(t *testing.T) {
 		nil,
 		nil,
 		createTestPromptRegistry(t),
+		nil,
 	)
 
 	store := statestore.NewMemoryStore()

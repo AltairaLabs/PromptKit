@@ -36,6 +36,7 @@ type DuplexConversationExecutor struct {
 	promptRegistry   *prompt.Registry
 	toolRegistry     *tools.Registry
 	mediaStorage     storage.MediaStorageService
+	packEvalHook     *PackEvalHook
 }
 
 // NewDuplexConversationExecutor creates a new duplex conversation executor.
@@ -44,12 +45,14 @@ func NewDuplexConversationExecutor(
 	promptRegistry *prompt.Registry,
 	toolRegistry *tools.Registry,
 	mediaStorage storage.MediaStorageService,
+	packEvalHook *PackEvalHook,
 ) *DuplexConversationExecutor {
 	return &DuplexConversationExecutor{
 		selfPlayRegistry: selfPlayRegistry,
 		promptRegistry:   promptRegistry,
 		toolRegistry:     toolRegistry,
 		mediaStorage:     mediaStorage,
+		packEvalHook:     packEvalHook,
 	}
 }
 

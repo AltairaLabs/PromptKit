@@ -82,6 +82,7 @@ func TestExecuteConversation_SelfPlayMultiTurn(t *testing.T) {
 		selfPlayExecutor,
 		selfPlayRegistry,
 		createTestPromptRegistry(t),
+		nil,
 	)
 
 	// Scenario with initial user turn, then 5 self-play turns
@@ -207,6 +208,7 @@ func TestExecuteConversation_SelfPlayMultiTurnStreaming(t *testing.T) {
 		selfPlayExecutor,
 		selfPlayRegistry,
 		createTestPromptRegistry(t),
+		nil,
 	)
 
 	scenario := &config.Scenario{
@@ -281,6 +283,7 @@ func TestExecuteConversation_ZeroTurnsSelfPlay(t *testing.T) {
 		selfPlayExecutor,
 		selfPlayRegistry,
 		createTestPromptRegistry(t),
+		nil,
 	)
 
 	scenario := &config.Scenario{

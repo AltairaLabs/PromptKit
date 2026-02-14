@@ -169,7 +169,17 @@ func executeRuns(configFile string, params *RunParameters) ([]engine.RunResult, 
 
 // setupEngine creates and configures the engine with mock provider if needed.
 func setupEngine(configFile string, params *RunParameters) (*engine.Engine, *engine.RunPlan, error) {
-	eng, err := engine.NewEngineFromConfigFile(configFile)
+	// Load config, apply CLI overrides, then build engine
+	cfg, err := config.LoadConfig(configFile)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to load configuration: %w", err)
+	}
+
+	// Apply pack eval CLI overrides before building engine components
+	cfg.SkipPackEvals = params.SkipPackEvals
+	cfg.EvalTypeFilter = params.EvalTypes
+
+	eng, err := engine.NewEngineFromConfig(cfg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create engine: %w", err)
 	}

@@ -11,6 +11,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/a2a"
 	a2amock "github.com/AltairaLabs/PromptKit/runtime/a2a/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/credentials"
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	_ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers" // register default eval handlers
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
@@ -110,9 +112,15 @@ func BuildEngineComponents(cfg *config.Config) (
 		return nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to start A2A agents: %w", a2aErr)
 	}
 
+	// Build pack eval hook if pack is loaded
+	var packEvalHook *PackEvalHook
+	if cfg.LoadedPack != nil {
+		packEvalHook = buildPackEvalHook(cfg, cfg.SkipPackEvals, cfg.EvalTypeFilter)
+	}
+
 	// Build conversation executor (engine-specific, stays here)
 	conversationExecutor, adapterRegistry, err := newConversationExecutor(
-		cfg, toolRegistry, promptRegistry, mediaStorage, providerRegistry)
+		cfg, toolRegistry, promptRegistry, mediaStorage, providerRegistry, packEvalHook)
 	if err != nil {
 		if a2aCleanupFn != nil {
 			a2aCleanupFn()
@@ -392,6 +400,7 @@ func newConversationExecutor(
 	promptRegistry *prompt.Registry,
 	mediaStorage storage.MediaStorageService,
 	providerRegistry *providers.Registry,
+	packEvalHook *PackEvalHook,
 ) (ConversationExecutor, *adapters.Registry, error) {
 	// Build turn executors (always needed, even without self-play)
 	pipelineExecutor := turnexecutors.NewPipelineExecutor(toolRegistry, mediaStorage)
@@ -415,6 +424,7 @@ func newConversationExecutor(
 		selfPlayExecutor,
 		selfPlayRegistry,
 		promptRegistry,
+		packEvalHook,
 	)
 
 	// Build duplex conversation executor
@@ -423,13 +433,40 @@ func newConversationExecutor(
 		promptRegistry,
 		toolRegistry,
 		mediaStorage,
+		packEvalHook,
 	)
 
 	// Build eval conversation executor components
-	evalExecutor, adapterRegistry := buildEvalExecutor(promptRegistry, providerRegistry)
+	evalExecutor, adapterRegistry := buildEvalExecutor(promptRegistry, providerRegistry, packEvalHook)
 
 	// Return composite executor that routes based on scenario configuration
 	return NewCompositeConversationExecutor(defaultExecutor, duplexExecutor, evalExecutor), adapterRegistry, nil
+}
+
+// buildPackEvalHook creates a PackEvalHook from the loaded pack.
+// It resolves pack-level and prompt-level evals, creates a registry with default handlers,
+// and returns a hook ready for use in conversation executors.
+func buildPackEvalHook(cfg *config.Config, skipEvals bool, evalTypeFilter []string) *PackEvalHook {
+	pack := cfg.LoadedPack
+
+	// Collect all eval defs from pack level
+	allDefs := pack.Evals
+
+	// Merge with prompt-level evals (prompt overrides by ID)
+	for _, pp := range pack.Prompts {
+		if len(pp.Evals) > 0 {
+			allDefs = evals.ResolveEvals(allDefs, pp.Evals)
+		}
+	}
+
+	if len(allDefs) == 0 && !skipEvals {
+		return nil
+	}
+
+	// Create registry with default handlers (registered via init() in handlers package)
+	registry := evals.NewEvalTypeRegistry()
+
+	return NewPackEvalHook(registry, allDefs, skipEvals, evalTypeFilter, pack.ID)
 }
 
 // buildEvalExecutor creates the eval conversation executor with required registries.
@@ -437,6 +474,7 @@ func newConversationExecutor(
 func buildEvalExecutor(
 	promptRegistry *prompt.Registry,
 	providerRegistry *providers.Registry,
+	packEvalHook *PackEvalHook,
 ) (*EvalConversationExecutor, *adapters.Registry) {
 	// Import adapters and assertions packages
 	// We need to do this here to avoid circular dependencies
@@ -450,6 +488,7 @@ func buildEvalExecutor(
 		convAssertionRegistry,
 		promptRegistry,
 		providerRegistry,
+		packEvalHook,
 	), adapterRegistry
 }
 

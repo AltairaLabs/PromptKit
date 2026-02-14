@@ -124,6 +124,10 @@ func init() {
 	runCmd.Flags().Bool("mock-provider", false, "Replace all providers with MockProvider (for CI/testing)")
 	runCmd.Flags().String("mock-config", "", "Path to mock provider configuration file (YAML)")
 
+	// Pack eval settings
+	runCmd.Flags().Bool("skip-pack-evals", false, "Disable pack eval execution")
+	runCmd.Flags().StringSlice("eval-types", []string{}, "Filter to specific eval types (e.g., contains,regex)")
+
 	// Self-play settings
 	runCmd.Flags().Bool("selfplay", false, "Enable self-play mode")
 	runCmd.Flags().StringSlice("roles", []string{}, "Self-play role configurations to use")
@@ -165,6 +169,8 @@ type RunParameters struct {
 	MarkdownFile   string   // New: Markdown output file
 	MockProvider   bool     // Enable mock provider mode
 	MockConfig     string   // Path to mock provider configuration
+	SkipPackEvals  bool     // Disable pack eval execution
+	EvalTypes      []string // Filter to specific eval types
 	ConfigFile     string   // Configuration file name for TUI display
 	TotalRuns      int      // Total number of runs for TUI progress
 }
@@ -233,6 +239,12 @@ func extractBasicFlags(cmd *cobra.Command, params *RunParameters) error {
 	}
 	if params.Verbose, err = cmd.Flags().GetBool("verbose"); err != nil {
 		return fmt.Errorf("failed to get verbose flag: %w", err)
+	}
+	if params.SkipPackEvals, err = cmd.Flags().GetBool("skip-pack-evals"); err != nil {
+		return fmt.Errorf("failed to get skip-pack-evals flag: %w", err)
+	}
+	if params.EvalTypes, err = cmd.Flags().GetStringSlice("eval-types"); err != nil {
+		return fmt.Errorf("failed to get eval-types flag: %w", err)
 	}
 	return nil
 }

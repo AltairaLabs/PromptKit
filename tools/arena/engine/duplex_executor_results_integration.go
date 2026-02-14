@@ -52,6 +52,13 @@ func (de *DuplexConversationExecutor) buildResultFromStateStore(
 	// Evaluate conversation-level assertions
 	convAssertionResults := de.evaluateConversationAssertions(req, messages)
 
+	// Run pack eval session-level evals if configured
+	if de.packEvalHook != nil && de.packEvalHook.HasEvals() {
+		packResults := de.packEvalHook.RunSessionEvals(
+			context.Background(), messages, req.ConversationID)
+		convAssertionResults = append(convAssertionResults, packResults...)
+	}
+
 	return &ConversationResult{
 		Messages:                     messages,
 		Cost:                         totalCost,

@@ -58,6 +58,7 @@ type Config struct {
 	StateStore    *StateStoreConfig `yaml:"state_store,omitempty"`
 	Defaults      Defaults          `yaml:"defaults"`
 	SelfPlay      *SelfPlayConfig   `yaml:"self_play,omitempty"`
+	PackFile      string            `yaml:"pack_file,omitempty"`
 	// ProviderGroups maps provider ID to configured group (populated during load)
 	ProviderGroups map[string]string `yaml:"-" json:"-"`
 	// ProviderCapabilities maps provider ID to its capabilities (populated during load)
@@ -71,6 +72,11 @@ type Config struct {
 	LoadedEvals         map[string]*Eval             `yaml:"-" json:"-"` // eval ID -> eval
 	LoadedTools         []ToolData                   `yaml:"-" json:"-"` // list of tool data
 	LoadedPersonas      map[string]*UserPersonaPack  `yaml:"-" json:"-"` // persona ID -> persona
+	LoadedPack          *prompt.Pack                 `yaml:"-" json:"-"` // loaded pack from pack_file
+
+	// Pack eval settings (set by CLI flags, not serialized)
+	SkipPackEvals  bool     `yaml:"-" json:"-"` // Disable pack eval execution
+	EvalTypeFilter []string `yaml:"-" json:"-"` // Filter to specific eval types
 
 	// Base directory for resolving relative paths (set during LoadConfig)
 	ConfigDir string `yaml:"-" json:"-"`

@@ -104,6 +104,12 @@ func NewEngineFromConfigFile(configPath string) (*Engine, error) {
 		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
 
+	return NewEngineFromConfig(cfg)
+}
+
+// NewEngineFromConfig creates a new Engine from a pre-loaded configuration.
+// This allows CLI or programmatic callers to modify the config before engine creation.
+func NewEngineFromConfig(cfg *config.Config) (*Engine, error) {
 	// Build registries and executors from the config
 	providerRegistry, promptRegistry, mcpRegistry, convExecutor,
 		adapterRegistry, a2aCleanup, err := BuildEngineComponents(cfg)

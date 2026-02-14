@@ -241,7 +241,7 @@ func TestNewConversationExecutor_WithSelfPlay(t *testing.T) {
 	providerRegistry := providers.NewRegistry()
 	providerRegistry.Register(mock.NewProvider("mock-assistant", "mock-model", false))
 
-	executor, adapterReg, err := newConversationExecutor(cfg, nil, nil, nil, providerRegistry)
+	executor, adapterReg, err := newConversationExecutor(cfg, nil, nil, nil, providerRegistry, nil)
 	require.NoError(t, err)
 	require.NotNil(t, executor)
 	require.NotNil(t, adapterReg)
@@ -261,7 +261,7 @@ func TestNewConversationExecutor_WithoutSelfPlay(t *testing.T) {
 	// Empty provider registry (no self-play, so not used)
 	providerRegistry := providers.NewRegistry()
 
-	executor, adapterReg, err := newConversationExecutor(cfg, nil, nil, nil, providerRegistry)
+	executor, adapterReg, err := newConversationExecutor(cfg, nil, nil, nil, providerRegistry, nil)
 	require.NoError(t, err)
 	require.NotNil(t, executor)
 	require.NotNil(t, adapterReg)

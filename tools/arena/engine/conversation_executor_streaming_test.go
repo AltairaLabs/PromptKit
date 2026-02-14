@@ -31,6 +31,7 @@ func TestExecuteConversationStream_SingleTurn(t *testing.T) {
 		nil,
 		nil,
 		createTestPromptRegistry(t),
+		nil,
 	)
 
 	scenario := &config.Scenario{
@@ -103,6 +104,7 @@ func TestExecuteConversationStream_MultipleTurns(t *testing.T) {
 		nil,
 		nil,
 		createTestPromptRegistry(t),
+		nil,
 	)
 
 	scenario := &config.Scenario{
@@ -161,6 +163,7 @@ func TestExecuteConversationStream_Error(t *testing.T) {
 		nil,
 		nil,
 		createTestPromptRegistry(t),
+		nil,
 	)
 
 	scenario := &config.Scenario{
@@ -211,6 +214,7 @@ func TestExecuteConversationStream_ContextCancellation(t *testing.T) {
 		nil,
 		nil,
 		createTestPromptRegistry(t),
+		nil,
 	)
 
 	scenario := &config.Scenario{
@@ -450,6 +454,7 @@ func TestExecuteConversation_StreamingPath(t *testing.T) {
 		nil,
 		nil,
 		createTestPromptRegistry(t),
+		nil,
 	)
 
 	scenario := &config.Scenario{
@@ -540,6 +545,7 @@ func TestExecuteConversation_SelfPlayTurnNonStreaming(t *testing.T) {
 		selfPlayExec,
 		selfPlayRegistry,
 		createTestPromptRegistry(t),
+		nil,
 	)
 
 	scenario := &config.Scenario{
@@ -609,6 +615,7 @@ func TestExecuteConversation_SelfPlayTurnStreaming(t *testing.T) {
 		selfPlayExec,
 		selfPlayRegistry,
 		createTestPromptRegistry(t),
+		nil,
 	)
 
 	scenario := &config.Scenario{

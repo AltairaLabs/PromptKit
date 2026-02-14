@@ -39,6 +39,7 @@ func TestEngine_ExecuteEvalRun_Success(t *testing.T) {
 		assertions.NewConversationAssertionRegistry(),
 		nil, // prompt registry not needed
 		providers.NewRegistry(),
+		nil,
 	)
 
 	e := &Engine{

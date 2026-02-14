@@ -26,6 +26,7 @@ type EvalConversationExecutor struct {
 	convAssertionReg  *assertions.ConversationAssertionRegistry
 	promptRegistry    *prompt.Registry
 	providerRegistry  *providers.Registry
+	packEvalHook      *PackEvalHook
 }
 
 // NewEvalConversationExecutor creates a new eval conversation executor.
@@ -35,6 +36,7 @@ func NewEvalConversationExecutor(
 	convAssertionReg *assertions.ConversationAssertionRegistry,
 	promptRegistry *prompt.Registry,
 	providerRegistry *providers.Registry,
+	packEvalHook *PackEvalHook,
 ) *EvalConversationExecutor {
 	return &EvalConversationExecutor{
 		adapterRegistry:   adapterRegistry,
@@ -42,6 +44,7 @@ func NewEvalConversationExecutor(
 		convAssertionReg:  convAssertionReg,
 		promptRegistry:    promptRegistry,
 		providerRegistry:  providerRegistry,
+		packEvalHook:      packEvalHook,
 	}
 }
 
@@ -66,6 +69,12 @@ func (e *EvalConversationExecutor) ExecuteConversation(
 	convCtx := e.buildConversationContext(&req, messages, metadata)
 	e.applyAllTurnAssertions(req.Eval.Turns, messages, convCtx)
 	convResults := e.evaluateConversationAssertions(ctx, req.Eval.ConversationAssertions, convCtx)
+
+	// Run pack eval session-level evals if configured
+	if e.packEvalHook != nil && e.packEvalHook.HasEvals() {
+		packResults := e.packEvalHook.RunSessionEvals(ctx, messages, req.ConversationID)
+		convResults = append(convResults, packResults...)
+	}
 
 	return &ConversationResult{
 		Messages:                     messages,

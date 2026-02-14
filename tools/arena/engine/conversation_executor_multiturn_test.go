@@ -80,6 +80,7 @@ func TestExecuteConversation_TenScriptedTurns(t *testing.T) {
 		nil,
 		nil,
 		createTestPromptRegistry(t),
+		nil,
 	)
 
 	// Create scenario with 10 turns (like MCP predictbot memory-conversations scenario)

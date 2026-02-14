@@ -1453,3 +1453,35 @@ spec:
 		t.Errorf("Missing expected capabilities: %v", expectedCaps)
 	}
 }
+
+func TestLoadPackFile_Success(t *testing.T) {
+	tmpDir := t.TempDir()
+	packPath := filepath.Join(tmpDir, "test.pack.json")
+
+	packContent := `{"$schema":"https://example.com","id":"test-pack","name":"Test Pack","version":"1.0.0","prompts":{}}`
+	if err := os.WriteFile(packPath, []byte(packContent), 0600); err != nil {
+		t.Fatalf("Failed to write test pack: %v", err)
+	}
+
+	cfg := &Config{PackFile: "test.pack.json", ConfigDir: tmpDir}
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	err := cfg.loadPackFile(configPath)
+	if err != nil {
+		t.Fatalf("loadPackFile failed: %v", err)
+	}
+	if cfg.LoadedPack == nil {
+		t.Fatal("Expected LoadedPack to be set")
+	}
+	if cfg.LoadedPack.ID != "test-pack" {
+		t.Errorf("Expected pack ID 'test-pack', got %q", cfg.LoadedPack.ID)
+	}
+}
+
+func TestLoadPackFile_NotFound(t *testing.T) {
+	cfg := &Config{PackFile: "nonexistent.pack.json", ConfigDir: t.TempDir()}
+	configPath := filepath.Join(cfg.ConfigDir, "config.yaml")
+	err := cfg.loadPackFile(configPath)
+	if err == nil {
+		t.Fatal("Expected error for nonexistent pack file")
+	}
+}

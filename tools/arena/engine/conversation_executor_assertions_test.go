@@ -41,6 +41,7 @@ func TestConversationExecutor_DebugOnUserTurnAssertions(t *testing.T) {
 		mockTurnExec,
 		nil,
 		promptReg,
+		nil,
 	)
 
 	// Create scenario with assertions on user turn (should trigger warning)
