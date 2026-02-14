@@ -195,6 +195,9 @@
         },
         "self_play": {
           "$ref": "#/$defs/SelfPlayConfig"
+        },
+        "pack_file": {
+          "type": "string"
         }
       },
       "additionalProperties": false,
