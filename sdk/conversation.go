@@ -105,6 +105,9 @@ type Conversation struct {
 	// MCP registry for managing MCP servers
 	mcpRegistry mcp.Registry
 
+	// Eval middleware for dispatching evals after Send/Close
+	evalMW *evalMiddleware
+
 	// Closed flag
 	closed bool
 	mu     sync.RWMutex
@@ -178,7 +181,9 @@ func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption
 		return nil, err
 	}
 
-	return c.buildResponse(result, startTime), nil
+	resp := c.buildResponse(result, startTime)
+	c.evalMW.dispatchTurnEvals(ctx) // nil-safe, no-op if middleware is nil
+	return resp, nil
 }
 
 // validateSendState checks if the conversation is in a valid state for Send().
@@ -794,6 +799,11 @@ func (c *Conversation) Close() error {
 		return nil
 	}
 	c.closed = true
+
+	// Dispatch session-complete evals before cleanup
+	if c.evalMW != nil {
+		c.evalMW.dispatchSessionEvals(context.Background())
+	}
 
 	// Close duplex session if in duplex mode
 	if c.mode == DuplexMode && c.duplexSession != nil {

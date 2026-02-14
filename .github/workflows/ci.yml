@@ -311,11 +311,17 @@ jobs:
           --mock-provider \
           --mock-config mock-responses.yaml \
           --formats json,junit,html,markdown
-    
+
+    - name: Test eval-test example
+      run: |
+        cd examples/eval-test
+        ../../bin/promptarena run --config config.arena.yaml \
+          --formats json,junit,html,markdown
+
     - name: Verify outputs were generated
       run: |
-        EXAMPLES=("customer-support" "multimodal-basics" "variables-demo" "assertions-test" "llm-judge" "guardrails-test")
-        
+        EXAMPLES=("customer-support" "multimodal-basics" "variables-demo" "assertions-test" "llm-judge" "guardrails-test" "eval-test")
+
         for example in "${EXAMPLES[@]}"; do
           echo "=== Verifying $example ==="
           
@@ -348,8 +354,8 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         
         # Combine results from all examples
-        EXAMPLES=("customer-support" "multimodal-basics" "variables-demo" "assertions-test" "llm-judge" "guardrails-test")
-        EXAMPLE_NAMES=("Customer Support" "Multimodal Basics" "Variables Demo" "Assertions Test" "LLM Judge" "Guardrails Test")
+        EXAMPLES=("customer-support" "multimodal-basics" "variables-demo" "assertions-test" "llm-judge" "guardrails-test" "eval-test")
+        EXAMPLE_NAMES=("Customer Support" "Multimodal Basics" "Variables Demo" "Assertions Test" "LLM Judge" "Guardrails Test" "Eval Test")
         
         for i in "${!EXAMPLES[@]}"; do
           example="${EXAMPLES[$i]}"
@@ -380,6 +386,7 @@ jobs:
         echo "- **arena-assertions-test-reports**" >> $GITHUB_STEP_SUMMARY
         echo "- **arena-llm-judge-reports**" >> $GITHUB_STEP_SUMMARY
         echo "- **arena-guardrails-reports**" >> $GITHUB_STEP_SUMMARY
+        echo "- **arena-eval-test-reports**" >> $GITHUB_STEP_SUMMARY
     
     - name: Publish Customer Support Test Results
       uses: dorny/test-reporter@b082adf0eced0765477756c2a610396589b8c637 # v2.5.0
@@ -466,6 +473,23 @@ jobs:
         path: examples/guardrails-test/out/
         retention-days: 5
     
+    - name: Publish Eval Test Results
+      uses: dorny/test-reporter@b082adf0eced0765477756c2a610396589b8c637 # v2.5.0
+      if: always()
+      with:
+        name: Arena - Eval Test
+        path: examples/eval-test/out/junit.xml
+        reporter: java-junit
+        fail-on-error: true
+
+    - name: Upload Eval Test Reports
+      if: always()
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      with:
+        name: arena-eval-test-reports
+        path: examples/eval-test/out/
+        retention-days: 5
+
     - name: Publish Assertions Test Results
       uses: dorny/test-reporter@b082adf0eced0765477756c2a610396589b8c637 # v2.5.0
       if: always()

@@ -5,6 +5,8 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/evals/handlers"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
@@ -106,6 +108,12 @@ type config struct {
 	// ResponseFormat configures the LLM response format (JSON mode)
 	// When set, the provider will request responses in the specified format
 	responseFormat *providers.ResponseFormat
+
+	// Eval configuration
+	evalDispatcher    evals.EvalDispatcher
+	evalRegistry      *evals.EvalTypeRegistry
+	evalResultWriters []evals.ResultWriter
+	judgeProvider     handlers.JudgeProvider
 }
 
 // Option configures a Conversation.
@@ -1272,4 +1280,69 @@ type documentFilePart struct {
 type documentDataPart struct {
 	data     []byte
 	mimeType string
+}
+
+// WithEvalDispatcher configures the eval dispatcher for running evals.
+//
+// The dispatcher controls how evals execute:
+//   - InProcDispatcher: runs evals in-process (simplest, synchronous)
+//   - EventDispatcher: publishes eval events to an event bus (async)
+//   - NoOpDispatcher: disables eval execution at the SDK level
+//
+// Example:
+//
+//	registry := evals.NewEvalTypeRegistry()
+//	runner := evals.NewEvalRunner(registry)
+//	dispatcher := evals.NewInProcDispatcher(runner, nil)
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithEvalDispatcher(dispatcher),
+//	)
+func WithEvalDispatcher(d evals.EvalDispatcher) Option {
+	return func(c *config) error {
+		c.evalDispatcher = d
+		return nil
+	}
+}
+
+// WithEvalRegistry provides a custom eval type registry.
+//
+// Use this to register custom eval type handlers beyond the built-in ones.
+// If not set, the default registry with all built-in handlers is used.
+func WithEvalRegistry(r *evals.EvalTypeRegistry) Option {
+	return func(c *config) error {
+		c.evalRegistry = r
+		return nil
+	}
+}
+
+// WithResultWriters configures where eval results are sent.
+//
+// Multiple writers can be provided; they are composed into a CompositeResultWriter.
+//
+// Example:
+//
+//	mc := evals.NewMetricCollector()
+//	metricWriter := evals.NewMetricResultWriter(mc, defs)
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithEvalDispatcher(dispatcher),
+//	    sdk.WithResultWriters(metricWriter),
+//	)
+func WithResultWriters(writers ...evals.ResultWriter) Option {
+	return func(c *config) error {
+		c.evalResultWriters = append(c.evalResultWriters, writers...)
+		return nil
+	}
+}
+
+// WithJudgeProvider configures the LLM judge provider for judge-based evals.
+//
+// If not set, an SDKJudgeProvider is created automatically using the
+// conversation's provider.
+func WithJudgeProvider(jp handlers.JudgeProvider) Option {
+	return func(c *config) error {
+		c.judgeProvider = jp
+		return nil
+	}
 }
