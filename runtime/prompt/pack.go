@@ -95,6 +95,12 @@ type Pack struct {
 
 	// Evals - Pack-level eval definitions (applied to all prompts unless overridden)
 	Evals []evals.EvalDef `json:"evals,omitempty"`
+
+	// Workflow - State-machine workflow over the pack's prompts
+	Workflow *WorkflowConfig `json:"workflow,omitempty"`
+
+	// Agents - Agent configuration mapping prompts to A2A-compatible agent definitions
+	Agents *AgentsConfig `json:"agents,omitempty"`
 }
 
 // PackTool represents a tool definition in the pack (per PromptPack spec Section 9)
@@ -103,6 +109,55 @@ type PackTool struct {
 	Name        string      `json:"name"`        // Tool function name (required)
 	Description string      `json:"description"` // Tool description (required)
 	Parameters  interface{} `json:"parameters"`  // JSON Schema for input parameters (required)
+}
+
+// WorkflowConfig defines a state-machine workflow over the pack's prompts.
+type WorkflowConfig struct {
+	Version int                       `json:"version"`
+	Entry   string                    `json:"entry"`
+	States  map[string]*WorkflowState `json:"states"`
+	Engine  map[string]interface{}    `json:"engine,omitempty"`
+}
+
+// WorkflowState represents a single state in the workflow state machine.
+type WorkflowState struct {
+	PromptTask    string            `json:"prompt_task"`
+	Description   string            `json:"description,omitempty"`
+	OnEvent       map[string]string `json:"on_event"`
+	Persistence   string            `json:"persistence,omitempty"`
+	Orchestration string            `json:"orchestration,omitempty"`
+}
+
+// AgentsConfig maps prompts to A2A-compatible agent definitions.
+type AgentsConfig struct {
+	Entry   string               `json:"entry"`
+	Members map[string]*AgentDef `json:"members"`
+}
+
+// AgentDef provides A2A Agent Card metadata for a single prompt.
+type AgentDef struct {
+	Description string   `json:"description,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+	InputModes  []string `json:"input_modes,omitempty"`
+	OutputModes []string `json:"output_modes,omitempty"`
+}
+
+// CompileOption configures optional fields for CompileFromRegistryWithOptions.
+type CompileOption func(*compileOptions)
+
+type compileOptions struct {
+	workflow *WorkflowConfig
+	agents   *AgentsConfig
+}
+
+// WithWorkflow sets the workflow config on the compiled pack.
+func WithWorkflow(w *WorkflowConfig) CompileOption {
+	return func(o *compileOptions) { o.workflow = w }
+}
+
+// WithAgents sets the agents config on the compiled pack.
+func WithAgents(a *AgentsConfig) CompileOption {
+	return func(o *compileOptions) { o.agents = a }
 }
 
 // PackPrompt represents a single prompt configuration within a pack
@@ -350,11 +405,12 @@ func (pc *PackCompiler) CompileFromRegistryWithParsedTools(
 }
 
 // CompileFromRegistryWithOptions compiles ALL prompts from the registry into a single Pack
-// with pre-parsed tool definitions and pack-level eval definitions.
+// with pre-parsed tool definitions, pack-level eval definitions, and optional workflow/agents config.
 func (pc *PackCompiler) CompileFromRegistryWithOptions(
 	packID, compilerVersion string,
 	parsedTools []ParsedTool,
 	packEvals []evals.EvalDef,
+	opts ...CompileOption,
 ) (*Pack, error) {
 	// First compile prompts
 	pack, err := pc.CompileFromRegistry(packID, compilerVersion)
@@ -373,6 +429,18 @@ func (pc *PackCompiler) CompileFromRegistryWithOptions(
 	// Add pack-level evals
 	if len(packEvals) > 0 {
 		pack.Evals = packEvals
+	}
+
+	// Apply compile options (workflow, agents, etc.)
+	var copts compileOptions
+	for _, o := range opts {
+		o(&copts)
+	}
+	if copts.workflow != nil {
+		pack.Workflow = copts.workflow
+	}
+	if copts.agents != nil {
+		pack.Agents = copts.agents
 	}
 
 	return pack, nil

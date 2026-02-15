@@ -55,6 +55,8 @@ type Config struct {
 	Evals         []EvalRef         `yaml:"evals,omitempty"`
 	Tools         []ToolRef         `yaml:"tools,omitempty"`
 	PackEvals     []evals.EvalDef   `yaml:"pack_evals,omitempty" json:"pack_evals,omitempty"`
+	Workflow      interface{}       `yaml:"workflow,omitempty" json:"workflow,omitempty"`
+	Agents        interface{}       `yaml:"agents,omitempty" json:"agents,omitempty"`
 	MCPServers    []MCPServerConfig `yaml:"mcp_servers,omitempty"`
 	A2AAgents     []A2AAgentConfig  `yaml:"a2a_agents,omitempty"`
 	StateStore    *StateStoreConfig `yaml:"state_store,omitempty"`

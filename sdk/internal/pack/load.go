@@ -41,6 +41,12 @@ type Pack struct {
 	// Evals - Pack-level eval definitions (applied to all prompts unless overridden)
 	Evals []evals.EvalDef `json:"evals,omitempty"`
 
+	// Workflow - State-machine workflow config (opaque to SDK, passed through)
+	Workflow json.RawMessage `json:"workflow,omitempty"`
+
+	// Agents - Agent configuration (opaque to SDK, passed through)
+	Agents json.RawMessage `json:"agents,omitempty"`
+
 	// FilePath is the path from which this pack was loaded.
 	FilePath string `json:"-"`
 }

@@ -571,6 +571,66 @@ func TestPrintPrompts(t *testing.T) {
 	printPrompts(pack)
 }
 
+func TestPrintWorkflow(t *testing.T) {
+	t.Run("with workflow", func(t *testing.T) {
+		pack := &prompt.Pack{
+			Workflow: &prompt.WorkflowConfig{
+				Version: 1,
+				Entry:   "start",
+				States: map[string]*prompt.WorkflowState{
+					"start": {
+						PromptTask:  "greeting",
+						Description: "Initial state",
+						OnEvent: map[string]string{
+							"next": "end",
+						},
+						Persistence:   "persistent",
+						Orchestration: "internal",
+					},
+					"end": {
+						PromptTask: "farewell",
+						OnEvent:    map[string]string{},
+					},
+				},
+			},
+		}
+		printWorkflow(pack)
+	})
+
+	t.Run("without workflow", func(t *testing.T) {
+		pack := &prompt.Pack{}
+		printWorkflow(pack)
+	})
+}
+
+func TestPrintAgents(t *testing.T) {
+	t.Run("with agents", func(t *testing.T) {
+		pack := &prompt.Pack{
+			Agents: &prompt.AgentsConfig{
+				Entry: "triage",
+				Members: map[string]*prompt.AgentDef{
+					"triage": {
+						Description: "Triage agent",
+						Tags:        []string{"router"},
+						InputModes:  []string{"text/plain"},
+						OutputModes: []string{"text/plain"},
+					},
+					"billing": {
+						Description: "Billing agent",
+						Tags:        []string{"billing"},
+					},
+				},
+			},
+		}
+		printAgents(pack)
+	})
+
+	t.Run("without agents", func(t *testing.T) {
+		pack := &prompt.Pack{}
+		printAgents(pack)
+	})
+}
+
 func TestSanitizePackID(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -147,6 +147,56 @@ func printFragments(pack *prompt.Pack) {
 	}
 }
 
+func printWorkflow(pack *prompt.Pack) {
+	if pack.Workflow == nil {
+		return
+	}
+	fmt.Printf("\n=== Workflow (v%d) ===\n", pack.Workflow.Version)
+	fmt.Printf("Entry: %s\n", pack.Workflow.Entry)
+	fmt.Printf("States (%d):\n", len(pack.Workflow.States))
+	for name, state := range pack.Workflow.States {
+		fmt.Printf("  [%s] prompt_task=%s\n", name, state.PromptTask)
+		if state.Description != "" {
+			fmt.Printf("    Description: %s\n", state.Description)
+		}
+		if len(state.OnEvent) > 0 {
+			for event, target := range state.OnEvent {
+				fmt.Printf("    on %s → %s\n", event, target)
+			}
+		}
+		if state.Persistence != "" {
+			fmt.Printf("    Persistence: %s\n", state.Persistence)
+		}
+		if state.Orchestration != "" {
+			fmt.Printf("    Orchestration: %s\n", state.Orchestration)
+		}
+	}
+}
+
+func printAgents(pack *prompt.Pack) {
+	if pack.Agents == nil {
+		return
+	}
+	fmt.Printf("\n=== Agents ===\n")
+	fmt.Printf("Entry: %s\n", pack.Agents.Entry)
+	fmt.Printf("Members (%d):\n", len(pack.Agents.Members))
+	for name, agent := range pack.Agents.Members {
+		fmt.Printf("  [%s]\n", name)
+		if agent.Description != "" {
+			fmt.Printf("    Description: %s\n", agent.Description)
+		}
+		if len(agent.Tags) > 0 {
+			fmt.Printf("    Tags: %v\n", agent.Tags)
+		}
+		if len(agent.InputModes) > 0 {
+			fmt.Printf("    Input modes: %v\n", agent.InputModes)
+		}
+		if len(agent.OutputModes) > 0 {
+			fmt.Printf("    Output modes: %v\n", agent.OutputModes)
+		}
+	}
+}
+
 func printMetadata(pack *prompt.Pack) {
 	if pack.Metadata != nil {
 		fmt.Printf("\nPack Metadata:\n")

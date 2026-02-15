@@ -11,6 +11,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -835,4 +836,297 @@ func parseToolsFromConfigData(t *testing.T, configTools []config.ToolData) []pro
 	}
 
 	return result
+}
+
+// TestSpecCompliance_WorkflowCompilation tests that workflow config from arena.yaml
+// is included in the compiled pack output.
+func TestSpecCompliance_WorkflowCompilation(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmpDir := t.TempDir()
+
+	// Create prompt
+	promptYAML := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: greeting-prompt
+spec:
+  task_type: greeting
+  version: "1.0.0"
+  description: "Greeting prompt"
+  template_engine:
+    version: "1.0"
+    syntax: "go-template"
+    features: []
+  system_template: "You are a greeting assistant."
+  variables: []
+`
+	promptPath := filepath.Join(tmpDir, "prompts", "greeting.prompt.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(promptPath), 0755))
+	require.NoError(t, os.WriteFile(promptPath, []byte(promptYAML), 0644))
+
+	// Create arena config with workflow
+	arenaYAML := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: ArenaConfig
+metadata:
+  name: workflow-arena
+spec:
+  prompt_configs:
+    - id: greeting
+      file: prompts/greeting.prompt.yaml
+  providers: []
+  scenarios: []
+  workflow:
+    version: 1
+    entry: greet
+    states:
+      greet:
+        prompt_task: greeting
+        description: "Initial greeting state"
+        on_event:
+          escalate: human
+          done: closing
+        persistence: persistent
+      closing:
+        prompt_task: greeting
+        on_event:
+          restart: greet
+  defaults:
+    temperature: 0.7
+`
+	arenaPath := filepath.Join(tmpDir, "arena.yaml")
+	require.NoError(t, os.WriteFile(arenaPath, []byte(arenaYAML), 0644))
+
+	// Load config
+	cfg, err := config.LoadConfig(arenaPath)
+	require.NoError(t, err)
+
+	// Verify workflow was loaded
+	require.NotEmpty(t, cfg.Workflow, "Workflow should be loaded from config")
+
+	// Build and compile
+	memRepo := buildMemoryRepo(cfg)
+	registry := prompt.NewRegistryWithRepository(memRepo)
+	compiler := prompt.NewPackCompiler(registry)
+
+	wf := parseWorkflowFromConfig(cfg)
+	require.NotNil(t, wf, "Workflow should parse successfully")
+
+	pack, err := compiler.CompileFromRegistryWithOptions(
+		"workflow-pack", "packc-test", nil, nil, prompt.WithWorkflow(wf),
+	)
+	require.NoError(t, err)
+
+	// Check workflow in pack
+	require.NotNil(t, pack.Workflow, "Pack must have workflow")
+	assert.Equal(t, 1, pack.Workflow.Version)
+	assert.Equal(t, "greet", pack.Workflow.Entry)
+	assert.Len(t, pack.Workflow.States, 2)
+
+	greetState := pack.Workflow.States["greet"]
+	require.NotNil(t, greetState)
+	assert.Equal(t, "greeting", greetState.PromptTask)
+	assert.Equal(t, "Initial greeting state", greetState.Description)
+	assert.Equal(t, "human", greetState.OnEvent["escalate"])
+	assert.Equal(t, "closing", greetState.OnEvent["done"])
+	assert.Equal(t, "persistent", greetState.Persistence)
+
+	// Verify JSON serialization
+	data, err := json.MarshalIndent(pack, "", "  ")
+	require.NoError(t, err)
+
+	var rawPack map[string]interface{}
+	require.NoError(t, json.Unmarshal(data, &rawPack))
+
+	_, hasWorkflow := rawPack["workflow"]
+	assert.True(t, hasWorkflow, "JSON must contain 'workflow' field")
+}
+
+// TestSpecCompliance_AgentsCompilation tests that agents config from arena.yaml
+// is included in the compiled pack output.
+func TestSpecCompliance_AgentsCompilation(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmpDir := t.TempDir()
+
+	// Create two prompts
+	for _, task := range []string{"triage", "billing"} {
+		yaml := fmt.Sprintf(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: %s-prompt
+spec:
+  task_type: %s
+  version: "1.0.0"
+  description: "%s agent"
+  template_engine:
+    version: "1.0"
+    syntax: "go-template"
+    features: []
+  system_template: "You are a %s assistant."
+  variables: []
+`, task, task, task, task)
+		promptPath := filepath.Join(tmpDir, "prompts", task+".prompt.yaml")
+		require.NoError(t, os.MkdirAll(filepath.Dir(promptPath), 0755))
+		require.NoError(t, os.WriteFile(promptPath, []byte(yaml), 0644))
+	}
+
+	// Create arena config with agents
+	arenaYAML := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: ArenaConfig
+metadata:
+  name: agents-arena
+spec:
+  prompt_configs:
+    - id: triage
+      file: prompts/triage.prompt.yaml
+    - id: billing
+      file: prompts/billing.prompt.yaml
+  providers: []
+  scenarios: []
+  agents:
+    entry: triage
+    members:
+      triage:
+        description: "Routes requests to the right agent"
+        tags: ["router", "triage"]
+        input_modes: ["text/plain"]
+        output_modes: ["text/plain"]
+      billing:
+        description: "Handles billing inquiries"
+        tags: ["billing", "support"]
+        input_modes: ["text/plain", "application/json"]
+        output_modes: ["text/plain"]
+  defaults:
+    temperature: 0.7
+`
+	arenaPath := filepath.Join(tmpDir, "arena.yaml")
+	require.NoError(t, os.WriteFile(arenaPath, []byte(arenaYAML), 0644))
+
+	cfg, err := config.LoadConfig(arenaPath)
+	require.NoError(t, err)
+
+	require.NotEmpty(t, cfg.Agents, "Agents should be loaded from config")
+
+	memRepo := buildMemoryRepo(cfg)
+	registry := prompt.NewRegistryWithRepository(memRepo)
+	compiler := prompt.NewPackCompiler(registry)
+
+	ag := parseAgentsFromConfig(cfg)
+	require.NotNil(t, ag)
+
+	pack, err := compiler.CompileFromRegistryWithOptions(
+		"agents-pack", "packc-test", nil, nil, prompt.WithAgents(ag),
+	)
+	require.NoError(t, err)
+
+	require.NotNil(t, pack.Agents, "Pack must have agents")
+	assert.Equal(t, "triage", pack.Agents.Entry)
+	assert.Len(t, pack.Agents.Members, 2)
+
+	triageAgent := pack.Agents.Members["triage"]
+	require.NotNil(t, triageAgent)
+	assert.Equal(t, "Routes requests to the right agent", triageAgent.Description)
+	assert.Equal(t, []string{"router", "triage"}, triageAgent.Tags)
+	assert.Equal(t, []string{"text/plain"}, triageAgent.InputModes)
+
+	billingAgent := pack.Agents.Members["billing"]
+	require.NotNil(t, billingAgent)
+	assert.Equal(t, []string{"text/plain", "application/json"}, billingAgent.InputModes)
+
+	// Verify JSON
+	data, err := json.MarshalIndent(pack, "", "  ")
+	require.NoError(t, err)
+
+	var rawPack map[string]interface{}
+	require.NoError(t, json.Unmarshal(data, &rawPack))
+
+	_, hasAgents := rawPack["agents"]
+	assert.True(t, hasAgents, "JSON must contain 'agents' field")
+}
+
+// TestSpecCompliance_WorkflowAndAgentsCombined tests both workflow and agents together.
+func TestSpecCompliance_WorkflowAndAgentsCombined(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmpDir := t.TempDir()
+
+	promptYAML := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: main-prompt
+spec:
+  task_type: main
+  version: "1.0.0"
+  description: "Main prompt"
+  template_engine:
+    version: "1.0"
+    syntax: "go-template"
+    features: []
+  system_template: "You are a helpful assistant."
+  variables: []
+`
+	promptPath := filepath.Join(tmpDir, "prompts", "main.prompt.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(promptPath), 0755))
+	require.NoError(t, os.WriteFile(promptPath, []byte(promptYAML), 0644))
+
+	arenaYAML := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: ArenaConfig
+metadata:
+  name: combined-arena
+spec:
+  prompt_configs:
+    - id: main
+      file: prompts/main.prompt.yaml
+  providers: []
+  scenarios: []
+  workflow:
+    version: 1
+    entry: start
+    states:
+      start:
+        prompt_task: main
+        on_event:
+          done: start
+  agents:
+    entry: main
+    members:
+      main:
+        description: "The main agent"
+        tags: ["main"]
+  defaults:
+    temperature: 0.7
+`
+	arenaPath := filepath.Join(tmpDir, "arena.yaml")
+	require.NoError(t, os.WriteFile(arenaPath, []byte(arenaYAML), 0644))
+
+	cfg, err := config.LoadConfig(arenaPath)
+	require.NoError(t, err)
+
+	memRepo := buildMemoryRepo(cfg)
+	registry := prompt.NewRegistryWithRepository(memRepo)
+	compiler := prompt.NewPackCompiler(registry)
+
+	wf := parseWorkflowFromConfig(cfg)
+	ag := parseAgentsFromConfig(cfg)
+
+	pack, err := compiler.CompileFromRegistryWithOptions(
+		"combined-pack", "packc-test", nil, nil,
+		prompt.WithWorkflow(wf), prompt.WithAgents(ag),
+	)
+	require.NoError(t, err)
+
+	assert.NotNil(t, pack.Workflow)
+	assert.NotNil(t, pack.Agents)
+	assert.Equal(t, "start", pack.Workflow.Entry)
+	assert.Equal(t, "main", pack.Agents.Entry)
+
+	// Verify JSON has both
+	data, err := json.MarshalIndent(pack, "", "  ")
+	require.NoError(t, err)
+
+	var rawPack map[string]interface{}
+	require.NoError(t, json.Unmarshal(data, &rawPack))
+
+	_, hasWorkflow := rawPack["workflow"]
+	_, hasAgents := rawPack["agents"]
+	assert.True(t, hasWorkflow, "JSON must contain 'workflow'")
+	assert.True(t, hasAgents, "JSON must contain 'agents'")
 }
