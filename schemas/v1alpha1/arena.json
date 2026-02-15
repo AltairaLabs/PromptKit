@@ -181,6 +181,8 @@
           },
           "type": "array"
         },
+        "workflow": true,
+        "agents": true,
         "mcp_servers": {
           "items": {
             "$ref": "#/$defs/MCPServerConfig"
@@ -204,12 +206,6 @@
         },
         "pack_file": {
           "type": "string"
-        },
-        "workflow": {
-          "description": "Workflow configuration defining a state machine over the pack's prompts"
-        },
-        "agents": {
-          "description": "Agent configuration mapping prompts to A2A-compatible agent definitions"
         }
       },
       "additionalProperties": false,
