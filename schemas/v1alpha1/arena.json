@@ -183,6 +183,9 @@
         },
         "workflow": true,
         "agents": true,
+        "deploy": {
+          "$ref": "#/$defs/DeployConfig"
+        },
         "mcp_servers": {
           "items": {
             "$ref": "#/$defs/MCPServerConfig"
@@ -258,6 +261,36 @@
         },
         "markdown_config": {
           "$ref": "#/$defs/MarkdownConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "DeployConfig": {
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "config": {
+          "type": "object"
+        },
+        "environments": {
+          "additionalProperties": {
+            "$ref": "#/$defs/DeployEnvironment"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "provider"
+      ]
+    },
+    "DeployEnvironment": {
+      "properties": {
+        "config": {
+          "type": "object"
         }
       },
       "additionalProperties": false,
