@@ -85,6 +85,42 @@
         "avg_cost_usd"
       ]
     },
+    "EvalDef": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "trigger": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        },
+        "description": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "sample_percentage": {
+          "type": "number"
+        },
+        "metric": {
+          "$ref": "#/$defs/MetricDef"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "trigger",
+        "params"
+      ]
+    },
     "ExampleContentPart": {
       "properties": {
         "type": {
@@ -233,6 +269,25 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "MetricDef": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "range": {
+          "$ref": "#/$defs/Range"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "type"
+      ]
+    },
     "ModelOverride": {
       "properties": {
         "system_template": {
@@ -336,6 +391,24 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "ParametersPack": {
+      "properties": {
+        "temperature": {
+          "type": "number"
+        },
+        "max_tokens": {
+          "type": "integer"
+        },
+        "top_p": {
+          "type": "number"
+        },
+        "top_k": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "PerformanceMetrics": {
       "properties": {
         "avg_latency_ms": {
@@ -360,76 +433,13 @@
         "success_rate"
       ]
     },
-    "EvalDef": {
+    "Range": {
       "properties": {
-        "id": {
-          "type": "string"
-        },
-        "type": {
-          "type": "string"
-        },
-        "trigger": {
-          "type": "string"
-        },
-        "params": {
-          "type": "object"
-        },
-        "description": {
-          "type": "string"
-        },
-        "enabled": {
-          "type": "boolean"
-        },
-        "sample_percentage": {
+        "min": {
           "type": "number"
         },
-        "metric": {
-          "type": "object"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "id",
-        "type",
-        "trigger",
-        "params"
-      ]
-    },
-    "ToolPolicyPack": {
-      "properties": {
-        "tool_choice": {
-          "type": "string"
-        },
-        "max_rounds": {
-          "type": "integer"
-        },
-        "max_tool_calls_per_turn": {
-          "type": "integer"
-        },
-        "blocklist": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object"
-    },
-    "ParametersPack": {
-      "properties": {
-        "temperature": {
+        "max": {
           "type": "number"
-        },
-        "max_tokens": {
-          "type": "integer"
-        },
-        "top_p": {
-          "type": "number"
-        },
-        "top_k": {
-          "type": "integer"
         }
       },
       "additionalProperties": false,
@@ -540,6 +550,27 @@
         "version",
         "syntax"
       ]
+    },
+    "ToolPolicyPack": {
+      "properties": {
+        "tool_choice": {
+          "type": "string"
+        },
+        "max_rounds": {
+          "type": "integer"
+        },
+        "max_tool_calls_per_turn": {
+          "type": "integer"
+        },
+        "blocklist": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "ValidatorConfig": {
       "properties": {

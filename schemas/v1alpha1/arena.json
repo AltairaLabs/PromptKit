@@ -285,7 +285,7 @@
           "type": "number"
         },
         "metric": {
-          "type": "object"
+          "$ref": "#/$defs/MetricDef"
         }
       },
       "additionalProperties": false,
@@ -450,6 +450,25 @@
         "show_cost_summary"
       ]
     },
+    "MetricDef": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "range": {
+          "$ref": "#/$defs/Range"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "type"
+      ]
+    },
     "ObjectMeta": {
       "properties": {
         "name": {
@@ -564,6 +583,18 @@
       "required": [
         "file"
       ]
+    },
+    "Range": {
+      "properties": {
+        "min": {
+          "type": "number"
+        },
+        "max": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "RecordingConfig": {
       "properties": {
