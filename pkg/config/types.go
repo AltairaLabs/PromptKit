@@ -57,6 +57,7 @@ type Config struct {
 	PackEvals     []evals.EvalDef   `yaml:"pack_evals,omitempty" json:"pack_evals,omitempty"`
 	Workflow      interface{}       `yaml:"workflow,omitempty" json:"workflow,omitempty"`
 	Agents        interface{}       `yaml:"agents,omitempty" json:"agents,omitempty"`
+	Deploy        *DeployConfig     `yaml:"deploy,omitempty" json:"deploy,omitempty"`
 	MCPServers    []MCPServerConfig `yaml:"mcp_servers,omitempty"`
 	A2AAgents     []A2AAgentConfig  `yaml:"a2a_agents,omitempty"`
 	StateStore    *StateStoreConfig `yaml:"state_store,omitempty"`
@@ -194,6 +195,22 @@ type RedisConfig struct {
 
 	// Prefix for Redis keys (default is "promptkit")
 	Prefix string `yaml:"prefix,omitempty"`
+}
+
+// DeployConfig represents deployment configuration for the arena
+type DeployConfig struct {
+	// Provider specifies the deployment provider (e.g., "agentcore", "ecs", "k8s")
+	Provider string `yaml:"provider" json:"provider" jsonschema:"required"`
+	// Config holds provider-specific configuration (opaque to core)
+	Config map[string]interface{} `yaml:"config,omitempty" json:"config,omitempty"`
+	// Environments defines per-environment configuration overrides
+	Environments map[string]*DeployEnvironment `yaml:"environments,omitempty" json:"environments,omitempty"`
+}
+
+// DeployEnvironment defines environment-specific deployment configuration
+type DeployEnvironment struct {
+	// Config holds environment-specific provider configuration (merged with top-level config)
+	Config map[string]interface{} `yaml:"config,omitempty" json:"config,omitempty"`
 }
 
 // PromptConfigData holds a loaded prompt configuration with its file path
