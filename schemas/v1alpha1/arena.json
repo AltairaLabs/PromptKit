@@ -181,6 +181,8 @@
           },
           "type": "array"
         },
+        "workflow": true,
+        "agents": true,
         "mcp_servers": {
           "items": {
             "$ref": "#/$defs/MCPServerConfig"

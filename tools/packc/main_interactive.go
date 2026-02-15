@@ -203,6 +203,12 @@ func printPackSummary(pack *prompt.Pack, outputFile string) {
 	if len(pack.Evals) > 0 {
 		fmt.Printf("  Pack-level evals: %d\n", len(pack.Evals))
 	}
+	if pack.Workflow != nil {
+		fmt.Printf("  Workflow: %d states (entry: %s)\n", len(pack.Workflow.States), pack.Workflow.Entry)
+	}
+	if pack.Agents != nil {
+		fmt.Printf("  Agents: %d members (entry: %s)\n", len(pack.Agents.Members), pack.Agents.Entry)
+	}
 }
 
 func compileCommand() {
@@ -237,10 +243,25 @@ func compileCommand() {
 		fmt.Printf("Including %d pack-level eval definitions in pack\n", len(packEvals))
 	}
 
+	// Parse workflow and agents from arena config
+	workflowConfig := parseWorkflowFromConfig(cfg)
+	agentsConfig := parseAgentsFromConfig(cfg)
+
+	// Build compile options
+	var compileOpts []prompt.CompileOption
+	if workflowConfig != nil {
+		compileOpts = append(compileOpts, prompt.WithWorkflow(workflowConfig))
+		fmt.Printf("Including workflow configuration in pack\n")
+	}
+	if agentsConfig != nil {
+		compileOpts = append(compileOpts, prompt.WithAgents(agentsConfig))
+		fmt.Printf("Including agents configuration in pack\n")
+	}
+
 	// Compile all prompts into a single pack with tool definitions and pack evals
 	compilerVer := fmt.Sprintf("packc-%s", version)
 	pack, err := compiler.CompileFromRegistryWithOptions(
-		flags.packID, compilerVer, parsedTools, packEvals,
+		flags.packID, compilerVer, parsedTools, packEvals, compileOpts...,
 	)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Compilation failed: %v\n", err)
@@ -406,6 +427,8 @@ func inspectCommand() {
 	printTemplateEngine(pack)
 	printPrompts(pack)
 	printFragments(pack)
+	printWorkflow(pack)
+	printAgents(pack)
 	printMetadata(pack)
 	printCompilationInfo(pack)
 
@@ -448,6 +471,44 @@ func parseToolsFromConfig(cfg *config.Config) []prompt.ParsedTool {
 // parsePackEvalsFromConfig returns pack-level eval definitions from arena config
 func parsePackEvalsFromConfig(cfg *config.Config) []evals.EvalDef {
 	return cfg.PackEvals
+}
+
+// parseWorkflowFromConfig parses workflow config from arena config.
+// The config loader deserializes YAML into interface{}, so we re-marshal to JSON
+// then unmarshal into the typed struct.
+func parseWorkflowFromConfig(cfg *config.Config) *prompt.WorkflowConfig {
+	if cfg.Workflow == nil {
+		return nil
+	}
+	data, err := json.Marshal(cfg.Workflow)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to marshal workflow config: %v\n", err)
+		return nil
+	}
+	var wf prompt.WorkflowConfig
+	if err := json.Unmarshal(data, &wf); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to parse workflow config: %v\n", err)
+		return nil
+	}
+	return &wf
+}
+
+// parseAgentsFromConfig parses agents config from arena config.
+func parseAgentsFromConfig(cfg *config.Config) *prompt.AgentsConfig {
+	if cfg.Agents == nil {
+		return nil
+	}
+	data, err := json.Marshal(cfg.Agents)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to marshal agents config: %v\n", err)
+		return nil
+	}
+	var ag prompt.AgentsConfig
+	if err := json.Unmarshal(data, &ag); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to parse agents config: %v\n", err)
+		return nil
+	}
+	return &ag
 }
 
 func completionCommand() {
