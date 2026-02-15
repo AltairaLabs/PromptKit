@@ -6,6 +6,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	asrt "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 )
@@ -53,6 +54,7 @@ type Config struct {
 	Scenarios     []ScenarioRef     `yaml:"scenarios,omitempty"`
 	Evals         []EvalRef         `yaml:"evals,omitempty"`
 	Tools         []ToolRef         `yaml:"tools,omitempty"`
+	PackEvals     []evals.EvalDef   `yaml:"pack_evals,omitempty" json:"pack_evals,omitempty"`
 	MCPServers    []MCPServerConfig `yaml:"mcp_servers,omitempty"`
 	A2AAgents     []A2AAgentConfig  `yaml:"a2a_agents,omitempty"`
 	StateStore    *StateStoreConfig `yaml:"state_store,omitempty"`

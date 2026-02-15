@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -793,4 +794,219 @@ func TestPackCompiler_WritePack(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, fileWriter.writtenFiles, "/tmp/output.pack.json")
 	})
+}
+
+func TestCreatePackPrompt_ToolPolicyParametersEvals(t *testing.T) {
+	temp := 0.7
+	maxTokens := 1024
+	topP := 0.9
+
+	repo := newMockRepository()
+	testConfig := &Config{
+		Spec: Spec{
+			TaskType:       "test-v12",
+			Version:        "1.0.0",
+			Description:    "Test v1.2 fields",
+			SystemTemplate: "Hello {{name}}",
+			TemplateEngine: &TemplateEngineInfo{
+				Version: "v1",
+				Syntax:  "handlebars",
+			},
+			Variables: []VariableMetadata{
+				{Name: "name", Required: true, Type: "string"},
+			},
+			ToolPolicy: &ToolPolicyPack{
+				ToolChoice:          "auto",
+				MaxRounds:           5,
+				MaxToolCallsPerTurn: 3,
+				Blocklist:           []string{"dangerous_tool"},
+			},
+			Parameters: &ParametersPack{
+				Temperature: &temp,
+				MaxTokens:   &maxTokens,
+				TopP:        &topP,
+			},
+			Evals: []evals.EvalDef{
+				{
+					ID:   "latency-check",
+					Type: "latency",
+					Params: map[string]any{
+						"max_ms": 2000,
+					},
+				},
+			},
+		},
+		Metadata: metav1.ObjectMeta{Name: "Test V12"},
+	}
+	repo.prompts["test-v12"] = testConfig
+
+	registry := NewRegistryWithRepository(repo)
+	_ = registry.RegisterConfig("test-v12", testConfig)
+
+	fixedTime := time.Date(2025, 11, 6, 12, 0, 0, 0, time.UTC)
+	compiler := NewPackCompilerWithDeps(registry, mockTimeProvider{fixedTime: fixedTime}, newMockFileWriter())
+
+	t.Run("createPackPrompt populates ToolPolicy, Parameters, Evals", func(t *testing.T) {
+		pack, err := compiler.CompileFromRegistry("v12-pack", "packc-test")
+		require.NoError(t, err)
+
+		prompt := pack.Prompts["test-v12"]
+		require.NotNil(t, prompt)
+
+		// ToolPolicy
+		require.NotNil(t, prompt.ToolPolicy)
+		assert.Equal(t, "auto", prompt.ToolPolicy.ToolChoice)
+		assert.Equal(t, 5, prompt.ToolPolicy.MaxRounds)
+		assert.Equal(t, 3, prompt.ToolPolicy.MaxToolCallsPerTurn)
+		assert.Equal(t, []string{"dangerous_tool"}, prompt.ToolPolicy.Blocklist)
+
+		// Parameters
+		require.NotNil(t, prompt.Parameters)
+		require.NotNil(t, prompt.Parameters.Temperature)
+		assert.InDelta(t, 0.7, *prompt.Parameters.Temperature, 0.001)
+		require.NotNil(t, prompt.Parameters.MaxTokens)
+		assert.Equal(t, 1024, *prompt.Parameters.MaxTokens)
+		require.NotNil(t, prompt.Parameters.TopP)
+		assert.InDelta(t, 0.9, *prompt.Parameters.TopP, 0.001)
+
+		// Evals
+		require.Len(t, prompt.Evals, 1)
+		assert.Equal(t, "latency-check", prompt.Evals[0].ID)
+		assert.Equal(t, "latency", prompt.Evals[0].Type)
+	})
+
+	t.Run("fields serialize to JSON correctly", func(t *testing.T) {
+		pack, err := compiler.CompileFromRegistry("v12-pack", "packc-test")
+		require.NoError(t, err)
+
+		data, err := json.MarshalIndent(pack, "", "  ")
+		require.NoError(t, err)
+
+		// Parse back and verify
+		var loaded Pack
+		require.NoError(t, json.Unmarshal(data, &loaded))
+
+		prompt := loaded.Prompts["test-v12"]
+		require.NotNil(t, prompt)
+		require.NotNil(t, prompt.ToolPolicy)
+		assert.Equal(t, "auto", prompt.ToolPolicy.ToolChoice)
+		require.NotNil(t, prompt.Parameters)
+		require.NotNil(t, prompt.Parameters.Temperature)
+		assert.InDelta(t, 0.7, *prompt.Parameters.Temperature, 0.001)
+		require.Len(t, prompt.Evals, 1)
+		assert.Equal(t, "latency-check", prompt.Evals[0].ID)
+	})
+}
+
+func TestCompileFromRegistryWithOptions_PackEvals(t *testing.T) {
+	repo := newMockRepository()
+	testConfig := &Config{
+		Spec: Spec{
+			TaskType:       "eval-test",
+			Version:        "1.0.0",
+			SystemTemplate: "Hello",
+			TemplateEngine: &TemplateEngineInfo{
+				Version: "v1",
+				Syntax:  "handlebars",
+			},
+		},
+		Metadata: metav1.ObjectMeta{Name: "Eval Test"},
+	}
+	repo.prompts["eval-test"] = testConfig
+
+	registry := NewRegistryWithRepository(repo)
+	_ = registry.RegisterConfig("eval-test", testConfig)
+
+	fixedTime := time.Date(2025, 11, 6, 12, 0, 0, 0, time.UTC)
+	compiler := NewPackCompilerWithDeps(registry, mockTimeProvider{fixedTime: fixedTime}, newMockFileWriter())
+
+	t.Run("sets pack-level evals", func(t *testing.T) {
+		packEvals := []evals.EvalDef{
+			{
+				ID:   "global-latency",
+				Type: "latency",
+				Params: map[string]any{
+					"max_ms": 5000,
+				},
+			},
+			{
+				ID:   "global-cost",
+				Type: "cost",
+				Params: map[string]any{
+					"max_usd": 0.05,
+				},
+			},
+		}
+
+		pack, err := compiler.CompileFromRegistryWithOptions("eval-pack", "packc-test", nil, packEvals)
+		require.NoError(t, err)
+
+		require.Len(t, pack.Evals, 2)
+		assert.Equal(t, "global-latency", pack.Evals[0].ID)
+		assert.Equal(t, "global-cost", pack.Evals[1].ID)
+	})
+
+	t.Run("nil packEvals leaves Evals empty", func(t *testing.T) {
+		pack, err := compiler.CompileFromRegistryWithOptions("eval-pack", "packc-test", nil, nil)
+		require.NoError(t, err)
+		assert.Empty(t, pack.Evals)
+	})
+
+	t.Run("backward compat: CompileFromRegistryWithParsedTools still works", func(t *testing.T) {
+		pack, err := compiler.CompileFromRegistryWithParsedTools("compat-pack", "packc-test", nil)
+		require.NoError(t, err)
+		assert.Empty(t, pack.Evals)
+		assert.Contains(t, pack.Prompts, "eval-test")
+	})
+}
+
+func TestBackwardCompat_NoNewFields(t *testing.T) {
+	// Configs without ToolPolicy, Parameters, or Evals should compile normally
+	repo := newMockRepository()
+	testConfig := &Config{
+		Spec: Spec{
+			TaskType:       "simple",
+			Version:        "1.0.0",
+			Description:    "Simple prompt without v1.2 fields",
+			SystemTemplate: "Just a template",
+			TemplateEngine: &TemplateEngineInfo{
+				Version: "v1",
+				Syntax:  "handlebars",
+			},
+			Variables: []VariableMetadata{
+				{Name: "input", Required: true},
+			},
+		},
+		Metadata: metav1.ObjectMeta{Name: "Simple"},
+	}
+	repo.prompts["simple"] = testConfig
+
+	registry := NewRegistryWithRepository(repo)
+	_ = registry.RegisterConfig("simple", testConfig)
+
+	fixedTime := time.Date(2025, 11, 6, 12, 0, 0, 0, time.UTC)
+	compiler := NewPackCompilerWithDeps(registry, mockTimeProvider{fixedTime: fixedTime}, newMockFileWriter())
+
+	pack, err := compiler.CompileFromRegistry("simple-pack", "packc-test")
+	require.NoError(t, err)
+
+	prompt := pack.Prompts["simple"]
+	require.NotNil(t, prompt)
+
+	// These should be nil/empty when not set
+	assert.Nil(t, prompt.ToolPolicy)
+	assert.Nil(t, prompt.Parameters)
+	assert.Empty(t, prompt.Evals)
+
+	// JSON round-trip should also work
+	data, err := json.MarshalIndent(pack, "", "  ")
+	require.NoError(t, err)
+
+	var loaded Pack
+	require.NoError(t, json.Unmarshal(data, &loaded))
+	loadedPrompt := loaded.Prompts["simple"]
+	require.NotNil(t, loadedPrompt)
+	assert.Nil(t, loadedPrompt.ToolPolicy)
+	assert.Nil(t, loadedPrompt.Parameters)
+	assert.Empty(t, loadedPrompt.Evals)
 }

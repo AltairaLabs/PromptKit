@@ -147,18 +147,18 @@ type PackPrompt struct {
 
 // ToolPolicyPack represents tool policy in pack format
 type ToolPolicyPack struct {
-	ToolChoice          string   `json:"tool_choice,omitempty"`
-	MaxRounds           int      `json:"max_rounds,omitempty"`
-	MaxToolCallsPerTurn int      `json:"max_tool_calls_per_turn,omitempty"`
-	Blocklist           []string `json:"blocklist,omitempty"`
+	ToolChoice          string   `json:"tool_choice,omitempty" yaml:"tool_choice,omitempty"`
+	MaxRounds           int      `json:"max_rounds,omitempty" yaml:"max_rounds,omitempty"`
+	MaxToolCallsPerTurn int      `json:"max_tool_calls_per_turn,omitempty" yaml:"max_tool_calls_per_turn,omitempty"`
+	Blocklist           []string `json:"blocklist,omitempty" yaml:"blocklist,omitempty"`
 }
 
 // ParametersPack represents model parameters in pack format
 type ParametersPack struct {
-	Temperature *float64 `json:"temperature,omitempty"`
-	MaxTokens   *int     `json:"max_tokens,omitempty"`
-	TopP        *float64 `json:"top_p,omitempty"`
-	TopK        *int     `json:"top_k,omitempty"`
+	Temperature *float64 `json:"temperature,omitempty" yaml:"temperature,omitempty"`
+	MaxTokens   *int     `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
+	TopP        *float64 `json:"top_p,omitempty" yaml:"top_p,omitempty"`
+	TopK        *int     `json:"top_k,omitempty" yaml:"top_k,omitempty"`
 }
 
 // PackCompiler compiles Config to Pack format
@@ -346,6 +346,16 @@ func (pc *PackCompiler) CompileFromRegistryWithParsedTools(
 	packID, compilerVersion string,
 	parsedTools []ParsedTool,
 ) (*Pack, error) {
+	return pc.CompileFromRegistryWithOptions(packID, compilerVersion, parsedTools, nil)
+}
+
+// CompileFromRegistryWithOptions compiles ALL prompts from the registry into a single Pack
+// with pre-parsed tool definitions and pack-level eval definitions.
+func (pc *PackCompiler) CompileFromRegistryWithOptions(
+	packID, compilerVersion string,
+	parsedTools []ParsedTool,
+	packEvals []evals.EvalDef,
+) (*Pack, error) {
 	// First compile prompts
 	pack, err := pc.CompileFromRegistry(packID, compilerVersion)
 	if err != nil {
@@ -358,6 +368,11 @@ func (pc *PackCompiler) CompileFromRegistryWithParsedTools(
 		for _, pt := range parsedTools {
 			pack.Tools[pt.Name] = ConvertToolToPackTool(pt.Name, pt.Description, pt.InputSchema)
 		}
+	}
+
+	// Add pack-level evals
+	if len(packEvals) > 0 {
+		pack.Evals = packEvals
 	}
 
 	return pack, nil
@@ -477,6 +492,9 @@ func (pc *PackCompiler) createPackPrompt(config *Config) *PackPrompt {
 		SystemTemplate: config.Spec.SystemTemplate,
 		Variables:      variables,
 		Tools:          config.Spec.AllowedTools,
+		ToolPolicy:     config.Spec.ToolPolicy,
+		Parameters:     config.Spec.Parameters,
+		Evals:          config.Spec.Evals,
 		Validators:     config.Spec.Validators,
 		MediaConfig:    config.Spec.MediaConfig,
 		TestedModels:   config.Spec.TestedModels,

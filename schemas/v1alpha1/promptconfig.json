@@ -360,6 +360,81 @@
         "success_rate"
       ]
     },
+    "EvalDef": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "trigger": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        },
+        "description": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "sample_percentage": {
+          "type": "number"
+        },
+        "metric": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "trigger",
+        "params"
+      ]
+    },
+    "ToolPolicyPack": {
+      "properties": {
+        "tool_choice": {
+          "type": "string"
+        },
+        "max_rounds": {
+          "type": "integer"
+        },
+        "max_tool_calls_per_turn": {
+          "type": "integer"
+        },
+        "blocklist": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ParametersPack": {
+      "properties": {
+        "temperature": {
+          "type": "number"
+        },
+        "max_tokens": {
+          "type": "integer"
+        },
+        "top_p": {
+          "type": "number"
+        },
+        "top_k": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "Spec": {
       "properties": {
         "task_type": {
@@ -413,6 +488,18 @@
         "tested_models": {
           "items": {
             "$ref": "#/$defs/ModelTestResultRef"
+          },
+          "type": "array"
+        },
+        "tool_policy": {
+          "$ref": "#/$defs/ToolPolicyPack"
+        },
+        "parameters": {
+          "$ref": "#/$defs/ParametersPack"
+        },
+        "evals": {
+          "items": {
+            "$ref": "#/$defs/EvalDef"
           },
           "type": "array"
         },
