@@ -1,0 +1,71 @@
+{
+  "$schema": "https://promptpack.org/schema/v1.2/promptpack.schema.json",
+  "id": "sdk-evals-demo",
+  "name": "SDK Evals Demo",
+  "version": "1.2.0",
+  "description": "Demonstrates pack-level evals with the SDK",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "chat": {
+      "id": "chat",
+      "name": "Chat",
+      "version": "1.0.0",
+      "system_template": "You are a helpful assistant that answers questions concisely. Always respond in valid JSON with a \"response\" field containing your answer."
+    }
+  },
+  "evals": [
+    {
+      "id": "json_format",
+      "type": "json_valid",
+      "trigger": "every_turn",
+      "description": "Verify the assistant always returns valid JSON",
+      "metric": {
+        "name": "json_format_valid",
+        "type": "boolean"
+      }
+    },
+    {
+      "id": "response_not_empty",
+      "type": "contains",
+      "trigger": "every_turn",
+      "description": "Verify the response is not trivially empty",
+      "params": {
+        "patterns": ["response"]
+      },
+      "metric": {
+        "name": "response_has_content",
+        "type": "boolean"
+      }
+    },
+    {
+      "id": "no_apologies",
+      "type": "regex",
+      "trigger": "every_turn",
+      "description": "Flag unnecessary apologies",
+      "params": {
+        "pattern": "(?i)i('m| am) sorry",
+        "expect_match": false
+      },
+      "metric": {
+        "name": "no_unnecessary_apologies",
+        "type": "boolean"
+      }
+    },
+    {
+      "id": "session_coverage",
+      "type": "contains_any",
+      "trigger": "on_session_complete",
+      "description": "At least one turn should contain a substantive answer",
+      "params": {
+        "patterns": ["response"]
+      },
+      "metric": {
+        "name": "session_has_substance",
+        "type": "boolean"
+      }
+    }
+  ]
+}

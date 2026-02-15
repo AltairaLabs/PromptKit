@@ -3,6 +3,7 @@ go 1.25.1
 use (
 	./examples/a2a-demo
 	./examples/programmatic-arena
+	./examples/sdk-evals
 	./pkg
 	./runtime
 	./sdk
