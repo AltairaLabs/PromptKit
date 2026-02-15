@@ -36,6 +36,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/template"
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
@@ -88,8 +89,11 @@ type Spec struct {
 	MediaConfig    *MediaConfig             `yaml:"media,omitempty" json:"media,omitempty"`                 // Multimodal media configuration
 	Validators     []ValidatorConfig        `yaml:"validators,omitempty" json:"validators,omitempty"`       // Validators/Guardrails for production runtime
 	TestedModels   []ModelTestResultRef     `yaml:"tested_models,omitempty" json:"tested_models,omitempty"` // Model testing metadata
-	Metadata       *Metadata                `yaml:"metadata,omitempty" json:"metadata,omitempty"`           // Additional metadata for pack format
-	Compilation    *CompilationInfo         `yaml:"compilation,omitempty" json:"compilation,omitempty"`     // Compilation information
+	ToolPolicy     *ToolPolicyPack          `yaml:"tool_policy,omitempty" json:"tool_policy,omitempty"`
+	Parameters     *ParametersPack          `yaml:"parameters,omitempty" json:"parameters,omitempty"`
+	Evals          []evals.EvalDef          `yaml:"evals,omitempty" json:"evals,omitempty"`
+	Metadata       *Metadata                `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	Compilation    *CompilationInfo         `yaml:"compilation,omitempty" json:"compilation,omitempty"`
 }
 
 // ModelTestResultRef is a simplified reference to model test results

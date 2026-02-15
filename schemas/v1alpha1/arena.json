@@ -175,6 +175,12 @@
           },
           "type": "array"
         },
+        "pack_evals": {
+          "items": {
+            "$ref": "#/$defs/EvalDef"
+          },
+          "type": "array"
+        },
         "mcp_servers": {
           "items": {
             "$ref": "#/$defs/MCPServerConfig"
@@ -254,6 +260,42 @@
       },
       "additionalProperties": false,
       "type": "object"
+    },
+    "EvalDef": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "trigger": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        },
+        "description": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "sample_percentage": {
+          "type": "number"
+        },
+        "metric": {
+          "$ref": "#/$defs/MetricDef"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "trigger",
+        "params"
+      ]
     },
     "EvalRef": {
       "properties": {
@@ -408,6 +450,25 @@
         "show_cost_summary"
       ]
     },
+    "MetricDef": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "range": {
+          "$ref": "#/$defs/Range"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "type"
+      ]
+    },
     "ObjectMeta": {
       "properties": {
         "name": {
@@ -522,6 +583,18 @@
       "required": [
         "file"
       ]
+    },
+    "Range": {
+      "properties": {
+        "min": {
+          "type": "number"
+        },
+        "max": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "RecordingConfig": {
       "properties": {

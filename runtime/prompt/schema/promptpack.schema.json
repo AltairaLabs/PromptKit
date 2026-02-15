@@ -3,7 +3,7 @@
   "$id": "https://promptpack.org/schema/latest/promptpack.schema.json",
   "title": "PromptPack Specification",
   "description": "Schema for packaging, testing, and running multi-prompt conversational systems with multimodal support",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "type": "object",
   "required": ["id", "name", "version", "template_engine", "prompts"],
   "additionalProperties": false,
@@ -160,6 +160,14 @@
       }
     },
     
+    "evals": {
+      "type": "array",
+      "description": "Pack-level eval definitions. Evals are automated quality checks on LLM outputs that run during conversations or against recorded sessions. Prompt-level evals override pack-level evals by ID.",
+      "items": {
+        "$ref": "#/$defs/EvalDef"
+      }
+    },
+
     "compilation": {
       "type": "object",
       "description": "Information about when and how this pack was compiled. Generated automatically by the packc compiler.",
@@ -274,6 +282,14 @@
           }
         },
         
+        "evals": {
+          "type": "array",
+          "description": "Prompt-level eval definitions. Override pack-level evals by ID.",
+          "items": {
+            "$ref": "#/$defs/EvalDef"
+          }
+        },
+
         "tested_models": {
           "type": "array",
           "description": "Model testing results documenting which models have been tested with this prompt and their performance",
@@ -1032,6 +1048,99 @@
       }
     },
     
+    "EvalDef": {
+      "type": "object",
+      "description": "A single evaluation definition. Evals are automated quality checks on LLM outputs — deterministic (contains, regex, json_valid, tools_called) or LLM judge based.",
+      "required": ["id", "type", "trigger"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for this eval. Used for prompt-level overrides and result correlation.",
+          "minLength": 1,
+          "examples": ["json_format", "response_quality", "no_pii"]
+        },
+        "type": {
+          "type": "string",
+          "description": "Eval handler type. Built-in types: contains, regex, json_valid, json_schema, tools_called, tools_not_called, tool_args, latency_budget, cosine_similarity, contains_any, content_excludes, tools_called_session, tools_not_called_session, tool_args_session, tool_args_excluded_session, llm_judge, llm_judge_session.",
+          "minLength": 1,
+          "examples": ["contains", "regex", "json_valid", "llm_judge"]
+        },
+        "trigger": {
+          "type": "string",
+          "description": "When this eval fires. every_turn: after each assistant response. on_session_complete: when session closes. sample_turns/sample_sessions: deterministic hash-based sampling.",
+          "enum": ["every_turn", "on_session_complete", "sample_turns", "sample_sessions"],
+          "examples": ["every_turn", "on_session_complete"]
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of what this eval checks.",
+          "examples": ["Verify the assistant always returns valid JSON"]
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether this eval is active. Defaults to true.",
+          "default": true
+        },
+        "sample_percentage": {
+          "type": "number",
+          "description": "Percentage of turns/sessions to sample (0-100). Only used with sample_turns and sample_sessions triggers.",
+          "minimum": 0,
+          "maximum": 100,
+          "examples": [5, 10, 50]
+        },
+        "params": {
+          "type": "object",
+          "description": "Handler-specific configuration. Each eval type defines its own params schema.",
+          "additionalProperties": true,
+          "examples": [
+            {"patterns": ["hello", "welcome"]},
+            {"pattern": "^\\{.*\\}$"},
+            {"criteria": "Is the response helpful and accurate?"}
+          ]
+        },
+        "metric": {
+          "$ref": "#/$defs/MetricDef",
+          "description": "Optional Prometheus metric to record eval results."
+        }
+      }
+    },
+
+    "MetricDef": {
+      "type": "object",
+      "description": "Prometheus-style metric definition associated with an eval. Controls how eval results are exposed as metrics.",
+      "required": ["name", "type"],
+      "additionalProperties": true,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Prometheus metric name. Must match [a-zA-Z_:][a-zA-Z0-9_:]* pattern.",
+          "pattern": "^[a-zA-Z_:][a-zA-Z0-9_:]*$",
+          "examples": ["response_quality_score", "json_valid_rate"]
+        },
+        "type": {
+          "type": "string",
+          "description": "Metric type: gauge (set to value), counter (increment), histogram (observe with buckets), boolean (1=pass, 0=fail).",
+          "enum": ["gauge", "counter", "histogram", "boolean"],
+          "examples": ["gauge", "boolean"]
+        },
+        "range": {
+          "type": "object",
+          "description": "Optional valid range for metric values.",
+          "properties": {
+            "min": {
+              "type": "number",
+              "description": "Minimum expected value"
+            },
+            "max": {
+              "type": "number",
+              "description": "Maximum expected value"
+            }
+          }
+        }
+      }
+    },
+
     "MediaReference": {
       "type": "object",
       "description": "Reference to a media file. Supports three loading methods: file path, URL, or base64 data.",

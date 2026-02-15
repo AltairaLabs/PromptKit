@@ -39,13 +39,22 @@ func (h *RegexHandler) Eval(
 	}
 
 	matched := re.MatchString(evalCtx.CurrentOutput)
+
+	// expect_match (default true): when false, the eval passes if the
+	// pattern does NOT match — useful for "must not contain" checks.
+	expectMatch := true
+	if v, ok := params["expect_match"].(bool); ok {
+		expectMatch = v
+	}
+
+	passed := matched == expectMatch
 	explanation := fmt.Sprintf(
-		"pattern %q matched: %t", patternStr, matched,
+		"pattern %q matched: %t (expect_match: %t)", patternStr, matched, expectMatch,
 	)
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      matched,
+		Passed:      passed,
 		Explanation: explanation,
 	}, nil
 }

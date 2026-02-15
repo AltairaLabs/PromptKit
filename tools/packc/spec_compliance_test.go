@@ -543,6 +543,269 @@ spec:
 	assert.True(t, toolExists, "Pack.tools must contain 'simple_tool' referenced by prompt")
 }
 
+// TestSpecCompliance_EvalsCompilation tests that pack-level and prompt-level evals
+// are included in compiled pack output.
+func TestSpecCompliance_EvalsCompilation(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmpDir := t.TempDir()
+
+	// Create prompt with prompt-level evals
+	promptYAML := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: eval-prompt
+spec:
+  task_type: eval-task
+  version: "1.0.0"
+  description: "Prompt with evals"
+  template_engine:
+    version: "1.0"
+    syntax: "go-template"
+    features: []
+  system_template: "You are a helpful assistant."
+  variables: []
+  evals:
+    - id: prompt-latency
+      type: latency
+      trigger: per_turn
+      params:
+        max_ms: 2000
+    - id: prompt-regex
+      type: expect_match
+      trigger: per_turn
+      params:
+        pattern: "hello"
+`
+	promptPath := filepath.Join(tmpDir, "prompts", "eval.prompt.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(promptPath), 0755))
+	require.NoError(t, os.WriteFile(promptPath, []byte(promptYAML), 0644))
+
+	// Create arena config with pack_evals
+	arenaYAML := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: ArenaConfig
+metadata:
+  name: eval-arena
+spec:
+  prompt_configs:
+    - id: eval-task
+      file: prompts/eval.prompt.yaml
+  providers: []
+  scenarios: []
+  pack_evals:
+    - id: global-cost
+      type: cost
+      trigger: per_conversation
+      params:
+        max_usd: 0.10
+  defaults:
+    temperature: 0.7
+`
+	arenaPath := filepath.Join(tmpDir, "arena.yaml")
+	require.NoError(t, os.WriteFile(arenaPath, []byte(arenaYAML), 0644))
+
+	// Load config
+	cfg, err := config.LoadConfig(arenaPath)
+	require.NoError(t, err)
+
+	// Verify pack_evals were loaded from config
+	require.Len(t, cfg.PackEvals, 1, "Expected 1 pack-level eval")
+	assert.Equal(t, "global-cost", cfg.PackEvals[0].ID)
+
+	// Build and compile
+	memRepo := buildMemoryRepo(cfg)
+	registry := prompt.NewRegistryWithRepository(memRepo)
+	compiler := prompt.NewPackCompiler(registry)
+
+	packEvals := parsePackEvalsFromConfig(cfg)
+	pack, err := compiler.CompileFromRegistryWithOptions("eval-test-pack", "packc-test", nil, packEvals)
+	require.NoError(t, err)
+
+	// Check pack-level evals
+	require.Len(t, pack.Evals, 1, "Pack should have 1 pack-level eval")
+	assert.Equal(t, "global-cost", pack.Evals[0].ID)
+	assert.Equal(t, "cost", pack.Evals[0].Type)
+
+	// Check prompt-level evals
+	promptPack := pack.Prompts["eval-task"]
+	require.NotNil(t, promptPack)
+	require.Len(t, promptPack.Evals, 2, "Prompt should have 2 evals")
+	assert.Equal(t, "prompt-latency", promptPack.Evals[0].ID)
+	assert.Equal(t, "prompt-regex", promptPack.Evals[1].ID)
+
+	// Verify JSON serialization includes evals
+	data, err := json.MarshalIndent(pack, "", "  ")
+	require.NoError(t, err)
+
+	var rawPack map[string]interface{}
+	require.NoError(t, json.Unmarshal(data, &rawPack))
+
+	// Pack-level evals in JSON
+	evalsRaw, hasEvals := rawPack["evals"]
+	assert.True(t, hasEvals, "JSON should have pack-level 'evals' field")
+	if hasEvals {
+		evalsSlice, ok := evalsRaw.([]interface{})
+		assert.True(t, ok)
+		assert.Len(t, evalsSlice, 1)
+	}
+}
+
+// TestSpecCompliance_ToolPolicyCompilation tests that tool_policy from prompt YAML
+// appears in the compiled pack.
+func TestSpecCompliance_ToolPolicyCompilation(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmpDir := t.TempDir()
+
+	promptYAML := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: policy-prompt
+spec:
+  task_type: policy-task
+  version: "1.0.0"
+  description: "Prompt with tool policy"
+  template_engine:
+    version: "1.0"
+    syntax: "go-template"
+    features: []
+  system_template: "You are a helpful assistant."
+  variables: []
+  tool_policy:
+    tool_choice: auto
+    max_rounds: 5
+    max_tool_calls_per_turn: 3
+    blocklist:
+      - dangerous_tool
+      - admin_tool
+`
+	promptPath := filepath.Join(tmpDir, "prompts", "policy.prompt.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(promptPath), 0755))
+	require.NoError(t, os.WriteFile(promptPath, []byte(promptYAML), 0644))
+
+	arenaYAML := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: ArenaConfig
+metadata:
+  name: policy-arena
+spec:
+  prompt_configs:
+    - id: policy-task
+      file: prompts/policy.prompt.yaml
+  providers: []
+  scenarios: []
+  defaults:
+    temperature: 0.7
+`
+	arenaPath := filepath.Join(tmpDir, "arena.yaml")
+	require.NoError(t, os.WriteFile(arenaPath, []byte(arenaYAML), 0644))
+
+	cfg, err := config.LoadConfig(arenaPath)
+	require.NoError(t, err)
+
+	memRepo := buildMemoryRepo(cfg)
+	registry := prompt.NewRegistryWithRepository(memRepo)
+	compiler := prompt.NewPackCompiler(registry)
+
+	pack, err := compiler.CompileFromRegistryWithParsedTools("policy-pack", "packc-test", nil)
+	require.NoError(t, err)
+
+	promptPack := pack.Prompts["policy-task"]
+	require.NotNil(t, promptPack)
+	require.NotNil(t, promptPack.ToolPolicy, "Compiled prompt must have tool_policy")
+	assert.Equal(t, "auto", promptPack.ToolPolicy.ToolChoice)
+	assert.Equal(t, 5, promptPack.ToolPolicy.MaxRounds)
+	assert.Equal(t, 3, promptPack.ToolPolicy.MaxToolCallsPerTurn)
+	assert.Equal(t, []string{"dangerous_tool", "admin_tool"}, promptPack.ToolPolicy.Blocklist)
+
+	// Verify JSON contains tool_policy
+	data, err := json.MarshalIndent(pack, "", "  ")
+	require.NoError(t, err)
+
+	var rawPack map[string]interface{}
+	require.NoError(t, json.Unmarshal(data, &rawPack))
+
+	prompts := rawPack["prompts"].(map[string]interface{})
+	promptDef := prompts["policy-task"].(map[string]interface{})
+	_, hasPolicy := promptDef["tool_policy"]
+	assert.True(t, hasPolicy, "Prompt JSON must contain 'tool_policy'")
+}
+
+// TestSpecCompliance_ParametersCompilation tests that parameters from prompt YAML
+// appear in the compiled pack.
+func TestSpecCompliance_ParametersCompilation(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmpDir := t.TempDir()
+
+	promptYAML := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: params-prompt
+spec:
+  task_type: params-task
+  version: "1.0.0"
+  description: "Prompt with parameters"
+  template_engine:
+    version: "1.0"
+    syntax: "go-template"
+    features: []
+  system_template: "You are a helpful assistant."
+  variables: []
+  parameters:
+    temperature: 0.3
+    max_tokens: 2048
+    top_p: 0.95
+`
+	promptPath := filepath.Join(tmpDir, "prompts", "params.prompt.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(promptPath), 0755))
+	require.NoError(t, os.WriteFile(promptPath, []byte(promptYAML), 0644))
+
+	arenaYAML := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: ArenaConfig
+metadata:
+  name: params-arena
+spec:
+  prompt_configs:
+    - id: params-task
+      file: prompts/params.prompt.yaml
+  providers: []
+  scenarios: []
+  defaults:
+    temperature: 0.7
+`
+	arenaPath := filepath.Join(tmpDir, "arena.yaml")
+	require.NoError(t, os.WriteFile(arenaPath, []byte(arenaYAML), 0644))
+
+	cfg, err := config.LoadConfig(arenaPath)
+	require.NoError(t, err)
+
+	memRepo := buildMemoryRepo(cfg)
+	registry := prompt.NewRegistryWithRepository(memRepo)
+	compiler := prompt.NewPackCompiler(registry)
+
+	pack, err := compiler.CompileFromRegistryWithParsedTools("params-pack", "packc-test", nil)
+	require.NoError(t, err)
+
+	promptPack := pack.Prompts["params-task"]
+	require.NotNil(t, promptPack)
+	require.NotNil(t, promptPack.Parameters, "Compiled prompt must have parameters")
+	require.NotNil(t, promptPack.Parameters.Temperature)
+	assert.InDelta(t, 0.3, *promptPack.Parameters.Temperature, 0.001)
+	require.NotNil(t, promptPack.Parameters.MaxTokens)
+	assert.Equal(t, 2048, *promptPack.Parameters.MaxTokens)
+	require.NotNil(t, promptPack.Parameters.TopP)
+	assert.InDelta(t, 0.95, *promptPack.Parameters.TopP, 0.001)
+
+	// Verify JSON contains parameters
+	data, err := json.MarshalIndent(pack, "", "  ")
+	require.NoError(t, err)
+
+	var rawPack map[string]interface{}
+	require.NoError(t, json.Unmarshal(data, &rawPack))
+
+	prompts := rawPack["prompts"].(map[string]interface{})
+	promptDef := prompts["params-task"].(map[string]interface{})
+	_, hasParams := promptDef["parameters"]
+	assert.True(t, hasParams, "Prompt JSON must contain 'parameters'")
+}
+
 // parseToolsFromConfigData parses raw tool YAML data into ParsedTool structs
 // Uses the tools.Registry which handles YAML→JSON conversion properly
 func parseToolsFromConfigData(t *testing.T, configTools []config.ToolData) []prompt.ParsedTool {

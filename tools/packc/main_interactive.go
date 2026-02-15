@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
@@ -199,6 +200,9 @@ func printPackSummary(pack *prompt.Pack, outputFile string) {
 		}
 		fmt.Printf("  Contains %d tools: %v\n", len(pack.Tools), toolNames)
 	}
+	if len(pack.Evals) > 0 {
+		fmt.Printf("  Pack-level evals: %d\n", len(pack.Evals))
+	}
 }
 
 func compileCommand() {
@@ -227,8 +231,17 @@ func compileCommand() {
 		fmt.Printf("Including %d tool definitions in pack\n", len(parsedTools))
 	}
 
-	// Compile all prompts into a single pack with tool definitions
-	pack, err := compiler.CompileFromRegistryWithParsedTools(flags.packID, fmt.Sprintf("packc-%s", version), parsedTools)
+	// Parse pack-level evals from arena config
+	packEvals := parsePackEvalsFromConfig(cfg)
+	if len(packEvals) > 0 {
+		fmt.Printf("Including %d pack-level eval definitions in pack\n", len(packEvals))
+	}
+
+	// Compile all prompts into a single pack with tool definitions and pack evals
+	compilerVer := fmt.Sprintf("packc-%s", version)
+	pack, err := compiler.CompileFromRegistryWithOptions(
+		flags.packID, compilerVer, parsedTools, packEvals,
+	)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Compilation failed: %v\n", err)
 		os.Exit(1)
@@ -430,6 +443,11 @@ func parseToolsFromConfig(cfg *config.Config) []prompt.ParsedTool {
 	}
 
 	return result
+}
+
+// parsePackEvalsFromConfig returns pack-level eval definitions from arena config
+func parsePackEvalsFromConfig(cfg *config.Config) []evals.EvalDef {
+	return cfg.PackEvals
 }
 
 func completionCommand() {
