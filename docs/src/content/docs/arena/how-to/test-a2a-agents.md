@@ -168,6 +168,30 @@ spec:
 |-----------|-------------|
 | `tools_called` | Verify that specific tools were invoked during the turn |
 | `content_includes` | Check that the final response contains expected patterns |
+| `agent_invoked` | Verify that specific agents were delegated to (checks for agent tool calls) |
+| `agent_not_invoked` | Verify that specific agents were NOT delegated to |
+| `agent_response_contains` | Verify that an agent's response contains expected text |
+
+The `agent_invoked` and `agent_response_contains` assertions provide a higher-level alternative to `tools_called` for agent delegation testing. Instead of checking raw tool names, you can express intent directly:
+
+```yaml
+assertions:
+  # Lower-level: check the raw tool name
+  - type: tools_called
+    params:
+      tools:
+        - a2a_research_agent_search_papers
+
+  # Higher-level: check that an agent was invoked and returned expected content
+  - type: agent_invoked
+    params:
+      agents:
+        - a2a_research_agent_search_papers
+  - type: agent_response_contains
+    params:
+      agent: a2a_research_agent_search_papers
+      contains: "Quantum Computing Fundamentals"
+```
 
 ---
 
@@ -228,6 +252,48 @@ a2a_agents:
 ```
 
 This registers both `a2a_research_agent_search_papers` and `a2a_translation_agent_translate` as available tools.
+
+Use `agent_invoked` and `agent_not_invoked` assertions to verify which agents are delegated to:
+
+```yaml
+turns:
+  - role: user
+    content: "Research quantum computing and translate the summary to French"
+    assertions:
+      - type: agent_invoked
+        params:
+          agents:
+            - a2a_research_agent_search_papers
+            - a2a_translation_agent_translate
+          message: "Should delegate to both agents"
+      - type: agent_not_invoked
+        params:
+          agents:
+            - a2a_admin_agent_execute
+          message: "Should not invoke admin agent"
+      - type: agent_response_contains
+        params:
+          agent: a2a_research_agent_search_papers
+          contains: "Research results"
+          message: "Research agent should return results"
+```
+
+For conversation-wide checks, use `conversation_assertions`:
+
+```yaml
+conversation_assertions:
+  - type: agent_invoked
+    params:
+      agent_names:
+        - a2a_research_agent_search_papers
+      min_calls: 1
+    message: "Research agent should be invoked at least once across the conversation"
+  - type: agent_not_invoked
+    params:
+      agent_names:
+        - a2a_admin_agent_execute
+    message: "Admin agent should never be invoked"
+```
 
 ---
 

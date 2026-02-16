@@ -1,0 +1,64 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: multi-agent-delegation
+spec:
+  id: "multi-agent-delegation"
+  task_type: assistant
+  description: "Test multi-agent delegation with agent-specific assertions"
+
+  tool_policy:
+    tool_choice: auto
+    max_tool_calls_per_turn: 3
+    max_total_tool_calls: 5
+
+  turns:
+    # Turn 1: Trigger research agent delegation
+    - role: user
+      content: "Search for papers about quantum computing"
+      assertions:
+        - type: agent_invoked
+          params:
+            agents:
+              - a2a_research_agent_search_papers
+            message: "Should delegate to the research agent"
+        - type: agent_not_invoked
+          params:
+            agents:
+              - a2a_translation_agent_translate
+            message: "Should not invoke translation agent for a research query"
+        - type: agent_response_contains
+          params:
+            agent: a2a_research_agent_search_papers
+            contains: "Quantum Computing Fundamentals"
+            message: "Research agent should return quantum computing papers"
+
+    # Turn 2: Trigger translation agent delegation
+    - role: user
+      content: "Translate the summary to French"
+      assertions:
+        - type: agent_invoked
+          params:
+            agents:
+              - a2a_translation_agent_translate
+            message: "Should delegate to the translation agent"
+        - type: agent_not_invoked
+          params:
+            agents:
+              - a2a_research_agent_search_papers
+            message: "Should not invoke research agent for a translation request"
+        - type: agent_response_contains
+          params:
+            agent: a2a_translation_agent_translate
+            contains: "informatique quantique"
+            message: "Translation agent should return French text"
+
+  # Conversation-level assertions: verify overall delegation patterns
+  conversation_assertions:
+    - type: agent_invoked
+      params:
+        agent_names:
+          - a2a_research_agent_search_papers
+          - a2a_translation_agent_translate
+        min_calls: 1
+      message: "Both agents should be invoked at least once across the conversation"

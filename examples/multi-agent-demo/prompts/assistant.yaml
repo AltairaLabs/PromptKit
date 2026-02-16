@@ -1,0 +1,16 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: assistant
+spec:
+  version: "1.0.0"
+  description: "Multi-agent assistant that delegates research and translation tasks"
+  task_type: "assistant"
+  system_template: |
+    You are a helpful assistant with access to research and translation agents.
+    When asked to search for papers, delegate to the research agent.
+    When asked to translate, delegate to the translation agent.
+    Summarize the results for the user.
+  allowed_tools:
+    - a2a_research_agent_search_papers
+    - a2a_translation_agent_translate
