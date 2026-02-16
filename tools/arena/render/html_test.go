@@ -2661,3 +2661,159 @@ func TestGetAssertionType(t *testing.T) {
 		})
 	}
 }
+
+func TestIsAgentTool(t *testing.T) {
+	tests := []struct {
+		name string
+		tool string
+		want bool
+	}{
+		{"a2a prefix", "a2a_weather", true},
+		{"a2a underscore only", "a2a_", true},
+		{"regular tool", "get_weather", false},
+		{"empty string", "", false},
+		{"partial prefix", "a2a", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isAgentTool(tt.tool); got != tt.want {
+				t.Errorf("isAgentTool(%q) = %v, want %v", tt.tool, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHasA2AAgents(t *testing.T) {
+	t.Run("with agents", func(t *testing.T) {
+		result := engine.RunResult{
+			A2AAgents: []engine.A2AAgentInfo{{Name: "test"}},
+		}
+		if !hasA2AAgents(result) {
+			t.Error("expected true for result with agents")
+		}
+	})
+
+	t.Run("without agents", func(t *testing.T) {
+		result := engine.RunResult{}
+		if hasA2AAgents(result) {
+			t.Error("expected false for result without agents")
+		}
+	})
+}
+
+func TestRenderA2AAgentCards(t *testing.T) {
+	t.Run("empty agents", func(t *testing.T) {
+		html := renderA2AAgentCards(nil)
+		if html != "" {
+			t.Error("expected empty HTML for nil agents")
+		}
+	})
+
+	t.Run("single agent without skills", func(t *testing.T) {
+		agents := []engine.A2AAgentInfo{
+			{Name: "weather-agent", Description: "Provides weather data"},
+		}
+		html := string(renderA2AAgentCards(agents))
+
+		if !strings.Contains(html, "a2a-agents-section") {
+			t.Error("should contain section class")
+		}
+		if !strings.Contains(html, "weather-agent") {
+			t.Error("should contain agent name")
+		}
+		if !strings.Contains(html, "Provides weather data") {
+			t.Error("should contain agent description")
+		}
+		if !strings.Contains(html, "A2A Agents (1)") {
+			t.Error("should show agent count")
+		}
+	})
+
+	t.Run("agent with skills and tags", func(t *testing.T) {
+		agents := []engine.A2AAgentInfo{
+			{
+				Name:        "math-agent",
+				Description: "Does math",
+				Skills: []engine.A2ASkillInfo{
+					{
+						ID:          "calc",
+						Name:        "Calculate",
+						Description: "Performs calculations",
+						Tags:        []string{"math", "compute"},
+					},
+				},
+			},
+		}
+		html := string(renderA2AAgentCards(agents))
+
+		if !strings.Contains(html, "math-agent") {
+			t.Error("should contain agent name")
+		}
+		if !strings.Contains(html, "Calculate") {
+			t.Error("should contain skill name")
+		}
+		if !strings.Contains(html, "Performs calculations") {
+			t.Error("should contain skill description")
+		}
+		if !strings.Contains(html, "math") {
+			t.Error("should contain skill tag")
+		}
+		if !strings.Contains(html, "compute") {
+			t.Error("should contain skill tag")
+		}
+	})
+
+	t.Run("multiple agents", func(t *testing.T) {
+		agents := []engine.A2AAgentInfo{
+			{Name: "agent-a", Description: "First agent"},
+			{Name: "agent-b", Description: "Second agent"},
+		}
+		html := string(renderA2AAgentCards(agents))
+
+		if !strings.Contains(html, "A2A Agents (2)") {
+			t.Error("should show count of 2")
+		}
+		if !strings.Contains(html, "agent-a") {
+			t.Error("should contain first agent")
+		}
+		if !strings.Contains(html, "agent-b") {
+			t.Error("should contain second agent")
+		}
+	})
+
+	t.Run("agent without description", func(t *testing.T) {
+		agents := []engine.A2AAgentInfo{
+			{Name: "minimal-agent"},
+		}
+		html := string(renderA2AAgentCards(agents))
+
+		if !strings.Contains(html, "minimal-agent") {
+			t.Error("should contain agent name")
+		}
+		if strings.Contains(html, "a2a-agent-description") {
+			t.Error("should not contain description div when empty")
+		}
+	})
+
+	t.Run("skill without description or tags", func(t *testing.T) {
+		agents := []engine.A2AAgentInfo{
+			{
+				Name: "agent",
+				Skills: []engine.A2ASkillInfo{
+					{ID: "s1", Name: "Skill One"},
+				},
+			},
+		}
+		html := string(renderA2AAgentCards(agents))
+
+		if !strings.Contains(html, "Skill One") {
+			t.Error("should contain skill name")
+		}
+		if strings.Contains(html, "a2a-skill-desc") {
+			t.Error("should not contain skill desc span when empty")
+		}
+		if strings.Contains(html, "a2a-skill-tag") {
+			t.Error("should not contain skill tags when empty")
+		}
+	})
+}

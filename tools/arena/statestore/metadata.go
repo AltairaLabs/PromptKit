@@ -98,6 +98,7 @@ func (s *ArenaStateStore) GetResult(ctx context.Context, runID string) (*RunResu
 
 		MediaOutputs:  mediaOutputs,
 		RecordingPath: arenaState.RunMetadata.RecordingPath,
+		A2AAgents:     arenaState.RunMetadata.A2AAgents,
 
 		// Conversation-level assertions (summary)
 		ConversationAssertions: buildConversationAssertionsSummary(arenaState.RunMetadata.ConversationAssertionResults),

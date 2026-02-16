@@ -425,6 +425,9 @@ func convertToEngineRunResult(sr *statestore.RunResult) engine.RunResult {
 		},
 	}
 
+	// Convert A2AAgents
+	result.A2AAgents = convertA2AAgentsToEngine(sr.A2AAgents)
+
 	// Convert AssistantRole from interface{} to *engine.SelfPlayRoleInfo
 	if sr.AssistantRole != nil {
 		if roleMap, ok := sr.AssistantRole.(map[string]interface{}); ok {
@@ -447,6 +450,33 @@ func convertToEngineRunResult(sr *statestore.RunResult) engine.RunResult {
 		}
 	}
 
+	return result
+}
+
+// convertA2AAgentsToEngine converts statestore A2A agent info to engine types.
+func convertA2AAgentsToEngine(agents []statestore.A2AAgentInfo) []engine.A2AAgentInfo {
+	if len(agents) == 0 {
+		return nil
+	}
+	result := make([]engine.A2AAgentInfo, len(agents))
+	for i, agent := range agents {
+		info := engine.A2AAgentInfo{
+			Name:        agent.Name,
+			Description: agent.Description,
+		}
+		if len(agent.Skills) > 0 {
+			info.Skills = make([]engine.A2ASkillInfo, len(agent.Skills))
+			for j, skill := range agent.Skills {
+				info.Skills[j] = engine.A2ASkillInfo{
+					ID:          skill.ID,
+					Name:        skill.Name,
+					Description: skill.Description,
+					Tags:        skill.Tags,
+				}
+			}
+		}
+		result[i] = info
+	}
 	return result
 }
 

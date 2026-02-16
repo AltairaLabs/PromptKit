@@ -433,6 +433,7 @@ func (e *Engine) saveRunError(
 		EndTime:    time.Now(),
 		Duration:   time.Since(start),
 		Error:      errMsg,
+		A2AAgents:  e.getA2AAgentsFromConfig(),
 	}
 	if err := store.SaveMetadata(ctx, runID, metadata); err != nil {
 		return runID, fmt.Errorf("failed to save error metadata: %w", err)
@@ -475,6 +476,7 @@ func (e *Engine) saveRunMetadata(
 		PersonaID:                    result.PersonaID,
 		RecordingPath:                e.GetRecordingPath(runID),
 		ConversationAssertionResults: result.ConversationAssertionResults,
+		A2AAgents:                    e.getA2AAgentsFromConfig(),
 	}
 
 	logger.Debug("Saving run metadata",
@@ -618,6 +620,7 @@ func (e *Engine) saveEvalMetadata(
 		SelfPlay:                     convResult.SelfPlay,
 		PersonaID:                    convResult.PersonaID,
 		ConversationAssertionResults: convResult.ConversationAssertionResults,
+		A2AAgents:                    e.getA2AAgentsFromConfig(),
 	}
 
 	if convResult.Failed {
@@ -625,6 +628,41 @@ func (e *Engine) saveEvalMetadata(
 	}
 
 	return store.SaveMetadata(ctx, runID, metadata)
+}
+
+// getA2AAgentsFromConfig safely extracts A2A agent metadata from the engine config.
+func (e *Engine) getA2AAgentsFromConfig() []statestore.A2AAgentInfo {
+	if e.config == nil {
+		return nil
+	}
+	return convertA2AAgentsFromConfig(e.config.A2AAgents)
+}
+
+// convertA2AAgentsFromConfig converts config A2A agent definitions to statestore types.
+func convertA2AAgentsFromConfig(agents []config.A2AAgentConfig) []statestore.A2AAgentInfo {
+	if len(agents) == 0 {
+		return nil
+	}
+	result := make([]statestore.A2AAgentInfo, len(agents))
+	for i, agent := range agents {
+		info := statestore.A2AAgentInfo{
+			Name:        agent.Card.Name,
+			Description: agent.Card.Description,
+		}
+		if len(agent.Card.Skills) > 0 {
+			info.Skills = make([]statestore.A2ASkillInfo, len(agent.Card.Skills))
+			for j, skill := range agent.Card.Skills {
+				info.Skills[j] = statestore.A2ASkillInfo{
+					ID:          skill.ID,
+					Name:        skill.Name,
+					Description: skill.Description,
+					Tags:        skill.Tags,
+				}
+			}
+		}
+		result[i] = info
+	}
+	return result
 }
 
 // generateRunID creates a unique run ID for a combination

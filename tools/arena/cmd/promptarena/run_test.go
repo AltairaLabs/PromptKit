@@ -188,6 +188,68 @@ func TestConvertToEngineRunResult(t *testing.T) {
 		assert.Equal(t, "anthropic", result.UserRole.Provider)
 	})
 
+	t.Run("conversion with A2A agents", func(t *testing.T) {
+		sr := &statestore.RunResult{
+			RunID:      "test-run-006",
+			Region:     "us-east-1",
+			ScenarioID: "scenario-6",
+			ProviderID: "openai",
+			Messages:   []types.Message{},
+			StartTime:  now,
+			EndTime:    now.Add(duration),
+			Duration:   duration,
+			A2AAgents: []statestore.A2AAgentInfo{
+				{
+					Name:        "weather-agent",
+					Description: "Provides weather data",
+					Skills: []statestore.A2ASkillInfo{
+						{
+							ID:          "get-weather",
+							Name:        "Get Weather",
+							Description: "Returns current weather",
+							Tags:        []string{"weather", "api"},
+						},
+					},
+				},
+				{
+					Name:        "math-agent",
+					Description: "Performs calculations",
+				},
+			},
+		}
+
+		result := convertToEngineRunResult(sr)
+
+		require.Len(t, result.A2AAgents, 2)
+		assert.Equal(t, "weather-agent", result.A2AAgents[0].Name)
+		assert.Equal(t, "Provides weather data", result.A2AAgents[0].Description)
+		require.Len(t, result.A2AAgents[0].Skills, 1)
+		assert.Equal(t, "get-weather", result.A2AAgents[0].Skills[0].ID)
+		assert.Equal(t, "Get Weather", result.A2AAgents[0].Skills[0].Name)
+		assert.Equal(t, "Returns current weather", result.A2AAgents[0].Skills[0].Description)
+		assert.Equal(t, []string{"weather", "api"}, result.A2AAgents[0].Skills[0].Tags)
+		assert.Equal(t, "math-agent", result.A2AAgents[1].Name)
+		assert.Nil(t, result.A2AAgents[1].Skills)
+	})
+
+	t.Run("conversion with empty A2A agents", func(t *testing.T) {
+		sr := &statestore.RunResult{
+			RunID:      "test-run-007",
+			Region:     "us-east-1",
+			ScenarioID: "scenario-7",
+			ProviderID: "openai",
+			Messages:   []types.Message{},
+			StartTime:  now,
+			EndTime:    now.Add(duration),
+			Duration:   duration,
+			A2AAgents:  []statestore.A2AAgentInfo{},
+		}
+
+		result := convertToEngineRunResult(sr)
+
+		assert.Nil(t, result.A2AAgents)
+	})
+
 	t.Run("conversion with invalid role type", func(t *testing.T) {
 		sr := &statestore.RunResult{
 			RunID:         "test-run-005",

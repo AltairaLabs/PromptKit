@@ -411,3 +411,102 @@ func (m *multiRefMockAdapter) Enumerate(source string) ([]adapters.RecordingRefe
 func (m *multiRefMockAdapter) Load(ref adapters.RecordingReference) ([]types.Message, *adapters.RecordingMetadata, error) {
 	return nil, nil, nil
 }
+
+func TestConvertA2AAgentsFromConfig(t *testing.T) {
+	t.Run("nil input", func(t *testing.T) {
+		result := convertA2AAgentsFromConfig(nil)
+		assert.Nil(t, result)
+	})
+
+	t.Run("empty input", func(t *testing.T) {
+		result := convertA2AAgentsFromConfig([]config.A2AAgentConfig{})
+		assert.Nil(t, result)
+	})
+
+	t.Run("agent with skills", func(t *testing.T) {
+		agents := []config.A2AAgentConfig{
+			{
+				Card: config.A2ACardConfig{
+					Name:        "weather-agent",
+					Description: "Provides weather",
+					Skills: []config.A2ASkillConfig{
+						{
+							ID:          "get-weather",
+							Name:        "Get Weather",
+							Description: "Returns weather data",
+							Tags:        []string{"weather", "api"},
+						},
+					},
+				},
+			},
+		}
+
+		result := convertA2AAgentsFromConfig(agents)
+
+		require.Len(t, result, 1)
+		assert.Equal(t, "weather-agent", result[0].Name)
+		assert.Equal(t, "Provides weather", result[0].Description)
+		require.Len(t, result[0].Skills, 1)
+		assert.Equal(t, "get-weather", result[0].Skills[0].ID)
+		assert.Equal(t, "Get Weather", result[0].Skills[0].Name)
+		assert.Equal(t, "Returns weather data", result[0].Skills[0].Description)
+		assert.Equal(t, []string{"weather", "api"}, result[0].Skills[0].Tags)
+	})
+
+	t.Run("agent without skills", func(t *testing.T) {
+		agents := []config.A2AAgentConfig{
+			{
+				Card: config.A2ACardConfig{
+					Name:        "simple-agent",
+					Description: "No skills",
+				},
+			},
+		}
+
+		result := convertA2AAgentsFromConfig(agents)
+
+		require.Len(t, result, 1)
+		assert.Equal(t, "simple-agent", result[0].Name)
+		assert.Nil(t, result[0].Skills)
+	})
+
+	t.Run("multiple agents", func(t *testing.T) {
+		agents := []config.A2AAgentConfig{
+			{Card: config.A2ACardConfig{Name: "agent-1", Description: "First"}},
+			{Card: config.A2ACardConfig{Name: "agent-2", Description: "Second"}},
+		}
+
+		result := convertA2AAgentsFromConfig(agents)
+
+		require.Len(t, result, 2)
+		assert.Equal(t, "agent-1", result[0].Name)
+		assert.Equal(t, "agent-2", result[1].Name)
+	})
+}
+
+func TestEngine_GetA2AAgentsFromConfig(t *testing.T) {
+	t.Run("nil config", func(t *testing.T) {
+		e := &Engine{}
+		result := e.getA2AAgentsFromConfig()
+		assert.Nil(t, result)
+	})
+
+	t.Run("config with agents", func(t *testing.T) {
+		e := &Engine{
+			config: &config.Config{
+				A2AAgents: []config.A2AAgentConfig{
+					{Card: config.A2ACardConfig{Name: "test-agent"}},
+				},
+			},
+		}
+		result := e.getA2AAgentsFromConfig()
+		require.Len(t, result, 1)
+		assert.Equal(t, "test-agent", result[0].Name)
+	})
+
+	t.Run("config without agents", func(t *testing.T) {
+		e := &Engine{config: &config.Config{}}
+		result := e.getA2AAgentsFromConfig()
+		assert.Nil(t, result)
+	})
+}
