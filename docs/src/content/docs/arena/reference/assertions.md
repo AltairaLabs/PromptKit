@@ -434,6 +434,240 @@ conversation_assertions:
 
 ---
 
+### Agent Assertions
+
+#### `agent_invoked` (Turn-Level)
+
+Verifies that specific agents were invoked via tool calls in the current turn. Agent invocations appear as tool calls whose name matches the agent member name (e.g., `a2a_research_agent_search_papers`).
+
+**Use Cases**:
+- Verify multi-agent delegation behavior
+- Check that the LLM routes requests to the correct agent
+- Validate agent selection logic in orchestration scenarios
+
+**Parameters**:
+- `agents` (array of strings): Agent tool names that should have been called
+
+**Example**:
+```yaml
+- role: user
+  content: "Search for papers about quantum computing"
+  assertions:
+    - type: agent_invoked
+      params:
+        agents:
+          - a2a_research_agent_search_papers
+        message: "Should delegate to the research agent"
+```
+
+**Multiple Agents**:
+```yaml
+- role: user
+  content: "Research quantum computing and translate the summary to French"
+  assertions:
+    - type: agent_invoked
+      params:
+        agents:
+          - a2a_research_agent_search_papers
+          - a2a_translation_agent_translate
+        message: "Should delegate to both research and translation agents"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "details": {
+    "missing_agents": ["a2a_research_agent_search_papers"]
+  }
+}
+```
+
+**Important Notes**:
+- Checks that ALL specified agents were called
+- Order doesn't matter
+- Only checks the current turn, not previous turns
+- For conversation-wide checks, use the conversation-level variant
+
+---
+
+#### `agent_not_invoked` (Turn-Level)
+
+Verifies that specific agents were NOT invoked in the current turn.
+
+**Use Cases**:
+- Ensure the LLM handles requests directly without unnecessary delegation
+- Verify agent routing policies are enforced
+- Check that agents are only used when appropriate
+
+**Parameters**:
+- `agents` (array of strings): Agent tool names that should NOT have been called
+
+**Example**:
+```yaml
+- role: user
+  content: "What is 2 + 2?"
+  assertions:
+    - type: agent_not_invoked
+      params:
+        agents:
+          - a2a_research_agent_search_papers
+        message: "Should answer directly without delegating to research agent"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "details": {
+    "forbidden_agents_called": ["a2a_research_agent_search_papers"]
+  }
+}
+```
+
+---
+
+#### `agent_response_contains` (Turn-Level)
+
+Verifies that a specific agent's response contains expected text. When an agent is invoked as a tool call, its response comes back as a tool result message. This assertion checks the content of that result.
+
+**Use Cases**:
+- Validate that a delegated agent returned the expected information
+- Check that agent responses include specific keywords or data
+- Verify end-to-end delegation pipeline output
+
+**Parameters**:
+- `agent` (string): The agent tool name whose response to check
+- `contains` (string): Substring to look for in the agent's response
+
+**Example**:
+```yaml
+- role: user
+  content: "Search for papers about quantum computing"
+  assertions:
+    - type: agent_response_contains
+      params:
+        agent: a2a_research_agent_search_papers
+        contains: "Quantum Computing Fundamentals"
+        message: "Research agent should return quantum computing papers"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "details": {
+    "agent": "a2a_research_agent_search_papers",
+    "expected_substr": "Quantum Computing Fundamentals",
+    "reason": "no matching agent response found containing expected text"
+  }
+}
+```
+
+---
+
+#### `agent_invoked` (Conversation-Level)
+
+Verifies that specific agents were invoked at least a minimum number of times across the entire conversation.
+
+**Note**: This is a **conversation-level assertion**, used in the `conversation_assertions` field of a scenario, not in turn-level assertions.
+
+**Use Cases**:
+- Validate overall agent delegation patterns across a multi-turn conversation
+- Ensure agents are invoked a minimum number of times
+- Verify end-to-end orchestration behavior
+
+**Parameters**:
+- `agent_names` (array of strings): Required agent names
+- `min_calls` (int, optional): Minimum number of calls per agent (default: 1)
+
+**Example**:
+```yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: multi-agent-test
+spec:
+  task_type: assistant
+  description: "Test multi-agent delegation"
+  turns:
+    - role: user
+      content: "Research quantum computing"
+    - role: user
+      content: "Translate the summary to French"
+  conversation_assertions:
+    - type: agent_invoked
+      params:
+        agent_names:
+          - a2a_research_agent_search_papers
+          - a2a_translation_agent_translate
+        min_calls: 1
+      message: "Both agents should be invoked at least once"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "message": "missing required agent invocations: a2a_translation_agent_translate",
+  "details": {
+    "requirements": [
+      {"agent": "a2a_research_agent_search_papers", "calls": 1, "requiredCalls": 1},
+      {"agent": "a2a_translation_agent_translate", "calls": 0, "requiredCalls": 1}
+    ],
+    "counts": {
+      "a2a_research_agent_search_papers": 1
+    }
+  }
+}
+```
+
+---
+
+#### `agent_not_invoked` (Conversation-Level)
+
+Verifies that specific agents were NOT invoked anywhere in the conversation.
+
+**Note**: This is a **conversation-level assertion**, used in the `conversation_assertions` field of a scenario, not in turn-level assertions.
+
+**Use Cases**:
+- Ensure forbidden agents are never invoked across the entire conversation
+- Validate agent access control policies
+- Verify that sensitive agents are not called in certain contexts
+
+**Parameters**:
+- `agent_names` (array of strings): Forbidden agent names
+
+**Example**:
+```yaml
+conversation_assertions:
+  - type: agent_not_invoked
+    params:
+      agent_names:
+        - a2a_admin_agent_execute
+    message: "Admin agent should never be invoked in user-facing scenarios"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "message": "forbidden agents were invoked",
+  "violations": [
+    {
+      "turn_index": 2,
+      "description": "forbidden agent was invoked",
+      "evidence": {
+        "agent": "a2a_admin_agent_execute",
+        "arguments": {"command": "..."}
+      }
+    }
+  ]
+}
+```
+
+---
+
 ### Guardrail Assertions
 
 #### `guardrail_triggered`

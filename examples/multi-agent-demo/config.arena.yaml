@@ -1,0 +1,74 @@
+$schema: https://promptkit.altairalabs.ai/schemas/latest/arena.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: multi-agent-demo
+spec:
+  prompt_configs:
+    - id: assistant
+      file: prompts/assistant.yaml
+
+  providers:
+    - file: providers/mock-provider.yaml
+
+  scenarios:
+    - file: scenarios/multi-agent-delegation.yaml
+
+  a2a_agents:
+    - name: research_agent
+      card:
+        name: Research Agent
+        description: A mock research agent that searches for academic papers
+        skills:
+          - id: search_papers
+            name: Search Papers
+            description: Search for academic papers on a given topic
+            tags: [research, papers, search]
+      responses:
+        - skill: search_papers
+          match:
+            contains: quantum
+          response:
+            parts:
+              - text: |
+                  Found 3 papers on quantum computing:
+                  1. Quantum Computing Fundamentals (2024)
+                  2. Advances in Quantum Error Correction (2024)
+                  3. Practical Quantum Algorithms for Optimization (2023)
+        - skill: search_papers
+          response:
+            parts:
+              - text: |
+                  Found 1 paper on the requested topic:
+                  1. General Survey of the Field (2024)
+
+    - name: translation_agent
+      card:
+        name: Translation Agent
+        description: A mock translation agent
+        skills:
+          - id: translate
+            name: Translate
+            description: Translate text into a target language
+            tags: [translation, language]
+      responses:
+        - skill: translate
+          match:
+            contains: French
+          response:
+            parts:
+              - text: |
+                  Traduction: L'informatique quantique est un domaine en pleine expansion.
+        - skill: translate
+          response:
+            parts:
+              - text: "Translation complete."
+
+  defaults:
+    temperature: 0.5
+    max_tokens: 1000
+    seed: 42
+    concurrency: 1
+    output:
+      dir: out
+      formats: ["json", "html"]

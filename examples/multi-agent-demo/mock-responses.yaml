@@ -1,0 +1,32 @@
+# Mock LLM responses for multi-agent delegation demo
+#
+# The mock LLM emits tool calls to delegate to agents, then summarizes results.
+
+defaultResponse: "I can help you with research and translation tasks."
+
+scenarios:
+  multi-agent-delegation:
+    defaultResponse: "I'm ready to help with research and translation."
+    turns:
+      # Turn 1: LLM delegates to research agent
+      1:
+        tool_calls:
+          - name: "a2a_research_agent_search_papers"
+            arguments:
+              query: "Search for papers about quantum computing"
+      # Turn 2: LLM summarizes the research results
+      2: |
+        Based on the research results, I found 3 papers on quantum computing:
+        1. Quantum Computing Fundamentals (2024)
+        2. Advances in Quantum Error Correction (2024)
+        3. Practical Quantum Algorithms for Optimization (2023)
+      # Turn 3: LLM delegates to translation agent
+      3:
+        tool_calls:
+          - name: "a2a_translation_agent_translate"
+            arguments:
+              query: "Translate to French: Quantum computing is a rapidly expanding field."
+      # Turn 4: LLM summarizes the translation results
+      4: |
+        Here is the French translation:
+        L'informatique quantique est un domaine en pleine expansion.
