@@ -109,6 +109,9 @@ type config struct {
 	// When set, the provider will request responses in the specified format
 	responseFormat *providers.ResponseFormat
 
+	// Multi-agent endpoint resolution
+	agentEndpointResolver EndpointResolver
+
 	// Eval configuration
 	evalDispatcher    evals.EvalDispatcher
 	evalRegistry      *evals.EvalTypeRegistry
@@ -684,6 +687,37 @@ func WithMCPServer(builder *MCPServerBuilder) Option {
 func WithA2ATools(bridge *a2a.ToolBridge) Option {
 	return func(c *config) error {
 		c.a2aBridge = bridge
+		return nil
+	}
+}
+
+// WithAgentEndpoints configures endpoint resolution for multi-agent tool routing.
+//
+// When a pack has an agents section, prompts can reference other agent members
+// as tools. This option tells the SDK how to resolve agent names to A2A
+// endpoint URLs so that tool calls are routed to the correct agent.
+//
+// Example with a single gateway:
+//
+//	conv, _ := sdk.Open("./multiagent.pack.json", "orchestrator",
+//	    sdk.WithAgentEndpoints(&sdk.StaticEndpointResolver{
+//	        BaseURL: "http://localhost:9000",
+//	    }),
+//	)
+//
+// Example with per-agent endpoints:
+//
+//	conv, _ := sdk.Open("./multiagent.pack.json", "orchestrator",
+//	    sdk.WithAgentEndpoints(&sdk.MapEndpointResolver{
+//	        Endpoints: map[string]string{
+//	            "summarizer": "http://summarizer:9001",
+//	            "translator": "http://translator:9002",
+//	        },
+//	    }),
+//	)
+func WithAgentEndpoints(resolver EndpointResolver) Option {
+	return func(c *config) error {
+		c.agentEndpointResolver = resolver
 		return nil
 	}
 }

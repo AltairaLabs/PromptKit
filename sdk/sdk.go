@@ -11,6 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+	rtprompt "github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -89,6 +90,9 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 	// Apply default variables from prompt BEFORE initializing session
 	// This ensures defaults are available when creating the session
 	applyDefaultVariables(conv, prompt)
+
+	// Initialize agent tool resolver if the pack has agents
+	initAgentResolver(conv, p, cfg)
 
 	// Initialize event bus BEFORE building pipeline so it can be wired up
 	initEventBus(cfg)
@@ -181,6 +185,9 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 
 	// Apply default variables from prompt BEFORE initializing session
 	applyDefaultVariables(conv, prompt)
+
+	// Initialize agent tool resolver if the pack has agents
+	initAgentResolver(conv, p, cfg)
 
 	// Initialize event bus BEFORE building pipeline so it can be wired up
 	initEventBus(cfg)
@@ -474,6 +481,71 @@ func Resume(conversationID, packPath, promptName string, opts ...Option) (*Conve
 	// The session now has the correct conversation ID from WithConversationID option
 
 	return conv, nil
+}
+
+// initAgentResolver creates an AgentToolResolver when the pack has an agents
+// section. It converts the SDK pack types to the runtime prompt.Pack structure
+// needed by the agentcard package, then configures endpoint resolution from
+// the SDK options.
+func initAgentResolver(conv *Conversation, p *pack.Pack, cfg *config) {
+	if p.Agents == nil || len(p.Agents.Members) == 0 {
+		return
+	}
+
+	// Build a lightweight runtime prompt.Pack with just the data the
+	// agentcard generator needs: Agents and Prompts.
+	runtimePack := packToRuntimePack(p)
+
+	resolver := NewAgentToolResolver(runtimePack)
+	if resolver == nil {
+		return
+	}
+
+	// Apply endpoint resolver from config if provided.
+	if cfg.agentEndpointResolver != nil {
+		resolver.SetEndpointResolver(cfg.agentEndpointResolver)
+	}
+
+	conv.agentResolver = resolver
+}
+
+// packToRuntimePack converts the SDK internal pack types to a runtime
+// prompt.Pack. Only the fields needed by agentcard.GenerateAgentCards are
+// populated (Agents and Prompts).
+func packToRuntimePack(p *pack.Pack) *rtprompt.Pack {
+	rp := &rtprompt.Pack{
+		ID:      p.ID,
+		Version: p.Version,
+	}
+
+	// Convert prompts
+	if len(p.Prompts) > 0 {
+		rp.Prompts = make(map[string]*rtprompt.PackPrompt, len(p.Prompts))
+		for name, pr := range p.Prompts {
+			rp.Prompts[name] = &rtprompt.PackPrompt{
+				Name:        pr.Name,
+				Description: pr.Description,
+			}
+		}
+	}
+
+	// Convert agents
+	if p.Agents != nil {
+		rp.Agents = &rtprompt.AgentsConfig{
+			Entry:   p.Agents.Entry,
+			Members: make(map[string]*rtprompt.AgentDef, len(p.Agents.Members)),
+		}
+		for name, def := range p.Agents.Members {
+			rp.Agents.Members[name] = &rtprompt.AgentDef{
+				Description: def.Description,
+				Tags:        def.Tags,
+				InputModes:  def.InputModes,
+				OutputModes: def.OutputModes,
+			}
+		}
+	}
+
+	return rp
 }
 
 // resolvePackPath converts a pack path to an absolute path.

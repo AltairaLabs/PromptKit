@@ -1010,3 +1010,162 @@ func TestBackwardCompat_NoNewFields(t *testing.T) {
 	assert.Nil(t, loadedPrompt.Parameters)
 	assert.Empty(t, loadedPrompt.Evals)
 }
+
+func TestPack_ValidateAgents(t *testing.T) {
+	basePack := func() *Pack {
+		return &Pack{
+			ID:      "test-pack",
+			Version: "v1.0.0",
+			Prompts: map[string]*PackPrompt{
+				"chat":      {ID: "chat", SystemTemplate: "Hello"},
+				"summarize": {ID: "summarize", SystemTemplate: "Summarize"},
+			},
+		}
+	}
+
+	t.Run("valid agents config passes", func(t *testing.T) {
+		p := basePack()
+		p.Agents = &AgentsConfig{
+			Entry: "chat",
+			Members: map[string]*AgentDef{
+				"chat": {
+					Description: "Chat agent",
+					Tags:        []string{"conversational"},
+					InputModes:  []string{"text/plain"},
+					OutputModes: []string{"text/plain"},
+				},
+				"summarize": {
+					Description: "Summarizer",
+					InputModes:  []string{"application/json"},
+					OutputModes: []string{"text/plain"},
+				},
+			},
+		}
+
+		errs, warnings := p.ValidateAgents()
+		assert.Empty(t, errs)
+		assert.Empty(t, warnings)
+	})
+
+	t.Run("nil agents passes", func(t *testing.T) {
+		p := basePack()
+		p.Agents = nil
+
+		errs, warnings := p.ValidateAgents()
+		assert.Empty(t, errs)
+		assert.Empty(t, warnings)
+	})
+
+	t.Run("empty members fails", func(t *testing.T) {
+		p := basePack()
+		p.Agents = &AgentsConfig{
+			Entry:   "chat",
+			Members: map[string]*AgentDef{},
+		}
+
+		errs, warnings := p.ValidateAgents()
+		assert.Len(t, errs, 1)
+		assert.Contains(t, errs[0], "members must not be empty")
+		assert.Empty(t, warnings)
+	})
+
+	t.Run("invalid entry reference fails", func(t *testing.T) {
+		p := basePack()
+		p.Agents = &AgentsConfig{
+			Entry: "nonexistent",
+			Members: map[string]*AgentDef{
+				"chat": {Description: "Chat agent"},
+			},
+		}
+
+		errs, _ := p.ValidateAgents()
+		assert.NotEmpty(t, errs)
+		found := false
+		for _, e := range errs {
+			if assert.ObjectsAreEqual("agents: entry \"nonexistent\" does not reference a valid member", e) {
+				found = true
+			}
+		}
+		assert.True(t, found, "expected entry reference error")
+	})
+
+	t.Run("member key not in prompts map fails", func(t *testing.T) {
+		p := basePack()
+		p.Agents = &AgentsConfig{
+			Entry: "chat",
+			Members: map[string]*AgentDef{
+				"chat":    {Description: "Chat agent"},
+				"unknown": {Description: "Not a prompt"},
+			},
+		}
+
+		errs, warnings := p.ValidateAgents()
+		assert.NotEmpty(t, errs)
+		found := false
+		for _, e := range errs {
+			if assert.ObjectsAreEqual("agents: member \"unknown\" does not reference a valid prompt", e) {
+				found = true
+			}
+		}
+		assert.True(t, found, "expected member-prompt reference error")
+		assert.Empty(t, warnings)
+	})
+
+	t.Run("invalid MIME types warn", func(t *testing.T) {
+		p := basePack()
+		p.Agents = &AgentsConfig{
+			Entry: "chat",
+			Members: map[string]*AgentDef{
+				"chat": {
+					Description: "Chat agent",
+					InputModes:  []string{"plaintext"},
+					OutputModes: []string{"json", "text/plain"},
+				},
+			},
+		}
+
+		errs, warnings := p.ValidateAgents()
+		assert.Empty(t, errs)
+		assert.Len(t, warnings, 2)
+		assert.Contains(t, warnings[0], "is not a valid MIME type")
+		assert.Contains(t, warnings[1], "is not a valid MIME type")
+	})
+
+	t.Run("empty tags warn", func(t *testing.T) {
+		p := basePack()
+		p.Agents = &AgentsConfig{
+			Entry: "chat",
+			Members: map[string]*AgentDef{
+				"chat": {
+					Description: "Chat agent",
+					Tags:        []string{"valid", "", "  "},
+					InputModes:  []string{"text/plain"},
+					OutputModes: []string{"text/plain"},
+				},
+			},
+		}
+
+		errs, warnings := p.ValidateAgents()
+		assert.Empty(t, errs)
+		assert.Len(t, warnings, 2)
+		assert.Contains(t, warnings[0], "tag[1] is empty")
+		assert.Contains(t, warnings[1], "tag[2] is empty")
+	})
+
+	t.Run("agents validation wired into Pack.Validate", func(t *testing.T) {
+		p := basePack()
+		p.Agents = &AgentsConfig{
+			Entry:   "chat",
+			Members: map[string]*AgentDef{},
+		}
+
+		allWarnings := p.Validate()
+		found := false
+		for _, w := range allWarnings {
+			if w == "agents: members must not be empty" {
+				found = true
+			}
+		}
+		assert.True(t, found, "expected agents error in Validate() output")
+	})
+}

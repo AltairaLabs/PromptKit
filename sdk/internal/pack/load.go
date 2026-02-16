@@ -44,8 +44,8 @@ type Pack struct {
 	// Workflow - State-machine workflow config (opaque to SDK, passed through)
 	Workflow json.RawMessage `json:"workflow,omitempty"`
 
-	// Agents - Agent configuration (opaque to SDK, passed through)
-	Agents json.RawMessage `json:"agents,omitempty"`
+	// Agents - Agent configuration mapping prompts to A2A-compatible agent definitions
+	Agents *AgentsConfig `json:"agents,omitempty"`
 
 	// FilePath is the path from which this pack was loaded.
 	FilePath string `json:"-"`
@@ -150,6 +150,20 @@ type Validator struct {
 	Config map[string]any `json:"config,omitempty"`
 }
 
+// AgentsConfig maps prompts to A2A-compatible agent definitions.
+type AgentsConfig struct {
+	Entry   string               `json:"entry"`
+	Members map[string]*AgentDef `json:"members"`
+}
+
+// AgentDef provides A2A Agent Card metadata for a single prompt.
+type AgentDef struct {
+	Description string   `json:"description,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+	InputModes  []string `json:"input_modes,omitempty"`
+	OutputModes []string `json:"output_modes,omitempty"`
+}
+
 // Load loads a pack from a JSON file.
 // By default, the pack is validated against the PromptPack JSON schema.
 // Use LoadOptions to customize behavior.
@@ -199,6 +213,11 @@ func Parse(data []byte) (*Pack, error) {
 	// Validate basic structure
 	if len(pack.Prompts) == 0 {
 		return nil, fmt.Errorf("pack contains no prompts")
+	}
+
+	// Validate agents section if present
+	if err := pack.ValidateAgents(); err != nil {
+		return nil, err
 	}
 
 	return &pack, nil

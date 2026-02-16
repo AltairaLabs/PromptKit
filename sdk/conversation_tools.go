@@ -385,6 +385,29 @@ func (c *Conversation) registerA2ATools() {
 	c.toolRegistry.RegisterExecutor(newA2AExecutor())
 }
 
+// registerAgentTools resolves agent member references in the prompt's tool
+// list and registers A2A-backed tool descriptors + the shared A2A executor.
+// This is called during pipeline construction alongside registerA2ATools and
+// registerMCPExecutors.
+func (c *Conversation) registerAgentTools() {
+	if c.agentResolver == nil {
+		return
+	}
+	// The prompt's Tools list may contain names that correspond to agent
+	// members rather than pack-level tool definitions. Resolve those names
+	// into A2A tool descriptors.
+	descriptors := c.agentResolver.ResolveAgentTools(c.prompt.Tools)
+	if len(descriptors) == 0 {
+		return
+	}
+	for _, td := range descriptors {
+		_ = c.toolRegistry.Register(td)
+	}
+	// Ensure the A2A executor is registered so the registry can dispatch
+	// tool calls with Mode "a2a".
+	c.toolRegistry.RegisterExecutor(newA2AExecutor())
+}
+
 // registerMCPExecutors registers executors for MCP tools.
 func (c *Conversation) registerMCPExecutors() {
 	if c.mcpRegistry == nil {

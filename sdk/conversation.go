@@ -105,6 +105,9 @@ type Conversation struct {
 	// MCP registry for managing MCP servers
 	mcpRegistry mcp.Registry
 
+	// Multi-agent tool resolver for routing tool calls to agent members
+	agentResolver *AgentToolResolver
+
 	// Eval middleware for dispatching evals after Send/Close
 	evalMW *evalMiddleware
 
@@ -248,6 +251,7 @@ func (c *Conversation) buildPipelineWithParams(
 	c.toolRegistry.RegisterExecutor(localExec)
 	c.registerMCPExecutors()
 	c.registerA2ATools()
+	c.registerAgentTools()
 	toolRegistry := c.toolRegistry
 	c.handlersMu.RUnlock()
 
@@ -317,6 +321,7 @@ func (c *Conversation) buildStreamPipelineWithParams(
 	c.toolRegistry.RegisterExecutor(localExec)
 	c.registerMCPExecutors()
 	c.registerA2ATools()
+	c.registerAgentTools()
 	toolRegistry := c.toolRegistry
 	c.handlersMu.RUnlock()
 
