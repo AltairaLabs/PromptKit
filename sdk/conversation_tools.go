@@ -405,7 +405,11 @@ func (c *Conversation) registerAgentTools() {
 	}
 	// Ensure the A2A executor is registered so the registry can dispatch
 	// tool calls with Mode "a2a".
-	c.toolRegistry.RegisterExecutor(newA2AExecutor())
+	if c.config.localAgentExecutor != nil {
+		c.toolRegistry.RegisterExecutor(c.config.localAgentExecutor)
+	} else {
+		c.toolRegistry.RegisterExecutor(newA2AExecutor())
+	}
 }
 
 // registerMCPExecutors registers executors for MCP tools.

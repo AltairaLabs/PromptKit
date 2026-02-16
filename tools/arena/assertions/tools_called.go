@@ -5,7 +5,10 @@ import (
 	runtimeValidators "github.com/AltairaLabs/PromptKit/runtime/validators"
 )
 
-const roleAssistant = "assistant"
+const (
+	roleAssistant    = "assistant"
+	sourceStatestore = "statestore"
+)
 
 // ToolsCalledValidator checks that expected tools were called in the response
 type ToolsCalledValidator struct {
@@ -20,30 +23,8 @@ func NewToolsCalledValidator(params map[string]interface{}) runtimeValidators.Va
 
 // Validate checks if expected tools were called
 func (v *ToolsCalledValidator) Validate(content string, params map[string]interface{}) runtimeValidators.ValidationResult {
-	// Extract tool calls from turn messages or legacy params
-	var toolCalls []types.MessageToolCall
-
-	// New approach: extract from _turn_messages
-	if messages, ok := params["_turn_messages"].([]types.Message); ok {
-		toolCalls = extractToolCallsFromTurnMessages(messages)
-	} else {
-		// Legacy approach: use pre-extracted tool calls (for backward compatibility)
-		toolCalls = extractToolCalls(params)
-	}
-
-	// Build set of called tools
-	calledTools := make(map[string]bool)
-	for _, call := range toolCalls {
-		calledTools[call.Name] = true
-	}
-
-	// Check which expected tools are missing
-	var missing []string
-	for _, expected := range v.expectedTools {
-		if !calledTools[expected] {
-			missing = append(missing, expected)
-		}
-	}
+	toolCalls := resolveToolCalls(params)
+	missing := findMissing(toolCalls, v.expectedTools)
 
 	return runtimeValidators.ValidationResult{
 		Passed: len(missing) == 0,
@@ -51,6 +32,49 @@ func (v *ToolsCalledValidator) Validate(content string, params map[string]interf
 			"missing_tools": missing,
 		},
 	}
+}
+
+// resolveToolCalls extracts tool calls from params, preferring _turn_messages
+// over the legacy _message_tool_calls approach.
+func resolveToolCalls(params map[string]interface{}) []types.MessageToolCall {
+	if messages, ok := params["_turn_messages"].([]types.Message); ok {
+		return extractToolCallsFromTurnMessages(messages)
+	}
+	return extractToolCalls(params)
+}
+
+// findMissing returns which of the expected names are not present in toolCalls.
+func findMissing(toolCalls []types.MessageToolCall, expected []string) []string {
+	calledTools := make(map[string]bool, len(toolCalls))
+	for _, call := range toolCalls {
+		calledTools[call.Name] = true
+	}
+
+	var missing []string
+	for _, name := range expected {
+		if !calledTools[name] {
+			missing = append(missing, name)
+		}
+	}
+	return missing
+}
+
+// findForbiddenCalled returns which of the forbidden names appear in toolCalls (deduplicated).
+func findForbiddenCalled(toolCalls []types.MessageToolCall, forbidden []string) []string {
+	forbiddenSet := make(map[string]bool, len(forbidden))
+	for _, name := range forbidden {
+		forbiddenSet[name] = true
+	}
+
+	var called []string
+	seen := make(map[string]bool)
+	for _, call := range toolCalls {
+		if forbiddenSet[call.Name] && !seen[call.Name] {
+			called = append(called, call.Name)
+			seen[call.Name] = true
+		}
+	}
+	return called
 }
 
 // extractStringSlice safely extracts a string slice from params
@@ -106,7 +130,7 @@ func extractToolCallsFromTurnMessages(messages []types.Message) []types.MessageT
 	var allToolCalls []types.MessageToolCall
 	for _, msg := range messages {
 		// Only process messages from current turn (not loaded from history)
-		if msg.Source == "statestore" {
+		if msg.Source == sourceStatestore {
 			continue
 		}
 
