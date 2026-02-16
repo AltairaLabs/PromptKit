@@ -369,6 +369,9 @@ func generateHTML(data HTMLReportData) (string, error) {
 		"getConversationAssertionResults": func(r engine.RunResult) []assertions.ConversationValidationResult {
 			return r.ConversationAssertions.Results
 		},
+		"isAgentTool":         isAgentTool,
+		"hasA2AAgents":        hasA2AAgents,
+		"renderA2AAgentCards": renderA2AAgentCards,
 	}).Parse(reportTemplate))
 
 	var buf strings.Builder
@@ -1049,4 +1052,76 @@ func renderConversationDetails(result assertions.ConversationValidationResult) s
 	}
 	b.WriteString(`</details>`)
 	return b.String()
+}
+
+// isAgentTool returns true if the tool name is an A2A agent tool.
+func isAgentTool(name string) bool {
+	return strings.HasPrefix(name, "a2a_")
+}
+
+// hasA2AAgents checks if a result has A2A agent metadata.
+//
+//nolint:gocritic // hugeParam: template functions can't use pointers
+func hasA2AAgents(result engine.RunResult) bool {
+	return len(result.A2AAgents) > 0
+}
+
+// renderA2AAgentCards renders the A2A agent cards section as HTML.
+func renderA2AAgentCards(agents []engine.A2AAgentInfo) template.HTML {
+	if len(agents) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString(`<div class="a2a-agents-section">`)
+	b.WriteString(`<div class="a2a-agents-header">`)
+	b.WriteString(fmt.Sprintf(
+		`<span class="agent-icon">🤖</span> A2A Agents (%d)`, len(agents)))
+	b.WriteString(`</div>`)
+	b.WriteString(`<div class="a2a-agents-grid">`)
+
+	for _, agent := range agents {
+		renderA2AAgentCard(&b, agent)
+	}
+
+	b.WriteString(`</div>`) // a2a-agents-grid
+	b.WriteString(`</div>`) // a2a-agents-section
+
+	//nolint:gosec // G203: HTML generation is intentional for template rendering
+	return template.HTML(b.String())
+}
+
+// renderA2AAgentCard renders a single agent card.
+func renderA2AAgentCard(b *strings.Builder, agent engine.A2AAgentInfo) {
+	b.WriteString(`<div class="a2a-agent-card">`)
+	fmt.Fprintf(b, `<div class="a2a-agent-name">%s</div>`,
+		template.HTMLEscapeString(agent.Name))
+	if agent.Description != "" {
+		fmt.Fprintf(b, `<div class="a2a-agent-description">%s</div>`,
+			template.HTMLEscapeString(agent.Description))
+	}
+	if len(agent.Skills) > 0 {
+		b.WriteString(`<div class="a2a-skills-list">`)
+		for _, skill := range agent.Skills {
+			renderA2ASkillItem(b, skill)
+		}
+		b.WriteString(`</div>`)
+	}
+	b.WriteString(`</div>`)
+}
+
+// renderA2ASkillItem renders a single skill within an agent card.
+func renderA2ASkillItem(b *strings.Builder, skill engine.A2ASkillInfo) {
+	b.WriteString(`<div class="a2a-skill-item">`)
+	fmt.Fprintf(b, `<span class="a2a-skill-name">%s</span>`,
+		template.HTMLEscapeString(skill.Name))
+	if skill.Description != "" {
+		fmt.Fprintf(b, ` <span class="a2a-skill-desc">— %s</span>`,
+			template.HTMLEscapeString(skill.Description))
+	}
+	for _, tag := range skill.Tags {
+		fmt.Fprintf(b, ` <span class="a2a-skill-tag">%s</span>`,
+			template.HTMLEscapeString(tag))
+	}
+	b.WriteString(`</div>`)
 }

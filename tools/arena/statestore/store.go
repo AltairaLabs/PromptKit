@@ -38,6 +38,21 @@ type SelfPlayRoleInfo struct {
 	Region   string `json:"region,omitempty"`
 }
 
+// A2AAgentInfo contains metadata about an A2A agent for report rendering.
+type A2AAgentInfo struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Skills      []A2ASkillInfo `json:"skills,omitempty"`
+}
+
+// A2ASkillInfo contains metadata about a single A2A agent skill.
+type A2ASkillInfo struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+}
+
 // RunMetadata contains Arena-specific execution metadata
 type RunMetadata struct {
 	RunID      string                 `json:"run_id"`
@@ -67,6 +82,9 @@ type RunMetadata struct {
 
 	// Conversation-level assertions (evaluated after conversation completes)
 	ConversationAssertionResults []ConversationValidationResult `json:"conv_assertions_results,omitempty"`
+
+	// A2A agent metadata (populated from config for report rendering)
+	A2AAgents []A2AAgentInfo `json:"a2a_agents,omitempty"`
 }
 
 // ValidationResult captures validation outcome for a turn
@@ -535,6 +553,9 @@ type RunResult struct {
 
 	// Conversation-level assertions evaluated after the conversation completes (summary format)
 	ConversationAssertions AssertionsSummary `json:"conversation_assertions,omitempty"`
+
+	// A2A agent metadata (populated from config for report rendering)
+	A2AAgents []A2AAgentInfo `json:"A2AAgents,omitempty"`
 }
 
 // AssertionsSummary mirrors the turn-level assertions structure

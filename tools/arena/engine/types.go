@@ -55,6 +55,9 @@ type RunResult struct {
 
 	// Conversation-level assertions evaluated after the conversation completes (summary format)
 	ConversationAssertions AssertionsSummary `json:"conversation_assertions,omitempty"`
+
+	// A2A agent metadata (populated from config for report rendering)
+	A2AAgents []A2AAgentInfo `json:"A2AAgents,omitempty"`
 }
 
 // AssertionsSummary matches the structure used for turn-level assertions in message meta
@@ -84,4 +87,19 @@ type SelfPlayRoleInfo struct {
 	Provider string
 	Model    string
 	Region   string
+}
+
+// A2AAgentInfo contains metadata about an A2A agent for report rendering.
+type A2AAgentInfo struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Skills      []A2ASkillInfo `json:"skills,omitempty"`
+}
+
+// A2ASkillInfo contains metadata about a single A2A agent skill.
+type A2ASkillInfo struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
 }
