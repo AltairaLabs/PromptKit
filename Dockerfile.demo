@@ -21,7 +21,7 @@
 #
 # NOTE: API keys are passed via --env-file and never appear in recordings
 
-FROM golang:1.25-alpine
+FROM golang:1.26-alpine
 
 # Install dependencies, fonts, and VHS in a single layer
 # - System packages and tools
