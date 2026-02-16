@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
@@ -607,6 +608,11 @@ func (p *Pack) Validate() []string {
 	warnings = append(warnings, p.validateTemplateEngine()...)
 	warnings = append(warnings, p.validatePrompts()...)
 	warnings = append(warnings, p.validateCompilation()...)
+	if p.Agents != nil {
+		errs, agentWarnings := p.ValidateAgents()
+		warnings = append(warnings, errs...)
+		warnings = append(warnings, agentWarnings...)
+	}
 	return warnings
 }
 
@@ -675,6 +681,59 @@ func (p *Pack) validateCompilation() []string {
 		return []string{"missing compilation metadata"}
 	}
 	return []string{}
+}
+
+// ValidateAgents validates the agents section of the pack.
+// Returns errors (which block compilation) and warnings (informational).
+func (p *Pack) ValidateAgents() (errors, warnings []string) {
+	if p.Agents == nil {
+		return nil, nil
+	}
+
+	// Members must be non-empty
+	if len(p.Agents.Members) == 0 {
+		errors = append(errors, "agents: members must not be empty")
+		return errors, warnings
+	}
+
+	// Entry must reference a key in Members
+	if _, ok := p.Agents.Members[p.Agents.Entry]; !ok {
+		errors = append(errors, fmt.Sprintf("agents: entry %q does not reference a valid member", p.Agents.Entry))
+	}
+
+	// All member keys must reference valid keys in Pack.Prompts
+	for key := range p.Agents.Members {
+		if _, ok := p.Prompts[key]; !ok {
+			errors = append(errors, fmt.Sprintf("agents: member %q does not reference a valid prompt", key))
+		}
+	}
+
+	// Validate individual agent definitions
+	for key, agent := range p.Agents.Members {
+		warnings = append(warnings, validateAgentDef(key, agent)...)
+	}
+
+	return errors, warnings
+}
+
+// validateAgentDef validates modes and tags for a single agent member definition.
+func validateAgentDef(key string, agent *AgentDef) (warnings []string) {
+	for _, mode := range agent.InputModes {
+		if !strings.Contains(mode, "/") {
+			warnings = append(warnings, fmt.Sprintf("agents: member %q input_mode %q is not a valid MIME type", key, mode))
+		}
+	}
+	for _, mode := range agent.OutputModes {
+		if !strings.Contains(mode, "/") {
+			warnings = append(warnings, fmt.Sprintf("agents: member %q output_mode %q is not a valid MIME type", key, mode))
+		}
+	}
+	for i, tag := range agent.Tags {
+		if strings.TrimSpace(tag) == "" {
+			warnings = append(warnings, fmt.Sprintf("agents: member %q tag[%d] is empty", key, i))
+		}
+	}
+	return warnings
 }
 
 // GetPrompt returns a specific prompt by task type
