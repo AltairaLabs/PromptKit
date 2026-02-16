@@ -112,6 +112,9 @@ type config struct {
 	// Multi-agent endpoint resolution
 	agentEndpointResolver EndpointResolver
 
+	// Local agent executor for in-process multi-agent routing
+	localAgentExecutor *LocalAgentExecutor
+
 	// Eval configuration
 	evalDispatcher    evals.EvalDispatcher
 	evalRegistry      *evals.EvalTypeRegistry
@@ -718,6 +721,15 @@ func WithA2ATools(bridge *a2a.ToolBridge) Option {
 func WithAgentEndpoints(resolver EndpointResolver) Option {
 	return func(c *config) error {
 		c.agentEndpointResolver = resolver
+		return nil
+	}
+}
+
+// withLocalAgentExecutor sets a local agent executor for in-process routing.
+// This is unexported because it's only used internally by OpenMultiAgent.
+func withLocalAgentExecutor(exec *LocalAgentExecutor) Option {
+	return func(c *config) error {
+		c.localAgentExecutor = exec
 		return nil
 	}
 }

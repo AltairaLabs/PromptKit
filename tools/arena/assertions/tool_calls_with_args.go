@@ -38,13 +38,7 @@ func (v *ToolCallsWithArgsValidator) Validate(
 	content string, params map[string]interface{},
 ) runtimeValidators.ValidationResult {
 	// Extract tool calls from turn messages
-	var toolCalls []types.MessageToolCall
-
-	if messages, ok := params["_turn_messages"].([]types.Message); ok {
-		toolCalls = extractToolCallsFromTurnMessages(messages)
-	} else {
-		toolCalls = extractToolCalls(params)
-	}
+	toolCalls := resolveToolCalls(params)
 
 	// Find matching tool calls
 	var matchingCalls []types.MessageToolCall

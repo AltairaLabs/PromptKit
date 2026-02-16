@@ -31,5 +31,10 @@ func NewArenaAssertionRegistry() *runtimeValidators.Registry {
 	registry.Register("llm_judge", NewLLMJudgeValidator)
 	// Note: conversation-level validator registered in conversation registry
 
+	// Register multi-agent assertion validators
+	registry.Register("agent_invoked", NewAgentInvokedValidator)
+	registry.Register("agent_not_invoked", NewAgentNotInvokedValidator)
+	registry.Register("agent_response_contains", NewAgentResponseContainsValidator)
+
 	return registry
 }
