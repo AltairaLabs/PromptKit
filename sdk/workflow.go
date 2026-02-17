@@ -2,9 +2,13 @@ package sdk
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
+	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 )
@@ -30,14 +34,22 @@ import (
 //	newState, _ := wc.Transition("Escalate")
 //	fmt.Println("Moved to:", newState)
 type WorkflowConversation struct {
-	mu         sync.RWMutex
-	machine    *workflow.StateMachine
-	packPath   string
-	sdkPack    *pack.Pack
-	activeConv *Conversation
-	opts       []Option
-	closed     bool
+	mu                  sync.RWMutex
+	machine             *workflow.StateMachine
+	workflowSpec        *workflow.Spec
+	packPath            string
+	sdkPack             *pack.Pack
+	activeConv          *Conversation
+	opts                []Option
+	emitter             *events.Emitter
+	stateStore          statestore.Store
+	workflowID          string
+	contextCarryForward bool
+	closed              bool
 }
+
+// defaultMaxSummaryMessages is the max messages to include in a carry-forward summary.
+const defaultMaxSummaryMessages = 10
 
 // OpenWorkflow loads a pack file and creates a WorkflowConversation.
 //
@@ -84,12 +96,108 @@ func OpenWorkflow(packPath string, opts ...Option) (*WorkflowConversation, error
 			machine.CurrentState(), promptName, err)
 	}
 
+	// Create emitter from event bus if configured
+	var emitter *events.Emitter
+	if cfg.eventBus != nil {
+		emitter = events.NewEmitter(cfg.eventBus, "", "", "")
+	}
+
 	return &WorkflowConversation{
-		machine:    machine,
-		packPath:   packPath,
-		sdkPack:    p,
-		activeConv: conv,
-		opts:       opts,
+		machine:             machine,
+		workflowSpec:        spec,
+		packPath:            packPath,
+		sdkPack:             p,
+		activeConv:          conv,
+		opts:                opts,
+		emitter:             emitter,
+		stateStore:          cfg.stateStore,
+		workflowID:          cfg.conversationID,
+		contextCarryForward: cfg.contextCarryForward,
+	}, nil
+}
+
+// ResumeWorkflow restores a WorkflowConversation from a previously persisted state.
+//
+// The workflow context is loaded from the state store's metadata["workflow"] key.
+// A state store must be configured via WithStateStore.
+//
+//	wc, err := sdk.ResumeWorkflow("workflow-123", "./support.pack.json",
+//	    sdk.WithStateStore(store),
+//	)
+func ResumeWorkflow(workflowID, packPath string, opts ...Option) (*WorkflowConversation, error) {
+	cfg := &config{}
+	for _, opt := range opts {
+		if optErr := opt(cfg); optErr != nil {
+			return nil, fmt.Errorf("failed to apply option: %w", optErr)
+		}
+	}
+
+	if cfg.stateStore == nil {
+		return nil, ErrNoStateStore
+	}
+
+	absPath, err := resolvePackPath(packPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve pack path: %w", err)
+	}
+
+	p, err := pack.Load(absPath, pack.LoadOptions{
+		SkipSchemaValidation: cfg.skipSchemaValidation,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to load pack: %w", err)
+	}
+
+	if p.Workflow == nil {
+		return nil, ErrNoWorkflow
+	}
+
+	// Load workflow context from state store
+	ctx := context.Background()
+	state, err := cfg.stateStore.Load(ctx, workflowID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load workflow state: %w", err)
+	}
+	if state == nil {
+		return nil, ErrConversationNotFound
+	}
+
+	// Extract workflow context from metadata
+	wfCtx, err := extractWorkflowContext(state.Metadata)
+	if err != nil {
+		return nil, fmt.Errorf("failed to restore workflow context: %w", err)
+	}
+
+	spec := convertWorkflowSpec(p.Workflow)
+	machine := workflow.NewStateMachineFromContext(spec, wfCtx)
+
+	// Open conversation for current state's prompt_task
+	promptName := machine.CurrentPromptTask()
+	optsWithID := make([]Option, len(opts), len(opts)+1)
+	copy(optsWithID, opts)
+	optsWithID = append(optsWithID, WithConversationID(workflowID))
+	conv, err := Open(packPath, promptName, optsWithID...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open conversation for state %q (prompt %q): %w",
+			machine.CurrentState(), promptName, err)
+	}
+
+	var emitter *events.Emitter
+	if cfg.eventBus != nil {
+		emitter = events.NewEmitter(cfg.eventBus, "", "", "")
+	}
+
+	return &WorkflowConversation{
+		machine:             machine,
+		workflowSpec:        spec,
+		packPath:            packPath,
+		sdkPack:             p,
+		activeConv:          conv,
+		opts:                opts,
+		emitter:             emitter,
+		stateStore:          cfg.stateStore,
+		workflowID:          workflowID,
+		contextCarryForward: cfg.contextCarryForward,
 	}, nil
 }
 
@@ -130,25 +238,56 @@ func (wc *WorkflowConversation) Transition(event string) (string, error) {
 		return "", ErrWorkflowTerminal
 	}
 
+	fromState := wc.machine.CurrentState()
+
+	// Capture context summary before transition if carry-forward is enabled
+	var summary string
+	if wc.contextCarryForward && wc.activeConv != nil {
+		summary = buildContextSummary(fromState, wc.activeConv)
+	}
+
 	if err := wc.machine.ProcessEvent(event); err != nil {
 		return "", err
 	}
+
+	toState := wc.machine.CurrentState()
 
 	// Close old conversation
 	if wc.activeConv != nil {
 		_ = wc.activeConv.Close()
 	}
 
+	// Build options, injecting summary as a template variable if available
+	opts := wc.opts
+	if summary != "" {
+		opts = append(append([]Option{}, wc.opts...), WithVariables(map[string]string{
+			"workflow_context": summary,
+		}))
+	}
+
 	// Open new conversation for the new state
 	promptName := wc.machine.CurrentPromptTask()
-	conv, err := Open(wc.packPath, promptName, wc.opts...)
+	conv, err := Open(wc.packPath, promptName, opts...)
 	if err != nil {
 		return "", fmt.Errorf("failed to open conversation for state %q (prompt %q): %w",
-			wc.machine.CurrentState(), promptName, err)
+			toState, promptName, err)
 	}
 	wc.activeConv = conv
 
-	return wc.machine.CurrentState(), nil
+	// Persist workflow context if state store is configured and state is not transient
+	if wc.stateStore != nil && wc.workflowID != "" {
+		wc.persistWorkflowContext()
+	}
+
+	// Emit transition event
+	if wc.emitter != nil {
+		wc.emitter.WorkflowTransitioned(fromState, toState, event, promptName)
+		if wc.machine.IsTerminal() {
+			wc.emitter.WorkflowCompleted(toState, wc.machine.Context().TransitionCount())
+		}
+	}
+
+	return toState, nil
 }
 
 // CurrentState returns the current workflow state name.
@@ -209,6 +348,89 @@ func (wc *WorkflowConversation) Close() error {
 		return wc.activeConv.Close()
 	}
 	return nil
+}
+
+// filterRelevantMessages removes system messages from the conversation history.
+func filterRelevantMessages(messages []types.Message) []types.Message {
+	result := make([]types.Message, 0, len(messages))
+	for i := range messages {
+		if messages[i].Role != "system" {
+			result = append(result, messages[i])
+		}
+	}
+	return result
+}
+
+// extractMessageText returns the text content of a message, checking Content
+// first and falling back to the first text Part.
+func extractMessageText(msg *types.Message) string {
+	if msg.Content != "" {
+		return msg.Content
+	}
+	for _, part := range msg.Parts {
+		if part.Text != nil {
+			return *part.Text
+		}
+	}
+	return ""
+}
+
+// persistWorkflowContext saves the workflow context to the state store.
+// It respects the persistence hint on the current state: transient states skip writes.
+func (wc *WorkflowConversation) persistWorkflowContext() {
+	// Check if current state is transient
+	currentState := wc.machine.CurrentState()
+	if wc.workflowSpec != nil {
+		if st, ok := wc.workflowSpec.States[currentState]; ok {
+			if st.Persistence == workflow.PersistenceTransient {
+				return
+			}
+		}
+	}
+
+	ctx := context.Background()
+	state, err := wc.stateStore.Load(ctx, wc.workflowID)
+	if err != nil || state == nil {
+		// Create new state if not found
+		state = &statestore.ConversationState{
+			ID:       wc.workflowID,
+			Metadata: make(map[string]any),
+		}
+	}
+	if state.Metadata == nil {
+		state.Metadata = make(map[string]any)
+	}
+
+	wfCtx := wc.machine.Context()
+	state.Metadata["workflow"] = wfCtx
+	_ = wc.stateStore.Save(ctx, state)
+}
+
+// extractWorkflowContext extracts and deserializes workflow.Context from state metadata.
+func extractWorkflowContext(metadata map[string]any) (*workflow.Context, error) {
+	raw, ok := metadata["workflow"]
+	if !ok {
+		return nil, fmt.Errorf("no workflow context in metadata")
+	}
+
+	// Handle both direct *workflow.Context and JSON-deserialized map
+	switch v := raw.(type) {
+	case *workflow.Context:
+		return v, nil
+	case map[string]any:
+		// Re-serialize and deserialize through JSON for type safety
+		data, err := json.Marshal(v)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal workflow context: %w", err)
+		}
+		var wfCtx workflow.Context
+		if err := json.Unmarshal(data, &wfCtx); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal workflow context: %w", err)
+		}
+		return &wfCtx, nil
+	default:
+		return nil, fmt.Errorf("unexpected workflow context type: %T", raw)
+	}
 }
 
 // convertWorkflowSpec converts the SDK's internal pack.WorkflowSpec to a

@@ -1,0 +1,36 @@
+# Example workflow scenario for Arena.
+#
+# This scenario tests a customer support workflow that starts in an
+# "intake" state, collects information from the user, then transitions
+# to a "specialist" state via the "Escalate" event.
+#
+# Usage:
+#   Define workflow scenarios in your arena.yaml under "workflow_scenarios:"
+#   and point to files like this one.
+
+id: support-escalation
+pack: ./support.pack.json
+description: "Test escalation from intake to specialist"
+context_carry_forward: true
+
+steps:
+  # Step 1: Send a user message in the intake state
+  - type: input
+    content: "I need help with a billing issue on my account"
+    assertions:
+      - type: content_includes
+        params:
+          substring: "billing"
+
+  # Step 2: Trigger the escalation event
+  - type: event
+    event: Escalate
+    expect_state: specialist
+
+  # Step 3: Continue conversation in the specialist state
+  - type: input
+    content: "My last invoice was charged twice"
+    assertions:
+      - type: content_includes
+        params:
+          substring: "invoice"

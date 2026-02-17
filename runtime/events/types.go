@@ -88,6 +88,11 @@ const (
 	EventImageInput EventType = "image.input"
 	// EventImageOutput marks image output from agent (multimodal recording).
 	EventImageOutput EventType = "image.output"
+
+	// EventWorkflowTransitioned marks a workflow state transition.
+	EventWorkflowTransitioned EventType = "workflow.transitioned"
+	// EventWorkflowCompleted marks a workflow reaching a terminal state.
+	EventWorkflowCompleted EventType = "workflow.completed"
 )
 
 // EventData is a marker interface for event payloads.
@@ -520,4 +525,26 @@ type ImageOutputData struct {
 	GeneratedFrom string `json:"generated_from,omitempty"`
 	// Prompt is the prompt used to generate the image (if applicable).
 	Prompt string `json:"prompt,omitempty"`
+}
+
+// WorkflowTransitionedData contains data for workflow state transition events.
+type WorkflowTransitionedData struct {
+	baseEventData
+	// FromState is the state before the transition.
+	FromState string `json:"from_state"`
+	// ToState is the state after the transition.
+	ToState string `json:"to_state"`
+	// Event is the event that triggered the transition.
+	Event string `json:"event"`
+	// PromptTask is the prompt_task of the new state.
+	PromptTask string `json:"prompt_task"`
+}
+
+// WorkflowCompletedData contains data for workflow completion events.
+type WorkflowCompletedData struct {
+	baseEventData
+	// FinalState is the terminal state the workflow reached.
+	FinalState string `json:"final_state"`
+	// TransitionCount is the total number of transitions that occurred.
+	TransitionCount int `json:"transition_count"`
 }

@@ -120,6 +120,9 @@ type config struct {
 	evalRegistry      *evals.EvalTypeRegistry
 	evalResultWriters []evals.ResultWriter
 	judgeProvider     handlers.JudgeProvider
+
+	// Workflow context carry-forward (used by OpenWorkflow)
+	contextCarryForward bool
 }
 
 // Option configures a Conversation.
@@ -576,6 +579,24 @@ func WithStrictValidation() Option {
 func WithSkipSchemaValidation() Option {
 	return func(c *config) error {
 		c.skipSchemaValidation = true
+		return nil
+	}
+}
+
+// WithContextCarryForward enables context carry-forward for workflow transitions.
+//
+// When enabled, transitioning to a new state injects a summary of the previous
+// state's conversation into the new conversation via the {{workflow_context}}
+// template variable. This provides continuity across workflow states.
+//
+// Default: disabled (each state gets a fresh conversation).
+//
+//	wc, _ := sdk.OpenWorkflow("./support.pack.json",
+//	    sdk.WithContextCarryForward(),
+//	)
+func WithContextCarryForward() Option {
+	return func(c *config) error {
+		c.contextCarryForward = true
 		return nil
 	}
 }

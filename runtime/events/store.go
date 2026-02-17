@@ -137,7 +137,9 @@ var eventDataRegistry = map[string]eventDataFactory{
 	"*events.ToolCallStartedData":    func() EventData { return &ToolCallStartedData{} },
 	"*events.ToolCallCompletedData":  func() EventData { return &ToolCallCompletedData{} },
 	"*events.ToolCallFailedData":     func() EventData { return &ToolCallFailedData{} },
-	"*events.CustomEventData":        func() EventData { return &CustomEventData{} },
+	"*events.CustomEventData":              func() EventData { return &CustomEventData{} },
+	"*events.WorkflowTransitionedData":    func() EventData { return &WorkflowTransitionedData{} },
+	"*events.WorkflowCompletedData":       func() EventData { return &WorkflowCompletedData{} },
 }
 
 // deserializeEventData attempts to deserialize event data based on the type name.
