@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
@@ -675,61 +676,92 @@ func TestWithPlatformEndpoint(t *testing.T) {
 
 func TestWithBedrock(t *testing.T) {
 	t.Run("basic usage", func(t *testing.T) {
-		opt := WithBedrock("us-west-2")
+		opt := WithBedrock("us-west-2", "claude", "claude-sonnet-4-20250514")
 		assert.NotNil(t, opt)
 
 		cfg := &config{}
 		err := opt(cfg)
 		assert.NoError(t, err)
+		require.NotNil(t, cfg.platform)
+		assert.Equal(t, "bedrock", cfg.platform.platformType)
+		assert.Equal(t, "claude", cfg.platform.providerType)
+		assert.Equal(t, "claude-sonnet-4-20250514", cfg.platform.model)
+		assert.Equal(t, "us-west-2", cfg.platform.region)
 	})
 
 	t.Run("with additional options", func(t *testing.T) {
-		opt := WithBedrock("us-east-1", WithPlatformEndpoint("https://custom.bedrock.aws"))
+		opt := WithBedrock("us-east-1", "claude", "claude-sonnet-4-20250514",
+			WithPlatformEndpoint("https://custom.bedrock.aws"))
 		assert.NotNil(t, opt)
 
 		cfg := &config{}
 		err := opt(cfg)
 		assert.NoError(t, err)
+		require.NotNil(t, cfg.platform)
+		assert.Equal(t, "bedrock", cfg.platform.platformType)
+		assert.Equal(t, "us-east-1", cfg.platform.region)
+		assert.Equal(t, "https://custom.bedrock.aws", cfg.platform.endpoint)
 	})
 }
 
 func TestWithVertex(t *testing.T) {
 	t.Run("basic usage", func(t *testing.T) {
-		opt := WithVertex("us-central1", "my-project")
+		opt := WithVertex("us-central1", "my-project", "gemini", "gemini-2.0-flash")
 		assert.NotNil(t, opt)
 
 		cfg := &config{}
 		err := opt(cfg)
 		assert.NoError(t, err)
+		require.NotNil(t, cfg.platform)
+		assert.Equal(t, "vertex", cfg.platform.platformType)
+		assert.Equal(t, "gemini", cfg.platform.providerType)
+		assert.Equal(t, "gemini-2.0-flash", cfg.platform.model)
+		assert.Equal(t, "us-central1", cfg.platform.region)
+		assert.Equal(t, "my-project", cfg.platform.project)
 	})
 
 	t.Run("with additional options", func(t *testing.T) {
-		opt := WithVertex("europe-west1", "my-project", WithPlatformEndpoint("https://custom.vertex.googleapis.com"))
+		opt := WithVertex("europe-west1", "my-project", "claude", "claude-sonnet-4-20250514",
+			WithPlatformEndpoint("https://custom.vertex.googleapis.com"))
 		assert.NotNil(t, opt)
 
 		cfg := &config{}
 		err := opt(cfg)
 		assert.NoError(t, err)
+		require.NotNil(t, cfg.platform)
+		assert.Equal(t, "vertex", cfg.platform.platformType)
+		assert.Equal(t, "europe-west1", cfg.platform.region)
+		assert.Equal(t, "https://custom.vertex.googleapis.com", cfg.platform.endpoint)
 	})
 }
 
 func TestWithAzure(t *testing.T) {
 	t.Run("basic usage", func(t *testing.T) {
-		opt := WithAzure("https://my-resource.openai.azure.com")
+		opt := WithAzure("https://my-resource.openai.azure.com", "openai", "gpt-4o")
 		assert.NotNil(t, opt)
 
 		cfg := &config{}
 		err := opt(cfg)
 		assert.NoError(t, err)
+		require.NotNil(t, cfg.platform)
+		assert.Equal(t, "azure", cfg.platform.platformType)
+		assert.Equal(t, "openai", cfg.platform.providerType)
+		assert.Equal(t, "gpt-4o", cfg.platform.model)
+		assert.Equal(t, "https://my-resource.openai.azure.com", cfg.platform.endpoint)
 	})
 
 	t.Run("with additional options", func(t *testing.T) {
-		opt := WithAzure("https://my-resource.openai.azure.com", WithPlatformRegion("eastus"))
+		opt := WithAzure("https://my-resource.openai.azure.com", "openai", "gpt-4o",
+			WithPlatformRegion("eastus"))
 		assert.NotNil(t, opt)
 
 		cfg := &config{}
 		err := opt(cfg)
 		assert.NoError(t, err)
+		require.NotNil(t, cfg.platform)
+		assert.Equal(t, "azure", cfg.platform.platformType)
+		assert.Equal(t, "eastus", cfg.platform.region)
+		assert.Equal(t, "https://my-resource.openai.azure.com", cfg.platform.endpoint)
 	})
 }
 

@@ -124,6 +124,9 @@ type config struct {
 	// Workflow context carry-forward (used by OpenWorkflow)
 	contextCarryForward bool
 
+	// Platform configuration (bedrock, vertex, azure)
+	platform *platformConfig
+
 	// Platform capabilities (workflow, a2a, memory, etc.)
 	capabilities []Capability
 }
@@ -219,6 +222,8 @@ type PlatformOption interface {
 // platformConfig holds platform configuration.
 type platformConfig struct {
 	platformType string
+	providerType string // provider factory name (e.g., "claude", "openai", "gemini")
+	model        string
 	region       string
 	project      string
 	endpoint     string
@@ -252,64 +257,74 @@ func WithPlatformEndpoint(endpoint string) PlatformOption {
 }
 
 // WithBedrock configures AWS Bedrock as the hosting platform.
-// This uses the AWS SDK default credential chain (IRSA, instance profile, env vars).
+// The providerType specifies the provider factory (e.g., "claude", "openai")
+// and model is the model identifier. This uses the AWS SDK default credential
+// chain (IRSA, instance profile, env vars).
 //
 //	conv, _ := sdk.Open("./chat.pack.json", "assistant",
-//	    sdk.WithBedrock("us-west-2"),
+//	    sdk.WithBedrock("us-west-2", "claude", "claude-sonnet-4-20250514"),
 //	)
-func WithBedrock(region string, opts ...PlatformOption) Option {
+func WithBedrock(region, providerType, model string, opts ...PlatformOption) Option {
 	return func(c *config) error {
 		pc := &platformConfig{
 			platformType: "bedrock",
+			providerType: providerType,
+			model:        model,
 			region:       region,
 		}
 		for _, opt := range opts {
 			opt.applyPlatform(pc)
 		}
-		// Platform configuration is stored and used during provider creation
-		// This is a placeholder - actual implementation would integrate with
-		// the credentials package
+		c.platform = pc
 		return nil
 	}
 }
 
 // WithVertex configures Google Cloud Vertex AI as the hosting platform.
-// This uses Application Default Credentials (Workload Identity, gcloud auth, etc.).
+// The providerType specifies the provider factory (e.g., "claude", "gemini")
+// and model is the model identifier. This uses Application Default Credentials
+// (Workload Identity, gcloud auth, etc.).
 //
 //	conv, _ := sdk.Open("./chat.pack.json", "assistant",
-//	    sdk.WithVertex("us-central1", "my-project"),
+//	    sdk.WithVertex("us-central1", "my-project", "gemini", "gemini-2.0-flash"),
 //	)
-func WithVertex(region, project string, opts ...PlatformOption) Option {
+func WithVertex(region, project, providerType, model string, opts ...PlatformOption) Option {
 	return func(c *config) error {
 		pc := &platformConfig{
 			platformType: "vertex",
+			providerType: providerType,
+			model:        model,
 			region:       region,
 			project:      project,
 		}
 		for _, opt := range opts {
 			opt.applyPlatform(pc)
 		}
-		// Platform configuration is stored and used during provider creation
+		c.platform = pc
 		return nil
 	}
 }
 
 // WithAzure configures Azure AI services as the hosting platform.
-// This uses the Azure SDK default credential chain (Managed Identity, Azure CLI, etc.).
+// The providerType specifies the provider factory (e.g., "openai") and model
+// is the model identifier. This uses the Azure SDK default credential chain
+// (Managed Identity, Azure CLI, etc.).
 //
 //	conv, _ := sdk.Open("./chat.pack.json", "assistant",
-//	    sdk.WithAzure("https://my-resource.openai.azure.com"),
+//	    sdk.WithAzure("https://my-resource.openai.azure.com", "openai", "gpt-4o"),
 //	)
-func WithAzure(endpoint string, opts ...PlatformOption) Option {
+func WithAzure(endpoint, providerType, model string, opts ...PlatformOption) Option {
 	return func(c *config) error {
 		pc := &platformConfig{
 			platformType: "azure",
+			providerType: providerType,
+			model:        model,
 			endpoint:     endpoint,
 		}
 		for _, opt := range opts {
 			opt.applyPlatform(pc)
 		}
-		// Platform configuration is stored and used during provider creation
+		c.platform = pc
 		return nil
 	}
 }

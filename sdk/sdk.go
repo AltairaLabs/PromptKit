@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/AltairaLabs/PromptKit/runtime/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
@@ -270,12 +271,139 @@ func resolveProvider(cfg *config) (providers.Provider, error) {
 	if cfg.provider != nil {
 		return cfg.provider, nil
 	}
+
+	// Platform-based provider creation (Bedrock, Vertex, Azure)
+	if cfg.platform != nil {
+		p, err := resolvePlatformProvider(cfg)
+		if err != nil {
+			return nil, err
+		}
+		cfg.provider = p
+		return p, nil
+	}
+
 	detected, err := provider.Detect(cfg.apiKey, cfg.model)
 	if err != nil {
 		return nil, fmt.Errorf("failed to detect provider: %w", err)
 	}
 	cfg.provider = detected
 	return detected, nil
+}
+
+// Platform type constants.
+const (
+	platformTypeBedrock = "bedrock"
+	platformTypeVertex  = "vertex"
+	platformTypeAzure   = "azure"
+)
+
+// resolvePlatformProvider creates a provider for a cloud platform (Bedrock, Vertex, Azure).
+// The platform determines the credential; the provider type and model are specified
+// explicitly since platforms host models from multiple providers.
+func resolvePlatformProvider(cfg *config) (providers.Provider, error) {
+	pc := cfg.platform
+	ctx := context.Background()
+
+	// Resolve platform credential
+	cred, err := resolvePlatformCredential(ctx, pc)
+	if err != nil {
+		return nil, err
+	}
+
+	model := pc.model
+	provType := pc.providerType
+
+	// Map model through Bedrock model ID mapping if applicable
+	if pc.platformType == platformTypeBedrock {
+		if bedrockID, ok := credentials.BedrockModelMapping[model]; ok {
+			model = bedrockID
+		}
+	}
+
+	// Determine base URL from platform + provider combination
+	baseURL := platformBaseURL(pc, provType)
+
+	spec := providers.ProviderSpec{
+		ID:         provType,
+		Type:       provType,
+		Model:      model,
+		BaseURL:    baseURL,
+		Credential: cred,
+		Platform:   pc.platformType,
+		PlatformConfig: &providers.PlatformConfig{
+			Type:     pc.platformType,
+			Region:   pc.region,
+			Project:  pc.project,
+			Endpoint: pc.endpoint,
+		},
+		Defaults: providers.ProviderDefaults{
+			Temperature: defaultTemperature,
+			TopP:        1.0,
+			MaxTokens:   defaultMaxTokens,
+		},
+	}
+
+	return providers.CreateProviderFromSpec(spec)
+}
+
+// resolvePlatformCredential creates the appropriate cloud credential for a platform.
+func resolvePlatformCredential(ctx context.Context, pc *platformConfig) (providers.Credential, error) {
+	switch pc.platformType {
+	case platformTypeBedrock:
+		cred, err := credentials.NewAWSCredential(ctx, pc.region)
+		if err != nil {
+			return nil, fmt.Errorf("bedrock credentials: %w", err)
+		}
+		return cred, nil
+	case platformTypeVertex:
+		cred, err := credentials.NewGCPCredential(ctx, pc.project, pc.region)
+		if err != nil {
+			return nil, fmt.Errorf("vertex credentials: %w", err)
+		}
+		return cred, nil
+	case platformTypeAzure:
+		cred, err := credentials.NewAzureCredential(ctx, pc.endpoint)
+		if err != nil {
+			return nil, fmt.Errorf("azure credentials: %w", err)
+		}
+		return cred, nil
+	default:
+		return nil, fmt.Errorf("unsupported platform: %s", pc.platformType)
+	}
+}
+
+// platformBaseURL returns the base URL for a platform + provider combination.
+// The endpoint can be overridden via WithPlatformEndpoint.
+func platformBaseURL(pc *platformConfig, provType string) string {
+	if pc.endpoint != "" {
+		return pc.endpoint
+	}
+
+	switch pc.platformType {
+	case platformTypeBedrock:
+		return credentials.BedrockEndpoint(pc.region)
+	case platformTypeVertex:
+		return vertexBaseURL(pc, provType)
+	case platformTypeAzure:
+		return pc.endpoint // Azure requires an explicit endpoint
+	default:
+		return ""
+	}
+}
+
+// vertexBaseURL returns the Vertex AI base URL, which varies by provider.
+func vertexBaseURL(pc *platformConfig, provType string) string {
+	switch provType {
+	case "claude":
+		return credentials.VertexEndpoint(pc.project, pc.region)
+	case "gemini":
+		return fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/google/models",
+			pc.region, pc.project, pc.region)
+	default:
+		// Generic Vertex endpoint for other providers
+		return fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s",
+			pc.region, pc.project, pc.region)
+	}
 }
 
 // initEventBus initializes the conversation's event bus.
