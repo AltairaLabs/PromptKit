@@ -138,7 +138,7 @@ See the [Assertions Guide](./assertions) for complete documentation.
 
 ### 3. Workflow Testing
 
-PromptArena supports testing workflow-based packs with step-by-step scenario execution. Workflow scenarios use `input` and `event` steps to simulate user interactions and state transitions:
+PromptArena supports testing workflow-based packs with step-by-step scenario execution. Workflow scenarios use `input` steps to send user messages; state transitions are **LLM-initiated** via the `workflow__transition` tool call rather than scripted in the scenario:
 
 ```yaml
 apiVersion: promptkit.altairalabs.ai/v1alpha1
@@ -162,14 +162,9 @@ spec:
             state: "intake"
           message: "Should be in intake state"
 
-    # Step 2: Trigger a state transition
-    - type: event
-      event: "Escalate"
-      expect_state: "specialist"
-
-    # Step 3: Send a message in the new state
+    # Step 2: The LLM should decide to escalate
     - type: input
-      content: "My invoice shows an incorrect charge"
+      content: "My invoice shows a duplicate charge of $49.99"
       assertions:
         - type: transitioned_to
           params:
@@ -179,22 +174,15 @@ spec:
           params:
             patterns: ["invoice"]
 
-    # Step 4: Resolve the workflow
-    - type: event
-      event: "Resolve"
-      expect_state: "closed"
-
-    # Step 5: Verify workflow completion
+    # Step 3: Resolve and verify completion
     - type: input
-      content: "Thank you!"
+      content: "Thank you, the refund looks correct!"
       assertions:
         - type: workflow_complete
           message: "Workflow should be complete"
 ```
 
-**Step Types**:
-- **`input`** — Sends a user message and validates the assistant response with assertions
-- **`event`** — Triggers a state machine transition and optionally checks the resulting state via `expect_state`
+**How transitions work**: The LLM calls the `workflow__transition` tool with an `event` (matching the state machine's defined transitions) and a `context` string that carries forward relevant information to the next state. The driver processes the transition internally and makes the context available via `{{workflow_context}}` in the new state's system prompt.
 
 **Workflow Assertions** (available in `input` step assertions):
 - **`state_is`** — Checks current workflow state

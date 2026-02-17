@@ -24,9 +24,32 @@ func GenerateScenarioSchema() (interface{}, error) {
 	// Allow the standard $schema field
 	allowSchemaField(schema)
 
+	// Add oneOf constraint: regular scenario (task_type + turns) or workflow scenario (pack + steps)
+	addScenarioOneOf(schema)
+
 	addScenarioExample(schema)
 
 	return schema, nil
+}
+
+// addScenarioOneOf adds a oneOf constraint to the Scenario definition
+// to enforce mutual exclusivity between regular and workflow scenarios.
+func addScenarioOneOf(schema *jsonschema.Schema) {
+	scenarioDef, ok := schema.Definitions["Scenario"]
+	if !ok {
+		return
+	}
+
+	scenarioDef.OneOf = []*jsonschema.Schema{
+		{
+			Required:    []string{"task_type", "turns"},
+			Description: "Regular conversation scenario",
+		},
+		{
+			Required:    []string{"pack", "steps"},
+			Description: "Workflow scenario",
+		},
+	}
 }
 
 func addScenarioExample(schema *jsonschema.Schema) {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
@@ -216,37 +215,8 @@ func (d *arenaWorkflowDriver) substituteWorkflowContext(template string) string 
 
 // buildTransitionTool creates a ToolDescriptor for the workflow__transition tool.
 func (d *arenaWorkflowDriver) buildTransitionTool(state *workflow.State) *providers.ToolDescriptor {
-	// Collect available events as enum values
-	events := make([]string, 0, len(state.OnEvent))
-	for event := range state.OnEvent {
-		events = append(events, event)
-	}
-	sort.Strings(events)
-
-	// Build JSON schema for the tool
-	schema := map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"event": map[string]interface{}{
-				"type":        "string",
-				"enum":        events,
-				"description": "The workflow event to trigger.",
-			},
-			"context": map[string]interface{}{
-				"type":        "string",
-				"description": "Carry-forward context summarizing relevant information for the next state.",
-			},
-		},
-		"required": []string{"event", "context"},
-	}
-	schemaJSON, _ := json.Marshal(schema)
-
-	return &providers.ToolDescriptor{
-		Name: workflowTransitionTool,
-		Description: "Transition the workflow to a new state by triggering an event. " +
-			"Use this when the conversation requires escalation, resolution, or any state change.",
-		InputSchema: schemaJSON,
-	}
+	events := workflow.SortedEvents(state.OnEvent)
+	return workflow.BuildTransitionProviderDescriptor(events)
 }
 
 // Transitions returns the transitions from the most recent Send() call.

@@ -165,6 +165,22 @@
       ]
     },
     "Scenario": {
+      "oneOf": [
+        {
+          "required": [
+            "task_type",
+            "turns"
+          ],
+          "description": "Regular conversation scenario"
+        },
+        {
+          "required": [
+            "pack",
+            "steps"
+          ],
+          "description": "Workflow scenario"
+        }
+      ],
       "properties": {
         "id": {
           "type": "string"
@@ -235,7 +251,7 @@
             "$ref": "#/$defs/WorkflowStep"
           },
           "type": "array",
-          "description": "Ordered sequence of workflow actions (input messages and event transitions)"
+          "description": "Ordered sequence of workflow input steps"
         },
         "context_carry_forward": {
           "type": "boolean",
@@ -254,49 +270,6 @@
       "required": [
         "id",
         "description"
-      ],
-      "oneOf": [
-        {
-          "required": ["task_type", "turns"],
-          "description": "Regular conversation scenario"
-        },
-        {
-          "required": ["pack", "steps"],
-          "description": "Workflow scenario"
-        }
-      ]
-    },
-    "WorkflowStep": {
-      "properties": {
-        "type": {
-          "type": "string",
-          "enum": ["input", "event"],
-          "description": "Step type: input (send message) or event (trigger transition)"
-        },
-        "content": {
-          "type": "string",
-          "description": "User message text (input steps only)"
-        },
-        "event": {
-          "type": "string",
-          "description": "Transition event name (event steps only)"
-        },
-        "expect_state": {
-          "type": "string",
-          "description": "Expected state after an event transition"
-        },
-        "assertions": {
-          "items": {
-            "$ref": "#/$defs/AssertionConfig"
-          },
-          "type": "array",
-          "description": "Assertions evaluated against the assistant response"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "type"
       ]
     },
     "TTSConfig": {
@@ -472,6 +445,33 @@
       },
       "additionalProperties": false,
       "type": "object"
+    },
+    "WorkflowStep": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "input"
+          ],
+          "description": "Step type (only input is supported; transitions are LLM-initiated)"
+        },
+        "content": {
+          "type": "string",
+          "description": "User message text"
+        },
+        "assertions": {
+          "items": {
+            "$ref": "#/$defs/AssertionConfig"
+          },
+          "type": "array",
+          "description": "Assertions evaluated against the assistant response"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
     }
   },
   "properties": {

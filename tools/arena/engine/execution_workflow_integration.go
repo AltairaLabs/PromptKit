@@ -122,11 +122,9 @@ func configToWorkflowScenario(s *config.Scenario) *wf.Scenario {
 		copy(assertions, cs.Assertions)
 
 		steps[i] = wf.Step{
-			Type:        wf.StepType(cs.Type),
-			Content:     cs.Content,
-			Event:       cs.Event,
-			ExpectState: cs.ExpectState,
-			Assertions:  assertions,
+			Type:       wf.StepType(cs.Type),
+			Content:    cs.Content,
+			Assertions: assertions,
 		}
 	}
 

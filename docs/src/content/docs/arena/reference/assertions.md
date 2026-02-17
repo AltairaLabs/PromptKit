@@ -723,16 +723,13 @@ Checks that the workflow has transitioned to a specific state at any point durin
 **Example**:
 ```yaml
 steps:
-  - type: event
-    event: "Escalate"
-    expect_state: "specialist"
   - type: input
-    content: "Can you help with my issue?"
+    content: "I need to speak with a specialist about my billing issue"
     assertions:
       - type: transitioned_to
         params:
           state: "specialist"
-        message: "Should have transitioned to specialist state"
+        message: "LLM should have called workflow__transition to escalate"
 ```
 
 **Failure Details**:
@@ -763,14 +760,11 @@ Checks that the workflow has reached a terminal state (a state with no outgoing 
 **Example**:
 ```yaml
 steps:
-  - type: event
-    event: "Resolve"
-    expect_state: "closed"
   - type: input
-    content: "Thanks for your help!"
+    content: "Thanks for your help, everything is resolved!"
     assertions:
       - type: workflow_complete
-        message: "Workflow should be complete after resolution"
+        message: "LLM should have resolved the workflow to a terminal state"
 ```
 
 **Failure Details**:
