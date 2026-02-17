@@ -19,7 +19,7 @@ sequenceDiagram
     participant MS as Mock A2A Server
 
     U->>ML: "Search for papers about quantum"
-    ML->>E: tool_call: a2a_research_agent_search_papers
+    ML->>E: tool_call: a2a__research_agent__search_papers
     E->>MS: JSON-RPC message/send
     MS->>E: Task (completed, artifacts)
     E->>ML: tool result
@@ -78,7 +78,7 @@ spec:
                   1. General Survey of the Field (2024)
 ```
 
-Each agent produces a tool named `a2a_{name}_{skillId}` — in this case, `a2a_research_agent_search_papers`.
+Each agent produces a tool named `a2a__{name}__{skillId}` — in this case, `a2a__research_agent__search_papers`.
 
 ---
 
@@ -95,7 +95,7 @@ spec:
   version: v1.0.0
   description: An assistant that can delegate research to A2A agents
   allowed_tools:
-    - a2a_research_agent_search_papers
+    - a2a__research_agent__search_papers
   system_template: |
     You are a helpful assistant with access to research tools.
     When asked to search for papers or research a topic, use the available tools.
@@ -115,7 +115,7 @@ scenarios:
     turns:
       1:
         tool_calls:
-          - name: "a2a_research_agent_search_papers"
+          - name: "a2a__research_agent__search_papers"
             arguments:
               query: "Search for papers about quantum computing"
       2:
@@ -155,7 +155,7 @@ spec:
         - type: tools_called
           params:
             tools:
-              - a2a_research_agent_search_papers
+              - a2a__research_agent__search_papers
         - type: content_includes
           params:
             patterns:
@@ -180,16 +180,16 @@ assertions:
   - type: tools_called
     params:
       tools:
-        - a2a_research_agent_search_papers
+        - a2a__research_agent__search_papers
 
   # Higher-level: check that an agent was invoked and returned expected content
   - type: agent_invoked
     params:
       agents:
-        - a2a_research_agent_search_papers
+        - a2a__research_agent__search_papers
   - type: agent_response_contains
     params:
-      agent: a2a_research_agent_search_papers
+      agent: a2a__research_agent__search_papers
       contains: "Quantum Computing Fundamentals"
 ```
 
@@ -251,7 +251,7 @@ a2a_agents:
             - text: "Translated text..."
 ```
 
-This registers both `a2a_research_agent_search_papers` and `a2a_translation_agent_translate` as available tools.
+This registers both `a2a__research_agent__search_papers` and `a2a__translation_agent__translate` as available tools.
 
 Use `agent_invoked` and `agent_not_invoked` assertions to verify which agents are delegated to:
 
@@ -263,17 +263,17 @@ turns:
       - type: agent_invoked
         params:
           agents:
-            - a2a_research_agent_search_papers
-            - a2a_translation_agent_translate
+            - a2a__research_agent__search_papers
+            - a2a__translation_agent__translate
           message: "Should delegate to both agents"
       - type: agent_not_invoked
         params:
           agents:
-            - a2a_admin_agent_execute
+            - a2a__admin_agent__execute
           message: "Should not invoke admin agent"
       - type: agent_response_contains
         params:
-          agent: a2a_research_agent_search_papers
+          agent: a2a__research_agent__search_papers
           contains: "Research results"
           message: "Research agent should return results"
 ```
@@ -285,13 +285,13 @@ conversation_assertions:
   - type: agent_invoked
     params:
       agent_names:
-        - a2a_research_agent_search_papers
+        - a2a__research_agent__search_papers
       min_calls: 1
     message: "Research agent should be invoked at least once across the conversation"
   - type: agent_not_invoked
     params:
       agent_names:
-        - a2a_admin_agent_execute
+        - a2a__admin_agent__execute
     message: "Admin agent should never be invoked"
 ```
 

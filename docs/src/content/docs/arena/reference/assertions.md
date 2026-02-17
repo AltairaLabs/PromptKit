@@ -438,7 +438,7 @@ conversation_assertions:
 
 #### `agent_invoked` (Turn-Level)
 
-Verifies that specific agents were invoked via tool calls in the current turn. Agent invocations appear as tool calls whose name matches the agent member name (e.g., `a2a_research_agent_search_papers`).
+Verifies that specific agents were invoked via tool calls in the current turn. Agent invocations appear as tool calls whose name matches the agent member name (e.g., `a2a__research_agent__search_papers`).
 
 **Use Cases**:
 - Verify multi-agent delegation behavior
@@ -456,7 +456,7 @@ Verifies that specific agents were invoked via tool calls in the current turn. A
     - type: agent_invoked
       params:
         agents:
-          - a2a_research_agent_search_papers
+          - a2a__research_agent__search_papers
         message: "Should delegate to the research agent"
 ```
 
@@ -468,8 +468,8 @@ Verifies that specific agents were invoked via tool calls in the current turn. A
     - type: agent_invoked
       params:
         agents:
-          - a2a_research_agent_search_papers
-          - a2a_translation_agent_translate
+          - a2a__research_agent__search_papers
+          - a2a__translation_agent__translate
         message: "Should delegate to both research and translation agents"
 ```
 
@@ -478,7 +478,7 @@ Verifies that specific agents were invoked via tool calls in the current turn. A
 {
   "passed": false,
   "details": {
-    "missing_agents": ["a2a_research_agent_search_papers"]
+    "missing_agents": ["a2a__research_agent__search_papers"]
   }
 }
 ```
@@ -511,7 +511,7 @@ Verifies that specific agents were NOT invoked in the current turn.
     - type: agent_not_invoked
       params:
         agents:
-          - a2a_research_agent_search_papers
+          - a2a__research_agent__search_papers
         message: "Should answer directly without delegating to research agent"
 ```
 
@@ -520,7 +520,7 @@ Verifies that specific agents were NOT invoked in the current turn.
 {
   "passed": false,
   "details": {
-    "forbidden_agents_called": ["a2a_research_agent_search_papers"]
+    "forbidden_agents_called": ["a2a__research_agent__search_papers"]
   }
 }
 ```
@@ -547,7 +547,7 @@ Verifies that a specific agent's response contains expected text. When an agent 
   assertions:
     - type: agent_response_contains
       params:
-        agent: a2a_research_agent_search_papers
+        agent: a2a__research_agent__search_papers
         contains: "Quantum Computing Fundamentals"
         message: "Research agent should return quantum computing papers"
 ```
@@ -557,7 +557,7 @@ Verifies that a specific agent's response contains expected text. When an agent 
 {
   "passed": false,
   "details": {
-    "agent": "a2a_research_agent_search_papers",
+    "agent": "a2a__research_agent__search_papers",
     "expected_substr": "Quantum Computing Fundamentals",
     "reason": "no matching agent response found containing expected text"
   }
@@ -599,8 +599,8 @@ spec:
     - type: agent_invoked
       params:
         agent_names:
-          - a2a_research_agent_search_papers
-          - a2a_translation_agent_translate
+          - a2a__research_agent__search_papers
+          - a2a__translation_agent__translate
         min_calls: 1
       message: "Both agents should be invoked at least once"
 ```
@@ -609,14 +609,14 @@ spec:
 ```json
 {
   "passed": false,
-  "message": "missing required agent invocations: a2a_translation_agent_translate",
+  "message": "missing required agent invocations: a2a__translation_agent__translate",
   "details": {
     "requirements": [
-      {"agent": "a2a_research_agent_search_papers", "calls": 1, "requiredCalls": 1},
-      {"agent": "a2a_translation_agent_translate", "calls": 0, "requiredCalls": 1}
+      {"agent": "a2a__research_agent__search_papers", "calls": 1, "requiredCalls": 1},
+      {"agent": "a2a__translation_agent__translate", "calls": 0, "requiredCalls": 1}
     ],
     "counts": {
-      "a2a_research_agent_search_papers": 1
+      "a2a__research_agent__search_papers": 1
     }
   }
 }
@@ -644,7 +644,7 @@ conversation_assertions:
   - type: agent_not_invoked
     params:
       agent_names:
-        - a2a_admin_agent_execute
+        - a2a__admin_agent__execute
     message: "Admin agent should never be invoked in user-facing scenarios"
 ```
 
@@ -658,7 +658,7 @@ conversation_assertions:
       "turn_index": 2,
       "description": "forbidden agent was invoked",
       "evidence": {
-        "agent": "a2a_admin_agent_execute",
+        "agent": "a2a__admin_agent__execute",
         "arguments": {"command": "..."}
       }
     }

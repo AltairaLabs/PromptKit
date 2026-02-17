@@ -84,15 +84,15 @@ func main() {
 Tool names follow the pattern:
 
 ```
-a2a_{agentName}_{skillId}
+a2a__{agentName}__{skillId}
 ```
 
 Both the agent name and skill ID are sanitized: lowercased, with non-alphanumeric runs replaced by underscores. For example:
 
 | Agent Name | Skill ID | Tool Name |
 |------------|----------|-----------|
-| Research Agent | search_papers | `a2a_research_agent_search_papers` |
-| Code Helper | lint-code | `a2a_code_helper_lint_code` |
+| Research Agent | search_papers | `a2a__research_agent__search_papers` |
+| Code Helper | lint-code | `a2a__code_helper__lint_code` |
 
 This naming is important for `allowed_tools` in prompt configs — you reference the tool by its generated name.
 
@@ -107,7 +107,7 @@ apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: PromptConfig
 spec:
   allowed_tools:
-    - a2a_research_agent_search_papers
+    - a2a__research_agent__search_papers
   system_template: |
     You are a helpful assistant with access to research tools.
     When asked to search for papers, use the available tools.

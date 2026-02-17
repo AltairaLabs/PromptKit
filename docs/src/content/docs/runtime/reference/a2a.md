@@ -285,7 +285,7 @@ Creates a `ToolBridge` backed by the given A2A client.
 ### Tool Name Format
 
 ```
-a2a_{sanitized_agent_name}_{sanitized_skill_id}
+a2a__{sanitized_agent_name}__{sanitized_skill_id}
 ```
 
 Sanitization: lowercase, non-alphanumeric runs replaced with `_`, leading/trailing underscores trimmed.
