@@ -86,6 +86,69 @@ Each prompt in the `prompts` map (keyed by task type):
 }
 ```
 
+## Workflows
+
+Packs can include a `workflow` section that defines an event-driven state machine over prompts. Each state references a prompt task type, and transitions are triggered by named events.
+
+```json
+{
+  "workflow": {
+    "version": 1,
+    "entry": "intake",
+    "states": {
+      "intake": {
+        "prompt_task": "greeting",
+        "description": "Initial customer contact",
+        "on_event": {
+          "Escalate": "specialist",
+          "Resolve": "closed"
+        },
+        "orchestration": "internal"
+      },
+      "specialist": {
+        "prompt_task": "specialist",
+        "description": "Specialized support handling",
+        "on_event": {
+          "Resolve": "closed"
+        },
+        "persistence": "persistent",
+        "orchestration": "external"
+      },
+      "closed": {
+        "prompt_task": "farewell",
+        "description": "Conversation complete"
+      }
+    }
+  }
+}
+```
+
+### Workflow Fields
+
+| Field | Description |
+|-------|-------------|
+| `version` | Workflow spec version (currently `1`) |
+| `entry` | Name of the initial state |
+| `states` | Map of state definitions |
+
+### State Fields
+
+| Field | Description |
+|-------|-------------|
+| `prompt_task` | References a prompt in the `prompts` map |
+| `description` | Human-readable state description |
+| `on_event` | Map of event name to target state |
+| `persistence` | `"transient"` or `"persistent"` (storage hint) |
+| `orchestration` | `"internal"`, `"external"`, or `"hybrid"` (control mode) |
+
+A state with no `on_event` entries is a **terminal state** — the workflow is complete when it reaches one.
+
+### Orchestration Modes
+
+- **`internal`** (default) — The agent drives transitions automatically
+- **`external`** — External callers (HTTP, queues) drive transitions via the SDK
+- **`hybrid`** — Mixed control; both agent and external callers can trigger transitions
+
 ## Portability
 
 The key benefit of PromptPack is **portability**. A pack compiled with PackC works with:

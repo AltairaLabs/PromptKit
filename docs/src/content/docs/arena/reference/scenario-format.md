@@ -101,16 +101,16 @@ assertions:
   # Content validation
   - type: content_includes
   - type: content_matches
-  
+
   # Tool usage validation
   - type: tools_called
   - type: tools_not_called
-  
+
   # JSON validation
   - type: is_valid_json
   - type: json_schema
   - type: json_path
-  
+
   # Multimodal validation
   - type: image_format
   - type: image_dimensions
@@ -118,7 +118,12 @@ assertions:
   - type: audio_duration
   - type: video_resolution
   - type: video_duration
-  
+
+  # Workflow assertions
+  - type: state_is
+  - type: transitioned_to
+  - type: workflow_complete
+
   # LLM Judge
   - type: llm_judge
 
@@ -131,7 +136,74 @@ conversation_assertions:
 
 See the [Assertions Guide](./assertions) for complete documentation.
 
-### 3. Multimodal Testing
+### 3. Workflow Testing
+
+PromptArena supports testing workflow-based packs with step-by-step scenario execution. Workflow scenarios use `input` and `event` steps to simulate user interactions and state transitions:
+
+```yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: WorkflowScenario
+metadata:
+  name: support-escalation
+spec:
+  id: support-escalation
+  pack: ./support.pack.json
+  description: "Test customer support escalation flow"
+  variables:
+    company_name: "Acme Corp"
+  context_carry_forward: true
+  steps:
+    # Step 1: Send a message in the initial state
+    - type: input
+      content: "I need help with my billing"
+      assertions:
+        - type: state_is
+          params:
+            state: "intake"
+          message: "Should be in intake state"
+
+    # Step 2: Trigger a state transition
+    - type: event
+      event: "Escalate"
+      expect_state: "specialist"
+
+    # Step 3: Send a message in the new state
+    - type: input
+      content: "My invoice shows an incorrect charge"
+      assertions:
+        - type: transitioned_to
+          params:
+            state: "specialist"
+          message: "Should have transitioned to specialist"
+        - type: content_includes
+          params:
+            patterns: ["invoice"]
+
+    # Step 4: Resolve the workflow
+    - type: event
+      event: "Resolve"
+      expect_state: "closed"
+
+    # Step 5: Verify workflow completion
+    - type: input
+      content: "Thank you!"
+      assertions:
+        - type: workflow_complete
+          message: "Workflow should be complete"
+```
+
+**Step Types**:
+- **`input`** — Sends a user message and validates the assistant response with assertions
+- **`event`** — Triggers a state machine transition and optionally checks the resulting state via `expect_state`
+
+**Workflow Assertions** (available in `input` step assertions):
+- **`state_is`** — Checks current workflow state
+- **`transitioned_to`** — Checks if a state was visited in the transition history
+- **`workflow_complete`** — Checks if the workflow reached a terminal state
+
+See the [Assertions Reference](./assertions#workflow-assertions) for full details.
+
+### 4. Multimodal Testing
 
 PromptArena implements PromptPack v1.1 multimodal support with comprehensive testing capabilities:
 
@@ -167,7 +239,7 @@ turns:
 
 See [`examples/arena-media-test/`](../../examples/arena-media-test/) and [`examples/document-analysis/`](../../examples/document-analysis/) for complete examples.
 
-### 4. Mock Provider Support
+### 5. Mock Provider Support
 
 Test without API costs using the Mock provider with configurable responses:
 
@@ -183,7 +255,7 @@ spec:
 
 Configure responses in `providers/mock-responses.yaml`. See [Mock Provider Usage](../../examples/mcp-chatbot/MOCK_PROVIDER_USAGE).
 
-### 5. Self-Play Testing
+### 6. Self-Play Testing
 
 Define AI personas to automatically test conversational flows:
 

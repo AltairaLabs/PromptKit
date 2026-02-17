@@ -668,6 +668,124 @@ conversation_assertions:
 
 ---
 
+### Workflow Assertions
+
+#### `state_is`
+
+Checks that the workflow is currently in a specific state. Used in workflow scenario steps to verify state machine position after transitions.
+
+**Use Cases**:
+- Verify the workflow reached an expected state after a transition
+- Confirm the workflow hasn't progressed past a certain point
+- Validate state machine routing logic
+
+**Parameters**:
+- `state` (string): The expected current state name
+
+**Example**:
+```yaml
+steps:
+  - type: input
+    content: "I need help with billing"
+    assertions:
+      - type: state_is
+        params:
+          state: "intake"
+        message: "Should still be in intake state"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "message": "expected state \"intake\" but workflow is in state \"processing\"",
+  "details": {
+    "expected": "intake",
+    "actual": "processing"
+  }
+}
+```
+
+---
+
+#### `transitioned_to`
+
+Checks that the workflow has transitioned to a specific state at any point during execution. Inspects the accumulated transition history.
+
+**Use Cases**:
+- Verify a specific state was visited during the workflow
+- Confirm escalation or routing occurred
+- Validate multi-step workflow progression
+
+**Parameters**:
+- `state` (string): The target state name that should appear in transition history
+
+**Example**:
+```yaml
+steps:
+  - type: event
+    event: "Escalate"
+    expect_state: "specialist"
+  - type: input
+    content: "Can you help with my issue?"
+    assertions:
+      - type: transitioned_to
+        params:
+          state: "specialist"
+        message: "Should have transitioned to specialist state"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "message": "workflow never transitioned to state \"specialist\"",
+  "details": {
+    "expected_state": "specialist",
+    "transitions": []
+  }
+}
+```
+
+---
+
+#### `workflow_complete`
+
+Checks that the workflow has reached a terminal state (a state with no outgoing transitions).
+
+**Use Cases**:
+- Verify the workflow completed successfully
+- Confirm the conversation reached a natural end
+- Validate end-to-end workflow execution
+
+**Parameters**: None required.
+
+**Example**:
+```yaml
+steps:
+  - type: event
+    event: "Resolve"
+    expect_state: "closed"
+  - type: input
+    content: "Thanks for your help!"
+    assertions:
+      - type: workflow_complete
+        message: "Workflow should be complete after resolution"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "message": "workflow is not complete",
+  "details": {
+    "complete": false
+  }
+}
+```
+
+---
+
 ### Guardrail Assertions
 
 #### `guardrail_triggered`

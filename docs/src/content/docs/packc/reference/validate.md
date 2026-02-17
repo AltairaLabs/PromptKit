@@ -98,6 +98,18 @@ For each prompt:
 - Tool parameters valid
 - Tool names unique
 
+### Workflow Validation
+
+If the pack includes a `workflow` section:
+
+- Entry state exists in the states map
+- All `on_event` targets reference valid state names
+- Each state's `prompt_task` references a prompt in the pack
+- `orchestration` values are one of: `internal`, `external`, `hybrid`
+- `persistence` values are one of: `transient`, `persistent`
+- No unreachable states (every non-entry state is reachable via at least one transition)
+- Terminal states (no `on_event`) have valid prompt tasks
+
 ### Parameter Validation
 
 - temperature: 0.0-2.0

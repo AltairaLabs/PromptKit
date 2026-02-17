@@ -147,7 +147,34 @@ Warning: Tool 'search_kb' referenced but not defined
 Warning: Image file not found: images/logo.png
 ```
 
-### Level 5: Semantic Validation
+### Level 5: Workflow Validation
+
+**What**: Workflow state machine integrity
+
+**When**: After reference validation
+
+**Check**:
+- Entry state exists in the states map
+- All transition targets reference valid states
+- Each state's `prompt_task` references a prompt in the pack
+- Orchestration and persistence values are valid enums
+- No unreachable states
+
+**Errors**:
+
+```
+Error: workflow entry state "unknown" not found in states
+Error: state "intake" transition "Escalate" targets unknown state "missing"
+```
+
+**Warnings**:
+
+```
+Warning: state "archived" is unreachable from entry state
+Warning: state "specialist" references unknown prompt_task "missing-prompt"
+```
+
+### Level 6: Semantic Validation
 
 **What**: Logical consistency
 
