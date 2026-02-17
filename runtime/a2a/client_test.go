@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
 )
 
 // --- test helpers ---
@@ -561,5 +563,76 @@ func TestErrorPath_DiscoverSendFail(t *testing.T) {
 	}
 	if task.Status.State != TaskStateFailed {
 		t.Errorf("expected failed, got %s", task.Status.State)
+	}
+}
+
+func TestClient_PropagatesTraceHeaders(t *testing.T) {
+	wantTP := "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+	wantTS := "congo=t61rcWkgMzE"
+	wantXRay := "Root=1-5759e988-bd862e3fe1be46a994272793"
+
+	var gotTP, gotTS, gotXRay string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotTP = r.Header.Get("traceparent")
+		gotTS = r.Header.Get("tracestate")
+		gotXRay = r.Header.Get("X-Amzn-Trace-Id")
+
+		switch r.URL.Path {
+		case "/.well-known/agent.json":
+			_ = json.NewEncoder(w).Encode(AgentCard{Name: "agent"})
+		case "/a2a":
+			req := decodeRPC(r)
+			rpcResult(w, req.ID, Task{
+				ID:     "task-1",
+				Status: TaskStatus{State: TaskStateCompleted},
+			})
+		}
+	}))
+	defer srv.Close()
+
+	tc := telemetry.TraceContext{
+		Traceparent: wantTP,
+		Tracestate:  wantTS,
+		XRayTraceID: wantXRay,
+	}
+	ctx := telemetry.ContextWithTrace(context.Background(), tc)
+
+	c := NewClient(srv.URL)
+
+	// Test Discover propagates trace headers.
+	_, err := c.Discover(ctx)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if gotTP != wantTP {
+		t.Errorf("Discover: traceparent = %q, want %q", gotTP, wantTP)
+	}
+	if gotTS != wantTS {
+		t.Errorf("Discover: tracestate = %q, want %q", gotTS, wantTS)
+	}
+	if gotXRay != wantXRay {
+		t.Errorf("Discover: X-Amzn-Trace-Id = %q, want %q", gotXRay, wantXRay)
+	}
+
+	// Reset cached card to test rpcCall path.
+	c.mu.Lock()
+	c.agentCard = nil
+	c.mu.Unlock()
+
+	// Reset captured headers.
+	gotTP, gotTS, gotXRay = "", "", ""
+
+	// Test SendMessage (rpcCall) propagates trace headers.
+	_, err = c.SendMessage(ctx, &SendMessageRequest{
+		Message: Message{Role: RoleUser, Parts: []Part{{Text: ptr("hi")}}},
+	})
+	if err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	if gotTP != wantTP {
+		t.Errorf("SendMessage: traceparent = %q, want %q", gotTP, wantTP)
+	}
+	if gotTS != wantTS {
+		t.Errorf("SendMessage: tracestate = %q, want %q", gotTS, wantTS)
 	}
 }

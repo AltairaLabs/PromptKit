@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
 )
 
 // RPCError represents a JSON-RPC error returned by an A2A agent.
@@ -97,6 +99,7 @@ func (c *Client) Discover(ctx context.Context) (*AgentCard, error) {
 		return nil, fmt.Errorf("a2a: discover: %w", err)
 	}
 	c.setAuth(httpReq)
+	telemetry.InjectTraceHeaders(ctx, httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -146,6 +149,7 @@ func (c *Client) rpcCall(ctx context.Context, method string, params, result any)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	c.setAuth(httpReq)
+	telemetry.InjectTraceHeaders(ctx, httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -213,6 +217,7 @@ func (c *Client) SendMessageStream(ctx context.Context, params *SendMessageReque
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "text/event-stream")
 	c.setAuth(httpReq)
+	telemetry.InjectTraceHeaders(ctx, httpReq)
 
 	resp, err := c.httpClient.Do(httpReq) //nolint:bodyclose // closed in goroutine below
 	if err != nil {

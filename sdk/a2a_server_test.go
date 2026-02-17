@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -576,5 +577,130 @@ func TestA2AServer_WithPort(t *testing.T) {
 	srv := NewA2AServer(nopA2AOpener, WithA2APort(0))
 	if srv.port != 0 {
 		t.Fatalf("port = %d, want 0", srv.port)
+	}
+}
+
+func TestTraceContextPropagation_SendMessage(t *testing.T) {
+	wantTP := "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+	wantTS := "congo=t61rcWkgMzE"
+	wantXRay := "Root=1-5759e988-bd862e3fe1be46a994272793"
+
+	var gotTC telemetry.TraceContext
+	mock := &mockA2AConv{
+		sendFunc: func(ctx context.Context, _ any, _ ...SendOption) (*Response, error) {
+			gotTC = telemetry.TraceContextFromContext(ctx)
+			return &Response{
+				message: &types.Message{
+					Role:  "assistant",
+					Parts: []types.ContentPart{types.NewTextPart("ok")},
+				},
+			}, nil
+		},
+	}
+
+	srv := NewA2AServer(func(string) (a2aConv, error) { return mock, nil })
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Build a request with trace headers.
+	paramsJSON, _ := json.Marshal(a2a.SendMessageRequest{
+		Message: a2a.Message{
+			ContextID: "ctx-trace",
+			Role:      a2a.RoleUser,
+			Parts:     []a2a.Part{{Text: serverTextPtr("Hello")}},
+		},
+		Configuration: &a2a.SendMessageConfiguration{Blocking: true},
+	})
+	body, _ := json.Marshal(a2a.JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  a2a.MethodSendMessage,
+		Params:  paramsJSON,
+	})
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost,
+		ts.URL+"/a2a", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("traceparent", wantTP)
+	req.Header.Set("tracestate", wantTS)
+	req.Header.Set("X-Amzn-Trace-Id", wantXRay)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if gotTC.Traceparent != wantTP {
+		t.Errorf("Traceparent = %q, want %q", gotTC.Traceparent, wantTP)
+	}
+	if gotTC.Tracestate != wantTS {
+		t.Errorf("Tracestate = %q, want %q", gotTC.Tracestate, wantTS)
+	}
+	if gotTC.XRayTraceID != wantXRay {
+		t.Errorf("XRayTraceID = %q, want %q", gotTC.XRayTraceID, wantXRay)
+	}
+}
+
+func TestTraceContextPropagation_StreamMessage(t *testing.T) {
+	wantTP := "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+
+	var gotTC telemetry.TraceContext
+	mock := &mockA2AStreamConv{
+		mockA2AConv: mockA2AConv{
+			sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
+				return nil, errors.New("should not be called")
+			},
+		},
+		streamFunc: func(ctx context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
+			gotTC = telemetry.TraceContextFromContext(ctx)
+			ch := make(chan StreamChunk, 1)
+			ch <- StreamChunk{Type: ChunkDone}
+			close(ch)
+			return ch
+		},
+	}
+
+	srv := NewA2AServer(func(string) (a2aConv, error) { return mock, nil })
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	paramsJSON, _ := json.Marshal(a2a.SendMessageRequest{
+		Message: a2a.Message{
+			ContextID: "ctx-trace-stream",
+			Role:      a2a.RoleUser,
+			Parts:     []a2a.Part{{Text: serverTextPtr("Hello")}},
+		},
+	})
+	body, _ := json.Marshal(a2a.JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  a2a.MethodSendStreamingMessage,
+		Params:  paramsJSON,
+	})
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost,
+		ts.URL+"/a2a", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("traceparent", wantTP)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Drain the SSE stream to let the handler complete.
+	var buf [4096]byte
+	for {
+		_, readErr := resp.Body.Read(buf[:])
+		if readErr != nil {
+			break
+		}
+	}
+
+	if gotTC.Traceparent != wantTP {
+		t.Errorf("Traceparent = %q, want %q", gotTC.Traceparent, wantTP)
 	}
 }
