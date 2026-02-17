@@ -150,14 +150,12 @@ func TestWithA2ATools_Option(t *testing.T) {
 }
 
 func TestWithA2ATools_NilBridge(t *testing.T) {
-	conv := newTestConversation()
-	conv.config.a2aBridge = nil
+	cap := NewA2ACapability()
+	// No bridge, no agents — RegisterTools should be a no-op
+	registry := tools.NewRegistry()
+	cap.RegisterTools(registry)
 
-	// registerA2ATools should be a no-op
-	conv.registerA2ATools()
-
-	// Verify no extra tools were registered
-	allTools := conv.toolRegistry.GetTools()
+	allTools := registry.GetTools()
 	assert.Empty(t, allTools)
 }
 
@@ -166,13 +164,14 @@ func TestWithA2ATools_ToolsRegistered(t *testing.T) {
 	defer srv.Close()
 
 	bridge := setupA2ABridge(t, srv.URL)
-	conv := newTestConversation()
-	conv.config.a2aBridge = bridge
+	cap := NewA2ACapability()
+	cap.bridge = bridge
 
-	conv.registerA2ATools()
+	registry := tools.NewRegistry()
+	cap.RegisterTools(registry)
 
 	// The tool name is "a2a__myagent__summarize" (sanitized)
-	tool, err := conv.toolRegistry.GetTool("a2a__myagent__summarize")
+	tool, err := registry.GetTool("a2a__myagent__summarize")
 	require.NoError(t, err)
 	assert.Equal(t, "a2a__myagent__summarize", tool.Name)
 	assert.Equal(t, "a2a", tool.Mode)
@@ -186,14 +185,15 @@ func TestWithA2ATools_ExecutorRegistered(t *testing.T) {
 	defer srv.Close()
 
 	bridge := setupA2ABridge(t, srv.URL)
-	conv := newTestConversation()
-	conv.config.a2aBridge = bridge
+	cap := NewA2ACapability()
+	cap.bridge = bridge
 
-	conv.registerA2ATools()
+	registry := tools.NewRegistry()
+	cap.RegisterTools(registry)
 
 	// The registry should be able to resolve the "a2a" executor for this tool.
 	// We verify by calling Execute on the registry directly.
-	result, err := conv.toolRegistry.Execute("a2a__myagent__summarize", json.RawMessage(`{"query":"test"}`))
+	result, err := registry.Execute("a2a__myagent__summarize", json.RawMessage(`{"query":"test"}`))
 	require.NoError(t, err)
 	assert.NotNil(t, result)
 	assert.Empty(t, result.Error)
@@ -205,33 +205,26 @@ func TestWithA2ATools_AlongsidePackTools(t *testing.T) {
 	defer srv.Close()
 
 	bridge := setupA2ABridge(t, srv.URL)
-	conv := newTestConversation()
-	conv.config.a2aBridge = bridge
 
-	// Register a local tool handler
-	conv.OnTool("local_tool", func(args map[string]any) (any, error) {
-		return "local result", nil
-	})
-
-	// Register local executor + A2A tools
-	localExec := &localExecutor{handlers: conv.handlers}
-	conv.toolRegistry.RegisterExecutor(localExec)
-
-	// Also register the local tool descriptor
-	_ = conv.toolRegistry.Register(&tools.ToolDescriptor{
+	// Create a registry with a local tool already present
+	registry := tools.NewRegistry()
+	_ = registry.Register(&tools.ToolDescriptor{
 		Name:        "local_tool",
 		Description: "A local tool",
 		InputSchema: json.RawMessage(`{"type":"object"}`),
 		Mode:        "local",
 	})
 
-	conv.registerA2ATools()
+	// Register A2A tools via capability
+	cap := NewA2ACapability()
+	cap.bridge = bridge
+	cap.RegisterTools(registry)
 
 	// Both should be present
-	_, err := conv.toolRegistry.GetTool("local_tool")
+	_, err := registry.GetTool("local_tool")
 	assert.NoError(t, err)
 
-	_, err = conv.toolRegistry.GetTool("a2a__remoteagent__translate")
+	_, err = registry.GetTool("a2a__remoteagent__translate")
 	assert.NoError(t, err)
 }
 

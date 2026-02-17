@@ -105,8 +105,8 @@ type Conversation struct {
 	// MCP registry for managing MCP servers
 	mcpRegistry mcp.Registry
 
-	// Multi-agent tool resolver for routing tool calls to agent members
-	agentResolver *AgentToolResolver
+	// Platform capabilities (workflow, a2a, memory, etc.)
+	capabilities []Capability
 
 	// Eval middleware for dispatching evals after Send/Close
 	evalMW *evalMiddleware
@@ -250,8 +250,10 @@ func (c *Conversation) buildPipelineWithParams(
 	localExec := &localExecutor{handlers: c.handlers}
 	c.toolRegistry.RegisterExecutor(localExec)
 	c.registerMCPExecutors()
-	c.registerA2ATools()
-	c.registerAgentTools()
+	// Register capability tools (includes A2A)
+	for _, cap := range c.capabilities {
+		cap.RegisterTools(c.toolRegistry)
+	}
 	toolRegistry := c.toolRegistry
 	c.handlersMu.RUnlock()
 
@@ -320,8 +322,10 @@ func (c *Conversation) buildStreamPipelineWithParams(
 	localExec := &localExecutor{handlers: c.handlers}
 	c.toolRegistry.RegisterExecutor(localExec)
 	c.registerMCPExecutors()
-	c.registerA2ATools()
-	c.registerAgentTools()
+	// Register capability tools (includes A2A)
+	for _, cap := range c.capabilities {
+		cap.RegisterTools(c.toolRegistry)
+	}
 	toolRegistry := c.toolRegistry
 	c.handlersMu.RUnlock()
 
@@ -814,6 +818,13 @@ func (c *Conversation) Close() error {
 	if c.mode == DuplexMode && c.duplexSession != nil {
 		if err := c.duplexSession.Close(); err != nil {
 			return fmt.Errorf("failed to close duplex session: %w", err)
+		}
+	}
+
+	// Close capabilities
+	for _, cap := range c.capabilities {
+		if err := cap.Close(); err != nil {
+			return fmt.Errorf("failed to close capability %q: %w", cap.Name(), err)
 		}
 	}
 
