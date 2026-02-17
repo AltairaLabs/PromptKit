@@ -1230,6 +1230,60 @@ func TestPack_ValidateWorkflow(t *testing.T) {
 	})
 }
 
+func TestPack_ValidateWorkflowDetailed(t *testing.T) {
+	p := &Pack{
+		ID:      "test-pack",
+		Version: "v1.0.0",
+		Prompts: map[string]*PackPrompt{
+			"gather": {ID: "gather", SystemTemplate: "G", Version: "1.0.0",
+				Variables: []VariableMetadata{{Name: "x", Required: true}}},
+			"solve": {ID: "solve", SystemTemplate: "S", Version: "1.0.0",
+				Variables: []VariableMetadata{{Name: "x", Required: true}}},
+		},
+		TemplateEngine: &TemplateEngineInfo{Version: "v1", Syntax: "handlebars"},
+		Compilation:    &CompilationInfo{CompiledWith: "packc v1"},
+	}
+
+	t.Run("nil workflow returns empty result", func(t *testing.T) {
+		result := p.ValidateWorkflow()
+		assert.False(t, result.HasErrors())
+		assert.Empty(t, result.Warnings)
+	})
+
+	t.Run("valid workflow returns no errors", func(t *testing.T) {
+		p.Workflow = &WorkflowConfig{
+			Version: 1,
+			Entry:   "intake",
+			States: map[string]*WorkflowState{
+				"intake":  {PromptTask: "gather", OnEvent: map[string]string{"Done": "solving"}},
+				"solving": {PromptTask: "solve"},
+			},
+		}
+		result := p.ValidateWorkflow()
+		assert.False(t, result.HasErrors())
+		assert.Empty(t, result.Warnings)
+	})
+
+	t.Run("errors and warnings separated", func(t *testing.T) {
+		p.Workflow = &WorkflowConfig{
+			Version: 1,
+			Entry:   "intake",
+			States: map[string]*WorkflowState{
+				"intake": {PromptTask: "gather", OnEvent: map[string]string{
+					"Done":       "solving",
+					"not_pascal": "solving", // warning: not PascalCase
+				}},
+				"solving": {PromptTask: "solve", OnEvent: map[string]string{
+					"Back": "ghost", // error: target doesn't exist
+				}},
+			},
+		}
+		result := p.ValidateWorkflow()
+		assert.True(t, result.HasErrors())
+		assert.NotEmpty(t, result.Warnings)
+	})
+}
+
 func containsSubstring(s, sub string) bool {
 	for i := 0; i <= len(s)-len(sub); i++ {
 		if s[i:i+len(sub)] == sub {

@@ -599,11 +599,7 @@ func (p *Pack) Validate() []string {
 	warnings = append(warnings, p.validatePrompts()...)
 	warnings = append(warnings, p.validateCompilation()...)
 	if p.Workflow != nil {
-		promptKeys := make([]string, 0, len(p.Prompts))
-		for k := range p.Prompts {
-			promptKeys = append(promptKeys, k)
-		}
-		result := workflow.Validate(p.Workflow, promptKeys)
+		result := p.ValidateWorkflow()
 		warnings = append(warnings, result.Errors...)
 		warnings = append(warnings, result.Warnings...)
 	}
@@ -613,6 +609,19 @@ func (p *Pack) Validate() []string {
 		warnings = append(warnings, agentWarnings...)
 	}
 	return warnings
+}
+
+// ValidateWorkflow validates the workflow section and returns a detailed result
+// with separate errors and warnings. Returns an empty result if no workflow is present.
+func (p *Pack) ValidateWorkflow() *workflow.ValidationResult {
+	if p.Workflow == nil {
+		return &workflow.ValidationResult{}
+	}
+	promptKeys := make([]string, 0, len(p.Prompts))
+	for k := range p.Prompts {
+		promptKeys = append(promptKeys, k)
+	}
+	return workflow.Validate(p.Workflow, promptKeys)
 }
 
 // validatePackFields validates pack-level required fields

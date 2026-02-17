@@ -571,6 +571,74 @@ func TestPrintPrompts(t *testing.T) {
 	printPrompts(pack)
 }
 
+func TestValidateWorkflowInPack(t *testing.T) {
+	t.Run("valid workflow no errors", func(t *testing.T) {
+		p := &prompt.Pack{
+			Prompts: map[string]*prompt.PackPrompt{
+				"greeting": {ID: "greeting"},
+				"farewell": {ID: "farewell"},
+			},
+			Workflow: &prompt.WorkflowConfig{
+				Version: 1,
+				Entry:   "start",
+				States: map[string]*prompt.WorkflowState{
+					"start": {PromptTask: "greeting", OnEvent: map[string]string{"Done": "end"}},
+					"end":   {PromptTask: "farewell"},
+				},
+			},
+		}
+		result := p.ValidateWorkflow()
+		assert.False(t, result.HasErrors())
+	})
+
+	t.Run("workflow errors are blocking", func(t *testing.T) {
+		p := &prompt.Pack{
+			Prompts: map[string]*prompt.PackPrompt{
+				"greeting": {ID: "greeting"},
+			},
+			Workflow: &prompt.WorkflowConfig{
+				Version: 1,
+				Entry:   "start",
+				States: map[string]*prompt.WorkflowState{
+					"start": {PromptTask: "greeting", OnEvent: map[string]string{"Done": "ghost"}},
+				},
+			},
+		}
+		result := p.ValidateWorkflow()
+		assert.True(t, result.HasErrors())
+	})
+
+	t.Run("workflow warnings are non-blocking", func(t *testing.T) {
+		p := &prompt.Pack{
+			Prompts: map[string]*prompt.PackPrompt{
+				"greeting": {ID: "greeting"},
+				"farewell": {ID: "farewell"},
+			},
+			Workflow: &prompt.WorkflowConfig{
+				Version: 1,
+				Entry:   "start",
+				States: map[string]*prompt.WorkflowState{
+					"start": {PromptTask: "greeting", OnEvent: map[string]string{
+						"Done":       "end",
+						"not_pascal": "end", // PascalCase warning
+					}},
+					"end": {PromptTask: "farewell"},
+				},
+			},
+		}
+		result := p.ValidateWorkflow()
+		assert.False(t, result.HasErrors())
+		assert.NotEmpty(t, result.Warnings)
+	})
+
+	t.Run("nil workflow returns empty result", func(t *testing.T) {
+		p := &prompt.Pack{}
+		result := p.ValidateWorkflow()
+		assert.False(t, result.HasErrors())
+		assert.Empty(t, result.Warnings)
+	})
+}
+
 func TestPrintWorkflow(t *testing.T) {
 	t.Run("with workflow", func(t *testing.T) {
 		pack := &prompt.Pack{
