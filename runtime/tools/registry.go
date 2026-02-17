@@ -79,6 +79,9 @@ func (r *Registry) Register(descriptor *ToolDescriptor) error {
 		}
 	}
 
+	// Auto-populate namespace from name
+	descriptor.Namespace, _ = ParseToolName(descriptor.Name)
+
 	// Cache the descriptor
 	r.tools[descriptor.Name] = descriptor
 	return nil
@@ -176,6 +179,7 @@ func (r *Registry) loadK8sManifest(filename string, temp any) error {
 		return fmt.Errorf(errInvalidToolDescriptor, filename, err)
 	}
 
+	toolConfig.Spec.Namespace, _ = ParseToolName(toolConfig.Spec.Name)
 	r.tools[toolConfig.Spec.Name] = &toolConfig.Spec
 	return nil
 }
@@ -205,6 +209,7 @@ func (r *Registry) loadJSONTool(filename string, data []byte) error {
 		return fmt.Errorf(errInvalidToolDescriptor, filename, err)
 	}
 
+	descriptor.Namespace, _ = ParseToolName(descriptor.Name)
 	r.tools[descriptor.Name] = &descriptor
 	return nil
 }
@@ -239,6 +244,17 @@ func (r *Registry) GetToolsByNames(names []string) ([]*ToolDescriptor, error) {
 		tools = append(tools, tool)
 	}
 	return tools, nil
+}
+
+// GetByNamespace returns all tool descriptors in the given namespace.
+func (r *Registry) GetByNamespace(ns string) []*ToolDescriptor {
+	var result []*ToolDescriptor
+	for _, tool := range r.tools {
+		if tool.Namespace == ns {
+			result = append(result, tool)
+		}
+	}
+	return result
 }
 
 // RegisterExecutor registers a tool executor

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
@@ -55,19 +56,38 @@ func (e *MCPExecutor) callMCPTool(toolName string, args json.RawMessage) (*mcp.T
 	ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
 	defer cancel()
 
-	client, err := e.registry.GetClientForTool(ctx, toolName)
+	// Use the raw MCP name (without namespace prefix) for server communication
+	rawName := mcpRawToolName(toolName)
+
+	client, err := e.registry.GetClientForTool(ctx, rawName)
 	if err != nil {
 		logger.Error("❌ MCP Tool Failed", "tool", toolName, "error", err)
 		return nil, fmt.Errorf("failed to get MCP client for tool %s: %w", toolName, err)
 	}
 
-	response, err := client.CallTool(ctx, toolName, args)
+	response, err := client.CallTool(ctx, rawName, args)
 	if err != nil {
 		logger.Error("❌ MCP Tool Failed", "tool", toolName, "error", err)
 		return nil, fmt.Errorf("MCP tool call failed: %w", err)
 	}
 
 	return response, nil
+}
+
+// mcpRawToolName strips the "mcp__server__" prefix from a qualified tool name,
+// returning the original name the MCP server knows. If no "mcp__" prefix is
+// present, the name is returned as-is for backward compatibility.
+func mcpRawToolName(qualifiedName string) string {
+	ns, rest, found := strings.Cut(qualifiedName, NamespaceSep)
+	if !found || ns != "mcp" {
+		return qualifiedName
+	}
+	// rest is "server__tool"; strip the server part
+	_, rawName, found := strings.Cut(rest, NamespaceSep)
+	if !found {
+		return qualifiedName
+	}
+	return rawName
 }
 
 func (e *MCPExecutor) handleErrorResponse(toolName string, response *mcp.ToolCallResponse) error {

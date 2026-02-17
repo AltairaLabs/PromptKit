@@ -86,7 +86,7 @@ func TestA2AExecutor_Execute(t *testing.T) {
 
 	exec := a2a.NewExecutor()
 	desc := &tools.ToolDescriptor{
-		Name: "a2a_testagent_greet",
+		Name: "a2a__testagent__greet",
 		Mode: "a2a",
 		A2AConfig: &tools.A2AConfig{
 			AgentURL: srv.URL,
@@ -118,7 +118,7 @@ func TestA2AExecutor_Execute_Timeout(t *testing.T) {
 
 	exec := a2a.NewExecutor()
 	desc := &tools.ToolDescriptor{
-		Name: "a2a_testagent_greet",
+		Name: "a2a__testagent__greet",
 		Mode: "a2a",
 		A2AConfig: &tools.A2AConfig{
 			AgentURL:  srv.URL,
@@ -171,10 +171,10 @@ func TestWithA2ATools_ToolsRegistered(t *testing.T) {
 
 	conv.registerA2ATools()
 
-	// The tool name is "a2a_myagent_summarize" (sanitized)
-	tool, err := conv.toolRegistry.GetTool("a2a_myagent_summarize")
+	// The tool name is "a2a__myagent__summarize" (sanitized)
+	tool, err := conv.toolRegistry.GetTool("a2a__myagent__summarize")
 	require.NoError(t, err)
-	assert.Equal(t, "a2a_myagent_summarize", tool.Name)
+	assert.Equal(t, "a2a__myagent__summarize", tool.Name)
 	assert.Equal(t, "a2a", tool.Mode)
 	assert.NotNil(t, tool.A2AConfig)
 	assert.Equal(t, srv.URL, tool.A2AConfig.AgentURL)
@@ -193,7 +193,7 @@ func TestWithA2ATools_ExecutorRegistered(t *testing.T) {
 
 	// The registry should be able to resolve the "a2a" executor for this tool.
 	// We verify by calling Execute on the registry directly.
-	result, err := conv.toolRegistry.Execute("a2a_myagent_summarize", json.RawMessage(`{"query":"test"}`))
+	result, err := conv.toolRegistry.Execute("a2a__myagent__summarize", json.RawMessage(`{"query":"test"}`))
 	require.NoError(t, err)
 	assert.NotNil(t, result)
 	assert.Empty(t, result.Error)
@@ -231,7 +231,7 @@ func TestWithA2ATools_AlongsidePackTools(t *testing.T) {
 	_, err := conv.toolRegistry.GetTool("local_tool")
 	assert.NoError(t, err)
 
-	_, err = conv.toolRegistry.GetTool("a2a_remoteagent_translate")
+	_, err = conv.toolRegistry.GetTool("a2a__remoteagent__translate")
 	assert.NoError(t, err)
 }
 

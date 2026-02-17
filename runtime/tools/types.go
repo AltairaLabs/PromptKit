@@ -14,10 +14,51 @@ package tools
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+// NamespaceSep is the separator used in qualified tool names.
+// Example: "a2a__weather_agent__get_forecast"
+const NamespaceSep = "__"
+
+// knownNamespaces lists the namespaces recognized as system/infrastructure tools.
+var knownNamespaces = map[string]bool{
+	"a2a":      true,
+	"mcp":      true,
+	"workflow": true,
+	"memory":   true,
+}
+
+// ParseToolName splits a qualified tool name on the first NamespaceSep.
+// "a2a__weather__forecast" → ("a2a", "weather__forecast")
+// "get_weather"            → ("", "get_weather")
+// ""                       → ("", "")
+func ParseToolName(name string) (namespace, localName string) {
+	ns, local, found := strings.Cut(name, NamespaceSep)
+	if !found {
+		return "", name
+	}
+	return ns, local
+}
+
+// QualifyToolName joins a namespace and local name with NamespaceSep.
+// ("mcp", "fs__read") → "mcp__fs__read"
+// ("", "get_weather") → "get_weather"
+func QualifyToolName(namespace, localName string) string {
+	if namespace == "" {
+		return localName
+	}
+	return namespace + NamespaceSep + localName
+}
+
+// IsSystemTool returns true if name belongs to a known system namespace.
+func IsSystemTool(name string) bool {
+	ns, _ := ParseToolName(name)
+	return knownNamespaces[ns]
+}
 
 // ToolConfig represents a K8s-style tool configuration manifest
 type ToolConfig struct {
@@ -30,6 +71,7 @@ type ToolConfig struct {
 // ToolDescriptor represents a normalized tool definition
 type ToolDescriptor struct {
 	Name         string          `json:"name" yaml:"name"`
+	Namespace    string          `json:"namespace,omitempty" yaml:"namespace,omitempty"`
 	Description  string          `json:"description" yaml:"description"`
 	InputSchema  json.RawMessage `json:"input_schema" yaml:"input_schema"`   // JSON Schema Draft-07
 	OutputSchema json.RawMessage `json:"output_schema" yaml:"output_schema"` // JSON Schema Draft-07

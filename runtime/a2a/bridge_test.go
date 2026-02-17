@@ -276,7 +276,7 @@ func TestToolBridge_RegisterAgent_ToolNaming(t *testing.T) {
 		t.Fatalf("RegisterAgent: %v", err)
 	}
 
-	expected := "a2a_weather_bot_forecast"
+	expected := "a2a__weather_bot__forecast"
 	if tds[0].Name != expected {
 		t.Errorf("expected name %q, got %q", expected, tds[0].Name)
 	}
@@ -288,10 +288,10 @@ func TestToolBridge_RegisterAgent_NameSanitization(t *testing.T) {
 		skillID   string
 		want      string
 	}{
-		{"My Agent!", "do-stuff", "a2a_my_agent_do_stuff"},
-		{"UPPER", "CASE", "a2a_upper_case"},
-		{"  spaces  ", "  skill  ", "a2a_spaces_skill"},
-		{"multi---dash", "under___score", "a2a_multi_dash_under_score"},
+		{"My Agent!", "do-stuff", "a2a__my_agent__do_stuff"},
+		{"UPPER", "CASE", "a2a__upper__case"},
+		{"  spaces  ", "  skill  ", "a2a__spaces__skill"},
+		{"multi---dash", "under___score", "a2a__multi_dash__under_score"},
 	}
 
 	for _, tt := range tests {
@@ -406,7 +406,7 @@ func TestToolBridge_GetToolDescriptors(t *testing.T) {
 	for _, td := range all {
 		names[td.Name] = true
 	}
-	for _, want := range []string{"a2a_agent1_s1", "a2a_agent2_s2", "a2a_agent2_s3"} {
+	for _, want := range []string{"a2a__agent1__s1", "a2a__agent2__s2", "a2a__agent2__s3"} {
 		if !names[want] {
 			t.Errorf("missing expected tool %q", want)
 		}

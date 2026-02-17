@@ -6,7 +6,7 @@ scenarios:
     turns:
       1:
         tool_calls:
-          - name: "a2a_research_agent_search_papers"
+          - name: "a2a__research_agent__search_papers"
             arguments:
               query: "Search for papers about quantum computing"
       2:

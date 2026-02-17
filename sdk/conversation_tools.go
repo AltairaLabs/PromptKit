@@ -424,18 +424,24 @@ func (c *Conversation) registerMCPExecutors() {
 		return
 	}
 
-	for _, serverTools := range mcpTools {
+	for serverName, serverTools := range mcpTools {
 		for _, tool := range serverTools {
-			// Register the MCP tool in the registry if not already present
+			qualifiedName := fmt.Sprintf("mcp__%s__%s", serverName, tool.Name)
+
+			// Register the MCP tool in the registry with qualified name
 			desc := &tools.ToolDescriptor{
-				Name:        tool.Name,
+				Name:        qualifiedName,
 				Description: tool.Description,
 				InputSchema: tool.InputSchema,
 				Mode:        "mcp",
 			}
 			_ = c.toolRegistry.Register(desc)
 
-			adapter := &mcpHandlerAdapter{name: tool.Name, registry: c.mcpRegistry}
+			adapter := &mcpHandlerAdapter{
+				qualifiedName: qualifiedName,
+				rawName:       tool.Name,
+				registry:      c.mcpRegistry,
+			}
 			c.toolRegistry.RegisterExecutor(adapter)
 		}
 	}

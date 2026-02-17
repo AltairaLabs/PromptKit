@@ -12,5 +12,5 @@ spec:
     When asked to translate, delegate to the translation agent.
     Summarize the results for the user.
   allowed_tools:
-    - a2a_research_agent_search_papers
-    - a2a_translation_agent_translate
+    - a2a__research_agent__search_papers
+    - a2a__translation_agent__translate

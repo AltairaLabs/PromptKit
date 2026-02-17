@@ -60,7 +60,7 @@ func skillToToolDescriptor(agentURL string, card *AgentCard, skill *AgentSkill) 
 		outputModes = card.DefaultOutputModes
 	}
 
-	name := fmt.Sprintf("a2a_%s_%s", sanitizeName(card.Name), sanitizeName(skill.ID))
+	name := fmt.Sprintf("a2a__%s__%s", sanitizeName(card.Name), sanitizeName(skill.ID))
 
 	description := skill.Description
 	if description == "" {

@@ -165,15 +165,16 @@ func TestWithMCPServer(t *testing.T) {
 }
 
 func TestMCPHandlerAdapter(t *testing.T) {
-	t.Run("name returns tool name", func(t *testing.T) {
+	t.Run("name returns qualified tool name", func(t *testing.T) {
 		adapter := &mcpHandlerAdapter{
-			name:     "read_file",
-			registry: newMockMCPRegistry(),
+			qualifiedName: "mcp__filesystem__read_file",
+			rawName:       "read_file",
+			registry:      newMockMCPRegistry(),
 		}
-		assert.Equal(t, "read_file", adapter.Name())
+		assert.Equal(t, "mcp__filesystem__read_file", adapter.Name())
 	})
 
-	t.Run("execute calls mcp tool", func(t *testing.T) {
+	t.Run("execute calls mcp tool with raw name", func(t *testing.T) {
 		registry := newMockMCPRegistry()
 		registry.callFunc = func(name string, args json.RawMessage) (*mcp.ToolCallResponse, error) {
 			assert.Equal(t, "read_file", name)
@@ -183,8 +184,9 @@ func TestMCPHandlerAdapter(t *testing.T) {
 		}
 
 		adapter := &mcpHandlerAdapter{
-			name:     "read_file",
-			registry: registry,
+			qualifiedName: "mcp__filesystem__read_file",
+			rawName:       "read_file",
+			registry:      registry,
 		}
 
 		result, err := adapter.Execute(&tools.ToolDescriptor{}, json.RawMessage(`{"path":"/tmp/test"}`))
@@ -202,8 +204,9 @@ func TestMCPHandlerAdapter(t *testing.T) {
 		}
 
 		adapter := &mcpHandlerAdapter{
-			name:     "read_file",
-			registry: registry,
+			qualifiedName: "mcp__filesystem__read_file",
+			rawName:       "read_file",
+			registry:      registry,
 		}
 
 		_, err := adapter.Execute(&tools.ToolDescriptor{}, json.RawMessage(`{}`))
@@ -223,8 +226,9 @@ func TestMCPHandlerAdapter(t *testing.T) {
 		}
 
 		adapter := &mcpHandlerAdapter{
-			name:     "multi_output",
-			registry: registry,
+			qualifiedName: "mcp__test__multi_output",
+			rawName:       "multi_output",
+			registry:      registry,
 		}
 
 		result, err := adapter.Execute(&tools.ToolDescriptor{}, json.RawMessage(`{}`))
@@ -261,10 +265,10 @@ func TestBuildToolRegistryWithMCP(t *testing.T) {
 		registry := conv.ToolRegistry()
 
 		assert.NotNil(t, registry)
-		// MCP tool should be registered
-		tool, err := registry.GetTool("mcp_tool")
+		// MCP tool should be registered with qualified name
+		tool, err := registry.GetTool("mcp__server1__mcp_tool")
 		assert.NoError(t, err)
-		assert.Equal(t, "mcp_tool", tool.Name)
+		assert.Equal(t, "mcp__server1__mcp_tool", tool.Name)
 		assert.Equal(t, "mcp", tool.Mode)
 	})
 
@@ -312,9 +316,9 @@ func TestBuildToolRegistryWithMCP(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "local_tool", localTool.Name)
 
-		mcpTool, err := registry.GetTool("mcp_tool")
+		mcpTool, err := registry.GetTool("mcp__server1__mcp_tool")
 		assert.NoError(t, err)
-		assert.Equal(t, "mcp_tool", mcpTool.Name)
+		assert.Equal(t, "mcp__server1__mcp_tool", mcpTool.Name)
 	})
 }
 

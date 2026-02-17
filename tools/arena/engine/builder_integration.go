@@ -246,15 +246,16 @@ func discoverAndRegisterMCPTools(mcpRegistry *mcp.RegistryImpl, toolRegistry *to
 				"required": ["content"]
 			}`)
 
+			qualifiedName := fmt.Sprintf("mcp__%s__%s", serverName, mcpTool.Name)
 			toolDesc := &tools.ToolDescriptor{
-				Name:         mcpTool.Name,
+				Name:         qualifiedName,
 				Description:  mcpTool.Description,
 				InputSchema:  mcpTool.InputSchema,
 				OutputSchema: mcpOutputSchema,
 				Mode:         "mcp", // Mark as MCP tool for routing
 			}
 			if err := toolRegistry.Register(toolDesc); err != nil {
-				return fmt.Errorf("failed to register MCP tool %s from server %s: %w", mcpTool.Name, serverName, err)
+				return fmt.Errorf("failed to register MCP tool %s from server %s: %w", qualifiedName, serverName, err)
 			}
 			totalTools++
 		}

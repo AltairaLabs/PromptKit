@@ -1056,7 +1056,7 @@ func renderConversationDetails(result assertions.ConversationValidationResult) s
 
 // isAgentTool returns true if the tool name is an A2A agent tool.
 func isAgentTool(name string) bool {
-	return strings.HasPrefix(name, "a2a_")
+	return strings.HasPrefix(name, "a2a__")
 }
 
 // hasA2AAgents checks if a result has A2A agent metadata.
