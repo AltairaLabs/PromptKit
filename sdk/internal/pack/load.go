@@ -41,8 +41,8 @@ type Pack struct {
 	// Evals - Pack-level eval definitions (applied to all prompts unless overridden)
 	Evals []evals.EvalDef `json:"evals,omitempty"`
 
-	// Workflow - State-machine workflow config (opaque to SDK, passed through)
-	Workflow json.RawMessage `json:"workflow,omitempty"`
+	// Workflow - State-machine workflow config
+	Workflow *WorkflowSpec `json:"workflow,omitempty"`
 
 	// Agents - Agent configuration mapping prompts to A2A-compatible agent definitions
 	Agents *AgentsConfig `json:"agents,omitempty"`
@@ -213,6 +213,11 @@ func Parse(data []byte) (*Pack, error) {
 	// Validate basic structure
 	if len(pack.Prompts) == 0 {
 		return nil, fmt.Errorf("pack contains no prompts")
+	}
+
+	// Validate workflow section if present
+	if err := pack.ValidateWorkflow(); err != nil {
+		return nil, err
 	}
 
 	// Validate agents section if present

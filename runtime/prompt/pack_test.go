@@ -1169,3 +1169,72 @@ func TestPack_ValidateAgents(t *testing.T) {
 		assert.True(t, found, "expected agents error in Validate() output")
 	})
 }
+
+func TestPack_ValidateWorkflow(t *testing.T) {
+	basePack := func() *Pack {
+		return &Pack{
+			ID:      "test-pack",
+			Version: "v1.0.0",
+			Prompts: map[string]*PackPrompt{
+				"gather": {ID: "gather", SystemTemplate: "Gather", Version: "1.0.0",
+					Variables: []VariableMetadata{{Name: "x", Required: true}}},
+				"solve": {ID: "solve", SystemTemplate: "Solve", Version: "1.0.0",
+					Variables: []VariableMetadata{{Name: "x", Required: true}}},
+			},
+			TemplateEngine: &TemplateEngineInfo{Version: "v1", Syntax: "handlebars"},
+			Compilation:    &CompilationInfo{CompiledWith: "packc v1"},
+		}
+	}
+
+	t.Run("nil workflow passes", func(t *testing.T) {
+		p := basePack()
+		warnings := p.Validate()
+		for _, w := range warnings {
+			assert.NotContains(t, w, "workflow")
+		}
+	})
+
+	t.Run("valid workflow passes", func(t *testing.T) {
+		p := basePack()
+		p.Workflow = &WorkflowConfig{
+			Version: 1,
+			Entry:   "intake",
+			States: map[string]*WorkflowState{
+				"intake":  {PromptTask: "gather", OnEvent: map[string]string{"Done": "solving"}},
+				"solving": {PromptTask: "solve"},
+			},
+		}
+		warnings := p.Validate()
+		for _, w := range warnings {
+			assert.NotContains(t, w, "workflow.version")
+		}
+	})
+
+	t.Run("invalid workflow entry surfaces in Validate", func(t *testing.T) {
+		p := basePack()
+		p.Workflow = &WorkflowConfig{
+			Version: 1,
+			Entry:   "nonexistent",
+			States: map[string]*WorkflowState{
+				"intake": {PromptTask: "gather"},
+			},
+		}
+		warnings := p.Validate()
+		found := false
+		for _, w := range warnings {
+			if assert.ObjectsAreEqual(true, len(w) > 0) && containsSubstring(w, "does not reference a key in states") {
+				found = true
+			}
+		}
+		assert.True(t, found, "expected workflow entry error in Validate(), got: %v", warnings)
+	})
+}
+
+func containsSubstring(s, sub string) bool {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}
