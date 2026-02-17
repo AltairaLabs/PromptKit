@@ -8,6 +8,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	asrt "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
@@ -40,14 +41,17 @@ func (e *Engine) executeWorkflowRun(
 	wfScenario := configToWorkflowScenario(scenario)
 
 	// Create workflow executor with a driver factory for this provider
-	factory := newArenaDriverFactory(provider, combo.ScenarioID)
+	factory, getDriver := newArenaDriverFactory(provider, combo.ScenarioID)
 	executor := wf.NewExecutor(factory)
 
 	// Execute the workflow
 	result := executor.Execute(ctx, wfScenario)
 
-	// Convert workflow result to messages + assertions for state store
-	messages, assertionResults := workflowResultToMessages(wfScenario, result)
+	// Convert workflow result to messages + assertions for state store.
+	// The driver provides state→system prompt lookup so each transition
+	// shows the new system prompt in the report.
+	drv := getDriver()
+	messages, assertionResults := workflowResultToMessages(result, drv)
 
 	// Build conversation result for metadata
 	convResult := &ConversationResult{
@@ -83,6 +87,22 @@ func (e *Engine) executeWorkflowRun(
 		"steps", len(result.Steps),
 		"failed", result.Failed,
 	)
+
+	// Save conversation messages to state store so they appear in reports
+	convState := &runtimestore.ConversationState{
+		ID:       runID,
+		Messages: messages,
+		Metadata: map[string]interface{}{
+			"region":        combo.Region,
+			"provider":      combo.ProviderID,
+			"scenario":      combo.ScenarioID,
+			"final_state":   result.FinalState,
+			"system_prompt": drv.InitialSystemPrompt(),
+		},
+	}
+	if err := arenaStore.Save(ctx, convState); err != nil {
+		return runID, fmt.Errorf("failed to save workflow conversation: %w", err)
+	}
 
 	if err := arenaStore.SaveMetadata(ctx, runID, metadata); err != nil {
 		return runID, fmt.Errorf("failed to save workflow run metadata: %w", err)
@@ -120,40 +140,25 @@ func configToWorkflowScenario(s *config.Scenario) *wf.Scenario {
 	}
 }
 
-// workflowResultToMessages converts a workflow.Result and its source scenario into
-// Arena messages and assertion results.
-// Input steps produce user + assistant message pairs.
-// Event steps produce a system message noting the transition.
+// workflowResultToMessages returns the driver's message trace and collects all
+// assertion results from the workflow execution.
+// The message trace already contains: initial system prompt → user/assistant pairs
+// → tool calls → tool results → new system prompts across all state transitions.
 func workflowResultToMessages(
-	scenario *wf.Scenario, result *wf.Result,
+	result *wf.Result, drv *arenaWorkflowDriver,
 ) ([]types.Message, []asrt.ConversationValidationResult) {
-	var messages []types.Message
 	var allAssertions []asrt.ConversationValidationResult
-
 	for _, step := range result.Steps {
-		switch step.Type {
-		case wf.StepInput:
-			// Get the original user content from the scenario step
-			userContent := ""
-			if step.Index < len(scenario.Steps) {
-				userContent = scenario.Steps[step.Index].Content
-			}
-			messages = append(messages,
-				types.Message{Role: "user", Content: userContent},
-				types.Message{Role: "assistant", Content: step.Response},
-			)
-		case wf.StepEvent:
-			eventName := ""
-			if step.Index < len(scenario.Steps) {
-				eventName = scenario.Steps[step.Index].Event
-			}
-			messages = append(messages, types.Message{
-				Role:    "system",
-				Content: fmt.Sprintf("[workflow] event %q → state %q", eventName, step.State),
-			})
-		}
-
 		allAssertions = append(allAssertions, step.AssertionResults...)
+	}
+
+	var messages []types.Message
+	if drv != nil {
+		// Prepend the initial state's system prompt
+		if sp := drv.InitialSystemPrompt(); sp != "" {
+			messages = append(messages, types.Message{Role: "system", Content: sp})
+		}
+		messages = append(messages, drv.MessageTrace()...)
 	}
 
 	return messages, allAssertions

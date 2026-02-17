@@ -19,18 +19,16 @@ spec:
           params:
             pattern: "(?i)(help|billing|account|charge)"
 
-    # Step 2: Agent gathers details
+    # Step 2: Agent gathers details, LLM transitions to specialist
     - type: input
       content: "My account number is AC-12345 and the duplicate charge was $49.99."
       assertions:
+        - type: transitioned_to
+          params:
+            state: specialist
         - type: content_matches
           params:
             pattern: "(?i)(escalate|specialist|billing)"
-
-    # Event: Escalate to specialist
-    - type: event
-      event: Escalate
-      expect_state: specialist
 
     # Step 3: Specialist handles the issue
     - type: input
@@ -39,25 +37,20 @@ spec:
         - type: state_is
           params:
             state: specialist
-        - type: transitioned_to
-          params:
-            state: specialist
         - type: content_matches
           params:
             pattern: "(?i)(refund|charge|duplicate)"
 
-    # Step 4: Specialist resolves
+    # Step 4: Specialist resolves, LLM transitions to closed
     - type: input
       content: "Please go ahead with the refund."
       assertions:
+        - type: transitioned_to
+          params:
+            state: closed
         - type: content_matches
           params:
             pattern: "(?i)(refund|process|business day)"
-
-    # Event: Resolve → closed
-    - type: event
-      event: Resolve
-      expect_state: closed
 
     # Step 5: Closing summary
     - type: input

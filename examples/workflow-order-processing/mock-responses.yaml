@@ -1,17 +1,54 @@
 # Mock responses for the workflow-order-processing example.
 # Responses are keyed by scenario ID and turn number.
+# Turns with tool_calls simulate LLM-initiated workflow transitions.
 
 scenarios:
   order-flow:
     turns:
-      1: "Thank you for your order! Your order ORD-78901 has been placed successfully. You ordered 1x Wireless Headphones ($79.99). We'll notify you once payment is confirmed. Estimated delivery is 5-7 business days."
-      2: "Great news! Payment of $79.99 has been received for order ORD-78901 via credit card ending in 4242. Transaction ID: TXN-55678. Your order is now being prepared for shipping."
-      3: "Your order ORD-78901 has shipped! Tracking number: TRACK-99012. The package is currently at our distribution center and will be handed off to the carrier today. Estimated delivery: March 3-5."
+      1:
+        response: "Thank you for your order! Your order ORD-78901 has been placed successfully. You ordered 1x Wireless Headphones ($79.99). We'll notify you once payment is confirmed. Estimated delivery is 5-7 business days."
+        tool_calls:
+          - name: workflow__transition
+            arguments:
+              event: PaymentReceived
+              context: "Order ORD-78901 placed for 1x Wireless Headphones ($79.99). Payment pending confirmation."
+      2:
+        response: "Great news! Payment of $79.99 has been received for order ORD-78901 via credit card ending in 4242. Transaction ID: TXN-55678. Your order is now being prepared for shipping."
+        tool_calls:
+          - name: workflow__transition
+            arguments:
+              event: ItemShipped
+              context: "Payment confirmed for ORD-78901. TXN-55678. $79.99 via credit card ending 4242."
+      3:
+        response: "Your order ORD-78901 has shipped! Tracking number: TRACK-99012. The package is currently at our distribution center and will be handed off to the carrier today. Estimated delivery: March 3-5."
+        tool_calls:
+          - name: workflow__transition
+            arguments:
+              event: Delivered
+              context: "Order ORD-78901 shipped with tracking TRACK-99012. Estimated delivery March 3-5."
       4: "Your order ORD-78901 has been delivered! The package was left at your front door at 2:15 PM today. We hope you enjoy your Wireless Headphones. If you have any issues, our return policy covers 30 days from delivery."
 
   validation-checks:
     turns:
-      1: "Your order ORD-55123 for 2x USB-C Cables ($12.99 each) has been confirmed. Total: $25.98. Payment will be processed shortly."
-      2: "Payment confirmed! $25.98 charged to your PayPal account. Transaction ID: TXN-88234. Your order ORD-55123 is queued for fulfillment."
-      3: "Order ORD-55123 has shipped via standard delivery. Tracking number: TRACK-44567. Expected delivery: March 5-7."
+      1:
+        response: "Your order ORD-55123 for 2x USB-C Cables ($12.99 each) has been confirmed. Total: $25.98. Payment will be processed shortly."
+        tool_calls:
+          - name: workflow__transition
+            arguments:
+              event: PaymentReceived
+              context: "Order ORD-55123 confirmed. 2x USB-C Cables, total $25.98."
+      2:
+        response: "Payment confirmed! $25.98 charged to your PayPal account. Transaction ID: TXN-88234. Your order ORD-55123 is queued for fulfillment."
+        tool_calls:
+          - name: workflow__transition
+            arguments:
+              event: ItemShipped
+              context: "Payment of $25.98 confirmed via PayPal. TXN-88234."
+      3:
+        response: "Order ORD-55123 has shipped via standard delivery. Tracking number: TRACK-44567. Expected delivery: March 5-7."
+        tool_calls:
+          - name: workflow__transition
+            arguments:
+              event: Delivered
+              context: "Order ORD-55123 shipped. Tracking TRACK-44567. Expected March 5-7."
       4: "Delivery confirmed for order ORD-55123. Both USB-C Cables were delivered to your mailbox at 11:30 AM. Thank you for shopping with ShopCo! Our return policy covers 30 days from delivery."

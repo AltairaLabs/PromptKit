@@ -11,7 +11,7 @@ func TestScenario_Validate_Valid(t *testing.T) {
 		Pack: "./test.pack.json",
 		Steps: []Step{
 			{Type: StepInput, Content: "hello"},
-			{Type: StepEvent, Event: "Next"},
+			{Type: StepInput, Content: "world"},
 		},
 	}
 	if err := s.Validate(); err != nil {
@@ -63,16 +63,23 @@ func TestScenario_Validate_InputMissingContent(t *testing.T) {
 	}
 }
 
-func TestScenario_Validate_EventMissingEvent(t *testing.T) {
+func TestScenario_Validate_EventStepRejected(t *testing.T) {
 	t.Parallel()
 	s := &Scenario{
 		ID:    "x",
 		Pack:  "x.pack.json",
-		Steps: []Step{{Type: StepEvent}},
+		Steps: []Step{{Type: StepEvent, Event: "Escalate"}},
 	}
 	err := s.Validate()
 	if err == nil {
-		t.Fatal("expected error for event step without event name")
+		t.Fatal("expected error for event step (event steps are no longer supported)")
+	}
+	stepErr, ok := err.(*StepError)
+	if !ok {
+		t.Fatalf("expected *StepError, got %T: %v", err, err)
+	}
+	if stepErr.Index != 0 {
+		t.Fatalf("expected step index 0, got %d", stepErr.Index)
 	}
 }
 

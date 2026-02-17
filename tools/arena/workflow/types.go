@@ -1,9 +1,9 @@
 // Package workflow provides workflow scenario support for Arena.
 //
 // Workflow scenarios test multi-state flows where an agent transitions
-// between prompt_tasks in response to events. Each step in a scenario
-// is either an "input" (send a message) or an "event" (trigger a
-// state transition).
+// between prompt_tasks. Transitions are LLM-initiated: the LLM calls
+// the workflow__transition tool with an event and context, and the
+// driver processes the transition internally.
 //
 // Example YAML:
 //
@@ -16,11 +16,11 @@
 //	    assertions:
 //	      - type: content_includes
 //	        params: { substring: "billing" }
-//	  - type: event
-//	    event: Escalate
-//	    expect_state: specialist
 //	  - type: input
 //	    content: "My invoice is wrong"
+//	    assertions:
+//	      - type: transitioned_to
+//	        params: { state: specialist }
 package workflow
 
 import (
@@ -109,8 +109,9 @@ func (step *Step) validate(index int) error {
 			return &StepError{Index: index, Msg: "input step requires content"}
 		}
 	case StepEvent:
-		if step.Event == "" {
-			return &StepError{Index: index, Msg: "event step requires event name"}
+		return &StepError{
+			Index: index,
+			Msg:   "event steps are not supported; transitions are LLM-initiated via workflow__transition tool calls",
 		}
 	default:
 		return &StepError{Index: index, Msg: "unknown step type: " + string(step.Type)}

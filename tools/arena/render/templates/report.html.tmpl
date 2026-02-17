@@ -362,6 +362,8 @@
             background: #faf5ff;
             border-left: 4px solid #805ad5;
         }
+
+
         
         .turn.tool {
             background: #fff5f0;
@@ -1293,6 +1295,25 @@
             margin-right: 0.25rem;
         }
 
+        /* Workflow transition tool call styling */
+        .tool-call-name.workflow {
+            background: linear-gradient(135deg, #d97706, #ea580c);
+            color: white;
+            padding: 0.15rem 0.5rem;
+            border-radius: 0.25rem;
+        }
+
+        .tool-response-name.workflow {
+            background: linear-gradient(135deg, #d97706, #ea580c);
+            color: white;
+            padding: 0.15rem 0.5rem;
+            border-radius: 0.25rem;
+        }
+
+        .workflow-icon {
+            margin-right: 0.25rem;
+        }
+
         /* A2A Agent Cards Section */
         .a2a-agents-section {
             margin-top: 1rem;
@@ -1672,7 +1693,7 @@
                                         {{range $toolIdx, $toolCall := $msg.ToolCalls}}
                                         <div class="tool-call">
                                             <div class="tool-call-header" onclick="toggleToolContent(this)">
-                                                <span class="tool-call-name{{if isAgentTool $toolCall.Name}} agent{{end}}">{{if isAgentTool $toolCall.Name}}<span class="agent-icon">🤖</span>{{end}}{{$toolCall.Name}}</span>
+                                                <span class="tool-call-name{{if isAgentTool $toolCall.Name}} agent{{else if isWorkflowTool $toolCall.Name}} workflow{{end}}">{{if isAgentTool $toolCall.Name}}<span class="agent-icon">🤖</span>{{else if isWorkflowTool $toolCall.Name}}<span class="workflow-icon">⚡</span>{{end}}{{$toolCall.Name}}</span>
                                                 <span class="tool-call-id">{{$toolCall.ID}}</span>
                                                 <span class="tool-call-toggle">▶</span>
                                             </div>
@@ -1703,7 +1724,7 @@
                                     <div class="tool-response">
                                         <div class="tool-response-header" onclick="toggleToolResponse(this)">
                                             {{if $msg.ToolResult}}
-                                            <span class="tool-response-name{{if isAgentTool $msg.ToolResult.Name}} agent{{end}}">{{if isAgentTool $msg.ToolResult.Name}}<span class="agent-icon">🤖</span>{{end}}{{$msg.ToolResult.Name}}</span>
+                                            <span class="tool-response-name{{if isAgentTool $msg.ToolResult.Name}} agent{{else if isWorkflowTool $msg.ToolResult.Name}} workflow{{end}}">{{if isAgentTool $msg.ToolResult.Name}}<span class="agent-icon">🤖</span>{{else if isWorkflowTool $msg.ToolResult.Name}}<span class="workflow-icon">⚡</span>{{end}}{{$msg.ToolResult.Name}}</span>
                                             <span class="tool-response-id">{{$msg.ToolResult.ID}}</span>
                                             {{else}}
                                             <span class="tool-response-name">Tool Response</span>

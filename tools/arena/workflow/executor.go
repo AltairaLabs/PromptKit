@@ -8,14 +8,25 @@ import (
 	asrt "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 )
 
+// TransitionRecord captures a single workflow state transition.
+type TransitionRecord struct {
+	From    string `json:"from"`
+	To      string `json:"to"`
+	Event   string `json:"event"`
+	Context string `json:"context,omitempty"`
+}
+
 // Driver is the interface that a workflow engine must implement.
 // The SDK's WorkflowConversation satisfies this through an adapter.
 type Driver interface {
 	// Send sends a user message and returns the assistant response text.
+	// If the LLM calls the workflow__transition tool, the driver processes
+	// the transition internally and the result is available via Transitions().
 	Send(ctx context.Context, message string) (string, error)
 
-	// Transition triggers a state machine event and returns the new state.
-	Transition(event string) (string, error)
+	// Transitions returns the transitions that occurred during the last Send() call.
+	// The LLM initiates transitions by calling the workflow__transition tool.
+	Transitions() []TransitionRecord
 
 	// CurrentState returns the current workflow state name.
 	CurrentState() string
@@ -36,7 +47,7 @@ type StepResult struct {
 	// Index is the step position (0-based).
 	Index int `json:"index"`
 
-	// Type is "input" or "event".
+	// Type is "input".
 	Type StepType `json:"type"`
 
 	// Response is the assistant text (input steps only).
@@ -79,7 +90,7 @@ type Result struct {
 // Executor runs workflow scenarios against a Driver.
 type Executor struct {
 	factory     DriverFactory
-	transitions []map[string]interface{} // accumulated transitions for assertions
+	transitions []TransitionRecord // accumulated transitions for assertions
 }
 
 // NewExecutor creates a workflow scenario executor with the given driver factory.
@@ -139,8 +150,6 @@ func (e *Executor) executeStep(ctx context.Context, driver Driver, index int, st
 	switch step.Type {
 	case StepInput:
 		return e.executeInputStep(ctx, driver, index, step)
-	case StepEvent:
-		return e.executeEventStep(driver, index, step)
 	default:
 		return StepResult{
 			Index: index,
@@ -168,6 +177,9 @@ func (e *Executor) executeInputStep(ctx context.Context, driver Driver, index in
 		return sr
 	}
 
+	// Record any transitions the LLM initiated via tool calls
+	e.transitions = append(e.transitions, driver.Transitions()...)
+
 	// Evaluate turn-level assertions against the response
 	if len(step.Assertions) > 0 {
 		results, firstErr := e.runAssertions(ctx, driver, step.Assertions, response)
@@ -180,33 +192,3 @@ func (e *Executor) executeInputStep(ctx context.Context, driver Driver, index in
 	return sr
 }
 
-// executeEventStep triggers a transition and checks the expected state.
-func (e *Executor) executeEventStep(driver Driver, index int, step *Step) StepResult {
-	start := time.Now()
-
-	fromState := driver.CurrentState()
-	newState, err := driver.Transition(step.Event)
-	sr := StepResult{
-		Index:    index,
-		Type:     StepEvent,
-		State:    newState,
-		Duration: time.Since(start),
-	}
-	if err != nil {
-		sr.Error = fmt.Sprintf("transition %q failed: %v", step.Event, err)
-		return sr
-	}
-
-	// Record the transition for workflow assertions
-	e.transitions = append(e.transitions, map[string]interface{}{
-		"from":  fromState,
-		"to":    newState,
-		"event": step.Event,
-	})
-
-	if step.ExpectState != "" && newState != step.ExpectState {
-		sr.Error = fmt.Sprintf("expected state %q but got %q", step.ExpectState, newState)
-	}
-
-	return sr
-}

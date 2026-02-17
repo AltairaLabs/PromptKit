@@ -8,16 +8,15 @@ import (
 	asrt "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 )
 
-// mockDriver implements WorkflowDriver for testing.
+// mockDriver implements Driver for testing.
 type mockDriver struct {
-	state     string
-	responses []string
-	sendIdx   int
-	sendErr   error
-	transErr  error
-	states    map[string]string // event -> new state
-	terminal  bool
-	closed    bool
+	state           string
+	responses       []string
+	sendIdx         int
+	sendErr         error
+	lastTransitions []TransitionRecord // transitions to return from Transitions()
+	terminal        bool
+	closed          bool
 }
 
 func (m *mockDriver) Send(_ context.Context, _ string) (string, error) {
@@ -32,20 +31,10 @@ func (m *mockDriver) Send(_ context.Context, _ string) (string, error) {
 	return resp, nil
 }
 
-func (m *mockDriver) Transition(event string) (string, error) {
-	if m.transErr != nil {
-		return "", m.transErr
-	}
-	if newState, ok := m.states[event]; ok {
-		m.state = newState
-		return newState, nil
-	}
-	return "", errors.New("invalid event: " + event)
-}
-
-func (m *mockDriver) CurrentState() string { return m.state }
-func (m *mockDriver) IsComplete() bool     { return m.terminal }
-func (m *mockDriver) Close() error         { m.closed = true; return nil }
+func (m *mockDriver) Transitions() []TransitionRecord { return m.lastTransitions }
+func (m *mockDriver) CurrentState() string            { return m.state }
+func (m *mockDriver) IsComplete() bool                { return m.terminal }
+func (m *mockDriver) Close() error                    { m.closed = true; return nil }
 
 func newMockFactory(driver *mockDriver, err error) DriverFactory {
 	return func(string, map[string]string, bool) (Driver, error) {
@@ -62,7 +51,6 @@ func TestExecutor_Execute_FullScenario(t *testing.T) {
 	driver := &mockDriver{
 		state:     "intake",
 		responses: []string{"I can help with billing", "Looking at your invoice"},
-		states:    map[string]string{"Escalate": "specialist"},
 	}
 
 	scenario := &Scenario{
@@ -70,7 +58,6 @@ func TestExecutor_Execute_FullScenario(t *testing.T) {
 		Pack: "./support.pack.json",
 		Steps: []Step{
 			{Type: StepInput, Content: "I need help with billing"},
-			{Type: StepEvent, Event: "Escalate", ExpectState: "specialist"},
 			{Type: StepInput, Content: "My invoice is wrong"},
 		},
 	}
@@ -81,24 +68,92 @@ func TestExecutor_Execute_FullScenario(t *testing.T) {
 	if result.Failed {
 		t.Fatalf("expected success, got error: %s", result.Error)
 	}
-	if len(result.Steps) != 3 {
-		t.Fatalf("expected 3 steps, got %d", len(result.Steps))
+	if len(result.Steps) != 2 {
+		t.Fatalf("expected 2 steps, got %d", len(result.Steps))
 	}
 	if result.Steps[0].Response != "I can help with billing" {
 		t.Fatalf("unexpected response: %s", result.Steps[0].Response)
 	}
-	if result.Steps[1].State != "specialist" {
-		t.Fatalf("expected state 'specialist', got %q", result.Steps[1].State)
+	if result.Steps[1].Response != "Looking at your invoice" {
+		t.Fatalf("unexpected response: %s", result.Steps[1].Response)
 	}
-	if result.Steps[2].Response != "Looking at your invoice" {
-		t.Fatalf("unexpected response: %s", result.Steps[2].Response)
-	}
-	if result.FinalState != "specialist" {
-		t.Fatalf("expected final state 'specialist', got %q", result.FinalState)
+	if result.FinalState != "intake" {
+		t.Fatalf("expected final state 'intake', got %q", result.FinalState)
 	}
 	if !driver.closed {
 		t.Fatal("expected driver to be closed")
 	}
+}
+
+func TestExecutor_Execute_WithTransitions(t *testing.T) {
+	t.Parallel()
+
+	callCount := 0
+	driver := &mockDriver{
+		state:     "intake",
+		responses: []string{"I can help", "Escalating now", "Specialist here"},
+	}
+
+	// Override Send to simulate transitions on the second call
+	origSend := driver.Send
+	_ = origSend
+	factory := func(string, map[string]string, bool) (Driver, error) {
+		return &transitionMockDriver{
+			mockDriver:  driver,
+			callCount:   &callCount,
+			transitions: []TransitionRecord{{From: "intake", To: "specialist", Event: "Escalate", Context: "billing issue"}},
+		}, nil
+	}
+
+	scenario := &Scenario{
+		ID:   "transition-test",
+		Pack: "./test.pack.json",
+		Steps: []Step{
+			{Type: StepInput, Content: "help with billing"},
+			{Type: StepInput, Content: "escalate please"},
+			{Type: StepInput, Content: "specialist question"},
+		},
+	}
+
+	exec := NewExecutor(factory)
+	result := exec.Execute(context.Background(), scenario)
+
+	if result.Failed {
+		t.Fatalf("expected success, got error: %s", result.Error)
+	}
+	if len(result.Steps) != 3 {
+		t.Fatalf("expected 3 steps, got %d", len(result.Steps))
+	}
+
+	// Verify transitions were accumulated by the executor
+	if len(exec.transitions) != 1 {
+		t.Fatalf("expected 1 transition, got %d", len(exec.transitions))
+	}
+	if exec.transitions[0].Event != "Escalate" {
+		t.Fatalf("expected event 'Escalate', got %q", exec.transitions[0].Event)
+	}
+	if exec.transitions[0].Context != "billing issue" {
+		t.Fatalf("expected context 'billing issue', got %q", exec.transitions[0].Context)
+	}
+}
+
+// transitionMockDriver returns transitions on the second Send() call.
+type transitionMockDriver struct {
+	*mockDriver
+	callCount   *int
+	transitions []TransitionRecord
+}
+
+func (m *transitionMockDriver) Send(ctx context.Context, msg string) (string, error) {
+	*m.callCount++
+	return m.mockDriver.Send(ctx, msg)
+}
+
+func (m *transitionMockDriver) Transitions() []TransitionRecord {
+	if *m.callCount == 2 {
+		return m.transitions
+	}
+	return nil
 }
 
 func TestExecutor_Execute_InvalidScenario(t *testing.T) {
@@ -161,54 +216,22 @@ func TestExecutor_Execute_SendError(t *testing.T) {
 	}
 }
 
-func TestExecutor_Execute_TransitionError(t *testing.T) {
+func TestExecutor_Execute_EventStepRejected(t *testing.T) {
 	t.Parallel()
-
-	driver := &mockDriver{
-		state:  "intake",
-		states: map[string]string{},
-	}
 
 	scenario := &Scenario{
 		ID:   "test",
 		Pack: "./test.pack.json",
 		Steps: []Step{
-			{Type: StepEvent, Event: "Unknown"},
+			{Type: StepEvent, Event: "Escalate"},
 		},
 	}
 
-	exec := NewExecutor(newMockFactory(driver, nil))
+	exec := NewExecutor(newMockFactory(nil, nil))
 	result := exec.Execute(context.Background(), scenario)
 
 	if !result.Failed {
-		t.Fatal("expected failure for invalid transition")
-	}
-}
-
-func TestExecutor_Execute_ExpectStateMismatch(t *testing.T) {
-	t.Parallel()
-
-	driver := &mockDriver{
-		state:  "intake",
-		states: map[string]string{"Next": "processing"},
-	}
-
-	scenario := &Scenario{
-		ID:   "test",
-		Pack: "./test.pack.json",
-		Steps: []Step{
-			{Type: StepEvent, Event: "Next", ExpectState: "specialist"},
-		},
-	}
-
-	exec := NewExecutor(newMockFactory(driver, nil))
-	result := exec.Execute(context.Background(), scenario)
-
-	if !result.Failed {
-		t.Fatal("expected failure for state mismatch")
-	}
-	if result.Steps[0].State != "processing" {
-		t.Fatalf("expected state 'processing', got %q", result.Steps[0].State)
+		t.Fatal("expected failure for event step")
 	}
 }
 

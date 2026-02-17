@@ -28,7 +28,12 @@ func workflowExtras(driver Driver) map[string]interface{} {
 func (e *Executor) transitionsSnapshot() []interface{} {
 	result := make([]interface{}, len(e.transitions))
 	for i, t := range e.transitions {
-		result[i] = t
+		result[i] = map[string]interface{}{
+			"from":    t.From,
+			"to":      t.To,
+			"event":   t.Event,
+			"context": t.Context,
+		}
 	}
 	return result
 }
