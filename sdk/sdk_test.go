@@ -439,6 +439,110 @@ func TestResolveProviderHelper(t *testing.T) {
 	})
 }
 
+func TestResolveProviderWithPlatform(t *testing.T) {
+	t.Run("platform takes precedence over detect", func(t *testing.T) {
+		cfg := &config{
+			platform: &platformConfig{
+				platformType: "bedrock",
+				providerType: "claude",
+				model:        "claude-sonnet-4-20250514",
+				region:       "us-west-2",
+			},
+		}
+		// This exercises the platform path. It may succeed (local AWS creds)
+		// or fail (no creds). Either way, it should NOT fall through to Detect().
+		prov, err := resolveProvider(cfg)
+		if err != nil {
+			// Should be a bedrock credential error, not a detect error
+			assert.Contains(t, err.Error(), "bedrock")
+		} else {
+			assert.NotNil(t, prov)
+		}
+	})
+
+	t.Run("explicit provider bypasses platform", func(t *testing.T) {
+		mock := &mockProvider{}
+		cfg := &config{
+			provider: mock,
+			platform: &platformConfig{
+				platformType: "bedrock",
+				providerType: "claude",
+				model:        "claude-sonnet-4-20250514",
+				region:       "us-west-2",
+			},
+		}
+		prov, err := resolveProvider(cfg)
+		require.NoError(t, err)
+		assert.Equal(t, mock, prov)
+	})
+
+	t.Run("unsupported platform", func(t *testing.T) {
+		cfg := &config{
+			platform: &platformConfig{
+				platformType: "unknown-cloud",
+				providerType: "claude",
+				model:        "claude-sonnet-4-20250514",
+			},
+		}
+		_, err := resolveProvider(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unsupported platform")
+	})
+}
+
+func TestPlatformBaseURL(t *testing.T) {
+	t.Run("bedrock uses region endpoint", func(t *testing.T) {
+		pc := &platformConfig{platformType: "bedrock", region: "us-west-2"}
+		url := platformBaseURL(pc, "claude")
+		assert.Equal(t, "https://bedrock-runtime.us-west-2.amazonaws.com", url)
+	})
+
+	t.Run("bedrock with endpoint override", func(t *testing.T) {
+		pc := &platformConfig{platformType: "bedrock", region: "us-west-2", endpoint: "https://custom.bedrock"}
+		url := platformBaseURL(pc, "claude")
+		assert.Equal(t, "https://custom.bedrock", url)
+	})
+
+	t.Run("vertex claude uses anthropic publisher", func(t *testing.T) {
+		pc := &platformConfig{platformType: "vertex", region: "us-central1", project: "my-proj"}
+		url := platformBaseURL(pc, "claude")
+		assert.Contains(t, url, "publishers/anthropic/models")
+		assert.Contains(t, url, "us-central1")
+		assert.Contains(t, url, "my-proj")
+	})
+
+	t.Run("vertex gemini uses google publisher", func(t *testing.T) {
+		pc := &platformConfig{platformType: "vertex", region: "us-central1", project: "my-proj"}
+		url := platformBaseURL(pc, "gemini")
+		assert.Contains(t, url, "publishers/google/models")
+	})
+
+	t.Run("vertex other provider uses generic path", func(t *testing.T) {
+		pc := &platformConfig{platformType: "vertex", region: "us-central1", project: "my-proj"}
+		url := platformBaseURL(pc, "llama")
+		assert.Contains(t, url, "us-central1-aiplatform.googleapis.com")
+		assert.NotContains(t, url, "publishers")
+	})
+
+	t.Run("vertex with endpoint override", func(t *testing.T) {
+		pc := &platformConfig{platformType: "vertex", region: "us-central1", project: "my-proj", endpoint: "https://custom.vertex"}
+		url := platformBaseURL(pc, "claude")
+		assert.Equal(t, "https://custom.vertex", url)
+	})
+
+	t.Run("azure returns endpoint directly", func(t *testing.T) {
+		pc := &platformConfig{platformType: "azure", endpoint: "https://my-resource.openai.azure.com"}
+		url := platformBaseURL(pc, "openai")
+		assert.Equal(t, "https://my-resource.openai.azure.com", url)
+	})
+
+	t.Run("unknown platform returns empty", func(t *testing.T) {
+		pc := &platformConfig{platformType: "unknown"}
+		url := platformBaseURL(pc, "claude")
+		assert.Equal(t, "", url)
+	})
+}
+
 func TestInitMCPRegistry(t *testing.T) {
 	t.Run("no servers configured", func(t *testing.T) {
 		conv := &Conversation{}
