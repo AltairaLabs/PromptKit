@@ -370,6 +370,7 @@ func generateHTML(data HTMLReportData) (string, error) {
 			return r.ConversationAssertions.Results
 		},
 		"isAgentTool":         isAgentTool,
+		"isWorkflowTool":      isWorkflowTool,
 		"hasA2AAgents":        hasA2AAgents,
 		"renderA2AAgentCards": renderA2AAgentCards,
 	}).Parse(reportTemplate))
@@ -1056,7 +1057,12 @@ func renderConversationDetails(result assertions.ConversationValidationResult) s
 
 // isAgentTool returns true if the tool name is an A2A agent tool.
 func isAgentTool(name string) bool {
-	return strings.HasPrefix(name, "a2a_")
+	return strings.HasPrefix(name, "a2a__")
+}
+
+// isWorkflowTool returns true if the tool name is a workflow transition tool.
+func isWorkflowTool(name string) bool {
+	return strings.HasPrefix(name, "workflow__")
 }
 
 // hasA2AAgents checks if a result has A2A agent metadata.

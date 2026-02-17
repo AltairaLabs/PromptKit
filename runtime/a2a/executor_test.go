@@ -49,7 +49,7 @@ func TestExecutor_Execute_BasicTextQuery(t *testing.T) {
 
 	e := NewExecutor()
 	desc := &tools.ToolDescriptor{
-		Name: "a2a_research_agent_search",
+		Name: "a2a__research_agent__search",
 		A2AConfig: &tools.A2AConfig{
 			AgentURL: srv.URL,
 			SkillID:  "search",

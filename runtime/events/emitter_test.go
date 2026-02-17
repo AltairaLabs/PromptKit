@@ -96,6 +96,8 @@ func TestEmitterPublishesVariousEvents(t *testing.T) {
 		func() {
 			emitter.EmitCustom(EventType("middleware.custom.event"), "mw", "custom", map[string]interface{}{"a": 1}, "msg")
 		},
+		func() { emitter.WorkflowTransitioned("s1", "s2", "Next", "p2") },
+		func() { emitter.WorkflowCompleted("done", 1) },
 	}
 
 	wg.Add(len(tests))
@@ -418,4 +420,69 @@ func TestEmitter_AudioOutput_NilData(t *testing.T) {
 
 	// Should not panic when data is nil
 	emitter.AudioOutput(nil)
+}
+
+func TestEmitter_WorkflowTransitioned(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-wt", "session-wt", "conv-wt")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	bus.Subscribe(EventWorkflowTransitioned, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	emitter.WorkflowTransitioned("intake", "processing", "InfoComplete", "process")
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for workflow.transitioned event")
+	}
+
+	data, ok := got.Data.(*WorkflowTransitionedData)
+	if !ok {
+		t.Fatalf("unexpected data type: %T", got.Data)
+	}
+
+	if data.FromState != "intake" || data.ToState != "processing" {
+		t.Fatalf("unexpected states: from=%s to=%s", data.FromState, data.ToState)
+	}
+	if data.Event != "InfoComplete" || data.PromptTask != "process" {
+		t.Fatalf("unexpected event/task: event=%s task=%s", data.Event, data.PromptTask)
+	}
+}
+
+func TestEmitter_WorkflowCompleted(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-wc", "session-wc", "conv-wc")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	bus.Subscribe(EventWorkflowCompleted, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	emitter.WorkflowCompleted("done", 3)
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for workflow.completed event")
+	}
+
+	data, ok := got.Data.(*WorkflowCompletedData)
+	if !ok {
+		t.Fatalf("unexpected data type: %T", got.Data)
+	}
+
+	if data.FinalState != "done" || data.TransitionCount != 3 {
+		t.Fatalf("unexpected data: state=%s count=%d", data.FinalState, data.TransitionCount)
+	}
 }

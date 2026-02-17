@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 )
 
 // PromptPackSchemaURL is the JSON Schema URL for validating PromptPack files
@@ -98,7 +99,7 @@ type Pack struct {
 	Evals []evals.EvalDef `json:"evals,omitempty"`
 
 	// Workflow - State-machine workflow over the pack's prompts
-	Workflow *WorkflowConfig `json:"workflow,omitempty"`
+	Workflow *workflow.Spec `json:"workflow,omitempty"`
 
 	// Agents - Agent configuration mapping prompts to A2A-compatible agent definitions
 	Agents *AgentsConfig `json:"agents,omitempty"`
@@ -112,22 +113,11 @@ type PackTool struct {
 	Parameters  interface{} `json:"parameters"`  // JSON Schema for input parameters (required)
 }
 
-// WorkflowConfig defines a state-machine workflow over the pack's prompts.
-type WorkflowConfig struct {
-	Version int                       `json:"version"`
-	Entry   string                    `json:"entry"`
-	States  map[string]*WorkflowState `json:"states"`
-	Engine  map[string]interface{}    `json:"engine,omitempty"`
-}
+// WorkflowConfig is an alias for workflow.Spec for backward compatibility.
+type WorkflowConfig = workflow.Spec
 
-// WorkflowState represents a single state in the workflow state machine.
-type WorkflowState struct {
-	PromptTask    string            `json:"prompt_task"`
-	Description   string            `json:"description,omitempty"`
-	OnEvent       map[string]string `json:"on_event"`
-	Persistence   string            `json:"persistence,omitempty"`
-	Orchestration string            `json:"orchestration,omitempty"`
-}
+// WorkflowState is an alias for workflow.State for backward compatibility.
+type WorkflowState = workflow.State
 
 // AgentsConfig maps prompts to A2A-compatible agent definitions.
 type AgentsConfig struct {
@@ -147,12 +137,12 @@ type AgentDef struct {
 type CompileOption func(*compileOptions)
 
 type compileOptions struct {
-	workflow *WorkflowConfig
+	workflow *workflow.Spec
 	agents   *AgentsConfig
 }
 
 // WithWorkflow sets the workflow config on the compiled pack.
-func WithWorkflow(w *WorkflowConfig) CompileOption {
+func WithWorkflow(w *workflow.Spec) CompileOption {
 	return func(o *compileOptions) { o.workflow = w }
 }
 
@@ -608,12 +598,30 @@ func (p *Pack) Validate() []string {
 	warnings = append(warnings, p.validateTemplateEngine()...)
 	warnings = append(warnings, p.validatePrompts()...)
 	warnings = append(warnings, p.validateCompilation()...)
+	if p.Workflow != nil {
+		result := p.ValidateWorkflow()
+		warnings = append(warnings, result.Errors...)
+		warnings = append(warnings, result.Warnings...)
+	}
 	if p.Agents != nil {
 		errs, agentWarnings := p.ValidateAgents()
 		warnings = append(warnings, errs...)
 		warnings = append(warnings, agentWarnings...)
 	}
 	return warnings
+}
+
+// ValidateWorkflow validates the workflow section and returns a detailed result
+// with separate errors and warnings. Returns an empty result if no workflow is present.
+func (p *Pack) ValidateWorkflow() *workflow.ValidationResult {
+	if p.Workflow == nil {
+		return &workflow.ValidationResult{}
+	}
+	promptKeys := make([]string, 0, len(p.Prompts))
+	for k := range p.Prompts {
+		promptKeys = append(promptKeys, k)
+	}
+	return workflow.Validate(p.Workflow, promptKeys)
 }
 
 // validatePackFields validates pack-level required fields

@@ -1,0 +1,58 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: validation-checks
+spec:
+  id: validation-checks
+  description: "Content validation assertions for order processing"
+  pack: ../order.pack.json
+  context_carry_forward: true
+  steps:
+    # Step 1: Verify order confirmation content, LLM transitions to payment
+    - type: input
+      content: "I ordered 2 USB-C Cables. What's the status?"
+      assertions:
+        - type: transitioned_to
+          params:
+            state: payment
+        - type: content_includes
+          params:
+            patterns: ["ORD-"]
+        - type: content_matches
+          params:
+            pattern: "\\$\\d+\\.\\d{2}"
+
+    # Step 2: Verify payment details, LLM transitions to fulfillment
+    - type: input
+      content: "Can you confirm the payment details?"
+      assertions:
+        - type: transitioned_to
+          params:
+            state: fulfillment
+        - type: content_includes
+          params:
+            patterns: ["TXN-"]
+        - type: content_matches
+          params:
+            pattern: "(?i)(paypal|credit card|payment)"
+
+    # Step 3: Verify shipping details, LLM transitions to complete
+    - type: input
+      content: "What's the tracking number?"
+      assertions:
+        - type: transitioned_to
+          params:
+            state: complete
+        - type: content_includes
+          params:
+            patterns: ["TRACK-"]
+
+    # Step 4: Final verification
+    - type: input
+      content: "Got it, thanks!"
+      assertions:
+        - type: workflow_complete
+          params: {}
+        - type: content_matches
+          params:
+            pattern: "(?i)(deliver|return|30 day)"

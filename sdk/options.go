@@ -120,6 +120,12 @@ type config struct {
 	evalRegistry      *evals.EvalTypeRegistry
 	evalResultWriters []evals.ResultWriter
 	judgeProvider     handlers.JudgeProvider
+
+	// Workflow context carry-forward (used by OpenWorkflow)
+	contextCarryForward bool
+
+	// Platform capabilities (workflow, a2a, memory, etc.)
+	capabilities []Capability
 }
 
 // Option configures a Conversation.
@@ -576,6 +582,41 @@ func WithStrictValidation() Option {
 func WithSkipSchemaValidation() Option {
 	return func(c *config) error {
 		c.skipSchemaValidation = true
+		return nil
+	}
+}
+
+// WithContextCarryForward enables context carry-forward for workflow transitions.
+//
+// When enabled, transitioning to a new state injects a summary of the previous
+// state's conversation into the new conversation via the {{workflow_context}}
+// template variable. This provides continuity across workflow states.
+//
+// Default: disabled (each state gets a fresh conversation).
+//
+//	wc, _ := sdk.OpenWorkflow("./support.pack.json",
+//	    sdk.WithContextCarryForward(),
+//	)
+func WithContextCarryForward() Option {
+	return func(c *config) error {
+		c.contextCarryForward = true
+		return nil
+	}
+}
+
+// WithCapability adds an explicit platform capability.
+//
+// Capabilities provide namespaced tools that are automatically injected into
+// conversations. Most capabilities are auto-inferred from pack structure
+// (e.g., workflow capability from pack.Workflow). Use this for explicit
+// configuration or custom capabilities.
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "chat",
+//	    sdk.WithCapability(sdk.NewWorkflowCapability()),
+//	)
+func WithCapability(capability Capability) Option {
+	return func(c *config) error {
+		c.capabilities = append(c.capabilities, capability)
 		return nil
 	}
 }

@@ -333,6 +333,143 @@ func TestIsValidMIMEFormat(t *testing.T) {
 	}
 }
 
+func TestValidateWorkflow_NilWorkflow(t *testing.T) {
+	p := &Pack{
+		Prompts: map[string]*Prompt{"chat": {ID: "chat"}},
+	}
+	err := p.ValidateWorkflow()
+	assert.NoError(t, err, "nil workflow should pass validation")
+}
+
+func TestValidateWorkflow_Valid(t *testing.T) {
+	p := &Pack{
+		Prompts: map[string]*Prompt{
+			"gather": {ID: "gather"},
+			"solve":  {ID: "solve"},
+			"done":   {ID: "done"},
+		},
+		Workflow: &WorkflowSpec{
+			Version: 1,
+			Entry:   "intake",
+			States: map[string]*WorkflowState{
+				"intake":  {PromptTask: "gather", OnEvent: map[string]string{"Next": "solving"}},
+				"solving": {PromptTask: "solve", OnEvent: map[string]string{"Done": "end"}},
+				"end":     {PromptTask: "done"},
+			},
+		},
+	}
+	err := p.ValidateWorkflow()
+	assert.NoError(t, err)
+}
+
+func TestValidateWorkflow_InvalidVersion(t *testing.T) {
+	p := &Pack{
+		Prompts: map[string]*Prompt{"p": {ID: "p"}},
+		Workflow: &WorkflowSpec{
+			Version: 2,
+			Entry:   "s",
+			States:  map[string]*WorkflowState{"s": {PromptTask: "p"}},
+		},
+	}
+	err := p.ValidateWorkflow()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "workflow validation failed")
+}
+
+func TestValidateWorkflow_EntryNotInStates(t *testing.T) {
+	p := &Pack{
+		Prompts: map[string]*Prompt{"p": {ID: "p"}},
+		Workflow: &WorkflowSpec{
+			Version: 1,
+			Entry:   "nonexistent",
+			States:  map[string]*WorkflowState{"s": {PromptTask: "p"}},
+		},
+	}
+	err := p.ValidateWorkflow()
+	require.Error(t, err)
+
+	wfErr, ok := err.(*WorkflowValidationError)
+	require.True(t, ok)
+	assert.Contains(t, wfErr.Errors[0], "does not reference a key in states")
+}
+
+func TestValidateWorkflow_PromptTaskNotInPrompts(t *testing.T) {
+	p := &Pack{
+		Prompts: map[string]*Prompt{"p": {ID: "p"}},
+		Workflow: &WorkflowSpec{
+			Version: 1,
+			Entry:   "s",
+			States:  map[string]*WorkflowState{"s": {PromptTask: "missing"}},
+		},
+	}
+	err := p.ValidateWorkflow()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not reference a valid prompt")
+}
+
+func TestValidateWorkflow_EventTargetNotInStates(t *testing.T) {
+	p := &Pack{
+		Prompts: map[string]*Prompt{"p": {ID: "p"}},
+		Workflow: &WorkflowSpec{
+			Version: 1,
+			Entry:   "s",
+			States: map[string]*WorkflowState{
+				"s": {PromptTask: "p", OnEvent: map[string]string{"Go": "ghost"}},
+			},
+		},
+	}
+	err := p.ValidateWorkflow()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not exist in states")
+}
+
+func TestParseWithWorkflow(t *testing.T) {
+	t.Run("valid workflow section", func(t *testing.T) {
+		data := []byte(`{
+			"id": "wf-pack",
+			"prompts": {
+				"gather": {"id": "gather", "system_template": "Gather info"},
+				"solve": {"id": "solve", "system_template": "Solve it"}
+			},
+			"workflow": {
+				"version": 1,
+				"entry": "intake",
+				"states": {
+					"intake": {"prompt_task": "gather", "on_event": {"Done": "solving"}},
+					"solving": {"prompt_task": "solve"}
+				}
+			}
+		}`)
+
+		p, err := Parse(data)
+		require.NoError(t, err)
+		require.NotNil(t, p.Workflow)
+		assert.Equal(t, 1, p.Workflow.Version)
+		assert.Equal(t, "intake", p.Workflow.Entry)
+		assert.Len(t, p.Workflow.States, 2)
+	})
+
+	t.Run("workflow entry not in states", func(t *testing.T) {
+		data := []byte(`{
+			"id": "bad-wf",
+			"prompts": {
+				"p": {"id": "p", "system_template": "test"}
+			},
+			"workflow": {
+				"version": 1,
+				"entry": "nonexistent",
+				"states": {
+					"s": {"prompt_task": "p"}
+				}
+			}
+		}`)
+
+		_, err := Parse(data)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "workflow validation failed")
+	})
+}
+
 func TestParseWithAgents(t *testing.T) {
 	t.Run("valid agents section", func(t *testing.T) {
 		data := []byte(`{

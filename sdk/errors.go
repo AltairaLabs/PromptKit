@@ -30,6 +30,15 @@ var (
 
 	// ErrToolNotInPack is returned when trying to register a handler for a tool not in the pack.
 	ErrToolNotInPack = errors.New("tool not defined in pack")
+
+	// ErrNoWorkflow is returned when OpenWorkflow is called on a pack without a workflow section.
+	ErrNoWorkflow = errors.New("pack has no workflow section")
+
+	// ErrWorkflowClosed is returned when Send or Transition is called on a closed WorkflowConversation.
+	ErrWorkflowClosed = errors.New("workflow conversation is closed")
+
+	// ErrWorkflowTerminal is returned when Transition is called on a terminal state.
+	ErrWorkflowTerminal = errors.New("workflow is in terminal state")
 )
 
 // ValidationError represents a validation failure.

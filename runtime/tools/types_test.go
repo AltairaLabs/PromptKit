@@ -140,6 +140,85 @@ func TestPendingToolInfo_OptionalFields(t *testing.T) {
 	assert.Nil(t, decoded.Metadata)
 }
 
+func TestParseToolName(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		wantNS    string
+		wantLocal string
+	}{
+		{"empty string", "", "", ""},
+		{"no separator", "get_weather", "", "get_weather"},
+		{"single underscore", "a2a_weather", "", "a2a_weather"},
+		{"simple namespace", "a2a__forecast", "a2a", "forecast"},
+		{"nested namespace", "a2a__weather__forecast", "a2a", "weather__forecast"},
+		{"mcp namespace", "mcp__filesystem__read_file", "mcp", "filesystem__read_file"},
+		{"system namespace", "workflow__transition", "workflow", "transition"},
+		{"leading separator", "__orphan", "", "orphan"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ns, local := ParseToolName(tt.input)
+			assert.Equal(t, tt.wantNS, ns)
+			assert.Equal(t, tt.wantLocal, local)
+		})
+	}
+}
+
+func TestQualifyToolName(t *testing.T) {
+	tests := []struct {
+		name      string
+		namespace string
+		local     string
+		want      string
+	}{
+		{"empty namespace", "", "get_weather", "get_weather"},
+		{"a2a namespace", "a2a", "weather__forecast", "a2a__weather__forecast"},
+		{"mcp namespace", "mcp", "fs__read", "mcp__fs__read"},
+		{"empty both", "", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, QualifyToolName(tt.namespace, tt.local))
+		})
+	}
+}
+
+func TestIsSystemTool(t *testing.T) {
+	tests := []struct {
+		name string
+		tool string
+		want bool
+	}{
+		{"a2a tool", "a2a__weather__forecast", true},
+		{"mcp tool", "mcp__fs__read_file", true},
+		{"workflow tool", "workflow__transition", true},
+		{"memory tool", "memory__recall", true},
+		{"user tool", "get_weather", false},
+		{"empty string", "", false},
+		{"unknown namespace", "custom__tool", false},
+		{"single underscore prefix", "a2a_weather", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, IsSystemTool(tt.tool))
+		})
+	}
+}
+
+func TestParseToolName_RoundTrip(t *testing.T) {
+	// Verify that QualifyToolName(ParseToolName(name)) == name for namespaced names
+	names := []string{
+		"a2a__weather__forecast",
+		"mcp__filesystem__read_file",
+		"workflow__get_state",
+	}
+	for _, name := range names {
+		ns, local := ParseToolName(name)
+		assert.Equal(t, name, QualifyToolName(ns, local))
+	}
+}
+
 // Mock executor for testing AsyncToolExecutor interface
 type mockAsyncExecutor struct {
 	name   string

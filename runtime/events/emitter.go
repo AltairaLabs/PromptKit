@@ -323,3 +323,21 @@ func (e *Emitter) AudioOutput(data *AudioOutputData) {
 	}
 	e.emit(EventAudioOutput, data)
 }
+
+// WorkflowTransitioned emits the workflow.transitioned event.
+func (e *Emitter) WorkflowTransitioned(fromState, toState, event, promptTask string) {
+	e.emit(EventWorkflowTransitioned, &WorkflowTransitionedData{
+		FromState:  fromState,
+		ToState:    toState,
+		Event:      event,
+		PromptTask: promptTask,
+	})
+}
+
+// WorkflowCompleted emits the workflow.completed event.
+func (e *Emitter) WorkflowCompleted(finalState string, transitionCount int) {
+	e.emit(EventWorkflowCompleted, &WorkflowCompletedData{
+		FinalState:      finalState,
+		TransitionCount: transitionCount,
+	})
+}

@@ -4,6 +4,7 @@ use (
 	./examples/a2a-demo
 	./examples/programmatic-arena
 	./examples/sdk-evals
+	./examples/workflow-support/sdk-example
 	./pkg
 	./runtime
 	./sdk

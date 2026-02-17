@@ -84,27 +84,28 @@ func (a *handlerAdapter) Execute(descriptor *tools.ToolDescriptor, args json.Raw
 
 // mcpHandlerAdapter adapts MCP tool calls to the runtime's tools.Executor interface.
 type mcpHandlerAdapter struct {
-	name     string
-	registry mcp.Registry
+	qualifiedName string // Namespaced name used as registry key (e.g. "mcp__fs__read_file")
+	rawName       string // Original MCP tool name sent to the server (e.g. "read_file")
+	registry      mcp.Registry
 }
 
-// Name returns the tool name.
+// Name returns the qualified tool name.
 func (a *mcpHandlerAdapter) Name() string {
-	return a.name
+	return a.qualifiedName
 }
 
 // Execute runs the MCP tool with the given arguments.
 func (a *mcpHandlerAdapter) Execute(descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
 	ctx := context.Background()
 
-	// Get client for this tool
-	client, err := a.registry.GetClientForTool(ctx, a.name)
+	// Use the raw MCP name for server communication
+	client, err := a.registry.GetClientForTool(ctx, a.rawName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get MCP client for tool %q: %w", a.name, err)
+		return nil, fmt.Errorf("failed to get MCP client for tool %q: %w", a.qualifiedName, err)
 	}
 
-	// Call the tool
-	resp, err := client.CallTool(ctx, a.name, args)
+	// Call the tool using the raw name the MCP server knows
+	resp, err := client.CallTool(ctx, a.rawName, args)
 	if err != nil {
 		return nil, fmt.Errorf("MCP tool call failed: %w", err)
 	}

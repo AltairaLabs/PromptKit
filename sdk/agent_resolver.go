@@ -9,6 +9,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
+// nsA2A is the namespace prefix for A2A agent tools.
+const nsA2A = "a2a"
+
 // EndpointResolver determines the A2A endpoint URL for a given agent member.
 // Implementations can provide static URLs, service-discovery lookups, or
 // test-friendly mock endpoints.
@@ -72,12 +75,22 @@ func (r *AgentToolResolver) SetEndpointResolver(er EndpointResolver) {
 }
 
 // IsAgentTool checks if a tool name refers to an agent member.
+// It accepts both bare member keys ("summarizer") and qualified names ("a2a__summarizer").
 func (r *AgentToolResolver) IsAgentTool(toolName string) bool {
 	if r == nil {
 		return false
 	}
-	_, ok := r.cards[toolName]
-	return ok
+	// Direct lookup (bare key)
+	if _, ok := r.cards[toolName]; ok {
+		return true
+	}
+	// Check qualified a2a__ name
+	ns, local := tools.ParseToolName(toolName)
+	if ns == nsA2A {
+		_, ok := r.cards[local]
+		return ok
+	}
+	return false
 }
 
 // ResolveAgentTools returns tool descriptors for all agent members
@@ -101,7 +114,7 @@ func (r *AgentToolResolver) ResolveAgentTools(toolNames []string) []*tools.ToolD
 			}
 
 			desc := &tools.ToolDescriptor{
-				Name:         name,
+				Name:         tools.QualifyToolName(nsA2A, name),
 				Description:  card.Skills[i].Description,
 				InputSchema:  agentInputSchema(),
 				OutputSchema: agentOutputSchema(),

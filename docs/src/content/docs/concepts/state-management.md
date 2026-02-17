@@ -160,6 +160,64 @@ sessionID := uuid.New().String()
 
 **Use case**: Guest users, no account required
 
+## Workflow State
+
+Workflows add a state machine layer on top of conversation state. Each workflow tracks:
+
+- **Current state** — Which state the machine is in
+- **Transition history** — All state transitions with timestamps
+- **Per-state conversations** — Each state has its own conversation history
+
+### Workflow State Persistence
+
+Workflow states can control their own persistence behavior:
+
+```json
+{
+  "states": {
+    "intake": {
+      "prompt_task": "greeting",
+      "persistence": "transient"
+    },
+    "specialist": {
+      "prompt_task": "specialist",
+      "persistence": "persistent"
+    }
+  }
+}
+```
+
+- **`transient`** — State is not persisted to the store (ephemeral interactions)
+- **`persistent`** — State is saved to the store (important conversations)
+
+### Workflow Context
+
+The `workflow.Context` captures the full machine state for persistence and resumption:
+
+```go
+wf, _ := sdk.OpenWorkflow("./support.pack.json")
+
+// ... interact with the workflow ...
+
+// Get the full workflow context for persistence
+wfCtx := wf.Context()
+fmt.Println(wfCtx.CurrentState)  // "specialist"
+fmt.Println(len(wfCtx.History))  // number of transitions
+
+// Resume later
+wf, _ = sdk.ResumeWorkflow("workflow-id", "./support.pack.json")
+```
+
+### Context Carry-Forward
+
+When enabled, summaries from previous states are injected into the next state's conversation as context, enabling continuity across state transitions:
+
+```go
+wf, _ := sdk.OpenWorkflow("./support.pack.json",
+    sdk.WithContextCarryForward(true),
+)
+```
+
 ## Best Practices
 
 ### Do's

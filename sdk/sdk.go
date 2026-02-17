@@ -91,8 +91,16 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 	// This ensures defaults are available when creating the session
 	applyDefaultVariables(conv, prompt)
 
-	// Initialize agent tool resolver if the pack has agents
-	initAgentResolver(conv, p, cfg)
+	// Initialize capabilities (auto-inferred + explicit)
+	allCaps := mergeCapabilities(cfg.capabilities, inferCapabilities(p))
+	allCaps = ensureA2ACapability(allCaps, cfg)
+	wireA2AConfig(allCaps, cfg)
+	for _, cap := range allCaps {
+		if err := cap.Init(CapabilityContext{Pack: p, PromptName: promptName}); err != nil {
+			return nil, fmt.Errorf("capability %q init failed: %w", cap.Name(), err)
+		}
+	}
+	conv.capabilities = allCaps
 
 	// Initialize event bus BEFORE building pipeline so it can be wired up
 	initEventBus(cfg)
@@ -186,8 +194,16 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 	// Apply default variables from prompt BEFORE initializing session
 	applyDefaultVariables(conv, prompt)
 
-	// Initialize agent tool resolver if the pack has agents
-	initAgentResolver(conv, p, cfg)
+	// Initialize capabilities (auto-inferred + explicit)
+	allCaps := mergeCapabilities(cfg.capabilities, inferCapabilities(p))
+	allCaps = ensureA2ACapability(allCaps, cfg)
+	wireA2AConfig(allCaps, cfg)
+	for _, cap := range allCaps {
+		if err := cap.Init(CapabilityContext{Pack: p, PromptName: promptName}); err != nil {
+			return nil, fmt.Errorf("capability %q init failed: %w", cap.Name(), err)
+		}
+	}
+	conv.capabilities = allCaps
 
 	// Initialize event bus BEFORE building pipeline so it can be wired up
 	initEventBus(cfg)
@@ -483,30 +499,37 @@ func Resume(conversationID, packPath, promptName string, opts ...Option) (*Conve
 	return conv, nil
 }
 
-// initAgentResolver creates an AgentToolResolver when the pack has an agents
-// section. It converts the SDK pack types to the runtime prompt.Pack structure
-// needed by the agentcard package, then configures endpoint resolution from
-// the SDK options.
-func initAgentResolver(conv *Conversation, p *pack.Pack, cfg *config) {
-	if p.Agents == nil || len(p.Agents.Members) == 0 {
-		return
+// ensureA2ACapability adds an A2ACapability if the config has a bridge
+// but no A2ACapability was already inferred or explicit.
+func ensureA2ACapability(caps []Capability, cfg *config) []Capability {
+	if cfg.a2aBridge == nil {
+		return caps
 	}
-
-	// Build a lightweight runtime prompt.Pack with just the data the
-	// agentcard generator needs: Agents and Prompts.
-	runtimePack := packToRuntimePack(p)
-
-	resolver := NewAgentToolResolver(runtimePack)
-	if resolver == nil {
-		return
+	for _, cap := range caps {
+		if cap.Name() == "a2a" {
+			return caps
+		}
 	}
+	return append(caps, NewA2ACapability())
+}
 
-	// Apply endpoint resolver from config if provided.
-	if cfg.agentEndpointResolver != nil {
-		resolver.SetEndpointResolver(cfg.agentEndpointResolver)
+// wireA2AConfig threads config values into any A2ACapability before Init.
+func wireA2AConfig(caps []Capability, cfg *config) {
+	for _, cap := range caps {
+		a2aCap, ok := cap.(*A2ACapability)
+		if !ok {
+			continue
+		}
+		if cfg.agentEndpointResolver != nil && a2aCap.endpointResolver == nil {
+			a2aCap.endpointResolver = cfg.agentEndpointResolver
+		}
+		if cfg.localAgentExecutor != nil && a2aCap.localExecutor == nil {
+			a2aCap.localExecutor = cfg.localAgentExecutor
+		}
+		if cfg.a2aBridge != nil && a2aCap.bridge == nil {
+			a2aCap.bridge = cfg.a2aBridge
+		}
 	}
-
-	conv.agentResolver = resolver
 }
 
 // packToRuntimePack converts the SDK internal pack types to a runtime

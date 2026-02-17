@@ -812,3 +812,74 @@ func TestSentinelErrors(t *testing.T) {
 		}
 	})
 }
+
+func TestRegister_PopulatesNamespace(t *testing.T) {
+	registry := tools.NewRegistry()
+
+	tests := []struct {
+		name    string
+		toolNm  string
+		wantNS  string
+	}{
+		{"plain tool", "get_weather", ""},
+		{"a2a namespaced", "a2a__weather__forecast", "a2a"},
+		{"mcp namespaced", "mcp__fs__read_file", "mcp"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			desc := &tools.ToolDescriptor{
+				Name:         tt.toolNm,
+				Description:  "Test",
+				InputSchema:  json.RawMessage(`{"type":"object"}`),
+				OutputSchema: json.RawMessage(`{"type":"object"}`),
+			}
+			if err := registry.Register(desc); err != nil {
+				t.Fatalf("Register: %v", err)
+			}
+			got := registry.Get(tt.toolNm)
+			if got == nil {
+				t.Fatalf("tool %q not found after register", tt.toolNm)
+			}
+			if got.Namespace != tt.wantNS {
+				t.Errorf("Namespace = %q, want %q", got.Namespace, tt.wantNS)
+			}
+		})
+	}
+}
+
+func TestGetByNamespace(t *testing.T) {
+	registry := tools.NewRegistry()
+
+	descs := []tools.ToolDescriptor{
+		{Name: "a2a__agent1__skill1", Description: "s1", InputSchema: json.RawMessage(`{"type":"object"}`), OutputSchema: json.RawMessage(`{"type":"object"}`)},
+		{Name: "a2a__agent2__skill2", Description: "s2", InputSchema: json.RawMessage(`{"type":"object"}`), OutputSchema: json.RawMessage(`{"type":"object"}`)},
+		{Name: "mcp__fs__read", Description: "r", InputSchema: json.RawMessage(`{"type":"object"}`), OutputSchema: json.RawMessage(`{"type":"object"}`)},
+		{Name: "get_weather", Description: "w", InputSchema: json.RawMessage(`{"type":"object"}`), OutputSchema: json.RawMessage(`{"type":"object"}`)},
+	}
+	for i := range descs {
+		if err := registry.Register(&descs[i]); err != nil {
+			t.Fatalf("Register: %v", err)
+		}
+	}
+
+	a2aTools := registry.GetByNamespace("a2a")
+	if len(a2aTools) != 2 {
+		t.Errorf("expected 2 a2a tools, got %d", len(a2aTools))
+	}
+
+	mcpTools := registry.GetByNamespace("mcp")
+	if len(mcpTools) != 1 {
+		t.Errorf("expected 1 mcp tool, got %d", len(mcpTools))
+	}
+
+	emptyNS := registry.GetByNamespace("")
+	if len(emptyNS) != 1 {
+		t.Errorf("expected 1 unnamespaced tool, got %d", len(emptyNS))
+	}
+
+	noneTools := registry.GetByNamespace("workflow")
+	if len(noneTools) != 0 {
+		t.Errorf("expected 0 workflow tools, got %d", len(noneTools))
+	}
+}

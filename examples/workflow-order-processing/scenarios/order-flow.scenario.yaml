@@ -1,0 +1,52 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: order-flow
+spec:
+  id: order-flow
+  description: "Full order lifecycle: new_order → payment → fulfillment → complete"
+  pack: ../order.pack.json
+  context_carry_forward: true
+  steps:
+    # Step 1: Customer places order, LLM transitions to payment
+    - type: input
+      content: "I just placed an order for Wireless Headphones. Can you confirm?"
+      assertions:
+        - type: transitioned_to
+          params:
+            state: payment
+        - type: content_matches
+          params:
+            pattern: "(?i)(order|confirm|ORD-)"
+
+    # Step 2: Customer asks about payment, LLM transitions to fulfillment
+    - type: input
+      content: "Has my payment gone through?"
+      assertions:
+        - type: transitioned_to
+          params:
+            state: fulfillment
+        - type: content_matches
+          params:
+            pattern: "(?i)(payment|received|TXN-)"
+
+    # Step 3: Customer asks about shipping, LLM transitions to complete
+    - type: input
+      content: "When will my order arrive?"
+      assertions:
+        - type: transitioned_to
+          params:
+            state: complete
+        - type: content_matches
+          params:
+            pattern: "(?i)(ship|track|TRACK-)"
+
+    # Step 4: Customer confirms delivery
+    - type: input
+      content: "I received the package. Thanks!"
+      assertions:
+        - type: workflow_complete
+          params: {}
+        - type: content_matches
+          params:
+            pattern: "(?i)(deliver|enjoy|return)"

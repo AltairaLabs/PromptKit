@@ -1,0 +1,63 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: basic-flow
+spec:
+  id: basic-flow
+  description: "Happy path: intake → escalate → specialist → resolve → closed"
+  pack: ../support.pack.json
+  context_carry_forward: true
+  steps:
+    # Step 1: Customer contacts support (intake state)
+    - type: input
+      content: "Hi, I have a problem with my billing. I was charged twice for the same order."
+      assertions:
+        - type: state_is
+          params:
+            state: intake
+        - type: content_matches
+          params:
+            pattern: "(?i)(help|billing|account|charge)"
+
+    # Step 2: Agent gathers details, LLM transitions to specialist
+    - type: input
+      content: "My account number is AC-12345 and the duplicate charge was $49.99."
+      assertions:
+        - type: transitioned_to
+          params:
+            state: specialist
+        - type: content_matches
+          params:
+            pattern: "(?i)(escalate|specialist|billing)"
+
+    # Step 3: Specialist handles the issue
+    - type: input
+      content: "Can you explain why I was charged twice?"
+      assertions:
+        - type: state_is
+          params:
+            state: specialist
+        - type: content_matches
+          params:
+            pattern: "(?i)(refund|charge|duplicate)"
+
+    # Step 4: Specialist resolves, LLM transitions to closed
+    - type: input
+      content: "Please go ahead with the refund."
+      assertions:
+        - type: transitioned_to
+          params:
+            state: closed
+        - type: content_matches
+          params:
+            pattern: "(?i)(refund|process|business day)"
+
+    # Step 5: Closing summary
+    - type: input
+      content: "Thank you for your help!"
+      assertions:
+        - type: workflow_complete
+          params: {}
+        - type: content_matches
+          params:
+            pattern: "(?i)(thank|welcome|summary|refund)"

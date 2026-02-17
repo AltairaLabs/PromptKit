@@ -245,6 +245,7 @@ Working examples are available in the `sdk/examples/` directory:
 - **[tools](/sdk/examples/tools/)** - Tool registration and execution
 - **[streaming](/sdk/examples/streaming/)** - Real-time response streaming
 - **[hitl](/sdk/examples/hitl/)** - Human-in-the-loop approval workflows
+- **[workflow-external](/sdk/examples/workflow-external/)** - External orchestration via HTTP
 
 ---
 
@@ -253,6 +254,64 @@ Working examples are available in the `sdk/examples/` directory:
 - **Questions**: [GitHub Discussions](https://github.com/AltairaLabs/PromptKit/discussions)
 - **Issues**: [Report a Bug](https://github.com/AltairaLabs/PromptKit/issues)
 - **Examples**: [SDK Examples](/sdk/examples/)
+
+---
+
+## Workflows
+
+Build stateful, multi-step conversations with event-driven state machines:
+
+```go
+// Open a workflow from a pack with a workflow section
+wf, err := sdk.OpenWorkflow("./support.pack.json")
+if err != nil {
+    log.Fatal(err)
+}
+defer wf.Close()
+
+// Send a message in the current state
+resp, _ := wf.Send(ctx, "I need help with billing")
+fmt.Println(resp.Text())
+
+// Trigger a state transition
+newState, _ := wf.Transition("Escalate")
+fmt.Printf("Now in state: %s\n", newState)
+
+// Query workflow state
+fmt.Println(wf.CurrentState())      // "specialist"
+fmt.Println(wf.IsComplete())        // false
+fmt.Println(wf.AvailableEvents())   // ["Resolve"]
+```
+
+### Orchestration Modes
+
+States can declare an orchestration mode that controls who drives transitions:
+
+```go
+mode := wf.OrchestrationMode() // "internal", "external", or "hybrid"
+```
+
+- **Internal** — The agent drives transitions automatically
+- **External** — External callers (HTTP endpoints, queues) drive transitions via `Transition()`
+- **Hybrid** — Both the agent and external callers can trigger transitions
+
+### Resuming Workflows
+
+Restore a previously saved workflow:
+
+```go
+wf, err := sdk.ResumeWorkflow("workflow-id", "./support.pack.json")
+```
+
+### Context Carry-Forward
+
+When enabled, a summary of the previous state's conversation is injected as context into the next state:
+
+```go
+wf, err := sdk.OpenWorkflow("./support.pack.json",
+    sdk.WithContextCarryForward(true),
+)
+```
 
 ---
 

@@ -56,6 +56,73 @@ func ValidateAgainstSchema(data []byte) error {
 	return nil
 }
 
+// WorkflowValidationError represents a workflow section validation error with details.
+type WorkflowValidationError struct {
+	Errors   []string
+	Warnings []string
+}
+
+func (e *WorkflowValidationError) Error() string {
+	if len(e.Errors) == 1 {
+		return fmt.Sprintf("workflow validation failed: %s", e.Errors[0])
+	}
+	return fmt.Sprintf("workflow validation failed with %d errors: %s",
+		len(e.Errors), e.Errors[0])
+}
+
+// ValidateWorkflow validates the workflow section of a pack.
+// Returns nil if workflow is nil (the section is optional) or if validation passes.
+// Warnings are returned inside the error value when errors are also present.
+func (p *Pack) ValidateWorkflow() error {
+	if p.Workflow == nil {
+		return nil
+	}
+
+	promptKeys := make([]string, 0, len(p.Prompts))
+	for k := range p.Prompts {
+		promptKeys = append(promptKeys, k)
+	}
+
+	var errs []string
+
+	if p.Workflow.Version != 1 {
+		errs = append(errs, fmt.Sprintf("workflow.version must be 1, got %d", p.Workflow.Version))
+	}
+	if len(p.Workflow.States) == 0 {
+		errs = append(errs, "workflow.states must be non-empty")
+		return &WorkflowValidationError{Errors: errs}
+	}
+	if _, ok := p.Workflow.States[p.Workflow.Entry]; !ok {
+		errs = append(errs, fmt.Sprintf(
+			"workflow.entry %q does not reference a key in states", p.Workflow.Entry))
+	}
+
+	promptSet := make(map[string]bool, len(promptKeys))
+	for _, k := range promptKeys {
+		promptSet[k] = true
+	}
+
+	for name, state := range p.Workflow.States {
+		if !promptSet[state.PromptTask] {
+			errs = append(errs, fmt.Sprintf(
+				"workflow.states[%q].prompt_task %q does not reference a valid prompt",
+				name, state.PromptTask))
+		}
+		for event, target := range state.OnEvent {
+			if _, ok := p.Workflow.States[target]; !ok {
+				errs = append(errs, fmt.Sprintf(
+					"workflow.states[%q].on_event[%q] target %q does not exist in states",
+					name, event, target))
+			}
+		}
+	}
+
+	if len(errs) > 0 {
+		return &WorkflowValidationError{Errors: errs}
+	}
+	return nil
+}
+
 // AgentsValidationError represents an agents section validation error with details.
 type AgentsValidationError struct {
 	Errors []string

@@ -2668,11 +2668,12 @@ func TestIsAgentTool(t *testing.T) {
 		tool string
 		want bool
 	}{
-		{"a2a prefix", "a2a_weather", true},
-		{"a2a underscore only", "a2a_", true},
+		{"a2a namespaced", "a2a__weather__forecast", true},
+		{"a2a underscore only", "a2a__", true},
 		{"regular tool", "get_weather", false},
 		{"empty string", "", false},
 		{"partial prefix", "a2a", false},
+		{"old single underscore", "a2a_weather", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -101,8 +101,8 @@ func TestAgentToolResolver_ResolveAgentTools(t *testing.T) {
 		assert.NotNil(t, d.A2AConfig)
 		assert.NotEmpty(t, d.A2AConfig.SkillID)
 	}
-	assert.True(t, names["summarizer"])
-	assert.True(t, names["translator"])
+	assert.True(t, names["a2a__summarizer"])
+	assert.True(t, names["a2a__translator"])
 }
 
 func TestAgentToolResolver_ResolveAgentTools_Empty(t *testing.T) {
@@ -230,6 +230,7 @@ func TestAgentToolResolver_WithStaticEndpoint(t *testing.T) {
 	descriptors := r.ResolveAgentTools([]string{"summarizer"})
 	require.Len(t, descriptors, 1)
 
+	assert.Equal(t, "a2a__summarizer", descriptors[0].Name)
 	assert.Equal(t, "http://localhost:8080", descriptors[0].A2AConfig.AgentURL)
 	assert.Equal(t, "summarizer", descriptors[0].A2AConfig.SkillID)
 }
@@ -274,8 +275,8 @@ func TestAgentToolResolver_WithMapEndpoints(t *testing.T) {
 	for _, d := range descriptors {
 		byName[d.Name] = d.A2AConfig.AgentURL
 	}
-	assert.Equal(t, "http://summarizer:9001", byName["summarizer"])
-	assert.Equal(t, "http://translator:9002", byName["translator"])
+	assert.Equal(t, "http://summarizer:9001", byName["a2a__summarizer"])
+	assert.Equal(t, "http://translator:9002", byName["a2a__translator"])
 }
 
 func TestAgentToolResolver_NoEndpointResolver(t *testing.T) {

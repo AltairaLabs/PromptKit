@@ -928,7 +928,7 @@ spec:
 	assert.Equal(t, "Initial greeting state", greetState.Description)
 	assert.Equal(t, "human", greetState.OnEvent["escalate"])
 	assert.Equal(t, "closing", greetState.OnEvent["done"])
-	assert.Equal(t, "persistent", greetState.Persistence)
+	assert.EqualValues(t, "persistent", greetState.Persistence)
 
 	// Verify JSON serialization
 	data, err := json.MarshalIndent(pack, "", "  ")

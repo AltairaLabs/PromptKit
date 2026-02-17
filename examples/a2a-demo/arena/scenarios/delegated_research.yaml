@@ -17,7 +17,7 @@ spec:
         - type: tools_called
           params:
             tools:
-              - a2a_research_agent_search_papers
+              - a2a__research_agent__search_papers
         - type: content_includes
           params:
             patterns:

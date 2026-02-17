@@ -275,6 +275,24 @@ func compileCommand() {
 		os.Exit(1)
 	}
 
+	// Validate workflow before writing if present
+	if pack.Workflow != nil {
+		wfResult := pack.ValidateWorkflow()
+		if wfResult.HasErrors() {
+			fmt.Fprintf(os.Stderr, "✗ Workflow validation errors:\n")
+			for _, e := range wfResult.Errors {
+				fmt.Fprintf(os.Stderr, "  - %s\n", e)
+			}
+			os.Exit(1)
+		}
+		if len(wfResult.Warnings) > 0 {
+			fmt.Printf("⚠ Workflow warnings:\n")
+			for _, w := range wfResult.Warnings {
+				fmt.Printf("  - %s\n", w)
+			}
+		}
+	}
+
 	validateAndWritePack(data, flags.outputFile)
 	printPackSummary(pack, flags.outputFile)
 }
@@ -397,14 +415,31 @@ func validateCommand() {
 
 	warnings := pack.Validate()
 
-	if len(warnings) == 0 {
-		fmt.Println("✓ Pack structure is valid")
-	} else {
-		fmt.Printf("⚠ Pack has %d warnings:\n", len(warnings))
+	// Get workflow-specific result for error/warning distinction
+	wfResult := pack.ValidateWorkflow()
+	wfIssueCount := len(wfResult.Errors) + len(wfResult.Warnings)
+
+	// Non-workflow issues are always blocking errors
+	nonWFCount := len(warnings) - wfIssueCount
+	hasErrors := nonWFCount > 0 || wfResult.HasErrors()
+
+	if hasErrors {
+		fmt.Fprintf(os.Stderr, "✗ Pack validation failed:\n")
 		for _, w := range warnings {
-			fmt.Printf(warningFormat, w)
+			fmt.Fprintf(os.Stderr, warningFormat, w)
 		}
 		os.Exit(1)
+	}
+
+	// Workflow warnings are informational (PascalCase, cycles)
+	if len(wfResult.Warnings) > 0 {
+		fmt.Printf("✓ Pack structure is valid\n")
+		fmt.Printf("⚠ Workflow warnings:\n")
+		for _, w := range wfResult.Warnings {
+			fmt.Printf("  - %s\n", w)
+		}
+	} else {
+		fmt.Println("✓ Pack structure is valid")
 	}
 }
 
