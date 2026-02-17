@@ -785,3 +785,146 @@ func TestExtractWorkflowContext_MarshalError(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to marshal")
 }
+
+func TestWorkflowConversation_OrchestrationMode_Default(t *testing.T) {
+	spec := &workflow.Spec{
+		Version: 1,
+		Entry:   "start",
+		States: map[string]*workflow.State{
+			"start": {PromptTask: "p1"},
+		},
+	}
+	machine := workflow.NewStateMachine(spec)
+	wc := &WorkflowConversation{machine: machine, workflowSpec: spec}
+
+	// No orchestration set, defaults to internal
+	assert.Equal(t, workflow.OrchestrationInternal, wc.OrchestrationMode())
+}
+
+func TestWorkflowConversation_OrchestrationMode_External(t *testing.T) {
+	spec := &workflow.Spec{
+		Version: 1,
+		Entry:   "start",
+		States: map[string]*workflow.State{
+			"start": {
+				PromptTask:    "p1",
+				Orchestration: workflow.OrchestrationExternal,
+				OnEvent:       map[string]string{"Next": "end"},
+			},
+			"end": {PromptTask: "p2"},
+		},
+	}
+	machine := workflow.NewStateMachine(spec)
+	wc := &WorkflowConversation{machine: machine, workflowSpec: spec}
+
+	assert.Equal(t, workflow.OrchestrationExternal, wc.OrchestrationMode())
+}
+
+func TestWorkflowConversation_OrchestrationMode_NilSpec(t *testing.T) {
+	spec := &workflow.Spec{
+		Version: 1,
+		Entry:   "s",
+		States:  map[string]*workflow.State{"s": {PromptTask: "p"}},
+	}
+	machine := workflow.NewStateMachine(spec)
+	wc := &WorkflowConversation{machine: machine} // workflowSpec is nil
+
+	assert.Equal(t, workflow.OrchestrationInternal, wc.OrchestrationMode())
+}
+
+func TestWorkflowConversation_ConcurrentReads(t *testing.T) {
+	t.Parallel()
+
+	spec := &workflow.Spec{
+		Version: 1,
+		Entry:   "start",
+		States: map[string]*workflow.State{
+			"start": {
+				PromptTask:    "p1",
+				Orchestration: workflow.OrchestrationExternal,
+				OnEvent:       map[string]string{"Next": "end"},
+			},
+			"end": {PromptTask: "p2"},
+		},
+	}
+	machine := workflow.NewStateMachine(spec)
+	wc := &WorkflowConversation{
+		machine:      machine,
+		workflowSpec: spec,
+	}
+
+	// Spawn multiple goroutines reading concurrently — should not race
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = wc.CurrentState()
+			_ = wc.CurrentPromptTask()
+			_ = wc.IsComplete()
+			_ = wc.AvailableEvents()
+			_ = wc.OrchestrationMode()
+			_ = wc.Context()
+			_ = wc.ActiveConversation()
+		}()
+	}
+	wg.Wait()
+}
+
+func TestWorkflowConversation_ConcurrentSendAndTransition(t *testing.T) {
+	t.Parallel()
+
+	spec := &workflow.Spec{
+		Version: 1,
+		Entry:   "start",
+		States: map[string]*workflow.State{
+			"start": {
+				PromptTask:    "p1",
+				Orchestration: workflow.OrchestrationExternal,
+				OnEvent:       map[string]string{"Next": "mid"},
+			},
+			"mid": {
+				PromptTask:    "p2",
+				Orchestration: workflow.OrchestrationExternal,
+				OnEvent:       map[string]string{"Next": "end"},
+			},
+			"end": {PromptTask: "p3"},
+		},
+	}
+	machine := workflow.NewStateMachine(spec)
+
+	// Use a closed conversation so Send returns immediately with ErrConversationClosed
+	conv := &Conversation{closed: true}
+	wc := &WorkflowConversation{
+		machine:      machine,
+		workflowSpec: spec,
+		activeConv:   conv,
+		packPath:     "/nonexistent/pack.json",
+	}
+
+	// Concurrent reads and writes should not cause data races
+	var wg sync.WaitGroup
+
+	// Concurrent Send calls (will fail, but exercises the lock)
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = wc.Send(context.Background(), "hello")
+		}()
+	}
+
+	// Concurrent reads
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = wc.CurrentState()
+			_ = wc.OrchestrationMode()
+			_ = wc.IsComplete()
+		}()
+	}
+
+	wg.Wait()
+	// No assertions needed — test validates absence of data races with -race flag
+}

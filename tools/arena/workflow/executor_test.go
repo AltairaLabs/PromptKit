@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	asrt "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 )
 
 // mockDriver implements WorkflowDriver for testing.
@@ -249,6 +250,75 @@ func TestExecutor_Execute_UnknownStepType(t *testing.T) {
 	sr := exec.executeStep(context.Background(), driver, 0, step)
 	if sr.Error == "" {
 		t.Fatal("expected error for unknown step type")
+	}
+}
+
+func TestExecutor_Execute_WithAssertions_StateIs(t *testing.T) {
+	t.Parallel()
+
+	driver := &mockDriver{
+		state:     "processing",
+		responses: []string{"I'm working on it"},
+	}
+
+	scenario := &Scenario{
+		ID:   "test-assertions",
+		Pack: "./test.pack.json",
+		Steps: []Step{
+			{
+				Type:    StepInput,
+				Content: "what state are we in?",
+				Assertions: []asrt.AssertionConfig{
+					{Type: "state_is", Params: map[string]interface{}{"state": "processing"}},
+				},
+			},
+		},
+	}
+
+	exec := NewExecutor(newMockFactory(driver, nil))
+	result := exec.Execute(context.Background(), scenario)
+
+	if result.Failed {
+		t.Fatalf("expected success, got error: %s", result.Error)
+	}
+	if len(result.Steps[0].AssertionResults) != 1 {
+		t.Fatalf("expected 1 assertion result, got %d", len(result.Steps[0].AssertionResults))
+	}
+	if !result.Steps[0].AssertionResults[0].Passed {
+		t.Fatalf("expected assertion to pass: %s", result.Steps[0].AssertionResults[0].Message)
+	}
+}
+
+func TestExecutor_Execute_WithAssertions_Failure(t *testing.T) {
+	t.Parallel()
+
+	driver := &mockDriver{
+		state:     "intake",
+		responses: []string{"hello"},
+	}
+
+	scenario := &Scenario{
+		ID:   "test-assertion-fail",
+		Pack: "./test.pack.json",
+		Steps: []Step{
+			{
+				Type:    StepInput,
+				Content: "check state",
+				Assertions: []asrt.AssertionConfig{
+					{Type: "state_is", Params: map[string]interface{}{"state": "done"}},
+				},
+			},
+		},
+	}
+
+	exec := NewExecutor(newMockFactory(driver, nil))
+	result := exec.Execute(context.Background(), scenario)
+
+	if !result.Failed {
+		t.Fatal("expected failure for assertion mismatch")
+	}
+	if result.Steps[0].AssertionResults[0].Passed {
+		t.Fatal("expected assertion to fail")
 	}
 }
 

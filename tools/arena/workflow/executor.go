@@ -78,7 +78,8 @@ type Result struct {
 
 // Executor runs workflow scenarios against a Driver.
 type Executor struct {
-	factory DriverFactory
+	factory     DriverFactory
+	transitions []map[string]interface{} // accumulated transitions for assertions
 }
 
 // NewExecutor creates a workflow scenario executor with the given driver factory.
@@ -109,6 +110,8 @@ func (e *Executor) Execute(ctx context.Context, scenario *Scenario) *Result {
 		}
 	}
 	defer driver.Close()
+
+	e.transitions = nil // reset for each scenario
 
 	result := &Result{
 		ScenarioID: scenario.ID,
@@ -167,12 +170,10 @@ func (e *Executor) executeInputStep(ctx context.Context, driver Driver, index in
 
 	// Evaluate turn-level assertions against the response
 	if len(step.Assertions) > 0 {
-		sr.AssertionResults = evaluateAssertions(ctx, step.Assertions, response)
-		for _, ar := range sr.AssertionResults {
-			if !ar.Passed {
-				sr.Error = fmt.Sprintf("assertion %q failed: %s", ar.Type, ar.Message)
-				break
-			}
+		results, firstErr := e.runAssertions(ctx, driver, step.Assertions, response)
+		sr.AssertionResults = results
+		if firstErr != "" {
+			sr.Error = firstErr
 		}
 	}
 
@@ -183,6 +184,7 @@ func (e *Executor) executeInputStep(ctx context.Context, driver Driver, index in
 func (e *Executor) executeEventStep(driver Driver, index int, step *Step) StepResult {
 	start := time.Now()
 
+	fromState := driver.CurrentState()
 	newState, err := driver.Transition(step.Event)
 	sr := StepResult{
 		Index:    index,
@@ -194,6 +196,13 @@ func (e *Executor) executeEventStep(driver Driver, index int, step *Step) StepRe
 		sr.Error = fmt.Sprintf("transition %q failed: %v", step.Event, err)
 		return sr
 	}
+
+	// Record the transition for workflow assertions
+	e.transitions = append(e.transitions, map[string]interface{}{
+		"from":  fromState,
+		"to":    newState,
+		"event": step.Event,
+	})
 
 	if step.ExpectState != "" && newState != step.ExpectState {
 		sr.Error = fmt.Sprintf("expected state %q but got %q", step.ExpectState, newState)

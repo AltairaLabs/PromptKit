@@ -326,6 +326,23 @@ func (wc *WorkflowConversation) Context() *workflow.Context {
 	return wc.machine.Context()
 }
 
+// OrchestrationMode returns the orchestration mode of the current state.
+// External orchestration means transitions are driven by outside callers
+// (e.g., HTTP handlers, message queues) rather than from within the conversation loop.
+func (wc *WorkflowConversation) OrchestrationMode() workflow.Orchestration {
+	wc.mu.RLock()
+	defer wc.mu.RUnlock()
+
+	if wc.workflowSpec == nil {
+		return workflow.OrchestrationInternal
+	}
+	state := wc.workflowSpec.States[wc.machine.CurrentState()]
+	if state == nil || state.Orchestration == "" {
+		return workflow.OrchestrationInternal
+	}
+	return state.Orchestration
+}
+
 // ActiveConversation returns the current state's Conversation.
 // Use this to access conversation-specific methods like SetVar, OnTool, etc.
 func (wc *WorkflowConversation) ActiveConversation() *Conversation {
