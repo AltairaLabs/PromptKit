@@ -234,6 +234,10 @@ func (c *Config) loadScenarios(configPath string) error {
 		if err != nil {
 			return fmt.Errorf("failed to load scenario %s: %w", ref.File, err)
 		}
+		// For workflow scenarios, resolve the pack path relative to the scenario file
+		if scenario.IsWorkflow() && scenario.Pack != "" && !filepath.IsAbs(scenario.Pack) {
+			scenario.Pack = ResolveFilePath(fullPath, scenario.Pack)
+		}
 		c.LoadedScenarios[scenario.ID] = scenario
 	}
 	return nil

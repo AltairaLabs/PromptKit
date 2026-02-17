@@ -38,6 +38,10 @@ func NewConversationAssertionRegistry() *ConversationAssertionRegistry {
 	registry.Register("agent_invoked", NewAgentInvokedConversationValidator)
 	registry.Register("agent_not_invoked", NewAgentNotInvokedConversationValidator)
 
+	// Register content assertions (used by both turn-level and workflow scenarios)
+	registry.Register("content_matches", NewContentMatchesConversationValidator)
+	registry.Register("content_includes", NewContentIncludesConversationValidator)
+
 	// Register workflow conversation assertions
 	registry.Register("state_is", NewWorkflowStateIsValidator)
 	registry.Register("transitioned_to", NewWorkflowTransitionedToValidator)

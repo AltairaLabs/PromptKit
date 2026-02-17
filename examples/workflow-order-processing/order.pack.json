@@ -1,0 +1,74 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "workflow-order-processing",
+  "name": "Order Processing Workflow Pack",
+  "version": "v1.0.0",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "new_order": {
+      "id": "new_order",
+      "name": "New Order",
+      "description": "Order placement and confirmation",
+      "version": "v1.0.0",
+      "system_template": "You are an order processing assistant for ShopCo, an e-commerce platform.\n\nYour role:\n- Confirm order details with the customer\n- Provide the order number and estimated delivery\n- Answer questions about the order\n\nTone: Friendly, clear, and efficient"
+    },
+    "payment": {
+      "id": "payment",
+      "name": "Payment",
+      "description": "Payment processing and verification",
+      "version": "v1.0.0",
+      "system_template": "You are a payment processing assistant for ShopCo.\n\nYour role:\n- Confirm payment was received\n- Provide payment details (amount, method, transaction ID)\n- Handle payment-related questions\n\nTone: Professional and reassuring"
+    },
+    "fulfillment": {
+      "id": "fulfillment",
+      "name": "Fulfillment",
+      "description": "Order fulfillment and shipping updates",
+      "version": "v1.0.0",
+      "system_template": "You are a fulfillment assistant for ShopCo.\n\nYour role:\n- Provide shipping and tracking information\n- Update the customer on fulfillment progress\n- Handle delivery-related questions\n\nTone: Helpful and proactive"
+    },
+    "complete": {
+      "id": "complete",
+      "name": "Complete",
+      "description": "Order delivered — final confirmation",
+      "version": "v1.0.0",
+      "system_template": "The order has been delivered. Confirm delivery with the customer and provide any post-delivery support information.\n\nGuidelines:\n- Confirm the delivery\n- Ask if the customer is satisfied\n- Provide return policy information if needed"
+    }
+  },
+  "workflow": {
+    "version": 1,
+    "entry": "new_order",
+    "states": {
+      "new_order": {
+        "prompt_task": "new_order",
+        "description": "Order placed, awaiting payment",
+        "on_event": {
+          "PaymentReceived": "payment"
+        },
+        "orchestration": "internal"
+      },
+      "payment": {
+        "prompt_task": "payment",
+        "description": "Payment confirmed, awaiting fulfillment",
+        "on_event": {
+          "ItemShipped": "fulfillment"
+        },
+        "orchestration": "external"
+      },
+      "fulfillment": {
+        "prompt_task": "fulfillment",
+        "description": "Order shipped, awaiting delivery",
+        "on_event": {
+          "Delivered": "complete"
+        },
+        "orchestration": "internal"
+      },
+      "complete": {
+        "prompt_task": "complete",
+        "description": "Order delivered"
+      }
+    }
+  }
+}

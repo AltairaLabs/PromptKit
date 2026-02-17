@@ -349,6 +349,11 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 		return saveError(fmt.Sprintf("scenario not found: %s", combo.ScenarioID))
 	}
 
+	// Route workflow scenarios to the workflow executor
+	if scenario.IsWorkflow() {
+		return e.executeWorkflowRun(ctx, &combo, runID, startTime, arenaStore, runEmitter, saveError)
+	}
+
 	// Get provider
 	provider, exists := e.providerRegistry.Get(combo.ProviderID)
 	if !exists {

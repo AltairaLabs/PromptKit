@@ -469,14 +469,16 @@ type ScenarioConfigK8s struct {
 	Spec       Scenario          `yaml:"spec"`
 }
 
-// Scenario describes user turns, context, and validation constraints
+// Scenario describes user turns, context, and validation constraints.
+// A scenario is either a regular conversation scenario (with TaskType + Turns)
+// or a workflow scenario (with Pack + Steps). Use IsWorkflow() to distinguish.
 type Scenario struct {
 	ID              string                 `json:"id" yaml:"id"`
-	TaskType        string                 `json:"task_type" yaml:"task_type"`
+	TaskType        string                 `json:"task_type,omitempty" yaml:"task_type,omitempty"`
 	Mode            string                 `json:"mode,omitempty" yaml:"mode,omitempty"`
 	Description     string                 `json:"description" yaml:"description"`
 	ContextMetadata *ContextMetadata       `json:"context_metadata,omitempty" yaml:"context_metadata,omitempty"`
-	Turns           []TurnDefinition       `json:"turns" yaml:"turns"`
+	Turns           []TurnDefinition       `json:"turns,omitempty" yaml:"turns,omitempty"`
 	Context         map[string]interface{} `json:"context,omitempty" yaml:"context,omitempty"`
 	Constraints     map[string]interface{} `json:"constraints,omitempty" yaml:"constraints,omitempty"`
 	ToolPolicy      *ToolPolicy            `json:"tool_policy,omitempty" yaml:"tool_policy,omitempty"`
@@ -494,6 +496,35 @@ type Scenario struct {
 	ConversationAssertions []asrt.AssertionConfig `json:"conversation_assertions,omitempty" yaml:"conversation_assertions,omitempty"` //nolint:lll
 	// Duplex enables bidirectional streaming mode for voice/audio scenarios.
 	Duplex *DuplexConfig `json:"duplex,omitempty" yaml:"duplex,omitempty"`
+
+	// Workflow scenario fields (mutually exclusive with TaskType + Turns)
+	// Pack is the path to a .pack.json file that defines prompts and workflow state machine.
+	Pack string `json:"pack,omitempty" yaml:"pack,omitempty"`
+	// Steps is the ordered sequence of actions (input messages and event transitions).
+	Steps []WorkflowStep `json:"steps,omitempty" yaml:"steps,omitempty"`
+	// ContextCarryForward enables conversation context hand-off between workflow states.
+	ContextCarryForward bool `json:"context_carry_forward,omitempty" yaml:"context_carry_forward,omitempty"`
+	// Variables are injected into the pack's template variables.
+	Variables map[string]string `json:"variables,omitempty" yaml:"variables,omitempty"`
+}
+
+// IsWorkflow returns true if this scenario is a workflow scenario (has a pack reference).
+func (s *Scenario) IsWorkflow() bool {
+	return s.Pack != ""
+}
+
+// WorkflowStep is a single action in a workflow scenario: either an input message or an event transition.
+type WorkflowStep struct {
+	// Type is "input" or "event".
+	Type string `json:"type" yaml:"type"`
+	// Content is the user message text (only for input steps).
+	Content string `json:"content,omitempty" yaml:"content,omitempty"`
+	// Event is the transition event name (only for event steps).
+	Event string `json:"event,omitempty" yaml:"event,omitempty"`
+	// ExpectState is the expected state after an event transition.
+	ExpectState string `json:"expect_state,omitempty" yaml:"expect_state,omitempty"`
+	// Assertions are evaluated against the assistant response (input steps only).
+	Assertions []asrt.AssertionConfig `json:"assertions,omitempty" yaml:"assertions,omitempty"`
 }
 
 // ShouldStreamTurn returns whether streaming should be used for a specific turn.

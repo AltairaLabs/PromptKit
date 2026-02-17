@@ -1,0 +1,18 @@
+# Mock responses for the workflow-support example.
+# Responses are keyed by scenario ID and turn number.
+
+scenarios:
+  basic-flow:
+    turns:
+      1: "Hello! Welcome to TechCo support. I'm sorry to hear you're having trouble with your billing. Let me help you with that. Could you share your account number so I can look into the charges?"
+      2: "Thank you for providing your account number. I can see the charge on your account. This appears to be a complex billing discrepancy that requires our billing specialist team to investigate. I recommend we escalate this for a detailed review."
+      3: "Hello, I'm a senior billing specialist. I've reviewed your account and the conversation history. The duplicate charge on your account was caused by a system error during our recent update. I'm processing a refund of $49.99 to your original payment method right now."
+      4: "The refund has been submitted and should appear on your statement within 3-5 business days. Is there anything else I can help you with regarding your account?"
+      5: "You're welcome! To summarize: we identified a duplicate charge of $49.99 caused by a system error, and a refund has been processed. You should see it within 3-5 business days. Thank you for your patience, and don't hesitate to reach out if you need anything else."
+
+  state-assertions:
+    turns:
+      1: "Welcome to TechCo support! I understand you're having trouble logging in. Let me help troubleshoot this. What error message are you seeing when you try to log in?"
+      2: "Thank you for those details. It sounds like your account may have been locked after multiple failed attempts. Let me verify — are you using the correct email address associated with your account?"
+      3: "I've reviewed your situation and it does appear your account was locked due to security protocols. I've now unlocked your account and sent a password reset link to your email. Please check your inbox and follow the instructions to set a new password."
+      4: "Great, I'm glad the password reset worked! Your account is now fully accessible. Thank you for contacting TechCo support. If you experience any further issues, don't hesitate to reach out."

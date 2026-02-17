@@ -1,0 +1,36 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: state-assertions
+spec:
+  id: state-assertions
+  description: "Direct resolve: intake → closed"
+  pack: ../support.pack.json
+  steps:
+    # Step 1: Customer reports login issue (intake state)
+    - type: input
+      content: "I can't log in to my account."
+      assertions:
+        - type: state_is
+          params:
+            state: intake
+
+    # Step 2: Customer provides more detail
+    - type: input
+      content: "I tried resetting my password but the email never arrives."
+
+    # Step 3: Agent resolves the issue
+    - type: input
+      content: "The specialist should be able to help me regain access."
+
+    # Event: Resolve directly from intake → closed
+    - type: event
+      event: Resolve
+      expect_state: closed
+
+    # Step 4: Confirm resolution
+    - type: input
+      content: "Thanks, my account is working again!"
+      assertions:
+        - type: workflow_complete
+          params: {}

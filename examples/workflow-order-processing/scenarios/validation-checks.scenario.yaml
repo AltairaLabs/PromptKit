@@ -1,0 +1,70 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: validation-checks
+spec:
+  id: validation-checks
+  description: "Content validation assertions for order processing"
+  pack: ../order.pack.json
+  context_carry_forward: true
+  steps:
+    # Step 1: Verify order confirmation content (new_order state)
+    - type: input
+      content: "I ordered 2 USB-C Cables. What's the status?"
+      assertions:
+        - type: state_is
+          params:
+            state: new_order
+        - type: content_includes
+          params:
+            patterns: ["ORD-"]
+        - type: content_matches
+          params:
+            pattern: "\\$\\d+\\.\\d{2}"
+
+    # Event: PaymentReceived → payment
+    - type: event
+      event: PaymentReceived
+      expect_state: payment
+
+    # Step 2: Verify payment details
+    - type: input
+      content: "Can you confirm the payment details?"
+      assertions:
+        - type: state_is
+          params:
+            state: payment
+        - type: content_includes
+          params:
+            patterns: ["TXN-"]
+        - type: content_matches
+          params:
+            pattern: "(?i)(paypal|credit card|payment)"
+
+    # Event: ItemShipped → fulfillment
+    - type: event
+      event: ItemShipped
+      expect_state: fulfillment
+
+    # Step 3: Verify shipping details
+    - type: input
+      content: "What's the tracking number?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["TRACK-"]
+
+    # Event: Delivered → complete
+    - type: event
+      event: Delivered
+      expect_state: complete
+
+    # Step 4: Final verification
+    - type: input
+      content: "Got it, thanks!"
+      assertions:
+        - type: workflow_complete
+          params: {}
+        - type: content_matches
+          params:
+            pattern: "(?i)(deliver|return|30 day)"

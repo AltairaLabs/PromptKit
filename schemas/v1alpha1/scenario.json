@@ -225,15 +225,78 @@
         },
         "duplex": {
           "$ref": "#/$defs/DuplexConfig"
+        },
+        "pack": {
+          "type": "string",
+          "description": "Path to a .pack.json file defining prompts and workflow state machine"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/WorkflowStep"
+          },
+          "type": "array",
+          "description": "Ordered sequence of workflow actions (input messages and event transitions)"
+        },
+        "context_carry_forward": {
+          "type": "boolean",
+          "description": "Enable conversation context hand-off between workflow states"
+        },
+        "variables": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "description": "Template variables to inject into the pack"
         }
       },
       "additionalProperties": false,
       "type": "object",
       "required": [
         "id",
-        "task_type",
-        "description",
-        "turns"
+        "description"
+      ],
+      "oneOf": [
+        {
+          "required": ["task_type", "turns"],
+          "description": "Regular conversation scenario"
+        },
+        {
+          "required": ["pack", "steps"],
+          "description": "Workflow scenario"
+        }
+      ]
+    },
+    "WorkflowStep": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["input", "event"],
+          "description": "Step type: input (send message) or event (trigger transition)"
+        },
+        "content": {
+          "type": "string",
+          "description": "User message text (input steps only)"
+        },
+        "event": {
+          "type": "string",
+          "description": "Transition event name (event steps only)"
+        },
+        "expect_state": {
+          "type": "string",
+          "description": "Expected state after an event transition"
+        },
+        "assertions": {
+          "items": {
+            "$ref": "#/$defs/AssertionConfig"
+          },
+          "type": "array",
+          "description": "Assertions evaluated against the assistant response"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
       ]
     },
     "TTSConfig": {

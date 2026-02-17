@@ -1,0 +1,61 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "workflow-support",
+  "name": "Customer Support Workflow Pack",
+  "version": "v1.0.0",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "intake": {
+      "id": "intake",
+      "name": "Intake",
+      "description": "Initial customer contact and triage",
+      "version": "v1.0.0",
+      "system_template": "You are a customer support agent for TechCo. Greet the customer, understand their issue, and gather relevant details.\n\nGuidelines:\n- Be professional and empathetic\n- Ask clarifying questions to understand the issue\n- Collect order numbers, account info, or error details as needed\n- If the issue requires specialized help, recommend escalation"
+    },
+    "specialist": {
+      "id": "specialist",
+      "name": "Specialist",
+      "description": "Specialized support handling for escalated issues",
+      "version": "v1.0.0",
+      "system_template": "You are a senior support specialist at TechCo. The customer has been escalated to you for advanced assistance.\n\nGuidelines:\n- Review the conversation context from the previous agent\n- Provide detailed, technical solutions\n- Offer concrete next steps\n- Resolve the issue or provide a clear path to resolution"
+    },
+    "closed": {
+      "id": "closed",
+      "name": "Closed",
+      "description": "Conversation complete — farewell prompt",
+      "version": "v1.0.0",
+      "system_template": "The support conversation is now resolved. Thank the customer for their patience and confirm the resolution.\n\nGuidelines:\n- Summarize what was resolved\n- Provide any follow-up instructions\n- Thank the customer"
+    }
+  },
+  "workflow": {
+    "version": 1,
+    "entry": "intake",
+    "states": {
+      "intake": {
+        "prompt_task": "intake",
+        "description": "Initial customer contact and triage",
+        "on_event": {
+          "Escalate": "specialist",
+          "Resolve": "closed"
+        },
+        "orchestration": "internal"
+      },
+      "specialist": {
+        "prompt_task": "specialist",
+        "description": "Specialized support handling for escalated issues",
+        "on_event": {
+          "Resolve": "closed"
+        },
+        "persistence": "persistent",
+        "orchestration": "internal"
+      },
+      "closed": {
+        "prompt_task": "closed",
+        "description": "Conversation complete"
+      }
+    }
+  }
+}
