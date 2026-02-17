@@ -45,7 +45,15 @@ type WorkflowConversation struct {
 	stateStore          statestore.Store
 	workflowID          string
 	contextCarryForward bool
+	workflowCap         *WorkflowCapability
+	pendingTransition   *pendingTransition
 	closed              bool
+}
+
+// pendingTransition captures an LLM-initiated transition from a tool call.
+type pendingTransition struct {
+	event   string
+	context string
 }
 
 // defaultMaxSummaryMessages is the max messages to include in a carry-forward summary.
@@ -102,7 +110,14 @@ func OpenWorkflow(packPath string, opts ...Option) (*WorkflowConversation, error
 		emitter = events.NewEmitter(cfg.eventBus, "", "", "")
 	}
 
-	return &WorkflowConversation{
+	// Create and init WorkflowCapability
+	wfCap := NewWorkflowCapability()
+	if err := wfCap.Init(CapabilityContext{Pack: p, PromptName: promptName}); err != nil {
+		_ = conv.Close()
+		return nil, fmt.Errorf("workflow capability init failed: %w", err)
+	}
+
+	wc := &WorkflowConversation{
 		machine:             machine,
 		workflowSpec:        spec,
 		packPath:            packPath,
@@ -113,7 +128,13 @@ func OpenWorkflow(packPath string, opts ...Option) (*WorkflowConversation, error
 		stateStore:          cfg.stateStore,
 		workflowID:          cfg.conversationID,
 		contextCarryForward: cfg.contextCarryForward,
-	}, nil
+		workflowCap:         wfCap,
+	}
+
+	// Register workflow tools for the initial state
+	wc.registerWorkflowTools()
+
+	return wc, nil
 }
 
 // ResumeWorkflow restores a WorkflowConversation from a previously persisted state.
@@ -187,7 +208,14 @@ func ResumeWorkflow(workflowID, packPath string, opts ...Option) (*WorkflowConve
 		emitter = events.NewEmitter(cfg.eventBus, "", "", "")
 	}
 
-	return &WorkflowConversation{
+	// Create and init WorkflowCapability
+	wfCap := NewWorkflowCapability()
+	if err := wfCap.Init(CapabilityContext{Pack: p, PromptName: promptName}); err != nil {
+		_ = conv.Close()
+		return nil, fmt.Errorf("workflow capability init failed: %w", err)
+	}
+
+	wc := &WorkflowConversation{
 		machine:             machine,
 		workflowSpec:        spec,
 		packPath:            packPath,
@@ -198,23 +226,47 @@ func ResumeWorkflow(workflowID, packPath string, opts ...Option) (*WorkflowConve
 		stateStore:          cfg.stateStore,
 		workflowID:          workflowID,
 		contextCarryForward: cfg.contextCarryForward,
-	}, nil
+		workflowCap:         wfCap,
+	}
+
+	// Register workflow tools for the current state
+	wc.registerWorkflowTools()
+
+	return wc, nil
 }
 
 // Send sends a message to the active state's conversation and returns the response.
+// If the LLM calls the workflow__transition tool, the transition is processed
+// after the Send completes.
 //
 //	resp, err := wc.Send(ctx, "Hello!")
 //	fmt.Println(resp.Text())
 func (wc *WorkflowConversation) Send(ctx context.Context, message any, opts ...SendOption) (*Response, error) {
-	wc.mu.RLock()
+	wc.mu.Lock()
 	if wc.closed {
-		wc.mu.RUnlock()
+		wc.mu.Unlock()
 		return nil, ErrWorkflowClosed
 	}
 	conv := wc.activeConv
-	wc.mu.RUnlock()
+	wc.pendingTransition = nil
+	wc.mu.Unlock()
 
-	return conv.Send(ctx, message, opts...)
+	resp, err := conv.Send(ctx, message, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	// Process pending transition from tool call
+	wc.mu.Lock()
+	defer wc.mu.Unlock()
+	if wc.pendingTransition != nil {
+		pt := wc.pendingTransition
+		wc.pendingTransition = nil
+		if _, transErr := wc.transitionInternal(pt.event, pt.context); transErr != nil {
+			return resp, transErr
+		}
+	}
+	return resp, nil
 }
 
 // Transition processes an event and moves to the next state.
@@ -238,13 +290,19 @@ func (wc *WorkflowConversation) Transition(event string) (string, error) {
 		return "", ErrWorkflowTerminal
 	}
 
-	fromState := wc.machine.CurrentState()
-
-	// Capture context summary before transition if carry-forward is enabled
-	var summary string
+	// Build context summary from active conversation if carry-forward is enabled
+	var contextSummary string
 	if wc.contextCarryForward && wc.activeConv != nil {
-		summary = buildContextSummary(fromState, wc.activeConv)
+		contextSummary = buildContextSummary(wc.machine.CurrentState(), wc.activeConv)
 	}
+
+	return wc.transitionInternal(event, contextSummary)
+}
+
+// transitionInternal is the shared transition logic used by both explicit
+// Transition() and LLM-initiated transitions. Caller must hold wc.mu.
+func (wc *WorkflowConversation) transitionInternal(event, contextSummary string) (string, error) {
+	fromState := wc.machine.CurrentState()
 
 	if err := wc.machine.ProcessEvent(event); err != nil {
 		return "", err
@@ -257,11 +315,11 @@ func (wc *WorkflowConversation) Transition(event string) (string, error) {
 		_ = wc.activeConv.Close()
 	}
 
-	// Build options, injecting summary as a template variable if available
+	// Build options, injecting context as a template variable if available
 	opts := wc.opts
-	if summary != "" {
+	if contextSummary != "" {
 		opts = append(append([]Option{}, wc.opts...), WithVariables(map[string]string{
-			"workflow_context": summary,
+			"workflow_context": contextSummary,
 		}))
 	}
 
@@ -273,6 +331,9 @@ func (wc *WorkflowConversation) Transition(event string) (string, error) {
 			toState, promptName, err)
 	}
 	wc.activeConv = conv
+
+	// Register workflow tools for the new state
+	wc.registerWorkflowTools()
 
 	// Persist workflow context if state store is configured and state is not transient
 	if wc.stateStore != nil && wc.workflowID != "" {
@@ -288,6 +349,49 @@ func (wc *WorkflowConversation) Transition(event string) (string, error) {
 	}
 
 	return toState, nil
+}
+
+// registerWorkflowTools registers the workflow__transition tool and handler
+// for the current state on the active conversation.
+func (wc *WorkflowConversation) registerWorkflowTools() {
+	state := wc.workflowSpec.States[wc.machine.CurrentState()]
+	if wc.workflowCap != nil {
+		wc.workflowCap.RegisterToolsForState(wc.activeConv.ToolRegistry(), state)
+	}
+
+	// Register tool handler only if the state has events and is not externally orchestrated
+	if state != nil && len(state.OnEvent) > 0 && state.Orchestration != workflow.OrchestrationExternal {
+		wc.activeConv.OnTool(workflow.TransitionToolName, wc.handleTransitionTool)
+	}
+}
+
+// handleTransitionTool processes the workflow__transition tool call from the LLM.
+// It stores the transition request for processing after Send completes.
+func (wc *WorkflowConversation) handleTransitionTool(args map[string]any) (any, error) {
+	event, _ := args["event"].(string)
+	ctx, _ := args["context"].(string)
+
+	wc.mu.Lock()
+	wc.pendingTransition = &pendingTransition{event: event, context: ctx}
+	wc.mu.Unlock()
+
+	return transitionResult(event, wc.workflowSpec), nil
+}
+
+// transitionResult builds a response to return to the LLM after a transition tool call.
+func transitionResult(event string, spec *workflow.Spec) map[string]string {
+	result := map[string]string{
+		"status": "transition_scheduled",
+		"event":  event,
+	}
+	// Look up the target state for a more informative response
+	for _, state := range spec.States {
+		if target, ok := state.OnEvent[event]; ok {
+			result["target_state"] = target
+			break
+		}
+	}
+	return result
 }
 
 // CurrentState returns the current workflow state name.
