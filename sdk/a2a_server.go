@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
 )
 
 const (
@@ -97,7 +98,7 @@ func (s *A2AServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /.well-known/agent.json", s.handleAgentCard)
 	mux.HandleFunc("POST /a2a", s.handleRPC)
-	return mux
+	return telemetry.TraceMiddleware(mux)
 }
 
 // ListenAndServe starts the HTTP server on the configured port.
@@ -168,7 +169,7 @@ func (s *A2AServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Method {
 	case a2a.MethodSendMessage:
-		s.handleSendMessage(w, &req)
+		s.handleSendMessage(w, r, &req)
 	case a2a.MethodSendStreamingMessage:
 		s.handleStreamMessage(w, r, &req)
 	case a2a.MethodGetTask:
@@ -185,7 +186,7 @@ func (s *A2AServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSendMessage processes a message/send request.
-func (s *A2AServer) handleSendMessage(w http.ResponseWriter, req *a2a.JSONRPCRequest) {
+func (s *A2AServer) handleSendMessage(w http.ResponseWriter, r *http.Request, req *a2a.JSONRPCRequest) {
 	var params a2a.SendMessageRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		writeRPCError(w, req.ID, -32602, "Invalid params")
@@ -215,7 +216,11 @@ func (s *A2AServer) handleSendMessage(w http.ResponseWriter, req *a2a.JSONRPCReq
 		return
 	}
 
-	done := s.runConversation(taskID, conv, pkMsg)
+	// Propagate trace context to the background goroutine. We use a detached
+	// context because the goroutine outlives the HTTP handler on the non-blocking path.
+	traceCtx := telemetry.ContextWithTrace(context.Background(),
+		telemetry.TraceContextFromContext(r.Context()))
+	done := s.runConversation(traceCtx, taskID, conv, pkMsg)
 
 	if params.Configuration != nil && params.Configuration.Blocking {
 		<-done
@@ -232,8 +237,8 @@ func (s *A2AServer) handleSendMessage(w http.ResponseWriter, req *a2a.JSONRPCReq
 
 // runConversation spawns a goroutine that drives the conversation for a task.
 // It returns a channel that is closed when the goroutine completes.
-func (s *A2AServer) runConversation(taskID string, conv a2aConv, pkMsg any) <-chan struct{} {
-	ctx, cancel := context.WithCancel(context.Background())
+func (s *A2AServer) runConversation(parent context.Context, taskID string, conv a2aConv, pkMsg any) <-chan struct{} {
+	ctx, cancel := context.WithCancel(parent)
 	s.cancelsMu.Lock()
 	s.cancels[taskID] = cancel
 	s.cancelsMu.Unlock()
