@@ -1,7 +1,5 @@
 ---
 title: Eval Framework
-sidebar:
-  order: 7
 ---
 Understanding PromptKit's automated evaluation system for LLM outputs.
 

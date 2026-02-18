@@ -1,7 +1,5 @@
 ---
 title: 'Tutorial 3: Multi-Turn Conversations'
-sidebar:
-  order: 3
 ---
 Learn how to test complex multi-turn conversations that maintain context across exchanges.
 

@@ -1,7 +1,5 @@
 ---
 title: Configure LLM Providers
-sidebar:
-  order: 3
 ---
 Learn how to configure and manage LLM providers for testing.
 

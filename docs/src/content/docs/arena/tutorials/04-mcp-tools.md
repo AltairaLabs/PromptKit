@@ -1,7 +1,5 @@
 ---
 title: 'Tutorial 4: Testing MCP Tools'
-sidebar:
-  order: 4
 ---
 Learn how to test LLMs that use Model Context Protocol (MCP) tools and function calling.
 

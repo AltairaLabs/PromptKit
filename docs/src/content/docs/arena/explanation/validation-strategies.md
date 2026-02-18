@@ -1,7 +1,5 @@
 ---
 title: Validation Strategies
-sidebar:
-  order: 4
 ---
 Comprehensive guide to designing effective validation and assertion strategies for LLM testing.
 

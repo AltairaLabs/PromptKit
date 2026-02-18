@@ -1,7 +1,5 @@
 ---
-title: '02: Multi-Environment Deployments'
-sidebar:
-  order: 2
+title: 'Deploy: Multi-Environment Deployments'
 ---
 
 Deploy the same prompt pack to dev, staging, and production environments from a single configuration.
@@ -26,7 +24,7 @@ In this tutorial, you'll learn to:
 
 ## Prerequisites
 
-- Completed [Tutorial 1: First Deployment](01-first-deployment)
+- Completed [Tutorial: First Deployment](first-deployment)
 - An installed deploy adapter
 - A compiled `.pack.json` file
 
@@ -255,6 +253,6 @@ Each environment is tracked independently. If you see unexpected state, check th
 
 Now that you understand multi-environment deployments, explore:
 
-- **[How-To: Configure Deploy](../how-to/configure-deploy)** — Advanced configuration patterns
-- **[How-To: CI/CD Integration](../how-to/ci-cd-integration)** — Automate multi-environment deployments
-- **[Explanation: State Management](../explanation/state-management)** — How state tracking works per environment
+- **[How-To: Configure Deploy](../../how-to/deploy/configure)** — Advanced configuration patterns
+- **[How-To: CI/CD Integration](../../how-to/deploy/ci-cd)** — Automate multi-environment deployments
+- **[Explanation: State Management](../../explanation/deploy/state-management)** — How state tracking works per environment

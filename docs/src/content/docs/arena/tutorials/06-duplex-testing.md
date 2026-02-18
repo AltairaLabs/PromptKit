@@ -1,7 +1,5 @@
 ---
 title: 'Tutorial 6: Duplex Voice Testing'
-sidebar:
-  order: 6
 ---
 Learn to test bidirectional voice conversations with real-time audio streaming.
 

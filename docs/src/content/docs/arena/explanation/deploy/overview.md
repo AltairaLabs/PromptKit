@@ -1,8 +1,5 @@
 ---
-title: Deploy
-description: Deploy prompt packs to any cloud provider using adapter plugins
-sidebar:
-  order: 0
+title: 'Deploy: Overview'
 ---
 
 **Deploy prompt packs to any cloud provider using adapter plugins**
@@ -56,7 +53,7 @@ promptarena deploy
 promptarena deploy status
 ```
 
-**Next**: [First Deployment Tutorial](/deploy/tutorials/01-first-deployment/)
+**Next**: [First Deployment Tutorial](/arena/tutorials/deploy/first-deployment/)
 
 ---
 
@@ -102,32 +99,32 @@ cli -> state
 
 Step-by-step guides for learning Deploy:
 
-1. [**First Deployment**](/deploy/tutorials/01-first-deployment/) - Install an adapter, configure, and deploy (20 minutes)
-2. [**Multi-Environment**](/deploy/tutorials/02-multi-environment/) - Dev, staging, and production environments (25 minutes)
+1. [**First Deployment**](/arena/tutorials/deploy/first-deployment/) - Install an adapter, configure, and deploy (20 minutes)
+2. [**Multi-Environment**](/arena/tutorials/deploy/multi-environment/) - Dev, staging, and production environments (25 minutes)
 
 ### How-To Guides (Accomplish Specific Tasks)
 
 Focused guides for specific tasks:
 
-- [Install Adapters](/deploy/how-to/install-adapters/) - Install, list, and remove adapters
-- [Configure Deploy](/deploy/how-to/configure-deploy/) - Set up the deploy section in arena.yaml
-- [Plan and Apply](/deploy/how-to/plan-and-apply/) - Plan, apply, status, and destroy workflows
-- [CI/CD Integration](/deploy/how-to/ci-cd-integration/) - Automate deployments with GitHub Actions
+- [Install Adapters](/arena/how-to/deploy/install-adapters/) - Install, list, and remove adapters
+- [Configure Deploy](/arena/how-to/deploy/configure/) - Set up the deploy section in arena.yaml
+- [Plan and Apply](/arena/how-to/deploy/plan-and-apply/) - Plan, apply, status, and destroy workflows
+- [CI/CD Integration](/arena/how-to/deploy/ci-cd/) - Automate deployments with GitHub Actions
 
 ### Explanation (Understand the Concepts)
 
 Deep dives into Deploy internals:
 
-- [Adapter Architecture](/deploy/explanation/adapter-architecture/) - Plugin pattern, JSON-RPC, stdio communication
-- [State Management](/deploy/explanation/state-management/) - State file, checksums, and deployment lifecycle
+- [Adapter Architecture](/arena/explanation/deploy/adapter-architecture/) - Plugin pattern, JSON-RPC, stdio communication
+- [State Management](/arena/explanation/deploy/state-management/) - State file, checksums, and deployment lifecycle
 
 ### Reference (Look Up Details)
 
 Complete specifications:
 
-- [CLI Commands](/deploy/reference/cli-commands/) - All deploy commands, flags, and examples
-- [Adapter SDK](/deploy/reference/adapter-sdk/) - Serve(), ParsePack, ProgressReporter API
-- [Protocol](/deploy/reference/protocol/) - JSON-RPC methods, types, and error codes
+- [CLI Commands](/arena/reference/deploy/cli-commands/) - All deploy commands, flags, and examples
+- [Adapter SDK](/arena/reference/deploy/adapter-sdk/) - Serve(), ParsePack, ProgressReporter API
+- [Protocol](/arena/reference/deploy/protocol/) - JSON-RPC methods, types, and error codes
 
 ---
 
@@ -137,7 +134,7 @@ Complete specifications:
 |---------|----------|-------------|
 | `agentcore` | AWS Bedrock AgentCore | Deploy to AWS Bedrock AgentCore |
 
-More adapters are coming. You can also [build your own](/deploy/reference/adapter-sdk/).
+More adapters are coming. You can also [build your own](/arena/reference/deploy/adapter-sdk/).
 
 ---
 

@@ -1,7 +1,5 @@
 ---
 title: Provider Comparison Guide
-sidebar:
-  order: 3
 ---
 Understanding the differences between LLM providers and how to test effectively across them.
 

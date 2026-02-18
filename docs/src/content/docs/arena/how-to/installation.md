@@ -1,7 +1,5 @@
 ---
 title: Install PromptArena
-sidebar:
-  order: 1
 ---
 Learn how to install and set up PromptArena for testing LLM applications.
 

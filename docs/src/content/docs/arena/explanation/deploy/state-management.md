@@ -1,7 +1,5 @@
 ---
-title: State Management
-sidebar:
-  order: 2
+title: 'Deploy: State Management'
 ---
 
 ## Overview
@@ -44,6 +42,7 @@ The `.promptarena/` directory is created automatically when state is first saved
   "pack_version": "v1.0.0",
   "pack_checksum": "sha256:abc123def456...",
   "adapter_version": "0.2.0",
+  "last_refreshed": "2026-02-16T11:00:00Z",
   "state": "<opaque adapter state>"
 }
 ```
@@ -57,6 +56,7 @@ The `.promptarena/` directory is created automatically when state is first saved
 | `pack_version` | Version string from the deployed pack |
 | `pack_checksum` | SHA-256 checksum of the pack file (`sha256:{hex}`) |
 | `adapter_version` | Version of the adapter that performed the deployment |
+| `last_refreshed` | RFC 3339 timestamp of last state refresh (omitted if never refreshed) |
 | `state` | Opaque string from the adapter (resource IDs, metadata, etc.) |
 
 ## State Lifecycle
@@ -136,11 +136,48 @@ Each environment shares the same state file location. The environment name is re
 
 ## State and CI/CD
 
-In CI/CD environments, state is typically not persisted between workflow runs. See [CI/CD Integration](../how-to/ci-cd-integration) for strategies:
+In CI/CD environments, state is typically not persisted between workflow runs. See [CI/CD Integration](../../how-to/deploy/ci-cd) for strategies:
 
 - Committing state to the repository
 - Using artifact storage
 - Relying on the adapter to discover existing resources
+
+## State Refresh
+
+Over time, local state can drift from the actual cloud resources — for example, if resources are modified manually in the cloud console or by another tool. The **state refresh** mechanism re-syncs local state with reality.
+
+### Pre-plan Refresh
+
+When you run `deploy` or `deploy plan`, the CLI automatically performs a state refresh before planning. This ensures the plan reflects the true current state of resources rather than a potentially stale local snapshot.
+
+### Manual Refresh
+
+You can explicitly refresh state with the `deploy refresh` command:
+
+```bash
+promptarena deploy refresh --env production
+```
+
+This calls the adapter's `Status` method, updates the opaque adapter state, and records a `last_refreshed` timestamp. Resources that have drifted from their expected configuration are reported with the `DRIFT` action (`!` symbol).
+
+### Resource Import
+
+The `deploy import` command lets you bring pre-existing cloud resources under PromptKit management. This is useful when resources were created outside the deploy workflow (e.g., manually or by another tool):
+
+```bash
+promptarena deploy import agent_runtime my-agent container-abc123
+```
+
+Import calls the adapter's `Import` method with the resource identifier and updates local state with the result.
+
+## State Locking
+
+Deploy uses an exclusive file lock (`.promptarena/deploy.lock`) to prevent concurrent operations from corrupting state. The locking implementation is cross-platform:
+
+- **Unix/Linux**: Uses `flock(2)` with `LOCK_EX|LOCK_NB`
+- **Windows**: Uses `LockFileEx` with `LOCKFILE_EXCLUSIVE_LOCK|LOCKFILE_FAIL_IMMEDIATELY`
+
+All mutating operations (deploy, apply, destroy, refresh, import) acquire the lock before reading or writing state. If another deploy process holds the lock, the CLI exits immediately with an error rather than blocking.
 
 ## Tradeoffs
 
@@ -154,11 +191,10 @@ In CI/CD environments, state is typically not persisted between workflow runs. S
 ### Limitations
 
 - **Local only** — State is stored on disk, not in a remote backend
-- **Single writer** — Concurrent deploys can cause state conflicts
-- **No locking** — No built-in protection against concurrent access
+- **Single writer** — File locking prevents concurrent deploys to the same project, but does not coordinate across machines
 
 ## See Also
 
 - [Adapter Architecture](adapter-architecture) — How adapters use state
-- [Plan and Apply](../how-to/plan-and-apply) — Deployment workflows
-- [CLI Commands](../reference/cli-commands) — Status and destroy commands
+- [Plan and Apply](../../how-to/deploy/plan-and-apply) — Deployment workflows
+- [CLI Commands](../../reference/deploy/cli-commands) — Status and destroy commands

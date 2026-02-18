@@ -1,7 +1,5 @@
 ---
 title: Configure Shell Completions
-sidebar:
-  order: 1
 ---
 Enable tab completion for `promptarena` and `packc` commands in your shell. Shell completions provide intelligent suggestions for commands, flags, and even dynamic values like scenario names and providers.
 

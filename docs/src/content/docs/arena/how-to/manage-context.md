@@ -1,7 +1,5 @@
 ---
 title: Manage Context
-sidebar:
-  order: 8
 ---
 Learn how to configure context management and truncation strategies for long conversations.
 

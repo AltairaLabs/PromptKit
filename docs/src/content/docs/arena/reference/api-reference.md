@@ -1,8 +1,6 @@
 ---
 title: Go API Reference
 description: Complete API reference for using Arena as a Go library
-sidebar:
-  order: 9
 ---
 
 Reference documentation for the Arena Go API, covering all exported types, functions, and methods for programmatic usage.

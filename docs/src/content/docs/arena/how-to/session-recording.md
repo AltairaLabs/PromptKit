@@ -1,7 +1,5 @@
 ---
 title: Session Recording
-sidebar:
-  order: 14
 ---
 Learn how to capture detailed session recordings for debugging, replay, and analysis of Arena test runs.
 

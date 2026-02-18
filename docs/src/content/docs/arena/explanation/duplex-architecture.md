@@ -1,7 +1,5 @@
 ---
 title: Duplex Streaming Architecture
-sidebar:
-  order: 5
 ---
 Understanding how PromptArena handles bidirectional audio streaming for voice assistant testing.
 

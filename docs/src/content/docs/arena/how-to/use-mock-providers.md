@@ -1,7 +1,5 @@
 ---
 title: Use Mock Providers
-sidebar:
-  order: 4
 ---
 Learn how to use mock providers for fast, cost-free testing without calling real LLM APIs.
 

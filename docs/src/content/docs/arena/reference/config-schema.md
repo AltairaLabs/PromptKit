@@ -1,7 +1,5 @@
 ---
 title: Configuration Schema
-sidebar:
-  order: 2
 ---
 
 This document provides a comprehensive reference for all PromptArena configuration files, including every field, its purpose, and examples.

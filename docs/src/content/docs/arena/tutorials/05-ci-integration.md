@@ -1,7 +1,5 @@
 ---
 title: 'Tutorial 5: CI/CD Integration'
-sidebar:
-  order: 5
 ---
 Learn how to integrate PromptArena testing into your CI/CD pipeline for automated quality gates.
 

@@ -1,7 +1,5 @@
 ---
-title: CI/CD Integration
-sidebar:
-  order: 4
+title: 'Deploy: CI/CD Integration'
 ---
 
 ## Goal
@@ -290,5 +288,5 @@ See the state management options above. Without persisting state, each CI run tr
 ## See Also
 
 - [Plan and Apply](plan-and-apply) — Manual deployment workflows
-- [Configure Deploy](configure-deploy) — arena.yaml setup
-- [State Management](../explanation/state-management) — Understanding deploy state
+- [Configure Deploy](configure) — arena.yaml setup
+- [State Management](../../explanation/deploy/state-management) — Understanding deploy state

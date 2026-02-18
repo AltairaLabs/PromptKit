@@ -1,7 +1,5 @@
 ---
 title: Integrate with CI/CD
-sidebar:
-  order: 6
 ---
 Learn how to integrate PromptArena testing into continuous integration and deployment pipelines.
 

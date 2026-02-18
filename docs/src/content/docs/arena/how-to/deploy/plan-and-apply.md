@@ -1,7 +1,5 @@
 ---
-title: Plan and Apply
-sidebar:
-  order: 3
+title: 'Deploy: Plan and Apply'
 ---
 
 ## Goal
@@ -10,7 +8,7 @@ Preview deployment changes, apply them, check status, and tear down resources.
 
 ## Prerequisites
 
-- Deploy section configured in arena.yaml (see [Configure Deploy](configure-deploy))
+- Deploy section configured in arena.yaml (see [Configure Deploy](configure))
 - A compiled `.pack.json` file
 - An installed adapter
 
@@ -48,6 +46,7 @@ Summary: 2 resources to create, 0 to update, 0 to delete
 | `+` | CREATE | New resource will be created |
 | `~` | UPDATE | Existing resource will be modified |
 | `-` | DELETE | Resource will be removed |
+| `!` | DRIFT | Resource has drifted from expected state |
 | ` ` | NO_CHANGE | Resource exists and needs no changes |
 
 ## Apply a Deployment
@@ -194,6 +193,63 @@ promptarena deploy plan --env production
 promptarena deploy apply --env production
 ```
 
+## Refresh State
+
+Refresh local state to match the live environment. This detects drift — resources that have been modified outside of PromptKit.
+
+```bash
+# Refresh state for default environment
+promptarena deploy refresh
+
+# Refresh state for production
+promptarena deploy refresh --env production
+```
+
+**Example output:**
+
+```
+Refreshing state (env: production)...
+Provider: agentcore v0.2.0
+
+Resources:
+  agent_runtime.greeting: healthy
+  ! a2a_endpoint.greeting: unhealthy — endpoint configuration changed
+
+State refreshed at 2026-02-16T11:00:00Z
+```
+
+State is also automatically refreshed before each `deploy plan` and `deploy` command, so manual refresh is mainly useful for checking drift without planning changes.
+
+## Import Resources
+
+Import pre-existing cloud resources into deployment state. This is useful when you've created resources manually or with another tool and want PromptKit to manage them going forward.
+
+```bash
+promptarena deploy import <type> <name> <id>
+```
+
+**Examples:**
+
+```bash
+# Import an agent runtime by its container ID
+promptarena deploy import agent_runtime my-agent container-abc123
+
+# Import an A2A endpoint
+promptarena deploy import a2a_endpoint my-ep endpoint-xyz789
+
+# Import into a specific environment
+promptarena deploy import agent_runtime my-agent container-abc123 --env production
+```
+
+**Example output:**
+
+```
+Importing agent_runtime "my-agent" (container-abc123)...
+Imported: agent_runtime.my-agent — healthy
+```
+
+After importing, the resource appears in `deploy plan` and `deploy status` output, and will be managed by subsequent `deploy` and `deploy destroy` operations.
+
 ## Troubleshooting
 
 ### Error: no prior state found
@@ -218,7 +274,7 @@ If plan shows all resources as NO_CHANGE, the pack and config haven't changed si
 
 ## See Also
 
-- [Configure Deploy](configure-deploy) — Set up arena.yaml
-- [CI/CD Integration](ci-cd-integration) — Automate plan and apply
-- [CLI Commands](../reference/cli-commands) — Complete flag reference
-- [State Management](../explanation/state-management) — How state tracking works
+- [Configure Deploy](configure) — Set up arena.yaml
+- [CI/CD Integration](ci-cd) — Automate plan and apply
+- [CLI Commands](../../reference/deploy/cli-commands) — Complete flag reference
+- [State Management](../../explanation/deploy/state-management) — How state tracking works

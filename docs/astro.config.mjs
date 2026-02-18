@@ -24,7 +24,6 @@ export default defineConfig({
         { label: 'Arena', autogenerate: { directory: 'arena' } },
         { label: 'SDK', autogenerate: { directory: 'sdk' } },
         { label: 'PackC', autogenerate: { directory: 'packc' } },
-        { label: 'Deploy', autogenerate: { directory: 'deploy' } },
         { label: 'Runtime', autogenerate: { directory: 'runtime' } },
         { label: 'Concepts', autogenerate: { directory: 'concepts' } },
         { label: 'Architecture', autogenerate: { directory: 'architecture' } },

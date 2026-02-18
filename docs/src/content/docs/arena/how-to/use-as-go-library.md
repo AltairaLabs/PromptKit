@@ -1,8 +1,6 @@
 ---
 title: Use Arena as a Go Library
 description: Integrate Arena into Go applications for programmatic LLM testing
-sidebar:
-  order: 15
 ---
 
 This guide shows you how to integrate Arena into your Go applications for programmatic testing, custom tooling, and dynamic scenario generation.

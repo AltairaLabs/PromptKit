@@ -1,7 +1,5 @@
 ---
 title: 'Tutorial 1: Your First Test'
-sidebar:
-  order: 1
 ---
 Learn the basics of PromptArena by creating and running your first LLM test.
 

@@ -1,7 +1,5 @@
 ---
 title: CLI Commands
-sidebar:
-  order: 1
 ---
 Complete command-line interface reference for PromptArena, the LLM testing framework.
 
@@ -26,6 +24,7 @@ promptarena [command] [flags]
 | `render` | Generate HTML report from existing results |
 | `validate` | Validate configuration files |
 | `view` | View test results |
+| `deploy` | Deploy prompt packs to cloud providers via adapter plugins |
 | `completion` | Generate shell autocompletion script |
 | `help` | Help about any command |
 
@@ -421,6 +420,60 @@ promptarena run --seed 12345
 # Same seed across runs produces same results
 promptarena run --seed 12345 --provider openai
 ```
+
+---
+
+## `promptarena deploy`
+
+Deploy prompt packs to cloud providers through adapter plugins. Supports planning, applying, monitoring, and destroying deployments across multiple environments.
+
+### Usage
+
+```bash
+promptarena deploy [subcommand] [flags]
+```
+
+### Subcommands
+
+| Subcommand | Description |
+|------------|-------------|
+| *(none)* | Run plan + apply sequentially (default) |
+| `plan` | Preview changes without modifying resources |
+| `apply` | Apply changes (called automatically by `deploy`) |
+| `status` | Show deployment status and resource health |
+| `destroy` | Tear down all managed resources |
+| `refresh` | Refresh local state from the live environment |
+| `import` | Import a pre-existing resource into state |
+| `adapter install` | Install an adapter plugin |
+| `adapter list` | List installed adapters |
+| `adapter remove` | Remove an installed adapter |
+
+### Global Deploy Flags
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--env` | `-e` | `"default"` | Target environment name |
+| `--config` | | `arena.yaml` | Path to config file |
+| `--pack` | | Auto-detected | Path to `.pack.json` file |
+
+### Examples
+
+```bash
+# Install an adapter and deploy
+promptarena deploy adapter install agentcore
+promptarena deploy --env production
+
+# Preview changes first
+promptarena deploy plan --env staging
+
+# Check status
+promptarena deploy status
+
+# Tear down
+promptarena deploy destroy --env staging
+```
+
+For the complete deploy command reference, see [Deploy: CLI Commands](deploy/cli-commands/).
 
 ---
 

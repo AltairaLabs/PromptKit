@@ -1,7 +1,5 @@
 ---
-title: Configure Deploy
-sidebar:
-  order: 2
+title: 'Deploy: Configure'
 ---
 
 ## Goal
@@ -200,4 +198,4 @@ promptarena deploy adapter install agentcore
 
 - [Install Adapters](install-adapters) — Install the adapter before configuring
 - [Plan and Apply](plan-and-apply) — Use your configuration to deploy
-- [Multi-Environment Tutorial](../tutorials/02-multi-environment) — Step-by-step environment setup
+- [Multi-Environment Tutorial](../../tutorials/deploy/02-multi-environment) — Step-by-step environment setup

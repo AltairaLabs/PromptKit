@@ -1,7 +1,5 @@
 ---
 title: Test Scenario Format
-sidebar:
-  order: 6
 ---
 PromptPack is an **open-source specification** for defining LLM prompts, test scenarios, and configurations in a portable, version-controllable format.
 
