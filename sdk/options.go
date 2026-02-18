@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/a2a"
@@ -60,6 +61,18 @@ type config struct {
 	tokenBudget        int
 	truncationStrategy string
 	relevanceConfig    *RelevanceConfig
+
+	// RAG context window (hot window size for long conversations)
+	contextWindow int
+
+	// Embedding-based retrieval for RAG context
+	retrievalProvider providers.EmbeddingProvider
+	retrievalTopK     int
+
+	// Auto-summarization for RAG context
+	summarizeProvider  providers.Provider
+	summarizeThreshold int
+	summarizeBatchSize int
 
 	// Validation behavior
 	validationMode       ValidationMode
@@ -527,6 +540,88 @@ func WithRelevanceTruncation(cfg *RelevanceConfig) Option {
 	return func(c *config) error {
 		c.truncationStrategy = "relevance"
 		c.relevanceConfig = cfg
+		return nil
+	}
+}
+
+// WithContextWindow sets the hot window size for RAG context assembly.
+//
+// When set to a positive value, the pipeline uses ContextAssemblyStage and
+// IncrementalSaveStage instead of loading all history on every turn. This
+// dramatically reduces I/O for long conversations by only loading the most
+// recent N messages.
+//
+// Requires a state store (WithStateStore). The store's MessageReader and
+// MessageAppender interfaces are used when available, with automatic fallback
+// to full Load/Save when they're not.
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithStateStore(store),
+//	    sdk.WithContextWindow(20), // Keep last 20 messages in hot window
+//	)
+func WithContextWindow(recentMessages int) Option {
+	return func(c *config) error {
+		c.contextWindow = recentMessages
+		return nil
+	}
+}
+
+// WithContextRetrieval enables semantic search for relevant older messages.
+//
+// When configured alongside WithContextWindow, the pipeline uses the embedding
+// provider to find messages outside the hot window that are semantically similar
+// to the current user message. These retrieved messages are inserted chronologically
+// between summaries and the hot window.
+//
+// Requires WithContextWindow to be set.
+//
+//	embProvider, _ := openai.NewEmbeddingProvider()
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithStateStore(store),
+//	    sdk.WithContextWindow(20),
+//	    sdk.WithContextRetrieval(embProvider, 5), // Retrieve top 5 relevant messages
+//	)
+func WithContextRetrieval(embeddingProvider providers.EmbeddingProvider, topK int) Option {
+	return func(c *config) error {
+		if embeddingProvider == nil {
+			return fmt.Errorf("WithContextRetrieval: embeddingProvider must not be nil")
+		}
+		if topK <= 0 {
+			return fmt.Errorf("WithContextRetrieval: topK must be positive, got %d", topK)
+		}
+		c.retrievalProvider = embeddingProvider
+		c.retrievalTopK = topK
+		return nil
+	}
+}
+
+// WithAutoSummarize enables automatic summarization of old conversation turns.
+//
+// When the message count exceeds the threshold, the oldest unsummarized batch
+// of messages is compressed into a summary using the provided LLM provider.
+// Summaries are prepended to the context as system messages.
+//
+// A separate, cheaper provider can be used for summarization (e.g., a smaller model).
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithStateStore(store),
+//	    sdk.WithContextWindow(20),
+//	    sdk.WithAutoSummarize(summaryProvider, 100, 50), // Summarize after 100 msgs, 50 at a time
+//	)
+func WithAutoSummarize(provider providers.Provider, threshold, batchSize int) Option {
+	return func(c *config) error {
+		if provider == nil {
+			return fmt.Errorf("WithAutoSummarize: provider must not be nil")
+		}
+		if threshold <= 0 {
+			return fmt.Errorf("WithAutoSummarize: threshold must be positive, got %d", threshold)
+		}
+		if batchSize <= 0 {
+			return fmt.Errorf("WithAutoSummarize: batchSize must be positive, got %d", batchSize)
+		}
+		c.summarizeProvider = provider
+		c.summarizeThreshold = threshold
+		c.summarizeBatchSize = batchSize
 		return nil
 	}
 }

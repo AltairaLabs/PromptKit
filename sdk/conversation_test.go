@@ -1759,6 +1759,107 @@ func TestBuildPipelineWithParameters(t *testing.T) {
 	assert.NotNil(t, pipeline)
 }
 
+func TestBuildPipelineWithRAGContextOptions(t *testing.T) {
+	store := statestore.NewMemoryStore()
+
+	p := &pack.Pack{
+		ID: "test-pack",
+		Prompts: map[string]*pack.Prompt{
+			"chat": {
+				ID:             "chat",
+				SystemTemplate: "You are helpful.",
+			},
+		},
+	}
+
+	t.Run("wires MessageIndex from retrievalProvider", func(t *testing.T) {
+		conv := &Conversation{
+			pack:           p,
+			prompt:         p.Prompts["chat"],
+			promptName:     "chat",
+			promptRegistry: p.ToPromptRegistry(),
+			toolRegistry:   tools.NewRegistry(),
+			config: &config{
+				provider:          mock.NewProvider("test-mock", "test-model", false),
+				stateStore:        store,
+				contextWindow:     10,
+				retrievalProvider: &mockEmbeddingProvider{},
+				retrievalTopK:     3,
+			},
+			mode:          UnaryMode,
+			handlers:      make(map[string]ToolHandler),
+
+		}
+
+		pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil, nil)
+		assert.NoError(t, err)
+		assert.NotNil(t, pipeline)
+	})
+
+	t.Run("wires Summarizer from summarizeProvider", func(t *testing.T) {
+		conv := &Conversation{
+			pack:           p,
+			prompt:         p.Prompts["chat"],
+			promptName:     "chat",
+			promptRegistry: p.ToPromptRegistry(),
+			toolRegistry:   tools.NewRegistry(),
+			config: &config{
+				provider:           mock.NewProvider("test-mock", "test-model", false),
+				stateStore:         store,
+				contextWindow:      10,
+				summarizeProvider:  &mockSummarizeProvider{},
+				summarizeThreshold: 50,
+				summarizeBatchSize: 10,
+			},
+			mode:          UnaryMode,
+			handlers:      make(map[string]ToolHandler),
+
+		}
+
+		pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil, nil)
+		assert.NoError(t, err)
+		assert.NotNil(t, pipeline)
+	})
+
+	t.Run("wires all RAG context options together", func(t *testing.T) {
+		conv := &Conversation{
+			pack:           p,
+			prompt:         p.Prompts["chat"],
+			promptName:     "chat",
+			promptRegistry: p.ToPromptRegistry(),
+			toolRegistry:   tools.NewRegistry(),
+			config: &config{
+				provider:           mock.NewProvider("test-mock", "test-model", false),
+				stateStore:         store,
+				contextWindow:      10,
+				retrievalProvider:  &mockEmbeddingProvider{},
+				retrievalTopK:     3,
+				summarizeProvider:  &mockSummarizeProvider{},
+				summarizeThreshold: 50,
+				summarizeBatchSize: 10,
+			},
+			mode:          UnaryMode,
+			handlers:      make(map[string]ToolHandler),
+
+		}
+
+		pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil, nil)
+		assert.NoError(t, err)
+		assert.NotNil(t, pipeline)
+
+		// Execute a turn to verify the stages work end-to-end
+		userMsg := types.Message{Role: "user", Content: "Hello"}
+		elem := stage.StreamElement{
+			Message:  &userMsg,
+			Metadata: map[string]interface{}{"conversation_id": "test-conv"},
+		}
+
+		result, err := pipeline.ExecuteSync(context.Background(), elem)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+	})
+}
+
 func TestSendWithDifferentModes(t *testing.T) {
 	ctx := context.Background()
 

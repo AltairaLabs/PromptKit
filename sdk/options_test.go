@@ -835,3 +835,69 @@ func TestWithJSONMode(t *testing.T) {
 	assert.NotNil(t, cfg.responseFormat)
 	assert.Equal(t, providers.ResponseFormatJSON, cfg.responseFormat.Type)
 }
+
+func TestWithContextWindow(t *testing.T) {
+	opt := WithContextWindow(20)
+	assert.NotNil(t, opt)
+
+	cfg := &config{}
+	err := opt(cfg)
+	assert.NoError(t, err)
+	assert.Equal(t, 20, cfg.contextWindow)
+}
+
+func TestWithContextRetrieval(t *testing.T) {
+	embProvider := &mockEmbeddingProvider{}
+
+	opt := WithContextRetrieval(embProvider, 5)
+	assert.NotNil(t, opt)
+
+	cfg := &config{}
+	err := opt(cfg)
+	assert.NoError(t, err)
+	assert.Equal(t, embProvider, cfg.retrievalProvider)
+	assert.Equal(t, 5, cfg.retrievalTopK)
+}
+
+func TestWithAutoSummarize(t *testing.T) {
+	sumProvider := &mockSummarizeProvider{}
+
+	opt := WithAutoSummarize(sumProvider, 100, 50)
+	assert.NotNil(t, opt)
+
+	cfg := &config{}
+	err := opt(cfg)
+	assert.NoError(t, err)
+	assert.Equal(t, sumProvider, cfg.summarizeProvider)
+	assert.Equal(t, 100, cfg.summarizeThreshold)
+	assert.Equal(t, 50, cfg.summarizeBatchSize)
+}
+
+// Mock types for context management option tests
+
+type mockEmbeddingProvider struct{}
+
+func (m *mockEmbeddingProvider) Embed(_ context.Context, _ providers.EmbeddingRequest) (providers.EmbeddingResponse, error) {
+	return providers.EmbeddingResponse{}, nil
+}
+
+func (m *mockEmbeddingProvider) EmbeddingDimensions() int { return 1536 }
+func (m *mockEmbeddingProvider) MaxBatchSize() int        { return 100 }
+func (m *mockEmbeddingProvider) ID() string               { return "mock-embedding" }
+
+type mockSummarizeProvider struct{}
+
+func (m *mockSummarizeProvider) ID() string    { return "mock-summarize" }
+func (m *mockSummarizeProvider) Model() string { return "mock-summarize-model" }
+func (m *mockSummarizeProvider) Predict(_ context.Context, _ providers.PredictionRequest) (providers.PredictionResponse, error) {
+	return providers.PredictionResponse{}, nil
+}
+func (m *mockSummarizeProvider) PredictStream(_ context.Context, _ providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+	return nil, nil
+}
+func (m *mockSummarizeProvider) SupportsStreaming() bool      { return false }
+func (m *mockSummarizeProvider) ShouldIncludeRawOutput() bool { return false }
+func (m *mockSummarizeProvider) Close() error                 { return nil }
+func (m *mockSummarizeProvider) CalculateCost(_, _, _ int) types.CostInfo {
+	return types.CostInfo{}
+}

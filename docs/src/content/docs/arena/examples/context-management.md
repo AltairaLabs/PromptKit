@@ -45,15 +45,15 @@ context_policy:
    - Ensures no data loss
    - Good for validation
 
-3. **`summarize`** (future): Compress old messages
-   - Uses LLM to create summaries
-   - Preserves more information
-   - Higher latency
+3. **`summarize`**: Compress old messages into summaries
+   - Uses LLM to compress old messages into summaries
+   - Falls back to `oldest` if no Summarizer is configured
+   - Preserves more information at the cost of higher latency
 
-4. **`relevance`** (future): Drop least relevant messages
-   - Uses embeddings for relevance scoring
-   - Keeps important context
-   - Requires embedding model
+4. **`relevance`**: Keep the most relevant messages
+   - Uses embeddings to score and keep the most relevant messages
+   - Requires `RelevanceConfig` with an embedding provider
+   - Best when conversation topics shift frequently
 
 ### Cache Breakpoints (Anthropic Only)
 
@@ -259,11 +259,9 @@ Expected cost differences:
 
 ## Future Enhancements
 
-1. **Summarization Strategy**: Use LLM to compress old messages
-2. **Relevance Strategy**: Use embeddings to keep relevant messages
-3. **Accurate Token Counting**: Use tiktoken for OpenAI
-4. **Per-Turn Budget**: Override budget for specific turns
-5. **Dynamic Budget**: Adjust based on response needs
+1. **Accurate Token Counting**: Use tiktoken for OpenAI
+2. **Per-Turn Budget**: Override budget for specific turns
+3. **Dynamic Budget**: Adjust based on response needs
 
 ## Testing Context Management
 

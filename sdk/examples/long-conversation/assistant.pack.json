@@ -1,0 +1,19 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "long-conversation-example",
+  "name": "Long Conversation Example",
+  "version": "1.0.0",
+  "description": "Demonstrates long conversation context management with hot window, semantic retrieval, and auto-summarization",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "assistant": {
+      "id": "assistant",
+      "name": "Support Assistant",
+      "version": "1.0.0",
+      "system_template": "You are a helpful customer support assistant for a software company. You help users with account management, billing questions, and technical issues.\n\nKeep responses concise (1-2 sentences) so we can demonstrate many conversation turns efficiently."
+    }
+  }
+}

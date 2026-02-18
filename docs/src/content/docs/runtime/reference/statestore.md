@@ -45,6 +45,64 @@ type ConversationState struct {
 }
 ```
 
+## Optional Interfaces
+
+The core `Store` interface covers basic load/save operations. For better performance with long conversations, stores can implement additional opt-in interfaces. Pipeline stages type-assert for these interfaces and fall back to `Load`/`Save` when they are not available.
+
+### MessageReader
+
+Enables loading only the tail of the conversation without deserializing the full state:
+
+```go
+type MessageReader interface {
+    LoadRecentMessages(ctx context.Context, id string, n int) ([]types.Message, error)
+    MessageCount(ctx context.Context, id string) (int, error)
+}
+```
+
+Used by `ContextAssemblyStage` to load only the hot window of recent messages.
+
+### MessageAppender
+
+Enables appending new messages without the full load+replace+save cycle:
+
+```go
+type MessageAppender interface {
+    AppendMessages(ctx context.Context, id string, messages []types.Message) error
+}
+```
+
+Used by `IncrementalSaveStage` to append only new messages after each turn.
+
+### SummaryAccessor
+
+Enables reading and writing summaries independently of the full conversation state:
+
+```go
+type SummaryAccessor interface {
+    LoadSummaries(ctx context.Context, id string) ([]Summary, error)
+    SaveSummary(ctx context.Context, id string, summary Summary) error
+}
+```
+
+Used by auto-summarization to store and retrieve compressed conversation history.
+
+### Summary
+
+The `Summary` type represents a compressed version of conversation turns:
+
+```go
+type Summary struct {
+    StartTurn  int       // First turn included in this summary
+    EndTurn    int       // Last turn included in this summary
+    Content    string    // Summarized content
+    TokenCount int       // Token count of the summary
+    CreatedAt  time.Time // When this summary was created
+}
+```
+
+Summaries are stored in `ConversationState.Summaries` and prepended to the context as system messages during context assembly.
+
 ## Redis State Store
 
 ### Constructor
@@ -73,6 +131,8 @@ redisClient := redis.NewClient(&redis.Options{
 // Create state store
 store := statestore.NewRedisStore(redisClient)
 ```
+
+RedisStore implements all optional interfaces (`MessageReader`, `MessageAppender`, `SummaryAccessor`) using Redis Lists for O(1) append and tail reads, making it well-suited for long conversations.
 
 ### Methods
 
@@ -114,7 +174,7 @@ if err != nil {
 
 ## In-Memory State Store
 
-For development and testing.
+For development and testing. MemoryStore implements all optional interfaces (`MessageReader`, `MessageAppender`, `SummaryAccessor`).
 
 ```go
 store := statestore.NewMemoryStore()
@@ -231,6 +291,20 @@ func (s *CustomStateStore) Fork(
     return s.Save(ctx, state)
 }
 ```
+
+Custom stores can optionally implement `MessageReader`, `MessageAppender`, and `SummaryAccessor` for better performance with long conversations. For example, to support incremental saves:
+
+```go
+func (s *CustomStateStore) AppendMessages(
+    ctx context.Context,
+    id string,
+    messages []types.Message,
+) error {
+    return s.backend.ListAppend(ctx, id+":messages", messages)
+}
+```
+
+Pipeline stages will automatically detect and use these interfaces when available.
 
 ## Best Practices
 

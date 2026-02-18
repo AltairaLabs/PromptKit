@@ -76,6 +76,26 @@ type Config struct {
 	// ConversationID for state store operations
 	ConversationID string
 
+	// ContextWindow is the hot window size for RAG context assembly.
+	// When > 0, ContextAssemblyStage + IncrementalSaveStage replace the
+	// standard StateStoreLoad/Save stages.
+	ContextWindow int
+
+	// MessageIndex for semantic retrieval of relevant older messages (optional).
+	MessageIndex statestore.MessageIndex
+
+	// RetrievalTopK is the number of results to retrieve from the message index.
+	RetrievalTopK int
+
+	// Summarizer for auto-summarization (optional).
+	Summarizer statestore.Summarizer
+
+	// SummarizeThreshold is the message count above which summarization triggers.
+	SummarizeThreshold int
+
+	// SummarizeBatchSize is how many messages to summarize at once.
+	SummarizeBatchSize int
+
 	// StreamInputProvider for duplex streaming (ASM mode) (optional)
 	// When provided with StreamInputConfig, DuplexProviderStage will be used.
 	// The stage creates the session lazily using system_prompt from element metadata.
@@ -166,12 +186,23 @@ func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 
 	// 1. State store load stage - loads conversation history FIRST
 	var stateStoreConfig *rtpipeline.StateStoreConfig
+	useRAGContext := cfg.StateStore != nil && cfg.ContextWindow > 0
 	if cfg.StateStore != nil {
 		stateStoreConfig = &rtpipeline.StateStoreConfig{
 			Store:          cfg.StateStore,
 			ConversationID: cfg.ConversationID,
 		}
-		stages = append(stages, stage.NewStateStoreLoadStage(stateStoreConfig))
+		if useRAGContext {
+			// Use ContextAssemblyStage for efficient partial reads
+			stages = append(stages, stage.NewContextAssemblyStage(&stage.ContextAssemblyConfig{
+				StateStoreConfig: stateStoreConfig,
+				RecentMessages:   cfg.ContextWindow,
+				MessageIndex:     cfg.MessageIndex,
+				RetrievalTopK:    cfg.RetrievalTopK,
+			}))
+		} else {
+			stages = append(stages, stage.NewStateStoreLoadStage(stateStoreConfig))
+		}
 	}
 
 	// 2. Variable provider stage - resolves dynamic variables
@@ -239,7 +270,18 @@ func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 
 	// 7. State store save stage - saves conversation state LAST
 	if stateStoreConfig != nil {
-		stages = append(stages, stage.NewStateStoreSaveStage(stateStoreConfig))
+		if useRAGContext {
+			// Use IncrementalSaveStage for efficient appends
+			stages = append(stages, stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{
+				StateStoreConfig:   stateStoreConfig,
+				MessageIndex:       cfg.MessageIndex,
+				Summarizer:         cfg.Summarizer,
+				SummarizeThreshold: cfg.SummarizeThreshold,
+				SummarizeBatchSize: cfg.SummarizeBatchSize,
+			}))
+		} else {
+			stages = append(stages, stage.NewStateStoreSaveStage(stateStoreConfig))
+		}
 	}
 
 	// Build and return the StreamPipeline directly
@@ -261,6 +303,11 @@ func buildContextBuilderPolicy(cfg *Config) *stage.ContextBuilderPolicy {
 	// Add relevance config if strategy is relevance
 	if policy.Strategy == stage.TruncateLeastRelevant && cfg.RelevanceConfig != nil {
 		policy.RelevanceConfig = cfg.RelevanceConfig
+	}
+
+	// Add summarizer if strategy is summarize
+	if policy.Strategy == stage.TruncateSummarize && cfg.Summarizer != nil {
+		policy.Summarizer = cfg.Summarizer
 	}
 
 	return policy
