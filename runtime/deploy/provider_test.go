@@ -14,6 +14,7 @@ func TestActionConstants(t *testing.T) {
 		{ActionUpdate, "UPDATE"},
 		{ActionDelete, "DELETE"},
 		{ActionNoChange, "NO_CHANGE"},
+		{ActionDrift, "DRIFT"},
 	}
 
 	for _, tt := range tests {
@@ -173,6 +174,84 @@ func TestApplyEventTypes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestImportRequestJSONRoundtrip(t *testing.T) {
+	req := ImportRequest{
+		ResourceType: "agent_runtime",
+		ResourceName: "my-agent",
+		Identifier:   "container-abc123",
+		DeployConfig: `{"region":"us-east-1"}`,
+		Environment:  "production",
+		PriorState:   "prior-state-data",
+	}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+
+	var got ImportRequest
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	if got.ResourceType != req.ResourceType {
+		t.Errorf("ResourceType = %q, want %q", got.ResourceType, req.ResourceType)
+	}
+	if got.ResourceName != req.ResourceName {
+		t.Errorf("ResourceName = %q, want %q", got.ResourceName, req.ResourceName)
+	}
+	if got.Identifier != req.Identifier {
+		t.Errorf("Identifier = %q, want %q", got.Identifier, req.Identifier)
+	}
+	if got.DeployConfig != req.DeployConfig {
+		t.Errorf("DeployConfig = %q, want %q", got.DeployConfig, req.DeployConfig)
+	}
+	if got.Environment != req.Environment {
+		t.Errorf("Environment = %q, want %q", got.Environment, req.Environment)
+	}
+	if got.PriorState != req.PriorState {
+		t.Errorf("PriorState = %q, want %q", got.PriorState, req.PriorState)
+	}
+}
+
+func TestImportResponseJSONRoundtrip(t *testing.T) {
+	resp := ImportResponse{
+		Resource: ResourceStatus{
+			Type:   "agent_runtime",
+			Name:   "my-agent",
+			Status: "healthy",
+			Detail: "Running on port 8080",
+		},
+		State: "new-adapter-state",
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+
+	var got ImportResponse
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	if got.Resource.Type != resp.Resource.Type {
+		t.Errorf("Resource.Type = %q, want %q", got.Resource.Type, resp.Resource.Type)
+	}
+	if got.Resource.Name != resp.Resource.Name {
+		t.Errorf("Resource.Name = %q, want %q", got.Resource.Name, resp.Resource.Name)
+	}
+	if got.Resource.Status != resp.Resource.Status {
+		t.Errorf("Resource.Status = %q, want %q", got.Resource.Status, resp.Resource.Status)
+	}
+	if got.Resource.Detail != resp.Resource.Detail {
+		t.Errorf("Resource.Detail = %q, want %q", got.Resource.Detail, resp.Resource.Detail)
+	}
+	if got.State != resp.State {
+		t.Errorf("State = %q, want %q", got.State, resp.State)
 	}
 }
 

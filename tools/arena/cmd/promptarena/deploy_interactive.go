@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -26,13 +28,17 @@ Subcommands:
   apply     Apply the deployment
   status    Show current deployment status
   destroy   Tear down a deployment
+  refresh   Refresh local state from live environment
+  import    Import a pre-existing resource
 
 Examples:
   promptarena deploy --env production
   promptarena deploy plan --env staging
   promptarena deploy apply --env staging
   promptarena deploy status --env production
-  promptarena deploy destroy --env staging`,
+  promptarena deploy destroy --env staging
+  promptarena deploy refresh --env production
+  promptarena deploy import agent_runtime my-agent container-abc123`,
 	RunE: runDeploy,
 }
 
@@ -53,6 +59,8 @@ func init() {
 	deployCmd.AddCommand(deployApplyCmd)
 	deployCmd.AddCommand(deployStatusCmd)
 	deployCmd.AddCommand(deployDestroyCmd)
+	deployCmd.AddCommand(deployRefreshCmd)
+	deployCmd.AddCommand(deployImportCmd)
 }
 
 // loadDeployConfig loads the arena config and returns the deploy section.
@@ -77,6 +85,9 @@ func loadDeployConfig() (*config.DeployConfig, error) {
 }
 
 const defaultEnvironment = "default"
+
+// importArgCount is the number of positional arguments for the import command.
+const importArgCount = 3
 
 // resolveEnvironment returns the target environment name, falling back to "default" if not specified.
 func resolveEnvironment() string {
@@ -177,6 +188,8 @@ func printPlan(plan *deploy.PlanResponse) {
 			symbol = "-"
 		case deploy.ActionNoChange:
 			symbol = " "
+		case deploy.ActionDrift:
+			symbol = "!"
 		}
 		line := fmt.Sprintf("  %s %s.%s", symbol, c.Type, c.Name)
 		if c.Detail != "" {
@@ -210,6 +223,41 @@ func acquireLock(projectDir string) (func(), error) {
 		return nil, err
 	}
 	return func() { _ = locker.Unlock() }, nil
+}
+
+// refreshState calls Status on the adapter and updates local state with the
+// refreshed adapter state. It is a soft-fail operation: if the refresh fails,
+// it logs a warning and returns the existing prior state string unchanged.
+func refreshState(
+	ctx context.Context,
+	client *deploy.AdapterClient,
+	stateStore *deploy.StateStore,
+	priorState *deploy.State,
+	configJSON, env string,
+) string {
+	if priorState == nil {
+		return ""
+	}
+
+	status, err := client.Status(ctx, &deploy.StatusRequest{
+		DeployConfig: configJSON,
+		Environment:  env,
+		PriorState:   priorState.State,
+	})
+	if err != nil {
+		log.Printf("Warning: state refresh failed: %v (proceeding with cached state)", err)
+		return priorState.State
+	}
+
+	if status.State != "" {
+		priorState.State = status.State
+		priorState.LastRefreshed = time.Now().UTC().Format(time.RFC3339)
+		if saveErr := stateStore.Save(priorState); saveErr != nil {
+			log.Printf("Warning: failed to persist refreshed state: %v", saveErr)
+		}
+	}
+
+	return priorState.State
 }
 
 // --- deploy (plan + apply) ---
@@ -251,10 +299,6 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load deploy state: %w", err)
 	}
-	var priorStateStr string
-	if priorState != nil {
-		priorStateStr = priorState.State
-	}
 
 	// Connect adapter.
 	client, err := connectAdapter(deployCfg.Provider, projectDir)
@@ -262,6 +306,9 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer client.Close()
+
+	// Refresh state from the adapter before planning.
+	priorStateStr := refreshState(ctx, client, stateStore, priorState, configJSON, env)
 
 	// Step 1: Plan.
 	fmt.Println()
@@ -350,16 +397,15 @@ func runDeployPlan(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load deploy state: %w", err)
 	}
-	var priorStateStr string
-	if priorState != nil {
-		priorStateStr = priorState.State
-	}
 
 	client, err := connectAdapter(deployCfg.Provider, projectDir)
 	if err != nil {
 		return err
 	}
 	defer client.Close()
+
+	// Refresh state from the adapter before planning.
+	priorStateStr := refreshState(ctx, client, stateStore, priorState, configJSON, env)
 
 	planReq := &deploy.PlanRequest{
 		PackJSON:     string(packData),
@@ -636,5 +682,189 @@ func runDeployDestroy(cmd *cobra.Command, args []string) error {
 
 	fmt.Println()
 	fmt.Println("Deployment destroyed.")
+	return nil
+}
+
+// --- deploy refresh ---
+
+var deployRefreshCmd = &cobra.Command{
+	Use:   "refresh",
+	Short: "Refresh local state from the live environment",
+	Long: `Query the deploy adapter for the current state of all resources
+and update local state to match reality. Use this to detect drift
+between local state and cloud resources.
+
+Examples:
+  promptarena deploy refresh --env production
+  promptarena deploy refresh --env staging`,
+	RunE: runDeployRefresh,
+}
+
+func runDeployRefresh(cmd *cobra.Command, args []string) error {
+	deployCfg, err := loadDeployConfig()
+	if err != nil {
+		return err
+	}
+
+	env := resolveEnvironment()
+	projectDir, _ := os.Getwd()
+	ctx := context.Background()
+
+	// Acquire deploy lock.
+	unlock, err := acquireLock(projectDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	fmt.Printf("Refreshing state for environment: %s (provider: %s)\n", env, deployCfg.Provider)
+
+	configJSON, err := mergedDeployConfigJSON(deployCfg, env)
+	if err != nil {
+		return err
+	}
+
+	stateStore := deploy.NewStateStore(projectDir)
+	priorState, err := stateStore.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load deploy state: %w", err)
+	}
+
+	if priorState == nil {
+		fmt.Println()
+		fmt.Println("  No deployment state found. Run 'promptarena deploy' first.")
+		return nil
+	}
+
+	client, err := connectAdapter(deployCfg.Provider, projectDir)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	status, err := client.Status(ctx, &deploy.StatusRequest{
+		DeployConfig: configJSON,
+		Environment:  env,
+		PriorState:   priorState.State,
+	})
+	if err != nil {
+		return fmt.Errorf("refresh failed: %w", err)
+	}
+
+	if status.State != "" {
+		priorState.State = status.State
+	}
+	priorState.LastRefreshed = time.Now().UTC().Format(time.RFC3339)
+	if err := stateStore.Save(priorState); err != nil {
+		return fmt.Errorf("failed to save refreshed state: %w", err)
+	}
+
+	fmt.Println()
+	printStatus(status)
+	fmt.Println("State refreshed successfully.")
+	return nil
+}
+
+// --- deploy import ---
+
+var deployImportCmd = &cobra.Command{
+	Use:   "import <type> <name> <id>",
+	Short: "Import a pre-existing resource into deployment state",
+	Long: `Import a resource that already exists in the target environment
+into the local deployment state. This allows PromptKit to manage
+resources that were created outside of the deploy workflow.
+
+Arguments:
+  type   Resource type (e.g., "agent_runtime", "a2a_endpoint")
+  name   Resource name to assign in local state
+  id     Provider-specific resource identifier
+
+Examples:
+  promptarena deploy import agent_runtime my-agent container-abc123
+  promptarena deploy import a2a_endpoint my-ep endpoint-xyz789`,
+	Args: cobra.ExactArgs(importArgCount),
+	RunE: runDeployImport,
+}
+
+func runDeployImport(cmd *cobra.Command, args []string) error {
+	resourceType := args[0]
+	resourceName := args[1]
+	identifier := args[2]
+
+	deployCfg, err := loadDeployConfig()
+	if err != nil {
+		return err
+	}
+
+	env := resolveEnvironment()
+	projectDir, _ := os.Getwd()
+	ctx := context.Background()
+
+	// Acquire deploy lock.
+	unlock, err := acquireLock(projectDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	fmt.Printf("Importing %s.%s (%s) into environment: %s\n", resourceType, resourceName, identifier, env)
+
+	configJSON, err := mergedDeployConfigJSON(deployCfg, env)
+	if err != nil {
+		return err
+	}
+
+	stateStore := deploy.NewStateStore(projectDir)
+	priorState, err := stateStore.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load deploy state: %w", err)
+	}
+
+	var priorStateStr string
+	if priorState != nil {
+		priorStateStr = priorState.State
+	}
+
+	client, err := connectAdapter(deployCfg.Provider, projectDir)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	resp, err := client.Import(ctx, &deploy.ImportRequest{
+		ResourceType: resourceType,
+		ResourceName: resourceName,
+		Identifier:   identifier,
+		DeployConfig: configJSON,
+		Environment:  env,
+		PriorState:   priorStateStr,
+	})
+	if err != nil {
+		return fmt.Errorf("import failed: %w", err)
+	}
+
+	// Update or create state with the new adapter state.
+	if priorState == nil {
+		info, _ := client.GetProviderInfo(ctx)
+		adapterVersion := ""
+		if info != nil {
+			adapterVersion = info.Version
+		}
+		priorState = deploy.NewState(deployCfg.Provider, env, "", "", adapterVersion)
+	}
+	if resp.State != "" {
+		priorState.State = resp.State
+	}
+	priorState.LastRefreshed = time.Now().UTC().Format(time.RFC3339)
+	if err := stateStore.Save(priorState); err != nil {
+		return fmt.Errorf("failed to save state after import: %w", err)
+	}
+
+	fmt.Println()
+	fmt.Printf("  Imported: %s.%s — %s\n", resp.Resource.Type, resp.Resource.Name, resp.Resource.Status)
+	if resp.Resource.Detail != "" {
+		fmt.Printf("  Detail:   %s\n", resp.Resource.Detail)
+	}
+	fmt.Println()
 	return nil
 }
