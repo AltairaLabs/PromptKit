@@ -1,17 +1,15 @@
 package deploy
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 )
 
-const lockFile = "deploy.lock"
+const lockFileName = "deploy.lock"
 
 // Locker provides file-based locking for deploy operations.
-// It uses syscall.Flock to prevent concurrent deploys from
+// It uses OS-level file locking to prevent concurrent deploys from
 // different processes targeting the same project directory.
 type Locker struct {
 	baseDir string
@@ -25,7 +23,7 @@ func NewLocker(baseDir string) *Locker {
 
 // lockPath returns the full path to the lock file.
 func (l *Locker) lockPath() string {
-	return filepath.Join(l.baseDir, stateDir, lockFile)
+	return filepath.Join(l.baseDir, stateDir, lockFileName)
 }
 
 // Lock acquires an exclusive file lock. Returns an error if the lock
@@ -45,14 +43,9 @@ func (l *Locker) Lock() error {
 		return fmt.Errorf("failed to open lock file: %w", err)
 	}
 
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := lockFileExclusive(f); err != nil {
 		_ = f.Close()
-		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
-			return fmt.Errorf(
-				"deploy lock is held by another process; "+
-					"wait for the other deploy to finish or remove %s", l.lockPath())
-		}
-		return fmt.Errorf("failed to acquire deploy lock: %w", err)
+		return err
 	}
 
 	l.file = f
@@ -66,9 +59,7 @@ func (l *Locker) Unlock() error {
 		return nil
 	}
 
-	fd := int(l.file.Fd())
-
-	if err := syscall.Flock(fd, syscall.LOCK_UN); err != nil {
+	if err := unlockFile(l.file); err != nil {
 		return fmt.Errorf("failed to release deploy lock: %w", err)
 	}
 
