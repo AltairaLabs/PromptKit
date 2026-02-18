@@ -1,7 +1,5 @@
 ---
 title: Scenario Design Principles
-sidebar:
-  order: 2
 ---
 Understanding how to design effective, maintainable LLM test scenarios.
 

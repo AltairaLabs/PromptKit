@@ -1,7 +1,5 @@
 ---
 title: 'Tutorial 2: Multi-Provider Testing'
-sidebar:
-  order: 2
 ---
 Learn how to test the same scenario across multiple LLM providers and compare their responses.
 

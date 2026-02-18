@@ -1,8 +1,6 @@
 ---
 title: Programmatic vs CLI Usage
 description: Understanding when to use Arena as a library versus the CLI
-sidebar:
-  order: 7
 ---
 
 Arena can be used in two ways: as a command-line tool or as a Go library. This guide explains the differences, trade-offs, and when to choose each approach.

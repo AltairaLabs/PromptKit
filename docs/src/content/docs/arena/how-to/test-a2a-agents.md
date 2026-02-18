@@ -1,8 +1,6 @@
 ---
 title: Test A2A Agents
 description: Configure and test A2A agent delegation in Arena scenarios
-sidebar:
-  order: 10
 ---
 
 Test agent-to-agent delegation using Arena's built-in mock A2A infrastructure. Define mock agents in your Arena config, write scenarios that trigger tool calls, and verify the full delegation pipeline.

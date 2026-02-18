@@ -1,7 +1,5 @@
 ---
 title: Assertions Reference
-sidebar:
-  order: 4
 ---
 Assertions are checks that verify LLM behavior during test execution. They run after each turn and determine whether the response meets expectations.
 

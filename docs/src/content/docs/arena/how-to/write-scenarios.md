@@ -1,7 +1,5 @@
 ---
 title: Write Test Scenarios
-sidebar:
-  order: 2
 ---
 Learn how to create and structure test scenarios for LLM testing.
 

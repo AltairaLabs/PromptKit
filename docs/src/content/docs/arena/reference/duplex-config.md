@@ -1,7 +1,5 @@
 ---
 title: Duplex Configuration Reference
-sidebar:
-  order: 7
 ---
 Complete reference for configuring [duplex](/glossary#duplex) (bidirectional) streaming scenarios in PromptArena.
 

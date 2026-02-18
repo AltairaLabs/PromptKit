@@ -1,7 +1,5 @@
 ---
 title: Validators Reference
-sidebar:
-  order: 5
 ---
 
 Validators (also called guardrails) are runtime checks that enforce policies on LLM responses. Unlike assertions that verify test expectations, validators actively prevent policy violations and can abort streaming responses early.

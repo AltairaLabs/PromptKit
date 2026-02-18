@@ -1,7 +1,5 @@
 ---
 title: LLM Testing Philosophy
-sidebar:
-  order: 1
 ---
 Understanding the principles and rationale behind PromptArena's approach to LLM testing.
 

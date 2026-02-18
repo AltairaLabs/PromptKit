@@ -1,7 +1,5 @@
 ---
 title: Use Project Templates
-sidebar:
-  order: 1
 ---
 
 Learn how to quickly scaffold new PromptArena test projects using templates.

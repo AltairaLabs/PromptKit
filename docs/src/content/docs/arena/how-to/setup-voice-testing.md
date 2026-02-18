@@ -1,7 +1,5 @@
 ---
 title: Set Up Voice Testing with Self-Play
-sidebar:
-  order: 8
 ---
 Configure automated voice testing using self-play mode with TTS for multi-turn conversations.
 

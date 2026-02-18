@@ -1,7 +1,5 @@
 ---
 title: Session Recording Architecture
-sidebar:
-  order: 6
 ---
 This document explains how PromptKit's session recording system captures, stores, and replays LLM conversations with full fidelity.
 

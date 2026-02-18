@@ -1,7 +1,5 @@
 ---
 title: Validate Outputs
-sidebar:
-  order: 5
 ---
 Learn how to use assertions and validators to verify LLM responses.
 
