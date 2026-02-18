@@ -473,6 +473,380 @@ func TestIncrementalSaveStage_WithAutoSummarize(t *testing.T) {
 	assert.Equal(t, 3, summaries[0].EndTurn)
 }
 
+// =============================================================================
+// maybeSummarize unit tests
+// =============================================================================
+
+// noReaderStore implements MessageAppender but NOT MessageReader.
+// Used to test the "store doesn't implement MessageReader" branch.
+type noReaderStore struct {
+	messages map[string][]types.Message
+}
+
+func newNoReaderStore() *noReaderStore {
+	return &noReaderStore{messages: make(map[string][]types.Message)}
+}
+
+func (s *noReaderStore) AppendMessages(_ context.Context, id string, msgs []types.Message) error {
+	s.messages[id] = append(s.messages[id], msgs...)
+	return nil
+}
+
+// readerOnlyStore implements MessageAppender and MessageReader but NOT SummaryAccessor or Store.
+type readerOnlyStore struct {
+	messages     map[string][]types.Message
+	countErr     error
+	countOverride int
+}
+
+func newReaderOnlyStore() *readerOnlyStore {
+	return &readerOnlyStore{messages: make(map[string][]types.Message)}
+}
+
+func (s *readerOnlyStore) AppendMessages(_ context.Context, id string, msgs []types.Message) error {
+	s.messages[id] = append(s.messages[id], msgs...)
+	return nil
+}
+
+func (s *readerOnlyStore) LoadRecentMessages(_ context.Context, id string, n int) ([]types.Message, error) {
+	msgs := s.messages[id]
+	if n > len(msgs) {
+		n = len(msgs)
+	}
+	return msgs[len(msgs)-n:], nil
+}
+
+func (s *readerOnlyStore) MessageCount(_ context.Context, id string) (int, error) {
+	if s.countErr != nil {
+		return 0, s.countErr
+	}
+	if s.countOverride > 0 {
+		return s.countOverride, nil
+	}
+	return len(s.messages[id]), nil
+}
+
+// readerWithSummaryStore implements MessageAppender, MessageReader, SummaryAccessor, and Store.
+type readerWithSummaryStore struct {
+	messages       map[string][]types.Message
+	states         map[string]*statestore.ConversationState
+	summaries      map[string][]statestore.Summary
+	countOverride  int
+	loadSumErr     error
+	loadErr        error
+	saveSummaryErr error
+}
+
+func newReaderWithSummaryStore() *readerWithSummaryStore {
+	return &readerWithSummaryStore{
+		messages:  make(map[string][]types.Message),
+		states:    make(map[string]*statestore.ConversationState),
+		summaries: make(map[string][]statestore.Summary),
+	}
+}
+
+func (s *readerWithSummaryStore) AppendMessages(_ context.Context, id string, msgs []types.Message) error {
+	s.messages[id] = append(s.messages[id], msgs...)
+	// Also update the state for Load
+	state, ok := s.states[id]
+	if !ok {
+		state = &statestore.ConversationState{ID: id}
+		s.states[id] = state
+	}
+	state.Messages = append(state.Messages, msgs...)
+	return nil
+}
+
+func (s *readerWithSummaryStore) LoadRecentMessages(_ context.Context, id string, n int) ([]types.Message, error) {
+	msgs := s.messages[id]
+	if n > len(msgs) {
+		n = len(msgs)
+	}
+	return msgs[len(msgs)-n:], nil
+}
+
+func (s *readerWithSummaryStore) MessageCount(_ context.Context, id string) (int, error) {
+	if s.countOverride > 0 {
+		return s.countOverride, nil
+	}
+	return len(s.messages[id]), nil
+}
+
+func (s *readerWithSummaryStore) LoadSummaries(_ context.Context, id string) ([]statestore.Summary, error) {
+	if s.loadSumErr != nil {
+		return nil, s.loadSumErr
+	}
+	return s.summaries[id], nil
+}
+
+func (s *readerWithSummaryStore) SaveSummary(_ context.Context, id string, summary statestore.Summary) error {
+	if s.saveSummaryErr != nil {
+		return s.saveSummaryErr
+	}
+	s.summaries[id] = append(s.summaries[id], summary)
+	return nil
+}
+
+func (s *readerWithSummaryStore) Load(_ context.Context, id string) (*statestore.ConversationState, error) {
+	if s.loadErr != nil {
+		return nil, s.loadErr
+	}
+	state, ok := s.states[id]
+	if !ok {
+		return nil, statestore.ErrNotFound
+	}
+	return state, nil
+}
+
+func (s *readerWithSummaryStore) Save(_ context.Context, state *statestore.ConversationState) error {
+	s.states[state.ID] = state
+	return nil
+}
+
+func (s *readerWithSummaryStore) Fork(_ context.Context, sourceID, newID string) error {
+	state, ok := s.states[sourceID]
+	if !ok {
+		return statestore.ErrNotFound
+	}
+	copied := *state
+	copied.ID = newID
+	s.states[newID] = &copied
+	return nil
+}
+
+// noStoreInterfaceSummaryStore implements MessageAppender, MessageReader, SummaryAccessor
+// but NOT Store. Used to test the "store doesn't implement Store" branch after LoadSummaries.
+type noStoreInterfaceSummaryStore struct {
+	messages      map[string][]types.Message
+	summaries     map[string][]statestore.Summary
+	countOverride int
+}
+
+func newNoStoreInterfaceSummaryStore() *noStoreInterfaceSummaryStore {
+	return &noStoreInterfaceSummaryStore{
+		messages:  make(map[string][]types.Message),
+		summaries: make(map[string][]statestore.Summary),
+	}
+}
+
+func (s *noStoreInterfaceSummaryStore) AppendMessages(_ context.Context, id string, msgs []types.Message) error {
+	s.messages[id] = append(s.messages[id], msgs...)
+	return nil
+}
+
+func (s *noStoreInterfaceSummaryStore) LoadRecentMessages(
+	_ context.Context, id string, n int,
+) ([]types.Message, error) {
+	msgs := s.messages[id]
+	if n > len(msgs) {
+		n = len(msgs)
+	}
+	return msgs[len(msgs)-n:], nil
+}
+
+func (s *noStoreInterfaceSummaryStore) MessageCount(_ context.Context, id string) (int, error) {
+	if s.countOverride > 0 {
+		return s.countOverride, nil
+	}
+	return len(s.messages[id]), nil
+}
+
+func (s *noStoreInterfaceSummaryStore) LoadSummaries(_ context.Context, id string) ([]statestore.Summary, error) {
+	return s.summaries[id], nil
+}
+
+func (s *noStoreInterfaceSummaryStore) SaveSummary(
+	_ context.Context, id string, summary statestore.Summary,
+) error {
+	s.summaries[id] = append(s.summaries[id], summary)
+	return nil
+}
+
+// failingSummarizerForSave returns an error from Summarize.
+type failingSummarizerForSave struct{}
+
+func (f *failingSummarizerForSave) Summarize(_ context.Context, _ []types.Message) (string, error) {
+	return "", errors.New("summarizer failed")
+}
+
+// helper to build an IncrementalSaveStage and call maybeSummarize directly.
+func callMaybeSummarize(t *testing.T, store interface{}, summarizer statestore.Summarizer, threshold, batch int) {
+	t.Helper()
+	config := &IncrementalSaveConfig{
+		StateStoreConfig: &pipeline.StateStoreConfig{
+			Store:          store,
+			ConversationID: "conv-ms",
+		},
+		Summarizer:         summarizer,
+		SummarizeThreshold: threshold,
+		SummarizeBatchSize: batch,
+	}
+	s := NewIncrementalSaveStage(config)
+	s.maybeSummarize(context.Background(), "conv-ms")
+}
+
+func TestMaybeSummarize_StoreNotMessageReader(t *testing.T) {
+	// noReaderStore does not implement MessageReader
+	store := newNoReaderStore()
+	summarizer := &mockSummarizerForSave{summaryContent: "summary"}
+	callMaybeSummarize(t, store, summarizer, 3, 3)
+	// Should return early — summarizer never called
+	assert.Equal(t, 0, summarizer.summarizeCalls)
+}
+
+func TestMaybeSummarize_MessageCountError(t *testing.T) {
+	store := newReaderOnlyStore()
+	store.countErr = errors.New("count error")
+	summarizer := &mockSummarizerForSave{summaryContent: "summary"}
+	callMaybeSummarize(t, store, summarizer, 3, 3)
+	assert.Equal(t, 0, summarizer.summarizeCalls)
+}
+
+func TestMaybeSummarize_CountBelowThreshold(t *testing.T) {
+	store := newReaderOnlyStore()
+	// 2 messages, threshold 3 → no summarization
+	store.messages["conv-ms"] = []types.Message{
+		{Role: "user", Content: "m1"},
+		{Role: "assistant", Content: "m2"},
+	}
+	summarizer := &mockSummarizerForSave{summaryContent: "summary"}
+	callMaybeSummarize(t, store, summarizer, 3, 3)
+	assert.Equal(t, 0, summarizer.summarizeCalls)
+}
+
+func TestMaybeSummarize_StoreNotSummaryAccessor(t *testing.T) {
+	store := newReaderOnlyStore()
+	// Enough messages to pass the threshold
+	store.countOverride = 10
+	summarizer := &mockSummarizerForSave{summaryContent: "summary"}
+	callMaybeSummarize(t, store, summarizer, 3, 3)
+	// readerOnlyStore does not implement SummaryAccessor → early return
+	assert.Equal(t, 0, summarizer.summarizeCalls)
+}
+
+func TestMaybeSummarize_LoadSummariesError(t *testing.T) {
+	store := newReaderWithSummaryStore()
+	store.countOverride = 10
+	store.loadSumErr = errors.New("load summaries error")
+	summarizer := &mockSummarizerForSave{summaryContent: "summary"}
+	callMaybeSummarize(t, store, summarizer, 3, 3)
+	assert.Equal(t, 0, summarizer.summarizeCalls)
+}
+
+func TestMaybeSummarize_UnsummarizedLessThanBatch(t *testing.T) {
+	store := newReaderWithSummaryStore()
+	// 5 messages total, batch = 6 → unsummarized (5) < batch (6) → skip
+	store.messages["conv-ms"] = make([]types.Message, 5)
+	store.states["conv-ms"] = &statestore.ConversationState{
+		ID:       "conv-ms",
+		Messages: make([]types.Message, 5),
+	}
+	summarizer := &mockSummarizerForSave{summaryContent: "summary"}
+	callMaybeSummarize(t, store, summarizer, 3, 6)
+	assert.Equal(t, 0, summarizer.summarizeCalls)
+}
+
+func TestMaybeSummarize_StoreLoadFails(t *testing.T) {
+	// Use noStoreInterfaceSummaryStore which doesn't implement Store
+	store := newNoStoreInterfaceSummaryStore()
+	store.countOverride = 10
+	summarizer := &mockSummarizerForSave{summaryContent: "summary"}
+	callMaybeSummarize(t, store, summarizer, 3, 3)
+	// Store doesn't implement statestore.Store → early return at store.Load
+	assert.Equal(t, 0, summarizer.summarizeCalls)
+}
+
+func TestMaybeSummarize_StoreLoadReturnsError(t *testing.T) {
+	store := newReaderWithSummaryStore()
+	store.countOverride = 10
+	store.loadErr = errors.New("load error")
+	summarizer := &mockSummarizerForSave{summaryContent: "summary"}
+	callMaybeSummarize(t, store, summarizer, 3, 3)
+	assert.Equal(t, 0, summarizer.summarizeCalls)
+}
+
+func TestMaybeSummarize_SummarizeFails(t *testing.T) {
+	store := newReaderWithSummaryStore()
+	// Put 10 messages in the store
+	msgs := make([]types.Message, 10)
+	for i := range msgs {
+		msgs[i] = types.Message{Role: "user", Content: fmt.Sprintf("msg %d", i)}
+	}
+	store.messages["conv-ms"] = msgs
+	store.states["conv-ms"] = &statestore.ConversationState{
+		ID:       "conv-ms",
+		Messages: msgs,
+	}
+	summarizer := &failingSummarizerForSave{}
+	callMaybeSummarize(t, store, summarizer, 3, 5)
+	// Summarize fails → no summary saved
+	assert.Empty(t, store.summaries["conv-ms"])
+}
+
+func TestMaybeSummarize_SaveSummaryFails(t *testing.T) {
+	store := newReaderWithSummaryStore()
+	msgs := make([]types.Message, 10)
+	for i := range msgs {
+		msgs[i] = types.Message{Role: "user", Content: fmt.Sprintf("msg %d", i)}
+	}
+	store.messages["conv-ms"] = msgs
+	store.states["conv-ms"] = &statestore.ConversationState{
+		ID:       "conv-ms",
+		Messages: msgs,
+	}
+	store.saveSummaryErr = errors.New("save summary failed")
+	summarizer := &mockSummarizerForSave{summaryContent: "good summary"}
+	callMaybeSummarize(t, store, summarizer, 3, 5)
+	// Summarizer was called but save failed
+	assert.Equal(t, 1, summarizer.summarizeCalls)
+	assert.Empty(t, store.summaries["conv-ms"])
+}
+
+func TestMaybeSummarize_SuccessfulSummarization(t *testing.T) {
+	store := newReaderWithSummaryStore()
+	msgs := make([]types.Message, 10)
+	for i := range msgs {
+		msgs[i] = types.Message{Role: "user", Content: fmt.Sprintf("msg %d", i)}
+	}
+	store.messages["conv-ms"] = msgs
+	store.states["conv-ms"] = &statestore.ConversationState{
+		ID:       "conv-ms",
+		Messages: msgs,
+	}
+	summarizer := &mockSummarizerForSave{summaryContent: "batch summary"}
+	callMaybeSummarize(t, store, summarizer, 3, 5)
+	assert.Equal(t, 1, summarizer.summarizeCalls)
+	require.Len(t, store.summaries["conv-ms"], 1)
+	assert.Equal(t, "batch summary", store.summaries["conv-ms"][0].Content)
+	assert.Equal(t, 0, store.summaries["conv-ms"][0].StartTurn)
+	assert.Equal(t, 5, store.summaries["conv-ms"][0].EndTurn)
+}
+
+func TestMaybeSummarize_WithExistingSummaries(t *testing.T) {
+	store := newReaderWithSummaryStore()
+	msgs := make([]types.Message, 12)
+	for i := range msgs {
+		msgs[i] = types.Message{Role: "user", Content: fmt.Sprintf("msg %d", i)}
+	}
+	store.messages["conv-ms"] = msgs
+	store.states["conv-ms"] = &statestore.ConversationState{
+		ID:       "conv-ms",
+		Messages: msgs,
+	}
+	// Existing summary covers turns 0-4
+	store.summaries["conv-ms"] = []statestore.Summary{
+		{StartTurn: 0, EndTurn: 4, Content: "old summary"},
+	}
+	summarizer := &mockSummarizerForSave{summaryContent: "new batch summary"}
+	callMaybeSummarize(t, store, summarizer, 3, 5)
+	assert.Equal(t, 1, summarizer.summarizeCalls)
+	require.Len(t, store.summaries["conv-ms"], 2)
+	// New summary should start from turn 4 (lastSummarizedTurn) and cover 5 messages
+	assert.Equal(t, 4, store.summaries["conv-ms"][1].StartTurn)
+	assert.Equal(t, 9, store.summaries["conv-ms"][1].EndTurn)
+	assert.Equal(t, "new batch summary", store.summaries["conv-ms"][1].Content)
+}
+
 func TestIncrementalSaveStage_Passthrough_WithErrors(t *testing.T) {
 	// nil config triggers passthrough mode
 	s := NewIncrementalSaveStage(nil)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -209,8 +210,10 @@ func (s *IncrementalSaveStage) indexNewMessages(
 	}
 
 	for i := range messages {
-		// Best effort: don't fail the save if indexing fails
-		_ = s.config.MessageIndex.Index(ctx, convID, baseIndex+i, messages[i])
+		if err := s.config.MessageIndex.Index(ctx, convID, baseIndex+i, messages[i]); err != nil {
+			logger.Warn("Incremental save: failed to index message",
+				"conversation", convID, "turnIndex", baseIndex+i, "error", err)
+		}
 	}
 }
 
@@ -218,22 +221,33 @@ func (s *IncrementalSaveStage) indexNewMessages(
 func (s *IncrementalSaveStage) maybeSummarize(ctx context.Context, convID string) {
 	reader, ok := s.config.StateStoreConfig.Store.(statestore.MessageReader)
 	if !ok {
+		logger.Warn("Auto-summarize: store does not implement MessageReader, skipping",
+			"conversation", convID)
 		return
 	}
 
 	count, err := reader.MessageCount(ctx, convID)
-	if err != nil || count <= s.config.SummarizeThreshold {
+	if err != nil {
+		logger.Warn("Auto-summarize: failed to get message count",
+			"conversation", convID, "error", err)
+		return
+	}
+	if count <= s.config.SummarizeThreshold {
 		return
 	}
 
 	accessor, ok := s.config.StateStoreConfig.Store.(statestore.SummaryAccessor)
 	if !ok {
+		logger.Warn("Auto-summarize: store does not implement SummaryAccessor, skipping",
+			"conversation", convID)
 		return
 	}
 
 	// Determine how many messages are unsummarized
 	summaries, err := accessor.LoadSummaries(ctx, convID)
 	if err != nil {
+		logger.Warn("Auto-summarize: failed to load summaries",
+			"conversation", convID, "error", err)
 		return
 	}
 
@@ -257,6 +271,8 @@ func (s *IncrementalSaveStage) maybeSummarize(ctx context.Context, convID string
 
 	state, err := store.Load(ctx, convID)
 	if err != nil {
+		logger.Warn("Auto-summarize: failed to load state for summarization",
+			"conversation", convID, "error", err)
 		return
 	}
 
@@ -268,6 +284,8 @@ func (s *IncrementalSaveStage) maybeSummarize(ctx context.Context, convID string
 	batch := state.Messages[lastSummarizedTurn:endTurn]
 	content, err := s.config.Summarizer.Summarize(ctx, batch)
 	if err != nil {
+		logger.Error("Auto-summarize: summarization failed",
+			"conversation", convID, "startTurn", lastSummarizedTurn, "endTurn", endTurn, "error", err)
 		return
 	}
 
@@ -277,7 +295,13 @@ func (s *IncrementalSaveStage) maybeSummarize(ctx context.Context, convID string
 		Content:   content,
 	}
 
-	_ = accessor.SaveSummary(ctx, convID, summary)
+	if err := accessor.SaveSummary(ctx, convID, summary); err != nil {
+		logger.Error("Auto-summarize: failed to save summary",
+			"conversation", convID, "startTurn", summary.StartTurn, "endTurn", summary.EndTurn, "error", err)
+	} else {
+		logger.Info("Auto-summarize: created summary",
+			"conversation", convID, "startTurn", summary.StartTurn, "endTurn", summary.EndTurn)
+	}
 }
 
 // passthrough forwards all input elements without saving.

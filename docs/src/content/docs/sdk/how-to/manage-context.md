@@ -61,6 +61,86 @@ conv, _ := sdk.Open("./app.pack.json", "chat",
 )
 ```
 
+## Long Conversation Context
+
+For applications with persistent state (a state store), you can use a three-tier approach instead of truncation to manage long conversations efficiently:
+
+1. **Hot window** — load only the most recent N messages
+2. **Semantic retrieval** — find relevant older messages using embeddings
+3. **Auto-summarization** — compress old turns into summaries
+
+These options use `ContextAssemblyStage` and `IncrementalSaveStage` internally, avoiding the need to load and save the full conversation history on every turn.
+
+### Context Window (Hot Window)
+
+Load only the last N messages instead of the full history:
+
+```go
+conv, _ := sdk.Open("./app.pack.json", "chat",
+    sdk.WithStateStore(store),
+    sdk.WithConversationID("session-123"),
+    sdk.WithContextWindow(20), // Keep last 20 messages
+)
+```
+
+Requires `WithStateStore` and `WithConversationID`. When the store implements the optional `MessageReader` and `MessageAppender` interfaces (as `RedisStore` and `MemoryStore` do), only the tail of the conversation is loaded and new messages are appended incrementally. Falls back to full `Load`/`Save` otherwise.
+
+### Semantic Retrieval
+
+On each turn, embed the user's message and search older messages (outside the hot window) for semantic matches:
+
+```go
+embProvider, _ := openai.NewEmbeddingProvider()
+
+conv, _ := sdk.Open("./app.pack.json", "chat",
+    sdk.WithStateStore(store),
+    sdk.WithConversationID("session-123"),
+    sdk.WithContextWindow(20),
+    sdk.WithContextRetrieval(embProvider, 5), // Retrieve top 5 matches
+)
+```
+
+Retrieved messages are inserted chronologically between summaries and the hot window. Requires `WithContextWindow` to be set.
+
+### Auto-Summarization
+
+When the message count exceeds a threshold, compress the oldest unsummarized batch into a summary:
+
+```go
+conv, _ := sdk.Open("./app.pack.json", "chat",
+    sdk.WithStateStore(store),
+    sdk.WithConversationID("session-123"),
+    sdk.WithContextWindow(20),
+    sdk.WithAutoSummarize(summaryProvider, 50, 10), // threshold=50, batchSize=10
+)
+```
+
+Summaries are prepended to the context as system messages. You can use a cheaper or faster model for the summary provider (e.g., `gpt-4o-mini`) to minimize cost.
+
+### Combining All Three
+
+Use all three tiers together for the most efficient long conversation handling:
+
+```go
+import (
+    "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
+    "github.com/AltairaLabs/PromptKit/runtime/statestore"
+    "github.com/AltairaLabs/PromptKit/sdk"
+)
+
+store := statestore.NewMemoryStore()
+embProvider, _ := openai.NewEmbeddingProvider()
+summaryProvider := // your LLM provider for summarization
+
+conv, _ := sdk.Open("./app.pack.json", "chat",
+    sdk.WithStateStore(store),
+    sdk.WithConversationID("session-123"),
+    sdk.WithContextWindow(20),
+    sdk.WithContextRetrieval(embProvider, 5),
+    sdk.WithAutoSummarize(summaryProvider, 50, 10),
+)
+```
+
 ## Embedding Providers
 
 ### OpenAI
@@ -261,4 +341,5 @@ export VOYAGE_API_KEY=...
 
 - [Open a Conversation](initialize) - Basic setup
 - [Manage Variables](manage-state) - Template variables
+- [Long Conversation Example](../../../sdk/examples/long-conversation/) - Full working demo
 - [Arena Context Management](../../arena/how-to/manage-context) - YAML configuration

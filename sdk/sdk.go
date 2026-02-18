@@ -225,7 +225,7 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 	return conv, nil
 }
 
-// applyOptions applies the configuration options.
+// applyOptions applies the configuration options and validates cross-option constraints.
 func applyOptions(promptName string, opts []Option) (*config, error) {
 	cfg := &config{promptName: promptName}
 	for _, opt := range opts {
@@ -233,6 +233,18 @@ func applyOptions(promptName string, opts []Option) (*config, error) {
 			return nil, fmt.Errorf("failed to apply option: %w", err)
 		}
 	}
+
+	// Validate RAG context option dependencies
+	if cfg.contextWindow > 0 && cfg.stateStore == nil {
+		return nil, fmt.Errorf("WithContextWindow requires WithStateStore")
+	}
+	if cfg.retrievalProvider != nil && cfg.contextWindow <= 0 {
+		return nil, fmt.Errorf("WithContextRetrieval requires WithContextWindow")
+	}
+	if cfg.summarizeProvider != nil && cfg.contextWindow <= 0 {
+		return nil, fmt.Errorf("WithAutoSummarize requires WithContextWindow")
+	}
+
 	return cfg, nil
 }
 

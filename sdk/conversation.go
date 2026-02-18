@@ -289,6 +289,14 @@ func (c *Conversation) buildPipelineWithParams(
 		SummarizeBatchSize:    c.config.summarizeBatchSize,
 	}
 
+	// Wire up RAG context components from SDK options
+	if c.config.retrievalProvider != nil {
+		pipelineCfg.MessageIndex = statestore.NewInMemoryIndex(c.config.retrievalProvider)
+	}
+	if c.config.summarizeProvider != nil {
+		pipelineCfg.Summarizer = statestore.NewLLMSummarizer(c.config.summarizeProvider)
+	}
+
 	// Apply parameters from prompt if available
 	if c.prompt.Parameters != nil {
 		if c.prompt.Parameters.MaxTokens != nil {
@@ -306,7 +314,6 @@ func (c *Conversation) buildPipelineWithParams(
 // buildStreamPipelineWithParams builds a stage pipeline directly for duplex sessions.
 // Returns *stage.StreamPipeline which DuplexSession uses directly without wrapping.
 //
-//nolint:dupl // Similar to buildPipelineWithParams but serves different purpose
 func (c *Conversation) buildStreamPipelineWithParams(
 	store statestore.Store,
 	conversationID string,
@@ -363,6 +370,14 @@ func (c *Conversation) buildStreamPipelineWithParams(
 		RetrievalTopK:         c.config.retrievalTopK,
 		SummarizeThreshold:    c.config.summarizeThreshold,
 		SummarizeBatchSize:    c.config.summarizeBatchSize,
+	}
+
+	// Wire up RAG context components from SDK options
+	if c.config.retrievalProvider != nil {
+		pipelineCfg.MessageIndex = statestore.NewInMemoryIndex(c.config.retrievalProvider)
+	}
+	if c.config.summarizeProvider != nil {
+		pipelineCfg.Summarizer = statestore.NewLLMSummarizer(c.config.summarizeProvider)
 	}
 
 	// Apply parameters from prompt if available

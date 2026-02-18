@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/a2a"
@@ -582,6 +583,12 @@ func WithContextWindow(recentMessages int) Option {
 //	)
 func WithContextRetrieval(embeddingProvider providers.EmbeddingProvider, topK int) Option {
 	return func(c *config) error {
+		if embeddingProvider == nil {
+			return fmt.Errorf("WithContextRetrieval: embeddingProvider must not be nil")
+		}
+		if topK <= 0 {
+			return fmt.Errorf("WithContextRetrieval: topK must be positive, got %d", topK)
+		}
 		c.retrievalProvider = embeddingProvider
 		c.retrievalTopK = topK
 		return nil
@@ -603,6 +610,15 @@ func WithContextRetrieval(embeddingProvider providers.EmbeddingProvider, topK in
 //	)
 func WithAutoSummarize(provider providers.Provider, threshold, batchSize int) Option {
 	return func(c *config) error {
+		if provider == nil {
+			return fmt.Errorf("WithAutoSummarize: provider must not be nil")
+		}
+		if threshold <= 0 {
+			return fmt.Errorf("WithAutoSummarize: threshold must be positive, got %d", threshold)
+		}
+		if batchSize <= 0 {
+			return fmt.Errorf("WithAutoSummarize: batchSize must be positive, got %d", batchSize)
+		}
 		c.summarizeProvider = provider
 		c.summarizeThreshold = threshold
 		c.summarizeBatchSize = batchSize

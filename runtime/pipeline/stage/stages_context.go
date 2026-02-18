@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -138,8 +139,8 @@ func (s *ContextAssemblyStage) assembleFromReader(
 	if s.config.MessageIndex != nil && s.config.RetrievalTopK > 0 && len(recentMsgs) > 0 {
 		retrieved, err := s.retrieveRelevant(ctx, convID, recentMsgs)
 		if err != nil {
-			// Non-fatal: log but continue with hot window only
-			_ = err
+			logger.Warn("Context assembly: semantic retrieval failed, using hot window only",
+				"conversation", convID, "error", err)
 		} else {
 			assembled = append(assembled, retrieved...)
 		}

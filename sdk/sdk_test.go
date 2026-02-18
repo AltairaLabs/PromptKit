@@ -382,6 +382,30 @@ func TestApplyOptions(t *testing.T) {
 		})
 		assert.Error(t, err)
 	})
+
+	t.Run("WithContextWindow without WithStateStore", func(t *testing.T) {
+		_, err := applyOptions("test-prompt", []Option{
+			WithContextWindow(20),
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "WithContextWindow requires WithStateStore")
+	})
+
+	t.Run("WithContextRetrieval without WithContextWindow", func(t *testing.T) {
+		_, err := applyOptions("test-prompt", []Option{
+			WithContextRetrieval(&mockEmbeddingProvider{}, 5),
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "WithContextRetrieval requires WithContextWindow")
+	})
+
+	t.Run("WithAutoSummarize without WithContextWindow", func(t *testing.T) {
+		_, err := applyOptions("test-prompt", []Option{
+			WithAutoSummarize(&mockSummarizeProvider{}, 100, 50),
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "WithAutoSummarize requires WithContextWindow")
+	})
 }
 
 func TestLoadAndValidatePack(t *testing.T) {
