@@ -203,6 +203,15 @@ func printStatus(status *deploy.StatusResponse) {
 	fmt.Println()
 }
 
+// acquireLock acquires the deploy lock and returns an unlock function.
+func acquireLock(projectDir string) (func(), error) {
+	locker := deploy.NewLocker(projectDir)
+	if err := locker.Lock(); err != nil {
+		return nil, err
+	}
+	return func() { _ = locker.Unlock() }, nil
+}
+
 // --- deploy (plan + apply) ---
 
 func runDeploy(cmd *cobra.Command, args []string) error {
@@ -214,6 +223,13 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	env := resolveEnvironment()
 	projectDir, _ := os.Getwd()
 	ctx := context.Background()
+
+	// Acquire deploy lock.
+	unlock, err := acquireLock(projectDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 
 	fmt.Printf("Deploying with provider %q to environment %q\n", deployCfg.Provider, env)
 	fmt.Println()
@@ -272,7 +288,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("apply failed: %w", err)
 	}
 
-	// Save state.
+	// Save state and clean up any saved plan.
 	info, _ := client.GetProviderInfo(ctx)
 	adapterVersion := ""
 	if info != nil {
@@ -286,6 +302,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	if err := stateStore.Save(newState); err != nil {
 		return fmt.Errorf("failed to save deploy state: %w", err)
 	}
+	_ = stateStore.DeletePlan()
 
 	fmt.Println("Deployment complete.")
 	return nil
@@ -297,7 +314,8 @@ var deployPlanCmd = &cobra.Command{
 	Use:   "plan",
 	Short: "Preview the deployment plan",
 	Long: `Show what resources would be created, updated, or destroyed
-without making any changes.
+without making any changes. The plan is saved so that 'deploy apply'
+can execute it without re-planning.
 
 Examples:
   promptarena deploy plan --env staging
@@ -343,17 +361,28 @@ func runDeployPlan(cmd *cobra.Command, args []string) error {
 	}
 	defer client.Close()
 
-	plan, err := client.Plan(ctx, &deploy.PlanRequest{
+	planReq := &deploy.PlanRequest{
 		PackJSON:     string(packData),
 		DeployConfig: configJSON,
 		Environment:  env,
 		PriorState:   priorStateStr,
-	})
+	}
+
+	plan, err := client.Plan(ctx, planReq)
 	if err != nil {
 		return fmt.Errorf("plan failed: %w", err)
 	}
 
 	printPlan(plan)
+
+	// Save plan for later apply.
+	savedPlan := deploy.NewSavedPlan(
+		deployCfg.Provider, env, deploy.ComputePackChecksum(packData), plan, planReq,
+	)
+	if err := stateStore.SavePlan(savedPlan); err != nil {
+		return fmt.Errorf("failed to save plan: %w", err)
+	}
+	fmt.Println("Plan saved. Run 'promptarena deploy apply' to execute.")
 	return nil
 }
 
@@ -363,7 +392,8 @@ var deployApplyCmd = &cobra.Command{
 	Use:   "apply",
 	Short: "Apply the deployment",
 	Long: `Apply the deployment plan to the target environment.
-This creates or updates resources as needed.
+If a saved plan exists (from 'deploy plan'), it will be used.
+Otherwise, a new plan is generated before applying.
 
 Examples:
   promptarena deploy apply --env staging
@@ -381,6 +411,13 @@ func runDeployApply(cmd *cobra.Command, args []string) error {
 	projectDir, _ := os.Getwd()
 	ctx := context.Background()
 
+	// Acquire deploy lock.
+	unlock, err := acquireLock(projectDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
 	fmt.Printf("Applying deployment to environment: %s (provider: %s)\n", env, deployCfg.Provider)
 
 	packData, err := resolvePackFile()
@@ -388,19 +425,42 @@ func runDeployApply(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	configJSON, err := mergedDeployConfigJSON(deployCfg, env)
-	if err != nil {
-		return err
-	}
-
 	stateStore := deploy.NewStateStore(projectDir)
-	priorState, err := stateStore.Load()
+	packChecksum := deploy.ComputePackChecksum(packData)
+
+	// Check for a saved plan.
+	var planReq *deploy.PlanRequest
+	savedPlan, err := stateStore.LoadPlan()
 	if err != nil {
-		return fmt.Errorf("failed to load deploy state: %w", err)
+		return fmt.Errorf("failed to load saved plan: %w", err)
 	}
-	var priorStateStr string
-	if priorState != nil {
-		priorStateStr = priorState.State
+	if savedPlan != nil && savedPlan.PackChecksum == packChecksum && savedPlan.Environment == env {
+		fmt.Println("  Using saved plan.")
+		planReq = savedPlan.Request
+	} else {
+		if savedPlan != nil {
+			fmt.Println("  Saved plan is stale (pack or environment changed), re-planning...")
+		}
+		configJSON, mergeErr := mergedDeployConfigJSON(deployCfg, env)
+		if mergeErr != nil {
+			return mergeErr
+		}
+
+		priorState, loadErr := stateStore.Load()
+		if loadErr != nil {
+			return fmt.Errorf("failed to load deploy state: %w", loadErr)
+		}
+		var priorStateStr string
+		if priorState != nil {
+			priorStateStr = priorState.State
+		}
+
+		planReq = &deploy.PlanRequest{
+			PackJSON:     string(packData),
+			DeployConfig: configJSON,
+			Environment:  env,
+			PriorState:   priorStateStr,
+		}
 	}
 
 	client, err := connectAdapter(deployCfg.Provider, projectDir)
@@ -408,13 +468,6 @@ func runDeployApply(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer client.Close()
-
-	planReq := &deploy.PlanRequest{
-		PackJSON:     string(packData),
-		DeployConfig: configJSON,
-		Environment:  env,
-		PriorState:   priorStateStr,
-	}
 
 	adapterState, err := client.Apply(ctx, planReq, nil)
 	if err != nil {
@@ -428,12 +481,13 @@ func runDeployApply(cmd *cobra.Command, args []string) error {
 	}
 
 	newState := deploy.NewState(
-		deployCfg.Provider, env, "", deploy.ComputePackChecksum(packData), adapterVersion,
+		deployCfg.Provider, env, "", packChecksum, adapterVersion,
 	)
 	newState.State = adapterState
 	if err := stateStore.Save(newState); err != nil {
 		return fmt.Errorf("failed to save deploy state: %w", err)
 	}
+	_ = stateStore.DeletePlan()
 
 	fmt.Println()
 	fmt.Println("Apply complete.")
@@ -534,6 +588,13 @@ func runDeployDestroy(cmd *cobra.Command, args []string) error {
 	env := resolveEnvironment()
 	projectDir, _ := os.Getwd()
 	ctx := context.Background()
+
+	// Acquire deploy lock.
+	unlock, err := acquireLock(projectDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 
 	fmt.Printf("Destroying deployment in environment: %s (provider: %s)\n", env, deployCfg.Provider)
 

@@ -187,3 +187,163 @@ func TestStateStore_SaveNilState(t *testing.T) {
 		t.Fatal("Save(nil) should return an error")
 	}
 }
+
+func TestStateStore_SaveAndLoadPlan(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStateStore(dir)
+
+	original := &SavedPlan{
+		CreatedAt:    "2026-02-18T10:30:00Z",
+		Provider:     "aws-lambda",
+		Environment:  "production",
+		PackChecksum: "sha256:abc123",
+		Plan: &PlanResponse{
+			Changes: []ResourceChange{
+				{Type: "agent_runtime", Name: "my-agent", Action: ActionCreate, Detail: "new runtime"},
+			},
+			Summary: "1 resource to create",
+		},
+		Request: &PlanRequest{
+			PackJSON:    `{"name":"test"}`,
+			Environment: "production",
+		},
+	}
+
+	if err := store.SavePlan(original); err != nil {
+		t.Fatalf("SavePlan failed: %v", err)
+	}
+
+	loaded, err := store.LoadPlan()
+	if err != nil {
+		t.Fatalf("LoadPlan failed: %v", err)
+	}
+	if loaded == nil {
+		t.Fatal("LoadPlan returned nil plan")
+	}
+
+	// Version is always set by SavePlan
+	if loaded.Version != stateVersion {
+		t.Errorf("Version = %d, want %d", loaded.Version, stateVersion)
+	}
+	if loaded.Provider != original.Provider {
+		t.Errorf("Provider = %q, want %q", loaded.Provider, original.Provider)
+	}
+	if loaded.Environment != original.Environment {
+		t.Errorf("Environment = %q, want %q", loaded.Environment, original.Environment)
+	}
+	if loaded.CreatedAt != original.CreatedAt {
+		t.Errorf("CreatedAt = %q, want %q", loaded.CreatedAt, original.CreatedAt)
+	}
+	if loaded.PackChecksum != original.PackChecksum {
+		t.Errorf("PackChecksum = %q, want %q", loaded.PackChecksum, original.PackChecksum)
+	}
+	if loaded.Plan == nil {
+		t.Fatal("Plan is nil")
+	}
+	if loaded.Plan.Summary != original.Plan.Summary {
+		t.Errorf("Plan.Summary = %q, want %q", loaded.Plan.Summary, original.Plan.Summary)
+	}
+	if len(loaded.Plan.Changes) != 1 {
+		t.Fatalf("Plan.Changes length = %d, want 1", len(loaded.Plan.Changes))
+	}
+	if loaded.Plan.Changes[0].Name != "my-agent" {
+		t.Errorf("Plan.Changes[0].Name = %q, want %q", loaded.Plan.Changes[0].Name, "my-agent")
+	}
+	if loaded.Request == nil {
+		t.Fatal("Request is nil")
+	}
+	if loaded.Request.PackJSON != original.Request.PackJSON {
+		t.Errorf("Request.PackJSON = %q, want %q", loaded.Request.PackJSON, original.Request.PackJSON)
+	}
+}
+
+func TestStateStore_LoadPlanNonExistent(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStateStore(dir)
+
+	plan, err := store.LoadPlan()
+	if err != nil {
+		t.Fatalf("LoadPlan returned unexpected error: %v", err)
+	}
+	if plan != nil {
+		t.Fatalf("LoadPlan returned non-nil plan for missing file: %+v", plan)
+	}
+}
+
+func TestStateStore_DeletePlan(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStateStore(dir)
+
+	// Save first so there's something to delete.
+	plan := &SavedPlan{Provider: "test"}
+	if err := store.SavePlan(plan); err != nil {
+		t.Fatalf("SavePlan failed: %v", err)
+	}
+
+	if err := store.DeletePlan(); err != nil {
+		t.Fatalf("DeletePlan failed: %v", err)
+	}
+
+	// Verify file is gone.
+	if _, err := os.Stat(store.planPath()); !os.IsNotExist(err) {
+		t.Fatal("plan file still exists after DeletePlan")
+	}
+}
+
+func TestStateStore_DeletePlanNonExistent(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStateStore(dir)
+
+	if err := store.DeletePlan(); err != nil {
+		t.Fatalf("DeletePlan on non-existent file returned error: %v", err)
+	}
+}
+
+func TestStateStore_SavePlanNilPlan(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStateStore(dir)
+
+	err := store.SavePlan(nil)
+	if err == nil {
+		t.Fatal("SavePlan(nil) should return an error")
+	}
+}
+
+func TestNewSavedPlan(t *testing.T) {
+	before := time.Now().UTC()
+	plan := NewSavedPlan(
+		"aws-lambda",
+		"staging",
+		"sha256:deadbeef",
+		&PlanResponse{Summary: "test plan"},
+		&PlanRequest{PackJSON: `{"name":"test"}`},
+	)
+	after := time.Now().UTC()
+
+	if plan.Version != stateVersion {
+		t.Errorf("Version = %d, want %d", plan.Version, stateVersion)
+	}
+	if plan.Provider != "aws-lambda" {
+		t.Errorf("Provider = %q, want %q", plan.Provider, "aws-lambda")
+	}
+	if plan.Environment != "staging" {
+		t.Errorf("Environment = %q, want %q", plan.Environment, "staging")
+	}
+	if plan.PackChecksum != "sha256:deadbeef" {
+		t.Errorf("PackChecksum = %q, want %q", plan.PackChecksum, "sha256:deadbeef")
+	}
+	if plan.Plan == nil || plan.Plan.Summary != "test plan" {
+		t.Errorf("Plan.Summary = %v, want %q", plan.Plan, "test plan")
+	}
+	if plan.Request == nil || plan.Request.PackJSON != `{"name":"test"}` {
+		t.Errorf("Request.PackJSON = %v, want %q", plan.Request, `{"name":"test"}`)
+	}
+
+	ts, err := time.Parse(time.RFC3339, plan.CreatedAt)
+	if err != nil {
+		t.Fatalf("CreatedAt is not valid RFC3339: %v", err)
+	}
+	if ts.Before(before.Truncate(time.Second)) || ts.After(after.Add(time.Second)) {
+		t.Errorf("CreatedAt = %v, expected between %v and %v", ts, before, after)
+	}
+}
