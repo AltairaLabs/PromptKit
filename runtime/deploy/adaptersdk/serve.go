@@ -22,6 +22,7 @@ const (
 	MethodApply           = "apply"
 	MethodDestroy         = "destroy"
 	MethodStatus          = "status"
+	MethodImport          = "import"
 )
 
 // Standard JSON-RPC 2.0 error codes.
@@ -140,6 +141,8 @@ func dispatch(provider deploy.Provider, req *request) response {
 		return handleDestroy(ctx, provider, req)
 	case MethodStatus:
 		return handleStatus(ctx, provider, req)
+	case MethodImport:
+		return handleImport(ctx, provider, req)
 	default:
 		return response{
 			JSONRPC: jsonRPCVersion,
@@ -256,6 +259,23 @@ func handleStatus(
 		return errResponse(req.ID, CodeParseError, "invalid params: "+err.Error())
 	}
 	result, err := provider.Status(ctx, &params)
+	if err != nil {
+		return errResponse(req.ID, CodeInternalError, err.Error())
+	}
+	return okResponse(req.ID, result)
+}
+
+// handleImport handles the import method.
+func handleImport(
+	ctx context.Context,
+	provider deploy.Provider,
+	req *request,
+) response {
+	var params deploy.ImportRequest
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errResponse(req.ID, CodeParseError, "invalid params: "+err.Error())
+	}
+	result, err := provider.Import(ctx, &params)
 	if err != nil {
 		return errResponse(req.ID, CodeInternalError, err.Error())
 	}

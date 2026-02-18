@@ -11,6 +11,7 @@ const (
 	ActionUpdate   Action = "UPDATE"
 	ActionDelete   Action = "DELETE"
 	ActionNoChange Action = "NO_CHANGE"
+	ActionDrift    Action = "DRIFT"
 )
 
 // ProviderInfo describes a deploy adapter's capabilities.
@@ -112,6 +113,22 @@ type ApplyCallback func(event *ApplyEvent) error
 // DestroyCallback is called for each DestroyEvent during Destroy.
 type DestroyCallback func(event *DestroyEvent) error
 
+// ImportRequest is the input to Import.
+type ImportRequest struct {
+	ResourceType string `json:"resource_type"`
+	ResourceName string `json:"resource_name"`
+	Identifier   string `json:"identifier"`
+	DeployConfig string `json:"deploy_config"`
+	Environment  string `json:"environment,omitempty"`
+	PriorState   string `json:"prior_state,omitempty"`
+}
+
+// ImportResponse is the output of Import.
+type ImportResponse struct {
+	Resource ResourceStatus `json:"resource"`
+	State    string         `json:"state"`
+}
+
 // Provider defines the interface that deploy adapters must implement.
 type Provider interface {
 	GetProviderInfo(ctx context.Context) (*ProviderInfo, error)
@@ -120,4 +137,5 @@ type Provider interface {
 	Apply(ctx context.Context, req *PlanRequest, callback ApplyCallback) (adapterState string, err error)
 	Destroy(ctx context.Context, req *DestroyRequest, callback DestroyCallback) error
 	Status(ctx context.Context, req *StatusRequest) (*StatusResponse, error)
+	Import(ctx context.Context, req *ImportRequest) (*ImportResponse, error)
 }

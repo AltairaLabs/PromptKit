@@ -60,6 +60,58 @@ func TestStateStore_SaveAndLoad(t *testing.T) {
 	}
 }
 
+func TestStateStore_LastRefreshedRoundtrip(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStateStore(dir)
+
+	original := &State{
+		Provider:      "aws-lambda",
+		Environment:   "production",
+		LastDeployed:  "2026-01-15T10:30:00Z",
+		LastRefreshed: "2026-02-18T14:00:00Z",
+		PackVersion:   "1.0.0",
+		PackChecksum:  "sha256:abc123",
+		State:         "some-state",
+	}
+
+	if err := store.Save(original); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if loaded == nil {
+		t.Fatal("Load returned nil state")
+	}
+	if loaded.LastRefreshed != original.LastRefreshed {
+		t.Errorf("LastRefreshed = %q, want %q", loaded.LastRefreshed, original.LastRefreshed)
+	}
+}
+
+func TestStateStore_LastRefreshedOmittedWhenEmpty(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStateStore(dir)
+
+	original := &State{
+		Provider:    "local",
+		Environment: "dev",
+	}
+
+	if err := store.Save(original); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if loaded.LastRefreshed != "" {
+		t.Errorf("LastRefreshed = %q, want empty string", loaded.LastRefreshed)
+	}
+}
+
 func TestStateStore_LoadNonExistent(t *testing.T) {
 	dir := t.TempDir()
 	store := NewStateStore(dir)

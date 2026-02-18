@@ -13,10 +13,11 @@ import (
 
 // fakeProvider is a minimal deploy.Provider for testing.
 type fakeProvider struct {
-	info     *deploy.ProviderInfo
-	planResp *deploy.PlanResponse
-	status   *deploy.StatusResponse
-	applyErr error
+	info      *deploy.ProviderInfo
+	planResp  *deploy.PlanResponse
+	status    *deploy.StatusResponse
+	applyErr  error
+	importErr error
 }
 
 func (f *fakeProvider) GetProviderInfo(_ context.Context) (*deploy.ProviderInfo, error) {
@@ -59,6 +60,22 @@ func (f *fakeProvider) Status(
 	_ context.Context, _ *deploy.StatusRequest,
 ) (*deploy.StatusResponse, error) {
 	return f.status, nil
+}
+
+func (f *fakeProvider) Import(
+	_ context.Context, req *deploy.ImportRequest,
+) (*deploy.ImportResponse, error) {
+	if f.importErr != nil {
+		return nil, f.importErr
+	}
+	return &deploy.ImportResponse{
+		Resource: deploy.ResourceStatus{
+			Type:   req.ResourceType,
+			Name:   req.ResourceName,
+			Status: "healthy",
+		},
+		State: "imported-state",
+	}, nil
 }
 
 func newFakeProvider() *fakeProvider {
@@ -370,6 +387,60 @@ func TestServeIO_NilReaderWriter(t *testing.T) {
 	err := ServeIO(provider, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for nil reader/writer")
+	}
+}
+
+func TestServeIO_Import(t *testing.T) {
+	provider := newFakeProvider()
+	params := deploy.ImportRequest{
+		ResourceType: "agent_runtime",
+		ResourceName: "my-agent",
+		Identifier:   "container-abc",
+		DeployConfig: "{}",
+	}
+	input := makeRequest("import", params, 10) + "\n"
+	var out bytes.Buffer
+
+	err := ServeIO(provider, strings.NewReader(input), &out)
+	if err != nil {
+		t.Fatalf("ServeIO error: %v", err)
+	}
+
+	var resp response
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %+v", resp.Error)
+	}
+	result, _ := json.Marshal(resp.Result)
+	if !strings.Contains(string(result), "imported-state") {
+		t.Errorf("expected imported-state in result, got %s", string(result))
+	}
+	if !strings.Contains(string(result), "my-agent") {
+		t.Errorf("expected resource name in result, got %s", string(result))
+	}
+}
+
+func TestServeIO_Import_InvalidParams(t *testing.T) {
+	provider := newFakeProvider()
+	req := `{"jsonrpc":"2.0","method":"import","params":"bad","id":11}` + "\n"
+	var out bytes.Buffer
+
+	err := ServeIO(provider, strings.NewReader(req), &out)
+	if err != nil {
+		t.Fatalf("ServeIO error: %v", err)
+	}
+
+	var resp response
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.Error == nil {
+		t.Fatal("expected error response for invalid params")
+	}
+	if resp.Error.Code != CodeParseError {
+		t.Errorf("expected code %d, got %d", CodeParseError, resp.Error.Code)
 	}
 }
 

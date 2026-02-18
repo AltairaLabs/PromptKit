@@ -28,6 +28,7 @@ type State struct {
 	PackVersion    string `json:"pack_version"`
 	PackChecksum   string `json:"pack_checksum"`
 	AdapterVersion string `json:"adapter_version"`
+	LastRefreshed  string `json:"last_refreshed,omitempty"`
 	State          string `json:"state,omitempty"` // Opaque base64 adapter state
 }
 

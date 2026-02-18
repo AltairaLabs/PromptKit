@@ -92,6 +92,21 @@ func defaultHandler(method string, params json.RawMessage) (any, *rpcError) {
 			},
 		}, nil
 
+	case methodImport:
+		var req ImportRequest
+		if err := json.Unmarshal(params, &req); err != nil {
+			return nil, &rpcError{Code: -32700, Message: err.Error()}
+		}
+		return &ImportResponse{
+			Resource: ResourceStatus{
+				Type:   req.ResourceType,
+				Name:   req.ResourceName,
+				Status: "healthy",
+				Detail: "imported " + req.Identifier,
+			},
+			State: "state-after-import",
+		}, nil
+
 	default:
 		return nil, &rpcError{Code: -32601, Message: "method not found: " + method}
 	}
@@ -316,6 +331,62 @@ func TestNewAdapterClient_WithCatBinary(t *testing.T) {
 	}
 	if string(client.stdout.Bytes()) != resp {
 		t.Errorf("echoed = %q, want %q", client.stdout.Bytes(), resp)
+	}
+}
+
+func TestClientImport(t *testing.T) {
+	client := startTestClient(t, defaultHandler)
+	ctx := context.Background()
+
+	resp, err := client.Import(ctx, &ImportRequest{
+		ResourceType: "agent_runtime",
+		ResourceName: "my-agent",
+		Identifier:   "container-abc123",
+		DeployConfig: `{"region":"us-east-1"}`,
+		Environment:  "staging",
+	})
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if resp.Resource.Type != "agent_runtime" {
+		t.Errorf("Resource.Type = %q, want %q", resp.Resource.Type, "agent_runtime")
+	}
+	if resp.Resource.Name != "my-agent" {
+		t.Errorf("Resource.Name = %q, want %q", resp.Resource.Name, "my-agent")
+	}
+	if resp.Resource.Status != "healthy" {
+		t.Errorf("Resource.Status = %q, want %q", resp.Resource.Status, "healthy")
+	}
+	if resp.State != "state-after-import" {
+		t.Errorf("State = %q, want %q", resp.State, "state-after-import")
+	}
+}
+
+func TestClientImport_Error(t *testing.T) {
+	handler := func(method string, params json.RawMessage) (any, *rpcError) {
+		if method == methodImport {
+			return nil, &rpcError{Code: -32603, Message: "resource not found"}
+		}
+		return defaultHandler(method, params)
+	}
+	client := startTestClient(t, handler)
+	ctx := context.Background()
+
+	_, err := client.Import(ctx, &ImportRequest{
+		ResourceType: "agent_runtime",
+		ResourceName: "missing",
+		Identifier:   "nonexistent",
+		DeployConfig: `{}`,
+	})
+	if err == nil {
+		t.Fatal("expected error for failed import")
+	}
+	rpcErr, ok := err.(*rpcError)
+	if !ok {
+		t.Fatalf("expected *rpcError, got %T", err)
+	}
+	if rpcErr.Code != -32603 {
+		t.Errorf("error code = %d, want -32603", rpcErr.Code)
 	}
 }
 

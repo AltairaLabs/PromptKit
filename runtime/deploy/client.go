@@ -32,6 +32,7 @@ const (
 	methodApply        = "apply"
 	methodDestroy      = "destroy"
 	methodStatus       = "status"
+	methodImport       = "import"
 )
 
 // rpcRequest is a JSON-RPC 2.0 request envelope.
@@ -240,6 +241,15 @@ func (c *AdapterClient) Destroy(ctx context.Context, req *DestroyRequest, callba
 func (c *AdapterClient) Status(ctx context.Context, req *StatusRequest) (*StatusResponse, error) {
 	var resp StatusResponse
 	if err := c.call(methodStatus, req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// Import imports a pre-existing resource into the deployment state.
+func (c *AdapterClient) Import(ctx context.Context, req *ImportRequest) (*ImportResponse, error) {
+	var resp ImportResponse
+	if err := c.call(methodImport, req, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
