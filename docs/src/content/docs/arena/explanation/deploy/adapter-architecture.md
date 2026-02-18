@@ -1,7 +1,5 @@
 ---
-title: Adapter Architecture
-sidebar:
-  order: 1
+title: 'Deploy: Adapter Architecture'
 ---
 
 ## Overview
@@ -176,6 +174,6 @@ The large max size accommodates pack payloads, which can be substantial for proj
 
 ## See Also
 
-- [Protocol](../reference/protocol) — JSON-RPC method specifications
-- [Adapter SDK](../reference/adapter-sdk) — Build your own adapter
+- [Protocol](../../reference/deploy/protocol) — JSON-RPC method specifications
+- [Adapter SDK](../../reference/deploy/adapter-sdk) — Build your own adapter
 - [State Management](state-management) — How state is persisted

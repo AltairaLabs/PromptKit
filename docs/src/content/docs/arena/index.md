@@ -128,6 +128,19 @@ Complete technical specifications:
 
 ---
 
+## Deploy
+
+Deploy is a PromptArena subcommand for shipping prompt packs to cloud providers through adapter plugins.
+
+- [Deploy Overview](/arena/explanation/deploy/overview/) — What Deploy is and how it works
+- [First Deployment Tutorial](/arena/tutorials/deploy/first-deployment/) — Install an adapter, configure, and deploy
+- [Multi-Environment](/arena/tutorials/deploy/multi-environment/) — Dev, staging, and production from one config
+- [Install Adapters](/arena/how-to/deploy/install-adapters/) — Install, list, and manage adapter plugins
+- [Plan and Apply](/arena/how-to/deploy/plan-and-apply/) — Plan, apply, status, and destroy workflows
+- [CLI Commands](/arena/reference/deploy/cli-commands/) — Complete deploy command reference
+
+---
+
 ## Key Features
 
 ### Multi-Provider Testing

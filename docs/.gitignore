@@ -17,6 +17,12 @@ pnpm-debug.log*
 .env
 .env.production
 
+# Fetched adapter docs (pulled at build time from adapter repos)
+src/content/docs/arena/tutorials/deploy/agentcore/
+src/content/docs/arena/how-to/deploy/agentcore/
+src/content/docs/arena/reference/deploy/agentcore/
+src/content/docs/arena/explanation/deploy/agentcore/
+
 # macOS-specific files
 .DS_Store
 

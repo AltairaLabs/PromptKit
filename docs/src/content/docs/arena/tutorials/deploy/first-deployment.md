@@ -1,7 +1,5 @@
 ---
-title: '01: Your First Deployment'
-sidebar:
-  order: 1
+title: 'Deploy: Your First Deployment'
 ---
 
 Deploy a compiled prompt pack to a cloud provider in 20 minutes.
@@ -243,6 +241,6 @@ export AWS_REGION=us-west-2
 
 Now that you've deployed your first pack, you're ready to:
 
-- **[Tutorial 2: Multi-Environment](02-multi-environment)** — Deploy to dev, staging, and production
-- **[How-To: Plan and Apply](../how-to/plan-and-apply)** — Learn advanced deployment workflows
-- **[Reference: CLI Commands](../reference/cli-commands)** — Complete command documentation
+- **[Tutorial: Multi-Environment](multi-environment)** — Deploy to dev, staging, and production
+- **[How-To: Plan and Apply](../../how-to/deploy/plan-and-apply)** — Learn advanced deployment workflows
+- **[Reference: CLI Commands](../../reference/deploy/cli-commands)** — Complete command documentation

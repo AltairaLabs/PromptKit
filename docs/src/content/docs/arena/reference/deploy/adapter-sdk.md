@@ -1,7 +1,5 @@
 ---
-title: Adapter SDK
-sidebar:
-  order: 2
+title: 'Deploy: Adapter SDK'
 ---
 
 ## Overview
@@ -76,6 +74,16 @@ func (p *myProvider) Status(ctx context.Context, req *deploy.StatusRequest) (*de
         Resources: []deploy.ResourceStatus{
             {Type: "runtime", Name: "main", Status: "healthy"},
         },
+    }, nil
+}
+
+func (p *myProvider) Import(ctx context.Context, req *deploy.ImportRequest) (*deploy.ImportResponse, error) {
+    // Look up existing resource by req.Identifier...
+    return &deploy.ImportResponse{
+        Resource: deploy.ResourceStatus{
+            Type: req.ResourceType, Name: req.ResourceName, Status: "healthy",
+        },
+        State: `{"resource_id": "` + req.Identifier + `"}`,
     }, nil
 }
 
@@ -188,6 +196,7 @@ type Provider interface {
     Apply(ctx context.Context, req *PlanRequest, callback ApplyCallback) (adapterState string, err error)
     Destroy(ctx context.Context, req *DestroyRequest, callback DestroyCallback) error
     Status(ctx context.Context, req *StatusRequest) (*StatusResponse, error)
+    Import(ctx context.Context, req *ImportRequest) (*ImportResponse, error)
 }
 ```
 
@@ -252,6 +261,7 @@ const (
     ActionUpdate   Action = "UPDATE"
     ActionDelete   Action = "DELETE"
     ActionNoChange Action = "NO_CHANGE"
+    ActionDrift    Action = "DRIFT"
 )
 ```
 
@@ -327,6 +337,24 @@ type ResourceStatus struct {
 }
 ```
 
+### ImportRequest / ImportResponse
+
+```go
+type ImportRequest struct {
+    ResourceType string `json:"resource_type"`
+    ResourceName string `json:"resource_name"`
+    Identifier   string `json:"identifier"`
+    DeployConfig string `json:"deploy_config"`
+    Environment  string `json:"environment,omitempty"`
+    PriorState   string `json:"prior_state,omitempty"`
+}
+
+type ImportResponse struct {
+    Resource ResourceStatus `json:"resource"`
+    State    string         `json:"state"`
+}
+```
+
 ## Building and Installing
 
 Build your adapter binary:
@@ -352,5 +380,5 @@ promptarena deploy plan
 ## See Also
 
 - [Protocol](protocol) — JSON-RPC wire protocol details
-- [Adapter Architecture](../explanation/adapter-architecture) — Design concepts
+- [Adapter Architecture](../../explanation/deploy/adapter-architecture) — Design concepts
 - [CLI Commands](cli-commands) — CLI usage

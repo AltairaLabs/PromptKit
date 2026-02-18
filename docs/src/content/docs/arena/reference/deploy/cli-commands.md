@@ -1,7 +1,5 @@
 ---
-title: CLI Commands
-sidebar:
-  order: 1
+title: 'Deploy: CLI Commands'
 ---
 
 ## Synopsis
@@ -56,9 +54,10 @@ promptarena deploy --config deploy.yaml --env staging
 2. Resolve pack file (auto-detect or `--pack`)
 3. Merge base config with environment overrides
 4. Load prior state (if exists)
-5. Call adapter `Plan`
-6. Call adapter `Apply`
-7. Save state with adapter state, pack checksum, and timestamps
+5. Refresh state from live environment (pre-plan state refresh)
+6. Call adapter `Plan`
+7. Call adapter `Apply`
+8. Save state with adapter state, pack checksum, and timestamps
 
 ---
 
@@ -102,6 +101,7 @@ Summary: 1 to create, 1 to update, 1 to delete
 | `+` | CREATE |
 | `~` | UPDATE |
 | `-` | DELETE |
+| `!` | DRIFT |
 | ` ` | NO_CHANGE |
 
 ---
@@ -200,6 +200,77 @@ promptarena deploy destroy --env staging
 
 ---
 
+### deploy refresh
+
+Refresh local state from the live environment. Queries the adapter for the current state of all resources and updates local state to match reality. Use this to detect drift between local state and cloud resources.
+
+```bash
+promptarena deploy refresh [flags]
+```
+
+**Examples:**
+
+```bash
+# Refresh state for default environment
+promptarena deploy refresh
+
+# Refresh state for production
+promptarena deploy refresh --env production
+```
+
+**Process:**
+
+1. Acquire deploy lock
+2. Load prior state (exit if none exists)
+3. Call adapter `Status` with prior state
+4. Update adapter state and `last_refreshed` timestamp
+5. Save updated state
+6. Display resource status (drift shown with `!`)
+
+**Requires:** Prior deployment state.
+
+---
+
+### deploy import
+
+Import a pre-existing resource into deployment state. This allows PromptKit to manage resources that were created outside of the deploy workflow.
+
+```bash
+promptarena deploy import <type> <name> <id> [flags]
+```
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `type` | Resource type (e.g., `agent_runtime`, `a2a_endpoint`) |
+| `name` | Resource name to assign in local state |
+| `id` | Provider-specific resource identifier |
+
+**Examples:**
+
+```bash
+# Import an agent runtime
+promptarena deploy import agent_runtime my-agent container-abc123
+
+# Import an A2A endpoint
+promptarena deploy import a2a_endpoint my-ep endpoint-xyz789
+
+# Import into a specific environment
+promptarena deploy import agent_runtime my-agent container-abc123 --env production
+```
+
+**Process:**
+
+1. Acquire deploy lock
+2. Load prior state (or create new state if none exists)
+3. Call adapter `Import` with resource type, name, and identifier
+4. Update or create local state with adapter response
+5. Save updated state with `last_refreshed` timestamp
+6. Display imported resource information
+
+---
+
 ### deploy adapter install
 
 Install an adapter binary from the registry.
@@ -295,11 +366,12 @@ deploy:
 | `arena.yaml` | Default config file |
 | `*.pack.json` | Auto-detected pack files |
 | `.promptarena/deploy.state` | Deployment state (JSON) |
+| `.promptarena/deploy.lock` | Deploy lock file (prevents concurrent access) |
 | `.promptarena/adapters/` | Project-local adapters |
 | `~/.promptarena/adapters/` | User-level adapters |
 
 ## See Also
 
-- [Configure Deploy](../how-to/configure-deploy) — Configuration guide
-- [Plan and Apply](../how-to/plan-and-apply) — Deployment workflows
+- [Configure Deploy](../../how-to/deploy/configure) — Configuration guide
+- [Plan and Apply](../../how-to/deploy/plan-and-apply) — Deployment workflows
 - [Protocol](protocol) — JSON-RPC method details

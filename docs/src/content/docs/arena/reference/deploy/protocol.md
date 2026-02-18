@@ -1,7 +1,5 @@
 ---
-title: Protocol
-sidebar:
-  order: 3
+title: 'Deploy: Protocol'
 ---
 
 ## Overview
@@ -217,7 +215,7 @@ Analyzes the pack and config to determine what resources need to change.
 |-------|------|-------------|
 | `type` | string | Resource type (e.g., `"agent_runtime"`) |
 | `name` | string | Resource name |
-| `action` | string | `"CREATE"`, `"UPDATE"`, `"DELETE"`, or `"NO_CHANGE"` |
+| `action` | string | `"CREATE"`, `"UPDATE"`, `"DELETE"`, `"DRIFT"`, or `"NO_CHANGE"` |
 | `detail` | string | Human-readable description |
 
 ---
@@ -420,6 +418,62 @@ Queries current deployment status from the cloud provider.
 | `status` | string | `"healthy"`, `"unhealthy"`, or `"missing"` |
 | `detail` | string | Additional info |
 
+---
+
+### import
+
+Imports a pre-existing resource into deployment state. This lets the CLI manage resources that were created outside of the deploy workflow.
+
+**Request:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 7,
+  "method": "import",
+  "params": {
+    "resource_type": "agent_runtime",
+    "resource_name": "my-agent",
+    "identifier": "container-abc123",
+    "deploy_config": "{\"region\":\"us-west-2\"}",
+    "environment": "production",
+    "prior_state": "eyJydW50aW1lX2lkIjoiYWJjMTIzIn0="
+  }
+}
+```
+
+**Response:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 7,
+  "result": {
+    "resource": {
+      "type": "agent_runtime",
+      "name": "my-agent",
+      "status": "healthy",
+      "detail": "Imported from container-abc123"
+    },
+    "state": "eyJ1cGRhdGVkX3N0YXRlIjoiLi4uIn0="
+  }
+}
+```
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `resource_type` | string | Resource type (e.g., `"agent_runtime"`) |
+| `resource_name` | string | Name to assign in local state |
+| `identifier` | string | Provider-specific resource identifier |
+| `deploy_config` | string | JSON-encoded provider config |
+| `environment` | string | Target environment name |
+| `prior_state` | string | Opaque adapter state (optional) |
+
+| Result Field | Type | Description |
+|--------------|------|-------------|
+| `resource` | ResourceStatus | Imported resource details |
+| `state` | string | Updated opaque adapter state |
+
 ## Error Codes
 
 Standard JSON-RPC 2.0 error codes:
@@ -451,5 +505,5 @@ The CLI uses sequential integer IDs starting from 1. The adapter must include th
 ## See Also
 
 - [Adapter SDK](adapter-sdk) — Go SDK for implementing this protocol
-- [Adapter Architecture](../explanation/adapter-architecture) — Design overview
+- [Adapter Architecture](../../explanation/deploy/adapter-architecture) — Design overview
 - [CLI Commands](cli-commands) — CLI that drives the protocol
