@@ -283,6 +283,10 @@ func (c *Conversation) buildPipelineWithParams(
 		ImagePreprocessConfig: c.config.imagePreprocessConfig,
 		EventEmitter:          eventEmitter,
 		ResponseFormat:        c.config.responseFormat,
+		ContextWindow:         c.config.contextWindow,
+		RetrievalTopK:         c.config.retrievalTopK,
+		SummarizeThreshold:    c.config.summarizeThreshold,
+		SummarizeBatchSize:    c.config.summarizeBatchSize,
 	}
 
 	// Apply parameters from prompt if available
@@ -355,6 +359,10 @@ func (c *Conversation) buildStreamPipelineWithParams(
 		ImagePreprocessConfig: c.config.imagePreprocessConfig,
 		EventEmitter:          eventEmitter,
 		ResponseFormat:        c.config.responseFormat,
+		ContextWindow:         c.config.contextWindow,
+		RetrievalTopK:         c.config.retrievalTopK,
+		SummarizeThreshold:    c.config.summarizeThreshold,
+		SummarizeBatchSize:    c.config.summarizeBatchSize,
 	}
 
 	// Apply parameters from prompt if available

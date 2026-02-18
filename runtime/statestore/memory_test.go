@@ -732,3 +732,321 @@ func TestMemoryStore_ForkInvalidIDs(t *testing.T) {
 	err = store.Fork(ctx, "conv-123", "")
 	assert.ErrorIs(t, err, ErrInvalidID)
 }
+
+func TestMemoryStore_LoadRecentMessages(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+
+	// Save a conversation with 5 messages
+	state := &ConversationState{
+		ID:     "conv-recent",
+		UserID: "user-alice",
+		Messages: []types.Message{
+			{Role: "user", Content: "msg-1", Timestamp: time.Now()},
+			{Role: "assistant", Content: "msg-2", Timestamp: time.Now()},
+			{Role: "user", Content: "msg-3", Timestamp: time.Now()},
+			{Role: "assistant", Content: "msg-4", Timestamp: time.Now()},
+			{Role: "user", Content: "msg-5", Timestamp: time.Now()},
+		},
+	}
+	err := store.Save(ctx, state)
+	require.NoError(t, err)
+
+	// Load last 2 messages
+	msgs, err := store.LoadRecentMessages(ctx, "conv-recent", 2)
+	require.NoError(t, err)
+	assert.Len(t, msgs, 2)
+	assert.Equal(t, "msg-4", msgs[0].Content)
+	assert.Equal(t, "msg-5", msgs[1].Content)
+
+	// Load last 3 messages
+	msgs, err = store.LoadRecentMessages(ctx, "conv-recent", 3)
+	require.NoError(t, err)
+	assert.Len(t, msgs, 3)
+	assert.Equal(t, "msg-3", msgs[0].Content)
+	assert.Equal(t, "msg-4", msgs[1].Content)
+	assert.Equal(t, "msg-5", msgs[2].Content)
+
+	// N greater than total messages — returns all
+	msgs, err = store.LoadRecentMessages(ctx, "conv-recent", 100)
+	require.NoError(t, err)
+	assert.Len(t, msgs, 5)
+	assert.Equal(t, "msg-1", msgs[0].Content)
+	assert.Equal(t, "msg-5", msgs[4].Content)
+
+	// Empty conversation (no messages)
+	emptyState := &ConversationState{
+		ID:     "conv-empty",
+		UserID: "user-alice",
+	}
+	err = store.Save(ctx, emptyState)
+	require.NoError(t, err)
+
+	msgs, err = store.LoadRecentMessages(ctx, "conv-empty", 5)
+	require.NoError(t, err)
+	assert.Len(t, msgs, 0)
+
+	// Invalid ID
+	_, err = store.LoadRecentMessages(ctx, "", 5)
+	assert.ErrorIs(t, err, ErrInvalidID)
+
+	// Not found
+	_, err = store.LoadRecentMessages(ctx, "nonexistent", 5)
+	assert.ErrorIs(t, err, ErrNotFound)
+
+	// Deep copy verification — mutating returned messages should not affect store
+	msgs, err = store.LoadRecentMessages(ctx, "conv-recent", 1)
+	require.NoError(t, err)
+	msgs[0].Content = "mutated"
+
+	msgs2, err := store.LoadRecentMessages(ctx, "conv-recent", 1)
+	require.NoError(t, err)
+	assert.Equal(t, "msg-5", msgs2[0].Content)
+}
+
+func TestMemoryStore_MessageCount(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+
+	// Save a conversation with messages
+	state := &ConversationState{
+		ID:     "conv-count",
+		UserID: "user-alice",
+		Messages: []types.Message{
+			{Role: "user", Content: "Hello", Timestamp: time.Now()},
+			{Role: "assistant", Content: "Hi", Timestamp: time.Now()},
+			{Role: "user", Content: "How are you?", Timestamp: time.Now()},
+		},
+	}
+	err := store.Save(ctx, state)
+	require.NoError(t, err)
+
+	// Count messages
+	count, err := store.MessageCount(ctx, "conv-count")
+	require.NoError(t, err)
+	assert.Equal(t, 3, count)
+
+	// Empty conversation
+	emptyState := &ConversationState{
+		ID:     "conv-empty-count",
+		UserID: "user-alice",
+	}
+	err = store.Save(ctx, emptyState)
+	require.NoError(t, err)
+
+	count, err = store.MessageCount(ctx, "conv-empty-count")
+	require.NoError(t, err)
+	assert.Equal(t, 0, count)
+
+	// Not found
+	_, err = store.MessageCount(ctx, "nonexistent")
+	assert.ErrorIs(t, err, ErrNotFound)
+
+	// Invalid ID
+	_, err = store.MessageCount(ctx, "")
+	assert.ErrorIs(t, err, ErrInvalidID)
+}
+
+func TestMemoryStore_AppendMessages(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+
+	// Save a conversation with initial messages
+	state := &ConversationState{
+		ID:     "conv-append",
+		UserID: "user-alice",
+		Messages: []types.Message{
+			{Role: "user", Content: "Hello", Timestamp: time.Now()},
+			{Role: "assistant", Content: "Hi there!", Timestamp: time.Now()},
+		},
+	}
+	err := store.Save(ctx, state)
+	require.NoError(t, err)
+
+	// Append new messages to existing conversation
+	newMsgs := []types.Message{
+		{Role: "user", Content: "What is Go?", Timestamp: time.Now()},
+		{Role: "assistant", Content: "Go is a programming language.", Timestamp: time.Now()},
+	}
+	err = store.AppendMessages(ctx, "conv-append", newMsgs)
+	require.NoError(t, err)
+
+	// Verify messages were appended
+	loaded, err := store.Load(ctx, "conv-append")
+	require.NoError(t, err)
+	assert.Len(t, loaded.Messages, 4)
+	assert.Equal(t, "Hello", loaded.Messages[0].Content)
+	assert.Equal(t, "Hi there!", loaded.Messages[1].Content)
+	assert.Equal(t, "What is Go?", loaded.Messages[2].Content)
+	assert.Equal(t, "Go is a programming language.", loaded.Messages[3].Content)
+
+	// Append to non-existent conversation — creates new state
+	createMsgs := []types.Message{
+		{Role: "user", Content: "First message", Timestamp: time.Now()},
+	}
+	err = store.AppendMessages(ctx, "conv-new", createMsgs)
+	require.NoError(t, err)
+
+	loaded, err = store.Load(ctx, "conv-new")
+	require.NoError(t, err)
+	assert.Equal(t, "conv-new", loaded.ID)
+	assert.Len(t, loaded.Messages, 1)
+	assert.Equal(t, "First message", loaded.Messages[0].Content)
+
+	// Invalid ID
+	err = store.AppendMessages(ctx, "", newMsgs)
+	assert.ErrorIs(t, err, ErrInvalidID)
+
+	// Deep copy verification — mutating original messages after append should not affect store
+	mutableMsgs := []types.Message{
+		{Role: "user", Content: "original", Timestamp: time.Now(), Meta: map[string]interface{}{"key": "value"}},
+	}
+	err = store.AppendMessages(ctx, "conv-deepcopy", mutableMsgs)
+	require.NoError(t, err)
+
+	// Mutate the original slice
+	mutableMsgs[0].Content = "mutated"
+	mutableMsgs[0].Meta["key"] = "mutated"
+
+	// Verify stored version is unchanged
+	loaded, err = store.Load(ctx, "conv-deepcopy")
+	require.NoError(t, err)
+	assert.Equal(t, "original", loaded.Messages[0].Content)
+	assert.Equal(t, "value", loaded.Messages[0].Meta["key"])
+}
+
+func TestMemoryStore_LoadSummaries(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+
+	// Save a conversation with summaries
+	now := time.Now()
+	state := &ConversationState{
+		ID:     "conv-summaries",
+		UserID: "user-alice",
+		Messages: []types.Message{
+			{Role: "user", Content: "Hello", Timestamp: now},
+		},
+		Summaries: []Summary{
+			{
+				StartTurn:  0,
+				EndTurn:    5,
+				Content:    "User discussed Go programming basics.",
+				TokenCount: 20,
+				CreatedAt:  now.Add(-1 * time.Hour),
+			},
+			{
+				StartTurn:  6,
+				EndTurn:    10,
+				Content:    "User asked about concurrency patterns.",
+				TokenCount: 25,
+				CreatedAt:  now,
+			},
+		},
+	}
+	err := store.Save(ctx, state)
+	require.NoError(t, err)
+
+	// Load summaries
+	summaries, err := store.LoadSummaries(ctx, "conv-summaries")
+	require.NoError(t, err)
+	assert.Len(t, summaries, 2)
+	assert.Equal(t, "User discussed Go programming basics.", summaries[0].Content)
+	assert.Equal(t, 0, summaries[0].StartTurn)
+	assert.Equal(t, 5, summaries[0].EndTurn)
+	assert.Equal(t, "User asked about concurrency patterns.", summaries[1].Content)
+	assert.Equal(t, 25, summaries[1].TokenCount)
+
+	// No summaries — conversation exists but has no summaries
+	noSummaryState := &ConversationState{
+		ID:     "conv-no-summaries",
+		UserID: "user-alice",
+		Messages: []types.Message{
+			{Role: "user", Content: "Hello", Timestamp: now},
+		},
+	}
+	err = store.Save(ctx, noSummaryState)
+	require.NoError(t, err)
+
+	summaries, err = store.LoadSummaries(ctx, "conv-no-summaries")
+	require.NoError(t, err)
+	assert.Nil(t, summaries)
+
+	// Non-existent conversation — returns nil, nil
+	summaries, err = store.LoadSummaries(ctx, "nonexistent")
+	require.NoError(t, err)
+	assert.Nil(t, summaries)
+
+	// Invalid ID
+	_, err = store.LoadSummaries(ctx, "")
+	assert.ErrorIs(t, err, ErrInvalidID)
+
+	// Deep copy verification — mutating returned summaries should not affect store
+	summaries, err = store.LoadSummaries(ctx, "conv-summaries")
+	require.NoError(t, err)
+	summaries[0].Content = "mutated"
+
+	summaries2, err := store.LoadSummaries(ctx, "conv-summaries")
+	require.NoError(t, err)
+	assert.Equal(t, "User discussed Go programming basics.", summaries2[0].Content)
+}
+
+func TestMemoryStore_SaveSummary(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+
+	// Save a conversation
+	now := time.Now()
+	state := &ConversationState{
+		ID:     "conv-save-summary",
+		UserID: "user-alice",
+		Messages: []types.Message{
+			{Role: "user", Content: "Hello", Timestamp: now},
+		},
+	}
+	err := store.Save(ctx, state)
+	require.NoError(t, err)
+
+	// Save first summary
+	summary1 := Summary{
+		StartTurn:  0,
+		EndTurn:    5,
+		Content:    "First summary of the conversation.",
+		TokenCount: 15,
+		CreatedAt:  now,
+	}
+	err = store.SaveSummary(ctx, "conv-save-summary", summary1)
+	require.NoError(t, err)
+
+	// Verify first summary was saved
+	loaded, err := store.Load(ctx, "conv-save-summary")
+	require.NoError(t, err)
+	assert.Len(t, loaded.Summaries, 1)
+	assert.Equal(t, "First summary of the conversation.", loaded.Summaries[0].Content)
+
+	// Save second summary — should append
+	summary2 := Summary{
+		StartTurn:  6,
+		EndTurn:    10,
+		Content:    "Second summary of the conversation.",
+		TokenCount: 18,
+		CreatedAt:  now.Add(1 * time.Hour),
+	}
+	err = store.SaveSummary(ctx, "conv-save-summary", summary2)
+	require.NoError(t, err)
+
+	// Verify both summaries exist
+	loaded, err = store.Load(ctx, "conv-save-summary")
+	require.NoError(t, err)
+	assert.Len(t, loaded.Summaries, 2)
+	assert.Equal(t, "First summary of the conversation.", loaded.Summaries[0].Content)
+	assert.Equal(t, "Second summary of the conversation.", loaded.Summaries[1].Content)
+
+	// Not found
+	err = store.SaveSummary(ctx, "nonexistent", summary1)
+	assert.ErrorIs(t, err, ErrNotFound)
+
+	// Invalid ID
+	err = store.SaveSummary(ctx, "", summary1)
+	assert.ErrorIs(t, err, ErrInvalidID)
+}

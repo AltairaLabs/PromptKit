@@ -1285,11 +1285,12 @@ func TestContextBuilderStage_TruncateStrategies(t *testing.T) {
 		assert.Contains(t, err.Error(), "requires RelevanceConfig")
 	})
 
-	t.Run("TruncateSummarize returns not implemented error", func(t *testing.T) {
+	t.Run("TruncateSummarize without summarizer falls back to oldest", func(t *testing.T) {
 		policy := &ContextBuilderPolicy{
 			TokenBudget:      5, // Small budget to trigger truncation
 			ReserveForOutput: 1,
 			Strategy:         TruncateSummarize,
+			// No Summarizer configured — should fall back to TruncateOldest
 		}
 		stage := NewContextBuilderStage(policy)
 
@@ -1303,8 +1304,14 @@ func TestContextBuilderStage_TruncateStrategies(t *testing.T) {
 		close(input)
 
 		err := stage.Process(context.Background(), input, output)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "not yet implemented")
+		require.NoError(t, err, "Should fall back to TruncateOldest, not error")
+
+		// Should have truncated some messages
+		var count int
+		for range output {
+			count++
+		}
+		assert.LessOrEqual(t, count, 3)
 	})
 
 	t.Run("default strategy uses TruncateOldest", func(t *testing.T) {
@@ -1826,6 +1833,263 @@ func TestExtractMessageText(t *testing.T) {
 	})
 }
 
+// =============================================================================
+// Summarization Truncation Tests
+// =============================================================================
+
+// mockSummarizer is a test implementation of statestore.Summarizer.
+type mockSummarizer struct {
+	summarizeFunc func(ctx context.Context, messages []types.Message) (string, error)
+	called        int
+	lastMessages  []types.Message
+}
+
+func (m *mockSummarizer) Summarize(ctx context.Context, messages []types.Message) (string, error) {
+	m.called++
+	m.lastMessages = messages
+	if m.summarizeFunc != nil {
+		return m.summarizeFunc(ctx, messages)
+	}
+	return "Summary of conversation", nil
+}
+
+func TestTruncateBySummarization_Success(t *testing.T) {
+	// Use a short summary to ensure summary message fits within budget.
+	summarizer := &mockSummarizer{
+		summarizeFunc: func(_ context.Context, msgs []types.Message) (string, error) {
+			return "ok", nil
+		},
+	}
+
+	// Default heuristic ratio ~1.35 tokens per word.
+	// Each multi-word message ~5-8 tokens. 6 messages ~35-48 tokens.
+	// Summary message: "[Summary of N earlier messages]: ok" ~7 words ~10 tokens.
+	policy := &ContextBuilderPolicy{
+		TokenBudget:      30, // Small enough to force truncation of 6 messages
+		ReserveForOutput: 0,
+		Strategy:         TruncateSummarize,
+		Summarizer:       summarizer,
+		// Use default token counter (heuristic ~1.35 per word)
+	}
+	stage := NewContextBuilderStage(policy)
+
+	input := make(chan StreamElement, 6)
+	output := make(chan StreamElement, 6)
+
+	// 6 messages, each ~5 words => ~7 tokens each => ~42 total, exceeds budget of 30
+	messages := []string{
+		"the quick brown fox jumps",
+		"over the lazy sleeping dog",
+		"hello there general kenobi friend",
+		"may the force be with",
+		"to be or not to",
+		"newest",
+	}
+	for _, content := range messages {
+		input <- NewMessageElement(&types.Message{
+			Role:    "user",
+			Content: content,
+		})
+	}
+	close(input)
+
+	err := stage.Process(context.Background(), input, output)
+	require.NoError(t, err)
+
+	// Collect results
+	var results []types.Message
+	for elem := range output {
+		if elem.Message != nil {
+			results = append(results, *elem.Message)
+		}
+	}
+
+	// Summarizer should have been called
+	assert.Equal(t, 1, summarizer.called, "Summarizer should be called once")
+
+	// First message should be a system summary message
+	require.GreaterOrEqual(t, len(results), 2, "Should have summary + at least one recent message")
+	assert.Equal(t, "system", results[0].Role)
+	assert.Contains(t, results[0].Content, "[Summary of")
+	assert.Contains(t, results[0].Content, "ok")
+	assert.Equal(t, "summary", results[0].Source)
+
+	// The most recent message should be preserved after the summary
+	lastResult := results[len(results)-1]
+	assert.Equal(t, "newest", lastResult.Content, "Most recent message should be preserved")
+}
+
+func TestTruncateBySummarization_NoSummarizer(t *testing.T) {
+	// When Summarizer is nil, should fall back to TruncateOldest
+	counter := tokenizer.NewHeuristicTokenCounterWithRatio(10.0)
+
+	policy := &ContextBuilderPolicy{
+		TokenBudget:      25, // Budget for ~2 words at 10 tokens each
+		ReserveForOutput: 0,
+		Strategy:         TruncateSummarize,
+		Summarizer:       nil, // No summarizer
+		TokenCounter:     counter,
+	}
+	stage := NewContextBuilderStage(policy)
+
+	input := make(chan StreamElement, 4)
+	output := make(chan StreamElement, 4)
+
+	messages := []string{"first", "second", "third", "fourth"}
+	for _, content := range messages {
+		input <- NewMessageElement(&types.Message{
+			Role:    "user",
+			Content: content,
+		})
+	}
+	close(input)
+
+	err := stage.Process(context.Background(), input, output)
+	require.NoError(t, err)
+
+	// Collect results
+	var results []types.Message
+	for elem := range output {
+		if elem.Message != nil {
+			results = append(results, *elem.Message)
+		}
+	}
+
+	// Should have truncated (fewer than 4 messages) using oldest strategy
+	assert.Less(t, len(results), len(messages), "Should truncate some messages")
+
+	// Most recent message should be preserved (truncateOldest keeps newest)
+	if len(results) > 0 {
+		lastResult := results[len(results)-1]
+		assert.Equal(t, "fourth", lastResult.Content, "Most recent message should be preserved")
+	}
+
+	// Should NOT contain any summary message
+	for _, msg := range results {
+		assert.NotContains(t, msg.Content, "[Summary of", "Should not contain summary when no summarizer")
+	}
+}
+
+func TestTruncateBySummarization_SummarizerError(t *testing.T) {
+	// When Summarize returns an error, should fall back to TruncateOldest
+	summarizer := &mockSummarizer{
+		summarizeFunc: func(_ context.Context, _ []types.Message) (string, error) {
+			return "", assert.AnError
+		},
+	}
+	counter := tokenizer.NewHeuristicTokenCounterWithRatio(10.0)
+
+	policy := &ContextBuilderPolicy{
+		TokenBudget:      25,
+		ReserveForOutput: 0,
+		Strategy:         TruncateSummarize,
+		Summarizer:       summarizer,
+		TokenCounter:     counter,
+	}
+	stage := NewContextBuilderStage(policy)
+
+	input := make(chan StreamElement, 4)
+	output := make(chan StreamElement, 4)
+
+	messages := []string{"alpha", "bravo", "charlie", "delta"}
+	for _, content := range messages {
+		input <- NewMessageElement(&types.Message{
+			Role:    "user",
+			Content: content,
+		})
+	}
+	close(input)
+
+	err := stage.Process(context.Background(), input, output)
+	require.NoError(t, err, "Should not return error; should fall back to TruncateOldest")
+
+	// Summarizer should have been called (and failed)
+	assert.Equal(t, 1, summarizer.called, "Summarizer should be called once")
+
+	// Collect results
+	var results []types.Message
+	for elem := range output {
+		if elem.Message != nil {
+			results = append(results, *elem.Message)
+		}
+	}
+
+	// Should have truncated using oldest strategy
+	assert.Less(t, len(results), len(messages), "Should truncate some messages")
+
+	// Should NOT contain a summary message
+	for _, msg := range results {
+		assert.NotContains(t, msg.Content, "[Summary of", "Should not contain summary on error")
+	}
+
+	// Most recent message should be preserved
+	if len(results) > 0 {
+		lastResult := results[len(results)-1]
+		assert.Equal(t, "delta", lastResult.Content, "Most recent message should be preserved")
+	}
+}
+
+func TestTruncateBySummarization_StillOverBudget(t *testing.T) {
+	// When summary + recent messages still exceed budget, should truncate further
+	// via truncateOldest on the result.
+	summarizer := &mockSummarizer{
+		summarizeFunc: func(_ context.Context, msgs []types.Message) (string, error) {
+			// Return a very long summary that will exceed budget
+			return "This is an extremely long summary that takes up many tokens and will cause the result to exceed the budget", nil
+		},
+	}
+	counter := tokenizer.NewHeuristicTokenCounterWithRatio(10.0)
+
+	policy := &ContextBuilderPolicy{
+		// Very tight budget: with ratio 10.0, each word = 10 tokens.
+		// The summary alone has ~18 words = 180 tokens, which exceeds budget.
+		TokenBudget:      30,
+		ReserveForOutput: 0,
+		Strategy:         TruncateSummarize,
+		Summarizer:       summarizer,
+		TokenCounter:     counter,
+	}
+	stage := NewContextBuilderStage(policy)
+
+	input := make(chan StreamElement, 4)
+	output := make(chan StreamElement, 4)
+
+	messages := []string{"alpha", "bravo", "charlie", "delta"}
+	for _, content := range messages {
+		input <- NewMessageElement(&types.Message{
+			Role:    "user",
+			Content: content,
+		})
+	}
+	close(input)
+
+	err := stage.Process(context.Background(), input, output)
+	require.NoError(t, err, "Should not error; should fall back to truncateOldest on oversized result")
+
+	// Summarizer should have been called
+	assert.Equal(t, 1, summarizer.called, "Summarizer should be called once")
+
+	// Collect results
+	var results []types.Message
+	for elem := range output {
+		if elem.Message != nil {
+			results = append(results, *elem.Message)
+		}
+	}
+
+	// The result should fit within budget, meaning further truncation occurred.
+	// With budget=30 and 10 tokens per word, we can fit at most 3 words.
+	// The results should be small.
+	assert.Greater(t, len(results), 0, "Should have at least one message")
+
+	// Total tokens should be within budget
+	totalTokens := 0
+	for _, msg := range results {
+		totalTokens += counter.CountTokens(msg.Content)
+	}
+	assert.LessOrEqual(t, totalTokens, 30, "Result tokens should fit within budget")
+}
+
 func TestSelectByRelevance(t *testing.T) {
 	stage := NewContextBuilderStage(&ContextBuilderPolicy{})
 
@@ -1901,5 +2165,90 @@ func TestSelectByRelevance(t *testing.T) {
 			// This is a simple check that order is maintained
 		}
 		assert.LessOrEqual(t, len(result), 3)
+	})
+}
+
+func TestGetKeys(t *testing.T) {
+	t.Run("returns all keys", func(t *testing.T) {
+		m := map[string]interface{}{
+			"alpha": 1,
+			"beta":  "two",
+			"gamma": true,
+		}
+		keys := getKeys(m)
+		assert.Len(t, keys, 3)
+		assert.ElementsMatch(t, []string{"alpha", "beta", "gamma"}, keys)
+	})
+
+	t.Run("empty map", func(t *testing.T) {
+		keys := getKeys(map[string]interface{}{})
+		assert.Empty(t, keys)
+	})
+}
+
+func TestSelectMostRecentProtected(t *testing.T) {
+	stage := NewContextBuilderStage(&ContextBuilderPolicy{
+		TokenBudget: 1000,
+	})
+
+	t.Run("selects most recent within budget", func(t *testing.T) {
+		protected := []ScoredMessage{
+			{Index: 0, Message: types.Message{Content: "Old"}, TokenCount: 5},
+			{Index: 1, Message: types.Message{Content: "Middle"}, TokenCount: 5},
+			{Index: 2, Message: types.Message{Content: "Recent"}, TokenCount: 5},
+		}
+		result := stage.selectMostRecentProtected(protected, 10)
+		assert.Len(t, result, 2)
+		// Most recent should be selected first
+		assert.Equal(t, "Recent", result[0].Content)
+		assert.Equal(t, "Middle", result[1].Content)
+	})
+
+	t.Run("budget fits all", func(t *testing.T) {
+		protected := []ScoredMessage{
+			{Index: 0, Message: types.Message{Content: "A"}, TokenCount: 3},
+			{Index: 1, Message: types.Message{Content: "B"}, TokenCount: 3},
+		}
+		result := stage.selectMostRecentProtected(protected, 10)
+		assert.Len(t, result, 2)
+	})
+
+	t.Run("budget fits none", func(t *testing.T) {
+		protected := []ScoredMessage{
+			{Index: 0, Message: types.Message{Content: "Big"}, TokenCount: 20},
+		}
+		result := stage.selectMostRecentProtected(protected, 5)
+		assert.Empty(t, result)
+	})
+}
+
+func TestDebugStage_LogElement(t *testing.T) {
+	stage := NewDebugStage("test-debug")
+
+	t.Run("logs text element", func(t *testing.T) {
+		text := "Hello world"
+		elem := &StreamElement{Text: &text, Metadata: map[string]interface{}{"key": "val"}}
+		stage.logElement(elem, "pre")
+	})
+
+	t.Run("logs long text truncation", func(t *testing.T) {
+		longText := ""
+		for i := 0; i < 20; i++ {
+			longText += "0123456789"
+		}
+		elem := &StreamElement{Text: &longText}
+		stage.logElement(elem, "post")
+	})
+
+	t.Run("logs message element", func(t *testing.T) {
+		elem := &StreamElement{
+			Message: &types.Message{Role: "user", Content: "test content"},
+		}
+		stage.logElement(elem, "pre")
+	})
+
+	t.Run("logs error element", func(t *testing.T) {
+		elem := &StreamElement{Error: assert.AnError}
+		stage.logElement(elem, "post")
 	})
 }

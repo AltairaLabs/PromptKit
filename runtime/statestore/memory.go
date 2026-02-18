@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // MemoryStore provides an in-memory implementation of the Store interface.
@@ -175,6 +177,142 @@ func (s *MemoryStore) List(ctx context.Context, opts ListOptions) ([]string, err
 	}
 
 	return ids[start:end], nil
+}
+
+// LoadRecentMessages returns the last n messages for the given conversation.
+func (s *MemoryStore) LoadRecentMessages(ctx context.Context, id string, n int) ([]types.Message, error) {
+	if id == "" {
+		return nil, ErrInvalidID
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	state, exists := s.states[id]
+	if !exists {
+		return nil, ErrNotFound
+	}
+
+	msgs := state.Messages
+	if n >= len(msgs) {
+		n = len(msgs)
+	}
+	start := len(msgs) - n
+
+	// Deep copy only the requested slice
+	result := make([]types.Message, n)
+	data, err := json.Marshal(msgs[start:])
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// MessageCount returns the total number of messages in the conversation.
+func (s *MemoryStore) MessageCount(ctx context.Context, id string) (int, error) {
+	if id == "" {
+		return 0, ErrInvalidID
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	state, exists := s.states[id]
+	if !exists {
+		return 0, ErrNotFound
+	}
+
+	return len(state.Messages), nil
+}
+
+// AppendMessages appends messages to the conversation's message history.
+func (s *MemoryStore) AppendMessages(ctx context.Context, id string, messages []types.Message) error {
+	if id == "" {
+		return ErrInvalidID
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	state, exists := s.states[id]
+	if !exists {
+		state = &ConversationState{
+			ID:       id,
+			Messages: make([]types.Message, 0),
+			Metadata: make(map[string]interface{}),
+		}
+		s.states[id] = state
+	}
+
+	// Deep copy new messages before appending
+	data, err := json.Marshal(messages)
+	if err != nil {
+		return err
+	}
+	var copies []types.Message
+	if err := json.Unmarshal(data, &copies); err != nil {
+		return err
+	}
+
+	state.Messages = append(state.Messages, copies...)
+	state.LastAccessedAt = time.Now()
+
+	return nil
+}
+
+// LoadSummaries returns all summaries for the given conversation.
+func (s *MemoryStore) LoadSummaries(ctx context.Context, id string) ([]Summary, error) {
+	if id == "" {
+		return nil, ErrInvalidID
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	state, exists := s.states[id]
+	if !exists {
+		return nil, nil
+	}
+
+	if len(state.Summaries) == 0 {
+		return nil, nil
+	}
+
+	// Deep copy summaries
+	data, err := json.Marshal(state.Summaries)
+	if err != nil {
+		return nil, err
+	}
+	var result []Summary
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// SaveSummary appends a summary to the conversation's summary list.
+func (s *MemoryStore) SaveSummary(ctx context.Context, id string, summary Summary) error {
+	if id == "" {
+		return ErrInvalidID
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	state, exists := s.states[id]
+	if !exists {
+		return ErrNotFound
+	}
+
+	state.Summaries = append(state.Summaries, summary)
+	state.LastAccessedAt = time.Now()
+
+	return nil
 }
 
 // updateUserIndex adds a conversation ID to the user's index.

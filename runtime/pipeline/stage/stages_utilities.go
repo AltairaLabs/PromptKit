@@ -10,6 +10,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/tokenizer"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -534,6 +535,11 @@ type ContextBuilderPolicy struct {
 	// Required when using TruncateLeastRelevant; must include EmbeddingProvider.
 	RelevanceConfig *RelevanceConfig
 
+	// Summarizer for TruncateSummarize strategy.
+	// When set, messages that exceed the budget are compressed into summaries
+	// rather than dropped. Required when using TruncateSummarize.
+	Summarizer statestore.Summarizer
+
 	// TokenCounter provides token counting for budget management.
 	// If nil, a default heuristic counter is used with ModelFamilyDefault ratio (1.35).
 	// Use tokenizer.NewTokenCounterForModel(modelName) to create a model-aware counter.
@@ -728,8 +734,7 @@ func (s *ContextBuilderStage) truncateMessages(
 	case TruncateLeastRelevant:
 		return s.truncateByRelevance(ctx, messages, budget)
 	case TruncateSummarize:
-		return nil, fmt.Errorf("truncation strategy %q is not yet implemented; use %q, %q, or %q instead",
-			TruncateSummarize, TruncateOldest, TruncateLeastRelevant, TruncateFail)
+		return s.truncateBySummarization(ctx, messages, budget)
 	case TruncateFail:
 		return nil, fmt.Errorf("token budget exceeded: have %d, budget %d", s.countMessagesTokens(messages), budget)
 	default:
@@ -766,6 +771,72 @@ func (s *ContextBuilderStage) truncateOldest(messages []types.Message, budget in
 	}
 
 	return result
+}
+
+// truncateBySummarization compresses old messages into a summary to fit within budget.
+// Keeps the most recent messages and replaces older ones with a summary message.
+// Falls back to truncateOldest if no Summarizer is configured.
+func (s *ContextBuilderStage) truncateBySummarization(
+	ctx context.Context,
+	messages []types.Message,
+	budget int,
+) ([]types.Message, error) {
+	if s.policy.Summarizer == nil {
+		logger.Warn("TruncateSummarize requires a Summarizer; falling back to TruncateOldest")
+		return s.truncateOldest(messages, budget), nil
+	}
+
+	// Keep as many recent messages as fit in half the budget (leave room for summary)
+	halfBudget := budget / 2 //nolint:mnd // split budget evenly between summary and recent messages
+	var kept []types.Message
+	keptTokens := 0
+	splitIdx := len(messages) // index where we start keeping messages
+
+	for i := len(messages) - 1; i >= 0; i-- {
+		msgTokens := s.countTokens(messages[i].Content)
+		if keptTokens+msgTokens > halfBudget {
+			splitIdx = i + 1
+			break
+		}
+		kept = append([]types.Message{messages[i]}, kept...)
+		keptTokens += msgTokens
+		if i == 0 {
+			splitIdx = 0
+		}
+	}
+
+	// If all messages fit in half budget, no summarization needed
+	if splitIdx == 0 {
+		return messages, nil
+	}
+
+	// Summarize older messages
+	toSummarize := messages[:splitIdx]
+	summaryContent, err := s.policy.Summarizer.Summarize(ctx, toSummarize)
+	if err != nil {
+		// Fall back to truncation on summarization failure
+		logger.Warn("Summarization failed, falling back to TruncateOldest", "error", err)
+		return s.truncateOldest(messages, budget), nil
+	}
+
+	// Build result: summary message + kept recent messages
+	summaryMsg := types.Message{
+		Role:    "system",
+		Content: fmt.Sprintf("[Summary of %d earlier messages]: %s", len(toSummarize), summaryContent),
+		Source:  "summary",
+	}
+
+	result := make([]types.Message, 0, 1+len(kept))
+	result = append(result, summaryMsg)
+	result = append(result, kept...)
+
+	// Verify result fits budget; if not, truncate further
+	resultTokens := s.countMessagesTokens(result)
+	if resultTokens > budget {
+		return s.truncateOldest(result, budget), nil
+	}
+
+	return result, nil
 }
 
 // truncateByRelevance removes least relevant messages based on embedding similarity.

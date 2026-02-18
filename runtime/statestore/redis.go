@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // RedisStore provides a Redis-backed implementation of the Store interface.
@@ -279,6 +281,279 @@ func (s *RedisStore) removeFromUserIndex(ctx context.Context, userID, convID str
 		return fmt.Errorf("redis srem failed: %w", err)
 	}
 	return nil
+}
+
+// messagesKey generates the Redis key for a conversation's message list.
+func (s *RedisStore) messagesKey(id string) string {
+	return fmt.Sprintf("%s:conversation:%s:messages", s.prefix, id)
+}
+
+// metaKey generates the Redis key for a conversation's metadata.
+func (s *RedisStore) metaKey(id string) string {
+	return fmt.Sprintf("%s:conversation:%s:meta", s.prefix, id)
+}
+
+// summariesKey generates the Redis key for a conversation's summaries list.
+func (s *RedisStore) summariesKey(id string) string {
+	return fmt.Sprintf("%s:conversation:%s:summaries", s.prefix, id)
+}
+
+// LoadRecentMessages returns the last n messages using LRANGE on the messages list.
+// Falls back to loading from the monolithic key if the list doesn't exist.
+func (s *RedisStore) LoadRecentMessages(ctx context.Context, id string, n int) ([]types.Message, error) {
+	if id == "" {
+		return nil, ErrInvalidID
+	}
+
+	key := s.messagesKey(id)
+	count, err := s.client.LLen(ctx, key).Result()
+	if err != nil {
+		return nil, fmt.Errorf("redis llen failed: %w", err)
+	}
+
+	// Fall back to monolithic key if list doesn't exist
+	if count == 0 {
+		return s.loadRecentFromMonolithic(ctx, id, n)
+	}
+
+	// Use LRANGE with negative indices to get last n elements
+	vals, err := s.client.LRange(ctx, key, int64(-n), -1).Result()
+	if err != nil {
+		return nil, fmt.Errorf("redis lrange failed: %w", err)
+	}
+
+	messages := make([]types.Message, 0, len(vals))
+	for _, v := range vals {
+		var msg types.Message
+		if err := json.Unmarshal([]byte(v), &msg); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal message: %w", err)
+		}
+		messages = append(messages, msg)
+	}
+
+	return messages, nil
+}
+
+// MessageCount returns the total number of messages.
+// Falls back to loading from the monolithic key if the list doesn't exist.
+func (s *RedisStore) MessageCount(ctx context.Context, id string) (int, error) {
+	if id == "" {
+		return 0, ErrInvalidID
+	}
+
+	key := s.messagesKey(id)
+	count, err := s.client.LLen(ctx, key).Result()
+	if err != nil {
+		return 0, fmt.Errorf("redis llen failed: %w", err)
+	}
+
+	// Fall back to monolithic key if list doesn't exist
+	if count == 0 {
+		state, err := s.Load(ctx, id)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				return 0, ErrNotFound
+			}
+			return 0, err
+		}
+		return len(state.Messages), nil
+	}
+
+	return int(count), nil
+}
+
+// AppendMessages appends messages to the conversation's message list using RPUSH.
+func (s *RedisStore) AppendMessages(ctx context.Context, id string, messages []types.Message) error {
+	if id == "" {
+		return ErrInvalidID
+	}
+
+	if err := s.ensureListFormat(ctx, id); err != nil {
+		return err
+	}
+
+	key := s.messagesKey(id)
+	if err := s.rpushMessages(ctx, key, messages); err != nil {
+		return err
+	}
+
+	return s.updateMetaTTL(ctx, id, key)
+}
+
+// ensureListFormat migrates from monolithic key to list format if needed.
+func (s *RedisStore) ensureListFormat(ctx context.Context, id string) error {
+	key := s.messagesKey(id)
+	listExists, err := s.client.Exists(ctx, key).Result()
+	if err != nil {
+		return fmt.Errorf("redis exists failed: %w", err)
+	}
+	if listExists > 0 {
+		return nil
+	}
+	monoKey := s.conversationKey(id)
+	monoExists, err := s.client.Exists(ctx, monoKey).Result()
+	if err != nil {
+		return fmt.Errorf("redis exists failed: %w", err)
+	}
+	if monoExists > 0 {
+		if err := s.migrateToListFormat(ctx, id); err != nil {
+			return fmt.Errorf("migration failed: %w", err)
+		}
+	}
+	return nil
+}
+
+// rpushMessages pushes messages to a Redis list key.
+func (s *RedisStore) rpushMessages(ctx context.Context, key string, messages []types.Message) error {
+	for i := range messages {
+		data, err := json.Marshal(&messages[i])
+		if err != nil {
+			return fmt.Errorf("failed to marshal message: %w", err)
+		}
+		if err := s.client.RPush(ctx, key, data).Err(); err != nil {
+			return fmt.Errorf("redis rpush failed: %w", err)
+		}
+	}
+	return nil
+}
+
+// updateMetaTTL updates TTL and last accessed time.
+func (s *RedisStore) updateMetaTTL(ctx context.Context, id, key string) error {
+	if s.ttl > 0 {
+		if err := s.client.Expire(ctx, key, s.ttl).Err(); err != nil {
+			return fmt.Errorf("redis expire failed: %w", err)
+		}
+	}
+	metaKey := s.metaKey(id)
+	meta := map[string]any{"last_accessed_at": time.Now()}
+	metaData, _ := json.Marshal(meta)
+	if err := s.client.Set(ctx, metaKey, metaData, s.ttl).Err(); err != nil {
+		return fmt.Errorf("redis set meta failed: %w", err)
+	}
+	return nil
+}
+
+// LoadSummaries returns all summaries for the conversation.
+func (s *RedisStore) LoadSummaries(ctx context.Context, id string) ([]Summary, error) {
+	if id == "" {
+		return nil, ErrInvalidID
+	}
+
+	key := s.summariesKey(id)
+	vals, err := s.client.LRange(ctx, key, 0, -1).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("redis lrange failed: %w", err)
+	}
+
+	if len(vals) == 0 {
+		// Fall back to monolithic key
+		state, err := s.Load(ctx, id)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				return nil, nil
+			}
+			return nil, err
+		}
+		return state.Summaries, nil
+	}
+
+	summaries := make([]Summary, 0, len(vals))
+	for _, v := range vals {
+		var s Summary
+		if err := json.Unmarshal([]byte(v), &s); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal summary: %w", err)
+		}
+		summaries = append(summaries, s)
+	}
+
+	return summaries, nil
+}
+
+// SaveSummary appends a summary to the conversation's summary list.
+func (s *RedisStore) SaveSummary(ctx context.Context, id string, summary Summary) error {
+	if id == "" {
+		return ErrInvalidID
+	}
+
+	key := s.summariesKey(id)
+	data, err := json.Marshal(summary)
+	if err != nil {
+		return fmt.Errorf("failed to marshal summary: %w", err)
+	}
+
+	if err := s.client.RPush(ctx, key, data).Err(); err != nil {
+		return fmt.Errorf("redis rpush failed: %w", err)
+	}
+
+	if s.ttl > 0 {
+		if err := s.client.Expire(ctx, key, s.ttl).Err(); err != nil {
+			return fmt.Errorf("redis expire failed: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// migrateToListFormat migrates a conversation from monolithic JSON to list format.
+func (s *RedisStore) migrateToListFormat(ctx context.Context, id string) error {
+	state, err := s.Load(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	key := s.messagesKey(id)
+	if err := s.rpushMessages(ctx, key, state.Messages); err != nil {
+		return err
+	}
+	if err := s.expireIfTTL(ctx, key); err != nil {
+		return err
+	}
+
+	return s.migrateSummaries(ctx, id, state.Summaries)
+}
+
+// migrateSummaries migrates summaries to list format.
+func (s *RedisStore) migrateSummaries(ctx context.Context, id string, summaries []Summary) error {
+	if len(summaries) == 0 {
+		return nil
+	}
+	sumKey := s.summariesKey(id)
+	for i := range summaries {
+		data, err := json.Marshal(&summaries[i])
+		if err != nil {
+			return fmt.Errorf("failed to marshal summary: %w", err)
+		}
+		if err := s.client.RPush(ctx, sumKey, data).Err(); err != nil {
+			return fmt.Errorf("redis rpush failed: %w", err)
+		}
+	}
+	return s.expireIfTTL(ctx, sumKey)
+}
+
+// expireIfTTL sets expiration on a key if TTL is configured.
+func (s *RedisStore) expireIfTTL(ctx context.Context, key string) error {
+	if s.ttl > 0 {
+		if err := s.client.Expire(ctx, key, s.ttl).Err(); err != nil {
+			return fmt.Errorf("redis expire failed: %w", err)
+		}
+	}
+	return nil
+}
+
+// loadRecentFromMonolithic loads recent messages from the monolithic key format.
+func (s *RedisStore) loadRecentFromMonolithic(ctx context.Context, id string, n int) ([]types.Message, error) {
+	state, err := s.Load(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	msgs := state.Messages
+	if n >= len(msgs) {
+		return msgs, nil
+	}
+	return msgs[len(msgs)-n:], nil
 }
 
 // extractIDFromKey extracts the conversation ID from a Redis key.
