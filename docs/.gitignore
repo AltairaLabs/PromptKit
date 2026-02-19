@@ -17,6 +17,17 @@ pnpm-debug.log*
 .env
 .env.production
 
+# Generated example docs (created by scripts/prepare-examples-docs.sh at build time)
+src/content/docs/arena/examples/
+src/content/docs/sdk/examples/
+
+# Generated API docs and CLI reference
+src/content/docs/api/
+src/content/docs/reference/*-cli.txt
+
+# Generated d2 diagram SVGs (created by astro-d2 at build time)
+public/d2/
+
 # Fetched adapter docs (pulled at build time from adapter repos)
 src/content/docs/arena/tutorials/deploy/agentcore/
 src/content/docs/arena/how-to/deploy/agentcore/
