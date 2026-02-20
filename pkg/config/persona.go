@@ -30,7 +30,7 @@ type PersonaConfig struct {
 
 // UserPersonaPack defines how the User LLM behaves in self-play scenarios
 type UserPersonaPack struct {
-	ID             string `json:"id" yaml:"id"`
+	ID             string `json:"id,omitempty" yaml:"id,omitempty"`
 	Description    string `json:"description" yaml:"description"`
 	PromptActivity string `json:"prompt_activity,omitempty" yaml:"prompt_activity,omitempty"` // DEPRECATED: Legacy prompt builder reference
 
@@ -45,8 +45,8 @@ type UserPersonaPack struct {
 
 	Goals       []string        `json:"goals" yaml:"goals"`
 	Constraints []string        `json:"constraints" yaml:"constraints"`
-	Style       PersonaStyle    `json:"style" yaml:"style"`
-	Defaults    PersonaDefaults `json:"defaults" yaml:"defaults"`
+	Style       PersonaStyle    `json:"style,omitempty" yaml:"style,omitempty"`
+	Defaults    PersonaDefaults `json:"defaults,omitempty" yaml:"defaults,omitempty"`
 }
 
 // FragmentRef references a reusable prompt fragment

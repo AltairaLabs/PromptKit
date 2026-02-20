@@ -436,9 +436,7 @@ kind: Eval
 metadata:
   name: test-eval
 spec:
-  description: Missing ID
-  recording:
-    path: test.json
+  description: Missing recording field
 `)
 
 	err := ValidateEval(invalidEval)

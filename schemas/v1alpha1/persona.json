@@ -145,12 +145,9 @@
       "additionalProperties": false,
       "type": "object",
       "required": [
-        "id",
         "description",
         "goals",
-        "constraints",
-        "style",
-        "defaults"
+        "constraints"
       ]
     }
   },

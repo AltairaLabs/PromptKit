@@ -73,7 +73,6 @@
       "additionalProperties": false,
       "type": "object",
       "required": [
-        "id",
         "description",
         "recording"
       ]
