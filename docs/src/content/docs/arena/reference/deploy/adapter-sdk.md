@@ -186,6 +186,177 @@ func (p *myProvider) Apply(ctx context.Context, req *deploy.PlanRequest, callbac
 
 Progress messages with valid percentages (0-100) are formatted as `"message (XX%)"`.
 
+## Planning Helpers
+
+The SDK provides helper functions for building resource plans from `PlanRequest` fields. You can use the high-level `GenerateResourcePlan` for a complete plan, or compose the lower-level functions for custom logic.
+
+### GenerateResourcePlan
+
+```go
+func GenerateResourcePlan(packJSON, arenaConfigJSON, deployConfigJSON string) (*ResourcePlan, error)
+```
+
+Builds a combined resource plan by orchestrating all lower-level helpers. Call this from your `Plan()` method to get a complete plan in one step:
+
+```go
+func (p *myProvider) Plan(ctx context.Context, req *deploy.PlanRequest) (*deploy.PlanResponse, error) {
+    plan, err := adaptersdk.GenerateResourcePlan(req.PackJSON, req.ArenaConfig, req.DeployConfig)
+    if err != nil {
+        return nil, err
+    }
+    return &deploy.PlanResponse{
+        Changes: plan.Changes,
+        Summary: adaptersdk.SummarizeChanges(plan.Changes),
+    }, nil
+}
+```
+
+**What it does internally:**
+
+1. Parses the pack JSON (required — returns error if invalid)
+2. Generates agent resources for multi-agent packs (`agent_runtime`, `a2a_endpoint`, `gateway`)
+3. Extracts tool info and policies from the arena config
+4. Filters out blocklisted tools
+5. Parses tool targets from the deploy config
+6. Generates `tool_gateway` resources for tools with targets
+7. Combines agent + tool changes into a single plan
+
+Empty arena config or deploy config are handled gracefully (no tool resources).
+
+### ResourcePlan
+
+```go
+type ResourcePlan struct {
+    Changes []deploy.ResourceChange // Combined agent + tool resource changes
+    Tools   []ToolInfo              // Filtered tools (blocklisted tools removed)
+    Targets ToolTargetMap           // Tool target mappings from deploy config
+    Policy  *ToolPolicyInfo         // Merged tool policies from scenarios
+}
+```
+
+Returned by `GenerateResourcePlan`. The `Tools`, `Targets`, and `Policy` fields are exposed for adapter-specific logic beyond the standard plan.
+
+### SummarizeChanges
+
+```go
+func SummarizeChanges(changes []deploy.ResourceChange) string
+```
+
+Generates a human-readable summary of resource changes:
+
+```go
+adaptersdk.SummarizeChanges(changes)
+// "3 to create, 1 to update, 1 to delete"
+// "5 to create, 2 unchanged"
+// "No changes"
+```
+
+### FilterBlocklistedTools
+
+```go
+func FilterBlocklistedTools(tools []ToolInfo, policy *ToolPolicyInfo) []ToolInfo
+```
+
+Removes tools whose names appear in the policy blocklist. Returns tools unchanged if policy is nil or the blocklist is empty. Called automatically by `GenerateResourcePlan`, but available for custom plan logic.
+
+### Lower-Level Functions
+
+These are used internally by `GenerateResourcePlan` and are available for adapters that need finer control.
+
+#### Agent Helpers
+
+```go
+// Returns true if the pack has an agents section with members.
+func IsMultiAgent(pack *prompt.Pack) bool
+
+// Returns agent metadata for all members, sorted by name.
+// Defaults: text/plain for missing input/output modes.
+func ExtractAgents(pack *prompt.Pack) []AgentInfo
+
+// Creates resource changes for multi-agent deployment.
+// Per member: agent_runtime + a2a_endpoint. Entry agent also gets a gateway.
+// Returns nil for single-agent packs.
+func GenerateAgentResourcePlan(pack *prompt.Pack) []deploy.ResourceChange
+
+// Generates A2A agent cards from the pack.
+func GenerateAgentCards(pack *prompt.Pack) map[string]*a2a.AgentCard
+```
+
+#### Tool Helpers
+
+```go
+// Extracts tool metadata from ArenaConfig JSON (inline specs + loaded tool files).
+// Returns sorted tools with deduplication (inline specs take precedence).
+func ExtractToolInfo(arenaConfigJSON string) ([]ToolInfo, error)
+
+// Extracts and merges tool blocklists from all scenarios in the ArenaConfig.
+// Returns nil if no policies are found.
+func ExtractToolPolicies(arenaConfigJSON string) (*ToolPolicyInfo, error)
+
+// Extracts the tool_targets map from deploy config JSON.
+// Each value is raw JSON for adapter-specific unmarshaling.
+func ParseDeployToolTargets(deployConfigJSON string) (ToolTargetMap, error)
+
+// Creates tool_gateway resource changes for tools that have target mappings.
+func GenerateToolGatewayPlan(tools []ToolInfo, targets ToolTargetMap) []deploy.ResourceChange
+```
+
+### Planning Types
+
+#### AgentInfo
+
+```go
+type AgentInfo struct {
+    Name        string   `json:"name"`
+    Description string   `json:"description"`
+    IsEntry     bool     `json:"is_entry"`
+    Tags        []string `json:"tags,omitempty"`
+    InputModes  []string `json:"input_modes"`
+    OutputModes []string `json:"output_modes"`
+}
+```
+
+#### ToolInfo
+
+```go
+type ToolInfo struct {
+    Name        string      `json:"name"`
+    Description string      `json:"description"`
+    Mode        string      `json:"mode"`          // "mock", "live", "mcp", "a2a"
+    HasSchema   bool        `json:"has_schema"`
+    InputSchema interface{} `json:"input_schema,omitempty"`
+    HTTPURL     string      `json:"http_url,omitempty"`
+    HTTPMethod  string      `json:"http_method,omitempty"`
+}
+```
+
+#### ToolTargetMap
+
+```go
+// Opaque map of tool name → adapter-specific target config as raw JSON.
+type ToolTargetMap map[string]json.RawMessage
+```
+
+Each adapter defines its own target schema. For example, a deploy config might specify:
+
+```json
+{
+  "tool_targets": {
+    "get_weather": { "lambda_arn": "arn:aws:lambda:us-east-1:123:function:weather" }
+  }
+}
+```
+
+The adapter unmarshals each `json.RawMessage` into its own target type.
+
+#### ToolPolicyInfo
+
+```go
+type ToolPolicyInfo struct {
+    Blocklist []string `json:"blocklist,omitempty"`
+}
+```
+
 ## Provider Interface
 
 ```go
@@ -232,6 +403,7 @@ type ValidateResponse struct {
 type PlanRequest struct {
     PackJSON     string `json:"pack_json"`
     DeployConfig string `json:"deploy_config"`
+    ArenaConfig  string `json:"arena_config,omitempty"`
     Environment  string `json:"environment"`
     PriorState   string `json:"prior_state,omitempty"`
 }
@@ -241,6 +413,8 @@ type PlanResponse struct {
     Summary string           `json:"summary"`
 }
 ```
+
+`ArenaConfig` contains the JSON-serialized arena config with loaded resources (tools, scenarios). Planning helpers use this to extract tool info and policies.
 
 ### ResourceChange
 
