@@ -14,70 +14,70 @@ import (
 // ObjectMeta is a simplified metadata structure for PromptKit configs
 // Based on K8s ObjectMeta but with YAML-friendly tags and optional fields
 type ObjectMeta struct {
-	Name        string            `yaml:"name,omitempty" jsonschema:"title=Name,description=Name of the resource"`
-	Namespace   string            `yaml:"namespace,omitempty" jsonschema:"title=Namespace,description=Namespace for the resource"`
-	Labels      map[string]string `yaml:"labels,omitempty" jsonschema:"title=Labels,description=Key-value pairs for organizing resources"`
-	Annotations map[string]string `yaml:"annotations,omitempty" jsonschema:"title=Annotations,description=Additional metadata"`
+	Name        string            `yaml:"name,omitempty" json:"name,omitempty" jsonschema:"title=Name,description=Name of the resource"`                           //nolint:lll
+	Namespace   string            `yaml:"namespace,omitempty" json:"namespace,omitempty" jsonschema:"title=Namespace,description=Namespace for the resource"`      //nolint:lll
+	Labels      map[string]string `yaml:"labels,omitempty" json:"labels,omitempty" jsonschema:"title=Labels,description=Key-value pairs for organizing resources"` //nolint:lll
+	Annotations map[string]string `yaml:"annotations,omitempty" json:"annotations,omitempty" jsonschema:"title=Annotations,description=Additional metadata"`       //nolint:lll
 }
 
 // PromptConfigRef references a prompt builder configuration
 type PromptConfigRef struct {
-	ID   string            `yaml:"id"`
-	File string            `yaml:"file"`
-	Vars map[string]string `yaml:"vars,omitempty"`
+	ID   string            `yaml:"id" json:"id"`
+	File string            `yaml:"file" json:"file"`
+	Vars map[string]string `yaml:"vars,omitempty" json:"vars,omitempty"`
 }
 
 // ArenaConfig represents the main Arena configuration in K8s-style manifest format
 type ArenaConfig struct {
-	APIVersion string     `yaml:"apiVersion"`
-	Kind       string     `yaml:"kind"`
-	Metadata   ObjectMeta `yaml:"metadata,omitempty"`
-	Spec       Config     `yaml:"spec"`
+	APIVersion string     `yaml:"apiVersion" json:"apiVersion"`
+	Kind       string     `yaml:"kind" json:"kind"`
+	Metadata   ObjectMeta `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	Spec       Config     `yaml:"spec" json:"spec"`
 }
 
 // ArenaConfigK8s represents the Arena configuration using full K8s ObjectMeta for unmarshaling
 // This is used internally for compatibility with k8s.io types
 type ArenaConfigK8s struct {
-	APIVersion string            `yaml:"apiVersion"`
-	Kind       string            `yaml:"kind"`
-	Metadata   metav1.ObjectMeta `yaml:"metadata,omitempty"`
-	Spec       Config            `yaml:"spec"`
+	APIVersion string            `yaml:"apiVersion" json:"apiVersion"`
+	Kind       string            `yaml:"kind" json:"kind"`
+	Metadata   metav1.ObjectMeta `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	Spec       Config            `yaml:"spec" json:"spec"`
 }
 
 // Config represents the main configuration structure
 type Config struct {
 	// File references for YAML serialization
-	PromptConfigs []PromptConfigRef `yaml:"prompt_configs,omitempty"`
-	Providers     []ProviderRef     `yaml:"providers"`
-	Judges        []JudgeRef        `yaml:"judges,omitempty"`
-	JudgeDefaults *JudgeDefaults    `yaml:"judge_defaults,omitempty"`
-	Scenarios     []ScenarioRef     `yaml:"scenarios,omitempty"`
-	Evals         []EvalRef         `yaml:"evals,omitempty"`
-	Tools         []ToolRef         `yaml:"tools,omitempty"`
+	PromptConfigs []PromptConfigRef `yaml:"prompt_configs,omitempty" json:"prompt_configs,omitempty"`
+	Providers     []ProviderRef     `yaml:"providers" json:"providers"`
+	Judges        []JudgeRef        `yaml:"judges,omitempty" json:"judges,omitempty"`
+	JudgeDefaults *JudgeDefaults    `yaml:"judge_defaults,omitempty" json:"judge_defaults,omitempty"`
+	Scenarios     []ScenarioRef     `yaml:"scenarios,omitempty" json:"scenarios,omitempty"`
+	Evals         []EvalRef         `yaml:"evals,omitempty" json:"evals,omitempty"`
+	Tools         []ToolRef         `yaml:"tools,omitempty" json:"tools,omitempty"`
 	PackEvals     []evals.EvalDef   `yaml:"pack_evals,omitempty" json:"pack_evals,omitempty"`
 	Workflow      interface{}       `yaml:"workflow,omitempty" json:"workflow,omitempty"`
 	Agents        interface{}       `yaml:"agents,omitempty" json:"agents,omitempty"`
 	Deploy        *DeployConfig     `yaml:"deploy,omitempty" json:"deploy,omitempty"`
-	MCPServers    []MCPServerConfig `yaml:"mcp_servers,omitempty"`
-	A2AAgents     []A2AAgentConfig  `yaml:"a2a_agents,omitempty"`
-	StateStore    *StateStoreConfig `yaml:"state_store,omitempty"`
-	Defaults      Defaults          `yaml:"defaults"`
-	SelfPlay      *SelfPlayConfig   `yaml:"self_play,omitempty"`
-	PackFile      string            `yaml:"pack_file,omitempty"`
+	MCPServers    []MCPServerConfig `yaml:"mcp_servers,omitempty" json:"mcp_servers,omitempty"`
+	A2AAgents     []A2AAgentConfig  `yaml:"a2a_agents,omitempty" json:"a2a_agents,omitempty"`
+	StateStore    *StateStoreConfig `yaml:"state_store,omitempty" json:"state_store,omitempty"`
+	Defaults      Defaults          `yaml:"defaults" json:"defaults"`
+	SelfPlay      *SelfPlayConfig   `yaml:"self_play,omitempty" json:"self_play,omitempty"`
+	PackFile      string            `yaml:"pack_file,omitempty" json:"pack_file,omitempty"`
 	// ProviderGroups maps provider ID to configured group (populated during load)
-	ProviderGroups map[string]string `yaml:"-" json:"-"`
+	ProviderGroups map[string]string `yaml:"-" json:"provider_groups,omitempty"`
 	// ProviderCapabilities maps provider ID to its capabilities (populated during load)
-	ProviderCapabilities map[string][]string `yaml:"-" json:"-"`
+	ProviderCapabilities map[string][]string `yaml:"-" json:"provider_capabilities,omitempty"`
 
-	// Loaded resources (populated by LoadConfig, not serialized)
-	LoadedPromptConfigs map[string]*PromptConfigData `yaml:"-" json:"-"` // taskType -> config
-	LoadedProviders     map[string]*Provider         `yaml:"-" json:"-"` // provider ID -> provider
-	LoadedJudges        map[string]*JudgeTarget      `yaml:"-" json:"-"` // judge name -> resolved target
-	LoadedScenarios     map[string]*Scenario         `yaml:"-" json:"-"` // scenario ID -> scenario
-	LoadedEvals         map[string]*Eval             `yaml:"-" json:"-"` // eval ID -> eval
-	LoadedTools         []ToolData                   `yaml:"-" json:"-"` // list of tool data
-	LoadedPersonas      map[string]*UserPersonaPack  `yaml:"-" json:"-"` // persona ID -> persona
-	LoadedPack          *prompt.Pack                 `yaml:"-" json:"-"` // loaded pack from pack_file
+	// Loaded resources (populated by LoadConfig, included in JSON for adapter consumption)
+	LoadedPromptConfigs map[string]*PromptConfigData `yaml:"-" json:"loaded_prompt_configs,omitempty"`
+	LoadedProviders     map[string]*Provider         `yaml:"-" json:"loaded_providers,omitempty"`
+	LoadedJudges        map[string]*JudgeTarget      `yaml:"-" json:"loaded_judges,omitempty"`
+	LoadedScenarios     map[string]*Scenario         `yaml:"-" json:"loaded_scenarios,omitempty"`
+	LoadedEvals         map[string]*Eval             `yaml:"-" json:"loaded_evals,omitempty"`
+	LoadedTools         []ToolData                   `yaml:"-" json:"loaded_tools,omitempty"`
+	LoadedPersonas      map[string]*UserPersonaPack  `yaml:"-" json:"loaded_personas,omitempty"`
+	LoadedPack          *prompt.Pack                 `yaml:"-" json:"loaded_pack,omitempty"`
 
 	// Pack eval settings (set by CLI flags, not serialized)
 	SkipPackEvals  bool     `yaml:"-" json:"-"` // Disable pack eval execution
@@ -118,83 +118,83 @@ func (c *Config) GetStateStoreConfig() *StateStoreConfig {
 
 // MCPServerConfig represents configuration for an MCP server
 type MCPServerConfig struct {
-	Name    string            `yaml:"name"`
-	Command string            `yaml:"command"`
-	Args    []string          `yaml:"args,omitempty"`
-	Env     map[string]string `yaml:"env,omitempty"`
+	Name    string            `yaml:"name" json:"name"`
+	Command string            `yaml:"command" json:"command"`
+	Args    []string          `yaml:"args,omitempty" json:"args,omitempty"`
+	Env     map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
 }
 
 // A2AAgentConfig defines a mock A2A agent for Arena testing.
 type A2AAgentConfig struct {
-	Name      string            `yaml:"name"`
-	Card      A2ACardConfig     `yaml:"card"`
-	Responses []A2AResponseRule `yaml:"responses"`
+	Name      string            `yaml:"name" json:"name"`
+	Card      A2ACardConfig     `yaml:"card" json:"card"`
+	Responses []A2AResponseRule `yaml:"responses" json:"responses"`
 }
 
 // A2ACardConfig defines the agent card for a mock A2A agent.
 type A2ACardConfig struct {
-	Name        string           `yaml:"name"`
-	Description string           `yaml:"description"`
-	Skills      []A2ASkillConfig `yaml:"skills"`
+	Name        string           `yaml:"name" json:"name"`
+	Description string           `yaml:"description" json:"description"`
+	Skills      []A2ASkillConfig `yaml:"skills" json:"skills"`
 }
 
 // A2ASkillConfig defines a single skill in a mock A2A agent card.
 type A2ASkillConfig struct {
-	ID          string   `yaml:"id"`
-	Name        string   `yaml:"name"`
-	Description string   `yaml:"description"`
-	Tags        []string `yaml:"tags,omitempty"`
+	ID          string   `yaml:"id" json:"id"`
+	Name        string   `yaml:"name" json:"name"`
+	Description string   `yaml:"description" json:"description"`
+	Tags        []string `yaml:"tags,omitempty" json:"tags,omitempty"`
 }
 
 // A2AResponseRule defines a response rule for a mock A2A agent.
 type A2AResponseRule struct {
-	Skill    string             `yaml:"skill"`
-	Match    *A2AMatchConfig    `yaml:"match,omitempty"`
-	Response *A2AResponseConfig `yaml:"response,omitempty"`
-	Error    string             `yaml:"error,omitempty"`
+	Skill    string             `yaml:"skill" json:"skill"`
+	Match    *A2AMatchConfig    `yaml:"match,omitempty" json:"match,omitempty"`
+	Response *A2AResponseConfig `yaml:"response,omitempty" json:"response,omitempty"`
+	Error    string             `yaml:"error,omitempty" json:"error,omitempty"`
 }
 
 // A2AMatchConfig defines how to match incoming messages for a mock A2A agent.
 type A2AMatchConfig struct {
-	Contains string `yaml:"contains,omitempty"`
-	Regex    string `yaml:"regex,omitempty"`
+	Contains string `yaml:"contains,omitempty" json:"contains,omitempty"`
+	Regex    string `yaml:"regex,omitempty" json:"regex,omitempty"`
 }
 
 // A2AResponseConfig defines the response parts for a mock A2A agent.
 type A2AResponseConfig struct {
-	Parts []A2APartConfig `yaml:"parts"`
+	Parts []A2APartConfig `yaml:"parts" json:"parts"`
 }
 
 // A2APartConfig defines a single response part for a mock A2A agent.
 type A2APartConfig struct {
-	Text string `yaml:"text"`
+	Text string `yaml:"text" json:"text"`
 }
 
 // StateStoreConfig represents configuration for conversation state storage
 type StateStoreConfig struct {
 	// Type specifies the state store implementation: "memory" or "redis"
-	Type string `yaml:"type"`
+	Type string `yaml:"type" json:"type"`
 
 	// Redis configuration (only used when Type is "redis")
-	Redis *RedisConfig `yaml:"redis,omitempty"`
+	Redis *RedisConfig `yaml:"redis,omitempty" json:"redis,omitempty"`
 }
 
 // RedisConfig contains Redis-specific configuration
 type RedisConfig struct {
 	// Address of the Redis server (e.g., "localhost:6379")
-	Address string `yaml:"address"`
+	Address string `yaml:"address" json:"address"`
 
 	// Password for Redis authentication (optional)
-	Password string `yaml:"password,omitempty"`
+	Password string `yaml:"password,omitempty" json:"password,omitempty"`
 
 	// Database number (0-15, default is 0)
-	Database int `yaml:"database,omitempty"`
+	Database int `yaml:"database,omitempty" json:"database,omitempty"`
 
 	// TTL for conversation state (e.g., "24h", "7d"). Default is "24h"
-	TTL string `yaml:"ttl,omitempty"`
+	TTL string `yaml:"ttl,omitempty" json:"ttl,omitempty"`
 
 	// Prefix for Redis keys (default is "promptkit")
-	Prefix string `yaml:"prefix,omitempty"`
+	Prefix string `yaml:"prefix,omitempty" json:"prefix,omitempty"`
 }
 
 // DeployConfig represents deployment configuration for the arena
@@ -215,108 +215,108 @@ type DeployEnvironment struct {
 
 // PromptConfigData holds a loaded prompt configuration with its file path
 type PromptConfigData struct {
-	FilePath string            // relative to ConfigDir
-	Config   interface{}       // parsed prompt configuration (*prompt.Config at runtime)
-	TaskType string            // extracted from Config.Spec.TaskType
-	Vars     map[string]string // Variable overrides from arena.yaml
+	FilePath string            `json:"file_path,omitempty"` // relative to ConfigDir
+	Config   interface{}       `json:"config,omitempty"`    // parsed prompt configuration (*prompt.Config at runtime)
+	TaskType string            `json:"task_type,omitempty"` // extracted from Config.Spec.TaskType
+	Vars     map[string]string `json:"vars,omitempty"`      // Variable overrides from arena.yaml
 }
 
 // ToolData holds raw tool configuration data
 type ToolData struct {
-	FilePath string
-	Data     []byte
+	FilePath string `json:"file_path,omitempty"`
+	Data     []byte `json:"data,omitempty"`
 }
 
 // ProviderRef references a provider configuration file
 type ProviderRef struct {
-	File  string `yaml:"file"`
-	Group string `yaml:"group,omitempty"`
+	File  string `yaml:"file" json:"file"`
+	Group string `yaml:"group,omitempty" json:"group,omitempty"`
 }
 
 // JudgeRef references a judge configuration mapped to a provider.
 // Mirrors self-play role/provider mapping to allow multiple judge targets.
 type JudgeRef struct {
-	Name     string `yaml:"name"`            // Judge identifier used in assertions
-	Provider string `yaml:"provider"`        // Provider ID reference (must exist in spec.providers)
-	Model    string `yaml:"model,omitempty"` // Optional model override for the judge
+	Name     string `yaml:"name" json:"name"`                       // Judge identifier used in assertions
+	Provider string `yaml:"provider" json:"provider"`               // Provider ID reference (must exist in spec.providers)
+	Model    string `yaml:"model,omitempty" json:"model,omitempty"` // Optional model override for the judge
 }
 
 // JudgeTarget is a resolved judge reference with provider config and effective model.
 type JudgeTarget struct {
-	Name     string    // Judge identifier
-	Provider *Provider // Resolved provider config
-	Model    string    // Effective model (judge override or provider model)
+	Name     string    `json:"name"`               // Judge identifier
+	Provider *Provider `json:"provider,omitempty"` // Resolved provider config
+	Model    string    `json:"model"`              // Effective model (judge override or provider model)
 }
 
 // ScenarioRef references a scenario file
 type ScenarioRef struct {
-	File string `yaml:"file"`
+	File string `yaml:"file" json:"file"`
 }
 
 // EvalRef references an eval configuration file
 type EvalRef struct {
-	File string `yaml:"file"`
+	File string `yaml:"file" json:"file"`
 }
 
 // ToolRef references a tool configuration file
 type ToolRef struct {
-	File string `yaml:"file"`
+	File string `yaml:"file" json:"file"`
 }
 
 // SelfPlayConfig configures self-play functionality
 type SelfPlayConfig struct {
-	Enabled  bool                `yaml:"enabled"`
-	Personas []PersonaRef        `yaml:"personas"`
-	Roles    []SelfPlayRoleGroup `yaml:"roles"`
+	Enabled  bool                `yaml:"enabled" json:"enabled"`
+	Personas []PersonaRef        `yaml:"personas" json:"personas"`
+	Roles    []SelfPlayRoleGroup `yaml:"roles" json:"roles"`
 }
 
 // PersonaRef references a persona file
 type PersonaRef struct {
-	File string `yaml:"file"`
+	File string `yaml:"file" json:"file"`
 }
 
 // SelfPlayRoleGroup defines user LLM configuration for self-play
 type SelfPlayRoleGroup struct {
-	ID       string `yaml:"id"`
-	Provider string `yaml:"provider"` // Provider ID reference (must exist in spec.providers)
+	ID       string `yaml:"id" json:"id"`
+	Provider string `yaml:"provider" json:"provider"` // Provider ID reference (must exist in spec.providers)
 }
 
 // Defaults contains default configuration values
 type Defaults struct {
-	Temperature float32      `yaml:"temperature,omitempty"`
-	MaxTokens   int          `yaml:"max_tokens,omitempty"`
-	Seed        int          `yaml:"seed,omitempty"`
-	Concurrency int          `yaml:"concurrency,omitempty"`
-	Output      OutputConfig `yaml:"output,omitempty"`
+	Temperature float32      `yaml:"temperature,omitempty" json:"temperature,omitempty"`
+	MaxTokens   int          `yaml:"max_tokens,omitempty" json:"max_tokens,omitempty"`
+	Seed        int          `yaml:"seed,omitempty" json:"seed,omitempty"`
+	Concurrency int          `yaml:"concurrency,omitempty" json:"concurrency,omitempty"`
+	Output      OutputConfig `yaml:"output,omitempty" json:"output,omitempty"`
 	// ConfigDir is the base directory for all config files (prompts, providers, scenarios, tools).
 	// If not set, defaults to the directory containing the main config file.
 	// If the main config file path is not known, defaults to current working directory.
-	ConfigDir string   `yaml:"config_dir,omitempty"`
-	FailOn    []string `yaml:"fail_on,omitempty"`
-	Verbose   bool     `yaml:"verbose,omitempty"`
+	ConfigDir string   `yaml:"config_dir,omitempty" json:"config_dir,omitempty"`
+	FailOn    []string `yaml:"fail_on,omitempty" json:"fail_on,omitempty"`
+	Verbose   bool     `yaml:"verbose,omitempty" json:"verbose,omitempty"`
 
 	// Deprecated fields for backward compatibility (will be removed)
-	HTMLReport     string          `yaml:"html_report,omitempty"`
-	OutDir         string          `yaml:"out_dir,omitempty"`
-	OutputFormats  []string        `yaml:"output_formats,omitempty"`
-	MarkdownConfig *MarkdownConfig `yaml:"markdown_config,omitempty"`
+	HTMLReport     string          `yaml:"html_report,omitempty" json:"html_report,omitempty"`
+	OutDir         string          `yaml:"out_dir,omitempty" json:"out_dir,omitempty"`
+	OutputFormats  []string        `yaml:"output_formats,omitempty" json:"output_formats,omitempty"`
+	MarkdownConfig *MarkdownConfig `yaml:"markdown_config,omitempty" json:"markdown_config,omitempty"`
 }
 
 // JudgeDefaults configures default judge prompt selection.
 type JudgeDefaults struct {
-	Prompt         string `yaml:"prompt,omitempty"`
-	PromptRegistry string `yaml:"prompt_registry,omitempty"`
+	Prompt         string `yaml:"prompt,omitempty" json:"prompt,omitempty"`
+	PromptRegistry string `yaml:"prompt_registry,omitempty" json:"prompt_registry,omitempty"`
 }
 
 // OutputConfig contains configuration for all output formats
 type OutputConfig struct {
-	Dir       string                `yaml:"dir"`                 // Base output directory
-	Formats   []string              `yaml:"formats"`             // List of enabled formats: json, html, markdown, junit
-	JSON      *JSONOutputConfig     `yaml:"json,omitempty"`      // JSON-specific configuration
-	HTML      *HTMLOutputConfig     `yaml:"html,omitempty"`      // HTML-specific configuration
-	Markdown  *MarkdownOutputConfig `yaml:"markdown,omitempty"`  // Markdown-specific configuration
-	JUnit     *JUnitOutputConfig    `yaml:"junit,omitempty"`     // JUnit-specific configuration
-	Recording *RecordingConfig      `yaml:"recording,omitempty"` // Session recording configuration
+	Dir       string                `yaml:"dir" json:"dir,omitempty"`
+	Formats   []string              `yaml:"formats" json:"formats,omitempty"`
+	JSON      *JSONOutputConfig     `yaml:"json,omitempty" json:"json,omitempty"`
+	HTML      *HTMLOutputConfig     `yaml:"html,omitempty" json:"html,omitempty"`
+	Markdown  *MarkdownOutputConfig `yaml:"markdown,omitempty" json:"markdown,omitempty"`
+	JUnit     *JUnitOutputConfig    `yaml:"junit,omitempty" json:"junit,omitempty"`
+	Recording *RecordingConfig      `yaml:"recording,omitempty" json:"recording,omitempty"`
 }
 
 // JSONOutputConfig contains configuration options for JSON output
@@ -326,40 +326,40 @@ type JSONOutputConfig struct {
 
 // HTMLOutputConfig contains configuration options for HTML output
 type HTMLOutputConfig struct {
-	File string `yaml:"file,omitempty"` // Custom HTML output file name
+	File string `yaml:"file,omitempty" json:"file,omitempty"` // Custom HTML output file name
 	// Future: could add theme, template, styling options, etc.
 }
 
 // MarkdownOutputConfig contains configuration options for markdown output formatting
 type MarkdownOutputConfig struct {
-	File              string `yaml:"file,omitempty"`      // Custom markdown output file name
-	IncludeDetails    bool   `yaml:"include_details"`     // Include detailed test information
-	ShowOverview      bool   `yaml:"show_overview"`       // Show executive overview section
-	ShowResultsMatrix bool   `yaml:"show_results_matrix"` // Show results matrix table
-	ShowFailedTests   bool   `yaml:"show_failed_tests"`   // Show failed tests section
-	ShowCostSummary   bool   `yaml:"show_cost_summary"`   // Show cost analysis section
+	File              string `yaml:"file,omitempty" json:"file,omitempty"`           // Custom markdown output file name
+	IncludeDetails    bool   `yaml:"include_details" json:"include_details"`         // Include detailed test information
+	ShowOverview      bool   `yaml:"show_overview" json:"show_overview"`             // Show executive overview section
+	ShowResultsMatrix bool   `yaml:"show_results_matrix" json:"show_results_matrix"` // Show results matrix table
+	ShowFailedTests   bool   `yaml:"show_failed_tests" json:"show_failed_tests"`     // Show failed tests section
+	ShowCostSummary   bool   `yaml:"show_cost_summary" json:"show_cost_summary"`     // Show cost analysis section
 }
 
 // JUnitOutputConfig contains configuration options for JUnit XML output
 type JUnitOutputConfig struct {
-	File string `yaml:"file,omitempty"` // Custom JUnit output file name
+	File string `yaml:"file,omitempty" json:"file,omitempty"` // Custom JUnit output file name
 	// Future: could add options like test suite naming, etc.
 }
 
 // RecordingConfig contains configuration for session recording.
 // Session recordings capture the complete event stream for replay and analysis.
 type RecordingConfig struct {
-	Enabled bool   `yaml:"enabled"`       // Enable session recording
-	Dir     string `yaml:"dir,omitempty"` // Subdirectory within output.dir (default: "recordings")
+	Enabled bool   `yaml:"enabled" json:"enabled"`             // Enable session recording
+	Dir     string `yaml:"dir,omitempty" json:"dir,omitempty"` // Subdirectory within output.dir (default: "recordings")
 }
 
 // Deprecated: Use MarkdownOutputConfig instead
 type MarkdownConfig struct {
-	IncludeDetails    bool `yaml:"include_details"`     // Include detailed test information
-	ShowOverview      bool `yaml:"show_overview"`       // Show executive overview section
-	ShowResultsMatrix bool `yaml:"show_results_matrix"` // Show results matrix table
-	ShowFailedTests   bool `yaml:"show_failed_tests"`   // Show failed tests section
-	ShowCostSummary   bool `yaml:"show_cost_summary"`   // Show cost analysis section
+	IncludeDetails    bool `yaml:"include_details" json:"include_details"`         // Include detailed test information
+	ShowOverview      bool `yaml:"show_overview" json:"show_overview"`             // Show executive overview section
+	ShowResultsMatrix bool `yaml:"show_results_matrix" json:"show_results_matrix"` // Show results matrix table
+	ShowFailedTests   bool `yaml:"show_failed_tests" json:"show_failed_tests"`     // Show failed tests section
+	ShowCostSummary   bool `yaml:"show_cost_summary" json:"show_cost_summary"`     // Show cost analysis section
 }
 
 // GetOutputConfig returns the effective output configuration, handling backward compatibility
@@ -455,18 +455,18 @@ type ContextMetadata struct {
 
 // ScenarioConfig represents a Scenario in K8s-style manifest format
 type ScenarioConfig struct {
-	APIVersion string     `yaml:"apiVersion"`
-	Kind       string     `yaml:"kind"`
-	Metadata   ObjectMeta `yaml:"metadata,omitempty"`
-	Spec       Scenario   `yaml:"spec"`
+	APIVersion string     `yaml:"apiVersion" json:"apiVersion"`
+	Kind       string     `yaml:"kind" json:"kind"`
+	Metadata   ObjectMeta `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	Spec       Scenario   `yaml:"spec" json:"spec"`
 }
 
 // ScenarioConfigK8s is the K8s-compatible version for unmarshaling
 type ScenarioConfigK8s struct {
-	APIVersion string            `yaml:"apiVersion"`
-	Kind       string            `yaml:"kind"`
-	Metadata   metav1.ObjectMeta `yaml:"metadata,omitempty"`
-	Spec       Scenario          `yaml:"spec"`
+	APIVersion string            `yaml:"apiVersion" json:"apiVersion"`
+	Kind       string            `yaml:"kind" json:"kind"`
+	Metadata   metav1.ObjectMeta `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	Spec       Scenario          `yaml:"spec" json:"spec"`
 }
 
 // Scenario describes user turns, context, and validation constraints.
@@ -948,18 +948,18 @@ type TurnMediaContent struct {
 
 // ProviderConfig represents a Provider configuration in K8s-style manifest format
 type ProviderConfig struct {
-	APIVersion string     `yaml:"apiVersion"`
-	Kind       string     `yaml:"kind"`
-	Metadata   ObjectMeta `yaml:"metadata,omitempty"`
-	Spec       Provider   `yaml:"spec"`
+	APIVersion string     `yaml:"apiVersion" json:"apiVersion"`
+	Kind       string     `yaml:"kind" json:"kind"`
+	Metadata   ObjectMeta `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	Spec       Provider   `yaml:"spec" json:"spec"`
 }
 
 // ProviderConfigK8s is the K8s-compatible version for unmarshaling
 type ProviderConfigK8s struct {
-	APIVersion string            `yaml:"apiVersion"`
-	Kind       string            `yaml:"kind"`
-	Metadata   metav1.ObjectMeta `yaml:"metadata,omitempty"`
-	Spec       Provider          `yaml:"spec"`
+	APIVersion string            `yaml:"apiVersion" json:"apiVersion"`
+	Kind       string            `yaml:"kind" json:"kind"`
+	Metadata   metav1.ObjectMeta `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	Spec       Provider          `yaml:"spec" json:"spec"`
 }
 
 // Provider defines API connection and defaults
@@ -1028,18 +1028,18 @@ type ProviderDefaults struct {
 
 // PromptConfigSchema represents a PromptConfig in K8s-style manifest format for schema generation
 type PromptConfigSchema struct {
-	APIVersion string      `yaml:"apiVersion"`
-	Kind       string      `yaml:"kind"`
-	Metadata   ObjectMeta  `yaml:"metadata,omitempty"`
-	Spec       prompt.Spec `yaml:"spec"`
+	APIVersion string      `yaml:"apiVersion" json:"apiVersion"`
+	Kind       string      `yaml:"kind" json:"kind"`
+	Metadata   ObjectMeta  `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	Spec       prompt.Spec `yaml:"spec" json:"spec"`
 }
 
 // ToolConfigSchema represents a Tool configuration for schema generation with simplified ObjectMeta
 type ToolConfigSchema struct {
-	APIVersion string     `yaml:"apiVersion"`
-	Kind       string     `yaml:"kind"`
-	Metadata   ObjectMeta `yaml:"metadata,omitempty"`
-	Spec       ToolSpec   `yaml:"spec"`
+	APIVersion string     `yaml:"apiVersion" json:"apiVersion"`
+	Kind       string     `yaml:"kind" json:"kind"`
+	Metadata   ObjectMeta `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	Spec       ToolSpec   `yaml:"spec" json:"spec"`
 }
 
 // ToolSpec represents a tool descriptor (re-exported from runtime/tools for schema generation)
@@ -1067,27 +1067,27 @@ type HTTPConfig struct {
 
 // PersonaConfigSchema represents a Persona configuration for schema generation with simplified ObjectMeta
 type PersonaConfigSchema struct {
-	APIVersion string          `yaml:"apiVersion"`
-	Kind       string          `yaml:"kind"`
-	Metadata   ObjectMeta      `yaml:"metadata,omitempty"`
-	Spec       UserPersonaPack `yaml:"spec"`
+	APIVersion string          `yaml:"apiVersion" json:"apiVersion"`
+	Kind       string          `yaml:"kind" json:"kind"`
+	Metadata   ObjectMeta      `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	Spec       UserPersonaPack `yaml:"spec" json:"spec"`
 }
 
 // EvalConfig represents an Eval (saved conversation evaluation) configuration
 // in K8s-style manifest format
 type EvalConfig struct {
-	APIVersion string     `yaml:"apiVersion"`
-	Kind       string     `yaml:"kind"`
-	Metadata   ObjectMeta `yaml:"metadata,omitempty"`
-	Spec       Eval       `yaml:"spec"`
+	APIVersion string     `yaml:"apiVersion" json:"apiVersion"`
+	Kind       string     `yaml:"kind" json:"kind"`
+	Metadata   ObjectMeta `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	Spec       Eval       `yaml:"spec" json:"spec"`
 }
 
 // EvalConfigK8s represents the Eval configuration using full K8s ObjectMeta for unmarshaling
 type EvalConfigK8s struct {
-	APIVersion string            `yaml:"apiVersion"`
-	Kind       string            `yaml:"kind"`
-	Metadata   metav1.ObjectMeta `yaml:"metadata,omitempty"`
-	Spec       Eval              `yaml:"spec"`
+	APIVersion string            `yaml:"apiVersion" json:"apiVersion"`
+	Kind       string            `yaml:"kind" json:"kind"`
+	Metadata   metav1.ObjectMeta `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	Spec       Eval              `yaml:"spec" json:"spec"`
 }
 
 // Eval describes an evaluation configuration for replaying and validating saved conversations

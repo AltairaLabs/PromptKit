@@ -36,7 +36,8 @@ type ValidateResponse struct {
 // PlanRequest is the input to Plan.
 type PlanRequest struct {
 	PackJSON     string `json:"pack_json"`
-	DeployConfig string `json:"deploy_config"` // JSON provider config
+	DeployConfig string `json:"deploy_config"`          // JSON provider config
+	ArenaConfig  string `json:"arena_config,omitempty"` // JSON-serialized config.Config with loaded resources
 	Environment  string `json:"environment,omitempty"`
 	PriorState   string `json:"prior_state,omitempty"` // Opaque adapter state from last deploy
 }
