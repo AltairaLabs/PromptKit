@@ -10,6 +10,107 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 )
 
+const defaultProviderGroup = "default"
+
+// mergeProviderSpecs merges inline provider specs into LoadedProviders.
+func (c *Config) mergeProviderSpecs() error {
+	for id, spec := range c.ProviderSpecs {
+		if _, exists := c.LoadedProviders[id]; exists {
+			return fmt.Errorf("provider %q defined in both provider_specs and providers file refs", id)
+		}
+		spec.ID = id
+		c.LoadedProviders[id] = spec
+		c.ProviderGroups[id] = defaultProviderGroup
+		if len(spec.Capabilities) > 0 {
+			c.ProviderCapabilities[id] = spec.Capabilities
+		}
+	}
+	return nil
+}
+
+// mergeScenarioSpecs merges inline scenario specs into LoadedScenarios.
+func (c *Config) mergeScenarioSpecs() error {
+	for id, spec := range c.ScenarioSpecs {
+		if _, exists := c.LoadedScenarios[id]; exists {
+			return fmt.Errorf("scenario %q defined in both scenario_specs and scenarios file refs", id)
+		}
+		spec.ID = id
+		c.LoadedScenarios[id] = spec
+	}
+	return nil
+}
+
+// mergeEvalSpecs merges inline eval specs into LoadedEvals.
+func (c *Config) mergeEvalSpecs() error {
+	for id, spec := range c.EvalSpecs {
+		if _, exists := c.LoadedEvals[id]; exists {
+			return fmt.Errorf("eval %q defined in both eval_specs and evals file refs", id)
+		}
+		spec.ID = id
+		c.LoadedEvals[id] = spec
+	}
+	return nil
+}
+
+// mergeToolSpecs merges inline tool specs into LoadedTools as marshaled YAML manifests.
+func (c *Config) mergeToolSpecs() error {
+	for name, spec := range c.ToolSpecs {
+		spec.Name = name
+		manifest := ToolConfigSchema{
+			APIVersion: "promptkit.altairalabs.ai/v1alpha1",
+			Kind:       "Tool",
+			Spec:       *spec,
+		}
+		data, err := yaml.Marshal(manifest)
+		if err != nil {
+			return fmt.Errorf("failed to marshal inline tool spec %q: %w", name, err)
+		}
+		c.LoadedTools = append(c.LoadedTools, ToolData{
+			FilePath: fmt.Sprintf("<inline:%s>", name),
+			Data:     data,
+		})
+	}
+	return nil
+}
+
+// mergeJudgeSpecs merges inline judge specs into LoadedJudges.
+func (c *Config) mergeJudgeSpecs() error {
+	for name, spec := range c.JudgeSpecs {
+		if _, exists := c.LoadedJudges[name]; exists {
+			return fmt.Errorf("judge %q defined in both judge_specs and judges refs", name)
+		}
+		provider, ok := c.LoadedProviders[spec.Provider]
+		if !ok {
+			return fmt.Errorf("judge_specs %q references unknown provider %q", name, spec.Provider)
+		}
+		model := spec.Model
+		if model == "" {
+			model = provider.Model
+		}
+		c.LoadedJudges[name] = &JudgeTarget{
+			Name:     name,
+			Provider: provider,
+			Model:    model,
+		}
+	}
+	return nil
+}
+
+// mergePromptSpecs merges inline prompt specs into LoadedPromptConfigs.
+func (c *Config) mergePromptSpecs() error {
+	for taskType, spec := range c.PromptSpecs {
+		if _, exists := c.LoadedPromptConfigs[taskType]; exists {
+			return fmt.Errorf("prompt config %q defined in both prompt_specs and prompt_configs file refs", taskType)
+		}
+		c.LoadedPromptConfigs[taskType] = &PromptConfigData{
+			FilePath: fmt.Sprintf("<inline:%s>", taskType),
+			Config:   &prompt.Config{Spec: *spec},
+			TaskType: spec.TaskType,
+		}
+	}
+	return nil
+}
+
 const (
 	// kindEval is the K8s-style kind value for Eval configurations
 	kindEval = "Eval"
@@ -53,20 +154,35 @@ func LoadConfig(filename string) (*Config, error) {
 	cfg.ProviderGroups = make(map[string]string)
 	cfg.ProviderCapabilities = make(map[string][]string)
 
-	// Load all resources
+	// Load all resources (file refs first, then merge inline specs)
+	if err := cfg.loadProviders(filename); err != nil {
+		return nil, err
+	}
+	if err := cfg.mergeProviderSpecs(); err != nil {
+		return nil, err
+	}
 	if err := cfg.loadPromptConfigs(filename); err != nil {
+		return nil, err
+	}
+	if err := cfg.mergePromptSpecs(); err != nil {
 		return nil, err
 	}
 	if err := cfg.loadScenarios(filename); err != nil {
 		return nil, err
 	}
+	if err := cfg.mergeScenarioSpecs(); err != nil {
+		return nil, err
+	}
 	if err := cfg.loadEvals(filename); err != nil {
 		return nil, err
 	}
-	if err := cfg.loadProviders(filename); err != nil {
+	if err := cfg.mergeEvalSpecs(); err != nil {
 		return nil, err
 	}
 	if err := cfg.loadTools(filename); err != nil {
+		return nil, err
+	}
+	if err := cfg.mergeToolSpecs(); err != nil {
 		return nil, err
 	}
 
@@ -82,6 +198,9 @@ func LoadConfig(filename string) (*Config, error) {
 		return nil, err
 	}
 	if err := cfg.buildJudgeTargets(); err != nil {
+		return nil, err
+	}
+	if err := cfg.mergeJudgeSpecs(); err != nil {
 		return nil, err
 	}
 
@@ -267,7 +386,7 @@ func (c *Config) loadProviders(configPath string) error {
 		c.LoadedProviders[provider.ID] = provider
 		group := ref.Group
 		if group == "" {
-			group = "default"
+			group = defaultProviderGroup
 		}
 		c.ProviderGroups[provider.ID] = group
 		// Populate provider capabilities from the provider spec
@@ -315,6 +434,15 @@ func (c *Config) loadSelfPlayResources(configPath string) error {
 			return fmt.Errorf("failed to load persona %s: %w", ref.File, err)
 		}
 		c.LoadedPersonas[persona.ID] = persona
+	}
+
+	// Merge inline persona specs
+	for id, spec := range c.SelfPlay.PersonaSpecs {
+		if _, exists := c.LoadedPersonas[id]; exists {
+			return fmt.Errorf("persona %q defined in both persona_specs and personas file refs", id)
+		}
+		spec.ID = id
+		c.LoadedPersonas[id] = spec
 	}
 
 	// Validate self-play provider references against main provider registry

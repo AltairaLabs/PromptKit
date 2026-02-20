@@ -134,6 +134,88 @@
         "description"
       ]
     },
+    "AssertionConfig": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "params"
+      ]
+    },
+    "AudioConfig": {
+      "properties": {
+        "max_size_mb": {
+          "type": "integer"
+        },
+        "allowed_formats": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "max_duration_sec": {
+          "type": "integer"
+        },
+        "require_metadata": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ChangelogEntry": {
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string"
+        },
+        "author": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "version",
+        "date",
+        "description"
+      ]
+    },
+    "CompilationInfo": {
+      "properties": {
+        "compiled_with": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "schema": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "compiled_with",
+        "created_at"
+      ]
+    },
     "Config": {
       "properties": {
         "prompt_configs": {
@@ -209,6 +291,42 @@
         },
         "pack_file": {
           "type": "string"
+        },
+        "provider_specs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Provider"
+          },
+          "type": "object"
+        },
+        "scenario_specs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Scenario"
+          },
+          "type": "object"
+        },
+        "eval_specs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Eval"
+          },
+          "type": "object"
+        },
+        "tool_specs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ToolSpec"
+          },
+          "type": "object"
+        },
+        "judge_specs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JudgeSpec"
+          },
+          "type": "object"
+        },
+        "prompt_specs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Spec"
+          },
+          "type": "object"
         }
       },
       "additionalProperties": false,
@@ -217,6 +335,77 @@
         "providers",
         "defaults"
       ]
+    },
+    "ContextMetadata": {
+      "properties": {
+        "domain": {
+          "type": "string"
+        },
+        "user_role": {
+          "type": "string"
+        },
+        "project_stage": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ContextPolicy": {
+      "properties": {
+        "token_budget": {
+          "type": "integer"
+        },
+        "reserve_for_output": {
+          "type": "integer"
+        },
+        "strategy": {
+          "type": "string"
+        },
+        "cache_breakpoints": {
+          "type": "boolean"
+        },
+        "relevance": {
+          "$ref": "#/$defs/RelevanceConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "CostEstimate": {
+      "properties": {
+        "min_cost_usd": {
+          "type": "number"
+        },
+        "max_cost_usd": {
+          "type": "number"
+        },
+        "avg_cost_usd": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "min_cost_usd",
+        "max_cost_usd",
+        "avg_cost_usd"
+      ]
+    },
+    "CredentialConfig": {
+      "properties": {
+        "api_key": {
+          "type": "string"
+        },
+        "credential_file": {
+          "type": "string"
+        },
+        "credential_env": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "Defaults": {
       "properties": {
@@ -296,6 +485,114 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "DuplexConfig": {
+      "properties": {
+        "timeout": {
+          "type": "string"
+        },
+        "turn_detection": {
+          "$ref": "#/$defs/TurnDetectionConfig"
+        },
+        "resilience": {
+          "$ref": "#/$defs/DuplexResilienceConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "DuplexResilienceConfig": {
+      "properties": {
+        "max_retries": {
+          "type": "integer"
+        },
+        "retry_delay_ms": {
+          "type": "integer"
+        },
+        "inter_turn_delay_ms": {
+          "type": "integer"
+        },
+        "selfplay_inter_turn_delay_ms": {
+          "type": "integer"
+        },
+        "partial_success_min_turns": {
+          "type": "integer"
+        },
+        "ignore_last_turn_session_end": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Eval": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for this evaluation"
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description"
+        },
+        "recording": {
+          "$ref": "#/$defs/RecordingSource",
+          "description": "Recording source"
+        },
+        "turns": {
+          "items": {
+            "$ref": "#/$defs/EvalTurnConfig"
+          },
+          "type": "array",
+          "description": "Turn-level assertions"
+        },
+        "conversation_assertions": {
+          "items": {
+            "$ref": "#/$defs/AssertionConfig"
+          },
+          "type": "array",
+          "description": "Conversation-level assertions"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Tags for categorization"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "instant",
+            "realtime",
+            "accelerated"
+          ],
+          "description": "Replay timing mode (instant"
+        },
+        "speed": {
+          "type": "number",
+          "description": "Playback speed (default 1.0)"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "description",
+        "recording"
+      ]
+    },
+    "EvalAllTurnsConfig": {
+      "properties": {
+        "assertions": {
+          "items": {
+            "$ref": "#/$defs/AssertionConfig"
+          },
+          "type": "array",
+          "description": "Assertions to apply to each assistant message"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "EvalDef": {
       "properties": {
         "id": {
@@ -344,10 +641,143 @@
         "file"
       ]
     },
+    "EvalTurnConfig": {
+      "properties": {
+        "all_turns": {
+          "$ref": "#/$defs/EvalAllTurnsConfig",
+          "description": "Assertions to apply to all assistant messages"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ExampleContentPart": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "media": {
+          "$ref": "#/$defs/ExampleMedia"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
+    "ExampleMedia": {
+      "properties": {
+        "file_path": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "mime_type": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "caption": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "mime_type"
+      ]
+    },
+    "FragmentRef": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "required"
+      ]
+    },
     "HTMLOutputConfig": {
       "properties": {
         "file": {
           "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "HTTPConfig": {
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "headers_from_env": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "timeout_ms": {
+          "type": "integer"
+        },
+        "redact": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "url",
+        "method",
+        "timeout_ms"
+      ]
+    },
+    "ImageConfig": {
+      "properties": {
+        "max_size_mb": {
+          "type": "integer"
+        },
+        "allowed_formats": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "default_detail": {
+          "type": "string"
+        },
+        "require_caption": {
+          "type": "boolean"
+        },
+        "max_images_per_msg": {
+          "type": "integer"
         }
       },
       "additionalProperties": false,
@@ -395,6 +825,21 @@
       "type": "object",
       "required": [
         "name",
+        "provider"
+      ]
+    },
+    "JudgeSpec": {
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
         "provider"
       ]
     },
@@ -485,6 +930,69 @@
         "show_cost_summary"
       ]
     },
+    "MediaConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "supported_types": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "image": {
+          "$ref": "#/$defs/ImageConfig"
+        },
+        "audio": {
+          "$ref": "#/$defs/AudioConfig"
+        },
+        "video": {
+          "$ref": "#/$defs/VideoConfig"
+        },
+        "examples": {
+          "items": {
+            "$ref": "#/$defs/MultimodalExample"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "enabled"
+      ]
+    },
+    "Metadata": {
+      "properties": {
+        "domain": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "cost_estimate": {
+          "$ref": "#/$defs/CostEstimate"
+        },
+        "performance": {
+          "$ref": "#/$defs/PerformanceMetrics"
+        },
+        "changelog": {
+          "items": {
+            "$ref": "#/$defs/ChangelogEntry"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "MetricDef": {
       "properties": {
         "name": {
@@ -502,6 +1010,77 @@
       "required": [
         "name",
         "type"
+      ]
+    },
+    "ModelOverride": {
+      "properties": {
+        "system_template": {
+          "type": "string"
+        },
+        "system_template_suffix": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ModelTestResultRef": {
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string"
+        },
+        "success_rate": {
+          "type": "number"
+        },
+        "avg_tokens": {
+          "type": "integer"
+        },
+        "avg_cost": {
+          "type": "number"
+        },
+        "avg_latency_ms": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "provider",
+        "model",
+        "date",
+        "success_rate"
+      ]
+    },
+    "MultimodalExample": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "parts": {
+          "items": {
+            "$ref": "#/$defs/ExampleContentPart"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "role",
+        "parts"
       ]
     },
     "ObjectMeta": {
@@ -570,6 +1149,60 @@
         "formats"
       ]
     },
+    "ParametersPack": {
+      "properties": {
+        "temperature": {
+          "type": "number"
+        },
+        "max_tokens": {
+          "type": "integer"
+        },
+        "top_p": {
+          "type": "number"
+        },
+        "top_k": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "PerformanceMetrics": {
+      "properties": {
+        "avg_latency_ms": {
+          "type": "integer"
+        },
+        "p95_latency_ms": {
+          "type": "integer"
+        },
+        "avg_tokens": {
+          "type": "integer"
+        },
+        "success_rate": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "avg_latency_ms",
+        "p95_latency_ms",
+        "avg_tokens",
+        "success_rate"
+      ]
+    },
+    "PersonaDefaults": {
+      "properties": {
+        "temperature": {
+          "type": "number"
+        },
+        "seed": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "PersonaRef": {
       "properties": {
         "file": {
@@ -580,6 +1213,66 @@
       "type": "object",
       "required": [
         "file"
+      ]
+    },
+    "PersonaStyle": {
+      "properties": {
+        "verbosity": {
+          "type": "string"
+        },
+        "challenge_level": {
+          "type": "string"
+        },
+        "friction_tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "verbosity",
+        "challenge_level",
+        "friction_tags"
+      ]
+    },
+    "PlatformConfig": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "region": {
+          "type": "string"
+        },
+        "project": {
+          "type": "string"
+        },
+        "endpoint": {
+          "type": "string"
+        },
+        "additional_config": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Pricing": {
+      "properties": {
+        "input_cost_per_1k": {
+          "type": "number"
+        },
+        "output_cost_per_1k": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "input_cost_per_1k",
+        "output_cost_per_1k"
       ]
     },
     "PromptConfigRef": {
@@ -602,6 +1295,78 @@
       "required": [
         "id",
         "file"
+      ]
+    },
+    "Provider": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "base_url": {
+          "type": "string"
+        },
+        "rate_limit": {
+          "$ref": "#/$defs/RateLimit"
+        },
+        "defaults": {
+          "$ref": "#/$defs/ProviderDefaults"
+        },
+        "pricing": {
+          "$ref": "#/$defs/Pricing"
+        },
+        "pricing_correct_at": {
+          "type": "string"
+        },
+        "include_raw_output": {
+          "type": "boolean"
+        },
+        "additional_config": {
+          "type": "object"
+        },
+        "credential": {
+          "$ref": "#/$defs/CredentialConfig"
+        },
+        "platform": {
+          "$ref": "#/$defs/PlatformConfig"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "model"
+      ]
+    },
+    "ProviderDefaults": {
+      "properties": {
+        "temperature": {
+          "type": "number"
+        },
+        "top_p": {
+          "type": "number"
+        },
+        "max_tokens": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "temperature",
+        "top_p",
+        "max_tokens"
       ]
     },
     "ProviderRef": {
@@ -631,6 +1396,22 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "RateLimit": {
+      "properties": {
+        "rps": {
+          "type": "integer"
+        },
+        "burst": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "rps",
+        "burst"
+      ]
+    },
     "RecordingConfig": {
       "properties": {
         "enabled": {
@@ -644,6 +1425,29 @@
       "type": "object",
       "required": [
         "enabled"
+      ]
+    },
+    "RecordingSource": {
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path to recording file"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "session",
+            "arena_output",
+            "transcript",
+            "generic"
+          ],
+          "description": "Recording format type hint (auto-detected if omitted)"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "path"
       ]
     },
     "RedisConfig": {
@@ -670,6 +1474,133 @@
         "address"
       ]
     },
+    "RelevanceConfig": {
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "min_recent_messages": {
+          "type": "integer"
+        },
+        "always_keep_system_role": {
+          "type": "boolean"
+        },
+        "similarity_threshold": {
+          "type": "number"
+        },
+        "query_source": {
+          "type": "string"
+        },
+        "last_n_count": {
+          "type": "integer"
+        },
+        "custom_query": {
+          "type": "string"
+        },
+        "cache_embeddings": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "provider"
+      ]
+    },
+    "Scenario": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "task_type": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "context_metadata": {
+          "$ref": "#/$defs/ContextMetadata"
+        },
+        "turns": {
+          "items": {
+            "$ref": "#/$defs/TurnDefinition"
+          },
+          "type": "array"
+        },
+        "context": {
+          "type": "object"
+        },
+        "constraints": {
+          "type": "object"
+        },
+        "tool_policy": {
+          "$ref": "#/$defs/ToolPolicy"
+        },
+        "providers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "provider_group": {
+          "type": "string"
+        },
+        "required_capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "streaming": {
+          "type": "boolean"
+        },
+        "context_policy": {
+          "$ref": "#/$defs/ContextPolicy"
+        },
+        "conversation_assertions": {
+          "items": {
+            "$ref": "#/$defs/AssertionConfig"
+          },
+          "type": "array"
+        },
+        "duplex": {
+          "$ref": "#/$defs/DuplexConfig"
+        },
+        "pack": {
+          "type": "string",
+          "description": "Path to a .pack.json file defining prompts and workflow state machine"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/WorkflowStep"
+          },
+          "type": "array",
+          "description": "Ordered sequence of workflow input steps"
+        },
+        "context_carry_forward": {
+          "type": "boolean",
+          "description": "Enable conversation context hand-off between workflow states"
+        },
+        "variables": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "description": "Template variables to inject into the pack"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "description"
+      ]
+    },
     "ScenarioRef": {
       "properties": {
         "file": {
@@ -692,6 +1623,12 @@
             "$ref": "#/$defs/PersonaRef"
           },
           "type": "array"
+        },
+        "persona_specs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/UserPersonaPack"
+          },
+          "type": "object"
         },
         "roles": {
           "items": {
@@ -724,6 +1661,90 @@
         "provider"
       ]
     },
+    "Spec": {
+      "properties": {
+        "task_type": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "template_engine": {
+          "$ref": "#/$defs/TemplateEngineInfo"
+        },
+        "fragments": {
+          "items": {
+            "$ref": "#/$defs/FragmentRef"
+          },
+          "type": "array"
+        },
+        "system_template": {
+          "type": "string"
+        },
+        "variables": {
+          "items": {
+            "$ref": "#/$defs/VariableMetadata"
+          },
+          "type": "array"
+        },
+        "model_overrides": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ModelOverride"
+          },
+          "type": "object"
+        },
+        "allowed_tools": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "media": {
+          "$ref": "#/$defs/MediaConfig"
+        },
+        "validators": {
+          "items": {
+            "$ref": "#/$defs/ValidatorConfig"
+          },
+          "type": "array"
+        },
+        "tested_models": {
+          "items": {
+            "$ref": "#/$defs/ModelTestResultRef"
+          },
+          "type": "array"
+        },
+        "tool_policy": {
+          "$ref": "#/$defs/ToolPolicyPack"
+        },
+        "parameters": {
+          "$ref": "#/$defs/ParametersPack"
+        },
+        "evals": {
+          "items": {
+            "$ref": "#/$defs/EvalDef"
+          },
+          "type": "array"
+        },
+        "metadata": {
+          "$ref": "#/$defs/Metadata"
+        },
+        "compilation": {
+          "$ref": "#/$defs/CompilationInfo"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "task_type",
+        "version",
+        "description",
+        "system_template"
+      ]
+    },
     "StateStoreConfig": {
       "properties": {
         "type": {
@@ -739,6 +1760,100 @@
         "type"
       ]
     },
+    "TTSConfig": {
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "voice": {
+          "type": "string"
+        },
+        "audio_files": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "sample_rate": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "provider",
+        "voice"
+      ]
+    },
+    "TemplateEngineInfo": {
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "syntax": {
+          "type": "string"
+        },
+        "features": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "version",
+        "syntax"
+      ]
+    },
+    "ToolPolicy": {
+      "properties": {
+        "tool_choice": {
+          "type": "string"
+        },
+        "max_tool_calls_per_turn": {
+          "type": "integer"
+        },
+        "max_total_tool_calls": {
+          "type": "integer"
+        },
+        "blocklist": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "tool_choice",
+        "max_tool_calls_per_turn",
+        "max_total_tool_calls"
+      ]
+    },
+    "ToolPolicyPack": {
+      "properties": {
+        "tool_choice": {
+          "type": "string"
+        },
+        "max_rounds": {
+          "type": "integer"
+        },
+        "max_tool_calls_per_turn": {
+          "type": "integer"
+        },
+        "blocklist": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "ToolRef": {
       "properties": {
         "file": {
@@ -749,6 +1864,360 @@
       "type": "object",
       "required": [
         "file"
+      ]
+    },
+    "ToolSpec": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "input_schema": true,
+        "output_schema": true,
+        "mode": {
+          "type": "string"
+        },
+        "timeout_ms": {
+          "type": "integer"
+        },
+        "mock_result": true,
+        "mock_template": {
+          "type": "string"
+        },
+        "http": {
+          "$ref": "#/$defs/HTTPConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "description",
+        "input_schema",
+        "output_schema",
+        "mode"
+      ]
+    },
+    "TurnContentPart": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "media": {
+          "$ref": "#/$defs/TurnMediaContent"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
+    "TurnDefinition": {
+      "properties": {
+        "role": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "parts": {
+          "items": {
+            "$ref": "#/$defs/TurnContentPart"
+          },
+          "type": "array"
+        },
+        "persona": {
+          "type": "string"
+        },
+        "turns": {
+          "type": "integer"
+        },
+        "assistant_temp": {
+          "type": "number"
+        },
+        "user_temp": {
+          "type": "number"
+        },
+        "seed": {
+          "type": "integer"
+        },
+        "tts": {
+          "$ref": "#/$defs/TTSConfig"
+        },
+        "streaming": {
+          "type": "boolean"
+        },
+        "assertions": {
+          "items": {
+            "$ref": "#/$defs/AssertionConfig"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "role"
+      ]
+    },
+    "TurnDetectionConfig": {
+      "properties": {
+        "mode": {
+          "type": "string"
+        },
+        "vad": {
+          "$ref": "#/$defs/VADConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "TurnMediaContent": {
+      "properties": {
+        "file_path": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "data": {
+          "type": "string"
+        },
+        "storage_reference": {
+          "type": "string"
+        },
+        "mime_type": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "caption": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "mime_type"
+      ]
+    },
+    "UserPersonaPack": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "prompt_activity": {
+          "type": "string"
+        },
+        "fragments": {
+          "items": {
+            "$ref": "#/$defs/FragmentRef"
+          },
+          "type": "array"
+        },
+        "system_template": {
+          "type": "string"
+        },
+        "required_vars": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "optional_vars": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "system_prompt": {
+          "type": "string"
+        },
+        "goals": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "constraints": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "style": {
+          "$ref": "#/$defs/PersonaStyle"
+        },
+        "defaults": {
+          "$ref": "#/$defs/PersonaDefaults"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "description",
+        "goals",
+        "constraints"
+      ]
+    },
+    "VADConfig": {
+      "properties": {
+        "silence_threshold_ms": {
+          "type": "integer"
+        },
+        "min_speech_ms": {
+          "type": "integer"
+        },
+        "max_turn_duration_s": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ValidatorConfig": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "fail_on_violation": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "params"
+      ]
+    },
+    "VariableBinding": {
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "field": {
+          "type": "string"
+        },
+        "autoPopulate": {
+          "type": "boolean"
+        },
+        "filter": {
+          "$ref": "#/$defs/VariableBindingFilter"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind"
+      ]
+    },
+    "VariableBindingFilter": {
+      "properties": {
+        "capability": {
+          "type": "string"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "VariableMetadata": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "default": true,
+        "description": {
+          "type": "string"
+        },
+        "example": true,
+        "validation": {
+          "type": "object"
+        },
+        "binding": {
+          "$ref": "#/$defs/VariableBinding"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "required"
+      ]
+    },
+    "VideoConfig": {
+      "properties": {
+        "max_size_mb": {
+          "type": "integer"
+        },
+        "allowed_formats": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "max_duration_sec": {
+          "type": "integer"
+        },
+        "require_metadata": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "WorkflowStep": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "input"
+          ],
+          "description": "Step type (only input is supported; transitions are LLM-initiated)"
+        },
+        "content": {
+          "type": "string",
+          "description": "User message text"
+        },
+        "assertions": {
+          "items": {
+            "$ref": "#/$defs/AssertionConfig"
+          },
+          "type": "array",
+          "description": "Assertions evaluated against the assistant response"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
       ]
     }
   },

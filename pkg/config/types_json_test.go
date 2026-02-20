@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 )
 
 func TestConfig_JSONRoundTrip(t *testing.T) {
@@ -67,6 +69,25 @@ func TestConfig_JSONRoundTrip(t *testing.T) {
 			Roles:    []SelfPlayRoleGroup{{ID: "r1", Provider: "openai"}},
 		},
 		PackFile: "pack.json",
+		// Inline specs
+		ProviderSpecs: map[string]*Provider{
+			"inline-p": {ID: "inline-p", Type: "openai", Model: "gpt-4o"},
+		},
+		ScenarioSpecs: map[string]*Scenario{
+			"inline-s": {ID: "inline-s", TaskType: "chat", Description: "Inline scenario"},
+		},
+		EvalSpecs: map[string]*Eval{
+			"inline-e": {ID: "inline-e", Description: "Inline eval"},
+		},
+		ToolSpecs: map[string]*ToolSpec{
+			"inline-t": {Name: "inline-t", Description: "Inline tool", Mode: "mock"},
+		},
+		JudgeSpecs: map[string]*JudgeSpec{
+			"inline-j": {Provider: "openai", Model: "gpt-4o-mini"},
+		},
+		PromptSpecs: map[string]*prompt.Spec{
+			"chat": {TaskType: "chat", SystemTemplate: "Hello"},
+		},
 		Deploy: &DeployConfig{
 			Provider: "agentcore",
 			Config:   map[string]interface{}{"region": "us-east-1"},
@@ -120,6 +141,20 @@ func TestConfig_JSONRoundTrip(t *testing.T) {
 	assert.InDelta(t, float32(0.7), restored.Defaults.Temperature, 0.001)
 	assert.Equal(t, 1024, restored.Defaults.MaxTokens)
 	assert.Equal(t, 42, restored.Defaults.Seed)
+
+	// Verify inline specs round-trip
+	require.NotNil(t, restored.ProviderSpecs["inline-p"])
+	assert.Equal(t, "gpt-4o", restored.ProviderSpecs["inline-p"].Model)
+	require.NotNil(t, restored.ScenarioSpecs["inline-s"])
+	assert.Equal(t, "chat", restored.ScenarioSpecs["inline-s"].TaskType)
+	require.NotNil(t, restored.EvalSpecs["inline-e"])
+	assert.Equal(t, "Inline eval", restored.EvalSpecs["inline-e"].Description)
+	require.NotNil(t, restored.ToolSpecs["inline-t"])
+	assert.Equal(t, "mock", restored.ToolSpecs["inline-t"].Mode)
+	require.NotNil(t, restored.JudgeSpecs["inline-j"])
+	assert.Equal(t, "openai", restored.JudgeSpecs["inline-j"].Provider)
+	require.NotNil(t, restored.PromptSpecs["chat"])
+	assert.Equal(t, "Hello", restored.PromptSpecs["chat"].SystemTemplate)
 }
 
 func TestConfig_JSONExcludesTransientFields(t *testing.T) {

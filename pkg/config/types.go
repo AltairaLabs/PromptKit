@@ -64,6 +64,15 @@ type Config struct {
 	Defaults      Defaults          `yaml:"defaults" json:"defaults"`
 	SelfPlay      *SelfPlayConfig   `yaml:"self_play,omitempty" json:"self_play,omitempty"`
 	PackFile      string            `yaml:"pack_file,omitempty" json:"pack_file,omitempty"`
+
+	// Inline resource specs (alternative to file refs, merged into LoadedX during load)
+	ProviderSpecs map[string]*Provider    `yaml:"provider_specs,omitempty" json:"provider_specs,omitempty"`
+	ScenarioSpecs map[string]*Scenario    `yaml:"scenario_specs,omitempty" json:"scenario_specs,omitempty"`
+	EvalSpecs     map[string]*Eval        `yaml:"eval_specs,omitempty" json:"eval_specs,omitempty"`
+	ToolSpecs     map[string]*ToolSpec    `yaml:"tool_specs,omitempty" json:"tool_specs,omitempty"`
+	JudgeSpecs    map[string]*JudgeSpec   `yaml:"judge_specs,omitempty" json:"judge_specs,omitempty"`
+	PromptSpecs   map[string]*prompt.Spec `yaml:"prompt_specs,omitempty" json:"prompt_specs,omitempty"`
+
 	// ProviderGroups maps provider ID to configured group (populated during load)
 	ProviderGroups map[string]string `yaml:"-" json:"provider_groups,omitempty"`
 	// ProviderCapabilities maps provider ID to its capabilities (populated during load)
@@ -241,6 +250,12 @@ type JudgeRef struct {
 	Model    string `yaml:"model,omitempty" json:"model,omitempty"` // Optional model override for the judge
 }
 
+// JudgeSpec defines an inline judge configuration.
+type JudgeSpec struct {
+	Provider string `yaml:"provider" json:"provider"`               // Provider ID reference
+	Model    string `yaml:"model,omitempty" json:"model,omitempty"` // Optional model override
+}
+
 // JudgeTarget is a resolved judge reference with provider config and effective model.
 type JudgeTarget struct {
 	Name     string    `json:"name"`               // Judge identifier
@@ -265,9 +280,10 @@ type ToolRef struct {
 
 // SelfPlayConfig configures self-play functionality
 type SelfPlayConfig struct {
-	Enabled  bool                `yaml:"enabled" json:"enabled"`
-	Personas []PersonaRef        `yaml:"personas" json:"personas"`
-	Roles    []SelfPlayRoleGroup `yaml:"roles" json:"roles"`
+	Enabled      bool                        `yaml:"enabled" json:"enabled"`
+	Personas     []PersonaRef                `yaml:"personas" json:"personas"`
+	PersonaSpecs map[string]*UserPersonaPack `yaml:"persona_specs,omitempty" json:"persona_specs,omitempty"`
+	Roles        []SelfPlayRoleGroup         `yaml:"roles" json:"roles"`
 }
 
 // PersonaRef references a persona file
@@ -473,7 +489,7 @@ type ScenarioConfigK8s struct {
 // A scenario is either a regular conversation scenario (with TaskType + Turns)
 // or a workflow scenario (with Pack + Steps). Use IsWorkflow() to distinguish.
 type Scenario struct {
-	ID              string                 `json:"id" yaml:"id"`
+	ID              string                 `json:"id,omitempty" yaml:"id,omitempty"`
 	TaskType        string                 `json:"task_type,omitempty" yaml:"task_type,omitempty"`
 	Mode            string                 `json:"mode,omitempty" yaml:"mode,omitempty"`
 	Description     string                 `json:"description" yaml:"description"`
@@ -964,7 +980,7 @@ type ProviderConfigK8s struct {
 
 // Provider defines API connection and defaults
 type Provider struct {
-	ID               string                 `json:"id" yaml:"id"`
+	ID               string                 `json:"id,omitempty" yaml:"id,omitempty"`
 	Type             string                 `json:"type" yaml:"type"`
 	Model            string                 `json:"model" yaml:"model"`
 	BaseURL          string                 `json:"base_url,omitempty" yaml:"base_url,omitempty"`
@@ -1044,12 +1060,12 @@ type ToolConfigSchema struct {
 
 // ToolSpec represents a tool descriptor (re-exported from runtime/tools for schema generation)
 type ToolSpec struct {
-	Name         string      `json:"name" yaml:"name"`
+	Name         string      `json:"name,omitempty" yaml:"name,omitempty"`
 	Description  string      `json:"description" yaml:"description"`
 	InputSchema  interface{} `json:"input_schema" yaml:"input_schema"`   // JSON Schema Draft-07
 	OutputSchema interface{} `json:"output_schema" yaml:"output_schema"` // JSON Schema Draft-07
 	Mode         string      `json:"mode" yaml:"mode"`                   // "mock" | "live"
-	TimeoutMs    int         `json:"timeout_ms" yaml:"timeout_ms"`
+	TimeoutMs    int         `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
 	MockResult   interface{} `json:"mock_result,omitempty" yaml:"mock_result,omitempty"`     // Static mock data
 	MockTemplate string      `json:"mock_template,omitempty" yaml:"mock_template,omitempty"` // Template for dynamic mocks
 	HTTPConfig   *HTTPConfig `json:"http,omitempty" yaml:"http,omitempty"`                   // Live HTTP configuration
@@ -1093,7 +1109,7 @@ type EvalConfigK8s struct {
 // Eval describes an evaluation configuration for replaying and validating saved conversations
 type Eval struct {
 	// ID uniquely identifies this evaluation configuration
-	ID string `json:"id" yaml:"id" jsonschema:"required,description=Unique identifier for this evaluation"`
+	ID string `json:"id,omitempty" yaml:"id,omitempty" jsonschema:"description=Unique identifier for this evaluation"`
 	// Description provides a human-readable explanation of what this eval tests
 	Description string `json:"description" yaml:"description" jsonschema:"description=Human-readable description"`
 	// Recording specifies the path to the saved conversation to evaluate
