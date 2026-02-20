@@ -65,23 +65,39 @@ func init() {
 
 // loadDeployConfig loads the arena config and returns the deploy section.
 func loadDeployConfig() (*config.DeployConfig, error) {
+	_, deployCfg, err := loadFullConfig()
+	return deployCfg, err
+}
+
+// loadFullConfig loads the arena config and returns both the full config and deploy section.
+func loadFullConfig() (*config.Config, *config.DeployConfig, error) {
 	if _, err := os.Stat(deployConfig); os.IsNotExist(err) {
-		return nil, fmt.Errorf("config file not found: %s", deployConfig)
+		return nil, nil, fmt.Errorf("config file not found: %s", deployConfig)
 	}
 
 	cfg, err := config.LoadConfig(deployConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
+		return nil, nil, fmt.Errorf("failed to load config: %w", err)
 	}
 
 	if cfg.Deploy == nil {
-		return nil, fmt.Errorf(
+		return nil, nil, fmt.Errorf(
 			"no deploy configuration found in %s\nAdd a 'deploy' section to your arena config",
 			deployConfig,
 		)
 	}
 
-	return cfg.Deploy, nil
+	return cfg, cfg.Deploy, nil
+}
+
+// serializeArenaConfig serializes the full arena config as JSON for adapter consumption.
+func serializeArenaConfig(cfg *config.Config) string {
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		log.Printf("Warning: failed to serialize arena config: %v", err)
+		return ""
+	}
+	return string(data)
 }
 
 const defaultEnvironment = "default"
@@ -263,7 +279,7 @@ func refreshState(
 // --- deploy (plan + apply) ---
 
 func runDeploy(cmd *cobra.Command, args []string) error {
-	deployCfg, err := loadDeployConfig()
+	arenaCfg, deployCfg, err := loadFullConfig()
 	if err != nil {
 		return err
 	}
@@ -317,6 +333,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	planReq := &deploy.PlanRequest{
 		PackJSON:     string(packData),
 		DeployConfig: configJSON,
+		ArenaConfig:  serializeArenaConfig(arenaCfg),
 		Environment:  env,
 		PriorState:   priorStateStr,
 	}
@@ -371,7 +388,7 @@ Examples:
 }
 
 func runDeployPlan(cmd *cobra.Command, args []string) error {
-	deployCfg, err := loadDeployConfig()
+	arenaCfg, deployCfg, err := loadFullConfig()
 	if err != nil {
 		return err
 	}
@@ -410,6 +427,7 @@ func runDeployPlan(cmd *cobra.Command, args []string) error {
 	planReq := &deploy.PlanRequest{
 		PackJSON:     string(packData),
 		DeployConfig: configJSON,
+		ArenaConfig:  serializeArenaConfig(arenaCfg),
 		Environment:  env,
 		PriorState:   priorStateStr,
 	}
@@ -448,7 +466,7 @@ Examples:
 }
 
 func runDeployApply(cmd *cobra.Command, args []string) error {
-	deployCfg, err := loadDeployConfig()
+	arenaCfg, deployCfg, err := loadFullConfig()
 	if err != nil {
 		return err
 	}
@@ -504,6 +522,7 @@ func runDeployApply(cmd *cobra.Command, args []string) error {
 		planReq = &deploy.PlanRequest{
 			PackJSON:     string(packData),
 			DeployConfig: configJSON,
+			ArenaConfig:  serializeArenaConfig(arenaCfg),
 			Environment:  env,
 			PriorState:   priorStateStr,
 		}
