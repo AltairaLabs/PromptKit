@@ -389,3 +389,80 @@ func TestDiscoverNonexistentDirectory(t *testing.T) {
 		t.Fatal("expected error for nonexistent directory")
 	}
 }
+
+func TestDiscoverResolveAtRef(t *testing.T) {
+	// Set up a project directory with .promptkit/skills/testorg/testskill/ containing SKILL.md.
+	projectDir := t.TempDir()
+	promptkitSkillDir := filepath.Join(projectDir, ".promptkit", "skills", "testorg", "testskill")
+	if err := os.MkdirAll(promptkitSkillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\nname: resolved-skill\ndescription: A resolved skill\n---\n\nDo something"
+	if err := os.WriteFile(filepath.Join(promptkitSkillDir, "SKILL.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Change to project dir so DefaultSkillsProjectDir() returns the right path.
+	origWd, _ := os.Getwd()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(origWd) }()
+
+	reg := NewRegistry()
+	err := reg.Discover([]SkillSource{{Dir: "@testorg/testskill"}})
+	if err != nil {
+		t.Fatalf("Discover() error: %v", err)
+	}
+
+	if !reg.Has("resolved-skill") {
+		t.Error("expected skill 'resolved-skill' to be registered after @-ref resolution")
+	}
+}
+
+func TestDiscoverResolveAtRefNotInstalled(t *testing.T) {
+	reg := NewRegistry()
+	// @nonexistent/skill won't be found anywhere.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	err := reg.Discover([]SkillSource{{Dir: "@nonexistent/skill"}})
+	if err == nil {
+		t.Fatal("expected error for uninstalled @-ref")
+	}
+}
+
+func TestDiscoverResolveAtRefInvalidFormat(t *testing.T) {
+	reg := NewRegistry()
+	err := reg.Discover([]SkillSource{{Dir: "@invalid"}})
+	if err == nil {
+		t.Fatal("expected error for invalid @-ref format")
+	}
+}
+
+func TestResolveRefIntegration(t *testing.T) {
+	// Set up a project-level skill directory.
+	projectDir := t.TempDir()
+	promptkitSkills := filepath.Join(projectDir, ".promptkit", "skills", "org", "skill")
+	if err := os.MkdirAll(promptkitSkills, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	origWd, _ := os.Getwd()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(origWd) }()
+
+	reg := NewRegistry()
+	ref := SkillRef{Org: "org", Name: "skill"}
+	path, err := reg.ResolveRef(ref)
+	if err != nil {
+		t.Fatalf("ResolveRef() error: %v", err)
+	}
+
+	// Use EvalSymlinks for macOS /var -> /private/var resolution.
+	wantPath, _ := filepath.EvalSymlinks(promptkitSkills)
+	gotPath, _ := filepath.EvalSymlinks(path)
+	if gotPath != wantPath {
+		t.Errorf("ResolveRef() = %q, want %q", gotPath, wantPath)
+	}
+}
