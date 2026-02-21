@@ -423,6 +423,53 @@ func TestValidateWorkflow_EventTargetNotInStates(t *testing.T) {
 	assert.Contains(t, err.Error(), "does not exist in states")
 }
 
+func TestParseWorkflowWithSkills(t *testing.T) {
+	data := []byte(`{
+		"id": "wf-skills-pack",
+		"prompts": {
+			"gather": {"id": "gather", "system_template": "Gather info"},
+			"solve": {"id": "solve", "system_template": "Solve it"}
+		},
+		"workflow": {
+			"version": 1,
+			"entry": "intake",
+			"states": {
+				"intake": {"prompt_task": "gather", "skills": "skills/support", "on_event": {"Done": "solving"}},
+				"solving": {"prompt_task": "solve", "skills": "none"}
+			}
+		}
+	}`)
+
+	p, err := Parse(data)
+	require.NoError(t, err)
+	require.NotNil(t, p.Workflow)
+	assert.Equal(t, "skills/support", p.Workflow.States["intake"].Skills)
+	assert.Equal(t, "none", p.Workflow.States["solving"].Skills)
+}
+
+func TestParseSkillSourcePath(t *testing.T) {
+	data := []byte(`{
+		"id": "path-pack",
+		"prompts": {
+			"p": {"id": "p", "system_template": "test"}
+		},
+		"skills": [
+			{"path": "skills/dir1"},
+			{"dir": "skills/dir2"},
+			{"name": "inline", "description": "An inline skill", "instructions": "Do this."}
+		]
+	}`)
+
+	p, err := Parse(data)
+	require.NoError(t, err)
+	require.Len(t, p.Skills, 3)
+	assert.Equal(t, "skills/dir1", p.Skills[0].Path)
+	assert.Equal(t, "skills/dir1", p.Skills[0].EffectiveDir())
+	assert.Equal(t, "skills/dir2", p.Skills[1].Dir)
+	assert.Equal(t, "skills/dir2", p.Skills[1].EffectiveDir())
+	assert.Equal(t, "inline", p.Skills[2].Name)
+}
+
 func TestParseWithWorkflow(t *testing.T) {
 	t.Run("valid workflow section", func(t *testing.T) {
 		data := []byte(`{

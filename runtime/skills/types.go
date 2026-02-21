@@ -22,7 +22,8 @@ type Skill struct {
 // SkillSource represents a skill reference from the pack YAML.
 type SkillSource struct {
 	// For directory-based skills
-	Dir string `yaml:"dir,omitempty" json:"dir,omitempty"`
+	Dir  string `yaml:"dir,omitempty" json:"dir,omitempty"`
+	Path string `yaml:"path,omitempty" json:"path,omitempty"` // schema alias for dir
 
 	// For inline skills
 	Name         string `yaml:"name,omitempty" json:"name,omitempty"`
@@ -31,4 +32,12 @@ type SkillSource struct {
 
 	// Options
 	Preload bool `yaml:"preload,omitempty" json:"preload,omitempty"`
+}
+
+// EffectiveDir returns the directory path, preferring Dir over Path.
+func (s *SkillSource) EffectiveDir() string {
+	if s.Dir != "" {
+		return s.Dir
+	}
+	return s.Path
 }

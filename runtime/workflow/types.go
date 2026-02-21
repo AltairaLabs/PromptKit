@@ -21,6 +21,7 @@ type State struct {
 	OnEvent       map[string]string `json:"on_event,omitempty"`
 	Persistence   Persistence       `json:"persistence,omitempty"`
 	Orchestration Orchestration     `json:"orchestration,omitempty"`
+	Skills        string            `json:"skills,omitempty"`
 }
 
 // Persistence is the storage hint for a workflow state.
