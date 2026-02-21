@@ -728,7 +728,7 @@ func formatToolResult(value interface{}) string {
 }
 
 func (s *ProviderStage) buildProviderTools(allowedTools []string) (interface{}, string, error) {
-	if s.toolRegistry == nil || len(allowedTools) == 0 {
+	if s.toolRegistry == nil {
 		return nil, "", nil
 	}
 
@@ -738,21 +738,40 @@ func (s *ProviderStage) buildProviderTools(allowedTools []string) (interface{}, 
 		return nil, "", nil
 	}
 
-	// Build tool descriptors from registry
-	descriptors := make([]*providers.ToolDescriptor, 0, len(allowedTools))
+	// Build tool descriptors: pack-declared tools (allowedTools) + capability tools (system-namespaced)
+	seen := make(map[string]bool)
+	var descriptors []*providers.ToolDescriptor
+
+	// 1. Add pack-declared tools from the prompt's allowed list
 	for _, toolName := range allowedTools {
 		tool, err := s.toolRegistry.GetTool(toolName)
 		if err != nil {
 			logger.Warn("Tool not found in registry", "tool", toolName, "error", err)
 			continue
 		}
-
-		descriptor := &providers.ToolDescriptor{
+		seen[tool.Name] = true
+		descriptors = append(descriptors, &providers.ToolDescriptor{
 			Name:        tool.Name,
 			Description: tool.Description,
 			InputSchema: tool.InputSchema,
+		})
+	}
+
+	// 2. Add capability tools (system-namespaced: skill__, a2a__, workflow__, mcp__, memory__)
+	//    These are registered by capabilities and are always available to the LLM.
+	for name, tool := range s.toolRegistry.GetTools() {
+		if seen[name] || !tools.IsSystemTool(name) {
+			continue
 		}
-		descriptors = append(descriptors, descriptor)
+		descriptors = append(descriptors, &providers.ToolDescriptor{
+			Name:        tool.Name,
+			Description: tool.Description,
+			InputSchema: tool.InputSchema,
+		})
+	}
+
+	if len(descriptors) == 0 {
+		return nil, "", nil
 	}
 
 	// Build provider-specific tools

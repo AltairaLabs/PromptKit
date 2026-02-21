@@ -4,10 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/skills"
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 	wf "github.com/AltairaLabs/PromptKit/tools/arena/workflow"
@@ -37,6 +42,7 @@ type arenaWorkflowDriver struct {
 	pack            *prompt.Pack
 	sm              *workflow.StateMachine
 	provider        providers.Provider
+	toolRegistry    *tools.Registry       // tool registry for executing non-workflow tool calls
 	messages        []types.Message       // current-state conversation history (cleared on transition)
 	messageTrace    []types.Message       // complete message log across all states (never cleared)
 	scenarioID      string                // for mock provider lookup
@@ -92,16 +98,24 @@ func (d *arenaWorkflowDriver) Send(ctx context.Context, message string) (string,
 		return d.predictNoTools(ctx, req)
 	}
 
-	// Build the transition tool and call PredictWithTools
-	toolDesc := d.buildTransitionTool(state)
-	tools, err := ts.BuildTooling([]*providers.ToolDescriptor{toolDesc})
+	// Build all tool descriptors: workflow transition + registered tools (skills, pack tools)
+	toolDescs := d.buildAllToolDescriptors(state)
+	providerTools, err := ts.BuildTooling(toolDescs)
 	if err != nil {
 		return "", fmt.Errorf("BuildTooling failed: %w", err)
 	}
 
-	resp, toolCalls, err := ts.PredictWithTools(ctx, req, tools, "auto")
+	start := time.Now()
+	resp, toolCalls, err := ts.PredictWithTools(ctx, req, providerTools, "auto")
 	if err != nil {
 		return "", fmt.Errorf("PredictWithTools failed in state %q: %w", d.sm.CurrentState(), err)
+	}
+	latency := time.Since(start)
+
+	// Collect tool names for observability
+	toolNames := make([]string, len(toolDescs))
+	for i, td := range toolDescs {
+		toolNames[i] = td.Name
 	}
 
 	// Build assistant message for trace
@@ -109,18 +123,44 @@ func (d *arenaWorkflowDriver) Send(ctx context.Context, message string) (string,
 		Role:      "assistant",
 		Content:   resp.Content,
 		ToolCalls: toolCalls,
+		Timestamp: time.Now(),
+		LatencyMs: latency.Milliseconds(),
+		CostInfo:  resp.CostInfo,
+		Meta: map[string]interface{}{
+			"_available_tools": toolNames,
+		},
 	}
 	d.messages = append(d.messages, assistantMsg)
 	d.messageTrace = append(d.messageTrace, assistantMsg)
 
-	// Process any workflow__transition tool calls
+	// Process tool calls: execute non-workflow tools via registry, handle workflow transitions
 	for _, tc := range toolCalls {
-		if tc.Name != workflowTransitionTool {
+		if tc.Name == workflowTransitionTool {
+			if err := d.processTransitionToolCall(tc); err != nil {
+				return resp.Content, err
+			}
 			continue
 		}
 
-		if err := d.processTransitionToolCall(tc); err != nil {
-			return resp.Content, err
+		// Execute non-workflow tool calls (skill__activate, a2a__, etc.) via the tool registry
+		if d.toolRegistry != nil {
+			result, execErr := d.toolRegistry.Execute(tc.Name, tc.Args)
+			var content string
+			if execErr != nil {
+				content = fmt.Sprintf(`{"error":%q}`, execErr.Error())
+			} else if result.Error != "" {
+				content = fmt.Sprintf(`{"error":%q}`, result.Error)
+			} else {
+				content = string(result.Result)
+			}
+			toolResultMsg := types.NewToolResultMessage(types.MessageToolResult{
+				ID:      tc.ID,
+				Name:    tc.Name,
+				Content: content,
+			})
+			// Only append to trace, not to d.messages — tool results in d.messages
+			// cause the mock provider to inflate the turn number (turn skew).
+			d.messageTrace = append(d.messageTrace, toolResultMsg)
 		}
 	}
 
@@ -185,12 +225,20 @@ func (d *arenaWorkflowDriver) processTransitionToolCall(tc types.MessageToolCall
 //
 //nolint:gocritic // hugeParam: req value is needed for interface compatibility
 func (d *arenaWorkflowDriver) predictNoTools(ctx context.Context, req providers.PredictionRequest) (string, error) {
+	start := time.Now()
 	resp, err := d.provider.Predict(ctx, req)
 	if err != nil {
 		return "", fmt.Errorf("provider predict failed in state %q: %w", d.sm.CurrentState(), err)
 	}
+	latency := time.Since(start)
 
-	assistantMsg := types.Message{Role: "assistant", Content: resp.Content}
+	assistantMsg := types.Message{
+		Role:      "assistant",
+		Content:   resp.Content,
+		Timestamp: time.Now(),
+		LatencyMs: latency.Milliseconds(),
+		CostInfo:  resp.CostInfo,
+	}
 	d.messages = append(d.messages, assistantMsg)
 	d.messageTrace = append(d.messageTrace, assistantMsg)
 
@@ -217,6 +265,76 @@ func (d *arenaWorkflowDriver) substituteWorkflowContext(template string) string 
 func (d *arenaWorkflowDriver) buildTransitionTool(state *workflow.State) *providers.ToolDescriptor {
 	events := workflow.SortedEvents(state.OnEvent)
 	return workflow.BuildTransitionProviderDescriptor(events)
+}
+
+// buildAllToolDescriptors builds the complete set of tool descriptors to send to the LLM:
+// the workflow__transition tool plus any registered tools (skill tools, pack tools).
+func (d *arenaWorkflowDriver) buildAllToolDescriptors(state *workflow.State) []*providers.ToolDescriptor {
+	descs := []*providers.ToolDescriptor{d.buildTransitionTool(state)}
+
+	if d.toolRegistry == nil {
+		return descs
+	}
+
+	for _, name := range d.toolRegistry.List() {
+		td := d.toolRegistry.Get(name)
+		if td == nil {
+			continue
+		}
+		descs = append(descs, &providers.ToolDescriptor{
+			Name:        td.Name,
+			Description: td.Description,
+			InputSchema: td.InputSchema,
+		})
+	}
+
+	return descs
+}
+
+// registerPackSkillTools discovers skills from a pack and registers them in the tool registry.
+// The pack's skill paths are resolved relative to the pack file's directory.
+func registerPackSkillTools(pack *prompt.Pack, packPath string, toolRegistry *tools.Registry) error {
+	packDir := filepath.Dir(packPath)
+
+	// Convert pack skill configs to runtime SkillSource, resolving relative paths
+	sources := make([]skills.SkillSource, len(pack.Skills))
+	for i, s := range pack.Skills {
+		dir := s.EffectiveDir()
+		if dir != "" && !filepath.IsAbs(dir) {
+			dir = filepath.Join(packDir, dir)
+		}
+		sources[i] = skills.SkillSource{
+			Dir:          dir,
+			Name:         s.Name,
+			Description:  s.Description,
+			Instructions: s.Instructions,
+			Preload:      s.Preload,
+		}
+	}
+
+	reg := skills.NewRegistry()
+	if err := reg.Discover(sources); err != nil {
+		return fmt.Errorf("skills discovery: %w", err)
+	}
+
+	executor := skills.NewExecutor(skills.ExecutorConfig{Registry: reg})
+
+	// Only register if not already registered
+	index := executor.SkillIndex("")
+	if toolRegistry.Get(skills.SkillActivateTool) == nil {
+		_ = toolRegistry.Register(skills.BuildSkillActivateDescriptorWithIndex(index))
+		_ = toolRegistry.Register(skills.BuildSkillDeactivateDescriptor())
+		_ = toolRegistry.Register(skills.BuildSkillReadResourceDescriptor())
+		toolRegistry.RegisterExecutor(skills.NewToolExecutor(executor))
+	}
+
+	// Preload skills marked with preload: true
+	for _, sk := range reg.PreloadedSkills() {
+		_, _, _ = executor.Activate(sk.Name)
+	}
+
+	logger.Info("Registered pack skill tools", "count", len(reg.List()))
+	return nil
 }
 
 // Transitions returns the transitions from the most recent Send() call.
@@ -249,6 +367,23 @@ func (d *arenaWorkflowDriver) InitialSystemPrompt() string {
 	return d.SystemPromptForState(d.pack.Workflow.Entry)
 }
 
+// AvailableToolNames returns the names of all tools registered in the driver's tool registry.
+// This includes workflow transition tools and capability tools (skill__, a2a__, etc.).
+func (d *arenaWorkflowDriver) AvailableToolNames() []string {
+	if d.toolRegistry == nil {
+		return nil
+	}
+
+	// Always include workflow__transition if the entry state has events
+	var names []string
+	if state := d.pack.Workflow.States[d.pack.Workflow.Entry]; state != nil && len(state.OnEvent) > 0 {
+		names = append(names, workflowTransitionTool)
+	}
+
+	names = append(names, d.toolRegistry.List()...)
+	return names
+}
+
 // SystemPromptForState returns the system prompt for the given workflow state.
 func (d *arenaWorkflowDriver) SystemPromptForState(stateName string) string {
 	state, ok := d.pack.Workflow.States[stateName]
@@ -269,7 +404,7 @@ func (d *arenaWorkflowDriver) SystemPromptForState(stateName string) string {
 // The returned callback retrieves the driver created by the factory, allowing
 // callers to access driver-specific methods like InitialSystemPrompt().
 func newArenaDriverFactory(
-	provider providers.Provider, scenarioID string,
+	provider providers.Provider, scenarioID string, toolRegistry *tools.Registry,
 ) (factory wf.DriverFactory, getDriver func() *arenaWorkflowDriver) {
 	var lastDriver *arenaWorkflowDriver
 
@@ -285,11 +420,23 @@ func newArenaDriverFactory(
 
 		sm := workflow.NewStateMachine(pack.Workflow)
 
+		// Discover and register skill tools from the pack if not already in the registry
+		driverToolRegistry := toolRegistry
+		if len(pack.Skills) > 0 {
+			if driverToolRegistry == nil {
+				driverToolRegistry = tools.NewRegistry()
+			}
+			if err := registerPackSkillTools(pack, packPath, driverToolRegistry); err != nil {
+				return nil, fmt.Errorf("failed to register skill tools: %w", err)
+			}
+		}
+
 		lastDriver = &arenaWorkflowDriver{
-			pack:       pack,
-			sm:         sm,
-			provider:   provider,
-			scenarioID: scenarioID,
+			pack:         pack,
+			sm:           sm,
+			provider:     provider,
+			toolRegistry: driverToolRegistry,
+			scenarioID:   scenarioID,
 		}
 		return lastDriver, nil
 	}

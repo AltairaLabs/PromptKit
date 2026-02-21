@@ -63,7 +63,7 @@ Be concise, accurate, and friendly in your responses.`,
 
 	// Build engine components from programmatic config
 	fmt.Println("Building Arena engine components...")
-	providerReg, promptReg, mcpReg, executor, adapterReg, _, err := engine.BuildEngineComponents(cfg)
+	providerReg, promptReg, mcpReg, executor, adapterReg, _, _, err := engine.BuildEngineComponents(cfg)
 	if err != nil {
 		log.Fatalf("Failed to build engine components: %v", err)
 	}

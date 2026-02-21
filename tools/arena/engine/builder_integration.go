@@ -18,6 +18,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/skills"
 
 	// Import provider subpackages to register their factories
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/claude"
@@ -63,6 +64,7 @@ func BuildEngineComponents(cfg *config.Config) (
 	convExecutor ConversationExecutor,
 	adapterReg *adapters.Registry,
 	a2aCleanup func(),
+	toolReg *tools.Registry,
 	err error,
 ) {
 	// Initialize core registries
@@ -71,45 +73,53 @@ func BuildEngineComponents(cfg *config.Config) (
 	// Create MCP registry from config
 	mcpRegistry, err = buildMCPRegistry(cfg)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to create MCP registry: %w", err)
+		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to create MCP registry: %w", err)
 	}
 
 	// Build prompt registry - validate and extract task type mappings
 	promptRegistry, err = buildPromptRegistry(cfg)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to build prompt registry: %w", err)
+		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to build prompt registry: %w", err)
 	}
 
 	// Build tool registry with memory repository
 	toolRegistry, toolErr := buildToolRegistry(cfg)
 	if toolErr != nil {
-		return nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to build tool registry: %w", toolErr)
+		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to build tool registry: %w", toolErr)
 	}
 
 	// Build provider registry (must stay in engine to avoid circular import with config)
 	for _, provider := range cfg.LoadedProviders {
 		providerImpl, provErr := createProviderImpl(cfg.ConfigDir, provider)
 		if provErr != nil {
-			return nil, nil, nil, nil, nil, nil, provErr
+			return nil, nil, nil, nil, nil, nil, nil, provErr
 		}
 		providerRegistry.Register(providerImpl)
 	}
 
 	// Discover and register MCP tools (if any MCP servers configured)
 	if mcpErr := discoverAndRegisterMCPTools(mcpRegistry, toolRegistry); mcpErr != nil {
-		return nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to discover MCP tools: %w", mcpErr)
+		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to discover MCP tools: %w", mcpErr)
 	}
 
 	// Build media storage service
 	mediaStorage, storageErr := buildMediaStorage(cfg)
 	if storageErr != nil {
-		return nil, nil, nil, nil, nil, nil, storageErr
+		return nil, nil, nil, nil, nil, nil, nil, storageErr
 	}
 
 	// Discover and register A2A agent tools (if any A2A agents configured)
 	a2aCleanupFn, a2aErr := startAndRegisterA2AAgents(cfg, toolRegistry)
 	if a2aErr != nil {
-		return nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to start A2A agents: %w", a2aErr)
+		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to start A2A agents: %w", a2aErr)
+	}
+
+	// Discover and register skill tools (if pack has skills configured)
+	if skillErr := discoverAndRegisterSkillTools(cfg, toolRegistry); skillErr != nil {
+		if a2aCleanupFn != nil {
+			a2aCleanupFn()
+		}
+		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to register skill tools: %w", skillErr)
 	}
 
 	// Build pack eval hook if pack is loaded
@@ -125,10 +135,11 @@ func BuildEngineComponents(cfg *config.Config) (
 		if a2aCleanupFn != nil {
 			a2aCleanupFn()
 		}
-		return nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, err
 	}
 
-	return providerRegistry, promptRegistry, mcpRegistry, conversationExecutor, adapterRegistry, a2aCleanupFn, nil
+	return providerRegistry, promptRegistry, mcpRegistry, conversationExecutor,
+		adapterRegistry, a2aCleanupFn, toolRegistry, nil
 }
 
 // createProviderImpl converts config.Provider to providers.Provider.
@@ -581,6 +592,50 @@ func buildStateStore(cfg *config.Config) (runtimestore.Store, error) {
 	default:
 		return nil, fmt.Errorf("unsupported state store type: %s", cfg.StateStore.Type)
 	}
+}
+
+// discoverAndRegisterSkillTools discovers skills from the loaded pack and registers
+// skill tool descriptors and executor in the tool registry.
+func discoverAndRegisterSkillTools(cfg *config.Config, toolRegistry *tools.Registry) error {
+	pack := cfg.LoadedPack
+	if pack == nil || len(pack.Skills) == 0 {
+		return nil
+	}
+
+	// Convert pack skill configs to runtime SkillSource
+	sources := make([]skills.SkillSource, len(pack.Skills))
+	for i, s := range pack.Skills {
+		sources[i] = skills.SkillSource{
+			Dir:          s.EffectiveDir(),
+			Name:         s.Name,
+			Description:  s.Description,
+			Instructions: s.Instructions,
+			Preload:      s.Preload,
+		}
+	}
+
+	// Discover skills
+	reg := skills.NewRegistry()
+	if err := reg.Discover(sources); err != nil {
+		return fmt.Errorf("skills discovery: %w", err)
+	}
+
+	// Create executor (no selector, no pack tool ceiling in arena)
+	executor := skills.NewExecutor(skills.ExecutorConfig{Registry: reg})
+
+	// Register tool descriptors + executor
+	_ = toolRegistry.Register(skills.BuildSkillActivateDescriptor())
+	_ = toolRegistry.Register(skills.BuildSkillDeactivateDescriptor())
+	_ = toolRegistry.Register(skills.BuildSkillReadResourceDescriptor())
+	toolRegistry.RegisterExecutor(skills.NewToolExecutor(executor))
+
+	// Preload skills marked with preload: true
+	for _, sk := range reg.PreloadedSkills() {
+		_, _, _ = executor.Activate(sk.Name)
+	}
+
+	logger.Info("Discovered skills", "count", len(reg.List()))
+	return nil
 }
 
 // a2aInitTimeout is the timeout for discovering and registering A2A agent tools.

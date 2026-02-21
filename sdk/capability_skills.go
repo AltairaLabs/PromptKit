@@ -1,7 +1,6 @@
 package sdk
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/skills"
@@ -86,15 +85,12 @@ func (c *SkillsCapability) RegisterTools(registry *tools.Registry) {
 		return
 	}
 
-	activateDesc := buildSkillActivateDescriptor()
-	deactivateDesc := buildSkillDeactivateDescriptor()
-	readResourceDesc := buildSkillReadResourceDescriptor()
+	index := c.executor.SkillIndex("")
+	_ = registry.Register(skills.BuildSkillActivateDescriptorWithIndex(index))
+	_ = registry.Register(skills.BuildSkillDeactivateDescriptor())
+	_ = registry.Register(skills.BuildSkillReadResourceDescriptor())
 
-	_ = registry.Register(activateDesc)
-	_ = registry.Register(deactivateDesc)
-	_ = registry.Register(readResourceDesc)
-
-	registry.RegisterExecutor(newSkillExecutor(c.executor))
+	registry.RegisterExecutor(skills.NewToolExecutor(c.executor))
 }
 
 // Close is a no-op for SkillsCapability.
@@ -103,206 +99,4 @@ func (c *SkillsCapability) Close() error { return nil }
 // Executor returns the underlying skills executor for testing.
 func (c *SkillsCapability) Executor() *skills.Executor { return c.executor }
 
-// --- Tool Descriptors ---
-
-const (
-	capabilityNameSkills  = "skills"
-	skillActivateTool     = "skill__activate"
-	skillDeactivateTool   = "skill__deactivate"
-	skillReadResourceTool = "skill__read_resource"
-	skillNamespace        = "skill"
-	skillExecutorName     = "skill"
-)
-
-func buildSkillActivateDescriptor() *tools.ToolDescriptor {
-	schema := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"name": map[string]any{
-				"type":        "string",
-				"description": "Name of the skill to activate.",
-			},
-		},
-		"required": []string{"name"},
-	}
-	inputSchema, _ := json.Marshal(schema)
-
-	outputSchema, _ := json.Marshal(map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"instructions": map[string]any{"type": "string"},
-			"added_tools":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-		},
-	})
-
-	return &tools.ToolDescriptor{
-		Name:         skillActivateTool,
-		Namespace:    skillNamespace,
-		Description:  "Activate a skill to load its instructions and tools.",
-		InputSchema:  inputSchema,
-		OutputSchema: outputSchema,
-		Mode:         skillExecutorName,
-	}
-}
-
-func buildSkillDeactivateDescriptor() *tools.ToolDescriptor {
-	schema := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"name": map[string]any{
-				"type":        "string",
-				"description": "Name of the skill to deactivate.",
-			},
-		},
-		"required": []string{"name"},
-	}
-	inputSchema, _ := json.Marshal(schema)
-
-	outputSchema, _ := json.Marshal(map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"removed_tools": map[string]any{
-				"type":  "array",
-				"items": map[string]any{"type": "string"},
-			},
-		},
-	})
-
-	return &tools.ToolDescriptor{
-		Name:         skillDeactivateTool,
-		Namespace:    skillNamespace,
-		Description:  "Deactivate a skill to unload its instructions and tools.",
-		InputSchema:  inputSchema,
-		OutputSchema: outputSchema,
-		Mode:         skillExecutorName,
-	}
-}
-
-func buildSkillReadResourceDescriptor() *tools.ToolDescriptor {
-	schema := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"skill_name": map[string]any{
-				"type":        "string",
-				"description": "Name of the skill owning the resource.",
-			},
-			"path": map[string]any{
-				"type":        "string",
-				"description": "Relative path to the resource within the skill directory.",
-			},
-		},
-		"required": []string{"skill_name", "path"},
-	}
-	inputSchema, _ := json.Marshal(schema)
-
-	outputSchema, _ := json.Marshal(map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"content": map[string]any{"type": "string"},
-		},
-	})
-
-	return &tools.ToolDescriptor{
-		Name:         skillReadResourceTool,
-		Namespace:    skillNamespace,
-		Description:  "Read a resource file from within a skill's directory.",
-		InputSchema:  inputSchema,
-		OutputSchema: outputSchema,
-		Mode:         skillExecutorName,
-	}
-}
-
-// --- Skill Executor ---
-
-// skillExecutor handles execution of skill__ tools by delegating to the Executor.
-type skillExecutor struct {
-	executor *skills.Executor
-}
-
-func newSkillExecutor(exec *skills.Executor) *skillExecutor {
-	return &skillExecutor{executor: exec}
-}
-
-// Name returns the executor name used for mode matching.
-func (e *skillExecutor) Name() string { return skillExecutorName }
-
-// Execute dispatches a skill tool call to the appropriate executor method.
-func (e *skillExecutor) Execute(
-	tool *tools.ToolDescriptor, args json.RawMessage,
-) (json.RawMessage, error) {
-	switch tool.Name {
-	case skillActivateTool:
-		return e.executeActivate(args)
-	case skillDeactivateTool:
-		return e.executeDeactivate(args)
-	case skillReadResourceTool:
-		return e.executeReadResource(args)
-	default:
-		return nil, fmt.Errorf("unknown skill tool: %s", tool.Name)
-	}
-}
-
-func (e *skillExecutor) executeActivate(args json.RawMessage) (json.RawMessage, error) {
-	var params struct {
-		Name string `json:"name"`
-	}
-	if err := json.Unmarshal(args, &params); err != nil {
-		return nil, fmt.Errorf("parsing activate args: %w", err)
-	}
-
-	instructions, addedTools, err := e.executor.Activate(params.Name)
-	if err != nil {
-		return nil, err
-	}
-
-	if addedTools == nil {
-		addedTools = []string{}
-	}
-	result := map[string]any{
-		"instructions": instructions,
-		"added_tools":  addedTools,
-	}
-	return json.Marshal(result)
-}
-
-func (e *skillExecutor) executeDeactivate(args json.RawMessage) (json.RawMessage, error) {
-	var params struct {
-		Name string `json:"name"`
-	}
-	if err := json.Unmarshal(args, &params); err != nil {
-		return nil, fmt.Errorf("parsing deactivate args: %w", err)
-	}
-
-	removedTools, err := e.executor.Deactivate(params.Name)
-	if err != nil {
-		return nil, err
-	}
-
-	if removedTools == nil {
-		removedTools = []string{}
-	}
-	result := map[string]any{
-		"removed_tools": removedTools,
-	}
-	return json.Marshal(result)
-}
-
-func (e *skillExecutor) executeReadResource(args json.RawMessage) (json.RawMessage, error) {
-	var params struct {
-		SkillName string `json:"skill_name"`
-		Path      string `json:"path"`
-	}
-	if err := json.Unmarshal(args, &params); err != nil {
-		return nil, fmt.Errorf("parsing read_resource args: %w", err)
-	}
-
-	data, err := e.executor.ReadResource(params.SkillName, params.Path)
-	if err != nil {
-		return nil, err
-	}
-
-	result := map[string]any{
-		"content": string(data),
-	}
-	return json.Marshal(result)
-}
+const capabilityNameSkills = "skills"

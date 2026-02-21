@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -41,7 +42,7 @@ func (e *Engine) executeWorkflowRun(
 	wfScenario := configToWorkflowScenario(scenario)
 
 	// Create workflow executor with a driver factory for this provider
-	factory, getDriver := newArenaDriverFactory(provider, combo.ScenarioID)
+	factory, getDriver := newArenaDriverFactory(provider, combo.ScenarioID, e.toolRegistry)
 	executor := wf.NewExecutor(factory)
 
 	// Execute the workflow
@@ -53,6 +54,14 @@ func (e *Engine) executeWorkflowRun(
 	drv := getDriver()
 	messages, assertionResults := workflowResultToMessages(result, drv)
 
+	// Evaluate conversation-level assertions (e.g. skill_activated, skill_not_activated)
+	if len(scenario.ConversationAssertions) > 0 {
+		convAssertionResults := evaluateWorkflowConversationAssertions(
+			ctx, scenario.ConversationAssertions, messages,
+		)
+		assertionResults = append(assertionResults, convAssertionResults...)
+	}
+
 	// Build conversation result for metadata
 	convResult := &ConversationResult{
 		Messages:                     messages,
@@ -61,6 +70,15 @@ func (e *Engine) executeWorkflowRun(
 	if result.Failed {
 		convResult.Failed = true
 		convResult.Error = result.Error
+	}
+	// Check conversation-level assertions for failures
+	for _, ar := range assertionResults {
+		if !ar.Passed {
+			convResult.Failed = true
+			if convResult.Error == "" {
+				convResult.Error = fmt.Sprintf("assertion %q failed: %s", ar.Type, ar.Message)
+			}
+		}
 	}
 
 	duration := time.Since(startTime)
@@ -138,6 +156,47 @@ func configToWorkflowScenario(s *config.Scenario) *wf.Scenario {
 	}
 }
 
+// evaluateWorkflowConversationAssertions runs conversation-level assertions
+// (e.g. skill_activated, skill_not_activated) against the full message trace.
+func evaluateWorkflowConversationAssertions(
+	ctx context.Context,
+	configs []asrt.AssertionConfig,
+	messages []types.Message,
+) []asrt.ConversationValidationResult {
+	// Extract tool calls from all assistant messages
+	var toolCalls []asrt.ToolCallRecord
+	for idx := range messages {
+		msg := messages[idx]
+		if len(msg.ToolCalls) == 0 {
+			continue
+		}
+		for _, tc := range msg.ToolCalls {
+			var args map[string]interface{}
+			if len(tc.Args) > 0 {
+				_ = json.Unmarshal(tc.Args, &args)
+			}
+			toolCalls = append(toolCalls, asrt.ToolCallRecord{
+				TurnIndex: idx,
+				ToolName:  tc.Name,
+				Arguments: args,
+			})
+		}
+	}
+
+	convCtx := &asrt.ConversationContext{
+		AllTurns:  messages,
+		ToolCalls: toolCalls,
+	}
+
+	var assertions []asrt.ConversationAssertion
+	for _, c := range configs {
+		assertions = append(assertions, asrt.ConversationAssertion(c))
+	}
+
+	reg := asrt.NewConversationAssertionRegistry()
+	return reg.ValidateConversations(ctx, assertions, convCtx)
+}
+
 // workflowResultToMessages returns the driver's message trace and collects all
 // assertion results from the workflow execution.
 // The message trace already contains: initial system prompt → user/assistant pairs
@@ -152,9 +211,15 @@ func workflowResultToMessages(
 
 	var messages []types.Message
 	if drv != nil {
-		// Prepend the initial state's system prompt
+		// Prepend the initial state's system prompt with available tools metadata
 		if sp := drv.InitialSystemPrompt(); sp != "" {
-			messages = append(messages, types.Message{Role: "system", Content: sp})
+			sysMsg := types.Message{Role: "system", Content: sp}
+			if toolNames := drv.AvailableToolNames(); len(toolNames) > 0 {
+				sysMsg.Meta = map[string]interface{}{
+					"_available_tools": toolNames,
+				}
+			}
+			messages = append(messages, sysMsg)
 		}
 		messages = append(messages, drv.MessageTrace()...)
 	}

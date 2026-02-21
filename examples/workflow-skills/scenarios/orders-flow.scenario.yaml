@@ -27,7 +27,7 @@ spec:
           params:
             state: orders
 
-    # Step 3: Orders specialist activates troubleshooting skill and investigates
+    # Step 3: Orders specialist activates troubleshooting skill
     - type: input
       content: "Can you check the tracking status for my order?"
       assertions:
@@ -36,9 +36,20 @@ spec:
             state: orders
         - type: content_matches
           params:
-            pattern: "(?i)(track|ship|deliver|status)"
+            pattern: "(?i)(troubleshoot|order|investigat|track)"
 
-    # Step 4: Specialist resolves and transitions to closed
+    # Step 4: Specialist uses activated skill's tools to look up order
+    - type: input
+      content: "What's the latest tracking update?"
+      assertions:
+        - type: state_is
+          params:
+            state: orders
+        - type: content_matches
+          params:
+            pattern: "(?i)(track|ship|deliver|status|weather)"
+
+    # Step 5: Specialist resolves and transitions to closed
     - type: input
       content: "That's great news, thank you for looking into it."
       assertions:
@@ -46,7 +57,7 @@ spec:
           params:
             state: closed
 
-    # Step 5: Closing summary
+    # Step 6: Closing summary
     - type: input
       content: "Thanks!"
       assertions:

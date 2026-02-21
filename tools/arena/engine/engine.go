@@ -37,6 +37,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/storage/local"
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
 )
 
@@ -65,6 +66,7 @@ type Engine struct {
 	providers            map[string]*config.Provider
 	personas             map[string]*config.UserPersonaPack
 	conversationExecutor ConversationExecutor
+	toolRegistry         *tools.Registry    // Registry for tool descriptors and executors (used by workflow driver)
 	adapterRegistry      *adapters.Registry // Registry for recording adapters (used for eval enumeration)
 	eventBus             *events.EventBus   // Optional event bus for runtime/TUI events
 	eventStore           events.EventStore // Optional event store for session recording
@@ -112,7 +114,7 @@ func NewEngineFromConfigFile(configPath string) (*Engine, error) {
 func NewEngineFromConfig(cfg *config.Config) (*Engine, error) {
 	// Build registries and executors from the config
 	providerRegistry, promptRegistry, mcpRegistry, convExecutor,
-		adapterRegistry, a2aCleanup, err := BuildEngineComponents(cfg)
+		adapterRegistry, a2aCleanup, toolRegistry, err := BuildEngineComponents(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -126,6 +128,7 @@ func NewEngineFromConfig(cfg *config.Config) (*Engine, error) {
 		return nil, err
 	}
 	eng.a2aCleanup = a2aCleanup
+	eng.toolRegistry = toolRegistry
 	return eng, nil
 }
 

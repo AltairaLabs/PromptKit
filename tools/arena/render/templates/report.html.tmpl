@@ -620,9 +620,33 @@
             display: none;
             margin-top: 0.75rem;
         }
-        
+
         .raw-request-content.expanded {
             display: block;
+        }
+
+        .available-tools-details {
+            margin-top: 0.75rem;
+            padding: 0.5rem 0.75rem;
+            background: #f0f4ff;
+            border: 1px solid #c7d2fe;
+            border-radius: 6px;
+            font-size: 0.85rem;
+        }
+
+        .available-tools-details summary {
+            cursor: pointer;
+            color: #4338ca;
+            font-weight: 600;
+            padding: 0.25rem 0;
+        }
+
+        .available-tools-details summary:hover {
+            color: #3730a3;
+        }
+
+        .available-tools-details[open] {
+            background: #eef2ff;
         }
         
         .turn-error {
@@ -1548,11 +1572,15 @@
                                 {{$hasAssertions := hasAssertions $msg.Meta}}
                                 {{$hasValidators := hasValidators $msg}}
                                 {{$hasRawRequest := false}}
+                                {{$hasAvailableTools := false}}
                                 {{if $msg.Meta}}
                                     {{$metaMap := $msg.Meta}}
                                     {{if $metaMap}}
                                         {{if index $metaMap "_llm_raw_request"}}
                                             {{$hasRawRequest = true}}
+                                        {{end}}
+                                        {{if index $metaMap "_available_tools"}}
+                                            {{$hasAvailableTools = true}}
                                         {{end}}
                                     {{end}}
                                 {{end}}
@@ -1706,6 +1734,14 @@
                                         </div>
                                         {{end}}
                                     </div>
+                                    {{end}}
+                                    {{if $hasAvailableTools}}
+                                    <details class="available-tools-details">
+                                        <summary class="tool-call-name">🔧 Available Tools</summary>
+                                        <div class="tool-call-args" style="margin-top: 0.5rem;">
+                                            <div class="json-content">{{prettyJSON (index $msg.Meta "_available_tools")}}</div>
+                                        </div>
+                                    </details>
                                     {{end}}
                                     {{if $hasRawRequest}}
                                     <div class="raw-request-content" id="raw-{{$result.RunID}}-{{$msgIdx}}">

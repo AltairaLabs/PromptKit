@@ -27,7 +27,7 @@ spec:
           params:
             state: billing
 
-    # Step 3: Billing specialist activates PCI compliance skill and handles the refund
+    # Step 3: Billing specialist activates PCI compliance skill
     - type: input
       content: "The order was placed 5 days ago. Can you process the refund?"
       assertions:
@@ -36,9 +36,20 @@ spec:
             state: billing
         - type: content_matches
           params:
-            pattern: "(?i)(refund|compliance|process|card)"
+            pattern: "(?i)(compliance|pci|review|refund)"
 
-    # Step 4: Specialist resolves and transitions to closed
+    # Step 4: Specialist processes refund using activated skill's tools
+    - type: input
+      content: "Yes, please go ahead and process the refund to my card."
+      assertions:
+        - type: state_is
+          params:
+            state: billing
+        - type: content_matches
+          params:
+            pattern: "(?i)(refund|card|4242|processed)"
+
+    # Step 5: Specialist resolves and transitions to closed
     - type: input
       content: "Great, thank you for processing the refund."
       assertions:
@@ -49,7 +60,7 @@ spec:
           params:
             pattern: "(?i)(refund|business day|processed)"
 
-    # Step 5: Closing summary
+    # Step 6: Closing summary
     - type: input
       content: "Thanks for your help!"
       assertions:
