@@ -73,11 +73,15 @@ packc compile -c config.arena.yaml -o app.pack.json
 
 | Feature | Description |
 |---------|-------------|
-| **Multi-Provider** | OpenAI, Anthropic, Google Gemini, Azure OpenAI |
+| **Multi-Provider** | OpenAI, Anthropic, Google Gemini, Azure OpenAI, Ollama, vLLM |
+| **Skills** | Native [AgentSkills.io](https://agentskills.io) support — demand-driven knowledge loading with progressive disclosure |
+| **A2A Protocol** | Agent-to-Agent communication with multi-agent orchestration and discovery |
+| **Workflows** | Event-driven state machines with orchestration modes and context carry-forward |
 | **MCP Integration** | Native Model Context Protocol for real tool execution |
+| **Deploy Adapters** | Plan, apply, and manage deployments via pluggable adapter SDK |
 | **Self-Play Testing** | AI personas for adversarial and user simulation |
 | **Red-Team** | Security testing with prompt injection detection |
-| **Tool Validation** | Mock or live tool call verification |
+| **Tool Validation** | Mock or live tool call verification with three-level scoping |
 | **SDK Deployment** | Compile prompts to portable packs for production |
 
 ## GitHub Actions
@@ -118,10 +122,10 @@ See the [GitHub Actions documentation](https://altairalabs.github.io/PromptKit/d
 
 ```
 promptkit/
-├── tools/arena/     # PromptKit Arena CLI
+├── tools/arena/     # PromptKit Arena CLI (testing, red-team, deploy)
 ├── tools/packc/     # Pack Compiler CLI
-├── sdk/             # Production SDK
-├── runtime/         # Shared runtime
+├── sdk/             # Production SDK (conversations, workflows, A2A, skills)
+├── runtime/         # Shared runtime (providers, pipeline, tools, skills, a2a, deploy)
 ├── examples/        # Example projects
 └── docs/            # Documentation
 ```

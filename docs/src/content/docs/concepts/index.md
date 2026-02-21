@@ -33,6 +33,9 @@ Understand function calling, tool integration, and the Model Context Protocol.
 ### [A2A (Agent-to-Agent)](a2a)
 Learn about the Agent-to-Agent protocol for inter-agent communication, task lifecycle, and discovery.
 
+### [Skills](skills)
+Demand-driven knowledge and instruction loading using the AgentSkills.io standard, with progressive disclosure and three-level tool scoping.
+
 ## How Concepts Work Together
 
 ```
@@ -44,11 +47,11 @@ User Input
     ↓
 [State Management] → Load conversation history
     ↓
-[Provider] → Send to LLM (with Tools if needed)
-    ↓
-[Validation] → Check response safety
-    ↓
-[State Management] → Save conversation
+[Provider] → Send to LLM (with Tools + Skills if needed)
+    ↓                ↕
+[Validation]    [Skills] → Load knowledge on demand
+    ↓                ↕
+[State Mgmt]    [A2A] → Delegate to other agents
     ↓
 Response
 ```
@@ -72,7 +75,9 @@ Some concepts are universal across PromptKit:
 Some concepts are component-specific:
 - **Templates** - Mainly Runtime and PackC
 - **State Management** - Mainly Runtime and SDK
-- **Tools/MCP** - Mainly Runtime
+- **Tools/MCP** - Mainly Runtime and SDK
+- **Skills** - Runtime and SDK
+- **A2A** - Runtime and SDK
 
 ## Learning Path
 
@@ -86,7 +91,9 @@ Some concepts are component-specific:
 1. [Validation](validation) - Safety and guardrails
 2. [State Management](state-management) - Scalable conversations
 3. [Tools & MCP](tools-mcp) - Extended capabilities
-4. [Providers](providers) - Multi-provider strategies
+4. [Skills](skills) - Demand-driven knowledge loading
+5. [A2A](a2a) - Multi-agent communication
+6. [Providers](providers) - Multi-provider strategies
 
 ## Relationship to Other Documentation
 
