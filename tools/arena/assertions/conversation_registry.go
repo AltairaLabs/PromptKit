@@ -47,6 +47,10 @@ func NewConversationAssertionRegistry() *ConversationAssertionRegistry {
 	registry.Register("transitioned_to", NewWorkflowTransitionedToValidator)
 	registry.Register("workflow_complete", NewWorkflowCompleteValidator)
 
+	// Register skill conversation assertions
+	registry.Register("skill_activated", NewSkillActivatedConversationValidator)
+	registry.Register("skill_not_activated", NewSkillNotActivatedConversationValidator)
+
 	return registry
 }
 
