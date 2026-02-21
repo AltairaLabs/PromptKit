@@ -5,6 +5,7 @@ metadata:
 spec:
   providers:
     - file: providers/mock-provider.yaml
+    - file: providers/gemini-flash.provider.yaml
   prompt_configs:
     - id: assistant
       file: prompts/assistant.yaml

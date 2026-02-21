@@ -1,0 +1,12 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: gemini-flash
+spec:
+  id: gemini-flash
+  type: gemini
+  model: gemini-2.5-flash
+  defaults:
+    temperature: 0.3
+    max_tokens: 1024
+    top_p: 1.0

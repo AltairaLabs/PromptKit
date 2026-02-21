@@ -213,11 +213,23 @@ func workflowResultToMessages(
 	if drv != nil {
 		// Prepend the initial state's system prompt with available tools metadata
 		if sp := drv.InitialSystemPrompt(); sp != "" {
-			sysMsg := types.Message{Role: "system", Content: sp}
+			sysMsg := types.Message{
+				Role:      "system",
+				Content:   sp,
+				Timestamp: time.Now(),
+			}
+			meta := map[string]interface{}{}
 			if toolNames := drv.AvailableToolNames(); len(toolNames) > 0 {
-				sysMsg.Meta = map[string]interface{}{
-					"_available_tools": toolNames,
-				}
+				meta["_available_tools"] = toolNames
+			}
+			if toolDescs := drv.InitialToolDescriptors(); len(toolDescs) > 0 {
+				meta["_tool_descriptors"] = toolDescs
+			}
+			if ws := drv.InitialWorkflowState(); ws != nil {
+				meta["_workflow_state"] = ws
+			}
+			if len(meta) > 0 {
+				sysMsg.Meta = meta
 			}
 			messages = append(messages, sysMsg)
 		}

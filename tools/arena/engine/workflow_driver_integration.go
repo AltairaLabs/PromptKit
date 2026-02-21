@@ -88,14 +88,14 @@ func (d *arenaWorkflowDriver) Send(ctx context.Context, message string) (string,
 	// If current state is terminal (no events), use plain Predict
 	state := d.pack.Workflow.States[d.sm.CurrentState()]
 	if state == nil || len(state.OnEvent) == 0 {
-		return d.predictNoTools(ctx, req)
+		return d.predictNoTools(ctx, req, state)
 	}
 
 	// Type-assert to ToolSupport for PredictWithTools
 	ts, ok := d.provider.(providers.ToolSupport)
 	if !ok {
 		// Provider doesn't support tools — fall back to plain Predict
-		return d.predictNoTools(ctx, req)
+		return d.predictNoTools(ctx, req, state)
 	}
 
 	// Build all tool descriptors: workflow transition + registered tools (skills, pack tools)
@@ -112,10 +112,38 @@ func (d *arenaWorkflowDriver) Send(ctx context.Context, message string) (string,
 	}
 	latency := time.Since(start)
 
-	// Collect tool names for observability
+	// Collect tool info for observability
 	toolNames := make([]string, len(toolDescs))
+	toolDescriptions := make([]map[string]interface{}, len(toolDescs))
 	for i, td := range toolDescs {
 		toolNames[i] = td.Name
+		desc := map[string]interface{}{
+			"name":        td.Name,
+			"description": td.Description,
+		}
+		if len(td.InputSchema) > 0 {
+			desc["input_schema"] = td.InputSchema
+		}
+		toolDescriptions[i] = desc
+	}
+
+	// Build workflow state info
+	currentState := d.sm.CurrentState()
+	workflowState := map[string]interface{}{
+		"current_state": currentState,
+	}
+	if state.Description != "" {
+		workflowState["description"] = state.Description
+	}
+	if len(state.OnEvent) > 0 {
+		events := make(map[string]string, len(state.OnEvent))
+		for ev, target := range state.OnEvent {
+			events[ev] = target
+		}
+		workflowState["available_events"] = events
+	}
+	if state.PromptTask != "" {
+		workflowState["prompt_task"] = state.PromptTask
 	}
 
 	// Build assistant message for trace
@@ -127,7 +155,9 @@ func (d *arenaWorkflowDriver) Send(ctx context.Context, message string) (string,
 		LatencyMs: latency.Milliseconds(),
 		CostInfo:  resp.CostInfo,
 		Meta: map[string]interface{}{
-			"_available_tools": toolNames,
+			"_available_tools":  toolNames,
+			"_tool_descriptors": toolDescriptions,
+			"_workflow_state":   workflowState,
 		},
 	}
 	d.messages = append(d.messages, assistantMsg)
@@ -206,12 +236,64 @@ func (d *arenaWorkflowDriver) processTransitionToolCall(tc types.MessageToolCall
 	})
 	d.messageTrace = append(d.messageTrace, toolResultMsg)
 
-	// Append new state's system prompt to trace
+	// Append new state's system prompt to trace with full diagnostics
 	if sp := d.SystemPromptForState(toState); sp != "" {
 		substituted := d.substituteWorkflowContext(sp)
+		newState := d.pack.Workflow.States[toState]
+
+		sysMeta := map[string]interface{}{}
+
+		// Workflow state info
+		ws := map[string]interface{}{
+			"current_state":  toState,
+			"previous_state": fromState,
+			"transition":     args.Event,
+		}
+		if newState != nil {
+			if newState.Description != "" {
+				ws["description"] = newState.Description
+			}
+			if newState.PromptTask != "" {
+				ws["prompt_task"] = newState.PromptTask
+			}
+			if len(newState.OnEvent) > 0 {
+				events := make(map[string]string, len(newState.OnEvent))
+				for ev, target := range newState.OnEvent {
+					events[ev] = target
+				}
+				ws["available_events"] = events
+			}
+			if len(newState.OnEvent) == 0 {
+				ws["terminal"] = true
+			}
+		}
+		sysMeta["_workflow_state"] = ws
+
+		// Available tools in the new state
+		if newState != nil {
+			toolDescs := d.buildAllToolDescriptors(newState)
+			toolNames := make([]string, len(toolDescs))
+			toolDescriptions := make([]map[string]interface{}, len(toolDescs))
+			for i, td := range toolDescs {
+				toolNames[i] = td.Name
+				desc := map[string]interface{}{
+					"name":        td.Name,
+					"description": td.Description,
+				}
+				if len(td.InputSchema) > 0 {
+					desc["input_schema"] = td.InputSchema
+				}
+				toolDescriptions[i] = desc
+			}
+			sysMeta["_available_tools"] = toolNames
+			sysMeta["_tool_descriptors"] = toolDescriptions
+		}
+
 		d.messageTrace = append(d.messageTrace, types.Message{
-			Role:    "system",
-			Content: substituted,
+			Role:      "system",
+			Content:   substituted,
+			Timestamp: time.Now(),
+			Meta:      sysMeta,
 		})
 	}
 
@@ -224,7 +306,9 @@ func (d *arenaWorkflowDriver) processTransitionToolCall(tc types.MessageToolCall
 // predictNoTools calls plain Predict (no tool support).
 //
 //nolint:gocritic // hugeParam: req value is needed for interface compatibility
-func (d *arenaWorkflowDriver) predictNoTools(ctx context.Context, req providers.PredictionRequest) (string, error) {
+func (d *arenaWorkflowDriver) predictNoTools(
+	ctx context.Context, req providers.PredictionRequest, state *workflow.State,
+) (string, error) {
 	start := time.Now()
 	resp, err := d.provider.Predict(ctx, req)
 	if err != nil {
@@ -232,12 +316,29 @@ func (d *arenaWorkflowDriver) predictNoTools(ctx context.Context, req providers.
 	}
 	latency := time.Since(start)
 
+	// Build workflow state info for diagnostics
+	meta := map[string]interface{}{}
+	if state != nil {
+		ws := map[string]interface{}{
+			"current_state": d.sm.CurrentState(),
+		}
+		if state.Description != "" {
+			ws["description"] = state.Description
+		}
+		if state.PromptTask != "" {
+			ws["prompt_task"] = state.PromptTask
+		}
+		ws["terminal"] = true
+		meta["_workflow_state"] = ws
+	}
+
 	assistantMsg := types.Message{
 		Role:      "assistant",
 		Content:   resp.Content,
 		Timestamp: time.Now(),
 		LatencyMs: latency.Milliseconds(),
 		CostInfo:  resp.CostInfo,
+		Meta:      meta,
 	}
 	d.messages = append(d.messages, assistantMsg)
 	d.messageTrace = append(d.messageTrace, assistantMsg)
@@ -367,8 +468,75 @@ func (d *arenaWorkflowDriver) InitialSystemPrompt() string {
 	return d.SystemPromptForState(d.pack.Workflow.Entry)
 }
 
+// InitialWorkflowState returns metadata about the entry state for diagnostics.
+func (d *arenaWorkflowDriver) InitialWorkflowState() map[string]interface{} {
+	entry := d.pack.Workflow.Entry
+	state := d.pack.Workflow.States[entry]
+	if state == nil {
+		return nil
+	}
+	ws := map[string]interface{}{
+		"current_state": entry,
+	}
+	if state.Description != "" {
+		ws["description"] = state.Description
+	}
+	if state.PromptTask != "" {
+		ws["prompt_task"] = state.PromptTask
+	}
+	if len(state.OnEvent) > 0 {
+		events := make(map[string]string, len(state.OnEvent))
+		for ev, target := range state.OnEvent {
+			events[ev] = target
+		}
+		ws["available_events"] = events
+	}
+	// Include all workflow states for overview
+	allStates := make(map[string]interface{})
+	for name, s := range d.pack.Workflow.States {
+		info := map[string]interface{}{
+			"prompt_task": s.PromptTask,
+		}
+		if s.Description != "" {
+			info["description"] = s.Description
+		}
+		if len(s.OnEvent) > 0 {
+			info["events"] = s.OnEvent
+		}
+		if len(s.OnEvent) == 0 {
+			info["terminal"] = true
+		}
+		allStates[name] = info
+	}
+	ws["all_states"] = allStates
+	return ws
+}
+
 // AvailableToolNames returns the names of all tools registered in the driver's tool registry.
 // This includes workflow transition tools and capability tools (skill__, a2a__, etc.).
+// InitialToolDescriptors returns tool descriptor metadata for the entry state
+// (name, description, input_schema) for use in the initial system prompt.
+func (d *arenaWorkflowDriver) InitialToolDescriptors() []map[string]interface{} {
+	entry := d.pack.Workflow.Entry
+	state := d.pack.Workflow.States[entry]
+	if state == nil {
+		return nil
+	}
+	toolDescs := d.buildAllToolDescriptors(state)
+	result := make([]map[string]interface{}, len(toolDescs))
+	for i, td := range toolDescs {
+		desc := map[string]interface{}{
+			"name":        td.Name,
+			"description": td.Description,
+		}
+		if len(td.InputSchema) > 0 {
+			desc["input_schema"] = td.InputSchema
+		}
+		result[i] = desc
+	}
+	return result
+}
+
 func (d *arenaWorkflowDriver) AvailableToolNames() []string {
 	if d.toolRegistry == nil {
 		return nil

@@ -14,4 +14,4 @@ spec:
     max_tokens: 1500
     top_p: 1.0
   additional_config:
-    mock_config: mock-tool-scenarios.yaml
+    mock_config: providers/mock-tool-scenarios.yaml
