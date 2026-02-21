@@ -152,6 +152,8 @@ conv, _ := sdk.Open("base.pack.json", "assistant",
 
 ## Related
 
+- [Skills Reference](/reference/skills/) — Complete SKILL.md format, pack syntax, and SDK API reference
+- [Workflow + Skills Example](https://github.com/AltairaLabs/PromptKit/tree/main/examples/workflow-skills) — Working example with directory-based filtering
 - [Tools & MCP](tools-mcp) — How tools work in PromptKit
 - [A2A](a2a) — Agent-to-Agent protocol (agents can also be skills)
 - [SDK Skills Options](/sdk/index/) — SDK integration details

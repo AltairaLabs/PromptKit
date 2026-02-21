@@ -1,0 +1,62 @@
+# Mock responses for the workflow-skills example.
+# Responses are keyed by scenario ID and turn number.
+# tool_calls simulate LLM-initiated workflow transitions and skill activations.
+
+scenarios:
+  billing-flow:
+    turns:
+      1: "Hello! I'm sorry to hear about the duplicate charge on order ORD-9876. I can see this is a billing issue — let me connect you with our billing specialist who can review the charges and process a refund. Could you confirm your email address so I can pull up your account?"
+      2:
+        response: "Thank you, Jane. I'm transferring you to our billing team now for a detailed review of the duplicate charge."
+        tool_calls:
+          - name: workflow__transition
+            arguments:
+              event: RouteBilling
+              context: "Customer reports duplicate charge of $79.99 on order ORD-9876. Email: jane@example.com."
+      3:
+        response: "Hi Jane, I'm the billing specialist. I've reviewed your account and can confirm the duplicate charge of $79.99 on order ORD-9876. Following our PCI compliance procedures, I've verified your identity and I'm processing the refund now. The refund of $79.99 will be returned to the card ending in 4242."
+        tool_calls:
+          - name: skill__activate
+            arguments:
+              skill: pci-compliance
+          - name: refund
+            arguments:
+              order_id: "ORD-9876"
+              amount: 79.99
+              reason: "Duplicate charge"
+      4:
+        response: "The refund of $79.99 has been processed successfully. You should see it reflected on your statement within 3-5 business days. Is there anything else I can help you with?"
+        tool_calls:
+          - name: workflow__transition
+            arguments:
+              event: Resolve
+              context: "Refund of $79.99 processed for duplicate charge on order ORD-9876. Card ending 4242, 3-5 business days."
+      5: "You're welcome, Jane! To summarize: we identified and refunded the duplicate charge of $79.99 on order ORD-9876. The refund should appear within 3-5 business days. Thank you for your patience, and don't hesitate to reach out if you need anything else."
+
+  orders-flow:
+    turns:
+      1: "Hello! I'm sorry to hear your order hasn't arrived yet. Let me help you track down order ORD-5432. Could you share your email address so I can look up the full order details?"
+      2:
+        response: "Thank you, Bob. Since this is a delivery issue, let me connect you with our orders specialist who can investigate the shipping status in detail."
+        tool_calls:
+          - name: workflow__transition
+            arguments:
+              event: RouteOrders
+              context: "Customer reports order ORD-5432 not received. Estimated delivery was 3 days ago. Email: bob@example.com."
+      3:
+        response: "Hi Bob, I'm the orders specialist. I've activated our order troubleshooting tools and looked up your order. Order ORD-5432 shipped via Express on Monday and the tracking shows it's currently at your local distribution center. It looks like there was a weather delay — the updated delivery estimate is tomorrow by end of day."
+        tool_calls:
+          - name: skill__activate
+            arguments:
+              skill: order-troubleshooting
+          - name: search_orders
+            arguments:
+              query: "bob@example.com"
+      4:
+        response: "Glad I could help clarify the status. Your order is on its way and should arrive tomorrow. If it doesn't show up by end of day tomorrow, please contact us again and we'll arrange a replacement or refund."
+        tool_calls:
+          - name: workflow__transition
+            arguments:
+              event: Resolve
+              context: "Order ORD-5432 delayed due to weather. Updated delivery: tomorrow. Customer informed."
+      5: "You're welcome, Bob! To summarize: order ORD-5432 was delayed due to weather and is now expected to arrive tomorrow. If it doesn't arrive, reach out and we'll take care of it. Thank you for contacting ShopCo support!"

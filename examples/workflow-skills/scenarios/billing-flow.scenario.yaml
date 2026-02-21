@@ -1,0 +1,66 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: billing-flow
+spec:
+  id: billing-flow
+  description: "Billing path: intake → billing (skill activation) → refund → closed"
+  pack: ../workflow-skills.pack.json
+  context_carry_forward: true
+  steps:
+    # Step 1: Customer contacts support about a billing issue (intake state)
+    - type: input
+      content: "Hi, I was charged twice for order ORD-9876. Can you help me get a refund?"
+      assertions:
+        - type: state_is
+          params:
+            state: intake
+        - type: content_matches
+          params:
+            pattern: "(?i)(help|billing|charge|order)"
+
+    # Step 2: Intake agent routes to billing specialist
+    - type: input
+      content: "Yes, my email is jane@example.com and the duplicate charge was $79.99."
+      assertions:
+        - type: transitioned_to
+          params:
+            state: billing
+
+    # Step 3: Billing specialist activates PCI compliance skill and handles the refund
+    - type: input
+      content: "The order was placed 5 days ago. Can you process the refund?"
+      assertions:
+        - type: state_is
+          params:
+            state: billing
+        - type: content_matches
+          params:
+            pattern: "(?i)(refund|compliance|process|card)"
+
+    # Step 4: Specialist resolves and transitions to closed
+    - type: input
+      content: "Great, thank you for processing the refund."
+      assertions:
+        - type: transitioned_to
+          params:
+            state: closed
+        - type: content_matches
+          params:
+            pattern: "(?i)(refund|business day|processed)"
+
+    # Step 5: Closing summary
+    - type: input
+      content: "Thanks for your help!"
+      assertions:
+        - type: workflow_complete
+          params: {}
+
+  # Conversation-level assertions
+  conversation_assertions:
+    - type: skill_activated
+      params:
+        skill_names: ["pci-compliance"]
+    - type: skill_not_activated
+      params:
+        skill_names: ["order-troubleshooting"]
