@@ -1,0 +1,158 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "workflow-skills",
+  "name": "Customer Support with Skills",
+  "version": "v1.0.0",
+  "description": "Demonstrates workflow states with directory-based skill filtering and three-level tool scoping.",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "intake": {
+      "id": "intake",
+      "name": "Intake Agent",
+      "description": "Initial customer contact — triage and route to the correct specialist",
+      "version": "v1.0.0",
+      "system_template": "You are an intake agent for ShopCo customer support. Your job is to greet the customer, understand their issue, and route them to the appropriate specialist.\n\nGuidelines:\n- Be professional and empathetic\n- Ask clarifying questions to understand the issue\n- Collect order numbers, account info, or error details as needed\n- Route billing issues (charges, refunds, payments) to the billing specialist\n- Route order issues (tracking, delivery, returns) to the orders specialist\n- You have access to skills — activate them if you need domain-specific guidance"
+    },
+    "billing": {
+      "id": "billing",
+      "name": "Billing Specialist",
+      "description": "Handles billing disputes, refunds, and payment issues",
+      "version": "v1.0.0",
+      "system_template": "You are a billing specialist at ShopCo. The customer has been routed to you for a billing-related issue.\n\nGuidelines:\n- Review the conversation context from the intake agent\n- Activate relevant skills for compliance and refund procedures\n- Follow PCI compliance rules when handling payment data\n- Process refunds according to company policy\n- Resolve the issue or escalate if needed",
+      "tools": ["get_order", "refund"]
+    },
+    "orders": {
+      "id": "orders",
+      "name": "Orders Specialist",
+      "description": "Handles order tracking, delivery issues, and returns",
+      "version": "v1.0.0",
+      "system_template": "You are an orders specialist at ShopCo. The customer has been routed to you for an order-related issue.\n\nGuidelines:\n- Review the conversation context from the intake agent\n- Activate relevant skills for order troubleshooting\n- Look up order details and provide tracking information\n- Handle delivery complaints and initiate returns\n- Resolve the issue or escalate if needed",
+      "tools": ["get_order", "search_orders"]
+    },
+    "closed": {
+      "id": "closed",
+      "name": "Closed",
+      "description": "Conversation complete — farewell prompt",
+      "version": "v1.0.0",
+      "system_template": "The support conversation is now resolved. Thank the customer for their patience and confirm the resolution.\n\nGuidelines:\n- Summarize what was resolved\n- Provide any follow-up instructions\n- Thank the customer"
+    }
+  },
+  "tools": {
+    "get_order": {
+      "name": "get_order",
+      "description": "Look up order details by order number",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "The order ID to look up"
+          }
+        },
+        "required": ["order_id"]
+      }
+    },
+    "refund": {
+      "name": "refund",
+      "description": "Process a refund for an order",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "The order ID to refund"
+          },
+          "amount": {
+            "type": "number",
+            "description": "Amount to refund"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Reason for the refund"
+          }
+        },
+        "required": ["order_id", "amount", "reason"]
+      }
+    },
+    "search_orders": {
+      "name": "search_orders",
+      "description": "Search for orders by customer email or name",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query (email or name)"
+          }
+        },
+        "required": ["query"]
+      }
+    },
+    "escalate_ticket": {
+      "name": "escalate_ticket",
+      "description": "Escalate a support ticket to a manager",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "Reason for escalation"
+          },
+          "priority": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"],
+            "description": "Escalation priority"
+          }
+        },
+        "required": ["reason", "priority"]
+      }
+    }
+  },
+  "skills": [
+    {"path": "skills"}
+  ],
+  "workflow": {
+    "version": 1,
+    "entry": "intake",
+    "states": {
+      "intake": {
+        "prompt_task": "intake",
+        "description": "Initial customer contact and triage",
+        "on_event": {
+          "RouteBilling": "billing",
+          "RouteOrders": "orders",
+          "Resolve": "closed"
+        },
+        "orchestration": "internal"
+      },
+      "billing": {
+        "prompt_task": "billing",
+        "description": "Billing specialist handling",
+        "skills": "skills/billing",
+        "on_event": {
+          "Resolve": "closed"
+        },
+        "persistence": "persistent",
+        "orchestration": "internal"
+      },
+      "orders": {
+        "prompt_task": "orders",
+        "description": "Orders specialist handling",
+        "skills": "skills/orders",
+        "on_event": {
+          "Resolve": "closed"
+        },
+        "persistence": "persistent",
+        "orchestration": "internal"
+      },
+      "closed": {
+        "prompt_task": "closed",
+        "description": "Conversation complete",
+        "skills": "none"
+      }
+    }
+  }
+}
