@@ -15,6 +15,9 @@ The SDK uses a **pack-first architecture** that dramatically simplifies LLM appl
 - **5 lines to hello world** - Open a pack, send a message, done
 - **Pack-first design** - Load prompts tested with Arena, compiled with PackC
 - **Built-in tools** - Register handlers with `OnTool`, auto JSON serialization
+- **Skills** - Native [AgentSkills.io](https://agentskills.io) support with progressive disclosure
+- **Workflows** - Event-driven state machines with orchestration modes
+- **A2A** - Multi-agent communication with agent-as-service pattern
 - **Streaming support** - Channel-based streaming with `Stream()`
 - **Human-in-the-Loop** - Approval workflows for sensitive operations
 - **Type-safe variables** - `SetVar`/`GetVar` with concurrent access
@@ -330,6 +333,37 @@ server.ListenAndServe()
 
 - **[A2A Server Tutorial](/sdk/tutorials/10-a2a-server/)** — step-by-step guide
 - **[A2A Server Reference](/sdk/reference/a2a-server/)** — complete API docs
+
+---
+
+## Skills
+
+Load knowledge and instructions on demand using the [AgentSkills.io](https://agentskills.io) standard:
+
+```go
+// Skills auto-detected from pack's skills section
+conv, _ := sdk.Open("./support.pack.json", "assistant")
+
+// Or configure programmatically
+conv, _ := sdk.Open("./base.pack.json", "assistant",
+    sdk.WithSkillsDir("./skills"),
+    sdk.WithMaxActiveSkillsOption(5),
+)
+```
+
+Skills use progressive disclosure — only name + description (~50 tokens each) are loaded at startup. Full instructions load on demand when the model calls `skill__activate`. Skills can also extend the available tool set (capped by the pack's declared tools).
+
+Workflow states can scope which skills are available by pointing to a skills subdirectory:
+
+```yaml
+workflow:
+  states:
+    billing:
+      prompt_task: billing_agent
+      skills: ./skills/billing     # Only billing skills available
+```
+
+- **[Skills Concept](/concepts/skills/)** — how skills work, progressive disclosure, three-level tool scoping
 
 ---
 

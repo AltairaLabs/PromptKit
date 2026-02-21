@@ -14,6 +14,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	rtprompt "github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/skills"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
@@ -95,7 +96,9 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 	// Initialize capabilities (auto-inferred + explicit)
 	allCaps := mergeCapabilities(cfg.capabilities, inferCapabilities(p))
 	allCaps = ensureA2ACapability(allCaps, cfg)
+	allCaps = ensureSkillsCapability(allCaps, cfg)
 	wireA2AConfig(allCaps, cfg)
+	wireSkillsConfig(allCaps, cfg)
 	for _, cap := range allCaps {
 		if err := cap.Init(CapabilityContext{Pack: p, PromptName: promptName}); err != nil {
 			return nil, fmt.Errorf("capability %q init failed: %w", cap.Name(), err)
@@ -198,7 +201,9 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 	// Initialize capabilities (auto-inferred + explicit)
 	allCaps := mergeCapabilities(cfg.capabilities, inferCapabilities(p))
 	allCaps = ensureA2ACapability(allCaps, cfg)
+	allCaps = ensureSkillsCapability(allCaps, cfg)
 	wireA2AConfig(allCaps, cfg)
+	wireSkillsConfig(allCaps, cfg)
 	for _, cap := range allCaps {
 		if err := cap.Init(CapabilityContext{Pack: p, PromptName: promptName}); err != nil {
 			return nil, fmt.Errorf("capability %q init failed: %w", cap.Name(), err)
@@ -651,6 +656,40 @@ func ensureA2ACapability(caps []Capability, cfg *config) []Capability {
 		}
 	}
 	return append(caps, NewA2ACapability())
+}
+
+// ensureSkillsCapability adds a SkillsCapability if config has skills dirs
+// but no SkillsCapability was already inferred or explicit.
+func ensureSkillsCapability(caps []Capability, cfg *config) []Capability {
+	if len(cfg.skillsDirs) == 0 {
+		return caps
+	}
+	for _, cap := range caps {
+		if cap.Name() == capabilityNameSkills {
+			return caps
+		}
+	}
+	var sources []skills.SkillSource
+	for _, dir := range cfg.skillsDirs {
+		sources = append(sources, skills.SkillSource{Dir: dir})
+	}
+	return append(caps, NewSkillsCapability(sources))
+}
+
+// wireSkillsConfig threads config values into any SkillsCapability before Init.
+func wireSkillsConfig(caps []Capability, cfg *config) {
+	for _, cap := range caps {
+		sc, ok := cap.(*SkillsCapability)
+		if !ok {
+			continue
+		}
+		if cfg.skillSelector != nil && sc.selector == nil {
+			sc.selector = cfg.skillSelector
+		}
+		if cfg.maxActiveSkills > 0 && sc.maxActive == 0 {
+			sc.maxActive = cfg.maxActiveSkills
+		}
+	}
 }
 
 // wireA2AConfig threads config values into any A2ACapability before Init.

@@ -30,6 +30,7 @@ var knownNamespaces = map[string]bool{
 	"mcp":      true,
 	"workflow": true,
 	"memory":   true,
+	"skill":    true,
 }
 
 // ParseToolName splits a qualified tool name on the first NamespaceSep.

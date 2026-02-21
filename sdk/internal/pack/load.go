@@ -47,8 +47,20 @@ type Pack struct {
 	// Agents - Agent configuration mapping prompts to A2A-compatible agent definitions
 	Agents *AgentsConfig `json:"agents,omitempty"`
 
+	// Skills - Skill sources for dynamic capability loading
+	Skills []SkillSourceConfig `json:"skills,omitempty"`
+
 	// FilePath is the path from which this pack was loaded.
 	FilePath string `json:"-"`
+}
+
+// SkillSourceConfig represents a skill source in the pack.
+type SkillSourceConfig struct {
+	Dir          string `json:"dir,omitempty"`
+	Name         string `json:"name,omitempty"`
+	Description  string `json:"description,omitempty"`
+	Instructions string `json:"instructions,omitempty"`
+	Preload      bool   `json:"preload,omitempty"`
 }
 
 // Prompt represents a prompt definition within a pack.
