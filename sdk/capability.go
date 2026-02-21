@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"github.com/AltairaLabs/PromptKit/runtime/skills"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 )
@@ -43,7 +44,26 @@ func inferCapabilities(p *pack.Pack) []Capability {
 	if p.Agents != nil && len(p.Agents.Members) > 0 {
 		caps = append(caps, NewA2ACapability())
 	}
+	if len(p.Skills) > 0 {
+		sources := convertSkillSources(p.Skills)
+		caps = append(caps, NewSkillsCapability(sources))
+	}
 	return caps
+}
+
+// convertSkillSources converts SDK internal pack skill configs to runtime SkillSource.
+func convertSkillSources(configs []pack.SkillSourceConfig) []skills.SkillSource {
+	sources := make([]skills.SkillSource, len(configs))
+	for i, cfg := range configs {
+		sources[i] = skills.SkillSource{
+			Dir:          cfg.Dir,
+			Name:         cfg.Name,
+			Description:  cfg.Description,
+			Instructions: cfg.Instructions,
+			Preload:      cfg.Preload,
+		}
+	}
+	return sources
 }
 
 // mergeCapabilities deduplicates by Name(), explicit takes precedence over inferred.

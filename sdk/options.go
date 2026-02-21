@@ -12,6 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/skills"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -142,6 +143,11 @@ type config struct {
 
 	// Platform capabilities (workflow, a2a, memory, etc.)
 	capabilities []Capability
+
+	// Skills configuration
+	skillsDirs      []string
+	skillSelector   skills.SkillSelector
+	maxActiveSkills int
 }
 
 // Option configures a Conversation.
@@ -1540,6 +1546,50 @@ func WithResultWriters(writers ...evals.ResultWriter) Option {
 func WithJudgeProvider(jp handlers.JudgeProvider) Option {
 	return func(c *config) error {
 		c.judgeProvider = jp
+		return nil
+	}
+}
+
+// WithSkillsDir adds a directory-based skill source.
+// Skills are discovered by scanning for SKILL.md files in the directory.
+// Multiple directories can be added by calling this option multiple times.
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "chat",
+//	    sdk.WithSkillsDir("./skills"),
+//	)
+func WithSkillsDir(dir string) Option {
+	return func(c *config) error {
+		c.skillsDirs = append(c.skillsDirs, dir)
+		return nil
+	}
+}
+
+// WithSkillSelectorOption sets the skill selector for filtering available skills.
+// The selector determines which skills from the available set are presented
+// to the model in the Phase 1 index.
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "chat",
+//	    sdk.WithSkillSelectorOption(skills.NewTagSelector([]string{"coding"})),
+//	)
+func WithSkillSelectorOption(s skills.SkillSelector) Option {
+	return func(c *config) error {
+		c.skillSelector = s
+		return nil
+	}
+}
+
+// WithMaxActiveSkillsOption sets the maximum number of concurrently active skills.
+// Default is 5 if not set.
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "chat",
+//	    sdk.WithMaxActiveSkillsOption(10),
+//	)
+func WithMaxActiveSkillsOption(n int) Option {
+	return func(c *config) error {
+		if n <= 0 {
+			return fmt.Errorf("WithMaxActiveSkillsOption: n must be positive, got %d", n)
+		}
+		c.maxActiveSkills = n
 		return nil
 	}
 }
