@@ -237,6 +237,62 @@ func TestContextRoundTrip(t *testing.T) {
 	}
 }
 
+func TestStateSkillsRoundTrip(t *testing.T) {
+	spec := &Spec{
+		Version: 1,
+		Entry:   "start",
+		States: map[string]*State{
+			"start": {
+				PromptTask: "task1",
+				Skills:     "skills/support",
+			},
+			"noSkills": {
+				PromptTask: "task2",
+				Skills:     "none",
+			},
+			"empty": {
+				PromptTask: "task3",
+			},
+		},
+	}
+
+	data, err := json.Marshal(spec)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var got Spec
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if got.States["start"].Skills != "skills/support" {
+		t.Errorf("start.Skills = %q, want %q", got.States["start"].Skills, "skills/support")
+	}
+	if got.States["noSkills"].Skills != "none" {
+		t.Errorf("noSkills.Skills = %q, want %q", got.States["noSkills"].Skills, "none")
+	}
+	if got.States["empty"].Skills != "" {
+		t.Errorf("empty.Skills = %q, want empty", got.States["empty"].Skills)
+	}
+
+	// Verify omitempty works
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal raw: %v", err)
+	}
+	var states map[string]map[string]json.RawMessage
+	if err := json.Unmarshal(raw["states"], &states); err != nil {
+		t.Fatalf("unmarshal states: %v", err)
+	}
+	if _, ok := states["empty"]["skills"]; ok {
+		t.Error("skills field should be omitted when empty")
+	}
+	if _, ok := states["start"]["skills"]; !ok {
+		t.Error("skills field should be present when set")
+	}
+}
+
 func TestContextMetadataOmitempty(t *testing.T) {
 	ctx := &Context{
 		CurrentState: "start",

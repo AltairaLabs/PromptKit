@@ -41,9 +41,9 @@ func (r *Registry) Discover(sources []SkillSource) error {
 	defer r.mu.Unlock()
 
 	for _, src := range sources {
-		if src.Dir != "" {
+		if dir := src.EffectiveDir(); dir != "" {
 			if err := r.discoverDirectory(src); err != nil {
-				return fmt.Errorf("discovering skills in %s: %w", src.Dir, err)
+				return fmt.Errorf("discovering skills in %s: %w", dir, err)
 			}
 		} else if src.Name != "" {
 			r.registerInline(src)
@@ -55,7 +55,7 @@ func (r *Registry) Discover(sources []SkillSource) error {
 // discoverDirectory walks a directory looking for SKILL.md files and registers each skill found.
 // Must be called with r.mu held.
 func (r *Registry) discoverDirectory(src SkillSource) error {
-	absDir, err := filepath.Abs(src.Dir)
+	absDir, err := filepath.Abs(src.EffectiveDir())
 	if err != nil {
 		return fmt.Errorf("resolving directory path: %w", err)
 	}

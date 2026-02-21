@@ -111,7 +111,8 @@ type Pack struct {
 // SkillSourceConfig represents a skill source in the pack YAML.
 type SkillSourceConfig struct {
 	// Directory path for filesystem-based skills
-	Dir string `json:"dir,omitempty" yaml:"dir,omitempty"`
+	Dir  string `json:"dir,omitempty" yaml:"dir,omitempty"`
+	Path string `json:"path,omitempty" yaml:"path,omitempty"` // schema alias for dir
 
 	// Inline skill fields
 	Name         string `json:"name,omitempty" yaml:"name,omitempty"`
@@ -120,6 +121,14 @@ type SkillSourceConfig struct {
 
 	// Options
 	Preload bool `json:"preload,omitempty" yaml:"preload,omitempty"`
+}
+
+// EffectiveDir returns the directory path, preferring Dir over Path.
+func (s *SkillSourceConfig) EffectiveDir() string {
+	if s.Dir != "" {
+		return s.Dir
+	}
+	return s.Path
 }
 
 // PackTool represents a tool definition in the pack (per PromptPack spec Section 9)

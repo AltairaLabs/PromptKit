@@ -57,6 +57,7 @@ func convertSkillSources(configs []pack.SkillSourceConfig) []skills.SkillSource 
 	for i, cfg := range configs {
 		sources[i] = skills.SkillSource{
 			Dir:          cfg.Dir,
+			Path:         cfg.Path,
 			Name:         cfg.Name,
 			Description:  cfg.Description,
 			Instructions: cfg.Instructions,

@@ -17,4 +17,5 @@ type WorkflowState struct {
 	OnEvent       map[string]string `json:"on_event,omitempty"`
 	Persistence   string            `json:"persistence,omitempty"`
 	Orchestration string            `json:"orchestration,omitempty"`
+	Skills        string            `json:"skills,omitempty"`
 }

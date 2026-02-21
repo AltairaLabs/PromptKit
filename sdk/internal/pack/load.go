@@ -57,10 +57,19 @@ type Pack struct {
 // SkillSourceConfig represents a skill source in the pack.
 type SkillSourceConfig struct {
 	Dir          string `json:"dir,omitempty"`
+	Path         string `json:"path,omitempty"` // schema alias for dir
 	Name         string `json:"name,omitempty"`
 	Description  string `json:"description,omitempty"`
 	Instructions string `json:"instructions,omitempty"`
 	Preload      bool   `json:"preload,omitempty"`
+}
+
+// EffectiveDir returns the directory path, preferring Dir over Path.
+func (s *SkillSourceConfig) EffectiveDir() string {
+	if s.Dir != "" {
+		return s.Dir
+	}
+	return s.Path
 }
 
 // Prompt represents a prompt definition within a pack.

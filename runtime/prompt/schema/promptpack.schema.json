@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://promptpack.org/schema/latest/promptpack.schema.json",
   "title": "PromptPack Specification",
-  "description": "Schema for packaging, testing, and running multi-prompt conversational systems with multimodal, workflow, and agent support",
-  "version": "1.3.0",
+  "description": "Schema for packaging, testing, and running multi-prompt conversational systems with multimodal, workflow, agent, and skills support",
+  "version": "1.3.1",
   "type": "object",
   "required": ["id", "name", "version", "template_engine", "prompts"],
   "additionalProperties": false,
@@ -205,6 +205,14 @@
     "agents": {
       "$ref": "#/$defs/AgentsConfig",
       "description": "Agent configuration mapping prompts to A2A-compatible agent definitions. Enables multi-agent orchestration via the Agent-to-Agent protocol."
+    },
+
+    "skills": {
+      "type": "array",
+      "description": "Skill sources for progressive-disclosure knowledge loading. Each entry is either a string (path or package reference), a SkillPathSource object, or an InlineSkill object.",
+      "items": {
+        "$ref": "#/$defs/SkillSource"
+      }
     }
   },
   
@@ -1265,6 +1273,11 @@
           "type": "string",
           "description": "How this state is orchestrated: internal (runtime manages), external (caller manages), or hybrid.",
           "enum": ["internal", "external", "hybrid"]
+        },
+        "skills": {
+          "type": "string",
+          "description": "Skill filter for this workflow state. A path to a skill directory/file that scopes which skills are available in this state, or the literal 'none' to disable skills.",
+          "examples": ["./skills/billing", "none"]
         }
       }
     },
@@ -1325,6 +1338,69 @@
           },
           "default": ["text/plain"],
           "examples": [["text/plain"], ["text/plain", "application/json"]]
+        }
+      }
+    },
+
+    "SkillSource": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Path to a skill directory/file or a package reference (e.g., './skills', '@acme/billing-skills')."
+        },
+        {
+          "$ref": "#/$defs/SkillPathSource"
+        },
+        {
+          "$ref": "#/$defs/InlineSkill"
+        }
+      ],
+      "description": "A skill source for progressive-disclosure knowledge loading. Can be a simple string path, a path object with preload config, or an inline skill definition."
+    },
+
+    "SkillPathSource": {
+      "type": "object",
+      "description": "A skill source with a path and optional preload configuration.",
+      "required": ["path"],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path to a skill directory, file, or package reference.",
+          "examples": ["./skills/billing", "@acme/billing-skills"]
+        },
+        "preload": {
+          "type": "boolean",
+          "description": "If true, load this skill source eagerly at pack initialization rather than on demand.",
+          "default": false,
+          "examples": [true, false]
+        }
+      }
+    },
+
+    "InlineSkill": {
+      "type": "object",
+      "description": "A skill defined inline within the pack. Useful for small, pack-specific skills that don't warrant a separate file.",
+      "required": ["name", "description", "instructions"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Human-readable name for this skill.",
+          "minLength": 1,
+          "examples": ["escalation-protocol", "refund-policy"]
+        },
+        "description": {
+          "type": "string",
+          "description": "Brief description of what this skill provides.",
+          "minLength": 1,
+          "examples": ["Steps for escalating unresolved customer issues"]
+        },
+        "instructions": {
+          "type": "string",
+          "description": "The skill's instructions or knowledge content. Loaded into the agent's context when the skill is activated.",
+          "minLength": 1,
+          "examples": ["When a customer issue cannot be resolved within 3 exchanges:\n1. Acknowledge the complexity\n2. Collect case details\n3. Create an escalation ticket"]
         }
       }
     }
