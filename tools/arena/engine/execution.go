@@ -385,6 +385,9 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 
 	convResult := e.conversationExecutor.ExecuteConversation(ctx, req)
 
+	// Enrich conversation messages with tool descriptor metadata for reports
+	e.enrichMessagesWithToolDescriptors(ctx, arenaStore, runID)
+
 	// Calculate duration and cost
 	duration := time.Since(startTime)
 	cost := convResult.Cost.TotalCost
@@ -397,6 +400,63 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 	e.notifyRunCompletion(runEmitter, convResult, runID, duration, cost)
 
 	return runID, nil
+}
+
+// enrichMessagesWithToolDescriptors adds _available_tools and _tool_descriptors
+// metadata to the system prompt message in the state store. This makes tool
+// information visible in the HTML report for non-workflow (pipeline) runs.
+func (e *Engine) enrichMessagesWithToolDescriptors(
+	ctx context.Context,
+	store *statestore.ArenaStateStore,
+	conversationID string,
+) {
+	if e.toolRegistry == nil {
+		return
+	}
+
+	allTools := e.toolRegistry.GetTools()
+	if len(allTools) == 0 {
+		return
+	}
+
+	// Build tool names and descriptors
+	toolNames := make([]string, 0, len(allTools))
+	toolDescriptors := make([]map[string]interface{}, 0, len(allTools))
+	for name, td := range allTools {
+		toolNames = append(toolNames, name)
+		desc := map[string]interface{}{
+			"name":        td.Name,
+			"description": td.Description,
+		}
+		if len(td.InputSchema) > 0 {
+			desc["input_schema"] = td.InputSchema
+		}
+		toolDescriptors = append(toolDescriptors, desc)
+	}
+
+	// Load conversation, enrich system prompt message, re-save
+	convState, err := store.Load(ctx, conversationID)
+	if err != nil || len(convState.Messages) == 0 {
+		return
+	}
+
+	enriched := false
+	for i := range convState.Messages {
+		if convState.Messages[i].Role != "system" {
+			continue
+		}
+		if convState.Messages[i].Meta == nil {
+			convState.Messages[i].Meta = map[string]interface{}{}
+		}
+		convState.Messages[i].Meta["_available_tools"] = toolNames
+		convState.Messages[i].Meta["_tool_descriptors"] = toolDescriptors
+		enriched = true
+		break // only enrich the first system prompt
+	}
+
+	if enriched {
+		_ = store.Save(ctx, convState)
+	}
 }
 
 func (e *Engine) createRunEmitter(runID string, combo RunCombination) *events.Emitter {

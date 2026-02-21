@@ -100,9 +100,3 @@ scenarios:
 
 # Default response for scenarios not covered above
 default_response: "I'm here to help with your customer support needs. Could you please provide more details about your question?"
-        priority: "medium"
-        description: "Customer reports order ORD-2024-1234 not received despite delivery confirmation"
-      result:
-        ticket_id: "TICKET-98765"
-        status: "open"
-        created_at: "2024-10-23T10:30:00Z"

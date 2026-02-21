@@ -97,7 +97,8 @@ func extractSkillName(args map[string]interface{}) string {
 	if args == nil {
 		return ""
 	}
-	if name, ok := args["skill"].(string); ok {
+	// The skill__activate tool uses "name" as the argument key
+	if name, ok := args["name"].(string); ok {
 		return name
 	}
 	return ""

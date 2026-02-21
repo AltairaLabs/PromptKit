@@ -1339,15 +1339,13 @@ func TestProviderStage_BuildProviderTools_ToolNotFound(t *testing.T) {
 	provider := mock.NewToolProvider("test", "model", false, nil)
 	stage := NewProviderStage(provider, registry, nil, nil)
 
-	// Build tools with non-existent tool - BuildTooling still gets called with empty descriptors
-	// The tool choice defaults to "auto"
+	// Build tools with non-existent tool — no descriptors to send, returns nil
 	providerTools, toolChoice, err := stage.buildProviderTools([]string{"nonexistent_tool"})
 
 	require.NoError(t, err)
-	// Even with no tools found, the default tool choice is returned
-	assert.Equal(t, "auto", toolChoice)
-	// Provider tools are built (may be empty)
-	assert.NotNil(t, providerTools)
+	// No tools found means no BuildTooling call
+	assert.Equal(t, "", toolChoice)
+	assert.Nil(t, providerTools)
 }
 
 func TestProviderStage_BuildProviderTools_ProviderNoToolSupport(t *testing.T) {
@@ -1394,6 +1392,51 @@ func TestProviderStage_BuildProviderTools_NilRegistry(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, providerTools)
 	assert.Empty(t, toolChoice)
+}
+
+func TestProviderStage_BuildProviderTools_SystemToolsIncluded(t *testing.T) {
+	// System-namespaced tools (skill__, a2a__, etc.) are included automatically
+	// even when they're not in the allowedTools list.
+	registry := tools.NewRegistry()
+	_ = registry.Register(&tools.ToolDescriptor{
+		Name:        "skill__activate",
+		Description: "Activate a skill",
+		InputSchema: []byte(`{"type":"object","properties":{"name":{"type":"string"}}}`),
+	})
+	_ = registry.Register(&tools.ToolDescriptor{
+		Name:        "regular_tool",
+		Description: "A regular tool",
+		InputSchema: []byte(`{"type":"object"}`),
+	})
+
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	stage := NewProviderStage(provider, registry, nil, nil)
+
+	// Only allow regular_tool — skill__activate should still be included as a system tool
+	providerTools, toolChoice, err := stage.buildProviderTools([]string{"regular_tool"})
+
+	require.NoError(t, err)
+	assert.Equal(t, "auto", toolChoice)
+	assert.NotNil(t, providerTools)
+}
+
+func TestProviderStage_BuildProviderTools_SystemToolsWithEmptyAllowed(t *testing.T) {
+	// System tools are included even when allowedTools is empty.
+	registry := tools.NewRegistry()
+	_ = registry.Register(&tools.ToolDescriptor{
+		Name:        "a2a__send",
+		Description: "Send to agent",
+		InputSchema: []byte(`{"type":"object"}`),
+	})
+
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	stage := NewProviderStage(provider, registry, nil, nil)
+
+	providerTools, toolChoice, err := stage.buildProviderTools([]string{})
+
+	require.NoError(t, err)
+	assert.Equal(t, "auto", toolChoice)
+	assert.NotNil(t, providerTools)
 }
 
 func TestProviderStage_HandleToolResult_AllStatuses(t *testing.T) {

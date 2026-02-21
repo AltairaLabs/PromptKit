@@ -11,10 +11,10 @@ func TestSkillActivatedConversationValidator(t *testing.T) {
 
 	conv := &ConversationContext{
 		ToolCalls: []ToolCallRecord{
-			{TurnIndex: 1, ToolName: "skill__activate", Arguments: map[string]interface{}{"skill": "pci-compliance"}},
+			{TurnIndex: 1, ToolName: "skill__activate", Arguments: map[string]interface{}{"name": "pci-compliance"}},
 			{TurnIndex: 2, ToolName: "get_order"},
-			{TurnIndex: 3, ToolName: "skill__activate", Arguments: map[string]interface{}{"skill": "refund-processing"}},
-			{TurnIndex: 4, ToolName: "skill__activate", Arguments: map[string]interface{}{"skill": "pci-compliance"}},
+			{TurnIndex: 3, ToolName: "skill__activate", Arguments: map[string]interface{}{"name": "refund-processing"}},
+			{TurnIndex: 4, ToolName: "skill__activate", Arguments: map[string]interface{}{"name": "pci-compliance"}},
 		},
 	}
 
@@ -88,7 +88,7 @@ func TestSkillActivatedConversationValidator_NoRequiredSkills(t *testing.T) {
 
 	conv := &ConversationContext{
 		ToolCalls: []ToolCallRecord{
-			{TurnIndex: 0, ToolName: "skill__activate", Arguments: map[string]interface{}{"skill": "pci-compliance"}},
+			{TurnIndex: 0, ToolName: "skill__activate", Arguments: map[string]interface{}{"name": "pci-compliance"}},
 		},
 	}
 
@@ -148,7 +148,7 @@ func TestSkillNotActivatedConversationValidator(t *testing.T) {
 
 	conv := &ConversationContext{
 		ToolCalls: []ToolCallRecord{
-			{TurnIndex: 1, ToolName: "skill__activate", Arguments: map[string]interface{}{"skill": "pci-compliance"}},
+			{TurnIndex: 1, ToolName: "skill__activate", Arguments: map[string]interface{}{"name": "pci-compliance"}},
 			{TurnIndex: 2, ToolName: "get_order"},
 		},
 	}
@@ -209,7 +209,7 @@ func TestSkillNotActivatedConversationValidator_IgnoresOtherTools(t *testing.T) 
 	conv := &ConversationContext{
 		ToolCalls: []ToolCallRecord{
 			{TurnIndex: 0, ToolName: "get_order"},
-			{TurnIndex: 1, ToolName: "skill__deactivate", Arguments: map[string]interface{}{"skill": "pci-compliance"}},
+			{TurnIndex: 1, ToolName: "skill__deactivate", Arguments: map[string]interface{}{"name": "pci-compliance"}},
 		},
 	}
 
@@ -229,8 +229,8 @@ func TestSkillNotActivatedConversationValidator_MultipleViolations(t *testing.T)
 
 	conv := &ConversationContext{
 		ToolCalls: []ToolCallRecord{
-			{TurnIndex: 1, ToolName: "skill__activate", Arguments: map[string]interface{}{"skill": "pci-compliance"}},
-			{TurnIndex: 3, ToolName: "skill__activate", Arguments: map[string]interface{}{"skill": "pci-compliance"}},
+			{TurnIndex: 1, ToolName: "skill__activate", Arguments: map[string]interface{}{"name": "pci-compliance"}},
+			{TurnIndex: 3, ToolName: "skill__activate", Arguments: map[string]interface{}{"name": "pci-compliance"}},
 		},
 	}
 

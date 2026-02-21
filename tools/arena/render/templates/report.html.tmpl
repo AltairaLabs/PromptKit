@@ -620,9 +620,307 @@
             display: none;
             margin-top: 0.75rem;
         }
-        
+
         .raw-request-content.expanded {
             display: block;
+        }
+
+        /* DevTools-style right panel */
+        :root {
+            --devtools-width: 420px;
+        }
+
+        .devtools-panel {
+            position: fixed;
+            top: 0;
+            right: calc(-1 * var(--devtools-width));
+            width: var(--devtools-width);
+            height: 100vh;
+            background: #1e1e2e;
+            color: #cdd6f4;
+            box-shadow: -4px 0 20px rgba(0,0,0,0.3);
+            z-index: 1000;
+            transition: right 0.25s ease;
+            display: flex;
+            flex-direction: column;
+            font-size: 0.85rem;
+        }
+
+        .devtools-panel.open {
+            right: 0;
+        }
+
+        .devtools-panel.resizing {
+            transition: none;
+            user-select: none;
+        }
+
+        body.devtools-open .container {
+            margin-right: var(--devtools-width);
+            transition: margin-right 0.25s ease;
+        }
+
+        body.devtools-resizing .container {
+            transition: none;
+        }
+
+        .devtools-resize-handle {
+            position: absolute;
+            left: -3px;
+            top: 0;
+            width: 6px;
+            height: 100%;
+            cursor: col-resize;
+            z-index: 1001;
+        }
+
+        .devtools-resize-handle:hover,
+        .devtools-resize-handle.active {
+            background: #89b4fa;
+            opacity: 0.5;
+        }
+
+        .devtools-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.5rem 0.75rem;
+            background: #181825;
+            border-bottom: 1px solid #313244;
+            flex-shrink: 0;
+        }
+
+        .devtools-title {
+            font-weight: 600;
+            font-size: 0.8rem;
+            color: #89b4fa;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .devtools-turn-label {
+            font-size: 0.75rem;
+            color: #6c7086;
+        }
+
+        .devtools-close {
+            background: none;
+            border: none;
+            color: #6c7086;
+            font-size: 1.1rem;
+            cursor: pointer;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            line-height: 1;
+        }
+
+        .devtools-close:hover {
+            color: #cdd6f4;
+            background: #313244;
+        }
+
+        .devtools-tabs {
+            display: flex;
+            background: #181825;
+            border-bottom: 1px solid #313244;
+            flex-shrink: 0;
+        }
+
+        .devtools-tab {
+            padding: 0.5rem 1rem;
+            font-size: 0.78rem;
+            color: #6c7086;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            background: none;
+            border-top: none;
+            border-left: none;
+            border-right: none;
+            font-family: inherit;
+            white-space: nowrap;
+        }
+
+        .devtools-tab:hover {
+            color: #a6adc8;
+        }
+
+        .devtools-tab.active {
+            color: #89b4fa;
+            border-bottom-color: #89b4fa;
+        }
+
+        .devtools-tab-count {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 1.2rem;
+            height: 1.2rem;
+            padding: 0 0.3rem;
+            border-radius: 10px;
+            font-size: 0.65rem;
+            font-weight: 700;
+            margin-left: 0.35rem;
+            background: #313244;
+            color: #a6adc8;
+        }
+
+        .devtools-tab.active .devtools-tab-count {
+            background: #89b4fa;
+            color: #1e1e2e;
+        }
+
+        .devtools-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0;
+        }
+
+        .devtools-tab-content {
+            display: none;
+            padding: 0.75rem;
+        }
+
+        .devtools-tab-content.active {
+            display: block;
+        }
+
+        .devtools-section {
+            margin-bottom: 1rem;
+        }
+
+        .devtools-section-title {
+            font-size: 0.7rem;
+            font-weight: 700;
+            color: #6c7086;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.5rem;
+            padding-bottom: 0.25rem;
+            border-bottom: 1px solid #313244;
+        }
+
+        .devtools-metric {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.3rem 0;
+            border-bottom: 1px solid #313244;
+        }
+
+        .devtools-metric-label {
+            color: #a6adc8;
+        }
+
+        .devtools-metric-value {
+            color: #a6e3a1;
+            font-family: 'Courier New', monospace;
+        }
+
+        .devtools-tool-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .devtools-tool-item {
+            padding: 0.35rem 0.5rem;
+            border-bottom: 1px solid #313244;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .devtools-tool-item:last-child {
+            border-bottom: none;
+        }
+
+        .devtools-tool-item:hover {
+            background: #313244;
+        }
+
+        .devtools-tool-badge {
+            display: inline-block;
+            padding: 0.1rem 0.35rem;
+            border-radius: 3px;
+            font-size: 0.65rem;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .devtools-tool-badge.workflow {
+            background: #fab387;
+            color: #1e1e2e;
+        }
+
+        .devtools-tool-badge.skill {
+            background: #89b4fa;
+            color: #1e1e2e;
+        }
+
+        .devtools-tool-badge.a2a {
+            background: #cba6f7;
+            color: #1e1e2e;
+        }
+
+        .devtools-tool-badge.other {
+            background: #6c7086;
+            color: #1e1e2e;
+        }
+
+        .devtools-json {
+            background: #11111b;
+            border: 1px solid #313244;
+            border-radius: 4px;
+            padding: 0.75rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.78rem;
+            white-space: pre-wrap;
+            word-break: break-all;
+            color: #cdd6f4;
+            overflow-x: auto;
+            max-height: 400px;
+            overflow-y: auto;
+            line-height: 1.5;
+        }
+
+        .devtools-empty {
+            color: #585b70;
+            font-style: italic;
+            padding: 1rem 0;
+            text-align: center;
+        }
+
+        .inspect-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 1.5rem;
+            height: 1.5rem;
+            border-radius: 4px;
+            background: #e0e7ff;
+            border: 1px solid #a5b4fc;
+            cursor: pointer;
+            font-size: 0.75rem;
+            color: #4338ca;
+            transition: all 0.15s;
+            flex-shrink: 0;
+        }
+
+        .inspect-btn:hover {
+            background: #c7d2fe;
+            border-color: #818cf8;
+        }
+
+        .inspect-btn.active {
+            background: #4338ca;
+            color: white;
+            border-color: #4338ca;
+        }
+
+        /* Hidden data containers for devtools */
+        .devtools-data {
+            display: none;
         }
         
         .turn-error {
@@ -1548,18 +1846,47 @@
                                 {{$hasAssertions := hasAssertions $msg.Meta}}
                                 {{$hasValidators := hasValidators $msg}}
                                 {{$hasRawRequest := false}}
+                                {{$hasRawResponse := false}}
+                                {{$hasAvailableTools := false}}
+                                {{$hasToolDescriptors := false}}
+                                {{$hasWorkflowState := false}}
+                                {{$hasLLMTrace := false}}
+                                {{$hasFinishReason := false}}
+                                {{$hasPackEvals := false}}
                                 {{if $msg.Meta}}
                                     {{$metaMap := $msg.Meta}}
                                     {{if $metaMap}}
                                         {{if index $metaMap "_llm_raw_request"}}
                                             {{$hasRawRequest = true}}
                                         {{end}}
+                                        {{if index $metaMap "_llm_raw_response"}}
+                                            {{$hasRawResponse = true}}
+                                        {{end}}
+                                        {{if index $metaMap "_available_tools"}}
+                                            {{$hasAvailableTools = true}}
+                                        {{end}}
+                                        {{if index $metaMap "_tool_descriptors"}}
+                                            {{$hasToolDescriptors = true}}
+                                        {{end}}
+                                        {{if index $metaMap "_workflow_state"}}
+                                            {{$hasWorkflowState = true}}
+                                        {{end}}
+                                        {{if index $metaMap "_llm_trace"}}
+                                            {{$hasLLMTrace = true}}
+                                        {{end}}
+                                        {{if index $metaMap "finish_reason"}}
+                                            {{$hasFinishReason = true}}
+                                        {{end}}
+                                        {{if index $metaMap "pack_evals"}}
+                                            {{$hasPackEvals = true}}
+                                        {{end}}
                                     {{end}}
                                 {{end}}
+                                {{$hasDiagnostics := or $hasAvailableTools $hasRawRequest $hasRawResponse $hasLLMTrace $hasPackEvals $hasWorkflowState $msg.CostInfo (not (not $msg.ToolCalls)) (eq $msg.Role "system")}}
                                 {{$assertionsFailed := not (assertionsPassed $assertions)}}
                                 {{$validatorsFailed := not (validatorsPassed $validators)}}
                                 {{$hasFailed := or $assertionsFailed $validatorsFailed}}
-                                <div class="turn {{$msg.Role}}{{if $hasFailed}} has-failures{{end}}">
+                                <div class="turn {{$msg.Role}}{{if $hasFailed}} has-failures{{end}}"{{if $hasDiagnostics}} data-devtools-turn="{{$result.RunID}}-{{$msgIdx}}" style="cursor:pointer;"{{end}}>
                                     <div class="turn-header">
                                         <div class="turn-role">{{$msg.Role}}</div>
                                         <div style="display: flex; align-items: center; gap: 0.5rem;">
@@ -1570,16 +1897,16 @@
                                                 <span class="persona-name">{{$result.PersonaID}}</span>
                                             </span>
                                             {{end}}
-                                            {{if or $msg.LatencyMs $msg.CostInfo $hasRawRequest}}
+                                            {{if or $msg.LatencyMs $msg.CostInfo}}
                                             <span class="turn-metrics-badge" title="Turn {{add $msgIdx 1}} metrics">
                                                 {{if $msg.LatencyMs}}⏱️ {{$msg.LatencyMs}}ms{{end}}
                                                 {{if $msg.CostInfo}}
                                                 {{if $msg.LatencyMs}} | {{end}}🎯 {{$msg.CostInfo.InputTokens}}→{{$msg.CostInfo.OutputTokens}} | 💰 {{formatCost $msg.CostInfo.TotalCost}}
                                                 {{end}}
-                                                {{if $hasRawRequest}}
-                                                {{if or $msg.LatencyMs $msg.CostInfo}} | {{end}}<span style="cursor: pointer;" onclick="toggleRawRequest('{{$result.RunID}}-{{$msgIdx}}')" title="Click to view raw LLM request">🐛</span>
-                                                {{end}}
                                             </span>
+                                            {{end}}
+                                            {{if $hasDiagnostics}}
+                                            <span class="inspect-btn" onclick="openDevTools('{{$result.RunID}}-{{$msgIdx}}')" title="Inspect turn diagnostics">⚙</span>
                                             {{end}}
                                             {{if $hasAssertions}}
                                             <span class="validation-badge {{if assertionsPassed $assertions}}passed{{else}}failed{{end}}" 
@@ -1707,17 +2034,61 @@
                                         {{end}}
                                     </div>
                                     {{end}}
-                                    {{if $hasRawRequest}}
-                                    <div class="raw-request-content" id="raw-{{$result.RunID}}-{{$msgIdx}}">
-                                        <div class="tool-call">
-                                            <div class="tool-call-header">
-                                                <span class="tool-call-name">Raw LLM Request</span>
-                                            </div>
-                                            <div class="tool-call-args">
-                                                <div class="tool-call-args-label">Request Data:</div>
-                                                <div class="json-content">{{prettyJSON (index $msg.Meta "_llm_raw_request")}}</div>
-                                            </div>
+                                    {{/* Hidden data containers for DevTools panel */}}
+                                    {{if $hasDiagnostics}}
+                                    <div class="devtools-data" id="devtools-data-{{$result.RunID}}-{{$msgIdx}}"
+                                         data-role="{{$msg.Role}}"
+                                         data-turn="{{add $msgIdx 1}}"
+                                         data-provider="{{$result.ProviderID}}"
+                                         data-scenario="{{$result.ScenarioID}}"
+                                         {{if $msg.Timestamp}}data-timestamp="{{$msg.Timestamp}}"{{end}}
+                                         {{if $hasFinishReason}}data-finish-reason="{{index $msg.Meta "finish_reason"}}"{{end}}>
+                                        {{if $msg.CostInfo}}
+                                        <div data-devtools="metrics">
+                                            <div class="devtools-metric"><span class="devtools-metric-label">Latency</span><span class="devtools-metric-value">{{$msg.LatencyMs}}ms</span></div>
+                                            <div class="devtools-metric"><span class="devtools-metric-label">Input Tokens</span><span class="devtools-metric-value">{{$msg.CostInfo.InputTokens}}</span></div>
+                                            <div class="devtools-metric"><span class="devtools-metric-label">Output Tokens</span><span class="devtools-metric-value">{{$msg.CostInfo.OutputTokens}}</span></div>
+                                            {{if $msg.CostInfo.CachedTokens}}
+                                            <div class="devtools-metric"><span class="devtools-metric-label">Cached Tokens</span><span class="devtools-metric-value">{{$msg.CostInfo.CachedTokens}}</span></div>
+                                            {{end}}
+                                            <div class="devtools-metric"><span class="devtools-metric-label">Input Cost</span><span class="devtools-metric-value">{{formatCost $msg.CostInfo.InputCostUSD}}</span></div>
+                                            <div class="devtools-metric"><span class="devtools-metric-label">Output Cost</span><span class="devtools-metric-value">{{formatCost $msg.CostInfo.OutputCostUSD}}</span></div>
+                                            {{if $msg.CostInfo.CachedCostUSD}}
+                                            <div class="devtools-metric"><span class="devtools-metric-label">Cache Savings</span><span class="devtools-metric-value">{{formatCost $msg.CostInfo.CachedCostUSD}}</span></div>
+                                            {{end}}
+                                            <div class="devtools-metric"><span class="devtools-metric-label">Total Cost</span><span class="devtools-metric-value">{{formatCost $msg.CostInfo.TotalCost}}</span></div>
                                         </div>
+                                        {{end}}
+                                        {{if $hasAvailableTools}}
+                                        <div data-devtools="tools">{{prettyJSON (index $msg.Meta "_available_tools")}}</div>
+                                        {{end}}
+                                        {{if $hasToolDescriptors}}
+                                        <div data-devtools="tooldescriptors">{{prettyJSON (index $msg.Meta "_tool_descriptors")}}</div>
+                                        {{end}}
+                                        {{if $hasWorkflowState}}
+                                        <div data-devtools="workflow">{{prettyJSON (index $msg.Meta "_workflow_state")}}</div>
+                                        {{end}}
+                                        {{if $msg.ToolCalls}}
+                                        <div data-devtools="toolcalls">{{prettyJSON $msg.ToolCalls}}</div>
+                                        {{end}}
+                                        {{if eq $msg.Role "system"}}
+                                        <div data-devtools="systemprompt">{{$msg.Content}}</div>
+                                        {{end}}
+                                        {{if $hasRawRequest}}
+                                        <div data-devtools="request">{{prettyJSON (index $msg.Meta "_llm_raw_request")}}</div>
+                                        {{end}}
+                                        {{if $hasRawResponse}}
+                                        <div data-devtools="response">{{prettyJSON (index $msg.Meta "_llm_raw_response")}}</div>
+                                        {{end}}
+                                        {{if $hasLLMTrace}}
+                                        <div data-devtools="trace">{{prettyJSON (index $msg.Meta "_llm_trace")}}</div>
+                                        {{end}}
+                                        {{if $hasPackEvals}}
+                                        <div data-devtools="evals">{{prettyJSON (index $msg.Meta "pack_evals")}}</div>
+                                        {{end}}
+                                        {{if $msg.Validations}}
+                                        <div data-devtools="validations">{{prettyJSON $msg.Validations}}</div>
+                                        {{end}}
                                     </div>
                                     {{end}}
                                     {{if eq $msg.Role "tool"}}
@@ -1858,25 +2229,471 @@
         </div>
     </div>
 
+    <!-- DevTools Panel -->
+    <div class="devtools-panel" id="devtools-panel">
+        <div class="devtools-resize-handle" id="devtools-resize-handle"></div>
+        <div class="devtools-header">
+            <div>
+                <div class="devtools-title">Turn Inspector</div>
+                <div class="devtools-turn-label" id="devtools-turn-label"></div>
+            </div>
+            <button class="devtools-close" onclick="closeDevTools()" title="Close (Esc)">&times;</button>
+        </div>
+        <div class="devtools-tabs" id="devtools-tabs"></div>
+        <div class="devtools-body" id="devtools-body"></div>
+    </div>
+
     <script>
+        let currentDevToolsTurnId = null;
+
+        function openDevTools(turnId) {
+            var panel = document.getElementById('devtools-panel');
+            var data = document.getElementById('devtools-data-' + turnId);
+            if (!data) return;
+
+            // Deactivate previous inspect button
+            if (currentDevToolsTurnId) {
+                var prevBtn = document.querySelector('.inspect-btn.active');
+                if (prevBtn) prevBtn.classList.remove('active');
+            }
+
+            currentDevToolsTurnId = turnId;
+
+            // Activate this inspect button
+            var turn = data.closest('.turn');
+            var btn = turn ? turn.querySelector('.inspect-btn') : null;
+            if (btn) btn.classList.add('active');
+
+            // Read data attributes for header
+            var role = data.getAttribute('data-role') || 'turn';
+            var turnNum = data.getAttribute('data-turn') || '';
+            var provider = data.getAttribute('data-provider') || '';
+            var scenario = data.getAttribute('data-scenario') || '';
+            var timestamp = data.getAttribute('data-timestamp') || '';
+            var finishReason = data.getAttribute('data-finish-reason') || '';
+
+            document.getElementById('devtools-turn-label').textContent =
+                role.toUpperCase() + ' #' + turnNum + (provider ? ' | ' + provider : '');
+
+            // Gather available data elements
+            var metricsEl = data.querySelector('[data-devtools="metrics"]');
+            var toolsEl = data.querySelector('[data-devtools="tools"]');
+            var toolDescsEl = data.querySelector('[data-devtools="tooldescriptors"]');
+            var toolcallsEl = data.querySelector('[data-devtools="toolcalls"]');
+            var workflowEl = data.querySelector('[data-devtools="workflow"]');
+            var promptEl = data.querySelector('[data-devtools="systemprompt"]');
+            var requestEl = data.querySelector('[data-devtools="request"]');
+            var responseEl = data.querySelector('[data-devtools="response"]');
+            var traceEl = data.querySelector('[data-devtools="trace"]');
+            var evalsEl = data.querySelector('[data-devtools="evals"]');
+            var validationsEl = data.querySelector('[data-devtools="validations"]');
+
+            // Build tabs dynamically based on available data
+            var tabs = [];
+
+            // Info tab — always present (shows context about the turn)
+            tabs.push({ id: 'info', label: 'Info', icon: 'ℹ️' });
+
+            if (workflowEl) tabs.push({ id: 'workflow', label: 'Workflow', icon: '⚡' });
+            if (metricsEl) tabs.push({ id: 'metrics', label: 'Metrics', icon: '📊' });
+
+            if (toolsEl || toolcallsEl) {
+                var toolCount = 0;
+                if (toolsEl) {
+                    try { var p = JSON.parse(toolsEl.textContent); toolCount = Array.isArray(p) ? p.length : 0; } catch(e) {}
+                }
+                tabs.push({ id: 'tools', label: 'Tools', icon: '🔧', count: toolCount });
+            }
+
+            if (promptEl) tabs.push({ id: 'prompt', label: 'Prompt', icon: '📝' });
+            if (requestEl) tabs.push({ id: 'request', label: 'Request', icon: '📡' });
+            if (responseEl) tabs.push({ id: 'response', label: 'Response', icon: '📥' });
+            if (traceEl) tabs.push({ id: 'trace', label: 'Trace', icon: '🔍' });
+            if (evalsEl) tabs.push({ id: 'evals', label: 'Evals', icon: '🧪' });
+            if (validationsEl) tabs.push({ id: 'validations', label: 'Validators', icon: '✓' });
+
+            // Build tab bar
+            var tabsContainer = document.getElementById('devtools-tabs');
+            tabsContainer.innerHTML = tabs.map(function(t, i) {
+                return '<button class="devtools-tab' + (i === 0 ? ' active' : '') + '" data-tab="' + t.id + '" onclick="switchDevToolsTab(\'' + t.id + '\')">' +
+                    t.icon + ' ' + t.label +
+                    (t.count ? '<span class="devtools-tab-count">' + t.count + '</span>' : '') +
+                    '</button>';
+            }).join('');
+
+            // Build tab content
+            var body = document.getElementById('devtools-body');
+            var html = '';
+            var firstTab = tabs[0].id;
+
+            // --- Info tab ---
+            html += '<div class="devtools-tab-content' + (firstTab === 'info' ? ' active' : '') + '" data-tab-content="info">';
+            html += '<div class="devtools-section"><div class="devtools-section-title">Turn Context</div>';
+            html += '<div class="devtools-metric"><span class="devtools-metric-label">Role</span><span class="devtools-metric-value">' + role + '</span></div>';
+            html += '<div class="devtools-metric"><span class="devtools-metric-label">Turn #</span><span class="devtools-metric-value">' + turnNum + '</span></div>';
+            if (provider) html += '<div class="devtools-metric"><span class="devtools-metric-label">Provider</span><span class="devtools-metric-value">' + provider + '</span></div>';
+            if (scenario) html += '<div class="devtools-metric"><span class="devtools-metric-label">Scenario</span><span class="devtools-metric-value">' + scenario + '</span></div>';
+            if (timestamp) html += '<div class="devtools-metric"><span class="devtools-metric-label">Timestamp</span><span class="devtools-metric-value">' + timestamp + '</span></div>';
+            if (finishReason) html += '<div class="devtools-metric"><span class="devtools-metric-label">Finish Reason</span><span class="devtools-metric-value">' + finishReason + '</span></div>';
+            // Quick summary of what's in this turn
+            var summary = [];
+            if (workflowEl) summary.push('workflow');
+            if (metricsEl) summary.push('metrics');
+            if (toolsEl) summary.push('tool descriptors');
+            if (toolcallsEl) summary.push('tool calls');
+            if (requestEl) summary.push('raw request');
+            if (responseEl) summary.push('raw response');
+            if (traceEl) summary.push('LLM trace');
+            if (evalsEl) summary.push('evals');
+            if (validationsEl) summary.push('validations');
+            if (promptEl) summary.push('system prompt');
+            html += '</div>';
+            if (summary.length > 0) {
+                html += '<div class="devtools-section"><div class="devtools-section-title">Available Data</div>';
+                html += '<div style="display:flex;flex-wrap:wrap;gap:0.3rem;">';
+                summary.forEach(function(s) {
+                    html += '<span style="background:#313244;color:#cdd6f4;padding:0.15rem 0.5rem;border-radius:10px;font-size:0.72rem;">' + s + '</span>';
+                });
+                html += '</div></div>';
+            }
+            html += '</div>';
+
+            // --- Workflow tab ---
+            if (workflowEl) {
+                html += '<div class="devtools-tab-content' + (firstTab === 'workflow' ? ' active' : '') + '" data-tab-content="workflow">';
+                try {
+                    var wfData = JSON.parse(workflowEl.textContent);
+                    // Transition banner (if this is a post-transition system prompt)
+                    if (wfData.previous_state && wfData.transition) {
+                        html += '<div class="devtools-section"><div class="devtools-section-title">Transition</div>';
+                        html += '<div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.25rem;">';
+                        html += '<span style="background:#45475a;color:#cdd6f4;padding:0.2rem 0.5rem;border-radius:4px;font-size:0.8rem;">' + escapeHtml(wfData.previous_state) + '</span>';
+                        html += '<span style="color:#fab387;font-weight:700;">→</span>';
+                        html += '<span style="background:#fab387;color:#1e1e2e;padding:0.2rem 0.5rem;border-radius:4px;font-weight:700;font-size:0.8rem;">' + escapeHtml(wfData.current_state) + '</span>';
+                        html += '</div>';
+                        html += '<div style="color:#6c7086;font-size:0.75rem;">via event: <span style="color:#89b4fa;font-family:monospace;">' + escapeHtml(wfData.transition) + '</span></div>';
+                        html += '</div>';
+                    }
+
+                    // Current state header
+                    html += '<div class="devtools-section"><div class="devtools-section-title">Current State</div>';
+                    html += '<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">';
+                    html += '<span style="background:#fab387;color:#1e1e2e;padding:0.2rem 0.6rem;border-radius:4px;font-weight:700;font-size:0.85rem;">' + escapeHtml(wfData.current_state || '') + '</span>';
+                    if (wfData.terminal) html += '<span style="background:#f38ba8;color:#1e1e2e;padding:0.15rem 0.4rem;border-radius:3px;font-size:0.7rem;font-weight:600;">TERMINAL</span>';
+                    html += '</div>';
+                    if (wfData.description) {
+                        html += '<div style="color:#a6adc8;font-size:0.82rem;margin-bottom:0.5rem;line-height:1.4;">' + escapeHtml(wfData.description) + '</div>';
+                    }
+                    if (wfData.prompt_task) {
+                        html += '<div class="devtools-metric"><span class="devtools-metric-label">Prompt Task</span><span class="devtools-metric-value">' + escapeHtml(wfData.prompt_task) + '</span></div>';
+                    }
+                    html += '</div>';
+
+                    // Available events / transitions
+                    if (wfData.available_events) {
+                        html += '<div class="devtools-section"><div class="devtools-section-title">Available Transitions</div>';
+                        var events = wfData.available_events;
+                        for (var ev in events) {
+                            if (events.hasOwnProperty(ev)) {
+                                html += '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0;border-bottom:1px solid #313244;">';
+                                html += '<span style="color:#89b4fa;font-family:monospace;font-size:0.8rem;font-weight:600;">' + escapeHtml(ev) + '</span>';
+                                html += '<span style="color:#585b70;">→</span>';
+                                html += '<span style="color:#a6e3a1;font-family:monospace;font-size:0.8rem;">' + escapeHtml(events[ev]) + '</span>';
+                                html += '</div>';
+                            }
+                        }
+                        html += '</div>';
+                    }
+
+                    // All states overview (collapsible)
+                    if (wfData.all_states) {
+                        html += '<div class="devtools-section"><div class="devtools-section-title" style="cursor:pointer;" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'block\':\'none\'">All States ▸</div>';
+                        html += '<div style="display:none;">';
+                        var states = wfData.all_states;
+                        for (var sName in states) {
+                            if (!states.hasOwnProperty(sName)) continue;
+                            var s = states[sName];
+                            var isCurrent = sName === wfData.current_state;
+                            html += '<div style="padding:0.5rem;margin-bottom:0.5rem;border:1px solid ' + (isCurrent ? '#fab387' : '#313244') + ';border-radius:4px;' + (isCurrent ? 'background:#2a2a3d;' : '') + '">';
+                            html += '<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.25rem;">';
+                            html += '<span style="font-weight:600;color:' + (isCurrent ? '#fab387' : '#cdd6f4') + ';font-size:0.82rem;">' + escapeHtml(sName) + '</span>';
+                            if (s.terminal) html += '<span style="background:#45475a;color:#a6adc8;padding:0.1rem 0.3rem;border-radius:3px;font-size:0.6rem;">terminal</span>';
+                            if (isCurrent) html += '<span style="background:#fab387;color:#1e1e2e;padding:0.1rem 0.3rem;border-radius:3px;font-size:0.6rem;font-weight:600;">current</span>';
+                            html += '</div>';
+                            if (s.description) html += '<div style="color:#6c7086;font-size:0.75rem;margin-bottom:0.25rem;">' + escapeHtml(s.description) + '</div>';
+                            if (s.prompt_task) html += '<div style="color:#585b70;font-size:0.72rem;">prompt: ' + escapeHtml(s.prompt_task) + '</div>';
+                            if (s.events) {
+                                for (var e in s.events) {
+                                    if (s.events.hasOwnProperty(e)) {
+                                        html += '<div style="color:#585b70;font-size:0.72rem;padding-left:0.5rem;">→ ' + escapeHtml(e) + ' → ' + escapeHtml(s.events[e]) + '</div>';
+                                    }
+                                }
+                            }
+                            html += '</div>';
+                        }
+                        html += '</div></div>';
+                    }
+                } catch(e) {
+                    html += '<div class="devtools-section"><div class="devtools-json">' + escapeHtml(workflowEl.textContent) + '</div></div>';
+                }
+                html += '</div>';
+            }
+
+            // --- Metrics tab ---
+            if (metricsEl) {
+                html += '<div class="devtools-tab-content' + (firstTab === 'metrics' ? ' active' : '') + '" data-tab-content="metrics">';
+                html += '<div class="devtools-section"><div class="devtools-section-title">Performance</div>';
+                html += metricsEl.innerHTML;
+                html += '</div></div>';
+            }
+
+            // --- Tools tab ---
+            if (toolsEl || toolcallsEl) {
+                html += '<div class="devtools-tab-content' + (firstTab === 'tools' ? ' active' : '') + '" data-tab-content="tools">';
+
+                // Parse tool descriptors if available (has name + description)
+                var toolDescMap = {};
+                var toolSchemaMap = {};
+                if (toolDescsEl) {
+                    try {
+                        var descs = JSON.parse(toolDescsEl.textContent);
+                        if (Array.isArray(descs)) {
+                            descs.forEach(function(d) {
+                                if (d.name) {
+                                    toolDescMap[d.name] = d.description || '';
+                                    if (d.input_schema) toolSchemaMap[d.name] = d.input_schema;
+                                }
+                            });
+                        }
+                    } catch(e) {}
+                }
+
+                // Available tool descriptors
+                if (toolsEl) {
+                    html += '<div class="devtools-section"><div class="devtools-section-title">Available Tools</div>';
+                    try {
+                        var toolList = JSON.parse(toolsEl.textContent);
+                        if (Array.isArray(toolList) && toolList.length > 0) {
+                            html += '<ul class="devtools-tool-list">';
+                            toolList.forEach(function(name) {
+                                var badge = 'other', badgeLabel = 'tool';
+                                if (name.startsWith('workflow__')) { badge = 'workflow'; badgeLabel = 'wf'; }
+                                else if (name.startsWith('skill__')) { badge = 'skill'; badgeLabel = 'skill'; }
+                                else if (name.startsWith('a2a__')) { badge = 'a2a'; badgeLabel = 'a2a'; }
+                                else if (name.startsWith('mcp__')) { badge = 'a2a'; badgeLabel = 'mcp'; }
+                                else if (name.startsWith('memory__')) { badge = 'skill'; badgeLabel = 'mem'; }
+                                var desc = toolDescMap[name] || '';
+                                var schema = toolSchemaMap[name] || null;
+                                var hasDetails = desc || schema;
+                                html += '<li class="devtools-tool-item" style="flex-direction:column;align-items:flex-start;gap:0.2rem;' + (hasDetails ? 'cursor:pointer;' : '') + '" ' + (hasDetails ? 'onclick="var d=this.querySelector(\'.tool-details\');if(d){d.style.display=d.style.display===\'none\'?\'block\':\'none\';var arrow=this.querySelector(\'.tool-toggle\');if(arrow)arrow.textContent=d.style.display===\'none\'?\'▸\':\'▾\';}"' : '') + '>';
+                                html += '<div style="display:flex;align-items:center;gap:0.5rem;width:100%;">';
+                                html += '<span class="devtools-tool-badge ' + badge + '">' + badgeLabel + '</span>';
+                                html += '<span style="font-family:monospace;font-size:0.8rem;">' + escapeHtml(stripToolNamespace(name)) + '</span>';
+                                if (hasDetails) html += '<span class="tool-toggle" style="margin-left:auto;color:#585b70;font-size:0.7rem;">▸</span>';
+                                html += '</div>';
+                                if (hasDetails) {
+                                    html += '<div class="tool-details" style="display:none;padding:0.3rem 0 0.1rem 2.2rem;line-height:1.4;width:100%;">';
+                                    if (desc) html += '<div style="color:#a6adc8;font-size:0.75rem;white-space:pre-wrap;max-height:150px;overflow-y:auto;margin-bottom:0.4rem;">' + escapeHtml(desc) + '</div>';
+                                    if (schema) {
+                                        html += '<div style="margin-top:0.2rem;"><span style="color:#6c7086;font-size:0.7rem;font-weight:600;">Input Schema</span>';
+                                        html += '<div class="devtools-json" style="margin-top:0.2rem;max-height:300px;">' + escapeHtml(JSON.stringify(schema, null, 2)) + '</div>';
+                                        html += '</div>';
+                                    }
+                                    html += '</div>';
+                                }
+                                html += '</li>';
+                            });
+                            html += '</ul>';
+                        } else {
+                            html += '<div class="devtools-empty">No tools available</div>';
+                        }
+                    } catch(e) {
+                        html += '<div class="devtools-json">' + escapeHtml(toolsEl.textContent) + '</div>';
+                    }
+                    html += '</div>';
+                }
+
+                // Tool calls made in this turn
+                if (toolcallsEl) {
+                    html += '<div class="devtools-section"><div class="devtools-section-title">Tool Calls Made</div>';
+                    try {
+                        var calls = JSON.parse(toolcallsEl.textContent);
+                        if (Array.isArray(calls) && calls.length > 0) {
+                            calls.forEach(function(tc) {
+                                var badge = 'other', badgeLabel = 'tool';
+                                if (tc.name && tc.name.startsWith('workflow__')) { badge = 'workflow'; badgeLabel = 'wf'; }
+                                else if (tc.name && tc.name.startsWith('skill__')) { badge = 'skill'; badgeLabel = 'skill'; }
+                                else if (tc.name && tc.name.startsWith('a2a__')) { badge = 'a2a'; badgeLabel = 'a2a'; }
+                                else if (tc.name && tc.name.startsWith('mcp__')) { badge = 'a2a'; badgeLabel = 'mcp'; }
+                                else if (tc.name && tc.name.startsWith('memory__')) { badge = 'skill'; badgeLabel = 'mem'; }
+                                html += '<div style="margin-bottom:0.75rem;border:1px solid #313244;border-radius:4px;overflow:hidden;">';
+                                html += '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.5rem;background:#181825;border-bottom:1px solid #313244;">';
+                                html += '<span class="devtools-tool-badge ' + badge + '">' + badgeLabel + '</span>';
+                                html += '<span style="font-family:monospace;font-size:0.8rem;color:#89b4fa;">' + escapeHtml(stripToolNamespace(tc.name || 'unknown')) + '</span>';
+                                if (tc.id) html += '<span style="margin-left:auto;font-size:0.65rem;color:#585b70;">' + tc.id + '</span>';
+                                html += '</div>';
+                                if (tc.args) {
+                                    var argsStr = typeof tc.args === 'string' ? tc.args : JSON.stringify(tc.args, null, 2);
+                                    html += '<div class="devtools-json" style="border:none;border-radius:0;max-height:200px;">' + escapeHtml(argsStr) + '</div>';
+                                }
+                                html += '</div>';
+                            });
+                        }
+                    } catch(e) {
+                        html += '<div class="devtools-json">' + escapeHtml(toolcallsEl.textContent) + '</div>';
+                    }
+                    html += '</div>';
+                }
+
+                html += '</div>';
+            }
+
+            // --- System Prompt tab ---
+            if (promptEl) {
+                html += '<div class="devtools-tab-content' + (firstTab === 'prompt' ? ' active' : '') + '" data-tab-content="prompt">';
+                html += '<div class="devtools-section"><div class="devtools-section-title">System Prompt</div>';
+                html += '<div class="devtools-json" style="white-space:pre-wrap;color:#a6e3a1;">' + escapeHtml(promptEl.textContent) + '</div>';
+                html += '</div></div>';
+            }
+
+            // --- Request tab ---
+            if (requestEl) {
+                html += '<div class="devtools-tab-content' + (firstTab === 'request' ? ' active' : '') + '" data-tab-content="request">';
+                html += '<div class="devtools-section"><div class="devtools-section-title">Raw LLM Request</div>';
+                html += '<div class="devtools-json">' + escapeHtml(requestEl.textContent) + '</div>';
+                html += '</div></div>';
+            }
+
+            // --- Response tab ---
+            if (responseEl) {
+                html += '<div class="devtools-tab-content' + (firstTab === 'response' ? ' active' : '') + '" data-tab-content="response">';
+                html += '<div class="devtools-section"><div class="devtools-section-title">Raw LLM Response</div>';
+                html += '<div class="devtools-json">' + escapeHtml(responseEl.textContent) + '</div>';
+                html += '</div></div>';
+            }
+
+            // --- Trace tab ---
+            if (traceEl) {
+                html += '<div class="devtools-tab-content' + (firstTab === 'trace' ? ' active' : '') + '" data-tab-content="trace">';
+                html += '<div class="devtools-section"><div class="devtools-section-title">LLM Execution Trace</div>';
+                html += '<div class="devtools-json">' + escapeHtml(traceEl.textContent) + '</div>';
+                html += '</div></div>';
+            }
+
+            // --- Evals tab ---
+            if (evalsEl) {
+                html += '<div class="devtools-tab-content' + (firstTab === 'evals' ? ' active' : '') + '" data-tab-content="evals">';
+                html += '<div class="devtools-section"><div class="devtools-section-title">Pack Evaluations</div>';
+                html += '<div class="devtools-json">' + escapeHtml(evalsEl.textContent) + '</div>';
+                html += '</div></div>';
+            }
+
+            // --- Validations tab ---
+            if (validationsEl) {
+                html += '<div class="devtools-tab-content' + (firstTab === 'validations' ? ' active' : '') + '" data-tab-content="validations">';
+                html += '<div class="devtools-section"><div class="devtools-section-title">Validation Results</div>';
+                html += '<div class="devtools-json">' + escapeHtml(validationsEl.textContent) + '</div>';
+                html += '</div></div>';
+            }
+
+            body.innerHTML = html;
+
+            // Open the panel
+            panel.classList.add('open');
+            document.body.classList.add('devtools-open');
+        }
+
+        function closeDevTools() {
+            var panel = document.getElementById('devtools-panel');
+            panel.classList.remove('open');
+            document.body.classList.remove('devtools-open');
+            var btn = document.querySelector('.inspect-btn.active');
+            if (btn) btn.classList.remove('active');
+            currentDevToolsTurnId = null;
+        }
+
+        function switchDevToolsTab(tabId) {
+            document.querySelectorAll('#devtools-tabs .devtools-tab').forEach(function(t) {
+                t.classList.toggle('active', t.dataset.tab === tabId);
+            });
+            document.querySelectorAll('#devtools-body .devtools-tab-content').forEach(function(c) {
+                c.classList.toggle('active', c.dataset.tabContent === tabId);
+            });
+        }
+
+        function escapeHtml(str) {
+            var div = document.createElement('div');
+            div.appendChild(document.createTextNode(str));
+            return div.innerHTML;
+        }
+
+        // Strip namespace prefix from tool names (e.g. workflow__transition → transition,
+        // a2a__research_agent__search → research_agent__search, skill__activate → activate)
+        function stripToolNamespace(name) {
+            var prefixes = ['workflow__', 'skill__', 'a2a__', 'mcp__', 'memory__'];
+            for (var i = 0; i < prefixes.length; i++) {
+                if (name.startsWith(prefixes[i])) return name.slice(prefixes[i].length);
+            }
+            return name;
+        }
+
+        // Close devtools with Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && currentDevToolsTurnId) {
+                closeDevTools();
+            }
+        });
+
+        // Click anywhere on a turn with diagnostics to open/switch devtools
+        document.addEventListener('click', function(e) {
+            var turn = e.target.closest('[data-devtools-turn]');
+            if (!turn) return;
+            // Don't intercept clicks on buttons, links, or other interactive elements
+            if (e.target.closest('button, a, .validation-badge, .inspect-btn')) return;
+            var turnId = turn.getAttribute('data-devtools-turn');
+            openDevTools(turnId);
+        });
+
+        // Resizable devtools panel
+        (function() {
+            var handle = document.getElementById('devtools-resize-handle');
+            var panel = document.getElementById('devtools-panel');
+            var dragging = false;
+
+            handle.addEventListener('mousedown', function(e) {
+                e.preventDefault();
+                dragging = true;
+                handle.classList.add('active');
+                panel.classList.add('resizing');
+                document.body.classList.add('devtools-resizing');
+            });
+
+            document.addEventListener('mousemove', function(e) {
+                if (!dragging) return;
+                var newWidth = Math.max(280, Math.min(window.innerWidth * 0.8, window.innerWidth - e.clientX));
+                document.documentElement.style.setProperty('--devtools-width', newWidth + 'px');
+            });
+
+            document.addEventListener('mouseup', function() {
+                if (!dragging) return;
+                dragging = false;
+                handle.classList.remove('active');
+                panel.classList.remove('resizing');
+                document.body.classList.remove('devtools-resizing');
+            });
+        })();
+
         function toggleScenario(scenarioId) {
             const group = document.getElementById(scenarioId);
             group.classList.toggle('collapsed');
         }
-        
+
         function toggleResult(resultId) {
             const card = document.getElementById(resultId);
             const header = card.querySelector('.result-header');
-            
+
             card.classList.toggle('collapsed');
             header.classList.toggle('collapsed');
-        }
-
-        function toggleRawRequest(turnId) {
-            const content = document.getElementById('raw-' + turnId);
-            if (content) {
-                content.classList.toggle('expanded');
-            }
         }
 
         function toggleValidations(validationId) {
@@ -1915,34 +2732,25 @@
             const result = document.getElementById(resultId);
             if (result) {
                 result.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                // Expand if collapsed
                 if (result.classList.contains('collapsed')) {
                     toggleResult(resultId);
                 }
-                // Highlight briefly
                 result.style.boxShadow = '0 0 20px rgba(99, 102, 241, 0.5)';
-                setTimeout(() => {
-                    result.style.boxShadow = '';
-                }, 2000);
+                setTimeout(function() { result.style.boxShadow = ''; }, 2000);
             }
         }
 
         function scrollToProvider(provider, region) {
-            // Find the result that matches this provider and region
             const results = document.querySelectorAll('.result-card');
             for (const result of results) {
                 const id = result.id;
                 if (id.startsWith(provider + '-' + region + '-')) {
                     result.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    // Expand if collapsed
                     if (result.classList.contains('collapsed')) {
                         toggleResult(id);
                     }
-                    // Highlight briefly
                     result.style.boxShadow = '0 0 20px rgba(99, 102, 241, 0.5)';
-                    setTimeout(() => {
-                        result.style.boxShadow = '';
-                    }, 2000);
+                    setTimeout(function() { result.style.boxShadow = ''; }, 2000);
                     break;
                 }
             }

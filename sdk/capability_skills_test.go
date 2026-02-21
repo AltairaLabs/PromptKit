@@ -77,17 +77,19 @@ Instructions here.`
 	cap.RegisterTools(registry)
 
 	// Verify all 3 skill tools are registered
-	activateTool := registry.Get(skillActivateTool)
+	activateTool := registry.Get(skills.SkillActivateTool)
 	require.NotNil(t, activateTool, "skill__activate should be registered")
-	assert.Equal(t, skillNamespace, activateTool.Namespace)
+	assert.Equal(t, skills.SkillNamespace, activateTool.Namespace)
+	assert.Contains(t, activateTool.Description, "Available skills:")
+	assert.Contains(t, activateTool.Description, "test-skill")
 
-	deactivateTool := registry.Get(skillDeactivateTool)
+	deactivateTool := registry.Get(skills.SkillDeactivateTool)
 	require.NotNil(t, deactivateTool, "skill__deactivate should be registered")
-	assert.Equal(t, skillNamespace, deactivateTool.Namespace)
+	assert.Equal(t, skills.SkillNamespace, deactivateTool.Namespace)
 
-	readResourceTool := registry.Get(skillReadResourceTool)
+	readResourceTool := registry.Get(skills.SkillReadResourceTool)
 	require.NotNil(t, readResourceTool, "skill__read_resource should be registered")
-	assert.Equal(t, skillNamespace, readResourceTool.Namespace)
+	assert.Equal(t, skills.SkillNamespace, readResourceTool.Namespace)
 }
 
 func TestSkillsCapability_RegisterTools_NilExecutor(t *testing.T) {
@@ -97,7 +99,7 @@ func TestSkillsCapability_RegisterTools_NilExecutor(t *testing.T) {
 	// Should not panic even without Init
 	cap.RegisterTools(registry)
 
-	assert.Nil(t, registry.Get(skillActivateTool))
+	assert.Nil(t, registry.Get(skills.SkillActivateTool))
 }
 
 func TestSkillsCapability_WithSkillSelector(t *testing.T) {
@@ -214,7 +216,7 @@ func TestSkillsCapability_SkillExecutor_Activate(t *testing.T) {
 	cap.RegisterTools(registry)
 
 	// Execute the activate tool
-	result, err := registry.Execute(skillActivateTool, []byte(`{"name":"test-skill"}`))
+	result, err := registry.Execute(skills.SkillActivateTool, []byte(`{"name":"test-skill"}`))
 	require.NoError(t, err)
 	assert.NotEmpty(t, result.Result)
 	assert.Empty(t, result.Error)
@@ -240,10 +242,10 @@ func TestSkillsCapability_SkillExecutor_Deactivate(t *testing.T) {
 	cap.RegisterTools(registry)
 
 	// First activate, then deactivate
-	_, err := registry.Execute(skillActivateTool, []byte(`{"name":"test-skill"}`))
+	_, err := registry.Execute(skills.SkillActivateTool, []byte(`{"name":"test-skill"}`))
 	require.NoError(t, err)
 
-	result, err := registry.Execute(skillDeactivateTool, []byte(`{"name":"test-skill"}`))
+	result, err := registry.Execute(skills.SkillDeactivateTool, []byte(`{"name":"test-skill"}`))
 	require.NoError(t, err)
 	assert.NotEmpty(t, result.Result)
 	assert.Empty(t, result.Error)
@@ -279,7 +281,7 @@ Instructions.`
 	cap.RegisterTools(registry)
 
 	result, err := registry.Execute(
-		skillReadResourceTool,
+		skills.SkillReadResourceTool,
 		[]byte(`{"skill_name":"res-skill","path":"data.txt"}`),
 	)
 	require.NoError(t, err)
