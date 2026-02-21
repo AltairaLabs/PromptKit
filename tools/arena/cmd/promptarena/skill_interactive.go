@@ -41,10 +41,7 @@ func runSkillInstall(_ *cobra.Command, args []string) error {
 		levelStr = skillLevelProject
 	}
 
-	fmt.Printf("Installing %s (%s-level)...\n", ref.FullName(), levelStr)
-	if ref.Version != "" {
-		fmt.Printf("  Version: %s\n", ref.Version)
-	}
+	printInstallStart(ref, levelStr)
 
 	path, err := inst.Install(ref, skillProjectFlag)
 	if err != nil {
@@ -70,10 +67,7 @@ func runSkillInstallInto(inst *skills.Installer, arg string) error {
 		return err
 	}
 
-	fmt.Printf("Installing %s into %s...\n", ref.FullName(), skillIntoFlag)
-	if ref.Version != "" {
-		fmt.Printf("  Version: %s\n", ref.Version)
-	}
+	printInstallStart(ref, skillIntoFlag)
 
 	path, err := inst.InstallInto(ref, skillIntoFlag)
 	if err != nil {
@@ -82,6 +76,14 @@ func runSkillInstallInto(inst *skills.Installer, arg string) error {
 
 	fmt.Printf("  Installed to: %s\n", path)
 	return nil
+}
+
+// printInstallStart prints the common install progress header.
+func printInstallStart(ref skills.SkillRef, target string) {
+	fmt.Printf("Installing %s (%s)...\n", ref.FullName(), target)
+	if ref.Version != "" {
+		fmt.Printf("  Version: %s\n", ref.Version)
+	}
 }
 
 func runSkillList(_ *cobra.Command, _ []string) error {

@@ -68,23 +68,8 @@ func (inst *Installer) Install(ref SkillRef, projectLevel bool) (string, error) 
 		return "", fmt.Errorf("creating parent directory: %w", err)
 	}
 
-	if err := inst.GitCloneFunc(ref.GitURL(), destDir); err != nil {
-		// Clean up partial clone on failure.
-		_ = os.RemoveAll(destDir)
-		return "", fmt.Errorf("cloning %s: %w", ref.GitURL(), err)
-	}
-
-	if ref.Version != "" {
-		if err := inst.GitCheckout(destDir, ref.Version); err != nil {
-			_ = os.RemoveAll(destDir)
-			return "", fmt.Errorf("checking out %s: %w", ref.Version, err)
-		}
-	}
-
-	// Verify SKILL.md exists somewhere in the cloned directory.
-	if !hasSkillFile(destDir) {
-		_ = os.RemoveAll(destDir)
-		return "", fmt.Errorf("cloned repository does not contain a SKILL.md file")
+	if err := inst.cloneAndVerify(ref, destDir); err != nil {
+		return "", err
 	}
 
 	return destDir, nil
@@ -109,24 +94,34 @@ func (inst *Installer) InstallInto(ref SkillRef, targetDir string) (string, erro
 		return "", fmt.Errorf("creating target directory: %w", err)
 	}
 
+	if err := inst.cloneAndVerify(ref, destDir); err != nil {
+		return "", err
+	}
+
+	return destDir, nil
+}
+
+// cloneAndVerify performs the common git clone, optional checkout, and SKILL.md verification.
+// On any failure the destination directory is cleaned up.
+func (inst *Installer) cloneAndVerify(ref SkillRef, destDir string) error {
 	if err := inst.GitCloneFunc(ref.GitURL(), destDir); err != nil {
 		_ = os.RemoveAll(destDir)
-		return "", fmt.Errorf("cloning %s: %w", ref.GitURL(), err)
+		return fmt.Errorf("cloning %s: %w", ref.GitURL(), err)
 	}
 
 	if ref.Version != "" {
 		if err := inst.GitCheckout(destDir, ref.Version); err != nil {
 			_ = os.RemoveAll(destDir)
-			return "", fmt.Errorf("checking out %s: %w", ref.Version, err)
+			return fmt.Errorf("checking out %s: %w", ref.Version, err)
 		}
 	}
 
 	if !hasSkillFile(destDir) {
 		_ = os.RemoveAll(destDir)
-		return "", fmt.Errorf("cloned repository does not contain a SKILL.md file")
+		return fmt.Errorf("cloned repository does not contain a SKILL.md file")
 	}
 
-	return destDir, nil
+	return nil
 }
 
 // InstallLocalInto copies a skill from a local path directly into a target

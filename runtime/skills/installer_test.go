@@ -8,6 +8,25 @@ import (
 	"testing"
 )
 
+// fakeGitClone returns a GitCloneFunc that simulates cloning by creating a SKILL.md.
+func fakeGitClone() func(string, string) error {
+	return func(_, dest string) error {
+		if err := os.MkdirAll(dest, 0o750); err != nil {
+			return err
+		}
+		return os.WriteFile(
+			filepath.Join(dest, "SKILL.md"),
+			[]byte("---\nname: s\ndescription: d\n---\n\nBody"),
+			0o644,
+		)
+	}
+}
+
+// noopCheckout returns a GitCheckout func that does nothing.
+func noopCheckout() func(string, string) error {
+	return func(_, _ string) error { return nil }
+}
+
 func TestParseSkillRef(t *testing.T) {
 	tests := []struct {
 		input   string
@@ -75,17 +94,10 @@ func TestInstall(t *testing.T) {
 	projectDir := t.TempDir()
 
 	inst := &Installer{
-		UserDir:    userDir,
-		ProjectDir: projectDir,
-		GitCloneFunc: func(url, dest string) error {
-			// Simulate a git clone by creating SKILL.md in the dest.
-			if err := os.MkdirAll(dest, 0o750); err != nil {
-				return err
-			}
-			content := "---\nname: test-skill\ndescription: A test skill\n---\n\nInstructions here"
-			return os.WriteFile(filepath.Join(dest, "SKILL.md"), []byte(content), 0o644)
-		},
-		GitCheckout: func(_, _ string) error { return nil },
+		UserDir:      userDir,
+		ProjectDir:   projectDir,
+		GitCloneFunc: fakeGitClone(),
+		GitCheckout:  noopCheckout(),
 	}
 
 	ref := SkillRef{Org: "testorg", Name: "test-skill"}
@@ -112,15 +124,10 @@ func TestInstallProjectLevel(t *testing.T) {
 	projectDir := t.TempDir()
 
 	inst := &Installer{
-		UserDir:    userDir,
-		ProjectDir: projectDir,
-		GitCloneFunc: func(_, dest string) error {
-			if err := os.MkdirAll(dest, 0o750); err != nil {
-				return err
-			}
-			return os.WriteFile(filepath.Join(dest, "SKILL.md"), []byte("---\nname: s\ndescription: d\n---\n\nBody"), 0o644)
-		},
-		GitCheckout: func(_, _ string) error { return nil },
+		UserDir:      userDir,
+		ProjectDir:   projectDir,
+		GitCloneFunc: fakeGitClone(),
+		GitCheckout:  noopCheckout(),
 	}
 
 	ref := SkillRef{Org: "org", Name: "skill"}
@@ -143,14 +150,9 @@ func TestInstallWithVersion(t *testing.T) {
 	checkoutRef := ""
 
 	inst := &Installer{
-		UserDir:    userDir,
-		ProjectDir: projectDir,
-		GitCloneFunc: func(_, dest string) error {
-			if err := os.MkdirAll(dest, 0o750); err != nil {
-				return err
-			}
-			return os.WriteFile(filepath.Join(dest, "SKILL.md"), []byte("---\nname: s\ndescription: d\n---\n\nBody"), 0o644)
-		},
+		UserDir:      userDir,
+		ProjectDir:   projectDir,
+		GitCloneFunc: fakeGitClone(),
 		GitCheckout: func(_ string, ref string) error {
 			checkoutCalled = true
 			checkoutRef = ref
@@ -202,10 +204,9 @@ func TestInstallNoSkillFile(t *testing.T) {
 		UserDir:    userDir,
 		ProjectDir: projectDir,
 		GitCloneFunc: func(_, dest string) error {
-			// Clone succeeds but no SKILL.md
-			return os.MkdirAll(dest, 0o750)
+			return os.MkdirAll(dest, 0o750) // no SKILL.md
 		},
-		GitCheckout: func(_, _ string) error { return nil },
+		GitCheckout: noopCheckout(),
 	}
 
 	ref := SkillRef{Org: "org", Name: "skill"}
@@ -640,13 +641,8 @@ func TestInstallInto(t *testing.T) {
 	targetDir := t.TempDir()
 
 	inst := &Installer{
-		GitCloneFunc: func(_, dest string) error {
-			if err := os.MkdirAll(dest, 0o750); err != nil {
-				return err
-			}
-			return os.WriteFile(filepath.Join(dest, "SKILL.md"), []byte("---\nname: s\ndescription: d\n---\n\nBody"), 0o644)
-		},
-		GitCheckout: func(_, _ string) error { return nil },
+		GitCloneFunc: fakeGitClone(),
+		GitCheckout:  noopCheckout(),
 	}
 
 	ref := SkillRef{Org: "org", Name: "my-skill"}
@@ -670,12 +666,7 @@ func TestInstallIntoWithVersion(t *testing.T) {
 	checkoutCalled := false
 
 	inst := &Installer{
-		GitCloneFunc: func(_, dest string) error {
-			if err := os.MkdirAll(dest, 0o750); err != nil {
-				return err
-			}
-			return os.WriteFile(filepath.Join(dest, "SKILL.md"), []byte("---\nname: s\ndescription: d\n---\n\nBody"), 0o644)
-		},
+		GitCloneFunc: fakeGitClone(),
 		GitCheckout: func(_, ref string) error {
 			checkoutCalled = true
 			if ref != "v2.0.0" {
@@ -733,9 +724,9 @@ func TestInstallIntoNoSkillFile(t *testing.T) {
 
 	inst := &Installer{
 		GitCloneFunc: func(_, dest string) error {
-			return os.MkdirAll(dest, 0o750) // No SKILL.md
+			return os.MkdirAll(dest, 0o750) // no SKILL.md
 		},
-		GitCheckout: func(_, _ string) error { return nil },
+		GitCheckout: noopCheckout(),
 	}
 
 	ref := SkillRef{Org: "org", Name: "skill"}
