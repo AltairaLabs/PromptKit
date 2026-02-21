@@ -208,4 +208,5 @@ func TestNewTagSelector_Deduplicates(t *testing.T) {
 func TestInterfaceCompliance(t *testing.T) {
 	var _ SkillSelector = (*ModelDrivenSelector)(nil)
 	var _ SkillSelector = (*TagSelector)(nil)
+	var _ SkillSelector = (*EmbeddingSelector)(nil)
 }
