@@ -102,6 +102,59 @@ Preloaded skills are activated before the first LLM message — their instructio
 
 ---
 
+## Shared Skills
+
+Skills can be installed from Git repositories using the `@org/name` reference syntax and shared across projects.
+
+### Reference Syntax
+
+Use `@org/name` in the pack `skills` array to reference an installed skill:
+
+```json
+{
+  "skills": [
+    {"path": "@anthropic/pci-compliance"},
+    {"path": "@anthropic/refund-processing"},
+    {"path": "skills/local-skill"}
+  ]
+}
+```
+
+The `@org/name` prefix tells the runtime to look up the skill in the installed skill directories rather than resolving it as a relative path.
+
+### Installation Locations
+
+| Scope | Directory |
+|-------|-----------|
+| **User-level** | `~/.config/promptkit/skills/org/name/` |
+| **Project-level** | `.promptkit/skills/org/name/` |
+
+Install skills with the CLI:
+
+```bash
+# User-level (default)
+promptarena skill install @anthropic/pci-compliance
+
+# Project-level
+promptarena skill install @anthropic/pci-compliance --project
+
+# Into a specific workflow stage directory
+promptarena skill install @anthropic/pci-compliance --into ./skills/billing
+```
+
+### Resolution Order
+
+When the runtime encounters a skill reference, it resolves in this order:
+
+1. **Inline** — skill defined directly in the pack JSON
+2. **Local directory** — relative `path` resolved from the pack file location
+3. **Project-level** — `.promptkit/skills/org/name/`
+4. **User-level** — `~/.config/promptkit/skills/org/name/`
+
+The first match wins. This lets you override a user-level skill with a project-specific version.
+
+---
+
 ## Workflow State Skills
 
 Workflow states can filter which skills are available using the `skills` field:

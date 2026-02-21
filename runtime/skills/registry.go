@@ -11,6 +11,9 @@ import (
 	"sync"
 )
 
+// skillMDFile is the filename expected in every skill directory.
+const skillMDFile = "SKILL.md"
+
 // ErrPathTraversal is returned when a resource path attempts to escape the skill directory.
 var ErrPathTraversal = errors.New("resource path escapes skill directory")
 
@@ -42,14 +45,36 @@ func (r *Registry) Discover(sources []SkillSource) error {
 
 	for _, src := range sources {
 		if dir := src.EffectiveDir(); dir != "" {
-			if err := r.discoverDirectory(src); err != nil {
-				return fmt.Errorf("discovering skills in %s: %w", dir, err)
+			resolved, err := r.resolveSource(&src)
+			if err != nil {
+				return err
+			}
+			if err := r.discoverDirectory(resolved); err != nil {
+				return fmt.Errorf("discovering skills in %s: %w", resolved.EffectiveDir(), err)
 			}
 		} else if src.Name != "" {
 			r.registerInline(src)
 		}
 	}
 	return nil
+}
+
+// resolveSource resolves @org/name references in a SkillSource to a local directory path.
+// Returns the source unchanged if it's not an @-ref.
+func (r *Registry) resolveSource(src *SkillSource) (SkillSource, error) {
+	dir := src.EffectiveDir()
+	if !strings.HasPrefix(dir, "@") {
+		return *src, nil
+	}
+	ref, err := ParseSkillRef(dir)
+	if err != nil {
+		return SkillSource{}, fmt.Errorf("parsing skill reference %s: %w", dir, err)
+	}
+	resolved, err := r.ResolveRef(ref)
+	if err != nil {
+		return SkillSource{}, fmt.Errorf("resolving skill reference %s: %w", dir, err)
+	}
+	return SkillSource{Dir: resolved, Preload: src.Preload}, nil
 }
 
 // discoverDirectory walks a directory looking for SKILL.md files and registers each skill found.
@@ -64,7 +89,7 @@ func (r *Registry) discoverDirectory(src SkillSource) error {
 		if err != nil {
 			return err
 		}
-		if info.IsDir() || info.Name() != "SKILL.md" {
+		if info.IsDir() || info.Name() != skillMDFile {
 			return nil
 		}
 
@@ -176,7 +201,7 @@ func (r *Registry) Load(name string) (*Skill, error) {
 		return rs.inline, nil
 	}
 
-	skillPath := filepath.Join(rs.path, "SKILL.md")
+	skillPath := filepath.Join(rs.path, skillMDFile)
 	skill, err := ParseSkillFile(skillPath)
 	if err != nil {
 		return nil, fmt.Errorf("loading skill %q: %w", name, err)
@@ -256,7 +281,7 @@ func (r *Registry) PreloadedSkills() []*Skill {
 			result = append(result, rs.inline)
 			continue
 		}
-		skillPath := filepath.Join(rs.path, "SKILL.md")
+		skillPath := filepath.Join(rs.path, skillMDFile)
 		skill, err := ParseSkillFile(skillPath)
 		if err != nil {
 			log.Printf("skills: failed to preload skill %q: %v", name, err)
@@ -277,4 +302,15 @@ func (r *Registry) Has(name string) bool {
 	defer r.mu.RUnlock()
 	_, exists := r.skills[name]
 	return exists
+}
+
+// ResolveRef resolves an @org/name skill reference to its installed filesystem path.
+// It delegates to the Installer's Resolve method which checks project-level first,
+// then user-level directories.
+func (r *Registry) ResolveRef(ref SkillRef) (string, error) {
+	inst, err := NewInstaller()
+	if err != nil {
+		return "", err
+	}
+	return inst.Resolve(ref)
 }

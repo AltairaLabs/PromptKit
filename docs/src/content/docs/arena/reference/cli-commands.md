@@ -25,6 +25,7 @@ promptarena [command] [flags]
 | `validate` | Validate configuration files |
 | `view` | View test results |
 | `deploy` | Deploy prompt packs to cloud providers via adapter plugins |
+| `skill` | Manage shared AgentSkills.io skills (install, list, remove) |
 | `completion` | Generate shell autocompletion script |
 | `help` | Help about any command |
 
@@ -1677,6 +1678,126 @@ See complete examples in `examples/arena-media-test/`:
 - `image-validation.yaml` - Image format and dimension testing
 - `audio-validation.yaml` - Audio format and duration testing
 - `video-validation.yaml` - Video resolution and duration testing
+
+---
+
+## `promptarena skill`
+
+Manage shared skills — install from Git repositories or local paths, list installed skills, and remove them.
+
+### Usage
+
+```bash
+promptarena skill [subcommand] [flags]
+```
+
+### Subcommands
+
+| Subcommand | Description |
+|------------|-------------|
+| `install` | Install a skill from a Git repository or local path |
+| `list` | List installed skills |
+| `remove` | Remove an installed skill |
+
+---
+
+### `promptarena skill install`
+
+Install a skill by reference.
+
+#### Usage
+
+```bash
+promptarena skill install <ref> [flags]
+```
+
+#### Skill Reference Format
+
+| Format | Description |
+|--------|-------------|
+| `@org/name` | Install latest from GitHub (`https://github.com/org/name`) |
+| `@org/name@version` | Install a specific Git tag or ref |
+| `./path/to/skill` | Install from a local directory |
+
+#### Flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--project` | bool | `false` | Install to project-level (`.promptkit/skills/`) instead of user-level |
+| `--into` | string | — | Install directly into a specific directory (mutually exclusive with `--project`) |
+
+#### Installation Locations
+
+| Scope | Directory |
+|-------|-----------|
+| **User-level** (default) | `~/.config/promptkit/skills/org/name/` |
+| **Project-level** (`--project`) | `.promptkit/skills/org/name/` |
+| **Custom** (`--into <dir>`) | `<dir>/name/` |
+
+The user-level directory respects `XDG_CONFIG_HOME` if set.
+
+#### Examples
+
+```bash
+# Install from GitHub (user-level)
+promptarena skill install @anthropic/pdf-processing
+
+# Pin to a specific version
+promptarena skill install @anthropic/pdf-processing@v1.0.0
+
+# Install from a local path
+promptarena skill install ./path/to/skill
+
+# Install to project-level
+promptarena skill install @anthropic/pdf-processing --project
+
+# Install into a workflow stage directory
+promptarena skill install @anthropic/pci-compliance --into ./skills/billing
+```
+
+---
+
+### `promptarena skill list`
+
+List all installed skills, grouped by location.
+
+#### Usage
+
+```bash
+promptarena skill list
+```
+
+#### Example Output
+
+```
+Project:
+  @anthropic/pci-compliance  (.promptkit/skills/anthropic/pci-compliance)
+
+User:
+  @anthropic/pdf-processing  (~/.config/promptkit/skills/anthropic/pdf-processing)
+```
+
+---
+
+### `promptarena skill remove`
+
+Remove an installed skill.
+
+#### Usage
+
+```bash
+promptarena skill remove <ref>
+```
+
+#### Examples
+
+```bash
+# Remove a user-level skill
+promptarena skill remove @anthropic/pdf-processing
+
+# Remove a project-level skill
+promptarena skill remove @anthropic/pci-compliance --project
+```
 
 ---
 
