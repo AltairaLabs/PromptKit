@@ -73,13 +73,7 @@ func (p *Provider) PredictMultimodal(ctx context.Context, req providers.Predicti
 }
 
 // PredictMultimodalStream sends a streaming multimodal predict request to Claude.
-// On Bedrock, falls back to non-streaming PredictMultimodal.
 func (p *Provider) PredictMultimodalStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
-	// Bedrock: fall back to non-streaming and synthesize a stream
-	if p.isBedrock() {
-		return p.bedrockMultimodalStreamFallback(ctx, &req)
-	}
-
 	// Validate multimodal messages
 	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
 		return nil, err
@@ -92,30 +86,6 @@ func (p *Provider) PredictMultimodalStream(ctx context.Context, req providers.Pr
 	}
 
 	return p.predictStreamWithContentsMultimodal(ctx, messages, system, req.Temperature, req.TopP, req.MaxTokens, req.Seed)
-}
-
-// bedrockMultimodalStreamFallback uses non-streaming PredictMultimodal and wraps the result as a stream.
-func (p *Provider) bedrockMultimodalStreamFallback(
-	ctx context.Context, req *providers.PredictionRequest,
-) (<-chan providers.StreamChunk, error) {
-	resp, err := p.PredictMultimodal(ctx, *req)
-	if err != nil {
-		return nil, err
-	}
-
-	outChan := make(chan providers.StreamChunk, 1)
-	finishReason := finishReasonStop
-	outChan <- providers.StreamChunk{
-		Content:      resp.Content,
-		Delta:        resp.Content,
-		TokenCount:   1,
-		DeltaTokens:  1,
-		CostInfo:     resp.CostInfo,
-		FinishReason: &finishReason,
-	}
-	close(outChan)
-
-	return outChan, nil
 }
 
 // convertMessagesToClaudeMultimodal converts PromptKit messages to Claude's multimodal format
@@ -296,6 +266,8 @@ func (p *Provider) convertDocumentPartToClaude(part types.ContentPart) (claudeCo
 }
 
 // predictWithContentsMultimodal handles the actual API call with multimodal content
+//
+//nolint:gocognit // complexity is inherent in Bedrock vs direct API branching and error handling
 func (p *Provider) predictWithContentsMultimodal(ctx context.Context, messages []claudeMessage, system []claudeContentBlockMultimodal, temperature, topP float32, maxTokens int, seed *int) (providers.PredictionResponse, error) {
 	start := time.Now()
 
@@ -475,6 +447,21 @@ func (p *Provider) predictStreamWithContentsMultimodal(ctx context.Context, mess
 		claudeReq["system"] = system
 	}
 
+	// Bedrock: use binary event-stream format
+	if p.isBedrock() {
+		reqBody, err := p.marshalBedrockStreamingRequest(claudeReq)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request: %w", err)
+		}
+		body, scanner, err := p.makeBedrockStreamingRequest(ctx, reqBody)
+		if err != nil {
+			return nil, err
+		}
+		outChan := make(chan providers.StreamChunk)
+		go p.streamResponseMultimodal(ctx, body, scanner, outChan)
+		return outChan, nil
+	}
+
 	reqBody, err := json.Marshal(claudeReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
@@ -490,10 +477,8 @@ func (p *Provider) predictStreamWithContentsMultimodal(ctx context.Context, mess
 	}
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	if !p.isBedrock() {
-		httpReq.Header.Set("x-api-key", p.apiKey)
-		httpReq.Header.Set("anthropic-version", "2023-06-01")
-	}
+	httpReq.Header.Set("x-api-key", p.apiKey)
+	httpReq.Header.Set("anthropic-version", "2023-06-01")
 
 	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
@@ -503,25 +488,25 @@ func (p *Provider) predictStreamWithContentsMultimodal(ctx context.Context, mess
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		body, _ := io.ReadAll(resp.Body) // NOSONAR: Read error results in empty body in error message
-		if p.isBedrock() {
-			return nil, parseBedrockHTTPError(resp.StatusCode, body)
-		}
 		return nil, fmt.Errorf("claude api error (status %d): %s", resp.StatusCode, string(body))
 	}
 
 	outChan := make(chan providers.StreamChunk)
+	scanner := providers.NewSSEScanner(resp.Body)
 
-	go p.streamResponseMultimodal(ctx, resp.Body, outChan)
+	go p.streamResponseMultimodal(ctx, resp.Body, scanner, outChan)
 
 	return outChan, nil
 }
 
 // streamResponseMultimodal processes the streaming response
-func (p *Provider) streamResponseMultimodal(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
+func (p *Provider) streamResponseMultimodal(
+	ctx context.Context, body io.ReadCloser, scanner providers.StreamScanner, outChan chan<- providers.StreamChunk,
+) {
 	// Don't defer close here since streamResponse already closes the channel
 	defer body.Close()
 
 	// Use the existing streaming logic from claude.go
 	// This is the same as the base provider's streaming
-	p.streamResponse(ctx, body, outChan)
+	p.streamResponse(ctx, body, scanner, outChan)
 }

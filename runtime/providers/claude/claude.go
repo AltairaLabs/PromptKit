@@ -123,6 +123,59 @@ func (p *Provider) messagesURL() string {
 	return p.baseURL + "/messages"
 }
 
+// messagesStreamURL returns the appropriate streaming API endpoint URL.
+// For Bedrock: {baseURL}/model/{model}/invoke-with-response-stream
+// For direct Anthropic API: {baseURL}/messages (same as messagesURL; streaming is SSE-based)
+func (p *Provider) messagesStreamURL() string {
+	if p.isBedrock() {
+		return p.baseURL + "/model/" + p.model + "/invoke-with-response-stream"
+	}
+	return p.baseURL + "/messages"
+}
+
+// marshalBedrockStreamingRequest converts any request map to Bedrock-compatible JSON,
+// injecting anthropic_version and removing model (Bedrock uses the URL path).
+func (p *Provider) marshalBedrockStreamingRequest(reqMap map[string]interface{}) ([]byte, error) {
+	reqMap[bedrockVersionBodyKey] = bedrockVersionValue
+	delete(reqMap, "model")
+	// Bedrock streaming does not use the "stream" field — streaming is indicated by the URL path
+	delete(reqMap, "stream")
+	return json.Marshal(reqMap)
+}
+
+// makeBedrockStreamingRequest sends a streaming HTTP request to Bedrock and returns the
+// response body and a BedrockEventScanner. The caller owns the response body.
+func (p *Provider) makeBedrockStreamingRequest(
+	ctx context.Context, reqBody []byte,
+) (io.ReadCloser, providers.StreamScanner, error) {
+	url := p.messagesStreamURL()
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	httpReq.Header.Set(contentTypeHeader, applicationJSON)
+	httpReq.Header.Set("Accept", "application/vnd.amazon.eventstream")
+
+	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+		return nil, nil, fmt.Errorf("failed to apply authentication: %w", authErr)
+	}
+
+	resp, err := p.GetHTTPClient().Do(httpReq)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to send request: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		return nil, nil, parseBedrockHTTPError(resp.StatusCode, body)
+	}
+
+	scanner := providers.NewBedrockEventScanner(resp.Body)
+	return resp.Body, scanner, nil
+}
+
 // marshalBedrockRequest converts a claudeRequest to JSON with Bedrock-specific fields.
 // Bedrock expects anthropic_version in the body and does not use the model field in the body
 // (the model is specified in the URL path).

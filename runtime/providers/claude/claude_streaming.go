@@ -32,11 +32,6 @@ func (p *Provider) PredictStream(
 		Model:    p.model,
 	})
 
-	// Bedrock: fall back to non-streaming and synthesize a stream
-	if p.isBedrock() {
-		return p.bedrockPredictStreamFallback(ctx, &req)
-	}
-
 	// Convert messages to Claude format (handles both text and multimodal)
 	messages := p.convertMessagesToClaudeFormat(req.Messages)
 
@@ -71,6 +66,21 @@ func (p *Provider) PredictStream(
 		}
 	}
 
+	// Bedrock: use binary event-stream format
+	if p.isBedrock() {
+		reqBody, err := p.marshalBedrockStreamingRequest(claudeReq)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request: %w", err)
+		}
+		body, scanner, err := p.makeBedrockStreamingRequest(ctx, reqBody)
+		if err != nil {
+			return nil, err
+		}
+		outChan := make(chan providers.StreamChunk)
+		go p.streamResponse(ctx, body, scanner, outChan)
+		return outChan, nil
+	}
+
 	reqBody, err := json.Marshal(claudeReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
@@ -103,32 +113,9 @@ func (p *Provider) PredictStream(
 	}
 
 	outChan := make(chan providers.StreamChunk)
+	scanner := providers.NewSSEScanner(resp.Body)
 
-	go p.streamResponse(ctx, resp.Body, outChan)
-
-	return outChan, nil
-}
-
-// bedrockPredictStreamFallback uses non-streaming Predict and wraps the result as a stream.
-func (p *Provider) bedrockPredictStreamFallback(
-	ctx context.Context, req *providers.PredictionRequest,
-) (<-chan providers.StreamChunk, error) {
-	resp, err := p.Predict(ctx, *req)
-	if err != nil {
-		return nil, err
-	}
-
-	outChan := make(chan providers.StreamChunk, 1)
-	finishReason := finishReasonStop
-	outChan <- providers.StreamChunk{
-		Content:      resp.Content,
-		Delta:        resp.Content,
-		TokenCount:   1,
-		DeltaTokens:  1,
-		CostInfo:     resp.CostInfo,
-		FinishReason: &finishReason,
-	}
-	close(outChan)
+	go p.streamResponse(ctx, resp.Body, scanner, outChan)
 
 	return outChan, nil
 }
@@ -245,14 +232,15 @@ func (p *Provider) processClaudeMessageStop(
 	outChan <- finalChunk
 }
 
-// streamResponse reads SSE stream from Claude and sends chunks
+// streamResponse reads a stream from Claude and sends chunks.
+// The scanner parameter abstracts the underlying transport format (SSE or binary event-stream).
 //
-//nolint:gocognit // complexity is inherent in SSE event handling
-func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
+//nolint:gocognit // complexity is inherent in event handling
+func (p *Provider) streamResponse(
+	ctx context.Context, body io.ReadCloser, scanner providers.StreamScanner, outChan chan<- providers.StreamChunk,
+) {
 	defer close(outChan)
 	defer body.Close()
-
-	scanner := providers.NewSSEScanner(body)
 	accumulated := ""
 	totalTokens := 0
 

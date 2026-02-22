@@ -458,24 +458,32 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]
 }
 
 // PredictStreamWithTools performs a streaming predict request with tool support.
-// On Bedrock, falls back to non-streaming PredictWithTools since Bedrock uses
-// binary event-stream encoding that requires AWS-specific parsing.
 func (p *ToolProvider) PredictStreamWithTools(
 	ctx context.Context,
 	req providers.PredictionRequest,
 	tools interface{},
 	toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
-	// Bedrock: fall back to non-streaming and synthesize a stream
-	if p.isBedrock() {
-		return p.bedrockStreamFallback(ctx, &req, tools, toolChoice)
-	}
-
 	// Build Claude request with tools
 	claudeReq := p.buildToolRequest(req, tools, toolChoice)
 
 	// Add streaming flag
 	claudeReq["stream"] = true
+
+	// Bedrock: use binary event-stream format
+	if p.isBedrock() {
+		reqBody, err := p.marshalBedrockStreamingRequest(claudeReq)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request: %w", err)
+		}
+		body, scanner, err := p.makeBedrockStreamingRequest(ctx, reqBody)
+		if err != nil {
+			return nil, err
+		}
+		outChan := make(chan providers.StreamChunk)
+		go p.streamResponse(ctx, body, scanner, outChan)
+		return outChan, nil
+	}
 
 	requestBytes, err := json.Marshal(claudeReq)
 	if err != nil {
@@ -502,42 +510,12 @@ func (p *ToolProvider) PredictStreamWithTools(
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
-		if p.isBedrock() {
-			return nil, parseBedrockHTTPError(resp.StatusCode, body)
-		}
 		return nil, fmt.Errorf("API request to %s failed with status %d: %s", url, resp.StatusCode, string(body))
 	}
 
 	outChan := make(chan providers.StreamChunk)
-	go p.streamResponse(ctx, resp.Body, outChan)
-
-	return outChan, nil
-}
-
-// bedrockStreamFallback uses non-streaming PredictWithTools and wraps the result as a stream.
-func (p *ToolProvider) bedrockStreamFallback(
-	ctx context.Context,
-	req *providers.PredictionRequest,
-	tools interface{},
-	toolChoice string,
-) (<-chan providers.StreamChunk, error) {
-	resp, toolCalls, err := p.PredictWithTools(ctx, *req, tools, toolChoice)
-	if err != nil {
-		return nil, err
-	}
-
-	outChan := make(chan providers.StreamChunk, 1)
-	finishReason := finishReasonStop
-	outChan <- providers.StreamChunk{
-		Content:      resp.Content,
-		Delta:        resp.Content,
-		TokenCount:   1,
-		DeltaTokens:  1,
-		ToolCalls:    toolCalls,
-		CostInfo:     resp.CostInfo,
-		FinishReason: &finishReason,
-	}
-	close(outChan)
+	scanner := providers.NewSSEScanner(resp.Body)
+	go p.streamResponse(ctx, resp.Body, scanner, outChan)
 
 	return outChan, nil
 }
