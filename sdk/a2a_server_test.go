@@ -3,8 +3,10 @@ package sdk
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -260,6 +262,54 @@ func TestA2AServer_SendMessage_Multimodal(t *testing.T) {
 
 	if task.Status.State != a2a.TaskStateCompleted {
 		t.Fatalf("state = %q, want completed", task.Status.State)
+	}
+}
+
+func TestA2AServer_SendMessage_MultimodalArtifacts(t *testing.T) {
+	imgURL := "https://example.com/result.png"
+	mock := &mockA2AConv{
+		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
+			return &Response{
+				message: &types.Message{
+					Role: "assistant",
+					Parts: []types.ContentPart{
+						types.NewTextPart("Here is the image"),
+						{
+							Type: types.ContentTypeImage,
+							Media: &types.MediaContent{
+								URL:      &imgURL,
+								MIMEType: "image/png",
+							},
+						},
+					},
+				},
+			}, nil
+		},
+	}
+
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	defer ts.Close()
+
+	task := a2aSendMessage(t, ts, "ctx-multimodal-out", "Generate an image")
+
+	if task.Status.State != a2a.TaskStateCompleted {
+		t.Fatalf("state = %q, want completed", task.Status.State)
+	}
+	if len(task.Artifacts) != 1 {
+		t.Fatalf("expected 1 artifact, got %d", len(task.Artifacts))
+	}
+	parts := task.Artifacts[0].Parts
+	if len(parts) != 2 {
+		t.Fatalf("expected 2 parts in artifact, got %d", len(parts))
+	}
+	if parts[0].Text == nil || *parts[0].Text != "Here is the image" {
+		t.Fatalf("part[0] text = %v, want %q", parts[0].Text, "Here is the image")
+	}
+	if parts[1].URL == nil || *parts[1].URL != imgURL {
+		t.Fatalf("part[1] URL = %v, want %q", parts[1].URL, imgURL)
+	}
+	if parts[1].MediaType != "image/png" {
+		t.Fatalf("part[1] mediaType = %q, want %q", parts[1].MediaType, "image/png")
 	}
 }
 
@@ -702,5 +752,759 @@ func TestTraceContextPropagation_StreamMessage(t *testing.T) {
 
 	if gotTC.Traceparent != wantTP {
 		t.Errorf("Traceparent = %q, want %q", gotTC.Traceparent, wantTP)
+	}
+}
+
+// --- helper for sending custom A2A Parts ---
+
+func a2aSendMessageWithParts(t *testing.T, ts *httptest.Server, contextID string, parts []a2a.Part) *a2a.Task {
+	t.Helper()
+	return a2aRPCRequestTask(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+		Message: a2a.Message{
+			ContextID: contextID,
+			Role:      a2a.RoleUser,
+			Parts:     parts,
+		},
+		Configuration: &a2a.SendMessageConfiguration{Blocking: true},
+	})
+}
+
+// --- Group A: End-to-End Data Propagation (P0) ---
+
+func TestA2AServer_SendMessage_Base64DataArtifact(t *testing.T) {
+	// Mock returns ContentPart with base64-encoded image data.
+	// Verify artifact Part has Raw bytes matching original + correct MediaType.
+	originalBytes := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A} // PNG header
+	b64 := base64.StdEncoding.EncodeToString(originalBytes)
+
+	mock := &mockA2AConv{
+		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
+			return &Response{
+				message: &types.Message{
+					Role: "assistant",
+					Parts: []types.ContentPart{
+						{
+							Type: types.ContentTypeImage,
+							Media: &types.MediaContent{
+								Data:     &b64,
+								MIMEType: "image/png",
+							},
+						},
+					},
+				},
+			}, nil
+		},
+	}
+
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	defer ts.Close()
+
+	task := a2aSendMessage(t, ts, "ctx-base64", "Generate image")
+
+	if task.Status.State != a2a.TaskStateCompleted {
+		t.Fatalf("state = %q, want completed", task.Status.State)
+	}
+	if len(task.Artifacts) == 0 {
+		t.Fatal("expected artifacts")
+	}
+	parts := task.Artifacts[0].Parts
+	if len(parts) != 1 {
+		t.Fatalf("expected 1 part, got %d", len(parts))
+	}
+	if parts[0].MediaType != "image/png" {
+		t.Errorf("mediaType = %q, want image/png", parts[0].MediaType)
+	}
+	if !bytes.Equal(parts[0].Raw, originalBytes) {
+		t.Errorf("Raw bytes mismatch: got %x, want %x", parts[0].Raw, originalBytes)
+	}
+}
+
+func TestA2AServer_SendMessage_URLMediaRoundTrip(t *testing.T) {
+	// Send URL-based A2A Part inbound → mock receives ContentPart with Media.URL
+	// → mock echoes it back → artifact has same URL and MediaType.
+	imgURL := "https://example.com/photo.jpg"
+	var receivedParts []types.ContentPart
+
+	mock := &mockA2AConv{
+		sendFunc: func(_ context.Context, message any, _ ...SendOption) (*Response, error) {
+			msg := message.(*types.Message)
+			receivedParts = msg.Parts
+			// Echo the media back.
+			return &Response{
+				message: &types.Message{
+					Role:  "assistant",
+					Parts: msg.Parts,
+				},
+			}, nil
+		},
+	}
+
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	defer ts.Close()
+
+	task := a2aSendMessageWithParts(t, ts, "ctx-url-rt", []a2a.Part{
+		{URL: &imgURL, MediaType: "image/jpeg"},
+	})
+
+	// Verify inbound conversion.
+	if len(receivedParts) != 1 {
+		t.Fatalf("mock received %d parts, want 1", len(receivedParts))
+	}
+	if receivedParts[0].Media == nil || receivedParts[0].Media.URL == nil {
+		t.Fatal("mock did not receive URL media")
+	}
+	if *receivedParts[0].Media.URL != imgURL {
+		t.Errorf("inbound URL = %q, want %q", *receivedParts[0].Media.URL, imgURL)
+	}
+
+	// Verify outbound artifact.
+	if task.Status.State != a2a.TaskStateCompleted {
+		t.Fatalf("state = %q, want completed", task.Status.State)
+	}
+	if len(task.Artifacts) == 0 || len(task.Artifacts[0].Parts) == 0 {
+		t.Fatal("expected artifact with parts")
+	}
+	p := task.Artifacts[0].Parts[0]
+	if p.URL == nil || *p.URL != imgURL {
+		t.Errorf("artifact URL = %v, want %q", p.URL, imgURL)
+	}
+	if p.MediaType != "image/jpeg" {
+		t.Errorf("artifact mediaType = %q, want image/jpeg", p.MediaType)
+	}
+}
+
+func TestA2AServer_SendMessage_MixedPartsPreserved(t *testing.T) {
+	// Send 3 parts (text + base64 image + URL audio). Mock returns 3 parts.
+	// Artifact contains all 3 in order with correct types and data.
+	imgBytes := []byte{0xFF, 0xD8, 0xFF, 0xE0} // JPEG header
+	imgB64 := base64.StdEncoding.EncodeToString(imgBytes)
+	audioURL := "https://example.com/audio.wav"
+
+	mock := &mockA2AConv{
+		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
+			return &Response{
+				message: &types.Message{
+					Role: "assistant",
+					Parts: []types.ContentPart{
+						types.NewTextPart("Here is the result"),
+						{
+							Type: types.ContentTypeImage,
+							Media: &types.MediaContent{
+								Data:     &imgB64,
+								MIMEType: "image/jpeg",
+							},
+						},
+						{
+							Type: types.ContentTypeAudio,
+							Media: &types.MediaContent{
+								URL:      &audioURL,
+								MIMEType: "audio/wav",
+							},
+						},
+					},
+				},
+			}, nil
+		},
+	}
+
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	defer ts.Close()
+
+	task := a2aSendMessage(t, ts, "ctx-mixed", "Do all the things")
+
+	if task.Status.State != a2a.TaskStateCompleted {
+		t.Fatalf("state = %q, want completed", task.Status.State)
+	}
+	if len(task.Artifacts) == 0 {
+		t.Fatal("expected artifacts")
+	}
+	parts := task.Artifacts[0].Parts
+	if len(parts) != 3 {
+		t.Fatalf("expected 3 parts, got %d", len(parts))
+	}
+
+	// Part 0: text
+	if parts[0].Text == nil || *parts[0].Text != "Here is the result" {
+		t.Errorf("part[0] text = %v, want 'Here is the result'", parts[0].Text)
+	}
+	// Part 1: base64 image
+	if !bytes.Equal(parts[1].Raw, imgBytes) {
+		t.Errorf("part[1] Raw mismatch: got %x, want %x", parts[1].Raw, imgBytes)
+	}
+	if parts[1].MediaType != "image/jpeg" {
+		t.Errorf("part[1] mediaType = %q, want image/jpeg", parts[1].MediaType)
+	}
+	// Part 2: URL audio
+	if parts[2].URL == nil || *parts[2].URL != audioURL {
+		t.Errorf("part[2] URL = %v, want %q", parts[2].URL, audioURL)
+	}
+	if parts[2].MediaType != "audio/wav" {
+		t.Errorf("part[2] mediaType = %q, want audio/wav", parts[2].MediaType)
+	}
+}
+
+func TestA2AServer_SendMessage_RawBinaryRoundTrip(t *testing.T) {
+	// Send raw binary A2A Part inbound, mock echoes media data back.
+	// Verify bytes survive both inbound and outbound conversion.
+	rawData := []byte{0x00, 0x01, 0x02, 0xFE, 0xFF}
+
+	mock := &mockA2AConv{
+		sendFunc: func(_ context.Context, message any, _ ...SendOption) (*Response, error) {
+			msg := message.(*types.Message)
+			// Echo back the received parts.
+			return &Response{
+				message: &types.Message{
+					Role:  "assistant",
+					Parts: msg.Parts,
+				},
+			}, nil
+		},
+	}
+
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	defer ts.Close()
+
+	task := a2aSendMessageWithParts(t, ts, "ctx-raw-rt", []a2a.Part{
+		{Raw: rawData, MediaType: "image/png"},
+	})
+
+	if task.Status.State != a2a.TaskStateCompleted {
+		t.Fatalf("state = %q, want completed", task.Status.State)
+	}
+	if len(task.Artifacts) == 0 || len(task.Artifacts[0].Parts) == 0 {
+		t.Fatal("expected artifact with parts")
+	}
+	p := task.Artifacts[0].Parts[0]
+	if !bytes.Equal(p.Raw, rawData) {
+		t.Errorf("Raw bytes mismatch: got %x, want %x", p.Raw, rawData)
+	}
+	if p.MediaType != "image/png" {
+		t.Errorf("mediaType = %q, want image/png", p.MediaType)
+	}
+}
+
+func TestA2AServer_SendMessage_AudioVideoDocTypes(t *testing.T) {
+	// Tests audio/wav, video/mp4, application/pdf through full pipeline.
+	audioURL := "https://example.com/sound.wav"
+	videoURL := "https://example.com/clip.mp4"
+	pdfURL := "https://example.com/doc.pdf"
+
+	mock := &mockA2AConv{
+		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
+			return &Response{
+				message: &types.Message{
+					Role: "assistant",
+					Parts: []types.ContentPart{
+						{Type: types.ContentTypeAudio, Media: &types.MediaContent{URL: &audioURL, MIMEType: "audio/wav"}},
+						{Type: types.ContentTypeVideo, Media: &types.MediaContent{URL: &videoURL, MIMEType: "video/mp4"}},
+						{Type: types.ContentTypeDocument, Media: &types.MediaContent{URL: &pdfURL, MIMEType: "application/pdf"}},
+					},
+				},
+			}, nil
+		},
+	}
+
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	defer ts.Close()
+
+	task := a2aSendMessage(t, ts, "ctx-media-types", "Give me all types")
+
+	if task.Status.State != a2a.TaskStateCompleted {
+		t.Fatalf("state = %q, want completed", task.Status.State)
+	}
+	if len(task.Artifacts) == 0 {
+		t.Fatal("expected artifacts")
+	}
+	parts := task.Artifacts[0].Parts
+	if len(parts) != 3 {
+		t.Fatalf("expected 3 parts, got %d", len(parts))
+	}
+
+	wantURLs := []string{audioURL, videoURL, pdfURL}
+	wantTypes := []string{"audio/wav", "video/mp4", "application/pdf"}
+	for i, p := range parts {
+		if p.URL == nil || *p.URL != wantURLs[i] {
+			t.Errorf("part[%d] URL = %v, want %q", i, p.URL, wantURLs[i])
+		}
+		if p.MediaType != wantTypes[i] {
+			t.Errorf("part[%d] mediaType = %q, want %q", i, p.MediaType, wantTypes[i])
+		}
+	}
+}
+
+func TestA2AServer_SendMessage_PartMetadataDocumented(t *testing.T) {
+	// Documents that Part.Metadata and Part.Filename are silently dropped at
+	// PartToContentPart (no error, just lost) — ContentPart has no fields for these.
+	mock := &mockA2AConv{
+		sendFunc: func(_ context.Context, message any, _ ...SendOption) (*Response, error) {
+			msg := message.(*types.Message)
+			// Verify the text was preserved even though metadata/filename were dropped.
+			if len(msg.Parts) != 1 || msg.Parts[0].Text == nil {
+				return nil, errors.New("expected 1 text part")
+			}
+			return &Response{
+				message: &types.Message{
+					Role:  "assistant",
+					Parts: []types.ContentPart{types.NewTextPart("ok")},
+				},
+			}, nil
+		},
+	}
+
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	defer ts.Close()
+
+	// Part with Metadata and Filename — these fields will be dropped.
+	task := a2aSendMessageWithParts(t, ts, "ctx-meta", []a2a.Part{
+		{
+			Text:     serverTextPtr("hello"),
+			Metadata: map[string]any{"key": "val"},
+			Filename: "test.txt",
+		},
+	})
+
+	if task.Status.State != a2a.TaskStateCompleted {
+		t.Fatalf("state = %q, want completed", task.Status.State)
+	}
+}
+
+func TestA2AServer_SendMessage_MessageMetadata(t *testing.T) {
+	// Sends A2A Message with Metadata: {"trace_id": "abc"}.
+	// Mock asserts it receives types.Message with matching metadata.
+	var gotMeta map[string]interface{}
+
+	mock := &mockA2AConv{
+		sendFunc: func(_ context.Context, message any, _ ...SendOption) (*Response, error) {
+			msg := message.(*types.Message)
+			gotMeta = msg.Meta
+			return &Response{
+				message: &types.Message{
+					Role:  "assistant",
+					Parts: []types.ContentPart{types.NewTextPart("ok")},
+				},
+			}, nil
+		},
+	}
+
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	defer ts.Close()
+
+	a2aRPCRequestTask(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+		Message: a2a.Message{
+			ContextID: "ctx-msg-meta",
+			Role:      a2a.RoleUser,
+			Parts:     []a2a.Part{{Text: serverTextPtr("hello")}},
+			Metadata:  map[string]any{"trace_id": "abc"},
+		},
+		Configuration: &a2a.SendMessageConfiguration{Blocking: true},
+	})
+
+	if gotMeta == nil {
+		t.Fatal("expected message metadata to be propagated")
+	}
+	if gotMeta["trace_id"] != "abc" {
+		t.Errorf("trace_id = %v, want 'abc'", gotMeta["trace_id"])
+	}
+}
+
+func TestA2AServer_GetTask_ReturnsArtifacts(t *testing.T) {
+	// Send blocking message with multimodal response, then tasks/get.
+	// Verify artifacts survive the task store round-trip.
+	imgURL := "https://example.com/stored.png"
+	mock := &mockA2AConv{
+		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
+			return &Response{
+				message: &types.Message{
+					Role: "assistant",
+					Parts: []types.ContentPart{
+						types.NewTextPart("See the image"),
+						{Type: types.ContentTypeImage, Media: &types.MediaContent{URL: &imgURL, MIMEType: "image/png"}},
+					},
+				},
+			}, nil
+		},
+	}
+
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	defer ts.Close()
+
+	task := a2aSendMessage(t, ts, "ctx-get-art", "Show me")
+
+	// Now retrieve via tasks/get.
+	got := a2aRPCRequestTask(t, ts, a2a.MethodGetTask, a2a.GetTaskRequest{ID: task.ID})
+
+	if len(got.Artifacts) == 0 {
+		t.Fatal("tasks/get returned no artifacts")
+	}
+	parts := got.Artifacts[0].Parts
+	if len(parts) != 2 {
+		t.Fatalf("expected 2 parts, got %d", len(parts))
+	}
+	if parts[0].Text == nil || *parts[0].Text != "See the image" {
+		t.Errorf("part[0] text = %v, want 'See the image'", parts[0].Text)
+	}
+	if parts[1].URL == nil || *parts[1].URL != imgURL {
+		t.Errorf("part[1] URL = %v, want %q", parts[1].URL, imgURL)
+	}
+}
+
+func TestA2AServer_SendMessage_LargeBinaryData(t *testing.T) {
+	// 1MB raw binary through full pipeline. Guards against truncation or
+	// corruption at JSON serialization boundaries.
+	largeData := make([]byte, 1<<20) // 1 MB
+	for i := range largeData {
+		largeData[i] = byte(i % 256)
+	}
+	b64 := base64.StdEncoding.EncodeToString(largeData)
+
+	mock := &mockA2AConv{
+		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
+			return &Response{
+				message: &types.Message{
+					Role: "assistant",
+					Parts: []types.ContentPart{
+						{
+							Type: types.ContentTypeImage,
+							Media: &types.MediaContent{
+								Data:     &b64,
+								MIMEType: "image/png",
+							},
+						},
+					},
+				},
+			}, nil
+		},
+	}
+
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	defer ts.Close()
+
+	task := a2aSendMessage(t, ts, "ctx-large", "Big data")
+
+	if task.Status.State != a2a.TaskStateCompleted {
+		t.Fatalf("state = %q, want completed", task.Status.State)
+	}
+	if len(task.Artifacts) == 0 || len(task.Artifacts[0].Parts) == 0 {
+		t.Fatal("expected artifact with parts")
+	}
+	p := task.Artifacts[0].Parts[0]
+	if len(p.Raw) != len(largeData) {
+		t.Fatalf("raw length = %d, want %d", len(p.Raw), len(largeData))
+	}
+	if !bytes.Equal(p.Raw, largeData) {
+		t.Error("1MB binary data corrupted during round-trip")
+	}
+}
+
+// --- Group C: Protocol Compliance ---
+
+func TestA2AServer_SendMessage_NonBlocking(t *testing.T) {
+	// Send without Blocking: true, mock takes 100ms. Response returns quickly
+	// with task in submitted or working (not completed).
+	mock := &mockA2AConv{
+		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
+			time.Sleep(100 * time.Millisecond)
+			return &Response{
+				message: &types.Message{
+					Role:  "assistant",
+					Parts: []types.ContentPart{types.NewTextPart("done")},
+				},
+			}, nil
+		},
+	}
+
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	defer ts.Close()
+
+	task := a2aRPCRequestTask(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+		Message: a2a.Message{
+			ContextID: "ctx-nonblock",
+			Role:      a2a.RoleUser,
+			Parts:     []a2a.Part{{Text: serverTextPtr("Hello")}},
+		},
+		// No Configuration — non-blocking by default.
+	})
+
+	// Should NOT be completed yet since mock takes 100ms and settle time is 5ms.
+	if task.Status.State == a2a.TaskStateCompleted {
+		t.Fatalf("state = completed, want submitted or working for non-blocking call")
+	}
+}
+
+func TestA2AServer_ListTasks_PageSize(t *testing.T) {
+	mock := completingA2AMock()
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	defer ts.Close()
+
+	// Create 5 tasks on the same context.
+	for i := range 5 {
+		a2aSendMessage(t, ts, "ctx-page", "msg"+string(rune('0'+i)))
+	}
+
+	resp := a2aRPCRequest(t, ts, a2a.MethodListTasks, a2a.ListTasksRequest{
+		ContextID: "ctx-page",
+		PageSize:  2,
+	})
+	if resp.Error != nil {
+		t.Fatalf("list error: %d %s", resp.Error.Code, resp.Error.Message)
+	}
+
+	var listResp a2a.ListTasksResponse
+	if err := json.Unmarshal(resp.Result, &listResp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(listResp.Tasks) != 2 {
+		t.Fatalf("got %d tasks, want 2", len(listResp.Tasks))
+	}
+}
+
+func TestA2AServer_SendMessage_InvalidParams(t *testing.T) {
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) {
+		return completingA2AMock(), nil
+	})
+	defer ts.Close()
+
+	// Send valid JSON-RPC but with params that don't match SendMessageRequest schema.
+	// "message" field is missing the required "role" and "parts".
+	resp := a2aRPCRequest(t, ts, a2a.MethodSendMessage, map[string]any{
+		"message": "not-a-message-object",
+	})
+
+	if resp.Error == nil {
+		t.Fatal("expected error for invalid params")
+	}
+	if resp.Error.Code != -32602 {
+		t.Fatalf("error code = %d, want -32602", resp.Error.Code)
+	}
+}
+
+func TestA2AServer_SendMessage_InvalidPart(t *testing.T) {
+	// Empty Part{} → PartToContentPart error → error -32602 from server.
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) {
+		return completingA2AMock(), nil
+	})
+	defer ts.Close()
+
+	resp := a2aRPCRequest(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+		Message: a2a.Message{
+			ContextID: "ctx-invalid-part",
+			Role:      a2a.RoleUser,
+			Parts:     []a2a.Part{{}}, // Empty part.
+		},
+		Configuration: &a2a.SendMessageConfiguration{Blocking: true},
+	})
+	if resp.Error == nil {
+		t.Fatal("expected error for empty part")
+	}
+	if resp.Error.Code != -32602 {
+		t.Fatalf("error code = %d, want -32602", resp.Error.Code)
+	}
+}
+
+func TestA2AServer_ListTasks_StatusFilterIgnored(t *testing.T) {
+	// P2: Documents that Status filter param is accepted but currently ignored.
+	mock := completingA2AMock()
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	defer ts.Close()
+
+	a2aSendMessage(t, ts, "ctx-filter", "msg1")
+	a2aSendMessage(t, ts, "ctx-filter", "msg2")
+
+	// Filter for "failed" — should still return all tasks since filter is ignored.
+	failedState := a2a.TaskStateFailed
+	resp := a2aRPCRequest(t, ts, a2a.MethodListTasks, a2a.ListTasksRequest{
+		ContextID: "ctx-filter",
+		Status:    &failedState,
+	})
+	if resp.Error != nil {
+		t.Fatalf("list error: %d %s", resp.Error.Code, resp.Error.Message)
+	}
+
+	var listResp a2a.ListTasksResponse
+	if err := json.Unmarshal(resp.Result, &listResp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	// All tasks returned because Status filter is not implemented.
+	if len(listResp.Tasks) != 2 {
+		t.Fatalf("got %d tasks, want 2 (status filter should be ignored)", len(listResp.Tasks))
+	}
+}
+
+func TestA2AServer_GetTask_HistoryLengthIgnored(t *testing.T) {
+	// P2: Documents that HistoryLength param is accepted but has no effect.
+	mock := completingA2AMock()
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	defer ts.Close()
+
+	task := a2aSendMessage(t, ts, "ctx-histlen", "Hello")
+
+	histLen := 0
+	got := a2aRPCRequestTask(t, ts, a2a.MethodGetTask, a2a.GetTaskRequest{
+		ID:            task.ID,
+		HistoryLength: &histLen,
+	})
+
+	// HistoryLength=0 would mean "no history" if implemented, but it's ignored.
+	if got.ID != task.ID {
+		t.Fatalf("task ID = %q, want %q", got.ID, task.ID)
+	}
+	if got.Status.State != a2a.TaskStateCompleted {
+		t.Fatalf("state = %q, want completed", got.Status.State)
+	}
+}
+
+// --- Group D: Error Handling at Boundaries ---
+
+func TestA2AServer_SendMessage_FailedTaskErrorParts(t *testing.T) {
+	// Mock returns error. Failed task's Status.Message has Parts[0].Text
+	// with error string and role "agent".
+	mock := &mockA2AConv{
+		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
+			return nil, errors.New("provider crashed")
+		},
+	}
+
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	defer ts.Close()
+
+	task := a2aSendMessage(t, ts, "ctx-err-parts", "Hello")
+
+	if task.Status.State != a2a.TaskStateFailed {
+		t.Fatalf("state = %q, want failed", task.Status.State)
+	}
+	if task.Status.Message == nil {
+		t.Fatal("expected status message")
+	}
+	if task.Status.Message.Role != a2a.RoleAgent {
+		t.Errorf("role = %q, want agent", task.Status.Message.Role)
+	}
+	if len(task.Status.Message.Parts) == 0 {
+		t.Fatal("expected error parts")
+	}
+	if task.Status.Message.Parts[0].Text == nil || *task.Status.Message.Parts[0].Text != "provider crashed" {
+		t.Errorf("error text = %v, want 'provider crashed'", task.Status.Message.Parts[0].Text)
+	}
+}
+
+func TestA2AServer_SendMessage_CancelDuringProcessing(t *testing.T) {
+	// Start slow message, cancel it. Task becomes "canceled", NOT "failed".
+	sendStarted := make(chan struct{})
+	mock := &mockA2AConv{
+		sendFunc: func(ctx context.Context, _ any, _ ...SendOption) (*Response, error) {
+			close(sendStarted)
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	}
+
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	defer ts.Close()
+
+	// Non-blocking send.
+	task := a2aRPCRequestTask(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+		Message: a2a.Message{
+			ContextID: "ctx-cancel-processing",
+			Role:      a2a.RoleUser,
+			Parts:     []a2a.Part{{Text: serverTextPtr("slow")}},
+		},
+	})
+
+	// Wait for send to start.
+	<-sendStarted
+
+	// Cancel the task.
+	cancelResp := a2aRPCRequest(t, ts, a2a.MethodCancelTask, a2a.CancelTaskRequest{ID: task.ID})
+	if cancelResp.Error != nil {
+		t.Fatalf("cancel error: %d %s", cancelResp.Error.Code, cancelResp.Error.Message)
+	}
+
+	// Wait a bit for the goroutine to notice cancellation.
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify via tasks/get.
+	got := a2aRPCRequestTask(t, ts, a2a.MethodGetTask, a2a.GetTaskRequest{ID: task.ID})
+	if got.Status.State != a2a.TaskStateCanceled {
+		t.Fatalf("state = %q, want canceled (not failed)", got.Status.State)
+	}
+}
+
+func TestA2AServer_SendMessage_DataPartRejected(t *testing.T) {
+	// Part with Data: {"key": "val"} (structured data). Error -32602 because
+	// structured data parts are unsupported.
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) {
+		return completingA2AMock(), nil
+	})
+	defer ts.Close()
+
+	resp := a2aRPCRequest(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+		Message: a2a.Message{
+			ContextID: "ctx-data-part",
+			Role:      a2a.RoleUser,
+			Parts:     []a2a.Part{{Data: map[string]any{"key": "val"}}},
+		},
+		Configuration: &a2a.SendMessageConfiguration{Blocking: true},
+	})
+	if resp.Error == nil {
+		t.Fatal("expected error for structured data part")
+	}
+	if resp.Error.Code != -32602 {
+		t.Fatalf("error code = %d, want -32602", resp.Error.Code)
+	}
+}
+
+func TestA2AServer_SendMessage_ConversationReuseMultimodal(t *testing.T) {
+	// Two multimodal messages to same contextID. Both get correct responses.
+	var callCount atomic.Int32
+	imgURL := "https://example.com/img.png"
+
+	mock := &mockA2AConv{
+		sendFunc: func(_ context.Context, message any, _ ...SendOption) (*Response, error) {
+			n := callCount.Add(1)
+			msg := message.(*types.Message)
+			// Verify each message has the expected parts.
+			if len(msg.Parts) != 2 {
+				return nil, fmt.Errorf("call %d: expected 2 parts, got %d", n, len(msg.Parts))
+			}
+			return &Response{
+				message: &types.Message{
+					Role: "assistant",
+					Parts: []types.ContentPart{
+						types.NewTextPart(fmt.Sprintf("response %d", n)),
+						{Type: types.ContentTypeImage, Media: &types.MediaContent{URL: &imgURL, MIMEType: "image/png"}},
+					},
+				},
+			}, nil
+		},
+	}
+
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	defer ts.Close()
+
+	// First multimodal message.
+	task1 := a2aSendMessageWithParts(t, ts, "ctx-reuse-multi", []a2a.Part{
+		{Text: serverTextPtr("msg1")},
+		{URL: &imgURL, MediaType: "image/png"},
+	})
+	if task1.Status.State != a2a.TaskStateCompleted {
+		t.Fatalf("task1 state = %q, want completed", task1.Status.State)
+	}
+	if len(task1.Artifacts) == 0 || len(task1.Artifacts[0].Parts) != 2 {
+		t.Fatal("task1: expected 2 artifact parts")
+	}
+
+	// Second multimodal message to same context.
+	task2 := a2aSendMessageWithParts(t, ts, "ctx-reuse-multi", []a2a.Part{
+		{Text: serverTextPtr("msg2")},
+		{URL: &imgURL, MediaType: "image/png"},
+	})
+	if task2.Status.State != a2a.TaskStateCompleted {
+		t.Fatalf("task2 state = %q, want completed", task2.Status.State)
+	}
+	if len(task2.Artifacts) == 0 || len(task2.Artifacts[0].Parts) != 2 {
+		t.Fatal("task2: expected 2 artifact parts")
+	}
+
+	if callCount.Load() != 2 {
+		t.Fatalf("expected 2 calls, got %d", callCount.Load())
 	}
 }
