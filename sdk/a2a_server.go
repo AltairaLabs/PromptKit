@@ -252,11 +252,16 @@ func (s *A2AServer) runConversation(parent context.Context, taskID string, conv 
 
 		resp, sendErr := conv.Send(ctx, pkMsg)
 		if sendErr != nil {
-			errText := sendErr.Error()
-			_ = s.taskStore.SetState(taskID, a2a.TaskStateFailed, &a2a.Message{
-				Role:  a2a.RoleAgent,
-				Parts: []a2a.Part{{Text: &errText}},
-			})
+			// If the context was canceled (e.g. by CancelTask), don't
+			// overwrite the task state — the cancel handler sets it to
+			// "canceled". Only mark as failed for genuine errors.
+			if ctx.Err() == nil {
+				errText := sendErr.Error()
+				_ = s.taskStore.SetState(taskID, a2a.TaskStateFailed, &a2a.Message{
+					Role:  a2a.RoleAgent,
+					Parts: []a2a.Part{{Text: &errText}},
+				})
+			}
 			return
 		}
 
