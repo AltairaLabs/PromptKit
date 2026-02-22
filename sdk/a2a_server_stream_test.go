@@ -3,8 +3,10 @@ package sdk
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -545,5 +547,377 @@ func TestA2AServer_TaskSubscribe_NotFound(t *testing.T) {
 	}
 	if resp.Error.Code != -32001 {
 		t.Errorf("error code = %d, want -32001", resp.Error.Code)
+	}
+}
+
+// --- Group B: Streaming Data Integrity ---
+
+func TestA2AServer_StreamMessage_MediaDataIntegrity(t *testing.T) {
+	// Verify actual Raw bytes in artifact event match original base64 data.
+	originalBytes := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
+	b64 := base64.StdEncoding.EncodeToString(originalBytes)
+
+	mock := &mockA2AStreamConv{
+		mockA2AConv: mockA2AConv{
+			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
+				return nil, errors.New("should not call Send")
+			},
+		},
+		streamFunc: func(_ context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
+			ch := make(chan StreamChunk, 2)
+			ch <- StreamChunk{
+				Type: ChunkMedia,
+				Media: &types.MediaContent{
+					Data:     &b64,
+					MIMEType: "image/png",
+				},
+			}
+			ch <- StreamChunk{Type: ChunkDone}
+			close(ch)
+			return ch
+		},
+	}
+
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	defer ts.Close()
+
+	events := readA2ASSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+		Message: a2a.Message{
+			ContextID: "ctx-media-integrity",
+			Role:      a2a.RoleUser,
+			Parts:     []a2a.Part{{Text: serverTextPtr("Show image")}},
+		},
+	})
+
+	var found bool
+	for _, evt := range events {
+		if evt.ArtifactUpdate != nil {
+			parts := evt.ArtifactUpdate.Artifact.Parts
+			if len(parts) > 0 && parts[0].MediaType == "image/png" {
+				if !bytes.Equal(parts[0].Raw, originalBytes) {
+					t.Errorf("Raw bytes mismatch: got %x, want %x", parts[0].Raw, originalBytes)
+				}
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("expected artifact update with image/png data")
+	}
+}
+
+func TestA2AServer_StreamMessage_URLMedia(t *testing.T) {
+	// Streams ChunkMedia with URL-based media (not base64).
+	imgURL := "https://example.com/streamed.png"
+
+	mock := &mockA2AStreamConv{
+		mockA2AConv: mockA2AConv{
+			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
+				return nil, errors.New("should not call Send")
+			},
+		},
+		streamFunc: func(_ context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
+			ch := make(chan StreamChunk, 2)
+			ch <- StreamChunk{
+				Type: ChunkMedia,
+				Media: &types.MediaContent{
+					URL:      &imgURL,
+					MIMEType: "image/png",
+				},
+			}
+			ch <- StreamChunk{Type: ChunkDone}
+			close(ch)
+			return ch
+		},
+	}
+
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	defer ts.Close()
+
+	events := readA2ASSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+		Message: a2a.Message{
+			ContextID: "ctx-stream-url",
+			Role:      a2a.RoleUser,
+			Parts:     []a2a.Part{{Text: serverTextPtr("Show URL image")}},
+		},
+	})
+
+	var found bool
+	for _, evt := range events {
+		if evt.ArtifactUpdate != nil {
+			parts := evt.ArtifactUpdate.Artifact.Parts
+			if len(parts) > 0 && parts[0].URL != nil && *parts[0].URL == imgURL {
+				if parts[0].MediaType != "image/png" {
+					t.Errorf("mediaType = %q, want image/png", parts[0].MediaType)
+				}
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("expected artifact update with URL media")
+	}
+}
+
+func TestA2AServer_StreamMessage_MixedTextAndMedia(t *testing.T) {
+	// Interleaved ChunkText + ChunkMedia chunks. Each produces separate
+	// artifact event with correct content. Artifact IDs increment.
+	imgData := base64.StdEncoding.EncodeToString([]byte{0xFF, 0xD8})
+
+	mock := &mockA2AStreamConv{
+		mockA2AConv: mockA2AConv{
+			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
+				return nil, errors.New("should not call Send")
+			},
+		},
+		streamFunc: func(_ context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
+			ch := make(chan StreamChunk, 4)
+			ch <- StreamChunk{Type: ChunkText, Text: "Here is an image:"}
+			ch <- StreamChunk{
+				Type: ChunkMedia,
+				Media: &types.MediaContent{
+					Data:     &imgData,
+					MIMEType: "image/jpeg",
+				},
+			}
+			ch <- StreamChunk{Type: ChunkText, Text: "End of response"}
+			ch <- StreamChunk{Type: ChunkDone}
+			close(ch)
+			return ch
+		},
+	}
+
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	defer ts.Close()
+
+	events := readA2ASSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+		Message: a2a.Message{
+			ContextID: "ctx-mixed-stream",
+			Role:      a2a.RoleUser,
+			Parts:     []a2a.Part{{Text: serverTextPtr("Hello")}},
+		},
+	})
+
+	var artifacts []a2a.TaskArtifactUpdateEvent
+	for _, evt := range events {
+		if evt.ArtifactUpdate != nil {
+			artifacts = append(artifacts, *evt.ArtifactUpdate)
+		}
+	}
+	if len(artifacts) != 3 {
+		t.Fatalf("expected 3 artifact events, got %d", len(artifacts))
+	}
+
+	// Check artifact IDs increment.
+	for i, art := range artifacts {
+		wantID := fmt.Sprintf("artifact-%d", i)
+		if art.Artifact.ArtifactID != wantID {
+			t.Errorf("artifact[%d] ID = %q, want %q", i, art.Artifact.ArtifactID, wantID)
+		}
+	}
+
+	// Check content types.
+	if artifacts[0].Artifact.Parts[0].Text == nil {
+		t.Error("artifact[0] should be text")
+	}
+	if artifacts[1].Artifact.Parts[0].MediaType != "image/jpeg" {
+		t.Errorf("artifact[1] mediaType = %q, want image/jpeg", artifacts[1].Artifact.Parts[0].MediaType)
+	}
+	if artifacts[2].Artifact.Parts[0].Text == nil {
+		t.Error("artifact[2] should be text")
+	}
+}
+
+func TestA2AServer_StreamMessage_NilMedia(t *testing.T) {
+	// ChunkMedia with Media: nil. Silently skipped, no artifact event emitted.
+	mock := &mockA2AStreamConv{
+		mockA2AConv: mockA2AConv{
+			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
+				return nil, errors.New("should not call Send")
+			},
+		},
+		streamFunc: func(_ context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
+			ch := make(chan StreamChunk, 3)
+			ch <- StreamChunk{Type: ChunkMedia, Media: nil} // nil media — should be skipped
+			ch <- StreamChunk{Type: ChunkText, Text: "after nil"}
+			ch <- StreamChunk{Type: ChunkDone}
+			close(ch)
+			return ch
+		},
+	}
+
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	defer ts.Close()
+
+	events := readA2ASSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+		Message: a2a.Message{
+			ContextID: "ctx-nil-media",
+			Role:      a2a.RoleUser,
+			Parts:     []a2a.Part{{Text: serverTextPtr("Hello")}},
+		},
+	})
+
+	// Only the text chunk should produce an artifact event.
+	var artifactCount int
+	for _, evt := range events {
+		if evt.ArtifactUpdate != nil {
+			artifactCount++
+		}
+	}
+	if artifactCount != 1 {
+		t.Errorf("got %d artifact events, want 1 (nil media should be skipped)", artifactCount)
+	}
+}
+
+func TestA2AServer_StreamMessage_MediaConversionError(t *testing.T) {
+	// ChunkMedia with media that has no Data and no URL. Silently skipped,
+	// subsequent chunks still work.
+	mock := &mockA2AStreamConv{
+		mockA2AConv: mockA2AConv{
+			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
+				return nil, errors.New("should not call Send")
+			},
+		},
+		streamFunc: func(_ context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
+			ch := make(chan StreamChunk, 4)
+			// Media with no Data or URL — ContentPartToA2APart will fail.
+			ch <- StreamChunk{
+				Type: ChunkMedia,
+				Media: &types.MediaContent{
+					MIMEType: "image/png",
+					// No Data, no URL — will error.
+				},
+			}
+			ch <- StreamChunk{Type: ChunkText, Text: "still works"}
+			ch <- StreamChunk{Type: ChunkDone}
+			close(ch)
+			return ch
+		},
+	}
+
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	defer ts.Close()
+
+	events := readA2ASSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+		Message: a2a.Message{
+			ContextID: "ctx-conv-err",
+			Role:      a2a.RoleUser,
+			Parts:     []a2a.Part{{Text: serverTextPtr("Hello")}},
+		},
+	})
+
+	// The text chunk should still produce an artifact event.
+	var artifactCount int
+	for _, evt := range events {
+		if evt.ArtifactUpdate != nil {
+			artifactCount++
+		}
+	}
+	if artifactCount != 1 {
+		t.Errorf("got %d artifact events, want 1 (conversion error should be skipped)", artifactCount)
+	}
+
+	// Stream should still complete.
+	last := events[len(events)-1]
+	if last.StatusUpdate == nil || last.StatusUpdate.Status.State != a2a.TaskStateCompleted {
+		t.Errorf("last event: expected completed, got %+v", last)
+	}
+}
+
+func TestA2AServer_StreamMessage_ArtifactIDs(t *testing.T) {
+	// 5 text chunks → artifact IDs are "artifact-0" through "artifact-4" in order.
+	mock := &mockA2AStreamConv{
+		mockA2AConv: mockA2AConv{
+			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
+				return nil, errors.New("should not call Send")
+			},
+		},
+		streamFunc: func(_ context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
+			ch := make(chan StreamChunk, 6)
+			for i := range 5 {
+				ch <- StreamChunk{Type: ChunkText, Text: fmt.Sprintf("chunk-%d", i)}
+			}
+			ch <- StreamChunk{Type: ChunkDone}
+			close(ch)
+			return ch
+		},
+	}
+
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	defer ts.Close()
+
+	events := readA2ASSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+		Message: a2a.Message{
+			ContextID: "ctx-artifact-ids",
+			Role:      a2a.RoleUser,
+			Parts:     []a2a.Part{{Text: serverTextPtr("Hello")}},
+		},
+	})
+
+	var artifactIDs []string
+	for _, evt := range events {
+		if evt.ArtifactUpdate != nil {
+			artifactIDs = append(artifactIDs, evt.ArtifactUpdate.Artifact.ArtifactID)
+		}
+	}
+
+	if len(artifactIDs) != 5 {
+		t.Fatalf("got %d artifact events, want 5", len(artifactIDs))
+	}
+	for i, id := range artifactIDs {
+		want := fmt.Sprintf("artifact-%d", i)
+		if id != want {
+			t.Errorf("artifact[%d] ID = %q, want %q", i, id, want)
+		}
+	}
+}
+
+func TestA2AServer_StreamMessage_TaskStoreAfterStream(t *testing.T) {
+	// After streaming completes, tasks/get returns task in completed state.
+	mock := &mockA2AStreamConv{
+		mockA2AConv: mockA2AConv{
+			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
+				return nil, errors.New("should not call Send")
+			},
+		},
+		streamFunc: func(_ context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
+			ch := make(chan StreamChunk, 2)
+			ch <- StreamChunk{Type: ChunkText, Text: "streamed result"}
+			ch <- StreamChunk{Type: ChunkDone}
+			close(ch)
+			return ch
+		},
+	}
+
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	defer ts.Close()
+
+	events := readA2ASSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+		Message: a2a.Message{
+			ContextID: "ctx-store-stream",
+			Role:      a2a.RoleUser,
+			Parts:     []a2a.Part{{Text: serverTextPtr("Hello")}},
+		},
+	})
+
+	// Find the task ID from the events.
+	var taskID string
+	for _, evt := range events {
+		if evt.StatusUpdate != nil {
+			taskID = evt.StatusUpdate.TaskID
+			break
+		}
+	}
+	if taskID == "" {
+		t.Fatal("no task ID found in stream events")
+	}
+
+	// Verify via tasks/get.
+	got := a2aRPCRequestTask(t, ts, a2a.MethodGetTask, a2a.GetTaskRequest{ID: taskID})
+	if got.Status.State != a2a.TaskStateCompleted {
+		t.Fatalf("state = %q, want completed", got.Status.State)
+	}
+	if got.ID != taskID {
+		t.Fatalf("task ID = %q, want %q", got.ID, taskID)
 	}
 }
