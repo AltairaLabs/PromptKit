@@ -6,6 +6,14 @@ import (
 	"io"
 )
 
+// StreamScanner is the interface for scanning streaming responses.
+// Both SSE (Server-Sent Events) and binary event-stream formats implement this.
+type StreamScanner interface {
+	Scan() bool
+	Data() string
+	Err() error
+}
+
 // SSEScanner scans Server-Sent Events (SSE) streams
 type SSEScanner struct {
 	scanner *bufio.Scanner

@@ -9,6 +9,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/alicebob/miniredis/v2 v2.36.1
 	github.com/aws/aws-sdk-go-v2 v1.41.1
+	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.4
 	github.com/aws/aws-sdk-go-v2/config v1.32.7
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.7
 	github.com/aws/aws-sdk-go-v2/service/sts v1.41.6
@@ -20,6 +21,7 @@ require (
 	github.com/xeipuuv/gojsonschema v1.2.0
 	golang.org/x/image v0.36.0
 	golang.org/x/oauth2 v0.35.0
+	golang.org/x/sys v0.40.0
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/apimachinery v0.35.1
 )
@@ -64,7 +66,6 @@ require (
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	golang.org/x/crypto v0.47.0 // indirect
 	golang.org/x/net v0.49.0 // indirect
-	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
