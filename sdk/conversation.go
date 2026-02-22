@@ -432,6 +432,7 @@ func (c *Conversation) buildResponse(result *rtpipeline.ExecutionResult, startTi
 		assistantMsg = &types.Message{
 			Role:     "assistant",
 			Content:  result.Response.Content,
+			Parts:    result.Response.Parts,
 			CostInfo: &result.CostInfo,
 		}
 	}
