@@ -19,7 +19,7 @@ import (
 )
 
 // defaultAWSRegion is the fallback region when none is specified.
-const defaultAWSRegion = "us-east-1"
+const defaultAWSRegion = "us-west-2"
 
 // BedrockModelMapping maps Claude model names to Bedrock model IDs.
 var BedrockModelMapping = map[string]string{
@@ -134,8 +134,10 @@ func signRequest(req *http.Request, creds *aws.Credentials, region, service stri
 		req.Header.Set("X-Amz-Security-Token", creds.SessionToken)
 	}
 
-	// Create canonical request
-	canonicalURI := req.URL.Path
+	// Create canonical request.
+	// URI-encode each path segment per SigV4 spec — characters like ':' in
+	// Bedrock model IDs (e.g. "v1:0") must be percent-encoded.
+	canonicalURI := uriEncodePath(req.URL.Path)
 	if canonicalURI == "" {
 		canonicalURI = "/"
 	}
@@ -179,6 +181,36 @@ func signRequest(req *http.Request, creds *aws.Credentials, region, service stri
 	req.Header.Set("Authorization", authHeader)
 
 	return nil
+}
+
+// uriEncodePath URI-encodes each segment of a path per the SigV4 spec.
+// Slashes are preserved; all other reserved characters are percent-encoded.
+func uriEncodePath(path string) string {
+	segments := strings.Split(path, "/")
+	for i, seg := range segments {
+		segments[i] = uriEncode(seg)
+	}
+	return strings.Join(segments, "/")
+}
+
+// uriEncode percent-encodes a URI component per RFC 3986.
+// Unreserved characters (A-Z a-z 0-9 - _ . ~) are not encoded.
+func uriEncode(s string) string {
+	var buf strings.Builder
+	for _, b := range []byte(s) {
+		if isUnreserved(b) {
+			buf.WriteByte(b)
+		} else {
+			fmt.Fprintf(&buf, "%%%02X", b)
+		}
+	}
+	return buf.String()
+}
+
+// isUnreserved returns true for RFC 3986 unreserved characters.
+func isUnreserved(c byte) bool {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+		(c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~'
 }
 
 // getSignedHeaders returns the list of headers to sign, sorted.

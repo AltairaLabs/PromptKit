@@ -7,8 +7,8 @@ replace github.com/AltairaLabs/PromptKit/runtime => ../../runtime
 replace github.com/AltairaLabs/PromptKit/pkg => ../../pkg
 
 require (
-	github.com/AltairaLabs/PromptKit/pkg v1.1.10
-	github.com/AltairaLabs/PromptKit/runtime v1.1.10
+	github.com/AltairaLabs/PromptKit/pkg v1.2.0
+	github.com/AltairaLabs/PromptKit/runtime v1.2.0
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/glamour v0.10.0
@@ -78,7 +78,7 @@ require (
 	github.com/yuin/goldmark v1.7.8 // indirect
 	github.com/yuin/goldmark-emoji v1.0.5 // indirect
 	golang.org/x/crypto v0.47.0 // indirect
-	golang.org/x/image v0.35.0 // indirect
+	golang.org/x/image v0.36.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20250910181357-589584f1c912 // indirect
 )
@@ -115,7 +115,7 @@ require (
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/net v0.49.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
-	golang.org/x/text v0.33.0 // indirect
+	golang.org/x/text v0.34.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/utils v0.0.0-20251002143259-bc988d571ff4 // indirect
