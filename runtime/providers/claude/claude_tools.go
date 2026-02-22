@@ -36,9 +36,10 @@ func NewToolProvider(id, model, baseURL string, defaults providers.ProviderDefau
 func NewToolProviderWithCredential(
 	id, model, baseURL string, defaults providers.ProviderDefaults,
 	includeRawOutput bool, cred providers.Credential,
+	platform string, platformConfig *providers.PlatformConfig,
 ) *ToolProvider {
 	return &ToolProvider{
-		Provider: NewProviderWithCredential(id, model, baseURL, defaults, includeRawOutput, cred),
+		Provider: NewProviderWithCredential(id, model, baseURL, defaults, includeRawOutput, cred, platform, platformConfig),
 	}
 }
 
@@ -397,22 +398,79 @@ func (p *ToolProvider) parseToolResponse(
 }
 
 func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]byte, error) {
-	url := p.baseURL + "/messages"
-	headers := providers.RequestHeaders{
-		contentTypeHeader:   applicationJSON,
-		apiKeyHeader:        p.apiKey,
-		anthropicVersionKey: anthropicVersionValue,
+	url := p.messagesURL()
+
+	// For Bedrock, inject anthropic_version into the request body and omit the header
+	if p.isBedrock() {
+		if reqMap, ok := request.(map[string]interface{}); ok {
+			reqMap[bedrockVersionBodyKey] = bedrockVersionValue
+			// Remove model from body — Bedrock uses the URL path for model selection
+			delete(reqMap, "model")
+		}
 	}
-	return p.MakeJSONRequest(ctx, url, request, headers, providerNameLog)
+
+	reqBytes, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	httpReq.Header.Set(contentTypeHeader, applicationJSON)
+	if p.isBedrock() {
+		// Bedrock uses SigV4 signing via applyAuth — no API key or version header
+		if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
+		}
+	} else {
+		httpReq.Header.Set(apiKeyHeader, p.apiKey)
+		httpReq.Header.Set(anthropicVersionKey, anthropicVersionValue)
+	}
+
+	resp, err := p.GetHTTPClient().Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if p.isBedrock() {
+			return nil, parseBedrockHTTPError(resp.StatusCode, respBody)
+		}
+		return nil, fmt.Errorf("API request to %s failed with status %d: %s",
+			url, resp.StatusCode, string(respBody))
+	}
+
+	// Check for Bedrock body errors (e.g. UnknownOperationException on HTTP 200)
+	if bodyErr := checkBedrockBodyError(respBody); bodyErr != nil {
+		return nil, bodyErr
+	}
+
+	return respBody, nil
 }
 
-// PredictStreamWithTools performs a streaming predict request with tool support
+// PredictStreamWithTools performs a streaming predict request with tool support.
+// On Bedrock, falls back to non-streaming PredictWithTools since Bedrock uses
+// binary event-stream encoding that requires AWS-specific parsing.
 func (p *ToolProvider) PredictStreamWithTools(
 	ctx context.Context,
 	req providers.PredictionRequest,
 	tools interface{},
 	toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
+	// Bedrock: fall back to non-streaming and synthesize a stream
+	if p.isBedrock() {
+		return p.bedrockStreamFallback(ctx, &req, tools, toolChoice)
+	}
+
 	// Build Claude request with tools
 	claudeReq := p.buildToolRequest(req, tools, toolChoice)
 
@@ -424,7 +482,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := p.baseURL + "/messages"
+	url := p.messagesURL()
 
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(requestBytes))
 	if err != nil {
@@ -444,11 +502,42 @@ func (p *ToolProvider) PredictStreamWithTools(
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
+		if p.isBedrock() {
+			return nil, parseBedrockHTTPError(resp.StatusCode, body)
+		}
 		return nil, fmt.Errorf("API request to %s failed with status %d: %s", url, resp.StatusCode, string(body))
 	}
 
 	outChan := make(chan providers.StreamChunk)
 	go p.streamResponse(ctx, resp.Body, outChan)
+
+	return outChan, nil
+}
+
+// bedrockStreamFallback uses non-streaming PredictWithTools and wraps the result as a stream.
+func (p *ToolProvider) bedrockStreamFallback(
+	ctx context.Context,
+	req *providers.PredictionRequest,
+	tools interface{},
+	toolChoice string,
+) (<-chan providers.StreamChunk, error) {
+	resp, toolCalls, err := p.PredictWithTools(ctx, *req, tools, toolChoice)
+	if err != nil {
+		return nil, err
+	}
+
+	outChan := make(chan providers.StreamChunk, 1)
+	finishReason := finishReasonStop
+	outChan <- providers.StreamChunk{
+		Content:      resp.Content,
+		Delta:        resp.Content,
+		TokenCount:   1,
+		DeltaTokens:  1,
+		ToolCalls:    toolCalls,
+		CostInfo:     resp.CostInfo,
+		FinishReason: &finishReason,
+	}
+	close(outChan)
 
 	return outChan, nil
 }
@@ -460,6 +549,7 @@ func init() {
 			return NewToolProviderWithCredential(
 				spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
 				spec.IncludeRawOutput, spec.Credential,
+				spec.Platform, spec.PlatformConfig,
 			), nil
 		}
 		// Fall back to env-var-based constructor

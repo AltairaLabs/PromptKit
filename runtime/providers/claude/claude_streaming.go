@@ -18,7 +18,9 @@ const (
 	finishReasonStop = "stop"
 )
 
-// PredictStream performs a streaming prediction request to Claude
+// PredictStream performs a streaming prediction request to Claude.
+// On Bedrock, falls back to non-streaming Predict since Bedrock uses
+// binary event-stream encoding that requires AWS-specific parsing.
 //
 //nolint:gocritic // hugeParam: interface signature requires value receiver
 func (p *Provider) PredictStream(
@@ -29,6 +31,11 @@ func (p *Provider) PredictStream(
 		Provider: p.ID(),
 		Model:    p.model,
 	})
+
+	// Bedrock: fall back to non-streaming and synthesize a stream
+	if p.isBedrock() {
+		return p.bedrockPredictStreamFallback(ctx, &req)
+	}
 
 	// Convert messages to Claude format (handles both text and multimodal)
 	messages := p.convertMessagesToClaudeFormat(req.Messages)
@@ -70,7 +77,8 @@ func (p *Provider) PredictStream(
 	}
 
 	// Make HTTP request
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+"/messages", bytes.NewReader(reqBody))
+	url := p.messagesURL()
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -90,13 +98,37 @@ func (p *Provider) PredictStream(
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 
-	if err := providers.CheckHTTPError(resp, p.baseURL+"/messages"); err != nil {
+	if err := providers.CheckHTTPError(resp, url); err != nil {
 		return nil, err
 	}
 
 	outChan := make(chan providers.StreamChunk)
 
 	go p.streamResponse(ctx, resp.Body, outChan)
+
+	return outChan, nil
+}
+
+// bedrockPredictStreamFallback uses non-streaming Predict and wraps the result as a stream.
+func (p *Provider) bedrockPredictStreamFallback(
+	ctx context.Context, req *providers.PredictionRequest,
+) (<-chan providers.StreamChunk, error) {
+	resp, err := p.Predict(ctx, *req)
+	if err != nil {
+		return nil, err
+	}
+
+	outChan := make(chan providers.StreamChunk, 1)
+	finishReason := finishReasonStop
+	outChan <- providers.StreamChunk{
+		Content:      resp.Content,
+		Delta:        resp.Content,
+		TokenCount:   1,
+		DeltaTokens:  1,
+		CostInfo:     resp.CostInfo,
+		FinishReason: &finishReason,
+	}
+	close(outChan)
 
 	return outChan, nil
 }

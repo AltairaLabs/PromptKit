@@ -2,7 +2,9 @@ package claude
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -52,7 +54,7 @@ func TestNewProviderWithCredential(t *testing.T) {
 
 	t.Run("with credential", func(t *testing.T) {
 		cred := &mockCredential{credType: "api_key"}
-		provider := NewProviderWithCredential("test-claude", "claude-3-5-sonnet", "https://api.anthropic.com", defaults, false, cred)
+		provider := NewProviderWithCredential("test-claude", "claude-3-5-sonnet", "https://api.anthropic.com", defaults, false, cred, "", nil)
 
 		if provider == nil {
 			t.Fatal("Expected non-nil provider")
@@ -77,7 +79,7 @@ func TestNewProviderWithCredential(t *testing.T) {
 	})
 
 	t.Run("with nil credential", func(t *testing.T) {
-		provider := NewProviderWithCredential("test-claude", "claude-3-5-sonnet", "https://api.anthropic.com", defaults, false, nil)
+		provider := NewProviderWithCredential("test-claude", "claude-3-5-sonnet", "https://api.anthropic.com", defaults, false, nil, "", nil)
 
 		if provider == nil {
 			t.Fatal("Expected non-nil provider")
@@ -437,4 +439,253 @@ func TestClaudeContent_DifferentTypes(t *testing.T) {
 	if textContent.Text != "Some text" {
 		t.Error("Text mismatch")
 	}
+}
+
+// ============================================================================
+// Bedrock-specific Tests
+// ============================================================================
+
+func TestIsBedrock(t *testing.T) {
+	tests := []struct {
+		name     string
+		platform string
+		expected bool
+	}{
+		{"bedrock platform", "bedrock", true},
+		{"empty platform", "", false},
+		{"direct platform", "direct", false},
+		{"other platform", "vertex", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			provider := &Provider{platform: tt.platform}
+			if got := provider.isBedrock(); got != tt.expected {
+				t.Errorf("isBedrock() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestMessagesURL_Direct(t *testing.T) {
+	provider := NewProvider("test", "claude-3-5-sonnet-20241022", "https://api.anthropic.com", providers.ProviderDefaults{}, false)
+	url := provider.messagesURL()
+	expected := "https://api.anthropic.com/v1/messages"
+	if url != expected {
+		t.Errorf("messagesURL() = %q, want %q", url, expected)
+	}
+}
+
+func TestMessagesURL_Bedrock(t *testing.T) {
+	provider := &Provider{
+		model:    "anthropic.claude-3-5-haiku-20241022-v1:0",
+		baseURL:  "https://bedrock-runtime.us-east-1.amazonaws.com",
+		platform: "bedrock",
+	}
+	url := provider.messagesURL()
+	expected := "https://bedrock-runtime.us-east-1.amazonaws.com/model/anthropic.claude-3-5-haiku-20241022-v1:0/invoke"
+	if url != expected {
+		t.Errorf("messagesURL() = %q, want %q", url, expected)
+	}
+}
+
+func TestMarshalBedrockRequest(t *testing.T) {
+	provider := &Provider{platform: "bedrock"}
+
+	t.Run("basic request", func(t *testing.T) {
+		req := claudeRequest{
+			Model:     "should-be-ignored",
+			MaxTokens: 1024,
+			Messages: []claudeMessage{
+				{Role: "user", Content: []claudeContentBlock{{Type: "text", Text: "hello"}}},
+			},
+		}
+
+		data, err := provider.marshalBedrockRequest(&req)
+		if err != nil {
+			t.Fatalf("marshalBedrockRequest failed: %v", err)
+		}
+
+		var m map[string]interface{}
+		if err := json.Unmarshal(data, &m); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+
+		// Must have anthropic_version
+		if m["anthropic_version"] != "bedrock-2023-05-31" {
+			t.Errorf("anthropic_version = %v, want 'bedrock-2023-05-31'", m["anthropic_version"])
+		}
+
+		// Must NOT have model field
+		if _, hasModel := m["model"]; hasModel {
+			t.Error("Bedrock request should not contain 'model' field")
+		}
+
+		// Must have max_tokens
+		if m["max_tokens"] != float64(1024) {
+			t.Errorf("max_tokens = %v, want 1024", m["max_tokens"])
+		}
+	})
+
+	t.Run("with optional fields", func(t *testing.T) {
+		req := claudeRequest{
+			MaxTokens:   512,
+			Messages:    []claudeMessage{},
+			System:      []claudeContentBlock{{Type: "text", Text: "system prompt"}},
+			Temperature: 0.7,
+			TopP:        0.9,
+		}
+
+		data, err := provider.marshalBedrockRequest(&req)
+		if err != nil {
+			t.Fatalf("marshalBedrockRequest failed: %v", err)
+		}
+
+		var m map[string]interface{}
+		if err := json.Unmarshal(data, &m); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+
+		if _, hasSystem := m["system"]; !hasSystem {
+			t.Error("expected 'system' field when system prompt is set")
+		}
+		if _, hasTemp := m["temperature"]; !hasTemp {
+			t.Error("expected 'temperature' field when temperature is set")
+		}
+		if _, hasTopP := m["top_p"]; !hasTopP {
+			t.Error("expected 'top_p' field when top_p is set")
+		}
+	})
+
+	t.Run("zero optional fields omitted", func(t *testing.T) {
+		req := claudeRequest{
+			MaxTokens: 256,
+			Messages:  []claudeMessage{},
+		}
+
+		data, err := provider.marshalBedrockRequest(&req)
+		if err != nil {
+			t.Fatalf("marshalBedrockRequest failed: %v", err)
+		}
+
+		var m map[string]interface{}
+		if err := json.Unmarshal(data, &m); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+
+		if _, hasSystem := m["system"]; hasSystem {
+			t.Error("should not contain 'system' when empty")
+		}
+		if _, hasTemp := m["temperature"]; hasTemp {
+			t.Error("should not contain 'temperature' when zero")
+		}
+		if _, hasTopP := m["top_p"]; hasTopP {
+			t.Error("should not contain 'top_p' when zero")
+		}
+	})
+}
+
+func TestCheckBedrockBodyError_NoError(t *testing.T) {
+	body := []byte(`{"id":"msg_123","type":"message","content":[{"type":"text","text":"Hello"}]}`)
+	err := checkBedrockBodyError(body)
+	if err != nil {
+		t.Errorf("expected nil error for normal response, got: %v", err)
+	}
+}
+
+func TestCheckBedrockBodyError_Exception(t *testing.T) {
+	body := []byte(`{"__type":"UnknownOperationException","Message":"Unknown operation: InvokeModel"}`)
+	err := checkBedrockBodyError(body)
+	if err == nil {
+		t.Fatal("expected error for exception response, got nil")
+	}
+	if !strings.Contains(err.Error(), "UnknownOperationException") {
+		t.Errorf("error should mention exception type, got: %v", err)
+	}
+}
+
+func TestCheckBedrockBodyError_NonExceptionJSON(t *testing.T) {
+	// JSON that doesn't contain "Exception" keyword — should not parse
+	body := []byte(`{"type":"message","content":[{"type":"text","text":"ok"}]}`)
+	err := checkBedrockBodyError(body)
+	if err != nil {
+		t.Errorf("expected nil for normal JSON without Exception, got: %v", err)
+	}
+}
+
+func TestParseBedrockHTTPError_StructuredMessage(t *testing.T) {
+	body := []byte(`{"message":"Invocation of model ID anthropic.claude-3-5-haiku-20241022-v1:0 with on-demand throughput isn't supported."}`)
+	err := parseBedrockHTTPError(400, body)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "bedrock error") {
+		t.Errorf("error should be prefixed with 'bedrock error', got: %s", errMsg)
+	}
+	if !strings.Contains(errMsg, "on-demand throughput") {
+		t.Errorf("error should contain the original message, got: %s", errMsg)
+	}
+	if !strings.Contains(errMsg, "400") {
+		t.Errorf("error should contain HTTP status code, got: %s", errMsg)
+	}
+}
+
+func TestParseBedrockHTTPError_RawFallback(t *testing.T) {
+	body := []byte(`not json`)
+	err := parseBedrockHTTPError(500, body)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "not json") {
+		t.Errorf("should fall back to raw body, got: %s", err.Error())
+	}
+}
+
+func TestApplyAuth_WithCredential(t *testing.T) {
+	applied := false
+	cred := &applyTrackingCredential{onApply: func() { applied = true }}
+	provider := &Provider{credential: cred}
+
+	req, _ := http.NewRequest("POST", "https://example.com", nil)
+	err := provider.applyAuth(context.Background(), req)
+	if err != nil {
+		t.Fatalf("applyAuth failed: %v", err)
+	}
+	if !applied {
+		t.Error("expected credential.Apply() to be called")
+	}
+}
+
+func TestApplyAuth_FallbackAPIKey(t *testing.T) {
+	provider := &Provider{apiKey: "sk-test-key"}
+
+	req, _ := http.NewRequest("POST", "https://example.com", nil)
+	err := provider.applyAuth(context.Background(), req)
+	if err != nil {
+		t.Fatalf("applyAuth failed: %v", err)
+	}
+	if got := req.Header.Get("X-API-Key"); got != "sk-test-key" {
+		t.Errorf("X-API-Key = %q, want 'sk-test-key'", got)
+	}
+}
+
+func TestNormalizeBaseURL_Bedrock(t *testing.T) {
+	// Bedrock URLs should NOT be normalized (no /v1 appended)
+	bedrockURL := "https://bedrock-runtime.us-east-1.amazonaws.com"
+	result := normalizeBaseURL(bedrockURL)
+	if result != bedrockURL {
+		t.Errorf("normalizeBaseURL(%q) = %q, want unchanged URL", bedrockURL, result)
+	}
+}
+
+// applyTrackingCredential tracks whether Apply was called
+type applyTrackingCredential struct {
+	onApply func()
+}
+
+func (c *applyTrackingCredential) Type() string { return "tracking" }
+func (c *applyTrackingCredential) Apply(_ context.Context, _ *http.Request) error {
+	c.onApply()
+	return nil
 }

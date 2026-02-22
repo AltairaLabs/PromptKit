@@ -46,7 +46,7 @@ func TestNewToolProviderWithCredential(t *testing.T) {
 
 	t.Run("with credential", func(t *testing.T) {
 		cred := &mockCredential{credType: "api_key"}
-		provider := NewToolProviderWithCredential("test-claude", "claude-3-opus", "https://api.anthropic.com", defaults, false, cred)
+		provider := NewToolProviderWithCredential("test-claude", "claude-3-opus", "https://api.anthropic.com", defaults, false, cred, "", nil)
 
 		if provider == nil {
 			t.Fatal("Expected non-nil provider")
@@ -62,7 +62,7 @@ func TestNewToolProviderWithCredential(t *testing.T) {
 	})
 
 	t.Run("with nil credential", func(t *testing.T) {
-		provider := NewToolProviderWithCredential("test-claude", "claude-3-opus", "https://api.anthropic.com", defaults, false, nil)
+		provider := NewToolProviderWithCredential("test-claude", "claude-3-opus", "https://api.anthropic.com", defaults, false, nil, "", nil)
 
 		if provider == nil {
 			t.Fatal("Expected non-nil provider")
@@ -946,5 +946,58 @@ func TestClaudeToolProvider_PredictStreamWithTools_HTTPError(t *testing.T) {
 
 	if err == nil {
 		t.Fatal("Expected error for HTTP 500")
+	}
+}
+
+// ============================================================================
+// Bedrock Body Mutation Tests
+// ============================================================================
+
+func TestToolProvider_MakeRequest_BedrockBodyMutation(t *testing.T) {
+	// Create a server that captures the request body
+	var capturedBody map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &capturedBody)
+		// Return a valid Claude response
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+			"id":"msg_123","type":"message","role":"assistant",
+			"content":[{"type":"text","text":"ok"}],
+			"model":"test","stop_reason":"end_turn",
+			"usage":{"input_tokens":10,"output_tokens":5}
+		}`))
+	}))
+	defer server.Close()
+
+	// Create a Bedrock tool provider (no real AWS cred needed since we use a local server)
+	provider := NewToolProviderWithCredential(
+		"test", "anthropic.claude-3-5-haiku-20241022-v1:0", server.URL,
+		providers.ProviderDefaults{MaxTokens: 100}, false,
+		nil, "bedrock", nil,
+	)
+
+	// Build a request map (simulating buildToolRequest output)
+	request := map[string]interface{}{
+		"model":       "anthropic.claude-3-5-haiku-20241022-v1:0",
+		"max_tokens":  100,
+		"messages":    []interface{}{},
+		"temperature": float32(0.7),
+	}
+
+	ctx := context.Background()
+	_, err := provider.makeRequest(ctx, request)
+	if err != nil {
+		t.Fatalf("makeRequest failed: %v", err)
+	}
+
+	// Verify Bedrock mutations were applied
+	if capturedBody["anthropic_version"] != "bedrock-2023-05-31" {
+		t.Errorf("expected anthropic_version in body, got: %v", capturedBody["anthropic_version"])
+	}
+
+	if _, hasModel := capturedBody["model"]; hasModel {
+		t.Error("model field should be removed from Bedrock request body")
 	}
 }

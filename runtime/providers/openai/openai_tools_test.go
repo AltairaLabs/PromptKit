@@ -45,7 +45,7 @@ func TestNewToolProviderWithCredential(t *testing.T) {
 
 	t.Run("with credential", func(t *testing.T) {
 		cred := &mockCredential{credType: "api_key"}
-		provider := NewToolProviderWithCredential("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false, nil, cred)
+		provider := NewToolProviderWithCredential("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false, nil, cred, "", nil)
 
 		if provider == nil {
 			t.Fatal("Expected non-nil provider")
@@ -61,7 +61,7 @@ func TestNewToolProviderWithCredential(t *testing.T) {
 	})
 
 	t.Run("with nil credential", func(t *testing.T) {
-		provider := NewToolProviderWithCredential("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false, nil, nil)
+		provider := NewToolProviderWithCredential("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false, nil, nil, "", nil)
 
 		if provider == nil {
 			t.Fatal("Expected non-nil provider")
@@ -70,7 +70,7 @@ func TestNewToolProviderWithCredential(t *testing.T) {
 
 	t.Run("with additional config", func(t *testing.T) {
 		additionalConfig := map[string]any{"key": "value"}
-		provider := NewToolProviderWithCredential("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false, additionalConfig, nil)
+		provider := NewToolProviderWithCredential("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false, additionalConfig, nil, "", nil)
 
 		if provider == nil {
 			t.Fatal("Expected non-nil provider")

@@ -55,7 +55,7 @@ func TestNewProviderWithCredential(t *testing.T) {
 
 	t.Run("with credential", func(t *testing.T) {
 		cred := &mockCredential{credType: "api_key"}
-		provider := NewProviderWithCredential("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false, cred)
+		provider := NewProviderWithCredential("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false, cred, "", nil)
 
 		if provider == nil {
 			t.Fatal("Expected non-nil provider")
@@ -79,7 +79,7 @@ func TestNewProviderWithCredential(t *testing.T) {
 	})
 
 	t.Run("with nil credential", func(t *testing.T) {
-		provider := NewProviderWithCredential("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false, nil)
+		provider := NewProviderWithCredential("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false, nil, "", nil)
 
 		if provider == nil {
 			t.Fatal("Expected non-nil provider")
@@ -1184,5 +1184,41 @@ func TestConvertResponseFormat(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestOpenAI_PlatformFieldsStored(t *testing.T) {
+	defaults := providers.ProviderDefaults{Temperature: 0.7}
+	pc := &providers.PlatformConfig{Region: "us-east-1"}
+	cred := &mockCredential{credType: "api_key"}
+
+	provider := NewProviderWithCredential("test", "gpt-4", "https://example.com", defaults, false, cred, "bedrock", pc)
+
+	if provider.platform != "bedrock" {
+		t.Errorf("Expected platform 'bedrock', got %q", provider.platform)
+	}
+	if provider.platformConfig == nil {
+		t.Fatal("Expected platformConfig to be set")
+	}
+	if provider.platformConfig.Region != "us-east-1" {
+		t.Errorf("Expected region 'us-east-1', got %q", provider.platformConfig.Region)
+	}
+}
+
+func TestOpenAI_PlatformField(t *testing.T) {
+	tests := []struct {
+		platform string
+		isBr     bool
+	}{
+		{"bedrock", true},
+		{"azure", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		p := &Provider{platform: tt.platform}
+		got := p.platform == "bedrock"
+		if got != tt.isBr {
+			t.Errorf("platform=%q == bedrock: got %v, want %v", tt.platform, got, tt.isBr)
+		}
 	}
 }

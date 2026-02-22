@@ -42,14 +42,23 @@ func normalizeBaseURL(baseURL string) string {
 	return baseURL
 }
 
+// Bedrock constants
+const (
+	bedrockPlatform       = "bedrock"
+	bedrockVersionValue   = "bedrock-2023-05-31"
+	bedrockVersionBodyKey = "anthropic_version"
+)
+
 // Provider implements the Provider interface for Anthropic Claude
 type Provider struct {
 	providers.BaseProvider
-	model      string
-	baseURL    string
-	apiKey     string
-	credential providers.Credential
-	defaults   providers.ProviderDefaults
+	model          string
+	baseURL        string
+	apiKey         string
+	credential     providers.Credential
+	defaults       providers.ProviderDefaults
+	platform       string
+	platformConfig *providers.PlatformConfig
 }
 
 // NewProvider creates a new Claude provider
@@ -69,6 +78,7 @@ func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults,
 func NewProviderWithCredential(
 	id, model, baseURL string, defaults providers.ProviderDefaults,
 	includeRawOutput bool, cred providers.Credential,
+	platform string, platformConfig *providers.PlatformConfig,
 ) *Provider {
 	client := &http.Client{Timeout: httpClientTimeout}
 	base := providers.NewBaseProvider(id, includeRawOutput, client)
@@ -82,18 +92,56 @@ func NewProviderWithCredential(
 	}
 
 	return &Provider{
-		BaseProvider: base,
-		model:        model,
-		baseURL:      normalizeBaseURL(baseURL),
-		apiKey:       apiKey,
-		credential:   cred,
-		defaults:     defaults,
+		BaseProvider:   base,
+		model:          model,
+		baseURL:        normalizeBaseURL(baseURL),
+		apiKey:         apiKey,
+		credential:     cred,
+		defaults:       defaults,
+		platform:       platform,
+		platformConfig: platformConfig,
 	}
 }
 
 // Model returns the model name/identifier used by this provider.
 func (p *Provider) Model() string {
 	return p.model
+}
+
+// isBedrock returns true if this provider is hosted on AWS Bedrock.
+func (p *Provider) isBedrock() bool {
+	return p.platform == bedrockPlatform
+}
+
+// messagesURL returns the appropriate API endpoint URL.
+// For Bedrock: {baseURL}/model/{model}/invoke
+// For direct Anthropic API: {baseURL}/messages
+func (p *Provider) messagesURL() string {
+	if p.isBedrock() {
+		return p.baseURL + "/model/" + p.model + "/invoke"
+	}
+	return p.baseURL + "/messages"
+}
+
+// marshalBedrockRequest converts a claudeRequest to JSON with Bedrock-specific fields.
+// Bedrock expects anthropic_version in the body and does not use the model field in the body
+// (the model is specified in the URL path).
+func (p *Provider) marshalBedrockRequest(claudeReq *claudeRequest) ([]byte, error) {
+	m := map[string]interface{}{
+		bedrockVersionBodyKey: bedrockVersionValue,
+		"max_tokens":          claudeReq.MaxTokens,
+		"messages":            claudeReq.Messages,
+	}
+	if len(claudeReq.System) > 0 {
+		m["system"] = claudeReq.System
+	}
+	if claudeReq.Temperature != 0 {
+		m["temperature"] = claudeReq.Temperature
+	}
+	if claudeReq.TopP != 0 {
+		m["top_p"] = claudeReq.TopP
+	}
+	return json.Marshal(m)
 }
 
 // applyAuth applies authentication to an HTTP request.
@@ -272,16 +320,24 @@ func (p *Provider) applyDefaults(temperature, topP float32, maxTokens int) (fina
 
 // makeClaudeHTTPRequest sends the HTTP request to Claude API
 func (p *Provider) makeClaudeHTTPRequest(ctx context.Context, claudeReq claudeRequest, predictResp providers.PredictionResponse, start time.Time) ([]byte, providers.PredictionResponse, error) {
-	reqBody, err := json.Marshal(claudeReq)
+	// For Bedrock, marshal via a map so we can inject anthropic_version into the body
+	var reqBody []byte
+	var err error
+	if p.isBedrock() {
+		reqBody, err = p.marshalBedrockRequest(&claudeReq)
+	} else {
+		reqBody, err = json.Marshal(claudeReq)
+	}
 	if err != nil {
 		return nil, predictResp, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := p.baseURL + "/messages"
+	url := p.messagesURL()
 	logger.Debug("Claude API request",
 		"base_url", p.baseURL,
 		"full_url", url,
 		"model", p.model,
+		"platform", p.platform,
 		"has_api_key", p.apiKey != "")
 
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
@@ -291,7 +347,10 @@ func (p *Provider) makeClaudeHTTPRequest(ctx context.Context, claudeReq claudeRe
 	}
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	httpReq.Header.Set(anthropicVersionKey, anthropicVersionValue)
+	// Bedrock uses anthropic_version in the body, not as a header
+	if !p.isBedrock() {
+		httpReq.Header.Set(anthropicVersionKey, anthropicVersionValue)
+	}
 
 	// Apply authentication
 	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
@@ -328,11 +387,50 @@ func (p *Provider) makeClaudeHTTPRequest(ctx context.Context, claudeReq claudeRe
 			"response", string(respBody))
 		predictResp.Latency = time.Since(start)
 		predictResp.Raw = respBody
+		if p.isBedrock() {
+			return nil, predictResp, parseBedrockHTTPError(resp.StatusCode, respBody)
+		}
 		return nil, predictResp, fmt.Errorf("API request to %s failed with status %d: %s",
 			url, resp.StatusCode, string(respBody))
 	}
 
+	// Bedrock can return HTTP 200 with an error in the body (e.g. UnknownOperationException)
+	if err := checkBedrockBodyError(respBody); err != nil {
+		logger.Error("Bedrock body error on HTTP 200", "url", url, "error", err)
+		predictResp.Latency = time.Since(start)
+		predictResp.Raw = respBody
+		return nil, predictResp, err
+	}
+
 	return respBody, predictResp, nil
+}
+
+// checkBedrockBodyError detects Bedrock errors returned with HTTP 200 status.
+// Bedrock sometimes returns 200 with an error payload (e.g. UnknownOperationException).
+func checkBedrockBodyError(body []byte) error {
+	// Quick check: if body doesn't look like it might contain an exception, skip parsing
+	if !strings.Contains(string(body), "Exception") {
+		return nil
+	}
+	var errResp struct {
+		Message string `json:"Message"`
+		Type    string `json:"__type"`
+	}
+	if err := json.Unmarshal(body, &errResp); err != nil {
+		return nil // Not a Bedrock error format
+	}
+	if errResp.Type != "" {
+		return fmt.Errorf("bedrock error (%s): %s", errResp.Type, errResp.Message)
+	}
+	return nil
+}
+
+// parseBedrockHTTPError extracts a human-readable message from Bedrock HTTP error responses.
+// Bedrock returns JSON like {"message":"..."} on HTTP 4xx/5xx. This extracts the message
+// and returns a clear error prefixed with "bedrock:" to distinguish from direct API errors.
+// Falls back to raw body if parsing fails.
+func parseBedrockHTTPError(statusCode int, body []byte) error {
+	return providers.ParsePlatformHTTPError("bedrock", statusCode, body)
 }
 
 // parseAndValidateClaudeResponse parses and validates the Claude API response

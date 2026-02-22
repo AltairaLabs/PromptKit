@@ -277,6 +277,9 @@ func (p *Provider) predictWithContents(ctx context.Context, contents []geminiCon
 	if resp.StatusCode != http.StatusOK {
 		predictResp.Latency = time.Since(start)
 		predictResp.Raw = respBody
+		if p.platform != "" {
+			return predictResp, providers.ParsePlatformHTTPError(p.platform, resp.StatusCode, respBody)
+		}
 		return predictResp, fmt.Errorf("API request to %s failed with status %d: %s",
 			logger.RedactSensitiveData(url), resp.StatusCode, string(respBody))
 	}
@@ -392,6 +395,9 @@ func (p *Provider) predictStreamWithContents(ctx context.Context, contents []gem
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		body, _ := io.ReadAll(resp.Body)
+		if p.platform != "" {
+			return nil, providers.ParsePlatformHTTPError(p.platform, resp.StatusCode, body)
+		}
 		return nil, fmt.Errorf("API request to %s failed with status %d: %s",
 			logger.RedactSensitiveData(url), resp.StatusCode, string(body))
 	}

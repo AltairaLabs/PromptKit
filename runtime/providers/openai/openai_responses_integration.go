@@ -452,6 +452,9 @@ func (p *Provider) predictWithResponses(
 	if resp.StatusCode != http.StatusOK {
 		predictResp.Latency = time.Since(start)
 		predictResp.Raw = respBody
+		if p.platform != "" {
+			return predictResp, nil, providers.ParsePlatformHTTPError(p.platform, resp.StatusCode, respBody)
+		}
 		return predictResp, nil, fmt.Errorf("API request to %s failed with status %d: %s",
 			url, resp.StatusCode, string(respBody))
 	}

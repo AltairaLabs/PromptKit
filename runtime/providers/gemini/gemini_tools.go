@@ -38,9 +38,10 @@ func NewToolProvider(id, model, baseURL string, defaults providers.ProviderDefau
 func NewToolProviderWithCredential(
 	id, model, baseURL string, defaults providers.ProviderDefaults,
 	includeRawOutput bool, cred providers.Credential,
+	platform string, platformConfig *providers.PlatformConfig,
 ) *ToolProvider {
 	return &ToolProvider{
-		Provider: NewProviderWithCredential(id, model, baseURL, defaults, includeRawOutput, cred),
+		Provider: NewProviderWithCredential(id, model, baseURL, defaults, includeRawOutput, cred, platform, platformConfig),
 	}
 }
 
@@ -518,6 +519,9 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request any) ([]byte, er
 	logger.APIResponse(providerNameLog, resp.StatusCode, string(respBytes), nil)
 
 	if resp.StatusCode != http.StatusOK {
+		if p.platform != "" {
+			return nil, providers.ParsePlatformHTTPError(p.platform, resp.StatusCode, respBytes)
+		}
 		return nil, fmt.Errorf("API request to %s failed with status %d: %s",
 			logger.RedactSensitiveData(url), resp.StatusCode, string(respBytes))
 	}
@@ -561,6 +565,9 @@ func (p *ToolProvider) PredictStreamWithTools(
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
+		if p.platform != "" {
+			return nil, providers.ParsePlatformHTTPError(p.platform, resp.StatusCode, body)
+		}
 		return nil, fmt.Errorf("API request to %s failed with status %d: %s",
 			logger.RedactSensitiveData(url), resp.StatusCode, string(body))
 	}
@@ -600,6 +607,7 @@ func init() {
 			return NewToolProviderWithCredential(
 				spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
 				spec.IncludeRawOutput, spec.Credential,
+				spec.Platform, spec.PlatformConfig,
 			), nil
 		}
 		// Fall back to env-var-based constructor
