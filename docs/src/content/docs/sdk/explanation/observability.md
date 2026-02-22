@@ -327,6 +327,8 @@ Event handlers are called asynchronously in a separate goroutine (see `EventBus.
 ## See Also
 
 - [How-To: Monitor Events](../how-to/monitor-events)
+- [How-To: Export Traces with OTLP](/runtime/how-to/export-traces-otlp) — send session traces to OpenTelemetry backends
+- [Telemetry Reference](/runtime/reference/telemetry) — OTLP exporter API, span attributes, and semantic conventions
 - [Arena Eval Framework](/arena/explanation/eval-framework/)
 - [Session Recording](/arena/explanation/session-recording/)
 - [Tutorial 6: Observability](../tutorials/06-media-storage)

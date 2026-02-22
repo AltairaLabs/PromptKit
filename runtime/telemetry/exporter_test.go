@@ -763,3 +763,318 @@ func TestNewEventConverter_WithResource(t *testing.T) {
 		t.Error("expected custom resource")
 	}
 }
+
+// providerCallPair returns a provider started/completed event pair for use in tests.
+func providerCallPair(t0 time.Time, finishReason string) (events.Event, events.Event) {
+	return events.Event{
+			Type: events.EventProviderCallStarted, Timestamp: t0,
+			SessionID: "session-1", RunID: "run-1",
+			Data: &events.ProviderCallStartedData{Provider: "openai", Model: "gpt-4"},
+		}, events.Event{
+			Type: events.EventProviderCallCompleted, Timestamp: t0.Add(500 * time.Millisecond),
+			SessionID: "session-1", RunID: "run-1",
+			Data: &events.ProviderCallCompletedData{
+				Provider: "openai", Model: "gpt-4",
+				Duration: 500 * time.Millisecond, FinishReason: finishReason,
+			},
+		}
+}
+
+// pipelineEventPair returns a pipeline started/completed event pair for use in tests.
+func pipelineEventPair(t0 time.Time) (events.Event, events.Event) {
+	return events.Event{
+			Type: events.EventPipelineStarted, Timestamp: t0,
+			SessionID: "session-1", RunID: "run-1",
+			Data: &events.PipelineStartedData{MiddlewareCount: 0},
+		}, events.Event{
+			Type: events.EventPipelineCompleted, Timestamp: t0.Add(time.Second),
+			SessionID: "session-1", RunID: "run-1",
+			Data: &events.PipelineCompletedData{Duration: time.Second},
+		}
+}
+
+// requireSpan finds a span by name in the slice or fails the test.
+func requireSpan(t *testing.T, spans []*Span, name string) *Span {
+	t.Helper()
+	for _, s := range spans {
+		if s.Name == name {
+			return s
+		}
+	}
+	t.Fatalf("expected span %q not found", name)
+	return nil
+}
+
+// convertSession is a test helper that calls ConvertSession and fails on error.
+func convertSession(t *testing.T, sessionEvents []events.Event) []*Span {
+	t.Helper()
+	spans, err := NewEventConverter(nil).ConvertSession("session-1", sessionEvents)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	return spans
+}
+
+func TestEventConverter_MessageCreated(t *testing.T) {
+	startTime := time.Now()
+	provStart, provEnd := providerCallPair(startTime, "stop")
+
+	sessionEvents := []events.Event{
+		provStart,
+		{
+			Type: events.EventMessageCreated, Timestamp: startTime.Add(100 * time.Millisecond),
+			SessionID: "session-1", RunID: "run-1",
+			Data: &events.MessageCreatedData{Role: "user", Content: "Hello, world!"},
+		},
+		{
+			Type: events.EventMessageCreated, Timestamp: startTime.Add(200 * time.Millisecond),
+			SessionID: "session-1", RunID: "run-1",
+			Data: &events.MessageCreatedData{Role: "assistant", Content: "Hi there!"},
+		},
+		provEnd,
+	}
+
+	spans := convertSession(t, sessionEvents)
+	providerSpan := requireSpan(t, spans, "provider.openai")
+
+	if len(providerSpan.Events) != 2 {
+		t.Fatalf("expected 2 span events on provider span, got %d", len(providerSpan.Events))
+	}
+	if providerSpan.Events[0].Name != "gen_ai.user.message" {
+		t.Errorf("expected gen_ai.user.message, got %q", providerSpan.Events[0].Name)
+	}
+	if providerSpan.Events[0].Attributes["gen_ai.message.content"] != "Hello, world!" {
+		t.Error("expected message content attribute on user message")
+	}
+	if providerSpan.Events[1].Name != "gen_ai.assistant.message" {
+		t.Errorf("expected gen_ai.assistant.message, got %q", providerSpan.Events[1].Name)
+	}
+	if providerSpan.Events[1].Attributes["gen_ai.message.content"] != "Hi there!" {
+		t.Error("expected message content attribute on assistant message")
+	}
+}
+
+func TestEventConverter_MessageCreatedWithToolCalls(t *testing.T) {
+	startTime := time.Now()
+	provStart, provEnd := providerCallPair(startTime, "tool_calls")
+
+	sessionEvents := []events.Event{
+		provStart,
+		{
+			Type: events.EventMessageCreated, Timestamp: startTime.Add(100 * time.Millisecond),
+			SessionID: "session-1", RunID: "run-1",
+			Data: &events.MessageCreatedData{
+				Role: "assistant", Content: "",
+				ToolCalls: []events.MessageToolCall{
+					{ID: "call-1", Name: "search", Args: `{"query":"test"}`},
+				},
+			},
+		},
+		provEnd,
+	}
+
+	spans := convertSession(t, sessionEvents)
+	providerSpan := requireSpan(t, spans, "provider.openai")
+
+	if len(providerSpan.Events) != 1 {
+		t.Fatalf("expected 1 span event, got %d", len(providerSpan.Events))
+	}
+
+	evt := providerSpan.Events[0]
+	if evt.Name != "gen_ai.assistant.message" {
+		t.Errorf("expected gen_ai.assistant.message, got %q", evt.Name)
+	}
+	toolCallsAttr, ok := evt.Attributes["gen_ai.tool_calls"].(string)
+	if !ok || toolCallsAttr == "" {
+		t.Fatal("expected non-empty gen_ai.tool_calls attribute")
+	}
+}
+
+func TestEventConverter_MessageCreatedNoProvider(t *testing.T) {
+	startTime := time.Now()
+
+	sessionEvents := []events.Event{
+		{
+			Type: events.EventMessageCreated, Timestamp: startTime,
+			SessionID: "session-1", RunID: "run-1",
+			Data: &events.MessageCreatedData{Role: "user", Content: "Hello without provider"},
+		},
+	}
+
+	spans := convertSession(t, sessionEvents)
+	root := spans[0]
+	if root.Name != "session" {
+		t.Fatal("expected root span")
+	}
+	if len(root.Events) != 1 {
+		t.Fatalf("expected 1 event on root span, got %d", len(root.Events))
+	}
+	if root.Events[0].Name != "gen_ai.user.message" {
+		t.Errorf("expected gen_ai.user.message, got %q", root.Events[0].Name)
+	}
+}
+
+// toolCallPair returns a tool started/completed event pair for use in tests.
+func toolCallPair(t0 time.Time, name, callID string, args map[string]interface{}) (events.Event, events.Event) {
+	return events.Event{
+			Type: events.EventToolCallStarted, Timestamp: t0,
+			SessionID: "session-1", RunID: "run-1",
+			Data: &events.ToolCallStartedData{ToolName: name, CallID: callID, Args: args},
+		}, events.Event{
+			Type: events.EventToolCallCompleted, Timestamp: t0.Add(100 * time.Millisecond),
+			SessionID: "session-1", RunID: "run-1",
+			Data: &events.ToolCallCompletedData{
+				ToolName: name, CallID: callID,
+				Duration: 100 * time.Millisecond, Status: "success",
+			},
+		}
+}
+
+func TestEventConverter_ToolArgsEnriched(t *testing.T) {
+	startTime := time.Now()
+	start, end := toolCallPair(startTime, "search", "call-args-1",
+		map[string]interface{}{"query": "test", "limit": float64(10)})
+
+	spans := convertSession(t, []events.Event{start, end})
+	toolSpan := requireSpan(t, spans, "tool.search")
+
+	argsAttr, ok := toolSpan.Attributes["tool.args"].(string)
+	if !ok {
+		t.Fatal("expected tool.args attribute as string")
+	}
+	var args map[string]interface{}
+	if err := json.Unmarshal([]byte(argsAttr), &args); err != nil {
+		t.Fatalf("expected valid JSON in tool.args, got error: %v", err)
+	}
+	if args["query"] != "test" {
+		t.Errorf("expected query=test, got %v", args["query"])
+	}
+}
+
+func TestEventConverter_ToolArgsNil(t *testing.T) {
+	startTime := time.Now()
+	start, end := toolCallPair(startTime, "noop", "call-nil-args", nil)
+
+	spans := convertSession(t, []events.Event{start, end})
+	toolSpan := requireSpan(t, spans, "tool.noop")
+
+	if _, exists := toolSpan.Attributes["tool.args"]; exists {
+		t.Error("expected no tool.args attribute when Args is nil")
+	}
+}
+
+func TestEventConverter_WorkflowTransitioned(t *testing.T) {
+	startTime := time.Now()
+	sessionEvents := []events.Event{
+		{
+			Type: events.EventWorkflowTransitioned, Timestamp: startTime,
+			SessionID: "session-1", RunID: "run-1",
+			Data: &events.WorkflowTransitionedData{
+				FromState: "greeting", ToState: "issue_triage",
+				Event: "issue_reported", PromptTask: "triage the issue",
+			},
+		},
+	}
+
+	spans := convertSession(t, sessionEvents)
+	wfSpan := requireSpan(t, spans, "workflow.transition")
+
+	if wfSpan.Kind != SpanKindInternal {
+		t.Errorf("expected SpanKindInternal, got %d", wfSpan.Kind)
+	}
+	if wfSpan.Attributes["workflow.from_state"] != "greeting" {
+		t.Errorf("expected from_state=greeting, got %v", wfSpan.Attributes["workflow.from_state"])
+	}
+	if wfSpan.Attributes["workflow.to_state"] != "issue_triage" {
+		t.Errorf("expected to_state=issue_triage, got %v", wfSpan.Attributes["workflow.to_state"])
+	}
+	if wfSpan.Attributes["workflow.event"] != "issue_reported" {
+		t.Errorf("expected event=issue_reported, got %v", wfSpan.Attributes["workflow.event"])
+	}
+	if wfSpan.Attributes["workflow.prompt_task"] != "triage the issue" {
+		t.Errorf("expected prompt_task, got %v", wfSpan.Attributes["workflow.prompt_task"])
+	}
+	if !wfSpan.StartTime.Equal(wfSpan.EndTime) {
+		t.Error("expected instant span (start == end)")
+	}
+}
+
+func TestEventConverter_WorkflowCompleted(t *testing.T) {
+	startTime := time.Now()
+	sessionEvents := []events.Event{
+		{
+			Type: events.EventWorkflowCompleted, Timestamp: startTime,
+			SessionID: "session-1", RunID: "run-1",
+			Data: &events.WorkflowCompletedData{FinalState: "resolved", TransitionCount: 5},
+		},
+	}
+
+	spans := convertSession(t, sessionEvents)
+	wfSpan := requireSpan(t, spans, "workflow.completed")
+
+	if wfSpan.Attributes["workflow.final_state"] != "resolved" {
+		t.Errorf("expected final_state=resolved, got %v", wfSpan.Attributes["workflow.final_state"])
+	}
+	if wfSpan.Attributes["workflow.transition_count"] != 5 {
+		t.Errorf("expected transition_count=5, got %v", wfSpan.Attributes["workflow.transition_count"])
+	}
+	if wfSpan.Status == nil || wfSpan.Status.Code != StatusCodeOk {
+		t.Error("expected Ok status")
+	}
+}
+
+func TestEventConverter_ConvertSessionWithParent(t *testing.T) {
+	converter := NewEventConverter(nil)
+	startTime := time.Now()
+	pipStart, pipEnd := pipelineEventPair(startTime)
+	sessionEvents := []events.Event{pipStart, pipEnd}
+
+	t.Run("valid traceparent", func(t *testing.T) {
+		traceCtx := &TraceContext{
+			Traceparent: "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+		}
+		spans, err := converter.ConvertSessionWithParent("session-1", sessionEvents, traceCtx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		root := spans[0]
+		if root.TraceID != "0af7651916cd43dd8448eb211c80319c" {
+			t.Errorf("expected parent trace ID, got %q", root.TraceID)
+		}
+		if root.ParentSpanID != "b7ad6b7169203331" {
+			t.Errorf("expected parent span ID, got %q", root.ParentSpanID)
+		}
+	})
+
+	t.Run("nil trace context", func(t *testing.T) {
+		spans, err := converter.ConvertSessionWithParent("session-1", sessionEvents, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if spans[0].ParentSpanID != "" {
+			t.Errorf("expected no parent span ID, got %q", spans[0].ParentSpanID)
+		}
+	})
+
+	t.Run("invalid traceparent", func(t *testing.T) {
+		traceCtx := &TraceContext{Traceparent: "invalid-traceparent"}
+		spans, err := converter.ConvertSessionWithParent("session-1", sessionEvents, traceCtx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if spans[0].ParentSpanID != "" {
+			t.Errorf("expected no parent span ID for invalid traceparent, got %q", spans[0].ParentSpanID)
+		}
+	})
+}
+
+func TestResourceWithPackID(t *testing.T) {
+	resource := ResourceWithPackID("my-pack-v1")
+
+	if resource.Attributes["pack.id"] != "my-pack-v1" {
+		t.Errorf("expected pack.id=my-pack-v1, got %v", resource.Attributes["pack.id"])
+	}
+	if resource.Attributes["service.name"] != "promptkit" {
+		t.Error("expected default service.name to be preserved")
+	}
+}

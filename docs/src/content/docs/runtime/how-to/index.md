@@ -35,6 +35,7 @@ These guides show you how to accomplish specific tasks with the PromptKit Runtim
 
 ### Observability
 - [Prometheus Metrics](prometheus-metrics) - Monitor with Prometheus and Grafana
+- [Export Traces with OTLP](export-traces-otlp) - Send distributed traces to OpenTelemetry backends
 - [Monitor Costs](monitor-costs) - Cost tracking and optimization
 
 ### A2A (Agent-to-Agent)
@@ -55,6 +56,7 @@ These guides show you how to accomplish specific tasks with the PromptKit Runtim
 | Add MCP tools | [Integrate MCP](integrate-mcp) | 10 min |
 | Track costs | [Monitor Costs](monitor-costs) | 5 min |
 | Monitor with Prometheus | [Prometheus Metrics](prometheus-metrics) | 10 min |
+| Export OTLP traces | [Export Traces with OTLP](export-traces-otlp) | 10 min |
 | Handle errors | [Handle Errors](handle-errors) | 10 min |
 | Stream responses | [Streaming Responses](streaming-responses) | 10 min |
 | Persist conversations | [Manage State](manage-state) | 15 min |
