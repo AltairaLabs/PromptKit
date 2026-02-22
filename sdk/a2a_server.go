@@ -273,6 +273,12 @@ func (s *A2AServer) runConversation(parent context.Context, taskID string, conv 
 		artifacts, convErr := a2a.ContentPartsToArtifacts(resp.Parts())
 		if convErr == nil && len(artifacts) > 0 {
 			_ = s.taskStore.AddArtifacts(taskID, artifacts)
+		} else if text := resp.Text(); text != "" {
+			// Fallback: if Parts() is empty (see GH-428), use Text() content.
+			_ = s.taskStore.AddArtifacts(taskID, []a2a.Artifact{{
+				ArtifactID: "artifact-1",
+				Parts:      []a2a.Part{{Text: &text}},
+			}})
 		}
 		_ = s.taskStore.SetState(taskID, a2a.TaskStateCompleted, nil)
 	}()

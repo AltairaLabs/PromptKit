@@ -1107,6 +1107,34 @@ func TestA2AServer_SendMessage_MessageMetadata(t *testing.T) {
 	}
 }
 
+func TestA2AServer_SendMessage_EmptyPartsTextFallback(t *testing.T) {
+	// Mock returns Response with nil Parts but non-empty Text().
+	// Verifies the GH-428 fallback path creates a text artifact.
+	mock := &mockA2AConv{
+		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
+			msg := &types.Message{Role: "assistant"}
+			msg.Content = "fallback text"
+			return &Response{message: msg}, nil
+		},
+	}
+
+	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	defer ts.Close()
+
+	task := a2aSendMessage(t, ts, "ctx-fallback", "Hello")
+
+	if task.Status.State != a2a.TaskStateCompleted {
+		t.Fatalf("state = %q, want completed", task.Status.State)
+	}
+	if len(task.Artifacts) == 0 {
+		t.Fatal("expected fallback text artifact")
+	}
+	p := task.Artifacts[0].Parts[0]
+	if p.Text == nil || *p.Text != "fallback text" {
+		t.Errorf("fallback text = %v, want 'fallback text'", p.Text)
+	}
+}
+
 func TestA2AServer_GetTask_ReturnsArtifacts(t *testing.T) {
 	// Send blocking message with multimodal response, then tasks/get.
 	// Verify artifacts survive the task store round-trip.
