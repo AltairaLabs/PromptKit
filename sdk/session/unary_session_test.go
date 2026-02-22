@@ -213,6 +213,43 @@ func TestUnarySession_Clear(t *testing.T) {
 	})
 }
 
+func TestConvertExecutionResult(t *testing.T) {
+	t.Run("copies Parts from stage response", func(t *testing.T) {
+		parts := []types.ContentPart{
+			types.NewTextPart("Hello"),
+			types.NewTextPart("World"),
+		}
+		stageResult := &stage.ExecutionResult{
+			Response: &stage.Response{
+				Role:    "assistant",
+				Content: "Hello World",
+				Parts:   parts,
+				ToolCalls: []types.MessageToolCall{
+					{ID: "call1", Name: "test_tool"},
+				},
+			},
+		}
+
+		result := convertExecutionResult(stageResult)
+		require.NotNil(t, result.Response)
+		assert.Equal(t, "assistant", result.Response.Role)
+		assert.Equal(t, "Hello World", result.Response.Content)
+		assert.Len(t, result.Response.Parts, 2)
+		assert.Equal(t, "text", result.Response.Parts[0].Type)
+		assert.Equal(t, "text", result.Response.Parts[1].Type)
+		assert.Len(t, result.Response.ToolCalls, 1)
+	})
+
+	t.Run("nil response", func(t *testing.T) {
+		stageResult := &stage.ExecutionResult{
+			Response: nil,
+		}
+
+		result := convertExecutionResult(stageResult)
+		assert.Nil(t, result.Response)
+	})
+}
+
 // Helper function to create a test pipeline
 func createTestPipeline(t *testing.T) *stage.StreamPipeline {
 	t.Helper()

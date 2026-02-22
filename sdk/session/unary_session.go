@@ -266,6 +266,7 @@ func convertExecutionResult(result *stage.ExecutionResult) *pipeline.ExecutionRe
 		pipelineResult.Response = &pipeline.Response{
 			Role:      result.Response.Role,
 			Content:   result.Response.Content,
+			Parts:     result.Response.Parts,
 			ToolCalls: result.Response.ToolCalls,
 		}
 	}

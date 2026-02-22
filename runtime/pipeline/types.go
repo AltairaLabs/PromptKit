@@ -127,6 +127,7 @@ func (e *ValidationError) Error() string {
 type Response struct {
 	Role      string                  `json:"role"`
 	Content   string                  `json:"content"`
+	Parts     []types.ContentPart     `json:"parts,omitempty"`
 	ToolCalls []types.MessageToolCall `json:"tool_calls,omitempty"`
 }
 

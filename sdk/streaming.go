@@ -318,6 +318,7 @@ func (c *Conversation) buildStreamingResponse(
 		resp.message = &types.Message{
 			Role:     "assistant",
 			Content:  result.Response.Content,
+			Parts:    result.Response.Parts,
 			CostInfo: &result.CostInfo,
 		}
 

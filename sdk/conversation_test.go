@@ -1598,6 +1598,27 @@ func TestBuildResponse(t *testing.T) {
 		assert.True(t, resp.validations[0].Passed)
 	})
 
+	t.Run("WithParts", func(t *testing.T) {
+		parts := []types.ContentPart{
+			types.NewTextPart("Hello"),
+			types.NewTextPart("World"),
+		}
+		result := &rtpipeline.ExecutionResult{
+			Response: &rtpipeline.Response{
+				Role:    "assistant",
+				Content: "Hello",
+				Parts:   parts,
+			},
+		}
+
+		resp := conv.buildResponse(result, time.Now())
+		assert.NotNil(t, resp)
+		assert.NotNil(t, resp.message)
+		assert.Len(t, resp.message.Parts, 2)
+		assert.Equal(t, "text", resp.message.Parts[0].Type)
+		assert.Equal(t, "text", resp.message.Parts[1].Type)
+	})
+
 	t.Run("NilResponse", func(t *testing.T) {
 		result := &rtpipeline.ExecutionResult{
 			Response: nil,
