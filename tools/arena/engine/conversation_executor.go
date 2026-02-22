@@ -613,25 +613,53 @@ func (ce *DefaultConversationExecutor) buildResultFromStateStore(req Conversatio
 	}
 }
 
+// mergeAssertionConfigs merges pack-level and source-level assertion configs into a single slice.
+// Returns AssertionConfig values (useful when the caller needs the raw config type).
+func mergeAssertionConfigs(cfg *config.Config, sourceAssertions []asrt.AssertionConfig) []asrt.AssertionConfig {
+	var merged []asrt.AssertionConfig
+	if cfg != nil {
+		merged = append(merged, cfg.PackAssertions...)
+	}
+	merged = append(merged, sourceAssertions...)
+	return merged
+}
+
+// collectConversationAssertions merges pack-level and source-level (scenario or eval) assertions
+// into a single slice of ConversationAssertion. Pack assertions come first, followed by source assertions.
+func collectConversationAssertions(
+	cfg *config.Config, sourceAssertions []asrt.AssertionConfig,
+) []asrt.ConversationAssertion {
+	var assertions []asrt.ConversationAssertion
+	if cfg != nil {
+		for _, a := range cfg.PackAssertions {
+			assertions = append(assertions, asrt.ConversationAssertion(a))
+		}
+	}
+	for _, a := range sourceAssertions {
+		assertions = append(assertions, asrt.ConversationAssertion(a))
+	}
+	return assertions
+}
+
 // evaluateConversationAssertions evaluates scenario-level conversation assertions after all turns complete
 func (ce *DefaultConversationExecutor) evaluateConversationAssertions(
 	req *ConversationRequest,
 	messages []types.Message,
 ) []asrt.ConversationValidationResult {
-	// Collect conversation assertions from scenario (evaluated after conversation completes)
-	var assertions []asrt.ConversationAssertion
+	// Collect conversation assertions from pack + scenario (evaluated after conversation completes)
+	var scenarioAssertions []asrt.AssertionConfig
 	if req.Scenario != nil {
-		logger.Debug("Evaluating conversation assertions",
-			"scenario", req.Scenario.ID,
-			"assertion_count", len(req.Scenario.ConversationAssertions))
-		for i := range req.Scenario.ConversationAssertions {
-			a := req.Scenario.ConversationAssertions[i]
-			logger.Debug("Adding conversation assertion",
-				"type", a.Type,
-				"params", a.Params)
-			assertions = append(assertions, asrt.ConversationAssertion(a))
-		}
+		scenarioAssertions = req.Scenario.ConversationAssertions
 	}
+	assertions := collectConversationAssertions(req.Config, scenarioAssertions)
+
+	scenarioID := ""
+	if req.Scenario != nil {
+		scenarioID = req.Scenario.ID
+	}
+	logger.Debug("Evaluating conversation assertions",
+		"scenario_id", scenarioID,
+		"assertion_count", len(assertions))
 
 	if len(assertions) == 0 {
 		logger.Debug("No conversation assertions to evaluate")

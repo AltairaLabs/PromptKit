@@ -263,6 +263,12 @@
           },
           "type": "array"
         },
+        "pack_assertions": {
+          "items": {
+            "$ref": "#/$defs/AssertionConfig"
+          },
+          "type": "array"
+        },
         "workflow": true,
         "agents": true,
         "deploy": {

@@ -53,10 +53,11 @@ func (e *Engine) executeWorkflowRun(
 	drv := getDriver()
 	messages, assertionResults := workflowResultToMessages(result, drv)
 
-	// Evaluate conversation-level assertions (e.g. skill_activated, skill_not_activated)
-	if len(scenario.ConversationAssertions) > 0 {
+	// Evaluate conversation-level assertions (pack + scenario)
+	mergedAssertions := collectConversationAssertions(e.config, scenario.ConversationAssertions)
+	if len(mergedAssertions) > 0 {
 		convAssertionResults := evaluateWorkflowConversationAssertions(
-			ctx, scenario.ConversationAssertions, messages,
+			ctx, mergedAssertions, messages,
 		)
 		assertionResults = append(assertionResults, convAssertionResults...)
 	}
@@ -159,15 +160,10 @@ func configToWorkflowScenario(s *config.Scenario) *wf.Scenario {
 // (e.g. skill_activated, skill_not_activated) against the full message trace.
 func evaluateWorkflowConversationAssertions(
 	ctx context.Context,
-	configs []asrt.AssertionConfig,
+	assertions []asrt.ConversationAssertion,
 	messages []types.Message,
 ) []asrt.ConversationValidationResult {
 	convCtx := asrt.BuildConversationContextFromMessages(messages, &asrt.ConversationMetadata{})
-
-	var assertions []asrt.ConversationAssertion
-	for _, c := range configs {
-		assertions = append(assertions, asrt.ConversationAssertion(c))
-	}
 
 	reg := asrt.NewConversationAssertionRegistry()
 	return reg.ValidateConversations(ctx, assertions, convCtx)

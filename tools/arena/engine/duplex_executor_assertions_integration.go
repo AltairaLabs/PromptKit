@@ -186,25 +186,23 @@ func (de *DuplexConversationExecutor) countFailedAssertions(results []arenaasser
 	return count
 }
 
-// evaluateConversationAssertions evaluates scenario-level conversation assertions.
+// evaluateConversationAssertions evaluates pack + scenario conversation assertions.
 func (de *DuplexConversationExecutor) evaluateConversationAssertions(
 	req *ConversationRequest,
 	messages []types.Message,
 ) []arenaassertions.ConversationValidationResult {
-	if req.Scenario == nil || len(req.Scenario.ConversationAssertions) == 0 {
+	var scenarioAssertions []arenaassertions.AssertionConfig
+	if req.Scenario != nil {
+		scenarioAssertions = req.Scenario.ConversationAssertions
+	}
+	assertions := collectConversationAssertions(req.Config, scenarioAssertions)
+
+	if len(assertions) == 0 {
 		return nil
 	}
 
 	logger.Debug("Evaluating duplex conversation assertions",
-		"scenario", req.Scenario.ID,
-		"assertion_count", len(req.Scenario.ConversationAssertions))
-
-	// Convert scenario assertions to assertion format
-	var assertions []arenaassertions.ConversationAssertion
-	for i := range req.Scenario.ConversationAssertions {
-		a := req.Scenario.ConversationAssertions[i]
-		assertions = append(assertions, arenaassertions.ConversationAssertion(a))
-	}
+		"assertion_count", len(assertions))
 
 	// Build conversation context from messages
 	convCtx := de.buildConversationContext(req, messages)
