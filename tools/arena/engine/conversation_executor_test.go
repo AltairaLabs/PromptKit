@@ -778,6 +778,138 @@ func TestExecuteConversation_ValidationFailurePreservesMessages(t *testing.T) {
 	}
 }
 
+func TestCollectConversationAssertions_PackAndScenario(t *testing.T) {
+	cfg := &config.Config{
+		PackAssertions: []arenaassertions.AssertionConfig{
+			{Type: "content_not_includes", Params: map[string]interface{}{"patterns": []string{"pack-forbidden"}}},
+		},
+	}
+	scenarioAssertions := []arenaassertions.AssertionConfig{
+		{Type: "content_not_includes", Params: map[string]interface{}{"patterns": []string{"scenario-forbidden"}}},
+	}
+
+	result := collectConversationAssertions(cfg, scenarioAssertions)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 merged assertions, got %d", len(result))
+	}
+	// Pack assertions come first
+	if result[0].Type != "content_not_includes" {
+		t.Fatalf("expected first assertion to be from pack")
+	}
+}
+
+func TestCollectConversationAssertions_PackOnly(t *testing.T) {
+	cfg := &config.Config{
+		PackAssertions: []arenaassertions.AssertionConfig{
+			{Type: "content_not_includes", Params: map[string]interface{}{"patterns": []string{"forbidden"}}},
+		},
+	}
+
+	result := collectConversationAssertions(cfg, nil)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 assertion from pack, got %d", len(result))
+	}
+}
+
+func TestCollectConversationAssertions_NilConfig(t *testing.T) {
+	scenarioAssertions := []arenaassertions.AssertionConfig{
+		{Type: "content_not_includes", Params: map[string]interface{}{"patterns": []string{"forbidden"}}},
+	}
+
+	result := collectConversationAssertions(nil, scenarioAssertions)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 assertion from scenario, got %d", len(result))
+	}
+}
+
+func TestCollectConversationAssertions_Empty(t *testing.T) {
+	result := collectConversationAssertions(&config.Config{}, nil)
+	if len(result) != 0 {
+		t.Fatalf("expected 0 assertions, got %d", len(result))
+	}
+}
+
+func TestMergeAssertionConfigs_PackAndSource(t *testing.T) {
+	cfg := &config.Config{
+		PackAssertions: []arenaassertions.AssertionConfig{
+			{Type: "cost_limit"},
+		},
+	}
+	source := []arenaassertions.AssertionConfig{
+		{Type: "content_not_includes"},
+	}
+
+	result := mergeAssertionConfigs(cfg, source)
+	if len(result) != 2 {
+		t.Fatalf("expected 2, got %d", len(result))
+	}
+	if result[0].Type != "cost_limit" {
+		t.Fatalf("expected pack assertion first")
+	}
+	if result[1].Type != "content_not_includes" {
+		t.Fatalf("expected source assertion second")
+	}
+}
+
+func TestEvaluateConversationAssertions_PackAssertionsEvaluated(t *testing.T) {
+	ce := &DefaultConversationExecutor{}
+	cfg := &config.Config{
+		PackAssertions: []arenaassertions.AssertionConfig{
+			{Type: "content_not_includes", Params: map[string]interface{}{"patterns": []string{"forbidden"}}},
+		},
+	}
+	req := ConversationRequest{
+		Scenario: &config.Scenario{ID: "sc"},
+		Config:   cfg,
+	}
+
+	msgs := []types.Message{
+		{Role: "user", Content: "hi"},
+		{Role: "assistant", Content: "this has forbidden phrase"},
+	}
+
+	res := ce.evaluateConversationAssertions(&req, msgs)
+	if len(res) != 1 {
+		t.Fatalf("expected 1 result from pack assertion, got %d", len(res))
+	}
+	if res[0].Passed {
+		t.Fatalf("expected pack assertion to fail due to forbidden content")
+	}
+}
+
+func TestEvaluateConversationAssertions_PackAndScenarioBothProduceResults(t *testing.T) {
+	ce := &DefaultConversationExecutor{}
+	cfg := &config.Config{
+		PackAssertions: []arenaassertions.AssertionConfig{
+			{Type: "content_not_includes", Params: map[string]interface{}{"patterns": []string{"pack-bad"}}},
+		},
+	}
+	req := ConversationRequest{
+		Scenario: &config.Scenario{
+			ID: "sc",
+			ConversationAssertions: []arenaassertions.AssertionConfig{
+				{Type: "content_not_includes", Params: map[string]interface{}{"patterns": []string{"scenario-bad"}}},
+			},
+		},
+		Config: cfg,
+	}
+
+	msgs := []types.Message{
+		{Role: "user", Content: "hi"},
+		{Role: "assistant", Content: "this has pack-bad and scenario-bad words"},
+	}
+
+	res := ce.evaluateConversationAssertions(&req, msgs)
+	if len(res) != 2 {
+		t.Fatalf("expected 2 results (pack + scenario), got %d", len(res))
+	}
+	for i, r := range res {
+		if r.Passed {
+			t.Fatalf("expected assertion %d to fail", i)
+		}
+	}
+}
+
 func TestExecuteConversation_ValidationFailureMultipleTurns(t *testing.T) {
 	// Create a StateStore to capture messages
 	store := createTestStateStore()

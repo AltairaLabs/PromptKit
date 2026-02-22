@@ -54,7 +54,8 @@ type Config struct {
 	Scenarios     []ScenarioRef     `yaml:"scenarios,omitempty" json:"scenarios,omitempty"`
 	Evals         []EvalRef         `yaml:"evals,omitempty" json:"evals,omitempty"`
 	Tools         []ToolRef         `yaml:"tools,omitempty" json:"tools,omitempty"`
-	PackEvals     []evals.EvalDef   `yaml:"pack_evals,omitempty" json:"pack_evals,omitempty"`
+	PackEvals      []evals.EvalDef        `yaml:"pack_evals,omitempty" json:"pack_evals,omitempty"`
+	PackAssertions []asrt.AssertionConfig `yaml:"pack_assertions,omitempty" json:"pack_assertions,omitempty"`
 	Workflow      interface{}       `yaml:"workflow,omitempty" json:"workflow,omitempty"`
 	Agents        interface{}       `yaml:"agents,omitempty" json:"agents,omitempty"`
 	Deploy        *DeployConfig     `yaml:"deploy,omitempty" json:"deploy,omitempty"`

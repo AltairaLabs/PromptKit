@@ -68,7 +68,8 @@ func (e *EvalConversationExecutor) ExecuteConversation(
 
 	convCtx := e.buildConversationContext(&req, messages, metadata)
 	e.applyAllTurnAssertions(req.Eval.Turns, messages, convCtx)
-	convResults := e.evaluateConversationAssertions(ctx, req.Eval.ConversationAssertions, convCtx)
+	mergedEvalAssertions := mergeAssertionConfigs(req.Config, req.Eval.ConversationAssertions)
+	convResults := e.evaluateConversationAssertions(ctx, mergedEvalAssertions, convCtx)
 
 	// Run pack eval session-level evals if configured
 	if e.packEvalHook != nil && e.packEvalHook.HasEvals() {
