@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -163,30 +162,7 @@ func evaluateWorkflowConversationAssertions(
 	configs []asrt.AssertionConfig,
 	messages []types.Message,
 ) []asrt.ConversationValidationResult {
-	// Extract tool calls from all assistant messages
-	var toolCalls []asrt.ToolCallRecord
-	for idx := range messages {
-		msg := messages[idx]
-		if len(msg.ToolCalls) == 0 {
-			continue
-		}
-		for _, tc := range msg.ToolCalls {
-			var args map[string]interface{}
-			if len(tc.Args) > 0 {
-				_ = json.Unmarshal(tc.Args, &args)
-			}
-			toolCalls = append(toolCalls, asrt.ToolCallRecord{
-				TurnIndex: idx,
-				ToolName:  tc.Name,
-				Arguments: args,
-			})
-		}
-	}
-
-	convCtx := &asrt.ConversationContext{
-		AllTurns:  messages,
-		ToolCalls: toolCalls,
-	}
+	convCtx := asrt.BuildConversationContextFromMessages(messages, &asrt.ConversationMetadata{})
 
 	var assertions []asrt.ConversationAssertion
 	for _, c := range configs {

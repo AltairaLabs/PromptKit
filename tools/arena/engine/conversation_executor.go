@@ -4,7 +4,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -654,52 +653,18 @@ func (ce *DefaultConversationExecutor) evaluateConversationAssertions(
 	return results
 }
 
-// buildConversationContext constructs a conversation context from messages and request metadata
+// buildConversationContext constructs a conversation context from messages and request metadata.
 func buildConversationContext(
 	req *ConversationRequest,
 	messages []types.Message,
 	promptRegistry *prompt.Registry,
 ) *asrt.ConversationContext {
-	// Extract tool calls across all assistant messages
-	var toolCalls []asrt.ToolCallRecord
-	for idx := range messages {
-		msg := messages[idx]
-		if len(msg.ToolCalls) == 0 {
-			continue
-		}
-		for _, tc := range msg.ToolCalls {
-			var args map[string]interface{}
-			if len(tc.Args) > 0 {
-				_ = json.Unmarshal(tc.Args, &args)
-			}
-			toolCalls = append(toolCalls, asrt.ToolCallRecord{
-				TurnIndex: idx,
-				ToolName:  tc.Name,
-				Arguments: args,
-				Result:    nil,
-				Error:     "",
-				Duration:  0,
-			})
-		}
-	}
-
-	meta := asrt.ConversationMetadata{
+	meta := &asrt.ConversationMetadata{
 		ScenarioID:     req.Scenario.ID,
-		PersonaID:      "",
-		Variables:      nil,
 		PromptConfigID: req.Scenario.TaskType,
-		ProviderID:     "",
-		TotalCost:      0,
-		TotalTokens:    0,
-		Extras:         nil,
+		Extras:         buildMetadataExtras(req, promptRegistry),
 	}
-	meta.Extras = buildMetadataExtras(req, promptRegistry)
-
-	return &asrt.ConversationContext{
-		AllTurns:  messages,
-		ToolCalls: toolCalls,
-		Metadata:  meta,
-	}
+	return asrt.BuildConversationContextFromMessages(messages, meta)
 }
 
 func buildMetadataExtras(req *ConversationRequest, promptRegistry *prompt.Registry) map[string]interface{} {

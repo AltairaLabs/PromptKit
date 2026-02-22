@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
@@ -226,40 +225,13 @@ func (de *DuplexConversationExecutor) buildConversationContext(
 	req *ConversationRequest,
 	messages []types.Message,
 ) *arenaassertions.ConversationContext {
-	// Extract tool calls across all assistant messages
-	var toolCalls []arenaassertions.ToolCallRecord
-	for idx := range messages {
-		msg := messages[idx]
-		if len(msg.ToolCalls) == 0 {
-			continue
-		}
-		for _, tc := range msg.ToolCalls {
-			var args map[string]interface{}
-			if len(tc.Args) > 0 {
-				// Parse JSON args into map (ignore errors for assertion purposes)
-				_ = json.Unmarshal(tc.Args, &args)
-			}
-			toolCalls = append(toolCalls, arenaassertions.ToolCallRecord{
-				TurnIndex: idx,
-				ToolName:  tc.Name,
-				Arguments: args,
-			})
-		}
-	}
-
-	// Build metadata
 	providerID := ""
 	if req.Provider != nil {
 		providerID = req.Provider.ID()
 	}
-	meta := arenaassertions.ConversationMetadata{
+	meta := &arenaassertions.ConversationMetadata{
 		ScenarioID: req.Scenario.ID,
 		ProviderID: providerID,
 	}
-
-	return &arenaassertions.ConversationContext{
-		AllTurns:  messages,
-		ToolCalls: toolCalls,
-		Metadata:  meta,
-	}
+	return arenaassertions.BuildConversationContextFromMessages(messages, meta)
 }
