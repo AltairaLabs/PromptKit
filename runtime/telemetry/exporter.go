@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
@@ -102,6 +103,13 @@ func DefaultResource() *Resource {
 	}
 }
 
+// ResourceWithPackID returns a default resource with the pack.id attribute set.
+func ResourceWithPackID(packID string) *Resource {
+	r := DefaultResource()
+	r.Attributes["pack.id"] = packID
+	return r
+}
+
 // EventConverter converts runtime events to OTLP spans.
 type EventConverter struct {
 	// Resource is the resource to attach to spans.
@@ -124,49 +132,8 @@ func (c *EventConverter) ConvertSession(
 	if len(sessionEvents) == 0 {
 		return nil, nil
 	}
-
-	// Generate trace ID from session ID
 	traceID := generateTraceID(sessionID)
-	rootSpanID := generateSpanID(sessionID + ":root")
-
-	// Find session boundaries
-	var startTime, endTime time.Time
-	for _, evt := range sessionEvents {
-		if startTime.IsZero() || evt.Timestamp.Before(startTime) {
-			startTime = evt.Timestamp
-		}
-		if endTime.IsZero() || evt.Timestamp.After(endTime) {
-			endTime = evt.Timestamp
-		}
-	}
-
-	// Create root span for session
-	rootSpan := &Span{
-		TraceID:   traceID,
-		SpanID:    rootSpanID,
-		Name:      "session",
-		Kind:      SpanKindServer,
-		StartTime: startTime,
-		EndTime:   endTime,
-		Attributes: map[string]interface{}{
-			"session.id": sessionID,
-		},
-		Status: &SpanStatus{Code: StatusCodeOk},
-	}
-
-	spans := []*Span{rootSpan}
-
-	// Track active spans for nesting
-	spanStack := make(map[string]*Span)
-
-	for i := range sessionEvents {
-		span := c.convertEvent(traceID, rootSpanID, &sessionEvents[i], spanStack)
-		if span != nil {
-			spans = append(spans, span)
-		}
-	}
-
-	return spans, nil
+	return c.buildTrace(sessionID, sessionEvents, traceID, "")
 }
 
 // convertEvent converts a single event to a span or updates an existing span.
@@ -191,6 +158,13 @@ func (c *EventConverter) convertEvent(
 		return c.createMiddlewareSpan(traceID, parentSpanID, evt, spanStack)
 	case events.EventMiddlewareCompleted, events.EventMiddlewareFailed:
 		return c.completeMiddlewareSpan(evt, spanStack)
+	case events.EventMessageCreated:
+		c.handleMessageCreated(evt, spanStack)
+		return nil
+	case events.EventWorkflowTransitioned:
+		return c.createWorkflowTransitionSpan(traceID, parentSpanID, evt)
+	case events.EventWorkflowCompleted:
+		return c.createWorkflowCompletedSpan(traceID, parentSpanID, evt)
 	default:
 		return nil
 	}
@@ -325,6 +299,12 @@ func (c *EventConverter) createToolSpan(
 			"tool.call_id": data.CallID,
 		},
 	}
+	if data.Args != nil {
+		argsJSON, err := json.Marshal(data.Args)
+		if err == nil {
+			span.Attributes["tool.args"] = string(argsJSON)
+		}
+	}
 	spanStack["tool:"+data.CallID] = span
 	return nil
 }
@@ -424,6 +404,180 @@ func (c *EventConverter) completeMiddlewareSpan(evt *events.Event, spanStack map
 	}
 
 	return span
+}
+
+func (c *EventConverter) handleMessageCreated(evt *events.Event, spanStack map[string]*Span) {
+	data, ok := evt.Data.(*events.MessageCreatedData)
+	if !ok {
+		return
+	}
+
+	// Find the active provider span for this run, fall back to any provider span
+	targetSpan := spanStack["provider:"+evt.RunID]
+
+	spanEvent := &SpanEvent{
+		Name: "gen_ai." + data.Role + ".message",
+		Time: evt.Timestamp,
+		Attributes: map[string]interface{}{
+			"gen_ai.message.content": data.Content,
+		},
+	}
+
+	if len(data.ToolCalls) > 0 {
+		toolCallsJSON, err := json.Marshal(data.ToolCalls)
+		if err == nil {
+			spanEvent.Attributes["gen_ai.tool_calls"] = string(toolCallsJSON)
+		}
+	}
+
+	if data.ToolResult != nil {
+		toolResultJSON, err := json.Marshal(data.ToolResult)
+		if err == nil {
+			spanEvent.Attributes["gen_ai.tool_result"] = string(toolResultJSON)
+		}
+	}
+
+	if targetSpan != nil {
+		targetSpan.Events = append(targetSpan.Events, spanEvent)
+	}
+	// If no provider span exists, the event is stored on the root span fallback.
+	// The root span is tracked separately in ConvertSession, so we store pending
+	// events on a special key.
+	if targetSpan == nil {
+		if root, ok := spanStack["root"]; ok {
+			root.Events = append(root.Events, spanEvent)
+		}
+	}
+}
+
+func (c *EventConverter) createWorkflowTransitionSpan(
+	traceID, parentSpanID string, evt *events.Event,
+) *Span {
+	data, ok := evt.Data.(*events.WorkflowTransitionedData)
+	if !ok {
+		return nil
+	}
+
+	spanID := generateSpanID(evt.RunID + ":workflow:transition:" + data.FromState + ":" + data.ToState)
+	return &Span{
+		TraceID:      traceID,
+		SpanID:       spanID,
+		ParentSpanID: parentSpanID,
+		Name:         "workflow.transition",
+		Kind:         SpanKindInternal,
+		StartTime:    evt.Timestamp,
+		EndTime:      evt.Timestamp,
+		Attributes: map[string]interface{}{
+			"workflow.from_state":  data.FromState,
+			"workflow.to_state":    data.ToState,
+			"workflow.event":       data.Event,
+			"workflow.prompt_task": data.PromptTask,
+		},
+	}
+}
+
+func (c *EventConverter) createWorkflowCompletedSpan(
+	traceID, parentSpanID string, evt *events.Event,
+) *Span {
+	data, ok := evt.Data.(*events.WorkflowCompletedData)
+	if !ok {
+		return nil
+	}
+
+	spanID := generateSpanID(evt.RunID + ":workflow:completed:" + data.FinalState)
+	return &Span{
+		TraceID:      traceID,
+		SpanID:       spanID,
+		ParentSpanID: parentSpanID,
+		Name:         "workflow.completed",
+		Kind:         SpanKindInternal,
+		StartTime:    evt.Timestamp,
+		EndTime:      evt.Timestamp,
+		Attributes: map[string]interface{}{
+			"workflow.final_state":      data.FinalState,
+			"workflow.transition_count": data.TransitionCount,
+		},
+		Status: &SpanStatus{Code: StatusCodeOk},
+	}
+}
+
+// ConvertSessionWithParent converts a session's events to spans, using the provided
+// trace context as the parent trace instead of generating a fresh one from session ID.
+// If traceCtx is nil or has an empty Traceparent, it falls back to ConvertSession behavior.
+func (c *EventConverter) ConvertSessionWithParent(
+	sessionID string, sessionEvents []events.Event, traceCtx *TraceContext,
+) ([]*Span, error) {
+	if traceCtx == nil || traceCtx.Traceparent == "" {
+		return c.ConvertSession(sessionID, sessionEvents)
+	}
+
+	parentTraceID, parentSpanID, ok := parseTraceparent(traceCtx.Traceparent)
+	if !ok {
+		return c.ConvertSession(sessionID, sessionEvents)
+	}
+
+	if len(sessionEvents) == 0 {
+		return nil, nil
+	}
+
+	return c.buildTrace(sessionID, sessionEvents, parentTraceID, parentSpanID)
+}
+
+// buildTrace creates the root session span and converts all events into child spans.
+// parentSpanID is set on the root span when propagating an inbound trace context.
+func (c *EventConverter) buildTrace(
+	sessionID string, sessionEvents []events.Event, traceID, parentSpanID string,
+) ([]*Span, error) {
+	rootSpanID := generateSpanID(sessionID + ":root")
+
+	var startTime, endTime time.Time
+	for _, evt := range sessionEvents {
+		if startTime.IsZero() || evt.Timestamp.Before(startTime) {
+			startTime = evt.Timestamp
+		}
+		if endTime.IsZero() || evt.Timestamp.After(endTime) {
+			endTime = evt.Timestamp
+		}
+	}
+
+	rootSpan := &Span{
+		TraceID:      traceID,
+		SpanID:       rootSpanID,
+		ParentSpanID: parentSpanID,
+		Name:         "session",
+		Kind:         SpanKindServer,
+		StartTime:    startTime,
+		EndTime:      endTime,
+		Attributes: map[string]interface{}{
+			"session.id": sessionID,
+		},
+		Status: &SpanStatus{Code: StatusCodeOk},
+	}
+
+	spans := []*Span{rootSpan}
+	spanStack := make(map[string]*Span)
+	spanStack["root"] = rootSpan
+
+	for i := range sessionEvents {
+		span := c.convertEvent(traceID, rootSpanID, &sessionEvents[i], spanStack)
+		if span != nil {
+			spans = append(spans, span)
+		}
+	}
+
+	return spans, nil
+}
+
+// parseTraceparent extracts trace ID and span ID from a W3C traceparent header.
+// Format: version-trace_id-parent_id-trace_flags (e.g., 00-<32 hex>-<16 hex>-<2 hex>).
+func parseTraceparent(tp string) (traceID, spanID string, ok bool) {
+	if !traceparentRe.MatchString(tp) {
+		return "", "", false
+	}
+	// 00-<32 hex traceID>-<16 hex spanID>-<2 hex flags>
+	traceID = tp[3:35]
+	spanID = tp[36:52]
+	return traceID, spanID, true
 }
 
 // generateTraceID generates a 16-byte trace ID from a string.

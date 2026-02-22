@@ -445,6 +445,7 @@ logger.Info(fmt.Sprintf("User %s logged in from %s", userID, remoteAddr))
 
 ## See Also
 
+- [Telemetry Reference](telemetry) - OpenTelemetry trace export
 - [Pipeline Reference](pipeline) - Pipeline execution and middleware
 - [Providers Reference](providers) - LLM provider implementations
 - [Arena Config Reference](/arena/reference/config-schema) - Arena configuration including logging

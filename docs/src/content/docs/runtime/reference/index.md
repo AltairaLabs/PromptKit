@@ -31,6 +31,7 @@ The PromptKit Runtime provides the core execution engine for LLM interactions. I
 | **Types** | Core data structures | [types.md](types) |
 | **A2A** | Client, types, tool bridge, mock | [a2a.md](a2a) |
 | **Logging** | Structured logging with context | [logging.md](logging) |
+| **Telemetry** | OpenTelemetry trace export | [telemetry.md](telemetry) |
 
 ### Import Paths
 
@@ -44,6 +45,7 @@ import (
     "github.com/AltairaLabs/PromptKit/runtime/validators"
     "github.com/AltairaLabs/PromptKit/runtime/types"
     "github.com/AltairaLabs/PromptKit/runtime/logger"
+    "github.com/AltairaLabs/PromptKit/runtime/telemetry"
 )
 ```
 
