@@ -52,7 +52,7 @@ func TestNewProviderWithCredential(t *testing.T) {
 
 	t.Run("with APIKeyCredential", func(t *testing.T) {
 		cred := &mockAPIKeyCredential{apiKey: "test-api-key"}
-		provider := NewProviderWithCredential("test-gemini", "gemini-1.5-pro", "https://api.example.com", defaults, false, cred)
+		provider := NewProviderWithCredential("test-gemini", "gemini-1.5-pro", "https://api.example.com", defaults, false, cred, "", nil)
 
 		if provider == nil {
 			t.Fatal("Expected non-nil provider")
@@ -76,7 +76,7 @@ func TestNewProviderWithCredential(t *testing.T) {
 	})
 
 	t.Run("with nil credential", func(t *testing.T) {
-		provider := NewProviderWithCredential("test-gemini", "gemini-1.5-pro", "https://api.example.com", defaults, false, nil)
+		provider := NewProviderWithCredential("test-gemini", "gemini-1.5-pro", "https://api.example.com", defaults, false, nil, "", nil)
 
 		if provider == nil {
 			t.Fatal("Expected non-nil provider")
@@ -89,7 +89,7 @@ func TestNewProviderWithCredential(t *testing.T) {
 
 	t.Run("with non-APIKey credential", func(t *testing.T) {
 		cred := &mockOtherCredential{}
-		provider := NewProviderWithCredential("test-gemini", "gemini-1.5-pro", "https://api.example.com", defaults, false, cred)
+		provider := NewProviderWithCredential("test-gemini", "gemini-1.5-pro", "https://api.example.com", defaults, false, cred, "", nil)
 
 		if provider == nil {
 			t.Fatal("Expected non-nil provider")
@@ -632,5 +632,41 @@ func TestInferMediaTypeFromMIME(t *testing.T) {
 				t.Errorf("inferMediaTypeFromMIME(%q) = %q, want %q", tt.mimeType, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestGemini_PlatformFieldsStored(t *testing.T) {
+	defaults := providers.ProviderDefaults{Temperature: 0.7}
+	pc := &providers.PlatformConfig{Region: "us-west-2"}
+	cred := &mockAPIKeyCredential{apiKey: "test-key"}
+
+	provider := NewProviderWithCredential("test", "gemini-pro", "https://example.com", defaults, false, cred, "bedrock", pc)
+
+	if provider.platform != "bedrock" {
+		t.Errorf("Expected platform 'bedrock', got %q", provider.platform)
+	}
+	if provider.platformConfig == nil {
+		t.Fatal("Expected platformConfig to be set")
+	}
+	if provider.platformConfig.Region != "us-west-2" {
+		t.Errorf("Expected region 'us-west-2', got %q", provider.platformConfig.Region)
+	}
+}
+
+func TestGemini_PlatformField(t *testing.T) {
+	tests := []struct {
+		platform string
+		isBr     bool
+	}{
+		{"bedrock", true},
+		{"vertex", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		p := &Provider{platform: tt.platform}
+		got := p.platform == "bedrock"
+		if got != tt.isBr {
+			t.Errorf("platform=%q == bedrock: got %v, want %v", tt.platform, got, tt.isBr)
+		}
 	}
 }

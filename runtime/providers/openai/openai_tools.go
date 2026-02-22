@@ -33,9 +33,12 @@ func NewToolProvider(
 func NewToolProviderWithCredential(
 	id, model, baseURL string, defaults providers.ProviderDefaults,
 	includeRawOutput bool, additionalConfig map[string]any, cred providers.Credential,
+	platform string, platformConfig *providers.PlatformConfig,
 ) *ToolProvider {
 	return &ToolProvider{
-		Provider: NewProviderWithCredentialAndConfig(id, model, baseURL, defaults, includeRawOutput, cred, additionalConfig),
+		Provider: NewProviderWithCredentialAndConfig(
+			id, model, baseURL, defaults, includeRawOutput, cred, additionalConfig, platform, platformConfig,
+		),
 	}
 }
 
@@ -411,6 +414,7 @@ func init() {
 			return NewToolProviderWithCredential(
 				spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
 				spec.IncludeRawOutput, spec.AdditionalConfig, spec.Credential,
+				spec.Platform, spec.PlatformConfig,
 			), nil
 		}
 		// Fall back to env-var-based constructor

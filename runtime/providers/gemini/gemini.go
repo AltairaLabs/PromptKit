@@ -26,11 +26,13 @@ const (
 // Provider implements the Provider interface for Google Gemini
 type Provider struct {
 	providers.BaseProvider
-	modelName  string
-	BaseURL    string
-	ApiKey     string
-	credential providers.Credential
-	Defaults   providers.ProviderDefaults
+	modelName      string
+	BaseURL        string
+	ApiKey         string
+	credential     providers.Credential
+	Defaults       providers.ProviderDefaults
+	platform       string
+	platformConfig *providers.PlatformConfig
 }
 
 // NewProvider creates a new Gemini provider
@@ -50,6 +52,7 @@ func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults,
 func NewProviderWithCredential(
 	id, model, baseURL string, defaults providers.ProviderDefaults,
 	includeRawOutput bool, cred providers.Credential,
+	platform string, platformConfig *providers.PlatformConfig,
 ) *Provider {
 	client := &http.Client{Timeout: httpClientTimeout}
 	base := providers.NewBaseProvider(id, includeRawOutput, client)
@@ -63,12 +66,14 @@ func NewProviderWithCredential(
 	}
 
 	return &Provider{
-		BaseProvider: base,
-		modelName:    model,
-		BaseURL:      baseURL,
-		ApiKey:       apiKey,
-		credential:   cred,
-		Defaults:     defaults,
+		BaseProvider:   base,
+		modelName:      model,
+		BaseURL:        baseURL,
+		ApiKey:         apiKey,
+		credential:     cred,
+		Defaults:       defaults,
+		platform:       platform,
+		platformConfig: platformConfig,
 	}
 }
 
@@ -389,6 +394,9 @@ func (p *Provider) makeGeminiHTTPRequest(ctx context.Context, geminiReq geminiRe
 	if resp.StatusCode != http.StatusOK {
 		predictResp.Latency = time.Since(start)
 		predictResp.Raw = respBody
+		if p.platform != "" {
+			return nil, predictResp, providers.ParsePlatformHTTPError(p.platform, resp.StatusCode, respBody)
+		}
 		return nil, predictResp, fmt.Errorf("API request to %s failed with status %d: %s",
 			logger.RedactSensitiveData(url), resp.StatusCode, string(respBody))
 	}

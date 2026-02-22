@@ -73,6 +73,8 @@ type Provider struct {
 	defaults         providers.ProviderDefaults
 	apiMode          APIMode
 	additionalConfig map[string]any
+	platform         string
+	platformConfig   *providers.PlatformConfig
 }
 
 // NewProvider creates a new OpenAI provider
@@ -104,14 +106,18 @@ func NewProviderWithConfig(
 func NewProviderWithCredential(
 	id, model, baseURL string, defaults providers.ProviderDefaults,
 	includeRawOutput bool, cred providers.Credential,
+	platform string, platformConfig *providers.PlatformConfig,
 ) *Provider {
-	return NewProviderWithCredentialAndConfig(id, model, baseURL, defaults, includeRawOutput, cred, nil)
+	return NewProviderWithCredentialAndConfig(
+		id, model, baseURL, defaults, includeRawOutput, cred, nil, platform, platformConfig,
+	)
 }
 
 // NewProviderWithCredentialAndConfig creates a new OpenAI provider with explicit credential and config.
 func NewProviderWithCredentialAndConfig(
 	id, model, baseURL string, defaults providers.ProviderDefaults,
 	includeRawOutput bool, cred providers.Credential, additionalConfig map[string]any,
+	platform string, platformConfig *providers.PlatformConfig,
 ) *Provider {
 	client := &http.Client{Timeout: httpClientTimeout}
 	base := providers.NewBaseProvider(id, includeRawOutput, client)
@@ -133,6 +139,8 @@ func NewProviderWithCredentialAndConfig(
 		defaults:         defaults,
 		apiMode:          getAPIMode(model, additionalConfig),
 		additionalConfig: additionalConfig,
+		platform:         platform,
+		platformConfig:   platformConfig,
 	}
 }
 
@@ -682,6 +690,9 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 	if resp.StatusCode != http.StatusOK {
 		predictResp.Latency = time.Since(start)
 		predictResp.Raw = respBody
+		if p.platform != "" {
+			return predictResp, providers.ParsePlatformHTTPError(p.platform, resp.StatusCode, respBody)
+		}
 		return predictResp, fmt.Errorf("API request to %s failed with status %d: %s",
 			p.baseURL+openAIPredictCompletionsPath, resp.StatusCode, string(respBody))
 	}

@@ -13,11 +13,13 @@ The repo has a pre-commit hook at `.git/hooks/pre-commit` that runs on every com
 - Lint changed files (`golangci-lint --new-from-rev=HEAD`)
 - Build changed modules
 - Run tests with coverage on changed packages (80% threshold on non-test files)
-- Skip with `[skip-pre-commit]` in commit message
+
+**NEVER use `--no-verify` or skip the pre-commit hook.** The pre-commit checks mirror what SonarCloud enforces in CI — if the hook fails, the PR will also fail. Fix all issues before committing, including pre-existing issues in files you've touched.
 
 ### Before committing
 1. Run `golangci-lint run ./...` and `go test ./... -count=1` first
 2. Fix ALL failures before attempting `git commit`
+3. If the pre-commit hook reports lint or coverage failures on pre-existing code in files you changed, fix those too — SonarCloud will flag them
 
 ## Project Structure
 

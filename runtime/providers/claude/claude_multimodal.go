@@ -72,8 +72,14 @@ func (p *Provider) PredictMultimodal(ctx context.Context, req providers.Predicti
 	return p.predictWithContentsMultimodal(ctx, messages, system, req.Temperature, req.TopP, req.MaxTokens, req.Seed)
 }
 
-// PredictMultimodalStream sends a streaming multimodal predict request to Claude
+// PredictMultimodalStream sends a streaming multimodal predict request to Claude.
+// On Bedrock, falls back to non-streaming PredictMultimodal.
 func (p *Provider) PredictMultimodalStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+	// Bedrock: fall back to non-streaming and synthesize a stream
+	if p.isBedrock() {
+		return p.bedrockMultimodalStreamFallback(ctx, &req)
+	}
+
 	// Validate multimodal messages
 	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
 		return nil, err
@@ -86,6 +92,30 @@ func (p *Provider) PredictMultimodalStream(ctx context.Context, req providers.Pr
 	}
 
 	return p.predictStreamWithContentsMultimodal(ctx, messages, system, req.Temperature, req.TopP, req.MaxTokens, req.Seed)
+}
+
+// bedrockMultimodalStreamFallback uses non-streaming PredictMultimodal and wraps the result as a stream.
+func (p *Provider) bedrockMultimodalStreamFallback(
+	ctx context.Context, req *providers.PredictionRequest,
+) (<-chan providers.StreamChunk, error) {
+	resp, err := p.PredictMultimodal(ctx, *req)
+	if err != nil {
+		return nil, err
+	}
+
+	outChan := make(chan providers.StreamChunk, 1)
+	finishReason := finishReasonStop
+	outChan <- providers.StreamChunk{
+		Content:      resp.Content,
+		Delta:        resp.Content,
+		TokenCount:   1,
+		DeltaTokens:  1,
+		CostInfo:     resp.CostInfo,
+		FinishReason: &finishReason,
+	}
+	close(outChan)
+
+	return outChan, nil
 }
 
 // convertMessagesToClaudeMultimodal converts PromptKit messages to Claude's multimodal format
@@ -281,10 +311,15 @@ func (p *Provider) predictWithContentsMultimodal(ctx context.Context, messages [
 	// Note: Anthropic's newer models (Claude 4+) don't support both temperature and top_p
 	// We only send temperature to avoid the "cannot both be specified" error
 	claudeReq := map[string]interface{}{
-		"model":       p.model,
 		"max_tokens":  maxTokens,
 		"messages":    messages,
 		"temperature": temperature,
+	}
+
+	if p.isBedrock() {
+		claudeReq[bedrockVersionBodyKey] = bedrockVersionValue
+	} else {
+		claudeReq["model"] = p.model
 	}
 
 	if len(system) > 0 {
@@ -307,7 +342,7 @@ func (p *Provider) predictWithContentsMultimodal(ctx context.Context, messages [
 	}
 
 	// Build URL
-	url := fmt.Sprintf("%s/messages", p.baseURL)
+	url := p.messagesURL()
 
 	// Debug log the request
 	headers := map[string]string{
@@ -323,8 +358,16 @@ func (p *Provider) predictWithContentsMultimodal(ctx context.Context, messages [
 	}
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	httpReq.Header.Set("x-api-key", p.apiKey)
-	httpReq.Header.Set("anthropic-version", "2023-06-01")
+	if !p.isBedrock() {
+		httpReq.Header.Set("x-api-key", p.apiKey)
+		httpReq.Header.Set("anthropic-version", "2023-06-01")
+	}
+
+	// Apply authentication (handles both Bedrock SigV4 and direct API key)
+	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+		predictResp.Latency = time.Since(start)
+		return predictResp, fmt.Errorf("failed to apply authentication: %w", authErr)
+	}
 
 	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
@@ -347,6 +390,9 @@ func (p *Provider) predictWithContentsMultimodal(ctx context.Context, messages [
 	if resp.StatusCode != http.StatusOK {
 		predictResp.Latency = time.Since(start)
 		predictResp.Raw = respBody
+		if p.isBedrock() {
+			return predictResp, parseBedrockHTTPError(resp.StatusCode, respBody)
+		}
 		return predictResp, fmt.Errorf("claude api error (status %d): %s", resp.StatusCode, string(respBody))
 	}
 
@@ -435,7 +481,7 @@ func (p *Provider) predictStreamWithContentsMultimodal(ctx context.Context, mess
 	}
 
 	// Build URL
-	url := fmt.Sprintf("%s/messages", p.baseURL)
+	url := p.messagesURL()
 
 	// Make HTTP request
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
@@ -444,8 +490,10 @@ func (p *Provider) predictStreamWithContentsMultimodal(ctx context.Context, mess
 	}
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	httpReq.Header.Set("x-api-key", p.apiKey)
-	httpReq.Header.Set("anthropic-version", "2023-06-01")
+	if !p.isBedrock() {
+		httpReq.Header.Set("x-api-key", p.apiKey)
+		httpReq.Header.Set("anthropic-version", "2023-06-01")
+	}
 
 	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
@@ -455,6 +503,9 @@ func (p *Provider) predictStreamWithContentsMultimodal(ctx context.Context, mess
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		body, _ := io.ReadAll(resp.Body) // NOSONAR: Read error results in empty body in error message
+		if p.isBedrock() {
+			return nil, parseBedrockHTTPError(resp.StatusCode, body)
+		}
 		return nil, fmt.Errorf("claude api error (status %d): %s", resp.StatusCode, string(body))
 	}
 

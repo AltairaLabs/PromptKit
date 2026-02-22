@@ -25,7 +25,7 @@ func TestNewToolProviderWithCredential(t *testing.T) {
 
 	t.Run("with credential", func(t *testing.T) {
 		cred := &mockAPIKeyCredential{apiKey: "test-key"}
-		provider := NewToolProviderWithCredential("test-gemini", "gemini-pro", "https://api.example.com", defaults, false, cred)
+		provider := NewToolProviderWithCredential("test-gemini", "gemini-pro", "https://api.example.com", defaults, false, cred, "", nil)
 
 		if provider == nil {
 			t.Fatal("Expected non-nil provider")
@@ -41,7 +41,7 @@ func TestNewToolProviderWithCredential(t *testing.T) {
 	})
 
 	t.Run("with nil credential", func(t *testing.T) {
-		provider := NewToolProviderWithCredential("test-gemini", "gemini-pro", "https://api.example.com", defaults, false, nil)
+		provider := NewToolProviderWithCredential("test-gemini", "gemini-pro", "https://api.example.com", defaults, false, nil, "", nil)
 
 		if provider == nil {
 			t.Fatal("Expected non-nil provider")
@@ -547,6 +547,206 @@ func TestGeminiToolProvider_PredictStreamWithTools_HTTPError(t *testing.T) {
 // - Without alt=sse: Google returns JSON array format
 // The streamResponse function parses as JSON array, so alt=sse breaks parsing.
 // Duplex streaming uses WebSockets (not HTTP), so alt=sse is irrelevant there.
+func TestGeminiToolProvider_BuildTooling_EmptyDescriptors(t *testing.T) {
+	provider := &ToolProvider{Provider: NewProvider("test", "gemini-2.0-flash", "", providers.ProviderDefaults{}, false)}
+	tools, err := provider.BuildTooling(nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tools != nil {
+		t.Errorf("expected nil tools for empty descriptors, got %v", tools)
+	}
+}
+
+func TestGeminiToolProvider_ParseToolResponse_InvalidJSON(t *testing.T) {
+	provider := &ToolProvider{Provider: NewProvider("test", "gemini-2.0-flash", "", providers.ProviderDefaults{}, false)}
+	_, _, err := provider.parseToolResponse([]byte(`not json`), providers.PredictionResponse{})
+	if err == nil {
+		t.Fatal("expected error for invalid JSON")
+	}
+}
+
+func TestGeminiToolProvider_ParseToolResponse_NoCandidates(t *testing.T) {
+	provider := &ToolProvider{Provider: NewProvider("test", "gemini-2.0-flash", "", providers.ProviderDefaults{}, false)}
+	_, _, err := provider.parseToolResponse([]byte(`{"candidates":[]}`), providers.PredictionResponse{})
+	if err == nil {
+		t.Fatal("expected error for empty candidates")
+	}
+}
+
+func TestConvertMediaPartToMap(t *testing.T) {
+	t.Run("nil media", func(t *testing.T) {
+		part := types.ContentPart{Type: types.ContentTypeImage}
+		result := convertMediaPartToMap(part)
+		if result != nil {
+			t.Errorf("expected nil for nil media, got %v", result)
+		}
+	})
+
+	t.Run("image with data and mime type", func(t *testing.T) {
+		data := "base64data"
+		part := types.ContentPart{
+			Type: types.ContentTypeImage,
+			Media: &types.MediaContent{
+				MIMEType: "image/jpeg",
+				Data:     &data,
+			},
+		}
+		result := convertMediaPartToMap(part)
+		if result == nil {
+			t.Fatal("expected non-nil result")
+		}
+		inline := result["inlineData"].(map[string]any)
+		if inline["mimeType"] != "image/jpeg" {
+			t.Errorf("expected image/jpeg, got %v", inline["mimeType"])
+		}
+		if inline["data"] != "base64data" {
+			t.Errorf("expected base64data, got %v", inline["data"])
+		}
+	})
+
+	t.Run("image with default mime type", func(t *testing.T) {
+		data := "imgdata"
+		part := types.ContentPart{
+			Type:  types.ContentTypeImage,
+			Media: &types.MediaContent{Data: &data},
+		}
+		result := convertMediaPartToMap(part)
+		if result == nil {
+			t.Fatal("expected non-nil result")
+		}
+		inline := result["inlineData"].(map[string]any)
+		if inline["mimeType"] != "image/png" {
+			t.Errorf("expected default image/png, got %v", inline["mimeType"])
+		}
+	})
+
+	t.Run("audio with default mime type", func(t *testing.T) {
+		data := "audiodata"
+		part := types.ContentPart{
+			Type:  types.ContentTypeAudio,
+			Media: &types.MediaContent{Data: &data},
+		}
+		result := convertMediaPartToMap(part)
+		if result == nil {
+			t.Fatal("expected non-nil result")
+		}
+		inline := result["inlineData"].(map[string]any)
+		if inline["mimeType"] != "audio/wav" {
+			t.Errorf("expected default audio/wav, got %v", inline["mimeType"])
+		}
+	})
+
+	t.Run("video with default mime type", func(t *testing.T) {
+		data := "videodata"
+		part := types.ContentPart{
+			Type:  types.ContentTypeVideo,
+			Media: &types.MediaContent{Data: &data},
+		}
+		result := convertMediaPartToMap(part)
+		if result == nil {
+			t.Fatal("expected non-nil result")
+		}
+		inline := result["inlineData"].(map[string]any)
+		if inline["mimeType"] != "video/mp4" {
+			t.Errorf("expected default video/mp4, got %v", inline["mimeType"])
+		}
+	})
+
+	t.Run("document with default mime type", func(t *testing.T) {
+		data := "docdata"
+		part := types.ContentPart{
+			Type:  types.ContentTypeDocument,
+			Media: &types.MediaContent{Data: &data},
+		}
+		result := convertMediaPartToMap(part)
+		if result == nil {
+			t.Fatal("expected non-nil result")
+		}
+		inline := result["inlineData"].(map[string]any)
+		if inline["mimeType"] != "application/pdf" {
+			t.Errorf("expected default application/pdf, got %v", inline["mimeType"])
+		}
+	})
+
+	t.Run("unknown type returns nil", func(t *testing.T) {
+		part := types.ContentPart{
+			Type:  "unknown",
+			Media: &types.MediaContent{},
+		}
+		result := convertMediaPartToMap(part)
+		if result != nil {
+			t.Errorf("expected nil for unknown type, got %v", result)
+		}
+	})
+
+	t.Run("no data returns nil", func(t *testing.T) {
+		part := types.ContentPart{
+			Type:  types.ContentTypeImage,
+			Media: &types.MediaContent{MIMEType: "image/png"},
+		}
+		result := convertMediaPartToMap(part)
+		if result != nil {
+			t.Errorf("expected nil for no data, got %v", result)
+		}
+	})
+}
+
+func TestBuildMessageParts_MultimodalContent(t *testing.T) {
+	text := "hello"
+	imgData := "base64img"
+	msg := types.Message{
+		Role: "user",
+		Parts: []types.ContentPart{
+			{Type: types.ContentTypeText, Text: &text},
+			{
+				Type: types.ContentTypeImage,
+				Media: &types.MediaContent{
+					MIMEType: "image/png",
+					Data:     &imgData,
+				},
+			},
+		},
+	}
+	parts := buildMessageParts(msg, nil)
+	if len(parts) != 2 {
+		t.Fatalf("expected 2 parts, got %d", len(parts))
+	}
+
+	// First part should be text
+	if parts[0].(map[string]any)["text"] != "hello" {
+		t.Errorf("expected text 'hello', got %v", parts[0])
+	}
+
+	// Second part should be inlineData
+	inline, ok := parts[1].(map[string]any)["inlineData"]
+	if !ok {
+		t.Fatalf("expected inlineData in second part, got %v", parts[1])
+	}
+	inlineMap := inline.(map[string]any)
+	if inlineMap["mimeType"] != "image/png" {
+		t.Errorf("expected image/png, got %v", inlineMap["mimeType"])
+	}
+}
+
+func TestBuildToolRequest_WithSystemInstruction(t *testing.T) {
+	provider := NewToolProvider("test", "gemini-2.0-flash", "", providers.ProviderDefaults{
+		Temperature: 0.5,
+		TopP:        0.9,
+		MaxTokens:   1000,
+	}, false)
+
+	req := providers.PredictionRequest{
+		System:   "You are a helpful assistant",
+		Messages: []types.Message{{Role: "user", Content: "Hi"}},
+	}
+	result := provider.buildToolRequest(req, nil, "")
+
+	if _, ok := result["systemInstruction"]; !ok {
+		t.Error("expected systemInstruction in request")
+	}
+}
+
 func TestGeminiToolProvider_PredictStreamWithTools_URLFormat(t *testing.T) {
 	var capturedURL string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
