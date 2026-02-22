@@ -228,12 +228,10 @@ func (e *EvalConversationExecutor) buildConversationContext(
 	// Attach judge metadata using the same function as scenarios
 	attachJudgeMetadata(extras, req.Config)
 
-	return &assertions.ConversationContext{
-		AllTurns: messages,
-		Metadata: assertions.ConversationMetadata{
-			Extras: extras,
-		},
+	meta := &assertions.ConversationMetadata{
+		Extras: extras,
 	}
+	return assertions.BuildConversationContextFromMessages(messages, meta)
 }
 
 // applyTurnAssertions applies turn-level assertions to a single message.
