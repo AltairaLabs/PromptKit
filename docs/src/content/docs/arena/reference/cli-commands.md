@@ -17,6 +17,7 @@ promptarena [command] [flags]
 |---------|-------------|
 | `init` | Initialize a new Arena test project from template (built-in or remote) |
 | `run` | Run conversation simulations (main command) |
+| `generate` | Generate scenario files from session data or external sources |
 | `mocks` | Generate mock provider responses from Arena JSON results |
 | `config-inspect` | Inspect and validate configuration |
 | `debug` | Debug configuration and prompt loading |
@@ -227,6 +228,120 @@ Preview without writing:
 ```bash
 promptarena mocks generate --input out --dry-run
 ```
+
+---
+
+## `promptarena generate`
+
+Generate Arena scenario YAML files from recorded sessions or external session sources. Uses pluggable `SessionSourceAdapter` implementations to load session data and convert it into reproducible test scenarios.
+
+This is particularly useful for turning production conversations with failing assertions into reproducible test scenarios.
+
+### Usage
+
+```bash
+promptarena generate [flags]
+```
+
+### Flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--from-recordings` | string | - | Glob path to local recording files |
+| `--source` | string | - | Named session source adapter (e.g., `omnia`) |
+| `--filter-passed` | bool | - | Filter by pass/fail status (tri-state: omit for all, `true` for passed, `false` for failed) |
+| `--filter-eval-type` | string | - | Filter sessions by assertion failure type (e.g., `content_matches`) |
+| `--pack` | string | - | Pack file path; when set, generates workflow scenarios with steps instead of conversation turns |
+| `--output` | string | `.` | Output directory for generated scenario files |
+| `--dedup` | bool | `true` | Deduplicate sessions by failure pattern fingerprint |
+
+:::note
+You must specify either `--from-recordings` or `--source`. The `--from-recordings` flag uses the built-in recordings adapter, while `--source` looks up a named adapter from the plugin registry.
+:::
+
+### Examples
+
+Generate scenarios from local recording files:
+
+```bash
+promptarena generate \
+  --from-recordings "recordings/*.recording.json" \
+  --output scenarios/generated
+```
+
+Generate only from sessions with failing assertions:
+
+```bash
+promptarena generate \
+  --from-recordings "recordings/*.recording.json" \
+  --filter-passed=false
+```
+
+Filter by a specific assertion failure type:
+
+```bash
+promptarena generate \
+  --from-recordings "recordings/*.recording.json" \
+  --filter-eval-type content_matches \
+  --output scenarios/content-failures
+```
+
+Generate workflow scenarios using a pack file:
+
+```bash
+promptarena generate \
+  --from-recordings "recordings/*.recording.json" \
+  --pack prompts/support.pack.json \
+  --output scenarios/workflow
+```
+
+Generate from a named external source adapter:
+
+```bash
+promptarena generate \
+  --source omnia \
+  --filter-passed=false \
+  --output scenarios/production-failures
+```
+
+### Output
+
+Each session produces a K8s-style scenario YAML file:
+
+```yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: session-abc123
+spec:
+  id: session-abc123
+  description: "Generated from session abc123, contains assertion failures"
+  task_type: conversation
+  turns:
+    - role: user
+      content: "Hello, I need help with my order"
+  conversation_assertions:
+    - type: content_matches
+      params:
+        pattern: "order.*status"
+      message: "Response should mention order status"
+```
+
+When `--dedup` is enabled (default), sessions with identical failure patterns and user messages are deduplicated using SHA-256 fingerprinting. The first session per unique fingerprint is kept.
+
+### Pluggable Adapters
+
+The `generate` command supports pluggable session source adapters via the `SessionSourceAdapter` interface:
+
+```go
+type SessionSourceAdapter interface {
+    Name() string
+    List(ctx context.Context, opts ListOptions) ([]SessionSummary, error)
+    Get(ctx context.Context, sessionID string) (*SessionDetail, error)
+}
+```
+
+External adapters register themselves with the global registry in `init()` functions and are selected via `--source <name>`. See the [generate package](https://github.com/AltairaLabs/PromptKit/tree/main/tools/arena/generate) for the full interface definition.
 
 ---
 
