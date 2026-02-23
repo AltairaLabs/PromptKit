@@ -21,7 +21,7 @@ require (
 	github.com/xeipuuv/gojsonschema v1.2.0
 	golang.org/x/image v0.36.0
 	golang.org/x/oauth2 v0.35.0
-	golang.org/x/sys v0.40.0
+	golang.org/x/sys v0.41.0
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/apimachinery v0.35.1
 )
