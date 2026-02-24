@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
@@ -104,46 +105,52 @@ func TestWithRelevanceTruncation(t *testing.T) {
 	})
 }
 
-func TestWithValidationMode(t *testing.T) {
-	tests := []struct {
-		name string
-		mode ValidationMode
-		want ValidationMode
-	}{
-		{"error", ValidationModeError, ValidationModeError},
-		{"warn", ValidationModeWarn, ValidationModeWarn},
-		{"disabled", ValidationModeDisabled, ValidationModeDisabled},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			opt := WithValidationMode(tt.mode)
-			cfg := &config{}
-			err := opt(cfg)
-			assert.NoError(t, err)
-			assert.Equal(t, tt.want, cfg.validationMode)
-		})
-	}
-}
-
-func TestWithDisabledValidators(t *testing.T) {
-	opt := WithDisabledValidators("pii", "profanity")
-	assert.NotNil(t, opt)
-
+func TestWithProviderHook(t *testing.T) {
+	hook := &testProviderHook{name: "test-hook"}
+	opt := WithProviderHook(hook)
 	cfg := &config{}
 	err := opt(cfg)
 	assert.NoError(t, err)
-	assert.Equal(t, []string{"pii", "profanity"}, cfg.disabledValidators)
+	require.Len(t, cfg.providerHooks, 1)
+	assert.Equal(t, "test-hook", cfg.providerHooks[0].Name())
 }
 
-func TestWithStrictValidation(t *testing.T) {
-	opt := WithStrictValidation()
-	assert.NotNil(t, opt)
-
+func TestWithToolHook(t *testing.T) {
+	hook := &testToolHook{name: "tool-hook"}
+	opt := WithToolHook(hook)
 	cfg := &config{}
 	err := opt(cfg)
 	assert.NoError(t, err)
-	assert.True(t, cfg.strictValidation)
+	require.Len(t, cfg.toolHooks, 1)
+	assert.Equal(t, "tool-hook", cfg.toolHooks[0].Name())
+}
+
+func TestWithSessionHook(t *testing.T) {
+	hook := &testSessionHook{name: "session-hook"}
+	opt := WithSessionHook(hook)
+	cfg := &config{}
+	err := opt(cfg)
+	assert.NoError(t, err)
+	require.Len(t, cfg.sessionHooks, 1)
+	assert.Equal(t, "session-hook", cfg.sessionHooks[0].Name())
+}
+
+func TestBuildHookRegistry(t *testing.T) {
+	t.Run("returns nil when no hooks", func(t *testing.T) {
+		cfg := &config{}
+		assert.Nil(t, cfg.buildHookRegistry())
+	})
+
+	t.Run("builds registry with all hook types", func(t *testing.T) {
+		cfg := &config{
+			providerHooks: []hooks.ProviderHook{&testProviderHook{name: "p1"}},
+			toolHooks:     []hooks.ToolHook{&testToolHook{name: "t1"}},
+			sessionHooks:  []hooks.SessionHook{&testSessionHook{name: "s1"}},
+		}
+		reg := cfg.buildHookRegistry()
+		assert.NotNil(t, reg)
+		assert.False(t, reg.IsEmpty())
+	})
 }
 
 func TestSendOptions(t *testing.T) {
@@ -901,3 +908,40 @@ func (m *mockSummarizeProvider) Close() error                 { return nil }
 func (m *mockSummarizeProvider) CalculateCost(_, _, _ int) types.CostInfo {
 	return types.CostInfo{}
 }
+
+// Test hook types for hook option tests
+
+type testProviderHook struct {
+	name string
+}
+
+func (h *testProviderHook) Name() string { return h.name }
+func (h *testProviderHook) BeforeCall(_ context.Context, _ *hooks.ProviderRequest) hooks.Decision {
+	return hooks.Allow
+}
+func (h *testProviderHook) AfterCall(_ context.Context, _ *hooks.ProviderRequest, _ *hooks.ProviderResponse) hooks.Decision {
+	return hooks.Allow
+}
+
+type testToolHook struct {
+	name string
+}
+
+func (h *testToolHook) Name() string { return h.name }
+func (h *testToolHook) BeforeExecution(_ context.Context, _ hooks.ToolRequest) hooks.Decision {
+	return hooks.Allow
+}
+func (h *testToolHook) AfterExecution(_ context.Context, _ hooks.ToolRequest, _ hooks.ToolResponse) hooks.Decision {
+	return hooks.Allow
+}
+
+type testSessionHook struct {
+	name string
+}
+
+func (h *testSessionHook) Name() string                                          { return h.name }
+func (h *testSessionHook) OnSessionStart(_ context.Context, _ hooks.SessionEvent) error { return nil }
+func (h *testSessionHook) OnSessionUpdate(_ context.Context, _ hooks.SessionEvent) error {
+	return nil
+}
+func (h *testSessionHook) OnSessionEnd(_ context.Context, _ hooks.SessionEvent) error { return nil }

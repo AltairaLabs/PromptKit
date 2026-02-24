@@ -13,6 +13,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -1944,3 +1945,156 @@ func TestForkErrorHandling(t *testing.T) {
 }
 
 // =============================================================================
+// Session hook lifecycle tests
+// =============================================================================
+
+// recordingSessionHook records which lifecycle methods were called.
+type recordingSessionHook struct {
+	name         string
+	startCalled  bool
+	updateCalled bool
+	endCalled    bool
+	lastEvent    hooks.SessionEvent
+}
+
+func (h *recordingSessionHook) Name() string { return h.name }
+func (h *recordingSessionHook) OnSessionStart(_ context.Context, event hooks.SessionEvent) error {
+	h.startCalled = true
+	h.lastEvent = event
+	return nil
+}
+func (h *recordingSessionHook) OnSessionUpdate(_ context.Context, event hooks.SessionEvent) error {
+	h.updateCalled = true
+	h.lastEvent = event
+	return nil
+}
+func (h *recordingSessionHook) OnSessionEnd(_ context.Context, event hooks.SessionEvent) error {
+	h.endCalled = true
+	h.lastEvent = event
+	return nil
+}
+
+func TestRunSessionStart(t *testing.T) {
+	t.Run("calls hook with session event", func(t *testing.T) {
+		hook := &recordingSessionHook{name: "test"}
+		reg := hooks.NewRegistry(hooks.WithSessionHook(hook))
+
+		conv := newTestConversation()
+		conv.hookRegistry = reg
+		conv.config.conversationID = "conv-123"
+
+		conv.runSessionStart(context.Background())
+
+		assert.True(t, hook.startCalled)
+		assert.Equal(t, conv.ID(), hook.lastEvent.SessionID)
+		assert.Equal(t, "conv-123", hook.lastEvent.ConversationID)
+		assert.Equal(t, 0, hook.lastEvent.TurnIndex)
+	})
+
+	t.Run("no-op when hookRegistry is nil", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.hookRegistry = nil
+		conv.runSessionStart(context.Background())
+	})
+}
+
+func TestRunSessionUpdate(t *testing.T) {
+	t.Run("calls hook with turn index", func(t *testing.T) {
+		hook := &recordingSessionHook{name: "test"}
+		reg := hooks.NewRegistry(hooks.WithSessionHook(hook))
+
+		conv := newTestConversation()
+		conv.hookRegistry = reg
+		conv.turnIndex = 3
+
+		conv.runSessionUpdate(context.Background())
+
+		assert.True(t, hook.updateCalled)
+		assert.Equal(t, 3, hook.lastEvent.TurnIndex)
+	})
+
+	t.Run("no-op when hookRegistry is nil", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.hookRegistry = nil
+		conv.runSessionUpdate(context.Background())
+	})
+}
+
+func TestRunSessionEnd(t *testing.T) {
+	t.Run("calls hook on close", func(t *testing.T) {
+		hook := &recordingSessionHook{name: "test"}
+		reg := hooks.NewRegistry(hooks.WithSessionHook(hook))
+
+		conv := newTestConversation()
+		conv.hookRegistry = reg
+		conv.turnIndex = 5
+
+		conv.runSessionEnd(context.Background())
+
+		assert.True(t, hook.endCalled)
+		assert.Equal(t, 5, hook.lastEvent.TurnIndex)
+	})
+
+	t.Run("no-op when hookRegistry is nil", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.hookRegistry = nil
+		conv.runSessionEnd(context.Background())
+	})
+}
+
+func TestBuildSessionEvent(t *testing.T) {
+	t.Run("populates all fields from conversation state", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.config.conversationID = "conv-456"
+		conv.turnIndex = 7
+
+		event := conv.buildSessionEvent()
+
+		assert.Equal(t, conv.ID(), event.SessionID)
+		assert.Equal(t, "conv-456", event.ConversationID)
+		assert.Equal(t, 7, event.TurnIndex)
+		assert.NotNil(t, event.Messages)
+	})
+
+	t.Run("handles nil sessions gracefully", func(t *testing.T) {
+		conv := &Conversation{
+			config:    &config{conversationID: "conv-789"},
+			turnIndex: 2,
+		}
+
+		event := conv.buildSessionEvent()
+
+		assert.Equal(t, "", event.SessionID)
+		assert.Nil(t, event.Messages)
+		assert.Equal(t, "conv-789", event.ConversationID)
+		assert.Equal(t, 2, event.TurnIndex)
+	})
+}
+
+func TestCloseRunsSessionEndHook(t *testing.T) {
+	hook := &recordingSessionHook{name: "test"}
+	reg := hooks.NewRegistry(hooks.WithSessionHook(hook))
+
+	conv := newTestConversation()
+	conv.hookRegistry = reg
+	conv.turnIndex = 2
+
+	err := conv.Close()
+	require.NoError(t, err)
+
+	assert.True(t, hook.endCalled)
+	assert.Equal(t, 2, hook.lastEvent.TurnIndex)
+}
+
+func TestForkPreservesHookRegistry(t *testing.T) {
+	hook := &recordingSessionHook{name: "test"}
+	reg := hooks.NewRegistry(hooks.WithSessionHook(hook))
+
+	conv := newTestConversation()
+	conv.hookRegistry = reg
+	conv.asyncHandlers = make(map[string]sdktools.AsyncToolHandler)
+
+	forked := conv.Fork()
+	require.NotNil(t, forked)
+	assert.Equal(t, reg, forked.hookRegistry)
+}
