@@ -13,7 +13,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/AltairaLabs/PromptKit/runtime/validators"
 	"github.com/AltairaLabs/PromptKit/runtime/variables"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -143,44 +142,6 @@ func TestConfig(t *testing.T) {
 		assert.NotNil(t, pipe)
 	})
 
-	t.Run("with validator registry and configs", func(t *testing.T) {
-		promptRegistry := createTestRegistry("chat")
-		validatorRegistry := validators.NewRegistry()
-		validatorConfigs := []validators.ValidatorConfig{
-			{Type: "banned_words", Params: map[string]interface{}{"words": []string{"test"}}},
-		}
-
-		cfg := &Config{
-			PromptRegistry:    promptRegistry,
-			TaskType:          "chat",
-			ValidatorRegistry: validatorRegistry,
-			ValidatorConfigs:  validatorConfigs,
-		}
-
-		pipe, err := Build(cfg)
-		require.NoError(t, err)
-		assert.NotNil(t, pipe)
-	})
-
-	t.Run("with suppressed validation errors", func(t *testing.T) {
-		promptRegistry := createTestRegistry("chat")
-		validatorRegistry := validators.NewRegistry()
-		validatorConfigs := []validators.ValidatorConfig{
-			{Type: "banned_words", Params: map[string]interface{}{"words": []string{"test"}}},
-		}
-
-		cfg := &Config{
-			PromptRegistry:           promptRegistry,
-			TaskType:                 "chat",
-			ValidatorRegistry:        validatorRegistry,
-			ValidatorConfigs:         validatorConfigs,
-			SuppressValidationErrors: true,
-		}
-
-		pipe, err := Build(cfg)
-		require.NoError(t, err)
-		assert.NotNil(t, pipe)
-	})
 }
 
 // createTestRegistryWithTemplate creates a prompt registry with variable substitution support.
@@ -416,28 +377,6 @@ func TestBuildStagePipeline(t *testing.T) {
 		result, err := pipe.ExecuteSync(context.Background(), elem)
 		require.NoError(t, err)
 		assert.NotNil(t, result)
-	})
-
-	t.Run("stage pipeline with validators", func(t *testing.T) {
-		registry := createTestRegistry("chat")
-		mockProvider := mock.NewProvider("test-mock", "test-model", false)
-		validatorRegistry := validators.NewRegistry()
-		validatorConfigs := []validators.ValidatorConfig{
-			{Type: "banned_words", Params: map[string]interface{}{"words": []string{"test"}}},
-		}
-
-		cfg := &Config{
-			PromptRegistry:    registry,
-			TaskType:          "chat",
-			Provider:          mockProvider,
-			UseStages:         true,
-			ValidatorRegistry: validatorRegistry,
-			ValidatorConfigs:  validatorConfigs,
-		}
-
-		pipe, err := Build(cfg)
-		require.NoError(t, err)
-		assert.NotNil(t, pipe)
 	})
 
 	t.Run("stage pipeline without provider", func(t *testing.T) {
@@ -706,24 +645,6 @@ func TestBuildStreamPipeline(t *testing.T) {
 		assert.NotNil(t, pipeline)
 	})
 
-	t.Run("builds with validators", func(t *testing.T) {
-		registry := createTestRegistry("chat")
-		validatorRegistry := validators.NewRegistry()
-
-		cfg := &Config{
-			PromptRegistry:    registry,
-			TaskType:          "chat",
-			ValidatorRegistry: validatorRegistry,
-			ValidatorConfigs: []validators.ValidatorConfig{
-				{Type: "length", Params: map[string]interface{}{"max": 100}},
-			},
-		}
-
-		pipeline, err := BuildStreamPipeline(cfg)
-		require.NoError(t, err)
-		assert.NotNil(t, pipeline)
-	})
-
 	t.Run("builds with provider", func(t *testing.T) {
 		registry := createTestRegistry("chat")
 		provider := mock.NewProvider("test", "test-model", false)
@@ -766,7 +687,6 @@ func TestBuildStreamPipeline(t *testing.T) {
 		toolRegistry := tools.NewRegistry()
 		store := statestore.NewMemoryStore()
 		varProvider := &testVariableProvider{vars: map[string]string{"env": "test"}}
-		validatorRegistry := validators.NewRegistry()
 
 		cfg := &Config{
 			PromptRegistry:    registry,
@@ -777,12 +697,8 @@ func TestBuildStreamPipeline(t *testing.T) {
 			ConversationID:    "full-test",
 			Variables:         map[string]string{"name": "Alice"},
 			VariableProviders: []variables.Provider{varProvider},
-			ValidatorRegistry: validatorRegistry,
-			ValidatorConfigs: []validators.ValidatorConfig{
-				{Type: "length", Params: map[string]interface{}{"max": 1000}},
-			},
-			MaxTokens:   4096,
-			Temperature: 0.8,
+			MaxTokens:         4096,
+			Temperature:       0.8,
 		}
 
 		pipeline, err := BuildStreamPipeline(cfg)
@@ -806,25 +722,6 @@ func TestBuildStreamPipeline(t *testing.T) {
 			Provider:       provider,
 			ToolRegistry:   toolRegistry,
 			ToolPolicy:     toolPolicy,
-		}
-
-		pipeline, err := BuildStreamPipeline(cfg)
-		require.NoError(t, err)
-		assert.NotNil(t, pipeline)
-	})
-
-	t.Run("builds with suppress validation errors", func(t *testing.T) {
-		registry := createTestRegistry("chat")
-		validatorRegistry := validators.NewRegistry()
-
-		cfg := &Config{
-			PromptRegistry:    registry,
-			TaskType:          "chat",
-			ValidatorRegistry: validatorRegistry,
-			ValidatorConfigs: []validators.ValidatorConfig{
-				{Type: "length", Params: map[string]interface{}{"max": 100}},
-			},
-			SuppressValidationErrors: true,
 		}
 
 		pipeline, err := BuildStreamPipeline(cfg)

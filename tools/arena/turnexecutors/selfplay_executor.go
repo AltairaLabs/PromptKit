@@ -10,7 +10,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/AltairaLabs/PromptKit/runtime/validators"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	arenastages "github.com/AltairaLabs/PromptKit/tools/arena/stages"
 )
@@ -409,7 +408,6 @@ func (e *SelfPlayExecutor) buildStreamingStages(req *TurnRequest) (*stage.Stream
 
 	stages = append(stages,
 		stage.NewProviderStage(req.Provider, e.pipelineExecutor.toolRegistry, buildToolPolicy(req.Scenario), providerConfig),
-		stage.NewValidationStage(validators.DefaultRegistry, true),
 	)
 
 	// StateStore Save stage

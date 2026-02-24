@@ -15,7 +15,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
-	"github.com/AltairaLabs/PromptKit/runtime/validators"
 	"github.com/AltairaLabs/PromptKit/runtime/variables"
 )
 
@@ -50,15 +49,6 @@ type Config struct {
 
 	// RelevanceConfig for embedding-based truncation (optional, used with "relevance" strategy)
 	RelevanceConfig *stage.RelevanceConfig
-
-	// ValidatorRegistry for creating validators (optional)
-	ValidatorRegistry *validators.Registry
-
-	// ValidatorConfigs from the pack (optional)
-	ValidatorConfigs []validators.ValidatorConfig
-
-	// SuppressValidationErrors when true, validation failures don't return errors
-	SuppressValidationErrors bool
 
 	// MaxTokens for LLM response
 	MaxTokens int
@@ -260,15 +250,7 @@ func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 		))
 	}
 
-	// 6. Validation stage - validate responses if configured
-	if cfg.ValidatorRegistry != nil && len(cfg.ValidatorConfigs) > 0 {
-		stages = append(stages, stage.NewValidationStage(
-			cfg.ValidatorRegistry,
-			cfg.SuppressValidationErrors,
-		))
-	}
-
-	// 7. State store save stage - saves conversation state LAST
+	// 6. State store save stage - saves conversation state LAST
 	if stateStoreConfig != nil {
 		if useRAGContext {
 			// Use IncrementalSaveStage for efficient appends
