@@ -2,7 +2,6 @@ package assertions
 
 import (
 	"fmt"
-	"strings"
 
 	runtimeValidators "github.com/AltairaLabs/PromptKit/runtime/validators"
 )
@@ -50,32 +49,16 @@ func (v *ToolResultIncludesValidator) Validate(
 		}
 	}
 
-	matchCount := 0
-	var missingPatterns []map[string]interface{}
+	views := toolCallViewsFromTrace(trace)
+	matchCount, missingDetails := coreToolResultIncludes(views, v.tool, v.patterns)
 
-	for _, tc := range trace {
-		if v.tool != "" && tc.Name != v.tool {
-			continue
-		}
-
-		resultLower := strings.ToLower(tc.Result)
-		allFound := true
-		var missing []string
-		for _, p := range v.patterns {
-			if !strings.Contains(resultLower, strings.ToLower(p)) {
-				allFound = false
-				missing = append(missing, p)
-			}
-		}
-
-		if allFound {
-			matchCount++
-		} else {
-			missingPatterns = append(missingPatterns, map[string]interface{}{
-				"tool":             tc.Name,
-				"missing_patterns": missing,
-				"round_index":      tc.RoundIndex,
-			})
+	// Remap "index" to "round_index" for turn-level compatibility
+	turnMissing := make([]map[string]interface{}, len(missingDetails))
+	for i, m := range missingDetails {
+		turnMissing[i] = map[string]interface{}{
+			"tool":             m["tool"],
+			"missing_patterns": m["missing_patterns"],
+			"round_index":      m["index"],
 		}
 	}
 
@@ -96,7 +79,7 @@ func (v *ToolResultIncludesValidator) Validate(
 				"expected %d call(s) with all patterns, found %d",
 				v.occurrence, matchCount,
 			),
-			"missing_details": missingPatterns,
+			"missing_details": turnMissing,
 		},
 	}
 }

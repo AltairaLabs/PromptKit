@@ -44,29 +44,20 @@ func (v *ToolCallSequenceValidator) Validate(
 		}
 	}
 
-	cursor := 0
-	for _, tc := range trace {
-		if cursor < len(v.sequence) && tc.Name == v.sequence[cursor] {
-			cursor++
-		}
-	}
+	views := toolCallViewsFromTrace(trace)
+	matched, actual := coreToolCallSequence(views, v.sequence)
 
-	if cursor < len(v.sequence) {
-		// Collect actual tool names for diagnostics
-		actual := make([]string, len(trace))
-		for i, tc := range trace {
-			actual[i] = tc.Name
-		}
+	if matched < len(v.sequence) {
 		return runtimeValidators.ValidationResult{
 			Passed: false,
 			Details: map[string]interface{}{
 				"message": fmt.Sprintf(
 					"sequence not satisfied: matched %d/%d steps, stuck at %q",
-					cursor, len(v.sequence), v.sequence[cursor],
+					matched, len(v.sequence), v.sequence[matched],
 				),
 				"expected_sequence": v.sequence,
 				"actual_tools":      strings.Join(actual, " → "),
-				"matched_steps":     cursor,
+				"matched_steps":     matched,
 			},
 		}
 	}

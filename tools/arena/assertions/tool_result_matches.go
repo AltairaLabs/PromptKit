@@ -2,7 +2,6 @@ package assertions
 
 import (
 	"fmt"
-	"regexp"
 
 	runtimeValidators "github.com/AltairaLabs/PromptKit/runtime/validators"
 )
@@ -51,7 +50,9 @@ func (v *ToolResultMatchesValidator) Validate(
 		}
 	}
 
-	re, err := regexp.Compile(v.pattern)
+	views := toolCallViewsFromTrace(trace)
+	matchCount, err := coreToolResultMatches(views, v.tool, v.pattern)
+
 	if err != nil {
 		return runtimeValidators.ValidationResult{
 			Passed: false,
@@ -60,16 +61,6 @@ func (v *ToolResultMatchesValidator) Validate(
 				"pattern": v.pattern,
 				"message": err.Error(),
 			},
-		}
-	}
-
-	matchCount := 0
-	for _, tc := range trace {
-		if v.tool != "" && tc.Name != v.tool {
-			continue
-		}
-		if re.MatchString(tc.Result) {
-			matchCount++
 		}
 	}
 

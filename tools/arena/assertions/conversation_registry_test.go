@@ -27,4 +27,15 @@ func TestConversationAssertionRegistry_Basic(t *testing.T) {
 	if len(ts) == 0 {
 		t.Fatalf("expected non-empty types")
 	}
+
+	// Tool call conversation validators should be registered
+	toolCallTypes := []string{
+		"no_tool_errors", "tool_call_count", "tool_result_includes",
+		"tool_result_matches", "tool_call_sequence", "tool_call_chain",
+	}
+	for _, typ := range toolCallTypes {
+		if !r.Has(typ) {
+			t.Errorf("expected %q conversation validator to be registered", typ)
+		}
+	}
 }

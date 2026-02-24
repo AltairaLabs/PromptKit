@@ -42,31 +42,24 @@ func (v *NoToolErrorsValidator) Validate(
 		}
 	}
 
-	scopeSet := make(map[string]bool, len(v.tools))
-	for _, t := range v.tools {
-		scopeSet[t] = true
-	}
-
-	var errors []map[string]interface{}
-	for _, tc := range trace {
-		if len(scopeSet) > 0 && !scopeSet[tc.Name] {
-			continue
-		}
-		if tc.Error != "" {
-			errors = append(errors, map[string]interface{}{
-				"tool":        tc.Name,
-				"error":       tc.Error,
-				"round_index": tc.RoundIndex,
-			})
-		}
-	}
+	views := toolCallViewsFromTrace(trace)
+	errors := coreNoToolErrors(views, v.tools)
 
 	if len(errors) > 0 {
+		// Remap "index" to "round_index" for turn-level compatibility
+		turnErrors := make([]map[string]interface{}, len(errors))
+		for i, e := range errors {
+			turnErrors[i] = map[string]interface{}{
+				"tool":        e["tool"],
+				"error":       e["error"],
+				"round_index": e["index"],
+			}
+		}
 		return runtimeValidators.ValidationResult{
 			Passed: false,
 			Details: map[string]interface{}{
 				"message":     fmt.Sprintf("%d tool call(s) returned errors", len(errors)),
-				"tool_errors": errors,
+				"tool_errors": turnErrors,
 			},
 		}
 	}

@@ -51,6 +51,14 @@ func NewConversationAssertionRegistry() *ConversationAssertionRegistry {
 	registry.Register("skill_activated", NewSkillActivatedConversationValidator)
 	registry.Register("skill_not_activated", NewSkillNotActivatedConversationValidator)
 
+	// Register tool call conversation assertions (shared core with turn-level validators)
+	registry.Register("no_tool_errors", NewNoToolErrorsConversationValidator)
+	registry.Register("tool_call_count", NewToolCallCountConversationValidator)
+	registry.Register("tool_result_includes", NewToolResultIncludesConversationValidator)
+	registry.Register("tool_result_matches", NewToolResultMatchesConversationValidator)
+	registry.Register("tool_call_sequence", NewToolCallSequenceConversationValidator)
+	registry.Register("tool_call_chain", NewToolCallChainConversationValidator)
+
 	return registry
 }
 

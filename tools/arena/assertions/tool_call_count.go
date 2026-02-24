@@ -1,12 +1,13 @@
 package assertions
 
 import (
-	"fmt"
-
 	runtimeValidators "github.com/AltairaLabs/PromptKit/runtime/validators"
 )
 
-const countNotSet = -1
+const (
+	countNotSet      = -1
+	countWithinBound = "count within bounds"
+)
 
 // ToolCallCountValidator asserts count constraints on tool calls in a turn.
 type ToolCallCountValidator struct {
@@ -41,12 +42,8 @@ func (v *ToolCallCountValidator) Validate(
 		}
 	}
 
-	count := 0
-	for _, tc := range trace {
-		if v.tool == "" || tc.Name == v.tool {
-			count++
-		}
-	}
+	views := toolCallViewsFromTrace(trace)
+	count, violation := coreToolCallCount(views, v.tool, v.min, v.max)
 
 	details := map[string]interface{}{
 		"count": count,
@@ -55,20 +52,16 @@ func (v *ToolCallCountValidator) Validate(
 		details["tool"] = v.tool
 	}
 
-	if v.min != countNotSet && count < v.min {
-		details["message"] = fmt.Sprintf("expected at least %d call(s), got %d", v.min, count)
-		return runtimeValidators.ValidationResult{Passed: false, Details: details}
-	}
-	if v.max != countNotSet && count > v.max {
-		details["message"] = fmt.Sprintf("expected at most %d call(s), got %d", v.max, count)
+	if violation != "" {
+		details["message"] = violation
 		return runtimeValidators.ValidationResult{Passed: false, Details: details}
 	}
 
-	details["message"] = "count within bounds"
+	details["message"] = countWithinBound
 	return runtimeValidators.ValidationResult{Passed: true, Details: details}
 }
 
-// extractIntParam extracts an integer param, handling YAML float64→int coercion.
+// extractIntParam extracts an integer param, handling YAML float64->int coercion.
 func extractIntParam(params map[string]interface{}, key string, defaultVal int) int {
 	val, ok := params[key]
 	if !ok {

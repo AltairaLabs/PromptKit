@@ -2,8 +2,6 @@ package assertions
 
 import (
 	"fmt"
-	"regexp"
-	"strings"
 
 	runtimeValidators "github.com/AltairaLabs/PromptKit/runtime/validators"
 )
@@ -68,35 +66,25 @@ func (v *ToolCallChainValidator) Validate(
 		}
 	}
 
-	stepCursor := 0
-	for _, tc := range trace {
-		if stepCursor >= len(v.steps) {
-			break
-		}
-		step := v.steps[stepCursor]
-		if tc.Name != step.tool {
-			continue
-		}
+	views := toolCallViewsFromTrace(trace)
+	completed, failure := coreToolCallChain(views, v.steps)
 
-		// Validate step constraints
-		if violation := validateChainStep(&tc, step, stepCursor); violation != nil {
-			return runtimeValidators.ValidationResult{
-				Passed:  false,
-				Details: violation,
-			}
+	if failure != nil {
+		return runtimeValidators.ValidationResult{
+			Passed:  false,
+			Details: failure,
 		}
-		stepCursor++
 	}
 
-	if stepCursor < len(v.steps) {
+	if completed < len(v.steps) {
 		return runtimeValidators.ValidationResult{
 			Passed: false,
 			Details: map[string]interface{}{
 				"message": fmt.Sprintf(
 					"chain incomplete: satisfied %d/%d steps, missing %q",
-					stepCursor, len(v.steps), v.steps[stepCursor].tool,
+					completed, len(v.steps), v.steps[completed].tool,
 				),
-				"completed_steps": stepCursor,
+				"completed_steps": completed,
 				"total_steps":     len(v.steps),
 			},
 		}
@@ -109,26 +97,6 @@ func (v *ToolCallChainValidator) Validate(
 			"completed_steps": len(v.steps),
 		},
 	}
-}
-
-// validateChainStep checks a single step's constraints against a tool call.
-// Returns nil if all constraints pass, or a details map describing the failure.
-func validateChainStep(tc *TurnToolCall, step chainStep, stepIndex int) map[string]interface{} {
-	if step.noError && tc.Error != "" {
-		return chainStepFailure(stepIndex, step.tool, "unexpected error", map[string]interface{}{
-			"error": tc.Error,
-		})
-	}
-
-	if f := checkChainResultIncludes(tc, step, stepIndex); f != nil {
-		return f
-	}
-
-	if f := checkChainResultMatches(tc, step, stepIndex); f != nil {
-		return f
-	}
-
-	return checkChainArgsMatch(tc, step, stepIndex)
 }
 
 // chainStepFailure builds a standardized failure map for a chain step.
@@ -144,62 +112,6 @@ func chainStepFailure(
 		result[k] = v
 	}
 	return result
-}
-
-func checkChainResultIncludes(tc *TurnToolCall, step chainStep, stepIndex int) map[string]interface{} {
-	if len(step.resultIncludes) == 0 {
-		return nil
-	}
-	resultLower := strings.ToLower(tc.Result)
-	for _, pattern := range step.resultIncludes {
-		if !strings.Contains(resultLower, strings.ToLower(pattern)) {
-			return chainStepFailure(stepIndex, step.tool,
-				fmt.Sprintf("result missing pattern %q", pattern),
-				map[string]interface{}{"missing_pattern": pattern})
-		}
-	}
-	return nil
-}
-
-func checkChainResultMatches(tc *TurnToolCall, step chainStep, stepIndex int) map[string]interface{} {
-	if step.resultMatches == "" {
-		return nil
-	}
-	re, err := regexp.Compile(step.resultMatches)
-	if err != nil {
-		return chainStepFailure(stepIndex, step.tool,
-			fmt.Sprintf("invalid regex %q", step.resultMatches),
-			map[string]interface{}{"error": err.Error()})
-	}
-	if !re.MatchString(tc.Result) {
-		return chainStepFailure(stepIndex, step.tool,
-			"result does not match pattern",
-			map[string]interface{}{"pattern": step.resultMatches})
-	}
-	return nil
-}
-
-func checkChainArgsMatch(tc *TurnToolCall, step chainStep, stepIndex int) map[string]interface{} {
-	for argName, pattern := range step.argsMatch {
-		argVal, exists := tc.Args[argName]
-		if !exists {
-			return chainStepFailure(stepIndex, step.tool,
-				fmt.Sprintf("missing argument %q", argName),
-				map[string]interface{}{"argument": argName})
-		}
-		re, err := regexp.Compile(pattern)
-		if err != nil {
-			return chainStepFailure(stepIndex, step.tool,
-				fmt.Sprintf("invalid arg regex %q", pattern),
-				map[string]interface{}{"error": err.Error()})
-		}
-		if !re.MatchString(asString(argVal)) {
-			return chainStepFailure(stepIndex, step.tool,
-				fmt.Sprintf("argument %q does not match pattern", argName),
-				map[string]interface{}{"argument": argName, "pattern": pattern, "actual": argVal})
-		}
-	}
-	return nil
 }
 
 // extractBoolParam extracts a boolean param from a map.
