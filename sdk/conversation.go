@@ -11,6 +11,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
@@ -108,8 +109,14 @@ type Conversation struct {
 	// Platform capabilities (workflow, a2a, memory, etc.)
 	capabilities []Capability
 
+	// Hook registry for policy enforcement (nil = no hooks)
+	hookRegistry *hooks.Registry
+
 	// Eval middleware for dispatching evals after Send/Close
 	evalMW *evalMiddleware
+
+	// Session hook state
+	turnIndex int
 
 	// Closed flag
 	closed bool
@@ -185,6 +192,8 @@ func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption
 	}
 
 	resp := c.buildResponse(result, startTime)
+	c.turnIndex++
+	c.runSessionUpdate(ctx)
 	c.evalMW.dispatchTurnEvals(ctx) // nil-safe, no-op if middleware is nil
 	return resp, nil
 }
@@ -287,6 +296,7 @@ func (c *Conversation) buildPipelineWithParams(
 		RetrievalTopK:         c.config.retrievalTopK,
 		SummarizeThreshold:    c.config.summarizeThreshold,
 		SummarizeBatchSize:    c.config.summarizeBatchSize,
+		HookRegistry:          c.hookRegistry,
 	}
 
 	// Wire up RAG context components from SDK options
@@ -370,6 +380,7 @@ func (c *Conversation) buildStreamPipelineWithParams(
 		RetrievalTopK:         c.config.retrievalTopK,
 		SummarizeThreshold:    c.config.summarizeThreshold,
 		SummarizeBatchSize:    c.config.summarizeBatchSize,
+		HookRegistry:          c.hookRegistry,
 	}
 
 	// Wire up RAG context components from SDK options
@@ -785,6 +796,7 @@ func (c *Conversation) Fork() *Conversation {
 		pendingStore:   sdktools.NewPendingStore(),
 		resolvedStore:  sdktools.NewResolvedStore(),
 		mcpRegistry:    c.mcpRegistry, // Share MCP registry
+		hookRegistry:   c.hookRegistry, // Share hook registry
 	}
 
 	// Fork the session based on current mode
@@ -832,6 +844,9 @@ func (c *Conversation) Close() error {
 		return nil
 	}
 	c.closed = true
+
+	// Run session end hooks before cleanup
+	c.runSessionEnd(context.Background())
 
 	// Dispatch session-complete evals before cleanup
 	if c.evalMW != nil {
@@ -882,6 +897,52 @@ func (c *Conversation) ID() string {
 // For convenience methods, see the [hooks] package.
 func (c *Conversation) EventBus() *events.EventBus {
 	return c.config.eventBus
+}
+
+// runSessionStart dispatches OnSessionStart to all registered session hooks.
+// Nil-safe: no-op if hookRegistry is nil.
+func (c *Conversation) runSessionStart(ctx context.Context) {
+	if c.hookRegistry == nil {
+		return
+	}
+	event := c.buildSessionEvent()
+	_ = c.hookRegistry.RunSessionStart(ctx, event) // errors logged by hooks, don't block Open
+}
+
+// runSessionUpdate dispatches OnSessionUpdate to all registered session hooks.
+// Nil-safe: no-op if hookRegistry is nil.
+func (c *Conversation) runSessionUpdate(ctx context.Context) {
+	if c.hookRegistry == nil {
+		return
+	}
+	event := c.buildSessionEvent()
+	_ = c.hookRegistry.RunSessionUpdate(ctx, event) // errors logged by hooks, don't block Send
+}
+
+// runSessionEnd dispatches OnSessionEnd to all registered session hooks.
+// Nil-safe: no-op if hookRegistry is nil.
+func (c *Conversation) runSessionEnd(ctx context.Context) {
+	if c.hookRegistry == nil {
+		return
+	}
+	event := c.buildSessionEvent()
+	_ = c.hookRegistry.RunSessionEnd(ctx, event) // errors logged by hooks, don't block Close
+}
+
+// buildSessionEvent constructs a SessionEvent from current conversation state.
+func (c *Conversation) buildSessionEvent() hooks.SessionEvent {
+	event := hooks.SessionEvent{
+		TurnIndex: c.turnIndex,
+	}
+	// Safely access session IDs
+	if c.unarySession != nil || c.duplexSession != nil {
+		event.SessionID = c.ID()
+		event.Messages = c.Messages(context.Background())
+	}
+	if c.config != nil {
+		event.ConversationID = c.config.conversationID
+	}
+	return event
 }
 
 // buildRelevanceConfig converts SDK RelevanceConfig to stage.RelevanceConfig.

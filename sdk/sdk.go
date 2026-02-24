@@ -115,6 +115,9 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 		return nil, err
 	}
 
+	// Build hook registry from config options
+	conv.hookRegistry = cfg.buildHookRegistry()
+
 	// Initialize eval middleware
 	conv.evalMW = newEvalMiddleware(conv)
 
@@ -122,6 +125,9 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 	if err := initMCPRegistry(conv, cfg); err != nil {
 		return nil, err
 	}
+
+	// Dispatch session start hooks
+	conv.runSessionStart(context.Background())
 
 	return conv, nil
 }
@@ -219,6 +225,9 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 		return nil, err
 	}
 
+	// Build hook registry from config options
+	conv.hookRegistry = cfg.buildHookRegistry()
+
 	// Initialize eval middleware
 	conv.evalMW = newEvalMiddleware(conv)
 
@@ -226,6 +235,9 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 	if err := initMCPRegistry(conv, cfg); err != nil {
 		return nil, err
 	}
+
+	// Dispatch session start hooks
+	conv.runSessionStart(context.Background())
 
 	return conv, nil
 }

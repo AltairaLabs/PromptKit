@@ -6,6 +6,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
@@ -127,6 +128,10 @@ type Config struct {
 	// EventEmitter for emitting provider call events (optional)
 	// When provided, ProviderStage will emit ProviderCallStarted/Completed/Failed events
 	EventEmitter *events.Emitter
+
+	// HookRegistry for policy enforcement hooks (optional)
+	// When provided, ProviderStage will use hooks for provider call, chunk, and tool interception
+	HookRegistry *hooks.Registry
 }
 
 // Build creates a stage-based streaming pipeline.
@@ -241,12 +246,13 @@ func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 			Temperature:    cfg.Temperature,
 			ResponseFormat: cfg.ResponseFormat,
 		}
-		stages = append(stages, stage.NewProviderStageWithEmitter(
+		stages = append(stages, stage.NewProviderStageWithHooks(
 			cfg.Provider,
 			cfg.ToolRegistry,
 			cfg.ToolPolicy,
 			providerConfig,
 			cfg.EventEmitter,
+			cfg.HookRegistry,
 		))
 	}
 

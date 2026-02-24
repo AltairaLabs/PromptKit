@@ -9,6 +9,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/evals/handlers"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -75,10 +76,12 @@ type config struct {
 	summarizeThreshold int
 	summarizeBatchSize int
 
-	// Validation behavior
-	validationMode       ValidationMode
-	disabledValidators   []string
-	strictValidation     bool
+	// Hook configuration for policy enforcement
+	providerHooks []hooks.ProviderHook
+	toolHooks     []hooks.ToolHook
+	sessionHooks  []hooks.SessionHook
+
+	// Schema validation
 	skipSchemaValidation bool
 
 	// MCP configuration
@@ -148,6 +151,25 @@ type config struct {
 	skillsDirs      []string
 	skillSelector   skills.SkillSelector
 	maxActiveSkills int
+}
+
+// buildHookRegistry creates a hooks.Registry from the configured hooks.
+// Returns nil if no hooks are configured (zero overhead path).
+func (c *config) buildHookRegistry() *hooks.Registry {
+	if len(c.providerHooks) == 0 && len(c.toolHooks) == 0 && len(c.sessionHooks) == 0 {
+		return nil
+	}
+	var opts []hooks.Option
+	for _, h := range c.providerHooks {
+		opts = append(opts, hooks.WithProviderHook(h))
+	}
+	for _, h := range c.toolHooks {
+		opts = append(opts, hooks.WithToolHook(h))
+	}
+	for _, h := range c.sessionHooks {
+		opts = append(opts, hooks.WithSessionHook(h))
+	}
+	return hooks.NewRegistry(opts...)
 }
 
 // Option configures a Conversation.
@@ -632,56 +654,46 @@ func WithAutoSummarize(provider providers.Provider, threshold, batchSize int) Op
 	}
 }
 
-// ValidationMode controls how validation failures are handled.
-type ValidationMode int
-
-const (
-	// ValidationModeError causes validation failures to return errors (default).
-	ValidationModeError ValidationMode = iota
-
-	// ValidationModeWarn logs validation failures but doesn't return errors.
-	ValidationModeWarn
-
-	// ValidationModeDisabled skips validation entirely.
-	ValidationModeDisabled
-)
-
-// WithValidationMode sets how validation failures are handled.
+// WithProviderHook registers a provider hook for intercepting LLM calls.
 //
-//	// Suppress validation errors (useful for testing)
+// Provider hooks run synchronously before and after each LLM call.
+// Multiple hooks are executed in order; the first deny short-circuits.
+//
 //	conv, _ := sdk.Open("./chat.pack.json", "assistant",
-//	    sdk.WithValidationMode(sdk.ValidationModeWarn),
+//	    sdk.WithProviderHook(hooks.NewBannedWords([]string{"secret"})),
 //	)
-func WithValidationMode(mode ValidationMode) Option {
+func WithProviderHook(h hooks.ProviderHook) Option {
 	return func(c *config) error {
-		c.validationMode = mode
+		c.providerHooks = append(c.providerHooks, h)
 		return nil
 	}
 }
 
-// WithDisabledValidators disables specific validators by name.
+// WithToolHook registers a tool hook for intercepting tool execution.
+//
+// Tool hooks run synchronously before and after each LLM-initiated tool call.
+// Multiple hooks are executed in order; the first deny short-circuits.
 //
 //	conv, _ := sdk.Open("./chat.pack.json", "assistant",
-//	    sdk.WithDisabledValidators("max_length", "banned_words"),
+//	    sdk.WithToolHook(myToolAuditHook),
 //	)
-func WithDisabledValidators(names ...string) Option {
+func WithToolHook(h hooks.ToolHook) Option {
 	return func(c *config) error {
-		c.disabledValidators = append(c.disabledValidators, names...)
+		c.toolHooks = append(c.toolHooks, h)
 		return nil
 	}
 }
 
-// WithStrictValidation makes all validators fail on violation.
+// WithSessionHook registers a session hook for tracking conversation lifecycle.
 //
-// Normally, validators respect their fail_on_violation setting from the pack.
-// With strict validation, all validators will cause errors on failure.
+// Session hooks are called on session start, after each turn, and on session end.
 //
 //	conv, _ := sdk.Open("./chat.pack.json", "assistant",
-//	    sdk.WithStrictValidation(),
+//	    sdk.WithSessionHook(mySessionLogger),
 //	)
-func WithStrictValidation() Option {
+func WithSessionHook(h hooks.SessionHook) Option {
 	return func(c *config) error {
-		c.strictValidation = true
+		c.sessionHooks = append(c.sessionHooks, h)
 		return nil
 	}
 }

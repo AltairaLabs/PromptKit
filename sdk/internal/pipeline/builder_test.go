@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
@@ -835,6 +836,71 @@ func TestBuildStreamPipeline(t *testing.T) {
 		}
 
 		pipeline, err := BuildStreamPipeline(cfg)
+		require.NoError(t, err)
+		assert.NotNil(t, pipeline)
+	})
+}
+
+func TestBuildWithHookRegistry(t *testing.T) {
+	t.Run("builds with hook registry", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		provider := mock.NewProvider("test", "test-model", false)
+		hookReg := hooks.NewRegistry() // empty but non-nil
+
+		cfg := &Config{
+			PromptRegistry: registry,
+			TaskType:       "chat",
+			Provider:       provider,
+			HookRegistry:   hookReg,
+		}
+
+		pipeline, err := Build(cfg)
+		require.NoError(t, err)
+		assert.NotNil(t, pipeline)
+	})
+
+	t.Run("builds and executes with hook registry", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		provider := mock.NewProvider("test", "test-model", false)
+		hookReg := hooks.NewRegistry()
+
+		cfg := &Config{
+			PromptRegistry: registry,
+			TaskType:       "chat",
+			Provider:       provider,
+			HookRegistry:   hookReg,
+			MaxTokens:      100,
+		}
+
+		pipe, err := Build(cfg)
+		require.NoError(t, err)
+
+		userMsg := types.Message{Role: "user"}
+		userMsg.AddTextPart("Hello with hooks!")
+
+		elem := stage.StreamElement{
+			Message:  &userMsg,
+			Metadata: map[string]interface{}{"conversation_id": "test-conv"},
+		}
+
+		result, err := pipe.ExecuteSync(context.Background(), elem)
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.NotNil(t, result.Response)
+	})
+
+	t.Run("nil hook registry is accepted", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		provider := mock.NewProvider("test", "test-model", false)
+
+		cfg := &Config{
+			PromptRegistry: registry,
+			TaskType:       "chat",
+			Provider:       provider,
+			HookRegistry:   nil,
+		}
+
+		pipeline, err := Build(cfg)
 		require.NoError(t, err)
 		assert.NotNil(t, pipeline)
 	})
