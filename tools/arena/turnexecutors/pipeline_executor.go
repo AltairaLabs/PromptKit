@@ -17,7 +17,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/AltairaLabs/PromptKit/runtime/validators"
 	arenastages "github.com/AltairaLabs/PromptKit/tools/arena/stages"
 )
 
@@ -328,10 +327,7 @@ func (e *PipelineExecutor) buildStagePipeline(
 		stages = append(stages, stage.NewMediaExternalizerStage(mediaConfig))
 	}
 
-	// 8. Dynamic validator
-	stages = append(stages, stage.NewValidationStage(validators.DefaultRegistry, true))
-
-	// 9. Assertion stage - must run before state store save
+	// 8. Assertion stage - must run before state store save
 	if len(req.Assertions) > 0 {
 		assertionStage := arenastages.NewArenaAssertionStage(req.Assertions)
 		if runner, ok := req.TurnEvalRunner.(arenastages.TurnEvalRunner); ok {

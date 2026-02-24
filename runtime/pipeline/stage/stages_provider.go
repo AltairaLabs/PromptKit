@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -34,6 +35,7 @@ type ProviderStage struct {
 	toolPolicy   *pipeline.ToolPolicy
 	config       *ProviderConfig
 	emitter      *events.Emitter // Optional event emitter for provider call events
+	hookRegistry *hooks.Registry // Optional hook registry for policy enforcement
 }
 
 // ProviderConfig contains configuration for the provider stage.
@@ -74,6 +76,20 @@ func NewProviderStageWithEmitter(
 	config *ProviderConfig,
 	emitter *events.Emitter,
 ) *ProviderStage {
+	return NewProviderStageWithHooks(provider, toolRegistry, toolPolicy, config, emitter, nil)
+}
+
+// NewProviderStageWithHooks creates a provider stage with event emission and hook support.
+// The hookRegistry enables synchronous interception of provider calls, streaming chunks,
+// and tool execution. Pass nil for no hooks (zero overhead).
+func NewProviderStageWithHooks(
+	provider providers.Provider,
+	toolRegistry *tools.Registry,
+	toolPolicy *pipeline.ToolPolicy,
+	config *ProviderConfig,
+	emitter *events.Emitter,
+	hookRegistry *hooks.Registry,
+) *ProviderStage {
 	if config == nil {
 		config = &ProviderConfig{}
 	}
@@ -84,6 +100,7 @@ func NewProviderStageWithEmitter(
 		toolPolicy:   toolPolicy,
 		config:       config,
 		emitter:      emitter,
+		hookRegistry: hookRegistry,
 	}
 }
 
@@ -334,6 +351,26 @@ func (s *ProviderStage) executeRound(
 		s.emitter.ProviderCallStarted(s.provider.ID(), "", len(messages), toolCount)
 	}
 
+	// Run BeforeCall hooks
+	if s.hookRegistry != nil {
+		hookReq := &hooks.ProviderRequest{
+			ProviderID:   s.provider.ID(),
+			Model:        s.provider.Model(),
+			Messages:     messages,
+			SystemPrompt: systemPrompt,
+			Round:        round,
+			Metadata:     metadata,
+		}
+		if d := s.hookRegistry.RunBeforeProviderCall(ctx, hookReq); !d.Allow {
+			return types.Message{}, false, &hooks.HookDeniedError{
+				HookName: "provider_hook",
+				HookType: "provider_before",
+				Reason:   d.Reason,
+				Metadata: d.Metadata,
+			}
+		}
+	}
+
 	// Call provider (with or without tools)
 	startTime := time.Now()
 	var resp providers.PredictionResponse
@@ -392,6 +429,41 @@ func (s *ProviderStage) executeRound(
 		CostInfo:  resp.CostInfo,
 	}
 
+	// Run AfterCall hooks
+	if s.hookRegistry != nil {
+		hookReq := &hooks.ProviderRequest{
+			ProviderID:   s.provider.ID(),
+			Model:        s.provider.Model(),
+			Messages:     messages,
+			SystemPrompt: systemPrompt,
+			Round:        round,
+			Metadata:     metadata,
+		}
+		hookResp := &hooks.ProviderResponse{
+			ProviderID: s.provider.ID(),
+			Model:      s.provider.Model(),
+			Message:    responseMsg,
+			Round:      round,
+			LatencyMs:  duration.Milliseconds(),
+		}
+		if d := s.hookRegistry.RunAfterProviderCall(ctx, hookReq, hookResp); !d.Allow {
+			// Populate msg.Validations for guardrail_triggered compat
+			if vType, ok := d.Metadata["validator_type"].(string); ok {
+				responseMsg.Validations = append(responseMsg.Validations, types.ValidationResult{
+					ValidatorType: vType,
+					Passed:        false,
+					Details:       d.Metadata,
+				})
+			}
+			return responseMsg, false, &hooks.HookDeniedError{
+				HookName: "provider_hook",
+				HookType: "provider_after",
+				Reason:   d.Reason,
+				Metadata: d.Metadata,
+			}
+		}
+	}
+
 	logger.Debug("Provider round completed",
 		"round", round,
 		"duration", duration,
@@ -432,6 +504,26 @@ func (s *ProviderStage) executeStreamingRound(
 		"round", params.round,
 		"messages", len(params.messages),
 		"tools", params.providerTools != nil)
+
+	// Run BeforeCall hooks
+	if s.hookRegistry != nil {
+		hookReq := &hooks.ProviderRequest{
+			ProviderID:   s.provider.ID(),
+			Model:        s.provider.Model(),
+			Messages:     params.messages,
+			SystemPrompt: params.systemPrompt,
+			Round:        params.round,
+			Metadata:     params.metadata,
+		}
+		if d := s.hookRegistry.RunBeforeProviderCall(ctx, hookReq); !d.Allow {
+			return types.Message{}, false, &hooks.HookDeniedError{
+				HookName: "provider_hook",
+				HookType: "provider_before",
+				Reason:   d.Reason,
+				Metadata: d.Metadata,
+			}
+		}
+	}
 
 	// Emit provider call started event
 	if s.emitter != nil {
@@ -489,6 +581,43 @@ func (s *ProviderStage) executeStreamingRound(
 		Timestamp: timeNow(),
 		LatencyMs: duration.Milliseconds(),
 		CostInfo:  costInfo,
+	}
+
+	// Run AfterCall hooks
+	if s.hookRegistry != nil {
+		hookReq := &hooks.ProviderRequest{
+			ProviderID:   s.provider.ID(),
+			Model:        s.provider.Model(),
+			Messages:     params.messages,
+			SystemPrompt: params.systemPrompt,
+			Round:        params.round,
+			Metadata:     params.metadata,
+		}
+		hookResp := &hooks.ProviderResponse{
+			ProviderID: s.provider.ID(),
+			Model:      s.provider.Model(),
+			Message:    responseMsg,
+			Round:      params.round,
+			LatencyMs:  duration.Milliseconds(),
+		}
+		if d := s.hookRegistry.RunAfterProviderCall(ctx, hookReq, hookResp); !d.Allow {
+			if vType, ok := d.Metadata["validator_type"].(string); ok {
+				responseMsg.Validations = append(
+					responseMsg.Validations,
+					types.ValidationResult{
+						ValidatorType: vType,
+						Passed:        false,
+						Details:       d.Metadata,
+					},
+				)
+			}
+			return responseMsg, false, &hooks.HookDeniedError{
+				HookName: "provider_hook",
+				HookType: "provider_after",
+				Reason:   d.Reason,
+				Metadata: d.Metadata,
+			}
+		}
 	}
 
 	logger.Debug("Provider streaming round completed",
@@ -558,6 +687,16 @@ func (s *ProviderStage) processStreamChunks(
 		if err := s.emitChunkElement(ctx, &chunk, metadata, output); err != nil {
 			return "", nil, nil, err
 		}
+
+		// Run chunk interceptor hooks
+		if s.hookRegistry != nil && s.hookRegistry.HasChunkInterceptors() {
+			if d := s.hookRegistry.RunOnChunk(ctx, &chunk); !d.Allow {
+				return "", nil, nil, &providers.ValidationAbortError{
+					Reason: d.Reason,
+					Chunk:  chunk,
+				}
+			}
+		}
 	}
 
 	return content, toolCalls, costInfo, nil
@@ -595,7 +734,9 @@ func (s *ProviderStage) emitChunkElement(
 	}
 }
 
-func (s *ProviderStage) executeToolCalls(ctx context.Context, toolCalls []types.MessageToolCall) ([]types.Message, error) {
+func (s *ProviderStage) executeToolCalls(
+	ctx context.Context, toolCalls []types.MessageToolCall,
+) ([]types.Message, error) {
 	if s.toolRegistry == nil {
 		return nil, errors.New("tool registry not configured but tool calls present")
 	}
@@ -615,7 +756,27 @@ func (s *ProviderStage) executeToolCalls(ctx context.Context, toolCalls []types.
 			continue
 		}
 
+		// Run BeforeExecution tool hooks
+		if s.hookRegistry != nil {
+			toolReq := hooks.ToolRequest{
+				Name:   toolCall.Name,
+				Args:   toolCall.Args,
+				CallID: toolCall.ID,
+			}
+			if d := s.hookRegistry.RunBeforeToolExecution(ctx, toolReq); !d.Allow {
+				errMsg := fmt.Sprintf("Tool %s blocked by hook: %s", toolCall.Name, d.Reason)
+				results = append(results, types.NewToolResultMessage(types.MessageToolResult{
+					ID:      toolCall.ID,
+					Name:    toolCall.Name,
+					Content: errMsg,
+					Error:   errMsg,
+				}))
+				continue
+			}
+		}
+
 		// Execute tool via registry (handles both sync and async tools)
+		startTime := time.Now()
 		asyncResult, err := s.toolRegistry.ExecuteAsync(toolCall.Name, toolCall.Args)
 		if err != nil {
 			// Tool not found or execution setup failed
@@ -631,6 +792,23 @@ func (s *ProviderStage) executeToolCalls(ctx context.Context, toolCalls []types.
 		// Convert tool execution result to message
 		result := s.handleToolResult(toolCall, asyncResult)
 		results = append(results, types.NewToolResultMessage(result))
+
+		// Run AfterExecution tool hooks
+		if s.hookRegistry != nil {
+			toolReq := hooks.ToolRequest{
+				Name:   toolCall.Name,
+				Args:   toolCall.Args,
+				CallID: toolCall.ID,
+			}
+			toolResp := hooks.ToolResponse{
+				Name:      toolCall.Name,
+				CallID:    toolCall.ID,
+				Content:   result.Content,
+				Error:     result.Error,
+				LatencyMs: time.Since(startTime).Milliseconds(),
+			}
+			s.hookRegistry.RunAfterToolExecution(ctx, toolReq, toolResp)
+		}
 	}
 
 	return results, nil
