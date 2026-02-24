@@ -417,6 +417,306 @@ func TestEvalDef_DisabledExplicit(t *testing.T) {
 	}
 }
 
+func TestThreshold_Apply(t *testing.T) {
+	tests := []struct {
+		name       string
+		threshold  *Threshold
+		result     EvalResult
+		wantPassed bool
+	}{
+		{
+			name:       "nil threshold is no-op",
+			threshold:  nil,
+			result:     EvalResult{Passed: true, Score: ptr(0.5)},
+			wantPassed: true,
+		},
+		{
+			name:       "passed required but result failed",
+			threshold:  &Threshold{Passed: ptr(true)},
+			result:     EvalResult{Passed: false, Score: ptr(0.9)},
+			wantPassed: false,
+		},
+		{
+			name:       "min_score met",
+			threshold:  &Threshold{MinScore: ptr(0.7)},
+			result:     EvalResult{Passed: true, Score: ptr(0.8)},
+			wantPassed: true,
+		},
+		{
+			name:       "min_score not met",
+			threshold:  &Threshold{MinScore: ptr(0.7)},
+			result:     EvalResult{Passed: true, Score: ptr(0.5)},
+			wantPassed: false,
+		},
+		{
+			name:       "max_score met",
+			threshold:  &Threshold{MaxScore: ptr(0.9)},
+			result:     EvalResult{Passed: true, Score: ptr(0.8)},
+			wantPassed: true,
+		},
+		{
+			name:       "max_score exceeded",
+			threshold:  &Threshold{MaxScore: ptr(0.9)},
+			result:     EvalResult{Passed: true, Score: ptr(0.95)},
+			wantPassed: false,
+		},
+		{
+			name:       "nil score with min_score is no-op",
+			threshold:  &Threshold{MinScore: ptr(0.7)},
+			result:     EvalResult{Passed: true},
+			wantPassed: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.result
+			tt.threshold.Apply(&result)
+			if result.Passed != tt.wantPassed {
+				t.Errorf("Passed = %v, want %v", result.Passed, tt.wantPassed)
+			}
+		})
+	}
+}
+
+func TestThreshold_JSON(t *testing.T) {
+	th := Threshold{
+		Passed:   ptr(true),
+		MinScore: ptr(0.7),
+		MaxScore: ptr(0.95),
+	}
+	data, err := json.Marshal(th)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var decoded Threshold
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if decoded.Passed == nil || !*decoded.Passed {
+		t.Error("Passed should be true")
+	}
+	if decoded.MinScore == nil || *decoded.MinScore != 0.7 {
+		t.Errorf("MinScore = %v, want 0.7", decoded.MinScore)
+	}
+	if decoded.MaxScore == nil || *decoded.MaxScore != 0.95 {
+		t.Errorf("MaxScore = %v, want 0.95", decoded.MaxScore)
+	}
+}
+
+func TestEvalWhen_JSON(t *testing.T) {
+	w := EvalWhen{
+		ToolCalled:        "search",
+		ToolCalledPattern: "search_.*",
+		AnyToolCalled:     true,
+		MinToolCalls:      2,
+	}
+	data, err := json.Marshal(w)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var decoded EvalWhen
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if decoded.ToolCalled != "search" {
+		t.Errorf("ToolCalled = %q, want %q", decoded.ToolCalled, "search")
+	}
+	if decoded.ToolCalledPattern != "search_.*" {
+		t.Errorf("ToolCalledPattern = %q, want %q", decoded.ToolCalledPattern, "search_.*")
+	}
+	if !decoded.AnyToolCalled {
+		t.Error("AnyToolCalled should be true")
+	}
+	if decoded.MinToolCalls != 2 {
+		t.Errorf("MinToolCalls = %d, want 2", decoded.MinToolCalls)
+	}
+}
+
+func TestEvalWhen_OmitsZeroValues(t *testing.T) {
+	w := EvalWhen{}
+	data, err := json.Marshal(w)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("Unmarshal raw: %v", err)
+	}
+	if _, ok := raw["tool_called"]; ok {
+		t.Error("tool_called should be omitted when empty")
+	}
+	if _, ok := raw["tool_called_pattern"]; ok {
+		t.Error("tool_called_pattern should be omitted when empty")
+	}
+	if _, ok := raw["any_tool_called"]; ok {
+		t.Error("any_tool_called should be omitted when false")
+	}
+	if _, ok := raw["min_tool_calls"]; ok {
+		t.Error("min_tool_calls should be omitted when zero")
+	}
+}
+
+func TestEvalViolation_JSON(t *testing.T) {
+	v := EvalViolation{
+		TurnIndex:   3,
+		Description: "Forbidden tool argument used",
+		Evidence:    map[string]any{"arg": "password", "value": "***"},
+	}
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var decoded EvalViolation
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if decoded.TurnIndex != 3 {
+		t.Errorf("TurnIndex = %d, want 3", decoded.TurnIndex)
+	}
+	if decoded.Description != "Forbidden tool argument used" {
+		t.Errorf("Description = %q, want %q", decoded.Description, "Forbidden tool argument used")
+	}
+	if decoded.Evidence["arg"] != "password" {
+		t.Errorf("Evidence[arg] = %v, want %q", decoded.Evidence["arg"], "password")
+	}
+}
+
+func TestEvalResult_ExtendedFields(t *testing.T) {
+	r := EvalResult{
+		EvalID:  "check",
+		Type:    "test",
+		Passed:  false,
+		Message: "assertion failed",
+		Details: map[string]any{"expected": "foo", "got": "bar"},
+		Violations: []EvalViolation{
+			{TurnIndex: 1, Description: "mismatch"},
+		},
+		Skipped:    true,
+		SkipReason: "tool not called",
+	}
+	data, err := json.Marshal(r)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var decoded EvalResult
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if decoded.Message != "assertion failed" {
+		t.Errorf("Message = %q, want %q", decoded.Message, "assertion failed")
+	}
+	if decoded.Details["expected"] != "foo" {
+		t.Errorf("Details[expected] = %v, want %q", decoded.Details["expected"], "foo")
+	}
+	if len(decoded.Violations) != 1 {
+		t.Fatalf("Violations len = %d, want 1", len(decoded.Violations))
+	}
+	if decoded.Violations[0].TurnIndex != 1 {
+		t.Errorf("Violations[0].TurnIndex = %d, want 1", decoded.Violations[0].TurnIndex)
+	}
+	if !decoded.Skipped {
+		t.Error("Skipped should be true")
+	}
+	if decoded.SkipReason != "tool not called" {
+		t.Errorf("SkipReason = %q, want %q", decoded.SkipReason, "tool not called")
+	}
+}
+
+func TestEvalResult_OmitsNewOptionals(t *testing.T) {
+	r := EvalResult{
+		EvalID:     "check",
+		Type:       "test",
+		Passed:     true,
+		DurationMs: 3,
+	}
+	data, err := json.Marshal(r)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("Unmarshal raw: %v", err)
+	}
+	for _, field := range []string{"message", "details", "violations", "skipped", "skip_reason"} {
+		if _, ok := raw[field]; ok {
+			t.Errorf("%s should be omitted when zero-value", field)
+		}
+	}
+}
+
+func TestEvalDef_ExtendedFieldsJSON(t *testing.T) {
+	def := EvalDef{
+		ID:      "check",
+		Type:    "contains",
+		Trigger: TriggerEveryTurn,
+		Params:  map[string]any{"text": "hello"},
+		Message: "should contain hello",
+		Threshold: &Threshold{
+			Passed: ptr(true),
+		},
+		When: &EvalWhen{
+			ToolCalled: "search",
+		},
+	}
+	data, err := json.Marshal(def)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var decoded EvalDef
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if decoded.Message != "should contain hello" {
+		t.Errorf("Message = %q, want %q", decoded.Message, "should contain hello")
+	}
+	if decoded.Threshold == nil {
+		t.Fatal("Threshold is nil")
+	}
+	if decoded.Threshold.Passed == nil || !*decoded.Threshold.Passed {
+		t.Error("Threshold.Passed should be true")
+	}
+	if decoded.When == nil {
+		t.Fatal("When is nil")
+	}
+	if decoded.When.ToolCalled != "search" {
+		t.Errorf("When.ToolCalled = %q, want %q", decoded.When.ToolCalled, "search")
+	}
+}
+
+func TestEvalContext_Extras(t *testing.T) {
+	ctx := EvalContext{
+		Messages:      []types.Message{{Role: "user", Content: "hi"}},
+		TurnIndex:     0,
+		CurrentOutput: "hello",
+		SessionID:     "s1",
+		PromptID:      "p1",
+		Extras:        map[string]any{"workflow_state": "greeting"},
+	}
+	data, err := json.Marshal(ctx)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var decoded EvalContext
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if decoded.Extras["workflow_state"] != "greeting" {
+		t.Errorf("Extras[workflow_state] = %v, want %q", decoded.Extras["workflow_state"], "greeting")
+	}
+}
+
+func TestValidTriggers_NewTriggers(t *testing.T) {
+	newTriggers := []EvalTrigger{
+		TriggerOnConversationComplete,
+		TriggerOnWorkflowStep,
+	}
+	for _, trigger := range newTriggers {
+		if !ValidTriggers[trigger] {
+			t.Errorf("ValidTriggers missing %q", trigger)
+		}
+	}
+}
+
 func TestRange_JSON(t *testing.T) {
 	tests := []struct {
 		name  string

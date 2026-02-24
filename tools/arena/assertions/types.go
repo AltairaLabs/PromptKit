@@ -1,6 +1,9 @@
 package assertions
 
 import (
+	"fmt"
+
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	runtimeValidators "github.com/AltairaLabs/PromptKit/runtime/validators"
 )
 
@@ -48,3 +51,27 @@ func FromValidationResult(vr runtimeValidators.ValidationResult, message string)
 		Message: message,
 	}
 }
+
+// ToEvalDef converts an AssertionConfig to an evals.EvalDef.
+// This is the bridge for unifying arena assertions with runtime evals.
+func (a AssertionConfig) ToEvalDef(index int) evals.EvalDef {
+	def := evals.EvalDef{
+		ID:        fmt.Sprintf("assertion_%d_%s", index, a.Type),
+		Type:      a.Type,
+		Trigger:   evals.TriggerEveryTurn,
+		Params:    a.Params,
+		Message:   a.Message,
+		Threshold: &evals.Threshold{Passed: boolPtr(true)},
+	}
+	if a.When != nil {
+		def.When = &evals.EvalWhen{
+			ToolCalled:        a.When.ToolCalled,
+			ToolCalledPattern: a.When.ToolCalledPattern,
+			AnyToolCalled:     a.When.AnyToolCalled,
+			MinToolCalls:      a.When.MinToolCalls,
+		}
+	}
+	return def
+}
+
+func boolPtr(b bool) *bool { return &b }

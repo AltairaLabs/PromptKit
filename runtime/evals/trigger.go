@@ -24,9 +24,9 @@ func ShouldRun(
 	trigger EvalTrigger, samplePct float64, ctx *TriggerContext,
 ) bool {
 	switch trigger {
-	case TriggerEveryTurn:
+	case TriggerEveryTurn, TriggerOnWorkflowStep:
 		return true
-	case TriggerOnSessionComplete:
+	case TriggerOnSessionComplete, TriggerOnConversationComplete:
 		return ctx.IsSessionComplete
 	case TriggerSampleTurns:
 		return sampleHit(ctx.SessionID, ctx.TurnIndex, samplePct)

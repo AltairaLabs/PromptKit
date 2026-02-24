@@ -52,6 +52,20 @@ func (s *slowHandler) Eval(
 	return nil, ctx.Err()
 }
 
+// scoringHandler returns a result with a configurable score.
+type scoringHandler struct {
+	typeName string
+	score    float64
+}
+
+func (s *scoringHandler) Type() string { return s.typeName }
+
+func (s *scoringHandler) Eval(
+	_ context.Context, _ *EvalContext, _ map[string]any,
+) (*EvalResult, error) {
+	return &EvalResult{Passed: true, Score: &s.score}, nil
+}
+
 func newTestRegistry(handlers ...EvalTypeHandler) *EvalTypeRegistry {
 	r := NewEmptyEvalTypeRegistry()
 	for _, h := range handlers {
@@ -402,5 +416,128 @@ func TestRunTurnEvals_MetadataFilled(t *testing.T) {
 	}
 	if r.Type != "test" {
 		t.Errorf("Type = %q, want %q", r.Type, "test")
+	}
+}
+
+func TestRunConversationEvals_Basic(t *testing.T) {
+	reg := newTestRegistry(&stubHandler{typeName: "test"})
+	runner := NewEvalRunner(reg)
+
+	defs := []EvalDef{
+		{
+			ID:      "conv-check",
+			Type:    "test",
+			Trigger: TriggerOnConversationComplete,
+		},
+	}
+	evalCtx := &EvalContext{SessionID: "s1", TurnIndex: 5}
+
+	results := runner.RunConversationEvals(context.Background(), defs, evalCtx)
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1", len(results))
+	}
+	if results[0].EvalID != "conv-check" {
+		t.Errorf("got EvalID %q, want %q", results[0].EvalID, "conv-check")
+	}
+	if !results[0].Passed {
+		t.Error("expected Passed=true")
+	}
+}
+
+func TestRunConversationEvals_SkipsTurnTrigger(t *testing.T) {
+	reg := newTestRegistry(&stubHandler{typeName: "test"})
+	runner := NewEvalRunner(reg)
+
+	defs := []EvalDef{
+		{ID: "turn-only", Type: "test", Trigger: TriggerEveryTurn},
+	}
+	evalCtx := &EvalContext{SessionID: "s1"}
+
+	results := runner.RunConversationEvals(context.Background(), defs, evalCtx)
+	if len(results) != 0 {
+		t.Errorf("conversation evals should skip turn triggers, got %d", len(results))
+	}
+}
+
+func TestRunConversationEvals_SkipsSessionTrigger(t *testing.T) {
+	reg := newTestRegistry(&stubHandler{typeName: "test"})
+	runner := NewEvalRunner(reg)
+
+	defs := []EvalDef{
+		{ID: "session-only", Type: "test", Trigger: TriggerOnSessionComplete},
+	}
+	evalCtx := &EvalContext{SessionID: "s1"}
+
+	results := runner.RunConversationEvals(context.Background(), defs, evalCtx)
+	if len(results) != 0 {
+		t.Errorf("conversation evals should skip session triggers, got %d", len(results))
+	}
+}
+
+func TestThresholdIntegration_MinScoreFailsResult(t *testing.T) {
+	score := 0.5
+	reg := newTestRegistry(&scoringHandler{typeName: "scorer", score: score})
+	runner := NewEvalRunner(reg)
+
+	minScore := 0.7
+	defs := []EvalDef{
+		{
+			ID:        "threshold-check",
+			Type:      "scorer",
+			Trigger:   TriggerEveryTurn,
+			Threshold: &Threshold{MinScore: &minScore},
+		},
+	}
+	evalCtx := &EvalContext{SessionID: "s1"}
+
+	results := runner.RunTurnEvals(context.Background(), defs, evalCtx)
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1", len(results))
+	}
+	if results[0].Passed {
+		t.Error("expected Passed=false when score < min_score threshold")
+	}
+}
+
+func TestThresholdIntegration_MinScorePassesResult(t *testing.T) {
+	score := 0.9
+	reg := newTestRegistry(&scoringHandler{typeName: "scorer", score: score})
+	runner := NewEvalRunner(reg)
+
+	minScore := 0.7
+	defs := []EvalDef{
+		{
+			ID:        "threshold-check",
+			Type:      "scorer",
+			Trigger:   TriggerEveryTurn,
+			Threshold: &Threshold{MinScore: &minScore},
+		},
+	}
+	evalCtx := &EvalContext{SessionID: "s1"}
+
+	results := runner.RunTurnEvals(context.Background(), defs, evalCtx)
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1", len(results))
+	}
+	if !results[0].Passed {
+		t.Error("expected Passed=true when score >= min_score threshold")
+	}
+}
+
+func TestThresholdIntegration_NoThresholdPreservesResult(t *testing.T) {
+	reg := newTestRegistry(&stubHandler{typeName: "test"})
+	runner := NewEvalRunner(reg)
+
+	defs := []EvalDef{
+		{ID: "no-threshold", Type: "test", Trigger: TriggerEveryTurn},
+	}
+	evalCtx := &EvalContext{SessionID: "s1"}
+
+	results := runner.RunTurnEvals(context.Background(), defs, evalCtx)
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1", len(results))
+	}
+	if !results[0].Passed {
+		t.Error("expected Passed=true when no threshold defined")
 	}
 }
