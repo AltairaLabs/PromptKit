@@ -35,12 +35,15 @@ assertions:
       param1: value1
       param2: value2
     message: "Description"        # Optional: Human-readable description
+    when:                         # Optional: Conditional filtering
+      tool_called: "tool_name"
 ```
 
 **Fields**:
 - `type`: The assertion type (see list below)
 - `params`: Parameters specific to the assertion type
 - `message`: Optional description shown in reports
+- `when`: Optional conditions that must be met for the assertion to run (see [Conditional Filtering](#conditional-filtering-when))
 
 ## Available Assertions
 
@@ -841,6 +844,852 @@ Verifies that a specific validator/guardrail was triggered.
 
 ---
 
+### Tool Call Trace Assertions
+
+These assertions inspect detailed tool call data — names, arguments, results, and errors — from within a turn or across an entire conversation. They require the tool trace to be available; in duplex/streaming paths where traces are unavailable, these assertions are automatically **skipped** (not failed).
+
+#### `tool_call_sequence`
+
+Asserts that tool calls appear in a specified order using **subsequence matching** — intervening calls to other tools are allowed.
+
+**Use Cases**:
+- Verify tools are called in a logical dependency order
+- Ensure a multi-step workflow calls tools in the right sequence
+- Validate LLM reasoning chains that require ordered operations
+
+**Parameters**:
+- `sequence` (array of strings): Ordered list of expected tool names
+
+**Example**:
+```yaml
+- role: user
+  content: "Look up customer #123, then process their refund"
+  assertions:
+    - type: tool_call_sequence
+      params:
+        sequence:
+          - lookup_customer
+          - process_refund
+      message: "Should look up customer before processing refund"
+```
+
+**How Matching Works**: The validator walks through tool calls in order and advances through the `sequence` list whenever a matching tool name is found. Other tool calls between steps are ignored. For example, if the sequence is `[A, B]` and the actual calls are `[A, C, B]`, this passes — `C` is simply skipped.
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "details": {
+    "message": "sequence not satisfied: matched 1/2 steps, stuck at \"process_refund\"",
+    "expected_sequence": ["lookup_customer", "process_refund"],
+    "actual_tools": "lookup_customer → validate_input",
+    "matched_steps": 1
+  }
+}
+```
+
+**Conversation-Level**: Also available as a conversation-level assertion in `conversation_assertions`, checking across all turns.
+
+---
+
+#### `tool_call_count`
+
+Asserts that a tool (or all tools) was called a specific number of times.
+
+**Use Cases**:
+- Enforce tool call budgets
+- Verify a tool is called at least once
+- Prevent excessive API calls
+
+**Parameters**:
+- `tool` (string, optional): If set, only counts calls to this specific tool. If omitted, counts all tool calls.
+- `min` (integer, optional): Minimum number of calls (inclusive)
+- `max` (integer, optional): Maximum number of calls (inclusive)
+
+**Example**:
+```yaml
+- role: user
+  content: "Find me 3 restaurants nearby"
+  assertions:
+    - type: tool_call_count
+      params:
+        tool: search_restaurants
+        min: 1
+        max: 5
+      message: "Should call search between 1 and 5 times"
+```
+
+**Count All Tools**:
+```yaml
+assertions:
+  - type: tool_call_count
+    params:
+      max: 10
+    message: "Should not exceed 10 total tool calls"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "details": {
+    "message": "expected at most 5 call(s), got 8",
+    "count": 8,
+    "tool": "search_restaurants"
+  }
+}
+```
+
+**Conversation-Level**: Also available in `conversation_assertions`.
+
+---
+
+#### `tool_result_includes`
+
+Asserts that tool call results contain specific substrings (case-insensitive).
+
+**Use Cases**:
+- Verify a tool returned expected data
+- Check that search results contain relevant content
+- Validate API responses include required fields
+
+**Parameters**:
+- `tool` (string, optional): If set, only inspects calls to this tool
+- `patterns` (array of strings): All substrings that must appear in the result
+- `occurrence` (integer, optional, default: 1): Minimum number of tool calls that must contain all patterns
+
+**Example**:
+```yaml
+- role: user
+  content: "What's the weather in Tokyo?"
+  assertions:
+    - type: tool_result_includes
+      params:
+        tool: get_weather
+        patterns:
+          - "temperature"
+          - "humidity"
+      message: "Weather result should include temperature and humidity"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "details": {
+    "message": "expected 1 call(s) with all patterns, found 0",
+    "missing_details": [
+      {
+        "tool": "get_weather",
+        "missing_patterns": ["humidity"],
+        "round_index": 0
+      }
+    ]
+  }
+}
+```
+
+**Conversation-Level**: Also available in `conversation_assertions`.
+
+---
+
+#### `tool_result_matches`
+
+Asserts that tool call results match a regex pattern.
+
+**Use Cases**:
+- Validate tool result format (dates, IDs, structured data)
+- Check for pattern-based content in results
+- Verify API responses match expected schemas
+
+**Parameters**:
+- `tool` (string, optional): If set, only inspects calls to this tool
+- `pattern` (string): Go regex pattern to match against the result
+- `occurrence` (integer, optional, default: 1): Minimum number of tool calls whose result must match
+
+**Example**:
+```yaml
+- role: user
+  content: "Create an order for the customer"
+  assertions:
+    - type: tool_result_matches
+      params:
+        tool: create_order
+        pattern: "ORD-\\d{6}"
+      message: "Order result should contain an order ID"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "details": {
+    "message": "expected 1 call(s) matching pattern, found 0",
+    "pattern": "ORD-\\d{6}",
+    "tool": "create_order"
+  }
+}
+```
+
+**Conversation-Level**: Also available in `conversation_assertions`.
+
+---
+
+#### `no_tool_errors`
+
+Asserts that no tool calls returned errors.
+
+**Use Cases**:
+- Verify all tool calls executed successfully
+- Catch API errors and connection failures
+- Validate tool integration stability
+
+**Parameters**:
+- `tools` (array of strings, optional): If set, only checks calls to the named tools. If omitted, checks all tool calls.
+
+**Example**:
+```yaml
+- role: user
+  content: "Process this order end-to-end"
+  assertions:
+    - type: no_tool_errors
+      message: "All tool calls should succeed"
+```
+
+**Filter Specific Tools**:
+```yaml
+assertions:
+  - type: no_tool_errors
+    params:
+      tools:
+        - create_order
+        - charge_payment
+    message: "Critical tools should not error"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "details": {
+    "message": "2 tool call(s) returned errors",
+    "tool_errors": [
+      {
+        "tool": "database_query",
+        "error": "connection timeout",
+        "round_index": 0
+      }
+    ]
+  }
+}
+```
+
+**Conversation-Level**: Also available in `conversation_assertions`. The conversation-level variant returns violations with `turn_index` instead of `round_index`.
+
+---
+
+#### `tool_call_chain`
+
+Asserts a **dependency chain**: tool calls must appear in order (subsequence matching), and each step can have additional per-call constraints on arguments, result content, regex matching, and error presence.
+
+**Use Cases**:
+- Validate complex multi-step workflows with per-step constraints
+- Check that data flows correctly between tool calls
+- Verify argument values are derived from previous tool results
+
+**Parameters**:
+- `steps` (array of objects): Ordered list of chain steps
+
+Each step object supports:
+- `tool` (string): The tool name to match at this step
+- `result_includes` (array of strings, optional): Substrings that must appear in the result (case-insensitive)
+- `result_matches` (string, optional): Regex that must match the result
+- `args_match` (map of string to string, optional): Map of argument name to regex pattern
+- `no_error` (boolean, optional): If `true`, the tool call must not have an error
+
+**Example**:
+```yaml
+- role: user
+  content: "Look up customer #123 and process their refund"
+  assertions:
+    - type: tool_call_chain
+      params:
+        steps:
+          - tool: lookup_customer
+            args_match:
+              customer_id: "^123$"
+            no_error: true
+          - tool: process_refund
+            result_includes:
+              - "refund_id"
+            no_error: true
+      message: "Should look up customer then process refund with valid results"
+```
+
+**Failure Details — Step Constraint Violation**:
+```json
+{
+  "passed": false,
+  "details": {
+    "message": "step 1 (process_refund): result missing pattern \"refund_id\"",
+    "step_index": 1,
+    "tool": "process_refund",
+    "missing_pattern": "refund_id"
+  }
+}
+```
+
+**Failure Details — Incomplete Chain**:
+```json
+{
+  "passed": false,
+  "details": {
+    "message": "chain incomplete: satisfied 1/2 steps, missing \"process_refund\"",
+    "completed_steps": 1,
+    "total_steps": 2
+  }
+}
+```
+
+**Failure Details — Args Mismatch**:
+```json
+{
+  "passed": false,
+  "details": {
+    "message": "step 0 (lookup_customer): argument \"customer_id\" does not match pattern",
+    "step_index": 0,
+    "tool": "lookup_customer",
+    "argument": "customer_id",
+    "pattern": "^123$",
+    "actual": "456"
+  }
+}
+```
+
+**Conversation-Level**: Also available in `conversation_assertions`.
+
+---
+
+### LLM Judge Assertions
+
+LLM judge assertions use a separate LLM as a judge to evaluate responses or tool call behavior. These require `judge_targets` to be configured in the arena config (via `config.judges`).
+
+#### `llm_judge`
+
+Uses an LLM judge to evaluate the assistant's text response against specified criteria.
+
+**Use Cases**:
+- Evaluate response quality, tone, and accuracy
+- Check for nuanced requirements that can't be expressed as patterns
+- Score responses on custom rubrics
+
+**Parameters**:
+- `criteria` (string, recommended): Evaluation criteria sent to the judge
+- `rubric` (string, optional): Scoring rubric for the judge
+- `judge` (string, optional): Named judge from `judge_targets` config. If omitted, uses the first available judge.
+- `temperature` (float, optional, default: 0.0): Judge inference temperature
+- `max_tokens` (integer, optional): Max tokens for judge response
+- `conversation_aware` (boolean, optional): If `true`, includes prior conversation context in the judge prompt
+- `prompt` (string, optional): Name of a prompt template from the prompt registry
+
+**Example**:
+```yaml
+- role: user
+  content: "Explain quantum computing to a 5-year-old"
+  assertions:
+    - type: llm_judge
+      params:
+        criteria: "The explanation should be simple, use age-appropriate language, and include a concrete analogy"
+        rubric: |
+          1.0: Perfect — simple language, great analogy, engaging
+          0.7: Good — mostly simple, some analogy
+          0.4: Fair — too complex or missing analogy
+          0.0: Poor — not age-appropriate at all
+      message: "Response should be appropriate for a 5-year-old"
+```
+
+**With Conversation Context**:
+```yaml
+assertions:
+  - type: llm_judge
+    params:
+      criteria: "The assistant should reference information from earlier in the conversation"
+      conversation_aware: true
+    message: "Should maintain conversation context"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "details": {
+    "reasoning": "The response uses technical jargon inappropriate for a 5-year-old...",
+    "score": 0.3,
+    "evidence": ["Uses terms like 'superposition' without explanation"],
+    "raw": "{\"passed\":false,\"score\":0.3,\"reasoning\":\"...\"}"
+  }
+}
+```
+
+**Conversation-Level**: Use `llm_judge_conversation` type in `conversation_assertions` to judge across the entire conversation. The conversation variant supports a `min_score` parameter for score thresholds.
+
+```yaml
+conversation_assertions:
+  - type: llm_judge_conversation
+    params:
+      criteria: "The assistant should maintain a consistent helpful tone throughout"
+      min_score: 0.8
+    message: "Consistent tone across conversation"
+```
+
+---
+
+#### `llm_judge_tool_calls`
+
+Uses an LLM judge to evaluate tool call behavior — names, arguments, results, and errors — instead of the assistant's text response.
+
+**Use Cases**:
+- Evaluate whether tool calls are appropriate for the user's request
+- Judge the quality of tool arguments (e.g., well-formed search queries)
+- Assess whether tool results were used correctly
+- Review multi-step tool call strategies
+
+**Parameters**:
+- `criteria` (string, recommended): Evaluation criteria for tool call behavior
+- `rubric` (string, optional): Scoring rubric
+- `judge` (string, optional): Named judge from `judge_targets` config
+- `tools` (array of strings, optional): Only send calls to these tools to the judge
+- `round_index` (integer, optional, turn-level only): Only include tool calls from this specific round
+- `conversation_aware` (boolean, optional): Include conversation context alongside tool calls
+- `temperature` (float, optional, default: 0.0): Judge inference temperature
+- `max_tokens` (integer, optional): Max tokens for judge response
+- `min_score` (float, optional): Score threshold — passed requires `score >= min_score`
+- `prompt` (string, optional): Custom prompt template name (variables: `criteria`, `rubric`, `conversation`, `tool_calls`)
+
+**Example**:
+```yaml
+- role: user
+  content: "Find restaurants near Times Square"
+  assertions:
+    - type: llm_judge_tool_calls
+      params:
+        criteria: "The search tool should be called with a well-formed location query"
+        tools:
+          - search_restaurants
+        min_score: 0.7
+      message: "Search tool was used correctly"
+```
+
+**Judge Multiple Tools**:
+```yaml
+assertions:
+  - type: llm_judge_tool_calls
+    params:
+      criteria: |
+        1. The lookup tool should be called before the process tool
+        2. Arguments should reference data from previous results
+        3. No unnecessary tool calls should be made
+      conversation_aware: true
+    message: "Tool call strategy is appropriate"
+```
+
+**Skipped When No Matching Calls**: If filtering by `tools` results in no matching calls, the assertion is skipped (passed with `"skipped": true`).
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "details": {
+    "reasoning": "The search query was too broad...",
+    "score": 0.4,
+    "raw": "{\"passed\":false,\"score\":0.4,\"reasoning\":\"...\"}",
+    "tool_calls_sent": 2
+  }
+}
+```
+
+**Conversation-Level**: Also available in `conversation_assertions` with type `llm_judge_tool_calls`. The conversation variant evaluates tool calls across all turns.
+
+```yaml
+conversation_assertions:
+  - type: llm_judge_tool_calls
+    params:
+      criteria: "Tool calls across the conversation should show progressive refinement of search queries"
+      tools:
+        - search_products
+      min_score: 0.8
+    message: "Search strategy improves across turns"
+```
+
+---
+
+### JSON Validation Assertions
+
+#### `is_valid_json`
+
+Validates that the assistant's response is parseable JSON.
+
+**Use Cases**:
+- Verify structured output from LLMs
+- Validate API-style responses
+- Check that JSON generation is syntactically correct
+
+**Parameters**:
+- `allow_wrapped` (boolean, optional, default: false): If `true`, extracts JSON from Markdown `` ```json `` code blocks
+- `extract_json` (boolean, optional, default: false): If `true`, scans for the first `{` or `[` and extracts balanced JSON from mixed text
+
+**Example**:
+```yaml
+- role: user
+  content: "Return a JSON object with name and age"
+  assertions:
+    - type: is_valid_json
+      message: "Response should be valid JSON"
+```
+
+**With Markdown Extraction**:
+```yaml
+assertions:
+  - type: is_valid_json
+    params:
+      allow_wrapped: true
+    message: "Should contain valid JSON (even in code blocks)"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "details": {
+    "error": "invalid character 'H' looking for beginning of value",
+    "content": "Here is your answer: ..."
+  }
+}
+```
+
+---
+
+#### `json_schema`
+
+Validates that the response is valid JSON conforming to a JSON Schema.
+
+**Use Cases**:
+- Enforce structured output schemas
+- Validate API contract compliance
+- Ensure required fields are present with correct types
+
+**Parameters**:
+- `schema` (object, conditionally required): Inline JSON Schema definition
+- `schema_file` (string, conditionally required): Path to a JSON Schema file
+- `allow_wrapped` (boolean, optional): Extract JSON from code blocks
+- `extract_json` (boolean, optional): Extract JSON from mixed text
+
+At least one of `schema` or `schema_file` must be provided.
+
+**Example — Inline Schema**:
+```yaml
+- role: user
+  content: "Create an order response"
+  assertions:
+    - type: json_schema
+      params:
+        schema:
+          type: object
+          required:
+            - order_id
+            - status
+          properties:
+            order_id:
+              type: string
+            status:
+              type: string
+              enum: ["pending", "confirmed", "shipped"]
+            total:
+              type: number
+      message: "Response should match order schema"
+```
+
+**Example — Schema File**:
+```yaml
+assertions:
+  - type: json_schema
+    params:
+      schema_file: "/path/to/order-schema.json"
+      allow_wrapped: true
+    message: "Response should match order schema"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "details": {
+    "errors": [
+      "order_id: order_id is required",
+      "status: status must be one of the following: \"pending\", \"confirmed\", \"shipped\""
+    ],
+    "count": 2
+  }
+}
+```
+
+---
+
+#### `json_path`
+
+Validates that a JMESPath expression evaluated against the response JSON meets specified constraints.
+
+**Use Cases**:
+- Check specific fields in JSON responses
+- Validate array lengths and numeric ranges
+- Assert nested values without full schema validation
+
+**Parameters**:
+- `jmespath_expression` (string): JMESPath expression to evaluate (alias: `expression`)
+- `expected` (any, optional): The result must equal this value (deep equality)
+- `contains` (array, optional): The result array must contain all listed items
+- `min` (number, optional): The numeric result must be `>= min`
+- `max` (number, optional): The numeric result must be `<= max`
+- `min_results` (integer, optional): The result array must have `>= min_results` items
+- `max_results` (integer, optional): The result array must have `<= max_results` items
+- `allow_wrapped` (boolean, optional): Extract JSON from code blocks
+- `extract_json` (boolean, optional): Extract JSON from mixed text
+
+**Example — Exact Value**:
+```yaml
+assertions:
+  - type: json_path
+    params:
+      jmespath_expression: "status"
+      expected: "confirmed"
+    message: "Order status should be confirmed"
+```
+
+**Example — Numeric Range**:
+```yaml
+assertions:
+  - type: json_path
+    params:
+      jmespath_expression: "confidence_score"
+      min: 0.8
+      max: 1.0
+    message: "Confidence score should be between 0.8 and 1.0"
+```
+
+**Example — Array Constraints**:
+```yaml
+assertions:
+  - type: json_path
+    params:
+      jmespath_expression: "results[].name"
+      min_results: 3
+      contains:
+        - "Restaurant A"
+    message: "Should return at least 3 results including Restaurant A"
+```
+
+**Failure Details — Value Mismatch**:
+```json
+{
+  "passed": false,
+  "details": {
+    "expected": "confirmed",
+    "actual": "pending",
+    "message": "Result does not match expected value"
+  }
+}
+```
+
+**Failure Details — Range Violation**:
+```json
+{
+  "passed": false,
+  "details": {
+    "message": "Value 0.50 is below minimum 0.80",
+    "actual": 0.5,
+    "min": 0.8
+  }
+}
+```
+
+---
+
+### Conversation-Only Content Assertions
+
+#### `content_not_includes` (Conversation-Level)
+
+Ensures that NO assistant message across the conversation contains any of the specified patterns.
+
+**Note**: This is a **conversation-level assertion**, used in the `conversation_assertions` field.
+
+**Use Cases**:
+- Ensure sensitive information is never disclosed
+- Verify competitor names are not mentioned
+- Check that forbidden topics are avoided across the entire conversation
+
+**Parameters**:
+- `patterns` (array of strings): Forbidden substrings
+- `case_sensitive` (boolean, optional, default: false): If `false`, comparison is case-insensitive
+
+**Example**:
+```yaml
+conversation_assertions:
+  - type: content_not_includes
+    params:
+      patterns:
+        - "internal-api-key"
+        - "admin password"
+    message: "Should never reveal sensitive information"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "message": "forbidden content detected",
+  "violations": [
+    {
+      "turn_index": 2,
+      "description": "response contains forbidden pattern: internal-api-key",
+      "evidence": {
+        "pattern": "internal-api-key",
+        "snippet": "...the internal-api-key is ABC123..."
+      }
+    }
+  ]
+}
+```
+
+---
+
+#### `content_includes_any` (Conversation-Level)
+
+Asserts that at least one assistant message across the conversation contains at least one of the specified patterns.
+
+**Note**: This is a **conversation-level assertion**, used in the `conversation_assertions` field.
+
+**Use Cases**:
+- Verify the assistant mentioned at least one of several acceptable alternatives
+- Check that a key concept was communicated in at least one turn
+- Validate that at least one response addressed the topic
+
+**Parameters**:
+- `patterns` (array of strings): At least one must appear in at least one assistant turn
+- `case_sensitive` (boolean, optional, default: false): If `false`, comparison is case-insensitive
+
+**Example**:
+```yaml
+conversation_assertions:
+  - type: content_includes_any
+    params:
+      patterns:
+        - "order confirmed"
+        - "confirmation number"
+        - "successfully placed"
+    message: "At least one response should confirm the order"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "message": "no response contained required patterns"
+}
+```
+
+**Success Details**:
+```json
+{
+  "passed": true,
+  "message": "at least one response contains required pattern",
+  "details": {
+    "turn": 3,
+    "pattern": "order confirmed"
+  }
+}
+```
+
+---
+
+## Conditional Filtering (`when`)
+
+The optional `when` field on any assertion specifies preconditions that must be met for the assertion to **run**. If any condition is not met, the assertion is **skipped** (recorded as passed with `skipped: true`) — not failed. This is critical for cost control with expensive assertions like LLM judges.
+
+### `when` Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `tool_called` | string | Assertion runs only if this exact tool was called in the turn |
+| `tool_called_pattern` | string | Assertion runs only if a tool matching this regex was called |
+| `any_tool_called` | boolean | Assertion runs only if at least one tool was called |
+| `min_tool_calls` | integer | Assertion runs only if at least N tool calls were made |
+
+All conditions are **AND-ed**: every specified field must be satisfied.
+
+### Example — Only Judge When a Specific Tool Was Called
+
+```yaml
+- role: user
+  content: "Search for recent papers on AI safety"
+  assertions:
+    - type: llm_judge_tool_calls
+      when:
+        tool_called: search_papers
+      params:
+        criteria: "Search queries should be well-formed and specific"
+        min_score: 0.7
+      message: "Search quality check"
+```
+
+If `search_papers` was not called in this turn, the assertion is skipped entirely — no judge LLM call is made.
+
+### Example — Regex Pattern Match
+
+```yaml
+assertions:
+  - type: llm_judge
+    when:
+      tool_called_pattern: "^(search|lookup|query)_"
+    params:
+      criteria: "The response correctly uses the retrieved data"
+    message: "Data usage check"
+```
+
+### Example — Multiple Conditions (AND)
+
+```yaml
+assertions:
+  - type: tool_call_chain
+    when:
+      any_tool_called: true
+      min_tool_calls: 2
+    params:
+      steps:
+        - tool: lookup_customer
+        - tool: process_order
+    message: "Multi-step flow check (only when 2+ tools called)"
+```
+
+### Skip Behavior
+
+When a `when` condition is not met, the assertion result appears in reports as:
+
+```json
+{
+  "type": "llm_judge_tool_calls",
+  "passed": true,
+  "skipped": true,
+  "message": "Search quality check",
+  "details": {
+    "skip_reason": "tool \"search_papers\" not called"
+  }
+}
+```
+
+**Note**: In duplex/streaming paths where tool trace data is unavailable, `when` conditions pass unconditionally — the assertion runs and the validator itself decides how to handle the missing trace (typically by skipping).
+
+---
+
 ## Advanced Assertion Patterns
 
 ### Combining Assertions
@@ -895,6 +1744,34 @@ Use different assertions for different scenarios:
       params:
         tools: ["get_weather"]
         message: "Should not attempt weather call for future"
+```
+
+### Cost-Effective LLM Judging with `when`
+
+Use `when` to avoid expensive LLM judge calls when they aren't relevant:
+
+```yaml
+- role: user
+  content: "Help me with my order"
+  assertions:
+    # Always runs (cheap)
+    - type: content_includes
+      params:
+        patterns: ["order"]
+
+    # Only runs if search tool was called (expensive LLM judge)
+    - type: llm_judge_tool_calls
+      when:
+        tool_called: search_orders
+      params:
+        criteria: "Search queries should extract order number from user input"
+      message: "Search quality check"
+
+    # Only runs if any tools were used
+    - type: no_tool_errors
+      when:
+        any_tool_called: true
+      message: "All tool calls should succeed"
 ```
 
 ### Progressive Verification
@@ -1066,6 +1943,8 @@ graph LR
 - Limit assertions per turn (3-5 recommended)
 - Use specific patterns (avoid complex regex)
 - Combine related checks when possible
+- Use `when` conditions on LLM judge assertions to avoid unnecessary API calls
+- Place cheap assertions (content checks, tool call checks) before expensive ones (LLM judges)
 
 ### Regex Performance
 
