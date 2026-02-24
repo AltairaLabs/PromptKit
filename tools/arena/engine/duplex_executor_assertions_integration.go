@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
@@ -61,6 +62,20 @@ func (de *DuplexConversationExecutor) evaluateTurnAssertions(
 
 	// Store results in the assistant message's metadata
 	de.storeAssertionResults(req, lastAssistantMsg, results)
+
+	// Dual-write: run turn assertions through EvalRunner
+	if de.packEvalHook != nil {
+		evalResults := de.packEvalHook.RunAssertionsAsEvals(
+			ctx, assertionConfigs, messages,
+			len(messages)-1, req.ConversationID,
+			evals.TriggerEveryTurn,
+		)
+		if len(evalResults) > 0 && lastAssistantMsg.Meta != nil {
+			lastAssistantMsg.Meta["eval_results"] = evalResults
+			logger.Debug("Dual-write duplex turn eval results",
+				"eval_result_count", len(evalResults))
+		}
+	}
 
 	logger.Debug("Turn assertions evaluated",
 		"turn", turnIdx,
@@ -187,35 +202,49 @@ func (de *DuplexConversationExecutor) countFailedAssertions(results []arenaasser
 }
 
 // evaluateConversationAssertions evaluates pack + scenario conversation assertions.
+// Returns both old-path assertion results and new-path eval results (dual-write).
 func (de *DuplexConversationExecutor) evaluateConversationAssertions(
 	req *ConversationRequest,
 	messages []types.Message,
-) []arenaassertions.ConversationValidationResult {
+) ([]arenaassertions.ConversationValidationResult, []evals.EvalResult) {
 	var scenarioAssertions []arenaassertions.AssertionConfig
 	if req.Scenario != nil {
 		scenarioAssertions = req.Scenario.ConversationAssertions
 	}
-	assertions := collectConversationAssertions(req.Config, scenarioAssertions)
+	allAssertions := collectConversationAssertions(req.Config, scenarioAssertions)
 
-	if len(assertions) == 0 {
-		return nil
+	if len(allAssertions) == 0 {
+		return nil, nil
 	}
 
 	logger.Debug("Evaluating duplex conversation assertions",
-		"assertion_count", len(assertions))
+		"assertion_count", len(allAssertions))
 
 	// Build conversation context from messages
 	convCtx := de.buildConversationContext(req, messages)
 
 	// Run assertions
 	reg := arenaassertions.NewConversationAssertionRegistry()
-	results := reg.ValidateConversations(context.Background(), assertions, convCtx)
+	results := reg.ValidateConversations(context.Background(), allAssertions, convCtx)
 
 	logger.Debug("Duplex conversation assertion results",
 		"result_count", len(results),
 		"results", results)
 
-	return results
+	// Dual-write: also run assertions through EvalRunner
+	var evalResults []evals.EvalResult
+	if de.packEvalHook != nil {
+		assertionConfigs := mergeAssertionConfigs(req.Config, scenarioAssertions)
+		evalResults = de.packEvalHook.RunAssertionsAsEvals(
+			context.Background(), assertionConfigs, messages,
+			len(messages)-1, req.ConversationID,
+			evals.TriggerOnConversationComplete,
+		)
+		logger.Debug("Dual-write duplex conversation eval results",
+			"eval_result_count", len(evalResults))
+	}
+
+	return results, evalResults
 }
 
 // buildConversationContext creates the context used for conversation-level assertions.

@@ -335,7 +335,11 @@ func (e *PipelineExecutor) buildStagePipeline(
 	// 9. Assertion stage - must run before state store save
 	if len(req.Assertions) > 0 {
 		assertionRegistry := arenaassertions.NewArenaAssertionRegistry()
-		stages = append(stages, arenastages.NewArenaAssertionStage(assertionRegistry, req.Assertions))
+		assertionStage := arenastages.NewArenaAssertionStage(assertionRegistry, req.Assertions)
+		if runner, ok := req.TurnEvalRunner.(arenastages.TurnEvalRunner); ok {
+			assertionStage.WithTurnEvalRunner(runner, req.ConversationID)
+		}
+		stages = append(stages, assertionStage)
 	}
 
 	// 10. Arena state store save - saves messages with assertion metadata

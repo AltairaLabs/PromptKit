@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -69,7 +70,7 @@ func (e *EvalConversationExecutor) ExecuteConversation(
 	convCtx := e.buildConversationContext(&req, messages, metadata)
 	e.applyAllTurnAssertions(req.Eval.Turns, messages, convCtx)
 	mergedEvalAssertions := mergeAssertionConfigs(req.Config, req.Eval.ConversationAssertions)
-	convResults := e.evaluateConversationAssertions(ctx, mergedEvalAssertions, convCtx)
+	convResults, evalResults := e.evaluateConversationAssertions(ctx, mergedEvalAssertions, convCtx)
 
 	// Run pack eval session-level evals if configured
 	if e.packEvalHook != nil && e.packEvalHook.HasEvals() {
@@ -81,6 +82,7 @@ func (e *EvalConversationExecutor) ExecuteConversation(
 		Messages:                     messages,
 		Cost:                         e.calculateCost(messages),
 		ConversationAssertionResults: convResults,
+		EvalResults:                  evalResults,
 		Failed:                       e.hasFailedAssertions(messages, convResults),
 	}
 }
@@ -151,15 +153,31 @@ func (e *EvalConversationExecutor) extractTurnAssertions(turns []config.EvalTurn
 }
 
 // evaluateConversationAssertions runs conversation-level assertions if configured.
+// Returns both old-path assertion results and new-path eval results (dual-write).
 func (e *EvalConversationExecutor) evaluateConversationAssertions(
 	ctx context.Context,
 	assertionConfigs []assertions.AssertionConfig,
 	convCtx *assertions.ConversationContext,
-) []assertions.ConversationValidationResult {
+) ([]assertions.ConversationValidationResult, []evals.EvalResult) {
 	if e.convAssertionReg == nil || len(assertionConfigs) == 0 {
-		return nil
+		return nil, nil
 	}
-	return e.applyConversationAssertions(ctx, assertionConfigs, convCtx)
+
+	results := e.applyConversationAssertions(ctx, assertionConfigs, convCtx)
+
+	// Dual-write: also run assertions through EvalRunner
+	var evalResults []evals.EvalResult
+	if e.packEvalHook != nil {
+		evalResults = e.packEvalHook.RunAssertionsAsEvals(
+			ctx, assertionConfigs, convCtx.AllTurns,
+			len(convCtx.AllTurns)-1, "",
+			evals.TriggerOnConversationComplete,
+		)
+		logger.Debug("Dual-write eval conversation eval results",
+			"eval_result_count", len(evalResults))
+	}
+
+	return results, evalResults
 }
 
 // ExecuteConversationStream runs evaluation with streaming output.

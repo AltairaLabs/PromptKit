@@ -437,3 +437,33 @@ func TestScriptedExecutor_ExecuteTurn_SetsTimestamp(t *testing.T) {
 
 	mockProvider.AssertExpectations(t)
 }
+
+func TestExtractFinishReason_Nil(t *testing.T) {
+	assert.Nil(t, extractFinishReason(nil))
+}
+
+func TestExtractFinishReason_Present(t *testing.T) {
+	meta := map[string]interface{}{"finish_reason": "stop"}
+	result := extractFinishReason(meta)
+	require.NotNil(t, result)
+	assert.Equal(t, "stop", *result)
+}
+
+func TestExtractFinishReason_Missing(t *testing.T) {
+	meta := map[string]interface{}{"other": "value"}
+	assert.Nil(t, extractFinishReason(meta))
+}
+
+func TestExtractTokenCount_Nil(t *testing.T) {
+	assert.Equal(t, 0, extractTokenCount(nil))
+}
+
+func TestExtractTokenCount_Present(t *testing.T) {
+	meta := map[string]interface{}{"token_count": 42}
+	assert.Equal(t, 42, extractTokenCount(meta))
+}
+
+func TestExtractTokenCount_Missing(t *testing.T) {
+	meta := map[string]interface{}{"other": "value"}
+	assert.Equal(t, 0, extractTokenCount(meta))
+}

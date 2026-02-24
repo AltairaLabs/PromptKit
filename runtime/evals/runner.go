@@ -144,6 +144,19 @@ func (r *EvalRunner) runOne(
 		return nil
 	}
 
+	// Check when-conditions (tool call preconditions)
+	if def.When != nil {
+		if shouldRun, reason := ShouldRunWhen(def.When, evalCtx.ToolCalls); !shouldRun {
+			return &EvalResult{
+				EvalID:     def.ID,
+				Type:       def.Type,
+				Passed:     true,
+				Skipped:    true,
+				SkipReason: reason,
+			}
+		}
+	}
+
 	// Look up handler
 	handler, err := r.registry.Get(def.Type)
 	if err != nil {

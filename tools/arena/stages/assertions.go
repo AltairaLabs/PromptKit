@@ -4,12 +4,26 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	runtimeValidators "github.com/AltairaLabs/PromptKit/runtime/validators"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 )
+
+// TurnEvalRunner is an interface for running assertions as evals during turn execution.
+// PackEvalHook in the engine package implements this interface.
+type TurnEvalRunner interface {
+	RunAssertionsAsEvals(
+		ctx context.Context,
+		assertionConfigs []assertions.AssertionConfig,
+		messages []types.Message,
+		turnIndex int,
+		sessionID string,
+		trigger evals.EvalTrigger,
+	) []evals.EvalResult
+}
 
 const roleAssistant = "assistant"
 
@@ -18,6 +32,8 @@ type ArenaAssertionStage struct {
 	stage.BaseStage
 	registry         *runtimeValidators.Registry
 	assertionConfigs []assertions.AssertionConfig
+	turnEvalRunner   TurnEvalRunner // Optional dual-write eval runner
+	sessionID        string         // Session ID for eval context
 }
 
 // NewArenaAssertionStage creates a new assertion stage.
@@ -30,6 +46,13 @@ func NewArenaAssertionStage(
 		registry:         registry,
 		assertionConfigs: assertionConfigs,
 	}
+}
+
+// WithTurnEvalRunner sets the optional eval runner for dual-write support.
+func (s *ArenaAssertionStage) WithTurnEvalRunner(runner TurnEvalRunner, sessionID string) *ArenaAssertionStage {
+	s.turnEvalRunner = runner
+	s.sessionID = sessionID
+	return s
 }
 
 // Process validates assertions on the stream elements.
@@ -216,6 +239,20 @@ func (s *ArenaAssertionStage) executeAssertions(
 	// Attach results to message metadata
 	s.attachResultsToMessage(lastAssistantMsg, resultsMap)
 
+	// Dual-write: run assertions through EvalRunner if configured
+	if s.turnEvalRunner != nil {
+		evalResults := s.turnEvalRunner.RunAssertionsAsEvals(
+			context.Background(), s.assertionConfigs, allMessages,
+			len(allMessages)-1, s.sessionID,
+			evals.TriggerEveryTurn,
+		)
+		if len(evalResults) > 0 {
+			s.attachEvalResultsToMessage(lastAssistantMsg, evalResults)
+			logger.Debug("Dual-write turn eval results",
+				"eval_result_count", len(evalResults))
+		}
+	}
+
 	return resultsMap, validationErrors
 }
 
@@ -275,6 +312,14 @@ func (s *ArenaAssertionStage) attachResultsToMessage(msg *types.Message, results
 		msg.Meta = make(map[string]interface{})
 	}
 	msg.Meta["assertions"] = results
+}
+
+// attachEvalResultsToMessage attaches eval results to the message metadata (dual-write path).
+func (s *ArenaAssertionStage) attachEvalResultsToMessage(msg *types.Message, evalResults []evals.EvalResult) {
+	if msg.Meta == nil {
+		msg.Meta = make(map[string]interface{})
+	}
+	msg.Meta["eval_results"] = evalResults
 }
 
 // deepCloneMessages creates a deep copy of messages.

@@ -74,4 +74,12 @@ func (a AssertionConfig) ToEvalDef(index int) evals.EvalDef {
 	return def
 }
 
+// ToConversationEvalDef converts an AssertionConfig to an evals.EvalDef
+// with TriggerOnConversationComplete. Used for conversation-level assertions.
+func (a AssertionConfig) ToConversationEvalDef(index int) evals.EvalDef {
+	def := a.ToEvalDef(index)
+	def.Trigger = evals.TriggerOnConversationComplete
+	return def
+}
+
 func boolPtr(b bool) *bool { return &b }

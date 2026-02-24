@@ -21,6 +21,12 @@ type EvalDispatcher interface {
 	DispatchSessionEvals(
 		ctx context.Context, defs []EvalDef, evalCtx *EvalContext,
 	) ([]EvalResult, error)
+
+	// DispatchConversationEvals dispatches conversation-level evals.
+	// Returns results synchronously (InProc) or nil (Event/NoOp).
+	DispatchConversationEvals(
+		ctx context.Context, defs []EvalDef, evalCtx *EvalContext,
+	) ([]EvalResult, error)
 }
 
 // EventPublisher publishes serialized eval payloads to an event bus.
@@ -82,6 +88,17 @@ func (d *InProcDispatcher) DispatchSessionEvals(
 	return results, nil
 }
 
+// DispatchConversationEvals runs conversation-level evals in-process.
+func (d *InProcDispatcher) DispatchConversationEvals(
+	ctx context.Context, defs []EvalDef, evalCtx *EvalContext,
+) ([]EvalResult, error) {
+	results := d.runner.RunConversationEvals(ctx, defs, evalCtx)
+	if err := d.writeResults(ctx, results); err != nil {
+		return results, err
+	}
+	return results, nil
+}
+
 func (d *InProcDispatcher) writeResults(
 	ctx context.Context, results []EvalResult,
 ) error {
@@ -125,6 +142,14 @@ func (d *EventDispatcher) DispatchSessionEvals(
 	return nil, d.publish(ctx, "eval.session", defs, evalCtx)
 }
 
+// DispatchConversationEvals publishes conversation eval request to the event bus.
+// Subject: eval.conversation.{session_id}
+func (d *EventDispatcher) DispatchConversationEvals(
+	ctx context.Context, defs []EvalDef, evalCtx *EvalContext,
+) ([]EvalResult, error) {
+	return nil, d.publish(ctx, "eval.conversation", defs, evalCtx)
+}
+
 func (d *EventDispatcher) publish(
 	ctx context.Context,
 	prefix string,
@@ -155,6 +180,13 @@ func (d *NoOpDispatcher) DispatchTurnEvals(
 
 // DispatchSessionEvals is a no-op that returns nil results.
 func (d *NoOpDispatcher) DispatchSessionEvals(
+	_ context.Context, _ []EvalDef, _ *EvalContext,
+) ([]EvalResult, error) {
+	return nil, nil
+}
+
+// DispatchConversationEvals is a no-op that returns nil results.
+func (d *NoOpDispatcher) DispatchConversationEvals(
 	_ context.Context, _ []EvalDef, _ *EvalContext,
 ) ([]EvalResult, error) {
 	return nil, nil

@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
@@ -312,6 +313,7 @@ func (ce *DefaultConversationExecutor) buildTurnRequest(req ConversationRequest,
 		ScriptedContent:  scenarioTurn.Content, // Legacy text content (for backward compatibility)
 		ScriptedParts:    scenarioTurn.Parts,   // Multimodal content parts (takes precedence over ScriptedContent)
 		Assertions:       scenarioTurn.Assertions,
+		TurnEvalRunner:   ce.packEvalHook,
 		Metadata:         metadata,
 	}
 }
@@ -592,7 +594,7 @@ func (ce *DefaultConversationExecutor) buildResultFromStateStore(req Conversatio
 	mediaOutputs := CollectMediaOutputs(messages)
 
 	// Evaluate conversation-level assertions, if any
-	convAssertionResults := ce.evaluateConversationAssertions(&req, messages)
+	convAssertionResults, evalResults := ce.evaluateConversationAssertions(&req, messages)
 
 	// Run pack eval session-level evals if configured
 	if ce.packEvalHook != nil && ce.packEvalHook.HasEvals() {
@@ -610,6 +612,7 @@ func (ce *DefaultConversationExecutor) buildResultFromStateStore(req Conversatio
 		PersonaID:                    personaID,
 		MediaOutputs:                 mediaOutputs,
 		ConversationAssertionResults: convAssertionResults,
+		EvalResults:                  evalResults,
 	}
 }
 
@@ -641,17 +644,18 @@ func collectConversationAssertions(
 	return assertions
 }
 
-// evaluateConversationAssertions evaluates scenario-level conversation assertions after all turns complete
+// evaluateConversationAssertions evaluates scenario-level conversation assertions after all turns complete.
+// Returns both old-path assertion results and new-path eval results (dual-write).
 func (ce *DefaultConversationExecutor) evaluateConversationAssertions(
 	req *ConversationRequest,
 	messages []types.Message,
-) []asrt.ConversationValidationResult {
+) ([]asrt.ConversationValidationResult, []evals.EvalResult) {
 	// Collect conversation assertions from pack + scenario (evaluated after conversation completes)
 	var scenarioAssertions []asrt.AssertionConfig
 	if req.Scenario != nil {
 		scenarioAssertions = req.Scenario.ConversationAssertions
 	}
-	assertions := collectConversationAssertions(req.Config, scenarioAssertions)
+	allAssertions := collectConversationAssertions(req.Config, scenarioAssertions)
 
 	scenarioID := ""
 	if req.Scenario != nil {
@@ -659,26 +663,39 @@ func (ce *DefaultConversationExecutor) evaluateConversationAssertions(
 	}
 	logger.Debug("Evaluating conversation assertions",
 		"scenario_id", scenarioID,
-		"assertion_count", len(assertions))
+		"assertion_count", len(allAssertions))
 
-	if len(assertions) == 0 {
+	if len(allAssertions) == 0 {
 		logger.Debug("No conversation assertions to evaluate")
-		return nil
+		return nil, nil
 	}
 
-	logger.Debug("Running conversation assertion validators", "count", len(assertions))
+	logger.Debug("Running conversation assertion validators", "count", len(allAssertions))
 
 	// Build conversation context from messages
 	convCtx := buildConversationContext(req, messages, ce.promptRegistry)
 
 	reg := asrt.NewConversationAssertionRegistry()
-	results := reg.ValidateConversations(context.Background(), assertions, convCtx)
+	results := reg.ValidateConversations(context.Background(), allAssertions, convCtx)
 
 	logger.Debug("Conversation assertion results",
 		"result_count", len(results),
 		"results", results)
 
-	return results
+	// Dual-write: also run assertions through EvalRunner
+	var evalResults []evals.EvalResult
+	if ce.packEvalHook != nil {
+		assertionConfigs := mergeAssertionConfigs(req.Config, scenarioAssertions)
+		evalResults = ce.packEvalHook.RunAssertionsAsEvals(
+			context.Background(), assertionConfigs, messages,
+			len(messages)-1, req.ConversationID,
+			evals.TriggerOnConversationComplete,
+		)
+		logger.Debug("Dual-write conversation eval results",
+			"eval_result_count", len(evalResults))
+	}
+
+	return results, evalResults
 }
 
 // buildConversationContext constructs a conversation context from messages and request metadata.

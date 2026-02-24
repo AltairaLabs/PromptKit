@@ -54,6 +54,12 @@ func (d *integrationDispatcher) DispatchSessionEvals(
 	}, nil
 }
 
+func (d *integrationDispatcher) DispatchConversationEvals(
+	_ context.Context, _ []evals.EvalDef, _ *evals.EvalContext,
+) ([]evals.EvalResult, error) {
+	return nil, nil
+}
+
 func float64Ptr(v float64) *float64 { return &v }
 
 // integrationResultWriter records results for assertion.
