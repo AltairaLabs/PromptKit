@@ -760,23 +760,60 @@ func TestCosineSimilarityHandler_AnySlice(t *testing.T) {
 func TestRegisterInit(t *testing.T) {
 	// Verify that init() registered all handlers
 	expected := []string{
+		// Turn-level deterministic
 		"contains",
+		"regex",
+		"json_valid",
+		"json_schema",
+		"tools_called",
+		"tools_not_called",
+		"tool_args",
+		"latency_budget",
+		"cosine_similarity",
+
+		// Session-level deterministic
 		"contains_any",
 		"content_excludes",
-		"cosine_similarity",
-		"json_schema",
-		"json_valid",
-		"latency_budget",
+		"tools_called_session",
+		"tools_not_called_session",
+		"tool_args_session",
+		"tool_args_excluded_session",
+
+		// Tool call handlers (Batch 1)
+		"no_tool_errors",
+		"tool_call_count",
+		"tool_result_includes",
+		"tool_result_matches",
+		"tool_call_sequence",
+		"tool_call_chain",
+		"tool_calls_with_args",
+
+		// JSON path, agent, guardrail handlers (Batch 2)
+		"json_path",
+		"agent_invoked",
+		"agent_not_invoked",
+		"agent_response_contains",
+		"guardrail_triggered",
+
+		// Workflow and skill handlers (Batch 3)
+		"workflow_complete",
+		"state_is",
+		"transitioned_to",
+		"skill_activated",
+		"skill_not_activated",
+
+		// Media handlers (Batch 4)
+		"image_format",
+		"image_dimensions",
+		"audio_format",
+		"audio_duration",
+		"video_duration",
+		"video_resolution",
+
+		// LLM judge handlers
 		"llm_judge",
 		"llm_judge_session",
-		"regex",
-		"tool_args",
-		"tool_args_excluded_session",
-		"tool_args_session",
-		"tools_called",
-		"tools_called_session",
-		"tools_not_called",
-		"tools_not_called_session",
+		"llm_judge_tool_calls",
 	}
 
 	r := evals.NewEvalTypeRegistry()

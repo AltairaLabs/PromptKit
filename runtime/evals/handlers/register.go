@@ -23,7 +23,39 @@ func init() {
 	evals.RegisterDefault(&ToolArgsSessionHandler{})
 	evals.RegisterDefault(&ToolArgsExcludedSessionHandler{})
 
+	// Tool call handlers (Batch 1)
+	evals.RegisterDefault(&NoToolErrorsHandler{})
+	evals.RegisterDefault(&ToolCallCountHandler{})
+	evals.RegisterDefault(&ToolResultIncludesHandler{})
+	evals.RegisterDefault(&ToolResultMatchesHandler{})
+	evals.RegisterDefault(&ToolCallSequenceHandler{})
+	evals.RegisterDefault(&ToolCallChainHandler{})
+	evals.RegisterDefault(&ToolCallsWithArgsHandler{})
+
+	// JSON path, agent, and guardrail handlers (Batch 2)
+	evals.RegisterDefault(&JSONPathHandler{})
+	evals.RegisterDefault(&AgentInvokedHandler{})
+	evals.RegisterDefault(&AgentNotInvokedHandler{})
+	evals.RegisterDefault(&AgentResponseContainsHandler{})
+	evals.RegisterDefault(&GuardrailTriggeredHandler{})
+
+	// Workflow and skill handlers (Batch 3)
+	evals.RegisterDefault(&WorkflowCompleteHandler{})
+	evals.RegisterDefault(&WorkflowStateIsHandler{})
+	evals.RegisterDefault(&WorkflowTransitionedToHandler{})
+	evals.RegisterDefault(&SkillActivatedHandler{})
+	evals.RegisterDefault(&SkillNotActivatedHandler{})
+
+	// Media handlers (Batch 4)
+	evals.RegisterDefault(&ImageFormatHandler{})
+	evals.RegisterDefault(&ImageDimensionsHandler{})
+	evals.RegisterDefault(&AudioFormatHandler{})
+	evals.RegisterDefault(&AudioDurationHandler{})
+	evals.RegisterDefault(&VideoDurationHandler{})
+	evals.RegisterDefault(&VideoResolutionHandler{})
+
 	// LLM judge handlers
 	evals.RegisterDefault(&LLMJudgeHandler{})
 	evals.RegisterDefault(&LLMJudgeSessionHandler{})
+	evals.RegisterDefault(&LLMJudgeToolCallsHandler{})
 }
