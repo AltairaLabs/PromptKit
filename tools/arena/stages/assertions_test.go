@@ -4,17 +4,34 @@ import (
 	"context"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/AltairaLabs/PromptKit/runtime/validators"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+// mockTurnEvalRunner implements TurnEvalRunner for testing.
+type mockTurnEvalRunner struct {
+	results []evals.EvalResult
+}
+
+func (m *mockTurnEvalRunner) RunAssertionsAsEvals(
+	_ context.Context,
+	assertionConfigs []assertions.AssertionConfig,
+	_ []types.Message,
+	_ int,
+	_ string,
+	_ evals.EvalTrigger,
+) []evals.EvalResult {
+	return m.results
+}
+
+func float64Ptr(v float64) *float64 { return &v }
+
 func TestArenaAssertionStage_NoAssertions(t *testing.T) {
-	registry := validators.NewRegistry()
-	s := NewArenaAssertionStage(registry, nil)
+	s := NewArenaAssertionStage(nil)
 
 	inputs := []stage.StreamElement{
 		newTestMessageElement("user", "Hello"),
@@ -30,8 +47,7 @@ func TestArenaAssertionStage_NoAssertions(t *testing.T) {
 }
 
 func TestArenaAssertionStage_EmptyAssertionConfigs(t *testing.T) {
-	registry := validators.NewRegistry()
-	s := NewArenaAssertionStage(registry, []assertions.AssertionConfig{})
+	s := NewArenaAssertionStage([]assertions.AssertionConfig{})
 
 	inputs := []stage.StreamElement{
 		newTestMessageElement("assistant", "Response"),
@@ -44,13 +60,6 @@ func TestArenaAssertionStage_EmptyAssertionConfigs(t *testing.T) {
 }
 
 func TestArenaAssertionStage_WithPassingAssertion(t *testing.T) {
-	registry := validators.NewRegistry()
-
-	// Register a simple validator that always passes
-	registry.Register("always_pass", func(params map[string]interface{}) validators.Validator {
-		return &alwaysPassValidator{}
-	})
-
 	assertionConfigs := []assertions.AssertionConfig{
 		{
 			Type:    "always_pass",
@@ -58,7 +67,19 @@ func TestArenaAssertionStage_WithPassingAssertion(t *testing.T) {
 		},
 	}
 
-	s := NewArenaAssertionStage(registry, assertionConfigs)
+	runner := &mockTurnEvalRunner{
+		results: []evals.EvalResult{
+			{
+				Type:    "always_pass",
+				Passed:  true,
+				Score:   float64Ptr(1.0),
+				Message: "Should always pass",
+				Details: map[string]any{"status": "passed"},
+			},
+		},
+	}
+
+	s := NewArenaAssertionStage(assertionConfigs).WithTurnEvalRunner(runner, "test-session")
 
 	inputs := []stage.StreamElement{
 		newTestMessageElement("user", "Hello"),
@@ -78,13 +99,6 @@ func TestArenaAssertionStage_WithPassingAssertion(t *testing.T) {
 }
 
 func TestArenaAssertionStage_WithFailingAssertion(t *testing.T) {
-	registry := validators.NewRegistry()
-
-	// Register a validator that always fails
-	registry.Register("always_fail", func(params map[string]interface{}) validators.Validator {
-		return &alwaysFailValidator{}
-	})
-
 	assertionConfigs := []assertions.AssertionConfig{
 		{
 			Type:    "always_fail",
@@ -92,7 +106,19 @@ func TestArenaAssertionStage_WithFailingAssertion(t *testing.T) {
 		},
 	}
 
-	s := NewArenaAssertionStage(registry, assertionConfigs)
+	runner := &mockTurnEvalRunner{
+		results: []evals.EvalResult{
+			{
+				Type:    "always_fail",
+				Passed:  false,
+				Score:   float64Ptr(0.0),
+				Message: "Should always fail",
+				Details: map[string]any{"status": "failed", "reason": "always fails"},
+			},
+		},
+	}
+
+	s := NewArenaAssertionStage(assertionConfigs).WithTurnEvalRunner(runner, "test-session")
 
 	inputs := []stage.StreamElement{
 		newTestMessageElement("assistant", "Response"),
@@ -115,16 +141,17 @@ func TestArenaAssertionStage_WithFailingAssertion(t *testing.T) {
 }
 
 func TestArenaAssertionStage_NoAssistantMessage(t *testing.T) {
-	registry := validators.NewRegistry()
-	registry.Register("always_pass", func(params map[string]interface{}) validators.Validator {
-		return &alwaysPassValidator{}
-	})
-
 	assertionConfigs := []assertions.AssertionConfig{
 		{Type: "always_pass"},
 	}
 
-	s := NewArenaAssertionStage(registry, assertionConfigs)
+	runner := &mockTurnEvalRunner{
+		results: []evals.EvalResult{
+			{Type: "always_pass", Passed: true, Score: float64Ptr(1.0)},
+		},
+	}
+
+	s := NewArenaAssertionStage(assertionConfigs).WithTurnEvalRunner(runner, "test-session")
 
 	// Only user messages, no assistant
 	inputs := []stage.StreamElement{
@@ -138,32 +165,29 @@ func TestArenaAssertionStage_NoAssistantMessage(t *testing.T) {
 	require.Len(t, results, 2)
 }
 
-func TestArenaAssertionStage_UnknownValidatorType(t *testing.T) {
-	registry := validators.NewRegistry()
-	// Don't register any validators
-
+func TestArenaAssertionStage_NoTurnEvalRunner(t *testing.T) {
+	// When no TurnEvalRunner is set, assertions should be skipped
 	assertionConfigs := []assertions.AssertionConfig{
 		{
-			Type:    "unknown_validator",
-			Message: "Unknown",
+			Type:    "some_validator",
+			Message: "Should be skipped",
 		},
 	}
 
-	s := NewArenaAssertionStage(registry, assertionConfigs)
+	s := NewArenaAssertionStage(assertionConfigs)
 
 	inputs := []stage.StreamElement{
 		newTestMessageElement("assistant", "Response"),
 	}
 
-	// Should not error, just skip unknown validators
+	// Should not error, assertions are skipped when no runner is set
 	results := runStage(t, s, inputs)
 
 	require.Len(t, results, 1)
 }
 
 func TestArenaAssertionStage_ExtractsMessagesFromElements(t *testing.T) {
-	registry := validators.NewRegistry()
-	s := NewArenaAssertionStage(registry, nil)
+	s := NewArenaAssertionStage(nil)
 
 	elements := []stage.StreamElement{
 		newTestMessageElement("user", "User message"),
@@ -179,8 +203,7 @@ func TestArenaAssertionStage_ExtractsMessagesFromElements(t *testing.T) {
 }
 
 func TestArenaAssertionStage_FindLastAssistantElementIndex(t *testing.T) {
-	registry := validators.NewRegistry()
-	s := NewArenaAssertionStage(registry, nil)
+	s := NewArenaAssertionStage(nil)
 
 	elements := []stage.StreamElement{
 		newTestMessageElement("user", "User 1"),
@@ -195,8 +218,7 @@ func TestArenaAssertionStage_FindLastAssistantElementIndex(t *testing.T) {
 }
 
 func TestArenaAssertionStage_FindLastAssistantElementIndex_NotFound(t *testing.T) {
-	registry := validators.NewRegistry()
-	s := NewArenaAssertionStage(registry, nil)
+	s := NewArenaAssertionStage(nil)
 
 	elements := []stage.StreamElement{
 		newTestMessageElement("user", "User 1"),
@@ -209,8 +231,7 @@ func TestArenaAssertionStage_FindLastAssistantElementIndex_NotFound(t *testing.T
 }
 
 func TestArenaAssertionStage_ExtractTurnMessages(t *testing.T) {
-	registry := validators.NewRegistry()
-	s := NewArenaAssertionStage(registry, nil)
+	s := NewArenaAssertionStage(nil)
 
 	messages := []types.Message{
 		{Role: "user", Content: "User 1", Source: "statestore"},
@@ -227,9 +248,8 @@ func TestArenaAssertionStage_ExtractTurnMessages(t *testing.T) {
 	assert.Equal(t, "Assistant 2", turnMessages[1].Content)
 }
 
-func TestArenaAssertionStage_BuildValidatorParams(t *testing.T) {
-	registry := validators.NewRegistry()
-	s := NewArenaAssertionStage(registry, nil)
+func TestArenaAssertionStage_BuildWhenParams(t *testing.T) {
+	s := NewArenaAssertionStage(nil)
 
 	configParams := map[string]interface{}{
 		"custom_param": "custom_value",
@@ -245,7 +265,7 @@ func TestArenaAssertionStage_BuildValidatorParams(t *testing.T) {
 		"test_key": "test_value",
 	}
 
-	params := s.buildValidatorParams(configParams, turnMessages, allMessages, metadata)
+	params := s.buildWhenParams(configParams, turnMessages, allMessages, metadata)
 
 	assert.Equal(t, "custom_value", params["custom_param"])
 	assert.NotNil(t, params["_turn_messages"])
@@ -254,15 +274,14 @@ func TestArenaAssertionStage_BuildValidatorParams(t *testing.T) {
 	assert.NotNil(t, params["_assistant_message"])
 }
 
-func TestArenaAssertionStage_BuildValidatorParams_NoAssistant(t *testing.T) {
-	registry := validators.NewRegistry()
-	s := NewArenaAssertionStage(registry, nil)
+func TestArenaAssertionStage_BuildWhenParams_NoAssistant(t *testing.T) {
+	s := NewArenaAssertionStage(nil)
 
 	turnMessages := []types.Message{
 		{Role: "user", Content: "Hello"},
 	}
 
-	params := s.buildValidatorParams(nil, turnMessages, turnMessages, nil)
+	params := s.buildWhenParams(nil, turnMessages, turnMessages, nil)
 
 	// Should not have assistant message
 	_, hasAssistant := params["_assistant_message"]
@@ -270,8 +289,7 @@ func TestArenaAssertionStage_BuildValidatorParams_NoAssistant(t *testing.T) {
 }
 
 func TestArenaAssertionStage_AttachResultsToMessage(t *testing.T) {
-	registry := validators.NewRegistry()
-	s := NewArenaAssertionStage(registry, nil)
+	s := NewArenaAssertionStage(nil)
 
 	msg := &types.Message{
 		Role:    "assistant",
@@ -290,8 +308,7 @@ func TestArenaAssertionStage_AttachResultsToMessage(t *testing.T) {
 }
 
 func TestArenaAssertionStage_AttachResultsToMessage_NilMeta(t *testing.T) {
-	registry := validators.NewRegistry()
-	s := NewArenaAssertionStage(registry, nil)
+	s := NewArenaAssertionStage(nil)
 
 	msg := &types.Message{
 		Role:    "assistant",
@@ -310,9 +327,7 @@ func TestArenaAssertionStage_AttachResultsToMessage_NilMeta(t *testing.T) {
 }
 
 func TestArenaAssertionStage_WithMetadata(t *testing.T) {
-	registry := validators.NewRegistry()
-
-	s := NewArenaAssertionStage(registry, nil)
+	s := NewArenaAssertionStage(nil)
 
 	elem := newTestMessageElement("assistant", "Response")
 	elem.Metadata = map[string]interface{}{
@@ -327,22 +342,31 @@ func TestArenaAssertionStage_WithMetadata(t *testing.T) {
 }
 
 func TestArenaAssertionStage_MultipleAssertions(t *testing.T) {
-	registry := validators.NewRegistry()
-
-	// Register validators
-	registry.Register("pass1", func(params map[string]interface{}) validators.Validator {
-		return &alwaysPassValidator{}
-	})
-	registry.Register("pass2", func(params map[string]interface{}) validators.Validator {
-		return &alwaysPassValidator{}
-	})
-
 	assertionConfigs := []assertions.AssertionConfig{
 		{Type: "pass1", Message: "First assertion"},
 		{Type: "pass2", Message: "Second assertion"},
 	}
 
-	s := NewArenaAssertionStage(registry, assertionConfigs)
+	runner := &mockTurnEvalRunner{
+		results: []evals.EvalResult{
+			{
+				Type:    "pass1",
+				Passed:  true,
+				Score:   float64Ptr(1.0),
+				Message: "First assertion",
+				Details: map[string]any{"status": "passed"},
+			},
+			{
+				Type:    "pass2",
+				Passed:  true,
+				Score:   float64Ptr(1.0),
+				Message: "Second assertion",
+				Details: map[string]any{"status": "passed"},
+			},
+		},
+	}
+
+	s := NewArenaAssertionStage(assertionConfigs).WithTurnEvalRunner(runner, "test-session")
 
 	inputs := []stage.StreamElement{
 		newTestMessageElement("assistant", "Response"),
@@ -359,27 +383,33 @@ func TestArenaAssertionStage_MultipleAssertions(t *testing.T) {
 	assert.Equal(t, 0, assertionsResult["failed"])
 }
 
-func TestArenaAssertionStage_FailFastOnFailure(t *testing.T) {
-	registry := validators.NewRegistry()
-
-	callCount := 0
-
-	// Register validators - first fails, second should not be called
-	registry.Register("fail_first", func(params map[string]interface{}) validators.Validator {
-		callCount++
-		return &alwaysFailValidator{}
-	})
-	registry.Register("should_not_run", func(params map[string]interface{}) validators.Validator {
-		callCount++
-		return &alwaysPassValidator{}
-	})
-
+func TestArenaAssertionStage_AllAssertionsRunOnFailure(t *testing.T) {
+	// The eval runner runs all assertions at once (no fail-fast behavior).
 	assertionConfigs := []assertions.AssertionConfig{
 		{Type: "fail_first", Message: "Will fail"},
-		{Type: "should_not_run", Message: "Should not run"},
+		{Type: "also_runs", Message: "Also runs"},
 	}
 
-	s := NewArenaAssertionStage(registry, assertionConfigs)
+	runner := &mockTurnEvalRunner{
+		results: []evals.EvalResult{
+			{
+				Type:    "fail_first",
+				Passed:  false,
+				Score:   float64Ptr(0.0),
+				Message: "Will fail",
+				Details: map[string]any{"status": "failed"},
+			},
+			{
+				Type:    "also_runs",
+				Passed:  true,
+				Score:   float64Ptr(1.0),
+				Message: "Also runs",
+				Details: map[string]any{"status": "passed"},
+			},
+		},
+	}
+
+	s := NewArenaAssertionStage(assertionConfigs).WithTurnEvalRunner(runner, "test-session")
 
 	inputs := []stage.StreamElement{
 		newTestMessageElement("assistant", "Response"),
@@ -394,28 +424,22 @@ func TestArenaAssertionStage_FailFastOnFailure(t *testing.T) {
 	output := make(chan stage.StreamElement, 100)
 	ctx := context.Background()
 
-	_ = s.Process(ctx, input, output)
+	err := s.Process(ctx, input, output)
 
-	// Only the first validator should have been called (fail fast)
-	assert.Equal(t, 1, callCount)
-}
+	// Should still fail because one assertion failed
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "validation failed")
 
-// Test validators for assertions
-
-type alwaysPassValidator struct{}
-
-func (v *alwaysPassValidator) Validate(content string, params map[string]interface{}) validators.ValidationResult {
-	return validators.ValidationResult{
-		Passed:  true,
-		Details: map[string]interface{}{"status": "passed"},
+	// Collect output elements
+	var results []stage.StreamElement
+	for elem := range output {
+		results = append(results, elem)
 	}
-}
 
-type alwaysFailValidator struct{}
-
-func (v *alwaysFailValidator) Validate(content string, params map[string]interface{}) validators.ValidationResult {
-	return validators.ValidationResult{
-		Passed:  false,
-		Details: map[string]interface{}{"status": "failed", "reason": "always fails"},
-	}
+	// Should have the original element + error element
+	// The first element should have assertions attached with both results
+	require.GreaterOrEqual(t, len(results), 1)
+	assertionsResult := results[0].Message.Meta["assertions"].(map[string]interface{})
+	assert.Equal(t, 2, assertionsResult["total"])
+	assert.Equal(t, 1, assertionsResult["failed"])
 }

@@ -8,7 +8,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	runtimeValidators "github.com/AltairaLabs/PromptKit/runtime/validators"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 )
 
@@ -30,25 +29,22 @@ const roleAssistant = "assistant"
 // ArenaAssertionStage validates assertions after LLM responses.
 type ArenaAssertionStage struct {
 	stage.BaseStage
-	registry         *runtimeValidators.Registry
 	assertionConfigs []assertions.AssertionConfig
-	turnEvalRunner   TurnEvalRunner // Optional dual-write eval runner
+	turnEvalRunner   TurnEvalRunner // Eval runner for assertion execution
 	sessionID        string         // Session ID for eval context
 }
 
 // NewArenaAssertionStage creates a new assertion stage.
 func NewArenaAssertionStage(
-	registry *runtimeValidators.Registry,
 	assertionConfigs []assertions.AssertionConfig,
 ) *ArenaAssertionStage {
 	return &ArenaAssertionStage{
 		BaseStage:        stage.NewBaseStage("arena_assertions", stage.StageTypeTransform),
-		registry:         registry,
 		assertionConfigs: assertionConfigs,
 	}
 }
 
-// WithTurnEvalRunner sets the optional eval runner for dual-write support.
+// WithTurnEvalRunner sets the eval runner for assertion execution.
 func (s *ArenaAssertionStage) WithTurnEvalRunner(runner TurnEvalRunner, sessionID string) *ArenaAssertionStage {
 	s.turnEvalRunner = runner
 	s.sessionID = sessionID
@@ -173,110 +169,90 @@ func (s *ArenaAssertionStage) extractTurnMessages(messages []types.Message) []ty
 	return turnMessages
 }
 
-// executeAssertions runs all configured assertions and returns results and errors.
+// executeAssertions runs all configured assertions via TurnEvalRunner and returns results and errors.
 func (s *ArenaAssertionStage) executeAssertions(
 	lastAssistantMsg *types.Message,
 	turnMessages []types.Message,
 	allMessages []types.Message,
 	metadata map[string]interface{},
 ) (map[string]interface{}, []error) {
-	results := make([]interface{}, 0, len(s.assertionConfigs))
-	var validationErrors []error
+	if s.turnEvalRunner == nil {
+		logger.Debug("No TurnEvalRunner configured, skipping turn assertions")
+		return map[string]interface{}{
+			"results": []interface{}{},
+			"passed":  true,
+			"total":   0,
+			"failed":  0,
+		}, nil
+	}
 
-	for i, assertionConfig := range s.assertionConfigs {
-		// Check when-condition before running the assertion
-		if assertionConfig.When != nil {
-			params := s.buildValidatorParams(assertionConfig.Params, turnMessages, allMessages, metadata)
-			if shouldRun, reason := assertionConfig.When.ShouldRun(params); !shouldRun {
-				results = append(results, map[string]interface{}{
-					"type":    assertionConfig.Type,
+	// Pre-filter assertions by when-condition
+	var filteredConfigs []assertions.AssertionConfig
+	var skippedResults []interface{}
+	for _, ac := range s.assertionConfigs {
+		if ac.When != nil {
+			params := s.buildWhenParams(ac.Params, turnMessages, allMessages, metadata)
+			if shouldRun, reason := ac.When.ShouldRun(params); !shouldRun {
+				skippedResults = append(skippedResults, map[string]interface{}{
+					"type":    ac.Type,
 					"passed":  true,
 					"skipped": true,
-					"message": assertionConfig.Message,
+					"message": ac.Message,
 					"details": map[string]interface{}{"skip_reason": reason},
 				})
 				continue
 			}
 		}
+		filteredConfigs = append(filteredConfigs, ac)
+	}
 
-		result, err := s.runSingleAssertion(
-			assertionConfig, lastAssistantMsg, turnMessages, allMessages, metadata,
-		)
-		if err != nil {
-			logger.Debug("unknown assertion validator type", "type", assertionConfig.Type, "index", i)
-			continue
+	// Run filtered assertions through eval runner
+	evalResults := s.turnEvalRunner.RunAssertionsAsEvals(
+		context.Background(), filteredConfigs, allMessages,
+		len(allMessages)-1, s.sessionID,
+		evals.TriggerEveryTurn,
+	)
+
+	// Convert eval results to map format for message metadata
+	convResults := assertions.ConvertEvalResults(evalResults)
+	results := make([]interface{}, 0, len(skippedResults)+len(convResults))
+	results = append(results, skippedResults...)
+
+	var validationErrors []error
+	for i, cr := range convResults {
+		resultMap := map[string]interface{}{
+			"type":    cr.Type,
+			"passed":  cr.Passed,
+			"details": cr.Details,
+			"message": cr.Message,
 		}
+		results = append(results, resultMap)
 
-		// Convert to AssertionResult with message from config
-		assertionResult := assertions.FromValidationResult(result, assertionConfig.Message)
-
-		// Add type field so we know what kind of assertion this is
-		assertionWithType := map[string]interface{}{
-			"type":    assertionConfig.Type,
-			"passed":  assertionResult.Passed,
-			"details": assertionResult.Details,
-			"message": assertionResult.Message,
-		}
-		results = append(results, assertionWithType)
-
-		// Collect validation failures and fail fast
-		if !assertionResult.Passed {
+		if !cr.Passed {
 			validationErrors = append(validationErrors,
-				fmt.Errorf("assertion %d (%s) failed with details: %v",
-					i, assertionConfig.Type, assertionResult.Details))
-			break
+				fmt.Errorf("assertion %d (%s) failed: %s", i, cr.Type, cr.Message))
 		}
 	}
 
-	// Convert array to map with summary metadata
+	// Build summary map and attach to message metadata
 	resultsMap := map[string]interface{}{
 		"results": results,
 		"passed":  len(validationErrors) == 0,
 		"total":   len(results),
 		"failed":  len(validationErrors),
 	}
-
-	// Attach results to message metadata
 	s.attachResultsToMessage(lastAssistantMsg, resultsMap)
 
-	// Dual-write: run assertions through EvalRunner if configured
-	if s.turnEvalRunner != nil {
-		evalResults := s.turnEvalRunner.RunAssertionsAsEvals(
-			context.Background(), s.assertionConfigs, allMessages,
-			len(allMessages)-1, s.sessionID,
-			evals.TriggerEveryTurn,
-		)
-		if len(evalResults) > 0 {
-			s.attachEvalResultsToMessage(lastAssistantMsg, evalResults)
-			logger.Debug("Dual-write turn eval results",
-				"eval_result_count", len(evalResults))
-		}
-	}
+	logger.Debug("Turn assertions evaluated via eval path",
+		"total", len(results),
+		"eval_results", len(evalResults),
+		"skipped", len(skippedResults))
 
 	return resultsMap, validationErrors
 }
 
-// runSingleAssertion executes a single assertion configuration.
-func (s *ArenaAssertionStage) runSingleAssertion(
-	assertionConfig assertions.AssertionConfig,
-	lastAssistantMsg *types.Message,
-	turnMessages []types.Message,
-	allMessages []types.Message,
-	metadata map[string]interface{},
-) (runtimeValidators.ValidationResult, error) {
-	factory, ok := s.registry.Get(assertionConfig.Type)
-	if !ok {
-		return runtimeValidators.ValidationResult{}, fmt.Errorf("unknown validator type")
-	}
-
-	params := s.buildValidatorParams(assertionConfig.Params, turnMessages, allMessages, metadata)
-	validator := factory(params)
-
-	return validator.Validate(lastAssistantMsg.Content, params), nil
-}
-
-// buildValidatorParams builds parameters for validator execution.
-func (s *ArenaAssertionStage) buildValidatorParams(
+// buildWhenParams builds parameters for when-condition evaluation.
+func (s *ArenaAssertionStage) buildWhenParams(
 	configParams map[string]interface{},
 	turnMessages []types.Message,
 	allMessages []types.Message,
@@ -312,14 +288,6 @@ func (s *ArenaAssertionStage) attachResultsToMessage(msg *types.Message, results
 		msg.Meta = make(map[string]interface{})
 	}
 	msg.Meta["assertions"] = results
-}
-
-// attachEvalResultsToMessage attaches eval results to the message metadata (dual-write path).
-func (s *ArenaAssertionStage) attachEvalResultsToMessage(msg *types.Message, evalResults []evals.EvalResult) {
-	if msg.Meta == nil {
-		msg.Meta = make(map[string]interface{})
-	}
-	msg.Meta["eval_results"] = evalResults
 }
 
 // deepCloneMessages creates a deep copy of messages.

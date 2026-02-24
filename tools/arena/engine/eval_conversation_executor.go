@@ -10,7 +10,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	runtimeValidators "github.com/AltairaLabs/PromptKit/runtime/validators"
 	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 )
@@ -22,30 +21,24 @@ import (
 // - Skips tool execution (tool calls are metadata only)
 // - Returns results in the same schema as scenario execution for output parity
 type EvalConversationExecutor struct {
-	adapterRegistry   *adapters.Registry
-	assertionRegistry *runtimeValidators.Registry
-	convAssertionReg  *assertions.ConversationAssertionRegistry
-	promptRegistry    *prompt.Registry
-	providerRegistry  *providers.Registry
-	packEvalHook      *PackEvalHook
+	adapterRegistry  *adapters.Registry
+	promptRegistry   *prompt.Registry
+	providerRegistry *providers.Registry
+	packEvalHook     *PackEvalHook
 }
 
 // NewEvalConversationExecutor creates a new eval conversation executor.
 func NewEvalConversationExecutor(
 	adapterRegistry *adapters.Registry,
-	assertionRegistry *runtimeValidators.Registry,
-	convAssertionReg *assertions.ConversationAssertionRegistry,
 	promptRegistry *prompt.Registry,
 	providerRegistry *providers.Registry,
 	packEvalHook *PackEvalHook,
 ) *EvalConversationExecutor {
 	return &EvalConversationExecutor{
-		adapterRegistry:   adapterRegistry,
-		assertionRegistry: assertionRegistry,
-		convAssertionReg:  convAssertionReg,
-		promptRegistry:    promptRegistry,
-		providerRegistry:  providerRegistry,
-		packEvalHook:      packEvalHook,
+		adapterRegistry:  adapterRegistry,
+		promptRegistry:   promptRegistry,
+		providerRegistry: providerRegistry,
+		packEvalHook:     packEvalHook,
 	}
 }
 
@@ -70,7 +63,7 @@ func (e *EvalConversationExecutor) ExecuteConversation(
 	convCtx := e.buildConversationContext(&req, messages, metadata)
 	e.applyAllTurnAssertions(req.Eval.Turns, messages, convCtx)
 	mergedEvalAssertions := mergeAssertionConfigs(req.Config, req.Eval.ConversationAssertions)
-	convResults, evalResults := e.evaluateConversationAssertions(ctx, mergedEvalAssertions, convCtx)
+	convResults := e.evaluateConversationAssertions(ctx, mergedEvalAssertions, convCtx)
 
 	// Run pack eval session-level evals if configured
 	if e.packEvalHook != nil && e.packEvalHook.HasEvals() {
@@ -82,7 +75,6 @@ func (e *EvalConversationExecutor) ExecuteConversation(
 		Messages:                     messages,
 		Cost:                         e.calculateCost(messages),
 		ConversationAssertionResults: convResults,
-		EvalResults:                  evalResults,
 		Failed:                       e.hasFailedAssertions(messages, convResults),
 	}
 }
@@ -152,32 +144,31 @@ func (e *EvalConversationExecutor) extractTurnAssertions(turns []config.EvalTurn
 	return assertionConfigs
 }
 
-// evaluateConversationAssertions runs conversation-level assertions if configured.
-// Returns both old-path assertion results and new-path eval results (dual-write).
+// evaluateConversationAssertions runs conversation-level assertions via PackEvalHook.
 func (e *EvalConversationExecutor) evaluateConversationAssertions(
 	ctx context.Context,
 	assertionConfigs []assertions.AssertionConfig,
 	convCtx *assertions.ConversationContext,
-) ([]assertions.ConversationValidationResult, []evals.EvalResult) {
-	if e.convAssertionReg == nil || len(assertionConfigs) == 0 {
-		return nil, nil
+) []assertions.ConversationValidationResult {
+	if len(assertionConfigs) == 0 {
+		return nil
 	}
 
-	results := e.applyConversationAssertions(ctx, assertionConfigs, convCtx)
-
-	// Dual-write: also run assertions through EvalRunner
-	var evalResults []evals.EvalResult
-	if e.packEvalHook != nil {
-		evalResults = e.packEvalHook.RunAssertionsAsEvals(
-			ctx, assertionConfigs, convCtx.AllTurns,
-			len(convCtx.AllTurns)-1, "",
-			evals.TriggerOnConversationComplete,
-		)
-		logger.Debug("Dual-write eval conversation eval results",
-			"eval_result_count", len(evalResults))
+	if e.packEvalHook == nil {
+		logger.Debug("No packEvalHook configured, skipping eval conversation assertions")
+		return nil
 	}
 
-	return results, evalResults
+	results := e.packEvalHook.RunAssertionsAsConversationResults(
+		ctx, assertionConfigs, convCtx.AllTurns,
+		len(convCtx.AllTurns)-1, "",
+		evals.TriggerOnConversationComplete,
+	)
+
+	logger.Debug("Eval conversation assertion results",
+		"result_count", len(results))
+
+	return results
 }
 
 // ExecuteConversationStream runs evaluation with streaming output.
@@ -253,48 +244,32 @@ func (e *EvalConversationExecutor) buildConversationContext(
 	return assertions.BuildConversationContextFromMessages(messages, meta)
 }
 
-// applyTurnAssertions applies turn-level assertions to a single message.
+// applyTurnAssertions applies turn-level assertions to a single message via PackEvalHook.
 func (e *EvalConversationExecutor) applyTurnAssertions(
 	assertionConfigs []assertions.AssertionConfig,
 	msg *types.Message,
 	convCtx *assertions.ConversationContext,
 ) {
-	if e.assertionRegistry == nil || len(assertionConfigs) == 0 {
+	if e.packEvalHook == nil || len(assertionConfigs) == 0 {
 		return
 	}
 
-	results := make([]assertions.AssertionResult, 0, len(assertionConfigs))
+	// Run assertions through eval pipeline
+	evalResults := e.packEvalHook.RunAssertionsAsEvals(
+		context.Background(), assertionConfigs, convCtx.AllTurns,
+		len(convCtx.AllTurns)-1, "",
+		evals.TriggerEveryTurn,
+	)
 
-	for _, cfg := range assertionConfigs {
-		// Build validator params
-		params := map[string]interface{}{
-			"assistant_response": msg.Content,
-			"_metadata": map[string]interface{}{
-				"judge_targets":     convCtx.Metadata.Extras["judge_targets"],
-				"provider_registry": e.providerRegistry,
-				"prompt_registry":   e.promptRegistry,
-			},
+	// Convert eval results to assertion results for message metadata
+	convResults := assertions.ConvertEvalResults(evalResults)
+	results := make([]assertions.AssertionResult, len(convResults))
+	for i, cr := range convResults {
+		results[i] = assertions.AssertionResult{
+			Passed:  cr.Passed,
+			Details: cr.Details,
+			Message: cr.Message,
 		}
-
-		// Merge assertion params
-		for k, v := range cfg.Params {
-			params[k] = v
-		}
-
-		// Get and execute validator
-		factory, ok := e.assertionRegistry.Get(cfg.Type)
-		if !ok {
-			results = append(results, assertions.AssertionResult{
-				Passed:  false,
-				Details: map[string]interface{}{"error": "unknown assertion type: " + cfg.Type},
-				Message: cfg.Message,
-			})
-			continue
-		}
-
-		validator := factory(params)
-		vr := validator.Validate(msg.Content, params)
-		results = append(results, assertions.FromValidationResult(vr, cfg.Message))
 	}
 
 	// Store in message metadata
@@ -304,44 +279,6 @@ func (e *EvalConversationExecutor) applyTurnAssertions(
 	msg.Meta["assertions"] = results
 }
 
-// applyConversationAssertions runs conversation-level assertions on the full context.
-func (e *EvalConversationExecutor) applyConversationAssertions(
-	ctx context.Context,
-	assertionConfigs []assertions.AssertionConfig,
-	convCtx *assertions.ConversationContext,
-) []assertions.ConversationValidationResult {
-	if e.convAssertionReg == nil || len(assertionConfigs) == 0 {
-		return nil
-	}
-
-	results := make([]assertions.ConversationValidationResult, 0)
-
-	for _, cfg := range assertionConfigs {
-		// Only process conversation-level assertions
-		// Check if this assertion type is in the conversation registry
-		if !e.convAssertionReg.Has(cfg.Type) {
-			continue
-		}
-
-		validator, err := e.convAssertionReg.Get(cfg.Type)
-		if err != nil {
-			results = append(results, assertions.ConversationValidationResult{
-				Type:    cfg.Type,
-				Passed:  false,
-				Details: map[string]interface{}{"error": err.Error()},
-				Message: cfg.Message,
-			})
-			continue
-		}
-
-		result := validator.ValidateConversation(ctx, convCtx, cfg.Params)
-		result.Type = cfg.Type
-		result.Message = cfg.Message
-		results = append(results, result)
-	}
-
-	return results
-}
 
 // calculateCost estimates or extracts cost information from the messages.
 func (e *EvalConversationExecutor) calculateCost(messages []types.Message) types.CostInfo {

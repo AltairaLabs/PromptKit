@@ -50,7 +50,7 @@ func (de *DuplexConversationExecutor) buildResultFromStateStore(
 	toolStats := de.calculateToolStats(messages)
 
 	// Evaluate conversation-level assertions
-	convAssertionResults, evalResults := de.evaluateConversationAssertions(req, messages)
+	convAssertionResults := de.evaluateConversationAssertions(req, messages)
 
 	// Run pack eval session-level evals if configured
 	if de.packEvalHook != nil && de.packEvalHook.HasEvals() {
@@ -67,7 +67,6 @@ func (de *DuplexConversationExecutor) buildResultFromStateStore(
 		SelfPlay:                     de.containsSelfPlay(req.Scenario),
 		PersonaID:                    de.findFirstSelfPlayPersona(req.Scenario),
 		ConversationAssertionResults: convAssertionResults,
-		EvalResults:                  evalResults,
 	}
 }
 

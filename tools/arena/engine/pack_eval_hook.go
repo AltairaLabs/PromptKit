@@ -15,7 +15,6 @@ import (
 type PackEvalHook struct {
 	dispatcher evals.EvalDispatcher
 	defs       []evals.EvalDef
-	adapter    *PackEvalAdapter
 	taskType   string
 }
 
@@ -43,7 +42,6 @@ func NewPackEvalHook(
 	return &PackEvalHook{
 		dispatcher: dispatcher,
 		defs:       filteredDefs,
-		adapter:    &PackEvalAdapter{},
 		taskType:   taskType,
 	}
 }
@@ -70,7 +68,7 @@ func (h *PackEvalHook) RunTurnEvals(
 
 	evalCtx := h.buildEvalContext(messages, turnIndex, sessionID)
 	results, _ := h.dispatcher.DispatchTurnEvals(ctx, h.defs, evalCtx)
-	return h.adapter.Convert(results)
+	return assertions.ConvertEvalResults(results)
 }
 
 // RunSessionEvals runs session-complete evals after conversation finishes.
@@ -90,7 +88,7 @@ func (h *PackEvalHook) RunSessionEvals(
 	}
 	evalCtx := h.buildEvalContext(messages, turnIndex, sessionID)
 	results, _ := h.dispatcher.DispatchSessionEvals(ctx, h.defs, evalCtx)
-	return h.adapter.Convert(results)
+	return assertions.ConvertEvalResults(results)
 }
 
 // RunConversationEvals runs conversation-complete evals after all turns finish.
@@ -110,7 +108,7 @@ func (h *PackEvalHook) RunConversationEvals(
 	}
 	evalCtx := h.buildEvalContext(messages, turnIndex, sessionID)
 	results, _ := h.dispatcher.DispatchConversationEvals(ctx, h.defs, evalCtx)
-	return h.adapter.Convert(results)
+	return assertions.ConvertEvalResults(results)
 }
 
 // RunAssertionsAsEvals converts assertion configs to EvalDefs and runs them
@@ -166,7 +164,7 @@ func (h *PackEvalHook) RunAssertionsAsConversationResults(
 		return nil
 	}
 	results := h.RunAssertionsAsEvals(ctx, assertionConfigs, messages, turnIndex, sessionID, trigger)
-	return h.adapter.Convert(results)
+	return assertions.ConvertEvalResults(results)
 }
 
 // buildEvalContext constructs an EvalContext from Arena messages.

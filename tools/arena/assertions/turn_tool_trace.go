@@ -6,7 +6,11 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-const roleTool = "tool"
+const (
+	roleTool         = "tool"
+	roleAssistant    = "assistant"
+	sourceStatestore = "statestore"
+)
 
 // TurnToolCall represents a single tool call within a turn, paired with its result.
 // This provides the ordered, result-paired trace needed for turn-level tool assertions.

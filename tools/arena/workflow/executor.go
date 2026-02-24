@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 	asrt "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 )
 
@@ -89,13 +91,35 @@ type Result struct {
 
 // Executor runs workflow scenarios against a Driver.
 type Executor struct {
-	factory     DriverFactory
-	transitions []TransitionRecord // accumulated transitions for assertions
+	factory        DriverFactory
+	transitions    []TransitionRecord // accumulated transitions for assertions
+	turnEvalRunner TurnEvalRunner     // optional eval runner for dual-write eval support
+	sessionID      string             // session ID for eval context
+}
+
+// TurnEvalRunner is an optional interface for running assertions as evals during workflow steps.
+// PackEvalHook in the engine package implements this interface.
+type TurnEvalRunner interface {
+	RunAssertionsAsEvals(
+		ctx context.Context,
+		assertionConfigs []asrt.AssertionConfig,
+		messages []types.Message,
+		turnIndex int,
+		sessionID string,
+		trigger evals.EvalTrigger,
+	) []evals.EvalResult
 }
 
 // NewExecutor creates a workflow scenario executor with the given driver factory.
 func NewExecutor(factory DriverFactory) *Executor {
 	return &Executor{factory: factory}
+}
+
+// WithTurnEvalRunner sets the optional eval runner for dual-write support during step assertions.
+func (e *Executor) WithTurnEvalRunner(runner TurnEvalRunner, sessionID string) *Executor {
+	e.turnEvalRunner = runner
+	e.sessionID = sessionID
+	return e
 }
 
 // Execute runs a single workflow scenario and returns the result.

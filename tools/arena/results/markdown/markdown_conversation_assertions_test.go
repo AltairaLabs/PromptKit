@@ -51,6 +51,9 @@ func TestMarkdown_ConversationAssertionsSection(t *testing.T) {
 	if !strings.Contains(s, "Failed") {
 		t.Fatalf("expected failed status for conversation assertions")
 	}
+	if !strings.Contains(s, "| Passed | Type | Score | Message | Details |") {
+		t.Fatalf("expected new table header with Type and Score columns")
+	}
 	if !strings.Contains(s, "forbidden content detected") {
 		t.Fatalf("expected assertion result rows in table")
 	}
@@ -66,6 +69,11 @@ func TestMarkdown_FormatConversationAssertionDetails(t *testing.T) {
 		{"scoreOnly", map[string]interface{}{"score": 0.9}, "score=0.9"},
 		{"reasoning", map[string]interface{}{"reasoning": "Clear and concise"}, "Clear and concise"},
 		{
+			name:    "durationOnly",
+			details: map[string]interface{}{"duration_ms": int64(42)},
+			want:    "42ms",
+		},
+		{
 			name: "scoreReasonTruncate",
 			details: map[string]interface{}{
 				"score":     0.5,
@@ -80,5 +88,55 @@ func TestMarkdown_FormatConversationAssertionDetails(t *testing.T) {
 				t.Fatalf("formatConversationAssertionDetails() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestMarkdown_ScoreColumnInTable(t *testing.T) {
+	tmp := t.TempDir()
+	repo := NewMarkdownResultRepository(tmp)
+
+	rr := engine.RunResult{
+		RunID:      "r2",
+		ScenarioID: "scenario-B",
+		ProviderID: "prov",
+		Region:     "us",
+		Duration:   time.Second,
+		ConversationAssertions: engine.AssertionsSummary{
+			Failed: 0,
+			Passed: true,
+			Total:  2,
+			Results: []assertions.ConversationValidationResult{
+				{
+					Type: "pack_eval:llm_judge", Passed: true, Message: "good",
+					Details: map[string]interface{}{"score": 0.92, "duration_ms": int64(50)},
+				},
+				{
+					Type: "tools_called", Passed: true, Message: "ok",
+				},
+			},
+		},
+	}
+
+	if err := repo.SaveResults([]engine.RunResult{rr}); err != nil {
+		t.Fatalf("SaveResults error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(tmp, "results.md"))
+	if err != nil {
+		t.Fatalf("read results.md: %v", err)
+	}
+	s := string(data)
+
+	// Verify table header has Score column
+	if !strings.Contains(s, "| Passed | Type | Score | Message | Details |") {
+		t.Fatalf("expected Score column in table header, got:\n%s", s)
+	}
+	// Verify score value appears
+	if !strings.Contains(s, "0.92") {
+		t.Fatalf("expected score value 0.92 in output")
+	}
+	// Verify type column value
+	if !strings.Contains(s, "pack_eval:llm_judge") {
+		t.Fatalf("expected type column value")
 	}
 }

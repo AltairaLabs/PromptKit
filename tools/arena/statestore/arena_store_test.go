@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/stretchr/testify/assert"
@@ -1336,46 +1335,29 @@ func TestArenaStateStore_GetResult_PrefersEvalResults(t *testing.T) {
 	err := store.Save(ctx, convState)
 	require.NoError(t, err)
 
-	// Save metadata with BOTH old assertions and new eval results
-	score := 0.9
+	// Save metadata with old assertions
 	metadata := &RunMetadata{
 		RunID:      "run-eval-prefer",
 		ScenarioID: "test",
 		ProviderID: "test",
-		// Old-format assertions: 1 failing
 		ConversationAssertionResults: []ConversationValidationResult{
 			{Type: "old_assertion", Passed: false, Message: "old failed"},
-		},
-		// New-format eval results: 1 passing
-		EvalResults: []evals.EvalResult{
-			{
-				EvalID:      "eval-1",
-				Type:        "contains",
-				Passed:      true,
-				Score:       &score,
-				Explanation: "all good",
-				DurationMs:  10,
-			},
 		},
 	}
 	err = store.SaveMetadata(ctx, "run-eval-prefer", metadata)
 	require.NoError(t, err)
 
-	// Get result — should prefer eval results
+	// Get result — should use old assertions
 	result, err := store.GetResult(ctx, "run-eval-prefer")
 	require.NoError(t, err)
 
-	// Summary should reflect the eval results (1 passing), not old assertions (1 failing)
-	assert.True(t, result.ConversationAssertions.Passed)
+	// Summary should reflect the old assertions (1 failing)
+	assert.False(t, result.ConversationAssertions.Passed)
 	assert.Equal(t, 1, result.ConversationAssertions.Total)
-	assert.Equal(t, 0, result.ConversationAssertions.Failed)
+	assert.Equal(t, 1, result.ConversationAssertions.Failed)
 	require.Len(t, result.ConversationAssertions.Results, 1)
-	assert.Equal(t, "pack_eval:contains", result.ConversationAssertions.Results[0].Type)
-	assert.True(t, result.ConversationAssertions.Results[0].Passed)
-
-	// EvalResults should also be carried through
-	require.Len(t, result.EvalResults, 1)
-	assert.Equal(t, "eval-1", result.EvalResults[0].EvalID)
+	assert.Equal(t, "old_assertion", result.ConversationAssertions.Results[0].Type)
+	assert.False(t, result.ConversationAssertions.Results[0].Passed)
 }
 
 // TestArenaStateStore_GetResult_FallsBackToOldAssertions tests that GetResult uses old assertions
@@ -1416,7 +1398,4 @@ func TestArenaStateStore_GetResult_FallsBackToOldAssertions(t *testing.T) {
 	require.Len(t, result.ConversationAssertions.Results, 2)
 	assert.Equal(t, "content_includes", result.ConversationAssertions.Results[0].Type)
 	assert.Equal(t, "content_excludes", result.ConversationAssertions.Results[1].Type)
-
-	// EvalResults should be nil
-	assert.Nil(t, result.EvalResults)
 }

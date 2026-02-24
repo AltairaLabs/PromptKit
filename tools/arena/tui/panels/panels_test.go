@@ -207,8 +207,8 @@ func TestResultPanel_Basic(t *testing.T) {
 	view = panel.View(data, false)
 	assert.Contains(t, view, "1/2 passed")
 	assert.Contains(t, view, "✗")
-	// The ellipsis shows as "…" in the rendered view
-	assert.Contains(t, view, "1 …")
+	// Verify the details content includes the message (may be truncated)
+	assert.Contains(t, view, "Missing required patter")
 
 	// Test long type name truncation
 	data = &ResultPanelData{

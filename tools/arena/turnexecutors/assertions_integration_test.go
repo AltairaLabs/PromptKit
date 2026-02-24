@@ -72,6 +72,7 @@ func TestPipelineExecutor_AssertionsPass(t *testing.T) {
 		TaskType:         "test",
 		StateStoreConfig: storeConfig,
 		ConversationID:   "test-conv",
+		TurnEvalRunner:   &contentIncludesTurnEvalRunner{},
 		Assertions: []assertions.AssertionConfig{
 			{
 				Type: "content_includes",
@@ -171,6 +172,7 @@ func TestPipelineExecutor_AssertionsFail(t *testing.T) {
 		TaskType:         "test",
 		StateStoreConfig: storeConfig,
 		ConversationID:   "test-conv-fail",
+		TurnEvalRunner:   &contentIncludesTurnEvalRunner{},
 		Assertions: []assertions.AssertionConfig{
 			{
 				Type: "content_includes",

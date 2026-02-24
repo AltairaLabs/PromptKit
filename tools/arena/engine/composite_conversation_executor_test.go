@@ -291,7 +291,7 @@ func TestCompositeConversationExecutor_RouteToEval(t *testing.T) {
 	// Create mock executors
 	defaultExec := NewDefaultConversationExecutor(nil, nil, nil, nil, nil)
 	duplexExec := NewDuplexConversationExecutor(nil, nil, nil, nil, nil)
-	evalExec := NewEvalConversationExecutor(nil, nil, nil, nil, nil, nil)
+	evalExec := NewEvalConversationExecutor(nil, nil, nil, nil)
 
 	composite := NewCompositeConversationExecutor(defaultExec, duplexExec, evalExec)
 
@@ -350,7 +350,7 @@ func TestCompositeConversationExecutor_EvalStreamRouting(t *testing.T) {
 	// Create mock executors
 	defaultExec := NewDefaultConversationExecutor(nil, nil, nil, nil, nil)
 	duplexExec := NewDuplexConversationExecutor(nil, nil, nil, nil, nil)
-	evalExec := NewEvalConversationExecutor(nil, nil, nil, nil, nil, nil)
+	evalExec := NewEvalConversationExecutor(nil, nil, nil, nil)
 
 	composite := NewCompositeConversationExecutor(defaultExec, duplexExec, evalExec)
 
@@ -405,7 +405,7 @@ func TestCompositeConversationExecutor_StreamNilEvalExecutor(t *testing.T) {
 }
 
 func TestCompositeConversationExecutor_GetEvalExecutor(t *testing.T) {
-	evalExec := NewEvalConversationExecutor(nil, nil, nil, nil, nil, nil)
+	evalExec := NewEvalConversationExecutor(nil, nil, nil, nil)
 	composite := NewCompositeConversationExecutor(nil, nil, evalExec)
 
 	result := composite.GetEvalExecutor()

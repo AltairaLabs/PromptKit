@@ -951,7 +951,8 @@ func renderConversationAssertions(results []assertions.ConversationValidationRes
 	b.WriteString(`<div class="conversation-assertions-section">`)
 	b.WriteString(renderConversationHeader(results))
 	b.WriteString(`<table class="conversation-assertions-table">`)
-	b.WriteString(`<thead><tr><th>#</th><th>Type</th><th>Status</th><th>Message</th><th>Details</th></tr></thead>`)
+	b.WriteString(`<thead><tr><th>#</th><th>Type</th><th>Status</th><th class="assertion-score">Score</th>`)
+	b.WriteString(`<th>Message</th><th>Details</th></tr></thead>`)
 	b.WriteString(`<tbody>`)
 	for i, r := range results {
 		b.WriteString(renderConversationRow(i, r))
@@ -963,12 +964,18 @@ func renderConversationAssertions(results []assertions.ConversationValidationRes
 
 // renderConversationHeader builds the header (badge, title, counts).
 func renderConversationHeader(results []assertions.ConversationValidationResult) string {
-	passed, failed := 0, 0
+	passed, failed, skipped := 0, 0, 0
+	hasPackEval := false
 	for _, r := range results {
-		if r.Passed {
+		if _, sk := assertions.IsSkipped(r.Details); sk {
+			skipped++
+		} else if r.Passed {
 			passed++
 		} else {
 			failed++
+		}
+		if assertions.IsPackEval(r) {
+			hasPackEval = true
 		}
 	}
 	statusClass := "passed"
@@ -977,11 +984,19 @@ func renderConversationHeader(results []assertions.ConversationValidationResult)
 		statusClass = "failed"
 		statusIcon = "✗"
 	}
+	title := "Conversation Assertions"
+	if hasPackEval {
+		title = "Evaluations"
+	}
 	var b strings.Builder
 	b.WriteString(`<div class="conversation-assertions-header">`)
 	b.WriteString(fmt.Sprintf(`<span class="conversation-assertions-badge %s">%s</span>`, statusClass, statusIcon))
-	b.WriteString(`<span class="conversation-assertions-title">Conversation Assertions</span>`)
-	b.WriteString(fmt.Sprintf(`<span class="conversation-assertions-count">%d passed, %d failed</span>`, passed, failed))
+	b.WriteString(fmt.Sprintf(`<span class="conversation-assertions-title">%s</span>`, title))
+	countText := fmt.Sprintf("%d passed, %d failed", passed, failed)
+	if skipped > 0 {
+		countText += fmt.Sprintf(", %d skipped", skipped)
+	}
+	b.WriteString(fmt.Sprintf(`<span class="conversation-assertions-count">%s</span>`, countText))
 	b.WriteString(`</div>`)
 	return b.String()
 }
@@ -991,7 +1006,14 @@ func renderConversationRow(index int, result assertions.ConversationValidationRe
 	rowClass := "passed"
 	statusText := "Passed"
 	statusIcon := "✓"
-	if !result.Passed {
+	if reason, skipped := assertions.IsSkipped(result.Details); skipped {
+		rowClass = "skipped"
+		statusText = "Skipped"
+		statusIcon = "⊘"
+		if reason != "" {
+			statusText = fmt.Sprintf("Skipped: %s", reason)
+		}
+	} else if !result.Passed {
 		rowClass = "failed"
 		statusText = "Failed"
 		statusIcon = "✗"
@@ -1009,6 +1031,12 @@ func renderConversationRow(index int, result assertions.ConversationValidationRe
 	b.WriteString(fmt.Sprintf(`<span class="status-icon %s">%s</span> `, rowClass, statusIcon))
 	b.WriteString(statusText)
 	b.WriteString(`</td>`)
+	// Score column
+	scoreText := "—"
+	if score, ok := assertions.ExtractScore(result.Details); ok {
+		scoreText = fmt.Sprintf("%.2f", score)
+	}
+	b.WriteString(fmt.Sprintf(`<td class="assertion-score">%s</td>`, scoreText))
 	msg := result.Message
 	if msg == "" {
 		msg = "—"
@@ -1025,6 +1053,10 @@ func renderConversationDetails(result assertions.ConversationValidationResult) s
 	var b strings.Builder
 	// Wrap details in an expandable section
 	b.WriteString(`<details class="conversation-details"><summary>Show details</summary>`)
+	// Duration inline
+	if durationMs, ok := assertions.ExtractDurationMs(result.Details); ok {
+		b.WriteString(fmt.Sprintf(`<div class="assertion-duration">Duration: %dms</div>`, durationMs))
+	}
 	// Violations list
 	if len(result.Violations) > 0 {
 		b.WriteString(fmt.Sprintf(`<div class="violation-summary">%d violation(s)</div>`, len(result.Violations)))
