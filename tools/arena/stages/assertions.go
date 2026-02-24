@@ -161,6 +161,21 @@ func (s *ArenaAssertionStage) executeAssertions(
 	var validationErrors []error
 
 	for i, assertionConfig := range s.assertionConfigs {
+		// Check when-condition before running the assertion
+		if assertionConfig.When != nil {
+			params := s.buildValidatorParams(assertionConfig.Params, turnMessages, allMessages, metadata)
+			if shouldRun, reason := assertionConfig.When.ShouldRun(params); !shouldRun {
+				results = append(results, map[string]interface{}{
+					"type":    assertionConfig.Type,
+					"passed":  true,
+					"skipped": true,
+					"message": assertionConfig.Message,
+					"details": map[string]interface{}{"skip_reason": reason},
+				})
+				continue
+			}
+		}
+
 		result, err := s.runSingleAssertion(
 			assertionConfig, lastAssistantMsg, turnMessages, allMessages, metadata,
 		)

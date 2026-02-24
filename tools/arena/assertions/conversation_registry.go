@@ -33,6 +33,7 @@ func NewConversationAssertionRegistry() *ConversationAssertionRegistry {
 	registry.Register("content_includes_any", NewContentIncludesAnyConversationValidator)
 	registry.Register("tool_calls_with_args", NewToolCallsWithArgsConversationValidator)
 	registry.Register("llm_judge_conversation", NewLLMJudgeConversationValidator)
+	registry.Register("llm_judge_tool_calls", NewLLMJudgeToolCallsConversationValidator)
 
 	// Register multi-agent conversation assertions
 	registry.Register("agent_invoked", NewAgentInvokedConversationValidator)

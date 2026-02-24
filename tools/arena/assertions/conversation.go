@@ -11,9 +11,10 @@ import (
 // Unlike turn-level assertions that check individual responses, conversation assertions
 // evaluate patterns, behaviors, or constraints across all turns in a self-play scenario.
 type ConversationAssertion struct {
-	Type    string                 `json:"type" yaml:"type"`       // Validator type (e.g., "tools_not_called_with_args")
-	Params  map[string]interface{} `json:"params" yaml:"params"`   // Validator-specific parameters
-	Message string                 `json:"message" yaml:"message"` // Human-readable description shown on failure
+	Type    string                 `json:"type" yaml:"type"`
+	Params  map[string]interface{} `json:"params" yaml:"params"`
+	Message string                 `json:"message" yaml:"message"`
+	When    *AssertionWhen         `json:"when,omitempty" yaml:"when,omitempty"`
 }
 
 // ConversationContext provides all data needed to evaluate conversation-level assertions.

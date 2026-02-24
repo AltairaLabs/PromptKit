@@ -6,13 +6,17 @@
       "properties": {
         "type": {
           "type": "string",
-          "description": "Assertion type. Built-in types: tools_called, tools_not_called, tool_calls_with_args, content_includes, content_matches, guardrail_triggered, is_valid_json, json_schema, json_path, image_format, image_dimensions, audio_duration, audio_format, video_duration, video_resolution, llm_judge, agent_invoked, agent_not_invoked, agent_response_contains, tool_call_sequence, tool_call_count, tool_result_includes, tool_result_matches, no_tool_errors, tool_call_chain"
+          "description": "Assertion type. Built-in types: tools_called, tools_not_called, tool_calls_with_args, content_includes, content_matches, guardrail_triggered, is_valid_json, json_schema, json_path, image_format, image_dimensions, audio_duration, audio_format, video_duration, video_resolution, llm_judge, llm_judge_tool_calls, agent_invoked, agent_not_invoked, agent_response_contains, tool_call_sequence, tool_call_count, tool_result_includes, tool_result_matches, no_tool_errors, tool_call_chain"
         },
         "params": {
           "type": "object"
         },
         "message": {
           "type": "string"
+        },
+        "when": {
+          "$ref": "#/$defs/AssertionWhen",
+          "description": "Optional preconditions; assertion is skipped (not failed) when conditions are not met"
         }
       },
       "additionalProperties": false,
@@ -21,6 +25,28 @@
         "type",
         "params"
       ]
+    },
+    "AssertionWhen": {
+      "properties": {
+        "tool_called": {
+          "type": "string",
+          "description": "Exact tool name that must have been called this turn"
+        },
+        "tool_called_pattern": {
+          "type": "string",
+          "description": "Regex pattern that must match at least one tool name called this turn"
+        },
+        "any_tool_called": {
+          "type": "boolean",
+          "description": "If true, at least one tool must have been called this turn"
+        },
+        "min_tool_calls": {
+          "type": "integer",
+          "description": "Minimum number of tool calls required this turn"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "ContextMetadata": {
       "properties": {
