@@ -395,6 +395,114 @@ func TestToolCallsWithArgsValidator_FallbackToExtractToolCalls(t *testing.T) {
 	}
 }
 
+func TestToolCallsWithArgsValidator_ResultIncludes(t *testing.T) {
+	params := map[string]interface{}{
+		"tool_name":       "get_order",
+		"result_includes": []interface{}{"shipped", "tracking"},
+	}
+	validator := NewToolCallsWithArgsValidator(params)
+
+	messages := buildTurnMessages(
+		testToolCall{id: "c1", name: "get_order", result: `{"status":"shipped","tracking":"TRK-123"}`, round: 0},
+	)
+
+	result := validator.Validate("", map[string]interface{}{
+		"_turn_messages": messages,
+	})
+
+	if !result.Passed {
+		t.Fatalf("expected pass for matching result_includes, got: %+v", result)
+	}
+}
+
+func TestToolCallsWithArgsValidator_ResultIncludesFails(t *testing.T) {
+	params := map[string]interface{}{
+		"tool_name":       "get_order",
+		"result_includes": []interface{}{"refunded"},
+	}
+	validator := NewToolCallsWithArgsValidator(params)
+
+	messages := buildTurnMessages(
+		testToolCall{id: "c1", name: "get_order", result: `{"status":"shipped"}`, round: 0},
+	)
+
+	result := validator.Validate("", map[string]interface{}{
+		"_turn_messages": messages,
+	})
+
+	if result.Passed {
+		t.Fatalf("expected failure for missing result pattern, got: %+v", result)
+	}
+}
+
+func TestToolCallsWithArgsValidator_ResultMatches(t *testing.T) {
+	params := map[string]interface{}{
+		"tool_name":      "get_order",
+		"result_matches": `status.*shipped`,
+	}
+	validator := NewToolCallsWithArgsValidator(params)
+
+	messages := buildTurnMessages(
+		testToolCall{id: "c1", name: "get_order", result: `{"status":"shipped"}`, round: 0},
+	)
+
+	result := validator.Validate("", map[string]interface{}{
+		"_turn_messages": messages,
+	})
+
+	if !result.Passed {
+		t.Fatalf("expected pass for matching result_matches, got: %+v", result)
+	}
+}
+
+func TestToolCallsWithArgsValidator_NoError(t *testing.T) {
+	params := map[string]interface{}{
+		"tool_name": "get_order",
+		"no_error":  true,
+	}
+	validator := NewToolCallsWithArgsValidator(params)
+
+	messages := buildTurnMessages(
+		testToolCall{id: "c1", name: "get_order", err: "not found", round: 0},
+	)
+
+	result := validator.Validate("", map[string]interface{}{
+		"_turn_messages": messages,
+	})
+
+	if result.Passed {
+		t.Fatalf("expected failure for tool with error + no_error constraint, got: %+v", result)
+	}
+}
+
+func TestToolCallsWithArgsValidator_ResultCheckSkippedOnDuplex(t *testing.T) {
+	params := map[string]interface{}{
+		"tool_name":       "get_order",
+		"result_includes": []interface{}{"shipped"},
+	}
+	validator := NewToolCallsWithArgsValidator(params)
+
+	// Use fallback path with _message_tool_calls (no _turn_messages)
+	args, _ := json.Marshal(map[string]interface{}{})
+	result := validator.Validate("", map[string]interface{}{
+		"_message_tool_calls": []types.MessageToolCall{
+			{Name: "get_order", Args: args},
+		},
+	})
+
+	// Should pass with result_check_skipped since no _turn_messages available
+	if !result.Passed {
+		t.Fatalf("expected pass when result check skipped on duplex, got: %+v", result)
+	}
+	details, ok := result.Details.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected details to be map, got: %T", result.Details)
+	}
+	if skipped, _ := details["result_check_skipped"].(bool); !skipped {
+		t.Fatalf("expected result_check_skipped=true, got: %v", details)
+	}
+}
+
 func TestExtractMapStringString_DirectMap(t *testing.T) {
 	// Test extractMapStringString with map[string]string input
 	params := map[string]interface{}{

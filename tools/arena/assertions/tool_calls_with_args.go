@@ -3,6 +3,7 @@ package assertions
 import (
 	"encoding/json"
 	"regexp"
+	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	runtimeValidators "github.com/AltairaLabs/PromptKit/runtime/validators"
@@ -10,10 +11,14 @@ import (
 
 // ToolCallsWithArgsValidator checks that a tool was called with expected arguments.
 // Supports both exact value matching (expected_args) and regex pattern matching (args_match).
+// Optionally validates tool results when _turn_messages are available.
 type ToolCallsWithArgsValidator struct {
-	toolName     string
-	expectedArgs map[string]interface{}
-	argsMatch    map[string]string
+	toolName       string
+	expectedArgs   map[string]interface{}
+	argsMatch      map[string]string
+	resultIncludes []string // substrings that must appear in the tool result
+	resultMatches  string   // regex pattern that the tool result must match
+	noError        bool     // if true, the tool must not have returned an error
 }
 
 // NewToolCallsWithArgsValidator creates a new tool_calls_with_args validator from params.
@@ -25,11 +30,15 @@ func NewToolCallsWithArgsValidator(params map[string]interface{}) runtimeValidat
 	toolName, _ := params["tool_name"].(string)
 	expectedArgs := extractMapStringInterface(params, "expected_args")
 	argsMatch := extractMapStringString(params, "args_match")
+	resultMatches, _ := params["result_matches"].(string)
 
 	return &ToolCallsWithArgsValidator{
-		toolName:     toolName,
-		expectedArgs: expectedArgs,
-		argsMatch:    argsMatch,
+		toolName:       toolName,
+		expectedArgs:   expectedArgs,
+		argsMatch:      argsMatch,
+		resultIncludes: extractStringSlice(params, "result_includes"),
+		resultMatches:  resultMatches,
+		noError:        extractBoolParam(params, "no_error"),
 	}
 }
 
@@ -59,8 +68,8 @@ func (v *ToolCallsWithArgsValidator) Validate(
 		}
 	}
 
-	// If no requirements, just check tool was called
-	if len(v.expectedArgs) == 0 && len(v.argsMatch) == 0 {
+	// If no requirements at all, just check tool was called
+	if len(v.expectedArgs) == 0 && len(v.argsMatch) == 0 && !v.hasResultConstraints() {
 		return runtimeValidators.ValidationResult{
 			Passed: true,
 			Details: map[string]interface{}{
@@ -74,6 +83,22 @@ func (v *ToolCallsWithArgsValidator) Validate(
 	for _, call := range matchingCalls {
 		callViolations := v.validateCall(call)
 		violations = append(violations, callViolations...)
+	}
+
+	// Validate result constraints if configured and turn trace is available
+	if v.hasResultConstraints() {
+		resultViolations, skipped := v.validateResults(params)
+		if skipped {
+			return runtimeValidators.ValidationResult{
+				Passed: len(violations) == 0,
+				Details: map[string]interface{}{
+					"violations":           violations,
+					"matching_calls":       len(matchingCalls),
+					"result_check_skipped": true,
+				},
+			}
+		}
+		violations = append(violations, resultViolations...)
 	}
 
 	return runtimeValidators.ValidationResult{
@@ -174,6 +199,87 @@ func matchPattern(toolName, argName, pattern string, value interface{}) map[stri
 			"type": "pattern_mismatch", "tool": toolName, "argument": argName,
 			"pattern": pattern, "actual": value,
 		}
+	}
+	return nil
+}
+
+// hasResultConstraints returns true if any result-level constraints are configured.
+func (v *ToolCallsWithArgsValidator) hasResultConstraints() bool {
+	return len(v.resultIncludes) > 0 || v.resultMatches != "" || v.noError
+}
+
+// validateResults checks result-level constraints using the turn tool trace.
+// Returns violations and a bool indicating whether the check was skipped (duplex path).
+func (v *ToolCallsWithArgsValidator) validateResults(
+	params map[string]interface{},
+) ([]map[string]interface{}, bool) {
+	trace, ok := resolveTurnToolTrace(params)
+	if !ok {
+		return nil, true
+	}
+
+	var violations []map[string]interface{}
+	for i := range trace {
+		if v.toolName != "" && trace[i].Name != v.toolName {
+			continue
+		}
+		violations = append(violations, v.checkResultConstraints(&trace[i])...)
+	}
+
+	return violations, false
+}
+
+// checkResultConstraints checks all result-level constraints on a single tool call.
+func (v *ToolCallsWithArgsValidator) checkResultConstraints(
+	tc *TurnToolCall,
+) []map[string]interface{} {
+	var violations []map[string]interface{}
+
+	if v.noError && tc.Error != "" {
+		violations = append(violations, map[string]interface{}{
+			"type": "tool_error", "tool": tc.Name, "error": tc.Error,
+		})
+	}
+
+	violations = append(violations, checkResultIncludes(tc.Name, tc.Result, v.resultIncludes)...)
+	violations = append(violations, checkResultMatchesPattern(tc.Name, tc.Result, v.resultMatches)...)
+
+	return violations
+}
+
+// checkResultIncludes checks that a result contains all expected substrings.
+func checkResultIncludes(toolName, result string, patterns []string) []map[string]interface{} {
+	if len(patterns) == 0 {
+		return nil
+	}
+	var violations []map[string]interface{}
+	resultLower := strings.ToLower(result)
+	for _, pattern := range patterns {
+		if !strings.Contains(resultLower, strings.ToLower(pattern)) {
+			violations = append(violations, map[string]interface{}{
+				"type": "result_missing_pattern", "tool": toolName, "pattern": pattern,
+			})
+		}
+	}
+	return violations
+}
+
+// checkResultMatchesPattern checks that a result matches a regex pattern.
+func checkResultMatchesPattern(toolName, result, pattern string) []map[string]interface{} {
+	if pattern == "" {
+		return nil
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return []map[string]interface{}{{
+			"type": "invalid_result_pattern", "tool": toolName,
+			"pattern": pattern, "error": err.Error(),
+		}}
+	}
+	if !re.MatchString(result) {
+		return []map[string]interface{}{{
+			"type": "result_pattern_mismatch", "tool": toolName, "pattern": pattern,
+		}}
 	}
 	return nil
 }

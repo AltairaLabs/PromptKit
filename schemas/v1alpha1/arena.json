@@ -144,6 +144,9 @@
         },
         "message": {
           "type": "string"
+        },
+        "when": {
+          "$ref": "#/$defs/AssertionWhen"
         }
       },
       "additionalProperties": false,
@@ -152,6 +155,24 @@
         "type",
         "params"
       ]
+    },
+    "AssertionWhen": {
+      "properties": {
+        "tool_called": {
+          "type": "string"
+        },
+        "tool_called_pattern": {
+          "type": "string"
+        },
+        "any_tool_called": {
+          "type": "boolean"
+        },
+        "min_tool_calls": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "AudioConfig": {
       "properties": {

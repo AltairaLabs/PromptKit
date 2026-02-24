@@ -29,12 +29,21 @@ func NewArenaAssertionRegistry() *runtimeValidators.Registry {
 
 	// LLM judge validators
 	registry.Register("llm_judge", NewLLMJudgeValidator)
-	// Note: conversation-level validator registered in conversation registry
+	registry.Register("llm_judge_tool_calls", NewLLMJudgeToolCallsValidator)
+	// Note: conversation-level validators registered in conversation registry
 
 	// Register multi-agent assertion validators
 	registry.Register("agent_invoked", NewAgentInvokedValidator)
 	registry.Register("agent_not_invoked", NewAgentNotInvokedValidator)
 	registry.Register("agent_response_contains", NewAgentResponseContainsValidator)
+
+	// Register turn-level tool trace validators
+	registry.Register("tool_call_sequence", NewToolCallSequenceValidator)
+	registry.Register("tool_call_count", NewToolCallCountValidator)
+	registry.Register("tool_result_includes", NewToolResultIncludesValidator)
+	registry.Register("tool_result_matches", NewToolResultMatchesValidator)
+	registry.Register("no_tool_errors", NewNoToolErrorsValidator)
+	registry.Register("tool_call_chain", NewToolCallChainValidator)
 
 	return registry
 }
