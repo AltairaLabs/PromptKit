@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/stretchr/testify/assert"
@@ -1318,4 +1319,104 @@ func TestArenaStateStore_Fork(t *testing.T) {
 	// Fork is a no-op for arena state store
 	err := store.Fork(ctx, "source-123", "new-456")
 	assert.NoError(t, err, "Fork should succeed as a no-op")
+}
+
+// TestArenaStateStore_GetResult_PrefersEvalResults tests that GetResult prefers EvalResults
+// over ConversationAssertionResults when building the ConversationAssertions summary.
+func TestArenaStateStore_GetResult_PrefersEvalResults(t *testing.T) {
+	store := NewArenaStateStore()
+	ctx := context.Background()
+
+	// Save conversation state
+	convState := &statestore.ConversationState{
+		ID:       "run-eval-prefer",
+		Messages: []types.Message{{Role: "user", Content: "Hello"}},
+		Metadata: map[string]interface{}{},
+	}
+	err := store.Save(ctx, convState)
+	require.NoError(t, err)
+
+	// Save metadata with BOTH old assertions and new eval results
+	score := 0.9
+	metadata := &RunMetadata{
+		RunID:      "run-eval-prefer",
+		ScenarioID: "test",
+		ProviderID: "test",
+		// Old-format assertions: 1 failing
+		ConversationAssertionResults: []ConversationValidationResult{
+			{Type: "old_assertion", Passed: false, Message: "old failed"},
+		},
+		// New-format eval results: 1 passing
+		EvalResults: []evals.EvalResult{
+			{
+				EvalID:      "eval-1",
+				Type:        "contains",
+				Passed:      true,
+				Score:       &score,
+				Explanation: "all good",
+				DurationMs:  10,
+			},
+		},
+	}
+	err = store.SaveMetadata(ctx, "run-eval-prefer", metadata)
+	require.NoError(t, err)
+
+	// Get result — should prefer eval results
+	result, err := store.GetResult(ctx, "run-eval-prefer")
+	require.NoError(t, err)
+
+	// Summary should reflect the eval results (1 passing), not old assertions (1 failing)
+	assert.True(t, result.ConversationAssertions.Passed)
+	assert.Equal(t, 1, result.ConversationAssertions.Total)
+	assert.Equal(t, 0, result.ConversationAssertions.Failed)
+	require.Len(t, result.ConversationAssertions.Results, 1)
+	assert.Equal(t, "pack_eval:contains", result.ConversationAssertions.Results[0].Type)
+	assert.True(t, result.ConversationAssertions.Results[0].Passed)
+
+	// EvalResults should also be carried through
+	require.Len(t, result.EvalResults, 1)
+	assert.Equal(t, "eval-1", result.EvalResults[0].EvalID)
+}
+
+// TestArenaStateStore_GetResult_FallsBackToOldAssertions tests that GetResult uses old assertions
+// when EvalResults are empty.
+func TestArenaStateStore_GetResult_FallsBackToOldAssertions(t *testing.T) {
+	store := NewArenaStateStore()
+	ctx := context.Background()
+
+	// Save conversation state
+	convState := &statestore.ConversationState{
+		ID:       "run-old-fallback",
+		Messages: []types.Message{{Role: "user", Content: "Hello"}},
+		Metadata: map[string]interface{}{},
+	}
+	err := store.Save(ctx, convState)
+	require.NoError(t, err)
+
+	// Save metadata with only old assertions, no eval results
+	metadata := &RunMetadata{
+		RunID:      "run-old-fallback",
+		ScenarioID: "test",
+		ProviderID: "test",
+		ConversationAssertionResults: []ConversationValidationResult{
+			{Type: "content_includes", Passed: true, Message: "ok"},
+			{Type: "content_excludes", Passed: false, Message: "found forbidden word"},
+		},
+	}
+	err = store.SaveMetadata(ctx, "run-old-fallback", metadata)
+	require.NoError(t, err)
+
+	// Get result — should fall back to old assertions
+	result, err := store.GetResult(ctx, "run-old-fallback")
+	require.NoError(t, err)
+
+	assert.False(t, result.ConversationAssertions.Passed)
+	assert.Equal(t, 2, result.ConversationAssertions.Total)
+	assert.Equal(t, 1, result.ConversationAssertions.Failed)
+	require.Len(t, result.ConversationAssertions.Results, 2)
+	assert.Equal(t, "content_includes", result.ConversationAssertions.Results[0].Type)
+	assert.Equal(t, "content_excludes", result.ConversationAssertions.Results[1].Type)
+
+	// EvalResults should be nil
+	assert.Nil(t, result.EvalResults)
 }

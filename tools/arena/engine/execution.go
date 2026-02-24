@@ -541,6 +541,7 @@ func (e *Engine) saveRunMetadata(
 		PersonaID:                    result.PersonaID,
 		RecordingPath:                e.GetRecordingPath(runID),
 		ConversationAssertionResults: result.ConversationAssertionResults,
+		EvalResults:                  result.EvalResults,
 		A2AAgents:                    e.getA2AAgentsFromConfig(),
 	}
 
@@ -548,6 +549,7 @@ func (e *Engine) saveRunMetadata(
 		"runID", runID,
 		"recording_path", metadata.RecordingPath,
 		"conv_assertions_count", len(result.ConversationAssertionResults),
+		"eval_results_count", len(result.EvalResults),
 		"conv_assertions_results", result.ConversationAssertionResults)
 
 	return store.SaveMetadata(ctx, runID, metadata)
@@ -685,6 +687,7 @@ func (e *Engine) saveEvalMetadata(
 		SelfPlay:                     convResult.SelfPlay,
 		PersonaID:                    convResult.PersonaID,
 		ConversationAssertionResults: convResult.ConversationAssertionResults,
+		EvalResults:                  convResult.EvalResults,
 		A2AAgents:                    e.getA2AAgentsFromConfig(),
 	}
 

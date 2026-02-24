@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -82,6 +83,11 @@ type RunMetadata struct {
 
 	// Conversation-level assertions (evaluated after conversation completes)
 	ConversationAssertionResults []ConversationValidationResult `json:"conv_assertions_results,omitempty"`
+
+	// Eval results from the new EvalRunner dual-write path (Phase 2).
+	// Phase 3: these flow through the full data pipeline and are preferred
+	// over ConversationAssertionResults when building AssertionsSummary.
+	EvalResults []evals.EvalResult `json:"eval_results,omitempty"`
 
 	// A2A agent metadata (populated from config for report rendering)
 	A2AAgents []A2AAgentInfo `json:"a2a_agents,omitempty"`
@@ -553,6 +559,11 @@ type RunResult struct {
 
 	// Conversation-level assertions evaluated after the conversation completes (summary format)
 	ConversationAssertions AssertionsSummary `json:"conversation_assertions,omitempty"`
+
+	// Eval results from the unified eval pipeline (Phase 3).
+	// Carried through for downstream consumers; used to build ConversationAssertions
+	// when available (preferred over old-format assertion results).
+	EvalResults []evals.EvalResult `json:"eval_results,omitempty"`
 
 	// A2A agent metadata (populated from config for report rendering)
 	A2AAgents []A2AAgentInfo `json:"A2AAgents,omitempty"`

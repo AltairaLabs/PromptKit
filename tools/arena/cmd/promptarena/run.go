@@ -423,6 +423,7 @@ func convertToEngineRunResult(sr *statestore.RunResult) engine.RunResult {
 			Results: sr.ConversationAssertions.Results,
 			Total:   sr.ConversationAssertions.Total,
 		},
+		EvalResults: sr.EvalResults,
 	}
 
 	// Convert A2AAgents
