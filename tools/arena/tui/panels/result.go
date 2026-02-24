@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/views"
@@ -61,7 +62,8 @@ func (p *ResultPanel) Update(width, height int) {
 		columns := []table.Column{
 			{Title: "✓", Width: 2},
 			{Title: "Type", Width: 20},
-			{Title: "Details", Width: 30},
+			{Title: "Score", Width: 6},
+			{Title: "Details", Width: 24},
 		}
 
 		t := table.New(
@@ -108,13 +110,15 @@ func (p *ResultPanel) Update(width, height int) {
 			availWidth = 30
 		}
 
-		// Allocate width: Status (3) | Type (30%) | Details (70%)
-		typeWidth := int(float64(availWidth) * 0.3)
-		detailWidth := availWidth - typeWidth - 3
+		// Allocate width: Status (3) | Type (28%) | Score (7) | Details (remaining)
+		scoreWidth := 7
+		typeWidth := int(float64(availWidth) * 0.28)
+		detailWidth := availWidth - typeWidth - scoreWidth - 3
 
 		p.table.SetColumns([]table.Column{
 			{Title: "✓", Width: 2},
 			{Title: "Type", Width: typeWidth},
+			{Title: "Score", Width: scoreWidth},
 			{Title: "Details", Width: detailWidth},
 		})
 
@@ -193,14 +197,20 @@ func (p *ResultPanel) buildTableContent(data *ResultPanelData) (rows []table.Row
 func (p *ResultPanel) buildAssertionRow(result statestore.ConversationValidationResult) table.Row {
 	// Use plain text symbols - styling in table cells breaks width calculations
 	status := "✓"
-	if !result.Passed {
+	if _, skipped := assertions.IsSkipped(result.Details); skipped {
+		status = "⊘"
+	} else if !result.Passed {
 		status = "✗"
 	}
 
 	typeName := truncateString(result.Type, maxTypeLen, typeEllipsisLen)
+	scoreText := "—"
+	if score, ok := assertions.ExtractScore(result.Details); ok {
+		scoreText = fmt.Sprintf("%.2f", score)
+	}
 	details := buildDetailsText(result)
 
-	return table.Row{status, typeName, details}
+	return table.Row{status, typeName, scoreText, details}
 }
 
 // buildDetailsText creates the details column text from message and violations

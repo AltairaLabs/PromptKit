@@ -13,6 +13,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/results"
 )
@@ -571,16 +572,26 @@ func (r *MarkdownResultRepository) writeConversationAssertionRun(
 	if result.ConversationAssertions.Failed > 0 {
 		fmt.Fprintf(content, "- **Failed**: %d\n", result.ConversationAssertions.Failed)
 	}
-	content.WriteString("\n| Passed | Message | Details |\n")
-	content.WriteString("|--------|---------|---------|\n")
+	content.WriteString("\n| Passed | Type | Score | Message | Details |\n")
+	content.WriteString("|--------|------|-------|---------|----------|\n")
 	for i := range result.ConversationAssertions.Results {
 		res := result.ConversationAssertions.Results[i]
 		passIcon := "✅"
-		if !res.Passed {
+		if _, skipped := assertions.IsSkipped(res.Details); skipped {
+			passIcon = "⊘"
+		} else if !res.Passed {
 			passIcon = "❌"
 		}
+		typeName := res.Type
+		if typeName == "" {
+			typeName = "-"
+		}
+		scoreText := "-"
+		if score, ok := assertions.ExtractScore(res.Details); ok {
+			scoreText = fmt.Sprintf("%.2f", score)
+		}
 		details := formatConversationAssertionDetails(res.Details)
-		fmt.Fprintf(content, "| %s | %s | %s |\n", passIcon, res.Message, details)
+		fmt.Fprintf(content, "| %s | %s | %s | %s | %s |\n", passIcon, typeName, scoreText, res.Message, details)
 	}
 	content.WriteString("\n")
 }
@@ -591,13 +602,15 @@ func formatConversationAssertionDetails(details map[string]interface{}) string {
 		return "-"
 	}
 
-	// Prefer reasoning/score fields if present
 	var parts []string
 	if score, ok := details["score"]; ok {
 		parts = append(parts, fmt.Sprintf("score=%v", score))
 	}
 	if reasoning, ok := details["reasoning"].(string); ok && reasoning != "" {
 		parts = append(parts, truncate(reasoning, truncateLimit))
+	}
+	if durationMs, ok := assertions.ExtractDurationMs(details); ok {
+		parts = append(parts, fmt.Sprintf("%dms", durationMs))
 	}
 	if len(parts) == 0 {
 		return "-"

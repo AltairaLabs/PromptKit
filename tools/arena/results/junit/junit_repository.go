@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/results"
 )
@@ -255,6 +256,27 @@ func (r *JUnitResultRepository) addConversationAssertions(testCase *JUnitTestCas
 		{Name: "conversation_assertions.failed", Value: fmt.Sprintf("%d", result.ConversationAssertions.Failed)},
 		{Name: "conversation_assertions.passed", Value: passVal},
 	}
+	// Per-result properties for score, eval_id, duration_ms
+	for i, res := range result.ConversationAssertions.Results {
+		if score, ok := assertions.ExtractScore(res.Details); ok {
+			props = append(props, JUnitProperty{
+				Name:  fmt.Sprintf("conversation_assertions.%d.score", i),
+				Value: fmt.Sprintf("%.4f", score),
+			})
+		}
+		if evalID, ok := assertions.ExtractEvalID(res.Details); ok {
+			props = append(props, JUnitProperty{
+				Name:  fmt.Sprintf("conversation_assertions.%d.eval_id", i),
+				Value: evalID,
+			})
+		}
+		if durationMs, ok := assertions.ExtractDurationMs(res.Details); ok {
+			props = append(props, JUnitProperty{
+				Name:  fmt.Sprintf("conversation_assertions.%d.duration_ms", i),
+				Value: fmt.Sprintf("%d", durationMs),
+			})
+		}
+	}
 	testCase.Properties = append(testCase.Properties, props...)
 
 	// If any failed, attach a failure with messages (only if no other failure/error exists)
@@ -333,6 +355,9 @@ func formatConversationAssertionDetails(details map[string]interface{}) string {
 	}
 	if reasoning, ok := details["reasoning"].(string); ok && reasoning != "" {
 		parts = append(parts, truncateReasoning(reasoning, truncateReasonLimit))
+	}
+	if durationMs, ok := assertions.ExtractDurationMs(details); ok {
+		parts = append(parts, fmt.Sprintf("%dms", durationMs))
 	}
 	return strings.Join(parts, " · ")
 }

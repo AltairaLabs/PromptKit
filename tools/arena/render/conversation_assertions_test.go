@@ -93,6 +93,52 @@ func TestConversationAssertionsRendering(t *testing.T) {
 				"Missing required keyword",
 			},
 		},
+		{
+			name: "score column displayed",
+			results: []assertions.ConversationValidationResult{
+				{
+					Type:    "pack_eval:llm_judge",
+					Passed:  true,
+					Message: "Good response",
+					Details: map[string]interface{}{
+						"score":       0.85,
+						"eval_id":     "eval-1",
+						"duration_ms": int64(42),
+					},
+				},
+				{
+					Type:    "pack_eval:contains",
+					Passed:  true,
+					Message: "Contains keyword",
+				},
+			},
+			expectInHTML: []string{
+				"assertion-score",
+				"0.85",
+				"Evaluations",   // dynamic title for pack evals
+				"Duration: 42ms", // inline duration
+			},
+		},
+		{
+			name: "skipped assertion displayed",
+			results: []assertions.ConversationValidationResult{
+				{
+					Type:    "pack_eval:llm_judge",
+					Passed:  true,
+					Message: "skipped eval",
+					Details: map[string]interface{}{
+						"skipped":     true,
+						"skip_reason": "condition not met",
+					},
+				},
+			},
+			expectInHTML: []string{
+				"Skipped",
+				"condition not met",
+				"skipped",
+				"1 skipped",
+			},
+		},
 	}
 
 	for _, tt := range tests {
