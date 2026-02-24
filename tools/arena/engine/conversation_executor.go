@@ -594,7 +594,7 @@ func (ce *DefaultConversationExecutor) buildResultFromStateStore(req Conversatio
 	mediaOutputs := CollectMediaOutputs(messages)
 
 	// Evaluate conversation-level assertions, if any
-	convAssertionResults, evalResults := ce.evaluateConversationAssertions(&req, messages)
+	convAssertionResults := ce.evaluateConversationAssertions(&req, messages)
 
 	// Run pack eval session-level evals if configured
 	if ce.packEvalHook != nil && ce.packEvalHook.HasEvals() {
@@ -612,7 +612,6 @@ func (ce *DefaultConversationExecutor) buildResultFromStateStore(req Conversatio
 		PersonaID:                    personaID,
 		MediaOutputs:                 mediaOutputs,
 		ConversationAssertionResults: convAssertionResults,
-		EvalResults:                  evalResults,
 	}
 }
 
@@ -645,17 +644,17 @@ func collectConversationAssertions(
 }
 
 // evaluateConversationAssertions evaluates scenario-level conversation assertions after all turns complete.
-// Returns both old-path assertion results and new-path eval results (dual-write).
+// Uses the eval-only path via PackEvalHook.
 func (ce *DefaultConversationExecutor) evaluateConversationAssertions(
 	req *ConversationRequest,
 	messages []types.Message,
-) ([]asrt.ConversationValidationResult, []evals.EvalResult) {
+) []asrt.ConversationValidationResult {
 	// Collect conversation assertions from pack + scenario (evaluated after conversation completes)
 	var scenarioAssertions []asrt.AssertionConfig
 	if req.Scenario != nil {
 		scenarioAssertions = req.Scenario.ConversationAssertions
 	}
-	allAssertions := collectConversationAssertions(req.Config, scenarioAssertions)
+	assertionConfigs := mergeAssertionConfigs(req.Config, scenarioAssertions)
 
 	scenarioID := ""
 	if req.Scenario != nil {
@@ -663,39 +662,30 @@ func (ce *DefaultConversationExecutor) evaluateConversationAssertions(
 	}
 	logger.Debug("Evaluating conversation assertions",
 		"scenario_id", scenarioID,
-		"assertion_count", len(allAssertions))
+		"assertion_count", len(assertionConfigs))
 
-	if len(allAssertions) == 0 {
+	if len(assertionConfigs) == 0 {
 		logger.Debug("No conversation assertions to evaluate")
-		return nil, nil
+		return nil
 	}
 
-	logger.Debug("Running conversation assertion validators", "count", len(allAssertions))
+	if ce.packEvalHook == nil {
+		logger.Debug("No packEvalHook configured, skipping conversation assertions")
+		return nil
+	}
 
-	// Build conversation context from messages
-	convCtx := buildConversationContext(req, messages, ce.promptRegistry)
-
-	reg := asrt.NewConversationAssertionRegistry()
-	results := reg.ValidateConversations(context.Background(), allAssertions, convCtx)
+	// Run assertions through the eval pipeline and convert to ConversationValidationResult
+	results := ce.packEvalHook.RunAssertionsAsConversationResults(
+		context.Background(), assertionConfigs, messages,
+		len(messages)-1, req.ConversationID,
+		evals.TriggerOnConversationComplete,
+	)
 
 	logger.Debug("Conversation assertion results",
 		"result_count", len(results),
 		"results", results)
 
-	// Dual-write: also run assertions through EvalRunner
-	var evalResults []evals.EvalResult
-	if ce.packEvalHook != nil {
-		assertionConfigs := mergeAssertionConfigs(req.Config, scenarioAssertions)
-		evalResults = ce.packEvalHook.RunAssertionsAsEvals(
-			context.Background(), assertionConfigs, messages,
-			len(messages)-1, req.ConversationID,
-			evals.TriggerOnConversationComplete,
-		)
-		logger.Debug("Dual-write conversation eval results",
-			"eval_result_count", len(evalResults))
-	}
-
-	return results, evalResults
+	return results
 }
 
 // buildConversationContext constructs a conversation context from messages and request metadata.

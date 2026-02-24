@@ -9,22 +9,17 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	runtimeValidators "github.com/AltairaLabs/PromptKit/runtime/validators"
 	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 )
 
 func TestNewEvalConversationExecutor(t *testing.T) {
 	adapterReg := adapters.NewRegistry()
-	assertionReg := assertions.NewArenaAssertionRegistry()
-	convAssertionReg := assertions.NewConversationAssertionRegistry()
 	promptReg := prompt.NewRegistryWithRepository(memory.NewPromptRepository())
 	providerReg := providers.NewRegistry()
 
 	executor := NewEvalConversationExecutor(
 		adapterReg,
-		assertionReg,
-		convAssertionReg,
 		promptReg,
 		providerReg,
 		nil,
@@ -35,12 +30,6 @@ func TestNewEvalConversationExecutor(t *testing.T) {
 	}
 	if executor.adapterRegistry != adapterReg {
 		t.Error("Adapter registry not set correctly")
-	}
-	if executor.assertionRegistry != assertionReg {
-		t.Error("Assertion registry not set correctly")
-	}
-	if executor.convAssertionReg != convAssertionReg {
-		t.Error("Conversation assertion registry not set correctly")
 	}
 	if executor.promptRegistry != promptReg {
 		t.Error("Prompt registry not set correctly")
@@ -53,8 +42,6 @@ func TestNewEvalConversationExecutor(t *testing.T) {
 func TestEvalConversationExecutor_ValidatesEvalConfig(t *testing.T) {
 	executor := NewEvalConversationExecutor(
 		adapters.NewRegistry(),
-		assertions.NewArenaAssertionRegistry(),
-		assertions.NewConversationAssertionRegistry(),
 		prompt.NewRegistryWithRepository(memory.NewPromptRepository()),
 		providers.NewRegistry(),
 		nil,
@@ -154,8 +141,6 @@ func TestEvalConversationExecutor_ValidatesEvalConfig(t *testing.T) {
 func TestEvalConversationExecutor_RequiresAdapterRegistry(t *testing.T) {
 	executor := NewEvalConversationExecutor(
 		nil, // nil adapter registry
-		assertions.NewArenaAssertionRegistry(),
-		assertions.NewConversationAssertionRegistry(),
 		prompt.NewRegistryWithRepository(memory.NewPromptRepository()),
 		providers.NewRegistry(),
 		nil,
@@ -186,8 +171,6 @@ func TestEvalConversationExecutor_NoAdapterFound(t *testing.T) {
 
 	executor := NewEvalConversationExecutor(
 		emptyRegistry,
-		assertions.NewArenaAssertionRegistry(),
-		assertions.NewConversationAssertionRegistry(),
 		prompt.NewRegistryWithRepository(memory.NewPromptRepository()),
 		providers.NewRegistry(),
 		nil,
@@ -215,8 +198,6 @@ func TestEvalConversationExecutor_NoAdapterFound(t *testing.T) {
 func TestEvalConversationExecutor_CalculateCost(t *testing.T) {
 	executor := NewEvalConversationExecutor(
 		adapters.NewRegistry(),
-		assertions.NewArenaAssertionRegistry(),
-		assertions.NewConversationAssertionRegistry(),
 		prompt.NewRegistryWithRepository(memory.NewPromptRepository()),
 		providers.NewRegistry(),
 		nil,
@@ -330,8 +311,6 @@ func TestEvalConversationExecutor_CalculateCost(t *testing.T) {
 func TestEvalConversationExecutor_HasFailedAssertions(t *testing.T) {
 	executor := NewEvalConversationExecutor(
 		adapters.NewRegistry(),
-		assertions.NewArenaAssertionRegistry(),
-		assertions.NewConversationAssertionRegistry(),
 		prompt.NewRegistryWithRepository(memory.NewPromptRepository()),
 		providers.NewRegistry(),
 		nil,
@@ -452,8 +431,6 @@ func TestEvalConversationExecutor_HasFailedAssertions(t *testing.T) {
 func TestEvalConversationExecutor_MergeTags(t *testing.T) {
 	executor := NewEvalConversationExecutor(
 		adapters.NewRegistry(),
-		assertions.NewArenaAssertionRegistry(),
-		assertions.NewConversationAssertionRegistry(),
 		prompt.NewRegistryWithRepository(memory.NewPromptRepository()),
 		providers.NewRegistry(),
 		nil,
@@ -531,8 +508,6 @@ func TestEvalConversationExecutor_MergeTags(t *testing.T) {
 func TestEvalConversationExecutor_BuildConversationContext(t *testing.T) {
 	executor := NewEvalConversationExecutor(
 		adapters.NewRegistry(),
-		assertions.NewArenaAssertionRegistry(),
-		assertions.NewConversationAssertionRegistry(),
 		prompt.NewRegistryWithRepository(memory.NewPromptRepository()),
 		providers.NewRegistry(),
 		nil,
@@ -592,80 +567,54 @@ func TestEvalConversationExecutor_BuildConversationContext(t *testing.T) {
 }
 
 func TestEvalConversationExecutor_ApplyTurnAssertions(t *testing.T) {
-	// Create a mock validator that always passes
-	passValidator := func(params map[string]interface{}) runtimeValidators.Validator {
-		return &mockValidator{shouldPass: true}
-	}
-
-	// Create a mock validator that always fails
-	failValidator := func(params map[string]interface{}) runtimeValidators.Validator {
-		return &mockValidator{shouldPass: false}
-	}
-
-	assertionReg := runtimeValidators.NewRegistry()
-	assertionReg.Register("always_pass", passValidator)
-	assertionReg.Register("always_fail", failValidator)
-
+	// Without a packEvalHook, applyTurnAssertions is a no-op because
+	// assertions now run exclusively through the eval pipeline.
 	executor := NewEvalConversationExecutor(
 		adapters.NewRegistry(),
-		assertionReg,
-		assertions.NewConversationAssertionRegistry(),
 		prompt.NewRegistryWithRepository(memory.NewPromptRepository()),
 		providers.NewRegistry(),
 		nil,
 	)
 
 	tests := []struct {
-		name           string
-		assertionCfgs  []assertions.AssertionConfig
-		msg            *types.Message
-		expectedPassed int
-		expectedFailed int
+		name          string
+		assertionCfgs []assertions.AssertionConfig
+		msg           *types.Message
 	}{
 		{
-			name:           "no assertions",
-			assertionCfgs:  []assertions.AssertionConfig{},
-			msg:            &types.Message{Role: "assistant", Content: "hello"},
-			expectedPassed: 0,
-			expectedFailed: 0,
+			name:          "no assertions",
+			assertionCfgs: []assertions.AssertionConfig{},
+			msg:           &types.Message{Role: "assistant", Content: "hello"},
 		},
 		{
-			name: "single passing assertion",
+			name: "single passing assertion skipped without packEvalHook",
 			assertionCfgs: []assertions.AssertionConfig{
 				{Type: "always_pass", Params: map[string]interface{}{}},
 			},
-			msg:            &types.Message{Role: "assistant", Content: "hello"},
-			expectedPassed: 1,
-			expectedFailed: 0,
+			msg: &types.Message{Role: "assistant", Content: "hello"},
 		},
 		{
-			name: "single failing assertion",
+			name: "single failing assertion skipped without packEvalHook",
 			assertionCfgs: []assertions.AssertionConfig{
 				{Type: "always_fail", Params: map[string]interface{}{}},
 			},
-			msg:            &types.Message{Role: "assistant", Content: "hello"},
-			expectedPassed: 0,
-			expectedFailed: 1,
+			msg: &types.Message{Role: "assistant", Content: "hello"},
 		},
 		{
-			name: "mixed assertions",
+			name: "mixed assertions skipped without packEvalHook",
 			assertionCfgs: []assertions.AssertionConfig{
 				{Type: "always_pass", Params: map[string]interface{}{}},
 				{Type: "always_fail", Params: map[string]interface{}{}},
 				{Type: "always_pass", Params: map[string]interface{}{}},
 			},
-			msg:            &types.Message{Role: "assistant", Content: "hello"},
-			expectedPassed: 2,
-			expectedFailed: 1,
+			msg: &types.Message{Role: "assistant", Content: "hello"},
 		},
 		{
-			name: "unknown assertion type",
+			name: "unknown assertion type skipped without packEvalHook",
 			assertionCfgs: []assertions.AssertionConfig{
 				{Type: "unknown", Params: map[string]interface{}{}},
 			},
-			msg:            &types.Message{Role: "assistant", Content: "hello"},
-			expectedPassed: 0,
-			expectedFailed: 1,
+			msg: &types.Message{Role: "assistant", Content: "hello"},
 		},
 	}
 
@@ -682,42 +631,11 @@ func TestEvalConversationExecutor_ApplyTurnAssertions(t *testing.T) {
 
 			executor.applyTurnAssertions(tt.assertionCfgs, tt.msg, convCtx)
 
-			// Check that assertions were stored in metadata
-			if tt.msg.Meta == nil {
-				if tt.expectedPassed+tt.expectedFailed > 0 {
-					t.Fatal("Expected assertions in message metadata")
+			// Without packEvalHook, no assertions should be stored in metadata
+			if tt.msg.Meta != nil {
+				if _, ok := tt.msg.Meta["assertions"]; ok {
+					t.Fatal("Expected no assertions in message metadata without packEvalHook")
 				}
-				return
-			}
-
-			resultsRaw, ok := tt.msg.Meta["assertions"]
-			if !ok {
-				if tt.expectedPassed+tt.expectedFailed > 0 {
-					t.Fatal("Expected assertions key in message metadata")
-				}
-				return
-			}
-
-			results, ok := resultsRaw.([]assertions.AssertionResult)
-			if !ok {
-				t.Fatal("Expected assertions to be []AssertionResult")
-			}
-
-			passed := 0
-			failed := 0
-			for _, result := range results {
-				if result.Passed {
-					passed++
-				} else {
-					failed++
-				}
-			}
-
-			if passed != tt.expectedPassed {
-				t.Errorf("Expected %d passing assertions, got %d", tt.expectedPassed, passed)
-			}
-			if failed != tt.expectedFailed {
-				t.Errorf("Expected %d failing assertions, got %d", tt.expectedFailed, failed)
 			}
 		})
 	}
@@ -726,8 +644,6 @@ func TestEvalConversationExecutor_ApplyTurnAssertions(t *testing.T) {
 func TestEvalConversationExecutor_ExecuteConversationStream(t *testing.T) {
 	executor := NewEvalConversationExecutor(
 		adapters.NewRegistry(),
-		assertions.NewArenaAssertionRegistry(),
-		assertions.NewConversationAssertionRegistry(),
 		prompt.NewRegistryWithRepository(memory.NewPromptRepository()),
 		providers.NewRegistry(),
 		nil,
@@ -767,68 +683,48 @@ func TestEvalConversationExecutor_ExecuteConversationStream(t *testing.T) {
 }
 
 func TestEvalConversationExecutor_ApplyConversationAssertions(t *testing.T) {
-	// Create mock conversation validators
-	passValidator := &mockConversationValidator{shouldPass: true}
-	failValidator := &mockConversationValidator{shouldPass: false}
-
-	convAssertionReg := assertions.NewConversationAssertionRegistry()
-	convAssertionReg.Register("always_pass", func() assertions.ConversationValidator { return passValidator })
-	convAssertionReg.Register("always_fail", func() assertions.ConversationValidator { return failValidator })
-
+	// Without a packEvalHook, evaluateConversationAssertions returns nil
+	// because assertions now run exclusively through the eval pipeline.
 	executor := NewEvalConversationExecutor(
 		adapters.NewRegistry(),
-		assertions.NewArenaAssertionRegistry(),
-		convAssertionReg,
 		prompt.NewRegistryWithRepository(memory.NewPromptRepository()),
 		providers.NewRegistry(),
 		nil,
 	)
 
 	tests := []struct {
-		name           string
-		assertionCfgs  []assertions.AssertionConfig
-		expectedPassed int
-		expectedFailed int
+		name          string
+		assertionCfgs []assertions.AssertionConfig
 	}{
 		{
-			name:           "no assertions",
-			assertionCfgs:  []assertions.AssertionConfig{},
-			expectedPassed: 0,
-			expectedFailed: 0,
+			name:          "no assertions",
+			assertionCfgs: []assertions.AssertionConfig{},
 		},
 		{
-			name: "single passing assertion",
+			name: "single passing assertion skipped without packEvalHook",
 			assertionCfgs: []assertions.AssertionConfig{
 				{Type: "always_pass", Params: map[string]interface{}{}},
 			},
-			expectedPassed: 1,
-			expectedFailed: 0,
 		},
 		{
-			name: "single failing assertion",
+			name: "single failing assertion skipped without packEvalHook",
 			assertionCfgs: []assertions.AssertionConfig{
 				{Type: "always_fail", Params: map[string]interface{}{}},
 			},
-			expectedPassed: 0,
-			expectedFailed: 1,
 		},
 		{
-			name: "mixed assertions",
+			name: "mixed assertions skipped without packEvalHook",
 			assertionCfgs: []assertions.AssertionConfig{
 				{Type: "always_pass", Params: map[string]interface{}{}},
 				{Type: "always_fail", Params: map[string]interface{}{}},
 				{Type: "always_pass", Params: map[string]interface{}{}},
 			},
-			expectedPassed: 2,
-			expectedFailed: 1,
 		},
 		{
-			name: "unknown assertion type skipped",
+			name: "unknown assertion type skipped without packEvalHook",
 			assertionCfgs: []assertions.AssertionConfig{
 				{Type: "unknown", Params: map[string]interface{}{}},
 			},
-			expectedPassed: 0,
-			expectedFailed: 0,
 		},
 	}
 
@@ -843,57 +739,13 @@ func TestEvalConversationExecutor_ApplyConversationAssertions(t *testing.T) {
 				},
 			}
 
-			results := executor.applyConversationAssertions(context.Background(), tt.assertionCfgs, convCtx)
+			results := executor.evaluateConversationAssertions(context.Background(), tt.assertionCfgs, convCtx)
 
-			passed := 0
-			failed := 0
-			for _, result := range results {
-				if result.Passed {
-					passed++
-				} else {
-					failed++
-				}
-			}
-
-			if passed != tt.expectedPassed {
-				t.Errorf("Expected %d passing assertions, got %d", tt.expectedPassed, passed)
-			}
-			if failed != tt.expectedFailed {
-				t.Errorf("Expected %d failing assertions, got %d", tt.expectedFailed, failed)
+			// Without packEvalHook, all assertions should be skipped (nil result)
+			if len(results) != 0 {
+				t.Errorf("Expected 0 results without packEvalHook, got %d", len(results))
 			}
 		})
 	}
 }
 
-// mockValidator is a simple mock for testing
-type mockValidator struct {
-	shouldPass bool
-}
-
-func (m *mockValidator) Validate(response string, params map[string]interface{}) runtimeValidators.ValidationResult {
-	return runtimeValidators.ValidationResult{
-		Passed:  m.shouldPass,
-		Details: map[string]interface{}{"mock": true},
-	}
-}
-
-// mockConversationValidator is a simple mock for conversation-level validators
-type mockConversationValidator struct {
-	shouldPass bool
-}
-
-func (m *mockConversationValidator) Type() string {
-	return "mock"
-}
-
-func (m *mockConversationValidator) ValidateConversation(
-	ctx context.Context,
-	convCtx *assertions.ConversationContext,
-	params map[string]interface{},
-) assertions.ConversationValidationResult {
-	return assertions.ConversationValidationResult{
-		Passed:  m.shouldPass,
-		Message: "mock validation",
-		Details: map[string]interface{}{"mock": true},
-	}
-}

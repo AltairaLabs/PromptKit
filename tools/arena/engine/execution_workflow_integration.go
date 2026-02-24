@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
@@ -43,6 +44,9 @@ func (e *Engine) executeWorkflowRun(
 	// Create workflow executor with a driver factory for this provider
 	factory, getDriver := newArenaDriverFactory(provider, combo.ScenarioID, e.toolRegistry)
 	executor := wf.NewExecutor(factory)
+	if e.packEvalHook != nil {
+		executor.WithTurnEvalRunner(e.packEvalHook, runID)
+	}
 
 	// Execute the workflow
 	result := executor.Execute(ctx, wfScenario)
@@ -53,13 +57,20 @@ func (e *Engine) executeWorkflowRun(
 	drv := getDriver()
 	messages, assertionResults := workflowResultToMessages(result, drv)
 
-	// Evaluate conversation-level assertions (pack + scenario)
-	mergedAssertions := collectConversationAssertions(e.config, scenario.ConversationAssertions)
-	if len(mergedAssertions) > 0 {
-		convAssertionResults := evaluateWorkflowConversationAssertions(
-			ctx, mergedAssertions, messages,
+	// Evaluate conversation-level assertions (pack + scenario) via PackEvalHook
+	mergedAssertionConfigs := mergeAssertionConfigs(e.config, scenario.ConversationAssertions)
+	if e.packEvalHook != nil && len(mergedAssertionConfigs) > 0 {
+		convAssertionResults := e.packEvalHook.RunAssertionsAsConversationResults(
+			ctx, mergedAssertionConfigs, messages, len(messages)-1, runID,
+			evals.TriggerOnConversationComplete,
 		)
 		assertionResults = append(assertionResults, convAssertionResults...)
+	}
+
+	// Run pack-level conversation evals if configured
+	if e.packEvalHook != nil && e.packEvalHook.HasEvals() {
+		packResults := e.packEvalHook.RunConversationEvals(ctx, messages, runID)
+		assertionResults = append(assertionResults, packResults...)
 	}
 
 	// Build conversation result for metadata
@@ -95,7 +106,6 @@ func (e *Engine) executeWorkflowRun(
 		Error:                        convResult.Error,
 		RecordingPath:                e.GetRecordingPath(runID),
 		ConversationAssertionResults: assertionResults,
-		EvalResults:                  convResult.EvalResults,
 		A2AAgents:                    e.getA2AAgentsFromConfig(),
 	}
 
@@ -155,19 +165,6 @@ func configToWorkflowScenario(s *config.Scenario) *wf.Scenario {
 		Variables:           s.Variables,
 		ContextCarryForward: s.ContextCarryForward,
 	}
-}
-
-// evaluateWorkflowConversationAssertions runs conversation-level assertions
-// (e.g. skill_activated, skill_not_activated) against the full message trace.
-func evaluateWorkflowConversationAssertions(
-	ctx context.Context,
-	assertions []asrt.ConversationAssertion,
-	messages []types.Message,
-) []asrt.ConversationValidationResult {
-	convCtx := asrt.BuildConversationContextFromMessages(messages, &asrt.ConversationMetadata{})
-
-	reg := asrt.NewConversationAssertionRegistry()
-	return reg.ValidateConversations(ctx, assertions, convCtx)
 }
 
 // workflowResultToMessages returns the driver's message trace and collects all

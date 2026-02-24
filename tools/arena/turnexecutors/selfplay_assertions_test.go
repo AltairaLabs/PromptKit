@@ -2,9 +2,11 @@ package turnexecutors
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
@@ -91,6 +93,7 @@ func TestSelfPlayExecutor_WithAssertions_Pass(t *testing.T) {
 		ConversationID:   "test-selfplay-conv",
 		SelfPlayRole:     "gemini-user",
 		SelfPlayPersona:  "curious-learner",
+		TurnEvalRunner:   &contentIncludesTurnEvalRunner{},
 		Assertions: []assertions.AssertionConfig{
 			{
 				Type: "content_includes",
@@ -223,6 +226,7 @@ func TestSelfPlayExecutor_WithAssertions_Fail(t *testing.T) {
 		ConversationID:   "test-selfplay-fail",
 		SelfPlayRole:     "gemini-user",
 		SelfPlayPersona:  "",
+		TurnEvalRunner:   &contentIncludesTurnEvalRunner{},
 		Assertions: []assertions.AssertionConfig{
 			{
 				Type: "content_includes",
@@ -275,4 +279,52 @@ func (m *selfPlayMockContentGenerator) NextUserTurn(ctx context.Context, history
 			"role":    "self-play-user",
 		},
 	}, nil
+}
+
+// contentIncludesTurnEvalRunner is a mock TurnEvalRunner that checks content_includes assertions.
+type contentIncludesTurnEvalRunner struct{}
+
+func (r *contentIncludesTurnEvalRunner) RunAssertionsAsEvals(
+	ctx context.Context,
+	assertionConfigs []assertions.AssertionConfig,
+	messages []types.Message,
+	turnIndex int,
+	sessionID string,
+	trigger evals.EvalTrigger,
+) []evals.EvalResult {
+	var results []evals.EvalResult
+	// Find last assistant message
+	var assistantContent string
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == "assistant" {
+			assistantContent = messages[i].Content
+			break
+		}
+	}
+
+	for _, ac := range assertionConfigs {
+		passed := true
+		if ac.Type == "content_includes" {
+			if pats, ok := ac.Params["patterns"].([]string); ok {
+				for _, p := range pats {
+					if !strings.Contains(strings.ToLower(assistantContent), strings.ToLower(p)) {
+						passed = false
+						break
+					}
+				}
+			}
+		}
+		score := 1.0
+		if !passed {
+			score = 0.0
+		}
+		results = append(results, evals.EvalResult{
+			EvalID:  ac.Type,
+			Type:    ac.Type,
+			Score:   &score,
+			Passed:  passed,
+			Message: ac.Message,
+		})
+	}
+	return results
 }

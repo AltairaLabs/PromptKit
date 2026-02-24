@@ -18,7 +18,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/validators"
-	arenaassertions "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	arenastages "github.com/AltairaLabs/PromptKit/tools/arena/stages"
 )
 
@@ -334,8 +333,7 @@ func (e *PipelineExecutor) buildStagePipeline(
 
 	// 9. Assertion stage - must run before state store save
 	if len(req.Assertions) > 0 {
-		assertionRegistry := arenaassertions.NewArenaAssertionRegistry()
-		assertionStage := arenastages.NewArenaAssertionStage(assertionRegistry, req.Assertions)
+		assertionStage := arenastages.NewArenaAssertionStage(req.Assertions)
 		if runner, ok := req.TurnEvalRunner.(arenastages.TurnEvalRunner); ok {
 			assertionStage.WithTurnEvalRunner(runner, req.ConversationID)
 		}

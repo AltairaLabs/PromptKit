@@ -33,7 +33,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
-	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
@@ -491,13 +490,9 @@ func buildEvalExecutor(
 	// Import adapters and assertions packages
 	// We need to do this here to avoid circular dependencies
 	adapterRegistry := adapters.NewRegistry()
-	assertionRegistry := assertions.NewArenaAssertionRegistry()
-	convAssertionRegistry := assertions.NewConversationAssertionRegistry()
 
 	return NewEvalConversationExecutor(
 		adapterRegistry,
-		assertionRegistry,
-		convAssertionRegistry,
 		promptRegistry,
 		providerRegistry,
 		packEvalHook,

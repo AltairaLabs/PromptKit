@@ -5,8 +5,49 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 	asrt "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 )
+
+// mockTurnEvalRunner implements TurnEvalRunner for testing.
+// It evaluates "state_is" assertions by comparing the configured currentState
+// against the assertion's "state" param.
+type mockTurnEvalRunner struct {
+	currentState string
+}
+
+func (m *mockTurnEvalRunner) RunAssertionsAsEvals(
+	_ context.Context,
+	configs []asrt.AssertionConfig,
+	_ []types.Message,
+	_ int,
+	_ string,
+	_ evals.EvalTrigger,
+) []evals.EvalResult {
+	var results []evals.EvalResult
+	for _, cfg := range configs {
+		result := evals.EvalResult{
+			EvalID: cfg.Type,
+			Type:   cfg.Type,
+		}
+		if cfg.Type == "state_is" {
+			expected, _ := cfg.Params["state"].(string)
+			if m.currentState == expected {
+				result.Passed = true
+				result.Message = "state matches"
+			} else {
+				result.Passed = false
+				result.Message = "state mismatch: expected " + expected + ", got " + m.currentState
+			}
+		} else {
+			result.Passed = true
+			result.Message = "unknown assertion type (auto-pass in mock)"
+		}
+		results = append(results, result)
+	}
+	return results
+}
 
 // mockDriver implements Driver for testing.
 type mockDriver struct {
@@ -299,6 +340,7 @@ func TestExecutor_Execute_WithAssertions_StateIs(t *testing.T) {
 	}
 
 	exec := NewExecutor(newMockFactory(driver, nil))
+	exec.WithTurnEvalRunner(&mockTurnEvalRunner{currentState: "processing"}, "test-session")
 	result := exec.Execute(context.Background(), scenario)
 
 	if result.Failed {
@@ -335,6 +377,7 @@ func TestExecutor_Execute_WithAssertions_Failure(t *testing.T) {
 	}
 
 	exec := NewExecutor(newMockFactory(driver, nil))
+	exec.WithTurnEvalRunner(&mockTurnEvalRunner{currentState: "intake"}, "test-session")
 	result := exec.Execute(context.Background(), scenario)
 
 	if !result.Failed {

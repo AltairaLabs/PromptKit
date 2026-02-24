@@ -72,6 +72,7 @@ type Engine struct {
 	eventStore           events.EventStore // Optional event store for session recording
 	recordingDir         string            // Directory where session recordings are stored
 	a2aCleanup           func()            // Cleanup function for mock A2A servers
+	packEvalHook         *PackEvalHook     // Pack eval hook for running evals during execution
 }
 
 // NewEngineFromConfigFile creates a new simulation engine from a configuration file.
@@ -129,6 +130,10 @@ func NewEngineFromConfig(cfg *config.Config) (*Engine, error) {
 	}
 	eng.a2aCleanup = a2aCleanup
 	eng.toolRegistry = toolRegistry
+	// Build pack eval hook for workflow executor (conversation executors get their own copy)
+	if cfg.LoadedPack != nil {
+		eng.packEvalHook = buildPackEvalHook(cfg, cfg.SkipPackEvals, cfg.EvalTypeFilter)
+	}
 	return eng, nil
 }
 

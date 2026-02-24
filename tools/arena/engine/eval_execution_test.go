@@ -35,8 +35,6 @@ func TestEngine_ExecuteEvalRun_Success(t *testing.T) {
 	// Create eval conversation executor
 	evalExecutor := NewEvalConversationExecutor(
 		adapterRegistry,
-		nil, // assertion registry not needed for this test
-		assertions.NewConversationAssertionRegistry(),
 		nil, // prompt registry not needed
 		providers.NewRegistry(),
 		nil,
@@ -162,60 +160,19 @@ func TestEvalConversationExecutor_ExtractTurnAssertions(t *testing.T) {
 func TestEvalConversationExecutor_EvaluateConversationAssertions(t *testing.T) {
 	ctx := context.Background()
 
-	convAssertionReg := assertions.NewConversationAssertionRegistry()
-	convAssertionReg.Register("test_assertion", func() assertions.ConversationValidator {
-		return &mockConversationAssertion{
-			evaluateFunc: func(ctx context.Context, convCtx *assertions.ConversationContext, params map[string]interface{}) assertions.ConversationValidationResult {
-				return assertions.ConversationValidationResult{
-					Type:   "test_assertion",
-					Passed: true,
-				}
-			},
-		}
-	})
+	executor := &EvalConversationExecutor{}
 
-	executor := &EvalConversationExecutor{
-		convAssertionReg: convAssertionReg,
-	}
-
-	t.Run("evaluates conversation assertions", func(t *testing.T) {
-		assertionConfigs := []assertions.AssertionConfig{
-			{
-				Type:   "test_assertion",
-				Params: map[string]interface{}{},
-			},
-		}
-
-		convCtx := &assertions.ConversationContext{
-			AllTurns: []types.Message{{Role: "user", Content: "test"}},
-			Metadata: assertions.ConversationMetadata{
-				Extras: make(map[string]interface{}),
-			},
-		}
-
-		results, _ := executor.evaluateConversationAssertions(ctx, assertionConfigs, convCtx)
-		assert.Len(t, results, 1)
-		assert.True(t, results[0].Passed)
-		assert.Equal(t, "test_assertion", results[0].Type)
-	})
-
-	t.Run("returns nil when no registry", func(t *testing.T) {
-		executor := &EvalConversationExecutor{
-			convAssertionReg: nil,
-		}
-
-		results, evalResults := executor.evaluateConversationAssertions(ctx, []assertions.AssertionConfig{
+	t.Run("returns nil when no packEvalHook", func(t *testing.T) {
+		results := executor.evaluateConversationAssertions(ctx, []assertions.AssertionConfig{
 			{Type: "test"},
 		}, &assertions.ConversationContext{})
 
 		assert.Nil(t, results)
-		assert.Nil(t, evalResults)
 	})
 
 	t.Run("returns nil when no assertions", func(t *testing.T) {
-		results, evalResults := executor.evaluateConversationAssertions(ctx, []assertions.AssertionConfig{}, &assertions.ConversationContext{})
+		results := executor.evaluateConversationAssertions(ctx, []assertions.AssertionConfig{}, &assertions.ConversationContext{})
 		assert.Nil(t, results)
-		assert.Nil(t, evalResults)
 	})
 }
 

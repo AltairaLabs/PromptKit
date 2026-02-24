@@ -23,7 +23,7 @@ func TestEvaluateConversationAssertions_NoAssertions(t *testing.T) {
 	req := ConversationRequest{Scenario: &config.Scenario{ID: "sc"}}
 	msgs := []types.Message{{Role: "assistant", Content: "hello"}}
 
-	res, _ := ce.evaluateConversationAssertions(&req, msgs)
+	res := ce.evaluateConversationAssertions(&req, msgs)
 	if res != nil {
 		t.Fatalf("expected nil results when no conversation assertions present, got %v", res)
 	}
@@ -76,6 +76,8 @@ func TestBuildConversationContext_IncludesExtras(t *testing.T) {
 }
 
 func TestEvaluateConversationAssertions_WithContentNotIncludes(t *testing.T) {
+	// Without a packEvalHook, evaluateConversationAssertions returns nil
+	// because assertions now run exclusively through the eval pipeline.
 	ce := &DefaultConversationExecutor{}
 	req := ConversationRequest{Scenario: &config.Scenario{ID: "sc", ConversationAssertions: []arenaassertions.AssertionConfig{
 		{Type: "content_not_includes", Params: map[string]interface{}{"patterns": []string{"forbidden"}}},
@@ -86,12 +88,9 @@ func TestEvaluateConversationAssertions_WithContentNotIncludes(t *testing.T) {
 		{Role: "assistant", Content: "this has forbidden phrase"},
 	}
 
-	res, _ := ce.evaluateConversationAssertions(&req, msgs)
-	if len(res) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(res))
-	}
-	if res[0].Passed {
-		t.Fatalf("expected assertion to fail due to forbidden content")
+	res := ce.evaluateConversationAssertions(&req, msgs)
+	if res != nil {
+		t.Fatalf("expected nil results without packEvalHook, got %v", res)
 	}
 
 	// Also verify buildConversationContext extracts tool calls safely when none present
@@ -852,6 +851,8 @@ func TestMergeAssertionConfigs_PackAndSource(t *testing.T) {
 }
 
 func TestEvaluateConversationAssertions_PackAssertionsEvaluated(t *testing.T) {
+	// Without a packEvalHook, evaluateConversationAssertions returns nil
+	// because assertions now run exclusively through the eval pipeline.
 	ce := &DefaultConversationExecutor{}
 	cfg := &config.Config{
 		PackAssertions: []arenaassertions.AssertionConfig{
@@ -868,16 +869,15 @@ func TestEvaluateConversationAssertions_PackAssertionsEvaluated(t *testing.T) {
 		{Role: "assistant", Content: "this has forbidden phrase"},
 	}
 
-	res, _ := ce.evaluateConversationAssertions(&req, msgs)
-	if len(res) != 1 {
-		t.Fatalf("expected 1 result from pack assertion, got %d", len(res))
-	}
-	if res[0].Passed {
-		t.Fatalf("expected pack assertion to fail due to forbidden content")
+	res := ce.evaluateConversationAssertions(&req, msgs)
+	if res != nil {
+		t.Fatalf("expected nil results without packEvalHook, got %v", res)
 	}
 }
 
 func TestEvaluateConversationAssertions_PackAndScenarioBothProduceResults(t *testing.T) {
+	// Without a packEvalHook, evaluateConversationAssertions returns nil
+	// because assertions now run exclusively through the eval pipeline.
 	ce := &DefaultConversationExecutor{}
 	cfg := &config.Config{
 		PackAssertions: []arenaassertions.AssertionConfig{
@@ -899,14 +899,9 @@ func TestEvaluateConversationAssertions_PackAndScenarioBothProduceResults(t *tes
 		{Role: "assistant", Content: "this has pack-bad and scenario-bad words"},
 	}
 
-	res, _ := ce.evaluateConversationAssertions(&req, msgs)
-	if len(res) != 2 {
-		t.Fatalf("expected 2 results (pack + scenario), got %d", len(res))
-	}
-	for i, r := range res {
-		if r.Passed {
-			t.Fatalf("expected assertion %d to fail", i)
-		}
+	res := ce.evaluateConversationAssertions(&req, msgs)
+	if res != nil {
+		t.Fatalf("expected nil results without packEvalHook, got %v", res)
 	}
 }
 

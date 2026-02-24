@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -88,10 +87,6 @@ type ConversationResult struct {
 
 	// Conversation-level assertions
 	ConversationAssertionResults []assertions.ConversationValidationResult `json:"conv_assertions_results,omitempty"`
-
-	// Eval results from the new EvalRunner dual-write path (Phase 2).
-	// Stored alongside ConversationAssertionResults during the transition period.
-	EvalResults []evals.EvalResult `json:"eval_results,omitempty"`
 
 	// Self-play metadata
 	SelfPlay  bool   `json:"self_play,omitempty"`
