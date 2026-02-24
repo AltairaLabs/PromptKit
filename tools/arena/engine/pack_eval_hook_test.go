@@ -407,3 +407,17 @@ func TestExtractWorkflowExtras_NilMeta(t *testing.T) {
 	extras := extractWorkflowExtras(messages)
 	assert.Nil(t, extras)
 }
+
+func TestPackEvalHook_NilReceiver(t *testing.T) {
+	var hook *PackEvalHook
+	ctx := context.Background()
+	msgs := []types.Message{{Role: "assistant", Content: "hello"}}
+	configs := []assertions.AssertionConfig{{Type: "contains", Params: map[string]interface{}{"value": "hello"}}}
+
+	assert.False(t, hook.HasEvals())
+	assert.Nil(t, hook.RunTurnEvals(ctx, msgs, 0, "s1"))
+	assert.Nil(t, hook.RunSessionEvals(ctx, msgs, "s1"))
+	assert.Nil(t, hook.RunConversationEvals(ctx, msgs, "s1"))
+	assert.Nil(t, hook.RunAssertionsAsEvals(ctx, configs, msgs, 0, "s1", evals.TriggerEveryTurn))
+	assert.Nil(t, hook.RunAssertionsAsConversationResults(ctx, configs, msgs, 0, "s1", evals.TriggerEveryTurn))
+}

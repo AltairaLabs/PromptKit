@@ -50,6 +50,9 @@ func NewPackEvalHook(
 
 // HasEvals returns true if there are eval defs to execute.
 func (h *PackEvalHook) HasEvals() bool {
+	if h == nil {
+		return false
+	}
 	return len(h.defs) > 0
 }
 
@@ -61,7 +64,7 @@ func (h *PackEvalHook) RunTurnEvals(
 	turnIndex int,
 	sessionID string,
 ) []assertions.ConversationValidationResult {
-	if !h.HasEvals() {
+	if h == nil || !h.HasEvals() {
 		return nil
 	}
 
@@ -77,7 +80,7 @@ func (h *PackEvalHook) RunSessionEvals(
 	messages []types.Message,
 	sessionID string,
 ) []assertions.ConversationValidationResult {
-	if !h.HasEvals() {
+	if h == nil || !h.HasEvals() {
 		return nil
 	}
 
@@ -97,7 +100,7 @@ func (h *PackEvalHook) RunConversationEvals(
 	messages []types.Message,
 	sessionID string,
 ) []assertions.ConversationValidationResult {
-	if !h.HasEvals() {
+	if h == nil || !h.HasEvals() {
 		return nil
 	}
 
@@ -121,7 +124,7 @@ func (h *PackEvalHook) RunAssertionsAsEvals(
 	sessionID string,
 	trigger evals.EvalTrigger,
 ) []evals.EvalResult {
-	if len(assertionConfigs) == 0 {
+	if h == nil || len(assertionConfigs) == 0 {
 		return nil
 	}
 
@@ -159,6 +162,9 @@ func (h *PackEvalHook) RunAssertionsAsConversationResults(
 	sessionID string,
 	trigger evals.EvalTrigger,
 ) []assertions.ConversationValidationResult {
+	if h == nil {
+		return nil
+	}
 	results := h.RunAssertionsAsEvals(ctx, assertionConfigs, messages, turnIndex, sessionID, trigger)
 	return h.adapter.Convert(results)
 }
