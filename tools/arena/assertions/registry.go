@@ -36,5 +36,13 @@ func NewArenaAssertionRegistry() *runtimeValidators.Registry {
 	registry.Register("agent_not_invoked", NewAgentNotInvokedValidator)
 	registry.Register("agent_response_contains", NewAgentResponseContainsValidator)
 
+	// Register turn-level tool trace validators
+	registry.Register("tool_call_sequence", NewToolCallSequenceValidator)
+	registry.Register("tool_call_count", NewToolCallCountValidator)
+	registry.Register("tool_result_includes", NewToolResultIncludesValidator)
+	registry.Register("tool_result_matches", NewToolResultMatchesValidator)
+	registry.Register("no_tool_errors", NewNoToolErrorsValidator)
+	registry.Register("tool_call_chain", NewToolCallChainValidator)
+
 	return registry
 }

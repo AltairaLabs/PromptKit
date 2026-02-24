@@ -16,6 +16,12 @@ func TestNewArenaAssertionRegistry(t *testing.T) {
 		"tools_not_called",
 		"content_includes",
 		"content_matches",
+		"tool_call_sequence",
+		"tool_call_count",
+		"tool_result_includes",
+		"tool_result_matches",
+		"no_tool_errors",
+		"tool_call_chain",
 	}
 
 	for _, validatorType := range expectedValidators {
