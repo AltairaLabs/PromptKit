@@ -153,17 +153,6 @@ func formatToolCallsForJudge(calls []TurnToolCall) string {
 func buildToolCallJudgeRequest(
 	toolCallText string, params map[string]interface{}, model string,
 ) providers.PredictionRequest {
-	criteria, _ := params["criteria"].(string)
-	rubric, _ := params["rubric"].(string)
-
-	var sections []string
-	if criteria != "" {
-		sections = append(sections, fmt.Sprintf("CRITERIA:\n%s", criteria))
-	}
-	if rubric != "" {
-		sections = append(sections, fmt.Sprintf("RUBRIC:\n%s", rubric))
-	}
-
 	var contextMsg string
 	if convAware, _ := params["conversation_aware"].(bool); convAware {
 		if msgs, ok := params["_execution_context_messages"].([]types.Message); ok {
@@ -180,14 +169,35 @@ func buildToolCallJudgeRequest(
 		maxTokens = mt
 	}
 
-	// Try prompt registry with tool_calls variable
-	promptReq := buildToolCallPromptRequest(
-		toolCallText, criteria, rubric, contextMsg, params, model,
-	)
-	if promptReq != nil {
-		promptReq.Temperature = temp
-		promptReq.MaxTokens = maxTokens
-		return *promptReq
+	req := assembleToolCallJudgeRequest(toolCallText, contextMsg, params, model)
+	req.Temperature = temp
+	req.MaxTokens = maxTokens
+	return req
+}
+
+// assembleToolCallJudgeRequest builds a PredictionRequest for judging tool calls.
+// Shared by both turn-level and conversation-level validators.
+func assembleToolCallJudgeRequest(
+	toolCallText, conversationText string,
+	params map[string]interface{},
+	model string,
+) providers.PredictionRequest {
+	criteria, _ := params["criteria"].(string)
+	rubric, _ := params["rubric"].(string)
+
+	// Try prompt registry first
+	if req := buildToolCallPromptRequest(
+		toolCallText, criteria, rubric, conversationText, params, model,
+	); req != nil {
+		return *req
+	}
+
+	var sections []string
+	if criteria != "" {
+		sections = append(sections, fmt.Sprintf("CRITERIA:\n%s", criteria))
+	}
+	if rubric != "" {
+		sections = append(sections, fmt.Sprintf("RUBRIC:\n%s", rubric))
 	}
 
 	system := "You are an impartial judge. Evaluate the tool calls and respond with JSON " +
@@ -198,19 +208,17 @@ func buildToolCallJudgeRequest(
 		userBuilder.WriteString(strings.Join(sections, "\n\n"))
 		userBuilder.WriteString("\n\n")
 	}
-	if contextMsg != "" {
+	if conversationText != "" {
 		userBuilder.WriteString("CONVERSATION:\n")
-		userBuilder.WriteString(contextMsg)
+		userBuilder.WriteString(conversationText)
 		userBuilder.WriteString("\n\n")
 	}
 	userBuilder.WriteString("TOOL CALLS:\n")
 	userBuilder.WriteString(toolCallText)
 
 	return providers.PredictionRequest{
-		System:      system,
-		Messages:    []types.Message{{Role: "user", Content: userBuilder.String()}},
-		Temperature: temp,
-		MaxTokens:   maxTokens,
+		System:   system,
+		Messages: []types.Message{{Role: "user", Content: userBuilder.String()}},
 	}
 }
 

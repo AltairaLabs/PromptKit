@@ -21,6 +21,11 @@ type chainStep struct {
 
 // NewToolCallChainValidator creates a new tool_call_chain validator from params.
 func NewToolCallChainValidator(params map[string]interface{}) runtimeValidators.Validator {
+	return &ToolCallChainValidator{steps: parseChainSteps(params)}
+}
+
+// parseChainSteps extracts chain steps from params. Shared by turn and conversation validators.
+func parseChainSteps(params map[string]interface{}) []chainStep {
 	stepsRaw, _ := params["steps"].([]interface{})
 	steps := make([]chainStep, 0, len(stepsRaw))
 
@@ -39,7 +44,7 @@ func NewToolCallChainValidator(params map[string]interface{}) runtimeValidators.
 		steps = append(steps, step)
 	}
 
-	return &ToolCallChainValidator{steps: steps}
+	return steps
 }
 
 // Validate checks that the chain of tool calls satisfies all step constraints in order.

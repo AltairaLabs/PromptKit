@@ -28,23 +28,7 @@ func (v *ToolCallChainConversationValidator) ValidateConversation(
 	convCtx *ConversationContext,
 	params map[string]interface{},
 ) ConversationValidationResult {
-	stepsRaw, _ := params["steps"].([]interface{})
-	steps := make([]chainStep, 0, len(stepsRaw))
-
-	for _, raw := range stepsRaw {
-		stepMap, ok := raw.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		step := chainStep{
-			noError: extractBoolParam(stepMap, "no_error"),
-		}
-		step.tool, _ = stepMap["tool"].(string)
-		step.resultIncludes = extractStringSlice(stepMap, "result_includes")
-		step.resultMatches, _ = stepMap["result_matches"].(string)
-		step.argsMatch = extractMapStringString(stepMap, "args_match")
-		steps = append(steps, step)
-	}
+	steps := parseChainSteps(params)
 
 	if len(steps) == 0 {
 		return ConversationValidationResult{

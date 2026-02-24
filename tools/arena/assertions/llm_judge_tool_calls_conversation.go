@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // llmJudgeToolCallsConversationValidator evaluates tool call behavior across
@@ -139,39 +138,6 @@ func buildConversationToolCallJudgeRequest(
 	params map[string]interface{},
 	model string,
 ) providers.PredictionRequest {
-	criteria, _ := params["criteria"].(string)
-	rubric, _ := params["rubric"].(string)
-
-	var sections []string
-	if criteria != "" {
-		sections = append(sections, fmt.Sprintf("CRITERIA:\n%s", criteria))
-	}
-	if rubric != "" {
-		sections = append(sections, fmt.Sprintf("RUBRIC:\n%s", rubric))
-	}
-
 	convText := formatConversation(convCtx.AllTurns)
-
-	// Try prompt registry
-	if promptReq := buildToolCallPromptRequest(toolCallText, criteria, rubric, convText, params, model); promptReq != nil {
-		return *promptReq
-	}
-
-	system := "You are an impartial judge. Evaluate the tool calls and respond with JSON " +
-		"{\"passed\":bool,\"score\":number,\"reasoning\":string}."
-
-	var userBuilder strings.Builder
-	if len(sections) > 0 {
-		userBuilder.WriteString(strings.Join(sections, "\n\n"))
-		userBuilder.WriteString("\n\n")
-	}
-	userBuilder.WriteString("CONVERSATION:\n")
-	userBuilder.WriteString(convText)
-	userBuilder.WriteString("\n\nTOOL CALLS:\n")
-	userBuilder.WriteString(toolCallText)
-
-	return providers.PredictionRequest{
-		System:   system,
-		Messages: []types.Message{{Role: "user", Content: userBuilder.String()}},
-	}
+	return assembleToolCallJudgeRequest(toolCallText, convText, params, model)
 }
